@@ -3664,21 +3664,24 @@ def TypeContext.resolveContractMemberFunctionChecked
   | some sigs => FunctionSigs.resolveChecked types sigs member args
   | none => Except.error (TypeError.unknownFunction member)
 
--- EC1: an `abi.encodeCall` function pointer must reference a UNIQUE function.
--- solc resolves it by name alone (NOT by argument type) and separately checks
--- each argument implicitly convertible to its parameter; a narrower integer or
--- an integer literal argument must therefore not be rejected at resolution. The
--- general contextual (type-exact) resolver over-rejected those. Resolve by
--- name + arity here without inspecting argument types (arity distinguishes the
--- legitimate no-overload case; a genuine same-arity overload is ambiguous, as in
--- solc). The per-argument assignability check happens at the call site.
+-- EC1: an `abi.encodeCall` function pointer must reference a UNIQUE contract
+-- member. solc resolves the pointer as a member reference by NAME ALONE (NOT by
+-- argument type OR arity): if the name is overloaded at all — any arity — the
+-- member reference is not unique and solc rejects with
+-- `Member "f" not unique after argument-dependent lookup`. Arity is NOT used as
+-- a disambiguator. We therefore filter candidates by name only; two or more
+-- same-name external members (any arity) are ambiguous → resolution FAILS and
+-- the caller rejects the program. The tuple/arity and per-argument assignability
+-- CHECK against the uniquely-resolved function's parameters happens separately
+-- at the call site (checkEncodeCallTupleItemsAssignableTo / the scalar branch),
+-- so a wrong-arity call to a single overload still rejects for arg mismatch and
+-- a narrower integer / literal argument is not spuriously rejected at resolution.
 def TypeContext.resolveEncodeCallPointerSig
-    (types : TypeContext) (path : Path) (member : Name) (argCount : Nat) :
+    (types : TypeContext) (path : Path) (member : Name) :
     Except TypeError FunctionSig :=
   match types.lookupContractExternalFunctionSigs? path with
   | some sigs =>
-      match sigs.filter
-          (fun s => s.name == member && s.params.length == argCount) with
+      match sigs.filter (fun s => s.name == member) with
       | [] => Except.error (TypeError.unknownFunction member)
       | first :: rest =>
           if rest.all (fun s => FunctionSig.sameResolutionTarget first s) then
@@ -6306,7 +6309,10 @@ def checkExpr (env : CheckEnv) :
       match args with
       | [ Solidity.Arg.positional functionPointer
         , Solidity.Arg.positional argumentExpr ] => do
-          let tupleArgs ←
+          -- Bound for its validation effect only (rejects malformed tuples);
+          -- resolution no longer uses the arg count — the pointer name must be
+          -- unique by name alone, and the arity/type check runs below.
+          let _tupleArgs ←
             match argumentExpr with
             | Solidity.Expr.tuple items =>
                 tupleItemsAsPositionalArgs items
@@ -6321,15 +6327,12 @@ def checkExpr (env : CheckEnv) :
                   (TypeError.invalidAbiCall
                     "abi.encodeCall cannot use a library function")
                 -- EC1: an `abi.encodeCall` function pointer references a UNIQUE
-                -- function; solc resolves it by name (not by argument type) and
-                -- separately checks each argument implicitly convertible to its
-                -- parameter (below). Resolve by name+arity here so an argument
-                -- that is only implicitly convertible to its parameter (a
-                -- narrower integer, a literal) is not spuriously rejected. The
-                -- contextual (type-exact) resolver over-rejected those.
+                -- contract member; solc resolves it by name ALONE (not by
+                -- argument type OR arity). An overloaded name (any arity) is not
+                -- unique → reject. The arity/assignability check against the
+                -- resolved function's params happens separately below.
                 let sig ←
-                  env.types.resolveEncodeCallPointerSig
-                    path member tupleArgs.length
+                  env.types.resolveEncodeCallPointerSig path member
                 require sig.externallyCallable
                   (TypeError.invalidAbiCall
                     "abi.encodeCall expects an external function")
@@ -6341,10 +6344,9 @@ def checkExpr (env : CheckEnv) :
                     require (env.types.isContractValuePath path)
                       (TypeError.invalidAbiCall
                         "abi.encodeCall expects a contract function value")
-                    -- EC1: resolve by name+arity (see the typeName branch).
+                    -- EC1: resolve by name alone (see the typeName branch).
                     let sig ←
-                      env.types.resolveEncodeCallPointerSig
-                        path member tupleArgs.length
+                      env.types.resolveEncodeCallPointerSig path member
                     require sig.externallyCallable
                       (TypeError.invalidAbiCall
                         "abi.encodeCall expects an external function")

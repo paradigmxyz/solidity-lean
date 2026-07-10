@@ -2052,6 +2052,113 @@ def wcStructArrayWidenRejected : Bool :=
 #guard wcNestedStructArrayWidenAccepted
 #guard wcStructArrayWidenRejected
 
+-- ===========================================================================
+-- #127 ENCODECALL-OVERLOAD — the function-pointer argument to
+-- `abi.encodeCall` is resolved as a member reference by NAME ALONE. solc
+-- 0.8.35 rejects `abi.encodeCall(target.f, (..))` whenever `f` is overloaded
+-- in the contract — for ANY arity — with
+-- `Member "f" not unique after argument-dependent lookup in contract C.`
+-- Arity is NOT used to disambiguate. Binary-confirmed on the pinned
+-- solc-0.8.35: two overloads `f(uint256)` + `f(uint256,uint256)` REJECT even
+-- though only one has arity 1; a single `f(uint256)` ACCEPTS; a single
+-- `f(uint256)` called with a 2-tuple REJECTS for arg mismatch; and a
+-- same-arity `f(uint256)` + `f(bool)` overload REJECTS (already correct).
+-- The model previously narrowed candidates by name AND arity, so the
+-- diff-arity overload resolved to a unique arity-1 match → over-accept. The
+-- gate now filters by name only in `TypeContext.resolveEncodeCallPointerSig`;
+-- the arity/type CHECK against the resolved function's params runs separately.
+-- Over-accept only (solc emits no AST for the rejected program), so no Forge
+-- lane — these #guards are the gate.
+-- ===========================================================================
+
+-- External `f(uint256)` on the pointer target contract.
+private def ecOvlFnUint : Solidity.FunctionDecl :=
+  { encodeCallTargetFunction with name := some "f" }
+
+-- External `f(uint256, uint256)` — a DIFFERENT-arity overload of the same name.
+private def ecOvlFnUintUint : Solidity.FunctionDecl :=
+  { encodeCallTargetFunction with
+    name := some "f"
+    params :=
+      [ { name := some "a", ty := uint256, location := none }
+      , { name := some "b", ty := uint256, location := none } ] }
+
+-- External `f(bool)` — a SAME-arity overload of the same name.
+private def ecOvlFnBool : Solidity.FunctionDecl :=
+  { encodeCallTargetFunction with
+    name := some "f"
+    params := [ { name := some "a", ty := Solidity.Ty.bool, location := none } ] }
+
+-- Two-element argument tuple `(1, 1)` (wrong arity for a single `f(uint256)`).
+private def ecTupleTwo : Solidity.Expr :=
+  Solidity.Expr.tuple
+    [Solidity.TupleItem.value oneExpr, Solidity.TupleItem.value oneExpr]
+
+-- Source unit: a target contract holding `targetFns`, plus a caller that holds
+-- a `target` state var of that contract type and returns
+-- `abi.encodeCall(target.f, tupleExpr)`.
+private def ecOverloadSource
+    (targetFns : List Solidity.FunctionDecl)
+    (tupleExpr : Solidity.Expr) : Solidity.SourceUnit :=
+  { items :=
+      [ Solidity.SourceItem.contract
+          { name := "EncodeCallOvlTarget"
+            items := targetFns.map Solidity.ContractItem.function }
+      , Solidity.SourceItem.contract
+          { name := "EncodeCallOvlCaller"
+            items :=
+              [ Solidity.ContractItem.stateVar
+                  { name := "target"
+                    ty := Solidity.Ty.user (userPath "EncodeCallOvlTarget") }
+              , Solidity.ContractItem.function
+                  { bytesReturnFunction with
+                    name := some "payload"
+                    mutability := Solidity.StateMutability.view
+                    body :=
+                      some
+                        (Solidity.Stmt.returnValues
+                          (some
+                            (Solidity.Expr.call
+                              (Solidity.Expr.member
+                                (Solidity.Expr.ident "abi") "encodeCall")
+                              [ Solidity.Arg.positional
+                                  (Solidity.Expr.member
+                                    (Solidity.Expr.ident "target") "f")
+                              , Solidity.Arg.positional tupleExpr ]))) } ] } ] }
+
+-- (a) Different-arity overload `f(uint256)` + `f(uint256,uint256)` → REJECT
+-- (ambiguous by name — the whole point of #127).
+def encodeCallDiffArityOverloadRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (ecOverloadSource [ecOvlFnUint, ecOvlFnUintUint]
+        (Solidity.Expr.tuple [Solidity.TupleItem.value oneExpr])))
+
+-- (b) Single overload `f(uint256)`, correct args → still ACCEPTS.
+def encodeCallSingleOverloadAccepted : Bool :=
+  sourceUnitAccepted?
+    (ecOverloadSource [ecOvlFnUint]
+      (Solidity.Expr.tuple [Solidity.TupleItem.value oneExpr]))
+
+-- (c) Single overload `f(uint256)` called with a 2-tuple → REJECT for arg
+-- mismatch (the arity/type check downstream is preserved).
+def encodeCallSingleWrongArityRejected : Bool :=
+  Result.isError
+    (SourceUnit.check (ecOverloadSource [ecOvlFnUint] ecTupleTwo))
+
+-- (d) Same-arity overload `f(uint256)` + `f(bool)` → REJECT (already correct;
+-- guarded here to pin that the name-only filter keeps rejecting it).
+def encodeCallSameArityOverloadRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (ecOverloadSource [ecOvlFnUint, ecOvlFnBool]
+        (Solidity.Expr.tuple [Solidity.TupleItem.value oneExpr])))
+
+#guard encodeCallDiffArityOverloadRejected
+#guard encodeCallSingleOverloadAccepted
+#guard encodeCallSingleWrongArityRejected
+#guard encodeCallSameArityOverloadRejected
+
 end Examples
 end TypeCheck
 end Solidity
