@@ -7494,43 +7494,90 @@ def LValue.resolveWithRuntime (target : LValue) (context : Context)
   Expr.resolveLValueWithRuntimeOrder context.effectiveChildEvalOrder context
     runtime target.toExpr
 
-def LValues.writeTupleWithRuntime (context : Context) :
-    Runtime -> List (Option LValue) -> List Value -> SolI Runtime
-  | runtime, [], [] => pure runtime
+/-- PHASE 1 of a flat tuple write: resolve every present LHS component's lvalue
+    reference LEFT-TO-RIGHT into a `ResolvedLValue` "place", WITHOUT performing
+    any store. Index/key/member sub-expressions are evaluated here, so every
+    component observes PRE-STORE state, and a storage/memory index is FROZEN
+    into the resolved place (`ResolvedLValue.storageIndex`/`storagePath` capture
+    the concrete index value, `valueIndex` the concrete `Word`). Holes
+    contribute no place. Mirrors solc visiting the LHS TupleExpression to
+    compute every component's lvalue ref before any store
+    (`ExpressionCompiler.cpp:396-415`). -/
+def LValues.resolveTupleWithRuntime (context : Context) :
+    Runtime -> List (Option LValue) -> List Value ->
+    SolI (List (ResolvedLValue × Value) × Runtime)
+  | runtime, [], [] => pure ([], runtime)
   | runtime, some target :: targets, value :: values => do
       let (resolved, runtime') ← target.resolveWithRuntime context runtime
-      let updated ← resolved.write context runtime' value
-      LValues.writeTupleWithRuntime context updated targets values
+      let (rest, runtime'') ←
+        LValues.resolveTupleWithRuntime context runtime' targets values
+      pure ((resolved, value) :: rest, runtime'')
   | runtime, none :: targets, _ :: values =>
-      LValues.writeTupleWithRuntime context runtime targets values
+      LValues.resolveTupleWithRuntime context runtime targets values
   | _, _, _ => throw (SolidityFailure.revert RevertData.typeMismatch)
+
+/-- PHASE 2: store the already-resolved places RIGHT-TO-LEFT (rightmost first,
+    leftmost last). Recursing into the tail before writing the head realises the
+    right-to-left order, matching solc's `TupleObject::storeValue` ("We will
+    assign from right to left to optimize stack layout", `LValue.cpp:589-615`).
+    When two components alias the same place the LEFTMOST wins because it is
+    stored last. -/
+def LValues.writeResolvedRightToLeft (context : Context) :
+    Runtime -> List (ResolvedLValue × Value) -> SolI Runtime
+  | runtime, [] => pure runtime
+  | runtime, (resolved, value) :: rest => do
+      let runtime' ← LValues.writeResolvedRightToLeft context runtime rest
+      resolved.write context runtime' value
+
+/-- Two-phase flat tuple write matching solc (#132 TUPLE-WRITE-ORDER): resolve
+    ALL LHS lvalue references left-to-right (pre-store state, indices frozen),
+    then store the resolved places right-to-left. -/
+def LValues.writeTupleWithRuntime (context : Context) (runtime : Runtime)
+    (targets : List (Option LValue)) (values : List Value) : SolI Runtime := do
+  let (resolved, runtime') ←
+    LValues.resolveTupleWithRuntime context runtime targets values
+  LValues.writeResolvedRightToLeft context runtime' resolved
 
 mutual
 
-/-- Write a list of NESTED tuple targets against the matching RHS values,
-    left-to-right. The RHS was fully evaluated before any write (so `(a, b) =
-    (b, a)` swaps and a hole's value is already produced), matching solc's
-    "evaluate the tuple into temps, then assign" order. -/
-def TupleTargets.writeNested (context : Context) :
-    Runtime -> List TupleTarget -> List Value -> SolI Runtime
-  | runtime, [], [] => pure runtime
+/-- PHASE 1 for NESTED tuple targets: solc FLATTENS a nested tuple LHS, so we
+    resolve every leaf's lvalue place LEFT-TO-RIGHT (depth-first) into a single
+    flat list, without storing. Same pre-store/frozen-index guarantees as the
+    flat case. -/
+def TupleTargets.resolveNested (context : Context) :
+    Runtime -> List TupleTarget -> List Value ->
+    SolI (List (ResolvedLValue × Value) × Runtime)
+  | runtime, [], [] => pure ([], runtime)
   | runtime, target :: targets, value :: values => do
-      let runtime' ← TupleTarget.writeNested context runtime target value
-      TupleTargets.writeNested context runtime' targets values
+      let (head, runtime') ←
+        TupleTarget.resolveNested context runtime target value
+      let (rest, runtime'') ←
+        TupleTargets.resolveNested context runtime' targets values
+      pure (head ++ rest, runtime'')
   | _, _, _ => throw (SolidityFailure.revert RevertData.typeMismatch)
 
-def TupleTarget.writeNested (context : Context) (runtime : Runtime) :
-    TupleTarget -> Value -> SolI Runtime
-  | TupleTarget.hole, _ => pure runtime
+def TupleTarget.resolveNested (context : Context) (runtime : Runtime) :
+    TupleTarget -> Value -> SolI (List (ResolvedLValue × Value) × Runtime)
+  | TupleTarget.hole, _ => pure ([], runtime)
   | TupleTarget.leaf target, value => do
       let (resolved, runtime') ← target.resolveWithRuntime context runtime
-      resolved.write context runtime' value
+      pure ([(resolved, value)], runtime')
   | TupleTarget.nested targets, Value.tuple values =>
-      TupleTargets.writeNested context runtime targets values
+      TupleTargets.resolveNested context runtime targets values
   | TupleTarget.nested _, _ =>
       throw (SolidityFailure.revert RevertData.typeMismatch)
 
 end
+
+/-- Write a (possibly nested) tuple-target tree against the matching RHS values.
+    The RHS was fully evaluated before any write (so `(a, b) = (b, a)` swaps and
+    a hole's value is already produced). Matching solc, all leaves are resolved
+    left-to-right (flattened), then stored right-to-left (#132). -/
+def TupleTargets.writeNested (context : Context) (runtime : Runtime)
+    (targets : List TupleTarget) (values : List Value) : SolI Runtime := do
+  let (resolved, runtime') ←
+    TupleTargets.resolveNested context runtime targets values
+  LValues.writeResolvedRightToLeft context runtime' resolved
 
 /-- Reserved storage-alias target for a not-yet-assigned `T storage` named
     return (reference-signature extension, stage A). It names no real storage

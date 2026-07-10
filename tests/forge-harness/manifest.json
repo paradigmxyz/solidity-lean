@@ -1,6 +1,49 @@
 {
   "cases": [
     {
+      "name": "tuple-write-order",
+      "description": "#132 TUPLE-WRITE-ORDER: for `(lhs0, lhs1, ...) = rhs`, solc resolves ALL LHS lvalue references up front left-to-right (a later component's index/key observes PRE-STORE state), then performs the stores RIGHT-TO-LEFT (when two components alias the same location the LEFTMOST assignment wins). Repros: `(x,x)=(1,2)` (local, x==1), `(arr[0],arr[0])=(1,2)` (storage, arr[0]==1), and `arr[0]=5; (arr[0], arr[arr[0]])=(1,2)` where the second index sees arr[0]==5 so it writes arr[5]=2 then arr[0]=1 giving (arr[0],arr[1],arr[5])==(1,0,2). solidity-lean formerly recursed head-first and interleaved resolve-then-write, giving the rightmost aliased write and observing earlier writes; the fix resolves all LHS refs left-to-right then stores right-to-left. Forge deploys on pinned solc/EVM and asserts the values; Lean imports the same source and runs the source semantics.",
+      "forge": {
+        "root": "tests/forge-harness/tuple-write-order",
+        "match_contract": "TupleWriteOrderForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/tuple-write-order/src/TupleWriteOrder.sol",
+        "contract": "TupleWriteOrderHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.TupleWriteOrder"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.TupleWriteOrder.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedLocalAliasLeftmostWins",
+            "expr": "(SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.TupleWriteOrder.importedContract \"runLocalAlias\" SolidCore.Solidity.Source.State.empty [] 1)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedStorageAliasLeftmostWins",
+            "expr": "(do\n  let ret ← SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.TupleWriteOrder.importedContract \"runStorageAlias\" SolidCore.Solidity.Source.State.empty [] 1\n  let st ← SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallState 256 SolidCore.Solidity.SolcAstImport.TupleWriteOrder.importedContract \"runStorageAlias\" SolidCore.Solidity.Source.State.empty []\n  let a0 ← SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.TupleWriteOrder.importedContract \"getArr\" st [SolidCore.Solidity.Source.Value.word 0] 1\n  Except.ok (ret && a0))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedIndexObservesPreStoreState",
+            "expr": "(do\n  let ret ← SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.TupleWriteOrder.importedContract \"runIndexPreStore\" SolidCore.Solidity.Source.State.empty [] 102\n  let st ← SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallState 256 SolidCore.Solidity.SolcAstImport.TupleWriteOrder.importedContract \"runIndexPreStore\" SolidCore.Solidity.Source.State.empty []\n  let a0 ← SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.TupleWriteOrder.importedContract \"getArr\" st [SolidCore.Solidity.Source.Value.word 0] 1\n  let a1 ← SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.TupleWriteOrder.importedContract \"getArr\" st [SolidCore.Solidity.Source.Value.word 1] 0\n  let a5 ← SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.TupleWriteOrder.importedContract \"getArr\" st [SolidCore.Solidity.Source.Value.word 5] 2\n  Except.ok (ret && a0 && a1 && a5))",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
       "name": "typemin-bounds",
       "description": "TYPEMIN: `type(intN).min` for N < 256 must lower to the two's-complement negative word `2^256 - 2^(N-1)`, not the raw positive `2^(N-1)`. solc pushes 0xff..ff80 for int8.min (=-128), 0xff..ff80..00 for int128.min (=-2^127), 0x80..00 for int256.min (=-2^255); `type(int8).min == -128` is true and `type(int8).min + 1 == -127`. Forge and imported Lean pin the interpreter's signed-min lowering, comparison, arithmetic, and return ABI-encoding.",
       "forge": {
