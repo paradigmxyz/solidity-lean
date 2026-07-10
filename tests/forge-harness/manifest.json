@@ -181,7 +181,7 @@
     },
     {
       "name": "overreject-callpos-batch",
-      "description": "OVERREJECT-CALLPOS-BATCH closes three confirmed call-position over-rejects (solc 0.8.35 legacy accepts + compiles each; the model used to reject the whole contract at Source->Executable). A: `T x = outer(inner())` — a direct internal call whose argument is itself a direct internal call; the single-binding varDecl arm never hoisted the nested-call argument, so it is now hoisted into a prefix temp before the outer call (solc order inner-before-outer, verified via --ir). B: `T x = m[f()]` / `y = m[f()]` / `T z = m[f()] + 1` — an internal call used as a mapping/array index in a non-return read position; the index-call hoist existed only in the return arm, so an `Expr.index base (call)` arm was added to the single-return expression hoister (reusing `indexReadCoreBuilder?`) and the generic varDecl / plain-assign fallbacks were routed through it (base is a pure reference, so hoisting the index call preserves solc order). E: `m[f()] = g()` — an index-assign whose index and RHS are both calls; on pure-RHS failure the RHS call is hoisted into the RHS temp before the index call, preserving solc RHS-before-index order (verified via --ir: g() before f()). Everything is own-call executable (internal calls + mappings), so acceptance AND runtime are pinned by own-contract execution, including two eval-order pins (orderCompose = 12 requires inner-before-outer; writeIdxOrder = 21 requires RHS-before-index). Call-free controls pin the pre-existing pure paths; the Forge test re-checks every case against real solc/EVM.",
+      "description": "OVERREJECT-CALLPOS-BATCH closes three confirmed call-position over-rejects (solc 0.8.35 legacy accepts + compiles each; the model used to reject the whole contract at Source->Executable). A: `T x = outer(inner())` \u2014 a direct internal call whose argument is itself a direct internal call; the single-binding varDecl arm never hoisted the nested-call argument, so it is now hoisted into a prefix temp before the outer call (solc order inner-before-outer, verified via --ir). B: `T x = m[f()]` / `y = m[f()]` / `T z = m[f()] + 1` \u2014 an internal call used as a mapping/array index in a non-return read position; the index-call hoist existed only in the return arm, so an `Expr.index base (call)` arm was added to the single-return expression hoister (reusing `indexReadCoreBuilder?`) and the generic varDecl / plain-assign fallbacks were routed through it (base is a pure reference, so hoisting the index call preserves solc order). E: `m[f()] = g()` \u2014 an index-assign whose index and RHS are both calls; on pure-RHS failure the RHS call is hoisted into the RHS temp before the index call, preserving solc RHS-before-index order (verified via --ir: g() before f()). Everything is own-call executable (internal calls + mappings), so acceptance AND runtime are pinned by own-contract execution, including two eval-order pins (orderCompose = 12 requires inner-before-outer; writeIdxOrder = 21 requires RHS-before-index). Call-free controls pin the pre-existing pure paths; the Forge test re-checks every case against real solc/EVM.",
       "forge": {
         "root": "tests/forge-harness/overreject-callpos-batch",
         "match_contract": "OverrejectCallposBatchForgeTest",
@@ -9750,6 +9750,107 @@
           {
             "label": "structGrowControl",
             "expr": "(do\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 512 SolidCore.Solidity.SolcAstImport.StoreTailClear.importedContract (SolidCore.Solidity.Source.CallTarget.name \"structGrow\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word len, SolidCore.Solidity.Source.Value.word e2, SolidCore.Solidity.Source.Value.word e3] =>\n      Except.ok (SolidCore.Solidity.Source.wordEq len 4 && SolidCore.Solidity.Source.wordEq e2 3 && SolidCore.Solidity.Source.wordEq e3 4)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
+      "name": "narrow-bitwise-cleanup",
+      "description": "NARROW-BITWISE (F1/F2): a bitwise op (`<<`, `~`) on a narrow (<256-bit) uintN/intN cleans at its OPERAND width with a truncating cast (solc `cleanup_t_uintN`=`and`, `cleanup_t_intN`=`signextend`), never a checked range-check, and that operand-width clean survives widening. F1: `x<<k` widened cleans at the LHS width first (a(255)=240, b(64)=-128). F2: `~x` on a narrow unsigned masks and never Panics 0x11 (c(0)=255, d(0)=255). Controls pin no regression: same-width `<<` unchanged (shlSameWidth 255=240), checked ARITHMETIC overflow STILL Panics 0x11 (addOverflow 200), `~uint256(0)` full-width no-op mask = 2^256-1, `~intN` unchanged (notInt 5=-6).",
+      "forge": {
+        "root": "tests/forge-harness/narrow-bitwise-cleanup",
+        "match_contract": "NarrowBitwiseCleanupForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/narrow-bitwise-cleanup/src/NarrowBitwiseCleanup.sol",
+        "contract": "NarrowBitwiseCleanupHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.NarrowBitwiseCleanup"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.NarrowBitwiseCleanup.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "widenedShlUnsigned_a255_240",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.NarrowBitwiseCleanup.importedContract \"a\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 255] 240",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "widenedShlSigned_b64_neg128",
+            "expr": "(do\n  let r \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 256 SolidCore.Solidity.SolcAstImport.NarrowBitwiseCleanup.importedContract (SolidCore.Solidity.Source.CallTarget.name \"b\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 64]\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.int v] => Except.ok (SolidCore.Solidity.Source.wordEq v 115792089237316195423570985008687907853269984665640564039457584007913129639808)\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v] => Except.ok (SolidCore.Solidity.Source.wordEq v 115792089237316195423570985008687907853269984665640564039457584007913129639808)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "notNarrowUnsignedSameWidth_c0_255",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.NarrowBitwiseCleanup.importedContract \"c\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0] 255",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "notNarrowUnsignedWidened_d0_255",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.NarrowBitwiseCleanup.importedContract \"d\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0] 255",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "sameWidthShlControl_255_240",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.NarrowBitwiseCleanup.importedContract \"shlSameWidth\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 255] 240",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "checkedArithmeticStillPanics_200",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 256 SolidCore.Solidity.SolcAstImport.NarrowBitwiseCleanup.importedContract \"addOverflow\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "notFullWidthControl_umax",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.NarrowBitwiseCleanup.importedContract \"notWide\" SolidCore.Solidity.Source.State.empty [] 115792089237316195423570985008687907853269984665640564039457584007913129639935",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "notNarrowSignedControl_5_neg6",
+            "expr": "(do\n  let r \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 256 SolidCore.Solidity.SolcAstImport.NarrowBitwiseCleanup.importedContract (SolidCore.Solidity.Source.CallTarget.name \"notInt\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 5]\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.int v] => Except.ok (SolidCore.Solidity.Source.wordEq v 115792089237316195423570985008687907853269984665640564039457584007913129639930)\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v] => Except.ok (SolidCore.Solidity.Source.wordEq v 115792089237316195423570985008687907853269984665640564039457584007913129639930)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
+      "name": "lib-storage-public",
+      "description": "A public library function taking a `T storage` pointer, invoked both via using-for (`arr.pushPub(v)`) and directly (`L.pushPub(arr, v)`), plus a `view` read-back (`arr.sumPub()`). solc 0.8.35 lowers these to DELEGATECALLs whose calldata carries the storage SLOT of the pointer (not the array contents) and whose selector includes ` storage` in the signature (`pushPub(uint256[] storage,uint256)` = 0x8ba1851b, `sumPub(uint256[] storage)` = 0x15833f22). Forge pins the real-EVM storage effect and read-backs; imported Lean pins the delegatecall calldata (selector + slot) the model emits on the external-library boundary.",
+      "forge": {
+        "root": "tests/forge-harness/lib-storage-public",
+        "match_contract": "LibStoragePublicForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/lib-storage-public/src/LibStoragePublic.sol",
+        "contract": "LibStoragePublic",
+        "namespace": "SolidCore.Solidity.SolcAstImport.LibStoragePublic"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedLibStoragePublicAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.LibStoragePublic.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedLibStoragePublicStoragePointerDelegatecall",
+            "expr": "(do\n  let source := SolidCore.Solidity.SolcAstImport.LibStoragePublic.importedSourceUnit\n  let program <- SolidCore.Solidity.TypeCheck.CheckedInput.program source\n  let contract <- SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"LibStoragePublic\"\n  let word := SolidCore.Solidity.Source.Value.word\n  let ctx := { contract.core.context with contractAddresses := [(\"L\", 0xbeef)], accountCodes := [(0xbeef, [1])] }\n  let pushCalldata := fun (v : Nat) => do\n    let enc <- SolidCore.Solidity.TypeCheck.Examples.checkedAbiEncodeValues\n      [SolidCore.Solidity.Source.Ty.uint256, SolidCore.Solidity.Source.Ty.uint256]\n      [word 0, word v]\n    Except.ok (SolidCore.Solidity.Source.ABI.encodeSelector\n      (SolidCore.Solidity.Source.ABI.selectorFromSignature \"pushPub(uint256[] storage,uint256)\") ++ enc)\n  let sumEnc <- SolidCore.Solidity.TypeCheck.Examples.checkedAbiEncodeValues [SolidCore.Solidity.Source.Ty.uint256] [word 0]\n  let sumCalldata := SolidCore.Solidity.Source.ABI.encodeSelector\n      (SolidCore.Solidity.Source.ABI.selectorFromSignature \"sumPub(uint256[] storage)\") ++ sumEnc\n  let sumOut <- SolidCore.Solidity.TypeCheck.Examples.checkedAbiEncodeValues [SolidCore.Solidity.Source.Ty.uint256] [word 12]\n  let runPush := fun (fn : String) (v : Nat) => do\n    let cd <- pushCalldata v\n    let oracle : SolidCore.Solidity.Source.LowLevelCallResult :=\n      { kind := SolidCore.Solidity.Source.LowLevelCallKind.delegatecall\n        target := 0xbeef, calldata := cd, value := 0, gas? := none\n        success := true, output := [] }\n    let r <- SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 256\n      (SolidCore.Solidity.Source.responderOfResults [oracle] []) contract fn ctx\n      SolidCore.Solidity.Source.State.empty [word v]\n    match r with\n    | SolidCore.Solidity.Source.CallResult.returned state _ =>\n        match state.externalInteractions with\n        | [SolidCore.Solidity.Source.ExternalInteraction.lowLevelCall call] =>\n            Except.ok (SolidCore.Solidity.Source.LowLevelCallResult.matches call\n              SolidCore.Solidity.Source.LowLevelCallKind.delegatecall 0xbeef cd 0 none && call.success)\n        | _ => Except.ok false\n    | _ => Except.ok false\n  let usingOk <- runPush \"viaUsing\" 5\n  let directOk <- runPush \"viaDirect\" 7\n  let sumOracle : SolidCore.Solidity.Source.LowLevelCallResult :=\n    { kind := SolidCore.Solidity.Source.LowLevelCallKind.delegatecall\n      target := 0xbeef, calldata := sumCalldata, value := 0, gas? := none\n      success := true, output := sumOut }\n  let tr <- SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 256\n    (SolidCore.Solidity.Source.responderOfResults [sumOracle] []) contract \"total\" ctx\n    SolidCore.Solidity.Source.State.empty []\n  let totalOk := match tr with\n    | SolidCore.Solidity.Source.CallResult.returned state [SolidCore.Solidity.Source.Value.word v] =>\n        match state.externalInteractions with\n        | [SolidCore.Solidity.Source.ExternalInteraction.lowLevelCall call] =>\n            SolidCore.Solidity.Source.wordEq v 12 &&\n            SolidCore.Solidity.Source.LowLevelCallResult.matches call\n              SolidCore.Solidity.Source.LowLevelCallKind.delegatecall 0xbeef sumCalldata 0 none\n        | _ => false\n    | _ => false\n  Except.ok (usingOk && directOk && totalOk))",
             "expect": "Except.ok true"
           }
         ]
