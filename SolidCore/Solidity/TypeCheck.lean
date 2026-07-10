@@ -8092,7 +8092,15 @@ def checkCallOption (env : CheckEnv) :
       if name == "gas" || name == "value" then
         checked.expectAssignableTo (Solidity.Ty.uint 256)
       else if name == "salt" then
-        requireEqTy (Solidity.Ty.bytesN 32) checked.ty
+        -- solc: the salt option takes a value implicitly convertible to
+        -- bytes32. Per RationalNumberType::isImplicitlyConvertibleTo /
+        -- FixedBytesType (Types.cpp), an untyped number literal converts to
+        -- bytes32 iff its value is 0 or it is an exact 32-byte hex literal;
+        -- a typed bytesN (N<=32) variable also converts. Mirror the model's
+        -- assignment-conversion path (canAssignTo/implicitLiteralFits) rather
+        -- than a strict requireEqTy, which over-rejected `salt: 0` and a
+        -- 32-byte hex literal (gap #112 CREATE-SALT-LITERAL).
+        checked.expectAssignableTo (Solidity.Ty.bytesN 32)
       else
         Except.error (TypeError.unsupported ("call option " ++ name))
 termination_by option => sizeOf option

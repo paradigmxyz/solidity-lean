@@ -1154,8 +1154,70 @@ def abiDecodeAddressPayableAccepted : Bool :=
         (some (abiDecodeExpr
           (Expr.tuple [TupleItem.value (Expr.typeName (Ty.address false))]))))))
 
+-- ===========================================================================
+-- #112 CREATE-SALT-LITERAL — the `new C{salt: e}(…)` salt option accepts any
+-- value IMPLICITLY CONVERTIBLE to bytes32, not only a value already typed
+-- bytes32. Per solc RationalNumberType::isImplicitlyConvertibleTo
+-- (`Types.cpp` ~1035) an untyped number literal converts to a FixedBytesType
+-- iff its value is 0 OR it is an exact-length hex literal matching the width.
+-- Probed against pinned solc 0.8.35 (`--bin`):
+--     salt: 0                        ACCEPT   (literal value 0)
+--     salt: <32-byte hex literal>    ACCEPT   (exact bytes32-width hex)
+--     salt: 5   / 256 / 0x01         REJECT   (nonzero, wrong-width)
+-- The former strict `requireEqTy (bytesN 32)` over-rejected the two ACCEPTs.
+-- (`salt: 1` rejection is already pinned by `literalSaltConstructorCreateRejected`
+-- in `Witness/TypeCheck.lean`; here we pin the newly-accepted literals plus a
+-- `salt: 5` neighbour so a future loosening cannot over-accept.)
+-- ===========================================================================
+
+def saltLiteralCreateSource (contractName : String)
+    (saltExpr : Expr) : SourceUnit :=
+  { items :=
+      [ SourceItem.contract constructorTargetContract
+      , SourceItem.contract
+          { name := contractName
+            items :=
+              [ ContractItem.function
+                  { constructorCreateFunction with
+                    name := some "makeSaltLiteral"
+                    body :=
+                      some
+                        (Stmt.block
+                          [ Stmt.expr
+                              (Expr.callWithOptions
+                                (Expr.newExpr constructorTargetTy [])
+                                [saltOption saltExpr]
+                                [Arg.named "seed" (numberExpr "7")])
+                          , Stmt.returnValues (some (numberExpr "1")) ]) } ] } ] }
+
+-- Integer literal `0` as salt — ACCEPTED.
+def saltLiteralZeroAccepted : Bool :=
+  sourceUnitAccepted?
+    (saltLiteralCreateSource "SaltZeroCtorMaker" (numberExpr "0"))
+
+-- Exact 32-byte hex literal as salt — ACCEPTED.
+def saltLiteralHex32Accepted : Bool :=
+  sourceUnitAccepted?
+    (saltLiteralCreateSource "SaltHex32CtorMaker"
+      (numberExpr
+        "0x0000000000000000000000000000000000000000000000000000000000000001"))
+
+-- Nonzero, non-width integer literal `5` as salt — REJECTED (no over-accept).
+def saltLiteralFiveRejected : Bool :=
+  Result.isError
+    (SourceUnit.check
+      (saltLiteralCreateSource "SaltFiveCtorMaker" (numberExpr "5")))
+
+def createSaltLiteralAcceptanceMatches : Bool :=
+  saltLiteralZeroAccepted &&
+    saltLiteralHex32Accepted &&
+    saltLiteralFiveRejected
+
 -- Build-time gate: pin every acceptance-boundary witness added here so a future
 -- loosening cannot silently re-open them (`lake build` fails if any is false).
+#guard saltLiteralZeroAccepted
+#guard saltLiteralHex32Accepted
+#guard saltLiteralFiveRejected
 #guard abiDecodeBareTypeRejected
 #guard abiDecodeSingleTupleAccepted
 #guard abiDecodeMultiTupleAccepted

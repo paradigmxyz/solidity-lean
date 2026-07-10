@@ -2546,6 +2546,50 @@
       }
     },
     {
+      "name": "create-salt-literal",
+      "description": "Forge checks solc/EVM contract creation where the `new C{salt: e}(\u2026)` salt option is an untyped literal implicitly convertible to bytes32: integer literal `0` and an exact 32-byte hex literal are ACCEPTED (RationalNumberType::isImplicitlyConvertibleTo / FixedBytesType, Types.cpp), a nonzero non-width literal like `salt: 5` is REJECTED. solidity-lean formerly over-rejected (gap #112 CREATE-SALT-LITERAL) because the salt-option checker used a strict bytes32 equality. Lean imports the same factory from solc AST and checks that each salt literal lowers to the correct CREATE2 salt word (0 and 1).",
+      "forge": {
+        "root": "tests/forge-harness/create-salt-literal",
+        "match_contract": "CreateSaltLiteralForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/create-salt-literal/src/CreateSaltLiteral.sol",
+        "contract": "SaltLiteralFactory",
+        "namespace": "SolidCore.Solidity.SolcAstImport.CreateSaltLiteral"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked",
+          "SolidCore.Witness.AcceptanceBoundaries"
+        ],
+        "evals": [
+          {
+            "label": "importedSaltLiteralFactoryAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.CreateSaltLiteral.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "createSaltLiteralAcceptanceMatches",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.createSaltLiteralAcceptanceMatches",
+            "expect": "true"
+          },
+          {
+            "label": "importedZeroSaltLiteralLowersToZeroWord",
+            "expr": "(do\n  let constructorArgs \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedAbiEncodeValues [SolidCore.Solidity.Source.Ty.uint256] [SolidCore.Solidity.Source.Value.word 7]\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.CreateSaltLiteral.importedSourceUnit\n  let contract \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"SaltLiteralFactory\"\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 32 (SolidCore.Solidity.Source.responderOfResults [] [ { contractName := \"Deployed\", constructorArgs := constructorArgs, value := 0, salt? := some 0, success := true, address := 0xcafe } ]) contract \"makeZeroSalt\"\n    (contract.core.context)\n    SolidCore.Solidity.Source.State.empty\n    [SolidCore.Solidity.Source.Value.word 7]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word address] =>\n      let observation := SolidCore.Solidity.Source.CallResult.resultState result\n      match observation.externalInteractions with\n      | [SolidCore.Solidity.Source.ExternalInteraction.contractCreation create] =>\n          Except.ok\n            (SolidCore.Solidity.Source.wordEq address 0xcafe &&\n              SolidCore.Solidity.Source.ContractCreationResult.matches create \"Deployed\" constructorArgs 0 (some 0) &&\n              create.success &&\n              SolidCore.Solidity.Source.wordEq create.address 0xcafe)\n      | _ => Except.ok false\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedHexSaltLiteralLowersToOneWord",
+            "expr": "(do\n  let constructorArgs \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedAbiEncodeValues [SolidCore.Solidity.Source.Ty.uint256] [SolidCore.Solidity.Source.Value.word 9]\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.CreateSaltLiteral.importedSourceUnit\n  let contract \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"SaltLiteralFactory\"\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextUnderResponder 32 (SolidCore.Solidity.Source.responderOfResults [] [ { contractName := \"Deployed\", constructorArgs := constructorArgs, value := 0, salt? := some 1, success := true, address := 0xcafe } ]) contract \"makeHexSalt\"\n    (contract.core.context)\n    SolidCore.Solidity.Source.State.empty\n    [SolidCore.Solidity.Source.Value.word 9]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word address] =>\n      let observation := SolidCore.Solidity.Source.CallResult.resultState result\n      match observation.externalInteractions with\n      | [SolidCore.Solidity.Source.ExternalInteraction.contractCreation create] =>\n          Except.ok\n            (SolidCore.Solidity.Source.wordEq address 0xcafe &&\n              SolidCore.Solidity.Source.ContractCreationResult.matches create \"Deployed\" constructorArgs 0 (some 1) &&\n              create.success &&\n              SolidCore.Solidity.Source.wordEq create.address 0xcafe)\n      | _ => Except.ok false\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
       "name": "high-level-call-options",
       "description": "Forge checks solc/EVM high-level external calls with gas/value options; pinned solc and the common checker reject invalid high-level call option names, duplicate options, signed gas/value, creation-only salt, and call options on non-external forms such as super, internal identifiers, internal function pointers, and array members; Lean imports the same source contracts from solc AST and checks the abstract source low-level call request.",
       "forge": {
