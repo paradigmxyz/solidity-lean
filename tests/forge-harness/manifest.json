@@ -11512,6 +11512,39 @@
         "quiet": true,
         "root": "tests/forge-harness/modifier-static-qualifier"
       }
+    },
+    {
+      "name": "lib-storage-return-use",
+      "description": "#156 LIB-STORAGE-RETURN-USE runtime lowering: a contract calls an INTERNAL library function that value-returns a `storage` struct reference and then dereferences the returned pointer, WRITING and READING state through it (`L.ref(s).x = v` / `return L.ref(s).x`). Follow-up to #155 (the checker accepts such a library header); the interpreter formerly could not lower the USE (the struct-member->index rewrite cannot type a call result, and no arm consumed a member/index use of a value-returned storage pointer), over-rejecting the whole contract. The fix rewrites `<call>.field` to `<call>[fieldIndex]` when the call's single return is a WHOLE storage struct reference and adds a return-read arm, both gated on `returnsWholeStorageRefParam?` (a nested sub-path return like `d.m` stays an over-reject). Forge pins the real solc/EVM roundtrip (write 42 through the returned ref, read 42 back); imported Lean accepts the same source and EXECUTES the write/read, resolving to the actual storage slot of `s.x`.",
+      "forge": {
+        "root": "tests/forge-harness/lib-storage-return-use",
+        "match_contract": "LibStorageReturnUseForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/lib-storage-return-use/src/LibStorageReturnUse.sol",
+        "contract": "LibStorageReturnUseHarness",
+        "namespace": "SolidCore.Solidity.SolcAstImport.LibStorageReturnUse"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedLibStorageReturnUseAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.LibStorageReturnUse.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedLibStorageReturnUseRoundtrip",
+            "expr": "(do\n  let program <- SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.LibStorageReturnUse.importedSourceUnit\n  let r <- SolidCore.Solidity.TypeCheck.CheckedProgram.callContract 1000 program \"LibStorageReturnUseHarness\" (SolidCore.Solidity.Source.CallTarget.name \"writeReadStruct\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 42]\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word w] => Except.ok (SolidCore.Solidity.Source.wordEq w 42)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }

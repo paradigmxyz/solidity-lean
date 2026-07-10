@@ -11077,6 +11077,43 @@ def FunctionDecl.singleReturnTy? (decl : FunctionDecl) : Option Ty :=
   | [ret] => some ret.ty
   | _ => none
 
+/-- LIB-STORAGE-RETURN-USE (#156): the callee's single `storage` return is a
+    WHOLE storage reference — a bare storage-ref PARAMETER, `return s;` — which
+    the function boundary threads back as a plain `Value.storageRef` that a
+    caller-side `.field`/`[key]` USE resolves against the caller's own storage
+    location. A nested sub-PATH return (`return d.m;`, `return a[i];`) yields a
+    `storagePathRef` the boundary does NOT re-base onto the caller, so its USE is
+    intentionally left an over-reject rather than mis-resolving at run time. Only
+    the exact single-`return <param>` shape qualifies; anything richer declines
+    (safe: preserves the prior over-reject). -/
+def FunctionDecl.returnsWholeStorageRefParam? (decl : FunctionDecl) : Bool :=
+  match decl.returns, decl.body with
+  | [ret], some (Stmt.block stmts) =>
+      match ret.location with
+      | some DataLocation.storage =>
+          let storageParams := decl.params.filterMap (fun param =>
+            match param.location, param.name with
+            | some DataLocation.storage, some paramName => some paramName
+            | _, _ => none)
+          match stmts.getLast? with
+          | some (Stmt.returnValues (some (Expr.ident paramName))) =>
+              storageParams.contains paramName
+          | _ => false
+      | _ => false
+  | _, _ => false
+
+/-- Resolve an internal call site's callee (contract functions first, then free
+    functions) purely for the whole-storage-ref-return gate above. -/
+def FunctionDecl.callSiteReturnsWholeStorageRefParam?
+    (functions freeFunctions : List FunctionDecl) (env : TypeEnv)
+    (name : Name) (args : List Arg) : Bool :=
+  match FunctionDecl.findInternalCalleeWithArgs? functions env name args with
+  | some (callee, _) => FunctionDecl.returnsWholeStorageRefParam? callee
+  | none =>
+      match FunctionDecl.findInternalCalleeWithArgs? freeFunctions env name args with
+      | some (callee, _) => FunctionDecl.returnsWholeStorageRefParam? callee
+      | none => false
+
 def FunctionDecl.findInternalCalleeReturnTyWithArgs?
     (functions : List FunctionDecl) (env : TypeEnv)
     (name : Name) (args : List Arg) : Option Ty := do
@@ -14879,6 +14916,36 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
               (Expr.assign
                 (Expr.index (Expr.call (Expr.ident name) args) index)
                 AssignOp.assign rhs))
+  -- LIB-STORAGE-RETURN-USE (#156), READ side: `return L.ref(s).x` — after the
+  -- struct-member→index rewrite (in `expandUsing`) this is
+  -- `return <call>[index]` where the call value-returns a `storage` reference.
+  -- Capture the returned pointer into the storage-ref temp (the SAME machinery
+  -- the index-ASSIGN arm above uses) and read the indexed sub-path off it as the
+  -- return value. `internalSingleStorageReturnRefCore?` declines any callee whose
+  -- single return is not a storage ref, so non-storage-return calls fall through
+  -- to the ordinary return lowering unchanged.
+  | Stmt.returnValues
+      (some (Expr.index (Expr.call (Expr.ident name) args) index)) =>
+      match
+        (do
+          if FunctionDecl.callSiteReturnsWholeStorageRefParam?
+              functions freeFunctions env name args then
+            some ()
+          else
+            none
+          let indexCore ← Expr.toCore? storageNames index
+          FunctionDecl.internalSingleStorageReturnRefCore?
+            internalFuel storageRefEnv env externalCallKindEnv storageNames
+            modifiers functions freeFunctions name args
+            (fun retName =>
+              SolidCore.Solidity.Source.Stmt.returnValues
+                [SolidCore.Solidity.Source.Expr.index
+                  (SolidCore.Solidity.Source.Expr.var retName) indexCore])) with
+      | some coreStmt => some coreStmt
+      | none =>
+          Stmt.toCore? storageNames
+            (Stmt.returnValues
+              (some (Expr.index (Expr.call (Expr.ident name) args) index)))
   | Stmt.expr expr@(Expr.call (Expr.member _ _) _) =>
       match Stmt.toCore? storageNames (Stmt.expr expr) with
       | some coreStmt => some coreStmt
@@ -19327,6 +19394,66 @@ def UsingDecl.rewriteUnaryOperator? (freeFunctions : List FunctionDecl)
 def libraryExternalCallTarget (libraryName method : Name) : Expr :=
   Expr.member (Expr.ident (generatedLibraryAddressIdent libraryName)) method
 
+/-- The struct/user path a resolved type points at, if any. Post-`resolveStructs`
+    a struct type is `Ty.struct path _`; before it (or for a mapping's user value)
+    it can still be `Ty.user path`. -/
+def Ty.structPath? : Ty -> Option Path
+  | Ty.user path => some path
+  | Ty.struct path _ => some path
+  | _ => none
+
+/-- Find a struct declaration named `name` anywhere in the contract set. Field
+    names survive `resolveStructs` (only field TYPES are resolved), so this
+    recovers the field ordering a resolved `Ty.struct` type has dropped. -/
+def ContractDecls.findStructDeclByName? (contracts : List ContractDecl)
+    (name : Name) : Option StructDecl :=
+  contracts.findSome? (fun decl =>
+    decl.items.findSome? (fun item =>
+      match item with
+      | ContractItem.structDecl structDecl =>
+          if structDecl.name == name then some structDecl else none
+      | _ => none))
+
+/-- The struct declaration of a callee's single `storage` STRUCT return, but ONLY
+    when that return is a WHOLE storage reference (`return s;` for a storage-ref
+    param — see `FunctionDecl.returnsWholeStorageRefParam?`). Used to recover the
+    field ordering so `.field` on the call result lowers to `[fieldIndex]`.
+
+    The whole-reference gate is essential: the function boundary threads a whole
+    storage-ref return as a plain `Value.storageRef` that a caller-side index
+    resolves correctly, but does NOT re-base a nested sub-path return. Rewriting a
+    path-return's `.field` to an index would feed the (correct-for-whole-refs)
+    storage-ref use path a pointer it cannot resolve, so those stay member
+    accesses and remain the prior over-reject. -/
+def Expr.callSingleStorageStructReturnDecl?
+    (contracts : List ContractDecl) (freeFunctions : List FunctionDecl) :
+    Expr -> Option StructDecl
+  | Expr.call (Expr.member (Expr.typeName (Ty.user libraryPath)) method) _ => do
+      let libraryName ← pathLast? libraryPath
+      let libraryDecl ← ContractDecl.findLibraryByName? contracts libraryName
+      let fn ← ContractDecl.findOrdinaryFunctionByName? libraryDecl method
+      if FunctionDecl.returnsWholeStorageRefParam? fn then
+        match fn.returns with
+        | [ret] => do
+            let path ← Ty.structPath? ret.ty
+            let structName ← pathLast? path
+            ContractDecls.findStructDeclByName? contracts structName
+        | _ => none
+      else
+        none
+  | Expr.call (Expr.ident name) _ => do
+      let fn ← freeFunctions.find? (fun fn => fn.name == some name)
+      if FunctionDecl.returnsWholeStorageRefParam? fn then
+        match fn.returns with
+        | [ret] => do
+            let path ← Ty.structPath? ret.ty
+            let structName ← pathLast? path
+            ContractDecls.findStructDeclByName? contracts structName
+        | _ => none
+      else
+        none
+  | _ => none
+
 def UsingFunction.rewriteExternalCall? (contracts : List ContractDecl)
     (freeFunctions : List FunctionDecl)
     (env : TypeEnv) (receiver : Expr) (method : Name)
@@ -19561,7 +19688,21 @@ def Expr.expandUsingFuel :
       | Expr.literal literal => Expr.literal literal
       | Expr.ident name => Expr.ident name
       | Expr.typeName ty => Expr.typeName ty
-      | Expr.member base member => Expr.member (expand base) member
+      | Expr.member base member =>
+          -- LIB-STORAGE-RETURN-USE (#156): `L.ref(s).x` / `f(s).x` on a call
+          -- whose single return is a `storage` struct reference. `resolveStructs`
+          -- cannot type a call result, so `.x` never became `[fieldIndex]`;
+          -- recover the struct declaration from the callee and rewrite the field
+          -- access to an index over the (expanded) call, which the storage-ref
+          -- lowering handles. Non-call / non-struct-storage bases are untouched.
+          match Expr.callSingleStorageStructReturnDecl? contracts freeFunctions base with
+          | some structDecl =>
+              match StructDecl.fieldIndex? structDecl member with
+              | some index =>
+                  Expr.index (expand base)
+                    (Expr.literal (Literal.number (toString index)))
+              | none => Expr.member (expand base) member
+          | none => Expr.member (expand base) member
       | Expr.index base index => Expr.index (expand base) (expand index)
       | Expr.slice base start stop =>
           Expr.slice (expand base) (start.map expand) (stop.map expand)
