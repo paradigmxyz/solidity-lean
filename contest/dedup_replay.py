@@ -222,19 +222,103 @@ def replay_against_reference(
     return classify_dedup(e0_report, e1_report)
 
 
+def batch_replay(
+        submissions: list[tuple[str, Path]],
+        reference_repo_root: Path,
+        *,
+        adjudicate_fn: Optional[Callable[..., Any]] = None,
+        tool_factory: Optional[Callable[..., Any]] = None,
+        **adjudicate_kwargs: Any) -> list[tuple[str, DedupVerdict]]:
+    """Replay a whole pool of (submission_id, dir) against one reference build,
+    preserving submission order (first-to-file). Returns (id, DedupVerdict) pairs
+    ready for ``collapse_classes``. Injectable for testing like
+    ``replay_against_reference``."""
+    out: list[tuple[str, DedupVerdict]] = []
+    for sub_id, sample_dir in submissions:
+        dv = replay_against_reference(
+            sample_dir, reference_repo_root,
+            adjudicate_fn=adjudicate_fn, tool_factory=tool_factory,
+            **adjudicate_kwargs)
+        out.append((sub_id, dv))
+    return out
+
+
+def summarize_batch(items: list[tuple[str, DedupVerdict]]) -> dict[str, Any]:
+    """Collapse a replayed pool into a payout report:
+
+      * payout_classes -- one per surviving NOVEL/SHIFTED equivalence class; the
+        FIRST member is the payee (first-to-file), the rest are rejected as
+        same-class re-skins.
+      * duplicates     -- ids that collapsed onto a known-gap fix (no payout).
+      * needs_review   -- SHIFTED / INCONCLUSIVE ids a human must look at.
+      * not_in_pool    -- ids whose E0 did not qualify.
+    """
+    classes = collapse_classes(items)
+    by_id = {sid: dv for sid, dv in items}
+    duplicates = [sid for sid, dv in items if dv.dedup_class == DUPLICATE]
+    not_in_pool = [sid for sid, dv in items if dv.dedup_class == NOT_IN_POOL]
+    needs_review = [sid for sid, dv in items
+                    if dv.dedup_class in (SHIFTED, INCONCLUSIVE)]
+
+    payout_classes = []
+    for cls in classes:
+        if not cls.members:
+            continue
+        # A review-only singleton class (key "review:<id>") is not a payout.
+        if cls.key.startswith("review:"):
+            continue
+        payout_classes.append({
+            "key": cls.key,
+            "payee": cls.members[0],                 # first-to-file
+            "rejected_reskins": cls.members[1:],
+            "dedup_class": by_id[cls.members[0]].dedup_class,
+        })
+
+    return {
+        "total": len(items),
+        "payout_classes": payout_classes,
+        "n_payouts": len(payout_classes),
+        "duplicates": duplicates,
+        "needs_review": needs_review,
+        "not_in_pool": not_in_pool,
+    }
+
+
+def _discover_pool(pool_dir: Path) -> list[tuple[str, Path]]:
+    """Each immediate subdirectory of ``pool_dir`` containing a claim.json is one
+    submission; its directory name is the (first-to-file-ordered) submission id."""
+    subs = [(p.name, p) for p in sorted(pool_dir.iterdir())
+            if p.is_dir() and (p / "claim.json").is_file()]
+    return subs
+
+
 def _main() -> int:
     import argparse
     import json
     parser = argparse.ArgumentParser(
-        description="Fix-time dedup: replay a qualifying submission against a "
-                    "patched REFERENCE build (E1) to tell a known-gap DUPLICATE "
-                    "from a genuinely NOVEL divergence.")
-    parser.add_argument("submission", type=Path,
-                        help="submission dir (src/ test/ foundry.toml claim.json)")
+        description="Fix-time dedup: replay a qualifying submission (or a whole "
+                    "pool) against a patched REFERENCE build (E1) to tell a "
+                    "known-gap DUPLICATE from a genuinely NOVEL divergence.")
+    parser.add_argument("submission", type=Path, nargs="?",
+                        help="a single submission dir (omit with --pool)")
+    parser.add_argument("--pool", type=Path,
+                        help="a directory of submission subdirs to batch-replay "
+                             "and collapse into payout classes")
     parser.add_argument("--reference-build", type=Path, required=True,
                         help="path to a fully-built reference checkout E1 "
                              "(= current build + known-gap fixes)")
     args = parser.parse_args()
+
+    if args.pool:
+        pool = _discover_pool(args.pool)
+        items = batch_replay(pool, args.reference_build)
+        report = summarize_batch(items)
+        print(json.dumps(report, indent=2))
+        # exit 1 if any payout class survives (a human must pay/verify), else 0.
+        return 1 if report["n_payouts"] or report["needs_review"] else 0
+
+    if not args.submission:
+        parser.error("provide a submission dir or --pool <dir>")
     verdict = replay_against_reference(args.submission, args.reference_build)
     print(f"=== DEDUP: {verdict.dedup_class.upper()} "
           f"(E0={verdict.e0_verdict}, E1={verdict.e1_verdict}) ===")
