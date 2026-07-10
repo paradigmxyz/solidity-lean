@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "Pass", "function": "f", "args": [200], "value": 0 },
+  "expected_divergence": "none (render-parity regression): a bare uint8 parameter passthrough (return x). Guards that solidity-lean forces the abiLazy ABI-cleanup at the return boundary so the observed value renders success|w:200 (NOT the renderValue r:reprStr fallback that would fabricate a wrong-value gap).",
+  "declared_observable": { "kind": "return_value", "normal_form": "success|w:200" },
+  "feature": "abilazy-passthrough-render-parity",
+  "register_version_seen": "1.0.0"
+}

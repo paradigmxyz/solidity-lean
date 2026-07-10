@@ -934,6 +934,20 @@ def main() -> int:
     results.append(("ctor_bare_negative MALFORMED (FULL)", ok, d))
     _print("ctor_bare_negative MALFORMED (FULL)", ok, d)
 
+    # Round 32 render-parity guard: a bare uint8 parameter passthrough (return x,
+    # no arithmetic to force cleanup). solidity-lean's Value has an abiLazy wrapper
+    # (deferred ABI cleanup of calldata/return values) plus internal ref forms
+    # (storageRef/memoryRef) and function pointers that renderValue can only render
+    # via its `other => "r:" ++ reprStr` fallback -- which, for a COMPARABLE type,
+    # would mismatch the EVM's clean `w:` decode and fabricate a wrong-value gap
+    # (and repr text is raw = an injection surface). This sample proves the
+    # abiLazy is FORCED at the return/ABI-encode boundary: f(200) -> success|w:200
+    # on both engines (NOT r:..). A future SolidCore change that stopped forcing at
+    # the observable boundary would regress this to a fabricated SOUNDNESS_GAP.
+    ok, d = run_full("abilazy_passthrough", "NO_DIVERGENCE")
+    results.append(("abilazy_passthrough RENDER-PARITY (FULL)", ok, d))
+    _print("abilazy_passthrough RENDER-PARITY (FULL)", ok, d)
+
     print("\n=== SUMMARY ===")
     all_ok = True
     for name, ok, _d in results:
