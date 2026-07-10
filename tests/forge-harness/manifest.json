@@ -1323,6 +1323,82 @@
       }
     },
     {
+      "name": "contract-ordered-compare",
+      "description": "Forge checks solc/EVM ordered comparisons (`<`/`<=`/`>`/`>=`) on two contract-typed operands (and `this`), comparing their addresses as unsigned 160-bit values (solc emits only deprecation warning 9170); the forge test asserts each operator equals the unsigned comparison of the two deployed addresses plus irreflexivity/reflexivity/antisymmetry and this<this/this<=this; pinned solc rejects ordered comparison of DIFFERENT unrelated contract types (no common type). Lean imports the whole source unit from solc AST: `importedContractAccepted` covers that the common typechecker now ACCEPTS ordered comparison of same-type contract operands AND interface operands (InterfaceOrderedCompare.ltIface) AND base/derived operands upcast to their common base (BaseDerivedOrderedCompare.ltBaseDerived) — previously an over-reject: relational routed through the context-free `commonImplicit?` which omitted contracts entirely and could not resolve a base/derived pair; the fix accepts two contract operands in the lt/gt/le/ge dispatch via context-aware bidirectional implicit convertibility (mirroring equality). Runtime witnesses on the own-type target confirm the interpreter compares the contract operands' address words unsigned, matching solc's bools on seeded deterministic addresses.",
+      "forge": {
+        "root": "tests/forge-harness/contract-ordered-compare",
+        "match_contract": "ContractOrderedCompareForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_rejects": [
+        "tests/forge-harness/contract-ordered-compare/invalid/DifferentContractCompare.sol"
+      ],
+      "solc_import": {
+        "source": "tests/forge-harness/contract-ordered-compare/src/ContractOrderedCompare.sol",
+        "contract": "ContractOrderedCompareHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.ContractOrderedCompare"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.ContractOrderedCompare.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "ltTrue__eq1",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 32 SolidCore.Solidity.SolcAstImport.ContractOrderedCompare.importedContract \"lt\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 1, SolidCore.Solidity.Source.Value.word 2] 1",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "ltFalse__eq0",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 32 SolidCore.Solidity.SolcAstImport.ContractOrderedCompare.importedContract \"lt\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 5, SolidCore.Solidity.Source.Value.word 3] 0",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "gtTrue__eq1",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 32 SolidCore.Solidity.SolcAstImport.ContractOrderedCompare.importedContract \"gt\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 9, SolidCore.Solidity.Source.Value.word 2] 1",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "leTrueEq__eq1",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 32 SolidCore.Solidity.SolcAstImport.ContractOrderedCompare.importedContract \"le\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 4, SolidCore.Solidity.Source.Value.word 4] 1",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "geFalse__eq0",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 32 SolidCore.Solidity.SolcAstImport.ContractOrderedCompare.importedContract \"ge\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 1, SolidCore.Solidity.Source.Value.word 8] 0",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "ltSelf_irreflexive__eq0",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 32 SolidCore.Solidity.SolcAstImport.ContractOrderedCompare.importedContract \"ltSelf\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 7] 0",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "leSelf_reflexive__eq1",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 32 SolidCore.Solidity.SolcAstImport.ContractOrderedCompare.importedContract \"leSelf\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 7] 1",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "ltThis_irreflexive__eq0",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 32 SolidCore.Solidity.SolcAstImport.ContractOrderedCompare.importedContract \"ltThis\" SolidCore.Solidity.Source.State.empty [] 0",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "leThis_reflexive__eq1",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 32 SolidCore.Solidity.SolcAstImport.ContractOrderedCompare.importedContract \"leThis\" SolidCore.Solidity.Source.State.empty [] 1",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
       "name": "enum-ordered-compare",
       "description": "Forge checks solc/EVM ordered comparisons (`<`/`<=`/`>`/`>=`) on same-enum operands returning bool by ordinal, in both true and false cases plus a require(state < State.Done) gate over an enum parameter; pinned solc rejects a DIFFERENT-enum ordered comparison (TypeError 2271); Lean imports the same source contract from solc AST and checks that the common typechecker now accepts same-enum ordered comparison (previously an over-reject: isRelationalOperand omitted enums) and the interpreter compares enum ordinals unsigned, matching solc's bools.",
       "forge": {

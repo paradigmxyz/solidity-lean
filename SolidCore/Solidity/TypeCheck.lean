@@ -411,13 +411,28 @@ def Ty.isRelationalOperand (types : TypeContext) (ty : Ty) : Bool :=
   -- solc 0.8.35 defines ordered comparisons (`<`/`<=`/`>`/`>=`) on same-enum
   -- operands (compares ordinals, result `bool`). At this layer an enum type is
   -- carried as `Ty.user path`; `Ty.enum _` is the post-resolution shape. Both
-  -- accept. Contracts are ALSO `Ty.user path` but are NOT ordered-comparable in
-  -- solc, so we gate on `isEnumPath` (unlike equality, which also allows
-  -- contracts). Same-enum-only is enforced upstream by `commonCheckedTyFor`:
+  -- accept. Same-enum-only is enforced upstream by `commonCheckedTyFor`:
   -- distinct enum paths have no `commonImplicit?`, so they never reach here.
+  -- Contracts/interfaces are ALSO ordered-comparable in solc (compares their
+  -- addresses as unsigned 160-bit values — TypeChecker.cpp:1828-1837 allows
+  -- `isCompareOp` for a `Contract`-category common type; only warning 9170), but
+  -- they are NOT routed through this predicate: the `commonImplicit?` machinery
+  -- behind `relationalTy` is context-free and so cannot resolve a base/derived
+  -- contract pair to its common base. Two contract operands are instead accepted
+  -- directly in the `lt/gt/le/ge` dispatch via context-aware bidirectional
+  -- implicit convertibility (mirroring equality), which handles identity,
+  -- interfaces, and base/derived upcasts while still rejecting unrelated pairs.
   | Solidity.Ty.enum _ => true
   | Solidity.Ty.user path => types.isEnumPath path
   | _ => Ty.isArithmeticOperand ty || Ty.isFixedBytesOperand ty
+
+-- A contract- or interface-typed operand (`Ty.user path` naming a contract
+-- kind, incl. `interface`; a library type never has a runtime value so it never
+-- reaches operator checking). solc 0.8.35 compares two such operands by their
+-- addresses as unsigned 160-bit values under the ordered comparison operators.
+def TypeContext.isContractOperandTy (types : TypeContext) : Ty -> Bool
+  | Solidity.Ty.user path => types.isContractPath path
+  | _ => false
 
 def Ty.isShiftLeftOperand (ty : Ty) : Bool :=
   Ty.isInteger ty || Ty.isFixedBytesOperand ty
@@ -7528,8 +7543,28 @@ def checkExpr (env : CheckEnv) :
           require
             (Solidity.Executable.Expr.numberComparisonFoldable? lhs rhs)
             (TypeError.expectedType lhsChecked.ty rhsChecked.ty)
-          let _ ← CheckedExprs.relationalTy env.types lhsChecked rhsChecked
-          Except.ok { source := expr, ty := Solidity.Ty.bool }
+          if env.types.isContractOperandTy lhsChecked.ty &&
+              env.types.isContractOperandTy rhsChecked.ty then
+            -- solc 0.8.35 accepts ordered comparison of two contract/interface
+            -- operands, comparing their addresses as unsigned 160-bit values
+            -- (deprecation warning 9170 only). `relationalTy`'s common-type
+            -- machinery is context-free and cannot resolve a base/derived pair,
+            -- so we accept here with the same context-aware bidirectional
+            -- implicit-convertibility test equality uses: identity, interfaces
+            -- and base/derived (upcast to the common base) pass; unrelated
+            -- contracts (neither convertible to the other) are rejected, as is a
+            -- contract-vs-address pair (address is not a contract operand, so it
+            -- falls through to `relationalTy`, whose `commonImplicit?` is none).
+            require
+              (TypeContext.canImplicitlyConvert env.types
+                  rhsChecked.ty lhsChecked.ty ||
+                TypeContext.canImplicitlyConvert env.types
+                  lhsChecked.ty rhsChecked.ty)
+              (TypeError.expectedType lhsChecked.ty rhsChecked.ty)
+            Except.ok { source := expr, ty := Solidity.Ty.bool }
+          else
+            let _ ← CheckedExprs.relationalTy env.types lhsChecked rhsChecked
+            Except.ok { source := expr, ty := Solidity.Ty.bool }
       | Solidity.BinaryOp.eq
       | Solidity.BinaryOp.ne =>
           require
