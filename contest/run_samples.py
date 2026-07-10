@@ -356,6 +356,19 @@ def hardening_unit_tests() -> tuple[bool, str]:
     checks.append(("bytes32-bytes-rejected",
                    adj._arg_domain_error({"bytes": "0x" + "11" * 32}, "bytes32", {})
                    is not None))
+    # a bytes32 word must ALSO fit in [0, 2^256): the EVM encoder reduces it
+    # `% 2^256` while render_lean_arg emits the raw Nat, so an oversized word feeds
+    # the two engines different logical calls -> a fabricated divergence. Boundary
+    # value 2^256-1 is legal; 2^256 (and above) is rejected, like the uintN branch.
+    checks.append(("bytes32-word-max-ok",
+                   adj._arg_domain_error({"word": (1 << 256) - 1}, "bytes32", {})
+                   is None))
+    checks.append(("bytes32-word-overflow-rejected",
+                   adj._arg_domain_error({"word": 1 << 256}, "bytes32", {})
+                   is not None))
+    checks.append(("bytes32-word-far-overflow-rejected",
+                   adj._arg_domain_error({"word": (1 << 300) + 5}, "bytes32", {})
+                   is not None))
     # dynamic bytes/string still accept {bytes} (they ARE dynamically encoded).
     checks.append(("bytes-dyn-ok",
                    adj._arg_domain_error({"bytes": "0x1122"}, "bytes", {}) is None))

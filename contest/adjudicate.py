@@ -888,9 +888,16 @@ def _arg_domain_error(arg: object, ptype: str,
         # decodes the head word as the OFFSET (0x20) on the EVM, while solidity-lean
         # gets a Value.bytes — two different logical calls, a fabricated divergence.
         # A bytes32 value must be passed as {"word": <int>} (static 32-byte head).
-        if _arg_as_word(arg) is not None:
+        # It must ALSO fit in 32 bytes: measure._encode_arg reduces the word
+        # `% (1 << 256)` while render_lean_arg emits the RAW Nat, so a word >= 2^256
+        # feeds the two engines DIFFERENT logical calls (EVM sees the truncation,
+        # solidity-lean the full magnitude) -> a fabricated divergence. Bound it to
+        # the bytes32 domain [0, 2^256), exactly as the uintN branch bounds its word.
+        w = _arg_as_word(arg)
+        if w is not None and 0 <= w < (1 << 256):
             return None
-        return f"bytes32 arg requires the word form {{\"word\": n}}, got {arg!r}"
+        return (f"bytes32 arg requires the word form {{\"word\": n}} in [0, 2^256), "
+                f"got {arg!r}")
     if t.startswith("enum "):
         canonical = t[len("enum "):].strip()
         count = enum_counts.get(canonical)
