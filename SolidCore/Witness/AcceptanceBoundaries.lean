@@ -707,6 +707,82 @@ def varDeclBodyNeighborsAccepted : Bool :=
 #guard badDoWhileVarDeclBodyRejected
 #guard badForVarDeclBodyRejected
 #guard varDeclBodyNeighborsAccepted
+
+-- DUP-EVENT-SIBLING — two SIBLING base contracts that each declare an event
+-- with the SAME name and SAME ABI parameter types clash even when the derived
+-- contract declares no event of its own. solc
+-- `ContractLevelChecker::checkDuplicateEvents` (error 5883, "Event with same
+-- name and parameter types defined twice") collects events from the WHOLE
+-- linearized base list into a name-keyed multimap and flags any two whose
+-- external-callable parameters are equal. Indexed-ness is NOT part of the
+-- comparison (`event E(uint indexed)` vs `event E(uint)` still clash), and the
+-- comparison is over ABI TYPES only. Confirmed against pinned solc 0.8.35:
+--   contract A{event E(uint);} contract B{event E(uint);} contract C is A,B{}
+--     → REJECT 5883; the indexed variant → REJECT 5883 too.
+-- The tightening runs `EventSigs.ensureNoDuplicateAbiSignatures` over
+-- `inheritedEventSigs` (drawn from `drop 1 dispatchOrder`, the C3 linearization
+-- with each base appearing exactly once). Neighbors that stay ACCEPTED:
+--   * DIAMOND — a single event reached via two paths
+--     (`contract Z{event E(uint);} A is Z; B is Z; C is A,B`) appears once in
+--     the linearization, so it does NOT self-clash (solc accepts); and
+--   * two sibling events sharing a name but with DIFFERENT ABI types
+--     (`event E(uint)` vs `event E(bool)`) — no clash (solc accepts).
+-- (The analogous sibling clash for ERRORS / state vars / structs / enums is a
+-- SEPARATE, broader mechanism — solc's name-resolution "Identifier already
+-- declared" — not this event ABI-signature check; it remains a distinct gap.)
+-- ===========================================================================
+
+private def dupEventItem (ty : Solidity.Ty) (indexed : Bool := false) :
+    Solidity.ContractItem :=
+  Solidity.ContractItem.eventDecl
+    { name := "E", params := [{ name := none, ty := ty, indexed := indexed }] }
+
+private def dupEventBase (name : Name) (item : Solidity.ContractItem)
+    (bases : List Name := []) : Solidity.ContractDecl :=
+  { name := name
+    bases := bases.map (fun b => { base := userPath b })
+    items := [item] }
+
+private def dupEventEmpty (name : Name) (bases : List Name) :
+    Solidity.ContractDecl :=
+  { name := name, bases := bases.map (fun b => { base := userPath b }) }
+
+private def dupEventSU (cs : List Solidity.ContractDecl) : Solidity.SourceUnit :=
+  { items := cs.map SourceItem.contract }
+
+-- (a) sibling bases each `event E(uint)`, derived declares nothing → REJECT.
+def dupEventSiblingRejected : Bool :=
+  Result.isError (SourceUnit.check (dupEventSU
+    [ dupEventBase "DupEvA" (dupEventItem su_uint256)
+    , dupEventBase "DupEvB" (dupEventItem su_uint256)
+    , dupEventEmpty "DupEvC" ["DupEvA", "DupEvB"] ]))
+
+-- (c) indexed vs non-indexed, same ABI type → still REJECT (indexed ignored).
+def dupEventSiblingIndexedRejected : Bool :=
+  Result.isError (SourceUnit.check (dupEventSU
+    [ dupEventBase "DupEvIxA" (dupEventItem su_uint256 (indexed := true))
+    , dupEventBase "DupEvIxB" (dupEventItem su_uint256)
+    , dupEventEmpty "DupEvIxC" ["DupEvIxA", "DupEvIxB"] ]))
+
+-- Neighbors that MUST stay accepted:
+--   (b) diamond: one event reached via two paths — no self-clash;
+--   (d) same name but different ABI parameter types — no clash.
+def dupEventSiblingNeighborsAccepted : Bool :=
+  sourceUnitAccepted? (dupEventSU
+      [ dupEventBase "DupEvDZ" (dupEventItem su_uint256)
+      , dupEventEmpty "DupEvDA" ["DupEvDZ"]
+      , dupEventEmpty "DupEvDB" ["DupEvDZ"]
+      , dupEventEmpty "DupEvDC" ["DupEvDA", "DupEvDB"] ]) &&
+    sourceUnitAccepted? (dupEventSU
+      [ dupEventBase "DupEvTA" (dupEventItem su_uint256)
+      , dupEventBase "DupEvTB" (dupEventItem Solidity.Ty.bool)
+      , dupEventEmpty "DupEvTC" ["DupEvTA", "DupEvTB"] ])
+
+-- Build-time gate: pin every acceptance-boundary witness added here so a future
+-- loosening cannot silently re-open them (`lake build` fails if any is false).
+#guard dupEventSiblingRejected
+#guard dupEventSiblingIndexedRejected
+#guard dupEventSiblingNeighborsAccepted
 #guard badInternalPayableRejected
 #guard badPrivatePayableRejected
 #guard g11PayableNeighborsAccepted

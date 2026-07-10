@@ -13239,6 +13239,16 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
     storageOrder
   EventSigs.ensureNoDuplicateAbiSignaturesAgainst contractTypes
     inheritedEventSigs eventSigs
+  -- DUP-EVENT-SIBLING: solc `ContractLevelChecker::checkDuplicateEvents`
+  -- (error 5883) collects events from the WHOLE linearized base list and flags
+  -- any two same-name events with equal ABI parameter types — including two
+  -- events inherited from *different* sibling bases (the derived contract need
+  -- declare no event of its own). `inheritedEventSigs` is drawn from
+  -- `ancestorPaths`, i.e. `drop 1 dispatchOrder`, which is the C3 linearization
+  -- with each base contract appearing EXACTLY ONCE, so a single event reached
+  -- via two diamond paths (`C is A,B` with `A,B is Z`) appears once and does
+  -- NOT clash — matching solc, which compares distinct declarations.
+  EventSigs.ensureNoDuplicateAbiSignatures contractTypes inheritedEventSigs
   StateVarDecls.checkNoInheritedShadowing inheritedStateVarNames stateVars
   checkNoInheritedStateNameClashes inheritedStateVarNames
     (modifiers.map Solidity.ModifierDecl.name ++
