@@ -734,6 +734,66 @@ def commonTypeLiteralNarrowAssignRejected : Bool :=
   Result.isError (SourceUnit.check
     (su_singleContract "CTL109Assign" commonTypeLiteralAssignFn))
 
+-- #111 NEG-LITERAL-COMMON-TYPE — the NEGATIVE-literal sibling of #109. A negative
+-- untyped number literal's `mobileType` is the smallest-fitting SIGNED intN
+-- (`-300 ↦ int16`, `-1 ↦ int8`; `RationalNumberType::mobileType`,
+-- `Types.cpp:1210`). `Type::commonType` (`Types.cpp:286`) is
+-- `commonType(typed, literal->mobileType())`, and
+-- `IntegerType::isImplicitlyConvertibleTo` (`Types.cpp:611-614`) forbids ALL
+-- implicit signed↔unsigned conversions. So an UNSIGNED operand with a negative
+-- literal has NO common type and solc REJECTS `uint8 a * -300`
+-- ("Built-in binary operator * cannot be applied to types uint8 and
+-- int_const -300"), while a SIGNED operand shares the common type and solc
+-- ACCEPTS `int16 a * -300` (typed int16). The model already matches: the A1
+-- rule (`Ty.canImplicitlyConvert` rejects signed↔unsigned) composed with the
+-- #109 mobile-type widening (`untypedLiteralMobileTy?` sees through unary neg to
+-- `int16`) makes `commonImplicit? uint8 int16 = none` → arithmetic type error.
+-- ===========================================================================
+
+-- `function f(uint8 a) pure returns (int256) { return a <op> <negLit>; }`
+private def negLitCommonTypeUnsignedFn
+    (op : BinaryOp) (litOnLeft : Bool := false) (paramTy : Solidity.Ty)
+    (lit : String := "300") : FunctionDecl :=
+  let a := Expr.ident "a"
+  let l := Expr.unary UnaryOp.neg (numberExpr lit)
+  { simpleReturnFunction with
+    name := some "f"
+    params := [{ name := some "a", ty := paramTy }]
+    returns := [{ name := none, ty := Solidity.Ty.int 256 }]
+    body := some (Stmt.returnValues (some
+      (if litOnLeft then Expr.binary op l a else Expr.binary op a l))) }
+
+-- (a) crux: uint8 operand × negative literal → REJECT (no common type).
+def negLitCommonTypeUnsignedMulRejected : Bool :=
+  Result.isError (SourceUnit.check (su_singleContract "NL111UMul"
+    (negLitCommonTypeUnsignedFn BinaryOp.mul (paramTy := Solidity.Ty.uint 8))))
+
+-- Siblings that all REJECT for the same reason (unsigned + negative literal):
+--   uint16 × -300, -300 × uint8 (literal on left), uint8 + -300, uint8 × -1.
+def negLitCommonTypeUnsignedSiblingsRejected : Bool :=
+  Result.isError (SourceUnit.check (su_singleContract "NL111U16Mul"
+      (negLitCommonTypeUnsignedFn BinaryOp.mul (paramTy := Solidity.Ty.uint 16)))) &&
+    Result.isError (SourceUnit.check (su_singleContract "NL111ULeft"
+      (negLitCommonTypeUnsignedFn BinaryOp.mul (litOnLeft := true)
+        (paramTy := Solidity.Ty.uint 8)))) &&
+    Result.isError (SourceUnit.check (su_singleContract "NL111UAdd"
+      (negLitCommonTypeUnsignedFn BinaryOp.add (paramTy := Solidity.Ty.uint 8)))) &&
+    Result.isError (SourceUnit.check (su_singleContract "NL111UNeg1"
+      (negLitCommonTypeUnsignedFn BinaryOp.mul (paramTy := Solidity.Ty.uint 8)
+        (lit := "1"))))
+
+-- Neighbors that MUST stay ACCEPTED (signed operand shares the common type):
+--   int16 × -300 (int16), int8 × -1 (int8), -300 × int16 (int16).
+def negLitCommonTypeSignedNeighborsAccepted : Bool :=
+  sourceUnitAccepted? (su_singleContract "NL111I16Mul"
+      (negLitCommonTypeUnsignedFn BinaryOp.mul (paramTy := Solidity.Ty.int 16))) &&
+    sourceUnitAccepted? (su_singleContract "NL111I8Neg1"
+      (negLitCommonTypeUnsignedFn BinaryOp.mul (paramTy := Solidity.Ty.int 8)
+        (lit := "1"))) &&
+    sourceUnitAccepted? (su_singleContract "NL111ILeft"
+      (negLitCommonTypeUnsignedFn BinaryOp.mul (litOnLeft := true)
+        (paramTy := Solidity.Ty.int 16)))
+
 -- Build-time gate: pin every acceptance-boundary witness added here so a future
 -- loosening cannot silently re-open them (`lake build` fails if any is false).
 #guard badConstDivByZeroRejected
@@ -1234,6 +1294,9 @@ def createSaltLiteralAcceptanceMatches : Bool :=
 #guard hexDenomNeighborsAccepted
 #guard commonTypeLiteralAddReturnsU16Accepted
 #guard commonTypeLiteralNarrowAssignRejected
+#guard negLitCommonTypeUnsignedMulRejected
+#guard negLitCommonTypeUnsignedSiblingsRejected
+#guard negLitCommonTypeSignedNeighborsAccepted
 -- #110 QUALIFIED-STRUCT-CONSTRUCTION — constructing a struct through a type-name
 -- qualifier where the struct is defined in ANOTHER (non-inherited) contract or a
 -- library resolves to that struct's constructor exactly as an unqualified

@@ -10389,6 +10389,84 @@
       }
     },
     {
+      "name": "neg-literal-common-type",
+      "description": "NEGATIVE-literal sibling of #109 (#111 NEG-LITERAL-COMMON-TYPE). A negative untyped number literal's mobileType is the smallest-fitting SIGNED intN (-300 -> int16, -1 -> int8), and solc forbids all signed<->unsigned implicit conversions (Types.cpp:611-614), so `uint8 a * -300` has NO common type and solc REJECTS it (a rejection witness, not a runtime lane). A SIGNED operand shares the common type: `int16 a * -300` runs the checked op at int16, overflowing to Panic 0x11 (a=200 -> -60000, a=-200 -> 60000) yet returning the fitting signed value otherwise; `int8 a * -1` is the INT8_MIN negation overflow (a=-128 -> 128 Panics). This lane exercises the accepted signed-operand side that solc emits an AST for; solidity-lean already handles both sides (A1 signed/unsigned rule composed with the #109 mobile-type widening). Lean imports the same contract from the solc AST.",
+      "forge": {
+        "root": "tests/forge-harness/neg-literal-common-type",
+        "match_contract": "NegLiteralCommonTypeForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/neg-literal-common-type/src/NegLiteralCommonType.sol",
+        "contract": "NegLiteralCommonTypeHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.NegLiteralCommonType"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.NegLiteralCommonType.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "mulI16FitsNegative",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 64 SolidCore.Solidity.SolcAstImport.NegLiteralCommonType.importedContract \"mulI16\" SolidCore.Solidity.Source.State.empty [(SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (100 : Int)))] (SolidCore.Solidity.Shared.signedToWord (-30000 : Int))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "mulI16FitsPositive",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 64 SolidCore.Solidity.SolcAstImport.NegLiteralCommonType.importedContract \"mulI16\" SolidCore.Solidity.Source.State.empty [(SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (-100 : Int)))] (SolidCore.Solidity.Shared.signedToWord (30000 : Int))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "mulI16UnderflowPanics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 64 SolidCore.Solidity.SolcAstImport.NegLiteralCommonType.importedContract \"mulI16\" SolidCore.Solidity.Source.State.empty [(SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (200 : Int)))] 17",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "mulI16OverflowPanics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 64 SolidCore.Solidity.SolcAstImport.NegLiteralCommonType.importedContract \"mulI16\" SolidCore.Solidity.Source.State.empty [(SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (-200 : Int)))] 17",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "mulI8Neg1Fits",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 64 SolidCore.Solidity.SolcAstImport.NegLiteralCommonType.importedContract \"mulI8Neg1\" SolidCore.Solidity.Source.State.empty [(SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (100 : Int)))] (SolidCore.Solidity.Shared.signedToWord (-100 : Int))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "mulI8Neg1MinNegationPanics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 64 SolidCore.Solidity.SolcAstImport.NegLiteralCommonType.importedContract \"mulI8Neg1\" SolidCore.Solidity.Source.State.empty [(SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (-128 : Int)))] 17",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "addI16Fits",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 64 SolidCore.Solidity.SolcAstImport.NegLiteralCommonType.importedContract \"addI16Neg300\" SolidCore.Solidity.Source.State.empty [(SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (100 : Int)))] (SolidCore.Solidity.Shared.signedToWord (-200 : Int))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "addI16UnderflowPanics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 64 SolidCore.Solidity.SolcAstImport.NegLiteralCommonType.importedContract \"addI16Neg300\" SolidCore.Solidity.Source.State.empty [(SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (-32700 : Int)))] 17",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "litMulLeftFits",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 64 SolidCore.Solidity.SolcAstImport.NegLiteralCommonType.importedContract \"litMulLeft\" SolidCore.Solidity.Source.State.empty [(SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (50 : Int)))] (SolidCore.Solidity.Shared.signedToWord (-15000 : Int))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "litMulLeftOverflowPanics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 64 SolidCore.Solidity.SolcAstImport.NegLiteralCommonType.importedContract \"litMulLeft\" SolidCore.Solidity.Source.State.empty [(SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (-500 : Int)))] 17",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
       "name": "const-getter-pure-override",
       "description": "CONST-GETTER-PURE-OVERRIDE (#115): a `public constant` state variable's synthesized getter has state mutability PURE (not view), because a constant is fixed at compile time and reads no state (solc Types.cpp OverrideProxy::stateMutability(): isConstant() ? Pure : View). So `uint public constant override X = 5` CAN override an interface `function X() external pure returns (uint)`. solidity-lean formerly over-rejected this (its synthesized getter was always view, and view cannot override pure). Forge runs the accepted program on real EVM; Lean imports the same contract from the solc AST, confirms acceptance, and checks the constant getter returns 5. The non-constant getter (view) overriding a pure base stays REJECTED \u2014 see the AcceptanceBoundaries witnesses.",
       "forge": {
