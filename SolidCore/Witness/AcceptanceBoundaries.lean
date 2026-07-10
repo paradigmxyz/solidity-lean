@@ -1172,6 +1172,95 @@ def abiDecodeAddressPayableAccepted : Bool :=
 #guard hexDenomNeighborsAccepted
 #guard commonTypeLiteralAddReturnsU16Accepted
 #guard commonTypeLiteralNarrowAssignRejected
+-- #110 QUALIFIED-STRUCT-CONSTRUCTION — constructing a struct through a type-name
+-- qualifier where the struct is defined in ANOTHER (non-inherited) contract or a
+-- library resolves to that struct's constructor exactly as an unqualified
+-- in-scope struct name would (solc: FunctionCall with
+-- FunctionType::Kind::StructConstructor; a MemberAccess to a struct type in
+-- another contract/library yields a TypeType whose constructor is callable).
+-- Probed against pinned solc 0.8.35 — all ACCEPT:
+--   library L{struct P{uint x;uint y;}} …  L.P(1,2) / L.P({y:20,x:10})
+--   contract Defs{struct Q{uint a;uint b;}} (NOT inherited) …  Defs.Q(4,5) / Defs.Q({a:1,b:2})
+-- and all REJECT (must not over-accept):
+--   wrong arity      A.S(1)            (error: wrong argument count)
+--   wrong field name A.S({x:1,z:2})    (error: named argument does not match)
+--   wrong arg type   A.S(true,2)       (error: invalid implicit conversion)
+-- The qualified struct name imports as `Expr.typeName (Ty.user {segments:=[A,S]})`
+-- (the type-expression MemberAccess collapse from #102), and the struct-
+-- constructor arm resolves it via `lookupStruct?` on the qualified path, so no
+-- model change was needed; these witnesses lock the behavior in.
+-- ===========================================================================
+
+private def qsLib : ContractDecl :=
+  { kind := ContractKind.library, name := "QsLib"
+    items := [ContractItem.structDecl
+      { name := "P"
+        fields := [{ name := "x", ty := su_uint256 }
+                 , { name := "y", ty := su_uint256 }] }] }
+
+private def qsDefs : ContractDecl :=
+  { name := "QsDefs"
+    items := [ContractItem.structDecl
+      { name := "Q"
+        fields := [{ name := "a", ty := su_uint256 }
+                 , { name := "b", ty := su_uint256 }] }] }
+
+-- A function `f` that does `<path> memory s = <path>(args); return s.f1 + s.f2;`.
+private def qsFn (path : List Name) (args : List Arg) (f1 f2 : Name) :
+    FunctionDecl :=
+  { simpleReturnFunction with
+    name := some "f"
+    visibility := some Visibility.external_
+    mutability := StateMutability.pure
+    returns := [{ name := none, ty := su_uint256, location := none }]
+    body := some (Stmt.block
+      [ Stmt.varDecl
+          [{ name := some "s", ty := Ty.user { segments := path }
+           , location := some DataLocation.memory }]
+          (some (Expr.call (Expr.typeName (Ty.user { segments := path })) args))
+      , Stmt.returnValues (some (Expr.binary BinaryOp.add
+          (Expr.member (Expr.ident "s") f1) (Expr.member (Expr.ident "s") f2))) ]) }
+
+private def qsSU (fn : FunctionDecl) : SourceUnit :=
+  { items := [ SourceItem.contract qsLib
+             , SourceItem.contract qsDefs
+             , SourceItem.contract { name := "QsT", items := [ContractItem.function fn] } ] }
+
+private def qsPathP : List Name := ["QsLib", "P"]
+private def qsPathQ : List Name := ["QsDefs", "Q"]
+
+-- Library-scoped and contract-scoped, positional and named — all ACCEPT.
+def qstructQualifiedConstructionAccepted : Bool :=
+  sourceUnitAccepted? (qsSU (qsFn qsPathP
+      [Arg.positional (numberExpr "1"), Arg.positional (numberExpr "2")] "x" "y")) &&
+    sourceUnitAccepted? (qsSU (qsFn qsPathP
+      [Arg.named "y" (numberExpr "20"), Arg.named "x" (numberExpr "10")] "x" "y")) &&
+    sourceUnitAccepted? (qsSU (qsFn qsPathQ
+      [Arg.positional (numberExpr "4"), Arg.positional (numberExpr "5")] "a" "b")) &&
+    sourceUnitAccepted? (qsSU (qsFn qsPathQ
+      [Arg.named "a" (numberExpr "100"), Arg.named "b" (numberExpr "200")] "a" "b"))
+
+-- Wrong arity `QsLib.P(1)` — REJECTED (solc: wrong argument count).
+def qstructWrongArityRejected : Bool :=
+  Result.isError (SourceUnit.check (qsSU (qsFn qsPathP
+    [Arg.positional (numberExpr "1")] "x" "y")))
+
+-- Wrong field name `QsLib.P({x:1,z:2})` — REJECTED (solc: named argument mismatch).
+def qstructWrongFieldNameRejected : Bool :=
+  Result.isError (SourceUnit.check (qsSU (qsFn qsPathP
+    [Arg.named "x" (numberExpr "1"), Arg.named "z" (numberExpr "2")] "x" "y")))
+
+-- Wrong argument type `QsLib.P(true,2)` — REJECTED (solc: bad implicit conversion).
+def qstructWrongTypeRejected : Bool :=
+  Result.isError (SourceUnit.check (qsSU (qsFn qsPathP
+    [Arg.positional (boolExpr true), Arg.positional (numberExpr "2")] "x" "y")))
+
+-- Build-time gate: pin every acceptance-boundary witness added here so a future
+-- loosening cannot silently re-open them (`lake build` fails if any is false).
+#guard qstructQualifiedConstructionAccepted
+#guard qstructWrongArityRejected
+#guard qstructWrongFieldNameRejected
+#guard qstructWrongTypeRejected
 
 end Examples
 end TypeCheck

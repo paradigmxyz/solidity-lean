@@ -10130,6 +10130,39 @@
       }
     },
     {
+      "name": "qualified-struct-construction",
+      "description": "Forge checks the real-EVM field values of constructing a struct through a type-name qualifier where the struct is defined in another (non-inherited) contract or a library: `L.P(1, 2)` / `Defs.Q(4, 5)` (positional) and `L.P({y: 20, x: 10})` / `Defs.Q({a: 100, b: 200})` (named). solc accepts all of these; the qualified struct name resolves to the struct's constructor exactly as an unqualified in-scope struct name would. Lean imports the same contract from the solc AST and checks the resulting field values.",
+      "forge": {
+        "match_contract": "QualifiedStructConstructionForgeTest",
+        "match_test": "test*",
+        "quiet": true,
+        "root": "tests/forge-harness/qualified-struct-construction"
+      },
+      "solc_import": {
+        "contract": "QualifiedStructConstructionHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.QualifiedStructConstruction",
+        "source": "tests/forge-harness/qualified-struct-construction/src/QualifiedStructConstruction.sol"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "expect": "true",
+            "expr": "SolidCore.Solidity.SolcAstImport.QualifiedStructConstruction.importedContractAccepted",
+            "label": "importedQualifiedStructConstructionAccepted"
+          },
+          {
+            "expect": "Except.ok true",
+            "expr": "(do\n  let eqWord := fun (fn : String) (expected : Nat) => (do\n    let r \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.callContract 64 SolidCore.Solidity.SolcAstImport.QualifiedStructConstruction.importedSourceUnit \"QualifiedStructConstructionHarnessTarget\" (SolidCore.Solidity.Source.CallTarget.name fn) SolidCore.Solidity.Source.State.empty []\n    match r with\n    | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word w] =>\n        Except.ok (SolidCore.Solidity.Source.wordEq w expected)\n    | _ => Except.ok false)\n  let okLibPos \u2190 eqWord \"libPositional\" 3\n  let okLibNamed \u2190 eqWord \"libNamed\" 10020\n  let okConPos \u2190 eqWord \"contractPositional\" 9\n  let okConNamed \u2190 eqWord \"contractNamed\" 100200\n  Except.ok (okLibPos && okLibNamed && okConPos && okConNamed))",
+            "label": "importedQualifiedStructConstructionSemantics"
+          }
+        ]
+      }
+    },
+    {
       "name": "abi-decode-address-payable",
       "description": "ABI-DECODE-ADDRESS-PAYABLE: solc forces every top-level decoded `address` component of abi.decode's result type to `address payable` (TypeChecker.cpp:150-152). `address payable p = abi.decode(data,(address))` and the payable-only `abi.decode(data,(address)).send(0)` therefore compile; solidity-lean formerly returned plain `address` and over-rejected the whole contract. Forge checks the real-EVM result (decoded address round-trips; zero-value send to a code-less address returns true); Lean imports the same contract from the solc AST and runs it.",
       "forge": {
