@@ -11282,7 +11282,19 @@ def Parameter.matchesArgWithInternalFunctions?
   -- convertible TO the parameter type, e.g. a `uint8` arg binds a `uint256`
   -- parameter (widened). Wider→narrower and incompatible/signedness mismatches
   -- stay rejected because `canImplicitlyConvert` is directional.
-  some (Ty.canImplicitlyConvert argTy param.ty)
+  --
+  -- USINGFOR-WIDEN-BIND regression fix: `canImplicitlyConvert` only handles
+  -- value-type widening (its struct/user arms are limited to exact `==`), so a
+  -- storage struct / user-named / array / mapping receiver-or-arg — whose
+  -- reflected `abiTy` (a `Ty.user`/`Ty.struct` with possibly a different
+  -- namespace-qualified path than the parameter's resolved type) never `==`s the
+  -- parameter type — stopped binding, breaking library flows like OpenZeppelin
+  -- EnumerableMap. Fall back to nominal shape-matching (`Ty.matchesShape`, the
+  -- pre-#158 predicate) for those cases. This is purely additive: the widening
+  -- cases succeed via `canImplicitlyConvert`, and every `canImplicitlyConvert`
+  -- reject (wider→narrower, uint→bytes, signedness) is ALSO a `matchesShape`
+  -- reject, so no over-accept is reintroduced.
+  some (Ty.canImplicitlyConvert argTy param.ty || Ty.matchesShape argTy param.ty)
 
 def Parameter.matchesArgAllowingInternalFunctionNameWithFunctions?
     (functions freeFunctions : List FunctionDecl) (env : TypeEnv)
@@ -18974,7 +18986,18 @@ def FunctionDecl.firstParamMatchesWithInternalFunctions?
       -- direction (uint256 receiver → uint8 self) stays rejected because
       -- `canImplicitlyConvert` is directional. Directive APPLICABILITY
       -- (receiver == target type) is a separate, still-exact check.
-      some (Ty.canImplicitlyConvert receiverTy first.ty)
+      --
+      -- USINGFOR-WIDEN-BIND regression fix: `canImplicitlyConvert`'s struct/user
+      -- arms are exact `==` only, so a storage struct receiver whose reflected
+      -- `abiTy` path differs from the parameter's resolved struct type (e.g.
+      -- OpenZeppelin EnumerableMap's `_owners.set(...)`) stopped binding. Fall
+      -- back to nominal `Ty.matchesShape` (the pre-#158 predicate) for those
+      -- cases. Additive: the widening case succeeds via `canImplicitlyConvert`,
+      -- and every `canImplicitlyConvert` reject is also a `matchesShape` reject
+      -- (verified: narrowing, uint→bytes32, signedness), so the #158 over-accept
+      -- guards are preserved.
+      some (Ty.canImplicitlyConvert receiverTy first.ty ||
+        Ty.matchesShape receiverTy first.ty)
   | [] => some false
 
 def FunctionDecl.annotateSingleCoreReturn (decl : FunctionDecl)
