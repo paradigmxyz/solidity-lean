@@ -40,3 +40,4 @@ import SolidCore.Witness.ExpNarrowBaseWideExp
 import SolidCore.Witness.BoolCastOfComparison
 import SolidCore.Witness.CreationCodeAncestor
 import SolidCore.Witness.AddressFoldedConst
+import SolidCore.Witness.TupleVarDeclAbiDecode

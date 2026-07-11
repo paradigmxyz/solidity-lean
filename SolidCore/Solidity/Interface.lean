@@ -6515,6 +6515,35 @@ def tupleVarDeclCorePieces? (storageNames : List Name)
     ( coreDecls
     , [SolidCore.Solidity.Source.Stmt.assignTuple targets rhsCore] )
 
+-- GENERAL TUPLE-VARDECL lowering (#171 abi.decode RHS, #172 ternary RHS, and the
+-- general vein): a multi-binding tuple variable DECLARATION `(T1 a, …, Tn z) =
+-- rhs` for ANY initializer `rhs`. solc accepts these and binds each declared
+-- local to the corresponding component of the tuple-typed RHS; an omitted
+-- component (`(uint x, ) = …`, `(, uint y) = …`) is a skipped binding. The
+-- literal-tuple decl path (`(some (Expr.tuple items))`) and the internal-call
+-- CALL-shaped RHS arms are handled by dedicated arms; every other RHS — an
+-- `abi.decode` member call, a ternary of tuples, etc. — was missed at
+-- DECLARATION position (only the RETURN and tuple-ASSIGNMENT positions were
+-- handled), so replay yielded `TypeError.unsupported`. This mirrors the
+-- tuple-ASSIGNMENT path (`tupleAssignmentCore?`), which already lowers ANY RHS
+-- via `Expr.toCore?` then `assignTuple`: declare the fresh locals
+-- (`VarBindings.toCoreTupleDecls?`, dropping anonymous components), then bind the
+-- components through `assignTuple` with the RHS lowered by `Expr.toCore?` (which
+-- carries any per-component cleanups, e.g. abi.decode's). The binding count
+-- equals the RHS component arity (enforced by the acceptance predicate), so the
+-- targets line up with the components. Returns `none` if the RHS is not
+-- lowerable by `Expr.toCore?` (e.g. it nests internal calls), so callers can
+-- fall back to their existing hoisting logic.
+def tupleVarDeclGeneralCorePieces? (storageNames : List Name)
+    (bindings : List VarBinding) (rhs : Expr) :
+    Option (List CoreStmt × List CoreStmt) := do
+  let coreDecls ← VarBindings.toCoreTupleDecls? bindings
+  let targets ← VarBindings.toCoreTupleTargets? bindings
+  let rhsCore ← Expr.toCore? storageNames rhs
+  some
+    ( coreDecls
+    , [SolidCore.Solidity.Source.Stmt.assignTuple targets rhsCore] )
+
 def VarBindings.assignFromExternalReturnBindings? :
     List VarBinding -> List CoreBindingDecl -> Option (List CoreStmt)
   | [], [] => some []
@@ -6824,6 +6853,14 @@ def Stmt.toCore? (storageNames : List Name) : Stmt -> Option CoreStmt
   | Stmt.varDecl bindings@(_ :: _ :: _) (some (Expr.tuple items)) => do
       let (coreDecls, assigns) ←
         tupleVarDeclCorePieces? storageNames bindings items
+      some (SolidCore.Solidity.Source.Stmt.block (coreDecls ++ assigns))
+  -- GENERAL TUPLE-VARDECL (#171 abi.decode RHS, #172 ternary RHS): a
+  -- multi-binding tuple decl whose non-literal-tuple RHS is lowerable as one
+  -- expression. `Stmt.listToCore?` flattens this so the locals stay in scope for
+  -- following statements; this block form covers a standalone decl.
+  | Stmt.varDecl bindings@(_ :: _ :: _) (some rhs) => do
+      let (coreDecls, assigns) ←
+        tupleVarDeclGeneralCorePieces? storageNames bindings rhs
       some (SolidCore.Solidity.Source.Stmt.block (coreDecls ++ assigns))
   | Stmt.varDecl bindings init =>
       match bindings with
@@ -7144,6 +7181,14 @@ def Stmt.listToCore? (storageNames : List Name) :
   | Stmt.varDecl bindings@(_ :: _ :: _) (some (Expr.tuple items)) :: rest => do
       let (coreDecls, assigns) ←
         tupleVarDeclCorePieces? storageNames bindings items
+      let tail ← Stmt.listToCore? storageNames rest
+      some (coreDecls ++ assigns ++ tail)
+  -- GENERAL TUPLE-VARDECL (#171 abi.decode RHS, #172 ternary RHS): flatten a
+  -- multi-binding tuple decl with a single-expression RHS into the enclosing list
+  -- so the declared locals stay in scope for `rest`.
+  | Stmt.varDecl bindings@(_ :: _ :: _) (some rhs) :: rest => do
+      let (coreDecls, assigns) ←
+        tupleVarDeclGeneralCorePieces? storageNames bindings rhs
       let tail ← Stmt.listToCore? storageNames rest
       some (coreDecls ++ assigns ++ tail)
   | stmt :: rest => do
@@ -18188,6 +18233,24 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
               externalCallKindEnv
               storageNames modifiers functions freeFunctions returnTys rest
           some (head :: tail)
+  -- TUPLE-VARDECL-FROM-ABI-DECODE (#171): `(uint x, uint y) = abi.decode(...)`
+  -- in DECLARATION position. This member-call varDecl arm is reached on the live
+  -- (internal-call-aware) body path; `abi.decode` is neither a low-level nor an
+  -- external call, so route it through the shared general tuple-decl lowering
+  -- first (mirroring the tuple-ASSIGNMENT path) before the low-level/external
+  -- handlers. (Non-decode member calls fall through to the arm below.)
+  | Stmt.varDecl bindings
+      (some expr@(Expr.call (Expr.member (Expr.ident "abi") "decode") _)) :: rest => do
+      let (coreDecls, assigns) ←
+        tupleVarDeclGeneralCorePieces? storageNames bindings expr
+      let tail ←
+        Stmt.listToCoreWithInternalCallsWithRefs?
+          internalFuel
+          (VarBindings.extendStorageRefEnv storageRefEnv bindings)
+          (VarBindings.extendTypeEnv env bindings)
+          externalCallKindEnv
+          storageNames modifiers functions freeFunctions returnTys rest
+      some (coreDecls ++ assigns ++ tail)
   | Stmt.varDecl bindings (some expr@(Expr.call (Expr.member _ _) _)) :: rest => do
       let callStmts ←
         match Expr.lowLevelTupleVarDeclCorePieces? storageNames bindings expr with
@@ -18282,6 +18345,27 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
           storageNames modifiers functions freeFunctions returnTys rest
       some (callStmts ++ tail)
   | Stmt.varDecl bindings (some expr) :: rest =>
+      -- GENERAL TUPLE-VARDECL (#172 ternary RHS and the general vein): a
+      -- multi-binding tuple decl whose single-expression RHS is not a CALL shape
+      -- (handled by the arms above) nor a literal tuple (handled earlier) — e.g.
+      -- `(uint a, uint b) = c ? (1, 2) : (3, 4)`. Mirror the tuple-ASSIGNMENT
+      -- path: SPLICE the declared locals as siblings (so they stay in scope for
+      -- `rest`) followed by an `assignTuple` destructuring the lowered RHS. Falls
+      -- back to the per-statement generic lowering when the RHS is not lowerable
+      -- as one expression (e.g. it nests internal calls), preserving prior
+      -- handling for those shapes.
+      let tupleSplice : Option (List CoreStmt) :=
+        match bindings with
+        | _ :: _ :: _ => do
+            let (coreDecls, assigns) ←
+              tupleVarDeclGeneralCorePieces? storageNames bindings expr
+            let tail ←
+              Stmt.listToCoreWithInternalCallsWithRefs? internalFuel
+                (VarBindings.extendStorageRefEnv storageRefEnv bindings)
+                (VarBindings.extendTypeEnv env bindings) externalCallKindEnv
+                storageNames modifiers functions freeFunctions returnTys rest
+            some (coreDecls ++ assigns ++ tail)
+        | _ => none
       -- CALL-POSITION CONSOLIDATED (#148-#150): a variable declaration whose
       -- initializer nests value-returning calls in argument-like positions
       -- (array/struct-tuple element, `new`/constructor argument). Peel those
@@ -18290,43 +18374,47 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
       -- decl is spliced as a SIBLING and stays in scope for later statements.
       -- Fires only when a strictly-nested call is actually found; otherwise
       -- falls back to the generic per-statement lowering below (byte-identical).
-      let generic : Option (List CoreStmt) := do
-        let head ←
-          Stmt.toCoreWithInternalCalls? internalFuel storageRefEnv env
-            externalCallKindEnv storageNames modifiers functions freeFunctions
-            returnTys (Stmt.varDecl bindings (some expr))
-        let tail ←
-          Stmt.listToCoreWithInternalCallsWithRefs? internalFuel
-            (VarBindings.extendStorageRefEnv storageRefEnv bindings)
-            (VarBindings.extendTypeEnv env bindings) externalCallKindEnv
-            storageNames modifiers functions freeFunctions returnTys rest
-        some (head :: tail)
-      -- Restrict to the initializer shapes that (a) have no specific list arm
-      -- above and (b) declare a local that must survive as a sibling: array /
-      -- struct-tuple literals and `new` expressions. Every other initializer
-      -- keeps its exact prior handling.
-      let isTarget : Bool :=
-        match expr with
-        | Expr.array _ => true
-        | Expr.tuple _ => true
-        | Expr.newExpr _ _ => true
-        | _ => false
-      match internalFuel, isTarget with
-      | fuel + 1, true =>
-          match
-              Expr.argPositionHoistPrefix? fuel storageRefEnv env
-                externalCallKindEnv storageNames modifiers functions
-                freeFunctions expr with
-          | some (prefixStmts@(_ :: _), residualExpr) =>
-              (match
-                  Stmt.listToCoreWithInternalCallsWithRefs? fuel storageRefEnv
-                    env externalCallKindEnv storageNames modifiers functions
-                    freeFunctions returnTys
-                    (Stmt.varDecl bindings (some residualExpr) :: rest) with
-              | some spliced => some (prefixStmts ++ spliced)
-              | none => generic)
-          | _ => generic
-      | _, _ => generic
+      let fallback : Option (List CoreStmt) :=
+        let generic : Option (List CoreStmt) := do
+          let head ←
+            Stmt.toCoreWithInternalCalls? internalFuel storageRefEnv env
+              externalCallKindEnv storageNames modifiers functions freeFunctions
+              returnTys (Stmt.varDecl bindings (some expr))
+          let tail ←
+            Stmt.listToCoreWithInternalCallsWithRefs? internalFuel
+              (VarBindings.extendStorageRefEnv storageRefEnv bindings)
+              (VarBindings.extendTypeEnv env bindings) externalCallKindEnv
+              storageNames modifiers functions freeFunctions returnTys rest
+          some (head :: tail)
+        -- Restrict to the initializer shapes that (a) have no specific list arm
+        -- above and (b) declare a local that must survive as a sibling: array /
+        -- struct-tuple literals and `new` expressions. Every other initializer
+        -- keeps its exact prior handling.
+        let isTarget : Bool :=
+          match expr with
+          | Expr.array _ => true
+          | Expr.tuple _ => true
+          | Expr.newExpr _ _ => true
+          | _ => false
+        match internalFuel, isTarget with
+        | fuel + 1, true =>
+            match
+                Expr.argPositionHoistPrefix? fuel storageRefEnv env
+                  externalCallKindEnv storageNames modifiers functions
+                  freeFunctions expr with
+            | some (prefixStmts@(_ :: _), residualExpr) =>
+                (match
+                    Stmt.listToCoreWithInternalCallsWithRefs? fuel storageRefEnv
+                      env externalCallKindEnv storageNames modifiers functions
+                      freeFunctions returnTys
+                      (Stmt.varDecl bindings (some residualExpr) :: rest) with
+                | some spliced => some (prefixStmts ++ spliced)
+                | none => generic)
+            | _ => generic
+        | _, _ => generic
+      match tupleSplice with
+      | some spliced => some spliced
+      | none => fallback
   | stmt :: rest => do
       let head ←
         Stmt.toCoreWithInternalCalls?
