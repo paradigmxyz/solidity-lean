@@ -11679,6 +11679,59 @@
       }
     },
     {
+      "name": "delete-memory-nested-ref",
+      "description": "#168 DELETE-MEMORY-NESTED-REF wrong-value: `delete` on a MEMORY struct/array. solc 0.8.35 (legacy) + real EVM allocate a brand-new, fully-zeroed object graph at the free-memory pointer, so a struct's dynamic-array member becomes a NEW empty (length-0) array, not an alias of the old one: `delete s` on `S { uint x; uint[] arr }` then reads `(s.x, s.arr.length) == (0, 0)`. The model zeroed the memory delete paths via `Value.defaultLike`, which has no Runtime and returned the SAME inner `memoryRef`, so `s.x` zeroed but `s.arr.length` stayed 3 (wrong value, replay-reachable). The fix (Runtime.deleteZeroValue in Interpreter.lean) walks the value graph runtime-aware -- dynamic array -> fresh empty, fixed array -> same length each element zeroed, struct -> each field zeroed, value fields -> zero word -- and re-allocates every nested memoryRef as a FRESH cell so the deleted variable is fully detached from the pre-delete cells (which a surviving alias keeps observing). Forge pins real solc/EVM values for the core delete (0,0), a fresh reallocation after delete (2,5), a fixed array of dynamic arrays (0,0), a nested struct (0,0,0), and the aliasing case where a pre-delete alias keeps the old array (3,42,0). Imported Lean accepts the same source and EXECUTES each function to the same values.",
+      "forge": {
+        "root": "tests/forge-harness/delete-memory-nested-ref",
+        "match_contract": "DeleteMemoryNestedRefForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/delete-memory-nested-ref/src/DeleteMemoryNestedRef.sol",
+        "contract": "DeleteMemNestedRefHarness",
+        "namespace": "SolidCore.Solidity.SolcAstImport.DeleteMemoryNestedRefLane"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedDeleteMemoryNestedRefAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.DeleteMemoryNestedRefLane.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "deleteMemNestedRefF",
+            "expr": "(do\n  let program <- SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.DeleteMemoryNestedRefLane.importedSourceUnit\n  let r <- SolidCore.Solidity.TypeCheck.CheckedProgram.callContract 1000 program \"DeleteMemNestedRefHarness\" (SolidCore.Solidity.Source.CallTarget.name \"f\") SolidCore.Solidity.Source.State.empty []\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word wa, SolidCore.Solidity.Source.Value.word wb] => Except.ok (SolidCore.Solidity.Source.wordEq wa 0 && SolidCore.Solidity.Source.wordEq wb 0)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "deleteMemNestedRefFreshAfter",
+            "expr": "(do\n  let program <- SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.DeleteMemoryNestedRefLane.importedSourceUnit\n  let r <- SolidCore.Solidity.TypeCheck.CheckedProgram.callContract 1000 program \"DeleteMemNestedRefHarness\" (SolidCore.Solidity.Source.CallTarget.name \"freshAfter\") SolidCore.Solidity.Source.State.empty []\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word wa, SolidCore.Solidity.Source.Value.word wb] => Except.ok (SolidCore.Solidity.Source.wordEq wa 2 && SolidCore.Solidity.Source.wordEq wb 5)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "deleteMemNestedRefG",
+            "expr": "(do\n  let program <- SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.DeleteMemoryNestedRefLane.importedSourceUnit\n  let r <- SolidCore.Solidity.TypeCheck.CheckedProgram.callContract 1000 program \"DeleteMemNestedRefHarness\" (SolidCore.Solidity.Source.CallTarget.name \"g\") SolidCore.Solidity.Source.State.empty []\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word wa, SolidCore.Solidity.Source.Value.word wb] => Except.ok (SolidCore.Solidity.Source.wordEq wa 0 && SolidCore.Solidity.Source.wordEq wb 0)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "deleteMemNestedRefNested",
+            "expr": "(do\n  let program <- SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.DeleteMemoryNestedRefLane.importedSourceUnit\n  let r <- SolidCore.Solidity.TypeCheck.CheckedProgram.callContract 1000 program \"DeleteMemNestedRefHarness\" (SolidCore.Solidity.Source.CallTarget.name \"nested\") SolidCore.Solidity.Source.State.empty []\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word wa, SolidCore.Solidity.Source.Value.word wb, SolidCore.Solidity.Source.Value.word wc] => Except.ok (SolidCore.Solidity.Source.wordEq wa 0 && SolidCore.Solidity.Source.wordEq wb 0 && SolidCore.Solidity.Source.wordEq wc 0)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "deleteMemNestedRefAlias",
+            "expr": "(do\n  let program <- SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.DeleteMemoryNestedRefLane.importedSourceUnit\n  let r <- SolidCore.Solidity.TypeCheck.CheckedProgram.callContract 1000 program \"DeleteMemNestedRefHarness\" (SolidCore.Solidity.Source.CallTarget.name \"aliasCase\") SolidCore.Solidity.Source.State.empty []\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word wa, SolidCore.Solidity.Source.Value.word wb, SolidCore.Solidity.Source.Value.word wc] => Except.ok (SolidCore.Solidity.Source.wordEq wa 3 && SolidCore.Solidity.Source.wordEq wb 42 && SolidCore.Solidity.Source.wordEq wc 0)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
       "name": "exp-narrow-base-wide-exp",
       "description": "Forge checks solc/EVM `**` result-type semantics: `base ** e` has the BASE (left-operand) type, ignoring the (larger) exponent type (the solc warning), so the checked exponentiation Panics 0x11 at the BASE width even when the exponent is wider. uint8 base ** uint16 e returned as uint16 panics on base-width overflow (2**8=256, 2**10=1024); an explicit uint16 cast around it still panics; a wider-base/narrow-exponent (uint16**uint8, uint256**uint8) computes the correct value with no spurious panic; a signed narrow base (int8**uint16) checks at int8. solidity-lean formerly treated ** symmetrically (common type uint16) and lost the uint8 Panic 0x11 (#164 EXP-NARROW-BASE-WIDE-EXPONENT). Lean imports the same contract from the solc AST.",
       "forge": {

@@ -1231,6 +1231,65 @@ def Runtime.memoryStoreValue (runtime : Runtime) (value : Value) :
       else
         (runtime, value)
 
+/- Runtime-aware recursive zeroing for a memory `delete`. solc's `delete` on a
+    memory lvalue allocates a brand-new, fully-zeroed object graph at the free
+    memory pointer, so nested references become FRESH empty/zeroed cells — never
+    aliases of the old ones. `Value.defaultLike` cannot do this: it has no
+    `Runtime`, so it preserves inner `memoryRef`s (leaving e.g. a struct's
+    dynamic-array member pointing at the old, non-empty array). This walks the
+    value graph: value fields become the zero word/empty bytes, a dynamic array
+    becomes a fresh length-0 array, a fixed array keeps its length with each
+    element recursively zeroed, a struct (tuple) zeroes each field, and every
+    inner `memoryRef` is dereferenced, zeroed, and re-allocated as a NEW cell so
+    the deleted variable's fresh graph is fully detached from the pre-delete
+    cells (which any surviving alias keeps observing). -/
+mutual
+
+def Runtime.deleteZeroValue (runtime : Runtime) :
+    Nat -> Value -> Except RevertData (Runtime × Value)
+  | 0, _ => Except.error RevertData.typeMismatch
+  | fuel + 1, value =>
+      match value with
+      | Value.word _ => Except.ok (runtime, Value.word 0)
+      | Value.int _ => Except.ok (runtime, Value.int 0)
+      | Value.bytes _ => Except.ok (runtime, Value.bytes [])
+      | Value.externalFunction _ _ =>
+          Except.ok (runtime, Value.externalFunction 0 0)
+      | Value.internalFunction _ =>
+          Except.ok (runtime, Value.internalFunction 0)
+      | Value.fixedArray values => do
+          let (runtime', zeroed) ← runtime.deleteZeroValues (fuel + 1) values
+          Except.ok (runtime', Value.fixedArray zeroed)
+      | Value.dynamicArray _ => Except.ok (runtime, Value.dynamicArray [])
+      | Value.tuple values => do
+          let (runtime', zeroed) ← runtime.deleteZeroValues (fuel + 1) values
+          Except.ok (runtime', Value.tuple zeroed)
+      | Value.memoryRef id =>
+          match runtime.loadMemory? id with
+          | some stored => do
+              let (runtime', zeroed) ← runtime.deleteZeroValue fuel stored
+              Except.ok (runtime'.allocMemory zeroed)
+          | none => Except.error RevertData.typeMismatch
+      | Value.abiLazy cleanup value => do
+          let forced ← cleanup.forceValue value
+          runtime.deleteZeroValue fuel forced
+      | Value.storageRef _ => Except.ok (runtime, value)
+      | Value.storagePathRef _ _ => Except.ok (runtime, value)
+
+def Runtime.deleteZeroValues (runtime : Runtime) (fuel : Nat) :
+    List Value -> Except RevertData (Runtime × List Value)
+  | [] => Except.ok (runtime, [])
+  | value :: rest => do
+      let (runtime', zeroed) ← runtime.deleteZeroValue fuel value
+      let (runtime'', zeroedRest) ← runtime'.deleteZeroValues fuel rest
+      Except.ok (runtime'', zeroed :: zeroedRest)
+
+end
+
+def Runtime.deleteZeroValueDeep (runtime : Runtime) (value : Value) :
+    Except RevertData (Runtime × Value) :=
+  runtime.deleteZeroValue (runtime.nextMemory + 1) value
+
 def Runtime.lookupMemoryRef? (runtime : Runtime) (name : String) :
     Option Nat :=
   match runtime.lookupLocal? name with
@@ -6105,9 +6164,16 @@ def ResolvedLValue.delete (context : Context) (runtime : Runtime) :
             match runtime.loadMemory? id with
             | some value => Except.ok value
             | none => Except.error RevertData.typeMismatch
-          let (runtime', defaultValue) :=
-            runtime.memoryStoreValue value.defaultLike
-          match runtime'.assignLocal? name defaultValue with
+          -- `delete input` on a whole memory-reference LOCAL repoints the local
+          -- to a fresh zeroed graph (solc allocates a brand-new object at the
+          -- free pointer). It must NOT mutate the pointed-to cell in place: any
+          -- surviving alias (`T x = input; delete input;`) keeps observing the
+          -- OLD cell. Build the fresh zeroed value graph (runtime-aware, so
+          -- nested memoryRefs become fresh empty/zeroed cells — the #168 fix),
+          -- store it as a NEW cell, and rebind the local to it.
+          let (runtime', zeroed) ← runtime.deleteZeroValueDeep value
+          let (runtime'', freshRef) := runtime'.memoryStoreValue zeroed
+          match runtime''.assignLocal? name freshRef with
           | some updated => Except.ok updated
           | none => Except.error RevertData.typeMismatch
       | some value =>
@@ -6117,8 +6183,9 @@ def ResolvedLValue.delete (context : Context) (runtime : Runtime) :
       | none => Except.error RevertData.typeMismatch
   | ResolvedLValue.memoryCell id =>
       match runtime.loadMemory? id with
-      | some value =>
-          match runtime.storeMemory? id value.defaultLike with
+      | some value => do
+          let (runtime', zeroed) ← runtime.deleteZeroValueDeep value
+          match runtime'.storeMemory? id zeroed with
           | some updated => Except.ok updated
           | none => Except.error RevertData.typeMismatch
       | none => Except.error RevertData.typeMismatch
@@ -6135,8 +6202,9 @@ def ResolvedLValue.delete (context : Context) (runtime : Runtime) :
       let baseValue ← base.read context runtime
       let baseValue ← runtime.derefMemoryValue baseValue
       let oldValue ← baseValue.index? index
-      let updatedBase ← baseValue.setIndex? index oldValue.defaultLike
-      base.writeContainer context runtime updatedBase
+      let (runtime', zeroed) ← runtime.deleteZeroValueDeep oldValue
+      let updatedBase ← baseValue.setIndex? index zeroed
+      base.writeContainer context runtime' updatedBase
 
 def ResolvedLValue.applyIncDec (context : Context) (runtime : Runtime)
     (target : ResolvedLValue) (op : BinaryOp) (returnOld : Bool) :

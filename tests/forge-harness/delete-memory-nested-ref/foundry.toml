@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/delete-memory-nested-ref/out"
+cache_path = "../../.foundry-suites/delete-memory-nested-ref/cache"
+evm_version = "cancun"
