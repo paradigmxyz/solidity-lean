@@ -7563,6 +7563,36 @@ def Expr.binaryToCoreWithEnvTyped? (storageNames : List Name) (env : TypeEnv)
   | BinaryOp.boolOr
   | BinaryOp.shl
   | BinaryOp.shr => none
+  | BinaryOp.exp => do
+      -- EXP-NARROW-BASE-WIDE-EXPONENT: `**` is NOT symmetric. Per solc
+      -- (`IntegerType::binaryOperatorResult` / `Token::Exp`, `Types.cpp` ~728),
+      -- the result type of `base ** e` is the BASE (left-operand) type ONLY —
+      -- "ignoring the (larger) type of the second operand". The exponent keeps
+      -- its OWN type and is NOT folded into a common-type computation. Lowering
+      -- both operands + the result at the symmetric common type
+      -- (`commonImplicit? uint8 uint16 = uint16`) would run the checked-exp /
+      -- `implicitCleanupCore` at the wider width, where the uint8 overflow
+      -- (`2 ** 8 = 256`) fits and its Panic 0x11 is silently lost. Instead
+      -- lower the base at the base type (the returned `resultTy`, so the
+      -- caller's operand-width `implicitCleanupCore` enforces the base bound)
+      -- and the exponent at its own type (like solc's `cleanup_t_uintM` on the
+      -- exponent — no coercion to the base type).
+      let coreOp ← BinaryOp.toCore? op
+      let baseTy0 ← Expr.abiTyWithEnv? env lhs
+      let expTy0 ← Expr.abiTyWithEnv? env rhs
+      let baseTy :=
+        if Expr.isRawNumberLiteralExpression lhs then
+          (Expr.untypedLiteralMobileTy? lhs).getD baseTy0
+        else baseTy0
+      let expTy :=
+        if Expr.isRawNumberLiteralExpression rhs then
+          (Expr.untypedLiteralMobileTy? rhs).getD expTy0
+        else expTy0
+      let baseCore ← Expr.toCoreAsWithEnvBitAware? storageNames env baseTy lhs
+      let expCore ← Expr.toCoreAsWithEnvBitAware? storageNames env expTy rhs
+      some
+        (baseTy,
+          SolidCore.Solidity.Source.Expr.binary coreOp baseCore expCore)
   | _ => do
       let coreOp ← BinaryOp.toCore? op
       let operandTy ← Expr.commonOperandTyWithEnv? env lhs rhs

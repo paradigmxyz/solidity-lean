@@ -34,3 +34,4 @@ import SolidCore.Witness.RecursiveStructMemConstruct
 import SolidCore.Witness.NewContractLocalStructArray
 import SolidCore.Witness.CallPositionConsolidated
 import SolidCore.Witness.ModifierStaticQualifier
+import SolidCore.Witness.ExpNarrowBaseWideExp

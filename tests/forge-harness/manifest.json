@@ -11641,6 +11641,74 @@
           }
         ]
       }
+    },
+    {
+      "name": "exp-narrow-base-wide-exp",
+      "description": "Forge checks solc/EVM `**` result-type semantics: `base ** e` has the BASE (left-operand) type, ignoring the (larger) exponent type (the solc warning), so the checked exponentiation Panics 0x11 at the BASE width even when the exponent is wider. uint8 base ** uint16 e returned as uint16 panics on base-width overflow (2**8=256, 2**10=1024); an explicit uint16 cast around it still panics; a wider-base/narrow-exponent (uint16**uint8, uint256**uint8) computes the correct value with no spurious panic; a signed narrow base (int8**uint16) checks at int8. solidity-lean formerly treated ** symmetrically (common type uint16) and lost the uint8 Panic 0x11 (#164 EXP-NARROW-BASE-WIDE-EXPONENT). Lean imports the same contract from the solc AST.",
+      "forge": {
+        "root": "tests/forge-harness/exp-narrow-base-wide-exp",
+        "match_contract": "ExpNarrowBaseWideExpForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/exp-narrow-base-wide-exp/src/ExpNarrowBaseWideExp.sol",
+        "contract": "ExpNarrowBaseWideExpTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.ExpNarrowBaseWideExp"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.ExpNarrowBaseWideExp.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "g_2_7_is_128",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.ExpNarrowBaseWideExp.importedContract \"g\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 2, SolidCore.Solidity.Source.Value.word 7] 128",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "g_2_8_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 256 SolidCore.Solidity.SolcAstImport.ExpNarrowBaseWideExp.importedContract \"g\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 2, SolidCore.Solidity.Source.Value.word 8] 17",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "g_2_10_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 256 SolidCore.Solidity.SolcAstImport.ExpNarrowBaseWideExp.importedContract \"g\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 2, SolidCore.Solidity.Source.Value.word 10] 17",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "h_cast_2_8_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 256 SolidCore.Solidity.SolcAstImport.ExpNarrowBaseWideExp.importedContract \"h\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 2, SolidCore.Solidity.Source.Value.word 8] 17",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "mirror_2_8_is_256",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.ExpNarrowBaseWideExp.importedContract \"mirror\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 2, SolidCore.Solidity.Source.Value.word 8] 256",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "wideBase_2_200",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.ExpNarrowBaseWideExp.importedContract \"wideBase\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 2, SolidCore.Solidity.Source.Value.word 200] 1606938044258990275541962092341162602522202993782792835301376",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "sgn_neg2_7_is_min",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 256 SolidCore.Solidity.SolcAstImport.ExpNarrowBaseWideExp.importedContract \"sgn\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (-2)), SolidCore.Solidity.Source.Value.word 7] (SolidCore.Solidity.Shared.signedToWord (-128))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "sgn_2_7_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 256 SolidCore.Solidity.SolcAstImport.ExpNarrowBaseWideExp.importedContract \"sgn\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (2)), SolidCore.Solidity.Source.Value.word 7] 17",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }
