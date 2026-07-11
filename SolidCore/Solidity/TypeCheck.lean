@@ -1218,6 +1218,34 @@ def TypeContext.contractCanReceiveEther (types : TypeContext)
     (path : Path) : Bool :=
   TypeContext.contractCanReceiveEtherFuel types 64 path
 
+def ContractItems.hasImmutableStateVar :
+    List Solidity.ContractItem -> Bool
+  | [] => false
+  | Solidity.ContractItem.stateVar sv :: rest =>
+      sv.mutability == Solidity.VarMutability.immutable ||
+        ContractItems.hasImmutableStateVar rest
+  | _ :: rest => ContractItems.hasImmutableStateVar rest
+
+/-- solc `ContractType::immutableVariables()` (Types.cpp:2187): a contract's
+    immutable set is drawn from its **whole linearized base hierarchy**. Mirror
+    that by walking the named contract and every ancestor. Used to reject
+    `type(C).runtimeCode` when `C` (or any of its bases) declares an immutable
+    (TypeChecker.cpp:3486-3493, error 9274). -/
+def TypeContext.contractHasImmutableFuel
+    (types : TypeContext) : Nat -> Path -> Bool
+  | 0, _ => false
+  | fuel + 1, path =>
+      match types.lookupContractDecl? path with
+      | none => false
+      | some decl =>
+          ContractItems.hasImmutableStateVar decl.items ||
+            decl.bases.any (fun base =>
+              TypeContext.contractHasImmutableFuel types fuel base.base)
+
+def TypeContext.contractHasImmutable (types : TypeContext)
+    (path : Path) : Bool :=
+  TypeContext.contractHasImmutableFuel types 64 path
+
 def TypeContext.canImplicitlyConvert (types : TypeContext)
     (actual expected : Ty) : Bool :=
   if Ty.canImplicitlyConvert actual expected then
@@ -1782,6 +1810,16 @@ def CheckEnv.isCurrentOrAncestorContract (env : CheckEnv)
   | some current =>
       TypeContext.pathMatches current path ||
         TypeContext.pathIn path env.ancestorPaths
+  | none => false
+
+/-- True only for the CURRENT contract itself (self-reference), not ancestors.
+    solc forbids a genuine bytecode cycle — a contract's own
+    `type(C).creationCode` / `runtimeCode` — at codegen (CompilerStack.cpp:210,
+    "Circular reference to contract bytecode"); accessing an *ancestor*'s code
+    is a normal acyclic dependency and is allowed. -/
+def CheckEnv.isCurrentContract (env : CheckEnv) (path : Path) : Bool :=
+  match env.currentContract with
+  | some current => TypeContext.pathMatches current path
   | none => false
 
 def mutabilityAllowsStateRead :
@@ -5997,7 +6035,19 @@ def checkExpr (env : CheckEnv) :
                           Solidity.ContractKind.interface &&
                         !contractDecl.abstract)
                       (TypeError.unsupported ("member " ++ member))
-                    require (!env.isCurrentOrAncestorContract path)
+                    -- solc only forbids a genuine bytecode CYCLE: the
+                    -- contract's OWN code (self-reference), raised at codegen
+                    -- ("Circular reference to contract bytecode"). Accessing an
+                    -- ANCESTOR's code is a normal acyclic dependency (accepted).
+                    require (!env.isCurrentContract path)
+                      (TypeError.unsupported ("member " ++ member))
+                    -- solc TypeChecker.cpp:3486-3493 (error 9274): `runtimeCode`
+                    -- is unavailable for a contract containing immutable
+                    -- variables (its whole linearized base set). `creationCode`
+                    -- stays available.
+                    require
+                      (member != "runtimeCode" ||
+                        !env.types.contractHasImmutable path)
                       (TypeError.unsupported ("member " ++ member))
                     Except.ok
                       { source := expr

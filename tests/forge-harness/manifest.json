@@ -11803,6 +11803,34 @@
           }
         ]
       }
+    },
+    {
+      "name": "creationcode-ancestor",
+      "description": "Forge/solc: `type(Base).creationCode` / `type(Base).runtimeCode` for a strict ANCESTOR is a normal acyclic bytecode dependency (both pure), accepted by solc; only a genuine cycle (a contract's OWN code) is the \"Circular reference to contract bytecode\" error. solidity-lean formerly rejected any current-OR-ancestor code access (isCurrentOrAncestorContract), an over-reject for ancestors (#167 CREATIONCODE-ANCESTOR); the fix narrows the self-reference guard to the current contract only. Forge deploys a target whose ancestor creationCode and runtimeCode are both returned non-empty on the real EVM. Lean imports the same contract from the solc AST and confirms acceptance.",
+      "forge": {
+        "root": "tests/forge-harness/creationcode-ancestor",
+        "match_contract": "CreationCodeAncestorForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/creationcode-ancestor/src/CreationCodeAncestor.sol",
+        "contract": "CreationCodeAncestorTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.CreationCodeAncestor"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.CreationCodeAncestor.importedContractAccepted",
+            "expect": "true"
+          }
+        ]
+      }
     }
   ]
 }
