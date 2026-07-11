@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/recursive-struct-mem-construct/out"
+cache_path = "../../.foundry-suites/recursive-struct-mem-construct/cache"
+evm_version = "cancun"

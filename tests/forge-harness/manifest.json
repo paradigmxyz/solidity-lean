@@ -11545,6 +11545,54 @@
           }
         ]
       }
+    },
+    {
+      "name": "recursive-struct-mem-construct",
+      "description": "#160 RECURSIVE-STRUCT-MEM-CONSTRUCT over-reject: solc 0.8.35 accepts and executes memory-constructing a SELF-REFERENTIAL struct (struct Node { uint256 v; Node[] kids; } ... Node memory n = Node(1, new Node[](0)); return n.v; => 1). The model's checker accepted it but the executable lowering could not build the construction: Ty.resolveStructs inlines a struct path into its field list to a fixed fuel budget, and for a self-referential struct that expansion never terminates, so the constructor-argument cast and the declared memory-variable type bottomed out at DIFFERENT fuel-residual depths. The Ty.tuple == Ty.struct field-list check in the Executable-side Ty.canImplicitlyConvert then compared two structurally different giant trees and reported a spurious mismatch, so the whole contract failed to lower (toCoreContract? = none). The fix compares the two expansions with a fuel-tolerant nominal equality (Ty.sameNominalType) that matches struct/user nodes by PATH and stops at each struct boundary; non-recursive structs resolve fully and still compare equal, and only the lowering predicate changed (acceptance is untouched). Forge pins real solc/EVM values for the self-referential construct (1) and the isolation ladder: a value-type dyn-array member (2), a dyn-array member of a DIFFERENT struct (3), and a recursive struct in storage (5). Imported Lean accepts the same source and EXECUTES each function to the same values.",
+      "forge": {
+        "root": "tests/forge-harness/recursive-struct-mem-construct",
+        "match_contract": "RecursiveStructMemConstructForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/recursive-struct-mem-construct/src/RecursiveStructMemConstruct.sol",
+        "contract": "RecursiveStructMemConstructHarness",
+        "namespace": "SolidCore.Solidity.SolcAstImport.RecursiveStructMemConstruct"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedRecursiveStructMemConstructAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.RecursiveStructMemConstruct.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "recursiveStructMemConstructG3",
+            "expr": "(do\n  let program <- SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.RecursiveStructMemConstruct.importedSourceUnit\n  let r <- SolidCore.Solidity.TypeCheck.CheckedProgram.callContract 1000 program \"RecursiveStructMemConstructHarness\" (SolidCore.Solidity.Source.CallTarget.name \"constructRecursive\") SolidCore.Solidity.Source.State.empty []\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word w] => Except.ok (SolidCore.Solidity.Source.wordEq w 1)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "recursiveStructMemConstructH1",
+            "expr": "(do\n  let program <- SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.RecursiveStructMemConstruct.importedSourceUnit\n  let r <- SolidCore.Solidity.TypeCheck.CheckedProgram.callContract 1000 program \"RecursiveStructMemConstructHarness\" (SolidCore.Solidity.Source.CallTarget.name \"constructFlat\") SolidCore.Solidity.Source.State.empty []\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word w] => Except.ok (SolidCore.Solidity.Source.wordEq w 2)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "recursiveStructMemConstructH2",
+            "expr": "(do\n  let program <- SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.RecursiveStructMemConstruct.importedSourceUnit\n  let r <- SolidCore.Solidity.TypeCheck.CheckedProgram.callContract 1000 program \"RecursiveStructMemConstructHarness\" (SolidCore.Solidity.Source.CallTarget.name \"constructBox\") SolidCore.Solidity.Source.State.empty []\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word w] => Except.ok (SolidCore.Solidity.Source.wordEq w 3)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "recursiveStructMemConstructG1",
+            "expr": "(do\n  let program <- SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.RecursiveStructMemConstruct.importedSourceUnit\n  let r <- SolidCore.Solidity.TypeCheck.CheckedProgram.callContract 1000 program \"RecursiveStructMemConstructHarness\" (SolidCore.Solidity.Source.CallTarget.name \"storageWrite\") SolidCore.Solidity.Source.State.empty []\n  match r with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word w] => Except.ok (SolidCore.Solidity.Source.wordEq w 5)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }

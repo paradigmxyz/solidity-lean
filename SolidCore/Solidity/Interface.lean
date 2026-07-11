@@ -3347,6 +3347,56 @@ def Ty.isIntOrUint : Ty -> Bool
   | Ty.int _ => true
   | _ => false
 
+/-!
+RECURSIVE-STRUCT-MEM-CONSTRUCT (#160): fuel-tolerant NOMINAL equality of two
+`resolveStructs`-expanded types.
+
+`Ty.resolveStructs` inlines a `Ty.user` struct path into `Ty.struct path
+<fields>` down to a fixed fuel budget. For a SELF-REFERENTIAL struct
+(`struct Node { uint v; Node[] kids; }`) that expansion never terminates, so
+resolution bottoms out at a fuel-dependent depth, leaving a residual
+`Ty.user Node` wherever the budget ran out. The depth of that residual depends
+on how much fuel remained when resolution reached the node, so the SAME Solidity
+type resolved from two different starting points (the constructor-argument cast,
+resolved as it descends the expression tree, vs. the declared memory-variable
+type, resolved from the top of the type) yields two structurally DIFFERENT giant
+trees. A raw `==` on those trees then spuriously reports the memory-struct
+construction as a type mismatch and the whole contract fails to lower
+(`toCoreContract? = none`), even though solc accepts and executes it.
+
+Two expanded types denote the same Solidity type exactly when they agree
+structurally with matching struct/user PATHS at every struct boundary — the
+inlined field lists are redundant (fully determined by the path + struct env).
+Comparing by path and STOPPING at each struct boundary is therefore both sound
+and fuel-independent: a residual `Ty.user p` matches a further expanded
+`Ty.struct p _`, and the comparison never descends into the cyclic fields, so it
+cannot diverge on the residual depth. Non-recursive structs resolve fully (no
+residual) and still compare equal, so their behaviour is unchanged.
+-/
+mutual
+
+/-- Fuel-tolerant nominal equality of two `resolveStructs`-expanded types; see
+    the module note above. Compares struct/user nodes by PATH and stops at each
+    struct boundary, so it is fuel-independent for self-referential structs. -/
+def Ty.sameNominalType : Ty -> Ty -> Bool
+  | Ty.struct pa _, Ty.struct pb _ => pa == pb
+  | Ty.struct pa _, Ty.user pb => pa == pb
+  | Ty.user pa, Ty.struct pb _ => pa == pb
+  | Ty.array ea sa, Ty.array eb sb => sa == sb && Ty.sameNominalType ea eb
+  | Ty.mapping ka va, Ty.mapping kb vb =>
+      Ty.sameNominalType ka kb && Ty.sameNominalType va vb
+  | Ty.tuple as, Ty.tuple bs => Ty.sameNominalTypes as bs
+  | a, b => a == b
+termination_by a _ => (sizeOf a, 0)
+
+def Ty.sameNominalTypes : List Ty -> List Ty -> Bool
+  | [], [] => true
+  | a :: as, b :: bs => Ty.sameNominalType a b && Ty.sameNominalTypes as bs
+  | _, _ => false
+termination_by as _ => (sizeOf as, 1)
+
+end
+
 def Ty.canImplicitlyConvert (actual expected : Ty) : Bool :=
   if actual == expected then
     true
@@ -3397,9 +3447,9 @@ def Ty.canImplicitlyConvert (actual expected : Ty) : Bool :=
           StateMutability.canImplicitlyConvertFunction
             actualMutability expectedMutability
     | Ty.tuple actualFields, Ty.struct _ expectedFields =>
-        actualFields == expectedFields
+        Ty.sameNominalTypes actualFields expectedFields
     | Ty.struct _ actualFields, Ty.tuple expectedFields =>
-        actualFields == expectedFields
+        Ty.sameNominalTypes actualFields expectedFields
     | _, _ => false
 
 /-- Is this the type of an INTERNAL function pointer value (a dispatch id)?
@@ -3452,14 +3502,14 @@ def Ty.commonImplicit? (left right : Ty) : Option Ty :=
     | Ty.fixedBytes leftSize, Ty.bytesN rightSize =>
         some (Ty.fixedBytes (max leftSize rightSize))
     | Ty.struct leftPath leftFields, Ty.struct rightPath rightFields =>
-        if leftPath == rightPath && leftFields == rightFields then
+        if leftPath == rightPath && Ty.sameNominalTypes leftFields rightFields then
           some left
         else
           none
     | Ty.struct _ fields, Ty.tuple tupleFields =>
-        if fields == tupleFields then some left else none
+        if Ty.sameNominalTypes fields tupleFields then some left else none
     | Ty.tuple tupleFields, Ty.struct _ fields =>
-        if tupleFields == fields then some right else none
+        if Ty.sameNominalTypes tupleFields fields then some right else none
     | _, _ =>
         if Ty.canImplicitlyConvert left right then
           some right
