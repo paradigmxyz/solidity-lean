@@ -11858,6 +11858,59 @@
       }
     },
     {
+      "name": "abi-encode-call-arg",
+      "description": "Forge/solc: a direct internal call used as an argument to the abi.encode/abi.encodePacked builtin. solc evaluates the internal call then ABI-encodes its result, so on the real EVM abi.encode(g()) (g()=uint256(3)) is the 32-byte word 3, abi.encode(uint256(9), g()) is the two words 9 and 3, abi.encode(uint256(g())+1) is the word 4, the var-decl `bytes b = abi.encode(g())` is the word 3, and a discarded `abi.encode(g());` runs cleanly. solidity-lean ACCEPTED such a contract but failed to LOWER it: the three abi.* member-call arms of Stmt.toCoreWithInternalCalls? (return / var-decl / discard positions) fell through to the env-less Stmt.toCore? WITHOUT invoking the argument-position call hoister, so the nested internal call could not be lowered (TypeError.unsupported), poisoning the whole contract's executable lowering (#174 ABI-ENCODE-INTERNAL-CALL-ARG). The fix routes those arms through the existing hoister (Stmt.argPositionHoist? / Expr.argPositionHoistPrefix?) before the env-less fallback, exactly as the ident-call / tuple-return / newExpr arms already do. Lean imports the same contract from the solc AST.",
+      "forge": {
+        "root": "tests/forge-harness/abi-encode-call-arg",
+        "match_contract": "AbiEncodeCallArgForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/abi-encode-call-arg/src/AbiEncodeCallArg.sol",
+        "contract": "AbiEncodeCallArgTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.AbiEncodeCallArg"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.AbiEncodeCallArg.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "encReturn_is_word3",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallBytesMatches 256 SolidCore.Solidity.SolcAstImport.AbiEncodeCallArg.importedContract \"encReturn\" SolidCore.Solidity.Source.State.empty [] (SolidCore.Solidity.Source.wordToBytesBE 32 3)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "encTwoArgs_is_words_9_3",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallBytesMatches 256 SolidCore.Solidity.SolcAstImport.AbiEncodeCallArg.importedContract \"encTwoArgs\" SolidCore.Solidity.Source.State.empty [] (SolidCore.Solidity.Source.wordToBytesBE 32 9 ++ SolidCore.Solidity.Source.wordToBytesBE 32 3)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "encWrapper_is_word4",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallBytesMatches 256 SolidCore.Solidity.SolcAstImport.AbiEncodeCallArg.importedContract \"encWrapper\" SolidCore.Solidity.Source.State.empty [] (SolidCore.Solidity.Source.wordToBytesBE 32 4)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "encVarDecl_is_word3",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallBytesMatches 256 SolidCore.Solidity.SolcAstImport.AbiEncodeCallArg.importedContract \"encVarDecl\" SolidCore.Solidity.Source.State.empty [] (SolidCore.Solidity.Source.wordToBytesBE 32 3)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "encDiscard_is_7",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.AbiEncodeCallArg.importedContract \"encDiscard\" SolidCore.Solidity.Source.State.empty [] 7",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
       "name": "bool-cast-of-comparison",
       "description": "Forge checks solc/EVM identity conversion bool(1==2): a comparison/equality/logical operator over constant operands folds to a BOOL constant, not a rational number, so bool(boolExpr) is a bool->bool identity conversion that solc accepts (bool(1==2)=false, bool(1<2)=true, bool(1<2 && 2<3)=true, bool(!(1==2))=true); arithmetic/bitwise-literal casts stay untyped numbers (uint8(1+2)=3, uint16(1<<3)=8). solidity-lean formerly classified ANY binary expression over untyped number literals as an untyped NUMBER literal (no operator restriction), so casting a comparison to bool over-rejected with invalidConversion bool bool (#165 BOOL-CAST-OF-COMPARISON). Lean imports the same contract from the solc AST.",
       "forge": {

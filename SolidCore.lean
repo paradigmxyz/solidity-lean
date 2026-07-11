@@ -42,3 +42,4 @@ import SolidCore.Witness.CreationCodeAncestor
 import SolidCore.Witness.AddressFoldedConst
 import SolidCore.Witness.TupleVarDeclAbiDecode
 import SolidCore.Witness.TernaryCallInArg
+import SolidCore.Witness.AbiEncodeCallArg

@@ -15218,6 +15218,17 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                                       value mkPush
                                 | none => none
                         | _ => none)
+                  -- ABI-ENCODE-INTERNAL-CALL-ARG (#174), discard position:
+                  -- `abi.encode(g());` as a bare expression statement. The
+                  -- env-less `Stmt.toCore?` above cannot lower the nested
+                  -- internal call; peel it into a prefix temp via the generic
+                  -- argument-position hoister and re-lower the residual
+                  -- `abi.encode((retTy)(_tmp))` (which then hits the env-less
+                  -- lowering cleanly). Only fires when a nested call is found.
+                  | Expr.call (Expr.member (Expr.ident "abi") _) _ =>
+                      Stmt.argPositionHoist? internalFuel storageRefEnv env
+                        externalCallKindEnv storageNames modifiers functions
+                        freeFunctions returnTys expr (fun e => Stmt.expr e)
                   | _ => none
   | Stmt.expr expr@(Expr.callWithOptions (Expr.member _ _) _ _) =>
       match Stmt.toCore? storageNames (Stmt.expr expr) with
@@ -16663,7 +16674,21 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
             | none => Stmt.toCore? storageNames (Stmt.returnValues (some expr))
         | _ => Stmt.toCore? storageNames (Stmt.returnValues (some expr))
       else
-        Stmt.toCore? storageNames (Stmt.returnValues (some expr))
+        -- ABI-ENCODE-INTERNAL-CALL-ARG (#174): a direct internal call nested in
+        -- an `abi.encode`/`abi.encodePacked`/… argument (`abi.encode(g())`,
+        -- `abi.encode(uint256(9), g())`, `abi.encode(uint256(g()) + 1)`) cannot
+        -- be lowered by the env-less `Stmt.toCore?` (which routes each abi arg
+        -- through `exprToCore?`, and that has no way to lower an internal call).
+        -- Route through the generic argument-position call hoister FIRST — it
+        -- peels the strictly-nested internal call into a prefix temp and re-lowers
+        -- `abi.encode((retTy)(_tmp))`, which lowers cleanly (the pure-local abi
+        -- arg case). Only falls back to the env-less shape when nothing was
+        -- hoisted, so every previously-accepted `abi.*` return is byte-identical.
+        match Stmt.argPositionHoist? internalFuel storageRefEnv env
+            externalCallKindEnv storageNames modifiers functions freeFunctions
+            returnTys expr (fun e => Stmt.returnValues (some e)) with
+        | some coreStmt => some coreStmt
+        | none => Stmt.toCore? storageNames (Stmt.returnValues (some expr))
   | Stmt.returnValues (some expr@(Expr.call (Expr.member _ _) _)) =>
       match Expr.lowLevelTupleReturnCore? storageNames returnTys expr with
       | some coreStmt => some coreStmt
@@ -17972,27 +17997,59 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
                   externalCallKindEnv
                   storageNames modifiers functions freeFunctions returnTys rest
               some (declCore :: assignBlock :: tail)
-          | none => do
-              let head ←
-                Stmt.toCoreWithInternalCalls?
-                  (internalFuel := internalFuel)
-                  (storageRefEnv := storageRefEnv)
-                  (env := env)
-                  (externalCallKindEnv := externalCallKindEnv)
-                  (storageNames := storageNames)
-                  (modifiers := modifiers)
-                  (functions := functions)
-                  (freeFunctions := freeFunctions)
-                  (returnTys := returnTys)
-                  (stmt := Stmt.varDecl [binding] (some expr))
-              let tail ←
-                Stmt.listToCoreWithInternalCallsWithRefs?
-                  internalFuel
-                  (VarBinding.extendStorageRefEnv storageRefEnv binding)
-                  (VarBinding.extendTypeEnv env binding)
-                  externalCallKindEnv
-                  storageNames modifiers functions freeFunctions returnTys rest
-              some (head :: tail)
+          | none =>
+              -- ABI-ENCODE-INTERNAL-CALL-ARG (#174), var-decl position:
+              -- `bytes memory b = abi.encode(g());` (and `abi.encodePacked`/… with
+              -- a nested internal call, incl. wrappers like
+              -- `abi.encode(uint256(g()) + 1)`). The external-call path above
+              -- fails (abi.* is a builtin, not an external call) and the per-
+              -- statement lowering below routes `abi.*` through the env-less
+              -- `Stmt.toCore?`, which cannot lower a nested internal call — so the
+              -- declaration over-rejected (poisoning the contract's executable
+              -- lowering). Peel the strictly-nested internal call into ordered
+              -- SIBLING prefix temps (so the declared local stays in scope for
+              -- later statements) and re-lower the residual
+              -- `abi.encode((retTy)(_tmp))` declaration through the list — which
+              -- reaches the per-statement env-less lowering cleanly (a pure-local
+              -- abi arg). Fires only when a nested call is actually hoisted;
+              -- otherwise the prefix is empty and we fall back to `generic`
+              -- (byte-identical to the prior handling).
+              let generic : Option (List CoreStmt) := do
+                let head ←
+                  Stmt.toCoreWithInternalCalls?
+                    (internalFuel := internalFuel)
+                    (storageRefEnv := storageRefEnv)
+                    (env := env)
+                    (externalCallKindEnv := externalCallKindEnv)
+                    (storageNames := storageNames)
+                    (modifiers := modifiers)
+                    (functions := functions)
+                    (freeFunctions := freeFunctions)
+                    (returnTys := returnTys)
+                    (stmt := Stmt.varDecl [binding] (some expr))
+                let tail ←
+                  Stmt.listToCoreWithInternalCallsWithRefs?
+                    internalFuel
+                    (VarBinding.extendStorageRefEnv storageRefEnv binding)
+                    (VarBinding.extendTypeEnv env binding)
+                    externalCallKindEnv
+                    storageNames modifiers functions freeFunctions returnTys rest
+                some (head :: tail)
+              match expr, internalFuel with
+              | Expr.call (Expr.member (Expr.ident "abi") _) _, fuel + 1 =>
+                  match Expr.argPositionHoistPrefix? fuel storageRefEnv env
+                      externalCallKindEnv storageNames modifiers functions
+                      freeFunctions expr with
+                  | some (prefixStmts@(_ :: _), residualExpr) =>
+                      (match
+                          Stmt.listToCoreWithInternalCallsWithRefs? fuel
+                            storageRefEnv env externalCallKindEnv storageNames
+                            modifiers functions freeFunctions returnTys
+                            (Stmt.varDecl [binding] (some residualExpr) :: rest) with
+                      | some spliced => some (prefixStmts ++ spliced)
+                      | none => generic)
+                  | _ => generic
+              | _, _ => generic
       | _, _ => do
           let head ←
             Stmt.toCoreWithInternalCalls?
