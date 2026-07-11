@@ -4950,6 +4950,7 @@ def StructDecl.fieldTys (decl : Solidity.StructDecl) :
 
 def checkStructConstructorArgs
     (types : TypeContext) (decl : Solidity.StructDecl)
+    (fieldTys : List Ty)
     (args : List Solidity.Arg)
     (checkedArgs : List CheckedExpr) : Except TypeError Unit := do
   let ordered? :=
@@ -4959,7 +4960,7 @@ def checkStructConstructorArgs
   | some ordered =>
       checkCheckedArgsAssignableWidenFor
         types ("struct constructor " ++ decl.name) ordered
-        (StructDecl.fieldTys decl)
+        fieldTys
   | none => Except.error (TypeError.invalidStructConstructor decl.name)
 
 def functionPointerSig (name : Name) (params : List Ty)
@@ -6240,11 +6241,20 @@ def checkExpr (env : CheckEnv) :
       | Solidity.Ty.user path =>
           match env.types.lookupStruct? path with
           | some structDecl => do
+              -- Qualify the struct field target types through the SAME
+              -- current-scope qualification the `new`-array result type passes
+              -- through, so a contract-local struct field (e.g. `Node[]` inside
+              -- `struct Node`) matches a `new Node[](n)` argument. Both operands
+              -- are normalized identically, so a genuinely different element
+              -- type still mismatches (no over-accept). (#163)
+              let qualifiedFieldTys :=
+                (StructDecl.fieldTys structDecl).map
+                  (fun ty => env.qualifyCurrentLocalUserTypes ty)
               match checkArgs env args with
               | Except.ok checkedArgs =>
                   match
-                      checkStructConstructorArgs env.types structDecl args
-                        checkedArgs with
+                      checkStructConstructorArgs env.types structDecl
+                        qualifiedFieldTys args checkedArgs with
                   | Except.ok _ => Except.ok ()
                   | Except.error checkedErr =>
                       match
@@ -6255,14 +6265,14 @@ def checkExpr (env : CheckEnv) :
                                   env ("struct constructor " ++
                                     structDecl.name)
                                   (StructDecl.fieldNames structDecl)
-                                  (StructDecl.fieldTys structDecl) args
+                                  qualifiedFieldTys args
                               else
                                 checkPositionalArgsAssignableToParamsFor
                                   env ("struct constructor " ++
                                     structDecl.name)
-                                  args (StructDecl.fieldTys structDecl)
+                                  args qualifiedFieldTys
                             checkStructConstructorArgs env.types structDecl
-                              args contextualCheckedArgs) with
+                              qualifiedFieldTys args contextualCheckedArgs) with
                       | Except.ok _ => Except.ok ()
                       | Except.error _ => Except.error checkedErr
               | Except.error argErr =>
@@ -6273,13 +6283,13 @@ def checkExpr (env : CheckEnv) :
                             checkNamedArgsAssignableToParamsFor
                               env ("struct constructor " ++ structDecl.name)
                               (StructDecl.fieldNames structDecl)
-                              (StructDecl.fieldTys structDecl) args
+                              qualifiedFieldTys args
                           else
                             checkPositionalArgsAssignableToParamsFor
                               env ("struct constructor " ++ structDecl.name)
-                              args (StructDecl.fieldTys structDecl)
-                        checkStructConstructorArgs env.types structDecl args
-                          contextualCheckedArgs) with
+                              args qualifiedFieldTys
+                        checkStructConstructorArgs env.types structDecl
+                          qualifiedFieldTys args contextualCheckedArgs) with
                   | Except.ok _ => Except.ok ()
                   | Except.error _ => Except.error argErr
               Except.ok
@@ -7437,7 +7447,15 @@ def checkExpr (env : CheckEnv) :
           match checkedArgs with
           | [length] => do
               length.expectAssignableTo (Solidity.Ty.uint 256)
-              Except.ok { source := expr, ty := ty, lvalue := false }
+              -- Qualify a contract-local struct/enum element type (e.g. `P` ->
+              -- `["C","P"]`) so the `new P[](n)` result type matches the
+              -- target type formed for declared locals/returns/params, which
+              -- always pass through the same local-type qualification.
+              -- `qualifyCurrentLocalUserTypes` only qualifies to a path that is
+              -- actually known in the current/ancestor scope, so file-level and
+              -- elementary element types are left untouched.
+              let resultTy := env.qualifyCurrentLocalUserTypes ty
+              Except.ok { source := expr, ty := resultTy, lvalue := false }
           | _ =>
               Except.error
                 (TypeError.arityMismatch
