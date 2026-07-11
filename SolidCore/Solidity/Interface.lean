@@ -1700,6 +1700,37 @@ def Expr.resolveStructsFuel :
                     (Expr.literal (Literal.number (toString index)))
               | none => Expr.member (resolve base) member
           | none => Expr.member (resolve base) member
+      | Expr.index (Expr.ident name) index =>
+          -- BYTESN-IDENT-INDEX (#175/#176): indexing a `bytesN` value by a bare
+          -- identifier base (local, parameter, or state variable) must route to
+          -- the fixed-bytes byte-extraction path — solc returns the byte and, on
+          -- an out-of-range index, Panics 0x32 (array out-of-bounds). The
+          -- env-free `Expr.toCore?` ident-index arm cannot see the identifier's
+          -- type, so it emitted a generic `index`/`storageIndex` that Panics
+          -- 0x00 (type mismatch) at runtime. Here — where the full `TypeEnv`
+          -- (state vars + params + locals) IS in scope — detect a fixed-bytes
+          -- identifier and wrap it in its own no-op width cast `bytesN(name)`,
+          -- so the already-correct general (non-ident) index arm lowers it to
+          -- `fixedBytesIndex`. Genuine array/`bytes`/mapping identifiers keep the
+          -- generic path (their `sourceTyWithEnv?` is not a fixed-bytes type).
+          match Expr.sourceTyWithEnv? env typeEnv (Expr.ident name) with
+          | some (Ty.bytesN size) =>
+              if 0 < size && size <= 32 then
+                Expr.index
+                  (Expr.call (Expr.typeName (Ty.bytesN size))
+                    [Arg.positional (Expr.ident name)])
+                  (resolve index)
+              else
+                Expr.index (Expr.ident name) (resolve index)
+          | some (Ty.fixedBytes size) =>
+              if 0 < size && size <= 32 then
+                Expr.index
+                  (Expr.call (Expr.typeName (Ty.fixedBytes size))
+                    [Arg.positional (Expr.ident name)])
+                  (resolve index)
+              else
+                Expr.index (Expr.ident name) (resolve index)
+          | _ => Expr.index (Expr.ident name) (resolve index)
       | Expr.index base index => Expr.index (resolve base) (resolve index)
       | Expr.slice base start stop =>
           Expr.slice (resolve base) (start.map resolve) (stop.map resolve)
