@@ -11659,6 +11659,18 @@ def Arg.directInternalCall? : Arg -> Option (Name × List Arg)
   | Arg.named _ (Expr.call (Expr.ident name) args) => some (name, args)
   | _ => none
 
+/-- #173 TERNARY-CALL-IN-ARG: a ternary argument `cond ? thenE : elseE`. When a
+    branch (or the condition) contains a non-pure call, the pure argument
+    lowering can't lower it; the call-argument hoister routes it through the same
+    guarded-branch ternary-call hoister used for binary operands / conditions /
+    returns (`internalExprSingleReturnUseCore?`), binding the ternary result to a
+    temp. A ternary with pure branches makes that hoister decline (`none`), so
+    the caller falls back to the pure path unchanged. -/
+def Arg.ternaryParts? : Arg -> Option (Expr × Expr × Expr)
+  | Arg.positional (Expr.ternary cond thenE elseE) => some (cond, thenE, elseE)
+  | Arg.named _ (Expr.ternary cond thenE elseE) => some (cond, thenE, elseE)
+  | _ => none
+
 def Arg.withExpr (expr : Expr) : Arg -> Arg
   | Arg.positional _ => Arg.positional expr
   | Arg.named name _ => Arg.named name expr
@@ -14324,13 +14336,55 @@ def FunctionDecl.hoistDirectInternalCallArgsAux?
             , thisPre ++ restPre
             , (tempName, argRetTy) :: (innerEnv ++ restEnv)
             , Arg.withExpr (Expr.ident tempName) arg :: restReplaced )
-      | none => do
-          let (c3, restPre, restEnv, restReplaced) ←
-            FunctionDecl.hoistDirectInternalCallArgsAux?
-              internalFuel storageRefEnv env externalCallKindEnv storageNames
-              modifiers functions freeFunctions fallbackPrefix
-              fuel counter rest
-          some (c3, restPre, restEnv, arg :: restReplaced)
+      | none =>
+          -- #173 TERNARY-CALL-IN-ARG: a ternary argument whose condition or a
+          -- branch holds a non-pure call. The residual pure-argument lowering
+          -- cannot lower such a ternary, so route it through the SAME guarded-
+          -- branch ternary-call hoister used for binary operands / conditions /
+          -- returns (`internalExprSingleReturnUseCore?`): it binds the ternary
+          -- result to a temp, hoisting each branch's inner call into the
+          -- corresponding guarded arm (the untaken branch's call is never run).
+          -- The temp read replaces the argument in place, preserving solc's
+          -- left-to-right argument evaluation order. A ternary with pure
+          -- branches makes the hoister decline (`none`), falling through to the
+          -- unchanged pure-argument path.
+          let ternaryHoist? : Option (Nat × List CoreStmt × List (Name × Ty) × List Arg) := do
+            let (tcond, tthen, telse) ← Arg.ternaryParts? arg
+            let ternaryExpr := Expr.ternary tcond tthen telse
+            let argRetTy ←
+              Expr.abiTyWithInternalFunctionsEnv?
+                functions freeFunctions env ternaryExpr
+            let argCoreTy ← Ty.toCore? argRetTy
+            let tempName := internalCallArgTempName fallbackPrefix counter
+            let assignCore ←
+              FunctionDecl.internalExprSingleReturnUseCore?
+                internalFuel storageRefEnv env externalCallKindEnv storageNames
+                modifiers functions freeFunctions ternaryExpr
+                (fun retExpr =>
+                  SolidCore.Solidity.Source.Stmt.assign
+                    (SolidCore.Solidity.Source.LValue.var tempName) retExpr)
+            let (c3, restPre, restEnv, restReplaced) ←
+              FunctionDecl.hoistDirectInternalCallArgsAux?
+                internalFuel storageRefEnv env externalCallKindEnv storageNames
+                modifiers functions freeFunctions fallbackPrefix
+                fuel (counter + 1) rest
+            let thisPre :=
+              [ SolidCore.Solidity.Source.Stmt.varDecl argCoreTy tempName none
+              , assignCore ]
+            some
+              ( c3
+              , thisPre ++ restPre
+              , (tempName, argRetTy) :: restEnv
+              , Arg.withExpr (Expr.ident tempName) arg :: restReplaced )
+          match ternaryHoist? with
+          | some result => some result
+          | none => do
+              let (c3, restPre, restEnv, restReplaced) ←
+                FunctionDecl.hoistDirectInternalCallArgsAux?
+                  internalFuel storageRefEnv env externalCallKindEnv storageNames
+                  modifiers functions freeFunctions fallbackPrefix
+                  fuel counter rest
+              some (c3, restPre, restEnv, arg :: restReplaced)
 
 /-- Wrapper over `hoistDirectInternalCallArgsAux?`: run the hoist over an
     argument list and surface the prefix pieces / temp env / residual args only

@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/ternary-call-in-arg/out"
+cache_path = "../../.foundry-suites/ternary-call-in-arg/cache"
+evm_version = "cancun"

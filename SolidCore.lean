@@ -41,3 +41,4 @@ import SolidCore.Witness.BoolCastOfComparison
 import SolidCore.Witness.CreationCodeAncestor
 import SolidCore.Witness.AddressFoldedConst
 import SolidCore.Witness.TupleVarDeclAbiDecode
+import SolidCore.Witness.TernaryCallInArg
