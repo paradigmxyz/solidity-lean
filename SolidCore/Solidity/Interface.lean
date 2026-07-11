@@ -3766,7 +3766,26 @@ def Expr.toCoreAddressLiteral? : Expr -> Option CoreExpr
         some (SolidCore.Solidity.Source.Expr.word value)
       else
         none
-  | _ => none
+  | expr => do
+      -- solc `RationalNumberType::isExplicitlyConvertibleTo` (Types.cpp:1050)
+      -- operates on the already-folded `m_value`: for a nonpayable `address`
+      -- target it allows `m_value == 0 || (!isNegative() && !isFractional() &&
+      -- integerType() && numBits() <= 160)`. Literal-ness is irrelevant, so a
+      -- constant-folded arithmetic argument like `1 + 1`, `2 * 3`, or `1 - 1`
+      -- (folds to 0) is convertible exactly when it folds to a non-negative
+      -- integer `< 2 ^ 160`. Fractional folds (`exactInt?` = none) and negatives
+      -- are rejected, matching `!isFractional()` / `!isNegative()`. The folded
+      -- integer lowers to its own runtime word (`address(1 + 1)` = 2).
+      let rat ← Expr.untypedNumberLiteralRat? expr
+      let i ← rat.exactInt?
+      if i < 0 then
+        none
+      else
+        let value := i.toNat
+        if addressLiteralFits value then
+          some (SolidCore.Solidity.Source.Expr.word value)
+        else
+          none
 
 def Expr.toCorePayableLiteral? : Expr -> Option CoreExpr
   | Expr.literal (Literal.address value) =>

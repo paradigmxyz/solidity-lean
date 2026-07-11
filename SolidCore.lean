@@ -39,3 +39,4 @@ import SolidCore.Witness.ModifierStaticQualifier
 import SolidCore.Witness.ExpNarrowBaseWideExp
 import SolidCore.Witness.BoolCastOfComparison
 import SolidCore.Witness.CreationCodeAncestor
+import SolidCore.Witness.AddressFoldedConst
