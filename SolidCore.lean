@@ -32,6 +32,7 @@ import SolidCore.Witness.UsingForStructReceiverBind
 import SolidCore.Witness.LibStorageReturnUse
 import SolidCore.Witness.RecursiveStructMemConstruct
 import SolidCore.Witness.NewContractLocalStructArray
+import SolidCore.Witness.OverloadMemVsStorage
 import SolidCore.Witness.CallPositionConsolidated
 import SolidCore.Witness.ModifierStaticQualifier
 import SolidCore.Witness.ExpNarrowBaseWideExp

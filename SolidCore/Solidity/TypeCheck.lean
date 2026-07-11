@@ -2213,7 +2213,14 @@ def FunctionSig.singleStorageRefReturn (sig : FunctionSig) : Bool :=
   returnStorageRefsSingle sig.returns sig.returnStorageRefs
 
 def FunctionSig.sameSignature (a b : FunctionSig) : Bool :=
-  a.name == b.name && a.params == b.params
+  a.name == b.name && a.params == b.params &&
+    -- Data location is part of the overload signature. solc's duplicate check
+    -- (FunctionType::asExternallyCallableFunction(false) + hasEqualParameterTypes)
+    -- normalizes CallData reference params to Memory and leaves Storage as-is,
+    -- then compares location-aware. So the relevant per-param distinction is
+    -- storage vs non-storage (memory/calldata collapsed together). `paramStorageRefs`
+    -- is exactly `location == storage` per param, giving this bucket.
+    a.paramStorageRefs == b.paramStorageRefs
 
 def FunctionSig.sameResolutionTarget (a b : FunctionSig) : Bool :=
   a.name == b.name &&

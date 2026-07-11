@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/overload-mem-vs-storage/out"
+cache_path = "../../.foundry-suites/overload-mem-vs-storage/cache"
+evm_version = "cancun"
