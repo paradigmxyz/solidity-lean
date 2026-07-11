@@ -1403,9 +1403,27 @@ def exprIsUntypedNumberLiteralExpression :
       exprIsUntypedNumberLiteralExpression inner
   | Solidity.Expr.unary Solidity.UnaryOp.bitNot inner =>
       exprIsUntypedNumberLiteralExpression inner
-  | Solidity.Expr.binary _ lhs rhs =>
-      exprIsUntypedNumberLiteralExpression lhs &&
-        exprIsUntypedNumberLiteralExpression rhs
+  | Solidity.Expr.binary op lhs rhs =>
+      -- Only ARITHMETIC/BITWISE operators produce a value that is itself an
+      -- untyped number literal. Comparison/equality/logical operators
+      -- (< <= > >= == != && ||) fold to a `bool` constant, so an expression
+      -- built from them is NOT an untyped number literal.
+      (match op with
+        | Solidity.BinaryOp.add
+        | Solidity.BinaryOp.sub
+        | Solidity.BinaryOp.mul
+        | Solidity.BinaryOp.div
+        | Solidity.BinaryOp.mod
+        | Solidity.BinaryOp.exp
+        | Solidity.BinaryOp.bitAnd
+        | Solidity.BinaryOp.bitOr
+        | Solidity.BinaryOp.bitXor
+        | Solidity.BinaryOp.shl
+        | Solidity.BinaryOp.shr
+        | Solidity.BinaryOp.sar => true
+        | _ => false) &&
+        exprIsUntypedNumberLiteralExpression lhs &&
+          exprIsUntypedNumberLiteralExpression rhs
   | _ => false
 
 def exprIsUntypedImplicitLiteralExpression
