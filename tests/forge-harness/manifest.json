@@ -12603,6 +12603,157 @@
           }
         ]
       }
+    },
+    {
+      "name": "storage-value-boundary",
+      "description": "R3 #192 STORAGE-MATERIALIZATION-AT-VALUE-BOUNDARIES: keccak256/sha256/abi.encode/abi.encodePacked of a BARE storage bytes/string/uint[] reverted Panic 0x00 — the bare state-var arg lowered to the header-word read (Expr.storage, the .length convention), so the hash/encode arms saw a word instead of the value's bytes. The fix materializes storage at every VALUE-USE boundary: the lowering rewrites a storage-rooted arg core to the full materializing read (materializeStorageValueUseCore: Expr.storage key -> Expr.storagePath key []) for keccak256/sha256/ripemd160/erc7201/abi.encode*/encodePacked/bytes.concat/string.concat, and the eval arms route through Runtime.materializeForValueUse (memory-deref + storage-ref load via loadStoragePath). Byte-array lengths 5/31/32/33 cover the short/long storage encodings; abi.encode(storageArr)/encodePacked(storageArr) cover whole-array materialization; struct-member and mapping-value bytes plus memory keccak/bytes(sstr)/encodePacked(storedBytes) are already-working controls. Forge pins real-EVM hash constants (cross-checked with cast keccak); Lean imports the same source, runs the constructor, and pins identical words. sha256(stored) is Forge-pinned here and responder-pinned in SolidCore/Witness/ValueTyping.lean.",
+      "forge": {
+        "root": "tests/forge-harness/storage-value-boundary",
+        "match_contract": "StorageValueBoundaryForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/storage-value-boundary/src/StorageValueBoundary.sol",
+        "contract": "StorageValueBoundaryTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.StorageValueBoundary"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.StorageValueBoundary.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "h5",
+            "expr": "(do\n  let st ← SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageValueBoundary.importedSourceUnit \"StorageValueBoundaryTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageValueBoundary.importedSourceUnit \"StorageValueBoundaryTarget\" \"h5\" st [] 0x6ccdf593017c9d38b36c1cb00572feae81abc15173860a4e0904a6c45d3b086e)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "h31",
+            "expr": "(do\n  let st ← SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageValueBoundary.importedSourceUnit \"StorageValueBoundaryTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageValueBoundary.importedSourceUnit \"StorageValueBoundaryTarget\" \"h31\" st [] 0x36299799c00f1e584433782420b22c96b9df65c02cd04f2d48f30d46be856ec5)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "h32",
+            "expr": "(do\n  let st ← SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageValueBoundary.importedSourceUnit \"StorageValueBoundaryTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageValueBoundary.importedSourceUnit \"StorageValueBoundaryTarget\" \"h32\" st [] 0x2cfe17dc69e953b28d77cdb7cdc86ce378dfe1e846f4be9cbe9dfb18efa5dfb5)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "h33",
+            "expr": "(do\n  let st ← SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageValueBoundary.importedSourceUnit \"StorageValueBoundaryTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageValueBoundary.importedSourceUnit \"StorageValueBoundaryTarget\" \"h33\" st [] 0xd529e5852759a362ba426afed12b33dfb83d9029bcaa3cdd3e865dc904828fcb)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "henc",
+            "expr": "(do\n  let st ← SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageValueBoundary.importedSourceUnit \"StorageValueBoundaryTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageValueBoundary.importedSourceUnit \"StorageValueBoundaryTarget\" \"henc\" st [] 0x69f3a7d692ca055c9f54ae9803e527761c5593a4715f41502d94fbcadbbffbe7)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "hencp",
+            "expr": "(do\n  let st ← SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageValueBoundary.importedSourceUnit \"StorageValueBoundaryTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageValueBoundary.importedSourceUnit \"StorageValueBoundaryTarget\" \"hencp\" st [] 0xae6299332bcd708cd60e3a8defa55de28078a50a4cf2b3de3a546253240ff9e1)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "hbox",
+            "expr": "(do\n  let st ← SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageValueBoundary.importedSourceUnit \"StorageValueBoundaryTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageValueBoundary.importedSourceUnit \"StorageValueBoundaryTarget\" \"hbox\" st [] 0xccad3f5300e77cf5347e3c6200a08bd8cf71f94a0b347bcb39486b17b88a8a71)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "hmap",
+            "expr": "(do\n  let st ← SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageValueBoundary.importedSourceUnit \"StorageValueBoundaryTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageValueBoundary.importedSourceUnit \"StorageValueBoundaryTarget\" \"hmap\" st [] 0x6619b407baede597919db7245e6662bd28bed07dad7580f0769d0e94bd0c16fe)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "hmem",
+            "expr": "(do\n  let st ← SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageValueBoundary.importedSourceUnit \"StorageValueBoundaryTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageValueBoundary.importedSourceUnit \"StorageValueBoundaryTarget\" \"hmem\" st [] 0x6ccdf593017c9d38b36c1cb00572feae81abc15173860a4e0904a6c45d3b086e)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "hstr",
+            "expr": "(do\n  let st ← SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageValueBoundary.importedSourceUnit \"StorageValueBoundaryTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageValueBoundary.importedSourceUnit \"StorageValueBoundaryTarget\" \"hstr\" st [] 0x1c8aff950685c2ed4bc3174f3472287b56d9517b9c948127319a09a7a36deac8)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "hpstored",
+            "expr": "(do\n  let st ← SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageValueBoundary.importedSourceUnit \"StorageValueBoundaryTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageValueBoundary.importedSourceUnit \"StorageValueBoundaryTarget\" \"hpstored\" st [] 0x6ccdf593017c9d38b36c1cb00572feae81abc15173860a4e0904a6c45d3b086e)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
+      "name": "storage-ref-path-return",
+      "description": "R3 #188 STORAGE-REF-PATH-RETURN: an internal/library function returning a storage POINTER from an INDEXED/MEMBER path (return arr[i]; / return m[k]; / return o.inner;) panicked 0x00 — the storage-alias-return lowering only matched a BARE-ident RHS, so a path RHS fell through to a VALUE load that assignLocalRefAware?/coerceLike? could not put into a ref slot. Fixed at both ends: (a) lowering — storageAliasAssignmentExprCore? extends the alias-ASSIGN intercept to any storage-reference RHS, emitting the existing storageAliasAssign(From)Path re-points (mirroring the working decl dispatch), and the ANF call-hoist temp of a storage-returning callee is declared a STORAGE alias local (refS(0).b = 77 previously wrote a detached memory copy); (b) runtime — coerceLike? re-points a storageRef/storagePathRef VALUE meeting a ref template instead of none -> Panic 0x00. Covers struct array element, call-result-as-lvalue-base, mapping value, uint[] via mapping (push through the ref), nested struct member, whole-var control, and the using-for library boundary (path return + receiver write-through). Forge pins real-EVM write-through values (42/77/88/55/42/99/42/42); Lean imports the same source, runs the constructor, and pins identical words.",
+      "forge": {
+        "root": "tests/forge-harness/storage-ref-path-return",
+        "match_contract": "StorageRefPathReturnForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/storage-ref-path-return/src/StorageRefPathReturn.sol",
+        "contract": "StorageRefPathReturnTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.StorageRefPathReturn"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.StorageRefPathReturn.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "t1",
+            "expr": "(do\n  let st ← SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageRefPathReturn.importedSourceUnit \"StorageRefPathReturnTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageRefPathReturn.importedSourceUnit \"StorageRefPathReturnTarget\" \"t1\" st [] 42)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "t2",
+            "expr": "(do\n  let st ← SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageRefPathReturn.importedSourceUnit \"StorageRefPathReturnTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageRefPathReturn.importedSourceUnit \"StorageRefPathReturnTarget\" \"t2\" st [] 77)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "t3",
+            "expr": "(do\n  let st ← SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageRefPathReturn.importedSourceUnit \"StorageRefPathReturnTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageRefPathReturn.importedSourceUnit \"StorageRefPathReturnTarget\" \"t3\" st [] 88)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "t4",
+            "expr": "(do\n  let st ← SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageRefPathReturn.importedSourceUnit \"StorageRefPathReturnTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageRefPathReturn.importedSourceUnit \"StorageRefPathReturnTarget\" \"t4\" st [] 55)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "t5",
+            "expr": "(do\n  let st ← SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageRefPathReturn.importedSourceUnit \"StorageRefPathReturnTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageRefPathReturn.importedSourceUnit \"StorageRefPathReturnTarget\" \"t5\" st [] 42)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "t6",
+            "expr": "(do\n  let st ← SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageRefPathReturn.importedSourceUnit \"StorageRefPathReturnTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageRefPathReturn.importedSourceUnit \"StorageRefPathReturnTarget\" \"t6\" st [] 99)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "t7",
+            "expr": "(do\n  let st ← SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageRefPathReturn.importedSourceUnit \"StorageRefPathReturnTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageRefPathReturn.importedSourceUnit \"StorageRefPathReturnTarget\" \"t7\" st [] 42)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "t8",
+            "expr": "(do\n  let st ← SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageRefPathReturn.importedSourceUnit \"StorageRefPathReturnTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageRefPathReturn.importedSourceUnit \"StorageRefPathReturnTarget\" \"t8\" st [] 42)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }

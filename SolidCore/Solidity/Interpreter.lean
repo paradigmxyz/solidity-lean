@@ -123,6 +123,14 @@ inductive AbiCleanup where
 
 inductive Value where
   | word : Word -> Value
+  /-- R3 (value typing): a `bytesN` value CARRYING its width. The `Word`
+      payload keeps the internal right-aligned/numeric bytesN convention
+      (meaningful bytes in the LOW `size` bytes; left-alignment happens only
+      at the ABI boundary) — the tag adds the width so consumers (indexing,
+      encoding) can dispatch structurally instead of relying on caller-side
+      routing. `Value.word` remains legal for a bytesN value everywhere; all
+      word accessors (`asWord?`/`expectWord`/…) unwrap this tag. -/
+  | fixedBytes : Nat -> Word -> Value
   | int : Word -> Value
   | bytes : List Byte -> Value
   | externalFunction : Word -> Word -> Value
@@ -142,7 +150,7 @@ def Ty.defaultValue : Ty -> Value
   | Ty.address => Value.word 0
   | Ty.uint256 => Value.word 0
   | Ty.int256 => Value.int 0
-  | Ty.fixedBytes _ => Value.word 0
+  | Ty.fixedBytes size => Value.fixedBytes size 0
   | Ty.bytesCalldata => Value.bytes []
   | Ty.externalFunction => Value.externalFunction 0 0
   | Ty.internalFunction => Value.internalFunction 0
@@ -188,10 +196,12 @@ def internalFunctionValueFromStorageWord (word : Word) : Value :=
 
 def Value.asWord? : Value -> Option Word
   | Value.word value => some (SolidCore.Solidity.Shared.norm value)
+  | Value.fixedBytes _ value => some (SolidCore.Solidity.Shared.norm value)
   | _ => none
 
 def Value.asStorageWord? : Value -> Option Word
   | Value.word value => some (SolidCore.Solidity.Shared.norm value)
+  | Value.fixedBytes _ value => some (SolidCore.Solidity.Shared.norm value)
   | Value.int value => some (SolidCore.Solidity.Shared.norm value)
   | _ => none
 
@@ -205,6 +215,7 @@ def Value.length? : Value -> Option Nat
   | Value.dynamicArray values => some values.length
   | Value.tuple values => some values.length
   | Value.word _ => none
+  | Value.fixedBytes _ _ => none
   | Value.int _ => none
   | Value.externalFunction _ _ => none
   | Value.internalFunction _ => none
@@ -219,6 +230,7 @@ def Value.storageArrayLength? : Value -> Option Nat
 
 def Value.defaultLike : Value -> Value
   | Value.word _ => Value.word 0
+  | Value.fixedBytes size _ => Value.fixedBytes size 0
   | Value.int _ => Value.int 0
   | Value.bytes _ => Value.bytes []
   | Value.externalFunction _ _ => Value.externalFunction 0 0
@@ -392,10 +404,12 @@ def Value.calldataDeferredInvalid (ty : Ty) : Value :=
 
 def Value.expectWordRaw : Value -> Except RevertData Word
   | Value.word value => Except.ok (SolidCore.Solidity.Shared.norm value)
+  | Value.fixedBytes _ value => Except.ok (SolidCore.Solidity.Shared.norm value)
   | _ => Except.error RevertData.typeMismatch
 
 def Value.expectWord : Value -> Except RevertData Word
   | Value.word value => Except.ok (SolidCore.Solidity.Shared.norm value)
+  | Value.fixedBytes _ value => Except.ok (SolidCore.Solidity.Shared.norm value)
   | Value.abiLazy cleanup value => do
       let forced ← cleanup.forceValue value
       forced.expectWordRaw
@@ -416,7 +430,9 @@ def Ty.coerceValue? : Ty -> Value -> Option Value
   | Ty.uint256, Value.word value => some (Value.word value)
   | Ty.int256, Value.int value => some (Value.int value)
   | Ty.int256, Value.word value => some (Value.int value)
-  | Ty.fixedBytes _, Value.word value => some (Value.word value)
+  | Ty.fixedBytes size, Value.word value => some (Value.fixedBytes size value)
+  | Ty.fixedBytes size, Value.fixedBytes _ value =>
+      some (Value.fixedBytes size value)
   -- LIT-COERCION (#142 `.push(literal)` / #145 `bytesN`-keyed mapping key): a
   -- hex/string/bytes LITERAL flowing to a `bytesN` storage element or mapping key
   -- is lowered target-blind to a dynamic-`bytes` `Value.bytes`. solc coerces it to
@@ -430,7 +446,7 @@ def Ty.coerceValue? : Ty -> Value -> Option Value
   | Ty.fixedBytes size, Value.bytes bytes =>
       if bytes.length ≤ size then
         some
-          (Value.word
+          (Value.fixedBytes size
             (bytesToWordBE
               (bytes.map normByte ++
                 List.replicate (size - bytes.length) 0)))
@@ -511,7 +527,9 @@ def Ty.storageValueFromWord? : Ty -> Word -> Option Value
       -- happens only at the ABI boundary), so the equivalent total read is a
       -- mask to the low 8N bits. Canonical writes already fit, so this only
       -- normalizes non-canonical adopted/assembly-planted words.
-      some (Value.word (SolidCore.Solidity.Shared.norm value % (2 ^ (8 * n))))
+      some
+        (Value.fixedBytes n
+          (SolidCore.Solidity.Shared.norm value % (2 ^ (8 * n))))
   | Ty.externalFunction, value =>
       some (externalFunctionValueFromStorageWord value)
   | Ty.enumStorage maxValue, value =>
@@ -541,9 +559,28 @@ def Value.coerceLike? : Value -> Value -> Option Value
   | Value.abiLazy _ template, value =>
       Value.coerceLike? template value
   | Value.word _, Value.word value => some (Value.word value)
+  -- R3: a width-tagged bytesN value meeting an untagged `word` slot keeps the
+  -- pre-tag behaviour (stays a bare word); a `fixedBytes` slot keeps its width
+  -- for either incoming shape. The payload word is never changed.
+  | Value.word _, Value.fixedBytes _ value => some (Value.word value)
+  | Value.fixedBytes size _, Value.fixedBytes _ value =>
+      some (Value.fixedBytes size value)
+  | Value.fixedBytes size _, Value.word value =>
+      some (Value.fixedBytes size value)
   | Value.int _, Value.int value => some (Value.int value)
   | Value.int _, Value.word value => some (Value.int value)
   | Value.bytes _, Value.bytes bs => some (Value.bytes bs)
+  -- R3 (#188): a storage-ref TEMPLATE meeting a storage-ref VALUE re-points
+  -- structurally (an internal fn returning a storage pointer from an
+  -- indexed/member path) instead of dead-ending in `none` → Panic 0.
+  | Value.storageRef _, Value.storageRef target =>
+      some (Value.storageRef target)
+  | Value.storageRef _, Value.storagePathRef target indexes =>
+      some (Value.storagePathRef target indexes)
+  | Value.storagePathRef _ _, Value.storageRef target =>
+      some (Value.storageRef target)
+  | Value.storagePathRef _ _, Value.storagePathRef target indexes =>
+      some (Value.storagePathRef target indexes)
   | Value.externalFunction _ _, Value.externalFunction addr selector =>
       some (Value.externalFunction addr selector)
   | Value.internalFunction _, Value.internalFunction id =>
@@ -582,6 +619,15 @@ def Value.coerceDynamicArrayLike? :
 
 end
 
+def fixedBytesIndex? (size : Nat) (value index : Word) :
+    Except RevertData Value :=
+  if 0 < size && size <= wordBytes then
+    match listGet? (wordToBytesBE size value) (SolidCore.Solidity.Shared.norm index) with
+    | some byte => Except.ok (Value.fixedBytes 1 byte)
+    | none => Except.error RevertData.indexOutOfBounds
+  else
+    Except.error RevertData.typeMismatch
+
 def Value.index? (container : Value) (index : Word) :
     Except RevertData Value :=
   match container with
@@ -601,6 +647,11 @@ def Value.index? (container : Value) (index : Word) :
       match listGet? values (SolidCore.Solidity.Shared.norm index) with
       | some value => Except.ok value
       | none => Except.error RevertData.indexOutOfBounds
+  -- R3: bytesN indexing is INTRINSIC — the value carries its width, so a
+  -- generic `index` on a width-tagged word extracts the byte (or panics 0x32
+  -- out-of-bounds) without any caller-side routing to `fixedBytesIndex?`.
+  | Value.fixedBytes size w =>
+      fixedBytesIndex? size w index
   | Value.word _ =>
       Except.error RevertData.typeMismatch
   | Value.int _ =>
@@ -618,21 +669,12 @@ def Value.index? (container : Value) (index : Word) :
   | Value.abiLazy _ _ =>
       Except.error RevertData.typeMismatch
 
-def fixedBytesIndex? (size : Nat) (value index : Word) :
-    Except RevertData Value :=
-  if 0 < size && size <= wordBytes then
-    match listGet? (wordToBytesBE size value) (SolidCore.Solidity.Shared.norm index) with
-    | some byte => Except.ok (Value.word byte)
-    | none => Except.error RevertData.indexOutOfBounds
-  else
-    Except.error RevertData.typeMismatch
-
 def fixedBytesCast? (targetSize sourceSize : Nat) (value : Word) :
     Except RevertData Value :=
   if 0 < targetSize && targetSize <= wordBytes &&
       0 < sourceSize && sourceSize <= wordBytes then
     Except.ok
-      (Value.word
+      (Value.fixedBytes targetSize
         (bytesToWordBE
           (bytesPrefixRightPadded targetSize
             (wordToBytesBE sourceSize value))))
@@ -643,7 +685,7 @@ def fixedBytesFromBytes? (targetSize : Nat) (bytes : List Byte) :
     Except RevertData Value :=
   if 0 < targetSize && targetSize <= wordBytes then
     Except.ok
-      (Value.word
+      (Value.fixedBytes targetSize
         (bytesToWordBE
           (bytesPrefixRightPadded targetSize bytes)))
   else
@@ -773,6 +815,9 @@ def Value.setIndex? (container : Value) (index : Word) (value : Value) :
       | some updated => Except.ok (Value.tuple updated)
       | none => Except.error RevertData.indexOutOfBounds
   | Value.word _ =>
+      Except.error RevertData.typeMismatch
+  -- bytesN values are immutable words; `x[i] = b` is rejected upstream.
+  | Value.fixedBytes _ _ =>
       Except.error RevertData.typeMismatch
   | Value.int _ =>
       Except.error RevertData.typeMismatch
@@ -1251,6 +1296,8 @@ def Runtime.deleteZeroValue (runtime : Runtime) :
   | fuel + 1, value =>
       match value with
       | Value.word _ => Except.ok (runtime, Value.word 0)
+      | Value.fixedBytes size _ =>
+          Except.ok (runtime, Value.fixedBytes size 0)
       | Value.int _ => Except.ok (runtime, Value.int 0)
       | Value.bytes _ => Except.ok (runtime, Value.bytes [])
       | Value.externalFunction _ _ =>
@@ -4246,6 +4293,29 @@ def Runtime.loadStorageRefPathValue (context : Context)
     Except RevertData Value :=
   runtime.loadStoragePath context name indexes
 
+/-- R3 (#192): materialize a value for a VALUE-USE boundary (a builtin that
+    needs the value's BYTES/elements — `keccak256`/`sha256`/`ripemd160`/
+    `erc7201`, `abi.encode*`, `bytes.concat`/`string.concat`). solc implicitly
+    copies a storage `bytes`/`string`/array/struct to memory at that boundary;
+    structurally, a storage REF value is loaded in full via the same
+    `loadStoragePath` reader every storage-value read uses, and memory refs are
+    deep-dereferenced exactly as before. Plain values pass through. -/
+def Runtime.materializeForValueUse (context : Context)
+    (runtime : Runtime) (value : Value) : Except RevertData Value :=
+  match value with
+  | Value.storageRef name => runtime.loadStoragePath context name []
+  | Value.storagePathRef name indexes =>
+      runtime.loadStoragePath context name indexes
+  | value => runtime.derefMemoryValueDeep value
+
+def Runtime.materializeForValueUseList (context : Context)
+    (runtime : Runtime) : List Value -> Except RevertData (List Value)
+  | [] => Except.ok []
+  | value :: rest => do
+      let head ← runtime.materializeForValueUse context value
+      let tail ← runtime.materializeForValueUseList context rest
+      Except.ok (head :: tail)
+
 /-- The storage SLOT (as a `Word`) of the storage lvalue rooted at state
     variable `name` and reached through `indexes` — the same slot the value
     forms load from, obtained via `State.resolveStoragePathSlot`, but returned
@@ -4699,6 +4769,14 @@ def abiStaticBytes? : Ty -> Value -> Option (List Byte)
   | Ty.uint256, Value.word value => some (wordToBytesBE wordBytes value)
   | Ty.int256, Value.int value => some (wordToBytesBE wordBytes value)
   | Ty.fixedBytes size, Value.word value =>
+      if abiFixedBytesFits size value then
+        some
+          (wordToBytesBE size value ++
+            List.replicate (wordBytes - size) 0)
+      else
+        none
+  -- R3: width-tagged bytesN — identical left-aligned boundary encoding.
+  | Ty.fixedBytes size, Value.fixedBytes _ value =>
       if abiFixedBytesFits size value then
         some
           (wordToBytesBE size value ++
@@ -5279,6 +5357,11 @@ def abiEncodePackedValue? : Ty -> Value -> Option (List Byte)
   | Ty.uint256, Value.word value => some (wordToBytesBE wordBytes value)
   | Ty.int256, Value.int value => some (wordToBytesBE wordBytes value)
   | Ty.fixedBytes size, Value.word value =>
+      if 0 < size && size <= wordBytes then
+        some (wordToBytesBE size value)
+      else
+        none
+  | Ty.fixedBytes size, Value.fixedBytes _ value =>
       if 0 < size && size <= wordBytes then
         some (wordToBytesBE size value)
       else
@@ -5899,6 +5982,19 @@ def BinaryOp.applySignedWord
   | BinaryOp.ne => Except.ok (Value.word (boolWord (!(wordEq lhs rhs))))
   | _ => Except.error RevertData.typeMismatch
 
+/-- R3: does a binary op on bytesN operands PRESERVE the bytesN width on its
+    result? Bitwise/shift ops do (`a & b`, `a << k` are bytesN-typed); the
+    comparisons produce a bool word. The word bits are computed exactly as
+    before in both cases — only the width tag is added. -/
+def BinaryOp.preservesFixedBytesWidth : BinaryOp -> Bool
+  | BinaryOp.bitAnd => true
+  | BinaryOp.bitOr => true
+  | BinaryOp.bitXor => true
+  | BinaryOp.shl => true
+  | BinaryOp.shr => true
+  | BinaryOp.sar => true
+  | _ => false
+
 def BinaryOp.apply
     (checked : Bool) (op : BinaryOp) (lhs rhs : Value) :
     Except RevertData Value := do
@@ -5907,6 +6003,22 @@ def BinaryOp.apply
   -- comparison operands through `cleanup_t_enum`).
   let lhs ← lhs.forceAbiLazy
   let rhs ← rhs.forceAbiLazy
+  -- R3: bytesN operands compute on the RAW word exactly as before (the
+  -- lowering already emits the width cleanups); the tag is peeled here and
+  -- re-attached on width-preserving results below.
+  let (lhs, lhsSize?) :=
+    match lhs with
+    | Value.fixedBytes size word => (Value.word word, some size)
+    | value => (value, none)
+  let (rhs, rhsSize?) :=
+    match rhs with
+    | Value.fixedBytes size word => (Value.word word, some size)
+    | value => (value, none)
+  let retag : Value -> Value := fun result =>
+    match result, (if op.preservesFixedBytesWidth then lhsSize?.orElse (fun _ => rhsSize?) else none) with
+    | Value.word word, some size => Value.fixedBytes size word
+    | value, _ => value
+  (fun result => retag result) <$> (do
   match op with
   | BinaryOp.eq =>
       match lhs, rhs with
@@ -5963,7 +6075,7 @@ def BinaryOp.apply
               let value ← checkedSignedExp checked lhsWord rhsWord
               Except.ok (Value.int value)
           | _ => Except.error RevertData.typeMismatch
-      | _, _ => Except.error RevertData.typeMismatch
+      | _, _ => Except.error RevertData.typeMismatch)
 
 inductive BinaryArithmeticOperandMode where
   | unsignedWord
@@ -5991,6 +6103,11 @@ def UnaryOp.apply (checked : Bool) (op : UnaryOp) (value : Value) :
       match value with
       | Value.word word =>
           Except.ok (Value.word (SolidCore.Solidity.Shared.notWord word))
+      -- R3: same raw complement as the untagged word (the lowering's width
+      -- cleanup masks it), with the width preserved on the result.
+      | Value.fixedBytes size word =>
+          Except.ok
+            (Value.fixedBytes size (SolidCore.Solidity.Shared.notWord word))
       | Value.int word =>
           Except.ok (Value.int (SolidCore.Solidity.Shared.notWord word))
       | _ => Except.error RevertData.typeMismatch
@@ -6640,6 +6757,9 @@ def Expr.evalFuel (fuel : Nat)
               let (values, runtime') ←
                 Expr.evalListFuel fuel context runtime
                   exprs
+              -- R3 (#192): storage refs/memory refs materialize uniformly at
+              -- this value-use boundary.
+              let values ← runtime'.materializeForValueUseList context values
               match Value.concatBytes? values with
               | some bs => pure (Value.bytes bs, runtime')
               | none => throw <| SolidityFailure.revert RevertData.typeMismatch
@@ -6691,16 +6811,18 @@ def Expr.evalFuel (fuel : Nat)
           | Expr.keccak256 expr => do
               let (value, runtime') ←
                 Expr.evalFuel fuel context runtime expr
-              -- M4: fully materialize any memory-ref (nested) value so its bytes
-              -- can be read; an unmaterialized `memoryRef` has no `asBytes?`.
-              let value ← runtime'.derefMemoryValueDeep value
+              -- M4/R3 (#192): fully materialize memory refs AND storage refs
+              -- at this value-use boundary; an unmaterialized ref has no
+              -- `asBytes?`.
+              let value ← runtime'.materializeForValueUse context value
               match value.asBytes? with
               | some bytes =>
-                  pure (Value.word (keccakWord bytes), runtime')
+                  pure (Value.fixedBytes wordBytes (keccakWord bytes), runtime')
               | none => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.erc7201 expr => do
               let (value, runtime') ←
                 Expr.evalFuel fuel context runtime expr
+              let value ← runtime'.materializeForValueUse context value
               match value.asBytes? with
               | some bytes =>
                   pure (Value.word (erc7201Slot bytes), runtime')
@@ -6708,6 +6830,7 @@ def Expr.evalFuel (fuel : Nat)
           | Expr.externalHash kind expr => do
               let (value, runtime') ←
                 Expr.evalFuel fuel context runtime expr
+              let value ← runtime'.materializeForValueUse context value
               match value.asBytes? with
               | some bytes =>
                   match ← emitPrecompileWord context runtime'.state
@@ -6751,7 +6874,7 @@ def Expr.evalFuel (fuel : Nat)
               -- M4: deep-materialize ref-nested memory values (e.g. `bytes[]`,
               -- `uint[][]`, struct-with-dynamic-field) so the value-structural
               -- encoder sees concrete element trees, not bare `memoryRef`s.
-              let values ← runtime'.derefMemoryValuesDeep values
+              let values ← runtime'.materializeForValueUseList context values
               match abiEncodeValues? tys values with
               | some bytes => pure (Value.bytes bytes, runtime')
               | none => throw <| SolidityFailure.revert RevertData.typeMismatch
@@ -6763,7 +6886,7 @@ def Expr.evalFuel (fuel : Nat)
               | selectorValue :: argValues => do
                   let selector ← selectorValue.expectWord
                   -- M4: deep-materialize ref-nested memory arguments.
-                  let argValues ← runtime'.derefMemoryValuesDeep argValues
+                  let argValues ← runtime'.materializeForValueUseList context argValues
                   match abiEncodeValues? tys argValues with
                   | some bytes =>
                       pure
@@ -6777,7 +6900,7 @@ def Expr.evalFuel (fuel : Nat)
                 Expr.evalListFuel fuel context runtime
                   exprs
               -- M4: deep-materialize ref-nested memory values before packing.
-              let values ← runtime'.derefMemoryValuesDeep values
+              let values ← runtime'.materializeForValueUseList context values
               match abiEncodePackedValues? widths tys values with
               | some bytes => pure (Value.bytes bytes, runtime')
               | none => throw <| SolidityFailure.revert RevertData.typeMismatch
@@ -9357,21 +9480,41 @@ def FunctionDef.toInternal (function : FunctionDef) : InternalFunction :=
     body := function.body
     id? := function.dispatchId? }
 
+/-- R3: strip bytesN width tags at the PUBLIC call boundary. The tag
+    (`Value.fixedBytes size w`) is an internal dispatch device; the externally
+    observable value of a `bytesN` result is the same raw word it always was
+    (the contest observable and the frozen lane fixtures render `Value.word`).
+    Internal-call return capture does NOT route through this mapping, so
+    width/ref information keeps flowing across internal boundaries. -/
+def Value.untagFixedBytes : Value -> Value
+  | Value.fixedBytes _ w => Value.word w
+  | Value.fixedArray vs => Value.fixedArray (vs.map Value.untagFixedBytes)
+  | Value.dynamicArray vs =>
+      Value.dynamicArray (vs.map Value.untagFixedBytes)
+  | Value.tuple vs => Value.tuple (vs.map Value.untagFixedBytes)
+  | Value.abiLazy cleanup v => Value.abiLazy cleanup v.untagFixedBytes
+  | v => v
+
 def FunctionDef.callBodyResult (function : FunctionDef)
     (state : State) : Result -> CallResult
   | Result.normal runtime' =>
       match function.collectReturns runtime' with
-      | Except.ok values => CallResult.returned runtime'.state values
+      | Except.ok values =>
+          CallResult.returned runtime'.state
+            (values.map Value.untagFixedBytes)
       | Except.error err => CallResult.reverted state err
   | Result.returned runtime' values =>
       if values.isEmpty then
         match function.collectReturns runtime' with
         | Except.ok namedValues =>
-            CallResult.returned runtime'.state namedValues
+            CallResult.returned runtime'.state
+              (namedValues.map Value.untagFixedBytes)
         | Except.error err => CallResult.reverted state err
       else
         match function.coerceReturnValues runtime' values with
-        | Except.ok coerced => CallResult.returned runtime'.state coerced
+        | Except.ok coerced =>
+            CallResult.returned runtime'.state
+              (coerced.map Value.untagFixedBytes)
         | Except.error err => CallResult.reverted state err
   | Result.selfdestructed runtime' =>
       CallResult.returned runtime'.state []

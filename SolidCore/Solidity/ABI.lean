@@ -169,6 +169,13 @@ def encodeStaticValue? : Ty -> Value -> Option Bytes
           List.replicate (wordBytes - size) 0)
       else
         none
+  -- R3: width-tagged bytesN — identical left-aligned boundary encoding.
+  | Ty.fixedBytes size, Value.fixedBytes _ value =>
+      if fixedBytesFits size value then
+        some (wordToBytesBE size value ++
+          List.replicate (wordBytes - size) 0)
+      else
+        none
   -- LIT-COERCION (#141 revert/require custom-error data): a hex/string/bytes
   -- LITERAL argument to a `bytesN` error parameter is lowered target-blind to a
   -- dynamic-`bytes` `Value.bytes` (its type derived from the literal, not the
@@ -382,7 +389,9 @@ def decodeValueAtWithFuel? : Nat -> Bool -> Bytes -> Nat -> Ty -> Except RevertD
         let bytes ← abiArgOpt (readBytes? slot 0 size)
         let padding ← abiArgOpt (readBytes? slot size (wordBytes - size))
         if allZeroBytes padding then
-          Except.ok (Value.word (bytesToWordBE bytes))
+          -- R3: carry the width on the decoded bytesN value (raw word is the
+          -- right-aligned internal form, exactly as before).
+          Except.ok (Value.fixedBytes size (bytesToWordBE bytes))
         else
           Except.error RevertData.empty
       else

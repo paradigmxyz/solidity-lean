@@ -50,3 +50,4 @@ import SolidCore.Witness.AddressNestedConv
 import SolidCore.Witness.AnfCallHoisting
 import SolidCore.Witness.EvalOrderIntrinsic
 import SolidCore.Witness.NarrowCleanupFamily
+import SolidCore.Witness.ValueTyping

@@ -271,7 +271,9 @@ def pushLiteralElementLeftAlignedWord : Except TypeError Bool := do
   | CallResult.returned st _ =>
       let r2 ← CheckedInput.ownCall 32 Fam (CallTarget.name "arr") st [Value.word 0]
       match r2 with
-      | CallResult.returned _ [Value.word v] => Except.ok (wordEq v 0x1234)
+      -- R3: the bytes2 element now carries its width; compare the raw word.
+      | CallResult.returned _ [v] =>
+          Except.ok (v.asWord? == some 0x1234)
       | _ => Except.ok false
   | _ => Except.ok false
 
@@ -308,11 +310,11 @@ def externalFunctionPointerArgLeftAlignedWord : Except TypeError Bool := do
     (responderOfResults [row] []) contract "callPtr" contract.core.context State.empty
     [Value.word 0xc0ffee]
   match result with
-  | CallResult.returned _ [Value.word ret] =>
+  | CallResult.returned _ [retValue] =>
       match (CallResult.resultState result).externalInteractions with
       | [ExternalInteraction.lowLevelCall call] =>
           Except.ok
-            (wordEq ret 0x61626364 &&
+            (retValue.asWord? == some 0x61626364 &&
               LowLevelCallResult.matches call LowLevelCallKind.call 0xc0ffee calldata 0 none &&
               call.success)
       | _ => Except.ok false

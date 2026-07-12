@@ -547,6 +547,21 @@ def checkedAbiEncodeValues
   optionToExcept "ABI encode values"
     (SolidCore.Solidity.Source.ABI.encodeValues? tys values)
 
+/-- R3: run a contract's CONSTRUCTOR from the empty state and return the
+    resulting state (for whole-unit lanes whose fixtures initialize storage in
+    the constructor). -/
+def checkedConstructState (fuel : Nat) (source : SourceUnitAst)
+    (contractName : Name) (args : List CoreValue) :
+    Except TypeError CoreState := do
+  let result ←
+    CheckedInput.constructContract fuel source contractName
+      SolidCore.Solidity.Source.State.empty args
+  match result with
+  | SolidCore.Solidity.Source.CallResult.returned state _ =>
+      Except.ok state
+  | _ =>
+      Except.error (executableFailure "constructor call")
+
 def checkedCallWordMatches (fuel : Nat) (source : SourceUnitAst)
     (contractName functionName : Name) (state : CoreState)
     (args : List CoreValue) (expected : Word) :
@@ -556,9 +571,12 @@ def checkedCallWordMatches (fuel : Nat) (source : SourceUnitAst)
       (SolidCore.Solidity.Source.CallTarget.name functionName)
       state args
   match result with
-  | SolidCore.Solidity.Source.CallResult.returned _
-      [SolidCore.Solidity.Source.Value.word value] =>
-      Except.ok (SolidCore.Solidity.Source.wordEq value expected)
+  -- R3: a single-word result may carry a bytesN width tag; `asWord?` unwraps
+  -- it (the raw word is compared exactly as before).
+  | SolidCore.Solidity.Source.CallResult.returned _ [value] =>
+      match SolidCore.Solidity.Source.Value.asWord? value with
+      | some word => Except.ok (SolidCore.Solidity.Source.wordEq word expected)
+      | none => Except.ok false
   | _ => Except.ok false
 
 mutual
@@ -566,6 +584,17 @@ mutual
 def checkedCoreValueEq : CoreValue -> CoreValue -> Bool
   | SolidCore.Solidity.Source.Value.word left,
       SolidCore.Solidity.Source.Value.word right =>
+      SolidCore.Solidity.Source.wordEq left right
+  -- R3: width-tagged bytesN values compare by raw word; a tagged value also
+  -- equals an untagged expectation word (pre-R3 witnesses stay valid).
+  | SolidCore.Solidity.Source.Value.fixedBytes _ left,
+      SolidCore.Solidity.Source.Value.fixedBytes _ right =>
+      SolidCore.Solidity.Source.wordEq left right
+  | SolidCore.Solidity.Source.Value.fixedBytes _ left,
+      SolidCore.Solidity.Source.Value.word right =>
+      SolidCore.Solidity.Source.wordEq left right
+  | SolidCore.Solidity.Source.Value.word left,
+      SolidCore.Solidity.Source.Value.fixedBytes _ right =>
       SolidCore.Solidity.Source.wordEq left right
   | SolidCore.Solidity.Source.Value.int left,
       SolidCore.Solidity.Source.Value.int right =>
@@ -842,9 +871,11 @@ def checkedPrimitiveAbiOwnCallWordMatches (functionName : Name)
       (SolidCore.Solidity.Source.CallTarget.name functionName)
       SolidCore.Solidity.Source.State.empty args
   match result with
-  | SolidCore.Solidity.Source.CallResult.returned _
-      [SolidCore.Solidity.Source.Value.word value] =>
-      Except.ok (SolidCore.Solidity.Source.wordEq value expected)
+  -- R3: unwrap a possible bytesN width tag (see `checkedCallWordMatches`).
+  | SolidCore.Solidity.Source.CallResult.returned _ [value] =>
+      match SolidCore.Solidity.Source.Value.asWord? value with
+      | some word => Except.ok (SolidCore.Solidity.Source.wordEq word expected)
+      | none => Except.ok false
   | _ => Except.ok false
 
 def checkedBoolIdentityCallMatches : Except TypeError Bool :=
@@ -1879,9 +1910,11 @@ def checkedOwnCallWordMatches (fuel : Nat)
       (SolidCore.Solidity.Source.CallTarget.name functionName)
       state args
   match result with
-  | SolidCore.Solidity.Source.CallResult.returned _
-      [SolidCore.Solidity.Source.Value.word value] =>
-      Except.ok (SolidCore.Solidity.Source.wordEq value expected)
+  -- R3: unwrap a possible bytesN width tag (see `checkedCallWordMatches`).
+  | SolidCore.Solidity.Source.CallResult.returned _ [value] =>
+      match SolidCore.Solidity.Source.Value.asWord? value with
+      | some word => Except.ok (SolidCore.Solidity.Source.wordEq word expected)
+      | none => Except.ok false
   | _ => Except.ok false
 
 def checkedNestedStoragePathContractsAccepted : Bool :=
@@ -6871,9 +6904,11 @@ def checkedHighLevelExternalWordCallMatches
   let result ←
     checkedHighLevelExternalCall functionName context args responder
   match result with
-  | SolidCore.Solidity.Source.CallResult.returned _
-      [SolidCore.Solidity.Source.Value.word value] =>
-      Except.ok (SolidCore.Solidity.Source.wordEq value expected)
+  -- R3: unwrap a possible bytesN width tag (see `checkedCallWordMatches`).
+  | SolidCore.Solidity.Source.CallResult.returned _ [value] =>
+      match SolidCore.Solidity.Source.Value.asWord? value with
+      | some word => Except.ok (SolidCore.Solidity.Source.wordEq word expected)
+      | none => Except.ok false
   | _ => Except.ok false
 
 def checkedHighLevelExternalReturnMatches :
@@ -7112,9 +7147,11 @@ def checkedHighLevelThisStaticcallMatches
         self := 0xcafe }
       SolidCore.Solidity.Source.State.empty []
   match result with
-  | SolidCore.Solidity.Source.CallResult.returned _
-      [SolidCore.Solidity.Source.Value.word value] =>
-      Except.ok (SolidCore.Solidity.Source.wordEq value expected)
+  -- R3: unwrap a possible bytesN width tag (see `checkedCallWordMatches`).
+  | SolidCore.Solidity.Source.CallResult.returned _ [value] =>
+      match SolidCore.Solidity.Source.Value.asWord? value with
+      | some word => Except.ok (SolidCore.Solidity.Source.wordEq word expected)
+      | none => Except.ok false
   | _ => Except.ok false
 
 def checkedHighLevelThisViewStaticcallMatches :
