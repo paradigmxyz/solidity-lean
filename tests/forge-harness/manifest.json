@@ -13217,6 +13217,54 @@
           }
         ]
       }
+    },
+    {
+      "name": "calldata-evm-wrap",
+      "description": "WS3 / #129 CALLDATA-TAIL-WRAP: a bytes/string element of a CALLDATA bytes[] follows an access_calldata_tail tail pointer (YulUtilFunctions.cpp) with SIGNED slt + MOD-2^256 wrap. A high-bit (negative-signed) tail offset that the naive bounds-then-reject decoder over-reverts is accepted by solc: slt passes, addr := add(base_ref, rel_offset) wraps mod 2^256, and the access reads a valid in-bounds region and SUCCEEDS (wrap-success returns 0xaabb; wrap-far to a zero region returns empty bytes). A positive out-of-bounds offset still fails the signed slt and reverts on access. Forge/real-EVM (pinned solc 0.8.35) hand-builds the crafted calldata via low-level staticcall; Lean drives the same imported contract and checks decodeBytesTailWrap? reproduces the wrap boundary (real bytes on wrap-success/far, deferred marker -> empty revert on positive-OOB access), the eager memory-path malformed matrix (#22/#41/#101/#124/#128) being untouched.",
+      "forge": {
+        "root": "tests/forge-harness/calldata-evm-wrap",
+        "match_contract": "CalldataEvmWrapForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/calldata-evm-wrap/src/CalldataEvmWrap.sol",
+        "contract": "CalldataEvmWrapTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.CalldataEvmWrap"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.CalldataEvmWrap.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "firstElemWrapSuccessReturnsAabb",
+            "expr": "(do\n  let sel := fun (s : String) => SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.selectorBytes (SolidCore.Solidity.Source.ABI.selectorFromSignature s)\n  let w := fun (v : SolidCore.Solidity.Source.Word) => SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.wordBytes v\n  let cd := sel \"firstElem(bytes[])\" ++ w 0x80 ++ w 0x02 ++ w 0xaabb000000000000000000000000000000000000000000000000000000000000 ++ w 0x00 ++ w 0x01 ++ w 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff80\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.callCalldata 200 SolidCore.Solidity.SolcAstImport.CalldataEvmWrap.importedSourceUnit \"CalldataEvmWrapTarget\" SolidCore.Solidity.Source.State.empty cd\n  Except.ok (result.success && result.output == w 0x20 ++ w 2 ++ ([0xaa, 0xbb] ++ List.replicate 30 0)))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "firstElemWrapFarReturnsEmpty",
+            "expr": "(do\n  let sel := fun (s : String) => SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.selectorBytes (SolidCore.Solidity.Source.ABI.selectorFromSignature s)\n  let w := fun (v : SolidCore.Solidity.Source.Word) => SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.wordBytes v\n  let cd := sel \"firstElem(bytes[])\" ++ w 0x80 ++ w 0x02 ++ w 0xaabb000000000000000000000000000000000000000000000000000000000000 ++ w 0x00 ++ w 0x01 ++ w 0x8000000000000000000000000000000000000000000000000000000000000000\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.callCalldata 200 SolidCore.Solidity.SolcAstImport.CalldataEvmWrap.importedSourceUnit \"CalldataEvmWrapTarget\" SolidCore.Solidity.Source.State.empty cd\n  Except.ok (result.success && result.output == w 0x20 ++ w 0))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "firstElemPositiveOobReverts",
+            "expr": "(do\n  let sel := fun (s : String) => SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.selectorBytes (SolidCore.Solidity.Source.ABI.selectorFromSignature s)\n  let w := fun (v : SolidCore.Solidity.Source.Word) => SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.wordBytes v\n  let cd := sel \"firstElem(bytes[])\" ++ w 0x80 ++ w 0x02 ++ w 0xaabb000000000000000000000000000000000000000000000000000000000000 ++ w 0x00 ++ w 0x01 ++ w 0x1000\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.callCalldata 200 SolidCore.Solidity.SolcAstImport.CalldataEvmWrap.importedSourceUnit \"CalldataEvmWrapTarget\" SolidCore.Solidity.Source.State.empty cd\n  match result with\n  | { success := false, output := [], .. } => Except.ok true\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "lenControlReturnsOne",
+            "expr": "(do\n  let sel := fun (s : String) => SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.selectorBytes (SolidCore.Solidity.Source.ABI.selectorFromSignature s)\n  let w := fun (v : SolidCore.Solidity.Source.Word) => SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.wordBytes v\n  let cd := sel \"len(bytes[])\" ++ w 0x20 ++ w 0x01 ++ w 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff80\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.callCalldata 200 SolidCore.Solidity.SolcAstImport.CalldataEvmWrap.importedSourceUnit \"CalldataEvmWrapTarget\" SolidCore.Solidity.Source.State.empty cd\n  Except.ok (result.success && result.output == w 1))",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }

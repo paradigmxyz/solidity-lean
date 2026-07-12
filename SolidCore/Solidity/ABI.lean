@@ -354,6 +354,74 @@ def abiArgOpt {α} : Option α -> Except RevertData α
   | some a => Except.ok a
   | none => Except.error RevertData.empty
 
+-- ===========================================================================
+-- WS3 / #129 CALLDATA-TAIL-WRAP: EVM-faithful nested calldata tail access.
+--
+-- When a *calldata* aggregate of *dynamic* elements is accessed, solc follows
+-- the element's tail pointer with `access_calldata_tail`
+-- (YulUtilFunctions.cpp:2541): the tail offset is validated with a SIGNED `slt`
+-- (a high-bit / "negative" offset PASSES) and `addr := add(base_ref, rel)` is
+-- computed MOD 2^256 and WRAPS. A crafted high-bit offset therefore wraps to an
+-- in-bounds region and the access SUCCEEDS with real bytes, where the naive
+-- `.drop`-relative decoder over-reverts (see CALLDATA_WRAP_DESIGN.md).
+--
+-- The rule below is verified byte-for-byte on the real EVM (pinned solc 0.8.35;
+-- lane `tests/forge-harness/calldata-evm-wrap`): wrap-success returns 0xaabb,
+-- wrap-far returns empty bytes, positive-OOB reverts empty, normal-forward
+-- returns 0xaabb. The model works in MODEL coordinates (post-selector); the
+-- selector `+4` cancels in the `slt` RHS and shifts `addr`/`sgt` only within a
+-- 4-byte window of the exact 2^256 wrap boundary (documented residual, needs a
+-- tail offset within 4 of an exact boundary — unreachable in practice).
+def twoPow256 : Nat := 2 ^ 256
+
+-- Signed 256-bit view of a raw word (bit 255 set ⇒ negative).
+def signed256 (value : Nat) : Int :=
+  let v := value % twoPow256
+  if v ≥ 2 ^ 255 then (v : Int) - (twoPow256 : Int) else (v : Int)
+
+def signedLt256 (a b : Nat) : Bool := decide (signed256 a < signed256 b)
+def signedGt256 (a b : Nat) : Bool := decide (signed256 a > signed256 b)
+
+-- EVM `calldataload` semantics: reads 32 bytes, ZERO-PADDING past the end
+-- (never reverts, unlike `readWord?`). Model calldata is finite `argData`.
+def readWordZeroPad (argData : Bytes) (pos : Nat) : Word :=
+  let avail := (argData.drop pos).take wordBytes
+  bytesToWordBE (avail ++ List.replicate (wordBytes - avail.length) 0)
+
+-- Zero-padded byte read (calldata copy past the end reads zeros).
+def readBytesZeroPad (argData : Bytes) (pos len : Nat) : Bytes :=
+  let avail := (argData.drop pos).take len
+  normalizeBytes (avail ++ List.replicate (len - avail.length) 0)
+
+-- Faithful `access_calldata_tail` for a `bytes`/`string` element (the on-chain
+-- verified case). `base` is the aggregate's calldata base (base_ref, model
+-- coords), `relSlot` the byte position of the element's tail-offset word. On
+-- success returns the decoded `Value.bytes`; on `slt`/length/stride failure
+-- returns an empty revert (the caller substitutes the deferred marker, so a
+-- never-accessed malformed element still does not revert at the boundary).
+def decodeBytesTailWrap? (argData : Bytes) (base relSlot : Nat) :
+    Except RevertData Value :=
+  let csz := argData.length
+  let rel := readWordZeroPad argData relSlot
+  -- neededLength = calldataEncodedTailSize(bytes) = 32 = wordBytes; stride = 1.
+  -- slt(rel, csz - base - (needed - 1))  (RHS as a raw 256-bit word)
+  let rhs := (csz + twoPow256 - base % twoPow256 - (wordBytes - 1)) % twoPow256
+  if ¬ signedLt256 rel rhs then
+    Except.error RevertData.empty
+  else
+    let addr := (base + rel) % twoPow256
+    let length := readWordZeroPad argData addr
+    if length > 2 ^ 64 - 1 then
+      Except.error RevertData.empty
+    else
+      let addr2 := (addr + wordBytes) % twoPow256
+      -- sgt(addr2, csz - length*stride)  (revert if the data runs past the end)
+      let strideRhs := (csz + twoPow256 - length % twoPow256) % twoPow256
+      if signedGt256 addr2 strideRhs then
+        Except.error RevertData.empty
+      else
+        Except.ok (Value.bytes (readBytesZeroPad argData addr2 length))
+
 -- Returns `Except RevertData Value`: `Except.error RevertData.empty` is solc's
 -- empty `revert(0, 0)` (bounds / dirty-value / enum-range failure), while
 -- `Except.error RevertData.memoryAllocationTooLarge` is Panic(0x41), raised only
@@ -459,7 +527,30 @@ def decodeValueAtWithFuel? : Nat -> Bool -> Bytes -> Nat -> Ty -> Except RevertD
                   -- of reverting at the boundary. This now covers value-type
                   -- (non-`isDynamicAbi`) elements too, not just dynamic ones.
                   if lazy then
-                    Except.ok (Value.calldataDeferredInvalid elementTy)
+                    -- WS3 / #129: a `bytes`/`string` element of a *calldata*
+                    -- array (`bytes[]`/`string[]`) whose tail offset the naive
+                    -- `.drop` decode could not follow is exactly the EVM's
+                    -- `access_calldata_tail` WRAP regime: a high-bit ("negative")
+                    -- offset that solc accepts via SIGNED `slt` and resolves with
+                    -- MOD-2^256 pointer arithmetic. Retry that element through the
+                    -- faithful wrap decoder. base_ref = arrayPos = offset +
+                    -- wordBytes; the tail-offset word is at base_ref +
+                    -- index*wordBytes (step = 1 for a dynamic element). A forward
+                    -- in-bounds offset never reaches here (the `.drop` decode
+                    -- already succeeded with the identical bytes); only the
+                    -- wrap / genuine-failure regime does. On wrap-success this
+                    -- yields the real bytes (the fix); on genuine failure
+                    -- (positive-OOB / oversized length / short tail) it falls
+                    -- back to the deferred marker, so a never-accessed malformed
+                    -- element still does not revert at the boundary.
+                    match elementTy with
+                    | Ty.bytesCalldata =>
+                        match decodeBytesTailWrap? argData (offset + wordBytes)
+                            ((offset + wordBytes) + index * wordBytes) with
+                        | Except.ok v => Except.ok v
+                        | Except.error _ =>
+                            Except.ok (Value.calldataDeferredInvalid elementTy)
+                    | _ => Except.ok (Value.calldataDeferredInvalid elementTy)
                   else
                     Except.error e
             let step ← abiArgOpt (Ty.abiHeadWords? elementTy)
