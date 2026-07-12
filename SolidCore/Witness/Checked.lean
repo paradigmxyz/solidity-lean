@@ -616,9 +616,10 @@ def checkedCoreValueEq : CoreValue -> CoreValue -> Bool
       checkedCoreValuesEq left right
   | SolidCore.Solidity.Source.Value.storageRef left,
       SolidCore.Solidity.Source.Value.storageRef right => left == right
-  | SolidCore.Solidity.Source.Value.storagePathRef leftName leftPath,
-      SolidCore.Solidity.Source.Value.storagePathRef rightName rightPath =>
-      leftName == rightName && checkedCoreValuesEq leftPath rightPath
+  | SolidCore.Solidity.Source.Value.storageSlotRef leftSlot leftLayout,
+      SolidCore.Solidity.Source.Value.storageSlotRef rightSlot rightLayout =>
+      SolidCore.Solidity.Source.wordEq leftSlot rightSlot &&
+        leftLayout == rightLayout
   | SolidCore.Solidity.Source.Value.memoryRef left,
       SolidCore.Solidity.Source.Value.memoryRef right => left == right
   | _, _ => false

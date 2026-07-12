@@ -56,3 +56,4 @@ import SolidCore.Witness.StageDCompletion
 import SolidCore.Witness.EnvLoweringUnify
 import SolidCore.Witness.ValueTyping
 import SolidCore.Witness.InheritedScope
+import SolidCore.Witness.StorageRefEarlyBind

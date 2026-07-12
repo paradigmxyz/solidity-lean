@@ -93,7 +93,7 @@ inductive Ty where
       params/returns and locals stay `uint256` + `AbiCleanup.enum` exactly as
       before. -/
   | enumStorage : Word -> Ty
-  deriving Repr
+  deriving Repr, BEq
 
 inductive AbiCleanup where
   | none
@@ -121,6 +121,21 @@ inductive AbiCleanup where
   | memoryEager : AbiCleanup -> AbiCleanup
   deriving Repr
 
+/-- Storage layout of a state variable (or of the slot a storage POINTER is
+    bound to). Moved above `Value` for WS2 (#146/#177): an early-bound storage
+    reference (`Value.storageSlotRef`) carries the layout AT its captured slot
+    so subsequent indexing/member access can resolve from the captured base. -/
+inductive StorageLayout where
+  | scalar : Ty -> StorageLayout
+  | packedScalar : Nat -> Nat -> Bool -> Ty -> StorageLayout
+  | struct : List StorageLayout -> StorageLayout
+  | fixedArray : Nat -> StorageLayout -> StorageLayout
+  | dynamicArray : StorageLayout -> StorageLayout
+  | bytes : StorageLayout
+  | string : StorageLayout
+  | mapping : Ty -> StorageLayout -> StorageLayout
+  deriving Repr, BEq
+
 inductive Value where
   | word : Word -> Value
   /-- R3 (value typing): a `bytesN` value CARRYING its width. The `Word`
@@ -140,7 +155,15 @@ inductive Value where
   | dynamicArray : List Value -> Value
   | tuple : List Value -> Value
   | storageRef : String -> Value
-  | storagePathRef : String -> List Value -> Value
+  /-- WS2 (#146/#177) EARLY-BOUND storage pointer: the CONCRETE slot resolved
+      ONCE at the binding site (`T storage p = arr[i]` — bounds check runs
+      there, as solc does) plus the storage layout AT that slot. Dereference,
+      write, delete, and further indexing all start from the captured slot
+      with NO root re-resolution and NO dynamic-array length recheck for the
+      already-bound prefix — matching solc/EVM, which raw-`sload`s a bound
+      pointer even after the underlying array shrank. Whole-variable refs
+      keep the `storageRef` name form (their base slot is static). -/
+  | storageSlotRef : Word -> StorageLayout -> Value
   | memoryRef : Nat -> Value
   | abiLazy : AbiCleanup -> Value -> Value
   deriving Repr
@@ -220,7 +243,7 @@ def Value.length? : Value -> Option Nat
   | Value.externalFunction _ _ => none
   | Value.internalFunction _ => none
   | Value.storageRef _ => none
-  | Value.storagePathRef _ _ => none
+  | Value.storageSlotRef _ _ => none
   | Value.memoryRef _ => none
   | Value.abiLazy _ value => value.length?
 
@@ -239,7 +262,7 @@ def Value.defaultLike : Value -> Value
   | Value.dynamicArray _ => Value.dynamicArray []
   | Value.tuple values => Value.tuple (values.map Value.defaultLike)
   | Value.storageRef target => Value.storageRef target
-  | Value.storagePathRef target indexes => Value.storagePathRef target indexes
+  | Value.storageSlotRef slot layout => Value.storageSlotRef slot layout
   | Value.memoryRef id => Value.memoryRef id
   | Value.abiLazy _ value => value.defaultLike
 
@@ -267,11 +290,20 @@ def Value.isMemoryObject : Value -> Bool
   | Value.abiLazy _ value => value.isMemoryObject
   | _ => false
 
-def Value.storageRefForPath (target : String) (indexes : List Value) :
-    Value :=
-  match indexes with
-  | [] => Value.storageRef target
-  | _ => Value.storagePathRef target indexes
+/-- WS2 (#146/#177): the base a storage POINTER (or a storage-rooted lvalue)
+    is anchored at — either a whole state variable (name form; base slot is a
+    compile-time constant) or an early-bound captured slot + its layout. All
+    storage path helpers resolve extra indexes LIVE from this base; for a
+    `.slot` base nothing before the base is ever re-resolved. -/
+inductive StorageBase where
+  | field : String -> StorageBase
+  | slot : Word -> StorageLayout -> StorageBase
+  deriving Repr
+
+/-- The runtime `Value` a bound storage pointer with this base carries. -/
+def StorageBase.toRefValue : StorageBase -> Value
+  | StorageBase.field name => Value.storageRef name
+  | StorageBase.slot s layout => Value.storageSlotRef s layout
 
 def Value.concatBytes? : List Value -> Option (List Byte)
   | [] => some []
@@ -617,14 +649,16 @@ def Value.coerceLike? : Value -> Value -> Option Value
   -- R3 (#188): a storage-ref TEMPLATE meeting a storage-ref VALUE re-points
   -- structurally (an internal fn returning a storage pointer from an
   -- indexed/member path) instead of dead-ending in `none` → Panic 0.
+  -- WS2: the incoming ref is already EARLY-BOUND (name form or captured
+  -- slot); re-pointing adopts it unchanged.
   | Value.storageRef _, Value.storageRef target =>
       some (Value.storageRef target)
-  | Value.storageRef _, Value.storagePathRef target indexes =>
-      some (Value.storagePathRef target indexes)
-  | Value.storagePathRef _ _, Value.storageRef target =>
+  | Value.storageRef _, Value.storageSlotRef slot layout =>
+      some (Value.storageSlotRef slot layout)
+  | Value.storageSlotRef _ _, Value.storageRef target =>
       some (Value.storageRef target)
-  | Value.storagePathRef _ _, Value.storagePathRef target indexes =>
-      some (Value.storagePathRef target indexes)
+  | Value.storageSlotRef _ _, Value.storageSlotRef slot layout =>
+      some (Value.storageSlotRef slot layout)
   | Value.externalFunction _ _, Value.externalFunction addr selector =>
       some (Value.externalFunction addr selector)
   | Value.internalFunction _, Value.internalFunction id =>
@@ -706,7 +740,7 @@ def Value.index? (container : Value) (index : Word) :
       Except.error RevertData.typeMismatch
   | Value.storageRef _ =>
       Except.error RevertData.typeMismatch
-  | Value.storagePathRef _ _ =>
+  | Value.storageSlotRef _ _ =>
       Except.error RevertData.typeMismatch
   | Value.memoryRef _ =>
       Except.error RevertData.typeMismatch
@@ -871,7 +905,7 @@ def Value.setIndex? (container : Value) (index : Word) (value : Value) :
       Except.error RevertData.typeMismatch
   | Value.storageRef _ =>
       Except.error RevertData.typeMismatch
-  | Value.storagePathRef _ _ =>
+  | Value.storageSlotRef _ _ =>
       Except.error RevertData.typeMismatch
   | Value.memoryRef _ =>
       Except.error RevertData.typeMismatch
@@ -1365,7 +1399,7 @@ def Runtime.deleteZeroValue (runtime : Runtime) :
           let forced ← cleanup.forceValue value
           runtime.deleteZeroValue fuel forced
       | Value.storageRef _ => Except.ok (runtime, value)
-      | Value.storagePathRef _ _ => Except.ok (runtime, value)
+      | Value.storageSlotRef _ _ => Except.ok (runtime, value)
 
 def Runtime.deleteZeroValues (runtime : Runtime) (fuel : Nat) :
     List Value -> Except RevertData (Runtime × List Value)
@@ -1387,37 +1421,24 @@ def Runtime.lookupMemoryRef? (runtime : Runtime) (name : String) :
   | some (Value.memoryRef id) => some id
   | _ => none
 
-def Runtime.lookupStorageRef? (runtime : Runtime) (name : String) :
-    Option String :=
+/-- WS2: the `StorageBase` a local storage POINTER is bound to (whole
+    variable → `.field`, early-bound path → captured `.slot`). Replaces the
+    late-binding `lookupStoragePathRef?` (root + index path). -/
+def Runtime.lookupStorageBase? (runtime : Runtime) (name : String) :
+    Option StorageBase :=
   match runtime.lookupLocal? name with
-  | some (Value.storageRef target) => some target
+  | some (Value.storageRef target) => some (StorageBase.field target)
+  | some (Value.storageSlotRef slot layout) =>
+      some (StorageBase.slot slot layout)
   | _ => none
 
-def Runtime.lookupStoragePathRef? (runtime : Runtime) (name : String) :
-    Option (String × List Value) :=
+/-- Re-point a local that currently holds a storage POINTER to a new
+    (already early-bound) storage-ref value. -/
+def Runtime.assignStorageRefValue?
+    (runtime : Runtime) (name : String) (ref : Value) : Option Runtime :=
   match runtime.lookupLocal? name with
-  | some (Value.storageRef target) => some (target, [])
-  | some (Value.storagePathRef target indexes) => some (target, indexes)
-  | _ => none
-
-def Runtime.assignStorageRef?
-    (runtime : Runtime) (name target : String) : Option Runtime :=
-  match runtime.lookupLocal? name with
-  | some (Value.storageRef _) | some (Value.storagePathRef _ _) =>
-      match LocalEnv.assign? runtime.locals name (Value.storageRef target) with
-      | some locals => some { runtime with locals }
-      | none => none
-  | _ => none
-
-def Runtime.assignStoragePathRef?
-    (runtime : Runtime) (name target : String) (indexes : List Value) :
-    Option Runtime :=
-  match runtime.lookupLocal? name with
-  | some (Value.storageRef _) | some (Value.storagePathRef _ _) =>
-      match
-        LocalEnv.assign? runtime.locals name
-          (Value.storageRefForPath target indexes)
-      with
+  | some (Value.storageRef _) | some (Value.storageSlotRef _ _) =>
+      match LocalEnv.assign? runtime.locals name ref with
       | some locals => some { runtime with locals }
       | none => none
   | _ => none
@@ -1469,16 +1490,15 @@ def Runtime.assignNamedValues? (runtime : Runtime) :
 /-- Reference-aware local assignment for internal-call return capture
     (function-boundary refactor, reference-signature extension). A returned
     storage pointer must re-point the caller's storage-alias target (through
-    `assignStorageRef?`/`assignStoragePathRef?`), not be `coerceLike?`'d as an
-    ordinary value (which has no storage/memory-ref case). Memory-ref returns and
+    `assignStorageRefValue?`), not be `coerceLike?`'d as an ordinary value
+    (which has no storage/memory-ref case). Memory-ref returns and
     plain values fall through to `assignLocal?` (which already aliases a memory
     target and coerces a value target). -/
 def Runtime.assignLocalRefAware?
     (runtime : Runtime) (name : String) (value : Value) : Option Runtime :=
   match value with
-  | Value.storageRef target => runtime.assignStorageRef? name target
-  | Value.storagePathRef target indexes =>
-      runtime.assignStoragePathRef? name target indexes
+  | Value.storageRef _ | Value.storageSlotRef _ _ =>
+      runtime.assignStorageRefValue? name value
   | _ => runtime.assignLocal? name value
 
 def Runtime.assignNamedValuesRef? (runtime : Runtime) :
@@ -1507,17 +1527,6 @@ def Runtime.localizeMemoryLocal (runtime : Runtime) (ty : Ty)
       let (runtime'', ref) := runtime'.allocMemory storedValue
       runtime''.assignLocalRaw? name ref
   | none => none
-
-inductive StorageLayout where
-  | scalar : Ty -> StorageLayout
-  | packedScalar : Nat -> Nat -> Bool -> Ty -> StorageLayout
-  | struct : List StorageLayout -> StorageLayout
-  | fixedArray : Nat -> StorageLayout -> StorageLayout
-  | dynamicArray : StorageLayout -> StorageLayout
-  | bytes : StorageLayout
-  | string : StorageLayout
-  | mapping : Ty -> StorageLayout -> StorageLayout
-  deriving Repr
 
 structure StorageLayoutCursor where
   slot : Nat
@@ -4386,32 +4395,68 @@ def State.resolveStoragePathSlot (state : State) :
   | _, _, _ :: _ =>
       Except.error RevertData.typeMismatch
 
-def Runtime.loadStoragePath (context : Context)
-    (runtime : Runtime) (name : String) (indexes : List Value) :
-    Except RevertData Value := do
-  let field ←
-    match context.storageField? name with
-    | some field => Except.ok field
-    | none => Except.error RevertData.typeMismatch
-  if field.transient && !indexes.isEmpty then
-    Except.error RevertData.typeMismatch
-  else
-    pure ()
-  let layout ←
-    match field.layout? with
-    | some layout => Except.ok layout
-    | none =>
-        match field.ty? with
-        | some ty => Except.ok (StorageLayout.scalar ty)
+/-- WS2: the anchor slot + layout of a `StorageBase`. For a `.field` base
+    this is the state variable's static slot and declared layout (with the
+    legacy scalar fallback and the transient-with-indexes rejection exactly
+    as the old name-rooted helpers had); for a `.slot` base it is the
+    captured slot + layout — nothing is re-resolved. -/
+def Runtime.storageBaseAnchor (context : Context)
+    (_runtime : Runtime) (base : StorageBase) (indexes : List Value) :
+    Except RevertData (Word × StorageLayout) :=
+  match base with
+  | StorageBase.slot slot layout => Except.ok (slot, layout)
+  | StorageBase.field name => do
+      let field ←
+        match context.storageField? name with
+        | some field => Except.ok field
         | none => Except.error RevertData.typeMismatch
+      if field.transient && !indexes.isEmpty then
+        Except.error RevertData.typeMismatch
+      else
+        pure ()
+      let layout ←
+        match field.layout? with
+        | some layout => Except.ok layout
+        | none =>
+            match field.ty? with
+            | some ty => Except.ok (StorageLayout.scalar ty)
+            | none => Except.error RevertData.typeMismatch
+      Except.ok (field.slot, layout)
+
+/-- Resolve `indexes` LIVE from a base anchor (bounds checks run here — at
+    the access, as the EVM does). For a bound pointer (`.slot` base) the
+    already-bound prefix is NOT re-resolved. -/
+def Runtime.resolveStorageBasePath (context : Context)
+    (runtime : Runtime) (base : StorageBase) (indexes : List Value) :
+    Except RevertData (Word × StorageLayout) := do
+  let (slot, layout) ← runtime.storageBaseAnchor context base indexes
+  State.resolveStoragePathSlot runtime.state slot layout indexes
+
+/-- WS2 BIND-SITE resolution: build the storage-ref VALUE for a pointer
+    bound at `base` through `indexes`, resolving the concrete slot ONCE (an
+    out-of-bounds index Panics 0x32 HERE, at the bind, as solc does). A
+    whole-variable bind keeps the name form. -/
+def Runtime.bindStorageRef (context : Context)
+    (runtime : Runtime) (base : StorageBase) (indexes : List Value) :
+    Except RevertData Value :=
+  match base, indexes with
+  | StorageBase.field name, [] => Except.ok (Value.storageRef name)
+  | _, _ => do
+      let (slot, layout) ←
+        runtime.resolveStorageBasePath context base indexes
+      Except.ok (Value.storageSlotRef slot layout)
+
+def Runtime.loadStorageBasePath (context : Context)
+    (runtime : Runtime) (base : StorageBase) (indexes : List Value) :
+    Except RevertData Value := do
   let (slot, valueLayout) ←
-    State.resolveStoragePathSlot runtime.state field.slot layout indexes
+    runtime.resolveStorageBasePath context base indexes
   runtime.state.loadStorageLayoutAt slot valueLayout
 
-def Runtime.loadStorageRefPathValue (context : Context)
+def Runtime.loadStoragePath (context : Context)
     (runtime : Runtime) (name : String) (indexes : List Value) :
     Except RevertData Value :=
-  runtime.loadStoragePath context name indexes
+  runtime.loadStorageBasePath context (StorageBase.field name) indexes
 
 /-- R3 (#192): materialize a value for a VALUE-USE boundary (a builtin that
     needs the value's BYTES/elements — `keccak256`/`sha256`/`ripemd160`/
@@ -4424,8 +4469,8 @@ def Runtime.materializeForValueUse (context : Context)
     (runtime : Runtime) (value : Value) : Except RevertData Value :=
   match value with
   | Value.storageRef name => runtime.loadStoragePath context name []
-  | Value.storagePathRef name indexes =>
-      runtime.loadStoragePath context name indexes
+  | Value.storageSlotRef slot layout =>
+      runtime.state.loadStorageLayoutAt slot layout
   | value => runtime.derefMemoryValueDeep value
 
 def Runtime.materializeForValueUseList (context : Context)
@@ -4441,77 +4486,47 @@ def Runtime.materializeForValueUseList (context : Context)
     forms load from, obtained via `State.resolveStoragePathSlot`, but returned
     rather than dereferenced. Used to ABI-encode a storage pointer by slot on
     the public-library `delegatecall` boundary. -/
-def Runtime.storagePathSlotValue (context : Context)
-    (runtime : Runtime) (name : String) (indexes : List Value) :
+def Runtime.storageBasePathSlotValue (context : Context)
+    (runtime : Runtime) (base : StorageBase) (indexes : List Value) :
     Except RevertData Word := do
-  let field ←
-    match context.storageField? name with
-    | some field => Except.ok field
-    | none => Except.error RevertData.typeMismatch
-  if field.transient && !indexes.isEmpty then
-    Except.error RevertData.typeMismatch
-  else
-    pure ()
-  let layout ←
-    match field.layout? with
-    | some layout => Except.ok layout
-    | none =>
-        match field.ty? with
-        | some ty => Except.ok (StorageLayout.scalar ty)
-        | none => Except.error RevertData.typeMismatch
-  let (slot, _) ←
-    State.resolveStoragePathSlot runtime.state field.slot layout indexes
+  let (slot, _) ← runtime.resolveStorageBasePath context base indexes
   Except.ok slot
 
-def Runtime.storeStoragePathWithDeepClear (context : Context)
-    (runtime : Runtime) (name : String) (indexes : List Value)
+def Runtime.storagePathSlotValue (context : Context)
+    (runtime : Runtime) (name : String) (indexes : List Value) :
+    Except RevertData Word :=
+  runtime.storageBasePathSlotValue context (StorageBase.field name) indexes
+
+def Runtime.storeStorageBasePathWithDeepClear (context : Context)
+    (runtime : Runtime) (base : StorageBase) (indexes : List Value)
     (value : Value) : Except RevertData Runtime := do
-  let field ←
-    match context.storageField? name with
-    | some field => Except.ok field
-    | none => Except.error RevertData.typeMismatch
   let value ← runtime.storageMaterializedValue value
-  if field.transient && !indexes.isEmpty then
-    Except.error RevertData.typeMismatch
-  else
-    pure ()
-  let layout ←
-    match field.layout? with
-    | some layout => Except.ok layout
-    | none =>
-        match field.ty? with
-        | some ty => Except.ok (StorageLayout.scalar ty)
-        | none => Except.error RevertData.typeMismatch
   let (slot, valueLayout) ←
-    State.resolveStoragePathSlot runtime.state field.slot layout indexes
+    runtime.resolveStorageBasePath context base indexes
   let state ←
     State.storeStorageLayoutAtWithDeepClear
       runtime.state slot valueLayout value
   Except.ok { runtime with state }
 
-def Runtime.deleteStoragePath (context : Context)
-    (runtime : Runtime) (name : String) (indexes : List Value) :
+def Runtime.storeStoragePathWithDeepClear (context : Context)
+    (runtime : Runtime) (name : String) (indexes : List Value)
+    (value : Value) : Except RevertData Runtime :=
+  runtime.storeStorageBasePathWithDeepClear context
+    (StorageBase.field name) indexes value
+
+def Runtime.deleteStorageBasePath (context : Context)
+    (runtime : Runtime) (base : StorageBase) (indexes : List Value) :
     Except RevertData Runtime := do
-  let field ←
-    match context.storageField? name with
-    | some field => Except.ok field
-    | none => Except.error RevertData.typeMismatch
-  if field.transient && !indexes.isEmpty then
-    Except.error RevertData.typeMismatch
-  else
-    pure ()
-  let layout ←
-    match field.layout? with
-    | some layout => Except.ok layout
-    | none =>
-        match field.ty? with
-        | some ty => Except.ok (StorageLayout.scalar ty)
-        | none => Except.error RevertData.typeMismatch
   let (slot, valueLayout) ←
-    State.resolveStoragePathSlot runtime.state field.slot layout indexes
+    runtime.resolveStorageBasePath context base indexes
   let state ←
     State.clearStorageLayoutAtDeep runtime.state slot valueLayout
   Except.ok { runtime with state }
+
+def Runtime.deleteStoragePath (context : Context)
+    (runtime : Runtime) (name : String) (indexes : List Value) :
+    Except RevertData Runtime :=
+  runtime.deleteStorageBasePath context (StorageBase.field name) indexes
 
 def Runtime.loadStorageIndex (context : Context)
     (runtime : Runtime) (name : String) (index : Value) :
@@ -4759,28 +4774,14 @@ def Runtime.storageArrayPop (context : Context)
                 |>.storeSlot field.slot newLength }
     | _ => Except.error RevertData.typeMismatch
 
-def Runtime.storageArrayPushPath (context : Context)
-    (runtime : Runtime) (name : String) (indexes : List Value)
+/-- Push onto the dynamic array / bytes whose length word lives at `slot`
+    with layout `valueLayout` (the shared core of the name-rooted and
+    early-bound push forms). -/
+def Runtime.storageArrayPushAt
+    (runtime : Runtime) (slot : Word) (valueLayout : StorageLayout)
     (value? : Option Value) :
     Except RevertData Runtime := do
-  match indexes with
-  | [] => runtime.storageArrayPush context name value?
-  | _ =>
-      let field ←
-        match context.storageField? name with
-        | some field => Except.ok field
-        | none => Except.error RevertData.typeMismatch
-      if field.transient then
-        Except.error RevertData.typeMismatch
-      else
-        pure ()
-      let layout ←
-        match field.layout? with
-        | some layout => Except.ok layout
-        | none => Except.error RevertData.typeMismatch
-      let (slot, valueLayout) ←
-        State.resolveStoragePathSlot runtime.state field.slot layout indexes
-      match valueLayout with
+  match valueLayout with
         | StorageLayout.dynamicArray elementLayout => do
             let length := runtime.state.loadSlot slot
             let rawLength := SolidCore.Solidity.Shared.norm length + 1
@@ -4816,27 +4817,36 @@ def Runtime.storageArrayPushPath (context : Context)
             Except.error RevertData.typeMismatch
         | _ => Except.error RevertData.typeMismatch
 
-def Runtime.storageArrayPopPath (context : Context)
-    (runtime : Runtime) (name : String) (indexes : List Value) :
+/-- WS2: base-rooted push. A whole-variable base with no extra indexes keeps
+    the field-level `storageArrayPush` (legacy no-layout handling); everything
+    else resolves the extra indexes LIVE from the base and pushes at the
+    resolved slot. The `.field`-with-indexes case rejects `transient` and
+    layoutless fields exactly as the old name-rooted path form did (the
+    anchor's scalar fallback dead-ends in `resolveStoragePathSlot`/the
+    layout match with the same `typeMismatch`). -/
+def Runtime.storageArrayPushBasePath (context : Context)
+    (runtime : Runtime) (base : StorageBase) (indexes : List Value)
+    (value? : Option Value) :
     Except RevertData Runtime := do
-  match indexes with
-  | [] => runtime.storageArrayPop context name
-  | _ =>
-      let field ←
-        match context.storageField? name with
-        | some field => Except.ok field
-        | none => Except.error RevertData.typeMismatch
-      if field.transient then
-        Except.error RevertData.typeMismatch
-      else
-        pure ()
-      let layout ←
-        match field.layout? with
-        | some layout => Except.ok layout
-        | none => Except.error RevertData.typeMismatch
+  match base, indexes with
+  | StorageBase.field name, [] => runtime.storageArrayPush context name value?
+  | _, _ =>
       let (slot, valueLayout) ←
-        State.resolveStoragePathSlot runtime.state field.slot layout indexes
-      match valueLayout with
+        runtime.resolveStorageBasePath context base indexes
+      runtime.storageArrayPushAt slot valueLayout value?
+
+def Runtime.storageArrayPushPath (context : Context)
+    (runtime : Runtime) (name : String) (indexes : List Value)
+    (value? : Option Value) :
+    Except RevertData Runtime :=
+  runtime.storageArrayPushBasePath context (StorageBase.field name)
+    indexes value?
+
+/-- Pop from the dynamic array / bytes whose length word lives at `slot`. -/
+def Runtime.storageArrayPopAt
+    (runtime : Runtime) (slot : Word) (valueLayout : StorageLayout) :
+    Except RevertData Runtime := do
+  match valueLayout with
         | StorageLayout.dynamicArray elementLayout => do
             let length := runtime.state.loadSlot slot
             if wordEq length 0 then
@@ -4860,6 +4870,22 @@ def Runtime.storageArrayPopPath (context : Context)
         | StorageLayout.string =>
             Except.error RevertData.typeMismatch
         | _ => Except.error RevertData.typeMismatch
+
+/-- WS2: base-rooted pop (see `storageArrayPushBasePath`). -/
+def Runtime.storageArrayPopBasePath (context : Context)
+    (runtime : Runtime) (base : StorageBase) (indexes : List Value) :
+    Except RevertData Runtime := do
+  match base, indexes with
+  | StorageBase.field name, [] => runtime.storageArrayPop context name
+  | _, _ =>
+      let (slot, valueLayout) ←
+        runtime.resolveStorageBasePath context base indexes
+      runtime.storageArrayPopAt slot valueLayout
+
+def Runtime.storageArrayPopPath (context : Context)
+    (runtime : Runtime) (name : String) (indexes : List Value) :
+    Except RevertData Runtime :=
+  runtime.storageArrayPopBasePath context (StorageBase.field name) indexes
 
 def abiAddressFits (value : Word) : Bool :=
   SolidCore.Solidity.Shared.norm value < 2 ^ 160
@@ -5716,9 +5742,10 @@ inductive Expr where
   | storagePathSlot : String -> List Expr -> Expr
   /-- The storage SLOT (as a `uint256` word) of a `T storage` local pointer
       (`Foo storage p = …`) reached through further `indexes`. The pointer is a
-      `Value.storagePathRef target refIndexes` in the runtime; the slot is the
-      resolution of `(target, refIndexes ++ indexes)`. Used to encode such a
-      local as its slot on the public-library `delegatecall` boundary. -/
+      `Value.storageSlotRef` (or whole-variable `Value.storageRef`) in the
+      runtime; the slot is the resolution of `indexes` from the pointer's
+      captured base. Used to encode such a local as its slot on the
+      public-library `delegatecall` boundary. -/
   | storageRefSlot : String -> List Expr -> Expr
   | storageBytes : String -> Expr
   | storageIndex : String -> Expr -> Expr
@@ -5779,7 +5806,7 @@ def Expr.hasStorageRoot : Expr -> Bool
   | _ => false
 
 def Expr.hasStorageRefRoot (runtime : Runtime) : Expr -> Bool
-  | Expr.var name => runtime.lookupStoragePathRef? name |>.isSome
+  | Expr.var name => runtime.lookupStorageBase? name |>.isSome
   | Expr.index base _ => Expr.hasStorageRefRoot runtime base
   | _ => false
 
@@ -6282,14 +6309,22 @@ inductive ResolvedLValue where
   | storageField : String -> ResolvedLValue
   | storageIndex : String -> Value -> ResolvedLValue
   | storagePath : String -> List Value -> ResolvedLValue
+  /-- WS2: a storage lvalue rooted at an EARLY-BOUND pointer: captured base
+      slot + layout, plus the extra indexes accumulated at THIS use (resolved
+      live against the captured base — never from the root). -/
+  | storageSlotPath : Word -> StorageLayout -> List Value -> ResolvedLValue
   | valueIndex : ResolvedLValue -> Word -> ResolvedLValue
   deriving Repr
 
 def ResolvedLValue.asStoragePath? :
-    ResolvedLValue -> Option (String × List Value)
-  | ResolvedLValue.storageField name => some (name, [])
-  | ResolvedLValue.storageIndex name index => some (name, [index])
-  | ResolvedLValue.storagePath name indexes => some (name, indexes)
+    ResolvedLValue -> Option (StorageBase × List Value)
+  | ResolvedLValue.storageField name => some (StorageBase.field name, [])
+  | ResolvedLValue.storageIndex name index =>
+      some (StorageBase.field name, [index])
+  | ResolvedLValue.storagePath name indexes =>
+      some (StorageBase.field name, indexes)
+  | ResolvedLValue.storageSlotPath slot layout indexes =>
+      some (StorageBase.slot slot layout, indexes)
   | _ => none
 
 mutual
@@ -6312,6 +6347,9 @@ def ResolvedLValue.readRaw (context : Context) (runtime : Runtime) :
       runtime.loadStorageIndex context name index
   | ResolvedLValue.storagePath name indexes =>
       runtime.loadStoragePath context name indexes
+  | ResolvedLValue.storageSlotPath slot layout indexes =>
+      runtime.loadStorageBasePath context (StorageBase.slot slot layout)
+        indexes
   | ResolvedLValue.valueIndex base index => do
       let baseValue ← base.read context runtime
       let baseValue ← runtime.derefMemoryValue baseValue
@@ -6351,6 +6389,9 @@ def ResolvedLValue.writeContainer (context : Context) (runtime : Runtime)
       runtime.storeStorageIndexWithDeepClear context name index value
   | ResolvedLValue.storagePath name indexes =>
       runtime.storeStoragePathWithDeepClear context name indexes value
+  | ResolvedLValue.storageSlotPath slot layout indexes =>
+      runtime.storeStorageBasePathWithDeepClear context
+        (StorageBase.slot slot layout) indexes value
   | ResolvedLValue.valueIndex base index => do
       let baseValue ← base.read context runtime
       let baseValue ← runtime.derefMemoryValue baseValue
@@ -6378,6 +6419,9 @@ def ResolvedLValue.write (context : Context) (runtime : Runtime)
       runtime.storeStorageIndexWithDeepClear context name index value
   | ResolvedLValue.storagePath name indexes =>
       runtime.storeStoragePathWithDeepClear context name indexes value
+  | ResolvedLValue.storageSlotPath slot layout indexes =>
+      runtime.storeStorageBasePathWithDeepClear context
+        (StorageBase.slot slot layout) indexes value
   | ResolvedLValue.valueIndex base index => do
       let baseValue ← base.read context runtime
       let baseValue ← runtime.derefMemoryValue baseValue
@@ -6428,6 +6472,9 @@ def ResolvedLValue.delete (context : Context) (runtime : Runtime) :
       runtime.deleteStorageIndex context name index
   | ResolvedLValue.storagePath name indexes =>
       runtime.deleteStoragePath context name indexes
+  | ResolvedLValue.storageSlotPath slot layout indexes =>
+      runtime.deleteStorageBasePath context (StorageBase.slot slot layout)
+        indexes
   | ResolvedLValue.valueIndex base index => do
       let baseValue ← base.read context runtime
       let baseValue ← runtime.derefMemoryValue baseValue
@@ -6656,10 +6703,10 @@ def Expr.evalFuel (fuel : Nat)
                     runtime'.state.envAccountCode context key
               pure (Value.bytes result, runtime')
           | Expr.var name =>
-              match runtime.lookupStoragePathRef? name with
-              | some (target, indexes) => do
+              match runtime.lookupStorageBase? name with
+              | some base => do
                   let value ←
-                    runtime.loadStorageRefPathValue context target indexes
+                    runtime.loadStorageBasePath context base []
                   pure (value, runtime)
               | none =>
                   match runtime.lookupLocal? name with
@@ -6703,11 +6750,11 @@ def Expr.evalFuel (fuel : Nat)
               let (indexValues, runtime') ←
                 Expr.evalListFuel fuel context runtime
                   indexes
-              match runtime'.lookupStoragePathRef? name with
-              | some (target, refIndexes) => do
+              match runtime'.lookupStorageBase? name with
+              | some base => do
                   let slot ←
-                    runtime'.storagePathSlotValue context target
-                      (refIndexes ++ indexValues)
+                    runtime'.storageBasePathSlotValue context base
+                      indexValues
                   pure (Value.word slot, runtime')
               | none =>
                   throw <| SolidityFailure.revert RevertData.typeMismatch
@@ -7219,10 +7266,10 @@ def Expr.evalFuel (fuel : Nat)
                     | none => throw <| SolidityFailure.revert RevertData.typeMismatch
               match expr with
               | Expr.var name =>
-                  match runtime.lookupStoragePathRef? name with
-                  | some (target, indexes) => do
+                  match runtime.lookupStorageBase? name with
+                  | some base => do
                       let value ←
-                        runtime.loadStorageRefPathValue context target indexes
+                        runtime.loadStorageBasePath context base []
                       let len ← lengthValue value
                       pure (len, runtime)
                   | none =>
@@ -7237,9 +7284,9 @@ def Expr.evalFuel (fuel : Nat)
                       Expr.resolveLValueFuel fuel
                         context runtime expr
                     match target.asStoragePath? with
-                    | some (name, indexes) => do
+                    | some (base, indexes) => do
                         let value ←
-                          runtime'.loadStorageRefPathValue context name indexes
+                          runtime'.loadStorageBasePath context base indexes
                         let len ← lengthValue value
                         pure (len, runtime')
                     | none => throw <| SolidityFailure.revert RevertData.typeMismatch
@@ -7255,12 +7302,12 @@ def Expr.evalFuel (fuel : Nat)
                   Expr.resolveLValueFuel fuel
                     context runtime base
                 match baseTarget.asStoragePath? with
-                | some (name, indexes) =>
+                | some (base, indexes) =>
                     let (indexValue, runtime'') ←
                       Expr.evalFuel fuel context
                         runtime' idx
                     let value ←
-                      runtime''.loadStoragePath context name
+                      runtime''.loadStorageBasePath context base
                         (indexes ++ [indexValue])
                     pure (value, runtime'')
                 | none => throw <| SolidityFailure.revert RevertData.typeMismatch
@@ -7273,14 +7320,14 @@ def Expr.evalFuel (fuel : Nat)
               else
                 match base with
                 | Expr.var name =>
-                    match runtime.lookupStoragePathRef? name with
-                    | some (target, indexes) =>
+                    match runtime.lookupStorageBase? name with
+                    | some base =>
                         let (indexValue, runtime') ←
                           Expr.evalFuel fuel context
                             runtime idx
                         let value ←
-                          runtime'.loadStoragePath context target
-                            (indexes ++ [indexValue])
+                          runtime'.loadStorageBasePath context base
+                            [indexValue]
                         pure (value, runtime')
                     | none =>
                         let (values, runtime') ←
@@ -7444,11 +7491,11 @@ def Expr.resolveLValueFuel
       | fuel + 1 =>
           match expr with
           | Expr.var name =>
-              match runtime.lookupStoragePathRef? name with
-              | some (target, []) =>
+              match runtime.lookupStorageBase? name with
+              | some (StorageBase.field target) =>
                   pure (ResolvedLValue.storageField target, runtime)
-              | some (target, indexes) =>
-                  pure (ResolvedLValue.storagePath target indexes,
+              | some (StorageBase.slot slot layout) =>
+                  pure (ResolvedLValue.storageSlotPath slot layout [],
                     runtime)
               | none =>
                   match runtime.lookupLocal? name with
@@ -7480,6 +7527,11 @@ def Expr.resolveLValueFuel
                 | ResolvedLValue.storagePath name indexes =>
                     pure
                       (ResolvedLValue.storagePath name
+                          (indexes ++ [indexValue]),
+                        runtime')
+                | ResolvedLValue.storageSlotPath slot layout indexes =>
+                    pure
+                      (ResolvedLValue.storageSlotPath slot layout
                           (indexes ++ [indexValue]),
                         runtime')
                 | _ =>
@@ -7704,9 +7756,9 @@ def Expr.evalRefArg (context : Context) (runtime : Runtime)
     (expr : Expr) : SolI (Value × Runtime) :=
   match expr with
   | Expr.var name =>
-      match runtime.lookupStoragePathRef? name with
-      | some (target, indexes) =>
-          pure (Value.storageRefForPath target indexes, runtime)
+      match runtime.lookupStorageBase? name with
+      | some base =>
+          pure (base.toRefValue, runtime)
       | none =>
           match runtime.lookupMemoryRef? name with
           | some id => pure (Value.memoryRef id, runtime)
@@ -8219,13 +8271,13 @@ def InternalFunction.returnDefaultBindings (fn : InternalFunction) : Frame :=
 /-- Reference-preserving parameter binding (function-boundary refactor,
     reference-signature extension). A memory/storage-reference argument value is
     a pointer and must be bound to the (reference-typed) parameter unchanged:
-    `Ty.coerceValue?` has no case for `memoryRef`/`storageRef`/`storagePathRef`,
+    `Ty.coerceValue?` has no case for `memoryRef`/`storageRef`/`storageSlotRef`,
     so ordinary binding would reject it. Non-reference values coerce exactly as
     the entry path's `BindingDecl.bindArg?`. -/
 def BindingDecl.bindArgRef? (decl : BindingDecl) (value : Value) :
     Option (String × Value) :=
   match value with
-  | Value.memoryRef _ | Value.storageRef _ | Value.storagePathRef _ _ =>
+  | Value.memoryRef _ | Value.storageRef _ | Value.storageSlotRef _ _ =>
       some (decl.name, value)
   | _ => decl.bindArg? value
 
@@ -8310,7 +8362,7 @@ def collectReturnBindingsRef (returns : List BindingDecl)
           | none => Except.error RevertData.typeMismatch
         let value ←
           match value with
-          | Value.memoryRef _ | Value.storageRef _ | Value.storagePathRef _ _ =>
+          | Value.memoryRef _ | Value.storageRef _ | Value.storageSlotRef _ _ =>
               Except.ok value
           | _ => do
               let value ← runtime.derefMemoryValueDeep value
@@ -8330,7 +8382,7 @@ def coerceReturnBindingsRef (returns : List BindingDecl)
     | decl :: decls, value :: rest => do
         let head ←
           match value with
-          | Value.memoryRef _ | Value.storageRef _ | Value.storagePathRef _ _ =>
+          | Value.memoryRef _ | Value.storageRef _ | Value.storageSlotRef _ _ =>
               Except.ok value
           | _ => do
               let value ← runtime.derefMemoryValueDeep value
@@ -8480,36 +8532,43 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
           match ← (Expr.evalList
               context runtime indexes).caught with
           | Except.ok (indexValues, runtime') =>
-              pure
-                (Result.normal
-                  (runtime'.declareLocal name
-                    (Value.storageRefForPath target indexValues)))
+              -- WS2: resolve the concrete slot ONCE, at the bind (an
+              -- out-of-bounds index Panics 0x32 HERE, as solc does).
+              match
+                runtime'.bindStorageRef context (StorageBase.field target)
+                  indexValues
+              with
+              | Except.ok ref =>
+                  pure (Result.normal (runtime'.declareLocal name ref))
+              | Except.error err => pure (Result.reverted runtime err)
           | Except.error err => pure (Result.reverted runtime err)
       | Stmt.storageAliasFrom name source =>
-          match runtime.lookupStoragePathRef? source with
-          | some (target, indexes) =>
+          match runtime.lookupStorageBase? source with
+          | some base =>
               pure
                 (Result.normal
-                  (runtime.declareLocal name
-                    (Value.storageRefForPath target indexes)))
+                  (runtime.declareLocal name base.toRefValue))
           | none => pure (Result.reverted runtime RevertData.typeMismatch)
       | Stmt.storageAliasFromPath name source extraIndexes =>
-          match runtime.lookupStoragePathRef? source with
-          | some (target, indexes) => do
+          match runtime.lookupStorageBase? source with
+          | some base => do
               match ←
                 (Expr.evalList
                   context runtime extraIndexes).caught
               with
               | Except.ok (extraIndexValues, runtime') =>
-                  pure
-                    (Result.normal
-                      (runtime'.declareLocal name
-                        (Value.storageRefForPath target
-                          (indexes ++ extraIndexValues))))
+                  match
+                    runtime'.bindStorageRef context base extraIndexValues
+                  with
+                  | Except.ok ref =>
+                      pure (Result.normal (runtime'.declareLocal name ref))
+                  | Except.error err => pure (Result.reverted runtime err)
               | Except.error err => pure (Result.reverted runtime err)
           | none => pure (Result.reverted runtime RevertData.typeMismatch)
       | Stmt.storageAliasAssign name target =>
-          match runtime.assignStorageRef? name target with
+          match
+            runtime.assignStorageRefValue? name (Value.storageRef target)
+          with
           | some updated => pure (Result.normal updated)
           | none => pure (Result.reverted runtime RevertData.typeMismatch)
       | Stmt.storageAliasAssignPath name target indexes => do
@@ -8517,32 +8576,41 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
               context runtime indexes).caught with
           | Except.ok (indexValues, runtime') =>
               match
-                runtime'.assignStoragePathRef? name target indexValues
+                runtime'.bindStorageRef context (StorageBase.field target)
+                  indexValues
               with
-              | some updated => pure (Result.normal updated)
-              | none => pure (Result.reverted runtime RevertData.typeMismatch)
+              | Except.ok ref =>
+                  match runtime'.assignStorageRefValue? name ref with
+                  | some updated => pure (Result.normal updated)
+                  | none =>
+                      pure (Result.reverted runtime RevertData.typeMismatch)
+              | Except.error err => pure (Result.reverted runtime err)
           | Except.error err => pure (Result.reverted runtime err)
       | Stmt.storageAliasAssignFrom name source =>
-          match runtime.lookupStoragePathRef? source with
-          | some (target, indexes) =>
-              match runtime.assignStoragePathRef? name target indexes with
+          match runtime.lookupStorageBase? source with
+          | some base =>
+              match runtime.assignStorageRefValue? name base.toRefValue with
               | some updated => pure (Result.normal updated)
               | none => pure (Result.reverted runtime RevertData.typeMismatch)
           | none => pure (Result.reverted runtime RevertData.typeMismatch)
       | Stmt.storageAliasAssignFromPath name source extraIndexes =>
-          match runtime.lookupStoragePathRef? source with
-          | some (target, indexes) => do
+          match runtime.lookupStorageBase? source with
+          | some base => do
               match ←
                 (Expr.evalList
                   context runtime extraIndexes).caught
               with
               | Except.ok (extraIndexValues, runtime') =>
                   match
-                    runtime'.assignStoragePathRef? name target
-                      (indexes ++ extraIndexValues)
+                    runtime'.bindStorageRef context base extraIndexValues
                   with
-                  | some updated => pure (Result.normal updated)
-                  | none => pure (Result.reverted runtime RevertData.typeMismatch)
+                  | Except.ok ref =>
+                      match runtime'.assignStorageRefValue? name ref with
+                      | some updated => pure (Result.normal updated)
+                      | none =>
+                          pure
+                            (Result.reverted runtime RevertData.typeMismatch)
+                  | Except.error err => pure (Result.reverted runtime err)
               | Except.error err => pure (Result.reverted runtime err)
           | none => pure (Result.reverted runtime RevertData.typeMismatch)
       | Stmt.exprStmt expr => do
@@ -8690,7 +8758,7 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
               | Except.ok updated => pure (Result.normal updated)
               | Except.error err => pure (Result.reverted runtime err)
           | LValue.var name =>
-              match runtime.lookupStoragePathRef? name with
+              match runtime.lookupStorageBase? name with
               | some _ =>
                   pure (Result.reverted runtime RevertData.typeMismatch)
               | none => do
@@ -8722,32 +8790,31 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
               | Except.ok updated => pure (Result.normal updated)
               | Except.error err => pure (Result.reverted runtime err)
       | Stmt.storageArrayPushRef name value? =>
-          match runtime.lookupStoragePathRef? name, value? with
-          | some (target, indexes), some expr => do
+          match runtime.lookupStorageBase? name, value? with
+          | some base, some expr => do
               match ← (Expr.eval
                   context runtime expr).caught with
               | Except.ok (value, runtime') =>
                   match
-                    runtime'.storageArrayPushPath context target indexes
+                    runtime'.storageArrayPushBasePath context base []
                       (some value)
                   with
                   | Except.ok updated => pure (Result.normal updated)
                   | Except.error err => pure (Result.reverted runtime err)
               | Except.error err => pure (Result.reverted runtime err)
-          | some (target, indexes), none =>
-              match runtime.storageArrayPushPath context target indexes none with
+          | some base, none =>
+              match runtime.storageArrayPushBasePath context base [] none with
               | Except.ok updated => pure (Result.normal updated)
               | Except.error err => pure (Result.reverted runtime err)
           | none, _ => pure (Result.reverted runtime RevertData.typeMismatch)
       | Stmt.storageArrayPushRefPath name extraIndexes value? =>
-          match runtime.lookupStoragePathRef? name with
-          | some (target, indexes) => do
+          match runtime.lookupStorageBase? name with
+          | some base => do
               match ←
                 (Expr.evalList
                   context runtime extraIndexes).caught
               with
               | Except.ok (extraIndexValues, runtime') =>
-                  let allIndexes := indexes ++ extraIndexValues
                   match value? with
                   | some expr =>
                       match ← (Expr.eval
@@ -8755,8 +8822,8 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
                           expr).caught with
                       | Except.ok (value, runtime'') =>
                           match
-                            runtime''.storageArrayPushPath context target
-                              allIndexes (some value)
+                            runtime''.storageArrayPushBasePath context base
+                              extraIndexValues (some value)
                           with
                           | Except.ok updated => pure (Result.normal updated)
                           | Except.error err =>
@@ -8764,8 +8831,8 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
                       | Except.error err => pure (Result.reverted runtime' err)
                   | none =>
                       match
-                        runtime'.storageArrayPushPath context target
-                          allIndexes none
+                        runtime'.storageArrayPushBasePath context base
+                          extraIndexValues none
                       with
                       | Except.ok updated => pure (Result.normal updated)
                       | Except.error err => pure (Result.reverted runtime err)
@@ -8805,7 +8872,7 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
                       context pushed rhs).caught with
                   | Except.ok (value, runtime'') =>
                       match
-                        runtime''.loadStorageRefPathValue
+                        runtime''.loadStoragePath
                           context name indexValues
                       with
                       | Except.ok container =>
@@ -8832,16 +8899,16 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
               | Except.error err => pure (Result.reverted runtime err)
           | Except.error err => pure (Result.reverted runtime err)
       | Stmt.storageArrayPushRefPathAssign name extraIndexes rhs =>
-          match runtime.lookupStoragePathRef? name with
-          | some (target, indexes) => do
+          match runtime.lookupStorageBase? name with
+          | some base => do
               match ←
                 (Expr.evalList
                   context runtime extraIndexes).caught
               with
               | Except.ok (extraIndexValues, runtime') =>
-                  let allIndexes := indexes ++ extraIndexValues
                   match
-                    runtime'.storageArrayPushPath context target allIndexes none
+                    runtime'.storageArrayPushBasePath context base
+                      extraIndexValues none
                   with
                   | Except.ok pushed => do
                       match ← (Expr.eval
@@ -8849,17 +8916,17 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
                           rhs).caught with
                       | Except.ok (value, runtime'') =>
                           match
-                            runtime''.loadStorageRefPathValue
-                              context target allIndexes
+                            runtime''.loadStorageBasePath
+                              context base extraIndexValues
                           with
                           | Except.ok container =>
                               match container.storageArrayLength? with
                               | some length =>
                                   let last := length - 1
                                   match
-                                    runtime''.storeStoragePathWithDeepClear
-                                      context target
-                                      (allIndexes ++ [Value.word last])
+                                    runtime''.storeStorageBasePathWithDeepClear
+                                      context base
+                                      (extraIndexValues ++ [Value.word last])
                                       value
                                   with
                                   | Except.ok updated =>
@@ -8881,23 +8948,23 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
           | Except.ok updated => pure (Result.normal updated)
           | Except.error err => pure (Result.reverted runtime err)
       | Stmt.storageArrayPopRef name =>
-          match runtime.lookupStoragePathRef? name with
-          | some (target, indexes) =>
-              match runtime.storageArrayPopPath context target indexes with
+          match runtime.lookupStorageBase? name with
+          | some base =>
+              match runtime.storageArrayPopBasePath context base [] with
               | Except.ok updated => pure (Result.normal updated)
               | Except.error err => pure (Result.reverted runtime err)
           | none => pure (Result.reverted runtime RevertData.typeMismatch)
       | Stmt.storageArrayPopRefPath name extraIndexes =>
-          match runtime.lookupStoragePathRef? name with
-          | some (target, indexes) => do
+          match runtime.lookupStorageBase? name with
+          | some base => do
               match ←
                 (Expr.evalList
                   context runtime extraIndexes).caught
               with
               | Except.ok (extraIndexValues, runtime') =>
                   match
-                    runtime'.storageArrayPopPath context target
-                      (indexes ++ extraIndexValues)
+                    runtime'.storageArrayPopBasePath context base
+                      extraIndexValues
                   with
                   | Except.ok updated => pure (Result.normal updated)
                   | Except.error err => pure (Result.reverted runtime err)

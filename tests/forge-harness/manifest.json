@@ -13139,6 +13139,84 @@
           }
         ]
       }
+    },
+    {
+      "name": "storage-ref-early-bind",
+      "description": "WS2 #146/#177 STORAGE-REF EARLY BINDING: a storage pointer (T storage p = arr[i]) captures its CONCRETE slot at the binding access (bounds check runs there, ONCE); dereference/write/delete raw-load the captured slot with NO length recheck. pop-then-deref reads the freed pop-zeroed slot -> 0 (late-binding model Panicked 0x32); bind-time OOB still Panics 0x32 (raised at the bind, as solc); a dangling write lands in the freed slot; live mutation through another path stays visible through the pointer; mapping-value refs and the #188 storage-ref-return write-through shapes (indexed 42 / mapping 88 / uint[] push 55) are re-pinned. Forge pins real-EVM values on pinned solc 0.8.35; Lean imports the same source and pins identical words.",
+      "forge": {
+        "root": "tests/forge-harness/storage-ref-early-bind",
+        "match_contract": "StorageRefEarlyBindForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/storage-ref-early-bind/src/StorageRefEarlyBind.sol",
+        "contract": "StorageRefEarlyBindTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.StorageRefEarlyBind"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.StorageRefEarlyBind.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "t1_pop_then_deref_0",
+            "expr": "(do\n  let st ← SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageRefEarlyBind.importedSourceUnit \"StorageRefEarlyBindTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageRefEarlyBind.importedSourceUnit \"StorageRefEarlyBindTarget\" \"t1\" st [] 0)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "t2_pop_push_deref_9",
+            "expr": "(do\n  let st ← SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageRefEarlyBind.importedSourceUnit \"StorageRefEarlyBindTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageRefEarlyBind.importedSourceUnit \"StorageRefEarlyBindTarget\" \"t2\" st [] 9)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "t3_bind_oob_panics_0x32",
+            "expr": "(do\n  let st ← SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageRefEarlyBind.importedSourceUnit \"StorageRefEarlyBindTarget\" []\n  let result ← SolidCore.Solidity.TypeCheck.CheckedInput.callContract 512 SolidCore.Solidity.SolcAstImport.StorageRefEarlyBind.importedSourceUnit \"StorageRefEarlyBindTarget\" (SolidCore.Solidity.Source.CallTarget.name \"t3\") st []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.reverted _ (SolidCore.Solidity.Source.RevertData.panic code) => pure (SolidCore.Solidity.Source.wordEq code 0x32)\n  | _ => pure false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "t3code_0x32",
+            "expr": "(do\n  let st ← SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageRefEarlyBind.importedSourceUnit \"StorageRefEarlyBindTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageRefEarlyBind.importedSourceUnit \"StorageRefEarlyBindTarget\" \"t3code\" st [] 50)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "t4_live_mutation_33",
+            "expr": "(do\n  let st ← SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageRefEarlyBind.importedSourceUnit \"StorageRefEarlyBindTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageRefEarlyBind.importedSourceUnit \"StorageRefEarlyBindTarget\" \"t4\" st [] 33)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "t5_mapping_ref_88",
+            "expr": "(do\n  let st ← SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageRefEarlyBind.importedSourceUnit \"StorageRefEarlyBindTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageRefEarlyBind.importedSourceUnit \"StorageRefEarlyBindTarget\" \"t5\" st [] 88)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "t6_dangling_write_5",
+            "expr": "(do\n  let st ← SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageRefEarlyBind.importedSourceUnit \"StorageRefEarlyBindTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageRefEarlyBind.importedSourceUnit \"StorageRefEarlyBindTarget\" \"t6\" st [] 5)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "t7_ref_return_42",
+            "expr": "(do\n  let st ← SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageRefEarlyBind.importedSourceUnit \"StorageRefEarlyBindTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageRefEarlyBind.importedSourceUnit \"StorageRefEarlyBindTarget\" \"t7\" st [] 42)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "t8_mapping_return_88",
+            "expr": "(do\n  let st ← SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageRefEarlyBind.importedSourceUnit \"StorageRefEarlyBindTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageRefEarlyBind.importedSourceUnit \"StorageRefEarlyBindTarget\" \"t8\" st [] 88)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "t9_array_return_55",
+            "expr": "(do\n  let st ← SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageRefEarlyBind.importedSourceUnit \"StorageRefEarlyBindTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageRefEarlyBind.importedSourceUnit \"StorageRefEarlyBindTarget\" \"t9\" st [] 55)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }

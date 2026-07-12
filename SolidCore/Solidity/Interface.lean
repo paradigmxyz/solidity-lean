@@ -11849,7 +11849,8 @@ def FunctionDecl.singleReturnTy? (decl : FunctionDecl) : Option Ty :=
     the function boundary threads back as a plain `Value.storageRef` that a
     caller-side `.field`/`[key]` USE resolves against the caller's own storage
     location. A nested sub-PATH return (`return d.m;`, `return a[i];`) yields a
-    `storagePathRef` the boundary does NOT re-base onto the caller, so its USE is
+    bound storage-ref (WS2: `storageSlotRef`, resolved in the CALLEE's layout)
+    the boundary does NOT re-base onto the caller, so its USE is
     intentionally left an over-reject rather than mis-resolving at run time. Only
     the exact single-`return <param>` shape qualifies; anything richer declines
     (safe: preserves the prior over-reject). -/
