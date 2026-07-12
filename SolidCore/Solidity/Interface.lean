@@ -13120,6 +13120,342 @@ termination_by fuel _ => fuel
 
 end
 
+/-! ### General A-normal-form (ANF) call-hoisting pass
+
+    A single, uniform source→source normalization over the surface `Ast` that
+    lifts every value-returning internal / library / external single-return call
+    that is NESTED inside an arbitrary expression into an ordered sequence of
+    temp-local bindings, leaving flat expressions the existing enumerated
+    lowering arms already handle. It reproduces solc legacy evaluation order
+    (`ExpressionCompiler.cpp`): function/builtin args left-to-right; ordinary
+    binary operands RIGHT-then-LEFT (`614-615`); short-circuit `&&`/`||` right
+    operand guarded; ternary branches guarded (only the taken branch runs). The
+    hoisted result reads a fresh `_sol_hoist_<n>` temp. Because it is wired as a
+    body-level FALLBACK that only rewrites statements the enumerated dispatcher
+    cannot lower, every currently-lowering (green) statement is left
+    byte-identical. -/
+
+/-- Reference-typed hoist temps need an explicit `memory` data location; value
+    types take no location. -/
+def Ty.anfHoistLocation? : Ty -> Option DataLocation
+  | Ty.array _ _ => some DataLocation.memory
+  | Ty.bytes => some DataLocation.memory
+  | Ty.string => some DataLocation.memory
+  | Ty.struct _ _ => some DataLocation.memory
+  | Ty.tuple _ => some DataLocation.memory
+  -- An unresolved user type is (in practice for a value-returning callee whose
+  -- result we hoist) a struct that needs a `memory` location; enums surface as
+  -- `Ty.enum`, so this does not mislocate a value-typed enum return.
+  | Ty.user _ => some DataLocation.memory
+  | _ => none
+
+/-- The fresh-name supply: globally monotone within a function body. The
+    `_sol_hoist_` prefix is reserved (verified unused elsewhere). -/
+def anfHoistName (n : Nat) : Name := "_sol_hoist_" ++ toString n
+
+/-- Declare a hoist temp with the callee's return type in its UNRESOLVED
+    surface form. A callee's return type is RESOLVED (`Ty.struct p fields`) by
+    the time it reaches the hoister, but `resolveStructs` — which the produced
+    block is re-run through to resolve struct MEMBER accesses on the temp
+    (`_sol_hoist_n.field` → ordinal index) — only descends into a member whose
+    base type is the unresolved reference `Ty.user p`; an already-resolved
+    `Ty.struct` base is treated as done and its members are left unresolved.
+    Restoring the surface `Ty.user p` lets the re-run resolve both the type and
+    the member. Non-struct types are already in surface form. -/
+def Ty.anfTempTy : Ty -> Ty
+  | Ty.struct p _ => Ty.user p
+  | ty => ty
+
+/-- Oracle: is `e` a value-returning SINGLE-return call with no core `Expr`
+    representation (a direct internal call, a library call, or an external
+    member call)? If so, its (single) return type — used to declare the hoist
+    temp. Deliberately EXCLUDES type-conversion casts `T(inner)` and
+    `new`-expressions (those ARE core `Expr`s; their nested call args are hoisted
+    by recursing into them), and returns `none` for builtins / events / errors /
+    multi-return callees. -/
+def Expr.anfHoistableCallTy?
+    (functions freeFunctions : List FunctionDecl) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv) (storageNames : List Name) :
+    Expr -> Option Ty
+  | Expr.call (Expr.typeName _) _ => none
+  | Expr.newExpr _ _ => none
+  | e@(Expr.call (Expr.ident _) _) =>
+      match Expr.actualInternalSingleReturnCall? functions env e with
+      | some (_, ty) => some ty
+      | none =>
+          match Expr.actualInternalSingleReturnCall? freeFunctions env e with
+          | some (_, ty) => some ty
+          | none => none
+  | e@(Expr.call (Expr.member _ _) _) =>
+      match Expr.actualInternalSingleReturnCall? functions env e with
+      | some (_, ty) => some ty
+      | none =>
+          match Expr.actualInternalSingleReturnCall? freeFunctions env e with
+          | some (_, ty) => some ty
+          | none =>
+              Expr.externalMemberSingleReturnCallTy?
+                storageNames env externalCallKindEnv e
+  | e@(Expr.callWithOptions (Expr.member _ _) _ _) =>
+      Expr.externalMemberSingleReturnCallTy?
+        storageNames env externalCallKindEnv e
+  | _ => none
+
+def anfHoistFuel : Nat := 100000
+
+mutual
+
+/-- Hoist every nested single-return call out of `e`, returning
+    `(counter', preludeStmts, residualExpr)` where `residualExpr` is flat (no
+    hoistable call remains nested) and `preludeStmts` are surface `Stmt`s to run,
+    in order, before it. -/
+def Expr.anfHoist
+    (functions freeFunctions : List FunctionDecl) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv) (storageNames : List Name) :
+    Nat -> Nat -> Expr -> (Nat × List Stmt × Expr)
+  | 0, c, e => (c, [], e)
+  | fuel + 1, c, e =>
+      let rec1 := Expr.anfHoist functions freeFunctions env externalCallKindEnv
+        storageNames fuel
+      let recArgs := Args.anfHoist functions freeFunctions env
+        externalCallKindEnv storageNames fuel
+      let recItems := TupleItems.anfHoist functions freeFunctions env
+        externalCallKindEnv storageNames fuel
+      let recExprs := Exprs.anfHoist functions freeFunctions env
+        externalCallKindEnv storageNames fuel
+      match e with
+      | Expr.literal _ => (c, [], e)
+      | Expr.ident _ => (c, [], e)
+      | Expr.typeName _ => (c, [], e)
+      | Expr.member base name =>
+          let (c1, pre, base') := rec1 c base
+          (c1, pre, Expr.member base' name)
+      | Expr.index base key =>
+          let (c1, p1, base') := rec1 c base
+          let (c2, p2, key') := rec1 c1 key
+          (c2, p1 ++ p2, Expr.index base' key')
+      | Expr.slice base a? b? =>
+          let (c1, p1, base') := rec1 c base
+          let (c2, p2, a?') :=
+            match a? with
+            | some a => let (c', p, a') := rec1 c1 a; (c', p, some a')
+            | none => (c1, [], none)
+          let (c3, p3, b?') :=
+            match b? with
+            | some b => let (c', p, b') := rec1 c2 b; (c', p, some b')
+            | none => (c2, [], none)
+          (c3, p1 ++ p2 ++ p3, Expr.slice base' a?' b?')
+      | Expr.unary op inner =>
+          let (c1, pre, inner') := rec1 c inner
+          (c1, pre, Expr.unary op inner')
+      | Expr.payableConversion inner =>
+          let (c1, pre, inner') := rec1 c inner
+          (c1, pre, Expr.payableConversion inner')
+      | Expr.enumFromUInt w inner =>
+          let (c1, pre, inner') := rec1 c inner
+          (c1, pre, Expr.enumFromUInt w inner')
+      | Expr.binary op l r =>
+          match op with
+          | BinaryOp.boolAnd | BinaryOp.boolOr =>
+              -- Short-circuit: left unconditional; right operand's effects guarded.
+              let (c1, lpre, l') := rec1 c l
+              let (c2, rpre, r') := rec1 c1 r
+              if rpre.isEmpty then
+                (c2, lpre, Expr.binary op l' r')
+              else
+                let t := anfHoistName c2
+                let decl := Stmt.varDecl
+                  [{ name := some t, ty := some Ty.bool, location := none }]
+                  (some l')
+                let cond :=
+                  match op with
+                  | BinaryOp.boolAnd => Expr.ident t
+                  | _ => Expr.unary UnaryOp.logicalNot (Expr.ident t)
+                let assign := Stmt.expr
+                  (Expr.assign (Expr.ident t) AssignOp.assign r')
+                let guard := Stmt.ifElse cond
+                  (Stmt.block (rpre ++ [assign])) none
+                (c2 + 1, lpre ++ [decl, guard], Expr.ident t)
+          | _ =>
+              -- Ordinary binary operands: RIGHT then LEFT (solc legacy order).
+              let (c1, rpre, r') := rec1 c r
+              let (c2, lpre, l') := rec1 c1 l
+              (c2, rpre ++ lpre, Expr.binary op l' r')
+      | Expr.ternary cond a b =>
+          let (c1, cpre, cond') := rec1 c cond
+          let (c2, apre, a') := rec1 c1 a
+          let (c3, bpre, b') := rec1 c2 b
+          if apre.isEmpty && bpre.isEmpty then
+            (c3, cpre, Expr.ternary cond' a' b')
+          else
+            match Expr.abiTyWithInternalFunctionsEnv?
+                functions freeFunctions env a with
+            | some ty =>
+                let t := anfHoistName c3
+                let decl := Stmt.varDecl
+                  [{ name := some t, ty := some (Ty.anfTempTy ty),
+                     location := Ty.anfHoistLocation? ty }]
+                  none
+                let thenB := Stmt.block
+                  (apre ++ [Stmt.expr
+                    (Expr.assign (Expr.ident t) AssignOp.assign a')])
+                let elseB := Stmt.block
+                  (bpre ++ [Stmt.expr
+                    (Expr.assign (Expr.ident t) AssignOp.assign b')])
+                (c3 + 1, cpre ++ [decl, Stmt.ifElse cond' thenB (some elseB)],
+                  Expr.ident t)
+            | none =>
+                -- No resolvable branch type: keep the original (unhoisted)
+                -- branches so no hoisted binding is dropped.
+                (c1, cpre, Expr.ternary cond' a b)
+      | Expr.assign lhs op rhs =>
+          -- Assignment RHS effects before LHS-reference effects (solc order).
+          let (c1, rpre, rhs') := rec1 c rhs
+          let (c2, lpre, lhs') := rec1 c1 lhs
+          (c2, rpre ++ lpre, Expr.assign lhs' op rhs')
+      | Expr.array elems =>
+          let (c1, pre, elems') := recExprs c elems
+          (c1, pre, Expr.array elems')
+      | Expr.tuple items =>
+          let (c1, pre, items') := recItems c items
+          (c1, pre, Expr.tuple items')
+      | Expr.call callee args =>
+          match Expr.anfHoistableCallTy? functions freeFunctions env
+              externalCallKindEnv storageNames (Expr.call callee args) with
+          | some retTy =>
+              let (c1, apre, args') := recArgs c args
+              let t := anfHoistName c1
+              let decl := Stmt.varDecl
+                [{ name := some t, ty := some (Ty.anfTempTy retTy),
+                   location := Ty.anfHoistLocation? retTy }]
+                (some (Expr.call callee args'))
+              (c1 + 1, apre ++ [decl], Expr.ident t)
+          | none =>
+              let (c1, apre, args') := recArgs c args
+              (c1, apre, Expr.call callee args')
+      | Expr.callWithOptions callee opts args =>
+          match Expr.anfHoistableCallTy? functions freeFunctions env
+              externalCallKindEnv storageNames
+              (Expr.callWithOptions callee opts args) with
+          | some retTy =>
+              let (c1, apre, args') := recArgs c args
+              let t := anfHoistName c1
+              let decl := Stmt.varDecl
+                [{ name := some t, ty := some (Ty.anfTempTy retTy),
+                   location := Ty.anfHoistLocation? retTy }]
+                (some (Expr.callWithOptions callee opts args'))
+              (c1 + 1, apre ++ [decl], Expr.ident t)
+          | none =>
+              let (c1, apre, args') := recArgs c args
+              (c1, apre, Expr.callWithOptions callee opts args')
+      | Expr.newExpr ty args =>
+          let (c1, apre, args') := recArgs c args
+          (c1, apre, Expr.newExpr ty args')
+termination_by fuel _ _ => fuel
+
+def Args.anfHoist
+    (functions freeFunctions : List FunctionDecl) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv) (storageNames : List Name) :
+    Nat -> Nat -> List Arg -> (Nat × List Stmt × List Arg)
+  | 0, c, args => (c, [], args)
+  | _, c, [] => (c, [], [])
+  | fuel + 1, c, arg :: rest =>
+      let (c1, p1, arg') :=
+        match arg with
+        | Arg.positional e =>
+            let (c', p, e') := Expr.anfHoist functions freeFunctions env
+              externalCallKindEnv storageNames fuel c e
+            (c', p, Arg.positional e')
+        | Arg.named n e =>
+            let (c', p, e') := Expr.anfHoist functions freeFunctions env
+              externalCallKindEnv storageNames fuel c e
+            (c', p, Arg.named n e')
+      let (c2, p2, rest') := Args.anfHoist functions freeFunctions env
+        externalCallKindEnv storageNames fuel c1 rest
+      (c2, p1 ++ p2, arg' :: rest')
+termination_by fuel _ _ => fuel
+
+def Exprs.anfHoist
+    (functions freeFunctions : List FunctionDecl) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv) (storageNames : List Name) :
+    Nat -> Nat -> List Expr -> (Nat × List Stmt × List Expr)
+  | 0, c, es => (c, [], es)
+  | _, c, [] => (c, [], [])
+  | fuel + 1, c, e :: rest =>
+      let (c1, p1, e') := Expr.anfHoist functions freeFunctions env
+        externalCallKindEnv storageNames fuel c e
+      let (c2, p2, rest') := Exprs.anfHoist functions freeFunctions env
+        externalCallKindEnv storageNames fuel c1 rest
+      (c2, p1 ++ p2, e' :: rest')
+termination_by fuel _ _ => fuel
+
+def TupleItems.anfHoist
+    (functions freeFunctions : List FunctionDecl) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv) (storageNames : List Name) :
+    Nat -> Nat -> List TupleItem -> (Nat × List Stmt × List TupleItem)
+  | 0, c, items => (c, [], items)
+  | _, c, [] => (c, [], [])
+  | fuel + 1, c, item :: rest =>
+      let (c1, p1, item') :=
+        match item with
+        | TupleItem.hole => (c, [], TupleItem.hole)
+        | TupleItem.value e =>
+            let (c', p, e') := Expr.anfHoist functions freeFunctions env
+              externalCallKindEnv storageNames fuel c e
+            (c', p, TupleItem.value e')
+      let (c2, p2, rest') := TupleItems.anfHoist functions freeFunctions env
+        externalCallKindEnv storageNames fuel c1 rest
+      (c2, p1 ++ p2, item' :: rest')
+termination_by fuel _ _ => fuel
+
+end
+
+/-- Hoist a statement's OWN top-level expression positions (return value,
+    expr-statement target, var-decl initializer, if/emit/revert operands) into a
+    prelude, returning a `block` when any hoisting happened, else `none`. Child
+    statements are handled separately by `Stmt.anfPreprocess`. -/
+def Stmt.anfNormalizeSelf?
+    (structEnv : StructEnv)
+    (functions freeFunctions : List FunctionDecl) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv) (storageNames : List Name) :
+    Stmt -> Option Stmt :=
+  let hoist := fun (e : Expr) =>
+    Expr.anfHoist functions freeFunctions env externalCallKindEnv storageNames
+      anfHoistFuel 0 e
+  -- Re-run the struct-resolution and abi-annotation passes on the produced
+  -- block: both ran on the function body BEFORE this hoisting, so any residual
+  -- that reads a fresh hoist temp (`abi.encode(_sol_hoist_n)`, a struct member
+  -- `_sol_hoist_n.field`, or a `T storage`/`Ty.user` temp type) is otherwise
+  -- UNRESOLVED and fails to lower. `resolveStructs` threads a type env through
+  -- the block's varDecls so a struct-typed hoist temp resolves its member
+  -- accesses to ordinal indices; `annotateAbi` likewise annotates a hoisted abi
+  -- argument's element type. Both fire only when the enumerated dispatcher
+  -- already declined `stmt` (never a green statement), so green cases are
+  -- untouched.
+  let done := fun (pre : List Stmt) (tail : Stmt) =>
+    some (Stmt.annotateAbi env
+      (Stmt.resolveStructs structEnv env (Stmt.block (pre ++ [tail]))))
+  fun stmt =>
+  match stmt with
+  | Stmt.returnValues (some e) =>
+      let (_, pre, e') := hoist e
+      if pre.isEmpty then none else done pre (Stmt.returnValues (some e'))
+  | Stmt.expr e =>
+      let (_, pre, e') := hoist e
+      if pre.isEmpty then none else done pre (Stmt.expr e')
+  | Stmt.varDecl bindings (some e) =>
+      let (_, pre, e') := hoist e
+      if pre.isEmpty then none else done pre (Stmt.varDecl bindings (some e'))
+  | Stmt.ifElse c t e =>
+      let (_, pre, c') := hoist c
+      if pre.isEmpty then none else done pre (Stmt.ifElse c' t e)
+  | Stmt.emitEvent e =>
+      let (_, pre, e') := hoist e
+      if pre.isEmpty then none else done pre (Stmt.emitEvent e')
+  | Stmt.revertCall e =>
+      let (_, pre, e') := hoist e
+      if pre.isEmpty then none else done pre (Stmt.revertCall e')
+  | _ => none
+
 set_option maxHeartbeats 1000000 in
 mutual
 
@@ -19189,6 +19525,73 @@ def modifierApplyToCoreWithInternalCalls? (internalFuel : Nat)
       inner body
   some (SolidCore.Solidity.Source.Stmt.block (prefixCore ++ [bodyCore]))
 
+/-- Body-level ANF preprocessing (the fallback wiring). Recurses into every
+    child statement; a statement that already lowers (via the enumerated arms)
+    is left BYTE-IDENTICAL, so all currently-green cases are untouched. Only a
+    statement that fails to lower gets its own top-level expressions
+    ANF-normalized (`Stmt.anfNormalizeSelf?`) into a `block` of flat statements
+    the existing arms can then lower. -/
+def Stmt.anfPreprocess (structEnv : StructEnv) (internalFuel : Nat)
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv) (storageNames : List Name)
+    (modifiers : List SourceModifierDecl) (functions : List FunctionDecl)
+    (freeFunctions : List FunctionDecl) (returnTys : List Ty) :
+    Nat -> Stmt -> Stmt
+  | 0, stmt => stmt
+  | fuel + 1, stmt =>
+      let recur := Stmt.anfPreprocess structEnv internalFuel storageRefEnv env
+        externalCallKindEnv storageNames modifiers functions freeFunctions
+        returnTys fuel
+      let stmt1 :=
+        match stmt with
+        | Stmt.block ss => Stmt.block (ss.map recur)
+        | Stmt.ifElse c t e => Stmt.ifElse c (recur t) (e.map recur)
+        | Stmt.whileLoop c b => Stmt.whileLoop c (recur b)
+        | Stmt.doWhile b c => Stmt.doWhile (recur b) c
+        | Stmt.forLoop i c p b => Stmt.forLoop (i.map recur) c p (recur b)
+        | Stmt.unchecked b => Stmt.unchecked (recur b)
+        | Stmt.tryCatch e clauses =>
+            Stmt.tryCatch e
+              (clauses.map (fun cl =>
+                match cl with
+                | CatchClause.clause n ps body =>
+                    CatchClause.clause n ps (recur body)))
+        | Stmt.tryCatchReturns e ps s clauses =>
+            Stmt.tryCatchReturns e ps (recur s)
+              (clauses.map (fun cl =>
+                match cl with
+                | CatchClause.clause n ps' body =>
+                    CatchClause.clause n ps' (recur body)))
+        | other => other
+      -- Test lowerability in a BLOCK context, not isolated: a var-decl whose
+      -- initializer nests a call lowers only via the block-level sibling-prefix
+      -- hoister (`Expr.argPositionHoistPrefix?` emits flat SIBLING statements
+      -- into the enclosing list), which is unreachable for a lone statement.
+      -- Probing the statement wrapped in a singleton block reflects exactly how
+      -- it lowers in place, so a green cell reports `true` and is kept
+      -- byte-identical; only a genuinely un-lowerable statement reports `false`
+      -- and is routed through the ANF fallback.
+      let lowers := fun (s : Stmt) =>
+        (Stmt.toCoreWithInternalCalls? internalFuel storageRefEnv env
+          externalCallKindEnv storageNames modifiers functions freeFunctions
+          returnTys (Stmt.block [s])).isSome
+      -- Green cases: a statement that already lowers is kept BYTE-IDENTICAL.
+      -- Only a statement the enumerated dispatcher declined is ANF-normalized.
+      -- The normalized form is returned unconditionally when hoisting happened:
+      -- `stmt1` here already fails to lower, so `stmt2` cannot be worse, and a
+      -- `lowers stmt2` gate would spuriously reject valid hoists whose residual
+      -- needs a hoisted block-local's type (absent from the function-level env
+      -- used for the probe).
+      if lowers stmt1 then stmt1
+      else
+        match Stmt.anfNormalizeSelf? structEnv functions freeFunctions env
+            externalCallKindEnv storageNames stmt1 with
+        | some stmt2 => stmt2
+        | none => stmt1
+termination_by fuel _ => fuel
+
+def defaultAnfPreprocessFuel : Nat := 1024
+
 def functionExpandModifiersToCoreWithInternalCallsFull?
     (internalFuel : Nat)
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
@@ -19196,10 +19599,15 @@ def functionExpandModifiersToCoreWithInternalCallsFull?
     (storageNames returnNames : List Name)
     (available : List SourceModifierDecl) (functions : List FunctionDecl)
     (freeFunctions : List FunctionDecl) (returnTys : List Ty)
-    (invocations : List SourceModifierInvocation) (body : Stmt) :
+    (invocations : List SourceModifierInvocation) (body : Stmt)
+    (structEnv : StructEnv := []) :
     Option CoreStmt :=
   match invocations with
   | [] =>
+      let body :=
+        Stmt.anfPreprocess structEnv internalFuel storageRefEnv env
+          externalCallKindEnv storageNames available functions freeFunctions
+          returnTys defaultAnfPreprocessFuel body
       Stmt.toCoreWithInternalCalls?
         (internalFuel := internalFuel)
         (storageRefEnv := storageRefEnv)
@@ -19216,6 +19624,7 @@ def functionExpandModifiersToCoreWithInternalCallsFull?
         functionExpandModifiersToCoreWithInternalCallsFull?
           internalFuel storageRefEnv env externalCallKindEnv storageNames
           returnNames available functions freeFunctions returnTys rest body
+          (structEnv := structEnv)
       let modifierDecl ← modifierResolve? available invocation.target
       modifierApplyToCoreWithInternalCalls? internalFuel storageRefEnv env
         externalCallKindEnv storageNames returnNames available functions
@@ -20729,7 +21138,8 @@ def FunctionDecl.toCore? (storageNames : List Name) (constants : ConstantEnv)
     (externalCallKindEnv : ExternalCallKindEnv := [])
     (eventArgEnv : NamedArgParamEnv := [])
     (errorArgEnv : NamedArgParamEnv := [])
-    (internalFnIds : List (Name × Nat) := []) :
+    (internalFnIds : List (Name × Nat) := [])
+    (structEnv : StructEnv := []) :
     Option CoreFunctionDef := do
   let decl := FunctionDecl.inlineConstants constants decl
   let selectorEnv :=
@@ -20834,7 +21244,7 @@ def FunctionDecl.toCore? (storageNames : List Name) (constants : ConstantEnv)
       defaultInternalCallInlineFuel storageRefEnv env externalCallKindEnv
       storageNames (returns.map SolidCore.Solidity.Source.BindingDecl.name)
       modifiers functions freeFunctions (decl.returns.map Parameter.ty)
-      modifierInvocations body
+      modifierInvocations body (structEnv := structEnv)
   let paramCleanups ← Parameters.toCoreCleanupStmts? "_arg" decl.params
   let returnMemoryLocalizes ←
     Parameters.toCoreMemoryLocalizeStmts? "_ret" decl.returns
@@ -22712,6 +23122,7 @@ def ContractDecl.directCoreFunctions? (storageNames : List Name)
             (concatMapList ContractDecl.directOrdinaryFunctions supers)
             (some decl.name) (dispatchOrder.map ContractDecl.name)
             externalCallKindEnv eventArgEnv errorArgEnv internalFnIds
+            (structEnv := ContractDecl.structEnvFromContracts contracts)
         some (fn, fd))
       ((ContractDecl.directOrdinaryFunctions decl).filter
         (fun fn =>
@@ -22877,6 +23288,7 @@ def ContractDecl.constructorBodyForDeployment?
         functionExpandModifiersToCoreWithInternalCallsFull?
           defaultInternalCallInlineFuel storageRefEnv env externalCallKindEnv
           storageNames [] modifiers functions freeFunctions [] ctorModifiers body
+          (structEnv := ContractDecl.structEnvFromContracts allContracts)
       let paramCleanups ← Parameters.toCoreCleanupStmts? "_arg" ctor.params
       if decl.name == targetName then
         -- Most-derived contract: params are ABI-decoded (bound via `params`);
@@ -23284,7 +23696,7 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
       (superFunctions := []) (contractName? := none)
       (baseNames := []) (externalCallKindEnv := externalCallKindEnv)
       (eventArgEnv := eventArgEnv) (errorArgEnv := errorArgEnv)
-      (internalFnIds := internalFnIds)
+      (internalFnIds := internalFnIds) (structEnv := structEnv)
   let libraryInternalEntries ←
     filterMapOption
       (fun fn =>
@@ -23312,7 +23724,7 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
               (superFunctions := []) (contractName? := none)
               (baseNames := []) (externalCallKindEnv := externalCallKindEnv)
               (eventArgEnv := eventArgEnv) (errorArgEnv := errorArgEnv)
-              (internalFnIds := internalFnIds)
+              (internalFnIds := internalFnIds) (structEnv := structEnv)
           let key ← FunctionDecl.internalTableKey? fn
           some (some { fd with name := key, selector? := none })
         else
