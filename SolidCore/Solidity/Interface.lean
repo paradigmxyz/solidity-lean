@@ -7921,6 +7921,21 @@ def Expr.binaryToCoreWithEnvTypedFuel? (fuel : Nat) (storageNames : List Name)
   match fuel with
   | 0 => none
   | Nat.succ fuel =>
+  -- R2 fix-forward (uniswap-v2 UQ112x112 regression): a LITERAL-ONLY binary
+  -- (`2 ** 112`, `1 << 8`, `10 * 1e18`) is a compile-time rational constant in
+  -- solc (`RationalNumberType`, Types.cpp) — evaluated with UNBOUNDED
+  -- precision and only the FINAL value checked against the target type. It
+  -- must never reach this runtime typed lowering: the `**` arm below types
+  -- the base at its MOBILE type (`2` → `uint8`), so the caller's
+  -- operand-width cleanup would spuriously Panic 0x11 on
+  -- `uint224 z = 2 ** 112` (UQ112x112.Q112). Return `none` so every caller
+  -- falls back to the env-less constant folding (`toCoreNumericLiteralAs?` /
+  -- `Expr.toCore?`), which folds exactly like solc (and out-of-range
+  -- constants keep failing closed there).
+  if Expr.isRawNumberLiteralExpression lhs &&
+      Expr.isRawNumberLiteralExpression rhs then
+    none
+  else
   match op with
   | BinaryOp.boolAnd
   | BinaryOp.boolOr => do
@@ -8019,6 +8034,24 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
     | none => none) with
   | some coreExpr => some coreExpr
   | none =>
+  -- R2 fix-forward (uniswap-v2 UQ112x112 regression): a raw-literal CONSTANT
+  -- expression (`2 ** 112`, `-(1e18)`, `~0`, and any literal-only arithmetic)
+  -- is folded by solc at COMPILE TIME as an unbounded rational; only the
+  -- final value is checked against the target type. Route it straight to
+  -- `toCoreAsWithEnvDirect?` (whose `toCoreFixedBytesLiteralAs?` /
+  -- `toCoreNumericLiteralAs?` chain folds it, and which keeps failing CLOSED
+  -- for a non-fitting constant at an int/uint target) instead of the
+  -- binary/unary runtime arms below, whose operand-width cleanup would
+  -- spuriously Panic 0x11. EXCEPTION: an internal-function-typed target — a
+  -- number literal there is a rewritten function-pointer dispatch ID
+  -- (`rewriteInternalFnValueIdents`), which the dedicated literal arm below
+  -- must keep handling.
+  if Expr.isRawNumberLiteralExpression expr &&
+      !(match targetTy with
+        | Ty.functionWithLocations _ _ _ _ _ _ => true
+        | _ => false) then
+    Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr
+  else
   match Expr.toCoreIncDecWithEnv? storageNames env expr with
   | some coreExpr => some coreExpr
   | none =>
