@@ -48,3 +48,4 @@ import SolidCore.Witness.EnumMemberEncodePacked
 import SolidCore.Witness.BytesNEqLiteral
 import SolidCore.Witness.AddressNestedConv
 import SolidCore.Witness.AnfCallHoisting
+import SolidCore.Witness.NarrowCleanupFamily

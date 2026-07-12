@@ -12247,7 +12247,22 @@ def Expr.storageRefArrayMemberStmtCore?
           else
             none
       | _ => some ()
-      let valueCore ← Expr.toCore? storageNames value
+      -- NARROW-PUSH (#183): lower the pushed value against the array ELEMENT
+      -- type through the env-aware `toCoreAsWithEnv?`, so a narrow
+      -- (`uintN`/`intN`) checked-arithmetic argument (`arr.push(a + c)`) keeps
+      -- its operand-width `uintCleanup`/`intCleanup` (→ Panic 0x11 on overflow).
+      -- The env-less `toCore?` dropped it and silently wrapped at 256 bits.
+      -- A genuine explicit truncating cast (`arr.push(uint8(w))`) is NOT
+      -- peeled by `toCoreAsWithEnv?` and still truncates.
+      let valueCore ←
+        match (match Expr.abiTyWithEnv? env target with
+              | some (Ty.array elemTy _) => some elemTy
+              | _ => none) with
+        | some elemTy =>
+            match Expr.toCoreAsWithEnv? storageNames env elemTy value with
+            | some c => some c
+            | none => Expr.toCore? storageNames value
+        | none => Expr.toCore? storageNames value
       match indexes with
       | [] =>
           some
@@ -12291,7 +12306,18 @@ def Expr.storageRefArrayPushAssignStmtCore?
       else
         none
   | _ => some ()
-  let rhsCore ← Expr.toCore? storageNames rhs
+  -- NARROW-PUSH (#183, indexed twin): lower the pushed value against the array
+  -- element type via `toCoreAsWithEnv?` so narrow checked arithmetic Panics
+  -- 0x11 on overflow (see the companion note in `storageRefArrayMemberStmtCore?`).
+  let rhsCore ←
+    match (match Expr.abiTyWithEnv? env target with
+          | some (Ty.array elemTy _) => some elemTy
+          | _ => none) with
+    | some elemTy =>
+        match Expr.toCoreAsWithEnv? storageNames env elemTy rhs with
+        | some c => some c
+        | none => Expr.toCore? storageNames rhs
+    | none => Expr.toCore? storageNames rhs
   match indexes with
   | [] =>
       let lastIndex :=
@@ -12312,14 +12338,57 @@ def Expr.storageRefArrayPushAssignStmtCore?
         (SolidCore.Solidity.Source.Stmt.storageArrayPushRefPathAssign
           name indexes rhsCore)
 
+/-- NARROW-PUSH (#183): env-aware sibling of `storageArrayPushPathCore?` for a
+    STATE-VARIABLE storage array (`arr.push(a + c)`, `arr2d[0].push(a + c)`).
+    The pushed value is lowered against the array ELEMENT type via
+    `toCoreAsWithEnv?`, so a narrow (`uintN`/`intN`) checked-arithmetic argument
+    keeps its operand-width `uintCleanup`/`intCleanup` (→ Panic 0x11 on
+    overflow) instead of the env-less `toCore?` that ran it at 256 bits and
+    silently wrapped. A genuine explicit truncating cast (`arr.push(uint8(w))`)
+    is not peeled by `toCoreAsWithEnv?` and still truncates. -/
+def storageArrayPushPathCoreWithEnv? (env : TypeEnv) (storageNames : List Name)
+    (target : Expr) (value : Expr) : Option CoreStmt := do
+  let (name, indexes) ← Expr.storagePathCore? storageNames target
+  let valueCore ←
+    match (match Expr.abiTyWithEnv? env target with
+          | some (Ty.array elemTy _) => some elemTy
+          | _ => none) with
+    | some elemTy =>
+        match Expr.toCoreAsWithEnv? storageNames env elemTy value with
+        | some c => some c
+        | none => Expr.toCore? storageNames value
+    | none => Expr.toCore? storageNames value
+  match indexes with
+  | [] =>
+      some (SolidCore.Solidity.Source.Stmt.storageArrayPush name (some valueCore))
+  | _ =>
+      some
+        (SolidCore.Solidity.Source.Stmt.storageArrayPushPath
+          name indexes (some valueCore))
+
 def Expr.noReturnEffectStmtCoreWithStorageRefs?
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
     (storageNames : List Name) (expr : Expr) : Option CoreStmt :=
-  match Expr.noReturnEffectStmtCore? storageNames expr with
-  | some coreStmt => some coreStmt
-  | none =>
-      Expr.storageRefArrayMemberStmtCore?
-        storageRefEnv env storageNames expr
+  -- NARROW-PUSH (#183): intercept a state-variable array push with a value
+  -- argument and lower the value env-aware (element-width checked cleanup)
+  -- before the env-less `noReturnEffectStmtCore?` would drop it. Any shape the
+  -- env-aware helper cannot lower (`none`) falls through to the prior paths.
+  match expr with
+  | Expr.call (Expr.member target "push") [Arg.positional value] =>
+      match storageArrayPushPathCoreWithEnv? env storageNames target value with
+      | some coreStmt => some coreStmt
+      | none =>
+          match Expr.noReturnEffectStmtCore? storageNames expr with
+          | some coreStmt => some coreStmt
+          | none =>
+              Expr.storageRefArrayMemberStmtCore?
+                storageRefEnv env storageNames expr
+  | _ =>
+      match Expr.noReturnEffectStmtCore? storageNames expr with
+      | some coreStmt => some coreStmt
+      | none =>
+          Expr.storageRefArrayMemberStmtCore?
+            storageRefEnv env storageNames expr
 
 def storageAliasDeclFromRefCore? (storageRefEnv : StorageRefEnv)
     (binding : VarBinding) (source : Name) : Option CoreStmt :=
@@ -14816,11 +14885,37 @@ def FunctionDecl.hoistDirectInternalCallArgs?
   if prefixPieces.isEmpty then none
   else some (prefixPieces, tempEnv, replacedArgs)
 
+/-- NARROW-STRUCT-CTOR (#184): lower a value against `targetTy` with the
+    env-aware `toCoreAsWithEnv?`, EXCEPT a struct-literal-tuple RHS (the shape
+    `Expr.resolveStructsFuel` produces for `S(a+c, 0)` — an `Expr.tuple` of
+    per-field explicit casts). `toCoreAsWithEnv?` has no `Expr.tuple` arm, so it
+    falls to the env-less direct path, which treats each `uint8(a+c)` field as a
+    plain TRUNCATING cast and silently wraps a narrow checked-arithmetic field
+    to 256 bits (→ 44 instead of Panic 0x11). Lower each field env-aware against
+    its own field type instead — exactly as the (already-correct) struct-return
+    path does via `TupleItems.toCoreExprsAsWithEnv?` — so `uint8(a+c)` reaches
+    the H2 narrow-cast arm (checked operand-width cleanup → Panic 0x11), while a
+    genuine `uint8(w)` field still truncates. A struct value is represented as an
+    `Expr.tuple` of field cores (see the env-less `Expr.tuple` arm of
+    `Expr.toCore?`), so the output shape is unchanged. -/
+def Expr.structCtorTupleCoreAsWithEnv? (storageNames : List Name)
+    (env : TypeEnv) (targetTy : Ty) (rhs : Expr) : Option CoreExpr :=
+  match targetTy, rhs with
+  | Ty.struct _ fieldTys, Expr.tuple items =>
+      if fieldTys.length == items.length then
+        match TupleItems.toCoreExprsAsWithEnv? storageNames env fieldTys items with
+        | some coreExprs =>
+            some (SolidCore.Solidity.Source.Expr.tuple coreExprs)
+        | none => Expr.toCoreAsWithEnv? storageNames env targetTy rhs
+      else
+        Expr.toCoreAsWithEnv? storageNames env targetTy rhs
+  | _, _ => Expr.toCoreAsWithEnv? storageNames env targetTy rhs
+
 def assignmentCoreWithEnv? (storageNames : List Name)
     (env : TypeEnv) (lhs rhs : Expr) : Option CoreStmt := do
   let lhsCore ← Expr.toCoreLValue? storageNames lhs
   let targetTy ← Expr.abiTyWithEnv? env lhs
-  let rhsCore ← Expr.toCoreAsWithEnv? storageNames env targetTy rhs
+  let rhsCore ← Expr.structCtorTupleCoreAsWithEnv? storageNames env targetTy rhs
   some
     (SolidCore.Solidity.Source.Stmt.assign lhsCore rhsCore)
 
@@ -14832,7 +14927,7 @@ def varDeclCoreWithEnv? (storageNames : List Name)
       Stmt.toCore? storageNames (Stmt.varDecl [binding] (some expr))
   | some name, some ty, _ => do
       let coreTy ← Ty.toCore? ty
-      let initCore ← Expr.toCoreAsWithEnv? storageNames env ty expr
+      let initCore ← Expr.structCtorTupleCoreAsWithEnv? storageNames env ty expr
       if binding.location == some DataLocation.memory then
         some
           (SolidCore.Solidity.Source.Stmt.memoryVarDecl
@@ -15568,6 +15663,17 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
             (Stmt.returnValues
               (some (Expr.index (Expr.call (Expr.ident name) args) index)))
   | Stmt.expr expr@(Expr.call (Expr.member _ _) _) =>
+      -- NARROW-PUSH (#183): a state-variable array push with a value argument
+      -- must lower that value against the array ELEMENT type (env-aware, so
+      -- narrow checked arithmetic Panics 0x11 on overflow). The env-less
+      -- `Stmt.toCore?` below would succeed FIRST via `storageArrayPushPathCore?`
+      -- and silently drop the operand-width cleanup, so intercept it here.
+      match (match expr with
+             | Expr.call (Expr.member target "push") [Arg.positional value] =>
+                 storageArrayPushPathCoreWithEnv? env storageNames target value
+             | _ => none) with
+      | some coreStmt => some coreStmt
+      | none =>
       match Stmt.toCore? storageNames (Stmt.expr expr) with
       | some coreStmt => some coreStmt
       | none =>
@@ -17477,6 +17583,19 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                     (SolidCore.Solidity.Source.Stmt.block [bodyCore, checkCore]))
           | none => none
   | Stmt.forLoop init cond post body => do
+      -- NARROW-FORINIT (#182): the for-init `varDecl` bindings are in scope for
+      -- `cond`, `post`, and `body`. Extend the type env with them before lowering
+      -- those, so a narrow (`uintN`/`intN`) for-init counter's `i++`/`i +=`
+      -- reaches the env-aware `toCoreIncDecWithEnv?`/`toCoreAssignOpWithEnv?`
+      -- (emitting the operand-width `uintCleanup`/`intCleanup` → Panic 0x11 on
+      -- overflow). Without this, the env-less fallback dropped the cleanup and
+      -- silently widened the counter to 256 bits. A block-declared counter
+      -- already worked because the block lowerer extends env per varDecl.
+      let loopEnv :=
+        match init with
+        | some (Stmt.varDecl bindings _) =>
+            VarBindings.extendTypeEnv env bindings
+        | _ => env
       let initCore ←
         match init with
         | some stmt =>
@@ -17498,7 +17617,7 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
             Stmt.toCoreWithInternalCalls?
               (internalFuel := internalFuel)
               (storageRefEnv := storageRefEnv)
-              (env := env)
+              (env := loopEnv)
               (externalCallKindEnv := externalCallKindEnv)
               (storageNames := storageNames)
               (modifiers := modifiers)
@@ -17511,7 +17630,7 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
         Stmt.toCoreWithInternalCalls?
           (internalFuel := internalFuel)
           (storageRefEnv := storageRefEnv)
-          (env := env)
+          (env := loopEnv)
           (externalCallKindEnv := externalCallKindEnv)
           (storageNames := storageNames)
           (modifiers := modifiers)
