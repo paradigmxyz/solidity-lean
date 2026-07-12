@@ -20837,9 +20837,10 @@ def unspecifiedBinaryOrderContext : CoreContext :=
   { SolidCore.Solidity.Source.Context.empty with
     storageFields := [{ name := "x", slot := 0 }] }
 
-def unspecifiedBinaryOrderEval
-    (order : SolidCore.Solidity.Source.ChildEvalOrder) :
-    Option (Word × Word) := do
+/-- Binary operands evaluate RIGHT then LEFT (intrinsic order; solc
+    ExpressionCompiler.cpp:614-615): `(x = 5) + x` reads the pre-assignment
+    `x` (0) as the RHS, then assigns 5 as the LHS, so the sum is 5. -/
+def unspecifiedBinaryOrderEval : Option (Word × Word) := do
   let core ← unspecifiedBinaryOrderCoreExpr?
   match core with
   | SolidCore.Solidity.Source.Expr.binary op lhs rhs =>
@@ -20847,8 +20848,8 @@ def unspecifiedBinaryOrderEval
         SolidCore.Solidity.Source.SolI.foldExpr
           (SolidCore.Solidity.Source.Expr.orderFuel core + 1)
           unspecifiedBinaryOrderContext
-          (SolidCore.Solidity.Source.Expr.evalBinaryWithRuntimeOrder
-            order unspecifiedBinaryOrderContext
+          (SolidCore.Solidity.Source.Expr.evalBinary
+            unspecifiedBinaryOrderContext
             (SolidCore.Solidity.Source.Runtime.ofState
               SolidCore.Solidity.Source.State.empty)
             op lhs rhs)
@@ -20858,26 +20859,11 @@ def unspecifiedBinaryOrderEval
       | _ => none
   | _ => none
 
-def unspecifiedBinaryOrderLeftToRightMatches : Option Bool := do
-  let (value, slot) ←
-    unspecifiedBinaryOrderEval
-      SolidCore.Solidity.Source.ChildEvalOrder.leftToRight
-  some
-    (SolidCore.Solidity.Source.wordEq value 10 &&
-      SolidCore.Solidity.Source.wordEq slot 5)
-
-def unspecifiedBinaryOrderRightToLeftMatches : Option Bool := do
-  let (value, slot) ←
-    unspecifiedBinaryOrderEval
-      SolidCore.Solidity.Source.ChildEvalOrder.rightToLeft
+def unspecifiedBinaryEvaluationOrderMatches : Option Bool := do
+  let (value, slot) ← unspecifiedBinaryOrderEval
   some
     (SolidCore.Solidity.Source.wordEq value 5 &&
       SolidCore.Solidity.Source.wordEq slot 5)
-
-def unspecifiedBinaryEvaluationOrderMatches : Option Bool := do
-  let left ← unspecifiedBinaryOrderLeftToRightMatches
-  let right ← unspecifiedBinaryOrderRightToLeftMatches
-  some (left && right)
 
 def unspecifiedBinaryOrderRunFunction : FunctionDecl :=
   { name := some "run"
@@ -20901,16 +20887,17 @@ def unspecifiedTupleOrderExpr : Expr :=
 def unspecifiedTupleOrderCoreExpr? : Option CoreExpr :=
   Expr.toCore? ["x"] unspecifiedTupleOrderExpr
 
-def unspecifiedTupleOrderEval
-    (order : SolidCore.Solidity.Source.ChildEvalOrder) :
-    Option (Word × Word × Word) := do
+/-- Tuple components evaluate LEFT to RIGHT (intrinsic order; solc
+    ExpressionCompiler.cpp:400): `((x = 5), x)` assigns first, then reads the
+    assigned value, so both components are 5. -/
+def unspecifiedTupleOrderEval : Option (Word × Word × Word) := do
   let core ← unspecifiedTupleOrderCoreExpr?
   match
     SolidCore.Solidity.Source.SolI.foldExpr
       (SolidCore.Solidity.Source.Expr.orderFuel core + 1)
       unspecifiedBinaryOrderContext
-      (SolidCore.Solidity.Source.Expr.evalWithRuntimeOrder
-        order unspecifiedBinaryOrderContext
+      (SolidCore.Solidity.Source.Expr.eval
+        unspecifiedBinaryOrderContext
         (SolidCore.Solidity.Source.Runtime.ofState
           SolidCore.Solidity.Source.State.empty)
         core)
@@ -20922,38 +20909,20 @@ def unspecifiedTupleOrderEval
       some (first, second, runtime.state.loadSlot 0)
   | _ => none
 
-def unspecifiedTupleOrderLeftToRightMatches : Option Bool := do
-  let (first, second, slot) ←
-    unspecifiedTupleOrderEval
-      SolidCore.Solidity.Source.ChildEvalOrder.leftToRight
+def unspecifiedTupleEvaluationOrderMatches : Option Bool := do
+  let (first, second, slot) ← unspecifiedTupleOrderEval
   some
     (SolidCore.Solidity.Source.wordEq first 5 &&
       SolidCore.Solidity.Source.wordEq second 5 &&
       SolidCore.Solidity.Source.wordEq slot 5)
 
-def unspecifiedTupleOrderRightToLeftMatches : Option Bool := do
-  let (first, second, slot) ←
-    unspecifiedTupleOrderEval
-      SolidCore.Solidity.Source.ChildEvalOrder.rightToLeft
-  some
-    (SolidCore.Solidity.Source.wordEq first 5 &&
-      SolidCore.Solidity.Source.wordEq second 0 &&
-      SolidCore.Solidity.Source.wordEq slot 5)
-
-def unspecifiedTupleEvaluationOrderMatches : Option Bool := do
-  let left ← unspecifiedTupleOrderLeftToRightMatches
-  let right ← unspecifiedTupleOrderRightToLeftMatches
-  some (left && right)
-
 def unspecifiedTupleOrderReturnStmt? : Option CoreStmt :=
   Stmt.toCore? ["x"] (Stmt.returnValues (some unspecifiedTupleOrderExpr))
 
-def unspecifiedTupleOrderStmtEval
-    (order : SolidCore.Solidity.Source.ChildEvalOrder) :
-    Option (Word × Word × Word) := do
+/-- Return-tuple components evaluate LEFT to RIGHT (intrinsic order). -/
+def unspecifiedTupleOrderStmtEval : Option (Word × Word × Word) := do
   let core ← unspecifiedTupleOrderReturnStmt?
-  let context :=
-    unspecifiedBinaryOrderContext.withChildEvalOrder order
+  let context := unspecifiedBinaryOrderContext
   match
     (SolidCore.Solidity.Source.SolI.run context
       (SolidCore.Solidity.Source.Stmt.eval 16 [] context
@@ -20968,28 +20937,12 @@ def unspecifiedTupleOrderStmtEval
       some (first, second, runtime.state.loadSlot 0)
   | _ => none
 
-def unspecifiedTupleStatementOrderLeftToRightMatches : Option Bool := do
-  let (first, second, slot) ←
-    unspecifiedTupleOrderStmtEval
-      SolidCore.Solidity.Source.ChildEvalOrder.leftToRight
+def unspecifiedTupleStatementEvaluationOrderMatches : Option Bool := do
+  let (first, second, slot) ← unspecifiedTupleOrderStmtEval
   some
     (SolidCore.Solidity.Source.wordEq first 5 &&
       SolidCore.Solidity.Source.wordEq second 5 &&
       SolidCore.Solidity.Source.wordEq slot 5)
-
-def unspecifiedTupleStatementOrderRightToLeftMatches : Option Bool := do
-  let (first, second, slot) ←
-    unspecifiedTupleOrderStmtEval
-      SolidCore.Solidity.Source.ChildEvalOrder.rightToLeft
-  some
-    (SolidCore.Solidity.Source.wordEq first 5 &&
-      SolidCore.Solidity.Source.wordEq second 0 &&
-      SolidCore.Solidity.Source.wordEq slot 5)
-
-def unspecifiedTupleStatementEvaluationOrderMatches : Option Bool := do
-  let left ← unspecifiedTupleStatementOrderLeftToRightMatches
-  let right ← unspecifiedTupleStatementOrderRightToLeftMatches
-  some (left && right)
 
 def unspecifiedTupleOrderRunFunction : FunctionDecl :=
   { name := some "runTuple"
@@ -21044,11 +20997,10 @@ def unspecifiedLValueIndexOrderStatement : Stmt :=
                   (Expr.literal (Literal.number "1")))
             , TupleItem.value (Expr.ident "x") ])) ]
 
-def unspecifiedLValueIndexOrderEval
-    (order : SolidCore.Solidity.Source.ChildEvalOrder) :
-    Option (Word × Word × Word) := do
-  let context :=
-    SolidCore.Solidity.Source.Context.empty.withChildEvalOrder order
+/-- Index lvalues resolve base BEFORE key (intrinsic order; solc IndexAccess
+    visitor): `matrix[x = 1][x] = 9` writes `matrix[1][1]`. -/
+def unspecifiedLValueIndexOrderEval : Option (Word × Word × Word) := do
+  let context := SolidCore.Solidity.Source.Context.empty
   let result ←
     Stmt.eval? 48 [] context
       (SolidCore.Solidity.Source.Runtime.ofState
@@ -21062,28 +21014,12 @@ def unspecifiedLValueIndexOrderEval
       some (first, second, seen)
   | _ => none
 
-def unspecifiedLValueIndexOrderLeftToRightMatches : Option Bool := do
-  let (first, second, seen) ←
-    unspecifiedLValueIndexOrderEval
-      SolidCore.Solidity.Source.ChildEvalOrder.leftToRight
+def unspecifiedLValueIndexEvaluationOrderMatches : Option Bool := do
+  let (first, second, seen) ← unspecifiedLValueIndexOrderEval
   some
     (SolidCore.Solidity.Source.wordEq first 0 &&
       SolidCore.Solidity.Source.wordEq second 9 &&
       SolidCore.Solidity.Source.wordEq seen 1)
-
-def unspecifiedLValueIndexOrderRightToLeftMatches : Option Bool := do
-  let (first, second, seen) ←
-    unspecifiedLValueIndexOrderEval
-      SolidCore.Solidity.Source.ChildEvalOrder.rightToLeft
-  some
-    (SolidCore.Solidity.Source.wordEq first 9 &&
-      SolidCore.Solidity.Source.wordEq second 0 &&
-      SolidCore.Solidity.Source.wordEq seen 1)
-
-def unspecifiedLValueIndexEvaluationOrderMatches : Option Bool := do
-  let left ← unspecifiedLValueIndexOrderLeftToRightMatches
-  let right ← unspecifiedLValueIndexOrderRightToLeftMatches
-  some (left && right)
 
 def unspecifiedLValueIndexOrderRunFunction : FunctionDecl :=
   { name := some "runLValueIndex"
@@ -21126,11 +21062,10 @@ def unspecifiedStatementAssignOrderStatement : Stmt :=
                   (Expr.literal (Literal.number "1")))
             , TupleItem.value (Expr.ident "i") ])) ]
 
-def unspecifiedStatementAssignOrderEval
-    (order : SolidCore.Solidity.Source.ChildEvalOrder) :
-    Option (Word × Word × Word) := do
-  let context :=
-    SolidCore.Solidity.Source.Context.empty.withChildEvalOrder order
+/-- Assignment evaluates the RHS BEFORE the LHS reference (intrinsic order;
+    solc ExpressionCompiler.cpp:319,331): `xs[i] = (i = 1)` writes `xs[1]`. -/
+def unspecifiedStatementAssignOrderEval : Option (Word × Word × Word) := do
+  let context := SolidCore.Solidity.Source.Context.empty
   let result ←
     Stmt.eval? 48 [] context
       (SolidCore.Solidity.Source.Runtime.ofState
@@ -21144,28 +21079,12 @@ def unspecifiedStatementAssignOrderEval
       some (first, second, seen)
   | _ => none
 
-def unspecifiedStatementAssignOrderLeftToRightMatches : Option Bool := do
-  let (first, second, seen) ←
-    unspecifiedStatementAssignOrderEval
-      SolidCore.Solidity.Source.ChildEvalOrder.leftToRight
-  some
-    (SolidCore.Solidity.Source.wordEq first 1 &&
-      SolidCore.Solidity.Source.wordEq second 0 &&
-      SolidCore.Solidity.Source.wordEq seen 1)
-
-def unspecifiedStatementAssignOrderRightToLeftMatches : Option Bool := do
-  let (first, second, seen) ←
-    unspecifiedStatementAssignOrderEval
-      SolidCore.Solidity.Source.ChildEvalOrder.rightToLeft
+def unspecifiedStatementAssignmentEvaluationOrderMatches : Option Bool := do
+  let (first, second, seen) ← unspecifiedStatementAssignOrderEval
   some
     (SolidCore.Solidity.Source.wordEq first 0 &&
       SolidCore.Solidity.Source.wordEq second 1 &&
       SolidCore.Solidity.Source.wordEq seen 1)
-
-def unspecifiedStatementAssignmentEvaluationOrderMatches : Option Bool := do
-  let left ← unspecifiedStatementAssignOrderLeftToRightMatches
-  let right ← unspecifiedStatementAssignOrderRightToLeftMatches
-  some (left && right)
 
 def unspecifiedStatementAssignOrderRunFunction : FunctionDecl :=
   { name := some "runStatementAssign"
@@ -21272,11 +21191,10 @@ def unspecifiedMemoryRefOrderRunFunction : FunctionDecl :=
       , { name := some "seen", ty := Ty.uint 256 } ]
     body := some unspecifiedMemoryRefOrderInitStatement }
 
-def unspecifiedMemoryRefOrderEval
-    (order : SolidCore.Solidity.Source.ChildEvalOrder) :
-    Option (Word × Word × Word) := do
-  let context :=
-    SolidCore.Solidity.Source.Context.empty.withChildEvalOrder order
+/-- Memory-ref index reads resolve base BEFORE key (intrinsic order):
+    `alias = matrix[x = 1][x]` aliases `matrix[1][1]`. -/
+def unspecifiedMemoryRefOrderEval : Option (Word × Word × Word) := do
+  let context := SolidCore.Solidity.Source.Context.empty
   let result ←
     FunctionDecl.call? 96 [] [] context
       SolidCore.Solidity.Source.State.empty
@@ -21289,28 +21207,12 @@ def unspecifiedMemoryRefOrderEval
       some (first, second, seen)
   | _ => none
 
-def unspecifiedMemoryRefOrderLeftToRightMatches : Option Bool := do
-  let (first, second, seen) ←
-    unspecifiedMemoryRefOrderEval
-      SolidCore.Solidity.Source.ChildEvalOrder.leftToRight
+def unspecifiedMemoryReferenceEvaluationOrderMatches : Option Bool := do
+  let (first, second, seen) ← unspecifiedMemoryRefOrderEval
   some
     (SolidCore.Solidity.Source.wordEq first 0 &&
       SolidCore.Solidity.Source.wordEq second 7 &&
       SolidCore.Solidity.Source.wordEq seen 1)
-
-def unspecifiedMemoryRefOrderRightToLeftMatches : Option Bool := do
-  let (first, second, seen) ←
-    unspecifiedMemoryRefOrderEval
-      SolidCore.Solidity.Source.ChildEvalOrder.rightToLeft
-  some
-    (SolidCore.Solidity.Source.wordEq first 7 &&
-      SolidCore.Solidity.Source.wordEq second 0 &&
-      SolidCore.Solidity.Source.wordEq seen 1)
-
-def unspecifiedMemoryReferenceEvaluationOrderMatches : Option Bool := do
-  let left ← unspecifiedMemoryRefOrderLeftToRightMatches
-  let right ← unspecifiedMemoryRefOrderRightToLeftMatches
-  some (left && right)
 
 def unspecifiedMemoryRefOrderContract : ContractDecl :=
   { name := "UnspecifiedMemoryRefOrder"

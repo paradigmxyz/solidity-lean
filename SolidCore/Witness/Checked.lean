@@ -3457,6 +3457,8 @@ def checkedUnspecifiedBinaryOrderDeterministicRunMatches :
 
 def checkedUnspecifiedTupleOrderDeterministicRunMatches :
     Except TypeError Bool := do
+  -- Tuple components evaluate LEFT to RIGHT (intrinsic order), so both
+  -- components observe the assignment: (5, 5).
   let result ←
     CheckedInput.ownCall 32
       Executable.Examples.unspecifiedTupleOrderContract
@@ -3468,24 +3470,22 @@ def checkedUnspecifiedTupleOrderDeterministicRunMatches :
       , SolidCore.Solidity.Source.Value.word second ] =>
       Except.ok
         (SolidCore.Solidity.Source.wordEq first 5 &&
-          SolidCore.Solidity.Source.wordEq second 0 &&
+          SolidCore.Solidity.Source.wordEq second 5 &&
           SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 5)
   | SolidCore.Solidity.Source.CallResult.returned state [value] =>
       let (first, second) ← checkedDecodeWordPair value
       Except.ok
         (SolidCore.Solidity.Source.wordEq first 5 &&
-          SolidCore.Solidity.Source.wordEq second 0 &&
+          SolidCore.Solidity.Source.wordEq second 5 &&
           SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 5)
   | _ => Except.ok false
 
-def checkedUnspecifiedTupleOrderRunWithContextEval
-    (order : SolidCore.Solidity.Source.ChildEvalOrder) :
+def checkedUnspecifiedTupleOrderRunWithContextEval :
     Except TypeError (Option (Word × Word × Word)) := do
   let checkedContract ←
     CheckedInput.ownContract
       Executable.Examples.unspecifiedTupleOrderContract
-  let context :=
-    checkedContract.core.context.withChildEvalOrder order
+  let context := checkedContract.core.context
   let result ←
     CheckedContract.callFunctionWithContext 32 checkedContract "runTuple"
       context SolidCore.Solidity.Source.State.empty []
@@ -3499,11 +3499,9 @@ def checkedUnspecifiedTupleOrderRunWithContextEval
       Except.ok (some (first, second, state.loadSlot 0))
   | _ => Except.ok none
 
-def checkedUnspecifiedTupleOrderContextLeftToRightMatches :
+def checkedUnspecifiedTupleOrderContextEvaluationMatches :
     Except TypeError Bool := do
-  let result ←
-    checkedUnspecifiedTupleOrderRunWithContextEval
-      SolidCore.Solidity.Source.ChildEvalOrder.leftToRight
+  let result ← checkedUnspecifiedTupleOrderRunWithContextEval
   match result with
   | some (first, second, slot) =>
       Except.ok
@@ -3512,35 +3510,14 @@ def checkedUnspecifiedTupleOrderContextLeftToRightMatches :
           SolidCore.Solidity.Source.wordEq slot 5)
   | none => Except.ok false
 
-def checkedUnspecifiedTupleOrderContextRightToLeftMatches :
-    Except TypeError Bool := do
-  let result ←
-    checkedUnspecifiedTupleOrderRunWithContextEval
-      SolidCore.Solidity.Source.ChildEvalOrder.rightToLeft
-  match result with
-  | some (first, second, slot) =>
-      Except.ok
-        (SolidCore.Solidity.Source.wordEq first 5 &&
-          SolidCore.Solidity.Source.wordEq second 0 &&
-          SolidCore.Solidity.Source.wordEq slot 5)
-  | none => Except.ok false
-
-def checkedUnspecifiedTupleOrderContextEvaluationMatches :
-    Except TypeError Bool := do
-  let left ← checkedUnspecifiedTupleOrderContextLeftToRightMatches
-  let right ← checkedUnspecifiedTupleOrderContextRightToLeftMatches
-  Except.ok (left && right)
-
-def checkedUnspecifiedTupleOrderAbiRunWithContextEval
-    (order : SolidCore.Solidity.Source.ChildEvalOrder) :
+def checkedUnspecifiedTupleOrderAbiRunWithContextEval :
     Except TypeError (Option (Word × Word × Word)) := do
   let checkedContract ←
     CheckedInput.ownContract
       Executable.Examples.unspecifiedTupleOrderContract
   let calldata ←
     CheckedContract.functionCalldata checkedContract "runTuple" []
-  let context :=
-    checkedContract.core.context.withChildEvalOrder order
+  let context := checkedContract.core.context
   let result ←
     CheckedContract.callCalldataAtFromWithContext 32 checkedContract context
       SolidCore.Solidity.Source.State.empty 0 0 0 calldata
@@ -3559,11 +3536,9 @@ def checkedUnspecifiedTupleOrderAbiRunWithContextEval
   else
     Except.ok none
 
-def checkedUnspecifiedTupleOrderAbiContextLeftToRightMatches :
+def checkedUnspecifiedTupleOrderAbiContextEvaluationMatches :
     Except TypeError Bool := do
-  let result ←
-    checkedUnspecifiedTupleOrderAbiRunWithContextEval
-      SolidCore.Solidity.Source.ChildEvalOrder.leftToRight
+  let result ← checkedUnspecifiedTupleOrderAbiRunWithContextEval
   match result with
   | some (first, second, slot) =>
       Except.ok
@@ -3572,33 +3547,12 @@ def checkedUnspecifiedTupleOrderAbiContextLeftToRightMatches :
           SolidCore.Solidity.Source.wordEq slot 5)
   | none => Except.ok false
 
-def checkedUnspecifiedTupleOrderAbiContextRightToLeftMatches :
-    Except TypeError Bool := do
-  let result ←
-    checkedUnspecifiedTupleOrderAbiRunWithContextEval
-      SolidCore.Solidity.Source.ChildEvalOrder.rightToLeft
-  match result with
-  | some (first, second, slot) =>
-      Except.ok
-        (SolidCore.Solidity.Source.wordEq first 5 &&
-          SolidCore.Solidity.Source.wordEq second 0 &&
-          SolidCore.Solidity.Source.wordEq slot 5)
-  | none => Except.ok false
-
-def checkedUnspecifiedTupleOrderAbiContextEvaluationMatches :
-    Except TypeError Bool := do
-  let left ← checkedUnspecifiedTupleOrderAbiContextLeftToRightMatches
-  let right ← checkedUnspecifiedTupleOrderAbiContextRightToLeftMatches
-  Except.ok (left && right)
-
-def checkedUnspecifiedLValueIndexOrderRunWithContextEval
-    (order : SolidCore.Solidity.Source.ChildEvalOrder) :
+def checkedUnspecifiedLValueIndexOrderRunWithContextEval :
     Except TypeError (Option (Word × Word × Word)) := do
   let checkedContract ←
     CheckedInput.ownContract
       Executable.Examples.unspecifiedLValueIndexOrderContract
-  let context :=
-    checkedContract.core.context.withChildEvalOrder order
+  let context := checkedContract.core.context
   let result ←
     CheckedContract.callFunctionWithContext 64 checkedContract
       "runLValueIndex" context
@@ -3611,11 +3565,9 @@ def checkedUnspecifiedLValueIndexOrderRunWithContextEval
       Except.ok (some (first, second, seen))
   | _ => Except.ok none
 
-def checkedUnspecifiedLValueIndexOrderContextLeftToRightMatches :
+def checkedUnspecifiedLValueIndexOrderContextEvaluationMatches :
     Except TypeError Bool := do
-  let result ←
-    checkedUnspecifiedLValueIndexOrderRunWithContextEval
-      SolidCore.Solidity.Source.ChildEvalOrder.leftToRight
+  let result ← checkedUnspecifiedLValueIndexOrderRunWithContextEval
   match result with
   | some (first, second, seen) =>
       Except.ok
@@ -3624,33 +3576,12 @@ def checkedUnspecifiedLValueIndexOrderContextLeftToRightMatches :
           SolidCore.Solidity.Source.wordEq seen 1)
   | none => Except.ok false
 
-def checkedUnspecifiedLValueIndexOrderContextRightToLeftMatches :
-    Except TypeError Bool := do
-  let result ←
-    checkedUnspecifiedLValueIndexOrderRunWithContextEval
-      SolidCore.Solidity.Source.ChildEvalOrder.rightToLeft
-  match result with
-  | some (first, second, seen) =>
-      Except.ok
-        (SolidCore.Solidity.Source.wordEq first 9 &&
-          SolidCore.Solidity.Source.wordEq second 0 &&
-          SolidCore.Solidity.Source.wordEq seen 1)
-  | none => Except.ok false
-
-def checkedUnspecifiedLValueIndexOrderContextEvaluationMatches :
-    Except TypeError Bool := do
-  let left ← checkedUnspecifiedLValueIndexOrderContextLeftToRightMatches
-  let right ← checkedUnspecifiedLValueIndexOrderContextRightToLeftMatches
-  Except.ok (left && right)
-
-def checkedUnspecifiedStatementAssignOrderRunWithContextEval
-    (order : SolidCore.Solidity.Source.ChildEvalOrder) :
+def checkedUnspecifiedStatementAssignOrderRunWithContextEval :
     Except TypeError (Option (Word × Word × Word)) := do
   let checkedContract ←
     CheckedInput.ownContract
       Executable.Examples.unspecifiedStatementAssignOrderContract
-  let context :=
-    checkedContract.core.context.withChildEvalOrder order
+  let context := checkedContract.core.context
   let result ←
     CheckedContract.callFunctionWithContext 64 checkedContract
       "runStatementAssign" context
@@ -3663,24 +3594,9 @@ def checkedUnspecifiedStatementAssignOrderRunWithContextEval
       Except.ok (some (first, second, seen))
   | _ => Except.ok none
 
-def checkedUnspecifiedStatementAssignOrderContextLeftToRightMatches :
+def checkedUnspecifiedStatementAssignOrderContextEvaluationMatches :
     Except TypeError Bool := do
-  let result ←
-    checkedUnspecifiedStatementAssignOrderRunWithContextEval
-      SolidCore.Solidity.Source.ChildEvalOrder.leftToRight
-  match result with
-  | some (first, second, seen) =>
-      Except.ok
-        (SolidCore.Solidity.Source.wordEq first 1 &&
-          SolidCore.Solidity.Source.wordEq second 0 &&
-          SolidCore.Solidity.Source.wordEq seen 1)
-  | none => Except.ok false
-
-def checkedUnspecifiedStatementAssignOrderContextRightToLeftMatches :
-    Except TypeError Bool := do
-  let result ←
-    checkedUnspecifiedStatementAssignOrderRunWithContextEval
-      SolidCore.Solidity.Source.ChildEvalOrder.rightToLeft
+  let result ← checkedUnspecifiedStatementAssignOrderRunWithContextEval
   match result with
   | some (first, second, seen) =>
       Except.ok
@@ -3689,20 +3605,12 @@ def checkedUnspecifiedStatementAssignOrderContextRightToLeftMatches :
           SolidCore.Solidity.Source.wordEq seen 1)
   | none => Except.ok false
 
-def checkedUnspecifiedStatementAssignOrderContextEvaluationMatches :
-    Except TypeError Bool := do
-  let left ← checkedUnspecifiedStatementAssignOrderContextLeftToRightMatches
-  let right ← checkedUnspecifiedStatementAssignOrderContextRightToLeftMatches
-  Except.ok (left && right)
-
-def checkedUnspecifiedMemoryRefOrderRunWithContextEval
-    (order : SolidCore.Solidity.Source.ChildEvalOrder) :
+def checkedUnspecifiedMemoryRefOrderRunWithContextEval :
     Except TypeError (Option (Word × Word × Word)) := do
   let checkedContract ←
     CheckedInput.ownContract
       Executable.Examples.unspecifiedMemoryRefOrderContract
-  let context :=
-    checkedContract.core.context.withChildEvalOrder order
+  let context := checkedContract.core.context
   let result ←
     CheckedContract.callFunctionWithContext 128 checkedContract
       "runMemoryRefOrder" context
@@ -3715,11 +3623,9 @@ def checkedUnspecifiedMemoryRefOrderRunWithContextEval
       Except.ok (some (first, second, seen))
   | _ => Except.ok none
 
-def checkedUnspecifiedMemoryRefOrderContextLeftToRightMatches :
+def checkedUnspecifiedMemoryRefOrderContextEvaluationMatches :
     Except TypeError Bool := do
-  let result ←
-    checkedUnspecifiedMemoryRefOrderRunWithContextEval
-      SolidCore.Solidity.Source.ChildEvalOrder.leftToRight
+  let result ← checkedUnspecifiedMemoryRefOrderRunWithContextEval
   match result with
   | some (first, second, seen) =>
       Except.ok
@@ -3727,25 +3633,6 @@ def checkedUnspecifiedMemoryRefOrderContextLeftToRightMatches :
           SolidCore.Solidity.Source.wordEq second 7 &&
           SolidCore.Solidity.Source.wordEq seen 1)
   | none => Except.ok false
-
-def checkedUnspecifiedMemoryRefOrderContextRightToLeftMatches :
-    Except TypeError Bool := do
-  let result ←
-    checkedUnspecifiedMemoryRefOrderRunWithContextEval
-      SolidCore.Solidity.Source.ChildEvalOrder.rightToLeft
-  match result with
-  | some (first, second, seen) =>
-      Except.ok
-        (SolidCore.Solidity.Source.wordEq first 7 &&
-          SolidCore.Solidity.Source.wordEq second 0 &&
-          SolidCore.Solidity.Source.wordEq seen 1)
-  | none => Except.ok false
-
-def checkedUnspecifiedMemoryRefOrderContextEvaluationMatches :
-    Except TypeError Bool := do
-  let left ← checkedUnspecifiedMemoryRefOrderContextLeftToRightMatches
-  let right ← checkedUnspecifiedMemoryRefOrderContextRightToLeftMatches
-  Except.ok (left && right)
 
 def checkedTupleAndFreeFunctionContractsAccepted : Bool :=
   Result.isOk

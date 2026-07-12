@@ -57,11 +57,12 @@ def phase5RealDemoTranscript : List EvmCompiler.Simulation.Query :=
   | none => []
 
 /-- Acceptance predicate: the transcript is exactly two external-call queries to
-    `0xcafe`, emitted in the semantics' deterministic child-evaluation order —
-    the `delegatecall` first, then the `staticcall` (the source tuple is
-    `(staticcall(...), delegatecall(...))`, but the deterministic policy evaluates
-    them in this order; the responder keys on kind/target/calldata, not order, so
-    results are unaffected). Folding the same tree under the responder returns the
+    `0xcafe`, emitted in the construct-intrinsic child-evaluation order — tuple
+    components evaluate LEFT to RIGHT (solc ExpressionCompiler.cpp:400), so the
+    `staticcall` first, then the `delegatecall`, matching the source tuple
+    `(staticcall(...), delegatecall(...))` (the responder keys on
+    kind/target/calldata, not order, so results are unaffected). Folding the
+    same tree under the responder returns the
     two expected results (`staticcall` success with output `[1]`, `delegatecall`
     failure with output `[2,3]`), checked by `lowLevelStaticDelegateMatches`. -/
 def phase5RealDemoTranscriptMatches : Bool :=
@@ -72,10 +73,10 @@ def phase5RealDemoTranscriptMatches : Bool :=
       , EvmCompiler.Simulation.Query.external _
           (EvmCompiler.Simulation.ExternalRequest.call second) ] =>
         (match first.kind with
-         | EvmCompiler.Simulation.CallKind.delegatecall => true
+         | EvmCompiler.Simulation.CallKind.staticcall => true
          | _ => false) &&
         (match second.kind with
-         | EvmCompiler.Simulation.CallKind.staticcall => true
+         | EvmCompiler.Simulation.CallKind.delegatecall => true
          | _ => false) &&
         SolidCore.Solidity.Source.addressToWord first.codeAddress == 0xcafe &&
         SolidCore.Solidity.Source.addressToWord second.codeAddress == 0xcafe

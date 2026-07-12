@@ -33,7 +33,7 @@ Why this exact shape:
 
 * **Exact `Eq` on trees is attainable** because the interpreter's trees embed
   no fuel-dependent structure outside the recursion itself: expression
-  evaluation (`Expr.evalWithRuntimeOrderFuel` and the whole expression/lvalue
+  evaluation (`Expr.evalFuel` and the whole expression/lvalue
   cluster) runs on its *own structural fuel* computed from the expression
   (`Expr.orderFuel expr + 1` etc.), independent of the statement fuel, and
   expression-fuel exhaustion is a `revert`, not `outOfFuel`. So the statement

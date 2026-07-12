@@ -12944,47 +12944,93 @@ def externalBinarySingleReturnUseCore?
     Expr.externalMemberSingleReturnCallTy? storageNames env externalCallKindEnv rhs
   match lhsExt?, rhsExt? with
   | some lhsTy, none => do
-      -- External call on the LEFT, pure operand on the RIGHT.
+      -- External call on the LEFT, pure operand on the RIGHT. Ordinary
+      -- operators: solc evaluates the RIGHT operand FIRST
+      -- (ExpressionCompiler.cpp:614-615), so park the RHS value in a temp
+      -- before performing the external call. Short-circuit ops keep the
+      -- left-first shape (the runtime boolAnd/boolOr arm guards the pure RHS).
       let coreOp ← BinaryOp.toCore? op
       let rhsCore ← Expr.toCore? storageNames rhs
-      Expr.externalCallSingleReturnCoreWithKindEnv?
-        storageNames env externalCallKindEnv lhsTy lhs
-        (fun retExpr =>
-          useResult
-            (SolidCore.Solidity.Source.Expr.binary coreOp retExpr rhsCore))
+      match op with
+      | BinaryOp.boolAnd | BinaryOp.boolOr =>
+          Expr.externalCallSingleReturnCoreWithKindEnv?
+            storageNames env externalCallKindEnv lhsTy lhs
+            (fun retExpr =>
+              useResult
+                (SolidCore.Solidity.Source.Expr.binary coreOp retExpr rhsCore))
+      | _ =>
+          match
+              Expr.abiTyWithInternalFunctionsEnv?
+                functions freeFunctions env rhs with
+          | some rhsTy => do
+              let rhsCoreTy ← Ty.toCore? rhsTy
+              let rhsTmp := "_sol_bin_ext_rhs"
+              let callCore ←
+                Expr.externalCallSingleReturnCoreWithKindEnv?
+                  storageNames env externalCallKindEnv lhsTy lhs
+                  (fun retExpr =>
+                    useResult
+                      (SolidCore.Solidity.Source.Expr.binary coreOp retExpr
+                        (SolidCore.Solidity.Source.Expr.var rhsTmp)))
+              some
+                (SolidCore.Solidity.Source.Stmt.block
+                  [ SolidCore.Solidity.Source.Stmt.varDecl
+                      rhsCoreTy rhsTmp (some rhsCore)
+                  , callCore ])
+          | none =>
+              -- RHS type unresolvable: keep the previous (left-call-first)
+              -- shape rather than decline.
+              Expr.externalCallSingleReturnCoreWithKindEnv?
+                storageNames env externalCallKindEnv lhsTy lhs
+                (fun retExpr =>
+                  useResult
+                    (SolidCore.Solidity.Source.Expr.binary coreOp
+                      retExpr rhsCore))
   | none, some rhsTy => do
-      -- Pure operand on the LEFT, external call on the RIGHT. Evaluate the pure
-      -- lhs into a temp first (source order), then perform the external call.
+      -- Pure operand on the LEFT, external call on the RIGHT. Ordinary
+      -- operators: solc evaluates the RIGHT (external call) FIRST
+      -- (ExpressionCompiler.cpp:614-615); the pure LEFT operand stays in the
+      -- residual binary, whose runtime arm is right-then-left. Short-circuit
+      -- ops evaluate the LEFT into a temp and guard the RIGHT call.
       let coreOp ← BinaryOp.toCore? op
       let lhsCore ← Expr.toCore? storageNames lhs
-      let lhsTy ←
-        Expr.abiTyWithInternalFunctionsEnv? functions freeFunctions env lhs
-      let lhsCoreTy ← Ty.toCore? lhsTy
-      let lhsTmp := "_sol_bin_ext_lhs"
-      let rhsCallCore ←
-        Expr.externalCallSingleReturnCoreWithKindEnv?
-          storageNames env externalCallKindEnv rhsTy rhs
-          (fun retExpr =>
-            useResult
-              (SolidCore.Solidity.Source.Expr.binary coreOp
-                (SolidCore.Solidity.Source.Expr.var lhsTmp) retExpr))
-      let branchCore :=
-        match op with
-        | BinaryOp.boolAnd =>
-            SolidCore.Solidity.Source.Stmt.ifElse
-              (SolidCore.Solidity.Source.Expr.var lhsTmp)
-              rhsCallCore
-              (useResult (SolidCore.Solidity.Source.Expr.word 0))
-        | BinaryOp.boolOr =>
-            SolidCore.Solidity.Source.Stmt.ifElse
-              (SolidCore.Solidity.Source.Expr.var lhsTmp)
-              (useResult (SolidCore.Solidity.Source.Expr.word 1))
-              rhsCallCore
-        | _ => rhsCallCore
-      some
-        (SolidCore.Solidity.Source.Stmt.block
-          [ SolidCore.Solidity.Source.Stmt.varDecl lhsCoreTy lhsTmp (some lhsCore)
-          , branchCore ])
+      match op with
+      | BinaryOp.boolAnd | BinaryOp.boolOr => do
+          let lhsTy ←
+            Expr.abiTyWithInternalFunctionsEnv? functions freeFunctions env lhs
+          let lhsCoreTy ← Ty.toCore? lhsTy
+          let lhsTmp := "_sol_bin_ext_lhs"
+          let rhsCallCore ←
+            Expr.externalCallSingleReturnCoreWithKindEnv?
+              storageNames env externalCallKindEnv rhsTy rhs
+              (fun retExpr =>
+                useResult
+                  (SolidCore.Solidity.Source.Expr.binary coreOp
+                    (SolidCore.Solidity.Source.Expr.var lhsTmp) retExpr))
+          let branchCore :=
+            match op with
+            | BinaryOp.boolAnd =>
+                SolidCore.Solidity.Source.Stmt.ifElse
+                  (SolidCore.Solidity.Source.Expr.var lhsTmp)
+                  rhsCallCore
+                  (useResult (SolidCore.Solidity.Source.Expr.word 0))
+            | _ =>
+                SolidCore.Solidity.Source.Stmt.ifElse
+                  (SolidCore.Solidity.Source.Expr.var lhsTmp)
+                  (useResult (SolidCore.Solidity.Source.Expr.word 1))
+                  rhsCallCore
+          some
+            (SolidCore.Solidity.Source.Stmt.block
+              [ SolidCore.Solidity.Source.Stmt.varDecl
+                  lhsCoreTy lhsTmp (some lhsCore)
+              , branchCore ])
+      | _ =>
+          Expr.externalCallSingleReturnCoreWithKindEnv?
+            storageNames env externalCallKindEnv rhsTy rhs
+            (fun retExpr =>
+              useResult
+                (SolidCore.Solidity.Source.Expr.binary coreOp
+                  lhsCore retExpr))
   | some lhsTy, some rhsTy => do
       -- #131 SHORTCIRCUIT-CALL-POS: BOTH operands external single-return calls.
       -- Only the short-circuiting `&&`/`||` are handled (the #131 scope): evaluate
@@ -13943,6 +13989,51 @@ def FunctionDecl.internalTwoSingleReturnCallsCore?
   | _, _ => none
 termination_by (internalFuel, 0, 1)
 
+/-- Right-first twin of `internalTwoSingleReturnCallsCore?` for ORDINARY BINARY
+    OPERANDS only: solc legacy evaluates the RIGHT operand's call FIRST, then
+    the LEFT (ExpressionCompiler.cpp:614-615). The SECOND call runs first and
+    its result is parked in `secondTmp`; argument-like positions
+    (require/emit/revert two-arg forms) must keep using the left-to-right
+    original. -/
+def FunctionDecl.internalTwoSingleReturnCallsRightFirstCore?
+    (internalFuel : Nat)
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
+    (storageNames : List Name) (modifiers : List SourceModifierDecl)
+    (functions freeFunctions : List FunctionDecl)
+    (firstName : Name) (firstArgs : List Arg)
+    (secondName : Name) (secondArgs : List Arg)
+    (secondTmp : Name) (useResults : CoreExpr -> CoreExpr -> CoreStmt) :
+    Option CoreStmt := do
+  let (firstBindings, _, firstPrefixCore, firstBodyCore) ←
+    FunctionDecl.internalCallParts?
+      internalFuel storageRefEnv env externalCallKindEnv storageNames
+      modifiers functions freeFunctions firstName firstArgs
+  let (secondBindings, _, secondPrefixCore, secondBodyCore) ←
+    FunctionDecl.internalCallParts?
+      internalFuel storageRefEnv env externalCallKindEnv storageNames
+      modifiers functions freeFunctions secondName secondArgs
+  match firstBindings, secondBindings with
+  | [firstRet], [secondRet] =>
+      let firstRetName := firstRet.name
+      let secondRetName := secondRet.name
+      some
+        (SolidCore.Solidity.Source.Stmt.block
+          (secondPrefixCore ++
+            [ SolidCore.Solidity.Source.Stmt.captureReturn
+                [secondRetName] secondBodyCore
+            , SolidCore.Solidity.Source.Stmt.varDecl
+                secondRet.ty secondTmp
+                (some (SolidCore.Solidity.Source.Expr.var secondRetName)) ] ++
+            firstPrefixCore ++
+            [ SolidCore.Solidity.Source.Stmt.captureReturn
+                [firstRetName] firstBodyCore
+            , useResults
+                (SolidCore.Solidity.Source.Expr.var firstRetName)
+                (SolidCore.Solidity.Source.Expr.var secondTmp) ]))
+  | _, _ => none
+termination_by (internalFuel, 0, 1)
+
 def FunctionDecl.internalAssignReturnCallCore?
     (internalFuel : Nat)
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
@@ -14449,38 +14540,42 @@ def FunctionDecl.internalBinarySingleReturnUseCore?
                     (some (firstConvert retExpr))
                 , branchCore ])
       | _ =>
+          -- Ordinary operators: solc legacy evaluates the RIGHT operand's
+          -- call FIRST, then the LEFT (ExpressionCompiler.cpp:614-615), so
+          -- hoist the RHS call into a temp and run the LHS call second.
           match
               Expr.abiTyWithInternalFunctionsEnv?
-                functions freeFunctions env lhs with
-          | some lhsTy =>
-              let lhsCoreTy ← Ty.toCore? lhsTy
-              let rhsCallCore ←
+                functions freeFunctions env rhs with
+          | some rhsTy =>
+              let rhsCoreTy ← Ty.toCore? rhsTy
+              let rhsTmp := "_sol_bin_rhs"
+              let lhsCallCore ←
                 FunctionDecl.internalSingleReturnCallCore?
                   internalFuel storageRefEnv env externalCallKindEnv
                   storageNames modifiers functions freeFunctions
-                  secondName secondArgs
+                  firstName firstArgs
                   (fun retExpr =>
                     useResult
                       (SolidCore.Solidity.Source.Expr.binary coreOp
-                        (SolidCore.Solidity.Source.Expr.var lhsTmp)
-                        (secondConvert retExpr)))
+                        (firstConvert retExpr)
+                        (SolidCore.Solidity.Source.Expr.var rhsTmp)))
               FunctionDecl.internalSingleReturnCallCore?
                 internalFuel storageRefEnv env externalCallKindEnv storageNames
-                modifiers functions freeFunctions firstName firstArgs
+                modifiers functions freeFunctions secondName secondArgs
                 (fun retExpr =>
                   SolidCore.Solidity.Source.Stmt.block
                     [ SolidCore.Solidity.Source.Stmt.varDecl
-                        lhsCoreTy lhsTmp (some (firstConvert retExpr))
-                    , rhsCallCore ])
+                        rhsCoreTy rhsTmp (some (secondConvert retExpr))
+                    , lhsCallCore ])
           | none =>
               match lhs, rhs with
               | Expr.call (Expr.ident rawFirstName) rawFirstArgs,
                 Expr.call (Expr.ident rawSecondName) rawSecondArgs =>
-                  match FunctionDecl.internalTwoSingleReturnCallsCore?
+                  match FunctionDecl.internalTwoSingleReturnCallsRightFirstCore?
                       internalFuel storageRefEnv env externalCallKindEnv
                       storageNames modifiers functions freeFunctions
                       rawFirstName rawFirstArgs rawSecondName rawSecondArgs
-                      lhsTmp
+                      "_sol_bin_rhs"
                       (fun firstExpr secondExpr =>
                         useResult
                           (SolidCore.Solidity.Source.Expr.binary
@@ -14503,13 +14598,52 @@ def FunctionDecl.internalBinarySingleReturnUseCore?
       let coreOp ← BinaryOp.toCore? op
       match Expr.toCore? storageNames rhs with
       | some rhsCore =>
-          FunctionDecl.internalSingleReturnCallCore?
-            internalFuel storageRefEnv env externalCallKindEnv storageNames
-            modifiers functions freeFunctions name args
-            (fun retExpr =>
-              useResult
-                (SolidCore.Solidity.Source.Expr.binary
-                  coreOp (convert retExpr) rhsCore))
+          -- LEFT operand is a call, RIGHT is core-lowerable. Ordinary
+          -- operators: solc evaluates the RIGHT operand FIRST
+          -- (ExpressionCompiler.cpp:614-615), so park the RHS value in a temp
+          -- before running the LEFT call. Short-circuit ops keep the
+          -- left-first guarded shape (the runtime boolAnd/boolOr arm guards
+          -- the pure RHS).
+          match op with
+          | BinaryOp.boolAnd | BinaryOp.boolOr =>
+              FunctionDecl.internalSingleReturnCallCore?
+                internalFuel storageRefEnv env externalCallKindEnv storageNames
+                modifiers functions freeFunctions name args
+                (fun retExpr =>
+                  useResult
+                    (SolidCore.Solidity.Source.Expr.binary
+                      coreOp (convert retExpr) rhsCore))
+          | _ =>
+              match
+                  Expr.abiTyWithInternalFunctionsEnv?
+                    functions freeFunctions env rhs with
+              | some rhsTy => do
+                  let rhsCoreTy ← Ty.toCore? rhsTy
+                  let rhsTmp := "_sol_bin_rhs"
+                  let callCore ←
+                    FunctionDecl.internalSingleReturnCallCore?
+                      internalFuel storageRefEnv env externalCallKindEnv
+                      storageNames modifiers functions freeFunctions name args
+                      (fun retExpr =>
+                        useResult
+                          (SolidCore.Solidity.Source.Expr.binary
+                            coreOp (convert retExpr)
+                            (SolidCore.Solidity.Source.Expr.var rhsTmp)))
+                  some
+                    (SolidCore.Solidity.Source.Stmt.block
+                      [ SolidCore.Solidity.Source.Stmt.varDecl
+                          rhsCoreTy rhsTmp (some rhsCore)
+                      , callCore ])
+              | none =>
+                  -- RHS type unresolvable: keep the previous (left-call-first)
+                  -- shape rather than decline.
+                  FunctionDecl.internalSingleReturnCallCore?
+                    internalFuel storageRefEnv env externalCallKindEnv
+                    storageNames modifiers functions freeFunctions name args
+                    (fun retExpr =>
+                      useResult
+                        (SolidCore.Solidity.Source.Expr.binary
+                          coreOp (convert retExpr) rhsCore))
       | none =>
           -- #131 SHORTCIRCUIT-CALL-POS (call-in-pure-operand): the LEFT operand is
           -- a direct internal single-return call and the RIGHT operand is NOT
@@ -14603,9 +14737,22 @@ def FunctionDecl.internalBinarySingleReturnUseCore?
               [ SolidCore.Solidity.Source.Stmt.varDecl
                   lhsCoreTy lhsTmp (some lhsCore)
               , rhsCallCore ]
-      match Expr.toCore? storageNames lhs with
-      | some lhsCore => some (lhsThen lhsCore)
-      | none =>
+      match op, Expr.toCore? storageNames lhs with
+      | BinaryOp.boolAnd, some lhsCore => some (lhsThen lhsCore)
+      | BinaryOp.boolOr, some lhsCore => some (lhsThen lhsCore)
+      | _, some lhsCore =>
+          -- Ordinary operators with a core-lowerable LEFT operand: solc
+          -- evaluates the RIGHT operand's call FIRST
+          -- (ExpressionCompiler.cpp:614-615). Leave the pure LEFT operand in
+          -- the residual binary, whose runtime arm is right-then-left.
+          FunctionDecl.internalSingleReturnCallExprCore?
+            internalFuel storageRefEnv env externalCallKindEnv storageNames
+            modifiers functions freeFunctions rhs
+            (fun retExpr =>
+              useResult
+                (SolidCore.Solidity.Source.Expr.binary coreOp
+                  lhsCore retExpr))
+      | _, none =>
           FunctionDecl.internalExprSingleReturnUseCore?
             internalFuel storageRefEnv env externalCallKindEnv storageNames
             modifiers functions freeFunctions lhs lhsThen
@@ -14666,9 +14813,22 @@ def FunctionDecl.internalBinarySingleReturnUseCore?
                   [ SolidCore.Solidity.Source.Stmt.varDecl
                       lhsCoreTy lhsTmp (some lhsCore)
                   , rhsCallCore ]
-          match Expr.toCore? storageNames lhs with
-          | some lhsCore => some (lhsThen lhsCore)
-          | none =>
+          match op, Expr.toCore? storageNames lhs with
+          | BinaryOp.boolAnd, some lhsCore => some (lhsThen lhsCore)
+          | BinaryOp.boolOr, some lhsCore => some (lhsThen lhsCore)
+          | _, some lhsCore =>
+              -- Ordinary operators with a core-lowerable LEFT operand: solc
+              -- evaluates the RIGHT operand's nested call(s) FIRST
+              -- (ExpressionCompiler.cpp:614-615); the pure LEFT operand stays
+              -- in the residual binary (runtime arm is right-then-left).
+              FunctionDecl.internalExprSingleReturnUseCore?
+                internalFuel storageRefEnv env externalCallKindEnv storageNames
+                modifiers functions freeFunctions rhs
+                (fun retExpr =>
+                  useResult
+                    (SolidCore.Solidity.Source.Expr.binary coreOp
+                      lhsCore retExpr))
+          | _, none =>
               FunctionDecl.internalExprSingleReturnUseCore?
                 internalFuel storageRefEnv env externalCallKindEnv storageNames
                 modifiers functions freeFunctions lhs lhsThen

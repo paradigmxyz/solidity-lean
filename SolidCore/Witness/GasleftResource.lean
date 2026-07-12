@@ -31,8 +31,7 @@ def gasleftResourceContext : SolidCore.Solidity.Source.Context :=
 def gasleftResourceTree :
     SolI (SolidCore.Solidity.Source.Value ×
       SolidCore.Solidity.Source.Runtime) :=
-  SolidCore.Solidity.Source.Expr.evalWithRuntimeOrderFuel 4
-    SolidCore.Solidity.Source.ChildEvalOrder.leftToRight
+  SolidCore.Solidity.Source.Expr.evalFuel 4
     gasleftResourceContext
     (SolidCore.Solidity.Source.Runtime.ofState
       SolidCore.Solidity.Source.State.empty)

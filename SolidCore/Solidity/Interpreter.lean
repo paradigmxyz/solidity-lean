@@ -1733,11 +1733,6 @@ def ContractCreationResult.failedRequest
     address := 0
     output := [] }
 
-inductive ChildEvalOrder where
-  | leftToRight
-  | rightToLeft
-  deriving Repr, BEq
-
 structure Context where
   storageFields : List StorageField
   immutableFields : List ImmutableField := []
@@ -1765,7 +1760,6 @@ structure Context where
   createdInTransactionAccounts : List Word := []
   gasleft : Word
   memoryAllocationLimit? : Option Nat := none
-  childEvalOrder? : Option ChildEvalOrder := none
   deriving Repr
 
 def Context.empty : Context :=
@@ -1789,8 +1783,7 @@ def Context.empty : Context :=
     evmVersion := EvmVersion.default
     createdInTransactionAccounts := []
     gasleft := 0
-    memoryAllocationLimit? := none
-    childEvalOrder? := none }
+    memoryAllocationLimit? := none }
 
 def Context.checkMemoryAllocation (context : Context) (length : Word) :
     Except RevertData Nat :=
@@ -6341,7 +6334,7 @@ end
 
 mutual
 
-def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
+def Expr.evalFuel (fuel : Nat)
     (context : Context) : Runtime -> Expr ->
     SolI (Value × Runtime)
   | runtime, expr =>
@@ -6395,7 +6388,7 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
               | _ => pure (Value.word (which.eval context), runtime)
           | Expr.envLookup which keyExpr => do
               let (keyValue, runtime') ←
-                Expr.evalWithRuntimeOrderFuel fuel order context runtime keyExpr
+                Expr.evalFuel fuel context runtime keyExpr
               let key ← keyValue.expectWord
               -- A2: `address(this).balance` / `selfbalance` (an accountBalance
               -- lookup keyed on `self`) read the dynamic self balance.
@@ -6418,7 +6411,7 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
               pure (Value.word result, runtime')
           | Expr.envBytesLookup which keyExpr => do
               let (keyValue, runtime') ←
-                Expr.evalWithRuntimeOrderFuel fuel order context runtime keyExpr
+                Expr.evalFuel fuel context runtime keyExpr
               let key ← keyValue.expectWord
               let result :=
                 match which with
@@ -6453,25 +6446,25 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
               pure (value, runtime)
           | Expr.storageIndex name idx => do
               let (indexValue, runtime') ←
-                Expr.evalWithRuntimeOrderFuel fuel order context runtime idx
+                Expr.evalFuel fuel context runtime idx
               let value ← runtime'.loadStorageIndex context name indexValue
               pure (value, runtime')
           | Expr.storagePath name indexes => do
               let (indexValues, runtime') ←
-                Expr.evalListWithRuntimeOrderFuel fuel order context runtime
+                Expr.evalListFuel fuel context runtime
                   indexes
               let value ← runtime'.loadStoragePath context name indexValues
               pure (value, runtime')
           | Expr.storagePathSlot name indexes => do
               let (indexValues, runtime') ←
-                Expr.evalListWithRuntimeOrderFuel fuel order context runtime
+                Expr.evalListFuel fuel context runtime
                   indexes
               let slot ←
                 runtime'.storagePathSlotValue context name indexValues
               pure (Value.word slot, runtime')
           | Expr.storageRefSlot name indexes => do
               let (indexValues, runtime') ←
-                Expr.evalListWithRuntimeOrderFuel fuel order context runtime
+                Expr.evalListFuel fuel context runtime
                   indexes
               match runtime'.lookupStoragePathRef? name with
               | some (target, refIndexes) => do
@@ -6483,93 +6476,76 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                   throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.externalFunctionValue addressExpr selector => do
               let (value, runtime') ←
-                Expr.evalWithRuntimeOrderFuel fuel order context runtime
+                Expr.evalFuel fuel context runtime
                   addressExpr
               let addr ← value.expectWord
               pure (Value.externalFunction addr selector, runtime')
           | Expr.externalFunctionSelector expr => do
               let (value, runtime') ←
-                Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
+                Expr.evalFuel fuel context runtime expr
               match value with
               | Value.externalFunction _ selector =>
                   pure (Value.word selector, runtime')
               | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.externalFunctionAddress expr => do
               let (value, runtime') ←
-                Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
+                Expr.evalFuel fuel context runtime expr
               match value with
               | Value.externalFunction addr _ =>
                   pure (Value.word addr, runtime')
               | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.unary op expr => do
               let (value, runtime') ←
-                Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
+                Expr.evalFuel fuel context runtime expr
               let result ← op.apply context.checked value
               pure (result, runtime')
           | Expr.preIncrement target => do
               let (resolved, runtime') ←
-                Expr.resolveLValueWithRuntimeOrderFuel fuel order context
+                Expr.resolveLValueFuel fuel context
                   runtime target
               resolved.applyIncDec context runtime' BinaryOp.add false
           | Expr.preDecrement target => do
               let (resolved, runtime') ←
-                Expr.resolveLValueWithRuntimeOrderFuel fuel order context
+                Expr.resolveLValueFuel fuel context
                   runtime target
               resolved.applyIncDec context runtime' BinaryOp.sub false
           | Expr.postIncrement target => do
               let (resolved, runtime') ←
-                Expr.resolveLValueWithRuntimeOrderFuel fuel order context
+                Expr.resolveLValueFuel fuel context
                   runtime target
               resolved.applyIncDec context runtime' BinaryOp.add true
           | Expr.postDecrement target => do
               let (resolved, runtime') ←
-                Expr.resolveLValueWithRuntimeOrderFuel fuel order context
+                Expr.resolveLValueFuel fuel context
                   runtime target
               resolved.applyIncDec context runtime' BinaryOp.sub true
           | Expr.incDecCleanup target op returnOld cleanup => do
               let (resolved, runtime') ←
-                Expr.resolveLValueWithRuntimeOrderFuel fuel order context
+                Expr.resolveLValueFuel fuel context
                   runtime target
               resolved.applyIncDecCleanup context runtime' op returnOld cleanup
           | Expr.assignExpr target rhs => do
-              let (resolved, value, runtime'') ←
-                match order with
-                | ChildEvalOrder.leftToRight => do
-                    let (resolved, runtime') ←
-                      Expr.resolveLValueWithRuntimeOrderFuel fuel order
-                        context runtime target
-                    let (value, runtime'') ←
-                      Expr.evalWithRuntimeOrderFuel fuel order context
-                        runtime' rhs
-                    pure (resolved, value, runtime'')
-                | ChildEvalOrder.rightToLeft => do
+              -- Intrinsic order (solc ExpressionCompiler.cpp:319,331): the RHS
+              -- is evaluated fully BEFORE the LHS reference is computed.
+              let (resolved, value, runtime'') ← do
                     let (value, runtime') ←
-                      Expr.evalWithRuntimeOrderFuel fuel order context
+                      Expr.evalFuel fuel context
                         runtime rhs
                     let (resolved, runtime'') ←
-                      Expr.resolveLValueWithRuntimeOrderFuel fuel order
+                      Expr.resolveLValueFuel fuel
                         context runtime' target
                     pure (resolved, value, runtime'')
               let updated ← resolved.write context runtime'' value
               pure (value, updated)
           | Expr.assignOpExpr target op rhs => do
-              let (resolved, lhsValue, rhsValue, runtime'') ←
-                match order with
-                | ChildEvalOrder.leftToRight => do
-                    let (resolved, runtime') ←
-                      Expr.resolveLValueWithRuntimeOrderFuel fuel order
-                        context runtime target
-                    let lhsValue ← resolved.read context runtime'
-                    let (rhsValue, runtime'') ←
-                      Expr.evalWithRuntimeOrderFuel fuel order context
-                        runtime' rhs
-                    pure (resolved, lhsValue, rhsValue, runtime'')
-                | ChildEvalOrder.rightToLeft => do
+              -- Intrinsic order (solc ExpressionCompiler.cpp:336-370): compound
+              -- assignment evaluates the RHS BEFORE the LHS reference/read.
+              let (resolved, lhsValue, rhsValue, runtime'') ← do
                     let (rhsValue, runtime') ←
-                      Expr.evalWithRuntimeOrderFuel fuel order context
+                      Expr.evalFuel fuel context
                         runtime rhs
                     let (resolved, runtime'') ←
-                      Expr.resolveLValueWithRuntimeOrderFuel fuel order
+                      Expr.resolveLValueFuel fuel
                         context runtime' target
                     let lhsValue ← resolved.read context runtime''
                     pure (resolved, lhsValue, rhsValue, runtime'')
@@ -6577,23 +6553,14 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
               let updated ← resolved.write context runtime'' value
               pure (value, updated)
           | Expr.assignOpCleanupExpr target op rhs cleanup => do
-              let (resolved, lhsValue, rhsValue, runtime'') ←
-                match order with
-                | ChildEvalOrder.leftToRight => do
-                    let (resolved, runtime') ←
-                      Expr.resolveLValueWithRuntimeOrderFuel fuel order
-                        context runtime target
-                    let lhsValue ← resolved.read context runtime'
-                    let (rhsValue, runtime'') ←
-                      Expr.evalWithRuntimeOrderFuel fuel order context
-                        runtime' rhs
-                    pure (resolved, lhsValue, rhsValue, runtime'')
-                | ChildEvalOrder.rightToLeft => do
+              -- Intrinsic order (solc ExpressionCompiler.cpp:336-370): compound
+              -- assignment evaluates the RHS BEFORE the LHS reference/read.
+              let (resolved, lhsValue, rhsValue, runtime'') ← do
                     let (rhsValue, runtime') ←
-                      Expr.evalWithRuntimeOrderFuel fuel order context
+                      Expr.evalFuel fuel context
                         runtime rhs
                     let (resolved, runtime'') ←
-                      Expr.resolveLValueWithRuntimeOrderFuel fuel order
+                      Expr.resolveLValueFuel fuel
                         context runtime' target
                     let lhsValue ← resolved.read context runtime''
                     pure (resolved, lhsValue, rhsValue, runtime'')
@@ -6610,11 +6577,11 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
               pure (cleaned, updated)
           | Expr.binary BinaryOp.boolAnd lhs rhs => do
               let (lhsValue, runtime') ←
-                Expr.evalWithRuntimeOrderFuel fuel order context runtime lhs
+                Expr.evalFuel fuel context runtime lhs
               let lhsWord ← lhsValue.expectWord
               if wordTruthy lhsWord then
                 let (rhsValue, runtime'') ←
-                  Expr.evalWithRuntimeOrderFuel fuel order context runtime' rhs
+                  Expr.evalFuel fuel context runtime' rhs
                 let rhsWord ← rhsValue.expectWord
                 pure
                   (Value.word (boolWord (wordTruthy rhsWord)), runtime'')
@@ -6622,40 +6589,32 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                 pure (Value.word 0, runtime')
           | Expr.binary BinaryOp.boolOr lhs rhs => do
               let (lhsValue, runtime') ←
-                Expr.evalWithRuntimeOrderFuel fuel order context runtime lhs
+                Expr.evalFuel fuel context runtime lhs
               let lhsWord ← lhsValue.expectWord
               if wordTruthy lhsWord then
                 pure (Value.word 1, runtime')
               else
                 let (rhsValue, runtime'') ←
-                  Expr.evalWithRuntimeOrderFuel fuel order context runtime' rhs
+                  Expr.evalFuel fuel context runtime' rhs
                 let rhsWord ← rhsValue.expectWord
                 pure
                   (Value.word (boolWord (wordTruthy rhsWord)), runtime'')
           | Expr.binary op lhs rhs => do
-              let ((lhsValue, rhsValue), runtime'') ←
-                match order with
-                | ChildEvalOrder.leftToRight => do
-                    let (lhsValue, runtime') ←
-                      Expr.evalWithRuntimeOrderFuel fuel order context runtime
-                        lhs
-                    let (rhsValue, runtime'') ←
-                      Expr.evalWithRuntimeOrderFuel fuel order context runtime'
-                        rhs
-                    pure ((lhsValue, rhsValue), runtime'')
-                | ChildEvalOrder.rightToLeft => do
+              -- Intrinsic order (solc ExpressionCompiler.cpp:614-615): binary
+              -- operands are evaluated RIGHT first, then LEFT.
+              let ((lhsValue, rhsValue), runtime'') ← do
                     let (rhsValue, runtime') ←
-                      Expr.evalWithRuntimeOrderFuel fuel order context runtime
+                      Expr.evalFuel fuel context runtime
                         rhs
                     let (lhsValue, runtime'') ←
-                      Expr.evalWithRuntimeOrderFuel fuel order context runtime'
+                      Expr.evalFuel fuel context runtime'
                         lhs
                     pure ((lhsValue, rhsValue), runtime'')
               let value ← BinaryOp.apply context.checked op lhsValue rhsValue
               pure (value, runtime'')
           | Expr.addMod lhs rhs modulus => do
               let (values, runtime') ←
-                Expr.evalListWithRuntimeOrderFuel fuel order context runtime
+                Expr.evalListFuel fuel context runtime
                   [lhs, rhs, modulus]
               match values with
               | [lhsValue, rhsValue, modulusValue] => do
@@ -6667,7 +6626,7 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
               | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.mulMod lhs rhs modulus => do
               let (values, runtime') ←
-                Expr.evalListWithRuntimeOrderFuel fuel order context runtime
+                Expr.evalListFuel fuel context runtime
                   [lhs, rhs, modulus]
               match values with
               | [lhsValue, rhsValue, modulusValue] => do
@@ -6679,14 +6638,14 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
               | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.concatBytes exprs => do
               let (values, runtime') ←
-                Expr.evalListWithRuntimeOrderFuel fuel order context runtime
+                Expr.evalListFuel fuel context runtime
                   exprs
               match Value.concatBytes? values with
               | some bs => pure (Value.bytes bs, runtime')
               | none => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.fixedBytesIndex size base idx => do
               let (values, runtime') ←
-                Expr.evalListWithRuntimeOrderFuel fuel order context runtime
+                Expr.evalListFuel fuel context runtime
                   [base, idx]
               match values with
               | [baseValue, indexValue] => do
@@ -6697,13 +6656,13 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
               | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.fixedBytesCast targetSize sourceSize expr => do
               let (value, runtime') ←
-                Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
+                Expr.evalFuel fuel context runtime expr
               let word ← value.expectWord
               let casted ← fixedBytesCast? targetSize sourceSize word
               pure (casted, runtime')
           | Expr.fixedBytesFromBytes targetSize expr => do
               let (value, runtime') ←
-                Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
+                Expr.evalFuel fuel context runtime expr
               match value.asBytes? with
               | some bytes => do
                   let casted ← fixedBytesFromBytes? targetSize bytes
@@ -6711,27 +6670,27 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
               | none => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.uintCast bits expr => do
               let (value, runtime') ←
-                Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
+                Expr.evalFuel fuel context runtime expr
               let casted ← uintCast? bits value
               pure (casted, runtime')
           | Expr.intCast bits expr => do
               let (value, runtime') ←
-                Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
+                Expr.evalFuel fuel context runtime expr
               let casted ← intCast? bits value
               pure (casted, runtime')
           | Expr.uintCleanup bits expr => do
               let (value, runtime') ←
-                Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
+                Expr.evalFuel fuel context runtime expr
               let casted ← uintCleanup? context.checked bits value
               pure (casted, runtime')
           | Expr.intCleanup bits expr => do
               let (value, runtime') ←
-                Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
+                Expr.evalFuel fuel context runtime expr
               let casted ← intCleanup? context.checked bits value
               pure (casted, runtime')
           | Expr.keccak256 expr => do
               let (value, runtime') ←
-                Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
+                Expr.evalFuel fuel context runtime expr
               -- M4: fully materialize any memory-ref (nested) value so its bytes
               -- can be read; an unmaterialized `memoryRef` has no `asBytes?`.
               let value ← runtime'.derefMemoryValueDeep value
@@ -6741,14 +6700,14 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
               | none => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.erc7201 expr => do
               let (value, runtime') ←
-                Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
+                Expr.evalFuel fuel context runtime expr
               match value.asBytes? with
               | some bytes =>
                   pure (Value.word (erc7201Slot bytes), runtime')
               | none => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.externalHash kind expr => do
               let (value, runtime') ←
-                Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
+                Expr.evalFuel fuel context runtime expr
               match value.asBytes? with
               | some bytes =>
                   match ← emitPrecompileWord context runtime'.state
@@ -6760,7 +6719,7 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
               | none => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.ecrecover digestExpr vExpr rExpr sExpr => do
               let (values, runtime') ←
-                Expr.evalListWithRuntimeOrderFuel fuel order context runtime
+                Expr.evalListFuel fuel context runtime
                   [digestExpr, vExpr, rExpr, sExpr]
               match values with
               | [digestValue, vValue, rValue, sValue] => do
@@ -6777,17 +6736,17 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
               | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.tuple exprs => do
               let (values, runtime') ←
-                Expr.evalListWithRuntimeOrderFuel fuel order context runtime
+                Expr.evalListFuel fuel context runtime
                   exprs
               pure (Value.tuple values, runtime')
           | Expr.fixedArray exprs => do
               let (values, runtime') ←
-                Expr.evalListWithRuntimeOrderFuel fuel order context runtime
+                Expr.evalListFuel fuel context runtime
                   exprs
               pure (Value.fixedArray values, runtime')
           | Expr.abiEncode tys exprs => do
               let (values, runtime') ←
-                Expr.evalListWithRuntimeOrderFuel fuel order context runtime
+                Expr.evalListFuel fuel context runtime
                   exprs
               -- M4: deep-materialize ref-nested memory values (e.g. `bytes[]`,
               -- `uint[][]`, struct-with-dynamic-field) so the value-structural
@@ -6798,7 +6757,7 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
               | none => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.abiEncodeWithSelector selectorExpr tys exprs => do
               let (values, runtime') ←
-                Expr.evalListWithRuntimeOrderFuel fuel order context runtime
+                Expr.evalListFuel fuel context runtime
                   (selectorExpr :: exprs)
               match values with
               | selectorValue :: argValues => do
@@ -6815,7 +6774,7 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
               | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.abiEncodePacked widths tys exprs => do
               let (values, runtime') ←
-                Expr.evalListWithRuntimeOrderFuel fuel order context runtime
+                Expr.evalListFuel fuel context runtime
                   exprs
               -- M4: deep-materialize ref-nested memory values before packing.
               let values ← runtime'.derefMemoryValuesDeep values
@@ -6824,7 +6783,7 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
               | none => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.abiDecode tys cleanups expr => do
               let (value, runtime') ←
-                Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
+                Expr.evalFuel fuel context runtime expr
               match value.asBytes? with
               | some bytes =>
                   match abiDecodeValuesExcept? tys bytes with
@@ -6844,46 +6803,46 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
               -- solc (v0.8.35) evaluates a low-level call as: the base/target
               -- expression, then the FunctionCallOptions in their WRITTEN order
               -- (gas/value ordered by `gasFirst`), then the calldata argument.
-              -- This top-level order is FIXED (it does not inherit the ambient
-              -- child-eval order), so evaluate the components sequentially in
-              -- that order; each component's own inner children keep the ambient
-              -- `order`.  The old code evaluated calldata before the options and
+              -- This top-level order is FIXED, so evaluate the components
+              -- sequentially in that order; each component's own inner children
+              -- use their construct-intrinsic order.
+              -- The old code evaluated calldata before the options and
               -- ignored `gasFirst` entirely (gap EO1).
               let (targetValue, runtimeTarget) ←
-                Expr.evalWithRuntimeOrderFuel fuel order context runtime targetExpr
+                Expr.evalFuel fuel context runtime targetExpr
               let target ← targetValue.expectWord
               let (value, gas?, runtimeOpts) ←
                 (match gasExpr? with
                 | none => do
                     let (valueValue, runtimeValue) ←
-                      Expr.evalWithRuntimeOrderFuel fuel order context
+                      Expr.evalFuel fuel context
                         runtimeTarget valueExpr
                     let value ← valueValue.expectWord
                     pure (value, none, runtimeValue)
                 | some gasExpr => do
                     if gasFirst then
                       let (gasValue, runtimeGas) ←
-                        Expr.evalWithRuntimeOrderFuel fuel order context
+                        Expr.evalFuel fuel context
                           runtimeTarget gasExpr
                       let gas ← gasValue.expectWord
                       let (valueValue, runtimeValue) ←
-                        Expr.evalWithRuntimeOrderFuel fuel order context
+                        Expr.evalFuel fuel context
                           runtimeGas valueExpr
                       let value ← valueValue.expectWord
                       pure (value, some gas, runtimeValue)
                     else
                       let (valueValue, runtimeValue) ←
-                        Expr.evalWithRuntimeOrderFuel fuel order context
+                        Expr.evalFuel fuel context
                           runtimeTarget valueExpr
                       let value ← valueValue.expectWord
                       let (gasValue, runtimeGas) ←
-                        Expr.evalWithRuntimeOrderFuel fuel order context
+                        Expr.evalFuel fuel context
                           runtimeValue gasExpr
                       let gas ← gasValue.expectWord
                       pure (value, some gas, runtimeGas) :
                   SolI (Word × Option Word × Runtime))
               let (calldataValue, runtime') ←
-                Expr.evalWithRuntimeOrderFuel fuel order context
+                Expr.evalFuel fuel context
                   runtimeOpts calldataExpr
               let cdata ←
                 match calldataValue.asBytes? with
@@ -6904,43 +6863,43 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
               -- solc (v0.8.35) evaluates `new C{opts}(args)` as: the
               -- FunctionCallOptions in their WRITTEN order (value/salt ordered by
               -- `valueBeforeSalt`), THEN the constructor arguments LAST.  This
-              -- top-level order is FIXED (it does not inherit the ambient
-              -- child-eval order); each component's own inner children keep the
-              -- ambient `order`.  The old code evaluated `[args, value, salt]`
+              -- top-level order is FIXED; each component's own inner children
+              -- use their construct-intrinsic order.
+              -- The old code evaluated `[args, value, salt]`
               -- right-to-left (salt→value→args), which ignored the option source
               -- order (gap DIV-CREATE-2).
               let (value, salt?, runtimeOpts) ←
                 (match saltExpr? with
                 | none => do
                     let (valueValue, runtimeValue) ←
-                      Expr.evalWithRuntimeOrderFuel fuel order context
+                      Expr.evalFuel fuel context
                         runtime valueExpr
                     let value ← valueValue.expectWord
                     pure (value, none, runtimeValue)
                 | some saltExpr => do
                     if valueBeforeSalt then
                       let (valueValue, runtimeValue) ←
-                        Expr.evalWithRuntimeOrderFuel fuel order context
+                        Expr.evalFuel fuel context
                           runtime valueExpr
                       let value ← valueValue.expectWord
                       let (saltValue, runtimeSalt) ←
-                        Expr.evalWithRuntimeOrderFuel fuel order context
+                        Expr.evalFuel fuel context
                           runtimeValue saltExpr
                       let salt ← saltValue.expectWord
                       pure (value, some salt, runtimeSalt)
                     else
                       let (saltValue, runtimeSalt) ←
-                        Expr.evalWithRuntimeOrderFuel fuel order context
+                        Expr.evalFuel fuel context
                           runtime saltExpr
                       let salt ← saltValue.expectWord
                       let (valueValue, runtimeValue) ←
-                        Expr.evalWithRuntimeOrderFuel fuel order context
+                        Expr.evalFuel fuel context
                           runtimeSalt valueExpr
                       let value ← valueValue.expectWord
                       pure (value, some salt, runtimeValue) :
                   SolI (Word × Option Word × Runtime))
               let (argsValue, runtime') ←
-                Expr.evalWithRuntimeOrderFuel fuel order context
+                Expr.evalFuel fuel context
                   runtimeOpts constructorArgsExpr
               let constructorArgs ←
                 match argsValue.asBytes? with
@@ -6959,14 +6918,14 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                 throw <| SolidityFailure.revert (RevertData.fromRawBytes result.output)
           | Expr.newBytes lengthExpr => do
               let (lengthValue, runtime') ←
-                Expr.evalWithRuntimeOrderFuel fuel order context runtime
+                Expr.evalFuel fuel context runtime
                   lengthExpr
               let length ← lengthValue.expectWord
               let size ← context.checkMemoryAllocation length
               pure (Value.bytes (List.replicate size 0), runtime')
           | Expr.newDynamicArray elementTy lengthExpr => do
               let (lengthValue, runtime') ←
-                Expr.evalWithRuntimeOrderFuel fuel order context runtime
+                Expr.evalFuel fuel context runtime
                   lengthExpr
               let length ← lengthValue.expectWord
               let size ← context.checkMemoryAllocation length
@@ -6976,18 +6935,18 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                 , runtime' )
           | Expr.enumFromUInt maxValue expr => do
               let (value, runtime') ←
-                Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
+                Expr.evalFuel fuel context runtime expr
               let coerced ← enumFromUIntValue maxValue value
               pure (coerced, runtime')
           | Expr.ternary cond thenExpr elseExpr => do
               let (condValue, runtime') ←
-                Expr.evalWithRuntimeOrderFuel fuel order context runtime cond
+                Expr.evalFuel fuel context runtime cond
               let condWord ← condValue.expectWord
               if wordTruthy condWord then
-                Expr.evalWithRuntimeOrderFuel fuel order context runtime'
+                Expr.evalFuel fuel context runtime'
                   thenExpr
               else
-                Expr.evalWithRuntimeOrderFuel fuel order context runtime'
+                Expr.evalFuel fuel context runtime'
                   elseExpr
           | Expr.length expr => do
               let lengthValue (value : Value) : SolI Value :=
@@ -7007,14 +6966,14 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                       pure (len, runtime)
                   | none =>
                       let (value, runtime') ←
-                        Expr.evalWithRuntimeOrderFuel fuel order context
+                        Expr.evalFuel fuel context
                           runtime expr
                       let len ← lengthValue value
                       pure (len, runtime')
               | _ =>
                   if expr.hasStorageRoot || expr.hasStorageRefRoot runtime then
                     let (target, runtime') ←
-                      Expr.resolveLValueWithRuntimeOrderFuel fuel order
+                      Expr.resolveLValueFuel fuel
                         context runtime expr
                     match target.asStoragePath? with
                     | some (name, indexes) => do
@@ -7025,19 +6984,19 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                     | none => throw <| SolidityFailure.revert RevertData.typeMismatch
                   else
                     let (value, runtime') ←
-                      Expr.evalWithRuntimeOrderFuel fuel order context runtime
+                      Expr.evalFuel fuel context runtime
                         expr
                     let len ← lengthValue value
                     pure (len, runtime')
           | Expr.index base idx => do
               if base.hasStorageRoot then
                 let (baseTarget, runtime') ←
-                  Expr.resolveLValueWithRuntimeOrderFuel fuel order
+                  Expr.resolveLValueFuel fuel
                     context runtime base
                 match baseTarget.asStoragePath? with
                 | some (name, indexes) =>
                     let (indexValue, runtime'') ←
-                      Expr.evalWithRuntimeOrderFuel fuel order context
+                      Expr.evalFuel fuel context
                         runtime' idx
                     let value ←
                       runtime''.loadStoragePath context name
@@ -7046,7 +7005,7 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                 | none => throw <| SolidityFailure.revert RevertData.typeMismatch
               else if base.hasStorageRefRoot runtime then
                 let (resolved, runtime') ←
-                  Expr.resolveLValueWithRuntimeOrderFuel fuel order context
+                  Expr.resolveLValueFuel fuel context
                     runtime (Expr.index base idx)
                 let value ← resolved.read context runtime'
                 pure (value, runtime')
@@ -7056,7 +7015,7 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                     match runtime.lookupStoragePathRef? name with
                     | some (target, indexes) =>
                         let (indexValue, runtime') ←
-                          Expr.evalWithRuntimeOrderFuel fuel order context
+                          Expr.evalFuel fuel context
                             runtime idx
                         let value ←
                           runtime'.loadStoragePath context target
@@ -7064,7 +7023,7 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                         pure (value, runtime')
                     | none =>
                         let (values, runtime') ←
-                          Expr.evalListWithRuntimeOrderFuel fuel order
+                          Expr.evalListFuel fuel
                             context runtime [base, idx]
                         match values with
                         | [baseValue, indexValue] => do
@@ -7077,7 +7036,7 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                         | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
                 | _ =>
                     let (values, runtime') ←
-                      Expr.evalListWithRuntimeOrderFuel fuel order context
+                      Expr.evalListFuel fuel context
                         runtime [base, idx]
                     match values with
                     | [baseValue, indexValue] => do
@@ -7109,12 +7068,12 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
               match start, stop with
               | none, none => do
                   let (baseValue, runtime') ←
-                    Expr.evalWithRuntimeOrderFuel fuel order context
+                    Expr.evalFuel fuel context
                       runtime base
                   readSlice baseValue none none runtime'
               | some startExpr, none => do
                   let (values, runtime') ←
-                    Expr.evalListWithRuntimeOrderFuel fuel order context
+                    Expr.evalListFuel fuel context
                       runtime [base, startExpr]
                   match values with
                   | [baseValue, startValue] =>
@@ -7122,7 +7081,7 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                   | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
               | none, some stopExpr => do
                   let (values, runtime') ←
-                    Expr.evalListWithRuntimeOrderFuel fuel order context
+                    Expr.evalListFuel fuel context
                       runtime [base, stopExpr]
                   match values with
                   | [baseValue, stopValue] =>
@@ -7130,7 +7089,7 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                   | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
               | some startExpr, some stopExpr => do
                   let (values, runtime') ←
-                    Expr.evalListWithRuntimeOrderFuel fuel order context
+                    Expr.evalListFuel fuel context
                       runtime [base, startExpr, stopExpr]
                   match values with
                   | [baseValue, startValue, stopValue] =>
@@ -7138,7 +7097,7 @@ def Expr.evalWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
                         runtime'
                   | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
 
-def Expr.evalListWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
+def Expr.evalListFuel (fuel : Nat)
     (context : Context) : Runtime -> List Expr ->
     SolI (List Value × Runtime)
   | runtime, exprs =>
@@ -7147,27 +7106,21 @@ def Expr.evalListWithRuntimeOrderFuel (fuel : Nat) (order : ChildEvalOrder)
       | fuel + 1 =>
           match exprs with
           | [] => pure ([], runtime)
-          | expr :: rest =>
-              match order with
-              | ChildEvalOrder.leftToRight => do
-                  let (value, runtime') ←
-                    Expr.evalWithRuntimeOrderFuel fuel order context runtime
-                      expr
-                  let (values, runtime'') ←
-                    Expr.evalListWithRuntimeOrderFuel fuel order context
-                      runtime' rest
-                  pure (value :: values, runtime'')
-              | ChildEvalOrder.rightToLeft => do
-                  let (values, runtime') ←
-                    Expr.evalListWithRuntimeOrderFuel fuel order context
-                      runtime rest
-                    let (value, runtime'') ←
-                      Expr.evalWithRuntimeOrderFuel fuel order context
-                        runtime' expr
-                    pure (value :: values, runtime'')
+          | expr :: rest => do
+              -- Intrinsic order: sibling lists (call arguments, tuple/array
+              -- components, abi.encode args, [base, key] pairs) evaluate LEFT
+              -- to RIGHT (solc ExpressionCompiler.cpp:710-711,682-684,1031,
+              -- 400,388).
+              let (value, runtime') ←
+                Expr.evalFuel fuel context runtime
+                  expr
+              let (values, runtime'') ←
+                Expr.evalListFuel fuel context
+                  runtime' rest
+              pure (value :: values, runtime'')
 
-def Expr.memoryRefOrValueWithRuntimeOrderFuel
-    (fuel : Nat) (order : ChildEvalOrder) (context : Context) :
+def Expr.memoryRefOrValueFuel
+    (fuel : Nat) (context : Context) :
     Runtime -> Expr -> SolI (Option Nat × Option Value × Runtime)
   | runtime, expr =>
       match fuel with
@@ -7182,16 +7135,16 @@ def Expr.memoryRefOrValueWithRuntimeOrderFuel
                   -- copy or storage read), so this stays TOTAL (never `none,
                   -- none`) and callers never need a re-evaluating fallback.
                   let (value, runtime') ←
-                    Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
+                    Expr.evalFuel fuel context runtime expr
                   pure (none, some value, runtime')
           | Expr.ternary cond thenExpr elseExpr => do
               -- M1: a memory reference-type ternary aliases the chosen branch
               -- (solc pointer-copies it). Evaluate the condition, then recurse
               -- on the taken branch so a memory-ref branch flows as its ref id.
               let (condValue, runtime') ←
-                Expr.evalWithRuntimeOrderFuel fuel order context runtime cond
+                Expr.evalFuel fuel context runtime cond
               let condWord ← condValue.expectWord
-              Expr.memoryRefOrValueWithRuntimeOrderFuel fuel order context
+              Expr.memoryRefOrValueFuel fuel context
                 runtime' (if wordTruthy condWord then thenExpr else elseExpr)
           | Expr.index base idx => do
               let finish (baseValue indexValue : Value)
@@ -7205,33 +7158,24 @@ def Expr.memoryRefOrValueWithRuntimeOrderFuel
                 | Value.memoryRef id =>
                     pure (some id, none, runtime')
                 | _ => pure (none, some value, runtime')
-              match order with
-              | ChildEvalOrder.leftToRight => do
-                  let (baseValue, runtime') ←
-                    Expr.evalWithRuntimeOrderFuel fuel order context
-                      runtime base
-                  let (indexValue, runtime'') ←
-                    Expr.evalWithRuntimeOrderFuel fuel order context
-                      runtime' idx
-                  finish baseValue indexValue runtime''
-              | ChildEvalOrder.rightToLeft => do
-                  let (indexValue, runtime') ←
-                    Expr.evalWithRuntimeOrderFuel fuel order context
-                      runtime idx
-                  let (baseValue, runtime'') ←
-                    Expr.evalWithRuntimeOrderFuel fuel order context
-                      runtime' base
-                  finish baseValue indexValue runtime''
+              -- Intrinsic order (solc IndexAccess visitor): base BEFORE key.
+              let (baseValue, runtime') ←
+                Expr.evalFuel fuel context
+                  runtime base
+              let (indexValue, runtime'') ←
+                Expr.evalFuel fuel context
+                  runtime' idx
+              finish baseValue indexValue runtime''
           | _ => do
               -- Any other RHS shape: evaluate normally. Keeping this arm TOTAL
               -- (returning the evaluated value rather than `none, none`) lets
               -- the ref-preserving wrapper avoid a double-evaluation fallback.
               let (value, runtime') ←
-                Expr.evalWithRuntimeOrderFuel fuel order context runtime expr
+                Expr.evalFuel fuel context runtime expr
               pure (none, some value, runtime')
 
-def Expr.resolveLValueWithRuntimeOrderFuel
-    (fuel : Nat) (order : ChildEvalOrder) (context : Context) :
+def Expr.resolveLValueFuel
+    (fuel : Nat) (context : Context) :
     Runtime -> Expr -> SolI (ResolvedLValue × Runtime)
   | runtime, expr =>
       match fuel with
@@ -7255,7 +7199,7 @@ def Expr.resolveLValueWithRuntimeOrderFuel
               pure (ResolvedLValue.storageField name, runtime)
           | Expr.storageIndex name idx => do
               let (indexValue, runtime') ←
-                Expr.evalWithRuntimeOrderFuel fuel order context runtime idx
+                Expr.evalFuel fuel context runtime idx
               pure (ResolvedLValue.storageIndex name indexValue,
                 runtime')
           | Expr.index base idx => do
@@ -7288,53 +7232,41 @@ def Expr.resolveLValueWithRuntimeOrderFuel
                       | _ =>
                           ResolvedLValue.valueIndex baseTarget indexWord
                     pure (target, runtime')
-              match order with
-              | ChildEvalOrder.leftToRight => do
-                  let (baseTarget, runtime') ←
-                    Expr.resolveLValueWithRuntimeOrderFuel fuel order
-                      context runtime base
-                  let (indexValue, runtime'') ←
-                    Expr.evalWithRuntimeOrderFuel fuel order context
-                      runtime' idx
-                  finish baseTarget indexValue runtime''
-              | ChildEvalOrder.rightToLeft => do
-                  let (indexValue, runtime') ←
-                    Expr.evalWithRuntimeOrderFuel fuel order context
-                      runtime idx
-                  let (baseTarget, runtime'') ←
-                    Expr.resolveLValueWithRuntimeOrderFuel fuel order
-                      context runtime' base
-                  finish baseTarget indexValue runtime''
+              -- Intrinsic order (solc IndexAccess visitor): base BEFORE key.
+              let (baseTarget, runtime') ←
+                Expr.resolveLValueFuel fuel
+                  context runtime base
+              let (indexValue, runtime'') ←
+                Expr.evalFuel fuel context
+                  runtime' idx
+              finish baseTarget indexValue runtime''
           | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
 
 end
 
-def Expr.evalWithRuntimeOrder
-    (order : ChildEvalOrder) (context : Context) (runtime : Runtime)
+def Expr.eval (context : Context) (runtime : Runtime)
     (expr : Expr) : SolI (Value × Runtime) :=
-  Expr.evalWithRuntimeOrderFuel (Expr.orderFuel expr + 1)
-    order context runtime expr
+  Expr.evalFuel (Expr.orderFuel expr + 1)
+    context runtime expr
 
-def Expr.evalListWithRuntimeOrder
-    (order : ChildEvalOrder) (context : Context) (runtime : Runtime)
+def Expr.evalList (context : Context) (runtime : Runtime)
     (exprs : List Expr) : SolI (List Value × Runtime) :=
-  Expr.evalListWithRuntimeOrderFuel (Expr.listEvalFuel exprs)
-    order context runtime exprs
+  Expr.evalListFuel (Expr.listEvalFuel exprs)
+    context runtime exprs
 
-def Expr.memoryRefOrValueWithRuntimeOrder
-    (order : ChildEvalOrder) (context : Context) (runtime : Runtime)
+def Expr.memoryRefOrValue (context : Context) (runtime : Runtime)
     (expr : Expr) : SolI (Option Nat × Option Value × Runtime) :=
-  -- Budget `orderFuel expr + 2` (one more than the plain `evalWithRuntimeOrder`
+  -- Budget `orderFuel expr + 2` (one more than the plain `eval`
   -- entry, `orderFuel expr + 1`). The non-ref fallback arms of
-  -- `memoryRefOrValueWithRuntimeOrderFuel` re-evaluate the FULL `expr` inline via
-  -- `evalWithRuntimeOrderFuel` using the already-decremented `fuel`; a correct
+  -- `memoryRefOrValueFuel` re-evaluate the FULL `expr` inline via
+  -- `evalFuel` using the already-decremented `fuel`; a correct
   -- from-scratch eval needs `orderFuel expr + 1`, so after the one-step decrement
   -- inside the recursor the entry budget must be `orderFuel expr + 2`. With only
   -- `+ 1` a multi-child RHS at its exact fuel bound (e.g. a calldata slice
   -- `input[i:j]` copied into a `memory` local) exhausts fuel and spuriously
   -- reverts `Panic(0)` (`RevertData.typeMismatch`).
-  Expr.memoryRefOrValueWithRuntimeOrderFuel (Expr.orderFuel expr + 2)
-    order context runtime expr
+  Expr.memoryRefOrValueFuel (Expr.orderFuel expr + 2)
+    context runtime expr
 
 /-- Reference-preserving expression evaluation for memory-ref-valued assignment
     RHSs (M1/M2/M3). When `expr` denotes a memory reference type (a memory local,
@@ -7345,24 +7277,22 @@ def Expr.memoryRefOrValueWithRuntimeOrder
     fresh copy. Everything else evaluates exactly as ordinary eval — value types
     still copy, storage/calldata reads still deep-copy — because
     `memoryRefOrValue` only produces a ref id for genuine memory pointers. -/
-def Expr.evalMemoryRefPreservingWithRuntimeOrder
-    (order : ChildEvalOrder) (context : Context) (runtime : Runtime)
+def Expr.evalMemoryRefPreserving (context : Context) (runtime : Runtime)
     (expr : Expr) : SolI (Value × Runtime) := do
   let (idOpt, valueOpt, runtime') ←
-    Expr.memoryRefOrValueWithRuntimeOrder order context runtime expr
+    Expr.memoryRefOrValue context runtime expr
   match idOpt, valueOpt with
   | some id, _ => pure (Value.memoryRef id, runtime')
   | none, some value => pure (value, runtime')
   | none, none =>
       -- `memoryRefOrValue` is total (never `none, none`); this arm is a
       -- defensive fallback and does not re-run side effects in practice.
-      Expr.evalWithRuntimeOrder order context runtime' expr
+      Expr.eval context runtime' expr
 
-def Expr.resolveLValueWithRuntimeOrder
-    (order : ChildEvalOrder) (context : Context) (runtime : Runtime)
+def Expr.resolveLValue (context : Context) (runtime : Runtime)
     (expr : Expr) : SolI (ResolvedLValue × Runtime) :=
-  Expr.resolveLValueWithRuntimeOrderFuel (Expr.orderFuel expr + 1)
-    order context runtime expr
+  Expr.resolveLValueFuel (Expr.orderFuel expr + 1)
+    context runtime expr
 
 /-- Evaluate the components of a tuple-assignment RHS reference-preservingly
     (M2). Each component paired with a memory-ref target flows as its
@@ -7370,9 +7300,9 @@ def Expr.resolveLValueWithRuntimeOrder
     per-component pointer store); components paired with value/storage targets
     (or holes) evaluate normally. All components are evaluated BEFORE any write
     (the caller writes afterwards), so `(a, b) = (b, a)` performs a genuine
-    pointer swap. Child evaluation order is honoured. -/
+    pointer swap. Components evaluate LEFT to RIGHT (intrinsic order). -/
 def Expr.evalTupleComponentsRefPreservingFuel
-    (fuel : Nat) (order : ChildEvalOrder) (context : Context) :
+    (fuel : Nat) (context : Context) :
     Runtime -> List (Option LValue) -> List Expr ->
     SolI (List Value × Runtime)
   | runtime, targets, components =>
@@ -7386,56 +7316,31 @@ def Expr.evalTupleComponentsRefPreservingFuel
             match target? with
             | some target =>
                 if target.wantsMemoryRefRhs rt then
-                  Expr.evalMemoryRefPreservingWithRuntimeOrder order context rt
+                  Expr.evalMemoryRefPreserving context rt
                     comp
                 else
-                  Expr.evalWithRuntimeOrder order context rt comp
-            | none => Expr.evalWithRuntimeOrder order context rt comp
-          match order with
-          | ChildEvalOrder.leftToRight => do
-              let (value, runtime') ← evalOne runtime
-              let (values, runtime'') ←
-                Expr.evalTupleComponentsRefPreservingFuel fuel order context
-                  runtime' targetsRest compsRest
-              pure (value :: values, runtime'')
-          | ChildEvalOrder.rightToLeft => do
-              let (values, runtime') ←
-                Expr.evalTupleComponentsRefPreservingFuel fuel order context
-                  runtime targetsRest compsRest
-              let (value, runtime'') ← evalOne runtime'
-              pure (value :: values, runtime'')
+                  Expr.eval context rt comp
+            | none => Expr.eval context rt comp
+          -- Intrinsic order (solc ExpressionCompiler.cpp:400): tuple
+          -- components evaluate LEFT to RIGHT.
+          do
+            let (value, runtime') ← evalOne runtime
+            let (values, runtime'') ←
+              Expr.evalTupleComponentsRefPreservingFuel fuel context
+                runtime' targetsRest compsRest
+            pure (value :: values, runtime'')
       | _, _ => throw <| SolidityFailure.revert RevertData.typeMismatch
 
-def Expr.evalTupleComponentsRefPreserving
-    (order : ChildEvalOrder) (context : Context) (runtime : Runtime)
+def Expr.evalTupleComponentsRefPreserving (context : Context) (runtime : Runtime)
     (targets : List (Option LValue)) (components : List Expr) :
     SolI (List Value × Runtime) :=
   Expr.evalTupleComponentsRefPreservingFuel (Expr.listEvalFuel components)
-    order context runtime targets components
+    context runtime targets components
 
-def Expr.evalBinaryWithRuntimeOrder
-    (order : ChildEvalOrder) (context : Context) (runtime : Runtime)
+def Expr.evalBinary (context : Context) (runtime : Runtime)
     (op : BinaryOp) (lhs rhs : Expr) :
     SolI (Value × Runtime) :=
-  Expr.evalWithRuntimeOrder order context runtime (Expr.binary op lhs rhs)
-
-def Context.withChildEvalOrder
-    (context : Context) (order : ChildEvalOrder) : Context :=
-  { context with childEvalOrder? := some order }
-
-def Context.withoutChildEvalOrder (context : Context) : Context :=
-  { context with childEvalOrder? := none }
-
-/-- The pinned child-evaluation order of this semantics: right-to-left, matching
-    the target Yul interpreter's argument evaluation (EvmYulLean). Solidity
-    leaves sibling order unspecified; this repo resolves that latitude to this
-    single order, permanently — there is deliberately no quantification over
-    other orders. -/
-def ChildEvalOrder.yulCompatible : ChildEvalOrder :=
-  ChildEvalOrder.rightToLeft
-
-def Context.effectiveChildEvalOrder (context : Context) : ChildEvalOrder :=
-  context.childEvalOrder?.getD ChildEvalOrder.yulCompatible
+  Expr.eval context runtime (Expr.binary op lhs rhs)
 
 /-- Fold an *expression*-level `SolI` tree back to `Except RevertData`, answering
     queries from `Context`. `fuel` is safe because the number of queries an
@@ -7454,13 +7359,13 @@ def Expr.evalWithRuntimeByContext
     (expr : Expr) (context : Context) (runtime : Runtime) :
     Except RevertData (Value × Runtime) :=
   SolI.foldExpr (Expr.orderFuel expr + 1) context
-    (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder context runtime expr)
+    (Expr.eval context runtime expr)
 
 def Expr.evalListWithRuntimeByContext
     (context : Context) (runtime : Runtime) (exprs : List Expr) :
     Except RevertData (List Value × Runtime) :=
   SolI.foldExpr (Expr.listEvalFuel exprs + 1) context
-    (Expr.evalListWithRuntimeOrder context.effectiveChildEvalOrder context runtime exprs)
+    (Expr.evalList context runtime exprs)
 
 inductive TernaryBranch where
   | thenBranch
@@ -7471,28 +7376,27 @@ def Expr.memoryRefOrValueWithRuntimeByContext
     (expr : Expr) (context : Context) (runtime : Runtime) :
     Except RevertData (Option Nat × Option Value × Runtime) :=
   SolI.foldExpr (Expr.orderFuel expr + 1) context
-    (Expr.memoryRefOrValueWithRuntimeOrder
-      context.effectiveChildEvalOrder context runtime expr)
+    (Expr.memoryRefOrValue
+      context runtime expr)
 
 def Expr.resolveLValueWithRuntimeByContext
     (expr : Expr) (context : Context) (runtime : Runtime) :
     Except RevertData (ResolvedLValue × Runtime) :=
   SolI.foldExpr (Expr.orderFuel expr + 1) context
-    (Expr.resolveLValueWithRuntimeOrder
-      context.effectiveChildEvalOrder context runtime expr)
+    (Expr.resolveLValue
+      context runtime expr)
 
-def Expr.evalReturnValueWithRuntimeOrder
-    (order : ChildEvalOrder) (context : Context) (runtime : Runtime)
+def Expr.evalReturnValue (context : Context) (runtime : Runtime)
     (expr : Expr) : SolI (Value × Runtime) :=
   match expr with
   | Expr.var name =>
       match runtime.lookupMemoryRef? name with
       | some id => pure (Value.memoryRef id, runtime)
-      | none => Expr.evalWithRuntimeOrder order context runtime expr
-  | _ => Expr.evalWithRuntimeOrder order context runtime expr
+      | none => Expr.eval context runtime expr
+  | _ => Expr.eval context runtime expr
 
-def Expr.evalReturnListWithRuntimeOrderFuel
-    (fuel : Nat) (order : ChildEvalOrder) (context : Context) :
+def Expr.evalReturnListFuel
+    (fuel : Nat) (context : Context) :
     Runtime -> List Expr -> SolI (List Value × Runtime)
   | runtime, exprs =>
       match fuel with
@@ -7500,37 +7404,28 @@ def Expr.evalReturnListWithRuntimeOrderFuel
       | fuel + 1 =>
           match exprs with
           | [] => pure ([], runtime)
-          | expr :: rest =>
-              match order with
-              | ChildEvalOrder.leftToRight => do
-                  let (value, runtime') ←
-                    Expr.evalReturnValueWithRuntimeOrder order context
-                      runtime expr
-                  let (values, runtime'') ←
-                    Expr.evalReturnListWithRuntimeOrderFuel fuel order
-                      context runtime' rest
-                  pure (value :: values, runtime'')
-              | ChildEvalOrder.rightToLeft => do
-                  let (values, runtime') ←
-                    Expr.evalReturnListWithRuntimeOrderFuel fuel order
-                      context runtime rest
-                  let (value, runtime'') ←
-                    Expr.evalReturnValueWithRuntimeOrder order context
-                      runtime' expr
-                  pure (value :: values, runtime'')
+          | expr :: rest => do
+              -- Intrinsic order: return-tuple components evaluate LEFT to
+              -- RIGHT (solc TupleExpression visitor).
+              let (value, runtime') ←
+                Expr.evalReturnValue context
+                  runtime expr
+              let (values, runtime'') ←
+                Expr.evalReturnListFuel fuel
+                  context runtime' rest
+              pure (value :: values, runtime'')
 
-def Expr.evalReturnListWithRuntimeOrder
-    (order : ChildEvalOrder) (context : Context) (runtime : Runtime)
+def Expr.evalReturnList (context : Context) (runtime : Runtime)
     (exprs : List Expr) : SolI (List Value × Runtime) :=
-  Expr.evalReturnListWithRuntimeOrderFuel (Expr.listEvalFuel exprs)
-    order context runtime exprs
+  Expr.evalReturnListFuel (Expr.listEvalFuel exprs)
+    context runtime exprs
 
 def Expr.evalReturnListWithRuntimeByContext
     (context : Context) (runtime : Runtime) (exprs : List Expr) :
     Except RevertData (List Value × Runtime) :=
   SolI.foldExpr (Expr.listEvalFuel exprs + 1) context
-    (Expr.evalReturnListWithRuntimeOrder
-      context.effectiveChildEvalOrder context runtime exprs)
+    (Expr.evalReturnList
+      context runtime exprs)
 
 /-- Reference-preserving argument evaluation for the `internalCall` arm
     (function-boundary refactor, reference-signature extension). Unlike ordinary
@@ -7544,8 +7439,7 @@ def Expr.evalReturnListWithRuntimeByContext
     (the elaboration's `_ic_arg_*` value temps, and any expression not bound to a
     reference) fall through to ordinary evaluation, so value calls are
     unaffected. -/
-def Expr.evalRefArgWithRuntimeOrder
-    (order : ChildEvalOrder) (context : Context) (runtime : Runtime)
+def Expr.evalRefArg (context : Context) (runtime : Runtime)
     (expr : Expr) : SolI (Value × Runtime) :=
   match expr with
   | Expr.var name =>
@@ -7555,11 +7449,11 @@ def Expr.evalRefArgWithRuntimeOrder
       | none =>
           match runtime.lookupMemoryRef? name with
           | some id => pure (Value.memoryRef id, runtime)
-          | none => Expr.evalWithRuntimeOrder order context runtime expr
-  | _ => Expr.evalWithRuntimeOrder order context runtime expr
+          | none => Expr.eval context runtime expr
+  | _ => Expr.eval context runtime expr
 
-def Expr.evalRefArgListWithRuntimeOrderFuel
-    (fuel : Nat) (order : ChildEvalOrder) (context : Context) :
+def Expr.evalRefArgListFuel
+    (fuel : Nat) (context : Context) :
     Runtime -> List Expr -> SolI (List Value × Runtime)
   | runtime, exprs =>
       match fuel with
@@ -7567,32 +7461,24 @@ def Expr.evalRefArgListWithRuntimeOrderFuel
       | fuel + 1 =>
           match exprs with
           | [] => pure ([], runtime)
-          | expr :: rest =>
-              match order with
-              | ChildEvalOrder.leftToRight => do
-                  let (value, runtime') ←
-                    Expr.evalRefArgWithRuntimeOrder order context runtime expr
-                  let (values, runtime'') ←
-                    Expr.evalRefArgListWithRuntimeOrderFuel fuel order
-                      context runtime' rest
-                  pure (value :: values, runtime'')
-              | ChildEvalOrder.rightToLeft => do
-                  let (values, runtime') ←
-                    Expr.evalRefArgListWithRuntimeOrderFuel fuel order
-                      context runtime rest
-                  let (value, runtime'') ←
-                    Expr.evalRefArgWithRuntimeOrder order context runtime' expr
-                  pure (value :: values, runtime'')
+          | expr :: rest => do
+              -- Intrinsic order: internal-call arguments evaluate LEFT to
+              -- RIGHT (solc ExpressionCompiler.cpp:710-711).
+              let (value, runtime') ←
+                Expr.evalRefArg context runtime expr
+              let (values, runtime'') ←
+                Expr.evalRefArgListFuel fuel
+                  context runtime' rest
+              pure (value :: values, runtime'')
 
-def Expr.evalRefArgListWithRuntimeOrder
-    (order : ChildEvalOrder) (context : Context) (runtime : Runtime)
+def Expr.evalRefArgList (context : Context) (runtime : Runtime)
     (exprs : List Expr) : SolI (List Value × Runtime) :=
-  Expr.evalRefArgListWithRuntimeOrderFuel (Expr.listEvalFuel exprs)
-    order context runtime exprs
+  Expr.evalRefArgListFuel (Expr.listEvalFuel exprs)
+    context runtime exprs
 
 def LValue.resolveWithRuntime (target : LValue) (context : Context)
     (runtime : Runtime) : SolI (ResolvedLValue × Runtime) :=
-  Expr.resolveLValueWithRuntimeOrder context.effectiveChildEvalOrder context
+  Expr.resolveLValue context
     runtime target.toExpr
 
 /-- PHASE 1 of a flat tuple write: resolve every present LHS component's lvalue
@@ -8271,7 +8157,7 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
       | Stmt.varDecl ty name init =>
           match init with
           | some expr => do
-              match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+              match ← (Expr.eval
                   context runtime expr).caught with
               | Except.ok (value, runtime') =>
                   match ty.coerceValue? value with
@@ -8291,8 +8177,8 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
           match init with
           | some expr => do
               match ←
-                (Expr.memoryRefOrValueWithRuntimeOrder
-                  context.effectiveChildEvalOrder context runtime expr).caught
+                (Expr.memoryRefOrValue
+                  context runtime expr).caught
               with
               | Except.ok (some id, _, runtime') =>
                   pure
@@ -8304,7 +8190,7 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
                   | none =>
                       pure (Result.reverted runtime RevertData.typeMismatch)
               | Except.ok (none, none, runtime') =>
-                  match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+                  match ← (Expr.eval
                       context runtime' expr).caught with
                   | Except.ok (value, runtime'') =>
                       match runtime''.declareMemoryLocal ty name value with
@@ -8326,7 +8212,7 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
             (Result.normal
               (runtime.declareLocal name (Value.storageRef target)))
       | Stmt.storageAliasPath name target indexes => do
-          match ← (Expr.evalListWithRuntimeOrder context.effectiveChildEvalOrder
+          match ← (Expr.evalList
               context runtime indexes).caught with
           | Except.ok (indexValues, runtime') =>
               pure
@@ -8346,7 +8232,7 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
           match runtime.lookupStoragePathRef? source with
           | some (target, indexes) => do
               match ←
-                (Expr.evalListWithRuntimeOrder context.effectiveChildEvalOrder
+                (Expr.evalList
                   context runtime extraIndexes).caught
               with
               | Except.ok (extraIndexValues, runtime') =>
@@ -8362,7 +8248,7 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
           | some updated => pure (Result.normal updated)
           | none => pure (Result.reverted runtime RevertData.typeMismatch)
       | Stmt.storageAliasAssignPath name target indexes => do
-          match ← (Expr.evalListWithRuntimeOrder context.effectiveChildEvalOrder
+          match ← (Expr.evalList
               context runtime indexes).caught with
           | Except.ok (indexValues, runtime') =>
               match
@@ -8382,7 +8268,7 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
           match runtime.lookupStoragePathRef? source with
           | some (target, indexes) => do
               match ←
-                (Expr.evalListWithRuntimeOrder context.effectiveChildEvalOrder
+                (Expr.evalList
                   context runtime extraIndexes).caught
               with
               | Except.ok (extraIndexValues, runtime') =>
@@ -8395,7 +8281,7 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
               | Except.error err => pure (Result.reverted runtime err)
           | none => pure (Result.reverted runtime RevertData.typeMismatch)
       | Stmt.exprStmt expr => do
-          match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+          match ← (Expr.eval
               context runtime expr).caught with
           | Except.ok (_, runtime') => pure (Result.normal runtime')
           | Except.error err => pure (Result.reverted runtime err)
@@ -8413,19 +8299,11 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
           let refPreserve := target.wantsMemoryRefRhs runtime
           let evalRhs (rt : Runtime) : SolI (Value × Runtime) :=
             if refPreserve then
-              Expr.evalMemoryRefPreservingWithRuntimeOrder
-                context.effectiveChildEvalOrder context rt expr
-            else
-              Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+              Expr.evalMemoryRefPreserving
                 context rt expr
-          let evalTargetThenRhs : SolI Result := do
-            match ← (target.resolveWithRuntime context runtime).caught with
-            | Except.ok (resolved, runtime') =>
-                match ← (evalRhs runtime').caught with
-                | Except.ok (value, runtime'') =>
-                    writeAssigned resolved value runtime''
-                | Except.error err => pure (Result.reverted runtime err)
-            | Except.error err => pure (Result.reverted runtime err)
+            else
+              Expr.eval
+                context rt expr
           let evalRhsThenTarget : SolI Result := do
             match ← (evalRhs runtime).caught with
             | Except.ok (value, runtime') =>
@@ -8446,13 +8324,11 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
                   | none =>
                       pure (Result.reverted runtime RevertData.typeMismatch)
               | _, _ =>
-                  match context.effectiveChildEvalOrder with
-                  | ChildEvalOrder.leftToRight => evalTargetThenRhs
-                  | ChildEvalOrder.rightToLeft => evalRhsThenTarget
+                  -- Intrinsic order (solc ExpressionCompiler.cpp:319,331):
+                  -- RHS fully, then the LHS reference.
+                  evalRhsThenTarget
           | _, _ =>
-              match context.effectiveChildEvalOrder with
-              | ChildEvalOrder.leftToRight => evalTargetThenRhs
-              | ChildEvalOrder.rightToLeft => evalRhsThenTarget
+              evalRhsThenTarget
       | Stmt.assignTuple targets expr => do
           match expr with
           | Expr.tuple components =>
@@ -8461,7 +8337,7 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
               -- swaps pointers). All RHS components are evaluated before any
               -- write.
               match ← (Expr.evalTupleComponentsRefPreserving
-                  context.effectiveChildEvalOrder context runtime targets
+                  context runtime targets
                   components).caught with
               | Except.ok (values, runtime') =>
                   match ← (LValues.writeTupleWithRuntime context runtime' targets
@@ -8470,7 +8346,7 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
                   | Except.error err => pure (Result.reverted runtime err)
               | Except.error err => pure (Result.reverted runtime err)
           | _ =>
-              match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+              match ← (Expr.eval
                   context runtime expr).caught with
               | Except.ok (Value.tuple values, runtime') =>
                   match ← (LValues.writeTupleWithRuntime context runtime' targets
@@ -8480,7 +8356,7 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
               | Except.ok _ => pure (Result.reverted runtime RevertData.typeMismatch)
               | Except.error err => pure (Result.reverted runtime err)
       | Stmt.assignTupleNested targets expr => do
-          match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+          match ← (Expr.eval
               context runtime expr).caught with
           | Except.ok (Value.tuple values, runtime') =>
               match ← (TupleTargets.writeNested context runtime' targets
@@ -8499,20 +8375,8 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
                 | Except.ok updated => pure (Result.normal updated)
                 | Except.error err => pure (Result.reverted runtime err)
             | Except.error err => pure (Result.reverted runtime err)
-          let evalTargetThenRhs : SolI Result := do
-            match ← (target.resolveWithRuntime context runtime).caught with
-            | Except.ok (resolved, runtime') =>
-                match resolved.read context runtime' with
-                | Except.ok lhs =>
-                    match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
-                        context runtime' expr).caught with
-                    | Except.ok (rhs, runtime'') =>
-                        writeApplied resolved lhs rhs runtime''
-                    | Except.error err => pure (Result.reverted runtime err)
-                | Except.error err => pure (Result.reverted runtime err)
-            | Except.error err => pure (Result.reverted runtime err)
           let evalRhsThenTarget : SolI Result := do
-            match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+            match ← (Expr.eval
                 context runtime expr).caught with
             | Except.ok (rhs, runtime') =>
                 match ← (target.resolveWithRuntime context runtime').caught with
@@ -8523,9 +8387,9 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
                     | Except.error err => pure (Result.reverted runtime err)
                 | Except.error err => pure (Result.reverted runtime err)
             | Except.error err => pure (Result.reverted runtime err)
-          match context.effectiveChildEvalOrder with
-          | ChildEvalOrder.leftToRight => evalTargetThenRhs
-          | ChildEvalOrder.rightToLeft => evalRhsThenTarget
+          -- Intrinsic order (solc ExpressionCompiler.cpp:336-370): RHS fully,
+          -- then the LHS reference/read.
+          evalRhsThenTarget
       | Stmt.assignOpCleanup target op expr cleanup =>
           let writeApplied
               (resolved : ResolvedLValue) (lhs rhs : Value)
@@ -8539,20 +8403,8 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
                     | Except.error err => pure (Result.reverted runtime err)
                 | Except.error err => pure (Result.reverted runtime err)
             | Except.error err => pure (Result.reverted runtime err)
-          let evalTargetThenRhs : SolI Result := do
-            match ← (target.resolveWithRuntime context runtime).caught with
-            | Except.ok (resolved, runtime') =>
-                match resolved.read context runtime' with
-                | Except.ok lhs =>
-                    match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
-                        context runtime' expr).caught with
-                    | Except.ok (rhs, runtime'') =>
-                        writeApplied resolved lhs rhs runtime''
-                    | Except.error err => pure (Result.reverted runtime err)
-                | Except.error err => pure (Result.reverted runtime err)
-            | Except.error err => pure (Result.reverted runtime err)
           let evalRhsThenTarget : SolI Result := do
-            match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+            match ← (Expr.eval
                 context runtime expr).caught with
             | Except.ok (rhs, runtime') =>
                 match ← (target.resolveWithRuntime context runtime').caught with
@@ -8563,9 +8415,9 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
                     | Except.error err => pure (Result.reverted runtime err)
                 | Except.error err => pure (Result.reverted runtime err)
             | Except.error err => pure (Result.reverted runtime err)
-          match context.effectiveChildEvalOrder with
-          | ChildEvalOrder.leftToRight => evalTargetThenRhs
-          | ChildEvalOrder.rightToLeft => evalRhsThenTarget
+          -- Intrinsic order (solc ExpressionCompiler.cpp:336-370): RHS fully,
+          -- then the LHS reference/read.
+          evalRhsThenTarget
       | Stmt.deleteValue target =>
           match target with
           | LValue.storage name =>
@@ -8593,7 +8445,7 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
       | Stmt.storageArrayPush name value? =>
           match value? with
           | some expr => do
-              match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+              match ← (Expr.eval
                   context runtime expr).caught with
               | Except.ok (value, runtime') =>
                   match runtime'.storageArrayPush context name (some value) with
@@ -8607,7 +8459,7 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
       | Stmt.storageArrayPushRef name value? =>
           match runtime.lookupStoragePathRef? name, value? with
           | some (target, indexes), some expr => do
-              match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+              match ← (Expr.eval
                   context runtime expr).caught with
               | Except.ok (value, runtime') =>
                   match
@@ -8626,15 +8478,15 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
           match runtime.lookupStoragePathRef? name with
           | some (target, indexes) => do
               match ←
-                (Expr.evalListWithRuntimeOrder context.effectiveChildEvalOrder
+                (Expr.evalList
                   context runtime extraIndexes).caught
               with
               | Except.ok (extraIndexValues, runtime') =>
                   let allIndexes := indexes ++ extraIndexValues
                   match value? with
                   | some expr =>
-                      match ← (Expr.evalWithRuntimeOrder
-                          context.effectiveChildEvalOrder context runtime'
+                      match ← (Expr.eval
+                          context runtime'
                           expr).caught with
                       | Except.ok (value, runtime'') =>
                           match
@@ -8655,13 +8507,13 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
               | Except.error err => pure (Result.reverted runtime err)
           | none => pure (Result.reverted runtime RevertData.typeMismatch)
       | Stmt.storageArrayPushPath name indexes value? => do
-          match ← (Expr.evalListWithRuntimeOrder context.effectiveChildEvalOrder
+          match ← (Expr.evalList
               context runtime indexes).caught with
           | Except.ok (indexValues, runtime') =>
               match value? with
               | some expr =>
-                  match ← (Expr.evalWithRuntimeOrder
-                      context.effectiveChildEvalOrder context runtime'
+                  match ← (Expr.eval
+                      context runtime'
                       expr).caught with
                   | Except.ok (value, runtime'') =>
                       match
@@ -8679,13 +8531,13 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
                   | Except.error err => pure (Result.reverted runtime err)
           | Except.error err => pure (Result.reverted runtime err)
       | Stmt.storageArrayPushPathAssign name indexes rhs => do
-          match ← (Expr.evalListWithRuntimeOrder context.effectiveChildEvalOrder
+          match ← (Expr.evalList
               context runtime indexes).caught with
           | Except.ok (indexValues, runtime') =>
               match runtime'.storageArrayPushPath context name indexValues none with
               | Except.ok pushed => do
-                  match ← (Expr.evalWithRuntimeOrder
-                      context.effectiveChildEvalOrder context pushed rhs).caught with
+                  match ← (Expr.eval
+                      context pushed rhs).caught with
                   | Except.ok (value, runtime'') =>
                       match
                         runtime''.loadStorageRefPathValue
@@ -8718,7 +8570,7 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
           match runtime.lookupStoragePathRef? name with
           | some (target, indexes) => do
               match ←
-                (Expr.evalListWithRuntimeOrder context.effectiveChildEvalOrder
+                (Expr.evalList
                   context runtime extraIndexes).caught
               with
               | Except.ok (extraIndexValues, runtime') =>
@@ -8727,8 +8579,8 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
                     runtime'.storageArrayPushPath context target allIndexes none
                   with
                   | Except.ok pushed => do
-                      match ← (Expr.evalWithRuntimeOrder
-                          context.effectiveChildEvalOrder context pushed
+                      match ← (Expr.eval
+                          context pushed
                           rhs).caught with
                       | Except.ok (value, runtime'') =>
                           match
@@ -8774,7 +8626,7 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
           match runtime.lookupStoragePathRef? name with
           | some (target, indexes) => do
               match ←
-                (Expr.evalListWithRuntimeOrder context.effectiveChildEvalOrder
+                (Expr.evalList
                   context runtime extraIndexes).caught
               with
               | Except.ok (extraIndexValues, runtime') =>
@@ -8787,7 +8639,7 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
               | Except.error err => pure (Result.reverted runtime err)
           | none => pure (Result.reverted runtime RevertData.typeMismatch)
       | Stmt.storageArrayPopPath name indexes => do
-          match ← (Expr.evalListWithRuntimeOrder context.effectiveChildEvalOrder
+          match ← (Expr.evalList
               context runtime indexes).caught with
           | Except.ok (indexValues, runtime') =>
               match runtime'.storageArrayPopPath context name indexValues with
@@ -8797,7 +8649,7 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
       | Stmt.panic code =>
           pure (Result.reverted runtime (RevertData.panic code))
       | Stmt.assertStmt cond => do
-          match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+          match ← (Expr.eval
               context runtime cond).caught with
           | Except.ok (value, runtime') =>
               match value.expectWord with
@@ -8809,7 +8661,7 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
               | Except.error err => pure (Result.reverted runtime' err)
           | Except.error err => pure (Result.reverted runtime err)
       | Stmt.requireStmt cond reason => do
-          match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+          match ← (Expr.eval
               context runtime cond).caught with
           | Except.ok (value, runtime') =>
               match value.expectWord with
@@ -8825,10 +8677,10 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
               | Except.error err => pure (Result.reverted runtime' err)
           | Except.error err => pure (Result.reverted runtime err)
       | Stmt.requireErrorExpr cond reasonExpr => do
-          match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+          match ← (Expr.eval
               context runtime cond).caught with
           | Except.ok (value, runtime') =>
-              match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+              match ← (Expr.eval
                   context runtime' reasonExpr).caught with
               | Except.ok (reasonValue, runtime'') =>
                   match value.expectWord with
@@ -8846,10 +8698,10 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
               | Except.error err => pure (Result.reverted runtime' err)
           | Except.error err => pure (Result.reverted runtime err)
       | Stmt.requireCustom cond name exprs => do
-          match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+          match ← (Expr.eval
               context runtime cond).caught with
           | Except.ok (value, runtime') =>
-              match ← (Expr.evalListWithRuntimeOrder context.effectiveChildEvalOrder
+              match ← (Expr.evalList
                   context runtime' exprs).caught with
               | Except.ok (args, runtime'') =>
                   match value.expectWord with
@@ -8881,8 +8733,7 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
           -- block. Frame build + result mapping live OUTSIDE the mutual block
           -- (`internalCallEnter?`/`internalCallFinish`) to keep this
           -- function's stack frame small.
-          match ← (Expr.evalRefArgListWithRuntimeOrder
-              context.effectiveChildEvalOrder
+          match ← (Expr.evalRefArgList
               context runtime args).caught with
           | Except.error err => pure (Result.reverted runtime err)
           | Except.ok (argValues, runtime') =>
@@ -8903,12 +8754,11 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
           -- adoption-planted dirty IDs with no dispatch entry — panics 0x51
           -- (solc's dispatch-switch default). Once resolved, the call is the
           -- ordinary framed internal call.
-          match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+          match ← (Expr.eval
               context runtime fnExpr).caught with
           | Except.error err => pure (Result.reverted runtime err)
           | Except.ok (Value.internalFunction id, runtimeFn) => do
-              match ← (Expr.evalRefArgListWithRuntimeOrder
-                  context.effectiveChildEvalOrder
+              match ← (Expr.evalRefArgList
                   context runtimeFn args).caught with
               | Except.error err => pure (Result.reverted runtimeFn err)
               | Except.ok (argValues, runtime') =>
@@ -8928,7 +8778,7 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
           | Except.ok (_, runtimeFn) =>
               pure (Result.reverted runtimeFn RevertData.typeMismatch)
       | Stmt.ifElse cond thenBranch elseBranch => do
-          match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+          match ← (Expr.eval
               context runtime cond).caught with
           | Except.ok (value, runtime') =>
               match value.expectWord with
@@ -8940,7 +8790,7 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
               | Except.error err => pure (Result.reverted runtime' err)
           | Except.error err => pure (Result.reverted runtime err)
       | Stmt.switch discr cases defaultBranch => do
-          match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+          match ← (Expr.eval
               context runtime discr).caught with
           | Except.ok (value, runtime') =>
               match value.expectWord with
@@ -9243,8 +9093,8 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
       | Stmt.break => pure (Result.broke runtime)
       | Stmt.continue => pure (Result.continued runtime)
       | Stmt.returnValues exprs => do
-          match ← (Expr.evalReturnListWithRuntimeOrder
-              context.effectiveChildEvalOrder context runtime exprs).caught with
+          match ← (Expr.evalReturnList
+              context runtime exprs).caught with
           | Except.ok (values, runtime') =>
               pure (Result.returned runtime' values)
           | Except.error err => pure (Result.reverted runtime err)
@@ -9255,7 +9105,7 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
           | none =>
               pure (Result.reverted runtime RevertData.empty)
       | Stmt.revertErrorExpr reasonExpr => do
-          match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+          match ← (Expr.eval
               context runtime reasonExpr).caught with
           | Except.ok (reasonValue, runtime') =>
               match errorStringBytesRevert? reasonValue with
@@ -9265,21 +9115,48 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
                   pure (Result.reverted runtime' RevertData.typeMismatch)
           | Except.error err => pure (Result.reverted runtime err)
       | Stmt.revert name exprs => do
-          match ← (Expr.evalListWithRuntimeOrder context.effectiveChildEvalOrder
+          match ← (Expr.evalList
               context runtime exprs).caught with
           | Except.ok (values, runtime') =>
               pure (Result.reverted runtime' (RevertData.custom name values))
           | Except.error err => pure (Result.reverted runtime err)
       | Stmt.emitEvent name exprs => do
-          match ← (Expr.evalListWithRuntimeOrder context.effectiveChildEvalOrder
-              context runtime exprs).caught with
-          | Except.ok (values, runtime') =>
+          -- TWO-PHASE emit order (solc ExpressionCompiler.cpp Kind::Event,
+          -- 976-1043): the INDEXED (topic) arguments are evaluated in REVERSE
+          -- source order first, then the NON-INDEXED (data) arguments in
+          -- FORWARD source order. Evaluate in that schedule, then restore
+          -- positional order for encoding (`Runtime.emitEvent` is positional).
+          let flags : List Bool :=
+            match context.eventDecl? name with
+            | some decl =>
+                if decl.fields.length == exprs.length then
+                  decl.fields.map (fun field => field.indexed)
+                else if decl.fields.isEmpty then
+                  -- Legacy field-less decls: the first `indexedCount`
+                  -- positional arguments are the indexed ones
+                  -- (`Runtime.emitEvent` takes/drops at `indexedCount`).
+                  (List.range exprs.length).map
+                    (fun i => decide (i < decl.indexedCount))
+                else
+                  List.replicate exprs.length false
+            | none => List.replicate exprs.length false
+          let positions := (List.range exprs.length).zip flags
+          let scheduleIdx :=
+            ((positions.filter (fun p => p.2)).reverse ++
+              positions.filter (fun p => !p.2)).map Prod.fst
+          let scheduleExprs := scheduleIdx.filterMap (fun i => exprs[i]?)
+          match ← (Expr.evalList context runtime scheduleExprs).caught with
+          | Except.ok (scheduled, runtime') =>
+              let paired := scheduleIdx.zip scheduled
+              let values :=
+                (List.range exprs.length).filterMap
+                  (fun i => (paired.find? (fun p => p.1 == i)).map Prod.snd)
               match runtime'.emitEvent context name values with
               | Except.ok updated => pure (Result.normal updated)
               | Except.error err => pure (Result.reverted runtime err)
           | Except.error err => pure (Result.reverted runtime err)
       | Stmt.selfdestruct recipientExpr => do
-          match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+          match ← (Expr.eval
               context runtime recipientExpr).caught with
           | Except.ok (recipientValue, runtime') =>
               match recipientValue.expectWord with
@@ -9320,7 +9197,7 @@ def Stmt.evalWhile (fuel : Nat) (table : FunctionTable) (context : Context)
   match fuel with
   | 0 => throw SolidityFailure.outOfFuel
   | fuel + 1 => do
-      match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+      match ← (Expr.eval
           context runtime cond).caught with
       | Except.ok (value, runtime') =>
           match value.expectWord with
@@ -9347,7 +9224,7 @@ def Stmt.evalDoWhile (fuel : Nat) (table : FunctionTable) (context : Context)
   | fuel + 1 => do
       match ← Stmt.eval fuel table context runtime body with
       | Result.normal runtime' =>
-          match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+          match ← (Expr.eval
               context runtime' cond).caught with
           | Except.ok (value, runtime'') =>
               match value.expectWord with
@@ -9359,7 +9236,7 @@ def Stmt.evalDoWhile (fuel : Nat) (table : FunctionTable) (context : Context)
               | Except.error err => pure (Result.reverted runtime'' err)
           | Except.error err => pure (Result.reverted runtime' err)
       | Result.continued runtime' =>
-          match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+          match ← (Expr.eval
               context runtime' cond).caught with
           | Except.ok (value, runtime'') =>
               match value.expectWord with
@@ -9380,7 +9257,7 @@ def Stmt.evalFor (fuel : Nat) (table : FunctionTable) (context : Context)
   match fuel with
   | 0 => throw SolidityFailure.outOfFuel
   | fuel + 1 => do
-      match ← (Expr.evalWithRuntimeOrder context.effectiveChildEvalOrder
+      match ← (Expr.eval
           context runtime cond).caught with
       | Except.ok (value, runtime') =>
           match value.expectWord with

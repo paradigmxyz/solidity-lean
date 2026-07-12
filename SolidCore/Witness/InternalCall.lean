@@ -188,7 +188,7 @@ def callSd : Stmt :=
 
 These pin the interpreter groundwork that lets storage/memory-reference
 parameters and returns cross the internal-function boundary as pointer VALUES:
-reference-preserving argument evaluation (`evalRefArgWithRuntimeOrder`),
+reference-preserving argument evaluation (`evalRefArg`),
 reference-preserving parameter binding (`bindArgsRef?`), reference-preserving
 return collection (`collectReturnBindingsRef`), and reference-aware return
 assignment (`assignNamedValuesRef?`). -/

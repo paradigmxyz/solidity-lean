@@ -12504,6 +12504,105 @@
           }
         ]
       }
+    },
+    {
+      "name": "eval-order-intrinsic",
+      "description": "R1 INTRINSIC SIBLING-EVALUATION ORDER: pins each construct's sibling order against solc 0.8.35 legacy codegen (ExpressionCompiler.cpp). Argument/tuple/abi.encode/custom-error lists and index base-vs-key run LEFT to RIGHT (710-711, 682-684, 1031, 400); binary operands run RIGHT then LEFT (614-615) including calls in operands (#187); assignment and compound assignment evaluate the RHS before the LHS reference (319, 331, 336-370); emit is TWO-PHASE (Kind::Event 976-1043): indexed (topic) args in REVERSE source order first, then non-indexed (data) args forward; short-circuit &&/|| stay left-first with a guarded right operand. Forge pins real solc/EVM values (including the mixed indexed/non-indexed event's topics/data); Lean imports the same source and checks the identical values, revert payload and event encoding. The non-literal inline-array probe lives in the sibling EvalOrderInlineArray contract (Forge-only: the importer does not lower non-literal inline-array components; Expr.fixedArray uses the same left-to-right list evaluator).",
+      "forge": {
+        "root": "tests/forge-harness/eval-order-intrinsic",
+        "match_contract": "EvalOrderIntrinsicForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/eval-order-intrinsic/src/EvalOrderIntrinsic.sol",
+        "contract": "EvalOrderIntrinsic",
+        "namespace": "SolidCore.Solidity.SolcAstImport.EvalOrderIntrinsic"
+      },
+      "solc_rejects": [],
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.EvalOrderIntrinsic.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "tupleRhs_0_1",
+            "expr": "(do\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 256 SolidCore.Solidity.SolcAstImport.EvalOrderIntrinsic.importedContract (SolidCore.Solidity.Source.CallTarget.name \"tupleRhs\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v0, SolidCore.Solidity.Source.Value.word v1] => Except.ok (SolidCore.Solidity.Source.wordEq v0 0 && SolidCore.Solidity.Source.wordEq v1 1)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "returnTuple_0_1",
+            "expr": "(do\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 256 SolidCore.Solidity.SolcAstImport.EvalOrderIntrinsic.importedContract (SolidCore.Solidity.Source.CallTarget.name \"returnTuple\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v0, SolidCore.Solidity.Source.Value.word v1] => Except.ok (SolidCore.Solidity.Source.wordEq v0 0 && SolidCore.Solidity.Source.wordEq v1 1)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "callArgs_012",
+            "expr": "(do\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 256 SolidCore.Solidity.SolcAstImport.EvalOrderIntrinsic.importedContract (SolidCore.Solidity.Source.CallTarget.name \"callArgs\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v0] => Except.ok (SolidCore.Solidity.Source.wordEq v0 12)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "indexLhs_99",
+            "expr": "(do\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 256 SolidCore.Solidity.SolcAstImport.EvalOrderIntrinsic.importedContract (SolidCore.Solidity.Source.CallTarget.name \"indexLhs\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v0] => Except.ok (SolidCore.Solidity.Source.wordEq v0 99)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "dataDep_5_6",
+            "expr": "(do\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 256 SolidCore.Solidity.SolcAstImport.EvalOrderIntrinsic.importedContract (SolidCore.Solidity.Source.CallTarget.name \"dataDep\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v0, SolidCore.Solidity.Source.Value.word v1] => Except.ok (SolidCore.Solidity.Source.wordEq v0 5 && SolidCore.Solidity.Source.wordEq v1 6)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "binaryOrder_rightFirst_5",
+            "expr": "(do\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 256 SolidCore.Solidity.SolcAstImport.EvalOrderIntrinsic.importedContract (SolidCore.Solidity.Source.CallTarget.name \"binaryOrder\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v0] => Except.ok (SolidCore.Solidity.Source.wordEq v0 5)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "arrAssign_7_0_7_2",
+            "expr": "(do\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 256 SolidCore.Solidity.SolcAstImport.EvalOrderIntrinsic.importedContract (SolidCore.Solidity.Source.CallTarget.name \"arrAssign\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v0, SolidCore.Solidity.Source.Value.word v1, SolidCore.Solidity.Source.Value.word v2, SolidCore.Solidity.Source.Value.word v3] => Except.ok (SolidCore.Solidity.Source.wordEq v0 7 && SolidCore.Solidity.Source.wordEq v1 0 && SolidCore.Solidity.Source.wordEq v2 7 && SolidCore.Solidity.Source.wordEq v3 2)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "arrCompound_7_7_7_2",
+            "expr": "(do\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 256 SolidCore.Solidity.SolcAstImport.EvalOrderIntrinsic.importedContract (SolidCore.Solidity.Source.CallTarget.name \"arrCompound\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v0, SolidCore.Solidity.Source.Value.word v1, SolidCore.Solidity.Source.Value.word v2, SolidCore.Solidity.Source.Value.word v3] => Except.ok (SolidCore.Solidity.Source.wordEq v0 7 && SolidCore.Solidity.Source.wordEq v1 7 && SolidCore.Solidity.Source.wordEq v2 7 && SolidCore.Solidity.Source.wordEq v3 2)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "scAnd_1",
+            "expr": "(do\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 256 SolidCore.Solidity.SolcAstImport.EvalOrderIntrinsic.importedContract (SolidCore.Solidity.Source.CallTarget.name \"scAnd\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v0] => Except.ok (SolidCore.Solidity.Source.wordEq v0 1)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "scOr_1001",
+            "expr": "(do\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 256 SolidCore.Solidity.SolcAstImport.EvalOrderIntrinsic.importedContract (SolidCore.Solidity.Source.CallTarget.name \"scOr\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v0] => Except.ok (SolidCore.Solidity.Source.wordEq v0 1001)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "abiEnc_0_1",
+            "expr": "(do\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 256 SolidCore.Solidity.SolcAstImport.EvalOrderIntrinsic.importedContract (SolidCore.Solidity.Source.CallTarget.name \"abiEnc\") SolidCore.Solidity.Source.State.empty []\n  match result, SolidCore.Solidity.Source.abiEncodeValues? [SolidCore.Solidity.Source.Ty.uint256, SolidCore.Solidity.Source.Ty.uint256] [SolidCore.Solidity.Source.Value.word 0, SolidCore.Solidity.Source.Value.word 1] with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.bytes got], some expected => Except.ok (got == expected)\n  | _, _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "revertErr_0_1",
+            "expr": "(do\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 256 SolidCore.Solidity.SolcAstImport.EvalOrderIntrinsic.importedContract (SolidCore.Solidity.Source.CallTarget.name \"revertErr\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.reverted _ (SolidCore.Solidity.Source.RevertData.custom \"Err\" [SolidCore.Solidity.Source.Value.word a, SolidCore.Solidity.Source.Value.word b]) => Except.ok (SolidCore.Solidity.Source.wordEq a 0 && SolidCore.Solidity.Source.wordEq b 1)\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "emitAllData_forward_0_1_2",
+            "expr": "(do\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 256 SolidCore.Solidity.SolcAstImport.EvalOrderIntrinsic.importedContract (SolidCore.Solidity.Source.CallTarget.name \"emitAllData\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned state [] =>\n      match state.events with\n      | [event] =>\n          match event.data with\n          | [SolidCore.Solidity.Source.Value.word a, SolidCore.Solidity.Source.Value.word b, SolidCore.Solidity.Source.Value.word c] =>\n              Except.ok (event.name == \"AllData\" && event.topics == [SolidCore.Solidity.Source.Keccak.digestWord \"AllData(uint256,uint256,uint256)\"] && SolidCore.Solidity.Source.wordEq a 0 && SolidCore.Solidity.Source.wordEq b 1 && SolidCore.Solidity.Source.wordEq c 2)\n          | _ => Except.ok false\n      | _ => Except.ok false\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "emitMixed_twoPhase_topics_1_0_data_2_3",
+            "expr": "(do\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 256 SolidCore.Solidity.SolcAstImport.EvalOrderIntrinsic.importedContract (SolidCore.Solidity.Source.CallTarget.name \"emitMixed\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned state [] =>\n      match state.events with\n      | [event] =>\n          match event.indexed, event.data with\n          | [SolidCore.Solidity.Source.Value.word a, SolidCore.Solidity.Source.Value.word c], [SolidCore.Solidity.Source.Value.word b, SolidCore.Solidity.Source.Value.word d] =>\n              Except.ok (event.name == \"Mixed\" && event.topics == [SolidCore.Solidity.Source.Keccak.digestWord \"Mixed(uint256,uint256,uint256,uint256)\", 1, 0] && SolidCore.Solidity.Source.wordEq a 1 && SolidCore.Solidity.Source.wordEq c 0 && SolidCore.Solidity.Source.wordEq b 2 && SolidCore.Solidity.Source.wordEq d 3)\n          | _, _ => Except.ok false\n      | _ => Except.ok false\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }
