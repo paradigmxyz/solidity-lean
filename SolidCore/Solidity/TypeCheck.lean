@@ -416,12 +416,13 @@ def Ty.isRelationalOperand (types : TypeContext) (ty : Ty) : Bool :=
   -- Contracts/interfaces are ALSO ordered-comparable in solc (compares their
   -- addresses as unsigned 160-bit values — TypeChecker.cpp:1828-1837 allows
   -- `isCompareOp` for a `Contract`-category common type; only warning 9170), but
-  -- they are NOT routed through this predicate: the `commonImplicit?` machinery
-  -- behind `relationalTy` is context-free and so cannot resolve a base/derived
-  -- contract pair to its common base. Two contract operands are instead accepted
-  -- directly in the `lt/gt/le/ge` dispatch via context-aware bidirectional
-  -- implicit convertibility (mirroring equality), which handles identity,
-  -- interfaces, and base/derived upcasts while still rejecting unrelated pairs.
+  -- they are NOT routed through this predicate: two contract operands are
+  -- accepted directly in the `lt/gt/le/ge` dispatch via context-aware
+  -- bidirectional implicit convertibility (mirroring equality) BEFORE
+  -- `relationalTy` runs, handling identity, interfaces, and base/derived
+  -- upcasts while still rejecting unrelated pairs — so a contract common
+  -- type (which the R4 context-aware `TypeContext.commonImplicit?` CAN now
+  -- deduce) never reaches this operand filter.
   | Solidity.Ty.enum _ => true
   | Solidity.Ty.user path => types.isEnumPath path
   | _ => Ty.isArithmeticOperand ty || Ty.isFixedBytesOperand ty
@@ -3581,6 +3582,31 @@ def Ty.commonImplicit? (left right : Ty) : Option Ty :=
         else
           none
 
+-- R4 target 4: context-AWARE common type — the numeric/address/fixed-bytes
+-- table is shared with `Ty.commonImplicit?`; only the directional fallback
+-- is routed through the context-aware convertibility so USER-type pairs
+-- resolve uniformly (contract covariance Derived/Base → Base, local
+-- aliases), mirroring solc `Type::commonType` (Types.cpp:279-295), whose
+-- fallback uses the full virtual `isImplicitlyConvertibleTo`. Fixes the
+-- pinned-solc-verified over-reject `Base[2] memory arr = [derived, base]`
+-- (solc ACCEPTS; the context-free fallback deduced no common type) while
+-- `[base, unrelated]` stays rejected (solc: "Unable to deduce common type
+-- for array elements", pinned probe 2026-07-12). The context-free
+-- `Ty.commonImplicit?` remains for the bare-literal-only inline-array
+-- bottom-up typing (`inlineArrayBottomUpTyFuel?`), where every operand is
+-- an integer mobile type and user-type rules cannot fire.
+def TypeContext.commonImplicit? (types : TypeContext)
+    (left right : Ty) : Option Ty :=
+  match Ty.commonImplicit? left right with
+  | some ty => some ty
+  | none =>
+      if TypeContext.canImplicitlyConvert types left right then
+        some right
+      else if TypeContext.canImplicitlyConvert types right left then
+        some left
+      else
+        none
+
 -- solc's bottom-up type of an inline array literal, mirroring
 -- `TypeChecker::visit(TupleExpression)` (isInlineArray) restricted to the case
 -- where the deduced type is decidable WITHOUT an environment — i.e. every leaf
@@ -3653,8 +3679,8 @@ def Expr.isDirectLiteral : Solidity.Expr -> Bool
   | Solidity.Expr.literal _ => true
   | _ => false
 
-def CheckedExpr.commonArrayElementTy? (left right : CheckedExpr) :
-    Option Ty :=
+def CheckedExpr.commonArrayElementTy? (types : TypeContext)
+    (left right : CheckedExpr) : Option Ty :=
   if Expr.isDirectLiteral right.source &&
       implicitLiteralFits left.ty right.source then
     some left.ty
@@ -3684,9 +3710,10 @@ def CheckedExpr.commonArrayElementTy? (left right : CheckedExpr) :
         (Solidity.Executable.Expr.untypedLiteralMobileTy? right.source).getD
           right.ty
       else right.ty
-    Ty.commonImplicit? leftTy rightTy
+    TypeContext.commonImplicit? types leftTy rightTy
 
-def CheckedExprs.commonArrayElementTyFrom? (current : Ty) :
+def CheckedExprs.commonArrayElementTyFrom? (types : TypeContext)
+    (current : Ty) :
     List CheckedExpr -> Option Ty
   | [] => some current
   | checked :: rest => do
@@ -3695,47 +3722,48 @@ def CheckedExprs.commonArrayElementTyFrom? (current : Ty) :
           ty := current
           lvalue := false
           stateLValue := false }
-      let next ← CheckedExpr.commonArrayElementTy? probe checked
-      CheckedExprs.commonArrayElementTyFrom? next rest
+      let next ← CheckedExpr.commonArrayElementTy? types probe checked
+      CheckedExprs.commonArrayElementTyFrom? types next rest
 
-def CheckedExprs.commonArrayElementTy? :
+def CheckedExprs.commonArrayElementTy? (types : TypeContext) :
     List CheckedExpr -> Option Ty
   | [] => none
   | checked :: rest =>
-      CheckedExprs.commonArrayElementTyFrom? checked.ty rest
+      CheckedExprs.commonArrayElementTyFrom? types checked.ty rest
 
-def CheckedExpr.commonOperandTy? (left right : CheckedExpr) : Option Ty :=
-  CheckedExpr.commonArrayElementTy? left right
+def CheckedExpr.commonOperandTy? (types : TypeContext)
+    (left right : CheckedExpr) : Option Ty :=
+  CheckedExpr.commonArrayElementTy? types left right
 
 def CheckedExprs.expectAssignableToSame (_what : String)
     (left right : CheckedExpr) (ty : Ty) : Except TypeError Unit := do
   left.expectImplicitlyAssignableTo ty
   right.expectImplicitlyAssignableTo ty
 
-def CheckedExprs.commonCheckedTyFor
+def CheckedExprs.commonCheckedTyFor (types : TypeContext)
     (what : String) (allowed : Ty -> Bool) (err : Ty -> TypeError)
     (left right : CheckedExpr) : Except TypeError Ty := do
   let ty ←
-    match CheckedExpr.commonOperandTy? left right with
+    match CheckedExpr.commonOperandTy? types left right with
     | some ty => Except.ok ty
     | none => Except.error (TypeError.expectedType left.ty right.ty)
   require (allowed ty) (err ty)
   CheckedExprs.expectAssignableToSame what left right ty
   Except.ok ty
 
-def CheckedExprs.arithmeticTy (left right : CheckedExpr) :
-    Except TypeError Ty :=
-  CheckedExprs.commonCheckedTyFor "arithmetic expression"
+def CheckedExprs.arithmeticTy (types : TypeContext)
+    (left right : CheckedExpr) : Except TypeError Ty :=
+  CheckedExprs.commonCheckedTyFor types "arithmetic expression"
     Ty.isArithmeticOperand TypeError.expectedInteger left right
 
-def CheckedExprs.bitwiseTy (left right : CheckedExpr) :
-    Except TypeError Ty :=
-  CheckedExprs.commonCheckedTyFor "bitwise expression"
+def CheckedExprs.bitwiseTy (types : TypeContext)
+    (left right : CheckedExpr) : Except TypeError Ty :=
+  CheckedExprs.commonCheckedTyFor types "bitwise expression"
     Ty.isBitwiseOperand TypeError.expectedNumeric left right
 
 def CheckedExprs.relationalTy (types : TypeContext) (left right : CheckedExpr) :
     Except TypeError Ty :=
-  CheckedExprs.commonCheckedTyFor "relational expression"
+  CheckedExprs.commonCheckedTyFor types "relational expression"
     (Ty.isRelationalOperand types) TypeError.expectedNumeric left right
 
 -- G3: `==`/`!=` are builtin-defined only on value types, contracts, enums,
@@ -7803,7 +7831,7 @@ def checkExpr (env : CheckEnv) :
   | expr@(Solidity.Expr.array (head :: rest)) => do
       let checkedElements ← checkExprList env (head :: rest)
       let elementTy ←
-        match CheckedExprs.commonArrayElementTy? checkedElements with
+        match CheckedExprs.commonArrayElementTy? env.types checkedElements with
         | some ty => Except.ok ty
         | none =>
             Except.error
@@ -7981,7 +8009,7 @@ def checkExpr (env : CheckEnv) :
       | Solidity.BinaryOp.add
       | Solidity.BinaryOp.sub
       | Solidity.BinaryOp.mul =>
-          let ty ← CheckedExprs.arithmeticTy lhsChecked rhsChecked
+          let ty ← CheckedExprs.arithmeticTy env.types lhsChecked rhsChecked
           Except.ok { source := expr, ty := ty }
       | Solidity.BinaryOp.div
       | Solidity.BinaryOp.mod =>
@@ -7997,7 +8025,7 @@ def checkExpr (env : CheckEnv) :
              | some _, some divisor => divisor.num != 0
              | _, _ => true)
             (TypeError.unsupported "constant division or modulo by zero")
-          let ty ← CheckedExprs.arithmeticTy lhsChecked rhsChecked
+          let ty ← CheckedExprs.arithmeticTy env.types lhsChecked rhsChecked
           Except.ok { source := expr, ty := ty }
       | Solidity.BinaryOp.exp =>
           -- A `**` whose base and exponent are both constant number literals is
@@ -8015,7 +8043,7 @@ def checkExpr (env : CheckEnv) :
       | Solidity.BinaryOp.bitAnd
       | Solidity.BinaryOp.bitOr
       | Solidity.BinaryOp.bitXor =>
-          let ty ← CheckedExprs.bitwiseTy lhsChecked rhsChecked
+          let ty ← CheckedExprs.bitwiseTy env.types lhsChecked rhsChecked
           Except.ok { source := expr, ty := ty }
       | Solidity.BinaryOp.shl
       | Solidity.BinaryOp.shr =>
@@ -8169,14 +8197,14 @@ def checkExpr (env : CheckEnv) :
                   Solidity.AssignOp.divAssign _
               | Solidity.Expr.assign _
                   Solidity.AssignOp.modAssign _ =>
-                  CheckedExprs.arithmeticTy lhsChecked rhsChecked
+                  CheckedExprs.arithmeticTy env.types lhsChecked rhsChecked
               | Solidity.Expr.assign _
                   Solidity.AssignOp.bitAndAssign _
               | Solidity.Expr.assign _
                   Solidity.AssignOp.bitOrAssign _
               | Solidity.Expr.assign _
                   Solidity.AssignOp.bitXorAssign _ =>
-                  CheckedExprs.bitwiseTy lhsChecked rhsChecked
+                  CheckedExprs.bitwiseTy env.types lhsChecked rhsChecked
               | Solidity.Expr.assign _
                   Solidity.AssignOp.shlAssign _
               | Solidity.Expr.assign _
