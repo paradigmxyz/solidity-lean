@@ -2113,20 +2113,32 @@ def StateVars.extendTypeEnv (typeEnv : TypeEnv) :
       StateVars.extendTypeEnv
         (StateVarDecl.extendTypeEnv typeEnv decl) rest
 
-def ContractDecl.resolveStructs (env : StructEnv)
-    (decl : ContractDecl) : ContractDecl :=
+/-- Struct-member resolution for a contract, seeded with the state variables it
+    INHERITS from its linearized base contracts (#197). `inheritedVars` come
+    most-base-first, so `StateVars.extendTypeEnv` binds nearer ancestors — and
+    finally the contract's own declarations — ahead of farther ones on a name
+    clash (matching solc scope, where only private base variables can be
+    shadowed at all). Without the seed, a field access on a BASE-declared
+    storage struct (`p.a` for `P internal p;` declared in a base) never gets
+    the member→fieldIndex rewrite and the contract fails to lower. -/
+def ContractDecl.resolveStructsWithInheritedVars (env : StructEnv)
+    (inheritedVars : List StateVarDecl) (decl : ContractDecl) : ContractDecl :=
   let stateVars :=
     decl.items.filterMap (fun item =>
       match item with
       | ContractItem.stateVar stateVar => some stateVar
       | _ => none)
-  let typeEnv := StateVars.extendTypeEnv [] stateVars
+  let typeEnv := StateVars.extendTypeEnv [] (inheritedVars ++ stateVars)
   { decl with
     layoutBase := decl.layoutBase.map (Expr.resolveStructs env [])
     bases :=
       decl.bases.map (fun spec =>
         { spec with args := spec.args.map (Arg.resolveStructs env []) })
     items := decl.items.map (ContractItem.resolveStructsWithTypeEnv env typeEnv) }
+
+def ContractDecl.resolveStructs (env : StructEnv)
+    (decl : ContractDecl) : ContractDecl :=
+  ContractDecl.resolveStructsWithInheritedVars env [] decl
 
 def SourceItem.resolveStructs (env : StructEnv) :
     SourceItem -> SourceItem
@@ -23419,6 +23431,35 @@ def ContractDecl.storageOrder? (contracts : List ContractDecl)
     (decl : ContractDecl) : Option (List ContractDecl) :=
   (ContractDecl.dispatchOrder? contracts decl).map List.reverse
 
+/-- State variables `decl` inherits from the (already-linearized) `order`
+    (which starts with `decl` itself): every non-private state variable of
+    every ancestor, most-base-first. Private base variables are NOT in a
+    derived contract's scope (solc hides them; only their storage slots
+    remain), so they are excluded — a derived redeclaration of the same name
+    must win the bind. -/
+def ContractDecl.inheritedStateVarsOfOrder
+    (order : List ContractDecl) : List StateVarDecl :=
+  concatMapList
+    (fun base =>
+      (ContractDecl.directStateVars base).filter
+        StateVarDecl.visibleFromDerived)
+    (List.reverse (List.drop 1 order))
+
+/-- State variables `decl` inherits from its linearized base contracts. -/
+def ContractDecl.inheritedStateVars (contracts : List ContractDecl)
+    (decl : ContractDecl) : List StateVarDecl :=
+  match ContractDecl.dispatchOrder? contracts decl with
+  | some order => ContractDecl.inheritedStateVarsOfOrder order
+  | none => []
+
+/-- `ContractDecl.resolveStructs` with the contract's inherited state
+    variables (drawn from `contracts`, the full hierarchy universe) seeded
+    into the member-rewrite type environment (#197). -/
+def ContractDecl.resolveStructsInHierarchy (env : StructEnv)
+    (contracts : List ContractDecl) (decl : ContractDecl) : ContractDecl :=
+  ContractDecl.resolveStructsWithInheritedVars env
+    (ContractDecl.inheritedStateVars contracts decl) decl
+
 def FunctionDecl.names (functions : List FunctionDecl) : List Name :=
   functions.filterMap (fun function => function.name)
 
@@ -24467,15 +24508,22 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
       (ContractDecl.expandUsingSurface
         usingContracts usingFreeFunctions usingSourceDecls)
   let sourceUsingDecls := []
-  let allContracts := allContracts.map (ContractDecl.resolveStructs structEnv)
+  let structHierarchy := allContracts
+  let allContracts :=
+    allContracts.map
+      (ContractDecl.resolveStructsInHierarchy structEnv structHierarchy)
   let sourceUsingDecls := sourceUsingDecls.map (UsingDecl.resolveStructs structEnv)
   let sourceFunctions := sourceFunctions.map (FunctionDecl.resolveStructs structEnv)
   let sourceEvents := sourceEvents.map (EventDecl.resolveStructs structEnv)
   let sourceErrors := sourceErrors.map (ErrorDecl.resolveStructs structEnv)
   let sourceConstants :=
     sourceConstants.map (StateVarDecl.resolveStructs structEnv)
-  let storageOrder := storageOrder.map (ContractDecl.resolveStructs structEnv)
-  let dispatchOrder := dispatchOrder.map (ContractDecl.resolveStructs structEnv)
+  let storageOrder :=
+    storageOrder.map
+      (ContractDecl.resolveStructsInHierarchy structEnv structHierarchy)
+  let dispatchOrder :=
+    dispatchOrder.map
+      (ContractDecl.resolveStructsInHierarchy structEnv structHierarchy)
   let postStructUsingContracts := allContracts
   let postStructUsingFreeFunctions :=
     sourceFunctions ++
@@ -25017,7 +25065,10 @@ def ContractDecl.constructorFunctionFromOrders?
         usingContracts usingFreeFunctions usingSourceDecls)
   let constructorUsingDecls := sourceUsingDecls
   let sourceUsingDecls := []
-  let allContracts := allContracts.map (ContractDecl.resolveStructs structEnv)
+  let structHierarchy := allContracts
+  let allContracts :=
+    allContracts.map
+      (ContractDecl.resolveStructsInHierarchy structEnv structHierarchy)
   let constructorUsingDecls :=
     constructorUsingDecls.map (UsingDecl.resolveStructs structEnv)
   let sourceUsingDecls := sourceUsingDecls.map (UsingDecl.resolveStructs structEnv)
@@ -25026,8 +25077,12 @@ def ContractDecl.constructorFunctionFromOrders?
   let sourceErrors := sourceErrors.map (ErrorDecl.resolveStructs structEnv)
   let sourceConstants :=
     sourceConstants.map (StateVarDecl.resolveStructs structEnv)
-  let storageOrder := storageOrder.map (ContractDecl.resolveStructs structEnv)
-  let dispatchOrder := dispatchOrder.map (ContractDecl.resolveStructs structEnv)
+  let storageOrder :=
+    storageOrder.map
+      (ContractDecl.resolveStructsInHierarchy structEnv structHierarchy)
+  let dispatchOrder :=
+    dispatchOrder.map
+      (ContractDecl.resolveStructsInHierarchy structEnv structHierarchy)
   let postStructUsingContracts := allContracts
   let postStructUsingFreeFunctions :=
     sourceFunctions ++
@@ -25568,7 +25623,15 @@ def SourceUnit.structEnv (unit : SourceUnit) : StructEnv :=
 
 def SourceUnit.resolveStructs (unit : SourceUnit) : SourceUnit :=
   let env := SourceUnit.structEnv unit
-  { unit with items := unit.items.map (SourceItem.resolveStructs env) }
+  let contracts := SourceUnit.contracts unit
+  { unit with
+    items :=
+      unit.items.map (fun item =>
+        match item with
+        | SourceItem.contract decl =>
+            SourceItem.contract
+              (ContractDecl.resolveStructsInHierarchy env contracts decl)
+        | other => SourceItem.resolveStructs env other) }
 
 def SourceUnit.resolveSourceTypes (unit : SourceUnit) : SourceUnit :=
   SourceUnit.resolveStructs
@@ -25604,12 +25667,19 @@ def SourceUnit.structEnvForOrder (unit : SourceUnit)
   ContractDecl.structEnvFromContractsInScope
     (SourceUnit.sourceStructEnv unit) order
 
+def ContractDecl.resolveSourceTypesWithInherited
+    (userEnv : UserTypeEnv) (enumEnv : EnumEnv) (structEnv : StructEnv)
+    (inheritedVars : List StateVarDecl) (decl : ContractDecl) :
+    ContractDecl :=
+  ContractDecl.resolveStructsWithInheritedVars structEnv inheritedVars
+    (ContractDecl.resolveEnums enumEnv
+      (ContractDecl.resolveUserTypes userEnv decl))
+
 def ContractDecl.resolveSourceTypesWith
     (userEnv : UserTypeEnv) (enumEnv : EnumEnv) (structEnv : StructEnv)
     (decl : ContractDecl) : ContractDecl :=
-  ContractDecl.resolveStructs structEnv
-    (ContractDecl.resolveEnums enumEnv
-      (ContractDecl.resolveUserTypes userEnv decl))
+  ContractDecl.resolveSourceTypesWithInherited userEnv enumEnv structEnv
+    [] decl
 
 def FunctionDecl.resolveSourceTypesWith
     (userEnv : UserTypeEnv) (enumEnv : EnumEnv) (structEnv : StructEnv)
@@ -25693,7 +25763,17 @@ def SourceUnit.resolveContractSourceTypes? (unit : SourceUnit)
   let userEnv := SourceUnit.userTypeEnvForOrder unit order
   let enumEnv := SourceUnit.enumEnvForOrder unit order
   let structEnv := SourceUnit.structEnvForOrder unit order
-  some (ContractDecl.resolveSourceTypesWith userEnv enumEnv structEnv decl)
+  -- #197: seed the member-rewrite typeEnv with INHERITED state variables,
+  -- pre-resolved through the same user-type/enum passes the contract's own
+  -- declarations receive before `resolveStructs` runs on them.
+  let inheritedVars :=
+    (ContractDecl.inheritedStateVarsOfOrder order).map
+      (fun stateVar =>
+        StateVarDecl.resolveEnums enumEnv
+          (StateVarDecl.resolveUserTypes userEnv stateVar))
+  some
+    (ContractDecl.resolveSourceTypesWithInherited userEnv enumEnv structEnv
+      inheritedVars decl)
 
 def SourceUnit.resolveSourceItemContextual? (unit : SourceUnit)
     (userEnv : UserTypeEnv) (enumEnv : EnumEnv) (structEnv : StructEnv) :

@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/modifier-private-scope/out"
+cache_path = "../../.foundry-suites/modifier-private-scope/cache"
+evm_version = "cancun"

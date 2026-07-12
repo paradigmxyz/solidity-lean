@@ -13068,6 +13068,77 @@
           }
         ]
       }
+    },
+    {
+      "name": "inherited-struct-field",
+      "description": "#197 INHERITED-STRUCT-FIELD-ACCESS: field access on BASE-declared storage structs from a derived contract (direct var, mapping element, array element, compound write, grandparent-declared var). Forge checks solc/EVM values; Lean imports the same source and must lower and compute the same values.",
+      "forge": {
+        "root": "tests/forge-harness/inherited-struct-field",
+        "match_contract": "InheritedStructFieldForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/inherited-struct-field/src/InheritedStructField.sol",
+        "contract": "InheritedStructFieldTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.InheritedStructField"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedSourceUnitAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.InheritedStructField.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "inheritedStructFieldValuesAndControls",
+            "expr": "(do\n  let unit := SolidCore.Solidity.SolcAstImport.InheritedStructField.importedSourceUnit\n  let target := \"InheritedStructFieldTarget\"\n  let step := fun (r : SolidCore.Solidity.Source.CallResult) =>\n    match r with\n    | SolidCore.Solidity.Source.CallResult.returned st _ => some st\n    | _ => none\n  let r1 ← SolidCore.Solidity.TypeCheck.CheckedInput.callContractTransaction 500 unit target (SolidCore.Solidity.Source.CallTarget.name \"setA\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 42]\n  let st1 ← SolidCore.Solidity.TypeCheck.optionToExcept \"setA\" (step r1)\n  let getA ← SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 500 unit target \"getA\" st1 [] 42\n  let viaCopy ← SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 500 unit target \"getViaCopy\" st1 [] 42\n  let r2 ← SolidCore.Solidity.TypeCheck.CheckedInput.callContractTransaction 500 unit target (SolidCore.Solidity.Source.CallTarget.name \"addItem\") st1 [SolidCore.Solidity.Source.Value.word 7, SolidCore.Solidity.Source.Value.word 41]\n  let st2 ← SolidCore.Solidity.TypeCheck.optionToExcept \"addItem\" (step r2)\n  let r3 ← SolidCore.Solidity.TypeCheck.CheckedInput.callContractTransaction 500 unit target (SolidCore.Solidity.Source.CallTarget.name \"bumpItem\") st2 [SolidCore.Solidity.Source.Value.word 7]\n  let st3 ← SolidCore.Solidity.TypeCheck.optionToExcept \"bumpItem\" (step r3)\n  let item ← SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 500 unit target \"itemAmount\" st3 [SolidCore.Solidity.Source.Value.word 7] 42\n  let r4 ← SolidCore.Solidity.TypeCheck.CheckedInput.callContractTransaction 500 unit target (SolidCore.Solidity.Source.CallTarget.name \"pushArr\") st3 [SolidCore.Solidity.Source.Value.word 42]\n  let st4 ← SolidCore.Solidity.TypeCheck.optionToExcept \"pushArr\" (step r4)\n  let first ← SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 500 unit target \"firstA\" st4 [] 42\n  let rb ← SolidCore.Solidity.TypeCheck.CheckedInput.callContractTransaction 500 unit \"StructBaseSelf\" (SolidCore.Solidity.Source.CallTarget.name \"setA\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 42]\n  let stb ← SolidCore.Solidity.TypeCheck.optionToExcept \"baseSelf setA\" (step rb)\n  let baseSelf ← SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 500 unit \"StructBaseSelf\" \"getA\" stb [] 42\n  let rt ← SolidCore.Solidity.TypeCheck.CheckedInput.callContractTransaction 500 unit \"StructTypeFromBase\" (SolidCore.Solidity.Source.CallTarget.name \"setOwn\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 42]\n  let stt ← SolidCore.Solidity.TypeCheck.optionToExcept \"setOwn\" (step rt)\n  let typeFromBase ← SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 500 unit \"StructTypeFromBase\" \"getOwn\" stt [] 42\n  Except.ok (getA && viaCopy && item && first && baseSelf && typeFromBase))",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
+      "name": "modifier-private-scope",
+      "description": "#199 MODIFIER-BODY-PRIVATE-VAR-SCOPE: a base modifier reading a PRIVATE state variable of its declaring contract, attached to functions declared in derived contracts (OZ Ownable/Pausable mixin pattern), plus the same-name private shadow control (modifier binds the BASE slot) and the internal-variable control. Forge checks solc/EVM behavior; Lean imports the same source and must accept and match.",
+      "forge": {
+        "root": "tests/forge-harness/modifier-private-scope",
+        "match_contract": "ModifierPrivateScopeForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/modifier-private-scope/src/ModifierPrivateScope.sol",
+        "contract": "Vault2",
+        "namespace": "SolidCore.Solidity.SolcAstImport.ModifierPrivateScope"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedSourceUnitAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.ModifierPrivateScope.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "mixinStackOwnerGateAndPause",
+            "expr": "(do\n  let unit := SolidCore.Solidity.SolcAstImport.ModifierPrivateScope.importedSourceUnit\n  let program ← SolidCore.Solidity.TypeCheck.CheckedInput.program unit\n  let step := fun (r : SolidCore.Solidity.Source.CallResult) =>\n    match r with\n    | SolidCore.Solidity.Source.CallResult.returned st _ => some st\n    | _ => none\n  let vault ← SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"Vault2\"\n  let rc ← SolidCore.Solidity.TypeCheck.CheckedProgram.constructContractFrom 500 program \"Vault2\" SolidCore.Solidity.Source.State.empty 0xAA 0 []\n  let st0 ← SolidCore.Solidity.TypeCheck.optionToExcept \"construct Vault2\" (step rc)\n  let depositCd ← SolidCore.Solidity.TypeCheck.CheckedContract.functionCalldata vault \"deposit\" [SolidCore.Solidity.Source.Value.word 42]\n  let deposit ← SolidCore.Solidity.TypeCheck.CheckedContract.callCalldataFrom 500 vault st0 0xBB 0 depositCd\n  let balance ← SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 500 unit \"Vault2\" \"balanceOf\" deposit.state [SolidCore.Solidity.Source.Value.word 0xBB] 42\n  let pauseCd ← SolidCore.Solidity.TypeCheck.CheckedContract.functionCalldata vault \"pause\" []\n  let pauseOutsider ← SolidCore.Solidity.TypeCheck.CheckedContract.callCalldataFrom 500 vault deposit.state 0xBB 0 pauseCd\n  let pauseOwner ← SolidCore.Solidity.TypeCheck.CheckedContract.callCalldataFrom 500 vault deposit.state 0xAA 0 pauseCd\n  let paused ← SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 500 unit \"Vault2\" \"isPaused\" pauseOwner.state [] 1\n  let depositPaused ← SolidCore.Solidity.TypeCheck.CheckedContract.callCalldataFrom 500 vault pauseOwner.state 0xBB 0 depositCd\n  Except.ok (deposit.success && balance && !pauseOutsider.success && pauseOwner.success && paused && !depositPaused.success))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "shadowBindsBaseSlotAndInternalControl",
+            "expr": "(do\n  let unit := SolidCore.Solidity.SolcAstImport.ModifierPrivateScope.importedSourceUnit\n  let program ← SolidCore.Solidity.TypeCheck.CheckedInput.program unit\n  let step := fun (r : SolidCore.Solidity.Source.CallResult) =>\n    match r with\n    | SolidCore.Solidity.Source.CallResult.returned st _ => some st\n    | _ => none\n  let shadow ← SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"ShadowDerived\"\n  let rc ← SolidCore.Solidity.TypeCheck.CheckedProgram.constructContractFrom 500 program \"ShadowDerived\" SolidCore.Solidity.Source.State.empty 0xAA 0 []\n  let st0 ← SolidCore.Solidity.TypeCheck.optionToExcept \"construct ShadowDerived\" (step rc)\n  let baseX ← SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 500 unit \"ShadowDerived\" \"baseX\" st0 [] 7\n  let derivedX ← SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 500 unit \"ShadowDerived\" \"derivedX\" st0 [] 99\n  let rf ← SolidCore.Solidity.TypeCheck.CheckedContract.callTransaction 500 shadow (SolidCore.Solidity.Source.CallTarget.name \"f\") st0 []\n  let st1 ← SolidCore.Solidity.TypeCheck.optionToExcept \"f\" (step rf)\n  let n ← SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 500 unit \"ShadowDerived\" \"n\" st1 [] 1\n  let keeper ← SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"InternalOwnedTarget\"\n  let rk ← SolidCore.Solidity.TypeCheck.CheckedProgram.constructContractFrom 500 program \"InternalOwnedTarget\" SolidCore.Solidity.Source.State.empty 0xAA 0 []\n  let stk ← SolidCore.Solidity.TypeCheck.optionToExcept \"construct InternalOwnedTarget\" (step rk)\n  let fCd ← SolidCore.Solidity.TypeCheck.CheckedContract.functionCalldata keeper \"f\" []\n  let byKeeper ← SolidCore.Solidity.TypeCheck.CheckedContract.callCalldataFrom 500 keeper stk 0xAA 0 fCd\n  let byOther ← SolidCore.Solidity.TypeCheck.CheckedContract.callCalldataFrom 500 keeper stk 0xBB 0 fCd\n  let kn ← SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 500 unit \"InternalOwnedTarget\" \"n\" byKeeper.state [] 1\n  Except.ok (baseX && derivedX && n && byKeeper.success && !byOther.success && kn))",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }

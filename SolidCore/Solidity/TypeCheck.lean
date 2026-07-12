@@ -11830,6 +11830,42 @@ def TypeContext.functionSigsForModifierBodies
     (types : TypeContext) : List FunctionSig :=
   contractEntriesFunctionSigsForModifierBodies types.contractDecls
 
+/-- The contract that DECLARES modifier `name` from the current contract's
+    point of view: the first contract in the C3 linearization (current contract
+    first, then `ancestorPaths` in order) with a direct declaration of that
+    name — exactly the declaration `ContractDecl.modifierDeclsFromOrder` keeps
+    (`addIfNewName` is first-in-order-wins). -/
+def CheckEnv.modifierDeclaringContract? (env : CheckEnv) (name : Name) :
+    Option Solidity.ContractDecl :=
+  let paths :=
+    match env.currentContract with
+    | some current => current :: env.ancestorPaths
+    | none => []
+  (paths.filterMap env.types.lookupContractDecl?).find?
+    (fun decl =>
+      ModifierDecls.containsName name
+        (ContractDecl.directModifierDecls decl))
+
+/-- The PRIVATE state variables of the contract declaring modifier `name`
+    (#199). solc resolves a modifier BODY in its DECLARING contract's scope,
+    which sees that contract's private state variables — absent from the
+    CALLING contract's env (own + non-private-inherited) when the modifier is
+    inherited. Non-private declaring-contract variables are already in the
+    caller's scope under the same (unshadowable) name, so only the privates
+    need seeding; they are prepended so the declaring contract's own private
+    beats a same-name private redeclared in the caller. -/
+def CheckEnv.modifierDeclaringPrivateStateVars (env : CheckEnv)
+    (name : Name) : List Solidity.StateVarDecl :=
+  match env.modifierDeclaringContract? name with
+  | none => []
+  | some declaring =>
+      (declaring.items.filterMap
+        (fun item =>
+          match item with
+          | Solidity.ContractItem.stateVar decl => some decl
+          | _ => none)).filter
+        (fun decl => !StateVarDecl.visibleToDerived decl)
+
 def ModifierInvocation.checkBodyForCaller (env : CheckEnv)
     (invocation : Solidity.ModifierInvocation) :
     Except TypeError Unit := do
@@ -11849,13 +11885,30 @@ def ModifierInvocation.checkBodyForCaller (env : CheckEnv)
                 Parameters.namedTypeStorageRefs env.types modifier.params
               let dataLocations :=
                 Parameters.namedDataLocations env.types modifier.params
+              -- #199: seed the DECLARING contract's private state variables
+              -- (see `modifierDeclaringPrivateStateVars`) between the
+              -- modifier's own parameters and the caller's scope.
+              let declaringPrivates :=
+                env.modifierDeclaringPrivateStateVars name
+              let declaringPrivateConstness :=
+                StateVarDecls.namedConstness declaringPrivates
               let modifierEnv :=
                 { env.enterModifier with
                   functions :=
                     env.types.functionSigsForModifierBodies ++
                       env.functions
                   vars := locals.map (fun entry => (entry.1, entry.2.1)) ++
+                    StateVarDecls.namedTypes declaringPrivates ++
                     env.vars
+                  stateNames :=
+                    StateVarDecls.runtimeStateNamesWith
+                      declaringPrivateConstness declaringPrivates ++
+                      env.stateNames
+                  constantBindings :=
+                    declaringPrivateConstness ++ env.constantBindings
+                  immutableNames :=
+                    StateVarDecls.immutableNames declaringPrivates ++
+                      env.immutableNames
                   localNames := locals.map Prod.fst ++ env.localNames
                   localStorageRefs :=
                     (locals.filterMap

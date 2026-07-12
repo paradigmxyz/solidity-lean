@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/inherited-struct-field/out"
+cache_path = "../../.foundry-suites/inherited-struct-field/cache"
+evm_version = "cancun"
