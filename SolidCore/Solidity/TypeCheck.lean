@@ -1478,105 +1478,272 @@ def enumUntypedLiteralConversionAllowed? (types : TypeContext)
   else
     none
 
+-- ===========================================================================
+-- R4 (source-keyed explicit conversion). solc dispatches explicit
+-- convertibility VIRTUALLY on the SOURCE type (`Types.h:224-227`): every
+-- `Type` subclass overrides `isExplicitlyConvertibleTo`, so a source type
+-- cannot be "forgotten" — its whole conversion story is one closed method.
+-- The predicate below mirrors that: after the untyped-literal layer (solc's
+-- RationalNumberType, a genuine leading concern) and the identity
+-- short-circuit, it matches the SOURCE constructor exhaustively — Lean's
+-- exhaustiveness checking replaces the C++ vtable — and each arm is a small
+-- target predicate mirroring the corresponding solc `<Type>::
+-- isExplicitlyConvertibleTo` method (Types.cpp line refs on each arm).
+--
+-- `Ty.explicitConversionLiteralEscape` preserves the flattened table's
+-- literal-fit escapes verbatim: at address/integer/fixed-point/fixed-bytes
+-- TARGETS the old table additionally consulted `typeConversionLiteralFits`,
+-- which recognizes string/hex/address literal expressions that
+-- `exprIsUntypedNumberLiteralExpression` does not claim (e.g.
+-- `bytes4("abc")`). Behavior-preserving: each source arm keeps the escape
+-- exactly where its old table rows had it (verified by the R4 differential
+-- matrix, scratchpad audit-r4).
+-- ===========================================================================
+
+/-- Untyped-literal layer of explicit conversion, keyed on the TARGET —
+    solc `RationalNumberType::isExplicitlyConvertibleTo`
+    (Types.cpp:1042-1064). -/
+def Ty.canExplicitlyConvertUntypedLiteral (types : TypeContext)
+    (sourceExpr : Solidity.Expr) (target : Ty) : Bool :=
+  match target with
+  | Solidity.Ty.address false =>
+      typeConversionLiteralFits target sourceExpr
+  | Solidity.Ty.uint _
+  | Solidity.Ty.int _
+  | Solidity.Ty.fixed _ _
+  | Solidity.Ty.ufixed _ _
+  | Solidity.Ty.bytesN _
+  | Solidity.Ty.fixedBytes _ =>
+      typeConversionLiteralFits target sourceExpr
+  | Solidity.Ty.user path =>
+      match enumUntypedLiteralConversionAllowed? types path sourceExpr with
+      | some allowed => allowed
+      | none => false
+  | _ => false
+
+/-- Literal-fit escape of the pre-R4 flattened table: the set of TARGETS at
+    which the table consulted `typeConversionLiteralFits sourceExpr` for
+    every source shape (string/hex/address literal expressions whose
+    inferred `actual` type is not itself convertible). -/
+def Ty.explicitConversionLiteralEscape (sourceExpr : Solidity.Expr)
+    (target : Ty) : Bool :=
+  match target with
+  | Solidity.Ty.address false
+  | Solidity.Ty.uint _
+  | Solidity.Ty.int _
+  | Solidity.Ty.fixed _ _
+  | Solidity.Ty.ufixed _ _
+  | Solidity.Ty.bytesN _
+  | Solidity.Ty.fixedBytes _ =>
+      typeConversionLiteralFits target sourceExpr
+  | _ => false
+
+/-- Fixed-bytes TARGET rule shared by the source arms: a fixed-bytes-literal
+    candidate expression (string/hex literal) is judged ONLY by literal fit;
+    otherwise the source arm's type rule applies, with the literal escape. -/
+def Ty.explicitToFixedBytesTarget (sourceExpr : Solidity.Expr)
+    (sourceRule : Bool) (target : Ty) : Bool :=
+  if Solidity.Executable.Expr.isFixedBytesLiteralCandidate sourceExpr then
+    typeConversionLiteralFits target sourceExpr
+  else
+    sourceRule || typeConversionLiteralFits target sourceExpr
+
+/-- solc `AddressType::isExplicitlyConvertibleTo` (Types.cpp:495-510):
+    address → address; address → contract when the source is payable or the
+    contract cannot receive ether; a NON-payable address → uint160 / bytes20.
+    `address payable` is never an explicit-conversion TARGET in this AST
+    layer (solc reaches it only via the `payable(...)` builtin). -/
+def Ty.explicitFromAddress (types : TypeContext)
+    (sourceExpr : Solidity.Expr) (sourcePayable : Bool)
+    (target : Ty) : Bool :=
+  match target with
+  | Solidity.Ty.address true => false
+  | Solidity.Ty.address false => true
+  | Solidity.Ty.user path =>
+      types.isContractPath path &&
+        (sourcePayable || !types.contractCanReceiveEther path)
+  | Solidity.Ty.uint bits =>
+      (!sourcePayable && bits == 160) ||
+        typeConversionLiteralFits target sourceExpr
+  | Solidity.Ty.bytesN size =>
+      Ty.explicitToFixedBytesTarget sourceExpr
+        (!sourcePayable && size == 20) target
+  | Solidity.Ty.fixedBytes size =>
+      Ty.explicitToFixedBytesTarget sourceExpr
+        (!sourcePayable && size == 20) target
+  | Solidity.Ty.int _
+  | Solidity.Ty.fixed _ _
+  | Solidity.Ty.ufixed _ _ =>
+      typeConversionLiteralFits target sourceExpr
+  | _ => false
+
+/-- solc `IntegerType::isExplicitlyConvertibleTo` (Types.cpp:627-646):
+    integer → integer with same width OR same signedness; UNSIGNED 160-bit →
+    non-payable address; UNSIGNED same-total-width → bytesN; any integer →
+    enum. `actual` is the `uint`/`int` source itself so the shared helpers
+    (`integerExplicitConversionAllowed`, `fixedBytesIntegerSameSize`) are
+    reused verbatim. -/
+def Ty.explicitFromInteger (types : TypeContext)
+    (sourceExpr : Solidity.Expr) (actual target : Ty) : Bool :=
+  match target with
+  | Solidity.Ty.address true => false
+  | Solidity.Ty.address false =>
+      actual == Solidity.Ty.uint 160 ||
+        typeConversionLiteralFits target sourceExpr
+  | Solidity.Ty.uint _
+  | Solidity.Ty.int _ =>
+      Ty.integerExplicitConversionAllowed actual target ||
+        typeConversionLiteralFits target sourceExpr
+  | Solidity.Ty.fixed _ _
+  | Solidity.Ty.ufixed _ _ =>
+      typeConversionLiteralFits target sourceExpr
+  | Solidity.Ty.bytesN _
+  | Solidity.Ty.fixedBytes _ =>
+      Ty.explicitToFixedBytesTarget sourceExpr
+        (Ty.fixedBytesIntegerSameSize target actual) target
+  | Solidity.Ty.user path => types.isEnumPath path
+  | _ => false
+
+/-- solc `FixedPointType::isExplicitlyConvertibleTo` (Types.cpp:791-794):
+    fixed point → fixed point / integer. -/
+def Ty.explicitFromFixedPoint (sourceExpr : Solidity.Expr)
+    (target : Ty) : Bool :=
+  match target with
+  | Solidity.Ty.uint _
+  | Solidity.Ty.int _
+  | Solidity.Ty.fixed _ _
+  | Solidity.Ty.ufixed _ _ => true
+  | Solidity.Ty.address false =>
+      typeConversionLiteralFits target sourceExpr
+  | Solidity.Ty.bytesN _
+  | Solidity.Ty.fixedBytes _ =>
+      Ty.explicitToFixedBytesTarget sourceExpr false target
+  | _ => false
+
+/-- solc `FixedBytesType::isExplicitlyConvertibleTo` (Types.cpp:1360-1377):
+    bytesM → bytesN (any sizes); bytes20 → non-payable address; bytesM →
+    UNSIGNED integer of the same total width. -/
+def Ty.explicitFromFixedBytes (sourceExpr : Solidity.Expr)
+    (actual target : Ty) : Bool :=
+  match target with
+  | Solidity.Ty.address true => false
+  | Solidity.Ty.address false =>
+      actual.fixedBytesSize? == some 20 ||
+        typeConversionLiteralFits target sourceExpr
+  | Solidity.Ty.uint _ =>
+      Ty.fixedBytesIntegerSameSize actual target ||
+        typeConversionLiteralFits target sourceExpr
+  | Solidity.Ty.int _
+  | Solidity.Ty.fixed _ _
+  | Solidity.Ty.ufixed _ _ =>
+      typeConversionLiteralFits target sourceExpr
+  | Solidity.Ty.bytesN _
+  | Solidity.Ty.fixedBytes _ =>
+      Ty.explicitToFixedBytesTarget sourceExpr true target
+  | _ => false
+
+/-- solc `ArrayType::isExplicitlyConvertibleTo` for the byte-array types
+    (Types.cpp:1668-1680): bytes ↔ string, bytes → bytesNN. -/
+def Ty.explicitFromBytes (sourceExpr : Solidity.Expr)
+    (target : Ty) : Bool :=
+  match target with
+  | Solidity.Ty.string => true
+  | Solidity.Ty.bytesN _
+  | Solidity.Ty.fixedBytes _ =>
+      Ty.explicitToFixedBytesTarget sourceExpr true target
+  | _ => Ty.explicitConversionLiteralEscape sourceExpr target
+
+def Ty.explicitFromString (sourceExpr : Solidity.Expr)
+    (target : Ty) : Bool :=
+  match target with
+  | Solidity.Ty.bytes => true
+  | _ => Ty.explicitConversionLiteralEscape sourceExpr target
+
+/-- User-type sources, sub-keyed by what the path denotes:
+    * contract — solc `ContractType::isExplicitlyConvertibleTo`
+      (Types.cpp:1491-1499): contract → address always (a non-payable
+      address target accepts any contract); contract → contract only
+      UP-cast (target in the source's linearized bases, Types.cpp:1475-1486);
+    * enum — solc `EnumType::isExplicitlyConvertibleTo` (Types.cpp:2674-2681):
+      enum → UNSIGNED integer (the old table accepted `uint _` targets only,
+      via the enum disjunct of its uint row);
+    * UDVT / struct paths — identity only (Type base default,
+      Types.h:224-227; wrap/unwrap are calls, not conversions). -/
+def Ty.explicitFromUser (types : TypeContext)
+    (sourceExpr : Solidity.Expr) (actualPath : Path)
+    (target : Ty) : Bool :=
+  match target with
+  | Solidity.Ty.address true => false
+  | Solidity.Ty.address false => types.isContractPath actualPath
+  | Solidity.Ty.user targetPath =>
+      if types.isContractPath actualPath &&
+          types.isContractPath targetPath then
+        -- A4: solc ContractType::isExplicitlyConvertibleTo (Types.cpp:1491)
+        -- falls through to isImplicitlyConvertibleTo (Types.cpp:1475-1486),
+        -- which permits contract->contract only when the target is in the
+        -- source's linearized bases, i.e. an UP-cast (derived->base). A
+        -- down-cast (base->derived) is a type error. Require the target to be
+        -- an ancestor (base) of the source, not merely related.
+        TypeContext.contractHasAncestorPathFuel types 64 actualPath targetPath
+      else
+        false
+  | Solidity.Ty.uint _ =>
+      types.isEnumPath actualPath ||
+        typeConversionLiteralFits target sourceExpr
+  | Solidity.Ty.int _
+  | Solidity.Ty.fixed _ _
+  | Solidity.Ty.ufixed _ _ =>
+      typeConversionLiteralFits target sourceExpr
+  | Solidity.Ty.bytesN _
+  | Solidity.Ty.fixedBytes _ =>
+      Ty.explicitToFixedBytesTarget sourceExpr false target
+  | _ => false
+
 def Ty.canExplicitlyConvert (types : TypeContext)
     (sourceExpr : Solidity.Expr) (actual target : Ty) : Bool :=
   if exprIsUntypedNumberLiteralExpression sourceExpr then
-    match target with
-    | Solidity.Ty.address false =>
-        typeConversionLiteralFits target sourceExpr
-    | Solidity.Ty.uint _
-    | Solidity.Ty.int _
-    | Solidity.Ty.fixed _ _
-    | Solidity.Ty.ufixed _ _
-    | Solidity.Ty.bytesN _
-    | Solidity.Ty.fixedBytes _ =>
-        typeConversionLiteralFits target sourceExpr
-    | Solidity.Ty.user path =>
-        match enumUntypedLiteralConversionAllowed? types path sourceExpr with
-        | some allowed => allowed
-        | none => false
-    | _ => false
+    Ty.canExplicitlyConvertUntypedLiteral types sourceExpr target
   else if actual == target then
     true
   else
-    match actual, target with
-    | _, Solidity.Ty.address true => false
-    | Solidity.Ty.address _, Solidity.Ty.address false => true
-    | Solidity.Ty.uint 160, Solidity.Ty.address false => true
-    | Solidity.Ty.bytesN 20, Solidity.Ty.address false => true
-    | Solidity.Ty.fixedBytes 20, Solidity.Ty.address false => true
-    | Solidity.Ty.user path, Solidity.Ty.address false =>
-        types.isContractPath path
-    | _, Solidity.Ty.address false =>
-        typeConversionLiteralFits target sourceExpr
-    | Solidity.Ty.string, Solidity.Ty.bytes => true
-    | Solidity.Ty.bytes, Solidity.Ty.string => true
-    | _, Solidity.Ty.uint _ =>
-        (match actual with
-        | Solidity.Ty.user path => types.isEnumPath path
-        | _ => false) ||
-          actual.isFixedPoint ||
-          Ty.integerExplicitConversionAllowed actual target ||
-          Ty.fixedBytesIntegerSameSize actual target ||
-          (match actual with
-          | Solidity.Ty.address false =>
-              target == Solidity.Ty.uint 160
-          | _ => false) ||
-          typeConversionLiteralFits target sourceExpr
-    | _, Solidity.Ty.int _ =>
-        Ty.integerExplicitConversionAllowed actual target ||
-          actual.isFixedPoint ||
-          Ty.fixedBytesIntegerSameSize actual target ||
-          typeConversionLiteralFits target sourceExpr
-    | _, Solidity.Ty.fixed _ _
-    | _, Solidity.Ty.ufixed _ _ =>
-        actual.isFixedPoint ||
-          typeConversionLiteralFits target sourceExpr
-    | _, Solidity.Ty.bytesN _ =>
-        if Solidity.Executable.Expr.isFixedBytesLiteralCandidate
-            sourceExpr then
-          typeConversionLiteralFits target sourceExpr
-        else
-          (actual.isFixedBytes || actual == Solidity.Ty.bytes ||
-            (actual == Solidity.Ty.address false &&
-              target == Solidity.Ty.bytesN 20) ||
-            Ty.fixedBytesIntegerSameSize target actual) ||
-            typeConversionLiteralFits target sourceExpr
-    | _, Solidity.Ty.fixedBytes _ =>
-        if Solidity.Executable.Expr.isFixedBytesLiteralCandidate
-            sourceExpr then
-          typeConversionLiteralFits target sourceExpr
-        else
-          (actual.isFixedBytes || actual == Solidity.Ty.bytes ||
-            (actual == Solidity.Ty.address false &&
-              target == Solidity.Ty.fixedBytes 20) ||
-            Ty.fixedBytesIntegerSameSize target actual) ||
-            typeConversionLiteralFits target sourceExpr
-    | Solidity.Ty.address sourcePayable,
-      Solidity.Ty.user path =>
-        types.isContractPath path &&
-          (sourcePayable || !types.contractCanReceiveEther path)
-    | Solidity.Ty.user actualPath, Solidity.Ty.user targetPath =>
-        if types.isContractPath actualPath && types.isContractPath targetPath then
-          -- A4: solc ContractType::isExplicitlyConvertibleTo (Types.cpp:1491)
-          -- falls through to isImplicitlyConvertibleTo (Types.cpp:1475-1486),
-          -- which permits contract->contract only when the target is in the
-          -- source's linearized bases, i.e. an UP-cast (derived->base). A
-          -- down-cast (base->derived) is a type error. Require the target to be
-          -- an ancestor (base) of the source, not merely related.
-          TypeContext.contractHasAncestorPathFuel types 64 actualPath targetPath
-        else if types.isEnumPath targetPath then
-          actual.isInteger
-        else
-          false
-    | _, Solidity.Ty.user path =>
-        if types.isEnumPath path then
-          match enumUntypedLiteralConversionAllowed? types path sourceExpr with
-          | some allowed => allowed
-          | none => actual.isInteger
-        else
-          false
-    | _, _ => false
+    -- Source-keyed dispatch: exhaustive over the `Ty` constructors — Lean's
+    -- exhaustiveness guarantees no source type is forgotten (the solc vtable
+    -- discipline, Types.h:224-227).
+    match actual with
+    | Solidity.Ty.bool =>
+        Ty.explicitConversionLiteralEscape sourceExpr target
+    | Solidity.Ty.address sourcePayable =>
+        Ty.explicitFromAddress types sourceExpr sourcePayable target
+    | Solidity.Ty.uint _ =>
+        Ty.explicitFromInteger types sourceExpr actual target
+    | Solidity.Ty.int _ =>
+        Ty.explicitFromInteger types sourceExpr actual target
+    | Solidity.Ty.fixed _ _ =>
+        Ty.explicitFromFixedPoint sourceExpr target
+    | Solidity.Ty.ufixed _ _ =>
+        Ty.explicitFromFixedPoint sourceExpr target
+    | Solidity.Ty.bytesN _ =>
+        Ty.explicitFromFixedBytes sourceExpr actual target
+    | Solidity.Ty.fixedBytes _ =>
+        Ty.explicitFromFixedBytes sourceExpr actual target
+    | Solidity.Ty.bytes =>
+        Ty.explicitFromBytes sourceExpr target
+    | Solidity.Ty.string =>
+        Ty.explicitFromString sourceExpr target
+    | Solidity.Ty.user actualPath =>
+        Ty.explicitFromUser types sourceExpr actualPath target
+    | Solidity.Ty.array _ _ =>
+        Ty.explicitConversionLiteralEscape sourceExpr target
+    | Solidity.Ty.mapping _ _ =>
+        Ty.explicitConversionLiteralEscape sourceExpr target
+    | Solidity.Ty.tuple _ =>
+        Ty.explicitConversionLiteralEscape sourceExpr target
+    | Solidity.Ty.struct _ _ =>
+        Ty.explicitConversionLiteralEscape sourceExpr target
+    | Solidity.Ty.enum _ =>
+        Ty.explicitConversionLiteralEscape sourceExpr target
+    | Solidity.Ty.functionWithLocations _ _ _ _ _ _ =>
+        Ty.explicitConversionLiteralEscape sourceExpr target
 
 def checkTy (types : TypeContext) (ty : Ty) : Except TypeError Unit :=
   require (Ty.isValid types ty) (TypeError.invalidType ty)
