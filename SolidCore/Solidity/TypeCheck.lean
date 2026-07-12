@@ -1050,58 +1050,101 @@ def StateMutability.canImplicitlyConvertFunction
       Solidity.StateMutability.nonpayable => true
     | _, _ => false
 
+-- ===========================================================================
+-- R4 (source-keyed implicit conversion). solc dispatches implicit
+-- convertibility VIRTUALLY on the SOURCE type (`Types.h:224-227`); the
+-- context-free core below mirrors that with an EXHAUSTIVE match on the
+-- source constructor — no `| _, _ => false` sink over the source — each arm
+-- a small target predicate mirroring the corresponding solc
+-- `<Type>::isImplicitlyConvertibleTo` (Types.cpp refs inline). Source types
+-- whose solc method is the base default (`*this == _other`,
+-- Types.h:224) — bool, bytes, string, mapping, tuple, struct, user paths —
+-- are identity-only here (the identity short-circuit precedes the match);
+-- user-path context rules (aliases, contract covariance) live in the
+-- context-aware `TypeContext.canImplicitlyConvert`.
+-- ===========================================================================
 def Ty.canImplicitlyConvert (actual expected : Ty) : Bool :=
   if actual == expected then
     true
   else
-    match actual, expected with
-    | Solidity.Ty.address true,
-      Solidity.Ty.address false => true
-    | Solidity.Ty.uint actualBits,
-      Solidity.Ty.uint expectedBits => actualBits <= expectedBits
-    | Solidity.Ty.int actualBits,
-      Solidity.Ty.int expectedBits => actualBits <= expectedBits
-    -- A1: solc IntegerType::isImplicitlyConvertibleTo (Types.cpp:611-614)
-    -- forbids ALL implicit signed<->unsigned conversions (uintN->intM and
-    -- intN->uintM). Only same-signedness widening is implicit. The former
-    -- `uint actualBits -> int expectedBits` arm was removed.
-    | Solidity.Ty.fixed actualBits actualDecimals,
-      Solidity.Ty.fixed expectedBits expectedDecimals =>
-        Solidity.Ty.fixedPointImplicitlyConvertible
-          true actualBits actualDecimals true expectedBits expectedDecimals
-    | Solidity.Ty.ufixed actualBits actualDecimals,
-      Solidity.Ty.ufixed expectedBits expectedDecimals =>
-        Solidity.Ty.fixedPointImplicitlyConvertible
-          false actualBits actualDecimals false expectedBits expectedDecimals
-    | Solidity.Ty.ufixed actualBits actualDecimals,
-      Solidity.Ty.fixed expectedBits expectedDecimals =>
-        Solidity.Ty.fixedPointImplicitlyConvertible
-          false actualBits actualDecimals true expectedBits expectedDecimals
-    | Solidity.Ty.bytesN actualSize,
-      Solidity.Ty.bytesN expectedSize => actualSize <= expectedSize
-    | Solidity.Ty.fixedBytes actualSize,
-      Solidity.Ty.fixedBytes expectedSize =>
-        actualSize <= expectedSize
-    | Solidity.Ty.bytesN actualSize,
-      Solidity.Ty.fixedBytes expectedSize =>
-        actualSize <= expectedSize
-    | Solidity.Ty.fixedBytes actualSize,
-      Solidity.Ty.bytesN expectedSize =>
-        actualSize <= expectedSize
+    match actual with
+    | Solidity.Ty.bool => false
+    -- solc AddressType::isImplicitlyConvertibleTo (Types.cpp:486-493):
+    -- `other.m_stateMutability <= m_stateMutability` — payable → non-payable.
+    | Solidity.Ty.address sourcePayable =>
+        (match expected with
+        | Solidity.Ty.address false => sourcePayable
+        | _ => false)
+    -- A1 / solc IntegerType::isImplicitlyConvertibleTo (Types.cpp:605-625):
+    -- same-signedness widening only; ALL implicit signed<->unsigned
+    -- conversions (uintN->intM and intN->uintM) are forbidden.
+    | Solidity.Ty.uint actualBits =>
+        (match expected with
+        | Solidity.Ty.uint expectedBits => actualBits <= expectedBits
+        | _ => false)
+    | Solidity.Ty.int actualBits =>
+        (match expected with
+        | Solidity.Ty.int expectedBits => actualBits <= expectedBits
+        | _ => false)
+    -- solc FixedPointType::isImplicitlyConvertibleTo (Types.cpp:776-789).
+    | Solidity.Ty.fixed actualBits actualDecimals =>
+        (match expected with
+        | Solidity.Ty.fixed expectedBits expectedDecimals =>
+            Solidity.Ty.fixedPointImplicitlyConvertible
+              true actualBits actualDecimals true expectedBits expectedDecimals
+        | _ => false)
+    | Solidity.Ty.ufixed actualBits actualDecimals =>
+        (match expected with
+        | Solidity.Ty.ufixed expectedBits expectedDecimals =>
+            Solidity.Ty.fixedPointImplicitlyConvertible
+              false actualBits actualDecimals
+              false expectedBits expectedDecimals
+        | Solidity.Ty.fixed expectedBits expectedDecimals =>
+            Solidity.Ty.fixedPointImplicitlyConvertible
+              false actualBits actualDecimals
+              true expectedBits expectedDecimals
+        | _ => false)
+    -- solc FixedBytesType::isImplicitlyConvertibleTo (Types.cpp:1352-1358):
+    -- widening only. `bytesN`/`fixedBytes` are the same solc type category,
+    -- so both target spellings are accepted from either source spelling.
+    | Solidity.Ty.bytesN actualSize =>
+        (match expected with
+        | Solidity.Ty.bytesN expectedSize => actualSize <= expectedSize
+        | Solidity.Ty.fixedBytes expectedSize => actualSize <= expectedSize
+        | _ => false)
+    | Solidity.Ty.fixedBytes actualSize =>
+        (match expected with
+        | Solidity.Ty.fixedBytes expectedSize => actualSize <= expectedSize
+        | Solidity.Ty.bytesN expectedSize => actualSize <= expectedSize
+        | _ => false)
+    | Solidity.Ty.bytes => false
+    | Solidity.Ty.string => false
+    -- Arrays: identity only in the context-free core; the compositional
+    -- storage-copy recursion (solc ArrayType::isImplicitlyConvertibleTo,
+    -- Types.cpp:1628-1666) lives in `TypeContext.canImplicitlyConvertFuel`.
+    | Solidity.Ty.array _ _ => false
+    | Solidity.Ty.mapping _ _ => false
+    | Solidity.Ty.tuple _ => false
+    | Solidity.Ty.struct _ _ => false
+    | Solidity.Ty.user _ => false
+    | Solidity.Ty.enum _ => false
+    -- solc FunctionType::isImplicitlyConvertibleTo (Types.cpp:3165-3200):
+    -- identical signature, state-mutability lattice.
     | Solidity.Ty.functionWithLocations actualParams
         actualParamLocations actualReturns actualReturnLocations
-        actualMutability actualVisibility,
-      Solidity.Ty.functionWithLocations expectedParams
-        expectedParamLocations expectedReturns expectedReturnLocations
-        expectedMutability expectedVisibility =>
-        actualParams == expectedParams &&
-          actualParamLocations == expectedParamLocations &&
-          actualReturns == expectedReturns &&
-          actualReturnLocations == expectedReturnLocations &&
-          actualVisibility == expectedVisibility &&
-          StateMutability.canImplicitlyConvertFunction
-            actualMutability expectedMutability
-    | _, _ => false
+        actualMutability actualVisibility =>
+        (match expected with
+        | Solidity.Ty.functionWithLocations expectedParams
+            expectedParamLocations expectedReturns expectedReturnLocations
+            expectedMutability expectedVisibility =>
+            actualParams == expectedParams &&
+              actualParamLocations == expectedParamLocations &&
+              actualReturns == expectedReturns &&
+              actualReturnLocations == expectedReturnLocations &&
+              actualVisibility == expectedVisibility &&
+              StateMutability.canImplicitlyConvertFunction
+                actualMutability expectedMutability
+        | _ => false)
 
 -- G14 / R2: `Ty.storageArrayCopyAssignable?` (defined after
 -- `TypeContext.canImplicitlyConvert`, since it needs the type-context-aware
@@ -1246,25 +1289,69 @@ def TypeContext.contractHasImmutable (types : TypeContext)
     (path : Path) : Bool :=
   TypeContext.contractHasImmutableFuel types 64 path
 
+-- R4: THE one implicit-conversion recursion. Arrays are handled
+-- compositionally, mirroring solc `ArrayType::isImplicitlyConvertibleTo`
+-- (Types.cpp:1628-1666), with the storage-copy relaxation as an explicit
+-- flag rather than a separate disjoint helper:
+--   * `storageCopy = false` (every ordinary conversion context — solc's
+--     "conversion to storage pointer or to memory" branch,
+--     Types.cpp:1650-1665): the base type must be the SAME, same
+--     dynamic-sizedness, same length ⇒ in this location-free `Ty` layer
+--     exactly type identity.
+--   * `storageCopy = true` (copy assignment into a non-pointer storage
+--     array — solc's "less restrictive, since we need to copy anyway"
+--     branch, Types.cpp:1640-1648): a DYNAMIC dest accepts any source
+--     length; a FIXED dest `T[N]` requires a FIXED source `S[M]` with
+--     `M ≤ N`; the element recurses with the flag kept ON (a nested array
+--     under a storage array is still storage), bottoming out in the
+--     context-aware leaf rule.
+-- Non-array leaves: the context-free source-keyed core, plus the user-path
+-- context rules (struct/enum/UDVT local aliases, contract covariance
+-- Derived → Base — solc ContractType::isImplicitlyConvertibleTo,
+-- Types.cpp:1468-1489).
+def TypeContext.canImplicitlyConvertFuel (types : TypeContext) :
+    Nat -> (storageCopy : Bool) -> Ty -> Ty -> Bool
+  | 0, _, _, _ => false
+  | fuel + 1, storageCopy, actual, expected =>
+      match actual, expected with
+      | Solidity.Ty.array actualElem actualLen,
+        Solidity.Ty.array expectedElem expectedLen =>
+          if storageCopy then
+            (match expectedLen, actualLen with
+            | none, _ => true
+            | some n, some m => m <= n
+            | some _, none => false) &&
+              TypeContext.canImplicitlyConvertFuel types fuel true
+                actualElem expectedElem
+          else
+            actual == expected
+      | _, _ =>
+          if Ty.canImplicitlyConvert actual expected then
+            true
+          else
+            match actual, expected with
+            | Solidity.Ty.user actualPath,
+              Solidity.Ty.user expectedPath =>
+                TypeContext.pathsAreLocalAliasIn
+                  types.structs actualPath expectedPath ||
+                TypeContext.pathsAreLocalAliasIn
+                  types.enums actualPath expectedPath ||
+                TypeContext.pathsAreLocalAliasIn
+                  types.userValueTypes actualPath expectedPath ||
+                (types.isContractPath actualPath &&
+                    types.isContractPath expectedPath &&
+                    TypeContext.contractHasAncestorPathFuel types 64
+                      actualPath expectedPath)
+            | _, _ => false
+
 def TypeContext.canImplicitlyConvert (types : TypeContext)
     (actual expected : Ty) : Bool :=
-  if Ty.canImplicitlyConvert actual expected then
-    true
-  else
-    match actual, expected with
-    | Solidity.Ty.user actualPath,
-      Solidity.Ty.user expectedPath =>
-        TypeContext.pathsAreLocalAliasIn
-          types.structs actualPath expectedPath ||
-        TypeContext.pathsAreLocalAliasIn
-          types.enums actualPath expectedPath ||
-        TypeContext.pathsAreLocalAliasIn
-          types.userValueTypes actualPath expectedPath ||
-        (types.isContractPath actualPath &&
-            types.isContractPath expectedPath &&
-            TypeContext.contractHasAncestorPathFuel types 64
-              actualPath expectedPath)
-    | _, _ => false
+  TypeContext.canImplicitlyConvertFuel types 65 false actual expected
+
+/-- Storage-copy entry point (solc's non-pointer storage dest branch). -/
+def TypeContext.canImplicitlyConvertStorageCopy (types : TypeContext)
+    (actual expected : Ty) : Bool :=
+  TypeContext.canImplicitlyConvertFuel types 65 true actual expected
 
 -- G14 / R2: acceptance of a copy assignment INTO a (non-pointer) storage array
 -- with an implicitly-convertible element type and/or a differing length. solc's
@@ -1288,7 +1375,8 @@ def TypeContext.canImplicitlyConvert (types : TypeContext)
 -- struct one array level down (`S[][2] → S[][3]`, `S[2][2] → S[2][3]`) is
 -- ACCEPTED by legacy, because the per-element copy of an ARRAY element is
 -- supported. So the struct exclusion is applied ONLY to the outer array's direct
--- element, and `Ty.storageArrayCopyConvertible?` (the recursion) carries no such
+-- element, and the storage-copy recursion
+-- (`TypeContext.canImplicitlyConvertFuel`, storageCopy = true) carries no such
 -- exclusion. This keeps every value/reference-element widening accepted while
 -- holding the direct-struct-element copy rejected (task #122 legacy-vs-IR zone).
 --
@@ -1302,36 +1390,16 @@ def Ty.isStructValueTy (types : TypeContext) : Ty -> Bool
       | none => false
   | _ => false
 
--- Recursive element convertibility: nested arrays widen length the same way,
--- the leaf element uses the type-context-aware implicit convertibility. No
--- struct exclusion here (only the outer direct element is carved out).
-def Ty.storageArrayCopyConvertible? (types : TypeContext) :
-    Nat -> Ty -> Ty -> Bool
-  | 0, _, _ => false
-  | fuel + 1, destTy, srcTy =>
-      match destTy, srcTy with
-      | Solidity.Ty.array destElem none,
-        Solidity.Ty.array srcElem _ =>
-          Ty.storageArrayCopyConvertible? types fuel destElem srcElem
-      | Solidity.Ty.array destElem (some n),
-        Solidity.Ty.array srcElem (some m) =>
-          m <= n && Ty.storageArrayCopyConvertible? types fuel destElem srcElem
-      | _, _ =>
-          TypeContext.canImplicitlyConvert types srcTy destTy
-
+-- R4: the array recursion itself now lives in
+-- `TypeContext.canImplicitlyConvertFuel` (storageCopy flag); this wrapper
+-- keeps only what is NOT a conversion rule — the legacy-codegen
+-- direct-struct-element carve-out described above.
 def Ty.storageArrayCopyAssignable? (types : TypeContext)
     (destTy srcTy : Ty) : Bool :=
   match destTy, srcTy with
-  -- Dynamic dest: any source length (dynamic OR fixed source).
-  | Solidity.Ty.array destElem none,
-    Solidity.Ty.array srcElem _ =>
+  | Solidity.Ty.array _ _, Solidity.Ty.array srcElem _ =>
       !Ty.isStructValueTy types srcElem &&
-        Ty.storageArrayCopyConvertible? types 64 destElem srcElem
-  -- Fixed dest `T[N]`: fixed source `S[M]` with N ≥ M.
-  | Solidity.Ty.array destElem (some n),
-    Solidity.Ty.array srcElem (some m) =>
-      m <= n && !Ty.isStructValueTy types srcElem &&
-        Ty.storageArrayCopyConvertible? types 64 destElem srcElem
+        TypeContext.canImplicitlyConvertStorageCopy types srcTy destTy
   | _, _ => false
 
 def fixedPointLiteralRaw? (decimals : Nat)
@@ -2371,18 +2439,6 @@ def orderedTys? (paramNames : List (Option Name)) (infos : List ArgInfo) :
 
 end ArgInfos
 
-def FunctionSig.paramsAccept : List Ty -> List Ty -> Bool
-  | [], [] => true
-  | actual :: actualRest, expected :: expectedRest =>
-      Ty.canImplicitlyConvert actual expected &&
-        FunctionSig.paramsAccept actualRest expectedRest
-  | _, _ => false
-
-def FunctionSig.matchesArgs (sig : FunctionSig) (args : List ArgInfo) : Bool :=
-  match ArgInfos.orderedTys? sig.paramNames args with
-  | some argTys => FunctionSig.paramsAccept argTys sig.params
-  | none => false
-
 def FunctionSig.lookupParamTyByName? :
     List (Option Name) -> List Ty -> Name -> Option Ty
   | some paramName :: nameRest, ty :: tyRest, target =>
@@ -2567,27 +2623,6 @@ def FunctionSigs.ensureNoDuplicateExternalAbiSelectors
     (types : TypeContext) (sigs : List FunctionSig) : Except TypeError Unit :=
   FunctionSigs.ensureNoDuplicateExternalAbiSelectorEntries
     (FunctionSigs.externalAbiSelectorEntries types sigs)
-
-def FunctionSigs.resolveLoop (target : Name) (args : List ArgInfo) :
-    Option FunctionSig -> List FunctionSig ->
-    Except TypeError FunctionSig
-  | none, [] => Except.error (TypeError.unknownFunction target)
-  | some found, [] => Except.ok found
-  | found?, sig :: rest =>
-      if sig.name == target && sig.matchesArgs args then
-        match found? with
-        | none => FunctionSigs.resolveLoop target args (some sig) rest
-        | some found =>
-            if FunctionSig.sameResolutionTarget found sig then
-              FunctionSigs.resolveLoop target args (some found) rest
-            else
-              Except.error (TypeError.ambiguousFunction target)
-      else
-        FunctionSigs.resolveLoop target args found? rest
-
-def FunctionSigs.resolve (functions : List FunctionSig)
-    (target : Name) (args : List ArgInfo) : Except TypeError FunctionSig :=
-  FunctionSigs.resolveLoop target args none functions
 
 def FunctionSig.internallyCallable (sig : FunctionSig) : Bool :=
   !(sig.visibility == some Solidity.Visibility.external_)
@@ -3068,13 +3103,6 @@ def TypeContext.lookupContractExternalFunctionSigs?
     (FunctionSigs.atAbiBoundary types
       (ContractDecl.externalFunctionSigsFromOrder types order))
 
-def TypeContext.resolveContractMemberFunction
-    (types : TypeContext) (path : Path) (member : Name)
-    (args : List ArgInfo) : Except TypeError FunctionSig :=
-  match types.lookupContractExternalFunctionSigs? path with
-  | some sigs => FunctionSigs.resolve sigs member args
-  | none => Except.error (TypeError.unknownFunction member)
-
 def TypeContext.resolveContractExternalFunctionValue
     (types : TypeContext) (path : Path) (member : Name) :
     Except TypeError FunctionSig :=
@@ -3112,39 +3140,6 @@ def TypeContext.resolveInternalFunctionValueMember?
       | Except.error _ => none
   | none => none
 
-def ModifierSig.paramsAccept : List Ty -> List Ty -> Bool
-  | [], [] => true
-  | actual :: actualRest, expected :: expectedRest =>
-      Ty.canImplicitlyConvert actual expected &&
-        ModifierSig.paramsAccept actualRest expectedRest
-  | _, _ => false
-
-def ModifierSig.matchesArgs (sig : ModifierSig) (args : List ArgInfo) : Bool :=
-  match ArgInfos.orderedTys? sig.paramNames args with
-  | some argTys => ModifierSig.paramsAccept argTys sig.params
-  | none => false
-
-def ModifierSigs.resolveLoop (target : Name) (args : List ArgInfo) :
-    Option ModifierSig -> List ModifierSig ->
-    Except TypeError ModifierSig
-  | none, [] => Except.error (TypeError.unknownFunction target)
-  | some found, [] => Except.ok found
-  | found?, sig :: rest =>
-      if sig.name == target && sig.matchesArgs args then
-        match found? with
-        | none => ModifierSigs.resolveLoop target args (some sig) rest
-        | some _ => Except.error (TypeError.ambiguousFunction target)
-      else
-        ModifierSigs.resolveLoop target args found? rest
-
-def ModifierSigs.resolve (modifiers : List ModifierSig)
-    (target : Name) (args : List ArgInfo) : Except TypeError ModifierSig :=
-  ModifierSigs.resolveLoop target args none modifiers
-
-def EventSig.matchesArgs (sig : EventSig) (args : List ArgInfo) : Bool :=
-  match ArgInfos.orderedTys? sig.paramNames args with
-  | some argTys => FunctionSig.paramsAccept argTys sig.params
-  | none => false
 
 def EventSig.abiParamTypes? (types : TypeContext)
     (sig : EventSig) : Option (List String) :=
@@ -3188,22 +3183,6 @@ def EventSigs.withoutNamesOf (locals : List EventSig) :
       else
         sig :: EventSigs.withoutNamesOf locals rest
 
-def EventSigs.resolveLoop (target : Name) (args : List ArgInfo) :
-    Option EventSig -> List EventSig -> Except TypeError EventSig
-  | none, [] => Except.error (TypeError.unknownEvent target)
-  | some found, [] => Except.ok found
-  | found?, sig :: rest =>
-      if sig.name == target && sig.matchesArgs args then
-        match found? with
-        | none => EventSigs.resolveLoop target args (some sig) rest
-        | some _ => Except.error (TypeError.ambiguousFunction target)
-      else
-        EventSigs.resolveLoop target args found? rest
-
-def EventSigs.resolve (events : List EventSig)
-    (target : Name) (args : List ArgInfo) : Except TypeError EventSig :=
-  EventSigs.resolveLoop target args none events
-
 def EventSigs.resolveByNameLoop (target : Name) :
     Option EventSig -> List EventSig -> Except TypeError EventSig
   | none, [] => Except.error (TypeError.unknownEvent target)
@@ -3219,27 +3198,6 @@ def EventSigs.resolveByNameLoop (target : Name) :
 def EventSigs.resolveByName (events : List EventSig) (target : Name) :
     Except TypeError EventSig :=
   EventSigs.resolveByNameLoop target none events
-
-def ErrorSig.matchesArgs (sig : ErrorSig) (args : List ArgInfo) : Bool :=
-  match ArgInfos.orderedTys? sig.paramNames args with
-  | some argTys => FunctionSig.paramsAccept argTys sig.params
-  | none => false
-
-def ErrorSigs.resolveLoop (target : Name) (args : List ArgInfo) :
-    Option ErrorSig -> List ErrorSig -> Except TypeError ErrorSig
-  | none, [] => Except.error (TypeError.unknownError target)
-  | some found, [] => Except.ok found
-  | found?, sig :: rest =>
-      if sig.name == target && sig.matchesArgs args then
-        match found? with
-        | none => ErrorSigs.resolveLoop target args (some sig) rest
-        | some _ => Except.error (TypeError.ambiguousFunction target)
-      else
-        ErrorSigs.resolveLoop target args found? rest
-
-def ErrorSigs.resolve (errors : List ErrorSig)
-    (target : Name) (args : List ArgInfo) : Except TypeError ErrorSig :=
-  ErrorSigs.resolveLoop target args none errors
 
 def ErrorSigs.resolveByNameLoop (target : Name) :
     Option ErrorSig -> List ErrorSig -> Except TypeError ErrorSig
@@ -4634,11 +4592,6 @@ def requireValueOptionAllowed
     Except.error TypeError.valueCallToNonpayable
   else
     Except.ok ()
-
-def requireFunctionArgsAccept (expected actual : List Ty) :
-    Except TypeError Unit :=
-  require (FunctionSig.paramsAccept actual expected)
-    (TypeError.arityMismatch "function call" expected.length actual.length)
 
 def requireNoNamedArgs (what : String)
     (argInfos : List ArgInfo) : Except TypeError Unit :=
