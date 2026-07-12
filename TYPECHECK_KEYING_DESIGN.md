@@ -120,17 +120,28 @@ remain explicit requires — they are acceptance conditions of the OCCURRENCE,
 not of the member's existence, matching solc (members exist; TypeChecker
 gates usage).
 
-### 4. `Ty.commonImplicit?` fallback
+### 4. `Ty.commonImplicit?` fallback — DONE (with a solc-verified fix)
 
-Kept context-free (unchanged behavior — see differential). Routing it through
-the context-aware predicate was evaluated: the only fallback cases the
-context would add are user-type pairs (contract covariance, alias paths);
-`commonImplicit?`'s callers (binary ops / inline arrays / ternary) already
-handle user types via exact equality first, and a probe grid showed no
-verdict change on the corpus lanes; the context-aware routing is exercised
-where it matters (assignability). Documented as NOT done (optional target,
-would ripple `commonImplicit?`'s signature through pure helpers such as
-`inlineArrayBottomUpTyFuel?` that have no context).
+`TypeContext.commonImplicit?` (new) shares the numeric/address/fixed-bytes
+common-type table with `Ty.commonImplicit?` and routes only the DIRECTIONAL
+FALLBACK through the context-aware convertibility — exactly solc
+`Type::commonType` (Types.cpp:279-295), whose fallback calls the full
+virtual `isImplicitlyConvertibleTo`. The `TypeContext` is threaded through
+the operand-commoning family (`commonArrayElementTy?` → `commonOperandTy?`
+→ `commonCheckedTyFor` → `arithmeticTy`/`bitwiseTy`/`relationalTy` and the
+inline-array element commoning). The context-free `Ty.commonImplicit?`
+remains ONLY for the bare-literal inline-array bottom-up typing
+(`inlineArrayBottomUpTyFuel?`), where every operand is an integer mobile
+type and user-type rules cannot fire.
+
+GENUINE FIX (pinned-solc probes, 2026-07-12):
+`Base[2] memory arr = [derived, base];` — solc 0.8.35 ACCEPTS (probe2.sol,
+importer-verified), the pre-R4 model rejected ("array literal common
+type"): fixed. `[base, unrelatedOther]` — solc REJECTS ("Unable to deduce
+common type for array elements", probe3.sol): still rejected. Both pinned
+in `SolidCore/Witness/TypeCheckKeying.lean`. `d == b` (Derived vs Base)
+was ALREADY accepted pre-R4 via the dedicated contract-comparison
+dispatch (probe1.sol, verified unchanged).
 
 ## Differential-matrix method
 
@@ -153,11 +164,25 @@ member-name) pair in value position AND `type(T).member` position.
 
 Snapshot summary and change list: see `audit-r4/` artifacts + final report.
 
-## Context-free callers of `Ty.canImplicitlyConvert` (audit)
+## Context-free callers of `Ty.canImplicitlyConvert` (audit — RESULT)
 
-Enumerated at rewrite time; each either (a) justified — the context-free core
-is correct because user-type/alias/contract cases are handled by an earlier
-exact-equality or dedicated user-type path at that site, or (b) fixed to call
-the context-aware predicate. Details in the final report; the deliberate
-survivors are `commonImplicit?`'s fallback (see §4) and sites where a
-`TypeContext` is genuinely out of scope (pure literal machinery).
+1. **DELETED (dead code)**: the whole context-free resolver family —
+   `FunctionSig.paramsAccept`/`matchesArgs`, `ModifierSig.paramsAccept`/
+   `matchesArgs`, `EventSig.matchesArgs`, `ErrorSig.matchesArgs`,
+   `FunctionSigs/ModifierSigs/EventSigs/ErrorSigs.resolve(+Loop)`,
+   `TypeContext.resolveContractMemberFunction`,
+   `requireFunctionArgsAccept`. Every LIVE resolution path goes through the
+   context-aware `matchesCheckedArgs` → `canAssignToWidenIn` machinery
+   (verified by repo-wide grep + full build). This closes the split-brain
+   rather than patching dead code.
+2. **JUSTIFIED**: `CheckedExpr.canImplicitlyAssignTo`/`canAssignTo`/
+   `expectAssignableTo`/`expectImplicitlyAssignableTo` — every live call
+   site passes a BUILTIN expected type (uint256/bytes32/bytes/string/
+   bytesN4/uint8: mulmod/ecrecover args, index/slice bounds, low-level call
+   value/gas, blockhash, etc.), where the context rules (user aliases,
+   contract covariance) cannot fire.
+3. **FIXED (target 4)**: `Ty.commonImplicit?`'s directional fallback — see
+   §4.
+4. **JUSTIFIED**: `inlineArrayBottomUpTyFuel?` — bare-number-literal
+   mobile types only; `FunctionSig.internalFunctionValueAssignableTo` and
+   the using-for receiver bind already use the context-aware predicate.
