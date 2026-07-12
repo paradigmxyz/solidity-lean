@@ -52,5 +52,6 @@ import SolidCore.Witness.AnfCallHoisting
 import SolidCore.Witness.EvalOrderIntrinsic
 import SolidCore.Witness.ExternalSelfCall
 import SolidCore.Witness.NarrowCleanupFamily
+import SolidCore.Witness.StageDCompletion
 import SolidCore.Witness.EnvLoweringUnify
 import SolidCore.Witness.ValueTyping

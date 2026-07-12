@@ -12950,6 +12950,124 @@
           }
         ]
       }
+    },
+    {
+      "name": "stage-d-completion",
+      "description": "Stage-D completion (#193/#194/#195): narrow (uint8/int8) checked arithmetic in abi.encode*/keccak256/bytes.concat call ARGUMENTS (#193) and in LVALUE index KEYS (#194) Panics 0x11 at the operand width exactly as solc 0.8.35 + the EVM (previously ran at 256 bits: hashed/encoded 300, wrote arr[300]); emit call-arguments run in solc's TWO-PHASE event schedule (indexed args reverse source order first, then data args forward) instead of plain L2R (#195). Controls: statement-level narrow assign, 256-bit overflow, safe hashes, safe index writes, read-side index panics, and all-data emits (L2R) all unchanged.",
+      "forge": {
+        "root": "tests/forge-harness/stage-d-completion",
+        "match_contract": "StageDCompletionForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/stage-d-completion/src/StageDCompletion.sol",
+        "contract": "StageDCompletion",
+        "namespace": "SolidCore.Solidity.SolcAstImport.StageDCompletion"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.StageDCompletion.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "h1_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.StageDCompletion.importedContract \"h1\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "h2_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.StageDCompletion.importedContract \"h2\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "h3_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.StageDCompletion.importedContract \"h3\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "h4_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.StageDCompletion.importedContract \"h4\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 100, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "h5_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.StageDCompletion.importedContract \"h5\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (2 ^ 256 - 128)] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "c1_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.StageDCompletion.importedContract \"c1\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "c2_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.StageDCompletion.importedContract \"c2\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word (2 ^ 256 - 1), SolidCore.Solidity.Source.Value.word 5] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "c3_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.StageDCompletion.importedContract \"c3\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 3, SolidCore.Solidity.Source.Value.word 5] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "hSafe_matches",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 300 SolidCore.Solidity.SolcAstImport.StageDCompletion.importedContract \"hSafe\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 3, SolidCore.Solidity.Source.Value.word 4] 0xee2a4bc7db81da2b7164e56b3649b1e2a09c58c455b15dabddd9146c7582cebc",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "w1_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.StageDCompletion.importedContract \"w1\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "w2_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.StageDCompletion.importedContract \"w2\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "w3_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.StageDCompletion.importedContract \"w3\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "w4_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.StageDCompletion.importedContract \"w4\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "wSafe_is_7",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 300 SolidCore.Solidity.SolcAstImport.StageDCompletion.importedContract \"wSafe\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 3, SolidCore.Solidity.Source.Value.word 4] 7",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "rRead_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.StageDCompletion.importedContract \"rRead\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "emit2_two_phase",
+            "expr": "(do\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 300 SolidCore.Solidity.SolcAstImport.StageDCompletion.importedContract (SolidCore.Solidity.Source.CallTarget.name \"emit2\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned state [SolidCore.Solidity.Source.Value.word 211] =>\n      match state.events with\n      | [event] =>\n          Except.ok\n            (event.name == \"E2\" &&\n              event.topics == [SolidCore.Solidity.Source.Keccak.digestWord \"E2(uint256,uint256,uint256)\", 2] &&\n              event.dataBytes == SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.wordBytes 21 ++ SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.wordBytes 211)\n      | _ => Except.ok false\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "emit3_two_phase",
+            "expr": "(do\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 300 SolidCore.Solidity.SolcAstImport.StageDCompletion.importedContract (SolidCore.Solidity.Source.CallTarget.name \"emit3\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned state [SolidCore.Solidity.Source.Value.word 21] =>\n      match state.events with\n      | [event] =>\n          Except.ok\n            (event.name == \"E3\" &&\n              event.topics == [SolidCore.Solidity.Source.Keccak.digestWord \"E3(uint256,uint256)\", 21, 2] &&\n              event.dataBytes == ([] : List SolidCore.Solidity.Source.Byte))\n      | _ => Except.ok false\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "emitData_l2r",
+            "expr": "(do\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 300 SolidCore.Solidity.SolcAstImport.StageDCompletion.importedContract (SolidCore.Solidity.Source.CallTarget.name \"emitData\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned state [SolidCore.Solidity.Source.Value.word 12] =>\n      match state.events with\n      | [event] =>\n          Except.ok\n            (event.name == \"ED\" &&\n              event.topics == [SolidCore.Solidity.Source.Keccak.digestWord \"ED(uint256,uint256)\"] &&\n              event.dataBytes == SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.wordBytes 1 ++ SolidCore.Solidity.Source.wordToBytesBE SolidCore.Solidity.Source.wordBytes 12)\n      | _ => Except.ok false\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }
