@@ -115,6 +115,25 @@ t5=88, t6 **Panic 0x32** (diverges — dangling write also over-reverts).
 * pop-then-push-then-deref (`t2`), live-mutation (`t4`), mapping-value ref
   (`t5`), all #188 write-through shapes: unchanged (controls).
 
+## Results (Stage B+C, commit d8476e7)
+
+* Post-fix importer probe: t1 = 0 (was Panic 0x32), t2 = 9, t3 Panic 0x32,
+  t4 = 33, t5 = 88 — all matching the Forge lane.
+* `lake build SolidCore` green (1144 jobs) and full `lake build` green —
+  FuelMonotonicity, AdoptionLaws and ALL pre-existing witnesses compiled and
+  passed with ZERO proof edits (the sizing prediction held: the mutual
+  induction is over the statement cluster; expression/lvalue evaluation is a
+  fuel-closed prefix, and the reworked alias-stmt arm bodies don't recurse).
+* Self-gate, sequential `--only` (pinned solc + forge), all
+  `forge=ok lean=ok`: storage-ref-early-bind, storage-ref-path-return,
+  storage-value-boundary, aggregate-array-span, storage-array-packing,
+  openzeppelin-enumerable-map, openzeppelin-enumerable-set,
+  reference-assignments, reference-via-ir-memory-storage,
+  eval-order-intrinsic, ternary-storage-pointer, reference-mapping-storage,
+  lib-storage-return-use, lib-storage-public-2. ("storage-aggregate" from
+  the work order does not exist as a lane name; aggregate-array-span +
+  storage-array-packing stood in.)
+
 ## Known adjacent residue (NOT in scope, reported)
 
 Write-through-dangling then `push()` (`t6` probe): real EVM `push()` does not
