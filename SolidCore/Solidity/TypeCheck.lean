@@ -7778,9 +7778,22 @@ def checkExpr (env : CheckEnv) :
               implicitLiteralFits rhsChecked.ty lhsChecked.source))
             (TypeError.expectedType lhsChecked.ty rhsChecked.ty)
           -- G3: reject `==`/`!=` on reference types (no builtin equality).
+          -- solc checks equality-comparability of the COMMON (converted) value
+          -- type, not the raw inferred operand types: a bare `hex"…"`/`"…"`
+          -- literal is typed dynamic `Ty.bytes`/`Ty.string`, but when it fits a
+          -- fixed-`bytesN` operand it is implicitly converted to that value type
+          -- and compared as such. So accept when EITHER both raw types are
+          -- equality-comparable, OR one operand is a literal whose value fits the
+          -- OTHER operand's type and that other type is equality-comparable. A
+          -- dynamic `bytes memory`/`string` operand is not equality-comparable,
+          -- so `bytes memory x == "abcd"` and both-dynamic `==` stay rejected.
           require
-            (Ty.isEqualityComparable env.types lhsChecked.ty &&
-              Ty.isEqualityComparable env.types rhsChecked.ty)
+            ((Ty.isEqualityComparable env.types lhsChecked.ty &&
+                Ty.isEqualityComparable env.types rhsChecked.ty) ||
+              (Ty.isEqualityComparable env.types lhsChecked.ty &&
+                implicitLiteralFits lhsChecked.ty rhsChecked.source) ||
+              (Ty.isEqualityComparable env.types rhsChecked.ty &&
+                implicitLiteralFits rhsChecked.ty lhsChecked.source))
             (TypeError.unsupported "equality on non-value type")
           Except.ok { source := expr, ty := Solidity.Ty.bool }
       | Solidity.BinaryOp.add

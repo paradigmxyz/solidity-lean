@@ -9311,6 +9311,39 @@
       }
     },
     {
+      "name": "bytesn-eq-literal",
+      "description": "#180: `==`/`!=` between a `bytesN` value and a BARE string/hex literal. solc 0.8.35 implicitly converts the literal to the bytesN operand's value type and compares as value types (`x == \"abcd\"`, `x != hex\"1234\"`, `bytes32 x == hex\"00\"`); the model over-rejected because it checked the raw dynamic bytes/string literal type for equality-comparability. Forge + imported Lean pin the acceptance and the resulting bools against real EVM.",
+      "forge": {
+        "root": "tests/forge-harness/bytesn-eq-literal",
+        "match_contract": "BytesNEqLiteralForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/bytesn-eq-literal/src/BytesNEqLiteral.sol",
+        "contract": "BytesNEqLiteral",
+        "namespace": "SolidCore.Solidity.SolcAstImport.BytesNEqLiteral"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedBytesNEqLiteralAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.BytesNEqLiteral.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedBytesNEqLiteralSemantics",
+            "expr": "(do\n  let source := SolidCore.Solidity.SolcAstImport.BytesNEqLiteral.importedSourceUnit\n  let target := \"BytesNEqLiteral\"\n  let word := SolidCore.Solidity.Source.Value.word\n  let empty := SolidCore.Solidity.Source.State.empty\n  let callWord := fun name args expected =>\n    SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 64 source target name empty args expected\n  let _ <- callWord \"a\" [word 0x61626364] 1\n  let _ <- callWord \"a\" [word 0] 0\n  let _ <- callWord \"b\" [word 0x12340000] 0\n  let _ <- callWord \"b\" [word 0] 1\n  let _ <- callWord \"c\" [word 0] 1\n  let result <- callWord \"c\" [word 1] 0\n  Except.ok result)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
       "name": "call-option-eval-order",
       "description": "Forge checks external-call option/argument evaluation ORDER (gap EO1): solc 0.8.35 evaluates target, then call options in written order (gas/value by written position), then calldata -- yielding order-trace 1234 for {gas,value} and 1324 for {value,gas}, identically for the expression `.call` and statement `try` forms. Lean imports the same source and, under a fail-open responder, checks the paired source-interpreter returns the same order-trace (each of target/gas/value/calldata appends its digit).",
       "forge": {
