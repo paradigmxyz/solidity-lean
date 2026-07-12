@@ -7729,66 +7729,11 @@ def Expr.commonOperandTyWithEnv? (env : TypeEnv)
       else rhsTy
     Ty.commonImplicit? lhsTy' rhsTy'
 
-def Expr.binaryToCoreWithEnvTyped? (storageNames : List Name) (env : TypeEnv)
-    (op : BinaryOp) (lhs rhs : Expr) : Option (Ty × CoreExpr) :=
-  match op with
-  | BinaryOp.boolAnd
-  | BinaryOp.boolOr
-  | BinaryOp.shl
-  | BinaryOp.shr => none
-  | BinaryOp.exp => do
-      -- EXP-NARROW-BASE-WIDE-EXPONENT: `**` is NOT symmetric. Per solc
-      -- (`IntegerType::binaryOperatorResult` / `Token::Exp`, `Types.cpp` ~728),
-      -- the result type of `base ** e` is the BASE (left-operand) type ONLY —
-      -- "ignoring the (larger) type of the second operand". The exponent keeps
-      -- its OWN type and is NOT folded into a common-type computation. Lowering
-      -- both operands + the result at the symmetric common type
-      -- (`commonImplicit? uint8 uint16 = uint16`) would run the checked-exp /
-      -- `implicitCleanupCore` at the wider width, where the uint8 overflow
-      -- (`2 ** 8 = 256`) fits and its Panic 0x11 is silently lost. Instead
-      -- lower the base at the base type (the returned `resultTy`, so the
-      -- caller's operand-width `implicitCleanupCore` enforces the base bound)
-      -- and the exponent at its own type (like solc's `cleanup_t_uintM` on the
-      -- exponent — no coercion to the base type).
-      let coreOp ← BinaryOp.toCore? op
-      let baseTy0 ← Expr.abiTyWithEnv? env lhs
-      let expTy0 ← Expr.abiTyWithEnv? env rhs
-      let baseTy :=
-        if Expr.isRawNumberLiteralExpression lhs then
-          (Expr.untypedLiteralMobileTy? lhs).getD baseTy0
-        else baseTy0
-      let expTy :=
-        if Expr.isRawNumberLiteralExpression rhs then
-          (Expr.untypedLiteralMobileTy? rhs).getD expTy0
-        else expTy0
-      let baseCore ← Expr.toCoreAsWithEnvBitAware? storageNames env baseTy lhs
-      let expCore ← Expr.toCoreAsWithEnvBitAware? storageNames env expTy rhs
-      some
-        (baseTy,
-          SolidCore.Solidity.Source.Expr.binary coreOp baseCore expCore)
-  | _ => do
-      let coreOp ← BinaryOp.toCore? op
-      let operandTy ← Expr.commonOperandTyWithEnv? env lhs rhs
-      -- FB1: a `bytesN` operand that is itself a `<<`/`~` (e.g. `(b << 4) == …`,
-      -- `(~b) == …`) must be lane-cleaned before the full-word comparison, or the
-      -- bits `<<`/`~` pushed above the byte lane make the comparison diverge.
-      let lhsCore ← Expr.toCoreAsWithEnvBitAware? storageNames env operandTy lhs
-      let rhsCore ← Expr.toCoreAsWithEnvBitAware? storageNames env operandTy rhs
-      let resultTy :=
-        match op with
-        | BinaryOp.lt | BinaryOp.gt | BinaryOp.le | BinaryOp.ge
-        | BinaryOp.eq | BinaryOp.ne => Ty.bool
-        | _ => operandTy
-      some
-        (resultTy,
-          SolidCore.Solidity.Source.Expr.binary coreOp lhsCore rhsCore)
-
-def Expr.binaryToCoreWithEnv? (storageNames : List Name) (env : TypeEnv)
-    (op : BinaryOp) (lhs rhs : Expr) : Option CoreExpr :=
-  match Expr.binaryToCoreWithEnvTyped? storageNames env op lhs rhs with
-  | some (_, coreExpr) => some coreExpr
-  | none => none
-
+-- R2 (env-lowering unification): `Expr.binaryToCoreWithEnvTyped?` and
+-- `Expr.binaryToCoreWithEnv?` are now defined AFTER the fuel-carrying mutual
+-- recursion below (they lower operands through the FULL env-aware typed
+-- lowering, so nested casts/negations/ternaries inside a binary operand keep
+-- their operand-width checked cleanup). See `Expr.binaryToCoreWithEnvTypedFuel?`.
 /-- A narrow (`N < 256`) `uintN`/`intN` conversion target, as `(signed, bits)`.
     (Word-width `uint256`/`int256` already check at full width, so they need no
     special handling.) -/
@@ -7920,8 +7865,146 @@ def Args.toAbiEncodeSourceWithEnv? (storageNames : List Name) (env : TypeEnv) :
       some (sourceTy :: sourceTys, coreTy :: coreTys, coreExpr :: coreExprs)
   | Arg.named _ _ :: _ => none
 
-def Expr.toCoreAsWithEnv? (storageNames : List Name) (env : TypeEnv)
-    (targetTy : Ty) (expr : Expr) : Option CoreExpr :=
+/-- R2 (env-lowering unification): recursion budget for the unified env-aware
+    expression lowering. The recursion structurally decreases on every child
+    (operands, branches, cast arguments, index keys), but the H2/NEG cast arms
+    reach children through `peelToOverflowArithmetic?`/`peelToNarrowNeg?`
+    (functions, not structural projections), so the mutual block is bounded by
+    an explicit fuel instead of `sizeOf`. Mirrors `defaultAnnotateAbiFuel`; at
+    fuel 0 the lowering degrades to the non-recursive
+    `Expr.toCoreAsWithEnvDirect?` (today's fallback), never to a reject. -/
+def defaultEnvLoweringFuel : Nat := 1024
+
+/-- Build an index READ (`base[idx]`) from an already-lowered core index,
+    mirroring exactly the `Expr.index` cases of `Expr.toCore?` (state-var
+    `storageIndex`, `fixedBytesIndex` for a `bytesN` base, general `index`).
+    Used by the MI1 internal-call-index hoist and (R2) by the narrow
+    index-key env-aware lowering. -/
+def Expr.indexReadCoreBuilder? (storageNames : List Name) (base : Expr) :
+    Option (CoreExpr -> CoreExpr) :=
+  match base with
+  | Expr.ident name =>
+      match stateNameRuntimeKey? name storageNames with
+      | some key =>
+          some (fun idx => SolidCore.Solidity.Source.Expr.storageIndex key idx)
+      | none => do
+          let baseCore ← Expr.toCore? storageNames (Expr.ident name)
+          some (fun idx => SolidCore.Solidity.Source.Expr.index baseCore idx)
+  | _ =>
+      match Expr.abiTy? storageNames base with
+      | some ty =>
+          match Ty.fixedBytesSize? ty with
+          | some size => do
+              let baseCore ← Expr.toCore? storageNames base
+              some (fun idx =>
+                SolidCore.Solidity.Source.Expr.fixedBytesIndex size baseCore idx)
+          | none => do
+              let baseCore ← Expr.toCore? storageNames base
+              some (fun idx => SolidCore.Solidity.Source.Expr.index baseCore idx)
+      | none => do
+          let baseCore ← Expr.toCore? storageNames base
+          some (fun idx => SolidCore.Solidity.Source.Expr.index baseCore idx)
+
+mutual
+
+/-- R2: typed lowering of a binary op with the env threaded into BOTH operands
+    through the FULL env-aware recursion (`Expr.toCoreAsWithEnvFuel?`), so a
+    nested narrow cast / negation / ternary inside an operand keeps its
+    operand-width checked cleanup. `&&`/`||` recurse on both operands at
+    `Ty.bool` (previously they fell to the env-less `toCore?`, dropping the
+    operand-width Panic 0x11 of a nested comparison operand, e.g.
+    `(a + b) < n && k < 3` with `uint8 a,b`). `<<`/`>>` keep the existing
+    Direct-path handling (fall through by returning `none`). -/
+def Expr.binaryToCoreWithEnvTypedFuel? (fuel : Nat) (storageNames : List Name)
+    (env : TypeEnv) (op : BinaryOp) (lhs rhs : Expr) :
+    Option (Ty × CoreExpr) :=
+  match fuel with
+  | 0 => none
+  | Nat.succ fuel =>
+  match op with
+  | BinaryOp.boolAnd
+  | BinaryOp.boolOr => do
+      let coreOp ← BinaryOp.toCore? op
+      let lhsCore ← Expr.toCoreAsWithEnvFuel? fuel storageNames env Ty.bool lhs
+      let rhsCore ← Expr.toCoreAsWithEnvFuel? fuel storageNames env Ty.bool rhs
+      some
+        (Ty.bool,
+          SolidCore.Solidity.Source.Expr.binary coreOp lhsCore rhsCore)
+  | BinaryOp.shl
+  | BinaryOp.shr => none
+  | BinaryOp.exp => do
+      -- EXP-NARROW-BASE-WIDE-EXPONENT: `**` is NOT symmetric. Per solc
+      -- (`IntegerType::binaryOperatorResult` / `Token::Exp`, `Types.cpp` ~728),
+      -- the result type of `base ** e` is the BASE (left-operand) type ONLY —
+      -- "ignoring the (larger) type of the second operand". The exponent keeps
+      -- its OWN type and is NOT folded into a common-type computation. Lowering
+      -- both operands + the result at the symmetric common type
+      -- (`commonImplicit? uint8 uint16 = uint16`) would run the checked-exp /
+      -- `implicitCleanupCore` at the wider width, where the uint8 overflow
+      -- (`2 ** 8 = 256`) fits and its Panic 0x11 is silently lost. Instead
+      -- lower the base at the base type (the returned `resultTy`, so the
+      -- caller's operand-width `implicitCleanupCore` enforces the base bound)
+      -- and the exponent at its own type (like solc's `cleanup_t_uintM` on the
+      -- exponent — no coercion to the base type).
+      let coreOp ← BinaryOp.toCore? op
+      let baseTy0 ← Expr.abiTyWithEnv? env lhs
+      let expTy0 ← Expr.abiTyWithEnv? env rhs
+      let baseTy :=
+        if Expr.isRawNumberLiteralExpression lhs then
+          (Expr.untypedLiteralMobileTy? lhs).getD baseTy0
+        else baseTy0
+      let expTy :=
+        if Expr.isRawNumberLiteralExpression rhs then
+          (Expr.untypedLiteralMobileTy? rhs).getD expTy0
+        else expTy0
+      let baseCore ←
+        Expr.toCoreAsWithEnvBitAwareFuel? fuel storageNames env baseTy lhs
+      let expCore ←
+        Expr.toCoreAsWithEnvBitAwareFuel? fuel storageNames env expTy rhs
+      some
+        (baseTy,
+          SolidCore.Solidity.Source.Expr.binary coreOp baseCore expCore)
+  | _ => do
+      let coreOp ← BinaryOp.toCore? op
+      let operandTy ← Expr.commonOperandTyWithEnv? env lhs rhs
+      -- FB1: a `bytesN` operand that is itself a `<<`/`~` (e.g. `(b << 4) == …`,
+      -- `(~b) == …`) must be lane-cleaned before the full-word comparison, or the
+      -- bits `<<`/`~` pushed above the byte lane make the comparison diverge.
+      let lhsCore ←
+        Expr.toCoreAsWithEnvBitAwareFuel? fuel storageNames env operandTy lhs
+      let rhsCore ←
+        Expr.toCoreAsWithEnvBitAwareFuel? fuel storageNames env operandTy rhs
+      let resultTy :=
+        match op with
+        | BinaryOp.lt | BinaryOp.gt | BinaryOp.le | BinaryOp.ge
+        | BinaryOp.eq | BinaryOp.ne => Ty.bool
+        | _ => operandTy
+      some
+        (resultTy,
+          SolidCore.Solidity.Source.Expr.binary coreOp lhsCore rhsCore)
+
+/-- R2: fuel-carrying counterpart of `Expr.toCoreAsWithEnvBitAware?` that
+    recurses into the FULL env-aware lowering for non-bit-op shapes (the
+    non-fuel version stops at `Expr.toCoreAsWithEnvDirect?`, skipping the
+    interceptor arms for children). -/
+def Expr.toCoreAsWithEnvBitAwareFuel? (fuel : Nat) (storageNames : List Name)
+    (env : TypeEnv) (targetTy : Ty) (expr : Expr) : Option CoreExpr :=
+  match fuel with
+  | 0 => Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr
+  | Nat.succ fuel =>
+  match Ty.fixedBytesSize? targetTy with
+  | some size =>
+      if Expr.isFixedBytesBitOpShape expr then
+        Expr.toCoreFixedBytesBitOp? storageNames env size expr
+      else
+        Expr.toCoreAsWithEnvFuel? fuel storageNames env targetTy expr
+  | none => Expr.toCoreAsWithEnvFuel? fuel storageNames env targetTy expr
+
+def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
+    (env : TypeEnv) (targetTy : Ty) (expr : Expr) : Option CoreExpr :=
+  match fuel with
+  | 0 => Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr
+  | Nat.succ fuel =>
   -- FB1: a `bytesN`-targeted expression whose top node is a shift/bitwise op
   -- (e.g. `return (b << 4) >> 4;`, `bytes1 c = ~b;`) is lowered with per-op lane
   -- cleanup so bits pushed above the byte lane by `<<`/`~` are re-masked, exactly
@@ -7957,8 +8040,8 @@ def Expr.toCoreAsWithEnv? (storageNames : List Name) (env : TypeEnv)
               (match Ty.narrowIntCastTarget? castTy,
                     Expr.peelToOverflowArithmetic? argExpr with
               | some (signed, bits), some (bop, lhs, rhs) =>
-                  match Expr.binaryToCoreWithEnvTyped?
-                      storageNames env bop lhs rhs with
+                  match Expr.binaryToCoreWithEnvTypedFuel?
+                      fuel storageNames env bop lhs rhs with
                   | some (srcTy, binaryCore) =>
                       -- `binaryToCoreWithEnvTyped?` returns the bare `add`/… with
                       -- cleaned operands; the checked overflow test lives in the
@@ -7990,8 +8073,8 @@ def Expr.toCoreAsWithEnv? (storageNames : List Name) (env : TypeEnv)
                        (match Expr.abiTyWithEnv? env inner with
                         | some operandTy =>
                             (match Ty.narrowIntCastTarget? operandTy,
-                                  Expr.toCoreAsWithEnvBitAware?
-                                    storageNames env operandTy inner with
+                                  Expr.toCoreAsWithEnvBitAwareFuel?
+                                    fuel storageNames env operandTy inner with
                              | some (true, _), some innerCore =>
                                  let checkedNeg :=
                                    Ty.implicitCleanupCore operandTy
@@ -8016,17 +8099,18 @@ def Expr.toCoreAsWithEnv? (storageNames : List Name) (env : TypeEnv)
                          storageNames env targetTy expr))
           | Expr.ternary cond thenExpr elseExpr => do
               let condCore ←
-                Expr.toCoreAsWithEnv? storageNames env Ty.bool cond
+                Expr.toCoreAsWithEnvFuel? fuel storageNames env Ty.bool cond
               let thenCore ←
-                Expr.toCoreAsWithEnv? storageNames env targetTy thenExpr
+                Expr.toCoreAsWithEnvFuel? fuel storageNames env targetTy thenExpr
               let elseCore ←
-                Expr.toCoreAsWithEnv? storageNames env targetTy elseExpr
+                Expr.toCoreAsWithEnvFuel? fuel storageNames env targetTy elseExpr
               some
                 (SolidCore.Solidity.Source.Expr.ternary
                   condCore thenCore elseCore)
           | Expr.binary op lhs rhs =>
               match
-                  Expr.binaryToCoreWithEnvTyped? storageNames env op lhs rhs with
+                  Expr.binaryToCoreWithEnvTypedFuel?
+                    fuel storageNames env op lhs rhs with
               | some (sourceTy, coreExpr) =>
                   -- SOUNDNESS (narrow-arithmetic-widened gap, recorded in the
                   -- G15 note): solc computes a binary arithmetic op at the
@@ -8068,7 +8152,8 @@ def Expr.toCoreAsWithEnv? (storageNames : List Name) (env : TypeEnv)
               (match Expr.abiTyWithEnv? env inner with
                | some operandTy =>
                    (match Ty.narrowIntCastTarget? operandTy,
-                         Expr.toCoreAsWithEnv? storageNames env operandTy inner with
+                         Expr.toCoreAsWithEnvFuel?
+                           fuel storageNames env operandTy inner with
                     | some (true, _), some innerCore =>
                         let checkedNeg :=
                           Ty.implicitCleanupCore operandTy
@@ -8079,6 +8164,46 @@ def Expr.toCoreAsWithEnv? (storageNames : List Name) (env : TypeEnv)
                         Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
                | none =>
                    Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
+          | Expr.unary UnaryOp.logicalNot inner =>
+              -- R2 (Stage B): `!c` in a bool-typed position recurses on the
+              -- operand at `Ty.bool` through the FULL env-aware lowering, so a
+              -- comparison under `!` keeps the operand-width checked cleanup
+              -- (`if (!((a + b) < n))` with `uint8 a,b` must Panic 0x11 —
+              -- previously the whole `!` subtree fell to the env-less
+              -- `toCore?`, dropping it). Non-bool targets keep the direct path.
+              if targetTy == Ty.bool then
+                match Expr.toCoreAsWithEnvFuel?
+                    fuel storageNames env Ty.bool inner with
+                | some innerCore =>
+                    some
+                      (SolidCore.Solidity.Source.Expr.unary
+                        SolidCore.Solidity.Source.UnaryOp.logicalNot innerCore)
+                | none =>
+                    Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr
+              else
+                Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr
+          | Expr.index base key =>
+              -- R2 (Stage B, index-key cleanup): a NARROW (`uintN`/`intN`,
+              -- N < 256) index key is evaluated by solc at ITS OWN type — a
+              -- checked arithmetic key (`arr[a + b]`, `uint8 a,b`) Panics 0x11
+              -- on overflow BEFORE the (implicit, value-preserving) widening
+              -- to the index/lookup width. The env-less index lowering ran the
+              -- key bare at 256 bits. Reroute ONLY narrow-typed keys (wide
+              -- keys already check at full width in core arithmetic), building
+              -- the read with `indexReadCoreBuilder?` (the exact `toCore?`
+              -- index shapes) and the key through the full env-aware lowering.
+              (match
+                  (do
+                    let keyTy ← Expr.abiTyWithEnv? env key
+                    let _ ← Ty.narrowIntCastTarget? keyTy
+                    let buildRead ← Expr.indexReadCoreBuilder? storageNames base
+                    let keyCore ←
+                      Expr.toCoreAsWithEnvFuel? fuel storageNames env keyTy key
+                    let sourceTy ← Expr.abiTyWithEnv? env (Expr.index base key)
+                    Expr.coreAsFromTy? targetTy sourceTy (buildRead keyCore)) with
+              | some coreExpr => some coreExpr
+              | none =>
+                  Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
           | Expr.literal (Literal.number text) =>
               -- Stage C: a function identifier in value position was rewritten
               -- to its dispatch-ID literal (`rewriteInternalFnValueIdents`);
@@ -8123,6 +8248,26 @@ def Expr.toCoreAsWithEnv? (storageNames : List Name) (env : TypeEnv)
                 Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr
           | _ =>
               Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr
+
+end
+
+/-- The unified env-aware typed expression lowering (R2). All callers use this
+    (or the binary wrappers below); the fuel-carrying recursion is an
+    implementation detail. -/
+def Expr.toCoreAsWithEnv? (storageNames : List Name) (env : TypeEnv)
+    (targetTy : Ty) (expr : Expr) : Option CoreExpr :=
+  Expr.toCoreAsWithEnvFuel? defaultEnvLoweringFuel storageNames env targetTy expr
+
+def Expr.binaryToCoreWithEnvTyped? (storageNames : List Name) (env : TypeEnv)
+    (op : BinaryOp) (lhs rhs : Expr) : Option (Ty × CoreExpr) :=
+  Expr.binaryToCoreWithEnvTypedFuel?
+    defaultEnvLoweringFuel storageNames env op lhs rhs
+
+def Expr.binaryToCoreWithEnv? (storageNames : List Name) (env : TypeEnv)
+    (op : BinaryOp) (lhs rhs : Expr) : Option CoreExpr :=
+  match Expr.binaryToCoreWithEnvTyped? storageNames env op lhs rhs with
+  | some (_, coreExpr) => some coreExpr
+  | none => none
 
 def TupleItems.toCoreExprsAsWithEnv? (storageNames : List Name)
     (env : TypeEnv) : List Ty -> List TupleItem -> Option (List CoreExpr)
@@ -12899,36 +13044,8 @@ end
     order matches solc (RHS is evaluated before the LHS index). -/
 def indexAssignRhsTempName : Name := "_sol_index_assign_rhs"
 
-/-- Build an index-access **read** `CoreExpr` from a source `base` and an
-    already-lowered index `CoreExpr`, mirroring the `Expr.index` cases of
-    `Expr.toCore?` (state-var `storageIndex`, `fixedBytesIndex`, general
-    `index`). Returns a *builder* so the index — only available inside the
-    internal-call hoisting continuation — is plugged in last. Used to lower
-    `base[<internal call>]` in an rvalue (e.g. `return m[idu8(k)]`). -/
-def Expr.indexReadCoreBuilder? (storageNames : List Name) (base : Expr) :
-    Option (CoreExpr -> CoreExpr) :=
-  match base with
-  | Expr.ident name =>
-      match stateNameRuntimeKey? name storageNames with
-      | some key =>
-          some (fun idx => SolidCore.Solidity.Source.Expr.storageIndex key idx)
-      | none => do
-          let baseCore ← Expr.toCore? storageNames (Expr.ident name)
-          some (fun idx => SolidCore.Solidity.Source.Expr.index baseCore idx)
-  | _ =>
-      match Expr.abiTy? storageNames base with
-      | some ty =>
-          match Ty.fixedBytesSize? ty with
-          | some size => do
-              let baseCore ← Expr.toCore? storageNames base
-              some (fun idx =>
-                SolidCore.Solidity.Source.Expr.fixedBytesIndex size baseCore idx)
-          | none => do
-              let baseCore ← Expr.toCore? storageNames base
-              some (fun idx => SolidCore.Solidity.Source.Expr.index baseCore idx)
-      | none => do
-          let baseCore ← Expr.toCore? storageNames base
-          some (fun idx => SolidCore.Solidity.Source.Expr.index baseCore idx)
+-- R2: `Expr.indexReadCoreBuilder?` moved earlier in the file (before the
+-- env-aware lowering mutual block, which uses it for narrow index keys).
 
 /-- LValue counterpart of `Expr.indexReadCoreBuilder?`, mirroring the
     `Expr.index` cases of `Expr.toCoreLValue?` (state-var `storageIndex`,
