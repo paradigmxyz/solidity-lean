@@ -4524,6 +4524,117 @@ def Ty.hasArrayMutationMemberSurface : Ty -> Bool
   | Solidity.Ty.array _ _ => true
   | _ => false
 
+-- ===========================================================================
+-- R4: per-receiver-type BUILTIN MEMBER TABLE, mirroring solc
+-- `Type::members()` (Types.cpp — MemberList per type). One table function,
+-- keyed on the RECEIVER type, consulted by ONE uniform lookup in the
+-- member-access check (`checkNonStructMember`), replacing the name-string
+-- `if member == …` chain. Struct fields stay compositional
+-- (`structDecl.fields.find?`), exactly like solc's StructType::members.
+--
+-- Scope: VALUE-position members typed at the member-access node —
+--   * address / address payable: balance, code, codehash
+--     (AddressType members, Types.cpp:521-560);
+--   * bytes / bytesN / arrays: length (ArrayType/FixedBytesType members;
+--     string has NO length member in solc);
+--   * external function values: selector / address — handled by the
+--     dedicated `.selector` / `.address` match arms and the
+--     `abiTyWithEnv?` fallback (both consult the function TYPE, not a
+--     receiver string chain).
+-- CALL-position members are typed at the fused member-call node and keep
+-- their argument/mutability checks there, with their NAME sets defined
+-- next to this table: transfer/send/call/delegatecall/staticcall on
+-- address (`lowLevelCallMember`), push/pop on storage dynamic arrays
+-- (`Ty.hasArrayMutationMemberSurface` + the push/pop interceptor),
+-- wrap/unwrap on UDVTs. Meta-type (type-name receiver) members live in
+-- `TypeContext.builtinMetaMembers` below.
+-- ===========================================================================
+
+structure BuiltinMemberInfo where
+  ty : Ty
+  -- balance/code/codehash read chain state (solc ViewPureChecker).
+  needsStateRead : Bool := false
+  -- codehash requires Constantinople (EXTCODEHASH).
+  needsConstantinople : Bool := false
+  deriving Repr
+
+def Ty.builtinValueMembers : Ty -> List (Name × BuiltinMemberInfo)
+  | Solidity.Ty.address _ =>
+      [("balance",
+          { ty := Solidity.Ty.uint 256, needsStateRead := true }),
+        ("code", { ty := Solidity.Ty.bytes, needsStateRead := true }),
+        ("codehash",
+          { ty := Solidity.Ty.bytesN 32
+            needsStateRead := true
+            needsConstantinople := true })]
+  | Solidity.Ty.bytes =>
+      [("length", { ty := Solidity.Ty.uint 256 })]
+  | Solidity.Ty.bytesN _ =>
+      [("length", { ty := Solidity.Ty.uint 256 })]
+  | Solidity.Ty.fixedBytes _ =>
+      [("length", { ty := Solidity.Ty.uint 256 })]
+  | Solidity.Ty.array _ _ =>
+      [("length", { ty := Solidity.Ty.uint 256 })]
+  | _ => []
+
+def Ty.builtinValueMemberInfo? (ty : Ty) (member : Name) :
+    Option BuiltinMemberInfo :=
+  match (Ty.builtinValueMembers ty).find?
+      (fun entry => entry.fst == member) with
+  | some entry => some entry.snd
+  | none => none
+
+/-- The RESERVED builtin value-member names: a member access using one of
+    these names is judged by the table ONLY — a receiver whose table lacks
+    the name rejects (it must NOT leak into the generic fallback). Derived
+    from the union of the `Ty.builtinValueMembers` rows. -/
+def Ty.builtinValueMemberNames : List Name :=
+  ["balance", "code", "codehash", "length"]
+
+/-- The per-name rejection for a reserved builtin member on a receiver that
+    lacks it (same errors as the pre-R4 name chain). -/
+def builtinValueMemberError (member : Name) (receiverTy : Ty) : TypeError :=
+  if member == "length" then
+    TypeError.unsupported "length member for non-array value"
+  else
+    TypeError.expectedType (Solidity.Ty.address false) receiverTy
+
+/-- Meta-type members (`T.member` on a TYPE NAME receiver), mirroring solc
+    `TypeType::nativeMembers` (Types.cpp:4067-4130) + the `type(T)` magic
+    members: min/max on integer types and enums, the enum cases, and the
+    contract members name/creationCode/runtimeCode/interfaceId. The table
+    decides EXISTENCE and the result type; the occurrence GATES
+    (interface/abstract deployability, bytecode self-reference cycle,
+    immutable-set runtimeCode ban) stay explicit requires at the check
+    site — solc likewise gates these in TypeChecker
+    (TypeChecker.cpp:3486-3493 etc.), not in members(). -/
+def TypeContext.builtinMetaMembers (types : TypeContext) (ty : Ty) :
+    List (Name × Ty) :=
+  match ty with
+  | Solidity.Ty.uint _ => [("min", ty), ("max", ty)]
+  | Solidity.Ty.int _ => [("min", ty), ("max", ty)]
+  | Solidity.Ty.user path =>
+      (match types.lookupEnum? path with
+      | some decl =>
+          ("min", ty) :: ("max", ty) ::
+            decl.cases.map (fun c => (c, ty))
+      | none =>
+          match types.lookupContractDecl? path with
+          | some _ =>
+              [("name", Solidity.Ty.string),
+                ("creationCode", Solidity.Ty.bytes),
+                ("runtimeCode", Solidity.Ty.bytes),
+                ("interfaceId", Solidity.Ty.bytesN 4)]
+          | none => [])
+  | _ => []
+
+def TypeContext.builtinMetaMemberTy? (types : TypeContext)
+    (ty : Ty) (member : Name) : Option Ty :=
+  match (TypeContext.builtinMetaMembers types ty).find?
+      (fun entry => entry.fst == member) with
+  | some entry => some entry.snd
+  | none => none
+
 def Ty.dynamicStorageArrayElement? : Ty -> Option Ty
   | Solidity.Ty.bytes =>
       some (Solidity.Ty.bytesN 1)
@@ -6111,45 +6222,19 @@ def checkExpr (env : CheckEnv) :
         return (← result)
       checkTy env.types ty
       let ty := env.qualifyCurrentLocalUserTypes ty
-      match ty with
-      | Solidity.Ty.uint _
-      | Solidity.Ty.int _ =>
-          if member == "min" || member == "max" then
-            Except.ok
-              { source := expr
-                ty := ty
-                lvalue := false
-                stateLValue := false }
-          else
-            Except.error (TypeError.unsupported ("member " ++ member))
-      | Solidity.Ty.user path =>
-          match env.types.lookupEnum? path with
-          | some enumDecl =>
-              if member == "min" || member == "max" then
-                Except.ok
-                  { source := expr
-                    ty := ty
-                    lvalue := false
-                    stateLValue := false }
-              else
-                require (EnumDecl.hasCase enumDecl member)
-                  (TypeError.unsupported ("member " ++ member))
-                Except.ok
-                  { source := expr
-                    ty := ty
-                    lvalue := false
-                    stateLValue := false }
-          | none =>
+      -- R4: EXISTENCE + result type come from the ONE meta-member table
+      -- (`TypeContext.builtinMetaMembers`, mirroring solc TypeType members);
+      -- the occurrence GATES below are properties of the USE SITE (solc
+      -- checks them in TypeChecker, not in members()).
+      match env.types.builtinMetaMemberTy? ty member with
+      | none => Except.error (TypeError.unsupported ("member " ++ member))
+      | some memberTy => do
+          (match ty with
+          | Solidity.Ty.user path =>
               match env.types.lookupContractDecl? path with
               | some contractDecl =>
-                  if member == "name" then
-                    Except.ok
-                      { source := expr
-                        ty := Solidity.Ty.string
-                        lvalue := false
-                        stateLValue := false }
-                  else if member == "creationCode" ||
-                      member == "runtimeCode" then
+                  if member == "creationCode" ||
+                      member == "runtimeCode" then do
                     require
                       (contractDecl.kind !=
                           Solidity.ContractKind.interface &&
@@ -6169,11 +6254,6 @@ def checkExpr (env : CheckEnv) :
                       (member != "runtimeCode" ||
                         !env.types.contractHasImmutable path)
                       (TypeError.unsupported ("member " ++ member))
-                    Except.ok
-                      { source := expr
-                        ty := Solidity.Ty.bytes
-                        lvalue := false
-                        stateLValue := false }
                   else if member == "interfaceId" then
                     -- solc (Types.cpp:4271-4285): a NON-deployable contract
                     -- (interface OR abstract) exposes `interfaceId`; a
@@ -6183,17 +6263,15 @@ def checkExpr (env : CheckEnv) :
                           Solidity.ContractKind.interface ||
                         contractDecl.abstract)
                       (TypeError.unsupported ("member " ++ member))
-                    Except.ok
-                      { source := expr
-                        ty := Solidity.Ty.bytesN 4
-                        lvalue := false
-                        stateLValue := false }
                   else
-                    Except.error
-                      (TypeError.unsupported ("member " ++ member))
-              | none =>
-                  Except.error (TypeError.unsupported ("member " ++ member))
-      | _ => Except.error (TypeError.unsupported ("member " ++ member))
+                    Except.ok ()
+              | none => Except.ok ()
+          | _ => Except.ok ())
+          Except.ok
+            { source := expr
+              ty := memberTy
+              lvalue := false
+              stateLValue := false }
   | expr@(Solidity.Expr.member base member) => do
       let baseChecked ← checkExpr env base
       if baseChecked.stateLValue then
@@ -6217,46 +6295,30 @@ def checkExpr (env : CheckEnv) :
                 lvalue := false
                 stateLValue := false }
         | none => Except.error (TypeError.unsupported ("member " ++ member))
+      -- R4: ONE uniform lookup in the per-receiver-type builtin member
+      -- table (`Ty.builtinValueMembers`, mirroring solc `Type::members()`).
+      -- A RESERVED builtin name must be found in the receiver's table —
+      -- a receiver lacking it rejects with the same per-name error as the
+      -- pre-R4 chain, and never leaks into the generic fallback.
       let checkNonStructMember : Except TypeError CheckedExpr := do
-        if member == "balance" then
-          requireStateReadAllowed env
-          require baseChecked.ty.isAddressBuiltinReceiver
-            (TypeError.expectedType
-              (Solidity.Ty.address false) baseChecked.ty)
-          Except.ok
-            { source := expr
-              ty := Solidity.Ty.uint 256
-              lvalue := false
-              stateLValue := false }
-        else if member == "code" then
-          requireStateReadAllowed env
-          require baseChecked.ty.isAddressBuiltinReceiver
-            (TypeError.expectedType
-              (Solidity.Ty.address false) baseChecked.ty)
-          Except.ok
-            { source := expr
-              ty := Solidity.Ty.bytes
-              lvalue := false
-              stateLValue := false }
-        else if member == "codehash" then
-          requireStateReadAllowed env
-          requireConstantinopleOrLater env "address.codehash"
-          require baseChecked.ty.isAddressBuiltinReceiver
-            (TypeError.expectedType
-              (Solidity.Ty.address false) baseChecked.ty)
-          Except.ok
-            { source := expr
-              ty := Solidity.Ty.bytesN 32
-              lvalue := false
-              stateLValue := false }
-        else if member == "length" then
-          require baseChecked.ty.hasLengthMember
-            (TypeError.unsupported "length member for non-array value")
-          Except.ok
-            { source := expr
-              ty := Solidity.Ty.uint 256
-              lvalue := false
-              stateLValue := false }
+        if Ty.builtinValueMemberNames.contains member then
+          match Ty.builtinValueMemberInfo? baseChecked.ty member with
+          | some info => do
+              if info.needsStateRead then
+                requireStateReadAllowed env
+              else
+                Except.ok ()
+              if info.needsConstantinople then
+                requireConstantinopleOrLater env "address.codehash"
+              else
+                Except.ok ()
+              Except.ok
+                { source := expr
+                  ty := info.ty
+                  lvalue := false
+                  stateLValue := false }
+          | none =>
+              Except.error (builtinValueMemberError member baseChecked.ty)
         else
           match Solidity.Executable.Expr.abiTyWithEnv?
               env.vars expr with
