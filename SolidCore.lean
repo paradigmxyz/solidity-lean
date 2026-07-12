@@ -46,3 +46,4 @@ import SolidCore.Witness.AbiEncodeCallArg
 import SolidCore.Witness.BytesNIdentIndex
 import SolidCore.Witness.EnumMemberEncodePacked
 import SolidCore.Witness.BytesNEqLiteral
+import SolidCore.Witness.AddressNestedConv

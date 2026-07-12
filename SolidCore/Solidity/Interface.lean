@@ -3796,6 +3796,14 @@ def Expr.isAddressLiteralCandidate : Expr -> Bool
       Expr.isAddressLiteralCandidate expr
   | _ => false
 
+-- A single explicit type conversion `T(e)` (`address(e)`, `uint160(e)`, …).
+-- Used to distinguish a nested identity conversion (which must be lowered by
+-- recursing) from a genuine bare-literal argument (which may be bailed on when
+-- out of range) inside the nested-`address(...)` lowering arms.
+def Expr.isConversionCall : Expr -> Bool
+  | Expr.call (Expr.typeName _) [Arg.positional _] => true
+  | _ => false
+
 def Expr.toCoreAddressLiteral? : Expr -> Option CoreExpr
   | Expr.literal (Literal.address value) =>
       some
@@ -4371,7 +4379,17 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
           match Expr.toCoreAddressLiteral? innerExpr with
           | some coreExpr => some coreExpr
           | none =>
-              if Expr.isAddressLiteralCandidate innerExpr then
+              -- Bail with `none` ONLY for a genuine bare-literal candidate that
+              -- failed to fold (an out-of-range address literal — solc rejects
+              -- those). When `innerExpr` is itself a nested conversion such as
+              -- `address(0x1234)` (an identity `address(...)` chain at depth
+              -- >= 3), `isAddressLiteralCandidate` also returns `true` (it
+              -- recurses into the inner literal), but bailing there would fail to
+              -- lower an otherwise-accepted chain. So recurse in that case and let
+              -- the single-conversion arm fold the inner cast; a genuinely
+              -- out-of-range inner literal stays rejected (the inner fold = none).
+              if Expr.isAddressLiteralCandidate innerExpr &&
+                  !Expr.isConversionCall innerExpr then
                 none
               else
                 Expr.toCore? storageNames innerExpr
@@ -5048,7 +5066,17 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
           match Expr.toCoreAddressLiteral? innerExpr with
           | some coreExpr => some coreExpr
           | none =>
-              if Expr.isAddressLiteralCandidate innerExpr then
+              -- Bail with `none` ONLY for a genuine bare-literal candidate that
+              -- failed to fold (an out-of-range address literal — solc rejects
+              -- those). When `innerExpr` is itself a nested conversion such as
+              -- `address(0x1234)` (an identity `address(...)` chain at depth
+              -- >= 3), `isAddressLiteralCandidate` also returns `true` (it
+              -- recurses into the inner literal), but bailing there would fail to
+              -- lower an otherwise-accepted chain. So recurse in that case and let
+              -- the single-conversion arm fold the inner cast; a genuinely
+              -- out-of-range inner literal stays rejected (the inner fold = none).
+              if Expr.isAddressLiteralCandidate innerExpr &&
+                  !Expr.isConversionCall innerExpr then
                 none
               else
                 Expr.toCore? storageNames innerExpr
