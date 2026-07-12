@@ -74,6 +74,23 @@ return capture does NOT route through `callBodyResult`, so width and ref
 information keeps flowing across internal function boundaries where dispatch
 needs it.
 
+**Post-gate hardening (6-fixture regression, fixed forward):** the full gate
+found two invariants the first cut missed, both now uniform:
+1. *Coercion is tag-agnostic.* Several conversions (`address(bytes20 x)`,
+   nested cast chains) lower as IDENTITIES with no core node, so a tagged word
+   legally reaches non-bytesN slots. `Ty.coerceValue?` now accepts
+   `Value.fixedBytes` wherever it accepted `Value.word`
+   (bool/address/uint256/int256/enumStorage — unwrap, same checks, same
+   result shapes); `coerceLike?` gained the `int`-template arm. (Fixed
+   address-value-conversions, erc2771-context, multicall.)
+2. *ALL public observability boundaries untag*, not just returned values:
+   `RevertData.untagFixedBytes` strips tags from custom-error args in
+   `callBodyResult`'s reverted arms (fixed access-control x2, ecdsa — their
+   fixtures destructure `RevertData.custom ... [Value.word role]`), and
+   `Runtime.emitEvent` untags the stored `indexed`/`data` Value lists
+   (topics/dataBytes were already computed by tag-accepting typed encoders).
+   The `call?_reverted_rolls_back` theorem statement carries the untag.
+
 ## 2. Storage-ref returns as uniform path-refs (#188)
 
 **Lowering end (`Interface.lean`):** the storage-alias ASSIGNMENT intercept in

@@ -243,6 +243,22 @@ def Value.defaultLike : Value -> Value
   | Value.memoryRef id => Value.memoryRef id
   | Value.abiLazy _ value => value.defaultLike
 
+/-- R3: strip bytesN width tags at PUBLIC observability boundaries (returned
+    values, custom-error args, emitted event values). The tag
+    (`Value.fixedBytes size w`) is an internal dispatch device; the externally
+    observable value of a `bytesN` result is the same raw word it always was
+    (the contest observable and the frozen lane fixtures render `Value.word`).
+    Internal-call return capture does NOT route through these boundaries, so
+    width/ref information keeps flowing across internal boundaries. -/
+def Value.untagFixedBytes : Value -> Value
+  | Value.fixedBytes _ w => Value.word w
+  | Value.fixedArray vs => Value.fixedArray (vs.map Value.untagFixedBytes)
+  | Value.dynamicArray vs =>
+      Value.dynamicArray (vs.map Value.untagFixedBytes)
+  | Value.tuple vs => Value.tuple (vs.map Value.untagFixedBytes)
+  | Value.abiLazy cleanup v => Value.abiLazy cleanup v.untagFixedBytes
+  | v => v
+
 def Value.isMemoryObject : Value -> Bool
   | Value.bytes _ => true
   | Value.fixedArray _ => true
@@ -313,6 +329,15 @@ def RevertData.memoryAllocationTooLarge : RevertData :=
 
 def RevertData.typeMismatch : RevertData :=
   RevertData.panic 0
+
+/-- R3: custom-error ARGUMENTS are `Value`s too — strip bytesN width tags from
+    revert data at the public boundary (`RevertData.custom` args of e.g.
+    `AccessControlUnauthorizedAccount(account, bytes32 role)` are externally
+    observable exactly like return values). -/
+def RevertData.untagFixedBytes : RevertData -> RevertData
+  | RevertData.custom name vs =>
+      RevertData.custom name (vs.map Value.untagFixedBytes)
+  | rd => rd
 
 def RevertData.fromRawBytes (bytes : List Byte) : RevertData :=
   if bytes.map normByte == [] then
@@ -433,6 +458,24 @@ def Ty.coerceValue? : Ty -> Value -> Option Value
   | Ty.fixedBytes size, Value.word value => some (Value.fixedBytes size value)
   | Ty.fixedBytes size, Value.fixedBytes _ value =>
       some (Value.fixedBytes size value)
+  -- R3: coercion is TAG-AGNOSTIC — a width-tagged bytesN word meeting a
+  -- word-shaped scalar slot coerces exactly like the bare word (several
+  -- conversions, e.g. `address(bytes20 x)`, lower as IDENTITIES with no core
+  -- node, so the tag legally reaches non-bytesN slots). Raw word unchanged.
+  | Ty.bool, Value.fixedBytes _ value =>
+      if wordEq value 0 || wordEq value 1 then
+        some (Value.word value)
+      else
+        none
+  | Ty.address, Value.fixedBytes _ value => some (Value.word value)
+  | Ty.uint256, Value.fixedBytes _ value => some (Value.word value)
+  | Ty.int256, Value.fixedBytes _ value => some (Value.int value)
+  | Ty.enumStorage maxValue, Value.fixedBytes _ value =>
+      if SolidCore.Solidity.Shared.norm value <=
+          SolidCore.Solidity.Shared.norm maxValue then
+        some (Value.word value)
+      else
+        none
   -- LIT-COERCION (#142 `.push(literal)` / #145 `bytesN`-keyed mapping key): a
   -- hex/string/bytes LITERAL flowing to a `bytesN` storage element or mapping key
   -- is lowered target-blind to a dynamic-`bytes` `Value.bytes`. solc coerces it to
@@ -569,6 +612,7 @@ def Value.coerceLike? : Value -> Value -> Option Value
       some (Value.fixedBytes size value)
   | Value.int _, Value.int value => some (Value.int value)
   | Value.int _, Value.word value => some (Value.int value)
+  | Value.int _, Value.fixedBytes _ value => some (Value.int value)
   | Value.bytes _, Value.bytes bs => some (Value.bytes bs)
   -- R3 (#188): a storage-ref TEMPLATE meeting a storage-ref VALUE re-points
   -- structurally (an internal fn returning a storage pointer from an
@@ -7872,6 +7916,10 @@ def Runtime.withFrame (runtime : Runtime) (frame : Frame) : Runtime :=
 def Runtime.emitEvent (context : Context)
     (runtime : Runtime) (name : String) (values : List Value) :
     Except RevertData Runtime :=
+  -- R3: emitted event values are externally observable — strip bytesN width
+  -- tags (topics/dataBytes are computed by typed encoders either way; the
+  -- stored `indexed`/`data` Value lists match the pre-R3 shapes exactly).
+  let values := values.map Value.untagFixedBytes
   match context.eventDecl? name with
   | some decl =>
       let event? : Option Event :=
@@ -9480,21 +9528,6 @@ def FunctionDef.toInternal (function : FunctionDef) : InternalFunction :=
     body := function.body
     id? := function.dispatchId? }
 
-/-- R3: strip bytesN width tags at the PUBLIC call boundary. The tag
-    (`Value.fixedBytes size w`) is an internal dispatch device; the externally
-    observable value of a `bytesN` result is the same raw word it always was
-    (the contest observable and the frozen lane fixtures render `Value.word`).
-    Internal-call return capture does NOT route through this mapping, so
-    width/ref information keeps flowing across internal boundaries. -/
-def Value.untagFixedBytes : Value -> Value
-  | Value.fixedBytes _ w => Value.word w
-  | Value.fixedArray vs => Value.fixedArray (vs.map Value.untagFixedBytes)
-  | Value.dynamicArray vs =>
-      Value.dynamicArray (vs.map Value.untagFixedBytes)
-  | Value.tuple vs => Value.tuple (vs.map Value.untagFixedBytes)
-  | Value.abiLazy cleanup v => Value.abiLazy cleanup v.untagFixedBytes
-  | v => v
-
 def FunctionDef.callBodyResult (function : FunctionDef)
     (state : State) : Result -> CallResult
   | Result.normal runtime' =>
@@ -9502,25 +9535,28 @@ def FunctionDef.callBodyResult (function : FunctionDef)
       | Except.ok values =>
           CallResult.returned runtime'.state
             (values.map Value.untagFixedBytes)
-      | Except.error err => CallResult.reverted state err
+      | Except.error err =>
+          CallResult.reverted state err.untagFixedBytes
   | Result.returned runtime' values =>
       if values.isEmpty then
         match function.collectReturns runtime' with
         | Except.ok namedValues =>
             CallResult.returned runtime'.state
               (namedValues.map Value.untagFixedBytes)
-        | Except.error err => CallResult.reverted state err
+        | Except.error err =>
+            CallResult.reverted state err.untagFixedBytes
       else
         match function.coerceReturnValues runtime' values with
         | Except.ok coerced =>
             CallResult.returned runtime'.state
               (coerced.map Value.untagFixedBytes)
-        | Except.error err => CallResult.reverted state err
+        | Except.error err =>
+            CallResult.reverted state err.untagFixedBytes
   | Result.selfdestructed runtime' =>
       CallResult.returned runtime'.state []
   | Result.reverted runtime' revert =>
       let _ := runtime'
-      CallResult.reverted state revert
+      CallResult.reverted state revert.untagFixedBytes
   | Result.broke runtime' =>
       let _ := runtime'
       CallResult.reverted state RevertData.typeMismatch
@@ -9644,7 +9680,7 @@ theorem FunctionDef.call?_reverted_rolls_back
           function.body =
         pure (Result.reverted runtime revert)) :
     function.call? fuel table context state args =
-      some (CallResult.reverted state revert) := by
+      some (CallResult.reverted state revert.untagFixedBytes) := by
   simp [FunctionDef.call?, FunctionDef.call, FunctionDef.evalBodyEntry,
     FunctionDef.callBodyResult, SolI.runWith, Functor.map, Pure.pure,
     EvmCompiler.Simulation.Interaction.pure,
