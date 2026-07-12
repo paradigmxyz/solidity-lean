@@ -12302,6 +12302,44 @@
           }
         ]
       }
+    },
+    {
+      "name": "enum-member-encodepacked",
+      "description": "#178 ENUM-MEMBER-ENCODEPACKED wrong-value: an enum member-access literal (E.C) passed to abi.encodePacked formerly packed to a full 32-byte word instead of its 1-byte (uint8) underlying width. resolveEnums rewrote E.C to a bare number literal, discarding enum-ness, so Ty.packedTopWidth never saw an enum. The fix wraps the resolved ordinal in Expr.enumFromUInt (mirroring the E(x) conversion form) and teaches Expr.numberLiteralRat? to look through enumFromUInt so constant contexts (uint8(E.C)) still fold/accept. Forge pins real solc/EVM: abi.encodePacked(E.C)=0x02, abi.encodePacked(uint8(1),E.C,uint8(9))=0x010209, uint8 constant X=uint8(E.C) folds to 2. Lean imports the same source and matches.",
+      "forge": {
+        "root": "tests/forge-harness/enum-member-encodepacked",
+        "match_contract": "EnumMemberEncodePackedForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/enum-member-encodepacked/src/EnumMemberEncodePacked.sol",
+        "contract": "EnumMemberEncodePacked",
+        "namespace": "SolidCore.Solidity.SolcAstImport.EnumMemberEncodePacked"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedSourceUnitAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.EnumMemberEncodePacked.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "importedPackMemberSemantics",
+            "expr": "(do\n  let source := SolidCore.Solidity.SolcAstImport.EnumMemberEncodePacked.importedSourceUnit\n  let target := \"EnumMemberEncodePacked\"\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.callContract 256 source target (SolidCore.Solidity.Source.CallTarget.name \"packMember\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.bytes actual] => Except.ok (actual == [0x02])\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "importedPackMixedSemantics",
+            "expr": "(do\n  let source := SolidCore.Solidity.SolcAstImport.EnumMemberEncodePacked.importedSourceUnit\n  let target := \"EnumMemberEncodePacked\"\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.callContract 256 source target (SolidCore.Solidity.Source.CallTarget.name \"packMixed\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.bytes actual] => Except.ok (actual == [0x01, 0x02, 0x09])\n  | _ => Except.ok false)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }

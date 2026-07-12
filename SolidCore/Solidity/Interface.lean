@@ -1278,7 +1278,17 @@ def Expr.resolveEnumsFuel : Nat -> EnumEnv -> Expr -> Expr
               else
                 match EnumDecl.caseIndex? decl member with
                 | some index =>
-                    Expr.literal (Literal.number (toString index))
+                    -- #178 ENUM-MEMBER-ENCODEPACKED: keep the enum-ness of a
+                    -- member literal (E.C) so downstream packing sees a 1-byte
+                    -- (uint8) underlying width, mirroring the `E(x)` conversion
+                    -- form. A bare number literal would pack at the full word.
+                    -- `numberLiteralRat?` looks through `enumFromUInt`, so
+                    -- constant contexts (e.g. `uint8(E.C)`) still fold.
+                    match EnumDecl.maxValue? decl with
+                    | some maxValue =>
+                        Expr.enumFromUInt maxValue
+                          (Expr.literal (Literal.number (toString index)))
+                    | none => Expr.literal (Literal.number (toString index))
                 | none => Expr.member (Expr.typeName (Ty.user path)) member
           | none => Expr.member (Expr.typeName (Ty.user path)) member
       | Expr.member base member => Expr.member (resolve base) member
@@ -3208,6 +3218,12 @@ def Expr.numberLiteralRat? : Expr -> Option NumberRat
       BinaryOp.applyNumberRat? op lhsValue rhsValue
   | Expr.call (Expr.typeName _) [Arg.positional expr] =>
       Expr.numberLiteralRat? expr
+  | Expr.enumFromUInt _ inner =>
+      -- An enum value built from a constant ordinal is itself a constant
+      -- integer (solc's ConstantEvaluator folds enum members/conversions).
+      -- This keeps `uint8(E.C)` / `uint8(E(2))` foldable now that member
+      -- literals carry an `enumFromUInt` wrapper (#178).
+      Expr.numberLiteralRat? inner
   | _ => none
 
 def Expr.numberLiteralBool? : Expr -> Option Bool
