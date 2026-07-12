@@ -11911,6 +11911,144 @@
       }
     },
     {
+      "name": "cond-narrow-cleanup",
+      "description": "R2 env-lowering unification: narrow (uint8/int8) checked arithmetic in while/for/do-while/assert conditions, &&/! wrapped comparisons, discard-expression statements and index keys Panics 0x11 exactly as solc 0.8.35 + the EVM; explicit casts stay truncating, unchecked wraps at the narrow width, safe controls unchanged.",
+      "forge": {
+        "root": "tests/forge-harness/cond-narrow-cleanup",
+        "match_contract": "CondNarrowCleanupForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/cond-narrow-cleanup/src/CondNarrowCleanup.sol",
+        "contract": "CondNarrowCleanupHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.CondNarrowCleanup"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.CondNarrowCleanup.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "whileCond_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.CondNarrowCleanup.importedContract \"whileCond\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "forCond_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.CondNarrowCleanup.importedContract \"forCond\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "doWhileCond_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.CondNarrowCleanup.importedContract \"doWhileCond\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "assertCond_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.CondNarrowCleanup.importedContract \"assertCond\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "exprStmt_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.CondNarrowCleanup.importedContract \"exprStmt\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "intWhileCond_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.CondNarrowCleanup.importedContract \"intWhileCond\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Source.wordModulus - 100), SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Source.wordModulus - 50)] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "ifAndCond_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.CondNarrowCleanup.importedContract \"ifAndCond\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "ifNotCond_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.CondNarrowCleanup.importedContract \"ifNotCond\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "idxKey_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.CondNarrowCleanup.importedContract \"idxKey\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "whileAndCond_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.CondNarrowCleanup.importedContract \"whileAndCond\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "plainCmp_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.CondNarrowCleanup.importedContract \"plainCmp\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "ifCond_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.CondNarrowCleanup.importedContract \"ifCond\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "requireCond_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.CondNarrowCleanup.importedContract \"requireCond\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "eqCmp_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.CondNarrowCleanup.importedContract \"eqCmp\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "callArg_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.CondNarrowCleanup.importedContract \"callArg\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "whileCondSafe",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 300 SolidCore.Solidity.SolcAstImport.CondNarrowCleanup.importedContract \"whileCondSafe\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 3, SolidCore.Solidity.Source.Value.word 4] 3",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "plainCmpSafe",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 300 SolidCore.Solidity.SolcAstImport.CondNarrowCleanup.importedContract \"plainCmpSafe\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 3, SolidCore.Solidity.Source.Value.word 4] 1",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "uncheckedCmpWraps",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 300 SolidCore.Solidity.SolcAstImport.CondNarrowCleanup.importedContract \"uncheckedCmp\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 1",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "uncheckedWhileWraps",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 300 SolidCore.Solidity.SolcAstImport.CondNarrowCleanup.importedContract \"uncheckedWhile\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 3",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "castCmpTruncates",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 300 SolidCore.Solidity.SolcAstImport.CondNarrowCleanup.importedContract \"castCmp\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 300] 1",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "idxKeySafe",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 300 SolidCore.Solidity.SolcAstImport.CondNarrowCleanup.importedContract \"idxKey\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 40, SolidCore.Solidity.Source.Value.word 4] 9",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "callArgSafe",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 300 SolidCore.Solidity.SolcAstImport.CondNarrowCleanup.importedContract \"callArg\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 40, SolidCore.Solidity.Source.Value.word 4] 44",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
       "name": "address-folded-const",
       "description": "Forge/solc: `address(<folded-const-expr>)` compiles whenever the argument constant-folds to a non-negative integer < 2**160. solc RationalNumberType::isExplicitlyConvertibleTo (Types.cpp:1050) decides the nonpayable-address conversion on the ALREADY-FOLDED m_value (m_value == 0 || (!isNegative() && !isFractional() && integerType() && numBits() <= 160)), so address(1+1)=2, address(2*3)=6, address(0x1234+1)=0x1235, address(1-1)=0, and address(2**160-1) (the accepted boundary) all deploy and return those words on the real EVM; address(0-1)/address(2**160)/address(1/2) reject. solidity-lean formerly lowered the address arm via Expr.toCoreAddressLiteral? which matched only literal NODES and over-rejected any folded arithmetic argument, even though the integer path (uint160(1+1)) already folded (#170 ADDRESS-FOLDED-CONST-CONVERSION); the fix folds untyped number-literal expressions in the address arm. Lean imports the same contract from the solc AST.",
       "forge": {

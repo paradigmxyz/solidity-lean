@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/cond-narrow-cleanup/out"
+cache_path = "../../.foundry-suites/cond-narrow-cleanup/cache"
+evm_version = "cancun"

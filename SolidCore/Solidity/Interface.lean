@@ -8269,6 +8269,21 @@ def Expr.binaryToCoreWithEnv? (storageNames : List Name) (env : TypeEnv)
   | some (_, coreExpr) => some coreExpr
   | none => none
 
+/-- R2 (Stage C): lower a call-free CONDITION (while/for/do-while/if/require/
+    assert) through the env-aware typed lowering at `Ty.bool` FIRST — so
+    narrow (`uintN`/`intN`, N < 256) checked arithmetic inside the condition's
+    comparison operands keeps its operand-width cleanup (Panic 0x11 on
+    overflow in a checked block, width-wrap in `unchecked`), exactly as solc
+    evaluates conditions with full type annotations. Falls back to the
+    env-less `Expr.toCore?` so no previously-accepted condition regresses;
+    `none` only when both fail (e.g. a call-bearing condition, which the
+    statement-level call-hoisting desugars handle). -/
+def Expr.conditionCoreWithEnv? (storageNames : List Name) (env : TypeEnv)
+    (cond : Expr) : Option CoreExpr :=
+  match Expr.toCoreAsWithEnv? storageNames env Ty.bool cond with
+  | some condCore => some condCore
+  | none => Expr.toCore? storageNames cond
+
 def TupleItems.toCoreExprsAsWithEnv? (storageNames : List Name)
     (env : TypeEnv) : List Ty -> List TupleItem -> Option (List CoreExpr)
   | [], [] => some []
@@ -15104,7 +15119,7 @@ def FunctionDecl.conditionUseCoreWithInternalCalls?
           match Expr.binaryToCoreWithEnv? storageNames env op lhs rhs with
           | some condCore => some (useCond condCore)
           | none => do
-              let condCore ← Expr.toCore? storageNames cond
+              let condCore ← Expr.conditionCoreWithEnv? storageNames env cond
               some (useCond condCore)
   | Expr.call (Expr.ident name) args =>
       match
@@ -15138,10 +15153,13 @@ def FunctionDecl.conditionUseCoreWithInternalCalls?
             modifiers functions freeFunctions op inner useCond with
       | some coreStmt => some coreStmt
       | none => do
-          let condCore ← Expr.toCore? storageNames cond
+          -- R2 (Stage C): `!cond` recurses env-aware at `Ty.bool` (a nested
+          -- comparison keeps its operand-width cleanup), falling back to the
+          -- env-less lowering.
+          let condCore ← Expr.conditionCoreWithEnv? storageNames env cond
           some (useCond condCore)
   | _ => do
-      let condCore ← Expr.toCore? storageNames cond
+      let condCore ← Expr.conditionCoreWithEnv? storageNames env cond
       some (useCond condCore)
 termination_by (internalFuel, sizeOf cond, 6)
 
@@ -16169,6 +16187,32 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
           (Stmt.expr
             (Expr.call (Expr.ident "assert")
               [Arg.positional (Expr.call (Expr.ident name) args)]))
+  | Stmt.expr (Expr.call (Expr.ident "assert") [Arg.positional cond]) =>
+      -- R2 (Stage C): a NON-call assert condition routes through the same
+      -- env-aware condition lowering as `require` (operand-width cleanup, so
+      -- `assert((a + b) < n)` with `uint8 a,b` Panics 0x11 on the overflow
+      -- BEFORE the assert check — previously this fell to the generic
+      -- ident-call statement arm and the env-less `Stmt.toCore?`, dropping
+      -- the cleanup). Call conditions matched the arm above; on `none` the
+      -- prior generic fallbacks are preserved verbatim.
+      (match FunctionDecl.conditionUseCoreWithInternalCalls?
+          internalFuel storageRefEnv env externalCallKindEnv storageNames
+          modifiers functions freeFunctions cond
+          (fun condCore =>
+            SolidCore.Solidity.Source.Stmt.assertStmt condCore) with
+      | some coreStmt => some coreStmt
+      | none =>
+          match
+              Stmt.argPositionHoist? internalFuel storageRefEnv env
+                externalCallKindEnv storageNames modifiers functions
+                freeFunctions returnTys
+                (Expr.call (Expr.ident "assert") [Arg.positional cond])
+                (fun e => Stmt.expr e) with
+          | some coreStmt => some coreStmt
+          | none =>
+              Stmt.toCore? storageNames
+                (Stmt.expr
+                  (Expr.call (Expr.ident "assert") [Arg.positional cond])))
   | Stmt.expr
       (Expr.call (Expr.ident "require")
         [Arg.positional (Expr.call (Expr.ident name) args)]) =>
@@ -17885,9 +17929,10 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
           (freeFunctions := freeFunctions)
           (returnTys := returnTys)
           (stmt := body)
-      match Expr.toCore? storageNames cond with
+      match Expr.conditionCoreWithEnv? storageNames env cond with
       | some condCore =>
-          -- call-free condition: keep today's `whileLoop` node unchanged.
+          -- call-free condition: `whileLoop` node with the env-aware (R2,
+          -- operand-width-cleaned) condition lowering.
           some (SolidCore.Solidity.Source.Stmt.whileLoop condCore bodyCore)
       | none =>
           -- CALL-POSITION (#3): the condition contains a call the pure lowering
@@ -17922,9 +17967,10 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
           (freeFunctions := freeFunctions)
           (returnTys := returnTys)
           (stmt := body)
-      match Expr.toCore? storageNames cond with
+      match Expr.conditionCoreWithEnv? storageNames env cond with
       | some condCore =>
-          -- call-free condition: keep today's `doWhile` node unchanged.
+          -- call-free condition: `doWhile` node with the env-aware (R2)
+          -- condition lowering.
           some (SolidCore.Solidity.Source.Stmt.doWhile bodyCore condCore)
       | none =>
           -- CALL-POSITION (#2): the post-body condition contains a call. Desugar
@@ -18030,10 +18076,12 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
           (returnTys := returnTys)
           (stmt := body)
       -- Try the pure lowering of the condition first: a call-free (or `none`)
-      -- condition keeps today's `forLoop` node unchanged (no behaviour change).
+      -- condition keeps today's `forLoop` node, with the env-aware (R2)
+      -- condition lowering under `loopEnv` (the for-init bindings are in
+      -- scope for the condition).
       let purecond? : Option CoreExpr :=
         match cond with
-        | some expr => Expr.toCore? storageNames expr
+        | some expr => Expr.conditionCoreWithEnv? storageNames loopEnv expr
         | none => some (SolidCore.Solidity.Source.Expr.word 1)
       match purecond? with
       | some condCore =>
@@ -18239,6 +18287,22 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
           (returnTys := returnTys)
           (stmt := body)
       some (SolidCore.Solidity.Source.Stmt.unchecked bodyCore)
+  | Stmt.expr expr@(Expr.binary _ _ _)
+  | Stmt.expr expr@(Expr.unary UnaryOp.neg _)
+  | Stmt.expr expr@(Expr.unary UnaryOp.bitNot _)
+  | Stmt.expr expr@(Expr.unary UnaryOp.logicalNot _) =>
+      -- R2 (Stage C): a DISCARD-expression statement (`a + b;`, `-x;`) is
+      -- still evaluated by solc with full checked semantics — a narrow
+      -- checked overflow Panics 0x11 even though the value is dropped. Lower
+      -- the expression env-aware at its OWN type (operand-width cleanup);
+      -- fall back to the prior env-less lowering on `none`. Inc/dec and
+      -- `delete` unaries matched their dedicated arms earlier.
+      (match (do
+          let ty ← Expr.abiTyWithEnv? env expr
+          Expr.toCoreAsWithEnv? storageNames env ty expr) with
+      | some coreExpr =>
+          some (SolidCore.Solidity.Source.Stmt.exprStmt coreExpr)
+      | none => Stmt.toCore? storageNames (Stmt.expr expr))
   | other => Stmt.toCore? storageNames other
 termination_by (internalFuel, sizeOf stmt, 5)
 
