@@ -159,6 +159,26 @@ functions (they pin the interpreter/eval layer) — no proof changes expected;
 full `lake build` is the gate. Witness `#guard`s that inspect emitted core are
 written cleanup-tolerant (they recurse through `uintCleanup`).
 
+## Fix-forward: literal-only constant expressions (uniswap-v2 regression)
+
+The full 257-case gate flipped `uniswap-v2-libraries` (encode: `z =
+uint224(y) * Q112`, `Q112 = 2 ** 112`). After constant inlining the RHS
+reaches the env-aware lowering, whose `**` arm types the base at its MOBILE
+type (`2` -> `uint8`); the operand-width cleanup then emitted
+`uintCleanup 224 (uintCleanup 8 (exp 2 112))` -> spurious Panic 0x11. solc
+evaluates literal-only expressions at COMPILE TIME as unbounded rationals
+(`RationalNumberType`) and checks only the FINAL value against the target
+type - exactly what the env-less `toCore?`/`toCoreAs?` folding does. Fix
+(commit `c20e979`): (1) `toCoreAsWithEnvFuel?` routes any
+`isRawNumberLiteralExpression` straight to `toCoreAsWithEnvDirect?` (constant
+folding; non-fitting constants keep failing closed), except at
+internal-function-typed targets (rewritten fn-pointer dispatch-ID literals);
+(2) `binaryToCoreWithEnvTypedFuel?` returns `none` when BOTH operands are raw
+literals (callers fall back to folding). Verified: `2**112` at `uint224` now
+folds to the word via the env path; Enc2 probes (constOnly / encodeLocal /
+encodeExpr / castOnly / mulPlain) match the real EVM; uniswap-v2-libraries
+`forge=ok lean=ok`; all 22 EnvLoweringUnify pins unchanged.
+
 ## Witness / lane
 
 - `SolidCore/Witness/EnvLoweringUnify.lean` (imported from `SolidCore.lean`):
