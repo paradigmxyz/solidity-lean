@@ -1824,9 +1824,38 @@ def ContractCreationResult.failedRequest
     address := 0
     output := [] }
 
+/-- #186 closed-world self-dispatch hook. An external call to `address(this)` is
+    NOT open-world: the model has the contract's own code, so instead of emitting
+    a `Query.external` to a responder it must route the call through the
+    contract's own external dispatcher against the LIVE caller state. This hook
+    carries exactly that capability, installed on the entry `Context` by the
+    closed-world call entries (defined downstream in `ABI.lean`, where the
+    dispatcher is in scope) and consulted at the external-call emit sites when the
+    target equals `context.self`. Arguments: the sub-frame `msg.sender` (the
+    contract's own address), `msg.value`, the ABI `calldata`, and the live caller
+    `State`. Result: `(success, returndata, post-call state)`, or `none` when the
+    self-dispatch cannot resolve (fail-closed). It is `none` by default, so the
+    open-world responder path (all other-contract calls, and the existing
+    responder-scripted self-call witnesses) is entirely unaffected.
+
+    NOTE the hook takes NO runtime fuel: its dispatch budget and nesting-depth
+    bound are baked in at installation time (a fixed `Nat`), so the emit-site
+    value is independent of the caller's remaining statement fuel — this is what
+    keeps `Stmt.eval` fuel-monotone across the self-dispatch site. -/
+abbrev SelfDispatchFn :=
+  Word → Word → List Byte → State → Option (Bool × List Byte × State)
+
+/-- A self-dispatch hook is an opaque capability; its `Repr` is a placeholder so
+    `Context`'s derived `Repr` keeps working (the field is never displayed). -/
+instance : Repr SelfDispatchFn := ⟨fun _ _ => Std.Format.text "<selfDispatch>"⟩
+
 structure Context where
   storageFields : List StorageField
   immutableFields : List ImmutableField := []
+  -- #186: closed-world self-dispatch capability for calls to `address(this)`;
+  -- `none` on every open-world path (default), set only by the closed-world
+  -- entry points. See `SelfDispatchFn`.
+  selfDispatch? : Option SelfDispatchFn := none
   eventDecls : List EventDecl
   checked : Bool
   construction : Bool := false
@@ -2510,6 +2539,53 @@ def emitLowLevelCall (context : Context) (state : State)
       .done (.ok
         ( decodeCallResponse response kind target calldata value gas?
         , adoptWorld response.postWorld context state )))
+
+/-- #186: obtain the `(LowLevelCallResult × State)` pair for an external call
+    whose target is `address(this)`. When a closed-world self-dispatch hook is
+    installed (`context.selfDispatch?`), route the call through the contract's own
+    dispatcher against the LIVE state — a real re-entrant sub-frame with
+    `msg.sender := context.self` — mirroring `emitLowLevelCall`'s result shape but
+    emitting NO `Query.external`. When no hook is installed (every open-world
+    entry, incl. responder-scripted self-call witnesses), fall back to the
+    ordinary open-world emit so behaviour there is byte-identical. A hook that
+    fails to resolve (`none`) yields a failed call (`success := false`, empty
+    returndata), fail-closed.
+
+    Only CALL and STATICCALL self-dispatch (STATICCALL reaches the statement-level
+    site solely from the high-level `this.f()` lowering, which picks it
+    exclusively for typechecked view/pure targets, so the dispatched frame cannot
+    write; the expression-level low-level site additionally restricts itself to
+    plain CALL). A DELEGATECALL/CALLCODE whose target word happens to equal
+    `context.self` must NOT self-dispatch: it preserves the OUTER
+    `msg.sender`/`msg.value`, and under the closed-world entries an
+    external-library delegatecall's unresolved address defaults to word 0 ==
+    self — hijacking it would silently run the wrong code with the wrong frame.
+    Those kinds keep the open-world emit (fail-closed). -/
+def selfDispatchKindOk (kind : LowLevelCallKind) : Bool :=
+  match kind with
+  | SolidCore.Solidity.Shared.Call.ExternalCallKind.call => true
+  | SolidCore.Solidity.Shared.Call.ExternalCallKind.staticcall => true
+  | _ => false
+
+def selfDispatchCall (context : Context) (state : State)
+    (kind : LowLevelCallKind) (target : Word) (calldata : List Byte)
+    (value : Word) (gas? : Option Word) : SolI (LowLevelCallResult × State) :=
+  match (if selfDispatchKindOk kind && wordEq target context.self then
+      context.selfDispatch?
+    else none) with
+  | some dispatch =>
+      match dispatch context.self value calldata state with
+      | some (success, output, state') =>
+          pure
+            ( { kind := kind, target := target, calldata := calldata,
+                value := value, gas? := gas?, success := success, output := output }
+            , state' )
+      | none =>
+          pure
+            ( { kind := kind, target := target, calldata := calldata,
+                value := value, gas? := gas?, success := false, output := [] }
+            , state )
+  | none => emitLowLevelCall context state kind target calldata value gas?
 
 /-- Emit a precompile builtin (ecrecover/sha256/ripemd160) as a `STATICCALL` to
     address 1/2/3 and decode its 32-byte output word. In the EVM these builtins
@@ -7015,9 +7091,27 @@ def Expr.evalFuel (fuel : Nat)
                 match calldataValue.asBytes? with
                 | some bytes => pure bytes
                 | none => throw <| SolidityFailure.revert RevertData.typeMismatch
+              -- #186: `address(this).call(data)` on the executing contract
+              -- self-dispatches (closed-world) when the hook is installed;
+              -- `selfDispatchCall` is inert (falls back to the open-world emit)
+              -- for every non-self target and every open-world entry. ONLY plain
+              -- CALL self-dispatches here: a low-level self-STATICCALL would need
+              -- static-context write enforcement (a mutating selector must fail,
+              -- not mutate-and-succeed) and a self-DELEGATECALL preserves the
+              -- OUTER `msg.sender`/`msg.value` — both stay fail-closed
+              -- (open-world emit) rather than dispatch with wrong frame
+              -- semantics. During construction (`extcodesize(this) == 0`) a
+              -- low-level self-call hits a code-less account, so keep the
+              -- open-world emit there too.
               let (result, adoptedState) ←
-                emitLowLevelCall context runtime'.state
-                  kind target cdata value gas?
+                (if context.construction ||
+                    !(kind ==
+                      SolidCore.Solidity.Shared.Call.ExternalCallKind.call) then
+                  emitLowLevelCall context runtime'.state
+                    kind target cdata value gas?
+                else
+                  selfDispatchCall context runtime'.state
+                    kind target cdata value gas?)
               pure
                 ( Value.tuple
                     [ Value.word (boolWord result.success)
@@ -9062,21 +9156,34 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
                         | Except.ok (calldataValue, runtime''') =>
                             match calldataValue.asBytes? with
                             | some calldata => do
-                                    if checkTargetCode &&
-                                        !(runtime'''.state.envAccountHasCode
-                                          context target) then
-                                      -- A1/A3: solc's `extcodesize` existence
-                                      -- guard is emitted BEFORE the CALL opcode,
-                                      -- so a missing-code target reverts the
-                                      -- CALLER uncatchably — try/catch cannot
-                                      -- intercept a pre-call revert — with empty
-                                      -- revert data.  No CALL is performed, so no
-                                      -- external interaction is recorded.
+                                    -- #186: a call to `address(this)` is
+                                    -- closed-world — self-dispatch through the
+                                    -- contract's own code — whenever the hook is
+                                    -- installed. Two pre-CALL `extcodesize`
+                                    -- existence guards emit the SAME uncatchable
+                                    -- empty revert (kept a single `if` branch so
+                                    -- the fuel-monotonicity proof's structure is
+                                    -- unchanged):
+                                    --   * A1: a self-call while the contract is
+                                    --     under construction (`extcodesize(this)
+                                    --     == 0`) — `this.f()` in a constructor
+                                    --     reverts;
+                                    --   * A1/A3: a NON-self missing-code target
+                                    --     (the guard solc emits before the CALL;
+                                    --     try/catch cannot intercept it).
+                                    let selfDispatching :=
+                                      selfDispatchKindOk kind &&
+                                        wordEq target context.self &&
+                                        context.selfDispatch?.isSome
+                                    if (selfDispatching && context.construction) ||
+                                        (!selfDispatching && checkTargetCode &&
+                                          !(runtime'''.state.envAccountHasCode
+                                            context target)) then
                                       pure
                                         (Result.reverted runtime''' RevertData.empty)
                                     else do
                                       let (callResult, adoptedState) ←
-                                        emitLowLevelCall context runtime'''.state
+                                        selfDispatchCall context runtime'''.state
                                           kind target calldata value gas?
                                       let runtimeWithInteraction :=
                                         { runtime''' with

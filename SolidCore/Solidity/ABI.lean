@@ -932,6 +932,74 @@ def Contract.callCalldata? (fuel : Nat) (contract : Contract)
     (state : State) (calldata : Bytes) : Option AbiCallResult :=
   Contract.callCalldataFrom? fuel contract state 0 0 calldata
 
+/-! ### #186 closed-world self-dispatch (`address(this).f()`).
+
+A call whose target is the executing contract's own address is closed-world: the
+model has the contract's code, so it routes through the contract's OWN external
+dispatcher (`Contract.callCalldataAtFromWithContext?`) against the LIVE caller
+state in a proper sub-frame, rather than emitting an open-world `Query.external`.
+The capability is packaged as a `SelfDispatchFn` and installed on the entry
+`Context` by the closed-world call entries below; the interpreter consults it at
+its external-call emit sites when `target == context.self`. -/
+
+/-- The self-dispatch hook (see `SelfDispatchFn`). The `Nat` argument is BOTH the
+    nesting-depth bound (structural recursion — each nested self-call decrements
+    it, so mutual self-recursion terminates) AND the dispatch fuel budget threaded
+    into `Contract.callCalldataAtFromWithContext?`. It is baked in at installation
+    time, so the hook value does NOT depend on the caller's remaining statement
+    fuel (keeping `Stmt.eval` fuel-monotone). `msg.sender` in the sub-frame is the
+    contract's own address (`selfAddr`), matching a real CALL to `address(this)`. -/
+def selfDispatchHook : Nat → Contract → Word → SelfDispatchFn
+  | 0, _, _ => fun _ _ _ _ => none
+  | Nat.succ depth, contract, selfAddr => fun sender value calldata state =>
+      let base : Context :=
+        { contract.context with
+          selfDispatch? := some (selfDispatchHook depth contract selfAddr) }
+      (Contract.callCalldataAtFromWithContext? (Nat.succ depth) contract base state
+        selfAddr sender value calldata).map
+        (fun result => (result.success, result.output, result.state))
+
+/-- Closed-world own-call resolution with the self-dispatch hook installed on the
+    entry context (own-call self address `0`). Mirrors `Contract.call` but routes
+    `address(this)` calls through `selfDispatchHook` instead of the open-world
+    responder. -/
+def Contract.callWithSelfDispatch (fuel : Nat) (contract : Contract)
+    (target : CallTarget) (state : State) (args : List Value) :
+    Option (SolI CallResult) :=
+  match contract.resolveCallFunction? target args with
+  | some function =>
+      function.call fuel contract.table
+        { contract.context with
+          selfDispatch? := some (selfDispatchHook fuel contract 0) }
+        state args
+  | none => none
+
+/-- Fail-closed fold of `Contract.callWithSelfDispatch` (empty responder: only
+    self-targeted external calls are answered, in-model; any OTHER external call
+    still fails closed). -/
+def Contract.callSelfDispatch? (fuel : Nat) (contract : Contract)
+    (target : CallTarget) (state : State) (args : List Value) : Option CallResult :=
+  (Contract.callWithSelfDispatch fuel contract target state args).bind fun tree =>
+    match SolI.runWith [] tree with
+    | .ok result => some result
+    | .error _ => none
+
+/-- Transaction-scoped twin of `Contract.callWithSelfDispatch` (clears transient
+    state before, maps `clearTransient` over the result). -/
+def Contract.callTransactionWithSelfDispatch (fuel : Nat) (contract : Contract)
+    (target : CallTarget) (state : State) (args : List Value) :
+    Option (SolI CallResult) :=
+  (Contract.callWithSelfDispatch fuel contract target state.clearTransient args).map
+    (Functor.map CallResult.clearTransient)
+
+def Contract.callTransactionSelfDispatch? (fuel : Nat) (contract : Contract)
+    (target : CallTarget) (state : State) (args : List Value) : Option CallResult :=
+  (Contract.callTransactionWithSelfDispatch fuel contract target state args).bind
+    fun tree =>
+      match SolI.runWith [] tree with
+      | .ok result => some result
+      | .error _ => none
+
 def Contract.callCalldataTransactionAtFromWithContext? (fuel : Nat)
     (contract : Contract) (base : Context) (state : State)
     (self sender value : Word) (calldata : Bytes) :

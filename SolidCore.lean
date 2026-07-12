@@ -50,6 +50,7 @@ import SolidCore.Witness.TypeCheckKeying
 import SolidCore.Witness.AddressNestedConv
 import SolidCore.Witness.AnfCallHoisting
 import SolidCore.Witness.EvalOrderIntrinsic
+import SolidCore.Witness.ExternalSelfCall
 import SolidCore.Witness.NarrowCleanupFamily
 import SolidCore.Witness.EnvLoweringUnify
 import SolidCore.Witness.ValueTyping

@@ -243,7 +243,11 @@ def constructFrom? (fuel : Nat) (contract : CheckedContract)
     { contract.core.context with
       sender := sender
       value := value
-      construction := true }
+      construction := true
+      -- #186: install the self-dispatch hook so a `this.f()` in the constructor
+      -- takes the `extcodesize(this) == 0` construction revert (deploy fails).
+      selfDispatch? :=
+        some (SolidCore.Solidity.Source.ABI.selfDispatchHook fuel contract.core 0) }
     constructor state args
 
 def constructWithContext? (fuel : Nat) (contract : CheckedContract)
@@ -256,7 +260,9 @@ def constructWithContext? (fuel : Nat) (contract : CheckedContract)
     { context with
       sender := sender
       value := value
-      construction := true }
+      construction := true
+      selfDispatch? :=
+        some (SolidCore.Solidity.Source.ABI.selfDispatchHook fuel contract.core 0) }
     constructor state args
 
 def constructFrom (fuel : Nat) (contract : CheckedContract)
@@ -284,7 +290,10 @@ def construct (fuel : Nat) (contract : CheckedContract)
 def call? (fuel : Nat) (contract : CheckedContract)
     (target : CallTarget) (state : CoreState)
     (args : List CoreValue) : Option CoreCallResult :=
-  SolidCore.Solidity.Source.Contract.call?
+  -- #186: closed-world entry — install the self-dispatch hook so an external
+  -- `address(this).f()` in the body routes through the contract's own dispatcher
+  -- (calls to OTHER contracts still fail closed under the empty responder).
+  SolidCore.Solidity.Source.ABI.Contract.callSelfDispatch?
     fuel contract.core target state args
 
 def call (fuel : Nat) (contract : CheckedContract)
@@ -296,7 +305,8 @@ def call (fuel : Nat) (contract : CheckedContract)
 def callTransaction? (fuel : Nat) (contract : CheckedContract)
     (target : CallTarget) (state : CoreState)
     (args : List CoreValue) : Option CoreCallResult :=
-  SolidCore.Solidity.Source.Contract.callTransaction?
+  -- #186: closed-world transaction entry — self-dispatch hook installed.
+  SolidCore.Solidity.Source.ABI.Contract.callTransactionSelfDispatch?
     fuel contract.core target state args
 
 def callTransaction (fuel : Nat) (contract : CheckedContract)

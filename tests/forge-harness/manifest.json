@@ -12892,6 +12892,64 @@
           }
         ]
       }
+    },
+    {
+      "name": "external-self-call",
+      "description": "#186 EXTERNAL-SELF-CALL: an external call to `address(this)` (`this.f()` / `address(this).call(...)`) is closed-world — the model has the contract's own code — so it must self-dispatch through the contract's OWN external dispatcher against the LIVE state (selector match -> decode args -> run in a sub-frame with msg.sender := address(this), msg.value per options, storage threaded, revert propagated per call semantics), NOT emit an open-world Query.external to a responder. Before the fix `this.getX()` lowered/accepted but at runtime the own-call fold answered under the empty responder, so every self-call died `TypeError.unsupported`. The fix threads a `SelfDispatchFn` hook onto the entry Context (installed by the closed-world call entries `Contract.callSelfDispatch?` / the constructor path, consulted at the interpreter's external-call emit sites when target == context.self); other-contract calls and the responder-scripted self-call witnesses are unaffected (opt-in via hook presence). A `this.f()` in a CONSTRUCTOR reverts (extcodesize(this)==0). Forge pins real solc 0.8.35/EVM: value read (5), state mutation persistence (counter 1,2), msg.sender==address(this), try/catch routing (42), low-level (bool) => false, and constructor-self-call deploy revert. Lean imports the same source and self-dispatches the identical values plus the ctor revert.",
+      "forge": {
+        "root": "tests/forge-harness/external-self-call",
+        "match_contract": "ExternalSelfCallForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/external-self-call/src/ExternalSelfCall.sol",
+        "contract": "ExternalSelfCallTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.ExternalSelfCall"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.ExternalSelfCall.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "selfCallValueRead",
+            "expr": "(do\n  let program <- SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.ExternalSelfCall.importedSourceUnit\n  let contract <- SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"ExternalSelfCallTarget\"\n  let constructed <- SolidCore.Solidity.TypeCheck.CheckedContract.construct 512 contract SolidCore.Solidity.Source.State.empty []\n  match constructed with\n  | SolidCore.Solidity.Source.CallResult.returned st _ =>\n      let r <- SolidCore.Solidity.TypeCheck.CheckedContract.call 512 contract (SolidCore.Solidity.Source.CallTarget.name \"h\") st []\n      match r with\n      | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word w] => Except.ok (SolidCore.Solidity.Source.wordEq w 5)\n      | _ => Except.ok false\n  | _ => Except.ok false\n  : Except SolidCore.Solidity.TypeCheck.TypeError Bool)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "selfCallSenderIdentity",
+            "expr": "(do\n  let program <- SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.ExternalSelfCall.importedSourceUnit\n  let contract <- SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"ExternalSelfCallTarget\"\n  let constructed <- SolidCore.Solidity.TypeCheck.CheckedContract.construct 512 contract SolidCore.Solidity.Source.State.empty []\n  match constructed with\n  | SolidCore.Solidity.Source.CallResult.returned st _ =>\n      let r <- SolidCore.Solidity.TypeCheck.CheckedContract.call 512 contract (SolidCore.Solidity.Source.CallTarget.name \"senderCheck\") st []\n      match r with\n      | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word w] => Except.ok (SolidCore.Solidity.Source.wordEq w 1)\n      | _ => Except.ok false\n  | _ => Except.ok false\n  : Except SolidCore.Solidity.TypeCheck.TypeError Bool)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "selfCallTryCatchRoutes",
+            "expr": "(do\n  let program <- SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.ExternalSelfCall.importedSourceUnit\n  let contract <- SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"ExternalSelfCallTarget\"\n  let constructed <- SolidCore.Solidity.TypeCheck.CheckedContract.construct 512 contract SolidCore.Solidity.Source.State.empty []\n  match constructed with\n  | SolidCore.Solidity.Source.CallResult.returned st _ =>\n      let r <- SolidCore.Solidity.TypeCheck.CheckedContract.call 512 contract (SolidCore.Solidity.Source.CallTarget.name \"tryCatchBoom\") st []\n      match r with\n      | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word w] => Except.ok (SolidCore.Solidity.Source.wordEq w 42)\n      | _ => Except.ok false\n  | _ => Except.ok false\n  : Except SolidCore.Solidity.TypeCheck.TypeError Bool)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "selfCallLowLevelFalse",
+            "expr": "(do\n  let program <- SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.ExternalSelfCall.importedSourceUnit\n  let contract <- SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"ExternalSelfCallTarget\"\n  let constructed <- SolidCore.Solidity.TypeCheck.CheckedContract.construct 512 contract SolidCore.Solidity.Source.State.empty []\n  match constructed with\n  | SolidCore.Solidity.Source.CallResult.returned st _ =>\n      let r <- SolidCore.Solidity.TypeCheck.CheckedContract.call 512 contract (SolidCore.Solidity.Source.CallTarget.name \"lowLevelBoom\") st []\n      match r with\n      | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word w] => Except.ok (SolidCore.Solidity.Source.wordEq w 0)\n      | _ => Except.ok false\n  | _ => Except.ok false\n  : Except SolidCore.Solidity.TypeCheck.TypeError Bool)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "selfCallMutationPersists",
+            "expr": "(do\n  let program <- SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.ExternalSelfCall.importedSourceUnit\n  let contract <- SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"ExternalSelfCallTarget\"\n  let constructed <- SolidCore.Solidity.TypeCheck.CheckedContract.construct 512 contract SolidCore.Solidity.Source.State.empty []\n  match constructed with\n  | SolidCore.Solidity.Source.CallResult.returned st0 _ =>\n      let r1 <- SolidCore.Solidity.TypeCheck.CheckedContract.call 512 contract (SolidCore.Solidity.Source.CallTarget.name \"doInc\") st0 []\n      match r1 with\n      | SolidCore.Solidity.Source.CallResult.returned st1 [SolidCore.Solidity.Source.Value.word w1] =>\n          let r2 <- SolidCore.Solidity.TypeCheck.CheckedContract.call 512 contract (SolidCore.Solidity.Source.CallTarget.name \"doInc\") st1 []\n          match r2 with\n          | SolidCore.Solidity.Source.CallResult.returned st2 [SolidCore.Solidity.Source.Value.word w2] =>\n              let cr <- SolidCore.Solidity.TypeCheck.CheckedContract.call 512 contract (SolidCore.Solidity.Source.CallTarget.name \"counter\") st2 []\n              match cr with\n              | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word c] =>\n                  Except.ok (SolidCore.Solidity.Source.wordEq w1 1 && SolidCore.Solidity.Source.wordEq w2 2 && SolidCore.Solidity.Source.wordEq c 2)\n              | _ => Except.ok false\n          | _ => Except.ok false\n      | _ => Except.ok false\n  | _ => Except.ok false\n  : Except SolidCore.Solidity.TypeCheck.TypeError Bool)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "ctorSelfCallReverts",
+            "expr": "(do\n  let program <- SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.ExternalSelfCall.importedSourceUnit\n  let contract <- SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"ExternalSelfCallCtor\"\n  let r <- SolidCore.Solidity.TypeCheck.CheckedContract.construct 512 contract SolidCore.Solidity.Source.State.empty []\n  match r with\n  | SolidCore.Solidity.Source.CallResult.reverted _ _ => Except.ok true\n  | _ => Except.ok false\n  : Except SolidCore.Solidity.TypeCheck.TypeError Bool)",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }
