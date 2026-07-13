@@ -4380,31 +4380,12 @@ def materializeStorageValueUseCores (cores : List CoreExpr) :
 set_option maxHeartbeats 1000000 in
 mutual
 
-def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
-  | Expr.literal literal => Literal.toCoreExpr? literal
-  | Expr.ident name =>
-      some (sourceIdentCore storageNames name)
-  | Expr.member (Expr.typeName ty) member =>
-      match Ty.typeInfoExpr? ty member with
-      | some info => some info
-      | none =>
-          -- Qualified (inherited) STATE-VARIABLE read through a type name
-          -- (`Base.v`): resolves to the same storage/immutable slot as the bare
-          -- identifier. Constants were already inlined; only storage-backed
-          -- names reach here.
-          match ty with
-          | Ty.user _ =>
-              match stateNameRuntimeKey? member storageNames with
-              | some key => some (SolidCore.Solidity.Source.Expr.storage key)
-              | none =>
-                  match stateNameImmutableKey? member storageNames with
-                  | some key =>
-                      some (SolidCore.Solidity.Source.Expr.immutable key)
-                  | none => none
-          | _ => none
-  | Expr.call (Expr.typeName (Ty.address _))
-      [Arg.positional (Expr.call (Expr.typeName innerTy)
-        [Arg.positional innerExpr])] =>
+/-- WS1 Stage 3 (dedup): the depth-2 `address(T(inner))` conversion lowering,
+    shared verbatim by the plain arm and the `payable(address(T(inner)))`
+    (`Expr.payableConversion`) arm of `Expr.toCore?` — previously two
+    byte-identical 80-line copies. Behavior unchanged. -/
+def Expr.addressOfNestedConversionCore? (storageNames : List Name)
+    (innerTy : Ty) (innerExpr : Expr) : Option CoreExpr :=
       match innerTy with
       | Ty.address _ =>
           match Expr.toCoreAddressLiteral? innerExpr with
@@ -4484,6 +4465,35 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
           let _ ← Ty.toCore? innerTy
           Expr.toCore? storageNames innerExpr
       | _ => none
+termination_by (sizeOf innerExpr, 1)
+
+
+def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
+  | Expr.literal literal => Literal.toCoreExpr? literal
+  | Expr.ident name =>
+      some (sourceIdentCore storageNames name)
+  | Expr.member (Expr.typeName ty) member =>
+      match Ty.typeInfoExpr? ty member with
+      | some info => some info
+      | none =>
+          -- Qualified (inherited) STATE-VARIABLE read through a type name
+          -- (`Base.v`): resolves to the same storage/immutable slot as the bare
+          -- identifier. Constants were already inlined; only storage-backed
+          -- names reach here.
+          match ty with
+          | Ty.user _ =>
+              match stateNameRuntimeKey? member storageNames with
+              | some key => some (SolidCore.Solidity.Source.Expr.storage key)
+              | none =>
+                  match stateNameImmutableKey? member storageNames with
+                  | some key =>
+                      some (SolidCore.Solidity.Source.Expr.immutable key)
+                  | none => none
+          | _ => none
+  | Expr.call (Expr.typeName (Ty.address _))
+      [Arg.positional (Expr.call (Expr.typeName innerTy)
+        [Arg.positional innerExpr])] =>
+      Expr.addressOfNestedConversionCore? storageNames innerTy innerExpr
   | Expr.call (Expr.typeName Ty.string)
       [Arg.positional
         (Expr.call (Expr.member (Expr.ident "abi") "encodePacked") args)] => do
@@ -5107,85 +5117,7 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
       (Expr.call (Expr.typeName (Ty.address _))
         [Arg.positional (Expr.call (Expr.typeName innerTy)
           [Arg.positional innerExpr])]) =>
-      match innerTy with
-      | Ty.address _ =>
-          match Expr.toCoreAddressLiteral? innerExpr with
-          | some coreExpr => some coreExpr
-          | none =>
-              -- Bail with `none` ONLY for a genuine bare-literal candidate that
-              -- failed to fold (an out-of-range address literal — solc rejects
-              -- those). When `innerExpr` is itself a nested conversion such as
-              -- `address(0x1234)` (an identity `address(...)` chain at depth
-              -- >= 3), `isAddressLiteralCandidate` also returns `true` (it
-              -- recurses into the inner literal), but bailing there would fail to
-              -- lower an otherwise-accepted chain. So recurse in that case and let
-              -- the single-conversion arm fold the inner cast; a genuinely
-              -- out-of-range inner literal stays rejected (the inner fold = none).
-              if Expr.isAddressLiteralCandidate innerExpr &&
-                  !Expr.isConversionCall innerExpr then
-                none
-              else
-                Expr.toCore? storageNames innerExpr
-      | Ty.uint 160 =>
-          match Expr.toCoreNumericLiteralAs? innerTy innerExpr with
-          | some coreExpr => some coreExpr
-          | none =>
-              if Expr.isNumberLiteralExpression innerExpr then
-                none
-              else
-                match Expr.abiTy? storageNames innerExpr with
-                | some sourceTy => do
-                    let _ ← Ty.allowsUintCastSource? 160 sourceTy
-                    let coreExpr ← Expr.toCore? storageNames innerExpr
-                    some (SolidCore.Solidity.Source.Expr.uintCast
-                      160 coreExpr)
-                | none => Expr.toCore? storageNames innerExpr
-      | Ty.bytesN 20 =>
-          match Expr.toCoreFixedBytesLiteralAs? innerTy innerExpr with
-          | some coreExpr => some coreExpr
-          | none =>
-              if Expr.isFixedBytesLiteralCandidate innerExpr then
-                none
-              else
-                match Expr.abiTy? storageNames innerExpr with
-                | some Ty.bytes => do
-                    let coreExpr ← Expr.toCore? storageNames innerExpr
-                    some
-                      (SolidCore.Solidity.Source.Expr.fixedBytesFromBytes
-                        20 coreExpr)
-                | some sourceTy => do
-                    let sourceSize ←
-                      Ty.fixedBytesCastWordSourceSize? 20 sourceTy
-                    let coreExpr ← Expr.toCore? storageNames innerExpr
-                    some
-                      (SolidCore.Solidity.Source.Expr.fixedBytesCast
-                        20 sourceSize coreExpr)
-                | none => Expr.toCore? storageNames innerExpr
-      | Ty.fixedBytes 20 =>
-          match Expr.toCoreFixedBytesLiteralAs? innerTy innerExpr with
-          | some coreExpr => some coreExpr
-          | none =>
-              if Expr.isFixedBytesLiteralCandidate innerExpr then
-                none
-              else
-                match Expr.abiTy? storageNames innerExpr with
-                | some Ty.bytes => do
-                    let coreExpr ← Expr.toCore? storageNames innerExpr
-                    some
-                      (SolidCore.Solidity.Source.Expr.fixedBytesFromBytes
-                        20 coreExpr)
-                | some sourceTy => do
-                    let sourceSize ←
-                      Ty.fixedBytesCastWordSourceSize? 20 sourceTy
-                    let coreExpr ← Expr.toCore? storageNames innerExpr
-                    some
-                      (SolidCore.Solidity.Source.Expr.fixedBytesCast
-                        20 sourceSize coreExpr)
-                | none => Expr.toCore? storageNames innerExpr
-      | Ty.user _ => do
-          let _ ← Ty.toCore? innerTy
-          Expr.toCore? storageNames innerExpr
-      | _ => none
+      Expr.addressOfNestedConversionCore? storageNames innerTy innerExpr
   | Expr.payableConversion
       (Expr.call (Expr.typeName (Ty.address _)) [Arg.positional innerExpr]) =>
       match Expr.toCoreAddressLiteral? innerExpr with
