@@ -39,9 +39,29 @@ from . import observable as obs
 # resolve there while the Python package still loads from the worktree.
 _REPO_ROOT = Path(
     os.environ.get("CONTEST_REPO_ROOT") or Path(__file__).resolve().parents[1])
-DEFAULT_SOLC = "/Users/dan/.solc-select/artifacts/solc-0.8.35/solc-0.8.35"
-DEFAULT_FORGE = "/Users/dan/.foundry/bin/forge"
-DEFAULT_LAKE = shutil.which("lake") or "lake"
+def _resolve_tool(env_var: str, pinned: str, exe: str) -> str:
+    """Resolve a required external tool so the harness runs on any machine.
+
+    Order: explicit ``$env_var`` (an absolute path you pass in) → the pinned
+    local path if it exists (the maintainer's box) → whatever is on ``PATH`` →
+    the pinned literal as a last resort. External users: install pinned solc
+    0.8.35 (``solc-select use 0.8.35``) + Foundry so they land on ``PATH``, or
+    set ``SOLC``/``FORGE`` (or pass ``--solc``/``--forge``). See SUBMITTING.md.
+    NOTE: the contest requires solc **0.8.35** specifically — a different solc
+    on PATH will silently produce wrong verdicts, so prefer ``solc-select`` or
+    the explicit env var / flag."""
+    v = os.environ.get(env_var)
+    if v:
+        return v
+    if os.path.exists(pinned):
+        return pinned
+    return shutil.which(exe) or pinned
+
+
+DEFAULT_SOLC = _resolve_tool(
+    "SOLC", "/Users/dan/.solc-select/artifacts/solc-0.8.35/solc-0.8.35", "solc")
+DEFAULT_FORGE = _resolve_tool("FORGE", "/Users/dan/.foundry/bin/forge", "forge")
+DEFAULT_LAKE = os.environ.get("LAKE") or shutil.which("lake") or "lake"
 
 
 def _load_harness():

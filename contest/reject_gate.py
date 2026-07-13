@@ -37,6 +37,8 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable, Optional
@@ -46,7 +48,15 @@ from . import exclusion_register as reg
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_SOLC = "/Users/dan/.solc-select/artifacts/solc-0.8.35/solc-0.8.35"
+# Resolve solc portably (see harness_bridge._resolve_tool): explicit $SOLC →
+# pinned local path if present → PATH → literal. The contest requires solc
+# 0.8.35 — use `solc-select use 0.8.35`, set $SOLC, or pass --solc.
+DEFAULT_SOLC = (
+    os.environ.get("SOLC")
+    or ("/Users/dan/.solc-select/artifacts/solc-0.8.35/solc-0.8.35"
+        if os.path.exists("/Users/dan/.solc-select/artifacts/solc-0.8.35/solc-0.8.35")
+        else (shutil.which("solc")
+              or "/Users/dan/.solc-select/artifacts/solc-0.8.35/solc-0.8.35")))
 
 
 def _load_importer():

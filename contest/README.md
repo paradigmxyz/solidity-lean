@@ -1,5 +1,10 @@
 # Divergence Contest — v1 reject-gate + adjudication harness
 
+> **Testing your own divergence submission?** See **[SUBMITTING.md](SUBMITTING.md)**
+> for prerequisites (build the Lean model, pinned solc 0.8.35, Foundry), the
+> submission layout + `claim.json` schema, and how to run
+> `python -m contest.adjudicate`.
+
 Implements `docs/competition-design.md` for the **single-contract** (v1) scope:
 the reject gate, exclusion register, adjudicator decision tree, observable
 extractor/comparator, and dedup fingerprints, wired end-to-end against pinned
