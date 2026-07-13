@@ -9386,165 +9386,6 @@ def Stmt.annotateAbiFuel (fuel : Nat) (env : TypeEnv) (stmt : Stmt) :
 def Stmt.annotateAbi (env : TypeEnv) (stmt : Stmt) : Stmt :=
   Stmt.annotateAbiFuel defaultAnnotateAbiFuel env stmt
 
-mutual
-
-def Stmt.toCoreReplacingModifierPlaceholder?
-    (storageNames returnNames : List Name) (replacement : CoreStmt) :
-    Stmt -> Option CoreStmt
-  | Stmt.modifierPlaceholder =>
-      some (SolidCore.Solidity.Source.Stmt.captureReturn
-        returnNames replacement)
-  | Stmt.block body => do
-      let coreBody ←
-        Stmt.listToCoreReplacingModifierPlaceholder?
-          storageNames returnNames replacement body
-      some (SolidCore.Solidity.Source.Stmt.block coreBody)
-  | Stmt.ifElse cond thenBranch elseBranch => do
-      let condCore ← Expr.toCore? storageNames cond
-      let thenCore ←
-        Stmt.toCoreReplacingModifierPlaceholder?
-          storageNames returnNames replacement thenBranch
-      let elseCore ←
-        match elseBranch with
-        | some stmt =>
-            Stmt.toCoreReplacingModifierPlaceholder?
-              storageNames returnNames replacement stmt
-        | none => some SolidCore.Solidity.Source.Stmt.skip
-      some (SolidCore.Solidity.Source.Stmt.ifElse
-        condCore thenCore elseCore)
-  | Stmt.whileLoop cond body => do
-      let condCore ← Expr.toCore? storageNames cond
-      let bodyCore ←
-        Stmt.toCoreReplacingModifierPlaceholder?
-          storageNames returnNames replacement body
-      some (SolidCore.Solidity.Source.Stmt.whileLoop condCore bodyCore)
-  | Stmt.doWhile body cond => do
-      let bodyCore ←
-        Stmt.toCoreReplacingModifierPlaceholder?
-          storageNames returnNames replacement body
-      let condCore ← Expr.toCore? storageNames cond
-      some (SolidCore.Solidity.Source.Stmt.doWhile bodyCore condCore)
-  | Stmt.forLoop init cond post body => do
-      let initCore ←
-        match init with
-        | some stmt =>
-            Stmt.toCoreReplacingModifierPlaceholder?
-              storageNames returnNames replacement stmt
-        | none => some SolidCore.Solidity.Source.Stmt.skip
-      let condCore ←
-        match cond with
-        | some expr => Expr.toCore? storageNames expr
-        | none => some (SolidCore.Solidity.Source.Expr.word 1)
-      let postCore ←
-        match post with
-        | some expr => Stmt.toCore? storageNames (Stmt.expr expr)
-        | none => some SolidCore.Solidity.Source.Stmt.skip
-      let bodyCore ←
-        Stmt.toCoreReplacingModifierPlaceholder?
-          storageNames returnNames replacement body
-      some (SolidCore.Solidity.Source.Stmt.forLoop
-        initCore condCore postCore bodyCore)
-  | Stmt.tryCatch expr clauses => do
-      let catchCore ←
-        CatchClause.listToCoreReplacingModifierPlaceholder?
-          storageNames returnNames replacement clauses
-      match Expr.toExternalCall? storageNames expr with
-      | some (kind, targetCore, calldataCore, valueCore, gasCore?, gasFirst) =>
-          let checkTargetCode :=
-            Expr.externalCallNeedsCodeCheckWithEnv [] [] expr
-          some
-            (SolidCore.Solidity.Source.Stmt.tryExternalCall
-              kind targetCore calldataCore valueCore gasCore? gasFirst
-              checkTargetCode [] []
-              SolidCore.Solidity.Source.Stmt.skip catchCore)
-      | none => do
-          let (contractName, argsCore, valueCore, saltCore?, valueBeforeSalt) ←
-            Expr.toContractCreation? storageNames expr
-          some
-            (SolidCore.Solidity.Source.Stmt.tryContractCreate
-              contractName argsCore valueCore saltCore? valueBeforeSalt []
-              SolidCore.Solidity.Source.Stmt.skip catchCore)
-  | Stmt.tryCatchReturns expr returns success clauses => do
-      let returnBindings ← Parameters.toCoreTryBindings? "_try" returns
-      let returnAbiCleanups ←
-        Tys.toCoreAbiCleanups? (returns.map Parameter.ty)
-      let successCore ←
-        Stmt.toCoreReplacingModifierPlaceholder?
-          storageNames returnNames replacement success
-      let catchCore ←
-        CatchClause.listToCoreReplacingModifierPlaceholder?
-          storageNames returnNames replacement clauses
-      match Expr.toExternalCall? storageNames expr with
-      | some (kind, targetCore, calldataCore, valueCore, gasCore?, gasFirst) =>
-          let checkTargetCode :=
-            Expr.externalCallNeedsCodeCheckWithEnv []
-              (returns.map Parameter.ty) expr
-          some
-            (SolidCore.Solidity.Source.Stmt.tryExternalCall
-              kind targetCore calldataCore valueCore gasCore? gasFirst
-              checkTargetCode returnBindings returnAbiCleanups
-              successCore catchCore)
-      | none => do
-          let (contractName, argsCore, valueCore, saltCore?, valueBeforeSalt) ←
-            Expr.toContractCreation? storageNames expr
-          some
-            (SolidCore.Solidity.Source.Stmt.tryContractCreate
-              contractName argsCore valueCore saltCore? valueBeforeSalt returnBindings
-              successCore catchCore)
-  | Stmt.unchecked body => do
-      let bodyCore ←
-        Stmt.toCoreReplacingModifierPlaceholder?
-          storageNames returnNames replacement body
-      some (SolidCore.Solidity.Source.Stmt.unchecked bodyCore)
-  | other => Stmt.toCore? storageNames other
-termination_by stmt => (sizeOf stmt, 0)
-
-def CatchClause.toCoreReplacingModifierPlaceholder?
-    (storageNames returnNames : List Name) (replacement : CoreStmt)
-    (clause : CatchClause) : Option CoreTryCatchClause :=
-  match clause with
-  | CatchClause.clause name params body => do
-      let bindings ← Parameters.toCoreTryBindings? "_catch" params
-      let bodyCore ←
-        Stmt.toCoreReplacingModifierPlaceholder?
-          storageNames returnNames replacement body
-      some
-        (SolidCore.Solidity.Source.TryCatchClause.clause
-          name bindings bodyCore)
-termination_by (sizeOf clause, 1)
-
-def CatchClause.listToCoreReplacingModifierPlaceholder?
-    (storageNames returnNames : List Name) (replacement : CoreStmt)
-    (clauses : List CatchClause) : Option (List CoreTryCatchClause) :=
-  match clauses with
-  | [] => some []
-  | clause :: rest => do
-      let head ←
-        CatchClause.toCoreReplacingModifierPlaceholder?
-          storageNames returnNames replacement clause
-      let tail ←
-        CatchClause.listToCoreReplacingModifierPlaceholder?
-          storageNames returnNames replacement rest
-      some (head :: tail)
-termination_by (sizeOf clauses, 2)
-
-def Stmt.listToCoreReplacingModifierPlaceholder?
-    (storageNames returnNames : List Name) (replacement : CoreStmt)
-    (stmts : List Stmt) : Option (List CoreStmt) :=
-  match stmts with
-  | [] => some []
-  | stmt :: rest => do
-      let head ←
-        Stmt.toCoreReplacingModifierPlaceholder?
-          storageNames returnNames replacement stmt
-      let tail ←
-        Stmt.listToCoreReplacingModifierPlaceholder?
-          storageNames returnNames replacement rest
-      some (head :: tail)
-termination_by (sizeOf stmts, 1)
-
-end
-
 def Parameter.toCoreBinding? (fallbackPrefix : String) (index : Nat)
     (param : Parameter) : Option CoreBindingDecl := do
   -- Stage E: a `T storage` binding is a storage POINTER at run time — it binds
@@ -11869,82 +11710,6 @@ def modifierResolve? (modifiers : List SourceModifierDecl)
       | some modifier => some modifier
       | none => modifierFindByName? modifiers name
   | _ => modifierFindByName? modifiers name
-
-def functionExpandModifiers? (available : List SourceModifierDecl)
-    (invocations : List SourceModifierInvocation) (body : Stmt) : Option Stmt :=
-  match invocations with
-  | [] => some body
-  | invocation :: rest => do
-      let inner ← functionExpandModifiers? available rest body
-      let modifierDecl ← modifierResolve? available invocation.target
-      modifierApply? modifierDecl invocation inner
-
-def modifierApplyToCore? (storageNames returnNames : List Name)
-    (decl : SourceModifierDecl)
-    (invocation : SourceModifierInvocation) (inner : CoreStmt) :
-    Option CoreStmt := do
-  let body ← decl.body
-  let body := ModifierDecl.aliasParamsInBody decl body
-  let prefixStmts ← modifierParamBindingsWithArgs? decl invocation.args
-  let prefixCore ← Stmt.listToCore? storageNames prefixStmts
-  let bodyCore ←
-    Stmt.toCoreReplacingModifierPlaceholder?
-      storageNames returnNames inner body
-  some (SolidCore.Solidity.Source.Stmt.block (prefixCore ++ [bodyCore]))
-
-def modifierParamBindingsToCoreWithEnv? (storageNames : List Name) :
-    StorageRefEnv -> TypeEnv -> List Stmt -> Option (List CoreStmt)
-  | _, _, [] => some []
-  | storageRefEnv, env,
-      Stmt.varDecl [binding] (some expr) :: rest => do
-      let name ← binding.name
-      let ty ← binding.ty
-      let param : Parameter :=
-        { name := some name, ty := ty, location := binding.location }
-      let head ←
-        Parameter.toStorageAwareCoreArgDecl?
-          storageRefEnv storageNames env "_sol_mod" 0 param expr
-      let tail ←
-        modifierParamBindingsToCoreWithEnv? storageNames
-          (VarBinding.extendStorageRefEnv storageRefEnv binding)
-          (VarBinding.extendTypeEnv env binding) rest
-      some (head :: tail)
-  | _, _, _ => none
-termination_by _ _ stmts => stmts.length
-
-def modifierApplyToCoreWithEnv? (storageRefEnv : StorageRefEnv)
-    (env : TypeEnv)
-    (storageNames returnNames : List Name)
-    (decl : SourceModifierDecl)
-    (invocation : SourceModifierInvocation) (inner : CoreStmt) :
-    Option CoreStmt := do
-  let body ← decl.body
-  let body := ModifierDecl.aliasParamsInBody decl body
-  let prefixStmts ← modifierParamBindingsWithArgs? decl invocation.args
-  let prefixCore ←
-    modifierParamBindingsToCoreWithEnv?
-      storageNames storageRefEnv env prefixStmts
-  let modifierEnv :=
-    Parameters.extendTypeEnv "_mod" env (ModifierDecl.aliasedParams decl)
-  let body := Stmt.annotateAbi modifierEnv body
-  let bodyCore ←
-    Stmt.toCoreReplacingModifierPlaceholder?
-      storageNames returnNames inner body
-  some (SolidCore.Solidity.Source.Stmt.block (prefixCore ++ [bodyCore]))
-
-def functionExpandModifiersToCore? (storageNames returnNames : List Name)
-    (available : List SourceModifierDecl)
-    (invocations : List SourceModifierInvocation) (body : Stmt) :
-    Option CoreStmt :=
-  match invocations with
-  | [] => Stmt.toCore? storageNames body
-  | invocation :: rest => do
-      let inner ←
-        functionExpandModifiersToCore?
-          storageNames returnNames available rest body
-      let modifierDecl ← modifierResolve? available invocation.target
-      modifierApplyToCore? storageNames returnNames
-        modifierDecl invocation inner
 
 inductive ModifierApplicationStatus where
   | applied
@@ -14509,6 +14274,202 @@ def Stmt.anfNormalizeSelf?
 
 set_option maxHeartbeats 1000000 in
 mutual
+
+def modifierParamBindingsToCoreWithEnv? (storageNames : List Name) :
+    StorageRefEnv -> TypeEnv -> List Stmt -> Option (List CoreStmt)
+  | _, _, [] => some []
+  | storageRefEnv, env,
+      Stmt.varDecl [binding] (some expr) :: rest => do
+      let name ← binding.name
+      let ty ← binding.ty
+      let param : Parameter :=
+        { name := some name, ty := ty, location := binding.location }
+      let head ←
+        Parameter.toStorageAwareCoreArgDecl?
+          storageRefEnv storageNames env "_sol_mod" 0 param expr
+      let tail ←
+        modifierParamBindingsToCoreWithEnv? storageNames
+          (VarBinding.extendStorageRefEnv storageRefEnv binding)
+          (VarBinding.extendTypeEnv env binding) rest
+      some (head :: tail)
+  | _, _, _ => none
+termination_by _ _ stmts => (1, 0, stmts.length, 0)
+
+def modifierApplyToCoreWithEnv? (storageRefEnv : StorageRefEnv)
+    (env : TypeEnv)
+    (storageNames returnNames : List Name)
+    (decl : SourceModifierDecl)
+    (invocation : SourceModifierInvocation) (inner : CoreStmt) :
+    Option CoreStmt := do
+  let body ← decl.body
+  let body := ModifierDecl.aliasParamsInBody decl body
+  let prefixStmts ← modifierParamBindingsWithArgs? decl invocation.args
+  let prefixCore ←
+    modifierParamBindingsToCoreWithEnv?
+      storageNames storageRefEnv env prefixStmts
+  let modifierEnv :=
+    Parameters.extendTypeEnv "_mod" env (ModifierDecl.aliasedParams decl)
+  let body := Stmt.annotateAbi modifierEnv body
+  let bodyCore ←
+    Stmt.toCoreReplacingModifierPlaceholder?
+      storageNames returnNames inner body
+  some (SolidCore.Solidity.Source.Stmt.block (prefixCore ++ [bodyCore]))
+termination_by (2, 0, 0, 0)
+
+def Stmt.toCoreReplacingModifierPlaceholder?
+    (storageNames returnNames : List Name) (replacement : CoreStmt) :
+    Stmt -> Option CoreStmt
+  | Stmt.modifierPlaceholder =>
+      some (SolidCore.Solidity.Source.Stmt.captureReturn
+        returnNames replacement)
+  | Stmt.block body => do
+      let coreBody ←
+        Stmt.listToCoreReplacingModifierPlaceholder?
+          storageNames returnNames replacement body
+      some (SolidCore.Solidity.Source.Stmt.block coreBody)
+  | Stmt.ifElse cond thenBranch elseBranch => do
+      let condCore ← Expr.toCore? storageNames cond
+      let thenCore ←
+        Stmt.toCoreReplacingModifierPlaceholder?
+          storageNames returnNames replacement thenBranch
+      let elseCore ←
+        match elseBranch with
+        | some stmt =>
+            Stmt.toCoreReplacingModifierPlaceholder?
+              storageNames returnNames replacement stmt
+        | none => some SolidCore.Solidity.Source.Stmt.skip
+      some (SolidCore.Solidity.Source.Stmt.ifElse
+        condCore thenCore elseCore)
+  | Stmt.whileLoop cond body => do
+      let condCore ← Expr.toCore? storageNames cond
+      let bodyCore ←
+        Stmt.toCoreReplacingModifierPlaceholder?
+          storageNames returnNames replacement body
+      some (SolidCore.Solidity.Source.Stmt.whileLoop condCore bodyCore)
+  | Stmt.doWhile body cond => do
+      let bodyCore ←
+        Stmt.toCoreReplacingModifierPlaceholder?
+          storageNames returnNames replacement body
+      let condCore ← Expr.toCore? storageNames cond
+      some (SolidCore.Solidity.Source.Stmt.doWhile bodyCore condCore)
+  | Stmt.forLoop init cond post body => do
+      let initCore ←
+        match init with
+        | some stmt =>
+            Stmt.toCoreReplacingModifierPlaceholder?
+              storageNames returnNames replacement stmt
+        | none => some SolidCore.Solidity.Source.Stmt.skip
+      let condCore ←
+        match cond with
+        | some expr => Expr.toCore? storageNames expr
+        | none => some (SolidCore.Solidity.Source.Expr.word 1)
+      let postCore ←
+        match post with
+        | some expr => Stmt.toCore? storageNames (Stmt.expr expr)
+        | none => some SolidCore.Solidity.Source.Stmt.skip
+      let bodyCore ←
+        Stmt.toCoreReplacingModifierPlaceholder?
+          storageNames returnNames replacement body
+      some (SolidCore.Solidity.Source.Stmt.forLoop
+        initCore condCore postCore bodyCore)
+  | Stmt.tryCatch expr clauses => do
+      let catchCore ←
+        CatchClause.listToCoreReplacingModifierPlaceholder?
+          storageNames returnNames replacement clauses
+      match Expr.toExternalCall? storageNames expr with
+      | some (kind, targetCore, calldataCore, valueCore, gasCore?, gasFirst) =>
+          let checkTargetCode :=
+            Expr.externalCallNeedsCodeCheckWithEnv [] [] expr
+          some
+            (SolidCore.Solidity.Source.Stmt.tryExternalCall
+              kind targetCore calldataCore valueCore gasCore? gasFirst
+              checkTargetCode [] []
+              SolidCore.Solidity.Source.Stmt.skip catchCore)
+      | none => do
+          let (contractName, argsCore, valueCore, saltCore?, valueBeforeSalt) ←
+            Expr.toContractCreation? storageNames expr
+          some
+            (SolidCore.Solidity.Source.Stmt.tryContractCreate
+              contractName argsCore valueCore saltCore? valueBeforeSalt []
+              SolidCore.Solidity.Source.Stmt.skip catchCore)
+  | Stmt.tryCatchReturns expr returns success clauses => do
+      let returnBindings ← Parameters.toCoreTryBindings? "_try" returns
+      let returnAbiCleanups ←
+        Tys.toCoreAbiCleanups? (returns.map Parameter.ty)
+      let successCore ←
+        Stmt.toCoreReplacingModifierPlaceholder?
+          storageNames returnNames replacement success
+      let catchCore ←
+        CatchClause.listToCoreReplacingModifierPlaceholder?
+          storageNames returnNames replacement clauses
+      match Expr.toExternalCall? storageNames expr with
+      | some (kind, targetCore, calldataCore, valueCore, gasCore?, gasFirst) =>
+          let checkTargetCode :=
+            Expr.externalCallNeedsCodeCheckWithEnv []
+              (returns.map Parameter.ty) expr
+          some
+            (SolidCore.Solidity.Source.Stmt.tryExternalCall
+              kind targetCore calldataCore valueCore gasCore? gasFirst
+              checkTargetCode returnBindings returnAbiCleanups
+              successCore catchCore)
+      | none => do
+          let (contractName, argsCore, valueCore, saltCore?, valueBeforeSalt) ←
+            Expr.toContractCreation? storageNames expr
+          some
+            (SolidCore.Solidity.Source.Stmt.tryContractCreate
+              contractName argsCore valueCore saltCore? valueBeforeSalt returnBindings
+              successCore catchCore)
+  | Stmt.unchecked body => do
+      let bodyCore ←
+        Stmt.toCoreReplacingModifierPlaceholder?
+          storageNames returnNames replacement body
+      some (SolidCore.Solidity.Source.Stmt.unchecked bodyCore)
+  | other => Stmt.toCore? storageNames other
+termination_by stmt => (1, 0, sizeOf stmt, 0)
+
+def CatchClause.toCoreReplacingModifierPlaceholder?
+    (storageNames returnNames : List Name) (replacement : CoreStmt)
+    (clause : CatchClause) : Option CoreTryCatchClause :=
+  match clause with
+  | CatchClause.clause name params body => do
+      let bindings ← Parameters.toCoreTryBindings? "_catch" params
+      let bodyCore ←
+        Stmt.toCoreReplacingModifierPlaceholder?
+          storageNames returnNames replacement body
+      some
+        (SolidCore.Solidity.Source.TryCatchClause.clause
+          name bindings bodyCore)
+termination_by (1, 0, sizeOf clause, 2)
+
+def CatchClause.listToCoreReplacingModifierPlaceholder?
+    (storageNames returnNames : List Name) (replacement : CoreStmt)
+    (clauses : List CatchClause) : Option (List CoreTryCatchClause) :=
+  match clauses with
+  | [] => some []
+  | clause :: rest => do
+      let head ←
+        CatchClause.toCoreReplacingModifierPlaceholder?
+          storageNames returnNames replacement clause
+      let tail ←
+        CatchClause.listToCoreReplacingModifierPlaceholder?
+          storageNames returnNames replacement rest
+      some (head :: tail)
+termination_by (1, 0, sizeOf clauses, 4)
+
+def Stmt.listToCoreReplacingModifierPlaceholder?
+    (storageNames returnNames : List Name) (replacement : CoreStmt)
+    (stmts : List Stmt) : Option (List CoreStmt) :=
+  match stmts with
+  | [] => some []
+  | stmt :: rest => do
+      let head ←
+        Stmt.toCoreReplacingModifierPlaceholder?
+          storageNames returnNames replacement stmt
+      let tail ←
+        Stmt.listToCoreReplacingModifierPlaceholder?
+          storageNames returnNames replacement rest
+      some (head :: tail)
+termination_by (1, 0, sizeOf stmts, 2)
 
 def functionExpandModifiersToCoreWithInternalCalls?
     (internalFuel : Nat)
