@@ -178,3 +178,36 @@ Edge audit (every class of in-knot edge):
   reference-assignments, reference-delete, storage-counter,
   cond-narrow-cleanup, builtin-arg-residue, lowering-unify-audit + getter/
   constructor/call-position lanes. Full 265-case replay is the orchestrator's.
+
+## 8. RESULTS (landed on this branch)
+
+- Stage 0 `790bc3a`, Stage 1 `6e9aa98` + 1b (layer-first flip), Stage 2
+  `9ef7fb6`, Stage 3 `6649e4f`.
+- Implementation notes vs the plan above:
+  - the `some`-branch destructures `ctx` via field-projection `let`s (a
+    multi-line structure PATTERN trips the parser's brace layout);
+  - the `some`-branch inner `match stmt with` is parenthesized so it cannot
+    swallow the following `| none =>` arm;
+  - two previously hint-free members (`varDeclCoreWithEnv?`,
+    `returnValuesCoreWithReturnTys?`) were pulled into the WF SCC by their
+    `Stmt.toCore?`-wrapper fallback edges and received `(2, 0, 0, 0)`
+    layer-2 constant measures (they are fuel-less and non-recursive; their
+    only in-SCC edges go down to layer 0). No other member needed changes.
+- Verification:
+  - emitted-core differential: 18 fixture source units (storage-counter,
+    openzeppelin-erc20, openzeppelin-access-control, reference-assignments,
+    reference-delete, cond-narrow-cleanup, builtin-arg-residue,
+    lowering-unify-audit, base-constructor-runtime-args, modifier-order,
+    modifier-private-scope, try-catch, catch-dispatch-by-kind, loop-control,
+    loopcond-continue, constructor-deploy, lib-storage-public,
+    compound-jump-rate-model) dumped via
+    `repr (Executable.SourceUnit.toCoreContracts? …)` on UNTOUCHED main
+    (403390d) and on this branch: all 18 byte-identical (incl. the
+    `importedContractAccepted` acceptance bit).
+  - full `lake build`: "Build completed successfully (1147 jobs)" including
+    FuelMonotonicity, AdoptionLaws, and every witness — zero proof edits.
+  - self-gate lanes (sequential, all `forge=ok lean=ok`): openzeppelin-erc20,
+    openzeppelin-access-control, reference-assignments, reference-delete,
+    storage-counter, cond-narrow-cleanup, builtin-arg-residue,
+    lowering-unify-audit, modifier-order, try-catch, call-position,
+    constructor-deploy, lib-storage-public.
