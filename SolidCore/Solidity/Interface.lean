@@ -14540,7 +14540,7 @@ def functionExpandModifiersToCoreWithInternalCalls?
       let modifierDecl ← modifierResolve? available invocation.target
       modifierApplyToCoreWithEnv? storageRefEnv env storageNames returnNames
         modifierDecl invocation inner
-termination_by (internalFuel, sizeOf invocations + sizeOf body, 6)
+termination_by (internalFuel, 3, sizeOf invocations + sizeOf body, 12)
 
 /-- Elaborate call arguments to core expressions for the function-boundary
     representation: one core temp per parameter (source order, so left-to-right
@@ -14734,7 +14734,7 @@ def FunctionDecl.internalStatementCallCore?
     (SolidCore.Solidity.Source.Stmt.block
       (prefixCore ++
         [SolidCore.Solidity.Source.Stmt.captureReturn returnNames bodyCore]))
-termination_by (internalFuel, 0, 1)
+termination_by (internalFuel, 3, 0, 2)
 
 def FunctionDecl.internalSingleReturnCallCore?
     (internalFuel : Nat)
@@ -14757,7 +14757,7 @@ def FunctionDecl.internalSingleReturnCallCore?
                 [retName] bodyCore
             , useResult (SolidCore.Solidity.Source.Expr.var retName) ]))
   | _ => none
-termination_by (internalFuel, 0, 1)
+termination_by (internalFuel, 3, 0, 2)
 
 def FunctionDecl.internalSingleReturnCallExprCore?
     (internalFuel : Nat)
@@ -14818,7 +14818,7 @@ def FunctionDecl.internalSingleReturnCallExprCore?
         0 storageRefEnv env externalCallKindEnv storageNames
         modifiers functions freeFunctions name args
         (fun retExpr => useResult (convert retExpr))
-termination_by (internalFuel, 0, 3)
+termination_by (internalFuel, 3, 0, 6)
 
 def FunctionDecl.abiInternalSingleReturnUseCore?
     (internalFuel : Nat)
@@ -14851,7 +14851,7 @@ def FunctionDecl.abiInternalSingleReturnUseCore?
           , callCore
           , replacedCore ])
   | _ => none
-termination_by (internalFuel, sizeOf expr + 1, 4)
+termination_by (internalFuel, 3, sizeOf expr + 1, 8)
 
 def FunctionDecl.internalSingleStorageReturnRefCore?
     (internalFuel : Nat)
@@ -14874,7 +14874,7 @@ def FunctionDecl.internalSingleStorageReturnRefCore?
                 [retName] bodyCore
             , useRef retName ]))
   | _, _ => none
-termination_by (internalFuel, 0, 1)
+termination_by (internalFuel, 3, 0, 2)
 
 def FunctionDecl.internalSingleStorageReturnRefCorePieces?
     (internalFuel : Nat)
@@ -14896,7 +14896,7 @@ def FunctionDecl.internalSingleStorageReturnRefCorePieces?
               [retName] bodyCore
           , useRef retName ])
   | _, _ => none
-termination_by (internalFuel, 0, 1)
+termination_by (internalFuel, 3, 0, 2)
 
 def FunctionDecl.internalTwoSingleReturnCallsCore?
     (internalFuel : Nat)
@@ -14935,7 +14935,7 @@ def FunctionDecl.internalTwoSingleReturnCallsCore?
                 (SolidCore.Solidity.Source.Expr.var firstTmp)
                 (SolidCore.Solidity.Source.Expr.var secondRetName) ]))
   | _, _ => none
-termination_by (internalFuel, 0, 1)
+termination_by (internalFuel, 3, 0, 2)
 
 /-- Right-first twin of `internalTwoSingleReturnCallsCore?` for ORDINARY BINARY
     OPERANDS only: solc legacy evaluates the RIGHT operand's call FIRST, then
@@ -14980,7 +14980,7 @@ def FunctionDecl.internalTwoSingleReturnCallsRightFirstCore?
                 (SolidCore.Solidity.Source.Expr.var firstRetName)
                 (SolidCore.Solidity.Source.Expr.var secondTmp) ]))
   | _, _ => none
-termination_by (internalFuel, 0, 1)
+termination_by (internalFuel, 3, 0, 2)
 
 def FunctionDecl.internalAssignReturnCallCore?
     (internalFuel : Nat)
@@ -15004,7 +15004,7 @@ def FunctionDecl.internalAssignReturnCallCore?
           CoreBindingDecls.assignToVars targetNames returnBindings))
   else
     none
-termination_by (internalFuel, 0, 1)
+termination_by (internalFuel, 3, 0, 2)
 
 def FunctionDecl.internalTupleAssignReturnCallCore?
     (internalFuel : Nat)
@@ -15032,7 +15032,7 @@ def FunctionDecl.internalTupleAssignReturnCallCore?
           CoreBindingDecls.assignToTargets targets returnBindings))
   else
     none
-termination_by (internalFuel, 0, 1)
+termination_by (internalFuel, 3, 0, 2)
 
 def FunctionDecl.internalTupleVarDeclAssignReturnCallCorePieces?
     (internalFuel : Nat)
@@ -15062,7 +15062,7 @@ def FunctionDecl.internalTupleVarDeclAssignReturnCallCorePieces?
       [SolidCore.Solidity.Source.Stmt.captureReturn
         returnNames bodyCore] ++
       CoreBindingDecls.assignToTargets targets returnBindings)
-termination_by (internalFuel, 0, 1)
+termination_by (internalFuel, 3, 0, 2)
 
 def FunctionDecl.internalReturnCallCore?
     (internalFuel : Nat)
@@ -15091,7 +15091,7 @@ def FunctionDecl.internalReturnCallCore?
               (returnNames.map SolidCore.Solidity.Source.Expr.var) ]))
   else
     none
-termination_by (internalFuel, 0, 1)
+termination_by (internalFuel, 3, 0, 2)
 
 def FunctionDecl.internalVarDeclAssignReturnCallCorePieces?
     (internalFuel : Nat)
@@ -15125,7 +15125,7 @@ def FunctionDecl.internalVarDeclAssignReturnCallCorePieces?
       [SolidCore.Solidity.Source.Stmt.captureReturn
         returnNames bodyCore] ++
       assigns)
-termination_by (internalFuel, 0, 1)
+termination_by (internalFuel, 3, 0, 2)
 
 def FunctionDecl.internalUnarySingleReturnUseCore?
     (internalFuel : Nat)
@@ -15168,7 +15168,7 @@ def FunctionDecl.internalUnarySingleReturnUseCore?
                 (SolidCore.Solidity.Source.Expr.unary coreOp retExpr))
       | _ => none
   | _ => none
-termination_by (internalFuel, 0, 2)
+termination_by (internalFuel, 3, 0, 4)
 
 def FunctionDecl.internalTypeConversionSingleReturnUseCore?
     (internalFuel : Nat)
@@ -15244,7 +15244,7 @@ def FunctionDecl.internalTypeConversionSingleReturnUseCore?
             (fun resultExpr =>
               useResult (Ty.implicitCleanupCore targetTy resultExpr))
       | _ => none
-termination_by (internalFuel, 0, 2)
+termination_by (internalFuel, 3, 0, 4)
 
 def FunctionDecl.internalTernaryConditionSingleReturnUseCore?
     (internalFuel : Nat)
@@ -15282,7 +15282,7 @@ def FunctionDecl.internalTernaryConditionSingleReturnUseCore?
             (SolidCore.Solidity.Source.Expr.ternary
               condExpr thenCore elseCore))
   | _ => none
-termination_by (internalFuel, 0, 2)
+termination_by (internalFuel, 3, 0, 4)
 
 def FunctionDecl.internalTernaryBranchSingleReturnUseCore?
     (internalFuel : Nat)
@@ -15330,7 +15330,7 @@ def FunctionDecl.internalTernaryBranchSingleReturnUseCore?
         (SolidCore.Solidity.Source.Stmt.ifElse
           condCore (useResult thenCore) elseCore)
   | _, _ => none
-termination_by (internalFuel, 0, 2)
+termination_by (internalFuel, 3, 0, 4)
 
 def FunctionDecl.internalExprSingleReturnUseCore?
     (internalFuel : Nat)
@@ -15434,7 +15434,7 @@ def FunctionDecl.internalExprSingleReturnUseCore?
             (fun idxCore => useResult (buildRead idxCore))
       | none => none
   | _ => none
-termination_by (internalFuel, sizeOf expr, 5)
+termination_by (internalFuel, 3, sizeOf expr, 10)
 
 def FunctionDecl.internalBinarySingleReturnUseCore?
     (internalFuel : Nat)
@@ -15792,7 +15792,7 @@ def FunctionDecl.internalBinarySingleReturnUseCore?
                 (fun lhsCore =>
                   useResult
                     (SolidCore.Solidity.Source.Expr.binary coreOp lhsCore rhsCore))
-termination_by (internalFuel, sizeOf (Expr.binary op lhs rhs), 4)
+termination_by (internalFuel, 3, sizeOf (Expr.binary op lhs rhs), 8)
 
 def FunctionDecl.conditionUseCoreWithInternalCalls?
     (internalFuel : Nat)
@@ -15864,7 +15864,7 @@ def FunctionDecl.conditionUseCoreWithInternalCalls?
   | _ => do
       let condCore ← Expr.conditionCoreWithEnv? storageNames env cond
       some (useCond condCore)
-termination_by (internalFuel, sizeOf cond, 6)
+termination_by (internalFuel, 3, sizeOf cond, 12)
 
 /-- CALLPOS-FAMILY: hoist EVERY direct internal-call argument — including
     MULTIPLE call arguments in one call (`f(g(), h())`) and NESTED call
@@ -16154,7 +16154,7 @@ def FunctionDecl.tupleLhsIndexCallHoistTargets?
           internalFuel storageRefEnv env externalCallKindEnv storageNames
           modifiers functions freeFunctions (idx + 1) rest
       some (restPre, some target :: restTargets)
-termination_by _ items => (internalFuel, sizeOf items, 4)
+termination_by _ items => (internalFuel, 3, sizeOf items, 8)
 
 def FunctionDecl.tupleItemsUseCoreWithInternalCalls?
     (internalFuel : Nat)
@@ -16199,7 +16199,7 @@ def FunctionDecl.tupleItemsUseCoreWithInternalCalls?
           , restCore ])
   | _, _, _, _ => none
 termination_by _ _ items _ =>
-  (internalFuel, sizeOf (Expr.tuple items), 5)
+  (internalFuel, 3, sizeOf (Expr.tuple items), 10)
 
 /-- R1 (residue-cleanup): hoist internal calls out of ONE component of a
     nested-tuple-assignment RHS, returning (prefix statements, the temp-read
@@ -16290,7 +16290,7 @@ def FunctionDecl.nestedTupleRhsHoistItem?
           some
             ( [ SolidCore.Solidity.Source.Stmt.varDecl cty tag none, assignStmt ]
             , SolidCore.Solidity.Source.Expr.var tag )
-termination_by item => (internalFuel, sizeOf item, 9)
+termination_by item => (internalFuel, 3, sizeOf item, 18)
 
 /-- List form of `nestedTupleRhsHoistItem?`: hoist a whole RHS component list,
     left-to-right, concatenating the prefixes and collecting one replacement
@@ -16313,7 +16313,7 @@ def FunctionDecl.nestedTupleRhsHoistList?
           internalFuel storageRefEnv env externalCallKindEnv storageNames
           modifiers functions freeFunctions tag (idx + 1) rest
       some (headPre ++ restPre, headExpr :: restExprs)
-termination_by _ items => (internalFuel, sizeOf items, 8)
+termination_by _ items => (internalFuel, 3, sizeOf items, 16)
 
 def FunctionDecl.tupleReturnValuesCoreWithInternalCalls?
     (internalFuel : Nat)
@@ -16351,7 +16351,7 @@ def FunctionDecl.tupleReturnValuesCoreWithInternalCalls?
             (fun coreExprs =>
               SolidCore.Solidity.Source.Stmt.returnValues coreExprs)
   | _ => none
-termination_by (internalFuel, sizeOf (Expr.tuple items) + 1, 5)
+termination_by (internalFuel, 3, sizeOf (Expr.tuple items) + 1, 10)
 
 def returnValuesCoreWithReturnTys? (storageNames : List Name)
     (env : TypeEnv) (returnTys : List Ty) (expr : Expr) : Option CoreStmt :=
@@ -16473,7 +16473,7 @@ def Stmt.argPositionHoist? (internalFuel : Nat)
             , callCore
             , restCore ])
     | none => none
-termination_by (internalFuel, sizeOf payload, 0)
+termination_by (internalFuel, 3, sizeOf payload, 0)
 
 /- CALL-POSITION CONSOLIDATED (#148-#150) list-level peel: hoist EVERY
    strictly-nested internal single-return call inside `payload` into FLAT,
@@ -16515,7 +16515,7 @@ def Expr.argPositionHoistPrefix? (internalFuel : Nat)
                 :: callCore :: restPieces
             , finalExpr))
     | none => some ([], payload)
-termination_by (internalFuel, sizeOf payload, 1)
+termination_by (internalFuel, 3, sizeOf payload, 2)
 
 def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
     (storageRefEnv : StorageRefEnv)
@@ -19279,7 +19279,7 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
           some (SolidCore.Solidity.Source.Stmt.exprStmt coreExpr)
       | none => Stmt.toCore? storageNames (Stmt.expr expr))
   | other => Stmt.toCore? storageNames other
-termination_by (internalFuel, sizeOf stmt, 5)
+termination_by (internalFuel, 3, sizeOf stmt, 10)
 
 def Stmt.listToCoreWithInternalCallsWithRefs?
     (internalFuel : Nat)
@@ -20536,7 +20536,7 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
           nextStorageRefEnv nextEnv externalCallKindEnv storageNames modifiers functions
           freeFunctions returnTys rest
       some (head :: tail)
-termination_by (internalFuel, sizeOf stmts, 4)
+termination_by (internalFuel, 3, sizeOf stmts, 8)
 
 def CatchClause.toCoreWithInternalCalls? (internalFuel : Nat)
     (storageRefEnv : StorageRefEnv)
@@ -20562,7 +20562,7 @@ def CatchClause.toCoreWithInternalCalls? (internalFuel : Nat)
           (stmt := body)
       some (SolidCore.Solidity.Source.TryCatchClause.clause
         name bindings bodyCore)
-termination_by (internalFuel, sizeOf clause, 3)
+termination_by (internalFuel, 3, sizeOf clause, 6)
 
 def CatchClause.listToCoreWithInternalCalls? (internalFuel : Nat)
     (storageRefEnv : StorageRefEnv)
@@ -20582,7 +20582,7 @@ def CatchClause.listToCoreWithInternalCalls? (internalFuel : Nat)
           internalFuel storageRefEnv env externalCallKindEnv storageNames
           modifiers functions freeFunctions returnTys rest
       some (head :: tail)
-termination_by (internalFuel, sizeOf clauses, 4)
+termination_by (internalFuel, 3, sizeOf clauses, 8)
 
 end
 
