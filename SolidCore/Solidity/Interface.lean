@@ -14833,13 +14833,24 @@ def FunctionDecl.internalSingleReturnCallExprCore?
     (externalCallKindEnv : ExternalCallKindEnv)
     (storageNames : List Name) (modifiers : List SourceModifierDecl)
     (functions freeFunctions : List FunctionDecl) (expr : Expr)
-    (useResult : CoreExpr -> CoreStmt) : Option CoreStmt := do
+    (useResult : CoreExpr -> CoreStmt) (depth : Nat := 0) :
+    Option CoreStmt := do
   let (name, args, convert) ← Expr.internalSingleReturnCallConversion? expr
+  -- #196 NESTED-CALL-TEMP-SHADOW: the hoisted-argument temp prefix is
+  -- depth-suffixed. Every recursion level of this hoister previously claimed
+  -- the SAME `_sol_internal_call_arg_eval0` name; the inner block's redeclared
+  -- temp shadowed the outer one, so the inner call chain's result was
+  -- assigned to the inner (scope-popped) shadow and the outer call read its
+  -- never-assigned default — chains >= 3 deep computed garbage wherever this
+  -- hoister fires. Depth 0 keeps the historical name byte-identically.
+  let argTempPrefix :=
+    if depth == 0 then "_sol_internal_call_arg"
+    else "_sol_internal_call_arg_d" ++ toString depth
   match internalFuel with
   | fuel + 1 =>
       match
           Args.replaceInternalSingleReturnCallExprArg?
-            "_sol_internal_call_arg" 0 args with
+            argTempPrefix 0 args with
       | some (argExpr, argTmp, replacedArgs) => do
           let argTy ←
             Expr.abiTyWithInternalFunctionsEnv?
@@ -14854,6 +14865,7 @@ def FunctionDecl.internalSingleReturnCallExprCore?
                 SolidCore.Solidity.Source.Stmt.assign
                   (SolidCore.Solidity.Source.LValue.var argTmp)
                   retExpr)
+              (depth := depth + 1)
           let outerCore ←
             FunctionDecl.internalSingleReturnCallCore?
               fuel storageRefEnv envWithArgTmp externalCallKindEnv storageNames
@@ -15257,6 +15269,7 @@ def FunctionDecl.internalTypeConversionSingleReturnUseCore?
                         SolidCore.Solidity.Source.Stmt.assign
                           (SolidCore.Solidity.Source.LValue.var argTmp)
                           retExpr)
+                      (depth := 1)
                   let outerCore ←
                     FunctionDecl.internalSingleReturnCallCore?
                       fuel storageRefEnv envWithArgTmp externalCallKindEnv
