@@ -6526,15 +6526,21 @@ def checkExpr (env : CheckEnv) :
       | Solidity.Ty.user path =>
           match env.types.lookupStruct? path with
           | some structDecl => do
-              -- Qualify the struct field target types through the SAME
-              -- current-scope qualification the `new`-array result type passes
-              -- through, so a contract-local struct field (e.g. `Node[]` inside
-              -- `struct Node`) matches a `new Node[](n)` argument. Both operands
-              -- are normalized identically, so a genuinely different element
-              -- type still mismatches (no over-accept). (#163)
+              -- Qualify the struct field target types through the struct's
+              -- OWN declaring scope (`qualifyStructFieldTy path`), exactly like
+              -- the struct-member-access sites do. For a contract-local struct
+              -- (e.g. `Node[]` inside `struct Node`) the declaring scope IS the
+              -- current contract, so this still matches a `new Node[](n)`
+              -- argument (which is normalized via the current scope). (#163)
+              -- Crucially, for a struct declared in a *library or other
+              -- contract* (e.g. `Lib.S { Lib.Mode m; }`), the bare field type
+              -- `Mode` is qualified to `Lib.Mode` — the same qualification the
+              -- `Lib.Mode(x)` argument carries — instead of being left
+              -- unqualified against the current contract's scope, which would
+              -- spuriously mismatch and over-reject.
               let qualifiedFieldTys :=
                 (StructDecl.fieldTys structDecl).map
-                  (fun ty => env.qualifyCurrentLocalUserTypes ty)
+                  (fun ty => env.qualifyStructFieldTy path ty)
               match checkArgs env args with
               | Except.ok checkedArgs =>
                   match

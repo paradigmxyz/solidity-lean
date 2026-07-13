@@ -31,6 +31,7 @@ import SolidCore.Witness.UsingForWiden
 import SolidCore.Witness.UsingForStructReceiverBind
 import SolidCore.Witness.LibStorageReturnUse
 import SolidCore.Witness.RecursiveStructMemConstruct
+import SolidCore.Witness.LibStructEnumFieldConstruct
 import SolidCore.Witness.DeleteMemoryNestedRef
 import SolidCore.Witness.NewContractLocalStructArray
 import SolidCore.Witness.OverloadMemVsStorage
