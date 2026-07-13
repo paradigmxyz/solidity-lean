@@ -13265,6 +13265,174 @@
           }
         ]
       }
+    },
+    {
+      "name": "builtin-arg-residue",
+      "description": "#201 BUILTIN-ARG-NARROW-CLEANUP-RESIDUE: the statement positions the Stage-D (#193/#194) fix missed. Narrow (uint8) checked arithmetic inside abi.encode*/keccak256/bytes.concat ARGUMENTS Panics 0x11 at the operand width in assignment RHS, vardecl init (incl. uint256(keccak256(...)) casts), require/assert conditions (incl. .length-of-builtin), emit args (the pure narrow-arith arg panics BEFORE a sibling call arg runs), revert custom-error args (panic replaces the wrong 256-bit revert data), nested builtin-in-builtin (incl. the RETURN-position keccak256(bytes.concat(abi.encode(a+b))) miss), and compound-assign/delete lvalue index keys (no write). Controls: return/fn-arg/plain-assign panics (Stage-D), safe values, and the emit pure-then-call order (EO logs [0,1]) all unchanged. Real-EVM ground truth: 29 Forge tests on pinned solc 0.8.35.",
+      "forge": {
+        "root": "tests/forge-harness/builtin-arg-residue",
+        "match_contract": "BuiltinArgResidueForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/builtin-arg-residue/src/BuiltinArgResidue.sol",
+        "contract": "BuiltinArgResidue",
+        "namespace": "SolidCore.Solidity.SolcAstImport.BuiltinArgResidue"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.BuiltinArgResidue.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "asgLocal_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.BuiltinArgResidue.importedContract \"asgLocal\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "asgHash_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.BuiltinArgResidue.importedContract \"asgHash\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "asgConcat_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.BuiltinArgResidue.importedContract \"asgConcat\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "asgStorage_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.BuiltinArgResidue.importedContract \"asgStorage\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "vdBytes_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.BuiltinArgResidue.importedContract \"vdBytes\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "vdHash_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.BuiltinArgResidue.importedContract \"vdHash\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "vdNested_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.BuiltinArgResidue.importedContract \"vdNested\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "reqHash_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.BuiltinArgResidue.importedContract \"reqHash\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100, SolidCore.Solidity.Source.Value.word 0] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "reqEnc_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.BuiltinArgResidue.importedContract \"reqEnc\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "assertHash_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.BuiltinArgResidue.importedContract \"assertHash\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100, SolidCore.Solidity.Source.Value.word 0] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "emitEnc_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.BuiltinArgResidue.importedContract \"emitEnc\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "emitHash_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.BuiltinArgResidue.importedContract \"emitHash\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "emitMix_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.BuiltinArgResidue.importedContract \"emitMix\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "revErr_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.BuiltinArgResidue.importedContract \"revErr\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "nestConcat_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.BuiltinArgResidue.importedContract \"nestConcat\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "nestEnc_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.BuiltinArgResidue.importedContract \"nestEnc\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "lvCompound_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.BuiltinArgResidue.importedContract \"lvCompound\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "lvDelete_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.BuiltinArgResidue.importedContract \"lvDelete\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "ctrlReturn_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.BuiltinArgResidue.importedContract \"ctrlReturn\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "ctrlStmt_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.BuiltinArgResidue.importedContract \"ctrlStmt\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "callEnc_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.BuiltinArgResidue.importedContract \"callEnc\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "callHash_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.BuiltinArgResidue.importedContract \"callHash\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "lvStruct_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.BuiltinArgResidue.importedContract \"lvStruct\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100, SolidCore.Solidity.Source.Value.word 7] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "lvMapDeep_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 300 SolidCore.Solidity.SolcAstImport.BuiltinArgResidue.importedContract \"lvMapDeep\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100, SolidCore.Solidity.Source.Value.word 1, SolidCore.Solidity.Source.Value.word 7] 0x11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "vdBytes_safe",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 300 SolidCore.Solidity.SolcAstImport.BuiltinArgResidue.importedContract \"vdBytes\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 3, SolidCore.Solidity.Source.Value.word 4] 32",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "asgStorage_safe",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 300 SolidCore.Solidity.SolcAstImport.BuiltinArgResidue.importedContract \"asgStorage\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 3, SolidCore.Solidity.Source.Value.word 4] 1",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "nestEnc_safe",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 300 SolidCore.Solidity.SolcAstImport.BuiltinArgResidue.importedContract \"nestEnc\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 3, SolidCore.Solidity.Source.Value.word 4] 96",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "emitMix_safe",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 300 SolidCore.Solidity.SolcAstImport.BuiltinArgResidue.importedContract \"emitMix\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 3, SolidCore.Solidity.Source.Value.word 4] 1",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }

@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/builtin-arg-residue/out"
+cache_path = "../../.foundry-suites/builtin-arg-residue/cache"
+evm_version = "cancun"

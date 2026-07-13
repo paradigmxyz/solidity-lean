@@ -7890,8 +7890,9 @@ def Args.toAbiEncodeSourceWithEnv? (storageNames : List Name) (env : TypeEnv) :
     `peelToNarrowNeg?` already see through the redundant narrow-int cast wrappers
     `annotateAbi` inserts; the extra `bytesN(...)` clause covers `bytes1(a + b)`
     (a `bytesN` cast the int-only peelers stop at). -/
-def Expr.abiArgNeedsEnvCleanup? : Expr -> Bool
-  | expr =>
+def Expr.abiArgNeedsEnvCleanupFuel? : Nat -> Expr -> Bool
+  | 0, _ => false
+  | Nat.succ fuel, expr =>
       match Expr.peelToOverflowArithmetic? expr with
       | some _ => true
       | none =>
@@ -7903,7 +7904,43 @@ def Expr.abiArgNeedsEnvCleanup? : Expr -> Bool
                   Ty.isFixedBytes castTy &&
                     ((Expr.peelToOverflowArithmetic? inner).isSome ||
                       (Expr.peelToNarrowNeg? inner).isSome)
+              -- #201 (F): an argument that is ITSELF an `abi.encode*`/`concat`/
+              -- hash builtin call needs the env-aware lowering when one of ITS
+              -- OWN arguments does (`abi.encode(abi.encodePacked(a + b))`,
+              -- `bytes.concat(abi.encode(a + b))`,
+              -- `keccak256(bytes.concat(abi.encode(a + b)))`). The env-aware
+              -- `abi.*`/hash/concat arms of `Expr.toCoreAsWithEnvFuel?` already
+              -- recurse through such an argument; only this FLAG stopped at one
+              -- level, so the nested shapes silently fell back env-less.
+              | Expr.call (Expr.member (Expr.ident "abi") m) args =>
+                  (m == "encode" || m == "encodePacked" ||
+                      m == "encodeWithSelector" || m == "encodeWithSignature") &&
+                    args.any (fun a =>
+                      match a with
+                      | Arg.positional e =>
+                          Expr.abiArgNeedsEnvCleanupFuel? fuel e
+                      | Arg.named _ _ => false)
+              | Expr.call (Expr.member (Expr.ident "bytes") "concat") args
+              | Expr.call (Expr.member (Expr.typeName Ty.bytes) "concat") args
+              | Expr.call (Expr.member (Expr.ident "string") "concat") args
+              | Expr.call (Expr.member (Expr.typeName Ty.string) "concat") args =>
+                  args.any (fun a =>
+                    match a with
+                    | Arg.positional e =>
+                        Expr.abiArgNeedsEnvCleanupFuel? fuel e
+                    | Arg.named _ _ => false)
+              | Expr.call (Expr.ident hname) [Arg.positional inner] =>
+                  (hname == "keccak256" || hname == "sha256" ||
+                      hname == "ripemd160") &&
+                    Expr.abiArgNeedsEnvCleanupFuel? fuel inner
               | _ => false
+
+/-- #201: nesting budget for the flag above. The builtin arms peel one nesting
+    level per unit, so 8 covers any practically-writable builtin-in-builtin
+    tower; the flag (a `Bool`) degrades to `false` at 0, i.e. the env-less
+    lowering — exactly the pre-#201 behaviour. -/
+def Expr.abiArgNeedsEnvCleanup? (expr : Expr) : Bool :=
+  Expr.abiArgNeedsEnvCleanupFuel? 8 expr
 
 /-- STAGE-D #193 (statement side): does a RETURN-position `abi.encode*` /
     `keccak256`/`sha256`/`ripemd160` / `bytes.concat`/`string.concat` call carry
@@ -8259,8 +8296,29 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
                             Expr.toCoreAsWithEnvDirect?
                               storageNames env targetTy expr)
                    | _, _ =>
-                       Expr.toCoreAsWithEnvDirect?
-                         storageNames env targetTy expr))
+                       -- #201 (B/F, cast-of-builtin): an explicit cast whose
+                       -- ARGUMENT is an abi/hash/concat builtin carrying narrow
+                       -- checked arithmetic
+                       -- (`uint256(keccak256(abi.encode(a + b)))`, `uint8 a,b`)
+                       -- must lower the builtin env-aware so its operand-width
+                       -- Panic 0x11 fires, then convert exactly as the implicit
+                       -- widening does (`coreAsFromTy?` through the cast type,
+                       -- then to the target). Unflagged casts keep the
+                       -- byte-identical Direct path.
+                       (match (if Expr.abiBuiltinArgsNeedEnvCleanup argExpr then
+                           (do
+                             let srcTy ← Expr.abiTyWithEnv? env argExpr
+                             let innerCore ←
+                               Expr.toCoreAsWithEnvFuel?
+                                 fuel storageNames env srcTy argExpr
+                             let casted ←
+                               Expr.coreAsFromTy? castTy srcTy innerCore
+                             Expr.coreAsFromTy? targetTy castTy casted)
+                         else none) with
+                       | some coreExpr => some coreExpr
+                       | none =>
+                           Expr.toCoreAsWithEnvDirect?
+                             storageNames env targetTy expr)))
           | Expr.ternary cond thenExpr elseExpr => do
               let condCore ←
                 Expr.toCoreAsWithEnvFuel? fuel storageNames env Ty.bool cond
@@ -8489,6 +8547,26 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
                    else
                      Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr
                | none => Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
+          | Expr.member base "length" =>
+              -- #201 (C): `.length` OF an abi/hash/concat builtin whose
+              -- arguments carry narrow checked arithmetic
+              -- (`require(abi.encode(a + b).length > 0)`, `uint8 a,b`) must
+              -- evaluate the builtin env-aware so the operand-width Panic 0x11
+              -- fires; the Direct fallback lowered the whole `.length` subtree
+              -- env-less (silently encoding 300). Result type is `uint 256`
+              -- exactly as `Expr.abiTyWithEnv?` types `.length`. Every
+              -- unflagged `.length` keeps the byte-identical Direct path.
+              (match (if Expr.abiBuiltinArgsNeedEnvCleanup base then
+                  (do
+                    let baseTy ← Expr.abiTyWithEnv? env base
+                    let baseCore ←
+                      Expr.toCoreAsWithEnvFuel? fuel storageNames env baseTy base
+                    Expr.coreAsFromTy? targetTy (Ty.uint 256)
+                      (SolidCore.Solidity.Source.Expr.length baseCore))
+                else none) with
+              | some coreExpr => some coreExpr
+              | none =>
+                  Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
           | _ =>
               Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr
 
@@ -8623,6 +8701,45 @@ def Expr.conditionCoreWithEnv? (storageNames : List Name) (env : TypeEnv)
   match Expr.toCoreAsWithEnv? storageNames env Ty.bool cond with
   | some condCore => some condCore
   | none => Expr.toCore? storageNames cond
+
+/-- #201 (D/E): env-aware lowering of ONE event/error argument. A flagged
+    argument (narrow checked arithmetic, or an abi/hash/concat builtin whose
+    own arguments are flagged — `Expr.abiArgNeedsEnvCleanup?`) is lowered at
+    its own inferred type through the full env-aware recursion so its
+    operand-width Panic 0x11 fires (`emit EB(abi.encode(a + b))`,
+    `emit EMix(a + b, …)`, `revert Err(abi.encode(a + b))`); every other
+    argument keeps the byte-identical env-less `Expr.toCore?` (also the
+    fallback when the env-aware path declines). -/
+def Expr.abiArgCoreWithEnvCleanup? (storageNames : List Name) (env : TypeEnv)
+    (expr : Expr) : Option CoreExpr :=
+  if Expr.abiArgNeedsEnvCleanup? expr then
+    match (do
+        let ty ← Expr.abiTyWithEnv? env expr
+        Expr.toCoreAsWithEnv? storageNames env ty expr) with
+    | some coreExpr => some coreExpr
+    | none => Expr.toCore? storageNames expr
+  else
+    Expr.toCore? storageNames expr
+
+/-- #201 (D/E): does any positional argument need the env-aware cleanup? Gates
+    the emit/revert reroutes so every unflagged statement keeps its existing
+    lowering byte-identically. -/
+def Args.anyAbiArgNeedsEnvCleanup (args : List Arg) : Bool :=
+  args.any (fun a =>
+    match a with
+    | Arg.positional e => Expr.abiArgNeedsEnvCleanup? e
+    | Arg.named _ _ => false)
+
+/-- #201 (D/E): positional-argument list counterpart of
+    `Expr.abiArgCoreWithEnvCleanup?` (event/custom-error argument lists). -/
+def Args.toCoreExprsWithEnvCleanup? (storageNames : List Name)
+    (env : TypeEnv) : List Arg -> Option (List CoreExpr)
+  | [] => some []
+  | Arg.positional e :: rest => do
+      let coreExpr ← Expr.abiArgCoreWithEnvCleanup? storageNames env e
+      let coreExprs ← Args.toCoreExprsWithEnvCleanup? storageNames env rest
+      some (coreExpr :: coreExprs)
+  | Arg.named _ _ :: _ => none
 
 def TupleItems.toCoreExprsAsWithEnv? (storageNames : List Name)
     (env : TypeEnv) : List Ty -> List TupleItem -> Option (List CoreExpr)
@@ -16280,6 +16397,29 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
   | Stmt.expr expr@(Expr.assign _ AssignOp.shlAssign _)
   | Stmt.expr expr@(Expr.assign _ AssignOp.shrAssign _)
   | Stmt.expr expr@(Expr.assign _ AssignOp.sarAssign _) =>
+      -- #201 (G): a compound-assign whose LVALUE index KEY carries narrow
+      -- checked arithmetic (`arr[a + b] += 1`, `uint8 a,b`) must lower the key
+      -- env-aware (`Expr.toCoreLValueWithEnv?`, exactly as plain `=` does via
+      -- `assignmentCoreWithEnv?`) so the operand-width Panic 0x11 fires BEFORE
+      -- the slot is computed; `Expr.toCoreAssignOpWithEnv?` below lowers the
+      -- lvalue env-LESS (key bare at 256 bits → read-modify-wrote arr[300]).
+      -- Same `assignOpCleanupExpr` shape; only flagged index keys reroute.
+      match (match expr with
+        | Expr.assign lhs@(Expr.index _ key) op rhs =>
+            if Expr.abiArgNeedsEnvCleanup? key then do
+              let coreOp ← AssignOp.toCoreBinary? op
+              let lhsCore ← Expr.toCoreLValueWithEnv? storageNames env lhs
+              let rhsCore ← Expr.toCore? storageNames rhs
+              let lhsTy ← Expr.abiTyWithEnv? env lhs
+              let cleanup ← Ty.toCoreValueCleanup? lhsTy
+              some
+                (SolidCore.Solidity.Source.Stmt.exprStmt
+                  (SolidCore.Solidity.Source.Expr.assignOpCleanupExpr
+                    lhsCore.toExpr coreOp rhsCore cleanup))
+            else none
+        | _ => none) with
+      | some coreStmt => some coreStmt
+      | none =>
       match Expr.toCoreAssignOpWithEnv? storageNames env expr with
       | some coreExpr =>
           some (SolidCore.Solidity.Source.Stmt.exprStmt coreExpr)
@@ -16331,6 +16471,23 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
               | some coreStmt => some coreStmt
               | none => Stmt.toCore? storageNames (Stmt.expr expr)
           | _ => Stmt.toCore? storageNames (Stmt.expr expr)
+  | Stmt.expr expr@(Expr.unary UnaryOp.delete target) =>
+      -- #201 (G): `delete arr[a + b]` (`uint8 a,b`) — the env-less delete
+      -- lowering ran the index key bare at 256 bits (zeroed arr[300], no
+      -- Panic). Route a flagged narrow-arithmetic key through the env-aware
+      -- lvalue lowering (`Expr.toCoreLValueWithEnv?`, the same helper plain
+      -- assignment uses) so the operand-width Panic 0x11 fires before any
+      -- write; every other delete keeps the env-less `Stmt.toCore?` path
+      -- byte-identically.
+      match (match target with
+        | Expr.index _ key =>
+            if Expr.abiArgNeedsEnvCleanup? key then
+              (Expr.toCoreLValueWithEnv? storageNames env target).map
+                SolidCore.Solidity.Source.Stmt.deleteValue
+            else none
+        | _ => none) with
+      | some coreStmt => some coreStmt
+      | none => Stmt.toCore? storageNames (Stmt.expr expr)
   | Stmt.expr
       (Expr.assign (Expr.tuple lhsItems) AssignOp.assign
         (Expr.call (Expr.ident name) args)) => do
@@ -17026,8 +17183,21 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
               (fun retExpr =>
                 SolidCore.Solidity.Source.Stmt.assign lhsCore retExpr) with
           | some coreStmt => some coreStmt
-          | none => Stmt.toCore? storageNames
-              (Stmt.expr (Expr.assign lhs AssignOp.assign expr))
+          | none =>
+              -- #201 (A): a MEMBER-call RHS that is an abi/concat builtin with
+              -- a flagged argument (`z = abi.encode(a + b)`,
+              -- `z = bytes.concat(bytes1(a + b))`, `s = abi.encodePacked(a+b)`)
+              -- is not an external call, so the chain above declines; route it
+              -- through `assignmentCoreWithEnv?` exactly as the IDENT-call
+              -- assignment arm below already does, so the env-aware `abi.*`/
+              -- concat arms fire the operand-width Panic 0x11. Unflagged
+              -- member-call assigns keep the env-less fallback byte-identically.
+              match (if Expr.abiBuiltinArgsNeedEnvCleanup expr then
+                  assignmentCoreWithEnv? storageNames env lhs expr
+                else none) with
+              | some coreStmt => some coreStmt
+              | none => Stmt.toCore? storageNames
+                  (Stmt.expr (Expr.assign lhs AssignOp.assign expr))
       | _, _ => Stmt.toCore? storageNames
           (Stmt.expr (Expr.assign lhs AssignOp.assign expr))
   | Stmt.expr (Expr.assign lhs AssignOp.assign
@@ -17557,8 +17727,23 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
               some
                 (SolidCore.Solidity.Source.Stmt.block
                   [declCore, assignBlock])
-          | none => Stmt.toCore? storageNames
-              (Stmt.varDecl [binding] (some expr))
+          | none =>
+              -- #201 (B): a MEMBER-call initializer that is an abi/concat
+              -- builtin with a flagged argument
+              -- (`bytes memory z = abi.encode(a + b)`,
+              -- `bytes memory z = abi.encode(abi.encodePacked(a + b))`,
+              -- `uint8 a,b`) is not an external call, so the chain above
+              -- declines and the statement fell env-less (silently encoding
+              -- 300). Route it through `varDeclCoreWithEnv?` so the env-aware
+              -- `abi.*`/concat arms fire the operand-width Panic 0x11;
+              -- unflagged member-call vardecls keep the env-less fallback
+              -- byte-identically.
+              match (if Expr.abiBuiltinArgsNeedEnvCleanup expr then
+                  varDeclCoreWithEnv? storageNames env binding expr
+                else none) with
+              | some coreStmt => some coreStmt
+              | none => Stmt.toCore? storageNames
+                  (Stmt.varDecl [binding] (some expr))
       | _, _ => Stmt.toCore? storageNames
           (Stmt.varDecl [binding] (some expr))
   | Stmt.varDecl [binding]
@@ -17582,6 +17767,16 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
       | _, _ => Stmt.toCore? storageNames
           (Stmt.varDecl [binding] (some expr))
   | Stmt.varDecl [binding] (some expr@(Expr.call (Expr.ident name) args)) =>
+      -- #201 (B): a HASH-builtin initializer with a flagged argument
+      -- (`bytes32 h = keccak256(abi.encodePacked(a + b))`, `uint8 a,b`) is
+      -- never a user function, so every chain below declines and the
+      -- statement fell env-less (hashing 300). Gated on the builtin flag, so
+      -- every user-function vardecl keeps the existing chain byte-identically.
+      match (if Expr.abiBuiltinArgsNeedEnvCleanup expr then
+          varDeclCoreWithEnv? storageNames env binding expr
+        else none) with
+      | some coreStmt => some coreStmt
+      | none =>
       match binding.name with
       | some localName =>
           match binding.location with
@@ -17697,11 +17892,26 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
               (Stmt.varDecl [binding] (some expr))
       | _, _ => Stmt.toCore? storageNames
           (Stmt.varDecl [binding] (some expr))
-  | Stmt.varDecl bindings (some expr@(Expr.call (Expr.member _ _) _)) => do
-      let pieces ←
-        Expr.externalCallAssignBindingsCorePiecesWithKindEnv?
-          storageNames env externalCallKindEnv bindings expr
-      some (SolidCore.Solidity.Source.Stmt.block pieces)
+  | Stmt.varDecl bindings (some expr@(Expr.call (Expr.member _ _) _)) =>
+      -- #201 (B): a MEMBER-call initializer that is an abi/concat builtin with
+      -- a flagged argument (`bytes memory z = abi.encode(a + b)`, `uint8 a,b`)
+      -- is not an external call, so the external-call pieces below decline and
+      -- the statement fell to the env-less lowering (silently encoding 300).
+      -- Route it through `varDeclCoreWithEnv?` (the generic vardecl arm's
+      -- helper) so the env-aware `abi.*`/concat arms fire the operand-width
+      -- Panic 0x11. Unflagged member-call vardecls are untouched.
+      match (match bindings with
+        | [binding] =>
+            if Expr.abiBuiltinArgsNeedEnvCleanup expr then
+              varDeclCoreWithEnv? storageNames env binding expr
+            else none
+        | _ => none) with
+      | some coreStmt => some coreStmt
+      | none => do
+          let pieces ←
+            Expr.externalCallAssignBindingsCorePiecesWithKindEnv?
+              storageNames env externalCallKindEnv bindings expr
+          some (SolidCore.Solidity.Source.Stmt.block pieces)
   | Stmt.varDecl bindings
       (some expr@(Expr.callWithOptions (Expr.member _ _) _ _)) => do
       let pieces ←
@@ -17710,6 +17920,20 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
       some (SolidCore.Solidity.Source.Stmt.block pieces)
   | Stmt.varDecl bindings
       (some expr@(Expr.call (Expr.ident name) args)) => do
+      -- #201 (B): a HASH-builtin initializer with a flagged argument
+      -- (`bytes32 h = keccak256(abi.encodePacked(a + b))`, `uint8 a,b`) is
+      -- never an internal function, so the `_sol_vardecl_arg` hoist / internal
+      -- chains below decline and the statement fell env-less. Route it through
+      -- `varDeclCoreWithEnv?` first (gated on the builtin flag, so every
+      -- user-function vardecl keeps the existing chain byte-identically).
+      match (match bindings with
+        | [binding] =>
+            if Expr.abiBuiltinArgsNeedEnvCleanup expr then
+              varDeclCoreWithEnv? storageNames env binding expr
+            else none
+        | _ => none) with
+      | some coreStmt => some coreStmt
+      | none =>
       let fallback? := do
         match FunctionDecl.internalVarDeclAssignReturnCallCorePieces?
             internalFuel storageRefEnv env externalCallKindEnv storageNames
@@ -17773,10 +17997,25 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
             SolidCore.Solidity.Source.Stmt.emitEvent eventName [retExpr]) with
       | some coreStmt => some coreStmt
       | none =>
-          Stmt.toCore? storageNames
-            (Stmt.emitEvent
-              (Expr.call (Expr.ident eventName)
-                [Arg.positional (Expr.call (Expr.ident name) args)]))
+          -- #201 (D): the single argument is a HASH-builtin call with a
+          -- flagged argument (`emit EH(keccak256(abi.encodePacked(a + b)))`,
+          -- `uint8 a,b` — `name` is then `keccak256`, never a user function),
+          -- which the internal-call hoist above declines; lower it env-aware
+          -- so the operand-width Panic 0x11 fires. Unflagged emits keep the
+          -- env-less fallback byte-identically.
+          match (if Args.anyAbiArgNeedsEnvCleanup
+                [Arg.positional (Expr.call (Expr.ident name) args)] then
+              (Args.toCoreExprsWithEnvCleanup? storageNames env
+                  [Arg.positional (Expr.call (Expr.ident name) args)]).map
+                (fun coreArgs =>
+                  SolidCore.Solidity.Source.Stmt.emitEvent eventName coreArgs)
+            else none) with
+          | some coreStmt => some coreStmt
+          | none =>
+              Stmt.toCore? storageNames
+                (Stmt.emitEvent
+                  (Expr.call (Expr.ident eventName)
+                    [Arg.positional (Expr.call (Expr.ident name) args)]))
   | Stmt.emitEvent
       (Expr.call (Expr.ident eventName)
         [ Arg.positional (Expr.call (Expr.ident firstName) firstArgs)
@@ -17812,7 +18051,9 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
       (Expr.call (Expr.ident eventName)
         [ Arg.positional (Expr.call (Expr.ident name) args)
         , Arg.positional rhs ]) => do
-      let rhsCore ← Expr.toCore? storageNames rhs
+      -- #201 (D): the pure argument lowers env-aware when flagged (narrow
+      -- checked arithmetic / builtin-with-flagged-args), else byte-identical.
+      let rhsCore ← Expr.abiArgCoreWithEnvCleanup? storageNames env rhs
       match FunctionDecl.internalSingleReturnCallCore?
           internalFuel storageRefEnv env externalCallKindEnv storageNames
           modifiers functions freeFunctions name args
@@ -17830,7 +18071,12 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
       (Expr.call (Expr.ident eventName)
         [ Arg.positional lhs
         , Arg.positional (Expr.call (Expr.ident name) args) ]) => do
-      let lhsCore ← Expr.toCore? storageNames lhs
+      -- #201 (D): a flagged FIRST argument (`emit EMix(a + b, bump())`,
+      -- `uint8 a,b`) lowers env-aware INTO the pre-call temp, so its Panic
+      -- 0x11 fires BEFORE the hoisted call runs (solc evaluates event
+      -- arguments left-to-right); unflagged arguments keep `Expr.toCore?`
+      -- byte-identically.
+      let lhsCore ← Expr.abiArgCoreWithEnvCleanup? storageNames env lhs
       let lhsTy ← Expr.abiTyWithEnv? env lhs
       let lhsCoreTy ← Ty.toCore? lhsTy
       let lhsTmp := "_sol_event_lhs"
@@ -17857,8 +18103,10 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
         [ Arg.positional first
         , Arg.positional second
         , Arg.positional (Expr.call (Expr.ident name) args) ]) => do
-      let firstCore ← Expr.toCore? storageNames first
-      let secondCore ← Expr.toCore? storageNames second
+      -- #201 (D): flagged pure arguments lower env-aware into their pre-call
+      -- temps (Panic 0x11 before the hoisted call), unflagged byte-identical.
+      let firstCore ← Expr.abiArgCoreWithEnvCleanup? storageNames env first
+      let secondCore ← Expr.abiArgCoreWithEnvCleanup? storageNames env second
       let firstTy ← Expr.abiTyWithEnv? env first
       let secondTy ← Expr.abiTyWithEnv? env second
       let firstCoreTy ← Ty.toCore? firstTy
@@ -17888,6 +18136,24 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
                 [ Arg.positional first
                 , Arg.positional second
                 , Arg.positional (Expr.call (Expr.ident name) args) ]))
+  | Stmt.emitEvent (Expr.call (Expr.ident eventName) args) =>
+      -- #201 (D): call-free emit whose argument carries narrow checked
+      -- arithmetic or a flagged abi/hash/concat builtin
+      -- (`emit EB(abi.encode(a + b))`, `emit EH(keccak256(…(a + b)))`,
+      -- `uint8 a,b`) — the call-bearing shapes matched the dedicated arms
+      -- above; this remainder fell to the env-less `Stmt.toCore?`, dropping
+      -- the operand-width Panic 0x11. Lower the argument list env-aware only
+      -- when flagged; the unflagged remainder keeps `Stmt.toCore?` — exactly
+      -- what the dispatcher's default arm did for these statements.
+      match (if Args.anyAbiArgNeedsEnvCleanup args then
+          (Args.toCoreExprsWithEnvCleanup? storageNames env args).map
+            (fun coreArgs =>
+              SolidCore.Solidity.Source.Stmt.emitEvent eventName coreArgs)
+        else none) with
+      | some coreStmt => some coreStmt
+      | none =>
+          Stmt.toCore? storageNames
+            (Stmt.emitEvent (Expr.call (Expr.ident eventName) args))
   | Stmt.revertCall
       (Expr.call (Expr.ident errorName)
         [Arg.positional (Expr.call (Expr.ident name) args)]) =>
@@ -17977,6 +18243,25 @@ def Stmt.toCoreWithInternalCalls? (internalFuel : Nat)
               (Expr.call (Expr.ident errorName)
                 [ Arg.positional lhs
                 , Arg.positional (Expr.call (Expr.ident name) args) ]))
+  | Stmt.revertCall (Expr.call (Expr.ident errorName) args) =>
+      -- #201 (E): custom-error revert whose argument carries narrow checked
+      -- arithmetic or a flagged builtin (`revert Err(abi.encode(a + b))`,
+      -- `uint8 a,b`) — solc evaluates the error arguments BEFORE reverting, so
+      -- the overflow Panics 0x11 (the env-less path built the revert DATA from
+      -- the 256-bit value: encoded 300). The builtin `revert(...)` statement
+      -- (errorName "revert") keeps its dedicated env-less arms — its
+      -- string-reason arguments are never flagged, but stay out for safety.
+      -- The call-bearing shapes matched the dedicated arms above; the
+      -- unflagged remainder keeps `Stmt.toCore?` exactly as the default arm.
+      match (if errorName != "revert" && Args.anyAbiArgNeedsEnvCleanup args then
+          (Args.toCoreExprsWithEnvCleanup? storageNames env args).map
+            (fun coreArgs =>
+              SolidCore.Solidity.Source.Stmt.revert errorName coreArgs)
+        else none) with
+      | some coreStmt => some coreStmt
+      | none =>
+          Stmt.toCore? storageNames
+            (Stmt.revertCall (Expr.call (Expr.ident errorName) args))
   | Stmt.returnValues
       (some (Expr.ternary cond thenExpr elseExpr)) =>
       let fallback :=
@@ -19624,6 +19909,26 @@ def Stmt.listToCoreWithInternalCallsWithRefs?
           some (head :: tail)
   | Stmt.varDecl [binding]
       (some expr@(Expr.call (Expr.ident name) args)) :: rest =>
+      -- #201 (B): a HASH-builtin initializer with a flagged argument
+      -- (`bytes32 h = keccak256(abi.encodePacked(a + b))`, `uint8 a,b`) —
+      -- list form of the per-statement fix: this arm bottoms out in the
+      -- env-less `Stmt.toCore?` WITHOUT consulting the per-statement
+      -- dispatcher, so the vardecl fell env-less (hashing 300). `name` is a
+      -- builtin, never a user function, when the flag fires; everything else
+      -- keeps the chain below byte-identically.
+      match (if Expr.abiBuiltinArgsNeedEnvCleanup expr then
+          varDeclCoreWithEnv? storageNames env binding expr
+        else none) with
+      | some head => do
+          let tail ←
+            Stmt.listToCoreWithInternalCallsWithRefs?
+              internalFuel
+              (VarBinding.extendStorageRefEnv storageRefEnv binding)
+              (VarBinding.extendTypeEnv env binding)
+              externalCallKindEnv
+              storageNames modifiers functions freeFunctions returnTys rest
+          some (head :: tail)
+      | none =>
       match binding.name with
       | some localName =>
           match binding.location with
