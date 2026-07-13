@@ -117,6 +117,64 @@ inside itself), stop and record the exact residue.
 Factor the verbatim-duplicated depth-2 `address(T(inner))` conversion arm
 (nonpayable + payable copies in the env-less pass) into one helper.
 
+## 3b. Stage-1 audit RESULTS (probe battery, real-EVM ground truth)
+
+32-probe battery (`tests/forge-harness/lowering-unify-audit`, all 32 PASS on
+pinned solc 0.8.35 via Forge). Model verdicts before/after the Stage-1b fixes:
+
+| probe | real EVM | model BEFORE | model AFTER | fix |
+|---|---|---|---|---|
+| `new uint256[](a+b)` size | Panic 0x11 | **RET 300** | Panic 0x11 | env `newExpr` arm + vardecl/return reroutes |
+| `this.sink(a+b)` ext-call arg | Panic 0x11 | **decode-revert (other)** | Panic 0x11 | `argEnvLower` threading |
+| `try this.sink(a+b)` | Panic 0x11 (uncaught) | **RET 99 (caught!)** | Panic 0x11 | same (calldata-eval failure already bypasses catch) |
+| `addmod(a+b,1,7)` | Panic 0x11 | **RET 0** (=(300+1)%7) | Panic 0x11 | env addmod/mulmod arm + flag |
+| `arr[arr[a+b]]` | Panic 0x11 | **Panic 0x32 (OOB)** | Panic 0x11 | index-flag recursion + wide-key gate |
+| `uint8[2] memory t=[a+b,1]` | Panic 0x11 / 7 safe | **OVER-REJECT** (whole contract failed to lower) | Panic 0x11 / 7 | env `Expr.array` arm + `Exprs.toCoreAsListWithEnvFuel?` |
+
+GREEN from the start (controls, all confirmed): named emit/revert args,
+struct ctor (positional+named), tuple assign/decl, lib/fn-ptr/modifier args,
+`addmod` safe, `push(a+b)`, for-init vardecl, `delete m8[a+b]`, indexed emit,
+unchecked wrap-width (44), two-phase indexed emit `E2I(bump(),bump())`
+(topics x=2,y=1 — the #195 schedule hoister is order-faithful).
+
+**#196 status:** chain3/chain4/chain3lib/chain3vd/chain3emit (internal AND
+library 3-4-deep nested call chains, return/vardecl/emit positions) all
+return CORRECT values (27/32/27/27/topic-27) even BEFORE the gensym fix —
+those shapes now lower through the boundary-call path
+(`internalCallParts?`), not the colliding hoister. The collision in
+`FunctionDecl.internalSingleReturnCallExprCore?` (+ its
+`internalTypeConversionSingleReturnUseCore?` twin) is nevertheless
+structurally present whenever `Args.replaceInternalSingleReturnCallExprArg?`
+fires at two nesting levels; fixed by the depth-suffixed temp prefix
+(`_sol_internal_call_arg` at depth 0 — byte-identical for every
+currently-emitting shape — `_sol_internal_call_arg_d<k>` below). No
+reproducing divergence was found post-boundary-rearch; the fix removes the
+latent seam.
+
+## 3c. Stage-3 assessment (dispatch collapse)
+
+Measured on this base: the `Stmt.toCoreWithInternalCalls?` dispatcher is
+2,570 lines / 89 merged arms, and exactly ONE arm is a literal re-dispatch —
+the default `| other => Stmt.toCore? storageNames other`. The other 155
+`Stmt.toCore?` occurrences are `| none =>` ACCEPTANCE-PRESERVING FALLBACKS
+inside arms that first do genuine work (call hoisting, storage-alias
+returns, two-phase emit, external-call binding, env-aware reroutes).
+Deleting the `Stmt.toCore?` shadow would flip accepted programs to rejects
+wherever an env-aware path legitimately declines (storage-name-only
+contexts, importer-synthesized bodies, getter generation — all call
+`Stmt.toCore?` as their PRIMARY with no env available). The "50-arm
+re-dispatch collapse" premise no longer holds after R2 Stage C/D + #201 +
+this branch: the dispatcher is already "env-aware/hoisting primary +
+env-less fallback" arm by arm, and the 32-probe battery finds no remaining
+statement position whose PRIMARY leaks width-cleanup. Stage 3 therefore
+lands as: (a) this documented measurement, (b) the audit closing the default
+arm's env-relevant remainder (emit/revert catch-alls came with #201; newExpr
+vardecl/return reroutes with Stage 1b), (c) the opportunistic
+`address(T(inner))` nonpayable/payable dedup. A syntactic single-recursion
+rewrite of the dispatcher is deliberately NOT attempted — blast radius
+(~2,500 lines of load-bearing enumeration, zero failing probes to justify
+it) far exceeds the gate budget; recorded as residual debt.
+
 ## 4. Gate
 Full `lake build` green (incl. FuelMonotonicity, AdoptionLaws, all
 witnesses); witness `SolidCore/Witness/LoweringUnify.lean` imported from

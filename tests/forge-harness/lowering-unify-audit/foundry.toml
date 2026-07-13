@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/lowering-unify-audit/out"
+cache_path = "../../.foundry-suites/lowering-unify-audit/cache"
+evm_version = "cancun"
