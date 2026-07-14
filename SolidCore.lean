@@ -59,4 +59,5 @@ import SolidCore.Witness.LoweringUnify
 import SolidCore.Witness.ValueTyping
 import SolidCore.Witness.InheritedScope
 import SolidCore.Witness.StorageRefEarlyBind
+import SolidCore.Witness.PushAfterDanglingWrite
 import SolidCore.Witness.CalldataEvmWrap

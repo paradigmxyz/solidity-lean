@@ -4690,8 +4690,12 @@ def Runtime.storageArrayPush (context : Context)
               State.storeStorageLayoutAtWithDeepClear runtime.state
                 elementSlot elementSlotLayout value
           | none =>
-              State.clearStorageLayoutAtDeep runtime.state
-                elementSlot elementSlotLayout
+              -- No-arg `push()`: solc/EVM only bumps the length word and relies
+              -- on the storage zero-invariant (slots past the length are zero,
+              -- maintained by pop/delete). It does NOT re-zero the regrown
+              -- element, so a stale write into a freed slot (via a dangling
+              -- storage pointer) survives the regrow. Do NOT deep-clear here.
+              Except.ok runtime.state
         Except.ok
           { runtime with
             state := state.storeSlot field.slot (normWord rawLength) }
@@ -4713,16 +4717,20 @@ def Runtime.storageArrayPush (context : Context)
           Except.error RevertData.overflow
         else
           pure ()
-        let word ←
+        let state ←
           match value? with
-          | some value => coerceStorageWordAs Ty.uint256 value
-          | none => Except.ok 0
+          | some value =>
+              let word ← coerceStorageWordAs Ty.uint256 value
+              Except.ok
+                (runtime.state.storeSlot
+                  (legacyIndexedStorageSlot field.slot length) word)
+          | none =>
+              -- No-arg `push()`: length-bump only, no re-zero of the regrown
+              -- element (see the layout branch above).
+              Except.ok runtime.state
         Except.ok
           { runtime with
-            state :=
-              (runtime.state.storeSlot
-                (legacyIndexedStorageSlot field.slot length) word)
-                |>.storeSlot field.slot (normWord rawLength) }
+            state := state.storeSlot field.slot (normWord rawLength) }
     | _ => Except.error RevertData.typeMismatch
 
 def Runtime.storageArrayPop (context : Context)
@@ -4801,8 +4809,9 @@ def Runtime.storageArrayPushAt
                   State.storeStorageLayoutAtWithDeepClear runtime.state
                     elementSlot elementSlotLayout value
               | none =>
-                  State.clearStorageLayoutAtDeep runtime.state
-                    elementSlot elementSlotLayout
+                  -- No-arg `push()`: length-bump only, no re-zero of the
+                  -- regrown element (see `storageArrayPush`).
+                  Except.ok runtime.state
             Except.ok
               { runtime with
                 state := state.storeSlot slot (normWord rawLength) }
