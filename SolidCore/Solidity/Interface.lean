@@ -4367,10 +4367,22 @@ def Expr.stripPushIndexPath? : Expr -> Option (Expr × List Expr)
     bytes/string → `Value.bytes`, arrays → elements, structs → tuples);
     scalar fields load identically through either form. Every other core
     shape already materializes (`storageIndex`/`storagePath`/ref locals) and
-    passes through untouched. -/
+    passes through untouched.
+
+    A `bytes storage` pointer can also reach the boundary through a TERNARY
+    (`c ? bs : bs2`), whose lowered core is `Expr.ternary cond thenC elseC`
+    with each branch a bare `Expr.storage`. Solc selects a storage pointer
+    then implicitly copies it to memory at the boundary, so materialize EACH
+    branch (the selected one evaluates to its full contents) while leaving the
+    boolean condition — not a value-use — untouched. Recursing covers nested
+    ternaries too. -/
 def materializeStorageValueUseCore : CoreExpr -> CoreExpr
   | SolidCore.Solidity.Source.Expr.storage key =>
       SolidCore.Solidity.Source.Expr.storagePath key []
+  | SolidCore.Solidity.Source.Expr.ternary cond thenCore elseCore =>
+      SolidCore.Solidity.Source.Expr.ternary cond
+        (materializeStorageValueUseCore thenCore)
+        (materializeStorageValueUseCore elseCore)
   | core => core
 
 def materializeStorageValueUseCores (cores : List CoreExpr) :

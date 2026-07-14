@@ -62,3 +62,4 @@ import SolidCore.Witness.StorageRefEarlyBind
 import SolidCore.Witness.PushAfterDanglingWrite
 import SolidCore.Witness.CalldataEvmWrap
 import SolidCore.Witness.AbiDecodeStorageBytes
+import SolidCore.Witness.TernaryStorageBytesKeccak
