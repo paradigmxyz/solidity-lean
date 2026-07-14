@@ -6456,8 +6456,16 @@ def Expr.toAbiDecode? (storageNames : List Name)
   let sourceTys ← Expr.abiDecodeSourceTypes? typesExpr
   let coreTys ← Ty.listToCore? sourceTys
   let cleanups ← Tys.toCoreAbiCleanups? sourceTys
+  -- R3 (#192): `abi.decode`'s DATA argument is a VALUE-USE boundary (it consumes
+  -- the byte CONTENTS), exactly like `abi.encode*`/`keccak256`/`bytes.concat`. A
+  -- bare state `bytes`/`string` lowers to `Expr.storage key`, whose eval is the
+  -- HEADER word (the `.length` convention), so an unmaterialized decode target
+  -- fed the header word to `asBytes?` → `none` → Panic(0) instead of decoding
+  -- the stored contents. Materialize the bare-storage core so the full contents
+  -- are read (solc implicitly copies a storage bytes/string to memory before
+  -- `abi.decode`); every other core shape passes through untouched.
   let dataCore ← Expr.toCore? storageNames data
-  some (coreTys, cleanups, dataCore)
+  some (coreTys, cleanups, materializeStorageValueUseCore dataCore)
 termination_by (sizeOf data + sizeOf typesExpr + 1, 1)
 
 def Expr.toCoreLValue? (storageNames : List Name) : Expr -> Option CoreLValue
