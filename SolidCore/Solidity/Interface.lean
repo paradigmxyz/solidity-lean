@@ -5119,7 +5119,17 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
         condCore thenCore elseCore)
   | Expr.tuple items => do
       let coreExprs ← TupleItems.toCoreExprs? storageNames items
-      some (SolidCore.Solidity.Source.Expr.tuple coreExprs)
+      -- TUPLE-RHS VALUE-USE: a value-position tuple `(a, …, z)` (the RHS of a
+      -- tuple assignment / declaration, e.g. `(bytes memory b, uint x) = (src,
+      -- 5)`) reads each component BY VALUE. A bare state `bytes`/`string`/array
+      -- component lowers to `Expr.storage key` (the storage HEADER word, the
+      -- `.length` convention); copying that word into a memory local feeds a
+      -- non-materialized header to the value boundary → `asBytes?` = `none` →
+      -- `Panic(0)`. Materialize each component (`Expr.storage key` →
+      -- `Expr.storagePath key []`) so the contents are copied, matching the
+      -- other value-use boundaries; every scalar/reference core passes through.
+      some (SolidCore.Solidity.Source.Expr.tuple
+        (materializeStorageValueUseCores coreExprs))
   | Expr.array exprs => do
       let targetTy ← Expr.arrayLiteralCommonTy? storageNames exprs
       let coreExprs ←
