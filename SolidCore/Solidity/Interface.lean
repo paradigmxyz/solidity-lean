@@ -5009,7 +5009,16 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
       | some key =>
         do
         let indexCore ← Expr.toCore? storageNames index
-        some (SolidCore.Solidity.Source.Expr.storageIndex key indexCore)
+        -- R3 (#192): a mapping/array INDEX KEY is a VALUE-USE boundary — the key
+        -- CONTENTS feed the value-slot hash (`mappingStorageSlotForKey`). A bare
+        -- state `string`/`bytes`/array key lowers to `Expr.storage key`, whose
+        -- eval is the HEADER word (the `.length` convention), so an unmaterialized
+        -- key fed the header word to the hash → `typeMismatch` = Panic(0). solc
+        -- copies the storage string/bytes to memory before deriving the slot, so
+        -- `m[stateStr]` and `m["lit"]` hit the SAME slot. Materialize the key core
+        -- so its full contents are read; scalar keys load identically either way.
+        some (SolidCore.Solidity.Source.Expr.storageIndex key
+          (materializeStorageValueUseCore indexCore))
       | none =>
         do
         let baseCore ← Expr.toCore? storageNames (Expr.ident name)
@@ -6503,7 +6512,11 @@ def Expr.toCoreLValue? (storageNames : List Name) : Expr -> Option CoreLValue
       | some key =>
         do
         let indexCore ← Expr.toCore? storageNames index
-        some (SolidCore.Solidity.Source.LValue.storageIndex key indexCore)
+        -- R3 (#192): mapping/array WRITE index key — same value-use boundary as
+        -- the read arm; materialize a bare-storage key so `m[stateStr] = v` hits
+        -- the contents-derived slot (scalar keys load identically).
+        some (SolidCore.Solidity.Source.LValue.storageIndex key
+          (materializeStorageValueUseCore indexCore))
       | none =>
         do
         let baseCore ← Expr.toCoreLValue? storageNames (Expr.ident name)
@@ -15688,7 +15701,13 @@ def Expr.toCoreLValueWithEnv? (storageNames : List Name) (env : TypeEnv) :
         | Expr.ident name =>
             match stateNameRuntimeKey? name storageNames with
             | some skey =>
-                some (SolidCore.Solidity.Source.LValue.storageIndex skey keyCore)
+                -- R3 (#192): env-aware write index key — materialize a
+                -- bare-storage `string`/`bytes`/array key (value-use boundary),
+                -- so `m[stateStr] = v` hits the contents-derived slot. Narrow
+                -- checked keys and scalars are unaffected (materialize is a
+                -- no-op for any non-`Expr.storage` core).
+                some (SolidCore.Solidity.Source.LValue.storageIndex skey
+                  (materializeStorageValueUseCore keyCore))
             | none => do
                 let baseCore ←
                   Expr.toCoreLValue? storageNames (Expr.ident name)
