@@ -19173,8 +19173,17 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                   contractName argsCore valueCore saltCore? valueBeforeSalt returnBindings
                   successCore catchCore)
       | Stmt.emitEvent (Expr.call (Expr.ident name) args) => do
+          -- EMIT-STORAGE-DYNAMIC-ARRAY (#192 follow-up): an event argument is a
+          -- value-use boundary — `EventDecl.encodeFields?` ABI-encodes the
+          -- argument CONTENTS and cannot read storage. A bare state
+          -- bytes/string/array/struct lowers to `Expr.storage key` (eval = the
+          -- HEADER word) → encode fails → `Panic(0)`. Materialize each arg exactly
+          -- like the other value-use boundaries (abi.encode*/keccak256/…); every
+          -- other core shape passes through untouched.
           let coreArgs ← Args.toCoreExprs? storageNames args
-          some (SolidCore.Solidity.Source.Stmt.emitEvent name coreArgs)
+          some
+            (SolidCore.Solidity.Source.Stmt.emitEvent name
+              (materializeStorageValueUseCores coreArgs))
       -- EMIT-QUAL (#74): a qualified event emit `emit Base.E(a)` / `emit C.E(a)` has
       -- a member-access callee; it lowers to the bare name (resolved against the
       -- contract's flattened in-scope events plus the added library events).
@@ -19187,7 +19196,9 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
       | Stmt.emitEvent
           (Expr.call (Expr.member _ name) args) => do
           let coreArgs ← Args.toCoreExprs? storageNames args
-          some (SolidCore.Solidity.Source.Stmt.emitEvent name coreArgs)
+          some
+            (SolidCore.Solidity.Source.Stmt.emitEvent name
+              (materializeStorageValueUseCores coreArgs))
       | Stmt.revertCall (Expr.call (Expr.ident "revert") []) =>
           some (SolidCore.Solidity.Source.Stmt.revertError none)
       | Stmt.revertCall
