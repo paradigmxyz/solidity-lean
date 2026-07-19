@@ -19210,8 +19210,17 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           let reasonCore ← Expr.toCore? storageNames reason
           some (SolidCore.Solidity.Source.Stmt.revertErrorExpr reasonCore)
       | Stmt.revertCall (Expr.call (Expr.ident name) args) => do
+          -- REVERT-CUSTOM-ERROR-STORAGE-STRING (#192 follow-up): a custom-error
+          -- revert argument is a value-use boundary — the argument CONTENTS are
+          -- ABI-encoded into the revert data (exactly like emit/abi.encode*/
+          -- keccak256). A bare state bytes/string/array lowers to `Expr.storage
+          -- key` (eval = the HEADER word) → the error encoder's `asBytes?`/
+          -- `abiEncodeValues?` returns `none` → `Panic(0)`. Materialize each arg
+          -- like the other value-use boundaries; every other core passes through.
           let coreArgs ← Args.toCoreExprs? storageNames args
-          some (SolidCore.Solidity.Source.Stmt.revert name coreArgs)
+          some
+            (SolidCore.Solidity.Source.Stmt.revert name
+              (materializeStorageValueUseCores coreArgs))
       -- REVERT-QUAL (#77): a base-/self-/library-qualified custom-error revert
       -- `revert X.Err(a)` lowers to the bare name (resolved against the contract's
       -- flattened errors plus the added library errors). QUALIFIED-COLLISION (#136):
@@ -19224,7 +19233,9 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
       | Stmt.revertCall
           (Expr.call (Expr.member _ name) args) => do
           let coreArgs ← Args.toCoreExprs? storageNames args
-          some (SolidCore.Solidity.Source.Stmt.revert name coreArgs)
+          some
+            (SolidCore.Solidity.Source.Stmt.revert name
+              (materializeStorageValueUseCores coreArgs))
       | Stmt.returnValues
           (some
             (Expr.call
