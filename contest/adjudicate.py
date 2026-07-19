@@ -130,8 +130,10 @@ def load_submission(root: Path) -> tuple[Optional[Submission], Optional[Report]]
         return None, Report("REJECT_MALFORMED", reason="no src/*.sol sources")
 
     if not (root / "test").is_dir() and claim.get("lane") != "S":
-        # lane S OVER_ACCEPT may legitimately have no runnable test (solc rejects)
-        if not claim.get("_over_accept"):
+        # lane S OVER_ACCEPT may legitimately have no runnable test (solc rejects);
+        # a single-file MANIFEST submission carries no submitter test at all (the
+        # harness measures the EVM side itself from the declarative manifest).
+        if not claim.get("_over_accept") and not claim.get("_manifest"):
             return None, Report("REJECT_MALFORMED", reason="missing test/ directory")
 
     for key in ("lane", "entry"):
@@ -259,6 +261,8 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
                work_dir: Optional[Path] = None, timeout: int = 400,
                skip_forge: bool = False,
                at_version: Optional[str] = None,
+               env_override: Optional[cenv.EnvOverrides] = None,
+               inject_storage: Optional[list[tuple[int, int]]] = None,
                _selftest_perturb_evm: Optional[Any] = None,
                _selftest_perturb_solidity_lean: Optional[Any] = None) -> Report:
     """Adjudicate a submission (design §4).
@@ -287,6 +291,13 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
     lane = claim["lane"]
     over_accept = bool(claim.get("_over_accept") or
                        (lane == "S" and claim.get("mode") == "OVER_ACCEPT"))
+    # Single-file MANIFEST mode: the submission carries no Forge test — the harness
+    # measures the EVM side itself from the declarative manifest (deploy/entry/env/
+    # storage). So the real-behavior INVALID gate (which runs the submitter's test)
+    # is skipped; the independently MEASURED EVM run is authoritative by
+    # construction, and the env comes from the manifest (env_override) rather than
+    # from scanned test cheatcodes.
+    manifest_mode = bool(claim.get("_manifest"))
 
     work = work_dir or Path(tempfile.mkdtemp(prefix="contest-adjudicate."))
     work.mkdir(parents=True, exist_ok=True)
@@ -439,9 +450,22 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
     try:
         src_asts = gate.get_source_asts(submission.sources, tools.solc)
     except Exception as exc:  # solc failure on adversarial source (finding 5)
-        return Report("REJECT_MALFORMED", reason=(
-            f"solc could not analyze the submitted sources: {exc}"),
-            evidence=evidence)
+        if over_accept:
+            # An OVER_ACCEPT program is solc-rejected BY DEFINITION, so the
+            # analyzed-AST path always fails here — rejecting made the whole
+            # over-accept lane dead code (the lane check below never ran).
+            # Parse-only ASTs carry every syntax node the scans traverse.
+            try:
+                src_asts = gate.get_source_asts_parse_only(
+                    submission.sources, tools.solc)
+            except Exception as exc2:
+                return Report("REJECT_MALFORMED", reason=(
+                    f"OVER_ACCEPT source does not even parse under pinned "
+                    f"solc: {exc2}"), evidence=evidence)
+        else:
+            return Report("REJECT_MALFORMED", reason=(
+                f"solc could not analyze the submitted sources: {exc}"),
+                evidence=evidence)
     test_asts = _test_asts(submission.root, tools.solc)
     src_scan = gate.scan_src_cheatcodes(src_asts)
     test_scan = gate.scan_test_cheatcodes(test_asts)
@@ -465,9 +489,16 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
             "test uses a whitelisted cheatcode with a non-literal argument that "
             "cannot be mirrored into the solidity-lean env (v1 requires literals)"),
             evidence=evidence)
-    # merge the mirrored overrides, preserving the entry value.
-    test_scan.overrides.value = env_ov.value
-    env_ov = test_scan.overrides
+    if manifest_mode and env_override is not None:
+        # Manifest mode: the env is the declarative manifest `env` block (already
+        # mirrored into both engines), NOT scanned test cheatcodes. Preserve the
+        # validated entry.value.
+        env_override.value = env_ov.value
+        env_ov = env_override
+    else:
+        # merge the mirrored overrides, preserving the entry value.
+        test_scan.overrides.value = env_ov.value
+        env_ov = test_scan.overrides
 
     # -- Step 1 / 1a: REAL-BEHAVIOR CHECK ------------------------------------
     measured: Optional[meas.Measurement] = None
@@ -483,16 +514,20 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
                 "OVER_ACCEPT claim but pinned solc did NOT reject the program "
                 f"as declared ({status})"), evidence=evidence)
     elif not skip_forge:
-        mc = claim.get("forge_match_contract")
-        mt = claim.get("forge_match_test")
-        ok, status = hb.run_forge_test(
-            submission.forge_root, work / "forge", match_contract=mc,
-            match_test=mt, tools=tools, timeout=timeout)
-        evidence["forge"] = status
-        if not ok:
-            return Report("INVALID", reason=(
-                "claimed behavior does not reproduce on pinned solc 0.8.35 + "
-                f"Foundry (forge={status})"), evidence=evidence)
+        # A submitter Forge test is the real-behavior INVALID gate. Manifest mode
+        # has no submitter test — the MEASURED EVM run below is authoritative by
+        # construction — so this gate runs only for the legacy dir format.
+        if not manifest_mode:
+            mc = claim.get("forge_match_contract")
+            mt = claim.get("forge_match_test")
+            ok, status = hb.run_forge_test(
+                submission.forge_root, work / "forge", match_contract=mc,
+                match_test=mt, tools=tools, timeout=timeout)
+            evidence["forge"] = status
+            if not ok:
+                return Report("INVALID", reason=(
+                    "claimed behavior does not reproduce on pinned solc 0.8.35 + "
+                    f"Foundry (forge={status})"), evidence=evidence)
         # -- MEASURE the EVM observable from an actual Forge run (P0 #1) -----
         # Reuse the signature resolved + validated in step 0a' (recompute only if
         # that path was skipped, e.g. a future caller that bypasses it).
@@ -521,7 +556,8 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
         measured, mstatus = meas.measure_evm(
             sig, entry.get("args", []), env_ov, work / "measure",
             forge=tools.forge, solc=tools.solc, repo=tools.repo, timeout=timeout,
-            slots=slots, constructor_args=ctor_args)
+            slots=slots, constructor_args=ctor_args,
+            inject_storage=inject_storage)
         evidence["evm_measurement"] = (measured.raw if measured else mstatus)
         if measured is None:
             return Report("INVALID", reason=(
@@ -544,7 +580,8 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
             "note": "adjudication uses the register in force at submission time "
                     "(server-authoritative), not the claim's declared version."}
     gate_verdict = gate.run_gate(submission.sources, solc=tools.solc,
-                                 enforce_v1_multi=True, at_version=effective_version)
+                                 enforce_v1_multi=True, at_version=effective_version,
+                                 parse_only_fallback=over_accept)
     evidence["gate"] = gate_verdict.to_dict()
     if not gate_verdict.is_pass:
         ids = ", ".join(sorted({h.id for h in gate_verdict.hits}))
@@ -577,11 +614,25 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
     # provably indistinguishable from out-of-fuel/non-termination — to
     # NEEDS_REVIEW rather than auto-qualifying. `fuel` is still validated (bad
     # values -> REJECT_MALFORMED) but no longer drives the interpreter down.
+    # The entry call's REAL ABI calldata (selector ++ encoded args) — identical
+    # bytes to what the Foundry measurement sends — is mirrored into the Lean
+    # entry context so msg.data/msg.sig observables are faithful (d206: the
+    # by-name entry ran with empty calldata, making every msg.data probe a
+    # spurious "divergence"). No sig for OVER_ACCEPT (solc-rejected): those
+    # keep the default empty calldata, matching a program that never runs.
+    lean_calldata: Optional[str] = None
+    if entry_sig is not None:
+        try:
+            lean_calldata = meas.build_calldata(
+                entry_sig.selector, entry.get("args", []))
+        except Exception:
+            lean_calldata = None  # unencodable args were already rejected above
     solidity_lean = hb.run_solidity_lean_observable(
         src, entry["contract"], entry["function"], entry.get("args", []),
         work / "solidity_lean", namespace, fuel=_FUEL_CAP,
         tools=tools, timeout=timeout, env=env_ov, slots=slots,
-        constructor_args=ctor_args)
+        constructor_args=ctor_args, inject_storage=inject_storage,
+        calldata_hex=lean_calldata)
     if _selftest_perturb_solidity_lean is not None:  # coverage bug-injection self-test
         solidity_lean = _selftest_perturb_solidity_lean(solidity_lean)
         evidence["selftest_solidity_lean_perturbed"] = True
@@ -1024,7 +1075,12 @@ def _source_of_contract(sources: list[Path], contract: str, solc: str) -> Option
         try:
             _name, ast = gate._IMPORTER.run_solc_ast(solc, src)
         except Exception:
-            continue
+            # solc-rejected source (the OVER_ACCEPT lane): the contract still
+            # exists syntactically — resolve it from the parse-only AST.
+            try:
+                ast = gate.get_source_asts_parse_only([src], solc=solc)[0].ast
+            except Exception:
+                continue
         for node in gate.iter_nodes(ast):
             if node.get("nodeType") == "ContractDefinition" and node.get("name") == contract:
                 return src

@@ -327,7 +327,10 @@ def run_solidity_lean_observable(source: Path, contract: str, fname: str, args: 
                            timeout: int = 300,
                            env: Optional["cenv.EnvOverrides"] = None,
                            slots: Optional[list[int]] = None,
-                           constructor_args: Optional[list] = None) -> SolidityLeanResult:
+                           constructor_args: Optional[list] = None,
+                           inject_storage: Optional[list[tuple[int, int]]] = None,
+                           calldata_hex: Optional[str] = None,
+                           ) -> SolidityLeanResult:
     """Import ``source``, then #eval the §3.4 observable of ``contract.fname``.
 
     Distinguishes:
@@ -370,7 +373,9 @@ def run_solidity_lean_observable(source: Path, contract: str, fname: str, args: 
         obs.LEAN_OBSERVABLE_HELPER,
         "",
         obs.lean_eval_line(namespace, contract, fuel, fname, args_lean, env,
-                           slots=slots, ctor_args_lean=ctor_args_lean),
+                           slots=slots, ctor_args_lean=ctor_args_lean,
+                           inject_storage=inject_storage,
+                           calldata_hex=calldata_hex),
     ]
     lean_file = case_tmp / "contest_observable.lean"
     lean_file.write_text("\n".join(lean_lines) + "\n", encoding="utf-8")

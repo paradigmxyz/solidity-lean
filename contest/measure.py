@@ -236,6 +236,7 @@ interface CVm {
     function record() external;
     function accesses(address) external returns (bytes32[] memory reads, bytes32[] memory writes);
     function load(address,bytes32) external view returns (bytes32);
+    function store(address,bytes32,bytes32) external;
     function writeFile(string calldata, string calldata) external;
     function toString(bytes calldata) external pure returns (string memory);
     function toString(uint256) external pure returns (string memory);
@@ -246,7 +247,8 @@ interface CVm {
 def _harness_source(sig: EntrySig, calldata_hex: str, out_path: Path,
                     ov: cenv.EnvOverrides, rel_import: str,
                     slots: Optional[list[int]] = None,
-                    ctor_args_hex: str = "") -> str:
+                    ctor_args_hex: str = "",
+                    inject_storage: Optional[list[tuple[int, int]]] = None) -> str:
     pin = [
         f"vm.roll({ov.number});",
         f"vm.warp({ov.timestamp});",
@@ -287,6 +289,28 @@ def _harness_source(sig: EntrySig, calldata_hex: str, out_path: Path,
             f'        {sig.contract} target = {sig.contract}(_addr);')
     else:
         deploy_block = f'{sig.contract} target = new {sig.contract}();'
+    # Raw storage injection (manifest `storage`): seed the entry contract's slots
+    # AFTER the constructor runs, mirroring the solidity-lean side which seeds
+    # deployState.storage post-construction. `vm.store` is a trusted cheatcode used
+    # ONLY by this maintainer-controlled measurement harness (it is banned in
+    # submissions); the submitter only declares the (slot, word) pairs. The Solidity
+    # semantics is a total function over storage, so an injected state need not be
+    # reachable by prior execution — both engines evaluate the same concrete state.
+    inject = inject_storage or []
+    inject_block = "\n        ".join(
+        f'vm.store(address(target), bytes32(uint256({slot})), '
+        f'bytes32(uint256({word})));'
+        for slot, word in inject)
+    # Injected slots must ALSO be emitted in the observed-storage section: vm.store
+    # is a direct cheat poke that vm.accesses does NOT report, so an injected slot
+    # the entry call never rewrites would appear on the solidity-lean side (whole-map
+    # dump) but not here, fabricating a storage divergence. Emitting each injected
+    # slot's post-call value (via vm.load) keeps the two sides symmetric; the Python
+    # comparator drops zeros and dedups slots also written by the call.
+    inject_sto_block = "\n            ".join(
+        f'sto = abi.encodePacked(sto, ";", vm.toString(uint256({slot})), ":", '
+        f'vm.toString(uint256(vm.load(address(target), bytes32(uint256({slot}))))));'
+        for slot, _word in inject)
     return f"""// SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.35;
 
@@ -307,6 +331,8 @@ contract ContestMeasure {{
         // see the test-harness address and `owner = msg.sender` would diverge.
         vm.prank(address(uint160({ov.sender})));
         {deploy_block}
+        // Raw storage injection (manifest `storage`), applied AFTER the constructor.
+        {inject_block}
         vm.recordLogs();
         vm.prank(address(uint160({ov.sender})));
         (bool ok, bytes memory ret) = address(target).call{value_opt}(hex"{calldata_hex}");
@@ -331,6 +357,9 @@ contract ContestMeasure {{
                     vm.toString(uint256(ws[k])), ":",
                     vm.toString(uint256(vm.load(address(target), ws[k]))));
             }}
+            // Injected slots (see above): emit each post-call value so the observed
+            // storage is symmetric with the solidity-lean whole-map dump.
+            {inject_sto_block}
         }}
         string memory out = string(abi.encodePacked(
             ok ? "ok" : "revert", "|", vm.toString(ret),
@@ -347,7 +376,9 @@ def measure_evm(sig: EntrySig, args: list, ov: cenv.EnvOverrides,
                 work_dir: Path, forge: str, solc: str,
                 repo: Path, timeout: int = 300,
                 slots: Optional[list[int]] = None,
-                constructor_args: Optional[list] = None) -> tuple[Optional[Measurement], str]:
+                constructor_args: Optional[list] = None,
+                inject_storage: Optional[list[tuple[int, int]]] = None,
+                ) -> tuple[Optional[Measurement], str]:
     """Generate + run the measurement harness; parse the raw entry-call result."""
     work_dir.mkdir(parents=True, exist_ok=True)
     proj = work_dir / "measure_proj"
@@ -372,7 +403,8 @@ def measure_evm(sig: EntrySig, args: list, ov: cenv.EnvOverrides,
     rel_import = f"../src/{sig.source_file.name}"
     (proj / "test" / "ContestMeasure.t.sol").write_text(
         _harness_source(sig, calldata, out_path, ov, rel_import, slots,
-                        ctor_args_hex=ctor_args_hex))
+                        ctor_args_hex=ctor_args_hex,
+                        inject_storage=inject_storage))
     (proj / "foundry.toml").write_text(
         "[profile.default]\nsrc = \"src\"\ntest = \"test\"\n"
         "evm_version = \"cancun\"\nffi = false\n"

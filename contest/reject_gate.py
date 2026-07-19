@@ -956,6 +956,42 @@ def get_source_asts(sources: list[Path], solc: str = DEFAULT_SOLC) -> list[Sourc
     return out
 
 
+def get_source_asts_parse_only(sources: list[Path],
+                               solc: str = DEFAULT_SOLC) -> list[SourceAst]:
+    """Parse-only ASTs for sources that pinned solc REJECTS at the analysis
+    stage — the OVER_ACCEPT lane, whose programs by definition have no analyzed
+    AST. ``stopAfter: parsing`` still yields the complete syntactic AST, which
+    is what the exclusion-register and cheatcode scans traverse (they match
+    syntax nodes; analysis-only fields are simply absent and match nothing).
+    Raises if a source does not even PARSE: a submission must at least be
+    syntactically valid Solidity."""
+    import subprocess
+    out: list[SourceAst] = []
+    for path in sources:
+        request = _IMPORTER.standard_json_input(path)
+        request.setdefault("settings", {})["stopAfter"] = "parsing"
+        completed = subprocess.run(
+            [solc, "--standard-json"], input=json.dumps(request), text=True,
+            capture_output=True, check=False)
+        try:
+            output = json.loads(completed.stdout)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"solc did not return JSON: {exc}") from exc
+        name = _IMPORTER.source_key(path)
+        ast = ((output.get("sources") or {}).get(name) or {}).get("ast")
+        if not isinstance(ast, dict):
+            # Parser errors leave no AST; surface them (analysis errors cannot
+            # occur under stopAfter=parsing).
+            errs = "; ".join(
+                item.get("message") or str(item)
+                for item in (output.get("errors") or [])
+                if isinstance(item, dict) and item.get("severity") == "error")
+            raise RuntimeError(
+                f"source does not parse under pinned solc: {errs or 'no AST'}")
+        out.append(SourceAst(source=name, ast=ast))
+    return out
+
+
 def run_gate_on_asts(sources: list[SourceAst],
                      enforce_v1_multi: bool = True,
                      at_version: Optional[str] = None) -> GateVerdict:
@@ -989,8 +1025,18 @@ def run_gate_on_asts(sources: list[SourceAst],
 
 def run_gate(sources: list[Path], solc: str = DEFAULT_SOLC,
              enforce_v1_multi: bool = True,
-             at_version: Optional[str] = None) -> GateVerdict:
-    asts = get_source_asts(sources, solc=solc)
+             at_version: Optional[str] = None,
+             parse_only_fallback: bool = False) -> GateVerdict:
+    """``parse_only_fallback`` is for the OVER_ACCEPT lane, whose sources are
+    solc-rejected BY DEFINITION: the analyzed-AST path throws, so the register
+    scan falls back to the parse-only AST (same syntax nodes). Every other lane
+    keeps the analyzed AST as the single source of truth."""
+    try:
+        asts = get_source_asts(sources, solc=solc)
+    except Exception:
+        if not parse_only_fallback:
+            raise
+        asts = get_source_asts_parse_only(sources, solc=solc)
     return run_gate_on_asts(asts, enforce_v1_multi=enforce_v1_multi,
                             at_version=at_version)
 

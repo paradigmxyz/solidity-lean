@@ -219,7 +219,9 @@ OBSERVABLE_MARKER = "CONTEST_OBS "
 def lean_eval_line(namespace: str, contract: str, fuel: int, fname: str,
                    args_lean: str, env: "cenv.EnvOverrides",
                    slots: Optional[list[int]] = None,
-                   ctor_args_lean: str = "[]") -> str:
+                   ctor_args_lean: str = "[]",
+                   inject_storage: Optional[list[tuple[int, int]]] = None,
+                   calldata_hex: Optional[str] = None) -> str:
     """Build the ``#eval`` that prints the env-pinned observable (review P0 #2).
 
     The entry call runs through ``CheckedContract.callFunctionWithContext`` under
@@ -233,9 +235,39 @@ def lean_eval_line(namespace: str, contract: str, fuel: int, fname: str,
     ``args_lean`` is a Lean list expression of CoreValue (see render_lean_args).
     """
     TC = "SolidCore.Solidity.TypeCheck"
+    WORD = "SolidCore.Solidity.Source.Word"
+    STORAGEMAP = "SolidCore.Solidity.Source.StorageMap"
     src = f"{namespace}.importedSourceUnit"
     self_addr = env.self_addr if env.self_addr is not None else cenv.CANONICAL_SENDER
     slots_lean = "[" + ", ".join(str(int(s)) for s in (slots or [])) + "]"
+    # Raw storage injection (manifest `storage`): fold the declared (slot, word)
+    # pairs into deployState.storage AFTER construction, so the entry call runs from
+    # the seeded state. This is the exact mirror of the EVM side's `vm.store` (also
+    # applied post-constructor) — State is a total function over storage, so a seeded
+    # state need not be reachable by prior execution. Word literals are annotated so
+    # the pair list elaborates at `Word × Word` (via OfNat), not `Nat × Nat`.
+    inject = inject_storage or []
+    seed_pairs = "[" + ", ".join(f"({s}, {w})" for s, w in inject) + "]"
+    seed_line = ("" if not inject else
+                 f"    let deployState := {{ deployState with storage :=\n"
+                 f"      (({seed_pairs} : List ({WORD} × {WORD})).foldl\n"
+                 f"        (fun acc kv => {STORAGEMAP}.insertLoop acc kv.1 kv.2)\n"
+                 f"        deployState.storage) }}\n")
+    # Entry-context calldata: the ENTRY call's real ABI bytes (selector ++
+    # encoded args) — the very bytes the Foundry measurement sends — overlaid
+    # on the entry context ONLY, so msg.data/msg.sig observables are faithful
+    # at the top-level call (d206: the by-name entry used to run with
+    # ``calldata := []``). The CONSTRUCTOR context keeps its default empty
+    # calldata: on the EVM, creation-time msg.data is empty. Byte = Nat.
+    if calldata_hex:
+        cd_bytes = bytes.fromhex(calldata_hex)
+        cd_list = "[" + ", ".join(str(b) for b in cd_bytes) + "]"
+        cd_line = (f"    let ctxCall := {{ ctx with calldata :=\n"
+                   f"      ({cd_list} : List Nat) }}\n")
+        entry_ctx = "ctxCall"
+    else:
+        cd_line = ""
+        entry_ctx = "ctx"
     do_block = (
         f"(do\n"
         f"    let source := {src}\n"
@@ -262,11 +294,15 @@ def lean_eval_line(namespace: str, contract: str, fuel: int, fname: str,
         # observable outcome (short-circuit the entry call).
         f"      | rr@(SolidCore.Solidity.Source.CallResult.reverted _ _) =>\n"
         f"          return (0, rr)\n"
+        # Seed the manifest `storage` slots into deployState AFTER construction and
+        # BEFORE the entry call (mirrors the EVM side's post-constructor vm.store).
+        f"{seed_line}"
         # Count the logs emitted during CONSTRUCTION so the observable can show only
         # the ENTRY CALL's events (the EVM side arms recordLogs after the deploy).
         f"    let ctorLogs := (SolidCore.Solidity.Source.State.logEntries deployState {self_addr}).length\n"
+        f"{cd_line}"
         f"    let callRes ← {TC}.CheckedContract.callFunctionWithContext {fuel}\n"
-        f"      contract \"{fname}\" ctx deployState {args_lean}\n"
+        f"      contract \"{fname}\" {entry_ctx} deployState {args_lean}\n"
         f"    pure (ctorLogs, callRes))")
     call = (f"SolidCore.Solidity.Contest.renderFullDelta "
             f"{self_addr} {slots_lean} {do_block}")
