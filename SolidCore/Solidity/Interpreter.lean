@@ -4478,6 +4478,25 @@ def Runtime.storageBaseAnchor (context : Context)
             match field.ty? with
             | some ty => Except.ok (StorageLayout.scalar ty)
             | none => Except.error RevertData.typeMismatch
+      -- A top-level PACKED scalar state variable carries its sub-slot
+      -- offset/width on the `StorageField` record (`packedOffset`/`packedBytes`/
+      -- `packedSigned`), while its `layout?` is a whole-word `scalar` (the
+      -- packing lives on the field, mirroring solc's per-slot placement). The
+      -- `loadStorageField`/`storeFieldWord` accessors honour `field.isPacked`,
+      -- but the `resolveStorageBasePath` reader/writer used by `storagePath`
+      -- (e.g. the reference-preserving tuple-assignment RHS) drives off this
+      -- anchor layout alone. Reconstitute the `packedScalar` layout here so a
+      -- bare packed-variable read extracts just its bits — matching the packed
+      -- member layout `Ty.toCoreStorageMemberLayout?` builds — instead of the
+      -- whole slot (which, coerced back on store, clobbers the neighbour).
+      let layout :=
+        match layout with
+        | StorageLayout.scalar ty =>
+            if field.isPacked then
+              StorageLayout.packedScalar field.packedOffset field.packedBytes
+                field.packedSigned ty
+            else layout
+        | _ => layout
       Except.ok (field.slot, layout)
 
 /-- Resolve `indexes` LIVE from a base anchor (bounds checks run here — at
