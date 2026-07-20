@@ -49,6 +49,12 @@ _UINT160 = 1 << 160
 _MAX_INJECT_SLOTS = 64
 
 # env field name (manifest) -> EnvOverrides attribute.
+# Env fields a submitter may PIN. Each MUST be mirrorable into BOTH engines -
+# the Lean context (env.py) AND the Foundry measurement (measure.py cheatcode).
+# `gaslimit` is intentionally NOT here: Foundry has no cheatcode to set
+# block.gaslimit, so pinning it would move only the Lean side and manufacture a
+# false SOUNDNESS_GAP. The canonical block.gaslimit still applies on both sides
+# by default (they agree); it just cannot be overridden.
 _ENV_FIELDS: dict[str, str] = {
     "blockNumber": "number",
     "timestamp": "timestamp",
@@ -56,8 +62,14 @@ _ENV_FIELDS: dict[str, str] = {
     "basefee": "basefee",
     "coinbase": "coinbase",
     "prevrandao": "prevrandao",
-    "gaslimit": "gaslimit",
 }
+
+# Fields the Foundry EVM replay bounds to 64 bits (block.number / block.timestamp
+# via vm.roll/vm.warp); a >u64 pin passes uint256 validation but crashes the
+# forge replay -> INVALID. Cap them so an out-of-range pin is a clean
+# REJECT_MALFORMED with a clear message instead.
+_ENV_U64_FIELDS = {"blockNumber", "timestamp"}
+_UINT64 = 1 << 64
 
 _IDENT_RE = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*$")
 
@@ -182,8 +194,13 @@ def validate_manifest(m: dict[str, Any]) -> Optional[str]:
             if k not in _ENV_FIELDS:
                 return (f"manifest.env has unknown field {k!r}; allowed: "
                         f"{sorted(_ENV_FIELDS) + ['balances']}")
-            if _as_int(v) is None:
+            iv = _as_int(v)
+            if iv is None:
                 return f"manifest.env.{k} must be an integer, got {v!r}"
+            if k in _ENV_U64_FIELDS and not 0 <= iv < _UINT64:
+                return (f"manifest.env.{k} must be in [0, 2**64) (the Foundry EVM "
+                        f"replay bounds block.number/timestamp to 64 bits), "
+                        f"got {v!r}")
     # storage (raw slot injection)
     storage = m.get("storage")
     if storage is not None:

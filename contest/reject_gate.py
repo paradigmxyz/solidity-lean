@@ -218,19 +218,29 @@ def _callee_name(node: dict[str, Any]) -> Optional[str]:
     return None
 
 
+def _refs_builtin(node: dict[str, Any]) -> bool:
+    """True iff an Identifier node references a BUILTIN, not a user declaration.
+
+    solc marks a builtin reference with a NEGATIVE (magic) ``referencedDeclaration``
+    (e.g. ``gasleft`` -> -7); a user-declared name that merely SHADOWS a builtin
+    (a local/param/function/state var of the same name) gets a positive node id.
+    Detectors that key on the identifier NAME alone falsely rejected legal
+    shadowing code, e.g. ``uint256 gasleft = 17;`` (verified: builtin refDecl=-7,
+    shadow refDecl=+7)."""
+    rd = node.get("referencedDeclaration")
+    return rd is None or (isinstance(rd, int) and rd < 0)
+
+
 def detect_gasleft(entry: reg.ExclusionEntry, src: SourceAst) -> list[Hit]:
+    # Flag the ``gasleft`` BUILTIN only. The callee Identifier of ``gasleft()``
+    # is itself an Identifier node (refDecl<0), so a single guarded Identifier
+    # arm covers every real use; a variable/param/function merely NAMED
+    # ``gasleft`` (positive refDecl) is NOT the builtin and must not be excluded.
     hits = []
     for node in iter_nodes(src.ast):
-        nt = node.get("nodeType")
-        if nt == "FunctionCall" and _callee_name(node) == "gasleft":
-            hits.append(Hit(entry.id, src.source,
-                            enclosing_contract_name(src.ast, node),
-                            node_src(node), entry.reason))
-        elif nt == "MemberAccess" and node.get("memberName") == "gasleft":
-            hits.append(Hit(entry.id, src.source,
-                            enclosing_contract_name(src.ast, node),
-                            node_src(node), entry.reason))
-        elif nt == "Identifier" and node.get("name") == "gasleft":
+        if (node.get("nodeType") == "Identifier"
+                and node.get("name") == "gasleft"
+                and _refs_builtin(node)):
             hits.append(Hit(entry.id, src.source,
                             enclosing_contract_name(src.ast, node),
                             node_src(node), entry.reason))
@@ -383,10 +393,18 @@ def _tainted_predicate(names_or_members: dict[str, Any]) -> Callable[[dict], boo
 
     def pred(n: dict[str, Any]) -> bool:
         nt = n.get("nodeType")
+        # A builtin referenced by name only (gasleft/blockhash/blobhash) - but
+        # NOT a user local/param/function that merely SHADOWS the name (positive
+        # referencedDeclaration). Without the _refs_builtin guard a variable
+        # named e.g. `gasleft` was wrongly excluded (SEM-GAS false positive).
         if nt == "Identifier" and n.get("name") in ident_names:
-            return True
-        if nt == "FunctionCall" and _callee_name(n) in ident_names:
-            return True
+            return _refs_builtin(n)
+        if nt == "FunctionCall":
+            callee = n.get("expression")
+            if (isinstance(callee, dict) and callee.get("nodeType") == "Identifier"
+                    and callee.get("name") in ident_names):
+                return _refs_builtin(callee)
+            return False
         if nt == "MemberAccess" and n.get("memberName") in member_names:
             return True
         return False
