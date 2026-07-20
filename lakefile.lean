@@ -28,3 +28,10 @@ lean_lib SolidCore where
 lean_exe keccakParity where
   root := `KeccakParity
   supportInterpreter := true
+
+/-- Byte-parity witness for the in-semantics precompile implementations
+    (`Precompile.execute?` / `Shared.Crypto`): sha256 and blake2f against the
+    pinned NATIVE FFI, the rest against published known-answer vectors. -/
+lean_exe precompileParity where
+  root := `PrecompileParity
+  supportInterpreter := true

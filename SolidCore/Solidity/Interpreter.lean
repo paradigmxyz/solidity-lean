@@ -2528,6 +2528,41 @@ def decodeCallResponse (response : EvmCompiler.Simulation.CallResponse)
     gas? := gas?, success := response.success,
     output := byteArrayToBytes response.returnData }
 
+/-- In-semantics precompile answering: a STATICCALL request with zero value
+    whose code address is a mainnet precompile is answered deterministically
+    from `Precompile.execute?` (pure — sha256/ripemd160/ecrecover/identity/
+    modexp/bnAdd/bnMul/blake2f; `none` for the unimplemented bnPairing and
+    pointEvaluation, which stay fail-closed open-world). Consulted by every
+    answering fold ONLY after responder-row lookup misses (row-first
+    precedence — scripted precompile rows keep answering byte-identically),
+    and NEVER at the emit site: the `Query.external` node still appears in the
+    transcript, keeping the query alphabet aligned with evm-compiler. The
+    answered `postWorld` is the echoed sent world (a staticcall transfers no
+    value, so the A2 debit is 0) and `returnedGas` echoes the request, exactly
+    `ScriptedResponder.answerCall?`'s row shape. -/
+def precompileAnswerCall? (world : SolidCore.Solidity.Shared.OpenWorld)
+    (request : EvmCompiler.Simulation.CallRequest) :
+    Option EvmCompiler.Simulation.CallResponse :=
+  match request.kind with
+  | EvmCompiler.Simulation.CallKind.staticcall =>
+      if u256ToWord request.transferValue == 0 then
+        match SolidCore.Solidity.Shared.Precompile.kindOfAddress?
+            (addressToWord request.codeAddress) with
+        | some kind =>
+            match SolidCore.Solidity.Shared.Precompile.execute? kind
+                (byteArrayToBytes request.calldata) with
+            | some (success, output) =>
+                some
+                  { success := success
+                    returnData := bytesToByteArray output
+                    postWorld := world
+                    returnedGas := request.requestedGas }
+            | none => none
+        | none => none
+      else
+        none
+  | _ => none
+
 /-- Emit an external low-level call as a `Query.external` node and resume on the
     `CallResponse`. The query carries the real `snapshotWorld` of the caller's
     state at emit (mirror of Yul's `callEval` → `ofYulShared`); responder
@@ -2711,6 +2746,17 @@ def contextAnswer (context : Context) :
   | EvmCompiler.Simulation.Query.resource
       EvmCompiler.Simulation.ResourceQuery.gas =>
       wordToU256 context.gasleft
+  | EvmCompiler.Simulation.Query.external world
+      (EvmCompiler.Simulation.ExternalRequest.call request) =>
+      -- Precompile staticcalls are answered in-semantics (deterministic,
+      -- `precompileAnswerCall?`); every other external call keeps the
+      -- fail-open default answer.
+      match precompileAnswerCall? world request with
+      | some response => response
+      | none =>
+          EvmCompiler.Simulation.Query.defaultAnswer
+            (EvmCompiler.Simulation.Query.external world
+              (EvmCompiler.Simulation.ExternalRequest.call request))
   | q => EvmCompiler.Simulation.Query.defaultAnswer q
 
 /-- Fuel-bounded fold answering every query from `Context` via `contextAnswer`
@@ -3038,11 +3084,16 @@ def SolI.runWith {α : Type} (responder : ScriptedResponder) :
   | .request
       (EvmCompiler.Simulation.Query.external world
         (EvmCompiler.Simulation.ExternalRequest.call request)) k =>
+      -- Row-first precedence: the precompile answer is consulted only on a
+      -- responder-row miss, so scripted precompile rows answer unchanged.
       match responder.answerCall? world request with
       | some response => SolI.runWith responder (k response)
       | none =>
-          .error (ResponderFailure.unmatched
-            (EvmCompiler.Simulation.ExternalRequest.call request))
+          match precompileAnswerCall? world request with
+          | some response => SolI.runWith responder (k response)
+          | none =>
+              .error (ResponderFailure.unmatched
+                (EvmCompiler.Simulation.ExternalRequest.call request))
   | .request
       (EvmCompiler.Simulation.Query.external world
         (EvmCompiler.Simulation.ExternalRequest.create request)) k =>
@@ -3084,9 +3135,15 @@ def ScriptedResponder.answer (responder : ScriptedResponder) :
       match responder.answerCall? world request with
       | some response => response
       | none =>
-          EvmCompiler.Simulation.Query.defaultAnswer
-            (EvmCompiler.Simulation.Query.external world
-              (EvmCompiler.Simulation.ExternalRequest.call request))
+          -- Row-first precedence (see `SolI.runWith`): precompile staticcalls
+          -- with no scripted row are answered in-semantics before the
+          -- fail-open default.
+          match precompileAnswerCall? world request with
+          | some response => response
+          | none =>
+              EvmCompiler.Simulation.Query.defaultAnswer
+                (EvmCompiler.Simulation.Query.external world
+                  (EvmCompiler.Simulation.ExternalRequest.call request))
   | EvmCompiler.Simulation.Query.external world
       (EvmCompiler.Simulation.ExternalRequest.create request) =>
       match responder.answerCreate? world request with
