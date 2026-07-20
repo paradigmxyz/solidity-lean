@@ -5765,6 +5765,40 @@ def AbiCleanups.lazyParamValues : List AbiCleanup -> List Value ->
       some (value :: values)
   | _, _ => none
 
+/-- How a storage READ rooted at a top-level state variable produces its
+    value. The old representation enumerated these as four SEPARATE
+    constructors (`storage`/`storageBytes`/`storageIndex`/`storagePath`),
+    which meant "bare header read" and "full content load" were different
+    CONSTRUCTORS rather than one location with a read-mode — so every
+    value-use boundary (abi.encode*/keccak256/emit/…) had to individually
+    rewrite the header form to the loading form (the ~40-site
+    `materializeStorageValueUseCore` whack-a-mole, #192 + #4–#10). With an
+    explicit mode, "materialize" is a MODE FLIP (`header` → `load`) on one
+    constructor.
+
+    - `header`: the state variable's HEADER word (the `.length` convention
+      for `bytes`, the slot word for dynamic arrays) or its whole value for
+      scalar/packed/struct/fixed-array layouts; transient- and packed-aware
+      (`Runtime.loadStorageField`). Old `Expr.storage`.
+    - `contents`: the full `bytes`/`string` CONTENTS (`Value.bytes`), the
+      `bytes(x)`/`string(x)` cast of a bytes/string state variable
+      (`Runtime.loadStorageByteStringField`). Old `Expr.storageBytes`.
+    - `element`: a single-step indexed read (mapping value / array element /
+      struct field / bytes byte) with the exact one-step semantics of
+      `Runtime.loadStorageIndex` (byte reads return the right-aligned byte
+      word; the legacy no-layout slot fallback applies). Expects exactly one
+      index expression. Old `Expr.storageIndex`.
+    - `load`: the fully MATERIALIZING read through an index path
+      (`Runtime.loadStoragePath`); `load name []` loads the whole value
+      (bytes/string → `Value.bytes`, arrays → elements, structs → tuples).
+      Old `Expr.storagePath`. -/
+inductive StorageReadMode where
+  | header : StorageReadMode
+  | contents : StorageReadMode
+  | element : StorageReadMode
+  | load : StorageReadMode
+  deriving Repr
+
 inductive Expr where
   | word : Word -> Expr
   | intWord : Word -> Expr
@@ -5787,7 +5821,6 @@ inductive Expr where
   | envBytesLookup : EnvBytesLookup -> Expr -> Expr
   | var : String -> Expr
   | immutable : String -> Expr
-  | storage : String -> Expr
   /-- The storage SLOT (as a `uint256` word) of a top-level storage state
       variable. Used to ABI-encode a `T storage` pointer argument on the
       external (public/external) library `delegatecall` boundary: solc passes
@@ -5813,9 +5846,16 @@ inductive Expr where
       captured base. Used to encode such a local as its slot on the
       public-library `delegatecall` boundary. -/
   | storageRefSlot : String -> List Expr -> Expr
-  | storageBytes : String -> Expr
-  | storageIndex : String -> Expr -> Expr
-  | storagePath : String -> List Expr -> Expr
+  /-- The unified storage-value READ: one location (state-variable `name` +
+      `indexes` path) with an explicit `StorageReadMode` saying WHICH value the
+      read produces (header word vs bytes contents vs one-step element vs full
+      materializing load). `header`/`contents` ignore `indexes` (always `[]`
+      from lowering); `element` expects exactly one index. See
+      `StorageReadMode`'s doc comment for the exact per-mode semantics and the
+      legacy constructor each mode replaces. The legacy names
+      (`Expr.storage`/`storageBytes`/`storageIndex`/`storagePath`) remain as
+      `@[match_pattern]` smart constructors below. -/
+  | storageRead : StorageReadMode -> String -> List Expr -> Expr
   | externalFunctionValue : Expr -> Word -> Expr
   | externalFunctionSelector : Expr -> Expr
   | externalFunctionAddress : Expr -> Expr
@@ -5864,10 +5904,28 @@ inductive Expr where
   | slice : Expr -> Option Expr -> Option Expr -> Expr
   deriving Repr
 
+/-- Legacy spellings of the unified `Expr.storageRead` (see `StorageReadMode`).
+    `@[match_pattern]` lets existing construction sites AND patterns keep the
+    old names; they unfold to the single parameterized constructor, so any
+    semantic dispatch over the family happens in ONE place (on the mode). -/
+@[match_pattern] def Expr.storage (name : String) : Expr :=
+  Expr.storageRead StorageReadMode.header name []
+
+@[match_pattern] def Expr.storageBytes (name : String) : Expr :=
+  Expr.storageRead StorageReadMode.contents name []
+
+@[match_pattern] def Expr.storageIndex (name : String) (idx : Expr) : Expr :=
+  Expr.storageRead StorageReadMode.element name [idx]
+
+@[match_pattern] def Expr.storagePath (name : String)
+    (indexes : List Expr) : Expr :=
+  Expr.storageRead StorageReadMode.load name indexes
+
 def Expr.hasStorageRoot : Expr -> Bool
-  | Expr.storage _ => true
-  | Expr.storageIndex _ _ => true
-  | Expr.storagePath _ _ => true
+  -- `contents` (old `storageBytes`) was NOT a storage root in the legacy
+  -- enumeration; the other three modes were. Preserved exactly.
+  | Expr.storageRead StorageReadMode.contents _ _ => false
+  | Expr.storageRead _ _ _ => true
   | Expr.index base _ => Expr.hasStorageRoot base
   | _ => false
 
@@ -6596,13 +6654,14 @@ def Expr.orderFuel : Expr -> Nat
   | Expr.envBytesLookup _ expr => Expr.orderFuel expr + 1
   | Expr.var _ => 1
   | Expr.immutable _ => 1
-  | Expr.storage _ => 1
   | Expr.storageSlot _ => 1
   | Expr.storagePathSlot _ indexes => Expr.listEvalFuel indexes + 1
   | Expr.storageRefSlot _ indexes => Expr.listEvalFuel indexes + 1
-  | Expr.storageBytes _ => 1
-  | Expr.storageIndex _ idx => Expr.orderFuel idx + 1
-  | Expr.storagePath _ indexes => Expr.listEvalFuel indexes + 1
+  -- Uniform bound for every read mode: `listEvalFuel indexes + 1` dominates
+  -- each mode's actual consumption (`header`/`contents` evaluate no indexes;
+  -- `element` evaluates its single index directly; `load` evaluates the list).
+  -- Only sufficiency matters (fuel results are stable above the need).
+  | Expr.storageRead _ _ indexes => Expr.listEvalFuel indexes + 1
   | Expr.externalFunctionValue addressExpr _ => Expr.orderFuel addressExpr + 1
   | Expr.externalFunctionSelector expr => Expr.orderFuel expr + 1
   | Expr.externalFunctionAddress expr => Expr.orderFuel expr + 1
@@ -6783,28 +6842,39 @@ def Expr.evalFuel (fuel : Nat)
           | Expr.immutable name => do
               let value ← runtime.loadImmutableField context name
               pure (value, runtime)
-          | Expr.storage name => do
-              let value ← runtime.loadStorageField context name
-              pure (value, runtime)
+          | Expr.storageRead mode name indexes =>
+              (match mode with
+              | StorageReadMode.header => do
+                  -- Header word / whole-scalar read; transient- and
+                  -- packed-aware. Indexes are always `[]` from lowering and
+                  -- are ignored (exactly the old `Expr.storage` semantics).
+                  let value ← runtime.loadStorageField context name
+                  pure (value, runtime)
+              | StorageReadMode.contents => do
+                  let value ←
+                    runtime.loadStorageByteStringField context name
+                  pure (value, runtime)
+              | StorageReadMode.element =>
+                  match indexes with
+                  | [idx] => do
+                      let (indexValue, runtime') ←
+                        Expr.evalFuel fuel context runtime idx
+                      let value ←
+                        runtime'.loadStorageIndex context name indexValue
+                      pure (value, runtime')
+                  | _ =>
+                      throw <| SolidityFailure.revert RevertData.typeMismatch
+              | StorageReadMode.load => do
+                  let (indexValues, runtime') ←
+                    Expr.evalListFuel fuel context runtime
+                      indexes
+                  let value ← runtime'.loadStoragePath context name indexValues
+                  pure (value, runtime'))
           | Expr.storageSlot name =>
               match context.storageSlot? name with
               | some slot => pure (Value.word slot, runtime)
               | none =>
                   throw <| SolidityFailure.revert RevertData.typeMismatch
-          | Expr.storageBytes name => do
-              let value ← runtime.loadStorageByteStringField context name
-              pure (value, runtime)
-          | Expr.storageIndex name idx => do
-              let (indexValue, runtime') ←
-                Expr.evalFuel fuel context runtime idx
-              let value ← runtime'.loadStorageIndex context name indexValue
-              pure (value, runtime')
-          | Expr.storagePath name indexes => do
-              let (indexValues, runtime') ←
-                Expr.evalListFuel fuel context runtime
-                  indexes
-              let value ← runtime'.loadStoragePath context name indexValues
-              pure (value, runtime')
           | Expr.storagePathSlot name indexes => do
               let (indexValues, runtime') ←
                 Expr.evalListFuel fuel context runtime
