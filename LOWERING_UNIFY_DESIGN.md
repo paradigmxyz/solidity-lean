@@ -175,6 +175,19 @@ rewrite of the dispatcher is deliberately NOT attempted — blast radius
 (~2,500 lines of load-bearing enumeration, zero failing probes to justify
 it) far exceeds the gate budget; recorded as residual debt.
 
+**Re-measured on `rearch/storage-unify-normalizer` (post storage-value-use
+normalizer):** `Stmt.lowerCore?` is 3,121 lines / 152 `Stmt.*` pattern arms /
+118 per-arm env-less `Stmt.toCore?` acceptance fallbacks. The normalizer
+removed the per-boundary `materializeStorageValueUseCore` wrappers from BOTH
+the env-aware arms and their env-less siblings symmetrically, so no arm
+became a literal re-dispatch that could now collapse; every remaining arm
+still performs genuine env-aware / call-hoisting / storage-alias work before
+its fallback. The §3c conclusion is unchanged: the env-aware/env-less merge
+already lives structurally in `lowerCore?`'s single entry (ctx?-optional),
+and a further syntactic collapse of the 152-arm enumeration stays
+residual debt — attempted-and-declined again on this branch (byte-identity
+blast radius, no failing probe to justify it).
+
 ## 4. Gate
 Full `lake build` green (incl. FuelMonotonicity, AdoptionLaws, all
 witnesses); witness `SolidCore/Witness/LoweringUnify.lean` imported from
