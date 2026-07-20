@@ -5009,7 +5009,16 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
       | some key =>
         do
         let indexCore ← Expr.toCore? storageNames index
-        some (SolidCore.Solidity.Source.Expr.storageIndex key indexCore)
+        -- R3 (#192): a mapping/array INDEX KEY is a VALUE-USE boundary — the key
+        -- CONTENTS feed the value-slot hash (`mappingStorageSlotForKey`). A bare
+        -- state `string`/`bytes`/array key lowers to `Expr.storage key`, whose
+        -- eval is the HEADER word (the `.length` convention), so an unmaterialized
+        -- key fed the header word to the hash → `typeMismatch` = Panic(0). solc
+        -- copies the storage string/bytes to memory before deriving the slot, so
+        -- `m[stateStr]` and `m["lit"]` hit the SAME slot. Materialize the key core
+        -- so its full contents are read; scalar keys load identically either way.
+        some (SolidCore.Solidity.Source.Expr.storageIndex key
+          (materializeStorageValueUseCore indexCore))
       | none =>
         do
         let baseCore ← Expr.toCore? storageNames (Expr.ident name)
@@ -6503,7 +6512,11 @@ def Expr.toCoreLValue? (storageNames : List Name) : Expr -> Option CoreLValue
       | some key =>
         do
         let indexCore ← Expr.toCore? storageNames index
-        some (SolidCore.Solidity.Source.LValue.storageIndex key indexCore)
+        -- R3 (#192): mapping/array WRITE index key — same value-use boundary as
+        -- the read arm; materialize a bare-storage key so `m[stateStr] = v` hits
+        -- the contents-derived slot (scalar keys load identically).
+        some (SolidCore.Solidity.Source.LValue.storageIndex key
+          (materializeStorageValueUseCore indexCore))
       | none =>
         do
         let baseCore ← Expr.toCoreLValue? storageNames (Expr.ident name)
@@ -6960,7 +6973,7 @@ def Expr.noReturnEffectStmtCore? (storageNames : List Name) :
       let reasonCore ← Expr.toCore? storageNames reason
       some
         (SolidCore.Solidity.Source.Stmt.requireErrorExpr
-          condCore reasonCore)
+          condCore (materializeStorageValueUseCore reasonCore))
   | Expr.call (Expr.ident "revert") [] =>
       some (SolidCore.Solidity.Source.Stmt.revertError none)
   | Expr.call (Expr.ident "revert")
@@ -6968,7 +6981,8 @@ def Expr.noReturnEffectStmtCore? (storageNames : List Name) :
       some (SolidCore.Solidity.Source.Stmt.revertError (some reason))
   | Expr.call (Expr.ident "revert") [Arg.positional reason] => do
       let reasonCore ← Expr.toCore? storageNames reason
-      some (SolidCore.Solidity.Source.Stmt.revertErrorExpr reasonCore)
+      some (SolidCore.Solidity.Source.Stmt.revertErrorExpr
+        (materializeStorageValueUseCore reasonCore))
   | _ => none
 
 def CoreStmt.thenReturnEmpty (stmt : CoreStmt) : CoreStmt :=
@@ -15688,7 +15702,13 @@ def Expr.toCoreLValueWithEnv? (storageNames : List Name) (env : TypeEnv) :
         | Expr.ident name =>
             match stateNameRuntimeKey? name storageNames with
             | some skey =>
-                some (SolidCore.Solidity.Source.LValue.storageIndex skey keyCore)
+                -- R3 (#192): env-aware write index key — materialize a
+                -- bare-storage `string`/`bytes`/array key (value-use boundary),
+                -- so `m[stateStr] = v` hits the contents-derived slot. Narrow
+                -- checked keys and scalars are unaffected (materialize is a
+                -- no-op for any non-`Expr.storage` core).
+                some (SolidCore.Solidity.Source.LValue.storageIndex skey
+                  (materializeStorageValueUseCore keyCore))
             | none => do
                 let baseCore ←
                   Expr.toCoreLValue? storageNames (Expr.ident name)
@@ -16756,7 +16776,7 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
               modifiers functions freeFunctions name args
               (fun retExpr =>
                 SolidCore.Solidity.Source.Stmt.requireErrorExpr
-                  retExpr reasonCore) with
+                  retExpr (materializeStorageValueUseCore reasonCore)) with
           | some coreStmt => some coreStmt
           | none =>
               Stmt.toCore? storageNames
@@ -19090,7 +19110,7 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           let condCore ← Expr.toCore? storageNames cond
           let reasonCore ← Expr.toCore? storageNames reason
           some (SolidCore.Solidity.Source.Stmt.requireErrorExpr
-            condCore reasonCore)
+            condCore (materializeStorageValueUseCore reasonCore))
       | Stmt.expr expr => do
           match Expr.noReturnEffectStmtCore? storageNames expr with
           | some effect => some effect
@@ -19173,8 +19193,17 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                   contractName argsCore valueCore saltCore? valueBeforeSalt returnBindings
                   successCore catchCore)
       | Stmt.emitEvent (Expr.call (Expr.ident name) args) => do
+          -- EMIT-STORAGE-DYNAMIC-ARRAY (#192 follow-up): an event argument is a
+          -- value-use boundary — `EventDecl.encodeFields?` ABI-encodes the
+          -- argument CONTENTS and cannot read storage. A bare state
+          -- bytes/string/array/struct lowers to `Expr.storage key` (eval = the
+          -- HEADER word) → encode fails → `Panic(0)`. Materialize each arg exactly
+          -- like the other value-use boundaries (abi.encode*/keccak256/…); every
+          -- other core shape passes through untouched.
           let coreArgs ← Args.toCoreExprs? storageNames args
-          some (SolidCore.Solidity.Source.Stmt.emitEvent name coreArgs)
+          some
+            (SolidCore.Solidity.Source.Stmt.emitEvent name
+              (materializeStorageValueUseCores coreArgs))
       -- EMIT-QUAL (#74): a qualified event emit `emit Base.E(a)` / `emit C.E(a)` has
       -- a member-access callee; it lowers to the bare name (resolved against the
       -- contract's flattened in-scope events plus the added library events).
@@ -19187,7 +19216,9 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
       | Stmt.emitEvent
           (Expr.call (Expr.member _ name) args) => do
           let coreArgs ← Args.toCoreExprs? storageNames args
-          some (SolidCore.Solidity.Source.Stmt.emitEvent name coreArgs)
+          some
+            (SolidCore.Solidity.Source.Stmt.emitEvent name
+              (materializeStorageValueUseCores coreArgs))
       | Stmt.revertCall (Expr.call (Expr.ident "revert") []) =>
           some (SolidCore.Solidity.Source.Stmt.revertError none)
       | Stmt.revertCall
@@ -19199,8 +19230,17 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           let reasonCore ← Expr.toCore? storageNames reason
           some (SolidCore.Solidity.Source.Stmt.revertErrorExpr reasonCore)
       | Stmt.revertCall (Expr.call (Expr.ident name) args) => do
+          -- REVERT-CUSTOM-ERROR-STORAGE-STRING (#192 follow-up): a custom-error
+          -- revert argument is a value-use boundary — the argument CONTENTS are
+          -- ABI-encoded into the revert data (exactly like emit/abi.encode*/
+          -- keccak256). A bare state bytes/string/array lowers to `Expr.storage
+          -- key` (eval = the HEADER word) → the error encoder's `asBytes?`/
+          -- `abiEncodeValues?` returns `none` → `Panic(0)`. Materialize each arg
+          -- like the other value-use boundaries; every other core passes through.
           let coreArgs ← Args.toCoreExprs? storageNames args
-          some (SolidCore.Solidity.Source.Stmt.revert name coreArgs)
+          some
+            (SolidCore.Solidity.Source.Stmt.revert name
+              (materializeStorageValueUseCores coreArgs))
       -- REVERT-QUAL (#77): a base-/self-/library-qualified custom-error revert
       -- `revert X.Err(a)` lowers to the bare name (resolved against the contract's
       -- flattened errors plus the added library errors). QUALIFIED-COLLISION (#136):
@@ -19213,7 +19253,9 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
       | Stmt.revertCall
           (Expr.call (Expr.member _ name) args) => do
           let coreArgs ← Args.toCoreExprs? storageNames args
-          some (SolidCore.Solidity.Source.Stmt.revert name coreArgs)
+          some
+            (SolidCore.Solidity.Source.Stmt.revert name
+              (materializeStorageValueUseCores coreArgs))
       | Stmt.returnValues
           (some
             (Expr.call
@@ -22089,11 +22131,45 @@ def FunctionDecls.rewriteLibraryDirectCallCandidateFrom?
           FunctionDecls.rewriteLibraryDirectCallCandidateFrom?
             libraryName method env args (index + 1) rest
 
+/-- Arity-only fallback: accept a candidate whose args merely order against
+    its params, without the shape gate. -/
+def FunctionDecl.rewriteLibraryDirectCallCandidateByArity?
+    (args : List Arg) (helperName : Name)
+    (fn : FunctionDecl) : Option Expr := do
+  let orderedArgs ← Args.toExprsForParams? fn.params args
+  some <|
+    FunctionDecl.annotateSingleCoreReturn fn
+      (Expr.call (Expr.ident helperName)
+        (orderedArgs.map Arg.positional))
+
+def FunctionDecls.rewriteLibraryDirectCallCandidateByArityFrom?
+    (libraryName method : Name) (args : List Arg)
+    (index : Nat) : List FunctionDecl -> Option Expr
+  | [] => none
+  | fn :: rest =>
+      let helperName := libraryHelperNameForIndex libraryName method index
+      match
+          FunctionDecl.rewriteLibraryDirectCallCandidateByArity?
+            args helperName fn with
+      | some rewritten => some rewritten
+      | none =>
+          FunctionDecls.rewriteLibraryDirectCallCandidateByArityFrom?
+            libraryName method args (index + 1) rest
+
 def FunctionDecls.rewriteLibraryDirectCallCandidate?
     (libraryName method : Name) (env : TypeEnv) (args : List Arg)
     (candidates : List FunctionDecl) : Option Expr :=
-  FunctionDecls.rewriteLibraryDirectCallCandidateFrom?
-    libraryName method env args 0 candidates
+  match
+      FunctionDecls.rewriteLibraryDirectCallCandidateFrom?
+        libraryName method env args 0 candidates with
+  | some rewritten => some rewritten
+  | none =>
+      -- The shape gate lacks the arity fallback the contract-internal path
+      -- (`findInternalCalleeWithArgs?`) has, so shapes it does not model
+      -- (e.g. an explicit enum-conversion argument reported as its
+      -- underlying uint) would otherwise leave the call unrewritten.
+      FunctionDecls.rewriteLibraryDirectCallCandidateByArityFrom?
+        libraryName method args 0 candidates
 
 def libraryDirectCallRewrite? (contracts : List ContractDecl)
     (env : TypeEnv) (receiver : Expr) (method : Name)
