@@ -11752,10 +11752,15 @@ def Expr.abiTyWithInternalFunctionsEnv?
       | Expr.call (Expr.typeName ty) [Arg.positional _] => some ty
       | Expr.call callee _ =>
           -- Call through an internal function POINTER whose callee is NOT a bare
-          -- identifier (e.g. an element of a function-pointer array: `arr[i](x)`).
-          -- The result type is the pointer type's single return type. External
-          -- pointers / non-function callees fall through to `none`.
-          match Expr.abiTyWithEnv? env callee with
+          -- identifier (e.g. an element of a function-pointer array: `arr[i](x)`,
+          -- or a fn pointer RETURNED by an internal call: `pick(true)(x)`).
+          -- The result type is the pointer type's single return type. Type the
+          -- callee with the internal-functions variant so a call-valued callee
+          -- (a returned pointer) resolves too. External pointers / non-function
+          -- callees fall through to `none`.
+          match
+              Expr.abiTyWithInternalFunctionsEnv?
+                functions freeFunctions env callee with
           | some (Ty.functionWithLocations _ _ [returnTy] _ _
               Visibility.internal_) => some returnTy
           | some (Ty.functionWithLocations _ _ [returnTy] _ _
@@ -14374,11 +14379,10 @@ def FunctionDecl.boundaryCallParts?
     -> Panic 0x51). Same reference-preserving arg/return temp construction as
     `boundaryCallParts?`, with the parameter/return shapes taken from the
     function TYPE. -/
-def FunctionDecl.ptrBoundaryCallExprParts?
+def FunctionDecl.ptrBoundaryCallCoreParts?
     (storageRefEnv : StorageRefEnv) (env : TypeEnv) (storageNames : List Name)
-    (callee : Expr) (returnPrefix : String) (args : List Arg) :
+    (fnTy : Ty) (fnCore : CoreExpr) (returnPrefix : String) (args : List Arg) :
     Option (List CoreBindingDecl × List Bool × List CoreStmt × CoreStmt) := do
-  let fnTy ← Expr.abiTyWithEnv? env callee
   match fnTy with
   | Ty.functionWithLocations paramTys paramLocs returnTys returnLocs _
       visibility =>
@@ -14411,7 +14415,6 @@ def FunctionDecl.ptrBoundaryCallExprParts?
               | Arg.named _ _ => none)
             args
         if params.length == sourceArgs.length then some () else none
-        let fnCore ← Expr.toCore? storageNames callee
         let runtimeReturns := Parameters.withRuntimeNames returnPrefix returns
         let returnBindings ←
           Parameters.toCoreBindings? returnPrefix runtimeReturns
@@ -14430,6 +14433,15 @@ def FunctionDecl.ptrBoundaryCallExprParts?
           , SolidCore.Solidity.Source.Stmt.internalCallPtr
               returnNames fnCore argVars ))
   | _ => none
+
+def FunctionDecl.ptrBoundaryCallExprParts?
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv) (storageNames : List Name)
+    (callee : Expr) (returnPrefix : String) (args : List Arg) :
+    Option (List CoreBindingDecl × List Bool × List CoreStmt × CoreStmt) := do
+  let fnTy ← Expr.abiTyWithEnv? env callee
+  let fnCore ← Expr.toCore? storageNames callee
+  FunctionDecl.ptrBoundaryCallCoreParts? storageRefEnv env storageNames
+    fnTy fnCore returnPrefix args
 
 def FunctionDecl.ptrBoundaryCallParts?
     (storageRefEnv : StorageRefEnv) (env : TypeEnv) (storageNames : List Name)
@@ -15205,7 +15217,46 @@ def FunctionDecl.internalExprSingleReturnUseCore?
                         [ret.name] bodyCore
                     , useResult (SolidCore.Solidity.Source.Expr.var ret.name) ]))
           | _ => none
-      | none => none
+      | none =>
+          -- The callee is itself an internal single-return call that RETURNS an
+          -- internal function pointer, immediately called (`pick(true)(x)` — a
+          -- returned pointer directly invoked). `ptrBoundaryCallExprParts?`
+          -- declines because the pure read lowering (`Expr.toCore?`) cannot
+          -- evaluate a call-valued callee; hoist the callee call into a temp
+          -- fn-ptr (same single-return machinery as any nested call) and then
+          -- dispatch through that temp with `ptrBoundaryCallCoreParts?`. The
+          -- structural pre-check requires the callee to type as an internal
+          -- function pointer with a well-formed single-return boundary shape, so
+          -- non-pointer / multi-return callees stay over-rejected as before.
+          match Expr.abiTyWithInternalFunctionsEnv?
+              functions freeFunctions env callee with
+          | some fnTy =>
+              match FunctionDecl.ptrBoundaryCallCoreParts?
+                  storageRefEnv env storageNames fnTy
+                  (SolidCore.Solidity.Source.Expr.var "_ret_fp_ptr")
+                  "_ret_fp_" args with
+              | some (returnBindings, _, _, _) =>
+                  match returnBindings with
+                  | [ret] =>
+                      FunctionDecl.internalExprSingleReturnUseCore?
+                        internalFuel storageRefEnv env externalCallKindEnv
+                        storageNames modifiers functions freeFunctions callee
+                        (fun ptrCore =>
+                          match FunctionDecl.ptrBoundaryCallCoreParts?
+                              storageRefEnv env storageNames fnTy ptrCore
+                              "_ret_fp_" args with
+                          | some (_, _, prefixCore, bodyCore) =>
+                              SolidCore.Solidity.Source.Stmt.block
+                                (prefixCore ++
+                                  [ SolidCore.Solidity.Source.Stmt.captureReturn
+                                      [ret.name] bodyCore
+                                  , useResult
+                                      (SolidCore.Solidity.Source.Expr.var
+                                        ret.name) ])
+                          | none => useResult ptrCore)
+                  | _ => none
+              | none => none
+          | none => none
   | _ => none
 termination_by (3, internalFuel, sizeOf expr, 10)
 
