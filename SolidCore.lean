@@ -69,3 +69,4 @@ import SolidCore.Witness.RevertCustomErrorStorageString
 import SolidCore.Witness.MappingKeyStorageString
 import SolidCore.Witness.RequireReasonStorageString
 import SolidCore.Witness.TupleSwapPackedStorage
+import SolidCore.Witness.PackedSignedArrayMemArith

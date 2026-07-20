@@ -6295,18 +6295,22 @@ def BinaryOp.apply
           Except.ok (Value.word value)
       | Value.int lhsWord, Value.int rhsWord =>
           op.applySignedWord checked lhsWord rhsWord
+      -- MIXED SIGNED/WORD (packed-signed unpack #11): a SIGNED operand
+      -- (`Value.int`, e.g. an `intCast` of a packed `intN` storage/array element)
+      -- meeting a `Value.word` operand — the shape the env-less `Expr.toCore?`
+      -- emits for a signed binary whose other operand is a literal (`word 1000`),
+      -- e.g. inside `uint256(int8Elem + 1000)`. By Solidity's typing rules a
+      -- `Value.int` operand forces the WHOLE operation signed (int/uint never
+      -- mix), so the raw word is the 2's-complement of a signed value: dispatch
+      -- to the signed path. This matters because signed and unsigned differ in
+      -- the overflow check (`-1 + 1000` overflows as unsigned but not signed).
+      -- `applySignedWord` reproduces the previous `shl`/`shr`/`sar`/`exp`
+      -- handling here exactly, and additionally handles `add`/`sub`/`mul`/`div`/
+      -- `mod`/bitwise/comparisons that previously Panic(0)'d as `typeMismatch`.
       | Value.int lhsWord, Value.word rhsWord =>
-          match op with
-          | BinaryOp.shl =>
-              Except.ok (Value.int (SolidCore.Solidity.Shared.shlWord rhsWord lhsWord))
-          | BinaryOp.shr =>
-              Except.ok (Value.int (SolidCore.Solidity.Shared.sarWord rhsWord lhsWord))
-          | BinaryOp.sar =>
-              Except.ok (Value.int (SolidCore.Solidity.Shared.sarWord rhsWord lhsWord))
-          | BinaryOp.exp => do
-              let value ← checkedSignedExp checked lhsWord rhsWord
-              Except.ok (Value.int value)
-          | _ => Except.error RevertData.typeMismatch
+          op.applySignedWord checked lhsWord rhsWord
+      | Value.word lhsWord, Value.int rhsWord =>
+          op.applySignedWord checked lhsWord rhsWord
       | _, _ => Except.error RevertData.typeMismatch)
 
 inductive BinaryArithmeticOperandMode where
