@@ -62,6 +62,7 @@ import SolidCore.Witness.StorageRefEarlyBind
 import SolidCore.Witness.PushAfterDanglingWrite
 import SolidCore.Witness.FnPtrArrayIndexCall
 import SolidCore.Witness.FnPtrTernaryCall
+import SolidCore.Witness.TernaryBytesWidthUnify
 import SolidCore.Witness.BinaryTernaryOperandOrder
 import SolidCore.Witness.CalldataEvmWrap
 import SolidCore.Witness.AbiDecodeStorageBytes
