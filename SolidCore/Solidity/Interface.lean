@@ -6973,7 +6973,7 @@ def Expr.noReturnEffectStmtCore? (storageNames : List Name) :
       let reasonCore ← Expr.toCore? storageNames reason
       some
         (SolidCore.Solidity.Source.Stmt.requireErrorExpr
-          condCore reasonCore)
+          condCore (materializeStorageValueUseCore reasonCore))
   | Expr.call (Expr.ident "revert") [] =>
       some (SolidCore.Solidity.Source.Stmt.revertError none)
   | Expr.call (Expr.ident "revert")
@@ -6981,7 +6981,8 @@ def Expr.noReturnEffectStmtCore? (storageNames : List Name) :
       some (SolidCore.Solidity.Source.Stmt.revertError (some reason))
   | Expr.call (Expr.ident "revert") [Arg.positional reason] => do
       let reasonCore ← Expr.toCore? storageNames reason
-      some (SolidCore.Solidity.Source.Stmt.revertErrorExpr reasonCore)
+      some (SolidCore.Solidity.Source.Stmt.revertErrorExpr
+        (materializeStorageValueUseCore reasonCore))
   | _ => none
 
 def CoreStmt.thenReturnEmpty (stmt : CoreStmt) : CoreStmt :=
@@ -16775,7 +16776,7 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
               modifiers functions freeFunctions name args
               (fun retExpr =>
                 SolidCore.Solidity.Source.Stmt.requireErrorExpr
-                  retExpr reasonCore) with
+                  retExpr (materializeStorageValueUseCore reasonCore)) with
           | some coreStmt => some coreStmt
           | none =>
               Stmt.toCore? storageNames
@@ -19109,7 +19110,7 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           let condCore ← Expr.toCore? storageNames cond
           let reasonCore ← Expr.toCore? storageNames reason
           some (SolidCore.Solidity.Source.Stmt.requireErrorExpr
-            condCore reasonCore)
+            condCore (materializeStorageValueUseCore reasonCore))
       | Stmt.expr expr => do
           match Expr.noReturnEffectStmtCore? storageNames expr with
           | some effect => some effect
