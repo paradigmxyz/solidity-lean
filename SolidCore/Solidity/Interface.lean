@@ -15650,12 +15650,59 @@ def FunctionDecl.internalBinarySingleReturnUseCore?
           | some _ => none
           | none => do
               let rhsCore ← Expr.toCore? storageNames rhs
-              FunctionDecl.internalExprSingleReturnUseCore?
-                internalFuel storageRefEnv env externalCallKindEnv storageNames
-                modifiers functions freeFunctions lhs
-                (fun lhsCore =>
-                  useResult
-                    (SolidCore.Solidity.Source.Expr.binary coreOp lhsCore rhsCore))
+              match op with
+              | BinaryOp.boolAnd
+              | BinaryOp.boolOr =>
+                  -- Short-circuit ops: the LEFT operand (carrying the call) is
+                  -- evaluated first to decide whether the pure RIGHT operand runs
+                  -- at all — keep the left-first residual-binary shape.
+                  FunctionDecl.internalExprSingleReturnUseCore?
+                    internalFuel storageRefEnv env externalCallKindEnv storageNames
+                    modifiers functions freeFunctions lhs
+                    (fun lhsCore =>
+                      useResult
+                        (SolidCore.Solidity.Source.Expr.binary coreOp lhsCore rhsCore))
+              | _ =>
+                  -- Ordinary op: the LEFT operand carries a nested internal call
+                  -- and the RIGHT operand is pure-`toCore?`-lowerable but may READ
+                  -- state the left call MUTATES (e.g. `g() * 100000 + t` with `g()`
+                  -- doing `t += 105`). solc legacy evaluates the RIGHT operand
+                  -- FIRST (ExpressionCompiler.cpp:614-615), so the residual binary
+                  -- built above (left call hoisted, then `lhsCore <op> rhsCore`)
+                  -- read the RHS state too late. Park the RHS value in a temp
+                  -- BEFORE hoisting the left call, then combine from the temp.
+                  -- Falls back to the prior left-first shape only if the RHS type
+                  -- is unresolvable (never trading a lowerable statement for
+                  -- `none`). Mirrors the direct-call-LHS/pure-RHS path above.
+                  match
+                      (do
+                        let rhsTy ←
+                          Expr.abiTyWithInternalFunctionsEnv?
+                            functions freeFunctions env rhs
+                        let rhsCoreTy ← Ty.toCore? rhsTy
+                        let rhsTmp := "_sol_bin_" ++ BinaryOp.tempTag op ++ "_rhs"
+                        let lhsCallCore ←
+                          FunctionDecl.internalExprSingleReturnUseCore?
+                            internalFuel storageRefEnv env externalCallKindEnv
+                            storageNames modifiers functions freeFunctions lhs
+                            (fun lhsCore =>
+                              useResult
+                                (SolidCore.Solidity.Source.Expr.binary coreOp
+                                  lhsCore
+                                  (SolidCore.Solidity.Source.Expr.var rhsTmp)))
+                        some
+                          (SolidCore.Solidity.Source.Stmt.block
+                            [ SolidCore.Solidity.Source.Stmt.varDecl
+                                rhsCoreTy rhsTmp (some rhsCore)
+                            , lhsCallCore ])) with
+                  | some coreStmt => some coreStmt
+                  | none =>
+                      FunctionDecl.internalExprSingleReturnUseCore?
+                        internalFuel storageRefEnv env externalCallKindEnv storageNames
+                        modifiers functions freeFunctions lhs
+                        (fun lhsCore =>
+                          useResult
+                            (SolidCore.Solidity.Source.Expr.binary coreOp lhsCore rhsCore))
 termination_by (3, internalFuel, sizeOf (Expr.binary op lhs rhs), 8)
 
 def FunctionDecl.conditionUseCoreWithInternalCalls?
