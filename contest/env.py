@@ -43,12 +43,31 @@ CANONICAL_ENV: dict[str, int] = {
     "coinbase": 0,               # block.coinbase (address 0x0)
     "prevrandao": 0,             # block.prevrandao
     "gaslimit": 1073741824,      # block.gaslimit (0x40000000)
+    "blobbasefee": 1,            # block.blobbasefee — revm's Cancun default is
+                                 # MIN_BLOB_GASPRICE = 1 (EIP-4844); Foundry
+                                 # returns 1 with NO cheatcode. The solidity-lean
+                                 # BlockEnv default was 0, so merely READING
+                                 # block.blobbasefee fabricated a divergence
+                                 # (ENV-SYMMETRY audit). Pinned, not overridable.
 }
 
 # Foundry's default caller / tx.origin (`DEFAULT_SENDER`).
 CANONICAL_SENDER = 0x1804c8AB1F12E6bbf3894d4083f33e07309d1f38
 CANONICAL_ORIGIN = 0x1804c8AB1F12E6bbf3894d4083f33e07309d1f38
 CANONICAL_GASPRICE = 0
+
+# Foundry funds DEFAULT_SENDER (== CANONICAL_SENDER) with 2**96 - 1 wei in its
+# test genesis (forge 1.5.1 measured: msg.sender.balance / tx.origin.balance
+# read 79228162514264337593543950335 under pure defaults, no vm.deal). The
+# solidity-lean side seeds only explicit deals/manifest balances, so the same
+# read returned 0 — a fabricated divergence (ENV-SYMMETRY audit). Mirror the
+# funding as a DEFAULT the Lean side appends LAST to accountBalances: the Lean
+# lookup (lookupWord?) is FIRST-wins, so any explicit deal/`balances` entry for
+# this address earlier in the list overrides it — matching Foundry, where a
+# vm.deal to the sender overwrites the genesis balance. Keyed to the CANONICAL
+# sender address (Foundry's funded genesis account), NOT a per-submission
+# caller override: Foundry does not fund arbitrary pranked callers.
+CANONICAL_SENDER_BALANCE = 2**96 - 1
 
 
 # ---------------------------------------------------------------------------
@@ -108,6 +127,7 @@ class EnvOverrides:
     coinbase: int = CANONICAL_ENV["coinbase"]
     prevrandao: int = CANONICAL_ENV["prevrandao"]
     gaslimit: int = CANONICAL_ENV["gaslimit"]
+    blobbasefee: int = CANONICAL_ENV["blobbasefee"]
     sender: int = CANONICAL_SENDER
     origin: int = CANONICAL_ORIGIN
     gasprice: int = CANONICAL_GASPRICE
@@ -146,16 +166,39 @@ class EnvOverrides:
         return (f"number := {self.number}, timestamp := {self.timestamp}, "
                 f"chainid := {self.chainid}, basefee := {self.basefee}, "
                 f"coinbase := {self.coinbase}, prevrandao := {self.prevrandao}, "
-                f"gaslimit := {self.gaslimit}")
+                f"gaslimit := {self.gaslimit}, blobbasefee := {self.blobbasefee}")
 
     def lean_tx_fields(self) -> str:
         return f"gasprice := {self.gasprice}, origin := {self.origin}"
 
-    def lean_balances(self) -> str:
+    def lean_balances(self, debit_entry_value: bool = False) -> str:
         # Use the last-wins-normalized deals (effective_deals) so the solidity-lean
         # FIRST-wins list lookup returns the SAME balance the EVM's last-wins
         # vm.deal SET (see effective_deals).
-        rows = ", ".join(f"({a}, {amt})" for a, amt in self.effective_deals())
+        # Foundry genesis-funds the canonical DEFAULT_SENDER; mirror that as a
+        # trailing DEFAULT entry so first-wins lookup lets any explicit deal /
+        # manifest `balances` entry for the same address (earlier in the list)
+        # override it — the exact analogue of vm.deal overwriting the genesis
+        # balance on the EVM side (see CANONICAL_SENDER_BALANCE).
+        entries = list(self.effective_deals())
+        entries.append((CANONICAL_SENDER, CANONICAL_SENDER_BALANCE))
+        # ``debit_entry_value``: revm debits the (pranked) caller's balance at
+        # CALL time, so INSIDE a value-carrying entry call ``msg.sender.balance``
+        # reads (pre-call balance - msg.value). The solidity-lean side reads a
+        # STATIC accountBalances fact, so the ENTRY context must seed the
+        # caller's entry already debited (ENV-SYMMETRY audit). The CONSTRUCTOR
+        # context must NOT debit: the pranked deploy carries no value, so the
+        # EVM ctor still sees the pre-call balance. Only the FIRST entry for
+        # the caller is debited — first-wins lookup makes it the effective one.
+        # If the caller's balance is below the value the EVM call itself fails
+        # (OutOfFunds), a case the harness does not model; leave undebited.
+        if debit_entry_value and self.value:
+            for i, (a, amt) in enumerate(entries):
+                if a == self.sender:
+                    if amt >= self.value:
+                        entries[i] = (a, amt - self.value)
+                    break
+        rows = ", ".join(f"({a}, {amt})" for a, amt in entries)
         return f"[{rows}]"
 
     def to_dict(self) -> dict:
@@ -163,7 +206,8 @@ class EnvOverrides:
             "number": self.number, "timestamp": self.timestamp,
             "chainid": self.chainid, "basefee": self.basefee,
             "coinbase": self.coinbase, "prevrandao": self.prevrandao,
-            "gaslimit": self.gaslimit, "sender": hex(self.sender),
+            "gaslimit": self.gaslimit, "blobbasefee": self.blobbasefee,
+            "sender": hex(self.sender),
             "origin": hex(self.origin), "value": self.value,
             "self": hex(self.self_addr) if self.self_addr is not None else None,
             "deals": [[hex(a), amt] for a, amt in self.deals],

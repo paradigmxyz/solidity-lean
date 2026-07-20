@@ -343,8 +343,20 @@ def hardening_unit_tests() -> tuple[bool, str]:
     _ov.deals = [(0xAAAA, 100), (0xBBBB, 5), (0xAAAA, 200)]
     checks.append(("deal-lastwins",
                    dict(_ov.effective_deals()) == {0xAAAA: 200, 0xBBBB: 5}))
+    # lean_balances appends the canonical sender's Foundry genesis funding as a
+    # trailing DEFAULT (first-wins lookup -> explicit deals earlier override it).
+    _default = f"({_cenv.CANONICAL_SENDER}, {_cenv.CANONICAL_SENDER_BALANCE})"
     checks.append(("deal-lastwins-lean",
-                   _ov.lean_balances() == "[(43690, 200), (48059, 5)]"))
+                   _ov.lean_balances() ==
+                   f"[(43690, 200), (48059, 5), {_default}]"))
+    # An explicit deal to the canonical sender must PRECEDE the default entry
+    # so the first-wins Lean lookup returns the dealt amount, mirroring
+    # vm.deal overwriting Foundry's genesis balance.
+    _ov2 = _cenv.EnvOverrides()
+    _ov2.deals = [(_cenv.CANONICAL_SENDER, 7)]
+    checks.append(("deal-sender-overrides-default",
+                   _ov2.lean_balances() ==
+                   f"[({_cenv.CANONICAL_SENDER}, 7), {_default}]"))
     checks.append(("deal-empty-unchanged",
                    _cenv.EnvOverrides().effective_deals() == []))
 

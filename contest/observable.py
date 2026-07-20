@@ -259,11 +259,30 @@ def lean_eval_line(namespace: str, contract: str, fuel: int, fname: str,
     # at the top-level call (d206: the by-name entry used to run with
     # ``calldata := []``). The CONSTRUCTOR context keeps its default empty
     # calldata: on the EVM, creation-time msg.data is empty. Byte = Nat.
+    entry_overrides = []
     if calldata_hex:
         cd_bytes = bytes.fromhex(calldata_hex)
         cd_list = "[" + ", ".join(str(b) for b in cd_bytes) + "]"
-        cd_line = (f"    let ctxCall := {{ ctx with calldata :=\n"
-                   f"      ({cd_list} : List Nat) }}\n")
+        entry_overrides.append(f"calldata :=\n      ({cd_list} : List Nat)")
+    # Value-carrying entry: revm debits the (pranked) caller AT CALL TIME, so
+    # inside the entry call the EVM reads the caller's balance already minus
+    # msg.value. Mirror that on the ENTRY context only (the constructor context
+    # keeps the undebited seed — the pranked deploy carries no value); see
+    # env.EnvOverrides.lean_balances(debit_entry_value=True).
+    if env.value:
+        entry_overrides.append(
+            "accountBalances := base.accountBalances ++ "
+            f"{env.lean_balances(debit_entry_value=True)}")
+    if entry_overrides:
+        # One `let` per override (shadowing re-binds ctxCall): comma-separated
+        # multi-field record updates tripped this Lean version's parser when a
+        # field value ends in a parenthesized type ascription.
+        lines = []
+        src_ctx = "ctx"
+        for ov_field in entry_overrides:
+            lines.append(f"    let ctxCall := {{ {src_ctx} with {ov_field} }}\n")
+            src_ctx = "ctxCall"
+        cd_line = "".join(lines)
         entry_ctx = "ctxCall"
     else:
         cd_line = ""
