@@ -4515,20 +4515,69 @@ def Runtime.loadStoragePath (context : Context)
     Except RevertData Value :=
   runtime.loadStorageBasePath context (StorageBase.field name) indexes
 
-/-- R3 (#192): materialize a value for a VALUE-USE boundary (a builtin that
-    needs the value's BYTES/elements — `keccak256`/`sha256`/`ripemd160`/
-    `erc7201`, `abi.encode*`, `bytes.concat`/`string.concat`). solc implicitly
-    copies a storage `bytes`/`string`/array/struct to memory at that boundary;
-    structurally, a storage REF value is loaded in full via the same
-    `loadStoragePath` reader every storage-value read uses, and memory refs are
-    deep-dereferenced exactly as before. Plain values pass through. -/
+/- R3 (#192): materialize a value for a VALUE-USE boundary (a builtin that
+   needs the value's BYTES/elements — `keccak256`/`sha256`/`ripemd160`/
+   `erc7201`, `abi.encode*`, `bytes.concat`/`string.concat`). solc implicitly
+   copies a storage `bytes`/`string`/array/struct to memory at that boundary;
+   structurally, a storage REF value is loaded in full via the same
+   `loadStoragePath` reader every storage-value read uses, and memory refs are
+   deep-dereferenced exactly as before. Plain values pass through. -/
+mutual
+
+/-- Structurally recursive value-use materialization: unlike the memory-only
+    deep deref, this also LOADS storage references NESTED inside aggregates
+    (`abi.encode([p1, p2])` with `bytes storage p1/p2` locals produces a
+    `Value.fixedArray [storageRef, storageRef]`), which previously survived
+    to the consumer unloaded and always failed `asBytes?`/
+    `abiEncodeValues?` (`typeMismatch` = Panic(0)). Top-level behavior and
+    the memory/lazy handling mirror `derefMemoryValueWithFuel` exactly;
+    loaded storage values contain no refs, so no re-recursion after a load. -/
+def Runtime.materializeForValueUseFuel (context : Context)
+    (runtime : Runtime) : Nat -> Value -> Except RevertData Value
+  | 0, _ => Except.error RevertData.typeMismatch
+  | _fuel + 1, Value.storageRef name =>
+      runtime.loadStoragePath context name []
+  | _fuel + 1, Value.storageSlotRef slot layout =>
+      runtime.state.loadStorageLayoutAt slot layout
+  | fuel + 1, Value.memoryRef id =>
+      match runtime.loadMemory? id with
+      | some stored =>
+          Runtime.materializeForValueUseFuel context runtime fuel stored
+      | none => Except.error RevertData.typeMismatch
+  | fuel + 1, Value.abiLazy cleanup value => do
+      let value ← cleanup.forceValue value
+      Runtime.materializeForValueUseFuel context runtime fuel value
+  | fuel + 1, Value.fixedArray values => do
+      let values ←
+        Runtime.materializeForValueUseListFuel context runtime (fuel + 1) values
+      Except.ok (Value.fixedArray values)
+  | fuel + 1, Value.dynamicArray values => do
+      let values ←
+        Runtime.materializeForValueUseListFuel context runtime (fuel + 1) values
+      Except.ok (Value.dynamicArray values)
+  | fuel + 1, Value.tuple values => do
+      let values ←
+        Runtime.materializeForValueUseListFuel context runtime (fuel + 1) values
+      Except.ok (Value.tuple values)
+  | _fuel + 1, value => Except.ok value
+
+def Runtime.materializeForValueUseListFuel (context : Context)
+    (runtime : Runtime) (fuel : Nat) :
+    List Value -> Except RevertData (List Value)
+  | [] => Except.ok []
+  | value :: rest => do
+      let value ←
+        Runtime.materializeForValueUseFuel context runtime fuel value
+      let rest ←
+        Runtime.materializeForValueUseListFuel context runtime fuel rest
+      Except.ok (value :: rest)
+
+end
+
 def Runtime.materializeForValueUse (context : Context)
     (runtime : Runtime) (value : Value) : Except RevertData Value :=
-  match value with
-  | Value.storageRef name => runtime.loadStoragePath context name []
-  | Value.storageSlotRef slot layout =>
-      runtime.state.loadStorageLayoutAt slot layout
-  | value => runtime.derefMemoryValueDeep value
+  Runtime.materializeForValueUseFuel context runtime
+    (runtime.nextMemory + 1) value
 
 def Runtime.materializeForValueUseList (context : Context)
     (runtime : Runtime) : List Value -> Except RevertData (List Value)

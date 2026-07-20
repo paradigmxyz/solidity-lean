@@ -359,6 +359,47 @@ def revertReason_reverts_error_nope : Except TypeError Bool := do
 #guard isOkTrue requireCustom_reverts_contents
 #guard isOkTrue revertReason_reverts_error_nope
 
+/- 7. RUNTIME deep value-use materialization — a storage-pointer LOCAL nested
+   inside an aggregate VALUE at an encode boundary. solc 0.8.35 accepts
+   `bytes storage p1 = b1; bytes storage p2 = b2; abi.encode([p1, p2])`
+   (verified with the pinned binary); the front-end currently over-rejects
+   the array-literal shape, so pin the RUNTIME twin directly on a hand-built
+   CORE contract: `Value.storageRef`s nested in a `Value.fixedArray` under
+   `abiEncode` load their CONTENTS (previously they survived to
+   `abiEncodeValues?` unloaded → Panic(0)). Encoding of `bytes[2]` =
+   [0x20][0x40][0x80][1][aa…][1][aa…] = 224 bytes. -/
+private def coreNestedRefFn : Source.FunctionDef :=
+  { name := "encNested", selector? := none
+    params := [], returns := [{ name := "out", ty := Source.Ty.bytesCalldata }]
+    body := Source.Stmt.block
+      [ Source.Stmt.assign (Source.LValue.storage "b1")
+          (Source.Expr.byteArray [0xaa])
+      , Source.Stmt.storageAlias "p1" "b1"
+      , Source.Stmt.returnValues
+          [ Source.Expr.abiEncode
+              [Source.Ty.fixedArray 2 Source.Ty.bytesCalldata]
+              [ Source.Expr.fixedArray
+                  [Source.Expr.var "p1", Source.Expr.var "p1"] ] ] ] }
+
+private def coreNestedRefContract : Source.Contract :=
+  { storageFields :=
+      [ { name := "b1", slot := 0,
+          layout? := some Source.StorageLayout.bytes } ]
+    functions := [coreNestedRefFn] }
+
+def coreNestedRefEncodes : Bool :=
+  match Source.Contract.call? 1000 coreNestedRefContract
+      (Source.CallTarget.name "encNested") Source.State.empty [] with
+  | some (Source.CallResult.returned _ [Source.Value.bytes bs]) =>
+      bs.length == 224 &&
+        List.getLast? (List.take 32 bs) == some 0x20 &&
+        List.getLast? (List.take 32 (List.drop 96 bs)) == some 1 &&
+        List.take 1 (List.drop 128 bs) == [0xaa] &&
+        List.take 1 (List.drop 192 bs) == [0xaa]
+  | _ => false
+
+#guard coreNestedRefEncodes
+
 end StorageValueUseNormalize
 end Witness
 end Solidity
