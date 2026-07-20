@@ -21569,7 +21569,7 @@ def FunctionDecl.usingFreeFunctionArgs?
             fn.params.length == args.length + 1 &&
             FunctionDecl.isExternallyNamedFunction fn
       | none => false)
-  let fn ←
+  let shapeMatch? :=
     candidates.find? (fun fn =>
       match Args.toExprsForParams? (fn.params.drop 1) args with
       | some orderedArgs =>
@@ -21580,6 +21580,26 @@ def FunctionDecl.usingFreeFunctionArgs?
           | some true => true
           | _ => false
       | none => false)
+  let fn ←
+    match shapeMatch? with
+    | some fn => some fn
+    | none =>
+        -- Stage-4 (decf368 twin, using-for free functions): when no
+        -- candidate passes the full shape gate, accept one whose FIRST
+        -- param still matches the receiver and whose remaining args merely
+        -- ORDER against its params — the arity fallback the internal-call
+        -- path (`findInternalCalleeWithArgs?`) already has. Fires only on
+        -- calls that previously failed to rewrite (fail-closed downstream).
+        candidates.find? (fun fn =>
+          match fn.params with
+          | firstParam :: _ =>
+              (match
+                  Parameter.matchesArgAllowingInternalFunctionName?
+                    env firstParam receiver with
+              | some true =>
+                  (Args.toExprsForParams? (fn.params.drop 1) args).isSome
+              | _ => false)
+          | [] => false)
   let orderedArgs ← Args.toExprsForParams? (fn.params.drop 1) args
   some (receiver :: orderedArgs)
 
@@ -21741,14 +21761,59 @@ def FunctionDecls.rewriteUsingLibraryCandidateFrom? (libraryName method : Name)
             libraryName method functions freeFunctions env receiver args
             (index + 1) rest
 
+/-- Stage-4 (decf368 twin, attached path): arity fallback for an attached
+    using-for library call whose ARG shape the gate does not model (e.g. an
+    explicit enum-conversion argument reported as its underlying uint). The
+    receiver-first-param gate is KEPT — it is the attachment selector — and
+    only the argument shape check is relaxed to ordering. Fires only when the
+    shape-gated scan found NO candidate, i.e. only on calls that previously
+    failed to rewrite (fail-closed downstream), so accepted programs are
+    unchanged. -/
+def FunctionDecl.rewriteUsingLibraryCandidateByArity?
+    (functions freeFunctions : List FunctionDecl) (env : TypeEnv)
+    (receiver : Expr) (args : List Arg) (helperName : Name)
+    (fn : FunctionDecl) : Option Expr := do
+  let firstMatches ←
+    FunctionDecl.firstParamMatchesWithInternalFunctions?
+      functions freeFunctions env receiver fn
+  if firstMatches then some () else none
+  let orderedArgs ← Args.toExprsForParams? (fn.params.drop 1) args
+  some <|
+    FunctionDecl.annotateSingleCoreReturn fn
+      (Expr.call (Expr.ident helperName)
+        ((receiver :: orderedArgs).map Arg.positional))
+
+def FunctionDecls.rewriteUsingLibraryCandidateByArityFrom?
+    (functions freeFunctions : List FunctionDecl) (env : TypeEnv)
+    (libraryName method : Name) (receiver : Expr) (args : List Arg)
+    (index : Nat) : List FunctionDecl -> Option Expr
+  | [] => none
+  | fn :: rest =>
+      let helperName := libraryHelperNameForIndex libraryName method index
+      match
+          FunctionDecl.rewriteUsingLibraryCandidateByArity?
+            functions freeFunctions env receiver args helperName fn with
+      | some rewritten => some rewritten
+      | none =>
+          FunctionDecls.rewriteUsingLibraryCandidateByArityFrom?
+            functions freeFunctions env libraryName method receiver args
+            (index + 1) rest
+
 def FunctionDecls.rewriteUsingLibraryCandidate? (libraryName method : Name)
     (functions freeFunctions : List FunctionDecl)
     (env : TypeEnv) (receiver : Expr) (args : List Arg)
     (candidates : List FunctionDecl) : Option Expr :=
-  FunctionDecls.rewriteUsingLibraryCandidateFrom?
-    libraryName method functions freeFunctions env receiver args 0 candidates
+  match
+      FunctionDecls.rewriteUsingLibraryCandidateFrom?
+        libraryName method functions freeFunctions env receiver args 0
+        candidates with
+  | some rewritten => some rewritten
+  | none =>
+      FunctionDecls.rewriteUsingLibraryCandidateByArityFrom?
+        functions freeFunctions env libraryName method receiver args 0
+        candidates
 
-def FunctionDecls.rewriteUsingExternalLibraryCandidate?
+def FunctionDecls.rewriteUsingExternalLibraryCandidateGated?
     (libraryName method : Name) (functions freeFunctions : List FunctionDecl)
     (env : TypeEnv) (receiver : Expr) (args : List Arg) :
     List FunctionDecl -> Option Expr
@@ -21759,8 +21824,49 @@ def FunctionDecls.rewriteUsingExternalLibraryCandidate?
             libraryName method functions freeFunctions env receiver args fn with
       | some rewritten => some rewritten
       | none =>
-          FunctionDecls.rewriteUsingExternalLibraryCandidate?
+          FunctionDecls.rewriteUsingExternalLibraryCandidateGated?
             libraryName method functions freeFunctions env receiver args rest
+
+/-- Stage-4 (decf368 twin, attached EXTERNAL path): the same arity fallback as
+    the internal attached path — receiver gate kept, args relaxed to
+    ordering; fires only when the shape-gated scan found nothing. -/
+def FunctionDecls.rewriteUsingExternalLibraryCandidateByArity?
+    (libraryName method : Name) (functions freeFunctions : List FunctionDecl)
+    (env : TypeEnv) (receiver : Expr) (args : List Arg) :
+    List FunctionDecl -> Option Expr
+  | [] => none
+  | fn :: rest =>
+      (match (do
+          let firstMatches ←
+            FunctionDecl.firstParamMatchesWithInternalFunctions?
+              functions freeFunctions env receiver fn
+          if firstMatches then some () else none
+          let orderedArgs ← Args.toExprsForParams? (fn.params.drop 1) args
+          some <|
+            FunctionDecl.annotateSingleCoreReturn fn
+              (Expr.call
+                (Expr.member
+                  (Expr.ident (generatedLibraryAddressIdent libraryName))
+                  method)
+                ((receiver :: orderedArgs).map Arg.positional))) with
+      | some rewritten => some rewritten
+      | none =>
+          FunctionDecls.rewriteUsingExternalLibraryCandidateByArity?
+            libraryName method functions freeFunctions env receiver args rest)
+
+def FunctionDecls.rewriteUsingExternalLibraryCandidate?
+    (libraryName method : Name) (functions freeFunctions : List FunctionDecl)
+    (env : TypeEnv) (receiver : Expr) (args : List Arg)
+    (candidates : List FunctionDecl) : Option Expr :=
+  match
+      FunctionDecls.rewriteUsingExternalLibraryCandidateGated?
+        libraryName method functions freeFunctions env receiver args
+        candidates with
+  | some rewritten => some rewritten
+  | none =>
+      FunctionDecls.rewriteUsingExternalLibraryCandidateByArity?
+        libraryName method functions freeFunctions env receiver args
+        candidates
 
 def UsingFunction.rewriteCall? (contracts : List ContractDecl)
     (freeFunctions : List FunctionDecl)
