@@ -11226,6 +11226,91 @@ def Stmt.rewriteInternalFnValueIdents (ids : List (Name × Nat))
   if ids.isEmpty then stmt
   else Stmt.rewriteInternalFnValueIdentsFuel ids defaultInlineConstantsFuel stmt
 
+/-- Distribute a call whose callee is a ternary that SELECTS between two internal
+    functions (`(cond ? a : b)(args)`) over the two branches
+    (`cond ? a(args) : b(args)`). solc evaluates the callee first (which
+    evaluates `cond` and selects a function pointer), then the arguments, then
+    calls the selected function — so pushing the call into each branch preserves
+    the observable order: `cond` runs once, `args` run once in the taken branch,
+    the selected function runs once. Applied BEFORE the fn-value dispatch-ID
+    rewrite so the branch functions become ordinary NAME-resolved direct calls
+    (`Expr.call (Expr.ident a) args`), which the internal-call lowering already
+    handles — the alternative (a call THROUGH the ternary as a function pointer)
+    cannot recover the pointer type once the identifiers become dispatch-ID
+    literals. Non-ternary callees (including `arr[i](x)` pointer callees) are
+    left untouched. -/
+def Expr.distributeTernaryCallCalleeFuel : Nat -> Expr -> Expr
+  | 0, expr => expr
+  | fuel + 1, expr =>
+      let go := Expr.distributeTernaryCallCalleeFuel fuel
+      let goArg : Arg -> Arg
+        | Arg.positional value => Arg.positional (go value)
+        | Arg.named name value => Arg.named name (go value)
+      let goOption : CallOption -> CallOption
+        | CallOption.named name value => CallOption.named name (go value)
+      let goItem : TupleItem -> TupleItem
+        | TupleItem.hole => TupleItem.hole
+        | TupleItem.value value => TupleItem.value (go value)
+      match expr with
+      | Expr.call fn args =>
+          let fn' := go fn
+          let args' := args.map goArg
+          (match fn' with
+            | Expr.ternary cond thenExpr elseExpr =>
+                Expr.ternary cond
+                  (go (Expr.call thenExpr args'))
+                  (go (Expr.call elseExpr args'))
+            | _ => Expr.call fn' args')
+      | Expr.callWithOptions fn options args =>
+          Expr.callWithOptions (go fn) (options.map goOption) (args.map goArg)
+      | Expr.member base member => Expr.member (go base) member
+      | Expr.index base index => Expr.index (go base) (go index)
+      | Expr.slice base start stop =>
+          Expr.slice (go base) (start.map go) (stop.map go)
+      | Expr.newExpr ty args => Expr.newExpr ty (args.map goArg)
+      | Expr.tuple items => Expr.tuple (items.map goItem)
+      | Expr.array values => Expr.array (values.map go)
+      | Expr.enumFromUInt w value => Expr.enumFromUInt w (go value)
+      | Expr.unary op value => Expr.unary op (go value)
+      | Expr.binary op lhs rhs => Expr.binary op (go lhs) (go rhs)
+      | Expr.ternary cond thenExpr elseExpr =>
+          Expr.ternary (go cond) (go thenExpr) (go elseExpr)
+      | Expr.assign lhs op rhs => Expr.assign (go lhs) op (go rhs)
+      | Expr.payableConversion value => Expr.payableConversion (go value)
+      | _ => expr
+
+def Stmt.distributeTernaryCallCalleeFuel : Nat -> Stmt -> Stmt
+  | 0, stmt => stmt
+  | fuel + 1, stmt =>
+      let goE := Expr.distributeTernaryCallCalleeFuel defaultInlineConstantsFuel
+      let goS := Stmt.distributeTernaryCallCalleeFuel fuel
+      let goClause : CatchClause -> CatchClause
+        | CatchClause.clause name params body =>
+            CatchClause.clause name params (goS body)
+      match stmt with
+      | Stmt.block stmts => Stmt.block (stmts.map goS)
+      | Stmt.varDecl bindings init => Stmt.varDecl bindings (init.map goE)
+      | Stmt.expr e => Stmt.expr (goE e)
+      | Stmt.ifElse cond thenBranch elseBranch =>
+          Stmt.ifElse (goE cond) (goS thenBranch) (elseBranch.map goS)
+      | Stmt.whileLoop cond body => Stmt.whileLoop (goE cond) (goS body)
+      | Stmt.doWhile body cond => Stmt.doWhile (goS body) (goE cond)
+      | Stmt.forLoop init cond post body =>
+          Stmt.forLoop (init.map goS) (cond.map goE) (post.map goE) (goS body)
+      | Stmt.tryCatch e clauses =>
+          Stmt.tryCatch (goE e) (clauses.map goClause)
+      | Stmt.tryCatchReturns e params success clauses =>
+          Stmt.tryCatchReturns (goE e) params (goS success)
+            (clauses.map goClause)
+      | Stmt.emitEvent e => Stmt.emitEvent (goE e)
+      | Stmt.revertCall e => Stmt.revertCall (goE e)
+      | Stmt.returnValues init => Stmt.returnValues (init.map goE)
+      | Stmt.unchecked body => Stmt.unchecked (goS body)
+      | _ => stmt
+
+def Stmt.distributeTernaryCallCallee (stmt : Stmt) : Stmt :=
+  Stmt.distributeTernaryCallCalleeFuel defaultInlineConstantsFuel stmt
+
 /-- First-use-order deduplication. -/
 def Names.dedupPreservingOrder (names : List Name) : List Name :=
   (names.foldl
@@ -23015,6 +23100,12 @@ def FunctionDecl.toCore? (storageNames : List Name) (constants : ConstantEnv)
           body := modifier.body.map
             (Stmt.resolveNamedEventErrorArgs eventArgEnv errorArgEnv) })
   let body := Stmt.inlineInternalFunctionAliasesInBody functions freeFunctions body
+  -- A call THROUGH a ternary that selects between internal functions
+  -- (`(cond ? a : b)(args)`) is distributed over the branches
+  -- (`cond ? a(args) : b(args)`) BEFORE the fn-value rewrite below, so the
+  -- selected functions stay NAME-resolved direct calls instead of becoming
+  -- opaque dispatch-ID literals whose pointer type can no longer be recovered.
+  let body := Stmt.distributeTernaryCallCallee body
   -- Stage C (boundary-completion arc): function identifiers still used as
   -- VALUES after alias inlining (fn-ptr state vars, data-dependent locals,
   -- fn-typed arguments/returns) become their dispatch-ID literals; the
