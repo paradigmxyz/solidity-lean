@@ -1,5 +1,6 @@
 import SolidCore.Solidity.Shared.Call
 import SolidCore.Solidity.Shared.PrecompileCrypto
+import SolidCore.Solidity.Shared.PrecompilePairing
 
 namespace SolidCore.Solidity.Shared
 namespace Precompile
@@ -178,12 +179,14 @@ def kindOfAddress? (w : Word) : Option Kind :=
 def modexpLengthCap : Nat := 4096
 
 /-- The in-semantics precompile answer: `some (success, output)` when the
-    kind is answered in-model, `none` (fail-closed, stays open-world) for
-    unimplemented kinds (bnPairing 0x8, pointEvaluation 0xa) and for
-    resource-capped inputs (modexp length headers over `modexpLengthCap`,
-    blake2f rounds over `Crypto.blake2fRoundsCap`). `success = false` is a
-    genuine precompile ERROR (bnAdd/bnMul invalid point, malformed blake2f
-    input) — a failed staticcall, exactly mainnet's. Output/input bytes are
+    kind is answered in-model, `none` (fail-closed, stays open-world) only
+    for resource-capped inputs (modexp length headers over
+    `modexpLengthCap`, blake2f rounds over `Crypto.blake2fRoundsCap`,
+    bnPairing pair counts over `Crypto.bnPairingPairsCap`). All ten
+    mainnet kinds are implemented. `success = false` is a genuine
+    precompile ERROR (bnAdd/bnMul/bnPairing invalid point, malformed
+    blake2f input, any pointEvaluation validation or proof failure) — a
+    failed staticcall, exactly mainnet's. Output/input bytes are
     normalized. -/
 def execute? (kind : Kind) (input : Bytes) : Option (Bool × Bytes) :=
   let input := normalizeBytes input
@@ -213,8 +216,8 @@ def execute? (kind : Kind) (input : Bytes) : Option (Bool × Bytes) :=
       | some output => some (true, output)
       | none => some (false, [])
   | Kind.blake2f => Crypto.blake2fBytes? input
-  | Kind.bnPairing => none
-  | Kind.pointEvaluation => none
+  | Kind.bnPairing => Crypto.bnPairingBytes? input
+  | Kind.pointEvaluation => Crypto.kzgPointEvalBytes? input
 
 
 def outputWord? (result : Result) : Option Word :=
