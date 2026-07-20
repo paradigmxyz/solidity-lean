@@ -5794,6 +5794,18 @@ def AbiCleanups.lazyParamValues : List AbiCleanup -> List Value ->
       Old `Expr.storagePath`. -/
 inductive StorageReadMode where
   | header : StorageReadMode
+  /-- A BARE state-variable IDENTIFIER in expression position: the value is a
+      REFERENCE to the variable that a value-use boundary must materialize
+      (`normalizeStorageValueUses` flips `ref` → `load` there). Evaluates
+      exactly like `header` (the header-word convention) when it survives to
+      pointer positions. This mode exists because the bare header word is
+      AMBIGUOUS in the legacy representation: `stateBytes.length` and the
+      synthesized `push()`-last-index reads deliberately lower to the header
+      WORD (mode `header`, never rewritten), while a bare `stateBytes`
+      argument is an unmaterialized reference (mode `ref`, rewritten at
+      value-use boundaries). Conflating them is what made the per-boundary
+      materializer rewrite `.length` reads too. -/
+  | ref : StorageReadMode
   | contents : StorageReadMode
   | element : StorageReadMode
   | load : StorageReadMode
@@ -5911,6 +5923,11 @@ inductive Expr where
 @[match_pattern] def Expr.storage (name : String) : Expr :=
   Expr.storageRead StorageReadMode.header name []
 
+/-- A bare state-variable identifier in expression position (see
+    `StorageReadMode.ref`). -/
+@[match_pattern] def Expr.storageIdent (name : String) : Expr :=
+  Expr.storageRead StorageReadMode.ref name []
+
 @[match_pattern] def Expr.storageBytes (name : String) : Expr :=
   Expr.storageRead StorageReadMode.contents name []
 
@@ -5953,6 +5970,7 @@ def Expr.toLValue? : Expr -> Option LValue
   | Expr.var name => some (LValue.var name)
   | Expr.immutable name => some (LValue.immutable name)
   | Expr.storage name => some (LValue.storage name)
+  | Expr.storageIdent name => some (LValue.storage name)
   | Expr.storageIndex name idx => some (LValue.storageIndex name idx)
   | Expr.index base idx => do
       let baseTarget ← Expr.toLValue? base
@@ -6844,7 +6862,8 @@ def Expr.evalFuel (fuel : Nat)
               pure (value, runtime)
           | Expr.storageRead mode name indexes =>
               (match mode with
-              | StorageReadMode.header => do
+              | StorageReadMode.header
+              | StorageReadMode.ref => do
                   -- Header word / whole-scalar read; transient- and
                   -- packed-aware. Indexes are always `[]` from lowering and
                   -- are ignored (exactly the old `Expr.storage` semantics).
@@ -6868,8 +6887,34 @@ def Expr.evalFuel (fuel : Nat)
                   let (indexValues, runtime') ←
                     Expr.evalListFuel fuel context runtime
                       indexes
-                  let value ← runtime'.loadStoragePath context name indexValues
-                  pure (value, runtime'))
+                  -- SCALAR COINCIDENCE: for a scalar-layout state variable the
+                  -- header/load distinction does not exist — there is nothing
+                  -- to "materialize". Route the whole-variable load through
+                  -- the same transient- and packed-aware reader `.header`
+                  -- uses, so the normalizer's `header → load` flip is
+                  -- semantically a NO-OP on scalars (including TRANSIENT
+                  -- scalars, which `loadStoragePath []` would misread from
+                  -- the persistent slot — the pre-existing
+                  -- `abi.encode(transientScalar)` divergence). Aggregate
+                  -- layouts (bytes/string/arrays/structs) keep the exact
+                  -- `loadStoragePath` materializing semantics.
+                  let scalarWhole :=
+                    indexValues.isEmpty &&
+                      (match context.storageField? name with
+                      | some field =>
+                          match field.layout? with
+                          | some (StorageLayout.scalar _) => true
+                          | some (StorageLayout.packedScalar _ _ _ _) => true
+                          | some _ => false
+                          | none => true
+                      | none => false)
+                  if scalarWhole then
+                    let value ← runtime'.loadStorageField context name
+                    pure (value, runtime')
+                  else
+                    let value ←
+                      runtime'.loadStoragePath context name indexValues
+                    pure (value, runtime'))
           | Expr.storageSlot name =>
               match context.storageSlot? name with
               | some slot => pure (Value.word slot, runtime)
@@ -7641,6 +7686,8 @@ def Expr.resolveLValueFuel
               pure (ResolvedLValue.immutable name, runtime)
           | Expr.storage name =>
               pure (ResolvedLValue.storageField name, runtime)
+          | Expr.storageIdent name =>
+              pure (ResolvedLValue.storageField name, runtime)
           | Expr.storageIndex name idx => do
               let (indexValue, runtime') ←
                 Expr.evalFuel fuel context runtime idx
@@ -8117,6 +8164,557 @@ inductive Stmt where
 inductive TryCatchClause where
   | clause : Option String -> List BindingDecl -> Stmt -> TryCatchClause
   deriving Repr
+
+end
+
+/-! ## Storage value-use normalization (R3 #192 endgame)
+
+The single, fully-recursive, position-aware pass that replaces the ~40
+hand-placed `materializeStorageValueUseCore` call sites in the lowering.
+
+THE BUG CLASS: a bare state `bytes`/`string`/dynamic-array variable lowers to
+`Expr.storageRead .header name []`, whose eval is the HEADER word (the
+`.length` convention) — useless to any consumer of the CONTENTS. solc
+implicitly copies storage to memory at every value-use boundary
+(`abi.encode*`, `keccak256`/`sha256`/`ripemd160`/`erc7201`, event args,
+custom-error args, mapping-key derivation, require/revert reasons, tuple
+RHSs, `abi.decode` data, `bytes.concat`, array literals, …). Fixing each
+boundary individually (commits #4–#10) left every FUTURE boundary a
+pre-loaded copy of the same bug, and the shallow materializer missed storage
+reads NESTED inside array literals / tuples / concats / struct-constructor
+args.
+
+THE FIX: one total pass over the whole core `Expr`/`Stmt` syntax that threads
+the POSITION (value-use vs pointer-use) downward explicitly (Reader-by-hand;
+no monad — the position parameter keeps the recursion structurally obvious
+and the definitions kernel-friendly for the witness `#guard`s):
+
+- `valueUse`: the surrounding consumer needs the CONTENTS. A bare header
+  read (`.header`) is flipped to the materializing read (`.load`) — a
+  ONE-LINE mode flip on the unified `Expr.storageRead`.
+- `pointerUse`: the surrounding consumer wants the reference/header form
+  (`.length`, lvalue targets, slot encodings, storage-pointer arguments).
+  Bare header reads pass through untouched. This is the safe, byte-identical
+  default for every scalar/unknown child position.
+
+Scalar reads are unaffected by design: `.load name []` on a scalar-layout
+field routes through the same whole-field reader as `.header` (see the
+scalar-coincidence arm in `Expr.evalFuel`), so flipping a scalar's mode is
+semantically a no-op — including for transient and packed scalars.
+-/
+
+/-- The position a core sub-expression occupies relative to its consumer:
+    `valueUse` when the consumer reads the CONTENTS of the value (so a bare
+    storage-header read must materialize), `pointerUse` when the consumer
+    wants the reference/header form itself. -/
+inductive StoragePosition where
+  | valueUse : StoragePosition
+  | pointerUse : StoragePosition
+  deriving Repr
+
+mutual
+
+/-- Normalize storage value-use reads in `expr`, which itself sits at
+    position `pos`. Total over every `Expr` constructor; each child position
+    is classified explicitly (see the module doc comment). -/
+def Expr.normalizeStorageValueUses (pos : StoragePosition) : Expr -> Expr
+  -- ── The storage-read family ────────────────────────────────────────────
+  | Expr.storageRead mode name indexes =>
+      -- THE mode flip: a bare state-variable REFERENCE (`ref`) in value
+      -- position materializes. `header` is a DELIBERATE header-word read
+      -- (`.length`, synthesized push-index arithmetic) and never flips;
+      -- `contents`/`element`/`load` already materialize and pass through.
+      -- Index children are VALUE-USE regardless of `pos`: a mapping key's
+      -- CONTENTS feed the value-slot hash (`mappingStorageSlotForKey`).
+      let mode :=
+        match pos, mode with
+        | StoragePosition.valueUse, StorageReadMode.ref =>
+            StorageReadMode.load
+        | _, mode => mode
+      Expr.storageRead mode name
+        (Expr.normalizeStorageValueUsesList StoragePosition.valueUse indexes)
+  | Expr.storageSlot name => Expr.storageSlot name
+  | Expr.storagePathSlot name indexes =>
+      -- Slot-only forms: the RESULT is a pointer encoding (never flipped),
+      -- but the path keys are value-use exactly like the value forms'.
+      Expr.storagePathSlot name
+        (Expr.normalizeStorageValueUsesList StoragePosition.valueUse indexes)
+  | Expr.storageRefSlot name indexes =>
+      Expr.storageRefSlot name
+        (Expr.normalizeStorageValueUsesList StoragePosition.valueUse indexes)
+  -- ── Leaves ─────────────────────────────────────────────────────────────
+  | Expr.word value => Expr.word value
+  | Expr.intWord value => Expr.intWord value
+  | Expr.internalFunction id => Expr.internalFunction id
+  | Expr.byteArray bytes => Expr.byteArray bytes
+  | Expr.contractAddress name => Expr.contractAddress name
+  | Expr.contractCreationCode name => Expr.contractCreationCode name
+  | Expr.contractRuntimeCode name => Expr.contractRuntimeCode name
+  | Expr.calldata => Expr.calldata
+  | Expr.msgSig => Expr.msgSig
+  | Expr.caller => Expr.caller
+  | Expr.callValue => Expr.callValue
+  | Expr.self => Expr.self
+  | Expr.env envWord => Expr.env envWord
+  | Expr.var name => Expr.var name
+  | Expr.immutable name => Expr.immutable name
+  -- ── Scalar-childed nodes: children default to POINTER-use ─────────────
+  | Expr.envLookup lookup expr =>
+      Expr.envLookup lookup
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse expr)
+  | Expr.envBytesLookup lookup expr =>
+      Expr.envBytesLookup lookup
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse expr)
+  | Expr.externalFunctionValue addressExpr selector =>
+      Expr.externalFunctionValue
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse addressExpr)
+        selector
+  | Expr.externalFunctionSelector expr =>
+      Expr.externalFunctionSelector
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse expr)
+  | Expr.externalFunctionAddress expr =>
+      Expr.externalFunctionAddress
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse expr)
+  | Expr.unary op expr =>
+      Expr.unary op
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse expr)
+  -- Inc/dec and assignment-expression targets are LVALUES: pointer-use.
+  | Expr.preIncrement target =>
+      Expr.preIncrement
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse target)
+  | Expr.preDecrement target =>
+      Expr.preDecrement
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse target)
+  | Expr.postIncrement target =>
+      Expr.postIncrement
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse target)
+  | Expr.postDecrement target =>
+      Expr.postDecrement
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse target)
+  | Expr.incDecCleanup target op post cleanup =>
+      Expr.incDecCleanup
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse target)
+        op post cleanup
+  | Expr.assignExpr target rhs =>
+      Expr.assignExpr
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse target)
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse rhs)
+  | Expr.assignOpExpr target op rhs =>
+      Expr.assignOpExpr
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse target)
+        op
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse rhs)
+  | Expr.assignOpCleanupExpr target op rhs cleanup =>
+      Expr.assignOpCleanupExpr
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse target)
+        op
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse rhs)
+        cleanup
+  -- Binary operands are WORD consumers: pointer-use. Aggregates cannot be
+  -- binary operands in accepted Solidity, and the lowering deliberately
+  -- reads storage headers as lengths here (the synthesized
+  -- `storageLastPushedIndexExpr` emits `header - 1`), so propagating the
+  -- parent's value-use classification into operands would corrupt those
+  -- deliberate word reads.
+  | Expr.binary op lhs rhs =>
+      Expr.binary op
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse lhs)
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse rhs)
+  | Expr.addMod lhs rhs modulus =>
+      Expr.addMod
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse lhs)
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse rhs)
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse modulus)
+  | Expr.mulMod lhs rhs modulus =>
+      Expr.mulMod
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse lhs)
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse rhs)
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse modulus)
+  -- ── VALUE-USE boundaries: children consume CONTENTS ────────────────────
+  | Expr.concatBytes exprs =>
+      Expr.concatBytes
+        (Expr.normalizeStorageValueUsesList StoragePosition.valueUse exprs)
+  | Expr.fixedBytesIndex size base idx =>
+      Expr.fixedBytesIndex size
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse base)
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse idx)
+  | Expr.fixedBytesCast target source expr =>
+      Expr.fixedBytesCast target source
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse expr)
+  | Expr.fixedBytesFromBytes size expr =>
+      -- `bytesN(someBytes)` consumes the byte CONTENTS.
+      Expr.fixedBytesFromBytes size
+        (Expr.normalizeStorageValueUses StoragePosition.valueUse expr)
+  | Expr.uintCast bits expr =>
+      Expr.uintCast bits
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse expr)
+  | Expr.intCast bits expr =>
+      Expr.intCast bits
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse expr)
+  | Expr.uintCleanup bits expr =>
+      Expr.uintCleanup bits
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse expr)
+  | Expr.intCleanup bits expr =>
+      Expr.intCleanup bits
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse expr)
+  | Expr.keccak256 expr =>
+      Expr.keccak256
+        (Expr.normalizeStorageValueUses StoragePosition.valueUse expr)
+  | Expr.erc7201 expr =>
+      Expr.erc7201
+        (Expr.normalizeStorageValueUses StoragePosition.valueUse expr)
+  | Expr.tuple exprs =>
+      -- Tuple-RHS components are read BY VALUE (TUPLE-RHS fix, #6).
+      Expr.tuple
+        (Expr.normalizeStorageValueUsesList StoragePosition.valueUse exprs)
+  | Expr.abiEncode tys exprs =>
+      Expr.abiEncode tys
+        (Expr.normalizeStorageValueUsesList StoragePosition.valueUse exprs)
+  | Expr.abiEncodeWithSelector selectorExpr tys exprs =>
+      Expr.abiEncodeWithSelector
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse selectorExpr)
+        tys
+        (Expr.normalizeStorageValueUsesList StoragePosition.valueUse exprs)
+  | Expr.abiEncodePacked widths tys exprs =>
+      Expr.abiEncodePacked widths tys
+        (Expr.normalizeStorageValueUsesList StoragePosition.valueUse exprs)
+  | Expr.abiDecode tys cleanups expr =>
+      -- `abi.decode`'s DATA argument consumes byte contents (#4).
+      Expr.abiDecode tys cleanups
+        (Expr.normalizeStorageValueUses StoragePosition.valueUse expr)
+  | Expr.lowLevelCall kind target calldataExpr value gas? bubble =>
+      -- The CALLDATA argument is consumed as bytes contents; target/value/
+      -- gas are scalar words.
+      Expr.lowLevelCall kind
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse target)
+        (Expr.normalizeStorageValueUses StoragePosition.valueUse calldataExpr)
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse value)
+        (Expr.normalizeStorageValueUsesOpt StoragePosition.pointerUse gas?)
+        bubble
+  | Expr.contractCreate name args value salt? valueBeforeSalt =>
+      -- The encoded constructor-args expression is consumed as bytes.
+      Expr.contractCreate name
+        (Expr.normalizeStorageValueUses StoragePosition.valueUse args)
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse value)
+        (Expr.normalizeStorageValueUsesOpt StoragePosition.pointerUse salt?)
+        valueBeforeSalt
+  | Expr.newBytes expr =>
+      -- The length operand is a scalar word; value-use per the boundary
+      -- family it belongs to (inert for scalars).
+      Expr.newBytes
+        (Expr.normalizeStorageValueUses StoragePosition.valueUse expr)
+  | Expr.newDynamicArray ty expr =>
+      Expr.newDynamicArray ty
+        (Expr.normalizeStorageValueUses StoragePosition.valueUse expr)
+  | Expr.externalHash kind expr =>
+      Expr.externalHash kind
+        (Expr.normalizeStorageValueUses StoragePosition.valueUse expr)
+  | Expr.ecrecover digest v r s =>
+      Expr.ecrecover
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse digest)
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse v)
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse r)
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse s)
+  | Expr.enumFromUInt size expr =>
+      Expr.enumFromUInt size
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse expr)
+  | Expr.ternary cond thenExpr elseExpr =>
+      -- The chosen branch flows to the parent's consumer: propagate `pos`
+      -- into the VALUE branches; the boolean condition is never a value use.
+      Expr.ternary
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse cond)
+        (Expr.normalizeStorageValueUses pos thenExpr)
+        (Expr.normalizeStorageValueUses pos elseExpr)
+  | Expr.fixedArray exprs =>
+      -- Array-literal elements are COPIED into the literal (value-use) —
+      -- the nested case the shallow materializer missed.
+      Expr.fixedArray
+        (Expr.normalizeStorageValueUsesList StoragePosition.valueUse exprs)
+  | Expr.length expr =>
+      -- `.length` wants the HEADER: pointer-use by definition.
+      Expr.length
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse expr)
+  | Expr.index base idx =>
+      -- Indexing reads the aggregate IN PLACE (base: pointer-use); the key
+      -- is value-use (mapping-key contents feed the slot hash, #5).
+      Expr.index
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse base)
+        (Expr.normalizeStorageValueUses StoragePosition.valueUse idx)
+  | Expr.slice base start? stop? =>
+      Expr.slice
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse base)
+        (Expr.normalizeStorageValueUsesOpt StoragePosition.pointerUse start?)
+        (Expr.normalizeStorageValueUsesOpt StoragePosition.pointerUse stop?)
+
+def Expr.normalizeStorageValueUsesList (pos : StoragePosition) :
+    List Expr -> List Expr
+  | [] => []
+  | expr :: rest =>
+      Expr.normalizeStorageValueUses pos expr ::
+        Expr.normalizeStorageValueUsesList pos rest
+
+def Expr.normalizeStorageValueUsesOpt (pos : StoragePosition) :
+    Option Expr -> Option Expr
+  | none => none
+  | some expr => some (Expr.normalizeStorageValueUses pos expr)
+
+end
+
+/-- Normalize an LVALUE's embedded index expressions. The lvalue SPINE is a
+    pointer use by definition (it names a location); index KEYS are value
+    uses (mapping-key contents feed the slot hash — the WRITE twin of the
+    read-side rule, #5). -/
+def LValue.normalizeStorageValueUses : LValue -> LValue
+  | LValue.var name => LValue.var name
+  | LValue.immutable name => LValue.immutable name
+  | LValue.storage name => LValue.storage name
+  | LValue.storageIndex name idx =>
+      LValue.storageIndex name
+        (Expr.normalizeStorageValueUses StoragePosition.valueUse idx)
+  | LValue.index base idx =>
+      LValue.index base.normalizeStorageValueUses
+        (Expr.normalizeStorageValueUses StoragePosition.valueUse idx)
+
+def LValue.normalizeStorageValueUsesOptList :
+    List (Option LValue) -> List (Option LValue)
+  | [] => []
+  | none :: rest => none :: LValue.normalizeStorageValueUsesOptList rest
+  | some target :: rest =>
+      some target.normalizeStorageValueUses ::
+        LValue.normalizeStorageValueUsesOptList rest
+
+mutual
+
+def TupleTarget.normalizeStorageValueUses : TupleTarget -> TupleTarget
+  | TupleTarget.hole => TupleTarget.hole
+  | TupleTarget.leaf target =>
+      TupleTarget.leaf target.normalizeStorageValueUses
+  | TupleTarget.nested targets =>
+      TupleTarget.nested (TupleTarget.normalizeStorageValueUsesList targets)
+
+def TupleTarget.normalizeStorageValueUsesList :
+    List TupleTarget -> List TupleTarget
+  | [] => []
+  | target :: rest =>
+      target.normalizeStorageValueUses ::
+        TupleTarget.normalizeStorageValueUsesList rest
+
+end
+
+mutual
+
+/-- The statement-level walk: recurse into every child statement and thread
+    the ROOT position of each embedded expression. Value-use roots are
+    exactly the statement boundaries that ABI-encode / hash / copy their
+    argument CONTENTS: `emitEvent`/`revert` args (#7/#8), require/revert
+    string reasons (#10), custom-error `require` args, `revertErrorExpr`,
+    storage-alias/push/pop index paths and pushed values, external-call
+    calldata. Everything else (conditions, lvalue spines, internal-call
+    args — which may pass storage POINTERS — return positions, scalar
+    operands) is pointer-use. -/
+def Stmt.normalizeStorageValueUses : Stmt -> Stmt
+  | Stmt.skip => Stmt.skip
+  | Stmt.block stmts =>
+      Stmt.block (Stmt.normalizeStorageValueUsesList stmts)
+  | Stmt.varDecl ty name init? =>
+      Stmt.varDecl ty name
+        (Expr.normalizeStorageValueUsesOpt StoragePosition.pointerUse init?)
+  | Stmt.memoryVarDecl ty name init? =>
+      Stmt.memoryVarDecl ty name
+        (Expr.normalizeStorageValueUsesOpt StoragePosition.pointerUse init?)
+  | Stmt.memoryLocalize ty name => Stmt.memoryLocalize ty name
+  | Stmt.storageAlias aliasName target => Stmt.storageAlias aliasName target
+  | Stmt.storageAliasPath aliasName target indexes =>
+      Stmt.storageAliasPath aliasName target
+        (Expr.normalizeStorageValueUsesList StoragePosition.valueUse indexes)
+  | Stmt.storageAliasFrom aliasName source => Stmt.storageAliasFrom aliasName source
+  | Stmt.storageAliasFromPath aliasName source indexes =>
+      Stmt.storageAliasFromPath aliasName source
+        (Expr.normalizeStorageValueUsesList StoragePosition.valueUse indexes)
+  | Stmt.storageAliasAssign aliasName target => Stmt.storageAliasAssign aliasName target
+  | Stmt.storageAliasAssignPath aliasName target indexes =>
+      Stmt.storageAliasAssignPath aliasName target
+        (Expr.normalizeStorageValueUsesList StoragePosition.valueUse indexes)
+  | Stmt.storageAliasAssignFrom aliasName source =>
+      Stmt.storageAliasAssignFrom aliasName source
+  | Stmt.storageAliasAssignFromPath aliasName source indexes =>
+      Stmt.storageAliasAssignFromPath aliasName source
+        (Expr.normalizeStorageValueUsesList StoragePosition.valueUse indexes)
+  | Stmt.exprStmt expr =>
+      Stmt.exprStmt
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse expr)
+  | Stmt.assign target rhs =>
+      Stmt.assign target.normalizeStorageValueUses
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse rhs)
+  | Stmt.assignTuple targets rhs =>
+      Stmt.assignTuple
+        (LValue.normalizeStorageValueUsesOptList targets)
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse rhs)
+  | Stmt.assignTupleNested targets rhs =>
+      Stmt.assignTupleNested
+        (TupleTarget.normalizeStorageValueUsesList targets)
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse rhs)
+  | Stmt.assignOp target op rhs =>
+      Stmt.assignOp target.normalizeStorageValueUses op
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse rhs)
+  | Stmt.assignOpCleanup target op rhs cleanup =>
+      Stmt.assignOpCleanup target.normalizeStorageValueUses op
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse rhs)
+        cleanup
+  | Stmt.deleteValue target =>
+      Stmt.deleteValue target.normalizeStorageValueUses
+  | Stmt.storageArrayPush name arg? =>
+      Stmt.storageArrayPush name
+        (Expr.normalizeStorageValueUsesOpt StoragePosition.valueUse arg?)
+  | Stmt.storageArrayPushRef name arg? =>
+      Stmt.storageArrayPushRef name
+        (Expr.normalizeStorageValueUsesOpt StoragePosition.valueUse arg?)
+  | Stmt.storageArrayPushRefPath name indexes arg? =>
+      Stmt.storageArrayPushRefPath name
+        (Expr.normalizeStorageValueUsesList StoragePosition.valueUse indexes)
+        (Expr.normalizeStorageValueUsesOpt StoragePosition.valueUse arg?)
+  | Stmt.storageArrayPushPath name indexes arg? =>
+      Stmt.storageArrayPushPath name
+        (Expr.normalizeStorageValueUsesList StoragePosition.valueUse indexes)
+        (Expr.normalizeStorageValueUsesOpt StoragePosition.valueUse arg?)
+  | Stmt.storageArrayPushPathAssign name indexes rhs =>
+      Stmt.storageArrayPushPathAssign name
+        (Expr.normalizeStorageValueUsesList StoragePosition.valueUse indexes)
+        (Expr.normalizeStorageValueUses StoragePosition.valueUse rhs)
+  | Stmt.storageArrayPushRefPathAssign name indexes rhs =>
+      Stmt.storageArrayPushRefPathAssign name
+        (Expr.normalizeStorageValueUsesList StoragePosition.valueUse indexes)
+        (Expr.normalizeStorageValueUses StoragePosition.valueUse rhs)
+  | Stmt.storageArrayPop name => Stmt.storageArrayPop name
+  | Stmt.storageArrayPopRef name => Stmt.storageArrayPopRef name
+  | Stmt.storageArrayPopRefPath name indexes =>
+      Stmt.storageArrayPopRefPath name
+        (Expr.normalizeStorageValueUsesList StoragePosition.valueUse indexes)
+  | Stmt.storageArrayPopPath name indexes =>
+      Stmt.storageArrayPopPath name
+        (Expr.normalizeStorageValueUsesList StoragePosition.valueUse indexes)
+  | Stmt.panic code => Stmt.panic code
+  | Stmt.assertStmt cond =>
+      Stmt.assertStmt
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse cond)
+  | Stmt.requireStmt cond reason? =>
+      Stmt.requireStmt
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse cond)
+        reason?
+  | Stmt.requireErrorExpr cond reason =>
+      -- The reason is ABI-encoded into `Error(string)`: value-use (#10).
+      Stmt.requireErrorExpr
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse cond)
+        (Expr.normalizeStorageValueUses StoragePosition.valueUse reason)
+  | Stmt.requireCustom cond name args =>
+      -- Custom-error args are ABI-encoded into the revert data: value-use
+      -- (the previously-unpatched sibling of `Stmt.revert`).
+      Stmt.requireCustom
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse cond)
+        name
+        (Expr.normalizeStorageValueUsesList StoragePosition.valueUse args)
+  | Stmt.captureReturn names stmt =>
+      Stmt.captureReturn names stmt.normalizeStorageValueUses
+  | Stmt.internalCall targets name args =>
+      -- Internal-call arguments may pass storage POINTERS: pointer-use.
+      Stmt.internalCall targets name
+        (Expr.normalizeStorageValueUsesList StoragePosition.pointerUse args)
+  | Stmt.internalCallPtr targets fnExpr args =>
+      Stmt.internalCallPtr targets
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse fnExpr)
+        (Expr.normalizeStorageValueUsesList StoragePosition.pointerUse args)
+  | Stmt.ifElse cond thenStmt elseStmt =>
+      Stmt.ifElse
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse cond)
+        thenStmt.normalizeStorageValueUses
+        elseStmt.normalizeStorageValueUses
+  | Stmt.switch cond cases default? =>
+      Stmt.switch
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse cond)
+        (Stmt.normalizeStorageValueUsesCases cases)
+        (Stmt.normalizeStorageValueUsesOpt default?)
+  | Stmt.whileLoop cond body =>
+      Stmt.whileLoop
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse cond)
+        body.normalizeStorageValueUses
+  | Stmt.doWhile body cond =>
+      Stmt.doWhile body.normalizeStorageValueUses
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse cond)
+  | Stmt.forLoop init cond step body =>
+      Stmt.forLoop init.normalizeStorageValueUses
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse cond)
+        step.normalizeStorageValueUses
+        body.normalizeStorageValueUses
+  | Stmt.tryExternalCall kind target calldataExpr value gas? bubble
+      returnsDeclared bindings cleanups success clauses =>
+      Stmt.tryExternalCall kind
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse target)
+        (Expr.normalizeStorageValueUses StoragePosition.valueUse calldataExpr)
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse value)
+        (Expr.normalizeStorageValueUsesOpt StoragePosition.pointerUse gas?)
+        bubble returnsDeclared bindings cleanups
+        success.normalizeStorageValueUses
+        (Stmt.normalizeStorageValueUsesClauses clauses)
+  | Stmt.tryContractCreate name args value salt? valueBeforeSalt bindings
+      success clauses =>
+      Stmt.tryContractCreate name
+        (Expr.normalizeStorageValueUses StoragePosition.valueUse args)
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse value)
+        (Expr.normalizeStorageValueUsesOpt StoragePosition.pointerUse salt?)
+        valueBeforeSalt bindings
+        success.normalizeStorageValueUses
+        (Stmt.normalizeStorageValueUsesClauses clauses)
+  | Stmt.break => Stmt.break
+  | Stmt.continue => Stmt.continue
+  | Stmt.returnValues exprs =>
+      -- Returns may be storage POINTERS (storage-ref returns): pointer-use.
+      -- Nested value-use boundaries inside a returned expression are handled
+      -- by the expression walk.
+      Stmt.returnValues
+        (Expr.normalizeStorageValueUsesList StoragePosition.pointerUse exprs)
+  | Stmt.revertError reason? => Stmt.revertError reason?
+  | Stmt.revertErrorExpr expr =>
+      -- `revert(bytesExpr)`-shaped reason: value-use (the previously
+      -- unpatched sibling of the `requireErrorExpr` reason).
+      Stmt.revertErrorExpr
+        (Expr.normalizeStorageValueUses StoragePosition.valueUse expr)
+  | Stmt.revert name args =>
+      -- Custom-error revert args are ABI-encoded: value-use (#8).
+      Stmt.revert name
+        (Expr.normalizeStorageValueUsesList StoragePosition.valueUse args)
+  | Stmt.emitEvent name args =>
+      -- Event args are ABI-encoded: value-use (#7).
+      Stmt.emitEvent name
+        (Expr.normalizeStorageValueUsesList StoragePosition.valueUse args)
+  | Stmt.selfdestruct expr =>
+      Stmt.selfdestruct
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse expr)
+  | Stmt.checked stmt => Stmt.checked stmt.normalizeStorageValueUses
+  | Stmt.unchecked stmt => Stmt.unchecked stmt.normalizeStorageValueUses
+
+def Stmt.normalizeStorageValueUsesList : List Stmt -> List Stmt
+  | [] => []
+  | stmt :: rest =>
+      stmt.normalizeStorageValueUses ::
+        Stmt.normalizeStorageValueUsesList rest
+
+def Stmt.normalizeStorageValueUsesOpt : Option Stmt -> Option Stmt
+  | none => none
+  | some stmt => some stmt.normalizeStorageValueUses
+
+def Stmt.normalizeStorageValueUsesCases :
+    List (Word × Stmt) -> List (Word × Stmt)
+  | [] => []
+  | (caseWord, stmt) :: rest =>
+      (caseWord, stmt.normalizeStorageValueUses) ::
+        Stmt.normalizeStorageValueUsesCases rest
+
+def Stmt.normalizeStorageValueUsesClauses :
+    List TryCatchClause -> List TryCatchClause
+  | [] => []
+  | TryCatchClause.clause name? bindings stmt :: rest =>
+      TryCatchClause.clause name? bindings stmt.normalizeStorageValueUses ::
+        Stmt.normalizeStorageValueUsesClauses rest
 
 end
 

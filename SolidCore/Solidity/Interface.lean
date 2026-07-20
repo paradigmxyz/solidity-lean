@@ -4183,7 +4183,10 @@ def sourceIdentCore (storageNames : List Name) (name : Name) : CoreExpr :=
         SolidCore.Solidity.Source.Expr.self
       else
         match stateNameRuntimeKey? name storageNames with
-        | some key => SolidCore.Solidity.Source.Expr.storage key
+        -- Bare state-variable identifier: a REFERENCE (materialized by the
+        -- storage value-use normalizer at value-use boundaries), NOT the
+        -- deliberate header-word read `.length` lowers to.
+        | some key => SolidCore.Solidity.Source.Expr.storageIdent key
         | none =>
             match stateNameImmutableKey? name storageNames with
             | some key => SolidCore.Solidity.Source.Expr.immutable key
@@ -4358,36 +4361,14 @@ def Expr.stripPushIndexPath? : Expr -> Option (Expr × List Expr)
       some (target, idxs ++ [index])
   | _ => none
 
-/-- R3 (#192): rewrite a lowered argument core for a VALUE-USE boundary
-    (`keccak256`/`sha256`/`ripemd160`/`erc7201`, `abi.encode*`,
-    `bytes.concat`/`string.concat`). A bare state `bytes`/`string`/array/
-    struct lowers to `Expr.storage key`, whose eval is the HEADER word (the
-    `.length` convention) — useless to a bytes/element consumer. The FULL
-    materializing read is `Expr.storagePath key []` (`loadStoragePath` loads
-    bytes/string → `Value.bytes`, arrays → elements, structs → tuples);
-    scalar fields load identically through either form. Every other core
-    shape already materializes (`storageIndex`/`storagePath`/ref locals) and
-    passes through untouched.
-
-    A `bytes storage` pointer can also reach the boundary through a TERNARY
-    (`c ? bs : bs2`), whose lowered core is `Expr.ternary cond thenC elseC`
-    with each branch a bare `Expr.storage`. Solc selects a storage pointer
-    then implicitly copies it to memory at the boundary, so materialize EACH
-    branch (the selected one evaluates to its full contents) while leaving the
-    boolean condition — not a value-use — untouched. Recursing covers nested
-    ternaries too. -/
-def materializeStorageValueUseCore : CoreExpr -> CoreExpr
-  | SolidCore.Solidity.Source.Expr.storage key =>
-      SolidCore.Solidity.Source.Expr.storagePath key []
-  | SolidCore.Solidity.Source.Expr.ternary cond thenCore elseCore =>
-      SolidCore.Solidity.Source.Expr.ternary cond
-        (materializeStorageValueUseCore thenCore)
-        (materializeStorageValueUseCore elseCore)
-  | core => core
-
-def materializeStorageValueUseCores (cores : List CoreExpr) :
-    List CoreExpr :=
-  cores.map materializeStorageValueUseCore
+/- R3 (#192) endgame: the per-boundary `materializeStorageValueUseCore`
+   rewrite is GONE. Storage value-use materialization is now performed by the
+   single total position-aware pass
+   `SolidCore.Solidity.Source.Stmt.normalizeStorageValueUses` (see
+   Interpreter.lean), applied once to every emitted core function body
+   (`FunctionDecl.toCore?` / `ContractDecl.constructorFunctionFromOrders?`).
+   The mode flip itself lives on the unified `Expr.storageRead` constructor
+   (`header` -> `load`). -/
 
 set_option maxHeartbeats 1000000 in
 mutual
@@ -4495,7 +4476,8 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
           match ty with
           | Ty.user _ =>
               match stateNameRuntimeKey? member storageNames with
-              | some key => some (SolidCore.Solidity.Source.Expr.storage key)
+              | some key =>
+                  some (SolidCore.Solidity.Source.Expr.storageIdent key)
               | none =>
                   match stateNameImmutableKey? member storageNames with
                   | some key =>
@@ -4512,7 +4494,7 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
       let (sourceTys, coreTys, exprs) ← Args.toAbiEncodeSource? storageNames args
       some (SolidCore.Solidity.Source.Expr.abiEncodePacked
         (Tys.packedTopWidths sourceTys) coreTys
-        (materializeStorageValueUseCores exprs))
+        exprs)
   | Expr.call (Expr.typeName targetTy)
       [Arg.positional
         (Expr.member (Expr.typeName sourceTy@(Ty.user _)) "name")] =>
@@ -4816,7 +4798,7 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
       let (tys, exprs) ← Args.toAbiEncode? storageNames args
       some
         (SolidCore.Solidity.Source.Expr.abiEncode tys
-          (materializeStorageValueUseCores exprs))
+          exprs)
   | Expr.call (Expr.member (Expr.ident "abi") "decode")
       [Arg.positional data, Arg.positional typesExpr] => do
       let (tys, cleanups, dataCore) ←
@@ -4827,7 +4809,7 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
       let (sourceTys, coreTys, exprs) ← Args.toAbiEncodeSource? storageNames args
       some (SolidCore.Solidity.Source.Expr.abiEncodePacked
         (Tys.packedTopWidths sourceTys) coreTys
-        (materializeStorageValueUseCores exprs))
+        exprs)
   | Expr.call (Expr.member (Expr.ident "abi") "encodeWithSelector")
       (Arg.positional selector :: args) => do
       -- LIT-COERCION (#143): the leading selector argument is `bytes4`. A `bytes4`
@@ -4846,7 +4828,7 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
       let (tys, exprs) ← Args.toAbiEncode? storageNames args
       some
         (SolidCore.Solidity.Source.Expr.abiEncodeWithSelector
-          selectorCore tys (materializeStorageValueUseCores exprs))
+          selectorCore tys exprs)
   | Expr.call (Expr.member (Expr.ident "abi") "encodeWithSignature")
       (Arg.positional (Expr.literal (Literal.string signature)) :: args) => do
       let (tys, exprs) ← Args.toAbiEncode? storageNames args
@@ -4855,7 +4837,7 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
           (SolidCore.Solidity.Source.Expr.word
             (SolidCore.Solidity.Source.ABI.selectorFromSignature
               signature))
-          tys (materializeStorageValueUseCores exprs))
+          tys exprs)
   | Expr.call (Expr.member (Expr.ident "abi") "encodeWithSignature")
       (Arg.positional signature :: args) => do
       let signatureCore ← Expr.toCore? storageNames signature
@@ -4864,7 +4846,7 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
         (SolidCore.Solidity.Source.Expr.abiEncodeWithSelector
           (SolidCore.Solidity.Source.Expr.fixedBytesCast 4 32
             (SolidCore.Solidity.Source.Expr.keccak256 signatureCore))
-          tys (materializeStorageValueUseCores exprs))
+          tys exprs)
   | Expr.call (Expr.member (Expr.ident "abi") "encodeCall")
       [Arg.positional functionPointer, Arg.positional (Expr.tuple items)] => do
       let (sourceTys, coreTys, coreExprs) ←
@@ -4875,7 +4857,7 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
       some
         (SolidCore.Solidity.Source.Expr.abiEncodeWithSelector
           selectorCore
-          coreTys (materializeStorageValueUseCores coreExprs))
+          coreTys coreExprs)
   | Expr.call (Expr.member (Expr.ident "abi") "encodeCall")
       [Arg.positional functionPointer, Arg.positional argumentExpr] => do
       let (sourceTy, coreTy, coreExpr) ←
@@ -4886,7 +4868,7 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
       some
         (SolidCore.Solidity.Source.Expr.abiEncodeWithSelector
           selectorCore [coreTy]
-          (materializeStorageValueUseCores [coreExpr]))
+          [coreExpr])
   | Expr.call (Expr.ident "blockhash") [Arg.positional number] => do
       let numberCore ← Expr.toCore? storageNames number
       some (SolidCore.Solidity.Source.Expr.envLookup
@@ -4913,24 +4895,24 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
       let bytesCore ← Expr.toCore? storageNames bytes
       some
         (SolidCore.Solidity.Source.Expr.keccak256
-          (materializeStorageValueUseCore bytesCore))
+          bytesCore)
   | Expr.call (Expr.ident "erc7201") [Arg.positional id] => do
       let idCore ← Expr.toCore? storageNames id
       some
         (SolidCore.Solidity.Source.Expr.erc7201
-          (materializeStorageValueUseCore idCore))
+          idCore)
   | Expr.call (Expr.ident "sha256") [Arg.positional bytes] => do
       let bytesCore ← Expr.toCore? storageNames bytes
       some
         (SolidCore.Solidity.Source.Expr.externalHash
           SolidCore.Solidity.Source.ExternalHashKind.sha256
-          (materializeStorageValueUseCore bytesCore))
+          bytesCore)
   | Expr.call (Expr.ident "ripemd160") [Arg.positional bytes] => do
       let bytesCore ← Expr.toCore? storageNames bytes
       some
         (SolidCore.Solidity.Source.Expr.externalHash
           SolidCore.Solidity.Source.ExternalHashKind.ripemd160
-          (materializeStorageValueUseCore bytesCore))
+          bytesCore)
   | Expr.call (Expr.ident "ecrecover")
       [ Arg.positional digest
       , Arg.positional v
@@ -4949,7 +4931,7 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
       if Tys.allBytesConcatArgs sourceTys then
         some (SolidCore.Solidity.Source.Expr.abiEncodePacked
           (Tys.packedTopWidths sourceTys) coreTys
-          (materializeStorageValueUseCores coreExprs))
+          coreExprs)
       else
         none
   | Expr.call (Expr.member (Expr.typeName Ty.bytes) "concat") args => do
@@ -4958,7 +4940,7 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
       if Tys.allBytesConcatArgs sourceTys then
         some (SolidCore.Solidity.Source.Expr.abiEncodePacked
           (Tys.packedTopWidths sourceTys) coreTys
-          (materializeStorageValueUseCores coreExprs))
+          coreExprs)
       else
         none
   | Expr.call (Expr.member (Expr.ident "string") "concat") args => do
@@ -4973,7 +4955,7 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
       if Tys.allBytesConcatArgs sourceTys then
         some (SolidCore.Solidity.Source.Expr.abiEncodePacked
           (Tys.packedTopWidths sourceTys) coreTys
-          (materializeStorageValueUseCores coreExprs))
+          coreExprs)
       else
         none
   | Expr.call (Expr.member (Expr.typeName Ty.string) "concat") args => do
@@ -4982,7 +4964,7 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
       if Tys.allBytesConcatArgs sourceTys then
         some (SolidCore.Solidity.Source.Expr.abiEncodePacked
           (Tys.packedTopWidths sourceTys) coreTys
-          (materializeStorageValueUseCores coreExprs))
+          coreExprs)
       else
         none
   | Expr.member (Expr.ident name) "length" =>
@@ -5018,7 +5000,7 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
         -- `m[stateStr]` and `m["lit"]` hit the SAME slot. Materialize the key core
         -- so its full contents are read; scalar keys load identically either way.
         some (SolidCore.Solidity.Source.Expr.storageIndex key
-          (materializeStorageValueUseCore indexCore))
+          indexCore)
       | none =>
         do
         let baseCore ← Expr.toCore? storageNames (Expr.ident name)
@@ -5138,7 +5120,7 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
       -- `Expr.storagePath key []`) so the contents are copied, matching the
       -- other value-use boundaries; every scalar/reference core passes through.
       some (SolidCore.Solidity.Source.Expr.tuple
-        (materializeStorageValueUseCores coreExprs))
+        coreExprs)
   | Expr.array exprs => do
       let targetTy ← Expr.arrayLiteralCommonTy? storageNames exprs
       let coreExprs ←
@@ -5960,6 +5942,7 @@ def Expr.externalCallNeedsCodeCheckWithEnv (_env : TypeEnv)
     `coreStoragePointerSlotExpr?`. -/
 def coreStorageStatePath? : CoreExpr -> Option (Name × List CoreExpr)
   | SolidCore.Solidity.Source.Expr.storage name => some (name, [])
+  | SolidCore.Solidity.Source.Expr.storageIdent name => some (name, [])
   | SolidCore.Solidity.Source.Expr.storageIndex name idx => some (name, [idx])
   | SolidCore.Solidity.Source.Expr.storagePath name indexes => some (name, indexes)
   | SolidCore.Solidity.Source.Expr.index base idx => do
@@ -5992,6 +5975,8 @@ def coreStorageRefPath? : CoreExpr -> Option (Name × List CoreExpr)
     over-rejecting (`none`). -/
 def coreStoragePointerSlotExpr? : CoreExpr -> Option CoreExpr
   | SolidCore.Solidity.Source.Expr.storage name =>
+      some (SolidCore.Solidity.Source.Expr.storageSlot name)
+  | SolidCore.Solidity.Source.Expr.storageIdent name =>
       some (SolidCore.Solidity.Source.Expr.storageSlot name)
   | coreExpr =>
       match coreStorageStatePath? coreExpr with
@@ -6496,7 +6481,7 @@ def Expr.toAbiDecode? (storageNames : List Name)
   -- are read (solc implicitly copies a storage bytes/string to memory before
   -- `abi.decode`); every other core shape passes through untouched.
   let dataCore ← Expr.toCore? storageNames data
-  some (coreTys, cleanups, materializeStorageValueUseCore dataCore)
+  some (coreTys, cleanups, dataCore)
 termination_by (sizeOf data + sizeOf typesExpr + 1, 1)
 
 def Expr.toCoreLValue? (storageNames : List Name) : Expr -> Option CoreLValue
@@ -6516,7 +6501,7 @@ def Expr.toCoreLValue? (storageNames : List Name) : Expr -> Option CoreLValue
         -- the read arm; materialize a bare-storage key so `m[stateStr] = v` hits
         -- the contents-derived slot (scalar keys load identically).
         some (SolidCore.Solidity.Source.LValue.storageIndex key
-          (materializeStorageValueUseCore indexCore))
+          indexCore)
       | none =>
         do
         let baseCore ← Expr.toCoreLValue? storageNames (Expr.ident name)
@@ -6973,7 +6958,7 @@ def Expr.noReturnEffectStmtCore? (storageNames : List Name) :
       let reasonCore ← Expr.toCore? storageNames reason
       some
         (SolidCore.Solidity.Source.Stmt.requireErrorExpr
-          condCore (materializeStorageValueUseCore reasonCore))
+          condCore reasonCore)
   | Expr.call (Expr.ident "revert") [] =>
       some (SolidCore.Solidity.Source.Stmt.revertError none)
   | Expr.call (Expr.ident "revert")
@@ -6982,7 +6967,7 @@ def Expr.noReturnEffectStmtCore? (storageNames : List Name) :
   | Expr.call (Expr.ident "revert") [Arg.positional reason] => do
       let reasonCore ← Expr.toCore? storageNames reason
       some (SolidCore.Solidity.Source.Stmt.revertErrorExpr
-        (materializeStorageValueUseCore reasonCore))
+        reasonCore)
   | _ => none
 
 def CoreStmt.thenReturnEmpty (stmt : CoreStmt) : CoreStmt :=
@@ -8152,7 +8137,7 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
                | some (tys, exprs) =>
                    some
                      (SolidCore.Solidity.Source.Expr.abiEncode tys
-                       (materializeStorageValueUseCores exprs))
+                       exprs)
                | none =>
                    Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
           | Expr.call (Expr.member (Expr.ident "abi") "encodePacked") args =>
@@ -8160,7 +8145,7 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
                | some (sourceTys, coreTys, exprs) =>
                    some (SolidCore.Solidity.Source.Expr.abiEncodePacked
                      (Tys.packedTopWidths sourceTys) coreTys
-                     (materializeStorageValueUseCores exprs))
+                     exprs)
                | none =>
                    Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
           | Expr.call (Expr.member (Expr.ident "abi") "encodeWithSelector")
@@ -8177,7 +8162,7 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
                     Args.toAbiEncodeWithEnvFuel? fuel storageNames env args
                   some
                     (SolidCore.Solidity.Source.Expr.abiEncodeWithSelector
-                      selectorCore tys (materializeStorageValueUseCores exprs))) with
+                      selectorCore tys exprs)) with
                | some coreExpr => some coreExpr
                | none => Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
           | Expr.call (Expr.member (Expr.ident "abi") "encodeWithSignature")
@@ -8189,7 +8174,7 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
                        (SolidCore.Solidity.Source.Expr.word
                          (SolidCore.Solidity.Source.ABI.selectorFromSignature
                            signature))
-                       tys (materializeStorageValueUseCores exprs))
+                       tys exprs)
                | none => Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
           | Expr.call (Expr.member (Expr.ident "abi") "encodeCall")
               [Arg.positional functionPointer, Arg.positional (Expr.tuple items)] =>
@@ -8202,7 +8187,7 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
                   some
                     (SolidCore.Solidity.Source.Expr.abiEncodeWithSelector
                       selectorCore coreTys
-                      (materializeStorageValueUseCores coreExprs))) with
+                      coreExprs)) with
                | some coreExpr => some coreExpr
                | none => Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
           | Expr.call (Expr.ident "keccak256") [Arg.positional bytes] =>
@@ -8213,7 +8198,7 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
                | some bytesCore =>
                    some
                      (SolidCore.Solidity.Source.Expr.keccak256
-                       (materializeStorageValueUseCore bytesCore))
+                       bytesCore)
                | none => Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
           | Expr.call (Expr.ident "sha256") [Arg.positional bytes] =>
               (match Expr.toCoreAsWithEnvFuel? fuel storageNames env Ty.bytes bytes with
@@ -8221,7 +8206,7 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
                    some
                      (SolidCore.Solidity.Source.Expr.externalHash
                        SolidCore.Solidity.Source.ExternalHashKind.sha256
-                       (materializeStorageValueUseCore bytesCore))
+                       bytesCore)
                | none => Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
           | Expr.call (Expr.ident "ripemd160") [Arg.positional bytes] =>
               (match Expr.toCoreAsWithEnvFuel? fuel storageNames env Ty.bytes bytes with
@@ -8229,7 +8214,7 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
                    some
                      (SolidCore.Solidity.Source.Expr.externalHash
                        SolidCore.Solidity.Source.ExternalHashKind.ripemd160
-                       (materializeStorageValueUseCore bytesCore))
+                       bytesCore)
                | none => Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
           | Expr.call (Expr.member (Expr.ident "bytes") "concat") args
           | Expr.call (Expr.member (Expr.typeName Ty.bytes) "concat") args
@@ -8242,7 +8227,7 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
                    if Tys.allBytesConcatArgs sourceTys then
                      some (SolidCore.Solidity.Source.Expr.abiEncodePacked
                        (Tys.packedTopWidths sourceTys) coreTys
-                       (materializeStorageValueUseCores coreExprs))
+                       coreExprs)
                    else
                      Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr
                | none => Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
@@ -15708,7 +15693,7 @@ def Expr.toCoreLValueWithEnv? (storageNames : List Name) (env : TypeEnv) :
                 -- checked keys and scalars are unaffected (materialize is a
                 -- no-op for any non-`Expr.storage` core).
                 some (SolidCore.Solidity.Source.LValue.storageIndex skey
-                  (materializeStorageValueUseCore keyCore))
+                  keyCore)
             | none => do
                 let baseCore ←
                   Expr.toCoreLValue? storageNames (Expr.ident name)
@@ -16776,7 +16761,7 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
               modifiers functions freeFunctions name args
               (fun retExpr =>
                 SolidCore.Solidity.Source.Stmt.requireErrorExpr
-                  retExpr (materializeStorageValueUseCore reasonCore)) with
+                  retExpr reasonCore) with
           | some coreStmt => some coreStmt
           | none =>
               Stmt.toCore? storageNames
@@ -19110,7 +19095,7 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           let condCore ← Expr.toCore? storageNames cond
           let reasonCore ← Expr.toCore? storageNames reason
           some (SolidCore.Solidity.Source.Stmt.requireErrorExpr
-            condCore (materializeStorageValueUseCore reasonCore))
+            condCore reasonCore)
       | Stmt.expr expr => do
           match Expr.noReturnEffectStmtCore? storageNames expr with
           | some effect => some effect
@@ -19203,7 +19188,7 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           let coreArgs ← Args.toCoreExprs? storageNames args
           some
             (SolidCore.Solidity.Source.Stmt.emitEvent name
-              (materializeStorageValueUseCores coreArgs))
+              coreArgs)
       -- EMIT-QUAL (#74): a qualified event emit `emit Base.E(a)` / `emit C.E(a)` has
       -- a member-access callee; it lowers to the bare name (resolved against the
       -- contract's flattened in-scope events plus the added library events).
@@ -19218,7 +19203,7 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           let coreArgs ← Args.toCoreExprs? storageNames args
           some
             (SolidCore.Solidity.Source.Stmt.emitEvent name
-              (materializeStorageValueUseCores coreArgs))
+              coreArgs)
       | Stmt.revertCall (Expr.call (Expr.ident "revert") []) =>
           some (SolidCore.Solidity.Source.Stmt.revertError none)
       | Stmt.revertCall
@@ -19240,7 +19225,7 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           let coreArgs ← Args.toCoreExprs? storageNames args
           some
             (SolidCore.Solidity.Source.Stmt.revert name
-              (materializeStorageValueUseCores coreArgs))
+              coreArgs)
       -- REVERT-QUAL (#77): a base-/self-/library-qualified custom-error revert
       -- `revert X.Err(a)` lowers to the bare name (resolved against the contract's
       -- flattened errors plus the added library errors). QUALIFIED-COLLISION (#136):
@@ -19255,7 +19240,7 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           let coreArgs ← Args.toCoreExprs? storageNames args
           some
             (SolidCore.Solidity.Source.Stmt.revert name
-              (materializeStorageValueUseCores coreArgs))
+              coreArgs)
       | Stmt.returnValues
           (some
             (Expr.call
@@ -23014,6 +22999,14 @@ def FunctionDecl.toCore? (storageNames : List Name) (constants : ConstantEnv)
   let bodyCore :=
     SolidCore.Solidity.Source.Stmt.block
       (paramCleanups ++ returnMemoryLocalizes ++ [bodyCore])
+  -- R3 (#192) endgame: THE single storage value-use normalization pass, run
+  -- once over the fully-assembled body (modifier splices, internal-call
+  -- inlines and param cleanups included). Replaces the ~40 per-boundary
+  -- `materializeStorageValueUseCore` call sites and covers storage reads
+  -- NESTED inside array literals / tuples / concats / struct-constructor
+  -- args, which the shallow rewrite missed.
+  let bodyCore :=
+    SolidCore.Solidity.Source.Stmt.normalizeStorageValueUses bodyCore
   some
     { name := name
       selector? := FunctionDecl.abiSelector? decl
@@ -26083,7 +26076,12 @@ def ContractDecl.constructorFunctionFromOrders?
       params := params
       paramAbiCleanups := paramAbiCleanups
       returns := []
-      body := SolidCore.Solidity.Source.Stmt.block stmts }
+      -- R3 (#192) endgame: the same single storage value-use normalization
+      -- pass ordinary function bodies get, over the whole assembled
+      -- constructor (state-var initializers + base->derived ctor bodies).
+      body :=
+        SolidCore.Solidity.Source.Stmt.normalizeStorageValueUses
+          (SolidCore.Solidity.Source.Stmt.block stmts) }
 
 def ContractDecl.toCore? (decl : ContractDecl) : Option CoreContract :=
   ContractDecl.toCoreFromOrders? [decl] [] [] [] [] [] [] [] [] [decl] [decl]

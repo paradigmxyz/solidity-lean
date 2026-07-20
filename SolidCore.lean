@@ -68,3 +68,4 @@ import SolidCore.Witness.EmitStorageDynamicArray
 import SolidCore.Witness.RevertCustomErrorStorageString
 import SolidCore.Witness.MappingKeyStorageString
 import SolidCore.Witness.RequireReasonStorageString
+import SolidCore.Witness.StorageValueUseNormalize
