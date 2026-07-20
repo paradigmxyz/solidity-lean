@@ -15543,10 +15543,50 @@ def FunctionDecl.internalBinarySingleReturnUseCore?
                   useResult
                     (SolidCore.Solidity.Source.Expr.binary coreOp
                       lhsCore retExpr))
-          | _, none =>
+          | BinaryOp.boolAnd, none
+          | BinaryOp.boolOr, none =>
+              -- Short-circuit ops with a non-core-lowerable LEFT operand keep
+              -- the left-first guarded shape (`lhsThen` builds the guard).
               FunctionDecl.internalExprSingleReturnUseCore?
                 internalFuel storageRefEnv env externalCallKindEnv storageNames
                 modifiers functions freeFunctions lhs lhsThen
+          | _, none =>
+              -- Ordinary op, BOTH operands non-core-lowerable (each contains a
+              -- nested call — e.g. ternary-wrapped calls on both sides). solc
+              -- legacy evaluates the RIGHT operand FIRST
+              -- (ExpressionCompiler.cpp:614-615): park the RHS value in a temp,
+              -- THEN evaluate the LEFT operand and build the residual binary.
+              -- Falls back to the prior left-first shape only if the RHS type is
+              -- unresolvable (never trading a lowerable statement for `none`).
+              match
+                  (do
+                    let rhsTy ←
+                      Expr.abiTyWithInternalFunctionsEnv?
+                        functions freeFunctions env rhs
+                    let rhsCoreTy ← Ty.toCore? rhsTy
+                    let rhsTmp := "_sol_bin_" ++ BinaryOp.tempTag op ++ "_rhs"
+                    let lhsCallCore ←
+                      FunctionDecl.internalExprSingleReturnUseCore?
+                        internalFuel storageRefEnv env externalCallKindEnv
+                        storageNames modifiers functions freeFunctions lhs
+                        (fun lhsRet =>
+                          useResult
+                            (SolidCore.Solidity.Source.Expr.binary coreOp
+                              lhsRet
+                              (SolidCore.Solidity.Source.Expr.var rhsTmp)))
+                    FunctionDecl.internalExprSingleReturnUseCore?
+                      internalFuel storageRefEnv env externalCallKindEnv
+                      storageNames modifiers functions freeFunctions rhs
+                      (fun rhsRet =>
+                        SolidCore.Solidity.Source.Stmt.block
+                          [ SolidCore.Solidity.Source.Stmt.varDecl
+                              rhsCoreTy rhsTmp (some rhsRet)
+                          , lhsCallCore ])) with
+              | some coreStmt => some coreStmt
+              | none =>
+                  FunctionDecl.internalExprSingleReturnUseCore?
+                    internalFuel storageRefEnv env externalCallKindEnv
+                    storageNames modifiers functions freeFunctions lhs lhsThen
       | none =>
           match Expr.toCore? storageNames lhs with
           | some _ => none
