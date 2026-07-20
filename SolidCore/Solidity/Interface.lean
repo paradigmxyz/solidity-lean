@@ -22131,11 +22131,45 @@ def FunctionDecls.rewriteLibraryDirectCallCandidateFrom?
           FunctionDecls.rewriteLibraryDirectCallCandidateFrom?
             libraryName method env args (index + 1) rest
 
+/-- Arity-only fallback: accept a candidate whose args merely order against
+    its params, without the shape gate. -/
+def FunctionDecl.rewriteLibraryDirectCallCandidateByArity?
+    (args : List Arg) (helperName : Name)
+    (fn : FunctionDecl) : Option Expr := do
+  let orderedArgs ← Args.toExprsForParams? fn.params args
+  some <|
+    FunctionDecl.annotateSingleCoreReturn fn
+      (Expr.call (Expr.ident helperName)
+        (orderedArgs.map Arg.positional))
+
+def FunctionDecls.rewriteLibraryDirectCallCandidateByArityFrom?
+    (libraryName method : Name) (args : List Arg)
+    (index : Nat) : List FunctionDecl -> Option Expr
+  | [] => none
+  | fn :: rest =>
+      let helperName := libraryHelperNameForIndex libraryName method index
+      match
+          FunctionDecl.rewriteLibraryDirectCallCandidateByArity?
+            args helperName fn with
+      | some rewritten => some rewritten
+      | none =>
+          FunctionDecls.rewriteLibraryDirectCallCandidateByArityFrom?
+            libraryName method args (index + 1) rest
+
 def FunctionDecls.rewriteLibraryDirectCallCandidate?
     (libraryName method : Name) (env : TypeEnv) (args : List Arg)
     (candidates : List FunctionDecl) : Option Expr :=
-  FunctionDecls.rewriteLibraryDirectCallCandidateFrom?
-    libraryName method env args 0 candidates
+  match
+      FunctionDecls.rewriteLibraryDirectCallCandidateFrom?
+        libraryName method env args 0 candidates with
+  | some rewritten => some rewritten
+  | none =>
+      -- The shape gate lacks the arity fallback the contract-internal path
+      -- (`findInternalCalleeWithArgs?`) has, so shapes it does not model
+      -- (e.g. an explicit enum-conversion argument reported as its
+      -- underlying uint) would otherwise leave the call unrewritten.
+      FunctionDecls.rewriteLibraryDirectCallCandidateByArityFrom?
+        libraryName method args 0 candidates
 
 def libraryDirectCallRewrite? (contracts : List ContractDecl)
     (env : TypeEnv) (receiver : Expr) (method : Name)
