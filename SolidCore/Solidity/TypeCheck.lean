@@ -8121,11 +8121,35 @@ def checkExpr (env : CheckEnv) :
         match Solidity.Executable.Expr.untypedLiteralMobileTy? expr with
         | some mobileTy => mobileTy
         | none =>
-            if TypeContext.canImplicitlyConvert env.types
-                elseChecked.ty thenChecked.ty then
-              thenChecked.ty
-            else
-              elseChecked.ty
+            -- Mixed branches where ONE side is an untyped number literal (e.g.
+            -- `c ? 300 : a` with `a : uint8`): solc `TypeChecker::visit(
+            -- Conditional)` takes `commonType` of the branch types, and an
+            -- untyped literal contributes its `mobileType()` (smallest-fitting
+            -- `uintN`/`intN`, `Types.cpp:1210`) — NOT the `uint256` that
+            -- `literalTy?` assigns for the checked width. So `c ? 300 : a`
+            -- types as `commonType(uint16, uint8) = uint16`, not `uint256`.
+            -- Mirror the binary-operand handling (`commonArrayElementTy?`):
+            -- substitute each untyped-literal branch's mobile type before
+            -- taking the common implicit type, falling back to the raw
+            -- one-directional convertibility pick when no common type exists.
+            let thenTy :=
+              if exprIsUntypedNumberLiteralExpression thenChecked.source then
+                (Solidity.Executable.Expr.untypedLiteralMobileTy?
+                  thenChecked.source).getD thenChecked.ty
+              else thenChecked.ty
+            let elseTy :=
+              if exprIsUntypedNumberLiteralExpression elseChecked.source then
+                (Solidity.Executable.Expr.untypedLiteralMobileTy?
+                  elseChecked.source).getD elseChecked.ty
+              else elseChecked.ty
+            match TypeContext.commonImplicit? env.types thenTy elseTy with
+            | some common => common
+            | none =>
+                if TypeContext.canImplicitlyConvert env.types
+                    elseChecked.ty thenChecked.ty then
+                  thenChecked.ty
+                else
+                  elseChecked.ty
       let resultLocation :=
         if thenChecked.dataLocation? == elseChecked.dataLocation? then
           thenChecked.dataLocation?
