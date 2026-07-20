@@ -3952,7 +3952,14 @@ def Expr.untypedLiteralMobileTy? : Expr -> Option Ty
       let elseTy ← Expr.untypedLiteralMobileTy? elseExpr
       Ty.commonImplicit? thenTy elseTy
   | expr =>
-      match Expr.numberLiteralRat? expr with
+      -- Only a genuine *untyped number literal* (solc `RationalNumberType`) has a
+      -- `mobileType()`. Use the STRICT literal folder here — NOT
+      -- `numberLiteralRat?`, which folds through an explicit `T(x)` conversion
+      -- (and `enumFromUInt`) and would mis-report a TYPED branch such as
+      -- `bytes2(0xBBCC)` / `uint8(5)` as an untyped `uintN` literal. A typed
+      -- conversion branch must yield `none` so the ternary falls back to the
+      -- branches' checked types (their common implicit type), matching solc.
+      match Expr.untypedNumberLiteralRat? expr with
       | some q =>
           if q.den == 1 then
             if 0 <= q.num then
