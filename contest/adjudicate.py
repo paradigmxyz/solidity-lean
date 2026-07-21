@@ -391,21 +391,38 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
                 f"entry.args count ({n_args}) does not match "
                 f"{entry['contract']}.{entry['function']} parameter count "
                 f"({n_params}): {entry_sig.param_types}"), evidence=evidence)
-        # Array/struct/function PARAMETERS are outside what the v1 claim arg
-        # forms can represent: a partial encoding would feed the engines
-        # different logical calls. Out of scope — X-ARGVAL (register >= 1.3.0;
-        # the retired broad X-RETABI covered this for older submissions).
-        bad_params = [t for t in entry_sig.param_types
-                      if not _representable_param_type(t)]
-        oos_entry = _active_row(("X-ARGVAL", "X-RETABI"),
+        # PARAMETER-shape scope check, register-version aware (§7 fairness):
+        #   * register >= 1.4.0 (X-ARGVAL retired): ARRAY and STRUCT parameters
+        #     are ENCODED end-to-end (JSON-list claim args -> type-directed ABI
+        #     calldata on the EVM side, Value.dynamicArray/fixedArray/tuple on
+        #     the Lean side — the same bytes/values both engines dispatch on),
+        #     so they are measured, not excluded. The narrow residue is X-FNARG:
+        #     FUNCTION-typed parameters (an external function VALUE cannot be
+        #     fabricated meaningfully from a claim — there is no callee contract
+        #     behind an arbitrary (address,selector) pair in the v1 responder-
+        #     free world — and internal function values are per-contract
+        #     dispatch IDs, never ABI calldata) and structs the harness cannot
+        #     resolve to member types.
+        #   * pre-1.4.0 submissions keep the historical broad rows (X-ARGVAL /
+        #     X-RETABI): arrays/structs stay OOS as adjudicated then.
+        entry_structs = meas.struct_definitions(
+            _src_for(submission.sources, entry["contract"], tools.solc)
+            or submission.sources[0], tools.solc)
+        oos_entry = _active_row(("X-FNARG", "X-ARGVAL", "X-RETABI"),
                                 at_version or reg.REGISTER_VERSION)
         oos_active = oos_entry is not None
+        if oos_entry is not None and oos_entry.id in ("X-ARGVAL", "X-RETABI"):
+            bad_params = [t for t in entry_sig.param_types
+                          if not _representable_param_type(t)]
+        else:
+            bad_params = [t for t in entry_sig.param_types
+                          if not _encodable_param_type(t, entry_structs)]
         if bad_params and oos_active:
             evidence["arg_type_scope"] = {"unsupported_params": bad_params}
             return Report("REJECTED_OOS", reason=(
                 f"reject gate fired: {oos_entry.id} (intentional exclusion, out "
                 f"of scope) — entry parameter type(s) {bad_params} not "
-                f"representable by the v1 claim arg forms"), evidence=evidence)
+                f"representable by the claim arg forms"), evidence=evidence)
         # Per-arg DOMAIN validation: each scalar arg must be a LEGAL value for its
         # parameter type. An out-of-domain value (dirty bool, out-of-range enum/
         # uintN/address) is not a legal high-level call — the EVM decoder reverts
@@ -417,7 +434,8 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
             or submission.sources[0], tools.solc)
         for i, (arg, ptype) in enumerate(
                 zip(entry.get("args", []), entry_sig.param_types)):
-            derr = _arg_domain_error(arg, ptype, enum_counts)
+            derr = _arg_domain_error(arg, ptype, enum_counts,
+                                      structs=entry_structs)
             if derr == "__OOS__":
                 if oos_active:
                     evidence["arg_type_scope"] = {"unvalidatable_param": ptype}
@@ -448,7 +466,8 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
                 f"{entry['contract']}'s constructor parameter count "
                 f"({len(ctor_ptypes)}): {ctor_ptypes}"), evidence=evidence)
         for i, (arg, ptype) in enumerate(zip(ctor_args, ctor_ptypes)):
-            derr = _arg_domain_error(arg, ptype, enum_counts)
+            derr = _arg_domain_error(arg, ptype, enum_counts,
+                                      structs=entry_structs)
             if derr == "__OOS__":
                 if oos_active:
                     evidence["arg_type_scope"] = {"unvalidatable_ctor_param": ptype}
@@ -718,10 +737,17 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
     # spurious "divergence"). No sig for OVER_ACCEPT (solc-rejected): those
     # keep the default empty calldata, matching a program that never runs.
     lean_calldata: Optional[str] = None
+    _ptypes = entry_sig.param_types if entry_sig is not None else None
+    _ctypes = ctor_ptypes if entry_sig is not None else None
+    _pstructs = entry_structs if entry_sig is not None else None
     if entry_sig is not None:
         try:
+            # TYPE-DIRECTED (register >= 1.4.0): the same call as the EVM
+            # measurement's build_calldata, so the Lean entry context carries
+            # byte-identical calldata for array/struct args too.
             lean_calldata = meas.build_calldata(
-                entry_sig.selector, entry.get("args", []))
+                entry_sig.selector, entry.get("args", []),
+                types=entry_sig.param_types, structs=entry_structs)
         except Exception:
             lean_calldata = None  # unencodable args were already rejected above
     solidity_lean = hb.run_solidity_lean_observable(
@@ -729,7 +755,8 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
         work / "solidity_lean", namespace, fuel=_FUEL_CAP,
         tools=tools, timeout=timeout, env=env_ov, slots=slots,
         constructor_args=ctor_args, inject_storage=inject_storage,
-        calldata_hex=lean_calldata)
+        calldata_hex=lean_calldata, param_types=_ptypes,
+        ctor_param_types=_ctypes, structs=_pstructs)
     if _selftest_perturb_solidity_lean is not None:  # coverage bug-injection self-test
         solidity_lean = _selftest_perturb_solidity_lean(solidity_lean)
         evidence["selftest_solidity_lean_perturbed"] = True
@@ -1026,6 +1053,42 @@ def _comparable_channel_type(t: str,
     return True
 
 
+def _encodable_param_type(t: str,
+                          structs: Optional[dict[str, list[str]]]) -> bool:
+    """True iff a PARAMETER type's SHAPE is encodable end-to-end by the claim
+    arg forms under register >= 1.4.0 (X-ARGVAL retired): scalars plus ARRAYS
+    (``T[]`` / ``T[N]``, arbitrarily nested) and resolvable STRUCTS, given as
+    JSON lists — the type-directed encoder (measure._encode_typed) produces the
+    exact ABI head/tail bytes and the Lean renderer the matching
+    Value.dynamicArray/fixedArray/tuple, so both engines receive the SAME
+    logical call. The X-FNARG residue is FUNCTION-typed parameters (an external
+    function VALUE cannot be fabricated meaningfully from a claim — no callee
+    exists behind an arbitrary (address,selector) in the v1 responder-free
+    world; internal function values are per-contract dispatch IDs, never ABI
+    calldata), unresolvable structs, and bare tuples. Scalar DOMAIN residues
+    (bytesN with N<32, fixed/ufixed, unresolvable enums) are still fenced
+    per-arg by _arg_domain_error's ``__OOS__``."""
+    t = str(t).strip()
+    for suffix in (" memory", " calldata", " storage", " payable"):
+        t = t.replace(suffix, "")
+    t = t.strip()
+    if t.startswith("function"):
+        return False
+    arr = obs._array_elem(t)
+    if arr is not None:
+        return _encodable_param_type(arr[0], structs)
+    members = obs._struct_member_types(t, structs)
+    if members is not None:
+        return all(_encodable_param_type(m, structs) for m in members)
+    if t.startswith("struct "):    # unresolvable struct
+        return False
+    if t.startswith("tuple"):      # bare tuple typeString (no component info)
+        return False
+    if t.startswith("mapping"):    # never a legal external param anyway
+        return False
+    return True
+
+
 def _active_row(ids: tuple[str, ...],
                 at_version: Optional[str]) -> Optional[reg.ExclusionEntry]:
     """The FIRST register row among ``ids`` active at ``at_version`` (used to
@@ -1096,8 +1159,13 @@ def _clean_param_type(t: str) -> str:
     return t.strip()
 
 
+_MAX_ARRAY_ARG_LEN = 1024
+
+
 def _arg_domain_error(arg: object, ptype: str,
-                      enum_counts: dict[str, int]) -> Optional[str]:
+                      enum_counts: dict[str, int],
+                      structs: Optional[dict[str, list[str]]] = None,
+                      ) -> Optional[str]:
     """Validate that ``arg`` is a LEGAL high-level value for parameter type
     ``ptype``; return an error string if not (else None).
 
@@ -1119,6 +1187,51 @@ def _arg_domain_error(arg: object, ptype: str,
                 f"is the unsigned word form); use the {{\"int\": {arg}}} form for "
                 f"signed values")
     t = _clean_param_type(ptype)
+    # ARRAY / STRUCT parameters (register >= 1.4.0, X-ARGVAL retired): the arg
+    # is a JSON LIST, validated RECURSIVELY — every leaf must be a legal value
+    # for its element/member type (the same fence as a scalar param), the
+    # length must match a fixed array's N / the struct's member count, and a
+    # dynamic array is bounded so absurd claims cannot blow up the encoders.
+    # A leaf family we cannot bound (bytesN<32, fixed, unresolvable enum)
+    # propagates ``__OOS__`` up, keeping the whole parameter out of scope.
+    arr = obs._array_elem(t)
+    if arr is not None:
+        elem, n = arr
+        if not isinstance(arg, list):
+            return (f"array parameter {t!r} requires a JSON list arg "
+                    f"(one element per array entry), got {arg!r}")
+        if n is not None and len(arg) != n:
+            return (f"fixed array {t!r} requires exactly {n} elements, "
+                    f"got {len(arg)}")
+        if n is None and len(arg) > _MAX_ARRAY_ARG_LEN:
+            return (f"dynamic array arg exceeds the {_MAX_ARRAY_ARG_LEN}-element "
+                    f"bound ({len(arg)} elements)")
+        for i, el in enumerate(arg):
+            derr = _arg_domain_error(el, elem, enum_counts, structs)
+            if derr == "__OOS__":
+                return "__OOS__"
+            if derr is not None:
+                return f"element {i} of {t!r}: {derr}"
+        return None
+    members = obs._struct_member_types(t, structs)
+    if members is not None:
+        if not isinstance(arg, list):
+            return (f"struct parameter {t!r} requires a JSON list arg "
+                    f"(one element per member, in declaration order), got {arg!r}")
+        if len(arg) != len(members):
+            return (f"struct {t!r} requires {len(members)} member values "
+                    f"(one per member, in declaration order), got {len(arg)}")
+        for i, (el, mt) in enumerate(zip(arg, members)):
+            derr = _arg_domain_error(el, mt, enum_counts, structs)
+            if derr == "__OOS__":
+                return "__OOS__"
+            if derr is not None:
+                return f"member {i} of {t!r}: {derr}"
+        return None
+    if t.startswith("struct "):
+        return "__OOS__"   # unresolvable struct -> not validatable
+    if isinstance(arg, list):
+        return f"scalar parameter {t!r} got a JSON list arg: {arg!r}"
     # dynamic bytes/string: must be the {bytes} form
     if t in ("bytes", "string"):
         if isinstance(arg, dict) and "bytes" in arg:
@@ -1237,16 +1350,40 @@ def _valid_slots(slots: object) -> tuple[Optional[list[int]], Optional[str]]:
     return out, None
 
 
+_MAX_ARG_NESTING = 16
+
+
 def _safe_render_args(args: object) -> tuple[Optional[str], Optional[str]]:
-    """Render entry args to a Lean list, catching any malformed shape (review
-    finding 5: `render_lean_arg` raises on unsupported forms and would crash the
-    adjudicator instead of returning REJECT_MALFORMED)."""
+    """STRUCTURAL pre-validation of the untrusted arg list, catching any
+    malformed shape before codegen (review finding 5: `render_lean_arg` raises
+    on unsupported forms and would crash the adjudicator instead of returning
+    REJECT_MALFORMED). Register >= 1.4.0: a JSON LIST is a legal arg SHAPE
+    (an array/struct parameter, X-ARGVAL retired), walked recursively with a
+    depth/length bound; every LEAF must be a supported scalar form. Whether a
+    list is legal FOR ITS PARAMETER (arity, element domains) is decided by the
+    signature-aware validation in step 0a' — this check is shape-only, so the
+    actual (type-directed) rendering later can never raise on a leaf form."""
     if not isinstance(args, list):
         return None, f"entry.args must be a list, got {type(args).__name__}"
+
+    def _check(a: object, depth: int) -> None:
+        if depth > _MAX_ARG_NESTING:
+            raise ValueError(f"arg nesting deeper than {_MAX_ARG_NESTING}")
+        if isinstance(a, list):
+            if len(a) > _MAX_ARRAY_ARG_LEN:
+                raise ValueError(
+                    f"list arg exceeds the {_MAX_ARRAY_ARG_LEN}-element bound")
+            for el in a:
+                _check(el, depth + 1)
+            return
+        obs.render_lean_arg(a)  # scalar leaf: raises on an unsupported form
+
     try:
-        return obs.render_lean_args(args), None
+        for a in args:
+            _check(a, 0)
     except (ValueError, TypeError, KeyError) as exc:
         return None, f"malformed entry.args: {exc}"
+    return "ok", None
 
 
 def _test_asts(root: Path, solc: str) -> list[gate.SourceAst]:

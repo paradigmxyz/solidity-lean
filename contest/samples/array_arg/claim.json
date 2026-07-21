@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "ArrArg", "function": "sum", "args": [[7, 8, 9]], "value": 0 },
+  "expected_divergence": "none expected - uint256[] ENTRY PARAMETER parity control (register 1.4, X-ARGVAL retired): the JSON-list arg is type-directed ABI-encoded into the EVM calldata and rendered Value.dynamicArray on the Lean side, so both engines run the same call -> success|w:24,w:3 -> NO_DIVERGENCE (was REJECTED_OOS under the 1.3 register).",
+  "declared_observable": { "kind": "return_value", "normal_form": "success|w:24,w:3" },
+  "feature": "array-entry-arg",
+  "register_version_seen": "1.4.0"
+}

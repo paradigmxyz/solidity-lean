@@ -47,7 +47,17 @@ from typing import Optional
 #       the v1 claim arg forms cannot represent/validate) and X-FNVAL
 #       (function-typed values in the return/revert channel, which solidity-lean
 #       renders via the r:reprStr fallback while the EVM ABI-encodes a word).
-REGISTER_VERSION = "1.3.0"
+# v1.4: RETIRED X-ARGVAL (array and struct ENTRY/CONSTRUCTOR PARAMETERS are now
+#       encoded end-to-end: a JSON-list claim arg is validated recursively per
+#       element/member, TYPE-DIRECTED ABI-encoded into the EVM calldata
+#       (measure._encode_typed — the exact head/tail bytes solc's encoder
+#       produces), and rendered as the matching Value.dynamicArray/fixedArray/
+#       tuple on the Lean side, so both engines receive the SAME logical call
+#       and array/struct-parameter behavior is MEASURED, not excluded).
+#       Added the narrow residue X-FNARG (function-typed PARAMETERS — no
+#       meaningful function VALUE can be fabricated from a claim — plus
+#       per-arg scalar families whose domain the type string cannot bound).
+REGISTER_VERSION = "1.4.0"
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -309,6 +319,12 @@ _SYNTACTIC: list[ExclusionEntry] = [
         # knows the entry signature. The gate skips rows without a gate detector.
         detector="adjudicator:entry_param_type",
         since_version="1.3.0",
+        # RETIRED in 1.4.0: array/struct parameters are encoded end-to-end
+        # (JSON-list claim args, recursively domain-validated; type-directed
+        # ABI calldata on the EVM side; Value.dynamicArray/fixedArray/tuple on
+        # the Lean side — the same logical call on both engines), so they are
+        # measured, not excluded. The narrow residues live on as X-FNARG.
+        removed_in_version="1.4.0",
         reason=(
             "An entry-function or constructor PARAMETER type is outside what the "
             "v1 claim.json arg forms can represent AND domain-validate: the arg "
@@ -343,6 +359,35 @@ _SYNTACTIC: list[ExclusionEntry] = [
             "arbitrarily nested) is now decoded and compared."
         ),
         roadmap_ref="observable._decode_abi_values; adjudicate._comparable_channel_type",
+    ),
+    ExclusionEntry(
+        id="X-FNARG",
+        kind="syntactic",
+        # Entry/constructor-PARAMETER specific: checked by the adjudicator,
+        # which knows the entry/constructor signature. The gate skips register
+        # rows whose detector is absent from its table.
+        detector="adjudicator:entry_param_type",
+        since_version="1.4.0",
+        reason=(
+            "The narrow PARAMETER residue of the retired X-ARGVAL (arrays and "
+            "structs — arbitrarily nested — are now encoded end-to-end and "
+            "measured). Out of scope remain: (a) a FUNCTION-typed entry/"
+            "constructor parameter, in any nesting — an external function VALUE "
+            "is an (address, selector) pair with no callee behind it in the v1 "
+            "responder-free world, so no meaningful function argument can be "
+            "fabricated from a claim, and an internal function value is a "
+            "per-contract dispatch ID that is not ABI calldata at all; (b) a "
+            "struct parameter the harness cannot resolve to member types, or a "
+            "bare tuple typeString; and (c) per-arg, a word-family scalar leaf "
+            "whose legal domain cannot be bounded from the type string alone "
+            "(bytesN with N<32, fixed/ufixed, an enum whose member count is "
+            "unresolvable) — an unvalidated leaf would let a submitter feed the "
+            "two engines different logical calls and fabricate a divergence. "
+            "Restructure such parameters to scalar/bytes/string/array/struct "
+            "shapes of bounded leaves meanwhile."
+        ),
+        roadmap_ref=("adjudicate._encodable_param_type / _arg_domain_error; "
+                     "measure._encode_typed; observable.render_lean_arg"),
     ),
 ]
 

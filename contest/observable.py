@@ -348,17 +348,50 @@ def lean_eval_line(namespace: str, contract: str, fuel: int, fname: str,
 # Python-side rendering of entry args into Lean CoreValue expressions.
 # ---------------------------------------------------------------------------
 
-def render_lean_arg(arg: object) -> str:
+def render_lean_arg(arg: object, ptype: Optional[str] = None,
+                    structs: Optional[dict[str, list[str]]] = None) -> str:
     """Render a single claim.json entry arg as a Lean CoreValue expression.
 
-    Supported v1 arg forms (documented in README):
+    Scalar arg forms (documented in README):
       * int (>=0)              -> Value.word n
       * {"word": n}            -> Value.word n
       * {"int": n}             -> Value.int (signedToWord n)   (n may be negative)
       * bool                   -> Value.word 0|1
       * {"bytes": "0x.."}      -> Value.bytes [..]
-    """
+
+    Register >= 1.4.0 (X-ARGVAL retired): with ``ptype`` (the parameter's
+    typeString) a JSON LIST arg renders TYPE-DIRECTED, recursively —
+      * `T[]`  param + list    -> Value.dynamicArray [..]
+      * `T[N]` param + list    -> Value.fixedArray [..]   (length N enforced)
+      * struct param + list    -> Value.tuple [..]        (one element/member)
+    the same Value constructors solidity-lean's own ABI decode produces, so
+    the model receives the SAME logical call the EVM decodes from calldata."""
     V = "SolidCore.Solidity.Source.Value"
+    if ptype is not None:
+        ct = _clean_type(ptype)
+        arr = _array_elem(ct)
+        if arr is not None:
+            elem, n = arr
+            if not isinstance(arg, list):
+                raise ValueError(f"array parameter {ptype!r} requires a JSON "
+                                 f"list arg, got {arg!r}")
+            if n is not None and len(arg) != n:
+                raise ValueError(f"fixed array {ptype!r} requires exactly {n} "
+                                 f"elements, got {len(arg)}")
+            ctor = "dynamicArray" if n is None else "fixedArray"
+            inner = ", ".join(render_lean_arg(a, elem, structs) for a in arg)
+            return f"({V}.{ctor} [{inner}])"
+        members = _struct_member_types(ct, structs)
+        if members is not None:
+            if not isinstance(arg, list) or len(arg) != len(members):
+                raise ValueError(f"struct parameter {ptype!r} requires a JSON "
+                                 f"list of {len(members)} member values, got "
+                                 f"{arg!r}")
+            inner = ", ".join(render_lean_arg(a, m, structs)
+                              for a, m in zip(arg, members))
+            return f"({V}.tuple [{inner}])"
+        if ct.startswith("struct "):
+            raise ValueError(f"unresolvable struct parameter type {ptype!r}")
     if isinstance(arg, bool):
         return f"({V}.word {1 if arg else 0})"
     if isinstance(arg, int):
@@ -379,7 +412,11 @@ def render_lean_arg(arg: object) -> str:
     raise ValueError(f"unsupported entry arg form: {arg!r}")
 
 
-def render_lean_args(args: list) -> str:
+def render_lean_args(args: list, types: Optional[list[str]] = None,
+                     structs: Optional[dict[str, list[str]]] = None) -> str:
+    if types is not None and len(types) == len(args):
+        return "[" + ", ".join(render_lean_arg(a, t, structs)
+                               for a, t in zip(args, types)) + "]"
     return "[" + ", ".join(render_lean_arg(a) for a in args) + "]"
 
 

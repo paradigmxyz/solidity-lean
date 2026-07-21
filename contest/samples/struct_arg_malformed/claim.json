@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "StructBad", "function": "join", "args": [[1, 300]], "value": 0 },
+  "expected_divergence": "Fabricated gap attempt: struct member uint8 = 300 is out of domain. Must be REJECT_MALFORMED (recursive leaf-domain fence), not a qualifying gap.",
+  "declared_observable": { "kind": "return_value", "normal_form": "success|w:301" },
+  "feature": "struct-arg-domain-malformed",
+  "register_version_seen": "1.4.0"
+}

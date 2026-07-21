@@ -186,6 +186,25 @@ def run_perturbed_nested_selftest(timeout: int = 500) -> tuple[bool, str]:
     return ok, detail
 
 
+def run_perturbed_array_arg_selftest(timeout: int = 500) -> tuple[bool, str]:
+    """Divergence-DIRECTION check for the closed X-ARGVAL channel: run
+    `array_arg` (a uint256[] ENTRY PARAMETER) through the FULL live pipeline,
+    then perturb the measured EVM observable's leading value by one unit. Now
+    that array/struct ARGUMENTS are encoded and measured (not excluded), the
+    classifier must bank SOUNDNESS_GAP(wrong-value) — proving a real
+    model-vs-EVM divergence reached through an array argument would be
+    detected, with ZERO bugs in solidity-lean."""
+    report = adj.adjudicate(
+        SAMPLES / "array_arg", timeout=timeout,
+        _selftest_perturb_evm=obs.perturb_leading_value)
+    comp = (report.evidence.get("comparison", {}) or {}).get("differing_component")
+    ok = (report.verdict == "SOUNDNESS_GAP" and report.lane == "S"
+          and comp == "wrong-value" and report.qualifies)
+    detail = (f"verdict={report.verdict} lane={report.lane} component={comp} "
+              f"qualifies={report.qualifies} :: {report.reason[:140]}")
+    return ok, detail
+
+
 def run_real_deploy_soundness_selftest(timeout: int = 500) -> tuple[bool, str]:
     """REAL end-to-end DEPLOY-OUTCOME soundness-detector test.
 
@@ -1200,6 +1219,57 @@ def main() -> int:
     ok, d = run_full("string_return", "NO_DIVERGENCE")
     results.append(("string_return delimiter-safety (FULL)", ok, d))
     _print("string_return delimiter-safety (FULL)", ok, d)
+
+    # Register 1.4 (X-ARGVAL retired): array/struct ENTRY PARAMETERS are encoded
+    # end-to-end (JSON-list claim args -> type-directed ABI calldata on the EVM
+    # side, Value.dynamicArray/fixedArray/tuple on the Lean side) and MEASURED.
+    # These four parity controls prove each shape agrees on solc 0.8.35 + real
+    # EVM vs the model; the perturbed lane proves divergence DIRECTION; the two
+    # malformed lanes prove the fabrication fence (shape/arity + recursive leaf
+    # domain) still REJECTs cleanly; fn_param_oos pins the narrow X-FNARG residue.
+
+    # uint256[] entry parameter: was REJECTED_OOS under the 1.3 register.
+    ok, d = run_full("array_arg", "NO_DIVERGENCE")
+    results.append(("array_arg parity (FULL, X-ARGVAL retired)", ok, d))
+    _print("array_arg parity (FULL, X-ARGVAL retired)", ok, d)
+
+    # uint256[][] nested-dynamic entry parameter (offsets within offsets).
+    ok, d = run_full("nested_array_arg", "NO_DIVERGENCE")
+    results.append(("nested_array_arg parity (FULL)", ok, d))
+    _print("nested_array_arg parity (FULL)", ok, d)
+
+    # static-member struct entry parameter (inline tuple encoding).
+    ok, d = run_full("struct_arg", "NO_DIVERGENCE")
+    results.append(("struct_arg parity (FULL)", ok, d))
+    _print("struct_arg parity (FULL)", ok, d)
+
+    # dynamic-member struct entry parameter (bytes + uint256[] members).
+    ok, d = run_full("struct_dyn_arg", "NO_DIVERGENCE")
+    results.append(("struct_dyn_arg parity (FULL)", ok, d))
+    _print("struct_dyn_arg parity (FULL)", ok, d)
+
+    # Divergence DIRECTION over an array-parameter observable: full live run of
+    # array_arg, then the measured EVM observable's leading value is perturbed
+    # by one unit -> SOUNDNESS_GAP(wrong-value) must be banked, proving a real
+    # divergence reached through an array/struct ARGUMENT is detected.
+    ok, d = run_perturbed_array_arg_selftest()
+    results.append(("array-arg divergence-detector (REAL + delta)", ok, d))
+    _print("array-arg divergence-detector (REAL + delta)", ok, d)
+
+    # fabrication fence: uint256[3] fed a 2-element list -> REJECT_MALFORMED.
+    ok, d = run_full("array_arg_malformed", "REJECT_MALFORMED")
+    results.append(("array_arg_malformed arity fence (FULL)", ok, d))
+    _print("array_arg_malformed arity fence (FULL)", ok, d)
+
+    # fabrication fence: struct member uint8=300 out of leaf domain -> REJECT.
+    ok, d = run_full("struct_arg_malformed", "REJECT_MALFORMED")
+    results.append(("struct_arg_malformed leaf-domain fence (FULL)", ok, d))
+    _print("struct_arg_malformed leaf-domain fence (FULL)", ok, d)
+
+    # narrow residue X-FNARG: a function-typed ENTRY PARAMETER stays OOS.
+    ok, d = run_full("fn_param_oos", "REJECTED_OOS")
+    results.append(("fn_param_oos X-FNARG residue (FULL)", ok, d))
+    _print("fn_param_oos X-FNARG residue (FULL)", ok, d)
 
     # fabricated gap: args count != function param count -> REJECT_MALFORMED,
     # NOT a qualifying COVERAGE_GAP from Solidus failing closed on the bad call.

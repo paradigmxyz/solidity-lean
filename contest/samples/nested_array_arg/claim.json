@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "NestArrArg", "function": "pick", "args": [[[1, 2], [3]]], "value": 0 },
+  "expected_divergence": "none expected - uint256[][] nested-dynamic ENTRY PARAMETER parity control (register 1.4): both engines receive [[1,2],[3]] and render success|w:5,w:2 -> NO_DIVERGENCE.",
+  "declared_observable": { "kind": "return_value", "normal_form": "success|w:5,w:2" },
+  "feature": "nested-array-entry-arg",
+  "register_version_seen": "1.4.0"
+}

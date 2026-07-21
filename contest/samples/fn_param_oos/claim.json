@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "FnParam", "function": "useCb", "args": [{ "word": 0 }], "value": 0 },
+  "expected_divergence": "Out of scope by design: a function-typed ENTRY PARAMETER hits the narrow X-FNARG row (register 1.4) -> REJECTED_OOS.",
+  "declared_observable": { "kind": "return_value", "normal_form": "success|w:1" },
+  "feature": "fn-typed-param-oos",
+  "register_version_seen": "1.4.0"
+}

@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "StructDynArg", "function": "probe", "args": [[9, { "bytes": "0xdeadbeef" }, [4, 5]]], "value": 0 },
+  "expected_divergence": "none expected - dynamic-member struct ENTRY PARAMETER parity control (register 1.4): D(9, 0xdeadbeef, [4,5]) reaches both engines identically -> success|w:17,b:0xdeadbeef -> NO_DIVERGENCE.",
+  "declared_observable": { "kind": "return_value", "normal_form": "success|w:17,b:0xdeadbeef" },
+  "feature": "dyn-struct-entry-arg",
+  "register_version_seen": "1.4.0"
+}
