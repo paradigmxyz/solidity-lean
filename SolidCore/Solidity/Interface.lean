@@ -2243,6 +2243,31 @@ def Ty.listToCore? : List Ty -> Option (List CoreTy)
 
 end
 
+/-- Core types whose runtime values are MEMORY AGGREGATES (arrays / structs
+    lowered to tuples). A lowering-generated temp of such a type must be
+    declared with `Stmt.memoryVarDecl` (pointer alias, as solc does), never
+    plain `Stmt.varDecl`: the plain form shallow-derefs its initializer and
+    runs `Ty.coerceValue?`, which has no case for the `Value.memoryRef` rows
+    NESTED inside an aggregate (a `uint256[][]` whose element rows are
+    memory refs), so it spuriously reverts `typeMismatch` (= Panic 0) where
+    solc simply copies the pointer. Scalars/bytes keep `Stmt.varDecl`
+    byte-identically. -/
+def CoreTy.isMemoryAggregate : CoreTy -> Bool
+  | SolidCore.Solidity.Source.Ty.fixedArray _ _ => true
+  | SolidCore.Solidity.Source.Ty.dynamicArray _ => true
+  | SolidCore.Solidity.Source.Ty.tuple _ => true
+  | _ => false
+
+/-- Declare a lowering-generated temp: pointer-aliasing `memoryVarDecl` for
+    memory aggregates (see `CoreTy.isMemoryAggregate`), plain `varDecl`
+    (byte-identical to the historical lowering) otherwise. -/
+def CoreTy.tempDeclStmt (ty : CoreTy) (name : Name)
+    (init? : Option CoreExpr) : CoreStmt :=
+  if CoreTy.isMemoryAggregate ty then
+    SolidCore.Solidity.Source.Stmt.memoryVarDecl ty name init?
+  else
+    SolidCore.Solidity.Source.Stmt.varDecl ty name init?
+
 mutual
 
 def Ty.toCoreAbiCleanup? : Ty -> Option CoreAbiCleanup
@@ -14806,7 +14831,13 @@ def FunctionDecl.internalTwoSingleReturnCallsCore?
           (firstPrefixCore ++
             [ SolidCore.Solidity.Source.Stmt.captureReturn
                 [firstRetName] firstBodyCore
-            , SolidCore.Solidity.Source.Stmt.varDecl
+            -- Aggregate-aware temp (see `CoreTy.tempDeclStmt`): a nested-
+            -- dynamic first return (`uint256[][]`, `string[]`, struct with
+            -- dynamic fields) is a memory POINTER; the historical plain
+            -- `varDecl` copy spuriously Panic(0)'d on its nested memory
+            -- refs where solc+EVM alias the pointer and encode the full
+            -- payload (revert `Err(mk(), f())` / `emit E(mk(), f())`).
+            , CoreTy.tempDeclStmt
                 firstRet.ty firstTmp
                 (some (SolidCore.Solidity.Source.Expr.var firstRetName)) ] ++
             secondPrefixCore ++
@@ -14851,7 +14882,8 @@ def FunctionDecl.internalTwoSingleReturnCallsRightFirstCore?
           (secondPrefixCore ++
             [ SolidCore.Solidity.Source.Stmt.captureReturn
                 [secondRetName] secondBodyCore
-            , SolidCore.Solidity.Source.Stmt.varDecl
+            -- Aggregate-aware temp (see the left-first twin above).
+            , CoreTy.tempDeclStmt
                 secondRet.ty secondTmp
                 (some (SolidCore.Solidity.Source.Expr.var secondRetName)) ] ++
             firstPrefixCore ++
@@ -14862,6 +14894,148 @@ def FunctionDecl.internalTwoSingleReturnCallsRightFirstCore?
                 (SolidCore.Solidity.Source.Expr.var secondTmp) ]))
   | _, _ => none
 termination_by (3, internalFuel, 0, 2)
+
+/-- §3c COLLAPSE + #201 (D/E) unification: the ONE lowering for every
+    CALL-BEARING `emit E(...)` / `revert Err(...)` argument shape. The two
+    families were isomorphic copy-paste (~10 dispatcher arms), and the copy
+    had DIVERGED: the emit arms lowered their pure companion arguments
+    env-aware (`Expr.abiArgCoreWithEnvCleanup?`, so narrow checked
+    arithmetic Panics 0x11) while the revert arms lowered them env-less
+    (`Expr.toCore?`, losing the Panic — `revert Err(a + b, bump())` with
+    `uint8 a,b` encoded 300 where solc+EVM Panic 0x11). Both channels now
+    route through THIS helper; they differ only by the terminal statement
+    (`mkStmt`), the temp-name prefix, and whether the flagged-single-call
+    env fallback applies (the builtin `revert(...)` statement keeps its
+    historical env-less path).
+
+    Returns `none` when the argument list has NO call-bearing shape this
+    helper owns (the caller then runs its call-free catch-all exactly as
+    before); `some verdict` is the final answer for an owned shape,
+    including `some none` = lowering declined (the historical per-arm
+    behavior). Temps for aggregate-typed pure companions are declared via
+    `CoreTy.tempDeclStmt` (pointer-aliasing, see there). -/
+def FunctionDecl.eventErrorCallArgsCore?
+    (internalFuel : Nat)
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
+    (storageNames : List Name) (modifiers : List SourceModifierDecl)
+    (functions freeFunctions : List FunctionDecl)
+    (tmpPrefix : String) (singleCallEnvFallback : Bool)
+    (mkStmt : List CoreExpr -> CoreStmt) (fallbackStmt : Stmt)
+    (args : List Arg) : Option (Option CoreStmt) :=
+  match args with
+  | [Arg.positional (Expr.call (Expr.ident name) callArgs)] =>
+      some
+        (match FunctionDecl.internalSingleReturnCallCore?
+            internalFuel storageRefEnv env externalCallKindEnv storageNames
+            modifiers functions freeFunctions name callArgs
+            (fun retExpr => mkStmt [retExpr]) with
+        | some coreStmt => some coreStmt
+        | none =>
+            -- #201 (D): the single argument is a HASH/abi builtin call with
+            -- a flagged argument (`emit EH(keccak256(abi.encodePacked(a +
+            -- b)))` — `name` is then `keccak256`, never a user function),
+            -- which the internal-call hoist above declines; lower it
+            -- env-aware so the operand-width Panic 0x11 fires. Unflagged
+            -- shapes keep the env-less fallback byte-identically.
+            match (if singleCallEnvFallback &&
+                  Args.anyAbiArgNeedsEnvCleanup
+                    [Arg.positional (Expr.call (Expr.ident name) callArgs)] then
+                (Args.toCoreExprsWithEnvCleanup? storageNames env
+                    [Arg.positional
+                      (Expr.call (Expr.ident name) callArgs)]).map
+                  mkStmt
+              else none) with
+            | some coreStmt => some coreStmt
+            | none => Stmt.toCore? storageNames fallbackStmt)
+  | [ Arg.positional (Expr.call (Expr.ident firstName) firstArgs)
+    , Arg.positional (Expr.call (Expr.ident secondName) secondArgs) ] =>
+      some
+        (match FunctionDecl.internalTwoSingleReturnCallsCore?
+            internalFuel storageRefEnv env externalCallKindEnv storageNames
+            modifiers functions freeFunctions firstName firstArgs
+            secondName secondArgs (tmpPrefix ++ "_first")
+            (fun firstExpr secondExpr => mkStmt [firstExpr, secondExpr]) with
+        | some coreStmt => some coreStmt
+        | none => do
+            let secondCore ←
+              Expr.toCore? storageNames
+                (Expr.call (Expr.ident secondName) secondArgs)
+            match FunctionDecl.internalSingleReturnCallCore?
+                internalFuel storageRefEnv env externalCallKindEnv storageNames
+                modifiers functions freeFunctions firstName firstArgs
+                (fun retExpr => mkStmt [retExpr, secondCore]) with
+            | some coreStmt => some coreStmt
+            | none => Stmt.toCore? storageNames fallbackStmt)
+  | [ Arg.positional (Expr.call (Expr.ident name) callArgs)
+    , Arg.positional rhs ] =>
+      some (do
+        -- #201 (D/E): the pure argument lowers env-aware when flagged
+        -- (narrow checked arithmetic / builtin-with-flagged-args), else
+        -- byte-identical.
+        let rhsCore ← Expr.abiArgCoreWithEnvCleanup? storageNames env rhs
+        match FunctionDecl.internalSingleReturnCallCore?
+            internalFuel storageRefEnv env externalCallKindEnv storageNames
+            modifiers functions freeFunctions name callArgs
+            (fun retExpr => mkStmt [retExpr, rhsCore]) with
+        | some coreStmt => some coreStmt
+        | none => Stmt.toCore? storageNames fallbackStmt)
+  | [ Arg.positional lhs
+    , Arg.positional (Expr.call (Expr.ident name) callArgs) ] =>
+      some (do
+        -- #201 (D/E): a flagged FIRST argument (`emit EMix(a + b, bump())` /
+        -- `revert Err(a + b, bump())`, `uint8 a,b`) lowers env-aware INTO
+        -- the pre-call temp, so its Panic 0x11 fires BEFORE the hoisted
+        -- call runs (solc evaluates the arguments left-to-right);
+        -- unflagged arguments keep `Expr.toCore?` byte-identically.
+        let lhsCore ← Expr.abiArgCoreWithEnvCleanup? storageNames env lhs
+        let lhsTy ← Expr.abiTyWithEnv? env lhs
+        let lhsCoreTy ← Ty.toCore? lhsTy
+        let lhsTmp := tmpPrefix ++ "_lhs"
+        match FunctionDecl.internalSingleReturnCallCore?
+            internalFuel storageRefEnv env externalCallKindEnv storageNames
+            modifiers functions freeFunctions name callArgs
+            (fun retExpr =>
+              mkStmt [SolidCore.Solidity.Source.Expr.var lhsTmp, retExpr]) with
+        | some coreStmt =>
+            some
+              (SolidCore.Solidity.Source.Stmt.block
+                [ CoreTy.tempDeclStmt lhsCoreTy lhsTmp (some lhsCore)
+                , coreStmt ])
+        | none => Stmt.toCore? storageNames fallbackStmt)
+  | [ Arg.positional first
+    , Arg.positional second
+    , Arg.positional (Expr.call (Expr.ident name) callArgs) ] =>
+      some (do
+        -- #201 (D/E): flagged pure arguments lower env-aware into their
+        -- pre-call temps (Panic 0x11 before the hoisted call), unflagged
+        -- byte-identical.
+        let firstCore ← Expr.abiArgCoreWithEnvCleanup? storageNames env first
+        let secondCore ←
+          Expr.abiArgCoreWithEnvCleanup? storageNames env second
+        let firstTy ← Expr.abiTyWithEnv? env first
+        let secondTy ← Expr.abiTyWithEnv? env second
+        let firstCoreTy ← Ty.toCore? firstTy
+        let secondCoreTy ← Ty.toCore? secondTy
+        let firstTmp := tmpPrefix ++ "_first"
+        let secondTmp := tmpPrefix ++ "_second"
+        match FunctionDecl.internalSingleReturnCallCore?
+            internalFuel storageRefEnv env externalCallKindEnv storageNames
+            modifiers functions freeFunctions name callArgs
+            (fun retExpr =>
+              mkStmt
+                [ SolidCore.Solidity.Source.Expr.var firstTmp
+                , SolidCore.Solidity.Source.Expr.var secondTmp
+                , retExpr ]) with
+        | some coreStmt =>
+            some
+              (SolidCore.Solidity.Source.Stmt.block
+                [ CoreTy.tempDeclStmt firstCoreTy firstTmp (some firstCore)
+                , CoreTy.tempDeclStmt secondCoreTy secondTmp (some secondCore)
+                , coreStmt ])
+        | none => Stmt.toCore? storageNames fallbackStmt)
+  | _ => none
+termination_by (3, internalFuel, 0, 7)
 
 def FunctionDecl.internalAssignReturnCallCore?
     (internalFuel : Nat)
@@ -18073,281 +18247,63 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           match varDeclCoreWithEnv? storageNames env binding expr with
           | some coreStmt => some coreStmt
           | none => Stmt.toCore? storageNames (Stmt.varDecl [binding] (some expr))
-      | Stmt.emitEvent
-          (Expr.call (Expr.ident eventName)
-            [Arg.positional (Expr.call (Expr.ident name) args)]) =>
-          match FunctionDecl.internalSingleReturnCallCore?
+      | Stmt.emitEvent (Expr.call (Expr.ident eventName) args) =>
+          -- §3c COLLAPSE: every call-bearing emit shape routes through the
+          -- SHARED emit/revert arg lowering
+          -- (`FunctionDecl.eventErrorCallArgsCore?`); the call-free
+          -- remainder keeps the #201 (D) env-cleanup gate byte-identically
+          -- (flagged narrow checked arithmetic / abi-hash-concat builtins
+          -- lower env-aware, unflagged shapes keep `Stmt.toCore?`).
+          match FunctionDecl.eventErrorCallArgsCore?
               internalFuel storageRefEnv env externalCallKindEnv storageNames
-              modifiers functions freeFunctions name args
-              (fun retExpr =>
-                SolidCore.Solidity.Source.Stmt.emitEvent eventName [retExpr]) with
-          | some coreStmt => some coreStmt
+              modifiers functions freeFunctions "_sol_event" true
+              (fun coreArgs =>
+                SolidCore.Solidity.Source.Stmt.emitEvent eventName coreArgs)
+              (Stmt.emitEvent (Expr.call (Expr.ident eventName) args))
+              args with
+          | some result => result
           | none =>
-              -- #201 (D): the single argument is a HASH-builtin call with a
-              -- flagged argument (`emit EH(keccak256(abi.encodePacked(a + b)))`,
-              -- `uint8 a,b` — `name` is then `keccak256`, never a user function),
-              -- which the internal-call hoist above declines; lower it env-aware
-              -- so the operand-width Panic 0x11 fires. Unflagged emits keep the
-              -- env-less fallback byte-identically.
-              match (if Args.anyAbiArgNeedsEnvCleanup
-                    [Arg.positional (Expr.call (Expr.ident name) args)] then
-                  (Args.toCoreExprsWithEnvCleanup? storageNames env
-                      [Arg.positional (Expr.call (Expr.ident name) args)]).map
+              match (if Args.anyAbiArgNeedsEnvCleanup args then
+                  (Args.toCoreExprsWithEnvCleanup? storageNames env args).map
                     (fun coreArgs =>
-                      SolidCore.Solidity.Source.Stmt.emitEvent eventName coreArgs)
+                      SolidCore.Solidity.Source.Stmt.emitEvent
+                        eventName coreArgs)
                 else none) with
               | some coreStmt => some coreStmt
               | none =>
                   Stmt.toCore? storageNames
-                    (Stmt.emitEvent
-                      (Expr.call (Expr.ident eventName)
-                        [Arg.positional (Expr.call (Expr.ident name) args)]))
-      | Stmt.emitEvent
-          (Expr.call (Expr.ident eventName)
-            [ Arg.positional (Expr.call (Expr.ident firstName) firstArgs)
-            , Arg.positional (Expr.call (Expr.ident secondName) secondArgs) ]) =>
-          match FunctionDecl.internalTwoSingleReturnCallsCore?
-              internalFuel storageRefEnv env externalCallKindEnv storageNames
-              modifiers functions freeFunctions firstName firstArgs
-              secondName secondArgs "_sol_event_first"
-              (fun firstExpr secondExpr =>
-                SolidCore.Solidity.Source.Stmt.emitEvent eventName
-                  [firstExpr, secondExpr]) with
-          | some coreStmt => some coreStmt
-          | none => do
-              let secondCore ←
-                Expr.toCore? storageNames
-                  (Expr.call (Expr.ident secondName) secondArgs)
-              match FunctionDecl.internalSingleReturnCallCore?
-                  internalFuel storageRefEnv env externalCallKindEnv storageNames
-                  modifiers functions freeFunctions firstName firstArgs
-                  (fun retExpr =>
-                    SolidCore.Solidity.Source.Stmt.emitEvent eventName
-                      [retExpr, secondCore]) with
-              | some coreStmt => some coreStmt
-              | none =>
-                  Stmt.toCore? storageNames
-                    (Stmt.emitEvent
-                      (Expr.call (Expr.ident eventName)
-                        [ Arg.positional
-                            (Expr.call (Expr.ident firstName) firstArgs)
-                        , Arg.positional
-                            (Expr.call (Expr.ident secondName) secondArgs) ]))
-      | Stmt.emitEvent
-          (Expr.call (Expr.ident eventName)
-            [ Arg.positional (Expr.call (Expr.ident name) args)
-            , Arg.positional rhs ]) => do
-          -- #201 (D): the pure argument lowers env-aware when flagged (narrow
-          -- checked arithmetic / builtin-with-flagged-args), else byte-identical.
-          let rhsCore ← Expr.abiArgCoreWithEnvCleanup? storageNames env rhs
-          match FunctionDecl.internalSingleReturnCallCore?
-              internalFuel storageRefEnv env externalCallKindEnv storageNames
-              modifiers functions freeFunctions name args
-              (fun retExpr =>
-                SolidCore.Solidity.Source.Stmt.emitEvent eventName
-                  [retExpr, rhsCore]) with
-          | some coreStmt => some coreStmt
-          | none =>
-              Stmt.toCore? storageNames
-                (Stmt.emitEvent
-                  (Expr.call (Expr.ident eventName)
-                    [ Arg.positional (Expr.call (Expr.ident name) args)
-                    , Arg.positional rhs ]))
-      | Stmt.emitEvent
-          (Expr.call (Expr.ident eventName)
-            [ Arg.positional lhs
-            , Arg.positional (Expr.call (Expr.ident name) args) ]) => do
-          -- #201 (D): a flagged FIRST argument (`emit EMix(a + b, bump())`,
-          -- `uint8 a,b`) lowers env-aware INTO the pre-call temp, so its Panic
-          -- 0x11 fires BEFORE the hoisted call runs (solc evaluates event
-          -- arguments left-to-right); unflagged arguments keep `Expr.toCore?`
-          -- byte-identically.
-          let lhsCore ← Expr.abiArgCoreWithEnvCleanup? storageNames env lhs
-          let lhsTy ← Expr.abiTyWithEnv? env lhs
-          let lhsCoreTy ← Ty.toCore? lhsTy
-          let lhsTmp := "_sol_event_lhs"
-          match FunctionDecl.internalSingleReturnCallCore?
-              internalFuel storageRefEnv env externalCallKindEnv storageNames
-              modifiers functions freeFunctions name args
-              (fun retExpr =>
-                SolidCore.Solidity.Source.Stmt.emitEvent eventName
-                  [SolidCore.Solidity.Source.Expr.var lhsTmp, retExpr]) with
-          | some coreStmt =>
-              some
-                (SolidCore.Solidity.Source.Stmt.block
-                  [ SolidCore.Solidity.Source.Stmt.varDecl
-                      lhsCoreTy lhsTmp (some lhsCore)
-                  , coreStmt ])
-          | none =>
-              Stmt.toCore? storageNames
-                (Stmt.emitEvent
-                  (Expr.call (Expr.ident eventName)
-                    [ Arg.positional lhs
-                    , Arg.positional (Expr.call (Expr.ident name) args) ]))
-      | Stmt.emitEvent
-          (Expr.call (Expr.ident eventName)
-            [ Arg.positional first
-            , Arg.positional second
-            , Arg.positional (Expr.call (Expr.ident name) args) ]) => do
-          -- #201 (D): flagged pure arguments lower env-aware into their pre-call
-          -- temps (Panic 0x11 before the hoisted call), unflagged byte-identical.
-          let firstCore ← Expr.abiArgCoreWithEnvCleanup? storageNames env first
-          let secondCore ← Expr.abiArgCoreWithEnvCleanup? storageNames env second
-          let firstTy ← Expr.abiTyWithEnv? env first
-          let secondTy ← Expr.abiTyWithEnv? env second
-          let firstCoreTy ← Ty.toCore? firstTy
-          let secondCoreTy ← Ty.toCore? secondTy
-          let firstTmp := "_sol_event_first"
-          let secondTmp := "_sol_event_second"
-          match FunctionDecl.internalSingleReturnCallCore?
-              internalFuel storageRefEnv env externalCallKindEnv storageNames
-              modifiers functions freeFunctions name args
-              (fun retExpr =>
-                SolidCore.Solidity.Source.Stmt.emitEvent eventName
-                  [ SolidCore.Solidity.Source.Expr.var firstTmp
-                  , SolidCore.Solidity.Source.Expr.var secondTmp
-                  , retExpr ]) with
-          | some coreStmt =>
-              some
-                (SolidCore.Solidity.Source.Stmt.block
-                  [ SolidCore.Solidity.Source.Stmt.varDecl
-                      firstCoreTy firstTmp (some firstCore)
-                  , SolidCore.Solidity.Source.Stmt.varDecl
-                      secondCoreTy secondTmp (some secondCore)
-                  , coreStmt ])
-          | none =>
-              Stmt.toCore? storageNames
-                (Stmt.emitEvent
-                  (Expr.call (Expr.ident eventName)
-                    [ Arg.positional first
-                    , Arg.positional second
-                    , Arg.positional (Expr.call (Expr.ident name) args) ]))
-      | Stmt.emitEvent (Expr.call (Expr.ident eventName) args) =>
-          -- #201 (D): call-free emit whose argument carries narrow checked
-          -- arithmetic or a flagged abi/hash/concat builtin
-          -- (`emit EB(abi.encode(a + b))`, `emit EH(keccak256(…(a + b)))`,
-          -- `uint8 a,b`) — the call-bearing shapes matched the dedicated arms
-          -- above; this remainder fell to the env-less `Stmt.toCore?`, dropping
-          -- the operand-width Panic 0x11. Lower the argument list env-aware only
-          -- when flagged; the unflagged remainder keeps `Stmt.toCore?` — exactly
-          -- what the dispatcher's default arm did for these statements.
-          match (if Args.anyAbiArgNeedsEnvCleanup args then
-              (Args.toCoreExprsWithEnvCleanup? storageNames env args).map
-                (fun coreArgs =>
-                  SolidCore.Solidity.Source.Stmt.emitEvent eventName coreArgs)
-            else none) with
-          | some coreStmt => some coreStmt
-          | none =>
-              Stmt.toCore? storageNames
-                (Stmt.emitEvent (Expr.call (Expr.ident eventName) args))
-      | Stmt.revertCall
-          (Expr.call (Expr.ident errorName)
-            [Arg.positional (Expr.call (Expr.ident name) args)]) =>
-          match FunctionDecl.internalSingleReturnCallCore?
-              internalFuel storageRefEnv env externalCallKindEnv storageNames
-              modifiers functions freeFunctions name args
-              (fun retExpr =>
-                SolidCore.Solidity.Source.Stmt.revert errorName [retExpr]) with
-          | some coreStmt => some coreStmt
-          | none =>
-              Stmt.toCore? storageNames
-                (Stmt.revertCall
-                  (Expr.call (Expr.ident errorName)
-                    [Arg.positional (Expr.call (Expr.ident name) args)]))
-      | Stmt.revertCall
-          (Expr.call (Expr.ident errorName)
-            [ Arg.positional (Expr.call (Expr.ident firstName) firstArgs)
-            , Arg.positional (Expr.call (Expr.ident secondName) secondArgs) ]) =>
-          match FunctionDecl.internalTwoSingleReturnCallsCore?
-              internalFuel storageRefEnv env externalCallKindEnv storageNames
-              modifiers functions freeFunctions firstName firstArgs
-              secondName secondArgs "_sol_error_first"
-              (fun firstExpr secondExpr =>
-                SolidCore.Solidity.Source.Stmt.revert errorName
-                  [firstExpr, secondExpr]) with
-          | some coreStmt => some coreStmt
-          | none => do
-              let secondCore ←
-                Expr.toCore? storageNames
-                  (Expr.call (Expr.ident secondName) secondArgs)
-              match FunctionDecl.internalSingleReturnCallCore?
-                  internalFuel storageRefEnv env externalCallKindEnv storageNames
-                  modifiers functions freeFunctions firstName firstArgs
-                  (fun retExpr =>
-                    SolidCore.Solidity.Source.Stmt.revert errorName
-                      [retExpr, secondCore]) with
-              | some coreStmt => some coreStmt
-              | none =>
-                  Stmt.toCore? storageNames
-                    (Stmt.revertCall
-                      (Expr.call (Expr.ident errorName)
-                        [ Arg.positional
-                            (Expr.call (Expr.ident firstName) firstArgs)
-                        , Arg.positional
-                            (Expr.call (Expr.ident secondName) secondArgs) ]))
-      | Stmt.revertCall
-          (Expr.call (Expr.ident errorName)
-            [ Arg.positional (Expr.call (Expr.ident name) args)
-            , Arg.positional rhs ]) => do
-          let rhsCore ← Expr.toCore? storageNames rhs
-          match FunctionDecl.internalSingleReturnCallCore?
-              internalFuel storageRefEnv env externalCallKindEnv storageNames
-              modifiers functions freeFunctions name args
-              (fun retExpr =>
-                SolidCore.Solidity.Source.Stmt.revert errorName
-                  [retExpr, rhsCore]) with
-          | some coreStmt => some coreStmt
-          | none =>
-              Stmt.toCore? storageNames
-                (Stmt.revertCall
-                  (Expr.call (Expr.ident errorName)
-                    [ Arg.positional (Expr.call (Expr.ident name) args)
-                    , Arg.positional rhs ]))
-      | Stmt.revertCall
-          (Expr.call (Expr.ident errorName)
-            [ Arg.positional lhs
-            , Arg.positional (Expr.call (Expr.ident name) args) ]) => do
-          let lhsCore ← Expr.toCore? storageNames lhs
-          let lhsTy ← Expr.abiTyWithEnv? env lhs
-          let lhsCoreTy ← Ty.toCore? lhsTy
-          let lhsTmp := "_sol_error_lhs"
-          match FunctionDecl.internalSingleReturnCallCore?
-              internalFuel storageRefEnv env externalCallKindEnv storageNames
-              modifiers functions freeFunctions name args
-              (fun retExpr =>
-                SolidCore.Solidity.Source.Stmt.revert errorName
-                  [SolidCore.Solidity.Source.Expr.var lhsTmp, retExpr]) with
-          | some coreStmt =>
-              some
-                (SolidCore.Solidity.Source.Stmt.block
-                  [ SolidCore.Solidity.Source.Stmt.varDecl
-                      lhsCoreTy lhsTmp (some lhsCore)
-                  , coreStmt ])
-          | none =>
-              Stmt.toCore? storageNames
-                (Stmt.revertCall
-                  (Expr.call (Expr.ident errorName)
-                    [ Arg.positional lhs
-                    , Arg.positional (Expr.call (Expr.ident name) args) ]))
+                    (Stmt.emitEvent (Expr.call (Expr.ident eventName) args))
       | Stmt.revertCall (Expr.call (Expr.ident errorName) args) =>
-          -- #201 (E): custom-error revert whose argument carries narrow checked
-          -- arithmetic or a flagged builtin (`revert Err(abi.encode(a + b))`,
-          -- `uint8 a,b`) — solc evaluates the error arguments BEFORE reverting, so
-          -- the overflow Panics 0x11 (the env-less path built the revert DATA from
-          -- the 256-bit value: encoded 300). The builtin `revert(...)` statement
-          -- (errorName "revert") keeps its dedicated env-less arms — its
-          -- string-reason arguments are never flagged, but stay out for safety.
-          -- The call-bearing shapes matched the dedicated arms above; the
-          -- unflagged remainder keeps `Stmt.toCore?` exactly as the default arm.
-          match (if errorName != "revert" && Args.anyAbiArgNeedsEnvCleanup args then
-              (Args.toCoreExprsWithEnvCleanup? storageNames env args).map
-                (fun coreArgs =>
-                  SolidCore.Solidity.Source.Stmt.revert errorName coreArgs)
-            else none) with
-          | some coreStmt => some coreStmt
+          -- §3c COLLAPSE + #201 (E): every call-bearing custom-error revert
+          -- routes through the SAME shared lowering as emit, so the pure
+          -- companion arguments are env-aware (`revert Err(a + b, bump())`
+          -- with `uint8 a,b` Panics 0x11 as solc+EVM do — the copy-pasted
+          -- revert arms had drifted env-less). The builtin `revert(...)`
+          -- statement (errorName "revert") keeps the historical env-less
+          -- single-call hoist (no flagged-single-call env fallback) and its
+          -- dedicated `Stmt.toCore?` arms. The call-free remainder keeps
+          -- the #201 (E) env-cleanup gate byte-identically.
+          match FunctionDecl.eventErrorCallArgsCore?
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions "_sol_error"
+              (errorName != "revert")
+              (fun coreArgs =>
+                SolidCore.Solidity.Source.Stmt.revert errorName coreArgs)
+              (Stmt.revertCall (Expr.call (Expr.ident errorName) args))
+              args with
+          | some result => result
           | none =>
-              Stmt.toCore? storageNames
-                (Stmt.revertCall (Expr.call (Expr.ident errorName) args))
+              match (if errorName != "revert" &&
+                    Args.anyAbiArgNeedsEnvCleanup args then
+                  (Args.toCoreExprsWithEnvCleanup? storageNames env args).map
+                    (fun coreArgs =>
+                      SolidCore.Solidity.Source.Stmt.revert
+                        errorName coreArgs)
+                else none) with
+              | some coreStmt => some coreStmt
+              | none =>
+                  Stmt.toCore? storageNames
+                    (Stmt.revertCall (Expr.call (Expr.ident errorName) args))
       | Stmt.returnValues
           (some (Expr.ternary cond thenExpr elseExpr)) =>
           let fallback :=
