@@ -11663,6 +11663,129 @@ def FunctionDecl.singleReturnTy? (decl : FunctionDecl) : Option Ty :=
   | [ret] => some ret.ty
   | _ => none
 
+/-- EVENT-OVERLOAD (soundness): whether every emit argument's inferred type
+    matches the candidate event's parameter shape — the lowering-time analogue
+    of the typechecker's `EventSig.matchesCheckedArgs`, reusing the same
+    env-based argument typing (`Expr.abiTyWithEnv?`) and the same shape
+    equivalence (`Ty.matchesShape`) the internal-call overload resolution
+    uses. -/
+def EventDecl.matchesEmitArgsWithEnv (env : TypeEnv) (decl : EventDecl)
+    (args : List Expr) : Bool :=
+  let rec go : List EventParam -> List Expr -> Bool
+    | [], [] => true
+    | param :: params, arg :: rest =>
+        (match Expr.abiTyWithEnv? env arg with
+         | some argTy => Ty.matchesShape argTy param.ty
+         | none => false) && go params rest
+    | _, _ => false
+  go decl.params args
+
+/-- EVENT-OVERLOAD (soundness): resolve an OVERLOADED bare-name `emit` to its
+    signature-mangled runtime-table key. solc allows same-scope event overloads
+    (`event E(uint256)` and `event E(address)` — error 5883 only rejects EQUAL
+    parameter types), resolving each `emit E(...)` by argument types; the
+    runtime event table was NAME-keyed, so every `emit E(...)` bound the FIRST
+    decl named `E` → wrong topic0 (keccak of the wrong canonical signature) or
+    a spurious arity/type mismatch revert. Returns `none` (leave the emit
+    untouched — byte-identical) unless the name has ≥ 2 in-scope decls, all
+    args are positional, and either arity or env-typed argument matching picks
+    a UNIQUE candidate; the key is that candidate's canonical ABI signature
+    (e.g. `"E(uint256)"` — parentheses can never collide with a Solidity
+    identifier or a `.`-joined qualified key), which the contract assembly
+    registers alongside the name-keyed entries. -/
+def EventDecls.resolveOverloadedEmitKey? (events : List EventDecl)
+    (env : TypeEnv) (name : Name) (args : List Arg) : Option Name := do
+  let named := events.filter (fun e => e.name == name)
+  if named.length < 2 then
+    none
+  else do
+    let exprs ←
+      mapOption
+        (fun (arg : Arg) =>
+          match arg with
+          | Arg.positional expr => some expr
+          | Arg.named _ _ => none)
+        args
+    let sameArity := named.filter (fun e => e.params.length == exprs.length)
+    let chosen ←
+      match sameArity with
+      | [single] => some single
+      | [] => none
+      | _ =>
+          match sameArity.filter
+              (fun e => EventDecl.matchesEmitArgsWithEnv env e exprs) with
+          | [single] => some single
+          | _ => none
+    EventDecl.abiSignature? chosen
+
+/-- EVENT-OVERLOAD (soundness): the statement walk rewriting overloaded
+    bare-name emits to their signature-mangled keys. Threads the local
+    `TypeEnv` exactly as `Stmt.annotateAbiInSeqFuel` does (`varDecl` extends,
+    loops/try/catch scope their bodies), so argument identifiers type against
+    the bindings in scope at the emit site. Every statement other than a
+    rewritten emit passes through structurally untouched, and an emit whose
+    callee is not an overloaded in-scope event name is left byte-identical. -/
+def Stmt.resolveOverloadedEventEmitsInSeqFuel :
+    Nat -> List EventDecl -> TypeEnv -> Stmt -> Stmt × TypeEnv
+  | 0, _, env, stmt => (stmt, env)
+  | fuel + 1, events, env, stmt =>
+      let recStmt (child : Stmt) : Stmt :=
+        (Stmt.resolveOverloadedEventEmitsInSeqFuel fuel events env child).fst
+      let recSeq (env : TypeEnv) (body : List Stmt) : List Stmt :=
+        (body.foldl
+          (fun (acc : List Stmt × TypeEnv) head =>
+            let (done, env) := acc
+            let (head', env') :=
+              Stmt.resolveOverloadedEventEmitsInSeqFuel fuel events env head
+            (head' :: done, env'))
+          (([] : List Stmt), env)).fst.reverse
+      let recClause : CatchClause -> CatchClause
+        | CatchClause.clause name params body =>
+            let clauseEnv := Parameters.extendTypeEnv "_catch" env params
+            CatchClause.clause name params
+              ((Stmt.resolveOverloadedEventEmitsInSeqFuel
+                fuel events clauseEnv body).fst)
+      match stmt with
+      | Stmt.emitEvent (Expr.call (Expr.ident name) args) =>
+          (match EventDecls.resolveOverloadedEmitKey? events env name args with
+           | some key =>
+               (Stmt.emitEvent (Expr.call (Expr.ident key) args), env)
+           | none => (stmt, env))
+      | Stmt.block body => (Stmt.block (recSeq env body), env)
+      | Stmt.varDecl bindings init =>
+          (Stmt.varDecl bindings init, VarBindings.extendTypeEnv env bindings)
+      | Stmt.ifElse cond thenBranch elseBranch =>
+          (Stmt.ifElse cond (recStmt thenBranch) (elseBranch.map recStmt), env)
+      | Stmt.whileLoop cond body => (Stmt.whileLoop cond (recStmt body), env)
+      | Stmt.doWhile body cond => (Stmt.doWhile (recStmt body) cond, env)
+      | Stmt.forLoop init cond post body =>
+          let (init', loopEnv) :=
+            match init with
+            | some initStmt =>
+                let (stmt', env') :=
+                  Stmt.resolveOverloadedEventEmitsInSeqFuel
+                    fuel events env initStmt
+                (some stmt', env')
+            | none => (none, env)
+          (Stmt.forLoop init' cond post
+            ((Stmt.resolveOverloadedEventEmitsInSeqFuel
+              fuel events loopEnv body).fst), env)
+      | Stmt.tryCatch expr clauses =>
+          (Stmt.tryCatch expr (clauses.map recClause), env)
+      | Stmt.tryCatchReturns expr returns success clauses =>
+          let successEnv := Parameters.extendTypeEnv "_try" env returns
+          (Stmt.tryCatchReturns expr returns
+            ((Stmt.resolveOverloadedEventEmitsInSeqFuel
+              fuel events successEnv success).fst)
+            (clauses.map recClause), env)
+      | Stmt.unchecked body => (Stmt.unchecked (recStmt body), env)
+      | other => (other, env)
+
+def Stmt.resolveOverloadedEventEmits (events : List EventDecl)
+    (env : TypeEnv) (stmt : Stmt) : Stmt :=
+  (Stmt.resolveOverloadedEventEmitsInSeqFuel
+    defaultAnnotateAbiFuel events env stmt).fst
+
 /-- LIB-STORAGE-RETURN-USE (#156): the callee's single `storage` return is a
     WHOLE storage reference — a bare storage-ref PARAMETER, `return s;` — which
     the function boundary threads back as a plain `Value.storageRef` that a
@@ -23138,7 +23261,8 @@ def FunctionDecl.toCore? (storageNames : List Name) (constants : ConstantEnv)
     (errorArgEnv : NamedArgParamEnv := [])
     (internalFnIds : List (Name × Nat) := [])
     (structEnv : StructEnv := [])
-    (eventIndexedEnv : EventIndexedEnv := []) :
+    (eventIndexedEnv : EventIndexedEnv := [])
+    (overloadEvents : List EventDecl := []) :
     Option CoreFunctionDef := do
   let decl := FunctionDecl.inlineConstants constants decl
   let selectorEnv :=
@@ -23202,6 +23326,19 @@ def FunctionDecl.toCore? (storageNames : List Name) (constants : ConstantEnv)
         { modifier with
           body := modifier.body.map
             (Stmt.resolveNamedEventErrorArgs eventArgEnv errorArgEnv) })
+  -- EVENT-OVERLOAD (soundness): after named args are ordered, rewrite
+  -- overloaded bare-name emits to their signature-mangled table keys (the
+  -- assembly registers matching signature-keyed event entries). Runs with the
+  -- same env `annotateAbi` uses; a contract with no same-name event overloads
+  -- is untouched byte-identically (the resolver requires >= 2 in-scope decls).
+  let body := Stmt.resolveOverloadedEventEmits overloadEvents env body
+  let modifiers :=
+    modifiers.map
+      (fun modifier =>
+        { modifier with
+          body := modifier.body.map
+            (Stmt.resolveOverloadedEventEmits overloadEvents
+              (Parameters.extendTypeEnv "_mod" env modifier.params)) })
   let body := Stmt.inlineInternalFunctionAliasesInBody functions freeFunctions body
   -- Stage C (boundary-completion arc): function identifiers still used as
   -- VALUES after alias inlining (fn-ptr state vars, data-dependent locals,
@@ -25135,6 +25272,7 @@ def ContractDecl.directCoreFunctions? (storageNames : List Name)
     (eventArgEnv errorArgEnv : NamedArgParamEnv)
     (internalFnIds : List (Name × Nat))
     (eventIndexedEnv : EventIndexedEnv)
+    (overloadEvents : List EventDecl)
     (decl : ContractDecl) :
     Option (List CoreFunctionDef) := do
   let getters ←
@@ -25162,6 +25300,7 @@ def ContractDecl.directCoreFunctions? (storageNames : List Name)
             externalCallKindEnv eventArgEnv errorArgEnv internalFnIds
             (structEnv := ContractDecl.structEnvFromContracts contracts)
             (eventIndexedEnv := eventIndexedEnv)
+            (overloadEvents := overloadEvents)
         some (fn, fd))
       ((ContractDecl.directOrdinaryFunctions decl).filter
         (fun fn =>
@@ -25230,6 +25369,7 @@ def ContractDecl.constructorBodyForDeployment?
     (eventArgEnv errorArgEnv : NamedArgParamEnv)
     (internalFnIds : List (Name × Nat))
     (eventIndexedEnv : EventIndexedEnv)
+    (overloadEvents : List EventDecl)
     (targetName : Name) (supplyingParams : List Parameter)
     (baseArgs : List Expr) (decl : ContractDecl) :
     Option (List CoreBindingDecl × List CoreStmt × List CoreStmt × List CoreStmt) := do
@@ -25312,6 +25452,17 @@ def ContractDecl.constructorBodyForDeployment?
                 (modifier.body.map
                   (Stmt.resolveNamedEventErrorArgs eventArgEnv errorArgEnv)).map
                   (Stmt.rewriteInternalFnValueIdents internalFnIds) })
+      -- EVENT-OVERLOAD (soundness): rewrite overloaded bare-name emits in the
+      -- constructor body (and its modifier bodies) to their signature keys,
+      -- exactly as ordinary function bodies get.
+      let body := Stmt.resolveOverloadedEventEmits overloadEvents env body
+      let modifiers :=
+        modifiers.map
+          (fun modifier =>
+            { modifier with
+              body := modifier.body.map
+                (Stmt.resolveOverloadedEventEmits overloadEvents
+                  (Parameters.extendTypeEnv "_mod" env modifier.params)) })
       let body := Stmt.annotateAbi env body
       let storageRefEnv := Parameters.extendStorageRefEnv "_arg" [] ctor.params
       let ctorModifiers :=
@@ -25723,7 +25874,8 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
       (ContractDecl.directCoreFunctions?
         storageNames constants stateEnv externalCallKindEnv allContracts
         dispatchOrder sourceUsingDecls modifiers availableFunctions
-        sourceFunctions eventArgEnv errorArgEnv internalFnIds eventIndexedEnv)
+        sourceFunctions eventArgEnv errorArgEnv internalFnIds eventIndexedEnv
+        (contractEvents ++ visibleSourceEvents))
       dispatchOrder
   -- Function-boundary refactor stage 3: value-boundary synthetic helpers
   -- (library `__library_*`, super/base helpers) get selector-less table entries
@@ -25748,6 +25900,7 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
       (eventArgEnv := eventArgEnv) (errorArgEnv := errorArgEnv)
       (internalFnIds := internalFnIds) (structEnv := structEnv)
       (eventIndexedEnv := eventIndexedEnv)
+      (overloadEvents := contractEvents ++ visibleSourceEvents)
   let libraryInternalEntries ←
     filterMapOption
       (fun fn =>
@@ -25833,6 +25986,26 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
   let eventDecls ←
     mapOption EventDecl.toCore
       (contractEvents ++ visibleSourceEvents ++ extraLibraryEvents)
+  -- EVENT-OVERLOAD (soundness): same-scope event overloads are legal in solc
+  -- (error 5883 only rejects EQUAL parameter types). The bare-name table keys
+  -- above bind every `emit E(...)` to the FIRST decl named `E`; the lowering
+  -- (`Stmt.resolveOverloadedEventEmits`) rewrites overloaded emits to their
+  -- canonical-ABI-signature keys (e.g. `"E(uint256)"`), so register a
+  -- signature-keyed entry for every event whose name is overloaded in the
+  -- bare-name scope. Purely ADDITIVE: a parenthesized signature can never
+  -- collide with an identifier or a `.`-joined qualified key, so non-overload
+  -- lookups are byte-identical.
+  let overloadScope := contractEvents ++ visibleSourceEvents
+  let overloadSigEventDecls :=
+    overloadScope.filterMap
+      (fun e =>
+        if (overloadScope.filter (fun o => o.name == e.name)).length >= 2 then
+          match EventDecl.toCore e, EventDecl.abiSignature? e with
+          | some ce, some signature => some { ce with name := signature }
+          | _, _ => none
+        else
+          none)
+  let eventDecls := eventDecls ++ overloadSigEventDecls
   -- QUALIFIED-COLLISION (#137): an AMBIGUOUS `emit X.Ev(...)` (a library event
   -- whose bare name collides with a differently-signed contract event) is
   -- lowered to the `.`-joined key `X.Ev`; register those keyed entries so it
@@ -26308,6 +26481,7 @@ def ContractDecl.constructorFunctionFromOrders?
           allContracts sourceUsingDecls baseArgUsingDecls storageNames
           constants stateEnv externalCallKindEnv modifiers availableFunctions
           sourceFunctions eventArgEnv errorArgEnv internalFnIds eventIndexedEnv
+          (contractEvents ++ visibleSourceEvents)
           targetName supplyingParams baseArgs decl)
       storageOrder
   -- `pieces` are in storage order (base->derived). Reproduce solc's LEGACY

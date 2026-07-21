@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/event-overload/out"
+cache_path = "../../.foundry-suites/event-overload/cache"
+evm_version = "cancun"

@@ -13660,6 +13660,44 @@
      }
     ]
    }
+  },
+  {
+   "name": "event-overload",
+   "description": "Soundness gap: the runtime event table was keyed by event NAME only, but solc allows same-contract event overloads (event E(uint256) / event E(address)) and resolves each emit by argument types. With name-only keying, emit E(addr) bound the earlier E(uint256) decl -> topic0 = keccak of the WRONG canonical signature. The lowering now rewrites overloaded bare-name emits to canonical-signature table keys and the assembly registers signature-keyed entries. Forge pins the real solc/EVM topic0+data for both overloads; Lean imports the same source and matches both logs.",
+   "forge": {
+    "root": "tests/forge-harness/event-overload",
+    "match_contract": "EventOverloadForgeTest",
+    "match_test": "test*",
+    "quiet": true
+   },
+   "solc_import": {
+    "source": "tests/forge-harness/event-overload/src/EventOverload.sol",
+    "contract": "EventOverloadHarnessTarget",
+    "namespace": "SolidCore.Solidity.SolcAstImport.EventOverload"
+   },
+   "lean": {
+    "imports": [
+     "SolidCore.Solidity.Checked",
+     "SolidCore.Witness.Checked"
+    ],
+    "evals": [
+     {
+      "label": "importedContractAccepted",
+      "expr": "SolidCore.Solidity.SolcAstImport.EventOverload.importedContractAccepted",
+      "expect": "true"
+     },
+     {
+      "label": "importedFireWordUsesUintOverload",
+      "expr": "(do\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 64 SolidCore.Solidity.SolcAstImport.EventOverload.importedContract (SolidCore.Solidity.Source.CallTarget.name \"fireWord\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned state [] =>\n      match state.events with\n      | [event] =>\n          Except.ok\n            (event.topics == [SolidCore.Solidity.Source.Keccak.digestWord \"E(uint256)\"] &&\n              event.dataBytes == SolidCore.Solidity.Source.wordToBytesBE 32 5)\n      | _ => Except.ok false\n  | _ => Except.ok false)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "importedFireAddrUsesAddressOverload",
+      "expr": "(do\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 64 SolidCore.Solidity.SolcAstImport.EventOverload.importedContract (SolidCore.Solidity.Source.CallTarget.name \"fireAddr\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0xabcd]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned state [] =>\n      match state.events with\n      | [event] =>\n          Except.ok\n            (event.topics == [SolidCore.Solidity.Source.Keccak.digestWord \"E(address)\"] &&\n              event.dataBytes == SolidCore.Solidity.Source.wordToBytesBE 32 0xabcd)\n      | _ => Except.ok false\n  | _ => Except.ok false)",
+      "expect": "Except.ok true"
+     }
+    ]
+   }
   }
  ]
 }
