@@ -14240,7 +14240,7 @@
           },
           {
             "label": "libraryDispatchSelectorsQualifiedPinned",
-            "expr": "(do\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.LibraryQualifiedSelectors.importedSourceUnit\n  let lib \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"Lib\"\n  let selectors := lib.core.functions.filterMap (fun f => f.selector?)\n  Except.ok (selectors.contains 0x02952002 && selectors.contains 0xbbf15d5e && selectors.contains 0x83a5a0de && !selectors.contains 0xac2ecd48 && !selectors.contains 0xd94fe832 && !selectors.contains 0x2a607935))",
+            "expr": "(do\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.LibraryQualifiedSelectors.importedSourceUnit\n  let lib \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"Lib\"\n  let selectors := lib.core.functions.filterMap SolidCore.Solidity.Source.FunctionDef.selector?\n  Except.ok (selectors.contains 0x02952002 && selectors.contains 0xbbf15d5e && selectors.contains 0x83a5a0de && !selectors.contains 0xac2ecd48 && !selectors.contains 0xd94fe832 && !selectors.contains 0x2a607935))",
             "expect": "Except.ok true"
           },
           {
@@ -14290,7 +14290,7 @@
           },
           {
             "label": "overloadDispatchSelectorsDistinctQualified",
-            "expr": "(do\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.LibraryEnumOverloads.importedSourceUnit\n  let lib \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"OvLib\"\n  let selectors := lib.core.functions.filterMap (fun f => f.selector?)\n  Except.ok (selectors.contains (SolidCore.Solidity.Source.ABI.selectorFromSignature \"f(OvLib.EnumA)\") && selectors.contains (SolidCore.Solidity.Source.ABI.selectorFromSignature \"f(OvLib.EnumB)\")))",
+            "expr": "(do\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.LibraryEnumOverloads.importedSourceUnit\n  let lib \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"OvLib\"\n  let selectors := lib.core.functions.filterMap SolidCore.Solidity.Source.FunctionDef.selector?\n  Except.ok (selectors.contains (SolidCore.Solidity.Source.ABI.selectorFromSignature \"f(OvLib.EnumA)\") && selectors.contains (SolidCore.Solidity.Source.ABI.selectorFromSignature \"f(OvLib.EnumB)\")))",
             "expect": "Except.ok true"
           },
           {

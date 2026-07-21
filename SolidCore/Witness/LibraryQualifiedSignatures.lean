@@ -1,3 +1,6 @@
+import SolidCore.Solidity.Checked
+import SolidCore.Witness.TypeCheck
+
 /-!
 BUG#6 witnesses: LIBRARY-qualified signature rendering (solc 0.8.35-verified).
 
@@ -17,8 +20,6 @@ solc-ACCEPTED (distinct qualified signatures), while the same pair at
 CONTRACT level collides in the external ABI (both `uint8`) and is REJECTED
 ("Function overload clash during conversion to external types").
 -/
-import SolidCore.Solidity.Checked
-import SolidCore.Witness.TypeCheck
 
 namespace SolidCore
 namespace Solidity
@@ -87,7 +88,7 @@ def libDispatchSelectorsQualified : Bool :=
   match (do
       let program ← CheckedInput.program libSource
       let lib ← CheckedProgram.contract program "Lib"
-      let selectors := lib.core.functions.filterMap (fun f => f.selector?)
+      let selectors := lib.core.functions.filterMap SolidCore.Solidity.Source.FunctionDef.selector?
       Except.ok
         (selectors.contains 0x02952002 &&
           selectors.contains 0xbbf15d5e &&
@@ -130,7 +131,7 @@ def libraryEnumOverloadSelectorsDistinct : Bool :=
   match (do
       let program ← CheckedInput.program libraryOverloadSource
       let lib ← CheckedProgram.contract program "OvLib"
-      let selectors := lib.core.functions.filterMap (fun f => f.selector?)
+      let selectors := lib.core.functions.filterMap SolidCore.Solidity.Source.FunctionDef.selector?
       Except.ok
         (selectors.contains
             (SolidCore.Solidity.Source.ABI.selectorFromSignature
