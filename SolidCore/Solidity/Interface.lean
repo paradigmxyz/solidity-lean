@@ -11572,7 +11572,16 @@ end
 
 def Parameter.matchesArg? (env : TypeEnv) (param : Parameter)
     (arg : Expr) : Option Bool := do
-  let argTy ← Expr.abiTyWithEnv? env arg
+  let argTy ←
+    match arg with
+    -- Overload selection: an ENUM-typed argument (a member literal `E.B` or an
+    -- explicit conversion `E(x)`, both lowered to `enumFromUInt` by
+    -- `resolveEnums`) selects candidates as its ENUM type, exactly as solc
+    -- binds it. `abiTy?` reflects `enumFromUInt` as its underlying `uint 8`
+    -- (the ABI/packing width, #178); letting that leak into candidate
+    -- selection bound `f(uint8)` over `f(E)` — a wrong-callee soundness bug.
+    | Expr.enumFromUInt maxValue _ => some (Ty.enum maxValue)
+    | _ => Expr.abiTyWithEnv? env arg
   some (Ty.matchesShape argTy param.ty)
 
 def Parameter.matchesArgAllowingInternalFunctionName?
@@ -22491,30 +22500,60 @@ def FunctionDecls.rewriteLibraryDirectCallCandidateFrom?
           FunctionDecls.rewriteLibraryDirectCallCandidateFrom?
             libraryName method env args (index + 1) rest
 
-/-- Arity-only fallback: accept a candidate whose args merely order against
-    its params, without the shape gate. -/
+/-- Arity-fallback TYPE SAFETY: a candidate is EXCLUDED only when an
+    argument's type is KNOWN and DEFINITELY mismatches a resolved parameter
+    type. Untypeable arguments (the gate returns `none`) and unresolved
+    `Ty.user` parameters cannot be disproven, so they stay compatible — this
+    keeps the decf368 coverage win (shapes the gate does not model still
+    rewrite) while stopping the fallback from binding a same-arity overload
+    whose parameter types are incompatible with the arguments (wrong-callee
+    soundness bug). -/
+def Parameter.arityFallbackCompatible (env : TypeEnv)
+    (param : Parameter) (arg : Expr) : Bool :=
+  match param.ty with
+  | Ty.user _ => true
+  | _ =>
+      match Parameter.matchesArgAllowingInternalFunctionName? env param arg with
+      | some false => false
+      | _ => true
+
+def Parameters.arityFallbackCompatible (env : TypeEnv) :
+    List Parameter -> List Expr -> Bool
+  | [], [] => true
+  | param :: params, arg :: args =>
+      Parameter.arityFallbackCompatible env param arg &&
+        Parameters.arityFallbackCompatible env params args
+  | _, _ => false
+
+/-- Arity fallback: accept a candidate whose args order against its params
+    without the exact shape gate, EXCLUDING candidates whose param types are
+    definitely incompatible with the args
+    (`Parameters.arityFallbackCompatible`). -/
 def FunctionDecl.rewriteLibraryDirectCallCandidateByArity?
-    (args : List Arg) (helperName : Name)
+    (env : TypeEnv) (args : List Arg) (helperName : Name)
     (fn : FunctionDecl) : Option Expr := do
   let orderedArgs ← Args.toExprsForParams? fn.params args
-  some <|
-    FunctionDecl.annotateSingleCoreReturn fn
-      (Expr.call (Expr.ident helperName)
-        (orderedArgs.map Arg.positional))
+  if Parameters.arityFallbackCompatible env fn.params orderedArgs then
+    some <|
+      FunctionDecl.annotateSingleCoreReturn fn
+        (Expr.call (Expr.ident helperName)
+          (orderedArgs.map Arg.positional))
+  else
+    none
 
 def FunctionDecls.rewriteLibraryDirectCallCandidateByArityFrom?
-    (libraryName method : Name) (args : List Arg)
+    (libraryName method : Name) (env : TypeEnv) (args : List Arg)
     (index : Nat) : List FunctionDecl -> Option Expr
   | [] => none
   | fn :: rest =>
       let helperName := libraryHelperNameForIndex libraryName method index
       match
           FunctionDecl.rewriteLibraryDirectCallCandidateByArity?
-            args helperName fn with
+            env args helperName fn with
       | some rewritten => some rewritten
       | none =>
           FunctionDecls.rewriteLibraryDirectCallCandidateByArityFrom?
-            libraryName method args (index + 1) rest
+            libraryName method env args (index + 1) rest
 
 def FunctionDecls.rewriteLibraryDirectCallCandidate?
     (libraryName method : Name) (env : TypeEnv) (args : List Arg)
@@ -22526,10 +22565,11 @@ def FunctionDecls.rewriteLibraryDirectCallCandidate?
   | none =>
       -- The shape gate lacks the arity fallback the contract-internal path
       -- (`findInternalCalleeWithArgs?`) has, so shapes it does not model
-      -- (e.g. an explicit enum-conversion argument reported as its
-      -- underlying uint) would otherwise leave the call unrewritten.
+      -- would otherwise leave the call unrewritten. The fallback is
+      -- type-safe: definitely-incompatible same-arity overloads are excluded
+      -- (`Parameters.arityFallbackCompatible`).
       FunctionDecls.rewriteLibraryDirectCallCandidateByArityFrom?
-        libraryName method args 0 candidates
+        libraryName method env args 0 candidates
 
 def libraryDirectCallRewrite? (contracts : List ContractDecl)
     (env : TypeEnv) (receiver : Expr) (method : Name)
@@ -22582,30 +22622,34 @@ def FunctionDecls.rewriteLibraryExternalDirectCallCandidateFrom?
           FunctionDecls.rewriteLibraryExternalDirectCallCandidateFrom?
             libraryName method env args rest
 
-/-- Stage-4 (decf368 twin, external/public direct path): arity-only fallback —
-    accept a candidate whose args merely order against its params, without the
-    shape gate. -/
+/-- Stage-4 (decf368 twin, external/public direct path): arity fallback —
+    accept a candidate whose args order against its params without the exact
+    shape gate, EXCLUDING definitely-incompatible candidates
+    (`Parameters.arityFallbackCompatible`). -/
 def FunctionDecl.rewriteLibraryExternalDirectCallCandidateByArity?
-    (libraryName method : Name) (args : List Arg)
+    (libraryName method : Name) (env : TypeEnv) (args : List Arg)
     (fn : FunctionDecl) : Option Expr := do
   let orderedArgs ← Args.toExprsForParams? fn.params args
-  some <|
-    FunctionDecl.annotateSingleCoreReturn fn
-      (Expr.call (libraryExternalCallTarget libraryName method)
-        (orderedArgs.map Arg.positional))
+  if Parameters.arityFallbackCompatible env fn.params orderedArgs then
+    some <|
+      FunctionDecl.annotateSingleCoreReturn fn
+        (Expr.call (libraryExternalCallTarget libraryName method)
+          (orderedArgs.map Arg.positional))
+  else
+    none
 
 def FunctionDecls.rewriteLibraryExternalDirectCallCandidateByArityFrom?
-    (libraryName method : Name) (args : List Arg) :
+    (libraryName method : Name) (env : TypeEnv) (args : List Arg) :
     List FunctionDecl -> Option Expr
   | [] => none
   | fn :: rest =>
       match
           FunctionDecl.rewriteLibraryExternalDirectCallCandidateByArity?
-            libraryName method args fn with
+            libraryName method env args fn with
       | some rewritten => some rewritten
       | none =>
           FunctionDecls.rewriteLibraryExternalDirectCallCandidateByArityFrom?
-            libraryName method args rest
+            libraryName method env args rest
 
 def FunctionDecls.rewriteLibraryExternalDirectCallCandidate?
     (libraryName method : Name) (env : TypeEnv) (args : List Arg)
@@ -22620,9 +22664,11 @@ def FunctionDecls.rewriteLibraryExternalDirectCallCandidate?
       -- library path (decf368) have, so shapes it does not model (e.g. an
       -- explicit enum-conversion argument reported as its underlying uint)
       -- would otherwise leave a `public`/`external` library direct call
-      -- unrewritten — poisoning the whole contract's elaboration.
+      -- unrewritten — poisoning the whole contract's elaboration. The
+      -- fallback is type-safe: definitely-incompatible same-arity overloads
+      -- are excluded (`Parameters.arityFallbackCompatible`).
       FunctionDecls.rewriteLibraryExternalDirectCallCandidateByArityFrom?
-        libraryName method args candidates
+        libraryName method env args candidates
 
 def libraryExternalDirectCallRewrite? (contracts : List ContractDecl)
     (env : TypeEnv) (receiver : Expr) (method : Name)
