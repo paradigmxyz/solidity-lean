@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/fnvalue-shadowing/out"
+cache_path = "../../.foundry-suites/fnvalue-shadowing/cache"
+evm_version = "cancun"

@@ -11347,9 +11347,17 @@ Positions: everywhere except the callee slot of `Expr.call`/`callWithOptions`
 residue): a contract-member key is the plain member name; a library-member key
 is the mangled library-helper name (a library's internal helper is elaborated
 under `libraryHelperName`, not its bare name), so both keys are probed against
-the numbering candidates. Locals shadowing a function name would be
-mis-collected, but solc rejects local shadowing, so typechecked inputs cannot
-contain it. -/
+the numbering candidates.
+
+LEXICAL SCOPE (shadowing soundness fix): solc only WARNS on a param/local/
+for-binding shadowing a function name, and resolves the identifier to the
+NEAREST declaration — the local always wins in value position. Both the
+collector and the rewriter therefore thread the set of locally BOUND names
+(function params and named returns, local `varDecl` bindings with C99 block
+scoping — in scope from the declaration to the end of its enclosing block —
+for-loop init bindings scoping over cond/post/body, and try/catch clause
+bindings): a bound identifier is NEVER treated as a function-value reference,
+and the same name is a function value again after the shadowing block ends. -/
 
 /-- Mangled name a library internal helper is elaborated under (kept in sync
     with `libraryHelperName`, defined later for the library-call surface). The
@@ -11368,11 +11376,25 @@ def memberFnValueKeys : Expr -> Name -> List Name
       | none => [member]
   | _, _ => []
 
-def Expr.collectInternalFnValueIdentsFuel (candidates : List Name) :
+/-- Names a statement binds for its FOLLOWING siblings (C99 block scoping):
+    only a local variable declaration introduces such bindings. -/
+def Stmt.localBindingNames : Stmt -> List Name
+  | Stmt.varDecl bindings _ => bindings.filterMap (fun b => b.name)
+  | _ => []
+
+def Parameters.boundNames (params : List Parameter) : List Name :=
+  params.filterMap (fun p => p.name)
+
+/-- Names bound over a function body before any statement runs: the params and
+    the named return variables. -/
+def FunctionDecl.fnValueScopeBoundNames (fn : FunctionDecl) : List Name :=
+  Parameters.boundNames fn.params ++ Parameters.boundNames fn.returns
+
+def Expr.collectInternalFnValueIdentsFuel (candidates bound : List Name) :
     Nat -> Expr -> List Name
   | 0, _ => []
   | fuel + 1, expr =>
-      let go := Expr.collectInternalFnValueIdentsFuel candidates fuel
+      let go := Expr.collectInternalFnValueIdentsFuel candidates bound fuel
       let goArg : Arg -> List Name
         | Arg.positional value => go value
         | Arg.named _ value => go value
@@ -11382,7 +11404,12 @@ def Expr.collectInternalFnValueIdentsFuel (candidates : List Name) :
         | TupleItem.hole => []
         | TupleItem.value value => go value
       match expr with
-      | Expr.ident name => if candidates.contains name then [name] else []
+      | Expr.ident name =>
+          -- A locally BOUND name (param/named return/local/for-binding in
+          -- scope) is the LOCAL, never a function-value reference (solc
+          -- resolves the nearest declaration; shadowing soundness fix).
+          if candidates.contains name && !bound.contains name then [name]
+          else []
       | Expr.call fn args =>
           (match fn with
             | Expr.ident _ => []
@@ -11422,16 +11449,26 @@ def Expr.collectInternalFnValueIdentsFuel (candidates : List Name) :
       | Expr.payableConversion value => go value
       | _ => []
 
-def Stmt.collectInternalFnValueIdentsFuel (candidates : List Name) :
+def Stmt.collectInternalFnValueIdentsFuel (candidates bound : List Name) :
     Nat -> Stmt -> List Name
   | 0, _ => []
   | fuel + 1, stmt =>
-      let goE := Expr.collectInternalFnValueIdentsFuel candidates (fuel + 1)
-      let goS := Stmt.collectInternalFnValueIdentsFuel candidates fuel
+      let goE := Expr.collectInternalFnValueIdentsFuel candidates bound (fuel + 1)
+      let goS := Stmt.collectInternalFnValueIdentsFuel candidates bound fuel
       let goClause : CatchClause -> List Name
-        | CatchClause.clause _ _ body => goS body
+        | CatchClause.clause _ params body =>
+            Stmt.collectInternalFnValueIdentsFuel candidates
+              (bound ++ Parameters.boundNames params) fuel body
       match stmt with
-      | Stmt.block stmts => concatMapList goS stmts
+      | Stmt.block stmts =>
+          -- C99 block scoping: a varDecl's bindings shadow for the FOLLOWING
+          -- statements of this block only.
+          (stmts.foldl
+            (fun (acc : List Name × List Name) s =>
+              (acc.1 ++
+                  Stmt.collectInternalFnValueIdentsFuel candidates acc.2 fuel s,
+                acc.2 ++ Stmt.localBindingNames s))
+            ([], bound)).1
       | Stmt.varDecl _ init =>
           (match init with | some e => goE e | none => [])
       | Stmt.expr e => goE e
@@ -11441,12 +11478,25 @@ def Stmt.collectInternalFnValueIdentsFuel (candidates : List Name) :
       | Stmt.whileLoop cond body => goE cond ++ goS body
       | Stmt.doWhile body cond => goS body ++ goE cond
       | Stmt.forLoop init cond post body =>
+          -- The for-init's bindings scope over cond/post/body.
+          let boundIn :=
+            bound ++
+              (match init with
+                | some i => Stmt.localBindingNames i
+                | none => [])
+          let goEIn :=
+            Expr.collectInternalFnValueIdentsFuel candidates boundIn (fuel + 1)
+          let goSIn :=
+            Stmt.collectInternalFnValueIdentsFuel candidates boundIn fuel
           (match init with | some i => goS i | none => []) ++
-            (match cond with | some c => goE c | none => []) ++
-            (match post with | some e => goE e | none => []) ++ goS body
+            (match cond with | some c => goEIn c | none => []) ++
+            (match post with | some e => goEIn e | none => []) ++ goSIn body
       | Stmt.tryCatch e clauses => goE e ++ concatMapList goClause clauses
-      | Stmt.tryCatchReturns e _ success clauses =>
-          goE e ++ goS success ++ concatMapList goClause clauses
+      | Stmt.tryCatchReturns e params success clauses =>
+          goE e ++
+            Stmt.collectInternalFnValueIdentsFuel candidates
+              (bound ++ Parameters.boundNames params) fuel success ++
+            concatMapList goClause clauses
       | Stmt.emitEvent e => goE e
       | Stmt.revertCall e => goE e
       | Stmt.returnValues init =>
@@ -11454,11 +11504,12 @@ def Stmt.collectInternalFnValueIdentsFuel (candidates : List Name) :
       | Stmt.unchecked body => goS body
       | _ => []
 
-def Expr.rewriteInternalFnValueIdentsFuel (ids : List (Name × Nat)) :
+def Expr.rewriteInternalFnValueIdentsFuel (ids : List (Name × Nat))
+    (bound : List Name) :
     Nat -> Expr -> Expr
   | 0, expr => expr
   | fuel + 1, expr =>
-      let go := Expr.rewriteInternalFnValueIdentsFuel ids fuel
+      let go := Expr.rewriteInternalFnValueIdentsFuel ids bound fuel
       let goArg : Arg -> Arg
         | Arg.positional value => Arg.positional (go value)
         | Arg.named name value => Arg.named name (go value)
@@ -11469,9 +11520,13 @@ def Expr.rewriteInternalFnValueIdentsFuel (ids : List (Name × Nat)) :
         | TupleItem.value value => TupleItem.value (go value)
       match expr with
       | Expr.ident name =>
-          (match ids.lookup name with
-            | some id => Expr.literal (Literal.number (toString id))
-            | none => expr)
+          -- A locally BOUND name is the LOCAL, never a function value; leave
+          -- it alone (shadowing soundness fix).
+          if bound.contains name then expr
+          else
+            (match ids.lookup name with
+              | some id => Expr.literal (Literal.number (toString id))
+              | none => expr)
       | Expr.call fn args =>
           Expr.call
             (match fn with
@@ -11512,17 +11567,29 @@ def Expr.rewriteInternalFnValueIdentsFuel (ids : List (Name × Nat)) :
       | Expr.payableConversion value => Expr.payableConversion (go value)
       | _ => expr
 
-def Stmt.rewriteInternalFnValueIdentsFuel (ids : List (Name × Nat)) :
+def Stmt.rewriteInternalFnValueIdentsFuel (ids : List (Name × Nat))
+    (bound : List Name) :
     Nat -> Stmt -> Stmt
   | 0, stmt => stmt
   | fuel + 1, stmt =>
-      let goE := Expr.rewriteInternalFnValueIdentsFuel ids (fuel + 1)
-      let goS := Stmt.rewriteInternalFnValueIdentsFuel ids fuel
+      let goE := Expr.rewriteInternalFnValueIdentsFuel ids bound (fuel + 1)
+      let goS := Stmt.rewriteInternalFnValueIdentsFuel ids bound fuel
       let goClause : CatchClause -> CatchClause
         | CatchClause.clause name params body =>
-            CatchClause.clause name params (goS body)
+            CatchClause.clause name params
+              (Stmt.rewriteInternalFnValueIdentsFuel ids
+                (bound ++ Parameters.boundNames params) fuel body)
       match stmt with
-      | Stmt.block stmts => Stmt.block (stmts.map goS)
+      | Stmt.block stmts =>
+          -- C99 block scoping, mirroring the collector: a varDecl's bindings
+          -- shadow for the FOLLOWING statements of this block only.
+          Stmt.block
+            ((stmts.foldl
+              (fun (acc : List Stmt × List Name) s =>
+                (acc.1 ++
+                    [Stmt.rewriteInternalFnValueIdentsFuel ids acc.2 fuel s],
+                  acc.2 ++ Stmt.localBindingNames s))
+              ([], bound)).1)
       | Stmt.varDecl bindings init => Stmt.varDecl bindings (init.map goE)
       | Stmt.expr e => Stmt.expr (goE e)
       | Stmt.ifElse cond thenBranch elseBranch =>
@@ -11530,11 +11597,22 @@ def Stmt.rewriteInternalFnValueIdentsFuel (ids : List (Name × Nat)) :
       | Stmt.whileLoop cond body => Stmt.whileLoop (goE cond) (goS body)
       | Stmt.doWhile body cond => Stmt.doWhile (goS body) (goE cond)
       | Stmt.forLoop init cond post body =>
-          Stmt.forLoop (init.map goS) (cond.map goE) (post.map goE) (goS body)
+          -- The for-init's bindings scope over cond/post/body.
+          let boundIn :=
+            bound ++
+              (match init with
+                | some i => Stmt.localBindingNames i
+                | none => [])
+          let goEIn := Expr.rewriteInternalFnValueIdentsFuel ids boundIn (fuel + 1)
+          let goSIn := Stmt.rewriteInternalFnValueIdentsFuel ids boundIn fuel
+          Stmt.forLoop (init.map goS) (cond.map goEIn) (post.map goEIn)
+            (goSIn body)
       | Stmt.tryCatch e clauses =>
           Stmt.tryCatch (goE e) (clauses.map goClause)
       | Stmt.tryCatchReturns e params success clauses =>
-          Stmt.tryCatchReturns (goE e) params (goS success)
+          Stmt.tryCatchReturns (goE e) params
+            (Stmt.rewriteInternalFnValueIdentsFuel ids
+              (bound ++ Parameters.boundNames params) fuel success)
             (clauses.map goClause)
       | Stmt.emitEvent e => Stmt.emitEvent (goE e)
       | Stmt.revertCall e => Stmt.revertCall (goE e)
@@ -11543,9 +11621,11 @@ def Stmt.rewriteInternalFnValueIdentsFuel (ids : List (Name × Nat)) :
       | _ => stmt
 
 def Stmt.rewriteInternalFnValueIdents (ids : List (Name × Nat))
-    (stmt : Stmt) : Stmt :=
+    (bound : List Name) (stmt : Stmt) : Stmt :=
   if ids.isEmpty then stmt
-  else Stmt.rewriteInternalFnValueIdentsFuel ids defaultInlineConstantsFuel stmt
+  else
+    Stmt.rewriteInternalFnValueIdentsFuel ids bound
+      defaultInlineConstantsFuel stmt
 
 /-- First-use-order deduplication. -/
 def Names.dedupPreservingOrder (names : List Name) : List Name :=
@@ -11567,6 +11647,7 @@ def FunctionDecls.internalFnValueNumbering
         match fn.body with
         | some body =>
             Stmt.collectInternalFnValueIdentsFuel candidates
+              (FunctionDecl.fnValueScopeBoundNames fn)
               defaultInlineConstantsFuel body
         | none => [])
       fns
@@ -11586,24 +11667,33 @@ def FunctionDecls.internalFnValueNumbering
 def FunctionDecls.internalFnValueNumberingFull
     (candidates : List Name) (fns : List FunctionDecl)
     (modifiers : List SourceModifierDecl)
-    (constructorBodies : List Stmt) : List (Name × Nat) :=
-  let collectBody : Stmt -> List Name :=
-    Stmt.collectInternalFnValueIdentsFuel candidates defaultInlineConstantsFuel
+    (constructors : List FunctionDecl) : List (Name × Nat) :=
+  let collectBody (bound : List Name) : Stmt -> List Name :=
+    Stmt.collectInternalFnValueIdentsFuel candidates bound
+      defaultInlineConstantsFuel
   let fnUses :=
     concatMapList
       (fun (fn : FunctionDecl) =>
         match fn.body with
-        | some body => collectBody body
+        | some body =>
+            collectBody (FunctionDecl.fnValueScopeBoundNames fn) body
         | none => [])
       fns
   let modifierUses :=
     concatMapList
       (fun (m : SourceModifierDecl) =>
         match m.body with
-        | some body => collectBody body
+        | some body => collectBody (Parameters.boundNames m.params) body
         | none => [])
       modifiers
-  let constructorUses := concatMapList collectBody constructorBodies
+  let constructorUses :=
+    concatMapList
+      (fun (ctor : FunctionDecl) =>
+        match ctor.body with
+        | some body =>
+            collectBody (FunctionDecl.fnValueScopeBoundNames ctor) body
+        | none => [])
+      constructors
   let ordered :=
     Names.dedupPreservingOrder (fnUses ++ modifierUses ++ constructorUses)
   (ordered.zipIdx.map (fun p => (p.fst, p.snd + 1)))
@@ -11779,7 +11869,16 @@ end
 
 def Parameter.matchesArg? (env : TypeEnv) (param : Parameter)
     (arg : Expr) : Option Bool := do
-  let argTy ← Expr.abiTyWithEnv? env arg
+  let argTy ←
+    match arg with
+    -- Overload selection: an ENUM-typed argument (a member literal `E.B` or an
+    -- explicit conversion `E(x)`, both lowered to `enumFromUInt` by
+    -- `resolveEnums`) selects candidates as its ENUM type, exactly as solc
+    -- binds it. `abiTy?` reflects `enumFromUInt` as its underlying `uint 8`
+    -- (the ABI/packing width, #178); letting that leak into candidate
+    -- selection bound `f(uint8)` over `f(E)` — a wrong-callee soundness bug.
+    | Expr.enumFromUInt maxValue _ => some (Ty.enum maxValue)
+    | _ => Expr.abiTyWithEnv? env arg
   some (Ty.matchesShape argTy param.ty)
 
 def Parameter.matchesArgAllowingInternalFunctionName?
@@ -22698,30 +22797,60 @@ def FunctionDecls.rewriteLibraryDirectCallCandidateFrom?
           FunctionDecls.rewriteLibraryDirectCallCandidateFrom?
             libraryName method env args (index + 1) rest
 
-/-- Arity-only fallback: accept a candidate whose args merely order against
-    its params, without the shape gate. -/
+/-- Arity-fallback TYPE SAFETY: a candidate is EXCLUDED only when an
+    argument's type is KNOWN and DEFINITELY mismatches a resolved parameter
+    type. Untypeable arguments (the gate returns `none`) and unresolved
+    `Ty.user` parameters cannot be disproven, so they stay compatible — this
+    keeps the decf368 coverage win (shapes the gate does not model still
+    rewrite) while stopping the fallback from binding a same-arity overload
+    whose parameter types are incompatible with the arguments (wrong-callee
+    soundness bug). -/
+def Parameter.arityFallbackCompatible (env : TypeEnv)
+    (param : Parameter) (arg : Expr) : Bool :=
+  match param.ty with
+  | Ty.user _ => true
+  | _ =>
+      match Parameter.matchesArgAllowingInternalFunctionName? env param arg with
+      | some false => false
+      | _ => true
+
+def Parameters.arityFallbackCompatible (env : TypeEnv) :
+    List Parameter -> List Expr -> Bool
+  | [], [] => true
+  | param :: params, arg :: args =>
+      Parameter.arityFallbackCompatible env param arg &&
+        Parameters.arityFallbackCompatible env params args
+  | _, _ => false
+
+/-- Arity fallback: accept a candidate whose args order against its params
+    without the exact shape gate, EXCLUDING candidates whose param types are
+    definitely incompatible with the args
+    (`Parameters.arityFallbackCompatible`). -/
 def FunctionDecl.rewriteLibraryDirectCallCandidateByArity?
-    (args : List Arg) (helperName : Name)
+    (env : TypeEnv) (args : List Arg) (helperName : Name)
     (fn : FunctionDecl) : Option Expr := do
   let orderedArgs ← Args.toExprsForParams? fn.params args
-  some <|
-    FunctionDecl.annotateSingleCoreReturn fn
-      (Expr.call (Expr.ident helperName)
-        (orderedArgs.map Arg.positional))
+  if Parameters.arityFallbackCompatible env fn.params orderedArgs then
+    some <|
+      FunctionDecl.annotateSingleCoreReturn fn
+        (Expr.call (Expr.ident helperName)
+          (orderedArgs.map Arg.positional))
+  else
+    none
 
 def FunctionDecls.rewriteLibraryDirectCallCandidateByArityFrom?
-    (libraryName method : Name) (args : List Arg)
+    (libraryName method : Name) (env : TypeEnv) (args : List Arg)
     (index : Nat) : List FunctionDecl -> Option Expr
   | [] => none
   | fn :: rest =>
       let helperName := libraryHelperNameForIndex libraryName method index
       match
           FunctionDecl.rewriteLibraryDirectCallCandidateByArity?
-            args helperName fn with
+            env args helperName fn with
       | some rewritten => some rewritten
       | none =>
           FunctionDecls.rewriteLibraryDirectCallCandidateByArityFrom?
-            libraryName method args (index + 1) rest
+            libraryName method env args (index + 1) rest
 
 def FunctionDecls.rewriteLibraryDirectCallCandidate?
     (libraryName method : Name) (env : TypeEnv) (args : List Arg)
@@ -22733,10 +22862,11 @@ def FunctionDecls.rewriteLibraryDirectCallCandidate?
   | none =>
       -- The shape gate lacks the arity fallback the contract-internal path
       -- (`findInternalCalleeWithArgs?`) has, so shapes it does not model
-      -- (e.g. an explicit enum-conversion argument reported as its
-      -- underlying uint) would otherwise leave the call unrewritten.
+      -- would otherwise leave the call unrewritten. The fallback is
+      -- type-safe: definitely-incompatible same-arity overloads are excluded
+      -- (`Parameters.arityFallbackCompatible`).
       FunctionDecls.rewriteLibraryDirectCallCandidateByArityFrom?
-        libraryName method args 0 candidates
+        libraryName method env args 0 candidates
 
 def libraryDirectCallRewrite? (contracts : List ContractDecl)
     (env : TypeEnv) (receiver : Expr) (method : Name)
@@ -22789,30 +22919,34 @@ def FunctionDecls.rewriteLibraryExternalDirectCallCandidateFrom?
           FunctionDecls.rewriteLibraryExternalDirectCallCandidateFrom?
             libraryName method env args rest
 
-/-- Stage-4 (decf368 twin, external/public direct path): arity-only fallback —
-    accept a candidate whose args merely order against its params, without the
-    shape gate. -/
+/-- Stage-4 (decf368 twin, external/public direct path): arity fallback —
+    accept a candidate whose args order against its params without the exact
+    shape gate, EXCLUDING definitely-incompatible candidates
+    (`Parameters.arityFallbackCompatible`). -/
 def FunctionDecl.rewriteLibraryExternalDirectCallCandidateByArity?
-    (libraryName method : Name) (args : List Arg)
+    (libraryName method : Name) (env : TypeEnv) (args : List Arg)
     (fn : FunctionDecl) : Option Expr := do
   let orderedArgs ← Args.toExprsForParams? fn.params args
-  some <|
-    FunctionDecl.annotateSingleCoreReturn fn
-      (Expr.call (libraryExternalCallTarget libraryName method)
-        (orderedArgs.map Arg.positional))
+  if Parameters.arityFallbackCompatible env fn.params orderedArgs then
+    some <|
+      FunctionDecl.annotateSingleCoreReturn fn
+        (Expr.call (libraryExternalCallTarget libraryName method)
+          (orderedArgs.map Arg.positional))
+  else
+    none
 
 def FunctionDecls.rewriteLibraryExternalDirectCallCandidateByArityFrom?
-    (libraryName method : Name) (args : List Arg) :
+    (libraryName method : Name) (env : TypeEnv) (args : List Arg) :
     List FunctionDecl -> Option Expr
   | [] => none
   | fn :: rest =>
       match
           FunctionDecl.rewriteLibraryExternalDirectCallCandidateByArity?
-            libraryName method args fn with
+            libraryName method env args fn with
       | some rewritten => some rewritten
       | none =>
           FunctionDecls.rewriteLibraryExternalDirectCallCandidateByArityFrom?
-            libraryName method args rest
+            libraryName method env args rest
 
 def FunctionDecls.rewriteLibraryExternalDirectCallCandidate?
     (libraryName method : Name) (env : TypeEnv) (args : List Arg)
@@ -22827,9 +22961,11 @@ def FunctionDecls.rewriteLibraryExternalDirectCallCandidate?
       -- library path (decf368) have, so shapes it does not model (e.g. an
       -- explicit enum-conversion argument reported as its underlying uint)
       -- would otherwise leave a `public`/`external` library direct call
-      -- unrewritten — poisoning the whole contract's elaboration.
+      -- unrewritten — poisoning the whole contract's elaboration. The
+      -- fallback is type-safe: definitely-incompatible same-arity overloads
+      -- are excluded (`Parameters.arityFallbackCompatible`).
       FunctionDecls.rewriteLibraryExternalDirectCallCandidateByArityFrom?
-        libraryName method args candidates
+        libraryName method env args candidates
 
 def libraryExternalDirectCallRewrite? (contracts : List ContractDecl)
     (env : TypeEnv) (receiver : Expr) (method : Name)
@@ -23593,7 +23729,9 @@ def FunctionDecl.toCore? (storageNames : List Name) (constants : ConstantEnv)
   -- VALUES after alias inlining (fn-ptr state vars, data-dependent locals,
   -- fn-typed arguments/returns) become their dispatch-ID literals; the
   -- statically-aliasable local uses were already inlined above (status quo).
-  let body := Stmt.rewriteInternalFnValueIdents internalFnIds body
+  let body :=
+    Stmt.rewriteInternalFnValueIdents internalFnIds
+      (FunctionDecl.fnValueScopeBoundNames decl) body
   -- Modifier bodies are inlined into this function during core elaboration
   -- (`functionExpandModifiersToCoreWithInternalCallsFull?`), AFTER the body
   -- rewrite above; rewrite their fn-value uses here too so a function-pointer
@@ -23604,7 +23742,9 @@ def FunctionDecl.toCore? (storageNames : List Name) (constants : ConstantEnv)
       (fun modifier =>
         { modifier with
           body :=
-            modifier.body.map (Stmt.rewriteInternalFnValueIdents internalFnIds) })
+            modifier.body.map
+              (Stmt.rewriteInternalFnValueIdents internalFnIds
+                (Parameters.boundNames modifier.params)) })
   -- Reference-signature extension: a `T storage` RETURN is a storage pointer the
   -- body re-points (`result = x`, or `return x` rewritten to `result = x;
   -- return;`). The inline-splice path registered returns in its storageRefEnv and
@@ -25692,7 +25832,9 @@ def ContractDecl.constructorBodyForDeployment?
       -- residue). `internalFnIds` is the SAME numbering the runtime dispatch
       -- table is stamped with, so the ID the constructor writes into storage
       -- dispatches to the intended function post-deployment.
-      let body := Stmt.rewriteInternalFnValueIdents internalFnIds body
+      let body :=
+        Stmt.rewriteInternalFnValueIdents internalFnIds
+          (FunctionDecl.fnValueScopeBoundNames ctor) body
       let modifiers :=
         modifiers.map
           (fun modifier =>
@@ -25700,7 +25842,8 @@ def ContractDecl.constructorBodyForDeployment?
               body :=
                 (modifier.body.map
                   (Stmt.resolveNamedEventErrorArgs eventArgEnv errorArgEnv)).map
-                  (Stmt.rewriteInternalFnValueIdents internalFnIds) })
+                  (Stmt.rewriteInternalFnValueIdents internalFnIds
+                    (Parameters.boundNames modifier.params)) })
       -- EVENT-OVERLOAD (soundness): rewrite overloaded bare-name emits in the
       -- constructor body (and its modifier bodies) to their signature keys,
       -- exactly as ordinary function bodies get.
@@ -26101,13 +26244,11 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
   -- value ONLY inside a modifier or constructor still gets a dispatch ID and a
   -- table stamp (boundary-completion arc, ctor/modifier residue). The
   -- constructor elaboration path numbers with identical arguments.
-  let constructorBodies : List Stmt :=
-    concatMapList
-      (fun d => (ContractDecl.directConstructors d).filterMap FunctionDecl.body)
-      dispatchOrder
+  let constructorDecls : List FunctionDecl :=
+    concatMapList ContractDecl.directConstructors dispatchOrder
   let internalFnIds :=
     FunctionDecls.internalFnValueNumberingFull fnIdCandidates ordinaryFunctions
-      modifiers constructorBodies
+      modifiers constructorDecls
   let contractEvents := concatMapList ContractDecl.directEvents dispatchOrder
   let visibleSourceEvents := EventDecls.withoutNamesOf contractEvents sourceEvents
   let contractErrors := concatMapList ContractDecl.directErrors dispatchOrder
@@ -26662,13 +26803,11 @@ def ContractDecl.constructorFunctionFromOrders?
   let fnIdCandidates :=
     ((availableFunctions ++ sourceFunctions).filterMap FunctionDecl.name).filter
       (fun n => !storageNames.contains n)
-  let constructorBodies : List Stmt :=
-    concatMapList
-      (fun d => (ContractDecl.directConstructors d).filterMap FunctionDecl.body)
-      dispatchOrder
+  let constructorDecls : List FunctionDecl :=
+    concatMapList ContractDecl.directConstructors dispatchOrder
   let internalFnIds :=
     FunctionDecls.internalFnValueNumberingFull fnIdCandidates ordinaryFunctions
-      modifiers constructorBodies
+      modifiers constructorDecls
   let contractEvents := concatMapList ContractDecl.directEvents dispatchOrder
   let visibleSourceEvents := EventDecls.withoutNamesOf contractEvents sourceEvents
   let contractErrors := concatMapList ContractDecl.directErrors dispatchOrder
