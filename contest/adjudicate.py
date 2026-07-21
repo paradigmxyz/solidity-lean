@@ -353,6 +353,14 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
                 _src_for(submission.sources, entry["contract"], tools.solc)
                 or submission.sources[0], entry["contract"], entry["function"],
                 tools.solc)
+        except OSError as exc:
+            # missing/broken solc binary etc. — INFRA, not a malformed
+            # submission (release audit: never terminally reject on a broken
+            # toolchain).
+            return Report("NEEDS_REVIEW", reason=(
+                f"toolchain failure resolving the entry signature ({exc}); "
+                "infra issue — retry, not evidence against the submission"),
+                evidence=evidence)
         except Exception as exc:
             return Report("REJECT_MALFORMED", reason=(
                 f"could not resolve entry signature: {exc}"), evidence=evidence)
@@ -461,6 +469,13 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
     env_ov.value = val
     try:
         src_asts = gate.get_source_asts(submission.sources, tools.solc)
+    except OSError as exc:
+        # missing/broken solc binary etc. — INFRA (release audit): route to
+        # review instead of a terminal reject.
+        return Report("NEEDS_REVIEW", reason=(
+            f"toolchain failure running solc on the sources ({exc}); infra "
+            "issue — retry, not evidence against the submission"),
+            evidence=evidence)
     except Exception as exc:  # solc failure on adversarial source (finding 5)
         if over_accept:
             # An OVER_ACCEPT program is solc-rejected BY DEFINITION, so the

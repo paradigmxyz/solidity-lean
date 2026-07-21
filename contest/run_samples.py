@@ -723,7 +723,14 @@ def infra_fail_routing_test(timeout: int = 120) -> tuple[bool, str]:
     report = adj.adjudicate(SAMPLES / "no_divergence", tools=tools,
                             timeout=timeout)
     ok = report.verdict == "NEEDS_REVIEW"
-    detail = f"verdict={report.verdict} :: {report.reason[:160]}"
+    # missing SOLC is equally infra: NEEDS_REVIEW, never a terminal
+    # REJECT_MALFORMED (and never an uncaught crash).
+    tools2 = hb.ToolPaths(solc="/nonexistent/solc-binary-for-infra-test")
+    report2 = adj.adjudicate(SAMPLES / "no_divergence", tools=tools2,
+                             timeout=timeout)
+    ok = ok and report2.verdict == "NEEDS_REVIEW"
+    detail = (f"forge-missing={report.verdict} solc-missing={report2.verdict} "
+              f":: {report.reason[:120]}")
     return ok, detail
 
 
