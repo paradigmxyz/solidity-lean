@@ -976,6 +976,10 @@ def main() -> int:
     results.append(("false-positive-hardening (unit)", ok, d))
     _print("false-positive-hardening (unit)", ok, d)
 
+    ok, d = ctor_revert_unit_tests()
+    results.append(("ctor-revert measurement/compare (unit)", ok, d))
+    _print("ctor-revert measurement/compare (unit)", ok, d)
+
     ok, d = dedup_replay_unit_tests()
     results.append(("dedup-replay (unit)", ok, d))
     _print("dedup-replay (unit)", ok, d)
@@ -1276,6 +1280,52 @@ def main() -> int:
     ok, d = run_full("ctor_event_probe", "NO_DIVERGENCE")
     results.append(("ctor_event_probe HARDENING (FULL)", ok, d))
     _print("ctor_event_probe HARDENING (FULL)", ok, d)
+
+    # --- CONSTRUCTOR-REVERT lanes: a reverting constructor is a first-class
+    # MEASURED outcome (deployrevert|...), not a NEEDS_REVIEW dead-end. The
+    # measurement harness deploys via low-level CREATE and captures the deploy's
+    # revert data; the model surfaces its own constructor revert with the same
+    # phase-distinct head. Each lane is a parity control (both engines agree ->
+    # NO_DIVERGENCE); a deploy-outcome DISAGREEMENT is exercised by the
+    # deploy-outcome soundness-detector selftest below. The successful-ctor
+    # positive controls are the existing ctor_args / ctor_storage /
+    # ctor_msg_sender / ctor_event_probe lanes (same unified deploy path).
+
+    # Error(string): require(x < 10, "ctor bad") fails on deploy(42) ->
+    # deployrevert|error:ctor bad on BOTH engines.
+    ok, d = run_full("ctor_revert_error", "NO_DIVERGENCE")
+    results.append(("ctor_revert_error CTOR-REVERT (FULL)", ok, d))
+    _print("ctor_revert_error CTOR-REVERT (FULL)", ok, d)
+
+    # Custom error with a scalar arg: revert CtorBad(42) in the constructor ->
+    # deployrevert|custom:CtorBad:w:42 on BOTH engines.
+    ok, d = run_full("ctor_revert_custom", "NO_DIVERGENCE")
+    results.append(("ctor_revert_custom CTOR-REVERT (FULL)", ok, d))
+    _print("ctor_revert_custom CTOR-REVERT (FULL)", ok, d)
+
+    # Panic(0x11): checked 0 - 1 underflow in a NO-ARG constructor (exercises
+    # the empty-ctor-args deploy path) -> deployrevert|panic:17 on BOTH engines.
+    ok, d = run_full("ctor_revert_panic", "NO_DIVERGENCE")
+    results.append(("ctor_revert_panic CTOR-REVERT (FULL)", ok, d))
+    _print("ctor_revert_panic CTOR-REVERT (FULL)", ok, d)
+
+    # Bare revert(): zero-length revert data -> deployrevert|empty on BOTH.
+    ok, d = run_full("ctor_revert_empty", "NO_DIVERGENCE")
+    results.append(("ctor_revert_empty CTOR-REVERT (FULL)", ok, d))
+    _print("ctor_revert_empty CTOR-REVERT (FULL)", ok, d)
+
+    # FAILING BASE constructor: CtorRevertBase is Base(0), Base's require fails
+    # during the deploy -> deployrevert|error:base zero on BOTH engines.
+    ok, d = run_full("ctor_revert_base", "NO_DIVERGENCE")
+    results.append(("ctor_revert_base CTOR-REVERT (FULL)", ok, d))
+    _print("ctor_revert_base CTOR-REVERT (FULL)", ok, d)
+
+    # Deploy-outcome soundness DETECTOR: full live run of ctor_revert_error,
+    # then the measured EVM observable is perturbed to a successful deploy ->
+    # the classifier must bank SOUNDNESS_GAP(deploy-revert-vs-success).
+    ok, d = run_real_deploy_soundness_selftest()
+    results.append(("deploy-outcome-detector (REAL run + injected success)", ok, d))
+    _print("deploy-outcome-detector (REAL run + injected success)", ok, d)
 
     print("\n=== SUMMARY ===")
     all_ok = True
