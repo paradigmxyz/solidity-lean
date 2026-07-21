@@ -7392,6 +7392,20 @@ def Ty.narrowIntCastTarget? : Ty -> Option (Bool × Nat)
   | Ty.int bits => if 0 < bits && bits < 256 then some (true, bits) else none
   | _ => none
 
+/-- SIGNED-LITERAL-WIDE-CAST (SOUNDNESS): a WORD-width (256-bit, including the
+    bare `uint`/`int` spelling `bits = 0`) `uintN`/`intN` conversion target, as
+    its signedness. The complement of `Ty.narrowIntCastTarget?` on the int/uint
+    family — used by the wide-cast arm of `Expr.toCoreAsWithEnvFuel?` to route
+    a signed-literal-mix argument (`uint256(y + 10)`, `int256 y`) through the
+    env-aware typed lowering instead of the env-less fallback (whose untyped
+    literal lowers as an unsigned WORD while the signed local evaluates to a
+    `Value.int` — the interpreter binary arm then typeMismatches → spurious
+    Panic 0x00, where solc+EVM compute the real value). -/
+def Ty.wordIntCastTarget? : Ty -> Option Bool
+  | Ty.uint bits => if bits == 0 || bits == 256 then some false else none
+  | Ty.int bits => if bits == 0 || bits == 256 then some true else none
+  | _ => none
+
 /-- Overflow-relevant arithmetic operators — the ones whose checked evaluation
     can Panic 0x11/0x12 at the operand width. -/
 def BinaryOp.isOverflowArithmetic : BinaryOp -> Bool
@@ -7430,6 +7444,67 @@ def Expr.peelToNarrowNeg? : Expr -> Option Expr
       | some _ => Expr.peelToNarrowNeg? inner
       | none => none
   | _ => none
+
+/-- SIGNED-LITERAL-WIDE-CAST: peel whole-expression WORD-width (`uint256`/
+    `int256`) int conversions off `expr` to reach an arithmetic binary
+    underneath — the wide analogue of `Expr.peelToOverflowArithmetic?`, for the
+    redundant same-type wrapper `annotateAbi` puts around a conversion argument
+    (`uint256(y + 10)` → `uint256(uint256(y + 10))`). Only WIDE casts are
+    stripped: a NARROW inner cast (`uint256(uint8(...))`) truncates and must
+    keep its existing (Direct) lowering. -/
+def Expr.peelToOverflowArithmeticWide? :
+    Expr -> Option (BinaryOp × Expr × Expr)
+  | Expr.binary bop lhs rhs =>
+      if BinaryOp.isOverflowArithmetic bop then some (bop, lhs, rhs) else none
+  | Expr.call (Expr.typeName castTy) [Arg.positional inner] =>
+      match Ty.wordIntCastTarget? castTy with
+      | some _ => Expr.peelToOverflowArithmeticWide? inner
+      | none => none
+  | _ => none
+
+/-- SIGNED-LITERAL-WIDE-CAST: peel whole-expression WORD-width int casts off
+    `expr` to reach a unary `-inner` underneath — the wide analogue of
+    `Expr.peelToNarrowNeg?`. -/
+def Expr.peelToNegWide? : Expr -> Option Expr
+  | Expr.unary UnaryOp.neg inner => some inner
+  | Expr.call (Expr.typeName castTy) [Arg.positional inner] =>
+      match Ty.wordIntCastTarget? castTy with
+      | some _ => Expr.peelToNegWide? inner
+      | none => none
+  | _ => none
+
+/-- SIGNED-LITERAL-WIDE-CAST (SOUNDNESS): does `expr` contain — at any depth
+    through binaries, unary operators, and conversion wrappers — a binary one
+    of whose operands is a RAW untyped number literal while the OTHER operand
+    is SIGNED-typed (`intN`) under `env`? Exactly these mixes break in the
+    env-LESS lowering (`Expr.toCore?`): the untyped literal lowers as an
+    unsigned `word` while the signed operand evaluates to a `Value.int`, so the
+    interpreter's binary arm typeMismatches → spurious Panic 0x00 (adjudicated:
+    `uint256(y + 10)` with `int256 y = 3` Panicked where solc+EVM return 13;
+    `-(y * 2)` / `-(y - z * 2)` likewise). Used as the reroute flag by the
+    wide-cast and wide-negation arms of `Expr.toCoreAsWithEnvFuel?`: every
+    UNFLAGGED expression keeps the byte-identical Direct/env-less path
+    (`uint256(y + z)` two typed operands, `-(y - z)` without a literal,
+    unsigned `uint256(u + 10)` — the literal and the `uint` local both lower
+    as words). -/
+def Expr.hasSignedLiteralOperandMix (env : TypeEnv) : Expr -> Bool
+  | Expr.binary _ lhs rhs =>
+      (Expr.isRawNumberLiteralExpression lhs &&
+        !Expr.isRawNumberLiteralExpression rhs &&
+        (match Expr.abiTyWithEnv? env rhs with
+          | some (Ty.int _) => true
+          | _ => false)) ||
+      (Expr.isRawNumberLiteralExpression rhs &&
+        !Expr.isRawNumberLiteralExpression lhs &&
+        (match Expr.abiTyWithEnv? env lhs with
+          | some (Ty.int _) => true
+          | _ => false)) ||
+      Expr.hasSignedLiteralOperandMix env lhs ||
+      Expr.hasSignedLiteralOperandMix env rhs
+  | Expr.unary _ inner => Expr.hasSignedLiteralOperandMix env inner
+  | Expr.call (Expr.typeName _) [Arg.positional inner] =>
+      Expr.hasSignedLiteralOperandMix env inner
+  | _ => false
 
 /-- TC1: lower an `abi.encode`/`abi.encodePacked` CONDITIONAL argument whose two
     branches are `bytesN` of DIFFERENT widths. The conditional takes the
@@ -8000,6 +8075,98 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
                             Expr.toCoreAsWithEnvDirect?
                               storageNames env targetTy expr)
                    | _, _ =>
+                     -- SIGNED-LITERAL-WIDE-CAST (SOUNDNESS): a WORD-width
+                     -- (`uint256`/`int256`) cast whose argument mixes a RAW
+                     -- untyped literal with a SIGNED operand
+                     -- (`uint256(y + 10)`, `int256 y = 3`) fell through to the
+                     -- env-less lowering, where the literal lowers as an
+                     -- unsigned `word` while the `int` local evaluates to a
+                     -- `Value.int` → interpreter typeMismatch → spurious Panic
+                     -- 0x00 (solc+EVM: 13). Mirror the narrow H2/NEG arms at
+                     -- the 256-bit width: lower the binary through
+                     -- `binaryToCoreWithEnvTypedFuel?` (whose
+                     -- `commonOperandTyWithEnv?` types the literal at the
+                     -- signed common type), apply the operand-width checked
+                     -- cleanup, then the explicit 256-bit cast. Gated on
+                     -- `hasSignedLiteralOperandMix` so every unflagged wide
+                     -- cast (`uint256(y + z)` two typed operands, unsigned
+                     -- `uint256(u + 10)`, bare `uint256(y)`) keeps the
+                     -- byte-identical Direct path.
+                     (match
+                         (match Ty.wordIntCastTarget? castTy with
+                          | some castSigned =>
+                              if Expr.hasSignedLiteralOperandMix env argExpr then
+                                (match Expr.peelToOverflowArithmeticWide? argExpr with
+                                | some (bop, lhs, rhs) =>
+                                    (match Expr.binaryToCoreWithEnvTypedFuel?
+                                          fuel storageNames env bop lhs rhs with
+                                     | some (srcTy, binaryCore) =>
+                                         let checkedBinary :=
+                                           Ty.implicitCleanupCore srcTy binaryCore
+                                         some
+                                           (if castSigned then
+                                             SolidCore.Solidity.Source.Expr.intCast
+                                               256 checkedBinary
+                                           else
+                                             SolidCore.Solidity.Source.Expr.uintCast
+                                               256 checkedBinary)
+                                     | none => none)
+                                | none =>
+                                    (match Expr.peelToNegWide? argExpr with
+                                    | some inner =>
+                                        (match Expr.abiTyWithEnv? env inner with
+                                         | some operandTy =>
+                                             (match operandTy,
+                                                   Expr.toCoreAsWithEnvBitAwareFuel?
+                                                     fuel storageNames env
+                                                     operandTy inner with
+                                              | Ty.int _, some innerCore =>
+                                                  let checkedNeg :=
+                                                    Ty.implicitCleanupCore operandTy
+                                                      (SolidCore.Solidity.Source.Expr.unary
+                                                        SolidCore.Solidity.Source.UnaryOp.neg
+                                                        innerCore)
+                                                  some
+                                                    (if castSigned then
+                                                      SolidCore.Solidity.Source.Expr.intCast
+                                                        256 checkedNeg
+                                                    else
+                                                      SolidCore.Solidity.Source.Expr.uintCast
+                                                        256 checkedNeg)
+                                              | _, _ => none)
+                                         | none => none)
+                                    | none =>
+                                        -- Nested-cast shape: `annotateAbi`
+                                        -- wraps the conversion argument at the
+                                        -- ARGUMENT'S own type, so a NARROW
+                                        -- operand yields `int256(int128(y+10))`
+                                        -- — the wide peeler must NOT strip the
+                                        -- (truncating) narrow cast. Lower the
+                                        -- argument at ITS OWN type through the
+                                        -- env-aware recursion (whose narrow H2
+                                        -- arm checks `y + 10` at int128 and
+                                        -- applies the int128 cast), then apply
+                                        -- the explicit 256-bit conversion.
+                                        (match Expr.abiTyWithEnv? env argExpr with
+                                         | some srcTy =>
+                                             (match
+                                                 Expr.toCoreAsWithEnvBitAwareFuel?
+                                                   fuel storageNames env
+                                                   srcTy argExpr with
+                                              | some innerCore =>
+                                                  some
+                                                    (if castSigned then
+                                                      SolidCore.Solidity.Source.Expr.intCast
+                                                        256 innerCore
+                                                    else
+                                                      SolidCore.Solidity.Source.Expr.uintCast
+                                                        256 innerCore)
+                                              | none => none)
+                                         | none => none)))
+                              else none
+                          | none => none) with
+                      | some coreExpr => some coreExpr
+                      | none =>
                        -- #201 (B/F, cast-of-builtin): an explicit cast whose
                        -- ARGUMENT is an abi/hash/concat builtin carrying narrow
                        -- checked arithmetic
@@ -8022,7 +8189,7 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
                        | some coreExpr => some coreExpr
                        | none =>
                            Expr.toCoreAsWithEnvDirect?
-                             storageNames env targetTy expr)))
+                             storageNames env targetTy expr))))
           | Expr.ternary cond thenExpr elseExpr => do
               let condCore ←
                 Expr.toCoreAsWithEnvFuel? fuel storageNames env Ty.bool cond
@@ -8075,18 +8242,39 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
               -- at full width), as do unsigned operands (unary minus on an unsigned
               -- integer is a type error) and negative number literals (`-5` is not
               -- narrow-typed), all of which keep the existing direct path.
+              -- SIGNED-LITERAL-WIDE-CAST (SOUNDNESS): ALSO reroute a WORD-width
+              -- (`int256`) signed negation whose operand mixes a RAW untyped
+              -- literal with a signed operand (`-(y * 2)`, `-(y - z * 2)` with
+              -- `int256 y, z`) — the Direct/env-less fallback lowers the
+              -- literal as an unsigned `word` against the `Value.int` local →
+              -- interpreter typeMismatch → spurious Panic 0x00 (solc+EVM
+              -- compute the real value). The env-aware operand lowering types
+              -- the literal at the signed common type; the operand-width
+              -- checked cleanup (`intCleanup 256`) keeps the -(int256.min)
+              -- Panic 0x11 exactly as `checkedSignedNeg` did. Unflagged wide
+              -- negations (`-(y - z)`, no literal) keep the byte-identical
+              -- Direct path.
               (match Expr.abiTyWithEnv? env inner with
                | some operandTy =>
-                   (match Ty.narrowIntCastTarget? operandTy,
+                   let reroute :=
+                     match Ty.narrowIntCastTarget? operandTy with
+                     | some (true, _) => true
+                     | some _ => false
+                     | none =>
+                         match Ty.wordIntCastTarget? operandTy with
+                         | some true => Expr.hasSignedLiteralOperandMix env inner
+                         | _ => false
+                   (match (if reroute then
                          Expr.toCoreAsWithEnvFuel?
-                           fuel storageNames env operandTy inner with
-                    | some (true, _), some innerCore =>
+                           fuel storageNames env operandTy inner
+                       else none) with
+                    | some innerCore =>
                         let checkedNeg :=
                           Ty.implicitCleanupCore operandTy
                             (SolidCore.Solidity.Source.Expr.unary
                               SolidCore.Solidity.Source.UnaryOp.neg innerCore)
                         Expr.coreAsFromTy? targetTy operandTy checkedNeg
-                    | _, _ =>
+                    | none =>
                         Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
                | none =>
                    Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
