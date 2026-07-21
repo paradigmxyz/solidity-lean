@@ -14073,6 +14073,64 @@
           }
         ]
       }
+    },
+    {
+      "name": "fnvalue-shadowing",
+      "description": "SOUNDNESS (Bug B): a param/local/for-binding whose name shadows a contract function name was rewritten to that function's internal-dispatch-ID literal in VALUE position -- go(uint256 x){return x+1;} with an internal fn x() returned 2 for go(5) where solc+EVM return 6. Root fix: the fn-value collector and rewriter (collect/rewriteInternalFnValueIdentsFuel) track lexical scope -- names bound by params, named returns, local var decls (C99 block scoping: from the decl to the end of its block), for-loop init bindings, and try/catch bindings are never treated as function-value references; a name is fn-valued again after the shadowing block ends. Controls: a data-dependent function-pointer select (non-shadowing fn-value references) still lowers through dispatch IDs; nested scopes resolve the function again after the inner block.",
+      "forge": {
+        "root": "tests/forge-harness/fnvalue-shadowing",
+        "match_contract": "FnValueShadowingForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/fnvalue-shadowing/src/FnValueShadowing.sol",
+        "contract": "FnValueShadowingHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.FnValueShadowing"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.FnValueShadowing.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "paramShadow",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 256 SolidCore.Solidity.SolcAstImport.FnValueShadowing.importedSourceUnit \"FnValueShadowingHarnessTarget\" \"go\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 5] 6",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "localShadow",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 256 SolidCore.Solidity.SolcAstImport.FnValueShadowing.importedSourceUnit \"FnValueShadowingHarnessTarget\" \"localShadow\" SolidCore.Solidity.Source.State.empty [] 14",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "loopShadow",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 256 SolidCore.Solidity.SolcAstImport.FnValueShadowing.importedSourceUnit \"FnValueShadowingHarnessTarget\" \"loopShadow\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 4] 6",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "nestedScopes",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 256 SolidCore.Solidity.SolcAstImport.FnValueShadowing.importedSourceUnit \"FnValueShadowingHarnessTarget\" \"nestedScopes\" SolidCore.Solidity.Source.State.empty [] 47",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "selectTrue",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 256 SolidCore.Solidity.SolcAstImport.FnValueShadowing.importedSourceUnit \"FnValueShadowingHarnessTarget\" \"select\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 1] 11",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "selectFalse",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 256 SolidCore.Solidity.SolcAstImport.FnValueShadowing.importedSourceUnit \"FnValueShadowingHarnessTarget\" \"select\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0] 22",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }
