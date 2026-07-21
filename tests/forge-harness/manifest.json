@@ -14010,6 +14010,207 @@
           }
         ]
       }
+    },
+    {
+      "name": "exp-literal-base-runtime-exp",
+      "description": "EXP-LITERAL-BASE-RUNTIME-EXPONENT soundness: a LITERAL base with a NON-literal exponent is typed by solc at uint256 (int256 for a negative literal base) -- RationalNumberType::binaryOperatorResult -- not the literal's mobile type. The #164 EXP-NARROW-BASE fix used the mobile type (2 -> uint8), so the checked exp ran at the narrow width and spuriously Panicked 0x11 on `2**e` (e=8; EVM: 256) and `(-2)**e` (e=9; EVM: -512). Fix widens the literal base to 256 bits ONLY when the exponent is non-literal; controls pin the literal-only folds (2**112 Q112, 2**255, -2**255), `1 << e`, a typed signed base `b**e`, narrow typed `x**y` base-width Panic 0x11, and the 256-bit overflow of `2**e` at e=256. Forge pins real solc/EVM values; Lean imports the same source.",
+      "forge": {
+        "root": "tests/forge-harness/exp-literal-base-runtime-exp",
+        "match_contract": "ExpLiteralBaseRuntimeExpForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/exp-literal-base-runtime-exp/src/ExpLiteralBaseRuntimeExp.sol",
+        "contract": "ExpLiteralBaseRuntimeExpTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.ExpLiteralBaseRuntimeExp"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.ExpLiteralBaseRuntimeExp.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "litUint_2p8_is_256",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.ExpLiteralBaseRuntimeExp.importedContract \"litUint\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 8] 256",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "litUint_2p255",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.ExpLiteralBaseRuntimeExp.importedContract \"litUint\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 255] (2 ^ 255)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "litInt_neg2p9_is_neg512",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 256 SolidCore.Solidity.SolcAstImport.ExpLiteralBaseRuntimeExp.importedContract \"litInt\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 9] (SolidCore.Solidity.Shared.signedToWord (-512))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "litInt_neg2p8_is_256",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 256 SolidCore.Solidity.SolcAstImport.ExpLiteralBaseRuntimeExp.importedContract \"litInt\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 8] (SolidCore.Solidity.Shared.signedToWord 256)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "litUintWide_2p256_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 256 SolidCore.Solidity.SolcAstImport.ExpLiteralBaseRuntimeExp.importedContract \"litUintWide\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 256] 17",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "foldQ112",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.ExpLiteralBaseRuntimeExp.importedContract \"foldQ112\" SolidCore.Solidity.Source.State.empty [] (2 ^ 112)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "fold255",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.ExpLiteralBaseRuntimeExp.importedContract \"fold255\" SolidCore.Solidity.Source.State.empty [] (2 ^ 255)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "foldNeg255",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 256 SolidCore.Solidity.SolcAstImport.ExpLiteralBaseRuntimeExp.importedContract \"foldNeg255\" SolidCore.Solidity.Source.State.empty [] (SolidCore.Solidity.Shared.signedToWord (-(2 ^ 255)))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "shiftLit_200",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.ExpLiteralBaseRuntimeExp.importedContract \"shiftLit\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200] (2 ^ 200)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "typedSigned_9_is_neg512",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 256 SolidCore.Solidity.SolcAstImport.ExpLiteralBaseRuntimeExp.importedContract \"typedSigned\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 9] (SolidCore.Solidity.Shared.signedToWord (-512))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "narrowTyped_2_7_is_128",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.ExpLiteralBaseRuntimeExp.importedContract \"narrowTyped\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 2, SolidCore.Solidity.Source.Value.word 7] 128",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "narrowTyped_2_8_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 256 SolidCore.Solidity.SolcAstImport.ExpLiteralBaseRuntimeExp.importedContract \"narrowTyped\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 2, SolidCore.Solidity.Source.Value.word 8] 17",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
+      "name": "signed-literal-wide-cast",
+      "description": "SIGNED-LITERAL-WIDE-CAST soundness: a signed binary with an UNTYPED-literal operand under a WIDE (256-bit) cast (`uint256(y + 10)`) or a unary-minus wrapper (`-(y * 2)`, `-(y - z*2)`) fell to the env-less lowering, where the untyped literal lowers as an unsigned word while the int local evaluates to Value.int -> interpreter typeMismatch -> spurious Panic 0x00 (solc+EVM: 13 / -6 / ...). Fix routes exactly the signed-literal-mix shapes (gated on hasSignedLiteralOperandMix) through the env-aware typed lowering at the 256-bit width; the 256-bit overflow Panic 0x11 (int256.max + 10, -(int256.min * 1), int128 operand width) is preserved. Controls pin `uint256(y + z)` two typed operands, `-(y - z)` no literal, bare `uint256(y)`, and unsigned `uint256(u + 10)`. Forge pins real solc/EVM values; Lean imports the same source.",
+      "forge": {
+        "root": "tests/forge-harness/signed-literal-wide-cast",
+        "match_contract": "SignedLiteralWideCastForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/signed-literal-wide-cast/src/SignedLiteralWideCast.sol",
+        "contract": "SignedLiteralWideCastTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.SignedLiteralWideCast"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.SignedLiteralWideCast.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "castAddLit_3_is_13",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.SignedLiteralWideCast.importedContract \"castAddLit\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (3))] 13",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "castAddLit_neg20_wraps",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.SignedLiteralWideCast.importedContract \"castAddLit\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (-20))] (2 ^ 256 - 10)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "castMulLit_3_is_6",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.SignedLiteralWideCast.importedContract \"castMulLit\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (3))] 6",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "castLitAdd_3_is_13",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.SignedLiteralWideCast.importedContract \"castLitAdd\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (3))] 13",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "castInt128_3_is_13",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 256 SolidCore.Solidity.SolcAstImport.SignedLiteralWideCast.importedContract \"castInt128\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (3))] 13",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "castInt128_neg30_is_neg20",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 256 SolidCore.Solidity.SolcAstImport.SignedLiteralWideCast.importedContract \"castInt128\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (-30))] (SolidCore.Solidity.Shared.signedToWord (-20))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "negMulLit_3_is_neg6",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 256 SolidCore.Solidity.SolcAstImport.SignedLiteralWideCast.importedContract \"negMulLit\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (3))] (SolidCore.Solidity.Shared.signedToWord (-6))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "negNested_3_1_is_neg1",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 256 SolidCore.Solidity.SolcAstImport.SignedLiteralWideCast.importedContract \"negNested\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (3)), SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (1))] (SolidCore.Solidity.Shared.signedToWord (-1))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "castNeg_3_is_neg6",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 256 SolidCore.Solidity.SolcAstImport.SignedLiteralWideCast.importedContract \"castNeg\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (3))] (SolidCore.Solidity.Shared.signedToWord (-6))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "castAddLit_intmax_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 256 SolidCore.Solidity.SolcAstImport.SignedLiteralWideCast.importedContract \"castAddLit\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (2 ^ 255 - 1))] 17",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "negMulOne_intmin_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 256 SolidCore.Solidity.SolcAstImport.SignedLiteralWideCast.importedContract \"negMulOne\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (-(2 ^ 255)))] 17",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "castInt128_i128max_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 256 SolidCore.Solidity.SolcAstImport.SignedLiteralWideCast.importedContract \"castInt128\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (2 ^ 127 - 1))] 17",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "castTwoTyped_3_4_is_7",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.SignedLiteralWideCast.importedContract \"castTwoTyped\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (3)), SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (4))] 7",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "castTwoTyped_neg3_1_wraps",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.SignedLiteralWideCast.importedContract \"castTwoTyped\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (-3)), SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (1))] (2 ^ 256 - 2)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "negNoLit_5_2_is_neg3",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 256 SolidCore.Solidity.SolcAstImport.SignedLiteralWideCast.importedContract \"negNoLit\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (5)), SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (2))] (SolidCore.Solidity.Shared.signedToWord (-3))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "castBare_neg1_is_max",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.SignedLiteralWideCast.importedContract \"castBare\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.int (SolidCore.Solidity.Shared.signedToWord (-1))] (2 ^ 256 - 1)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "castUnsigned_5_is_15",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.SignedLiteralWideCast.importedContract \"castUnsigned\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 5] 15",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }
