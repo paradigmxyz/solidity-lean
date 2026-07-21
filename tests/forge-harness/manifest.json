@@ -13549,7 +13549,7 @@
      },
      {
       "label": "revertArr_custom",
-      "expr": "(do let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 8192 SolidCore.Solidity.SolcAstImport.StorageArrayLiteral.importedContract (SolidCore.Solidity.TypeCheck.CallTarget.name \"revertArr\") SolidCore.Solidity.Source.State.empty []; match result with | SolidCore.Solidity.TypeCheck.CallResult.reverted _ (SolidCore.Solidity.Source.RevertData.custom \"EArr\" [SolidCore.Solidity.Source.Value.fixedArray [SolidCore.Solidity.Source.Value.bytes [0xaa], SolidCore.Solidity.Source.Value.bytes [0xbb, 0xcc]]]) => Except.ok true | _ => Except.ok false : Except SolidCore.Solidity.TypeCheck.TypeError Bool)",
+      "expr": "(do let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 8192 SolidCore.Solidity.SolcAstImport.StorageArrayLiteral.importedContract (SolidCore.Solidity.Source.CallTarget.name \"revertArr\") SolidCore.Solidity.Source.State.empty []; match result with | SolidCore.Solidity.Source.CallResult.reverted _ (SolidCore.Solidity.Source.RevertData.custom \"EArr\" _) => Except.ok true | _ => Except.ok false : Except SolidCore.Solidity.TypeCheck.TypeError Bool)",
       "expect": "Except.ok true"
      }
     ]
@@ -13582,47 +13582,47 @@
      },
      {
       "label": "opAdd",
-      "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 8192 SolidCore.Solidity.SolcAstImport.OperatorUdvtResolution.importedContract \"opAdd\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 3, SolidCore.Solidity.Source.Value.word 4] 7",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 8192 SolidCore.Solidity.SolcAstImport.OperatorUdvtResolution.importedSourceUnit \"OperatorUdvtResolutionHarnessTarget\" \"opAdd\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 3, SolidCore.Solidity.Source.Value.word 4] 7",
       "expect": "Except.ok true"
      },
      {
       "label": "opChain",
-      "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 8192 SolidCore.Solidity.SolcAstImport.OperatorUdvtResolution.importedContract \"opChain\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 3, SolidCore.Solidity.Source.Value.word 4, SolidCore.Solidity.Source.Value.word 5] 12",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 8192 SolidCore.Solidity.SolcAstImport.OperatorUdvtResolution.importedSourceUnit \"OperatorUdvtResolutionHarnessTarget\" \"opChain\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 3, SolidCore.Solidity.Source.Value.word 4, SolidCore.Solidity.Source.Value.word 5] 12",
       "expect": "Except.ok true"
      },
      {
       "label": "opMixedZero",
-      "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 8192 SolidCore.Solidity.SolcAstImport.OperatorUdvtResolution.importedContract \"opMixed\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0, SolidCore.Solidity.Source.Value.word 0, SolidCore.Solidity.Source.Value.word 0] 0",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 8192 SolidCore.Solidity.SolcAstImport.OperatorUdvtResolution.importedSourceUnit \"OperatorUdvtResolutionHarnessTarget\" \"opMixed\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0, SolidCore.Solidity.Source.Value.word 0, SolidCore.Solidity.Source.Value.word 0] 0",
       "expect": "Except.ok true"
      },
      {
       "label": "opMixedPanics",
-      "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 8192 SolidCore.Solidity.SolcAstImport.OperatorUdvtResolution.importedContract \"opMixed\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 3, SolidCore.Solidity.Source.Value.word 4, SolidCore.Solidity.Source.Value.word 5] 0x11",
+      "expr": "(do let result <- SolidCore.Solidity.TypeCheck.CheckedInput.callContract 8192 SolidCore.Solidity.SolcAstImport.OperatorUdvtResolution.importedSourceUnit \"OperatorUdvtResolutionHarnessTarget\" (SolidCore.Solidity.Source.CallTarget.name \"opMixed\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 3, SolidCore.Solidity.Source.Value.word 4, SolidCore.Solidity.Source.Value.word 5]; match result with | SolidCore.Solidity.Source.CallResult.reverted _ (SolidCore.Solidity.Source.RevertData.panic code) => Except.ok (SolidCore.Solidity.Source.wordEq code 0x11) | _ => Except.ok false : Except SolidCore.Solidity.TypeCheck.TypeError Bool)",
       "expect": "Except.ok true"
      },
      {
       "label": "opStorage",
-      "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 8192 SolidCore.Solidity.SolcAstImport.OperatorUdvtResolution.importedContract \"opStorage\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 41] 42",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 8192 SolidCore.Solidity.SolcAstImport.OperatorUdvtResolution.importedSourceUnit \"OperatorUdvtResolutionHarnessTarget\" \"opStorage\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 41] 42",
       "expect": "Except.ok true"
      },
      {
       "label": "opTernaryTrue",
-      "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 8192 SolidCore.Solidity.SolcAstImport.OperatorUdvtResolution.importedContract \"opTernary\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 10, SolidCore.Solidity.Source.Value.word 20, SolidCore.Solidity.Source.Value.word 1] 12",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 8192 SolidCore.Solidity.SolcAstImport.OperatorUdvtResolution.importedSourceUnit \"OperatorUdvtResolutionHarnessTarget\" \"opTernary\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 10, SolidCore.Solidity.Source.Value.word 20, SolidCore.Solidity.Source.Value.word 1] 12",
       "expect": "Except.ok true"
      },
      {
       "label": "opTernaryFalse",
-      "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 8192 SolidCore.Solidity.SolcAstImport.OperatorUdvtResolution.importedContract \"opTernary\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 10, SolidCore.Solidity.Source.Value.word 20, SolidCore.Solidity.Source.Value.word 0] 22",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 8192 SolidCore.Solidity.SolcAstImport.OperatorUdvtResolution.importedSourceUnit \"OperatorUdvtResolutionHarnessTarget\" \"opTernary\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 10, SolidCore.Solidity.Source.Value.word 20, SolidCore.Solidity.Source.Value.word 0] 22",
       "expect": "Except.ok true"
      },
      {
       "label": "opEqChain",
-      "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 8192 SolidCore.Solidity.SolcAstImport.OperatorUdvtResolution.importedContract \"opEqChain\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 5, SolidCore.Solidity.Source.Value.word 6] 1",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 8192 SolidCore.Solidity.SolcAstImport.OperatorUdvtResolution.importedSourceUnit \"OperatorUdvtResolutionHarnessTarget\" \"opEqChain\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 5, SolidCore.Solidity.Source.Value.word 6] 1",
       "expect": "Except.ok true"
      },
      {
       "label": "opCallOperand",
-      "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 8192 SolidCore.Solidity.SolcAstImport.OperatorUdvtResolution.importedContract \"opCallOperand\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 8, SolidCore.Solidity.Source.Value.word 9] 17",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 8192 SolidCore.Solidity.SolcAstImport.OperatorUdvtResolution.importedSourceUnit \"OperatorUdvtResolutionHarnessTarget\" \"opCallOperand\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 8, SolidCore.Solidity.Source.Value.word 9] 17",
       "expect": "Except.ok true"
      }
     ]
