@@ -16285,6 +16285,30 @@ termination_by (3, internalFuel, sizeOf payload, 2)
 
 def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
     (storageNames : List Name) (stmt : Stmt) : Option CoreStmt :=
+  -- ITEM-2 (§3c collapse, phase 1): statements whose lowering is IDENTICAL
+  -- with and without a ctx are dispatched ONCE, before the ctx? split — the
+  -- arm pairs the env-aware/env-less halves used to duplicate
+  -- (block/unchecked: the env-aware half re-spelled the ctx?-some recursion
+  -- with ten named arguments) or reach only through the env-less default
+  -- (empty/inline-assembly/break/continue). Byte-identity: `block` merges
+  -- `listToCoreWithInternalCallsWithRefs?` (definitionally
+  -- `listLowerCore? (some ctx)`) with `listLowerCore? none`; `unchecked`
+  -- merges `toCoreWithInternalCalls?` (definitionally
+  -- `lowerCore? (some ctx)`) with `lowerCore? none`; the four constants were
+  -- reached identically through the env-less fallback when a ctx was
+  -- present.
+  match stmt with
+  | Stmt.empty => some SolidCore.Solidity.Source.Stmt.skip
+  | Stmt.inlineAssembly "" => some SolidCore.Solidity.Source.Stmt.skip
+  | Stmt.break => some SolidCore.Solidity.Source.Stmt.break
+  | Stmt.continue => some SolidCore.Solidity.Source.Stmt.continue
+  | Stmt.block body => do
+      let coreBody ← Stmt.listLowerCore? internalFuel ctx? storageNames body
+      some (SolidCore.Solidity.Source.Stmt.block coreBody)
+  | Stmt.unchecked body => do
+      let coreBody ← Stmt.lowerCore? internalFuel ctx? storageNames body
+      some (SolidCore.Solidity.Source.Stmt.unchecked coreBody)
+  | stmt =>
   match ctx? with
   | some ctx =>
       let storageRefEnv := ctx.storageRefEnv
@@ -16295,12 +16319,6 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
       let freeFunctions := ctx.freeFunctions
       let returnTys := ctx.returnTys
       (match stmt with
-      | Stmt.block body => do
-          let coreBody ←
-            Stmt.listToCoreWithInternalCallsWithRefs?
-              internalFuel storageRefEnv env externalCallKindEnv storageNames
-              modifiers functions freeFunctions returnTys body
-          some (SolidCore.Solidity.Source.Stmt.block coreBody)
       | Stmt.expr expr@(Expr.unary UnaryOp.preIncrement _)
       | Stmt.expr expr@(Expr.unary UnaryOp.preDecrement _)
       | Stmt.expr expr@(Expr.unary UnaryOp.postIncrement _)
@@ -19018,20 +19036,6 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                     (SolidCore.Solidity.Source.Stmt.tryContractCreate
                       contractName argsCore valueCore saltCore? valueBeforeSalt returnBindings
                       successCore catchCore)
-      | Stmt.unchecked body => do
-          let bodyCore ←
-            Stmt.toCoreWithInternalCalls?
-              (internalFuel := internalFuel)
-              (storageRefEnv := storageRefEnv)
-              (env := env)
-              (externalCallKindEnv := externalCallKindEnv)
-              (storageNames := storageNames)
-              (modifiers := modifiers)
-              (functions := functions)
-              (freeFunctions := freeFunctions)
-              (returnTys := returnTys)
-              (stmt := body)
-          some (SolidCore.Solidity.Source.Stmt.unchecked bodyCore)
       | Stmt.expr expr@(Expr.binary _ _ _)
       | Stmt.expr expr@(Expr.unary UnaryOp.neg _)
       | Stmt.expr expr@(Expr.unary UnaryOp.bitNot _)
@@ -19052,11 +19056,6 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
       )
   | none =>
       match stmt with
-      | Stmt.empty => some SolidCore.Solidity.Source.Stmt.skip
-      | Stmt.inlineAssembly "" => some SolidCore.Solidity.Source.Stmt.skip
-      | Stmt.block body => do
-          let coreBody ← Stmt.listLowerCore? internalFuel none storageNames body
-          some (SolidCore.Solidity.Source.Stmt.block coreBody)
       | Stmt.varDecl bindings@(_ :: _ :: _) (some (Expr.tuple items)) => do
           let (coreDecls, assigns) ←
             tupleVarDeclCorePieces? storageNames bindings items
@@ -19396,11 +19395,6 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           | none => do
               let coreExpr ← Expr.toCore? storageNames expr
               some (SolidCore.Solidity.Source.Stmt.returnValues [coreExpr])
-      | Stmt.break => some SolidCore.Solidity.Source.Stmt.break
-      | Stmt.continue => some SolidCore.Solidity.Source.Stmt.continue
-      | Stmt.unchecked body => do
-          let coreBody ← Stmt.lowerCore? internalFuel none storageNames body
-          some (SolidCore.Solidity.Source.Stmt.unchecked coreBody)
       | _ => none
 termination_by ((if ctx?.isSome then 3 else 0), internalFuel, sizeOf stmt, 9)
 
