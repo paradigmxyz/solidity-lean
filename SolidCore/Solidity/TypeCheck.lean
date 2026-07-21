@@ -5826,17 +5826,33 @@ def TypeContext.contractDispatchOrder
     contract's local user types qualified) together with whether it is a
     `constant` (compile-time value, not an lvalue / state read). -/
 def TypeContext.contractDataMemberTy?
-    (types : TypeContext) (path : Path) (member : Name) :
-    Option (Ty × Bool) := do
+    (types : TypeContext) (inDerivingScope : Bool) (path : Path)
+    (member : Name) : Option (Ty × Bool) := do
   let decl ← types.lookupContractDecl? path
-  (types.contractDispatchOrder decl).findSome? (fun c =>
-    match (Solidity.Executable.ContractDecl.directStateVars c).find?
+  -- solc `TypeType::nativeMembers` (Types.cpp): only declarations made
+  -- DIRECTLY in the named contract are members of its contract type —
+  -- `contract.declarations()` never contains inherited members (error 9582
+  -- otherwise). A state variable (`VariableDeclaration`) has NO
+  -- `isVisibleViaContractTypeAccess`, so outside the named contract's own
+  -- hierarchy `C.K`/`C.v` never resolves; from a DERIVING scope (including
+  -- the contract itself) it resolves iff `isVisibleInDerivedContracts`
+  -- (visibility >= internal, i.e. not private). A LIBRARY member instead
+  -- resolves anywhere iff `isVisibleAsLibraryMember` (>= internal).
+  let isLibrary := decl.kind == Solidity.ContractKind.library
+  if !isLibrary && !inDerivingScope then
+    none
+  else
+    match (Solidity.Executable.ContractDecl.directStateVars decl).find?
         (fun sv => sv.name == member) with
     | some sv =>
-        some
-          (Ty.qualifyLocalUserTypes c.name (ContractDecl.localTypeNames c) sv.ty,
-            Solidity.Executable.StateVarDecl.isConstant sv)
-    | none => none)
+        if sv.visibility == some Solidity.Visibility.private_ then
+          none
+        else
+          some
+            (Ty.qualifyLocalUserTypes decl.name
+                (ContractDecl.localTypeNames decl) sv.ty,
+              Solidity.Executable.StateVarDecl.isConstant sv)
+    | none => none
 
 /-- Whether a type name exposes `member` as a `.selector`-bearing declaration:
     an EVENT (`Base.Ev`, `L.Ping` — solc's `Event.selector` is the 32-byte
@@ -5848,19 +5864,18 @@ def TypeContext.contractSelectorMemberTy?
     (types : TypeContext) (path : Path) (member : Name) :
     Option Ty := do
   let decl ← types.lookupContractDecl? path
-  let order := types.contractDispatchOrder decl
+  -- solc `TypeType::nativeMembers`: contract-type members are the named
+  -- contract's DIRECT declarations only — an event/error/function inherited
+  -- by `C` is not reachable as `C.member` (error 9582).
   let hasEvent :=
-    order.any (fun c =>
-      (Solidity.Executable.ContractDecl.directEvents c).any
-        (fun e => e.name == member && !e.anonymous))
+    (Solidity.Executable.ContractDecl.directEvents decl).any
+      (fun e => e.name == member && !e.anonymous)
   let hasError :=
-    order.any (fun c =>
-      (Solidity.Executable.ContractDecl.directErrors c).any
-        (fun e => e.name == member))
+    (Solidity.Executable.ContractDecl.directErrors decl).any
+      (fun e => e.name == member)
   let hasExternalFn :=
-    order.any (fun c =>
-      (ContractDecl.directFunctionSigsQualifiedLocalTypes c).any
-        (fun sig => sig.name == member && sig.externallyCallable))
+    (ContractDecl.directFunctionSigsQualifiedLocalTypes decl).any
+      (fun sig => sig.name == member && sig.externallyCallable)
   if hasEvent then some (Solidity.Ty.bytesN 32)
   else if hasError || hasExternalFn then some (Solidity.Ty.bytesN 4) else none
 
@@ -5872,16 +5887,16 @@ def TypeContext.contractErrorSig?
     (types : TypeContext) (path : Path) (member : Name) :
     Option (List (Option Name) × List Ty) := do
   let decl ← types.lookupContractDecl? path
-  (types.contractDispatchOrder decl).findSome? (fun c =>
-    match (Solidity.Executable.ContractDecl.directErrors c).find?
-        (fun e => e.name == member) with
-    | some err =>
-        let localTypeNames := ContractDecl.localTypeNames c
-        some
-          (err.params.map (fun p => p.name),
-            err.params.map (fun p =>
-              Ty.qualifyLocalUserTypes c.name localTypeNames p.ty))
-    | none => none)
+  -- Direct declarations only (solc error 9582; see `contractSelectorMemberTy?`).
+  match (Solidity.Executable.ContractDecl.directErrors decl).find?
+      (fun e => e.name == member) with
+  | some err =>
+      let localTypeNames := ContractDecl.localTypeNames decl
+      some
+        (err.params.map (fun p => p.name),
+          err.params.map (fun p =>
+            Ty.qualifyLocalUserTypes decl.name localTypeNames p.ty))
+  | none => none
 
 /-- Parameter names + types of an event declared in the contract/library named
     by `path` (or one of its bases), for checking a qualified event emit
@@ -5893,16 +5908,16 @@ def TypeContext.contractEventSig?
     (types : TypeContext) (path : Path) (member : Name) :
     Option (List (Option Name) × List Ty) := do
   let decl ← types.lookupContractDecl? path
-  (types.contractDispatchOrder decl).findSome? (fun c =>
-    match (Solidity.Executable.ContractDecl.directEvents c).find?
-        (fun e => e.name == member) with
-    | some ev =>
-        let localTypeNames := ContractDecl.localTypeNames c
-        some
-          (ev.params.map (fun p => p.name),
-            ev.params.map (fun p =>
-              Ty.qualifyLocalUserTypes c.name localTypeNames p.ty))
-    | none => none)
+  -- Direct declarations only (solc error 9582; see `contractSelectorMemberTy?`).
+  match (Solidity.Executable.ContractDecl.directEvents decl).find?
+      (fun e => e.name == member) with
+  | some ev =>
+      let localTypeNames := ContractDecl.localTypeNames decl
+      some
+        (ev.params.map (fun p => p.name),
+          ev.params.map (fun p =>
+            Ty.qualifyLocalUserTypes decl.name localTypeNames p.ty))
+  | none => none
 
 mutual
 
@@ -6231,7 +6246,8 @@ def checkExpr (env : CheckEnv) :
       let dataMember? : Option (Except TypeError CheckedExpr) :=
         (match ty with
          | Solidity.Ty.user path =>
-             env.types.contractDataMemberTy? path member
+             env.types.contractDataMemberTy?
+               (env.isCurrentOrAncestorContract path) path member
          | _ => none).map
           (fun (dataTy, isConstant) => do
             if !isConstant then
@@ -6364,7 +6380,21 @@ def checkExpr (env : CheckEnv) :
           | some structDecl =>
               match structDecl.fields.find?
                   (fun field => field.name == member) with
-              | some field =>
+              | some field => do
+                  -- solc error 6675 (`Member "a" not unique after
+                  -- argument-dependent lookup`): a struct FIELD and a
+                  -- `using`-attached function with the same name live in the
+                  -- same member namespace, so the member access is ambiguous
+                  -- at the USE site (a collision that is never accessed stays
+                  -- legal). Attachability (receiver type + data location)
+                  -- is what `memberCandidates` already filters on, so a
+                  -- storage-param function on a memory receiver does NOT
+                  -- collide.
+                  let attached ←
+                    UsingDecls.memberCandidates env baseChecked member
+                      env.usingDecls
+                  require attached.isEmpty
+                    (TypeError.ambiguousFunction member)
                   Except.ok
                     { source := expr
                       ty := env.qualifyStructFieldTy path field.ty
@@ -7174,6 +7204,25 @@ def checkExpr (env : CheckEnv) :
                 | some checked => Except.ok checked
                 | none =>
                     let checkUsingCall : Except TypeError CheckedExpr := do
+                      -- solc error 6675: a struct FIELD sharing its name with
+                      -- an attached (`using`) function makes the member-call
+                      -- lookup ambiguous too (`s.a()` with field `a`), not
+                      -- just the read form.
+                      (match targetChecked.ty with
+                       | Solidity.Ty.user path =>
+                           match env.types.lookupStruct? path with
+                           | some structDecl =>
+                               if structDecl.fields.any
+                                   (fun field => field.name == member) then do
+                                 let attached ←
+                                   UsingDecls.memberCandidates env
+                                     targetChecked member env.usingDecls
+                                 require attached.isEmpty
+                                   (TypeError.ambiguousFunction member)
+                               else
+                                 Except.ok ()
+                           | none => Except.ok ()
+                       | _ => Except.ok ())
                       let sig ←
                         match
                             env.resolveUsingMemberFunctionChecked targetChecked
@@ -11090,12 +11139,88 @@ def BaseSpecifiers.frontierOverrideMembers? (types : TypeContext)
       let tail ← BaseSpecifiers.frontierOverrideMembers? types contracts rest
       some (head ++ tail)
 
+/-- solc `OverrideChecker::inheritedFunctions` collects ALL non-constructor
+functions of a base via `definedFunctions()` — INCLUDING `private` ones, which
+is why two same-signature private base functions still trigger error 6480 —
+plus public state-variable getters. This is `ContractDecl.overrideMembers`
+widened with private functions (kept recognizable by their `private_`
+visibility so the non-ambiguity consumers can filter them back out; the
+visibility swap only bypasses `overrideMember?`'s private guard). -/
+def ContractDecl.ambiguityMembers (types : TypeContext)
+    (decl : Solidity.ContractDecl) : List OverrideMember :=
+  let origin := TypeContext.pathOfName decl.name
+  let localTypeNames := ContractDecl.localTypeNames decl
+  decl.items.filterMap fun item =>
+    match item with
+    | Solidity.ContractItem.function fn =>
+        (match fn.kind, fn.name, fn.visibility with
+         | Solidity.FunctionKind.function, some _,
+             some Solidity.Visibility.private_ =>
+             (FunctionDecl.overrideMember? origin decl.name localTypeNames
+                 decl.kind
+                 { fn with visibility := some Solidity.Visibility.internal_ }).map
+               (fun member =>
+                 { member with
+                     visibility := some Solidity.Visibility.private_ })
+         | _, _, _ =>
+             FunctionDecl.overrideMember? origin decl.name localTypeNames
+               decl.kind fn)
+    | _ =>
+        ContractItem.overrideMember? types decl.name localTypeNames origin
+          decl.kind item
+
+/-- solc `OverrideChecker::inheritedFunctions` (OverrideChecker.cpp:925-951):
+for each DIRECT base, the base's own members (including private functions and
+public getters) plus — recursively — every member the base inherits whose
+signature is not shadowed by one of the base's own members. Unlike a
+linearized "most-derived per key" frontier, a base that does not redeclare a
+signature passes ALL distinct declarations of that signature through; solc
+feeds this multiset both the override-list expectation (errors 4327/2353) and
+the must-override ambiguity check (error 6480), so e.g.
+`X is B, C` (`B` overriding `A.f`, `C` exposing it) contributes BOTH `B.f`
+and `A.f` to a contract deriving from `X`. Fuel bounds the recursion depth
+(inheritance is acyclic in accepted programs; exhaustion — a base cycle —
+yields `none`, rejected upstream like an inconsistent linearization). -/
+def ContractDecl.inheritedAmbiguityMembers? (types : TypeContext)
+    (contracts : List Solidity.ContractDecl) :
+    Nat -> Solidity.ContractDecl -> Option (List OverrideMember)
+  | 0, _ => none
+  | Nat.succ fuel, decl =>
+      decl.bases.foldr
+        (fun specifier acc => do
+          let tail ← acc
+          let base ← ContractDecls.lookupPath? specifier.base contracts
+          let own := ContractDecl.ambiguityMembers types base
+          let inherited ←
+            ContractDecl.inheritedAmbiguityMembers? types contracts fuel base
+          let passedThrough :=
+            inherited.filter fun member =>
+              !own.any (fun ownMember => OverrideMember.sameKey ownMember member)
+          some (own ++ passedThrough ++ tail))
+        (some [])
+
+/-- The inherited-member multiset deduplicated by declaration (solc dedups by
+declaration id when it groups `inheritedFunctions` by signature; origin
+contract + signature key identifies a declaration). Includes private
+functions — the ambiguity check (6480) sees them. -/
+def ContractDecl.inheritedAmbiguityDistinct? (types : TypeContext)
+    (contracts : List Solidity.ContractDecl)
+    (decl : Solidity.ContractDecl) : Option (List OverrideMember) := do
+  let members ←
+    ContractDecl.inheritedAmbiguityMembers? types contracts
+      (contracts.length + 1) decl
+  some (OverrideMembers.dedupOriginKeys members)
+
 def ContractDecl.inheritedOverrideMembers? (types : TypeContext)
     (contracts : List Solidity.ContractDecl)
     (decl : Solidity.ContractDecl) :
     Option (List OverrideMember) := do
-  let members ← BaseSpecifiers.frontierOverrideMembers? types contracts decl.bases
-  some (OverrideMembers.dedupOriginKeys members)
+  let members ← ContractDecl.inheritedAmbiguityDistinct? types contracts decl
+  -- Private functions never participate in overriding (they are neither
+  -- inherited nor overridable); they exist in the multiset only for the
+  -- ambiguity (6480) check and for signature shadowing during collection.
+  some (members.filter fun member =>
+    member.visibility != some Solidity.Visibility.private_)
 
 def ContractDecl.ancestorPaths? (contracts : List Solidity.ContractDecl)
     (decl : Solidity.ContractDecl) : Option (List Path) := do
@@ -11205,16 +11330,177 @@ def StateVarDecl.checkOverrideRules (types : TypeContext)
           OverrideMembers.checkCompatible current baseMatches
           checkOverrideUse ancestorPaths decl.override? baseMatches
 
-def OverrideMembers.hasConflictFor (target : OverrideMember)
+/-! ### Must-override ambiguity graph (solc error 6480)
+
+solc `OverrideChecker::checkAmbiguousOverridesInternal` (OverrideChecker.cpp,
+`OverrideGraph`/`CutVertexFinder`): for each signature inherited by ≥ 2
+distinct declarations, build an undirected graph — an artificial root (the
+current contract) adjacent to every inherited declaration of the signature,
+an edge from every declaration to each declaration it directly overrides
+(its `baseFunctions()` annotation: the same-signature survivors of ITS
+direct-base multiset), and an edge from every root declaration (one that
+overrides nothing) to an artificial top node. A declaration is a CUT VERTEX
+iff removing it disconnects the graph. Everything transitively overridden by
+a cut vertex is implicitly satisfied and is dropped from the signature group,
+as is an UNIMPLEMENTED cut vertex itself; if more than one declaration
+remains the derived contract must override (6480). This is deliberately
+path-sensitive: a per-member "some overrider exists" domination is NOT
+equivalent (e.g. `B` overriding both unrelated roots `A` and `A2` leaves `A`
+off the mandatory path, so `D is B, C` with `C is A` still errors). -/
+
+structure AmbiguityNode where
+  origin : Path
+  bases : List Path
+  deriving Repr
+
+namespace AmbiguityGraph
+
+def findNode? (nodes : List AmbiguityNode) (target : Path) :
+    Option AmbiguityNode :=
+  nodes.find? fun node => TypeContext.pathMatches node.origin target
+
+inductive GNode where
+  | root : GNode
+  | top : GNode
+  | decl : Path -> GNode
+  deriving Repr
+
+def gnodeEq : GNode -> GNode -> Bool
+  | GNode.root, GNode.root => true
+  | GNode.top, GNode.top => true
+  | GNode.decl a, GNode.decl b => TypeContext.pathMatches a b
+  | _, _ => false
+
+def gnodeIn (target : GNode) (nodes : List GNode) : Bool :=
+  nodes.any (gnodeEq target)
+
+def neighbors (nodes : List AmbiguityNode) (groupOrigins : List Path) :
+    GNode -> List GNode
+  | GNode.root => groupOrigins.map GNode.decl
+  | GNode.top =>
+      (nodes.filter fun node => node.bases.isEmpty).map
+        (fun node => GNode.decl node.origin)
+  | GNode.decl origin =>
+      (match findNode? nodes origin with
+       | some node =>
+           node.bases.map GNode.decl ++
+             (if node.bases.isEmpty then [GNode.top] else [])
+       | none => []) ++
+        ((nodes.filter fun node =>
+            TypeContext.pathIn origin node.bases).map
+          (fun node => GNode.decl node.origin)) ++
+        (if TypeContext.pathIn origin groupOrigins then [GNode.root] else [])
+
+def bfs (nodes : List AmbiguityNode) (groupOrigins : List Path)
+    (avoid : Path) :
+    Nat -> List GNode -> List GNode -> List GNode
+  | 0, visited, _ => visited
+  | _, visited, [] => visited
+  | Nat.succ fuel, visited, current :: frontier =>
+      let fresh :=
+        (neighbors nodes groupOrigins current).foldl
+          (fun acc neighbor =>
+            if gnodeEq neighbor (GNode.decl avoid) ||
+                gnodeIn neighbor visited || gnodeIn neighbor acc then
+              acc
+            else
+              acc ++ [neighbor])
+          []
+      bfs nodes groupOrigins avoid fuel (visited ++ fresh) (frontier ++ fresh)
+
+/-- Is the graph still connected after removing declaration `avoid`? -/
+def connectedWithout (nodes : List AmbiguityNode)
+    (groupOrigins : List Path) (avoid : Path) : Bool :=
+  let visited :=
+    bfs nodes groupOrigins avoid (nodes.length + 3) [GNode.root] [GNode.root]
+  gnodeIn GNode.top visited &&
+    nodes.all fun node =>
+      TypeContext.pathMatches node.origin avoid ||
+        gnodeIn (GNode.decl node.origin) visited
+
+def cutVertices (nodes : List AmbiguityNode) (groupOrigins : List Path) :
+    List AmbiguityNode :=
+  nodes.filter fun node => !connectedWithout nodes groupOrigins node.origin
+
+/-- Transitive closure of override-base declarations starting from `queue`. -/
+def transitiveBases (nodes : List AmbiguityNode) :
+    Nat -> List Path -> List Path -> List Path
+  | 0, acc, _ => acc
+  | _, acc, [] => acc
+  | Nat.succ fuel, acc, origin :: queue =>
+      if TypeContext.pathIn origin acc then
+        transitiveBases nodes fuel acc queue
+      else
+        match findNode? nodes origin with
+        | some node =>
+            transitiveBases nodes fuel (acc ++ [origin]) (queue ++ node.bases)
+        | none => transitiveBases nodes fuel (acc ++ [origin]) queue
+
+/-- solc `checkAmbiguousOverridesInternal`: `group` is the signature's distinct
+inherited declarations as `(origin, implemented)`; true iff the derived
+contract MUST override (would be error 6480). -/
+def mustOverride (nodes : List AmbiguityNode)
+    (group : List (Path × Bool)) : Bool :=
+  if group.length <= 1 then
+    false
+  else
+    let groupOrigins := group.map Prod.fst
+    let cuts := cutVertices nodes groupOrigins
+    let overridden :=
+      transitiveBases nodes ((nodes.length + 1) * (nodes.length + 1)) []
+        (cuts.flatMap fun node => node.bases)
+    let surviving := group.filter fun entry =>
+      !TypeContext.pathIn entry.fst overridden &&
+        !(!entry.snd &&
+          cuts.any fun node => TypeContext.pathMatches node.origin entry.fst)
+    surviving.length > 1
+
+end AmbiguityGraph
+
+/-- The declarations a member declared at `member.origin` directly overrides
+(solc's `baseFunctions()` annotation): the same-signature survivors of its
+declaring contract's direct-base multiset. -/
+def OverrideMember.ambiguityBases (types : TypeContext)
+    (contracts : List Solidity.ContractDecl)
+    (member : OverrideMember) : List OverrideMember :=
+  match ContractDecls.lookupPath? member.origin contracts with
+  | none => []
+  | some decl =>
+      match ContractDecl.inheritedAmbiguityMembers? types contracts
+          (contracts.length + 1) decl with
+      | none => []
+      | some inherited =>
+          OverrideMembers.dedupOriginKeys
+            (OverrideMembers.matchingKey member inherited)
+
+def OverrideMembers.buildAmbiguityNodes (types : TypeContext)
+    (contracts : List Solidity.ContractDecl) :
+    Nat -> List AmbiguityNode -> List OverrideMember -> List AmbiguityNode
+  | 0, acc, _ => acc
+  | _, acc, [] => acc
+  | Nat.succ fuel, acc, member :: queue =>
+      if acc.any (fun node =>
+          TypeContext.pathMatches node.origin member.origin) then
+        buildAmbiguityNodes types contracts fuel acc queue
+      else
+        let bases := OverrideMember.ambiguityBases types contracts member
+        buildAmbiguityNodes types contracts fuel
+          (acc ++ [{ origin := member.origin, bases := bases.map (·.origin) }])
+          (queue ++ bases)
+
+def OverrideMembers.hasConflictFor (types : TypeContext)
+    (target : OverrideMember)
     (contracts : List Solidity.ContractDecl)
     (members : List OverrideMember) : Bool :=
-  let dominated := fun member =>
-    !member.implemented &&
-      members.any (fun candidate =>
-        OverrideMember.sameKey member candidate &&
-          ContractDecl.originStrictlyInherits contracts
-            candidate.origin member.origin)
-  (matchingKey target (members.filter fun member => !dominated member)).length > 1
+  let group := dedupOriginKeys (matchingKey target members)
+  if group.length <= 1 then
+    false
+  else
+    let nodes :=
+      buildAmbiguityNodes types contracts
+        ((contracts.length + 2) * (contracts.length + 2)) [] group
+    AmbiguityGraph.mustOverride nodes
+      (group.map fun member => (member.origin, member.implemented))
 
 def OverrideMembers.hasDominatingImplementedFor
     (contracts : List Solidity.ContractDecl)
@@ -11236,20 +11522,20 @@ def OverrideMembers.hasImplementedCurrentFor (target : OverrideMember)
       (OverrideMember.sameKey target member && member.implemented) ||
         hasImplementedCurrentFor target rest
 
-def OverrideMembers.checkInheritedConflicts
+def OverrideMembers.checkInheritedConflicts (types : TypeContext)
     (contracts : List Solidity.ContractDecl)
     (current : List OverrideMember)
     (members : List OverrideMember) : Except TypeError Unit :=
   match members with
   | [] => Except.ok ()
   | member :: rest => do
-      if hasConflictFor member contracts members &&
+      if hasConflictFor types member contracts members &&
           !hasCurrentOverrideFor member current then
         Except.error
           (TypeError.invalidOverride
             "multiple inherited base members require an override")
       else
-        checkInheritedConflicts contracts current rest
+        checkInheritedConflicts types contracts current rest
 
 def OverrideMembers.checkInheritedAbstractImplementedAux
     (contracts : List Solidity.ContractDecl)
@@ -11395,17 +11681,6 @@ def collectMostDerived (order : List Solidity.ContractDecl) :
     List ModifierOverrideMember :=
   collectMostDerivedFrom [] order
 
-def hasConflictFor (target : ModifierOverrideMember)
-    (contracts : List Solidity.ContractDecl)
-    (members : List ModifierOverrideMember) : Bool :=
-  let dominated := fun member =>
-    !member.implemented &&
-      members.any (fun candidate =>
-        sameName member candidate &&
-          ContractDecl.originStrictlyInherits contracts
-            candidate.origin member.origin)
-  (matchingName target (members.filter fun member => !dominated member)).length > 1
-
 def hasCurrentOverrideFor (target : ModifierOverrideMember)
     (current : List ModifierOverrideMember) : Bool :=
   containsName target.name current
@@ -11426,21 +11701,6 @@ def hasDominatingImplementedFor
     sameName target member && member.implemented &&
       ContractDecl.originStrictlyInherits contracts
         member.origin target.origin)
-
-def checkInheritedConflicts
-    (contracts : List Solidity.ContractDecl)
-    (current : List ModifierOverrideMember)
-    (members : List ModifierOverrideMember) : Except TypeError Unit :=
-  match members with
-  | [] => Except.ok ()
-  | member :: rest => do
-      if hasConflictFor member contracts members &&
-          !hasCurrentOverrideFor member current then
-        Except.error
-          (TypeError.invalidOverride
-            "multiple inherited modifiers require an override")
-      else
-        checkInheritedConflicts contracts current rest
 
 def checkInheritedAbstractImplemented
     (contracts : List Solidity.ContractDecl)
@@ -11486,6 +11746,70 @@ def ContractDecl.inheritedModifierMembers?
     Option (List ModifierOverrideMember) := do
   let members ← BaseSpecifiers.frontierModifierMembers? contracts decl.bases
   some (ModifierOverrideMembers.dedupOriginNames members)
+
+/-- The modifiers a modifier declared at `member.origin` directly overrides
+(solc's `baseFunctions()` annotation for modifiers): the same-name survivors
+of its declaring contract's per-direct-base modifier sets (solc
+`inheritedModifiers` collapses each direct base to one modifier per name,
+unlike the function multiset). -/
+def ModifierOverrideMember.ambiguityBases
+    (contracts : List Solidity.ContractDecl)
+    (member : ModifierOverrideMember) : List ModifierOverrideMember :=
+  match ContractDecls.lookupPath? member.origin contracts with
+  | none => []
+  | some decl =>
+      match BaseSpecifiers.frontierModifierMembers? contracts decl.bases with
+      | none => []
+      | some inherited =>
+          ModifierOverrideMembers.dedupOriginNames
+            (ModifierOverrideMembers.matchingName member inherited)
+
+def ModifierOverrideMembers.buildAmbiguityNodes
+    (contracts : List Solidity.ContractDecl) :
+    Nat -> List AmbiguityNode -> List ModifierOverrideMember ->
+      List AmbiguityNode
+  | 0, acc, _ => acc
+  | _, acc, [] => acc
+  | Nat.succ fuel, acc, member :: queue =>
+      if acc.any (fun node =>
+          TypeContext.pathMatches node.origin member.origin) then
+        buildAmbiguityNodes contracts fuel acc queue
+      else
+        let bases := ModifierOverrideMember.ambiguityBases contracts member
+        buildAmbiguityNodes contracts fuel
+          (acc ++ [{ origin := member.origin, bases := bases.map (·.origin) }])
+          (queue ++ bases)
+
+/-- solc runs the SAME `checkAmbiguousOverridesInternal` cut-vertex analysis
+for modifiers (grouped by name) as for functions. -/
+def ModifierOverrideMembers.hasConflictFor
+    (target : ModifierOverrideMember)
+    (contracts : List Solidity.ContractDecl)
+    (members : List ModifierOverrideMember) : Bool :=
+  let group := dedupOriginNames (matchingName target members)
+  if group.length <= 1 then
+    false
+  else
+    let nodes :=
+      buildAmbiguityNodes contracts
+        ((contracts.length + 2) * (contracts.length + 2)) [] group
+    AmbiguityGraph.mustOverride nodes
+      (group.map fun member => (member.origin, member.implemented))
+
+def ModifierOverrideMembers.checkInheritedConflicts
+    (contracts : List Solidity.ContractDecl)
+    (current : List ModifierOverrideMember)
+    (members : List ModifierOverrideMember) : Except TypeError Unit :=
+  match members with
+  | [] => Except.ok ()
+  | member :: rest => do
+      if hasConflictFor member contracts members &&
+          !hasCurrentOverrideFor member current then
+        Except.error
+          (TypeError.invalidOverride
+            "multiple inherited modifiers require an override")
+      else
+        checkInheritedConflicts contracts current rest
 
 def checkModifierOverrideUse (ancestorPaths : List Path)
     (override? : Option Solidity.OverrideSpecifier)
@@ -14198,14 +14522,19 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
   checkNoInheritedNamedDeclarationClashes
     "declaration shadows inherited type or error"
     inheritedNonEventTypeNames allLocalDeclarationNames
-  let inheritedMembers ←
-    match ContractDecl.inheritedOverrideMembers? contractTypes allContracts
+  let inheritedAmbiguityMembers ←
+    match ContractDecl.inheritedAmbiguityDistinct? contractTypes allContracts
         contract with
     | some members => Except.ok members
     | none =>
         Except.error
           (TypeError.invalidContractHeader
             "inconsistent inheritance linearization")
+  -- Private functions live only in the ambiguity multiset (solc's
+  -- `inheritedFunctions` includes them); everything else sees them filtered.
+  let inheritedMembers :=
+    inheritedAmbiguityMembers.filter fun member =>
+      member.visibility != some Solidity.Visibility.private_
   let inheritedModifierMembers ←
     match ContractDecl.inheritedModifierMembers? allContracts contract with
     | some members => Except.ok members
@@ -14241,8 +14570,8 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
   let inheritsUnimplementedAllowed :=
     contract.abstract ||
       contract.kind == Solidity.ContractKind.interface
-  OverrideMembers.checkInheritedConflicts allContracts currentMembers
-    inheritedMembers
+  OverrideMembers.checkInheritedConflicts contractTypes allContracts
+    currentMembers inheritedAmbiguityMembers
   ModifierOverrideMembers.checkInheritedConflicts allContracts
     currentModifierMembers inheritedModifierMembers
   OverrideMembers.checkInheritedAbstractImplemented allContracts

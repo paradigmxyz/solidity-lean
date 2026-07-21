@@ -72,3 +72,6 @@ import SolidCore.Witness.MappingKeyStorageString
 import SolidCore.Witness.RequireReasonStorageString
 import SolidCore.Witness.StorageValueUseNormalize
 import SolidCore.Witness.OperatorUdvtFallback
+import SolidCore.Witness.MustOverrideTwoBase
+import SolidCore.Witness.QualifiedDirectMember
+import SolidCore.Witness.UsingFieldAmbiguity
