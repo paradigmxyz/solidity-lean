@@ -38,6 +38,12 @@ class EntrySig:
     return_types: list[str]
     source_file: Path
     contract: str
+    # Number of FunctionDefinitions in the entry contract sharing this name
+    # (release audit): with OVERLOADS (>1) the by-name entry is ambiguous — the
+    # harness would pick one overload for the EVM calldata while the Lean
+    # by-name dispatch could resolve another, feeding the engines two different
+    # logical calls (a fabricated divergence). The adjudicator rejects >1.
+    overload_count: int = 1
 
 
 @dataclass
@@ -61,17 +67,19 @@ def entry_signature(source: Path, contract: str, function: str,
     for node in gate.iter_nodes(ast):
         if node.get("nodeType") != "ContractDefinition" or node.get("name") != contract:
             continue
-        for item in node.get("nodes", []):
-            if (item.get("nodeType") == "FunctionDefinition"
-                    and item.get("name") == function):
-                selector = item.get("functionSelector")
-                if not selector:
-                    return None
-                params = [_param_type(p) for p in
-                          item.get("parameters", {}).get("parameters", [])]
-                returns = [_param_type(p) for p in
-                           item.get("returnParameters", {}).get("parameters", [])]
-                return EntrySig(selector, params, returns, source, contract)
+        matches = [item for item in node.get("nodes", [])
+                   if item.get("nodeType") == "FunctionDefinition"
+                   and item.get("name") == function]
+        for item in matches:
+            selector = item.get("functionSelector")
+            if not selector:
+                return None
+            params = [_param_type(p) for p in
+                      item.get("parameters", {}).get("parameters", [])]
+            returns = [_param_type(p) for p in
+                       item.get("returnParameters", {}).get("parameters", [])]
+            return EntrySig(selector, params, returns, source, contract,
+                            overload_count=len(matches))
     return None
 
 

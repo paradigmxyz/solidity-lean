@@ -677,6 +677,26 @@ contract T2 {
                    not scan2.unmirrorable and not scan2.banned
                    and scan2.overrides.timestamp == 12345))
 
+    # overloaded entry name (release audit): entry_signature must report the
+    # overload count so the adjudicator can reject the ambiguous by-name entry
+    # (the two engines could resolve DIFFERENT overloads -> a fabricated
+    # divergence); a uniquely-named entry stays overload_count == 1.
+    from contest import measure as meas
+    p3 = tmp / "overload.sol"
+    p3.write_text(hdr + """
+contract Ov {
+    function f(uint256 x) external pure returns (uint256) { return x; }
+    function f(bool b) external pure returns (bool) { return b; }
+    function g() external pure returns (uint256) { return 1; }
+}
+""")
+    sig_f = meas.entry_signature(p3, "Ov", "f", G.DEFAULT_SOLC)
+    sig_g = meas.entry_signature(p3, "Ov", "g", G.DEFAULT_SOLC)
+    checks.append(("overloaded-entry-detected",
+                   sig_f is not None and sig_f.overload_count == 2))
+    checks.append(("unique-entry-count-one",
+                   sig_g is not None and sig_g.overload_count == 1))
+
     # known-gaps registry sanity (release audit): H1/H2 dead scaffold removed
     # from the open index; DIVERGENCE-LOG reconciliation present; ids unique.
     open_ids = {g.id for g in kg.ALL_KNOWN if g.status == "open"}

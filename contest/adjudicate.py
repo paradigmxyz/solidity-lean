@@ -360,6 +360,18 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
             return Report("REJECT_MALFORMED", reason=(
                 f"entry {entry['contract']}.{entry['function']} not found / has "
                 "no function selector in the compiled AST"), evidence=evidence)
+        # OVERLOADED entry name (release audit): with two functions named
+        # entry.function, the measurement encodes calldata for ONE overload
+        # while the Lean by-name dispatch could resolve the OTHER — the engines
+        # would receive different logical calls and diverge for a non-semantic
+        # reason (a fabricatable divergence). v1 requires a uniquely-named
+        # entry; rename the overloads to disambiguate.
+        if entry_sig.overload_count > 1:
+            return Report("REJECT_MALFORMED", reason=(
+                f"entry {entry['contract']}.{entry['function']} is OVERLOADED "
+                f"({entry_sig.overload_count} definitions share the name); the "
+                "by-name entry is ambiguous across the two engines — give the "
+                "entry function a unique name"), evidence=evidence)
         n_args, n_params = len(entry.get("args", [])), len(entry_sig.param_types)
         if n_args != n_params:
             return Report("REJECT_MALFORMED", reason=(
