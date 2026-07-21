@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/library-enum-overloads/out"
+cache_path = "../../.foundry-suites/library-enum-overloads/cache"
+evm_version = "cancun"

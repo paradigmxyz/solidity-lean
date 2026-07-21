@@ -423,7 +423,7 @@ def Ty.isRelationalOperand (types : TypeContext) (ty : Ty) : Bool :=
   -- upcasts while still rejecting unrelated pairs — so a contract common
   -- type (which the R4 context-aware `TypeContext.commonImplicit?` CAN now
   -- deduce) never reaches this operand filter.
-  | Solidity.Ty.enum _ => true
+  | Solidity.Ty.enum _ _ => true
   | Solidity.Ty.user path => types.isEnumPath path
   | _ => Ty.isArithmeticOperand ty || Ty.isFixedBytesOperand ty
 
@@ -1021,6 +1021,54 @@ def TypeContext.abiCanonicalList? (types : TypeContext)
     (tys : List Ty) : Option (List String) :=
   TypeContext.abiCanonicalListFuel? types 64 tys
 
+/- BUG#6: LIBRARY-qualified signature rendering for the duplicate-signature
+   check. solc renders public/external LIBRARY function signatures with the
+   parameters' canonical SOURCE names (`Lib.Mode`, `Lib.S`, `C`) — so
+   `library L { function f(EnumA) public; function f(EnumB) public }` is
+   ACCEPTED (distinct qualified signatures; verified against solc 0.8.35),
+   while the same pair in a CONTRACT still collides in the external ABI
+   (both `uint8`) and stays REJECTED. `FunctionSig` param paths are already
+   declaring-scope-qualified (`FunctionSig.qualifyLocalUserTypes`), so the
+   dotted path IS the canonical name. UDVTs erase to their underlying type,
+   matching solc's library signatures. -/
+def Path.dotted (path : Path) : String :=
+  Solidity.Executable.joinStringsWith "." path.segments
+
+def TypeContext.libraryCanonicalFuel? (types : TypeContext) :
+    Nat -> Ty -> Option String
+  | 0, _ => none
+  | fuel + 1, Solidity.Ty.user path =>
+      match types.lookupContractDecl? path with
+      | some decl =>
+          if decl.kind == Solidity.ContractKind.library then
+            none
+          else
+            some (Path.dotted path)
+      | none =>
+          match types.lookupEnum? path with
+          | some _ => some (Path.dotted path)
+          | none =>
+              match types.lookupUserValueType? path with
+              | some underlying =>
+                  TypeContext.libraryCanonicalFuel? types fuel underlying
+              | none =>
+                  match types.lookupStruct? path with
+                  | some _ => some (Path.dotted path)
+                  | none => none
+  | _ + 1, Solidity.Ty.enum canonical _ => some (Path.dotted canonical)
+  | _ + 1, Solidity.Ty.struct path _ => some (Path.dotted path)
+  | fuel + 1, Solidity.Ty.array ty none => do
+      let base ← TypeContext.libraryCanonicalFuel? types fuel ty
+      some (base ++ "[]")
+  | fuel + 1, Solidity.Ty.array ty (some size) => do
+      let base ← TypeContext.libraryCanonicalFuel? types fuel ty
+      some (base ++ "[" ++ toString size ++ "]")
+  | fuel + 1, other => TypeContext.abiCanonicalFuel? types (fuel + 1) other
+
+def TypeContext.libraryCanonical? (types : TypeContext) (ty : Ty) :
+    Option String :=
+  TypeContext.libraryCanonicalFuel? types 64 ty
+
 def TypeContext.isAbiEncodable (types : TypeContext) (ty : Ty) : Bool :=
   match TypeContext.abiCanonical? types ty with
   | some _ => true
@@ -1128,7 +1176,7 @@ def Ty.canImplicitlyConvert (actual expected : Ty) : Bool :=
     | Solidity.Ty.tuple _ => false
     | Solidity.Ty.struct _ _ => false
     | Solidity.Ty.user _ => false
-    | Solidity.Ty.enum _ => false
+    | Solidity.Ty.enum _ _ => false
     -- solc FunctionType::isImplicitlyConvertibleTo (Types.cpp:3165-3200):
     -- identical signature, state-mutability lattice.
     | Solidity.Ty.functionWithLocations actualParams
@@ -1809,7 +1857,7 @@ def Ty.canExplicitlyConvert (types : TypeContext)
         Ty.explicitConversionLiteralEscape sourceExpr target
     | Solidity.Ty.struct _ _ =>
         Ty.explicitConversionLiteralEscape sourceExpr target
-    | Solidity.Ty.enum _ =>
+    | Solidity.Ty.enum _ _ =>
         Ty.explicitConversionLiteralEscape sourceExpr target
     | Solidity.Ty.functionWithLocations _ _ _ _ _ _ =>
         Ty.explicitConversionLiteralEscape sourceExpr target
@@ -2561,6 +2609,34 @@ def FunctionSig.abiSelector? (types : TypeContext)
   let signature ← sig.abiSignature? types
   some (SolidCore.Solidity.Source.ABI.selectorFromSignature signature)
 
+-- BUG#6: library-qualified parameter rendering (canonical names + ` storage`
+-- suffix for storage-pointer params) for the LIBRARY duplicate checks.
+def Tys.libraryCanonicalWithStorage? (types : TypeContext) :
+    List Ty -> List Bool -> Option (List String)
+  | [], _ => some []
+  | ty :: tys, storageRefs => do
+      let base ← TypeContext.libraryCanonical? types ty
+      let head :=
+        if storageRefs.headD false then base ++ " storage" else base
+      let tail ← Tys.libraryCanonicalWithStorage? types tys storageRefs.tail
+      some (head :: tail)
+
+def FunctionSig.libraryAbiParamTypes? (types : TypeContext)
+    (sig : FunctionSig) : Option (List String) :=
+  Tys.libraryCanonicalWithStorage? types sig.params sig.paramStorageRefs
+
+def FunctionSig.libraryAbiSignature? (types : TypeContext)
+    (sig : FunctionSig) : Option String := do
+  let params ← sig.libraryAbiParamTypes? types
+  some
+    (sig.name ++ "(" ++
+      Solidity.Executable.joinStringsWith "," params ++ ")")
+
+def FunctionSig.libraryAbiSelector? (types : TypeContext)
+    (sig : FunctionSig) : Option SolidCore.Solidity.Shared.Word := do
+  let signature ← sig.libraryAbiSignature? types
+  some (SolidCore.Solidity.Source.ABI.selectorFromSignature signature)
+
 def FunctionSig.sameExternalAbiSignature
     (types : TypeContext) (a b : FunctionSig) : Bool :=
   if a.name == b.name && a.externallyCallable && b.externallyCallable then
@@ -2606,6 +2682,36 @@ def FunctionSigs.ensureNoDuplicateExternalAbiSignatures
       else
         FunctionSigs.ensureNoDuplicateExternalAbiSignatures types rest
 
+-- BUG#6: LIBRARY overloads collide on the library-QUALIFIED signature, not
+-- the external-ABI one — `f(L.EnumA)`/`f(L.EnumB)` are distinct (solc
+-- accepts), while two params of the SAME enum still collide.
+def FunctionSig.sameLibraryAbiSignature
+    (types : TypeContext) (a b : FunctionSig) : Bool :=
+  if a.name == b.name && a.externallyCallable && b.externallyCallable then
+    match a.libraryAbiParamTypes? types, b.libraryAbiParamTypes? types with
+    | some aParams, some bParams => aParams == bParams
+    | _, _ => false
+  else
+    false
+
+def FunctionSigs.ensureNoDuplicateLibraryAbiSignatures
+    (types : TypeContext) : List FunctionSig -> Except TypeError Unit
+  | [] => Except.ok ()
+  | sig :: rest => do
+      if rest.any (fun other =>
+          FunctionSig.sameLibraryAbiSignature types sig other) then
+        Except.error (TypeError.duplicateSignature sig.name)
+      else
+        FunctionSigs.ensureNoDuplicateLibraryAbiSignatures types rest
+
+def FunctionSigs.ensureNoDuplicateAbiSignaturesForKind
+    (types : TypeContext) (kind : Solidity.ContractKind)
+    (sigs : List FunctionSig) : Except TypeError Unit :=
+  if kind == Solidity.ContractKind.library then
+    FunctionSigs.ensureNoDuplicateLibraryAbiSignatures types sigs
+  else
+    FunctionSigs.ensureNoDuplicateExternalAbiSignatures types sigs
+
 def FunctionSigs.externalAbiSelectorEntries
     (types : TypeContext) (sigs : List FunctionSig) :
     List (SolidCore.Solidity.Shared.Word × Name) :=
@@ -2624,6 +2730,26 @@ def FunctionSigs.ensureNoDuplicateExternalAbiSelectors
     (types : TypeContext) (sigs : List FunctionSig) : Except TypeError Unit :=
   FunctionSigs.ensureNoDuplicateExternalAbiSelectorEntries
     (FunctionSigs.externalAbiSelectorEntries types sigs)
+
+-- BUG#6: the selector-collision check for a LIBRARY hashes the
+-- library-qualified signatures (distinct enum overloads get distinct
+-- selectors — `f(L.EnumA)` vs `f(L.EnumB)`).
+def FunctionSig.libraryAbiSelectorEntry? (types : TypeContext)
+    (sig : FunctionSig) : Option (SolidCore.Solidity.Shared.Word × Name) :=
+  if sig.externallyCallable then do
+    let selector ← sig.libraryAbiSelector? types
+    some (selector, sig.name)
+  else
+    none
+
+def FunctionSigs.ensureNoDuplicateAbiSelectorsForKind
+    (types : TypeContext) (kind : Solidity.ContractKind)
+    (sigs : List FunctionSig) : Except TypeError Unit :=
+  if kind == Solidity.ContractKind.library then
+    FunctionSigs.ensureNoDuplicateExternalAbiSelectorEntries
+      (sigs.filterMap (FunctionSig.libraryAbiSelectorEntry? types))
+  else
+    FunctionSigs.ensureNoDuplicateExternalAbiSelectors types sigs
 
 def FunctionSig.internallyCallable (sig : FunctionSig) : Bool :=
   !(sig.visibility == some Solidity.Visibility.external_)
@@ -3779,7 +3905,7 @@ def Ty.isEqualityComparable (types : TypeContext) : Solidity.Ty -> Bool
   | Solidity.Ty.ufixed _ _ => true
   | Solidity.Ty.bytesN _ => true
   | Solidity.Ty.fixedBytes _ => true
-  | Solidity.Ty.enum _ => true
+  | Solidity.Ty.enum _ _ => true
   | Solidity.Ty.functionWithLocations _ _ _ _ _ _ => true
   -- A `user` path is a contract, an enum, or a UDVT. Contracts (address-like)
   -- and enums have builtin equality; UDVTs do not (need a user-defined operator).
@@ -14307,9 +14433,11 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
     (FunctionDecls.signatures functions).map
       (FunctionSig.qualifyLocalUserTypes contract.name localTypeNames)
   FunctionSigs.ensureNoDuplicateSignatures functionSigs
-  FunctionSigs.ensureNoDuplicateExternalAbiSignatures contractTypes
-    functionSigs
-  FunctionSigs.ensureNoDuplicateExternalAbiSelectors contractTypes
+  -- BUG#6: library overloads collide on the library-QUALIFIED signature.
+  FunctionSigs.ensureNoDuplicateAbiSignaturesForKind contractTypes
+    contract.kind functionSigs
+  FunctionSigs.ensureNoDuplicateAbiSelectorsForKind contractTypes
+    contract.kind
     (ContractDecl.directExternalFunctionSigs contractTypes contract)
   require ((functions.filter
       (fun fn => fn.kind == Solidity.FunctionKind.constructor)).length <= 1)
@@ -14392,8 +14520,8 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
         Except.error
           (TypeError.invalidContractHeader
             "inconsistent inheritance linearization")
-  FunctionSigs.ensureNoDuplicateExternalAbiSignatures contractTypes
-    functionSigs
+  FunctionSigs.ensureNoDuplicateAbiSignaturesForKind contractTypes
+    contract.kind functionSigs
   EventSigs.ensureNoDuplicateAbiSignatures contractTypes eventSigs
   let allModifierDecls := ContractDecl.modifierDeclsFromOrder dispatchOrder
   let inheritedStateVars :=
@@ -14424,7 +14552,8 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
   -- keeps in the contract's name scope).
   let visibleSourceFunctions :=
     FunctionSigs.withoutNamesOf visibleFunctionSigs sourceFunctions
-  FunctionSigs.ensureNoDuplicateExternalAbiSelectors contractTypes
+  FunctionSigs.ensureNoDuplicateAbiSelectorsForKind contractTypes
+    contract.kind
     (ContractDecl.externalFunctionSigsFromOrder contractTypes dispatchOrder)
   let visibleStateVars := stateVars ++ inheritedStateVars
   let visibleStateVarTypes :=

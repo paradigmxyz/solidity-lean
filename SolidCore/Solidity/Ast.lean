@@ -86,7 +86,11 @@ inductive Ty where
   | tuple : List Ty -> Ty
   | struct : Path -> List Ty -> Ty
   | user : Path -> Ty
-  | enum : Nat -> Ty
+  -- BUG#6 (library-qualified signatures): the resolved enum type carries its
+  -- CANONICAL (declaring-scope-qualified) source path alongside the member
+  -- bound. solc renders enum params in public/external LIBRARY signatures by
+  -- canonical name (`isOff(Lib.Mode)`), not by the external-ABI `uint8` form.
+  | enum : Path -> Nat -> Ty
   | functionWithLocations :
       List Ty -> List (Option DataLocation) ->
       List Ty -> List (Option DataLocation) ->
@@ -377,11 +381,19 @@ structure StructField where
 structure StructDecl where
   name : Name
   fields : List StructField := []
+  -- Declaring contract/library scope, stamped when the decl enters a
+  -- `StructEnv` (BUG#6): recovers solc's canonical name (`Lib.S`) for
+  -- library-qualified signature rendering. `none` for file-level structs.
+  declScope? : Option Name := none
   deriving Repr
 
 structure EnumDecl where
   name : Name
   cases : List Name := []
+  -- Declaring contract/library scope, stamped when the decl enters an
+  -- `EnumEnv` (BUG#6): recovers solc's canonical name (`Lib.Mode`) for
+  -- library-qualified signature rendering. `none` for file-level enums.
+  declScope? : Option Name := none
   deriving Repr
 
 structure UserValueTypeDecl where

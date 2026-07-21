@@ -13701,7 +13701,7 @@
     },
     {
       "name": "library-public-direct-call",
-      "description": "Coverage gap (decf368 twin, external/public path): a DIRECT call to a public/external library function whose argument is an explicit enum conversion in call form -- ModeLib.isOff(ModeLib.Mode(m)) -- typechecked but failed to lower: rewriteLibraryExternalDirectCallCandidate? was shape-gated with NO arity fallback, so the call stayed unrewritten and the WHOLE CONTRACT failed executable elaboration (checked-executable poisoning), while solc compiles and runs it. The rewrite now falls back to arity-only ordering exactly like its contract-internal twin, so the contract elaborates and the call lowers to the public-library delegatecall boundary. Forge pins real solc/EVM behavior. KNOWN REMAINING GAP (pre-existing, out of scope here): the model renders the delegatecall selector with the enum collapsed to uint8 (isOff(uint8)) whereas solc's library selector keeps the qualified enum name (isOff(ModeLib.Mode)); Ty.enum carries only the member count so the name is unrecoverable at the boundary without a type-representation change.",
+      "description": "Coverage gap (decf368 twin, external/public path): a DIRECT call to a public/external library function whose argument is an explicit enum conversion in call form -- ModeLib.isOff(ModeLib.Mode(m)) -- typechecked but failed to lower: rewriteLibraryExternalDirectCallCandidate? was shape-gated with NO arity fallback, so the call stayed unrewritten and the WHOLE CONTRACT failed executable elaboration (checked-executable poisoning), while solc compiles and runs it. The rewrite now falls back to arity-only ordering exactly like its contract-internal twin, so the contract elaborates and the call lowers to the public-library delegatecall boundary. Forge pins real solc/EVM behavior. The formerly-noted selector gap is FIXED (BUG#6, sound/tyenum-qualified): Ty.enum now carries its canonical qualified path and the library boundary renders/hashes isOff(ModeLib.Mode); see the library-qualified-selectors lane for the pinned bytes.",
       "forge": {
         "root": "tests/forge-harness/library-public-direct-call",
         "match_contract": "LibraryPublicDirectCallForgeTest",
@@ -14208,6 +14208,100 @@
             "label": "castUnsigned_5_is_15",
             "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.SignedLiteralWideCast.importedContract \"castUnsigned\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 5] 15",
             "expect": "Except.ok true"
+          }
+        ]
+      }
+    },
+    {
+      "name": "library-qualified-selectors",
+      "description": "BUG#6 (SOUNDNESS, library-qualified signatures): solc renders public/external LIBRARY function signatures with canonical SOURCE type names -- enums `Lib.Mode`, structs `Lib.S` (+ ` storage` for storage pointers), contract types by NAME -- not the external-ABI forms. The model formerly hashed the external forms (Ty.enum carried only the member count), yielding wrong selectors for `L.f.selector`, the library dispatch table, and the caller-side delegatecall payload. Fixed by carrying the canonical qualified path in Ty.enum, stamping declaring scopes into Enum/StructDecl envs, and rendering the library boundary via the qualified renderer (Ty.libraryAbiCanonical?). Pins the three audit-verified selectors byte-exact vs solc 0.8.35 --hashes + real-EVM delegatecall dispatch: isOff(Lib.Mode)=0x02952002, idOf(C)=0xbbf15d5e, bump(Lib.S storage)=0x83a5a0de (external-ABI forms 0xac2ecd48/0xd94fe832/0x2a607935 explicitly pinned as WRONG).",
+      "forge": {
+        "root": "tests/forge-harness/library-qualified-selectors",
+        "match_contract": "LibraryQualifiedSelectorsForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/library-qualified-selectors/src/LibraryQualifiedSelectors.sol",
+        "contract": "LibraryQualifiedSelectorsHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.LibraryQualifiedSelectors"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked",
+          "SolidCore.Witness.LibraryQualifiedSignatures"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.LibraryQualifiedSelectors.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "libraryDispatchSelectorsQualifiedPinned",
+            "expr": "(do\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.LibraryQualifiedSelectors.importedSourceUnit\n  let lib \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"Lib\"\n  let selectors := lib.core.functions.filterMap (fun f => f.selector?)\n  Except.ok (selectors.contains 0x02952002 && selectors.contains 0xbbf15d5e && selectors.contains 0x83a5a0de && !selectors.contains 0xac2ecd48 && !selectors.contains 0xd94fe832 && !selectors.contains 0x2a607935))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "selectorMembersPinnedByteExact",
+            "expr": "(do\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.LibraryQualifiedSelectors.importedSourceUnit\n  let empty := SolidCore.Solidity.Source.State.empty\n  let c \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"LibraryQualifiedSelectorsHarnessTarget\"\n  let cd1 \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.functionCalldata c \"selIsOff\" []\n  let r1 \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callCalldata 64 c empty cd1\n  let cd2 \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.functionCalldata c \"selIdOf\" []\n  let r2 \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callCalldata 64 c empty cd2\n  let cd3 \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.functionCalldata c \"selBump\" []\n  let r3 \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callCalldata 64 c empty cd3\n  Except.ok (r1.success && r1.output.take 4 == SolidCore.Solidity.Source.ABI.encodeSelector 0x02952002 && r2.success && r2.output.take 4 == SolidCore.Solidity.Source.ABI.encodeSelector 0xbbf15d5e && r3.success && r3.output.take 4 == SolidCore.Solidity.Source.ABI.encodeSelector 0x83a5a0de))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "witnessGuardsHold",
+            "expr": "(SolidCore.Solidity.TypeCheck.LibraryQualifiedSignatures.libDispatchSelectorsQualified && SolidCore.Solidity.TypeCheck.LibraryQualifiedSignatures.pinnedSignatureHashes)",
+            "expect": "true"
+          }
+        ]
+      }
+    },
+    {
+      "name": "library-enum-overloads",
+      "description": "BUG#6 acceptance boundary: two public LIBRARY overloads differing only by enum TYPE are solc-ACCEPTED -- their library-qualified signatures f(OvLib.EnumA)/f(OvLib.EnumB) are distinct although both erase to f(uint8) externally. The model formerly REJECTED this as a duplicate external-ABI signature (over-reject). The same pair at CONTRACT level DOES collide in the external ABI and solc REJECTS it (control: solc_rejects + model witness). Forge additionally proves the real-EVM delegatecall dispatches each call to the RIGHT overload (distinct qualified selectors end-to-end).",
+      "forge": {
+        "root": "tests/forge-harness/library-enum-overloads",
+        "match_contract": "LibraryEnumOverloadsForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_rejects": [
+        {
+          "source": "tests/forge-harness/library-enum-overloads/reject/ContractEnumOverloadClash.sol",
+          "contains": "Function overload clash"
+        }
+      ],
+      "solc_import": {
+        "source": "tests/forge-harness/library-enum-overloads/src/LibraryEnumOverloads.sol",
+        "contract": "LibraryEnumOverloadsHarnessTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.LibraryEnumOverloads"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked",
+          "SolidCore.Witness.LibraryQualifiedSignatures"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.LibraryEnumOverloads.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "overloadDispatchSelectorsDistinctQualified",
+            "expr": "(do\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.LibraryEnumOverloads.importedSourceUnit\n  let lib \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"OvLib\"\n  let selectors := lib.core.functions.filterMap (fun f => f.selector?)\n  Except.ok (selectors.contains (SolidCore.Solidity.Source.ABI.selectorFromSignature \"f(OvLib.EnumA)\") && selectors.contains (SolidCore.Solidity.Source.ABI.selectorFromSignature \"f(OvLib.EnumB)\")))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "contractLevelEnumOverloadStillRejected",
+            "expr": "SolidCore.Solidity.TypeCheck.LibraryQualifiedSignatures.contractEnumOverloadsRejected",
+            "expect": "true"
+          },
+          {
+            "label": "libraryAcceptWitness",
+            "expr": "SolidCore.Solidity.TypeCheck.LibraryQualifiedSignatures.libraryEnumOverloadsAccepted",
+            "expect": "true"
           }
         ]
       }
