@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/extfn-location-erasure/out"
+cache_path = "../../.foundry-suites/extfn-location-erasure/cache"
+evm_version = "cancun"

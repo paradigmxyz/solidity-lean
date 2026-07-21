@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/storage-return-subfield-ops/out"
+cache_path = "../../.foundry-suites/storage-return-subfield-ops/cache"
+evm_version = "cancun"

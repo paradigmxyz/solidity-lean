@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/lib-struct-enum-ctor/out"
+cache_path = "../../.foundry-suites/lib-struct-enum-ctor/cache"
+evm_version = "cancun"

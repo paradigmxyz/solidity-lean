@@ -11993,16 +11993,13 @@ def Stmt.resolveOverloadedEventEmits (events : List EventDecl)
   (Stmt.resolveOverloadedEventEmitsInSeqFuel
     defaultAnnotateAbiFuel events env stmt).fst
 
-/-- LIB-STORAGE-RETURN-USE (#156): the callee's single `storage` return is a
-    WHOLE storage reference — a bare storage-ref PARAMETER, `return s;` — which
-    the function boundary threads back as a plain `Value.storageRef` that a
-    caller-side `.field`/`[key]` USE resolves against the caller's own storage
-    location. A nested sub-PATH return (`return d.m;`, `return a[i];`) yields a
-    bound storage-ref (WS2: `storageSlotRef`, resolved in the CALLEE's layout)
-    the boundary does NOT re-base onto the caller, so its USE is
-    intentionally left an over-reject rather than mis-resolving at run time. Only
-    the exact single-`return <param>` shape qualifies; anything richer declines
-    (safe: preserves the prior over-reject). -/
+/-- LIB-STORAGE-RETURN-USE (#156), HISTORICAL narrow gate: the callee's single
+    `storage` return is a WHOLE storage reference — a bare storage-ref
+    PARAMETER, `return s;`. Pre-#188 the boundary did not re-base nested
+    sub-path returns, so only this shape qualified. The use sites now gate on
+    the widened `FunctionDecl.returnsSingleStorageRef?` below (the #188 R3
+    runtime re-points nested-path/local/conditional returns correctly); this
+    predicate is kept for reference/documentation. -/
 def FunctionDecl.returnsWholeStorageRefParam? (decl : FunctionDecl) : Bool :=
   match decl.returns, decl.body with
   | [ret], some (Stmt.block stmts) =>
@@ -12019,16 +12016,35 @@ def FunctionDecl.returnsWholeStorageRefParam? (decl : FunctionDecl) : Bool :=
       | _ => false
   | _, _ => false
 
+/-- Generalized storage-ref-return gate: the callee value-returns a SINGLE
+    `storage`-located reference, with NO body-shape requirement. The historical
+    whole-param-only gate above pre-dates the R3 (#188) runtime re-pointing,
+    which resolves a returned storage pointer from nested paths (`return o.d;`,
+    `return a[i];`), storage LOCALS (`S storage p = s; return p;`) and
+    conditional/early returns onto the caller's own storage — all pinned
+    against the real EVM in `tests/forge-harness/storage-return-subfield-ops`
+    (member/local/conditional callee shapes × mapping/array-field/plain-field
+    uses). The struct-member→index rewrite and the call-result USE arms
+    therefore gate on this predicate; the callee resolution machinery
+    (`internalSingleStorageReturnRefCore?`, `returnStorageRefs == [true]`)
+    still declines any callee whose single return is not actually threaded as
+    a storage ref, so a widened rewrite can only reach the ref-capture path
+    with a genuine storage pointer. -/
+def FunctionDecl.returnsSingleStorageRef? (decl : FunctionDecl) : Bool :=
+  match decl.returns with
+  | [ret] => ret.location == some DataLocation.storage
+  | _ => false
+
 /-- Resolve an internal call site's callee (contract functions first, then free
-    functions) purely for the whole-storage-ref-return gate above. -/
-def FunctionDecl.callSiteReturnsWholeStorageRefParam?
+    functions) purely for the storage-ref-return gate above. -/
+def FunctionDecl.callSiteReturnsSingleStorageRef?
     (functions freeFunctions : List FunctionDecl) (env : TypeEnv)
     (name : Name) (args : List Arg) : Bool :=
   match FunctionDecl.findInternalCalleeWithArgs? functions env name args with
-  | some (callee, _) => FunctionDecl.returnsWholeStorageRefParam? callee
+  | some (callee, _) => FunctionDecl.returnsSingleStorageRef? callee
   | none =>
       match FunctionDecl.findInternalCalleeWithArgs? freeFunctions env name args with
-      | some (callee, _) => FunctionDecl.returnsWholeStorageRefParam? callee
+      | some (callee, _) => FunctionDecl.returnsSingleStorageRef? callee
       | none => false
 
 def FunctionDecl.findInternalCalleeReturnTyWithArgs?
@@ -14399,6 +14415,42 @@ structure StmtLoweringCtx where
   functions : List FunctionDecl
   freeFunctions : List FunctionDecl
   returnTys : List Ty
+
+/-- LIB-STORAGE-RETURN-USE, ARRAY-FIELD push/pop: peel an INDEX SPINE off an
+    expression rooted at a direct call — `f(args)[i]…[k]` — returning the callee
+    name, the call arguments, and the index expressions outermost-last. After the
+    struct-member→index rewrite, `L.ref(s).a.push(v)` arrives as push on
+    `<call>[fieldIndex]`, and deeper nests (`struct-in-struct` array fields,
+    mapping-of-array values) add further indexes; the push/pop arms in
+    `Stmt.lowerCore?` use this spine to route the operation through the captured
+    storage-ref temp (`storageArrayPushRefPath`/`storageArrayPopRefPath`). -/
+def Expr.callRootedIndexSpine? : Expr -> Option (Name × List Arg × List Expr)
+  | Expr.index (Expr.call (Expr.ident name) args) index =>
+      some (name, args, [index])
+  | Expr.index base index => do
+      let (name, args, indexes) ← Expr.callRootedIndexSpine? base
+      some (name, args, indexes ++ [index])
+  | _ => none
+
+/-- Walk a callee's (resolved) return type down an index spine: a STRUCT peels
+    by the rewritten literal FIELD index, an array by its element, a mapping by
+    its value. Used by the ARRAY-FIELD push arm to recover the pushed value's
+    element type so NARROW-PUSH (#183) operand-width cleanup applies through a
+    returned storage ref exactly as it does for storage-ref locals; `none`
+    keeps that shape's prior over-reject (never a silently-wrapping accept). -/
+def Ty.peelIndexSpineTy? : Ty -> List Expr -> Option Ty
+  | ty, [] => some ty
+  | Ty.struct _ fieldTys, index :: rest => do
+      let fieldIndex ←
+        match index with
+        | Expr.literal (Literal.number numeral) => numeral.toNat?
+        | _ => none
+      let fieldTy ← fieldTys[fieldIndex]?
+      Ty.peelIndexSpineTy? fieldTy rest
+  | Ty.array elemTy _, _ :: rest => Ty.peelIndexSpineTy? elemTy rest
+  | Ty.mapping _ valueTy, _ :: rest => Ty.peelIndexSpineTy? valueTy rest
+  | _, _ => none
+
 
 mutual
 
@@ -16959,7 +17011,7 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           (some (Expr.index (Expr.call (Expr.ident name) args) index)) =>
           match
             (do
-              if FunctionDecl.callSiteReturnsWholeStorageRefParam?
+              if FunctionDecl.callSiteReturnsSingleStorageRef?
                   functions freeFunctions env name args then
                 some ()
               else
@@ -16978,6 +17030,82 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                 (Stmt.returnValues
                   (some (Expr.index (Expr.call (Expr.ident name) args) index)))
       | Stmt.expr expr@(Expr.call (Expr.member _ _) _) =>
+          -- LIB-STORAGE-RETURN-USE, ARRAY-FIELD push/pop: `L.ref(s).a.push(v)` /
+          -- `.push()` / `.pop()` — after the struct-member→index rewrite the
+          -- receiver is an index spine rooted at a call value-returning a
+          -- `storage` reference (`<call>[fieldIndex]…`). Capture the returned
+          -- pointer into the storage-ref temp (the SAME machinery the
+          -- direct-call push/pop and index-ASSIGN arms above use) and push/pop
+          -- through the indexed sub-path off it
+          -- (`storageArrayPushRefPath`/`storageArrayPopRefPath` — the runtime
+          -- shape already pinned for storage-ref LOCALS: `S storage p;
+          -- p.a.push(v)`). `internalSingleStorageReturnRefCore?` declines any
+          -- callee whose single return is not a storage ref (e.g. a MEMORY
+          -- struct return, whose array field solc also rejects push/pop on),
+          -- and a non-call-rooted receiver yields no spine — both fall through
+          -- to the pre-existing chain below unchanged.
+          match (match expr with
+                 | Expr.call (Expr.member receiver "push") [] => do
+                     let (name, args, indexes) ←
+                       Expr.callRootedIndexSpine? receiver
+                     let indexCores ←
+                       mapOption (Expr.toCore? storageNames) indexes
+                     FunctionDecl.internalSingleStorageReturnRefCore?
+                       internalFuel storageRefEnv env externalCallKindEnv
+                       storageNames modifiers functions freeFunctions name args
+                       (fun retName =>
+                         SolidCore.Solidity.Source.Stmt.storageArrayPushRefPath
+                           retName indexCores none)
+                 | Expr.call (Expr.member receiver "push")
+                     [Arg.positional value] => do
+                     let (name, args, indexes) ←
+                       Expr.callRootedIndexSpine? receiver
+                     let indexCores ←
+                       mapOption (Expr.toCore? storageNames) indexes
+                     -- NARROW-PUSH (#183) through the returned ref: lower the
+                     -- pushed value against the array ELEMENT type recovered
+                     -- from the callee's return type down the index spine, so
+                     -- a narrow checked-arithmetic argument keeps its
+                     -- operand-width cleanup (Panic 0x11 on overflow). If the
+                     -- element type cannot be recovered, decline — keeping the
+                     -- prior over-reject rather than silently wrapping.
+                     let retTys ←
+                       FunctionDecl.internalCalleeReturnTys?
+                         functions freeFunctions env name args
+                     let retTy ←
+                       match retTys with
+                       | [ty] => some ty
+                       | _ => none
+                     let elemTy ←
+                       match Ty.peelIndexSpineTy? retTy indexes with
+                       | some (Ty.array elemTy _) => some elemTy
+                       | _ => none
+                     let valueCore ←
+                       match
+                           Expr.toCoreAsWithEnv? storageNames env elemTy
+                             value with
+                       | some c => some c
+                       | none => Expr.toCore? storageNames value
+                     FunctionDecl.internalSingleStorageReturnRefCore?
+                       internalFuel storageRefEnv env externalCallKindEnv
+                       storageNames modifiers functions freeFunctions name args
+                       (fun retName =>
+                         SolidCore.Solidity.Source.Stmt.storageArrayPushRefPath
+                           retName indexCores (some valueCore))
+                 | Expr.call (Expr.member receiver "pop") [] => do
+                     let (name, args, indexes) ←
+                       Expr.callRootedIndexSpine? receiver
+                     let indexCores ←
+                       mapOption (Expr.toCore? storageNames) indexes
+                     FunctionDecl.internalSingleStorageReturnRefCore?
+                       internalFuel storageRefEnv env externalCallKindEnv
+                       storageNames modifiers functions freeFunctions name args
+                       (fun retName =>
+                         SolidCore.Solidity.Source.Stmt.storageArrayPopRefPath
+                           retName indexCores)
+                 | _ => none) with
+          | some coreStmt => some coreStmt
+          | none =>
           -- NARROW-PUSH (#183): a state-variable array push with a value argument
           -- must lower that value against the array ELEMENT type (env-aware, so
           -- narrow checked arithmetic Panics 0x11 on overflow). The env-less
@@ -22513,17 +22641,18 @@ def ContractDecls.findStructDeclByName? (contracts : List ContractDecl)
           if structDecl.name == name then some structDecl else none
       | _ => none))
 
-/-- The struct declaration of a callee's single `storage` STRUCT return, but ONLY
-    when that return is a WHOLE storage reference (`return s;` for a storage-ref
-    param — see `FunctionDecl.returnsWholeStorageRefParam?`). Used to recover the
-    field ordering so `.field` on the call result lowers to `[fieldIndex]`.
+/-- The struct declaration of a callee's single `storage` STRUCT return
+    (`FunctionDecl.returnsSingleStorageRef?` — any single `storage`-located
+    return: whole param, nested path, storage local, conditional/early). Used to
+    recover the field ordering so `.field` on the call result lowers to
+    `[fieldIndex]`.
 
-    The whole-reference gate is essential: the function boundary threads a whole
-    storage-ref return as a plain `Value.storageRef` that a caller-side index
-    resolves correctly, but does NOT re-base a nested sub-path return. Rewriting a
-    path-return's `.field` to an index would feed the (correct-for-whole-refs)
-    storage-ref use path a pointer it cannot resolve, so those stay member
-    accesses and remain the prior over-reject. -/
+    Historically this gated on the WHOLE-param `return s;` shape only, because
+    the boundary did not re-base nested sub-path returns. Since the R3 (#188)
+    runtime re-pointing, a returned storage pointer from a nested path / local /
+    conditional return resolves onto the caller's storage, so the gate is the
+    widened predicate; each newly-rewritten callee shape is pinned against the
+    real EVM in `tests/forge-harness/storage-return-subfield-ops`. -/
 def Expr.callSingleStorageStructReturnDecl?
     (contracts : List ContractDecl) (freeFunctions : List FunctionDecl) :
     Expr -> Option StructDecl
@@ -22531,7 +22660,7 @@ def Expr.callSingleStorageStructReturnDecl?
       let libraryName ← pathLast? libraryPath
       let libraryDecl ← ContractDecl.findLibraryByName? contracts libraryName
       let fn ← ContractDecl.findOrdinaryFunctionByName? libraryDecl method
-      if FunctionDecl.returnsWholeStorageRefParam? fn then
+      if FunctionDecl.returnsSingleStorageRef? fn then
         match fn.returns with
         | [ret] => do
             let path ← Ty.structPath? ret.ty
@@ -22542,7 +22671,7 @@ def Expr.callSingleStorageStructReturnDecl?
         none
   | Expr.call (Expr.ident name) _ => do
       let fn ← freeFunctions.find? (fun fn => fn.name == some name)
-      if FunctionDecl.returnsWholeStorageRefParam? fn then
+      if FunctionDecl.returnsSingleStorageRef? fn then
         match fn.returns with
         | [ret] => do
             let path ← Ty.structPath? ret.ty
