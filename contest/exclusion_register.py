@@ -53,10 +53,17 @@ from typing import Optional
 #       (measure._encode_typed — the exact head/tail bytes solc's encoder
 #       produces), and rendered as the matching Value.dynamicArray/fixedArray/
 #       tuple on the Lean side, so both engines receive the SAME logical call
-#       and array/struct-parameter behavior is MEASURED, not excluded).
-#       Added the narrow residue X-FNARG (function-typed PARAMETERS — no
-#       meaningful function VALUE can be fabricated from a claim — plus
-#       per-arg scalar families whose domain the type string cannot bound).
+#       and array/struct-parameter behavior is MEASURED, not excluded) and
+#       X-FNVAL (an EXTERNAL function value carries (address, selector) on both
+#       sides — the model's Value.externalFunction payload and the EVM's
+#       24-byte left-packed ABI word — and both render the canonical
+#       `f:<addr>:<sel>` form, so external function values in the return/
+#       revert channel are compared byte-faithfully). Added the two narrow
+#       residues: X-FNARG (function-typed PARAMETERS — no meaningful function
+#       VALUE can be fabricated from a claim — plus per-arg scalar families
+#       whose domain the type string cannot bound) and X-INTFNVAL (INTERNAL
+#       function values in the return/revert channel, which are per-contract
+#       dispatch IDs with no ABI encoding).
 REGISTER_VERSION = "1.4.0"
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -347,6 +354,13 @@ _SYNTACTIC: list[ExclusionEntry] = [
         # Return/revert-channel specific: checked by the adjudicator.
         detector="adjudicator:entry_return_type",
         since_version="1.3.0",
+        # RETIRED in 1.4.0: an EXTERNAL function value is comparable — the
+        # model's Value.externalFunction carries the same (address, selector)
+        # pair the EVM ABI left-packs into its 24-byte word, and both sides now
+        # render the canonical `f:<addr>:<sel>` form. The genuinely
+        # non-ABI-encodable residue (INTERNAL function values, unresolvable
+        # structs) lives on as X-INTFNVAL.
+        removed_in_version="1.4.0",
         reason=(
             "A FUNCTION-typed value (or a struct/array containing one) in the "
             "entry RETURN or custom-error REVERT channel: solidity-lean renders an "
@@ -388,6 +402,27 @@ _SYNTACTIC: list[ExclusionEntry] = [
         ),
         roadmap_ref=("adjudicate._encodable_param_type / _arg_domain_error; "
                      "measure._encode_typed; observable.render_lean_arg"),
+    ),
+    ExclusionEntry(
+        id="X-INTFNVAL",
+        kind="syntactic",
+        # Return/revert-channel specific: checked by the adjudicator.
+        detector="adjudicator:entry_return_type",
+        since_version="1.4.0",
+        reason=(
+            "The narrow RETURN/REVERT residue of the retired X-FNVAL (an "
+            "EXTERNAL function value now compares: both engines render the "
+            "canonical `f:<addr>:<sel>` form from the (address, selector) pair "
+            "the ABI word packs). Out of scope remain INTERNAL function-typed "
+            "values (or a struct/array containing one) in the entry RETURN or "
+            "custom-error REVERT channel — an internal function value is a "
+            "per-contract dispatch ID with NO ABI encoding (solc itself rejects "
+            "internal function types in external signatures, so this row is "
+            "defense-in-depth against typeString drift) — plus a struct type "
+            "the harness cannot resolve to member types (undecodable)."
+        ),
+        roadmap_ref=("adjudicate._comparable_channel_type(external_fn_ok=True); "
+                     "observable.render_word_for_type"),
     ),
 ]
 

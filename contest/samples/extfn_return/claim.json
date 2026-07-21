@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "ExtFnRet", "function": "get", "args": [], "value": 0 },
+  "expected_divergence": "none expected - external function VALUE return parity control (register 1.4, X-FNVAL retired): both engines render the canonical f:<self-addr>:<probe-selector> form -> NO_DIVERGENCE (was REJECTED_OOS under the 1.3 register).",
+  "declared_observable": { "kind": "return_value", "normal_form": "success|f:<addr>:<sel>" },
+  "feature": "external-fn-value-return",
+  "register_version_seen": "1.4.0"
+}

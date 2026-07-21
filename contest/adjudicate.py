@@ -642,17 +642,26 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
                     f"scope) — entry return type(s) {uncomparable} not in the "
                     f"faithfully-comparable ABI subset"), evidence=evidence)
         else:
+            # Register >= 1.4.0 (X-FNVAL retired): an EXTERNAL function value
+            # carries (address, selector) on both sides and renders to the
+            # canonical `f:<addr>:<sel>` form, so it is COMPARED. The residue
+            # is X-INTFNVAL: internal function values (a per-contract dispatch
+            # ID, never ABI-encodable) and unresolvable structs. Submissions
+            # judged at 1.3.x keep the broad X-FNVAL subset (§7).
+            fn_row = _active_row(("X-INTFNVAL", "X-FNVAL"),
+                                 at_version or reg.REGISTER_VERSION)
+            ext_fn_ok = fn_row is None or fn_row.id == "X-INTFNVAL"
             uncomparable = [t for t in sig.return_types
-                            if not _comparable_channel_type(t, structs)]
-            if uncomparable:
-                e = reg.entry_by_id("X-FNVAL")
-                if e is not None and e.is_active(at_version or reg.REGISTER_VERSION):
-                    evidence["return_type_scope"] = {"uncomparable": uncomparable}
-                    return Report("REJECTED_OOS", reason=(
-                        f"reject gate fired: X-FNVAL (intentional exclusion, out "
-                        f"of scope) — entry return type(s) {uncomparable} carry a "
-                        f"function-typed / unresolvable value outside the "
-                        f"faithfully-comparable ABI subset"), evidence=evidence)
+                            if not _comparable_channel_type(
+                                t, structs, external_fn_ok=ext_fn_ok)]
+            if uncomparable and fn_row is not None:
+                evidence["return_type_scope"] = {"uncomparable": uncomparable}
+                return Report("REJECTED_OOS", reason=(
+                    f"reject gate fired: {fn_row.id} (intentional exclusion, out "
+                    f"of scope) — entry return type(s) {uncomparable} carry a "
+                    f"non-ABI-encodable (internal-)function-typed / unresolvable "
+                    f"value outside the faithfully-comparable ABI subset"),
+                    evidence=evidence)
         measured, mstatus = meas.measure_evm(
             sig, entry.get("args", []), env_ov, work / "measure",
             forge=tools.forge, solc=tools.solc, repo=tools.repo, timeout=timeout,
@@ -915,19 +924,25 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
                         f"{_uncomparable} not in the faithfully-comparable ABI "
                         f"subset (revert channel)"), evidence=evidence)
             else:
+                # Same version split as the return channel: external function
+                # values compare (canonical f:<addr>:<sel>) at >= 1.4.0; the
+                # X-INTFNVAL residue is internal-function-typed / unresolvable.
+                _fn_row = _active_row(("X-INTFNVAL", "X-FNVAL"),
+                                      effective_version)
+                _ext_ok = _fn_row is None or _fn_row.id == "X-INTFNVAL"
                 _uncomparable = [t for t in _etypes
-                                 if not _comparable_channel_type(t, structs)]
-                _e = reg.entry_by_id("X-FNVAL")
-                if _uncomparable and _e is not None and \
-                        _e.is_active(effective_version):
+                                 if not _comparable_channel_type(
+                                     t, structs, external_fn_ok=_ext_ok)]
+                if _uncomparable and _fn_row is not None:
                     evidence["revert_param_scope"] = {
                         "error": _ename, "uncomparable": _uncomparable}
                     return Report("REJECTED_OOS", reason=(
-                        f"reject gate fired: X-FNVAL (intentional exclusion, out of "
-                        f"scope) — custom-error {_ename} param type(s) "
-                        f"{_uncomparable} carry a function-typed / unresolvable "
-                        f"value outside the faithfully-comparable ABI subset "
-                        f"(revert channel)"), evidence=evidence)
+                        f"reject gate fired: {_fn_row.id} (intentional exclusion, "
+                        f"out of scope) — custom-error {_ename} param type(s) "
+                        f"{_uncomparable} carry a non-ABI-encodable (internal-)"
+                        f"function-typed / unresolvable value outside the "
+                        f"faithfully-comparable ABI subset (revert channel)"),
+                        evidence=evidence)
     try:
         evm_obs = obs.evm_observable(
             measured.ok, measured.ret_hex, sig.return_types,
@@ -1022,28 +1037,36 @@ def _representable_param_type(t: str) -> bool:
 
 
 def _comparable_channel_type(t: str,
-                             structs: Optional[dict[str, list[str]]]) -> bool:
+                             structs: Optional[dict[str, list[str]]],
+                             external_fn_ok: bool = False) -> bool:
     """True iff a RETURN / custom-error REVERT type is in the faithfully-
     comparable ABI subset under the recursive codec (register >= 1.3.0).
 
     The recursive decoder (observable._decode_abi_values) renders scalars,
     dynamic bytes/string, arrays (``[..]``) and structs (``(..)``) exactly as
-    solidity-lean does, so all of those COMPARE. The residue (X-FNVAL) is a
-    FUNCTION-typed value anywhere in the type — solidity-lean renders it via the
-    r:reprStr fallback while the EVM ABI-encodes a static word — and a struct
-    the harness cannot resolve to member types (undecodable)."""
+    solidity-lean does, so all of those COMPARE. With ``external_fn_ok``
+    (register >= 1.4.0, X-FNVAL retired) an EXTERNAL function type also
+    compares: both sides render the canonical ``f:<addr>:<sel>`` form from the
+    (address, selector) pair the ABI word packs. The remaining residue
+    (X-INTFNVAL) is an INTERNAL function value — a per-contract dispatch ID
+    with no ABI encoding (solc itself rejects internal function types in
+    external signatures, so this arm is defense-in-depth) — and a struct the
+    harness cannot resolve to member types (undecodable). With
+    ``external_fn_ok=False`` (a 1.3.x-era submission, §7) every function type
+    is out, exactly as adjudicated then."""
     t = str(t).strip()
     for suffix in (" memory", " calldata", " storage", " payable"):
         t = t.replace(suffix, "")
     t = t.strip()
     if t.startswith("function"):
-        return False
+        return external_fn_ok and " external" in t
     arr = obs._array_elem(t)
     if arr is not None:
-        return _comparable_channel_type(arr[0], structs)
+        return _comparable_channel_type(arr[0], structs, external_fn_ok)
     members = obs._struct_member_types(t, structs)
     if members is not None:
-        return all(_comparable_channel_type(m, structs) for m in members)
+        return all(_comparable_channel_type(m, structs, external_fn_ok)
+                   for m in members)
     if t.startswith("struct "):    # unresolvable struct -> undecodable
         return False
     if t.startswith("tuple"):      # bare tuple typeString (no component info)

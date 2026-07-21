@@ -93,6 +93,16 @@ partial def renderValue (v : SolidCore.Solidity.Source.Value) : String :=
   | Value.fixedArray xs => "[" ++ String.intercalate "," (xs.map renderValue) ++ "]"
   | Value.dynamicArray xs => "[" ++ String.intercalate "," (xs.map renderValue) ++ "]"
   | Value.tuple xs => "(" ++ String.intercalate "," (xs.map renderValue) ++ ")"
+  -- EXTERNAL function value: the model carries (address, selector) — exactly
+  -- the two components the EVM ABI packs into its 24-byte left-aligned word.
+  -- Render the canonical `f:<addr-decimal>:<selector-decimal>` form; the EVM
+  -- decoder (render_word_for_type) unpacks its measured word into the SAME
+  -- form, so external function values in the return/revert channel COMPARE
+  -- (register 1.4: X-FNVAL narrowed to internal function values, which carry
+  -- only a per-contract dispatch ID and are never ABI-encodable).
+  | Value.externalFunction addr selector =>
+      "f:" ++ toString (SolidCore.Solidity.Shared.norm addr) ++ ":"
+        ++ toString (SolidCore.Solidity.Shared.norm selector)
   | other => "r:" ++ reprStr other
 
 def renderValues (vs : List SolidCore.Solidity.Source.Value) : String :=
@@ -453,6 +463,17 @@ def _fixed_bytes_n(t: str) -> Optional[int]:
 
 def render_word_for_type(word: int, t: str) -> str:
     t = _clean_type(t)
+    if t.startswith("function") and " external" in t:
+        # EXTERNAL function value: the ABI packs (address ‖ 4-byte selector)
+        # left-aligned into the 32-byte word (24 meaningful high bytes, like a
+        # bytes24). Unpack into the canonical `f:<addr>:<selector>` form — the
+        # SAME form the Lean helper renders from Value.externalFunction's
+        # (address, selector) payload — so external function values in the
+        # return/revert channel compare byte-faithfully (register 1.4,
+        # X-FNVAL narrowed to internal function values).
+        addr = word >> 96
+        selector = (word >> 64) & 0xFFFFFFFF
+        return f"f:{addr}:{selector}"
     n = _fixed_bytes_n(t)
     if n is not None:
         # bytesN parity (audit round 2, CONTEST-BREAKING): EVM ABI LEFT-aligns
@@ -832,6 +853,27 @@ def perturb_leading_value(o: "Observable") -> "Observable":
         return Observable(raw=o.raw)
     new_line = o.outcome_line[:m.start()] + f"w:{int(m.group(1)) + 1}" + \
         o.outcome_line[m.end():]
+    tail = o.raw[len(o.outcome_line):]
+    return Observable(raw=new_line + tail)
+
+
+def perturb_extfn_value(o: "Observable") -> "Observable":
+    """Return a copy of ``o`` with the SELECTOR of its first canonical external
+    function value ``f:<addr>:<sel>`` incremented by one.
+
+    Fault-injection SELF-TEST twin of :func:`perturb_leading_value` for the
+    external-function-value channel (register 1.4, X-FNVAL retired): it injects
+    a one-unit selector delta at the observable boundary so the full pipeline
+    proves a REAL model-vs-EVM disagreement on a returned function value would
+    be detected, with ZERO bugs in solidity-lean. Never used in real
+    adjudication."""
+    import re
+    m = re.search(r"f:(\d+):(\d+)", o.outcome_line)
+    if not m:
+        return Observable(raw=o.raw)
+    new_line = (o.outcome_line[:m.start()]
+                + f"f:{m.group(1)}:{int(m.group(2)) + 1}"
+                + o.outcome_line[m.end():])
     tail = o.raw[len(o.outcome_line):]
     return Observable(raw=new_line + tail)
 

@@ -205,6 +205,24 @@ def run_perturbed_array_arg_selftest(timeout: int = 500) -> tuple[bool, str]:
     return ok, detail
 
 
+def run_perturbed_extfn_selftest(timeout: int = 500) -> tuple[bool, str]:
+    """Divergence-DIRECTION check for the closed X-FNVAL channel: run
+    `extfn_return` (an external function VALUE return) through the FULL live
+    pipeline, then bump the measured selector in the canonical f:<addr>:<sel>
+    form by one unit. The classifier must bank SOUNDNESS_GAP(wrong-value) —
+    proving a real model-vs-EVM disagreement on a returned function value
+    would be detected, with ZERO bugs in solidity-lean."""
+    report = adj.adjudicate(
+        SAMPLES / "extfn_return", timeout=timeout,
+        _selftest_perturb_evm=obs.perturb_extfn_value)
+    comp = (report.evidence.get("comparison", {}) or {}).get("differing_component")
+    ok = (report.verdict == "SOUNDNESS_GAP" and report.lane == "S"
+          and comp == "wrong-value" and report.qualifies)
+    detail = (f"verdict={report.verdict} lane={report.lane} component={comp} "
+              f"qualifies={report.qualifies} :: {report.reason[:140]}")
+    return ok, detail
+
+
 def run_real_deploy_soundness_selftest(timeout: int = 500) -> tuple[bool, str]:
     """REAL end-to-end DEPLOY-OUTCOME soundness-detector test.
 
@@ -1270,6 +1288,18 @@ def main() -> int:
     ok, d = run_full("fn_param_oos", "REJECTED_OOS")
     results.append(("fn_param_oos X-FNARG residue (FULL)", ok, d))
     _print("fn_param_oos X-FNARG residue (FULL)", ok, d)
+
+    # Register 1.4 (X-FNVAL retired): an EXTERNAL function VALUE in the return
+    # channel renders the canonical f:<addr>:<sel> form on BOTH engines.
+    ok, d = run_full("extfn_return", "NO_DIVERGENCE")
+    results.append(("extfn_return parity (FULL, X-FNVAL retired)", ok, d))
+    _print("extfn_return parity (FULL, X-FNVAL retired)", ok, d)
+
+    # Divergence DIRECTION for the function-value channel: perturb the measured
+    # selector by one unit -> SOUNDNESS_GAP(wrong-value) must be banked.
+    ok, d = run_perturbed_extfn_selftest()
+    results.append(("extfn divergence-detector (REAL + delta)", ok, d))
+    _print("extfn divergence-detector (REAL + delta)", ok, d)
 
     # fabricated gap: args count != function param count -> REJECT_MALFORMED,
     # NOT a qualifying COVERAGE_GAP from Solidus failing closed on the bad call.
