@@ -1,0 +1,477 @@
+{
+  "entries": {
+    "A1IF": {
+      "fingerprint": "fp1|C|elab_reject|full|e212fdf80200af89",
+      "repro_dir": "tests/forge-harness/abstract-interface-id",
+      "sources": [
+        "AbstractInterfaceId.sol"
+      ]
+    },
+    "A2": {
+      "fingerprint": "fp1|S|wrong-value|full|b2369a9e5f158b0a",
+      "repro_dir": "tests/forge-harness/catch-dispatch-by-kind",
+      "sources": [
+        "CatchDispatch.sol",
+        "Reverters.sol"
+      ]
+    },
+    "A3": {
+      "fingerprint": "fp1|S|revert-vs-success|full|2f7f84d9b5a74cf7",
+      "repro_dir": "tests/forge-harness/extcodesize-existence-guard",
+      "sources": [
+        "ExtcodesizeExistenceGuard.sol"
+      ]
+    },
+    "CF2": {
+      "fingerprint": "fp1|C|over_reject|full|91d84b305868b798",
+      "repro_dir": "tests/forge-harness/cf2-revert-pruning",
+      "sources": [
+        "CF2RevertPruning.sol"
+      ]
+    },
+    "CS1": {
+      "fingerprint": "fp1|S|wrong-value|full|1a370b35fdcca72f",
+      "repro_dir": "tests/forge-harness/selfdestruct-balance",
+      "sources": [
+        "SelfdestructBalance.sol"
+      ]
+    },
+    "DL101": {
+      "fingerprint": "fp1|C|over_reject|full|508b858bdaaba76b",
+      "repro_dir": "tests/forge-harness/calldata-lazy-value",
+      "sources": [
+        "CalldataLazyValue.sol"
+      ]
+    },
+    "DL102": {
+      "fingerprint": "fp1|C|over_reject|full|35fce406d7b7f578",
+      "repro_dir": "tests/forge-harness/qualified-member",
+      "sources": [
+        "QualifiedMember.sol"
+      ]
+    },
+    "DL108": {
+      "fingerprint": "fp1|S|wrong-value|full|d3d882f7c0a1d80a",
+      "repro_dir": "tests/forge-harness/abi-decode-address-payable",
+      "sources": [
+        "AbiDecodeAddressPayable.sol"
+      ]
+    },
+    "DL109": {
+      "fingerprint": "fp1|C|over_reject|full|44094df09c72ce67",
+      "repro_dir": "tests/forge-harness/common-type-literal",
+      "sources": [
+        "CommonTypeLiteral.sol"
+      ]
+    },
+    "DL110": {
+      "fingerprint": "fp1|C|over_reject|full|78f052799adab1ed",
+      "repro_dir": "tests/forge-harness/qualified-struct-construction",
+      "sources": [
+        "QualifiedStructConstruction.sol"
+      ]
+    },
+    "DL112": {
+      "fingerprint": "fp1|C|over_reject|full|c1bc54538ee80791",
+      "repro_dir": "tests/forge-harness/create-salt-literal",
+      "sources": [
+        "CreateSaltLiteral.sol"
+      ]
+    },
+    "DL114": {
+      "fingerprint": "fp1|S|wrong-value|full|bc507b65cda9155f",
+      "repro_dir": "tests/forge-harness/dec-alloc-memptr",
+      "sources": [
+        "DecAllocMemptr.sol"
+      ]
+    },
+    "DL115": {
+      "fingerprint": "fp1|C|over_reject|full|89aef2aedab1075a",
+      "repro_dir": "tests/forge-harness/const-getter-pure-override",
+      "sources": [
+        "ConstGetterPureOverride.sol"
+      ]
+    },
+    "DL121": {
+      "fingerprint": "fp1|C|over_reject|full|95baf848fdda1f5d",
+      "repro_dir": "tests/forge-harness/const-zero-bytesn",
+      "sources": [
+        "ConstZeroBytesN.sol"
+      ]
+    },
+    "DL126": {
+      "fingerprint": "fp1|C|over_reject|full|1e0bfdfab43f5d69",
+      "repro_dir": "tests/forge-harness/array-widen-copy",
+      "sources": [
+        "ArrayWidenCopy.sol"
+      ]
+    },
+    "DL128": {
+      "fingerprint": "fp1|S|wrong-value|full|80b5276895d8173c",
+      "repro_dir": "tests/forge-harness/abi-memory-eager",
+      "sources": [
+        "AbiMemoryEager.sol"
+      ]
+    },
+    "DL131": {
+      "fingerprint": "fp1|C|over_reject|full|8069563d8393feae",
+      "repro_dir": "tests/forge-harness/shortcircuit-callpos",
+      "sources": [
+        "ShortCircuitCallPos.sol"
+      ]
+    },
+    "DL132": {
+      "fingerprint": "fp1|S|wrong-value|full|5fbd36c9c24f0d41",
+      "repro_dir": "tests/forge-harness/tuple-write-order",
+      "sources": [
+        "TupleWriteOrder.sol"
+      ]
+    },
+    "DL134": {
+      "fingerprint": "fp1|C|over_reject|full|130ed3e9812fa430",
+      "repro_dir": "tests/forge-harness/contract-ordered-compare",
+      "sources": [
+        "ContractOrderedCompare.sol"
+      ]
+    },
+    "DL135": {
+      "fingerprint": "fp1|C|over_reject|full|f4196d6b999b1f87",
+      "repro_dir": "tests/forge-harness/array-mutation-usingfor",
+      "sources": [
+        "ArrayMutationUsingFor.sol"
+      ]
+    },
+    "DL138": {
+      "fingerprint": "fp1|C|over_reject|full|da701f02ab6c3429",
+      "repro_dir": "tests/forge-harness/qualified-event-selector",
+      "sources": [
+        "QualifiedEventSelector.sol"
+      ]
+    },
+    "DL139": {
+      "fingerprint": "fp1|C|over_reject|full|fa40a28315422b60",
+      "repro_dir": "tests/forge-harness/error-selector-collision",
+      "sources": [
+        "ErrorSelectorCollision.sol"
+      ]
+    },
+    "DL140": {
+      "fingerprint": "fp1|S|wrong-value|full|cfdbaad1313ec41a",
+      "repro_dir": "tests/forge-harness/abiencode-lit-fixedbytes",
+      "sources": [
+        "AbiEncodeLitFixedBytes.sol"
+      ]
+    },
+    "DL152": {
+      "fingerprint": "fp1|C|over_reject|full|7a6e8154646d3d86",
+      "repro_dir": "tests/forge-harness/stringconcat-hexlit",
+      "sources": [
+        "StringConcatHexLit.sol"
+      ]
+    },
+    "DL155": {
+      "fingerprint": "fp1|C|over_reject|full|3d524112cced4197",
+      "repro_dir": "tests/forge-harness/lib-storage-return",
+      "sources": [
+        "LibStorageReturn.sol"
+      ]
+    },
+    "DL160": {
+      "fingerprint": "fp1|C|over_reject|full|5f3edee8ef2a56bd",
+      "repro_dir": "tests/forge-harness/recursive-struct-mem-construct",
+      "sources": [
+        "RecursiveStructMemConstruct.sol"
+      ]
+    },
+    "DL163": {
+      "fingerprint": "fp1|C|over_reject|full|65e16398ed2803e4",
+      "repro_dir": "tests/forge-harness/new-contract-local-struct-array",
+      "sources": [
+        "NewContractLocalStructArray.sol"
+      ]
+    },
+    "DL164": {
+      "fingerprint": "fp1|S|wrong-value|full|5b44057d528a1594",
+      "repro_dir": "tests/forge-harness/exp-narrow-base-wide-exp",
+      "sources": [
+        "ExpNarrowBaseWideExp.sol"
+      ]
+    },
+    "DL165": {
+      "fingerprint": "fp1|C|over_reject|full|5c86838292a69e2c",
+      "repro_dir": "tests/forge-harness/bool-cast-of-comparison",
+      "sources": [
+        "BoolCastOfComparison.sol"
+      ]
+    },
+    "DL166": {
+      "fingerprint": "fp1|C|over_reject|full|2cf4599c8e201e53",
+      "repro_dir": "tests/forge-harness/overload-mem-vs-storage",
+      "sources": [
+        "OverloadMemVsStorage.sol"
+      ]
+    },
+    "DL167": {
+      "fingerprint": "fp1|C|over_reject|full|79a752fce5a8d850",
+      "repro_dir": "tests/forge-harness/creationcode-ancestor",
+      "sources": [
+        "CreationCodeAncestor.sol"
+      ]
+    },
+    "DL168": {
+      "fingerprint": "fp1|S|wrong-value|full|392d0a63eee619f4",
+      "repro_dir": "tests/forge-harness/delete-memory-nested-ref",
+      "sources": [
+        "DeleteMemoryNestedRef.sol"
+      ]
+    },
+    "DL170": {
+      "fingerprint": "fp1|C|over_reject|full|30d401ddcf114bce",
+      "repro_dir": "tests/forge-harness/address-folded-const",
+      "sources": [
+        "AddressFoldedConst.sol"
+      ]
+    },
+    "DL171": {
+      "fingerprint": "fp1|S|wrong-value|full|5aafebada38bd7a2",
+      "repro_dir": "tests/forge-harness/tuple-vardecl-abi-decode",
+      "sources": [
+        "TupleVarDeclAbiDecode.sol"
+      ]
+    },
+    "DL172": {
+      "fingerprint": "fp1|S|wrong-value|full|833db6f57fe810d8",
+      "repro_dir": "tests/forge-harness/tuple-vardecl-ternary",
+      "sources": [
+        "TupleVarDeclTernary.sol"
+      ]
+    },
+    "DL173": {
+      "fingerprint": "fp1|S|wrong-value|full|542a5b41e249322e",
+      "repro_dir": "tests/forge-harness/ternary-call-in-arg",
+      "sources": [
+        "TernaryCallInArg.sol"
+      ]
+    },
+    "DL174": {
+      "fingerprint": "fp1|S|wrong-value|full|0455b126f3a19756",
+      "repro_dir": "tests/forge-harness/abi-encode-call-arg",
+      "sources": [
+        "AbiEncodeCallArg.sol"
+      ]
+    },
+    "DL175": {
+      "fingerprint": "fp1|S|wrong-value|full|df3dbefd3ada013c",
+      "repro_dir": "tests/forge-harness/bytesn-ident-index",
+      "sources": [
+        "BytesNIdentIndex.sol"
+      ]
+    },
+    "DL176": {
+      "fingerprint": "fp1|S|wrong-value|full|df3dbefd3ada013c",
+      "repro_dir": "tests/forge-harness/bytesn-ident-index",
+      "sources": [
+        "BytesNIdentIndex.sol"
+      ]
+    },
+    "DL178": {
+      "fingerprint": "fp1|S|wrong-value|full|95994e04c4b7d524",
+      "repro_dir": "tests/forge-harness/enum-member-encodepacked",
+      "sources": [
+        "EnumMemberEncodePacked.sol"
+      ]
+    },
+    "DL180": {
+      "fingerprint": "fp1|C|over_reject|full|9c106144febb3f4f",
+      "repro_dir": "tests/forge-harness/bytesn-eq-literal",
+      "sources": [
+        "BytesNEqLiteral.sol"
+      ]
+    },
+    "DL181": {
+      "fingerprint": "fp1|C|over_reject|full|e752ee798ca9ceba",
+      "repro_dir": "tests/forge-harness/address-nested-conv",
+      "sources": [
+        "AddressNestedConv.sol"
+      ]
+    },
+    "DL182": {
+      "fingerprint": "fp1|S|wrong-value|full|aa3f4f11737b59ca",
+      "repro_dir": "tests/forge-harness/narrow-cleanup-family",
+      "sources": [
+        "NarrowCleanupFamily.sol"
+      ]
+    },
+    "DL183": {
+      "fingerprint": "fp1|S|wrong-value|full|aa3f4f11737b59ca",
+      "repro_dir": "tests/forge-harness/narrow-cleanup-family",
+      "sources": [
+        "NarrowCleanupFamily.sol"
+      ]
+    },
+    "DL184": {
+      "fingerprint": "fp1|S|wrong-value|full|aa3f4f11737b59ca",
+      "repro_dir": "tests/forge-harness/narrow-cleanup-family",
+      "sources": [
+        "NarrowCleanupFamily.sol"
+      ]
+    },
+    "DL194": {
+      "fingerprint": "fp1|S|wrong-value|full|aa3f4f11737b59ca",
+      "repro_dir": "tests/forge-harness/narrow-cleanup-family",
+      "sources": [
+        "NarrowCleanupFamily.sol"
+      ]
+    },
+    "DL197": {
+      "fingerprint": "fp1|C|over_reject|full|49b360191a9e3953",
+      "repro_dir": "tests/forge-harness/inherited-struct-field",
+      "sources": [
+        "InheritedStructField.sol"
+      ]
+    },
+    "DL199": {
+      "fingerprint": "fp1|C|over_reject|full|3d0a9b36cde9297d",
+      "repro_dir": "tests/forge-harness/modifier-private-scope",
+      "sources": [
+        "ModifierPrivateScope.sol"
+      ]
+    },
+    "DL55": {
+      "fingerprint": "fp1|C|over_reject|full|c7561461c1f86606",
+      "repro_dir": "tests/forge-harness/base-qualified-call",
+      "sources": [
+        "BaseQualifiedCall.sol"
+      ]
+    },
+    "DL58": {
+      "fingerprint": "fp1|C|over_reject|full|2a64464ea3a3105e",
+      "repro_dir": "tests/forge-harness/inline-array-literal-exec",
+      "sources": [
+        "InlineArrayLiteralExec.sol"
+      ]
+    },
+    "DL70": {
+      "fingerprint": "fp1|C|over_reject|full|65c1da6d7d53becd",
+      "repro_dir": "tests/forge-harness/callpos-family",
+      "sources": [
+        "CallposFamily.sol"
+      ]
+    },
+    "DL70b": {
+      "fingerprint": "fp1|C|over_reject|full|5f4d9b895266334e",
+      "repro_dir": "tests/forge-harness/call-position",
+      "sources": [
+        "CallPosition.sol"
+      ]
+    },
+    "DL73": {
+      "fingerprint": "fp1|C|over_reject|full|8ea427e115e05b8f",
+      "repro_dir": "tests/forge-harness/extcall-binary",
+      "sources": [
+        "ExtcallBinary.sol"
+      ]
+    },
+    "DL78": {
+      "fingerprint": "fp1|S|over-accept|full|82050c6600a82901",
+      "repro_dir": "tests/forge-harness/encpacked-literal",
+      "sources": [
+        "EncPackedLiteral.sol"
+      ]
+    },
+    "DL83": {
+      "fingerprint": "fp1|S|wrong-value|full|3619f24c31813415",
+      "repro_dir": "tests/forge-harness/dispatch-oom",
+      "sources": [
+        "DispatchOom.sol"
+      ]
+    },
+    "DL93": {
+      "fingerprint": "fp1|C|over_reject|full|3291951a68567159",
+      "repro_dir": "tests/forge-harness/lib-storage-public-2",
+      "sources": [
+        "LibStoragePublic2.sol"
+      ]
+    },
+    "DL95": {
+      "fingerprint": "fp1|C|over_reject|full|e8fb5745bcee1363",
+      "repro_dir": "tests/forge-harness/push-field-lvalue",
+      "sources": [
+        "PushFieldLValue.sol"
+      ]
+    },
+    "G13": {
+      "fingerprint": "fp1|C|over_reject|full|a5d626e8a8273034",
+      "repro_dir": "tests/forge-harness/nested-tuple-assignment",
+      "sources": [
+        "NestedTupleAssignment.sol"
+      ]
+    },
+    "G14": {
+      "fingerprint": "fp1|C|over_reject|full|94a1716e234ebb29",
+      "repro_dir": "tests/forge-harness/storage-array-copy-convert",
+      "sources": [
+        "StorageArrayCopyConvert.sol"
+      ]
+    },
+    "G15": {
+      "fingerprint": "fp1|C|over_reject|full|a268f9f65e5a1d11",
+      "repro_dir": "tests/forge-harness/ternary-literal-mobile-type",
+      "sources": [
+        "TernaryLiteralMobileType.sol"
+      ]
+    },
+    "G17": {
+      "fingerprint": "fp1|S|wrong-panic|full|b2c3d380e092eb2f",
+      "repro_dir": "tests/forge-harness/storage-uninit-fn-ptr",
+      "sources": [
+        "StorageUninitFnPtr.sol"
+      ]
+    },
+    "G18": {
+      "fingerprint": "fp1|S|wrong-value|full|762dc30bc2d46191",
+      "repro_dir": "tests/forge-harness/try-external-fn-return",
+      "sources": [
+        "TryExternalFnReturn.sol"
+      ]
+    },
+    "G21": {
+      "fingerprint": "fp1|S|wrong-value|full|83363ed4b2465ca2",
+      "repro_dir": "tests/forge-harness/c99-scope-activation",
+      "sources": [
+        "C99ScopeActivation.sol"
+      ]
+    },
+    "M1": {
+      "fingerprint": "fp1|S|wrong-value|full|caf2de4b75a8ab4c",
+      "repro_dir": "tests/forge-harness/memory-alias-fixes",
+      "sources": [
+        "MemoryAliasFixes.sol"
+      ]
+    },
+    "PK1": {
+      "fingerprint": "fp1|C|over_reject|full|e27db2fc4503b447",
+      "repro_dir": "tests/forge-harness/packed-nested-static-array",
+      "sources": [
+        "PackedNestedStaticArray.sol"
+      ]
+    },
+    "UF1": {
+      "fingerprint": "fp1|C|over_reject|full|776f90089a128fd5",
+      "repro_dir": "tests/forge-harness/using-for-global-nonudvt",
+      "sources": [
+        "UsingForGlobalNonUdvt.sol"
+      ]
+    },
+    "V1": {
+      "fingerprint": "fp1|S|wrong-revert|full|b86132be4427fb81",
+      "repro_dir": "tests/forge-harness/calldata-slice-oob",
+      "sources": [
+        "CalldataSliceOob.sol"
+      ]
+    }
+  },
+  "known_gaps_version": "2.0.0",
+  "note": "GENERATED by `python3 -m contest.known_gaps --rebuild` \u2014 do not hand-edit. Every fingerprint is derived from its entry's repro by contest/fingerprint.py; the registry invariant test re-derives and cross-checks all of them.",
+  "scheme": "fp1"
+}

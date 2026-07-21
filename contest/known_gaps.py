@@ -1,755 +1,484 @@
 #!/usr/bin/env python3
-"""Known-gaps dedup registry + fingerprints (design §6.1b, §6.2).
+"""Known-gaps registry (design §6.1b, §6.2) — DERIVED-KEY edition (v2).
 
-Every terminal gap gets a ROOT-CAUSE fingerprint (not exact source text) so that
-a resubmission of an already-recorded gap is flagged DUPLICATE (no leaderboard
-credit to a second finder of G1). We dedup against TWO registries:
+WHAT CHANGED IN v2 (the registry redesign)
+------------------------------------------
+v1 keyed every entry on a HAND-WRITTEN slug tuple (``("typecheck",
+"over_reject", "nested-tuple-LHS")``). The live adjudicator computes its
+fingerprints from live engine output, so a hand-authored key could never
+string-match a real submission — those rows were INERT (they never fired for
+dedup) and could silently drift from reality. v2 designs that away:
 
-  (i)  the exclusion register (§1) - an OOS hit is not a gap (handled by the
-       gate; a submission the gate rejects never reaches dedup); and
-  (ii) this known-open-gaps list - the G/H/S/A/C findings pre-loaded with their
-       fingerprints so day-one submissions of already-known gaps dedup.
+  * Every entry carries its REPRO (``repro_dir``: a repo-relative directory of
+    the Solidity source(s) exhibiting the gap — the corpus lane that pins it).
+  * The entry's dedup KEY is DERIVED from that repro by the ONE canonical
+    fingerprinter (``contest/fingerprint.py``) — never hand-authored. The
+    derived keys are cached in ``contest/known_gap_fingerprints.json``
+    (regenerate: ``python3 -m contest.known_gaps --rebuild``) and the registry
+    invariant test in ``contest/run_samples.py`` re-derives every one at test
+    time: stored-fingerprint == fingerprinter(entry.repro), or the suite fails
+    loudly. Hand-editing a key or changing the fingerprinter cannot silently
+    de-sync the registry again.
+  * Entries whose repro could NOT be recovered carry ``repro_dir=None``: they
+    keep their identity/metadata (nothing is dropped) but have NO key and are
+    EXCLUDED from the auto-match path until a repro is added
+    (``python3 -m contest.known_gaps --no-repro`` lists them).
+  * Open gaps and known-fixed gaps use the SAME entry shape and the SAME
+    derive-from-repro keying; they differ only by ``status``.
 
-Fingerprint shape (§6.2):
-  * lane C: (fail_stage, fail_reason_class, minimal_node_type_or_field)
-  * lane S: (observable_component, minimal_feature, delta_shape)
+SOUNDNESS DIRECTION (unchanged, now structural)
+-----------------------------------------------
+This registry is the ANNOTATION / submission-time hint layer only. The
+AUTHORITATIVE credit dedup is the fix-time replay (``contest/dedup_replay.py``,
+keyed on engine-behavior-under-patch). Matching here can only UNDER-match:
 
-This module is VERSIONED alongside the register. When a gap is FIXED (a Lean fix
-lands + a corpus lane pins it), move it to ``KNOWN_FIXED`` so a later resubmission
-of the same behavior is NO_DIVERGENCE unless it genuinely regresses.
+  * ``match_submission`` fires only on an EXACT canonical-AST fingerprint match
+    (the submission is the published repro up to renaming/reordering — a
+    copy/re-skin). A genuinely novel program can never hash into it.
+  * The v1 ``match_relaxed`` — which set ``duplicate_of`` from the
+    SUBMITTER-CONTROLLED ``claim.feature`` slug and could thus wrongly tag a
+    genuine novel find as a duplicate — is DEMOTED to ``feature_hint`` (an
+    advisory list on the fingerprint evidence, never ``duplicate_of``).
+  * ``cluster_by_delta`` stays advisory-only, as before.
+
+So nothing in this module can auto-DENY credit for a genuine find; it can only
+surface candidates to the human / the replay.
 """
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
-from typing import Optional
+from pathlib import Path
+from typing import Any, Optional
 
 
-KNOWN_GAPS_VERSION = "1.3.0"  # release audit: H1/H2 dead scaffold removed;
-#                               KNOWN_FIXED reconciled against DIVERGENCE-LOG.md
-#                               (DL52..DL205 provenance entries added).
-# v1.2: +rounds 2-12 open gaps (CF3/CS1 open, CB1 extcall);
-#       +E1/E2/O1/CF2/PT1/CL1/PK1/UF1-3/V1/A1-interfaceId fixed
+KNOWN_GAPS_VERSION = "2.0.0"  # registry redesign: hand-written slug keys ->
+#                               repro-derived canonical fingerprints (fp1);
+#                               no-repro entries excluded from auto-match.
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_FINGERPRINTS_FILE = Path(__file__).resolve().parent / "known_gap_fingerprints.json"
 
 
 @dataclass(frozen=True)
-class GapFingerprint:
-    """A root-cause fingerprint. ``key`` is the canonical dedup tuple rendered as
-    a stable string; ``lane`` is C or S; ``feature`` is the minimal triggering
-    feature."""
+class GapEntry:
+    """One known gap. The dedup key is NOT stored here — it is derived from
+    ``repro_dir`` by the canonical fingerprinter and cached in
+    ``known_gap_fingerprints.json`` (invariant-tested)."""
 
-    id: str          # G1, H1, S3, A2, C4, ...
-    lane: str        # "C" | "S"
-    key: tuple       # the §6.2 fingerprint tuple
-    feature: str     # human-readable minimal feature
-    status: str      # "open" | "fixed"
+    id: str                       # G1, CF3, DL175, ...
+    lane: str                     # "C" | "S"
+    status: str                   # "open" | "fixed"
+    feature: str                  # short slug (advisory hint key, human-chosen)
+    title: str                    # human-readable description
+    component: str                # observable component / fail-stage family
+    delta: str                    # delta class (over_reject / wrong-value /
+    #                               over-accept / elab_reject / ...)
+    repro_dir: Optional[str] = None  # repo-relative dir with the repro source(s)
     note: str = ""
 
-    def key_str(self) -> str:
-        return "|".join(str(k) for k in self.key)
+    def repro_sources(self, repo_root: Optional[Path] = None) -> list[Path]:
+        """The repro's .sol sources: ``<repro_dir>/src/*.sol`` if present, else
+        ``<repro_dir>/*.sol`` (sorted; the fingerprint is file-order-invariant
+        anyway)."""
+        if not self.repro_dir:
+            return []
+        root = (repo_root or _REPO_ROOT) / self.repro_dir
+        src = root / "src"
+        base = src if src.is_dir() else root
+        return sorted(base.glob("*.sol"))
+
+    @property
+    def fingerprint(self) -> Optional[str]:
+        """The repro-derived canonical fingerprint (None for no-repro
+        entries)."""
+        return _fingerprints().get(self.id, {}).get("fingerprint")
 
 
 # ---------------------------------------------------------------------------
-# Pre-loaded known-open gaps. Sources:
-#   docs/solidity-lean-solc-deep-comparison.md  (G1-G22)
-#   ROADMAP.md "Known semantic gaps (deferred, recorded)"  (H1/H2, S1-S5, etc.)
-# The fingerprint keys are deliberately the ROOT CAUSE, matching what the
-# adjudicator computes from a live submission (see fingerprint_of_verdict).
+# Entry tables. GENERATED-THEN-CURATED from the v1 registry: every v1 entry is
+# preserved (identity, lane, feature slug, description, note); the old
+# hand-written key tuple survives only as ADVISORY metadata (component/delta/
+# feature) — never as a match key. ``repro_dir`` points at the corpus lane that
+# pins the gap where one could be confidently located; entries with
+# ``repro_dir=None`` await a repro (listed by --no-repro).
+#
+# Open-entry sources: docs/solidity-lean-solc-deep-comparison.md (G1-G22),
+# rounds 2-12 review docs (CF3/CS1), docs/semantics-divergence-handoff.md
+# (A1-A3, CB1 — OOS via X-EXTCALL in v1, recorded for v2).
+# Fixed-entry sources: the v1 KNOWN_FIXED provenance list, incl. the
+# DIVERGENCE-LOG reconciliation rows (DL52..DL205).
 # ---------------------------------------------------------------------------
 
-_G_GAPS: list[GapFingerprint] = [
-    # --- lane S (soundness / wrong observable / over-accept over-reject) ---
-    GapFingerprint("G1", "S",
-                   ("return_value", "using-operator-nonbuiltin-body", "wrong-value"),
-                   "user-defined operator runs as builtin instead of the operator fn",
-                   "open", "CONFIRMED wrong-value"),
-    GapFingerprint("G2", "S",
-                   ("over_accept", "msg.value-in-view-nonpayable", "over-accept"),
-                   "msg.value accepted in view/nonpayable functions", "open"),
-    GapFingerprint("G3", "S",
-                   ("over_accept", "eq-on-reference-types", "over-accept"),
-                   "==/!= accepted on struct/array/bytes/string/mapping", "open"),
-    GapFingerprint("G4", "S",
-                   ("over_accept", "const-oob-index-bytesN-fixedarray", "over-accept"),
-                   "constant out-of-bounds index on bytesN / fixed array", "open"),
-    GapFingerprint("G5", "S",
-                   ("over_accept", "bare-return-with-named-returns", "over-accept"),
-                   "bare `return;` accepted with named returns", "open"),
-    GapFingerprint("G6", "S",
-                   ("over_accept", "super-to-unimplemented-base", "over-accept"),
-                   "super.f() resolves to an unimplemented abstract base fn", "open"),
-    GapFingerprint("G7", "S",
-                   ("over_accept", "emit-nonevent-member-callee", "over-accept"),
-                   "emit A.g() non-event member callee not validated", "open"),
-    GapFingerprint("G8", "S",
-                   ("over_accept", "revert-shadowing-member", "over-accept"),
-                   "revert E(args) with a same-arity shadowing member", "open"),
-    GapFingerprint("G9", "S",
-                   ("over_accept", "inline-array-literal-of-mapping", "over-accept"),
-                   "inline array literal of mapping type [m]", "open"),
-    GapFingerprint("G10", "S",
-                   ("over_accept", "msg.data-in-receive", "over-accept"),
-                   "msg.data in receive() not rejected", "open"),
-    GapFingerprint("G11", "S",
-                   ("over_accept", "cross-contract-creationcode-cycle", "over-accept"),
-                   "cross-contract creationCode/runtimeCode cycle undetected", "open"),
-    GapFingerprint("G12", "S",
-                   ("over_accept", "identifier-underscore-not-reserved", "over-accept"),
-                   "identifier name `_` not reserved", "open"),
-    # --- lane C (over-reject: fails closed on a solc-accepted program) ---
-    GapFingerprint("G13", "C",
-                   ("typecheck", "over_reject", "nested-tuple-LHS"),
-                   "nested tuple LHS (((a,),)) = ((1,2),3);", "open"),
-    GapFingerprint("G14", "C",
-                   ("typecheck", "over_reject", "storage-array-assign-shorter-source"),
-                   "storage array assignment with base-convertible/shorter source", "open"),
-    GapFingerprint("G15", "C",
-                   ("typecheck", "over_reject", "ternary-of-literals-mobile-type"),
-                   "ternary-of-literals loses uint8 mobile common type", "open"),
-    GapFingerprint("G16", "C",
-                   ("typecheck", "over_reject", "try-on-library-usingfor-call"),
-                   "try on a library / using-for call over-rejected", "open"),
-    # --- G17-G22 untested (probes described; kept as open fingerprints) ---
-    GapFingerprint("G17", "S",
-                   ("return_value", "storage-ctor-uninit-internal-fn-ptr", "wrong-panic"),
-                   "storage/ctor-stored uninitialized internal fn ptr Panic(0x51)", "open"),
-    GapFingerprint("G18", "S",
-                   ("return_value", "trycatch-multislot-extfnptr-return", "wrong-value"),
-                   "try/catch binding of a multi-slot external-fn-ptr return", "open"),
-    GapFingerprint("G19", "S",
-                   ("over_accept", "mutability-relaxing-override", "over-accept"),
-                   "mutability-relaxing overrides (virtual->view/pure)", "open"),
-    GapFingerprint("G20", "S",
-                   ("over_accept", "using-for-wildcard-imported", "over-accept"),
-                   "using ... for * wildcard imported but unexercised", "open"),
-    GapFingerprint("G21", "S",
-                   ("return_value", "c99-block-scope-self-init", "wrong-value"),
-                   "C99 block-scope activation incl. uint x = x; self-init", "open"),
-    GapFingerprint("G22", "S",
-                   ("return_value", "salted-create-address-prediction", "wrong-value"),
-                   "saltedCreate address prediction (OOS-adjacent, needs initcode)",
-                   "open", "also covered by SEM-ADDR exclusion"),
+_OPEN_ENTRIES: list[GapEntry] = [
+    GapEntry('G1', 'S', 'open', 'using-operator-nonbuiltin-body', 'user-defined operator runs as builtin instead of the operator fn', 'return_value', 'wrong-value', None, 'CONFIRMED wrong-value'),
+    GapEntry('G2', 'S', 'open', 'msg.value-in-view-nonpayable', 'msg.value accepted in view/nonpayable functions', 'over_accept', 'over-accept', None),
+    GapEntry('G3', 'S', 'open', 'eq-on-reference-types', '==/!= accepted on struct/array/bytes/string/mapping', 'over_accept', 'over-accept', None),
+    GapEntry('G4', 'S', 'open', 'const-oob-index-bytesN-fixedarray', 'constant out-of-bounds index on bytesN / fixed array', 'over_accept', 'over-accept', None),
+    GapEntry('G5', 'S', 'open', 'bare-return-with-named-returns', 'bare `return;` accepted with named returns', 'over_accept', 'over-accept', None),
+    GapEntry('G6', 'S', 'open', 'super-to-unimplemented-base', 'super.f() resolves to an unimplemented abstract base fn', 'over_accept', 'over-accept', None),
+    GapEntry('G7', 'S', 'open', 'emit-nonevent-member-callee', 'emit A.g() non-event member callee not validated', 'over_accept', 'over-accept', None),
+    GapEntry('G8', 'S', 'open', 'revert-shadowing-member', 'revert E(args) with a same-arity shadowing member', 'over_accept', 'over-accept', None),
+    GapEntry('G9', 'S', 'open', 'inline-array-literal-of-mapping', 'inline array literal of mapping type [m]', 'over_accept', 'over-accept', None),
+    GapEntry('G10', 'S', 'open', 'msg.data-in-receive', 'msg.data in receive() not rejected', 'over_accept', 'over-accept', None),
+    GapEntry('G11', 'S', 'open', 'cross-contract-creationcode-cycle', 'cross-contract creationCode/runtimeCode cycle undetected', 'over_accept', 'over-accept', None),
+    GapEntry('G12', 'S', 'open', 'identifier-underscore-not-reserved', 'identifier name `_` not reserved', 'over_accept', 'over-accept', None),
+    GapEntry('G13', 'C', 'open', 'nested-tuple-LHS', 'nested tuple LHS (((a,),)) = ((1,2),3);', 'typecheck', 'over_reject', 'tests/forge-harness/nested-tuple-assignment'),
+    GapEntry('G14', 'C', 'open', 'storage-array-assign-shorter-source', 'storage array assignment with base-convertible/shorter source', 'typecheck', 'over_reject', 'tests/forge-harness/storage-array-copy-convert'),
+    GapEntry('G15', 'C', 'open', 'ternary-of-literals-mobile-type', 'ternary-of-literals loses uint8 mobile common type', 'typecheck', 'over_reject', 'tests/forge-harness/ternary-literal-mobile-type'),
+    GapEntry('G16', 'C', 'open', 'try-on-library-usingfor-call', 'try on a library / using-for call over-rejected', 'typecheck', 'over_reject', None),
+    GapEntry('G17', 'S', 'open', 'storage-ctor-uninit-internal-fn-ptr', 'storage/ctor-stored uninitialized internal fn ptr Panic(0x51)', 'return_value', 'wrong-panic', 'tests/forge-harness/storage-uninit-fn-ptr'),
+    GapEntry('G18', 'S', 'open', 'trycatch-multislot-extfnptr-return', 'try/catch binding of a multi-slot external-fn-ptr return', 'return_value', 'wrong-value', 'tests/forge-harness/try-external-fn-return'),
+    GapEntry('G19', 'S', 'open', 'mutability-relaxing-override', 'mutability-relaxing overrides (virtual->view/pure)', 'over_accept', 'over-accept', None),
+    GapEntry('G20', 'S', 'open', 'using-for-wildcard-imported', 'using ... for * wildcard imported but unexercised', 'over_accept', 'over-accept', None),
+    GapEntry('G21', 'S', 'open', 'c99-block-scope-self-init', 'C99 block-scope activation incl. uint x = x; self-init', 'return_value', 'wrong-value', 'tests/forge-harness/c99-scope-activation'),
+    GapEntry('G22', 'S', 'open', 'salted-create-address-prediction', 'saltedCreate address prediction (OOS-adjacent, needs initcode)', 'return_value', 'wrong-value', None, 'also covered by SEM-ADDR exclusion'),
+    GapEntry('CF3', 'C', 'open', 'ctrlflow-fuel-placeholder-fallback', 'control-flow pointer-return analysis falls back to unsafeReturn on fuel exhaustion / bare modifier-placeholder (over-rejects deep bodies)', 'typecheck', 'over_reject', None, 'round 2 §3c; INFERRED, effectively unreachable; verify open/fixed'),
+    GapEntry('CS1', 'S', 'open', 'selfdestruct-balance-transfer', 'selfdestruct records (from,recipient,deletesAccount) but does NOT move the balance (self not zeroed, recipient not credited)', 'return_value', 'wrong-value', 'tests/forge-harness/selfdestruct-balance', 'round 11 (doc -9); CONFIRMED-by-trace, reachability UNTESTED (live iff post-destruct balances are compared); verify open/fixed'),
+    GapEntry('A1', 'S', 'open', 'try-void-call-codeless-address', 'try over a void external call to a codeless/EOA address: solidity-lean runs catch, solc reverts the caller uncatchably', 'revert_data', 'revert-vs-success', None, 'OOS via X-EXTCALL in v1; live for v2'),
+    GapEntry('A2', 'S', 'open', 'catch-clause-source-order-vs-kind', 'catch-clause dispatch is source-order first-match; solc dispatches by kind (fallback catch listed first shadows Error/Panic)', 'return_value', 'wrong-value', 'tests/forge-harness/catch-dispatch-by-kind', 'OOS via X-EXTCALL in v1; live for v2'),
+    GapEntry('A3', 'S', 'open', 'extcodesize-nonident-receiver', 'extcodesize existence check skipped for non-identifier receiver shapes (arr[i].f(), s.field.f(), m[k].f()) on a plain void call', 'revert_data', 'revert-vs-success', 'tests/forge-harness/extcodesize-existence-guard', 'OOS via X-EXTCALL in v1; live for v2'),
+    GapEntry('CB1', 'S', 'open', 'trycatch-short-error-clause-dispatch', "try/catch Error(string) clause matches a short (<0x44 B) non-canonical Error-selector payload solc routes to catch(bytes): solidity-lean's strict codec lacks solc's returndatasize()>=0x44 gate -> wrong branch + value", 'return_value', 'wrong-value', None, 'round 9 (doc -8); OOS via X-EXTCALL in v1; live for v2'),
 ]
 
-# H1/H2 removed (release audit): they were placeholder scaffold rows whose keys
-# ("import", "unimplemented", "harness-H1"/"harness-H2") could NEVER match a live
-# adjudicator fingerprint — the lane-C import fingerprint's third element is the
-# sorted node/field token set from the importer fail message (_first_token), so
-# the literal string "harness-H1" is unproducible. Dead rows in the open index
-# are worse than absent rows: they inflate the "known open" list and imply dedup
-# coverage that does not exist. If concrete ROADMAP-deferred harness gaps are
-# ever fingerprintable, add them with keys in the REAL fingerprint format.
-
-# Round 2-12 implementation-divergence review findings (docs/solc-implementation-
-# divergences{,-2..-10}.md) that are OPEN and confirmed-or-inferred but NOT already
-# a G/H/A entry above. Each is fingerprinted at root-cause granularity so a public
-# submission of the known behavior dedups. Intentional exclusions (inline-assembly
-# CF1, create2 address G22) and non-divergences (AE1, AD1, N1/N2, T2-T5, all F*/N*
-# "faithful" rows) are deliberately NOT listed — they never reach dedup.
-_ROUND_GAPS: list[GapFingerprint] = [
-    # --- lane C (over-reject: fails closed on a solc-accepted program) ---
-    GapFingerprint("CF3", "C",
-                   ("typecheck", "over_reject", "ctrlflow-fuel-placeholder-fallback"),
-                   "control-flow pointer-return analysis falls back to unsafeReturn on "
-                   "fuel exhaustion / bare modifier-placeholder (over-rejects deep bodies)",
-                   "open", "round 2 §3c; INFERRED, effectively unreachable; verify open/fixed"),
-    # --- lane S (soundness: solidity-lean runs but the observable differs) ---
-    GapFingerprint("CS1", "S",
-                   ("return_value", "selfdestruct-balance-transfer", "wrong-value"),
-                   "selfdestruct records (from,recipient,deletesAccount) but does NOT "
-                   "move the balance (self not zeroed, recipient not credited)",
-                   "open", "round 11 (doc -9); CONFIRMED-by-trace, reachability UNTESTED "
-                   "(live iff post-destruct balances are compared); verify open/fixed"),
+_FIXED_ENTRIES: list[GapEntry] = [
+    GapEntry('DL1', 'S', 'fixed', 'storage-ctor-initializer-order', 'storage/constructor/initializer evaluation order = reverse-C3', 'return_value', 'wrong-value', None, 'fix commit 4d2a5c0'),
+    GapEntry('M1', 'S', 'fixed', 'memory-alias-reference-assignment', 'memory reference-type assignment aliased (not deep-copied)', 'return_value', 'wrong-value', 'tests/forge-harness/memory-alias-fixes', 'fix commit ce58cfd (M1/M2/M3)'),
+    GapEntry('M4', 'S', 'fixed', 'memory-deep-deref-encode-keccak', 'abi.encode/keccak of ref-nested memory deep-deref', 'return_value', 'wrong-value', None, 'fix commit 3043a9b (M4)'),
+    GapEntry('E1', 'S', 'fixed', 'nonrational-immutable-read-in-pure', 'pure fn reading a non-rational-initialized immutable (keccak/abi/constant-ref) accepted; solc errors 2527 (View)', 'over_accept', 'over-accept', None, 'fix commit ce810e1 (rational-only immutable pure-read)'),
+    GapEntry('E2', 'C', 'fixed', 'this-f-selector-in-pure', 'this.f.selector in a pure/non-view function over-rejected', 'typecheck', 'over_reject', None, 'fix commit 3c86aad'),
+    GapEntry('O1', 'S', 'fixed', 'duplicate-contract-in-override-list', 'override(A, A) duplicate contract in the override list accepted; solc errors 4520', 'over_accept', 'over-accept', None, 'fix commit beba717'),
+    GapEntry('CF2', 'C', 'fixed', 'no-revert-pruning-always-reverting-callee', 'pointer-return analysis lacked revert-pruning of always-reverting callees (over-reject); solc prunes via ControlFlowRevertPruner', 'typecheck', 'over_reject', 'tests/forge-harness/cf2-revert-pruning', 'fix commit 51959a7 (always-reverts fixpoint)'),
+    GapEntry('PT1', 'S', 'fixed', 'constant-cyclic-dependency', 'self/mutually-cyclic `constant` accepted; solc errors 6161', 'over_accept', 'over-accept', None, 'fix commit ce810e1 (constantsHaveCycle)'),
+    GapEntry('CL1', 'S', 'fixed', 'bare-modifier-base-ctor-zeroparam', 'bare modifier-style base-constructor call on a zero-param base accepted; solc errors 1563', 'over_accept', 'over-accept', None, 'fix commit 5cd1903 (hasArgList flag)'),
+    GapEntry('PK1', 'C', 'fixed', 'encodepacked-nested-static-array', 'abi.encodePacked of a nested static value-array (uint[2][3]) over-rejected; solc encodes it', 'typecheck', 'over_reject', 'tests/forge-harness/packed-nested-static-array', 'fix commit 5cd1903 (nested-static-array encodePacked)'),
+    GapEntry('UF1', 'C', 'fixed', 'using-for-global-nonudvt', 'using L/{f} for T global; on a struct/enum (non-UDVT user type) over-rejected; solc accepts', 'typecheck', 'over_reject', 'tests/forge-harness/using-for-global-nonudvt', 'fix commit 9cd70d3 (using-for global directive legality)'),
+    GapEntry('UF2', 'S', 'fixed', 'operator-binding-mixed-params', 'operator binding whose fn params are not both the target type accepted at decl; solc errors 1884', 'over_accept', 'over-accept', None, 'fix commit 9cd70d3'),
+    GapEntry('UF3', 'S', 'fixed', 'duplicate-operator-binding', 'duplicate operator binding for the same operator+type (never used) accepted; solc errors 4705', 'over_accept', 'over-accept', None, 'fix commit 9cd70d3'),
+    GapEntry('V1', 'S', 'fixed', 'calldata-slice-oob-revert-data', "calldata-slice OOB (a[i:j]) reverted Panic(0x32) instead of solc's empty revert(0,0)", 'revert_data', 'wrong-revert', 'tests/forge-harness/calldata-slice-oob', 'fix commit db26356'),
+    GapEntry('A1IF', 'C', 'fixed', 'abstract-contract-interfaceId-lowering', 'type(AbstractContract).interfaceId failed to lower (interface-only interfaceIdEnv) -> wrong-reject; solc computes it', 'elaboration', 'elab_reject', 'tests/forge-harness/abstract-interface-id', 'fix commit 3ed95f1 (round 6 A1; distinct from extcall A1)'),
+    GapEntry('DL52', 'C', 'fixed', 'ec-cmp', 'ec-cmp', 'typecheck', 'over_reject', None, 'log #52; over-reject; merged (see log row for commit)'),
+    GapEntry('DL53', 'S', 'fixed', 'fp-eq-2', 'fp-eq-2', 'return_value', 'wrong-value', None, 'log #53; wrong-value; merged (see log row for commit)'),
+    GapEntry('DL54', 'S', 'fixed', 'mod-ret', 'mod-ret', 'over_accept', 'over-accept', None, 'log #54; over-accept; merged (see log row for commit)'),
+    GapEntry('DL55', 'C', 'fixed', 'base-call', 'base-call', 'typecheck', 'over_reject', 'tests/forge-harness/base-qualified-call', 'log #55; over-reject; merged (see log row for commit)'),
+    GapEntry('DL56', 'S', 'fixed', 'al1', 'al1', 'over_accept', 'over-accept', None, 'log #56; over-accept; merged (see log row for commit)'),
+    GapEntry('DL57', 'C', 'fixed', 'tup-idx', 'tup-idx', 'typecheck', 'over_reject', None, 'log #57; over-reject; merged (see log row for commit)'),
+    GapEntry('DL58', 'C', 'fixed', 'al-exec', 'al-exec', 'typecheck', 'over_reject', 'tests/forge-harness/inline-array-literal-exec', 'log #58; over-reject; merged (see log row for commit)'),
+    GapEntry('DL59', 'S', 'fixed', 'uni1', 'uni1', 'return_value', 'wrong-value', None, 'log #59; wrong-value; merged (see log row for commit)'),
+    GapEntry('DL62', 'S', 'fixed', 'dec-oom', 'dec-oom', 'return_value', 'wrong-value', None, 'log #62; wrong-value; merged (see log row for commit)'),
+    GapEntry('DL63', 'S', 'fixed', 'get-struct', 'get-struct', 'over_accept', 'over-accept', None, 'log #63; over-accept + wrong-sig; merged (see log row for commit)'),
+    GapEntry('DL69', 'S', 'fixed', 'priv-shadow', 'priv-shadow', 'over_accept', 'over-accept', None, 'log #69; over-accept; merged (see log row for commit)'),
+    GapEntry('DL70', 'C', 'fixed', 'callpos-family', 'callpos-family', 'typecheck', 'over_reject', 'tests/forge-harness/callpos-family', 'log #70; over-reject; merged (see log row for commit)'),
+    GapEntry('DL70b', 'C', 'fixed', 'call-position', 'call-position', 'typecheck', 'over_reject', 'tests/forge-harness/call-position', 'log #70; over-reject; merged (see log row for commit)'),
+    GapEntry('DL73', 'C', 'fixed', 'extcall-binary', 'extcall-binary', 'typecheck', 'over_reject', 'tests/forge-harness/extcall-binary', 'log #73; over-reject; merged (see log row for commit)'),
+    GapEntry('DL74', 'C', 'fixed', 'emit-qual', 'emit-qual', 'typecheck', 'over_reject', None, 'log #74; over-reject; merged (see log row for commit)'),
+    GapEntry('DL77', 'C', 'fixed', 'revert-qual', 'revert-qual', 'typecheck', 'over_reject', None, 'log #77; over-reject; merged (see log row for commit)'),
+    GapEntry('DL78', 'S', 'fixed', 'encpacked-lit', 'encpacked-lit', 'over_accept', 'over-accept', 'tests/forge-harness/encpacked-literal', 'log #78; over-accept; merged (see log row for commit)'),
+    GapEntry('DL80', 'C', 'fixed', 'sb-a', 'sb-a', 'typecheck', 'over_reject', None, 'log #80; over-reject; merged (see log row for commit)'),
+    GapEntry('DL81', 'S', 'fixed', 'div-dup-inh-mod', 'div-dup-inh-mod', 'over_accept', 'over-accept', None, 'log #81; over-accept; merged (see log row for commit)'),
+    GapEntry('DL82', 'S', 'fixed', 'usingfor-brace', 'usingfor-brace', 'over_accept', 'over-accept', None, 'log #82; over-accept; merged (see log row for commit)'),
+    GapEntry('DL83', 'S', 'fixed', 'd-oom-dispatch', 'd-oom-dispatch', 'return_value', 'wrong-value', 'tests/forge-harness/dispatch-oom', 'log #83; wrong-value; merged (see log row for commit)'),
+    GapEntry('DL84', 'S', 'fixed', 'tc-oom1', 'tc-oom1', 'return_value', 'wrong-value', None, 'log #84; wrong-value; merged (see log row for commit)'),
+    GapEntry('DL86', 'S', 'fixed', 'cmp-mixedsign', 'cmp-mixedsign', 'over_accept', 'over-accept', None, 'log #86; over-accept; merged (see log row for commit)'),
+    GapEntry('DL93', 'C', 'fixed', 'lib-storage-public-2', 'lib-storage-public-2', 'typecheck', 'over_reject', 'tests/forge-harness/lib-storage-public-2', 'log #93; over-reject; merged (see log row for commit)'),
+    GapEntry('DL94', 'S', 'fixed', 'str-overaccept---payable-vis', 'str-overaccept / payable-vis', 'over_accept', 'over-accept', None, 'log #94; over-accept; merged (see log row for commit)'),
+    GapEntry('DL95', 'C', 'fixed', 'push-field-lvalue', 'push-field-lvalue', 'typecheck', 'over_reject', 'tests/forge-harness/push-field-lvalue', 'log #95; over-reject; merged (see log row for commit)'),
+    GapEntry('DL101', 'C', 'fixed', 'calldata-lazy-value', 'calldata-lazy-value', 'typecheck', 'over_reject', 'tests/forge-harness/calldata-lazy-value', 'log #101; over-reject; merged (see log row for commit)'),
+    GapEntry('DL102', 'C', 'fixed', 'qualified-member-cluster', 'qualified-member cluster', 'typecheck', 'over_reject', 'tests/forge-harness/qualified-member', 'log #102; over-reject; merged (see log row for commit)'),
+    GapEntry('DL104', 'S', 'fixed', 'syntax-overaccept', 'syntax-overaccept', 'over_accept', 'over-accept', None, 'log #104; over-accept; merged (see log row for commit)'),
+    GapEntry('DL105', 'S', 'fixed', 'dup-event-sibling', 'dup-event-sibling', 'over_accept', 'over-accept', None, 'log #105; over-accept; merged (see log row for commit)'),
+    GapEntry('DL106', 'S', 'fixed', 'inherited-identifier-clash', 'inherited-identifier-clash', 'over_accept', 'over-accept', None, 'log #106; over-accept; merged (see log row for commit)'),
+    GapEntry('DL108', 'S', 'fixed', 'abi-decode-address-payable', 'abi-decode-address-payable', 'return_value', 'wrong-value', 'tests/forge-harness/abi-decode-address-payable', 'log #108; wrong-value; merged (see log row for commit)'),
+    GapEntry('DL109', 'C', 'fixed', 'common-type-literal-mobile', 'common-type-literal-mobile', 'typecheck', 'over_reject', 'tests/forge-harness/common-type-literal', 'log #109; wrong-value + over-reject; merged (see log row for commit)'),
+    GapEntry('DL110', 'C', 'fixed', 'qualified-struct-construction', 'qualified-struct-construction', 'typecheck', 'over_reject', 'tests/forge-harness/qualified-struct-construction', 'log #110; over-reject; merged (see log row for commit)'),
+    GapEntry('DL112', 'C', 'fixed', 'create-salt-literal', 'create-salt-literal', 'typecheck', 'over_reject', 'tests/forge-harness/create-salt-literal', 'log #112; over-reject; merged (see log row for commit)'),
+    GapEntry('DL114', 'S', 'fixed', 'dec-alloc-memptr', 'dec-alloc-memptr', 'return_value', 'wrong-value', 'tests/forge-harness/dec-alloc-memptr', 'log #114; wrong-value; merged (see log row for commit)'),
+    GapEntry('DL115', 'C', 'fixed', 'const-getter-pure-override', 'const-getter-pure-override', 'typecheck', 'over_reject', 'tests/forge-harness/const-getter-pure-override', 'log #115; over-reject; merged (see log row for commit)'),
+    GapEntry('DL116', 'C', 'fixed', 'ternary-storage-statelvalue', 'ternary-storage-statelvalue', 'typecheck', 'over_reject', None, 'log #116; over-reject; merged (see log row for commit)'),
+    GapEntry('DL117', 'S', 'fixed', 'frac-cmp-overaccept', 'frac-cmp-overaccept', 'over_accept', 'over-accept', None, 'log #117; over-accept; merged (see log row for commit)'),
+    GapEntry('DL121', 'C', 'fixed', 'const-zero-bytesn', 'const-zero-bytesn', 'typecheck', 'over_reject', 'tests/forge-harness/const-zero-bytesn', 'log #121; over-reject + over-accept; merged (see log row for commit)'),
+    GapEntry('DL123', 'S', 'fixed', 'struct-cycle-fuel', 'struct-cycle-fuel', 'over_accept', 'over-accept', None, 'log #123; over-accept; merged (see log row for commit)'),
+    GapEntry('DL124', 'S', 'fixed', 'slice-dyn-base', 'slice-dyn-base', 'over_accept', 'over-accept', None, 'log #124; over-accept; merged (see log row for commit)'),
+    GapEntry('DL126', 'C', 'fixed', 'array-widen-copy', 'array-widen-copy', 'typecheck', 'over_reject', 'tests/forge-harness/array-widen-copy', 'log #126; over-reject; merged (see log row for commit)'),
+    GapEntry('DL127', 'S', 'fixed', 'encodecall-overload', 'encodecall-overload', 'over_accept', 'over-accept', None, 'log #127; over-accept; merged (see log row for commit)'),
+    GapEntry('DL128', 'S', 'fixed', 'abi-decode-eager-headcheck', 'abi-decode-eager-headcheck', 'return_value', 'wrong-value', 'tests/forge-harness/abi-memory-eager', 'log #128; wrong-value; merged (see log row for commit)'),
+    GapEntry('DL130', 'S', 'fixed', 'delete-expr-type', 'delete-expr-type', 'over_accept', 'over-accept', None, 'log #130; over-accept; merged (see log row for commit)'),
+    GapEntry('DL131', 'C', 'fixed', 'shortcircuit-call-pos', 'shortcircuit-call-pos', 'typecheck', 'over_reject', 'tests/forge-harness/shortcircuit-callpos', 'log #131; over-reject; merged (see log row for commit)'),
+    GapEntry('DL132', 'S', 'fixed', 'tuple-write-order', 'tuple-write-order', 'return_value', 'wrong-value', 'tests/forge-harness/tuple-write-order', 'log #132; wrong-value; merged (see log row for commit)'),
+    GapEntry('DL134', 'C', 'fixed', 'contract-ordered-cmp', 'contract-ordered-cmp', 'typecheck', 'over_reject', 'tests/forge-harness/contract-ordered-compare', 'log #134; over-reject; merged (see log row for commit)'),
+    GapEntry('DL135', 'C', 'fixed', 'array-mutation-vs-usingfor', 'array-mutation-vs-usingfor', 'typecheck', 'over_reject', 'tests/forge-harness/array-mutation-usingfor', 'log #135; over-reject + over-accept; merged (see log row for commit)'),
+    GapEntry('DL136', 'S', 'fixed', 'qualified-error-collision', 'qualified-error-collision', 'return_value', 'wrong-value', None, 'log #136; wrong-value; merged (see log row for commit)'),
+    GapEntry('DL137', 'C', 'fixed', 'qualified-event-collision', 'qualified-event-collision', 'typecheck', 'over_reject', None, 'log #137; wrong-value + over-reject; merged (see log row for commit)'),
+    GapEntry('DL138', 'C', 'fixed', 'qualified-event-selector', 'qualified-event-selector', 'typecheck', 'over_reject', 'tests/forge-harness/qualified-event-selector', 'log #138; over-reject; merged (see log row for commit)'),
+    GapEntry('DL139', 'C', 'fixed', 'error-selector-collision', 'error-selector-collision', 'typecheck', 'over_reject', 'tests/forge-harness/error-selector-collision', 'log #139; over-reject; merged (see log row for commit)'),
+    GapEntry('DL140', 'S', 'fixed', 'abiencode-lit-fixedbytes', 'abiencode-lit-fixedbytes', 'return_value', 'wrong-value', 'tests/forge-harness/abiencode-lit-fixedbytes', 'log #140; wrong-value; merged (see log row for commit)'),
+    GapEntry('DL141', 'C', 'fixed', 'emit-revert-lit-fixedbytes', 'emit/revert-lit-fixedbytes', 'typecheck', 'over_reject', None, 'log #141; wrong-value/over-reject; merged (see log row for commit)'),
+    GapEntry('DL142', 'S', 'fixed', 'push-lit-fixedbytes', 'push-lit-fixedbytes', 'return_value', 'wrong-value', None, 'log #142; wrong-value; merged (see log row for commit)'),
+    GapEntry('DL143', 'C', 'fixed', 'encwithselector-lit-selector', 'encwithselector-lit-selector', 'typecheck', 'over_reject', None, 'log #143; over-reject; merged (see log row for commit)'),
+    GapEntry('DL144', 'S', 'fixed', 'extfnptr-call-lit-fixedbytes', 'extfnptr-call-lit-fixedbytes', 'return_value', 'wrong-value', None, 'log #144; wrong-value; merged (see log row for commit)'),
+    GapEntry('DL145', 'C', 'fixed', 'mapkey-lit-fixedbytes', 'mapkey-lit-fixedbytes', 'typecheck', 'over_reject', None, 'log #145; wrong-value/over-reject; merged (see log row for commit)'),
+    GapEntry('DL148', 'C', 'fixed', 'call-in-array-literal', 'call-in-array-literal', 'typecheck', 'over_reject', None, 'log #148; over-reject; merged (see log row for commit)'),
+    GapEntry('DL149', 'C', 'fixed', 'call-in-struct-ctor-arg', 'call-in-struct-ctor-arg', 'typecheck', 'over_reject', None, 'log #149; over-reject; merged (see log row for commit)'),
+    GapEntry('DL150', 'C', 'fixed', 'call-in-new-arg', 'call-in-new-arg', 'typecheck', 'over_reject', None, 'log #150; over-reject; merged (see log row for commit)'),
+    GapEntry('DL151', 'C', 'fixed', 'call-in-nested-arg', 'call-in-nested-arg', 'typecheck', 'over_reject', None, 'log #151; over-reject; merged (see log row for commit)'),
+    GapEntry('DL152', 'C', 'fixed', 'stringconcat-hexlit-utf8', 'stringconcat-hexlit-utf8', 'typecheck', 'over_reject', 'tests/forge-harness/stringconcat-hexlit', 'log #152; over-reject; merged (see log row for commit)'),
+    GapEntry('DL154', 'S', 'fixed', 'deploy-abstract', 'deploy-abstract', 'over_accept', 'over-accept', None, 'log #154; over-accept; merged (see log row for commit)'),
+    GapEntry('DL155', 'C', 'fixed', 'lib-storage-return', 'lib-storage-return', 'typecheck', 'over_reject', 'tests/forge-harness/lib-storage-return', 'log #155; over-reject; merged (see log row for commit)'),
+    GapEntry('DL160', 'C', 'fixed', 'recursive-struct-mem-construct', 'recursive-struct-mem-construct', 'typecheck', 'over_reject', 'tests/forge-harness/recursive-struct-mem-construct', 'log #160; over-reject/unimplemented; fix on main c027a5f'),
+    GapEntry('DL163', 'C', 'fixed', 'new-contract-local-struct-array', 'new-contract-local-struct-array', 'typecheck', 'over_reject', 'tests/forge-harness/new-contract-local-struct-array', 'log #163; over-reject; fix on main 001ff55'),
+    GapEntry('DL164', 'S', 'fixed', 'exp-narrow-base-wide-exponent', 'exp-narrow-base-wide-exponent', 'return_value', 'wrong-value', 'tests/forge-harness/exp-narrow-base-wide-exp', 'log #164; wrong-value; fix on main a8da44e'),
+    GapEntry('DL165', 'C', 'fixed', 'bool-cast-of-comparison', 'bool-cast-of-comparison', 'typecheck', 'over_reject', 'tests/forge-harness/bool-cast-of-comparison', 'log #165; over-reject; fix on main 783c9ae'),
+    GapEntry('DL166', 'C', 'fixed', 'overload-mem-vs-storage-location', 'overload-mem-vs-storage-location', 'typecheck', 'over_reject', 'tests/forge-harness/overload-mem-vs-storage', 'log #166; over-reject; fix on main f60f910'),
+    GapEntry('DL167', 'C', 'fixed', 'creationcode-ancestor', 'creationcode-ancestor', 'typecheck', 'over_reject', 'tests/forge-harness/creationcode-ancestor', 'log #167; over-reject (+ over-accept bonus); fix on main ea8a519'),
+    GapEntry('DL168', 'S', 'fixed', 'delete-memory-nested-ref', 'delete-memory-nested-ref', 'return_value', 'wrong-value', 'tests/forge-harness/delete-memory-nested-ref', 'log #168; wrong-value; fix on main 2c74c40'),
+    GapEntry('DL170', 'C', 'fixed', 'address-folded-const-conversion', 'address-folded-const-conversion', 'typecheck', 'over_reject', 'tests/forge-harness/address-folded-const', 'log #170; over-reject; fix on main df085d3'),
+    GapEntry('DL171', 'S', 'fixed', 'tuple-vardecl-from-abi-decode', 'tuple-vardecl-from-abi-decode', 'return_value', 'wrong-value', 'tests/forge-harness/tuple-vardecl-abi-decode', 'log #171; wrong-value; fix on main 0a733a5'),
+    GapEntry('DL172', 'S', 'fixed', 'tuple-vardecl-ternary-rhs', 'tuple-vardecl-ternary-rhs', 'return_value', 'wrong-value', 'tests/forge-harness/tuple-vardecl-ternary', 'log #172; wrong-value; fix on main 0a733a5'),
+    GapEntry('DL173', 'S', 'fixed', 'ternary-with-call-in-call-argument', 'ternary-with-call-in-call-argument', 'return_value', 'wrong-value', 'tests/forge-harness/ternary-call-in-arg', 'log #173; wrong-value; fix on main d643539'),
+    GapEntry('DL174', 'S', 'fixed', 'abi-encode-internal-call-arg', 'abi-encode-internal-call-arg', 'return_value', 'wrong-value', 'tests/forge-harness/abi-encode-call-arg', 'log #174; wrong-value; fix on main e6fa5da'),
+    GapEntry('DL175', 'S', 'fixed', 'bytesn-ident-index-panics', 'bytesn-ident-index-panics', 'return_value', 'wrong-value', 'tests/forge-harness/bytesn-ident-index', 'log #175; wrong-value; fix on main 61cef46; fix folded into the #176 merge (main 61cef46)'),
+    GapEntry('DL176', 'S', 'fixed', 'bytesn-storage-var-index-panic', 'bytesn-storage-var-index-panic', 'return_value', 'wrong-value', 'tests/forge-harness/bytesn-ident-index', 'log #176; wrong-value; fix on main 61cef46; repro shared with DL175 (one folded fix/lane)'),
+    GapEntry('DL178', 'S', 'fixed', 'enum-member-access-encodepacked-width', 'enum-member-access-encodepacked-width', 'return_value', 'wrong-value', 'tests/forge-harness/enum-member-encodepacked', 'log #178; wrong-value; fix on main 07af1a0'),
+    GapEntry('DL180', 'C', 'fixed', 'bytesn-eq-literal', 'bytesn-eq-literal', 'typecheck', 'over_reject', 'tests/forge-harness/bytesn-eq-literal', 'log #180; over-reject; fix on main 483032d'),
+    GapEntry('DL181', 'C', 'fixed', 'address-nested-conv-const-depth3', 'address-nested-conv-const-depth3', 'typecheck', 'over_reject', 'tests/forge-harness/address-nested-conv', 'log #181; over-reject; fix on main 4cd484e'),
+    GapEntry('DL182', 'S', 'fixed', 'forinit-narrow-counter-no-cleanup', 'forinit-narrow-counter-no-cleanup', 'return_value', 'wrong-value', 'tests/forge-harness/narrow-cleanup-family', 'log #182; wrong-value/missing-panic; fix on main 08dfbe3; family lane shared by DL182/183/184/194'),
+    GapEntry('DL183', 'S', 'fixed', 'push-arg-narrow-no-cleanup', 'push-arg-narrow-no-cleanup', 'return_value', 'wrong-value', 'tests/forge-harness/narrow-cleanup-family', 'log #183; wrong-value/missing-panic; fix on main 08dfbe3; family lane shared by DL182/183/184/194'),
+    GapEntry('DL184', 'S', 'fixed', 'struct-ctor-field-narrow-no-cleanup', 'struct-ctor-field-narrow-no-cleanup', 'return_value', 'wrong-value', 'tests/forge-harness/narrow-cleanup-family', 'log #184; wrong-value/missing-panic; fix on main 08dfbe3; family lane shared by DL182/183/184/194'),
+    GapEntry('DL185', 'C', 'fixed', 'array-literal-assign-unsupported', 'array-literal-assign-unsupported', 'typecheck', 'over_reject', None, 'log #185; over-reject; fix on main 53f0033'),
+    GapEntry('DL187', 'S', 'fixed', 'binary-operand-order-ltr', 'binary-operand-order-ltr', 'return_value', 'wrong-value', None, 'log #187; wrong-value; fix on main 73e1567'),
+    GapEntry('DL188', 'C', 'fixed', 'indexed-storage-ref-return-panic', 'indexed-storage-ref-return-panic', 'typecheck', 'over_reject', None, 'log #188; over-reject/spurious-revert; fix on main 8f0f3d3'),
+    GapEntry('DL189', 'S', 'fixed', 'tuple-rhs-component-order-rtl', 'tuple-rhs-component-order-rtl', 'return_value', 'wrong-value', None, 'log #189; wrong-value; fix on main 73e1567'),
+    GapEntry('DL190', 'S', 'fixed', 'eval-order-l2r-sites', 'eval-order-l2r-sites', 'return_value', 'wrong-value', None, 'log #190; wrong-value; fix on main 73e1567'),
+    GapEntry('DL191', 'S', 'fixed', 'external-binary-operand-order', 'external-binary-operand-order', 'return_value', 'wrong-value', None, 'log #191; wrong-value; fix on main 73e1567'),
+    GapEntry('DL192', 'C', 'fixed', 'hash-of-storage-bytes-panic', 'hash-of-storage-bytes-panic', 'typecheck', 'over_reject', None, 'log #192; over-reject/spurious-revert; fix on main 8f0f3d3'),
+    GapEntry('DL194', 'S', 'fixed', 'lvalue-index-key-narrow-no-cleanup', 'lvalue-index-key-narrow-no-cleanup', 'return_value', 'wrong-value', 'tests/forge-harness/narrow-cleanup-family', 'log #194; wrong-value/missing-panic; fix on main 458f877; family lane shared by DL182/183/184/194'),
+    GapEntry('DL195', 'S', 'fixed', 'emit-call-args-defeat-two-phase', 'emit-call-args-defeat-two-phase', 'return_value', 'wrong-value', None, 'log #195; wrong-value; fix on main 458f877'),
+    GapEntry('DL197', 'C', 'fixed', 'inherited-struct-field-access', 'inherited-struct-field-access', 'typecheck', 'over_reject', 'tests/forge-harness/inherited-struct-field', 'log #197; over-reject; fix on main 1294798'),
+    GapEntry('DL199', 'C', 'fixed', 'modifier-body-private-var-scope', 'modifier-body-private-var-scope', 'typecheck', 'over_reject', 'tests/forge-harness/modifier-private-scope', 'log #199; over-reject; fix on main 1294798'),
+    GapEntry('DL205', 'C', 'fixed', 'ws1-env-audit-batch', 'ws1-env-audit-batch', 'typecheck', 'over_reject', None, 'log #205; wrong-value/over-reject; fix on main c3c0073'),
 ]
 
-# External-call / try-catch divergences confirmed in the semantics review
-# (docs/semantics-divergence-handoff.md, A1-A3). These are currently OUT OF SCOPE
-# in v1 via the X-EXTCALL exclusion (external calls are unmodeled), so a live v1
-# submission never reaches dedup; they are recorded here so they dedup once the
-# v2 reflective responder lands and X-EXTCALL is retired.
-_EXTCALL_GAPS: list[GapFingerprint] = [
-    GapFingerprint("A1", "S",
-                   ("revert_data", "try-void-call-codeless-address", "revert-vs-success"),
-                   "try over a void external call to a codeless/EOA address: "
-                   "solidity-lean runs catch, solc reverts the caller uncatchably",
-                   "open", "OOS via X-EXTCALL in v1; live for v2"),
-    GapFingerprint("A2", "S",
-                   ("return_value", "catch-clause-source-order-vs-kind", "wrong-value"),
-                   "catch-clause dispatch is source-order first-match; solc "
-                   "dispatches by kind (fallback catch listed first shadows Error/Panic)",
-                   "open", "OOS via X-EXTCALL in v1; live for v2"),
-    GapFingerprint("A3", "S",
-                   ("revert_data", "extcodesize-nonident-receiver", "revert-vs-success"),
-                   "extcodesize existence check skipped for non-identifier receiver "
-                   "shapes (arr[i].f(), s.field.f(), m[k].f()) on a plain void call",
-                   "open", "OOS via X-EXTCALL in v1; live for v2"),
-    GapFingerprint("CB1", "S",
-                   ("return_value", "trycatch-short-error-clause-dispatch", "wrong-value"),
-                   "try/catch Error(string) clause matches a short (<0x44 B) non-canonical "
-                   "Error-selector payload solc routes to catch(bytes): solidity-lean's strict "
-                   "codec lacks solc's returndatasize()>=0x44 gate -> wrong branch + value",
-                   "open", "round 9 (doc -8); OOS via X-EXTCALL in v1; live for v2"),
-]
 
+# Back-compat aliases (consumers iterate these): ALL_KNOWN = the open index,
+# KNOWN_FIXED = the fixed/provenance list. Same objects, same names as v1.
+ALL_KNOWN: list[GapEntry] = _OPEN_ENTRIES
+KNOWN_FIXED: list[GapEntry] = _FIXED_ENTRIES
+_ALL_ENTRIES: list[GapEntry] = _OPEN_ENTRIES + _FIXED_ENTRIES
 
-ALL_KNOWN: list[GapFingerprint] = _G_GAPS + _ROUND_GAPS + _EXTCALL_GAPS
-
-# Gaps FIXED on this branch (a Lean fix + corpus lane landed). A resubmission of
-# one of these is NO_DIVERGENCE unless it genuinely regresses. Recorded (not
-# matched against the open index) for provenance. Fingerprints are best-effort.
-KNOWN_FIXED: list[GapFingerprint] = [
-    GapFingerprint("DL1", "S",
-                   ("return_value", "storage-ctor-initializer-order", "wrong-value"),
-                   "storage/constructor/initializer evaluation order = reverse-C3",
-                   "fixed", "fix commit 4d2a5c0"),
-    GapFingerprint("M1", "S",
-                   ("return_value", "memory-alias-reference-assignment", "wrong-value"),
-                   "memory reference-type assignment aliased (not deep-copied)",
-                   "fixed", "fix commit ce58cfd (M1/M2/M3)"),
-    GapFingerprint("M4", "S",
-                   ("return_value", "memory-deep-deref-encode-keccak", "wrong-value"),
-                   "abi.encode/keccak of ref-nested memory deep-deref",
-                   "fixed", "fix commit 3043a9b (M4)"),
-    # Round 2-6 acceptance-boundary + wrong-value findings, each with a landed fix.
-    GapFingerprint("E1", "S",
-                   ("over_accept", "nonrational-immutable-read-in-pure", "over-accept"),
-                   "pure fn reading a non-rational-initialized immutable (keccak/abi/"
-                   "constant-ref) accepted; solc errors 2527 (View)",
-                   "fixed", "fix commit ce810e1 (rational-only immutable pure-read)"),
-    GapFingerprint("E2", "C",
-                   ("typecheck", "over_reject", "this-f-selector-in-pure"),
-                   "this.f.selector in a pure/non-view function over-rejected",
-                   "fixed", "fix commit 3c86aad"),
-    GapFingerprint("O1", "S",
-                   ("over_accept", "duplicate-contract-in-override-list", "over-accept"),
-                   "override(A, A) duplicate contract in the override list accepted; "
-                   "solc errors 4520",
-                   "fixed", "fix commit beba717"),
-    GapFingerprint("CF2", "C",
-                   ("typecheck", "over_reject", "no-revert-pruning-always-reverting-callee"),
-                   "pointer-return analysis lacked revert-pruning of always-reverting "
-                   "callees (over-reject); solc prunes via ControlFlowRevertPruner",
-                   "fixed", "fix commit 51959a7 (always-reverts fixpoint)"),
-    GapFingerprint("PT1", "S",
-                   ("over_accept", "constant-cyclic-dependency", "over-accept"),
-                   "self/mutually-cyclic `constant` accepted; solc errors 6161",
-                   "fixed", "fix commit ce810e1 (constantsHaveCycle)"),
-    GapFingerprint("CL1", "S",
-                   ("over_accept", "bare-modifier-base-ctor-zeroparam", "over-accept"),
-                   "bare modifier-style base-constructor call on a zero-param base "
-                   "accepted; solc errors 1563",
-                   "fixed", "fix commit 5cd1903 (hasArgList flag)"),
-    GapFingerprint("PK1", "C",
-                   ("typecheck", "over_reject", "encodepacked-nested-static-array"),
-                   "abi.encodePacked of a nested static value-array (uint[2][3]) "
-                   "over-rejected; solc encodes it",
-                   "fixed", "fix commit 5cd1903 (nested-static-array encodePacked)"),
-    GapFingerprint("UF1", "C",
-                   ("typecheck", "over_reject", "using-for-global-nonudvt"),
-                   "using L/{f} for T global; on a struct/enum (non-UDVT user type) "
-                   "over-rejected; solc accepts",
-                   "fixed", "fix commit 9cd70d3 (using-for global directive legality)"),
-    GapFingerprint("UF2", "S",
-                   ("over_accept", "operator-binding-mixed-params", "over-accept"),
-                   "operator binding whose fn params are not both the target type "
-                   "accepted at decl; solc errors 1884",
-                   "fixed", "fix commit 9cd70d3"),
-    GapFingerprint("UF3", "S",
-                   ("over_accept", "duplicate-operator-binding", "over-accept"),
-                   "duplicate operator binding for the same operator+type (never used) "
-                   "accepted; solc errors 4705",
-                   "fixed", "fix commit 9cd70d3"),
-    GapFingerprint("V1", "S",
-                   ("revert_data", "calldata-slice-oob-revert-data", "wrong-revert"),
-                   "calldata-slice OOB (a[i:j]) reverted Panic(0x32) instead of solc's "
-                   "empty revert(0,0)",
-                   "fixed", "fix commit db26356"),
-    GapFingerprint("A1IF", "C",
-                   ("elaboration", "elab_reject", "abstract-contract-interfaceId-lowering"),
-                   "type(AbstractContract).interfaceId failed to lower (interface-only "
-                   "interfaceIdEnv) -> wrong-reject; solc computes it",
-                   "fixed", "fix commit 3ed95f1 (round 6 A1; distinct from extcall A1)"),
-]
 
 # ---------------------------------------------------------------------------
-# DIVERGENCE-LOG.md reconciliation (release audit): every log row whose fix has
-# LANDED ON MAIN (status merged / RESOLVED BY REARCH / CLOSED BY REARCH),
-# recorded here as PROVENANCE so an already-fixed divergence is traceable if a
-# resubmission of it ever surfaces (a resubmission normally adjudicates
-# NO_DIVERGENCE — the engine no longer diverges — unless it genuinely
-# regresses, in which case this list tells the maintainer it is a regression,
-# not a novel find). Ids are DL<row#> (DL<row#>b for a duplicated row number).
-# Keys are BEST-EFFORT §6.2-shaped (feature slug = the log row's headline
-# name); like the rest of KNOWN_FIXED they are provenance-grade only and are
-# NEVER matched against the open dedup index. Non-fixed rows (found/queued/
-# built-not-merged/HELD/BACKLOG), verified-correct rows, and the proved-
-# unreachable #153 are intentionally absent — they are not landed fixes.
-# Generated from DIVERGENCE-LOG.md (2026-07-20); regenerate on log changes.
-_DIVERGENCE_LOG_FIXED: list[GapFingerprint] = [
-    GapFingerprint("DL52", "C",
-                   ("typecheck", "over_reject", "ec-cmp"),
-                   "ec-cmp",
-                   "fixed", "log #52; over-reject; merged (see log row for commit)"),
-    GapFingerprint("DL53", "S",
-                   ("return_value", "fp-eq-2", "wrong-value"),
-                   "fp-eq-2",
-                   "fixed", "log #53; wrong-value; merged (see log row for commit)"),
-    GapFingerprint("DL54", "S",
-                   ("over_accept", "mod-ret", "over-accept"),
-                   "mod-ret",
-                   "fixed", "log #54; over-accept; merged (see log row for commit)"),
-    GapFingerprint("DL55", "C",
-                   ("typecheck", "over_reject", "base-call"),
-                   "base-call",
-                   "fixed", "log #55; over-reject; merged (see log row for commit)"),
-    GapFingerprint("DL56", "S",
-                   ("over_accept", "al1", "over-accept"),
-                   "al1",
-                   "fixed", "log #56; over-accept; merged (see log row for commit)"),
-    GapFingerprint("DL57", "C",
-                   ("typecheck", "over_reject", "tup-idx"),
-                   "tup-idx",
-                   "fixed", "log #57; over-reject; merged (see log row for commit)"),
-    GapFingerprint("DL58", "C",
-                   ("typecheck", "over_reject", "al-exec"),
-                   "al-exec",
-                   "fixed", "log #58; over-reject; merged (see log row for commit)"),
-    GapFingerprint("DL59", "S",
-                   ("return_value", "uni1", "wrong-value"),
-                   "uni1",
-                   "fixed", "log #59; wrong-value; merged (see log row for commit)"),
-    GapFingerprint("DL62", "S",
-                   ("return_value", "dec-oom", "wrong-value"),
-                   "dec-oom",
-                   "fixed", "log #62; wrong-value; merged (see log row for commit)"),
-    GapFingerprint("DL63", "S",
-                   ("over_accept", "get-struct", "over-accept"),
-                   "get-struct",
-                   "fixed", "log #63; over-accept + wrong-sig; merged (see log row for commit)"),
-    GapFingerprint("DL69", "S",
-                   ("over_accept", "priv-shadow", "over-accept"),
-                   "priv-shadow",
-                   "fixed", "log #69; over-accept; merged (see log row for commit)"),
-    GapFingerprint("DL70", "C",
-                   ("typecheck", "over_reject", "callpos-family"),
-                   "callpos-family",
-                   "fixed", "log #70; over-reject; merged (see log row for commit)"),
-    GapFingerprint("DL70b", "C",
-                   ("typecheck", "over_reject", "call-position"),
-                   "call-position",
-                   "fixed", "log #70; over-reject; merged (see log row for commit)"),
-    GapFingerprint("DL73", "C",
-                   ("typecheck", "over_reject", "extcall-binary"),
-                   "extcall-binary",
-                   "fixed", "log #73; over-reject; merged (see log row for commit)"),
-    GapFingerprint("DL74", "C",
-                   ("typecheck", "over_reject", "emit-qual"),
-                   "emit-qual",
-                   "fixed", "log #74; over-reject; merged (see log row for commit)"),
-    GapFingerprint("DL77", "C",
-                   ("typecheck", "over_reject", "revert-qual"),
-                   "revert-qual",
-                   "fixed", "log #77; over-reject; merged (see log row for commit)"),
-    GapFingerprint("DL78", "S",
-                   ("over_accept", "encpacked-lit", "over-accept"),
-                   "encpacked-lit",
-                   "fixed", "log #78; over-accept; merged (see log row for commit)"),
-    GapFingerprint("DL80", "C",
-                   ("typecheck", "over_reject", "sb-a"),
-                   "sb-a",
-                   "fixed", "log #80; over-reject; merged (see log row for commit)"),
-    GapFingerprint("DL81", "S",
-                   ("over_accept", "div-dup-inh-mod", "over-accept"),
-                   "div-dup-inh-mod",
-                   "fixed", "log #81; over-accept; merged (see log row for commit)"),
-    GapFingerprint("DL82", "S",
-                   ("over_accept", "usingfor-brace", "over-accept"),
-                   "usingfor-brace",
-                   "fixed", "log #82; over-accept; merged (see log row for commit)"),
-    GapFingerprint("DL83", "S",
-                   ("return_value", "d-oom-dispatch", "wrong-value"),
-                   "d-oom-dispatch",
-                   "fixed", "log #83; wrong-value; merged (see log row for commit)"),
-    GapFingerprint("DL84", "S",
-                   ("return_value", "tc-oom1", "wrong-value"),
-                   "tc-oom1",
-                   "fixed", "log #84; wrong-value; merged (see log row for commit)"),
-    GapFingerprint("DL86", "S",
-                   ("over_accept", "cmp-mixedsign", "over-accept"),
-                   "cmp-mixedsign",
-                   "fixed", "log #86; over-accept; merged (see log row for commit)"),
-    GapFingerprint("DL93", "C",
-                   ("typecheck", "over_reject", "lib-storage-public-2"),
-                   "lib-storage-public-2",
-                   "fixed", "log #93; over-reject; merged (see log row for commit)"),
-    GapFingerprint("DL94", "S",
-                   ("over_accept", "str-overaccept---payable-vis", "over-accept"),
-                   "str-overaccept / payable-vis",
-                   "fixed", "log #94; over-accept; merged (see log row for commit)"),
-    GapFingerprint("DL95", "C",
-                   ("typecheck", "over_reject", "push-field-lvalue"),
-                   "push-field-lvalue",
-                   "fixed", "log #95; over-reject; merged (see log row for commit)"),
-    GapFingerprint("DL101", "C",
-                   ("typecheck", "over_reject", "calldata-lazy-value"),
-                   "calldata-lazy-value",
-                   "fixed", "log #101; over-reject; merged (see log row for commit)"),
-    GapFingerprint("DL102", "C",
-                   ("typecheck", "over_reject", "qualified-member-cluster"),
-                   "qualified-member cluster",
-                   "fixed", "log #102; over-reject; merged (see log row for commit)"),
-    GapFingerprint("DL104", "S",
-                   ("over_accept", "syntax-overaccept", "over-accept"),
-                   "syntax-overaccept",
-                   "fixed", "log #104; over-accept; merged (see log row for commit)"),
-    GapFingerprint("DL105", "S",
-                   ("over_accept", "dup-event-sibling", "over-accept"),
-                   "dup-event-sibling",
-                   "fixed", "log #105; over-accept; merged (see log row for commit)"),
-    GapFingerprint("DL106", "S",
-                   ("over_accept", "inherited-identifier-clash", "over-accept"),
-                   "inherited-identifier-clash",
-                   "fixed", "log #106; over-accept; merged (see log row for commit)"),
-    GapFingerprint("DL108", "S",
-                   ("return_value", "abi-decode-address-payable", "wrong-value"),
-                   "abi-decode-address-payable",
-                   "fixed", "log #108; wrong-value; merged (see log row for commit)"),
-    GapFingerprint("DL109", "C",
-                   ("typecheck", "over_reject", "common-type-literal-mobile"),
-                   "common-type-literal-mobile",
-                   "fixed", "log #109; wrong-value + over-reject; merged (see log row for commit)"),
-    GapFingerprint("DL110", "C",
-                   ("typecheck", "over_reject", "qualified-struct-construction"),
-                   "qualified-struct-construction",
-                   "fixed", "log #110; over-reject; merged (see log row for commit)"),
-    GapFingerprint("DL112", "C",
-                   ("typecheck", "over_reject", "create-salt-literal"),
-                   "create-salt-literal",
-                   "fixed", "log #112; over-reject; merged (see log row for commit)"),
-    GapFingerprint("DL114", "S",
-                   ("return_value", "dec-alloc-memptr", "wrong-value"),
-                   "dec-alloc-memptr",
-                   "fixed", "log #114; wrong-value; merged (see log row for commit)"),
-    GapFingerprint("DL115", "C",
-                   ("typecheck", "over_reject", "const-getter-pure-override"),
-                   "const-getter-pure-override",
-                   "fixed", "log #115; over-reject; merged (see log row for commit)"),
-    GapFingerprint("DL116", "C",
-                   ("typecheck", "over_reject", "ternary-storage-statelvalue"),
-                   "ternary-storage-statelvalue",
-                   "fixed", "log #116; over-reject; merged (see log row for commit)"),
-    GapFingerprint("DL117", "S",
-                   ("over_accept", "frac-cmp-overaccept", "over-accept"),
-                   "frac-cmp-overaccept",
-                   "fixed", "log #117; over-accept; merged (see log row for commit)"),
-    GapFingerprint("DL121", "C",
-                   ("typecheck", "over_reject", "const-zero-bytesn"),
-                   "const-zero-bytesn",
-                   "fixed", "log #121; over-reject + over-accept; merged (see log row for commit)"),
-    GapFingerprint("DL123", "S",
-                   ("over_accept", "struct-cycle-fuel", "over-accept"),
-                   "struct-cycle-fuel",
-                   "fixed", "log #123; over-accept; merged (see log row for commit)"),
-    GapFingerprint("DL124", "S",
-                   ("over_accept", "slice-dyn-base", "over-accept"),
-                   "slice-dyn-base",
-                   "fixed", "log #124; over-accept; merged (see log row for commit)"),
-    GapFingerprint("DL126", "C",
-                   ("typecheck", "over_reject", "array-widen-copy"),
-                   "array-widen-copy",
-                   "fixed", "log #126; over-reject; merged (see log row for commit)"),
-    GapFingerprint("DL127", "S",
-                   ("over_accept", "encodecall-overload", "over-accept"),
-                   "encodecall-overload",
-                   "fixed", "log #127; over-accept; merged (see log row for commit)"),
-    GapFingerprint("DL128", "S",
-                   ("return_value", "abi-decode-eager-headcheck", "wrong-value"),
-                   "abi-decode-eager-headcheck",
-                   "fixed", "log #128; wrong-value; merged (see log row for commit)"),
-    GapFingerprint("DL130", "S",
-                   ("over_accept", "delete-expr-type", "over-accept"),
-                   "delete-expr-type",
-                   "fixed", "log #130; over-accept; merged (see log row for commit)"),
-    GapFingerprint("DL131", "C",
-                   ("typecheck", "over_reject", "shortcircuit-call-pos"),
-                   "shortcircuit-call-pos",
-                   "fixed", "log #131; over-reject; merged (see log row for commit)"),
-    GapFingerprint("DL132", "S",
-                   ("return_value", "tuple-write-order", "wrong-value"),
-                   "tuple-write-order",
-                   "fixed", "log #132; wrong-value; merged (see log row for commit)"),
-    GapFingerprint("DL134", "C",
-                   ("typecheck", "over_reject", "contract-ordered-cmp"),
-                   "contract-ordered-cmp",
-                   "fixed", "log #134; over-reject; merged (see log row for commit)"),
-    GapFingerprint("DL135", "C",
-                   ("typecheck", "over_reject", "array-mutation-vs-usingfor"),
-                   "array-mutation-vs-usingfor",
-                   "fixed", "log #135; over-reject + over-accept; merged (see log row for commit)"),
-    GapFingerprint("DL136", "S",
-                   ("return_value", "qualified-error-collision", "wrong-value"),
-                   "qualified-error-collision",
-                   "fixed", "log #136; wrong-value; merged (see log row for commit)"),
-    GapFingerprint("DL137", "C",
-                   ("typecheck", "over_reject", "qualified-event-collision"),
-                   "qualified-event-collision",
-                   "fixed", "log #137; wrong-value + over-reject; merged (see log row for commit)"),
-    GapFingerprint("DL138", "C",
-                   ("typecheck", "over_reject", "qualified-event-selector"),
-                   "qualified-event-selector",
-                   "fixed", "log #138; over-reject; merged (see log row for commit)"),
-    GapFingerprint("DL139", "C",
-                   ("typecheck", "over_reject", "error-selector-collision"),
-                   "error-selector-collision",
-                   "fixed", "log #139; over-reject; merged (see log row for commit)"),
-    GapFingerprint("DL140", "S",
-                   ("return_value", "abiencode-lit-fixedbytes", "wrong-value"),
-                   "abiencode-lit-fixedbytes",
-                   "fixed", "log #140; wrong-value; merged (see log row for commit)"),
-    GapFingerprint("DL141", "C",
-                   ("typecheck", "over_reject", "emit-revert-lit-fixedbytes"),
-                   "emit/revert-lit-fixedbytes",
-                   "fixed", "log #141; wrong-value/over-reject; merged (see log row for commit)"),
-    GapFingerprint("DL142", "S",
-                   ("return_value", "push-lit-fixedbytes", "wrong-value"),
-                   "push-lit-fixedbytes",
-                   "fixed", "log #142; wrong-value; merged (see log row for commit)"),
-    GapFingerprint("DL143", "C",
-                   ("typecheck", "over_reject", "encwithselector-lit-selector"),
-                   "encwithselector-lit-selector",
-                   "fixed", "log #143; over-reject; merged (see log row for commit)"),
-    GapFingerprint("DL144", "S",
-                   ("return_value", "extfnptr-call-lit-fixedbytes", "wrong-value"),
-                   "extfnptr-call-lit-fixedbytes",
-                   "fixed", "log #144; wrong-value; merged (see log row for commit)"),
-    GapFingerprint("DL145", "C",
-                   ("typecheck", "over_reject", "mapkey-lit-fixedbytes"),
-                   "mapkey-lit-fixedbytes",
-                   "fixed", "log #145; wrong-value/over-reject; merged (see log row for commit)"),
-    GapFingerprint("DL148", "C",
-                   ("typecheck", "over_reject", "call-in-array-literal"),
-                   "call-in-array-literal",
-                   "fixed", "log #148; over-reject; merged (see log row for commit)"),
-    GapFingerprint("DL149", "C",
-                   ("typecheck", "over_reject", "call-in-struct-ctor-arg"),
-                   "call-in-struct-ctor-arg",
-                   "fixed", "log #149; over-reject; merged (see log row for commit)"),
-    GapFingerprint("DL150", "C",
-                   ("typecheck", "over_reject", "call-in-new-arg"),
-                   "call-in-new-arg",
-                   "fixed", "log #150; over-reject; merged (see log row for commit)"),
-    GapFingerprint("DL151", "C",
-                   ("typecheck", "over_reject", "call-in-nested-arg"),
-                   "call-in-nested-arg",
-                   "fixed", "log #151; over-reject; merged (see log row for commit)"),
-    GapFingerprint("DL152", "C",
-                   ("typecheck", "over_reject", "stringconcat-hexlit-utf8"),
-                   "stringconcat-hexlit-utf8",
-                   "fixed", "log #152; over-reject; merged (see log row for commit)"),
-    GapFingerprint("DL154", "S",
-                   ("over_accept", "deploy-abstract", "over-accept"),
-                   "deploy-abstract",
-                   "fixed", "log #154; over-accept; merged (see log row for commit)"),
-    GapFingerprint("DL155", "C",
-                   ("typecheck", "over_reject", "lib-storage-return"),
-                   "lib-storage-return",
-                   "fixed", "log #155; over-reject; merged (see log row for commit)"),
-    GapFingerprint("DL160", "C",
-                   ("typecheck", "over_reject", "recursive-struct-mem-construct"),
-                   "recursive-struct-mem-construct",
-                   "fixed", "log #160; over-reject/unimplemented; fix on main c027a5f"),
-    GapFingerprint("DL163", "C",
-                   ("typecheck", "over_reject", "new-contract-local-struct-array"),
-                   "new-contract-local-struct-array",
-                   "fixed", "log #163; over-reject; fix on main 001ff55"),
-    GapFingerprint("DL164", "S",
-                   ("return_value", "exp-narrow-base-wide-exponent", "wrong-value"),
-                   "exp-narrow-base-wide-exponent",
-                   "fixed", "log #164; wrong-value; fix on main a8da44e"),
-    GapFingerprint("DL165", "C",
-                   ("typecheck", "over_reject", "bool-cast-of-comparison"),
-                   "bool-cast-of-comparison",
-                   "fixed", "log #165; over-reject; fix on main 783c9ae"),
-    GapFingerprint("DL166", "C",
-                   ("typecheck", "over_reject", "overload-mem-vs-storage-location"),
-                   "overload-mem-vs-storage-location",
-                   "fixed", "log #166; over-reject; fix on main f60f910"),
-    GapFingerprint("DL167", "C",
-                   ("typecheck", "over_reject", "creationcode-ancestor"),
-                   "creationcode-ancestor",
-                   "fixed", "log #167; over-reject (+ over-accept bonus); fix on main ea8a519"),
-    GapFingerprint("DL168", "S",
-                   ("return_value", "delete-memory-nested-ref", "wrong-value"),
-                   "delete-memory-nested-ref",
-                   "fixed", "log #168; wrong-value; fix on main 2c74c40"),
-    GapFingerprint("DL170", "C",
-                   ("typecheck", "over_reject", "address-folded-const-conversion"),
-                   "address-folded-const-conversion",
-                   "fixed", "log #170; over-reject; fix on main df085d3"),
-    GapFingerprint("DL171", "S",
-                   ("return_value", "tuple-vardecl-from-abi-decode", "wrong-value"),
-                   "tuple-vardecl-from-abi-decode",
-                   "fixed", "log #171; wrong-value; fix on main 0a733a5"),
-    GapFingerprint("DL172", "S",
-                   ("return_value", "tuple-vardecl-ternary-rhs", "wrong-value"),
-                   "tuple-vardecl-ternary-rhs",
-                   "fixed", "log #172; wrong-value; fix on main 0a733a5"),
-    GapFingerprint("DL173", "S",
-                   ("return_value", "ternary-with-call-in-call-argument", "wrong-value"),
-                   "ternary-with-call-in-call-argument",
-                   "fixed", "log #173; wrong-value; fix on main d643539"),
-    GapFingerprint("DL174", "S",
-                   ("return_value", "abi-encode-internal-call-arg", "wrong-value"),
-                   "abi-encode-internal-call-arg",
-                   "fixed", "log #174; wrong-value; fix on main e6fa5da"),
-    GapFingerprint("DL175", "S",
-                   ("return_value", "bytesn-ident-index-panics", "wrong-value"),
-                   "bytesn-ident-index-panics",
-                   "fixed", "log #175; wrong-value; fix on main 61cef46; fix folded into the #176 merge (main 61cef46)"),
-    GapFingerprint("DL176", "S",
-                   ("return_value", "bytesn-storage-var-index-panic", "wrong-value"),
-                   "bytesn-storage-var-index-panic",
-                   "fixed", "log #176; wrong-value; fix on main 61cef46"),
-    GapFingerprint("DL178", "S",
-                   ("return_value", "enum-member-access-encodepacked-width", "wrong-value"),
-                   "enum-member-access-encodepacked-width",
-                   "fixed", "log #178; wrong-value; fix on main 07af1a0"),
-    GapFingerprint("DL180", "C",
-                   ("typecheck", "over_reject", "bytesn-eq-literal"),
-                   "bytesn-eq-literal",
-                   "fixed", "log #180; over-reject; fix on main 483032d"),
-    GapFingerprint("DL181", "C",
-                   ("typecheck", "over_reject", "address-nested-conv-const-depth3"),
-                   "address-nested-conv-const-depth3",
-                   "fixed", "log #181; over-reject; fix on main 4cd484e"),
-    GapFingerprint("DL182", "S",
-                   ("return_value", "forinit-narrow-counter-no-cleanup", "wrong-value"),
-                   "forinit-narrow-counter-no-cleanup",
-                   "fixed", "log #182; wrong-value/missing-panic; fix on main 08dfbe3"),
-    GapFingerprint("DL183", "S",
-                   ("return_value", "push-arg-narrow-no-cleanup", "wrong-value"),
-                   "push-arg-narrow-no-cleanup",
-                   "fixed", "log #183; wrong-value/missing-panic; fix on main 08dfbe3"),
-    GapFingerprint("DL184", "S",
-                   ("return_value", "struct-ctor-field-narrow-no-cleanup", "wrong-value"),
-                   "struct-ctor-field-narrow-no-cleanup",
-                   "fixed", "log #184; wrong-value/missing-panic; fix on main 08dfbe3"),
-    GapFingerprint("DL185", "C",
-                   ("typecheck", "over_reject", "array-literal-assign-unsupported"),
-                   "array-literal-assign-unsupported",
-                   "fixed", "log #185; over-reject; fix on main 53f0033"),
-    GapFingerprint("DL187", "S",
-                   ("return_value", "binary-operand-order-ltr", "wrong-value"),
-                   "binary-operand-order-ltr",
-                   "fixed", "log #187; wrong-value; fix on main 73e1567"),
-    GapFingerprint("DL188", "C",
-                   ("typecheck", "over_reject", "indexed-storage-ref-return-panic"),
-                   "indexed-storage-ref-return-panic",
-                   "fixed", "log #188; over-reject/spurious-revert; fix on main 8f0f3d3"),
-    GapFingerprint("DL189", "S",
-                   ("return_value", "tuple-rhs-component-order-rtl", "wrong-value"),
-                   "tuple-rhs-component-order-rtl",
-                   "fixed", "log #189; wrong-value; fix on main 73e1567"),
-    GapFingerprint("DL190", "S",
-                   ("return_value", "eval-order-l2r-sites", "wrong-value"),
-                   "eval-order-l2r-sites",
-                   "fixed", "log #190; wrong-value; fix on main 73e1567"),
-    GapFingerprint("DL191", "S",
-                   ("return_value", "external-binary-operand-order", "wrong-value"),
-                   "external-binary-operand-order",
-                   "fixed", "log #191; wrong-value; fix on main 73e1567"),
-    GapFingerprint("DL192", "C",
-                   ("typecheck", "over_reject", "hash-of-storage-bytes-panic"),
-                   "hash-of-storage-bytes-panic",
-                   "fixed", "log #192; over-reject/spurious-revert; fix on main 8f0f3d3"),
-    GapFingerprint("DL194", "S",
-                   ("return_value", "lvalue-index-key-narrow-no-cleanup", "wrong-value"),
-                   "lvalue-index-key-narrow-no-cleanup",
-                   "fixed", "log #194; wrong-value/missing-panic; fix on main 458f877"),
-    GapFingerprint("DL195", "S",
-                   ("return_value", "emit-call-args-defeat-two-phase", "wrong-value"),
-                   "emit-call-args-defeat-two-phase",
-                   "fixed", "log #195; wrong-value; fix on main 458f877"),
-    GapFingerprint("DL197", "C",
-                   ("typecheck", "over_reject", "inherited-struct-field-access"),
-                   "inherited-struct-field-access",
-                   "fixed", "log #197; over-reject; fix on main 1294798"),
-    GapFingerprint("DL199", "C",
-                   ("typecheck", "over_reject", "modifier-body-private-var-scope"),
-                   "modifier-body-private-var-scope",
-                   "fixed", "log #199; over-reject; fix on main 1294798"),
-    GapFingerprint("DL205", "C",
-                   ("typecheck", "over_reject", "ws1-env-audit-batch"),
-                   "ws1-env-audit-batch",
-                   "fixed", "log #205; wrong-value/over-reject; fix on main c3c0073"),
-]
+# Derived-fingerprint cache (generated by --rebuild, verified by the registry
+# invariant test).
+# ---------------------------------------------------------------------------
 
-KNOWN_FIXED = KNOWN_FIXED + _DIVERGENCE_LOG_FIXED
+_FP_CACHE: Optional[dict[str, dict[str, Any]]] = None
 
 
-def _index() -> dict[str, GapFingerprint]:
-    return {g.key_str(): g for g in ALL_KNOWN if g.status == "open"}
+def _fingerprints() -> dict[str, dict[str, Any]]:
+    global _FP_CACHE
+    if _FP_CACHE is None:
+        try:
+            data = json.loads(_FINGERPRINTS_FILE.read_text())
+            _FP_CACHE = data.get("entries", {})
+        except (OSError, json.JSONDecodeError):
+            _FP_CACHE = {}
+    return _FP_CACHE
 
 
-def match_fingerprint(lane: str, key: tuple) -> Optional[GapFingerprint]:
-    """Return the known-open gap whose fingerprint matches ``key`` exactly, or
-    None. The adjudicator computes ``key`` from the live verdict (see
-    ``fingerprint_of_verdict``)."""
-    fp = "|".join(str(k) for k in key)
-    hit = _index().get(fp)
-    if hit and hit.lane == lane:
-        return hit
-    return None
+def derive_fingerprint(entry: GapEntry, solc: Optional[str] = None,
+                       repo_root: Optional[Path] = None) -> Optional[str]:
+    """Run the entry's repro through the ONE canonical fingerprinter. None for
+    a no-repro entry. This is the single source of truth for registry keys."""
+    sources = entry.repro_sources(repo_root)
+    if not sources:
+        return None
+    from . import fingerprint as fpm
+    return fpm.repro_fingerprint(entry.lane, entry.delta, sources, solc)
 
 
-def match_relaxed(lane: str, feature_token: str) -> Optional[GapFingerprint]:
-    """A looser dedup by the minimal-feature token (the middle element of the
-    fingerprint), used as the maintainer's cluster hint (§6.1d) when the exact
-    key differs but the mechanism is the same."""
-    for g in ALL_KNOWN:
-        if g.status != "open" or g.lane != lane:
+def rebuild_fingerprints(solc: Optional[str] = None,
+                         repo_root: Optional[Path] = None) -> dict[str, Any]:
+    """Recompute every entry's derived fingerprint and rewrite the cache file.
+    Returns the written document."""
+    from . import fingerprint as fpm
+    entries: dict[str, Any] = {}
+    for e in _ALL_ENTRIES:
+        fp = derive_fingerprint(e, solc, repo_root)
+        if fp is not None:
+            entries[e.id] = {
+                "fingerprint": fp,
+                "repro_dir": e.repro_dir,
+                "sources": [p.name for p in e.repro_sources(repo_root)],
+            }
+    doc = {
+        "scheme": fpm.FINGERPRINT_SCHEME,
+        "known_gaps_version": KNOWN_GAPS_VERSION,
+        "note": "GENERATED by `python3 -m contest.known_gaps --rebuild` — do "
+                "not hand-edit. Every fingerprint is derived from its entry's "
+                "repro by contest/fingerprint.py; the registry invariant test "
+                "re-derives and cross-checks all of them.",
+        "entries": entries,
+    }
+    _FINGERPRINTS_FILE.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n")
+    global _FP_CACHE
+    _FP_CACHE = entries
+    return doc
+
+
+def verify_fingerprints(solc: Optional[str] = None,
+                        repo_root: Optional[Path] = None) -> list[str]:
+    """THE REGISTRY INVARIANT: for every entry, stored-fingerprint ==
+    fingerprinter(entry.repro); no-repro entries must have NO stored key.
+    Returns a list of human-readable violations (empty == invariant holds)."""
+    problems: list[str] = []
+    stored = _fingerprints()
+    seen_ids: set[str] = set()
+    for e in _ALL_ENTRIES:
+        if e.id in seen_ids:
+            problems.append(f"{e.id}: duplicate entry id")
+        seen_ids.add(e.id)
+        if e.lane not in ("C", "S"):
+            problems.append(f"{e.id}: bad lane {e.lane!r}")
+        if e.status not in ("open", "fixed"):
+            problems.append(f"{e.id}: bad status {e.status!r}")
+        if not e.repro_dir:
+            if e.id in stored:
+                problems.append(
+                    f"{e.id}: no-repro entry has a stored fingerprint "
+                    "(keys must be derived, never hand-authored)")
             continue
-        if len(g.key) >= 2 and g.key[1] == feature_token:
-            return g
+        sources = e.repro_sources(repo_root)
+        if not sources:
+            problems.append(f"{e.id}: repro_dir {e.repro_dir!r} has no .sol sources")
+            continue
+        derived = derive_fingerprint(e, solc, repo_root)
+        got = stored.get(e.id, {}).get("fingerprint")
+        if got is None:
+            problems.append(f"{e.id}: repro present but no stored fingerprint "
+                            "(run --rebuild)")
+        elif got != derived:
+            problems.append(
+                f"{e.id}: stored fingerprint {got!r} != derived {derived!r} "
+                "(registry de-synced from the fingerprinter — run --rebuild "
+                "and review)")
+    for k in stored:
+        if k not in seen_ids:
+            problems.append(f"{k}: stored fingerprint for unknown entry id")
+    return problems
+
+
+# ---------------------------------------------------------------------------
+# Matching — the submission-time hint layer (UNDER-matching by construction).
+# ---------------------------------------------------------------------------
+
+def delta_class_of_live_key(lane: str, key: tuple) -> str:
+    """Map the adjudicator's LIVE §6.2 fingerprint tuple to the delta class the
+    registry keys on. Mirrors adjudicate's classification exactly:
+    lane C -> the reason class (element 1: over_reject / elab_reject /
+    unimplemented / ...); lane S -> the differing component (element 2:
+    wrong-value / over-accept / ...)."""
+    if lane == "C":
+        return str(key[1]) if len(key) > 1 else "unknown"
+    return str(key[2]) if len(key) > 2 else "unknown"
+
+
+def match_submission(lane: str, live_key: tuple, submission_root: Path,
+                     solc: Optional[str] = None) -> Optional[GapEntry]:
+    """EXACT-repro dedup: fingerprint the submission's own sources with the
+    canonical fingerprinter and match against the derived keys of KNOWN-OPEN
+    entries. Fires only when the submission is a published repro up to
+    renaming / reordering / cosmetic variation — the conservative direction
+    (a novel program can never hash-collide in). Returns None on any doubt
+    (missing sources, solc failure, no match)."""
+    try:
+        src_dir = Path(submission_root) / "src"
+        sources = sorted(src_dir.glob("*.sol")) if src_dir.is_dir() else []
+        if not sources:
+            return None
+        from . import fingerprint as fpm
+        fp = fpm.repro_fingerprint(
+            lane, delta_class_of_live_key(lane, live_key), sources, solc)
+    except Exception:
+        return None  # hint layer: never let matching break adjudication
+    for e in _OPEN_ENTRIES:
+        if e.lane == lane and e.fingerprint is not None and e.fingerprint == fp:
+            return e
     return None
+
+
+def feature_hint(lane: str, feature_token: str) -> list[str]:
+    """ADVISORY ONLY (v1's match_relaxed, demoted): ids of known-open gaps
+    whose curated feature slug equals the given token. The token is
+    SUBMITTER-CONTROLLED for lane S, so this must never set ``duplicate_of``
+    — a submitter reusing a published slug on a genuinely novel find would be
+    wrongly tagged a duplicate (auto-deny, the forbidden direction). Surfaced
+    on the report fingerprint for the maintainer instead."""
+    return [e.id for e in _OPEN_ENTRIES
+            if e.lane == lane and e.feature == feature_token]
 
 
 def cluster_by_delta(lane: str, component: str, delta_shape: str) -> list[str]:
-    """ADVISORY lane-S cluster hint: IDs of known-open gaps sharing the
-    ADJUDICATOR-derived ``(observable_component, delta_shape)`` — elements 0 and 2
-    of the lane-S fingerprint, which the submitter does NOT control (unlike the
-    middle ``feature`` token that both ``match_fingerprint`` and ``match_relaxed``
-    key on).
-
-    Purpose (audit finding): a submitter can re-skin a KNOWN gap with a novel
-    ``claim.feature`` string to dodge both matches and score it as novel
-    (leaderboard novelty-inflation). This hint surfaces every known gap with the
-    same observable delta family so a maintainer can spot the re-skin.
-
-    ADVISORY ONLY — the caller must NOT turn this into ``duplicate_of``: deduping
-    on the delta alone would OVER-CLUSTER genuinely distinct gaps (e.g. G2..G12
-    all share ``(over_accept, over-accept)`` but are different mechanisms), and
-    over-clustering would wrongly auto-deny a legitimately novel submission. Bias
-    stays toward under-clustering; a human confirms."""
+    """ADVISORY lane-S cluster hint (unchanged from v1): IDs of known-open gaps
+    sharing the ADJUDICATOR-derived ``(observable_component, delta_shape)``.
+    Never sets ``duplicate_of`` — the delta alone over-clusters genuinely
+    distinct gaps (e.g. every over-accept shares one delta family); bias stays
+    toward under-clustering, a human confirms."""
     if lane != "S":
         return []
-    ids: list[str] = []
-    for g in ALL_KNOWN:
-        if g.status != "open" or g.lane != lane or len(g.key) < 3:
-            continue
-        if g.key[0] == component and g.key[2] == delta_shape:
-            ids.append(g.id)
-    return ids
+    return [e.id for e in _OPEN_ENTRIES
+            if e.lane == lane and e.component == component
+            and e.delta == delta_shape]
+
+
+def no_repro_entries() -> list[GapEntry]:
+    """Entries excluded from the auto-match path until a repro is recovered."""
+    return [e for e in _ALL_ENTRIES if not e.repro_dir]
 
 
 def registry_summary() -> dict:
+    stored = _fingerprints()
     return {
         "known_gaps_version": KNOWN_GAPS_VERSION,
-        "open": [g.id for g in ALL_KNOWN if g.status == "open"],
-        "fixed": [g.id for g in KNOWN_FIXED],
+        "open": [e.id for e in ALL_KNOWN],
+        "fixed": [e.id for e in KNOWN_FIXED],
+        "keyed": sorted(stored.keys()),
+        "no_repro": [e.id for e in no_repro_entries()],
     }
 
 
-if __name__ == "__main__":
-    import json
+def _main(argv: Optional[list[str]] = None) -> int:
+    import argparse
+    p = argparse.ArgumentParser(description="Known-gaps registry tool")
+    p.add_argument("--rebuild", action="store_true",
+                   help="re-derive every fingerprint from its repro and "
+                        "rewrite known_gap_fingerprints.json")
+    p.add_argument("--check", action="store_true",
+                   help="verify the invariant: stored == derived for all")
+    p.add_argument("--no-repro", action="store_true",
+                   help="list entries awaiting a repro (excluded from "
+                        "auto-match)")
+    p.add_argument("--solc", default=None)
+    args = p.parse_args(argv)
+    if args.rebuild:
+        doc = rebuild_fingerprints(args.solc)
+        print(f"rebuilt {len(doc['entries'])} derived fingerprints -> "
+              f"{_FINGERPRINTS_FILE.name}")
+        return 0
+    if args.check:
+        problems = verify_fingerprints(args.solc)
+        for pr in problems:
+            print(f"VIOLATION: {pr}")
+        print("invariant OK" if not problems else
+              f"{len(problems)} violation(s)")
+        return 0 if not problems else 1
+    if args.no_repro:
+        for e in no_repro_entries():
+            print(f"{e.id}\t{e.status}\tlane {e.lane}\t{e.feature}")
+        return 0
     print(json.dumps(registry_summary(), indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())

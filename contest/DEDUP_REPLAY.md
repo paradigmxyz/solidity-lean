@@ -3,15 +3,17 @@
 ## The problem with dedup at submission time
 
 A divergence-finding arena must avoid counting one underlying engine defect twice. The
-current harness dedups by **fingerprint matching** (`known_gaps.py`:
-`match_fingerprint` / `match_relaxed` against the G1..G22 registry and prior
-submissions), but the lane-S fingerprint keys partly on the submitter-controlled
-`claim.feature` tag. So a **re-skinned** known gap — rename the feature, reword the
-contract, wrap a revert reason in `abi.encodePacked` — dodges the match ("novelty
-inflation"). Round 7 added an advisory `delta_cluster_hint` keyed on the
-*adjudicator-derived* `(component, delta_shape)`, but it is advisory only (never sets
-`duplicate_of`, never changes `qualifies`) because delta alone over-clusters distinct
-bugs.
+submission-time layer dedups by **fingerprint matching** (`known_gaps.py` v2:
+`match_submission` computes a canonical, rename/reorder-invariant structural hash of
+the submission's sources and matches it against the registry's repro-DERIVED keys).
+That exact-match layer is deliberately conservative: it catches a copy/re-skin of a
+*published* repro, but a **re-skinned** known gap expressed as a *different program*
+— rename the feature, reword the contract, wrap a revert reason in
+`abi.encodePacked` — still dodges it ("novelty inflation"). The advisory
+`feature_hint` / `delta_cluster_hint` (keyed on the curated slug and the
+*adjudicator-derived* `(component, delta_shape)`) surface candidates, but they are
+advisory only (never set `duplicate_of`, never change `qualifies`) because they
+over-cluster distinct bugs.
 
 Same-**root-cause** dedup at submission time is effectively undecidable: "are these
 the same bug?" means "do they share a root cause", which means understanding the

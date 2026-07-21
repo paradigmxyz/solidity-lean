@@ -171,7 +171,8 @@ does **not** modify `SolidCore/**`).
 | `reject_gate.py` | Whole-submission AST scan (§2). Syntactic detectors (exact) + semantic taint detectors (conservative). `V1-MULTI` guard. |
 | `observable.py` | Observable definition, Lean helper, normal-form parse/compare (§3.4). |
 | `harness_bridge.py` | Reuses `run_forge` / `run_solc_rejects` / `run_solc_import` from `scripts/run_forge_interpreter_harness.py`; runs solidity-lean + captures the observable `#eval`. |
-| `known_gaps.py` | Dedup fingerprints for G1–G22, H1/H2 (§6.2). Root-cause keys, not source text. `KNOWN_FIXED` for retired gaps. |
+| `known_gaps.py` | Known-gap registry (§6.2), v2: entries carry their repro; keys are DERIVED from the repro by `fingerprint.py` (never hand-written) and invariant-tested. `KNOWN_FIXED` for retired gaps. |
+| `fingerprint.py` | The ONE canonical repro fingerprinter: structural hash of the pinned-solc AST, alpha/order/comment-invariant, distinctness-preserving. |
 | `adjudicate.py` | The §4 decision tree + CLI entrypoint. |
 | `multi_contract.py` | **v2 seam** (stub): where the reflective responder / depth-bounded fold / registry / multi-contract observable plug in. |
 | `run_samples.py` | Sample-suite runner; asserts each path classifies correctly. |
@@ -237,16 +238,27 @@ solidity-lean side is independently recomputed by the Lean `#eval`. This is what
 defeats the "trivially-passing test declaring a false observable" attack — do NOT
 regress the adjudicator to read the declared value.
 
-## Dedup (design §6.2)
+## Dedup (design §6.2, registry v2)
 
-Every terminal gap gets a **root-cause fingerprint** (not source text):
+Every terminal gap still gets a **live fingerprint** on its report (used by the
+fix-time replay to compare E0 vs E1 runs of the same submission):
 
 * lane C: `(fail_stage, fail_reason_class, minimal_node_type_or_field)`
 * lane S: `(observable_component, minimal_feature, delta_shape)`
 
-`known_gaps.py` pre-loads G1–G22 (+ H1/H2) fingerprints; a match flags the
-verdict `duplicate_of: <id>`. `match_relaxed` gives the maintainer's cluster
-hint by minimal-feature token (§6.1d).
+The **registry keys** in `known_gaps.py`, however, are never hand-authored
+(v2): every entry carries its repro (`repro_dir`, a corpus lane), and its key
+is DERIVED from that repro by the one canonical fingerprinter
+(`fingerprint.py` — a structural, rename/reorder/comment-invariant hash of the
+pinned-solc AST). Keys are cached in `known_gap_fingerprints.json`
+(`python3 -m contest.known_gaps --rebuild`) and the registry invariant test
+re-derives every one, so a key can never silently de-sync from the
+fingerprinter. Auto-match (`duplicate_of: <id>`) fires only on an EXACT
+canonical-AST match — i.e. the submission is a published repro up to
+renaming/reordering; anything else surfaces as advisory hints only
+(`feature_hint`, `delta_cluster_hint`) for the maintainer + fix-time replay.
+Entries whose repro is not yet recovered carry no key and are excluded from
+auto-match (`python3 -m contest.known_gaps --no-repro`).
 
 ## v2 seam — multi-contract (design §3, §8)
 

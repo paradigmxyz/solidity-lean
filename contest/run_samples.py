@@ -265,22 +265,219 @@ def ctor_revert_unit_tests() -> tuple[bool, str]:
 
 
 def dedup_unit_tests() -> tuple[bool, str]:
-    """Directly exercise the dedup fingerprint machinery (§6.2)."""
+    """Exercise the registry-v2 dedup machinery: repro-DERIVED keys and the
+    exact-canonical-AST auto-match (contest/known_gaps.py v2)."""
+    import shutil
+    import tempfile as _tf
     checks = []
-    # A live G1-shaped wrong-value soundness gap must dedup to G1.
-    key_g1 = ("return_value", "using-operator-nonbuiltin-body", "wrong-value")
-    checks.append(("G1 exact", kg.match_fingerprint("S", key_g1) is not None
-                   and kg.match_fingerprint("S", key_g1).id == "G1"))
-    # A G13-shaped over-reject coverage gap must dedup to G13.
-    key_g13 = ("typecheck", "over_reject", "nested-tuple-LHS")
-    checks.append(("G13 exact", kg.match_fingerprint("C", key_g13) is not None
-                   and kg.match_fingerprint("C", key_g13).id == "G13"))
-    # A novel fingerprint must NOT match anything.
-    key_novel = ("import", "unimplemented", "TotallyNovelNodeXYZ")
-    checks.append(("novel unmatched", kg.match_fingerprint("C", key_novel) is None))
-    # Relaxed (cluster-hint) match by feature token.
-    checks.append(("G1 relaxed", kg.match_relaxed("S", "using-operator-nonbuiltin-body")
-                   is not None))
+
+    # G13's stored key is DERIVED from its repro by the one canonical
+    # fingerprinter (spot check; the full sweep is registry_invariant_tests).
+    g13 = next(e for e in kg.ALL_KNOWN if e.id == "G13")
+    checks.append(("G13-key-derived",
+                   g13.fingerprint is not None
+                   and g13.fingerprint == kg.derive_fingerprint(g13)))
+
+    # An exact COPY of G13's published repro (as a submission src/) auto-matches
+    # G13 through the live-key path the adjudicator uses.
+    sub = Path(_tf.mkdtemp(prefix="contest-dedup-copy."))
+    (sub / "src").mkdir()
+    for src in g13.repro_sources():
+        shutil.copy(src, sub / "src" / src.name)
+    live_key = ("typecheck", "over_reject", "SomeLiveImporterToken")
+    hit = kg.match_submission("C", live_key, sub)
+    checks.append(("repro-copy-matches", hit is not None and hit.id == "G13"))
+
+    # A comment/whitespace re-skin of the same repro STILL matches (the
+    # canonical fingerprint ignores irrelevant syntactic variation).
+    sub2 = Path(_tf.mkdtemp(prefix="contest-dedup-reskin."))
+    (sub2 / "src").mkdir()
+    for src in g13.repro_sources():
+        text = src.read_text()
+        (sub2 / "src" / src.name).write_text(
+            "// re-skinned copy\n" + text.replace(";", ";  ", 1))
+        break
+    hit2 = kg.match_submission("C", live_key, sub2)
+    checks.append(("repro-reskin-matches", hit2 is not None and hit2.id == "G13"))
+
+    # A NOVEL program must NOT match anything (under-match direction).
+    sub3 = Path(_tf.mkdtemp(prefix="contest-dedup-novel."))
+    (sub3 / "src").mkdir()
+    (sub3 / "src" / "N.sol").write_text(
+        "// SPDX-License-Identifier: MIT\npragma solidity 0.8.35;\n"
+        "contract Novel { function f() external pure returns (uint256) "
+        "{ return 12345; } }\n")
+    checks.append(("novel-unmatched",
+                   kg.match_submission("C", live_key, sub3) is None))
+
+    # A WRONG lane/delta does not match even with identical sources.
+    checks.append(("lane-mismatch-unmatched",
+                   kg.match_submission("S", ("return_value", "f", "wrong-value"),
+                                       sub) is None))
+
+    # feature_hint is ADVISORY (ids only), and no-repro entries are excluded
+    # from the auto-match path but keep their identity.
+    checks.append(("feature-hint-advisory",
+                   "G1" in kg.feature_hint("S", "using-operator-nonbuiltin-body")))
+    norep = {e.id for e in kg.no_repro_entries()}
+    checks.append(("no-repro-listed", "G16" in norep and "CF3" in norep))
+    checks.append(("no-repro-has-no-key",
+                   all(e.fingerprint is None for e in kg.no_repro_entries())))
+
+    ok = all(v for _n, v in checks)
+    detail = ", ".join(f"{n}={'ok' if v else 'BAD'}" for n, v in checks)
+    return ok, detail
+
+
+def registry_invariant_tests() -> tuple[bool, str]:
+    """THE REGISTRY INVARIANT (registry v2): for EVERY entry, the stored
+    fingerprint equals the canonical fingerprinter run over the entry's repro,
+    and no-repro entries carry NO key. A hand-edited key, a stale cache, or a
+    fingerprinter change fails this LOUDLY instead of a registry row silently
+    going inert (the v1 failure mode this redesign removes)."""
+    problems = kg.verify_fingerprints()
+    checks = [("stored==derived-for-all", not problems)]
+    # every open+fixed id unique across the whole registry
+    ids = [e.id for e in kg.ALL_KNOWN] + [e.id for e in kg.KNOWN_FIXED]
+    checks.append(("ids-unique", len(ids) == len(set(ids))))
+    # nothing from v1 was dropped: the registry keeps all identities.
+    checks.append(("registry-size-preserved",
+                   len(kg.ALL_KNOWN) == 28 and len(kg.KNOWN_FIXED) == 114))
+    # keyed entries actually resolve repro sources on disk
+    checks.append(("repro-sources-exist",
+                   all(e.repro_sources() for e in kg.ALL_KNOWN + kg.KNOWN_FIXED
+                       if e.repro_dir)))
+    ok = all(v for _n, v in checks)
+    detail = (", ".join(f"{n}={'ok' if v else 'BAD'}" for n, v in checks)
+              + ("" if not problems else
+                 " :: " + "; ".join(problems[:5])))
+    return ok, detail
+
+
+def fingerprinter_canonicality_tests() -> tuple[bool, str]:
+    """The canonical fingerprinter's contract: equivalent inputs -> SAME
+    fingerprint (rename/comment/whitespace/file-order invariance); distinct
+    inputs -> DIFFERENT fingerprint (literals, operators, operand order,
+    statement order, lane, delta class)."""
+    import tempfile as _tf
+    from contest import fingerprint as fpm
+    checks = []
+    hdr = "// SPDX-License-Identifier: MIT\npragma solidity 0.8.35;\n"
+    base = hdr + """
+contract A {
+    uint256 public total;
+    function add(uint256 x, uint256 y) external returns (uint256) {
+        total = x - y;
+        return total + 1;
+    }
+    function get() external view returns (uint256) { return total; }
+}
+"""
+    renamed = ("// a comment\npragma solidity 0.8.35;\n"
+               "// SPDX-License-Identifier: MIT\n" + """
+contract Zed {
+    uint256 public sum;
+
+    function plus(uint256 p, uint256 q) external returns (uint256) {
+        sum = p - q;   // subtract
+        return sum + 1;
+    }
+    function fetch() external view returns (uint256) { return sum; }
+}
+""")
+
+    def fp(src: str, lane: str = "S", delta: str = "wrong-value") -> str:
+        d = Path(_tf.mkdtemp(prefix="contest-fp."))
+        (d / "T.sol").write_text(src)
+        return fpm.repro_fingerprint(lane, delta, [d / "T.sol"])
+
+    f = fp(base)
+    checks.append(("deterministic", fp(base) == f))
+    checks.append(("rename+comment+reorder-same", fp(renamed) == f))
+    checks.append(("operand-order-differs",
+                   fp(base.replace("x - y", "y - x")) != f))
+    checks.append(("literal-differs", fp(base.replace("+ 1", "+ 2")) != f))
+    checks.append(("operator-differs", fp(base.replace("x - y", "x + y")) != f))
+    checks.append(("stmt-order-differs", fp(base.replace(
+        "total = x - y;\n        return total + 1;",
+        "return total + 1;\n        total = x - y;")) != f))
+    checks.append(("delta-class-in-fp", fp(base, delta="wrong-panic") != f))
+    checks.append(("lane-in-fp", fp(base, lane="C") != f))
+
+    # multi-file combination is file-order invariant
+    d1 = Path(_tf.mkdtemp(prefix="contest-fp-mf."))
+    other = hdr + "contract B { function g() external pure returns (uint8) { return 7; } }\n"
+    (d1 / "a_first.sol").write_text(base)
+    (d1 / "z_last.sol").write_text(other)
+    d2 = Path(_tf.mkdtemp(prefix="contest-fp-mf."))
+    (d2 / "a_first.sol").write_text(other)   # same two files, swapped names
+    (d2 / "z_last.sol").write_text(base)
+    fp1 = fpm.repro_fingerprint("S", "wrong-value", sorted(d1.glob("*.sol")))
+    fp2 = fpm.repro_fingerprint("S", "wrong-value", sorted(d2.glob("*.sol")))
+    checks.append(("multifile-order-invariant", fp1 == fp2))
+
+    # a solc-REJECTED source (the over-accept family) fingerprints in the
+    # disjoint `parse` mode — deterministic, and never colliding with `full`.
+    bad = hdr + "contract R { function f() external { msg.value; } }\n"  # 2527
+    fbad = fp(bad, delta="over-accept")
+    checks.append(("parse-mode-fallback", "|parse|" in fbad))
+    checks.append(("parse-mode-deterministic", fp(bad, delta="over-accept") == fbad))
+    ok = all(v for _n, v in checks)
+    detail = ", ".join(f"{n}={'ok' if v else 'BAD'}" for n, v in checks)
+    return ok, detail
+
+
+def dedup_soundness_tests() -> tuple[bool, str]:
+    """Dedup can only UNDER-match — it must never wrongly auto-DENY credit for
+    a genuine find (the one direction the redesign must preserve)."""
+    import tempfile as _tf
+    checks = []
+
+    # A genuinely novel submission that REUSES a known gap's feature slug in
+    # claim.feature: v1's match_relaxed would have stamped duplicate_of=G1
+    # (an auto-deny of a novel find); v2 must only surface an ADVISORY hint.
+    novel = Path(_tf.mkdtemp(prefix="contest-sound."))
+    (novel / "src").mkdir()
+    (novel / "src" / "N.sol").write_text(
+        "// SPDX-License-Identifier: MIT\npragma solidity 0.8.35;\n"
+        "contract N { function f() external pure returns (uint256) "
+        "{ return 777; } }\n")
+    slug = "using-operator-nonbuiltin-body"      # G1's published slug
+    report = adj.Report("SOUNDNESS_GAP", lane="S", reason="novel find",
+                        evidence={"submission": str(novel)})
+    adj._annotate_dedup(report, "S", ("return_value", slug, "wrong-value"), slug)
+    checks.append(("slug-reuse-not-auto-denied", report.duplicate_of is None))
+    checks.append(("slug-reuse-hint-surfaced",
+                   "G1" in (report.fingerprint or {}).get("feature_hint", [])))
+    checks.append(("still-qualifies", report.qualifies))
+
+    # Even an EXACT repro-copy match is an ANNOTATION, never a verdict change:
+    # qualifies stays True (credit denial is the human/replay's call).
+    g13 = next(e for e in kg.ALL_KNOWN if e.id == "G13")
+    import shutil
+    dup = Path(_tf.mkdtemp(prefix="contest-sound-dup."))
+    (dup / "src").mkdir()
+    for src in g13.repro_sources():
+        shutil.copy(src, dup / "src" / src.name)
+    report2 = adj.Report("COVERAGE_GAP", lane="C", reason="gap",
+                         evidence={"submission": str(dup)})
+    adj._annotate_dedup(report2, "C", ("typecheck", "over_reject", "Tok"), "Tok")
+    checks.append(("dup-annotated", report2.duplicate_of == "G13"))
+    checks.append(("dup-still-qualifies", report2.qualifies))
+
+    # Matching is fail-safe: a missing/empty submission dir yields no match and
+    # no crash (the hint layer must never break adjudication).
+    report3 = adj.Report("SOUNDNESS_GAP", lane="S", reason="x",
+                         evidence={"submission": "/nonexistent/nowhere"})
+    adj._annotate_dedup(report3, "S", ("return_value", "f", "wrong-value"), "f")
+    checks.append(("missing-dir-failsafe", report3.duplicate_of is None))
+
+    # cluster_by_delta remains advisory and non-empty for the over-accept
+    # family, and lane C produces no cluster (unchanged v1 contract).
+    cl = kg.cluster_by_delta("S", "over_accept", "over-accept")
+    checks.append(("delta-cluster-advisory", len(cl) >= 2 and "G2" in cl))
+    checks.append(("laneC-no-cluster",
+                   kg.cluster_by_delta("C", "typecheck", "over_reject") == []))
     ok = all(v for _n, v in checks)
     detail = ", ".join(f"{n}={'ok' if v else 'BAD'}" for n, v in checks)
     return ok, detail
@@ -619,14 +816,14 @@ def hardening_unit_tests() -> tuple[bool, str]:
 
     # Advisory delta-shape cluster hint (dedup-evasion mitigation): a KNOWN lane-S
     # over_accept gap (G2..G12 all share component=over_accept, delta=over-accept)
-    # re-skinned with a NOVEL feature dodges match_relaxed but must still surface in
-    # cluster_by_delta — WITHOUT being auto-marked duplicate_of (delta over-clusters).
+    # re-skinned with a NOVEL feature dodges the feature hint but must still surface
+    # in cluster_by_delta — WITHOUT being auto-marked duplicate_of (delta over-clusters).
     _cluster = kg.cluster_by_delta("S", "over_accept", "over-accept")
     checks.append(("delta-cluster-nonempty",
                    len(_cluster) >= 2 and "G2" in _cluster))
-    # It is advisory-only: match on a novel feature token returns no exact/relaxed hit.
-    checks.append(("reskin-dodges-relaxed",
-                   kg.match_relaxed("S", "totally-novel-feature-string") is None))
+    # It is advisory-only: a novel feature token yields no hint at all.
+    checks.append(("reskin-dodges-feature-hint",
+                   kg.feature_hint("S", "totally-novel-feature-string") == []))
     # And a genuinely novel delta family clusters to nothing.
     checks.append(("novel-delta-empty",
                    kg.cluster_by_delta("S", "return_value", "no-such-delta") == []))
@@ -971,6 +1168,18 @@ def main() -> int:
     ok, d = dedup_unit_tests()
     results.append(("dedup-fingerprints (unit)", ok, d))
     _print("dedup-fingerprints (unit)", ok, d)
+
+    ok, d = registry_invariant_tests()
+    results.append(("registry invariant: stored fp == fingerprinter(repro)", ok, d))
+    _print("registry invariant: stored fp == fingerprinter(repro)", ok, d)
+
+    ok, d = fingerprinter_canonicality_tests()
+    results.append(("fingerprinter canonicality (unit)", ok, d))
+    _print("fingerprinter canonicality (unit)", ok, d)
+
+    ok, d = dedup_soundness_tests()
+    results.append(("dedup soundness: no wrong auto-deny (unit)", ok, d))
+    _print("dedup soundness: no wrong auto-deny (unit)", ok, d)
 
     ok, d = hardening_unit_tests()
     results.append(("false-positive-hardening (unit)", ok, d))

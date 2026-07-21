@@ -236,26 +236,43 @@ def soundness_fingerprint(comparison: obs.ObservableComparison,
     return (obs_component, feature, component)
 
 
+# === BEGIN fingerprint-registry v2 hunk (harness/fingerprint-redesign2) ====
+# The ONLY adjudicate.py change for the registry redesign; everything else
+# lives in contest/known_gaps.py + contest/fingerprint.py.
 def _annotate_dedup(report: Report, lane: str, key: tuple, feature_token: str) -> None:
     report.fingerprint = {"lane": lane, "key": list(key),
                           "key_str": "|".join(str(k) for k in key)}
-    hit = kg.match_fingerprint(lane, key) or kg.match_relaxed(lane, feature_token)
+    # Registry v2 dedup: the registry's keys are DERIVED from each entry's
+    # repro by the canonical fingerprinter (contest/fingerprint.py), so the
+    # only auto-match is an EXACT canonical-AST match of the submission's own
+    # sources against a known-open repro — i.e. the submission IS a published
+    # repro up to renaming/reordering. Conservative by construction: a novel
+    # program can never hash-collide in, so this can only UNDER-match; the
+    # authoritative dedup remains the fix-time replay (dedup_replay.py).
+    # v1's match_relaxed — which set duplicate_of from the SUBMITTER-CONTROLLED
+    # `claim.feature` slug and could wrongly tag a genuine novel find as a
+    # duplicate — is demoted to an advisory `feature_hint` on the evidence.
+    sub_root = (report.evidence or {}).get("submission")
+    hit = kg.match_submission(lane, key, Path(sub_root)) if sub_root else None
     if hit is not None:
         report.duplicate_of = hit.id
-        report.reason += (f"  [DUPLICATE of known gap {hit.id}: {hit.feature}]")
-    # ADVISORY delta-shape cluster hint (lane S). match_fingerprint/match_relaxed
-    # both key on the SUBMITTER-CONTROLLED middle `feature` token, so a known gap
-    # re-skinned with a novel feature dodges them and scores as novel (leaderboard
-    # novelty-inflation, audit finding). This lists known-open gaps sharing the
-    # ADJUDICATOR-derived (component, delta_shape) so a maintainer can catch the
-    # re-skin. It NEVER sets duplicate_of (delta alone over-clusters distinct gaps,
-    # e.g. G2..G12 all share `over_accept/over-accept`) and does NOT change
-    # `qualifies` — a hint on the evidence only, biased to under-cluster.
+        report.fingerprint["source_fingerprint"] = hit.fingerprint
+        report.reason += (f"  [DUPLICATE of known gap {hit.id}: {hit.title}]")
+    hints = [gid for gid in kg.feature_hint(lane, feature_token)
+             if gid != report.duplicate_of]
+    if hints:
+        report.fingerprint["feature_hint"] = hints
+    # ADVISORY delta-shape cluster hint (lane S): lists known-open gaps sharing
+    # the ADJUDICATOR-derived (component, delta_shape) so a maintainer can
+    # catch a re-skin. It NEVER sets duplicate_of (delta alone over-clusters
+    # distinct gaps, e.g. G2..G12 all share `over_accept/over-accept`) and does
+    # NOT change `qualifies` — a hint on the evidence only.
     if lane == "S" and len(key) >= 3:
         cluster = [gid for gid in kg.cluster_by_delta(lane, key[0], key[2])
                    if gid != report.duplicate_of]
         if cluster:
             report.fingerprint["delta_cluster_hint"] = cluster
+# === END fingerprint-registry v2 hunk ======================================
 
 
 # ---------------------------------------------------------------------------
