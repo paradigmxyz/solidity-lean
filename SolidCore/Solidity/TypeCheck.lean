@@ -1064,6 +1064,28 @@ def StateMutability.canImplicitlyConvertFunction
 -- user-path context rules (aliases, contract covariance) live in the
 -- context-aware `TypeContext.canImplicitlyConvert`.
 -- ===========================================================================
+
+/-- EXTERNAL function types: solc types an external function VALUE via
+    `FunctionType::asExternallyCallableFunction`, which normalizes CallData
+    reference param/return locations to Memory before the location-aware
+    signature comparison (Types.cpp:3165-3200), so `this.f` for
+    `f(uint256[] calldata)` prints and compares as
+    `function (uint256[] memory) external`. The model carries TWO spellings of
+    that normalized Memory slot — the ABI-boundary function-value signature
+    spells it `none` (`FunctionSig.atAbiBoundary`) while a source-level
+    external function TYPE spells it `some memory` — so collapse
+    `some memory` to `none` on BOTH sides before comparing. `calldata` stays
+    distinct: probed solc 0.8.35 REJECTS assigning any external function
+    value to a `calldata`-located external function type, and declared
+    memory-vs-calldata external fn types are mutually unconvertible. -/
+def Ty.externalFunctionTypeLocations :
+    List (Option Solidity.DataLocation) ->
+    List (Option Solidity.DataLocation) :=
+  List.map (fun location =>
+    match location with
+    | some Solidity.DataLocation.memory => none
+    | other => other)
+
 def Ty.canImplicitlyConvert (actual expected : Ty) : Bool :=
   if actual == expected then
     true
@@ -1131,6 +1153,12 @@ def Ty.canImplicitlyConvert (actual expected : Ty) : Bool :=
     | Solidity.Ty.enum _ => false
     -- solc FunctionType::isImplicitlyConvertibleTo (Types.cpp:3165-3200):
     -- identical signature, state-mutability lattice.
+    --
+    -- EXTERNAL fn types compare param/return locations under the Memory
+    -- spelling collapse below (`Ty.externalFunctionTypeLocations`); INTERNAL
+    -- fn types stay exactly location-sensitive (probed solc 0.8.35: an
+    -- internal `function(uint256[] memory)` value is NOT convertible to a
+    -- declared `function(uint256[] calldata) internal` type and vice versa).
     | Solidity.Ty.functionWithLocations actualParams
         actualParamLocations actualReturns actualReturnLocations
         actualMutability actualVisibility =>
@@ -1138,10 +1166,21 @@ def Ty.canImplicitlyConvert (actual expected : Ty) : Bool :=
         | Solidity.Ty.functionWithLocations expectedParams
             expectedParamLocations expectedReturns expectedReturnLocations
             expectedMutability expectedVisibility =>
+            let bothExternal :=
+              actualVisibility == Solidity.Visibility.external_ &&
+                expectedVisibility == Solidity.Visibility.external_
+            let locationsMatch :=
+              if bothExternal then
+                Ty.externalFunctionTypeLocations actualParamLocations ==
+                    Ty.externalFunctionTypeLocations expectedParamLocations &&
+                  Ty.externalFunctionTypeLocations actualReturnLocations ==
+                    Ty.externalFunctionTypeLocations expectedReturnLocations
+              else
+                actualParamLocations == expectedParamLocations &&
+                  actualReturnLocations == expectedReturnLocations
             actualParams == expectedParams &&
-              actualParamLocations == expectedParamLocations &&
+              locationsMatch &&
               actualReturns == expectedReturns &&
-              actualReturnLocations == expectedReturnLocations &&
               actualVisibility == expectedVisibility &&
               StateMutability.canImplicitlyConvertFunction
                 actualMutability expectedMutability
