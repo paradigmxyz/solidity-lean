@@ -196,3 +196,30 @@ self-gate on the new lanes + lowering-heavy existing lanes
 (openzeppelin-erc20, openzeppelin-access-control, reference-*, storage-*,
 cond-narrow-cleanup, stage-d lanes). Full 262-case replay is the
 orchestrator's (serialized, not run here).
+
+**Re-measured again on `rearch/kill-all-debt` (post storage-unify-normalizer
+merge):** the §3c dispatcher collapse was ATTEMPTED this time (not
+re-declined). Phase 1 landed: `Stmt.lowerCore?` now dispatches the
+env-INVARIANT statements ONCE, before the ctx? split — the
+`block`/`unchecked` arm pairs (whose env-aware half re-spelled the
+ctx?-some recursion with ten named arguments) and the
+`empty`/`inline-assembly`/`break`/`continue` constants (previously reached
+through the env-less default) are single ctx?-parameterized arms. Verified
+byte-identical on a 21-contract core-dump battery
+(`probes/CoreDumpBattery.lean`, reprStr hashes equal pre/post) plus the full
+witness suite. The remaining ~100 arms each perform genuinely DISTINCT
+env-aware work (env-typed conditions, call hoisting, storage-alias returns,
+two-phase emit, external-call binding) before their acceptance-preserving
+`Stmt.toCore?` fallback; collapsing those pairs would change which lowering
+runs for accepted programs, so they remain as measured residue — now with
+the fallback pattern isolated per arm rather than duplicated shells.
+
+**Performance note (kill-all-debt gate):** a full-replay run at `--jobs 6`
+timed out the three heaviest OpenZeppelin lanes (300 s budget). Sequential,
+uncontended timing of `openzeppelin-erc20` on identical hardware:
+base `7a51274` = 289 s, branch minus the Interpreter items = 291 s, full
+branch = 292 s — i.e. NO measurable regression from any of the five items
+(±1%); the lanes simply sit ~10 s under the 300 s budget even at base, so
+any harness parallelism tips them over. Full-replay gates for these lanes
+must run serialized (or with a raised `--timeout`), as the orchestrator's
+runs always did.
