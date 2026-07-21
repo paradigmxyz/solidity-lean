@@ -13479,7 +13479,7 @@
   },
   {
    "name": "storage-array-literal",
-   "description": "ITEM-1 front-end over-rejection fix: inline array literals with storage bytes/string/array elements and storage-pointer locals in value positions (abi.encode, keccak256, emit, custom-error revert). solc 0.8.35 accepts and implicitly copies each element to memory; the model previously failed to TYPE the literal env-lessly and over-rejected the function. Real-EVM ground truth: 9 Forge tests on pinned solc 0.8.35 (all PASS).",
+   "description": "ITEM-1 front-end over-rejection fix: inline array literals with storage bytes/string/array elements and storage-pointer locals in value positions (abi.encode, keccak256, emit, custom-error revert). solc 0.8.35 accepts and implicitly copies each element to memory; the model previously failed to TYPE the literal env-lessly and over-rejected the function. Real-EVM ground truth: 10 Forge tests on pinned solc 0.8.35 (all PASS).",
    "forge": {
     "root": "tests/forge-harness/storage-array-literal",
     "match_contract": "StorageArrayLiteralForgeTest",
@@ -13540,6 +13540,11 @@
      {
       "label": "emitBytes",
       "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 8192 SolidCore.Solidity.SolcAstImport.StorageArrayLiteral.importedContract \"emitBytes\" SolidCore.Solidity.Source.State.empty [] 1",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "encLocals",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 8192 SolidCore.Solidity.SolcAstImport.StorageArrayLiteral.importedContract \"encLocals\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 7, SolidCore.Solidity.Source.Value.word 9] 64009",
       "expect": "Except.ok true"
      },
      {

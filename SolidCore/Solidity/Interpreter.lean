@@ -7264,40 +7264,36 @@ def Expr.evalFuel (fuel : Nat)
                   let value ← fixedBytesIndex? size word indexWord
                   pure (value, runtime')
               | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
-          | Expr.fixedBytesCast targetSize sourceSize expr => do
+          | Expr.castOp kind target expr => do
+              -- ITEM-3 (c): ONE dispatch for the cast/cleanup family; each
+              -- kind applies its own conversion to the single evaluated
+              -- operand.
               let (value, runtime') ←
                 Expr.evalFuel fuel context runtime expr
-              let word ← value.expectWord
-              let casted ← fixedBytesCast? targetSize sourceSize word
-              pure (casted, runtime')
-          | Expr.fixedBytesFromBytes targetSize expr => do
-              let (value, runtime') ←
-                Expr.evalFuel fuel context runtime expr
-              match value.asBytes? with
-              | some bytes => do
-                  let casted ← fixedBytesFromBytes? targetSize bytes
+              match kind with
+              | CastKind.uintCast => do
+                  let casted ← uintCast? target value
                   pure (casted, runtime')
-              | none => throw <| SolidityFailure.revert RevertData.typeMismatch
-          | Expr.uintCast bits expr => do
-              let (value, runtime') ←
-                Expr.evalFuel fuel context runtime expr
-              let casted ← uintCast? bits value
-              pure (casted, runtime')
-          | Expr.intCast bits expr => do
-              let (value, runtime') ←
-                Expr.evalFuel fuel context runtime expr
-              let casted ← intCast? bits value
-              pure (casted, runtime')
-          | Expr.uintCleanup bits expr => do
-              let (value, runtime') ←
-                Expr.evalFuel fuel context runtime expr
-              let casted ← uintCleanup? context.checked bits value
-              pure (casted, runtime')
-          | Expr.intCleanup bits expr => do
-              let (value, runtime') ←
-                Expr.evalFuel fuel context runtime expr
-              let casted ← intCleanup? context.checked bits value
-              pure (casted, runtime')
+              | CastKind.intCast => do
+                  let casted ← intCast? target value
+                  pure (casted, runtime')
+              | CastKind.uintCleanup => do
+                  let casted ← uintCleanup? context.checked target value
+                  pure (casted, runtime')
+              | CastKind.intCleanup => do
+                  let casted ← intCleanup? context.checked target value
+                  pure (casted, runtime')
+              | CastKind.fixedBytes sourceSize => do
+                  let word ← value.expectWord
+                  let casted ← fixedBytesCast? target sourceSize word
+                  pure (casted, runtime')
+              | CastKind.fixedBytesFromBytes =>
+                  match value.asBytes? with
+                  | some bytes => do
+                      let casted ← fixedBytesFromBytes? target bytes
+                      pure (casted, runtime')
+                  | none =>
+                      throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.keccak256 expr => do
               let (value, runtime') ←
                 Expr.evalFuel fuel context runtime expr
@@ -7357,42 +7353,43 @@ def Expr.evalFuel (fuel : Nat)
                 Expr.evalListFuel fuel context runtime
                   exprs
               pure (Value.fixedArray values, runtime')
-          | Expr.abiEncode tys exprs => do
+          | Expr.encode kind selector? widths tys exprs => do
+              -- ITEM-3 (d): ONE dispatch for the `abi.encode*` family. The
+              -- optional selector expression rides at the head of the SAME
+              -- evaluation list the legacy `abiEncodeWithSelector` arm used
+              -- (`selectorExpr :: exprs`) — argument order and fuel
+              -- consumption are byte-identical to the legacy three arms.
+              -- Ref-nested memory values deep-materialize (M4) before the
+              -- value-structural encoder runs.
               let (values, runtime') ←
                 Expr.evalListFuel fuel context runtime
-                  exprs
-              -- M4: deep-materialize ref-nested memory values (e.g. `bytes[]`,
-              -- `uint[][]`, struct-with-dynamic-field) so the value-structural
-              -- encoder sees concrete element trees, not bare `memoryRef`s.
-              let values ← runtime'.materializeForValueUseList context values
-              match abiEncodeValues? tys values with
-              | some bytes => pure (Value.bytes bytes, runtime')
-              | none => throw <| SolidityFailure.revert RevertData.typeMismatch
-          | Expr.abiEncodeWithSelector selectorExpr tys exprs => do
-              let (values, runtime') ←
-                Expr.evalListFuel fuel context runtime
-                  (selectorExpr :: exprs)
-              match values with
-              | selectorValue :: argValues => do
-                  let selector ← selectorValue.expectWord
-                  -- M4: deep-materialize ref-nested memory arguments.
-                  let argValues ← runtime'.materializeForValueUseList context argValues
-                  match abiEncodeValues? tys argValues with
-                  | some bytes =>
+                  (match selector? with
+                  | some selectorExpr => selectorExpr :: exprs
+                  | none => exprs)
+              let (selector?, argValues) ←
+                match selector?, values with
+                | some _, selectorValue :: argValues => do
+                    let selector ← selectorValue.expectWord
+                    pure (some selector, argValues)
+                | some _, [] =>
+                    throw <| SolidityFailure.revert RevertData.typeMismatch
+                | none, argValues => pure ((none : Option Word), argValues)
+              let argValues ←
+                runtime'.materializeForValueUseList context argValues
+              let encoded? :=
+                match kind with
+                | EncodeKind.packed =>
+                    abiEncodePackedValues? widths tys argValues
+                | _ => abiEncodeValues? tys argValues
+              match encoded? with
+              | some bytes =>
+                  match selector? with
+                  | some selector =>
                       pure
                         ( Value.bytes
                             (wordToBytesBE selectorBytes selector ++ bytes)
                         , runtime' )
-                  | none => throw <| SolidityFailure.revert RevertData.typeMismatch
-              | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
-          | Expr.abiEncodePacked widths tys exprs => do
-              let (values, runtime') ←
-                Expr.evalListFuel fuel context runtime
-                  exprs
-              -- M4: deep-materialize ref-nested memory values before packing.
-              let values ← runtime'.materializeForValueUseList context values
-              match abiEncodePackedValues? widths tys values with
-              | some bytes => pure (Value.bytes bytes, runtime')
+                  | none => pure (Value.bytes bytes, runtime')
               | none => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.abiDecode tys cleanups expr => do
               let (value, runtime') ←
@@ -8407,51 +8404,20 @@ def Expr.normalizeStorageValueUses (pos : StoragePosition) : Expr -> Expr
   | Expr.envBytesLookup lookup expr =>
       Expr.envBytesLookup lookup
         (Expr.normalizeStorageValueUses StoragePosition.pointerUse expr)
-  | Expr.externalFunctionValue addressExpr selector =>
-      Expr.externalFunctionValue
-        (Expr.normalizeStorageValueUses StoragePosition.pointerUse addressExpr)
-        selector
-  | Expr.externalFunctionSelector expr =>
-      Expr.externalFunctionSelector
-        (Expr.normalizeStorageValueUses StoragePosition.pointerUse expr)
-  | Expr.externalFunctionAddress expr =>
-      Expr.externalFunctionAddress
+  | Expr.extFnPart part expr =>
+      Expr.extFnPart part
         (Expr.normalizeStorageValueUses StoragePosition.pointerUse expr)
   | Expr.unary op expr =>
       Expr.unary op
         (Expr.normalizeStorageValueUses StoragePosition.pointerUse expr)
   -- Inc/dec and assignment-expression targets are LVALUES: pointer-use.
-  | Expr.preIncrement target =>
-      Expr.preIncrement
+  | Expr.incDec op post cleanup? target =>
+      Expr.incDec op post cleanup?
         (Expr.normalizeStorageValueUses StoragePosition.pointerUse target)
-  | Expr.preDecrement target =>
-      Expr.preDecrement
-        (Expr.normalizeStorageValueUses StoragePosition.pointerUse target)
-  | Expr.postIncrement target =>
-      Expr.postIncrement
-        (Expr.normalizeStorageValueUses StoragePosition.pointerUse target)
-  | Expr.postDecrement target =>
-      Expr.postDecrement
-        (Expr.normalizeStorageValueUses StoragePosition.pointerUse target)
-  | Expr.incDecCleanup target op post cleanup =>
-      Expr.incDecCleanup
-        (Expr.normalizeStorageValueUses StoragePosition.pointerUse target)
-        op post cleanup
-  | Expr.assignExpr target rhs =>
-      Expr.assignExpr
+  | Expr.assignment op? cleanup? target rhs =>
+      Expr.assignment op? cleanup?
         (Expr.normalizeStorageValueUses StoragePosition.pointerUse target)
         (Expr.normalizeStorageValueUses StoragePosition.pointerUse rhs)
-  | Expr.assignOpExpr target op rhs =>
-      Expr.assignOpExpr
-        (Expr.normalizeStorageValueUses StoragePosition.pointerUse target)
-        op
-        (Expr.normalizeStorageValueUses StoragePosition.pointerUse rhs)
-  | Expr.assignOpCleanupExpr target op rhs cleanup =>
-      Expr.assignOpCleanupExpr
-        (Expr.normalizeStorageValueUses StoragePosition.pointerUse target)
-        op
-        (Expr.normalizeStorageValueUses StoragePosition.pointerUse rhs)
-        cleanup
   -- Binary operands are WORD consumers: pointer-use. Aggregates cannot be
   -- binary operands in accepted Solidity, and the lowering deliberately
   -- reads storage headers as lengths here (the synthesized
@@ -8480,25 +8446,15 @@ def Expr.normalizeStorageValueUses (pos : StoragePosition) : Expr -> Expr
       Expr.fixedBytesIndex size
         (Expr.normalizeStorageValueUses StoragePosition.pointerUse base)
         (Expr.normalizeStorageValueUses StoragePosition.pointerUse idx)
-  | Expr.fixedBytesCast target source expr =>
-      Expr.fixedBytesCast target source
-        (Expr.normalizeStorageValueUses StoragePosition.pointerUse expr)
-  | Expr.fixedBytesFromBytes size expr =>
-      -- `bytesN(someBytes)` consumes the byte CONTENTS.
-      Expr.fixedBytesFromBytes size
-        (Expr.normalizeStorageValueUses StoragePosition.valueUse expr)
-  | Expr.uintCast bits expr =>
-      Expr.uintCast bits
-        (Expr.normalizeStorageValueUses StoragePosition.pointerUse expr)
-  | Expr.intCast bits expr =>
-      Expr.intCast bits
-        (Expr.normalizeStorageValueUses StoragePosition.pointerUse expr)
-  | Expr.uintCleanup bits expr =>
-      Expr.uintCleanup bits
-        (Expr.normalizeStorageValueUses StoragePosition.pointerUse expr)
-  | Expr.intCleanup bits expr =>
-      Expr.intCleanup bits
-        (Expr.normalizeStorageValueUses StoragePosition.pointerUse expr)
+  | Expr.castOp kind target expr =>
+      -- `bytesN(someBytes)` (`fixedBytesFromBytes`) consumes the byte
+      -- CONTENTS; every other cast/cleanup kind is a scalar word consumer.
+      Expr.castOp kind target
+        (Expr.normalizeStorageValueUses
+          (match kind with
+          | CastKind.fixedBytesFromBytes => StoragePosition.valueUse
+          | _ => StoragePosition.pointerUse)
+          expr)
   | Expr.keccak256 expr =>
       Expr.keccak256
         (Expr.normalizeStorageValueUses StoragePosition.valueUse expr)
@@ -8509,16 +8465,13 @@ def Expr.normalizeStorageValueUses (pos : StoragePosition) : Expr -> Expr
       -- Tuple-RHS components are read BY VALUE (TUPLE-RHS fix, #6).
       Expr.tuple
         (Expr.normalizeStorageValueUsesList StoragePosition.valueUse exprs)
-  | Expr.abiEncode tys exprs =>
-      Expr.abiEncode tys
-        (Expr.normalizeStorageValueUsesList StoragePosition.valueUse exprs)
-  | Expr.abiEncodeWithSelector selectorExpr tys exprs =>
-      Expr.abiEncodeWithSelector
-        (Expr.normalizeStorageValueUses StoragePosition.pointerUse selectorExpr)
-        tys
-        (Expr.normalizeStorageValueUsesList StoragePosition.valueUse exprs)
-  | Expr.abiEncodePacked widths tys exprs =>
-      Expr.abiEncodePacked widths tys
+  | Expr.encode kind selector? widths tys exprs =>
+      -- Encoded arguments consume CONTENTS; the optional selector is a
+      -- scalar word.
+      Expr.encode kind
+        (Expr.normalizeStorageValueUsesOpt StoragePosition.pointerUse
+          selector?)
+        widths tys
         (Expr.normalizeStorageValueUsesList StoragePosition.valueUse exprs)
   | Expr.abiDecode tys cleanups expr =>
       -- `abi.decode`'s DATA argument consumes byte contents (#4).

@@ -7542,6 +7542,17 @@ def Expr.abiArgNeedsEnvCleanupFuel? : Nat -> Expr -> Bool
                   Ty.isFixedBytes castTy &&
                     ((Expr.peelToOverflowArithmetic? inner).isSome ||
                       (Expr.peelToNarrowNeg? inner).isSome)
+              -- ITEM-1: an inline array literal whose common element type the
+              -- env-LESS typer cannot compute (`abiTy?` has no identifier
+              -- arm: storage `bytes`/`string`/array state variables,
+              -- storage-pointer locals, ternaries over them). Such an
+              -- argument was previously an OVER-REJECT (the env-less
+              -- lowering fails), so flagging it reroutes only previously
+              -- fail-closed statements into the env-aware path, where the
+              -- array-literal decline-fallback
+              -- (`Expr.abiArrayLiteralWithEnvFuel?`) types and lowers it.
+              | Expr.array elems =>
+                  (Expr.arrayLiteralCommonTy? [] elems).isNone
               -- #201 (F): an argument that is ITSELF an `abi.encode*`/`concat`/
               -- hash builtin call needs the env-aware lowering when one of ITS
               -- OWN arguments does (`abi.encode(abi.encodePacked(a + b))`,
@@ -8616,14 +8627,6 @@ def Expr.conditionCoreWithEnv? (storageNames : List Name) (env : TypeEnv)
   | some condCore => some condCore
   | none => Expr.toCore? storageNames cond
 
-/-- #201 (D/E): env-aware lowering of ONE event/error argument. A flagged
-    argument (narrow checked arithmetic, or an abi/hash/concat builtin whose
-    own arguments are flagged — `Expr.abiArgNeedsEnvCleanup?`) is lowered at
-    its own inferred type through the full env-aware recursion so its
-    operand-width Panic 0x11 fires (`emit EB(abi.encode(a + b))`,
-    `emit EMix(a + b, …)`, `revert Err(abi.encode(a + b))`); every other
-    argument keeps the byte-identical env-less `Expr.toCore?` (also the
-    fallback when the env-aware path declines). -/
 /-- ITEM-1: env-less event/error argument lowering with the env-aware
     array-literal DECLINE-fallback (`[storageBytes, …]` as an emit/revert
     argument) — fires only where `Expr.toCore?` already declined. -/
@@ -8635,6 +8638,15 @@ def Expr.abiArgCoreOrEnvArray? (storageNames : List Name) (env : TypeEnv)
       (Expr.abiArrayLiteralWithEnvFuel?
           defaultEnvLoweringFuel storageNames env expr).map Prod.snd
 
+/-- #201 (D/E): env-aware lowering of ONE event/error argument. A flagged
+    argument (narrow checked arithmetic, or an abi/hash/concat builtin whose
+    own arguments are flagged — `Expr.abiArgNeedsEnvCleanup?`) is lowered at
+    its own inferred type through the full env-aware recursion so its
+    operand-width Panic 0x11 fires (`emit EB(abi.encode(a + b))`,
+    `emit EMix(a + b, …)`, `revert Err(abi.encode(a + b))`); every other
+    argument keeps the byte-identical env-less `Expr.toCore?` (also the
+    fallback when the env-aware path declines — ITEM-1 adds the env-aware
+    array-literal decline-fallback on both branches). -/
 def Expr.abiArgCoreWithEnvCleanup? (storageNames : List Name) (env : TypeEnv)
     (expr : Expr) : Option CoreExpr :=
   if Expr.abiArgNeedsEnvCleanup? expr then

@@ -58,6 +58,10 @@ contract StorageArrayLiteralForgeTest {
         require(t.emitBytes() == 1, "emitBytes");
     }
 
+    function testEncLocals() public view {
+        require(t.encLocals(7, 9) == 64 * 1000 + 9, "encLocals");
+    }
+
     function testRevertArr() public {
         bytes[2] memory expected;
         expected[0] = hex"aa";

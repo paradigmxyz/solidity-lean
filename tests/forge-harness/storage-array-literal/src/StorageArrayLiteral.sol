@@ -86,6 +86,13 @@ contract StorageArrayLiteralHarnessTarget {
         return 1;
     }
 
+    // Local-variable elements: the env-less typer cannot type [a, b] either
+    // (no identifier arm), so this was over-rejected too.
+    function encLocals(uint256 a, uint256 b) external pure returns (uint256) {
+        bytes memory e = abi.encode([a, b]);
+        return e.length * 1000 + uint256(uint8(e[63]));
+    }
+
     // Custom-error revert carrying the storage-element array literal.
     function revertArr() external {
         b1 = hex"aa";
