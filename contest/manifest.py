@@ -65,11 +65,16 @@ _ENV_FIELDS: dict[str, str] = {
 }
 
 # Fields the Foundry EVM replay bounds to 64 bits (block.number / block.timestamp
-# via vm.roll/vm.warp); a >u64 pin passes uint256 validation but crashes the
-# forge replay -> INVALID. Cap them so an out-of-range pin is a clean
-# REJECT_MALFORMED with a clear message instead.
-_ENV_U64_FIELDS = {"blockNumber", "timestamp"}
+# via vm.roll/vm.warp, chain id via vm.chainId which requires < 2^64); a >u64 pin
+# passes uint256 validation but crashes the forge replay -> a dead-end failure.
+# Cap them so an out-of-range pin is a clean REJECT_MALFORMED with a clear
+# message instead. (release audit: chainId added — Foundry rejects >= 2^64.)
+_ENV_U64_FIELDS = {"blockNumber", "timestamp", "chainId"}
 _UINT64 = 1 << 64
+# coinbase is an address (the harness emits `address(uint160(N))`); a >u160
+# value would silently truncate on the EVM side while the Lean side kept the
+# full magnitude — a fabricated env divergence. Bound it to the address domain.
+_ENV_U160_FIELDS = {"coinbase"}
 
 _IDENT_RE = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*$")
 
@@ -199,8 +204,16 @@ def validate_manifest(m: dict[str, Any]) -> Optional[str]:
                 return f"manifest.env.{k} must be an integer, got {v!r}"
             if k in _ENV_U64_FIELDS and not 0 <= iv < _UINT64:
                 return (f"manifest.env.{k} must be in [0, 2**64) (the Foundry EVM "
-                        f"replay bounds block.number/timestamp to 64 bits), "
+                        f"replay bounds block.number/timestamp/chainId to 64 "
+                        f"bits), got {v!r}")
+            if k in _ENV_U160_FIELDS and not 0 <= iv < _UINT160:
+                return (f"manifest.env.{k} must be an address in [0, 2**160), "
                         f"got {v!r}")
+            # every env field must at least fit a uint256: an oversized value
+            # would fail to compile into the measurement harness (a dead-end
+            # failure) or truncate asymmetrically (a fabricated divergence).
+            if not 0 <= iv < _UINT256:
+                return f"manifest.env.{k} out of uint256 range: {v!r}"
     # storage (raw slot injection)
     storage = m.get("storage")
     if storage is not None:

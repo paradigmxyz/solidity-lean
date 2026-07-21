@@ -543,6 +543,170 @@ def hardening_unit_tests() -> tuple[bool, str]:
     return ok, detail
 
 
+def gate_semantic_detector_tests() -> tuple[bool, str]:
+    """Release-audit regressions for the semantic gate detectors (real solc ASTs).
+
+    (1) LAUNDERING (SEM-ADDR / SEM-CLOSEDGAS / SEM-GAS tx.gasprice): the tainted
+        value is written to storage in one function (a constructor / setter with
+        NO assert/return/emit) and returned from ANOTHER function. The old
+        same-function taint missed this; the whole-source scan must flag it.
+    (2) SEM-GAS `.gas{...}` call-option arm: the register text names the
+        gas-option effect but the detector had no FunctionCallOptions arm.
+    (3) Negative control: observed positions but no excluded feature -> no
+        semantic hits (the whole-source strengthening must not over-fire)."""
+    import tempfile as _tf
+    from contest import reject_gate as G
+
+    checks: list[tuple[str, bool]] = []
+    tmp = Path(_tf.mkdtemp(prefix="contest-gate-sem."))
+
+    def ids_for(name: str, source: str) -> set:
+        p = tmp / name
+        p.write_text(source)
+        v = G.run_gate([p], enforce_v1_multi=False)
+        return {h.id for h in v.hits}
+
+    hdr = "// SPDX-License-Identifier: MIT\npragma solidity 0.8.35;\n"
+
+    # (1a) create2 address laundering: ctor stashes the salted-create address,
+    # a different function returns it.
+    ids = ids_for("launder_addr.sol", hdr + """
+contract Probe {}
+contract L {
+    address public a;
+    constructor() { a = address(new Probe{salt: bytes32(uint256(1))}()); }
+    function get() external view returns (address) { return a; }
+}
+""")
+    checks.append(("sem-addr-laundering", "SEM-ADDR" in ids))
+
+    # (1b) send-stipend laundering: the send result is stashed in one function
+    # (no observed position there), read back by another.
+    ids = ids_for("launder_gas.sol", hdr + """
+contract L2 {
+    bool ok;
+    function poke(address payable p) external { ok = p.send(1); }
+    function view_() external view returns (bool) { return ok; }
+}
+""")
+    checks.append(("sem-closedgas-laundering", "SEM-CLOSEDGAS" in ids))
+
+    # (1c) tx.gasprice laundering (SEM-GAS has no syntactic backstop for
+    # gasprice, unlike gasleft/X-GASLEFT).
+    ids = ids_for("launder_gasprice.sol", hdr + """
+contract L3 {
+    uint256 gp;
+    constructor() { gp = tx.gasprice; }
+    function get() external view returns (uint256) { return gp; }
+}
+""")
+    checks.append(("sem-gas-gasprice-laundering", "SEM-GAS" in ids))
+
+    # (2) `.call{gas: ...}` option must trip SEM-GAS itself (not only
+    # SEM-CLOSEDGAS / X-EXTCALL, which may retire in v2).
+    ids = ids_for("gas_option.sol", hdr + """
+contract GOpt {
+    function f(address t) external returns (bool s) {
+        (s, ) = t.call{gas: 2300}("");
+        return s;
+    }
+}
+""")
+    checks.append(("sem-gas-option-arm", "SEM-GAS" in ids))
+    checks.append(("sem-closedgas-option-still", "SEM-CLOSEDGAS" in ids))
+
+    # (3) negative control: observed positions, no excluded feature -> none of
+    # the semantic exclusions fire (whole-source scan does not over-fire), and
+    # a non-salted `new` stays IN scope for SEM-ADDR (X-EXTCALL still flags the
+    # creation itself, which is expected and separate).
+    ids = ids_for("clean.sol", hdr + """
+contract Probe2 {}
+contract Clean {
+    uint256 v;
+    function set(uint256 x) external { require(x > 0, "x"); v = x; }
+    function get() external view returns (uint256) { return v; }
+    function mk() external returns (address) { return address(new Probe2()); }
+}
+""")
+    checks.append(("no-semantic-overfire",
+                   not ({"SEM-ADDR", "SEM-CLOSEDGAS", "SEM-GAS", "SEM-ENV"} & ids)))
+
+    # env-domain bounds (release audit): manifest env pins beyond what the
+    # Foundry replay can represent must be a clean REJECT_MALFORMED-shaped
+    # validation error (chainId/number/timestamp u64 — vm.chainId rejects
+    # >= 2^64; coinbase u160; everything u256), never a dead-end forge crash.
+    from contest import manifest as mf
+    base = {"deploy": {"contract": "C"}, "entry": {"function": "f"}}
+    checks.append(("manifest-chainid-u64",
+                   mf.validate_manifest(
+                       {**base, "env": {"chainId": 1 << 70}}) is not None))
+    checks.append(("manifest-coinbase-u160",
+                   mf.validate_manifest(
+                       {**base, "env": {"coinbase": 1 << 200}}) is not None))
+    checks.append(("manifest-basefee-u256",
+                   mf.validate_manifest(
+                       {**base, "env": {"basefee": 1 << 300}}) is not None))
+    checks.append(("manifest-env-in-domain-ok",
+                   mf.validate_manifest(
+                       {**base, "env": {"chainId": 5, "coinbase": 7,
+                                        "basefee": 1 << 100}}) is None))
+    # and the CHEATCODE mirror path has the same bounds: vm.warp(2^70) is
+    # unmirrorable (clean OOS), not a poisoned override that crashes the replay.
+    p = tmp / "warp_oob.sol"
+    p.write_text(hdr + """
+interface CVm { function warp(uint256) external; }
+contract T {
+    CVm constant vm = CVm(address(uint160(uint256(keccak256("hevm cheat code")))));
+    function setUp() public { vm.warp(1180591620717411303424); }
+}
+""")
+    asts = G.get_source_asts([p])
+    scan = G.scan_cheatcodes(asts, is_test=True)
+    checks.append(("cheat-warp-oob-unmirrorable",
+                   bool(scan.unmirrorable) and not scan.banned))
+    p2 = tmp / "warp_ok.sol"
+    p2.write_text(hdr + """
+interface CVm { function warp(uint256) external; }
+contract T2 {
+    CVm constant vm = CVm(address(uint160(uint256(keccak256("hevm cheat code")))));
+    function setUp() public { vm.warp(12345); }
+}
+""")
+    scan2 = G.scan_cheatcodes(G.get_source_asts([p2]), is_test=True)
+    checks.append(("cheat-warp-in-domain-mirrored",
+                   not scan2.unmirrorable and not scan2.banned
+                   and scan2.overrides.timestamp == 12345))
+
+    # known-gaps registry sanity (release audit): H1/H2 dead scaffold removed
+    # from the open index; DIVERGENCE-LOG reconciliation present; ids unique.
+    open_ids = {g.id for g in kg.ALL_KNOWN if g.status == "open"}
+    checks.append(("h1h2-removed", not ({"H1", "H2"} & open_ids)))
+    fixed_ids = [g.id for g in kg.KNOWN_FIXED]
+    checks.append(("dl-reconciled", "DL192" in fixed_ids and "DL52" in fixed_ids
+                   and len(fixed_ids) > 100))
+    checks.append(("fixed-ids-unique", len(fixed_ids) == len(set(fixed_ids))))
+    checks.append(("fixed-never-in-open-index",
+                   all(g.status == "fixed" for g in kg.KNOWN_FIXED)))
+
+    ok = all(v for _n, v in checks)
+    detail = ", ".join(f"{n}={'ok' if v else 'BAD'}" for n, v in checks)
+    return ok, detail
+
+
+def infra_fail_routing_test(timeout: int = 120) -> tuple[bool, str]:
+    """Release-audit fairness regression: an INFRA failure (here: a missing
+    forge binary) must route to NEEDS_REVIEW (maintainer retry), never to a
+    terminal INVALID that silently invalidates a valid submission. A genuine
+    submitter-test failure (forge ran, test failed) still yields INVALID —
+    covered implicitly by the fake-oracle/invalid sample semantics."""
+    tools = hb.ToolPaths(forge="/nonexistent/forge-binary-for-infra-test")
+    report = adj.adjudicate(SAMPLES / "no_divergence", tools=tools,
+                            timeout=timeout)
+    ok = report.verdict == "NEEDS_REVIEW"
+    detail = f"verdict={report.verdict} :: {report.reason[:160]}"
+    return ok, detail
+
+
 def dedup_replay_unit_tests() -> tuple[bool, str]:
     """Fix-time dedup via replay against a reference build (contest/dedup_replay.py).
     Pure classifier + collapse logic, plus the injectable E0/E1 replay flow."""
@@ -692,6 +856,14 @@ def main() -> int:
     ok, d = dedup_replay_unit_tests()
     results.append(("dedup-replay (unit)", ok, d))
     _print("dedup-replay (unit)", ok, d)
+
+    ok, d = gate_semantic_detector_tests()
+    results.append(("gate-semantic-detectors (solc AST)", ok, d))
+    _print("gate-semantic-detectors (solc AST)", ok, d)
+
+    ok, d = infra_fail_routing_test()
+    results.append(("infra-fail routes to NEEDS_REVIEW", ok, d))
+    _print("infra-fail routes to NEEDS_REVIEW", ok, d)
 
     # --- FULL end-to-end runs (real solc + Foundry + solidity-lean/Lean) ---
     # REAL detector tests: full live pipeline + fault injection at the result

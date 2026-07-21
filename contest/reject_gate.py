@@ -25,9 +25,12 @@ position (an assertion comparand or the entry call's return/revert/event).
 
 PRECISION LIMIT (documented, §1.2 / §8): the taint pass is deliberately
 conservative and errs toward OOS. v1 approximates "reaches an assertion" as
-"the excluded quantity appears anywhere in a function that also performs a
-require/assert/return/emit, OR is compared/returned within the same source" -
-i.e. a coarse whole-source reachability rather than precise def-use dataflow.
+"the excluded quantity appears anywhere in the source AND some function of the
+same source has a require/assert/return-with-value/emit" - i.e. a coarse
+WHOLE-SOURCE reachability rather than precise def-use dataflow. (Release audit:
+the earlier same-function form was weaker than this documented rule and missed
+cross-function laundering - stash the tainted value to storage in one function,
+return it from another - so the implementation now matches the rule.)
 A false OOS costs one entrant a resubmission with the observable removed; a
 false PASS would let an adversary bank a fake divergence, so the bias is correct.
 """
@@ -390,6 +393,7 @@ def _tainted_predicate(names_or_members: dict[str, Any]) -> Callable[[dict], boo
     """Build a predicate matching an excluded-quantity source expression."""
     ident_names = names_or_members.get("identifiers", set())
     member_names = names_or_members.get("members", set())
+    option_names = names_or_members.get("call_options", set())
 
     def pred(n: dict[str, Any]) -> bool:
         nt = n.get("nodeType")
@@ -407,48 +411,83 @@ def _tainted_predicate(names_or_members: dict[str, Any]) -> Callable[[dict], boo
             return False
         if nt == "MemberAccess" and n.get("memberName") in member_names:
             return True
+        # Call options (release audit): a `{gas: ...}` / `{salt: ...}` option on
+        # a call is a FunctionCallOptions node, not a member access. The
+        # register text for SEM-GAS names the `.gas{...}` call-option effect
+        # explicitly, but the detector had no arm for it (gate drift).
+        if nt == "FunctionCallOptions" and option_names:
+            names = n.get("names")
+            if isinstance(names, list) and option_names.intersection(names):
+                return True
         return False
 
     return pred
 
 
-def _semantic_taint_scan(entry: reg.ExclusionEntry, src: SourceAst,
-                         spec: dict[str, Any]) -> list[Hit]:
-    """Generic semantic detector: for every function whose body BOTH mentions
-    the excluded quantity AND has an observed position (§1.2 conservative
-    reachability), emit an OOS hit with a taint path."""
-    pred = _tainted_predicate(spec)
+def _observed_functions(ast: dict[str, Any]) -> list[dict[str, Any]]:
+    """Every function/modifier in the source with an observed position."""
+    return [fn for fn in _find_functions(ast)
+            if fn.get("body") is not None and _function_has_observed_position(fn)]
+
+
+def _whole_source_taint_scan(entry: reg.ExclusionEntry, src: SourceAst,
+                             node_pred: Callable[[dict], bool],
+                             label: str) -> list[Hit]:
+    """Conservative WHOLE-SOURCE reachability (release audit fix).
+
+    A hit is: the excluded feature appears ANYWHERE in the source AND some
+    function/modifier of the same source has an observed position (assertion /
+    return-with-expression / emit).
+
+    The previous SAME-FUNCTION form (feature + observed position in one
+    function body) was weaker than the exclusion-register text and missed the
+    constructor-stash LAUNDERING pattern: write the tainted value to storage in
+    one function (e.g. a constructor with no assert/return/emit), then return
+    it from another. Cross-function def-use through storage cannot be bounded
+    by an intra-function scan; per the register's documented bias (§1.2/§8) a
+    false OOS costs one entrant a resubmission while a false PASS banks a fake
+    divergence, so the whole-source over-approximation is the sound side. It
+    also covers state-variable INITIALIZERS (outside any function body), which
+    the per-function loop never visited."""
+    flagged = [n for n in iter_nodes(src.ast) if node_pred(n)]
+    if not flagged:
+        return []
+    observed = _observed_functions(src.ast)
+    if not observed:
+        return []
+    obs_names = ", ".join(sorted(
+        {str(fn.get("name") or "<anon>") for fn in observed})[:5])
     hits: list[Hit] = []
-    for fn in _find_functions(src.ast):
-        body = fn.get("body")
-        if body is None:
-            continue
-        # (a) feature appears in this function
-        source_node = None
-        for n in iter_nodes(body):
-            if pred(n):
-                source_node = n
-                break
-        if source_node is None:
-            continue
-        # (b) an observed position exists in the same function (conservative)
-        if not _function_has_observed_position(fn):
-            continue
-        fn_name = fn.get("name") or "<anon>"
-        taint = (f"{spec['label']} at {node_src(source_node)} reaches an "
-                 f"observed position (assert/return/emit) in function "
-                 f"'{fn_name}'")
+    for n in flagged:
+        taint = (f"{label} at {node_src(n)} may reach an observed position "
+                 f"(assert/return/emit) via same-source (incl. cross-function "
+                 f"storage) flow; observing function(s): {obs_names}")
         hits.append(Hit(entry.id, src.source,
-                        enclosing_contract_name(src.ast, fn),
-                        node_src(source_node), entry.reason, taint_path=taint))
+                        enclosing_contract_name(src.ast, n),
+                        node_src(n), entry.reason, taint_path=taint))
     return hits
 
 
+def _semantic_taint_scan(entry: reg.ExclusionEntry, src: SourceAst,
+                         spec: dict[str, Any]) -> list[Hit]:
+    """Generic semantic detector: excluded quantity present in the source +
+    an observed position anywhere in the same source (see
+    _whole_source_taint_scan for why this is whole-source, not per-function)."""
+    return _whole_source_taint_scan(entry, src, _tainted_predicate(spec),
+                                    spec["label"])
+
+
 def detect_gas_observable(entry: reg.ExclusionEntry, src: SourceAst) -> list[Hit]:
+    # `call_options: {"gas"}` (release audit): the register text for SEM-GAS
+    # includes "a .gas-option effect" (`.call{gas: ...}`), but the detector had
+    # no FunctionCallOptions arm, so a gas-modified call was only caught
+    # incidentally by SEM-CLOSEDGAS / X-EXTCALL. Detect it here too so SEM-GAS
+    # is sound on its own (survives an X-EXTCALL retirement in v2).
     return _semantic_taint_scan(entry, src, {
-        "label": "gas quantity (gasleft/tx.gasprice)",
+        "label": "gas quantity (gasleft/tx.gasprice/gas call-option)",
         "identifiers": {"gasleft"},
         "members": {"gasleft", "gasprice"},
+        "call_options": {"gas"},
     })
 
 
@@ -488,33 +527,20 @@ def detect_creationcode_observable(entry: reg.ExclusionEntry, src: SourceAst) ->
 
 
 def detect_create2_address_observable(entry: reg.ExclusionEntry, src: SourceAst) -> list[Hit]:
-    """create2 predicted address as observable. A salted `new C{salt:...}()`
-    whose resulting address is observed. Conservative: any function that uses a
-    `salt:` call option (FunctionCallOptions with name 'salt') and has an
-    observed position."""
-    hits: list[Hit] = []
-    for fn in _find_functions(src.ast):
-        body = fn.get("body")
-        if body is None:
-            continue
-        salt_node = None
-        for n in iter_nodes(body):
-            if n.get("nodeType") == "FunctionCallOptions":
-                names = n.get("names")
-                if isinstance(names, list) and "salt" in names:
-                    salt_node = n
-                    break
-        if salt_node is None:
-            continue
-        if not _function_has_observed_position(fn):
-            continue
-        fn_name = fn.get("name") or "<anon>"
-        taint = (f"salted create2 at {node_src(salt_node)} whose address "
-                 f"reaches an observed position in function '{fn_name}'")
-        hits.append(Hit(entry.id, src.source,
-                        enclosing_contract_name(src.ast, fn),
-                        node_src(salt_node), entry.reason, taint_path=taint))
-    return hits
+    """create2 predicted address as observable: a salted `new C{salt:...}()`
+    (FunctionCallOptions with name 'salt') anywhere in a source that also has an
+    observed position. WHOLE-SOURCE (release audit): the previous same-function
+    form missed a constructor that stashes the created address to storage for a
+    later return from another function (laundering); see
+    _whole_source_taint_scan."""
+    def is_salt_option(n: dict[str, Any]) -> bool:
+        if n.get("nodeType") != "FunctionCallOptions":
+            return False
+        names = n.get("names")
+        return isinstance(names, list) and "salt" in names
+
+    return _whole_source_taint_scan(
+        entry, src, is_salt_option, "salted create2 (predicted address)")
 
 
 def detect_env_observable(entry: reg.ExclusionEntry, src: SourceAst) -> list[Hit]:
@@ -538,38 +564,27 @@ def detect_env_observable(entry: reg.ExclusionEntry, src: SourceAst) -> list[Hit
 
 
 def detect_closed_world_gas_observable(entry: reg.ExclusionEntry, src: SourceAst) -> list[Hit]:
-    """send/transfer stipend-driven success/revert, or gas-option effect as an
-    observable. Conservative: a `.transfer(`/`.send(` member call, or a `gas:`
-    call option, in a function with an observed position."""
-    hits: list[Hit] = []
-    for fn in _find_functions(src.ast):
-        body = fn.get("body")
-        if body is None:
-            continue
-        flagged = None
-        for n in iter_nodes(body):
-            nt = n.get("nodeType")
-            if nt == "MemberAccess" and n.get("memberName") in ("transfer", "send"):
-                # only .transfer/.send on an address value (stipend semantics)
-                if "address" in type_string(n.get("expression", {}) or {}):
-                    flagged = n
-                    break
-            if nt == "FunctionCallOptions":
-                names = n.get("names")
-                if isinstance(names, list) and "gas" in names:
-                    flagged = n
-                    break
-        if flagged is None:
-            continue
-        if not _function_has_observed_position(fn):
-            continue
-        fn_name = fn.get("name") or "<anon>"
-        taint = (f"closed-world gas/stipend effect at {node_src(flagged)} "
-                 f"reaches an observed position in function '{fn_name}'")
-        hits.append(Hit(entry.id, src.source,
-                        enclosing_contract_name(src.ast, fn),
-                        node_src(flagged), entry.reason, taint_path=taint))
-    return hits
+    """send/transfer stipend-driven success/revert, or gas-option effect, as an
+    observable: a `.transfer(`/`.send(` member call on an ADDRESS value (stipend
+    semantics — a high-level `token.transfer(..)` does not match), or a `gas:`
+    call option, anywhere in a source that also has an observed position.
+    WHOLE-SOURCE (release audit): the previous same-function form missed the
+    stash-then-return laundering pattern (e.g. `ok = p.send(1)` in a function
+    with no assert/return/emit, read back by another function); see
+    _whole_source_taint_scan."""
+    def is_stipend_or_gas_option(n: dict[str, Any]) -> bool:
+        nt = n.get("nodeType")
+        if nt == "MemberAccess" and n.get("memberName") in ("transfer", "send"):
+            # only .transfer/.send on an address value (stipend semantics)
+            return "address" in type_string(n.get("expression", {}) or {})
+        if nt == "FunctionCallOptions":
+            names = n.get("names")
+            return isinstance(names, list) and "gas" in names
+        return False
+
+    return _whole_source_taint_scan(
+        entry, src, is_stipend_or_gas_option,
+        "closed-world gas/stipend effect (send/transfer/gas-option)")
 
 
 # ===========================================================================
@@ -893,6 +908,18 @@ def scan_cheatcodes(asts: list[SourceAst], is_test: bool) -> CheatcodeScan:
                 if len(args) == 2:
                     a, amt = _literal_int(args[0]), _literal_int(args[1])
                     if a is not None and amt is not None:
+                        # domain bounds (release audit): an out-of-domain deal
+                        # (negative / >u160 address / >u256 amount) would break
+                        # the generated measurement harness or truncate
+                        # asymmetrically between the engines.
+                        if not (0 <= a < (1 << 160) and 0 <= amt < (1 << 256)):
+                            scan.unmirrorable.append(Hit(
+                                "CHEAT-UNMIRROR", src.source,
+                                enclosing_contract_name(src.ast, node),
+                                node_src(node),
+                                f".{name} args out of the mirrorable domain "
+                                "(address < 2^160, amount < 2^256)"))
+                            continue
                         scan.overrides.deals.append((a, amt))
                         continue
                 scan.unmirrorable.append(Hit(
@@ -908,6 +935,26 @@ def scan_cheatcodes(asts: list[SourceAst], is_test: bool) -> CheatcodeScan:
                     enclosing_contract_name(src.ast, node), node_src(node),
                     f".{name} with a non-literal argument cannot be mirrored "
                     "into the solidity-lean env (v1 requires a literal)"))
+                continue
+            # Mirrorable-domain bounds (release audit): the Foundry replay
+            # bounds block.number/timestamp/chainid to 64 bits (vm.roll/warp/
+            # chainId reject >= 2^64), the sender is an address (< 2^160), and
+            # everything else must fit uint256 — otherwise the generated
+            # measurement harness fails to compile / the replay crashes (a
+            # dead-end failure) or the two engines truncate asymmetrically (a
+            # fabricated divergence). Out-of-domain -> unmirrorable (clean OOS).
+            if field in ("number", "timestamp", "chainid"):
+                bound = 1 << 64
+            elif field == "_sender":
+                bound = 1 << 160
+            else:
+                bound = 1 << 256
+            if not 0 <= v < bound:
+                scan.unmirrorable.append(Hit(
+                    "CHEAT-UNMIRROR", src.source,
+                    enclosing_contract_name(src.ast, node), node_src(node),
+                    f".{name} argument {v} out of the mirrorable domain "
+                    f"[0, 2^{bound.bit_length() - 1})"))
                 continue
             if field == "_sender":
                 scan.overrides.sender = v

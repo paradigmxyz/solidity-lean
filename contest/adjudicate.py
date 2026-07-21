@@ -510,6 +510,15 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
             tools=tools, timeout=timeout)
         evidence["solc_rejects"] = status
         if not ok:
+            # An INFRA-shaped failure (timeout) is not evidence the claim is
+            # false — route to review, never a terminal INVALID (release
+            # audit: fail-closed-to-terminal silently invalidated valid
+            # submissions when the toolchain hiccuped).
+            if status.startswith("timeout"):
+                return Report("NEEDS_REVIEW", reason=(
+                    f"solc reject-check failed inconclusively ({status}); "
+                    "cannot conclude the OVER_ACCEPT claim is false"),
+                    evidence=evidence)
             return Report("INVALID", reason=(
                 "OVER_ACCEPT claim but pinned solc did NOT reject the program "
                 f"as declared ({status})"), evidence=evidence)
@@ -525,6 +534,18 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
                 match_test=mt, tools=tools, timeout=timeout)
             evidence["forge"] = status
             if not ok:
+                # INFRA-shaped failures (timeout / missing tool / OS error) are
+                # not evidence the claimed behavior fails to reproduce: route
+                # to review instead of a terminal INVALID (release audit —
+                # fairness: a broken toolchain must never silently invalidate
+                # a valid submission). A genuine test failure (forge ran, the
+                # submitter's test FAILED: forge_exit_N) stays INVALID.
+                if status.startswith(("timeout", "infra_error")):
+                    return Report("NEEDS_REVIEW", reason=(
+                        "the real-behavior Forge run failed inconclusively "
+                        f"({status[:200]}); retry after fixing the "
+                        "toolchain/timeout — not evidence against the claim"),
+                        evidence=evidence)
                 return Report("INVALID", reason=(
                     "claimed behavior does not reproduce on pinned solc 0.8.35 + "
                     f"Foundry (forge={status})"), evidence=evidence)
@@ -560,9 +581,20 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
             inject_storage=inject_storage)
         evidence["evm_measurement"] = (measured.raw if measured else mstatus)
         if measured is None:
-            return Report("INVALID", reason=(
+            # The measurement harness is MAINTAINER-generated: by this point the
+            # submission already passed structure/arg validation, the cheatcode
+            # gate, and (non-manifest) its OWN forge test. A failure to produce
+            # the measured observable is therefore an infra/harness/deploy
+            # issue, not evidence against the claim — route to review, never a
+            # terminal INVALID (release audit fairness fix; the old terminal
+            # reject silently invalidated valid submissions on toolchain
+            # hiccups, OOM, or a constructor-revert the harness cannot yet
+            # measure).
+            return Report("NEEDS_REVIEW", reason=(
                 f"could not measure the EVM observable from the Forge run "
-                f"({mstatus})"), evidence=evidence)
+                f"({mstatus[:300]}); measurement infra/harness failure — "
+                "needs maintainer retry/review, not a terminal reject"),
+                evidence=evidence)
         # Mirror the deployed entry address into the solidity-lean env so
         # address(this) agrees by construction (review E-1).
         env_ov.self_addr = measured.self_addr

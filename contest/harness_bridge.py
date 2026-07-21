@@ -157,6 +157,11 @@ def run_forge_test(forge_root: Path, case_tmp: Path,
                                       stdout_log, stderr_log)
     except subprocess.TimeoutExpired:
         return False, f"timeout_after_{timeout}s"
+    except Exception as exc:  # missing forge binary / OS error: INFRA, not the
+        # submission failing — the caller routes infra statuses to NEEDS_REVIEW
+        # instead of a terminal INVALID (release audit: fail-open to review,
+        # never silently invalidate a valid submission on a broken toolchain).
+        return False, f"infra_error: {exc}"
     if status == 0:
         return True, "pass"
     tail = (_read_log(stdout_log) + _read_log(stderr_log))[-800:]
