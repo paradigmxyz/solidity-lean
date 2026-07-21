@@ -13627,6 +13627,39 @@
      }
     ]
    }
+  },
+  {
+   "name": "emit-memory-nested",
+   "description": "Adjudicated soundness gap: an event argument nesting MEMORY references (uint256[][] built in memory) formerly reached the Runtime-free event encoder with bare Value.memoryRef leaves -> Panic(0), while solc+EVM emit the event with the full ABI encoding. Stmt.emitEvent now deep-materializes its argument values (Runtime.materializeForValueUseList, the abi.encode-family materializer) before encoding. Forge pins the real solc/EVM log (topic0 + data); Lean imports the same source and checks the emitted topics/data byte-for-byte.",
+   "forge": {
+    "root": "tests/forge-harness/emit-memory-nested",
+    "match_contract": "EmitMemoryNestedForgeTest",
+    "match_test": "test*",
+    "quiet": true
+   },
+   "solc_import": {
+    "source": "tests/forge-harness/emit-memory-nested/src/EmitMemoryNested.sol",
+    "contract": "EmitMemoryNestedHarnessTarget",
+    "namespace": "SolidCore.Solidity.SolcAstImport.EmitMemoryNested"
+   },
+   "lean": {
+    "imports": [
+     "SolidCore.Solidity.Checked",
+     "SolidCore.Witness.Checked"
+    ],
+    "evals": [
+     {
+      "label": "importedContractAccepted",
+      "expr": "SolidCore.Solidity.SolcAstImport.EmitMemoryNested.importedContractAccepted",
+      "expect": "true"
+     },
+     {
+      "label": "importedRunEmitsNestedArrayLog",
+      "expr": "(do\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 64 SolidCore.Solidity.SolcAstImport.EmitMemoryNested.importedContract (SolidCore.Solidity.Source.CallTarget.name \"run\") SolidCore.Solidity.Source.State.empty []\n  let w := fun (n : Nat) => SolidCore.Solidity.Source.wordToBytesBE 32 n\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned state [] =>\n      match state.events with\n      | [event] =>\n          Except.ok\n            (event.topics == [SolidCore.Solidity.Source.Keccak.digestWord \"N(uint256[][])\"] &&\n              event.dataBytes == w 32 ++ w 2 ++ w 64 ++ w 128 ++ w 1 ++ w 7 ++ w 2 ++ w 8 ++ w 9)\n      | _ => Except.ok false\n  | _ => Except.ok false)",
+      "expect": "Except.ok true"
+     }
+    ]
+   }
   }
  ]
 }

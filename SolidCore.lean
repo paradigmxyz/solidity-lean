@@ -65,6 +65,7 @@ import SolidCore.Witness.AbiDecodeStorageBytes
 import SolidCore.Witness.TernaryStorageBytesKeccak
 import SolidCore.Witness.TupleRhsStorageBytes
 import SolidCore.Witness.EmitStorageDynamicArray
+import SolidCore.Witness.EmitMemoryNestedRef
 import SolidCore.Witness.RevertCustomErrorStorageString
 import SolidCore.Witness.MappingKeyStorageString
 import SolidCore.Witness.RequireReasonStorageString

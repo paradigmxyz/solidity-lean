@@ -9870,9 +9870,16 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
                       if wordTruthy word then
                         pure (Result.normal runtime'')
                       else
-                        pure
-                          (Result.reverted runtime''
-                            (RevertData.custom name args))
+                        -- Same value-use materialization as `Stmt.revert`:
+                        -- the payload is encoded Runtime-free downstream.
+                        match runtime''.materializeForValueUseList
+                            context args with
+                        | Except.ok args =>
+                            pure
+                              (Result.reverted runtime''
+                                (RevertData.custom name args))
+                        | Except.error err =>
+                            pure (Result.reverted runtime'' err)
                   | Except.error err => pure (Result.reverted runtime'' err)
               | Except.error err => pure (Result.reverted runtime' err)
           | Except.error err => pure (Result.reverted runtime err)
@@ -10292,7 +10299,14 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
           match ← (Expr.evalList
               context runtime exprs).caught with
           | Except.ok (values, runtime') =>
-              pure (Result.reverted runtime' (RevertData.custom name values))
+              -- Deep value-use materialization (same class as emitEvent /
+              -- abi.encode): the custom-error payload is ABI-encoded OUTSIDE
+              -- the runtime (`Contract.encodeRevertData?` is Runtime-free),
+              -- so nested memory/storage ref leaves must be loaded here.
+              match runtime'.materializeForValueUseList context values with
+              | Except.ok values =>
+                  pure (Result.reverted runtime' (RevertData.custom name values))
+              | Except.error err => pure (Result.reverted runtime' err)
           | Except.error err => pure (Result.reverted runtime err)
       | Stmt.emitEvent name exprs => do
           -- TWO-PHASE emit order (solc ExpressionCompiler.cpp Kind::Event,
@@ -10325,8 +10339,18 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
               let values :=
                 (List.range exprs.length).filterMap
                   (fun i => (paired.find? (fun p => p.1 == i)).map Prod.snd)
-              match runtime'.emitEvent context name values with
-              | Except.ok updated => pure (Result.normal updated)
+              -- Deep value-use materialization (same family as abi.encode /
+              -- keccak / concat): an event argument NESTING a memory or
+              -- storage reference (e.g. a `uint256[][]` argument whose
+              -- element rows are `Value.memoryRef`s) must be fully loaded
+              -- before the Runtime-free event encoder runs — a bare ref
+              -- leaf has no structural encoding and would spuriously revert
+              -- where solc+EVM emits the event.
+              match runtime'.materializeForValueUseList context values with
+              | Except.ok values =>
+                  match runtime'.emitEvent context name values with
+                  | Except.ok updated => pure (Result.normal updated)
+                  | Except.error err => pure (Result.reverted runtime err)
               | Except.error err => pure (Result.reverted runtime err)
           | Except.error err => pure (Result.reverted runtime err)
       | Stmt.selfdestruct recipientExpr => do

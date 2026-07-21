@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/emit-memory-nested/out"
+cache_path = "../../.foundry-suites/emit-memory-nested/cache"
+evm_version = "cancun"
