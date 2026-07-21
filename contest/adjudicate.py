@@ -391,20 +391,21 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
                 f"entry.args count ({n_args}) does not match "
                 f"{entry['contract']}.{entry['function']} parameter count "
                 f"({n_params}): {entry_sig.param_types}"), evidence=evidence)
-        # Array/struct PARAMETERS are outside the faithfully-encodable ABI subset
-        # (symmetric to array/struct returns): the arg forms cannot represent them
-        # and a partial encoding would diverge. Out of scope (X-RETABI).
+        # Array/struct/function PARAMETERS are outside what the v1 claim arg
+        # forms can represent: a partial encoding would feed the engines
+        # different logical calls. Out of scope — X-ARGVAL (register >= 1.3.0;
+        # the retired broad X-RETABI covered this for older submissions).
         bad_params = [t for t in entry_sig.param_types
-                      if not _comparable_return_type(t)]
-        oos_entry = reg.entry_by_id("X-RETABI")
-        oos_active = oos_entry is not None and \
-            oos_entry.is_active(at_version or reg.REGISTER_VERSION)
+                      if not _representable_param_type(t)]
+        oos_entry = _active_row(("X-ARGVAL", "X-RETABI"),
+                                at_version or reg.REGISTER_VERSION)
+        oos_active = oos_entry is not None
         if bad_params and oos_active:
             evidence["arg_type_scope"] = {"unsupported_params": bad_params}
             return Report("REJECTED_OOS", reason=(
-                f"reject gate fired: X-RETABI (intentional exclusion, out of "
-                f"scope) — entry parameter type(s) {bad_params} not in the "
-                f"faithfully-encodable ABI subset"), evidence=evidence)
+                f"reject gate fired: {oos_entry.id} (intentional exclusion, out "
+                f"of scope) — entry parameter type(s) {bad_params} not "
+                f"representable by the v1 claim arg forms"), evidence=evidence)
         # Per-arg DOMAIN validation: each scalar arg must be a LEGAL value for its
         # parameter type. An out-of-domain value (dirty bool, out-of-range enum/
         # uintN/address) is not a legal high-level call — the EVM decoder reverts
@@ -421,10 +422,16 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
                 if oos_active:
                     evidence["arg_type_scope"] = {"unvalidatable_param": ptype}
                     return Report("REJECTED_OOS", reason=(
-                        f"reject gate fired: X-RETABI (intentional exclusion, out "
-                        f"of scope) — entry parameter type {ptype!r} (arg {i}) is "
-                        f"not in the faithfully-encodable ABI subset"),
-                        evidence=evidence)
+                        f"reject gate fired: {oos_entry.id} (intentional "
+                        f"exclusion, out of scope) — entry parameter type "
+                        f"{ptype!r} (arg {i}) cannot be domain-validated from "
+                        f"the v1 claim arg forms"), evidence=evidence)
+                # No active row (unreachable while X-ARGVAL is live): fail safe
+                # as malformed rather than letting an unvalidated arg through.
+                return Report("REJECT_MALFORMED", reason=(
+                    f"entry parameter type {ptype!r} (arg {i}) cannot be "
+                    f"domain-validated from the v1 claim arg forms"),
+                    evidence=evidence)
             elif derr is not None:
                 return Report("REJECT_MALFORMED", reason=(
                     f"entry.args[{i}] is not a legal value for parameter "
@@ -446,10 +453,14 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
                 if oos_active:
                     evidence["arg_type_scope"] = {"unvalidatable_ctor_param": ptype}
                     return Report("REJECTED_OOS", reason=(
-                        f"reject gate fired: X-RETABI (intentional exclusion, out "
-                        f"of scope) — constructor parameter type {ptype!r} (arg "
-                        f"{i}) is not in the faithfully-encodable ABI subset"),
-                        evidence=evidence)
+                        f"reject gate fired: {oos_entry.id} (intentional "
+                        f"exclusion, out of scope) — constructor parameter type "
+                        f"{ptype!r} (arg {i}) cannot be domain-validated from "
+                        f"the v1 claim arg forms"), evidence=evidence)
+                return Report("REJECT_MALFORMED", reason=(
+                    f"constructor parameter type {ptype!r} (arg {i}) cannot be "
+                    f"domain-validated from the v1 claim arg forms"),
+                    evidence=evidence)
             elif derr is not None:
                 return Report("REJECT_MALFORMED", reason=(
                     f"constructor_args[{i}] is not a legal value for constructor "
@@ -534,6 +545,7 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
 
     # -- Step 1 / 1a: REAL-BEHAVIOR CHECK ------------------------------------
     measured: Optional[meas.Measurement] = None
+    structs: dict[str, list[str]] = {}  # struct canonical name -> member types
     if over_accept:
         # error_code pins the reject to a semantic cause (review L-1 / P1).
         code = claim.get("solc_error_code") or claim.get("solc_reject_error_code")
@@ -592,20 +604,36 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
             return Report("REJECT_MALFORMED", reason=(
                 f"entry {entry['contract']}.{entry['function']} not found / has "
                 "no function selector in the compiled AST"), evidence=evidence)
-        # Scope check (X-RETABI): the return type must be in the faithfully
-        # comparable ABI subset. Array/struct returns are not yet decoded to match
-        # Solidus's rendering and would raise a spurious divergence, so they are
-        # out of scope. Entry-function-specific, hence checked here (not the gate).
-        uncomparable = [t for t in sig.return_types
-                        if not _comparable_return_type(t)]
-        if uncomparable:
-            e = reg.entry_by_id("X-RETABI")
-            if e is not None and e.is_active(at_version or reg.REGISTER_VERSION):
+        # Scope check (return channel): register >= 1.3.0 decodes ARRAYS and
+        # STRUCTS (arbitrarily nested) into solidity-lean's [..]/(..) rendering,
+        # so they are MEASURED + COMPARED, not excluded. The residue is X-FNVAL:
+        # a function-typed value (or an unresolvable struct) anywhere in the
+        # return types still renders asymmetrically. For submissions judged at a
+        # pre-1.3.0 register the broad X-RETABI subset applies unchanged (§7).
+        structs = meas.struct_definitions(sig.source_file, tools.solc)
+        legacy_retabi = reg.entry_by_id("X-RETABI")
+        if legacy_retabi is not None and \
+                legacy_retabi.is_active(at_version or reg.REGISTER_VERSION):
+            uncomparable = [t for t in sig.return_types
+                            if not _representable_param_type(t)]
+            if uncomparable:
                 evidence["return_type_scope"] = {"uncomparable": uncomparable}
                 return Report("REJECTED_OOS", reason=(
                     f"reject gate fired: X-RETABI (intentional exclusion, out of "
                     f"scope) — entry return type(s) {uncomparable} not in the "
                     f"faithfully-comparable ABI subset"), evidence=evidence)
+        else:
+            uncomparable = [t for t in sig.return_types
+                            if not _comparable_channel_type(t, structs)]
+            if uncomparable:
+                e = reg.entry_by_id("X-FNVAL")
+                if e is not None and e.is_active(at_version or reg.REGISTER_VERSION):
+                    evidence["return_type_scope"] = {"uncomparable": uncomparable}
+                    return Report("REJECTED_OOS", reason=(
+                        f"reject gate fired: X-FNVAL (intentional exclusion, out "
+                        f"of scope) — entry return type(s) {uncomparable} carry a "
+                        f"function-typed / unresolvable value outside the "
+                        f"faithfully-comparable ABI subset"), evidence=evidence)
         measured, mstatus = meas.measure_evm(
             sig, entry.get("args", []), env_ov, work / "measure",
             forge=tools.forge, solc=tools.solc, repo=tools.repo, timeout=timeout,
@@ -791,41 +819,28 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
     evidence["custom_errors"] = {sel: name for sel, (name, _t) in error_defs.items()}
     if ambiguous_sels:
         evidence["ambiguous_error_selectors"] = sorted(ambiguous_sels)
-    evm_obs = obs.evm_observable(
-        measured.ok, measured.ret_hex, sig.return_types,
-        events=measured.events, storage=measured.storage, errors=error_defs,
-        deploy_reverted=measured.deploy_reverted)
-    if _selftest_perturb_evm is not None:  # fault-injection self-test only
-        evm_obs = _selftest_perturb_evm(evm_obs)
-        evidence["selftest_perturbed"] = True
-    evidence["evm_observable"] = evm_obs.to_dict()
-    # Scope check (X-RETABI, revert channel): a custom-error revert is compared by
-    # decoding its args from the DECLARED error param types (observable._decode_abi_
-    # values), but the EVM decoder + Solidus renderer only agree on the faithfully-
-    # comparable ABI subset (_comparable_return_type). An ARRAY/STRUCT/TUPLE/FUNCTION-
-    # typed error param decodes to a DIFFERENT string on each side for IDENTICAL
-    # behavior — e.g. `error E(uint256[])` renders `custom:E:b:0x..` here (the dynamic
-    # arm reads the array's offset word as raw bytes) vs `custom:E:[w:..]` in Solidus
-    # (Value.dynamicArray -> `[..]`), a `bytesN[N]` fixed array reads only its first
-    # head word, and a struct/function param renders one wrong word — any of which
-    # fabricates a `wrong-revert` SOUNDNESS_GAP. Return types are already fenced this
-    # way at step 1; the revert channel had no equivalent gate. Only fires when the
-    # MEASURED result actually reverted with a KNOWN custom error whose param types
-    # are not all comparable — a scalar-only custom error still compares faithfully
-    # and can still be a real gap.
     if not measured.ok:
         _rd = bytes.fromhex(measured.ret_hex[2:]
                             if measured.ret_hex.startswith("0x")
                             else measured.ret_hex)
         _sel = _rd[:4].hex() if len(_rd) >= 4 else ""
-        # Scope check (X-ERRSEL, revert channel): the revert selector is defined by
-        # two-or-more distinctly-named custom errors (a 4-byte collision). solc
-        # rejects colliding errors within one contract but NOT across separate
-        # contracts / a file-level error, so a submission can plant a second error
-        # whose name a last-wins selector map resolves to instead of the reverted
-        # one. The on-chain bytes are IDENTICAL (same selector+args) -> the NAME is
-        # not a faithful observable, so a name mismatch would fabricate a
-        # wrong-revert SOUNDNESS_GAP. Route the ambiguous revert to REJECTED_OOS.
+        # AMBIGUOUS revert selector (a 4-byte collision between two-or-more
+        # distinctly-named custom errors; solc 0.8.35 rejects colliding errors
+        # within one contract but ACCEPTS a file-level/cross-contract collision,
+        # so such programs are legal). The EVM dispatches revert data by BYTES
+        # (selector+args) — the error NAME is not on-chain-observable. Register
+        # >= 1.3.0 therefore resolves the colliding selector to the error the
+        # MODEL reports (when its full selector matches the measured one) and
+        # compares the byte-faithful decoded form:
+        #   * model+EVM bytes agree  -> both sides render the same name+args ->
+        #     NO_DIVERGENCE (a planted collision cannot FABRICATE a gap);
+        #   * bytes differ           -> the decoded forms differ -> a genuine
+        #     divergence is still banked (resolution cannot MASK one, since the
+        #     label choice never alters the decoded arg values, only whose
+        #     declared param types the same bytes are decoded under — the
+        #     model's own claim, i.e. exactly "does the model's revert encode
+        #     to the measured bytes").
+        # Pre-1.3.0 submissions keep the historical X-ERRSEL OOS routing (§7).
         if _sel and _sel in ambiguous_sels:
             _e = reg.entry_by_id("X-ERRSEL")
             if _e is not None and _e.is_active(effective_version):
@@ -837,12 +852,34 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
                     f"collision); the on-chain revert is indistinguishable between "
                     f"them, so the custom-error name is not a faithful observable"),
                     evidence=evidence)
+            model_name = _model_custom_error_name(
+                solidity_lean.observable.raw if solidity_lean.observable else "")
+            resolved = None
+            if model_name:
+                for _s2, _n2, _t2 in meas.error_definition_list(
+                        sig.source_file, tools.solc):
+                    if _s2 == _sel and _n2 == model_name:
+                        resolved = (_n2, _t2)
+                        break
+            if resolved is not None:
+                error_defs[_sel] = resolved
+            evidence["ambiguous_revert_selector"] = {
+                "selector": _sel,
+                "resolved_to": resolved[0] if resolved else error_defs[_sel][0],
+                "note": "colliding 4-byte selector resolved to the model-reported "
+                        "error; the name is not on-chain-observable, comparison "
+                        "is on the byte-faithful selector+args form."}
+        # Scope check (revert channel): with the recursive codec, array/struct
+        # error params decode into the exact [..]/(..) form solidity-lean renders
+        # and ARE compared. The residue is X-FNVAL (function-typed / unresolvable
+        # value); pre-1.3.0 submissions keep the broad X-RETABI subset (§7).
         if _sel in error_defs:
             _ename, _etypes = error_defs[_sel]
-            _uncomparable = [t for t in _etypes if not _comparable_return_type(t)]
-            if _uncomparable:
-                _e = reg.entry_by_id("X-RETABI")
-                if _e is not None and _e.is_active(effective_version):
+            _legacy = reg.entry_by_id("X-RETABI")
+            if _legacy is not None and _legacy.is_active(effective_version):
+                _uncomparable = [t for t in _etypes
+                                 if not _representable_param_type(t)]
+                if _uncomparable:
                     evidence["revert_param_scope"] = {
                         "error": _ename, "uncomparable": _uncomparable}
                     return Report("REJECTED_OOS", reason=(
@@ -850,6 +887,39 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
                         f"scope) — custom-error {_ename} param type(s) "
                         f"{_uncomparable} not in the faithfully-comparable ABI "
                         f"subset (revert channel)"), evidence=evidence)
+            else:
+                _uncomparable = [t for t in _etypes
+                                 if not _comparable_channel_type(t, structs)]
+                _e = reg.entry_by_id("X-FNVAL")
+                if _uncomparable and _e is not None and \
+                        _e.is_active(effective_version):
+                    evidence["revert_param_scope"] = {
+                        "error": _ename, "uncomparable": _uncomparable}
+                    return Report("REJECTED_OOS", reason=(
+                        f"reject gate fired: X-FNVAL (intentional exclusion, out of "
+                        f"scope) — custom-error {_ename} param type(s) "
+                        f"{_uncomparable} carry a function-typed / unresolvable "
+                        f"value outside the faithfully-comparable ABI subset "
+                        f"(revert channel)"), evidence=evidence)
+    try:
+        evm_obs = obs.evm_observable(
+            measured.ok, measured.ret_hex, sig.return_types,
+            events=measured.events, storage=measured.storage, errors=error_defs,
+            deploy_reverted=measured.deploy_reverted, structs=structs)
+    except ValueError as exc:
+        # The recursive ABI decoder found the measured bytes inconsistent with
+        # the declared types. High-level solc-compiled code always emits
+        # well-formed encodings (assembly is excluded), so this is an infra/
+        # harness anomaly — route to review, never auto-classify (it must not
+        # be a fabrication vector for either side).
+        return Report("NEEDS_REVIEW", reason=(
+            f"could not decode the measured EVM return/revert data against the "
+            f"declared ABI types ({exc}); measurement/decoder anomaly — needs "
+            "maintainer review"), evidence=evidence)
+    if _selftest_perturb_evm is not None:  # fault-injection self-test only
+        evm_obs = _selftest_perturb_evm(evm_obs)
+        evidence["selftest_perturbed"] = True
+    evidence["evm_observable"] = evm_obs.to_dict()
     # declared_observable is now only a sanity cross-check (misreport hint).
     declared_norm = (claim.get("declared_observable", {}) or {}).get("normal_form")
     if declared_norm and declared_norm.strip() != evm_obs.raw.strip():
@@ -864,8 +934,9 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
     # SAME revert data compared unequal (raw:0x08c379a0.. vs error:..) and banked a
     # fabricated wrong-revert SOUNDNESS_GAP. Symmetric; real byte differences still
     # decode to different forms, so genuine divergences are preserved.
-    sl_obs = obs.canonicalize_raw_revert(solidity_lean.observable, error_defs)
-    evm_cmp = obs.canonicalize_raw_revert(evm_obs, error_defs)
+    sl_obs = obs.canonicalize_raw_revert(solidity_lean.observable, error_defs,
+                                         structs=structs)
+    evm_cmp = obs.canonicalize_raw_revert(evm_obs, error_defs, structs=structs)
     comparison = obs.compare_observables(sl_obs, evm_cmp)
     evidence["comparison"] = comparison.to_dict()
 
@@ -901,28 +972,84 @@ def _valid_identifier(name: object) -> bool:
     return isinstance(name, str) and bool(_IDENT_RE.match(name))
 
 
-def _comparable_return_type(t: str) -> bool:
-    """True iff an entry return type is in the faithfully-comparable ABI subset
-    (X-RETABI). The EVM decoder + Solidus renderer agree exactly on scalars
-    (int/uint/bool/address/enum/contract/bytesN), dynamic bytes/string, and flat
-    tuples of those. Array (`T[]`, `T[N]`) and struct returns are NOT yet decoded
-    to match Solidus's `[..]`/`(..)` rendering and would raise a spurious
-    divergence, so they are out of scope."""
+def _representable_param_type(t: str) -> bool:
+    """True iff a PARAMETER type is representable by the v1 claim arg forms
+    (word / {int} / {bytes} / bool) — the X-ARGVAL fence (and the historical
+    X-RETABI subset for pre-1.3.0 submissions, which applied the same shape rule
+    to return types as well). Arrays, structs, tuples, and function types have
+    no arg form; a partial encoding would feed the two engines different logical
+    calls and fabricate a divergence."""
     t = str(t).strip()
     for suffix in (" memory", " calldata", " storage", " payable"):
         t = t.replace(suffix, "")
     t = t.strip()
     if t.endswith("]"):            # any array — dynamic T[] or fixed T[N]
         return False
-    if t.startswith("struct "):    # struct return (Solidus renders a tuple)
+    if t.startswith("struct "):    # struct (no arg form)
         return False
     if t.startswith("tuple"):      # explicit tuple type
         return False
-    if t.startswith("function"):   # function pointer (audit round 2): Solidus
-        # renders it via the `r:reprStr` fallback while the EVM ABI-encodes it as
-        # a static word -> a spurious `wrong-value`. Out of scope until unified.
+    if t.startswith("function"):   # function pointer (no arg form)
         return False
     return True
+
+
+def _comparable_channel_type(t: str,
+                             structs: Optional[dict[str, list[str]]]) -> bool:
+    """True iff a RETURN / custom-error REVERT type is in the faithfully-
+    comparable ABI subset under the recursive codec (register >= 1.3.0).
+
+    The recursive decoder (observable._decode_abi_values) renders scalars,
+    dynamic bytes/string, arrays (``[..]``) and structs (``(..)``) exactly as
+    solidity-lean does, so all of those COMPARE. The residue (X-FNVAL) is a
+    FUNCTION-typed value anywhere in the type — solidity-lean renders it via the
+    r:reprStr fallback while the EVM ABI-encodes a static word — and a struct
+    the harness cannot resolve to member types (undecodable)."""
+    t = str(t).strip()
+    for suffix in (" memory", " calldata", " storage", " payable"):
+        t = t.replace(suffix, "")
+    t = t.strip()
+    if t.startswith("function"):
+        return False
+    arr = obs._array_elem(t)
+    if arr is not None:
+        return _comparable_channel_type(arr[0], structs)
+    members = obs._struct_member_types(t, structs)
+    if members is not None:
+        return all(_comparable_channel_type(m, structs) for m in members)
+    if t.startswith("struct "):    # unresolvable struct -> undecodable
+        return False
+    if t.startswith("tuple"):      # bare tuple typeString (no component info)
+        return False
+    if t.startswith("mapping"):    # not ABI-encodable anyway; fail safe
+        return False
+    return True
+
+
+def _active_row(ids: tuple[str, ...],
+                at_version: Optional[str]) -> Optional[reg.ExclusionEntry]:
+    """The FIRST register row among ``ids`` active at ``at_version`` (used to
+    pick the narrow 1.3.0 row for current submissions and the retired broad row
+    for historical ones, §7)."""
+    for entry_id in ids:
+        e = reg.entry_by_id(entry_id)
+        if e is not None and e.is_active(at_version):
+            return e
+    return None
+
+
+def _model_custom_error_name(raw_observable: str) -> Optional[str]:
+    """The custom-error NAME the model reports in its normal-form observable
+    (``revert|custom:<Name>:...`` or ``deployrevert|custom:<Name>:...``), used
+    to resolve an ambiguous (colliding) measured revert selector. None when the
+    model's outcome is not a custom-error revert."""
+    line = raw_observable.split("##EVT##", 1)[0].strip()
+    for head in ("revert|custom:", "deployrevert|custom:"):
+        if line.startswith(head):
+            rest = line[len(head):]
+            name = rest.split(":", 1)[0]
+            return name or None
+    return None
 
 
 def _arg_as_word(arg: object) -> Optional[int]:
@@ -979,7 +1106,8 @@ def _arg_domain_error(arg: object, ptype: str,
     enum/uintN/address, non-zero padding). An out-of-domain arg is therefore not a
     legal call and would fabricate a divergence, so it is rejected as malformed.
     Returns the sentinel ``"__OOS__"`` for a scalar family we cannot validate
-    from the type string (the caller maps that to an X-RETABI exclusion)."""
+    from the type string (the caller maps that to an X-ARGVAL exclusion — the
+    retired broad X-RETABI for pre-1.3.0 submissions)."""
     # A bare JSON integer denotes the UNSIGNED word form (render_lean_arg maps it
     # to `Value.word n`, which requires a Nat). A bare NEGATIVE integer is thus an
     # ill-formed word: measure._encode_arg two's-complements it (0xff..fb) while the

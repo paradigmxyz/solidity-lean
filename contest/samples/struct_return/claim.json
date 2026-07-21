@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "StructRet", "function": "pack", "args": [], "value": 0 },
+  "expected_divergence": "none expected - struct-with-dynamic-fields return parity control (register 1.3, X-RETABI retired): both engines must render success|(w:5,b:0x4142,[w:9],[w:1,w:2],(w:3)).",
+  "declared_observable": { "kind": "return_value", "normal_form": "success|(w:5,b:0x4142,[w:9],[w:1,w:2],(w:3))" },
+  "feature": "struct-dynamic-return",
+  "register_version_seen": "1.3.0"
+}

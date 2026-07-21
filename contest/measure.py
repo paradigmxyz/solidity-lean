@@ -136,6 +136,52 @@ def error_definitions(
     return out, ambiguous
 
 
+def error_definition_list(
+        source: Path, solc: str) -> list[tuple[str, str, list[str]]]:
+    """EVERY user-defined error as ``(selector, name, [param_type, ...])``,
+    INCLUDING all parties to a 4-byte selector collision (which the last-wins
+    map of :func:`error_definitions` cannot represent). The adjudicator uses
+    this to resolve an ambiguous (colliding) measured revert selector to the
+    error the MODEL reports — sound because the on-chain revert bytes carry
+    only selector+args, so the name label never changes what is compared."""
+    out: list[tuple[str, str, list[str]]] = []
+    try:
+        _name, ast = gate._IMPORTER.run_solc_ast(solc, source)
+    except Exception:
+        return out
+    for node in gate.iter_nodes(ast):
+        if node.get("nodeType") != "ErrorDefinition":
+            continue
+        sel = node.get("errorSelector")
+        name = node.get("name")
+        if not sel or not name:
+            continue
+        types = [_param_type(p) for p in
+                 node.get("parameters", {}).get("parameters", [])]
+        out.append((str(sel).lower(), str(name), types))
+    return out
+
+
+def struct_definitions(source: Path, solc: str) -> dict[str, list[str]]:
+    """Map each StructDefinition's canonical name (e.g. ``C.S``, or ``S`` for a
+    file-level struct) to its member typeStrings, so the recursive ABI decoder
+    (observable._decode_abi_values) can decode struct-typed return values and
+    custom-error params into solidity-lean's ``(..)`` tuple rendering."""
+    out: dict[str, list[str]] = {}
+    try:
+        _name, ast = gate._IMPORTER.run_solc_ast(solc, source)
+    except Exception:
+        return out
+    for node in gate.iter_nodes(ast):
+        if node.get("nodeType") != "StructDefinition":
+            continue
+        canonical = node.get("canonicalName") or node.get("name")
+        if not canonical:
+            continue
+        out[str(canonical)] = [_param_type(m) for m in (node.get("members") or [])]
+    return out
+
+
 def constructor_param_types(source: Path, contract: str,
                             solc: str) -> list[str]:
     """The parameter typeStrings of ``contract``'s constructor (``[]`` if it has

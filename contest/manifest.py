@@ -24,7 +24,8 @@ This module extracts + validates the manifest and ADAPTS it onto the shape the
 a ``src/Submission.sol`` + ``claim.json`` (no submitter test — the manifest IS the
 harness's own measurement recipe), builds the ``EnvOverrides`` from ``env``, and
 turns ``storage`` into the raw slot-injection list. All the deep validation (arg
-domains, signature match, cheatcode/reject gate, X-RETABI, dedup) is inherited
+domains, signature match, cheatcode/reject gate, register scope rows, dedup) is
+inherited
 unchanged from :mod:`adjudicate`; this front-end only does the single-file framing.
 
 See ``SUBMISSION_FORMAT.md`` for the authored spec.

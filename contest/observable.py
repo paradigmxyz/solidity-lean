@@ -51,8 +51,12 @@ PRECISION LIMITS (documented, v1 restricted launch):
     they are compared automatically. A custom error whose selector is not among
     the submission's definitions still falls back to ``raw:0x...``.
   * Return / custom-error arg decoding covers static words (uint/address/bool/
-    bytesN/enum/contract -> w), signed ints (-> i) and a single/leading dynamic
-    bytes/string (-> b).
+    bytesN/enum/contract -> w), signed ints (-> i), dynamic bytes/string (-> b),
+    plus ARRAYS (``T[]`` / ``T[N]``, arbitrarily nested; rendered ``[..]`` like
+    Value.fixedArray/dynamicArray) and STRUCTS (rendered ``(..)`` like
+    Value.tuple, resolved via measure.struct_definitions) — the full recursive
+    ABI head/tail codec (register v1.3: X-RETABI retired). Function-typed
+    values remain out of the comparable subset (X-FNVAL).
 """
 
 from __future__ import annotations
@@ -431,36 +435,157 @@ def render_word_for_type(word: int, t: str) -> str:
     return f"w:{word}"
 
 
-def _decode_abi_values(data: bytes, types: list[str]) -> list[str]:
-    """Decode ABI head/tail-encoded ``data`` for ``types`` into normal-form value
-    strings (w:/i:/b:), matching the solidity-lean ``renderValues`` renderer. Static
-    words go in the head; a dynamic bytes/string is read via its head offset.
-    Addresses/enums/contracts are static words -> ``w:`` (as solidity-lean renders)."""
+def _array_elem(t: str) -> Optional[tuple[str, Optional[int]]]:
+    """If ``t`` is an array type, return ``(element_type, N)`` with ``N=None``
+    for a dynamic ``T[]`` (else the fixed length). Non-array -> None."""
+    t = _clean_type(t)
+    if not t.endswith("]"):
+        return None
+    i = t.rfind("[")
+    if i < 0:
+        return None
+    inner = t[i + 1:-1].strip()
+    elem = t[:i].strip()
+    if inner == "":
+        return elem, None
+    if inner.isdigit():
+        return elem, int(inner)
+    return None
+
+
+def _struct_member_types(t: str,
+                         structs: Optional[dict[str, list[str]]]) -> Optional[list[str]]:
+    """Member typeStrings of a ``struct <Canonical>`` type, resolved from the
+    submission's StructDefinition table (measure.struct_definitions). None if
+    ``t`` is not a struct type or the struct cannot be resolved."""
+    t = _clean_type(t)
+    if not t.startswith("struct "):
+        return None
+    name = t[len("struct "):].strip()
+    if structs and name in structs:
+        return list(structs[name])
+    return None
+
+
+def _is_dynamic_type(t: str, structs: Optional[dict[str, list[str]]] = None) -> bool:
+    """ABI-dynamic per the spec, RECURSIVELY: bytes/string, ``T[]``, a fixed
+    ``T[N]`` with dynamic ``T``, and a struct with any dynamic member."""
+    t = _clean_type(t)
+    if t in ("bytes", "string"):
+        return True
+    arr = _array_elem(t)
+    if arr is not None:
+        elem, n = arr
+        return True if n is None else _is_dynamic_type(elem, structs)
+    members = _struct_member_types(t, structs)
+    if members is not None:
+        return any(_is_dynamic_type(m, structs) for m in members)
+    return False
+
+
+def _head_size(t: str, structs: Optional[dict[str, list[str]]] = None) -> int:
+    """Bytes ``t`` occupies in the head of an ABI tuple encoding: 32 for any
+    dynamic type (its offset word) or scalar; a STATIC fixed array / struct is
+    encoded inline and occupies the sum of its parts."""
+    if _is_dynamic_type(t, structs):
+        return 32
+    arr = _array_elem(_clean_type(t))
+    if arr is not None:
+        elem, n = arr
+        return (n or 0) * _head_size(elem, structs)
+    members = _struct_member_types(t, structs)
+    if members is not None:
+        return sum(_head_size(m, structs) for m in members)
+    return 32
+
+
+def _decode_tuple(region: bytes, types: list[str],
+                  structs: Optional[dict[str, list[str]]]) -> list[str]:
+    """Decode an ABI tuple encoding over ``region`` (offsets are relative to the
+    start of ``region``) into normal-form value strings."""
     rendered: list[str] = []
-    for i, t in enumerate(types):
-        head = data[i * 32:(i + 1) * 32]
-        word = int.from_bytes(head, "big") if head else 0
-        if _is_dynamic(t):
-            off = word
-            length = int.from_bytes(data[off:off + 32], "big")
-            payload = data[off + 32:off + 32 + length]
-            rendered.append("b:0x" + payload.hex())
+    pos = 0
+    for t in types:
+        if _is_dynamic_type(t, structs):
+            if pos + 32 > len(region):
+                raise ValueError(f"ABI head truncated decoding {t!r}")
+            off = int.from_bytes(region[pos:pos + 32], "big")
+            if off > len(region):
+                raise ValueError(f"ABI offset out of range decoding {t!r}")
+            rendered.append(_decode_value(region[off:], t, structs))
+            pos += 32
         else:
-            rendered.append(render_word_for_type(word, t))
+            size = _head_size(t, structs)
+            if pos + size > len(region):
+                raise ValueError(f"ABI head truncated decoding {t!r}")
+            rendered.append(_decode_value(region[pos:pos + size], t, structs))
+            pos += size
     return rendered
 
 
-def evm_return_normal_form(ret_hex: str, return_types: list[str]) -> str:
+def _decode_value(buf: bytes, t: str,
+                  structs: Optional[dict[str, list[str]]]) -> str:
+    """Decode ONE ABI value laid out at the start of ``buf`` into the normal
+    form the solidity-lean renderer emits: scalars ``w:``/``i:``, dynamic
+    bytes/string ``b:0x..``, arrays ``[v1,v2]`` (Value.fixedArray/dynamicArray),
+    structs ``(v1,v2)`` (Value.tuple) — recursively."""
+    t = _clean_type(t)
+    if t in ("bytes", "string"):
+        if len(buf) < 32:
+            raise ValueError(f"ABI bytes/string length word truncated ({t!r})")
+        length = int.from_bytes(buf[:32], "big")
+        payload = buf[32:32 + length]
+        if len(payload) < length:
+            raise ValueError(f"ABI bytes/string payload truncated ({t!r})")
+        return "b:0x" + payload.hex()
+    arr = _array_elem(t)
+    if arr is not None:
+        elem, n = arr
+        if n is None:
+            if len(buf) < 32:
+                raise ValueError(f"ABI array length word truncated ({t!r})")
+            n = int.from_bytes(buf[:32], "big")
+            buf = buf[32:]
+        # Each element contributes >= 32 head bytes; bound n BEFORE building the
+        # per-element type list so absurd lengths in malformed data cannot blow
+        # up memory (the caller falls back to raw / routes to review).
+        if n and n * 32 > len(buf):
+            raise ValueError(f"ABI array length {n} exceeds available data ({t!r})")
+        return "[" + ",".join(_decode_tuple(buf, [elem] * n, structs)) + "]"
+    members = _struct_member_types(t, structs)
+    if members is not None:
+        return "(" + ",".join(_decode_tuple(buf, members, structs)) + ")"
+    if _clean_type(t).startswith("struct "):
+        raise ValueError(f"unresolvable struct type {t!r} (no definition)")
+    if len(buf) < 32:
+        raise ValueError(f"ABI word truncated decoding {t!r}")
+    return render_word_for_type(int.from_bytes(buf[:32], "big"), t)
+
+
+def _decode_abi_values(data: bytes, types: list[str],
+                       structs: Optional[dict[str, list[str]]] = None) -> list[str]:
+    """Decode ABI head/tail-encoded ``data`` for ``types`` into normal-form value
+    strings, matching the solidity-lean ``renderValues`` renderer EXACTLY:
+    scalars ``w:``/``i:``, dynamic bytes/string ``b:0x..``, arrays (``T[]`` and
+    ``T[N]``, arbitrarily nested) as ``[..]`` and structs as ``(..)``.
+    ``structs`` maps a struct's canonical name to its member typeStrings
+    (measure.struct_definitions). Raises ValueError on malformed data."""
+    return _decode_tuple(data, types, structs)
+
+
+def evm_return_normal_form(ret_hex: str, return_types: list[str],
+                           structs: Optional[dict[str, list[str]]] = None) -> str:
     """Decode ABI-encoded return bytes into `success|<v1>,<v2>,...`."""
     data = bytes.fromhex(ret_hex[2:] if ret_hex.startswith("0x") else ret_hex)
     if not return_types:
         return "success|"
-    return "success|" + ",".join(_decode_abi_values(data, return_types))
+    return "success|" + ",".join(_decode_abi_values(data, return_types, structs))
 
 
 def evm_revert_normal_form(
         ret_hex: str,
-        errors: Optional[dict[str, tuple[str, list[str]]]] = None) -> str:
+        errors: Optional[dict[str, tuple[str, list[str]]]] = None,
+        structs: Optional[dict[str, list[str]]] = None) -> str:
     """Decode revert bytes into `revert|empty|error:..|panic:..|custom:..|raw:..`.
 
     ``errors`` maps a 4-byte selector (8 lowercase hex, no 0x) to
@@ -484,7 +609,7 @@ def evm_revert_normal_form(
     if errors and selector in errors:
         name, types = errors[selector]
         try:
-            vals = _decode_abi_values(data[4:], types)
+            vals = _decode_abi_values(data[4:], types, structs)
             return f"revert|custom:{name}:" + ",".join(vals)
         except Exception:
             pass  # fall through to raw on any decode issue
@@ -495,7 +620,8 @@ def evm_observable(ok: bool, ret_hex: str, return_types: list[str],
                    events: Optional[str] = None,
                    storage: Optional[str] = None,
                    errors: Optional[dict[str, tuple[str, list[str]]]] = None,
-                   deploy_reverted: bool = False) -> "Observable":
+                   deploy_reverted: bool = False,
+                   structs: Optional[dict[str, list[str]]] = None) -> "Observable":
     """Build the EVM observable in normal form from the measured raw result.
 
     ``events``/``storage`` are the measured §3.4 components 4/5 (empty string
@@ -509,9 +635,9 @@ def evm_observable(ok: bool, ret_hex: str, return_types: list[str],
     model-side constructor revert — so deploy-phase and entry-call reverts are
     phase-distinct comparable outcomes."""
     if ok:
-        line = evm_return_normal_form(ret_hex, return_types)
+        line = evm_return_normal_form(ret_hex, return_types, structs)
     else:
-        line = evm_revert_normal_form(ret_hex, errors=errors)
+        line = evm_revert_normal_form(ret_hex, errors=errors, structs=structs)
         if deploy_reverted:
             line = "deployrevert|" + line.split("|", 1)[1]
     if events is not None or storage is not None:
@@ -615,7 +741,8 @@ def parse_observable(text: str) -> Observable:
 
 def canonicalize_raw_revert(
         o: "Observable",
-        errors: Optional[dict[str, tuple[str, list[str]]]] = None) -> "Observable":
+        errors: Optional[dict[str, tuple[str, list[str]]]] = None,
+        structs: Optional[dict[str, list[str]]] = None) -> "Observable":
     """Re-decode a ``revert|raw:0x<hex>`` outcome through the SAME revert decoder
     the EVM side uses, so identical revert BYTES canonicalize to identical normal
     forms regardless of which engine happened to emit a structured vs raw revert.
@@ -641,7 +768,8 @@ def canonicalize_raw_revert(
     if head is None:
         return o
     try:
-        decoded = evm_revert_normal_form("0x" + hexbody, errors=errors)
+        decoded = evm_revert_normal_form("0x" + hexbody, errors=errors,
+                                         structs=structs)
     except Exception:
         return o  # undecodable -> leave the raw form untouched
     if decoded.startswith("revert|raw:"):

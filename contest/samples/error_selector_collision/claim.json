@@ -1,8 +1,16 @@
 {
   "lane": "S",
-  "entry": { "contract": "Entry", "function": "f", "args": [], "value": 0 },
-  "expected_divergence": "HARDENING: two custom errors (E82926 in the entry contract, file-level E94430) share the 4-byte selector 0x554d5780. A last-wins selector map mislabels the revert (EVM custom:E94430 vs solidity-lean custom:E82926) though the on-chain revert bytes are IDENTICAL. Must be REJECTED_OOS (X-ERRSEL), NOT a qualifying wrong-revert SOUNDNESS_GAP.",
-  "declared_observable": { "kind": "revert", "normal_form": "revert|custom:E82926:" },
+  "entry": {
+    "contract": "Entry",
+    "function": "f",
+    "args": [],
+    "value": 0
+  },
+  "expected_divergence": "none expected - selector-collision parity control (register 1.3, X-ERRSEL retired): E82926() (entry contract) and file-level E94430() share selector 0x554d5780; solc 0.8.35 ACCEPTS the cross-scope collision. The adjudicator resolves the colliding measured selector to the MODEL-reported error and compares the byte-faithful selector+args form (the name is not on-chain-observable), so byte-identical reverts -> NO_DIVERGENCE (was REJECTED_OOS under the 1.2 register). A planted collision can no longer fabricate a wrong-revert gap.",
+  "declared_observable": {
+    "kind": "revert",
+    "normal_form": "revert|custom:E82926:"
+  },
   "feature": "error-selector-collision",
-  "register_version_seen": "1.2.0"
+  "register_version_seen": "1.3.0"
 }

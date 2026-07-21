@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "Create2Salted", "function": "make", "args": [1], "value": 0 },
+  "expected_divergence": "none scoreable - contract creation (new C{salt: s}(): CREATE2) is explicitly out of scope in v1. Must be a CLEAN REJECTED_OOS (X-EXTCALL contract-creation arm; SEM-ADDR also fires on the salted predicted address reaching the return), never an incidental revert or NEEDS_REVIEW.",
+  "declared_observable": { "kind": "return_value", "normal_form": "success|w:<create2-address>" },
+  "feature": "contract-creation-oos",
+  "register_version_seen": "1.3.0"
+}

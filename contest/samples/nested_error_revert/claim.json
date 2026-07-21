@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "NestedErr", "function": "f", "args": [], "value": 0 },
+  "expected_divergence": "none expected - nested-dynamic custom-error revert parity control (register 1.3, X-RETABI retired): both engines must render revert|custom:Nested:[[w:1,w:2],[w:3]],b:0x7879.",
+  "declared_observable": { "kind": "revert", "normal_form": "revert|custom:Nested:[[w:1,w:2],[w:3]],b:0x7879" },
+  "feature": "nested-dynamic-error-revert",
+  "register_version_seen": "1.3.0"
+}

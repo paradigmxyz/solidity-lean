@@ -34,7 +34,20 @@ from pathlib import Path
 from typing import Optional
 
 
-REGISTER_VERSION = "1.2.0"  # v1.2: added X-EXTCALL (external calls unmodeled in v1)
+# v1.2: added X-EXTCALL (external calls unmodeled in v1).
+# v1.3: RETIRED X-RETABI (the recursive ABI codec landed: array/struct return
+#       values and custom-error revert params are now decoded into solidity-lean's
+#       [..]/(..) rendering and compared, so nested-dynamic RETURN/REVERT
+#       observables are measured, not excluded) and X-ERRSEL (a colliding revert
+#       selector is now resolved to the MODEL-reported error and compared on the
+#       byte-faithful selector+args form, exactly as the EVM dispatches revert
+#       data — the error NAME was never on-chain-observable, so this can neither
+#       fabricate nor mask a divergence). Added the two NARROW residues those
+#       broad rows also covered: X-ARGVAL (entry/constructor PARAMETER families
+#       the v1 claim arg forms cannot represent/validate) and X-FNVAL
+#       (function-typed values in the return/revert channel, which solidity-lean
+#       renders via the r:reprStr fallback while the EVM ABI-encodes a word).
+REGISTER_VERSION = "1.3.0"
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -209,10 +222,18 @@ _SYNTACTIC: list[ExclusionEntry] = [
             "default (the call fails / returns empty) rather than executing a "
             "callee or a real EVM interaction. So a low-level call to an EOA "
             "(EVM: success-empty), a precompile (EVM: real output), a high-level "
-            "call to another contract, `this.f()`, a `new C()` create, or a "
-            "try/catch over an external call all diverge for a NON-semantic "
-            "reason. Out of scope until the v2 reflective responder lands "
-            "(design §3, multi_contract.py seam); retire this row then."
+            "call to another contract, `this.f()`, or a try/catch over an "
+            "external call all diverge for a NON-semantic reason. CONTRACT "
+            "CREATION is EXPLICITLY out of scope too, in every form: `new C()`, "
+            "`new C{salt: s}()`, `new C{value: v}()` — i.e. CREATE and CREATE2. "
+            "A creation executes a DEPLOYMENT SUB-CONTEXT (the callee's "
+            "constructor) and its observable outcome (success -> the created/"
+            "CREATE2 address; failure -> revert on a constructor revert or an "
+            "already-occupied address) requires the v2 responder to model; v1 "
+            "does not model it or derive the address. (In-memory allocations "
+            "`new T[](n)` / `new bytes(n)` are NOT creations and stay in scope.) "
+            "Out of scope until the v2 reflective responder lands (design §3, "
+            "multi_contract.py seam); retire this row then."
         ),
         roadmap_ref="competition-design.md §3.2/§3.3; multi_contract.py",
     ),
@@ -224,6 +245,14 @@ _SYNTACTIC: list[ExclusionEntry] = [
         # The gate skips register rows whose detector is absent from its table.
         detector="adjudicator:entry_return_type",
         since_version="1.2.0",
+        # RETIRED in 1.3.0: the recursive ABI head/tail codec landed
+        # (observable._decode_abi_values + measure.struct_definitions), so
+        # array/struct/nested-dynamic RETURN values and custom-error REVERT
+        # params now decode into the exact [..]/(..) normal form solidity-lean
+        # renders and are MEASURED + COMPARED, not excluded. The two narrow
+        # residues this broad row also covered live on as X-ARGVAL (parameter
+        # arg-form representation) and X-FNVAL (function-typed values).
+        removed_in_version="1.3.0",
         reason=(
             "An entry function PARAMETER or RETURN type is outside the faithfully "
             "encodable/comparable ABI subset. The harness represents args as direct "
@@ -248,6 +277,16 @@ _SYNTACTIC: list[ExclusionEntry] = [
         # Adjudicator-checked (revert channel): needs the measured revert selector.
         detector="adjudicator:revert_selector",
         since_version="1.2.0",
+        # RETIRED in 1.3.0: a colliding measured selector is now resolved to the
+        # MODEL-reported error definition and compared on the byte-faithful
+        # selector+args form — exactly how the EVM dispatches revert data
+        # (solc 0.8.35 verified: it rejects colliding errors within one contract
+        # but ACCEPTS a file-level/cross-contract collision, so such programs
+        # are legal and must be adjudicated). Because the error NAME is not
+        # on-chain-observable, name-label resolution can neither fabricate a
+        # divergence the bytes do not show nor mask one they do (see
+        # adjudicate.py, ambiguous-selector resolution).
+        removed_in_version="1.3.0",
         reason=(
             "The measured revert's 4-byte selector is defined by TWO OR MORE "
             "distinctly-named custom errors in the submission — a 4-byte selector "
@@ -262,6 +301,48 @@ _SYNTACTIC: list[ExclusionEntry] = [
             "revert is out of scope; give the errors distinct 4-byte selectors."
         ),
         roadmap_ref="competition-design.md §3.4; measure.error_definitions",
+    ),
+    ExclusionEntry(
+        id="X-ARGVAL",
+        kind="syntactic",
+        # Entry/constructor-PARAMETER specific: checked by the adjudicator, which
+        # knows the entry signature. The gate skips rows without a gate detector.
+        detector="adjudicator:entry_param_type",
+        since_version="1.3.0",
+        reason=(
+            "An entry-function or constructor PARAMETER type is outside what the "
+            "v1 claim.json arg forms can represent AND domain-validate: the arg "
+            "forms are word / {int} / {bytes} / bool, so an array-, struct-, "
+            "tuple- or function-typed parameter cannot be expressed, and a "
+            "word-family scalar whose legal domain cannot be bounded from the "
+            "type string alone (bytesN with N<32, fixed/ufixed, an enum whose "
+            "member count is unresolvable) cannot be validated — an unvalidated "
+            "arg would let a submitter feed the two engines different logical "
+            "calls and fabricate a divergence. This is the narrow PARAMETER "
+            "residue of the retired X-RETABI (the RETURN/REVERT channel is now "
+            "fully decoded+compared); restructure the entry to scalar/bytes/"
+            "string parameters meanwhile."
+        ),
+        roadmap_ref="adjudicate._arg_domain_error; observable.render_lean_arg",
+    ),
+    ExclusionEntry(
+        id="X-FNVAL",
+        kind="syntactic",
+        # Return/revert-channel specific: checked by the adjudicator.
+        detector="adjudicator:entry_return_type",
+        since_version="1.3.0",
+        reason=(
+            "A FUNCTION-typed value (or a struct/array containing one) in the "
+            "entry RETURN or custom-error REVERT channel: solidity-lean renders an "
+            "internal/external function value via the r:reprStr fallback while "
+            "the EVM ABI-encodes it as a static word, so identical behavior "
+            "would compare unequal (a fabricated wrong-value/wrong-revert). "
+            "Also covers a struct type the harness cannot resolve to member "
+            "types. The narrow RETURN/REVERT residue of the retired X-RETABI; "
+            "every other ABI type (scalars, bytes/string, arrays, structs, "
+            "arbitrarily nested) is now decoded and compared."
+        ),
+        roadmap_ref="observable._decode_abi_values; adjudicate._comparable_channel_type",
     ),
 ]
 
