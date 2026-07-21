@@ -8361,6 +8361,77 @@ def Exprs.toCoreAsListWithEnvFuel? (fuel : Nat) (storageNames : List Name)
             Exprs.toCoreAsListWithEnvFuel? fuel storageNames env elemTy rest
           some (coreExpr :: coreExprs)
 
+/-- ITEM-1 (array-literal over-rejection): env-aware type of ONE inline
+    array-literal element. The env-less `Expr.abiTy?` has no identifier arm,
+    so `[storageBytes, other]` / `[storageLocal, …]` could never compute a
+    common element type and the whole statement over-rejected even though
+    the normalizer + runtime materializer handle the lowered shape. Elements
+    type through `Expr.abiTyWithEnv?` (which sees state variables and
+    storage locals); a nested array literal recurses. -/
+def Expr.arrayLiteralElemTyWithEnvFuel? (fuel : Nat) (env : TypeEnv)
+    (expr : Expr) : Option Ty :=
+  match fuel with
+  | 0 => none
+  | Nat.succ fuel =>
+      match expr with
+      | Expr.array elems => do
+          let elemTy ← Exprs.arrayLiteralCommonTyWithEnvFuel? fuel env elems
+          some (Ty.array elemTy (some elems.length))
+      | _ => Expr.abiTyWithEnv? env expr
+
+/-- ITEM-1: env-aware common (mobile) element type of an inline array
+    literal — the with-env twin of `Expr.arrayLiteralCommonTy?`, combining
+    element types with the SAME `arrayLiteralCommonInfo?` literal/mobile
+    rules. -/
+def Exprs.arrayLiteralCommonTyWithEnvFuel? (fuel : Nat) (env : TypeEnv)
+    (exprs : List Expr) : Option Ty :=
+  match fuel with
+  | 0 => none
+  | Nat.succ fuel =>
+      match exprs with
+      | [] => none
+      | first :: rest => do
+          let firstTy ← Expr.arrayLiteralElemTyWithEnvFuel? fuel env first
+          let info ←
+            Exprs.arrayLiteralCommonInfoFromWithEnvFuel?
+              fuel env (first, firstTy) rest
+          some info.snd
+
+def Exprs.arrayLiteralCommonInfoFromWithEnvFuel? (fuel : Nat) (env : TypeEnv)
+    (current : Expr × Ty) : List Expr -> Option (Expr × Ty)
+  | [] => some current
+  | expr :: rest =>
+      match fuel with
+      | 0 => none
+      | Nat.succ fuel => do
+          let ty ← Expr.arrayLiteralElemTyWithEnvFuel? fuel env expr
+          let next ← arrayLiteralCommonInfo? current (expr, ty)
+          Exprs.arrayLiteralCommonInfoFromWithEnvFuel? fuel env next rest
+
+/-- ITEM-1: lower an inline array literal in an ARGUMENT value position
+    (`abi.encode*`/packed/concat/event/error args) whose element type is only
+    recoverable WITH the env (storage `bytes`/`string`/array state variables,
+    storage-pointer locals). Types the literal env-aware, then lowers it
+    through the env-aware `Expr.array` arm at that target, so each element
+    materializes (state `bytes` → the contents read; storage locals stay
+    refs for the runtime value-use materializer). Callers use this ONLY as a
+    decline-fallback — it runs after the env-less path has already returned
+    `none`, so every previously-accepted program keeps its byte-identical
+    lowering. -/
+def Expr.abiArrayLiteralWithEnvFuel? (fuel : Nat) (storageNames : List Name)
+    (env : TypeEnv) (expr : Expr) : Option (Ty × CoreExpr) :=
+  match fuel with
+  | 0 => none
+  | Nat.succ fuel =>
+      match expr with
+      | Expr.array elems => do
+          let elemTy ← Exprs.arrayLiteralCommonTyWithEnvFuel? fuel env elems
+          let arrTy := Ty.array elemTy (some elems.length)
+          let coreExpr ←
+            Expr.toCoreAsWithEnvFuel? fuel storageNames env arrTy expr
+          some (arrTy, coreExpr)
+      | _ => none
+
 /-- STAGE-D #193: env-aware lowering of ONE `abi.encode`/`abi.encodeWithSelector`
     argument. TC1 `bytesN`-common-type conditionals stay on the dedicated ternary
     widening; a narrow-checked-arithmetic argument
@@ -8387,9 +8458,26 @@ def Expr.toAbiEncodeArgWithEnvFuel? (fuel : Nat) (storageNames : List Name)
             let coreExpr ← Expr.toCoreAsWithEnvFuel? fuel storageNames env ty expr
             some (coreTy, coreExpr)) with
         | some result => some result
-        | none => Expr.toAbiEncodeArg? storageNames expr
+        | none => Expr.toAbiEncodeArgOrEnvArrayFuel? fuel storageNames env expr
       else
-        Expr.toAbiEncodeArg? storageNames expr
+        Expr.toAbiEncodeArgOrEnvArrayFuel? fuel storageNames env expr
+
+/-- ITEM-1: the env-less `abi.encode*` argument lowering, with the env-aware
+    array-literal DECLINE-fallback — fires only where `Expr.toAbiEncodeArg?`
+    already returned `none` (previously an over-reject), so accepted programs
+    are byte-identical. -/
+def Expr.toAbiEncodeArgOrEnvArrayFuel? (fuel : Nat) (storageNames : List Name)
+    (env : TypeEnv) (expr : Expr) : Option (CoreTy × CoreExpr) :=
+  match Expr.toAbiEncodeArg? storageNames expr with
+  | some result => some result
+  | none =>
+      match fuel with
+      | 0 => none
+      | Nat.succ fuel => do
+          let (ty, coreExpr) ←
+            Expr.abiArrayLiteralWithEnvFuel? fuel storageNames env expr
+          let coreTy ← Ty.toCore? ty
+          some (coreTy, coreExpr)
 
 /-- STAGE-D #193: `abi.encodePacked`/`bytes.concat`/`string.concat` counterpart of
     `Expr.toAbiEncodeArgWithEnvFuel?` — keeps the SOURCE type so
@@ -8411,9 +8499,27 @@ def Expr.toAbiEncodeSourceArgWithEnvFuel? (fuel : Nat) (storageNames : List Name
             let coreExpr ← Expr.toCoreAsWithEnvFuel? fuel storageNames env ty expr
             some (ty, coreTy, coreExpr)) with
         | some result => some result
-        | none => Expr.toAbiEncodeSourceArg? storageNames expr
+        | none =>
+            Expr.toAbiEncodeSourceArgOrEnvArrayFuel? fuel storageNames env expr
       else
-        Expr.toAbiEncodeSourceArg? storageNames expr
+        Expr.toAbiEncodeSourceArgOrEnvArrayFuel? fuel storageNames env expr
+
+/-- ITEM-1: source-typed twin of `Expr.toAbiEncodeArgOrEnvArrayFuel?`
+    (`abi.encodePacked`/`bytes.concat` keep the SOURCE type for packed
+    widths); the env-aware array fallback fires only on env-less decline. -/
+def Expr.toAbiEncodeSourceArgOrEnvArrayFuel? (fuel : Nat)
+    (storageNames : List Name) (env : TypeEnv) (expr : Expr) :
+    Option (Ty × CoreTy × CoreExpr) :=
+  match Expr.toAbiEncodeSourceArg? storageNames expr with
+  | some result => some result
+  | none =>
+      match fuel with
+      | 0 => none
+      | Nat.succ fuel => do
+          let (ty, coreExpr) ←
+            Expr.abiArrayLiteralWithEnvFuel? fuel storageNames env expr
+          let coreTy ← Ty.toCore? ty
+          some (ty, coreTy, coreExpr)
 
 def Args.toAbiEncodeWithEnvFuel? (fuel : Nat) (storageNames : List Name)
     (env : TypeEnv) : List Arg -> Option (List CoreTy × List CoreExpr)
@@ -8518,6 +8624,17 @@ def Expr.conditionCoreWithEnv? (storageNames : List Name) (env : TypeEnv)
     `emit EMix(a + b, …)`, `revert Err(abi.encode(a + b))`); every other
     argument keeps the byte-identical env-less `Expr.toCore?` (also the
     fallback when the env-aware path declines). -/
+/-- ITEM-1: env-less event/error argument lowering with the env-aware
+    array-literal DECLINE-fallback (`[storageBytes, …]` as an emit/revert
+    argument) — fires only where `Expr.toCore?` already declined. -/
+def Expr.abiArgCoreOrEnvArray? (storageNames : List Name) (env : TypeEnv)
+    (expr : Expr) : Option CoreExpr :=
+  match Expr.toCore? storageNames expr with
+  | some coreExpr => some coreExpr
+  | none =>
+      (Expr.abiArrayLiteralWithEnvFuel?
+          defaultEnvLoweringFuel storageNames env expr).map Prod.snd
+
 def Expr.abiArgCoreWithEnvCleanup? (storageNames : List Name) (env : TypeEnv)
     (expr : Expr) : Option CoreExpr :=
   if Expr.abiArgNeedsEnvCleanup? expr then
@@ -8525,9 +8642,9 @@ def Expr.abiArgCoreWithEnvCleanup? (storageNames : List Name) (env : TypeEnv)
         let ty ← Expr.abiTyWithEnv? env expr
         Expr.toCoreAsWithEnv? storageNames env ty expr) with
     | some coreExpr => some coreExpr
-    | none => Expr.toCore? storageNames expr
+    | none => Expr.abiArgCoreOrEnvArray? storageNames env expr
   else
-    Expr.toCore? storageNames expr
+    Expr.abiArgCoreOrEnvArray? storageNames env expr
 
 /-- #201 (D/E): does any positional argument need the env-aware cleanup? Gates
     the emit/revert reroutes so every unflagged statement keeps its existing
@@ -21605,8 +21722,8 @@ def FunctionDecl.usingFreeFunctionArgs?
 
 def FunctionDecl.usingFreeFunctionOperands?
     (functions freeFunctions : List FunctionDecl)
-    (env : TypeEnv) (functionName : Name) (operands : List Expr) :
-    Option (List Expr) := do
+    (env : TypeEnv) (targetTy? : Option Ty) (functionName : Name)
+    (operands : List Expr) : Option (List Expr) := do
   let candidates :=
     freeFunctions.filter (fun fn =>
       match fn.name with
@@ -21616,12 +21733,35 @@ def FunctionDecl.usingFreeFunctionOperands?
             FunctionDecl.isExternallyNamedFunction fn
       | none => false)
   let _ ←
-    candidates.find? (fun fn =>
-      match
-          Parameters.matchArgsAllowingInternalFunctionNamesWithFunctionsEnv?
-            functions freeFunctions env fn.params operands with
-      | some true => true
-      | _ => false)
+    match
+        candidates.find? (fun fn =>
+          match
+              Parameters.matchArgsAllowingInternalFunctionNamesWithFunctionsEnv?
+                functions freeFunctions env fn.params operands with
+          | some true => true
+          | _ => false) with
+    | some fn => some fn
+    | none =>
+        -- ITEM-5 (operator using-for, SOUND fallback): solc's operator
+        -- binding rule (`using {f as +} for T global`) requires the bound
+        -- free function's parameters to ALL be exactly the target UDVT `T`
+        -- (TypeChecker: "operands of user-defined operators must all have
+        -- the same user-defined value type"), so among same-name/same-arity
+        -- candidates the one whose EVERY parameter type matches the using
+        -- directive's target IS the solc binding — no overload ambiguity is
+        -- possible. This fires only when the operand shape gate above found
+        -- no candidate (an operand `Expr.abiTy*` cannot type, e.g. a nested
+        -- rewritten operator call), i.e. only on previously fail-closed
+        -- calls, so accepted programs keep their byte-identical lowering.
+        match targetTy? with
+        | some targetTy =>
+            candidates.find? (fun fn =>
+              !fn.params.isEmpty &&
+                fn.params.all (fun p =>
+                  p.ty == targetTy ||
+                    Ty.matchesShape p.ty targetTy ||
+                    Ty.matchesShape targetTy p.ty))
+        | none => none
   some operands
 
 def Path.qualifyIfUnqualified (scope : Name) (path : Path) : Path :=
@@ -21895,7 +22035,7 @@ def UsingFunction.rewriteCall? (contracts : List ContractDecl)
       (ContractDecl.ordinaryFunctionsByName libraryDecl functionName)
 
 def UsingFunction.rewriteBinaryOperator? (freeFunctions : List FunctionDecl)
-    (env : TypeEnv) (op : BinaryOp) (lhs rhs : Expr)
+    (env : TypeEnv) (targetTy? : Option Ty) (op : BinaryOp) (lhs rhs : Expr)
     (binding : UsingFunction) : Option Expr := do
   match binding.operator? with
   | some (UsingOperator.binary bindingOp) =>
@@ -21908,13 +22048,13 @@ def UsingFunction.rewriteBinaryOperator? (freeFunctions : List FunctionDecl)
     none
   let orderedArgs ←
     FunctionDecl.usingFreeFunctionOperands?
-      freeFunctions freeFunctions env functionName [lhs, rhs]
+      freeFunctions freeFunctions env targetTy? functionName [lhs, rhs]
   some
     (Expr.call (Expr.ident functionName)
       (orderedArgs.map Arg.positional))
 
 def UsingFunction.rewriteUnaryOperator? (freeFunctions : List FunctionDecl)
-    (env : TypeEnv) (op : UnaryOp) (operand : Expr)
+    (env : TypeEnv) (targetTy? : Option Ty) (op : UnaryOp) (operand : Expr)
     (binding : UsingFunction) : Option Expr := do
   match binding.operator? with
   | some (UsingOperator.unary bindingOp) =>
@@ -21927,7 +22067,7 @@ def UsingFunction.rewriteUnaryOperator? (freeFunctions : List FunctionDecl)
     none
   let orderedArgs ←
     FunctionDecl.usingFreeFunctionOperands?
-      freeFunctions freeFunctions env functionName [operand]
+      freeFunctions freeFunctions env targetTy? functionName [operand]
   some
     (Expr.call (Expr.ident functionName)
       (orderedArgs.map Arg.positional))
@@ -21947,30 +22087,30 @@ def UsingFunctions.rewriteCall? (contracts : List ContractDecl)
             contracts freeFunctions env receiver method args rest
 
 def UsingFunctions.rewriteBinaryOperator? (freeFunctions : List FunctionDecl)
-    (env : TypeEnv) (op : BinaryOp) (lhs rhs : Expr) :
+    (env : TypeEnv) (targetTy? : Option Ty) (op : BinaryOp) (lhs rhs : Expr) :
     List UsingFunction -> Option Expr
   | [] => none
   | binding :: rest =>
       match
           UsingFunction.rewriteBinaryOperator?
-            freeFunctions env op lhs rhs binding with
+            freeFunctions env targetTy? op lhs rhs binding with
       | some rewritten => some rewritten
       | none =>
           UsingFunctions.rewriteBinaryOperator?
-            freeFunctions env op lhs rhs rest
+            freeFunctions env targetTy? op lhs rhs rest
 
 def UsingFunctions.rewriteUnaryOperator? (freeFunctions : List FunctionDecl)
-    (env : TypeEnv) (op : UnaryOp) (operand : Expr) :
+    (env : TypeEnv) (targetTy? : Option Ty) (op : UnaryOp) (operand : Expr) :
     List UsingFunction -> Option Expr
   | [] => none
   | binding :: rest =>
       match
           UsingFunction.rewriteUnaryOperator?
-            freeFunctions env op operand binding with
+            freeFunctions env targetTy? op operand binding with
       | some rewritten => some rewritten
       | none =>
           UsingFunctions.rewriteUnaryOperator?
-            freeFunctions env op operand rest
+            freeFunctions env targetTy? op operand rest
 
 def UsingDecl.rewriteCall? (contracts : List ContractDecl)
     (freeFunctions : List FunctionDecl)
@@ -22000,7 +22140,7 @@ def UsingDecl.rewriteBinaryOperator? (freeFunctions : List FunctionDecl)
         freeFunctions freeFunctions env lhs rhs decl with
   | some true =>
       UsingFunctions.rewriteBinaryOperator?
-        freeFunctions env op lhs rhs decl.functions
+        freeFunctions env decl.target op lhs rhs decl.functions
   | _ => none
 
 def UsingDecl.rewriteUnaryOperator? (freeFunctions : List FunctionDecl)
@@ -22011,7 +22151,7 @@ def UsingDecl.rewriteUnaryOperator? (freeFunctions : List FunctionDecl)
         freeFunctions freeFunctions env operand decl with
   | some true =>
       UsingFunctions.rewriteUnaryOperator?
-        freeFunctions env op operand decl.functions
+        freeFunctions env decl.target op operand decl.functions
   | _ => none
 
 def libraryExternalCallTarget (libraryName method : Name) : Expr :=

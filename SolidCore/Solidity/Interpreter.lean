@@ -3881,6 +3881,25 @@ def Runtime.storeImmutableField (context : Context)
   Except.ok
     { runtime with state := runtime.state.storeImmutable name coerced }
 
+/-- ITEM-4 (`contents` vs `load []`): ONE reader. On a `bytes`/`string`
+    layout the `contents` read (`Runtime.loadStorageByteStringField`) and the
+    whole-value materializing `load []` (`Runtime.loadStoragePath name []` →
+    `State.loadStorageLayoutAt slot layout` → `State.loadStorageBytesAt`)
+    are PROVABLY the same read: `resolveStoragePathSlot slot layout [] =
+    (slot, layout)` and `loadStorageLayoutAt` on `bytes`/`string` is exactly
+    `loadStorageBytesAt`. This def therefore delegates to the shared
+    layout reader — the read semantics can never diverge again.
+
+    The MODES nevertheless stay distinct, because they differ in a property
+    that is not the read value: `Expr.hasStorageRoot` is `false` for
+    `contents` (a `bytes(state)`/`string(state)` CAST is a materialized
+    VALUE) and `true` for `load` (a storage lvalue root), and `.length`/
+    `[i]` evaluation routes on that bit (value-indexing a loaded
+    `Value.bytes` vs a storage element read). On non-bytes layouts the two
+    also differ: `contents` fail-closes (`typeMismatch`) while `load`
+    materializes — unreachable from the lowering (which gates `contents` on
+    `bytes`/`string` targets) but load-bearing for hand-built core. Those
+    two corners are the precise residue that blocks deleting the mode. -/
 def Runtime.loadStorageByteStringField (context : Context)
     (runtime : Runtime) (name : String) : Except RevertData Value := do
   let field ←
@@ -3889,11 +3908,9 @@ def Runtime.loadStorageByteStringField (context : Context)
     | none => Except.error RevertData.typeMismatch
   match field.layout? with
   | some StorageLayout.bytes =>
-      let bytes ← State.loadStorageBytesAt runtime.state field.slot
-      Except.ok (Value.bytes bytes)
+      runtime.state.loadStorageLayoutAt field.slot StorageLayout.bytes
   | some StorageLayout.string =>
-      let bytes ← State.loadStorageBytesAt runtime.state field.slot
-      Except.ok (Value.bytes bytes)
+      runtime.state.loadStorageLayoutAt field.slot StorageLayout.string
   | _ => Except.error RevertData.typeMismatch
 
 def State.clearFixedArraySlots (state : State) (slot defaultWord : Word) :
@@ -5860,6 +5877,43 @@ inductive StorageReadMode where
   | load : StorageReadMode
   deriving Repr
 
+/-- ITEM-3 (cosmetic constructor families): which value the projection of an
+    external-function VALUE produces. `value selector` builds the packed
+    external-function value from an address expression (the legacy
+    `externalFunctionValue`); `selector`/`address` project the stored
+    selector/address word back out. -/
+inductive ExtFnPart where
+  | value : Word -> ExtFnPart
+  | selector : ExtFnPart
+  | address : ExtFnPart
+  deriving Repr
+
+/-- ITEM-3: the parameterized cast/cleanup family. Each kind carries the
+    non-target payload it needs (`fixedBytes` its SOURCE word size); the
+    target width/size is the `Nat` argument of `Expr.castOp`. Legacy
+    spellings (`uintCast`/`intCast`/`uintCleanup`/`intCleanup`/
+    `fixedBytesCast`/`fixedBytesFromBytes`) remain as `@[match_pattern]`
+    smart constructors. -/
+inductive CastKind where
+  | uintCast : CastKind
+  | intCast : CastKind
+  | uintCleanup : CastKind
+  | intCleanup : CastKind
+  | fixedBytes : Nat -> CastKind
+  | fixedBytesFromBytes : CastKind
+  deriving Repr
+
+/-- ITEM-3: the `abi.encode*` family selector. `plain` = `abi.encode`,
+    `withSelector` = `abi.encodeWithSelector`/`encodeWithSignature`/
+    `encodeCall` (the selector expression rides in the `Option Expr` slot of
+    `Expr.encode`), `packed` = `abi.encodePacked` (the packed top widths ride
+    in the `List Nat` slot). -/
+inductive EncodeKind where
+  | plain : EncodeKind
+  | withSelector : EncodeKind
+  | packed : EncodeKind
+  deriving Repr
+
 inductive Expr where
   | word : Word -> Expr
   | intWord : Word -> Expr
@@ -5917,35 +5971,46 @@ inductive Expr where
       (`Expr.storage`/`storageBytes`/`storageIndex`/`storagePath`) remain as
       `@[match_pattern]` smart constructors below. -/
   | storageRead : StorageReadMode -> String -> List Expr -> Expr
-  | externalFunctionValue : Expr -> Word -> Expr
-  | externalFunctionSelector : Expr -> Expr
-  | externalFunctionAddress : Expr -> Expr
+  /-- ITEM-3 (e): the unified external-function-value projection family
+      (`ExtFnPart`). Legacy spellings `externalFunctionValue`/
+      `externalFunctionSelector`/`externalFunctionAddress` remain as
+      `@[match_pattern]` smart constructors. -/
+  | extFnPart : ExtFnPart -> Expr -> Expr
   | unary : UnaryOp -> Expr -> Expr
-  | preIncrement : Expr -> Expr
-  | preDecrement : Expr -> Expr
-  | postIncrement : Expr -> Expr
-  | postDecrement : Expr -> Expr
-  | incDecCleanup : Expr -> BinaryOp -> Bool -> ValueCleanup -> Expr
-  | assignExpr : Expr -> Expr -> Expr
-  | assignOpExpr : Expr -> BinaryOp -> Expr -> Expr
-  | assignOpCleanupExpr : Expr -> BinaryOp -> Expr -> ValueCleanup -> Expr
+  /-- ITEM-3 (a): the unified inc/dec family — `incDec op returnOld cleanup?
+      target`. `op` is `add` (increment) or `sub` (decrement); `returnOld`
+      is the fixity (`true` = postfix, return the OLD value); `cleanup?`
+      carries the narrow-width cleanup when present. Legacy spellings
+      (`preIncrement`/`preDecrement`/`postIncrement`/`postDecrement`/
+      `incDecCleanup`) remain as `@[match_pattern]` smart constructors. -/
+  | incDec : BinaryOp -> Bool -> Option ValueCleanup -> Expr -> Expr
+  /-- ITEM-3 (b): the unified assignment-expression family — `assignment op?
+      cleanup? target rhs`. `op? = none` is plain `=` (RHS value written and
+      returned, no LHS read); `some op` is compound read-modify-write;
+      `cleanup?` the optional narrow-width result cleanup. Legacy spellings
+      (`assignExpr`/`assignOpExpr`/`assignOpCleanupExpr`) remain as
+      `@[match_pattern]` smart constructors. -/
+  | assignment : Option BinaryOp -> Option ValueCleanup -> Expr -> Expr -> Expr
   | binary : BinaryOp -> Expr -> Expr -> Expr
   | addMod : Expr -> Expr -> Expr -> Expr
   | mulMod : Expr -> Expr -> Expr -> Expr
   | concatBytes : List Expr -> Expr
   | fixedBytesIndex : Nat -> Expr -> Expr -> Expr
-  | fixedBytesCast : Nat -> Nat -> Expr -> Expr
-  | fixedBytesFromBytes : Nat -> Expr -> Expr
-  | uintCast : Nat -> Expr -> Expr
-  | intCast : Nat -> Expr -> Expr
-  | uintCleanup : Nat -> Expr -> Expr
-  | intCleanup : Nat -> Expr -> Expr
+  /-- ITEM-3 (c): the unified cast/cleanup family — `castOp kind target
+      operand` (see `CastKind`; `target` is the bit width for int/uint kinds
+      and the byte size for the fixed-bytes kinds). Legacy spellings remain
+      as `@[match_pattern]` smart constructors. -/
+  | castOp : CastKind -> Nat -> Expr -> Expr
   | keccak256 : Expr -> Expr
   | erc7201 : Expr -> Expr
   | tuple : List Expr -> Expr
-  | abiEncode : List Ty -> List Expr -> Expr
-  | abiEncodeWithSelector : Expr -> List Ty -> List Expr -> Expr
-  | abiEncodePacked : List Nat -> List Ty -> List Expr -> Expr
+  /-- ITEM-3 (d): the unified `abi.encode*` family — `encode kind selector?
+      packedWidths tys args` (see `EncodeKind`; `selector?` is `some` exactly
+      for `withSelector`, `packedWidths` non-degenerate exactly for
+      `packed`). Legacy spellings (`abiEncode`/`abiEncodeWithSelector`/
+      `abiEncodePacked`) remain as `@[match_pattern]` smart constructors. -/
+  | encode :
+      EncodeKind -> Option Expr -> List Nat -> List Ty -> List Expr -> Expr
   | abiDecode : List Ty -> List AbiCleanup -> Expr -> Expr
   | lowLevelCall :
       LowLevelCallKind -> Expr -> Expr -> Expr -> Option Expr -> Bool -> Expr
@@ -5986,6 +6051,80 @@ inductive Expr where
 @[match_pattern] def Expr.storagePath (name : String)
     (indexes : List Expr) : Expr :=
   Expr.storageRead StorageReadMode.load name indexes
+
+/-! ITEM-3 legacy spellings. Exactly like the `storageRead` family above:
+    `@[match_pattern]` smart constructors keep every construction site AND
+    pattern compiling under the old names, while the semantic dispatch for
+    each family happens in ONE eval arm (on the kind parameter). -/
+
+@[match_pattern] def Expr.externalFunctionValue (addressExpr : Expr)
+    (selector : Word) : Expr :=
+  Expr.extFnPart (ExtFnPart.value selector) addressExpr
+
+@[match_pattern] def Expr.externalFunctionSelector (expr : Expr) : Expr :=
+  Expr.extFnPart ExtFnPart.selector expr
+
+@[match_pattern] def Expr.externalFunctionAddress (expr : Expr) : Expr :=
+  Expr.extFnPart ExtFnPart.address expr
+
+@[match_pattern] def Expr.preIncrement (target : Expr) : Expr :=
+  Expr.incDec BinaryOp.add false none target
+
+@[match_pattern] def Expr.preDecrement (target : Expr) : Expr :=
+  Expr.incDec BinaryOp.sub false none target
+
+@[match_pattern] def Expr.postIncrement (target : Expr) : Expr :=
+  Expr.incDec BinaryOp.add true none target
+
+@[match_pattern] def Expr.postDecrement (target : Expr) : Expr :=
+  Expr.incDec BinaryOp.sub true none target
+
+@[match_pattern] def Expr.incDecCleanup (target : Expr) (op : BinaryOp)
+    (post : Bool) (cleanup : ValueCleanup) : Expr :=
+  Expr.incDec op post (some cleanup) target
+
+@[match_pattern] def Expr.assignExpr (target rhs : Expr) : Expr :=
+  Expr.assignment none none target rhs
+
+@[match_pattern] def Expr.assignOpExpr (target : Expr) (op : BinaryOp)
+    (rhs : Expr) : Expr :=
+  Expr.assignment (some op) none target rhs
+
+@[match_pattern] def Expr.assignOpCleanupExpr (target : Expr) (op : BinaryOp)
+    (rhs : Expr) (cleanup : ValueCleanup) : Expr :=
+  Expr.assignment (some op) (some cleanup) target rhs
+
+@[match_pattern] def Expr.uintCast (bits : Nat) (expr : Expr) : Expr :=
+  Expr.castOp CastKind.uintCast bits expr
+
+@[match_pattern] def Expr.intCast (bits : Nat) (expr : Expr) : Expr :=
+  Expr.castOp CastKind.intCast bits expr
+
+@[match_pattern] def Expr.uintCleanup (bits : Nat) (expr : Expr) : Expr :=
+  Expr.castOp CastKind.uintCleanup bits expr
+
+@[match_pattern] def Expr.intCleanup (bits : Nat) (expr : Expr) : Expr :=
+  Expr.castOp CastKind.intCleanup bits expr
+
+@[match_pattern] def Expr.fixedBytesCast (targetSize sourceSize : Nat)
+    (expr : Expr) : Expr :=
+  Expr.castOp (CastKind.fixedBytes sourceSize) targetSize expr
+
+@[match_pattern] def Expr.fixedBytesFromBytes (targetSize : Nat)
+    (expr : Expr) : Expr :=
+  Expr.castOp CastKind.fixedBytesFromBytes targetSize expr
+
+@[match_pattern] def Expr.abiEncode (tys : List Ty)
+    (exprs : List Expr) : Expr :=
+  Expr.encode EncodeKind.plain none [] tys exprs
+
+@[match_pattern] def Expr.abiEncodeWithSelector (selectorExpr : Expr)
+    (tys : List Ty) (exprs : List Expr) : Expr :=
+  Expr.encode EncodeKind.withSelector (some selectorExpr) [] tys exprs
+
+@[match_pattern] def Expr.abiEncodePacked (widths : List Nat)
+    (tys : List Ty) (exprs : List Expr) : Expr :=
+  Expr.encode EncodeKind.packed none widths tys exprs
 
 def Expr.hasStorageRoot : Expr -> Bool
   -- `contents` (old `storageBytes`) was NOT a storage root in the legacy
@@ -6729,20 +6868,10 @@ def Expr.orderFuel : Expr -> Nat
   -- `element` evaluates its single index directly; `load` evaluates the list).
   -- Only sufficiency matters (fuel results are stable above the need).
   | Expr.storageRead _ _ indexes => Expr.listEvalFuel indexes + 1
-  | Expr.externalFunctionValue addressExpr _ => Expr.orderFuel addressExpr + 1
-  | Expr.externalFunctionSelector expr => Expr.orderFuel expr + 1
-  | Expr.externalFunctionAddress expr => Expr.orderFuel expr + 1
+  | Expr.extFnPart _ expr => Expr.orderFuel expr + 1
   | Expr.unary _ expr => Expr.orderFuel expr + 1
-  | Expr.preIncrement target => Expr.orderFuel target + 1
-  | Expr.preDecrement target => Expr.orderFuel target + 1
-  | Expr.postIncrement target => Expr.orderFuel target + 1
-  | Expr.postDecrement target => Expr.orderFuel target + 1
-  | Expr.incDecCleanup target _ _ _ => Expr.orderFuel target + 1
-  | Expr.assignExpr target rhs =>
-      Expr.orderFuel target + Expr.orderFuel rhs + 1
-  | Expr.assignOpExpr target _ rhs =>
-      Expr.orderFuel target + Expr.orderFuel rhs + 1
-  | Expr.assignOpCleanupExpr target _ rhs _ =>
+  | Expr.incDec _ _ _ target => Expr.orderFuel target + 1
+  | Expr.assignment _ _ target rhs =>
       Expr.orderFuel target + Expr.orderFuel rhs + 1
   | Expr.binary _ lhs rhs =>
       Expr.orderFuel lhs + Expr.orderFuel rhs + 1
@@ -6755,19 +6884,14 @@ def Expr.orderFuel : Expr -> Nat
   | Expr.concatBytes exprs => Expr.listEvalFuel exprs + 1
   | Expr.fixedBytesIndex _ base idx =>
       Expr.orderFuel base + Expr.orderFuel idx + 1
-  | Expr.fixedBytesCast _ _ expr => Expr.orderFuel expr + 1
-  | Expr.fixedBytesFromBytes _ expr => Expr.orderFuel expr + 1
-  | Expr.uintCast _ expr => Expr.orderFuel expr + 1
-  | Expr.intCast _ expr => Expr.orderFuel expr + 1
-  | Expr.uintCleanup _ expr => Expr.orderFuel expr + 1
-  | Expr.intCleanup _ expr => Expr.orderFuel expr + 1
+  | Expr.castOp _ _ expr => Expr.orderFuel expr + 1
   | Expr.keccak256 expr => Expr.orderFuel expr + 1
   | Expr.erc7201 expr => Expr.orderFuel expr + 1
   | Expr.tuple exprs => Expr.listEvalFuel exprs + 1
-  | Expr.abiEncode _ exprs => Expr.listEvalFuel exprs + 1
-  | Expr.abiEncodeWithSelector selectorExpr _ exprs =>
-      Expr.orderFuel selectorExpr + Expr.listEvalFuel exprs + 1
-  | Expr.abiEncodePacked _ _ exprs => Expr.listEvalFuel exprs + 1
+  | Expr.encode _ selector? _ _ exprs =>
+      (match selector? with
+      | some selectorExpr => Expr.orderFuel selectorExpr
+      | none => 0) + Expr.listEvalFuel exprs + 1
   | Expr.abiDecode _ _ expr => Expr.orderFuel expr + 1
   | Expr.lowLevelCall _ targetExpr calldataExpr valueExpr gas? _ =>
       Expr.orderFuel targetExpr + Expr.orderFuel calldataExpr +
@@ -6988,107 +7112,76 @@ def Expr.evalFuel (fuel : Nat)
                   pure (Value.word slot, runtime')
               | none =>
                   throw <| SolidityFailure.revert RevertData.typeMismatch
-          | Expr.externalFunctionValue addressExpr selector => do
-              let (value, runtime') ←
-                Expr.evalFuel fuel context runtime
-                  addressExpr
-              let addr ← value.expectWord
-              pure (Value.externalFunction addr selector, runtime')
-          | Expr.externalFunctionSelector expr => do
+          | Expr.extFnPart part expr => do
               let (value, runtime') ←
                 Expr.evalFuel fuel context runtime expr
-              match value with
-              | Value.externalFunction _ selector =>
-                  pure (Value.word selector, runtime')
-              | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
-          | Expr.externalFunctionAddress expr => do
-              let (value, runtime') ←
-                Expr.evalFuel fuel context runtime expr
-              match value with
-              | Value.externalFunction addr _ =>
-                  pure (Value.word addr, runtime')
-              | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
+              match part with
+              | ExtFnPart.value selector => do
+                  let address ← value.expectWord
+                  pure (Value.externalFunction address selector, runtime')
+              | ExtFnPart.selector =>
+                  match value with
+                  | Value.externalFunction _ selector =>
+                      pure (Value.word selector, runtime')
+                  | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
+              | ExtFnPart.address =>
+                  match value with
+                  | Value.externalFunction addr _ =>
+                      pure (Value.word addr, runtime')
+                  | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.unary op expr => do
               let (value, runtime') ←
                 Expr.evalFuel fuel context runtime expr
               let result ← op.apply context.checked value
               pure (result, runtime')
-          | Expr.preIncrement target => do
+          | Expr.incDec op returnOld cleanup? target => do
+              -- ITEM-3 (a): ONE dispatch for the inc/dec family; the legacy
+              -- five constructors are (op, returnOld, cleanup?) points.
               let (resolved, runtime') ←
                 Expr.resolveLValueFuel fuel context
                   runtime target
-              resolved.applyIncDec context runtime' BinaryOp.add false
-          | Expr.preDecrement target => do
-              let (resolved, runtime') ←
-                Expr.resolveLValueFuel fuel context
-                  runtime target
-              resolved.applyIncDec context runtime' BinaryOp.sub false
-          | Expr.postIncrement target => do
-              let (resolved, runtime') ←
-                Expr.resolveLValueFuel fuel context
-                  runtime target
-              resolved.applyIncDec context runtime' BinaryOp.add true
-          | Expr.postDecrement target => do
-              let (resolved, runtime') ←
-                Expr.resolveLValueFuel fuel context
-                  runtime target
-              resolved.applyIncDec context runtime' BinaryOp.sub true
-          | Expr.incDecCleanup target op returnOld cleanup => do
-              let (resolved, runtime') ←
-                Expr.resolveLValueFuel fuel context
-                  runtime target
-              resolved.applyIncDecCleanup context runtime' op returnOld cleanup
-          | Expr.assignExpr target rhs => do
-              -- Intrinsic order (solc ExpressionCompiler.cpp:319,331): the RHS
-              -- is evaluated fully BEFORE the LHS reference is computed.
-              let (resolved, value, runtime'') ← do
-                    let (value, runtime') ←
-                      Expr.evalFuel fuel context
-                        runtime rhs
-                    let (resolved, runtime'') ←
-                      Expr.resolveLValueFuel fuel
-                        context runtime' target
-                    pure (resolved, value, runtime'')
-              let updated ← resolved.write context runtime'' value
-              pure (value, updated)
-          | Expr.assignOpExpr target op rhs => do
-              -- Intrinsic order (solc ExpressionCompiler.cpp:336-370): compound
-              -- assignment evaluates the RHS BEFORE the LHS reference/read.
-              let (resolved, lhsValue, rhsValue, runtime'') ← do
-                    let (rhsValue, runtime') ←
-                      Expr.evalFuel fuel context
-                        runtime rhs
-                    let (resolved, runtime'') ←
-                      Expr.resolveLValueFuel fuel
-                        context runtime' target
-                    let lhsValue ← resolved.read context runtime''
-                    pure (resolved, lhsValue, rhsValue, runtime'')
-              let value ← BinaryOp.apply context.checked op lhsValue rhsValue
-              let updated ← resolved.write context runtime'' value
-              pure (value, updated)
-          | Expr.assignOpCleanupExpr target op rhs cleanup => do
-              -- Intrinsic order (solc ExpressionCompiler.cpp:336-370): compound
-              -- assignment evaluates the RHS BEFORE the LHS reference/read.
-              let (resolved, lhsValue, rhsValue, runtime'') ← do
-                    let (rhsValue, runtime') ←
-                      Expr.evalFuel fuel context
-                        runtime rhs
-                    let (resolved, runtime'') ←
-                      Expr.resolveLValueFuel fuel
-                        context runtime' target
-                    let lhsValue ← resolved.read context runtime''
-                    pure (resolved, lhsValue, rhsValue, runtime'')
-              let value ← BinaryOp.apply context.checked op lhsValue rhsValue
-              -- Left shifts truncate to the operand width with no overflow
-              -- check, even inside a checked block, so the compound-assign
-              -- cleanup for `<<=` must be applied unchecked.
-              let cleanupChecked :=
-                match op with
-                | BinaryOp.shl => false
-                | _ => context.checked
-              let cleaned ← cleanup.apply cleanupChecked value
-              let updated ← resolved.write context runtime'' cleaned
-              pure (cleaned, updated)
+              match cleanup? with
+              | none => resolved.applyIncDec context runtime' op returnOld
+              | some cleanup =>
+                  resolved.applyIncDecCleanup context runtime' op returnOld
+                    cleanup
+          | Expr.assignment op? cleanup? target rhs => do
+              -- ITEM-3 (b): ONE dispatch for the assignment-expression family.
+              -- Intrinsic order (solc ExpressionCompiler.cpp:319,331,336-370):
+              -- the RHS is evaluated fully BEFORE the LHS reference (and, for
+              -- compound ops, the LHS read).
+              let (rhsValue, runtime') ←
+                Expr.evalFuel fuel context
+                  runtime rhs
+              let (resolved, runtime'') ←
+                Expr.resolveLValueFuel fuel
+                  context runtime' target
+              match op? with
+              | none => do
+                  -- Plain `=`: write the RHS value through; no LHS read and
+                  -- no cleanup (the lowering never emits one for plain `=`).
+                  let updated ← resolved.write context runtime'' rhsValue
+                  pure (rhsValue, updated)
+              | some op => do
+                  let lhsValue ← resolved.read context runtime''
+                  let value ←
+                    BinaryOp.apply context.checked op lhsValue rhsValue
+                  match cleanup? with
+                  | none => do
+                      let updated ← resolved.write context runtime'' value
+                      pure (value, updated)
+                  | some cleanup => do
+                      -- Left shifts truncate to the operand width with no
+                      -- overflow check, even inside a checked block, so the
+                      -- compound-assign cleanup for `<<=` must be applied
+                      -- unchecked.
+                      let cleanupChecked :=
+                        match op with
+                        | BinaryOp.shl => false
+                        | _ => context.checked
+                      let cleaned ← cleanup.apply cleanupChecked value
+                      let updated ← resolved.write context runtime'' cleaned
+                      pure (cleaned, updated)
           | Expr.binary BinaryOp.boolAnd lhs rhs => do
               let (lhsValue, runtime') ←
                 Expr.evalFuel fuel context runtime lhs

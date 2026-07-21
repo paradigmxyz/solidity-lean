@@ -250,6 +250,81 @@ def revertReasonAccepted : Bool :=
   TypeCheck.Result.isOk
     (TypeCheck.TypecheckedInput.checkedSourceUnit (mkUnit revertReasonContract))
 
+/- 2'. ARRAY LITERAL — PROMOTED to SOURCE level (ITEM-1). The front-end now
+   types inline array literals of storage `bytes`/`string` env-aware
+   (`Expr.abiArrayLiteralWithEnvFuel?` decline-fallback), so the shape the
+   core-level pin (case 2) covers is reachable through the pipeline:
+   `bytes b1; bytes b2; b1 = hex"aa"; b2 = hex"bbcc";
+    bytes memory e = abi.encode([b1, b2]);
+    return e.length*1000000 + uint(uint8(e[128]))*1000 + uint(uint8(e[192]));`
+   solc+EVM (pinned 0.8.35, Forge lane `storage-array-literal`):
+   enc(bytes[2]) = [0x20][0x40][0x80][1][aa..][2][bbcc..] = 224 bytes,
+   e[128] = 0xaa = 170, e[192] = 0xbb = 187 → 224170187. -/
+private def encProbeReturn (e : String) : Stmt :=
+  Stmt.returnValues (some
+    (add
+      (add (mul (lenOf e) (lit "1000000"))
+        (mul (byteAt e "128") (lit "1000")))
+      (byteAt e "192")))
+
+def arrayLiteralSourceContract : ContractDecl :=
+  { kind := ContractKind.contract, name := "C2S",
+    abstract := false, bases := [],
+    items :=
+      [ ContractItem.stateVar { name := "b1", ty := Ty.bytes }
+      , ContractItem.stateVar { name := "b2", ty := Ty.bytes }
+      , mkRun retUint
+          [ hexAssign "b1" "aa"
+          , hexAssign "b2" "bbcc"
+          , Stmt.varDecl
+              [{ name := some "e", ty := some Ty.bytes,
+                 location := some DataLocation.memory }]
+              (some (Expr.call (Expr.member (Expr.ident "abi") "encode")
+                [ Arg.positional
+                    (Expr.array [Expr.ident "b1", Expr.ident "b2"]) ]))
+          , encProbeReturn "e" ] ] }
+
+def arrayLiteralSourceAccepted : Bool :=
+  TypeCheck.Result.isOk
+    (TypeCheck.TypecheckedInput.checkedSourceUnit
+      (mkUnit arrayLiteralSourceContract))
+
+/- 7'. STORAGE-POINTER LOCALS in an array literal — PROMOTED to SOURCE level
+   (ITEM-1): `bytes storage p1 = b1; bytes storage p2 = b2;
+   abi.encode([p1, p2])` — the runtime twin (case 7) pinned the nested
+   `Value.storageRef` materialization on hand-built core; the front-end now
+   accepts the source form. Same encoding as 2' → 224170187 (Forge lane
+   `storage-array-literal`, test `testEncPointers`). -/
+def pointerArrayLiteralSourceContract : ContractDecl :=
+  { kind := ContractKind.contract, name := "C7S",
+    abstract := false, bases := [],
+    items :=
+      [ ContractItem.stateVar { name := "b1", ty := Ty.bytes }
+      , ContractItem.stateVar { name := "b2", ty := Ty.bytes }
+      , mkRun retUint
+          [ hexAssign "b1" "aa"
+          , hexAssign "b2" "bbcc"
+          , Stmt.varDecl
+              [{ name := some "p1", ty := some Ty.bytes,
+                 location := some DataLocation.storage }]
+              (some (Expr.ident "b1"))
+          , Stmt.varDecl
+              [{ name := some "p2", ty := some Ty.bytes,
+                 location := some DataLocation.storage }]
+              (some (Expr.ident "b2"))
+          , Stmt.varDecl
+              [{ name := some "e", ty := some Ty.bytes,
+                 location := some DataLocation.memory }]
+              (some (Expr.call (Expr.member (Expr.ident "abi") "encode")
+                [ Arg.positional
+                    (Expr.array [Expr.ident "p1", Expr.ident "p2"]) ]))
+          , encProbeReturn "e" ] ] }
+
+def pointerArrayLiteralSourceAccepted : Bool :=
+  TypeCheck.Result.isOk
+    (TypeCheck.TypecheckedInput.checkedSourceUnit
+      (mkUnit pointerArrayLiteralSourceContract))
+
 end StorageValueUseNormalize
 end SolcAstImport
 end Solidity
@@ -399,6 +474,22 @@ def coreNestedRefEncodes : Bool :=
   | _ => false
 
 #guard coreNestedRefEncodes
+
+-- 2'/7' (ITEM-1 promotion): the SOURCE forms of the two core-pinned shapes
+-- now lower through the pipeline and produce the Forge-validated word
+-- (224170187 on pinned solc 0.8.35 + real EVM, lane `storage-array-literal`).
+def arrayLiteralSource_is_224170187 : Except TypeError Bool :=
+  Examples.checkedOwnCallWordMatches 4096 arrayLiteralSourceContract "run"
+    State.empty [] 224170187
+
+def pointerArrayLiteralSource_is_224170187 : Except TypeError Bool :=
+  Examples.checkedOwnCallWordMatches 4096 pointerArrayLiteralSourceContract
+    "run" State.empty [] 224170187
+
+#guard arrayLiteralSourceAccepted
+#guard pointerArrayLiteralSourceAccepted
+#guard isOkTrue arrayLiteralSource_is_224170187
+#guard isOkTrue pointerArrayLiteralSource_is_224170187
 
 end StorageValueUseNormalize
 end Witness

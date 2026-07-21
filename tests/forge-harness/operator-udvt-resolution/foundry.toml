@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/operator-udvt-resolution/out"
+cache_path = "../../.foundry-suites/operator-udvt-resolution/cache"
+evm_version = "cancun"
