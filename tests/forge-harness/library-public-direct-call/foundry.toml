@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/library-public-direct-call/out"
+cache_path = "../../.foundry-suites/library-public-direct-call/cache"
+evm_version = "cancun"

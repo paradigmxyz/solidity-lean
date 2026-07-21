@@ -22569,7 +22569,7 @@ def FunctionDecl.rewriteLibraryExternalDirectCallCandidate?
       FunctionDecl.rewriteLibraryExternalDirectCallCandidateWithSignature?
         libraryName method env args fn matchFn
 
-def FunctionDecls.rewriteLibraryExternalDirectCallCandidate?
+def FunctionDecls.rewriteLibraryExternalDirectCallCandidateFrom?
     (libraryName method : Name) (env : TypeEnv) (args : List Arg) :
     List FunctionDecl -> Option Expr
   | [] => none
@@ -22579,8 +22579,50 @@ def FunctionDecls.rewriteLibraryExternalDirectCallCandidate?
             libraryName method env args fn with
       | some rewritten => some rewritten
       | none =>
-          FunctionDecls.rewriteLibraryExternalDirectCallCandidate?
+          FunctionDecls.rewriteLibraryExternalDirectCallCandidateFrom?
             libraryName method env args rest
+
+/-- Stage-4 (decf368 twin, external/public direct path): arity-only fallback —
+    accept a candidate whose args merely order against its params, without the
+    shape gate. -/
+def FunctionDecl.rewriteLibraryExternalDirectCallCandidateByArity?
+    (libraryName method : Name) (args : List Arg)
+    (fn : FunctionDecl) : Option Expr := do
+  let orderedArgs ← Args.toExprsForParams? fn.params args
+  some <|
+    FunctionDecl.annotateSingleCoreReturn fn
+      (Expr.call (libraryExternalCallTarget libraryName method)
+        (orderedArgs.map Arg.positional))
+
+def FunctionDecls.rewriteLibraryExternalDirectCallCandidateByArityFrom?
+    (libraryName method : Name) (args : List Arg) :
+    List FunctionDecl -> Option Expr
+  | [] => none
+  | fn :: rest =>
+      match
+          FunctionDecl.rewriteLibraryExternalDirectCallCandidateByArity?
+            libraryName method args fn with
+      | some rewritten => some rewritten
+      | none =>
+          FunctionDecls.rewriteLibraryExternalDirectCallCandidateByArityFrom?
+            libraryName method args rest
+
+def FunctionDecls.rewriteLibraryExternalDirectCallCandidate?
+    (libraryName method : Name) (env : TypeEnv) (args : List Arg)
+    (candidates : List FunctionDecl) : Option Expr :=
+  match
+      FunctionDecls.rewriteLibraryExternalDirectCallCandidateFrom?
+        libraryName method env args candidates with
+  | some rewritten => some rewritten
+  | none =>
+      -- The shape gate lacks the arity fallback the contract-internal path
+      -- (`findInternalCalleeWithArgs?`) and the internal-visibility direct
+      -- library path (decf368) have, so shapes it does not model (e.g. an
+      -- explicit enum-conversion argument reported as its underlying uint)
+      -- would otherwise leave a `public`/`external` library direct call
+      -- unrewritten — poisoning the whole contract's elaboration.
+      FunctionDecls.rewriteLibraryExternalDirectCallCandidateByArityFrom?
+        libraryName method args candidates
 
 def libraryExternalDirectCallRewrite? (contracts : List ContractDecl)
     (env : TypeEnv) (receiver : Expr) (method : Name)

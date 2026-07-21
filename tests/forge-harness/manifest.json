@@ -13698,6 +13698,44 @@
      }
     ]
    }
+  },
+  {
+   "name": "library-public-direct-call",
+   "description": "Coverage gap (decf368 twin, external/public path): a DIRECT call to a public/external library function whose argument is an explicit enum conversion in call form -- ModeLib.isOff(ModeLib.Mode(m)) -- typechecked but failed to lower: rewriteLibraryExternalDirectCallCandidate? was shape-gated with NO arity fallback, so the call stayed unrewritten and the WHOLE CONTRACT failed executable elaboration (checked-executable poisoning), while solc compiles and runs it. The rewrite now falls back to arity-only ordering exactly like its contract-internal twin, so the contract elaborates and the call lowers to the public-library delegatecall boundary. Forge pins real solc/EVM behavior. KNOWN REMAINING GAP (pre-existing, out of scope here): the model renders the delegatecall selector with the enum collapsed to uint8 (isOff(uint8)) whereas solc's library selector keeps the qualified enum name (isOff(ModeLib.Mode)); Ty.enum carries only the member count so the name is unrecoverable at the boundary without a type-representation change.",
+   "forge": {
+    "root": "tests/forge-harness/library-public-direct-call",
+    "match_contract": "LibraryPublicDirectCallForgeTest",
+    "match_test": "test*",
+    "quiet": true
+   },
+   "solc_import": {
+    "source": "tests/forge-harness/library-public-direct-call/src/LibraryPublicDirectCall.sol",
+    "contract": "LibraryPublicDirectCallHarnessTarget",
+    "namespace": "SolidCore.Solidity.SolcAstImport.LibraryPublicDirectCall"
+   },
+   "lean": {
+    "imports": [
+     "SolidCore.Solidity.Checked",
+     "SolidCore.Witness.Checked"
+    ],
+    "evals": [
+     {
+      "label": "importedContractAccepted",
+      "expr": "SolidCore.Solidity.SolcAstImport.LibraryPublicDirectCall.importedContractAccepted",
+      "expect": "true"
+     },
+     {
+      "label": "importedContractElaborates",
+      "expr": "(do\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.LibraryPublicDirectCall.importedSourceUnit\n  let _ \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"LibraryPublicDirectCallHarnessTarget\"\n  Except.ok true)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "importedCheckLowersAndReachesLibraryDelegatecall",
+      "expr": "(do\n  let program \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.program SolidCore.Solidity.SolcAstImport.LibraryPublicDirectCall.importedSourceUnit\n  let contract \u2190 SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"LibraryPublicDirectCallHarnessTarget\"\n  let ctx := { contract.core.context with contractAddresses := [(\"ModeLib\", 0xbeef)], accountCodes := [(0xbeef, [1])] }\n  let r \u2190 SolidCore.Solidity.TypeCheck.CheckedContract.callFunctionWithContextFailOpen 256\n    (SolidCore.Solidity.Source.responderOfResults [] []) contract \"check\" ctx\n    SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0]\n  match r with\n  | SolidCore.Solidity.Source.CallResult.reverted _ SolidCore.Solidity.Source.RevertData.empty => Except.ok true\n  | _ => Except.ok false)",
+      "expect": "Except.ok true"
+     }
+    ]
+   }
   }
  ]
 }
