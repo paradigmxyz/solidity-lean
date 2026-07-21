@@ -168,6 +168,102 @@ def run_real_coverage_selftest(timeout: int = 500) -> tuple[bool, str]:
     return ok, detail
 
 
+def run_real_deploy_soundness_selftest(timeout: int = 500) -> tuple[bool, str]:
+    """REAL end-to-end DEPLOY-OUTCOME soundness-detector test.
+
+    Runs `ctor_revert_error` (a constructor that reverts identically on both
+    engines) through the FULL live pipeline, then perturbs the measured EVM
+    observable into a successful deploy+call — simulating a model whose
+    constructor reverts where the real EVM deploys fine. The comparator+
+    classifier must return SOUNDNESS_GAP(deploy-revert-vs-success). Proves a
+    model-vs-EVM disagreement ON THE DEPLOY OUTCOME is detected and classified,
+    with ZERO bugs in solidity-lean (the delta lives in the test harness)."""
+    def perturb(_evm_obs: obs.Observable) -> obs.Observable:
+        return obs.parse_observable("success|w:0##EVT####STO##")
+
+    report = adj.adjudicate(
+        SAMPLES / "ctor_revert_error", timeout=timeout,
+        _selftest_perturb_evm=perturb)
+    comp = (report.evidence.get("comparison", {}) or {}).get("differing_component")
+    ok = (report.verdict == "SOUNDNESS_GAP" and report.lane == "S"
+          and comp == "deploy-revert-vs-success" and report.qualifies)
+    detail = (f"verdict={report.verdict} lane={report.lane} "
+              f"component={comp} qualifies={report.qualifies} :: {report.reason[:140]}")
+    return ok, detail
+
+
+def ctor_revert_unit_tests() -> tuple[bool, str]:
+    """Constructor-revert measurement + comparison invariants (pure functions)."""
+    import contest.measure as _meas
+    from contest import adjudicate as A
+    checks: list[tuple[str, bool]] = []
+
+    # The measurement parser accepts the deployrevert line and flags it.
+    m = _meas._parse_measurement(
+        "deployrevert|0x08c379a0|self=0x01|origin=0x02|evt=|sto=")
+    checks.append(("meas-deployrevert-parsed",
+                   m is not None and m.deploy_reverted and not m.ok))
+    m2 = _meas._parse_measurement("ok|0x|self=0x01|origin=0x02|evt=|sto=")
+    checks.append(("meas-ok-not-deployrevert",
+                   m2 is not None and not m2.deploy_reverted and m2.ok))
+    # malformed (odd-length hex) deployrevert still fails safe.
+    checks.append(("meas-deployrevert-odd-hex-failsafe",
+                   _meas._parse_measurement(
+                       "deployrevert|0xabc|self=0x01|origin=0x02") is None))
+
+    # evm_observable phase head: same revert bytes render deployrevert| when the
+    # DEPLOY reverted, revert| when the entry call did.
+    _err = ("0x08c379a0" + "00" * 31 + "20" + "00" * 31 + "02"
+            + "4141" + "00" * 30)  # Error("AA")
+    dep = obs.evm_observable(False, _err, [], events="", storage="",
+                             deploy_reverted=True)
+    call = obs.evm_observable(False, _err, [], events="", storage="")
+    checks.append(("phase-heads", dep.outcome_line == "deployrevert|error:AA"
+                   and call.outcome_line == "revert|error:AA"))
+    # ... and the two phases NEVER compare equal despite identical revert data.
+    cmp_phase = obs.compare_observables(dep, call)
+    checks.append(("phase-distinct-not-equal",
+                   not cmp_phase.equal
+                   and cmp_phase.differing_component == "deploy-vs-call-revert"))
+    # identical deploy reverts compare equal; different data -> wrong-deploy-revert.
+    checks.append(("deployrevert-equal",
+                   obs.compare_observables(dep, obs.evm_observable(
+                       False, _err, [], events="", storage="",
+                       deploy_reverted=True)).equal))
+    dep2 = obs.parse_observable("deployrevert|panic:17##EVT####STO##")
+    cmp_dd = obs.compare_observables(dep, dep2)
+    checks.append(("wrong-deploy-revert",
+                   not cmp_dd.equal
+                   and cmp_dd.differing_component == "wrong-deploy-revert"))
+    # deploy revert vs a successful deploy+call -> deploy-revert-vs-success.
+    succ = obs.parse_observable("success|w:0##EVT####STO##")
+    cmp_ds = obs.compare_observables(dep, succ)
+    checks.append(("deploy-revert-vs-success",
+                   not cmp_ds.equal
+                   and cmp_ds.differing_component == "deploy-revert-vs-success"))
+
+    # canonicalize_raw_revert also handles the deployrevert raw form and
+    # PRESERVES the phase head.
+    raw_dep = obs.parse_observable(f"deployrevert|raw:{_err}##EVT####STO##")
+    canon = obs.canonicalize_raw_revert(raw_dep)
+    checks.append(("deployrevert-raw-canonicalized",
+                   canon.outcome_line == "deployrevert|error:AA"))
+    checks.append(("deployrevert-raw-canon-equal",
+                   obs.compare_observables(canon, dep).equal))
+
+    # fingerprint: deploy-phase components map to the deploy_revert_data key.
+    for comp in ("deploy-revert-vs-success", "deploy-vs-call-revert",
+                 "wrong-deploy-revert"):
+        key = A.soundness_fingerprint(
+            obs.ObservableComparison(False, dep, succ,
+                                     differing_component=comp), "f")
+        checks.append((f"fp-{comp}", key[0] == "deploy_revert_data"))
+
+    ok = all(v for _n, v in checks)
+    detail = ", ".join(f"{n}={'ok' if v else 'BAD'}" for n, v in checks)
+    return ok, detail
+
+
 def dedup_unit_tests() -> tuple[bool, str]:
     """Directly exercise the dedup fingerprint machinery (§6.2)."""
     checks = []

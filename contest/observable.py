@@ -24,6 +24,9 @@ NORMAL FORM (a single canonical line, solidity-lean-internals-independent):
     revert|error:<string>
     revert|custom:<name>:<v1>,<v2>,...
     revert|raw:<hexbytes>
+    deployrevert|<same bodies>   # the CONSTRUCTOR reverted (deploy failed, the
+                                 # entry call never ran) — phase-distinct from an
+                                 # entry-call revert with identical revert data
     solidity-lean-reject|<message>     # solidity-lean fail-closed (import/typecheck/exec)
 
 Value rendering (decimal, so it does not depend on solidity-lean's Repr):
@@ -192,14 +195,21 @@ def renderEventsFrom (self : SolidCore.Solidity.Source.Word)
 -- renderFull variant that receives the post-construction log count so the event
 -- section shows ONLY the entry call's logs (see renderEventsFrom). Storage still
 -- dumps the whole map (ctor writes included, symmetric with the EVM side).
+-- The Bool flags a CONSTRUCTOR (deploy-phase) revert: the deployment itself
+-- failed and the entry call never ran. It renders with the distinct
+-- `deployrevert|` head so a deploy-phase revert can NEVER compare equal to an
+-- entry-call revert carrying the same revert data (they are different
+-- observable outcomes: on the EVM one leaves no contract, the other does).
 def renderFullDelta (self : SolidCore.Solidity.Source.Word)
     (_slots : List SolidCore.Solidity.Source.Word)
     (r : Except SolidCore.Solidity.TypeCheck.TypeError
-                (Nat × SolidCore.Solidity.Source.CallResult)) : String :=
+                (Nat × Bool × SolidCore.Solidity.Source.CallResult)) : String :=
   match r with
   | Except.error e => "solidity-lean-reject|" ++ reprStr e
-  | Except.ok (ctorLogs, res) =>
-    let outcome := renderCallResult (Except.ok res)
+  | Except.ok (ctorLogs, deployReverted, res) =>
+    let outcome := match res, deployReverted with
+      | CallResult.reverted _ rd, true => "deployrevert|" ++ renderRevert rd
+      | _, _ => renderCallResult (Except.ok res)
     let evs := match res with
       | CallResult.returned state _ => renderEventsFrom self state ctorLogs
       | CallResult.reverted _ _ => ""
@@ -310,9 +320,11 @@ def lean_eval_line(namespace: str, contract: str, fuel: int, fname: str,
         f"      | SolidCore.Solidity.Source.CallResult.returned st _ => pure st\n"
         # A constructor that reverts means the deployment failed: on the EVM the
         # contract never comes into existence. Surface the ctor revert as the
-        # observable outcome (short-circuit the entry call).
+        # observable outcome (short-circuit the entry call), FLAGGED as a
+        # deploy-phase revert (the Bool) so it renders `deployrevert|...` —
+        # phase-distinct from an entry-call revert with identical revert data.
         f"      | rr@(SolidCore.Solidity.Source.CallResult.reverted _ _) =>\n"
-        f"          return (0, rr)\n"
+        f"          return (0, true, rr)\n"
         # Seed the manifest `storage` slots into deployState AFTER construction and
         # BEFORE the entry call (mirrors the EVM side's post-constructor vm.store).
         f"{seed_line}"
@@ -322,7 +334,7 @@ def lean_eval_line(namespace: str, contract: str, fuel: int, fname: str,
         f"{cd_line}"
         f"    let callRes ← {TC}.CheckedContract.callFunctionWithContext {fuel}\n"
         f"      contract \"{fname}\" {entry_ctx} deployState {args_lean}\n"
-        f"    pure (ctorLogs, callRes))")
+        f"    pure (ctorLogs, false, callRes))")
     call = (f"SolidCore.Solidity.Contest.renderFullDelta "
             f"{self_addr} {slots_lean} {do_block}")
     return f'#eval "{OBSERVABLE_MARKER.strip()} " ++ ({call})'
@@ -482,17 +494,26 @@ def evm_revert_normal_form(
 def evm_observable(ok: bool, ret_hex: str, return_types: list[str],
                    events: Optional[str] = None,
                    storage: Optional[str] = None,
-                   errors: Optional[dict[str, tuple[str, list[str]]]] = None) -> "Observable":
+                   errors: Optional[dict[str, tuple[str, list[str]]]] = None,
+                   deploy_reverted: bool = False) -> "Observable":
     """Build the EVM observable in normal form from the measured raw result.
 
     ``events``/``storage`` are the measured §3.4 components 4/5 (empty string
     when the call reverted); they are appended in the same ``##EVT##``/``##STO##``
     tokenized form the solidity-lean helper (``renderFull``) emits, so the comparator
-    diffs them component-by-component."""
+    diffs them component-by-component.
+
+    ``deploy_reverted`` marks a CONSTRUCTOR (deploy-phase) revert: ``ret_hex``
+    is then the constructor's revert data and the normal form gets the distinct
+    ``deployrevert|`` head — the same head the solidity-lean helper emits for a
+    model-side constructor revert — so deploy-phase and entry-call reverts are
+    phase-distinct comparable outcomes."""
     if ok:
         line = evm_return_normal_form(ret_hex, return_types)
     else:
         line = evm_revert_normal_form(ret_hex, errors=errors)
+        if deploy_reverted:
+            line = "deployrevert|" + line.split("|", 1)[1]
     if events is not None or storage is not None:
         line = f"{line}{_EVT_SEP}{events or ''}{_STO_SEP}{storage or ''}"
     return parse_observable(line)
@@ -558,6 +579,10 @@ class Observable:
             return "success"
         if head == "solidity-lean-reject":
             return "solidity-lean-reject"
+        # deployrevert|.. => the CONSTRUCTOR reverted (deploy-phase outcome,
+        # distinct from an entry-call revert regardless of the revert data).
+        if head == "deployrevert":
+            return "deployrevert"
         # revert|panic:.. => panic; revert|error/empty/custom/raw => revert
         if head == "revert":
             line = self.outcome_line
@@ -604,16 +629,25 @@ def canonicalize_raw_revert(
     representation asymmetry; a genuinely different byte string still decodes to a
     different form, so real divergences are preserved (never masked)."""
     outcome, events, storage = _split_sections(o.raw)
-    prefix = "revert|raw:0x"
-    if not outcome.startswith(prefix):
+    # Both the entry-call and the deploy-phase (constructor) revert channels can
+    # carry a raw form; canonicalize each under its own phase head so the phase
+    # distinction is preserved.
+    head = None
+    for prefix in ("revert|raw:0x", "deployrevert|raw:0x"):
+        if outcome.startswith(prefix):
+            head = prefix.split("|", 1)[0]
+            hexbody = outcome[len(prefix):]
+            break
+    if head is None:
         return o
-    hexbody = outcome[len(prefix):]
     try:
         decoded = evm_revert_normal_form("0x" + hexbody, errors=errors)
     except Exception:
         return o  # undecodable -> leave the raw form untouched
     if decoded.startswith("revert|raw:"):
         return o  # selector unrecognized; no canonical gain, keep original
+    if head == "deployrevert":
+        decoded = "deployrevert|" + decoded.split("|", 1)[1]
     if events is None and storage is None:
         return Observable(raw=decoded)
     return Observable(raw=f"{decoded}{_EVT_SEP}{events or ''}{_STO_SEP}{storage or ''}")
@@ -708,8 +742,14 @@ def compare_observables(solidity_lean: Observable, evm: Observable) -> Observabl
     if solidity_lean.outcome_line.strip() != evm.outcome_line.strip():
         # classify the outcome/value/revert difference for lane-S sub-kind.
         if solidity_lean.outcome != evm.outcome:
-            if {solidity_lean.outcome, evm.outcome} & {"success"} and \
-               {solidity_lean.outcome, evm.outcome} & {"revert", "panic"}:
+            outs = {solidity_lean.outcome, evm.outcome}
+            if "deployrevert" in outs:
+                # the engines DISAGREE on the deploy outcome: one constructor
+                # reverts where the other deploys fine (the entry then runs to
+                # success or its own revert) — a deploy-phase divergence.
+                component = ("deploy-revert-vs-success" if "success" in outs
+                             else "deploy-vs-call-revert")
+            elif outs & {"success"} and outs & {"revert", "panic"}:
                 component = "revert-vs-success"
             elif "panic" in (solidity_lean.outcome, evm.outcome):
                 component = "wrong-panic"
@@ -720,6 +760,9 @@ def compare_observables(solidity_lean: Observable, evm: Observable) -> Observabl
                 component = "wrong-value"
             elif solidity_lean.outcome == "panic":
                 component = "wrong-panic"
+            elif solidity_lean.outcome == "deployrevert":
+                # both constructors revert, but with DIFFERENT revert data.
+                component = "wrong-deploy-revert"
             else:
                 component = "wrong-revert"
         return ObservableComparison(False, solidity_lean, evm, differing_component=component)

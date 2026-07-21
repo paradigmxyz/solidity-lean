@@ -1,0 +1,14 @@
+{
+  "lane": "S",
+  "entry": {
+    "contract": "CtorRevertEmpty",
+    "function": "get",
+    "args": [],
+    "constructor_args": [],
+    "value": 0
+  },
+  "expected_divergence": "Control for a CONSTRUCTOR bare revert(). Zero-length revert data on both engines -> deployrevert|empty -> NO_DIVERGENCE.",
+  "declared_observable": { "kind": "deploy_revert_data", "normal_form": "deployrevert|empty" },
+  "feature": "constructor-revert-empty",
+  "register_version_seen": "1.2.0"
+}

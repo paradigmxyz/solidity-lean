@@ -1,0 +1,14 @@
+{
+  "lane": "S",
+  "entry": {
+    "contract": "CtorRevertError",
+    "function": "get",
+    "args": [],
+    "constructor_args": [42],
+    "value": 0
+  },
+  "expected_divergence": "Control for a CONSTRUCTOR revert with Error(string). Deployed with x=42, require(x < 10, \"ctor bad\") fails: the deploy reverts on both engines -> deployrevert|error:ctor bad -> NO_DIVERGENCE.",
+  "declared_observable": { "kind": "deploy_revert_data", "normal_form": "deployrevert|error:ctor bad" },
+  "feature": "constructor-revert-error-string",
+  "register_version_seen": "1.2.0"
+}

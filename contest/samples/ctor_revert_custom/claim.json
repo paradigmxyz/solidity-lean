@@ -1,0 +1,14 @@
+{
+  "lane": "S",
+  "entry": {
+    "contract": "CtorRevertCustom",
+    "function": "get",
+    "args": [],
+    "constructor_args": [42],
+    "value": 0
+  },
+  "expected_divergence": "Control for a CONSTRUCTOR revert with a CUSTOM error. Deployed with x=42 -> revert CtorBad(42) on both engines -> deployrevert|custom:CtorBad:w:42 -> NO_DIVERGENCE.",
+  "declared_observable": { "kind": "deploy_revert_data", "normal_form": "deployrevert|custom:CtorBad:w:42" },
+  "feature": "constructor-revert-custom-error",
+  "register_version_seen": "1.2.0"
+}

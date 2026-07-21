@@ -1,0 +1,14 @@
+{
+  "lane": "S",
+  "entry": {
+    "contract": "CtorRevertBase",
+    "function": "get",
+    "args": [],
+    "constructor_args": [],
+    "value": 0
+  },
+  "expected_divergence": "Control for a FAILING BASE constructor. CtorRevertBase is Base(0); Base's require(x != 0, \"base zero\") fails during the deploy on both engines -> deployrevert|error:base zero -> NO_DIVERGENCE.",
+  "declared_observable": { "kind": "deploy_revert_data", "normal_form": "deployrevert|error:base zero" },
+  "feature": "constructor-revert-failing-base",
+  "register_version_seen": "1.2.0"
+}

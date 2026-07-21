@@ -55,6 +55,12 @@ class Measurement:
     raw: str                 # the raw dumped line, for evidence
     events: str = ""         # rendered events section (§3.4 component 4)
     storage: str = ""        # rendered observed-storage section (component 5)
+    # True when the CONSTRUCTOR reverted: the deploy itself failed, the entry
+    # call never ran, and ret_hex carries the constructor's revert data
+    # (Error(string) / Panic / custom error / empty). self_addr is then the
+    # PREDICTED create address (what the contract's address would have been),
+    # so address(this) inside the model's constructor still mirrors the EVM.
+    deploy_reverted: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -246,6 +252,8 @@ interface CVm {
     function load(address,bytes32) external view returns (bytes32);
     function store(address,bytes32,bytes32) external;
     function writeFile(string calldata, string calldata) external;
+    function getNonce(address) external returns (uint64);
+    function computeCreateAddress(address,uint256) external pure returns (address);
     function toString(bytes calldata) external pure returns (string memory);
     function toString(uint256) external pure returns (string memory);
     function toString(address) external pure returns (string memory);
@@ -283,20 +291,48 @@ def _harness_source(sig: EntrySig, calldata_hex: str, out_path: Path,
     # away by the Python comparator (observable._parse_storage_map), so no dedup is
     # needed here. This mirrors the solidity-lean side, which dumps its whole storage map.
     _ = slots  # retained for signature compatibility; superseded by vm.accesses
-    # Deployment: `new C()` for a no-arg constructor; otherwise deploy from the
-    # contract's creationCode with the ABI-encoded constructor args appended (the
-    # exact bytes solc would append), via a low-level CREATE. This mirrors the
-    # solidity-lean side, which runs `constructWithContext` with the same decoded args.
-    if ctor_args_hex:
-        deploy_block = (
-            f'bytes memory _init = abi.encodePacked('
-            f'type({sig.contract}).creationCode, hex"{ctor_args_hex}");\n'
-            f'        address _addr;\n'
-            f'        assembly {{ _addr := create(0, add(_init, 0x20), mload(_init)) }}\n'
-            f'        require(_addr != address(0), "constructor deploy reverted");\n'
-            f'        {sig.contract} target = {sig.contract}(_addr);')
-    else:
-        deploy_block = f'{sig.contract} target = new {sig.contract}();'
+    # Deployment: ALWAYS a low-level CREATE from the contract's creationCode with
+    # the ABI-encoded constructor args appended (the exact bytes solc would
+    # append; empty for a no-arg constructor). This mirrors the solidity-lean
+    # side, which runs `constructWithContext` with the same decoded args. A
+    # low-level create (unlike `new C()`) does NOT abort the test when the
+    # CONSTRUCTOR reverts: a constructor-revert is a first-class measurable
+    # observable — the revert data (Error(string) / Panic / custom error /
+    # empty) is captured via returndatacopy and dumped as `deployrevert|...`,
+    # with self= the PREDICTED create address (computeCreateAddress over the
+    # pranked deployer's nonce — identical to the actual address on success),
+    # so address(this) inside the model's constructor still mirrors the EVM.
+    sender_expr = f"address(uint160({ov.sender}))"
+    deploy_block = (
+        f'bytes memory _init = abi.encodePacked('
+        f'type({sig.contract}).creationCode, hex"{ctor_args_hex}");\n'
+        f'        address _pred = vm.computeCreateAddress({sender_expr}, '
+        f'vm.getNonce({sender_expr}));\n'
+        # Prank the DEPLOY (vm.prank applies to the next CALL or CREATE), so
+        # the constructor's msg.sender is the canonical sender — the same value
+        # solidity-lean threads into constructWithContext. Without this the
+        # ctor would see the test-harness address and `owner = msg.sender`
+        # would diverge. (Cheatcode calls above do not consume the prank.)
+        f'        vm.prank({sender_expr});\n'
+        f'        address _addr;\n'
+        f'        assembly {{ _addr := create(0, add(_init, 0x20), mload(_init)) }}\n'
+        f'        if (_addr == address(0)) {{\n'
+        f'            bytes memory _crd;\n'
+        f'            assembly {{\n'
+        f'                _crd := mload(0x40)\n'
+        f'                mstore(_crd, returndatasize())\n'
+        f'                returndatacopy(add(_crd, 0x20), 0, returndatasize())\n'
+        f'                mstore(0x40, add(add(_crd, 0x20), '
+        f'and(add(returndatasize(), 0x3f), not(0x1f))))\n'
+        f'            }}\n'
+        f'            vm.writeFile("{out_path}", string(abi.encodePacked(\n'
+        f'                "deployrevert|", vm.toString(_crd),\n'
+        f'                "|self=", vm.toString(_pred),\n'
+        f'                "|origin=", vm.toString(tx.origin),\n'
+        f'                "|evt=|sto=")));\n'
+        f'            return;\n'
+        f'        }}\n'
+        f'        {sig.contract} target = {sig.contract}(_addr);')
     # Raw storage injection (manifest `storage`): seed the entry contract's slots
     # AFTER the constructor runs, mirroring the solidity-lean side which seeds
     # deployState.storage post-construction. `vm.store` is a trusted cheatcode used
@@ -333,11 +369,8 @@ contract ContestMeasure {{
         {pin_block}
         // Arm storage recording BEFORE the deploy so constructor SSTOREs count.
         vm.record();
-        // Prank the DEPLOY too (vm.prank applies to the next CALL or CREATE), so
-        // the constructor's msg.sender is the canonical sender — the same value
-        // solidity-lean threads into constructWithContext. Without this the ctor would
-        // see the test-harness address and `owner = msg.sender` would diverge.
-        vm.prank(address(uint160({ov.sender})));
+        // Deploy (pranked; see deploy_block): a reverting constructor is
+        // CAPTURED as the `deployrevert|...` observable, not a test abort.
         {deploy_block}
         // Raw storage injection (manifest `storage`), applied AFTER the constructor.
         {inject_block}
@@ -459,7 +492,8 @@ def _tail(path: Path, n: int = 600) -> str:
 # failing safe. Requiring pairs `(?:..){2}` makes a malformed ret_hex simply not
 # match -> _parse_measurement returns None -> INVALID (fail-safe), never a crash.
 _MEAS_RE = re.compile(
-    r"^(ok|revert)\|(0x(?:[0-9a-fA-F]{2})*)\|self=(0x[0-9a-fA-F]+)\|origin=(0x[0-9a-fA-F]+)"
+    r"^(ok|revert|deployrevert)\|(0x(?:[0-9a-fA-F]{2})*)"
+    r"\|self=(0x[0-9a-fA-F]+)\|origin=(0x[0-9a-fA-F]+)"
     r"(?:\|evt=(.*)\|sto=(.*))?$")
 
 
@@ -467,11 +501,14 @@ def _parse_measurement(raw: str) -> Optional[Measurement]:
     match = _MEAS_RE.match(raw.strip())
     if not match:
         return None
-    ok = match.group(1) == "ok"
+    kind = match.group(1)
+    ok = kind == "ok"
+    deploy_reverted = kind == "deployrevert"
     ret_hex = match.group(2)
     self_addr = int(match.group(3), 16)
     origin = int(match.group(4), 16)
     events = match.group(5) or ""
     storage = match.group(6) or ""
     return Measurement(ok, ret_hex, self_addr, origin, raw,
-                       events=events, storage=storage)
+                       events=events, storage=storage,
+                       deploy_reverted=deploy_reverted)

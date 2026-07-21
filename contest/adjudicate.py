@@ -226,6 +226,11 @@ def soundness_fingerprint(comparison: obs.ObservableComparison,
         obs_component = "return_value"
     elif component in ("wrong-panic", "wrong-revert", "revert-vs-success"):
         obs_component = "revert_data"
+    elif component in ("deploy-revert-vs-success", "deploy-vs-call-revert",
+                       "wrong-deploy-revert"):
+        # constructor-revert (deploy-phase) divergences: the engines disagree
+        # on the deploy outcome or on the constructor's revert data.
+        obs_component = "deploy_revert_data"
     else:
         obs_component = component
     return (obs_component, feature, component)
@@ -607,16 +612,21 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
             slots=slots, constructor_args=ctor_args,
             inject_storage=inject_storage)
         evidence["evm_measurement"] = (measured.raw if measured else mstatus)
+        if measured is not None and measured.deploy_reverted:
+            # A CONSTRUCTOR revert is a first-class measured outcome (the
+            # harness captures the deploy's revert data instead of aborting);
+            # it is compared against the model's own constructor outcome below.
+            evidence["deploy_reverted"] = True
         if measured is None:
             # The measurement harness is MAINTAINER-generated: by this point the
             # submission already passed structure/arg validation, the cheatcode
             # gate, and (non-manifest) its OWN forge test. A failure to produce
-            # the measured observable is therefore an infra/harness/deploy
+            # the measured observable is therefore a genuine infra/harness
             # issue, not evidence against the claim — route to review, never a
             # terminal INVALID (release audit fairness fix; the old terminal
             # reject silently invalidated valid submissions on toolchain
-            # hiccups, OOM, or a constructor-revert the harness cannot yet
-            # measure).
+            # hiccups or OOM). Note a CONSTRUCTOR revert is NOT such a failure:
+            # the harness measures it as a `deployrevert|...` observable.
             return Report("NEEDS_REVIEW", reason=(
                 f"could not measure the EVM observable from the Forge run "
                 f"({mstatus[:300]}); measurement infra/harness failure — "
@@ -783,7 +793,8 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
         evidence["ambiguous_error_selectors"] = sorted(ambiguous_sels)
     evm_obs = obs.evm_observable(
         measured.ok, measured.ret_hex, sig.return_types,
-        events=measured.events, storage=measured.storage, errors=error_defs)
+        events=measured.events, storage=measured.storage, errors=error_defs,
+        deploy_reverted=measured.deploy_reverted)
     if _selftest_perturb_evm is not None:  # fault-injection self-test only
         evm_obs = _selftest_perturb_evm(evm_obs)
         evidence["selftest_perturbed"] = True

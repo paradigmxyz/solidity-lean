@@ -1,0 +1,14 @@
+{
+  "lane": "S",
+  "entry": {
+    "contract": "CtorRevertPanic",
+    "function": "get",
+    "args": [],
+    "constructor_args": [],
+    "value": 0
+  },
+  "expected_divergence": "Control for a CONSTRUCTOR Panic. The no-arg constructor computes 0 - 1 (checked) -> Panic(0x11) on both engines -> deployrevert|panic:17 -> NO_DIVERGENCE.",
+  "declared_observable": { "kind": "deploy_revert_data", "normal_form": "deployrevert|panic:17" },
+  "feature": "constructor-revert-panic",
+  "register_version_seen": "1.2.0"
+}
