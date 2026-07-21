@@ -1,11 +1,19 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.35;
 
-import {CallposRemainderHarnessTarget} from "../src/CallposRemainder.sol";
+import {
+    CallposRemainderHarnessTarget,
+    CallposRemainderExtPush
+} from "../src/CallposRemainder.sol";
 
 contract CallposRemainderForgeTest {
     CallposRemainderHarnessTarget private target =
         new CallposRemainderHarnessTarget();
+    // The Bug-2 (`push`) and Bug-1 EXTERNAL (`this.`-self-call) repros live on
+    // CallposRemainderExtPush (see src header): route those calls to its own
+    // instance — `target.pushInternal()` etc. was a member-lookup error (solc
+    // 9582), not a callpos assertion.
+    CallposRemainderExtPush private ext = new CallposRemainderExtPush();
 
     // Bug 1 — internal call in `+=` RHS on a plain state var.
     function testAddInternal() public {
@@ -48,7 +56,7 @@ contract CallposRemainderForgeTest {
 
     // Bug 2 — storage array `.push(<internal call>)`.
     function testPushInternal() public {
-        require(target.pushInternal() == 37, "xs.push(fee()) must store 37");
+        require(ext.pushInternal() == 37, "xs.push(fee()) must store 37");
     }
 
     // Bug 1 — control: call-free compound-assign unchanged.
@@ -58,16 +66,16 @@ contract CallposRemainderForgeTest {
 
     // Bug 2 — control: call-free push unchanged.
     function testPlainPushControl() public {
-        require(target.plainPushControl() == 9, "plain push must store 9");
+        require(ext.plainPushControl() == 9, "plain push must store 9");
     }
 
     // Bug 1 — external `this.g()` in `+=` RHS.
     function testAddExternal() public {
-        require(target.addExternal() == 42, "kk += this.g() must equal 42");
+        require(ext.addExternal() == 42, "kk += this.g() must equal 42");
     }
 
     // Bug 2 — storage array `.push(this.g())` (external).
     function testPushExternal() public {
-        require(target.pushExternal() == 37, "xs.push(this.g()) must store 37");
+        require(ext.pushExternal() == 37, "xs.push(this.g()) must store 37");
     }
 }
