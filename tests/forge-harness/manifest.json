@@ -14010,6 +14010,94 @@
           }
         ]
       }
+    },
+    {
+      "name": "exp-literal-base-runtime-exp",
+      "description": "EXP-LITERAL-BASE-RUNTIME-EXPONENT soundness: a LITERAL base with a NON-literal exponent is typed by solc at uint256 (int256 for a negative literal base) -- RationalNumberType::binaryOperatorResult -- not the literal's mobile type. The #164 EXP-NARROW-BASE fix used the mobile type (2 -> uint8), so the checked exp ran at the narrow width and spuriously Panicked 0x11 on `2**e` (e=8; EVM: 256) and `(-2)**e` (e=9; EVM: -512). Fix widens the literal base to 256 bits ONLY when the exponent is non-literal; controls pin the literal-only folds (2**112 Q112, 2**255, -2**255), `1 << e`, a typed signed base `b**e`, narrow typed `x**y` base-width Panic 0x11, and the 256-bit overflow of `2**e` at e=256. Forge pins real solc/EVM values; Lean imports the same source.",
+      "forge": {
+        "root": "tests/forge-harness/exp-literal-base-runtime-exp",
+        "match_contract": "ExpLiteralBaseRuntimeExpForgeTest",
+        "match_test": "test*",
+        "quiet": true
+      },
+      "solc_import": {
+        "source": "tests/forge-harness/exp-literal-base-runtime-exp/src/ExpLiteralBaseRuntimeExp.sol",
+        "contract": "ExpLiteralBaseRuntimeExpTarget",
+        "namespace": "SolidCore.Solidity.SolcAstImport.ExpLiteralBaseRuntimeExp"
+      },
+      "lean": {
+        "imports": [
+          "SolidCore.Solidity.Checked",
+          "SolidCore.Witness.Checked"
+        ],
+        "evals": [
+          {
+            "label": "importedContractAccepted",
+            "expr": "SolidCore.Solidity.SolcAstImport.ExpLiteralBaseRuntimeExp.importedContractAccepted",
+            "expect": "true"
+          },
+          {
+            "label": "litUint_2p8_is_256",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.ExpLiteralBaseRuntimeExp.importedContract \"litUint\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 8] 256",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "litUint_2p255",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.ExpLiteralBaseRuntimeExp.importedContract \"litUint\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 255] (2 ^ 255)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "litInt_neg2p9_is_neg512",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 256 SolidCore.Solidity.SolcAstImport.ExpLiteralBaseRuntimeExp.importedContract \"litInt\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 9] (SolidCore.Solidity.Shared.signedToWord (-512))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "litInt_neg2p8_is_256",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 256 SolidCore.Solidity.SolcAstImport.ExpLiteralBaseRuntimeExp.importedContract \"litInt\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 8] (SolidCore.Solidity.Shared.signedToWord 256)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "litUintWide_2p256_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 256 SolidCore.Solidity.SolcAstImport.ExpLiteralBaseRuntimeExp.importedContract \"litUintWide\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 256] 17",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "foldQ112",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.ExpLiteralBaseRuntimeExp.importedContract \"foldQ112\" SolidCore.Solidity.Source.State.empty [] (2 ^ 112)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "fold255",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.ExpLiteralBaseRuntimeExp.importedContract \"fold255\" SolidCore.Solidity.Source.State.empty [] (2 ^ 255)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "foldNeg255",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 256 SolidCore.Solidity.SolcAstImport.ExpLiteralBaseRuntimeExp.importedContract \"foldNeg255\" SolidCore.Solidity.Source.State.empty [] (SolidCore.Solidity.Shared.signedToWord (-(2 ^ 255)))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "shiftLit_200",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.ExpLiteralBaseRuntimeExp.importedContract \"shiftLit\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200] (2 ^ 200)",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "typedSigned_9_is_neg512",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallIntMatches 256 SolidCore.Solidity.SolcAstImport.ExpLiteralBaseRuntimeExp.importedContract \"typedSigned\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 9] (SolidCore.Solidity.Shared.signedToWord (-512))",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "narrowTyped_2_7_is_128",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.ExpLiteralBaseRuntimeExp.importedContract \"narrowTyped\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 2, SolidCore.Solidity.Source.Value.word 7] 128",
+            "expect": "Except.ok true"
+          },
+          {
+            "label": "narrowTyped_2_8_panics",
+            "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallPanicMatches 256 SolidCore.Solidity.SolcAstImport.ExpLiteralBaseRuntimeExp.importedContract \"narrowTyped\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 2, SolidCore.Solidity.Source.Value.word 8] 17",
+            "expect": "Except.ok true"
+          }
+        ]
+      }
     }
   ]
 }

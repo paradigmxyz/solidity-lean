@@ -7760,7 +7760,26 @@ def Expr.binaryToCoreWithEnvTypedFuel? (fuel : Nat) (storageNames : List Name)
       let expTy0 ← Expr.abiTyWithEnv? env rhs
       let baseTy :=
         if Expr.isRawNumberLiteralExpression lhs then
-          (Expr.untypedLiteralMobileTy? lhs).getD baseTy0
+          -- EXP-LITERAL-BASE-RUNTIME-EXPONENT (SOUNDNESS): a LITERAL base with
+          -- a NON-literal exponent is typed by solc at the full 256-bit width —
+          -- `RationalNumberType::binaryOperatorResult` (`Types.cpp`) resolves
+          -- `<rational> ** <integer>` to `uint256` (`int256` for a negative
+          -- literal base), NOT the literal's mobile type. Probe (solc 0.8.35):
+          -- `uint8 e; uint8 r = 2**e;` → "Type uint256 is not implicitly
+          -- convertible to uint8"; `int8 r = (-2)**e;` → int256 likewise. Using
+          -- the mobile type (`2` → uint8) ran the checked exp at the NARROW
+          -- width, spuriously Panicking 0x11 on `2**e` with `e = 8` (solc+EVM:
+          -- 256) and `(-2)**e` with `e = 9` (solc+EVM: -512). NOTE the
+          -- literal-base/literal-exponent case never reaches here — the
+          -- raw-literal-only guard at the top of this function already returned
+          -- `none`, so the compile-time constant fold (`2**255`, `2**112`)
+          -- still handles it. A non-integer/out-of-range literal keeps
+          -- `baseTy0` (mobile type `none`), preserving the existing
+          -- fail-closed behavior.
+          match Expr.untypedLiteralMobileTy? lhs with
+          | some (Ty.int _) => Ty.int 256
+          | some (Ty.uint _) => Ty.uint 256
+          | _ => baseTy0
         else baseTy0
       let expTy :=
         if Expr.isRawNumberLiteralExpression rhs then
