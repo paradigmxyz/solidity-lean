@@ -101,7 +101,7 @@ submission/
   "expected_divergence": "One or two sentences: what solc+EVM do vs what solidity-lean does, and why it diverges.",
   "declared_observable": { "kind": "return_value", "normal_form": "success|w:1" },
   "feature": "short-kebab-case-feature-name",
-  "register_version_seen": "1.5.0"
+  "register_version_seen": "1.6.0"
 }
 ```
 - `lane` — `"S"` or `"C"` (see the table above).
@@ -113,10 +113,18 @@ submission/
   type-directed, so both engines receive the same logical call). Return and
   revert channels are decoded recursively too (nested-dynamic included), and a
   **reverting constructor** is measured as the `deployrevert|…` observable —
-  none of these need restructuring any more. Still out of scope:
-  function-typed / domain-unboundable parameters (X-FNARG), internal function
-  values in the return/revert channel (X-INTFNVAL), and external calls +
-  contract creation (X-EXTCALL) until the v2 responder.
+  none of these need restructuring any more. An **external function-typed
+  parameter** (register 1.6) takes a 2-element `[address, selector]` list
+  (address < 2^160, selector < 2^32) — both engines receive the same
+  (address, selector) pair; INSPECTING it (`.address`/`.selector`) is
+  measured, CALLING it is still X-EXTCALL. A plain `.staticcall` to a
+  **literal precompile address 1..10** is in scope too (answered with the
+  real precompile output on both engines). Still out of scope:
+  internal-function-typed / domain-unboundable parameters (X-INTFNARG),
+  internal function values in the return/revert channel (X-INTFNVAL), and all
+  other external calls + contract creation (X-EXTCALL — incl. plain/valued
+  `.call`, delegatecall, `{gas:..}` options, and computed staticcall
+  receivers) until the v2 responder.
 - `declared_observable` — your *claim* of the real observable. It is only a
   misreport cross-check; the adjudicator **measures** the true EVM observable
   itself (`measure.py`), so a wrong claim can't sneak a non-divergence through.

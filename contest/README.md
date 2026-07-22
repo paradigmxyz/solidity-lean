@@ -97,7 +97,7 @@ submission/
   "expected_divergence": "free text",
   "declared_observable": { "kind": "return_value", "normal_form": "success|w:5" },
   "feature": "minimal-triggering-feature",       // used for dedup
-  "register_version_seen": "1.5.0",
+  "register_version_seen": "1.6.0",
   "mode": "OVER_ACCEPT",                          // optional: solc-rejects sub-case
   "observed_slots": [0, 1],                       // vestigial: storage is now compared in full
   "fuel": 64                                      // optional: interpreter fuel (1..100000)
@@ -199,16 +199,23 @@ entry. An adversary hiding `gasleft()` in a transitive callee is caught (see the
   / directive presence: X-ASM, X-IMPORT (both **sourced from the importer's
   `EXCLUDED_NODE_TYPES`**), X-GASLEFT, X-MSIZE, X-STORAGELAYOUT, X-EXTCALL.
   Two further syntactic rows are **adjudicator-checked** (they need the entry
-  signature, which a whole-source gate scan does not know): X-FNARG
-  (function-typed / domain-unboundable entry+constructor parameters) and
-  X-INTFNVAL (internal function values in the return/revert channel).
+  signature, which a whole-source gate scan does not know): X-INTFNARG
+  (internal-function-typed / domain-unboundable entry+constructor parameters —
+  EXTERNAL function-typed parameters are measured since 1.6.0 via the
+  `[address, selector]` claim arg form) and X-INTFNVAL (internal function
+  values in the return/revert channel). X-EXTCALL carries a precompile
+  CARVE-OUT since 1.6.0: a plain `.staticcall` whose receiver constant-folds
+  to a literal precompile address 1..10 is answered in-semantics (real
+  precompile output on both engines) and is therefore in scope; every other
+  call form (plain/valued `.call`, delegatecall, `{gas:..}` options, computed
+  receivers) stays excluded.
 * **Semantic detectors (§1.2)** — feature-presence **plus a conservative taint
   pass**: a value derived from the excluded quantity (gas, real bytecode,
   create2 address, unpinnable env facts, closed-world gas/stipend) reaching an
   **observed** position (assert / return / emit): SEM-GAS, SEM-CODE, SEM-ADDR,
   SEM-ENV, SEM-CLOSEDGAS.
 
-### Register history (current: **1.5.0** — it SHRINKS as the harness grows)
+### Register history (current: **1.6.0** — it SHRINKS as the harness grows)
 
 Retired rows are kept with `removed_in_version` (never deleted), and each
 submission is judged against the register in force at its timestamp:
@@ -230,6 +237,24 @@ submission is judged against the register in force at its timestamp:
   pass the Forge gate), and the solc-compilable fixed-point forms (bare
   declarations, `delete`, decl-init) never triggered it and are covered by the
   `fixed-point-boundary` corpus lane.
+* **1.6.0** retired **X-FNARG** (external half closed; the internal-only
+  residue lives on as **X-INTFNARG**) and carved precompile staticcalls out of
+  **X-EXTCALL**. An EXTERNAL function-typed entry/constructor parameter is now
+  encoded end-to-end: the claim arg is a 2-element `[address, selector]` list
+  (address < 2^160, selector < 2^32), the EVM receives the 24-byte left-packed
+  ABI word `(addr << 96) | (sel << 64)` (verified against solc 0.8.35's own
+  encoder/decoder) and the model receives `Value.externalFunction` — the same
+  pair both engines render as `f:<addr>:<sel>` since 1.4.0. CALLING the
+  supplied value stays OOS under X-EXTCALL (no callee exists in the v1
+  responder-free world). And a plain `.staticcall` whose receiver
+  constant-folds to a literal precompile address **1..10** is now IN SCOPE:
+  the engine answers all ten mainnet precompiles in-semantics with the real
+  output (86-case parity suite vs geth+revm; sample `precompile_all10` pins
+  byte-identical outputs end-to-end, including bn254 pairing and KZG point
+  evaluation). Engine-probe evidence bounds the carve-out: only zero-value
+  STATICCALL requests are answered, so plain/value-bearing `.call`,
+  `delegatecall`, `{gas:..}`-optioned calls, and computed (non-literal)
+  receivers remain excluded.
 * **Constructor reverts are measured**, not excluded: a reverting constructor
   renders the `deployrevert|…` observable on both engines (see below).
 * **Contract creation** (`new C()`, salted/valued creates — CREATE/CREATE2)

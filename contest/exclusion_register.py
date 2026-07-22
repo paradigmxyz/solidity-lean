@@ -80,7 +80,33 @@ from typing import Optional
 #       modeled: the fixed-point-boundary corpus lane pins both engines
 #       agreeing on them (accepted) and on the 9 invalid/ arithmetic forms
 #       (rejected). The row therefore excluded nothing real; retired.
-REGISTER_VERSION = "1.5.0"
+# v1.6: NARROWED X-FNARG to X-INTFNARG (the EXTERNAL half is closed): an
+#       external function-typed entry/constructor PARAMETER is now encodable
+#       end-to-end — the claim arg is a 2-element JSON list [address, selector]
+#       (address < 2^160, selector < 2^32), ABI-encoded for the EVM as the
+#       24-byte left-packed static word (addr << 96) | (sel << 64) (verified
+#       empirically on solc 0.8.35 + Foundry: `abi.encode(c.probe)` produces
+#       exactly that word, solc's calldata decoder round-trips it, and REJECTS
+#       a word with dirty low 64 bits), and constructed as the model's own
+#       Value.externalFunction (addr, sel) on the Lean side — the SAME
+#       (address, selector) pair both engines already render canonically as
+#       `f:<addr>:<sel>` since the 1.4.0 X-FNVAL closure. INTERNAL function
+#       params cannot occur (probe, solc 0.8.35: "Internal type is not allowed
+#       for public or external functions." for external/public entry params AND
+#       constructor params), so X-INTFNARG keeps only defense-in-depth residues.
+#       CALLING a supplied function value stays X-EXTCALL (no callee exists in
+#       the v1 responder-free world). Also CARVED OUT of X-EXTCALL: a
+#       `.staticcall` whose receiver constant-folds to a literal precompile
+#       address 1..10 — the engine answers ALL TEN mainnet precompiles
+#       in-semantics with the real output (Precompile.execute?, validated by
+#       the 86-case PrecompileParity suite vs geth+revm); the stale "a
+#       precompile (EVM: real output)" example is gone from the X-EXTCALL
+#       reason. Engine-probe evidence for what stayed excluded: only
+#       CallKind.staticcall with zero value is answered (precompileAnswerCall?
+#       matches staticcall ONLY), so plain `.call`, `.call{value:..}`,
+#       delegatecall, gas-optioned forms, and computed (non-literal) receivers
+#       remain OOS.
+REGISTER_VERSION = "1.6.0"
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -262,9 +288,23 @@ _SYNTACTIC: list[ExclusionEntry] = [
             "responder-free interpreter answers every external call with a fixed "
             "default (the call fails / returns empty) rather than executing a "
             "callee or a real EVM interaction. So a low-level call to an EOA "
-            "(EVM: success-empty), a precompile (EVM: real output), a high-level "
-            "call to another contract, `this.f()`, or a try/catch over an "
-            "external call all diverge for a NON-semantic reason. CONTRACT "
+            "(EVM: success-empty), a high-level call to another contract, "
+            "`this.f()`, a call THROUGH a function-typed value, or a try/catch "
+            "over an external call all diverge for a NON-semantic reason. "
+            "PRECOMPILE CARVE-OUT (register >= 1.6.0): a `.staticcall(...)` "
+            "whose RECEIVER constant-folds to a literal mainnet precompile "
+            "address 1..10 (e.g. `address(2).staticcall(..)`, incl. "
+            "constant-arithmetic forms) is IN SCOPE — the engine answers all "
+            "ten precompiles in-semantics with the real output "
+            "(Precompile.execute?; parity-pinned vs geth+revm), so such calls "
+            "are measured, not excluded. The carve-out is EXACTLY that form: "
+            "plain `.call` (even value-free), `.call{value:..}`, "
+            "`delegatecall`, any `{gas:..}`-optioned call, and a receiver "
+            "that does NOT fold to a literal 1..10 (computed/laundered "
+            "receivers) all stay OOS — engine probe: only a zero-value "
+            "STATICCALL request is answered in-semantics "
+            "(Interpreter.precompileAnswerCall? matches CallKind.staticcall "
+            "only). CONTRACT "
             "CREATION is EXPLICITLY out of scope too, in every form: `new C()`, "
             "`new C{salt: s}()`, `new C{value: v}()` — i.e. CREATE and CREATE2. "
             "A creation executes a DEPLOYMENT SUB-CONTEXT (the callee's "
@@ -406,6 +446,16 @@ _SYNTACTIC: list[ExclusionEntry] = [
         # rows whose detector is absent from its table.
         detector="adjudicator:entry_param_type",
         since_version="1.4.0",
+        # RETIRED in 1.6.0: the EXTERNAL half is closed. An external function
+        # value is an (address, selector) pair on both sides — the claim arg
+        # form is [address, selector], the EVM gets the 24-byte left-packed
+        # ABI word (addr << 96) | (sel << 64) (packing verified empirically
+        # against solc 0.8.35's own encoder + calldata decoder), the model
+        # gets Value.externalFunction — so external function-typed parameters
+        # are MEASURED, not excluded (the return channel has compared them
+        # since 1.4.0). The internal-only defense-in-depth residue lives on
+        # as X-INTFNARG; CALLING the supplied value stays X-EXTCALL.
+        removed_in_version="1.6.0",
         reason=(
             "The narrow PARAMETER residue of the retired X-ARGVAL (arrays and "
             "structs — arbitrarily nested — are now encoded end-to-end and "
@@ -426,6 +476,44 @@ _SYNTACTIC: list[ExclusionEntry] = [
         ),
         roadmap_ref=("adjudicate._encodable_param_type / _arg_domain_error; "
                      "measure._encode_typed; observable.render_lean_arg"),
+    ),
+    ExclusionEntry(
+        id="X-INTFNARG",
+        kind="syntactic",
+        # Entry/constructor-PARAMETER specific: checked by the adjudicator,
+        # which knows the entry/constructor signature. The gate skips register
+        # rows whose detector is absent from its table.
+        detector="adjudicator:entry_param_type",
+        since_version="1.6.0",
+        reason=(
+            "The narrow residue of the retired X-FNARG (an EXTERNAL "
+            "function-typed entry/constructor parameter is now encoded "
+            "end-to-end: the claim arg is a 2-element JSON list [address, "
+            "selector] with address < 2^160 and selector < 2^32, ABI-encoded "
+            "as the 24-byte left-packed word (addr << 96) | (sel << 64) for "
+            "the EVM — verified against solc 0.8.35's own encoder/decoder — "
+            "and constructed as the model's Value.externalFunction, so both "
+            "engines receive the SAME (address, selector) pair and function-"
+            "parameter behavior is MEASURED, not excluded; CALLING the "
+            "supplied value remains X-EXTCALL, since no callee exists behind "
+            "an arbitrary (address, selector) in the v1 responder-free "
+            "world). Out of scope remain: (a) an INTERNAL function-typed "
+            "parameter — a per-contract dispatch ID that is never ABI "
+            "calldata; solc 0.8.35 itself rejects internal function types in "
+            "external/public/constructor signatures ('Internal type is not "
+            "allowed for public or external functions.', probe 2026-07-22), "
+            "so this arm is defense-in-depth against typeString drift; (b) a "
+            "struct parameter the harness cannot resolve to member types, or "
+            "a bare tuple typeString; and (c) per-arg, a word-family scalar "
+            "leaf whose legal domain cannot be bounded from the type string "
+            "alone (bytesN with N<32, fixed/ufixed, an enum whose member "
+            "count is unresolvable) — an unvalidated leaf would let a "
+            "submitter feed the two engines different logical calls and "
+            "fabricate a divergence."
+        ),
+        roadmap_ref=("adjudicate._encodable_param_type(external_fn_ok=True) / "
+                     "_arg_domain_error; measure._encode_typed; "
+                     "observable.render_lean_arg"),
     ),
     ExclusionEntry(
         id="X-INTFNVAL",

@@ -1128,6 +1128,160 @@ contract Ov {
     return ok, detail
 
 
+def gate_precompile_carveout_tests() -> tuple[bool, str]:
+    """Register 1.6.0 X-EXTCALL precompile carve-out (real solc ASTs).
+
+    The carve-out is EXACTLY: a plain ``.staticcall`` (no call options) whose
+    receiver constant-folds to a literal precompile address 1..10. Everything
+    else the engine does not answer in-semantics stays excluded (engine probe:
+    Interpreter.precompileAnswerCall? matches zero-value STATICCALL only), and
+    a pre-1.6.0 submission replays under the broad rule (§7)."""
+    import tempfile as _tf
+    from contest import reject_gate as G
+
+    checks: list[tuple[str, bool]] = []
+    tmp = Path(_tf.mkdtemp(prefix="contest-gate-pc."))
+    hdr = "// SPDX-License-Identifier: MIT\npragma solidity 0.8.35;\n"
+
+    def ids_for(name: str, source: str, at_version=None) -> set:
+        p = tmp / name
+        p.write_text(source)
+        v = G.run_gate([p], enforce_v1_multi=False, at_version=at_version)
+        return {h.id for h in v.hits}
+
+    carved = hdr + """
+contract P1 {
+    function f(uint256 x) external view returns (bool ok) {
+        (ok, ) = address(2).staticcall(abi.encode(x));
+    }
+}
+"""
+    # (1) literal-receiver staticcall to a precompile: IN SCOPE at 1.6.0 ...
+    checks.append(("carved-literal-staticcall",
+                   "X-EXTCALL" not in ids_for("carved.sol", carved)))
+    # ... including a constant-arithmetic receiver (the _literal_int fold).
+    checks.append(("carved-folded-receiver", "X-EXTCALL" not in ids_for(
+        "folded.sol", carved.replace("address(2)", "address(1 + 1)"))))
+    # (2) §7 replay: the SAME source judged at the 1.5.0 register keeps the
+    # broad exclusion.
+    checks.append(("pre-1.6-replay-broad",
+                   "X-EXTCALL" in ids_for("carved15.sol", carved,
+                                          at_version="1.5.0")))
+    # (3) forms the engine does NOT answer stay excluded:
+    #   computed receiver (no literal fold; laundering fence),
+    checks.append(("computed-receiver-oos", "X-EXTCALL" in ids_for(
+        "computed.sol",
+        carved.replace("address(2)", "address(uint160(x))"))))
+    #   a non-precompile literal (0x0b) / an EOA-shaped address,
+    checks.append(("literal-0b-oos", "X-EXTCALL" in ids_for(
+        "oob.sol", carved.replace("address(2)", "address(11)"))))
+    #   a gas-optioned staticcall (FunctionCallOptions wrapper; SEM-GAS/
+    #   SEM-CLOSEDGAS fire too, but X-EXTCALL must hold on its own),
+    ids = ids_for("gasopt.sol", hdr + """
+contract P2 {
+    function f(uint256 x) external view returns (bool ok) {
+        (ok, ) = address(2).staticcall{gas: 100000}(abi.encode(x));
+    }
+}
+""")
+    checks.append(("gas-option-staticcall-oos", "X-EXTCALL" in ids))
+    #   plain value-free .call (CallKind.call — engine probe: fails closed,
+    #   not answered) and a value-bearing .call,
+    checks.append(("plain-call-oos", "X-EXTCALL" in ids_for(
+        "plaincall.sol", hdr + """
+contract P3 {
+    function f(uint256 x) external returns (bool ok) {
+        (ok, ) = address(2).call(abi.encode(x));
+    }
+}
+""")))
+    checks.append(("value-call-oos", "X-EXTCALL" in ids_for(
+        "valuecall.sol", hdr + """
+contract P4 {
+    function f(uint256 x) external returns (bool ok) {
+        (ok, ) = address(2).call{value: 1}(abi.encode(x));
+    }
+}
+""")))
+    #   delegatecall to a precompile.
+    checks.append(("delegatecall-oos", "X-EXTCALL" in ids_for(
+        "dcall.sol", hdr + """
+contract P5 {
+    function f(uint256 x) external returns (bool ok) {
+        (ok, ) = address(2).delegatecall(abi.encode(x));
+    }
+}
+""")))
+    # (4) calling THROUGH an external function-typed value (the X-FNARG
+    # closure's companion arm): cb() is an external call, at every version.
+    cbsrc = hdr + """
+contract P6 {
+    function f(function() external view returns (uint256) cb)
+        external view returns (uint256) {
+        return cb();
+    }
+}
+"""
+    checks.append(("fn-value-call-oos",
+                   "X-EXTCALL" in ids_for("cbcall.sol", cbsrc)))
+    checks.append(("fn-value-call-oos-1.5",
+                   "X-EXTCALL" in ids_for("cbcall15.sol", cbsrc,
+                                          at_version="1.5.0")))
+    # (5) inspecting the value without calling it passes the gate.
+    checks.append(("fn-value-inspect-passes", "X-EXTCALL" not in ids_for(
+        "cbinspect.sol", hdr + """
+contract P7 {
+    function f(function() external view returns (uint256) cb)
+        external pure returns (address) {
+        return cb.address;
+    }
+}
+""")))
+
+    ok = all(v for _n, v in checks)
+    detail = ", ".join(f"{n}={'ok' if v else 'BAD'}" for n, v in checks)
+    return ok, detail
+
+
+def run_perturbed_extfn_param_selftest(timeout: int = 500) -> tuple[bool, str]:
+    """Divergence-DIRECTION check for the closed X-FNARG (external half)
+    channel: run `extfn_param` (an external function-typed ENTRY PARAMETER,
+    claim arg [address, selector]) through the FULL live pipeline, then perturb
+    the measured EVM observable's leading value by one unit. Now that external
+    function parameters are encoded and measured (not excluded), the classifier
+    must bank SOUNDNESS_GAP(wrong-value) — proving a real model-vs-EVM
+    disagreement reached through a function-typed argument would be detected,
+    with ZERO bugs in solidity-lean."""
+    report = adj.adjudicate(
+        SAMPLES / "extfn_param", timeout=timeout,
+        _selftest_perturb_evm=obs.perturb_leading_value)
+    comp = (report.evidence.get("comparison", {}) or {}).get("differing_component")
+    ok = (report.verdict == "SOUNDNESS_GAP" and report.lane == "S"
+          and comp == "wrong-value" and report.qualifies)
+    detail = (f"verdict={report.verdict} lane={report.lane} component={comp} "
+              f"qualifies={report.qualifies} :: {report.reason[:140]}")
+    return ok, detail
+
+
+def run_perturbed_precompile_selftest(timeout: int = 500) -> tuple[bool, str]:
+    """Divergence-DIRECTION check for the X-EXTCALL precompile carve-out: run
+    `precompile_sha256` (a literal-receiver sha256 staticcall) through the FULL
+    live pipeline, then perturb the measured EVM observable's leading value by
+    one unit. Now that in-carve-out precompile staticcalls are measured (not
+    excluded), the classifier must bank SOUNDNESS_GAP(wrong-value) — proving a
+    real model-vs-EVM disagreement on a precompile answer would be detected,
+    with ZERO bugs in solidity-lean."""
+    report = adj.adjudicate(
+        SAMPLES / "precompile_sha256", timeout=timeout,
+        _selftest_perturb_evm=obs.perturb_leading_value)
+    comp = (report.evidence.get("comparison", {}) or {}).get("differing_component")
+    ok = (report.verdict == "SOUNDNESS_GAP" and report.lane == "S"
+          and comp == "wrong-value" and report.qualifies)
+    detail = (f"verdict={report.verdict} lane={report.lane} component={comp} "
+              f"qualifies={report.qualifies} :: {report.reason[:140]}")
+    return ok, detail
+
+
 def infra_fail_routing_test(timeout: int = 120) -> tuple[bool, str]:
     """Release-audit fairness regression: an INFRA failure (here: a missing
     forge binary) must route to NEEDS_REVIEW (maintainer retry), never to a
@@ -1319,6 +1473,10 @@ def main() -> int:
     results.append(("gate-semantic-detectors (solc AST)", ok, d))
     _print("gate-semantic-detectors (solc AST)", ok, d)
 
+    ok, d = gate_precompile_carveout_tests()
+    results.append(("gate-precompile-carveout (solc AST)", ok, d))
+    _print("gate-precompile-carveout (solc AST)", ok, d)
+
     ok, d = infra_fail_routing_test()
     results.append(("infra-fail routes to NEEDS_REVIEW", ok, d))
     _print("infra-fail routes to NEEDS_REVIEW", ok, d)
@@ -1350,6 +1508,29 @@ def main() -> int:
     ok, d = run_full("external_call", "REJECTED_OOS")
     results.append(("external_call OOS (FULL)", ok, d))
     _print("external_call OOS (FULL)", ok, d)
+
+    # Register 1.6 precompile carve-out: a literal-receiver `.staticcall` to a
+    # precompile is answered in-semantics with the REAL output on both engines.
+    ok, d = run_full("precompile_sha256", "NO_DIVERGENCE")
+    results.append(("precompile_sha256 parity (FULL, carve-out)", ok, d))
+    _print("precompile_sha256 parity (FULL, carve-out)", ok, d)
+
+    # All TEN mainnet precompiles (0x1..0xa, incl. bn254 pairing and the
+    # trivial KZG point-evaluation proof) answer byte-identically.
+    ok, d = run_full("precompile_all10", "NO_DIVERGENCE", timeout=1500)
+    results.append(("precompile_all10 parity (FULL, carve-out)", ok, d))
+    _print("precompile_all10 parity (FULL, carve-out)", ok, d)
+
+    # Divergence DIRECTION for the carved-out precompile channel.
+    ok, d = run_perturbed_precompile_selftest()
+    results.append(("precompile divergence-detector (REAL + delta)", ok, d))
+    _print("precompile divergence-detector (REAL + delta)", ok, d)
+
+    # Forms OUTSIDE the carve-out stay excluded: a value-free low-level `.call`
+    # to the same precompile address is not answered in-semantics.
+    ok, d = run_full("precompile_call_oos", "REJECTED_OOS")
+    results.append(("precompile_call_oos X-EXTCALL (FULL)", ok, d))
+    _print("precompile_call_oos X-EXTCALL (FULL)", ok, d)
 
     # scalar custom-error revert parity (audit round 3 left the scalar path only
     # unit-tested): f() reverts with `Bad(42, true)` (uint256 + bool, both in the
@@ -1464,7 +1645,8 @@ def main() -> int:
     # These four parity controls prove each shape agrees on solc 0.8.35 + real
     # EVM vs the model; the perturbed lane proves divergence DIRECTION; the two
     # malformed lanes prove the fabrication fence (shape/arity + recursive leaf
-    # domain) still REJECTs cleanly; fn_param_oos pins the narrow X-FNARG residue.
+    # domain) still REJECTs cleanly; param_domain_oos pins the narrow
+    # X-INTFNARG residue (register 1.6: X-FNARG's external half is measured).
 
     # uint256[] entry parameter: was REJECTED_OOS under the 1.3 register.
     ok, d = run_full("array_arg", "NO_DIVERGENCE")
@@ -1504,10 +1686,41 @@ def main() -> int:
     results.append(("struct_arg_malformed leaf-domain fence (FULL)", ok, d))
     _print("struct_arg_malformed leaf-domain fence (FULL)", ok, d)
 
-    # narrow residue X-FNARG: a function-typed ENTRY PARAMETER stays OOS.
-    ok, d = run_full("fn_param_oos", "REJECTED_OOS")
-    results.append(("fn_param_oos X-FNARG residue (FULL)", ok, d))
-    _print("fn_param_oos X-FNARG residue (FULL)", ok, d)
+    # narrow residue X-INTFNARG (register 1.6, X-FNARG's external half closed):
+    # a scalar param family the claim arg forms cannot domain-bound (bytes4)
+    # stays OOS.
+    ok, d = run_full("param_domain_oos", "REJECTED_OOS")
+    results.append(("param_domain_oos X-INTFNARG residue (FULL)", ok, d))
+    _print("param_domain_oos X-INTFNARG residue (FULL)", ok, d)
+
+    # Register 1.6 (X-FNARG retired, external half): an external function-typed
+    # ENTRY PARAMETER is encoded end-to-end from an [address, selector] claim
+    # arg — 24-byte left-packed ABI word on the EVM, Value.externalFunction on
+    # the model — and the (.address, .selector) pair compares on both engines.
+    ok, d = run_full("extfn_param", "NO_DIVERGENCE")
+    results.append(("extfn_param parity (FULL, X-FNARG retired)", ok, d))
+    _print("extfn_param parity (FULL, X-FNARG retired)", ok, d)
+
+    # Divergence DIRECTION for the function-parameter channel.
+    ok, d = run_perturbed_extfn_param_selftest()
+    results.append(("extfn-param divergence-detector (REAL + delta)", ok, d))
+    _print("extfn-param divergence-detector (REAL + delta)", ok, d)
+
+    # fabrication fence: wrong arity / out-of-range component for the
+    # [address, selector] arg form -> REJECT_MALFORMED, never a fake gap.
+    ok, d = run_full("extfn_param_malformed", "REJECT_MALFORMED")
+    results.append(("extfn_param_malformed arity fence (FULL)", ok, d))
+    _print("extfn_param_malformed arity fence (FULL)", ok, d)
+
+    ok, d = run_full("extfn_param_range", "REJECT_MALFORMED")
+    results.append(("extfn_param_range selector-domain fence (FULL)", ok, d))
+    _print("extfn_param_range selector-domain fence (FULL)", ok, d)
+
+    # CALLING the supplied function value stays out of scope (X-EXTCALL): the
+    # gate's function-value-call arm fires on `cb()`.
+    ok, d = run_full("extfn_param_called", "REJECTED_OOS")
+    results.append(("extfn_param_called X-EXTCALL (FULL)", ok, d))
+    _print("extfn_param_called X-EXTCALL (FULL)", ok, d)
 
     # Register 1.4 (X-FNVAL retired): an EXTERNAL function VALUE in the return
     # channel renders the canonical f:<addr>:<sel> form on BOTH engines.

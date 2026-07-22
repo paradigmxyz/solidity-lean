@@ -301,10 +301,15 @@ If the reflective driver is not ready at launch, **v1 ships single-contract-only
 (§8): the entry contract may read env facts, but **any external call is disallowed
 by the gate**. The v1 responder-free path answers every external call with a fixed
 default (the call fails / returns empty) rather than executing a callee or a real
-EVM interaction, so an external call — low-level `.call`/precompile, a high-level
-call to another contract, `this.f()`, a `new C()` create, or a `try` — would
-diverge for a NON-semantic reason. Two guards enforce this: `X-EXTCALL` (any
-external call, incl. precompiles, is OOS until the v2 responder lands) and the
+EVM interaction, so an external call — a low-level `.call`, a high-level
+call to another contract, `this.f()`, a call through a function-typed value,
+a `new C()` create, or a `try` — would diverge for a NON-semantic reason.
+(EXCEPTION, register 1.6.0: a plain `.staticcall` whose receiver
+constant-folds to a literal precompile address 1..10 IS answered
+in-semantics with the real precompile output — `Precompile.execute?`, parity
+suite vs geth+revm — so it is measured, not excluded; every other call form
+stays OOS.) Two guards enforce this: `X-EXTCALL` (any other
+external call is OOS until the v2 responder lands) and the
 `V1-MULTI` guard (reject >1 independently-deployable `ContractDefinition`). This
 is honest and still covers the entire G-register (G1–G22 are all single-contract,
 external-call-free) and every coverage gap that is not intrinsically
@@ -639,7 +644,7 @@ responder-free interpreter path. This is a legitimate, launchable contest.
 
 ## Changelog
 
-### 2026-07 — register 1.3.0 → 1.5.0: the exclusion register SHRINKS as channels become measured
+### 2026-07 — register 1.3.0 → 1.6.0: the exclusion register SHRINKS as channels become measured
 
 Four broad exclusion rows retired (each kept with `removed_in_version`; a
 submission is judged against the register at its timestamp, §7):
@@ -656,6 +661,24 @@ submission is judged against the register at its timestamp, §7):
   engines) and **X-FNVAL** (external function values compare canonically as
   `f:<addr>:<sel>`). Narrow residues live on as **X-FNARG** and **X-INTFNVAL**.
 - **1.5.0** retired **X-FIXED-EXEC** as redundant (see the §1.1 table row).
+- **1.6.0** retired **X-FNARG** — its EXTERNAL half is closed: an external
+  function-typed entry/constructor parameter takes a 2-element
+  `[address, selector]` claim arg (address < 2^160, selector < 2^32), encoded
+  for the EVM as the 24-byte left-packed ABI word `(addr << 96) | (sel << 64)`
+  (verified empirically against solc 0.8.35's encoder + calldata decoder) and
+  constructed as the model's `Value.externalFunction` — measured, not
+  excluded (CALLING the value stays X-EXTCALL). The internal-only /
+  domain-unboundable residue lives on as **X-INTFNARG** (solc itself rejects
+  internal function types in external/public/constructor signatures; probe
+  2026-07-22). **1.6.0** also carved precompile staticcalls out of
+  **X-EXTCALL**: a plain `.staticcall` on a receiver that constant-folds to a
+  literal precompile address 1..10 is answered in-semantics with the real
+  output on all ten mainnet precompiles (engine probe + `precompile_all10`
+  sample: byte-identical folded outputs incl. bn254 pairing and KZG point
+  evaluation). Only zero-value STATICCALL requests are answered
+  (`Interpreter.precompileAnswerCall?`), so plain/value-bearing `.call`,
+  `delegatecall`, `{gas:..}`-optioned calls, and computed receivers stay
+  excluded; pre-1.6.0 submissions replay under the broad rule (§7).
 - **Constructor reverts became a measured observable** (`deployrevert|…` phase
   head on both engines; a deploy-phase revert can never compare equal to a
   call-phase one). **Contract creation** stays explicitly OOS under
