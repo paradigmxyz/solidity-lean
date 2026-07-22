@@ -18,6 +18,7 @@ import SolidCore.Witness.CF2RevertPruning
 import SolidCore.Witness.CeFamily
 import SolidCore.Witness.OverloadShadow
 import SolidCore.Witness.ConstScopeShadow
+import SolidCore.Witness.StateVarShadowsFileConst
 import SolidCore.Witness.ModifierReturnReject
 import SolidCore.Witness.GetterStructReject
 import SolidCore.Witness.MulmodZero
