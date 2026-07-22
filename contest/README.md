@@ -97,7 +97,7 @@ submission/
   "expected_divergence": "free text",
   "declared_observable": { "kind": "return_value", "normal_form": "success|w:5" },
   "feature": "minimal-triggering-feature",       // used for dedup
-  "register_version_seen": "1.0.0",
+  "register_version_seen": "1.5.0",
   "mode": "OVER_ACCEPT",                          // optional: solc-rejects sub-case
   "observed_slots": [0, 1],                       // vestigial: storage is now compared in full
   "fuel": 64                                      // optional: interpreter fuel (1..100000)
@@ -112,6 +112,10 @@ backward compatibility but ignored. `fuel` (optional, default 64, capped at
 
 **Entry args** (`observable.render_lean_arg`): `2` → `uint`; `{"int": -8}` →
 signed `int256`; `true`/`false` → bool; `{"word": n}`; `{"bytes": "0x…"}`.
+Register ≥ 1.4.0: a JSON **list** encodes an array or struct argument
+(arbitrarily nested; validated recursively per element/member against the
+declared parameter type, then type-directed ABI-encoded for the EVM and
+rendered as the matching aggregate `Value` for the Lean side).
 
 **`declared_observable.normal_form`** is the solc+EVM observable in the contest
 **normal form** (below). It is validated real by the Forge test passing, and the
@@ -144,7 +148,11 @@ normal form (`…##EVT##…##STO##…`).
 state — solidity-lean runs the (possibly synthesized) constructor and state-variable
 initializers via `constructWithContext` before calling the entry function,
 mirroring the EVM side's `new C()`. Contracts with initialized storage therefore
-do not produce a spurious divergence.
+do not produce a spurious divergence. A constructor that **reverts** is a
+first-class measured observable: both engines render the deploy-phase outcome
+under the distinct `deployrevert|…` head (same revert bodies as `revert|…`),
+so a constructor-revert divergence is compared, not excluded — and a
+deploy-phase revert can never compare equal to a call-phase one.
 
 **Normal form** (a single canonical line, independent of solidity-lean's `Repr`):
 
@@ -155,6 +163,8 @@ revert|panic:<code-decimal>
 revert|error:<string>
 revert|custom:<name>:<v1>,...
 revert|raw:<hexbytes>
+deployrevert|<same bodies>   # the CONSTRUCTOR reverted (deploy-phase; never
+                             # compares equal to a call-phase revert)
 solidity-lean-reject|<message>     # solidity-lean fail-closed (import/typecheck/exec)
 ```
 
@@ -187,11 +197,45 @@ entry. An adversary hiding `gasleft()` in a transitive callee is caught (see the
 
 * **Syntactic detectors (§1.1)** — exact predicate over `nodeType` / `memberName`
   / directive presence: X-ASM, X-IMPORT (both **sourced from the importer's
-  `EXCLUDED_NODE_TYPES`**), X-GASLEFT, X-MSIZE, X-STORAGELAYOUT, X-FIXED-EXEC.
+  `EXCLUDED_NODE_TYPES`**), X-GASLEFT, X-MSIZE, X-STORAGELAYOUT, X-EXTCALL.
+  Two further syntactic rows are **adjudicator-checked** (they need the entry
+  signature, which a whole-source gate scan does not know): X-FNARG
+  (function-typed / domain-unboundable entry+constructor parameters) and
+  X-INTFNVAL (internal function values in the return/revert channel).
 * **Semantic detectors (§1.2)** — feature-presence **plus a conservative taint
   pass**: a value derived from the excluded quantity (gas, real bytecode,
-  create2 address, closed-world gas/stipend) reaching an **observed** position
-  (assert / return / emit): SEM-GAS, SEM-CODE, SEM-ADDR, SEM-CLOSEDGAS.
+  create2 address, unpinnable env facts, closed-world gas/stipend) reaching an
+  **observed** position (assert / return / emit): SEM-GAS, SEM-CODE, SEM-ADDR,
+  SEM-ENV, SEM-CLOSEDGAS.
+
+### Register history (current: **1.5.0** — it SHRINKS as the harness grows)
+
+Retired rows are kept with `removed_in_version` (never deleted), and each
+submission is judged against the register in force at its timestamp:
+
+* **1.3.0** retired **X-RETABI** and **X-ERRSEL**: the recursive ABI head/tail
+  codec landed, so array/struct/**nested-dynamic** RETURN values and
+  custom-error REVERT params are decoded to the same `[..]`/`(..)` normal form
+  on both engines and **measured**, and a colliding revert selector is resolved
+  to the model-reported error and compared byte-faithfully (exactly how the EVM
+  dispatches revert data).
+* **1.4.0** retired **X-ARGVAL** and **X-FNVAL**: array/struct entry and
+  constructor PARAMETERS are encoded end-to-end (JSON-list claim args,
+  recursively domain-validated, type-directed ABI calldata vs the matching Lean
+  values — the same logical call on both engines), and an EXTERNAL function
+  value compares canonically as `f:<addr>:<sel>` in the return/revert channel.
+  The narrow residues live on as **X-FNARG** and **X-INTFNVAL**.
+* **1.5.0** retired **X-FIXED-EXEC** as redundant: every form its detector
+  fired on is rejected by solc 0.8.35 itself at codegen (so no such program can
+  pass the Forge gate), and the solc-compilable fixed-point forms (bare
+  declarations, `delete`, decl-init) never triggered it and are covered by the
+  `fixed-point-boundary` corpus lane.
+* **Constructor reverts are measured**, not excluded: a reverting constructor
+  renders the `deployrevert|…` observable on both engines (see below).
+* **Contract creation** (`new C()`, salted/valued creates — CREATE/CREATE2)
+  remains explicitly out of scope under **X-EXTCALL** until the v2 reflective
+  responder lands; in-memory `new T[](n)` / `new bytes(n)` are not creations
+  and stay in scope.
 
 ### Taint precision limit (documented)
 
@@ -272,15 +316,20 @@ v1 single-contract path is the responder-free special case, so v2 is wiring.
 
 ## Samples (`contest/samples/`, run via `run_samples.py`)
 
-| Sample | Expected verdict | How validated |
-|---|---|---|
-| `oos_gasleft` | REJECTED_OOS (X-GASLEFT hidden in a callee) | FULL run (real solc+Foundry+solidity-lean) |
-| `no_divergence` | NO_DIVERGENCE | FULL run |
-| `coverage_gap` | COVERAGE_GAP (lane C) | real gate+Forge; solidity-lean fail-closed **SIMULATED** (marked `synthetic`) |
-| `soundness_gap` | SOUNDNESS_GAP (lane S, wrong-value) | real gate+Forge; wrong solidity-lean observable **SIMULATED** (marked `synthetic`) |
+~57 fixtures, each a complete adjudicable submission proving one classification
+path end-to-end (real solc + Foundry + the built solidity-lean). Highlights:
 
-The coverage/soundness solidity-lean steps are **simulated** because the live gaps
-that would drive them are being fixed on sibling branches; the simulation
-exercises the exact classifier decision tree with a representative
-fail-closed / mismatching solidity-lean result. `run_samples.py` also unit-tests the
-observable comparator and dedup fingerprints directly.
+| Family | What it proves |
+|---|---|
+| `no_divergence`, `oos_gasleft`, `env_divergence`, `cheatcode_*` | the happy path, the gate (incl. a `gasleft()` hidden in a callee), env pinning, the cheatcode allow/deny list |
+| `panic_*`, `revert_*`, `custom_error_*`, `nested_error_revert`, `error_selector_collision` | the revert/panic channel incl. nested-dynamic custom errors and colliding selectors (X-ERRSEL retired) |
+| `array_return`, `nested_dynamic_return`, `struct_return`, `*_return` | the decoded return channel (X-RETABI retired) |
+| `array_arg`, `nested_array_arg`, `struct_arg`, `struct_dyn_arg` (+ `*_malformed` controls) | array/struct parameters encoded end-to-end + domain validation (X-ARGVAL retired) |
+| `extfn_return`, `fn_param_oos` | external fn values compare (`f:<addr>:<sel>`, X-FNVAL retired); fn-typed params stay OOS (X-FNARG) |
+| `ctor_revert_*` (five) | constructor reverts measured as `deployrevert\|…` on both engines |
+| `coverage_gap` / `soundness_gap` | the classifier decision tree, with the solidity-lean step **SIMULATED** (marked `synthetic`: no live gap is kept alive in the model just to drive a test; the live paths are separately proven by perturbation self-tests) |
+
+`run_samples.py` also unit-tests the observable comparator, the dedup
+fingerprints, the registry invariant (stored fingerprint ==
+fingerprinter(repro) for every known-gap entry), and runs perturbation
+self-tests over genuine executions.

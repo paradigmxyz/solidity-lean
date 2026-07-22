@@ -92,7 +92,7 @@ submitted source ⇒ `OUT_OF_SCOPE`.
 | X-CREATIONCODE | `type(C).creationCode` / `.runtimeCode` used for a bytecode-dependent observable | `MemberAccess.memberName ∈ {creationCode, runtimeCode}` — see §1.2 SEM-CODE for the observable test | Create initCode is source-canonical, not compiled bytecode (`ROADMAP.md:468`). Length/keccak/extcodehash of it are not faithful. |
 | X-CREATE2ADDR | create2 address that depends on real init bytecode | `salt` present on a `new C{salt: …}()` **and** the submission observes the resulting address (see §1.2 SEM-ADDR) | create2 address = `keccak(0xff‖deployer‖salt‖keccak(initcode))`; solidity-lean lacks real initcode (`ROADMAP.md:468`, G22). |
 | X-EXTCODEHASH-CREATED | `extcodehash`/`.codehash`/`.code` of a contract **created within the submission** | `.codehash`/`.code`/`.code.length` on an address bound to a `new`-created contract | same root as X-CREATIONCODE: created code has no real bytecode in solidity-lean. |
-| X-FIXED-EXEC | Executable `fixed`/`ufixed` arithmetic | any expression node whose `typeDescriptions.typeString` matches `^u?fixed` and appears as an operand of an arithmetic `BinaryOperation`/`Assignment` | solc **also** rejects executable fixed-point (`fixed-point-boundary` lane confirms both agree); a divergence here is impossible, so submissions asserting one are OOS by construction. |
+| X-FIXED-EXEC | **RETIRED in register 1.5.0** (was: executable `fixed`/`ufixed` arithmetic) | any expression node whose `typeDescriptions.typeString` matches `^u?fixed` and appears as an operand of an arithmetic `BinaryOperation`/`Assignment` | Retired as redundant: solc 0.8.35 itself rejects (at codegen) every form the detector fired on, so no such program can pass the Forge gate — and excluding a would-be lane-S over-accept here would mask a genuine gap. See `contest/exclusion_register.py` v1.5 note for the probe evidence. |
 | X-STORAGELAYOUT | `layout at N` storage-layout specifier | `StorageLayoutSpecifier` node / `storageLayout` at-clause | fail-closed at import (`solc_ast_to_lean_source.py` guard); asm-observed; OOS. |
 
 Implementation note: X-ASM, X-IMPORT, X-STORAGELAYOUT **coincide with solidity-lean's
@@ -638,6 +638,28 @@ responder-free interpreter path. This is a legitimate, launchable contest.
 ---
 
 ## Changelog
+
+### 2026-07 — register 1.3.0 → 1.5.0: the exclusion register SHRINKS as channels become measured
+
+Four broad exclusion rows retired (each kept with `removed_in_version`; a
+submission is judged against the register at its timestamp, §7):
+
+- **1.3.0** retired **X-RETABI** (the recursive ABI head/tail codec decodes
+  array/struct/**nested-dynamic** RETURN values and custom-error REVERT params
+  into the shared `[..]`/`(..)` normal form on both engines — measured, not
+  excluded) and **X-ERRSEL** (a colliding revert selector resolves to the
+  model-reported error and compares on the byte-faithful selector+args form,
+  exactly as the EVM dispatches revert data).
+- **1.4.0** retired **X-ARGVAL** (array/struct entry+constructor parameters:
+  JSON-list claim args, recursively domain-validated, type-directed ABI
+  calldata vs matching Lean aggregate values — the same logical call on both
+  engines) and **X-FNVAL** (external function values compare canonically as
+  `f:<addr>:<sel>`). Narrow residues live on as **X-FNARG** and **X-INTFNVAL**.
+- **1.5.0** retired **X-FIXED-EXEC** as redundant (see the §1.1 table row).
+- **Constructor reverts became a measured observable** (`deployrevert|…` phase
+  head on both engines; a deploy-phase revert can never compare equal to a
+  call-phase one). **Contract creation** stays explicitly OOS under
+  **X-EXTCALL** (every CREATE/CREATE2 form) until the v2 responder.
 
 ### 2026-07-08 — v1.2: leaderboard reframing, RCE/oracle-forgery fixes, events+storage observable
 

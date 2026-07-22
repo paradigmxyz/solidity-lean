@@ -101,13 +101,22 @@ submission/
   "expected_divergence": "One or two sentences: what solc+EVM do vs what solidity-lean does, and why it diverges.",
   "declared_observable": { "kind": "return_value", "normal_form": "success|w:1" },
   "feature": "short-kebab-case-feature-name",
-  "register_version_seen": "1.2.0"
+  "register_version_seen": "1.5.0"
 }
 ```
 - `lane` — `"S"` or `"C"` (see the table above).
 - `entry` — how to invoke: the concrete `contract`, the `function`, its `args`,
   `constructor_args`, and `value` (wei). The `test/` must exercise this same
-  interaction.
+  interaction. Args cover scalars (`2`, `{"int": -8}`, `true`, `{"word": n}`,
+  `{"bytes": "0x…"}`, strings) **and arrays/structs as JSON lists**
+  (arbitrarily nested — validated per element/member and ABI-encoded
+  type-directed, so both engines receive the same logical call). Return and
+  revert channels are decoded recursively too (nested-dynamic included), and a
+  **reverting constructor** is measured as the `deployrevert|…` observable —
+  none of these need restructuring any more. Still out of scope:
+  function-typed / domain-unboundable parameters (X-FNARG), internal function
+  values in the return/revert channel (X-INTFNVAL), and external calls +
+  contract creation (X-EXTCALL) until the v2 responder.
 - `declared_observable` — your *claim* of the real observable. It is only a
   misreport cross-check; the adjudicator **measures** the true EVM observable
   itself (`measure.py`), so a wrong claim can't sneak a non-divergence through.
