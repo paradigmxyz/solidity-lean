@@ -124,18 +124,11 @@ _OPEN_ENTRIES: list[GapEntry] = [
     GapEntry('G10', 'S', 'open', 'msg.data-in-receive', 'msg.data in receive() not rejected', 'over_accept', 'over-accept', None),
     GapEntry('G11', 'S', 'open', 'cross-contract-creationcode-cycle', 'cross-contract creationCode/runtimeCode cycle undetected', 'over_accept', 'over-accept', None),
     GapEntry('G12', 'S', 'open', 'identifier-underscore-not-reserved', 'identifier name `_` not reserved', 'over_accept', 'over-accept', None),
-    GapEntry('G13', 'C', 'open', 'nested-tuple-LHS', 'nested tuple LHS (((a,),)) = ((1,2),3);', 'typecheck', 'over_reject', 'tests/forge-harness/nested-tuple-assignment'),
-    GapEntry('G14', 'C', 'open', 'storage-array-assign-shorter-source', 'storage array assignment with base-convertible/shorter source', 'typecheck', 'over_reject', 'tests/forge-harness/storage-array-copy-convert'),
-    GapEntry('G15', 'C', 'open', 'ternary-of-literals-mobile-type', 'ternary-of-literals loses uint8 mobile common type', 'typecheck', 'over_reject', 'tests/forge-harness/ternary-literal-mobile-type'),
     GapEntry('G16', 'C', 'open', 'try-on-library-usingfor-call', 'try on a library / using-for call over-rejected', 'typecheck', 'over_reject', None),
-    GapEntry('G17', 'S', 'open', 'storage-ctor-uninit-internal-fn-ptr', 'storage/ctor-stored uninitialized internal fn ptr Panic(0x51)', 'return_value', 'wrong-panic', 'tests/forge-harness/storage-uninit-fn-ptr'),
-    GapEntry('G18', 'S', 'open', 'trycatch-multislot-extfnptr-return', 'try/catch binding of a multi-slot external-fn-ptr return', 'return_value', 'wrong-value', 'tests/forge-harness/try-external-fn-return'),
     GapEntry('G19', 'S', 'open', 'mutability-relaxing-override', 'mutability-relaxing overrides (virtual->view/pure)', 'over_accept', 'over-accept', None),
     GapEntry('G20', 'S', 'open', 'using-for-wildcard-imported', 'using ... for * wildcard imported but unexercised', 'over_accept', 'over-accept', None),
-    GapEntry('G21', 'S', 'open', 'c99-block-scope-self-init', 'C99 block-scope activation incl. uint x = x; self-init', 'return_value', 'wrong-value', 'tests/forge-harness/c99-scope-activation'),
     GapEntry('G22', 'S', 'open', 'salted-create-address-prediction', 'saltedCreate address prediction (OOS-adjacent, needs initcode)', 'return_value', 'wrong-value', None, 'also covered by SEM-ADDR exclusion'),
     GapEntry('CF3', 'C', 'open', 'ctrlflow-fuel-placeholder-fallback', 'control-flow pointer-return analysis falls back to unsafeReturn on fuel exhaustion / bare modifier-placeholder (over-rejects deep bodies)', 'typecheck', 'over_reject', None, 'round 2 §3c; INFERRED, effectively unreachable; verify open/fixed'),
-    GapEntry('CS1', 'S', 'open', 'selfdestruct-balance-transfer', 'selfdestruct records (from,recipient,deletesAccount) but does NOT move the balance (self not zeroed, recipient not credited)', 'return_value', 'wrong-value', 'tests/forge-harness/selfdestruct-balance', 'round 11 (doc -9); CONFIRMED-by-trace, reachability UNTESTED (live iff post-destruct balances are compared); verify open/fixed'),
     GapEntry('A1', 'S', 'open', 'try-void-call-codeless-address', 'try over a void external call to a codeless/EOA address: solidity-lean runs catch, solc reverts the caller uncatchably', 'revert_data', 'revert-vs-success', None, 'OOS via X-EXTCALL in v1; live for v2'),
     GapEntry('A2', 'S', 'open', 'catch-clause-source-order-vs-kind', 'catch-clause dispatch is source-order first-match; solc dispatches by kind (fallback catch listed first shadows Error/Panic)', 'return_value', 'wrong-value', 'tests/forge-harness/catch-dispatch-by-kind', 'OOS via X-EXTCALL in v1; live for v2'),
     GapEntry('A3', 'S', 'open', 'extcodesize-nonident-receiver', 'extcodesize existence check skipped for non-identifier receiver shapes (arr[i].f(), s.field.f(), m[k].f()) on a plain void call', 'revert_data', 'revert-vs-success', 'tests/forge-harness/extcodesize-existence-guard', 'OOS via X-EXTCALL in v1; live for v2'),
@@ -257,7 +250,57 @@ _FIXED_ENTRIES: list[GapEntry] = [
     GapEntry('DL197', 'C', 'fixed', 'inherited-struct-field-access', 'inherited-struct-field-access', 'typecheck', 'over_reject', 'tests/forge-harness/inherited-struct-field', 'log #197; over-reject; fix on main 1294798'),
     GapEntry('DL199', 'C', 'fixed', 'modifier-body-private-var-scope', 'modifier-body-private-var-scope', 'typecheck', 'over_reject', 'tests/forge-harness/modifier-private-scope', 'log #199; over-reject; fix on main 1294798'),
     GapEntry('DL205', 'C', 'fixed', 'ws1-env-audit-batch', 'ws1-env-audit-batch', 'typecheck', 'over_reject', None, 'log #205; wrong-value/over-reject; fix on main c3c0073'),
+    # --- 2026-07 release audit: former OPEN entries whose corpus lane is GREEN
+    #     (model==EVM, forge=ok lean=ok) — flipped open -> fixed with the
+    #     closing commit where git pins it. -----------------------------------
+    GapEntry('G13', 'C', 'fixed', 'nested-tuple-LHS', 'nested tuple LHS (((a,),)) = ((1,2),3);', 'typecheck', 'over_reject', 'tests/forge-harness/nested-tuple-assignment', 'fix on main 8294e6d; lane green (release audit 2026-07-22)'),
+    GapEntry('G14', 'C', 'fixed', 'storage-array-assign-shorter-source', 'storage array assignment with base-convertible/shorter source', 'typecheck', 'over_reject', 'tests/forge-harness/storage-array-copy-convert', 'fix on main 8c2eccd; lane green (release audit 2026-07-22)'),
+    GapEntry('G15', 'C', 'fixed', 'ternary-of-literals-mobile-type', 'ternary-of-literals loses uint8 mobile common type', 'typecheck', 'over_reject', 'tests/forge-harness/ternary-literal-mobile-type', 'fix on main 203146e; lane green (release audit 2026-07-22)'),
+    GapEntry('G17', 'S', 'fixed', 'storage-ctor-uninit-internal-fn-ptr', 'storage/ctor-stored uninitialized internal fn ptr Panic(0x51)', 'return_value', 'wrong-panic', 'tests/forge-harness/storage-uninit-fn-ptr', 'closed-by-rearch-2026-07; lane a62fbf6 (untested-but-modeled) proves model==EVM (release audit 2026-07-22)'),
+    GapEntry('G18', 'S', 'fixed', 'trycatch-multislot-extfnptr-return', 'try/catch binding of a multi-slot external-fn-ptr return', 'return_value', 'wrong-value', 'tests/forge-harness/try-external-fn-return', 'closed-by-rearch-2026-07; lane a62fbf6 (untested-but-modeled) proves model==EVM (release audit 2026-07-22)'),
+    GapEntry('G21', 'S', 'fixed', 'c99-block-scope-self-init', 'C99 block-scope activation incl. uint x = x; self-init', 'return_value', 'wrong-value', 'tests/forge-harness/c99-scope-activation', 'closed-by-rearch-2026-07; lane a62fbf6 (untested-but-modeled) proves model==EVM (release audit 2026-07-22)'),
+    GapEntry('CS1', 'S', 'fixed', 'selfdestruct-balance-transfer', 'selfdestruct records (from,recipient,deletesAccount) but did NOT move the balance (self not zeroed, recipient not credited)', 'return_value', 'wrong-value', 'tests/forge-harness/selfdestruct-balance', 'round 11 (doc -9); fix on main c86ecd2 (selfdestruct moves the balance); lane green (release audit 2026-07-22)'),
+    # --- 2026-07-21/22 hardening-loop fixes (H*): divergences found and fixed
+    #     in the final loop, each pinned by its own forge lane. ---------------
+    GapEntry('H1', 'S', 'fixed', 'exp-literal-base-runtime-exp', 'literal-base ** runtime-exponent typed at 256 bits, not the literal mobile type (spurious Panic 0x11 at the narrow width)', 'return_value', 'wrong-value', 'tests/forge-harness/exp-literal-base-runtime-exp', 'fix on main 96f12e5'),
+    GapEntry('H2', 'S', 'fixed', 'signed-literal-wide-cast', 'signed binary with untyped-literal operand under a wide cast / unary minus lowered env-less (spurious Panic 0x00)', 'return_value', 'wrong-value', 'tests/forge-harness/signed-literal-wide-cast', 'fix on main 877e740'),
+    GapEntry('H3', 'S', 'fixed', 'library-overload-enum-arg', 'library direct-call overload binding not type-aware: enum arg bound f(uint8) instead of f(E); arity fallback kept incompatible candidates', 'return_value', 'wrong-value', 'tests/forge-harness/library-overload-enum-arg', 'fix on main b3ec1e4'),
+    GapEntry('H4', 'S', 'fixed', 'fnvalue-shadowing', 'fn-value collector/rewriter not lexically scoped: shadowing params/locals dispatch-ID rewritten in value position', 'return_value', 'wrong-value', 'tests/forge-harness/fnvalue-shadowing', 'fix on main 92c75b9'),
+    GapEntry('H5', 'S', 'fixed', 'revert-nested-two-call', 'revert E(mk(), sk()) nested-dynamic two-call custom-error payload materialization', 'revert_data', 'wrong-revert', 'tests/forge-harness/revert-nested-two-call', 'lane+witness d355c14 (emit/revert two-call materialization family)'),
+    GapEntry('H6', 'S', 'fixed', 'emit-nested-two-call', 'emit N2(mk(), f2()) nested-dynamic two-call event payload materialization', 'events', 'wrong-events', 'tests/forge-harness/emit-nested-two-call', 'lane+witness d355c14 (emit/revert two-call materialization family)'),
+    GapEntry('H7', 'S', 'fixed', 'revert-mixed-env-cleanup', 'mixed-shape custom-error args skipped narrow checked-arith cleanup (missing Panic 0x11) — BUG#8', 'revert_data', 'wrong-panic', 'tests/forge-harness/revert-mixed-env-cleanup', 'lane+witness d355c14 (emit/revert two-call materialization family)'),
+    GapEntry('H8', 'S', 'fixed', 'abi-decode-short-head', 'abi.decode/boundary decoders lacked solc upfront total-head-size check: Panic 0x41 instead of the EVM empty revert', 'revert_data', 'wrong-revert', 'tests/forge-harness/abi-decode-short-head', 'fix on main 6267a35'),
+    GapEntry('H9', 'S', 'fixed', 'slice-bound-narrow-panic', 'calldata-slice bounds evaluated bare at 256 bits: missing narrow checked-arith Panic 0x11 before the bounds check', 'revert_data', 'wrong-panic', 'tests/forge-harness/slice-bound-narrow-panic', 'fix on main c4a4769 (WS1/#205 env-audit family)'),
+    GapEntry('H10', 'S', 'fixed', 'library-qualified-selectors', 'library boundary signatures rendered with unqualified enum/struct params (wrong selectors) — BUG#6', 'return_value', 'wrong-value', 'tests/forge-harness/library-qualified-selectors', 'fix on main 847d75f (Ty.enum canonical qualified path)'),
+    GapEntry('H11', 'C', 'fixed', 'library-enum-overloads', 'library overloads distinct only on qualified enum signatures over-rejected as duplicate signature', 'typecheck', 'over_reject', 'tests/forge-harness/library-enum-overloads', 'fix on main 847d75f (kind-aware dup-signature/dup-selector checks)'),
+    GapEntry('H12', 'C', 'fixed', 'extfn-location-erasure', 'external fn-type conversion under solc calldata->memory normalization (this.f for f(uint256[] calldata)) over-rejected with expectedType', 'typecheck', 'over_reject', 'tests/forge-harness/extfn-location-erasure', 'typecheck-cluster fix (lane 6f6338d/e79deed window)'),
+    GapEntry('H13', 'C', 'fixed', 'lib-struct-enum-ctor', 'qualified library struct constructor with a library-local enum field type over-rejected (field type left bare) — #198 family', 'typecheck', 'over_reject', 'tests/forge-harness/lib-struct-enum-ctor', 'typecheck-cluster fix (lane e79deed)'),
+    GapEntry('H14', 'C', 'fixed', 'storage-return-subfield-ops', 'storage-ref-returning callee: sub-field ops (array-field push/pop, nested/conditional/local return shapes) over-rejected at the use site', 'typecheck', 'over_reject', 'tests/forge-harness/storage-return-subfield-ops', 'fix on main e79deed (widened callee-shape gate + push/pop spine arms)'),
 ]
+
+# ---------------------------------------------------------------------------
+# EXCLUSION-CLOSURE PARITY PROOFS (2026-07, register 1.3.0/1.4.0) — recorded as
+# a comment, NOT as GapEntry rows: these contest/samples/ fixtures never
+# exhibited a MODEL gap; they are the parity proofs that retired exclusion
+# rows (the channel went excluded -> measured, and both engines agree). The
+# registry is a registry of gaps, so they do not get entries; run_samples.py
+# adjudicates every one of them NO_DIVERGENCE on each run, and the register
+# retirement provenance lives in exclusion_register.py's version comments.
+#   X-RETABI retirement (return/revert ABI codec):
+#     samples/array_return, nested_dynamic_return, struct_return,
+#     nested_error_revert
+#   X-ERRSEL retirement (colliding-selector revert resolution):
+#     samples/error_selector_collision
+#   X-ARGVAL retirement (array/struct entry+ctor parameters):
+#     samples/array_arg, nested_array_arg, struct_arg, struct_dyn_arg
+#     (+ the array_arg_malformed / struct_arg_malformed REJECT_MALFORMED
+#     domain-validation controls)
+#   X-FNVAL retirement (external function values in return/revert):
+#     samples/extfn_return
+#   constructor-revert measured as deployrevert|... (deploy-phase observable):
+#     samples/ctor_revert_base, ctor_revert_custom, ctor_revert_empty,
+#     ctor_revert_error, ctor_revert_panic
+# ---------------------------------------------------------------------------
 
 
 # Back-compat aliases (consumers iterate these): ALL_KNOWN = the open index,

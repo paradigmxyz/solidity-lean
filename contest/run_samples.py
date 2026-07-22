@@ -326,34 +326,38 @@ def dedup_unit_tests() -> tuple[bool, str]:
     import tempfile as _tf
     checks = []
 
-    # G13's stored key is DERIVED from its repro by the one canonical
+    # A2's stored key is DERIVED from its repro by the one canonical
     # fingerprinter (spot check; the full sweep is registry_invariant_tests).
-    g13 = next(e for e in kg.ALL_KNOWN if e.id == "G13")
-    checks.append(("G13-key-derived",
-                   g13.fingerprint is not None
-                   and g13.fingerprint == kg.derive_fingerprint(g13)))
+    # (Formerly G13, which the 2026-07 release audit flipped to FIXED — the
+    # auto-match path only scans KNOWN-OPEN entries, so the spot check tracks
+    # an open keyed entry. G13's derived key is still invariant-checked by the
+    # full sweep like every fixed entry.)
+    a2 = next(e for e in kg.ALL_KNOWN if e.id == "A2")
+    checks.append(("A2-key-derived",
+                   a2.fingerprint is not None
+                   and a2.fingerprint == kg.derive_fingerprint(a2)))
 
-    # An exact COPY of G13's published repro (as a submission src/) auto-matches
-    # G13 through the live-key path the adjudicator uses.
+    # An exact COPY of A2's published repro (as a submission src/) auto-matches
+    # A2 through the live-key path the adjudicator uses.
     sub = Path(_tf.mkdtemp(prefix="contest-dedup-copy."))
     (sub / "src").mkdir()
-    for src in g13.repro_sources():
+    for src in a2.repro_sources():
         shutil.copy(src, sub / "src" / src.name)
-    live_key = ("typecheck", "over_reject", "SomeLiveImporterToken")
-    hit = kg.match_submission("C", live_key, sub)
-    checks.append(("repro-copy-matches", hit is not None and hit.id == "G13"))
+    live_key = ("return_value", "some-live-feature-token", "wrong-value")
+    hit = kg.match_submission("S", live_key, sub)
+    checks.append(("repro-copy-matches", hit is not None and hit.id == "A2"))
 
     # A comment/whitespace re-skin of the same repro STILL matches (the
     # canonical fingerprint ignores irrelevant syntactic variation).
     sub2 = Path(_tf.mkdtemp(prefix="contest-dedup-reskin."))
     (sub2 / "src").mkdir()
-    for src in g13.repro_sources():
+    for i, src in enumerate(a2.repro_sources()):
         text = src.read_text()
-        (sub2 / "src" / src.name).write_text(
-            "// re-skinned copy\n" + text.replace(";", ";  ", 1))
-        break
-    hit2 = kg.match_submission("C", live_key, sub2)
-    checks.append(("repro-reskin-matches", hit2 is not None and hit2.id == "G13"))
+        if i == 0:  # re-skin one file; copy the rest verbatim
+            text = "// re-skinned copy\n" + text.replace(";", ";  ", 1)
+        (sub2 / "src" / src.name).write_text(text)
+    hit2 = kg.match_submission("S", live_key, sub2)
+    checks.append(("repro-reskin-matches", hit2 is not None and hit2.id == "A2"))
 
     # A NOVEL program must NOT match anything (under-match direction).
     sub3 = Path(_tf.mkdtemp(prefix="contest-dedup-novel."))
@@ -363,12 +367,13 @@ def dedup_unit_tests() -> tuple[bool, str]:
         "contract Novel { function f() external pure returns (uint256) "
         "{ return 12345; } }\n")
     checks.append(("novel-unmatched",
-                   kg.match_submission("C", live_key, sub3) is None))
+                   kg.match_submission("S", live_key, sub3) is None))
 
     # A WRONG lane/delta does not match even with identical sources.
     checks.append(("lane-mismatch-unmatched",
-                   kg.match_submission("S", ("return_value", "f", "wrong-value"),
-                                       sub) is None))
+                   kg.match_submission(
+                       "C", ("typecheck", "over_reject", "SomeToken"),
+                       sub) is None))
 
     # feature_hint is ADVISORY (ids only), and no-repro entries are excluded
     # from the auto-match path but keep their identity.
@@ -396,8 +401,11 @@ def registry_invariant_tests() -> tuple[bool, str]:
     ids = [e.id for e in kg.ALL_KNOWN] + [e.id for e in kg.KNOWN_FIXED]
     checks.append(("ids-unique", len(ids) == len(set(ids))))
     # nothing from v1 was dropped: the registry keeps all identities.
+    # 2026-07-22 release audit: 28 open -> 21 (G13/G14/G15/G17/G18/G21/CS1
+    # flipped to fixed on green lanes); 114 fixed -> 135 (those 7 + the 14
+    # H1-H14 hardening-loop fixes).
     checks.append(("registry-size-preserved",
-                   len(kg.ALL_KNOWN) == 28 and len(kg.KNOWN_FIXED) == 114))
+                   len(kg.ALL_KNOWN) == 21 and len(kg.KNOWN_FIXED) == 135))
     # keyed entries actually resolve repro sources on disk
     checks.append(("repro-sources-exist",
                    all(e.repro_sources() for e in kg.ALL_KNOWN + kg.KNOWN_FIXED
@@ -508,16 +516,19 @@ def dedup_soundness_tests() -> tuple[bool, str]:
 
     # Even an EXACT repro-copy match is an ANNOTATION, never a verdict change:
     # qualifies stays True (credit denial is the human/replay's call).
-    g13 = next(e for e in kg.ALL_KNOWN if e.id == "G13")
+    # (Uses A2, the open keyed lane-S entry; formerly G13, flipped to fixed by
+    # the 2026-07 release audit.)
+    a2 = next(e for e in kg.ALL_KNOWN if e.id == "A2")
     import shutil
     dup = Path(_tf.mkdtemp(prefix="contest-sound-dup."))
     (dup / "src").mkdir()
-    for src in g13.repro_sources():
+    for src in a2.repro_sources():
         shutil.copy(src, dup / "src" / src.name)
-    report2 = adj.Report("COVERAGE_GAP", lane="C", reason="gap",
+    report2 = adj.Report("SOUNDNESS_GAP", lane="S", reason="gap",
                          evidence={"submission": str(dup)})
-    adj._annotate_dedup(report2, "C", ("typecheck", "over_reject", "Tok"), "Tok")
-    checks.append(("dup-annotated", report2.duplicate_of == "G13"))
+    adj._annotate_dedup(report2, "S",
+                        ("return_value", "tok", "wrong-value"), "tok")
+    checks.append(("dup-annotated", report2.duplicate_of == "A2"))
     checks.append(("dup-still-qualifies", report2.qualifies))
 
     # Matching is fail-safe: a missing/empty submission dir yields no match and

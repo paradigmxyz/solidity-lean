@@ -442,6 +442,104 @@
         "C99ScopeActivation.sol"
       ]
     },
+    "H1": {
+      "fingerprint": "fp1|S|wrong-value|full|f1998d0887bebb05",
+      "repro_dir": "tests/forge-harness/exp-literal-base-runtime-exp",
+      "sources": [
+        "ExpLiteralBaseRuntimeExp.sol"
+      ]
+    },
+    "H10": {
+      "fingerprint": "fp1|S|wrong-value|full|ce0dc78fbdf46089",
+      "repro_dir": "tests/forge-harness/library-qualified-selectors",
+      "sources": [
+        "LibraryQualifiedSelectors.sol"
+      ]
+    },
+    "H11": {
+      "fingerprint": "fp1|C|over_reject|full|bfd398c188883c3d",
+      "repro_dir": "tests/forge-harness/library-enum-overloads",
+      "sources": [
+        "LibraryEnumOverloads.sol"
+      ]
+    },
+    "H12": {
+      "fingerprint": "fp1|C|over_reject|full|0484700f9f5365f3",
+      "repro_dir": "tests/forge-harness/extfn-location-erasure",
+      "sources": [
+        "ExtfnLocationErasure.sol"
+      ]
+    },
+    "H13": {
+      "fingerprint": "fp1|C|over_reject|full|3ef26c3f51ace7c1",
+      "repro_dir": "tests/forge-harness/lib-struct-enum-ctor",
+      "sources": [
+        "LibStructEnumCtor.sol"
+      ]
+    },
+    "H14": {
+      "fingerprint": "fp1|C|over_reject|full|33c9d46cfd550859",
+      "repro_dir": "tests/forge-harness/storage-return-subfield-ops",
+      "sources": [
+        "StorageReturnSubfieldOps.sol"
+      ]
+    },
+    "H2": {
+      "fingerprint": "fp1|S|wrong-value|full|df279f1ce2c8bdcb",
+      "repro_dir": "tests/forge-harness/signed-literal-wide-cast",
+      "sources": [
+        "SignedLiteralWideCast.sol"
+      ]
+    },
+    "H3": {
+      "fingerprint": "fp1|S|wrong-value|full|364ce5507da14abd",
+      "repro_dir": "tests/forge-harness/library-overload-enum-arg",
+      "sources": [
+        "LibraryOverloadEnumArg.sol"
+      ]
+    },
+    "H4": {
+      "fingerprint": "fp1|S|wrong-value|full|1bab9ada527e10d4",
+      "repro_dir": "tests/forge-harness/fnvalue-shadowing",
+      "sources": [
+        "FnValueShadowing.sol"
+      ]
+    },
+    "H5": {
+      "fingerprint": "fp1|S|wrong-revert|full|2daeec53a917d58f",
+      "repro_dir": "tests/forge-harness/revert-nested-two-call",
+      "sources": [
+        "RevertNestedTwoCall.sol"
+      ]
+    },
+    "H6": {
+      "fingerprint": "fp1|S|wrong-events|full|8534fffec7698ec5",
+      "repro_dir": "tests/forge-harness/emit-nested-two-call",
+      "sources": [
+        "EmitNestedTwoCall.sol"
+      ]
+    },
+    "H7": {
+      "fingerprint": "fp1|S|wrong-panic|full|6a84917be21293a5",
+      "repro_dir": "tests/forge-harness/revert-mixed-env-cleanup",
+      "sources": [
+        "RevertMixedEnvCleanup.sol"
+      ]
+    },
+    "H8": {
+      "fingerprint": "fp1|S|wrong-revert|full|7c9e620dc0e16b62",
+      "repro_dir": "tests/forge-harness/abi-decode-short-head",
+      "sources": [
+        "AbiDecodeShortHead.sol"
+      ]
+    },
+    "H9": {
+      "fingerprint": "fp1|S|wrong-panic|full|33194df3b80a4ba0",
+      "repro_dir": "tests/forge-harness/slice-bound-narrow-panic",
+      "sources": [
+        "SliceBoundNarrowPanic.sol"
+      ]
+    },
     "M1": {
       "fingerprint": "fp1|S|wrong-value|full|caf2de4b75a8ab4c",
       "repro_dir": "tests/forge-harness/memory-alias-fixes",

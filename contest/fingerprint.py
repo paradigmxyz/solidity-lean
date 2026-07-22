@@ -204,22 +204,28 @@ def source_ast_hash(sources: list[Path], solc: Optional[str] = None,
     repros). The mode is embedded in the fingerprint so the families are
     disjoint.
 
-    CWD-INDEPENDENT by construction: the derivation runs with the repo root as
-    the working directory (restored afterwards) and hands solc ABSOLUTE source
-    paths, so solc path/allowed-paths resolution — and therefore the derived
-    registry key — cannot depend on where the caller happened to be invoked
-    from (the registry invariant test must pass from ANY cwd)."""
+    CWD-INDEPENDENT by construction: the derivation hands solc ABSOLUTE source
+    paths and runs with the sources' COMMON PARENT directory as the working
+    directory (restored afterwards). solc's standard-json import callback
+    allows only "." — the process cwd — so a repro whose files import a
+    sibling (`import "./Other.sol";`, legal in corpus lanes; submissions are
+    single-flattened via X-IMPORT) resolves identically no matter where the
+    caller was invoked from: the registry invariant test and the exact-copy
+    auto-match must both work from ANY cwd (including tmp-dir copies)."""
     import os
     from . import reject_gate as gate
     if solc is None:
         from . import harness_bridge as hb
         solc = hb.DEFAULT_SOLC
     repo_root = Path(__file__).resolve().parents[1]
-    abs_sources = [Path(p) if Path(p).is_absolute()
+    abs_sources = [Path(p).resolve() if Path(p).is_absolute()
                    else (repo_root / p).resolve() for p in sources]
+    parents = {p.parent for p in abs_sources}
+    workdir = (os.path.commonpath([str(d) for d in parents])
+               if parents else str(repo_root))
     prev_cwd = os.getcwd()
     try:
-        os.chdir(repo_root)
+        os.chdir(workdir)
         try:
             src_asts = gate.get_source_asts(abs_sources, solc)
             mode = "full"
