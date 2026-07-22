@@ -25625,13 +25625,47 @@ def ContractDecl.scopedConstantEntries (contracts : List ContractDecl)
       (ContractDecl.directStateVars c).filterMap StateVarDecl.constantEntry?)
     order
 
+/-- Names of NON-constant state variables visible (unqualified) in `decl`'s OWN
+    lexical scope: `decl`'s own storage / transient / immutable state variables
+    plus those inherited from its base contracts (C3). Such a variable shadows a
+    same-name file-level (or qualified) `constant` inside `decl`'s function
+    bodies, so that constant must NOT be inlined there — a bare read of the name
+    is a storage / immutable load, not a constant fold. Mirrors the base-vs-
+    derived scoping of `scopedConstantEntries`: a derived contract's storage var
+    is out of an inherited base body's scope, so it cannot suppress the base's
+    file-level constant. -/
+def ContractDecl.scopedStateVarShadowNames (contracts : List ContractDecl)
+    (decl : ContractDecl) : List Name :=
+  let order :=
+    match ContractDecl.dispatchOrder? contracts decl with
+    | some order => order
+    | none => [decl]
+  concatMapList
+    (fun c =>
+      (ContractDecl.directStateVars c).filterMap
+        (fun sv =>
+          match sv.mutability with
+          | VarMutability.constant => none
+          | _ => some sv.name))
+    order
+
+/-- `decl`'s unqualified constant scope for body inlining: its own/inherited
+    constants (C3, most-derived-first) shadowing the shared file-level +
+    qualified `sharedTail`, with any entry whose name is shadowed by a
+    non-constant state variable in `decl`'s scope removed. -/
+def ContractDecl.scopedConstantEnv (contracts : List ContractDecl)
+    (sharedTail : ConstantEnv) (decl : ContractDecl) : ConstantEnv :=
+  let shadowNames := ContractDecl.scopedStateVarShadowNames contracts decl
+  (ContractDecl.scopedConstantEntries contracts decl ++ sharedTail).filter
+    (fun entry => !shadowNames.contains entry.1)
+
 def ContractDecls.contextualOrdinaryFunctions (hierarchy : List ContractDecl)
     (sharedTail : ConstantEnv) (baseNames : List Name)
     (decls : List ContractDecl) : List FunctionDecl :=
   concatMapList
     (fun decl =>
       ContractDecl.contextualOrdinaryFunctions
-        (ContractDecl.scopedConstantEntries hierarchy decl ++ sharedTail)
+        (ContractDecl.scopedConstantEnv hierarchy sharedTail decl)
         baseNames decl)
     decls
 
@@ -25641,7 +25675,7 @@ def ContractDecls.contextualBaseHelpers (hierarchy : List ContractDecl)
   concatMapList
     (fun decl =>
       ContractDecl.contextualBaseHelpers
-        (ContractDecl.scopedConstantEntries hierarchy decl ++ sharedTail)
+        (ContractDecl.scopedConstantEnv hierarchy sharedTail decl)
         baseNames decl)
     decls
 
@@ -27075,8 +27109,8 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
       (fun decl =>
         (ContractDecl.directModifiersStamped decl).map
           (ModifierDecl.inlineConstants
-            (ContractDecl.scopedConstantEntries dispatchOrder decl ++
-              sharedConstantTail)))
+            (ContractDecl.scopedConstantEnv dispatchOrder
+              sharedConstantTail decl)))
       dispatchOrder
   let baseNames := dispatchOrder.map ContractDecl.name
   let ordinaryFunctions :=
@@ -27124,13 +27158,24 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
     EventDecls.indexedEnv (contractEvents ++ visibleSourceEvents)
   let errorArgEnv :=
     ErrorDecls.namedArgEnv (contractErrors ++ visibleSourceErrors)
+  -- Each contract's entrypoint/getter bodies are re-elaborated from the raw
+  -- declaration via `toCore?`, which re-inlines against the constant env passed
+  -- here. Use that contract's OWN scoped constant env (own/inherited constants
+  -- over the file-level + qualified tail, with names shadowed by a non-constant
+  -- state variable removed) rather than the flat whole-program `constants`, so a
+  -- storage/immutable variable that shadows a same-name file-level constant is
+  -- read from storage instead of being constant-folded (and a derived
+  -- contract's constant does not leak into a base entrypoint body).
   let functionGroups ←
     mapOption
-      (ContractDecl.directCoreFunctions?
-        storageNames constants stateEnv externalCallKindEnv allContracts
-        dispatchOrder sourceUsingDecls modifiers availableFunctions
-        sourceFunctions eventArgEnv errorArgEnv internalFnIds eventIndexedEnv
-        (contractEvents ++ visibleSourceEvents))
+      (fun decl =>
+        ContractDecl.directCoreFunctions?
+          storageNames
+          (ContractDecl.scopedConstantEnv dispatchOrder sharedConstantTail decl)
+          stateEnv externalCallKindEnv allContracts
+          dispatchOrder sourceUsingDecls modifiers availableFunctions
+          sourceFunctions eventArgEnv errorArgEnv internalFnIds eventIndexedEnv
+          (contractEvents ++ visibleSourceEvents) decl)
       dispatchOrder
   -- Function-boundary refactor stage 3: value-boundary synthetic helpers
   -- (library `__library_*`, super/base helpers) get selector-less table entries
@@ -27665,8 +27710,8 @@ def ContractDecl.constructorFunctionFromOrders?
       (fun decl =>
         (ContractDecl.directModifiersStamped decl).map
           (ModifierDecl.inlineConstants
-            (ContractDecl.scopedConstantEntries dispatchOrder decl ++
-              sharedConstantTail)))
+            (ContractDecl.scopedConstantEnv dispatchOrder
+              sharedConstantTail decl)))
       dispatchOrder
   let baseNames := dispatchOrder.map ContractDecl.name
   let ordinaryFunctions :=
