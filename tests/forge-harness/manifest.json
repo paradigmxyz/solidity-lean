@@ -14742,7 +14742,7 @@
   },
   {
    "name": "evalorder-binary-residue",
-   "description": "R1 RESIDUE CLOSURE (binary-operand order): the two hoister shapes left LEFT-first by #187/#191 now evaluate RIGHT-then-LEFT like solc 0.8.35 (ExpressionCompiler.cpp:614-615): (a) a non-core LHS containing its own call(s) beside a call-bearing RHS (both-sides-hoisted generic path, incl. the arr[bump()] + bump() index shape and the fully generic (bump()+1) * (bump()+3) shape), and (b) the lhs-hoisted + pure-RHS fallback ((bump()+1) - counter: the pure storage read happens BEFORE the LHS calls). Controls: bump() - bump() (both-direct-calls path fixed in R1) and emit E2I(bump(), bump()) (two-phase emit, indexed args in reverse source order) must keep their already-faithful order. Forge pins the real solc/EVM values; Lean imports the same source and checks identical values and event topics.",
+   "description": "R1 RESIDUE CLOSURE (binary-operand order): the two hoister shapes left LEFT-first by #187/#191 now evaluate RIGHT-then-LEFT like solc 0.8.35 (ExpressionCompiler.cpp:614-615): (a) a non-core LHS containing its own call(s) beside a call-bearing RHS (both-sides-hoisted generic path, incl. the arr[bump()] + bump() index shape and the fully generic (bump()+1) * (bump()+3) shape), and (b) the lhs-hoisted + pure-RHS fallback ((bump()+1) - counter: the pure storage read happens BEFORE the LHS calls). Controls: bump() - bump() (both-direct-calls path fixed in R1) and emit E2I(bump(), bump()) (two-phase emit, indexed args in reverse source order) must keep their already-faithful order. Forge pins the real solc/EVM values; Lean imports the same source and checks identical values and event topics. NESTED shapes ((bump()-bump())*2-bump() and ((bump()+1)-bump())-bump()) additionally pin that the hoisted-RHS temps are nesting-unique (no inner emission shadows an outer temp between its declaration and read).",
    "forge": {
     "root": "tests/forge-harness/evalorder-binary-residue",
     "match_contract": "EvalOrderBinaryResidueForgeTest",
@@ -14793,6 +14793,16 @@
      {
       "label": "emitTwoIndexed_topics_2_1",
       "expr": "(do\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 256 SolidCore.Solidity.SolcAstImport.EvalOrderBinaryResidue.importedContract (SolidCore.Solidity.Source.CallTarget.name \"emitTwoIndexed\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned state [] =>\n      match state.events with\n      | [event] =>\n          match event.indexed, event.data with\n          | [SolidCore.Solidity.Source.Value.word x, SolidCore.Solidity.Source.Value.word y], [] =>\n              Except.ok (event.name == \"E2I\" && event.topics == [SolidCore.Solidity.Source.Keccak.digestWord \"E2I(uint256,uint256)\", 2, 1] && SolidCore.Solidity.Source.wordEq x 2 && SolidCore.Solidity.Source.wordEq y 1)\n          | _, _ => Except.ok false\n      | _ => Except.ok false\n  | _ => Except.ok false)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "nestedInnerDirect_1",
+      "expr": "(do\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 256 SolidCore.Solidity.SolcAstImport.EvalOrderBinaryResidue.importedContract (SolidCore.Solidity.Source.CallTarget.name \"nestedInnerDirect\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v0] => Except.ok (SolidCore.Solidity.Source.wordEq v0 1)\n  | _ => Except.ok false)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "nestedInnerComplex_1",
+      "expr": "(do\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 256 SolidCore.Solidity.SolcAstImport.EvalOrderBinaryResidue.importedContract (SolidCore.Solidity.Source.CallTarget.name \"nestedInnerComplex\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v0] => Except.ok (SolidCore.Solidity.Source.wordEq v0 1)\n  | _ => Except.ok false)",
       "expect": "Except.ok true"
      }
     ]

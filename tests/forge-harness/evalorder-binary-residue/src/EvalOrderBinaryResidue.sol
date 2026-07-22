@@ -65,4 +65,19 @@ contract EvalOrderBinaryResidue {
     function emitTwoIndexed() external {
         emit E2I(bump(), bump());
     }
+
+    // NESTED residue shapes: the hoisted-RHS temp must be nesting-unique —
+    // an inner emission between the outer temp's declaration and its read
+    // must not shadow it. Right-to-left throughout:
+    // outer rhs bump()=1; inner rhs bump()=2, inner lhs bump()=3
+    // -> (3-2)*2 - 1 = 1.
+    function nestedInnerDirect() external returns (uint256) {
+        return (bump() - bump()) * 2 - bump();
+    }
+
+    // outer rhs bump()=1; inner rhs bump()=2; inner lhs bump()=3
+    // -> ((3+1)-2) - 1 = 1.
+    function nestedInnerComplex() external returns (uint256) {
+        return ((bump() + 1) - bump()) - bump();
+    }
 }

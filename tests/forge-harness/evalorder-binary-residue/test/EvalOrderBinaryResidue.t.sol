@@ -57,4 +57,12 @@ contract EvalOrderBinaryResidueForgeTest {
         require(uint256(logs[0].topics[1]) == 2, "x second-evaluated = 2");
         require(uint256(logs[0].topics[2]) == 1, "y first-evaluated = 1");
     }
+
+    function testNestedInnerDirect() public {
+        require(newC().nestedInnerDirect() == 1, "nestedInnerDirect");
+    }
+
+    function testNestedInnerComplex() public {
+        require(newC().nestedInnerComplex() == 1, "nestedInnerComplex");
+    }
 }

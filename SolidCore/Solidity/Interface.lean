@@ -16361,7 +16361,15 @@ def FunctionDecl.internalBinarySingleReturnUseCore?
               Expr.abiTyWithInternalFunctionsEnv?
                 functions freeFunctions env rhs
             let rhsCoreTy ← Ty.toCore? rhsTy
-            let rhsTmp := "_sol_bin_rhs"
+            -- NESTING-UNIQUE temp: suffix by the LHS's rendered size. Any
+            -- emission nested
+            -- between this decl and its read comes from a strict SUBTERM of
+            -- `lhs`, whose rendering (hence suffix) is strictly smaller;
+            -- legacy `_sol_bin_*` names are never suffixed, so no shadow can
+            -- capture the read. (`sizeOf` is noncomputable for `Expr`; the
+            -- derived `repr` length is the computable strictly-monotone
+            -- stand-in.)
+            let rhsTmp := "_sol_bin_rhs_" ++ toString ((toString (repr lhs)).length)
             let lhsCallCore ←
               FunctionDecl.internalExprSingleReturnUseCore?
                 internalFuel storageRefEnv env externalCallKindEnv storageNames
@@ -16473,7 +16481,10 @@ def FunctionDecl.internalBinarySingleReturnUseCore?
               -- a temp, then hoist the LHS calls. Falls back to the previous
               -- left-first shape when the RHS type does not resolve or the
               -- right-first emission fails to lower.
-              let rhsTmp := "_sol_bin_" ++ BinaryOp.tempTag op ++ "_rhs"
+              -- NESTING-UNIQUE temp (see the direct-RHS-call residue arm).
+              let rhsTmp :=
+                "_sol_bin_" ++ BinaryOp.tempTag op ++ "_rhs_" ++
+                  toString ((toString (repr lhs)).length)
               let rightFirst? : Option CoreStmt := do
                 let rhsTy ←
                   Expr.abiTyWithInternalFunctionsEnv?
@@ -16532,7 +16543,11 @@ def FunctionDecl.internalBinarySingleReturnUseCore?
                       Expr.abiTyWithInternalFunctionsEnv?
                         functions freeFunctions env rhs
                     let rhsCoreTy ← Ty.toCore? rhsTy
-                    let rhsTmp := "_sol_bin_" ++ BinaryOp.tempTag op ++ "_rhs"
+                    -- NESTING-UNIQUE temp (see the direct-RHS-call residue
+                    -- arm).
+                    let rhsTmp :=
+                      "_sol_bin_" ++ BinaryOp.tempTag op ++ "_rhs_" ++
+                        toString ((toString (repr lhs)).length)
                     let lhsCallCore ←
                       FunctionDecl.internalExprSingleReturnUseCore?
                         internalFuel storageRefEnv env externalCallKindEnv
