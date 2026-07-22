@@ -9738,12 +9738,13 @@ def Parameters.toCoreCleanupStmts? (fallbackPrefix : String)
   mapOptionIdx (Parameter.toCoreCleanupStmt? fallbackPrefix) 0 params
 
 def Parameter.toCoreMemoryLocalizeStmt? (fallbackPrefix : String)
+    (localizeCalldata : Bool)
     (index : Nat) (param : Parameter) : Option CoreStmt :=
   if param.location == some DataLocation.memory then do
     let coreTy ← Ty.toCore? param.ty
     let name := param.name.getD (fallbackPrefix ++ toString index)
     some (SolidCore.Solidity.Source.Stmt.memoryLocalize coreTy name)
-  else if param.location == some DataLocation.calldata then do
+  else if localizeCalldata && param.location == some DataLocation.calldata then do
     -- CALLDATA-located AGGREGATE return (`returns (uint256[] calldata)`):
     -- normalize to memory exactly like a memory-located return. solc's
     -- `FunctionType::asExternallyCallableFunction` performs the same
@@ -9754,7 +9755,9 @@ def Parameter.toCoreMemoryLocalizeStmt? (fallbackPrefix : String)
     -- typeMismatch (raw Panic 0x00) where the EVM returns the array. Scoped
     -- to memory-aggregate core types: `bytes`/`string` calldata returns
     -- (core `bytesCalldata`) already return correctly and keep their
-    -- byte-identical prologue.
+    -- byte-identical prologue. Gated to EXTERNAL/PUBLIC entry functions
+    -- (`localizeCalldata`) — an INTERNAL calldata-returning callee keeps its
+    -- pointer-return discipline (pointer-return-definite lane).
     let coreTy ← Ty.toCore? param.ty
     if CoreTy.isMemoryAggregate coreTy then
       let name := param.name.getD (fallbackPrefix ++ toString index)
@@ -9765,8 +9768,11 @@ def Parameter.toCoreMemoryLocalizeStmt? (fallbackPrefix : String)
     some SolidCore.Solidity.Source.Stmt.skip
 
 def Parameters.toCoreMemoryLocalizeStmts? (fallbackPrefix : String)
-    (params : List Parameter) : Option (List CoreStmt) :=
-  mapOptionIdx (Parameter.toCoreMemoryLocalizeStmt? fallbackPrefix) 0 params
+    (params : List Parameter) (localizeCalldata : Bool := false) :
+    Option (List CoreStmt) :=
+  mapOptionIdx
+    (Parameter.toCoreMemoryLocalizeStmt? fallbackPrefix localizeCalldata)
+    0 params
 
 /-- Reserved storage-alias target for a not-yet-assigned `T storage` named
     return. Single source of truth lives in the interpreter (the framed
@@ -12095,6 +12101,25 @@ def Parameter.matchesArgAllowingInternalFunctionName?
       some true
   | _, _ => Parameter.matchesArg? env param arg
 
+/-- Reference-vs-value classification for the arity-fallback wrong-callee
+    guard: `some true` for reference/aggregate-shaped types, `some false` for
+    value-shaped types, `none` when undecidable. -/
+def Ty.arityFallbackReferenceClass? : Ty -> Option Bool
+  | Ty.array _ _ => some true
+  | Ty.struct _ _ => some true
+  | Ty.tuple _ => some true
+  | Ty.mapping _ _ => some true
+  | Ty.bytes => some true
+  | Ty.string => some true
+  | Ty.uint _ => some false
+  | Ty.int _ => some false
+  | Ty.bool => some false
+  | Ty.address _ => some false
+  | Ty.bytesN _ => some false
+  | Ty.fixedBytes _ => some false
+  | Ty.enum _ _ => some false
+  | _ => none
+
 /-- Arity-fallback TYPE SAFETY: a candidate is EXCLUDED only when an
     argument's type is KNOWN and DEFINITELY mismatches a resolved parameter
     type. Untypeable arguments (the gate returns `none`) and unresolved
@@ -12107,18 +12132,35 @@ def Parameter.arityFallbackCompatible (env : TypeEnv)
     (param : Parameter) (arg : Expr) : Bool :=
   match param.ty with
   | Ty.user _ => true
+  | Ty.functionWithLocations _ _ _ _ _ _ =>
+      -- Function-typed params are UNDECIDABLE here: a function-pointer
+      -- argument takes many lowered shapes (a bare name ident, a
+      -- dispatch-ID number after `rewriteInternalFnValueIdents`, a member
+      -- path), which the expression typer reports as scalars — a "definite
+      -- mismatch" against them is untrustworthy (internal-fn-pointers /
+      -- refs-residue-fn-values lanes).
+      true
   | _ =>
-      match Parameter.matchesArgAllowingInternalFunctionName? env param arg with
-      | some false =>
-          -- A SHAPE mismatch alone does not disprove the candidate: solc also
-          -- binds an overload whose parameter the argument implicitly
-          -- CONVERTS to (`uint8 -> uint256` widening — the using-for widened
-          -- receiver/arg lanes). Exclude only when the known argument type
-          -- neither shape-matches nor implicitly converts.
-          match Expr.abiTyWithEnv? env arg with
-          | some argTy => Ty.canImplicitlyConvert argTy param.ty
-          | none => true
-      | _ => true
+      match arg with
+      | Expr.literal _ =>
+          -- Literals have conversion latitude the shape gate does not model
+          -- (number literals fit any wide-enough numeric type, string/hex
+          -- literals fit bytesN); never disprove a candidate on a literal.
+          true
+      | _ =>
+          -- CROSS-CLASS disproof ONLY: the sole implication solid enough to
+          -- exclude a candidate is reference/aggregate (array, struct, tuple,
+          -- mapping, bytes, string) vs value (numeric, bool, address, bytesN,
+          -- enum) — solc has NO implicit conversion across that divide for a
+          -- non-literal argument. WITHIN a class the reported type is not a
+          -- disproof: widening (`uint8 -> uint256`), constant folding
+          -- (`g(2 - 2)` converts to `bytes32` because the fold is zero), and
+          -- enum borrowing all defeat a naive shape comparison.
+          match Ty.arityFallbackReferenceClass? param.ty,
+              (Expr.abiTyWithEnv? env arg).bind
+                Ty.arityFallbackReferenceClass? with
+          | some paramIsRef, some argIsRef => paramIsRef == argIsRef
+          | _, _ => true
 
 def Parameters.arityFallbackCompatible (env : TypeEnv) :
     List Parameter -> List Expr -> Bool
@@ -24239,6 +24281,11 @@ def FunctionDecl.toCore? (storageNames : List Name) (constants : ConstantEnv)
   let paramCleanups ← Parameters.toCoreCleanupStmts? "_arg" decl.params
   let returnMemoryLocalizes ←
     Parameters.toCoreMemoryLocalizeStmts? "_ret" decl.returns
+      (localizeCalldata :=
+        match decl.visibility with
+        | some Visibility.external_ => true
+        | some Visibility.public_ => true
+        | _ => false)
   let bodyCore :=
     SolidCore.Solidity.Source.Stmt.block
       (paramCleanups ++ returnMemoryLocalizes ++ [bodyCore])
