@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "NestedRet", "function": "vals", "args": [], "value": 0 },
+  "expected_divergence": "none expected - nested-dynamic return parity control (register 1.3, X-RETABI retired): both engines must render success|[[w:1,w:2],[w:3]],[b:0xaa,b:0xbbcc] for a (uint256[][], bytes[]) return.",
+  "declared_observable": { "kind": "return_value", "normal_form": "success|[[w:1,w:2],[w:3]],[b:0xaa,b:0xbbcc]" },
+  "feature": "nested-dynamic-return",
+  "register_version_seen": "1.3.0"
+}

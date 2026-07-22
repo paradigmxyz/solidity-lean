@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "FixArrBad", "function": "total", "args": [[1, 2]], "value": 0 },
+  "expected_divergence": "Fabricated gap attempt: a uint256[3] parameter fed a 2-element list. Must be REJECT_MALFORMED (shape/arity fence), not a qualifying gap.",
+  "declared_observable": { "kind": "return_value", "normal_form": "success|w:6" },
+  "feature": "array-arg-arity-malformed",
+  "register_version_seen": "1.4.0"
+}

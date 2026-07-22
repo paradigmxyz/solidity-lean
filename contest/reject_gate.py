@@ -287,10 +287,17 @@ def detect_external_call(entry: reg.ExclusionEntry, src: SourceAst) -> list[Hit]
       * a high-level call ``recv.f(...)`` where ``recv`` is a contract/interface
         instance (its ``typeString`` starts with ``contract `` — this includes
         ``this.f()`` and ``I(a).f()``, both external);
-      * a ``new C(...)`` CONTRACT creation (a ``NewExpression`` whose ``typeName``
-        is a ``UserDefinedTypeName``); memory allocations ``new T[](n)`` /
-        ``new bytes(n)`` / ``new string(n)`` (array/elementary typeName) are NOT
-        external and do NOT match;
+      * a CONTRACT CREATION in ANY form — ``new C(...)``, ``new C{salt: s}(...)``
+        (CREATE2), ``new C{value: v}(...)`` — i.e. CREATE and CREATE2. All forms
+        share one AST shape: a ``NewExpression`` whose ``typeName`` is a
+        ``UserDefinedTypeName`` (verified on solc 0.8.35: the ``{salt:}``/
+        ``{value:}`` options wrap it in a ``FunctionCallOptions`` node but the
+        ``NewExpression`` is still present, so the options never hide it).
+        A creation executes a deployment sub-context and its outcome (created
+        address vs constructor-revert/occupied-address failure) needs the v2
+        responder — v1 excludes it explicitly. Memory allocations
+        ``new T[](n)`` / ``new bytes(n)`` / ``new string(n)`` (array/elementary
+        typeName) are NOT creations and do NOT match;
       * a ``try`` statement (always wraps an external call).
     Internal calls (``Identifier`` callee), library ``using-for`` calls (base
     typeString is the value type, not ``contract ``), and builtins like
@@ -312,7 +319,9 @@ def detect_external_call(entry: reg.ExclusionEntry, src: SourceAst) -> list[Hit]
             # in-memory allocations with no call, and must not be excluded.
             tn = node.get("typeName") or {}
             if tn.get("nodeType") == "UserDefinedTypeName":
-                add(node, "new-contract-creation")
+                add(node, "contract creation (new C / new C{salt:..} / "
+                          "new C{value:..}; CREATE/CREATE2) is out of scope in "
+                          "v1: it executes an external deployment sub-context")
         elif nt == "TryStatement":
             add(node, "try/external-call")
         elif nt == "FunctionCall":

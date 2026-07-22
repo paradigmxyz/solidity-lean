@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "StructArg", "function": "join", "args": [[40, 2]], "value": 0 },
+  "expected_divergence": "none expected - static-struct ENTRY PARAMETER parity control (register 1.4): P(40, 2) reaches both engines identically -> success|w:42 -> NO_DIVERGENCE.",
+  "declared_observable": { "kind": "return_value", "normal_form": "success|w:42" },
+  "feature": "struct-entry-arg",
+  "register_version_seen": "1.4.0"
+}

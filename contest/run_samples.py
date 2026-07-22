@@ -73,7 +73,7 @@ def run_full(name: str, expected_verdict: str, timeout: int = 500) -> tuple[bool
     return ok, detail
 
 
-def run_simulated(name: str, expected_verdict: str, expected_lane: str,
+def run_simulated(name: str, expected_verdict: str, expected_lane: str | None,
                   sim: hb.SolidityLeanResult, timeout: int = 400,
                   expect_component: str | None = None,
                   expect_duplicate: str | None = None) -> tuple[bool, str]:
@@ -165,6 +165,61 @@ def run_real_coverage_selftest(timeout: int = 500) -> tuple[bool, str]:
     detail = (f"verdict={report.verdict} lane={report.lane} "
               f"qualifies={report.qualifies} fp={report.fingerprint} "
               f":: {report.reason[:140]}")
+    return ok, detail
+
+
+def run_perturbed_nested_selftest(timeout: int = 500) -> tuple[bool, str]:
+    """Divergence-DIRECTION check for the closed X-RETABI channel: run
+    `nested_dynamic_return` through the FULL live pipeline, then perturb the
+    measured EVM observable's leading nested-array element by one unit. Now that
+    nested-dynamic observables are COMPARED (not excluded), the classifier must
+    bank SOUNDNESS_GAP(wrong-value) — proving a real model-vs-EVM divergence in
+    a nested-dynamic return would be detected, with ZERO bugs in solidity-lean."""
+    report = adj.adjudicate(
+        SAMPLES / "nested_dynamic_return", timeout=timeout,
+        _selftest_perturb_evm=obs.perturb_leading_value)
+    comp = (report.evidence.get("comparison", {}) or {}).get("differing_component")
+    ok = (report.verdict == "SOUNDNESS_GAP" and report.lane == "S"
+          and comp == "wrong-value" and report.qualifies)
+    detail = (f"verdict={report.verdict} lane={report.lane} component={comp} "
+              f"qualifies={report.qualifies} :: {report.reason[:140]}")
+    return ok, detail
+
+
+def run_perturbed_array_arg_selftest(timeout: int = 500) -> tuple[bool, str]:
+    """Divergence-DIRECTION check for the closed X-ARGVAL channel: run
+    `array_arg` (a uint256[] ENTRY PARAMETER) through the FULL live pipeline,
+    then perturb the measured EVM observable's leading value by one unit. Now
+    that array/struct ARGUMENTS are encoded and measured (not excluded), the
+    classifier must bank SOUNDNESS_GAP(wrong-value) — proving a real
+    model-vs-EVM divergence reached through an array argument would be
+    detected, with ZERO bugs in solidity-lean."""
+    report = adj.adjudicate(
+        SAMPLES / "array_arg", timeout=timeout,
+        _selftest_perturb_evm=obs.perturb_leading_value)
+    comp = (report.evidence.get("comparison", {}) or {}).get("differing_component")
+    ok = (report.verdict == "SOUNDNESS_GAP" and report.lane == "S"
+          and comp == "wrong-value" and report.qualifies)
+    detail = (f"verdict={report.verdict} lane={report.lane} component={comp} "
+              f"qualifies={report.qualifies} :: {report.reason[:140]}")
+    return ok, detail
+
+
+def run_perturbed_extfn_selftest(timeout: int = 500) -> tuple[bool, str]:
+    """Divergence-DIRECTION check for the closed X-FNVAL channel: run
+    `extfn_return` (an external function VALUE return) through the FULL live
+    pipeline, then bump the measured selector in the canonical f:<addr>:<sel>
+    form by one unit. The classifier must bank SOUNDNESS_GAP(wrong-value) —
+    proving a real model-vs-EVM disagreement on a returned function value
+    would be detected, with ZERO bugs in solidity-lean."""
+    report = adj.adjudicate(
+        SAMPLES / "extfn_return", timeout=timeout,
+        _selftest_perturb_evm=obs.perturb_extfn_value)
+    comp = (report.evidence.get("comparison", {}) or {}).get("differing_component")
+    ok = (report.verdict == "SOUNDNESS_GAP" and report.lane == "S"
+          and comp == "wrong-value" and report.qualifies)
+    detail = (f"verdict={report.verdict} lane={report.lane} component={comp} "
+              f"qualifies={report.qualifies} :: {report.reason[:140]}")
     return ok, detail
 
 
@@ -596,36 +651,92 @@ def hardening_unit_tests() -> tuple[bool, str]:
                    obs.render_word_for_type(0x01020304, "bytes32") == "w:16909060"))
     checks.append(("uint-unchanged",
                    obs.render_word_for_type(42, "uint256") == "w:42"))
-    # function-pointer returns are out of the comparable subset.
-    checks.append(("fn-return-oos",
-                   adj._comparable_return_type("function () external") is False))
-    checks.append(("uint-return-ok",
-                   adj._comparable_return_type("uint256") is True and
-                   adj._comparable_return_type("bytes4") is True))
+    # function-pointer types stay out of BOTH channels (X-ARGVAL / X-FNVAL).
+    checks.append(("fn-type-oos",
+                   adj._representable_param_type("function () external") is False
+                   and adj._comparable_channel_type("function () external", {})
+                   is False))
+    checks.append(("scalar-types-ok",
+                   adj._representable_param_type("uint256") is True and
+                   adj._representable_param_type("bytes4") is True and
+                   adj._comparable_channel_type("uint256", {}) is True and
+                   adj._comparable_channel_type("bytes4", {}) is True))
 
-    # Revert-channel scope (this fix): array/struct/tuple custom-error params are
-    # NOT in the comparable subset (so a `wrong-revert` mismatch on them is fenced
-    # to REJECTED_OOS, not a fake SOUNDNESS_GAP), while scalar params still compare.
-    checks.append(("err-array-oos",
-                   adj._comparable_return_type("uint256[]") is False and
-                   adj._comparable_return_type("uint256[3]") is False and
-                   adj._comparable_return_type("struct C.S") is False))
-    checks.append(("err-scalar-ok",
-                   adj._comparable_return_type("uint256") is True and
-                   adj._comparable_return_type("address") is True))
-    # And demonstrate the actual render mismatch the gate protects against: the EVM
-    # side decodes `error E(uint256[])` with [1,2,3] via the dynamic-bytes arm to a
-    # raw-bytes string, NOT Solidus's `custom:E:[w:1,w:2,w:3]` — equal behavior,
-    # different string, hence out of scope.
+    # PARAMETER scope (X-ARGVAL): arrays/structs/tuples have no claim arg form.
+    checks.append(("param-array-oos",
+                   adj._representable_param_type("uint256[]") is False and
+                   adj._representable_param_type("uint256[3]") is False and
+                   adj._representable_param_type("struct C.S") is False))
+    checks.append(("param-scalar-ok",
+                   adj._representable_param_type("uint256") is True and
+                   adj._representable_param_type("address") is True))
+    # RETURN/REVERT channel (register 1.3, X-RETABI retired): arrays and
+    # RESOLVABLE structs (arbitrarily nested) are IN the comparable subset; an
+    # unresolvable struct or a function type anywhere nested stays out (X-FNVAL).
+    _structs = {"C.S": ["uint256", "bytes"],
+                "C.F": ["function () external", "uint256"]}
+    checks.append(("channel-array-comparable",
+                   adj._comparable_channel_type("uint256[]", {}) is True and
+                   adj._comparable_channel_type("uint256[3]", {}) is True and
+                   adj._comparable_channel_type("uint256[][]", {}) is True and
+                   adj._comparable_channel_type("bytes[]", {}) is True))
+    checks.append(("channel-struct-comparable",
+                   adj._comparable_channel_type("struct C.S", _structs) is True and
+                   adj._comparable_channel_type("struct C.S[]", _structs) is True))
+    checks.append(("channel-struct-residue-oos",
+                   adj._comparable_channel_type("struct C.Unknown", _structs)
+                   is False and
+                   adj._comparable_channel_type("struct C.F", _structs) is False and
+                   adj._comparable_channel_type("function () external[]", {})
+                   is False))
+    # The recursive codec renders `error E(uint256[])` with [1,2,3] EXACTLY as
+    # Solidus does (`custom:E:[w:1,w:2,w:3]`), so the revert channel COMPARES —
+    # this was the render mismatch the retired X-RETABI fence protected against.
     _sel = "aabbccdd"
     _rev = bytes.fromhex(_sel) + (0x20).to_bytes(32, "big") \
         + (3).to_bytes(32, "big") \
         + b"".join(n.to_bytes(32, "big") for n in (1, 2, 3))
     _nf = obs.evm_revert_normal_form(
         "0x" + _rev.hex(), errors={_sel: ("E", ["uint256[]"])})
-    checks.append(("err-array-render-differs",
-                   _nf != "revert|custom:E:[w:1,w:2,w:3]"
-                   and _nf.startswith("revert|custom:E:")))
+    checks.append(("err-array-render-matches",
+                   _nf == "revert|custom:E:[w:1,w:2,w:3]"))
+    # Nested-dynamic decode checks against HAND-ENCODED ABI bytes (spec layout):
+    # uint256[][] = [[1,2],[3]] and bytes[] = [0xaa, 0xbbcc].
+    def _w(n: int) -> bytes:
+        return n.to_bytes(32, "big")
+    _matrix = (_w(0x20)                       # head: offset of the outer array
+               + _w(2) + _w(0x40) + _w(0xa0)  # outer len + element offsets
+               + _w(2) + _w(1) + _w(2)        # [1,2]
+               + _w(1) + _w(3))               # [3]
+    checks.append(("nested-array-decode",
+                   obs._decode_abi_values(_matrix, ["uint256[][]"])
+                   == ["[[w:1,w:2],[w:3]]"]))
+    _bytesarr = (_w(0x20)
+                 + _w(2) + _w(0x40) + _w(0x80)
+                 + _w(1) + b"\xaa" + b"\x00" * 31
+                 + _w(2) + b"\xbb\xcc" + b"\x00" * 30)
+    checks.append(("bytes-array-decode",
+                   obs._decode_abi_values(_bytesarr, ["bytes[]"])
+                   == ["[b:0xaa,b:0xbbcc]"]))
+    # struct S { uint256 a; bytes b; } = (7, 0x4142) -> "(w:7,b:0x4142)".
+    _stru = (_w(0x20)
+             + _w(7) + _w(0x40)
+             + _w(2) + b"\x41\x42" + b"\x00" * 30)
+    checks.append(("struct-decode",
+                   obs._decode_abi_values(_stru, ["struct C.S"],
+                                          {"C.S": ["uint256", "bytes"]})
+                   == ["(w:7,b:0x4142)"]))
+    # A STATIC fixed array occupies inline head space (no offset): (uint256[2], bool).
+    _fx = _w(4) + _w(5) + _w(1)
+    checks.append(("static-fixed-array-decode",
+                   obs._decode_abi_values(_fx, ["uint256[2]", "bool"])
+                   == ["[w:4,w:5]", "w:1"]))
+    # Malformed data (absurd array length) RAISES instead of blowing up / lying.
+    try:
+        obs._decode_abi_values(_w(0x20) + _w(1 << 200), ["uint256[]"])
+        checks.append(("malformed-abi-raises", False))
+    except ValueError:
+        checks.append(("malformed-abi-raises", True))
 
     # deal last-wins parity (this audit): a repeated vm.deal to the SAME address
     # must mirror to the SAME balance on both engines. The solidity-lean list lookup
@@ -1270,10 +1381,41 @@ def main() -> int:
     results.append(("mem_alloc (FULL)", ok, d))
     _print("mem_alloc (FULL)", ok, d)
 
-    # array return type is outside the comparable ABI subset -> REJECTED_OOS.
-    ok, d = run_full("array_return", "REJECTED_OOS")
-    results.append(("array_return X-RETABI (FULL)", ok, d))
-    _print("array_return X-RETABI (FULL)", ok, d)
+    # Register 1.3 (X-RETABI retired): array/struct/nested-dynamic RETURN and
+    # custom-error REVERT observables are decoded by the recursive ABI codec into
+    # solidity-lean's [..]/(..) rendering and COMPARED. These lanes prove the model
+    # matches solc 0.8.35 + real EVM end-to-end on each shape (NO_DIVERGENCE
+    # controls), and the perturbed lane below proves a REAL divergence in a
+    # nested-dynamic observable is still detected (divergence direction).
+
+    # uint256[] return: was REJECTED_OOS under the 1.2 register, now compared.
+    ok, d = run_full("array_return", "NO_DIVERGENCE")
+    results.append(("array_return parity (FULL, X-RETABI retired)", ok, d))
+    _print("array_return parity (FULL, X-RETABI retired)", ok, d)
+
+    # (uint256[][], bytes[]) multi-return: nested-dynamic head/tail layout.
+    ok, d = run_full("nested_dynamic_return", "NO_DIVERGENCE")
+    results.append(("nested_dynamic_return parity (FULL)", ok, d))
+    _print("nested_dynamic_return parity (FULL)", ok, d)
+
+    # struct with dynamic fields + nested struct + static fixed array.
+    ok, d = run_full("struct_return", "NO_DIVERGENCE")
+    results.append(("struct_return parity (FULL)", ok, d))
+    _print("struct_return parity (FULL)", ok, d)
+
+    # custom-error revert with nested-dynamic params (uint256[][], string).
+    ok, d = run_full("nested_error_revert", "NO_DIVERGENCE")
+    results.append(("nested_error_revert parity (FULL)", ok, d))
+    _print("nested_error_revert parity (FULL)", ok, d)
+
+    # Divergence DIRECTION over a nested-dynamic observable: full live run of
+    # nested_dynamic_return, then the measured EVM observable's leading array
+    # element is perturbed by one unit -> the classifier must bank
+    # SOUNDNESS_GAP(wrong-value), proving nested-dynamic divergences are
+    # DETECTED (not silently equalized) now that they are compared.
+    ok, d = run_perturbed_nested_selftest()
+    results.append(("nested-dynamic divergence-detector (REAL + delta)", ok, d))
+    _print("nested-dynamic divergence-detector (REAL + delta)", ok, d)
 
     # bytesN (N<32) return parity (audit round 2): a bytes4 return must classify
     # NO_DIVERGENCE, not a fake SOUNDNESS_GAP from EVM left- vs Lean right-alignment.
@@ -1304,6 +1446,69 @@ def main() -> int:
     ok, d = run_full("string_return", "NO_DIVERGENCE")
     results.append(("string_return delimiter-safety (FULL)", ok, d))
     _print("string_return delimiter-safety (FULL)", ok, d)
+
+    # Register 1.4 (X-ARGVAL retired): array/struct ENTRY PARAMETERS are encoded
+    # end-to-end (JSON-list claim args -> type-directed ABI calldata on the EVM
+    # side, Value.dynamicArray/fixedArray/tuple on the Lean side) and MEASURED.
+    # These four parity controls prove each shape agrees on solc 0.8.35 + real
+    # EVM vs the model; the perturbed lane proves divergence DIRECTION; the two
+    # malformed lanes prove the fabrication fence (shape/arity + recursive leaf
+    # domain) still REJECTs cleanly; fn_param_oos pins the narrow X-FNARG residue.
+
+    # uint256[] entry parameter: was REJECTED_OOS under the 1.3 register.
+    ok, d = run_full("array_arg", "NO_DIVERGENCE")
+    results.append(("array_arg parity (FULL, X-ARGVAL retired)", ok, d))
+    _print("array_arg parity (FULL, X-ARGVAL retired)", ok, d)
+
+    # uint256[][] nested-dynamic entry parameter (offsets within offsets).
+    ok, d = run_full("nested_array_arg", "NO_DIVERGENCE")
+    results.append(("nested_array_arg parity (FULL)", ok, d))
+    _print("nested_array_arg parity (FULL)", ok, d)
+
+    # static-member struct entry parameter (inline tuple encoding).
+    ok, d = run_full("struct_arg", "NO_DIVERGENCE")
+    results.append(("struct_arg parity (FULL)", ok, d))
+    _print("struct_arg parity (FULL)", ok, d)
+
+    # dynamic-member struct entry parameter (bytes + uint256[] members).
+    ok, d = run_full("struct_dyn_arg", "NO_DIVERGENCE")
+    results.append(("struct_dyn_arg parity (FULL)", ok, d))
+    _print("struct_dyn_arg parity (FULL)", ok, d)
+
+    # Divergence DIRECTION over an array-parameter observable: full live run of
+    # array_arg, then the measured EVM observable's leading value is perturbed
+    # by one unit -> SOUNDNESS_GAP(wrong-value) must be banked, proving a real
+    # divergence reached through an array/struct ARGUMENT is detected.
+    ok, d = run_perturbed_array_arg_selftest()
+    results.append(("array-arg divergence-detector (REAL + delta)", ok, d))
+    _print("array-arg divergence-detector (REAL + delta)", ok, d)
+
+    # fabrication fence: uint256[3] fed a 2-element list -> REJECT_MALFORMED.
+    ok, d = run_full("array_arg_malformed", "REJECT_MALFORMED")
+    results.append(("array_arg_malformed arity fence (FULL)", ok, d))
+    _print("array_arg_malformed arity fence (FULL)", ok, d)
+
+    # fabrication fence: struct member uint8=300 out of leaf domain -> REJECT.
+    ok, d = run_full("struct_arg_malformed", "REJECT_MALFORMED")
+    results.append(("struct_arg_malformed leaf-domain fence (FULL)", ok, d))
+    _print("struct_arg_malformed leaf-domain fence (FULL)", ok, d)
+
+    # narrow residue X-FNARG: a function-typed ENTRY PARAMETER stays OOS.
+    ok, d = run_full("fn_param_oos", "REJECTED_OOS")
+    results.append(("fn_param_oos X-FNARG residue (FULL)", ok, d))
+    _print("fn_param_oos X-FNARG residue (FULL)", ok, d)
+
+    # Register 1.4 (X-FNVAL retired): an EXTERNAL function VALUE in the return
+    # channel renders the canonical f:<addr>:<sel> form on BOTH engines.
+    ok, d = run_full("extfn_return", "NO_DIVERGENCE")
+    results.append(("extfn_return parity (FULL, X-FNVAL retired)", ok, d))
+    _print("extfn_return parity (FULL, X-FNVAL retired)", ok, d)
+
+    # Divergence DIRECTION for the function-value channel: perturb the measured
+    # selector by one unit -> SOUNDNESS_GAP(wrong-value) must be banked.
+    ok, d = run_perturbed_extfn_selftest()
+    results.append(("extfn divergence-detector (REAL + delta)", ok, d))
+    _print("extfn divergence-detector (REAL + delta)", ok, d)
 
     # fabricated gap: args count != function param count -> REJECT_MALFORMED,
     # NOT a qualifying COVERAGE_GAP from Solidus failing closed on the bad call.
@@ -1468,16 +1673,58 @@ def main() -> int:
     results.append(("abilazy_passthrough RENDER-PARITY (FULL)", ok, d))
     _print("abilazy_passthrough RENDER-PARITY (FULL)", ok, d)
 
-    # Round 33 hardening (16th vector): two custom errors sharing a 4-byte selector
-    # (entry-contract E82926 + file-level E94430, both -> 0x554d5780). solc rejects
-    # colliding errors within one contract but NOT a file-level one, so a last-wins
-    # selector map renders custom:E94430 (EVM) vs custom:E82926 (solidity-lean) for
-    # BYTE-IDENTICAL revert data -> a fabricated wrong-revert SOUNDNESS_GAP
-    # (qualifies=True) before the fix. X-ERRSEL now routes the ambiguous-selector
-    # revert to REJECTED_OOS (the name is not a faithful observable).
-    ok, d = run_full("error_selector_collision", "REJECTED_OOS")
-    results.append(("error_selector_collision HARDENING (FULL)", ok, d))
-    _print("error_selector_collision HARDENING (FULL)", ok, d)
+    # Register 1.3 (X-ERRSEL retired): two custom errors sharing a 4-byte
+    # selector (entry-contract E82926 + file-level E94430, both -> 0x554d5780;
+    # solc 0.8.35 rejects a SAME-contract collision but ACCEPTS this cross-scope
+    # one). The EVM dispatches revert data by BYTES, so the adjudicator resolves
+    # the colliding measured selector to the MODEL-reported error and compares
+    # the byte-faithful selector+args form: byte-identical reverts ->
+    # NO_DIVERGENCE (was REJECTED_OOS under 1.2; a fabricated wrong-revert
+    # SOUNDNESS_GAP before that).
+    ok, d = run_full("error_selector_collision", "NO_DIVERGENCE")
+    results.append(("error_selector_collision parity (FULL, X-ERRSEL retired)", ok, d))
+    _print("error_selector_collision parity (FULL, X-ERRSEL retired)", ok, d)
+
+    # ANTI-FABRICATION (X-ERRSEL closure, direction 1): even if the model labels
+    # the SAME byte-identical revert with the OTHER colliding name (E94430), the
+    # resolution keys on the model-reported name -> the EVM side decodes under
+    # that same definition -> NO_DIVERGENCE. The error NAME is not on-chain-
+    # observable, so no name mismatch over agreeing bytes can bank a gap.
+    ok, d = run_simulated(
+        "error_selector_collision", "NO_DIVERGENCE", None,
+        hb.SolidityLeanResult(
+            ok=True, stage="run", fail_closed=False,
+            observable=obs.parse_observable(
+                "revert|custom:E94430:##EVT####STO##"),
+            message="", inconclusive=False))
+    results.append(("collision other-name still NO_DIVERGENCE (SIM)", ok, d))
+    _print("collision other-name still NO_DIVERGENCE (SIM)", ok, d)
+
+    # ANTI-FABRICATION (X-ERRSEL closure, direction 2): a GENUINE byte-level
+    # disagreement under a colliding selector is still banked — a model that
+    # reverts empty where the EVM reverts custom must classify
+    # SOUNDNESS_GAP(wrong-revert); the collision cannot MASK a real divergence.
+    ok, d = run_simulated(
+        "error_selector_collision", "SOUNDNESS_GAP", "S",
+        hb.SolidityLeanResult(
+            ok=True, stage="run", fail_closed=False,
+            observable=obs.parse_observable("revert|empty##EVT####STO##"),
+            message="", inconclusive=False),
+        expect_component="wrong-revert")
+    results.append(("collision real-divergence preserved (SIM)", ok, d))
+    _print("collision real-divergence preserved (SIM)", ok, d)
+
+    # CONTRACT CREATION exclusion (strengthened, not closed): `new C{salt:s}()`
+    # (CREATE2) must land as a CLEAN REJECTED_OOS — the X-EXTCALL contract-
+    # creation arm (and SEM-ADDR on the salted predicted address) — never an
+    # incidental address-0 revert or NEEDS_REVIEW. `new C()` / `new C{value:}()`
+    # share the same NewExpression/UserDefinedTypeName AST shape (solc-verified:
+    # the {salt:}/{value:} options wrap but never hide the NewExpression), so
+    # one salted lane covers the whole creation family; the mem_alloc lane above
+    # is the negative control (`new T[](n)` allocations must NOT fire).
+    ok, d = run_full("create2_salted", "REJECTED_OOS")
+    results.append(("create2_salted contract-creation OOS (FULL)", ok, d))
+    _print("create2_salted contract-creation OOS (FULL)", ok, d)
 
     # Round 34 hardening (17th vector): a contract that emits in its CONSTRUCTOR
     # (Ctor(1)) and in the entry function (Ran(2)). The EVM event observable arms

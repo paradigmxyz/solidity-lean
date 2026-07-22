@@ -335,6 +335,9 @@ def run_solidity_lean_observable(source: Path, contract: str, fname: str, args: 
                            constructor_args: Optional[list] = None,
                            inject_storage: Optional[list[tuple[int, int]]] = None,
                            calldata_hex: Optional[str] = None,
+                           param_types: Optional[list[str]] = None,
+                           ctor_param_types: Optional[list[str]] = None,
+                           structs: Optional[dict[str, list[str]]] = None,
                            ) -> SolidityLeanResult:
     """Import ``source``, then #eval the §3.4 observable of ``contract.fname``.
 
@@ -366,8 +369,15 @@ def run_solidity_lean_observable(source: Path, contract: str, fname: str, args: 
             generated_source_path=gen_path)
 
     # 2. Build the Lean file: imports + heartbeats + generated + our helper + eval
-    args_lean = obs.render_lean_args(args)
-    ctor_args_lean = obs.render_lean_args(constructor_args or [])
+    # TYPE-DIRECTED arg rendering (register >= 1.4.0): with the entry/ctor
+    # parameter typeStrings, JSON-list args render as Value.dynamicArray/
+    # fixedArray/tuple — the same CoreValues solidity-lean's own ABI decode
+    # produces — so array/struct params reach the model as the SAME logical
+    # call the EVM decodes from the calldata bytes (X-ARGVAL retired).
+    args_lean = obs.render_lean_args(args, types=param_types, structs=structs)
+    ctor_args_lean = obs.render_lean_args(constructor_args or [],
+                                          types=ctor_param_types,
+                                          structs=structs)
     lean_lines = [
         "import SolidCore.Solidity.Checked",
         "import SolidCore.Witness.Checked",

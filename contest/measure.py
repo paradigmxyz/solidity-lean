@@ -136,6 +136,52 @@ def error_definitions(
     return out, ambiguous
 
 
+def error_definition_list(
+        source: Path, solc: str) -> list[tuple[str, str, list[str]]]:
+    """EVERY user-defined error as ``(selector, name, [param_type, ...])``,
+    INCLUDING all parties to a 4-byte selector collision (which the last-wins
+    map of :func:`error_definitions` cannot represent). The adjudicator uses
+    this to resolve an ambiguous (colliding) measured revert selector to the
+    error the MODEL reports — sound because the on-chain revert bytes carry
+    only selector+args, so the name label never changes what is compared."""
+    out: list[tuple[str, str, list[str]]] = []
+    try:
+        _name, ast = gate._IMPORTER.run_solc_ast(solc, source)
+    except Exception:
+        return out
+    for node in gate.iter_nodes(ast):
+        if node.get("nodeType") != "ErrorDefinition":
+            continue
+        sel = node.get("errorSelector")
+        name = node.get("name")
+        if not sel or not name:
+            continue
+        types = [_param_type(p) for p in
+                 node.get("parameters", {}).get("parameters", [])]
+        out.append((str(sel).lower(), str(name), types))
+    return out
+
+
+def struct_definitions(source: Path, solc: str) -> dict[str, list[str]]:
+    """Map each StructDefinition's canonical name (e.g. ``C.S``, or ``S`` for a
+    file-level struct) to its member typeStrings, so the recursive ABI decoder
+    (observable._decode_abi_values) can decode struct-typed return values and
+    custom-error params into solidity-lean's ``(..)`` tuple rendering."""
+    out: dict[str, list[str]] = {}
+    try:
+        _name, ast = gate._IMPORTER.run_solc_ast(solc, source)
+    except Exception:
+        return out
+    for node in gate.iter_nodes(ast):
+        if node.get("nodeType") != "StructDefinition":
+            continue
+        canonical = node.get("canonicalName") or node.get("name")
+        if not canonical:
+            continue
+        out[str(canonical)] = [_param_type(m) for m in (node.get("members") or [])]
+    return out
+
+
 def constructor_param_types(source: Path, contract: str,
                             solc: str) -> list[str]:
     """The parameter typeStrings of ``contract``'s constructor (``[]`` if it has
@@ -181,8 +227,14 @@ def enum_member_counts(source: Path, solc: str) -> dict[str, int]:
 
 # ---------------------------------------------------------------------------
 # Python-side ABI encoding of the entry args (from claim.json) into calldata.
-# Supports the same v1 arg forms the solidity-lean renderer supports: word / int /
-# bytes / bool. Static args go in the head; dynamic bytes get an offset+tail.
+# Scalar arg forms: word / int / bytes / bool. Register >= 1.4.0 additionally
+# encodes ARRAY (`T[]` / `T[N]`, arbitrarily nested) and STRUCT parameters
+# from JSON lists, TYPE-DIRECTED (the parameter typeString from the compiled
+# AST decides static-inline vs offset+tail layout), so array/struct entry and
+# constructor args reach the EVM as the exact head/tail encoding solc's own
+# ABI produces (X-ARGVAL retired). The recursive layout mirrors the decoder
+# (observable._decode_tuple), sharing its type predicates so the two cannot
+# drift. Static args go in the head; dynamic values get an offset+tail.
 # ---------------------------------------------------------------------------
 
 def _encode_arg(arg: Any) -> tuple[bool, bytes]:
@@ -206,11 +258,83 @@ def _encode_arg(arg: Any) -> tuple[bool, bytes]:
     raise ValueError(f"unsupported entry arg form for calldata: {arg!r}")
 
 
-def _encode_args_abi(args: list) -> bytes:
+def _encode_typed(arg: Any, t: str,
+                  structs: Optional[dict[str, list[str]]]) -> tuple[bool, bytes]:
+    """TYPE-DIRECTED encode of one arg for parameter type ``t``.
+
+    Returns ``(is_dynamic, encoded)`` where ``encoded`` is the value's full
+    encoding (for a dynamic value: the tail bytes the offset will point at; for
+    a static value: the inline head bytes — 32 for a scalar, the concatenated
+    parts for a static fixed array / static struct). Shape errors raise
+    ValueError; the adjudicator's arg-domain validation rejects them as
+    REJECT_MALFORMED before any encoding runs (fabrication fence)."""
+    from . import observable as obs  # local import; observable does not import us
+    ct = obs._clean_type(t)
+    arr = obs._array_elem(ct)
+    if arr is not None:
+        elem, n = arr
+        if not isinstance(arg, list):
+            raise ValueError(f"array parameter {t!r} requires a JSON list arg, "
+                             f"got {arg!r}")
+        if n is None:  # dynamic T[]: length word + tuple-encoded elements
+            body = len(arg).to_bytes(32, "big") + \
+                _encode_tuple_typed(arg, [elem] * len(arg), structs)
+            return True, body
+        if len(arg) != n:
+            raise ValueError(f"fixed array {t!r} requires exactly {n} elements, "
+                             f"got {len(arg)}")
+        body = _encode_tuple_typed(arg, [elem] * n, structs)
+        return obs._is_dynamic_type(ct, structs), body
+    members = obs._struct_member_types(ct, structs)
+    if members is not None:
+        if not isinstance(arg, list):
+            raise ValueError(f"struct parameter {t!r} requires a JSON list arg "
+                             f"(one element per member), got {arg!r}")
+        if len(arg) != len(members):
+            raise ValueError(f"struct {t!r} requires {len(members)} member "
+                             f"values, got {len(arg)}")
+        body = _encode_tuple_typed(arg, members, structs)
+        return obs._is_dynamic_type(ct, structs), body
+    if ct.startswith("struct "):
+        raise ValueError(f"unresolvable struct parameter type {t!r}")
+    if isinstance(arg, list):
+        raise ValueError(f"scalar parameter {t!r} got a JSON list arg: {arg!r}")
+    return _encode_arg(arg)
+
+
+def _encode_tuple_typed(args: list, types: list[str],
+                        structs: Optional[dict[str, list[str]]]) -> bytes:
+    """ABI tuple (head+tail) encoding of ``args`` against ``types`` — the exact
+    inverse of observable._decode_tuple: dynamic components hold an offset
+    (relative to the region start) into the tail; static components (scalars,
+    static fixed arrays, static structs) are inlined in the head."""
+    encoded = [_encode_typed(a, t, structs) for a, t in zip(args, types)]
+    head_size = sum(32 if is_dyn else len(enc) for is_dyn, enc in encoded)
+    head = b""
+    tail = b""
+    for is_dyn, enc in encoded:
+        if is_dyn:
+            head += (head_size + len(tail)).to_bytes(32, "big")
+            tail += enc
+        else:
+            head += enc
+    return head + tail
+
+
+def _encode_args_abi(args: list, types: Optional[list[str]] = None,
+                     structs: Optional[dict[str, list[str]]] = None) -> bytes:
     """ABI-encode a positional arg list (head+tail), WITHOUT any selector prefix.
 
     Shared by the entry calldata (prepended with the 4-byte selector) and the
-    constructor-argument tail appended to a contract's creationCode."""
+    constructor-argument tail appended to a contract's creationCode. With
+    ``types`` (the parameter typeStrings from the compiled AST) the encoding is
+    TYPE-DIRECTED, covering array/struct parameters; without it (legacy
+    callers) only the scalar arg forms are encodable."""
+    if types is not None:
+        if len(args) != len(types):
+            raise ValueError(f"arg count {len(args)} != parameter count "
+                             f"{len(types)}")
+        return _encode_tuple_typed(args, types, structs)
     encoded = [_encode_arg(a) for a in args]
     head = b""
     tail = b""
@@ -224,8 +348,10 @@ def _encode_args_abi(args: list) -> bytes:
     return head + tail
 
 
-def build_calldata(selector: str, args: list) -> str:
-    return selector + _encode_args_abi(args).hex()
+def build_calldata(selector: str, args: list,
+                   types: Optional[list[str]] = None,
+                   structs: Optional[dict[str, list[str]]] = None) -> str:
+    return selector + _encode_args_abi(args, types, structs).hex()
 
 
 # ---------------------------------------------------------------------------
@@ -439,8 +565,23 @@ def measure_evm(sig: EntrySig, args: list, ov: cenv.EnvOverrides,
     # single file is granted to the (maintainer-controlled) measurement test, and
     # `ffi` stays disabled.
     out_path = (work_dir / "measure_out.txt").resolve()
-    calldata = build_calldata(sig.selector, args)
-    ctor_args_hex = _encode_args_abi(constructor_args or []).hex()
+    # TYPE-DIRECTED encoding (register >= 1.4.0): the entry parameter types and
+    # the constructor's parameter types drive the head/tail layout, so array/
+    # struct args ABI-encode exactly as solc's own encoder would (X-ARGVAL
+    # retired). The struct table resolves struct params to member types.
+    structs = struct_definitions(sig.source_file, solc)
+    calldata = build_calldata(sig.selector, args, types=sig.param_types,
+                              structs=structs)
+    ctor_types = constructor_param_types(sig.source_file, sig.contract, solc)
+    ctor_list = list(constructor_args or [])
+    # Only encode type-directed when the arity matches (validated upstream);
+    # a mismatch here would mean a caller bypassed validation — fall back to
+    # the legacy scalar path, which raises on unencodable shapes.
+    if len(ctor_types) == len(ctor_list):
+        ctor_args_hex = _encode_args_abi(ctor_list, types=ctor_types,
+                                         structs=structs).hex()
+    else:
+        ctor_args_hex = _encode_args_abi(ctor_list).hex()
     rel_import = f"../src/{sig.source_file.name}"
     (proj / "test" / "ContestMeasure.t.sol").write_text(
         _harness_source(sig, calldata, out_path, ov, rel_import, slots,
