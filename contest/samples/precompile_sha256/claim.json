@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "Sha2Call", "function": "digest", "args": [7], "value": 0 },
+  "expected_divergence": "none expected - precompile staticcall parity control (register 1.6, X-EXTCALL precompile carve-out): address(2).staticcall is answered in-semantics with the real sha256 output on both engines -> NO_DIVERGENCE (was REJECTED_OOS under the 1.5 register).",
+  "declared_observable": { "kind": "return_value", "normal_form": "success|w:1,w:<sha256 digest word>" },
+  "feature": "precompile-staticcall-parity",
+  "register_version_seen": "1.6.0"
+}

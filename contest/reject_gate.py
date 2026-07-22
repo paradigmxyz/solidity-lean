@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import inspect
 import json
 import os
 import shutil
@@ -279,11 +280,40 @@ def detect_storage_layout_specifier(entry: reg.ExclusionEntry, src: SourceAst) -
 _LOWLEVEL_CALL_MEMBERS = {"call", "staticcall", "delegatecall", "transfer", "send"}
 
 
-def detect_external_call(entry: reg.ExclusionEntry, src: SourceAst) -> list[Hit]:
+def _is_external_fn_typestring(ts: str) -> bool:
+    """True iff ``ts`` is an EXTERNAL function type (solc 0.8.35 renders it as
+    e.g. ``function () pure external returns (uint256)``). Internal function
+    types and the address members (``.staticcall`` etc., whose typeString is a
+    function type WITHOUT a visibility) do not contain `` external``; array
+    types of function values end with ``]`` and are excluded here (verified on
+    solc 0.8.35 AST typeStrings, probe 2026-07-22)."""
+    return (ts.startswith("function") and " external" in ts
+            and not ts.rstrip().endswith("]"))
+
+
+def detect_external_call(entry: reg.ExclusionEntry, src: SourceAst,
+                         at_version: Optional[str] = None) -> list[Hit]:
     """Flag any EXTERNAL call — unmodeled in the v1 responder-free path (X-EXTCALL).
 
     Conservative (errs toward OOS). A hit is any of:
-      * a low-level member call ``.call/.staticcall/.delegatecall/.transfer/.send``;
+      * a low-level member call ``.call/.staticcall/.delegatecall/.transfer/.send``
+        — EXCEPT (register >= 1.6.0) a ``.staticcall`` whose receiver
+        constant-folds to a literal mainnet precompile address 1..10 and that
+        carries no ``{gas:..}``/other call options: the engine answers all ten
+        precompiles in-semantics with the real output
+        (Interpreter.precompileAnswerCall? -> Precompile.execute?; engine
+        probe: ONLY a zero-value STATICCALL request is answered — plain
+        ``.call`` even value-free maps to CallKind.call and keeps the default
+        fail answer, so every other form stays excluded). A receiver that does
+        not fold to a literal (computed/laundered) stays OOS. Submissions
+        judged at a pre-1.6.0 register keep the broad rule (§7);
+      * a call THROUGH an external function-typed VALUE (``cb()`` where ``cb``
+        is a ``function(..) external ..`` value, incl. an options-wrapped
+        form): with external function PARAMETERS in scope (X-FNARG retired,
+        1.6.0) a submitted (address, selector) pair has no callee behind it in
+        the v1 responder-free world, so CALLING it is an external call like
+        any other. Flagged at every register version (defense-in-depth;
+        pre-1.6.0 such programs were already OOS via X-FNARG/this.f sources);
       * a high-level call ``recv.f(...)`` where ``recv`` is a contract/interface
         instance (its ``typeString`` starts with ``contract `` — this includes
         ``this.f()`` and ``I(a).f()``, both external);
@@ -309,10 +339,41 @@ def detect_external_call(entry: reg.ExclusionEntry, src: SourceAst) -> list[Hit]
                         enclosing_contract_name(src.ast, node),
                         node_src(node), f"{entry.reason} [{what}]"))
 
+    # The precompile-staticcall carve-out is in force from register 1.6.0; a
+    # submission judged at an earlier version keeps the broad exclusion it was
+    # (or would have been) adjudicated under (§7 fairness). ``None`` = live.
+    precompile_carveout = (at_version is None
+                           or not reg._semver_lt(at_version, "1.6.0"))
+    # A ``.staticcall`` wrapped in call OPTIONS (``{gas: ..}`` — the only legal
+    # option on staticcall) is NOT carved out: collect the ids of MemberAccess
+    # nodes that sit directly under a FunctionCallOptions wrapper.
+    option_wrapped: set[int] = set()
+    for n in iter_nodes(src.ast):
+        if n.get("nodeType") == "FunctionCallOptions":
+            inner = n.get("expression")
+            if isinstance(inner, dict):
+                option_wrapped.add(id(inner))
+
     for node in iter_nodes(src.ast):
         nt = node.get("nodeType")
         if nt == "MemberAccess" and node.get("memberName") in _LOWLEVEL_CALL_MEMBERS:
+            if (precompile_carveout
+                    and node.get("memberName") == "staticcall"
+                    and id(node) not in option_wrapped):
+                recv = _literal_int(node.get("expression"))
+                if recv is not None and 1 <= recv <= 10:
+                    # In-semantics precompile staticcall (literal receiver
+                    # 1..10, no options): the engine answers it with the real
+                    # precompile output — measured, not excluded.
+                    continue
             add(node, f"low-level .{node.get('memberName')}")
+        elif nt == "FunctionCall" and _is_external_fn_typestring(
+                type_string(node.get("expression") or {})):
+            # A call THROUGH an external function-typed value (``cb()``): the
+            # callee behind the (address, selector) pair is not modeled in the
+            # v1 responder-free world. (High-level ``recv.f(...)`` calls also
+            # land here — a harmless double hit with the arm below.)
+            add(node, "call through an external function-typed value")
         elif nt == "NewExpression":
             # Only `new <Contract>()` is an external creation. `new T[](n)`
             # (ArrayTypeName) and `new bytes/string(n)` (ElementaryTypeName) are
@@ -1082,7 +1143,14 @@ def run_gate_on_asts(sources: list[SourceAst],
         if detector is None:
             continue
         for src in sources:
-            hits.extend(detector(entry, src))
+            # VERSION-AWARE detectors (currently detect_external_call, whose
+            # precompile-staticcall carve-out is in force from 1.6.0) receive
+            # the effective register version so a historical adjudication
+            # replays under the rule then in force (§7).
+            if "at_version" in inspect.signature(detector).parameters:
+                hits.extend(detector(entry, src, at_version=effective))
+            else:
+                hits.extend(detector(entry, src))
     for entry in reg.semantic_entries(effective):
         detector = _SEMANTIC_DETECTORS.get(entry.detector)
         if detector is None:

@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "AllTen", "function": "run", "args": [7], "value": 0 },
+  "expected_divergence": "none expected - ALL TEN mainnet precompiles (0x1 ecrecover .. 0xa pointEvaluation, incl. the bn254 pairing empty-input success and the trivial zero-polynomial KZG proof) answered in-semantics via literal-receiver staticcalls; the folded output hash and the ok-bit vector match the EVM byte-for-byte -> NO_DIVERGENCE.",
+  "declared_observable": { "kind": "return_value", "normal_form": "success|w:<folded keccak>,w:1023" },
+  "feature": "precompile-all10-parity",
+  "register_version_seen": "1.6.0"
+}
