@@ -64,7 +64,23 @@ from typing import Optional
 #       whose domain the type string cannot bound) and X-INTFNVAL (INTERNAL
 #       function values in the return/revert channel, which are per-contract
 #       dispatch IDs with no ABI encoding).
-REGISTER_VERSION = "1.4.0"
+# v1.5: RETIRED X-FIXED-EXEC as redundant. Probe evidence (solc 0.8.35,
+#       2026-07-22): every form the row's detector fires on — a BinaryOperation
+#       or Assignment with a fixed/ufixed operand — is REJECTED by solc at
+#       codegen ("UnimplementedFeatureError: Fixed point types not
+#       implemented." for `fixed x = 1.5;` / `a + b` / param arithmetic;
+#       "Not yet implemented - FixedPointType." for `x == x` / state
+#       `x = y;`), so no such program can ever pass the Forge real-behavior
+#       gate: a lane-C claim is INVALID by construction, and a lane-S
+#       OVER_ACCEPT claim (solc rejects, model accepts) would be a GENUINE
+#       soundness gap that an exclusion row must not mask. Forms solc DOES
+#       compile — bare declarations (`fixed x;` state/local, `ufixed y;`),
+#       `delete x` on a fixed state var, and local decl-init from another
+#       fixed local — never triggered the detector in the first place and are
+#       modeled: the fixed-point-boundary corpus lane pins both engines
+#       agreeing on them (accepted) and on the 9 invalid/ arithmetic forms
+#       (rejected). The row therefore excluded nothing real; retired.
+REGISTER_VERSION = "1.5.0"
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -221,6 +237,14 @@ _SYNTACTIC: list[ExclusionEntry] = [
         id="X-FIXED-EXEC",
         kind="syntactic",
         detector="detect_executable_fixed_point",
+        # RETIRED in 1.5.0 as REDUNDANT — see the v1.5 probe-evidence note on
+        # REGISTER_VERSION above: solc rejects (at codegen, so Forge can never
+        # PASS) every form this detector fires on, making a lane-C claim
+        # INVALID without this row, while excluding a lane-S over-accept here
+        # would mask a genuine gap; the solc-compilable fixed-point forms
+        # (bare declarations, delete, decl-init) never triggered the detector
+        # and are measured by the fixed-point-boundary lane.
+        removed_in_version="1.5.0",
         reason=(
             "Executable fixed/ufixed arithmetic is ALSO rejected by solc "
             "(fixed-point-boundary lane confirms both agree); a divergence here "
