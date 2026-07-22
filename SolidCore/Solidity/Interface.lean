@@ -156,6 +156,23 @@ def stateNamesFrom (storageVars immutableVars : List StateVarDecl) :
   storageVars.map StateVarDecl.name ++
     immutableVars.map (fun decl => immutableNameTag decl.name)
 
+/-- Whether a state-name list entry is shadowed by a locally-bound name (a
+    function parameter or named return): solc resolves a bare identifier to the
+    NEAREST declaration, so within the function body such a name is the LOCAL,
+    never the same-named storage/immutable state variable. Matches against the
+    plain runtime key, an aliased key, and the immutable-tagged key. -/
+def stateNameShadowedByBound (bound : List Name) (candidate : Name) : Bool :=
+  bound.any (fun b =>
+    (stateNameRuntimeKey? b [candidate]).isSome ||
+    (stateNameRuntimeKey? (immutableNameTag b) [candidate]).isSome)
+
+/-- Drop from a state-name list every entry shadowed by a locally-bound name, so
+    a shadowed identifier lowers as the local (param/named return) instead of the
+    state variable (param-shadows-statevar soundness fix). -/
+def stateNamesExcludingBound (bound : List Name) (stateNames : List Name) :
+    List Name :=
+  stateNames.filter (fun candidate => !stateNameShadowedByBound bound candidate)
+
 abbrev ConstantEnv := List (Name × Expr)
 
 def ConstantEnv.lookup? (env : ConstantEnv) (name : Name) : Option Expr :=
@@ -22597,25 +22614,32 @@ def functionExpandModifiersToCoreWithInternalCallsFull?
     (internalFuel : Nat)
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
     (externalCallKindEnv : ExternalCallKindEnv)
-    (storageNames returnNames : List Name)
+    (storageNames : List Name) (bodyStorageNames : List Name)
+    (returnNames : List Name)
     (available : List SourceModifierDecl) (functions : List FunctionDecl)
     (freeFunctions : List FunctionDecl) (returnTys : List Ty)
     (invocations : List SourceModifierInvocation) (body : Stmt)
     (structEnv : StructEnv := [])
     (eventIndexedEnv : EventIndexedEnv := []) :
     Option CoreStmt :=
+  -- `storageNames` is the FULL contract state-name set used to lower the
+  -- surrounding modifier prefixes/bodies (a modifier is a separate scope: the
+  -- modified function's params never shadow into it). `bodyStorageNames` is the
+  -- set for the function's OWN body, from which the function's param/named-return
+  -- names have been removed (param-shadows-statevar soundness fix), so a bare
+  -- read of such a name resolves to the local, not the state variable.
   match invocations with
   | [] =>
       let body :=
         Stmt.anfPreprocess structEnv internalFuel storageRefEnv env
-          externalCallKindEnv storageNames available functions freeFunctions
+          externalCallKindEnv bodyStorageNames available functions freeFunctions
           returnTys eventIndexedEnv defaultAnfPreprocessFuel body
       Stmt.toCoreWithInternalCalls?
         (internalFuel := internalFuel)
         (storageRefEnv := storageRefEnv)
         (env := env)
         (externalCallKindEnv := externalCallKindEnv)
-        (storageNames := storageNames)
+        (storageNames := bodyStorageNames)
         (modifiers := available)
         (functions := functions)
         (freeFunctions := freeFunctions)
@@ -22625,7 +22649,8 @@ def functionExpandModifiersToCoreWithInternalCallsFull?
       let inner ←
         functionExpandModifiersToCoreWithInternalCallsFull?
           internalFuel storageRefEnv env externalCallKindEnv storageNames
-          returnNames available functions freeFunctions returnTys rest body
+          bodyStorageNames returnNames available functions freeFunctions
+          returnTys rest body
           (structEnv := structEnv) (eventIndexedEnv := eventIndexedEnv)
       let modifierDecl ← modifierResolve? available invocation.target
       modifierApplyToCoreWithInternalCalls? internalFuel storageRefEnv env
@@ -24529,10 +24554,18 @@ def FunctionDecl.toCore? (storageNames : List Name) (constants : ConstantEnv)
     | some contractName =>
         functions ++ FunctionDecl.superHelpers contractName superFunctions
     | none => functions
+  -- A parameter or named return shadows a same-named state variable inside the
+  -- function's OWN body (solc resolves the nearest declaration), so lower the
+  -- body against the state-name set with those names removed. Modifier
+  -- prefixes/bodies keep the full `storageNames` (they cannot see these params).
+  let bodyStorageNames :=
+    stateNamesExcludingBound (FunctionDecl.fnValueScopeBoundNames decl)
+      storageNames
   let bodyCore ←
     functionExpandModifiersToCoreWithInternalCallsFull?
       defaultInternalCallInlineFuel storageRefEnv env externalCallKindEnv
-      storageNames (returns.map SolidCore.Solidity.Source.BindingDecl.name)
+      storageNames bodyStorageNames
+      (returns.map SolidCore.Solidity.Source.BindingDecl.name)
       modifiers functions freeFunctions (decl.returns.map Parameter.ty)
       modifierInvocations body (structEnv := structEnv)
       (eventIndexedEnv := eventIndexedEnv)
@@ -26743,10 +26776,15 @@ def ContractDecl.constructorBodyForDeployment?
           ctorModifiers.map
             (ModifierInvocation.expandUsing
               allContracts freeFunctions usingDecls env)
+      -- A constructor parameter likewise shadows a same-named state variable in
+      -- the constructor body (same nearest-declaration resolution).
+      let ctorBodyStorageNames :=
+        stateNamesExcludingBound (Parameters.boundNames ctor.params) storageNames
       let bodyCore ←
         functionExpandModifiersToCoreWithInternalCallsFull?
           defaultInternalCallInlineFuel storageRefEnv env externalCallKindEnv
-          storageNames [] modifiers functions freeFunctions [] ctorModifiers body
+          storageNames ctorBodyStorageNames [] modifiers functions freeFunctions
+          [] ctorModifiers body
           (structEnv := ContractDecl.structEnvFromContracts allContracts)
           (eventIndexedEnv := eventIndexedEnv)
       let paramCleanups ← Parameters.toCoreCleanupStmts? "_arg" ctor.params
