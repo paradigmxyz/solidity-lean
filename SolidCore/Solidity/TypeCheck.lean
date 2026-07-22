@@ -11271,39 +11271,6 @@ def ContractDecls.lookupPath? (target : Path) :
       else
         ContractDecls.lookupPath? target rest
 
-def OverrideMembers.collectMostDerivedFrom (types : TypeContext)
-    (members : List OverrideMember) :
-    List Solidity.ContractDecl -> List OverrideMember
-  | [] => members
-  | decl :: rest =>
-      OverrideMembers.collectMostDerivedFrom types
-        (OverrideMembers.addAllIfNewKey members
-          (ContractDecl.overrideMembers types decl))
-        rest
-
-def OverrideMembers.collectMostDerived (types : TypeContext)
-    (order : List Solidity.ContractDecl) :
-    List OverrideMember :=
-  OverrideMembers.collectMostDerivedFrom types [] order
-
-def BaseSpecifier.frontierOverrideMembers? (types : TypeContext)
-    (contracts : List Solidity.ContractDecl)
-    (specifier : Solidity.BaseSpecifier) :
-    Option (List OverrideMember) := do
-  let base ← ContractDecls.lookupPath? specifier.base contracts
-  let order ←
-    Solidity.Executable.ContractDecl.dispatchOrder? contracts base
-  some (OverrideMembers.collectMostDerived types order)
-
-def BaseSpecifiers.frontierOverrideMembers? (types : TypeContext)
-    (contracts : List Solidity.ContractDecl) :
-    List Solidity.BaseSpecifier -> Option (List OverrideMember)
-  | [] => some []
-  | specifier :: rest => do
-      let head ← BaseSpecifier.frontierOverrideMembers? types contracts specifier
-      let tail ← BaseSpecifiers.frontierOverrideMembers? types contracts rest
-      some (head ++ tail)
-
 /-- solc `OverrideChecker::inheritedFunctions` collects ALL non-constructor
 functions of a base via `definedFunctions()` — INCLUDING `private` ones, which
 is why two same-signature private base functions still trigger error 6480 —

@@ -12329,32 +12329,11 @@ def Stmt.resolveOverloadedEventEmits (events : List EventDecl)
   (Stmt.resolveOverloadedEventEmitsInSeqFuel
     defaultAnnotateAbiFuel events env stmt).fst
 
-/-- LIB-STORAGE-RETURN-USE (#156), HISTORICAL narrow gate: the callee's single
-    `storage` return is a WHOLE storage reference — a bare storage-ref
-    PARAMETER, `return s;`. Pre-#188 the boundary did not re-base nested
-    sub-path returns, so only this shape qualified. The use sites now gate on
-    the widened `FunctionDecl.returnsSingleStorageRef?` below (the #188 R3
-    runtime re-points nested-path/local/conditional returns correctly); this
-    predicate is kept for reference/documentation. -/
-def FunctionDecl.returnsWholeStorageRefParam? (decl : FunctionDecl) : Bool :=
-  match decl.returns, decl.body with
-  | [ret], some (Stmt.block stmts) =>
-      match ret.location with
-      | some DataLocation.storage =>
-          let storageParams := decl.params.filterMap (fun param =>
-            match param.location, param.name with
-            | some DataLocation.storage, some paramName => some paramName
-            | _, _ => none)
-          match stmts.getLast? with
-          | some (Stmt.returnValues (some (Expr.ident paramName))) =>
-              storageParams.contains paramName
-          | _ => false
-      | _ => false
-  | _, _ => false
-
 /-- Generalized storage-ref-return gate: the callee value-returns a SINGLE
     `storage`-located reference, with NO body-shape requirement. The historical
-    whole-param-only gate above pre-dates the R3 (#188) runtime re-pointing,
+    whole-param-only gate (LIB-STORAGE-RETURN-USE #156: `return s;` of a bare
+    storage-ref parameter as the last statement — removed as dead code)
+    pre-dates the R3 (#188) runtime re-pointing,
     which resolves a returned storage pointer from nested paths (`return o.d;`,
     `return a[i];`), storage LOCALS (`S storage p = s; return p;`) and
     conditional/early returns onto the caller's own storage — all pinned
