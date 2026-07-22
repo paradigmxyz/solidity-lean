@@ -7680,6 +7680,13 @@ def Expr.abiArgNeedsEnvCleanupFuel? : Nat -> Expr -> Bool
               | Expr.index base key =>
                   Expr.abiArgNeedsEnvCleanupFuel? fuel base ||
                     Expr.abiArgNeedsEnvCleanupFuel? fuel key
+              -- WS1 (H, calldata-slice bounds): a slice whose bound carries
+              -- narrow checked arithmetic (`msg.data[a + b:]`, `uint8 a,b`)
+              -- must lower env-aware so the bound Panics 0x11 at its own width
+              -- (see the env-aware `Expr.slice` arm).
+              | Expr.slice _ start stop =>
+                  start.any (Expr.abiArgNeedsEnvCleanupFuel? fuel) ||
+                    stop.any (Expr.abiArgNeedsEnvCleanupFuel? fuel)
               | _ => false
 
 /-- #201: nesting budget for the flag above. The builtin arms peel one nesting
@@ -8528,6 +8535,47 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
                           (SolidCore.Solidity.Source.Expr.newDynamicArray
                             coreElementTy lenCore)
                     | _ => none)
+                else none) with
+              | some coreExpr => some coreExpr
+              | none =>
+                  Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
+          | Expr.slice base start stop =>
+              -- WS1 (H, calldata-slice bounds): `msg.data[a + b:]` with
+              -- `uint8 a,b` — solc evaluates each slice bound at ITS OWN type
+              -- (checked uint8 add, Panic 0x11 on 300) before the slice bounds
+              -- check; the env-less lowering (the only slice arm, in
+              -- `Expr.toCore?`) ran the add bare at 256 bits and then failed
+              -- the bounds check with an EMPTY revert — wrong revert kind.
+              -- Mirror the `new T[](len)` arm above: only flagged bounds
+              -- reroute (each lowered env-aware at its own type); unflagged
+              -- slices keep the byte-identical Direct path. Covers `[lo:hi]`,
+              -- `[lo:]`, and `[:hi]`.
+              (match (if start.any Expr.abiArgNeedsEnvCleanup? ||
+                    stop.any Expr.abiArgNeedsEnvCleanup? then
+                  (do
+                    let baseCore ← Expr.toCore? storageNames base
+                    let startCore? ←
+                      match start with
+                      | some boundExpr => do
+                          let boundTy ← Expr.abiTyWithEnv? env boundExpr
+                          let core ←
+                            Expr.toCoreAsWithEnvFuel?
+                              fuel storageNames env boundTy boundExpr
+                          some (some core)
+                      | none => some none
+                    let stopCore? ←
+                      match stop with
+                      | some boundExpr => do
+                          let boundTy ← Expr.abiTyWithEnv? env boundExpr
+                          let core ←
+                            Expr.toCoreAsWithEnvFuel?
+                              fuel storageNames env boundTy boundExpr
+                          some (some core)
+                      | none => some none
+                    let sourceTy ← Expr.abiTyWithEnv? env expr
+                    Expr.coreAsFromTy? targetTy sourceTy
+                      (SolidCore.Solidity.Source.Expr.slice
+                        baseCore startCore? stopCore?))
                 else none) with
               | some coreExpr => some coreExpr
               | none =>
@@ -15469,6 +15517,39 @@ def FunctionDecl.internalExprSingleReturnUseCore?
           useResult
             (SolidCore.Solidity.Source.Expr.slice
               baseCore none (some stopCore)))
+  | Expr.slice base (some startExpr) (some stopExpr) =>
+      -- `[a:b]` with an internal-call bound (the single-bound arms above cover
+      -- only `[a:]`/`[:b]`; this shape used to over-reject). Call-in-START:
+      -- hoist the start call; the (call-free, `toCore?`-lowerable) stop still
+      -- evaluates after it, matching solc's start-before-stop order.
+      -- Call-in-STOP: only when start is a pure leaf (ident/literal), so
+      -- hoisting the stop call past it cannot reorder an observable effect or
+      -- panic. Anything else stays a fail-closed over-reject.
+      (match
+          (do
+            let baseCore ← Expr.toCore? storageNames base
+            let stopCore ← Expr.toCore? storageNames stopExpr
+            FunctionDecl.internalExprSingleReturnUseCore?
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions startExpr
+              (fun startCore =>
+                useResult
+                  (SolidCore.Solidity.Source.Expr.slice
+                    baseCore (some startCore) (some stopCore)))) with
+      | some coreStmt => some coreStmt
+      | none =>
+          match startExpr with
+          | Expr.ident _ | Expr.literal _ => do
+              let baseCore ← Expr.toCore? storageNames base
+              let startCore ← Expr.toCore? storageNames startExpr
+              FunctionDecl.internalExprSingleReturnUseCore?
+                internalFuel storageRefEnv env externalCallKindEnv storageNames
+                modifiers functions freeFunctions stopExpr
+                (fun stopCore =>
+                  useResult
+                    (SolidCore.Solidity.Source.Expr.slice
+                      baseCore (some startCore) (some stopCore)))
+          | _ => none)
   | Expr.member base "length" =>
       match
           Expr.abiTyWithInternalFunctionsEnv?
