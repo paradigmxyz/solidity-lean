@@ -17,4 +17,8 @@ contract ExtfnLocationErasureForgeTest {
     function testCallThroughCalldataRetPtr() public view {
         require(harness.callThroughCalldataRetPtr(40) == 42, "seed 40 + len 2 via calldata-return fn");
     }
+
+    function testCallDirectCalldataRet() public view {
+        require(harness.callDirectCalldataRet(40) == 42, "seed 40 + len 2 via direct this.fRet");
+    }
 }

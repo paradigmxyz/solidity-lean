@@ -14815,6 +14815,122 @@
      }
     ]
    }
+  },
+  {
+   "name": "evalorder-binary-residue",
+   "description": "R1 RESIDUE CLOSURE (binary-operand order): the two hoister shapes left LEFT-first by #187/#191 now evaluate RIGHT-then-LEFT like solc 0.8.35 (ExpressionCompiler.cpp:614-615): (a) a non-core LHS containing its own call(s) beside a call-bearing RHS (both-sides-hoisted generic path, incl. the arr[bump()] + bump() index shape and the fully generic (bump()+1) * (bump()+3) shape), and (b) the lhs-hoisted + pure-RHS fallback ((bump()+1) - counter: the pure storage read happens BEFORE the LHS calls). Controls: bump() - bump() (both-direct-calls path fixed in R1) and emit E2I(bump(), bump()) (two-phase emit, indexed args in reverse source order) must keep their already-faithful order. Forge pins the real solc/EVM values; Lean imports the same source and checks identical values and event topics. NESTED shapes ((bump()-bump())*2-bump() and ((bump()+1)-bump())-bump()) additionally pin that the hoisted-RHS temps are nesting-unique (no inner emission shadows an outer temp between its declaration and read).",
+   "forge": {
+    "root": "tests/forge-harness/evalorder-binary-residue",
+    "match_contract": "EvalOrderBinaryResidueForgeTest",
+    "match_test": "test*",
+    "quiet": true
+   },
+   "solc_import": {
+    "source": "tests/forge-harness/evalorder-binary-residue/src/EvalOrderBinaryResidue.sol",
+    "contract": "EvalOrderBinaryResidue",
+    "namespace": "SolidCore.Solidity.SolcAstImport.EvalOrderBinaryResidue"
+   },
+   "lean": {
+    "imports": [
+     "SolidCore.Solidity.Checked",
+     "SolidCore.Witness.Checked"
+    ],
+    "evals": [
+     {
+      "label": "importedContractAccepted",
+      "expr": "SolidCore.Solidity.SolcAstImport.EvalOrderBinaryResidue.importedContractAccepted",
+      "expect": "true"
+     },
+     {
+      "label": "directBoth_1",
+      "expr": "(do\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 256 SolidCore.Solidity.SolcAstImport.EvalOrderBinaryResidue.importedContract (SolidCore.Solidity.Source.CallTarget.name \"directBoth\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v0] => Except.ok (SolidCore.Solidity.Source.wordEq v0 1)\n  | _ => Except.ok false)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "lhsComplexRhsCall_2",
+      "expr": "(do\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 256 SolidCore.Solidity.SolcAstImport.EvalOrderBinaryResidue.importedContract (SolidCore.Solidity.Source.CallTarget.name \"lhsComplexRhsCall\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v0] => Except.ok (SolidCore.Solidity.Source.wordEq v0 2)\n  | _ => Except.ok false)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "indexCallPlusCall_31",
+      "expr": "(do\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 256 SolidCore.Solidity.SolcAstImport.EvalOrderBinaryResidue.importedContract (SolidCore.Solidity.Source.CallTarget.name \"indexCallPlusCall\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v0] => Except.ok (SolidCore.Solidity.Source.wordEq v0 31)\n  | _ => Except.ok false)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "bothComplex_12",
+      "expr": "(do\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 256 SolidCore.Solidity.SolcAstImport.EvalOrderBinaryResidue.importedContract (SolidCore.Solidity.Source.CallTarget.name \"bothComplex\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v0] => Except.ok (SolidCore.Solidity.Source.wordEq v0 12)\n  | _ => Except.ok false)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "lhsCallPureRhs_2",
+      "expr": "(do\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 256 SolidCore.Solidity.SolcAstImport.EvalOrderBinaryResidue.importedContract (SolidCore.Solidity.Source.CallTarget.name \"lhsCallPureRhs\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v0] => Except.ok (SolidCore.Solidity.Source.wordEq v0 2)\n  | _ => Except.ok false)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "emitTwoIndexed_topics_2_1",
+      "expr": "(do\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 256 SolidCore.Solidity.SolcAstImport.EvalOrderBinaryResidue.importedContract (SolidCore.Solidity.Source.CallTarget.name \"emitTwoIndexed\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned state [] =>\n      match state.events with\n      | [event] =>\n          match event.indexed, event.data with\n          | [SolidCore.Solidity.Source.Value.word x, SolidCore.Solidity.Source.Value.word y], [] =>\n              Except.ok (event.name == \"E2I\" && event.topics == [SolidCore.Solidity.Source.Keccak.digestWord \"E2I(uint256,uint256)\", 2, 1] && SolidCore.Solidity.Source.wordEq x 2 && SolidCore.Solidity.Source.wordEq y 1)\n          | _, _ => Except.ok false\n      | _ => Except.ok false\n  | _ => Except.ok false)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "nestedInnerDirect_1",
+      "expr": "(do\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 256 SolidCore.Solidity.SolcAstImport.EvalOrderBinaryResidue.importedContract (SolidCore.Solidity.Source.CallTarget.name \"nestedInnerDirect\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v0] => Except.ok (SolidCore.Solidity.Source.wordEq v0 1)\n  | _ => Except.ok false)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "nestedInnerComplex_1",
+      "expr": "(do\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 256 SolidCore.Solidity.SolcAstImport.EvalOrderBinaryResidue.importedContract (SolidCore.Solidity.Source.CallTarget.name \"nestedInnerComplex\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v0] => Except.ok (SolidCore.Solidity.Source.wordEq v0 1)\n  | _ => Except.ok false)",
+      "expect": "Except.ok true"
+     }
+    ]
+   }
+  },
+  {
+   "name": "arity-overload-binding",
+   "description": "TYPE-BLIND ARITY-FALLBACK CLOSURE (wrong-callee guard, same class as the fixed library direct-call bug): same-arity library overloads with the WRONG candidate declared FIRST. The using-for attached-receiver fallback (rewriteUsingLibraryCandidateByArity?, internal + external twins), the intra-library helper fallback (libraryInternalHelperCallByArityFrom?), and the contract-internal candidates fallback (findInternalCallee(WithArgs)?) now apply Parameters.arityFallbackCompatible: a candidate whose KNOWN param types definitely mismatch the args is excluded (accept-when-unknown preserved), so the model binds by type like solc instead of declaration order. Probes: attached x.scale(Box) vs scale(uint256,uint256) declared first; intra-library comb(Pair,uint256) vs comb(uint256,uint256) declared first; plus the uint-bound twins. Forge pins the real solc/EVM values; Lean imports the same source and must return identical values.",
+   "forge": {
+    "root": "tests/forge-harness/arity-overload-binding",
+    "match_contract": "ArityOverloadBindingForgeTest",
+    "match_test": "test*",
+    "quiet": true
+   },
+   "solc_import": {
+    "source": "tests/forge-harness/arity-overload-binding/src/ArityOverloadBinding.sol",
+    "contract": "ArityOverloadBinding",
+    "namespace": "SolidCore.Solidity.SolcAstImport.ArityOverloadBinding"
+   },
+   "lean": {
+    "imports": [
+     "SolidCore.Solidity.Checked",
+     "SolidCore.Witness.Checked"
+    ],
+    "evals": [
+     {
+      "label": "importedContractAccepted",
+      "expr": "SolidCore.Solidity.SolcAstImport.ArityOverloadBinding.importedContractAccepted",
+      "expect": "true"
+     },
+     {
+      "label": "attachedBox_39_42",
+      "expr": "(do\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.callContract 256 SolidCore.Solidity.SolcAstImport.ArityOverloadBinding.importedSourceUnit \"ArityOverloadBinding\" (SolidCore.Solidity.Source.CallTarget.name \"attachedBox\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 39]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v0] => Except.ok (SolidCore.Solidity.Source.wordEq v0 42)\n  | _ => Except.ok false)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "attachedUint_10_40",
+      "expr": "(do\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.callContract 256 SolidCore.Solidity.SolcAstImport.ArityOverloadBinding.importedSourceUnit \"ArityOverloadBinding\" (SolidCore.Solidity.Source.CallTarget.name \"attachedUint\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 10]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v0] => Except.ok (SolidCore.Solidity.Source.wordEq v0 40)\n  | _ => Except.ok false)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "libDriver_30_42",
+      "expr": "(do\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.callContract 256 SolidCore.Solidity.SolcAstImport.ArityOverloadBinding.importedSourceUnit \"ArityOverloadBinding\" (SolidCore.Solidity.Source.CallTarget.name \"libDriver\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 30]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v0] => Except.ok (SolidCore.Solidity.Source.wordEq v0 42)\n  | _ => Except.ok false)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "libDriverUint_3_3007",
+      "expr": "(do\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.callContract 256 SolidCore.Solidity.SolcAstImport.ArityOverloadBinding.importedSourceUnit \"ArityOverloadBinding\" (SolidCore.Solidity.Source.CallTarget.name \"libDriverUint\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 3]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v0] => Except.ok (SolidCore.Solidity.Source.wordEq v0 3007)\n  | _ => Except.ok false)",
+      "expect": "Except.ok true"
+     }
+    ]
+   }
   }
  ]
 }
