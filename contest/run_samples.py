@@ -1429,149 +1429,147 @@ def dedup_replay_unit_tests() -> tuple[bool, str]:
     return (len(failed) == 0, detail)
 
 
+
+# --- parallel sample runner -------------------------------------------------
+# Every check below is registered as a (label, thunk) task instead of running
+# inline. Thunks wrap the ORIGINAL call expressions verbatim, so per-item
+# behavior is unchanged; only scheduling differs. Items are independent:
+# adjudicate() gives each run its own tempfile.mkdtemp working dir and the
+# engine/solc/forge are invoked as subprocesses. The ONLY non-thread-safe
+# checks are the run_simulated-based ones (they monkeypatch
+# hb.run_solidity_lean_observable module-wide); those register with
+# _defer_serial and run strictly AFTER the pool has fully drained.
+#
+# CONTEST_SAMPLES_JOBS=1 restores the exact old serial execution order.
+_TASKS: list[tuple[str, object, bool]] = []  # (label, thunk, parallel)
+
+
+def _defer(label: str, thunk) -> None:
+    _TASKS.append((label, thunk, True))
+
+
+def _defer_serial(label: str, thunk) -> None:
+    _TASKS.append((label, thunk, False))
+
+
+def _run_deferred() -> list[tuple[str, bool, str]]:
+    import concurrent.futures as _fut
+    import os as _os
+
+    jobs = max(1, int(_os.environ.get("CONTEST_SAMPLES_JOBS", "8")))
+    by_label: dict[int, tuple[bool, str]] = {}
+
+    def _run_one(idx: int, label: str, thunk) -> None:
+        try:
+            ok, d = thunk()
+        except Exception as e:  # a crashed check is a FAILED check, not a crash
+            ok, d = False, f"EXCEPTION: {type(e).__name__}: {e}"
+        by_label[idx] = (ok, d)
+        _print(label, ok, d)
+
+    if jobs == 1:
+        for idx, (label, thunk, _par) in enumerate(_TASKS):
+            _run_one(idx, label, thunk)
+    else:
+        parallel = [(i, l, t) for i, (l, t, p) in enumerate(_TASKS) if p]
+        serial = [(i, l, t) for i, (l, t, p) in enumerate(_TASKS) if not p]
+        with _fut.ThreadPoolExecutor(max_workers=jobs) as pool:
+            futs = [pool.submit(_run_one, i, l, t) for i, l, t in parallel]
+            for f in futs:
+                f.result()  # propagate nothing; _run_one never raises
+        for i, l, t in serial:  # monkeypatching checks: pool is fully drained
+            _run_one(i, l, t)
+
+    return [(label, *by_label[idx]) for idx, (label, _t, _p) in enumerate(_TASKS)]
+
+
 def main() -> int:
-    results: list[tuple[str, bool, str]] = []
+    # results are produced by _run_deferred() below, in registration order.
 
     # --- unit-level checks (fast) ---
-    ok, d = observable_unit_tests()
-    results.append(("observable-comparator (unit)", ok, d))
-    _print("observable-comparator (unit)", ok, d)
+    _defer("observable-comparator (unit)", lambda: observable_unit_tests())
 
-    ok, d = inconclusive_classification_unit_tests()
-    results.append(("inconclusive-classification (unit)", ok, d))
-    _print("inconclusive-classification (unit)", ok, d)
+    _defer("inconclusive-classification (unit)", lambda: inconclusive_classification_unit_tests())
 
-    ok, d = dedup_unit_tests()
-    results.append(("dedup-fingerprints (unit)", ok, d))
-    _print("dedup-fingerprints (unit)", ok, d)
+    _defer("dedup-fingerprints (unit)", lambda: dedup_unit_tests())
 
-    ok, d = registry_invariant_tests()
-    results.append(("registry invariant: stored fp == fingerprinter(repro)", ok, d))
-    _print("registry invariant: stored fp == fingerprinter(repro)", ok, d)
+    _defer("registry invariant: stored fp == fingerprinter(repro)", lambda: registry_invariant_tests())
 
-    ok, d = fingerprinter_canonicality_tests()
-    results.append(("fingerprinter canonicality (unit)", ok, d))
-    _print("fingerprinter canonicality (unit)", ok, d)
+    _defer("fingerprinter canonicality (unit)", lambda: fingerprinter_canonicality_tests())
 
-    ok, d = dedup_soundness_tests()
-    results.append(("dedup soundness: no wrong auto-deny (unit)", ok, d))
-    _print("dedup soundness: no wrong auto-deny (unit)", ok, d)
+    _defer("dedup soundness: no wrong auto-deny (unit)", lambda: dedup_soundness_tests())
 
-    ok, d = hardening_unit_tests()
-    results.append(("false-positive-hardening (unit)", ok, d))
-    _print("false-positive-hardening (unit)", ok, d)
+    _defer("false-positive-hardening (unit)", lambda: hardening_unit_tests())
 
-    ok, d = ctor_revert_unit_tests()
-    results.append(("ctor-revert measurement/compare (unit)", ok, d))
-    _print("ctor-revert measurement/compare (unit)", ok, d)
+    _defer("ctor-revert measurement/compare (unit)", lambda: ctor_revert_unit_tests())
 
-    ok, d = dedup_replay_unit_tests()
-    results.append(("dedup-replay (unit)", ok, d))
-    _print("dedup-replay (unit)", ok, d)
+    _defer("dedup-replay (unit)", lambda: dedup_replay_unit_tests())
 
-    ok, d = gate_semantic_detector_tests()
-    results.append(("gate-semantic-detectors (solc AST)", ok, d))
-    _print("gate-semantic-detectors (solc AST)", ok, d)
+    _defer("gate-semantic-detectors (solc AST)", lambda: gate_semantic_detector_tests())
 
-    ok, d = gate_precompile_carveout_tests()
-    results.append(("gate-precompile-carveout (solc AST)", ok, d))
-    _print("gate-precompile-carveout (solc AST)", ok, d)
+    _defer("gate-precompile-carveout (solc AST)", lambda: gate_precompile_carveout_tests())
 
-    ok, d = infra_fail_routing_test()
-    results.append(("infra-fail routes to NEEDS_REVIEW", ok, d))
-    _print("infra-fail routes to NEEDS_REVIEW", ok, d)
+    _defer("infra-fail routes to NEEDS_REVIEW", lambda: infra_fail_routing_test())
 
     # --- FULL end-to-end runs (real solc + Foundry + solidity-lean/Lean) ---
     # REAL detector tests: full live pipeline + fault injection at the result
     # boundary (methodology steps 2 & 3). No bug in solidity-lean.
-    ok, d = run_real_soundness_selftest()
-    results.append(("soundness-detector (REAL run + injected delta)", ok, d))
-    _print("soundness-detector (REAL run + injected delta)", ok, d)
+    _defer("soundness-detector (REAL run + injected delta)", lambda: run_real_soundness_selftest())
 
-    ok, d = run_real_coverage_selftest()
-    results.append(("coverage-detector (REAL run + injected fail-closed)", ok, d))
-    _print("coverage-detector (REAL run + injected fail-closed)", ok, d)
+    _defer("coverage-detector (REAL run + injected fail-closed)", lambda: run_real_coverage_selftest())
 
-    ok, d = run_real_storage_selftest()
-    results.append(("storage-detector (REAL run + injected slot delta)", ok, d))
-    _print("storage-detector (REAL run + injected slot delta)", ok, d)
+    _defer("storage-detector (REAL run + injected slot delta)", lambda: run_real_storage_selftest())
 
-    ok, d = run_full("oos_gasleft", "REJECTED_OOS")
-    results.append(("oos_gasleft (FULL)", ok, d))
-    _print("oos_gasleft (FULL)", ok, d)
+    _defer("oos_gasleft (FULL)", lambda: run_full("oos_gasleft", "REJECTED_OOS"))
 
-    ok, d = run_full("no_divergence", "NO_DIVERGENCE")
-    results.append(("no_divergence (FULL)", ok, d))
-    _print("no_divergence (FULL)", ok, d)
+    _defer("no_divergence (FULL)", lambda: run_full("no_divergence", "NO_DIVERGENCE"))
 
     # X-EXTCALL: external calls are unmodeled in v1 -> REJECTED_OOS (not a gap).
-    ok, d = run_full("external_call", "REJECTED_OOS")
-    results.append(("external_call OOS (FULL)", ok, d))
-    _print("external_call OOS (FULL)", ok, d)
+    _defer("external_call OOS (FULL)", lambda: run_full("external_call", "REJECTED_OOS"))
 
     # Register 1.6 precompile carve-out: a literal-receiver `.staticcall` to a
     # precompile is answered in-semantics with the REAL output on both engines.
-    ok, d = run_full("precompile_sha256", "NO_DIVERGENCE")
-    results.append(("precompile_sha256 parity (FULL, carve-out)", ok, d))
-    _print("precompile_sha256 parity (FULL, carve-out)", ok, d)
+    _defer("precompile_sha256 parity (FULL, carve-out)", lambda: run_full("precompile_sha256", "NO_DIVERGENCE"))
 
     # All TEN mainnet precompiles (0x1..0xa, incl. bn254 pairing and the
     # trivial KZG point-evaluation proof) answer byte-identically.
-    ok, d = run_full("precompile_all10", "NO_DIVERGENCE", timeout=1500)
-    results.append(("precompile_all10 parity (FULL, carve-out)", ok, d))
-    _print("precompile_all10 parity (FULL, carve-out)", ok, d)
+    _defer("precompile_all10 parity (FULL, carve-out)", lambda: run_full("precompile_all10", "NO_DIVERGENCE", timeout=1500))
 
     # Divergence DIRECTION for the carved-out precompile channel.
-    ok, d = run_perturbed_precompile_selftest()
-    results.append(("precompile divergence-detector (REAL + delta)", ok, d))
-    _print("precompile divergence-detector (REAL + delta)", ok, d)
+    _defer("precompile divergence-detector (REAL + delta)", lambda: run_perturbed_precompile_selftest())
 
     # Forms OUTSIDE the carve-out stay excluded: a value-free low-level `.call`
     # to the same precompile address is not answered in-semantics.
-    ok, d = run_full("precompile_call_oos", "REJECTED_OOS")
-    results.append(("precompile_call_oos X-EXTCALL (FULL)", ok, d))
-    _print("precompile_call_oos X-EXTCALL (FULL)", ok, d)
+    _defer("precompile_call_oos X-EXTCALL (FULL)", lambda: run_full("precompile_call_oos", "REJECTED_OOS"))
 
     # scalar custom-error revert parity (audit round 3 left the scalar path only
     # unit-tested): f() reverts with `Bad(42, true)` (uint256 + bool, both in the
     # faithfully-comparable ABI subset, so X-RETABI does NOT fire). Both engines
     # render `revert|custom:Bad:w:42,w:1` -> NO_DIVERGENCE (proves the scalar
     # custom-error revert compares end-to-end, not a fabricated wrong-revert gap).
-    ok, d = run_full("custom_error_scalar", "NO_DIVERGENCE")
-    results.append(("custom_error_scalar revert parity (FULL)", ok, d))
-    _print("custom_error_scalar revert parity (FULL)", ok, d)
+    _defer("custom_error_scalar revert parity (FULL)", lambda: run_full("custom_error_scalar", "NO_DIVERGENCE"))
 
     # events + storage parity control: emits an event + writes storage; solidity-lean
     # and solc+EVM must agree on event topics/data and observed slots.
-    ok, d = run_full("events_storage", "NO_DIVERGENCE")
-    results.append(("events_storage parity (FULL)", ok, d))
-    _print("events_storage parity (FULL)", ok, d)
+    _defer("events_storage parity (FULL)", lambda: run_full("events_storage", "NO_DIVERGENCE"))
 
     # constructor state + BROAD storage auto-detection (contest #8): the entry
     # call runs against the post-construction state (initializer + ctor writes),
     # and the WHOLE storage map — including a mapping's hashed slot — is compared
     # on both engines with NO submitter-declared observed_slots.
-    ok, d = run_full("ctor_storage", "NO_DIVERGENCE")
-    results.append(("ctor_storage broad-storage (FULL)", ok, d))
-    _print("ctor_storage broad-storage (FULL)", ok, d)
+    _defer("ctor_storage broad-storage (FULL)", lambda: run_full("ctor_storage", "NO_DIVERGENCE"))
 
     # constructor ARGUMENTS: both engines deploy with the same decoded args
     # (EVM appends to creationCode; solidity-lean -> constructWithContext).
-    ok, d = run_full("ctor_args", "NO_DIVERGENCE")
-    results.append(("ctor_args (FULL)", ok, d))
-    _print("ctor_args (FULL)", ok, d)
+    _defer("ctor_args (FULL)", lambda: run_full("ctor_args", "NO_DIVERGENCE"))
 
     # regression: msg.sender inside the constructor must be the canonical sender
     # on both engines (the EVM deploy is pranked), not the test-harness address.
-    ok, d = run_full("ctor_msg_sender", "NO_DIVERGENCE")
-    results.append(("ctor_msg_sender (FULL)", ok, d))
-    _print("ctor_msg_sender (FULL)", ok, d)
+    _defer("ctor_msg_sender (FULL)", lambda: run_full("ctor_msg_sender", "NO_DIVERGENCE"))
 
     # regression: `new T[](n)` / `new bytes(n)` are memory allocations, NOT
     # external creations — X-EXTCALL must not fire (returns a scalar -> compared).
-    ok, d = run_full("mem_alloc", "NO_DIVERGENCE")
-    results.append(("mem_alloc (FULL)", ok, d))
-    _print("mem_alloc (FULL)", ok, d)
+    _defer("mem_alloc (FULL)", lambda: run_full("mem_alloc", "NO_DIVERGENCE"))
 
     # Register 1.3 (X-RETABI retired): array/struct/nested-dynamic RETURN and
     # custom-error REVERT observables are decoded by the recursive ABI codec into
@@ -1581,63 +1579,45 @@ def main() -> int:
     # nested-dynamic observable is still detected (divergence direction).
 
     # uint256[] return: was REJECTED_OOS under the 1.2 register, now compared.
-    ok, d = run_full("array_return", "NO_DIVERGENCE")
-    results.append(("array_return parity (FULL, X-RETABI retired)", ok, d))
-    _print("array_return parity (FULL, X-RETABI retired)", ok, d)
+    _defer("array_return parity (FULL, X-RETABI retired)", lambda: run_full("array_return", "NO_DIVERGENCE"))
 
     # (uint256[][], bytes[]) multi-return: nested-dynamic head/tail layout.
-    ok, d = run_full("nested_dynamic_return", "NO_DIVERGENCE")
-    results.append(("nested_dynamic_return parity (FULL)", ok, d))
-    _print("nested_dynamic_return parity (FULL)", ok, d)
+    _defer("nested_dynamic_return parity (FULL)", lambda: run_full("nested_dynamic_return", "NO_DIVERGENCE"))
 
     # struct with dynamic fields + nested struct + static fixed array.
-    ok, d = run_full("struct_return", "NO_DIVERGENCE")
-    results.append(("struct_return parity (FULL)", ok, d))
-    _print("struct_return parity (FULL)", ok, d)
+    _defer("struct_return parity (FULL)", lambda: run_full("struct_return", "NO_DIVERGENCE"))
 
     # custom-error revert with nested-dynamic params (uint256[][], string).
-    ok, d = run_full("nested_error_revert", "NO_DIVERGENCE")
-    results.append(("nested_error_revert parity (FULL)", ok, d))
-    _print("nested_error_revert parity (FULL)", ok, d)
+    _defer("nested_error_revert parity (FULL)", lambda: run_full("nested_error_revert", "NO_DIVERGENCE"))
 
     # Divergence DIRECTION over a nested-dynamic observable: full live run of
     # nested_dynamic_return, then the measured EVM observable's leading array
     # element is perturbed by one unit -> the classifier must bank
     # SOUNDNESS_GAP(wrong-value), proving nested-dynamic divergences are
     # DETECTED (not silently equalized) now that they are compared.
-    ok, d = run_perturbed_nested_selftest()
-    results.append(("nested-dynamic divergence-detector (REAL + delta)", ok, d))
-    _print("nested-dynamic divergence-detector (REAL + delta)", ok, d)
+    _defer("nested-dynamic divergence-detector (REAL + delta)", lambda: run_perturbed_nested_selftest())
 
     # bytesN (N<32) return parity (audit round 2): a bytes4 return must classify
     # NO_DIVERGENCE, not a fake SOUNDNESS_GAP from EVM left- vs Lean right-alignment.
-    ok, d = run_full("bytesn_return", "NO_DIVERGENCE")
-    results.append(("bytesn_return parity (FULL)", ok, d))
-    _print("bytesn_return parity (FULL)", ok, d)
+    _defer("bytesn_return parity (FULL)", lambda: run_full("bytesn_return", "NO_DIVERGENCE"))
 
     # mixed-scalar multi-return differential probe (round 8): a single tuple return
     # of int256/uint128/address/bytes4 must render identically on both engines
     # (i:-7,w:42,w:4660,w:2864434397) -> NO_DIVERGENCE. Exercises signed-int,
     # sub-256 uint, address, and bytesN rendering TOGETHER (no other sample does).
-    ok, d = run_full("multi_return", "NO_DIVERGENCE")
-    results.append(("multi_return mixed-scalar parity (FULL)", ok, d))
-    _print("multi_return mixed-scalar parity (FULL)", ok, d)
+    _defer("multi_return mixed-scalar parity (FULL)", lambda: run_full("multi_return", "NO_DIVERGENCE"))
 
     # mapping-slot + indexed-event differential probe (round 9): deposit() writes
     # balances[0x1234]=100 and emits Deposit(indexed who, amount). Both engines must
     # agree on the keccak-derived mapping slot AND the indexed/non-indexed event
     # topics/data -> NO_DIVERGENCE (keccak storage-slot + event parity).
-    ok, d = run_full("map_event", "NO_DIVERGENCE")
-    results.append(("map_event mapping+event parity (FULL)", ok, d))
-    _print("map_event mapping+event parity (FULL)", ok, d)
+    _defer("map_event mapping+event parity (FULL)", lambda: run_full("map_event", "NO_DIVERGENCE"))
 
     # delimiter-laden string-return probe (round 10): f() returns "a|b:c##EVT##d".
     # Both engines must HEX-encode it (b:0x617c623a632323455654232364) so the
     # embedded |/:/##EVT## cannot desync the comparator, and solidity-lean must
     # model the string as Value.bytes (not the r: reprStr fallback) -> NO_DIVERGENCE.
-    ok, d = run_full("string_return", "NO_DIVERGENCE")
-    results.append(("string_return delimiter-safety (FULL)", ok, d))
-    _print("string_return delimiter-safety (FULL)", ok, d)
+    _defer("string_return delimiter-safety (FULL)", lambda: run_full("string_return", "NO_DIVERGENCE"))
 
     # Register 1.4 (X-ARGVAL retired): array/struct ENTRY PARAMETERS are encoded
     # end-to-end (JSON-list claim args -> type-directed ABI calldata on the EVM
@@ -1649,239 +1629,167 @@ def main() -> int:
     # X-INTFNARG residue (register 1.6: X-FNARG's external half is measured).
 
     # uint256[] entry parameter: was REJECTED_OOS under the 1.3 register.
-    ok, d = run_full("array_arg", "NO_DIVERGENCE")
-    results.append(("array_arg parity (FULL, X-ARGVAL retired)", ok, d))
-    _print("array_arg parity (FULL, X-ARGVAL retired)", ok, d)
+    _defer("array_arg parity (FULL, X-ARGVAL retired)", lambda: run_full("array_arg", "NO_DIVERGENCE"))
 
     # uint256[][] nested-dynamic entry parameter (offsets within offsets).
-    ok, d = run_full("nested_array_arg", "NO_DIVERGENCE")
-    results.append(("nested_array_arg parity (FULL)", ok, d))
-    _print("nested_array_arg parity (FULL)", ok, d)
+    _defer("nested_array_arg parity (FULL)", lambda: run_full("nested_array_arg", "NO_DIVERGENCE"))
 
     # static-member struct entry parameter (inline tuple encoding).
-    ok, d = run_full("struct_arg", "NO_DIVERGENCE")
-    results.append(("struct_arg parity (FULL)", ok, d))
-    _print("struct_arg parity (FULL)", ok, d)
+    _defer("struct_arg parity (FULL)", lambda: run_full("struct_arg", "NO_DIVERGENCE"))
 
     # dynamic-member struct entry parameter (bytes + uint256[] members).
-    ok, d = run_full("struct_dyn_arg", "NO_DIVERGENCE")
-    results.append(("struct_dyn_arg parity (FULL)", ok, d))
-    _print("struct_dyn_arg parity (FULL)", ok, d)
+    _defer("struct_dyn_arg parity (FULL)", lambda: run_full("struct_dyn_arg", "NO_DIVERGENCE"))
 
     # Divergence DIRECTION over an array-parameter observable: full live run of
     # array_arg, then the measured EVM observable's leading value is perturbed
     # by one unit -> SOUNDNESS_GAP(wrong-value) must be banked, proving a real
     # divergence reached through an array/struct ARGUMENT is detected.
-    ok, d = run_perturbed_array_arg_selftest()
-    results.append(("array-arg divergence-detector (REAL + delta)", ok, d))
-    _print("array-arg divergence-detector (REAL + delta)", ok, d)
+    _defer("array-arg divergence-detector (REAL + delta)", lambda: run_perturbed_array_arg_selftest())
 
     # fabrication fence: uint256[3] fed a 2-element list -> REJECT_MALFORMED.
-    ok, d = run_full("array_arg_malformed", "REJECT_MALFORMED")
-    results.append(("array_arg_malformed arity fence (FULL)", ok, d))
-    _print("array_arg_malformed arity fence (FULL)", ok, d)
+    _defer("array_arg_malformed arity fence (FULL)", lambda: run_full("array_arg_malformed", "REJECT_MALFORMED"))
 
     # fabrication fence: struct member uint8=300 out of leaf domain -> REJECT.
-    ok, d = run_full("struct_arg_malformed", "REJECT_MALFORMED")
-    results.append(("struct_arg_malformed leaf-domain fence (FULL)", ok, d))
-    _print("struct_arg_malformed leaf-domain fence (FULL)", ok, d)
+    _defer("struct_arg_malformed leaf-domain fence (FULL)", lambda: run_full("struct_arg_malformed", "REJECT_MALFORMED"))
 
     # narrow residue X-INTFNARG (register 1.6, X-FNARG's external half closed):
     # a scalar param family the claim arg forms cannot domain-bound (bytes4)
     # stays OOS.
-    ok, d = run_full("param_domain_oos", "REJECTED_OOS")
-    results.append(("param_domain_oos X-INTFNARG residue (FULL)", ok, d))
-    _print("param_domain_oos X-INTFNARG residue (FULL)", ok, d)
+    _defer("param_domain_oos X-INTFNARG residue (FULL)", lambda: run_full("param_domain_oos", "REJECTED_OOS"))
 
     # Register 1.6 (X-FNARG retired, external half): an external function-typed
     # ENTRY PARAMETER is encoded end-to-end from an [address, selector] claim
     # arg — 24-byte left-packed ABI word on the EVM, Value.externalFunction on
     # the model — and the (.address, .selector) pair compares on both engines.
-    ok, d = run_full("extfn_param", "NO_DIVERGENCE")
-    results.append(("extfn_param parity (FULL, X-FNARG retired)", ok, d))
-    _print("extfn_param parity (FULL, X-FNARG retired)", ok, d)
+    _defer("extfn_param parity (FULL, X-FNARG retired)", lambda: run_full("extfn_param", "NO_DIVERGENCE"))
 
     # Divergence DIRECTION for the function-parameter channel.
-    ok, d = run_perturbed_extfn_param_selftest()
-    results.append(("extfn-param divergence-detector (REAL + delta)", ok, d))
-    _print("extfn-param divergence-detector (REAL + delta)", ok, d)
+    _defer("extfn-param divergence-detector (REAL + delta)", lambda: run_perturbed_extfn_param_selftest())
 
     # fabrication fence: wrong arity / out-of-range component for the
     # [address, selector] arg form -> REJECT_MALFORMED, never a fake gap.
-    ok, d = run_full("extfn_param_malformed", "REJECT_MALFORMED")
-    results.append(("extfn_param_malformed arity fence (FULL)", ok, d))
-    _print("extfn_param_malformed arity fence (FULL)", ok, d)
+    _defer("extfn_param_malformed arity fence (FULL)", lambda: run_full("extfn_param_malformed", "REJECT_MALFORMED"))
 
-    ok, d = run_full("extfn_param_range", "REJECT_MALFORMED")
-    results.append(("extfn_param_range selector-domain fence (FULL)", ok, d))
-    _print("extfn_param_range selector-domain fence (FULL)", ok, d)
+    _defer("extfn_param_range selector-domain fence (FULL)", lambda: run_full("extfn_param_range", "REJECT_MALFORMED"))
 
     # CALLING the supplied function value stays out of scope (X-EXTCALL): the
     # gate's function-value-call arm fires on `cb()`.
-    ok, d = run_full("extfn_param_called", "REJECTED_OOS")
-    results.append(("extfn_param_called X-EXTCALL (FULL)", ok, d))
-    _print("extfn_param_called X-EXTCALL (FULL)", ok, d)
+    _defer("extfn_param_called X-EXTCALL (FULL)", lambda: run_full("extfn_param_called", "REJECTED_OOS"))
 
     # Register 1.4 (X-FNVAL retired): an EXTERNAL function VALUE in the return
     # channel renders the canonical f:<addr>:<sel> form on BOTH engines.
-    ok, d = run_full("extfn_return", "NO_DIVERGENCE")
-    results.append(("extfn_return parity (FULL, X-FNVAL retired)", ok, d))
-    _print("extfn_return parity (FULL, X-FNVAL retired)", ok, d)
+    _defer("extfn_return parity (FULL, X-FNVAL retired)", lambda: run_full("extfn_return", "NO_DIVERGENCE"))
 
     # Divergence DIRECTION for the function-value channel: perturb the measured
     # selector by one unit -> SOUNDNESS_GAP(wrong-value) must be banked.
-    ok, d = run_perturbed_extfn_selftest()
-    results.append(("extfn divergence-detector (REAL + delta)", ok, d))
-    _print("extfn divergence-detector (REAL + delta)", ok, d)
+    _defer("extfn divergence-detector (REAL + delta)", lambda: run_perturbed_extfn_selftest())
 
     # fabricated gap: args count != function param count -> REJECT_MALFORMED,
     # NOT a qualifying COVERAGE_GAP from Solidus failing closed on the bad call.
-    ok, d = run_full("arg_count_mismatch", "REJECT_MALFORMED")
-    results.append(("arg_count_mismatch (FULL)", ok, d))
-    _print("arg_count_mismatch (FULL)", ok, d)
+    _defer("arg_count_mismatch (FULL)", lambda: run_full("arg_count_mismatch", "REJECT_MALFORMED"))
 
     # fabricated gap: an out-of-domain scalar arg (dirty bool) -> REJECT_MALFORMED.
-    ok, d = run_full("arg_domain", "REJECT_MALFORMED")
-    results.append(("arg_domain (FULL)", ok, d))
-    _print("arg_domain (FULL)", ok, d)
+    _defer("arg_domain (FULL)", lambda: run_full("arg_domain", "REJECT_MALFORMED"))
 
     # --- ATTACK samples (v1.1 hardening; must now be caught) ---------------
     # P0 #1: a lying declared observable -> adjudication uses the MEASURED EVM
     # observable (== solidity-lean) -> NO_DIVERGENCE, NOT a fake SOUNDNESS_GAP.
-    ok, d = run_full("fake_oracle", "NO_DIVERGENCE")
-    results.append(("fake_oracle ATTACK (FULL)", ok, d))
-    _print("fake_oracle ATTACK (FULL)", ok, d)
+    _defer("fake_oracle ATTACK (FULL)", lambda: run_full("fake_oracle", "NO_DIVERGENCE"))
 
     # P0 #2: entry returns block.timestamp -> env PINNED on both sides ->
     # NO_DIVERGENCE (not a spurious env wrong-value).
-    ok, d = run_full("env_divergence", "NO_DIVERGENCE")
-    results.append(("env_divergence ATTACK (FULL)", ok, d))
-    _print("env_divergence ATTACK (FULL)", ok, d)
+    _defer("env_divergence ATTACK (FULL)", lambda: run_full("env_divergence", "NO_DIVERGENCE"))
 
     # P0 #2: entry returns blockhash(0) -> unpinnable env fact -> REJECTED_OOS
     # (SEM-ENV), not a spurious SOUNDNESS_GAP.
-    ok, d = run_full("env_blockhash", "REJECTED_OOS")
-    results.append(("env_blockhash ATTACK (FULL)", ok, d))
-    _print("env_blockhash ATTACK (FULL)", ok, d)
+    _defer("env_blockhash ATTACK (FULL)", lambda: run_full("env_blockhash", "REJECTED_OOS"))
 
     # P0 #3: test forges storage via vm.store -> banned cheatcode -> REJECTED.
-    ok, d = run_full("cheatcode_banned", "REJECTED_OOS")
-    results.append(("cheatcode_banned ATTACK (FULL)", ok, d))
-    _print("cheatcode_banned ATTACK (FULL)", ok, d)
+    _defer("cheatcode_banned ATTACK (FULL)", lambda: run_full("cheatcode_banned", "REJECTED_OOS"))
 
     # P0 #3: test pins timestamp via vm.warp -> allowed + MIRRORED into the
     # solidity-lean env -> both see 12345 -> NO_DIVERGENCE (correct verdict).
-    ok, d = run_full("cheatcode_allowed", "NO_DIVERGENCE")
-    results.append(("cheatcode_allowed ALLOWED (FULL)", ok, d))
-    _print("cheatcode_allowed ALLOWED (FULL)", ok, d)
+    _defer("cheatcode_allowed ALLOWED (FULL)", lambda: run_full("cheatcode_allowed", "NO_DIVERGENCE"))
 
     # Round 11 probe: checked uint256 overflow (2^256-1 + 1) must revert with
     # Panic(0x11) on BOTH engines -> revert|panic:17 -> NO_DIVERGENCE. Guards
     # panic-code parity so a code mismatch can't bank a fake wrong-revert gap.
-    ok, d = run_full("panic_overflow", "NO_DIVERGENCE")
-    results.append(("panic_overflow PARITY (FULL)", ok, d))
-    _print("panic_overflow PARITY (FULL)", ok, d)
+    _defer("panic_overflow PARITY (FULL)", lambda: run_full("panic_overflow", "NO_DIVERGENCE"))
 
     # Round 12 probe: checked division by zero (f(1,0)) must revert with
     # Panic(0x12) -> revert|panic:18 on BOTH engines. A DISTINCT panic code from
     # the overflow probe -> confirms per-operation panic-code parity, not just 0x11.
-    ok, d = run_full("panic_divzero", "NO_DIVERGENCE")
-    results.append(("panic_divzero PARITY (FULL)", ok, d))
-    _print("panic_divzero PARITY (FULL)", ok, d)
+    _defer("panic_divzero PARITY (FULL)", lambda: run_full("panic_divzero", "NO_DIVERGENCE"))
 
     # Round 13 probe: array out-of-bounds read (f(5) on a length-2 storage array)
     # must revert with Panic(0x32) -> revert|panic:50 on BOTH engines. A NON-
     # arithmetic panic path (bounds check) + a constructor-populated dynamic
     # storage array read -> confirms panic-code parity generalizes beyond math.
-    ok, d = run_full("panic_oob", "NO_DIVERGENCE")
-    results.append(("panic_oob PARITY (FULL)", ok, d))
-    _print("panic_oob PARITY (FULL)", ok, d)
+    _defer("panic_oob PARITY (FULL)", lambda: run_full("panic_oob", "NO_DIVERGENCE"))
 
     # Round 14 probe: a failing assert() (f(0) fails assert(a != 0)) must revert
     # with Panic(0x01) -> revert|panic:1 on BOTH engines. The assertion-failure
     # code path -> confirms it renders as Panic(0x01), NOT Error(string)/empty.
-    ok, d = run_full("panic_assert", "NO_DIVERGENCE")
-    results.append(("panic_assert PARITY (FULL)", ok, d))
-    _print("panic_assert PARITY (FULL)", ok, d)
+    _defer("panic_assert PARITY (FULL)", lambda: run_full("panic_assert", "NO_DIVERGENCE"))
 
     # Round 15 probe: payable entry called with msg.value. entry.value=1000 flows
     # into BOTH the Foundry call{value:...} and the mirrored solidity-lean env ->
     # f() returns msg.value -> success|w:1000 on BOTH. Guards the value channel:
     # a wei desync (wrong/zero value on one side) would be a fake wrong-value gap.
-    ok, d = run_full("payable_value", "NO_DIVERGENCE")
-    results.append(("payable_value PARITY (FULL)", ok, d))
-    _print("payable_value PARITY (FULL)", ok, d)
+    _defer("payable_value PARITY (FULL)", lambda: run_full("payable_value", "NO_DIVERGENCE"))
 
     # Round 16 probe: signed narrow-int return render. f({"int":-5}) returns
     # int8(-5) -> EVM sign-extends to 0xff..fb, solidity-lean renders i:-5 ->
     # success|i:-5 on BOTH. Confirms the signed-narrow render path is parity-safe.
-    ok, d = run_full("int8_negative", "NO_DIVERGENCE")
-    results.append(("int8_negative RENDER (FULL)", ok, d))
-    _print("int8_negative RENDER (FULL)", ok, d)
+    _defer("int8_negative RENDER (FULL)", lambda: run_full("int8_negative", "NO_DIVERGENCE"))
 
     # Round 16 fix guard: a BARE negative int arg (should be {"int":-5}) is an
     # ill-formed word that crashes the Lean renderer (Value.word -5) -> was a
     # NEEDS_REVIEW crash; now REJECT_MALFORMED before any measurement.
-    ok, d = run_full("int_bare_negative", "REJECT_MALFORMED")
-    results.append(("int_bare_negative MALFORMED (FULL)", ok, d))
-    _print("int_bare_negative MALFORMED (FULL)", ok, d)
+    _defer("int_bare_negative MALFORMED (FULL)", lambda: run_full("int_bare_negative", "REJECT_MALFORMED"))
 
     # Round 17 probe: out-of-range enum conversion (f(5) -> Color(5) on a 3-member
     # enum) must revert with Panic(0x21) -> revert|panic:33 on BOTH engines. A
     # DISTINCT panic path (enum bounds on conversion) + enum conversion / uint8(enum)
     # cast, all end-to-end. Return type uint256 keeps the panic the observable.
-    ok, d = run_full("panic_enum", "NO_DIVERGENCE")
-    results.append(("panic_enum PARITY (FULL)", ok, d))
-    _print("panic_enum PARITY (FULL)", ok, d)
+    _defer("panic_enum PARITY (FULL)", lambda: run_full("panic_enum", "NO_DIVERGENCE"))
 
     # Round 18 probe: .pop() on an empty storage array (f()) must revert with
     # Panic(0x31) -> revert|panic:49 on BOTH engines. Completes the panic family
     # (0x01/0x11/0x12/0x21/0x31/0x32); distinct underflow path + a state-mutating
     # (non-view) entry over an empty dynamic storage array.
-    ok, d = run_full("panic_pop", "NO_DIVERGENCE")
-    results.append(("panic_pop PARITY (FULL)", ok, d))
-    _print("panic_pop PARITY (FULL)", ok, d)
+    _defer("panic_pop PARITY (FULL)", lambda: run_full("panic_pop", "NO_DIVERGENCE"))
 
     # Round 19 probe: a constructor-set immutable read by a view function.
     # Immutables are spliced into the deployed runtime bytecode (not a storage
     # slot) -> f() returns 42 -> success|w:42 on BOTH engines. Distinct
     # codegen/read path from storage-backed state.
-    ok, d = run_full("immutable_read", "NO_DIVERGENCE")
-    results.append(("immutable_read PARITY (FULL)", ok, d))
-    _print("immutable_read PARITY (FULL)", ok, d)
+    _defer("immutable_read PARITY (FULL)", lambda: run_full("immutable_read", "NO_DIVERGENCE"))
 
     # Round 20 hardening: a revert reason packed with the |, ##EVT##, ##STO##
     # delimiters + fake outcome tokens. Both engines render it identically (raw
     # concat is symmetric -> no fabricated divergence) -> NO_DIVERGENCE; and the
     # rsplit fix keeps the injected outcome intact so a real tail-divergence
     # can't be masked (guarded by the marker-injection unit checks above).
-    ok, d = run_full("revert_marker_injection", "NO_DIVERGENCE")
-    results.append(("revert_marker_injection HARDENING (FULL)", ok, d))
-    _print("revert_marker_injection HARDENING (FULL)", ok, d)
+    _defer("revert_marker_injection HARDENING (FULL)", lambda: run_full("revert_marker_injection", "NO_DIVERGENCE"))
 
     # Round 21 hardening: a non-UTF-8 revert reason (revert(string(abi.encodePacked(
     # 0xff,0xfe,"ok")))). solidity-lean renders the dynamically-built string revert
     # as raw:0x08c379a0.. while the EVM side decodes to error:.. -- SAME bytes. The
     # raw-revert canonicalization re-decodes both -> NO_DIVERGENCE (was a fabricated
     # SOUNDNESS_GAP, a REAL false positive).
-    ok, d = run_full("revert_nonutf8", "NO_DIVERGENCE")
-    results.append(("revert_nonutf8 HARDENING (FULL)", ok, d))
-    _print("revert_nonutf8 HARDENING (FULL)", ok, d)
+    _defer("revert_nonutf8 HARDENING (FULL)", lambda: run_full("revert_nonutf8", "NO_DIVERGENCE"))
 
     # Round 22 probe: revert() yields zero-length revert data -> both engines must
     # render revert|empty (not one emitting raw:0x, the round-21 asymmetry class).
     # NO_DIVERGENCE confirms empty-revert parity (require(false) no-msg is identical).
-    ok, d = run_full("revert_empty", "NO_DIVERGENCE")
-    results.append(("revert_empty PARITY (FULL)", ok, d))
-    _print("revert_empty PARITY (FULL)", ok, d)
+    _defer("revert_empty PARITY (FULL)", lambda: run_full("revert_empty", "NO_DIVERGENCE"))
 
     # Round 25 guard: the round-16 bare-negative-int guard must cover CONSTRUCTOR
     # args too (same _arg_domain_error path). A bare -5 ctor arg -> REJECT_MALFORMED
     # (not a Lean-render crash); the {"int":-5} form runs fine (verified NO_DIVERGENCE
     # separately). Confirms ctor-arg domain-validation parity with entry args.
-    ok, d = run_full("ctor_bare_negative", "REJECT_MALFORMED")
-    results.append(("ctor_bare_negative MALFORMED (FULL)", ok, d))
-    _print("ctor_bare_negative MALFORMED (FULL)", ok, d)
+    _defer("ctor_bare_negative MALFORMED (FULL)", lambda: run_full("ctor_bare_negative", "REJECT_MALFORMED"))
 
     # Round 32 render-parity guard: a bare uint8 parameter passthrough (return x,
     # no arithmetic to force cleanup). solidity-lean's Value has an abiLazy wrapper
@@ -1893,9 +1801,7 @@ def main() -> int:
     # abiLazy is FORCED at the return/ABI-encode boundary: f(200) -> success|w:200
     # on both engines (NOT r:..). A future SolidCore change that stopped forcing at
     # the observable boundary would regress this to a fabricated SOUNDNESS_GAP.
-    ok, d = run_full("abilazy_passthrough", "NO_DIVERGENCE")
-    results.append(("abilazy_passthrough RENDER-PARITY (FULL)", ok, d))
-    _print("abilazy_passthrough RENDER-PARITY (FULL)", ok, d)
+    _defer("abilazy_passthrough RENDER-PARITY (FULL)", lambda: run_full("abilazy_passthrough", "NO_DIVERGENCE"))
 
     # Register 1.3 (X-ERRSEL retired): two custom errors sharing a 4-byte
     # selector (entry-contract E82926 + file-level E94430, both -> 0x554d5780;
@@ -1905,38 +1811,20 @@ def main() -> int:
     # the byte-faithful selector+args form: byte-identical reverts ->
     # NO_DIVERGENCE (was REJECTED_OOS under 1.2; a fabricated wrong-revert
     # SOUNDNESS_GAP before that).
-    ok, d = run_full("error_selector_collision", "NO_DIVERGENCE")
-    results.append(("error_selector_collision parity (FULL, X-ERRSEL retired)", ok, d))
-    _print("error_selector_collision parity (FULL, X-ERRSEL retired)", ok, d)
+    _defer("error_selector_collision parity (FULL, X-ERRSEL retired)", lambda: run_full("error_selector_collision", "NO_DIVERGENCE"))
 
     # ANTI-FABRICATION (X-ERRSEL closure, direction 1): even if the model labels
     # the SAME byte-identical revert with the OTHER colliding name (E94430), the
     # resolution keys on the model-reported name -> the EVM side decodes under
     # that same definition -> NO_DIVERGENCE. The error NAME is not on-chain-
     # observable, so no name mismatch over agreeing bytes can bank a gap.
-    ok, d = run_simulated(
-        "error_selector_collision", "NO_DIVERGENCE", None,
-        hb.SolidityLeanResult(
-            ok=True, stage="run", fail_closed=False,
-            observable=obs.parse_observable(
-                "revert|custom:E94430:##EVT####STO##"),
-            message="", inconclusive=False))
-    results.append(("collision other-name still NO_DIVERGENCE (SIM)", ok, d))
-    _print("collision other-name still NO_DIVERGENCE (SIM)", ok, d)
+    _defer_serial("collision other-name still NO_DIVERGENCE (SIM)", lambda: run_simulated( "error_selector_collision", "NO_DIVERGENCE", None, hb.SolidityLeanResult( ok=True, stage="run", fail_closed=False, observable=obs.parse_observable( "revert|custom:E94430:##EVT####STO##"), message="", inconclusive=False)))
 
     # ANTI-FABRICATION (X-ERRSEL closure, direction 2): a GENUINE byte-level
     # disagreement under a colliding selector is still banked — a model that
     # reverts empty where the EVM reverts custom must classify
     # SOUNDNESS_GAP(wrong-revert); the collision cannot MASK a real divergence.
-    ok, d = run_simulated(
-        "error_selector_collision", "SOUNDNESS_GAP", "S",
-        hb.SolidityLeanResult(
-            ok=True, stage="run", fail_closed=False,
-            observable=obs.parse_observable("revert|empty##EVT####STO##"),
-            message="", inconclusive=False),
-        expect_component="wrong-revert")
-    results.append(("collision real-divergence preserved (SIM)", ok, d))
-    _print("collision real-divergence preserved (SIM)", ok, d)
+    _defer_serial("collision real-divergence preserved (SIM)", lambda: run_simulated( "error_selector_collision", "SOUNDNESS_GAP", "S", hb.SolidityLeanResult( ok=True, stage="run", fail_closed=False, observable=obs.parse_observable("revert|empty##EVT####STO##"), message="", inconclusive=False), expect_component="wrong-revert"))
 
     # CONTRACT CREATION exclusion (strengthened, not closed): `new C{salt:s}()`
     # (CREATE2) must land as a CLEAN REJECTED_OOS — the X-EXTCALL contract-
@@ -1946,9 +1834,7 @@ def main() -> int:
     # the {salt:}/{value:} options wrap but never hide the NewExpression), so
     # one salted lane covers the whole creation family; the mem_alloc lane above
     # is the negative control (`new T[](n)` allocations must NOT fire).
-    ok, d = run_full("create2_salted", "REJECTED_OOS")
-    results.append(("create2_salted contract-creation OOS (FULL)", ok, d))
-    _print("create2_salted contract-creation OOS (FULL)", ok, d)
+    _defer("create2_salted contract-creation OOS (FULL)", lambda: run_full("create2_salted", "REJECTED_OOS"))
 
     # Round 34 hardening (17th vector): a contract that emits in its CONSTRUCTOR
     # (Ctor(1)) and in the entry function (Ran(2)). The EVM event observable arms
@@ -1957,9 +1843,7 @@ def main() -> int:
     # renderEvents used to dump BOTH -> a fabricated wrong-events SOUNDNESS_GAP
     # (qualifies=True). renderFullDelta/renderEventsFrom now drop the post-
     # construction log prefix so only the entry-call event is compared -> parity.
-    ok, d = run_full("ctor_event_probe", "NO_DIVERGENCE")
-    results.append(("ctor_event_probe HARDENING (FULL)", ok, d))
-    _print("ctor_event_probe HARDENING (FULL)", ok, d)
+    _defer("ctor_event_probe HARDENING (FULL)", lambda: run_full("ctor_event_probe", "NO_DIVERGENCE"))
 
     # --- CONSTRUCTOR-REVERT lanes: a reverting constructor is a first-class
     # MEASURED outcome (deployrevert|...), not a NEEDS_REVIEW dead-end. The
@@ -1973,39 +1857,29 @@ def main() -> int:
 
     # Error(string): require(x < 10, "ctor bad") fails on deploy(42) ->
     # deployrevert|error:ctor bad on BOTH engines.
-    ok, d = run_full("ctor_revert_error", "NO_DIVERGENCE")
-    results.append(("ctor_revert_error CTOR-REVERT (FULL)", ok, d))
-    _print("ctor_revert_error CTOR-REVERT (FULL)", ok, d)
+    _defer("ctor_revert_error CTOR-REVERT (FULL)", lambda: run_full("ctor_revert_error", "NO_DIVERGENCE"))
 
     # Custom error with a scalar arg: revert CtorBad(42) in the constructor ->
     # deployrevert|custom:CtorBad:w:42 on BOTH engines.
-    ok, d = run_full("ctor_revert_custom", "NO_DIVERGENCE")
-    results.append(("ctor_revert_custom CTOR-REVERT (FULL)", ok, d))
-    _print("ctor_revert_custom CTOR-REVERT (FULL)", ok, d)
+    _defer("ctor_revert_custom CTOR-REVERT (FULL)", lambda: run_full("ctor_revert_custom", "NO_DIVERGENCE"))
 
     # Panic(0x11): checked 0 - 1 underflow in a NO-ARG constructor (exercises
     # the empty-ctor-args deploy path) -> deployrevert|panic:17 on BOTH engines.
-    ok, d = run_full("ctor_revert_panic", "NO_DIVERGENCE")
-    results.append(("ctor_revert_panic CTOR-REVERT (FULL)", ok, d))
-    _print("ctor_revert_panic CTOR-REVERT (FULL)", ok, d)
+    _defer("ctor_revert_panic CTOR-REVERT (FULL)", lambda: run_full("ctor_revert_panic", "NO_DIVERGENCE"))
 
     # Bare revert(): zero-length revert data -> deployrevert|empty on BOTH.
-    ok, d = run_full("ctor_revert_empty", "NO_DIVERGENCE")
-    results.append(("ctor_revert_empty CTOR-REVERT (FULL)", ok, d))
-    _print("ctor_revert_empty CTOR-REVERT (FULL)", ok, d)
+    _defer("ctor_revert_empty CTOR-REVERT (FULL)", lambda: run_full("ctor_revert_empty", "NO_DIVERGENCE"))
 
     # FAILING BASE constructor: CtorRevertBase is Base(0), Base's require fails
     # during the deploy -> deployrevert|error:base zero on BOTH engines.
-    ok, d = run_full("ctor_revert_base", "NO_DIVERGENCE")
-    results.append(("ctor_revert_base CTOR-REVERT (FULL)", ok, d))
-    _print("ctor_revert_base CTOR-REVERT (FULL)", ok, d)
+    _defer("ctor_revert_base CTOR-REVERT (FULL)", lambda: run_full("ctor_revert_base", "NO_DIVERGENCE"))
 
     # Deploy-outcome soundness DETECTOR: full live run of ctor_revert_error,
     # then the measured EVM observable is perturbed to a successful deploy ->
     # the classifier must bank SOUNDNESS_GAP(deploy-revert-vs-success).
-    ok, d = run_real_deploy_soundness_selftest()
-    results.append(("deploy-outcome-detector (REAL run + injected success)", ok, d))
-    _print("deploy-outcome-detector (REAL run + injected success)", ok, d)
+    _defer("deploy-outcome-detector (REAL run + injected success)", lambda: run_real_deploy_soundness_selftest())
+
+    results = _run_deferred()
 
     print("\n=== SUMMARY ===")
     all_ok = True

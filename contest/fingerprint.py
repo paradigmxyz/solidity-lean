@@ -74,8 +74,19 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 from pathlib import Path
 from typing import Any, Optional
+
+# source_ast_hash chdirs to the sources' common parent for the duration of the
+# solc AST derivation (see its docstring). os.chdir is PROCESS-wide, so two
+# threads deriving fingerprints concurrently would corrupt each other's cwd —
+# observed as full-mode derivations silently degrading to parse-mode (the
+# analyzed-AST solc call fails on a wrong relative import root and the except
+# falls back). One lock serializes only this sub-second window; adjudications
+# themselves stay parallel (all their other subprocess calls use absolute
+# mkdtemp paths and never depend on the process cwd).
+_CHDIR_LOCK = threading.Lock()
 
 FINGERPRINT_SCHEME = "fp1"
 
@@ -223,17 +234,18 @@ def source_ast_hash(sources: list[Path], solc: Optional[str] = None,
     parents = {p.parent for p in abs_sources}
     workdir = (os.path.commonpath([str(d) for d in parents])
                if parents else str(repo_root))
-    prev_cwd = os.getcwd()
-    try:
-        os.chdir(workdir)
+    with _CHDIR_LOCK:
+        prev_cwd = os.getcwd()
         try:
-            src_asts = gate.get_source_asts(abs_sources, solc)
-            mode = "full"
-        except Exception:
-            src_asts = gate.get_source_asts_parse_only(abs_sources, solc)
-            mode = "parse"
-    finally:
-        os.chdir(prev_cwd)
+            os.chdir(workdir)
+            try:
+                src_asts = gate.get_source_asts(abs_sources, solc)
+                mode = "full"
+            except Exception:
+                src_asts = gate.get_source_asts_parse_only(abs_sources, solc)
+                mode = "parse"
+        finally:
+            os.chdir(prev_cwd)
     return canonical_ast_hash([sa.ast for sa in src_asts]), mode
 
 
