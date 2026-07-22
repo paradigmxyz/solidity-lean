@@ -12109,7 +12109,15 @@ def Parameter.arityFallbackCompatible (env : TypeEnv)
   | Ty.user _ => true
   | _ =>
       match Parameter.matchesArgAllowingInternalFunctionName? env param arg with
-      | some false => false
+      | some false =>
+          -- A SHAPE mismatch alone does not disprove the candidate: solc also
+          -- binds an overload whose parameter the argument implicitly
+          -- CONVERTS to (`uint8 -> uint256` widening — the using-for widened
+          -- receiver/arg lanes). Exclude only when the known argument type
+          -- neither shape-matches nor implicitly converts.
+          match Expr.abiTyWithEnv? env arg with
+          | some argTy => Ty.canImplicitlyConvert argTy param.ty
+          | none => true
       | _ => true
 
 def Parameters.arityFallbackCompatible (env : TypeEnv) :
@@ -23936,10 +23944,24 @@ def Stmt.rewriteLibraryInternalCallsFuel (libraryName : Name)
   | 0, stmt => stmt
   | _ + 1, Stmt.empty => Stmt.empty
   | fuel + 1, Stmt.block body =>
-      Stmt.block
-        (body.map
-          (Stmt.rewriteLibraryInternalCallsFuel
-            libraryName libraryFunctions env fuel))
+      -- Overload-selection env fidelity: thread each `varDecl`'s bindings into
+      -- the env for the REST of the sequence, so an intra-library call whose
+      -- argument is a LOCAL (`Pair memory p = ...; comb(p, 7)`) type-selects
+      -- among same-name overloads instead of falling through to the
+      -- declaration-order arity fallback (wrong-callee class).
+      let step (acc : List Stmt × TypeEnv) (head : Stmt) :
+          List Stmt × TypeEnv :=
+        let (done, seqEnv) := acc
+        let head' :=
+          Stmt.rewriteLibraryInternalCallsFuel
+            libraryName libraryFunctions seqEnv fuel head
+        let seqEnv' :=
+          match head with
+          | Stmt.varDecl bindings _ => VarBindings.extendTypeEnv seqEnv bindings
+          | _ => seqEnv
+        (head' :: done, seqEnv')
+      let (revBody, _) := body.foldl step (([] : List Stmt), env)
+      Stmt.block revBody.reverse
   | fuel + 1, Stmt.varDecl bindings init =>
       Stmt.varDecl bindings
         (init.map
@@ -23971,18 +23993,25 @@ def Stmt.rewriteLibraryInternalCallsFuel (libraryName : Name)
         (Expr.rewriteLibraryInternalCallsFuel
           libraryName libraryFunctions env fuel cond)
   | fuel + 1, Stmt.forLoop init cond post body =>
+      -- A `for`-init var decl scopes over cond/post/body (same env-fidelity
+      -- threading as the block arm).
+      let loopEnv :=
+        match init with
+        | some (Stmt.varDecl bindings _) =>
+            VarBindings.extendTypeEnv env bindings
+        | _ => env
       Stmt.forLoop
         (init.map
           (Stmt.rewriteLibraryInternalCallsFuel
             libraryName libraryFunctions env fuel))
         (cond.map
           (Expr.rewriteLibraryInternalCallsFuel
-            libraryName libraryFunctions env fuel))
+            libraryName libraryFunctions loopEnv fuel))
         (post.map
           (Expr.rewriteLibraryInternalCallsFuel
-            libraryName libraryFunctions env fuel))
+            libraryName libraryFunctions loopEnv fuel))
         (Stmt.rewriteLibraryInternalCallsFuel
-          libraryName libraryFunctions env fuel body)
+          libraryName libraryFunctions loopEnv fuel body)
   | fuel + 1, Stmt.tryCatch expr clauses =>
       Stmt.tryCatch
         (Expr.rewriteLibraryInternalCallsFuel

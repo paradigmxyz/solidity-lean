@@ -14825,22 +14825,22 @@
      },
      {
       "label": "attachedBox_39_42",
-      "expr": "(do\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 256 SolidCore.Solidity.SolcAstImport.ArityOverloadBinding.importedContract (SolidCore.Solidity.Source.CallTarget.name \"attachedBox\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 39]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v0] => Except.ok (SolidCore.Solidity.Source.wordEq v0 42)\n  | _ => Except.ok false)",
+      "expr": "(do\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.callContract 256 SolidCore.Solidity.SolcAstImport.ArityOverloadBinding.importedSourceUnit \"ArityOverloadBinding\" (SolidCore.Solidity.Source.CallTarget.name \"attachedBox\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 39]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v0] => Except.ok (SolidCore.Solidity.Source.wordEq v0 42)\n  | _ => Except.ok false)",
       "expect": "Except.ok true"
      },
      {
       "label": "attachedUint_10_40",
-      "expr": "(do\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 256 SolidCore.Solidity.SolcAstImport.ArityOverloadBinding.importedContract (SolidCore.Solidity.Source.CallTarget.name \"attachedUint\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 10]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v0] => Except.ok (SolidCore.Solidity.Source.wordEq v0 40)\n  | _ => Except.ok false)",
+      "expr": "(do\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.callContract 256 SolidCore.Solidity.SolcAstImport.ArityOverloadBinding.importedSourceUnit \"ArityOverloadBinding\" (SolidCore.Solidity.Source.CallTarget.name \"attachedUint\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 10]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v0] => Except.ok (SolidCore.Solidity.Source.wordEq v0 40)\n  | _ => Except.ok false)",
       "expect": "Except.ok true"
      },
      {
       "label": "libDriver_30_42",
-      "expr": "(do\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 256 SolidCore.Solidity.SolcAstImport.ArityOverloadBinding.importedContract (SolidCore.Solidity.Source.CallTarget.name \"libDriver\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 30]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v0] => Except.ok (SolidCore.Solidity.Source.wordEq v0 42)\n  | _ => Except.ok false)",
+      "expr": "(do\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.callContract 256 SolidCore.Solidity.SolcAstImport.ArityOverloadBinding.importedSourceUnit \"ArityOverloadBinding\" (SolidCore.Solidity.Source.CallTarget.name \"libDriver\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 30]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v0] => Except.ok (SolidCore.Solidity.Source.wordEq v0 42)\n  | _ => Except.ok false)",
       "expect": "Except.ok true"
      },
      {
       "label": "libDriverUint_3_3007",
-      "expr": "(do\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 256 SolidCore.Solidity.SolcAstImport.ArityOverloadBinding.importedContract (SolidCore.Solidity.Source.CallTarget.name \"libDriverUint\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 3]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v0] => Except.ok (SolidCore.Solidity.Source.wordEq v0 3007)\n  | _ => Except.ok false)",
+      "expr": "(do\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.callContract 256 SolidCore.Solidity.SolcAstImport.ArityOverloadBinding.importedSourceUnit \"ArityOverloadBinding\" (SolidCore.Solidity.Source.CallTarget.name \"libDriverUint\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 3]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word v0] => Except.ok (SolidCore.Solidity.Source.wordEq v0 3007)\n  | _ => Except.ok false)",
       "expect": "Except.ok true"
      }
     ]

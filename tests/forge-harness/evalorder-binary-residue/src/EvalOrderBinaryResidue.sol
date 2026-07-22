@@ -39,7 +39,9 @@ contract EvalOrderBinaryResidue {
     // RIGHT bump() = 1 first, then LEFT arr[bump() = 2] = 30 -> 30 + 1 = 31.
     // (Left-first would compute arr[1] + 2 = 22.)
     function indexCallPlusCall() external returns (uint256) {
-        arr = [uint256(10), 20, 30];
+        arr.push(10);
+        arr.push(20);
+        arr.push(30);
         return arr[bump()] + bump();
     }
 
