@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "ExtFnParam", "function": "inspect", "args": [[57005, 287454020]], "value": 0 },
+  "expected_divergence": "none expected - external function-typed ENTRY PARAMETER parity control (register 1.6, X-FNARG retired): the [address, selector] claim arg reaches the EVM as the left-packed 24-byte ABI word and the model as Value.externalFunction; both engines report the same (address, selector) -> NO_DIVERGENCE (was REJECTED_OOS under the 1.4/1.5 register).",
+  "declared_observable": { "kind": "return_value", "normal_form": "success|w:57005,w:287454020" },
+  "feature": "external-fn-param-arg",
+  "register_version_seen": "1.6.0"
+}

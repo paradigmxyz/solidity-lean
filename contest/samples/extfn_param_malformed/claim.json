@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "ExtFnParam", "function": "inspect", "args": [[57005]], "value": 0 },
+  "expected_divergence": "none - NEGATIVE control: an external function-typed parameter requires a 2-element [address, selector] claim arg; a 1-element list is the wrong arity -> REJECT_MALFORMED (never reaches measurement).",
+  "declared_observable": { "kind": "return_value", "normal_form": "n/a" },
+  "feature": "external-fn-param-arg-malformed",
+  "register_version_seen": "1.6.0"
+}

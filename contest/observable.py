@@ -391,6 +391,31 @@ def render_lean_arg(arg: object, ptype: Optional[str] = None,
             ctor = "dynamicArray" if n is None else "fixedArray"
             inner = ", ".join(render_lean_arg(a, elem, structs) for a in arg)
             return f"({V}.{ctor} [{inner}])"
+        if ct.startswith("function"):
+            # EXTERNAL function-typed parameter (register >= 1.6.0, X-FNARG
+            # retired): the [address, selector] claim arg constructs the
+            # model's own Value.externalFunction — the SAME (address,
+            # selector) pair the EVM side left-packs into its 24-byte ABI
+            # word (measure._encode_typed), so both engines receive the same
+            # logical call and the 1.4.0 `f:<addr>:<sel>` canonical rendering
+            # closes the loop. Internal function types never reach here
+            # (REJECTED_OOS upstream; defense-in-depth raise).
+            if " external" not in ct:
+                raise ValueError(f"internal function parameter {ptype!r} has "
+                                 "no arg form")
+            if not isinstance(arg, list) or len(arg) != 2:
+                raise ValueError(f"external function parameter {ptype!r} "
+                                 f"requires a 2-element [address, selector] "
+                                 f"arg, got {arg!r}")
+            comps = []
+            for v in arg:
+                if isinstance(v, bool) or not isinstance(v, (int, dict)):
+                    raise ValueError(f"external function arg component must "
+                                     f"be an unsigned int / word form, got "
+                                     f"{v!r}")
+                comps.append(int(v["word"]) if isinstance(v, dict) else int(v))
+            addr, sel = comps
+            return f"({V}.externalFunction {addr} {sel})"
         members = _struct_member_types(ct, structs)
         if members is not None:
             if not isinstance(arg, list) or len(arg) != len(members):

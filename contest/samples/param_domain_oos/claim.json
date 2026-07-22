@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "FnParam", "function": "useB", "args": [{ "word": 0 }], "value": 0 },
+  "expected_divergence": "Out of scope by design: a bytesN (N<32) ENTRY PARAMETER cannot be domain-validated from the v1 claim arg forms; it hits the narrow X-INTFNARG row (register 1.6, the residue of the retired X-FNARG - external function params are now measured) -> REJECTED_OOS.",
+  "declared_observable": { "kind": "return_value", "normal_form": "success|w:1" },
+  "feature": "param-domain-oos",
+  "register_version_seen": "1.6.0"
+}

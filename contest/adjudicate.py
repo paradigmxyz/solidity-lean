@@ -409,31 +409,37 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
                 f"{entry['contract']}.{entry['function']} parameter count "
                 f"({n_params}): {entry_sig.param_types}"), evidence=evidence)
         # PARAMETER-shape scope check, register-version aware (§7 fairness):
+        #   * register >= 1.6.0 (X-FNARG retired): EXTERNAL function-typed
+        #     parameters are ALSO encoded end-to-end — the claim arg is a
+        #     2-element [address, selector] list, the EVM gets the 24-byte
+        #     left-packed ABI word (addr << 96) | (sel << 64) and the model
+        #     gets Value.externalFunction, the same (address, selector) pair —
+        #     so they are measured. The residue is X-INTFNARG: INTERNAL
+        #     function params (solc-rejected in external signatures;
+        #     defense-in-depth) and structs the harness cannot resolve.
+        #     CALLING the supplied value is still X-EXTCALL (gate).
         #   * register >= 1.4.0 (X-ARGVAL retired): ARRAY and STRUCT parameters
         #     are ENCODED end-to-end (JSON-list claim args -> type-directed ABI
         #     calldata on the EVM side, Value.dynamicArray/fixedArray/tuple on
         #     the Lean side — the same bytes/values both engines dispatch on),
-        #     so they are measured, not excluded. The narrow residue is X-FNARG:
-        #     FUNCTION-typed parameters (an external function VALUE cannot be
-        #     fabricated meaningfully from a claim — there is no callee contract
-        #     behind an arbitrary (address,selector) pair in the v1 responder-
-        #     free world — and internal function values are per-contract
-        #     dispatch IDs, never ABI calldata) and structs the harness cannot
-        #     resolve to member types.
+        #     so they are measured, not excluded; function-typed parameters
+        #     stay OOS under the then-active X-FNARG row (§7).
         #   * pre-1.4.0 submissions keep the historical broad rows (X-ARGVAL /
         #     X-RETABI): arrays/structs stay OOS as adjudicated then.
         entry_structs = meas.struct_definitions(
             _src_for(submission.sources, entry["contract"], tools.solc)
             or submission.sources[0], tools.solc)
-        oos_entry = _active_row(("X-FNARG", "X-ARGVAL", "X-RETABI"),
+        oos_entry = _active_row(("X-INTFNARG", "X-FNARG", "X-ARGVAL", "X-RETABI"),
                                 at_version or reg.REGISTER_VERSION)
         oos_active = oos_entry is not None
+        ext_fn_arg_ok = oos_entry is None or oos_entry.id == "X-INTFNARG"
         if oos_entry is not None and oos_entry.id in ("X-ARGVAL", "X-RETABI"):
             bad_params = [t for t in entry_sig.param_types
                           if not _representable_param_type(t)]
         else:
             bad_params = [t for t in entry_sig.param_types
-                          if not _encodable_param_type(t, entry_structs)]
+                          if not _encodable_param_type(
+                              t, entry_structs, external_fn_ok=ext_fn_arg_ok)]
         if bad_params and oos_active:
             evidence["arg_type_scope"] = {"unsupported_params": bad_params}
             return Report("REJECTED_OOS", reason=(
@@ -452,7 +458,8 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
         for i, (arg, ptype) in enumerate(
                 zip(entry.get("args", []), entry_sig.param_types)):
             derr = _arg_domain_error(arg, ptype, enum_counts,
-                                      structs=entry_structs)
+                                      structs=entry_structs,
+                                      external_fn_ok=ext_fn_arg_ok)
             if derr == "__OOS__":
                 if oos_active:
                     evidence["arg_type_scope"] = {"unvalidatable_param": ptype}
@@ -484,7 +491,8 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
                 f"({len(ctor_ptypes)}): {ctor_ptypes}"), evidence=evidence)
         for i, (arg, ptype) in enumerate(zip(ctor_args, ctor_ptypes)):
             derr = _arg_domain_error(arg, ptype, enum_counts,
-                                      structs=entry_structs)
+                                      structs=entry_structs,
+                                      external_fn_ok=ext_fn_arg_ok)
             if derr == "__OOS__":
                 if oos_active:
                     evidence["arg_type_scope"] = {"unvalidatable_ctor_param": ptype}
@@ -1094,32 +1102,39 @@ def _comparable_channel_type(t: str,
 
 
 def _encodable_param_type(t: str,
-                          structs: Optional[dict[str, list[str]]]) -> bool:
+                          structs: Optional[dict[str, list[str]]],
+                          external_fn_ok: bool = False) -> bool:
     """True iff a PARAMETER type's SHAPE is encodable end-to-end by the claim
     arg forms under register >= 1.4.0 (X-ARGVAL retired): scalars plus ARRAYS
     (``T[]`` / ``T[N]``, arbitrarily nested) and resolvable STRUCTS, given as
     JSON lists — the type-directed encoder (measure._encode_typed) produces the
     exact ABI head/tail bytes and the Lean renderer the matching
     Value.dynamicArray/fixedArray/tuple, so both engines receive the SAME
-    logical call. The X-FNARG residue is FUNCTION-typed parameters (an external
-    function VALUE cannot be fabricated meaningfully from a claim — no callee
-    exists behind an arbitrary (address,selector) in the v1 responder-free
-    world; internal function values are per-contract dispatch IDs, never ABI
-    calldata), unresolvable structs, and bare tuples. Scalar DOMAIN residues
+    logical call. With ``external_fn_ok`` (register >= 1.6.0, X-FNARG retired)
+    an EXTERNAL function-typed parameter is ALSO encodable: the claim arg is a
+    2-element [address, selector] list, ABI-encoded as the 24-byte left-packed
+    word (addr << 96) | (sel << 64) and rendered as Value.externalFunction —
+    the same (address, selector) pair on both engines (CALLING the value stays
+    X-EXTCALL, enforced by the gate). The X-INTFNARG residue is INTERNAL
+    function-typed parameters (solc rejects them in external signatures;
+    defense-in-depth against typeString drift), unresolvable structs, and bare
+    tuples; with ``external_fn_ok=False`` (a pre-1.6.0 submission, §7) every
+    function type is out, exactly as adjudicated then. Scalar DOMAIN residues
     (bytesN with N<32, fixed/ufixed, unresolvable enums) are still fenced
     per-arg by _arg_domain_error's ``__OOS__``."""
     t = str(t).strip()
     for suffix in (" memory", " calldata", " storage", " payable"):
         t = t.replace(suffix, "")
     t = t.strip()
-    if t.startswith("function"):
-        return False
     arr = obs._array_elem(t)
     if arr is not None:
-        return _encodable_param_type(arr[0], structs)
+        return _encodable_param_type(arr[0], structs, external_fn_ok)
+    if t.startswith("function"):
+        return external_fn_ok and " external" in t
     members = obs._struct_member_types(t, structs)
     if members is not None:
-        return all(_encodable_param_type(m, structs) for m in members)
+        return all(_encodable_param_type(m, structs, external_fn_ok)
+                   for m in members)
     if t.startswith("struct "):    # unresolvable struct
         return False
     if t.startswith("tuple"):      # bare tuple typeString (no component info)
@@ -1205,6 +1220,7 @@ _MAX_ARRAY_ARG_LEN = 1024
 def _arg_domain_error(arg: object, ptype: str,
                       enum_counts: dict[str, int],
                       structs: Optional[dict[str, list[str]]] = None,
+                      external_fn_ok: bool = False,
                       ) -> Optional[str]:
     """Validate that ``arg`` is a LEGAL high-level value for parameter type
     ``ptype``; return an error string if not (else None).
@@ -1247,11 +1263,37 @@ def _arg_domain_error(arg: object, ptype: str,
             return (f"dynamic array arg exceeds the {_MAX_ARRAY_ARG_LEN}-element "
                     f"bound ({len(arg)} elements)")
         for i, el in enumerate(arg):
-            derr = _arg_domain_error(el, elem, enum_counts, structs)
+            derr = _arg_domain_error(el, elem, enum_counts, structs,
+                                     external_fn_ok)
             if derr == "__OOS__":
                 return "__OOS__"
             if derr is not None:
                 return f"element {i} of {t!r}: {derr}"
+        return None
+    # EXTERNAL function-typed parameter (register >= 1.6.0, X-FNARG retired):
+    # the arg is a 2-element [address, selector] list — address in [0, 2^160),
+    # selector in [0, 2^32) (word forms accepted). The EVM side left-packs the
+    # pair into the 24-byte ABI word (addr << 96) | (sel << 64) — the exact
+    # packing solc's own encoder produces and its calldata decoder validates
+    # (dirty low 64 bits revert; probe 2026-07-22) — and the Lean side gets
+    # Value.externalFunction with the SAME pair, so both engines receive the
+    # same logical call. An out-of-range component would truncate
+    # asymmetrically -> reject as malformed. With ``external_fn_ok=False``
+    # (pre-1.6.0 register, §7) or an INTERNAL function type, the parameter is
+    # not validatable -> __OOS__ (the X-FNARG / X-INTFNARG row).
+    if t.startswith("function"):
+        if not (external_fn_ok and " external" in t):
+            return "__OOS__"
+        if not isinstance(arg, list) or len(arg) != 2:
+            return (f"external function parameter {t!r} requires a 2-element "
+                    f"JSON list arg [address, selector], got {arg!r}")
+        addr, sel = _arg_as_word(arg[0]), _arg_as_word(arg[1])
+        if addr is None or not 0 <= addr < (1 << 160):
+            return (f"external function arg address component out of range "
+                    f"[0, 2^160): {arg[0]!r}")
+        if sel is None or not 0 <= sel < (1 << 32):
+            return (f"external function arg selector component out of range "
+                    f"[0, 2^32): {arg[1]!r}")
         return None
     members = obs._struct_member_types(t, structs)
     if members is not None:
@@ -1262,7 +1304,8 @@ def _arg_domain_error(arg: object, ptype: str,
             return (f"struct {t!r} requires {len(members)} member values "
                     f"(one per member, in declaration order), got {len(arg)}")
         for i, (el, mt) in enumerate(zip(arg, members)):
-            derr = _arg_domain_error(el, mt, enum_counts, structs)
+            derr = _arg_domain_error(el, mt, enum_counts, structs,
+                                     external_fn_ok)
             if derr == "__OOS__":
                 return "__OOS__"
             if derr is not None:
@@ -1329,8 +1372,10 @@ def _arg_domain_error(arg: object, ptype: str,
         if count is None:
             return "__OOS__"   # can't resolve member count -> not validatable
         return f"enum {canonical} arg out of range [0, {count}): {arg!r}"
-    # bytesN (N<32), fixed-point, function types, and anything else word-family we
-    # cannot faithfully bound from the type string alone -> out of scope.
+    # bytesN (N<32), fixed-point, and anything else word-family we cannot
+    # faithfully bound from the type string alone -> out of scope. (Function
+    # types are dispatched above: external ones validate as [address, selector]
+    # at register >= 1.6.0, everything else is __OOS__.)
     return "__OOS__"
 
 

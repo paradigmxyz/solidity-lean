@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "ExtFnCall", "function": "useCb", "args": [[57005, 287454020]], "value": 0 },
+  "expected_divergence": "Out of scope by design: the entry CALLS the supplied external function value (cb()); no callee exists behind an arbitrary (address, selector) in the v1 responder-free world -> X-EXTCALL REJECTED_OOS (the parameter itself is in scope since register 1.6).",
+  "declared_observable": { "kind": "return_value", "normal_form": "success|w:7" },
+  "feature": "external-fn-param-called-oos",
+  "register_version_seen": "1.6.0"
+}

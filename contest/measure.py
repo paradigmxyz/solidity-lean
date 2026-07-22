@@ -258,6 +258,21 @@ def _encode_arg(arg: Any) -> tuple[bool, bytes]:
     raise ValueError(f"unsupported entry arg form for calldata: {arg!r}")
 
 
+def _arg_component_word(v: Any) -> int:
+    """The unsigned word an external-function arg COMPONENT denotes (a bare
+    non-negative int or the {"word": n} form); raises on any other shape —
+    the adjudicator's domain validation rejects those before encoding."""
+    if isinstance(v, bool):
+        raise ValueError(f"external function arg component must be an "
+                         f"unsigned integer, got {v!r}")
+    if isinstance(v, int):
+        return v
+    if isinstance(v, dict) and "word" in v:
+        return int(v["word"])
+    raise ValueError(f"external function arg component must be an unsigned "
+                     f"int / {{\"word\": n}}, got {v!r}")
+
+
 def _encode_typed(arg: Any, t: str,
                   structs: Optional[dict[str, list[str]]]) -> tuple[bool, bytes]:
     """TYPE-DIRECTED encode of one arg for parameter type ``t``.
@@ -285,6 +300,26 @@ def _encode_typed(arg: Any, t: str,
                              f"got {len(arg)}")
         body = _encode_tuple_typed(arg, [elem] * n, structs)
         return obs._is_dynamic_type(ct, structs), body
+    if ct.startswith("function"):
+        # EXTERNAL function-typed parameter (register >= 1.6.0, X-FNARG
+        # retired): the [address, selector] claim arg is ABI-encoded as the
+        # STATIC 32-byte word with the pair left-packed into the high 24 bytes,
+        # (addr << 96) | (sel << 64) — verified empirically against solc
+        # 0.8.35: `abi.encode(<fn value>)` emits exactly this word and solc's
+        # calldata decoder round-trips it (and REVERTS on dirty low 64 bits,
+        # which this packing leaves zero). The adjudicator's arg-domain
+        # validation guarantees the 2-element shape and the u160/u32 ranges
+        # before any encoding runs (fabrication fence); internal function
+        # types never reach here (REJECTED_OOS upstream).
+        if " external" not in ct:
+            raise ValueError(f"internal function parameter {t!r} is not "
+                             "ABI-encodable")
+        if not isinstance(arg, list) or len(arg) != 2:
+            raise ValueError(f"external function parameter {t!r} requires a "
+                             f"2-element [address, selector] arg, got {arg!r}")
+        addr, sel = (_arg_component_word(arg[0]), _arg_component_word(arg[1]))
+        word = ((addr % (1 << 160)) << 96) | ((sel % (1 << 32)) << 64)
+        return False, word.to_bytes(32, "big")
     members = obs._struct_member_types(ct, structs)
     if members is not None:
         if not isinstance(arg, list):

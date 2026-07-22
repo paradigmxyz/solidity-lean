@@ -1,0 +1,8 @@
+{
+  "lane": "S",
+  "entry": { "contract": "ExtFnParam", "function": "inspect", "args": [[57005, 4294967296]], "value": 0 },
+  "expected_divergence": "none - NEGATIVE control: the selector component of an external function arg must be < 2^32; 2^32 is out of range -> REJECT_MALFORMED (an out-of-range component would truncate asymmetrically between the engines).",
+  "declared_observable": { "kind": "return_value", "normal_form": "n/a" },
+  "feature": "external-fn-param-arg-range",
+  "register_version_seen": "1.6.0"
+}
