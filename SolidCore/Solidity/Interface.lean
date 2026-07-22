@@ -3994,7 +3994,14 @@ def Expr.untypedLiteralMobileTy? : Expr -> Option Ty
       let elseTy ← Expr.untypedLiteralMobileTy? elseExpr
       Ty.commonImplicit? thenTy elseTy
   | expr =>
-      match Expr.numberLiteralRat? expr with
+      -- Only a genuine *untyped number literal* (solc `RationalNumberType`) has a
+      -- `mobileType()`. Use the STRICT literal folder here — NOT
+      -- `numberLiteralRat?`, which folds through an explicit `T(x)` conversion
+      -- (and `enumFromUInt`) and would mis-report a TYPED branch such as
+      -- `bytes2(0xBBCC)` / `uint8(5)` as an untyped `uintN` literal. A typed
+      -- conversion branch must yield `none` so the ternary falls back to the
+      -- branches' checked types (their common implicit type), matching solc.
+      match Expr.untypedNumberLiteralRat? expr with
       | some q =>
           if q.den == 1 then
             if 0 <= q.num then
@@ -11875,6 +11882,91 @@ def Stmt.rewriteInternalFnValueIdents (ids : List (Name × Nat))
     Stmt.rewriteInternalFnValueIdentsFuel ids bound
       defaultInlineConstantsFuel stmt
 
+/-- Distribute a call whose callee is a ternary that SELECTS between two internal
+    functions (`(cond ? a : b)(args)`) over the two branches
+    (`cond ? a(args) : b(args)`). solc evaluates the callee first (which
+    evaluates `cond` and selects a function pointer), then the arguments, then
+    calls the selected function — so pushing the call into each branch preserves
+    the observable order: `cond` runs once, `args` run once in the taken branch,
+    the selected function runs once. Applied BEFORE the fn-value dispatch-ID
+    rewrite so the branch functions become ordinary NAME-resolved direct calls
+    (`Expr.call (Expr.ident a) args`), which the internal-call lowering already
+    handles — the alternative (a call THROUGH the ternary as a function pointer)
+    cannot recover the pointer type once the identifiers become dispatch-ID
+    literals. Non-ternary callees (including `arr[i](x)` pointer callees) are
+    left untouched. -/
+def Expr.distributeTernaryCallCalleeFuel : Nat -> Expr -> Expr
+  | 0, expr => expr
+  | fuel + 1, expr =>
+      let go := Expr.distributeTernaryCallCalleeFuel fuel
+      let goArg : Arg -> Arg
+        | Arg.positional value => Arg.positional (go value)
+        | Arg.named name value => Arg.named name (go value)
+      let goOption : CallOption -> CallOption
+        | CallOption.named name value => CallOption.named name (go value)
+      let goItem : TupleItem -> TupleItem
+        | TupleItem.hole => TupleItem.hole
+        | TupleItem.value value => TupleItem.value (go value)
+      match expr with
+      | Expr.call fn args =>
+          let fn' := go fn
+          let args' := args.map goArg
+          (match fn' with
+            | Expr.ternary cond thenExpr elseExpr =>
+                Expr.ternary cond
+                  (go (Expr.call thenExpr args'))
+                  (go (Expr.call elseExpr args'))
+            | _ => Expr.call fn' args')
+      | Expr.callWithOptions fn options args =>
+          Expr.callWithOptions (go fn) (options.map goOption) (args.map goArg)
+      | Expr.member base member => Expr.member (go base) member
+      | Expr.index base index => Expr.index (go base) (go index)
+      | Expr.slice base start stop =>
+          Expr.slice (go base) (start.map go) (stop.map go)
+      | Expr.newExpr ty args => Expr.newExpr ty (args.map goArg)
+      | Expr.tuple items => Expr.tuple (items.map goItem)
+      | Expr.array values => Expr.array (values.map go)
+      | Expr.enumFromUInt w value => Expr.enumFromUInt w (go value)
+      | Expr.unary op value => Expr.unary op (go value)
+      | Expr.binary op lhs rhs => Expr.binary op (go lhs) (go rhs)
+      | Expr.ternary cond thenExpr elseExpr =>
+          Expr.ternary (go cond) (go thenExpr) (go elseExpr)
+      | Expr.assign lhs op rhs => Expr.assign (go lhs) op (go rhs)
+      | Expr.payableConversion value => Expr.payableConversion (go value)
+      | _ => expr
+
+def Stmt.distributeTernaryCallCalleeFuel : Nat -> Stmt -> Stmt
+  | 0, stmt => stmt
+  | fuel + 1, stmt =>
+      let goE := Expr.distributeTernaryCallCalleeFuel defaultInlineConstantsFuel
+      let goS := Stmt.distributeTernaryCallCalleeFuel fuel
+      let goClause : CatchClause -> CatchClause
+        | CatchClause.clause name params body =>
+            CatchClause.clause name params (goS body)
+      match stmt with
+      | Stmt.block stmts => Stmt.block (stmts.map goS)
+      | Stmt.varDecl bindings init => Stmt.varDecl bindings (init.map goE)
+      | Stmt.expr e => Stmt.expr (goE e)
+      | Stmt.ifElse cond thenBranch elseBranch =>
+          Stmt.ifElse (goE cond) (goS thenBranch) (elseBranch.map goS)
+      | Stmt.whileLoop cond body => Stmt.whileLoop (goE cond) (goS body)
+      | Stmt.doWhile body cond => Stmt.doWhile (goS body) (goE cond)
+      | Stmt.forLoop init cond post body =>
+          Stmt.forLoop (init.map goS) (cond.map goE) (post.map goE) (goS body)
+      | Stmt.tryCatch e clauses =>
+          Stmt.tryCatch (goE e) (clauses.map goClause)
+      | Stmt.tryCatchReturns e params success clauses =>
+          Stmt.tryCatchReturns (goE e) params (goS success)
+            (clauses.map goClause)
+      | Stmt.emitEvent e => Stmt.emitEvent (goE e)
+      | Stmt.revertCall e => Stmt.revertCall (goE e)
+      | Stmt.returnValues init => Stmt.returnValues (init.map goE)
+      | Stmt.unchecked body => Stmt.unchecked (goS body)
+      | _ => stmt
+
+def Stmt.distributeTernaryCallCallee (stmt : Stmt) : Stmt :=
+  Stmt.distributeTernaryCallCalleeFuel defaultInlineConstantsFuel stmt
+
 /-- First-use-order deduplication. -/
 def Names.dedupPreservingOrder (names : List Name) : List Name :=
   (names.foldl
@@ -12538,6 +12630,22 @@ def Expr.abiTyWithInternalFunctionsEnv?
                       Visibility.private_) => some returnTy
                   | _ => none
       | Expr.call (Expr.typeName ty) [Arg.positional _] => some ty
+      | Expr.call callee _ =>
+          -- Call through an internal function POINTER whose callee is NOT a bare
+          -- identifier (e.g. an element of a function-pointer array: `arr[i](x)`,
+          -- or a fn pointer RETURNED by an internal call: `pick(true)(x)`).
+          -- The result type is the pointer type's single return type. Type the
+          -- callee with the internal-functions variant so a call-valued callee
+          -- (a returned pointer) resolves too. External pointers / non-function
+          -- callees fall through to `none`.
+          match
+              Expr.abiTyWithInternalFunctionsEnv?
+                functions freeFunctions env callee with
+          | some (Ty.functionWithLocations _ _ [returnTy] _ _
+              Visibility.internal_) => some returnTy
+          | some (Ty.functionWithLocations _ _ [returnTy] _ _
+              Visibility.private_) => some returnTy
+          | _ => none
       | Expr.payableConversion _ => some (Ty.address true)
       | Expr.unary UnaryOp.bitNot inner =>
           Expr.abiTyWithInternalFunctionsEnv? functions freeFunctions env inner
@@ -15187,11 +15295,10 @@ def FunctionDecl.boundaryCallParts?
     -> Panic 0x51). Same reference-preserving arg/return temp construction as
     `boundaryCallParts?`, with the parameter/return shapes taken from the
     function TYPE. -/
-def FunctionDecl.ptrBoundaryCallParts?
+def FunctionDecl.ptrBoundaryCallCoreParts?
     (storageRefEnv : StorageRefEnv) (env : TypeEnv) (storageNames : List Name)
-    (name : Name) (args : List Arg) :
+    (fnTy : Ty) (fnCore : CoreExpr) (returnPrefix : String) (args : List Arg) :
     Option (List CoreBindingDecl × List Bool × List CoreStmt × CoreStmt) := do
-  let fnTy ← Expr.abiTyWithEnv? env (Expr.ident name)
   match fnTy with
   | Ty.functionWithLocations paramTys paramLocs returnTys returnLocs _
       visibility =>
@@ -15224,8 +15331,6 @@ def FunctionDecl.ptrBoundaryCallParts?
               | Arg.named _ _ => none)
             args
         if params.length == sourceArgs.length then some () else none
-        let fnCore ← Expr.toCore? storageNames (Expr.ident name)
-        let returnPrefix := "_ret_" ++ name ++ "_"
         let runtimeReturns := Parameters.withRuntimeNames returnPrefix returns
         let returnBindings ←
           Parameters.toCoreBindings? returnPrefix runtimeReturns
@@ -15244,6 +15349,22 @@ def FunctionDecl.ptrBoundaryCallParts?
           , SolidCore.Solidity.Source.Stmt.internalCallPtr
               returnNames fnCore argVars ))
   | _ => none
+
+def FunctionDecl.ptrBoundaryCallExprParts?
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv) (storageNames : List Name)
+    (callee : Expr) (returnPrefix : String) (args : List Arg) :
+    Option (List CoreBindingDecl × List Bool × List CoreStmt × CoreStmt) := do
+  let fnTy ← Expr.abiTyWithEnv? env callee
+  let fnCore ← Expr.toCore? storageNames callee
+  FunctionDecl.ptrBoundaryCallCoreParts? storageRefEnv env storageNames
+    fnTy fnCore returnPrefix args
+
+def FunctionDecl.ptrBoundaryCallParts?
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv) (storageNames : List Name)
+    (name : Name) (args : List Arg) :
+    Option (List CoreBindingDecl × List Bool × List CoreStmt × CoreStmt) :=
+  FunctionDecl.ptrBoundaryCallExprParts? storageRefEnv env storageNames
+    (Expr.ident name) ("_ret_" ++ name ++ "_") args
 
 /-- Resolve an internal call site and emit its function-boundary parts. Since
     stage E of the boundary-completion arc this is boundary-ONLY: the resolved
@@ -16175,6 +16296,65 @@ def FunctionDecl.internalExprSingleReturnUseCore?
             modifiers functions freeFunctions iname iargs
             (fun idxCore => useResult (buildRead idxCore))
       | none => none
+  | Expr.call callee args =>
+      -- Call through an internal function POINTER whose callee is NOT a bare
+      -- identifier (e.g. an element of a function-pointer array: `arr[i](x)`).
+      -- The named-callee call shapes are handled by the earlier arms; here the
+      -- callee is any other expression. `ptrBoundaryCallExprParts?` declines
+      -- (→ `none`) unless `callee` types as an internal function pointer, so
+      -- non-pointer call shapes stay over-rejected exactly as before.
+      match FunctionDecl.ptrBoundaryCallExprParts?
+          storageRefEnv env storageNames callee "_ret_fp_" args with
+      | some (returnBindings, _, prefixCore, bodyCore) =>
+          match returnBindings with
+          | [ret] =>
+              some
+                (SolidCore.Solidity.Source.Stmt.block
+                  (prefixCore ++
+                    [ SolidCore.Solidity.Source.Stmt.captureReturn
+                        [ret.name] bodyCore
+                    , useResult (SolidCore.Solidity.Source.Expr.var ret.name) ]))
+          | _ => none
+      | none =>
+          -- The callee is itself an internal single-return call that RETURNS an
+          -- internal function pointer, immediately called (`pick(true)(x)` — a
+          -- returned pointer directly invoked). `ptrBoundaryCallExprParts?`
+          -- declines because the pure read lowering (`Expr.toCore?`) cannot
+          -- evaluate a call-valued callee; hoist the callee call into a temp
+          -- fn-ptr (same single-return machinery as any nested call) and then
+          -- dispatch through that temp with `ptrBoundaryCallCoreParts?`. The
+          -- structural pre-check requires the callee to type as an internal
+          -- function pointer with a well-formed single-return boundary shape, so
+          -- non-pointer / multi-return callees stay over-rejected as before.
+          match Expr.abiTyWithInternalFunctionsEnv?
+              functions freeFunctions env callee with
+          | some fnTy =>
+              match FunctionDecl.ptrBoundaryCallCoreParts?
+                  storageRefEnv env storageNames fnTy
+                  (SolidCore.Solidity.Source.Expr.var "_ret_fp_ptr")
+                  "_ret_fp_" args with
+              | some (returnBindings, _, _, _) =>
+                  match returnBindings with
+                  | [ret] =>
+                      FunctionDecl.internalExprSingleReturnUseCore?
+                        internalFuel storageRefEnv env externalCallKindEnv
+                        storageNames modifiers functions freeFunctions callee
+                        (fun ptrCore =>
+                          match FunctionDecl.ptrBoundaryCallCoreParts?
+                              storageRefEnv env storageNames fnTy ptrCore
+                              "_ret_fp_" args with
+                          | some (_, _, prefixCore, bodyCore) =>
+                              SolidCore.Solidity.Source.Stmt.block
+                                (prefixCore ++
+                                  [ SolidCore.Solidity.Source.Stmt.captureReturn
+                                      [ret.name] bodyCore
+                                  , useResult
+                                      (SolidCore.Solidity.Source.Expr.var
+                                        ret.name) ])
+                          | none => useResult ptrCore)
+                  | _ => none
+              | none => none
+          | none => none
   | _ => none
 termination_by (3, internalFuel, sizeOf expr, 10)
 
@@ -19539,6 +19719,18 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                       [buildRead idxCore])) with
           | some coreStmt => some coreStmt
           | none => Stmt.toCore? storageNames original
+      | Stmt.returnValues (some expr@(Expr.call (Expr.index _ _) _)) =>
+          -- `return arr[i](x)` — a call through an internal function POINTER read
+          -- from an array element. The plain return lowerings have no fallback for
+          -- a non-identifier callee; hoist it via `internalExprSingleReturnUseCore?`
+          -- (declines to `none` for non-pointer callees, preserving over-reject).
+          match FunctionDecl.internalExprSingleReturnUseCore?
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions expr
+              (fun resultExpr =>
+                SolidCore.Solidity.Source.Stmt.returnValues [resultExpr]) with
+          | some coreStmt => some coreStmt
+          | none => Stmt.toCore? storageNames (Stmt.returnValues (some expr))
       | Stmt.returnValues (some expr) =>
           match returnValuesCoreWithReturnTys? storageNames env returnTys expr with
           | some coreStmt => some coreStmt
@@ -24292,6 +24484,12 @@ def FunctionDecl.toCore? (storageNames : List Name) (constants : ConstantEnv)
             (Stmt.resolveOverloadedEventEmits overloadEvents
               (Parameters.extendTypeEnv "_mod" env modifier.params)) })
   let body := Stmt.inlineInternalFunctionAliasesInBody functions freeFunctions body
+  -- A call THROUGH a ternary that selects between internal functions
+  -- (`(cond ? a : b)(args)`) is distributed over the branches
+  -- (`cond ? a(args) : b(args)`) BEFORE the fn-value rewrite below, so the
+  -- selected functions stay NAME-resolved direct calls instead of becoming
+  -- opaque dispatch-ID literals whose pointer type can no longer be recovered.
+  let body := Stmt.distributeTernaryCallCallee body
   -- Stage C (boundary-completion arc): function identifiers still used as
   -- VALUES after alias inlining (fn-ptr state vars, data-dependent locals,
   -- fn-typed arguments/returns) become their dispatch-ID literals; the

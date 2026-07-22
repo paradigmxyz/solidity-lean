@@ -4495,6 +4495,25 @@ def Runtime.storageBaseAnchor (context : Context)
             match field.ty? with
             | some ty => Except.ok (StorageLayout.scalar ty)
             | none => Except.error RevertData.typeMismatch
+      -- A top-level PACKED scalar state variable carries its sub-slot
+      -- offset/width on the `StorageField` record (`packedOffset`/`packedBytes`/
+      -- `packedSigned`), while its `layout?` is a whole-word `scalar` (the
+      -- packing lives on the field, mirroring solc's per-slot placement). The
+      -- `loadStorageField`/`storeFieldWord` accessors honour `field.isPacked`,
+      -- but the `resolveStorageBasePath` reader/writer used by `storagePath`
+      -- (e.g. the reference-preserving tuple-assignment RHS) drives off this
+      -- anchor layout alone. Reconstitute the `packedScalar` layout here so a
+      -- bare packed-variable read extracts just its bits — matching the packed
+      -- member layout `Ty.toCoreStorageMemberLayout?` builds — instead of the
+      -- whole slot (which, coerced back on store, clobbers the neighbour).
+      let layout :=
+        match layout with
+        | StorageLayout.scalar ty =>
+            if field.isPacked then
+              StorageLayout.packedScalar field.packedOffset field.packedBytes
+                field.packedSigned ty
+            else layout
+        | _ => layout
       Except.ok (field.slot, layout)
 
 /-- Resolve `indexes` LIVE from a base anchor (bounds checks run here — at
@@ -6577,18 +6596,22 @@ def BinaryOp.apply
           Except.ok (Value.word value)
       | Value.int lhsWord, Value.int rhsWord =>
           op.applySignedWord checked lhsWord rhsWord
+      -- MIXED SIGNED/WORD (packed-signed unpack #11): a SIGNED operand
+      -- (`Value.int`, e.g. an `intCast` of a packed `intN` storage/array element)
+      -- meeting a `Value.word` operand — the shape the env-less `Expr.toCore?`
+      -- emits for a signed binary whose other operand is a literal (`word 1000`),
+      -- e.g. inside `uint256(int8Elem + 1000)`. By Solidity's typing rules a
+      -- `Value.int` operand forces the WHOLE operation signed (int/uint never
+      -- mix), so the raw word is the 2's-complement of a signed value: dispatch
+      -- to the signed path. This matters because signed and unsigned differ in
+      -- the overflow check (`-1 + 1000` overflows as unsigned but not signed).
+      -- `applySignedWord` reproduces the previous `shl`/`shr`/`sar`/`exp`
+      -- handling here exactly, and additionally handles `add`/`sub`/`mul`/`div`/
+      -- `mod`/bitwise/comparisons that previously Panic(0)'d as `typeMismatch`.
       | Value.int lhsWord, Value.word rhsWord =>
-          match op with
-          | BinaryOp.shl =>
-              Except.ok (Value.int (SolidCore.Solidity.Shared.shlWord rhsWord lhsWord))
-          | BinaryOp.shr =>
-              Except.ok (Value.int (SolidCore.Solidity.Shared.sarWord rhsWord lhsWord))
-          | BinaryOp.sar =>
-              Except.ok (Value.int (SolidCore.Solidity.Shared.sarWord rhsWord lhsWord))
-          | BinaryOp.exp => do
-              let value ← checkedSignedExp checked lhsWord rhsWord
-              Except.ok (Value.int value)
-          | _ => Except.error RevertData.typeMismatch
+          op.applySignedWord checked lhsWord rhsWord
+      | Value.word lhsWord, Value.int rhsWord =>
+          op.applySignedWord checked lhsWord rhsWord
       | _, _ => Except.error RevertData.typeMismatch)
 
 inductive BinaryArithmeticOperandMode where

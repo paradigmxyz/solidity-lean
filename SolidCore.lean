@@ -60,6 +60,14 @@ import SolidCore.Witness.ValueTyping
 import SolidCore.Witness.InheritedScope
 import SolidCore.Witness.StorageRefEarlyBind
 import SolidCore.Witness.PushAfterDanglingWrite
+import SolidCore.Witness.FnPtrArrayIndexCall
+import SolidCore.Witness.FnPtrTernaryCall
+import SolidCore.Witness.FnPtrStructMemberCall
+import SolidCore.Witness.FnPtrReturnedThenCall
+import SolidCore.Witness.TernaryBytesWidthUnify
+import SolidCore.Witness.TernaryLiteralVarWidthUnify
+import SolidCore.Witness.BinaryTernaryOperandOrder
+import SolidCore.Witness.CallPlusStateReadOperandOrder
 import SolidCore.Witness.CalldataEvmWrap
 import SolidCore.Witness.AbiDecodeStorageBytes
 import SolidCore.Witness.TernaryStorageBytesKeccak
@@ -77,3 +85,5 @@ import SolidCore.Witness.MustOverrideTwoBase
 import SolidCore.Witness.QualifiedDirectMember
 import SolidCore.Witness.UsingFieldAmbiguity
 import SolidCore.Witness.LibraryQualifiedSignatures
+import SolidCore.Witness.TupleSwapPackedStorage
+import SolidCore.Witness.PackedSignedArrayMemArith

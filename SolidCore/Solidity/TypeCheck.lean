@@ -7406,6 +7406,50 @@ def checkExpr (env : CheckEnv) :
                       requireCallMutabilityAllowed env sig.mutability
                       Except.ok
                         (sig.checkedResult expr)
+                    -- A struct FIELD (or any member) that holds an INTERNAL
+                    -- function pointer is a callable value: `s.fp(x)` calls
+                    -- through the pointer (solc treats the member access as a
+                    -- function-pointer value, exactly like `arr[i](x)` /
+                    -- `(c ? a : b)(x)`). The member access types as
+                    -- `functionWithLocations`; dispatch it as a
+                    -- function-pointer call (mirroring the generic
+                    -- non-member fn-pointer call arm). Anything that does not
+                    -- type as an internal fn pointer falls back to
+                    -- using-function resolution, so no prior shape changes.
+                    let checkFnPtrMemberCall : Except TypeError CheckedExpr :=
+                      match checkExpr env
+                          (Solidity.Expr.member targetExpr member) with
+                      | Except.ok memberChecked =>
+                          match memberChecked.ty with
+                          | Solidity.Ty.functionWithLocations params
+                              paramLocations returns returnLocations mutability
+                              Solidity.Visibility.internal_ => do
+                              let sig :=
+                                functionPointerSig "<expression>" params
+                                  paramLocations returns returnLocations
+                                  mutability Solidity.Visibility.internal_
+                              require (!ArgInfos.anyNamed argInfos)
+                                (TypeError.unsupported
+                                  "named arguments for function-typed expression")
+                              let checkedArgs' ←
+                                match
+                                    checkCheckedArgsAssignableWidenFor env.types
+                                      "function call" checkedArgs params with
+                                | Except.ok _ => Except.ok checkedArgs
+                                | Except.error checkedErr =>
+                                    match
+                                        checkPositionalArgsAssignableToParamsFor
+                                          env "function call" args params with
+                                    | Except.ok contextualCheckedArgs =>
+                                        Except.ok contextualCheckedArgs
+                                    | Except.error _ => Except.error checkedErr
+                              checkCheckedExprsReferenceLocationsFor
+                                "function call" checkedArgs'
+                                sig.paramStorageRefs sig.paramDataLocations
+                              requireCallMutabilityAllowed env mutability
+                              Except.ok (sig.checkedResult expr)
+                          | _ => checkUsingCall
+                      | Except.error _ => checkUsingCall
                     match targetChecked.ty with
                     | Solidity.Ty.user path =>
                         if env.types.isContractValuePath path then
@@ -7423,9 +7467,9 @@ def checkExpr (env : CheckEnv) :
                                   requireCallMutabilityAllowed env sig.mutability
                                   Except.ok
                                     (sig.checkedResult expr)
-                              | Except.error _ => checkUsingCall
+                              | Except.error _ => checkFnPtrMemberCall
                         else
-                          checkUsingCall
+                          checkFnPtrMemberCall
                     | _ =>
                         match Solidity.Executable.Expr.abiTyWithEnv?
                             env.vars expr with
@@ -8291,11 +8335,35 @@ def checkExpr (env : CheckEnv) :
         match Solidity.Executable.Expr.untypedLiteralMobileTy? expr with
         | some mobileTy => mobileTy
         | none =>
-            if TypeContext.canImplicitlyConvert env.types
-                elseChecked.ty thenChecked.ty then
-              thenChecked.ty
-            else
-              elseChecked.ty
+            -- Mixed branches where ONE side is an untyped number literal (e.g.
+            -- `c ? 300 : a` with `a : uint8`): solc `TypeChecker::visit(
+            -- Conditional)` takes `commonType` of the branch types, and an
+            -- untyped literal contributes its `mobileType()` (smallest-fitting
+            -- `uintN`/`intN`, `Types.cpp:1210`) — NOT the `uint256` that
+            -- `literalTy?` assigns for the checked width. So `c ? 300 : a`
+            -- types as `commonType(uint16, uint8) = uint16`, not `uint256`.
+            -- Mirror the binary-operand handling (`commonArrayElementTy?`):
+            -- substitute each untyped-literal branch's mobile type before
+            -- taking the common implicit type, falling back to the raw
+            -- one-directional convertibility pick when no common type exists.
+            let thenTy :=
+              if exprIsUntypedNumberLiteralExpression thenChecked.source then
+                (Solidity.Executable.Expr.untypedLiteralMobileTy?
+                  thenChecked.source).getD thenChecked.ty
+              else thenChecked.ty
+            let elseTy :=
+              if exprIsUntypedNumberLiteralExpression elseChecked.source then
+                (Solidity.Executable.Expr.untypedLiteralMobileTy?
+                  elseChecked.source).getD elseChecked.ty
+              else elseChecked.ty
+            match TypeContext.commonImplicit? env.types thenTy elseTy with
+            | some common => common
+            | none =>
+                if TypeContext.canImplicitlyConvert env.types
+                    elseChecked.ty thenChecked.ty then
+                  thenChecked.ty
+                else
+                  elseChecked.ty
       let resultLocation :=
         if thenChecked.dataLocation? == elseChecked.dataLocation? then
           thenChecked.dataLocation?

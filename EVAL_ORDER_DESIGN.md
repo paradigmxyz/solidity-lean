@@ -158,7 +158,20 @@ the only swap is the literal-reorder optimization, side-effect-free):
     first and the pure LHS stays in the residual binary (runtime arm is
     right-then-left) — the old `_sol_bin_lhs` pre-binding is now
     short-circuit-only.
-  * Residue kept (pre-existing order, rarer shapes): non-core LHS containing
-    its own calls beside a call-bearing RHS (both-sides-hoisted generic path),
-    and the lhs-hoisted + pure-rhs fallback.
+  * both-non-core operands (each carrying a nested call — e.g. ternary-wrapped
+    calls on both sides, `internalBinarySingleReturnUseCore?` `none,none` /
+    `_, none` sub-case): fixed to right-first — the RHS value is parked in a
+    `_sol_bin_<tag>_rhs` temp, the LHS runs second, and the residual binary is
+    left for the right-then-left runtime arm. Falls back to the prior left-first
+    shape only when the RHS type is unresolvable (never trades a lowerable
+    statement for `none`). Regression: `Witness/BinaryTernaryOperandOrder.lean`.
+  * non-core-call LHS + pure-`toCore?` RHS (`none,none` / `| none =>` sub-case):
+    the LEFT operand carries a NESTED call (not a *direct* call, so it misses the
+    `some (name,args,convert), none` bullet above — e.g. `g() * 100000 + t`) while
+    the RIGHT operand is a bare state read the call mutates. Was left-first (the
+    left call ran before the residual binary read the RHS state); fixed to
+    right-first by parking the RHS value in a `_sol_bin_<tag>_rhs` temp BEFORE
+    hoisting the left call. Falls back to the prior left-first shape only when the
+    RHS type is unresolvable. Regression:
+    `Witness/CallPlusStateReadOperandOrder.lean`.
 Short-circuit `&&`/`||` paths are untouched (left-first, guarded right).
