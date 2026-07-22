@@ -14332,6 +14332,205 @@
      }
     ]
    }
+  },
+  {
+   "name": "extfn-location-erasure",
+   "description": "EXTERNAL fn-type conversion under solc's calldata->memory normalization (FunctionType::asExternallyCallableFunction): `this.f` for `f(uint256[] calldata)` has type `function (uint256[] memory) external`, so assigning it to a declared memory-located external fn type is accepted and callable; a calldata-RETURNING external fn normalizes the same way. The model formerly compared the two Memory spellings ('none' at the ABI boundary vs 'some memory' on a source-level fn TYPE) unequal and over-rejected with expectedType. calldata-located declared fn types stay unconvertible-to, internal fn types stay exactly location-sensitive (solc-probed controls). Forge pins the real solc/EVM call-through-pointer values for all three shapes; Lean imports the same source, accepts it, and executes the uint-returning and memory-array-returning pointer calls via #186 self-dispatch. The calldata-array-RETURNING pointer call is Forge-only: its model-side execution hits a PRE-EXISTING self-dispatch gap for `returns (uint256[] calldata)` (reproducible with a direct `this.fRet(xs)` call, no fn pointer involved) that is independent of this conversion fix.",
+   "forge": {
+    "root": "tests/forge-harness/extfn-location-erasure",
+    "match_contract": "ExtfnLocationErasureForgeTest",
+    "match_test": "test*",
+    "quiet": true
+   },
+   "solc_import": {
+    "source": "tests/forge-harness/extfn-location-erasure/src/ExtfnLocationErasure.sol",
+    "contract": "ExtfnLocationErasureHarnessTarget",
+    "namespace": "SolidCore.Solidity.SolcAstImport.ExtfnLocationErasure"
+   },
+   "lean": {
+    "imports": [
+     "SolidCore.Solidity.Checked",
+     "SolidCore.Witness.Checked"
+    ],
+    "evals": [
+     {
+      "label": "importedContractAccepted",
+      "expr": "SolidCore.Solidity.SolcAstImport.ExtfnLocationErasure.importedContractAccepted",
+      "expect": "true"
+     },
+     {
+      "label": "callThroughPtr",
+      "expr": "(do\n  let st \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.ExtfnLocationErasure.importedSourceUnit \"ExtfnLocationErasureHarnessTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.ExtfnLocationErasure.importedSourceUnit \"ExtfnLocationErasureHarnessTarget\" \"callThroughPtr\" st [SolidCore.Solidity.Source.Value.word 39] 42)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "callThroughRetPtr",
+      "expr": "(do\n  let st \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.ExtfnLocationErasure.importedSourceUnit \"ExtfnLocationErasureHarnessTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.ExtfnLocationErasure.importedSourceUnit \"ExtfnLocationErasureHarnessTarget\" \"callThroughRetPtr\" st [SolidCore.Solidity.Source.Value.word 40] 42)",
+      "expect": "Except.ok true"
+     }
+    ]
+   }
+  },
+  {
+   "name": "lib-struct-enum-ctor",
+   "description": "#198 library struct-constructor field-type qualification: `Lib198.S(Lib198.Mode(m), 10)` \u2014 a qualified library struct constructor whose field type is a library-local enum \u2014 must qualify the declared field type with the struct OWNER (the library), matching the qualified argument. Formerly the field type stayed bare and the whole contract over-rejected (expectedType Mode vs Lib198.Mode). Neighbors: ctor from inside the library (unqualified and qualified), named-args ctor, a foreign library struct holding another library enum, and a storage write of the constructed value. Wrong-arity `Lib198.S(Lib198.Mode(m))` stays rejected (solc rejects). Forge pins real solc/EVM values; Lean imports the same source and runs own-call execution.",
+   "forge": {
+    "root": "tests/forge-harness/lib-struct-enum-ctor",
+    "match_contract": "LibStructEnumCtorForgeTest",
+    "match_test": "test*",
+    "quiet": true
+   },
+   "solc_import": {
+    "source": "tests/forge-harness/lib-struct-enum-ctor/src/LibStructEnumCtor.sol",
+    "contract": "LibStructEnumCtorHarnessTarget",
+    "namespace": "SolidCore.Solidity.SolcAstImport.LibStructEnumCtor"
+   },
+   "lean": {
+    "imports": [
+     "SolidCore.Solidity.Checked",
+     "SolidCore.Witness.Checked"
+    ],
+    "evals": [
+     {
+      "label": "importedContractAccepted",
+      "expr": "SolidCore.Solidity.SolcAstImport.LibStructEnumCtor.importedContractAccepted",
+      "expect": "true"
+     },
+     {
+      "label": "direct_2",
+      "expr": "(do\n  let st \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.LibStructEnumCtor.importedSourceUnit \"LibStructEnumCtorHarnessTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.LibStructEnumCtor.importedSourceUnit \"LibStructEnumCtorHarnessTarget\" \"direct\" st [SolidCore.Solidity.Source.Value.word 2] 12)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "direct_0",
+      "expr": "(do\n  let st \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.LibStructEnumCtor.importedSourceUnit \"LibStructEnumCtorHarnessTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.LibStructEnumCtor.importedSourceUnit \"LibStructEnumCtorHarnessTarget\" \"direct\" st [SolidCore.Solidity.Source.Value.word 0] 10)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "viaLib_2",
+      "expr": "(do\n  let st \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.LibStructEnumCtor.importedSourceUnit \"LibStructEnumCtorHarnessTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.LibStructEnumCtor.importedSourceUnit \"LibStructEnumCtorHarnessTarget\" \"viaLib\" st [SolidCore.Solidity.Source.Value.word 2] 12)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "viaLibQ_1",
+      "expr": "(do\n  let st \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.LibStructEnumCtor.importedSourceUnit \"LibStructEnumCtorHarnessTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.LibStructEnumCtor.importedSourceUnit \"LibStructEnumCtorHarnessTarget\" \"viaLibQ\" st [SolidCore.Solidity.Source.Value.word 1] 11)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "named_2",
+      "expr": "(do\n  let st \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.LibStructEnumCtor.importedSourceUnit \"LibStructEnumCtorHarnessTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.LibStructEnumCtor.importedSourceUnit \"LibStructEnumCtorHarnessTarget\" \"named\" st [SolidCore.Solidity.Source.Value.word 2] 12)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "foreignEnumField_1",
+      "expr": "(do\n  let st \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.LibStructEnumCtor.importedSourceUnit \"LibStructEnumCtorHarnessTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.LibStructEnumCtor.importedSourceUnit \"LibStructEnumCtorHarnessTarget\" \"foreignEnumField\" st [SolidCore.Solidity.Source.Value.word 1] 11)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "storedWrite_2",
+      "expr": "(do\n  let st \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.LibStructEnumCtor.importedSourceUnit \"LibStructEnumCtorHarnessTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.LibStructEnumCtor.importedSourceUnit \"LibStructEnumCtorHarnessTarget\" \"storedWrite\" st [SolidCore.Solidity.Source.Value.word 2] 12)",
+      "expect": "Except.ok true"
+     }
+    ]
+   }
+  },
+  {
+   "name": "storage-return-subfield-ops",
+   "description": "`T storage`-returning callee, sub-field USE operations on the returned reference: mapping write/read, ARRAY-FIELD push(v)/push()/pop (formerly over-rejected in lowering \u2014 no arm for push/pop on an index spine rooted at a storage-ref-returning call; the whole contract was poisoned), element write, length, and a plain field \u2014 each across the whole-param-return, nested-member-return, conditional/early-return, and storage-local-return callee shapes. The lowering captures the returned pointer into the storage-ref temp and routes push/pop through storageArrayPushRefPath/storageArrayPopRefPath (the runtime shape already pinned for storage-ref locals). Forge pins real solc/EVM values; Lean imports the same source and runs own-call execution.",
+   "forge": {
+    "root": "tests/forge-harness/storage-return-subfield-ops",
+    "match_contract": "StorageReturnSubfieldOpsForgeTest",
+    "match_test": "test*",
+    "quiet": true
+   },
+   "solc_import": {
+    "source": "tests/forge-harness/storage-return-subfield-ops/src/StorageReturnSubfieldOps.sol",
+    "contract": "StorageReturnSubfieldOpsHarnessTarget",
+    "namespace": "SolidCore.Solidity.SolcAstImport.StorageReturnSubfieldOps"
+   },
+   "lean": {
+    "imports": [
+     "SolidCore.Solidity.Checked",
+     "SolidCore.Witness.Checked"
+    ],
+    "evals": [
+     {
+      "label": "importedContractAccepted",
+      "expr": "SolidCore.Solidity.SolcAstImport.StorageReturnSubfieldOps.importedContractAccepted",
+      "expect": "true"
+     },
+     {
+      "label": "mapWhole",
+      "expr": "(do\n  let st \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageReturnSubfieldOps.importedSourceUnit \"StorageReturnSubfieldOpsHarnessTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageReturnSubfieldOps.importedSourceUnit \"StorageReturnSubfieldOpsHarnessTarget\" \"mapWhole\" st [SolidCore.Solidity.Source.Value.word 3, SolidCore.Solidity.Source.Value.word 44] 44)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "mapMember",
+      "expr": "(do\n  let st \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageReturnSubfieldOps.importedSourceUnit \"StorageReturnSubfieldOpsHarnessTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageReturnSubfieldOps.importedSourceUnit \"StorageReturnSubfieldOpsHarnessTarget\" \"mapMember\" st [SolidCore.Solidity.Source.Value.word 3, SolidCore.Solidity.Source.Value.word 45] 45)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "mapPickTrue",
+      "expr": "(do\n  let st \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageReturnSubfieldOps.importedSourceUnit \"StorageReturnSubfieldOpsHarnessTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageReturnSubfieldOps.importedSourceUnit \"StorageReturnSubfieldOpsHarnessTarget\" \"mapPick\" st [SolidCore.Solidity.Source.Value.word 3, SolidCore.Solidity.Source.Value.word 46, SolidCore.Solidity.Source.Value.word 1] 46)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "mapPickFalse",
+      "expr": "(do\n  let st \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageReturnSubfieldOps.importedSourceUnit \"StorageReturnSubfieldOpsHarnessTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageReturnSubfieldOps.importedSourceUnit \"StorageReturnSubfieldOpsHarnessTarget\" \"mapPick\" st [SolidCore.Solidity.Source.Value.word 4, SolidCore.Solidity.Source.Value.word 47, SolidCore.Solidity.Source.Value.word 0] 47)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "pushWhole",
+      "expr": "(do\n  let st \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageReturnSubfieldOps.importedSourceUnit \"StorageReturnSubfieldOpsHarnessTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageReturnSubfieldOps.importedSourceUnit \"StorageReturnSubfieldOpsHarnessTarget\" \"pushWhole\" st [SolidCore.Solidity.Source.Value.word 47] 47)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "pushMember",
+      "expr": "(do\n  let st \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageReturnSubfieldOps.importedSourceUnit \"StorageReturnSubfieldOpsHarnessTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageReturnSubfieldOps.importedSourceUnit \"StorageReturnSubfieldOpsHarnessTarget\" \"pushMember\" st [SolidCore.Solidity.Source.Value.word 48] 48)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "pushLocal",
+      "expr": "(do\n  let st \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageReturnSubfieldOps.importedSourceUnit \"StorageReturnSubfieldOpsHarnessTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageReturnSubfieldOps.importedSourceUnit \"StorageReturnSubfieldOpsHarnessTarget\" \"pushLocal\" st [SolidCore.Solidity.Source.Value.word 49] 49)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "pushEmptyThenWrite",
+      "expr": "(do\n  let st \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageReturnSubfieldOps.importedSourceUnit \"StorageReturnSubfieldOpsHarnessTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageReturnSubfieldOps.importedSourceUnit \"StorageReturnSubfieldOpsHarnessTarget\" \"pushEmptyThenWrite\" st [SolidCore.Solidity.Source.Value.word 50] 50)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "pushPushPop",
+      "expr": "(do\n  let st \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageReturnSubfieldOps.importedSourceUnit \"StorageReturnSubfieldOpsHarnessTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageReturnSubfieldOps.importedSourceUnit \"StorageReturnSubfieldOpsHarnessTarget\" \"pushPushPop\" st [SolidCore.Solidity.Source.Value.word 51] 1051)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "fieldPickTrue",
+      "expr": "(do\n  let st \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageReturnSubfieldOps.importedSourceUnit \"StorageReturnSubfieldOpsHarnessTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageReturnSubfieldOps.importedSourceUnit \"StorageReturnSubfieldOpsHarnessTarget\" \"fieldPick\" st [SolidCore.Solidity.Source.Value.word 52, SolidCore.Solidity.Source.Value.word 1] 52)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "fieldPickFalse",
+      "expr": "(do\n  let st \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageReturnSubfieldOps.importedSourceUnit \"StorageReturnSubfieldOpsHarnessTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageReturnSubfieldOps.importedSourceUnit \"StorageReturnSubfieldOpsHarnessTarget\" \"fieldPick\" st [SolidCore.Solidity.Source.Value.word 53, SolidCore.Solidity.Source.Value.word 0] 53)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "lenAfterPush",
+      "expr": "(do\n  let st \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageReturnSubfieldOps.importedSourceUnit \"StorageReturnSubfieldOpsHarnessTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageReturnSubfieldOps.importedSourceUnit \"StorageReturnSubfieldOpsHarnessTarget\" \"lenAfterPush\" st [SolidCore.Solidity.Source.Value.word 1] 2)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "pushNarrowFits",
+      "expr": "(do\n  let st \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageReturnSubfieldOps.importedSourceUnit \"StorageReturnSubfieldOpsHarnessTarget\" []\n  SolidCore.Solidity.TypeCheck.Examples.checkedCallWordMatches 512 SolidCore.Solidity.SolcAstImport.StorageReturnSubfieldOps.importedSourceUnit \"StorageReturnSubfieldOpsHarnessTarget\" \"pushNarrow\" st [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 55] 255)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "pushNarrowOverflowPanics",
+      "expr": "(do\n  let st \u2190 SolidCore.Solidity.TypeCheck.Examples.checkedConstructState 512 SolidCore.Solidity.SolcAstImport.StorageReturnSubfieldOps.importedSourceUnit \"StorageReturnSubfieldOpsHarnessTarget\" []\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.callContract 512 SolidCore.Solidity.SolcAstImport.StorageReturnSubfieldOps.importedSourceUnit \"StorageReturnSubfieldOpsHarnessTarget\" (SolidCore.Solidity.Source.CallTarget.name \"pushNarrow\") st [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 56]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.reverted _ (SolidCore.Solidity.Source.RevertData.panic code) => pure (SolidCore.Solidity.Source.wordEq code 17)\n  | _ => pure false)",
+      "expect": "Except.ok true"
+     }
+    ]
+   }
   }
  ]
 }
