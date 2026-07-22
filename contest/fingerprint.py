@@ -202,17 +202,32 @@ def source_ast_hash(sources: list[Path], solc: Optional[str] = None,
     mode ``full`` = analyzed AST (referencedDeclaration-based alpha renaming);
     mode ``parse`` = parse-only fallback for solc-REJECTED sources (over-accept
     repros). The mode is embedded in the fingerprint so the families are
-    disjoint."""
+    disjoint.
+
+    CWD-INDEPENDENT by construction: the derivation runs with the repo root as
+    the working directory (restored afterwards) and hands solc ABSOLUTE source
+    paths, so solc path/allowed-paths resolution — and therefore the derived
+    registry key — cannot depend on where the caller happened to be invoked
+    from (the registry invariant test must pass from ANY cwd)."""
+    import os
     from . import reject_gate as gate
     if solc is None:
         from . import harness_bridge as hb
         solc = hb.DEFAULT_SOLC
+    repo_root = Path(__file__).resolve().parents[1]
+    abs_sources = [Path(p) if Path(p).is_absolute()
+                   else (repo_root / p).resolve() for p in sources]
+    prev_cwd = os.getcwd()
     try:
-        src_asts = gate.get_source_asts(sources, solc)
-        mode = "full"
-    except Exception:
-        src_asts = gate.get_source_asts_parse_only(sources, solc)
-        mode = "parse"
+        os.chdir(repo_root)
+        try:
+            src_asts = gate.get_source_asts(abs_sources, solc)
+            mode = "full"
+        except Exception:
+            src_asts = gate.get_source_asts_parse_only(abs_sources, solc)
+            mode = "parse"
+    finally:
+        os.chdir(prev_cwd)
     return canonical_ast_hash([sa.ast for sa in src_asts]), mode
 
 
