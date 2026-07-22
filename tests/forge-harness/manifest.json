@@ -14531,6 +14531,110 @@
      }
     ]
    }
+  },
+  {
+   "name": "revert-nested-two-call",
+   "description": "Adjudicated soundness gap (emit/revert collapse): revert Err(mk(), sk()) where mk() returns a NESTED-dynamic memory aggregate (uint256[][]) formerly rendered Panic(0) \u2014 the two-call hoist parked the first return in a plain Stmt.varDecl temp whose Ty.coerceValue? has no case for the memoryRef rows nested inside the aggregate \u2014 while solc+EVM revert with the fully ABI-encoded custom error. Lowering temps of memory-aggregate Core types are now declared with the pointer-aliasing Stmt.memoryVarDecl (CoreTy.tempDeclStmt). Forge pins the exact revert bytes on the real EVM; Lean imports the same source and byte-compares Contract.encodeRevertData? of the model revert.",
+   "forge": {
+    "root": "tests/forge-harness/revert-nested-two-call",
+    "match_contract": "RevertNestedTwoCallForgeTest",
+    "match_test": "test*",
+    "quiet": true
+   },
+   "solc_import": {
+    "source": "tests/forge-harness/revert-nested-two-call/src/RevertNestedTwoCall.sol",
+    "contract": "RevertNestedTwoCallHarnessTarget",
+    "namespace": "SolidCore.Solidity.SolcAstImport.RevertNestedTwoCall"
+   },
+   "lean": {
+    "imports": [
+     "SolidCore.Solidity.Checked",
+     "SolidCore.Witness.Checked"
+    ],
+    "evals": [
+     {
+      "label": "importedContractAccepted",
+      "expr": "SolidCore.Solidity.SolcAstImport.RevertNestedTwoCall.importedContractAccepted",
+      "expect": "true"
+     },
+     {
+      "label": "importedGoRevertsFullyEncodedNestedError",
+      "expr": "(do\n  let fam := SolidCore.Solidity.SolcAstImport.RevertNestedTwoCall.importedContract\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 64 fam (SolidCore.Solidity.Source.CallTarget.name \"go\") SolidCore.Solidity.Source.State.empty []\n  let w := fun (n : Nat) => SolidCore.Solidity.Source.wordToBytesBE 32 n\n  let expected : List SolidCore.Solidity.Source.Byte :=\n    [0xb6, 0x2a, 0x1a, 0x94] ++ w 0x40 ++ w 0xc0 ++ w 1 ++ w 0x20 ++ w 1 ++ w 4 ++ w 2 ++ ([0x71, 0x71] ++ List.replicate 30 0)\n  match result with\n  | SolidCore.Solidity.Source.CallResult.reverted _ rd =>\n      match SolidCore.Solidity.Executable.ContractDecl.toCoreWithBases? [fam] fam with\n      | some core =>\n          Except.ok (SolidCore.Solidity.Source.ABI.Contract.encodeRevertData? core rd == some expected)\n      | none => Except.ok false\n  | _ => Except.ok false)",
+      "expect": "Except.ok true"
+     }
+    ]
+   }
+  },
+  {
+   "name": "emit-nested-two-call",
+   "description": "Same class, emit channel: emit N2(mk(), f2()) with a nested-dynamic first payload formerly rendered Panic(0) where solc+EVM emit the event with the full ABI encoding. Forge pins topic0 + data on the real EVM; Lean checks the emitted topics/data byte-for-byte.",
+   "forge": {
+    "root": "tests/forge-harness/emit-nested-two-call",
+    "match_contract": "EmitNestedTwoCallForgeTest",
+    "match_test": "test*",
+    "quiet": true
+   },
+   "solc_import": {
+    "source": "tests/forge-harness/emit-nested-two-call/src/EmitNestedTwoCall.sol",
+    "contract": "EmitNestedTwoCallHarnessTarget",
+    "namespace": "SolidCore.Solidity.SolcAstImport.EmitNestedTwoCall"
+   },
+   "lean": {
+    "imports": [
+     "SolidCore.Solidity.Checked",
+     "SolidCore.Witness.Checked"
+    ],
+    "evals": [
+     {
+      "label": "importedContractAccepted",
+      "expr": "SolidCore.Solidity.SolcAstImport.EmitNestedTwoCall.importedContractAccepted",
+      "expect": "true"
+     },
+     {
+      "label": "importedGoEmitsFullyEncodedNestedLog",
+      "expr": "(do\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 64 SolidCore.Solidity.SolcAstImport.EmitNestedTwoCall.importedContract (SolidCore.Solidity.Source.CallTarget.name \"go\") SolidCore.Solidity.Source.State.empty []\n  let w := fun (n : Nat) => SolidCore.Solidity.Source.wordToBytesBE 32 n\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned state [] =>\n      match state.events with\n      | [event] =>\n          Except.ok\n            (event.topics == [SolidCore.Solidity.Source.Keccak.digestWord \"N2(uint256[][],uint256)\"] &&\n              event.dataBytes == w 0x40 ++ w 9 ++ w 1 ++ w 0x20 ++ w 1 ++ w 4)\n      | _ => Except.ok false\n  | _ => Except.ok false)",
+      "expect": "Except.ok true"
+     }
+    ]
+   }
+  },
+  {
+   "name": "revert-mixed-env-cleanup",
+   "description": "#201 (E) completion via the emit/revert collapse: revert Err(a + b, bump()) with uint8 a,b \u2014 solc evaluates the error arguments BEFORE reverting, so run(200,100) Panics 0x11; the copy-pasted revert arms had drifted env-less (Expr.toCore?) and encoded Err(300, 1). Both channels now route pure companion args through Expr.abiArgCoreWithEnvCleanup? in the shared FunctionDecl.eventErrorCallArgsCore?. Control: run(2,3) reverts Err(5, 1) (the hoisted bump() runs). Forge pins both outcomes on the real EVM; Lean matches both.",
+   "forge": {
+    "root": "tests/forge-harness/revert-mixed-env-cleanup",
+    "match_contract": "RevertMixedEnvCleanupForgeTest",
+    "match_test": "test*",
+    "quiet": true
+   },
+   "solc_import": {
+    "source": "tests/forge-harness/revert-mixed-env-cleanup/src/RevertMixedEnvCleanup.sol",
+    "contract": "RevertMixedEnvCleanupHarnessTarget",
+    "namespace": "SolidCore.Solidity.SolcAstImport.RevertMixedEnvCleanup"
+   },
+   "lean": {
+    "imports": [
+     "SolidCore.Solidity.Checked",
+     "SolidCore.Witness.Checked"
+    ],
+    "evals": [
+     {
+      "label": "importedContractAccepted",
+      "expr": "SolidCore.Solidity.SolcAstImport.RevertMixedEnvCleanup.importedContractAccepted",
+      "expect": "true"
+     },
+     {
+      "label": "importedRunOverflowPanics0x11",
+      "expr": "(do\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 64 SolidCore.Solidity.SolcAstImport.RevertMixedEnvCleanup.importedContract (SolidCore.Solidity.Source.CallTarget.name \"run\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.reverted _ (SolidCore.Solidity.Source.RevertData.panic code) => Except.ok (code == 0x11)\n  | _ => Except.ok false)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "importedRunNoOverflowControlErr5and1",
+      "expr": "(do\n  let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 64 SolidCore.Solidity.SolcAstImport.RevertMixedEnvCleanup.importedContract (SolidCore.Solidity.Source.CallTarget.name \"run\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 2, SolidCore.Solidity.Source.Value.word 3]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.reverted _ (SolidCore.Solidity.Source.RevertData.custom \"Err\" [SolidCore.Solidity.Source.Value.word s, SolidCore.Solidity.Source.Value.word k]) => Except.ok (s == 5 && k == 1)\n  | _ => Except.ok false)",
+      "expect": "Except.ok true"
+     }
+    ]
+   }
   }
  ]
 }

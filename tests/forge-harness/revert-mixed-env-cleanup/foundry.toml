@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/revert-mixed-env-cleanup/out"
+cache_path = "../../.foundry-suites/revert-mixed-env-cleanup/cache"
+evm_version = "cancun"
