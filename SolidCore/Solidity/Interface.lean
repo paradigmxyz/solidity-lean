@@ -12073,7 +12073,18 @@ def Parameter.matchesArg? (env : TypeEnv) (param : Parameter)
     -- binds it. `abiTy?` reflects `enumFromUInt` as its underlying `uint 8`
     -- (the ABI/packing width, #178); letting that leak into candidate
     -- selection bound `f(uint8)` over `f(E)` — a wrong-callee soundness bug.
-    | Expr.enumFromUInt maxValue _ => some (Ty.enum maxValue)
+    | Expr.enumFromUInt maxValue _ =>
+        -- MERGE RECONCILIATION (call-rewrite × BUG#6): `Ty.enum` is now
+        -- nominal (`Path -> Nat -> Ty`), but the lowered enum literal carries
+        -- only its member bound — the declaring path is unrecoverable after
+        -- `resolveEnums`. Selection therefore matches PATH-BLIND by borrowing
+        -- the candidate param's own path: the member bound alone decides,
+        -- which is exactly the pre-BUG#6 selection semantics this fix shipped
+        -- with. A non-enum param gets a nominal-empty path and mismatches on
+        -- the constructor as before.
+        match param.ty with
+        | Ty.enum paramPath _ => some (Ty.enum paramPath maxValue)
+        | _ => some (Ty.enum ⟨[]⟩ maxValue)
     | _ => Expr.abiTyWithEnv? env arg
   some (Ty.matchesShape argTy param.ty)
 
