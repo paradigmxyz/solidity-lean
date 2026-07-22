@@ -14729,6 +14729,92 @@
      }
     ]
    }
+  },
+  {
+   "name": "abi-decode-short-head",
+   "description": "SOUNDNESS (wrong revert kind): solc's abi.decode opens with `if slt(sub(dataEnd, headStart), <totalHeadSize>) { revert(0,0) }` \u2014 the whole static head of the decoded tuple must be present BEFORE any component decode; the nested dynamic-struct decoder (`abi_decode_t_struct`) emits its own `slt(sub(end, offset), <headSize>)`. The model lacked both upfront checks, followed the garbage offset in short data (63 bytes for a `(uint256[], uint256)` head of 64) and died later with Panic(0x41) \u2014 the real EVM reverts EMPTY. Forge pins the EMPTY revert for the top-level and nested-struct short-head shapes plus a well-formed decode control; Lean imports the same source and checks the interpreter now reverts empty on both and still decodes the control.",
+   "forge": {
+    "root": "tests/forge-harness/abi-decode-short-head",
+    "match_contract": "AbiDecodeShortHeadForgeTest",
+    "match_test": "test*",
+    "quiet": true
+   },
+   "solc_import": {
+    "source": "tests/forge-harness/abi-decode-short-head/src/AbiDecodeShortHead.sol",
+    "contract": "AbiDecodeShortHeadHarnessTarget",
+    "namespace": "SolidCore.Solidity.SolcAstImport.AbiDecodeShortHead"
+   },
+   "lean": {
+    "imports": [
+     "SolidCore.Solidity.Checked",
+     "SolidCore.Witness.Checked"
+    ],
+    "evals": [
+     {
+      "label": "importedContractAccepted",
+      "expr": "SolidCore.Solidity.SolcAstImport.AbiDecodeShortHead.importedContractAccepted",
+      "expect": "true"
+     },
+     {
+      "label": "decodeShortEmptyRevert",
+      "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.AbiDecodeShortHead.importedContract\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 80 contract (SolidCore.Solidity.Source.CallTarget.name \"decodeShort\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.reverted _ SolidCore.Solidity.Source.RevertData.empty => Except.ok true\n  | _ => Except.ok false)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "decodeNestedShortEmptyRevert",
+      "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.AbiDecodeShortHead.importedContract\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 80 contract (SolidCore.Solidity.Source.CallTarget.name \"decodeNestedShort\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.reverted _ SolidCore.Solidity.Source.RevertData.empty => Except.ok true\n  | _ => Except.ok false)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "decodeControl",
+      "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.AbiDecodeShortHead.importedContract\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 80 contract (SolidCore.Solidity.Source.CallTarget.name \"decodeControl\") SolidCore.Solidity.Source.State.empty []\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word sum, SolidCore.Solidity.Source.Value.word b] => Except.ok (SolidCore.Solidity.Source.wordEq sum 16 && SolidCore.Solidity.Source.wordEq b 5)\n  | _ => Except.ok false)",
+      "expect": "Except.ok true"
+     }
+    ]
+   }
+  },
+  {
+   "name": "slice-bound-narrow-panic",
+   "description": "SOUNDNESS (missing Panic 0x11): a calldata-slice BOUND carrying narrow checked arithmetic (`msg.data[a+b:]`, `uint8 a=200,b=100`) is evaluated by solc at ITS OWN type BEFORE the slice bounds check \u2014 the uint8 add overflows with Panic(0x11); the model lowered the bounds env-LESSLY (bare 256-bit add), computed 300 and failed the slice bounds check with an EMPTY revert \u2014 wrong revert kind and missing panic. Covers `[lo:]`, `[:hi]`, and `[lo:hi]` bounds plus in-range controls. Forge pins Panic(0x11) and the in-range slice lengths on the real EVM; Lean imports the same source and checks the calldata entrypoint and own-call paths.",
+   "forge": {
+    "root": "tests/forge-harness/slice-bound-narrow-panic",
+    "match_contract": "SliceBoundNarrowPanicForgeTest",
+    "match_test": "test*",
+    "quiet": true
+   },
+   "solc_import": {
+    "source": "tests/forge-harness/slice-bound-narrow-panic/src/SliceBoundNarrowPanic.sol",
+    "contract": "SliceBoundNarrowPanicHarnessTarget",
+    "namespace": "SolidCore.Solidity.SolcAstImport.SliceBoundNarrowPanic"
+   },
+   "lean": {
+    "imports": [
+     "SolidCore.Solidity.Checked",
+     "SolidCore.Witness.Checked"
+    ],
+    "evals": [
+     {
+      "label": "importedContractAccepted",
+      "expr": "SolidCore.Solidity.SolcAstImport.SliceBoundNarrowPanic.importedContractAccepted",
+      "expect": "true"
+     },
+     {
+      "label": "msgDataSliceBoundPanicAndControls",
+      "expr": "(do\n  let source := SolidCore.Solidity.SolcAstImport.SliceBoundNarrowPanic.importedSourceUnit\n  let program <- SolidCore.Solidity.TypeCheck.CheckedInput.program source\n  let contract <- SolidCore.Solidity.TypeCheck.CheckedProgram.contract program \"SliceBoundNarrowPanicHarnessTarget\"\n  let encodeWord := SolidCore.Solidity.Source.ABI.encodeWord\n  let selector := fun signature => SolidCore.Solidity.Source.ABI.encodeSelector (SolidCore.Solidity.Source.ABI.selectorFromSignature signature)\n  let call := fun signature args => SolidCore.Solidity.TypeCheck.CheckedContract.callCalldata 256 contract SolidCore.Solidity.Source.State.empty (selector signature ++ args)\n  let panic11 := SolidCore.Solidity.Source.ABI.encodeSelector 0x4e487b71 ++ encodeWord 0x11\n  let goPanic <- call \"go(uint8,uint8)\" (encodeWord 200 ++ encodeWord 100)\n  let goOk <- call \"go(uint8,uint8)\" (encodeWord 1 ++ encodeWord 2)\n  let goStopPanic <- call \"goStop(uint8,uint8)\" (encodeWord 200 ++ encodeWord 100)\n  let goStopOk <- call \"goStop(uint8,uint8)\" (encodeWord 1 ++ encodeWord 2)\n  Except.ok (!goPanic.success && goPanic.output == panic11 && goOk.success && goOk.output == encodeWord 65 && !goStopPanic.success && goStopPanic.output == panic11 && goStopOk.success && goStopOk.output == encodeWord 3))",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "bothBoundsOverflowPanic11",
+      "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.SliceBoundNarrowPanic.importedContract\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 80 contract (SolidCore.Solidity.Source.CallTarget.name \"goBoth\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.bytes [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], SolidCore.Solidity.Source.Value.word 200, SolidCore.Solidity.Source.Value.word 100]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.reverted _ (SolidCore.Solidity.Source.RevertData.panic code) => Except.ok (SolidCore.Solidity.Source.wordEq code 0x11)\n  | _ => Except.ok false)",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "bothBoundsInRangeControl",
+      "expr": "(do\n  let contract := SolidCore.Solidity.SolcAstImport.SliceBoundNarrowPanic.importedContract\n  let result <- SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 80 contract (SolidCore.Solidity.Source.CallTarget.name \"goBoth\") SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.bytes [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], SolidCore.Solidity.Source.Value.word 2, SolidCore.Solidity.Source.Value.word 3]\n  match result with\n  | SolidCore.Solidity.Source.CallResult.returned _ [SolidCore.Solidity.Source.Value.word len] => Except.ok (SolidCore.Solidity.Source.wordEq len 3)\n  | _ => Except.ok false)",
+      "expect": "Except.ok true"
+     }
+    ]
+   }
   }
  ]
 }

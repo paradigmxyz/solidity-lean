@@ -5480,10 +5480,23 @@ def abiDecodeValueAtWithFuel? :
       if Ty.isDynamicAbi elementTy then
         do
         let offset ← abiDecodeOpt (readWord? argData (wordBytes * headIndex))
+        -- Upfront head-area presence check when FOLLOWING the tail offset
+        -- (solc `abi_decode_available_length_*`, fixed length `size`): the
+        -- `size` element head words must be present BEFORE any element decode,
+        -- so a truncated head reverts EMPTY here instead of a later inner
+        -- Panic(0x41). Keep in sync with the boundary decoder's fixed-array
+        -- frame (`ABI.lean`, `decodeValueAtWithFuel?`).
+        let step ← abiDecodeOpt (Ty.abiHeadWords? elementTy)
+        if (readBytes? (argData.drop offset) 0
+              (size * step * wordBytes)).isNone then
+          Except.error RevertData.empty
         let values ← decodeFixedValues? (argData.drop offset) size 0
         Except.ok (Value.fixedArray values)
       else
         do
+        -- Static-element fixed array decoded inline in the head: covered by
+        -- the ENCLOSING frame's upfront head-size check (it counts the full
+        -- static width), so no separate check is needed here.
         let values ← decodeFixedValues? argData size headIndex
         Except.ok (Value.fixedArray values)
   | fuel + 1, argData, headIndex, Ty.tuple elementTys =>
@@ -5498,10 +5511,22 @@ def abiDecodeValueAtWithFuel? :
       if Ty.listHasDynamicAbi elementTys then
         do
         let offset ← abiDecodeOpt (readWord? argData (wordBytes * headIndex))
+        -- solc `abi_decode_t_struct`: `if slt(sub(end, offset), <headSize>)
+        -- { revert(0,0) }` BEFORE any member decode — a truncated member-head
+        -- area reverts EMPTY here instead of a later inner Panic(0x41). Keep
+        -- in sync with the boundary decoder's tuple frame (`ABI.lean`,
+        -- `decodeValueAtWithFuel?`).
+        let headWords ← abiDecodeOpt (Ty.listAbiHeadWords? elementTys)
+        if (readBytes? (argData.drop offset) 0
+              (headWords * wordBytes)).isNone then
+          Except.error RevertData.empty
         let values ← decodeTupleValues? (argData.drop offset) elementTys 0
         Except.ok (Value.tuple values)
       else
         do
+        -- Fully-static tuple decoded inline in the head: covered by the
+        -- ENCLOSING frame's upfront head-size check (it counts the full
+        -- static width), so no separate check is needed here.
         let values ← decodeTupleValues? argData elementTys headIndex
         Except.ok (Value.tuple values)
   -- `enumStorage` is a storage-layout-only type; it never appears in an ABI
@@ -5525,7 +5550,19 @@ def abiDecodeValuesAux? (argData : List Byte) :
 dynamic decode target) from the empty revert (data-presence / validator
 failures). -/
 def abiDecodeValuesExcept? (tys : List Ty) (argData : List Byte) :
-    Except RevertData (List Value) :=
+    Except RevertData (List Value) := do
+  -- solc's decoder OPENS with `if slt(sub(dataEnd, headStart), <totalHeadSize>)
+  -- { revert(0,0) }`: the WHOLE static head of the decoded tuple must be
+  -- present BEFORE any component decode. Head size: 1 word per dynamic
+  -- component (its tail offset), full static width per static component
+  -- (recursively for nested static tuples / fixed arrays) — exactly
+  -- `Ty.listAbiHeadWords?`. Without this, short data (e.g. 63 bytes for a
+  -- `(uint256[], uint256)` head of 64) follows a garbage offset and dies later
+  -- with Panic(0x41) instead of solc's upfront EMPTY revert. Keep in sync with
+  -- the boundary decoder's identical check (`ABI.lean`, `decodeArgsWith?`).
+  let headWords ← abiDecodeOpt (Ty.listAbiHeadWords? tys)
+  if argData.length < wordBytes * headWords then
+    Except.error RevertData.empty
   abiDecodeValuesAux? argData tys 0
 
 /-- Option view of the decoder, for callers that only need success/failure and
