@@ -416,6 +416,47 @@ def wellFormedTrailingGarbageCalldata : List Byte :=
   (abiDecodeValuesExcept? [Ty.dynamicArray Ty.uint256]
     wellFormedTrailingGarbageCalldata)
 
+/-! ### ABI-DECODE-TOTAL-HEAD-SIZE: upfront `slt(sub(dataEnd, headStart), N)`
+
+solc's decoders OPEN with a total-head-size check before decoding ANY
+component. 63 bytes of data for a `(uint256[], uint256)` head of 64
+(`abi.encodePacked(uint256(31), uint248(1))`) revert EMPTY upfront; the model
+previously followed offset 31 into an oversized length → Panic(0x41) — wrong
+revert kind. Same for the nested dynamic-struct frame (`abi_decode_t_struct`'s
+own `slt(sub(end, offset), headSize)`), and for the boundary decoder with an
+eager `memory` param. -/
+
+-- 63 bytes: head of `(uint256[], uint256)` needs 64.
+def shortHeadPairData : List Byte :=
+  word32 31 ++ (word32 1).drop 1
+
+-- `abi.decode` path: EMPTY revert upfront, not Panic(0x41).
+#guard headCheckIsEmptyRevert
+  (abiDecodeValuesExcept? [Ty.dynamicArray Ty.uint256, Ty.uint256]
+    shortHeadPairData)
+
+-- Boundary path (eager `memory` params): same EMPTY revert.
+#guard headCheckIsEmptyRevert
+  (ABI.decodeArgsWith?
+    [(false, Ty.dynamicArray Ty.uint256), (false, Ty.uint256)]
+    shortHeadPairData)
+
+-- Nested dynamic-struct frame: outer offset 32 → struct head needs 64, only 63
+-- bytes remain → EMPTY at the struct-frame check (formerly the member offset 31
+-- produced an oversized length → Panic(0x41)).
+def shortHeadNestedTupleData : List Byte :=
+  word32 32 ++ shortHeadPairData
+
+#guard headCheckIsEmptyRevert
+  (abiDecodeValuesExcept?
+    [Ty.tuple [Ty.dynamicArray Ty.uint256, Ty.uint256]]
+    shortHeadNestedTupleData)
+
+-- Positive control: a well-formed `([42], 5)` encoding still decodes.
+#guard headCheckDecodeOk
+  (abiDecodeValuesExcept? [Ty.dynamicArray Ty.uint256, Ty.uint256]
+    (word32 0x40 ++ word32 5 ++ word32 1 ++ word32 42))
+
 end Source
 end Solidity
 end SolidCore

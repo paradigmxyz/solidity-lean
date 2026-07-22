@@ -604,7 +604,13 @@ def decodeValueAtWithFuel? : Nat -> Bool -> Bytes -> Nat -> Ty -> Except RevertD
         do
         let offset ← abiArgOpt (readWord? argData (wordBytes * headIndex))
         let step ← abiArgOpt (Ty.abiHeadWords? elementTy)
-        if lazy && (readBytes? (argData.drop offset) 0
+        -- Upfront head-area presence check when following the tail offset —
+        -- UNCONDITIONAL (solc emits it on the eager `memory`/`fromMemory`
+        -- path too), so on the eager path a truncated element-head area
+        -- reverts EMPTY here instead of reaching an inner element's
+        -- Panic(0x41). Keep in sync with the in-interpreter `abi.decode`
+        -- decoder's fixed-array frame (`Interpreter.lean`).
+        if (readBytes? (argData.drop offset) 0
             (size * step * wordBytes)).isNone then
           Except.error RevertData.empty
         else do
@@ -649,9 +655,14 @@ def decodeValueAtWithFuel? : Nat -> Bool -> Bytes -> Nat -> Ty -> Except RevertD
         do
         let offset ← abiArgOpt (readWord? argData (wordBytes * headIndex))
         let headWords ← abiArgOpt (Ty.listAbiHeadWords? elementTys)
-        -- Eager head-area presence (solc `slt(sub(end,offset), N*32)`); inner
-        -- dynamic-member offsets are validated lazily on access for calldata.
-        if lazy && (readBytes? (argData.drop offset) 0
+        -- Head-area presence (solc `abi_decode_t_struct`:
+        -- `slt(sub(end,offset), N*32)`) — UNCONDITIONAL (solc emits it on the
+        -- eager `memory`/`fromMemory` path too), so on the eager path a
+        -- truncated member-head area reverts EMPTY here instead of a later
+        -- inner Panic(0x41); inner dynamic-member offsets are still validated
+        -- lazily on access for calldata. Keep in sync with the in-interpreter
+        -- `abi.decode` decoder's tuple frame (`Interpreter.lean`).
+        if (readBytes? (argData.drop offset) 0
             (headWords * wordBytes)).isNone then
           Except.error RevertData.empty
         else do
@@ -689,7 +700,18 @@ def decodeArgsAux? (argData : Bytes) :
       Except.ok (value :: values)
 
 def decodeArgsWith? (params : List (Bool × Ty)) (argData : Bytes) :
-    Except RevertData (List Value) :=
+    Except RevertData (List Value) := do
+  -- solc's generated decoder OPENS with `if slt(sub(dataEnd, headStart),
+  -- <totalHeadSize>) { revert(0,0) }`: the WHOLE static head of the param
+  -- tuple must be present BEFORE any component decode. Without this, short
+  -- data can follow a garbage offset into an eager (`memory`) param and raise
+  -- Panic(0x41) where the real EVM reverts EMPTY upfront. Head size: 1 word
+  -- per dynamic component, full static width per static component — exactly
+  -- `Ty.listAbiHeadWords?`. Keep in sync with the in-interpreter `abi.decode`
+  -- decoder's identical check (`Interpreter.lean`, `abiDecodeValuesExcept?`).
+  let headWords ← abiArgOpt (Ty.listAbiHeadWords? (params.map Prod.snd))
+  if argData.length < wordBytes * headWords then
+    Except.error RevertData.empty
   decodeArgsAux? argData params 0
 
 -- Eager decode (all params non-lazy). Used for well-formed witness vectors and
