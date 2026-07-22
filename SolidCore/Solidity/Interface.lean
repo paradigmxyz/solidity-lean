@@ -9743,6 +9743,24 @@ def Parameter.toCoreMemoryLocalizeStmt? (fallbackPrefix : String)
     let coreTy ← Ty.toCore? param.ty
     let name := param.name.getD (fallbackPrefix ++ toString index)
     some (SolidCore.Solidity.Source.Stmt.memoryLocalize coreTy name)
+  else if param.location == some DataLocation.calldata then do
+    -- CALLDATA-located AGGREGATE return (`returns (uint256[] calldata)`):
+    -- normalize to memory exactly like a memory-located return. solc's
+    -- `FunctionType::asExternallyCallableFunction` performs the same
+    -- calldata->memory normalization at the external boundary, and the model
+    -- must materialize the returned value before the return re-encode: a
+    -- lazily-decoded calldata aggregate carries `Value.abiLazy` element
+    -- wrappers, and the un-localized return path raw-coerces them into a
+    -- typeMismatch (raw Panic 0x00) where the EVM returns the array. Scoped
+    -- to memory-aggregate core types: `bytes`/`string` calldata returns
+    -- (core `bytesCalldata`) already return correctly and keep their
+    -- byte-identical prologue.
+    let coreTy ← Ty.toCore? param.ty
+    if CoreTy.isMemoryAggregate coreTy then
+      let name := param.name.getD (fallbackPrefix ++ toString index)
+      some (SolidCore.Solidity.Source.Stmt.memoryLocalize coreTy name)
+    else
+      some SolidCore.Solidity.Source.Stmt.skip
   else
     some SolidCore.Solidity.Source.Stmt.skip
 
@@ -12066,6 +12084,31 @@ def Parameter.matchesArgAllowingInternalFunctionName?
       some true
   | _, _ => Parameter.matchesArg? env param arg
 
+/-- Arity-fallback TYPE SAFETY: a candidate is EXCLUDED only when an
+    argument's type is KNOWN and DEFINITELY mismatches a resolved parameter
+    type. Untypeable arguments (the gate returns `none`) and unresolved
+    `Ty.user` parameters cannot be disproven, so they stay compatible — this
+    keeps the decf368 coverage win (shapes the gate does not model still
+    rewrite) while stopping the fallback from binding a same-arity overload
+    whose parameter types are incompatible with the arguments (wrong-callee
+    soundness bug). -/
+def Parameter.arityFallbackCompatible (env : TypeEnv)
+    (param : Parameter) (arg : Expr) : Bool :=
+  match param.ty with
+  | Ty.user _ => true
+  | _ =>
+      match Parameter.matchesArgAllowingInternalFunctionName? env param arg with
+      | some false => false
+      | _ => true
+
+def Parameters.arityFallbackCompatible (env : TypeEnv) :
+    List Parameter -> List Expr -> Bool
+  | [], [] => true
+  | param :: params, arg :: args =>
+      Parameter.arityFallbackCompatible env param arg &&
+        Parameters.arityFallbackCompatible env params args
+  | _, _ => false
+
 def Parameters.matchArgsWithEnv? (env : TypeEnv) :
     List Parameter -> List Expr -> Option Bool
   | [], [] => some true
@@ -12104,7 +12147,13 @@ def FunctionDecl.findInternalCallee? (functions : List FunctionDecl)
       | some true => true
       | _ => false) with
   | some fn => some fn
-  | none => candidates.head?
+  | none =>
+      -- Arity fallback: exclude candidates whose KNOWN arg types definitely
+      -- mismatch (`Parameters.arityFallbackCompatible`) — same wrong-callee
+      -- guard as the library direct-call fallback; accept-when-unknown is
+      -- preserved.
+      (candidates.filter (fun fn =>
+        Parameters.arityFallbackCompatible env fn.params args)).head?
 
 def FunctionDecl.orderedArgs? (decl : FunctionDecl)
     (args : List Arg) : Option (List Expr) :=
@@ -12134,10 +12183,16 @@ def FunctionDecl.findInternalCalleeWithArgs?
       let orderedArgs ← FunctionDecl.orderedArgs? fn args
       some (fn, orderedArgs)
   | none => do
+      -- Arity fallback: exclude candidates whose KNOWN arg types definitely
+      -- mismatch (`Parameters.arityFallbackCompatible`) — same wrong-callee
+      -- guard as the library direct-call fallback; accept-when-unknown is
+      -- preserved.
       let fn ← candidates.find?
         (fun candidate =>
           match FunctionDecl.orderedArgs? candidate args with
-          | some _ => true
+          | some orderedArgs =>
+              Parameters.arityFallbackCompatible env candidate.params
+                orderedArgs
           | none => false)
       let orderedArgs ← FunctionDecl.orderedArgs? fn args
       some (fn, orderedArgs)
@@ -16267,10 +16322,50 @@ def FunctionDecl.internalBinarySingleReturnUseCore?
               useResult
                 (SolidCore.Solidity.Source.Expr.binary coreOp
                   lhsCore retExpr))
-      | _, none =>
+      | BinaryOp.boolAnd, none =>
           FunctionDecl.internalExprSingleReturnUseCore?
             internalFuel storageRefEnv env externalCallKindEnv storageNames
             modifiers functions freeFunctions lhs lhsThen
+      | BinaryOp.boolOr, none =>
+          FunctionDecl.internalExprSingleReturnUseCore?
+            internalFuel storageRefEnv env externalCallKindEnv storageNames
+            modifiers functions freeFunctions lhs lhsThen
+      | _, none =>
+          -- R1 residue fix: NON-core LEFT operand (contains its own calls)
+          -- beside a RIGHT direct call, ordinary operator. solc evaluates the
+          -- RIGHT operand FIRST (ExpressionCompiler.cpp:614-615), so park the
+          -- RHS call's value in a temp, then hoist the LHS calls. Falls back
+          -- to the previous left-first shape when the RHS type does not
+          -- resolve or the right-first emission fails to lower.
+          let rightFirst? : Option CoreStmt := do
+            let rhsTy ←
+              Expr.abiTyWithInternalFunctionsEnv?
+                functions freeFunctions env rhs
+            let rhsCoreTy ← Ty.toCore? rhsTy
+            let rhsTmp := "_sol_bin_rhs"
+            let lhsCallCore ←
+              FunctionDecl.internalExprSingleReturnUseCore?
+                internalFuel storageRefEnv env externalCallKindEnv storageNames
+                modifiers functions freeFunctions lhs
+                (fun lhsResult =>
+                  useResult
+                    (SolidCore.Solidity.Source.Expr.binary coreOp
+                      lhsResult
+                      (SolidCore.Solidity.Source.Expr.var rhsTmp)))
+            FunctionDecl.internalSingleReturnCallExprCore?
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions rhs
+              (fun retExpr =>
+                SolidCore.Solidity.Source.Stmt.block
+                  [ SolidCore.Solidity.Source.Stmt.varDecl
+                      rhsCoreTy rhsTmp (some retExpr)
+                  , lhsCallCore ])
+          match rightFirst? with
+          | some coreStmt => some coreStmt
+          | none =>
+              FunctionDecl.internalExprSingleReturnUseCore?
+                internalFuel storageRefEnv env externalCallKindEnv storageNames
+                modifiers functions freeFunctions lhs lhsThen
   | none, none =>
     -- CLUSTER-B #7 (extcall-binary): before the generic nested-internal-call
     -- path, try hoisting a single EXTERNAL/member call out of one operand (the
@@ -16343,21 +16438,99 @@ def FunctionDecl.internalBinarySingleReturnUseCore?
                   useResult
                     (SolidCore.Solidity.Source.Expr.binary coreOp
                       lhsCore retExpr))
-          | _, none =>
+          | BinaryOp.boolAnd, none =>
               FunctionDecl.internalExprSingleReturnUseCore?
                 internalFuel storageRefEnv env externalCallKindEnv storageNames
                 modifiers functions freeFunctions lhs lhsThen
+          | BinaryOp.boolOr, none =>
+              FunctionDecl.internalExprSingleReturnUseCore?
+                internalFuel storageRefEnv env externalCallKindEnv storageNames
+                modifiers functions freeFunctions lhs lhsThen
+          | _, none =>
+              -- R1 residue fix (both-sides-hoisted generic path): NON-core
+              -- LEFT operand with its own calls beside a call-bearing RHS,
+              -- ordinary operator. solc evaluates the RIGHT operand's call(s)
+              -- FIRST (ExpressionCompiler.cpp:614-615), so hoist the RHS into
+              -- a temp, then hoist the LHS calls. Falls back to the previous
+              -- left-first shape when the RHS type does not resolve or the
+              -- right-first emission fails to lower.
+              let rhsTmp := "_sol_bin_" ++ BinaryOp.tempTag op ++ "_rhs"
+              let rightFirst? : Option CoreStmt := do
+                let rhsTy ←
+                  Expr.abiTyWithInternalFunctionsEnv?
+                    functions freeFunctions env rhs
+                let rhsCoreTy ← Ty.toCore? rhsTy
+                let lhsCallCore ←
+                  FunctionDecl.internalExprSingleReturnUseCore?
+                    internalFuel storageRefEnv env externalCallKindEnv
+                    storageNames modifiers functions freeFunctions lhs
+                    (fun lhsResult =>
+                      useResult
+                        (SolidCore.Solidity.Source.Expr.binary coreOp
+                          lhsResult
+                          (SolidCore.Solidity.Source.Expr.var rhsTmp)))
+                FunctionDecl.internalExprSingleReturnUseCore?
+                  internalFuel storageRefEnv env externalCallKindEnv
+                  storageNames modifiers functions freeFunctions rhs
+                  (fun rhsResult =>
+                    SolidCore.Solidity.Source.Stmt.block
+                      [ SolidCore.Solidity.Source.Stmt.varDecl
+                          rhsCoreTy rhsTmp (some rhsResult)
+                      , lhsCallCore ])
+              match rightFirst? with
+              | some coreStmt => some coreStmt
+              | none =>
+                  FunctionDecl.internalExprSingleReturnUseCore?
+                    internalFuel storageRefEnv env externalCallKindEnv
+                    storageNames modifiers functions freeFunctions lhs lhsThen
       | none =>
           match Expr.toCore? storageNames lhs with
           | some _ => none
           | none => do
               let rhsCore ← Expr.toCore? storageNames rhs
-              FunctionDecl.internalExprSingleReturnUseCore?
-                internalFuel storageRefEnv env externalCallKindEnv storageNames
-                modifiers functions freeFunctions lhs
-                (fun lhsCore =>
-                  useResult
-                    (SolidCore.Solidity.Source.Expr.binary coreOp lhsCore rhsCore))
+              let previousShape? : Option CoreStmt :=
+                FunctionDecl.internalExprSingleReturnUseCore?
+                  internalFuel storageRefEnv env externalCallKindEnv
+                  storageNames modifiers functions freeFunctions lhs
+                  (fun lhsCore =>
+                    useResult
+                      (SolidCore.Solidity.Source.Expr.binary
+                        coreOp lhsCore rhsCore))
+              match op with
+              | BinaryOp.boolAnd => previousShape?
+              | BinaryOp.boolOr => previousShape?
+              | _ =>
+                  -- R1 residue fix (lhs-hoisted + pure-rhs fallback): the LEFT
+                  -- operand's calls used to run before the pure RHS was read;
+                  -- solc evaluates the RIGHT operand FIRST
+                  -- (ExpressionCompiler.cpp:614-615), so park the pure RHS
+                  -- value in a temp before hoisting the LHS calls. Falls back
+                  -- to the previous left-first shape when the RHS type does
+                  -- not resolve. Short-circuit ops keep the guarded left-first
+                  -- shape above.
+                  let rightFirst? : Option CoreStmt := do
+                    let rhsTy ←
+                      Expr.abiTyWithInternalFunctionsEnv?
+                        functions freeFunctions env rhs
+                    let rhsCoreTy ← Ty.toCore? rhsTy
+                    let rhsTmp := "_sol_bin_" ++ BinaryOp.tempTag op ++ "_rhs"
+                    let lhsCallCore ←
+                      FunctionDecl.internalExprSingleReturnUseCore?
+                        internalFuel storageRefEnv env externalCallKindEnv
+                        storageNames modifiers functions freeFunctions lhs
+                        (fun lhsCore =>
+                          useResult
+                            (SolidCore.Solidity.Source.Expr.binary coreOp
+                              lhsCore
+                              (SolidCore.Solidity.Source.Expr.var rhsTmp)))
+                    some
+                      (SolidCore.Solidity.Source.Stmt.block
+                        [ SolidCore.Solidity.Source.Stmt.varDecl
+                            rhsCoreTy rhsTmp (some rhsCore)
+                        , lhsCallCore ])
+                  match rightFirst? with
+                  | some coreStmt => some coreStmt
+                  | none => previousShape?
 termination_by (3, internalFuel, sizeOf (Expr.binary op lhs rhs), 8)
 
 def FunctionDecl.conditionUseCoreWithInternalCalls?
@@ -22590,10 +22763,16 @@ def FunctionDecl.rewriteUsingLibraryCandidateByArity?
       functions freeFunctions env receiver fn
   if firstMatches then some () else none
   let orderedArgs ← Args.toExprsForParams? (fn.params.drop 1) args
-  some <|
-    FunctionDecl.annotateSingleCoreReturn fn
-      (Expr.call (Expr.ident helperName)
-        ((receiver :: orderedArgs).map Arg.positional))
+  -- Wrong-callee guard: exclude a same-arity overload whose KNOWN arg types
+  -- definitely mismatch (`Parameters.arityFallbackCompatible`);
+  -- accept-when-unknown preserved.
+  if Parameters.arityFallbackCompatible env (fn.params.drop 1) orderedArgs then
+    some <|
+      FunctionDecl.annotateSingleCoreReturn fn
+        (Expr.call (Expr.ident helperName)
+          ((receiver :: orderedArgs).map Arg.positional))
+  else
+    none
 
 def FunctionDecls.rewriteUsingLibraryCandidateByArityFrom?
     (functions freeFunctions : List FunctionDecl) (env : TypeEnv)
@@ -22654,13 +22833,19 @@ def FunctionDecls.rewriteUsingExternalLibraryCandidateByArity?
               functions freeFunctions env receiver fn
           if firstMatches then some () else none
           let orderedArgs ← Args.toExprsForParams? (fn.params.drop 1) args
-          some <|
-            FunctionDecl.annotateSingleCoreReturn fn
-              (Expr.call
-                (Expr.member
-                  (Expr.ident (generatedLibraryAddressIdent libraryName))
-                  method)
-                ((receiver :: orderedArgs).map Arg.positional))) with
+          -- Wrong-callee guard: same `Parameters.arityFallbackCompatible`
+          -- filter as the internal attached-path fallback.
+          if Parameters.arityFallbackCompatible env
+              (fn.params.drop 1) orderedArgs then
+            some <|
+              FunctionDecl.annotateSingleCoreReturn fn
+                (Expr.call
+                  (Expr.member
+                    (Expr.ident (generatedLibraryAddressIdent libraryName))
+                    method)
+                  ((receiver :: orderedArgs).map Arg.positional))
+          else
+            none) with
       | some rewritten => some rewritten
       | none =>
           FunctionDecls.rewriteUsingExternalLibraryCandidateByArity?
@@ -23034,31 +23219,6 @@ def FunctionDecls.rewriteLibraryDirectCallCandidateFrom?
       | none =>
           FunctionDecls.rewriteLibraryDirectCallCandidateFrom?
             libraryName method env args (index + 1) rest
-
-/-- Arity-fallback TYPE SAFETY: a candidate is EXCLUDED only when an
-    argument's type is KNOWN and DEFINITELY mismatches a resolved parameter
-    type. Untypeable arguments (the gate returns `none`) and unresolved
-    `Ty.user` parameters cannot be disproven, so they stay compatible — this
-    keeps the decf368 coverage win (shapes the gate does not model still
-    rewrite) while stopping the fallback from binding a same-arity overload
-    whose parameter types are incompatible with the arguments (wrong-callee
-    soundness bug). -/
-def Parameter.arityFallbackCompatible (env : TypeEnv)
-    (param : Parameter) (arg : Expr) : Bool :=
-  match param.ty with
-  | Ty.user _ => true
-  | _ =>
-      match Parameter.matchesArgAllowingInternalFunctionName? env param arg with
-      | some false => false
-      | _ => true
-
-def Parameters.arityFallbackCompatible (env : TypeEnv) :
-    List Parameter -> List Expr -> Bool
-  | [], [] => true
-  | param :: params, arg :: args =>
-      Parameter.arityFallbackCompatible env param arg &&
-        Parameters.arityFallbackCompatible env params args
-  | _, _ => false
 
 /-- Arity fallback: accept a candidate whose args order against its params
     without the exact shape gate, EXCLUDING candidates whose param types are
@@ -23623,26 +23783,38 @@ def FunctionDecls.libraryInternalHelperCallByMatchFrom?
             libraryName functionName libraryFunctions env args index rest
 
 def FunctionDecls.libraryInternalHelperCallByArityFrom?
-    (libraryName functionName : Name) (args : List Arg) (index : Nat) :
-    List FunctionDecl -> Option Expr
+    (libraryName functionName : Name) (env : TypeEnv) (args : List Arg)
+    (index : Nat) : List FunctionDecl -> Option Expr
   | [] => none
   | fn :: rest =>
       match fn.name with
       | some fnName =>
           if FunctionDecl.isInlineLibraryFunction fn && fnName == functionName then
-            if fn.params.length == args.length then
+            -- Wrong-callee guard: a same-arity overload whose KNOWN arg types
+            -- definitely mismatch is excluded
+            -- (`Parameters.arityFallbackCompatible`); args that fail to order
+            -- against the params (`none`) cannot be disproven and keep the
+            -- prior accept-by-arity behaviour.
+            let compatible :=
+              fn.params.length == args.length &&
+                (match Args.toExprsForParams? fn.params args with
+                 | some orderedArgs =>
+                     Parameters.arityFallbackCompatible env fn.params
+                       orderedArgs
+                 | none => true)
+            if compatible then
               some
                 (Expr.ident
                   (libraryHelperNameForIndex libraryName functionName index))
             else
               FunctionDecls.libraryInternalHelperCallByArityFrom?
-                libraryName functionName args (index + 1) rest
+                libraryName functionName env args (index + 1) rest
           else
             FunctionDecls.libraryInternalHelperCallByArityFrom?
-              libraryName functionName args index rest
+              libraryName functionName env args index rest
       | none =>
           FunctionDecls.libraryInternalHelperCallByArityFrom?
-            libraryName functionName args index rest
+            libraryName functionName env args index rest
 
 def libraryInternalHelperCall? (libraryName : Name)
     (libraryFunctions : List FunctionDecl) (env : TypeEnv)
@@ -23653,7 +23825,7 @@ def libraryInternalHelperCall? (libraryName : Name)
   | some helper => some helper
   | none =>
       FunctionDecls.libraryInternalHelperCallByArityFrom?
-        libraryName name args 0 libraryFunctions
+        libraryName name env args 0 libraryFunctions
 
 mutual
 

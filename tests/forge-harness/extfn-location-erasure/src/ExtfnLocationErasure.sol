@@ -47,13 +47,23 @@ contract ExtfnLocationErasureHarnessTarget {
 
     // Calldata-RETURNING external fn assigned to a memory-return declared
     // type (the return-location normalization shape), called through the
-    // pointer. EVM-validated in Forge; model-side execution is blocked by the
-    // pre-existing calldata-array-return self-dispatch gap (see header).
+    // pointer. Runs on both engines (see header).
     function callThroughCalldataRetPtr(uint256 seed) external view returns (uint256) {
         function(uint256[] memory) external pure returns (uint256[] memory) h = this.fRet;
         uint256[] memory xs = new uint256[](2);
         xs[1] = seed;
         uint256[] memory ys = h(xs);
+        return ys[1] + ys.length;
+    }
+
+    // Direct self-call of the calldata-array-RETURNING external fn (no
+    // function pointer): the minimal repro of the former self-dispatch
+    // return-path gap. The callee's `uint256[] calldata` return is
+    // memory-localized at entry, so the re-encode returns the array.
+    function callDirectCalldataRet(uint256 seed) external view returns (uint256) {
+        uint256[] memory xs = new uint256[](2);
+        xs[1] = seed;
+        uint256[] memory ys = this.fRet(xs);
         return ys[1] + ys.length;
     }
 }
