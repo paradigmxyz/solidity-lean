@@ -76,3 +76,4 @@ import SolidCore.Witness.OperatorUdvtFallback
 import SolidCore.Witness.MustOverrideTwoBase
 import SolidCore.Witness.QualifiedDirectMember
 import SolidCore.Witness.UsingFieldAmbiguity
+import SolidCore.Witness.LibraryQualifiedSignatures

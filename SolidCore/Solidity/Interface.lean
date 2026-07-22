@@ -787,9 +787,14 @@ def EnumEnv.lookupName? (env : EnumEnv) (name : Name) :
 def EnumEnv.extendDecl (env : EnumEnv) (decl : EnumDecl) : EnumEnv :=
   (pathOfName decl.name, decl) :: env
 
+-- BUG#6: stamp the declaring scope into the stored decl so resolution can
+-- produce the canonical (`Lib.Mode`) source path in the resolved `Ty.enum`.
+def EnumDecl.stampScope (scope : Name) (decl : EnumDecl) : EnumDecl :=
+  { decl with declScope? := some scope }
+
 def EnumEnv.extendQualifiedDecl (env : EnumEnv)
     (scope : Name) (decl : EnumDecl) : EnumEnv :=
-  (qualifiedPath scope decl.name, decl) :: env
+  (qualifiedPath scope decl.name, EnumDecl.stampScope scope decl) :: env
 
 def StructEnv.lookup? (env : StructEnv) (path : Path) :
     Option StructDecl :=
@@ -809,9 +814,14 @@ def StructEnv.extendDecl (env : StructEnv) (decl : StructDecl) :
     StructEnv :=
   (pathOfName decl.name, decl) :: env
 
+-- BUG#6: stamp the declaring scope so the library-qualified signature
+-- renderer can recover the canonical (`Lib.S`) name from a written path.
+def StructDecl.stampScope (scope : Name) (decl : StructDecl) : StructDecl :=
+  { decl with declScope? := some scope }
+
 def StructEnv.extendQualifiedDecl (env : StructEnv)
     (scope : Name) (decl : StructDecl) : StructEnv :=
-  (qualifiedPath scope decl.name, decl) :: env
+  (qualifiedPath scope decl.name, StructDecl.stampScope scope decl) :: env
 
 def mapOption {α β : Type} (f : α -> Option β) : List α -> Option (List β)
   | [] => some []
@@ -1210,9 +1220,16 @@ def EnumDecl.maxValue? (decl : EnumDecl) : Option Nat :=
 def EnumDecl.toAbiSourceTy (_decl : EnumDecl) : Ty :=
   Ty.uint 8
 
+-- Canonical (declaring-scope-qualified) source path: `Lib.Mode` for an enum
+-- declared inside contract/library `Lib`, `Mode` for a file-level enum.
+def EnumDecl.canonicalPath (decl : EnumDecl) : Path :=
+  match decl.declScope? with
+  | some scope => qualifiedPath scope decl.name
+  | none => pathOfName decl.name
+
 def EnumDecl.toResolvedTy (decl : EnumDecl) : Ty :=
   match EnumDecl.maxValue? decl with
-  | some maxValue => Ty.enum maxValue
+  | some maxValue => Ty.enum (EnumDecl.canonicalPath decl) maxValue
   | none => Ty.uint 8
 
 def EnumDecl.toCoreSourceTy (_decl : EnumDecl) : Ty :=
@@ -2199,7 +2216,7 @@ def Ty.toCore? : Ty -> Option CoreTy
         some SolidCore.Solidity.Source.Ty.int256
       else
         none
-  | Ty.enum _ =>
+  | Ty.enum _ _ =>
       some SolidCore.Solidity.Source.Ty.uint256
   | Ty.bytesN size =>
       if 0 < size && size <= 32 then
@@ -2283,7 +2300,7 @@ def Ty.toCoreAbiCleanup? : Ty -> Option CoreAbiCleanup
         some (SolidCore.Solidity.Source.AbiCleanup.int bits)
       else
         none
-  | Ty.enum maxValue =>
+  | Ty.enum _ maxValue =>
       some (SolidCore.Solidity.Source.AbiCleanup.enum maxValue)
   | Ty.array elementTy none => do
       let elementCleanup ← Ty.toCoreAbiCleanup? elementTy
@@ -2324,7 +2341,7 @@ def Ty.toCoreStorageWord? : Ty -> Option CoreTy
         some SolidCore.Solidity.Source.Ty.int256
       else
         none
-  | Ty.enum _ =>
+  | Ty.enum _ _ =>
       some SolidCore.Solidity.Source.Ty.uint256
   | Ty.bytesN size =>
       if 0 < size && size <= 32 then
@@ -2363,7 +2380,7 @@ def Ty.storagePackedBytes? : Ty -> Option Nat
         some (bits / 8)
       else
         none
-  | Ty.enum _ => some 1
+  | Ty.enum _ _ => some 1
   | Ty.bytesN size =>
       if 0 < size && size <= SolidCore.Solidity.Source.wordBytes then
         some size
@@ -2389,7 +2406,7 @@ def Ty.storagePackedSigned : Ty -> Bool
 
 /-- Enum member bound for storage-layout lowering (`none` for non-enums). -/
 def Ty.storageEnumMax? : Ty -> Option Nat
-  | Ty.enum maxValue => some maxValue
+  | Ty.enum _ maxValue => some maxValue
   | _ => none
 
 def Ty.toCoreMappingKey? : Ty -> Option CoreTy
@@ -2454,7 +2471,7 @@ def Ty.toCoreStorageLayout? : Ty -> Option CoreStorageLayout
       let key ← Ty.toCoreMappingKey? keyTy
       let value ← Ty.toCoreStorageLayout? valueTy
       some (SolidCore.Solidity.Source.StorageLayout.mapping key value)
-  | Ty.enum maxValue =>
+  | Ty.enum _ maxValue =>
       -- Storage layout keeps the member bound: reads mask the lane byte and
       -- defer range validation to use sites (Panic 0x21), matching solc's
       -- `cleanup_from_storage_t_enum` / `validator_assert_t_enum` split.
@@ -2617,7 +2634,7 @@ def Ty.abiCanonical? : Ty -> Option String
   | Ty.struct _ tys => do
       let elements ← Ty.listAbiCanonical? tys
       some ("(" ++ joinStringsWith "," elements ++ ")")
-  | Ty.enum _ => some "uint8"
+  | Ty.enum _ _ => some "uint8"
   | Ty.user _ => some "address"
   | Ty.functionWithLocations _ _ _ _ _ _ => some "function"
   | _ => none
@@ -3624,7 +3641,7 @@ def Ty.allowsUintCastSource? (bits : Nat) (sourceTy : Ty) : Option Unit :=
   match sourceTy with
   | Ty.uint _ => some ()
   | Ty.int _ => some ()
-  | Ty.enum _ => some ()
+  | Ty.enum _ _ => some ()
   | Ty.address _ =>
       if bits == 160 then some () else none
   | _ =>
@@ -3726,7 +3743,7 @@ def Ty.toCoreValueCleanup? : Ty -> Option CoreValueCleanup
         some (SolidCore.Solidity.Source.ValueCleanup.int bits)
       else
         none
-  | Ty.enum _ =>
+  | Ty.enum _ _ =>
       some (SolidCore.Solidity.Source.ValueCleanup.uint 8)
   | _ => some SolidCore.Solidity.Source.ValueCleanup.none
 
@@ -3742,7 +3759,7 @@ def Ty.packedTopWidth : Ty -> Nat
   | Ty.int bits =>
       if bits == 0 || bits == 256 then 0
       else if bits % 8 == 0 && bits < 256 then bits / 8 else 0
-  | Ty.enum _ => 1
+  | Ty.enum _ _ => 1
   | _ => 0
 
 def Tys.packedTopWidths (tys : List Ty) : List Nat :=
@@ -4253,6 +4270,80 @@ def externalFunctionSignatureWithLocations? (name : Name) (argTys : List Ty)
   let canonicals ← Tys.listAbiCanonicalWithLocations? argTys locations
   some (name ++ "(" ++ joinStringsWith "," canonicals ++ ")")
 
+/- BUG#6: LIBRARY-qualified signature rendering. solc renders public/external
+   LIBRARY function signatures with the parameters' SOURCE types by canonical
+   name (verified against solc 0.8.35 `--hashes`):
+   * enum -> `Lib.Mode` (declaring-scope-qualified; file-level: `Mode`)
+   * struct -> `Lib.S` (by NAME, not the external tuple form)
+   * contract/interface -> `C` (its name, not `address`)
+   * `storage`-pointer params keep the ` storage` suffix
+   * user-defined value types erase to their UNDERLYING type (`uint128`),
+     matching the external form — the existing UDVT erasure is already right.
+   Everything else (uint/bytes/arrays/...) renders exactly as the external
+   ABI form. Used ONLY at the library boundary: `L.f.selector` resolution,
+   the library dispatch table, the delegatecall payload, and the type-env
+   key. Contract dispatch/event/error selectors keep `Ty.abiCanonical?`. -/
+
+def Path.canonicalString (path : Path) : String :=
+  joinStringsWith "." path.segments
+
+def StructDecl.canonicalPath (decl : StructDecl) : Path :=
+  match decl.declScope? with
+  | some scope => qualifiedPath scope decl.name
+  | none => pathOfName decl.name
+
+/-- Canonicalize a struct's WRITTEN path (`S` inside `Lib`, or `Lib.S`)
+    through the same `StructEnv` that resolved it; falls back to the written
+    path (already canonical for file-level structs). -/
+def StructEnv.canonicalPath (env : StructEnv) (written : Path) : Path :=
+  match StructEnv.lookup? env written with
+  | some decl => StructDecl.canonicalPath decl
+  | none => written
+
+def Ty.libraryAbiCanonicalFuel? (structEnv : StructEnv) :
+    Nat -> Ty -> Option String
+  | 0, _ => none
+  | _ + 1, Ty.enum canonical _ => some (Path.canonicalString canonical)
+  | _ + 1, Ty.struct path _ =>
+      some (Path.canonicalString (StructEnv.canonicalPath structEnv path))
+  | _ + 1, Ty.user path => some (Path.canonicalString path)
+  | fuel + 1, Ty.array ty none => do
+      let base ← Ty.libraryAbiCanonicalFuel? structEnv fuel ty
+      some (base ++ "[]")
+  | fuel + 1, Ty.array ty (some size) => do
+      let base ← Ty.libraryAbiCanonicalFuel? structEnv fuel ty
+      some (base ++ "[" ++ toString size ++ "]")
+  | _ + 1, other => Ty.abiCanonical? other
+
+def Ty.libraryAbiCanonical? (structEnv : StructEnv) (ty : Ty) :
+    Option String :=
+  Ty.libraryAbiCanonicalFuel? structEnv 64 ty
+
+def Ty.libraryAbiCanonicalWithLocation? (structEnv : StructEnv) (ty : Ty)
+    (loc : Option DataLocation) : Option String := do
+  let base ← Ty.libraryAbiCanonical? structEnv ty
+  if dataLocationIsStorage loc then
+    some (base ++ " storage")
+  else
+    some base
+
+def Tys.listLibraryAbiCanonicalWithLocations? (structEnv : StructEnv) :
+    List Ty -> List (Option DataLocation) -> Option (List String)
+  | [], _ => some []
+  | ty :: tys, locs => do
+      let head ←
+        Ty.libraryAbiCanonicalWithLocation? structEnv ty (locs.headD none)
+      let tail ←
+        Tys.listLibraryAbiCanonicalWithLocations? structEnv tys locs.tail
+      some (head :: tail)
+
+def libraryFunctionSignatureWithLocations? (structEnv : StructEnv)
+    (name : Name) (argTys : List Ty)
+    (locations : List (Option DataLocation)) : Option String := do
+  let canonicals ←
+    Tys.listLibraryAbiCanonicalWithLocations? structEnv argTys locations
+  some (name ++ "(" ++ joinStringsWith "," canonicals ++ ")")
+
 structure ExternalCallKindEntry where
   contractName : Name
   functionName : Name
@@ -4267,6 +4358,11 @@ structure ExternalCallKindEntry where
   returnTys : List Ty := []
   mutability : StateMutability := StateMutability.nonpayable
   isConstructor : Bool := false
+  -- BUG#6: for a public/external LIBRARY function, the library-qualified
+  -- signature (`isOff(Lib.Mode)`, `bump(Lib.S storage)`) that the caller-side
+  -- delegatecall payload must hash. `none` for contract entries — those keep
+  -- the external-ABI signature.
+  librarySignature? : Option String := none
   deriving Repr
 
 abbrev ExternalCallKindEnv := List ExternalCallKindEntry
@@ -4301,7 +4397,17 @@ def externalCallKindTypeEnvPrefix : Name :=
 def externalCallKindTypeEnvName? (contractName functionName : Name)
     (paramTys : List Ty) : Option Name := do
   let signature ← externalFunctionSignature? functionName paramTys
-  some (externalCallKindTypeEnvPrefix ++ contractName ++ ":" ++ signature)
+  -- BUG#6: the external-ABI signature collapses user-defined types (every
+  -- enum renders `uint8`), so two distinct LIBRARY overloads
+  -- (`f(EnumA)`/`f(EnumB)` — solc-accepted, distinct qualified signatures)
+  -- shared one key and one mutability/kind entry. Append a structural
+  -- identity of the resolved parameter types (derived `repr`, which carries
+  -- the canonical enum path and struct path) — computed identically at entry
+  -- build and lookup, so the key stays symmetric. Repr-identity only: the
+  -- key never reaches an ABI boundary.
+  some
+    (externalCallKindTypeEnvPrefix ++ contractName ++ ":" ++ signature ++
+      "#" ++ toString (repr paramTys))
 
 def ExternalCallKindEntry.toTypeEnvEntry?
     (entry : ExternalCallKindEntry) : Option (Option (Name × Ty)) := do
@@ -5432,7 +5538,7 @@ def Expr.toCoreAs? (storageNames : List Name)
                             some
                               (SolidCore.Solidity.Source.Expr.fixedBytesCast
                                 targetSize sourceSize coreExpr)
-                    | Ty.enum _ =>
+                    | Ty.enum _ _ =>
                         -- Enum-typed target (e.g. a local `MyEnum c = MyEnum(x)`).
                         -- The operand is an enum value — either an
                         -- `enumFromUInt` conversion (which already range-checks
@@ -6040,9 +6146,17 @@ def applyStoragePointerCallArgs? :
     ordinary contract calls and memory/calldata library calls. -/
 def externalCallStoragePointerPayload?
     (name : Name) (sourceTys : List Ty) (coreTys : List CoreTy)
-    (coreExprs : List CoreExpr) (locations : List (Option DataLocation)) :
+    (coreExprs : List CoreExpr) (locations : List (Option DataLocation))
+    (librarySignature? : Option String := none) :
     Option (String × List CoreTy × List CoreExpr) := do
-  let signature ← externalFunctionSignatureWithLocations? name sourceTys locations
+  -- BUG#6: a public/external LIBRARY delegatecall hashes the
+  -- library-qualified signature carried by its `ExternalCallKindEntry`;
+  -- ordinary contract calls keep the external-ABI signature.
+  let signature ←
+    match librarySignature? with
+    | some signature => some signature
+    | none =>
+        externalFunctionSignatureWithLocations? name sourceTys locations
   if locations.any dataLocationIsStorage then
     let (encTys, encExprs) ←
       applyStoragePointerCallArgs? coreTys coreExprs locations
@@ -6096,7 +6210,8 @@ def Expr.externalCallAbiWithKindEnv? (storageNames : List Name)
     (env : TypeEnv) (externalCallKindEnv : ExternalCallKindEnv)
     (target : Expr) (name : Name) (args : List Arg)
     (argEnvLower : Ty -> Expr -> Option CoreExpr := fun _ _ => none) :
-    Option (List Ty × List CoreTy × List CoreExpr × List (Option DataLocation)) :=
+    Option (List Ty × List CoreTy × List CoreExpr ×
+      List (Option DataLocation) × Option String) :=
   let applyEnv := fun (sourceTys : List Ty) (coreExprs : List CoreExpr) =>
     if Args.allPositional args then
       Args.applyArgEnvLowerToCallArgCores argEnvLower args sourceTys coreExprs
@@ -6106,7 +6221,7 @@ def Expr.externalCallAbiWithKindEnv? (storageNames : List Name)
     match Args.toAbiEncodeSource? storageNames args with
     | some (sourceTys, coreTys, coreExprs) =>
         some (sourceTys, coreTys, applyEnv sourceTys coreExprs,
-          ([] : List (Option DataLocation)))
+          ([] : List (Option DataLocation)), (none : Option String))
     | none => none
   match Expr.externalCallAbiContractName? env target with
   | some contractName =>
@@ -6114,8 +6229,10 @@ def Expr.externalCallAbiWithKindEnv? (storageNames : List Name)
           ExternalCallKindEnv.lookupAbiCall?
             storageNames externalCallKindEnv contractName name args with
       | some (entry, sourceTys, coreTys, coreExprs) =>
+          -- BUG#6: surface the entry's library-qualified signature so the
+          -- delegatecall payload hashes it (contract entries carry `none`).
           some (sourceTys, coreTys, applyEnv sourceTys coreExprs,
-            entry.paramLocations)
+            entry.paramLocations, entry.librarySignature?)
       | none => fallback
   | none => fallback
 
@@ -6132,7 +6249,7 @@ def Expr.toExternalCallWithKindEnv? (storageNames : List Name)
       else
         some ()
       let targetCore ← Expr.toCore? storageNames target
-      let (sourceTys, coreTys, coreExprs, locations) ←
+      let (sourceTys, coreTys, coreExprs, locations, librarySignature?) ←
         Expr.externalCallAbiWithKindEnv?
           storageNames env externalCallKindEnv target name args
           (argEnvLower := argEnvLower)
@@ -6140,7 +6257,8 @@ def Expr.toExternalCallWithKindEnv? (storageNames : List Name)
         Expr.externalCallKindForTargetWithEnv
           env externalCallKindEnv target name sourceTys
       let (signature, encTys, encExprs) ←
-        externalCallStoragePointerPayload? name sourceTys coreTys coreExprs locations
+        externalCallStoragePointerPayload? name sourceTys coreTys coreExprs
+          locations (librarySignature? := librarySignature?)
       let callData :=
         SolidCore.Solidity.Source.Expr.abiEncodeWithSelector
           (SolidCore.Solidity.Source.Expr.word
@@ -6159,7 +6277,7 @@ def Expr.toExternalCallWithKindEnv? (storageNames : List Name)
       else
         some ()
       let targetCore ← Expr.toCore? storageNames target
-      let (sourceTys, coreTys, coreExprs, locations) ←
+      let (sourceTys, coreTys, coreExprs, locations, librarySignature?) ←
         Expr.externalCallAbiWithKindEnv?
           storageNames env externalCallKindEnv target name args
           (argEnvLower := argEnvLower)
@@ -6173,7 +6291,8 @@ def Expr.toExternalCallWithKindEnv? (storageNames : List Name)
         StateMutability.externalCallOptionsCore?
           storageNames mutability? kind options
       let (signature, encTys, encExprs) ←
-        externalCallStoragePointerPayload? name sourceTys coreTys coreExprs locations
+        externalCallStoragePointerPayload? name sourceTys coreTys coreExprs
+          locations (librarySignature? := librarySignature?)
       let callData :=
         SolidCore.Solidity.Source.Expr.abiEncodeWithSelector
           (SolidCore.Solidity.Source.Expr.word
@@ -7207,7 +7326,7 @@ def Expr.coreAsFromTy? (targetTy sourceTy : Ty) (coreExpr : CoreExpr) :
             some
               (SolidCore.Solidity.Source.Expr.fixedBytesCast
                 targetSize sourceSize coreExpr)
-    | Ty.enum _ =>
+    | Ty.enum _ _ =>
         -- Enum-typed target: the operand is an enum value (an `enumFromUInt`
         -- conversion, already range-checked, or another enum of the same
         -- type), stored as its ordinal word. See `Expr.toCoreAs?`.
@@ -9769,6 +9888,24 @@ def FunctionDecl.abiSelector? (decl : FunctionDecl) : Option Word := do
   let signature ← FunctionDecl.abiSignature? decl
   some (SolidCore.Solidity.Source.ABI.selectorFromSignature signature)
 
+/-- BUG#6: the LIBRARY-qualified signature of a public/external library
+    function — canonical type names (`Lib.Mode`, `Lib.S`, `C`) plus the
+    ` storage` suffix for storage-pointer params. This is what solc hashes
+    for library dispatch/delegatecall selectors. -/
+def FunctionDecl.libraryAbiSignature? (structEnv : StructEnv)
+    (decl : FunctionDecl) : Option String := do
+  match decl.kind with
+  | FunctionKind.function => some ()
+  | _ => none
+  let name ← decl.name
+  libraryFunctionSignatureWithLocations? structEnv name
+    (decl.params.map Parameter.ty) (decl.params.map Parameter.location)
+
+def FunctionDecl.libraryAbiSelector? (structEnv : StructEnv)
+    (decl : FunctionDecl) : Option Word := do
+  let signature ← FunctionDecl.libraryAbiSignature? structEnv decl
+  some (SolidCore.Solidity.Source.ABI.selectorFromSignature signature)
+
 /-- Overload-unique, collision-free function-table key for an internal-linkage
     call target (function-boundary refactor, R6). `"__internal_" ++ abiSignature`
     (e.g. `"__internal_f(uint256)"`) disambiguates same-named overloads and can
@@ -9939,6 +10076,20 @@ def FunctionDecls.selectorEntries (decls : List FunctionDecl) :
 def FunctionDecls.qualifiedSelectorEntries
     (contractName : Name) (decls : List FunctionDecl) : SelectorEnv :=
   decls.filterMap (FunctionDecl.qualifiedSelectorEntry? contractName)
+
+/-- BUG#6: `L.f.selector` for a public/external LIBRARY function resolves to
+    the library-qualified selector (`keccak("isOff(Lib.Mode)")`), not the
+    external-ABI one. Same `Lib.f` env key as the contract entries. -/
+def FunctionDecl.libraryQualifiedSelectorEntry? (structEnv : StructEnv)
+    (contractName : Name) (decl : FunctionDecl) : Option (Name × Word) := do
+  let name ← decl.name
+  let selector ← FunctionDecl.libraryAbiSelector? structEnv decl
+  some (selectorQualifiedName contractName name, selector)
+
+def FunctionDecls.libraryQualifiedSelectorEntries (structEnv : StructEnv)
+    (contractName : Name) (decls : List FunctionDecl) : SelectorEnv :=
+  decls.filterMap
+    (FunctionDecl.libraryQualifiedSelectorEntry? structEnv contractName)
 
 def ErrorDecls.selectorEntries (decls : List ErrorDecl) :
     SelectorEnv :=
@@ -11867,7 +12018,9 @@ def Ty.matchesShape : Ty -> Ty -> Bool
       (lhs == rhs) || (lhs == 0 && rhs == 256) || (lhs == 256 && rhs == 0)
   | Ty.bytesN lhs, Ty.bytesN rhs => lhs == rhs
   | Ty.fixedBytes lhs, Ty.fixedBytes rhs => lhs == rhs
-  | Ty.enum lhs, Ty.enum rhs => lhs == rhs
+  -- BUG#6: enum shape-matching is NOMINAL — canonical path AND member bound.
+  | Ty.enum lhsPath lhs, Ty.enum rhsPath rhs =>
+      lhsPath == rhsPath && lhs == rhs
   | Ty.bytes, Ty.bytes => true
   | Ty.string, Ty.string => true
   | Ty.array lhsTy lhsSize?, Ty.array rhsTy rhsSize? =>
@@ -24091,10 +24244,21 @@ def StateVarDecl.externalCallKindEntry? (contractName : Name)
       mutability := StateMutability.view }
 
 def ContractDecl.directExternalCallKindEntriesAs
-    (targetName : Name) (decl : ContractDecl) : List ExternalCallKindEntry :=
+    (targetName : Name) (decl : ContractDecl)
+    (structEnv : StructEnv := []) : List ExternalCallKindEntry :=
   let functionEntries :=
     (ContractDecl.directOrdinaryFunctions decl).filterMap
-      (FunctionDecl.externalCallKindEntry? targetName)
+      (fun fn => do
+        let entry ← FunctionDecl.externalCallKindEntry? targetName fn
+        -- BUG#6: LIBRARY entries carry the library-qualified signature the
+        -- caller-side delegatecall payload must hash.
+        if decl.kind == ContractKind.library then
+          some
+            { entry with
+              librarySignature? :=
+                FunctionDecl.libraryAbiSignature? structEnv fn }
+        else
+          some entry)
   let getterEntries :=
     (ContractDecl.directStateVars decl).filterMap
       (StateVarDecl.externalCallKindEntry? targetName)
@@ -24621,7 +24785,9 @@ def EnumEnv.extendContractDecls (env : EnumEnv)
   EnumEnv.extendDecls
     (EnumEnv.extendQualifiedDecls decl.name env
       (ContractDecl.directEnums decl))
-    (ContractDecl.directEnums decl)
+    -- BUG#6: the unqualified aliases keep the declaring-scope stamp so an
+    -- enum referenced as `Mode` still resolves to canonical `Lib.Mode`.
+    ((ContractDecl.directEnums decl).map (EnumDecl.stampScope decl.name))
 
 def EnumEnv.extendContractQualifiedDecls (env : EnumEnv)
     (decl : ContractDecl) : EnumEnv :=
@@ -24639,7 +24805,8 @@ def ContractDecl.enumEnvFromContractsInScope (env : EnumEnv)
     (contracts : List ContractDecl) : EnumEnv :=
   contracts.reverse.foldl
     (fun env decl =>
-      EnumEnv.extendDecls env (ContractDecl.directEnums decl))
+      EnumEnv.extendDecls env
+        ((ContractDecl.directEnums decl).map (EnumDecl.stampScope decl.name)))
     env
 
 def ContractDecl.enumEnvWithQualifiedContracts (env : EnumEnv)
@@ -24666,7 +24833,8 @@ def StructEnv.extendContractDecls (env : StructEnv)
   StructEnv.extendDecls
     (StructEnv.extendQualifiedDecls decl.name env
       (ContractDecl.directStructs decl))
-    (ContractDecl.directStructs decl)
+    -- BUG#6: unqualified aliases keep the declaring-scope stamp (see enums).
+    ((ContractDecl.directStructs decl).map (StructDecl.stampScope decl.name))
 
 def StructEnv.extendContractQualifiedDecls (env : StructEnv)
     (decl : ContractDecl) : StructEnv :=
@@ -24684,7 +24852,9 @@ def ContractDecl.structEnvFromContractsInScope (env : StructEnv)
     (contracts : List ContractDecl) : StructEnv :=
   contracts.reverse.foldl
     (fun env decl =>
-      StructEnv.extendDecls env (ContractDecl.directStructs decl))
+      StructEnv.extendDecls env
+        ((ContractDecl.directStructs decl).map
+          (StructDecl.stampScope decl.name)))
     env
 
 def ContractDecl.structEnvWithQualifiedContracts (env : StructEnv)
@@ -24976,13 +25146,20 @@ def FunctionDecl.names (functions : List FunctionDecl) : List Name :=
 
 def ContractDecl.externalCallKindEntries? (contracts : List ContractDecl)
     (decl : ContractDecl) : Option (List ExternalCallKindEntry) :=
+  -- BUG#6: the same struct env `directCoreFunctions?` renders the callee-side
+  -- library dispatch selectors with — caller payload and callee dispatch must
+  -- hash the SAME library-qualified signature.
+  let structEnv := ContractDecl.structEnvFromContracts contracts
   let entriesFrom (decls : List ContractDecl) :=
     concatMapList
-      (ContractDecl.directExternalCallKindEntriesAs decl.name)
+      (fun d =>
+        ContractDecl.directExternalCallKindEntriesAs decl.name d structEnv)
       decls
   match ContractDecl.dispatchOrder? contracts decl with
   | some dispatchOrder => some (entriesFrom dispatchOrder)
-  | none => some (ContractDecl.directExternalCallKindEntriesAs decl.name decl)
+  | none =>
+      some
+        (ContractDecl.directExternalCallKindEntriesAs decl.name decl structEnv)
 
 def ExternalCallKindEnv.fromContracts? (contracts : List ContractDecl) :
     Option ExternalCallKindEnv := do
@@ -25775,6 +25952,18 @@ def ContractDecl.directCoreFunctions? (storageNames : List Name)
             (structEnv := ContractDecl.structEnvFromContracts contracts)
             (eventIndexedEnv := eventIndexedEnv)
             (overloadEvents := overloadEvents)
+        -- BUG#6: a LIBRARY's dispatch entrypoints answer to the
+        -- library-qualified selector (what solc's delegatecall dispatch
+        -- hashes), keeping callee dispatch symmetric with the caller-side
+        -- payload. Contract entrypoints keep the external-ABI selector.
+        let fd :=
+          if decl.kind == ContractKind.library then
+            { fd with
+              selector? :=
+                FunctionDecl.libraryAbiSelector?
+                  (ContractDecl.structEnvFromContracts contracts) fn }
+          else
+            fd
         some (fn, fd))
       ((ContractDecl.directOrdinaryFunctions decl).filter
         (fun fn =>
@@ -26140,8 +26329,15 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
   let qualifiedSelectorEnv :=
     concatMapList
       (fun decl =>
-        FunctionDecls.qualifiedSelectorEntries decl.name
-          (ContractDecl.directOrdinaryFunctions decl))
+        -- BUG#6: `L.f.selector` on a LIBRARY function is the
+        -- library-qualified selector (`isOff(Lib.Mode)`), not the
+        -- external-ABI one. Contract entries are unchanged.
+        if decl.kind == ContractKind.library then
+          FunctionDecls.libraryQualifiedSelectorEntries structEnv decl.name
+            (ContractDecl.directOrdinaryFunctions decl)
+        else
+          FunctionDecls.qualifiedSelectorEntries decl.name
+            (ContractDecl.directOrdinaryFunctions decl))
       allContracts
   -- ERROR-SELECTOR-COLLISION (#139): qualified `Contract.Bad` keys over ALL
   -- contracts/libraries, so a type-qualified `L.Bad.selector` / `Base.Bad.selector`
@@ -26721,8 +26917,15 @@ def ContractDecl.constructorFunctionFromOrders?
   let qualifiedSelectorEnv :=
     concatMapList
       (fun decl =>
-        FunctionDecls.qualifiedSelectorEntries decl.name
-          (ContractDecl.directOrdinaryFunctions decl))
+        -- BUG#6: `L.f.selector` on a LIBRARY function is the
+        -- library-qualified selector (`isOff(Lib.Mode)`), not the
+        -- external-ABI one. Contract entries are unchanged.
+        if decl.kind == ContractKind.library then
+          FunctionDecls.libraryQualifiedSelectorEntries structEnv decl.name
+            (ContractDecl.directOrdinaryFunctions decl)
+        else
+          FunctionDecls.qualifiedSelectorEntries decl.name
+            (ContractDecl.directOrdinaryFunctions decl))
       allContracts
   -- ERROR-SELECTOR-COLLISION (#139): qualified `Contract.Bad` keys over ALL
   -- contracts/libraries, so a type-qualified `L.Bad.selector` / `Base.Bad.selector`
