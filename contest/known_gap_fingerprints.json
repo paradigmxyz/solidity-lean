@@ -464,7 +464,7 @@
       ]
     },
     "H12": {
-      "fingerprint": "fp1|C|over_reject|full|0484700f9f5365f3",
+      "fingerprint": "fp1|C|over_reject|full|35b2b2bc06eb6e51",
       "repro_dir": "tests/forge-harness/extfn-location-erasure",
       "sources": [
         "ExtfnLocationErasure.sol"
