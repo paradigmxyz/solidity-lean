@@ -25190,36 +25190,11 @@ def ContractDecls.afterName? : List ContractDecl -> Name ->
       else
         ContractDecls.afterName? rest name
 
-def ContractDecls.contextualOrdinaryFunctions (constants : ConstantEnv)
-    (baseNames : List Name) (decls : List ContractDecl) :
-    List FunctionDecl :=
-  concatMapList
-    (ContractDecl.contextualOrdinaryFunctions constants baseNames)
-    decls
-
-def ContractDecls.contextualBaseHelpers (constants : ConstantEnv)
-    (baseNames : List Name) (decls : List ContractDecl) :
-    List FunctionDecl :=
-  concatMapList
-    (ContractDecl.contextualBaseHelpers constants baseNames)
-    decls
-
-def ContractDecls.contextualSuperHelpersFor? (constants : ConstantEnv)
-    (baseNames : List Name) (dispatchOrder : List ContractDecl)
-    (decl : ContractDecl) : Option (List FunctionDecl) := do
-  let supers ← ContractDecls.afterName? dispatchOrder decl.name
-  some
-    ((ContractDecls.contextualOrdinaryFunctions constants baseNames supers)
-      |>.filterMap (FunctionDecl.asSuperHelper? decl.name))
-
-def ContractDecls.contextualSuperHelpers? (constants : ConstantEnv)
-    (baseNames : List Name) (dispatchOrder : List ContractDecl) :
-    Option (List FunctionDecl) := do
-  let groups ←
-    mapOption
-      (ContractDecls.contextualSuperHelpersFor? constants baseNames dispatchOrder)
-      dispatchOrder
-  some (concatLists groups)
+-- `ContractDecls.contextualOrdinaryFunctions` and friends are defined further
+-- below, after `ContractDecl.scopedConstantEntries` (they now inline each
+-- contract's functions against that contract's OWN lexical constant scope, so
+-- a derived contract's constant does not shadow a file-level constant read by
+-- an inherited base function — see the C3 note there).
 
 def ContractDecl.directEvents (decl : ContractDecl) : List EventDecl :=
   decl.items.filterMap (fun item =>
@@ -25628,6 +25603,67 @@ def ContractDecl.qualifiedConstantEntries (contracts : List ContractDecl)
 def ContractDecls.qualifiedConstantEntries (contracts : List ContractDecl) :
     ConstantEnv :=
   concatMapList (ContractDecl.qualifiedConstantEntries contracts) contracts
+
+/-- Constants visible (unqualified) in `decl`'s OWN lexical scope: `decl`'s own
+    contract-level constants plus those inherited from its base contracts, in
+    C3 order (most-derived-first, so `decl`'s own constant shadows an inherited
+    same-name one). File-level constants are NOT included here; the caller
+    appends them as a lower-priority tail. This keeps a DERIVED contract's
+    constant out of a BASE contract's function body — solc resolves an inherited
+    base function's unqualified identifier in the base's scope, where only the
+    base's own/inherited constants and the file-level constant are visible, so a
+    same-name constant declared only in the derived contract must NOT capture it
+    (and, symmetrically, the base's constant must not leak into a sibling). -/
+def ContractDecl.scopedConstantEntries (contracts : List ContractDecl)
+    (decl : ContractDecl) : ConstantEnv :=
+  let order :=
+    match ContractDecl.dispatchOrder? contracts decl with
+    | some order => order
+    | none => [decl]
+  concatMapList
+    (fun c =>
+      (ContractDecl.directStateVars c).filterMap StateVarDecl.constantEntry?)
+    order
+
+def ContractDecls.contextualOrdinaryFunctions (hierarchy : List ContractDecl)
+    (sharedTail : ConstantEnv) (baseNames : List Name)
+    (decls : List ContractDecl) : List FunctionDecl :=
+  concatMapList
+    (fun decl =>
+      ContractDecl.contextualOrdinaryFunctions
+        (ContractDecl.scopedConstantEntries hierarchy decl ++ sharedTail)
+        baseNames decl)
+    decls
+
+def ContractDecls.contextualBaseHelpers (hierarchy : List ContractDecl)
+    (sharedTail : ConstantEnv) (baseNames : List Name)
+    (decls : List ContractDecl) : List FunctionDecl :=
+  concatMapList
+    (fun decl =>
+      ContractDecl.contextualBaseHelpers
+        (ContractDecl.scopedConstantEntries hierarchy decl ++ sharedTail)
+        baseNames decl)
+    decls
+
+def ContractDecls.contextualSuperHelpersFor? (hierarchy : List ContractDecl)
+    (sharedTail : ConstantEnv) (baseNames : List Name)
+    (dispatchOrder : List ContractDecl)
+    (decl : ContractDecl) : Option (List FunctionDecl) := do
+  let supers ← ContractDecls.afterName? dispatchOrder decl.name
+  some
+    ((ContractDecls.contextualOrdinaryFunctions hierarchy sharedTail baseNames
+        supers)
+      |>.filterMap (FunctionDecl.asSuperHelper? decl.name))
+
+def ContractDecls.contextualSuperHelpers? (hierarchy : List ContractDecl)
+    (sharedTail : ConstantEnv) (baseNames : List Name)
+    (dispatchOrder : List ContractDecl) : Option (List FunctionDecl) := do
+  let groups ←
+    mapOption
+      (ContractDecls.contextualSuperHelpersFor? hierarchy sharedTail baseNames
+        dispatchOrder)
+      dispatchOrder
+  some (concatLists groups)
 
 /-- Storage / constructor / initializer order.
 
@@ -27026,18 +27062,34 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
   let externalCallKindEnv ← ExternalCallKindEnv.fromContracts? allContracts
   let externalCallKindTypeEnv ← ExternalCallKindEnv.toTypeEnv? externalCallKindEnv
   let stateEnv := StateVars.extendTypeEnv externalCallKindTypeEnv stateVars
+  -- Per-contract constant scope: each contract's own/inherited constants (C3,
+  -- most-derived-first) shadow the shared file-level + qualified tail, but a
+  -- derived contract's constant never leaks into a base contract's function
+  -- body. The `dispatchOrder` (the target's C3 linearization) is closed under
+  -- bases, so it is a sufficient universe to re-derive each contract's own
+  -- linearization for scoping.
+  let sharedConstantTail :=
+    sourceConstantEnv ++ ContractDecls.qualifiedConstantEntries allContracts
   let modifiers :=
-    (concatMapList ContractDecl.directModifiersStamped dispatchOrder).map
-      (ModifierDecl.inlineConstants constants)
+    concatMapList
+      (fun decl =>
+        (ContractDecl.directModifiersStamped decl).map
+          (ModifierDecl.inlineConstants
+            (ContractDecl.scopedConstantEntries dispatchOrder decl ++
+              sharedConstantTail)))
+      dispatchOrder
   let baseNames := dispatchOrder.map ContractDecl.name
   let ordinaryFunctions :=
-    ContractDecls.contextualOrdinaryFunctions constants baseNames dispatchOrder
+    ContractDecls.contextualOrdinaryFunctions dispatchOrder sharedConstantTail
+      baseNames dispatchOrder
   let libraryHelpers :=
     ContractDecl.libraryHelperFunctions sourceConstantEnv allContracts
   let baseHelpers :=
-    ContractDecls.contextualBaseHelpers constants baseNames dispatchOrder
+    ContractDecls.contextualBaseHelpers dispatchOrder sharedConstantTail
+      baseNames dispatchOrder
   let superHelpers ←
-    ContractDecls.contextualSuperHelpers? constants baseNames dispatchOrder
+    ContractDecls.contextualSuperHelpers? dispatchOrder sharedConstantTail
+      baseNames dispatchOrder
   let sourceFunctions :=
     sourceFunctions.map (FunctionDecl.inlineConstants sourceConstantEnv)
   let availableFunctions :=
@@ -27600,18 +27652,34 @@ def ContractDecl.constructorFunctionFromOrders?
   let externalCallKindEnv ← ExternalCallKindEnv.fromContracts? allContracts
   let externalCallKindTypeEnv ← ExternalCallKindEnv.toTypeEnv? externalCallKindEnv
   let stateEnv := StateVars.extendTypeEnv externalCallKindTypeEnv stateVars
+  -- Per-contract constant scope: each contract's own/inherited constants (C3,
+  -- most-derived-first) shadow the shared file-level + qualified tail, but a
+  -- derived contract's constant never leaks into a base contract's function
+  -- body. The `dispatchOrder` (the target's C3 linearization) is closed under
+  -- bases, so it is a sufficient universe to re-derive each contract's own
+  -- linearization for scoping.
+  let sharedConstantTail :=
+    sourceConstantEnv ++ ContractDecls.qualifiedConstantEntries allContracts
   let modifiers :=
-    (concatMapList ContractDecl.directModifiersStamped dispatchOrder).map
-      (ModifierDecl.inlineConstants constants)
+    concatMapList
+      (fun decl =>
+        (ContractDecl.directModifiersStamped decl).map
+          (ModifierDecl.inlineConstants
+            (ContractDecl.scopedConstantEntries dispatchOrder decl ++
+              sharedConstantTail)))
+      dispatchOrder
   let baseNames := dispatchOrder.map ContractDecl.name
   let ordinaryFunctions :=
-    ContractDecls.contextualOrdinaryFunctions constants baseNames dispatchOrder
+    ContractDecls.contextualOrdinaryFunctions dispatchOrder sharedConstantTail
+      baseNames dispatchOrder
   let libraryHelpers :=
     ContractDecl.libraryHelperFunctions sourceConstantEnv allContracts
   let baseHelpers :=
-    ContractDecls.contextualBaseHelpers constants baseNames dispatchOrder
+    ContractDecls.contextualBaseHelpers dispatchOrder sharedConstantTail
+      baseNames dispatchOrder
   let superHelpers ←
-    ContractDecls.contextualSuperHelpers? constants baseNames dispatchOrder
+    ContractDecls.contextualSuperHelpers? dispatchOrder sharedConstantTail
+      baseNames dispatchOrder
   let sourceFunctions :=
     sourceFunctions.map (FunctionDecl.inlineConstants sourceConstantEnv)
   let availableFunctions :=
