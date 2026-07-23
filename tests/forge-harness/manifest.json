@@ -7695,6 +7695,50 @@
    }
   },
   {
+   "name": "storage-array-literal-widen",
+   "description": "Storage state-variable inline array-literal element-widening boundary (2026-07-23). Unlike a MEMORY fixed array (the classic uint8[2] -> uint256[2] gotcha, which solc and this model both still REJECT), a NON-POINTER STORAGE array \u2014 a state variable \u2014 runs solc's storage-copy conversion branch (ArrayType::isImplicitlyConvertibleTo, Types.cpp:1640-1648), where each element need only be IMPLICITLY CONVERTIBLE. So pinned solc 0.8.35 ACCEPTS and Forge pins the runtime values of: uint256[2] arr=[50,0], uint16[3]=[1,2,3], uint256[2][2]=[[1,2],[3,4]], and typed-lead uint256[2]=[uint8(9),7]. The model previously OVER-REJECTED every widening state-var initializer (fail-closed expectedType(u256[2])(u256[2]), the printed types coinciding because the literal's checked type is the target-wide type). It now mirrors solc: storage widening ACCEPTS while sign-change ([-1,2]), narrowing ([uint16(1),2]), element-overflow, wrong-length, and the MEMORY twin still REJECT.",
+   "forge": {
+    "root": "tests/forge-harness/storage-array-literal-widen",
+    "match_contract": "StorageArrayLiteralWidenForgeTest",
+    "match_test": "test*",
+    "quiet": true
+   },
+   "solc_import": {
+    "source": "tests/forge-harness/storage-array-literal-widen/src/StorageArrayLiteralWiden.sol",
+    "contract": "StorageArrayLiteralWidenHarnessTarget",
+    "namespace": "SolidCore.Solidity.SolcAstImport.StorageArrayLiteralWiden"
+   },
+   "solc_rejects": [
+    "tests/forge-harness/storage-array-literal-widen/invalid/MemWiden256.sol",
+    "tests/forge-harness/storage-array-literal-widen/invalid/StateNarrow.sol",
+    "tests/forge-harness/storage-array-literal-widen/invalid/StateSignChange.sol"
+   ],
+   "lean": {
+    "imports": [
+     "SolidCore.Solidity.Checked",
+     "SolidCore.Witness.Checked",
+     "SolidCore.Witness.StorageArrayLiteralWiden"
+    ],
+    "evals": [
+     {
+      "label": "importedContractAccepted",
+      "expr": "SolidCore.Solidity.SolcAstImport.StorageArrayLiteralWiden.importedContractAccepted",
+      "expect": "true"
+     },
+     {
+      "label": "storageWidenTargetsAccepted",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.salwAllAccepted",
+      "expect": "true"
+     },
+     {
+      "label": "signNarrowOverflowLengthMemStillRejected",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.salwAllRejected",
+      "expect": "true"
+     }
+    ]
+   }
+  },
+  {
    "name": "inline-array-literal-exec",
    "description": "AL-EXEC (task #58, 2026-07-09): executable lowering of an inline array literal USED in a function body. solc 0.8.35 types an inline array literal bottom-up (smallest common mobile element type, e.g. [1,2,3] : uint8[3]) and requires the fixed-size memory-array target's element type to EQUAL that bottom-up type. Post-typecheck (AL1) the interpreter previously OVER-REJECTED at executable lowering whenever the elements were undecorated narrow-int literals (uint8[3]=[1,2,3], uint8[2][2]=[[1,2],[3,4]]): the env-less abiTy? of a bare number literal is uint256, so the generic fixed->fixed array conversion saw a uint256[.] source vs the narrow target and failed, aborting the whole contract with `unsupported \"checked executable checked contract\"`. The fix lowers an inline array literal against a fixed-array target element-wise at the (AL1-verified) target element type. This lane runs each solc-accepted shape through the INTERPRETER via ownCall and pins the SAME runtime value Forge pins on the EVM: var-init narrow (10203), nested/multidim narrow (1234), index-of-literal ([10,20,30][1]=20), inline literal as internal-call argument (sum3([5,6,7])=18), direct return of a fixed memory-array literal ([1,2,3]), and an order-sensitive int8 negative-leading literal (255002).",
    "forge": {

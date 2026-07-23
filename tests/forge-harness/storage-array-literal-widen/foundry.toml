@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/storage-array-literal-widen/out"
+cache_path = "../../.foundry-suites/storage-array-literal-widen/cache"
+evm_version = "cancun"
