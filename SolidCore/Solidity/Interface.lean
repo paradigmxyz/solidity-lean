@@ -16112,7 +16112,8 @@ def FunctionDecl.internalTupleAssignReturnCallCore?
     (externalCallKindEnv : ExternalCallKindEnv)
     (storageNames : List Name) (modifiers : List SourceModifierDecl)
     (functions freeFunctions : List FunctionDecl) (name : Name) (args : List Arg)
-    (targets : List (Option CoreLValue)) : Option CoreStmt := do
+    (targets : List (Option CoreLValue))
+    (lhsPrefix : List CoreStmt := []) : Option CoreStmt := do
   let (returnBindings, returnStorageRefs, prefixCore, bodyCore) ←
     FunctionDecl.internalCallParts?
       internalFuel storageRefEnv env externalCallKindEnv storageNames
@@ -16124,11 +16125,18 @@ def FunctionDecl.internalTupleAssignReturnCallCore?
   if targets.length == returnBindings.length then
     let returnNames :=
       returnBindings.map SolidCore.Solidity.Source.BindingDecl.name
+    -- solc evaluates the tuple-assignment RHS (the multi-return call) BEFORE the
+    -- LHS index expressions. `prefixCore ++ captureReturn` runs the RHS call and
+    -- captures its returns; `lhsPrefix` (the hoisted LHS index-call temps, empty
+    -- when the LHS has no call-valued index) then runs; finally the (pure temp
+    -- read) targets are assigned. Store order among distinct targets is
+    -- unobservable.
     some
       (SolidCore.Solidity.Source.Stmt.block
         (prefixCore ++
           [ SolidCore.Solidity.Source.Stmt.captureReturn
               returnNames bodyCore ] ++
+          lhsPrefix ++
           CoreBindingDecls.assignToTargets targets returnBindings))
   else
     none
@@ -18009,17 +18017,39 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           | none => Stmt.toCore? storageNames (Stmt.expr expr)
       | Stmt.expr
           (Expr.assign (Expr.tuple lhsItems) AssignOp.assign
-            (Expr.call (Expr.ident name) args)) => do
+            (Expr.call (Expr.ident name) args)) =>
           let fallback :=
             Stmt.expr
               (Expr.assign (Expr.tuple lhsItems) AssignOp.assign
                 (Expr.call (Expr.ident name) args))
-          let targets ← TupleItems.toCoreLValueTargets? storageNames lhsItems
-          match FunctionDecl.internalTupleAssignReturnCallCore?
-              internalFuel storageRefEnv env externalCallKindEnv storageNames
-              modifiers functions freeFunctions name args targets with
-          | some coreStmt => some coreStmt
-          | none => Stmt.toCore? storageNames fallback
+          match TupleItems.toCoreLValueTargets? storageNames lhsItems with
+          | some targets =>
+              -- Pure LHS (no call-valued index): unchanged path.
+              match FunctionDecl.internalTupleAssignReturnCallCore?
+                  internalFuel storageRefEnv env externalCallKindEnv storageNames
+                  modifiers functions freeFunctions name args targets with
+              | some coreStmt => some coreStmt
+              | none => Stmt.toCore? storageNames fallback
+          | none =>
+              -- TUP-IDX (direct-call RHS): an LHS component is indexed by an
+              -- internal call — `(m[k()], arr[j()]) = two()`. The pure lvalue
+              -- lowering above rejects the call index, so without this it fell
+              -- through to the general ANF hoister, which evaluated the LHS index
+              -- calls BEFORE the RHS call (wrong order). Hoist each LHS index call
+              -- into a temp and thread it as `lhsPrefix` — spliced AFTER the RHS
+              -- call is evaluated and captured — so solc's RHS-then-LHS-index order
+              -- is reproduced (mirrors the tuple-LITERAL RHS arm below).
+              match FunctionDecl.tupleLhsIndexCallHoistTargets?
+                  internalFuel storageRefEnv env externalCallKindEnv storageNames
+                  modifiers functions freeFunctions 0 lhsItems with
+              | some (lhsPrefix, targets) =>
+                  match FunctionDecl.internalTupleAssignReturnCallCore?
+                      internalFuel storageRefEnv env externalCallKindEnv storageNames
+                      modifiers functions freeFunctions name args targets
+                      lhsPrefix with
+                  | some coreStmt => some coreStmt
+                  | none => Stmt.toCore? storageNames fallback
+              | none => Stmt.toCore? storageNames fallback
       | Stmt.expr
           (Expr.assign (Expr.tuple lhsItems) AssignOp.assign
             (Expr.tuple rhsItems)) =>
