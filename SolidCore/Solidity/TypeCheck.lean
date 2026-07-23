@@ -6713,10 +6713,32 @@ def checkExpr (env : CheckEnv) :
               (Ty.canExplicitlyConvert env.types arg.source arg.ty targetTy)
               (TypeError.invalidConversion arg.ty targetTy)
         | _ => Except.ok ()
+        -- A `bytes(x)`/`string(x)` conversion whose OPERAND is itself a dynamic
+        -- `bytes`/`string` is a pointer REINTERPRET (identical layout): solc
+        -- yields a reference aliasing the operand's storage, so the result is an
+        -- lvalue exactly when the operand is (e.g. `bytes(m)[i] = v` for a
+        -- `string memory m`, or `bytes(s)[i]` on a storage `string s`). Every
+        -- other conversion (numeric, `bytesN`, address, a copy-producing widen)
+        -- is a fresh value and stays a non-lvalue. Propagate the operand's
+        -- lvalue / state-lvalue / data-location so the downstream index access
+        -- (and assignment-target check) sees the aliased reference.
+        let reinterpret : Option CheckedExpr :=
+          match checkedArgs with
+          | [arg] =>
+              if (targetTy == Solidity.Ty.bytes ||
+                    targetTy == Solidity.Ty.string) &&
+                  (arg.ty == Solidity.Ty.bytes ||
+                    arg.ty == Solidity.Ty.string) then
+                some arg
+              else
+                none
+          | _ => none
         Except.ok
           { source := expr
             ty := env.qualifyCurrentLocalUserTypes targetTy
-            lvalue := false }
+            lvalue := (reinterpret.map (·.lvalue)).getD false
+            stateLValue := (reinterpret.map (·.stateLValue)).getD false
+            dataLocation? := reinterpret.bind (·.dataLocation?) }
       match targetTy with
       | Solidity.Ty.user path =>
           match env.types.lookupStruct? path with
