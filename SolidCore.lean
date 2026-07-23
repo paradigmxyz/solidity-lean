@@ -97,3 +97,4 @@ import SolidCore.Witness.TupleSwapStoragePtrs
 import SolidCore.Witness.TupleDeclTwoStoragePtrs
 import SolidCore.Witness.TupleAssignStoragePtrScalar
 import SolidCore.Witness.PackedSignedArrayMemArith
+import SolidCore.Witness.DeleteLocalFnptrConditional

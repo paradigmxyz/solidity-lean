@@ -13205,6 +13205,70 @@ def Parameters.toStorageAwareCoreArgDeclPiecesWithInternalAliasesFrom?
               , headParamDecls ++ tailParamDecls )
   | _, _, _, _ => none
 
+/-- Does statement `s` reassign (`name = …`) or `delete name` a local internal
+    function-pointer named `name` anywhere within its subtree? Used to decide
+    whether a `function(...) internal name = target;` var declaration may be
+    statically inlined as an alias: if the name is rebound inside a NESTED
+    control-flow construct (an `if`/loop/`try` branch, or a bare block), the
+    static alias would be resolved against the WRONG (declaration-time) target
+    at a later call site, because the alias-inlining sequence fold discards the
+    per-branch environment. In that case the alias is declined and `name`
+    stays a genuine runtime pointer local, so the call lowers to
+    `Stmt.internalCallPtr` and dispatches on the real (possibly zeroed)
+    dispatch ID — matching solc's `Panic(0x51)` for a deleted/uninitialized
+    pointer. Fuel-bounded (mirrors the alias-inlining passes); fuel exhaustion
+    conservatively reports `true` (decline the alias — always sound). -/
+def Stmt.internalFunctionAliasNameReboundFuel (name : Name) :
+    Nat -> Stmt -> Bool
+  | 0, _ => true
+  | _ + 1, Stmt.expr (Expr.assign (Expr.ident n) _ _) => n == name
+  | _ + 1, Stmt.expr (Expr.unary UnaryOp.delete (Expr.ident n)) => n == name
+  | fuel + 1, Stmt.block body =>
+      body.any (Stmt.internalFunctionAliasNameReboundFuel name fuel)
+  | fuel + 1, Stmt.ifElse _ thenBranch elseBranch =>
+      Stmt.internalFunctionAliasNameReboundFuel name fuel thenBranch ||
+        (match elseBranch with
+         | some s => Stmt.internalFunctionAliasNameReboundFuel name fuel s
+         | none => false)
+  | fuel + 1, Stmt.whileLoop _ body =>
+      Stmt.internalFunctionAliasNameReboundFuel name fuel body
+  | fuel + 1, Stmt.doWhile body _ =>
+      Stmt.internalFunctionAliasNameReboundFuel name fuel body
+  | fuel + 1, Stmt.forLoop init _ _ body =>
+      (match init with
+       | some s => Stmt.internalFunctionAliasNameReboundFuel name fuel s
+       | none => false) ||
+        Stmt.internalFunctionAliasNameReboundFuel name fuel body
+  | fuel + 1, Stmt.unchecked body =>
+      Stmt.internalFunctionAliasNameReboundFuel name fuel body
+  | fuel + 1, Stmt.tryCatch _ clauses =>
+      clauses.any (fun clause =>
+        match clause with
+        | CatchClause.clause _ _ body =>
+            Stmt.internalFunctionAliasNameReboundFuel name fuel body)
+  | fuel + 1, Stmt.tryCatchReturns _ _ success clauses =>
+      Stmt.internalFunctionAliasNameReboundFuel name fuel success ||
+        clauses.any (fun clause =>
+          match clause with
+          | CatchClause.clause _ _ body =>
+              Stmt.internalFunctionAliasNameReboundFuel name fuel body)
+  | _ + 1, _ => false
+termination_by fuel _ => fuel
+
+/-- The alias name is rebound inside a NESTED construct somewhere in the rest of
+    the scope. Top-level `name = <ident>` reassignments and top-level
+    `delete name` statements are handled correctly by the sequence fold itself
+    (they update the alias in the unconditional control-flow position), so they
+    are NOT counted here — only reassignments/deletes reachable by descending
+    into a compound statement invalidate the static alias. -/
+def Stmt.internalFunctionAliasNameReboundInRest
+    (name : Name) (rest : List Stmt) : Bool :=
+  rest.any (fun s =>
+    match s with
+    | Stmt.expr (Expr.assign (Expr.ident _) _ _) => false
+    | Stmt.expr (Expr.unary UnaryOp.delete (Expr.ident _)) => false
+    | _ => Stmt.internalFunctionAliasNameReboundFuel name 1024 s)
+
 set_option maxHeartbeats 1000000 in
 mutual
 
@@ -13452,6 +13516,23 @@ def Stmt.inlineInternalFunctionAliasSeqFuel
           VarBinding.internalFunctionAliasTarget?
             aliasEnv functions freeFunctions binding sourceName with
       | some aliasBinding =>
+          if (binding.name.map
+                (fun n => Stmt.internalFunctionAliasNameReboundInRest n rest)).getD
+              false then
+            -- The alias name is rebound inside a nested branch/loop later in the
+            -- scope; a static alias would resolve the trailing call to the
+            -- declaration-time target. Decline: keep `name` a runtime pointer.
+            let head :=
+              Stmt.inlineInternalFunctionAliasesFuel functions freeFunctions
+                fuel aliasEnv
+                (Stmt.varDecl [binding] (some (Expr.ident sourceName)))
+            let aliasEnv' :=
+              VarBinding.removeInternalFunctionAlias aliasEnv binding
+            let (tail, finalEnv) :=
+              Stmt.inlineInternalFunctionAliasSeqFuel
+                functions freeFunctions fuel aliasEnv' rest
+            (head :: tail, finalEnv)
+          else
           let aliasEnv' :=
             InternalFunctionAliasEnv.extend aliasEnv aliasBinding
           Stmt.inlineInternalFunctionAliasSeqFuel
@@ -13470,6 +13551,19 @@ def Stmt.inlineInternalFunctionAliasSeqFuel
   | fuel + 1, aliasEnv, Stmt.varDecl [binding] none :: rest =>
       match VarBinding.internalFunctionAliasDecl? binding with
       | some aliasBinding =>
+          if (binding.name.map
+                (fun n => Stmt.internalFunctionAliasNameReboundInRest n rest)).getD
+              false then
+            let head :=
+              Stmt.inlineInternalFunctionAliasesFuel functions freeFunctions
+                fuel aliasEnv (Stmt.varDecl [binding] none)
+            let aliasEnv' :=
+              VarBinding.removeInternalFunctionAlias aliasEnv binding
+            let (tail, finalEnv) :=
+              Stmt.inlineInternalFunctionAliasSeqFuel
+                functions freeFunctions fuel aliasEnv' rest
+            (head :: tail, finalEnv)
+          else
           let aliasEnv' :=
             InternalFunctionAliasEnv.extend aliasEnv aliasBinding
           Stmt.inlineInternalFunctionAliasSeqFuel
