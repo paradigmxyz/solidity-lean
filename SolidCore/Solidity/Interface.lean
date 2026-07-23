@@ -13871,6 +13871,34 @@ def storageAliasAssignmentExprCore? (storageRefEnv : StorageRefEnv)
       else
         none
 
+/-- CHAINED storage-pointer assignment `q = p = y` (right-associative): the
+    VALUE of the inner `p = y` is the storage reference now held by `p`, so the
+    outer `q = (that)` re-points `q` to the SAME target. Desugar a chain of
+    storage-pointer rebinds into the SEQUENCE of individual re-points, spliced
+    into the enclosing statement list (NOT a block — that would push a scope and
+    drop the re-points). Recurses on the RHS so an arbitrarily deep chain
+    (`r = q = p = y`) fully unfolds; the innermost pointer re-points to its own
+    RHS shape via `storageAliasAssignmentExprCore?`, and each outer pointer
+    re-points to alias the pointer immediately to its right. Returns `none` for
+    a non-pointer chain (an ordinary value chain `a = b = 5` keeps its existing
+    generic `assignExpr`-nesting lowering). -/
+def storageAliasChainedAssignCore? (storageRefEnv : StorageRefEnv)
+    (storageNames : List Name) (name : Name) :
+    Expr -> Option (List CoreStmt)
+  | Expr.assign (Expr.ident inner) AssignOp.assign innerRhs =>
+      if StorageRefEnv.isStorageRef storageRefEnv name
+          && StorageRefEnv.isStorageRef storageRefEnv inner then do
+        let innerStmts ←
+          storageAliasChainedAssignCore? storageRefEnv storageNames inner innerRhs
+        let outer ←
+          storageAliasAssignmentCore? storageRefEnv storageNames name inner
+        some (innerStmts ++ [outer])
+      else
+        none
+  | rhs =>
+      (storageAliasAssignmentExprCore? storageRefEnv storageNames name rhs).map
+        (fun head => [head])
+
 def Expr.localStorageArrayMemberStmtCore?
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
     (storageNames : List Name) :
@@ -20738,14 +20766,14 @@ def Stmt.listLowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           -- RHS shape (bare ident as before, plus indexed/member paths — the
           -- storage-pointer-return rewrite shape). Non-storage assignments fall
           -- through to the generic lowering unchanged.
-          match storageAliasAssignmentExprCore? storageRefEnv storageNames name rhs with
-          | some head => do
+          match storageAliasChainedAssignCore? storageRefEnv storageNames name rhs with
+          | some heads => do
               let tail ←
                 Stmt.listToCoreWithInternalCallsWithRefs?
                   internalFuel
                   storageRefEnv env externalCallKindEnv storageNames modifiers functions
                   freeFunctions returnTys rest
-              some (head :: tail)
+              some (heads ++ tail)
           | none => do
               let head ←
                 Stmt.toCoreWithInternalCalls?

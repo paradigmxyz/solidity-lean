@@ -8532,8 +8532,18 @@ def checkExpr (env : CheckEnv) :
                 lhsChecked.ty ||
                 opResultTy == lhsChecked.ty)
               (TypeError.expectedType lhsChecked.ty opResultTy)
+            -- The VALUE of an assignment expression `a = b` is `a` after the
+            -- write, carrying the LHS's data location (solc). For a storage
+            -- POINTER LHS this makes `p = y` itself a storage reference, so a
+            -- CHAINED outer assignment `q = p = y` sees a storage-ref RHS and
+            -- re-points `q` too (instead of fail-closing over the pointer
+            -- rebind). The result is never itself an lvalue.
             Except.ok
-              { source := expr, ty := lhsChecked.ty, lvalue := false }
+              { source := expr, ty := lhsChecked.ty, lvalue := false
+                stateLValue := lhsChecked.stateLValue
+                storageRefs := lhsChecked.storageRefs
+                dataLocations := lhsChecked.dataLocations
+                dataLocation? := lhsChecked.dataLocation? }
           match expr with
           | Solidity.Expr.assign _
               Solidity.AssignOp.assign _ =>
