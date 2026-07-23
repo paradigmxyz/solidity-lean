@@ -6688,6 +6688,14 @@ def Expr.toCoreLValue? (storageNames : List Name) : Expr -> Option CoreLValue
           match stateNameImmutableKey? name storageNames with
           | some key => some (SolidCore.Solidity.Source.LValue.immutable key)
           | none => none
+  | Expr.call (Expr.typeName Ty.bytes) [Arg.positional inner]
+  | Expr.call (Expr.typeName Ty.string) [Arg.positional inner] =>
+      -- `bytes(x)`/`string(x)` as an assignment TARGET (`bytes(m)[i] = v`): the
+      -- string<->bytes conversion is a pointer reinterpret (identical layout),
+      -- so the conversion is transparent for lvalue resolution — peel it and
+      -- lower the operand as an lvalue. The typechecker has already confirmed
+      -- the operand is a dynamic `bytes`/`string` lvalue.
+      Expr.toCoreLValue? storageNames inner
   | _ => none
 termination_by expr => (sizeOf expr, 0)
 
