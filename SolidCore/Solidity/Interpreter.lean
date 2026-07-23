@@ -8037,6 +8037,21 @@ def Expr.evalTupleComponentsRefPreservingFuel
                       match rt.lookupStorageBase? source with
                       | some base => pure (base.toRefValue, rt)
                       | none => Expr.eval context rt comp
+                  | Expr.storageRead _ source [] =>
+                      -- A whole bare STATE-VARIABLE RHS (`y`) paired with a
+                      -- storage-pointer target RE-POINTS the local to that state
+                      -- variable's storage lvalue — the same pointer the scalar
+                      -- `p = y` re-point captures (`Stmt.storageAliasAssign` →
+                      -- `Value.storageRef`) — instead of DEREFERENCING y's
+                      -- struct CONTENTS into a value the write then deep-copies
+                      -- THROUGH the pointer. The storage value-use normalizer
+                      -- flips this whole-variable read `ref` → `load` (tuple-RHS
+                      -- components are value-use), so match ANY mode with empty
+                      -- indexes; since the target is a storage pointer, solc's
+                      -- typing guarantees the component is a storage reference.
+                      -- This makes `(p, v) = (y, 7)` rebind p to y rather than
+                      -- copying y's contents into x.
+                      pure (Value.storageRef source, rt)
                   | _ => Expr.eval context rt comp
                 else
                   Expr.eval context rt comp
