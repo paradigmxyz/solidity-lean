@@ -13817,6 +13817,25 @@ def storageAliasAssignmentExprCore? (storageRefEnv : StorageRefEnv)
     Expr -> Option CoreStmt
   | Expr.ident target =>
       storageAliasAssignmentCore? storageRefEnv storageNames name target
+  | Expr.ternary cond thenExpr elseExpr =>
+      -- G#116 (assign counterpart): re-pointing a storage-pointer local from a
+      -- conditional of two storage references (`p = cond ? y : x`) must RE-POINT
+      -- `p` to the SELECTED branch, exactly like the decl-from-ternary form
+      -- (`storageAliasDeclFromTernaryCore?`). Branch into an `ifElse` that runs
+      -- the matching re-point ASSIGN in the CURRENT scope (the `ifElse` evaluator
+      -- runs the chosen bare branch directly — no scope push — so the re-point
+      -- persists). Recurses so either branch may itself be a path or nested
+      -- ternary. Without this arm the ternary RHS fell through to generic
+      -- lowering, which left `p` aliasing its original decl target.
+      if StorageRefEnv.isStorageRef storageRefEnv name then do
+        let condCore ← Expr.toCore? storageNames cond
+        let thenStmt ←
+          storageAliasAssignmentExprCore? storageRefEnv storageNames name thenExpr
+        let elseStmt ←
+          storageAliasAssignmentExprCore? storageRefEnv storageNames name elseExpr
+        some (SolidCore.Solidity.Source.Stmt.ifElse condCore thenStmt elseStmt)
+      else
+        none
   | rhs =>
       if StorageRefEnv.isStorageRef storageRefEnv name then
         match Expr.storageRefPathCore? storageRefEnv storageNames rhs with

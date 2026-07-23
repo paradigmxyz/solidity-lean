@@ -15,6 +15,7 @@ import SolidCore.Witness.AcceptanceBoundaries
 import SolidCore.Witness.AcceptanceBoundariesRound2
 import SolidCore.Witness.ArrayLiteralWiden
 import SolidCore.Witness.CF2RevertPruning
+import SolidCore.Witness.AssignTernaryStoragePtr
 import SolidCore.Witness.CeFamily
 import SolidCore.Witness.OverloadShadow
 import SolidCore.Witness.ConstScopeShadow
