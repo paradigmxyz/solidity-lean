@@ -91,4 +91,5 @@ import SolidCore.Witness.UsingFieldAmbiguity
 import SolidCore.Witness.LibraryQualifiedSignatures
 import SolidCore.Witness.TupleSwapPackedStorage
 import SolidCore.Witness.TupleSwapStoragePtrs
+import SolidCore.Witness.TupleDeclTwoStoragePtrs
 import SolidCore.Witness.PackedSignedArrayMemArith

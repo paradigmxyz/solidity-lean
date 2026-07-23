@@ -7071,6 +7071,68 @@ def Expr.storagePathCore? (storageNames : List Name) :
       some (name, indexes ++ [indexCore])
   | _ => none
 
+-- Lower ONE `storage`-location tuple-decl binding paired with its RHS component
+-- to a direct storage-pointer alias declaration — byte-identically to the
+-- single-binding `T storage p = <item>;` lowering (see the `some
+-- DataLocation.storage, some source` arm of the varDecl dispatch). solc binds a
+-- declared `T storage` local to the RHS component's storage LVALUE (a pointer),
+-- so a later write THROUGH the local reaches the pointed-to state variable.
+def VarBinding.toStoragePtrTupleDecl? (storageNames : List Name)
+    (binding : VarBinding) (item : Expr) : Option CoreStmt := do
+  let name ← binding.name
+  match item with
+  | Expr.call (Expr.member target "push") [] =>
+      storageArrayPushReturnAliasBlockCore? storageNames binding target
+  | _ => do
+      storageReferenceBindingSupported? binding
+      let (target, indexes) ← Expr.storagePathCore? storageNames item
+      match indexes with
+      | [] => some (SolidCore.Solidity.Source.Stmt.storageAlias name target)
+      | _ =>
+          some
+            (SolidCore.Solidity.Source.Stmt.storageAliasPath
+              name target indexes)
+
+-- Is every binding of a tuple declaration a NAMED `storage`-location pointer?
+def VarBindings.allStoragePointers : List VarBinding -> Bool
+  | [] => true
+  | binding :: rest =>
+      binding.location == some DataLocation.storage
+        && binding.name.isSome
+        && VarBindings.allStoragePointers rest
+
+def VarBindings.toStoragePtrTupleDecls? (storageNames : List Name) :
+    List VarBinding -> List TupleItem -> Option (List CoreStmt)
+  | [], [] => some []
+  | binding :: bindings, TupleItem.value item :: items => do
+      let head ← VarBinding.toStoragePtrTupleDecl? storageNames binding item
+      let tail ← VarBindings.toStoragePtrTupleDecls? storageNames bindings items
+      some (head :: tail)
+  | _, _ => none
+termination_by bindings _ => sizeOf bindings
+
+-- STORAGE-POINTER TUPLE DECLARATION (`(S storage p, S storage q) = (y, x)`): a
+-- multi-binding tuple decl EVERY component of which is a `storage`-location
+-- pointer. The generic literal-tuple lowering (`tupleVarDeclCorePieces?`)
+-- declared each such local with a plain `Stmt.varDecl` (a fresh local holding
+-- the aggregate's DEFAULT value) then ran the flat `assignTuple`; its
+-- storage-pointer RE-POINT path only fires when the target local ALREADY holds a
+-- storage ref, which a freshly default-declared local does not, so the RHS was
+-- DEREFERENCED into the local and writes THROUGH it never reached storage (`run`
+-- returned 102 with storage unchanged instead of 2112). Instead bind each local
+-- directly to its component's storage lvalue, LEFT to RIGHT — identical to the
+-- single-binding `T storage p = <item>;` lowering. All components are pure
+-- lvalue resolutions (no contents read), so per-item binding matches solc's
+-- "evaluate the whole RHS tuple, then bind" order observably. Returns `none`
+-- (caller falls back to the generic path) unless every binding is a named
+-- storage pointer and every component is a lowerable storage path.
+def tupleVarDeclAllStorageCore? (storageNames : List Name)
+    (bindings : List VarBinding) (items : List TupleItem) :
+    Option (List CoreStmt) := do
+  if bindings.length == items.length then some () else none
+  if VarBindings.allStoragePointers bindings then some () else none
+  VarBindings.toStoragePtrTupleDecls? storageNames bindings items
+
 def Expr.storageRefPathCore? (storageRefEnv : StorageRefEnv)
     (storageNames : List Name) :
     Expr -> Option (Name × List CoreExpr)
@@ -20269,9 +20331,13 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
   | none =>
       match stmt with
       | Stmt.varDecl bindings@(_ :: _ :: _) (some (Expr.tuple items)) => do
-          let (coreDecls, assigns) ←
-            tupleVarDeclCorePieces? storageNames bindings items
-          some (SolidCore.Solidity.Source.Stmt.block (coreDecls ++ assigns))
+          match tupleVarDeclAllStorageCore? storageNames bindings items with
+          | some decls =>
+              some (SolidCore.Solidity.Source.Stmt.block decls)
+          | none => do
+              let (coreDecls, assigns) ←
+                tupleVarDeclCorePieces? storageNames bindings items
+              some (SolidCore.Solidity.Source.Stmt.block (coreDecls ++ assigns))
       -- GENERAL TUPLE-VARDECL (#171 abi.decode RHS, #172 ternary RHS): a
       -- multi-binding tuple decl whose non-literal-tuple RHS is lowerable as one
       -- expression. `Stmt.listLowerCore? internalFuel none` flattens this so the locals stay in scope for
@@ -20866,6 +20932,9 @@ def Stmt.listLowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                   some (head :: tail)
       | Stmt.varDecl bindings@(_ :: _ :: _) (some (Expr.tuple items)) :: rest => do
           let pieces? : Option (List CoreStmt) :=
+            match tupleVarDeclAllStorageCore? storageNames bindings items with
+            | some decls => some decls
+            | none =>
             match tupleVarDeclCorePieces? storageNames bindings items with
             | some (coreDecls, assigns) => some (coreDecls ++ assigns)
             | none => do
@@ -21890,10 +21959,15 @@ def Stmt.listLowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
       match stmts with
       | [] => some []
       | Stmt.varDecl bindings@(_ :: _ :: _) (some (Expr.tuple items)) :: rest => do
-          let (coreDecls, assigns) ←
-            tupleVarDeclCorePieces? storageNames bindings items
+          let pieces ←
+            match tupleVarDeclAllStorageCore? storageNames bindings items with
+            | some decls => some decls
+            | none => do
+                let (coreDecls, assigns) ←
+                  tupleVarDeclCorePieces? storageNames bindings items
+                some (coreDecls ++ assigns)
           let tail ← Stmt.listLowerCore? internalFuel none storageNames rest
-          some (coreDecls ++ assigns ++ tail)
+          some (pieces ++ tail)
       -- GENERAL TUPLE-VARDECL (#171 abi.decode RHS, #172 ternary RHS): flatten a
       -- multi-binding tuple decl with a single-expression RHS into the enclosing list
       -- so the declared locals stay in scope for `rest`.
