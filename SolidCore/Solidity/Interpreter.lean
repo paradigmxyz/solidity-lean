@@ -6236,6 +6236,18 @@ def LValue.wantsMemoryRefRhs (target : LValue) (runtime : Runtime) : Bool :=
       ! (Expr.hasStorageRoot baseExpr || Expr.hasStorageRefRoot runtime baseExpr)
   | _ => false
 
+/-- Should this assignment target receive its RHS as a storage-ref POINTER
+    (RE-POINTING the local, like the scalar `p = q` → `storageAliasAssignFrom`)
+    rather than as a dereferenced/copied value? True exactly when the target is a
+    bare storage-pointer local (`T storage p`). A `p.a`/`p[i]` member/index target
+    is a THROUGH-write and returns false (its store deep-copies as before). This
+    is what makes a tuple assignment `(p, q) = (q, p)` swap the POINTERS instead
+    of swapping the pointed-to contents. -/
+def LValue.wantsStorageRefRhs (target : LValue) (runtime : Runtime) : Bool :=
+  match target with
+  | LValue.var name => (runtime.lookupStorageBase? name).isSome
+  | _ => false
+
 /-- A component of a NESTED tuple-assignment LHS (`((a, b), c) = …`). `hole` is
     an omitted component (its RHS value is still produced, then discarded);
     `leaf` is an ordinary assignable target; `nested` is a parenthesized
@@ -8013,6 +8025,19 @@ def Expr.evalTupleComponentsRefPreservingFuel
                 if target.wantsMemoryRefRhs rt then
                   Expr.evalMemoryRefPreserving context rt
                     comp
+                else if target.wantsStorageRefRhs rt then
+                  -- Storage-pointer tuple target: yield the storage-ref POINTER
+                  -- (the same value the scalar `p = q` re-point captures) so the
+                  -- write RE-POINTS the local rather than deep-copying the
+                  -- pointed-to contents — this is what makes `(p, q) = (q, p)`
+                  -- swap the pointers. A non-bare-var RHS shape falls back to
+                  -- ordinary (dereferencing) eval, unchanged.
+                  match comp with
+                  | Expr.var source =>
+                      match rt.lookupStorageBase? source with
+                      | some base => pure (base.toRefValue, rt)
+                      | none => Expr.eval context rt comp
+                  | _ => Expr.eval context rt comp
                 else
                   Expr.eval context rt comp
             | none => Expr.eval context rt comp
@@ -8190,7 +8215,22 @@ def LValues.resolveTupleWithRuntime (context : Context) :
     SolI (List (ResolvedLValue × Value) × Runtime)
   | runtime, [], [] => pure ([], runtime)
   | runtime, some target :: targets, value :: values => do
-      let (resolved, runtime') ← target.resolveWithRuntime context runtime
+      -- A storage-pointer local target paired with a storage-ref POINTER value
+      -- (produced by `evalTupleComponentsRefPreserving`) RE-POINTS the local:
+      -- resolve it to the `local` place so the write goes through
+      -- `assignLocal?`/`coerceLike?` (a storage-ref template adopts the incoming
+      -- ref) instead of the write-through `storageField` place, which would
+      -- deep-copy the pointed-to contents. Mirrors how a memory-ref local target
+      -- already resolves to `local`.
+      let (resolved, runtime') ←
+        match target, value with
+        | LValue.var name, Value.storageRef _
+        | LValue.var name, Value.storageSlotRef _ _ =>
+            if (runtime.lookupStorageBase? name).isSome then
+              pure (ResolvedLValue.local name, runtime)
+            else
+              target.resolveWithRuntime context runtime
+        | _, _ => target.resolveWithRuntime context runtime
       let (rest, runtime'') ←
         LValues.resolveTupleWithRuntime context runtime' targets values
       pure ((resolved, value) :: rest, runtime'')
