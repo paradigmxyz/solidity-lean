@@ -6956,21 +6956,36 @@ def storageArrayPushIndexedAssignCore? (storageNames : List Name)
       | _ => none
 
 def storageArrayPushPathCore? (storageNames : List Name)
-    (target : Expr) (value? : Option Expr) : Option CoreStmt := do
-  let (name, indexes) ← Expr.storagePathCore? storageNames target
-  let valueCore? ←
-    match value? with
-    | some value => do
-        let valueCore ← Expr.toCore? storageNames value
-        some (some valueCore)
-    | none => some none
-  match indexes with
-  | [] =>
-      some (SolidCore.Solidity.Source.Stmt.storageArrayPush name valueCore?)
-  | _ =>
-      some
-        (SolidCore.Solidity.Source.Stmt.storageArrayPushPath
-          name indexes valueCore?)
+    (target : Expr) (value? : Option Expr) : Option CoreStmt :=
+  match target with
+  -- TERNARY-PUSH-TARGET: `(cond ? b : a).push(v)` pushes on the storage array
+  -- the ternary SELECTS at runtime — solc evaluates the ternary to a storage
+  -- reference lvalue, then pushes. `Expr.storagePathCore?` only names an ident/
+  -- index path (returning `none` here would fall the whole contract closed to a
+  -- revert), so branch the push into an `ifElse`: `if cond { b.push(v) } else {
+  -- a.push(v) }`. Only the taken branch runs, so `v` is evaluated once — the
+  -- same on-chain effect as selecting-then-pushing. Recurses so either branch
+  -- may itself be a nested ternary or an index path.
+  | Expr.ternary cond thenTarget elseTarget => do
+      let condCore ← Expr.toCore? storageNames cond
+      let thenStmt ← storageArrayPushPathCore? storageNames thenTarget value?
+      let elseStmt ← storageArrayPushPathCore? storageNames elseTarget value?
+      some (SolidCore.Solidity.Source.Stmt.ifElse condCore thenStmt elseStmt)
+  | _ => do
+    let (name, indexes) ← Expr.storagePathCore? storageNames target
+    let valueCore? ←
+      match value? with
+      | some value => do
+          let valueCore ← Expr.toCore? storageNames value
+          some (some valueCore)
+      | none => some none
+    match indexes with
+    | [] =>
+        some (SolidCore.Solidity.Source.Stmt.storageArrayPush name valueCore?)
+    | _ =>
+        some
+          (SolidCore.Solidity.Source.Stmt.storageArrayPushPath
+            name indexes valueCore?)
 
 def storageReferenceBindingSupported? (binding : VarBinding) : Option Unit := do
   let ty ← binding.ty
@@ -13606,24 +13621,37 @@ def Expr.storageRefArrayPushAssignStmtCore?
     silently wrapped. A genuine explicit truncating cast (`arr.push(uint8(w))`)
     is not peeled by `toCoreAsWithEnv?` and still truncates. -/
 def storageArrayPushPathCoreWithEnv? (env : TypeEnv) (storageNames : List Name)
-    (target : Expr) (value : Expr) : Option CoreStmt := do
-  let (name, indexes) ← Expr.storagePathCore? storageNames target
-  let valueCore ←
-    match (match Expr.abiTyWithEnv? env target with
-          | some (Ty.array elemTy _) => some elemTy
-          | _ => none) with
-    | some elemTy =>
-        match Expr.toCoreAsWithEnv? storageNames env elemTy value with
-        | some c => some c
-        | none => Expr.toCore? storageNames value
-    | none => Expr.toCore? storageNames value
-  match indexes with
-  | [] =>
-      some (SolidCore.Solidity.Source.Stmt.storageArrayPush name (some valueCore))
-  | _ =>
-      some
-        (SolidCore.Solidity.Source.Stmt.storageArrayPushPath
-          name indexes (some valueCore))
+    (target : Expr) (value : Expr) : Option CoreStmt :=
+  match target with
+  -- TERNARY-PUSH-TARGET (env-aware sibling): branch a ternary-selected push
+  -- target into an `ifElse`, lowering the pushed value against EACH branch's
+  -- own element type (see `storageArrayPushPathCore?`). Only the taken branch
+  -- runs, so the value is evaluated once.
+  | Expr.ternary cond thenTarget elseTarget => do
+      let condCore ← Expr.toCore? storageNames cond
+      let thenStmt ←
+        storageArrayPushPathCoreWithEnv? env storageNames thenTarget value
+      let elseStmt ←
+        storageArrayPushPathCoreWithEnv? env storageNames elseTarget value
+      some (SolidCore.Solidity.Source.Stmt.ifElse condCore thenStmt elseStmt)
+  | _ => do
+    let (name, indexes) ← Expr.storagePathCore? storageNames target
+    let valueCore ←
+      match (match Expr.abiTyWithEnv? env target with
+            | some (Ty.array elemTy _) => some elemTy
+            | _ => none) with
+      | some elemTy =>
+          match Expr.toCoreAsWithEnv? storageNames env elemTy value with
+          | some c => some c
+          | none => Expr.toCore? storageNames value
+      | none => Expr.toCore? storageNames value
+    match indexes with
+    | [] =>
+        some (SolidCore.Solidity.Source.Stmt.storageArrayPush name (some valueCore))
+    | _ =>
+        some
+          (SolidCore.Solidity.Source.Stmt.storageArrayPushPath
+            name indexes (some valueCore))
 
 def Expr.noReturnEffectStmtCoreWithStorageRefs?
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)

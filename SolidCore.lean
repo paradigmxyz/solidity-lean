@@ -74,6 +74,7 @@ import SolidCore.Witness.CallPlusStateReadOperandOrder
 import SolidCore.Witness.CalldataEvmWrap
 import SolidCore.Witness.AbiDecodeStorageBytes
 import SolidCore.Witness.TernaryStorageBytesKeccak
+import SolidCore.Witness.PushThroughTernaryStorageRef
 import SolidCore.Witness.TupleRhsStorageBytes
 import SolidCore.Witness.EmitStorageDynamicArray
 import SolidCore.Witness.EmitMemoryNestedRef
