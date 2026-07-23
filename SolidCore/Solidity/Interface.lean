@@ -4680,6 +4680,20 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
             let _ ← Ty.toCore? ty
             Expr.toCore? storageNames expr
   | Expr.call (Expr.typeName ty) [Arg.positional expr] =>
+      -- FNPTR-STRUCT-CONSTRUCTOR (value production): a struct constructor
+      -- `S(f, …)` is lowered (`resolveStructs`) to a tuple whose fn-pointer
+      -- FIELD becomes `function(...)(<dispatch-id>)` — a conversion of the
+      -- rewritten dispatch-ID number literal to the field's internal-function
+      -- type. This TARGET-LESS `toCore?` path (used by the struct/tuple element
+      -- lowering) must reproduce the SAME value the target-aware `toCoreAs?`
+      -- (§5519) and env-aware `toCoreAsWithEnv?` (§8602) do — an
+      -- `Expr.internalFunction` pointer value, NOT the raw word the numeric
+      -- fall-through below would yield. Without this the field holds a bare word
+      -- and a later call through it hits the pointer-call type-mismatch (Panic 0)
+      -- instead of dispatching.
+      match Expr.toCoreInternalFunctionValueLiteralAs? ty expr with
+      | some coreExpr => some coreExpr
+      | none =>
       match Expr.toCoreFixedBytesLiteralAs? ty expr with
       | some coreExpr => some coreExpr
       | none =>

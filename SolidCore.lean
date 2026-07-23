@@ -68,6 +68,7 @@ import SolidCore.Witness.PushAfterDanglingWrite
 import SolidCore.Witness.FnPtrArrayIndexCall
 import SolidCore.Witness.FnPtrTernaryCall
 import SolidCore.Witness.FnPtrStructMemberCall
+import SolidCore.Witness.FnPtrStructConstructorMemberValue
 import SolidCore.Witness.FnPtrReturnedThenCall
 import SolidCore.Witness.TernaryBytesWidthUnify
 import SolidCore.Witness.TernaryLiteralVarWidthUnify
