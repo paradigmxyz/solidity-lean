@@ -9434,6 +9434,46 @@ decreasing_by
 
 end
 
+-- A fixed-size STORAGE array initialized by an inline array literal runs solc's
+-- storage-copy conversion branch (`ArrayType::isImplicitlyConvertibleTo`,
+-- non-pointer storage dest, Types.cpp:1640-1648), where each element need only
+-- be IMPLICITLY CONVERTIBLE (widening) — NOT the strict same-element MEMORY rule
+-- that `arrayLiteralFixedWidenCheck` enforces. So a state variable
+-- `uint256[2] arr = [50,0];` is ACCEPTED (uint8[2] → uint256[2]) even though its
+-- `memory` twin is rejected; sign-change / narrowing / element-overflow / wrong
+-- length still REJECT (the storage-copy convertibility carries those rules).
+def storageArrayLiteralWidenCheck (types : TypeContext)
+    (checked : CheckedExpr) (expected : Ty) : Except TypeError Unit :=
+  match checked.source, expected with
+  | Solidity.Expr.array _, Solidity.Ty.array _ (some _) =>
+      -- A bare-literal array has an over-wide `uint256[n]` `checked.ty`, so its
+      -- precise bottom-up type drives the storage-copy check; a typed / variable
+      -- element already yields a precise `checked.ty` (bottom-up is `none`), so
+      -- fall back to it instead of the strict-memory `expectAssignableToIn`.
+      let srcTy := (inlineArrayBottomUpTy? checked.source).getD checked.ty
+      if TypeContext.canImplicitlyConvertStorageCopy types srcTy expected then
+        Except.ok ()
+      else Except.error (TypeError.expectedType expected checked.ty)
+  | _, _ => checked.expectAssignableToIn types expected
+
+-- `checkExprAssignableTo` specialized for a STORAGE state-variable initializer:
+-- only the top-level inline-array-literal fallback differs (storage-copy widen
+-- instead of the memory identity rule); every other initializer shape defers to
+-- `checkExprAssignableTo` unchanged.
+def checkStorageInitAssignableTo (env : CheckEnv)
+    (expr : Solidity.Expr) (expected : Ty) : Except TypeError Unit :=
+  match expr, expected with
+  | Solidity.Expr.array elements, Solidity.Ty.array _ (some size) => do
+      require (elements.length == size)
+        (TypeError.arityMismatch "array literal" size elements.length)
+      if exprContextuallyAssignableTo env expr expected then
+        let _ ← checkExpr env expr
+        Except.ok ()
+      else
+        let checked ← checkExpr env expr
+        storageArrayLiteralWidenCheck env.types checked expected
+  | _, _ => checkExprAssignableTo env expr expected
+
 def checkTupleItemValuesContextuallyAssignableTo (env : CheckEnv) :
     List Solidity.TupleItem -> List Ty -> Except TypeError Unit
   | [], [] => Except.ok ()
@@ -10848,7 +10888,7 @@ def StateVarDecl.check (env : CheckEnv)
     Except.ok ()
   match decl.init with
   | none => Except.ok ()
-  | some init => checkExprAssignableTo env init declTy
+  | some init => checkStorageInitAssignableTo env init declTy
 
 def StateVarDecl.checkFileLevelConstant (env : CheckEnv)
     (decl : Solidity.StateVarDecl) : Except TypeError Unit := do
