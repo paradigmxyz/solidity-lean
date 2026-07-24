@@ -7729,6 +7729,27 @@ def Expr.peelToOverflowArithmeticWide? :
       | none => none
   | _ => none
 
+/-- NARROW-SHL-MASK (S, narrow-shl-mask-in-abiencode-arg): does `expr` reach a
+    left shift `<<` after peeling whole-expression narrow (`uintN`/`intN`,
+    N < 256) casts? A `<<` result is typed by solc at the LEFT-operand width and
+    cleaned with `cleanup_t_uintN` (a truncating cast, NOT a range check — shifts
+    never overflow-panic), so `uint8 (a << b)` with `1 << 8` truncates to 0. The
+    env-less `abi.encode` arg path (`Expr.toAbiEncodeArg?` → `Expr.toCore?`)
+    DROPS the narrow cast when it cannot env-lessly type the shift operands
+    (parameter/local idents have no `Expr.abiTy?` arm), leaving a bare 256-bit
+    `shl` (encoding `1 << 8 = 256`) — a wrong-value soundness gap. `annotateAbi`
+    wraps such an argument in exactly this redundant narrow cast (`uintN(a << b)`,
+    the operand type it recovers WITH the env), so the shift sits under one or
+    more narrow casts, mirroring `Expr.peelToOverflowArithmetic?`. A word-width
+    (`uint256`) shift needs no mask and is not peeled here. -/
+def Expr.peelToNarrowShl? : Expr -> Bool
+  | Expr.binary BinaryOp.shl _ _ => true
+  | Expr.call (Expr.typeName castTy) [Arg.positional inner] =>
+      match Ty.narrowIntCastTarget? castTy with
+      | some _ => Expr.peelToNarrowShl? inner
+      | none => false
+  | _ => false
+
 /-- SIGNED-LITERAL-WIDE-CAST: peel whole-expression WORD-width int casts off
     `expr` to reach a unary `-inner` underneath — the wide analogue of
     `Expr.peelToNarrowNeg?`. -/
@@ -7910,6 +7931,11 @@ def Expr.abiArgNeedsEnvCleanupFuel? : Nat -> Expr -> Bool
           match Expr.peelToNarrowNeg? expr with
           | some _ => true
           | none =>
+          -- NARROW-SHL-MASK (S): a narrow `<<` (possibly under the redundant
+          -- narrow cast `annotateAbi` inserts) must lower env-aware so its
+          -- operand-width truncating clean fires (`1 << 8 → 0`, not 256).
+          if Expr.peelToNarrowShl? expr then true
+          else
               match expr with
               | Expr.call (Expr.typeName castTy) [Arg.positional inner] =>
                   Ty.isFixedBytes castTy &&
