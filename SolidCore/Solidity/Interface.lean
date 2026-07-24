@@ -7750,6 +7750,29 @@ def Expr.peelToNarrowShl? : Expr -> Bool
       | none => false
   | _ => false
 
+/-- NARROW-BITAND-MASK (S, narrow-add-under-bitand-in-abiencode-arg): peel
+    whole-expression narrow (`uintN`/`intN`, N < 256) casts off `expr` to reach a
+    BITWISE `&`/`|`/`^` underneath, returning its operator and operands. A bitwise
+    result is typed by solc at the operands' common type, which computes any
+    checked arithmetic operand at THAT width BEFORE the mask — so `(a + b) & 255`
+    (`uint8 a,b`) Panics 0x11 on `a + b = 300`, never reaching the `& 255`. The
+    env-less `abi.encode` arg path (`Expr.toAbiEncodeArg?` → `Expr.toCore?`) runs
+    the operand at 256 bits (`300 & 255 = 44`) — a wrong-value/revert-vs-success
+    soundness gap. `annotateAbi` wraps such an argument in the redundant narrow
+    cast (`uintN((a + b) & 255)`), so the bitwise op sits under one or more narrow
+    casts, mirroring `Expr.peelToOverflowArithmetic?`. A word-width bitwise op is
+    not peeled (no mask needed). -/
+def Expr.peelToNarrowBitwise? : Expr -> Option (BinaryOp × Expr × Expr)
+  | Expr.binary bop lhs rhs =>
+      match bop with
+      | BinaryOp.bitAnd | BinaryOp.bitOr | BinaryOp.bitXor => some (bop, lhs, rhs)
+      | _ => none
+  | Expr.call (Expr.typeName castTy) [Arg.positional inner] =>
+      match Ty.narrowIntCastTarget? castTy with
+      | some _ => Expr.peelToNarrowBitwise? inner
+      | none => none
+  | _ => none
+
 /-- SIGNED-LITERAL-WIDE-CAST: peel whole-expression WORD-width int casts off
     `expr` to reach a unary `-inner` underneath — the wide analogue of
     `Expr.peelToNarrowNeg?`. -/
@@ -7935,6 +7958,19 @@ def Expr.abiArgNeedsEnvCleanupFuel? : Nat -> Expr -> Bool
           -- narrow cast `annotateAbi` inserts) must lower env-aware so its
           -- operand-width truncating clean fires (`1 << 8 → 0`, not 256).
           if Expr.peelToNarrowShl? expr then true
+          -- NARROW-BITAND-MASK (S): a bitwise `&`/`|`/`^` (possibly under the
+          -- redundant narrow cast `annotateAbi` inserts) whose OWN operand
+          -- carries narrow checked arithmetic — `abi.encode((a + b) & 255)`
+          -- (`uint8 a,b`). solc computes `a + b` at the operand width BEFORE the
+          -- mask, so `a + b == 300` Panics 0x11; the env-less arg path runs it at
+          -- 256 bits (`300 & 255 = 44`). Reroute env-aware so the operand-width
+          -- cleanup fires. Only when an operand itself needs it — a bitwise op
+          -- with no narrow arithmetic stays byte-identical.
+          else if (match Expr.peelToNarrowBitwise? expr with
+              | some (_, lhs, rhs) =>
+                  Expr.abiArgNeedsEnvCleanupFuel? fuel lhs ||
+                    Expr.abiArgNeedsEnvCleanupFuel? fuel rhs
+              | none => false) then true
           else
               match expr with
               | Expr.call (Expr.typeName castTy) [Arg.positional inner] =>
@@ -8374,6 +8410,33 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
               -- panicking. This covers both bare `uint8(a + b)` and, since
               -- `Small.wrap(x)` lowers to `uint8(x)`, UDVT operator-function
               -- bodies like `Small.wrap(Small.unwrap(a) + Small.unwrap(b))`.
+              -- NARROW-BITAND-MASK (SOUNDNESS): a narrow `uintN`/`intN` cast whose
+              -- argument is a BITWISE `&`/`|`/`^` op carrying narrow checked
+              -- arithmetic (`uint8((a + b) & 255)` — the redundant cast
+              -- `annotateAbi` wraps `abi.encode((a + b) & 255)` in). solc computes
+              -- `a + b` at the operand width BEFORE the mask, so it Panics 0x11 on
+              -- overflow; the env-less cast path drops the operand cleanup and runs
+              -- it at 256 bits. Lower the bitwise op env-typed (its `_`-arm cleans
+              -- each operand at the common width, firing the add's Panic) then
+              -- apply the explicit (truncating) narrow cast — mirroring the
+              -- overflow-arithmetic arm below. Non-bitwise arguments fall through
+              -- to the unchanged arithmetic / negation / wide-cast handling.
+              (match Ty.narrowIntCastTarget? castTy,
+                    Expr.peelToNarrowBitwise? argExpr with
+              | some (signed, bits), some (bop, lhs, rhs) =>
+                  (match Expr.binaryToCoreWithEnvTypedFuel?
+                      fuel storageNames env bop lhs rhs with
+                   | some (srcTy, binaryCore) =>
+                       let checkedBinary :=
+                         Ty.implicitCleanupCore srcTy binaryCore
+                       some
+                         (if signed then
+                           SolidCore.Solidity.Source.Expr.intCast bits checkedBinary
+                         else
+                           SolidCore.Solidity.Source.Expr.uintCast bits checkedBinary)
+                   | none =>
+                       Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
+              | _, _ =>
               (match Ty.narrowIntCastTarget? castTy,
                     Expr.peelToOverflowArithmetic? argExpr with
               | some (signed, bits), some (bop, lhs, rhs) =>
@@ -8554,7 +8617,7 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
                        | some coreExpr => some coreExpr
                        | none =>
                            Expr.toCoreAsWithEnvDirect?
-                             storageNames env targetTy expr))))
+                             storageNames env targetTy expr)))))
           | Expr.ternary cond thenExpr elseExpr => do
               let condCore ←
                 Expr.toCoreAsWithEnvFuel? fuel storageNames env Ty.bool cond
