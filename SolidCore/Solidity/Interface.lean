@@ -8651,19 +8651,54 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
                     -- WS1 (H): ALSO reroute a WIDE key whose SUBTREE is
                     -- flagged (`arr[arr[a + b]]` — the outer uint256 key
                     -- contains a narrow checked add); the env-aware recursion
-                    -- reaches the inner narrow key. Unflagged wide keys keep
-                    -- the env-less path byte-identically.
+                    -- reaches the inner narrow key. NESTED-MAPPING-KEY (S):
+                    -- ALSO reroute when the BASE subtree is flagged
+                    -- (`m[a + b][0]` — the narrow checked add is the INNER
+                    -- mapping key of a nested read, `uint8 a,b`); the env-less
+                    -- `indexReadCoreBuilder?` lowered the base via `toCore?`, so
+                    -- the inner key ran at 256 bits and its Panic 0x11 was lost.
+                    -- Unflagged wide keys/bases keep the env-less path
+                    -- byte-identically.
                     let _ ←
                       (if (Ty.narrowIntCastTarget? keyTy).isSome ||
-                          Expr.abiArgNeedsEnvCleanup? key then
+                          Expr.abiArgNeedsEnvCleanup? key ||
+                          Expr.abiArgNeedsEnvCleanup? base then
                         some ()
                       else
                         none)
-                    let buildRead ← Expr.indexReadCoreBuilder? storageNames base
                     let keyCore ←
                       Expr.toCoreAsWithEnvFuel? fuel storageNames env keyTy key
+                    -- Build the read. If the BASE subtree itself needs the
+                    -- operand-width cleanup (a nested narrow index key,
+                    -- `m[a + b][0]`), lower the base through the FULL env-aware
+                    -- recursion so its inner narrow key Panics 0x11; the outer
+                    -- read is the general `index`/`fixedBytesIndex` over that
+                    -- base value. Otherwise keep the exact env-less
+                    -- `indexReadCoreBuilder?` shapes (state-var `storageIndex`,
+                    -- `fixedBytesIndex`, general `index`) byte-identically.
+                    let readCore ←
+                      (if Expr.abiArgNeedsEnvCleanup? base then
+                        (do
+                          let baseTy ← Expr.abiTyWithEnv? env base
+                          let baseCore ←
+                            Expr.toCoreAsWithEnvFuel? fuel storageNames env
+                              baseTy base
+                          match Ty.fixedBytesSize? baseTy with
+                          | some size =>
+                              some
+                                (SolidCore.Solidity.Source.Expr.fixedBytesIndex
+                                  size baseCore keyCore)
+                          | none =>
+                              some
+                                (SolidCore.Solidity.Source.Expr.index baseCore
+                                  keyCore))
+                      else
+                        (do
+                          let buildRead ←
+                            Expr.indexReadCoreBuilder? storageNames base
+                          some (buildRead keyCore)))
                     let sourceTy ← Expr.abiTyWithEnv? env (Expr.index base key)
-                    Expr.coreAsFromTy? targetTy sourceTy (buildRead keyCore)) with
+                    Expr.coreAsFromTy? targetTy sourceTy readCore) with
               | some coreExpr => some coreExpr
               | none =>
                   Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
