@@ -7954,6 +7954,32 @@ def Expr.abiArgNeedsEnvCleanupFuel? : Nat -> Expr -> Bool
               | Expr.slice _ start stop =>
                   start.any (Expr.abiArgNeedsEnvCleanupFuel? fuel) ||
                     stop.any (Expr.abiArgNeedsEnvCleanupFuel? fuel)
+              -- COMPARISON / BOOLEAN-COMBINATOR (S, narrow-add-comparison-in-
+              -- abiencode-arg): a bool-producing operand of `abi.encode*` whose
+              -- OWN operand carries narrow checked arithmetic — `abi.encode(a +
+              -- b > 5)`, `abi.encode((a + b) < n && …)` (`uint8 a,b`). solc
+              -- evaluates `a + b` at uint8 while computing the comparison, so
+              -- `a + b == 300` Panics 0x11 BEFORE the comparison yields a bool;
+              -- the env-less arg path (`Expr.toAbiEncodeArg?`) runs the operand
+              -- at 256 bits (`300 > 5 = true`) and silently returns
+              -- `abi.encode(true)`. Reroute so the env-aware comparison /
+              -- `&&`/`||` arms (which lower each operand at its own width via
+              -- `binaryToCoreWithEnvTypedFuel?`) fire the operand-width cleanup.
+              -- Only fires when an operand ITSELF needs the cleanup, so a
+              -- comparison with no narrow arithmetic stays byte-identical.
+              | Expr.binary op lhs rhs =>
+                  (match op with
+                   | BinaryOp.lt | BinaryOp.gt | BinaryOp.le | BinaryOp.ge
+                   | BinaryOp.eq | BinaryOp.ne
+                   | BinaryOp.boolAnd | BinaryOp.boolOr => true
+                   | _ => false) &&
+                    (Expr.abiArgNeedsEnvCleanupFuel? fuel lhs ||
+                      Expr.abiArgNeedsEnvCleanupFuel? fuel rhs)
+              -- `!c` in a bool position: the env-aware `logicalNot` arm recurses
+              -- on the operand at `Ty.bool`, so a comparison under `!`
+              -- (`abi.encode(!((a + b) < n))`) keeps the operand-width cleanup.
+              | Expr.unary UnaryOp.logicalNot inner =>
+                  Expr.abiArgNeedsEnvCleanupFuel? fuel inner
               | _ => false
 
 /-- #201: nesting budget for the flag above. The builtin arms peel one nesting
