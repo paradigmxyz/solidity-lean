@@ -7773,6 +7773,37 @@ def Expr.hasSignedLiteralOperandMix (env : TypeEnv) : Expr -> Bool
       Expr.hasSignedLiteralOperandMix env inner
   | _ => false
 
+/-- NARROW-ADD-WIDE-CAST (SOUNDNESS): does `expr` (the argument of a WORD-width
+    `uint256`/`int256` explicit cast) peel — through nested wide casts — to an
+    overflow-relevant arithmetic binary whose operand COMMON type is NARROW
+    (`uintN`/`intN`, `N < 256`)? `uint256(a + b)` with `uint8 a,b` must evaluate
+    `a + b` at its uint8 operand width so the checked-add Panic 0x11 fires BEFORE
+    the widening conversion — exactly the narrow-cast H2 obligation, only under a
+    WIDE cast. Used (alongside `hasSignedLiteralOperandMix`) as the reroute gate
+    of the wide-cast arm of `Expr.toCoreAsWithEnvFuel?`; both flags feed the SAME
+    `peelToOverflowArithmeticWide?` → `binaryToCoreWithEnvTypedFuel?` →
+    operand-width `implicitCleanupCore` machinery. Explicitly-widened operands
+    (`uint256(a) + uint256(b)`) have a WORD operand common type, so this is
+    `false` and they keep the byte-identical Direct path. -/
+def Expr.wideCastNarrowOverflowArithmetic? (env : TypeEnv) (expr : Expr) : Bool :=
+  -- Peel BOTH wide (`uint256(a + b)`, unwrapped) and narrow int-cast wrappers.
+  -- The `annotateAbi` pass wraps a conversion argument at the ARGUMENT'S own
+  -- type, so `uint256(a + b)` (`uint8 a,b`) reaches this arm as
+  -- `uint256(uint8(a + b))` — the WIDE peeler (`peelToOverflowArithmeticWide?`,
+  -- word casts only) cannot see the narrow `uint8` wrapper, so also try the
+  -- narrow peeler (`peelToOverflowArithmetic?`, narrow casts). Either way, fire
+  -- only when the underlying arithmetic's operand COMMON type is narrow.
+  let peeled :=
+    match Expr.peelToOverflowArithmeticWide? expr with
+    | some r => some r
+    | none => Expr.peelToOverflowArithmetic? expr
+  match peeled with
+  | some (_, lhs, rhs) =>
+      (match Expr.commonOperandTyWithEnv? env lhs rhs with
+       | some ty => (Ty.narrowIntCastTarget? ty).isSome
+       | none => false)
+  | none => false
+
 /-- TC1: lower an `abi.encode`/`abi.encodePacked` CONDITIONAL argument whose two
     branches are `bytesN` of DIFFERENT widths. The conditional takes the
     ternary's COMMON type (the wider `bytesN`); solc inserts the implicit
@@ -8395,7 +8426,15 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
                      (match
                          (match Ty.wordIntCastTarget? castTy with
                           | some castSigned =>
-                              if Expr.hasSignedLiteralOperandMix env argExpr then
+                              -- NARROW-ADD-WIDE-CAST (S): a WORD cast over NARROW
+                              -- checked arithmetic (`uint256(a + b)`, `uint8 a,b`)
+                              -- must run `a + b` at its uint8 operand width so the
+                              -- overflow Panic 0x11 fires before the widening —
+                              -- the same `peelToOverflowArithmeticWide?` path the
+                              -- signed-literal-mix reroute uses. Both gates funnel
+                              -- into the shared machinery below.
+                              if Expr.hasSignedLiteralOperandMix env argExpr ||
+                                  Expr.wideCastNarrowOverflowArithmetic? env argExpr then
                                 (match Expr.peelToOverflowArithmeticWide? argExpr with
                                 | some (bop, lhs, rhs) =>
                                     (match Expr.binaryToCoreWithEnvTypedFuel?
