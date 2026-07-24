@@ -7934,6 +7934,18 @@ def Expr.abiArgNeedsEnvCleanupFuel? : Nat -> Expr -> Bool
               -- `abi.*`/hash/concat arms of `Expr.toCoreAsWithEnvFuel?` already
               -- recurse through such an argument; only this FLAG stopped at one
               -- level, so the nested shapes silently fell back env-less.
+              -- `abi.encodeCall(this.g, (a + b))`: the arguments ride in the
+              -- second-positional TUPLE (not as flat `args`), so peel the tuple
+              -- and flag when any item itself needs the cleanup. The env-aware
+              -- `encodeCall` arm lowers each item at its own width
+              -- (`TupleItems.toAbiEncodeSourceWithEnvFuel?`), firing the
+              -- operand-width Panic 0x11.
+              | Expr.call (Expr.member (Expr.ident "abi") "encodeCall")
+                  [Arg.positional _functionPointer, Arg.positional (Expr.tuple items)] =>
+                  items.any (fun it =>
+                    match it with
+                    | TupleItem.value e => Expr.abiArgNeedsEnvCleanupFuel? fuel e
+                    | TupleItem.hole => false)
               | Expr.call (Expr.member (Expr.ident "abi") m) args =>
                   (m == "encode" || m == "encodePacked" ||
                       m == "encodeWithSelector" || m == "encodeWithSignature") &&
@@ -8032,6 +8044,17 @@ def Expr.abiArgNeedsEnvCleanup? (expr : Expr) : Bool :=
     `abi.encode*`/`concat` call); every other return keeps its lowering
     byte-identical. -/
 def Expr.abiBuiltinArgsNeedEnvCleanup : Expr -> Bool
+  -- `return abi.encodeCall(this.g, (a + b))`: the arguments ride in the
+  -- second-positional TUPLE (not as flat `args`), so peel the tuple and flag
+  -- when any item itself needs the env-aware operand-width cleanup. The
+  -- env-aware `encodeCall` arm lowers each item at its own width, firing the
+  -- Panic 0x11 (`uint8 a,b`, `a + b = 300`).
+  | Expr.call (Expr.member (Expr.ident "abi") "encodeCall")
+      [Arg.positional _functionPointer, Arg.positional (Expr.tuple items)] =>
+      items.any (fun it =>
+        match it with
+        | TupleItem.value e => Expr.abiArgNeedsEnvCleanup? e
+        | TupleItem.hole => false)
   | Expr.call (Expr.member (Expr.ident "abi") m) args =>
       (m == "encode" || m == "encodePacked" || m == "encodeWithSelector" ||
           m == "encodeWithSignature") &&
