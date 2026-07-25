@@ -108,3 +108,4 @@ import SolidCore.Witness.PackedSignedArrayMemArith
 import SolidCore.Witness.DeleteLocalFnptrConditional
 import SolidCore.Witness.TupleAssignIndexCallOrder
 import SolidCore.Witness.TupleDeclHoleInternalCalls
+import SolidCore.Witness.MsgShadowStructLocal
