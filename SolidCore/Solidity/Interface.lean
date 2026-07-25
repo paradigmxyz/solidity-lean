@@ -14938,6 +14938,33 @@ def Expr.findArgPosInnerCall? (functions : List FunctionDecl)
         match Expr.findArgPosInnerCall? functions env tmp false fuel b with
         | some (c, t, b') => some (c, t, Expr.member b' m)
         | none => none
+    | Expr.slice b s e =>
+        -- A value-returning call in a calldata-slice BOUND (`d[1 : f()]`,
+        -- `d[g() : h()]`) is an argument-like position exactly like an index
+        -- key; descend base, then start, then stop (source L2R) so the call is
+        -- peeled into a sibling temp instead of surviving in the Core slice
+        -- bound (where it evaluates to a spurious Panic 0).
+        match Expr.findArgPosInnerCall? functions env tmp false fuel b with
+        | some (c, t, b') => some (c, t, Expr.slice b' s e)
+        | none =>
+            match s with
+            | some sExpr =>
+                match Expr.findArgPosInnerCall? functions env tmp false fuel sExpr with
+                | some (c, t, s') => some (c, t, Expr.slice b (some s') e)
+                | none =>
+                    match e with
+                    | some eExpr =>
+                        match Expr.findArgPosInnerCall? functions env tmp false fuel eExpr with
+                        | some (c, t, e') => some (c, t, Expr.slice b s (some e'))
+                        | none => none
+                    | none => none
+            | none =>
+                match e with
+                | some eExpr =>
+                    match Expr.findArgPosInnerCall? functions env tmp false fuel eExpr with
+                    | some (c, t, e') => some (c, t, Expr.slice b s (some e'))
+                    | none => none
+                | none => none
     | Expr.array elems =>
         match Expr.findArgPosInnerCallExprs? functions env tmp fuel elems with
         | some (c, t, elems') => some (c, t, Expr.array elems')
@@ -22419,6 +22446,11 @@ def Stmt.listLowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
               | Expr.array _ => true
               | Expr.tuple _ => true
               | Expr.newExpr _ _ => true
+              -- A calldata-slice initializer (`bytes calldata s = d[1 : f()]`)
+              -- likewise declares a local that must survive as a sibling and may
+              -- nest a value-returning call in a bound; peel those into ordered
+              -- sibling temps (see the `Expr.slice` arm of `findArgPosInnerCall?`).
+              | Expr.slice _ _ _ => true
               | _ => false
             match internalFuel, isTarget with
             | fuel + 1, true =>
