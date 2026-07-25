@@ -5071,6 +5071,18 @@ def abiStaticBytes? : Ty -> Value -> Option (List Byte)
         none
   | Ty.uint256, Value.word value => some (wordToBytesBE wordBytes value)
   | Ty.int256, Value.int value => some (wordToBytesBE wordBytes value)
+  -- SIGNED-CONSTANT-FOLD (S, signed-constant-shift-in-abiencode-arg): a
+  -- constant-folded signed expression that the env-less arg path folds to a
+  -- plain `Expr.word` (e.g. `abi.encode(int256(5) >> 1)` — the fold in
+  -- `Expr.toCore?` discards the operand signedness the surrounding `int256(...)`
+  -- cast established) reaches a signed `int256` slot as a `Value.word`, never a
+  -- `Value.int`, so the strict `Value.int`-only arm above rejected it with a
+  -- SPURIOUS Panic(0) (`typeMismatch`) where solc+EVM encode the value. A value
+  -- that reaches an `int256` slot as a `Value.word` is a folded constant that
+  -- fits `int256` (typecheck bounds it to < 2^255, so its high bit is clear),
+  -- hence its word bits ARE the correct 2's-complement and the boundary bytes
+  -- are byte-identical to the `Value.int` encoding above.
+  | Ty.int256, Value.word value => some (wordToBytesBE wordBytes value)
   | Ty.fixedBytes size, Value.word value =>
       if abiFixedBytesFits size value then
         some
@@ -5696,6 +5708,11 @@ def abiEncodePackedValue? : Ty -> Value -> Option (List Byte)
   | Ty.address, Value.word value => some (wordToBytesBE 20 value)
   | Ty.uint256, Value.word value => some (wordToBytesBE wordBytes value)
   | Ty.int256, Value.int value => some (wordToBytesBE wordBytes value)
+  -- SIGNED-CONSTANT-FOLD (S): mirror the `abiStaticBytes?` int256 arm — a
+  -- constant-folded signed shift `abi.encodePacked(int256(5) >> 1)` reaches the
+  -- signed slot as a (correctly 2's-complement-represented) `Value.word`; encode
+  -- it byte-identically to the `Value.int` case instead of Panic(0)'ing.
+  | Ty.int256, Value.word value => some (wordToBytesBE wordBytes value)
   | Ty.fixedBytes size, Value.word value =>
       if 0 < size && size <= wordBytes then
         some (wordToBytesBE size value)
