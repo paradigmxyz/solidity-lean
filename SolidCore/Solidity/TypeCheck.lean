@@ -6084,6 +6084,55 @@ def TypeContext.contractEventSig?
             Ty.qualifyLocalUserTypes decl.name localTypeNames p.ty))
   | none => none
 
+/-- The `msg.<member>` MAGIC-GLOBAL member access, valid only when no local
+    variable shadows `msg`: the `msg.data`/`msg.sig`/`msg.sender`/`msg.value`
+    builtins together with their `msg.data`-in-`receive` (G10) and
+    payable-mutability (G2) obligations. When a local named `msg` is in scope
+    it shadows the global (solc allows this), and `msg.<member>` is instead an
+    ordinary struct member access handled directly in `checkExpr`. -/
+def checkMsgGlobalMember (env : CheckEnv) (expr : Solidity.Expr)
+    (member : Name) : Except TypeError CheckedExpr := do
+  if member == "data" || member == "sig" then
+    -- G10: `msg.data` is forbidden inside a `receive` function (solc
+    -- TypeError 7139); receive has empty calldata.
+    require (!(member == "data" && env.inReceive))
+      (TypeError.unsupported "msg.data in receive function")
+  else
+    requireStateReadAllowed env
+  -- G2: `msg.value` sets payable mutability (ViewPureChecker.cpp:404-414). It
+  -- may only appear in a payable function; solc errors 5887 otherwise, but
+  -- exempts internal/private functions and library functions (they cannot be
+  -- payable) — `reportMutability` only fires for `isConstructor() || isPublic()`
+  -- and `!libraryFunction()` (ViewPureChecker.cpp:270-294).
+  if member == "value" then
+    let visiblePublic :=
+      match env.currentVisibility with
+      | some Solidity.Visibility.public_ => true
+      | some Solidity.Visibility.external_ => true
+      | _ => false
+    if (visiblePublic || env.inConstructor) && !env.inLibrary then
+      require
+        (env.currentMutability == some Solidity.StateMutability.payable)
+        (TypeError.mutabilityViolation
+          "msg.value in a non-payable function")
+    else
+      Except.ok ()
+  else
+    Except.ok ()
+  match Solidity.Executable.Expr.abiTyWithEnv? env.vars expr with
+  | some ty =>
+      Except.ok
+        { source := expr
+          ty := ty
+          lvalue := false
+          stateLValue := false
+          dataLocation? :=
+            if member == "data" then
+              some Solidity.DataLocation.calldata
+            else
+              none }
+  | none => Except.error (TypeError.unsupported ("member " ++ member))
+
 mutual
 
 def checkExpr (env : CheckEnv) :
@@ -6308,46 +6357,38 @@ def checkExpr (env : CheckEnv) :
           | _ => Except.error (TypeError.unsupported "member address")
   | expr@(Solidity.Expr.member
       (Solidity.Expr.ident "msg") member) => do
-      if member == "data" || member == "sig" then
-        -- G10: `msg.data` is forbidden inside a `receive` function (solc
-        -- TypeError 7139); receive has empty calldata.
-        require (!(member == "data" && env.inReceive))
-          (TypeError.unsupported "msg.data in receive function")
-      else
-        requireStateReadAllowed env
-      -- G2: `msg.value` sets payable mutability (ViewPureChecker.cpp:404-414). It
-      -- may only appear in a payable function; solc errors 5887 otherwise, but
-      -- exempts internal/private functions and library functions (they cannot be
-      -- payable) — `reportMutability` only fires for `isConstructor() || isPublic()`
-      -- and `!libraryFunction()` (ViewPureChecker.cpp:270-294).
-      if member == "value" then
-        let visiblePublic :=
-          match env.currentVisibility with
-          | some Solidity.Visibility.public_ => true
-          | some Solidity.Visibility.external_ => true
-          | _ => false
-        if (visiblePublic || env.inConstructor) && !env.inLibrary then
-          require
-            (env.currentMutability == some Solidity.StateMutability.payable)
-            (TypeError.mutabilityViolation
-              "msg.value in a non-payable function")
-        else
-          Except.ok ()
-      else
-        Except.ok ()
-      match Solidity.Executable.Expr.abiTyWithEnv? env.vars expr with
-      | some ty =>
-          Except.ok
-            { source := expr
-              ty := ty
-              lvalue := false
-              stateLValue := false
-              dataLocation? :=
-                if member == "data" then
-                  some Solidity.DataLocation.calldata
-                else
-                  none }
-      | none => Except.error (TypeError.unsupported ("member " ++ member))
+      match env.lookupVar? "msg" with
+      | none => checkMsgGlobalMember env expr member
+      | some _ =>
+          -- A local variable named `msg` shadows the `msg` magic global (solc
+          -- allows this): `msg.<member>` is then an ordinary member access on
+          -- that local — a struct field, NOT `msg.value`/`msg.sender` — so it
+          -- carries no payable-mutability (G2) obligation and its type is the
+          -- field's type, not the builtin's.
+          let baseChecked ← checkExpr env (Solidity.Expr.ident "msg")
+          match baseChecked.ty with
+          | Solidity.Ty.user path =>
+              match env.types.lookupStruct? path with
+              | some structDecl =>
+                  match structDecl.fields.find?
+                      (fun field => field.name == member) with
+                  | some field => do
+                      let attached ←
+                        UsingDecls.memberCandidates env baseChecked member
+                          env.usingDecls
+                      require attached.isEmpty
+                        (TypeError.ambiguousFunction member)
+                      Except.ok
+                        { source := expr
+                          ty := env.qualifyStructFieldTy path field.ty
+                          lvalue := baseChecked.lvalue || baseChecked.stateLValue
+                          stateLValue := baseChecked.stateLValue
+                          dataLocation? := baseChecked.dataLocation? }
+                  | none =>
+                      Except.error (TypeError.unsupported ("member " ++ member))
+              | none =>
+                  Except.error (TypeError.unsupported ("member " ++ member))
+          | _ => Except.error (TypeError.unsupported ("member " ++ member))
   | expr@(Solidity.Expr.member
       (Solidity.Expr.ident "block") member) => do
       requireStateReadAllowed env
