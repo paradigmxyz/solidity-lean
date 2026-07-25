@@ -2503,6 +2503,24 @@ def Ty.toCoreStorageLayout? : Ty -> Option CoreStorageLayout
   | Ty.mapping keyTy valueTy => do
       let key ← Ty.toCoreMappingKey? keyTy
       let value ← Ty.toCoreStorageLayout? valueTy
+      -- A narrow SIGNED int mapping value occupies only its low `bits/8` bytes of
+      -- the value slot; solc masks the store to that width, so the high bytes of
+      -- the sign-extended word stay zero (`mv[k] = int8(-1)` writes 0xff, not
+      -- 0xff..ff). The width-erased `scalar int256` from `toCoreStorageLayout?`
+      -- would store the FULL sign-extended word and corrupt the slot. Standalone
+      -- and struct/array-member narrow ints already mask (via the `StorageField`
+      -- record / packed member layout); a bare mapping value has neither, so
+      -- carry the lane width here as a `packedScalar 0 (bits/8) signed` layout
+      -- (unsigned narrow ints and enums fit their low bytes already, so they need
+      -- no change and keep the plain `scalar` layout).
+      let value :=
+        match valueTy with
+        | Ty.int bits =>
+            if 0 < bits && bits < 256 && bits % 8 == 0 then
+              SolidCore.Solidity.Source.StorageLayout.packedScalar
+                0 (bits / 8) true SolidCore.Solidity.Source.Ty.int256
+            else value
+        | _ => value
       some (SolidCore.Solidity.Source.StorageLayout.mapping key value)
   | Ty.enum _ maxValue =>
       -- Storage layout keeps the member bound: reads mask the lane byte and
