@@ -7223,9 +7223,9 @@ def Expr.noReturnEffectStmtCore? (storageNames : List Name) :
   -- `require(a > 0, Base.Err(a))` used as a returned effect): resolve the
   -- base-/self-qualified member-access error callee by its UNQUALIFIED `name`,
   -- mirroring the bare-ident `requireCustom` arm. Must precede the generic
-  -- `[cond, reason]` arm. Gated by the require-custom checker's member arm,
-  -- which only accepts errors in the contract's flattened error table;
-  -- library/interface-qualified errors are DECLINED upstream.
+  -- `[cond, reason]` arm. The require-custom checker's member arm also accepts
+  -- LIBRARY-qualified errors (`require(cond, L.Bad(a))`); resolving by the bare
+  -- `name` is sound because the library qualifier is not part of the selector.
   | Expr.call (Expr.ident "require")
       [Arg.positional cond,
        Arg.positional
@@ -20944,7 +20944,10 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
       -- member arm resolves it the same way); must precede the generic
       -- `[cond, reason]` fallback below, which would otherwise degrade to
       -- `requireErrorExpr` whose member-call `toCore` returns `none` (over-reject).
-      -- Gated by the checker; library/interface-qualified errors are DECLINED.
+      -- Also covers the LIBRARY-qualified error (`require(cond, L.Bad(a))`): the
+      -- library qualifier is not part of the error selector, so resolving by the
+      -- bare `name` soundly encodes `keccak256("Bad(...)")` — matching the checker
+      -- (`REQUIRE-QUAL library case`) which accepts library errors here too.
       | Stmt.expr
           (Expr.call (Expr.ident "require")
             [Arg.positional cond,
