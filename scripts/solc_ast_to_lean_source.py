@@ -1180,6 +1180,22 @@ def expr_from_node(node: dict[str, Any]) -> str:
         args = node.get("arguments", [])
         if not isinstance(expression, dict) or not isinstance(args, list):
             fail("FunctionCall missing expression or arguments")
+        # solc parses a parenthesized callee (`((new bytes))(4)`, `(f)(x)`) with
+        # the call target wrapped in single-element TupleExpression grouping
+        # nodes. Solidity has no 1-tuples, so those parentheses are pure grouping
+        # — peel them off before dispatching on the callee's node type. Without
+        # this, a parenthesized `new T` (NewExpression) misses the newExpr branch
+        # below and falls through to the generic `Expr.call`, where the tuple
+        # collapse re-exposes a bare NewExpression that is unsupported as an
+        # ordinary expression (import fail-closed on a program solc accepts).
+        while (
+            expression.get("nodeType") == "TupleExpression"
+            and expression.get("isInlineArray") is not True
+            and isinstance(expression.get("components"), list)
+            and len(expression["components"]) == 1
+            and isinstance(expression["components"][0], dict)
+        ):
+            expression = expression["components"][0]
         if (
             node.get("kind") == "typeConversion"
             and expression.get("nodeType") == "ElementaryTypeNameExpression"
