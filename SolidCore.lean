@@ -55,6 +55,7 @@ import SolidCore.Witness.AbiEncodeBitNotNarrow
 import SolidCore.Witness.AbiEncodeComparisonNarrow
 import SolidCore.Witness.AbiEncodeShlNarrow
 import SolidCore.Witness.NarrowAddWideCastReturn
+import SolidCore.Witness.NarrowShlWideCastReturn
 import SolidCore.Witness.NarrowAddNestedMappingKey
 import SolidCore.Witness.BytesNIdentIndex
 import SolidCore.Witness.BytesOfStringStorageByteWrite

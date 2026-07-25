@@ -7887,6 +7887,30 @@ def Expr.wideCastNarrowOverflowArithmetic? (env : TypeEnv) (expr : Expr) : Bool 
        | none => false)
   | none => false
 
+/-- NARROW-SHL-WIDE-CAST (SOUNDNESS): does `expr` (the argument of a WORD-width
+    `uint256`/`int256` explicit cast) reach — through nested narrow/wide casts —
+    a left shift `<<` whose OWN (left-operand) type is NARROW (`uintN`/`intN`,
+    `N < 256`)? `uint256(x << 8)` with `uint32 x` must evaluate the shift at its
+    uint32 operand width so the bits pushed past bit 31 are TRUNCATED (solc
+    cleans a shift result with `cleanup_t_uintN`, a truncating cast — shifts
+    never overflow-panic) BEFORE the widening conversion. The env-less Direct
+    fallback shifts at 256 bits and never masks (`0xFFFFFFFF << 8 = 0xFFFFFFFF00`
+    instead of the truncated `0xFFFFFF00`) — a wrong-value soundness gap. Used
+    (alongside `hasSignedLiteralOperandMix` and `wideCastNarrowOverflowArithmetic?`)
+    as the reroute gate of the wide-cast arm of `Expr.toCoreAsWithEnvFuel?`; a
+    flagged argument routes through the nested-cast fallback, which lowers it at
+    ITS OWN type via the env-aware recursion (whose Direct fallback fires the
+    truncating operand-width cleanup on the shift). An explicitly-widened operand
+    (`uint256(a) << b`) has a WORD shift type, so this is `false` and it keeps the
+    byte-identical Direct path (no mask needed). `annotateAbi` may wrap the shift
+    in the redundant narrow cast (`uint32(x << 8)`), which `peelToNarrowShl?`
+    strips; either spelling reaches the same narrow shift type here. -/
+def Expr.wideCastNarrowShl? (env : TypeEnv) (expr : Expr) : Bool :=
+  Expr.peelToNarrowShl? expr &&
+    (match Expr.abiTyWithEnv? env expr with
+     | some ty => (Ty.narrowIntCastTarget? ty).isSome
+     | none => false)
+
 /-- TC1: lower an `abi.encode`/`abi.encodePacked` CONDITIONAL argument whose two
     branches are `bytesN` of DIFFERENT widths. The conditional takes the
     ternary's COMMON type (the wider `bytesN`); solc inserts the implicit
@@ -8567,7 +8591,8 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
                               -- signed-literal-mix reroute uses. Both gates funnel
                               -- into the shared machinery below.
                               if Expr.hasSignedLiteralOperandMix env argExpr ||
-                                  Expr.wideCastNarrowOverflowArithmetic? env argExpr then
+                                  Expr.wideCastNarrowOverflowArithmetic? env argExpr ||
+                                  Expr.wideCastNarrowShl? env argExpr then
                                 (match Expr.peelToOverflowArithmeticWide? argExpr with
                                 | some (bop, lhs, rhs) =>
                                     (match Expr.binaryToCoreWithEnvTypedFuel?
