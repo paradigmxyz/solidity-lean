@@ -7750,6 +7750,29 @@ def Expr.peelToNarrowShl? : Expr -> Bool
       | none => false
   | _ => false
 
+/-- NARROW-BITNOT-MASK (S, narrow-bitnot-mask-in-abiencode-arg): does `expr`
+    reach a bitwise NOT `~inner` after peeling whole-expression narrow
+    (`uintN`/`intN`, N < 256) casts? A `~` result is typed by solc at the operand
+    width and cleaned with `cleanup_t_uintN` (`and(not(x),2^N-1)`, a TRUNCATING
+    cast, NOT a range check — `~` never overflow-panics), so `uint8 (~a)` with
+    `a = 1` truncates `not(1) = 0xff…fe` to `0xfe`. The env-less `abi.encode` arg
+    path (`Expr.toAbiEncodeArg?` → `Expr.toCore?`) DROPS the narrow cast when it
+    cannot env-lessly type the `~` operand (parameter/local idents have no
+    `Expr.abiTy?` arm), leaving a bare 256-bit `bitNot` (encoding
+    `0xff…fe = 2^256-2`) — a wrong-value soundness gap. `annotateAbi` wraps such
+    an argument in exactly this redundant narrow cast (`uintN(~a)`, the operand
+    type it recovers WITH the env), so the `~` sits under one or more narrow
+    casts, mirroring `Expr.peelToNarrowShl?`. A word-width (`uint256`) `~` needs
+    no mask (its cleanup is the identity) and is not peeled here; a `bytesN` `~`
+    (annotated with a non-narrow `bytesN(...)` wrapper) is likewise not peeled. -/
+def Expr.peelToNarrowBitNot? : Expr -> Bool
+  | Expr.unary UnaryOp.bitNot _ => true
+  | Expr.call (Expr.typeName castTy) [Arg.positional inner] =>
+      match Ty.narrowIntCastTarget? castTy with
+      | some _ => Expr.peelToNarrowBitNot? inner
+      | none => false
+  | _ => false
+
 /-- NARROW-BITAND-MASK (S, narrow-add-under-bitand-in-abiencode-arg): peel
     whole-expression narrow (`uintN`/`intN`, N < 256) casts off `expr` to reach a
     BITWISE `&`/`|`/`^` underneath, returning its operator and operands. A bitwise
@@ -7958,6 +7981,11 @@ def Expr.abiArgNeedsEnvCleanupFuel? : Nat -> Expr -> Bool
           -- narrow cast `annotateAbi` inserts) must lower env-aware so its
           -- operand-width truncating clean fires (`1 << 8 → 0`, not 256).
           if Expr.peelToNarrowShl? expr then true
+          -- NARROW-BITNOT-MASK (S): a narrow `~` (possibly under the redundant
+          -- narrow cast `annotateAbi` inserts) must lower env-aware so its
+          -- operand-width truncating clean fires (`~uint8 1 → 0xfe`, not
+          -- `0xff…fe`). `~` is a truncating cleanup, never a range check.
+          else if Expr.peelToNarrowBitNot? expr then true
           -- NARROW-BITAND-MASK (S): a bitwise `&`/`|`/`^` (possibly under the
           -- redundant narrow cast `annotateAbi` inserts) whose OWN operand
           -- carries narrow checked arithmetic — `abi.encode((a + b) & 255)`
