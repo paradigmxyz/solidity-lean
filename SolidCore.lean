@@ -63,6 +63,7 @@ import SolidCore.Witness.BytesNEqLiteral
 import SolidCore.Witness.TypeCheckKeying
 import SolidCore.Witness.AddressNestedConv
 import SolidCore.Witness.AnfCallHoisting
+import SolidCore.Witness.StringConcatCallVarDecl
 import SolidCore.Witness.EvalOrderIntrinsic
 import SolidCore.Witness.ExternalSelfCall
 import SolidCore.Witness.NarrowCleanupFamily

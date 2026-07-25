@@ -21912,8 +21912,22 @@ def Stmt.listLowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                         externalCallKindEnv
                         storageNames modifiers functions freeFunctions returnTys rest
                     some (head :: tail)
+                  -- STAGE-D #174 (concat parity): a `bytes.concat`/`string.concat`
+                  -- var-decl initializer nesting a value-returning call
+                  -- (`string memory s = string.concat("a", f());`) is not an
+                  -- external call, so the branch above declines; and like `abi.*`
+                  -- the per-statement env-less concat lowering cannot lower a
+                  -- nested internal call, so `generic` over-rejects (or mis-lowers)
+                  -- the declaration. Peel the strictly-nested call into ordered
+                  -- SIBLING prefix temps exactly as the `abi.*` arm does and
+                  -- re-lower the residual `string.concat("a", (retTy)(_tmp))`
+                  -- declaration through the list.
                   match expr, internalFuel with
-                  | Expr.call (Expr.member (Expr.ident "abi") _) _, fuel + 1 =>
+                  | Expr.call (Expr.member (Expr.ident "abi") _) _, fuel + 1
+                  | Expr.call (Expr.member (Expr.ident "bytes") "concat") _, fuel + 1
+                  | Expr.call (Expr.member (Expr.typeName Ty.bytes) "concat") _, fuel + 1
+                  | Expr.call (Expr.member (Expr.ident "string") "concat") _, fuel + 1
+                  | Expr.call (Expr.member (Expr.typeName Ty.string) "concat") _, fuel + 1 =>
                       match Expr.argPositionHoistPrefix? fuel storageRefEnv env
                           externalCallKindEnv storageNames modifiers functions
                           freeFunctions expr with
