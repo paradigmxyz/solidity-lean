@@ -4239,14 +4239,17 @@ def Runtime.storeStorageIndexWithDeepClear (context : Context)
         State.storeStorageLayoutAtWithDeepClear
           runtime.state slot valueLayout value
       Except.ok { runtime with state }
-  | some StorageLayout.bytes => do
+  -- `bytes(s)[i] = v` reinterprets a storage `string` as `bytes` (identical
+  -- length-prefixed layout), so the byte write is valid and must hit the same
+  -- path as a `bytes` field. Direct `s[i] = v` on a `string` is rejected by the
+  -- typechecker, so `string` reaches here only via that reinterpret peel.
+  | some StorageLayout.bytes
+  | some StorageLayout.string => do
       let key ← index.expectWord
       let word ← coerceStorageWordAs (Ty.fixedBytes 1) value
       let state ←
         State.storeStorageByteAt runtime.state field.slot key word
       Except.ok { runtime with state }
-  | some StorageLayout.string =>
-      Except.error RevertData.typeMismatch
   | some (StorageLayout.dynamicArray elementLayout) => do
       let key ← index.expectWord
       let length := runtime.state.loadSlot field.slot
@@ -4743,14 +4746,17 @@ def Runtime.storeStorageIndex (context : Context)
       let state ←
         State.storeStorageLayoutAt runtime.state slot valueLayout value
       Except.ok { runtime with state }
-  | some StorageLayout.bytes => do
+  -- `bytes(s)[i] = v` reinterprets a storage `string` as `bytes` (identical
+  -- length-prefixed layout), so the byte write is valid and must hit the same
+  -- path as a `bytes` field. Direct `s[i] = v` on a `string` is rejected by the
+  -- typechecker, so `string` reaches here only via that reinterpret peel.
+  | some StorageLayout.bytes
+  | some StorageLayout.string => do
       let key ← index.expectWord
       let word ← coerceStorageWordAs (Ty.fixedBytes 1) value
       let state ←
         State.storeStorageByteAt runtime.state field.slot key word
       Except.ok { runtime with state }
-  | some StorageLayout.string =>
-      Except.error RevertData.typeMismatch
   | some (StorageLayout.dynamicArray elementLayout) => do
       let key ← index.expectWord
       let length := runtime.state.loadSlot field.slot
