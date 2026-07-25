@@ -14976,6 +14976,38 @@ def externalBinarySingleReturnUseCore?
     those positions preserve the prior over-reject. `atRoot` suppresses matching
     the whole expression, so only strictly-nested calls are peeled — a payload
     that is itself a call is left to the existing call-statement arms. -/
+
+/-- R1 / named-argument call order: reorder an INTERNAL call's NAMED arguments
+    into the callee's parameter-declaration order (as positional args) so the
+    sibling-prefix hoister (`findArgPosInnerCall?`) and the ANF fallback lift
+    their nested calls in solc's evaluation order. solc 0.8.35 legacy codegen
+    (`ExpressionCompiler.cpp`) reorders named arguments to parameter order and
+    THEN evaluates the argument list left-to-right, so `g({b: t(1), a: t(2)})`
+    runs the `a` expression `t(2)` first. Both hoisters otherwise lift arguments
+    in WRITTEN order, mis-ordering the side-effecting nested calls (argument
+    BINDING is already correct — it is reordered by the downstream `orderedArgs?`;
+    only the hoist-temp evaluation order was wrong).
+
+    Positional calls short-circuit unchanged, and only a callee that resolves to a
+    UNIQUE internal function is reordered — struct construction, external/library
+    calls, and event/error/`require`-error argument lists are reordered on their
+    own paths and keep their existing (byte-identical) lowering. -/
+def Expr.reorderNamedInternalCallArgs
+    (functions freeFunctions : List FunctionDecl) (env : TypeEnv)
+    (callee : Expr) (args : List Arg) : List Arg :=
+  if Args.allPositional args then
+    args
+  else
+    match callee with
+    | Expr.ident name =>
+        match FunctionDecl.findInternalCalleeWithArgs? functions env name args with
+        | some (_, ordered) => ordered.map Arg.positional
+        | none =>
+            match FunctionDecl.findInternalCalleeWithArgs? freeFunctions env name args with
+            | some (_, ordered) => ordered.map Arg.positional
+            | none => args
+    | _ => args
+
 mutual
 
 def Expr.findArgPosInnerCall? (functions : List FunctionDecl)
@@ -15082,6 +15114,7 @@ def Expr.findArgPosInnerCall? (functions : List FunctionDecl)
         | some (c, t, args') => some (c, t, Expr.newExpr ty args')
         | none => none
     | Expr.call callee args =>
+        let args := Expr.reorderNamedInternalCallArgs functions [] env callee args
         match Expr.findArgPosInnerCallArgs? functions env tmp fuel args with
         | some (c, t, args') => some (c, t, Expr.call callee args')
         | none =>
@@ -15371,6 +15404,8 @@ def Expr.anfHoist
           let (c1, pre, items') := recItems c items
           (c1, pre, Expr.tuple items')
       | Expr.call callee args =>
+          let args := Expr.reorderNamedInternalCallArgs functions freeFunctions
+            env callee args
           match Expr.anfHoistableCallTy? functions freeFunctions env
               externalCallKindEnv storageNames (Expr.call callee args) with
           | some retTy =>
@@ -16109,6 +16144,14 @@ def FunctionDecl.internalSingleReturnCallExprCore?
     (useResult : CoreExpr -> CoreStmt) (depth : Nat := 0) :
     Option CoreStmt := do
   let (name, args, convert) ← Expr.internalSingleReturnCallConversion? expr
+  -- Named-argument order (R1): reorder NAMED arguments into the callee's
+  -- parameter-declaration order BEFORE peeling their nested calls into sibling
+  -- temps, so `g({b: t(1), a: t(2)})` evaluates the `a` expression `t(2)` first
+  -- (solc reorders named args to parameter order, then evaluates L2R). Argument
+  -- binding was already correct via `orderedArgs?`; this fixes only the
+  -- side-effecting-argument evaluation order. Positional calls are unchanged.
+  let args := Expr.reorderNamedInternalCallArgs functions freeFunctions env
+    (Expr.ident name) args
   -- #196 NESTED-CALL-TEMP-SHADOW: the hoisted-argument temp prefix is
   -- depth-suffixed. Every recursion level of this hoister previously claimed
   -- the SAME `_sol_internal_call_arg_eval0` name; the inner block's redeclared
@@ -19967,6 +20010,15 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
             | _ => none) with
           | some coreStmt => some coreStmt
           | none =>
+          -- Named-argument order (R1): reorder NAMED arguments into the callee's
+          -- parameter-declaration order (as positional) BEFORE the direct-arg
+          -- hoister (`hoistDirectInternalCallArgs?`) lifts their nested calls
+          -- into `_sol_vardecl_arg_eval*` temps, so `g({b: t(1), a: t(2)})`
+          -- evaluates the `a` expression `t(2)` first (solc reorders named args
+          -- to parameter order, then evaluates L2R). Binding was already correct
+          -- via `orderedArgs?`; positional calls are unchanged.
+          let args := Expr.reorderNamedInternalCallArgs functions freeFunctions
+            env (Expr.ident name) args
           let fallback? := do
             match FunctionDecl.internalVarDeclAssignReturnCallCorePieces?
                 internalFuel storageRefEnv env externalCallKindEnv storageNames
@@ -22151,6 +22203,15 @@ def Stmt.listLowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                   storageNames modifiers functions freeFunctions returnTys rest
               some (head :: tail)
           | none =>
+          -- Named-argument order (R1): reorder NAMED arguments into the callee's
+          -- parameter-declaration order (as positional) BEFORE the direct-arg
+          -- hoister (`hoistDirectInternalCallArgs?`) lifts their nested calls
+          -- into `_sol_vardecl_arg_eval*` temps, so `g({b: t(1), a: t(2)})`
+          -- evaluates the `a` expression `t(2)` first (solc reorders named args
+          -- to parameter order, then evaluates L2R). Binding was already correct
+          -- via `orderedArgs?`; positional calls are unchanged.
+          let args := Expr.reorderNamedInternalCallArgs functions freeFunctions
+            env (Expr.ident name) args
           match binding.name with
           | some localName =>
               match binding.location with
