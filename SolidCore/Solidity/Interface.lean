@@ -765,6 +765,22 @@ def TypeEnv.extend? (env : TypeEnv) (name? : Option Name)
   | some name, some ty => (name, ty) :: env
   | _, _ => env
 
+/-- SHADOW-LOCAL (soundness): the names a local variable declaration has SHADOWED
+    in the current scope. As the lowering threads `env`, every `varDecl` PREPENDS
+    its binding, so a name a nearer local now owns appears ≥2× — once as the
+    shadowing local and once as the underlying declaration (state variable, param,
+    named return, or an outer local). State-variable names are otherwise unique in
+    a flattened contract, and each param/named-return/`this` occurs once, so a
+    repeat marks EXACTLY a shadowed name. Dropping these from `storageNames` before
+    lowering a statement makes a bare shadowed identifier lower as the local
+    (`Expr.var`) instead of a storage read/write — matching solc's nearest-
+    declaration resolution and C99 block scoping (the entry re-derives this from
+    the CURRENT `env`, so a name reverts to the state variable once its local's
+    block ends and the binding leaves `env`). -/
+def TypeEnv.shadowedStateNames (env : TypeEnv) : List Name :=
+  let names := env.map Prod.fst
+  names.filter (fun n => (names.filter (fun m => m == n)).length ≥ 2)
+
 def UserTypeEnv.lookup? (env : UserTypeEnv) (path : Path) :
     Option Ty :=
   match env with
@@ -18110,6 +18126,13 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
       let functions := ctx.functions
       let freeFunctions := ctx.freeFunctions
       let returnTys := ctx.returnTys
+      -- SHADOW-LOCAL (soundness): drop names a nearer local shadows so a bare
+      -- shadowed identifier lowers as that local, not the same-name state variable
+      -- (see `TypeEnv.shadowedStateNames`). Params/named returns are excluded
+      -- upstream (`bodyStorageNames`); this covers body-level (incl. nested-block)
+      -- locals, re-derived from the current `env` so it respects C99 scoping.
+      let storageNames :=
+        stateNamesExcludingBound (TypeEnv.shadowedStateNames env) storageNames
       (match stmt with
       | Stmt.expr expr@(Expr.unary UnaryOp.preIncrement _)
       | Stmt.expr expr@(Expr.unary UnaryOp.preDecrement _)
@@ -21114,6 +21137,12 @@ def Stmt.listLowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
       let functions := ctx.functions
       let freeFunctions := ctx.freeFunctions
       let returnTys := ctx.returnTys
+      -- SHADOW-LOCAL (soundness): see the companion note in `Stmt.lowerCore?` and
+      -- `TypeEnv.shadowedStateNames` — drop names a nearer local shadows so the
+      -- shadowed identifier lowers as that local, re-derived from the current
+      -- `env` (extended per varDecl as the list is threaded) to respect scoping.
+      let storageNames :=
+        stateNamesExcludingBound (TypeEnv.shadowedStateNames env) storageNames
       (match stmts with
       | [] => some []
       | Stmt.expr (Expr.assign (Expr.ident name) AssignOp.assign rhs) :: rest =>
