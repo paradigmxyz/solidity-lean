@@ -8014,6 +8014,31 @@ def Expr.abiArgNeedsEnvCleanupFuel? : Nat -> Expr -> Bool
       match Expr.peelToOverflowArithmetic? expr with
       | some _ => true
       | none =>
+      -- ARITH/BUILTIN-UNDER-INT-CAST (S, narrow-addmod-through-cast-arg): an
+      -- explicit int cast (WORD `uint256`/`int256` OR NARROW `uintN`/`intN`) is
+      -- TRANSPARENT to the operand-width cleanup obligation of what it wraps — the
+      -- arg shape `addmod(uint256(a + b), 1, 7)` (`uint128 a,b`) and its cast-
+      -- tower variants (`uint128(uint128(addmod(uint256(a + b), 1, 7)))`, the
+      -- shape a returned-through-a-fn-pointer arg takes; `annotateAbi` also wraps
+      -- the inner `a + b` as `uint256(uint128(a + b))`). solc evaluates `a + b` at
+      -- its NARROW operand width (checked add, Panic 0x11 on overflow) BEFORE any
+      -- widening/narrowing; the env-less builtin-arg path ran it bare at 256 bits
+      -- (no overflow) so the addmod silently returned `(a+b+1) mod m`. The peelers
+      -- above stop at a WORD cast, and neither peels a whole builtin call, so
+      -- recurse THROUGH the cast to reach the flagged content underneath (the
+      -- inner arithmetic or builtin then matches its own arm). Flagging reroutes
+      -- the containing position (addmod/mulmod, abi.encode, index key, cast-of-
+      -- builtin, …) through the env-aware lowering, whose cast arms (#31 / the
+      -- cast-of-builtin arm) fire the operand-width cleanup — the same machinery
+      -- the return/vardecl position already uses. A cast over non-flagged content
+      -- recurses to `false` (`uint256(x)`, `uint128(y)`) and stays byte-identical.
+      match (match expr with
+             | Expr.call (Expr.typeName castTy) [Arg.positional inner] =>
+                 if (Ty.wordIntCastTarget? castTy).isSome ||
+                     (Ty.narrowIntCastTarget? castTy).isSome then some inner else none
+             | _ => none) with
+      | some inner => Expr.abiArgNeedsEnvCleanupFuel? fuel inner
+      | none =>
           match Expr.peelToNarrowNeg? expr with
           | some _ => true
           | none =>
@@ -8665,15 +8690,21 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
                       | some coreExpr => some coreExpr
                       | none =>
                        -- #201 (B/F, cast-of-builtin): an explicit cast whose
-                       -- ARGUMENT is an abi/hash/concat builtin carrying narrow
-                       -- checked arithmetic
-                       -- (`uint256(keccak256(abi.encode(a + b)))`, `uint8 a,b`)
-                       -- must lower the builtin env-aware so its operand-width
-                       -- Panic 0x11 fires, then convert exactly as the implicit
-                       -- widening does (`coreAsFromTy?` through the cast type,
-                       -- then to the target). Unflagged casts keep the
+                       -- ARGUMENT needs the env-aware operand-width cleanup
+                       -- (`Expr.abiArgNeedsEnvCleanup?`) must lower that argument
+                       -- env-aware so its Panic 0x11 fires, then convert exactly
+                       -- as the implicit widening does (`coreAsFromTy?` through the
+                       -- cast type, then to the target). This covers the direct
+                       -- builtin case (`uint256(keccak256(abi.encode(a + b)))`,
+                       -- `uint8 a,b`) AND — via the transparent-cast recursion in
+                       -- `abiArgNeedsEnvCleanup?` — a flagged builtin/arithmetic
+                       -- under a NARROW-cast tower (`uint128(uint128(addmod(
+                       -- uint256(a + b), 1, 7)))`, the arg shape a value returned
+                       -- through an internal function pointer takes): each cast
+                       -- layer re-enters here and peels inward until the innermost
+                       -- flagged arm fires the cleanup. Unflagged casts keep the
                        -- byte-identical Direct path.
-                       (match (if Expr.abiBuiltinArgsNeedEnvCleanup argExpr then
+                       (match (if Expr.abiArgNeedsEnvCleanup? argExpr then
                            (do
                              let srcTy ← Expr.abiTyWithEnv? env argExpr
                              let innerCore ←

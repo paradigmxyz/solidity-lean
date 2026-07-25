@@ -57,6 +57,7 @@ import SolidCore.Witness.AbiEncodeShlNarrow
 import SolidCore.Witness.NarrowAddWideCastReturn
 import SolidCore.Witness.NarrowShlWideCastReturn
 import SolidCore.Witness.NarrowMulShortCircuitPanic
+import SolidCore.Witness.NarrowAddmodFnptrPanic
 import SolidCore.Witness.NarrowAddNestedMappingKey
 import SolidCore.Witness.BytesNIdentIndex
 import SolidCore.Witness.BytesOfStringStorageByteWrite
