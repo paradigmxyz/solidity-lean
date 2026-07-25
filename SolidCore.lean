@@ -51,6 +51,7 @@ import SolidCore.Witness.TupleVarDeclAbiDecode
 import SolidCore.Witness.TernaryCallInArg
 import SolidCore.Witness.AbiEncodeCallArg
 import SolidCore.Witness.AbiEncodeBitAndNarrow
+import SolidCore.Witness.AbiEncodeBitNotNarrow
 import SolidCore.Witness.AbiEncodeComparisonNarrow
 import SolidCore.Witness.AbiEncodeShlNarrow
 import SolidCore.Witness.NarrowAddWideCastReturn
