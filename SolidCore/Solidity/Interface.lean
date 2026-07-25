@@ -13082,6 +13082,32 @@ def Expr.abiTyWithInternalFunctionsEnv?
       | _ => none
 termination_by expr
 
+-- Hoist-temp types for a literal-tuple variable DECLARATION whose RHS components
+-- may be internal calls (`(uint a, , uint c) = (f(), g(), h(3))`). One type per
+-- (binding, RHS-item) pair, in lockstep. A NAMED binding contributes its declared
+-- type; an anonymous (hole) binding declares no type, so its discarded component
+-- still must be evaluated into a temp — infer that temp's type from the RHS item
+-- itself (`Expr.abiTyWithInternalFunctionsEnv?`). `VarBindings.sourceTysIncluding-
+-- Anonymous?` cannot serve here: it fails outright on a typeless hole binding,
+-- which collapsed the whole Stage-B declaration lowering to `none` (→ Panic 0).
+def VarBindings.tupleDeclItemTysWithEnv?
+    (functions freeFunctions : List FunctionDecl) (env : TypeEnv) :
+    List VarBinding -> List TupleItem -> Option (List Ty)
+  | [], [] => some []
+  | binding :: bs, item :: its => do
+      let ty ←
+        match binding.ty with
+        | some t => some t
+        | none =>
+            match item with
+            | TupleItem.value expr =>
+                Expr.abiTyWithInternalFunctionsEnv? functions freeFunctions env expr
+            | TupleItem.hole => none
+      let tail :=
+        VarBindings.tupleDeclItemTysWithEnv? functions freeFunctions env bs its
+      tail.map (fun rest => ty :: rest)
+  | _, _ => none
+
 def Parameter.matchesArgWithInternalFunctions?
     (functions freeFunctions : List FunctionDecl) (env : TypeEnv)
     (param : Parameter) (arg : Expr) : Option Bool := do
@@ -21387,7 +21413,9 @@ def Stmt.listLowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                 -- only for `rest`), so emission order cannot capture. Anonymous
                 -- (hole) bindings still evaluate their component.
                 if bindings.length == items.length then some () else none
-                let tys ← VarBindings.sourceTysIncludingAnonymous? bindings
+                let tys ←
+                  VarBindings.tupleDeclItemTysWithEnv? functions freeFunctions env
+                    bindings items
                 let coreDecls ← VarBindings.toCoreTupleDecls? bindings
                 let targets ← VarBindings.toCoreTupleTargets? bindings
                 let hoisted ←
