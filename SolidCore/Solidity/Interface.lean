@@ -14952,6 +14952,16 @@ def Expr.findArgPosInnerCall? (functions : List FunctionDecl)
         match Expr.findArgPosInnerCall? functions env tmp false fuel x with
         | some (c, t, x') => some (c, t, Expr.payableConversion x')
         | none => none
+    | Expr.enumFromUInt w x =>
+        -- A value-returning call inside an enum conversion (`E(f())`,
+        -- `E(uint8(f()))`) is an argument-like position exactly like a unary
+        -- operand; descend into the converted expression so the call is peeled
+        -- into a sibling temp instead of surviving inside the Core
+        -- `enumFromUInt` (where evaluating it as a pure sub-expression is
+        -- unsupported and yields a spurious Panic 0).
+        match Expr.findArgPosInnerCall? functions env tmp false fuel x with
+        | some (c, t, x') => some (c, t, Expr.enumFromUInt w x')
+        | none => none
     | Expr.index b i =>
         match Expr.findArgPosInnerCall? functions env tmp false fuel b with
         | some (c, t, b') => some (c, t, Expr.index b' i)
@@ -22490,6 +22500,12 @@ def Stmt.listLowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
               -- nest a value-returning call in a bound; peel those into ordered
               -- sibling temps (see the `Expr.slice` arm of `findArgPosInnerCall?`).
               | Expr.slice _ _ _ => true
+              -- An enum-conversion initializer (`En e = E(f())`, `E(uint8(f()))`)
+              -- likewise declares a local surviving as a sibling and may nest a
+              -- value-returning call inside the conversion; peel those into
+              -- ordered sibling temps (see the `Expr.enumFromUInt` arm of
+              -- `findArgPosInnerCall?`).
+              | Expr.enumFromUInt _ _ => true
               | _ => false
             match internalFuel, isTarget with
             | fuel + 1, true =>
