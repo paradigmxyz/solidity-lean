@@ -22138,21 +22138,64 @@ def Stmt.listLowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                                       storageNames modifiers functions freeFunctions
                                       returnTys rest
                                   some (pieces ++ tail)
-                              | none => do
-                                  let head ←
-                                    Stmt.toCore? storageNames
-                                      (Stmt.varDecl [binding]
-                                        (some (Expr.call (Expr.ident name) args)))
-                                  let tail ←
-                                    Stmt.listToCoreWithInternalCallsWithRefs?
-                                      internalFuel
-                                      (VarBinding.extendStorageRefEnv storageRefEnv
-                                        binding)
-                                      (VarBinding.extendTypeEnv env binding)
-                                      externalCallKindEnv
-                                      storageNames modifiers functions freeFunctions
-                                      returnTys rest
-                                  some (head :: tail)
+                              | none =>
+                                  -- CALL-IN-ABI-ENCODE-NESTED (var-decl, ident
+                                  -- builtin callee): an initializer like
+                                  -- `bytes32 k = keccak256(bytes.concat(abi.encode(f(), g())))`
+                                  -- whose ident-headed builtin call transitively
+                                  -- nests one or more internal calls in an
+                                  -- argument-like position (here f()/g() buried
+                                  -- under keccak256/bytes.concat/abi.encode). None
+                                  -- of the specific arms above lower it (keccak256
+                                  -- is a builtin, not a user/external call; the
+                                  -- abi one-call peel needs a residual it can
+                                  -- lower and stalls on the SECOND call), so it
+                                  -- fell through to the env-less `Stmt.toCore?`,
+                                  -- which cannot lower a nested internal call —
+                                  -- the declaration over-rejected and poisoned the
+                                  -- contract's executable lowering (replay Panics
+                                  -- 0). Peel EVERY strictly-nested internal call
+                                  -- into ordered SIBLING prefix temps (the generic
+                                  -- arg-position hoister descends through arbitrary
+                                  -- call wrappers and drains left-to-right, solc's
+                                  -- evaluation order) and re-lower the residual
+                                  -- (arg-position-call-free) declaration through
+                                  -- the list so the local stays in scope for later
+                                  -- statements. Fires only when a nested call is
+                                  -- actually hoisted; otherwise the prefix is empty
+                                  -- and we fall back to `generic` (byte-identical).
+                                  let generic : Option (List CoreStmt) := do
+                                    let head ←
+                                      Stmt.toCore? storageNames
+                                        (Stmt.varDecl [binding]
+                                          (some (Expr.call (Expr.ident name) args)))
+                                    let tail ←
+                                      Stmt.listToCoreWithInternalCallsWithRefs?
+                                        internalFuel
+                                        (VarBinding.extendStorageRefEnv storageRefEnv
+                                          binding)
+                                        (VarBinding.extendTypeEnv env binding)
+                                        externalCallKindEnv
+                                        storageNames modifiers functions freeFunctions
+                                        returnTys rest
+                                    some (head :: tail)
+                                  match internalFuel with
+                                  | fuel + 1 =>
+                                      match Expr.argPositionHoistPrefix? fuel storageRefEnv
+                                          env externalCallKindEnv storageNames modifiers
+                                          functions freeFunctions expr with
+                                      | some (prefixStmts@(_ :: _), residualExpr) =>
+                                          (match
+                                              Stmt.listToCoreWithInternalCallsWithRefs? fuel
+                                                storageRefEnv env externalCallKindEnv
+                                                storageNames modifiers functions freeFunctions
+                                                returnTys
+                                                (Stmt.varDecl [binding] (some residualExpr)
+                                                  :: rest) with
+                                          | some spliced => some (prefixStmts ++ spliced)
+                                          | none => generic)
+                                      | _ => generic
+                                  | 0 => generic
           | none => do
               let head ←
                 Stmt.toCore? storageNames
