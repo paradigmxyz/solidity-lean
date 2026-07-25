@@ -94,6 +94,7 @@ import SolidCore.Witness.EventOverloadTable
 import SolidCore.Witness.RevertCustomErrorStorageString
 import SolidCore.Witness.MappingKeyStorageString
 import SolidCore.Witness.RequireReasonStorageString
+import SolidCore.Witness.RequireLibraryQualifiedError
 import SolidCore.Witness.StorageValueUseNormalize
 import SolidCore.Witness.OperatorUdvtFallback
 import SolidCore.Witness.MustOverrideTwoBase

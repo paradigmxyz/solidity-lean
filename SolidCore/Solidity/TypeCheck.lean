@@ -10690,6 +10690,27 @@ def checkStmt (env : CheckEnv) :
               (Solidity.Expr.member target errorName) errorArgs) ])) => do
       let condChecked ← checkExpr env cond
       condChecked.expectBool
+      -- REQUIRE-QUAL library case: `require(cond, L.Bad(a))` names an error
+      -- declared in a LIBRARY (or interface / non-inherited contract) — not in
+      -- the contract's own/inherited error scope, so `checkCustomErrorArgs`
+      -- (which resolves the flattened `env.errors`) can't see it. Mirror
+      -- `checkRevertCall`'s library arm: resolve the member against the named
+      -- type's error table. The executable lowering carries library errors in
+      -- the runtime error table (the require-custom member lowering resolves by
+      -- the UNQUALIFIED name, and the library qualifier is not part of the error
+      -- selector), so the selector is soundly encoded. A base-/self-qualified
+      -- error (`require(cond, Base.Err(a))`) is not found here and still routes
+      -- through `checkCustomErrorArgs` below.
+      match (match target with
+             | Solidity.Expr.typeName (Solidity.Ty.user path) =>
+                 env.types.contractErrorSig? path errorName
+             | _ => none) with
+      | some (paramNames, paramTys) => do
+          let _ ←
+            checkContextualArgsAssignableToParamsFor
+              env "custom error" paramNames paramTys errorArgs
+          Except.ok { source := stmt }
+      | none =>
       match checkCustomErrorArgs env errorName errorArgs with
       | Except.ok _ => Except.ok { source := stmt }
       | Except.error err =>
