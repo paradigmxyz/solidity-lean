@@ -8275,9 +8275,15 @@ def checkExpr (env : CheckEnv) :
       | Solidity.BinaryOp.ge =>
           -- solc compares constant literals via their mobile types; a pair with
           -- no common mobile type (`2**300 < 2**301`, `1/2 < 1`) is a type error
-          -- rather than a folded bool (CE-6a comparison cap).
+          -- rather than a folded bool (CE-6a comparison cap). The mobile-type
+          -- rule only governs UNTYPED rational-constant pairs; an operand carrying
+          -- an explicit type (e.g. `int8(-1)`) is a concrete typed value, not a
+          -- `rational_const`, so the gate must not fire on it (else
+          -- `int8(-1) < int8(0)` over-rejects with `expectedType(int8)(int8)`).
           require
-            (Solidity.Executable.Expr.numberComparisonFoldable? lhs rhs)
+            (!(exprIsUntypedNumberLiteralExpression lhs &&
+                exprIsUntypedNumberLiteralExpression rhs) ||
+              Solidity.Executable.Expr.numberComparisonFoldable? lhs rhs)
             (TypeError.expectedType lhsChecked.ty rhsChecked.ty)
           if env.types.isContractOperandTy lhsChecked.ty &&
               env.types.isContractOperandTy rhsChecked.ty then
@@ -8303,8 +8309,14 @@ def checkExpr (env : CheckEnv) :
             Except.ok { source := expr, ty := Solidity.Ty.bool }
       | Solidity.BinaryOp.eq
       | Solidity.BinaryOp.ne =>
+          -- Same mobile-type gate as ordered comparison: it only governs UNTYPED
+          -- rational-constant pairs. `int8(-1) != int8(0)` compares two concrete
+          -- int8 values, so the gate must not fire (it would over-reject with
+          -- `expectedType(int8)(int8)`).
           require
-            (Solidity.Executable.Expr.numberComparisonFoldable? lhs rhs)
+            (!(exprIsUntypedNumberLiteralExpression lhs &&
+                exprIsUntypedNumberLiteralExpression rhs) ||
+              Solidity.Executable.Expr.numberComparisonFoldable? lhs rhs)
             (TypeError.expectedType lhsChecked.ty rhsChecked.ty)
           require
             ((TypeContext.canImplicitlyConvert env.types
