@@ -530,6 +530,13 @@ def type_from_name(name: str) -> str:
     match = re.fullmatch("bytes([0-9]+)", name)
     if match:
         return f"Ty.bytesN {int(match.group(1))}"
+    # Bare `fixed`/`ufixed` are aliases for the 128x18 forms (solc emits the
+    # bare name on the elementary-type node even though the typeString is
+    # `fixed128x18`/`ufixed128x18`).
+    if name == "fixed":
+        return "Ty.fixed 128 18"
+    if name == "ufixed":
+        return "Ty.ufixed 128 18"
     match = re.fullmatch("fixed([0-9]+)x([0-9]+)", name)
     if match:
         return f"Ty.fixed {int(match.group(1))} {int(match.group(2))}"
