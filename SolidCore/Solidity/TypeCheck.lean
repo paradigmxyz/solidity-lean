@@ -8209,10 +8209,26 @@ def checkExpr (env : CheckEnv) :
               Except.ok
                 { source := expr
                   ty := Solidity.Ty.int 256 }
-          | none => do
-              require checked.ty.isSignedArithmeticOperand
-                (TypeError.expectedInteger checked.ty)
-              Except.ok { source := expr, ty := checked.ty }
+          | none =>
+              -- solc `-` on a RationalNumberType yields a RationalNumberType
+              -- (negated), valid for ANY rational constant — including a
+              -- FRACTIONAL one such as `-1.5`. The `toCoreNumericLiteralAs?`
+              -- arm above only catches an INTEGRAL negated literal (`-3`); a
+              -- fractional operand folds to `none` there and used to fall into
+              -- the signed-operand require below, which fails closed on the
+              -- `uint256` that `literalTy?` assigns a bare fractional literal
+              -- (`expectedInteger (uint256)`). But `-1.5 * 2 = -3` is a valid
+              -- integer constant solc accepts. Accept the negation of any untyped
+              -- number-literal (rational-constant) operand, carrying the operand's
+              -- literal type; downstream implicit-fit checks re-fold from source,
+              -- so a fractional value only survives where it folds to an integer
+              -- (e.g. `-1.5 * 2`), and bare `return -1.5;` still fails the fit.
+              if exprIsUntypedNumberLiteralExpression inner then
+                Except.ok { source := expr, ty := checked.ty }
+              else do
+                require checked.ty.isSignedArithmeticOperand
+                  (TypeError.expectedInteger checked.ty)
+                Except.ok { source := expr, ty := checked.ty }
       | Solidity.UnaryOp.delete =>
           require checked.lvalue (TypeError.expectedLValue inner)
           checked.expectWritableLocation inner

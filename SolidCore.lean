@@ -117,3 +117,4 @@ import SolidCore.Witness.TupleDeclHoleInternalCalls
 import SolidCore.Witness.MsgShadowStructLocal
 import SolidCore.Witness.NamedCallArgEvalOrder
 import SolidCore.Witness.NarrowSignedComparisonCondition
+import SolidCore.Witness.NegatedFractionalLiteral
