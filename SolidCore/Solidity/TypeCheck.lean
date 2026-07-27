@@ -3882,12 +3882,28 @@ def CheckedExprs.commonArrayElementTyFrom? (types : TypeContext)
     List CheckedExpr -> Option Ty
   | [] => some current
   | checked :: rest => do
-      let probe : CheckedExpr :=
-        { source := checked.source
-          ty := current
-          lvalue := false
-          stateLValue := false }
-      let next ← CheckedExpr.commonArrayElementTy? types probe checked
+      -- Fold solc `Type::commonType(acc, element)`. The accumulator `current`
+      -- is an already-RESOLVED element type (seeded from element 0), NOT an
+      -- untyped literal, so it must never be re-mobilized: reusing the
+      -- `commonArrayElementTy?` pair helper with a probe whose `source` was the
+      -- current element collapsed the accumulator to that element's own mobile
+      -- type in the else arm — e.g. `[int256(2), -1]` folded to `int8` (the
+      -- bare negative `-1`'s mobile type) instead of `int256`. A bare number
+      -- literal that FITS the accumulator keeps it (solc's fast path — e.g. `2`
+      -- against an `int8` accumulator, which `commonImplicit?(int8, uint8)`
+      -- alone rejects); otherwise fold `current` with the element's own mobile
+      -- type (untyped literal) or checked type.
+      let next ←
+        if Expr.isDirectLiteral checked.source
+            && implicitLiteralFits current checked.source then
+          some current
+        else
+          let elemTy :=
+            if exprIsUntypedNumberLiteralExpression checked.source then
+              (Solidity.Executable.Expr.untypedLiteralMobileTy? checked.source).getD
+                checked.ty
+            else checked.ty
+          TypeContext.commonImplicit? types current elemTy
       CheckedExprs.commonArrayElementTyFrom? types next rest
 
 def CheckedExprs.commonArrayElementTy? (types : TypeContext) :

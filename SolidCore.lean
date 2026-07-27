@@ -14,6 +14,7 @@ import SolidCore.Witness.SciExpPlus
 import SolidCore.Witness.AcceptanceBoundaries
 import SolidCore.Witness.AcceptanceBoundariesRound2
 import SolidCore.Witness.ArrayLiteralWiden
+import SolidCore.Witness.ArrayLiteralNegElemOverReject
 import SolidCore.Witness.StorageArrayLiteralWiden
 import SolidCore.Witness.CF2RevertPruning
 import SolidCore.Witness.AssignTernaryStoragePtr
