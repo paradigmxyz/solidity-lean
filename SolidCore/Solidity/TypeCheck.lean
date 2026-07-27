@@ -8219,32 +8219,39 @@ def checkExpr (env : CheckEnv) :
           checked.expectShiftLeftOperand
           Except.ok { source := expr, ty := checked.ty }
       | Solidity.UnaryOp.neg =>
-          match Solidity.Executable.Expr.toCoreNumericLiteralAs?
-              (Solidity.Ty.int 256) expr with
-          | some _ =>
-              Except.ok
-                { source := expr
-                  ty := Solidity.Ty.int 256 }
-          | none =>
-              -- solc `-` on a RationalNumberType yields a RationalNumberType
-              -- (negated), valid for ANY rational constant — including a
-              -- FRACTIONAL one such as `-1.5`. The `toCoreNumericLiteralAs?`
-              -- arm above only catches an INTEGRAL negated literal (`-3`); a
-              -- fractional operand folds to `none` there and used to fall into
-              -- the signed-operand require below, which fails closed on the
-              -- `uint256` that `literalTy?` assigns a bare fractional literal
-              -- (`expectedInteger (uint256)`). But `-1.5 * 2 = -3` is a valid
-              -- integer constant solc accepts. Accept the negation of any untyped
-              -- number-literal (rational-constant) operand, carrying the operand's
-              -- literal type; downstream implicit-fit checks re-fold from source,
-              -- so a fractional value only survives where it folds to an integer
-              -- (e.g. `-1.5 * 2`), and bare `return -1.5;` still fails the fit.
-              if exprIsUntypedNumberLiteralExpression inner then
+          -- solc types `-x` by the TYPE of the operand. Only an UNTYPED
+          -- number-literal (rational-constant) operand yields a rational result
+          -- that the model folds to `int256` and defers to a downstream
+          -- implicit-fit check. A TYPED operand — an explicit narrow cast
+          -- (`int8(-128)`), a variable, `type(int8).min`, … — keeps the
+          -- operand's own type; solc does NOT re-fold it to a wider rational.
+          -- Gating the int256 fold on `exprIsUntypedNumberLiteralExpression`
+          -- is what distinguishes the two: `numberLiteralRat?` STRIPS explicit
+          -- casts, so `-int8(-128)` folded to the rational `128` and typed as
+          -- `int256`, then `int256 → int8` failed closed (`128` overflows int8)
+          -- and over-rejected the whole program. `-int8(-128)` has type int8
+          -- (the fold overflows int8, so it is a RUNTIME int8 negation — the
+          -- NEG-NARROW lowering path applies the operand-width checked cleanup:
+          -- Panic 0x11 checked / wrap to int8.min unchecked).
+          if exprIsUntypedNumberLiteralExpression inner then
+            match Solidity.Executable.Expr.toCoreNumericLiteralAs?
+                (Solidity.Ty.int 256) expr with
+            | some _ =>
+                Except.ok
+                  { source := expr
+                    ty := Solidity.Ty.int 256 }
+            | none =>
+                -- A FRACTIONAL untyped literal (`-1.5`): solc `-` on a
+                -- RationalNumberType yields a RationalNumberType (negated),
+                -- valid for ANY rational constant. Carry the operand's literal
+                -- type; downstream implicit-fit re-folds from source, so a
+                -- fractional value only survives where it folds to an integer
+                -- (`-1.5 * 2 = -3`), and bare `return -1.5;` still fails the fit.
                 Except.ok { source := expr, ty := checked.ty }
-              else do
-                require checked.ty.isSignedArithmeticOperand
-                  (TypeError.expectedInteger checked.ty)
-                Except.ok { source := expr, ty := checked.ty }
+          else do
+            require checked.ty.isSignedArithmeticOperand
+              (TypeError.expectedInteger checked.ty)
+            Except.ok { source := expr, ty := checked.ty }
       | Solidity.UnaryOp.delete =>
           require checked.lvalue (TypeError.expectedLValue inner)
           checked.expectWritableLocation inner
