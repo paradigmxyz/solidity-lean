@@ -17384,7 +17384,46 @@ def FunctionDecl.internalBinarySingleReturnUseCore?
                         SolidCore.Solidity.Source.Ty.bool lhsTmp
                         (some (convert retExpr))
                     , branchCore ])
-          | _ => none
+          | _ =>
+              -- R1 residue fix (direct-call LHS + nested-call RHS): the LEFT
+              -- operand is a direct internal single-return call and the RIGHT
+              -- operand carries its own nested call (so it is NOT directly
+              -- `toCore?`-able — e.g. `f() + g() * 10`). Ordinary operators:
+              -- solc evaluates the RIGHT operand FIRST
+              -- (ExpressionCompiler.cpp:614-615). Lower the RHS expression into
+              -- a temp, then run the LEFT call and form the residual binary
+              -- reading the temp. Falls back to `none` (the prior over-reject)
+              -- when the RHS type does not resolve or the emission fails to
+              -- lower. Short-circuit ops keep the guarded left-first shape
+              -- above.
+              -- NESTING-UNIQUE temp (see the mirror residue arm in the
+              -- `none, some` branch): suffix by the LHS's rendered size, since
+              -- the only emissions spanning this decl and its read come from
+              -- the LEFT call's argument hoists (strict subterms of `lhs`).
+              (do
+                let rhsTy ←
+                  Expr.abiTyWithInternalFunctionsEnv?
+                    functions freeFunctions env rhs
+                let rhsCoreTy ← Ty.toCore? rhsTy
+                let rhsTmp :=
+                  "_sol_bin_rhs_" ++ toString ((toString (repr lhs)).length)
+                let lhsCallCore ←
+                  FunctionDecl.internalSingleReturnCallCore?
+                    internalFuel storageRefEnv env externalCallKindEnv
+                    storageNames modifiers functions freeFunctions name args
+                    (fun retExpr =>
+                      useResult
+                        (SolidCore.Solidity.Source.Expr.binary coreOp
+                          (convert retExpr)
+                          (SolidCore.Solidity.Source.Expr.var rhsTmp)))
+                FunctionDecl.internalExprSingleReturnUseCore?
+                  internalFuel storageRefEnv env externalCallKindEnv storageNames
+                  modifiers functions freeFunctions rhs
+                  (fun rhsResult =>
+                    SolidCore.Solidity.Source.Stmt.block
+                      [ SolidCore.Solidity.Source.Stmt.varDecl
+                          rhsCoreTy rhsTmp (some rhsResult)
+                      , lhsCallCore ]))
   | none, some _ => do
       let coreOp ← BinaryOp.toCore? op
       let lhsTy ←
