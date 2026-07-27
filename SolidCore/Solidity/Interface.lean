@@ -17915,6 +17915,84 @@ def assignmentCoreWithEnv? (storageNames : List Name)
   some
     (SolidCore.Solidity.Source.Stmt.assign lhsCore rhsCore)
 
+/-- FB1 (tuple-RHS lane cleanup) — shared component lowering. Given each
+    component's declared target type (`tys`; `none` = anonymous binding / hole
+    LHS / non-`bytesN`) and the RHS tuple `items`, lower every component: one
+    whose target is `bytesN size` AND whose expression is a width-EXPANDING bit
+    op (`Expr.isFixedBytesBitOpShape`, i.e. `<<` / `~`) is routed through
+    `Expr.toCoreFixedBytesBitOp?` (the SAME per-op `cleanup_t_bytesN` mask the
+    single-assign path emits via `assignmentCoreWithEnv?`); every other component
+    keeps its exact env-LESS `Expr.toCore?` core (byte-identical). Returns the
+    lowered component list paired with a flag that is `true` iff at least one
+    mask was inserted, so the caller only reroutes tuples that actually need the
+    cleanup and leaves every other tuple's prior lowering untouched. `none` on a
+    hole RHS component or an arity mismatch. -/
+def TupleItems.toCoreRhsBitAwareExprs? (storageNames : List Name) (env : TypeEnv) :
+    List (Option Ty) -> List TupleItem -> Option (List CoreExpr × Bool)
+  | [], [] => some ([], false)
+  | ty? :: tyRest, TupleItem.value rhsExpr :: itemRest => do
+      let (restCore, restMasked) ←
+        TupleItems.toCoreRhsBitAwareExprs? storageNames env tyRest itemRest
+      match (do
+          let ty ← ty?
+          let size ← Ty.fixedBytesSize? ty
+          if Expr.isFixedBytesBitOpShape rhsExpr then
+            Expr.toCoreFixedBytesBitOp? storageNames env size rhsExpr
+          else none) with
+      | some masked => some (masked :: restCore, true)
+      | none => do
+          let core ← Expr.toCore? storageNames rhsExpr
+          some (core :: restCore, restMasked)
+  | _, _ => none
+
+/-- FB1 (tuple-RHS lane cleanup), ASSIGNMENT form `(x, y, …) = (r0, r1, …)`.
+    The plain env-LESS tuple-assign lowering (`tupleAssignmentCore?` via
+    `Expr.toCore?`) has no per-component target type, so a `bytesN` `<<` / `~`
+    RHS component kept its shifted-out / high bits (wrong value). Take each
+    component's target type from the LHS component (`Expr.abiTyWithEnv?`; a hole
+    LHS has no target) and re-lower through
+    `TupleItems.toCoreRhsBitAwareExprs?`. Only fires when a mask was actually
+    inserted (`masked`) and the LHS is flat; otherwise the caller keeps the
+    unchanged path. -/
+def tupleAssignBitAwareCore? (storageNames : List Name) (env : TypeEnv)
+    (lhsItems rhsItems : List TupleItem) : Option CoreStmt := do
+  if TupleItems.hasNestedTuple lhsItems then none
+  else do
+    let tys := lhsItems.map (fun item =>
+      match item with
+      | TupleItem.value e => Expr.abiTyWithEnv? env e
+      | TupleItem.hole => none)
+    let (coreExprs, masked) ←
+      TupleItems.toCoreRhsBitAwareExprs? storageNames env tys rhsItems
+    if masked then do
+      let targets ← TupleItems.toCoreLValueTargets? storageNames lhsItems
+      some
+        (SolidCore.Solidity.Source.Stmt.assignTuple targets
+          (SolidCore.Solidity.Source.Expr.tuple coreExprs))
+    else none
+
+/-- FB1 (tuple-RHS lane cleanup), DECLARATION form `(T0 a, …) = (r0, …)`. Same
+    fix as `tupleAssignBitAwareCore?`, but the per-component target type is the
+    declared binding type and the pieces mirror the literal-tuple decl lowering
+    (`tupleVarDeclCorePieces?`): the fresh-local decls followed by a single
+    `assignTuple`, differing only in the masked component cores. -/
+def tupleVarDeclBitAwarePieces? (storageNames : List Name) (env : TypeEnv)
+    (bindings : List VarBinding) (items : List TupleItem) :
+    Option (List CoreStmt) := do
+  if bindings.length == items.length then do
+    let (coreExprs, masked) ←
+      TupleItems.toCoreRhsBitAwareExprs? storageNames env
+        (bindings.map (fun b => b.ty)) items
+    if masked then do
+      let coreDecls ← VarBindings.toCoreTupleDecls? bindings
+      let targets ← VarBindings.toCoreTupleTargets? bindings
+      some
+        (coreDecls ++
+          [ SolidCore.Solidity.Source.Stmt.assignTuple targets
+              (SolidCore.Solidity.Source.Expr.tuple coreExprs) ])
+    else none
+  else none
+
 def varDeclCoreWithEnv? (storageNames : List Name)
     (env : TypeEnv) (binding : VarBinding) (expr : Expr) :
     Option CoreStmt := do
@@ -18571,6 +18649,16 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           -- temp sequencing already pinned for `return (f(), g())` — and assigns
           -- the temps via the ordinary `assignTuple` (pure temp reads, so store
           -- order is unobservable, matching solc's temps-then-stores shape).
+          -- FB1: a `bytesN` width-EXPANDING op (`b << k` / `~b`) as a tuple RHS
+          -- component must carry the same per-op `cleanup_t_bytesN` mask solc
+          -- emits (and that the single-assign path emits via
+          -- `assignmentCoreWithEnv?`). The env-LESS `Stmt.toCore?` path below has
+          -- no per-component target type and drops the mask (wrong value, no
+          -- revert). Reroute env-aware only when a mask is actually inserted;
+          -- every other tuple assignment keeps the byte-identical path below.
+          match tupleAssignBitAwareCore? storageNames env lhsItems rhsItems with
+          | some coreStmt => some coreStmt
+          | none =>
           match
               Stmt.toCore? storageNames
                 (Stmt.expr
@@ -21652,6 +21740,14 @@ def Stmt.listLowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           let pieces? : Option (List CoreStmt) :=
             match tupleVarDeclAllStorageCore? storageNames bindings items with
             | some decls => some decls
+            | none =>
+            -- FB1: `(bytesN x, …) = (b << k, …)` decl form — same lane-cleanup
+            -- reroute as the tuple-assignment arm (see `tupleAssignBitAwareCore?`).
+            -- The literal-tuple decl lowering below (`tupleVarDeclCorePieces?` via
+            -- env-less `Expr.toCore?`) drops the mask; fire only when a mask is
+            -- inserted, otherwise keep the unchanged path.
+            match tupleVarDeclBitAwarePieces? storageNames env bindings items with
+            | some pieces => some pieces
             | none =>
             match tupleVarDeclCorePieces? storageNames bindings items with
             | some (coreDecls, assigns) => some (coreDecls ++ assigns)
