@@ -104,6 +104,7 @@ import SolidCore.Witness.EmitStorageDynamicArray
 import SolidCore.Witness.EmitMemoryNestedRef
 import SolidCore.Witness.EmitRevertNestedEnv
 import SolidCore.Witness.EventOverloadTable
+import SolidCore.Witness.FixedStorageArrayLength
 import SolidCore.Witness.RevertCustomErrorStorageString
 import SolidCore.Witness.MappingKeyStorageString
 import SolidCore.Witness.RequireReasonStorageString
