@@ -238,7 +238,11 @@ def Value.length? : Value -> Option Nat
   | Value.dynamicArray values => some values.length
   | Value.tuple values => some values.length
   | Value.word _ => none
-  | Value.fixedBytes _ _ => none
+  -- `bytesN.length` is the constant width N (solc folds it to `size`); the
+  -- runtime member read must yield the same rather than dead-ending in a
+  -- typeMismatch when the operand is non-constant (a local/param/storage/
+  -- ternary value carries its width in the `fixedBytes` tag).
+  | Value.fixedBytes size _ => some size
   | Value.int _ => none
   | Value.externalFunction _ _ => none
   | Value.internalFunction _ => none
