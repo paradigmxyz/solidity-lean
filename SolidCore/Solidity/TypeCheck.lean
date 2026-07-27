@@ -10821,6 +10821,24 @@ def checkStmt (env : CheckEnv) :
           (Solidity.Expr.member
             (Solidity.Expr.typeName (Solidity.Ty.user path)) member)
         Except.ok { source := stmt }
+  -- ABI-STRAY-VALUE: `abi.decode;` (or any builtin `abi.<fn>;`) names an `abi.*`
+  -- function as a discarded expression statement. solc accepts this (the member
+  -- access yields the function's type; nothing converts it, so the statement has
+  -- no effect and lowers to a no-op). `checkExpr` has no VALUE form for a bare
+  -- `abi.<fn>` reference: its member arm recurses into the base `abi`, which
+  -- resolves as an ordinary identifier and fails closed with
+  -- `unknownIdentifier "abi"`. Accept it here (statement position only, and only
+  -- when `abi` is the builtin — not a shadowing local); the same reference in a
+  -- CONVERSION position still routes through `checkExpr` and stays rejected.
+  | stmt@(Solidity.Stmt.expr
+      (Solidity.Expr.member (Solidity.Expr.ident "abi") member))
+      => do
+      if constantAbiMemberCallAllowed member && (env.lookupVar? "abi").isNone then
+        Except.ok { source := stmt }
+      else do
+        let _ ← checkExpr env
+          (Solidity.Expr.member (Solidity.Expr.ident "abi") member)
+        Except.ok { source := stmt }
   | stmt@(Solidity.Stmt.expr expr) => do
       let _ ← checkExpr env expr
       Except.ok { source := stmt }
