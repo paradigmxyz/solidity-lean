@@ -3802,6 +3802,25 @@ def Runtime.loadStorageField (context : Context)
           | none => Except.ok (Value.word (runtime.state.loadFieldWord field))
   | none => Except.error RevertData.typeMismatch
 
+/-- The HEADER read (`.length` / synthesized push-index arithmetic) of a state
+    field. Identical to `loadStorageField` EXCEPT for a fixed-size array: that
+    layout has NO length header slot — its `.length` is the compile-time
+    constant `N` (solc folds `T[N].length` to `N`). The plain field read would
+    materialise the WHOLE array (`Value.fixedArray`), which then dead-ends in
+    `typeMismatch` = Panic(0) when the `.length` consumer expects a scalar
+    (`uint256 r = a.length`). Dynamic array / bytes read their real length word
+    through the field read; scalars read their value. `header` mode is the only
+    caller (see `normalizeStorageValueUses`), so a whole-fixed-array value read
+    (a `ref`/`load`) is unaffected. -/
+def Runtime.loadStorageFieldHeader (context : Context)
+    (runtime : Runtime) (name : String) : Except RevertData Value :=
+  match context.storageField? name with
+  | some field =>
+      match field.layout? with
+      | some (StorageLayout.fixedArray size _) => Except.ok (Value.word size)
+      | _ => runtime.loadStorageField context name
+  | none => runtime.loadStorageField context name
+
 def Runtime.loadImmutableField (context : Context)
     (runtime : Runtime) (name : String) : Except RevertData Value :=
   match context.immutableField? name with
@@ -7147,9 +7166,16 @@ def Expr.evalFuel (fuel : Nat)
               pure (value, runtime)
           | Expr.storageRead mode name indexes =>
               (match mode with
-              | StorageReadMode.header
-              | StorageReadMode.ref => do
+              | StorageReadMode.header => do
                   -- Header word / whole-scalar read; transient- and
+                  -- packed-aware. Indexes are always `[]` from lowering and
+                  -- are ignored (exactly the old `Expr.storage` semantics).
+                  -- A fixed-size storage array has no header slot: its
+                  -- `.length` is the constant `N` (`loadStorageFieldHeader`).
+                  let value ← runtime.loadStorageFieldHeader context name
+                  pure (value, runtime)
+              | StorageReadMode.ref => do
+                  -- Whole-scalar / bare-reference read; transient- and
                   -- packed-aware. Indexes are always `[]` from lowering and
                   -- are ignored (exactly the old `Expr.storage` semantics).
                   let value ← runtime.loadStorageField context name
