@@ -99,6 +99,7 @@ import SolidCore.Witness.TernaryStorageBytesKeccak
 import SolidCore.Witness.PushThroughTernaryStorageRef
 import SolidCore.Witness.TupleRhsStorageBytes
 import SolidCore.Witness.TupleRhsBytesNShiftMask
+import SolidCore.Witness.CompoundAssignBytesNLiteral
 import SolidCore.Witness.EmitStorageDynamicArray
 import SolidCore.Witness.EmitMemoryNestedRef
 import SolidCore.Witness.EmitRevertNestedEnv

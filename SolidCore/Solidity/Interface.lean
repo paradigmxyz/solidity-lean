@@ -9500,6 +9500,38 @@ def Expr.toCoreAsWithEnv? (storageNames : List Name) (env : TypeEnv)
     (targetTy : Ty) (expr : Expr) : Option CoreExpr :=
   Expr.toCoreAsWithEnvFuel? defaultEnvLoweringFuel storageNames env targetTy expr
 
+/-- FB-COMPOUND (S, bare-literal-rhs-of-compound-bitwise-assign-on-bytesn):
+    a compound BITWISE assignment (`|=` / `&=` / `^=`) whose LValue is a `bytesN`
+    must lower its RHS AT THE LVALUE'S `bytesN` TYPE. The general
+    `Expr.toCoreAssignOpWithEnv?` lowers the RHS env-LESS (`Expr.toCore?`), so a
+    bare (uncast) hex/string literal stayed a dynamic byte-string value and the
+    bitwise op had no enumerated `bytesN`-vs-bytestring case → Panic 0. solc
+    converts the RHS to the LValue type (`b |= hex"…"` ≡ `b = b | bytesN(hex"…")`),
+    so lowering the RHS through the target-aware `Expr.toCoreAsWithEnv?` at the
+    `bytesN` type reproduces it. Restricted to the in-lane bitwise ops (`&= |= ^=`),
+    whose RHS shares the LValue type; `<<=`/`>>=` take a shift COUNT (not a bytesN)
+    and keep the general path (their width-mask handling is separate). Returns
+    `none` for every non-`bytesN` LValue and every non-bitwise op, so the caller
+    falls through to the unchanged `Expr.toCoreAssignOpWithEnv?` path. -/
+def Expr.toCoreAssignOpBytesNBitwiseRhsAware? (storageNames : List Name)
+    (env : TypeEnv) : Expr -> Option CoreExpr
+  | Expr.assign lhs op rhs => do
+      let coreOp ←
+        match op with
+        | AssignOp.bitAndAssign => some SolidCore.Solidity.Source.BinaryOp.bitAnd
+        | AssignOp.bitOrAssign => some SolidCore.Solidity.Source.BinaryOp.bitOr
+        | AssignOp.bitXorAssign => some SolidCore.Solidity.Source.BinaryOp.bitXor
+        | _ => none
+      let lhsTy ← Expr.abiTyWithEnv? env lhs
+      let _ ← Ty.fixedBytesSize? lhsTy
+      let lhsCore ← Expr.toCoreLValue? storageNames lhs
+      let rhsCore ← Expr.toCoreAsWithEnv? storageNames env lhsTy rhs
+      let cleanup ← Ty.toCoreValueCleanup? lhsTy
+      some
+        (SolidCore.Solidity.Source.Expr.assignOpCleanupExpr
+          lhsCore.toExpr coreOp rhsCore cleanup)
+  | _ => none
+
 /-- WS1 (H, external-call args): the env-aware argument lowerer threaded into
     the external-call ABI encoding (`Expr.externalCallAbiWithKindEnv?`'s
     `argEnvLower`). A FLAGGED positional argument (narrow checked arithmetic,
@@ -18531,6 +18563,14 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                 else none
             | _ => none) with
           | some coreStmt => some coreStmt
+          | none =>
+          -- FB-COMPOUND: `bytesN |= / &= / ^=` bare-literal RHS must be lowered at
+          -- the LValue's bytesN type (else a bare hex/string literal stays a
+          -- byte-string value and the bitwise op Panics 0). Returns `none` for
+          -- every non-bytesN LValue / non-bitwise op, preserving the paths below.
+          match Expr.toCoreAssignOpBytesNBitwiseRhsAware? storageNames env expr with
+          | some coreExpr =>
+              some (SolidCore.Solidity.Source.Stmt.exprStmt coreExpr)
           | none =>
           match Expr.toCoreAssignOpWithEnv? storageNames env expr with
           | some coreExpr =>
