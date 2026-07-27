@@ -3306,6 +3306,25 @@ def TypeContext.resolveInternalFunctionValueMember?
       | Except.error _ => none
   | none => none
 
+/-- `Lib.m` names a PUBLIC/EXTERNAL function of a library `Lib`. solc allows such
+    a member access to yield the function's type but forbids CONVERTING it to a
+    function pointer (public/external library functions are delegatecall entry
+    points, not internal-jump targets) — so it is NOT an internal-function VALUE
+    (`resolveInternalFunctionValueMember?` returns `none` for it). The one place
+    solc still accepts it is a bare, DISCARDED expression statement `Lib.m;`
+    (no conversion occurs, "statement has no effect"). -/
+def TypeContext.isPublicOrExternalLibraryFunctionMember
+    (types : TypeContext) (path : Path) (member : Name) : Bool :=
+  types.isLibraryPath path &&
+    (match types.lookupContractDecl? path with
+     | some decl =>
+         (ContractDecl.directFunctionSigsQualifiedLocalTypes decl).any
+           (fun sig =>
+             sig.name == member &&
+               (sig.visibility == some Solidity.Visibility.public_ ||
+                sig.visibility == some Solidity.Visibility.external_))
+     | none => false)
+
 
 def EventSig.abiParamTypes? (types : TypeContext)
     (sig : EventSig) : Option (List String) :=
@@ -10783,6 +10802,25 @@ def checkStmt (env : CheckEnv) :
                       (Solidity.Expr.member target errorName)
                       errorArgs) ])
             Except.ok { source := stmt }
+  -- LIBRARY-STRAY-VALUE: `Lib.m;` names a PUBLIC/EXTERNAL library function as a
+  -- discarded expression statement. solc accepts this (the member access yields
+  -- the function's type; nothing converts it, so the statement has no effect and
+  -- lowers to a no-op). `checkExpr`'s member arm only resolves an internal-function
+  -- VALUE for `internal` library functions, so a bare public member would fall to
+  -- `unsupported "member m"` — a fail-closed over-reject. Accept it here (statement
+  -- position only); the same member in a CONVERSION position (assignment/argument/
+  -- return) still routes through `checkExpr` and stays rejected.
+  | stmt@(Solidity.Stmt.expr
+      (Solidity.Expr.member
+        (Solidity.Expr.typeName (Solidity.Ty.user path)) member))
+      => do
+      if env.types.isPublicOrExternalLibraryFunctionMember path member then
+        Except.ok { source := stmt }
+      else do
+        let _ ← checkExpr env
+          (Solidity.Expr.member
+            (Solidity.Expr.typeName (Solidity.Ty.user path)) member)
+        Except.ok { source := stmt }
   | stmt@(Solidity.Stmt.expr expr) => do
       let _ ← checkExpr env expr
       Except.ok { source := stmt }

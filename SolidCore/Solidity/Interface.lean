@@ -23783,6 +23783,81 @@ def FunctionDecl.isExternalLibraryFunction (decl : FunctionDecl) : Bool :=
       !FunctionDecl.isConstructor decl
   | _ => false
 
+/-- Does `library` declare a PUBLIC/EXTERNAL function named `name`? Such a function
+    is a delegatecall entry point, not an internal-jump helper (`isInlineLibrary
+    Function`), so `Lib.name` has no internal-function VALUE. -/
+def ContractDecl.hasExternalLibraryFunction (decl : ContractDecl) (name : Name) :
+    Bool :=
+  decl.items.any (fun item =>
+    match item with
+    | ContractItem.function fn =>
+        fn.name == some name && FunctionDecl.isExternalLibraryFunction fn
+    | _ => false)
+
+/-- LIBRARY-STRAY-VALUE: `Lib.m` naming a PUBLIC/EXTERNAL library function as a
+    VALUE. solc accepts this only when the value is immediately DISCARDED (a stray
+    `Lib.m;` statement); it has no internal-function pointer and no side effects,
+    so the statement lowers to a no-op (see `Stmt.dropStrayLibraryFunctionValues`). -/
+def Expr.isStrayLibraryFunctionValue
+    (contracts : List ContractDecl) : Expr -> Bool
+  | Expr.member (Expr.typeName (Ty.user path)) member =>
+      (match path.segments.getLast? with
+       | some libraryName =>
+           match ContractDecl.findLibraryByName? contracts libraryName with
+           | some decl => ContractDecl.hasExternalLibraryFunction decl member
+           | none => false
+       | none => false)
+  | _ => false
+
+mutual
+
+/-- Replace each stray public/external library-function-value statement `Lib.m;`
+    with a no-op (solc accepts it as a discarded, effect-free expression; it has
+    no lowerable value form). Recurses through nested control flow so a stray
+    reference inside a block/branch/loop is dropped too. -/
+def Stmt.dropStrayLibraryFunctionValuesFuel :
+    Nat -> List ContractDecl -> Stmt -> Stmt
+  | 0, _, stmt => stmt
+  | fuel + 1, contracts, stmt =>
+      let recStmt := Stmt.dropStrayLibraryFunctionValuesFuel fuel contracts
+      let recClause := CatchClause.dropStrayLibraryFunctionValuesFuel fuel contracts
+      match stmt with
+      | Stmt.expr expr =>
+          if Expr.isStrayLibraryFunctionValue contracts expr then
+            Stmt.empty
+          else
+            Stmt.expr expr
+      | Stmt.block body => Stmt.block (body.map recStmt)
+      | Stmt.ifElse cond thenBranch elseBranch =>
+          Stmt.ifElse cond (recStmt thenBranch) (elseBranch.map recStmt)
+      | Stmt.whileLoop cond body => Stmt.whileLoop cond (recStmt body)
+      | Stmt.doWhile body cond => Stmt.doWhile (recStmt body) cond
+      | Stmt.forLoop init cond post body =>
+          Stmt.forLoop (init.map recStmt) cond post (recStmt body)
+      | Stmt.tryCatch expr clauses =>
+          Stmt.tryCatch expr (clauses.map recClause)
+      | Stmt.tryCatchReturns expr returns success clauses =>
+          Stmt.tryCatchReturns expr returns (recStmt success)
+            (clauses.map recClause)
+      | Stmt.unchecked body => Stmt.unchecked (recStmt body)
+      | other => other
+
+def CatchClause.dropStrayLibraryFunctionValuesFuel :
+    Nat -> List ContractDecl -> CatchClause -> CatchClause
+  | 0, _, clause => clause
+  | fuel + 1, contracts, clause =>
+      match clause with
+      | CatchClause.clause name params body =>
+          CatchClause.clause name params
+            (Stmt.dropStrayLibraryFunctionValuesFuel fuel contracts body)
+
+end
+
+def Stmt.dropStrayLibraryFunctionValues
+    (contracts : List ContractDecl) (stmt : Stmt) : Stmt :=
+  Stmt.dropStrayLibraryFunctionValuesFuel defaultResolveInterfaceIdsFuel
+    contracts stmt
+
 def ContractItems.findOrdinaryFunctionByName?
     (items : List ContractItem) (name : Name) : Option FunctionDecl :=
   match items with
@@ -25555,6 +25630,16 @@ def FunctionDecl.toCore? (storageNames : List Name) (constants : ConstantEnv)
       decl.params
   let returns ← Parameters.toCoreBindings? "_ret" decl.returns
   let body ← decl.body
+  -- LIBRARY-STRAY-VALUE: a discarded public/external library-function-value
+  -- statement (`Lib.m;`) is an effect-free no-op solc accepts; drop it here (in
+  -- both this body and any modifier bodies) so it never reaches core lowering,
+  -- which has no value form for a delegatecall-entry function pointer.
+  let body := Stmt.dropStrayLibraryFunctionValues contracts body
+  let modifiers :=
+    modifiers.map (fun modifier =>
+      { modifier with
+        body := modifier.body.map
+          (Stmt.dropStrayLibraryFunctionValues contracts) })
   let env := FunctionDecl.typeEnv
     (TypeEnv.extendThis extraEnv contractName?) decl
   let usingFunctionScope := functions ++ freeFunctions
