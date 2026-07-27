@@ -10802,19 +10802,31 @@ def checkStmt (env : CheckEnv) :
                       (Solidity.Expr.member target errorName)
                       errorArgs) ])
             Except.ok { source := stmt }
-  -- LIBRARY-STRAY-VALUE: `Lib.m;` names a PUBLIC/EXTERNAL library function as a
-  -- discarded expression statement. solc accepts this (the member access yields
-  -- the function's type; nothing converts it, so the statement has no effect and
-  -- lowers to a no-op). `checkExpr`'s member arm only resolves an internal-function
-  -- VALUE for `internal` library functions, so a bare public member would fall to
-  -- `unsupported "member m"` — a fail-closed over-reject. Accept it here (statement
-  -- position only); the same member in a CONVERSION position (assignment/argument/
-  -- return) still routes through `checkExpr` and stays rejected.
+  -- LIBRARY-STRAY-VALUE / UDVT-STRAY-VALUE: `Lib.m;` names a PUBLIC/EXTERNAL
+  -- library function, and `MyAddress.wrap;` / `MyAddress.unwrap;` names a
+  -- user-value-type builtin, as a discarded expression statement. solc accepts
+  -- both (the member access yields the function's type; nothing converts it, so
+  -- the statement has no effect and lowers to a no-op). `checkExpr`'s member arm
+  -- only resolves an internal-function VALUE for `internal` library functions, and
+  -- has no VALUE form for a bare `T.wrap`/`T.unwrap` reference (its meta-member
+  -- table has no `wrap`/`unwrap` rows for a UDVT), so both fall to
+  -- `unsupported "member m"` — a fail-closed over-reject. Accept them here
+  -- (statement position only, and — for the UDVT case — only when the type name is
+  -- genuinely a user value type); the same member in a CONVERSION position
+  -- (assignment/argument/return) still routes through `checkExpr` and stays
+  -- rejected.
   | stmt@(Solidity.Stmt.expr
       (Solidity.Expr.member
         (Solidity.Expr.typeName (Solidity.Ty.user path)) member))
       => do
-      if env.types.isPublicOrExternalLibraryFunctionMember path member then
+      let isStrayUserValueTypeMember : Bool :=
+        (member == "wrap" || member == "unwrap") &&
+          (match env.qualifyCurrentLocalUserTypes (Solidity.Ty.user path) with
+           | Solidity.Ty.user qpath =>
+               (env.types.lookupUserValueType? qpath).isSome
+           | _ => false)
+      if env.types.isPublicOrExternalLibraryFunctionMember path member ||
+          isStrayUserValueTypeMember then
         Except.ok { source := stmt }
       else do
         let _ ← checkExpr env

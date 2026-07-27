@@ -23802,16 +23802,19 @@ def Expr.isAbiFunctionMemberName (member : Name) : Bool :=
     member == "encodeWithSelector" || member == "encodeWithSignature" ||
     member == "decode"
 
-/-- LIBRARY-STRAY-VALUE / ABI-STRAY-VALUE: a member access naming a function as a
-    VALUE that solc accepts only when the value is immediately DISCARDED (a stray
-    `Lib.m;` or `abi.decode;` statement). `Lib.m` names a PUBLIC/EXTERNAL library
-    function (a delegatecall entry point, no internal-function pointer); `abi.<fn>`
-    names a builtin `abi.*` function. Neither has side effects nor a lowerable
+/-- LIBRARY-STRAY-VALUE / ABI-STRAY-VALUE / UDVT-STRAY-VALUE: a member access
+    naming a function as a VALUE that solc accepts only when the value is
+    immediately DISCARDED (a stray `Lib.m;`, `abi.decode;`, or `MyAddress.wrap;`
+    statement). `Lib.m` names a PUBLIC/EXTERNAL library function (a delegatecall
+    entry point, no internal-function pointer); `abi.<fn>` names a builtin `abi.*`
+    function; `T.wrap` / `T.unwrap` names a user-value-type builtin. None has side
+    effects (a bare member-value expression statement never does) nor a lowerable
     value form, so the statement lowers to a no-op (see
     `Stmt.dropStrayLibraryFunctionValues`). -/
 def Expr.isStrayLibraryFunctionValue
     (contracts : List ContractDecl) : Expr -> Bool
   | Expr.member (Expr.typeName (Ty.user path)) member =>
+      (member == "wrap" || member == "unwrap") ||
       (match path.segments.getLast? with
        | some libraryName =>
            match ContractDecl.findLibraryByName? contracts libraryName with
