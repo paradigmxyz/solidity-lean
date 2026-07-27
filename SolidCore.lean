@@ -57,6 +57,7 @@ import SolidCore.Witness.AbiEncodeBitNotNarrow
 import SolidCore.Witness.AbiEncodeComparisonNarrow
 import SolidCore.Witness.AbiEncodeShlNarrow
 import SolidCore.Witness.AbiEncodeSignedConstShift
+import SolidCore.Witness.AbiEncodeNegLiteral
 import SolidCore.Witness.AbiEncodeAddressOfBytesN
 import SolidCore.Witness.NegatedNarrowCastMin
 import SolidCore.Witness.NarrowAddWideCastReturn
