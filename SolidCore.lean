@@ -62,6 +62,7 @@ import SolidCore.Witness.NarrowMulShortCircuitPanic
 import SolidCore.Witness.NarrowAddmodFnptrPanic
 import SolidCore.Witness.NarrowAddNestedMappingKey
 import SolidCore.Witness.BytesNIdentIndex
+import SolidCore.Witness.BytesNContainerElemIndex
 import SolidCore.Witness.BytesOfStringStorageByteWrite
 import SolidCore.Witness.EnumMemberEncodePacked
 import SolidCore.Witness.BytesNEqLiteral
