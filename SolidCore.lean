@@ -132,3 +132,4 @@ import SolidCore.Witness.NegatedFractionalLiteral
 import SolidCore.Witness.RipemdBytes20ToBytes32Return
 import SolidCore.Witness.StorageBytesNLength
 import SolidCore.Witness.LibraryStrayValue
+import SolidCore.Witness.AbiStrayValue

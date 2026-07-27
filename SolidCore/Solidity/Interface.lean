@@ -23794,10 +23794,21 @@ def ContractDecl.hasExternalLibraryFunction (decl : ContractDecl) (name : Name) 
         fn.name == some name && FunctionDecl.isExternalLibraryFunction fn
     | _ => false)
 
-/-- LIBRARY-STRAY-VALUE: `Lib.m` naming a PUBLIC/EXTERNAL library function as a
-    VALUE. solc accepts this only when the value is immediately DISCARDED (a stray
-    `Lib.m;` statement); it has no internal-function pointer and no side effects,
-    so the statement lowers to a no-op (see `Stmt.dropStrayLibraryFunctionValues`). -/
+/-- A builtin `abi.*` function member (`abi.encode`, `abi.decode`, ...). Naming
+    one as a bare VALUE (`abi.decode;`) has no internal-function pointer and no
+    side effects; solc accepts it only when the value is immediately DISCARDED. -/
+def Expr.isAbiFunctionMemberName (member : Name) : Bool :=
+  member == "encode" || member == "encodePacked" ||
+    member == "encodeWithSelector" || member == "encodeWithSignature" ||
+    member == "decode"
+
+/-- LIBRARY-STRAY-VALUE / ABI-STRAY-VALUE: a member access naming a function as a
+    VALUE that solc accepts only when the value is immediately DISCARDED (a stray
+    `Lib.m;` or `abi.decode;` statement). `Lib.m` names a PUBLIC/EXTERNAL library
+    function (a delegatecall entry point, no internal-function pointer); `abi.<fn>`
+    names a builtin `abi.*` function. Neither has side effects nor a lowerable
+    value form, so the statement lowers to a no-op (see
+    `Stmt.dropStrayLibraryFunctionValues`). -/
 def Expr.isStrayLibraryFunctionValue
     (contracts : List ContractDecl) : Expr -> Bool
   | Expr.member (Expr.typeName (Ty.user path)) member =>
@@ -23807,6 +23818,8 @@ def Expr.isStrayLibraryFunctionValue
            | some decl => ContractDecl.hasExternalLibraryFunction decl member
            | none => false
        | none => false)
+  | Expr.member (Expr.ident "abi") member =>
+      Expr.isAbiFunctionMemberName member
   | _ => false
 
 mutual
