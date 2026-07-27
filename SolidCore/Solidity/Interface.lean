@@ -9097,10 +9097,22 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
           | Expr.call (Expr.ident "ripemd160") [Arg.positional bytes] =>
               (match Expr.toCoreAsWithEnvFuel? fuel storageNames env Ty.bytes bytes with
                | some bytesCore =>
-                   some
-                     (SolidCore.Solidity.Source.Expr.externalHash
+                   -- `ripemd160` is `bytesN 20`. When the result flows to a WIDER
+                   -- `bytesN` target (e.g. an implicit `bytes20 -> bytes32` return),
+                   -- solc inserts `convert_t_bytesM_to_t_bytesN`; because `bytesN`
+                   -- is left-aligned that widening moves the 20-byte digest into the
+                   -- HIGH bytes (`0x9c11..8d31000..0`). Applying the same
+                   -- `coreAsFromTy?` the generic Direct path uses restores the
+                   -- widening cast this special arm otherwise drops (leaving the
+                   -- digest right-aligned -> wrong value). Identity for a `bytes20`
+                   -- target; falls back to the bare hash if no conversion applies.
+                   let hashCore :=
+                     SolidCore.Solidity.Source.Expr.externalHash
                        SolidCore.Solidity.Source.ExternalHashKind.ripemd160
-                       bytesCore)
+                       bytesCore
+                   (match Expr.coreAsFromTy? targetTy (Ty.bytesN 20) hashCore with
+                    | some coreExpr => some coreExpr
+                    | none => some hashCore)
                | none => Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
           | Expr.call (Expr.member (Expr.ident "bytes") "concat") args
           | Expr.call (Expr.member (Expr.typeName Ty.bytes) "concat") args
@@ -20509,7 +20521,14 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           -- go through the env-aware lowering so the operand-width Panic 0x11
           -- fires. Only the flagged hash/abi shapes reroute (`name` is a builtin,
           -- never a user function there); everything else keeps the chain below.
-          match (if Expr.abiBuiltinArgsNeedEnvCleanup expr then
+          -- `ripemd160` is `bytesN 20`: when the return type is a WIDER `bytesN`
+          -- (`return ripemd160(x)` from `returns (bytes32)`) the implicit
+          -- `bytes20 -> bytes32` widening must move the digest into the HIGH bytes
+          -- (left-aligned). The env-less `Stmt.toCore?` below is target-blind and
+          -- lowers the hash at its natural width, leaving the digest right-aligned
+          -- (wrong value), so route it through the return-type-aware env path — an
+          -- identity for a `bytes20` target, the `fixedBytesCast` widening otherwise.
+          match (if Expr.abiBuiltinArgsNeedEnvCleanup expr || name == "ripemd160" then
               match returnTys with
               | [returnTy] =>
                   (Expr.toCoreAsWithEnv? storageNames env returnTy expr).map

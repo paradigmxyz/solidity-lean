@@ -127,3 +127,4 @@ import SolidCore.Witness.MsgShadowStructLocal
 import SolidCore.Witness.NamedCallArgEvalOrder
 import SolidCore.Witness.NarrowSignedComparisonCondition
 import SolidCore.Witness.NegatedFractionalLiteral
+import SolidCore.Witness.RipemdBytes20ToBytes32Return
