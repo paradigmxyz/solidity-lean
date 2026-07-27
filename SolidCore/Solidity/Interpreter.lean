@@ -5073,6 +5073,16 @@ def abiStaticBytes? : Ty -> Value -> Option (List Byte)
         some (wordToBytesBE wordBytes value)
       else
         none
+  -- R3 (address-converted-from-bytes20-as-abi-encoder-argument): `address(bytes20 x)`
+  -- lowers as an IDENTITY with no core node (VALUE_TYPING_DESIGN.md §1), so a
+  -- width-tagged `Value.fixedBytes 20 w` reaches this `address` slot directly.
+  -- Encode it byte-identically to the `Value.word` case (the tag never changed
+  -- the word bits) instead of dead-ending in `typeMismatch` (Panic 0).
+  | Ty.address, Value.fixedBytes _ value =>
+      if abiAddressFits value then
+        some (wordToBytesBE wordBytes value)
+      else
+        none
   | Ty.uint256, Value.word value => some (wordToBytesBE wordBytes value)
   | Ty.int256, Value.int value => some (wordToBytesBE wordBytes value)
   -- SIGNED-CONSTANT-FOLD (S, signed-constant-shift-in-abiencode-arg): a
@@ -5710,6 +5720,9 @@ def abiEncodePackedValue? : Ty -> Value -> Option (List Byte)
       else
         none
   | Ty.address, Value.word value => some (wordToBytesBE 20 value)
+  -- R3 (see `abiStaticBytes?`): a `bytes20`-derived width-tagged word reaching an
+  -- `address` slot packs to the same 20 bytes as the untagged `Value.word` case.
+  | Ty.address, Value.fixedBytes _ value => some (wordToBytesBE 20 value)
   | Ty.uint256, Value.word value => some (wordToBytesBE wordBytes value)
   | Ty.int256, Value.int value => some (wordToBytesBE wordBytes value)
   -- SIGNED-CONSTANT-FOLD (S): mirror the `abiStaticBytes?` int256 arm — a
