@@ -5108,6 +5108,20 @@ def abiStaticBytes? : Ty -> Value -> Option (List Byte)
         none
   | Ty.uint256, Value.word value => some (wordToBytesBE wordBytes value)
   | Ty.int256, Value.int value => some (wordToBytesBE wordBytes value)
+  -- NEG-LITERAL (S, abi-encode-rational): the dual of the SIGNED-CONSTANT-FOLD
+  -- arm below. A bare negative integer literal (`abi.encode(-2)`) lowers via the
+  -- `UnaryOp.neg` fold to an `Expr.intWord` (a signed constant) that evaluates to
+  -- a `Value.int`, while the env-less `Expr.abiTy?` reports the negation's
+  -- MAGNITUDE type `uint256` (`Literal.number ⇒ uint256`; `neg` recurses), so the
+  -- value reaches a `uint256` slot as a `Value.int`. The strict `uint256/
+  -- Value.word` arm above rejected it with a SPURIOUS Panic(0) (`typeMismatch`)
+  -- where solc+EVM succeed: solc types the literal as a signed type and
+  -- sign-extends it to a full 32-byte word. A `Value.int`'s stored `Word` IS that
+  -- 2's-complement bit pattern (`signedToWord`), so its boundary bytes are
+  -- byte-identical to the `int256/Value.int` arm above — no Panic(0). (Only the
+  -- 32-byte `abi.encode` encoder is widened; `abiEncodePackedValue?` is left
+  -- alone, as a negated literal's PACKED width is a separate matter.)
+  | Ty.uint256, Value.int value => some (wordToBytesBE wordBytes value)
   -- SIGNED-CONSTANT-FOLD (S, signed-constant-shift-in-abiencode-arg): a
   -- constant-folded signed expression that the env-less arg path folds to a
   -- plain `Expr.word` (e.g. `abi.encode(int256(5) >> 1)` — the fold in
