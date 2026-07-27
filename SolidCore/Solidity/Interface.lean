@@ -4788,7 +4788,23 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
                             targetSize sourceSize coreExpr)
                 | none => do
                     let _ ← Ty.toCore? ty
-                    Expr.toCore? storageNames expr
+                    let coreExpr ← Expr.toCore? storageNames expr
+                    -- FB1: a `bytesN` cast whose OPERAND has no env-less
+                    -- `Expr.abiTy?` (a `<<` over a local/param/storage `bytesN`,
+                    -- whose leaf identifier carries no `abiTy?` arm) still needs
+                    -- the lane cleanup solc emits after every `bytesN <<`
+                    -- (`cleanup_t_bytesN`). solidity-lean stores `bytesN`
+                    -- right-aligned, so a LEFT shift pushes meaningful bits above
+                    -- the low `size`-byte lane; DROPPING the cast (lowering the
+                    -- operand bare, as this branch did) leaves those stray bits,
+                    -- so the consumer — here the ABI encoder that `annotateAbi`
+                    -- wraps as `bytesN(b << 8)` — sees a mis-shaped value and
+                    -- Panics 0. Re-mask with `implicitCleanupCore` at the target
+                    -- `bytesN`, exactly as the bound-local path (`bytes4 r =
+                    -- b << 8`) already does. It is the identity for any
+                    -- non-left-shift operand, so every other unknown-source
+                    -- `bytesN` cast keeps its prior bare lowering byte-identically.
+                    some (Ty.implicitCleanupCore (Ty.bytesN targetSize) coreExpr)
             | none =>
                 match Expr.toCoreNumericLiteralAs? ty expr with
                 | some coreExpr => some coreExpr
