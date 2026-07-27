@@ -1791,7 +1791,40 @@ def Expr.resolveStructsFuel :
               else
                 Expr.index (Expr.ident name) (resolve index)
           | _ => Expr.index (Expr.ident name) (resolve index)
-      | Expr.index base index => Expr.index (resolve base) (resolve index)
+      | Expr.index base index =>
+          -- BYTESN-CONTAINER-ELEM-INDEX: a `bytesN` value produced by a
+          -- CONTAINER element / struct-member load (`a[i]`, `m[k]`, `s.b` —
+          -- i.e. a non-ident base, which the ident arm above already handles)
+          -- is emitted as an untagged `Value.word` by the env-free load, so a
+          -- subsequent index dead-ends in `typeMismatch` (Panic 0). Mirror the
+          -- ident fix: where the full `TypeEnv` IS in scope, detect a
+          -- fixed-bytes base and wrap it in its own no-op width cast
+          -- `bytesN(base)`, so the general (non-ident) index arm lowers it to
+          -- `fixedBytesIndex` (byte extract; Panic 0x32 out-of-range). The
+          -- source type is computed on the UN-resolved base so the
+          -- struct-member arm of `sourceTyWithEnv?` still applies (after
+          -- `resolve`, `s.b` becomes an ordinal index whose type is opaque).
+          match base with
+          | Expr.index _ _ | Expr.member _ _ =>
+              match Expr.sourceTyWithEnv? env typeEnv base with
+              | some (Ty.bytesN size) =>
+                  if 0 < size && size <= 32 then
+                    Expr.index
+                      (Expr.call (Expr.typeName (Ty.bytesN size))
+                        [Arg.positional (resolve base)])
+                      (resolve index)
+                  else
+                    Expr.index (resolve base) (resolve index)
+              | some (Ty.fixedBytes size) =>
+                  if 0 < size && size <= 32 then
+                    Expr.index
+                      (Expr.call (Expr.typeName (Ty.fixedBytes size))
+                        [Arg.positional (resolve base)])
+                      (resolve index)
+                  else
+                    Expr.index (resolve base) (resolve index)
+              | _ => Expr.index (resolve base) (resolve index)
+          | _ => Expr.index (resolve base) (resolve index)
       | Expr.slice base start stop =>
           Expr.slice (resolve base) (start.map resolve) (stop.map resolve)
       | Expr.call (Expr.typeName (Ty.user path)) args =>
