@@ -8395,11 +8395,17 @@ def checkExpr (env : CheckEnv) :
           -- literals; folding division/modulo by a constant-zero divisor fails,
           -- so `TypeChecker::binaryOperatorResult` returns null and raises
           -- Error 2271 ("Built-in binary operator / cannot be applied to types
-          -- int_const 1 and int_const 0", TypeChecker.cpp:1709-1712). A
-          -- non-constant divisor (fold `none`) stays a runtime Panic 0x12.
+          -- int_const 1 and int_const 0", TypeChecker.cpp:1709-1712). This fold
+          -- fires ONLY when BOTH operands are `RationalNumberType` (untyped
+          -- number literals). Use the STRICT literal folder here — NOT
+          -- `numberLiteralRat?`, which looks through an explicit `T(x)`
+          -- conversion (and `enumFromUInt`) and would mis-fold a TYPED divisor
+          -- such as `uint256(0)` into a constant-zero rational. A typed divisor
+          -- is a runtime division that stays a runtime Panic 0x12 in solc, so it
+          -- must yield `none` here (as does any genuinely non-constant divisor).
           require
-            (match Solidity.Executable.Expr.numberLiteralRat? lhs,
-                   Solidity.Executable.Expr.numberLiteralRat? rhs with
+            (match Solidity.Executable.Expr.untypedNumberLiteralRat? lhs,
+                   Solidity.Executable.Expr.untypedNumberLiteralRat? rhs with
              | some _, some divisor => divisor.num != 0
              | _, _ => true)
             (TypeError.unsupported "constant division or modulo by zero")
