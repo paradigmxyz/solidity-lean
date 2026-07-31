@@ -103,6 +103,7 @@ import SolidCore.Witness.TupleRhsStorageBytes
 import SolidCore.Witness.TupleRhsBytesNShiftMask
 import SolidCore.Witness.CompoundAssignBytesNLiteral
 import SolidCore.Witness.EmitStorageDynamicArray
+import SolidCore.Witness.EmitInterfaceEventViaLibrary
 import SolidCore.Witness.EmitMemoryNestedRef
 import SolidCore.Witness.EmitRevertNestedEnv
 import SolidCore.Witness.EventOverloadTable
