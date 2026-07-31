@@ -3640,8 +3640,15 @@ def State.storeStorageLayoutAt (state : State) (slot : Word)
             Except.error RevertData.typeMismatch
       | _ => Except.error RevertData.typeMismatch
   | StorageLayout.dynamicArray elementLayout =>
+      -- A memory array LITERAL copied into a dynamic storage array arrives as a
+      -- `Value.fixedArray` (its bottom-up `T[n]` type), e.g. `s = [5,6]` for
+      -- `uint8[] s` or `a3[0][1] = [5,6]` for a nested `uint8[]` element. solc
+      -- accepts the fixed→dynamic storage copy (resize to the source length,
+      -- copy each element); treat a fixed-array source identically to a dynamic
+      -- one — the dest length becomes the source length either way.
       match value with
-      | Value.dynamicArray values => do
+      | Value.dynamicArray values
+      | Value.fixedArray values => do
           let state ←
             State.storeDynamicArrayLayoutSlots
               state slot elementLayout 0 values
