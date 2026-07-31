@@ -135,3 +135,4 @@ import SolidCore.Witness.LibraryStrayValue
 import SolidCore.Witness.AbiStrayValue
 import SolidCore.Witness.UdvtWrapStrayValue
 import SolidCore.Witness.NestedArrayLiteralStorageCopy
+import SolidCore.Witness.ByteArrayPopStrayValue

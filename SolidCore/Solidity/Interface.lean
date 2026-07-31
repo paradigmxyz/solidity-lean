@@ -23823,6 +23823,15 @@ def Expr.isStrayLibraryFunctionValue
        | none => false)
   | Expr.member (Expr.ident "abi") member =>
       Expr.isAbiFunctionMemberName member
+  -- ARRAY-MUTATION-STRAY-VALUE: `data.pop;` / `data.push;` names the builtin
+  -- storage-array `push`/`pop` mutation member over a plain identifier base as a
+  -- discarded VALUE. TypeCheck accepts this only when the base is a storage
+  -- dynamic array / `bytes` (see the ARRAY-MUTATION-STRAY-VALUE arm in
+  -- `checkStmt`), so any such statement that survives to lowering is that
+  -- effect-free no-op; the uncalled `push`/`pop` never runs (it has no lowerable
+  -- value form), so the statement lowers to nothing.
+  | Expr.member (Expr.ident _) member =>
+      member == "push" || member == "pop"
   | _ => false
 
 mutual

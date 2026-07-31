@@ -10860,6 +10860,38 @@ def checkStmt (env : CheckEnv) :
         let _ ← checkExpr env
           (Solidity.Expr.member (Solidity.Expr.ident "abi") member)
         Except.ok { source := stmt }
+  -- ARRAY-MUTATION-STRAY-VALUE: `data.pop;` / `data.push;` names the builtin
+  -- storage dynamic-array (or `bytes`) `push`/`pop` MUTATION member as a
+  -- discarded expression statement. solc accepts it (the member access yields
+  -- the mutation function's type; nothing CALLS it, so the statement has no
+  -- effect — the pop/push never runs, storage is unchanged — and it lowers to a
+  -- no-op). `checkExpr`'s `Expr.member base member` arm has no VALUE form for a
+  -- bare `push`/`pop` reference: they are call-only mutation members, resolved
+  -- only in `checkArrayMutationCall?` at a CALL site, so an uncalled reference
+  -- falls to `unsupported "member push"/"member pop"` — a fail-closed
+  -- over-reject. Accept it here (statement position only, over a plain
+  -- side-effect-free identifier base, and only when that base is genuinely a
+  -- storage dynamic array / `bytes` carrying the builtin mutation surface — the
+  -- SAME success condition as the storage push/pop CALL path in
+  -- `checkArrayMutationCall?`); the same member in a CONVERSION position, a
+  -- fixed-size array, or a memory/calldata receiver still routes through the
+  -- unchanged `checkExpr` and stays rejected.
+  | stmt@(Solidity.Stmt.expr
+      (Solidity.Expr.member (Solidity.Expr.ident baseName) member))
+      => do
+      let isStrayStorageArrayMutation : Bool :=
+        (member == "push" || member == "pop") &&
+          (match checkExpr env (Solidity.Expr.ident baseName) with
+           | Except.ok baseChecked =>
+               baseChecked.ty.dynamicStorageArrayElement?.isSome &&
+                 baseChecked.dataLocation? == some Solidity.DataLocation.storage
+           | Except.error _ => false)
+      if isStrayStorageArrayMutation then
+        Except.ok { source := stmt }
+      else do
+        let _ ← checkExpr env
+          (Solidity.Expr.member (Solidity.Expr.ident baseName) member)
+        Except.ok { source := stmt }
   | stmt@(Solidity.Stmt.expr expr) => do
       let _ ← checkExpr env expr
       Except.ok { source := stmt }
