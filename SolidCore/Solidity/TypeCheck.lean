@@ -8606,10 +8606,19 @@ def checkExpr (env : CheckEnv) :
                   -- G14: a copy into a genuine storage-array variable accepts a
                   -- base-convertible / shorter source (solc's less-restrictive
                   -- storage-copy rule); the strict rule still governs pointer
-                  -- rebinds and non-storage targets.
+                  -- rebinds and non-storage targets. An inline array literal has
+                  -- an over-wide `uint256[n]` `checked.ty`; solc types it
+                  -- bottom-up (smallest common mobile element, e.g. `[5,6] :
+                  -- uint8[2]`) and copies THAT into the storage array, so the
+                  -- storage-copy check must see the bottom-up source type (a
+                  -- typed / variable element leaves `inlineArrayBottomUpTy?` at
+                  -- `none`, keeping `checked.ty`, incl. the struct-element
+                  -- legacy carve-out in `storageArrayCopyAssignable?`).
+                  let rhsCopyTy :=
+                    (inlineArrayBottomUpTy? rhsChecked.source).getD rhsChecked.ty
                   if lhsChecked.stateLValue && !rebindsStoragePointer &&
                       Ty.storageArrayCopyAssignable? env.types lhsChecked.ty
-                        rhsChecked.ty then
+                        rhsCopyTy then
                     Except.ok ()
                   else
                     rhsChecked.expectAssignableToIn env.types lhsChecked.ty
