@@ -28129,7 +28129,8 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
     EventDecls.collidingNames
       (concatMapList ContractDecl.directEvents dispatchOrder ++ sourceEvents ++
         concatMapList ContractDecl.directEvents
-          (allContracts.filter ContractDecl.isLibrary))
+          (allContracts.filter
+            (fun d => ContractDecl.isLibrary d || ContractDecl.isInterface d)))
   let collidingErrors :=
     ErrorDecls.collidingNames
       (concatMapList ContractDecl.directErrors dispatchOrder ++ sourceErrors ++
@@ -28513,14 +28514,19 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
         | none => fd)
   let immutableFields ←
     ContractDecl.toCoreImmutableFieldsFrom stateVars
-  -- EMIT-QUAL library case (#137): a `emit L.Ev(...)` names an event declared in
-  -- a LIBRARY, not in the contract's own/inherited event scope. Add library
-  -- events (by name, without shadowing a same-named contract event) to the
-  -- runtime event table so a NON-colliding library-qualified emit resolves its
-  -- topic0 by the bare name — mirroring `extraLibraryErrors`.
+  -- EMIT-QUAL cross-scope case (#137 / interface follow-up): a `emit X.Ev(...)`
+  -- names an event declared in a LIBRARY or INTERFACE (e.g. an interface event
+  -- emitted from a library, `emit I.E()`), not in the contract's own/inherited
+  -- event scope. Add those events (by name, without shadowing a same-named
+  -- contract event) to the runtime event table so a NON-colliding qualified emit
+  -- resolves its topic0 by the bare name — mirroring `extraLibraryErrors`. The
+  -- typecheck (`contractEventSig?`) already accepts an interface-qualified emit;
+  -- without the interface's event in the table the bare-name lookup dead-ended in
+  -- `Panic(0)` where solc+EVM emit the event.
   let libraryEvents :=
     concatMapList ContractDecl.directEvents
-      (allContracts.filter ContractDecl.isLibrary)
+      (allContracts.filter
+        (fun d => ContractDecl.isLibrary d || ContractDecl.isInterface d))
   let extraLibraryEvents :=
     EventDecls.withoutNamesOf (contractEvents ++ visibleSourceEvents)
       libraryEvents
@@ -28744,7 +28750,8 @@ def ContractDecl.constructorFunctionFromOrders?
     EventDecls.collidingNames
       (concatMapList ContractDecl.directEvents dispatchOrder ++ sourceEvents ++
         concatMapList ContractDecl.directEvents
-          (allContracts.filter ContractDecl.isLibrary))
+          (allContracts.filter
+            (fun d => ContractDecl.isLibrary d || ContractDecl.isInterface d)))
   let collidingErrors :=
     ErrorDecls.collidingNames
       (concatMapList ContractDecl.directErrors dispatchOrder ++ sourceErrors ++
