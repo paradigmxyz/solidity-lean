@@ -8148,6 +8148,25 @@ def Expr.abiArgNeedsEnvCleanupFuel? : Nat -> Expr -> Bool
               -- (`Expr.abiArrayLiteralWithEnvFuel?`) types and lowers it.
               | Expr.array elems =>
                   (Expr.arrayLiteralCommonTy? [] elems).isNone
+              -- ENCODECALL-ARG (S, narrow-add-abi-encodecall-arg): an argument
+              -- that is ITSELF `abi.encodeCall(fnPtr, (…))` whose argument
+              -- TUPLE carries narrow checked arithmetic
+              -- (`abi.encode(abi.encodeCall(this.g, (a + b)))`, `uint8 a,b`).
+              -- solc evaluates each tuple item at the callee-parameter width
+              -- (`a + b` at uint8, Panic 0x11 on overflow) while assembling the
+              -- encodeCall calldata; the env-aware encodeCall arm of
+              -- `Expr.toCoreAsWithEnvFuel?` lowers each item at its own width
+              -- via `TupleItems.toAbiEncodeSourceWithEnvFuel?`, so flag when a
+              -- tuple item needs the cleanup. Placed BEFORE the generic `abi.*`
+              -- arm because encodeCall's second argument is a tuple (not a flat
+              -- positional list) so the generic `args.any` cannot reach it.
+              | Expr.call (Expr.member (Expr.ident "abi") "encodeCall")
+                  [Arg.positional _, Arg.positional (Expr.tuple items)] =>
+                  items.any (fun it =>
+                    match it with
+                    | TupleItem.value e =>
+                        Expr.abiArgNeedsEnvCleanupFuel? fuel e
+                    | TupleItem.hole => false)
               -- #201 (F): an argument that is ITSELF an `abi.encode*`/`concat`/
               -- hash builtin call needs the env-aware lowering when one of ITS
               -- OWN arguments does (`abi.encode(abi.encodePacked(a + b))`,
@@ -8254,6 +8273,21 @@ def Expr.abiArgNeedsEnvCleanup? (expr : Expr) : Bool :=
     `abi.encode*`/`concat` call); every other return keeps its lowering
     byte-identical. -/
 def Expr.abiBuiltinArgsNeedEnvCleanup : Expr -> Bool
+  -- ENCODECALL-ARG (S, narrow-add-abi-encodecall-arg): a RETURN/vardecl-position
+  -- `abi.encodeCall(fnPtr, (…))` whose argument TUPLE carries narrow checked
+  -- arithmetic (`return abi.encodeCall(this.g, (a + b))`, `uint8 a,b`). solc
+  -- evaluates each tuple item at the callee-parameter width while assembling the
+  -- calldata, so `a + b == 300` Panics 0x11 BEFORE the encode completes; without
+  -- this reroute the return dispatcher lowered env-less (encoding 300 at 256
+  -- bits, silent success). The env-aware encodeCall arm lowers each item at its
+  -- own width. Matched before the generic `abi.*` arm since the second argument
+  -- is a tuple, not a flat positional list.
+  | Expr.call (Expr.member (Expr.ident "abi") "encodeCall")
+      [Arg.positional _, Arg.positional (Expr.tuple items)] =>
+      items.any (fun it =>
+        match it with
+        | TupleItem.value e => Expr.abiArgNeedsEnvCleanup? e
+        | TupleItem.hole => false)
   | Expr.call (Expr.member (Expr.ident "abi") m) args =>
       (m == "encode" || m == "encodePacked" || m == "encodeWithSelector" ||
           m == "encodeWithSignature") &&
