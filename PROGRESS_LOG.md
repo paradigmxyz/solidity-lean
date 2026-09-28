@@ -10,6 +10,16 @@ observation layer, the interaction-monad external boundary, and this
 documentation/freeze phase) is recorded — one dated entry per decision — in
 [`docs/DECISIONS.md`](docs/DECISIONS.md), alongside `ROADMAP.md`.
 
+## 2026-09-28 — enum conversion preserves narrow checked arithmetic
+
+- First unresolved report `a2e9dc3f-5e48-4a10-b96b-17c04a7beadc` evaluates
+  `EN(a + b)` with uint8 values 200 and 100. Solc panics 0x11 while the model
+  previously widened the add, produced 300, and then panicked 0x21 on enum range.
+- Lower the `enumFromUInt` operand through the env-aware path at its inferred
+  integer type and apply that type's checked cleanup before the enum range check.
+- Witness and Forge controls cover overflow precedence, a safe narrow sum, and
+  an ordinary uint256 out-of-range conversion that must remain Panic(0x21).
+
 ## Most recent archived entries
 
 - 2026-06-28 07:55:01 PDT - typechecker/custom-error-static-acceptedness - paired custom-error static acceptedness against pinned solc and the common checker. Added invalid solc lanes for reserved `Error`/`Panic` names, duplicate error parameter names, unknown custom-error reverts, free custom-error overloading, data-location annotations on error parameters, and local-error shadowing of a free error with the wrong argument shape; added `customErrorStaticDisciplineMatches` covering those rejections plus accepted named custom-error arguments, `require` with custom-error payloads, file/contract error shadowing with matching local shapes, and dynamic string error payloads. Verification: `lake build SolidCore.Spine.L00_SourceSolidity.TypeCheck`; focused `custom-error` harness with `solc_rejects=ok`, `forge=ok`, and `lean=ok`; `lake build SolidCore.Spine.L00_SourceSolidity.Checked`; pinned-solc AST audit with `sources=93`, `rendered_sources=93`, `unimplemented_node_types=0`, `unclassified_child_fields=0`, and `render_failures=0`; full paired replay with `forge_interpreter_compare=pass`, `status=0`, `cases=93`, and `paired_cases_passed=yes`; manifest parse reports `cases=93`, `solc_rejects=227`, and `lean_evals=374`; Python compilation, shell syntax, scoped no-sorry/no-admit/no-axiom scan, `git diff --check`, and generated-cache cleanup are green.
