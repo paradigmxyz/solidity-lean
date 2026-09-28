@@ -8600,6 +8600,27 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
                     | none =>
                         Expr.toCoreAsWithEnvDirect?
                           storageNames env targetTy expr))
+          | Expr.enumFromUInt maxValue inner =>
+              -- An enum conversion checks the integer expression before it checks
+              -- the enum range. Preserve the expression's own integer width here:
+              -- `E(a + b)` with uint8 operands must Panic(0x11) on 200 + 100,
+              -- rather than first producing 300 and then Panic(0x21) as an
+              -- out-of-range enum value. The direct lowering is env-less and loses
+              -- that operand-width cleanup.
+              (match Expr.abiTyWithEnv? env inner with
+               | some sourceTy =>
+                   (match Expr.toCoreAsWithEnvFuel?
+                         fuel storageNames env sourceTy inner with
+                    | some innerCore =>
+                        some
+                          (SolidCore.Solidity.Source.Expr.enumFromUInt maxValue
+                            (Ty.implicitCleanupCore sourceTy innerCore))
+                    | none =>
+                        Expr.toCoreAsWithEnvDirect?
+                          storageNames env targetTy expr)
+               | none =>
+                   Expr.toCoreAsWithEnvDirect?
+                     storageNames env targetTy expr)
           | Expr.call (Expr.typeName castTy) [Arg.positional argExpr] =>
               -- H2 (SOUNDNESS): a narrow `uintN`/`intN` explicit cast of a
               -- checked arithmetic sub-expression must evaluate that
@@ -29822,4 +29843,3 @@ end Executable
 
 end Solidity
 end SolidCore
-
