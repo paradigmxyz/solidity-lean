@@ -4765,10 +4765,9 @@ def Ty.hasArrayMutationMemberSurface : Ty -> Bool
 --     (AddressType members, Types.cpp:521-560);
 --   * bytes / bytesN / arrays: length (ArrayType/FixedBytesType members;
 --     string has NO length member in solc);
---   * external function values: selector / address — handled by the
---     dedicated `.selector` / `.address` match arms and the
---     `abiTyWithEnv?` fallback (both consult the function TYPE, not a
---     receiver string chain).
+--   * external function values: selector. Use the checked receiver
+--     type so compound expressions such as a conditional function value work
+--     even when the lightweight ABI inference cannot resolve their leaves.
 -- CALL-position members are typed at the fused member-call node and keep
 -- their argument/mutability checks there, with their NAME sets defined
 -- next to this table: transfer/send/call/delegatecall/staticcall on
@@ -4803,6 +4802,8 @@ def Ty.builtinValueMembers : Ty -> List (Name × BuiltinMemberInfo)
       [("length", { ty := Solidity.Ty.uint 256 })]
   | Solidity.Ty.array _ _ =>
       [("length", { ty := Solidity.Ty.uint 256 })]
+  | Solidity.Ty.functionWithLocations _ _ _ _ _ Solidity.Visibility.external_ =>
+      [("selector", { ty := Solidity.Ty.bytesN 4 })]
   | _ => []
 
 def Ty.builtinValueMemberInfo? (ty : Ty) (member : Name) :
@@ -4817,13 +4818,15 @@ def Ty.builtinValueMemberInfo? (ty : Ty) (member : Name) :
     the name rejects (it must NOT leak into the generic fallback). Derived
     from the union of the `Ty.builtinValueMembers` rows. -/
 def Ty.builtinValueMemberNames : List Name :=
-  ["balance", "code", "codehash", "length"]
+  ["balance", "code", "codehash", "length", "selector"]
 
 /-- The per-name rejection for a reserved builtin member on a receiver that
     lacks it (same errors as the pre-R4 name chain). -/
 def builtinValueMemberError (member : Name) (receiverTy : Ty) : TypeError :=
   if member == "length" then
     TypeError.unsupported "length member for non-array value"
+  else if member == "selector" then
+    TypeError.unsupported ("member " ++ member)
   else
     TypeError.expectedType (Solidity.Ty.address false) receiverTy
 

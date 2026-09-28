@@ -141,3 +141,4 @@ import SolidCore.Witness.NestedArrayLiteralStorageCopy
 import SolidCore.Witness.ByteArrayPopStrayValue
 import SolidCore.Witness.EnumConversionNarrowOverflow
 import SolidCore.Witness.TupleLiteralTargetTyping
+import SolidCore.Witness.ConditionalFunctionMembers

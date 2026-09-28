@@ -11054,6 +11054,13 @@ def Expr.resolveSelectorsFuel :
       let resolveTupleItem :=
         TupleItem.resolveSelectorsFuel fuel env unqualifiedEnv
       match expr with
+      | Expr.member (Expr.ternary cond thenExpr elseExpr) "selector" =>
+          -- Select only the chosen function's selector. Resolving each arm
+          -- exposes bound function names to the same lookup used by a direct
+          -- `this.f.selector`, without requiring env-less lowering of `this.f`.
+          Expr.ternary (resolve cond)
+            (resolve (Expr.member thenExpr "selector"))
+            (resolve (Expr.member elseExpr "selector"))
       | Expr.member (Expr.ident name) "selector" =>
           match SelectorEnv.lookup? unqualifiedEnv name with
           | some selector => selectorLiteralExpr selector

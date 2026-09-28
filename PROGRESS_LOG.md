@@ -63,6 +63,13 @@ documentation/freeze phase) is recorded — one dated entry per decision — in
   927-submission replay changes only this report from SOUNDNESS_GAP to
   NO_DIVERGENCE.
 
+## 2026-09-28 — conditional external-function selectors
+
+- First-file report: `d75fdb5e-bb86-4da1-bdc3-02dfc810c999` (2026-07-24 21:22:14 UTC), `(c ? this.f : this.g).selector`.
+- Type member access from the checked external-function receiver; distribute selector resolution over a conditional while retaining the condition and branch choice. Existing direct named-selector purity behavior remains covered.
+- Solc-imported witness and Forge controls cover both branches and the direct pure selector. The original submission and later assignment-condition report `42948632` now agree with the EVM. All 927 queue cases replayed: two become NO_DIVERGENCE; one exposes a separate narrow-arithmetic SOUNDNESS_GAP after type acceptance; other verdicts unchanged.
+- Targeted Lean build and contest sample suite passed. Full build validation recorded in the PR.
+
 ## Most recent archived entries
 
 - 2026-06-28 07:55:01 PDT - typechecker/custom-error-static-acceptedness - paired custom-error static acceptedness against pinned solc and the common checker. Added invalid solc lanes for reserved `Error`/`Panic` names, duplicate error parameter names, unknown custom-error reverts, free custom-error overloading, data-location annotations on error parameters, and local-error shadowing of a free error with the wrong argument shape; added `customErrorStaticDisciplineMatches` covering those rejections plus accepted named custom-error arguments, `require` with custom-error payloads, file/contract error shadowing with matching local shapes, and dynamic string error payloads. Verification: `lake build SolidCore.Spine.L00_SourceSolidity.TypeCheck`; focused `custom-error` harness with `solc_rejects=ok`, `forge=ok`, and `lean=ok`; `lake build SolidCore.Spine.L00_SourceSolidity.Checked`; pinned-solc AST audit with `sources=93`, `rendered_sources=93`, `unimplemented_node_types=0`, `unclassified_child_fields=0`, and `render_failures=0`; full paired replay with `forge_interpreter_compare=pass`, `status=0`, `cases=93`, and `paired_cases_passed=yes`; manifest parse reports `cases=93`, `solc_rejects=227`, and `lean_evals=374`; Python compilation, shell syntax, scoped no-sorry/no-admit/no-axiom scan, `git diff --check`, and generated-cache cleanup are green.
