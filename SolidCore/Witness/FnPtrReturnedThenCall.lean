@@ -114,10 +114,31 @@ def runContract : ContractDecl :=
                   (Expr.call (Expr.ident "pick")
                     [Arg.positional (Expr.literal (Literal.bool true))])
                   [Arg.positional (Expr.ident "x")])
+                  (Expr.call
+                    (Expr.call (Expr.ident "pick")
+                      [Arg.positional (Expr.literal (Literal.bool false))])
+                  [Arg.positional (Expr.ident "x")])))]) }
+      -- runDirect(): return pick(true)(4);
+      -- This bare-return position used to skip the nested-call hoister even
+      -- though the same expression already worked inside `run`'s addition.
+    , ContractItem.function
+        { kind := FunctionKind.function
+          name := some "runDirect"
+          visibility := some Visibility.external_
+          mutability := StateMutability.pure
+          params := []
+          returns := [{ name := none, ty := Ty.uint 256, location := none }]
+          virtual := false
+          override? := none
+          modifiers := []
+          body := some (Stmt.block
+            [Stmt.returnValues
+              (some
                 (Expr.call
                   (Expr.call (Expr.ident "pick")
-                    [Arg.positional (Expr.literal (Literal.bool false))])
-                  [Arg.positional (Expr.ident "x")])))]) } ] }
+                    [Arg.positional (Expr.literal (Literal.bool true))])
+                  [Arg.positional
+                    (Expr.literal (Literal.number "4"))]))]) } ] }
 
 def runSourceUnit : SourceUnit :=
   { items := [SourceItem.pragma "solidity" "^0.8.35", SourceItem.contract runContract] }
@@ -140,6 +161,9 @@ def run_0_is_0 : Except TypeError Bool :=
   Examples.checkedOwnCallWordMatches 256 runContract "run" State.empty
     [Value.word 0] 0
 
+def runDirect_is_8 : Except TypeError Bool :=
+  Examples.checkedOwnCallWordMatches 256 runContract "runDirect" State.empty [] 8
+
 private def isOkTrue : Except TypeError Bool -> Bool
   | Except.ok true => true
   | _ => false
@@ -148,6 +172,7 @@ private def isOkTrue : Except TypeError Bool -> Bool
 #guard isOkTrue run_3_is_15
 #guard isOkTrue run_5_is_25
 #guard isOkTrue run_0_is_0
+#guard isOkTrue runDirect_is_8
 
 end FnPtrReturnedThenCall
 end Witness

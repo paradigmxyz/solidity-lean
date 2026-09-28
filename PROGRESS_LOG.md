@@ -31,6 +31,24 @@ documentation/freeze phase) is recorded — one dated entry per decision — in
   ordinary tuple components retain their existing env-less lowering.
 - Forge controls cover hex and string declarations plus tuple assignment.
 
+## 2026-09-28 — immediate calls through returned internal function pointers
+
+- First unresolved report `229edb9e-733e-4d71-8ff2-75efe2d34cfe` uses a bare
+  `return g()(7)`. The arbitrary-callee pointer dispatcher already handled this
+  expression inside binary contexts, but the generic return fallback skipped the
+  internal-call expression hoister and failed checked-executable generation.
+- Route generic returns and matching local initializers through that hoister.
+  Teach argument-position ANF discovery that an arbitrary-callee call whose
+  callee has an internal function type is an internal single-return call, so the
+  same shape works in eager argument positions such as `abi.encode` and nested
+  immediate calls. Keep initializer declarations in statement-list scope.
+- The exact submission and direct-return Lean witness pass. End-to-end importer
+  controls for direct return, initializer, `abi.encode`, and nested calls all
+  agree with solc/EVM; the four-case Forge suite passes. Full queue replay fixes
+  the first report and a later direct-invocation report, with no prior
+  `NO_DIVERGENCE` regression; three later storage-pointer consumers advance from
+  fail-closed to their independent runtime gaps and remain open.
+
 ## Most recent archived entries
 
 - 2026-06-28 07:55:01 PDT - typechecker/custom-error-static-acceptedness - paired custom-error static acceptedness against pinned solc and the common checker. Added invalid solc lanes for reserved `Error`/`Panic` names, duplicate error parameter names, unknown custom-error reverts, free custom-error overloading, data-location annotations on error parameters, and local-error shadowing of a free error with the wrong argument shape; added `customErrorStaticDisciplineMatches` covering those rejections plus accepted named custom-error arguments, `require` with custom-error payloads, file/contract error shadowing with matching local shapes, and dynamic string error payloads. Verification: `lake build SolidCore.Spine.L00_SourceSolidity.TypeCheck`; focused `custom-error` harness with `solc_rejects=ok`, `forge=ok`, and `lean=ok`; `lake build SolidCore.Spine.L00_SourceSolidity.Checked`; pinned-solc AST audit with `sources=93`, `rendered_sources=93`, `unimplemented_node_types=0`, `unclassified_child_fields=0`, and `render_failures=0`; full paired replay with `forge_interpreter_compare=pass`, `status=0`, `cases=93`, and `paired_cases_passed=yes`; manifest parse reports `cases=93`, `solc_rejects=227`, and `lean_evals=374`; Python compilation, shell syntax, scoped no-sorry/no-admit/no-axiom scan, `git diff --check`, and generated-cache cleanup are green.
