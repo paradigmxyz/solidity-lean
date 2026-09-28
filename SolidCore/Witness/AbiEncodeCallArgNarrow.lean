@@ -4,29 +4,14 @@ import SolidCore.Witness.Checked
 set_option maxHeartbeats 8000000
 
 /-!
-ABI-ENCODECALL-ARG-NARROW (S, narrow-add-abi-encodecall-arg) — a narrow
-(`uintN`, N < 256) CHECKED arithmetic operand used inside the argument tuple of
-`abi.encodeCall`.
+Checked narrow arithmetic in `abi.encodeCall` must run at the operand's type
+width before calldata encoding. With uint8 arguments 200 and 100, `a + b`
+reverts Panic(0x11); arguments 1 and 2 encode normally.
 
-`return abi.encodeCall(this.g, (a + b))` with `uint8 a = 200, b = 100` and
-`g(uint8)`: solc evaluates `a + b` at uint8 while building the encodeCall
-argument tuple, so the addition overflows (300 > 255) and the call reverts
-Panic(0x11) BEFORE the calldata is assembled. solidity-lean lowered the
-`abi.encodeCall` argument through the env-LESS path: `encodeCall` was ABSENT from
-the two operand-width-cleanup reroute predicates
-(`Expr.abiArgNeedsEnvCleanupFuel?` for a nested `abi.*` arg and
-`Expr.abiBuiltinArgsNeedEnvCleanup` for the return/vardecl statement position),
-which listed only `encode`/`encodePacked`/`encodeWithSelector`/
-`encodeWithSignature`. So `a + b` ran at 256 bits (300) and the call returned the
-encoded calldata `0xab088fbd…012c` successfully — a soundness gap
-(revert-vs-success).
-
-The fix adds an `encodeCall` arm to both reroute predicates (inspecting the
-argument tuple items), so such an argument routes through the env-aware
-recursion (`Expr.toCoreAsWithEnvFuel?`), whose `encodeCall` arm lowers each tuple
-item at its own width (`TupleItems.toAbiEncodeSourceWithEnvFuel?`) and fires the
-operand-width Panic 0x11. An encodeCall with no narrow arithmetic stays
-byte-identical (safe control below).
+Solc's imported singleton `(a + b)` is a plain expression, not `Expr.tuple`.
+The original tuple-only cleanup routing and witness therefore missed the real
+submission. Cover both the imported plain-expression form and the original
+hand-built singleton tuple. Routing and env-aware lowering support both forms.
 -/
 
 namespace SolidCore
@@ -52,25 +37,28 @@ private def gFn : ContractItem := ContractItem.function
     body := some (Stmt.block [Stmt.returnValues (some (Expr.ident "x"))]) }
 
 -- `abi.encodeCall(this.g, (a + b))` — the submission body. The argument tuple is
--- a one-element tuple carrying the narrow checked addition.
-private def encodeCallExpr (argExpr : Expr) : Expr :=
+-- importer unwraps its parentheses; the actual argument is a plain expression.
+private def encodeCallExpr (tupleForm : Bool) (argExpr : Expr) : Expr :=
   Expr.call (Expr.member (Expr.ident "abi") "encodeCall")
     [ Arg.positional (Expr.member (Expr.ident "this") "g")
-    , Arg.positional (Expr.tuple [TupleItem.value argExpr]) ]
+    , Arg.positional (if tupleForm then Expr.tuple [TupleItem.value argExpr] else argExpr) ]
 
-private def fFn : ContractItem := ContractItem.function
+private def fFn (tupleForm : Bool) : ContractItem := ContractItem.function
   { kind := FunctionKind.function, name := some "f",
     visibility := some Visibility.external_, mutability := StateMutability.view,
     params := [{ name := some "a", ty := Ty.uint 8, location := none },
                { name := some "b", ty := Ty.uint 8, location := none }],
     returns := [{ name := none, ty := Ty.bytes, location := some DataLocation.memory }],
     virtual := false, override? := none, modifiers := [],
-    body := some (Stmt.block [Stmt.returnValues (some (encodeCallExpr (add a b)))]) }
+    body := some (Stmt.block [Stmt.returnValues (some (encodeCallExpr tupleForm (add a b)))]) }
 
 def importedContractDecl0 : ContractDecl :=
   { kind := ContractKind.contract, name := "C",
     abstract := false, bases := [],
-    items := [gFn, fFn] }
+    items := [gFn, fFn false] }
+
+def tupleContract : ContractDecl :=
+  { importedContractDecl0 with items := [gFn, fFn true] }
 
 def importedContract : ContractDecl := importedContractDecl0
 
@@ -124,6 +112,13 @@ def safe_encodes : Except TypeError Bool :=
 #guard accepted
 #guard isOkTrue overflow_panics
 #guard isOkTrue safe_encodes
+
+-- Keep the original hand-built tuple control alongside the actual importer form.
+#guard isOkTrue (Examples.checkedOwnCallPanicMatches 300
+  SolcAstImport.AbiEncodeCallArgNarrow.tupleContract "f" State.empty overflowArgs 17)
+#guard isOkTrue (Examples.checkedOwnCallBytesMatches 256
+  SolcAstImport.AbiEncodeCallArgNarrow.tupleContract "f" State.empty safeArgs
+  (gSelectorBytes ++ wordToBytesBE 32 3))
 
 end AbiEncodeCallArgNarrow
 end Witness

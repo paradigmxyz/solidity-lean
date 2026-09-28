@@ -8167,6 +8167,10 @@ def Expr.abiArgNeedsEnvCleanupFuel? : Nat -> Expr -> Bool
                     | TupleItem.value e =>
                         Expr.abiArgNeedsEnvCleanupFuel? fuel e
                     | TupleItem.hole => false)
+              -- The importer unwraps parenthesized singleton arguments.
+              | Expr.call (Expr.member (Expr.ident "abi") "encodeCall")
+                  [Arg.positional _, Arg.positional argumentExpr] =>
+                  Expr.abiArgNeedsEnvCleanupFuel? fuel argumentExpr
               -- #201 (F): an argument that is ITSELF an `abi.encode*`/`concat`/
               -- hash builtin call needs the env-aware lowering when one of ITS
               -- OWN arguments does (`abi.encode(abi.encodePacked(a + b))`,
@@ -8288,6 +8292,9 @@ def Expr.abiBuiltinArgsNeedEnvCleanup : Expr -> Bool
         match it with
         | TupleItem.value e => Expr.abiArgNeedsEnvCleanup? e
         | TupleItem.hole => false)
+  | Expr.call (Expr.member (Expr.ident "abi") "encodeCall")
+      [Arg.positional _, Arg.positional argumentExpr] =>
+      Expr.abiArgNeedsEnvCleanup? argumentExpr
   | Expr.call (Expr.member (Expr.ident "abi") m) args =>
       (m == "encode" || m == "encodePacked" || m == "encodeWithSelector" ||
           m == "encodeWithSignature") &&
@@ -9108,6 +9115,21 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
                     (SolidCore.Solidity.Source.Expr.abiEncodeWithSelector
                       selectorCore coreTys
                       coreExprs)) with
+               | some coreExpr => some coreExpr
+               | none => Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
+          -- A one-parameter encodeCall is imported as a plain expression,
+          -- not a singleton tuple. Preserve its operand-width checks too.
+          | Expr.call (Expr.member (Expr.ident "abi") "encodeCall")
+              [Arg.positional functionPointer, Arg.positional argumentExpr] =>
+              (match (do
+                  let (sourceTy, coreTy, coreExpr) ←
+                    Expr.toAbiEncodeSourceArgWithEnvFuel? fuel storageNames env argumentExpr
+                  let selectorCore ←
+                    Expr.functionPointerSelectorCore?
+                      storageNames functionPointer [sourceTy]
+                  some
+                    (SolidCore.Solidity.Source.Expr.abiEncodeWithSelector
+                      selectorCore [coreTy] [coreExpr])) with
                | some coreExpr => some coreExpr
                | none => Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
           | Expr.call (Expr.ident "keccak256") [Arg.positional bytes] =>
