@@ -20,6 +20,17 @@ documentation/freeze phase) is recorded — one dated entry per decision — in
 - Witness and Forge controls cover overflow precedence, a safe narrow sum, and
   an ordinary uint256 out-of-range conversion that must remain Panic(0x21).
 
+## 2026-09-28 — target-type bare literals in tuple components
+
+- First unresolved report `a0a02eb1-5aff-4f5a-bf1e-33135a291d7b` binds a bare
+  hex literal to a bytes4 component of a tuple declaration. The single-binding
+  form was already target-typed, while tuple lowering used dynamic-bytes literal
+  lowering and panicked at assignment.
+- Extend the existing per-component tuple target-typing path for bare hex/string
+  literals at bytesN targets. Declaration and assignment forms share the fix;
+  ordinary tuple components retain their existing env-less lowering.
+- Forge controls cover hex and string declarations plus tuple assignment.
+
 ## Most recent archived entries
 
 - 2026-06-28 07:55:01 PDT - typechecker/custom-error-static-acceptedness - paired custom-error static acceptedness against pinned solc and the common checker. Added invalid solc lanes for reserved `Error`/`Panic` names, duplicate error parameter names, unknown custom-error reverts, free custom-error overloading, data-location annotations on error parameters, and local-error shadowing of a free error with the wrong argument shape; added `customErrorStaticDisciplineMatches` covering those rejections plus accepted named custom-error arguments, `require` with custom-error payloads, file/contract error shadowing with matching local shapes, and dynamic string error payloads. Verification: `lake build SolidCore.Spine.L00_SourceSolidity.TypeCheck`; focused `custom-error` harness with `solc_rejects=ok`, `forge=ok`, and `lean=ok`; `lake build SolidCore.Spine.L00_SourceSolidity.Checked`; pinned-solc AST audit with `sources=93`, `rendered_sources=93`, `unimplemented_node_types=0`, `unclassified_child_fields=0`, and `render_failures=0`; full paired replay with `forge_interpreter_compare=pass`, `status=0`, `cases=93`, and `paired_cases_passed=yes`; manifest parse reports `cases=93`, `solc_rejects=227`, and `lean_evals=374`; Python compilation, shell syntax, scoped no-sorry/no-admit/no-axiom scan, `git diff --check`, and generated-cache cleanup are green.

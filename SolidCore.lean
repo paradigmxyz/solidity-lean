@@ -139,3 +139,4 @@ import SolidCore.Witness.UdvtWrapStrayValue
 import SolidCore.Witness.NestedArrayLiteralStorageCopy
 import SolidCore.Witness.ByteArrayPopStrayValue
 import SolidCore.Witness.EnumConversionNarrowOverflow
+import SolidCore.Witness.TupleLiteralTargetTyping

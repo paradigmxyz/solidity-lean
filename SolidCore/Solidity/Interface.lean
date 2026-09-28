@@ -18075,7 +18075,7 @@ def assignmentCoreWithEnv? (storageNames : List Name)
   some
     (SolidCore.Solidity.Source.Stmt.assign lhsCore rhsCore)
 
-/-- FB1 (tuple-RHS lane cleanup) — shared component lowering. Given each
+/-- FB1 (tuple-RHS target typing) — shared component lowering. Given each
     component's declared target type (`tys`; `none` = anonymous binding / hole
     LHS / non-`bytesN`) and the RHS tuple `items`, lower every component: one
     whose target is `bytesN size` AND whose expression is a width-EXPANDING bit
@@ -18085,14 +18085,28 @@ def assignmentCoreWithEnv? (storageNames : List Name)
     keeps its exact env-LESS `Expr.toCore?` core (byte-identical). Returns the
     lowered component list paired with a flag that is `true` iff at least one
     mask was inserted, so the caller only reroutes tuples that actually need the
-    cleanup and leaves every other tuple's prior lowering untouched. `none` on a
-    hole RHS component or an arity mismatch. -/
+    cleanup and leaves every other tuple's prior lowering untouched. A bare
+    string/hex literal assigned to a `bytesN` component also needs the declared
+    component type: env-less literal lowering produces dynamic bytes and later
+    assignment panics, whereas a single declaration already target-types it.
+    Route that literal through the same target-aware lowering and mark the tuple
+    changed. `none` on a hole RHS component or an arity mismatch. -/
 def TupleItems.toCoreRhsBitAwareExprs? (storageNames : List Name) (env : TypeEnv) :
     List (Option Ty) -> List TupleItem -> Option (List CoreExpr × Bool)
   | [], [] => some ([], false)
   | ty? :: tyRest, TupleItem.value rhsExpr :: itemRest => do
       let (restCore, restMasked) ←
         TupleItems.toCoreRhsBitAwareExprs? storageNames env tyRest itemRest
+      match (do
+          let ty ← ty?
+          let _ ← Ty.fixedBytesSize? ty
+          match rhsExpr with
+          | Expr.literal (Literal.string _)
+          | Expr.literal (Literal.hexString _) =>
+              Expr.toCoreAsWithEnv? storageNames env ty rhsExpr
+          | _ => none) with
+      | some targetTyped => some (targetTyped :: restCore, true)
+      | none =>
       match (do
           let ty ← ty?
           let size ← Ty.fixedBytesSize? ty
