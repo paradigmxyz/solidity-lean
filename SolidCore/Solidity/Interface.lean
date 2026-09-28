@@ -3829,6 +3829,12 @@ def Ty.toCoreValueCleanup? : Ty -> Option CoreValueCleanup
         none
   | Ty.enum _ _ =>
       some (SolidCore.Solidity.Source.ValueCleanup.uint 8)
+  | Ty.bytesN size
+  | Ty.fixedBytes size =>
+      if 0 < size && size <= 32 then
+        some (SolidCore.Solidity.Source.ValueCleanup.fixedBytes size)
+      else
+        none
   | _ => some SolidCore.Solidity.Source.ValueCleanup.none
 
 -- Packed byte width for a top-level `abi.encodePacked` argument. Narrow

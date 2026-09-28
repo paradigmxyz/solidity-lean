@@ -5886,6 +5886,7 @@ inductive ValueCleanup where
   | none
   | uint : Nat -> ValueCleanup
   | int : Nat -> ValueCleanup
+  | fixedBytes : Nat -> ValueCleanup
   deriving Repr
 
 def ValueCleanup.apply (checked : Bool) (cleanup : ValueCleanup)
@@ -5894,6 +5895,10 @@ def ValueCleanup.apply (checked : Bool) (cleanup : ValueCleanup)
   | ValueCleanup.none => Except.ok value
   | ValueCleanup.uint bits => uintCleanup? checked bits value
   | ValueCleanup.int bits => intCleanup? checked bits value
+  | ValueCleanup.fixedBytes size =>
+      match Value.asWord? value with
+      | some word => fixedBytesCast? size size word
+      | Option.none => Except.error RevertData.typeMismatch
 
 def AbiCleanups.acceptOrUnspecified
     (cleanups : List AbiCleanup) (values : List Value) : Bool :=

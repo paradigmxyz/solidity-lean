@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/bytesn-compound-shift-cleanup/out"
+cache_path = "../../.foundry-suites/bytesn-compound-shift-cleanup/cache"
+evm_version = "cancun"
