@@ -62,13 +62,26 @@ documentation/freeze phase) is recorded — one dated entry per decision — in
   cover local, mapping, state, and fixed-array LValues plus right shift. The full
   927-submission replay changes only this report from SOUNDNESS_GAP to
   NO_DIVERGENCE.
-
 ## 2026-09-28 — conditional external-function selectors
 
 - First-file report: `d75fdb5e-bb86-4da1-bdc3-02dfc810c999` (2026-07-24 21:22:14 UTC), `(c ? this.f : this.g).selector`.
 - Type member access from the checked external-function receiver; distribute selector resolution over a conditional while retaining the condition and branch choice. Existing direct named-selector purity behavior remains covered.
 - Solc-imported witness and Forge controls cover both branches and the direct pure selector. The original submission and later assignment-condition report `42948632` now agree with the EVM. All 927 queue cases replayed: two become NO_DIVERGENCE; one exposes a separate narrow-arithmetic SOUNDNESS_GAP after type acceptance; other verdicts unchanged.
 - Targeted Lean build and contest sample suite passed. Full build validation recorded in the PR.
+
+## 2026-09-28 — discarded selector preserves receiver side effects
+
+- First unresolved report `7ca2655c-8f3b-4154-90fa-047df41aaf69` uses
+  `h().f.selector;`, where `h()` writes storage. Selector resolution replaced
+  the entire member expression with a literal before lowering, erasing the call
+  and its observable state change.
+- In expression-statement position the selector value is discarded. When the
+  selector is known, retain and resolve the call-valued receiver as the
+  statement so its effects and failures occur. Do the same before a return when
+  the selector is the whole returned value, optionally under explicit casts.
+- The first report and a later return-expression report change from wrong-state
+  soundness gaps to agreement. Lean resolver witnesses and pinned-solc 0.8.35
+  Forge controls cover both forms.
 
 ## Most recent archived entries
 
