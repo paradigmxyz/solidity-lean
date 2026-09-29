@@ -13854,7 +13854,16 @@ def Stmt.internalFunctionAliasNameReboundInRest
     (name : Name) (rest : List Stmt) : Bool :=
   rest.any (fun s =>
     match s with
-    | Stmt.expr (Expr.assign (Expr.ident _) _ _) => false
+    -- The sequence fold can update a static alias only for a bare-function
+    -- RHS (`ptr = f`).  Any other top-level reassignment of THIS alias must
+    -- keep the declaration as a real runtime pointer.  Otherwise the fold
+    -- erases the declaration, retains the old/uninitialised alias binding,
+    -- and rewrites the assignment LHS itself (for example `ptr = L.f`) into
+    -- the panic sentinel.
+    | Stmt.expr
+        (Expr.assign (Expr.ident _) _ (Expr.ident _)) =>
+        false
+    | Stmt.expr (Expr.assign (Expr.ident assigned) _ _) => assigned == name
     | Stmt.expr (Expr.unary UnaryOp.delete (Expr.ident _)) => false
     | _ => Stmt.internalFunctionAliasNameReboundFuel name 1024 s)
 

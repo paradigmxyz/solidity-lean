@@ -143,3 +143,4 @@ import SolidCore.Witness.EnumConversionNarrowOverflow
 import SolidCore.Witness.TupleLiteralTargetTyping
 import SolidCore.Witness.ConditionalFunctionMembers
 import SolidCore.Witness.SelectorReceiverSideEffect
+import SolidCore.Witness.InternalLibraryFnPtrValue
