@@ -5633,8 +5633,8 @@ def Expr.toCoreInternalFunctionValueLiteralAs? (targetTy : Ty) :
         none
   | _ => none
 
-/-- AL-EXEC (executable lowering of an inline array literal into a fixed-size
-    memory-array target). solc types an inline array literal bottom-up (smallest
+/-- AL-EXEC (executable lowering of an inline array literal into an array
+    target). solc types an inline array literal bottom-up (smallest
     common mobile element type — `[1,2,3] : uint8[3]`) and a fixed→fixed
     memory-array conversion requires the target's element type to EQUAL that
     bottom-up element type (`ArrayType::isImplicitlyConvertibleTo`, non-copy
@@ -5657,6 +5657,14 @@ def Expr.fixedArrayLiteralAs? (storageNames : List Name)
           SolidCore.Solidity.Source.Expr.fixedArray
       else
         none
+  | Ty.array elemTy none, Expr.array elems =>
+      -- Inline literals are fixed-size values even when a storage-copy target
+      -- is dynamic (`int16[] x = [-1, -2]`). The typechecker has already
+      -- established that the fixed source can be copied into the dynamic
+      -- storage destination, so lower each element at the destination base
+      -- type and retain the literal's fixed runtime value shape.
+      (Expr.arrayLiteralCoreExprsAs? storageNames elemTy elems).map
+        SolidCore.Solidity.Source.Expr.fixedArray
   | _, _ => none
 termination_by (sizeOf expr, 0)
 

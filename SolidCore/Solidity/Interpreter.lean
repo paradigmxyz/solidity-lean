@@ -501,8 +501,16 @@ def Ty.coerceValue? : Ty -> Value -> Option Value
   | Ty.int256, Value.int value => some (Value.int value)
   | Ty.int256, Value.word value => some (Value.int value)
   | Ty.fixedBytes size, Value.word value => some (Value.fixedBytes size value)
-  | Ty.fixedBytes size, Value.fixedBytes _ value =>
-      some (Value.fixedBytes size value)
+  | Ty.fixedBytes size, Value.fixedBytes sourceSize value =>
+      -- Widening bytesM to bytesN preserves the leftmost bytes and pads the
+      -- right. Values are right-aligned internally, so the payload must move
+      -- left by the added width before it receives the wider tag.
+      if sourceSize ≤ size then
+        some
+          (Value.fixedBytes size
+            (normWord (value * 2 ^ (8 * (size - sourceSize)))))
+      else
+        none
   -- R3: coercion is TAG-AGNOSTIC — a width-tagged bytesN word meeting a
   -- word-shaped scalar slot coerces exactly like the bare word (several
   -- conversions, e.g. `address(bytes20 x)`, lower as IDENTITIES with no core
@@ -5701,6 +5709,37 @@ def abiDecodeValuesExcept? (tys : List Ty) (argData : List Byte) :
     Except.error RevertData.empty
   abiDecodeValuesAux? argData tys 0
 
+def abiDecodeValuesWithCleanupsAux? (argData : List Byte) :
+    List Ty -> List AbiCleanup -> Nat -> Except RevertData (List Value)
+  | [], [], _ => Except.ok []
+  | ty :: tys, cleanup :: cleanups, index => do
+      let value ← abiDecodeValueAt? argData index ty
+      -- solc validates each tuple component immediately after decoding it.
+      -- Preserve that source order so an earlier dirty narrow value reverts
+      -- EMPTY before a later dynamic allocation can raise Panic(0x41).
+      if !cleanup.accepts value then
+        Except.error RevertData.empty
+      let headWords ← abiDecodeOpt (Ty.abiHeadWords? ty)
+      let values ←
+        abiDecodeValuesWithCleanupsAux? argData tys cleanups
+          (index + headWords)
+      Except.ok (value :: values)
+  | _, _, _ => Except.error RevertData.empty
+
+/-- Decode and validate top-level ABI components in the order emitted by solc.
+    An empty cleanup list retains the legacy raw-decoder entry point used by
+    callers that have no cleanup metadata. -/
+def abiDecodeValuesWithCleanupsExcept? (tys : List Ty)
+    (cleanups : List AbiCleanup) (argData : List Byte) :
+    Except RevertData (List Value) :=
+  if cleanups.isEmpty then
+    abiDecodeValuesExcept? tys argData
+  else do
+    let headWords ← abiDecodeOpt (Ty.listAbiHeadWords? tys)
+    if argData.length < wordBytes * headWords then
+      Except.error RevertData.empty
+    abiDecodeValuesWithCleanupsAux? argData tys cleanups 0
+
 /-- Option view of the decoder, for callers that only need success/failure and
 not the failure mode (e.g. external-return decoding and witness checks). -/
 def abiDecodeValues? (tys : List Ty) (argData : List Byte) :
@@ -7605,15 +7644,12 @@ def Expr.evalFuel (fuel : Nat)
                 Expr.evalFuel fuel context runtime expr
               match value.asBytes? with
               | some bytes =>
-                  match abiDecodeValuesExcept? tys bytes with
+                  match abiDecodeValuesWithCleanupsExcept? tys cleanups bytes with
                   | Except.ok decoded =>
-                      if AbiCleanups.acceptOrUnspecified cleanups decoded then
-                        match decoded with
-                        | [value] => pure (value, runtime')
-                        | values =>
-                            pure (Value.tuple values, runtime')
-                      else
-                        throw <| SolidityFailure.revert RevertData.empty
+                      match decoded with
+                      | [value] => pure (value, runtime')
+                      | values =>
+                          pure (Value.tuple values, runtime')
                   | Except.error revertData =>
                       throw <| SolidityFailure.revert revertData
               | none => throw <| SolidityFailure.revert RevertData.typeMismatch
