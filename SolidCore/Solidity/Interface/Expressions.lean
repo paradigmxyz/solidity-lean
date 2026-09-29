@@ -258,6 +258,14 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
       | some coreExpr => some coreExpr
       | none =>
           match expr with
+          | Expr.assign lhs AssignOp.assign rhs => do
+              let lhsCore ← Expr.toCoreLValue? storageNames lhs
+              let lhsTy ← Expr.abiTyWithEnv? env lhs
+              let rhsCore ←
+                Expr.toCoreAsWithEnvFuel? fuel storageNames env lhsTy rhs
+              Expr.coreAsFromTy? targetTy lhsTy
+                (SolidCore.Solidity.Source.Expr.assignExpr
+                  lhsCore.toExpr rhsCore)
           | Expr.call (Expr.typeName (Ty.bytesN cbSize)) [Arg.positional argExpr]
           | Expr.call (Expr.typeName (Ty.fixedBytes cbSize)) [Arg.positional argExpr] =>
               -- STAGE-D #193 (bytesN cast of narrow checked arithmetic): a

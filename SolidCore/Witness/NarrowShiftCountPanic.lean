@@ -67,12 +67,25 @@ private def wideCount : ContractItem :=
   fn "wideCount" (Ty.uint 256)
     (Stmt.block [Stmt.returnValues (some wideCountExpr)])
 
+private def typedConstantShift : ContractItem :=
+  ContractItem.function
+    { kind := FunctionKind.function
+      name := some "typedConstantShift"
+      visibility := some Visibility.external_
+      mutability := StateMutability.pure
+      params := []
+      returns := [{ name := none, ty := Ty.uint 8, location := none }]
+      body := some (Stmt.block [Stmt.returnValues (some
+        (shl (cast (Ty.uint 8) (num "91"))
+          (cast (Ty.uint 8) (num "8"))))]) }
+
 def contract : ContractDecl :=
   { kind := ContractKind.contract
     name := "C"
     abstract := false
     bases := []
-    items := [wordShift, bytesShift, compoundShift, wideCount] }
+    items := [wordShift, bytesShift, compoundShift, wideCount,
+      typedConstantShift] }
 
 def sourceUnit : SourceUnit :=
   { items := [SourceItem.pragma "solidity" "^0.8.35",
@@ -103,6 +116,9 @@ private def compound_safe_is_32 : Except TypeError Bool :=
 private def wide_overflow_count_is_0 : Except TypeError Bool :=
   Examples.checkedOwnCallWordMatches 256 contract "wideCount" State.empty
     overflowArgs 0
+private def typed_constant_shift_is_0 : Except TypeError Bool :=
+  Examples.checkedOwnCallWordMatches 256 contract "typedConstantShift" State.empty
+    [] 0
 
 private def ok : Except TypeError Bool -> Bool
   | Except.ok true => true
@@ -115,5 +131,6 @@ private def ok : Except TypeError Bool -> Bool
 #guard ok word_safe_is_32
 #guard ok compound_safe_is_32
 #guard ok wide_overflow_count_is_0
+#guard ok typed_constant_shift_is_0
 
 end SolidCore.Solidity.Witness.NarrowShiftCountPanic

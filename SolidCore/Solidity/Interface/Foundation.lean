@@ -5391,22 +5391,34 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
         (SolidCore.Solidity.Source.Expr.assignOpExpr
           lhsCore.toExpr coreOp rhsCore)
   | expr@(Expr.binary op lhs rhs) =>
-      match Expr.numberLiteralRat? expr with
-      | some value => do
-          let word ← value.exactNat?
-          some (SolidCore.Solidity.Source.Expr.word word)
-      | none =>
-          match Expr.numberLiteralBool? expr with
-          | some value =>
-              some
-                (SolidCore.Solidity.Source.Expr.word
-                  (numberLiteralBoolWord value))
-          | none => do
-              let coreOp ← BinaryOp.toCore? op
-              let lhsCore ← Expr.toCore? storageNames lhs
-              let rhsCore ← Expr.toCore? storageNames rhs
-              some (SolidCore.Solidity.Source.Expr.binary
-                coreOp lhsCore rhsCore)
+      let lowerBinary : Option CoreExpr := do
+        let coreOp ← BinaryOp.toCore? op
+        let lhsCore ← Expr.toCore? storageNames lhs
+        let rhsCore ← Expr.toCore? storageNames rhs
+        some (SolidCore.Solidity.Source.Expr.binary coreOp lhsCore rhsCore)
+      -- An explicitly typed left operand fixes a shift's result width. Do not
+      -- erase that boundary with the rational constant folder: for example,
+      -- `uint8(91) << uint8(8)` is zero after truncation, not the out-of-range
+      -- rational 23296 followed by a checked-cleanup Panic(0x11).
+      match op, lhs with
+      | BinaryOp.shl, Expr.call (Expr.typeName lhsTy) [Arg.positional _] =>
+          if Ty.isIntOrUint lhsTy then do
+            let core ← lowerBinary
+            Ty.implicitCleanupCore? lhsTy core
+          else
+            lowerBinary
+      | _, _ =>
+          match Expr.numberLiteralRat? expr with
+          | some value => do
+              let word ← value.exactNat?
+              some (SolidCore.Solidity.Source.Expr.word word)
+          | none =>
+              match Expr.numberLiteralBool? expr with
+              | some value =>
+                  some
+                    (SolidCore.Solidity.Source.Expr.word
+                      (numberLiteralBoolWord value))
+              | none => lowerBinary
   | Expr.ternary cond thenExpr elseExpr => do
       let condCore ← Expr.toCore? storageNames cond
       let thenCore ← Expr.toCore? storageNames thenExpr
@@ -8301,6 +8313,13 @@ def Expr.abiArgNeedsEnvCleanupFuel? : Nat -> Expr -> Bool
                   Expr.abiArgNeedsEnvCleanupFuel? fuel cond ||
                     Expr.abiArgNeedsEnvCleanupFuel? fuel thenExpr ||
                     Expr.abiArgNeedsEnvCleanupFuel? fuel elseExpr
+              -- An assignment expression produces the assigned value, but its
+              -- RHS still evaluates at the LValue's type before an enclosing
+              -- ABI/builtin consumer sees it (`abi.encode(s = a + b)`).
+              | Expr.assign _ AssignOp.assign rhs =>
+                  Expr.abiArgNeedsEnvCleanupFuel? fuel rhs
+              | Expr.enumFromUInt _ inner =>
+                  Expr.abiArgNeedsEnvCleanupFuel? fuel inner
               -- COMPARISON / BOOLEAN-COMBINATOR (S, narrow-add-comparison-in-
               -- abiencode-arg): a bool-producing operand of `abi.encode*` whose
               -- OWN operand carries narrow checked arithmetic — `abi.encode(a +
