@@ -3829,6 +3829,12 @@ def Ty.toCoreValueCleanup? : Ty -> Option CoreValueCleanup
         none
   | Ty.enum _ _ =>
       some (SolidCore.Solidity.Source.ValueCleanup.uint 8)
+  | Ty.bytesN size
+  | Ty.fixedBytes size =>
+      if 0 < size && size <= 32 then
+        some (SolidCore.Solidity.Source.ValueCleanup.fixedBytes size)
+      else
+        none
   | _ => some SolidCore.Solidity.Source.ValueCleanup.none
 
 -- Packed byte width for a top-level `abi.encodePacked` argument. Narrow
@@ -11048,6 +11054,13 @@ def Expr.resolveSelectorsFuel :
       let resolveTupleItem :=
         TupleItem.resolveSelectorsFuel fuel env unqualifiedEnv
       match expr with
+      | Expr.member (Expr.ternary cond thenExpr elseExpr) "selector" =>
+          -- Select only the chosen function's selector. Resolving each arm
+          -- exposes bound function names to the same lookup used by a direct
+          -- `this.f.selector`, without requiring env-less lowering of `this.f`.
+          Expr.ternary (resolve cond)
+            (resolve (Expr.member thenExpr "selector"))
+            (resolve (Expr.member elseExpr "selector"))
       | Expr.member (Expr.ident name) "selector" =>
           match SelectorEnv.lookup? unqualifiedEnv name with
           | some selector => selectorLiteralExpr selector
@@ -11142,6 +11155,21 @@ def Expr.resolveSelectorsWithUnqualified
   Expr.resolveSelectorsFuel defaultResolveSelectorsFuel
     env unqualifiedEnv expr
 
+/-- Find the call-valued receiver of a known function selector when the
+    selector is the whole value of a return expression, possibly under a chain
+    of single-argument explicit conversions. Extracting the call is safe in
+    these shapes because the wrappers have no other operands whose evaluation
+    could be reordered. -/
+def Expr.selectorReceiverCallUnderCasts? (env : SelectorEnv) : Expr -> Option Expr
+  | Expr.member (Expr.member base@(Expr.call _ _) name) "selector" => do
+      let _ ← SelectorEnv.lookup? env name
+      some base
+  | Expr.call (Expr.typeName _) [Arg.positional inner] =>
+      Expr.selectorReceiverCallUnderCasts? env inner
+  | Expr.payableConversion inner =>
+      Expr.selectorReceiverCallUnderCasts? env inner
+  | _ => none
+
 def Arg.resolveSelectors (env : SelectorEnv) (arg : Arg) : Arg :=
   Arg.resolveSelectorsFuel defaultResolveSelectorsFuel env env arg
 
@@ -11202,6 +11230,16 @@ def Stmt.resolveSelectorsFuel :
       | Stmt.block body => Stmt.block (body.map resolveStmt)
       | Stmt.varDecl bindings init =>
           Stmt.varDecl bindings (init.map resolveExpr)
+      | Stmt.expr
+          (Expr.member (Expr.member base@(Expr.call _ _) name) "selector") =>
+          -- Resolving a known selector to a literal must not erase evaluation of
+          -- its receiver. In expression-statement position the selector value is
+          -- discarded, so preserve the call-valued base for its side effects.
+          match SelectorEnv.lookup? env name with
+          | some _ => Stmt.expr (resolveExpr base)
+          | none =>
+              Stmt.expr
+                (Expr.member (Expr.member (resolveExpr base) name) "selector")
       | Stmt.expr expr => Stmt.expr (resolveExpr expr)
       | Stmt.ifElse cond thenBranch elseBranch =>
           Stmt.ifElse (resolveExpr cond) (resolveStmt thenBranch)
@@ -11220,7 +11258,17 @@ def Stmt.resolveSelectorsFuel :
             (resolveStmt success) (clauses.map resolveClause)
       | Stmt.emitEvent expr => Stmt.emitEvent (resolveExpr expr)
       | Stmt.revertCall expr => Stmt.revertCall (resolveExpr expr)
-      | Stmt.returnValues expr? => Stmt.returnValues (expr?.map resolveExpr)
+      | Stmt.returnValues (some expr) =>
+          match Expr.selectorReceiverCallUnderCasts? env expr with
+          | some base =>
+              -- Selector resolution replaces the selector with a literal. Keep
+              -- the call-valued receiver in front of the return so its effects
+              -- and failures still occur before the converted selector value.
+              Stmt.block
+                [Stmt.expr (resolveExpr base),
+                 Stmt.returnValues (some (resolveExpr expr))]
+          | none => Stmt.returnValues (some (resolveExpr expr))
+      | Stmt.returnValues none => Stmt.returnValues none
       | Stmt.break => Stmt.break
       | Stmt.continue => Stmt.continue
       | Stmt.unchecked body => Stmt.unchecked (resolveStmt body)
