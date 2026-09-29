@@ -19020,6 +19020,26 @@ def Expr.argPositionHoistPrefix? (internalFuel : Nat)
     | none => some ([], payload)
 termination_by (3, internalFuel, sizeOf payload, 2)
 
+def storageVarDeclCoreWithEnv? (storageNames : List Name) (env : TypeEnv)
+    (binding : VarBinding) (source : Expr) : Option CoreStmt := do
+  if binding.location != some DataLocation.storage then none else some ()
+  let name ← binding.name
+  let _ ← binding.ty
+  match source with
+  | Expr.call (Expr.member target "push") [] =>
+      storageArrayPushReturnAliasBlockCore? storageNames binding target
+  | _ => do
+      storageReferenceBindingSupported? binding
+      let (target, indexes) ←
+        Expr.storagePathCoreWithEnv? storageNames env source
+      match indexes with
+      | [] =>
+          some (SolidCore.Solidity.Source.Stmt.storageAlias name target)
+      | _ =>
+          some
+            (SolidCore.Solidity.Source.Stmt.storageAliasPath
+              name target indexes)
+
 def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
     (storageNames : List Name) (stmt : Stmt) : Option CoreStmt :=
   -- ITEM-2 (§3c collapse, phase 1): statements whose lowering is IDENTICAL
@@ -20827,36 +20847,39 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
               storageNames env bindings expr
           some (SolidCore.Solidity.Source.Stmt.block pieces)
       | Stmt.varDecl [binding] (some expr) =>
-          match binding.name with
-          | some localName =>
-              match FunctionDecl.internalExprSingleReturnUseCore?
-                  internalFuel storageRefEnv env externalCallKindEnv storageNames
-                  modifiers functions freeFunctions expr
-                  (fun resultExpr =>
-                    SolidCore.Solidity.Source.Stmt.assign
-                      (SolidCore.Solidity.Source.LValue.var localName)
-                      (match binding.ty with
-                      | some targetTy =>
-                          Ty.implicitCleanupCore targetTy resultExpr
-                      | none => resultExpr)) with
-              | some assignBlock => do
-                  let declCore ←
-                    Stmt.toCore? storageNames (Stmt.varDecl [binding] none)
-                  some
-                    (SolidCore.Solidity.Source.Stmt.block
-                      [declCore, assignBlock])
+          match storageVarDeclCoreWithEnv? storageNames env binding expr with
+          | some coreStmt => some coreStmt
+          | none =>
+              match binding.name with
+              | some localName =>
+                  match FunctionDecl.internalExprSingleReturnUseCore?
+                      internalFuel storageRefEnv env externalCallKindEnv storageNames
+                      modifiers functions freeFunctions expr
+                      (fun resultExpr =>
+                        SolidCore.Solidity.Source.Stmt.assign
+                          (SolidCore.Solidity.Source.LValue.var localName)
+                          (match binding.ty with
+                          | some targetTy =>
+                              Ty.implicitCleanupCore targetTy resultExpr
+                          | none => resultExpr)) with
+                  | some assignBlock => do
+                      let declCore ←
+                        Stmt.toCore? storageNames (Stmt.varDecl [binding] none)
+                      some
+                        (SolidCore.Solidity.Source.Stmt.block
+                          [declCore, assignBlock])
+                  | none =>
+                      match varDeclCoreWithEnv? storageNames env binding expr with
+                      | some coreStmt => some coreStmt
+                      | none =>
+                          Stmt.toCore? storageNames
+                            (Stmt.varDecl [binding] (some expr))
               | none =>
                   match varDeclCoreWithEnv? storageNames env binding expr with
                   | some coreStmt => some coreStmt
                   | none =>
                       Stmt.toCore? storageNames
                         (Stmt.varDecl [binding] (some expr))
-          | none =>
-              match varDeclCoreWithEnv? storageNames env binding expr with
-              | some coreStmt => some coreStmt
-              | none =>
-                  Stmt.toCore? storageNames
-                    (Stmt.varDecl [binding] (some expr))
       | Stmt.emitEvent (Expr.call (Expr.ident eventName) args) =>
           -- §3c COLLAPSE: every call-bearing emit shape routes through the
           -- SHARED emit/revert arg lowering
@@ -21756,27 +21779,6 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                     (SolidCore.Solidity.Source.Stmt.tryContractCreate
                       contractName argsCore valueCore saltCore? valueBeforeSalt returnBindings
                       successCore catchCore)
-      | Stmt.varDecl [binding] (some source) =>
-          match binding.name, binding.ty, binding.location with
-          | some name, some _, some DataLocation.storage =>
-              match source with
-              | Expr.call (Expr.member target "push") [] =>
-                  storageArrayPushReturnAliasBlockCore?
-                    storageNames binding target
-              | _ => do
-                  storageReferenceBindingSupported? binding
-                  let (target, indexes) ←
-                    Expr.storagePathCoreWithEnv? storageNames env source
-                  match indexes with
-                  | [] =>
-                      some
-                        (SolidCore.Solidity.Source.Stmt.storageAlias name target)
-                  | _ =>
-                      some
-                        (SolidCore.Solidity.Source.Stmt.storageAliasPath
-                          name target indexes)
-          | _, _, _ =>
-              Stmt.toCore? storageNames (Stmt.varDecl [binding] (some source))
       | Stmt.expr expr@(Expr.binary _ _ _)
       | Stmt.expr expr@(Expr.unary UnaryOp.neg _)
       | Stmt.expr expr@(Expr.unary UnaryOp.bitNot _)
