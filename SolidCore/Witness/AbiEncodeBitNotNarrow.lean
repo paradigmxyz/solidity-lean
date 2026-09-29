@@ -39,6 +39,7 @@ open SolidCore.Solidity.Source
 private def abiEncode (args : List Arg) : Expr :=
   Expr.call (Expr.member (Expr.ident "abi") "encode") args
 private def a : Expr := Expr.ident "a"
+private def b : Expr := Expr.ident "b"
 private def bitNot (x : Expr) : Expr := Expr.unary UnaryOp.bitNot x
 
 private def u8u8Bytes (nm : String) (e : Expr) : ContractItem := ContractItem.function
@@ -54,10 +55,16 @@ private def u8u8Bytes (nm : String) (e : Expr) : ContractItem := ContractItem.fu
 private def bitNotFn : ContractItem :=
   u8u8Bytes "f" (abiEncode [Arg.positional (bitNot a)])
 
+-- The reviewed submission: `abi.encode(~(a + b))`. The addition is evaluated
+-- at uint8 before the complement, so 200 + 100 must Panic 0x11.
+private def bitNotAddFn : ContractItem :=
+  u8u8Bytes "fOverflow"
+    (abiEncode [Arg.positional (bitNot (Expr.binary BinaryOp.add a b))])
+
 def importedContractDecl0 : ContractDecl :=
   { kind := ContractKind.contract, name := "C",
     abstract := false, bases := [],
-    items := [bitNotFn] }
+    items := [bitNotFn, bitNotAddFn] }
 
 def importedContract : ContractDecl := importedContractDecl0
 
@@ -106,9 +113,14 @@ def bitnot_narrow_masks : Except TypeError Bool :=
 def bitnot_narrow_zero : Except TypeError Bool :=
   Examples.checkedOwnCallBytesMatches 256 C "f" State.empty zeroArgs (w32 255)
 
+def bitnot_operand_overflow_panics : Except TypeError Bool :=
+  Examples.checkedOwnCallPanicMatches 300 C "fOverflow" State.empty
+    [Value.word 200, Value.word 100] 17
+
 #guard accepted
 #guard isOkTrue bitnot_narrow_masks
 #guard isOkTrue bitnot_narrow_zero
+#guard isOkTrue bitnot_operand_overflow_panics
 
 end AbiEncodeBitNotNarrow
 end Witness

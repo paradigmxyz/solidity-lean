@@ -38,6 +38,18 @@ abbrev CoreCallResult := SolidCore.Solidity.Source.CallResult
 abbrev CoreBindingDecl := SolidCore.Solidity.Source.BindingDecl
 abbrev CoreStorageField := SolidCore.Solidity.Source.StorageField
 abbrev CoreImmutableField := SolidCore.Solidity.Source.ImmutableField
+
+/-- Solidity permits magic namespaces and global builtin functions to appear
+    as discarded, bare expression statements (`msg;`, `keccak256;`, `addmod;`).
+    Referencing these symbols has no runtime effect. -/
+def strayBuiltinIdentAllowed (name : Name) : Bool :=
+  name == "msg" || name == "block" || name == "tx" ||
+    name == "gasleft" || name == "blockhash" || name == "blobhash" ||
+    name == "addmod" || name == "mulmod" ||
+    name == "keccak256" || name == "sha256" || name == "ripemd160" ||
+    name == "ecrecover" || name == "erc7201" ||
+    name == "assert" || name == "require" || name == "revert" ||
+    name == "selfdestruct"
 abbrev CoreStorageLayout := SolidCore.Solidity.Source.StorageLayout
 abbrev CoreEventDecl := SolidCore.Solidity.Source.EventDecl
 abbrev CoreErrorDecl := SolidCore.Solidity.Source.ErrorDecl
@@ -8296,12 +8308,14 @@ def Expr.abiArgNeedsEnvCleanupFuel? : Nat -> Expr -> Bool
                   Expr.abiArgNeedsEnvCleanupFuel? fuel inner
               | _ => false
 
-/-- #201: nesting budget for the flag above. The builtin arms peel one nesting
-    level per unit, so 8 covers any practically-writable builtin-in-builtin
-    tower; the flag (a `Bool`) degrades to `false` at 0, i.e. the env-less
-    lowering — exactly the pre-#201 behaviour. -/
+/-- #201: nesting budget for the flag above. Keep this aligned with the general
+    env-aware lowering budget: valid generated Solidity can easily exceed the
+    former depth of eight, and returning `false` at that boundary silently
+    removed required narrow arithmetic checks. -/
+def defaultAbiCleanupDetectionFuel : Nat := 1024
+
 def Expr.abiArgNeedsEnvCleanup? (expr : Expr) : Bool :=
-  Expr.abiArgNeedsEnvCleanupFuel? 8 expr
+  Expr.abiArgNeedsEnvCleanupFuel? defaultAbiCleanupDetectionFuel expr
 
 /-- STAGE-D #193 (statement side): does a RETURN-position `abi.encode*` /
     `keccak256`/`sha256`/`ripemd160` / `bytes.concat`/`string.concat` call carry
@@ -9117,6 +9131,37 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
                         Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
                | none =>
                    Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
+          | Expr.unary UnaryOp.bitNot inner =>
+              -- A narrow bitwise NOT is evaluated at its operand type. Besides
+              -- masking the final `~` to that width, its operand must retain
+              -- any checked arithmetic cleanup: `~(a + b)` with `uint8`
+              -- operands Panics 0x11 on the addition before the complement.
+              -- The prior env-aware reroute reached this node but then fell
+              -- through to the env-less direct lowerer, which evaluated the
+              -- addition at 256 bits. Lower the operand recursively at its own
+              -- type, apply the existing truncating bit-not cleanup, and only
+              -- then convert to the surrounding target type.
+              (match Expr.abiTyWithEnv? env inner with
+               | some operandTy =>
+                   (match Ty.narrowIntCastTarget? operandTy with
+                    | some _ =>
+                        (match Expr.toCoreAsWithEnvFuel?
+                            fuel storageNames env operandTy inner with
+                         | some innerCore =>
+                             let cleanedNot :=
+                               Ty.implicitCleanupCore operandTy
+                                 (SolidCore.Solidity.Source.Expr.unary
+                                   SolidCore.Solidity.Source.UnaryOp.bitNot
+                                   innerCore)
+                             Expr.coreAsFromTy? targetTy operandTy cleanedNot
+                         | none =>
+                             Expr.toCoreAsWithEnvDirect?
+                               storageNames env targetTy expr)
+                    | none =>
+                        Expr.toCoreAsWithEnvDirect?
+                          storageNames env targetTy expr)
+               | none =>
+                   Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
           | Expr.unary UnaryOp.logicalNot inner =>
               -- R2 (Stage B): `!c` in a bool-typed position recurses on the
               -- operand at `Ty.bool` through the FULL env-aware lowering, so a
@@ -9767,6 +9812,28 @@ end
 def Expr.toCoreAsWithEnv? (storageNames : List Name) (env : TypeEnv)
     (targetTy : Ty) (expr : Expr) : Option CoreExpr :=
   Expr.toCoreAsWithEnvFuel? defaultEnvLoweringFuel storageNames env targetTy expr
+
+/-- Lower a state-rooted storage path while preserving checked evaluation of
+    narrow index expressions. Storage-pointer declarations and storage-ref
+    parameter binding used `storagePathCore?`, whose env-less index lowering
+    turned `items[a+b]` (`uint8 a,b`) into a 256-bit addition. -/
+def Expr.storagePathCoreWithEnv? (storageNames : List Name) (env : TypeEnv) :
+    Expr -> Option (Name × List CoreExpr)
+  | Expr.ident name =>
+      match stateNameRuntimeKey? name storageNames with
+      | some key => some (key, [])
+      | none => none
+  | Expr.index base index => do
+      let (name, indexes) ← Expr.storagePathCoreWithEnv? storageNames env base
+      let indexCore ←
+        if Expr.abiArgNeedsEnvCleanup? index then do
+          let indexTy ← Expr.abiTyWithEnv? env index
+          let _ ← Ty.narrowIntCastTarget? indexTy
+          Expr.toCoreAsWithEnv? storageNames env indexTy index
+        else
+          Expr.toCore? storageNames index
+      some (name, indexes ++ [indexCore])
+  | _ => none
 
 /-- FB-COMPOUND (S, bare-literal-rhs-of-compound-bitwise-assign-on-bytesn):
     a compound BITWISE assignment (`|=` / `&=` / `^=`) whose LValue is a `bytesN`
@@ -10586,7 +10653,8 @@ def Parameter.toStorageAwareCoreArgDecl? (storageRefEnv : StorageRefEnv)
                     (SolidCore.Solidity.Source.Stmt.storageAliasFromPath
                       name source indexes)
           | none => do
-              let (target, indexes) ← Expr.storagePathCore? storageNames arg
+              let (target, indexes) ←
+                Expr.storagePathCoreWithEnv? storageNames env arg
               match indexes with
               | [] =>
                   some (SolidCore.Solidity.Source.Stmt.storageAlias name target)
@@ -18337,11 +18405,11 @@ def Expr.structCtorTupleCoreAsWithEnv? (storageNames : List Name)
 def Expr.toCoreLValueWithEnv? (storageNames : List Name) (env : TypeEnv) :
     Expr -> Option CoreLValue
   | Expr.index base key =>
-      -- Only the outermost index KEY is re-lowered env-aware (the failing shapes
-      -- carry the narrow arithmetic there: `arr[a+b]`, `mp[a+b]`,
-      -- `arr2[1][a+b]`, `bs[a+b]`); the BASE keeps the exact env-less lowering
-      -- (`Expr.toCoreLValue?`), so the produced LValue is byte-identical apart
-      -- from the checked key.
+      -- Re-lower every index KEY env-aware, including keys nested in the base.
+      -- The original implementation handled the outermost key only, so
+      -- `m[a+b][0] = v` still lowered the `a+b` key env-less inside the base.
+      -- Recursing into the base preserves the same lvalue shape while applying
+      -- the checked-width rule at every path component.
       let keyCore? : Option CoreExpr :=
         if Expr.abiArgNeedsEnvCleanup? key then
           match (do
@@ -18370,7 +18438,7 @@ def Expr.toCoreLValueWithEnv? (storageNames : List Name) (env : TypeEnv) :
                   Expr.toCoreLValue? storageNames (Expr.ident name)
                 some (SolidCore.Solidity.Source.LValue.index baseCore keyCore)
         | _ => do
-            let baseCore ← Expr.toCoreLValue? storageNames base
+            let baseCore ← Expr.toCoreLValueWithEnv? storageNames env base
             some (SolidCore.Solidity.Source.LValue.index baseCore keyCore))
   | other => Expr.toCoreLValue? storageNames other
 
@@ -18951,6 +19019,26 @@ def Expr.argPositionHoistPrefix? (internalFuel : Nat)
             , finalExpr))
     | none => some ([], payload)
 termination_by (3, internalFuel, sizeOf payload, 2)
+
+def storageVarDeclCoreWithEnv? (storageNames : List Name) (env : TypeEnv)
+    (binding : VarBinding) (source : Expr) : Option CoreStmt := do
+  if binding.location != some DataLocation.storage then none else some ()
+  let name ← binding.name
+  let _ ← binding.ty
+  match source with
+  | Expr.call (Expr.member target "push") [] =>
+      storageArrayPushReturnAliasBlockCore? storageNames binding target
+  | _ => do
+      storageReferenceBindingSupported? binding
+      let (target, indexes) ←
+        Expr.storagePathCoreWithEnv? storageNames env source
+      match indexes with
+      | [] =>
+          some (SolidCore.Solidity.Source.Stmt.storageAlias name target)
+      | _ =>
+          some
+            (SolidCore.Solidity.Source.Stmt.storageAliasPath
+              name target indexes)
 
 def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
     (storageNames : List Name) (stmt : Stmt) : Option CoreStmt :=
@@ -20759,36 +20847,39 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
               storageNames env bindings expr
           some (SolidCore.Solidity.Source.Stmt.block pieces)
       | Stmt.varDecl [binding] (some expr) =>
-          match binding.name with
-          | some localName =>
-              match FunctionDecl.internalExprSingleReturnUseCore?
-                  internalFuel storageRefEnv env externalCallKindEnv storageNames
-                  modifiers functions freeFunctions expr
-                  (fun resultExpr =>
-                    SolidCore.Solidity.Source.Stmt.assign
-                      (SolidCore.Solidity.Source.LValue.var localName)
-                      (match binding.ty with
-                      | some targetTy =>
-                          Ty.implicitCleanupCore targetTy resultExpr
-                      | none => resultExpr)) with
-              | some assignBlock => do
-                  let declCore ←
-                    Stmt.toCore? storageNames (Stmt.varDecl [binding] none)
-                  some
-                    (SolidCore.Solidity.Source.Stmt.block
-                      [declCore, assignBlock])
+          match storageVarDeclCoreWithEnv? storageNames env binding expr with
+          | some coreStmt => some coreStmt
+          | none =>
+              match binding.name with
+              | some localName =>
+                  match FunctionDecl.internalExprSingleReturnUseCore?
+                      internalFuel storageRefEnv env externalCallKindEnv storageNames
+                      modifiers functions freeFunctions expr
+                      (fun resultExpr =>
+                        SolidCore.Solidity.Source.Stmt.assign
+                          (SolidCore.Solidity.Source.LValue.var localName)
+                          (match binding.ty with
+                          | some targetTy =>
+                              Ty.implicitCleanupCore targetTy resultExpr
+                          | none => resultExpr)) with
+                  | some assignBlock => do
+                      let declCore ←
+                        Stmt.toCore? storageNames (Stmt.varDecl [binding] none)
+                      some
+                        (SolidCore.Solidity.Source.Stmt.block
+                          [declCore, assignBlock])
+                  | none =>
+                      match varDeclCoreWithEnv? storageNames env binding expr with
+                      | some coreStmt => some coreStmt
+                      | none =>
+                          Stmt.toCore? storageNames
+                            (Stmt.varDecl [binding] (some expr))
               | none =>
                   match varDeclCoreWithEnv? storageNames env binding expr with
                   | some coreStmt => some coreStmt
                   | none =>
                       Stmt.toCore? storageNames
                         (Stmt.varDecl [binding] (some expr))
-          | none =>
-              match varDeclCoreWithEnv? storageNames env binding expr with
-              | some coreStmt => some coreStmt
-              | none =>
-                  Stmt.toCore? storageNames
-                    (Stmt.varDecl [binding] (some expr))
       | Stmt.emitEvent (Expr.call (Expr.ident eventName) args) =>
           -- §3c COLLAPSE: every call-bearing emit shape routes through the
           -- SHARED emit/revert arg lowering
@@ -21704,6 +21795,16 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           | some coreExpr =>
               some (SolidCore.Solidity.Source.Stmt.exprStmt coreExpr)
           | none => Stmt.toCore? storageNames (Stmt.expr expr))
+      | Stmt.expr (Expr.ident name) =>
+          -- A bare reference to a builtin namespace/function is a no-op. Keep
+          -- ordinary locals and user-declared functions on the normal value
+          -- path so shadowing retains its usual meaning.
+          if strayBuiltinIdentAllowed name &&
+              (TypeEnv.lookup? env name).isNone &&
+              !functions.any (fun fn => fn.name == some name) then
+            some SolidCore.Solidity.Source.Stmt.skip
+          else
+            Stmt.toCore? storageNames (Stmt.expr (Expr.ident name))
       | other => Stmt.toCore? storageNames other
       )
   | none =>

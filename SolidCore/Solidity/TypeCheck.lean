@@ -10962,6 +10962,18 @@ def checkStmt (env : CheckEnv) :
         let _ ← checkExpr env
           (Solidity.Expr.member (Solidity.Expr.ident baseName) member)
         Except.ok { source := stmt }
+  | stmt@(Solidity.Stmt.expr (Solidity.Expr.ident name)) =>
+      -- Bare magic namespaces and global builtin functions are valid discarded
+      -- values in Solidity. Accept only the unshadowed builtin here; a local,
+      -- state variable, or user function with the same name remains an ordinary
+      -- expression and is checked by the existing identifier rules.
+      if Solidity.Executable.strayBuiltinIdentAllowed name &&
+          (env.lookupVar? name).isNone &&
+          !env.functions.any (fun fn => fn.name == name) then
+        Except.ok { source := stmt }
+      else do
+        let _ ← checkExpr env (Solidity.Expr.ident name)
+        Except.ok { source := stmt }
   | stmt@(Solidity.Stmt.expr expr) => do
       let _ ← checkExpr env expr
       Except.ok { source := stmt }
@@ -15498,10 +15510,26 @@ def isSolidityConstraintOperator (token : String) : Bool :=
     token == "=" || token == "==" || token == "^" || token == "~"
 
 def splitPragmaWhitespace (text : String) : List String :=
-  (text.split
-    (fun ch =>
-      ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r')).toList.map
-      (fun slice => slice.toString)
+  -- solc's compact AST representation may remove whitespace between adjacent
+  -- constraints (`>=0.4.0 <0.9.0` becomes `>=0.4.0<0.9.0`). Split a new
+  -- comparator when it begins after a version as well as at whitespace.
+  let rec loop (chars current : List Char) (tokens : List String) : List String :=
+    match chars with
+    | [] =>
+        if current.isEmpty then tokens.reverse
+        else (String.mk current.reverse :: tokens).reverse
+    | ch :: rest =>
+        let whitespace :=
+          ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r'
+        let startsConstraint := ch == '<' || ch == '>' || ch == '^' || ch == '~'
+        if whitespace then
+          if current.isEmpty then loop rest [] tokens
+          else loop rest [] (String.mk current.reverse :: tokens)
+        else if startsConstraint && !current.isEmpty then
+          loop rest [ch] (String.mk current.reverse :: tokens)
+        else
+          loop rest (ch :: current) tokens
+  loop text.toList [] []
 
 def parseSolidityConstraints? :
     List String -> Option (List SolidityVersionConstraint)

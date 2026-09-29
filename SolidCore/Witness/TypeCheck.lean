@@ -94,6 +94,16 @@ def pragmaWildcardComparatorSource : Solidity.SourceUnit :=
 def pragmaWildcardComparatorSourceAccepted : Bool :=
   sourceUnitAccepted? pragmaWildcardComparatorSource
 
+def pragmaCompoundRangeSource : Solidity.SourceUnit :=
+  pragmaSourceWithVersion ">=0.4.0 <0.9.0" "PragmaCompoundRange"
+
+def pragmaCompactCompoundRangeSource : Solidity.SourceUnit :=
+  pragmaSourceWithVersion ">=0.4.0<0.9.0" "PragmaCompactCompoundRange"
+
+def pragmaCompoundRangeSourceAccepted : Bool :=
+  sourceUnitAccepted? pragmaCompoundRangeSource &&
+    sourceUnitAccepted? pragmaCompactCompoundRangeSource
+
 def pragmaHyphenSource : Solidity.SourceUnit :=
   pragmaSourceWithVersion "0.8.34 - 0.8.36" "PragmaHyphen"
 
@@ -117,6 +127,7 @@ def pragmaVersionSyntaxAccepted : Bool :=
     pragmaWildcardSourceAccepted &&
     pragmaStarSourceAccepted &&
     pragmaWildcardComparatorSourceAccepted &&
+    pragmaCompoundRangeSourceAccepted &&
     pragmaHyphenSourceAccepted &&
     pragmaCompactHyphenSourceAccepted &&
     pragmaHyphenWildcardSourceAccepted
