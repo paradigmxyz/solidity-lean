@@ -170,16 +170,30 @@ def stateNamesExcludingBound (bound : List Name) (stateNames : List Name) :
     List Name :=
   stateNames.filter (fun candidate => !stateNameShadowedByBound bound candidate)
 
-abbrev ConstantEnv := List (Name × Expr)
+abbrev ConstantEnv := List (Name × Ty × Expr)
 
-def ConstantEnv.lookup? (env : ConstantEnv) (name : Name) : Option Expr :=
+def ConstantEnv.lookup? (env : ConstantEnv) (name : Name) : Option (Ty × Expr) :=
   match env with
   | [] => none
-  | (candidate, expr) :: rest =>
+  | (candidate, ty, expr) :: rest =>
       if candidate == name then
-        some expr
+        some (ty, expr)
       else
         ConstantEnv.lookup? rest name
+
+/-- A state/file constant keeps its declared integer type at each use.  A raw
+    syntactic substitution would turn `uint constant a = 12` back into an
+    untyped rational literal, making `(a / 10) * 10` fold as `(12/10)*10 = 12`
+    instead of performing `uint256` division and yielding `10`.  The always-true
+    conditional is a pure lowering barrier: both branches are the same explicit
+    conversion, while the shape prevents the untyped rational folder from
+    looking through the declaration's type. -/
+def Expr.constantUse (ty : Ty) (replacement : Expr) : Expr :=
+  match ty with
+  | Ty.uint _ | Ty.int _ =>
+      let typed := Expr.call (Expr.typeName ty) [Arg.positional replacement]
+      Expr.ternary (Expr.literal (Literal.bool true)) typed typed
+  | _ => replacement
 
 /-- Synthetic `ConstantEnv` key for a constant read through a type name
     (`Base.K`, `L.LK`). A `.`-joined path can never collide with a real Solidity
@@ -200,7 +214,7 @@ def Expr.inlineConstantsFuel : Nat -> ConstantEnv -> Expr -> Expr
       | Expr.literal literal => Expr.literal literal
       | Expr.ident name =>
           match ConstantEnv.lookup? constants name with
-          | some replacement => inline replacement
+          | some (ty, replacement) => Expr.constantUse ty (inline replacement)
           | none => Expr.ident name
       | Expr.typeName ty => Expr.typeName ty
       | Expr.member (Expr.typeName (Ty.user path)) member =>
@@ -209,7 +223,7 @@ def Expr.inlineConstantsFuel : Nat -> ConstantEnv -> Expr -> Expr
           -- type path. A qualified state-variable read (`Base.v`) has no
           -- constant entry and is left for storage lowering.
           match ConstantEnv.lookup? constants (qualifiedConstantKey path member) with
-          | some replacement => inline replacement
+          | some (ty, replacement) => Expr.constantUse ty (inline replacement)
           | none => Expr.member (Expr.typeName (Ty.user path)) member
       | Expr.member base member => Expr.member (inline base) member
       | Expr.index base index => Expr.index (inline base) (inline index)
@@ -7673,23 +7687,15 @@ def Expr.toCoreAsWithEnvBitAware? (storageNames : List Name) (env : TypeEnv)
         Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr
   | none => Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr
 
-/-- Operands eligible for literal-type adoption in a binary op's common-type
-    computation: a direct literal (`Expr.isDirectLiteral`) or a *negated*
-    numeric literal (`-2`, `-1e18`). solc treats a negated numeric literal as a
-    signed rational constant that adopts the other operand's type when it fits
-    (H1: `int256 x = a / -2;`). Without this, `abiTyWithEnv?` reports the
-    negation's *magnitude* type (`uint256`) — losing the sign so
-    `commonImplicit? int256 uint256` fails, dropping the whole op onto the
-    untyped `toCore?` fallback, where the operand lowers to `-(word 2)` and
-    checked unary `-` on an unsigned word spuriously Panics 0x11. The typechecker
-    already types `-2` as `int256` (the `UnaryOp.neg` case), so this only aligns
-    lowering with the accepted type; the `implicitLiteralFits` guard still
-    rejects an out-of-range or wrong-signed literal (e.g. `-2` against a `uintN`
-    operand), so nothing is accepted beyond what solc accepts. -/
+/-- Untyped numeric literal expressions adopt the other operand's concrete type
+    in a binary operation when their folded value fits.  This includes direct
+    and negated literals (`a / -2`) and compound constants
+    (`type(int).max == 2**255 - 1`).  Restricting adoption to the first two shapes
+    left a fitting compound constant at its unsigned mobile type, so an `int256`
+    comparison fell through to the env-free core path and type-mismatched.
+    `implicitLiteralFits` still rejects out-of-range and wrong-signed values. -/
 def Expr.adoptsOperandLiteralTy : Expr -> Bool
-  | Expr.literal _ => true
-  | e@(Expr.unary UnaryOp.neg _) => Expr.isRawNumberLiteralExpression e
-  | _ => false
+  | expr => Expr.isRawNumberLiteralExpression expr
 
 def Expr.commonOperandTyWithEnv? (env : TypeEnv)
     (lhs rhs : Expr) : Option Ty := do

@@ -269,7 +269,7 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
               -- below stop at a `bytesN` cast target (`narrowIntCastTarget?` is
               -- `none` for `bytesN`), so mirror them here. Non-arithmetic
               -- `bytesN` casts fall through to the Direct path (byte-identical).
-              (match Expr.peelToOverflowArithmetic? argExpr with
+              let fallback := (match Expr.peelToOverflowArithmetic? argExpr with
                | some (bop, lhs, rhs) =>
                    (match Expr.binaryToCoreWithEnvTypedFuel?
                          fuel storageNames env bop lhs rhs with
@@ -317,6 +317,28 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
                     | none =>
                         Expr.toCoreAsWithEnvDirect?
                           storageNames env targetTy expr))
+              -- A signedness-changing integer cast inside the bytesN cast is
+              -- semantic, not an annotation wrapper.  For
+              -- `bytes1(uint8(j + 1))`, peeling through `uint8` and converting
+              -- the underlying `int8` arithmetic directly to bytes1 drops the
+              -- explicit int-to-uint conversion and feeds an `int` value to
+              -- `fixedBytesCast`, which type-mismatches.  Lower the explicit
+              -- integer cast at its own type first, then convert that result to
+              -- bytesN.  Other argument shapes retain the established path.
+              match argExpr with
+              | Expr.call (Expr.typeName argTy) [Arg.positional _] =>
+                  if Ty.isIntOrUint argTy then
+                    match Expr.toCoreAsWithEnvFuel?
+                        fuel storageNames env argTy argExpr with
+                    | some innerCore =>
+                        match Expr.coreAsFromTy?
+                            (Ty.bytesN cbSize) argTy innerCore with
+                        | some bytesCore => some bytesCore
+                        | none => fallback
+                    | none => fallback
+                  else
+                    fallback
+              | _ => fallback
           | Expr.enumFromUInt maxValue inner =>
               -- An enum conversion checks the integer expression before it checks
               -- the enum range. Preserve the expression's own integer width here:
@@ -1969,7 +1991,41 @@ def Expr.annotateAbiFuel : Nat -> TypeEnv -> Expr -> Expr
           Expr.enumFromUInt maxValue (annotate inner)
       | Expr.unary op inner => Expr.unary op (annotate inner)
       | Expr.binary op lhs rhs =>
-          Expr.binary op (annotate lhs) (annotate rhs)
+          let lhs := annotate lhs
+          let rhs := annotate rhs
+          -- Modifier bodies are lowered after their placeholder is spliced and
+          -- therefore use the env-free core expression path.  Preserve the
+          -- implicit type of a literal expression compared with a typed local
+          -- there (for
+          -- example `bytes7 a; while (a == "1234567") _;`) by making the
+          -- coercion explicit while the modifier's TypeEnv is still present.
+          -- This also records the adoption of a compound numeric constant such
+          -- as `int_max == 2**255 - 1`.  Do not wrap a literal-only pair: those
+          -- remain solc rational constants and must keep the compile-time folder.
+          let lhsAdopts :=
+            Expr.isDirectLiteral lhs || Expr.isRawNumberLiteralExpression lhs
+          let rhsAdopts :=
+            Expr.isDirectLiteral rhs || Expr.isRawNumberLiteralExpression rhs
+          if rhsAdopts && !lhsAdopts then
+            match Expr.abiTyWithEnv? env lhs with
+            | some lhsTy =>
+                if implicitLiteralFits lhsTy rhs then
+                  Expr.binary op lhs
+                    (Expr.call (Expr.typeName lhsTy) [Arg.positional rhs])
+                else
+                  Expr.binary op lhs rhs
+            | none => Expr.binary op lhs rhs
+          else if lhsAdopts && !rhsAdopts then
+            match Expr.abiTyWithEnv? env rhs with
+            | some rhsTy =>
+                if implicitLiteralFits rhsTy lhs then
+                  Expr.binary op
+                    (Expr.call (Expr.typeName rhsTy) [Arg.positional lhs]) rhs
+                else
+                  Expr.binary op lhs rhs
+            | none => Expr.binary op lhs rhs
+          else
+            Expr.binary op lhs rhs
       | Expr.ternary cond thenExpr elseExpr =>
           Expr.ternary (annotate cond) (annotate thenExpr)
             (annotate elseExpr)
