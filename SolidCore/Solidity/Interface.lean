@@ -9799,6 +9799,28 @@ def Expr.toCoreAsWithEnv? (storageNames : List Name) (env : TypeEnv)
     (targetTy : Ty) (expr : Expr) : Option CoreExpr :=
   Expr.toCoreAsWithEnvFuel? defaultEnvLoweringFuel storageNames env targetTy expr
 
+/-- Lower a state-rooted storage path while preserving checked evaluation of
+    narrow index expressions. Storage-pointer declarations and storage-ref
+    parameter binding used `storagePathCore?`, whose env-less index lowering
+    turned `items[a+b]` (`uint8 a,b`) into a 256-bit addition. -/
+def Expr.storagePathCoreWithEnv? (storageNames : List Name) (env : TypeEnv) :
+    Expr -> Option (Name × List CoreExpr)
+  | Expr.ident name =>
+      match stateNameRuntimeKey? name storageNames with
+      | some key => some (key, [])
+      | none => none
+  | Expr.index base index => do
+      let (name, indexes) ← Expr.storagePathCoreWithEnv? storageNames env base
+      let indexCore ←
+        if Expr.abiArgNeedsEnvCleanup? index then do
+          let indexTy ← Expr.abiTyWithEnv? env index
+          let _ ← Ty.narrowIntCastTarget? indexTy
+          Expr.toCoreAsWithEnv? storageNames env indexTy index
+        else
+          Expr.toCore? storageNames index
+      some (name, indexes ++ [indexCore])
+  | _ => none
+
 /-- FB-COMPOUND (S, bare-literal-rhs-of-compound-bitwise-assign-on-bytesn):
     a compound BITWISE assignment (`|=` / `&=` / `^=`) whose LValue is a `bytesN`
     must lower its RHS AT THE LVALUE'S `bytesN` TYPE. The general
@@ -21770,7 +21792,7 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                       | _ => do
                           storageReferenceBindingSupported? binding
                           let (target, indexes) ←
-                            Expr.storagePathCore? storageNames source
+                            Expr.storagePathCoreWithEnv? storageNames env source
                           match indexes with
                           | [] =>
                               some
