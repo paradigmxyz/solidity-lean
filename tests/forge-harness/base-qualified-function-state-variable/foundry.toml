@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/base-qualified-function-state-variable/out"
+cache_path = "../../.foundry-suites/base-qualified-function-state-variable/cache"
+evm_version = "cancun"
