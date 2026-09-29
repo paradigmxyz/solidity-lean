@@ -1,3 +1,4 @@
+import SolidCore.Witness.Prepared
 import SolidCore.Solidity.Checked
 import SolidCore.Witness.Checked
 import SolidCore.Witness.Interface
@@ -705,105 +706,69 @@ def importedContractAccepted : Bool :=
 
 end V192
 
+private def preparedP175 : Prepared.Contract :=
+  CheckedInput.contract V175.importedSourceUnit "P175"
+
+private def preparedP188 : Prepared.Contract :=
+  CheckedInput.contract V188.importedSourceUnit "P188"
+
+private def preparedP188L : Prepared.Contract :=
+  CheckedInput.contract V188L.importedSourceUnit "P188L"
+
+private def preparedP192 : Prepared.Contract :=
+  CheckedInput.contract V192.importedSourceUnit "P192"
+
 -- Constructor-initialized state for a generated one-contract unit.
-private def ctorState (unit : SourceUnit) (contractName : Name) : State :=
-  match CheckedInput.constructContract 512 unit contractName State.empty [] with
+private def ctorState (contract : Prepared.Contract) : State :=
+  match Prepared.construct 512 contract State.empty [] with
   | Except.ok (CallResult.returned st _) => st
   | _ => State.empty
 
 -- Whole-program call whose single result word (tag-agnostic) matches.
-private def callWordIs (unit : SourceUnit) (contractName : Name)
+private def callWordIs (contract : Prepared.Contract)
     (st : State) (fn : Name) (args : List Value) (expected : Word) : Bool :=
   match
-    CheckedInput.callContract 512 unit contractName
+    Prepared.call 512 contract
       (CallTarget.name fn) st args with
   | Except.ok (CallResult.returned _ [v]) => v.asWord? == some expected
   | _ => false
 
-private def callPanicIs (unit : SourceUnit) (contractName : Name)
+private def callPanicIs (contract : Prepared.Contract)
     (st : State) (fn : Name) (args : List Value) (code : Word) : Bool :=
   match
-    CheckedInput.callContract 512 unit contractName
+    Prepared.call 512 contract
       (CallTarget.name fn) st args with
   | Except.ok (CallResult.reverted _ (RevertData.panic c)) => c == code
   | _ => false
 
 -- ### #175 class: intrinsic bytesN indexing ------------------------------
 
-private def st175 : State := ctorState V175.importedSourceUnit "P175"
+private def st175 : State := ctorState preparedP175
 
 -- `(cond ? a : b)[31]` — a base shape with NO static fixed-bytes routing:
 -- dispatch happens on the width-tagged VALUE. Was Panic 0x00.
-#guard callWordIs V175.importedSourceUnit "P175" st175 "t3" [Value.word 1] 0x11
-#guard callWordIs V175.importedSourceUnit "P175" st175 "t3" [Value.word 0] 0x22
 -- Ternary through a LOCAL (control: worked before, unchanged).
-#guard callWordIs V175.importedSourceUnit "P175" st175 "c8" [Value.word 1] 0xaa
 -- bytes4/param/local/state/keccak-result indexing + OOB Panic 0x32.
-#guard callWordIs V175.importedSourceUnit "P175" st175 "t2" [] 0x33
-#guard callWordIs V175.importedSourceUnit "P175" st175 "t4" [] 0x14
-#guard callWordIs V175.importedSourceUnit "P175" st175 "t1" [Value.word 3] 0x14
-#guard callWordIs V175.importedSourceUnit "P175" st175 "t5"
-  [Value.word 0x1122334455667788] 0x22
-#guard callWordIs V175.importedSourceUnit "P175" st175 "t6" [] 0xb1
-#guard callPanicIs V175.importedSourceUnit "P175" st175 "oob" [] 0x32
 
 -- SEMANTIC PRESERVATION controls (raw words identical to pre-R3 runs):
-#guard callWordIs V175.importedSourceUnit "P175" st175 "c1" [] 1
-#guard callWordIs V175.importedSourceUnit "P175" st175 "c2" [] 0x11003300
-#guard callWordIs V175.importedSourceUnit "P175" st175 "c3" [] 0x22334400
-#guard callWordIs V175.importedSourceUnit "P175" st175 "c4" [] 0x00112233
-#guard callWordIs V175.importedSourceUnit "P175" st175 "c5" [] 0x11223344
-#guard callWordIs V175.importedSourceUnit "P175" st175 "c6" []
-  0x4508e625236b765f449ba1c8acea2c5fc6d35a12e3efb36fb267e0225b1069a5
-#guard callWordIs V175.importedSourceUnit "P175" st175 "c7" [] 0xeeddccbb
 
 -- ### #188: storage-ref returns from indexed/member paths -----------------
 
-private def st188 : State := ctorState V188.importedSourceUnit "P188"
+private def st188 : State := ctorState preparedP188
 
-#guard callWordIs V188.importedSourceUnit "P188" st188 "t1" [] 42  -- arr[i] elem
-#guard callWordIs V188.importedSourceUnit "P188" st188 "t2" [] 77  -- call-as-lvalue base
-#guard callWordIs V188.importedSourceUnit "P188" st188 "t3" [] 88  -- mapping value
-#guard callWordIs V188.importedSourceUnit "P188" st188 "t4" [] 55  -- uint[] via mapping, push
-#guard callWordIs V188.importedSourceUnit "P188" st188 "t5" [] 42  -- nested member o.inner
-#guard callWordIs V188.importedSourceUnit "P188" st188 "t6" [] 99  -- CONTROL whole-var return
 
-private def st188L : State := ctorState V188L.importedSourceUnit "P188L"
+private def st188L : State := ctorState preparedP188L
 
-#guard callWordIs V188L.importedSourceUnit "P188L" st188L "t7" [] 42 -- using-for boundary
-#guard callWordIs V188L.importedSourceUnit "P188L" st188L "t8" [] 42 -- lib receiver write-through
 
 -- ### #192: storage materialization at value boundaries -------------------
 
-private def st192 : State := ctorState V192.importedSourceUnit "P192"
+private def st192 : State := ctorState preparedP192
 
 -- keccak256(storedN) for byte-array lengths 5/31/32/33 — `cast keccak` pins.
-#guard callWordIs V192.importedSourceUnit "P192" st192 "h5" []
-  0x6ccdf593017c9d38b36c1cb00572feae81abc15173860a4e0904a6c45d3b086e
-#guard callWordIs V192.importedSourceUnit "P192" st192 "h31" []
-  0x36299799c00f1e584433782420b22c96b9df65c02cd04f2d48f30d46be856ec5
-#guard callWordIs V192.importedSourceUnit "P192" st192 "h32" []
-  0x2cfe17dc69e953b28d77cdb7cdc86ce378dfe1e846f4be9cbe9dfb18efa5dfb5
-#guard callWordIs V192.importedSourceUnit "P192" st192 "h33" []
-  0xd529e5852759a362ba426afed12b33dfb83d9029bcaa3cdd3e865dc904828fcb
 -- keccak256(abi.encode(storageArr)) / keccak256(abi.encodePacked(storageArr)).
-#guard callWordIs V192.importedSourceUnit "P192" st192 "henc" []
-  0x69f3a7d692ca055c9f54ae9803e527761c5593a4715f41502d94fbcadbbffbe7
-#guard callWordIs V192.importedSourceUnit "P192" st192 "hencp" []
-  0xae6299332bcd708cd60e3a8defa55de28078a50a4cf2b3de3a546253240ff9e1
 -- Nested storage-bytes member + mapping-value bytes (already worked = controls).
-#guard callWordIs V192.importedSourceUnit "P192" st192 "hbox" []
-  0xccad3f5300e77cf5347e3c6200a08bd8cf71f94a0b347bcb39486b17b88a8a71
-#guard callWordIs V192.importedSourceUnit "P192" st192 "hmap" []
-  0x6619b407baede597919db7245e6662bd28bed07dad7580f0769d0e94bd0c16fe
 -- CONTROLS (worked before, must be unchanged): memory keccak, bytes(sstr),
 -- encodePacked(storedBytes).
-#guard callWordIs V192.importedSourceUnit "P192" st192 "hmem" []
-  0x6ccdf593017c9d38b36c1cb00572feae81abc15173860a4e0904a6c45d3b086e
-#guard callWordIs V192.importedSourceUnit "P192" st192 "hstr" []
-  0x1c8aff950685c2ed4bc3174f3472287b56d9517b9c948127319a09a7a36deac8
-#guard callWordIs V192.importedSourceUnit "P192" st192 "hpstored" []
-  0x6ccdf593017c9d38b36c1cb00572feae81abc15173860a4e0904a6c45d3b086e
 
 -- sha256(storedBytes): lowers + runs; the precompile CALLDATA is exactly the
 -- materialized storage bytes (responder keyed on it) and the canned word
@@ -827,12 +792,142 @@ private def isOkTrue : Except TypeError Bool → Bool
   | Except.ok true => true
   | _ => false
 
-#guard V175.importedContractAccepted
-#guard V188.importedContractAccepted
-#guard V188L.importedContractAccepted
-#guard V192.importedContractAccepted
-#guard isOkTrue shaStoredMatches
 
+#eval Prepared.assertChecks [
+  ("ValueTyping:750", (
+    callWordIs preparedP175 st175 "t3" [Value.word 1] 0x11
+  )),
+  ("ValueTyping:751", (
+    callWordIs preparedP175 st175 "t3" [Value.word 0] 0x22
+  )),
+  ("ValueTyping:753", (
+    callWordIs preparedP175 st175 "c8" [Value.word 1] 0xaa
+  )),
+  ("ValueTyping:755", (
+    callWordIs preparedP175 st175 "t2" [] 0x33
+  )),
+  ("ValueTyping:756", (
+    callWordIs preparedP175 st175 "t4" [] 0x14
+  )),
+  ("ValueTyping:757", (
+    callWordIs preparedP175 st175 "t1" [Value.word 3] 0x14
+  )),
+  ("ValueTyping:759", (
+    callWordIs preparedP175 st175 "t5"
+  [Value.word 0x1122334455667788] 0x22
+  )),
+  ("ValueTyping:760", (
+    callWordIs preparedP175 st175 "t6" [] 0xb1
+  )),
+  ("ValueTyping:761", (
+    callPanicIs preparedP175 st175 "oob" [] 0x32
+  )),
+  ("ValueTyping:764", (
+    callWordIs preparedP175 st175 "c1" [] 1
+  )),
+  ("ValueTyping:765", (
+    callWordIs preparedP175 st175 "c2" [] 0x11003300
+  )),
+  ("ValueTyping:766", (
+    callWordIs preparedP175 st175 "c3" [] 0x22334400
+  )),
+  ("ValueTyping:767", (
+    callWordIs preparedP175 st175 "c4" [] 0x00112233
+  )),
+  ("ValueTyping:768", (
+    callWordIs preparedP175 st175 "c5" [] 0x11223344
+  )),
+  ("ValueTyping:770", (
+    callWordIs preparedP175 st175 "c6" []
+  0x4508e625236b765f449ba1c8acea2c5fc6d35a12e3efb36fb267e0225b1069a5
+  )),
+  ("ValueTyping:771", (
+    callWordIs preparedP175 st175 "c7" [] 0xeeddccbb
+  )),
+  ("ValueTyping:777", (
+    callWordIs preparedP188 st188 "t1" [] 42  -- arr[i] elem
+  )),
+  ("ValueTyping:778", (
+    callWordIs preparedP188 st188 "t2" [] 77  -- call-as-lvalue base
+  )),
+  ("ValueTyping:779", (
+    callWordIs preparedP188 st188 "t3" [] 88  -- mapping value
+  )),
+  ("ValueTyping:780", (
+    callWordIs preparedP188 st188 "t4" [] 55  -- uint[] via mapping, push
+  )),
+  ("ValueTyping:781", (
+    callWordIs preparedP188 st188 "t5" [] 42  -- nested member o.inner
+  )),
+  ("ValueTyping:782", (
+    callWordIs preparedP188 st188 "t6" [] 99  -- CONTROL whole-var return
+  )),
+  ("ValueTyping:786", (
+    callWordIs preparedP188L st188L "t7" [] 42 -- using-for boundary
+  )),
+  ("ValueTyping:787", (
+    callWordIs preparedP188L st188L "t8" [] 42 -- lib receiver write-through
+  )),
+  ("ValueTyping:795", (
+    callWordIs preparedP192 st192 "h5" []
+  0x6ccdf593017c9d38b36c1cb00572feae81abc15173860a4e0904a6c45d3b086e
+  )),
+  ("ValueTyping:797", (
+    callWordIs preparedP192 st192 "h31" []
+  0x36299799c00f1e584433782420b22c96b9df65c02cd04f2d48f30d46be856ec5
+  )),
+  ("ValueTyping:799", (
+    callWordIs preparedP192 st192 "h32" []
+  0x2cfe17dc69e953b28d77cdb7cdc86ce378dfe1e846f4be9cbe9dfb18efa5dfb5
+  )),
+  ("ValueTyping:801", (
+    callWordIs preparedP192 st192 "h33" []
+  0xd529e5852759a362ba426afed12b33dfb83d9029bcaa3cdd3e865dc904828fcb
+  )),
+  ("ValueTyping:804", (
+    callWordIs preparedP192 st192 "henc" []
+  0x69f3a7d692ca055c9f54ae9803e527761c5593a4715f41502d94fbcadbbffbe7
+  )),
+  ("ValueTyping:806", (
+    callWordIs preparedP192 st192 "hencp" []
+  0xae6299332bcd708cd60e3a8defa55de28078a50a4cf2b3de3a546253240ff9e1
+  )),
+  ("ValueTyping:809", (
+    callWordIs preparedP192 st192 "hbox" []
+  0xccad3f5300e77cf5347e3c6200a08bd8cf71f94a0b347bcb39486b17b88a8a71
+  )),
+  ("ValueTyping:811", (
+    callWordIs preparedP192 st192 "hmap" []
+  0x6619b407baede597919db7245e6662bd28bed07dad7580f0769d0e94bd0c16fe
+  )),
+  ("ValueTyping:815", (
+    callWordIs preparedP192 st192 "hmem" []
+  0x6ccdf593017c9d38b36c1cb00572feae81abc15173860a4e0904a6c45d3b086e
+  )),
+  ("ValueTyping:817", (
+    callWordIs preparedP192 st192 "hstr" []
+  0x1c8aff950685c2ed4bc3174f3472287b56d9517b9c948127319a09a7a36deac8
+  )),
+  ("ValueTyping:819", (
+    callWordIs preparedP192 st192 "hpstored" []
+  0x6ccdf593017c9d38b36c1cb00572feae81abc15173860a4e0904a6c45d3b086e
+  )),
+  ("ValueTyping:843", (
+    V175.importedContractAccepted
+  )),
+  ("ValueTyping:844", (
+    V188.importedContractAccepted
+  )),
+  ("ValueTyping:845", (
+    V188L.importedContractAccepted
+  )),
+  ("ValueTyping:846", (
+    V192.importedContractAccepted
+  )),
+  ("ValueTyping:847", (
+    isOkTrue shaStoredMatches
+  ))
+]
 end ValueTyping
 end Witness
 end Solidity

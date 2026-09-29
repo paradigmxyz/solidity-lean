@@ -17,10 +17,42 @@ package «solidity-lean» where
     ⟨`maxHeartbeats, 1000000⟩
   ]
 
--- Single library. The former `SharedSemantics` EVM-primitive library is folded
--- in under `SolidCore/Solidity/Shared/` and builds transitively from this root.
+-- The default root retains every proof and witness in the full build.
 @[default_target]
 lean_lib SolidCore where
+
+-- The giant statement-lowering mutual block takes much longer to optimize in
+-- C than to execute once per prepared fixture. Keep its development build cheap;
+-- opt into -O3 with `lake -KspecHuntLoweringO3=true build` for throughput profiling.
+lean_lib SolidCoreStatementLowering where
+  roots := #[`SolidCore.Solidity.Interface.Statements]
+  moreLeancArgs := if get_config? specHuntLoweringO3 == some "true" then #[] else #["-O0"]
+
+/-- Compile precisely the observable helper's semantic import closure. Using
+individual module objects avoids building every library root in evmyul/Mathlib
+(the pinned evmyul package has no Conform.lean root). -/
+target specHuntNative pkg : Dynlib := do
+  let some root := pkg.findModule? `SolidCore.Contest.Observable
+    | error "missing SolidCore.Contest.Observable"
+  let imports ← (← root.transImports.fetch).await
+  let mods := imports.push root
+  let objects ← mods.flatMapM fun mod =>
+    (mod.nativeFacets true).mapM (·.fetch mod)
+  let (_, libraries) ← mods.foldlM (init := (({} : Lean.NameSet), #[])) fun (seen, jobs) mod => do
+    if seen.contains mod.pkg.keyName then return (seen, jobs)
+    let libs ← mod.pkg.externLibs.mapM (·.static.fetch)
+    return (seen.insert mod.pkg.keyName, jobs ++ libs)
+  buildLeanSharedLib "specHuntNative"
+    (pkg.sharedLibDir / nameToSharedLib "specHuntNative")
+    (objects ++ libraries) #[] #[] #[] (plugin := true)
+
+-- Only witnesses load the native semantic plugin. Proofs and the semantic
+-- modules still elaborate normally; this introduces no alternative evaluator.
+lean_lib SolidCoreWitness where
+  roots := #[`SolidCore.Witness]
+  globs := #[.submodules `SolidCore.Witness]
+  dynlibs := if get_config? specHuntNative == some "false" then #[]
+             else #[{ key := .packageTarget .anonymous `specHuntNative }]
 
 /-- Byte-parity witness for the repo-owned pure Keccak vs the pinned FFI hash.
     `supportInterpreter` + the transitively-linked `libleanffi` let the native
@@ -34,4 +66,10 @@ lean_exe keccakParity where
     pinned NATIVE FFI, the rest against published known-answer vectors. -/
 lean_exe precompileParity where
   root := `PrecompileParity
+  supportInterpreter := true
+
+/-- Native execution of harness-generated input using the same checked semantics.
+    Proof elaboration remains part of the normal library build. -/
+lean_exe specHuntRunner where
+  root := `SpecHuntRunner
   supportInterpreter := true

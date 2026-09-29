@@ -378,14 +378,21 @@ def run_solidity_lean_observable(source: Path, contract: str, fname: str, args: 
     ctor_args_lean = obs.render_lean_args(constructor_args or [],
                                           types=ctor_param_types,
                                           structs=structs)
+    # Use the compiled helper only when its source exactly matches this harness
+    # protocol. Older engine builds retain the original inline-helper path.
+    helper_path = tools.repo / "SolidCore" / "Contest" / "Observable.lean"
+    expected_helper = "import SolidCore.Solidity.Checked\n\n" + obs.LEAN_OBSERVABLE_HELPER.strip() + "\n"
+    helper_ready = getattr(_HARNESS, "helper_ready", lambda repo: False)
+    compiled_helper = (helper_ready(tools.repo) and helper_path.is_file()
+                       and helper_path.read_text() == expected_helper)
     lean_lines = [
         "import SolidCore.Solidity.Checked",
-        "import SolidCore.Witness.Checked",
+        "import SolidCore.Contest.Observable" if compiled_helper else "",
         "set_option maxHeartbeats 8000000",
         "",
         generated,
         "",
-        obs.LEAN_OBSERVABLE_HELPER,
+        "" if compiled_helper else obs.LEAN_OBSERVABLE_HELPER,
         "",
         obs.lean_eval_line(namespace, contract, fuel, fname, args_lean, env,
                            slots=slots, ctor_args_lean=ctor_args_lean,
@@ -397,10 +404,13 @@ def run_solidity_lean_observable(source: Path, contract: str, fname: str, args: 
 
     stdout_log = case_tmp / "lean.stdout.log"
     stderr_log = case_tmp / "lean.stderr.log"
-    command = [tools.lake, "env", "lean", str(lean_file)]
     try:
-        status = _HARNESS.run_capture(command, tools.repo, timeout,
-                                      stdout_log, stderr_log)
+        capture = getattr(_HARNESS, "run_lean_capture", None)
+        if capture is not None:
+            status = capture(tools.repo, tools.lake, lean_file, timeout, stdout_log, stderr_log)
+        else:
+            status = _HARNESS.run_capture([tools.lake, "env", "lean", str(lean_file)],
+                                          tools.repo, timeout, stdout_log, stderr_log)
     except subprocess.TimeoutExpired:
         # A timeout is INCONCLUSIVE, not a coverage gap (review finding 3): it
         # may be a genuinely slow-but-correct run, an attacker resource bomb, or

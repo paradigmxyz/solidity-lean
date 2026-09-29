@@ -1,3 +1,4 @@
+import SolidCore.Witness.Prepared
 import SolidCore.Solidity.Checked
 import SolidCore.Witness.Checked
 
@@ -166,6 +167,9 @@ open SolidCore.Solidity.TypeCheck
 
 abbrev Fam := SolidCore.Solidity.SolcAstImport.AnfCallHoisting.importedContract
 
+private def preparedFam : Prepared.Contract :=
+  CheckedInput.ownContract Fam
+
 private def w32 (n : Nat) : List Nat := SolidCore.Solidity.Source.wordToBytesBE 32 n
 private def bTrue : List CoreValue := [Value.word 1]
 private def bFalse : List CoreValue := [Value.word 0]
@@ -175,45 +179,83 @@ private def isOkTrue : Except TypeError Bool → Bool
 
 def accepted : Bool := SolidCore.Solidity.SolcAstImport.AnfCallHoisting.importedContractAccepted
 
-def encPacked_is_w3 := Examples.checkedOwnCallBytesMatches 256 Fam "encPacked" State.empty [] (w32 3)
-def encTwo1g_is_w1_w3 := Examples.checkedOwnCallBytesMatches 256 Fam "encTwo1g" State.empty [] (w32 1 ++ w32 3)
-def encGH_is_w3_w5 := Examples.checkedOwnCallBytesMatches 256 Fam "encGH" State.empty [] (w32 3 ++ w32 5)
-def encTernG_is_w3 := Examples.checkedOwnCallBytesMatches 256 Fam "encTernG" State.empty [] (w32 3)
-def encTern2_is_w1_w3 := Examples.checkedOwnCallBytesMatches 256 Fam "encTern2" State.empty [] (w32 1 ++ w32 3)
-def bcatG_is_01 := Examples.checkedOwnCallBytesMatches 256 Fam "bcatG" State.empty [] [1]
-def scatGy_is_xy := Examples.checkedOwnCallBytesMatches 256 Fam "scatGy" State.empty [] [120, 121]
-def arrIdx1_is_20 := Examples.checkedOwnCallWordMatches 256 Fam "arrIdx1" State.empty [] 20
-def arrIdxG_is_20 := Examples.checkedOwnCallWordMatches 256 Fam "arrIdxG" State.empty [] 20
-def mkA_is_42 := Examples.checkedOwnCallWordMatches 256 Fam "mkA" State.empty [] 42
-def delAt_is_7 := Examples.checkedOwnCallWordMatches 256 Fam "delAt" State.empty [] 7
-def cTernDbl_true_is_6 := Examples.checkedOwnCallWordMatches 256 Fam "cTernDbl" State.empty bTrue 6
-def cTernDbl_false_is_1 := Examples.checkedOwnCallWordMatches 256 Fam "cTernDbl" State.empty bFalse 1
-def cTernAri_true_is_4 := Examples.checkedOwnCallWordMatches 256 Fam "cTernAri" State.empty bTrue 4
-def cTernAri_false_is_2 := Examples.checkedOwnCallWordMatches 256 Fam "cTernAri" State.empty bFalse 2
+def encPacked_is_w3 := Prepared.bytesMatches 256 preparedFam "encPacked" State.empty [] (w32 3)
+def encTwo1g_is_w1_w3 := Prepared.bytesMatches 256 preparedFam "encTwo1g" State.empty [] (w32 1 ++ w32 3)
+def encGH_is_w3_w5 := Prepared.bytesMatches 256 preparedFam "encGH" State.empty [] (w32 3 ++ w32 5)
+def encTernG_is_w3 := Prepared.bytesMatches 256 preparedFam "encTernG" State.empty [] (w32 3)
+def encTern2_is_w1_w3 := Prepared.bytesMatches 256 preparedFam "encTern2" State.empty [] (w32 1 ++ w32 3)
+def bcatG_is_01 := Prepared.bytesMatches 256 preparedFam "bcatG" State.empty [] [1]
+def scatGy_is_xy := Prepared.bytesMatches 256 preparedFam "scatGy" State.empty [] [120, 121]
+def arrIdx1_is_20 := Prepared.wordMatches 256 preparedFam "arrIdx1" State.empty [] 20
+def arrIdxG_is_20 := Prepared.wordMatches 256 preparedFam "arrIdxG" State.empty [] 20
+def mkA_is_42 := Prepared.wordMatches 256 preparedFam "mkA" State.empty [] 42
+def delAt_is_7 := Prepared.wordMatches 256 preparedFam "delAt" State.empty [] 7
+def cTernDbl_true_is_6 := Prepared.wordMatches 256 preparedFam "cTernDbl" State.empty bTrue 6
+def cTernDbl_false_is_1 := Prepared.wordMatches 256 preparedFam "cTernDbl" State.empty bFalse 1
+def cTernAri_true_is_4 := Prepared.wordMatches 256 preparedFam "cTernAri" State.empty bTrue 4
+def cTernAri_false_is_2 := Prepared.wordMatches 256 preparedFam "cTernAri" State.empty bFalse 2
 -- R2: c=true takes the g() branch and must NOT run rev() (which reverts) => 3.
-def condRev_true_is_3 := Examples.checkedOwnCallWordMatches 256 Fam "condRev" State.empty bTrue 3
+def condRev_true_is_3 := Prepared.wordMatches 256 preparedFam "condRev" State.empty bTrue 3
 -- R4: abi.encode of a uint8(255) call result => 32-byte word 255 (cleanup kept).
-def encNarrow_is_w255 := Examples.checkedOwnCallBytesMatches 256 Fam "encNarrow" State.empty [] (w32 255)
+def encNarrow_is_w255 := Prepared.bytesMatches 256 preparedFam "encNarrow" State.empty [] (w32 255)
 
-#guard accepted
-#guard isOkTrue encPacked_is_w3
-#guard isOkTrue encTwo1g_is_w1_w3
-#guard isOkTrue encGH_is_w3_w5
-#guard isOkTrue encTernG_is_w3
-#guard isOkTrue encTern2_is_w1_w3
-#guard isOkTrue bcatG_is_01
-#guard isOkTrue scatGy_is_xy
-#guard isOkTrue arrIdx1_is_20
-#guard isOkTrue arrIdxG_is_20
-#guard isOkTrue mkA_is_42
-#guard isOkTrue delAt_is_7
-#guard isOkTrue cTernDbl_true_is_6
-#guard isOkTrue cTernDbl_false_is_1
-#guard isOkTrue cTernAri_true_is_4
-#guard isOkTrue cTernAri_false_is_2
-#guard isOkTrue condRev_true_is_3
-#guard isOkTrue encNarrow_is_w255
 
+#eval Prepared.assertChecks [
+  ("AnfCallHoisting:202", (
+    accepted
+  )),
+  ("AnfCallHoisting:203", (
+    isOkTrue encPacked_is_w3
+  )),
+  ("AnfCallHoisting:204", (
+    isOkTrue encTwo1g_is_w1_w3
+  )),
+  ("AnfCallHoisting:205", (
+    isOkTrue encGH_is_w3_w5
+  )),
+  ("AnfCallHoisting:206", (
+    isOkTrue encTernG_is_w3
+  )),
+  ("AnfCallHoisting:207", (
+    isOkTrue encTern2_is_w1_w3
+  )),
+  ("AnfCallHoisting:208", (
+    isOkTrue bcatG_is_01
+  )),
+  ("AnfCallHoisting:209", (
+    isOkTrue scatGy_is_xy
+  )),
+  ("AnfCallHoisting:210", (
+    isOkTrue arrIdx1_is_20
+  )),
+  ("AnfCallHoisting:211", (
+    isOkTrue arrIdxG_is_20
+  )),
+  ("AnfCallHoisting:212", (
+    isOkTrue mkA_is_42
+  )),
+  ("AnfCallHoisting:213", (
+    isOkTrue delAt_is_7
+  )),
+  ("AnfCallHoisting:214", (
+    isOkTrue cTernDbl_true_is_6
+  )),
+  ("AnfCallHoisting:215", (
+    isOkTrue cTernDbl_false_is_1
+  )),
+  ("AnfCallHoisting:216", (
+    isOkTrue cTernAri_true_is_4
+  )),
+  ("AnfCallHoisting:217", (
+    isOkTrue cTernAri_false_is_2
+  )),
+  ("AnfCallHoisting:218", (
+    isOkTrue condRev_true_is_3
+  )),
+  ("AnfCallHoisting:219", (
+    isOkTrue encNarrow_is_w255
+  ))
+]
 end AnfCallHoisting
 end Witness
 end Solidity
