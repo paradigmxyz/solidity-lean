@@ -181,6 +181,28 @@ private def lit (s : String) : Expr := Expr.literal (Literal.number s)
   -- ordinary (non-storage-copy) context: arrays are identity-only
 #guard cimpl (Ty.array (Ty.uint 8) none) (Ty.array (Ty.uint 8) none)
 
+private def aliasCtx : TypeContext :=
+  { structs :=
+      [ (p "S", { name := "S", fields := [{ name := "a", ty := Ty.uint 256 }] })
+      , ({ segments := ["C", "S"] },
+          { name := "S", fields := [{ name := "a", ty := Ty.uint 256 }] }) ] }
+
+-- The importer records the same contract-local declaration under adjacent
+-- short and qualified paths. Arrays of those aliases are the same array type.
+#guard TypeContext.canImplicitlyConvert aliasCtx
+  (Ty.array (Ty.user { segments := ["C", "S"] }) none)
+  (Ty.array (Ty.user (p "S")) none)
+#guard TypeContext.canImplicitlyConvert aliasCtx
+  (Ty.array (Ty.array (Ty.user { segments := ["C", "S"] }) (some 2)) none)
+  (Ty.array (Ty.array (Ty.user (p "S")) (some 2)) none)
+-- Preserve ordinary array identity: aliases do not open element widening or
+-- fixed/dynamic length conversion.
+#guard !(TypeContext.canImplicitlyConvert aliasCtx
+  (Ty.array (Ty.uint 8) none) (Ty.array (Ty.uint 256) none))
+#guard !(TypeContext.canImplicitlyConvert aliasCtx
+  (Ty.array (Ty.user { segments := ["C", "S"] }) (some 1))
+  (Ty.array (Ty.user (p "S")) none))
+
 -- storage-copy relaxation (ArrayType::isImplicitlyConvertibleTo, 1640-1648)
 #guard saca (Ty.array (Ty.uint 256) none) (Ty.array (Ty.uint 8) (some 2))
 #guard saca (Ty.array (Ty.uint 8) (some 3)) (Ty.array (Ty.uint 8) (some 2))

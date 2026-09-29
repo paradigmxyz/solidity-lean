@@ -1385,7 +1385,10 @@ def TypeContext.contractHasImmutable (types : TypeContext)
 --     "conversion to storage pointer or to memory" branch,
 --     Types.cpp:1650-1665): the base type must be the SAME, same
 --     dynamic-sizedness, same length ⇒ in this location-free `Ty` layer
---     exactly type identity.
+--     type identity modulo the importer's adjacent short/qualified aliases for
+--     one contract-local declaration. The comparison recurses only through
+--     arrays and does not admit ordinary element conversions such as integer
+--     widening or contract covariance.
 --   * `storageCopy = true` (copy assignment into a non-pointer storage
 --     array — solc's "less restrictive, since we need to copy anyway"
 --     branch, Types.cpp:1640-1648): a DYNAMIC dest accepts any source
@@ -1412,7 +1415,27 @@ def TypeContext.canImplicitlyConvertFuel (types : TypeContext) :
               TypeContext.canImplicitlyConvertFuel types fuel true
                 actualElem expectedElem
           else
-            actual == expected
+            let rec sameArrayTypeModuloLocalAlias : Nat -> Ty -> Ty -> Bool
+              | 0, _, _ => false
+              | fuel + 1, left, right =>
+                  if left == right then
+                    true
+                  else
+                    match left, right with
+                    | Solidity.Ty.array leftElem leftLen,
+                      Solidity.Ty.array rightElem rightLen =>
+                        leftLen == rightLen &&
+                          sameArrayTypeModuloLocalAlias fuel leftElem rightElem
+                    | Solidity.Ty.user leftPath,
+                      Solidity.Ty.user rightPath =>
+                        TypeContext.pathsAreLocalAliasIn
+                          types.structs leftPath rightPath ||
+                        TypeContext.pathsAreLocalAliasIn
+                          types.enums leftPath rightPath ||
+                        TypeContext.pathsAreLocalAliasIn
+                          types.userValueTypes leftPath rightPath
+                    | _, _ => false
+            sameArrayTypeModuloLocalAlias fuel actual expected
       | _, _ =>
           if Ty.canImplicitlyConvert actual expected then
             true
