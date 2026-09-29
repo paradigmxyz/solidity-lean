@@ -8242,6 +8242,16 @@ def Expr.abiArgNeedsEnvCleanupFuel? : Nat -> Expr -> Bool
               | Expr.slice _ start stop =>
                   start.any (Expr.abiArgNeedsEnvCleanupFuel? fuel) ||
                     stop.any (Expr.abiArgNeedsEnvCleanupFuel? fuel)
+              -- CONDITIONAL: a flagged subtree in either selected arm, or in
+              -- the condition itself, still evaluates before the surrounding
+              -- ABI/builtin argument is consumed.  Recurse through the whole
+              -- conditional so `abi.encode(c ? a + b : a)` and
+              -- `addmod((a + b > n) ? x : y, ...)` retain the uintN/intN
+              -- operand-width Panic 0x11.
+              | Expr.ternary cond thenExpr elseExpr =>
+                  Expr.abiArgNeedsEnvCleanupFuel? fuel cond ||
+                    Expr.abiArgNeedsEnvCleanupFuel? fuel thenExpr ||
+                    Expr.abiArgNeedsEnvCleanupFuel? fuel elseExpr
               -- COMPARISON / BOOLEAN-COMBINATOR (S, narrow-add-comparison-in-
               -- abiencode-arg): a bool-producing operand of `abi.encode*` whose
               -- OWN operand carries narrow checked arithmetic — `abi.encode(a +
@@ -9726,6 +9736,28 @@ def Args.toCoreExprsWithEnvCleanup? (storageNames : List Name)
       let coreExprs ← Args.toCoreExprsWithEnvCleanup? storageNames env rest
       some (coreExpr :: coreExprs)
   | Arg.named _ _ :: _ => none
+
+/-- Lower a call-free `require(cond, Error(args...))` through the env-aware
+    paths when an error argument contains narrow checked arithmetic.  The
+    ordinary effect lowering is env-less, so it otherwise turns
+    `require(false, E(a + b > 5))` (`uint8 a,b`) into `E(true)` instead of
+    evaluating `a + b` at uint8 and Panicking 0x11 first.  Returning `none`
+    preserves the existing internal/external-call hoisting chain. -/
+def Expr.requireCustomWithEnvCleanup? (storageNames : List Name)
+    (env : TypeEnv) : Expr -> Option CoreStmt
+  | Expr.call (Expr.ident "require")
+      [ Arg.positional cond
+      , Arg.positional (Expr.call (Expr.ident errorName) errorArgs) ] =>
+      if Args.anyAbiArgNeedsEnvCleanup errorArgs then do
+        let condCore ← Expr.conditionCoreWithEnv? storageNames env cond
+        let coreArgs ←
+          Args.toCoreExprsWithEnvCleanup? storageNames env errorArgs
+        some
+          (SolidCore.Solidity.Source.Stmt.requireCustom
+            condCore errorName coreArgs)
+      else
+        none
+  | _ => none
 
 def TupleItems.toCoreExprsAsWithEnv? (storageNames : List Name)
     (env : TypeEnv) : List Ty -> List TupleItem -> Option (List CoreExpr)
@@ -19479,31 +19511,35 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                         (Expr.call (Expr.ident errorName)
                           [Arg.positional
                             (Expr.call (Expr.ident name) args)]) ]))
-      | Stmt.expr
-          (Expr.call (Expr.ident "require")
+      | Stmt.expr expr@(
+          Expr.call (Expr.ident "require")
             [ Arg.positional cond
-            , Arg.positional (Expr.call (Expr.ident name) args) ]) => do
-          let condCore ← Expr.toCore? storageNames cond
-          let condTmp := "_sol_require_cond"
-          match FunctionDecl.internalSingleReturnCallCore?
-              internalFuel storageRefEnv env externalCallKindEnv storageNames
-              modifiers functions freeFunctions name args
-              (fun retExpr =>
-                SolidCore.Solidity.Source.Stmt.requireErrorExpr
-                  (SolidCore.Solidity.Source.Expr.var condTmp) retExpr) with
-          | some coreStmt =>
-              some
-                (SolidCore.Solidity.Source.Stmt.block
-                  [ SolidCore.Solidity.Source.Stmt.varDecl
-                      SolidCore.Solidity.Source.Ty.bool condTmp
-                      (some condCore)
-                  , coreStmt ])
+            , Arg.positional (Expr.call (Expr.ident name) args) ]) =>
+          match Expr.requireCustomWithEnvCleanup? storageNames env expr with
+          | some coreStmt => some coreStmt
           | none =>
-              Stmt.toCore? storageNames
-                (Stmt.expr
-                  (Expr.call (Expr.ident "require")
-                    [ Arg.positional cond
-                    , Arg.positional (Expr.call (Expr.ident name) args) ]))
+              do
+                let condCore ← Expr.toCore? storageNames cond
+                let condTmp := "_sol_require_cond"
+                match FunctionDecl.internalSingleReturnCallCore?
+                    internalFuel storageRefEnv env externalCallKindEnv storageNames
+                    modifiers functions freeFunctions name args
+                    (fun retExpr =>
+                      SolidCore.Solidity.Source.Stmt.requireErrorExpr
+                        (SolidCore.Solidity.Source.Expr.var condTmp) retExpr) with
+                | some coreStmt =>
+                    some
+                      (SolidCore.Solidity.Source.Stmt.block
+                        [ SolidCore.Solidity.Source.Stmt.varDecl
+                            SolidCore.Solidity.Source.Ty.bool condTmp
+                            (some condCore)
+                        , coreStmt ])
+                | none =>
+                    Stmt.toCore? storageNames
+                      (Stmt.expr
+                        (Expr.call (Expr.ident "require")
+                          [ Arg.positional cond
+                          , Arg.positional (Expr.call (Expr.ident name) args) ]))
       -- NOTE: the earlier specialized `f(first, g())` call-statement arm (which
       -- hoisted ONLY the second argument and failed when `first` was itself a call,
       -- e.g. `f(g(), h());`) was removed — the general `Expr.call (Expr.ident name)
