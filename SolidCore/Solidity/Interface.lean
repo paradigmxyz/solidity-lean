@@ -9117,6 +9117,37 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
                         Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
                | none =>
                    Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
+          | Expr.unary UnaryOp.bitNot inner =>
+              -- A narrow bitwise NOT is evaluated at its operand type. Besides
+              -- masking the final `~` to that width, its operand must retain
+              -- any checked arithmetic cleanup: `~(a + b)` with `uint8`
+              -- operands Panics 0x11 on the addition before the complement.
+              -- The prior env-aware reroute reached this node but then fell
+              -- through to the env-less direct lowerer, which evaluated the
+              -- addition at 256 bits. Lower the operand recursively at its own
+              -- type, apply the existing truncating bit-not cleanup, and only
+              -- then convert to the surrounding target type.
+              (match Expr.abiTyWithEnv? env inner with
+               | some operandTy =>
+                   (match Ty.narrowIntCastTarget? operandTy with
+                    | some _ =>
+                        (match Expr.toCoreAsWithEnvFuel?
+                            fuel storageNames env operandTy inner with
+                         | some innerCore =>
+                             let cleanedNot :=
+                               Ty.implicitCleanupCore operandTy
+                                 (SolidCore.Solidity.Source.Expr.unary
+                                   SolidCore.Solidity.Source.UnaryOp.bitNot
+                                   innerCore)
+                             Expr.coreAsFromTy? targetTy operandTy cleanedNot
+                         | none =>
+                             Expr.toCoreAsWithEnvDirect?
+                               storageNames env targetTy expr)
+                    | none =>
+                        Expr.toCoreAsWithEnvDirect?
+                          storageNames env targetTy expr)
+               | none =>
+                   Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
           | Expr.unary UnaryOp.logicalNot inner =>
               -- R2 (Stage B): `!c` in a bool-typed position recurses on the
               -- operand at `Ty.bool` through the FULL env-aware lowering, so a
