@@ -14770,13 +14770,28 @@ def Args.replaceInternalSingleReturnCallExprArg? (fallbackPrefix : String) :
 
 def Expr.actualInternalSingleReturnCall?
     (functions : List FunctionDecl) (env : TypeEnv) (expr : Expr) :
-    Option (Expr × Ty) := do
-  let (name, args, _) ← Expr.internalSingleReturnCallConversion? expr
-  let (callee, _) ← FunctionDecl.findInternalCalleeWithArgs?
-    functions env name args
-  match callee.returns with
-  | [ret] => some (expr, ret.ty)
-  | _ => none
+    Option (Expr × Ty) :=
+  match Expr.internalSingleReturnCallConversion? expr with
+  | some (name, args, _) => do
+      let (callee, _) ← FunctionDecl.findInternalCalleeWithArgs?
+        functions env name args
+      match callee.returns with
+      | [ret] => some (expr, ret.ty)
+      | _ => none
+  | none =>
+      -- An arbitrary-callee call can still be an internal single-return call:
+      -- `g()(7)` dispatches through the internal function pointer returned by
+      -- `g`. Treat it like a named internal call for argument-position ANF
+      -- hoisting so it can appear inside `abi.encode`, another call's argument,
+      -- or any other eager expression position.
+      match expr with
+      | Expr.call callee _ =>
+          match Expr.abiTyWithInternalFunctionsEnv? functions [] env callee with
+          | some (Ty.functionWithLocations _ _ [returnTy] [_] _
+              Visibility.internal_) =>
+              some (expr, returnTy)
+          | _ => none
+      | _ => none
 
 def Arg.actualInternalSingleReturnCall?
     (functions : List FunctionDecl) (env : TypeEnv) :
@@ -20406,9 +20421,36 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
               storageNames env bindings expr
           some (SolidCore.Solidity.Source.Stmt.block pieces)
       | Stmt.varDecl [binding] (some expr) =>
-          match varDeclCoreWithEnv? storageNames env binding expr with
-          | some coreStmt => some coreStmt
-          | none => Stmt.toCore? storageNames (Stmt.varDecl [binding] (some expr))
+          match binding.name with
+          | some localName =>
+              match FunctionDecl.internalExprSingleReturnUseCore?
+                  internalFuel storageRefEnv env externalCallKindEnv storageNames
+                  modifiers functions freeFunctions expr
+                  (fun resultExpr =>
+                    SolidCore.Solidity.Source.Stmt.assign
+                      (SolidCore.Solidity.Source.LValue.var localName)
+                      (match binding.ty with
+                      | some targetTy =>
+                          Ty.implicitCleanupCore targetTy resultExpr
+                      | none => resultExpr)) with
+              | some assignBlock => do
+                  let declCore ←
+                    Stmt.toCore? storageNames (Stmt.varDecl [binding] none)
+                  some
+                    (SolidCore.Solidity.Source.Stmt.block
+                      [declCore, assignBlock])
+              | none =>
+                  match varDeclCoreWithEnv? storageNames env binding expr with
+                  | some coreStmt => some coreStmt
+                  | none =>
+                      Stmt.toCore? storageNames
+                        (Stmt.varDecl [binding] (some expr))
+          | none =>
+              match varDeclCoreWithEnv? storageNames env binding expr with
+              | some coreStmt => some coreStmt
+              | none =>
+                  Stmt.toCore? storageNames
+                    (Stmt.varDecl [binding] (some expr))
       | Stmt.emitEvent (Expr.call (Expr.ident eventName) args) =>
           -- §3c COLLAPSE: every call-bearing emit shape routes through the
           -- SHARED emit/revert arg lowering
@@ -20828,13 +20870,25 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           match returnValuesCoreWithReturnTys? storageNames env returnTys expr with
           | some coreStmt => some coreStmt
           | none =>
-              match
-                  Stmt.argPositionHoist? internalFuel storageRefEnv env
-                    externalCallKindEnv storageNames modifiers functions
-                    freeFunctions returnTys expr
-                    (fun e => Stmt.returnValues (some e)) with
+              -- A bare returned expression can itself require the internal-call
+              -- hoister. In particular, `return g()(7)` first calls `g` to obtain
+              -- an internal function pointer, then immediately dispatches through
+              -- it. Binary/conditional contexts already reached this helper, but
+              -- the generic return fallback skipped it and failed closed.
+              match FunctionDecl.internalExprSingleReturnUseCore?
+                  internalFuel storageRefEnv env externalCallKindEnv storageNames
+                  modifiers functions freeFunctions expr
+                  (fun resultExpr =>
+                    SolidCore.Solidity.Source.Stmt.returnValues [resultExpr]) with
               | some coreStmt => some coreStmt
-              | none => Stmt.toCore? storageNames (Stmt.returnValues (some expr))
+              | none =>
+                  match
+                      Stmt.argPositionHoist? internalFuel storageRefEnv env
+                        externalCallKindEnv storageNames modifiers functions
+                        freeFunctions returnTys expr
+                        (fun e => Stmt.returnValues (some e)) with
+                  | some coreStmt => some coreStmt
+                  | none => Stmt.toCore? storageNames (Stmt.returnValues (some expr))
       | Stmt.ifElse (Expr.call (Expr.ident name) args)
           thenBranch elseBranch => do
           let thenCore ←
@@ -21925,6 +21979,63 @@ def Stmt.listLowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                       externalCallKindEnv
                       storageNames modifiers functions freeFunctions returnTys rest
                   some (head :: tail)
+      | Stmt.varDecl [binding]
+          (some source@(Expr.call (Expr.call _ _) _)) :: rest =>
+          -- Keep the declared local in the enclosing statement-list scope while
+          -- hoisting an immediate call through a returned internal function
+          -- pointer. Wrapping declaration and assignment in the single-statement
+          -- block would make the local unavailable to the remaining statements.
+          match binding.name with
+          | some localName =>
+              match FunctionDecl.internalExprSingleReturnUseCore?
+                  internalFuel storageRefEnv env externalCallKindEnv storageNames
+                  modifiers functions freeFunctions source
+                  (fun resultExpr =>
+                    SolidCore.Solidity.Source.Stmt.assign
+                      (SolidCore.Solidity.Source.LValue.var localName)
+                      (match binding.ty with
+                      | some targetTy =>
+                          Ty.implicitCleanupCore targetTy resultExpr
+                      | none => resultExpr)) with
+              | some assignBlock => do
+                  let declCore ←
+                    Stmt.toCore? storageNames (Stmt.varDecl [binding] none)
+                  let tail ←
+                    Stmt.listToCoreWithInternalCallsWithRefs?
+                      internalFuel
+                      (VarBinding.extendStorageRefEnv storageRefEnv binding)
+                      (VarBinding.extendTypeEnv env binding)
+                      externalCallKindEnv storageNames modifiers functions
+                      freeFunctions returnTys rest
+                  some (declCore :: assignBlock :: tail)
+              | none => do
+                  let head ←
+                    Stmt.toCoreWithInternalCalls?
+                      internalFuel storageRefEnv env externalCallKindEnv
+                      storageNames modifiers functions freeFunctions returnTys
+                      (Stmt.varDecl [binding] (some source))
+                  let tail ←
+                    Stmt.listToCoreWithInternalCallsWithRefs?
+                      internalFuel
+                      (VarBinding.extendStorageRefEnv storageRefEnv binding)
+                      (VarBinding.extendTypeEnv env binding)
+                      externalCallKindEnv storageNames modifiers functions
+                      freeFunctions returnTys rest
+                  some (head :: tail)
+          | none => do
+              let head ←
+                Stmt.toCoreWithInternalCalls?
+                  internalFuel storageRefEnv env externalCallKindEnv storageNames
+                  modifiers functions freeFunctions returnTys
+                  (Stmt.varDecl [binding] (some source))
+              let tail ←
+                Stmt.listToCoreWithInternalCallsWithRefs?
+                  internalFuel
+                  (VarBinding.extendStorageRefEnv storageRefEnv binding)
+                  (VarBinding.extendTypeEnv env binding)
+                  externalCallKindEnv storageNames modifiers functions
+                  freeFunctions returnTys rest
+              some (head :: tail)
       | Stmt.varDecl bindings@(_ :: _ :: _) (some (Expr.tuple items)) :: rest => do
           let pieces? : Option (List CoreStmt) :=
             match tupleVarDeclAllStorageCore? storageNames bindings items with
