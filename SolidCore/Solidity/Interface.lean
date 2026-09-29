@@ -38,6 +38,18 @@ abbrev CoreCallResult := SolidCore.Solidity.Source.CallResult
 abbrev CoreBindingDecl := SolidCore.Solidity.Source.BindingDecl
 abbrev CoreStorageField := SolidCore.Solidity.Source.StorageField
 abbrev CoreImmutableField := SolidCore.Solidity.Source.ImmutableField
+
+/-- Solidity permits magic namespaces and global builtin functions to appear
+    as discarded, bare expression statements (`msg;`, `keccak256;`, `addmod;`).
+    Referencing these symbols has no runtime effect. -/
+def strayBuiltinIdentAllowed (name : Name) : Bool :=
+  name == "msg" || name == "block" || name == "tx" ||
+    name == "gasleft" || name == "blockhash" || name == "blobhash" ||
+    name == "addmod" || name == "mulmod" ||
+    name == "keccak256" || name == "sha256" || name == "ripemd160" ||
+    name == "ecrecover" || name == "erc7201" ||
+    name == "assert" || name == "require" || name == "revert" ||
+    name == "selfdestruct"
 abbrev CoreStorageLayout := SolidCore.Solidity.Source.StorageLayout
 abbrev CoreEventDecl := SolidCore.Solidity.Source.EventDecl
 abbrev CoreErrorDecl := SolidCore.Solidity.Source.ErrorDecl
@@ -21758,10 +21770,27 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           | some coreExpr =>
               some (SolidCore.Solidity.Source.Stmt.exprStmt coreExpr)
           | none => Stmt.toCore? storageNames (Stmt.expr expr))
+      | Stmt.expr (Expr.ident name) =>
+          -- A bare reference to a builtin namespace/function is a no-op. Keep
+          -- ordinary locals and user-declared functions on the normal value
+          -- path so shadowing retains its usual meaning.
+          if strayBuiltinIdentAllowed name &&
+              (TypeEnv.lookup? env name).isNone &&
+              !functions.any (fun fn => fn.name == some name) then
+            some SolidCore.Solidity.Source.Stmt.skip
+          else
+            Stmt.toCore? storageNames (Stmt.expr (Expr.ident name))
       | other => Stmt.toCore? storageNames other
       )
   | none =>
       match stmt with
+      | Stmt.expr (Expr.ident name) =>
+          if strayBuiltinIdentAllowed name &&
+              (TypeEnv.lookup? env name).isNone &&
+              !functions.any (fun fn => fn.name == some name) then
+            some SolidCore.Solidity.Source.Stmt.skip
+          else
+            Stmt.toCore? storageNames (Stmt.expr (Expr.ident name))
       | Stmt.varDecl bindings@(_ :: _ :: _) (some (Expr.tuple items)) => do
           match tupleVarDeclAllStorageCore? storageNames bindings items with
           | some decls =>
