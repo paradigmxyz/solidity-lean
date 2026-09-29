@@ -258,6 +258,14 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
       | some coreExpr => some coreExpr
       | none =>
           match expr with
+          | Expr.assign lhs AssignOp.assign rhs => do
+              let lhsCore ← Expr.toCoreLValue? storageNames lhs
+              let lhsTy ← Expr.abiTyWithEnv? env lhs
+              let rhsCore ←
+                Expr.toCoreAsWithEnvFuel? fuel storageNames env lhsTy rhs
+              Expr.coreAsFromTy? targetTy lhsTy
+                (SolidCore.Solidity.Source.Expr.assignExpr
+                  lhsCore.toExpr rhsCore)
           | Expr.call (Expr.typeName (Ty.bytesN cbSize)) [Arg.positional argExpr]
           | Expr.call (Expr.typeName (Ty.fixedBytes cbSize)) [Arg.positional argExpr] =>
               -- STAGE-D #193 (bytesN cast of narrow checked arithmetic): a
@@ -6602,7 +6610,11 @@ def Stmt.rewriteStorageReturnAssignmentsFuel (fuel : Nat)
     | stmt => stmt
 termination_by fuel
 
-def defaultStorageReturnRewriteFuel : Nat := 32
+/-- Storage-pointer return rewriting only traverses source syntax, but still uses
+    fuel to make the transform's structural decrease explicit to Lean.  Keep
+    this in line with the other whole-source transforms: 32 exposed a semantic
+    cutoff at 31 nested statement nodes in otherwise valid Solidity. -/
+def defaultStorageReturnRewriteFuel : Nat := 1024
 
 def Stmt.rewriteStorageReturnAssignments (fallbackPrefix : String)
     (returns : List Parameter) (stmt : Stmt) : Stmt :=

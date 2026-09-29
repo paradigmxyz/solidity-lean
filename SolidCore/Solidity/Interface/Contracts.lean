@@ -529,6 +529,18 @@ def FunctionDecl.asLibraryHelper? (libraryName helperName : Name)
         let decl :=
           FunctionDecl.rewriteLibraryInternalCalls
             libraryName libraryFunctions decl
+        -- An unqualified modifier on a library function is resolved in the
+        -- library's lexical scope. Qualify it before this function becomes a
+        -- contract-independent helper, otherwise a same-named modifier on the
+        -- calling contract can capture the invocation.
+        let decl :=
+          { decl with
+            modifiers := decl.modifiers.map (fun (invocation : ModifierInvocation) =>
+              match invocation.target.segments with
+              | [name] =>
+                  { invocation with
+                    target := { segments := [libraryName, name] } }
+              | _ => invocation) }
         some { decl with
           name := some helperName }
     | none => none
@@ -581,6 +593,16 @@ def ContractDecl.libraryHelperFunctions
             sourceConstants
         FunctionDecls.libraryHelperFunctionsFor
           decl.name functions constants [] functions
+      else
+        [])
+    contracts
+
+def ContractDecls.libraryModifiers (contracts : List ContractDecl) :
+    List SourceModifierDecl :=
+  concatMapList
+    (fun decl =>
+      if ContractDecl.isLibrary decl then
+        ContractDecl.directModifiersStamped decl
       else
         [])
     contracts
@@ -2286,7 +2308,7 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
           (ModifierDecl.inlineConstants
             (ContractDecl.scopedConstantEnv dispatchOrder
               sharedConstantTail decl)))
-      dispatchOrder
+      dispatchOrder ++ ContractDecls.libraryModifiers allContracts
   let baseNames := dispatchOrder.map ContractDecl.name
   let ordinaryFunctions :=
     ContractDecls.contextualOrdinaryFunctions dispatchOrder sharedConstantTail

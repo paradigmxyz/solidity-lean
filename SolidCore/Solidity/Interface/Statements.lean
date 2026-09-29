@@ -7788,7 +7788,8 @@ def Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
               SolidCore.Solidity.Source.Stmt.ifElse
                 condCore thenCore elseCore)
       | Stmt.whileLoop cond body => do
-          let condCore ← Expr.toCore? storageNames cond
+          let condCore ←
+            Expr.toCoreAsWithEnv? storageNames env Ty.bool cond
           let bodyCore ←
             Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
               replaceFuel internalFuel storageRefEnv env externalCallKindEnv storageNames
@@ -7801,7 +7802,8 @@ def Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
               replaceFuel internalFuel storageRefEnv env externalCallKindEnv storageNames
               modifiers functions freeFunctions returnTys returnNames
               replacement body
-          let condCore ← Expr.toCore? storageNames cond
+          let condCore ←
+            Expr.toCoreAsWithEnv? storageNames env Ty.bool cond
           some (SolidCore.Solidity.Source.Stmt.doWhile bodyCore condCore)
       | Stmt.forLoop init cond post body => do
           let initCore ←
@@ -7812,17 +7814,33 @@ def Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
                   modifiers functions freeFunctions returnTys returnNames
                   replacement stmt
             | none => some SolidCore.Solidity.Source.Stmt.skip
+          let loopEnv :=
+            match init with
+            | some (Stmt.varDecl bindings _) =>
+                VarBindings.extendTypeEnv env bindings
+            | _ => env
+          let loopStorageRefEnv :=
+            match init with
+            | some (Stmt.varDecl bindings _) =>
+                VarBindings.extendStorageRefEnv storageRefEnv bindings
+            | _ => storageRefEnv
           let condCore ←
             match cond with
-            | some expr => Expr.toCore? storageNames expr
+            | some expr =>
+                Expr.toCoreAsWithEnv? storageNames loopEnv Ty.bool expr
             | none => some (SolidCore.Solidity.Source.Expr.word 1)
           let postCore ←
             match post with
-            | some expr => Stmt.toCore? storageNames (Stmt.expr expr)
+            | some expr =>
+                Stmt.toCoreWithInternalCalls?
+                  internalFuel loopStorageRefEnv loopEnv externalCallKindEnv
+                  storageNames modifiers functions freeFunctions returnTys
+                  (Stmt.expr expr)
             | none => some SolidCore.Solidity.Source.Stmt.skip
           let bodyCore ←
             Stmt.toCoreWithInternalCallsReplacingModifierPlaceholderFuel?
-              replaceFuel internalFuel storageRefEnv env externalCallKindEnv storageNames
+              replaceFuel internalFuel loopStorageRefEnv loopEnv
+              externalCallKindEnv storageNames
               modifiers functions freeFunctions returnTys returnNames
               replacement body
           some (SolidCore.Solidity.Source.Stmt.forLoop

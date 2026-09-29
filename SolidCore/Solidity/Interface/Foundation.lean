@@ -181,6 +181,16 @@ def ConstantEnv.lookup? (env : ConstantEnv) (name : Name) : Option (Ty × Expr) 
       else
         ConstantEnv.lookup? rest name
 
+/-- Remove constants hidden by bindings in the current lexical scope. -/
+def ConstantEnv.withoutNames (env : ConstantEnv) (names : List Name) : ConstantEnv :=
+  env.filter (fun entry => !names.contains entry.1)
+
+def VarBindings.boundNames (bindings : List VarBinding) : List Name :=
+  bindings.filterMap (fun binding => binding.name)
+
+def Parameters.constantShadowNames (params : List Parameter) : List Name :=
+  params.filterMap (fun param => param.name)
+
 /-- A state/file constant keeps its declared integer type at each use.  A raw
     syntactic substitution would turn `uint constant a = 12` back into an
     untyped rational literal, making `(a / 10) * 10` fold as `(12/10)*10 = 12`
@@ -299,7 +309,8 @@ def Stmt.inlineConstantsFuel : Nat -> ConstantEnv -> Stmt -> Stmt
       let inlineClause := CatchClause.inlineConstantsFuel fuel constants
       match stmt with
       | Stmt.empty => Stmt.empty
-      | Stmt.block body => Stmt.block (body.map inlineStmt)
+      | Stmt.block body =>
+          Stmt.block (Stmts.inlineConstantsFuel fuel constants body)
       | Stmt.varDecl bindings init =>
           Stmt.varDecl bindings (init.map inlineExpr)
       | Stmt.expr expr => Stmt.expr (inlineExpr expr)
@@ -326,6 +337,21 @@ def Stmt.inlineConstantsFuel : Nat -> ConstantEnv -> Stmt -> Stmt
       | Stmt.unchecked body => Stmt.unchecked (inlineStmt body)
       | Stmt.inlineAssembly code => Stmt.inlineAssembly code
       | Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
+
+/-- Rewrite a statement list in source order. A local declaration shadows a
+    constant only for the following statements in the same lexical block; the
+    filtered environment is deliberately not returned to the enclosing block. -/
+def Stmts.inlineConstantsFuel : Nat -> ConstantEnv -> List Stmt -> List Stmt
+  | 0, _, stmts => stmts
+  | _, _, [] => []
+  | fuel + 1, constants, stmt :: rest =>
+      let stmt' := Stmt.inlineConstantsFuel fuel constants stmt
+      let constants' :=
+        match stmt with
+        | Stmt.varDecl bindings _ =>
+            constants.withoutNames (VarBindings.boundNames bindings)
+        | _ => constants
+      stmt' :: Stmts.inlineConstantsFuel fuel constants' rest
 
 def CatchClause.inlineConstantsFuel :
     Nat -> ConstantEnv -> CatchClause -> CatchClause
@@ -355,6 +381,10 @@ def BaseSpecifier.inlineConstants (constants : ConstantEnv)
 
 def FunctionDecl.inlineConstants (constants : ConstantEnv)
     (decl : FunctionDecl) : FunctionDecl :=
+  let shadowNames :=
+    Parameters.constantShadowNames decl.params ++
+      Parameters.constantShadowNames decl.returns
+  let constants := constants.withoutNames shadowNames
   { decl with
     modifiers := decl.modifiers.map
       (ModifierInvocation.inlineConstants constants)
@@ -5361,22 +5391,34 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
         (SolidCore.Solidity.Source.Expr.assignOpExpr
           lhsCore.toExpr coreOp rhsCore)
   | expr@(Expr.binary op lhs rhs) =>
-      match Expr.numberLiteralRat? expr with
-      | some value => do
-          let word ← value.exactNat?
-          some (SolidCore.Solidity.Source.Expr.word word)
-      | none =>
-          match Expr.numberLiteralBool? expr with
-          | some value =>
-              some
-                (SolidCore.Solidity.Source.Expr.word
-                  (numberLiteralBoolWord value))
-          | none => do
-              let coreOp ← BinaryOp.toCore? op
-              let lhsCore ← Expr.toCore? storageNames lhs
-              let rhsCore ← Expr.toCore? storageNames rhs
-              some (SolidCore.Solidity.Source.Expr.binary
-                coreOp lhsCore rhsCore)
+      let lowerBinary : Option CoreExpr := do
+        let coreOp ← BinaryOp.toCore? op
+        let lhsCore ← Expr.toCore? storageNames lhs
+        let rhsCore ← Expr.toCore? storageNames rhs
+        some (SolidCore.Solidity.Source.Expr.binary coreOp lhsCore rhsCore)
+      -- An explicitly typed left operand fixes a shift's result width. Do not
+      -- erase that boundary with the rational constant folder: for example,
+      -- `uint8(91) << uint8(8)` is zero after truncation, not the out-of-range
+      -- rational 23296 followed by a checked-cleanup Panic(0x11).
+      match op, lhs with
+      | BinaryOp.shl, Expr.call (Expr.typeName lhsTy) [Arg.positional _] =>
+          if Ty.isIntOrUint lhsTy then do
+            let core ← lowerBinary
+            Ty.implicitCleanupCore? lhsTy core
+          else
+            lowerBinary
+      | _, _ =>
+          match Expr.numberLiteralRat? expr with
+          | some value => do
+              let word ← value.exactNat?
+              some (SolidCore.Solidity.Source.Expr.word word)
+          | none =>
+              match Expr.numberLiteralBool? expr with
+              | some value =>
+                  some
+                    (SolidCore.Solidity.Source.Expr.word
+                      (numberLiteralBoolWord value))
+              | none => lowerBinary
   | Expr.ternary cond thenExpr elseExpr => do
       let condCore ← Expr.toCore? storageNames cond
       let thenCore ← Expr.toCore? storageNames thenExpr
@@ -8271,6 +8313,13 @@ def Expr.abiArgNeedsEnvCleanupFuel? : Nat -> Expr -> Bool
                   Expr.abiArgNeedsEnvCleanupFuel? fuel cond ||
                     Expr.abiArgNeedsEnvCleanupFuel? fuel thenExpr ||
                     Expr.abiArgNeedsEnvCleanupFuel? fuel elseExpr
+              -- An assignment expression produces the assigned value, but its
+              -- RHS still evaluates at the LValue's type before an enclosing
+              -- ABI/builtin consumer sees it (`abi.encode(s = a + b)`).
+              | Expr.assign _ AssignOp.assign rhs =>
+                  Expr.abiArgNeedsEnvCleanupFuel? fuel rhs
+              | Expr.enumFromUInt _ inner =>
+                  Expr.abiArgNeedsEnvCleanupFuel? fuel inner
               -- COMPARISON / BOOLEAN-COMBINATOR (S, narrow-add-comparison-in-
               -- abiencode-arg): a bool-producing operand of `abi.encode*` whose
               -- OWN operand carries narrow checked arithmetic — `abi.encode(a +
