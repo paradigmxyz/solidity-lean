@@ -21,9 +21,9 @@ def StateVarDecl.isTransient (decl : StateVarDecl) : Bool :=
   | _ => false
 
 def StateVarDecl.constantEntry? (decl : StateVarDecl) :
-    Option (Name × Expr) :=
+    Option (Name × Ty × Expr) :=
   match decl.mutability, decl.init with
-  | VarMutability.constant, some expr => some (decl.name, expr)
+  | VarMutability.constant, some expr => some (decl.name, decl.ty, expr)
   | _, _ => none
 
 def StateVarDecl.hasRequiredConstantInit (decl : StateVarDecl) : Bool :=
@@ -793,8 +793,9 @@ def ContractDecl.qualifiedConstantEntries (contracts : List ContractDecl)
       (ContractDecl.directStateVars c).filterMap
         (fun sv =>
           match StateVarDecl.constantEntry? sv with
-          | some (_, e) =>
-              some (qualifiedConstantKey (pathOfName decl.name) sv.name, e)
+          | some (_, ty, e) =>
+              some
+                (qualifiedConstantKey (pathOfName decl.name) sv.name, ty, e)
           | none => none))
     order
 

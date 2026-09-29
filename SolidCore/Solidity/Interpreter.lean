@@ -4753,7 +4753,11 @@ def Runtime.loadStorageIndex (context : Context)
   | some StorageLayout.bytes => do
       let key ← index.expectWord
       let byte ← State.loadStorageByteAt runtime.state field.slot key
-      Except.ok (Value.word byte)
+      -- Solidity indexes a dynamic `bytes` value as `bytes1`.  Keeping the
+      -- width tag matters for typed operations such as
+      -- `data[i] == bytes1(x)`; an untagged word mismatches the fixed-bytes
+      -- operand in the core evaluator and spuriously reverts with Panic(0).
+      Except.ok (Value.fixedBytes 1 byte)
   | some StorageLayout.string =>
       Except.error RevertData.typeMismatch
   | some (StorageLayout.dynamicArray elementLayout) => do
