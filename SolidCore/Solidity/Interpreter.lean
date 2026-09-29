@@ -482,6 +482,15 @@ def Ty.coerceValue? : Ty -> Value -> Option Value
   | ty, Value.abiLazy cleanup value => do
       let coerced ← Ty.coerceValue? ty value
       some (Value.abiLazy cleanup coerced)
+  -- A memory aggregate stores nested reference-typed members as pointers.
+  -- Their static type was checked before lowering; keep the pointer opaque
+  -- here, just as `Stmt.memoryVarDecl` already does for a top-level memory-ref
+  -- initializer.  Dereferencing it here would lose Solidity's aliasing (and
+  -- this type-only helper has no Runtime from which to load it).
+  | Ty.bytesCalldata, Value.memoryRef id => some (Value.memoryRef id)
+  | Ty.fixedArray _ _, Value.memoryRef id => some (Value.memoryRef id)
+  | Ty.dynamicArray _, Value.memoryRef id => some (Value.memoryRef id)
+  | Ty.tuple _, Value.memoryRef id => some (Value.memoryRef id)
   | Ty.bool, Value.word value =>
       if wordEq value 0 || wordEq value 1 then
         some (Value.word value)
@@ -7536,7 +7545,7 @@ def Expr.evalFuel (fuel : Nat)
               | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
           | Expr.tuple exprs => do
               let (values, runtime') ←
-                Expr.evalListFuel fuel context runtime
+                Expr.evalTupleListFuel fuel context runtime
                   exprs
               pure (Value.tuple values, runtime')
           | Expr.fixedArray exprs => do
@@ -7934,6 +7943,32 @@ def Expr.evalListFuel (fuel : Nat)
               let (values, runtime'') ←
                 Expr.evalListFuel fuel context
                   runtime' rest
+              pure (value :: values, runtime'')
+
+/-- Tuple/struct construction preserves memory-reference components as
+    pointers.  Solidity memory structs store reference-typed fields by pointer:
+    `Outer memory o = Outer(xs)` must keep `o.xs` aliased to `xs`.  Ordinary
+    scalar components still use the same left-to-right evaluator. -/
+def Expr.evalTupleListFuel (fuel : Nat)
+    (context : Context) : Runtime -> List Expr ->
+    SolI (List Value × Runtime)
+  | runtime, exprs =>
+      match fuel with
+      | 0 => throw <| SolidityFailure.revert RevertData.typeMismatch
+      | fuel + 1 =>
+          match exprs with
+          | [] => pure ([], runtime)
+          | expr :: rest => do
+              let (id?, value?, runtime') ←
+                Expr.memoryRefOrValueFuel fuel context runtime expr
+              let value ←
+                match id?, value? with
+                | some id, _ => pure (Value.memoryRef id)
+                | none, some value => pure value
+                | none, none =>
+                    throw <| SolidityFailure.revert RevertData.typeMismatch
+              let (values, runtime'') ←
+                Expr.evalTupleListFuel fuel context runtime' rest
               pure (value :: values, runtime'')
 
 def Expr.memoryRefOrValueFuel
