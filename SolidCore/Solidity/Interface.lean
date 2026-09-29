@@ -18368,11 +18368,11 @@ def Expr.structCtorTupleCoreAsWithEnv? (storageNames : List Name)
 def Expr.toCoreLValueWithEnv? (storageNames : List Name) (env : TypeEnv) :
     Expr -> Option CoreLValue
   | Expr.index base key =>
-      -- Only the outermost index KEY is re-lowered env-aware (the failing shapes
-      -- carry the narrow arithmetic there: `arr[a+b]`, `mp[a+b]`,
-      -- `arr2[1][a+b]`, `bs[a+b]`); the BASE keeps the exact env-less lowering
-      -- (`Expr.toCoreLValue?`), so the produced LValue is byte-identical apart
-      -- from the checked key.
+      -- Re-lower every index KEY env-aware, including keys nested in the base.
+      -- The original implementation handled the outermost key only, so
+      -- `m[a+b][0] = v` still lowered the `a+b` key env-less inside the base.
+      -- Recursing into the base preserves the same lvalue shape while applying
+      -- the checked-width rule at every path component.
       let keyCore? : Option CoreExpr :=
         if Expr.abiArgNeedsEnvCleanup? key then
           match (do
@@ -18401,7 +18401,7 @@ def Expr.toCoreLValueWithEnv? (storageNames : List Name) (env : TypeEnv) :
                   Expr.toCoreLValue? storageNames (Expr.ident name)
                 some (SolidCore.Solidity.Source.LValue.index baseCore keyCore)
         | _ => do
-            let baseCore ← Expr.toCoreLValue? storageNames base
+            let baseCore ← Expr.toCoreLValueWithEnv? storageNames env base
             some (SolidCore.Solidity.Source.LValue.index baseCore keyCore))
   | other => Expr.toCoreLValue? storageNames other
 
