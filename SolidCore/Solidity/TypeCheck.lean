@@ -6171,6 +6171,32 @@ def checkMsgGlobalMember (env : CheckEnv) (expr : Solidity.Expr)
               none }
   | none => Except.error (TypeError.unsupported ("member " ++ member))
 
+/-- Check an ordinary struct field after a local variable has shadowed one of
+    Solidity's magic-global names (`msg`, `block`, or `tx`).  Keeping this
+    outside the three special member arms makes their shadowing behavior agree
+    with the generic struct-member path below. -/
+def checkShadowedMagicGlobalMember (env : CheckEnv) (expr : Solidity.Expr)
+    (baseChecked : CheckedExpr) (member : Name) :
+    Except TypeError CheckedExpr :=
+  match baseChecked.ty with
+  | Solidity.Ty.user path =>
+      match env.types.lookupStruct? path with
+      | some structDecl =>
+          match structDecl.fields.find? (fun field => field.name == member) with
+          | some field => do
+              let attached ←
+                UsingDecls.memberCandidates env baseChecked member env.usingDecls
+              require attached.isEmpty (TypeError.ambiguousFunction member)
+              Except.ok
+                { source := expr
+                  ty := env.qualifyStructFieldTy path field.ty
+                  lvalue := baseChecked.lvalue || baseChecked.stateLValue
+                  stateLValue := baseChecked.stateLValue
+                  dataLocation? := baseChecked.dataLocation? }
+          | none => Except.error (TypeError.unsupported ("member " ++ member))
+      | none => Except.error (TypeError.unsupported ("member " ++ member))
+  | _ => Except.error (TypeError.unsupported ("member " ++ member))
+
 mutual
 
 def checkExpr (env : CheckEnv) :
@@ -6404,59 +6430,47 @@ def checkExpr (env : CheckEnv) :
           -- carries no payable-mutability (G2) obligation and its type is the
           -- field's type, not the builtin's.
           let baseChecked ← checkExpr env (Solidity.Expr.ident "msg")
-          match baseChecked.ty with
-          | Solidity.Ty.user path =>
-              match env.types.lookupStruct? path with
-              | some structDecl =>
-                  match structDecl.fields.find?
-                      (fun field => field.name == member) with
-                  | some field => do
-                      let attached ←
-                        UsingDecls.memberCandidates env baseChecked member
-                          env.usingDecls
-                      require attached.isEmpty
-                        (TypeError.ambiguousFunction member)
-                      Except.ok
-                        { source := expr
-                          ty := env.qualifyStructFieldTy path field.ty
-                          lvalue := baseChecked.lvalue || baseChecked.stateLValue
-                          stateLValue := baseChecked.stateLValue
-                          dataLocation? := baseChecked.dataLocation? }
-                  | none =>
-                      Except.error (TypeError.unsupported ("member " ++ member))
-              | none =>
-                  Except.error (TypeError.unsupported ("member " ++ member))
-          | _ => Except.error (TypeError.unsupported ("member " ++ member))
+          checkShadowedMagicGlobalMember env expr baseChecked member
   | expr@(Solidity.Expr.member
       (Solidity.Expr.ident "block") member) => do
-      requireStateReadAllowed env
-      if member == "basefee" then
-        requireLondonOrLater env "block.basefee"
-      else if member == "blobbasefee" then
-        requireCancunOrLater env "block.blobbasefee"
-      else if member == "chainid" then
-        requireIstanbulOrLater env "block.chainid"
-      else
-        Except.ok ()
-      match Solidity.Executable.Expr.abiTyWithEnv? env.vars expr with
-      | some ty =>
-          Except.ok
-            { source := expr
-              ty := ty
-              lvalue := false
-              stateLValue := false }
-      | none => Except.error (TypeError.unsupported ("member " ++ member))
+      match env.lookupVar? "block" with
+      | some _ =>
+          let baseChecked ← checkExpr env (Solidity.Expr.ident "block")
+          checkShadowedMagicGlobalMember env expr baseChecked member
+      | none =>
+          requireStateReadAllowed env
+          if member == "basefee" then
+            requireLondonOrLater env "block.basefee"
+          else if member == "blobbasefee" then
+            requireCancunOrLater env "block.blobbasefee"
+          else if member == "chainid" then
+            requireIstanbulOrLater env "block.chainid"
+          else
+            Except.ok ()
+          match Solidity.Executable.Expr.abiTyWithEnv? env.vars expr with
+          | some ty =>
+              Except.ok
+                { source := expr
+                  ty := ty
+                  lvalue := false
+                  stateLValue := false }
+          | none => Except.error (TypeError.unsupported ("member " ++ member))
   | expr@(Solidity.Expr.member
       (Solidity.Expr.ident "tx") member) => do
-      requireStateReadAllowed env
-      match Solidity.Executable.Expr.abiTyWithEnv? env.vars expr with
-      | some ty =>
-          Except.ok
-            { source := expr
-              ty := ty
-              lvalue := false
-              stateLValue := false }
-      | none => Except.error (TypeError.unsupported ("member " ++ member))
+      match env.lookupVar? "tx" with
+      | some _ =>
+          let baseChecked ← checkExpr env (Solidity.Expr.ident "tx")
+          checkShadowedMagicGlobalMember env expr baseChecked member
+      | none =>
+          requireStateReadAllowed env
+          match Solidity.Executable.Expr.abiTyWithEnv? env.vars expr with
+          | some ty =>
+              Except.ok
+                { source := expr
+                  ty := ty
+                  lvalue := false
+                  stateLValue := false }
+          | none => Except.error (TypeError.unsupported ("member " ++ member))
   | expr@(Solidity.Expr.member
       (Solidity.Expr.typeName ty) member) => do
       -- Member-form internal-function VALUE (`Lib.f` / `Contract.f`, boundary
