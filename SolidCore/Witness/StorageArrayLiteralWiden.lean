@@ -78,6 +78,12 @@ def salwStateWiden256Accepted : Bool :=
 def salwStateWiden16Accepted : Bool :=
   sourceUnitAccepted? (salwStateVarSU (salwArr (Ty.uint 16) 3) salw123)
 
+-- `uint16[] arr = [1,2,3];` (fixed uint8[3] literal copied into dynamic
+-- storage, the state-variable form of the submitted divergence).
+def salwStateDynamicWiden16Accepted : Bool :=
+  sourceUnitAccepted?
+    (salwStateVarSU (Ty.array (Ty.uint 16) none) salw123)
+
 -- `uint256[2][2] arr = [[1,2],[3,4]];`  (nested uint8[2][2] → uint256[2][2])
 def salwStateWidenMultidimAccepted : Bool :=
   sourceUnitAccepted? (salwStateVarSU (salwArr (salwArr (Ty.uint 256) 2) 2)
@@ -107,6 +113,7 @@ def salwStateExplicitAccepted : Bool :=
 
 def salwAllAccepted : Bool :=
   salwStateWiden256Accepted && salwStateWiden16Accepted &&
+    salwStateDynamicWiden16Accepted &&
     salwStateWidenMultidimAccepted && salwStateTypedLeadWidenAccepted &&
     salwStateSignedWidenAccepted && salwStateIdentityAccepted &&
     salwStateExplicitAccepted
@@ -158,5 +165,4 @@ end Examples
 end TypeCheck
 end Solidity
 end SolidCore
-
 
