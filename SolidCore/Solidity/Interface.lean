@@ -8242,6 +8242,16 @@ def Expr.abiArgNeedsEnvCleanupFuel? : Nat -> Expr -> Bool
               | Expr.slice _ start stop =>
                   start.any (Expr.abiArgNeedsEnvCleanupFuel? fuel) ||
                     stop.any (Expr.abiArgNeedsEnvCleanupFuel? fuel)
+              -- CONDITIONAL: a flagged subtree in either selected arm, or in
+              -- the condition itself, still evaluates before the surrounding
+              -- ABI/builtin argument is consumed.  Recurse through the whole
+              -- conditional so `abi.encode(c ? a + b : a)` and
+              -- `addmod((a + b > n) ? x : y, ...)` retain the uintN/intN
+              -- operand-width Panic 0x11.
+              | Expr.ternary cond thenExpr elseExpr =>
+                  Expr.abiArgNeedsEnvCleanupFuel? fuel cond ||
+                    Expr.abiArgNeedsEnvCleanupFuel? fuel thenExpr ||
+                    Expr.abiArgNeedsEnvCleanupFuel? fuel elseExpr
               -- COMPARISON / BOOLEAN-COMBINATOR (S, narrow-add-comparison-in-
               -- abiencode-arg): a bool-producing operand of `abi.encode*` whose
               -- OWN operand carries narrow checked arithmetic — `abi.encode(a +
