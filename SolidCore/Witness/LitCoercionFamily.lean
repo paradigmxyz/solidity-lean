@@ -217,6 +217,36 @@ def badSelector : List Byte := [0xfd, 0xa2, 0x8e, 0xa8]
 abbrev Src := SolidCore.Solidity.SolcAstImport.LitCoercionFamily.importedSourceUnit
 abbrev Fam := SolidCore.Solidity.SolcAstImport.LitCoercionFamily.importedContract
 
+/- The empty string literal is also contextually convertible to `bytes32` in a
+custom-error argument.  At the semantic boundary it must already carry the
+fixed width; otherwise the contest observer reports dynamic bytes (`b:0x`)
+instead of the EVM's fixed word (`w:0`). -/
+def emptyBytes32ErrorContract : ContractDecl :=
+  { name := "EmptyBytes32Error"
+    items :=
+      [ ContractItem.errorDecl
+          { name := "Bad32"
+            params := [{ name := some "x", ty := Ty.bytesN 32 }] }
+      , ContractItem.function
+          { name := some "run"
+            visibility := some Visibility.external_
+            mutability := StateMutability.pure
+            body :=
+              some
+                (Stmt.revertCall
+                  (Expr.call (Expr.ident "Bad32")
+                    [Arg.positional (Expr.literal (Literal.string ""))])) } ] }
+
+def emptyStringCustomErrorIsBytes32 : Except TypeError Bool := do
+  let result ←
+    CheckedInput.ownCall 32 emptyBytes32ErrorContract
+      (CallTarget.name "run") State.empty []
+  match result with
+  | CallResult.reverted _
+      (RevertData.custom "Bad32" [Value.word value]) =>
+      Except.ok (value == 0)
+  | _ => Except.ok false
+
 -- The whole family source unit type-checks (accepted).
 def familyAccepted : Bool := SolidCore.Solidity.SolcAstImport.LitCoercionFamily.importedContractAccepted
 
@@ -387,6 +417,7 @@ def fourByteHexSelectorAccepted : Bool :=
     (TypeCheck.TypecheckedInput.checkedSourceUnit (selUnit (Literal.number "0x12345678")))
 
 #guard familyAccepted
+#guard isOkTrue emptyStringCustomErrorIsBytes32
 #guard isOkTrue emitDataLeftAlignedWord
 #guard isOkTrue emitIndexedTopicLeftAlignedWord
 #guard isOkTrue revertCustomErrorOneWord

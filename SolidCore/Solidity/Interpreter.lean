@@ -1879,6 +1879,7 @@ structure Context where
   -- entry points. See `SelfDispatchFn`.
   selfDispatch? : Option SelfDispatchFn := none
   eventDecls : List EventDecl
+  errorDecls : List ErrorDecl := []
   checked : Bool
   construction : Bool := false
   calldata : List Byte
@@ -2071,6 +2072,10 @@ def indexedStorageSlot (slot key : Word) : Word :=
 def Context.eventDecl? (context : Context) (name : String) :
     Option EventDecl :=
   context.eventDecls.find? (fun event => event.name == name)
+
+def Context.errorDecl? (context : Context) (name : String) :
+    Option ErrorDecl :=
+  context.errorDecls.find? (fun error => error.name == name)
 
 def LowLevelCallResult.failedRequest
     (kind : LowLevelCallKind) (target : Word) (calldata : List Byte)
@@ -10576,7 +10581,19 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
               -- so nested memory/storage ref leaves must be loaded here.
               match runtime'.materializeForValueUseList context values with
               | Except.ok values =>
-                  pure (Result.reverted runtime' (RevertData.custom name values))
+                  match context.errorDecl? name with
+                  | some decl =>
+                      match Ty.coerceTupleValues? decl.fields values with
+                      | some values =>
+                          pure
+                            (Result.reverted runtime'
+                              (RevertData.custom name values))
+                      | none =>
+                          pure (Result.reverted runtime' RevertData.typeMismatch)
+                  | none =>
+                      pure
+                        (Result.reverted runtime'
+                          (RevertData.custom name values))
               | Except.error err => pure (Result.reverted runtime' err)
           | Except.error err => pure (Result.reverted runtime err)
       | Stmt.emitEvent name exprs => do
@@ -10997,6 +11014,7 @@ def Contract.context (contract : Contract) : Context :=
   { storageFields := contract.storageFields
     immutableFields := contract.immutableFields
     eventDecls := contract.eventDecls
+    errorDecls := contract.errorDecls
     checked := true
     construction := false
     calldata := []
