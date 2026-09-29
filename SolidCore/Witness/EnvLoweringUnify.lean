@@ -1,3 +1,4 @@
+import SolidCore.Witness.Prepared
 import SolidCore.Solidity.Checked
 import SolidCore.Witness.Checked
 
@@ -280,6 +281,9 @@ open SolidCore.Solidity.TypeCheck
 
 abbrev C := SolidCore.Solidity.SolcAstImport.EnvLoweringUnifyWitness.importedContract
 
+private def preparedC : Prepared.Contract :=
+  CheckedInput.ownContract C
+
 def accepted : Bool :=
   SolidCore.Solidity.SolcAstImport.EnvLoweringUnifyWitness.importedContractAccepted
 
@@ -291,95 +295,143 @@ private def overflowArgs : List Value := [Value.word 200, Value.word 100]
 
 -- while condition: narrow overflow -> Panic 0x11.
 def whileCond_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "whileCond" State.empty overflowArgs 17
+  Prepared.panicMatches 300 preparedC "whileCond" State.empty overflowArgs 17
 -- for condition.
 def forCond_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "forCond" State.empty overflowArgs 17
+  Prepared.panicMatches 300 preparedC "forCond" State.empty overflowArgs 17
 -- do-while condition.
 def doWhileCond_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "doWhileCond" State.empty overflowArgs 17
+  Prepared.panicMatches 300 preparedC "doWhileCond" State.empty overflowArgs 17
 -- assert condition.
 def assertCond_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "assertCond" State.empty overflowArgs 17
+  Prepared.panicMatches 300 preparedC "assertCond" State.empty overflowArgs 17
 -- discard-expression statement `a + b;`.
 def exprStmt_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "exprStmt" State.empty overflowArgs 17
+  Prepared.panicMatches 300 preparedC "exprStmt" State.empty overflowArgs 17
 -- int8 while condition (negative-side overflow).
 def intWhileCond_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "intWhileCond" State.empty
+  Prepared.panicMatches 300 preparedC "intWhileCond" State.empty
     [Value.int (wordModulus - 100), Value.int (wordModulus - 50)] 17
 -- `&&`-wrapped comparison in an if condition.
 def ifAndCond_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "ifAndCond" State.empty overflowArgs 17
+  Prepared.panicMatches 300 preparedC "ifAndCond" State.empty overflowArgs 17
 -- `!`-wrapped comparison in an if condition.
 def ifNotCond_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "ifNotCond" State.empty overflowArgs 17
+  Prepared.panicMatches 300 preparedC "ifNotCond" State.empty overflowArgs 17
 -- narrow index key.
 def idxKey_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "idxKey" State.empty overflowArgs 17
+  Prepared.panicMatches 300 preparedC "idxKey" State.empty overflowArgs 17
 -- `&&`-wrapped comparison in a while condition.
 def whileAndCond_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "whileAndCond" State.empty overflowArgs 17
+  Prepared.panicMatches 300 preparedC "whileAndCond" State.empty overflowArgs 17
 
 -- Already-correct positions (regression pins).
 def plainCmp_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "plainCmp" State.empty overflowArgs 17
+  Prepared.panicMatches 300 preparedC "plainCmp" State.empty overflowArgs 17
 def ifCond_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "ifCond" State.empty overflowArgs 17
+  Prepared.panicMatches 300 preparedC "ifCond" State.empty overflowArgs 17
 def requireCond_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "requireCond" State.empty overflowArgs 17
+  Prepared.panicMatches 300 preparedC "requireCond" State.empty overflowArgs 17
 def eqCmp_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "eqCmp" State.empty overflowArgs 17
+  Prepared.panicMatches 300 preparedC "eqCmp" State.empty overflowArgs 17
 def callArg_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "callArg" State.empty overflowArgs 17
+  Prepared.panicMatches 300 preparedC "callArg" State.empty overflowArgs 17
 
 -- Safe / truncating / unchecked controls (three-way semantics preserved).
 def whileCondSafe_is_3 : Except TypeError Bool :=
-  Examples.checkedOwnCallWordMatches 300 C "whileCondSafe" State.empty
+  Prepared.wordMatches 300 preparedC "whileCondSafe" State.empty
     [Value.word 3, Value.word 4] 3
 def plainCmpSafe_is_true : Except TypeError Bool :=
-  Examples.checkedOwnCallWordMatches 300 C "plainCmpSafe" State.empty
+  Prepared.wordMatches 300 preparedC "plainCmpSafe" State.empty
     [Value.word 3, Value.word 4] 1
 -- unchecked comparison WRAPS at uint8 width: 200+100 -> 44 < 250 -> true.
 def uncheckedCmp_wraps_true : Except TypeError Bool :=
-  Examples.checkedOwnCallWordMatches 300 C "uncheckedCmp" State.empty overflowArgs 1
+  Prepared.wordMatches 300 preparedC "uncheckedCmp" State.empty overflowArgs 1
 -- unchecked while condition wraps and the loop runs (k = 3).
 def uncheckedWhile_wraps_is_3 : Except TypeError Bool :=
-  Examples.checkedOwnCallWordMatches 300 C "uncheckedWhile" State.empty overflowArgs 3
+  Prepared.wordMatches 300 preparedC "uncheckedWhile" State.empty overflowArgs 3
 -- explicit cast stays TRUNCATING: uint8(300) -> 44 < 250 -> true.
 def castCmp_truncates_true : Except TypeError Bool :=
-  Examples.checkedOwnCallWordMatches 300 C "castCmp" State.empty [Value.word 300] 1
+  Prepared.wordMatches 300 preparedC "castCmp" State.empty [Value.word 300] 1
 def idxKeySafe_is_9 : Except TypeError Bool :=
-  Examples.checkedOwnCallWordMatches 300 C "idxKey" State.empty
+  Prepared.wordMatches 300 preparedC "idxKey" State.empty
     [Value.word 40, Value.word 4] 9
 def callArgSafe_is_44 : Except TypeError Bool :=
-  Examples.checkedOwnCallWordMatches 300 C "callArg" State.empty
+  Prepared.wordMatches 300 preparedC "callArg" State.empty
     [Value.word 40, Value.word 4] 44
 
-#guard accepted
-#guard isOkTrue whileCond_panics
-#guard isOkTrue forCond_panics
-#guard isOkTrue doWhileCond_panics
-#guard isOkTrue assertCond_panics
-#guard isOkTrue exprStmt_panics
-#guard isOkTrue intWhileCond_panics
-#guard isOkTrue ifAndCond_panics
-#guard isOkTrue ifNotCond_panics
-#guard isOkTrue idxKey_panics
-#guard isOkTrue whileAndCond_panics
-#guard isOkTrue plainCmp_panics
-#guard isOkTrue ifCond_panics
-#guard isOkTrue requireCond_panics
-#guard isOkTrue eqCmp_panics
-#guard isOkTrue callArg_panics
-#guard isOkTrue whileCondSafe_is_3
-#guard isOkTrue plainCmpSafe_is_true
-#guard isOkTrue uncheckedCmp_wraps_true
-#guard isOkTrue uncheckedWhile_wraps_is_3
-#guard isOkTrue castCmp_truncates_true
-#guard isOkTrue idxKeySafe_is_9
-#guard isOkTrue callArgSafe_is_44
 
+#eval Prepared.assertChecks [
+  ("EnvLoweringUnify:363", (
+    accepted
+  )),
+  ("EnvLoweringUnify:364", (
+    isOkTrue whileCond_panics
+  )),
+  ("EnvLoweringUnify:365", (
+    isOkTrue forCond_panics
+  )),
+  ("EnvLoweringUnify:366", (
+    isOkTrue doWhileCond_panics
+  )),
+  ("EnvLoweringUnify:367", (
+    isOkTrue assertCond_panics
+  )),
+  ("EnvLoweringUnify:368", (
+    isOkTrue exprStmt_panics
+  )),
+  ("EnvLoweringUnify:369", (
+    isOkTrue intWhileCond_panics
+  )),
+  ("EnvLoweringUnify:370", (
+    isOkTrue ifAndCond_panics
+  )),
+  ("EnvLoweringUnify:371", (
+    isOkTrue ifNotCond_panics
+  )),
+  ("EnvLoweringUnify:372", (
+    isOkTrue idxKey_panics
+  )),
+  ("EnvLoweringUnify:373", (
+    isOkTrue whileAndCond_panics
+  )),
+  ("EnvLoweringUnify:374", (
+    isOkTrue plainCmp_panics
+  )),
+  ("EnvLoweringUnify:375", (
+    isOkTrue ifCond_panics
+  )),
+  ("EnvLoweringUnify:376", (
+    isOkTrue requireCond_panics
+  )),
+  ("EnvLoweringUnify:377", (
+    isOkTrue eqCmp_panics
+  )),
+  ("EnvLoweringUnify:378", (
+    isOkTrue callArg_panics
+  )),
+  ("EnvLoweringUnify:379", (
+    isOkTrue whileCondSafe_is_3
+  )),
+  ("EnvLoweringUnify:380", (
+    isOkTrue plainCmpSafe_is_true
+  )),
+  ("EnvLoweringUnify:381", (
+    isOkTrue uncheckedCmp_wraps_true
+  )),
+  ("EnvLoweringUnify:382", (
+    isOkTrue uncheckedWhile_wraps_is_3
+  )),
+  ("EnvLoweringUnify:383", (
+    isOkTrue castCmp_truncates_true
+  )),
+  ("EnvLoweringUnify:384", (
+    isOkTrue idxKeySafe_is_9
+  )),
+  ("EnvLoweringUnify:385", (
+    isOkTrue callArgSafe_is_44
+  ))
+]
 end EnvLoweringUnify
 end Witness
 end Solidity

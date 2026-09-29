@@ -1,3 +1,4 @@
+import SolidCore.Witness.Prepared
 /-
 R1 — INTRINSIC SIBLING-EVALUATION ORDER (rearch/eval-order-intrinsic).
 
@@ -281,12 +282,15 @@ open SolidCore.Solidity.TypeCheck
 
 abbrev C := SolidCore.Solidity.SolcAstImport.EvalOrderIntrinsic.importedContract
 
+private def preparedC : Prepared.Contract :=
+  CheckedInput.ownContract C
+
 def accepted : Bool :=
   SolidCore.Solidity.SolcAstImport.EvalOrderIntrinsic.importedContractAccepted
 
 private def call (fn : Name) :
     Except TypeError SolidCore.Solidity.Source.CallResult :=
-  CheckedInput.ownCall 256 C
+  Prepared.call 256 preparedC
     (SolidCore.Solidity.Source.CallTarget.name fn)
     SolidCore.Solidity.Source.State.empty []
 

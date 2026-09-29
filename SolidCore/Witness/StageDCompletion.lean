@@ -1,3 +1,4 @@
+import SolidCore.Witness.Prepared
 import SolidCore.Solidity.Checked
 import SolidCore.Witness.Checked
 
@@ -368,6 +369,12 @@ open SolidCore.Solidity.TypeCheck
 abbrev C := SolidCore.Solidity.SolcAstImport.StageDCompletionWitness.importedContract
 abbrev L := SolidCore.Solidity.SolcAstImport.StageDCompletionLitWitness.importedContract
 
+private def preparedL : Prepared.Contract :=
+  CheckedInput.ownContract L
+
+private def preparedC : Prepared.Contract :=
+  CheckedInput.ownContract C
+
 def accepted : Bool :=
   SolidCore.Solidity.SolcAstImport.StageDCompletionWitness.importedContractAccepted
 def litAccepted : Bool :=
@@ -377,65 +384,65 @@ def litAccepted : Bool :=
 -- ARGUMENTS Panics 0x11 at the operand width (uint8 200+100 / 100*100, int8
 -- -(-128)) instead of silently running at 256 bits.
 def h1_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "h1" State.empty
+  Prepared.panicMatches 300 preparedC "h1" State.empty
     [Value.word 200, Value.word 100] 17
 def h2_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "h2" State.empty
+  Prepared.panicMatches 300 preparedC "h2" State.empty
     [Value.word 200, Value.word 100] 17
 def h3_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "h3" State.empty
+  Prepared.panicMatches 300 preparedC "h3" State.empty
     [Value.word 200, Value.word 100] 17
 def h4_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "h4" State.empty
+  Prepared.panicMatches 300 preparedC "h4" State.empty
     [Value.word 100, Value.word 100] 17
 def h5_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "h5" State.empty
+  Prepared.panicMatches 300 preparedC "h5" State.empty
     [Value.int (2 ^ 256 - 128)] 17
 -- #193 controls: statement-level narrow assign then hash still panics; 256-bit
 -- overflow/underflow still panic; safe values hash correctly
 -- (keccak256(0x07) = 0xee2a4bc7…cebc, real-EVM `cast keccak 0x07`).
 def c1_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "c1" State.empty
+  Prepared.panicMatches 300 preparedC "c1" State.empty
     [Value.word 200, Value.word 100] 17
 def c2_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "c2" State.empty
+  Prepared.panicMatches 300 preparedC "c2" State.empty
     [Value.word (2 ^ 256 - 1), Value.word 5] 17
 def c3_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "c3" State.empty
+  Prepared.panicMatches 300 preparedC "c3" State.empty
     [Value.word 3, Value.word 5] 17
 def hSafe_matches : Except TypeError Bool :=
-  Examples.checkedOwnCallWordMatches 300 C "hSafe" State.empty
+  Prepared.wordMatches 300 preparedC "hSafe" State.empty
     [Value.word 3, Value.word 4]
     0xee2a4bc7db81da2b7164e56b3649b1e2a09c58c455b15dabddd9146c7582cebc
 -- #193 literal-fold control: literal-only args still constant-fold
 -- (`abi.encode(2**112)` — the uniswap-v2 UQ112x112 shape — and
 -- `abi.encodePacked(uint8(3 + 4))`).
 def lit_encodes_2pow112 : Except TypeError Bool :=
-  Examples.checkedOwnCallBytesMatches 300 L "lit" State.empty []
+  Prepared.bytesMatches 300 preparedL "lit" State.empty []
     (wordToBytesBE wordBytes (2 ^ 112))
 def litPacked_is_7 : Except TypeError Bool :=
-  Examples.checkedOwnCallBytesMatches 300 L "litPacked" State.empty [] [7]
+  Prepared.bytesMatches 300 preparedL "litPacked" State.empty [] [7]
 
 -- #194: narrow checked arithmetic in an LVALUE index KEY Panics 0x11 (no
 -- write) — fixed array, mapping, nested array, storage bytes.
 def w1_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "w1" State.empty
+  Prepared.panicMatches 300 preparedC "w1" State.empty
     [Value.word 200, Value.word 100] 17
 def w2_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "w2" State.empty
+  Prepared.panicMatches 300 preparedC "w2" State.empty
     [Value.word 200, Value.word 100] 17
 def w3_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "w3" State.empty
+  Prepared.panicMatches 300 preparedC "w3" State.empty
     [Value.word 200, Value.word 100] 17
 def w4_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "w4" State.empty
+  Prepared.panicMatches 300 preparedC "w4" State.empty
     [Value.word 200, Value.word 100] 17
 -- #194 controls: safe key writes and reads back; read-side key still panics.
 def wSafe_is_7 : Except TypeError Bool :=
-  Examples.checkedOwnCallWordMatches 300 C "wSafe" State.empty
+  Prepared.wordMatches 300 preparedC "wSafe" State.empty
     [Value.word 3, Value.word 4] 7
 def rRead_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "rRead" State.empty
+  Prepared.panicMatches 300 preparedC "rRead" State.empty
     [Value.word 200, Value.word 100] 17
 
 -- #195: emit call-arg evaluation follows solc's TWO-PHASE schedule (indexed
@@ -444,7 +451,7 @@ def rRead_panics : Except TypeError Bool :=
 -- topics (21,2); all-data control emitData stays L2R: trace 12, data (1,12).
 def emit2_two_phase : Except TypeError Bool := do
   let result ←
-    CheckedInput.ownCall 300 C (CallTarget.name "emit2") State.empty []
+    Prepared.call 300 preparedC (CallTarget.name "emit2") State.empty []
   match result with
   | CallResult.returned state [Value.word 211] =>
       match state.events with
@@ -459,7 +466,7 @@ def emit2_two_phase : Except TypeError Bool := do
   | _ => Except.ok false
 def emit3_two_phase : Except TypeError Bool := do
   let result ←
-    CheckedInput.ownCall 300 C (CallTarget.name "emit3") State.empty []
+    Prepared.call 300 preparedC (CallTarget.name "emit3") State.empty []
   match result with
   | CallResult.returned state [Value.word 21] =>
       match state.events with
@@ -472,7 +479,7 @@ def emit3_two_phase : Except TypeError Bool := do
   | _ => Except.ok false
 def emitData_l2r : Except TypeError Bool := do
   let result ←
-    CheckedInput.ownCall 300 C (CallTarget.name "emitData") State.empty []
+    Prepared.call 300 preparedC (CallTarget.name "emitData") State.empty []
   match result with
   | CallResult.returned state [Value.word 12] =>
       match state.events with
@@ -489,29 +496,75 @@ private def isOkTrue : Except TypeError Bool -> Bool
   | Except.ok true => true
   | _ => false
 
-#guard accepted
-#guard litAccepted
-#guard isOkTrue h1_panics
-#guard isOkTrue h2_panics
-#guard isOkTrue h3_panics
-#guard isOkTrue h4_panics
-#guard isOkTrue h5_panics
-#guard isOkTrue c1_panics
-#guard isOkTrue c2_panics
-#guard isOkTrue c3_panics
-#guard isOkTrue hSafe_matches
-#guard isOkTrue lit_encodes_2pow112
-#guard isOkTrue litPacked_is_7
-#guard isOkTrue w1_panics
-#guard isOkTrue w2_panics
-#guard isOkTrue w3_panics
-#guard isOkTrue w4_panics
-#guard isOkTrue wSafe_is_7
-#guard isOkTrue rRead_panics
-#guard isOkTrue emit2_two_phase
-#guard isOkTrue emit3_two_phase
-#guard isOkTrue emitData_l2r
 
+#eval Prepared.assertChecks [
+  ("StageDCompletion:499", (
+    accepted
+  )),
+  ("StageDCompletion:500", (
+    litAccepted
+  )),
+  ("StageDCompletion:501", (
+    isOkTrue h1_panics
+  )),
+  ("StageDCompletion:502", (
+    isOkTrue h2_panics
+  )),
+  ("StageDCompletion:503", (
+    isOkTrue h3_panics
+  )),
+  ("StageDCompletion:504", (
+    isOkTrue h4_panics
+  )),
+  ("StageDCompletion:505", (
+    isOkTrue h5_panics
+  )),
+  ("StageDCompletion:506", (
+    isOkTrue c1_panics
+  )),
+  ("StageDCompletion:507", (
+    isOkTrue c2_panics
+  )),
+  ("StageDCompletion:508", (
+    isOkTrue c3_panics
+  )),
+  ("StageDCompletion:509", (
+    isOkTrue hSafe_matches
+  )),
+  ("StageDCompletion:510", (
+    isOkTrue lit_encodes_2pow112
+  )),
+  ("StageDCompletion:511", (
+    isOkTrue litPacked_is_7
+  )),
+  ("StageDCompletion:512", (
+    isOkTrue w1_panics
+  )),
+  ("StageDCompletion:513", (
+    isOkTrue w2_panics
+  )),
+  ("StageDCompletion:514", (
+    isOkTrue w3_panics
+  )),
+  ("StageDCompletion:515", (
+    isOkTrue w4_panics
+  )),
+  ("StageDCompletion:516", (
+    isOkTrue wSafe_is_7
+  )),
+  ("StageDCompletion:517", (
+    isOkTrue rRead_panics
+  )),
+  ("StageDCompletion:518", (
+    isOkTrue emit2_two_phase
+  )),
+  ("StageDCompletion:519", (
+    isOkTrue emit3_two_phase
+  )),
+  ("StageDCompletion:520", (
+    isOkTrue emitData_l2r
+  ))
+]
 end StageDCompletion
 end Witness
 end Solidity

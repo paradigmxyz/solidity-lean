@@ -1,3 +1,4 @@
+import SolidCore.Witness.Prepared
 import SolidCore.Solidity.Checked
 import SolidCore.Witness.Checked
 
@@ -426,6 +427,9 @@ open SolidCore.Solidity.TypeCheck
 abbrev C :=
   SolidCore.Solidity.SolcAstImport.LoweringUnifyWitness.importedContract
 
+private def preparedC : Prepared.Contract :=
+  CheckedInput.ownContract C
+
 def accepted : Bool :=
   SolidCore.Solidity.SolcAstImport.LoweringUnifyWitness.importedContractAccepted
 
@@ -433,93 +437,93 @@ def ab : List Value := [Value.word 200, Value.word 100]
 
 -- A. assignment RHS member-call builtin (Panic 0x11 at uint8 width).
 def asgLocal_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "asgLocal" State.empty ab 17
+  Prepared.panicMatches 300 preparedC "asgLocal" State.empty ab 17
 def asgHash_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "asgHash" State.empty ab 17
+  Prepared.panicMatches 300 preparedC "asgHash" State.empty ab 17
 def asgConcat_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "asgConcat" State.empty ab 17
+  Prepared.panicMatches 300 preparedC "asgConcat" State.empty ab 17
 def asgStorage_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "asgStorage" State.empty ab 17
+  Prepared.panicMatches 300 preparedC "asgStorage" State.empty ab 17
 
 -- B. vardecl init (incl. the cast-of-builtin shape vdNested).
 def vdBytes_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "vdBytes" State.empty ab 17
+  Prepared.panicMatches 300 preparedC "vdBytes" State.empty ab 17
 def vdHash_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "vdHash" State.empty ab 17
+  Prepared.panicMatches 300 preparedC "vdHash" State.empty ab 17
 def vdNested_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "vdNested" State.empty ab 17
+  Prepared.panicMatches 300 preparedC "vdNested" State.empty ab 17
 
 -- C. require/assert conditions (comparison operand + `.length`-of-builtin).
 def reqHash_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "reqHash" State.empty
+  Prepared.panicMatches 300 preparedC "reqHash" State.empty
     (ab ++ [Value.word 0]) 17
 def reqEnc_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "reqEnc" State.empty ab 17
+  Prepared.panicMatches 300 preparedC "reqEnc" State.empty ab 17
 def assertHash_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "assertHash" State.empty
+  Prepared.panicMatches 300 preparedC "assertHash" State.empty
     (ab ++ [Value.word 0]) 17
 
 -- D. emit args (builtin arg; pure narrow-arith arg BEFORE a call arg).
 def emitEnc_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "emitEnc" State.empty ab 17
+  Prepared.panicMatches 300 preparedC "emitEnc" State.empty ab 17
 def emitHash_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "emitHash" State.empty ab 17
+  Prepared.panicMatches 300 preparedC "emitHash" State.empty ab 17
 def emitMix_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "emitMix" State.empty ab 17
+  Prepared.panicMatches 300 preparedC "emitMix" State.empty ab 17
 
 -- E. revert custom-error arg: the arith evaluates (and Panics) BEFORE the
 -- custom revert data is built — previously reverted `Err(encode(300))`.
 def revErr_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "revErr" State.empty ab 17
+  Prepared.panicMatches 300 preparedC "revErr" State.empty ab 17
 
 -- F. nested builtin-in-builtin (incl. the RETURN-position miss nestConcat).
 def nestConcat_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "nestConcat" State.empty ab 17
+  Prepared.panicMatches 300 preparedC "nestConcat" State.empty ab 17
 def nestEnc_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "nestEnc" State.empty ab 17
+  Prepared.panicMatches 300 preparedC "nestEnc" State.empty ab 17
 
 -- G. compound-assign / delete lvalue keys (Panic 0x11, no write).
 def lvCompound_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "lvCompound" State.empty ab 17
+  Prepared.panicMatches 300 preparedC "lvCompound" State.empty ab 17
 def lvDelete_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "lvDelete" State.empty ab 17
+  Prepared.panicMatches 300 preparedC "lvDelete" State.empty ab 17
 
 -- CONTROLS (green before #201; must stay green).
 def ctrlReturn_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "ctrlReturn" State.empty ab 17
+  Prepared.panicMatches 300 preparedC "ctrlReturn" State.empty ab 17
 def ctrlStmt_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "ctrlStmt" State.empty ab 17
+  Prepared.panicMatches 300 preparedC "ctrlStmt" State.empty ab 17
 def callEnc_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "callEnc" State.empty ab 17
+  Prepared.panicMatches 300 preparedC "callEnc" State.empty ab 17
 def callHash_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "callHash" State.empty ab 17
+  Prepared.panicMatches 300 preparedC "callHash" State.empty ab 17
 def lvStruct_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "lvStruct" State.empty
+  Prepared.panicMatches 300 preparedC "lvStruct" State.empty
     (ab ++ [Value.word 7]) 17
 def lvMapDeep_panics : Except TypeError Bool :=
-  Examples.checkedOwnCallPanicMatches 300 C "lvMapDeep" State.empty
+  Prepared.panicMatches 300 preparedC "lvMapDeep" State.empty
     (ab ++ [Value.word 1, Value.word 7]) 17
 -- Safe values keep their exact real-EVM results.
 def ctrlSafe_is_enc7 : Except TypeError Bool :=
-  Examples.checkedOwnCallBytesMatches 300 C "ctrlSafe" State.empty
+  Prepared.bytesMatches 300 preparedC "ctrlSafe" State.empty
     [Value.word 3, Value.word 4] (wordToBytesBE wordBytes 7)
 def vdBytes_safe_is_32 : Except TypeError Bool :=
-  Examples.checkedOwnCallWordMatches 300 C "vdBytes" State.empty
+  Prepared.wordMatches 300 preparedC "vdBytes" State.empty
     [Value.word 3, Value.word 4] 32
 def asgStorage_safe_is_1 : Except TypeError Bool :=
-  Examples.checkedOwnCallWordMatches 300 C "asgStorage" State.empty
+  Prepared.wordMatches 300 preparedC "asgStorage" State.empty
     [Value.word 3, Value.word 4] 1
 def nestEnc_safe_is_96 : Except TypeError Bool :=
-  Examples.checkedOwnCallWordMatches 300 C "nestEnc" State.empty
+  Prepared.wordMatches 300 preparedC "nestEnc" State.empty
     [Value.word 3, Value.word 4] 96
 def emitMix_safe_is_1 : Except TypeError Bool :=
-  Examples.checkedOwnCallWordMatches 300 C "emitMix" State.empty
+  Prepared.wordMatches 300 preparedC "emitMix" State.empty
     [Value.word 3, Value.word 4] 1
 -- Two-phase emit control: `emit EO(cnt, bump())` still logs data [0, 1]
 -- (the pure first arg reads cnt BEFORE bump()).
 def emitOrder_logs_0_1 : Except TypeError Bool := do
   let result ←
-    CheckedInput.ownCall 300 C (CallTarget.name "emitOrder") State.empty []
+    Prepared.call 300 preparedC (CallTarget.name "emitOrder") State.empty []
   match result with
   | CallResult.returned state [Value.word 1] =>
       match state.events with
@@ -536,38 +540,102 @@ private def isOkTrue : Except TypeError Bool -> Bool
   | Except.ok true => true
   | _ => false
 
-#guard accepted
-#guard isOkTrue asgLocal_panics
-#guard isOkTrue asgHash_panics
-#guard isOkTrue asgConcat_panics
-#guard isOkTrue asgStorage_panics
-#guard isOkTrue vdBytes_panics
-#guard isOkTrue vdHash_panics
-#guard isOkTrue vdNested_panics
-#guard isOkTrue reqHash_panics
-#guard isOkTrue reqEnc_panics
-#guard isOkTrue assertHash_panics
-#guard isOkTrue emitEnc_panics
-#guard isOkTrue emitHash_panics
-#guard isOkTrue emitMix_panics
-#guard isOkTrue revErr_panics
-#guard isOkTrue nestConcat_panics
-#guard isOkTrue nestEnc_panics
-#guard isOkTrue lvCompound_panics
-#guard isOkTrue lvDelete_panics
-#guard isOkTrue ctrlReturn_panics
-#guard isOkTrue ctrlStmt_panics
-#guard isOkTrue callEnc_panics
-#guard isOkTrue callHash_panics
-#guard isOkTrue lvStruct_panics
-#guard isOkTrue lvMapDeep_panics
-#guard isOkTrue ctrlSafe_is_enc7
-#guard isOkTrue vdBytes_safe_is_32
-#guard isOkTrue asgStorage_safe_is_1
-#guard isOkTrue nestEnc_safe_is_96
-#guard isOkTrue emitMix_safe_is_1
-#guard isOkTrue emitOrder_logs_0_1
 
+#eval Prepared.assertChecks [
+  ("LoweringUnify:543", (
+    accepted
+  )),
+  ("LoweringUnify:544", (
+    isOkTrue asgLocal_panics
+  )),
+  ("LoweringUnify:545", (
+    isOkTrue asgHash_panics
+  )),
+  ("LoweringUnify:546", (
+    isOkTrue asgConcat_panics
+  )),
+  ("LoweringUnify:547", (
+    isOkTrue asgStorage_panics
+  )),
+  ("LoweringUnify:548", (
+    isOkTrue vdBytes_panics
+  )),
+  ("LoweringUnify:549", (
+    isOkTrue vdHash_panics
+  )),
+  ("LoweringUnify:550", (
+    isOkTrue vdNested_panics
+  )),
+  ("LoweringUnify:551", (
+    isOkTrue reqHash_panics
+  )),
+  ("LoweringUnify:552", (
+    isOkTrue reqEnc_panics
+  )),
+  ("LoweringUnify:553", (
+    isOkTrue assertHash_panics
+  )),
+  ("LoweringUnify:554", (
+    isOkTrue emitEnc_panics
+  )),
+  ("LoweringUnify:555", (
+    isOkTrue emitHash_panics
+  )),
+  ("LoweringUnify:556", (
+    isOkTrue emitMix_panics
+  )),
+  ("LoweringUnify:557", (
+    isOkTrue revErr_panics
+  )),
+  ("LoweringUnify:558", (
+    isOkTrue nestConcat_panics
+  )),
+  ("LoweringUnify:559", (
+    isOkTrue nestEnc_panics
+  )),
+  ("LoweringUnify:560", (
+    isOkTrue lvCompound_panics
+  )),
+  ("LoweringUnify:561", (
+    isOkTrue lvDelete_panics
+  )),
+  ("LoweringUnify:562", (
+    isOkTrue ctrlReturn_panics
+  )),
+  ("LoweringUnify:563", (
+    isOkTrue ctrlStmt_panics
+  )),
+  ("LoweringUnify:564", (
+    isOkTrue callEnc_panics
+  )),
+  ("LoweringUnify:565", (
+    isOkTrue callHash_panics
+  )),
+  ("LoweringUnify:566", (
+    isOkTrue lvStruct_panics
+  )),
+  ("LoweringUnify:567", (
+    isOkTrue lvMapDeep_panics
+  )),
+  ("LoweringUnify:568", (
+    isOkTrue ctrlSafe_is_enc7
+  )),
+  ("LoweringUnify:569", (
+    isOkTrue vdBytes_safe_is_32
+  )),
+  ("LoweringUnify:570", (
+    isOkTrue asgStorage_safe_is_1
+  )),
+  ("LoweringUnify:571", (
+    isOkTrue nestEnc_safe_is_96
+  )),
+  ("LoweringUnify:572", (
+    isOkTrue emitMix_safe_is_1
+  )),
+  ("LoweringUnify:573", (
+    isOkTrue emitOrder_logs_0_1
+  ))
+]
 end LoweringUnify
 end Witness
 end Solidity
@@ -1080,8 +1148,11 @@ abbrev U := SolidCore.Solidity.SolcAstImport.LoweringUnifyAuditWitness.importedS
 def unitAccepted : Bool :=
   SolidCore.Solidity.SolcAstImport.LoweringUnifyAuditWitness.importedContractAccepted
 
+private def preparedAudit : Prepared.Contract :=
+  CheckedInput.contract U "AuditProbe"
+
 def callP (fn : Name) (args : List Value) : Except TypeError CallResult :=
-  CheckedInput.callContract 900 U "AuditProbe" (CallTarget.name fn)
+  Prepared.call 900 preparedAudit (CallTarget.name fn)
     State.empty args
 
 def panics17 (fn : Name) (args : List Value) : Bool :=
@@ -1102,40 +1173,9 @@ def safe : List Value := [Value.word 3, Value.word 4]
 def x10 : List Value := [Value.word 10, Value.word 0]
 
 -- H1..H6 (divergent before this branch)
-#guard unitAccepted
-#guard panics17 "newSize" ab
-#guard panics17 "extArg" ab
-#guard panics17 "tryArg" ab
-#guard panics17 "addmodArg" ab
-#guard panics17 "idxNested" ab
-#guard panics17 "arrLit" ab
 -- controls that must stay green
-#guard panics17 "emitNamed" ab
-#guard panics17 "revNamed" ab
-#guard panics17 "structCtor" ab
-#guard panics17 "structNamed" ab
-#guard panics17 "tupleAssign" ab
-#guard panics17 "tupleDecl" ab
-#guard panics17 "libArg" ab
-#guard panics17 "fnPtrArg" ab
-#guard panics17 "modArg" ab
-#guard panics17 "pushArg" ab
-#guard panics17 "forInit" ab
-#guard panics17 "delMapKey" ab
-#guard panics17 "emitIndexed" ab
 -- safe / wrap-width values (exact real-EVM results)
-#guard retWord "unchkVd" ab 44
-#guard retWord "unchkTuple" ab 44
-#guard retWord "tupleDecl" safe 7
-#guard retWord "arrLit" safe 7
-#guard retWord "newSize" safe 7
-#guard retWord "libArg" safe 7
-#guard retWord "usingArg" x10 27
 -- #196 chain shapes (correct values; the depth-suffixed gensym keeps them)
-#guard retWord "chain3" [Value.word 10] 27
-#guard retWord "chain4" [Value.word 10] 32
-#guard retWord "chain3lib" [Value.word 10] 27
-#guard retWord "chain3vd" [Value.word 10] 27
 
 -- chain3emit: EI topic value 27; emit2Idx: two-phase indexed schedule x=2,y=1
 def chain3emitTopic27 : Bool :=
@@ -1156,9 +1196,108 @@ def emit2IdxTwoPhase : Bool :=
       | _ => false
   | _ => false
 
-#guard chain3emitTopic27
-#guard emit2IdxTwoPhase
 
+#eval Prepared.assertChecks [
+  ("LoweringUnify:1112", (
+    unitAccepted
+  )),
+  ("LoweringUnify:1113", (
+    panics17 "newSize" ab
+  )),
+  ("LoweringUnify:1114", (
+    panics17 "extArg" ab
+  )),
+  ("LoweringUnify:1115", (
+    panics17 "tryArg" ab
+  )),
+  ("LoweringUnify:1116", (
+    panics17 "addmodArg" ab
+  )),
+  ("LoweringUnify:1117", (
+    panics17 "idxNested" ab
+  )),
+  ("LoweringUnify:1118", (
+    panics17 "arrLit" ab
+  )),
+  ("LoweringUnify:1120", (
+    panics17 "emitNamed" ab
+  )),
+  ("LoweringUnify:1121", (
+    panics17 "revNamed" ab
+  )),
+  ("LoweringUnify:1122", (
+    panics17 "structCtor" ab
+  )),
+  ("LoweringUnify:1123", (
+    panics17 "structNamed" ab
+  )),
+  ("LoweringUnify:1124", (
+    panics17 "tupleAssign" ab
+  )),
+  ("LoweringUnify:1125", (
+    panics17 "tupleDecl" ab
+  )),
+  ("LoweringUnify:1126", (
+    panics17 "libArg" ab
+  )),
+  ("LoweringUnify:1127", (
+    panics17 "fnPtrArg" ab
+  )),
+  ("LoweringUnify:1128", (
+    panics17 "modArg" ab
+  )),
+  ("LoweringUnify:1129", (
+    panics17 "pushArg" ab
+  )),
+  ("LoweringUnify:1130", (
+    panics17 "forInit" ab
+  )),
+  ("LoweringUnify:1131", (
+    panics17 "delMapKey" ab
+  )),
+  ("LoweringUnify:1132", (
+    panics17 "emitIndexed" ab
+  )),
+  ("LoweringUnify:1134", (
+    retWord "unchkVd" ab 44
+  )),
+  ("LoweringUnify:1135", (
+    retWord "unchkTuple" ab 44
+  )),
+  ("LoweringUnify:1136", (
+    retWord "tupleDecl" safe 7
+  )),
+  ("LoweringUnify:1137", (
+    retWord "arrLit" safe 7
+  )),
+  ("LoweringUnify:1138", (
+    retWord "newSize" safe 7
+  )),
+  ("LoweringUnify:1139", (
+    retWord "libArg" safe 7
+  )),
+  ("LoweringUnify:1140", (
+    retWord "usingArg" x10 27
+  )),
+  ("LoweringUnify:1142", (
+    retWord "chain3" [Value.word 10] 27
+  )),
+  ("LoweringUnify:1143", (
+    retWord "chain4" [Value.word 10] 32
+  )),
+  ("LoweringUnify:1144", (
+    retWord "chain3lib" [Value.word 10] 27
+  )),
+  ("LoweringUnify:1145", (
+    retWord "chain3vd" [Value.word 10] 27
+  )),
+  ("LoweringUnify:1166", (
+    chain3emitTopic27
+  )),
+  ("LoweringUnify:1167", (
+    emit2IdxTwoPhase
+  ))
+]
 end LoweringUnifyAudit
 end Witness
 end Solidity

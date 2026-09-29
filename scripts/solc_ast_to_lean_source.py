@@ -9,6 +9,7 @@ accept and execute the result.
 
 from __future__ import annotations
 import argparse
+import importlib.util
 import json
 from pathlib import Path
 import re
@@ -16,6 +17,14 @@ import shutil
 import subprocess
 import sys
 from typing import Any, Sequence
+
+
+# Load by exact sibling path: this script is also imported with importlib.
+_cache_spec = importlib.util.spec_from_file_location(
+    "solidity_harness_cache", Path(__file__).with_name("harness_cache.py"))
+assert _cache_spec and _cache_spec.loader
+_CACHE = importlib.util.module_from_spec(_cache_spec)
+_cache_spec.loader.exec_module(_CACHE)
 
 
 class ImportError(Exception):
@@ -457,8 +466,7 @@ def standard_json_input(path: Path) -> dict[str, Any]:
     }
 
 
-def run_solc_ast(solc: str, path: Path) -> tuple[str, dict[str, Any]]:
-    request = standard_json_input(path)
+def _compile_solc_request(solc: str, request: dict[str, Any]) -> dict[str, Any]:
     completed = subprocess.run(
         [solc, "--standard-json"],
         input=json.dumps(request),
@@ -480,6 +488,19 @@ def run_solc_ast(solc: str, path: Path) -> tuple[str, dict[str, Any]]:
     ]
     if completed.returncode != 0 or errors:
         fail("\n".join(errors) or completed.stderr or f"solc exited {completed.returncode}")
+    return output
+
+
+def run_solc_ast(solc: str, path: Path) -> tuple[str, dict[str, Any]]:
+    request = standard_json_input(path)
+    # solc may resolve imports from disk outside this single-source request.
+    # Conservatively bypass caching until that dependency closure is explicit.
+    has_imports = any(re.search(r"\bimport\b", src["content"])
+                      for src in request["sources"].values())
+    identity = None if has_imports else _CACHE.tool_identity(solc)
+    output = (_CACHE.cached("solc-ast", {"tool": identity, "request": request},
+                           lambda: _compile_solc_request(solc, request))
+              if identity is not None else _compile_solc_request(solc, request))
     sources = output.get("sources")
     name = source_key(path)
     if not isinstance(sources, dict) or name not in sources:

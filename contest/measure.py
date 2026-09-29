@@ -16,6 +16,8 @@ Reuses the harness's pinned solc/forge invocation conventions
 
 from __future__ import annotations
 
+import json
+import os
 import re
 import shutil
 from dataclasses import dataclass
@@ -29,6 +31,8 @@ from . import reject_gate as gate
 # The standard Foundry cheatcode address = address(uint160(uint256(keccak256(
 # "hevm cheat code")))). We reference it by that expression in the harness.
 _CHEAT_EXPR = "address(uint160(uint256(keccak256(\"hevm cheat code\"))))"
+
+from . import cache as stage_cache
 
 
 @dataclass
@@ -618,10 +622,59 @@ def measure_evm(sig: EntrySig, args: list, ov: cenv.EnvOverrides,
     else:
         ctor_args_hex = _encode_args_abi(ctor_list).hex()
     rel_import = f"../src/{sig.source_file.name}"
-    (proj / "test" / "ContestMeasure.t.sol").write_text(
-        _harness_source(sig, calldata, out_path, ov, rel_import, slots,
-                        ctor_args_hex=ctor_args_hex,
-                        inject_storage=inject_storage))
+    harness_source = _harness_source(sig, calldata, out_path, ov, rel_import, slots,
+                                     ctor_args_hex=ctor_args_hex,
+                                     inject_storage=inject_storage)
+    (proj / "test" / "ContestMeasure.t.sol").write_text(harness_source)
+    # Only the harness-owned output filename varies with the temporary job dir.
+    # Source bytes, complete generated measurement, flags, parser and binaries
+    # define the deterministic EVM oracle. Engine changes deliberately do not.
+    canonical_harness = _harness_source(
+        sig, calldata, Path("/__spec_hunt_measurement__"), ov, rel_import, slots,
+        ctor_args_hex=ctor_args_hex, inject_storage=inject_storage)
+    tools_identity = {"forge": stage_cache.tool_identity(forge),
+                      "solc": stage_cache.tool_identity(solc)}
+    # Foundry also reads a user-wide config even with an explicit --root.
+    config_paths = {Path.home() / ".foundry" / "foundry.toml",
+                    Path(os.environ.get("FOUNDRY_DIR", Path.home() / ".foundry")) / "foundry.toml"}
+    if os.environ.get("FOUNDRY_CONFIG"):
+        config_paths.add(Path(os.environ["FOUNDRY_CONFIG"]).expanduser().resolve())
+    try:
+        user_configs = {str(p): stage_cache.digest(p.read_bytes()) if p.exists() else None
+                        for p in sorted(config_paths)}
+    except OSError:
+        user_configs = None
+    sources = {p.name: p.read_bytes() for p in sorted((proj / "src").glob("*.sol"))}
+    oracle_key = stage_cache.key_for({
+        "tools": tools_identity,
+        "sources": {name: stage_cache.digest(data) for name, data in sources.items()},
+        "environment": {k: v for k, v in os.environ.items()
+                        if k.startswith(("FOUNDRY_", "DAPP_", "ETH_"))},
+        "harness": canonical_harness,
+        "userConfigs": user_configs,
+        "implementation": stage_cache.digest(Path(__file__).read_bytes()),
+        "profile": {"evm_version": "cancun", "ffi": False,
+                    "offline": True, "auto_detect": False},
+    }) if (user_configs is not None and all(tools_identity.values())
+           # Changing the output path changes the measurement test's bytecode.
+           # Code/gas introspection could observe that change, even if the scope
+           # gate later rejects it. Preserve fresh raw evidence for those inputs.
+           and not any(re.search(rb"\b(import|code|codehash|gasleft|assembly)\b", data)
+                       for data in sources.values())) else None
+    cached = stage_cache.get("evm-oracle", oracle_key) if oracle_key else None
+    if (isinstance(cached, dict) and isinstance(cached.get("raw"), str)
+            and isinstance(cached.get("provenance"), dict)
+            and cached["provenance"].get("tools") == tools_identity
+            and cached["provenance"].get("rawSha256") == stage_cache.digest(cached["raw"].encode())):
+        measured = _parse_measurement(cached["raw"])
+        if measured is not None:
+            out_path.write_text(cached["raw"])
+            (work_dir / "oracle-cache.json").write_text(json.dumps(
+                {"key": oracle_key, "hit": True, "provenance": cached["provenance"]},
+                indent=2))
+            return measured, "ok"
+    # Never accept a leftover output after a failed rerun in the same work dir.
+    out_path.unlink(missing_ok=True)
     (proj / "foundry.toml").write_text(
         "[profile.default]\nsrc = \"src\"\ntest = \"test\"\n"
         "evm_version = \"cancun\"\nffi = false\n"
@@ -651,6 +704,11 @@ def measure_evm(sig: EntrySig, args: list, ov: cenv.EnvOverrides,
     m = _parse_measurement(raw)
     if m is None:
         return None, f"could not parse measurement output: {raw!r}"
+    if rc == 0 and oracle_key:
+        provenance = {"tools": tools_identity, "rawSha256": stage_cache.digest(raw.encode())}
+        stage_cache.put("evm-oracle", oracle_key, {"raw": raw, "provenance": provenance})
+        (work_dir / "oracle-cache.json").write_text(json.dumps(
+            {"key": oracle_key, "hit": False, "provenance": provenance}, indent=2))
     return m, "ok"
 
 

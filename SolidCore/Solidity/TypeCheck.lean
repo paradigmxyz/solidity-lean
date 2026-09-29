@@ -1,4 +1,4 @@
-import SolidCore.Solidity.Interface
+import SolidCore.Solidity.Interface.ContractMetadata
 
 namespace SolidCore
 namespace Solidity

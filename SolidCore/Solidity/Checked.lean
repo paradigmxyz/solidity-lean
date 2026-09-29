@@ -1,4 +1,5 @@
 import SolidCore.Solidity.TypeCheck
+import SolidCore.Solidity.Interface
 
 namespace SolidCore
 namespace Solidity
@@ -54,8 +55,8 @@ def foldFailOpen {α : Type} (responder : ScriptedResponder) (what : String) :
 /-
 The common checked source layer for execution-facing users.
 
-`Interface.lean` still contains the raw executable translators because the
-typechecker depends on the source surface defined there. Callers that want
+`Interface.lean` re-exports the raw executable translators. The typechecker
+depends only on the shared expression types and contract metadata. Callers that want
 Solidity validity as part of execution should enter through this wrapper so
 `SourceUnit.check` is run before any source-to-core translation or call.
 -/

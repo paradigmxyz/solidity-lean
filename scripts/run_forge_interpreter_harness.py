@@ -15,6 +15,7 @@ witnesses while importer coverage grows.
 
 from __future__ import annotations
 import argparse
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -27,6 +28,20 @@ import sys
 import threading
 import tempfile
 from typing import Any
+
+_cache_spec = importlib.util.spec_from_file_location(
+    "solidity_harness_cache", Path(__file__).with_name("harness_cache.py"))
+assert _cache_spec and _cache_spec.loader
+_CACHE = importlib.util.module_from_spec(_cache_spec)
+_cache_spec.loader.exec_module(_CACHE)
+_runtime_spec = importlib.util.spec_from_file_location(
+    "solidity_harness_runtime", Path(__file__).with_name("harness_runtime.py"))
+assert _runtime_spec and _runtime_spec.loader
+_RUNTIME = importlib.util.module_from_spec(_runtime_spec)
+_runtime_spec.loader.exec_module(_RUNTIME)
+lean_command = _RUNTIME.lean_command
+helper_ready = _RUNTIME.helper_ready
+
 
 ANSI = re.compile("\\x1b\\[[0-9;]*m")
 TEST_LINE = re.compile("^\\[(PASS|FAIL|SKIP)\\]\\s+(.+)$")
@@ -356,6 +371,20 @@ def run_solc_import(
         "--body-only",
     ]
 
+    source_bytes = source_path.read_bytes()
+    solc_identity = (None if re.search(rb"\bimport\b", source_bytes)
+                     else _CACHE.tool_identity(variables["solc"]))
+    import_key = _CACHE.key_for({
+        "tool": solc_identity,
+        "importer": _CACHE.digest((repo / "scripts" / "solc_ast_to_lean_source.py").read_bytes()),
+        "sourcePath": str(source_path), "source": _CACHE.digest(source_bytes),
+        "contract": contract, "namespace": namespace, "bodyOnly": True,
+    }) if solc_identity is not None else None
+    cached = _CACHE.get("solc-import", import_key) if import_key else None
+    if isinstance(cached, dict) and isinstance(cached.get("source"), str):
+        stdout_log.write_text(cached["source"], encoding="utf-8")
+        stderr_log.write_text("", encoding="utf-8")
+        return True, "ok", cached["source"]
     print("  solc_ast_cmd=" + " ".join(command))
     try:
         status = run_capture(command, repo, timeout, stdout_log, stderr_log)
@@ -363,7 +392,15 @@ def run_solc_import(
         return False, f"timeout_after_{timeout}s", ""
     if status != 0:
         return False, f"exit_{status}", ""
-    return True, "ok", stdout_log.read_text(encoding="utf-8")
+    generated = stdout_log.read_text(encoding="utf-8")
+    if import_key:
+        _CACHE.put("solc-import", import_key, {"source": generated})
+    return True, "ok", generated
+
+
+def run_lean_capture(repo: Path, lake: str, file: Path, timeout: int,
+                     stdout: Path, stderr: Path) -> int:
+    return _RUNTIME.run_lean_capture(repo, lake, file, timeout, stdout, stderr, run_capture)
 
 
 def run_lean(
@@ -426,10 +463,10 @@ def run_lean(
     write_text(lean_file, "\n".join(lean_lines) + "\n")
     stdout_log = case_tmp / "lean.stdout.log"
     stderr_log = case_tmp / "lean.stderr.log"
-    command = [variables["lake"], "env", "lean", str(lean_file)]
+    command = lean_command(repo, variables["lake"], lean_file)
     print("  lean_cmd=" + " ".join(command))
     try:
-        status = run_capture(command, repo, timeout, stdout_log, stderr_log)
+        status = run_lean_capture(repo, variables["lake"], lean_file, timeout, stdout_log, stderr_log)
     except subprocess.TimeoutExpired:
         return False, f"timeout_after_{timeout}s"
 
