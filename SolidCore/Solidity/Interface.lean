@@ -10226,17 +10226,53 @@ def Expr.annotateAbiFuel : Nat -> TypeEnv -> Expr -> Expr
                 (annotateArg head :: rest.map annotateAbiArg)
       | Expr.call (Expr.member (Expr.ident "abi") "encodeCall")
           [Arg.positional functionPointer, Arg.positional (Expr.tuple items)] =>
-          let annotatedItems :=
-            match Expr.encodeCallDeclaredParamTys? env functionPointer with
-            | some paramTys =>
+          match Expr.encodeCallDeclaredParamTys? env functionPointer with
+          | some [paramTy@(Ty.struct _ fieldTys)] =>
+              -- A resolved one-argument struct constructor is itself an
+              -- `Expr.tuple` of fields.  Treating every tuple here as the
+              -- encodeCall ARGUMENT LIST flattened that struct: the ABI type
+              -- remained `(uint256)` while the value became the scalar `7`,
+              -- so encoding failed with Panic(0).  Keep the field tuple as one
+              -- explicitly typed argument.  The wrapper also prevents the
+              -- later encodeCall lowering from mistaking it for a multi-arg
+              -- tuple, while field annotation preserves the usual narrow
+              -- arithmetic checks.
+              let isStructValue :=
+                match Expr.abiTyWithEnv? env (Expr.tuple items) with
+                | some tupleTy =>
+                    match Ty.abiCanonical? tupleTy,
+                        Ty.abiCanonical? paramTy with
+                    | some tupleCanonical, some paramCanonical =>
+                        tupleCanonical == paramCanonical
+                    | _, _ => false
+                | none => false
+              if fieldTys.length == items.length && isStructValue then
+                let annotatedFields :=
+                  annotateEncodeCallTupleItems fieldTys items
+                Expr.call (Expr.member (Expr.ident "abi") "encodeCall")
+                  [ Arg.positional (annotate functionPointer)
+                  , Arg.positional
+                      (Expr.call (Expr.typeName paramTy)
+                        [Arg.positional (Expr.tuple annotatedFields)]) ]
+              else
+                Expr.call (Expr.member (Expr.ident "abi") "encodeCall")
+                  [ Arg.positional (annotate functionPointer)
+                  , Arg.positional
+                      (Expr.tuple (items.map annotateAbiTupleItem)) ]
+          | some paramTys =>
+              let annotatedItems :=
                 if paramTys.length == items.length then
                   annotateEncodeCallTupleItems paramTys items
                 else
                   items.map annotateAbiTupleItem
-            | none => items.map annotateAbiTupleItem
-          Expr.call (Expr.member (Expr.ident "abi") "encodeCall")
-            [ Arg.positional (annotate functionPointer)
-            , Arg.positional (Expr.tuple annotatedItems) ]
+              Expr.call (Expr.member (Expr.ident "abi") "encodeCall")
+                [ Arg.positional (annotate functionPointer)
+                , Arg.positional (Expr.tuple annotatedItems) ]
+          | none =>
+              Expr.call (Expr.member (Expr.ident "abi") "encodeCall")
+                [ Arg.positional (annotate functionPointer)
+                , Arg.positional
+                    (Expr.tuple (items.map annotateAbiTupleItem)) ]
       | Expr.call (Expr.member (Expr.ident "abi") "encodeCall")
           [Arg.positional functionPointer, Arg.positional argumentExpr] =>
           let annotatedArg :=
