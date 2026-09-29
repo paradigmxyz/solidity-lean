@@ -82,6 +82,24 @@ def intMaxContract : ContractDecl :=
   { kind := ContractKind.contract, name := "IntMax", abstract := false,
     bases := [], items := [intMaxFn] }
 
+private def localShadowFn : ContractItem :=
+  ContractItem.function
+    { kind := FunctionKind.function, name := some "run",
+      visibility := some Visibility.public_,
+      mutability := StateMutability.pure,
+      params := [],
+      returns := [{ name := none, ty := Ty.uint 256, location := none }],
+      body := some (Stmt.block
+        [ Stmt.varDecl
+            [{ name := some "K", ty := some (Ty.uint 256), location := none }]
+            (some (num "3"))
+        , Stmt.returnValues (some
+            (Expr.binary BinaryOp.add (Expr.ident "K") (num "1"))) ]) }
+
+def localShadowContract : ContractDecl :=
+  { kind := ContractKind.contract, name := "LocalShadow", abstract := false,
+    bases := [], items := [constDecl "K" "7", localShadowFn] }
+
 private def isOkTrue : Except TypeError Bool -> Bool
   | Except.ok true => true
   | _ => false
@@ -92,7 +110,11 @@ def constant_pair_is_ten : Except TypeError Bool :=
 def int_max_comparison_succeeds : Except TypeError Bool :=
   Examples.checkedOwnCallWordMatches 64 intMaxContract "basic" State.empty [] 0
 
+def local_shadow_returns_four : Except TypeError Bool :=
+  Examples.checkedOwnCallWordMatches 128 localShadowContract "run" State.empty [] 4
+
 #guard isOkTrue constant_pair_is_ten
 #guard isOkTrue int_max_comparison_succeeds
+#guard isOkTrue local_shadow_returns_four
 
 end SolidCore.Solidity.Witness.TypedConstantSemantics

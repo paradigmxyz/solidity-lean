@@ -181,6 +181,16 @@ def ConstantEnv.lookup? (env : ConstantEnv) (name : Name) : Option (Ty × Expr) 
       else
         ConstantEnv.lookup? rest name
 
+/-- Remove constants hidden by bindings in the current lexical scope. -/
+def ConstantEnv.withoutNames (env : ConstantEnv) (names : List Name) : ConstantEnv :=
+  env.filter (fun entry => !names.contains entry.1)
+
+def VarBindings.boundNames (bindings : List VarBinding) : List Name :=
+  bindings.filterMap (fun binding => binding.name)
+
+def Parameters.constantShadowNames (params : List Parameter) : List Name :=
+  params.filterMap (fun param => param.name)
+
 /-- A state/file constant keeps its declared integer type at each use.  A raw
     syntactic substitution would turn `uint constant a = 12` back into an
     untyped rational literal, making `(a / 10) * 10` fold as `(12/10)*10 = 12`
@@ -299,7 +309,8 @@ def Stmt.inlineConstantsFuel : Nat -> ConstantEnv -> Stmt -> Stmt
       let inlineClause := CatchClause.inlineConstantsFuel fuel constants
       match stmt with
       | Stmt.empty => Stmt.empty
-      | Stmt.block body => Stmt.block (body.map inlineStmt)
+      | Stmt.block body =>
+          Stmt.block (Stmts.inlineConstantsFuel fuel constants body)
       | Stmt.varDecl bindings init =>
           Stmt.varDecl bindings (init.map inlineExpr)
       | Stmt.expr expr => Stmt.expr (inlineExpr expr)
@@ -326,6 +337,21 @@ def Stmt.inlineConstantsFuel : Nat -> ConstantEnv -> Stmt -> Stmt
       | Stmt.unchecked body => Stmt.unchecked (inlineStmt body)
       | Stmt.inlineAssembly code => Stmt.inlineAssembly code
       | Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
+
+/-- Rewrite a statement list in source order. A local declaration shadows a
+    constant only for the following statements in the same lexical block; the
+    filtered environment is deliberately not returned to the enclosing block. -/
+def Stmts.inlineConstantsFuel : Nat -> ConstantEnv -> List Stmt -> List Stmt
+  | 0, _, stmts => stmts
+  | _, _, [] => []
+  | fuel + 1, constants, stmt :: rest =>
+      let stmt' := Stmt.inlineConstantsFuel fuel constants stmt
+      let constants' :=
+        match stmt with
+        | Stmt.varDecl bindings _ =>
+            constants.withoutNames (VarBindings.boundNames bindings)
+        | _ => constants
+      stmt' :: Stmts.inlineConstantsFuel fuel constants' rest
 
 def CatchClause.inlineConstantsFuel :
     Nat -> ConstantEnv -> CatchClause -> CatchClause
@@ -355,6 +381,10 @@ def BaseSpecifier.inlineConstants (constants : ConstantEnv)
 
 def FunctionDecl.inlineConstants (constants : ConstantEnv)
     (decl : FunctionDecl) : FunctionDecl :=
+  let shadowNames :=
+    Parameters.constantShadowNames decl.params ++
+      Parameters.constantShadowNames decl.returns
+  let constants := constants.withoutNames shadowNames
   { decl with
     modifiers := decl.modifiers.map
       (ModifierInvocation.inlineConstants constants)
