@@ -8114,7 +8114,10 @@ def Expr.abiArgNeedsEnvCleanupFuel? : Nat -> Expr -> Bool
       match (match expr with
              | Expr.call (Expr.typeName castTy) [Arg.positional inner] =>
                  if (Ty.wordIntCastTarget? castTy).isSome ||
-                     (Ty.narrowIntCastTarget? castTy).isSome then some inner else none
+                     (Ty.narrowIntCastTarget? castTy).isSome ||
+                     (match castTy with | Ty.address _ => true | _ => false) then
+                   some inner
+                 else none
              | _ => none) with
       | some inner => Expr.abiArgNeedsEnvCleanupFuel? fuel inner
       | none =>
@@ -8862,7 +8865,18 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
                                Expr.toCoreAsWithEnvFuel?
                                  fuel storageNames env srcTy argExpr
                              let casted ←
-                               Expr.coreAsFromTy? castTy srcTy innerCore
+                               match castTy, srcTy with
+                               -- `address(uint160(e))` is represented by the
+                               -- already-converted 160-bit word.  This explicit
+                               -- conversion is value-preserving at the core
+                               -- level, but `coreAsFromTy?` intentionally only
+                               -- models implicit conversions and therefore
+                               -- declines it.  Keep the env-aware lowering of
+                               -- `e` so narrow checked arithmetic still Panics
+                               -- before the address conversion.
+                               | Ty.address _, Ty.uint 160 => some innerCore
+                               | _, _ =>
+                                   Expr.coreAsFromTy? castTy srcTy innerCore
                              Expr.coreAsFromTy? targetTy castTy casted)
                          else none) with
                        | some coreExpr => some coreExpr
