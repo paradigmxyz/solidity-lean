@@ -168,6 +168,19 @@ inductive Value where
   | abiLazy : AbiCleanup -> Value -> Value
   deriving Repr
 
+def memoryRoundUpWord (size : Nat) : Nat :=
+  (size + wordBytes - 1) / wordBytes * wordBytes
+
+/-- Bytes consumed at the EVM free-memory pointer by the object represented by
+    one model memory cell. Nested objects are allocated into their own cells by
+    `memoryStoredValue` before this outer allocation is recorded. -/
+def Value.memoryAllocationBytes : Value -> Nat
+  | Value.bytes payload => wordBytes + memoryRoundUpWord payload.length
+  | Value.dynamicArray values => wordBytes + wordBytes * values.length
+  | Value.fixedArray values => wordBytes * values.length
+  | Value.tuple values => wordBytes * values.length
+  | _ => wordBytes
+
 def Ty.defaultValue : Ty -> Value
   | Ty.bool => Value.word 0
   | Ty.address => Value.word 0
@@ -894,12 +907,37 @@ def Value.setIndex? (container : Value) (index : Word) (value : Value) :
     Except RevertData Value :=
   match container with
   | Value.fixedArray values =>
-      match listUpdateAt? values (SolidCore.Solidity.Shared.norm index) value with
-      | some updated => Except.ok (Value.fixedArray updated)
+      let index := SolidCore.Solidity.Shared.norm index
+      match listGet? values index with
+      | some oldValue => do
+          let value ←
+            match oldValue with
+            | Value.fixedBytes size _ =>
+                match (Ty.fixedBytes size).coerceValue? value with
+                | some coerced => Except.ok coerced
+                | none => Except.error RevertData.typeMismatch
+            | _ => Except.ok value
+          match listUpdateAt? values index value with
+          | some updated => Except.ok (Value.fixedArray updated)
+          | none => Except.error RevertData.indexOutOfBounds
       | none => Except.error RevertData.indexOutOfBounds
   | Value.dynamicArray values =>
-      match listUpdateAt? values (SolidCore.Solidity.Shared.norm index) value with
-      | some updated => Except.ok (Value.dynamicArray updated)
+      let index := SolidCore.Solidity.Shared.norm index
+      match listGet? values index with
+      | some oldValue => do
+          -- Memory arrays carry their element type in the zero-value template.
+          -- Preserve the fixed-bytes width on indexed assignment so a later
+          -- bytesM[] -> bytesN[] storage copy can apply the widening rule.
+          let value ←
+            match oldValue with
+            | Value.fixedBytes size _ =>
+                match (Ty.fixedBytes size).coerceValue? value with
+                | some coerced => Except.ok coerced
+                | none => Except.error RevertData.typeMismatch
+            | _ => Except.ok value
+          match listUpdateAt? values index value with
+          | some updated => Except.ok (Value.dynamicArray updated)
+          | none => Except.error RevertData.indexOutOfBounds
       | none => Except.error RevertData.indexOutOfBounds
   | Value.bytes bs =>
       match value.asWord? with
@@ -1207,6 +1245,7 @@ structure Runtime where
   locals : LocalEnv
   memory : MemoryMap := {}
   nextMemory : Nat := 0
+  nextMemoryByte : Nat := 0x80
   deriving Repr
 
 def Runtime.ofState (state : State) : Runtime :=
@@ -1262,7 +1301,8 @@ def Runtime.allocMemory (runtime : Runtime) (value : Value) :
   let id := runtime.nextMemory
   ( { runtime with
       memory := MemoryMap.insertLoop runtime.memory id value
-      nextMemory := id + 1 }
+      nextMemory := id + 1
+      nextMemoryByte := runtime.nextMemoryByte + value.memoryAllocationBytes }
   , Value.memoryRef id )
 
 def Runtime.derefMemoryValue (runtime : Runtime) (value : Value) :
@@ -5494,21 +5534,15 @@ than the empty revert. Mirror the FULL production allocation path:
   guard omitted. Because `memPtr ≥ 0x80`, solc's panic threshold is strictly
   LOWER than the `elementSize * n + 0x20` bound alone.
 
-The model abstracts memory (the decoder is a pure function of the argument
-bytes; there is no running free pointer). On the reachable path solc allocates
-the decode target at the INITIAL free-memory pointer `0x80`: the external
-dispatcher decodes the first/only dynamic reference parameter with the free
-pointer still at its `0x80` reset, and a fresh `abi.decode` target is likewise
-the first allocation. So `memPtr = 0x80` reproduces solc's threshold exactly on
-that path, and — since `memPtr ≥ 0x80` for ANY decode — it is a sound lower
-bound that never over-panics on a length solc would accept (a decode preceded by
-further allocation has an even lower solc threshold; the residual band above
-`0x80` is a memory-layout abstraction limit, not an over-reject).
+The runtime tracks the current abstract free-memory pointer alongside its
+memory cells. Callers with runtime state pass that pointer here, while the pure
+decoder compatibility wrapper uses the initial `0x80` pointer.
 
 `size` is already 32-aligned, so the outer `roundUp(size)` is the identity; the
 first gate caps `length ≤ 2^64-1`, so `newFreePtr` stays far below `2^256` and
 the wraparound arm is unreachable (Nat arithmetic has no wraparound anyway). -/
-def abiCheckAllocation? (byteArray : Bool) (length : Word) :
+def abiCheckAllocationAt? (memoryPtr : Nat)
+    (byteArray : Bool) (length : Word) :
     Except RevertData Unit :=
   let n := SolidCore.Solidity.Shared.norm length
   if n > 0xffffffffffffffff then
@@ -5519,11 +5553,15 @@ def abiCheckAllocation? (byteArray : Bool) (length : Word) :
     let dataSize := if byteArray then (n + 31) / 32 * 32 else n * wordBytes
     let size := dataSize + wordBytes
     -- `finalize_allocation`: `newFreePtr = memPtr + roundUp(size)`, panic if it
-    -- exceeds `2^64-1`. `memPtr = 0x80` = the initial free-memory pointer.
-    if 0x80 + size > 0xffffffffffffffff then
+    -- exceeds `2^64-1`.
+    if memoryPtr + size > 0xffffffffffffffff then
       Except.error RevertData.memoryAllocationTooLarge
     else
       Except.ok ()
+
+def abiCheckAllocation? (byteArray : Bool) (length : Word) :
+    Except RevertData Unit :=
+  abiCheckAllocationAt? 0x80 byteArray length
 
 def abiDecodeValueAtWithFuel? :
     Nat -> List Byte -> Nat -> Ty -> Except RevertData Value
@@ -5709,10 +5747,26 @@ def abiDecodeValuesExcept? (tys : List Ty) (argData : List Byte) :
     Except.error RevertData.empty
   abiDecodeValuesAux? argData tys 0
 
-def abiDecodeValuesWithCleanupsAux? (argData : List Byte) :
+def abiCheckTopLevelAllocationAt? (memoryPtr : Nat)
+    (argData : List Byte) (headIndex : Nat) (ty : Ty) :
+    Except RevertData Unit :=
+  match ty with
+  | Ty.bytesCalldata => do
+      let offset ← abiDecodeOpt (readWord? argData (wordBytes * headIndex))
+      let length ← abiDecodeOpt (readWord? argData offset)
+      abiCheckAllocationAt? memoryPtr true length
+  | Ty.dynamicArray _ => do
+      let offset ← abiDecodeOpt (readWord? argData (wordBytes * headIndex))
+      let length ← abiDecodeOpt (readWord? argData offset)
+      abiCheckAllocationAt? memoryPtr false length
+  | _ => Except.ok ()
+
+def abiDecodeValuesWithCleanupsAux? (memoryPtr : Nat)
+    (argData : List Byte) :
     List Ty -> List AbiCleanup -> Nat -> Except RevertData (List Value)
   | [], [], _ => Except.ok []
   | ty :: tys, cleanup :: cleanups, index => do
+      abiCheckTopLevelAllocationAt? memoryPtr argData index ty
       let value ← abiDecodeValueAt? argData index ty
       -- solc validates each tuple component immediately after decoding it.
       -- Preserve that source order so an earlier dirty narrow value reverts
@@ -5721,7 +5775,7 @@ def abiDecodeValuesWithCleanupsAux? (argData : List Byte) :
         Except.error RevertData.empty
       let headWords ← abiDecodeOpt (Ty.abiHeadWords? ty)
       let values ←
-        abiDecodeValuesWithCleanupsAux? argData tys cleanups
+        abiDecodeValuesWithCleanupsAux? memoryPtr argData tys cleanups
           (index + headWords)
       Except.ok (value :: values)
   | _, _, _ => Except.error RevertData.empty
@@ -5729,7 +5783,7 @@ def abiDecodeValuesWithCleanupsAux? (argData : List Byte) :
 /-- Decode and validate top-level ABI components in the order emitted by solc.
     An empty cleanup list retains the legacy raw-decoder entry point used by
     callers that have no cleanup metadata. -/
-def abiDecodeValuesWithCleanupsExcept? (tys : List Ty)
+def abiDecodeValuesWithCleanupsAtExcept? (memoryPtr : Nat) (tys : List Ty)
     (cleanups : List AbiCleanup) (argData : List Byte) :
     Except RevertData (List Value) :=
   if cleanups.isEmpty then
@@ -5738,7 +5792,12 @@ def abiDecodeValuesWithCleanupsExcept? (tys : List Ty)
     let headWords ← abiDecodeOpt (Ty.listAbiHeadWords? tys)
     if argData.length < wordBytes * headWords then
       Except.error RevertData.empty
-    abiDecodeValuesWithCleanupsAux? argData tys cleanups 0
+    abiDecodeValuesWithCleanupsAux? memoryPtr argData tys cleanups 0
+
+def abiDecodeValuesWithCleanupsExcept? (tys : List Ty)
+    (cleanups : List AbiCleanup) (argData : List Byte) :
+    Except RevertData (List Value) :=
+  abiDecodeValuesWithCleanupsAtExcept? 0x80 tys cleanups argData
 
 /-- Option view of the decoder, for callers that only need success/failure and
 not the failure mode (e.g. external-return decoding and witness checks). -/
@@ -7644,7 +7703,9 @@ def Expr.evalFuel (fuel : Nat)
                 Expr.evalFuel fuel context runtime expr
               match value.asBytes? with
               | some bytes =>
-                  match abiDecodeValuesWithCleanupsExcept? tys cleanups bytes with
+                  match
+                      abiDecodeValuesWithCleanupsAtExcept?
+                        runtime'.nextMemoryByte tys cleanups bytes with
                   | Except.ok decoded =>
                       match decoded with
                       | [value] => pure (value, runtime')

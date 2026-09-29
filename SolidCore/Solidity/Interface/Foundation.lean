@@ -5613,6 +5613,18 @@ def Expr.toCoreStorageArrayAs? (storageNames : List Name)
       | _ => none
   | _ => none
 
+def Expr.nestedStoragePathCore? (storageNames : List Name) :
+    Expr -> Option (Name × List CoreExpr)
+  | Expr.ident name => do
+      let key ← stateNameRuntimeKey? name storageNames
+      some (key, [])
+  | Expr.index base index => do
+      let (name, indexes) ← Expr.nestedStoragePathCore? storageNames base
+      let indexCore ← Expr.toCore? storageNames index
+      some (name, indexes ++ [indexCore])
+  | _ => none
+termination_by expr => (sizeOf expr, 0)
+
 /-- A fn-value number literal (the shape a bare function NAME takes after
     `rewriteInternalFnValueIdents`) targeted at an INTERNAL function type becomes
     the core internal-function-pointer value. This is the value-production site
@@ -5671,6 +5683,20 @@ termination_by (sizeOf expr, 0)
 def Expr.toCoreAs? (storageNames : List Name)
     (targetTy : Ty) (expr : Expr) : Option CoreExpr :=
   match Expr.fixedArrayLiteralAs? storageNames targetTy expr with
+  | some coreExpr => some coreExpr
+  | none =>
+  -- Materialize an array member reached through a nested storage path in one
+  -- operation. Recursively lowering `boxes[0].words` would load `boxes[0]`
+  -- as a whole struct before selecting `words`; that is impossible when the
+  -- struct also contains a mapping. Keeping the complete path resolves
+  -- directly to the selected dynamic-array field.
+  match
+      (match targetTy, Expr.nestedStoragePathCore? storageNames expr with
+      | Ty.array _ _, some (name, indexes) =>
+          if indexes.isEmpty then none
+          else some (SolidCore.Solidity.Source.Expr.storagePath name indexes)
+      | _, _ => none)
+  with
   | some coreExpr => some coreExpr
   | none =>
   match Expr.toCoreStorageArrayAs? storageNames targetTy expr with

@@ -75,8 +75,17 @@ def copiedValue : Except TypeError Bool :=
   Examples.checkedOwnCallWordMatches 512 contract "run" State.empty []
     0x636465660000000000000000
 
+def copiedStorageLane : Except TypeError Bool := do
+  let state ←
+    Examples.checkedOwnCallState 512 contract "run" State.empty []
+  Except.ok
+    (wordEq
+      (state.loadSlot
+        18569430475105882587588266137607568536673111973893317399460219858819262702947)
+      0x636465660000000000000000000000000000000000000000000000000000)
+
 #guard accepted
 #guard isOkTrue copiedValue
+#guard isOkTrue copiedStorageLane
 
 end SolidCore.Solidity.Witness.FixedBytesArrayStorageWiden
-
