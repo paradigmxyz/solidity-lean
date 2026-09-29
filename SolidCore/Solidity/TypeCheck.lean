@@ -7197,33 +7197,60 @@ def checkExpr (env : CheckEnv) :
                           | Except.error _ => Except.error checkedErr
                     requireCallMutabilityAllowed env sig.mutability
                     Except.ok (sig.checkedResult expr)
-                  else if TypeContext.pathIn path env.ancestorPaths then
+                  else if env.currentContract == some path ||
+                      TypeContext.pathIn path env.ancestorPaths then
                     -- Explicit base-qualified call `Base.f()`: the solc importer
                     -- renders the base contract as `Expr.typeName (Ty.user path)`
                     -- rather than `Expr.ident`.  When the path names a base
                     -- contract in the current linearization, dispatch statically
                     -- to that base's implementation (bypassing any override),
                     -- mirroring the `Expr.ident baseName` branch below.
-                    match path.segments with
-                    | [baseName] =>
+                    -- `Base.x()` can also call a visible function-typed STATE
+                    -- variable.  State variables share the contract member
+                    -- namespace but are absent from the declared-function
+                    -- signature table used by explicit base dispatch.
+                    match
+                        env.types.contractDataMemberTy?
+                          true path member with
+                    | some (Solidity.Ty.functionWithLocations params
+                        paramLocations returns returnLocations mutability
+                        visibility, _) => do
                         let checkedArgs ← checkArgs env args
-                        let checkedInfos := checkedArgInfosFull args checkedArgs
-                        let sig ←
-                          match
-                              env.resolveExplicitBaseMemberFunctionChecked
-                                baseName member checkedInfos with
-                          | Except.ok sig => Except.ok sig
-                          | Except.error checkedErr =>
-                              match
-                                  checkExplicitBaseMemberCallArgsContextual
-                                    env baseName member args with
-                              | Except.ok (sig, _) => Except.ok sig
-                              | Except.error _ => Except.error checkedErr
-                        requireCallMutabilityAllowed env sig.mutability
+                        let argInfos := checkedArgInfos args checkedArgs
+                        require (!ArgInfos.anyNamed argInfos)
+                          (TypeError.unsupported
+                            "named arguments for function-typed expression")
+                        let _ ←
+                          checkCheckedArgsAssignableWidenFor env.types
+                            "function call" checkedArgs params
+                        let sig :=
+                          functionPointerSig member params paramLocations returns
+                            returnLocations mutability visibility
+                        checkCheckedExprsReferenceLocationsFor "function call"
+                          checkedArgs sig.paramStorageRefs sig.paramDataLocations
+                        requireCallMutabilityAllowed env mutability
                         Except.ok (sig.checkedResult expr)
                     | _ =>
-                        Except.error
-                          (TypeError.unsupported ("member call " ++ member))
+                        match path.segments with
+                        | [baseName] =>
+                            let checkedArgs ← checkArgs env args
+                            let checkedInfos := checkedArgInfosFull args checkedArgs
+                            let sig ←
+                              match
+                                  env.resolveExplicitBaseMemberFunctionChecked
+                                    baseName member checkedInfos with
+                              | Except.ok sig => Except.ok sig
+                              | Except.error checkedErr =>
+                                  match
+                                      checkExplicitBaseMemberCallArgsContextual
+                                        env baseName member args with
+                                  | Except.ok (sig, _) => Except.ok sig
+                                  | Except.error _ => Except.error checkedErr
+                            requireCallMutabilityAllowed env sig.mutability
+                            Except.ok (sig.checkedResult expr)
+                        | _ =>
+                            Except.error
+                              (TypeError.unsupported ("member call " ++ member))
                   else
                     Except.error
                       (TypeError.unsupported ("member call " ++ member))

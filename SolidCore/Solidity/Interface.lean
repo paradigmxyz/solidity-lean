@@ -508,14 +508,14 @@ def FunctionDecl.superHelpers (contractName : Name) (decls : List FunctionDecl) 
 
 mutual
 
-def Expr.rewriteBaseCallsFuel (baseNames : List Name) :
+def Expr.rewriteBaseCallsFuel (baseNames stateNames : List Name) :
     Nat -> Expr -> Expr
   | 0, expr => expr
   | fuel + 1, expr =>
-      let rewrite := Expr.rewriteBaseCallsFuel baseNames fuel
-      let rewriteArg := Arg.rewriteBaseCallsFuel baseNames fuel
-      let rewriteOption := CallOption.rewriteBaseCallsFuel baseNames fuel
-      let rewriteTupleItem := TupleItem.rewriteBaseCallsFuel baseNames fuel
+      let rewrite := Expr.rewriteBaseCallsFuel baseNames stateNames fuel
+      let rewriteArg := Arg.rewriteBaseCallsFuel baseNames stateNames fuel
+      let rewriteOption := CallOption.rewriteBaseCallsFuel baseNames stateNames fuel
+      let rewriteTupleItem := TupleItem.rewriteBaseCallsFuel baseNames stateNames fuel
       match expr with
       | Expr.literal literal => Expr.literal literal
       | Expr.ident name => Expr.ident name
@@ -539,7 +539,13 @@ def Expr.rewriteBaseCallsFuel (baseNames : List Name) :
           -- override is bypassed; otherwise leave it untouched.
           match path.segments with
           | [baseName] =>
-              if nameIn baseName baseNames then
+              if nameIn baseName baseNames && nameIn member stateNames then
+                -- A type-qualified call can target a function-typed STATE
+                -- variable (`C.x()`) as well as a declared function.  State
+                -- access is still the ordinary unqualified storage read; only
+                -- declared functions have generated static base helpers.
+                Expr.call (Expr.ident member) (args.map rewriteArg)
+              else if nameIn baseName baseNames then
                 Expr.call (Expr.ident (baseHelperName baseName member))
                   (args.map rewriteArg)
               else
@@ -564,57 +570,57 @@ def Expr.rewriteBaseCallsFuel (baseNames : List Name) :
       | Expr.assign lhs op rhs => Expr.assign (rewrite lhs) op (rewrite rhs)
       | Expr.payableConversion inner => Expr.payableConversion (rewrite inner)
 
-def Arg.rewriteBaseCallsFuel (baseNames : List Name) :
+def Arg.rewriteBaseCallsFuel (baseNames stateNames : List Name) :
     Nat -> Arg -> Arg
   | 0, arg => arg
   | fuel + 1, arg =>
-      let rewrite := Expr.rewriteBaseCallsFuel baseNames fuel
+      let rewrite := Expr.rewriteBaseCallsFuel baseNames stateNames fuel
       match arg with
       | Arg.positional expr => Arg.positional (rewrite expr)
       | Arg.named name expr => Arg.named name (rewrite expr)
 
-def CallOption.rewriteBaseCallsFuel (baseNames : List Name) :
+def CallOption.rewriteBaseCallsFuel (baseNames stateNames : List Name) :
     Nat -> CallOption -> CallOption
   | 0, option => option
   | fuel + 1, option =>
-      let rewrite := Expr.rewriteBaseCallsFuel baseNames fuel
+      let rewrite := Expr.rewriteBaseCallsFuel baseNames stateNames fuel
       match option with
       | CallOption.named name expr => CallOption.named name (rewrite expr)
 
-def TupleItem.rewriteBaseCallsFuel (baseNames : List Name) :
+def TupleItem.rewriteBaseCallsFuel (baseNames stateNames : List Name) :
     Nat -> TupleItem -> TupleItem
   | 0, item => item
   | fuel + 1, item =>
-      let rewrite := Expr.rewriteBaseCallsFuel baseNames fuel
+      let rewrite := Expr.rewriteBaseCallsFuel baseNames stateNames fuel
       match item with
       | TupleItem.hole => TupleItem.hole
       | TupleItem.value expr => TupleItem.value (rewrite expr)
 
 end
 
-def Expr.rewriteBaseCalls (baseNames : List Name) (expr : Expr) : Expr :=
-  Expr.rewriteBaseCallsFuel baseNames defaultInlineConstantsFuel expr
+def Expr.rewriteBaseCalls (baseNames stateNames : List Name) (expr : Expr) : Expr :=
+  Expr.rewriteBaseCallsFuel baseNames stateNames defaultInlineConstantsFuel expr
 
-def Arg.rewriteBaseCalls (baseNames : List Name) (arg : Arg) : Arg :=
-  Arg.rewriteBaseCallsFuel baseNames defaultInlineConstantsFuel arg
+def Arg.rewriteBaseCalls (baseNames stateNames : List Name) (arg : Arg) : Arg :=
+  Arg.rewriteBaseCallsFuel baseNames stateNames defaultInlineConstantsFuel arg
 
-def CallOption.rewriteBaseCalls (baseNames : List Name)
+def CallOption.rewriteBaseCalls (baseNames stateNames : List Name)
     (option : CallOption) : CallOption :=
-  CallOption.rewriteBaseCallsFuel baseNames defaultInlineConstantsFuel option
+  CallOption.rewriteBaseCallsFuel baseNames stateNames defaultInlineConstantsFuel option
 
-def TupleItem.rewriteBaseCalls (baseNames : List Name)
+def TupleItem.rewriteBaseCalls (baseNames stateNames : List Name)
     (item : TupleItem) : TupleItem :=
-  TupleItem.rewriteBaseCallsFuel baseNames defaultInlineConstantsFuel item
+  TupleItem.rewriteBaseCallsFuel baseNames stateNames defaultInlineConstantsFuel item
 
 mutual
 
-def Stmt.rewriteBaseCallsFuel (baseNames : List Name) :
+def Stmt.rewriteBaseCallsFuel (baseNames stateNames : List Name) :
     Nat -> Stmt -> Stmt
   | 0, stmt => stmt
   | fuel + 1, stmt =>
-      let rewriteExpr := Expr.rewriteBaseCallsFuel baseNames fuel
-      let rewriteStmt := Stmt.rewriteBaseCallsFuel baseNames fuel
-      let rewriteClause := CatchClause.rewriteBaseCallsFuel baseNames fuel
+      let rewriteExpr := Expr.rewriteBaseCallsFuel baseNames stateNames fuel
+      let rewriteStmt := Stmt.rewriteBaseCallsFuel baseNames stateNames fuel
+      let rewriteClause := CatchClause.rewriteBaseCallsFuel baseNames stateNames fuel
       let rewriteArg : Arg -> Arg
         | Arg.positional e => Arg.positional (rewriteExpr e)
         | Arg.named n e => Arg.named n (rewriteExpr e)
@@ -679,23 +685,23 @@ def Stmt.rewriteBaseCallsFuel (baseNames : List Name) :
       | Stmt.inlineAssembly code => Stmt.inlineAssembly code
       | Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
 
-def CatchClause.rewriteBaseCallsFuel (baseNames : List Name) :
+def CatchClause.rewriteBaseCallsFuel (baseNames stateNames : List Name) :
     Nat -> CatchClause -> CatchClause
   | 0, clause => clause
   | fuel + 1, clause =>
       match clause with
       | CatchClause.clause name params body =>
           CatchClause.clause name params
-            (Stmt.rewriteBaseCallsFuel baseNames fuel body)
+            (Stmt.rewriteBaseCallsFuel baseNames stateNames fuel body)
 
 end
 
-def Stmt.rewriteBaseCalls (baseNames : List Name) (stmt : Stmt) : Stmt :=
-  Stmt.rewriteBaseCallsFuel baseNames defaultInlineConstantsFuel stmt
+def Stmt.rewriteBaseCalls (baseNames stateNames : List Name) (stmt : Stmt) : Stmt :=
+  Stmt.rewriteBaseCallsFuel baseNames stateNames defaultInlineConstantsFuel stmt
 
-def CatchClause.rewriteBaseCalls (baseNames : List Name)
+def CatchClause.rewriteBaseCalls (baseNames stateNames : List Name)
     (clause : CatchClause) : CatchClause :=
-  CatchClause.rewriteBaseCallsFuel baseNames defaultInlineConstantsFuel clause
+  CatchClause.rewriteBaseCallsFuel baseNames stateNames defaultInlineConstantsFuel clause
 
 inductive DispatchCallRewriteKind where
   | ordinary
@@ -13854,7 +13860,16 @@ def Stmt.internalFunctionAliasNameReboundInRest
     (name : Name) (rest : List Stmt) : Bool :=
   rest.any (fun s =>
     match s with
-    | Stmt.expr (Expr.assign (Expr.ident _) _ _) => false
+    -- The sequence fold can update a static alias only for a bare-function
+    -- RHS (`ptr = f`).  Any other top-level reassignment of THIS alias must
+    -- keep the declaration as a real runtime pointer.  Otherwise the fold
+    -- erases the declaration, retains the old/uninitialised alias binding,
+    -- and rewrites the assignment LHS itself (for example `ptr = L.f`) into
+    -- the panic sentinel.
+    | Stmt.expr
+        (Expr.assign (Expr.ident _) _ (Expr.ident _)) =>
+        false
+    | Stmt.expr (Expr.assign (Expr.ident assigned) _ _) => assigned == name
     | Stmt.expr (Expr.unary UnaryOp.delete (Expr.ident _)) => false
     | _ => Stmt.internalFunctionAliasNameReboundFuel name 1024 s)
 
@@ -13871,7 +13886,11 @@ def Expr.inlineInternalFunctionAliasesFuel :
           match binding.target with
           | some _ =>
               Expr.ident (InternalFunctionAliasEnv.resolve aliasEnv name)
-          | none => Expr.ident internalFunctionPointerPanicName
+          -- An uninitialised internal function pointer is dispatch ID zero
+          -- when used as a VALUE (comparison, assignment, return, container
+          -- element).  Only CALLING it panics 0x51; the specialised call arms
+          -- below retain that behaviour.
+          | none => Expr.literal (Literal.number "0")
       | none => Expr.ident name
   | _ + 1, _, Expr.typeName ty => Expr.typeName ty
   | fuel + 1, aliasEnv, Expr.member base member =>
@@ -25940,7 +25959,7 @@ def FunctionDecl.toCore? (storageNames : List Name) (constants : ConstantEnv)
     match contractName? with
     | some contractName => Stmt.rewriteSuperCalls contractName body
     | none => body
-  let body := Stmt.rewriteBaseCalls baseNames body
+  let body := Stmt.rewriteBaseCalls baseNames storageNames body
   let body := Stmt.resolveNamedEventErrorArgs eventArgEnv errorArgEnv body
   let modifiers :=
     modifiers.map
@@ -26051,11 +26070,11 @@ def FunctionDecl.toCore? (storageNames : List Name) (constants : ConstantEnv)
       body := bodyCore }
 
 def FunctionDecl.rewriteDispatchCalls (contractName : Name)
-    (baseNames : List Name) (decl : FunctionDecl) : FunctionDecl :=
+    (baseNames stateNames : List Name) (decl : FunctionDecl) : FunctionDecl :=
   { decl with
     body :=
       decl.body.map (fun body =>
-        Stmt.rewriteBaseCalls baseNames
+        Stmt.rewriteBaseCalls baseNames stateNames
           (Stmt.rewriteSuperCalls contractName body)) }
 
 def ContractDecl.directStateVars (decl : ContractDecl) : List StateVarDecl :=
@@ -26361,15 +26380,15 @@ def ContractDecl.resolveInterfaceIds (env : InterfaceIdEnv)
     items := decl.items.map (ContractItem.resolveInterfaceIds env) }
 
 def ContractDecl.contextualOrdinaryFunctions (constants : ConstantEnv)
-    (baseNames : List Name) (decl : ContractDecl) : List FunctionDecl :=
+    (baseNames stateNames : List Name) (decl : ContractDecl) : List FunctionDecl :=
   (ContractDecl.directOrdinaryFunctions decl).map
     (fun fn =>
-      FunctionDecl.rewriteDispatchCalls decl.name baseNames
+      FunctionDecl.rewriteDispatchCalls decl.name baseNames stateNames
         (FunctionDecl.inlineConstants constants fn))
 
 def ContractDecl.contextualBaseHelpers (constants : ConstantEnv)
-    (baseNames : List Name) (decl : ContractDecl) : List FunctionDecl :=
-  (ContractDecl.contextualOrdinaryFunctions constants baseNames decl).filterMap
+    (baseNames stateNames : List Name) (decl : ContractDecl) : List FunctionDecl :=
+  (ContractDecl.contextualOrdinaryFunctions constants baseNames stateNames decl).filterMap
     (FunctionDecl.asBaseHelper? decl.name)
 
 def ContractDecl.directUsingDecls (decl : ContractDecl) : List UsingDecl :=
@@ -27152,7 +27171,7 @@ def ContractDecls.contextualOrdinaryFunctions (hierarchy : List ContractDecl)
     (fun decl =>
       ContractDecl.contextualOrdinaryFunctions
         (ContractDecl.scopedConstantEnv hierarchy sharedTail decl)
-        baseNames decl)
+        baseNames (ContractDecl.scopedStateVarShadowNames hierarchy decl) decl)
     decls
 
 def ContractDecls.contextualBaseHelpers (hierarchy : List ContractDecl)
@@ -27162,7 +27181,7 @@ def ContractDecls.contextualBaseHelpers (hierarchy : List ContractDecl)
     (fun decl =>
       ContractDecl.contextualBaseHelpers
         (ContractDecl.scopedConstantEnv hierarchy sharedTail decl)
-        baseNames decl)
+        baseNames (ContractDecl.scopedStateVarShadowNames hierarchy decl) decl)
     decls
 
 def ContractDecls.contextualSuperHelpersFor? (hierarchy : List ContractDecl)
