@@ -8308,12 +8308,14 @@ def Expr.abiArgNeedsEnvCleanupFuel? : Nat -> Expr -> Bool
                   Expr.abiArgNeedsEnvCleanupFuel? fuel inner
               | _ => false
 
-/-- #201: nesting budget for the flag above. The builtin arms peel one nesting
-    level per unit, so 8 covers any practically-writable builtin-in-builtin
-    tower; the flag (a `Bool`) degrades to `false` at 0, i.e. the env-less
-    lowering — exactly the pre-#201 behaviour. -/
+/-- #201: nesting budget for the flag above. Keep this aligned with the general
+    env-aware lowering budget: valid generated Solidity can easily exceed the
+    former depth of eight, and returning `false` at that boundary silently
+    removed required narrow arithmetic checks. -/
+def defaultAbiCleanupDetectionFuel : Nat := 1024
+
 def Expr.abiArgNeedsEnvCleanup? (expr : Expr) : Bool :=
-  Expr.abiArgNeedsEnvCleanupFuel? 8 expr
+  Expr.abiArgNeedsEnvCleanupFuel? defaultAbiCleanupDetectionFuel expr
 
 /-- STAGE-D #193 (statement side): does a RETURN-position `abi.encode*` /
     `keccak256`/`sha256`/`ripemd160` / `bytes.concat`/`string.concat` call carry
