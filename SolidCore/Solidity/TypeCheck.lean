@@ -15510,10 +15510,26 @@ def isSolidityConstraintOperator (token : String) : Bool :=
     token == "=" || token == "==" || token == "^" || token == "~"
 
 def splitPragmaWhitespace (text : String) : List String :=
-  (text.split
-    (fun ch =>
-      ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r')).toList.map
-      (fun slice => slice.toString)
+  -- solc's compact AST representation may remove whitespace between adjacent
+  -- constraints (`>=0.4.0 <0.9.0` becomes `>=0.4.0<0.9.0`). Split a new
+  -- comparator when it begins after a version as well as at whitespace.
+  let rec loop (chars current : List Char) (tokens : List String) : List String :=
+    match chars with
+    | [] =>
+        if current.isEmpty then tokens.reverse
+        else (String.mk current.reverse :: tokens).reverse
+    | ch :: rest =>
+        let whitespace :=
+          ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r'
+        let startsConstraint := ch == '<' || ch == '>' || ch == '^' || ch == '~'
+        if whitespace then
+          if current.isEmpty then loop rest [] tokens
+          else loop rest [] (String.mk current.reverse :: tokens)
+        else if startsConstraint && !current.isEmpty then
+          loop rest [ch] (String.mk current.reverse :: tokens)
+        else
+          loop rest (ch :: current) tokens
+  loop text.toList [] []
 
 def parseSolidityConstraints? :
     List String -> Option (List SolidityVersionConstraint)
