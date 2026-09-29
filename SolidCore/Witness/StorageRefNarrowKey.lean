@@ -38,6 +38,21 @@ private def contract : ContractDecl :=
             init := none }
       , ContractItem.function
           { kind := FunctionKind.function
+            name := some "touch"
+            visibility := some Visibility.internal_
+            mutability := StateMutability.nonpayable
+            params :=
+              [{ name := some "item", ty := itemTy,
+                 location := some DataLocation.storage }]
+            returns := []
+            virtual := false
+            override? := none
+            modifiers := []
+            body := some (Stmt.block
+              [Stmt.expr (Expr.assign (Expr.member (Expr.ident "item") "value")
+                AssignOp.assign (Expr.literal (Literal.number "9")))]) }
+      , ContractItem.function
+          { kind := FunctionKind.function
             name := some "localRef"
             visibility := some Visibility.external_
             mutability := StateMutability.nonpayable
@@ -53,7 +68,20 @@ private def contract : ContractDecl :=
                   (some keyedItem)
               , Stmt.expr (Expr.assign (Expr.member (Expr.ident "item") "value")
                   AssignOp.assign (Expr.literal (Literal.number "7")))
-              , Stmt.returnValues (some (Expr.member (Expr.ident "item") "value")) ]) } ] }
+              , Stmt.returnValues (some (Expr.member (Expr.ident "item") "value")) ]) }
+      , ContractItem.function
+          { kind := FunctionKind.function
+            name := some "internalArg"
+            visibility := some Visibility.external_
+            mutability := StateMutability.nonpayable
+            params := params
+            returns := [{ name := none, ty := Ty.uint 256, location := none }]
+            virtual := false
+            override? := none
+            modifiers := []
+            body := some (Stmt.block
+              [ Stmt.expr (Expr.call (Expr.ident "touch") [Arg.positional keyedItem])
+              , Stmt.returnValues (some (Expr.literal (Literal.number "9"))) ]) } ] }
 
 private def isOkTrue : Except TypeError Bool -> Bool
   | Except.ok true => true
@@ -63,7 +91,12 @@ private def local_ref_key_overflow_panics : Except TypeError Bool :=
   Examples.checkedOwnCallPanicMatches 400 contract "localRef" State.empty
     [Value.word 200, Value.word 100] 17
 
+private def internal_arg_key_overflow_panics : Except TypeError Bool :=
+  Examples.checkedOwnCallPanicMatches 400 contract "internalArg" State.empty
+    [Value.word 200, Value.word 100] 17
+
 #guard isOkTrue local_ref_key_overflow_panics
+#guard isOkTrue internal_arg_key_overflow_panics
 
 end StorageRefNarrowKey
 end Witness

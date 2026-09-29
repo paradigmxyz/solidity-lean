@@ -10639,7 +10639,8 @@ def Parameter.toStorageAwareCoreArgDecl? (storageRefEnv : StorageRefEnv)
                     (SolidCore.Solidity.Source.Stmt.storageAliasFromPath
                       name source indexes)
           | none => do
-              let (target, indexes) ← Expr.storagePathCore? storageNames arg
+              let (target, indexes) ←
+                Expr.storagePathCoreWithEnv? storageNames env arg
               match indexes with
               | [] =>
                   some (SolidCore.Solidity.Source.Stmt.storageAlias name target)
