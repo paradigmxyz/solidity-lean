@@ -9737,6 +9737,28 @@ def Args.toCoreExprsWithEnvCleanup? (storageNames : List Name)
       some (coreExpr :: coreExprs)
   | Arg.named _ _ :: _ => none
 
+/-- Lower a call-free `require(cond, Error(args...))` through the env-aware
+    paths when an error argument contains narrow checked arithmetic.  The
+    ordinary effect lowering is env-less, so it otherwise turns
+    `require(false, E(a + b > 5))` (`uint8 a,b`) into `E(true)` instead of
+    evaluating `a + b` at uint8 and Panicking 0x11 first.  Returning `none`
+    preserves the existing internal/external-call hoisting chain. -/
+def Expr.requireCustomWithEnvCleanup? (storageNames : List Name)
+    (env : TypeEnv) : Expr -> Option CoreStmt
+  | Expr.call (Expr.ident "require")
+      [ Arg.positional cond
+      , Arg.positional (Expr.call (Expr.ident errorName) errorArgs) ] =>
+      if Args.anyAbiArgNeedsEnvCleanup errorArgs then do
+        let condCore ← Expr.conditionCoreWithEnv? storageNames env cond
+        let coreArgs ←
+          Args.toCoreExprsWithEnvCleanup? storageNames env errorArgs
+        some
+          (SolidCore.Solidity.Source.Stmt.requireCustom
+            condCore errorName coreArgs)
+      else
+        none
+  | _ => none
+
 def TupleItems.toCoreExprsAsWithEnv? (storageNames : List Name)
     (env : TypeEnv) : List Ty -> List TupleItem -> Option (List CoreExpr)
   | [], [] => some []
@@ -19489,31 +19511,35 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                         (Expr.call (Expr.ident errorName)
                           [Arg.positional
                             (Expr.call (Expr.ident name) args)]) ]))
-      | Stmt.expr
-          (Expr.call (Expr.ident "require")
+      | Stmt.expr expr@(
+          Expr.call (Expr.ident "require")
             [ Arg.positional cond
-            , Arg.positional (Expr.call (Expr.ident name) args) ]) => do
-          let condCore ← Expr.toCore? storageNames cond
-          let condTmp := "_sol_require_cond"
-          match FunctionDecl.internalSingleReturnCallCore?
-              internalFuel storageRefEnv env externalCallKindEnv storageNames
-              modifiers functions freeFunctions name args
-              (fun retExpr =>
-                SolidCore.Solidity.Source.Stmt.requireErrorExpr
-                  (SolidCore.Solidity.Source.Expr.var condTmp) retExpr) with
-          | some coreStmt =>
-              some
-                (SolidCore.Solidity.Source.Stmt.block
-                  [ SolidCore.Solidity.Source.Stmt.varDecl
-                      SolidCore.Solidity.Source.Ty.bool condTmp
-                      (some condCore)
-                  , coreStmt ])
+            , Arg.positional (Expr.call (Expr.ident name) args) ]) =>
+          match Expr.requireCustomWithEnvCleanup? storageNames env expr with
+          | some coreStmt => some coreStmt
           | none =>
-              Stmt.toCore? storageNames
-                (Stmt.expr
-                  (Expr.call (Expr.ident "require")
-                    [ Arg.positional cond
-                    , Arg.positional (Expr.call (Expr.ident name) args) ]))
+              do
+                let condCore ← Expr.toCore? storageNames cond
+                let condTmp := "_sol_require_cond"
+                match FunctionDecl.internalSingleReturnCallCore?
+                    internalFuel storageRefEnv env externalCallKindEnv storageNames
+                    modifiers functions freeFunctions name args
+                    (fun retExpr =>
+                      SolidCore.Solidity.Source.Stmt.requireErrorExpr
+                        (SolidCore.Solidity.Source.Expr.var condTmp) retExpr) with
+                | some coreStmt =>
+                    some
+                      (SolidCore.Solidity.Source.Stmt.block
+                        [ SolidCore.Solidity.Source.Stmt.varDecl
+                            SolidCore.Solidity.Source.Ty.bool condTmp
+                            (some condCore)
+                        , coreStmt ])
+                | none =>
+                    Stmt.toCore? storageNames
+                      (Stmt.expr
+                        (Expr.call (Expr.ident "require")
+                          [ Arg.positional cond
+                          , Arg.positional (Expr.call (Expr.ident name) args) ]))
       -- NOTE: the earlier specialized `f(first, g())` call-statement arm (which
       -- hoisted ONLY the second argument and failed when `first` was itself a call,
       -- e.g. `f(g(), h());`) was removed — the general `Expr.call (Expr.ident name)
