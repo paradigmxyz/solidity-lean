@@ -917,7 +917,7 @@ def ContractDecls.contextualSuperHelpers? (hierarchy : List ContractDecl)
     mapOption
       (ContractDecls.contextualSuperHelpersFor? hierarchy sharedTail baseNames
         dispatchOrder)
-      dispatchOrder ++ ContractDecls.libraryModifiers allContracts
+      dispatchOrder
   some (concatLists groups)
 
 /-- State variables `decl` inherits from the (already-linearized) `order`
