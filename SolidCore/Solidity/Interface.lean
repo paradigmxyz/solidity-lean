@@ -8152,6 +8152,19 @@ def Expr.abiArgNeedsEnvCleanupFuel? : Nat -> Expr -> Bool
                   Ty.isFixedBytes castTy &&
                     ((Expr.peelToOverflowArithmetic? inner).isSome ||
                       (Expr.peelToNarrowNeg? inner).isSome)
+              -- A resolved struct constructor is a tuple of per-field casts.
+              -- Look through each cast so a field such as
+              -- `bool(a + b > 5)` retains the uintN operand-width check when
+              -- the whole struct is consumed by an ABI/builtin boundary.
+              | Expr.tuple items =>
+                  items.any (fun item =>
+                    match item with
+                    | TupleItem.value
+                        (Expr.call (Expr.typeName _) [Arg.positional inner]) =>
+                        Expr.abiArgNeedsEnvCleanupFuel? fuel inner
+                    | TupleItem.value e =>
+                        Expr.abiArgNeedsEnvCleanupFuel? fuel e
+                    | TupleItem.hole => false)
               -- ITEM-1: an inline array literal whose common element type the
               -- env-LESS typer cannot compute (`abiTy?` has no identifier
               -- arm: storage `bytes`/`string`/array state variables,
@@ -9366,6 +9379,24 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
               | some coreExpr => some coreExpr
               | none =>
                   Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
+          | Expr.tuple items =>
+              -- STRUCT-FIELD-UNDER-ABI: `resolveStructs` represents a struct
+              -- constructor as a tuple of field-typed casts.  Once a flagged
+              -- tuple reaches the env-aware ABI path, lower every field at its
+              -- declared type so nested narrow checked arithmetic is evaluated
+              -- before the field cast.
+              (match targetTy with
+               | Ty.struct _ fieldTys
+               | Ty.tuple fieldTys =>
+                   match TupleItems.toCoreAsListWithEnvFuel?
+                       fuel storageNames env fieldTys items with
+                   | some coreExprs =>
+                       some (SolidCore.Solidity.Source.Expr.tuple coreExprs)
+                   | none =>
+                       Expr.toCoreAsWithEnvDirect?
+                         storageNames env targetTy expr
+               | _ =>
+                   Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
           | Expr.array elems =>
               -- WS1 (H, inline array literal): `uint8[2] memory t = [a + b, 1]`
               -- fell entirely to the env-less AL-EXEC arm, whose per-element
@@ -9412,6 +9443,23 @@ def Exprs.toCoreAsListWithEnvFuel? (fuel : Nat) (storageNames : List Name)
           let coreExprs ←
             Exprs.toCoreAsListWithEnvFuel? fuel storageNames env elemTy rest
           some (coreExpr :: coreExprs)
+
+/-- Env-aware counterpart of tuple/struct field lowering. -/
+def TupleItems.toCoreAsListWithEnvFuel? (fuel : Nat)
+    (storageNames : List Name) (env : TypeEnv) :
+    List Ty → List TupleItem → Option (List CoreExpr)
+  | [], [] => some []
+  | targetTy :: targetTys, TupleItem.value expr :: rest =>
+      match fuel with
+      | 0 => none
+      | Nat.succ fuel => do
+          let coreExpr ←
+            Expr.toCoreAsWithEnvFuel? fuel storageNames env targetTy expr
+          let coreExprs ←
+            TupleItems.toCoreAsListWithEnvFuel?
+              fuel storageNames env targetTys rest
+          some (coreExpr :: coreExprs)
+  | _, _ => none
 
 /-- ITEM-1 (array-literal over-rejection): env-aware type of ONE inline
     array-literal element. The env-less `Expr.abiTy?` has no identifier arm,
