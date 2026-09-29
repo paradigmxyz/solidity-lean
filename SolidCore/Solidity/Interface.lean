@@ -13880,7 +13880,11 @@ def Expr.inlineInternalFunctionAliasesFuel :
           match binding.target with
           | some _ =>
               Expr.ident (InternalFunctionAliasEnv.resolve aliasEnv name)
-          | none => Expr.ident internalFunctionPointerPanicName
+          -- An uninitialised internal function pointer is dispatch ID zero
+          -- when used as a VALUE (comparison, assignment, return, container
+          -- element).  Only CALLING it panics 0x51; the specialised call arms
+          -- below retain that behaviour.
+          | none => Expr.literal (Literal.number "0")
       | none => Expr.ident name
   | _ + 1, _, Expr.typeName ty => Expr.typeName ty
   | fuel + 1, aliasEnv, Expr.member base member =>

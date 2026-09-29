@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/uninitialized-fnptr-comparison/out"
+cache_path = "../../.foundry-suites/uninitialized-fnptr-comparison/cache"
+evm_version = "cancun"

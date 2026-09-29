@@ -144,3 +144,4 @@ import SolidCore.Witness.TupleLiteralTargetTyping
 import SolidCore.Witness.ConditionalFunctionMembers
 import SolidCore.Witness.SelectorReceiverSideEffect
 import SolidCore.Witness.InternalLibraryFnPtrValue
+import SolidCore.Witness.UninitializedFnPtrComparison
