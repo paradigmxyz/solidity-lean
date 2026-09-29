@@ -8518,6 +8518,87 @@ def Expr.binaryToCoreWithEnvTypedFuel? (fuel : Nat) (storageNames : List Name)
         (resultTy,
           SolidCore.Solidity.Source.Expr.binary coreOp lhsCore rhsCore)
 
+/-- Lower a `bytesN` shift/bitwise subtree while retaining env-aware evaluation
+    of shift counts. The older non-recursive helper preserves bytes-lane
+    cleanup but lowers shift counts through `toCore?`; consequently a count
+    such as `uint8 a + b` runs at 256 bits and loses its checked overflow. -/
+def Expr.toCoreFixedBytesBitOpWithEnvFuel? (fuel : Nat)
+    (storageNames : List Name) (env : TypeEnv) (size : Nat) :
+    Expr -> Option CoreExpr
+  | expr =>
+      match fuel with
+      | 0 => Expr.toCoreFixedBytesBitOp? storageNames env size expr
+      | Nat.succ fuel =>
+          match expr with
+          | Expr.binary BinaryOp.shl lhs rhs => do
+              let lhsCore ←
+                Expr.toCoreFixedBytesBitOpWithEnvFuel?
+                  fuel storageNames env size lhs
+              let rhsCore ←
+                if Expr.abiArgNeedsEnvCleanup? rhs then do
+                  let rhsTy ← Expr.abiTyWithEnv? env rhs
+                  Expr.toCoreAsWithEnvFuel? fuel storageNames env rhsTy rhs
+                else
+                  Expr.toCore? storageNames rhs
+              some
+                (SolidCore.Solidity.Source.Expr.fixedBytesCast size size
+                  (SolidCore.Solidity.Source.Expr.binary
+                    SolidCore.Solidity.Source.BinaryOp.shl lhsCore rhsCore))
+          | Expr.binary BinaryOp.shr lhs rhs => do
+              let lhsCore ←
+                Expr.toCoreFixedBytesBitOpWithEnvFuel?
+                  fuel storageNames env size lhs
+              let rhsCore ←
+                if Expr.abiArgNeedsEnvCleanup? rhs then do
+                  let rhsTy ← Expr.abiTyWithEnv? env rhs
+                  Expr.toCoreAsWithEnvFuel? fuel storageNames env rhsTy rhs
+                else
+                  Expr.toCore? storageNames rhs
+              some
+                (SolidCore.Solidity.Source.Expr.binary
+                  SolidCore.Solidity.Source.BinaryOp.shr lhsCore rhsCore)
+          | Expr.binary BinaryOp.bitAnd lhs rhs => do
+              let lhsCore ←
+                Expr.toCoreFixedBytesBitOpWithEnvFuel?
+                  fuel storageNames env size lhs
+              let rhsCore ←
+                Expr.toCoreFixedBytesBitOpWithEnvFuel?
+                  fuel storageNames env size rhs
+              some
+                (SolidCore.Solidity.Source.Expr.binary
+                  SolidCore.Solidity.Source.BinaryOp.bitAnd lhsCore rhsCore)
+          | Expr.binary BinaryOp.bitOr lhs rhs => do
+              let lhsCore ←
+                Expr.toCoreFixedBytesBitOpWithEnvFuel?
+                  fuel storageNames env size lhs
+              let rhsCore ←
+                Expr.toCoreFixedBytesBitOpWithEnvFuel?
+                  fuel storageNames env size rhs
+              some
+                (SolidCore.Solidity.Source.Expr.binary
+                  SolidCore.Solidity.Source.BinaryOp.bitOr lhsCore rhsCore)
+          | Expr.binary BinaryOp.bitXor lhs rhs => do
+              let lhsCore ←
+                Expr.toCoreFixedBytesBitOpWithEnvFuel?
+                  fuel storageNames env size lhs
+              let rhsCore ←
+                Expr.toCoreFixedBytesBitOpWithEnvFuel?
+                  fuel storageNames env size rhs
+              some
+                (SolidCore.Solidity.Source.Expr.binary
+                  SolidCore.Solidity.Source.BinaryOp.bitXor lhsCore rhsCore)
+          | Expr.unary UnaryOp.bitNot inner => do
+              let innerCore ←
+                Expr.toCoreFixedBytesBitOpWithEnvFuel?
+                  fuel storageNames env size inner
+              some
+                (SolidCore.Solidity.Source.Expr.fixedBytesCast size size
+                  (SolidCore.Solidity.Source.Expr.unary
+                    SolidCore.Solidity.Source.UnaryOp.bitNot innerCore))
+          | expr =>
+              Expr.toCoreAsWithEnvDirect?
+                storageNames env (Ty.bytesN size) expr
+
 /-- R2: fuel-carrying counterpart of `Expr.toCoreAsWithEnvBitAware?` that
     recurses into the FULL env-aware lowering for non-bit-op shapes (the
     non-fuel version stops at `Expr.toCoreAsWithEnvDirect?`, skipping the
@@ -8530,7 +8611,8 @@ def Expr.toCoreAsWithEnvBitAwareFuel? (fuel : Nat) (storageNames : List Name)
   match Ty.fixedBytesSize? targetTy with
   | some size =>
       if Expr.isFixedBytesBitOpShape expr then
-        Expr.toCoreFixedBytesBitOp? storageNames env size expr
+        Expr.toCoreFixedBytesBitOpWithEnvFuel?
+          fuel storageNames env size expr
       else
         Expr.toCoreAsWithEnvFuel? fuel storageNames env targetTy expr
   | none => Expr.toCoreAsWithEnvFuel? fuel storageNames env targetTy expr
@@ -8548,7 +8630,8 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
   match (match Ty.fixedBytesSize? targetTy with
     | some size =>
         if Expr.isFixedBytesBitOpShape expr then
-          Expr.toCoreFixedBytesBitOp? storageNames env size expr
+          Expr.toCoreFixedBytesBitOpWithEnvFuel?
+            fuel storageNames env size expr
         else
           none
     | none => none) with
@@ -8907,41 +8990,53 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
                 (SolidCore.Solidity.Source.Expr.ternary
                   condCore thenCore elseCore)
           | Expr.binary op lhs rhs =>
-              -- NARROW-ARITH-UNDER-SHIFT (SOUNDNESS): a `<<`/`>>` whose SHIFTED
-              -- (left) operand is narrow checked arithmetic (`(a * b) << k`,
-              -- `uint64 a, b`) must evaluate that arithmetic at ITS OWN operand
-              -- width so the overflow Panic 0x11 fires BEFORE the shift.
+              -- NARROW-ARITH-UNDER-SHIFT (SOUNDNESS): a `<<`/`>>` whose shifted
+              -- value OR shift count carries narrow checked arithmetic must
+              -- evaluate that subtree at its own operand width, so overflow
+              -- Panics 0x11 before the shift. This includes both
+              -- `(a * b) << k` and `x << (a + b)`.
               -- `binaryToCoreWithEnvTypedFuel?` declines shifts (`shl/shr =>
               -- none`), so the whole shift subtree otherwise falls to the env-less
               -- Direct path, which lowers the inner `mul`/`add` to a bare 256-bit
               -- op with NO `implicitCleanupCore` — silently wrapping (`2^32 *
               -- 2^32 = 2^64` fits in 256 bits, `((a*b) << 0) != 0` reads false)
-              -- instead of panicking. Re-lower the left operand env-aware at its
-              -- narrow width (whose binary arm applies the checked operand-width
-              -- cleanup), then keep the shift amount and the shift-result widening
-              -- byte-for-byte as the Direct path (`toCore?` on the amount,
-              -- `coreAsFromTy?` off the shift's own type). Gated on a NARROW
-              -- left-operand type carrying overflow arithmetic, so every other
-              -- shift keeps the identical Direct path; when the arithmetic does
-              -- NOT overflow the cleanup is an idempotent mask, so the value is
-              -- unchanged. (A `bytesN`-target shift is intercepted earlier by the
-              -- fixed-bytes bit-op arm and never reaches here.)
+              -- instead of panicking. Re-lower only flagged operands env-aware;
+              -- unflagged operands retain the byte-identical Direct path.
+              -- A `bytesN`-target shift is intercepted earlier by the fixed-bytes
+              -- bit-op arm, whose fuel-aware variant applies the same rule.
               match
                   (match op with
                    | BinaryOp.shl | BinaryOp.shr =>
-                       (match Expr.peelToOverflowArithmetic? lhs with
-                        | some _ => do
-                            let lhsTy ← Expr.abiTyWithEnv? env lhs
-                            let _ ← Ty.narrowIntCastTarget? lhsTy
-                            let coreOp ← BinaryOp.toCore? op
-                            let lhsCore ←
-                              Expr.toCoreAsWithEnvFuel? fuel storageNames env lhsTy lhs
-                            let rhsCore ← Expr.toCore? storageNames rhs
-                            let shiftTy ← Expr.abiTyWithEnv? env expr
-                            Expr.coreAsFromTy? targetTy shiftTy
-                              (SolidCore.Solidity.Source.Expr.binary
-                                coreOp lhsCore rhsCore)
-                        | none => none)
+                       let lhsNeeds :=
+                         match Expr.peelToOverflowArithmetic? lhs with
+                         | some _ =>
+                             match Expr.abiTyWithEnv? env lhs with
+                             | some lhsTy =>
+                                 (Ty.narrowIntCastTarget? lhsTy).isSome
+                             | none => false
+                         | none => false
+                       let rhsNeeds := Expr.abiArgNeedsEnvCleanup? rhs
+                       if lhsNeeds || rhsNeeds then do
+                         let coreOp ← BinaryOp.toCore? op
+                         let lhsCore ←
+                           if lhsNeeds then do
+                             let lhsTy ← Expr.abiTyWithEnv? env lhs
+                             Expr.toCoreAsWithEnvFuel?
+                               fuel storageNames env lhsTy lhs
+                           else
+                             Expr.toCore? storageNames lhs
+                         let rhsCore ←
+                           if rhsNeeds then do
+                             let rhsTy ← Expr.abiTyWithEnv? env rhs
+                             Expr.toCoreAsWithEnvFuel?
+                               fuel storageNames env rhsTy rhs
+                           else
+                             Expr.toCore? storageNames rhs
+                         let shiftTy ← Expr.abiTyWithEnv? env expr
+                         Expr.coreAsFromTy? targetTy shiftTy
+                           (SolidCore.Solidity.Source.Expr.binary
+                             coreOp lhsCore rhsCore)
+                       else none
                    | _ => none) with
               | some coreExpr => some coreExpr
               | none =>
@@ -18243,6 +18338,41 @@ def Expr.toCoreLValueWithEnv? (storageNames : List Name) (env : TypeEnv) :
             some (SolidCore.Solidity.Source.LValue.index baseCore keyCore))
   | other => Expr.toCoreLValue? storageNames other
 
+/-- A compound shift assignment whose count needs operand-width cleanup.
+    Shift counts keep their own Solidity type, so `x <<= a + b` with `uint8`
+    operands must evaluate `a + b` at `uint8` and Panic 0x11 on overflow before
+    modifying `x`. The generic compound-assignment lowerer uses env-less
+    `toCore?` for the RHS and therefore loses that check. -/
+def Expr.toCoreAssignOpShiftRhsAware? (storageNames : List Name)
+    (env : TypeEnv) : Expr -> Option CoreExpr
+  | Expr.assign lhs op rhs => do
+      let coreOp ←
+        match op with
+        | AssignOp.shlAssign =>
+            some SolidCore.Solidity.Source.BinaryOp.shl
+        | AssignOp.shrAssign =>
+            some SolidCore.Solidity.Source.BinaryOp.shr
+        | AssignOp.sarAssign =>
+            some SolidCore.Solidity.Source.BinaryOp.sar
+        | _ => none
+      if !Expr.abiArgNeedsEnvCleanup? rhs then none else do
+        let lhsCore ←
+          match lhs with
+          | Expr.index _ key =>
+              if Expr.abiArgNeedsEnvCleanup? key then
+                Expr.toCoreLValueWithEnv? storageNames env lhs
+              else
+                Expr.toCoreLValue? storageNames lhs
+          | _ => Expr.toCoreLValue? storageNames lhs
+        let rhsTy ← Expr.abiTyWithEnv? env rhs
+        let rhsCore ← Expr.toCoreAsWithEnv? storageNames env rhsTy rhs
+        let lhsTy ← Expr.abiTyWithEnv? env lhs
+        let cleanup ← Ty.toCoreValueCleanup? lhsTy
+        some
+          (SolidCore.Solidity.Source.Expr.assignOpCleanupExpr
+            lhsCore.toExpr coreOp rhsCore cleanup)
+  | _ => none
+
 def assignmentCoreWithEnv? (storageNames : List Name)
     (env : TypeEnv) (lhs rhs : Expr) : Option CoreStmt := do
   let lhsCore ← Expr.toCoreLValueWithEnv? storageNames env lhs
@@ -18859,6 +18989,13 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
       | Stmt.expr expr@(Expr.assign _ AssignOp.shlAssign _)
       | Stmt.expr expr@(Expr.assign _ AssignOp.shrAssign _)
       | Stmt.expr expr@(Expr.assign _ AssignOp.sarAssign _) =>
+          -- Shift counts retain their own type. Evaluate a flagged RHS through
+          -- the env-aware lowerer before the read-modify-write so narrow checked
+          -- arithmetic Panics at its operand width.
+          match Expr.toCoreAssignOpShiftRhsAware? storageNames env expr with
+          | some coreExpr =>
+              some (SolidCore.Solidity.Source.Stmt.exprStmt coreExpr)
+          | none =>
           -- #201 (G): a compound-assign whose LVALUE index KEY carries narrow
           -- checked arithmetic (`arr[a + b] += 1`, `uint8 a,b`) must lower the key
           -- env-aware (`Expr.toCoreLValueWithEnv?`, exactly as plain `=` does via

@@ -9615,7 +9615,7 @@ end
 def storageArrayLiteralWidenCheck (types : TypeContext)
     (checked : CheckedExpr) (expected : Ty) : Except TypeError Unit :=
   match checked.source, expected with
-  | Solidity.Expr.array _, Solidity.Ty.array _ (some _) =>
+  | Solidity.Expr.array _, Solidity.Ty.array _ _ =>
       -- A bare-literal array has an over-wide `uint256[n]` `checked.ty`, so its
       -- precise bottom-up type drives the storage-copy check; a typed / variable
       -- element already yields a precise `checked.ty` (bottom-up is `none`), so
@@ -9633,9 +9633,12 @@ def storageArrayLiteralWidenCheck (types : TypeContext)
 def checkStorageInitAssignableTo (env : CheckEnv)
     (expr : Solidity.Expr) (expected : Ty) : Except TypeError Unit :=
   match expr, expected with
-  | Solidity.Expr.array elements, Solidity.Ty.array _ (some size) => do
-      require (elements.length == size)
-        (TypeError.arityMismatch "array literal" size elements.length)
+  | Solidity.Expr.array elements, Solidity.Ty.array _ size? => do
+      match size? with
+      | some size =>
+          require (elements.length == size)
+            (TypeError.arityMismatch "array literal" size elements.length)
+      | none => Except.ok ()
       if exprContextuallyAssignableTo env expr expected then
         let _ ← checkExpr env expr
         Except.ok ()
