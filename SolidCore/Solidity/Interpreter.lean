@@ -4583,6 +4583,29 @@ def Runtime.loadStorageBasePath (context : Context)
     runtime.resolveStorageBasePath context base indexes
   runtime.state.loadStorageLayoutAt slot valueLayout
 
+/-- Read the `.length` of a storage lvalue without materializing its contents.
+    This matters for arrays whose elements cannot be materialized as Solidity
+    values, most notably arrays of mappings.  Their length header is still a
+    perfectly valid read.  It also avoids an unnecessary traversal for every
+    other storage array and preserves the storage-bytes header validation. -/
+def Runtime.loadStorageBaseLength (context : Context)
+    (runtime : Runtime) (base : StorageBase) (indexes : List Value) :
+    Except RevertData Value := do
+  let (slot, valueLayout) ←
+    runtime.resolveStorageBasePath context base indexes
+  match valueLayout with
+  | StorageLayout.dynamicArray _ =>
+      Except.ok (Value.word (runtime.state.loadSlot slot))
+  | StorageLayout.fixedArray size _ =>
+      Except.ok (Value.word size)
+  | StorageLayout.bytes
+  | StorageLayout.string => do
+      let length ← State.storageBytesLengthAt runtime.state slot
+      Except.ok (Value.word length)
+  | StorageLayout.scalar (Ty.fixedBytes size) =>
+      Except.ok (Value.word size)
+  | _ => Except.error RevertData.typeMismatch
+
 def Runtime.loadStoragePath (context : Context)
     (runtime : Runtime) (name : String) (indexes : List Value) :
     Except RevertData Value :=
@@ -7756,9 +7779,8 @@ def Expr.evalFuel (fuel : Nat)
               | Expr.var name =>
                   match runtime.lookupStorageBase? name with
                   | some base => do
-                      let value ←
-                        runtime.loadStorageBasePath context base []
-                      let len ← lengthValue value
+                      let len ←
+                        runtime.loadStorageBaseLength context base []
                       pure (len, runtime)
                   | none =>
                       let (value, runtime') ←
@@ -7773,9 +7795,8 @@ def Expr.evalFuel (fuel : Nat)
                         context runtime expr
                     match target.asStoragePath? with
                     | some (base, indexes) => do
-                        let value ←
-                          runtime'.loadStorageBasePath context base indexes
-                        let len ← lengthValue value
+                        let len ←
+                          runtime'.loadStorageBaseLength context base indexes
                         pure (len, runtime')
                     | none => throw <| SolidityFailure.revert RevertData.typeMismatch
                   else
