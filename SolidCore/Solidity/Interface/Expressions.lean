@@ -6610,7 +6610,11 @@ def Stmt.rewriteStorageReturnAssignmentsFuel (fuel : Nat)
     | stmt => stmt
 termination_by fuel
 
-def defaultStorageReturnRewriteFuel : Nat := 32
+/-- Storage-pointer return rewriting only traverses source syntax, but still uses
+    fuel to make the transform's structural decrease explicit to Lean.  Keep
+    this in line with the other whole-source transforms: 32 exposed a semantic
+    cutoff at 31 nested statement nodes in otherwise valid Solidity. -/
+def defaultStorageReturnRewriteFuel : Nat := 1024
 
 def Stmt.rewriteStorageReturnAssignments (fallbackPrefix : String)
     (returns : List Parameter) (stmt : Stmt) : Stmt :=
