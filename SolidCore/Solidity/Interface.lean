@@ -21756,6 +21756,27 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                     (SolidCore.Solidity.Source.Stmt.tryContractCreate
                       contractName argsCore valueCore saltCore? valueBeforeSalt returnBindings
                       successCore catchCore)
+      | Stmt.varDecl [binding] (some source) =>
+          match binding.name, binding.ty, binding.location with
+          | some name, some _, some DataLocation.storage =>
+              match source with
+              | Expr.call (Expr.member target "push") [] =>
+                  storageArrayPushReturnAliasBlockCore?
+                    storageNames binding target
+              | _ => do
+                  storageReferenceBindingSupported? binding
+                  let (target, indexes) ←
+                    Expr.storagePathCoreWithEnv? storageNames env source
+                  match indexes with
+                  | [] =>
+                      some
+                        (SolidCore.Solidity.Source.Stmt.storageAlias name target)
+                  | _ =>
+                      some
+                        (SolidCore.Solidity.Source.Stmt.storageAliasPath
+                          name target indexes)
+          | _, _, _ =>
+              Stmt.toCore? storageNames (Stmt.varDecl [binding] (some source))
       | Stmt.expr expr@(Expr.binary _ _ _)
       | Stmt.expr expr@(Expr.unary UnaryOp.neg _)
       | Stmt.expr expr@(Expr.unary UnaryOp.bitNot _)
@@ -21786,13 +21807,6 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
       )
   | none =>
       match stmt with
-      | Stmt.expr (Expr.ident name) =>
-          if strayBuiltinIdentAllowed name &&
-              (TypeEnv.lookup? env name).isNone &&
-              !functions.any (fun fn => fn.name == some name) then
-            some SolidCore.Solidity.Source.Stmt.skip
-          else
-            Stmt.toCore? storageNames (Stmt.expr (Expr.ident name))
       | Stmt.varDecl bindings@(_ :: _ :: _) (some (Expr.tuple items)) => do
           match tupleVarDeclAllStorageCore? storageNames bindings items with
           | some decls =>
@@ -21824,7 +21838,7 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                       | _ => do
                           storageReferenceBindingSupported? binding
                           let (target, indexes) ←
-                            Expr.storagePathCoreWithEnv? storageNames env source
+                            Expr.storagePathCore? storageNames source
                           match indexes with
                           | [] =>
                               some
