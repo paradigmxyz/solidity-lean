@@ -6282,35 +6282,49 @@ def checkExpr (env : CheckEnv) :
       Except.ok { source := expr, ty := ty, lvalue := false }
   | expr@(Solidity.Expr.member
       (Solidity.Expr.ident name) "selector") => do
-      match ErrorSigs.resolveByName env.errors name with
-      | Except.ok _ =>
+      -- A lexical variable shadows a same-named function, error, or event.
+      -- Selector rewriting leaves that member access intact, so recognize the
+      -- runtime external-function value before consulting declaration tables.
+      match env.lookupVar? name with
+      | some (Solidity.Ty.functionWithLocations _ _ _ _ _
+          Solidity.Visibility.external_) =>
           Except.ok
             { source := expr
               ty := Solidity.Ty.bytesN 4
               lvalue := false
               stateLValue := false }
-      | Except.error _ => do
-          match EventSigs.resolveByName env.events name with
-          | Except.ok sig =>
-              require (!sig.anonymous)
-                (TypeError.unsupported "anonymous event selector")
+      | some _ => Except.error (TypeError.unsupported "member selector")
+      | none =>
+          match ErrorSigs.resolveByName env.errors name with
+          | Except.ok _ =>
               Except.ok
                 { source := expr
-                  ty := Solidity.Ty.bytesN 32
+                  ty := Solidity.Ty.bytesN 4
                   lvalue := false
                   stateLValue := false }
           | Except.error _ => do
-              let baseChecked ←
-                checkExpr env (Solidity.Expr.ident name)
-              match baseChecked.ty with
-              | Solidity.Ty.functionWithLocations _ _ _ _ _
-                  Solidity.Visibility.external_ =>
+              match EventSigs.resolveByName env.events name with
+              | Except.ok sig =>
+                  require (!sig.anonymous)
+                    (TypeError.unsupported "anonymous event selector")
                   Except.ok
                     { source := expr
-                      ty := Solidity.Ty.bytesN 4
+                      ty := Solidity.Ty.bytesN 32
                       lvalue := false
                       stateLValue := false }
-              | _ => Except.error (TypeError.unsupported "member selector")
+              | Except.error _ => do
+                  let baseChecked ←
+                    checkExpr env (Solidity.Expr.ident name)
+                  match baseChecked.ty with
+                  | Solidity.Ty.functionWithLocations _ _ _ _ _
+                      Solidity.Visibility.external_ =>
+                      Except.ok
+                        { source := expr
+                          ty := Solidity.Ty.bytesN 4
+                          lvalue := false
+                          stateLValue := false }
+                  | _ =>
+                      Except.error (TypeError.unsupported "member selector")
   | expr@(Solidity.Expr.member
       (Solidity.Expr.member (Solidity.Expr.ident "this") member) "selector") =>
       -- solc `ViewPureChecker.cpp:357-370`: `this.f.selector` is special-cased
@@ -6699,9 +6713,16 @@ def checkExpr (env : CheckEnv) :
       match baseChecked.ty with
       | Solidity.Ty.bytes =>
           indexChecked.expectAssignableTo (Solidity.Ty.uint 256)
+          let conditionalMemoryLValue :=
+            match base with
+            | Solidity.Expr.ternary _ _ _ =>
+                baseChecked.dataLocation? ==
+                  some Solidity.DataLocation.memory
+            | _ => false
           Except.ok
             { source := expr, ty := Solidity.Ty.bytesN 1,
-              lvalue := baseChecked.lvalue || baseChecked.stateLValue
+              lvalue := baseChecked.lvalue || baseChecked.stateLValue ||
+                conditionalMemoryLValue
               stateLValue := baseChecked.stateLValue
               dataLocation? := baseChecked.dataLocation? }
       | Solidity.Ty.bytesN size =>
@@ -6737,10 +6758,17 @@ def checkExpr (env : CheckEnv) :
                 require (i < len)
                   (TypeError.unsupported "constant index out of bounds")
             | _, _ => Except.ok ())
+          let conditionalMemoryLValue :=
+            match base with
+            | Solidity.Expr.ternary _ _ _ =>
+                baseChecked.dataLocation? ==
+                  some Solidity.DataLocation.memory
+            | _ => false
           Except.ok
             { source := expr
               ty := env.qualifyCurrentLocalUserTypes element
-              lvalue := baseChecked.lvalue || baseChecked.stateLValue
+              lvalue := baseChecked.lvalue || baseChecked.stateLValue ||
+                conditionalMemoryLValue
               stateLValue := baseChecked.stateLValue
               dataLocation? := baseChecked.dataLocation? }
       | Solidity.Ty.tuple tys => do

@@ -6429,6 +6429,7 @@ inductive LValue where
   | storage : String -> LValue
   | storageIndex : String -> Expr -> LValue
   | index : LValue -> Expr -> LValue
+  | ternary : Expr -> LValue -> LValue -> LValue
   deriving Repr
 
 def LValue.toExpr : LValue -> Expr
@@ -6437,6 +6438,8 @@ def LValue.toExpr : LValue -> Expr
   | LValue.storage name => Expr.storage name
   | LValue.storageIndex name idx => Expr.storageIndex name idx
   | LValue.index base idx => Expr.index base.toExpr idx
+  | LValue.ternary cond thenTarget elseTarget =>
+      Expr.ternary cond thenTarget.toExpr elseTarget.toExpr
 
 def Expr.toLValue? : Expr -> Option LValue
   | Expr.var name => some (LValue.var name)
@@ -6447,6 +6450,10 @@ def Expr.toLValue? : Expr -> Option LValue
   | Expr.index base idx => do
       let baseTarget ← Expr.toLValue? base
       some (LValue.index baseTarget idx)
+  | Expr.ternary cond thenExpr elseExpr => do
+      let thenTarget ← Expr.toLValue? thenExpr
+      let elseTarget ← Expr.toLValue? elseExpr
+      some (LValue.ternary cond thenTarget elseTarget)
   | _ => none
 
 /-- Should this assignment target receive its RHS reference-preservingly (as a
@@ -7527,29 +7534,30 @@ def Expr.evalFuel (fuel : Nat)
               let value ← BinaryOp.apply context.checked op lhsValue rhsValue
               pure (value, runtime'')
           | Expr.addMod lhs rhs modulus => do
-              let (values, runtime') ←
-                Expr.evalListFuel fuel context runtime
-                  [lhs, rhs, modulus]
-              match values with
-              | [lhsValue, rhsValue, modulusValue] => do
-                  let lhsWord ← lhsValue.expectWord
-                  let rhsWord ← rhsValue.expectWord
-                  let modulusWord ← modulusValue.expectWord
-                  let value ← checkedAddMod lhsWord rhsWord modulusWord
-                  pure (Value.word value, runtime')
-              | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
+              -- Legacy codegen evaluates builtin arguments right-to-left.
+              let (modulusValue, runtime') ←
+                Expr.evalFuel fuel context runtime modulus
+              let (rhsValue, runtime'') ←
+                Expr.evalFuel fuel context runtime' rhs
+              let (lhsValue, runtime''') ←
+                Expr.evalFuel fuel context runtime'' lhs
+              let lhsWord ← lhsValue.expectWord
+              let rhsWord ← rhsValue.expectWord
+              let modulusWord ← modulusValue.expectWord
+              let value ← checkedAddMod lhsWord rhsWord modulusWord
+              pure (Value.word value, runtime''')
           | Expr.mulMod lhs rhs modulus => do
-              let (values, runtime') ←
-                Expr.evalListFuel fuel context runtime
-                  [lhs, rhs, modulus]
-              match values with
-              | [lhsValue, rhsValue, modulusValue] => do
-                  let lhsWord ← lhsValue.expectWord
-                  let rhsWord ← rhsValue.expectWord
-                  let modulusWord ← modulusValue.expectWord
-                  let value ← checkedMulMod lhsWord rhsWord modulusWord
-                  pure (Value.word value, runtime')
-              | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
+              let (modulusValue, runtime') ←
+                Expr.evalFuel fuel context runtime modulus
+              let (rhsValue, runtime'') ←
+                Expr.evalFuel fuel context runtime' rhs
+              let (lhsValue, runtime''') ←
+                Expr.evalFuel fuel context runtime'' lhs
+              let lhsWord ← lhsValue.expectWord
+              let rhsWord ← rhsValue.expectWord
+              let modulusWord ← modulusValue.expectWord
+              let value ← checkedMulMod lhsWord rhsWord modulusWord
+              pure (Value.word value, runtime''')
           | Expr.concatBytes exprs => do
               let (values, runtime') ←
                 Expr.evalListFuel fuel context runtime
@@ -8205,6 +8213,12 @@ def Expr.resolveLValueFuel
                 Expr.evalFuel fuel context
                   runtime' idx
               finish baseTarget indexValue runtime''
+          | Expr.ternary cond thenExpr elseExpr => do
+              let (condValue, runtime') ←
+                Expr.evalFuel fuel context runtime cond
+              let condWord ← condValue.expectWord
+              Expr.resolveLValueFuel fuel context runtime'
+                (if wordTruthy condWord then thenExpr else elseExpr)
           | _ => throw <| SolidityFailure.revert RevertData.typeMismatch
 
 end
@@ -8942,6 +8956,11 @@ def LValue.normalizeStorageValueUses : LValue -> LValue
   | LValue.index base idx =>
       LValue.index base.normalizeStorageValueUses
         (Expr.normalizeStorageValueUses StoragePosition.valueUse idx)
+  | LValue.ternary cond thenTarget elseTarget =>
+      LValue.ternary
+        (Expr.normalizeStorageValueUses StoragePosition.valueUse cond)
+        thenTarget.normalizeStorageValueUses
+        elseTarget.normalizeStorageValueUses
 
 def LValue.normalizeStorageValueUsesOptList :
     List (Option LValue) -> List (Option LValue)

@@ -2701,6 +2701,18 @@ def StateVarDecl.selectorEntry? (decl : StateVarDecl) :
 
 abbrev SelectorEnv := List (Name × Word)
 
+/-- Remove only unqualified declaration names shadowed by lexical binders.
+    Qualified entries such as `Base.f` remain available inside the scope. -/
+def SelectorEnv.withoutBoundNames (env : SelectorEnv)
+    (bound : List Name) : SelectorEnv :=
+  env.filter (fun entry => !bound.contains entry.1)
+
+def VarBindings.selectorBoundNames (bindings : List VarBinding) : List Name :=
+  bindings.filterMap (fun binding => binding.name)
+
+def Parameters.selectorBoundNames (params : List Parameter) : List Name :=
+  params.filterMap (fun param => param.name)
+
 def selectorQualifiedName (contractName functionName : Name) : Name :=
   contractName ++ "." ++ functionName
 
@@ -2797,6 +2809,10 @@ def EventDecls.qualifiedSelectorEntries
 def EventSelectorEnv.lookup? (env : EventSelectorEnv) (query : Name) :
     Option Word :=
   SelectorEnv.lookup? env query
+
+def EventSelectorEnv.withoutBoundNames (env : EventSelectorEnv)
+    (bound : List Name) : EventSelectorEnv :=
+  SelectorEnv.withoutBoundNames env bound
 
 def selectorLiteralExpr (selector : Word) : Expr :=
   Expr.call (Expr.typeName (Ty.bytesN 4))
@@ -3172,7 +3188,23 @@ def Stmt.resolveSelectorsFuel :
         CatchClause.resolveSelectorsFuel fuel env unqualifiedEnv
       match stmt with
       | Stmt.empty => Stmt.empty
-      | Stmt.block body => Stmt.block (body.map resolveStmt)
+      | Stmt.block body =>
+          -- Resolve an initializer in the incoming scope, then hide the names
+          -- it binds from the declaration-selector tables for later siblings.
+          Stmt.block
+            ((body.foldl
+              (fun (acc : List Stmt × (SelectorEnv × SelectorEnv)) item =>
+                let item' :=
+                  Stmt.resolveSelectorsFuel fuel acc.2.1 acc.2.2 item
+                let bound :=
+                  match item with
+                  | Stmt.varDecl bindings _ =>
+                      VarBindings.selectorBoundNames bindings
+                  | _ => []
+                ( acc.1 ++ [item']
+                , acc.2.1.withoutBoundNames bound
+                , acc.2.2.withoutBoundNames bound ))
+              ([], env, unqualifiedEnv)).1)
       | Stmt.varDecl bindings init =>
           Stmt.varDecl bindings (init.map resolveExpr)
       | Stmt.expr
@@ -3194,13 +3226,26 @@ def Stmt.resolveSelectorsFuel :
       | Stmt.doWhile body cond =>
           Stmt.doWhile (resolveStmt body) (resolveExpr cond)
       | Stmt.forLoop init cond post body =>
-          Stmt.forLoop (init.map resolveStmt) (cond.map resolveExpr)
-            (post.map resolveExpr) (resolveStmt body)
+          let bound :=
+            match init with
+            | some (Stmt.varDecl bindings _) =>
+                VarBindings.selectorBoundNames bindings
+            | _ => []
+          let envIn := env.withoutBoundNames bound
+          let unqualifiedIn := unqualifiedEnv.withoutBoundNames bound
+          Stmt.forLoop (init.map resolveStmt)
+            (cond.map (Expr.resolveSelectorsFuel fuel envIn unqualifiedIn))
+            (post.map (Expr.resolveSelectorsFuel fuel envIn unqualifiedIn))
+            (Stmt.resolveSelectorsFuel fuel envIn unqualifiedIn body)
       | Stmt.tryCatch expr clauses =>
           Stmt.tryCatch (resolveExpr expr) (clauses.map resolveClause)
       | Stmt.tryCatchReturns expr returns success clauses =>
+          let bound := Parameters.selectorBoundNames returns
+          let envIn := env.withoutBoundNames bound
+          let unqualifiedIn := unqualifiedEnv.withoutBoundNames bound
           Stmt.tryCatchReturns (resolveExpr expr) returns
-            (resolveStmt success) (clauses.map resolveClause)
+            (Stmt.resolveSelectorsFuel fuel envIn unqualifiedIn success)
+            (clauses.map resolveClause)
       | Stmt.emitEvent expr => Stmt.emitEvent (resolveExpr expr)
       | Stmt.revertCall expr => Stmt.revertCall (resolveExpr expr)
       | Stmt.returnValues (some expr) =>
@@ -3226,8 +3271,11 @@ def CatchClause.resolveSelectorsFuel :
   | fuel + 1, env, unqualifiedEnv, clause =>
       match clause with
       | CatchClause.clause name params body =>
+          let bound := Parameters.selectorBoundNames params
           CatchClause.clause name params
-            (Stmt.resolveSelectorsFuel fuel env unqualifiedEnv body)
+            (Stmt.resolveSelectorsFuel fuel
+              (env.withoutBoundNames bound)
+              (unqualifiedEnv.withoutBoundNames bound) body)
 
 end
 
@@ -3241,32 +3289,46 @@ def Stmt.resolveSelectorsWithUnqualified
 
 def FunctionDecl.resolveSelectors (env : SelectorEnv)
     (decl : FunctionDecl) : FunctionDecl :=
+  let bound :=
+    Parameters.selectorBoundNames decl.params ++
+      Parameters.selectorBoundNames decl.returns
+  let envIn := env.withoutBoundNames bound
   { decl with
-    modifiers := decl.modifiers.map (ModifierInvocation.resolveSelectors env)
-    body := decl.body.map (Stmt.resolveSelectors env) }
+    modifiers := decl.modifiers.map (ModifierInvocation.resolveSelectors envIn)
+    body := decl.body.map (Stmt.resolveSelectors envIn) }
 
 def FunctionDecl.resolveSelectorsWithUnqualified
     (env unqualifiedEnv : SelectorEnv) (decl : FunctionDecl) :
     FunctionDecl :=
+  let bound :=
+    Parameters.selectorBoundNames decl.params ++
+      Parameters.selectorBoundNames decl.returns
+  let envIn := env.withoutBoundNames bound
+  let unqualifiedIn := unqualifiedEnv.withoutBoundNames bound
   { decl with
     modifiers :=
       decl.modifiers.map
         (ModifierInvocation.resolveSelectorsWithUnqualified
-          env unqualifiedEnv)
+          envIn unqualifiedIn)
     body :=
-      decl.body.map (Stmt.resolveSelectorsWithUnqualified env unqualifiedEnv) }
+      decl.body.map (Stmt.resolveSelectorsWithUnqualified envIn unqualifiedIn) }
 
 def ModifierDecl.resolveSelectors (env : SelectorEnv)
     (decl : ModifierDecl) : ModifierDecl :=
-  { decl with body := decl.body.map (Stmt.resolveSelectors env) }
+  let envIn :=
+    env.withoutBoundNames (Parameters.selectorBoundNames decl.params)
+  { decl with body := decl.body.map (Stmt.resolveSelectors envIn) }
 
 def ModifierDecl.resolveSelectorsWithUnqualified
     (env unqualifiedEnv : SelectorEnv) (decl : ModifierDecl) :
     ModifierDecl :=
+  let bound := Parameters.selectorBoundNames decl.params
+  let envIn := env.withoutBoundNames bound
+  let unqualifiedIn := unqualifiedEnv.withoutBoundNames bound
   { decl with
     body :=
       decl.body.map
-        (Stmt.resolveSelectorsWithUnqualified env unqualifiedEnv) }
+        (Stmt.resolveSelectorsWithUnqualified envIn unqualifiedIn) }
 
 def ContractItem.resolveSelectors (env : SelectorEnv) :
     ContractItem -> ContractItem
@@ -3445,7 +3507,19 @@ def Stmt.resolveEventSelectorsFuel :
       let resolveClause := CatchClause.resolveEventSelectorsFuel fuel env
       match stmt with
       | Stmt.empty => Stmt.empty
-      | Stmt.block body => Stmt.block (body.map resolveStmt)
+      | Stmt.block body =>
+          Stmt.block
+            ((body.foldl
+              (fun (acc : List Stmt × EventSelectorEnv) item =>
+                let item' :=
+                  Stmt.resolveEventSelectorsFuel fuel acc.2 item
+                let bound :=
+                  match item with
+                  | Stmt.varDecl bindings _ =>
+                      VarBindings.selectorBoundNames bindings
+                  | _ => []
+                (acc.1 ++ [item'], acc.2.withoutBoundNames bound))
+              ([], env)).1)
       | Stmt.varDecl bindings init =>
           Stmt.varDecl bindings (init.map resolveExpr)
       | Stmt.expr expr => Stmt.expr (resolveExpr expr)
@@ -3457,13 +3531,24 @@ def Stmt.resolveEventSelectorsFuel :
       | Stmt.doWhile body cond =>
           Stmt.doWhile (resolveStmt body) (resolveExpr cond)
       | Stmt.forLoop init cond post body =>
-          Stmt.forLoop (init.map resolveStmt) (cond.map resolveExpr)
-            (post.map resolveExpr) (resolveStmt body)
+          let bound :=
+            match init with
+            | some (Stmt.varDecl bindings _) =>
+                VarBindings.selectorBoundNames bindings
+            | _ => []
+          let envIn := env.withoutBoundNames bound
+          Stmt.forLoop (init.map resolveStmt)
+            (cond.map (Expr.resolveEventSelectorsFuel fuel envIn))
+            (post.map (Expr.resolveEventSelectorsFuel fuel envIn))
+            (Stmt.resolveEventSelectorsFuel fuel envIn body)
       | Stmt.tryCatch expr clauses =>
           Stmt.tryCatch (resolveExpr expr) (clauses.map resolveClause)
       | Stmt.tryCatchReturns expr returns success clauses =>
+          let envIn :=
+            env.withoutBoundNames (Parameters.selectorBoundNames returns)
           Stmt.tryCatchReturns (resolveExpr expr) returns
-            (resolveStmt success) (clauses.map resolveClause)
+            (Stmt.resolveEventSelectorsFuel fuel envIn success)
+            (clauses.map resolveClause)
       | Stmt.emitEvent expr => Stmt.emitEvent (resolveExpr expr)
       | Stmt.revertCall expr => Stmt.revertCall (resolveExpr expr)
       | Stmt.returnValues expr? => Stmt.returnValues (expr?.map resolveExpr)
@@ -3480,7 +3565,9 @@ def CatchClause.resolveEventSelectorsFuel :
       match clause with
       | CatchClause.clause name params body =>
           CatchClause.clause name params
-            (Stmt.resolveEventSelectorsFuel fuel env body)
+            (Stmt.resolveEventSelectorsFuel fuel
+              (env.withoutBoundNames (Parameters.selectorBoundNames params))
+              body)
 
 end
 
@@ -3490,14 +3577,20 @@ def Stmt.resolveEventSelectors
 
 def FunctionDecl.resolveEventSelectors
     (env : EventSelectorEnv) (decl : FunctionDecl) : FunctionDecl :=
+  let bound :=
+    Parameters.selectorBoundNames decl.params ++
+      Parameters.selectorBoundNames decl.returns
+  let envIn := env.withoutBoundNames bound
   { decl with
     modifiers := decl.modifiers.map
-      (ModifierInvocation.resolveEventSelectors env)
-    body := decl.body.map (Stmt.resolveEventSelectors env) }
+      (ModifierInvocation.resolveEventSelectors envIn)
+    body := decl.body.map (Stmt.resolveEventSelectors envIn) }
 
 def ModifierDecl.resolveEventSelectors
     (env : EventSelectorEnv) (decl : ModifierDecl) : ModifierDecl :=
-  { decl with body := decl.body.map (Stmt.resolveEventSelectors env) }
+  let envIn :=
+    env.withoutBoundNames (Parameters.selectorBoundNames decl.params)
+  { decl with body := decl.body.map (Stmt.resolveEventSelectors envIn) }
 
 def ContractItem.resolveEventSelectors
     (env : EventSelectorEnv) : ContractItem -> ContractItem
@@ -7272,12 +7365,53 @@ def Expr.findArgPosInnerCall? (functions : List FunctionDecl)
         | none => none
     | Expr.call callee args =>
         let args := Expr.reorderNamedInternalCallArgs functions [] env callee args
-        match Expr.findArgPosInnerCallArgs? functions env tmp fuel args with
-        | some (c, t, args') => some (c, t, Expr.call callee args')
-        | none =>
-            match Expr.findArgPosInnerCall? functions env tmp false fuel callee with
-            | some (c, t, callee') => some (c, t, Expr.call callee' args)
-            | none => rootCandidate
+        let normal :=
+          match Expr.findArgPosInnerCallArgs? functions env tmp fuel args with
+          | some (c, t, args') => some (c, t, Expr.call callee args')
+          | none =>
+              match
+                  Expr.findArgPosInnerCall? functions env tmp false fuel callee
+              with
+              | some (c, t, callee') => some (c, t, Expr.call callee' args)
+              | none => rootCandidate
+        -- Legacy addmod/mulmod evaluate their three positional arguments from
+        -- right to left. Peel the modulus first, then rhs, then lhs, while
+        -- keeping every rewritten argument in its original positional slot.
+        match callee, args with
+        | Expr.ident name, [a, b, m] =>
+            if name == "addmod" || name == "mulmod" then
+              let mExpr := match m with
+                | Arg.positional e | Arg.named _ e => e
+              let bExpr := match b with
+                | Arg.positional e | Arg.named _ e => e
+              let aExpr := match a with
+                | Arg.positional e | Arg.named _ e => e
+              match
+                  Expr.findArgPosInnerCall?
+                    functions env tmp false fuel mExpr
+              with
+              | some (c, t, m') =>
+                  some (c, t, Expr.call callee [a, b, Arg.withExpr m' m])
+              | none =>
+                  match
+                      Expr.findArgPosInnerCall?
+                        functions env tmp false fuel bExpr
+                  with
+                  | some (c, t, b') =>
+                      some (c, t,
+                        Expr.call callee [a, Arg.withExpr b' b, m])
+                  | none =>
+                      match
+                          Expr.findArgPosInnerCall?
+                            functions env tmp false fuel aExpr
+                      with
+                      | some (c, t, a') =>
+                          some (c, t,
+                            Expr.call callee [Arg.withExpr a' a, b, m])
+                      | none => normal
+            else
+              normal
+        | _, _ => normal
     | Expr.callWithOptions callee options args =>
         match Expr.findArgPosInnerCallArgs? functions env tmp fuel args with
         | some (c, t, args') =>
@@ -7347,9 +7481,10 @@ end
     that is NESTED inside an arbitrary expression into an ordered sequence of
     temp-local bindings, leaving flat expressions the existing enumerated
     lowering arms already handle. It reproduces solc legacy evaluation order
-    (`ExpressionCompiler.cpp`): function/builtin args left-to-right; ordinary
-    binary operands RIGHT-then-LEFT (`614-615`); short-circuit `&&`/`||` right
-    operand guarded; ternary branches guarded (only the taken branch runs). The
+    (`ExpressionCompiler.cpp`): ordinary function/builtin args left-to-right,
+    addmod/mulmod args right-to-left; ordinary binary operands RIGHT-then-LEFT
+    (`614-615`); short-circuit `&&`/`||` right operand guarded; ternary branches
+    guarded (only the taken branch runs). The
     hoisted result reads a fresh `_sol_hoist_<n>` temp. Because it is wired as a
     body-level FALLBACK that only rewrites statements the enumerated dispatcher
     cannot lower, every currently-lowering (green) statement is left
@@ -7563,11 +7698,28 @@ def Expr.anfHoist
       | Expr.call callee args =>
           let args := Expr.reorderNamedInternalCallArgs functions freeFunctions
             env callee args
+          -- solc's legacy codegen evaluates addmod/mulmod arguments from the
+          -- modulus back to the first operand. The generic call schedule is
+          -- left-to-right, so hoist side-effecting nested calls in the builtin
+          -- order while reconstructing the original positional argument list.
+          let (cArgs, apre, args') :=
+            match callee, args with
+            | Expr.ident name,
+                [Arg.positional a, Arg.positional b, Arg.positional m] =>
+                if name == "addmod" || name == "mulmod" then
+                  let (c1, pm, m') := rec1 c m
+                  let (c2, pb, b') := rec1 c1 b
+                  let (c3, pa, a') := rec1 c2 a
+                  ( c3
+                  , pm ++ pb ++ pa
+                  , [Arg.positional a', Arg.positional b', Arg.positional m'] )
+                else
+                  recArgs c args
+            | _, _ => recArgs c args
           match Expr.anfHoistableCallTy? functions freeFunctions env
               externalCallKindEnv storageNames (Expr.call callee args) with
           | some retTy =>
-              let (c1, apre, args') := recArgs c args
-              let t := anfHoistName c1
+              let t := anfHoistName cArgs
               -- R3 (#188): a storage-pointer return hoists to a STORAGE temp.
               let location :=
                 if Expr.anfHoistableCallStorageReturn
@@ -7579,10 +7731,9 @@ def Expr.anfHoist
                 [{ name := some t, ty := some (Ty.anfTempTy retTy),
                    location := location }]
                 (some (Expr.call callee args'))
-              (c1 + 1, apre ++ [decl], Expr.ident t)
+              (cArgs + 1, apre ++ [decl], Expr.ident t)
           | none =>
-              let (c1, apre, args') := recArgs c args
-              (c1, apre, Expr.call callee args')
+              (cArgs, apre, Expr.call callee args')
       | Expr.callWithOptions callee opts args =>
           match Expr.anfHoistableCallTy? functions freeFunctions env
               externalCallKindEnv storageNames
