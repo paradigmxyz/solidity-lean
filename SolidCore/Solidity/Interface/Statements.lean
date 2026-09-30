@@ -3983,9 +3983,15 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                       | none => retExpr)) with
               | some coreStmt => some coreStmt
               | none =>
-                  match FunctionDecl.internalSingleReturnCallCore?
+                  -- Use the expression-aware call lowerer here: an assignment
+                  -- RHS such as `fold(result, keccak256(11))` may contain a
+                  -- nested user-defined call (even one whose name collides
+                  -- with a builtin). The direct helper leaves that argument
+                  -- to the env-less builtin path; the expression helper
+                  -- hoists and resolves it against the actual declarations.
+                  match FunctionDecl.internalSingleReturnCallExprCore?
                       internalFuel storageRefEnv env externalCallKindEnv
-                      storageNames modifiers functions freeFunctions name args
+                      storageNames modifiers functions freeFunctions expr
                       (fun retExpr =>
                         SolidCore.Solidity.Source.Stmt.assign lhsCore
                           (match lhsTy? with
