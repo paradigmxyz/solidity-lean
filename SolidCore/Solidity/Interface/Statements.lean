@@ -3205,7 +3205,15 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                         (Expr.member (Expr.call (Expr.ident name) args) "push")
                         []))
           | [Arg.positional value] => do
-              let valueCore ← Expr.toCore? storageNames value
+              let retTys ←
+                FunctionDecl.internalCalleeReturnTys?
+                  functions freeFunctions env name args
+              let elemTy ←
+                match retTys with
+                | [Ty.array elemTy _] => some elemTy
+                | _ => none
+              let valueCore ←
+                Expr.toCoreAsWithEnv? storageNames env elemTy value
               match FunctionDecl.internalSingleStorageReturnRefCore?
                   internalFuel storageRefEnv env externalCallKindEnv storageNames
                   modifiers functions freeFunctions name args
@@ -3243,8 +3251,21 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           (Expr.assign
             (Expr.index (Expr.call (Expr.ident name) args) index)
             AssignOp.assign rhs) => do
-          let indexCore ← Expr.toCore? storageNames index
-          let rhsCore ← Expr.toCore? storageNames rhs
+          let retTys ←
+            FunctionDecl.internalCalleeReturnTys?
+              functions freeFunctions env name args
+          let elemTy ←
+            match retTys with
+            | [Ty.array elemTy _] => some elemTy
+            | _ => none
+          let indexCore ←
+            if Expr.abiArgNeedsEnvCleanup? index then do
+              let indexTy ← Expr.abiTyWithEnv? env index
+              Expr.toCoreAsWithEnv? storageNames env indexTy index
+            else
+              Expr.toCore? storageNames index
+          let rhsCore ←
+            Expr.toCoreAsWithEnv? storageNames env elemTy rhs
           match FunctionDecl.internalSingleStorageReturnRefCore?
               internalFuel storageRefEnv env externalCallKindEnv storageNames
               modifiers functions freeFunctions name args
@@ -6243,6 +6264,38 @@ def Stmt.listLowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
               -- back to the pure varDecl lowering — no behaviour change.
               match binding.name with
               | some localName =>
+                  match (do
+                      let (name, args, indexes) ←
+                        Expr.callRootedIndexSpine? source
+                      let indexCores ←
+                        mapOption (Expr.toCore? storageNames) indexes
+                      FunctionDecl.internalSingleStorageReturnRefCore?
+                        internalFuel storageRefEnv env externalCallKindEnv
+                        storageNames modifiers functions freeFunctions name args
+                        (fun retName =>
+                          let readCore :=
+                            indexCores.foldl
+                              (fun base index =>
+                                SolidCore.Solidity.Source.Expr.index base index)
+                              (SolidCore.Solidity.Source.Expr.var retName)
+                          SolidCore.Solidity.Source.Stmt.assign
+                            (SolidCore.Solidity.Source.LValue.var localName)
+                            (match binding.ty with
+                            | some targetTy =>
+                                Ty.implicitCleanupCore targetTy readCore
+                            | none => readCore))) with
+                  | some assignBlock => do
+                      let declCore ←
+                        Stmt.toCore? storageNames (Stmt.varDecl [binding] none)
+                      let tail ←
+                        Stmt.listToCoreWithInternalCallsWithRefs?
+                          internalFuel
+                          (VarBinding.extendStorageRefEnv storageRefEnv binding)
+                          (VarBinding.extendTypeEnv env binding)
+                          externalCallKindEnv storageNames modifiers functions
+                          freeFunctions returnTys rest
+                      some (declCore :: assignBlock :: tail)
+                  | none =>
                   match FunctionDecl.internalExprSingleReturnUseCore?
                       internalFuel storageRefEnv env externalCallKindEnv storageNames
                       modifiers functions freeFunctions source
