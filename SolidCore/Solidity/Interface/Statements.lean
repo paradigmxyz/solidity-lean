@@ -635,26 +635,24 @@ def FunctionDecl.abiInternalSingleReturnUseCore?
   let (callExpr, tmpName, replacedExpr) ←
     Expr.replaceAbiInternalSingleReturnCall?
       functions env fallbackPrefix 0 expr
-  let (name, args, _) ← Expr.internalSingleReturnCallConversion? callExpr
-  let (callee, _) ← FunctionDecl.findInternalCalleeWithArgs?
-    functions env name args
-  match callee.returns with
-  | [retParam] => do
-      let tmpTy ← Ty.toCore? retParam.ty
-      let callCore ←
-        FunctionDecl.internalSingleReturnCallExprCore?
-          internalFuel storageRefEnv env externalCallKindEnv storageNames
-          modifiers functions freeFunctions callExpr
-          (fun retExpr =>
-            SolidCore.Solidity.Source.Stmt.assign
-              (SolidCore.Solidity.Source.LValue.var tmpName) retExpr)
-      let replacedCore ← useReplaced replacedExpr
-      some
-        (SolidCore.Solidity.Source.Stmt.block
-          [ SolidCore.Solidity.Source.Stmt.varDecl tmpTy tmpName none
-          , callCore
-          , replacedCore ])
-  | _ => none
+  let (_, retTy) ←
+    match Expr.actualInternalSingleReturnCall? functions env callExpr with
+    | some found => some found
+    | none => Expr.actualInternalSingleReturnCall? freeFunctions env callExpr
+  let tmpTy ← Ty.toCore? retTy
+  let callCore ←
+    FunctionDecl.internalSingleReturnCallExprCore?
+      internalFuel storageRefEnv env externalCallKindEnv storageNames
+      modifiers functions freeFunctions callExpr
+      (fun retExpr =>
+        SolidCore.Solidity.Source.Stmt.assign
+          (SolidCore.Solidity.Source.LValue.var tmpName) retExpr)
+  let replacedCore ← useReplaced replacedExpr
+  some
+    (SolidCore.Solidity.Source.Stmt.block
+      [ SolidCore.Solidity.Source.Stmt.varDecl tmpTy tmpName none
+      , callCore
+      , replacedCore ])
 termination_by (3, internalFuel, sizeOf expr + 1, 8)
 
 def FunctionDecl.internalSingleStorageReturnRefCore?
@@ -3152,7 +3150,8 @@ def Stmt.argPositionHoist? (internalFuel : Nat)
     -- avoided here — it has no executable code, which would infect the whole
     -- lowering with `noncomputable`).
     match
-        Expr.findArgPosInnerCall? functions env tmp true 100000 payload with
+        Expr.findArgPosInnerCall?
+          (functions ++ freeFunctions) env tmp true 100000 payload with
     | some (callExpr, retTy, replacedExpr) => do
         let retCoreTy ← Ty.toCore? retTy
         let callCore ←
@@ -3195,7 +3194,8 @@ def Expr.argPositionHoistPrefix? (internalFuel : Nat)
   | fuel + 1 =>
     let tmp := "_sol_argpos_" ++ toString fuel
     match
-        Expr.findArgPosInnerCall? functions env tmp true 100000 payload with
+        Expr.findArgPosInnerCall?
+          (functions ++ freeFunctions) env tmp true 100000 payload with
     | some (callExpr, retTy, replacedExpr) =>
         (do
           let retCoreTy ← Ty.toCore? retTy
@@ -4075,38 +4075,58 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                       match expr with
                       | Expr.call (Expr.member target "push")
                           [Arg.positional value] =>
-                          (do
-                            let (source, indexes) ←
-                              Expr.storageRefPathCore? storageRefEnv storageNames
-                                target
-                            match target with
-                            | Expr.ident name => do
-                                let ty ← TypeEnv.lookup? env name
-                                if Ty.hasStorageArrayMembers ty then some ()
-                                else none
-                            | _ => some ()
+                          let directStatePush? := do
+                            let (name, indexes) ←
+                              Expr.storagePathCoreWithEnv? storageNames env target
+                            let elemTy ←
+                              match Expr.abiTyWithEnv? env target with
+                              | some (Ty.array elemTy _) => some elemTy
+                              | _ => none
                             match indexes with
                             | [] =>
                                 let mkPush : CoreExpr -> CoreStmt := fun valueCore =>
-                                  SolidCore.Solidity.Source.Stmt.storageArrayPushRef
-                                    source (some valueCore)
-                                match
-                                    FunctionDecl.internalExprSingleReturnUseCore?
-                                      internalFuel storageRefEnv env
-                                      externalCallKindEnv storageNames modifiers
-                                      functions freeFunctions value mkPush with
-                                | some coreStmt => some coreStmt
-                                | none =>
-                                    match
-                                        Expr.externalMemberSingleReturnCallTy?
-                                          storageNames env externalCallKindEnv
-                                          value with
-                                    | some vTy =>
-                                        Expr.externalCallSingleReturnCoreWithKindEnv? (argEnvLower := Expr.externalCallArgEnvLower storageNames env)
-                                          storageNames env externalCallKindEnv vTy
-                                          value mkPush
-                                    | none => none
-                            | _ => none)
+                                  SolidCore.Solidity.Source.Stmt.storageArrayPush name
+                                    (some (Ty.implicitCleanupCore elemTy valueCore))
+                                FunctionDecl.internalExprSingleReturnUseCore?
+                                  internalFuel storageRefEnv env
+                                  externalCallKindEnv storageNames modifiers
+                                  functions freeFunctions value mkPush
+                            | _ => none
+                          match directStatePush? with
+                          | some coreStmt => some coreStmt
+                          | none =>
+                            (do
+                              let (source, indexes) ←
+                                Expr.storageRefPathCore? storageRefEnv storageNames
+                                  target
+                              match target with
+                              | Expr.ident name => do
+                                  let ty ← TypeEnv.lookup? env name
+                                  if Ty.hasStorageArrayMembers ty then some ()
+                                  else none
+                              | _ => some ()
+                              match indexes with
+                              | [] =>
+                                  let mkPush : CoreExpr -> CoreStmt := fun valueCore =>
+                                    SolidCore.Solidity.Source.Stmt.storageArrayPushRef
+                                      source (some valueCore)
+                                  match
+                                      FunctionDecl.internalExprSingleReturnUseCore?
+                                        internalFuel storageRefEnv env
+                                        externalCallKindEnv storageNames modifiers
+                                        functions freeFunctions value mkPush with
+                                  | some coreStmt => some coreStmt
+                                  | none =>
+                                      match
+                                          Expr.externalMemberSingleReturnCallTy?
+                                            storageNames env externalCallKindEnv
+                                            value with
+                                      | some vTy =>
+                                          Expr.externalCallSingleReturnCoreWithKindEnv? (argEnvLower := Expr.externalCallArgEnvLower storageNames env)
+                                            storageNames env externalCallKindEnv vTy
+                                            value mkPush
+                                      | none => none
+                              | _ => none)
                       -- ABI-ENCODE-INTERNAL-CALL-ARG (#174), discard position:
                       -- `abi.encode(g());` as a bare expression statement. The
                       -- env-less `Stmt.toCore?` above cannot lower the nested
@@ -4364,6 +4384,28 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
               (fun e => Stmt.expr e)
           let builtinEnvAware? : Option CoreStmt :=
             match name, args with
+            | "require",
+                [ Arg.positional cond
+                , Arg.positional
+                    (Expr.call
+                      (Expr.member (Expr.typeName (Ty.user _)) errorName)
+                      errorArgs) ] => do
+                -- A qualified custom error still uses the unqualified error
+                -- name in its selector.  Keep this shape ahead of the generic
+                -- env-aware `require(cond, reason)` lowering, which otherwise
+                -- preserves the source qualifier in `requireErrorExpr` and
+                -- changes the observable error name.
+                let condCore ←
+                  Expr.conditionCoreWithEnv? storageNames env cond
+                let coreArgs ←
+                  if Args.anyAbiArgNeedsEnvCleanup errorArgs then
+                    Args.toCoreExprsWithEnvCleanup?
+                      storageNames env errorArgs
+                  else
+                    Args.toCoreExprs? storageNames errorArgs
+                some
+                  (SolidCore.Solidity.Source.Stmt.requireCustom
+                    condCore errorName coreArgs)
             | "require", [Arg.positional cond, Arg.positional reason] =>
                 if Expr.abiArgNeedsEnvCleanup? cond ||
                     Expr.abiArgNeedsEnvCleanup? reason then do

@@ -4532,6 +4532,14 @@ def Expr.collectInternalFnValueIdentsFuel (candidates bound : List Name) :
           -- resolves the nearest declaration; shadowing soundness fix).
           if candidates.contains name && !bound.contains name then [name]
           else []
+      | Expr.call (Expr.member (Expr.ident "abi") "encodeCall")
+          (Arg.positional functionPointer :: rest) =>
+          -- `abi.encodeCall(T.f, args)` uses the type-qualified external
+          -- declaration to derive the selector and parameter types. `T.f` is
+          -- not an internal-function value in this position.
+          (match functionPointer with
+          | Expr.member (Expr.typeName _) _ => []
+          | _ => go functionPointer) ++ concatMapList goArg rest
       | Expr.call fn args =>
           (match fn with
             | Expr.ident _ => []
@@ -4649,6 +4657,14 @@ def Expr.rewriteInternalFnValueIdentsFuel (ids : List (Name × Nat))
             (match ids.lookup name with
               | some id => Expr.literal (Literal.number (toString id))
               | none => expr)
+      | Expr.call (Expr.member (Expr.ident "abi") "encodeCall")
+          (Arg.positional functionPointer :: rest) =>
+          let functionPointer :=
+            match functionPointer with
+            | Expr.member (Expr.typeName _) _ => functionPointer
+            | _ => go functionPointer
+          Expr.call (Expr.member (Expr.ident "abi") "encodeCall")
+            (Arg.positional functionPointer :: rest.map goArg)
       | Expr.call fn args =>
           Expr.call
             (match fn with
@@ -7057,27 +7073,47 @@ def Args.replaceInternalSingleReturnCallExprArg? (fallbackPrefix : String) :
 def Expr.actualInternalSingleReturnCall?
     (functions : List FunctionDecl) (env : TypeEnv) (expr : Expr) :
     Option (Expr × Ty) :=
+  let pointerCall? : Option (Expr × Ty) :=
+    match expr with
+    -- A member call may be an error constructor, a direct library/contract
+    -- call, or another declaration form that merely has a function-shaped
+    -- type. It is not a run-time internal-function pointer and must remain on
+    -- its dedicated lowering path so qualified custom-error overload
+    -- resolution survives. Pointer calls covered here have bare or computed
+    -- callees (`storedFn(a)`, `localFn(a)`, `g()(a)`).
+    | Expr.call (Expr.member _ _) _ => none
+    | Expr.call callee _ =>
+        match Expr.abiTyWithInternalFunctionsEnv? functions [] env callee with
+        | some (Ty.functionWithLocations _ _ [returnTy] [_] _
+            Visibility.internal_) =>
+            some (expr, returnTy)
+        | some (Ty.functionWithLocations _ _ [returnTy] [_] _
+            Visibility.private_) =>
+            some (expr, returnTy)
+        | _ => none
+    | _ => none
   match Expr.internalSingleReturnCallConversion? expr with
-  | some (name, args, _) => do
-      let (callee, _) ← FunctionDecl.findInternalCalleeWithArgs?
-        functions env name args
-      match callee.returns with
-      | [ret] => some (expr, ret.ty)
-      | _ => none
+  | some (name, args, _) =>
+      match FunctionDecl.findInternalCalleeWithArgs?
+          functions env name args with
+      | some (callee, _) =>
+          match callee.returns with
+          | [ret] => some (expr, ret.ty)
+          | _ => none
+      -- A bare identifier may name an internal function-pointer local,
+      -- parameter, or state variable rather than a declared function.  It has
+      -- the same syntactic conversion shape as a direct call, so the old `do`
+      -- arm returned `none` before reaching the pointer fallback below.  Keep
+      -- direct declarations authoritative, then classify the unresolved call
+      -- from the identifier's function type.
+      | none => pointerCall?
   | none =>
       -- An arbitrary-callee call can still be an internal single-return call:
       -- `g()(7)` dispatches through the internal function pointer returned by
       -- `g`. Treat it like a named internal call for argument-position ANF
       -- hoisting so it can appear inside `abi.encode`, another call's argument,
       -- or any other eager expression position.
-      match expr with
-      | Expr.call callee _ =>
-          match Expr.abiTyWithInternalFunctionsEnv? functions [] env callee with
-          | some (Ty.functionWithLocations _ _ [returnTy] [_] _
-              Visibility.internal_) =>
-              some (expr, returnTy)
-          | _ => none
-      | _ => none
+      pointerCall?
 
 def Arg.actualInternalSingleReturnCall?
     (functions : List FunctionDecl) (env : TypeEnv) :

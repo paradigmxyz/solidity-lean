@@ -593,12 +593,11 @@ def literal_number_nat(node: dict[str, Any]) -> int:
 
 
 def array_length_nat_from_node(node: dict[str, Any]) -> int:
-    length = node.get("length")
-    if isinstance(length, dict) and length.get("nodeType") == "Literal":
-        try:
-            return literal_number_nat(length)
-        except ImportError:
-            pass
+    # The array node's typeString contains solc's fully folded constant.  Read
+    # it before inspecting the literal spelling: for `uint[2 gwei]`, the child
+    # literal still has `value: "2"` plus `subdenomination: "gwei"`, while the
+    # array type is correctly reported as `uint256[2000000000]`.  The same
+    # route handles scientific and fractional constant expressions uniformly.
     type_descriptions = node.get("typeDescriptions")
     type_string = None
     if isinstance(type_descriptions, dict):
@@ -609,6 +608,12 @@ def array_length_nat_from_node(node: dict[str, Any]) -> int:
         match = re.search("\\[([0-9]+)\\]$", type_string)
         if match:
             return int(match.group(1))
+    length = node.get("length")
+    if isinstance(length, dict) and length.get("nodeType") == "Literal":
+        try:
+            return literal_number_nat(length)
+        except ImportError:
+            pass
     fail("ArrayTypeName length must resolve to a concrete static length")
 
 
