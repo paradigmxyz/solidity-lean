@@ -8406,6 +8406,17 @@ def Expr.abiArgNeedsEnvCleanupFuel? : Nat -> Expr -> Bool
               -- ABI/builtin consumer sees it (`abi.encode(s = a + b)`).
               | Expr.assign _ AssignOp.assign rhs =>
                   Expr.abiArgNeedsEnvCleanupFuel? fuel rhs
+              -- A compound assignment and an increment/decrement evaluate and
+              -- clean up at the LValue's own type before yielding their value.
+              -- Mark them directly so an enclosing explicit cast (including
+              -- annotateAbi's redundant narrow-cast layer) re-enters the
+              -- env-aware assignment/inc-dec lowerers instead of widening the
+              -- mutation first.
+              | Expr.assign _ _ _ => true
+              | Expr.unary UnaryOp.preIncrement _
+              | Expr.unary UnaryOp.preDecrement _
+              | Expr.unary UnaryOp.postIncrement _
+              | Expr.unary UnaryOp.postDecrement _ => true
               | Expr.enumFromUInt _ inner =>
                   Expr.abiArgNeedsEnvCleanupFuel? fuel inner
               -- COMPARISON / BOOLEAN-COMBINATOR (S, narrow-add-comparison-in-

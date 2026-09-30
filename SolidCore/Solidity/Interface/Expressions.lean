@@ -493,7 +493,14 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
                               -- into the shared machinery below.
                               if Expr.hasSignedLiteralOperandMix env argExpr ||
                                   Expr.wideCastNarrowOverflowArithmetic? env argExpr ||
-                                  Expr.wideCastNarrowShl? env argExpr then
+                                  Expr.wideCastNarrowShl? env argExpr ||
+                                  (match argExpr with
+                                   | Expr.assign _ _ _ => true
+                                   | Expr.unary UnaryOp.preIncrement _
+                                   | Expr.unary UnaryOp.preDecrement _
+                                   | Expr.unary UnaryOp.postIncrement _
+                                   | Expr.unary UnaryOp.postDecrement _ => true
+                                   | _ => false) then
                                 (match Expr.peelToOverflowArithmeticWide? argExpr with
                                 | some (bop, lhs, rhs) =>
                                     (match Expr.binaryToCoreWithEnvTypedFuel?
@@ -6640,7 +6647,7 @@ def storageAliasAssignmentCore? (storageRefEnv : StorageRefEnv)
     falling through to a VALUE load. A bare-ident RHS keeps the exact
     `storageAliasAssignmentCore?` behaviour. -/
 def storageAliasAssignmentExprCore? (storageRefEnv : StorageRefEnv)
-    (storageNames : List Name) (name : Name) :
+    (env : TypeEnv) (storageNames : List Name) (name : Name) :
     Expr -> Option CoreStmt
   | Expr.ident target =>
       storageAliasAssignmentCore? storageRefEnv storageNames name target
@@ -6657,9 +6664,9 @@ def storageAliasAssignmentExprCore? (storageRefEnv : StorageRefEnv)
       if StorageRefEnv.isStorageRef storageRefEnv name then do
         let condCore ← Expr.toCore? storageNames cond
         let thenStmt ←
-          storageAliasAssignmentExprCore? storageRefEnv storageNames name thenExpr
+          storageAliasAssignmentExprCore? storageRefEnv env storageNames name thenExpr
         let elseStmt ←
-          storageAliasAssignmentExprCore? storageRefEnv storageNames name elseExpr
+          storageAliasAssignmentExprCore? storageRefEnv env storageNames name elseExpr
         some (SolidCore.Solidity.Source.Stmt.ifElse condCore thenStmt elseStmt)
       else
         none
@@ -6677,7 +6684,8 @@ def storageAliasAssignmentExprCore? (storageRefEnv : StorageRefEnv)
                   (SolidCore.Solidity.Source.Stmt.storageAliasAssignFromPath
                     name source indexes)
         | none => do
-            let (target, indexes) ← Expr.storagePathCore? storageNames rhs
+            let (target, indexes) ←
+              Expr.storagePathCoreWithEnv? storageNames env rhs
             match indexes with
             | [] =>
                 some
@@ -6702,20 +6710,20 @@ def storageAliasAssignmentExprCore? (storageRefEnv : StorageRefEnv)
     a non-pointer chain (an ordinary value chain `a = b = 5` keeps its existing
     generic `assignExpr`-nesting lowering). -/
 def storageAliasChainedAssignCore? (storageRefEnv : StorageRefEnv)
-    (storageNames : List Name) (name : Name) :
+    (env : TypeEnv) (storageNames : List Name) (name : Name) :
     Expr -> Option (List CoreStmt)
   | Expr.assign (Expr.ident inner) AssignOp.assign innerRhs =>
       if StorageRefEnv.isStorageRef storageRefEnv name
           && StorageRefEnv.isStorageRef storageRefEnv inner then do
         let innerStmts ←
-          storageAliasChainedAssignCore? storageRefEnv storageNames inner innerRhs
+          storageAliasChainedAssignCore? storageRefEnv env storageNames inner innerRhs
         let outer ←
           storageAliasAssignmentCore? storageRefEnv storageNames name inner
         some (innerStmts ++ [outer])
       else
         none
   | rhs =>
-      (storageAliasAssignmentExprCore? storageRefEnv storageNames name rhs).map
+      (storageAliasAssignmentExprCore? storageRefEnv env storageNames name rhs).map
         (fun head => [head])
 
 def Expr.localStorageArrayMemberStmtCore?
@@ -7908,7 +7916,34 @@ def Args.anfHoist
             (c', p, Arg.named n e')
       let (c2, p2, rest') := Args.anfHoist functions freeFunctions env
         externalCallKindEnv storageNames fuel c1 rest
-      (c2, p1 ++ p2, arg' :: rest')
+      if p2.isEmpty then
+        (c2, p1, arg' :: rest')
+      else
+        -- A later argument's hoisted call can mutate state observed by this
+        -- earlier argument.  Evaluating only `p1` now and leaving `arg'` in the
+        -- residual call would therefore reorder `combine(trace, mutate())` to
+        -- run `mutate()` before reading `trace`.  Materialize the complete
+        -- earlier argument between its own prelude and the later argument's
+        -- prelude, matching Solidity's left-to-right call-argument evaluation.
+        let argExpr :=
+          match arg' with
+          | Arg.positional e => e
+          | Arg.named _ e => e
+        match Expr.abiTyWithInternalFunctionsEnv?
+            functions freeFunctions env argExpr with
+        | some argTy =>
+            let t := anfHoistName c2
+            let decl := Stmt.varDecl
+              [{ name := some t, ty := some (Ty.anfTempTy argTy),
+                 location := Ty.anfHoistLocation? argTy }]
+              (some argExpr)
+            (c2 + 1, p1 ++ [decl] ++ p2,
+              Arg.withExpr (Expr.ident t) arg' :: rest')
+        | none =>
+            -- Keep the prior conservative result when the surface typer cannot
+            -- name a temp type; the downstream lowering will still fail closed
+            -- rather than inventing an ill-typed binding.
+            (c2, p1 ++ p2, arg' :: rest')
 termination_by fuel _ _ => fuel
 
 def Exprs.anfHoist

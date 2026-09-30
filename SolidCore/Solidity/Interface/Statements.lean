@@ -1406,6 +1406,17 @@ def FunctionDecl.internalExprSingleReturnUseCore?
       FunctionDecl.internalBinarySingleReturnUseCore?
         internalFuel storageRefEnv env externalCallKindEnv storageNames
         modifiers functions freeFunctions op lhs rhs useResult
+  | Expr.index (Expr.call (Expr.ident name) args) index => do
+      -- A struct member on a returned memory value is resolved to an index
+      -- whose BASE is the call. Capture the aggregate return first, then read
+      -- the indexed field from that same memory reference.
+      let indexCore ← Expr.toCore? storageNames index
+      FunctionDecl.internalSingleReturnCallExprCore?
+        internalFuel storageRefEnv env externalCallKindEnv storageNames
+        modifiers functions freeFunctions
+        (Expr.call (Expr.ident name) args)
+        (fun baseCore =>
+          useResult (SolidCore.Solidity.Source.Expr.index baseCore indexCore))
   | Expr.index base (Expr.call (Expr.ident iname) iargs) =>
       -- OVERREJECT-CALLPOS-BATCH (B): an internal single-return call used as a
       -- mapping/array INDEX in a NON-return read position (`uint x = m[f()]`,
@@ -3092,6 +3103,181 @@ def storageVarDeclCoreWithEnv? (storageNames : List Name) (env : TypeEnv)
           some
             (SolidCore.Solidity.Source.Stmt.storageAliasPath
               name target indexes)
+
+/-- Hoist calls nested in a storage-reference declaration's path without
+    converting the residual path to a value. The returned statements are flat
+    siblings so the declared storage pointer survives in the enclosing scope. -/
+def storageVarDeclArgPositionHoistPieces? (internalFuel : Nat)
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv) (storageNames : List Name)
+    (modifiers : List SourceModifierDecl)
+    (functions freeFunctions : List FunctionDecl)
+    (binding : VarBinding) (source : Expr) : Option (List CoreStmt) :=
+  match internalFuel with
+  | 0 => none
+  | fuel + 1 => do
+      let (prefixStmts, residual) ←
+        Expr.argPositionHoistPrefix? fuel storageRefEnv env
+          externalCallKindEnv storageNames modifiers functions freeFunctions source
+      match prefixStmts with
+      | [] => none
+      | _ :: _ => do
+          let aliasStmt ←
+            storageVarDeclCoreWithEnv? storageNames env binding residual
+          some (prefixStmts ++ [aliasStmt])
+
+/-- Lower one component of an all-storage-pointer tuple declaration as flat
+    statements. Existing storage locals remain aliases, and a push-return
+    component emits its push and alias as siblings rather than a nested block. -/
+def storageTupleDeclItemPiecesWithEnv? (storageRefEnv : StorageRefEnv)
+    (env : TypeEnv) (storageNames : List Name)
+    (binding : VarBinding) (item : Expr) : Option (List CoreStmt) :=
+  match item with
+  | Expr.call (Expr.member target "push") [] => do
+      let (pushStmt, aliasStmt) ←
+        storageArrayPushReturnAliasCore? storageNames binding target
+      some [pushStmt, aliasStmt]
+  | Expr.ident source =>
+      match storageAliasDeclFromRefCore? storageRefEnv binding source with
+      | some stmt => some [stmt]
+      | none => (storageVarDeclCoreWithEnv? storageNames env binding item).map
+          (fun stmt => [stmt])
+  | Expr.member _ _
+  | Expr.index _ _ =>
+      match storageAliasDeclFromRefPathCore?
+          storageRefEnv storageNames binding item with
+      | some stmt => some [stmt]
+      | none => (storageVarDeclCoreWithEnv? storageNames env binding item).map
+          (fun stmt => [stmt])
+  | _ => (storageVarDeclCoreWithEnv? storageNames env binding item).map
+      (fun stmt => [stmt])
+
+def storageTupleDeclItemsPiecesWithEnv? (storageRefEnv : StorageRefEnv)
+    (env : TypeEnv) (storageNames : List Name) :
+    List VarBinding -> List TupleItem -> Option (List CoreStmt)
+  | [], [] => some []
+  | binding :: bindings, TupleItem.value item :: items => do
+      let head ←
+        storageTupleDeclItemPiecesWithEnv?
+          storageRefEnv env storageNames binding item
+      let tail ←
+        storageTupleDeclItemsPiecesWithEnv?
+          storageRefEnv env storageNames bindings items
+      some (head ++ tail)
+  | _, _ => none
+termination_by bindings _ => sizeOf bindings
+
+/-- Environment-aware, call-hoisting all-storage tuple binder. Calls in RHS
+    paths are evaluated into flat prefix temps before any aliases are created. -/
+def storageTupleDeclAllPiecesWithEnv? (internalFuel : Nat)
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv) (storageNames : List Name)
+    (modifiers : List SourceModifierDecl)
+    (functions freeFunctions : List FunctionDecl)
+    (bindings : List VarBinding) (items : List TupleItem) :
+    Option (List CoreStmt) := do
+  if bindings.length == items.length then some () else none
+  if VarBindings.allStoragePointers bindings then some () else none
+  match
+      storageTupleDeclItemsPiecesWithEnv?
+        storageRefEnv env storageNames bindings items with
+  | some pieces => some pieces
+  | none =>
+      match internalFuel with
+      | 0 => none
+      | fuel + 1 => do
+          let (prefixStmts, residual) ←
+            Expr.argPositionHoistPrefix? fuel storageRefEnv env
+              externalCallKindEnv storageNames modifiers functions freeFunctions
+              (Expr.tuple items)
+          match prefixStmts, residual with
+          | _ :: _, Expr.tuple residualItems => do
+              let aliases ←
+                storageTupleDeclItemsPiecesWithEnv?
+                  storageRefEnv env storageNames bindings residualItems
+              some (prefixStmts ++ aliases)
+          | _, _ => none
+
+/-- Hoist calls from the condition of a ternary storage-reference declaration
+    while leaving branch selection lazy and the resulting alias in outer scope. -/
+def storageTernaryConditionAliasPieces? (internalFuel : Nat)
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv) (storageNames : List Name)
+    (modifiers : List SourceModifierDecl)
+    (functions freeFunctions : List FunctionDecl) (binding : VarBinding)
+    (cond thenExpr elseExpr : Expr) : Option (List CoreStmt) :=
+  match cond with
+  | Expr.call (Expr.ident name) args => do
+      let (returnBindings, _, prefixCore, bodyCore) ←
+        FunctionDecl.internalCallParts? internalFuel storageRefEnv env
+          externalCallKindEnv storageNames modifiers functions freeFunctions
+          name args
+      match returnBindings with
+      | [ret] => do
+          let aliasStmt ←
+            storageAliasDeclFromTernaryCore? storageRefEnv storageNames binding
+              (Expr.ident ret.name) thenExpr elseExpr
+          some
+            (prefixCore ++
+              [ SolidCore.Solidity.Source.Stmt.captureReturn
+                  [ret.name] bodyCore
+              , aliasStmt ])
+      | _ => none
+  | _ =>
+      match internalFuel with
+      | 0 => none
+      | fuel + 1 => do
+          let (prefixStmts, residualCond) ←
+            Expr.argPositionHoistPrefix? fuel storageRefEnv env externalCallKindEnv
+              storageNames modifiers functions freeFunctions cond
+          match prefixStmts with
+          | [] => none
+          | _ :: _ => do
+              let aliasStmt ←
+                storageAliasDeclFromTernaryCore? storageRefEnv storageNames binding
+                  residualCond thenExpr elseExpr
+              some (prefixStmts ++ [aliasStmt])
+
+def retargetInternalCallCore? (target : Name) : CoreStmt -> Option CoreStmt
+  | SolidCore.Solidity.Source.Stmt.internalCall _ callee args =>
+      some (SolidCore.Solidity.Source.Stmt.internalCall [target] callee args)
+  | SolidCore.Solidity.Source.Stmt.internalCallPtr _ callee args =>
+      some (SolidCore.Solidity.Source.Stmt.internalCallPtr [target] callee args)
+  | _ => none
+
+/-- Bind a storage pointer from a ternary whose selected branch may call a
+    function returning a storage reference. Declare the destination once, then
+    have each selected branch re-point that existing binding. -/
+def storageTernaryBranchAliasPieces? (internalFuel : Nat)
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv) (storageNames : List Name)
+    (modifiers : List SourceModifierDecl)
+    (functions freeFunctions : List FunctionDecl) (binding : VarBinding)
+    (cond thenExpr elseExpr : Expr) : Option (List CoreStmt) := do
+  let localName ← binding.name
+  if binding.location == some DataLocation.storage then some () else none
+  let condCore ← Expr.toCoreAsWithEnv? storageNames env Ty.bool cond
+  let branchCore := fun branch =>
+    match branch with
+    | Expr.call (Expr.ident name) args => do
+        let (_, returnStorageRefs, prefixCore, bodyCore) ←
+          FunctionDecl.internalCallParts? internalFuel storageRefEnv env
+            externalCallKindEnv storageNames modifiers functions freeFunctions
+            name args
+        if returnStorageRefs == [true] then some () else none
+        let callCore ← retargetInternalCallCore? localName bodyCore
+        match prefixCore with
+        | [] => some callCore
+        | _ => some (SolidCore.Solidity.Source.Stmt.block
+            (prefixCore ++ [callCore]))
+    | _ =>
+        storageAliasAssignmentExprCore?
+          storageRefEnv env storageNames localName branch
+  let thenCore ← branchCore thenExpr
+  let elseCore ← branchCore elseExpr
+  some
+    [ SolidCore.Solidity.Source.Stmt.storageAlias localName ""
+    , SolidCore.Solidity.Source.Stmt.ifElse condCore thenCore elseCore ]
 
 def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
     (storageNames : List Name) (stmt : Stmt) : Option CoreStmt :=
@@ -6456,7 +6642,9 @@ def Stmt.listLowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           -- RHS shape (bare ident as before, plus indexed/member paths — the
           -- storage-pointer-return rewrite shape). Non-storage assignments fall
           -- through to the generic lowering unchanged.
-          match storageAliasChainedAssignCore? storageRefEnv storageNames name rhs with
+          match
+              storageAliasChainedAssignCore?
+                storageRefEnv env storageNames name rhs with
           | some heads => do
               let tail ←
                 Stmt.listToCoreWithInternalCallsWithRefs?
@@ -6464,26 +6652,48 @@ def Stmt.listLowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                   storageRefEnv env externalCallKindEnv storageNames modifiers functions
                   freeFunctions returnTys rest
               some (heads ++ tail)
-          | none => do
-              let head ←
-                Stmt.toCoreWithInternalCalls?
-                  (internalFuel := internalFuel)
-                  (storageRefEnv := storageRefEnv)
-                  (env := env)
-                  (externalCallKindEnv := externalCallKindEnv)
-                  (storageNames := storageNames)
-                  (modifiers := modifiers)
-                  (functions := functions)
-                  (freeFunctions := freeFunctions)
-                  (returnTys := returnTys)
-                  (stmt := Stmt.expr
-                    (Expr.assign (Expr.ident name) AssignOp.assign rhs))
-              let tail ←
-                Stmt.listToCoreWithInternalCallsWithRefs?
-                  internalFuel
-                  storageRefEnv env externalCallKindEnv storageNames modifiers functions
-                  freeFunctions returnTys rest
-              some (head :: tail)
+          | none =>
+              let generic : Option (List CoreStmt) := do
+                let head ←
+                  Stmt.toCoreWithInternalCalls?
+                    (internalFuel := internalFuel)
+                    (storageRefEnv := storageRefEnv)
+                    (env := env)
+                    (externalCallKindEnv := externalCallKindEnv)
+                    (storageNames := storageNames)
+                    (modifiers := modifiers)
+                    (functions := functions)
+                    (freeFunctions := freeFunctions)
+                    (returnTys := returnTys)
+                    (stmt := Stmt.expr
+                      (Expr.assign (Expr.ident name) AssignOp.assign rhs))
+                let tail ←
+                  Stmt.listToCoreWithInternalCallsWithRefs?
+                    internalFuel storageRefEnv env externalCallKindEnv storageNames
+                    modifiers functions freeFunctions returnTys rest
+                some (head :: tail)
+              -- A call nested in the RHS storage path must be hoisted as a
+              -- sibling. Wrapping the residual rebind in a block discards the
+              -- updated storage-pointer binding when that block exits.
+              if StorageRefEnv.isStorageRef storageRefEnv name then
+                match internalFuel with
+                | fuel + 1 =>
+                    match Expr.argPositionHoistPrefix? fuel storageRefEnv env
+                        externalCallKindEnv storageNames modifiers functions
+                        freeFunctions rhs with
+                    | some (prefixStmts@(_ :: _), residual) =>
+                        match Stmt.listToCoreWithInternalCallsWithRefs? fuel
+                            storageRefEnv env externalCallKindEnv storageNames
+                            modifiers functions freeFunctions returnTys
+                            (Stmt.expr
+                              (Expr.assign (Expr.ident name) AssignOp.assign residual)
+                              :: rest) with
+                        | some lowered => some (prefixStmts ++ lowered)
+                        | none => generic
+                    | _ => generic
+                | 0 => generic
+              else
+                generic
       | Stmt.varDecl [binding]
           (some (Expr.call (Expr.member target "push") [])) :: rest =>
           match storageArrayPushReturnAliasCore? storageNames binding target with
@@ -6598,6 +6808,19 @@ def Stmt.listLowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                   storageNames modifiers functions freeFunctions returnTys rest
               some (head :: tail)
           | none =>
+              match storageVarDeclArgPositionHoistPieces? internalFuel
+                  storageRefEnv env externalCallKindEnv storageNames modifiers
+                  functions freeFunctions binding source with
+              | some pieces => do
+                  let tail ←
+                    Stmt.listToCoreWithInternalCallsWithRefs?
+                      internalFuel
+                      (VarBinding.extendStorageRefEnv storageRefEnv binding)
+                      (VarBinding.extendTypeEnv env binding)
+                      externalCallKindEnv storageNames modifiers functions
+                      freeFunctions returnTys rest
+                  some (pieces ++ tail)
+              | none =>
               -- OVERREJECT-CALLPOS-BATCH (B): `T x = m[f()]` — an internal call used
               -- as a mapping/array INDEX in a varDecl initializer. The pure varDecl
               -- lowering has no internal-call fallback for the index operand, so
@@ -6766,7 +6989,9 @@ def Stmt.listLowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
               some (head :: tail)
       | Stmt.varDecl bindings@(_ :: _ :: _) (some (Expr.tuple items)) :: rest => do
           let pieces? : Option (List CoreStmt) :=
-            match tupleVarDeclAllStorageCore? storageNames bindings items with
+            match storageTupleDeclAllPiecesWithEnv? internalFuel storageRefEnv env
+                externalCallKindEnv storageNames modifiers functions freeFunctions
+                bindings items with
             | some decls => some decls
             | none =>
             -- FB1: `(bytesN x, …) = (b << k, …)` decl form — same lane-cleanup
@@ -6833,6 +7058,32 @@ def Stmt.listLowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                   externalCallKindEnv
                   storageNames modifiers functions freeFunctions returnTys rest
               some (head :: tail)
+          | none =>
+          match storageTernaryConditionAliasPieces? internalFuel storageRefEnv env
+              externalCallKindEnv storageNames modifiers functions freeFunctions
+              binding cond thenExpr elseExpr with
+          | some pieces => do
+              let tail ←
+                Stmt.listToCoreWithInternalCallsWithRefs?
+                  internalFuel
+                  (VarBinding.extendStorageRefEnv storageRefEnv binding)
+                  (VarBinding.extendTypeEnv env binding)
+                  externalCallKindEnv storageNames modifiers functions
+                  freeFunctions returnTys rest
+              some (pieces ++ tail)
+          | none =>
+          match storageTernaryBranchAliasPieces? internalFuel storageRefEnv env
+              externalCallKindEnv storageNames modifiers functions freeFunctions
+              binding cond thenExpr elseExpr with
+          | some pieces => do
+              let tail ←
+                Stmt.listToCoreWithInternalCallsWithRefs?
+                  internalFuel
+                  (VarBinding.extendStorageRefEnv storageRefEnv binding)
+                  (VarBinding.extendTypeEnv env binding)
+                  externalCallKindEnv storageNames modifiers functions
+                  freeFunctions returnTys rest
+              some (pieces ++ tail)
           | none =>
           match binding.name with
           | some localName =>
@@ -7662,8 +7913,24 @@ def Stmt.listLowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
       -- handlers. (Non-decode member calls fall through to the arm below.)
       | Stmt.varDecl bindings
           (some expr@(Expr.call (Expr.member (Expr.ident "abi") "decode") _)) :: rest => do
-          let (coreDecls, assigns) ←
-            tupleVarDeclGeneralCorePieces? storageNames bindings expr
+          let pieces ←
+            match tupleVarDeclGeneralCorePieces? storageNames bindings expr with
+            | some (coreDecls, assigns) => some (coreDecls ++ assigns)
+            | none =>
+                match internalFuel with
+                | 0 => none
+                | fuel + 1 => do
+                    let (prefixStmts, residual) ←
+                      Expr.argPositionHoistPrefix? fuel storageRefEnv env
+                        externalCallKindEnv storageNames modifiers functions
+                        freeFunctions expr
+                    match prefixStmts with
+                    | [] => none
+                    | _ :: _ => do
+                        let (coreDecls, assigns) ←
+                          tupleVarDeclGeneralCorePieces?
+                            storageNames bindings residual
+                        some (prefixStmts ++ coreDecls ++ assigns)
           let tail ←
             Stmt.listToCoreWithInternalCallsWithRefs?
               internalFuel
@@ -7671,7 +7938,7 @@ def Stmt.listLowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
               (VarBindings.extendTypeEnv env bindings)
               externalCallKindEnv
               storageNames modifiers functions freeFunctions returnTys rest
-          some (coreDecls ++ assigns ++ tail)
+          some (pieces ++ tail)
       | Stmt.varDecl bindings (some expr@(Expr.call (Expr.member _ _) _)) :: rest => do
           let callStmts ←
             match Expr.lowLevelTupleVarDeclCorePieces? storageNames bindings expr with
@@ -7827,6 +8094,13 @@ def Stmt.listLowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
               -- ordered sibling temps (see the `Expr.enumFromUInt` arm of
               -- `findArgPosInnerCall?`).
               | Expr.enumFromUInt _ _ => true
+              -- Wrapper expressions can hide the same nested calls handled by
+              -- the argument-position walker.  Route these declaration
+              -- initializers through it so the generated call temporaries and
+              -- the declared local are emitted as sibling statements.
+              | Expr.member _ _ => true
+              | Expr.assign _ _ _ => true
+              | Expr.payableConversion _ => true
               | _ => false
             match internalFuel, isTarget with
             | fuel + 1, true =>
@@ -8575,7 +8849,20 @@ def Stmt.anfPreprocess (structEnv : StructEnv) (internalFuel : Nat)
         returnTys eventIndexedEnv fuel
       let stmt1 :=
         match stmt with
-        | Stmt.block ss => Stmt.block (ss.map recur)
+        | Stmt.block ss =>
+            -- `anfNormalizeSelf?` represents a generated prelude as
+            -- `block (pre ++ [tail])`.  At statement-list level those pieces
+            -- must be siblings: in particular, a normalized variable
+            -- declaration has to remain in scope for the statements that
+            -- follow it.  Splice only blocks introduced while recurring over
+            -- a non-block child; preserve every block that existed in the
+            -- source, since that block carries Solidity lexical scope.
+            Stmt.block (ss.flatMap (fun child =>
+              let normalized := recur child
+              match child, normalized with
+              | Stmt.block _, _ => [normalized]
+              | _, Stmt.block inner => inner
+              | _, _ => [normalized]))
         | Stmt.ifElse c t e => Stmt.ifElse c (recur t) (e.map recur)
         | Stmt.whileLoop c b => Stmt.whileLoop c (recur b)
         | Stmt.doWhile b c => Stmt.doWhile (recur b) c
@@ -9528,11 +9815,9 @@ def ContractDecls.findStructDeclByName? (contracts : List ContractDecl)
           if structDecl.name == name then some structDecl else none
       | _ => none))
 
-/-- The struct declaration of a callee's single `storage` STRUCT return
-    (`FunctionDecl.returnsSingleStorageRef?` — any single `storage`-located
-    return: whole param, nested path, storage local, conditional/early). Used to
-    recover the field ordering so `.field` on the call result lowers to
-    `[fieldIndex]`.
+/-- The struct declaration of a callee's single STRUCT return. Used to recover
+    field ordering so `.field` on a call result lowers to `[fieldIndex]` for
+    both memory values and storage references.
 
     Historically this gated on the WHOLE-param `return s;` shape only, because
     the boundary did not re-base nested sub-path returns. Since the R3 (#188)
@@ -9547,26 +9832,20 @@ def Expr.callSingleStorageStructReturnDecl?
       let libraryName ← pathLast? libraryPath
       let libraryDecl ← ContractDecl.findLibraryByName? contracts libraryName
       let fn ← ContractDecl.findOrdinaryFunctionByName? libraryDecl method
-      if FunctionDecl.returnsSingleStorageRef? fn then
-        match fn.returns with
-        | [ret] => do
-            let path ← Ty.structPath? ret.ty
-            let structName ← pathLast? path
-            ContractDecls.findStructDeclByName? contracts structName
-        | _ => none
-      else
-        none
+      match fn.returns with
+      | [ret] => do
+          let path ← Ty.structPath? ret.ty
+          let structName ← pathLast? path
+          ContractDecls.findStructDeclByName? contracts structName
+      | _ => none
   | Expr.call (Expr.ident name) _ => do
       let fn ← freeFunctions.find? (fun fn => fn.name == some name)
-      if FunctionDecl.returnsSingleStorageRef? fn then
-        match fn.returns with
-        | [ret] => do
-            let path ← Ty.structPath? ret.ty
-            let structName ← pathLast? path
-            ContractDecls.findStructDeclByName? contracts structName
-        | _ => none
-      else
-        none
+      match fn.returns with
+      | [ret] => do
+          let path ← Ty.structPath? ret.ty
+          let structName ← pathLast? path
+          ContractDecls.findStructDeclByName? contracts structName
+      | _ => none
   | _ => none
 
 def UsingFunction.rewriteExternalCall? (contracts : List ContractDecl)

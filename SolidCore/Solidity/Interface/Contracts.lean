@@ -1570,6 +1570,26 @@ def StateVarDecl.toCoreInitWithInternalCalls?
     (modifiers : List SourceModifierDecl)
     (functions freeFunctions : List FunctionDecl)
     (decl : StateVarDecl) : Option CoreStmt :=
+  let envAware : Option CoreStmt := do
+    let expr0 ← decl.init
+    let expr := Expr.inlineConstants constants expr0
+    if Expr.abiArgNeedsEnvCleanup? expr then some () else none
+    let sourceTy ← Expr.abiTyWithEnv? env expr
+    let initCore ← Expr.toCoreAsWithEnv? storageNames env sourceTy expr
+    match decl.mutability with
+    | VarMutability.mutable
+    | VarMutability.transient => do
+        let storageName ← stateNameRuntimeKey? decl.name storageNames
+        some (SolidCore.Solidity.Source.Stmt.assign
+          (SolidCore.Solidity.Source.LValue.storage storageName) initCore)
+    | VarMutability.immutable => do
+        let immutableName ← stateNameImmutableKey? decl.name storageNames
+        some (SolidCore.Solidity.Source.Stmt.assign
+          (SolidCore.Solidity.Source.LValue.immutable immutableName) initCore)
+    | _ => none
+  match envAware with
+  | some coreStmt => some coreStmt
+  | none =>
   match StateVarDecl.toCoreInit? storageNames constants decl with
   | some coreStmt => some coreStmt
   | none =>
