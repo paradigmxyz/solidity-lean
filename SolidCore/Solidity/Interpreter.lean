@@ -4252,8 +4252,27 @@ def State.storeStorageLayoutAtWithDeepClearFuel :
           else
             Except.error RevertData.typeMismatch
       | StorageLayout.dynamicArray elementLayout,
-          Value.dynamicArray values => do
+          Value.dynamicArray values
+      | StorageLayout.dynamicArray elementLayout,
+          Value.fixedArray values => do
           let oldLength := SolidCore.Solidity.Shared.norm (state.loadSlot slot)
+          -- Solidity clears every destination word touched by a packed array
+          -- copy before it writes the new elements.  This matters when a stale
+          -- value lives past the current length but shares the final packed
+          -- word with a copied element: a later `push` must observe zero there.
+          let state ←
+            match elementLayout with
+            | StorageLayout.packedScalar _ _ _ _ =>
+                (List.range values.length).foldlM
+                  (fun state index => do
+                    let (elementSlot, _) ←
+                      match dynamicArrayLayoutStorageSlotAndLayout?
+                        slot index elementLayout with
+                      | some pair => Except.ok pair
+                      | none => Except.error RevertData.typeMismatch
+                    Except.ok (state.storeSlot elementSlot 0))
+                  state
+            | _ => Except.ok state
           let state ←
             (List.range values.length).zip values |>.foldlM
               (fun state pair => do
@@ -4292,7 +4311,9 @@ def Runtime.storeStorageFieldWithDeepClear (context : Context)
   let value ← runtime.storageMaterializedValue value
   match field.layout?, value with
   | some (StorageLayout.dynamicArray elementLayout),
-      Value.dynamicArray _ => do
+      Value.dynamicArray _
+  | some (StorageLayout.dynamicArray elementLayout),
+      Value.fixedArray _ => do
       let state ←
         State.storeStorageLayoutAtWithDeepClear runtime.state
           field.slot (StorageLayout.dynamicArray elementLayout)
@@ -6964,6 +6985,23 @@ def ResolvedLValue.asStoragePath? :
       some (StorageBase.slot slot layout, indexes)
   | _ => none
 
+/-- Freeze an indexed storage tuple target to its concrete slot during tuple
+    phase 1.  Tuple assignment resolves every LHS before any store; retaining a
+    symbolic array path would repeat the bounds check during the later
+    right-to-left writes, after another tuple component may have resized that
+    same array. -/
+def ResolvedLValue.freezeIndexedStoragePath
+    (context : Context) (runtime : Runtime)
+    (target : ResolvedLValue) : Except RevertData ResolvedLValue :=
+  match target.asStoragePath? with
+  | some (base, indexes@(_ :: _)) => do
+      let ref ← runtime.bindStorageRef context base indexes
+      match ref with
+      | Value.storageSlotRef slot layout =>
+          Except.ok (ResolvedLValue.storageSlotPath slot layout [])
+      | _ => Except.error RevertData.typeMismatch
+  | _ => Except.ok target
+
 mutual
 
 def ResolvedLValue.readRaw (context : Context) (runtime : Runtime) :
@@ -8518,6 +8556,10 @@ def LValues.resolveTupleWithRuntime (context : Context) :
             else
               target.resolveWithRuntime context runtime
         | _, _ => target.resolveWithRuntime context runtime
+      let resolved ←
+        match resolved.freezeIndexedStoragePath context runtime' with
+        | Except.ok frozen => pure frozen
+        | Except.error err => throw (SolidityFailure.revert err)
       let (rest, runtime'') ←
         LValues.resolveTupleWithRuntime context runtime' targets values
       pure ((resolved, value) :: rest, runtime'')

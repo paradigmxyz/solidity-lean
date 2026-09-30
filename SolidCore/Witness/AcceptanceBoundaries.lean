@@ -2035,14 +2035,13 @@ def wcNestedStructArrayWidenAccepted : Bool :=
       (srcArr (Ty.array wcArrWidenStructTy none))
       [SourceItem.freeStruct wcArrWidenStruct])
 
--- REJECT (legacy-vs-IR carve-out held): direct struct-value element
--- `S[2] → S[3]` stays rejected.
-def wcStructArrayWidenRejected : Bool :=
-  Result.isError
-    (SourceUnit.check
-      (arrayCopyContract "WCStruct"
-        (widenArr wcArrWidenStructTy) (srcArr wcArrWidenStructTy)
-        [SourceItem.freeStruct wcArrWidenStruct]))
+-- ACCEPT: solc 0.8.35's legacy pipeline copies direct struct-value elements as
+-- well; `S[2] → S[3]` default-initializes the widened destination tail.
+def wcStructArrayWidenAccepted : Bool :=
+  sourceUnitAccepted?
+    (arrayCopyContract "WCStruct"
+      (widenArr wcArrWidenStructTy) (srcArr wcArrWidenStructTy)
+      [SourceItem.freeStruct wcArrWidenStruct])
 
 #guard wcBytes32ArrayWidenAccepted
 #guard wcBoolArrayWidenAccepted
@@ -2050,7 +2049,7 @@ def wcStructArrayWidenRejected : Bool :=
 #guard wcNestedValueArrayWidenAccepted
 #guard wcIntWidenArrayAccepted
 #guard wcNestedStructArrayWidenAccepted
-#guard wcStructArrayWidenRejected
+#guard wcStructArrayWidenAccepted
 
 -- ===========================================================================
 -- #127 ENCODECALL-OVERLOAD — the function-pointer argument to

@@ -7458,6 +7458,17 @@ end
 
 def Expr.abiTyWithEnv? (env : TypeEnv) : Expr -> Option Ty
   | Expr.ident name => TypeEnv.lookup? env name
+  | Expr.tuple [] => some (Ty.tuple [])
+  | Expr.tuple (TupleItem.hole :: _) => none
+  | Expr.tuple (TupleItem.value head :: rest) => do
+      -- Infer tuple components recursively instead of requiring an explicit
+      -- type wrapper on every item.  Spelling the list recursion through a
+      -- smaller tuple keeps the structural decrease visible to Lean.
+      let headTy ← Expr.abiTyWithEnv? env head
+      let restTy ← Expr.abiTyWithEnv? env (Expr.tuple rest)
+      match restTy with
+      | Ty.tuple restTys => some (Ty.tuple (headTy :: restTys))
+      | _ => none
   | expr =>
       match Expr.abiTy? [] expr with
       | some ty => some ty
@@ -7474,12 +7485,39 @@ def Expr.abiTyWithEnv? (env : TypeEnv) : Expr -> Option Ty
               Expr.abiTyWithEnv? env inner
           | Expr.assign lhs _ _ =>
               Expr.abiTyWithEnv? env lhs
-          | Expr.binary op lhs _ =>
+          | Expr.binary op lhs rhs =>
               match op with
               | BinaryOp.lt | BinaryOp.gt | BinaryOp.le | BinaryOp.ge
               | BinaryOp.eq | BinaryOp.ne
               | BinaryOp.boolAnd | BinaryOp.boolOr => some Ty.bool
-              | _ => Expr.abiTyWithEnv? env lhs
+              -- Solidity shifts and exponentiation keep the left operand's
+              -- type.  The other arithmetic and bitwise operators use the
+              -- common operand type, including at every level of a
+              -- left-associated chain.  Returning only the left leaf here
+              -- made `uint16 x; uint56 y; uint8 z; x ^ y ^ z` appear to have
+              -- type uint16 and inserted a spurious checked narrowing around
+              -- the inner uint56 result.
+              | BinaryOp.shl | BinaryOp.shr | BinaryOp.sar | BinaryOp.exp =>
+                  Expr.abiTyWithEnv? env lhs
+              | _ => do
+                  let lhsTy ← Expr.abiTyWithEnv? env lhs
+                  let rhsTy ← Expr.abiTyWithEnv? env rhs
+                  if Expr.isRawNumberLiteralExpression rhs &&
+                      implicitLiteralFits lhsTy rhs then
+                    some lhsTy
+                  else if Expr.isRawNumberLiteralExpression lhs &&
+                      implicitLiteralFits rhsTy lhs then
+                    some rhsTy
+                  else
+                    let lhsTy' :=
+                      if Expr.isRawNumberLiteralExpression lhs then
+                        (Expr.untypedLiteralMobileTy? lhs).getD lhsTy
+                      else lhsTy
+                    let rhsTy' :=
+                      if Expr.isRawNumberLiteralExpression rhs then
+                        (Expr.untypedLiteralMobileTy? rhs).getD rhsTy
+                      else rhsTy
+                    Ty.commonImplicit? lhsTy' rhsTy'
           | Expr.ternary _ thenExpr _ =>
               Expr.abiTyWithEnv? env thenExpr
           | Expr.member base "balance" => do
@@ -7504,23 +7542,6 @@ def Expr.abiTyWithEnv? (env : TypeEnv) : Expr -> Option Ty
               | some (Ty.functionWithLocations _ _ _ _ _ Visibility.external_) =>
                   some (Ty.address false)
               | _ => none
-          | Expr.tuple items => do
-              let tys ←
-                mapOption
-                  (fun item =>
-                    match item with
-                    | TupleItem.value
-                        (Expr.call (Expr.typeName ty)
-                          [Arg.positional _]) => do
-                        let _ ← Ty.toCore? ty
-                        some ty
-                    | TupleItem.value (Expr.typeName ty) => do
-                        let _ ← Ty.toCore? ty
-                        some ty
-                    | TupleItem.value _ => none
-                    | TupleItem.hole => none)
-                  items
-              some (Ty.tuple tys)
           | Expr.index base indexExpr => do
               let baseTy ← Expr.abiTyWithEnv? env base
               match Ty.fixedBytesSize? baseTy with

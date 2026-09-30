@@ -370,6 +370,27 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
                    Expr.toCoreAsWithEnvDirect?
                      storageNames env targetTy expr)
           | Expr.call (Expr.typeName castTy) [Arg.positional argExpr] =>
+              -- An explicit narrow integer conversion is truncating.  First
+              -- evaluate its argument at the argument's own Solidity type
+              -- (which preserves any checked arithmetic inside), then apply
+              -- the explicit int/uint cast.  ABI annotation commonly inserts
+              -- a source-type wrapper, e.g. `uint8(a + 0)` becomes
+              -- `uint8(uint256(a + uint256(0)))`; the older shape-specific
+              -- peelers stopped at that wrapper and fell back to implicit
+              -- `uintCleanup 8`, spuriously panicking instead of truncating.
+              let explicitNarrow? : Option CoreExpr := do
+                let (signed, bits) ← Ty.narrowIntCastTarget? castTy
+                let sourceTy ← Expr.abiTyWithEnv? env argExpr
+                let innerCore ← Expr.toCoreAsWithEnvFuel?
+                  fuel storageNames env sourceTy argExpr
+                some
+                  (if signed then
+                    SolidCore.Solidity.Source.Expr.intCast bits innerCore
+                  else
+                    SolidCore.Solidity.Source.Expr.uintCast bits innerCore)
+              match explicitNarrow? with
+              | some coreExpr => some coreExpr
+              | none =>
               -- H2 (SOUNDNESS): a narrow `uintN`/`intN` explicit cast of a
               -- checked arithmetic sub-expression must evaluate that
               -- sub-expression at ITS OWN operand width (so the narrow overflow
@@ -3791,6 +3812,14 @@ def Expr.resolveFunctionAddressesFuel : Nat -> SelectorEnv -> Expr -> Expr
       let resolveOption := CallOption.resolveFunctionAddressesFuel fuel env
       let resolveTupleItem := TupleItem.resolveFunctionAddressesFuel fuel env
       match expr with
+      | Expr.member (Expr.ternary cond thenExpr elseExpr) "address" =>
+          -- Address projection distributes over an external-function-value
+          -- ternary just like selector projection does.  Resolving each arm
+          -- first turns `this.f.address` / `this.g.address` into `this`, while
+          -- retaining the chosen condition and its source-width checks.
+          Expr.ternary (resolve cond)
+            (resolve (Expr.member thenExpr "address"))
+            (resolve (Expr.member elseExpr "address"))
       | Expr.member (Expr.member base _) "address" => resolve base
       | Expr.literal literal => Expr.literal literal
       | Expr.ident name => Expr.ident name

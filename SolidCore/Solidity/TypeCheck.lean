@@ -1478,39 +1478,13 @@ def TypeContext.canImplicitlyConvertStorageCopy (types : TypeContext)
 -- pinned-binary probe (2026-07-10):
 --   * dyn dest ← fixed src ACCEPT; fixed dest N<M REJECT (at any nesting level);
 --   * base narrowing / signed↔unsigned / distinct-enum / Base→Derived REJECT.
---
--- LEGACY CODEGEN CARVE-OUT: copying an array whose DIRECT element type is a
--- struct VALUE is "not supported in legacy (only supported by the IR pipeline)"
--- (`S[2] → S[3]`, `S[] → S[]`, etc. all REJECT). This is a codegen limit, not a
--- type-conversion one, and it fires ONLY at the direct element — nesting the
--- struct one array level down (`S[][2] → S[][3]`, `S[2][2] → S[2][3]`) is
--- ACCEPTED by legacy, because the per-element copy of an ARRAY element is
--- supported. So the struct exclusion is applied ONLY to the outer array's direct
--- element, and the storage-copy recursion
--- (`TypeContext.canImplicitlyConvertFuel`, storageCopy = true) carries no such
--- exclusion. This keeps every value/reference-element widening accepted while
--- holding the direct-struct-element copy rejected (task #122 legacy-vs-IR zone).
---
 -- The strict same-base rule still governs pointer/memory targets and every
 -- non-storage context, so this is only consulted for a genuine storage dest.
-def Ty.isStructValueTy (types : TypeContext) : Ty -> Bool
-  | Solidity.Ty.struct _ _ => true
-  | Solidity.Ty.user path =>
-      match types.lookupStruct? path with
-      | some _ => true
-      | none => false
-  | _ => false
-
--- R4: the array recursion itself now lives in
--- `TypeContext.canImplicitlyConvertFuel` (storageCopy flag); this wrapper
--- keeps only what is NOT a conversion rule — the legacy-codegen
--- direct-struct-element carve-out described above.
 def Ty.storageArrayCopyAssignable? (types : TypeContext)
     (destTy srcTy : Ty) : Bool :=
   match destTy, srcTy with
-  | Solidity.Ty.array _ _, Solidity.Ty.array srcElem _ =>
-      !Ty.isStructValueTy types srcElem &&
-        TypeContext.canImplicitlyConvertStorageCopy types srcTy destTy
+  | Solidity.Ty.array _ _, Solidity.Ty.array _ _ =>
+      TypeContext.canImplicitlyConvertStorageCopy types srcTy destTy
   | _, _ => false
 
 def fixedPointLiteralRaw? (decimals : Nat)
@@ -4344,15 +4318,19 @@ def UsingFunctions.memberCandidates (env : CheckEnv)
       Except.ok (head ++ tail)
 
 def UsingDecl.appliesToReceiver
-    (decl : Solidity.UsingDecl) (receiverTy : Ty) : Bool :=
+    (env : CheckEnv) (decl : Solidity.UsingDecl) (receiverTy : Ty) : Bool :=
   match decl.target with
-  | some targetTy => receiverTy == targetTy
+  | some targetTy =>
+      receiverTy == env.qualifyCurrentLocalUserTypes targetTy
   | none => true
 
 def UsingDecl.appliesToBinaryOperands
-    (decl : Solidity.UsingDecl) (lhsTy rhsTy : Ty) : Bool :=
+    (env : CheckEnv) (decl : Solidity.UsingDecl)
+    (lhsTy rhsTy : Ty) : Bool :=
   match decl.target with
-  | some targetTy => lhsTy == targetTy || rhsTy == targetTy
+  | some targetTy =>
+      let targetTy := env.qualifyCurrentLocalUserTypes targetTy
+      lhsTy == targetTy || rhsTy == targetTy
   | none => true
 
 def UsingFunction.same (a b : Solidity.UsingFunction) : Bool :=
@@ -4569,7 +4547,7 @@ def UsingDecl.binaryOperatorCandidates (env : CheckEnv)
     Except TypeError (List FunctionSig) := do
   match decl.target with
   | some targetTy =>
-      if UsingDecl.appliesToBinaryOperands decl lhs.ty rhs.ty then
+      if UsingDecl.appliesToBinaryOperands env decl lhs.ty rhs.ty then
         UsingFunctions.binaryOperatorCandidates
           env targetTy op lhs rhs decl.functions
       else
@@ -4582,7 +4560,7 @@ def UsingDecl.unaryOperatorCandidates (env : CheckEnv)
     Except TypeError (List FunctionSig) := do
   match decl.target with
   | some targetTy =>
-      if UsingDecl.appliesToReceiver decl operand.ty then
+      if UsingDecl.appliesToReceiver env decl operand.ty then
         UsingFunctions.unaryOperatorCandidates
           env targetTy op operand decl.functions
       else
@@ -4613,7 +4591,7 @@ def UsingDecl.memberCandidates (env : CheckEnv)
     (receiver : CheckedExpr) (member : Name)
     (decl : Solidity.UsingDecl) :
     Except TypeError (List FunctionSig) := do
-  if UsingDecl.appliesToReceiver decl receiver.ty then
+  if UsingDecl.appliesToReceiver env decl receiver.ty then
     if decl.functions.isEmpty then
       let libraryDecl ←
         match env.types.lookupContractDecl? decl.library with
@@ -6456,6 +6434,21 @@ def checkExpr (env : CheckEnv) :
                   lvalue := false
                   stateLValue := false }
           | _ => Except.error (TypeError.unsupported "member address")
+  | expr@(Solidity.Expr.member fnExpr "address") => do
+      -- An external-function value can be produced by any expression, not
+      -- only a direct member access.  In particular, Solidity permits the
+      -- address projection of a conditional function value such as
+      -- `(cond ? this.f : this.g).address`.
+      let fnChecked ← checkExpr env fnExpr
+      match fnChecked.ty with
+      | Solidity.Ty.functionWithLocations _ _ _ _ _
+          Solidity.Visibility.external_ =>
+          Except.ok
+            { source := expr
+              ty := Solidity.Ty.address false
+              lvalue := false
+              stateLValue := false }
+      | _ => Except.error (TypeError.unsupported "member address")
   | expr@(Solidity.Expr.member
       (Solidity.Expr.ident "msg") member) => do
       match env.lookupVar? "msg" with
@@ -9292,9 +9285,17 @@ def checkTupleAssignmentTargetsWithTupleExprAssignableTo (env : CheckEnv) :
   | some (target, targetChecked) :: targetRest,
       Solidity.Expr.tuple
         (Solidity.TupleItem.value expr :: itemRest) => do
+      let rawChecked ← checkExpr env expr
+      let rhsCopyTy :=
+        (inlineArrayBottomUpTy? rawChecked.source).getD rawChecked.ty
       let checked ←
-        checkArgAssignableToParam env targetChecked.ty
-          (Solidity.Arg.positional expr)
+        if targetChecked.stateLValue &&
+            Ty.storageArrayCopyAssignable? env.types targetChecked.ty
+              rhsCopyTy then
+          Except.ok rawChecked
+        else
+          checkArgAssignableToParam env targetChecked.ty
+            (Solidity.Arg.positional expr)
       match Expr.directIdentName? target with
       | some name =>
           require (!env.isLocalStorageRef name || checked.stateLValue)
@@ -11475,6 +11476,12 @@ structure OverrideMember where
   implemented : Bool := true
   deriving Repr
 
+def OverrideMember.qualifyVisibleLocalUserTypes
+    (env : CheckEnv) (member : OverrideMember) : OverrideMember :=
+  { member with
+    params := Tys.qualifyVisibleLocalUserTypes env member.params
+    returns := Tys.qualifyVisibleLocalUserTypes env member.returns }
+
 def OverrideMember.sameKey (a b : OverrideMember) : Bool :=
   a.name == b.name && a.params == b.params
 
@@ -11917,7 +11924,7 @@ def checkOverrideUse (ancestorPaths : List Path)
   | some specifier =>
       checkOverrideSpecifier ancestorPaths baseMatches specifier
 
-def FunctionDecl.checkOverrideRules (currentPath : Path)
+def FunctionDecl.checkOverrideRules (env : CheckEnv) (currentPath : Path)
     (currentContractName : Name) (localTypeNames : List Name)
     (currentKind : Solidity.ContractKind)
     (ancestorPaths : List Path) (inherited : List OverrideMember)
@@ -11936,7 +11943,8 @@ def FunctionDecl.checkOverrideRules (currentPath : Path)
   | none =>
       require fn.override?.isNone
         (TypeError.invalidOverride "override on non-overridable function")
-  | some current => do
+  | some currentRaw => do
+      let current := currentRaw.qualifyVisibleLocalUserTypes env
       let baseMatches := OverrideMembers.matchingKey current inherited
       match baseMatches with
       | [] =>
@@ -11951,7 +11959,7 @@ def FunctionDecl.checkOverrideRules (currentPath : Path)
                 "implemented function cannot be overridden without a body")
           checkOverrideUse ancestorPaths fn.override? baseMatches
 
-def StateVarDecl.checkOverrideRules (types : TypeContext)
+def StateVarDecl.checkOverrideRules (env : CheckEnv) (types : TypeContext)
     (currentPath : Path) (currentContractName : Name)
     (localTypeNames : List Name)
     (currentKind : Solidity.ContractKind)
@@ -11966,7 +11974,8 @@ def StateVarDecl.checkOverrideRules (types : TypeContext)
       require (!OverrideMembers.hasNonStateMemberNamed decl.name inherited)
         (TypeError.invalidContractHeader
           "state variable shadows inherited function")
-  | some current => do
+  | some currentRaw => do
+      let current := currentRaw.qualifyVisibleLocalUserTypes env
       let baseMatches := OverrideMembers.matchingKey current inherited
       match baseMatches with
       | [] =>
@@ -15213,9 +15222,14 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
     inheritedModifierNames
     (stateVars.map Solidity.StateVarDecl.name ++
       functionNames ++ nonFunctionTypeNames)
-  let currentMembers := ContractDecl.overrideMembers contractTypes contract
+  let currentMembers :=
+    (ContractDecl.overrideMembers contractTypes contract).map
+      (OverrideMember.qualifyVisibleLocalUserTypes baseEnv)
   ContractDecl.checkPrivateOverrideCollision
-    (ContractDecl.collisionKeys contractTypes contract)
+    ((ContractDecl.collisionKeys contractTypes contract).map fun entry =>
+      (entry.1,
+        Tys.qualifyVisibleLocalUserTypes baseEnv entry.2.1,
+        entry.2.2))
     (inheritedContracts.flatMap (ContractDecl.collisionKeys contractTypes))
   let currentModifierMembers := ModifierOverrideMembers.forContract contract
   let inheritsUnimplementedAllowed :=
@@ -15260,7 +15274,7 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
       List Solidity.StateVarDecl -> Except TypeError Unit
     | [] => Except.ok ()
     | decl :: rest => do
-        StateVarDecl.checkOverrideRules contractTypes currentPath
+        StateVarDecl.checkOverrideRules baseEnv contractTypes currentPath
           contract.name localTypeNames contract.kind ancestorPaths
           inheritedMembers decl
         StateVarDecl.check baseEnv decl
@@ -15269,7 +15283,7 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
       List Solidity.FunctionDecl -> Except TypeError Unit
     | [] => Except.ok ()
     | fn :: rest => do
-        FunctionDecl.checkOverrideRules currentPath contract.name
+        FunctionDecl.checkOverrideRules baseEnv currentPath contract.name
           localTypeNames contract.kind ancestorPaths inheritedMembers
           inheritedStateVarNames fn
         FunctionDecl.check baseEnv fn
