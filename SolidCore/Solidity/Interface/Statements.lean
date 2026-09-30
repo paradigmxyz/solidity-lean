@@ -2901,6 +2901,11 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
   match stmt with
   | Stmt.empty => some SolidCore.Solidity.Source.Stmt.skip
   | Stmt.inlineAssembly "" => some SolidCore.Solidity.Source.Stmt.skip
+  -- Solidity accepts the special base-dispatch namespace as a bare
+  -- expression statement (`super;`). Merely evaluating that namespace has
+  -- no runtime effect; only a member call such as `super.f()` dispatches.
+  | Stmt.expr (Expr.ident "super") =>
+      some SolidCore.Solidity.Source.Stmt.skip
   | Stmt.break => some SolidCore.Solidity.Source.Stmt.break
   | Stmt.continue => some SolidCore.Solidity.Source.Stmt.continue
   | Stmt.block body => do
