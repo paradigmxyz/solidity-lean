@@ -8201,6 +8201,7 @@ def Expr.abiArgNeedsEnvCleanupFuel? : Nat -> Expr -> Bool
              | Expr.call (Expr.typeName castTy) [Arg.positional inner] =>
                  if (Ty.wordIntCastTarget? castTy).isSome ||
                      (Ty.narrowIntCastTarget? castTy).isSome ||
+                     castTy == Ty.bytes || castTy == Ty.string ||
                      (match castTy with | Ty.address _ => true | _ => false) then
                    some inner
                  else none
@@ -8294,13 +8295,20 @@ def Expr.abiArgNeedsEnvCleanupFuel? : Nat -> Expr -> Bool
               -- recurse through such an argument; only this FLAG stopped at one
               -- level, so the nested shapes silently fell back env-less.
               | Expr.call (Expr.member (Expr.ident "abi") m) args =>
-                  (m == "encode" || m == "encodePacked" ||
-                      m == "encodeWithSelector" || m == "encodeWithSignature") &&
-                    args.any (fun a =>
-                      match a with
-                      | Arg.positional e =>
-                          Expr.abiArgNeedsEnvCleanupFuel? fuel e
-                      | Arg.named _ _ => false)
+                  if m == "decode" then
+                    match args with
+                    | [Arg.positional data, Arg.positional _] =>
+                        Expr.abiArgNeedsEnvCleanupFuel? fuel data
+                    | _ => false
+                  else
+                    (m == "encode" || m == "encodePacked" ||
+                        m == "encodeWithSelector" ||
+                        m == "encodeWithSignature") &&
+                      args.any (fun a =>
+                        match a with
+                        | Arg.positional e =>
+                            Expr.abiArgNeedsEnvCleanupFuel? fuel e
+                        | Arg.named _ _ => false)
               | Expr.call (Expr.member (Expr.ident "bytes") "concat") args
               | Expr.call (Expr.member (Expr.typeName Ty.bytes) "concat") args
               | Expr.call (Expr.member (Expr.ident "string") "concat") args
@@ -8314,6 +8322,22 @@ def Expr.abiArgNeedsEnvCleanupFuel? : Nat -> Expr -> Bool
                   (hname == "keccak256" || hname == "sha256" ||
                       hname == "ripemd160") &&
                     Expr.abiArgNeedsEnvCleanupFuel? fuel inner
+              -- Value-use boundaries whose direct lowering recursively drops
+              -- the type environment.  Flagging them lets the matching
+              -- env-aware expression/statement arms retain a nested narrow
+              -- arithmetic check before the boundary consumes the value.
+              | Expr.call (Expr.ident "ecrecover") args =>
+                  args.any (fun a =>
+                    match a with
+                    | Arg.positional e =>
+                        Expr.abiArgNeedsEnvCleanupFuel? fuel e
+                    | Arg.named _ _ => false)
+              | Expr.member base member =>
+                  (member == "balance" || member == "code" ||
+                      member == "codehash") &&
+                    Expr.abiArgNeedsEnvCleanupFuel? fuel base
+              | Expr.payableConversion inner =>
+                  Expr.abiArgNeedsEnvCleanupFuel? fuel inner
               -- WS1 (H, addmod/mulmod + new-with-size): these builtins'
               -- evaluate flagged arguments at their own width first (see the
               -- matching env-aware arms), so an argument that IS such a call
@@ -8446,6 +8470,11 @@ def Expr.abiBuiltinArgsNeedEnvCleanup : Expr -> Bool
   | Expr.call (Expr.ident hname) [Arg.positional inner] =>
       (hname == "keccak256" || hname == "sha256" || hname == "ripemd160") &&
         Expr.abiBuiltinArgsNeedEnvCleanup inner
+  | Expr.call (Expr.ident "ecrecover") args =>
+      args.any (fun a =>
+        match a with
+        | Arg.positional e => Expr.abiArgNeedsEnvCleanup? e
+        | Arg.named _ _ => false)
   -- WS1 (H): addmod/mulmod args and `new T[](len)`/`new bytes(len)` lengths
   -- carrying narrow checked arithmetic (Panic 0x11 at the operand width
   -- before the builtin/allocation) — reroutes the same statement positions
