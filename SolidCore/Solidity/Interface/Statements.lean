@@ -2529,6 +2529,124 @@ def FunctionDecl.tupleLhsIndexCallHoistTargets?
       some (restPre, some target :: restTargets)
 termination_by _ items => (3, internalFuel, sizeOf items, 8)
 
+/-- Lower tuple-assignment targets that include the storage reference returned
+    by a zero-argument push on a direct state array.  The returned prefix grows
+    those arrays, left-to-right, and each corresponding target names the newly
+    appended element.  We deliberately keep this helper to direct arrays: for
+    `matrix[i()].push()` the path expression must be captured once and reused,
+    while spelling it in both a push statement and a later lvalue would evaluate
+    `i()` twice.  Those effectful nested paths therefore remain rejected until
+    they have a dedicated captured-path core operation. -/
+def TupleItems.toCoreLValueTargetsWithDirectPush?
+    (storageNames : List Name) :
+    List TupleItem ->
+      Option (List CoreStmt × List (Option CoreLValue) × Bool)
+  | [] => some ([], [], false)
+  | TupleItem.hole :: rest => do
+      let (restPre, restTargets, restHasPush) ←
+        TupleItems.toCoreLValueTargetsWithDirectPush? storageNames rest
+      some (restPre, none :: restTargets, restHasPush)
+  | TupleItem.value
+      (Expr.call (Expr.member target "push") []) :: rest => do
+      let (name, indexes) ← Expr.storagePathCore? storageNames target
+      match indexes with
+      | [] => do
+          let pushStmt ← storageArrayPushPathCore? storageNames target none
+          let lastIndex := storageLastPushedIndexExpr name []
+          let (restPre, restTargets, _) ←
+            TupleItems.toCoreLValueTargetsWithDirectPush? storageNames rest
+          some
+            ( pushStmt :: restPre
+            , some (SolidCore.Solidity.Source.LValue.storageIndex name lastIndex)
+                :: restTargets
+            , true )
+      | _ => none
+  | TupleItem.value expr :: rest => do
+      let target ← Expr.toCoreLValue? storageNames expr
+      let (restPre, restTargets, restHasPush) ←
+        TupleItems.toCoreLValueTargetsWithDirectPush? storageNames rest
+      some (restPre, some target :: restTargets, restHasPush)
+termination_by items => (sizeOf items, 1)
+
+/-- Recover the destination type of each flat tuple-assignment component.  A
+    push-return target has the element type of its dynamic array; a hole uses
+    the corresponding RHS component's type because it still must be evaluated.
+    These types drive the RHS temporaries used by the push-target lowering, so
+    implicit narrow conversions happen before any LHS push side effect. -/
+def FunctionDecl.tupleAssignTargetTysWithDirectPush?
+    (functions freeFunctions : List FunctionDecl) (env : TypeEnv) :
+    List TupleItem -> List TupleItem -> Option (List Ty)
+  | [], [] => some []
+  | TupleItem.hole :: lhsRest, TupleItem.value rhs :: rhsRest => do
+      let ty ←
+        Expr.abiTyWithInternalFunctionsEnv? functions freeFunctions env rhs
+      let rest ←
+        FunctionDecl.tupleAssignTargetTysWithDirectPush?
+          functions freeFunctions env lhsRest rhsRest
+      some (ty :: rest)
+  | TupleItem.value
+      (Expr.call (Expr.member target "push") []) :: lhsRest,
+      TupleItem.value _ :: rhsRest => do
+      let targetTy ← Expr.abiTyWithEnv? env target
+      let elemTy ←
+        match targetTy with
+        | Ty.array elemTy none => some elemTy
+        | _ => none
+      let rest ←
+        FunctionDecl.tupleAssignTargetTysWithDirectPush?
+          functions freeFunctions env lhsRest rhsRest
+      some (elemTy :: rest)
+  | TupleItem.value lhs :: lhsRest, TupleItem.value _ :: rhsRest => do
+      let ty ← Expr.abiTyWithEnv? env lhs
+      let rest ←
+        FunctionDecl.tupleAssignTargetTysWithDirectPush?
+          functions freeFunctions env lhsRest rhsRest
+      some (ty :: rest)
+  | _, _ => none
+termination_by lhs _ => (sizeOf lhs, 1)
+
+/-- A compound assignment through `array.push()` evaluates its RHS first, then
+    grows the array, reads the new zero element, applies the operation, and
+    writes it back.  solc's IR makes this ordering observable for an RHS that
+    mutates or reads the same array.  Snapshot the converted RHS in a scoped
+    temp before emitting the push; the usual cleanup node then provides the
+    element-width overflow/truncation semantics.  As above, only direct state
+    arrays are accepted so no path expression is duplicated. -/
+def Expr.storageArrayDirectPushAssignOpCoreWithEnv?
+    (storageNames : List Name) (env : TypeEnv) : Expr -> Option CoreStmt
+  | Expr.assign
+      (Expr.call (Expr.member target "push") []) op rhs => do
+      let (name, indexes) ← Expr.storagePathCore? storageNames target
+      match indexes with
+      | [] => do
+          let targetTy ← Expr.abiTyWithEnv? env target
+          let elemTy ←
+            match targetTy with
+            | Ty.array elemTy none => some elemTy
+            | _ => none
+          let elemCoreTy ← Ty.toCore? elemTy
+          let coreOp ← AssignOp.toCoreBinary? op
+          let rhsCore ←
+            match Expr.toCoreAsWithEnv? storageNames env elemTy rhs with
+            | some core => some core
+            | none => Expr.toCore? storageNames rhs
+          let cleanup ← Ty.toCoreValueCleanup? elemTy
+          let rhsTmp : Name := "_sol_push_assign_rhs"
+          let pushStmt ← storageArrayPushPathCore? storageNames target none
+          let lastIndex := storageLastPushedIndexExpr name []
+          let lhs :=
+            SolidCore.Solidity.Source.LValue.storageIndex name lastIndex
+          some
+            (SolidCore.Solidity.Source.Stmt.block
+              [ CoreTy.tempDeclStmt elemCoreTy rhsTmp (some rhsCore)
+              , pushStmt
+              , SolidCore.Solidity.Source.Stmt.exprStmt
+                  (SolidCore.Solidity.Source.Expr.assignOpCleanupExpr
+                    lhs.toExpr coreOp
+                    (SolidCore.Solidity.Source.Expr.var rhsTmp) cleanup) ])
+      | _ => none
+  | _ => none
+
 def FunctionDecl.tupleItemsUseCoreWithInternalCalls?
     (internalFuel : Nat)
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
@@ -2989,6 +3107,15 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
       | Stmt.expr expr@(Expr.assign _ AssignOp.shlAssign _)
       | Stmt.expr expr@(Expr.assign _ AssignOp.shrAssign _)
       | Stmt.expr expr@(Expr.assign _ AssignOp.sarAssign _) =>
+          -- A zero-argument storage-array push is itself an lvalue: the newly
+          -- appended element.  It cannot pass through ordinary lvalue lowering
+          -- because the call is also an effect.  Snapshot the RHS, then push,
+          -- then use the standard compound-cleanup expression on that element.
+          match
+              Expr.storageArrayDirectPushAssignOpCoreWithEnv?
+                storageNames env expr with
+          | some coreStmt => some coreStmt
+          | none =>
           -- Shift counts retain their own type. Evaluate a flagged RHS through
           -- the env-aware lowerer before the read-modify-write so narrow checked
           -- arithmetic Panics at its operand width.
@@ -3133,6 +3260,27 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
       | Stmt.expr
           (Expr.assign (Expr.tuple lhsItems) AssignOp.assign
             (Expr.tuple rhsItems)) =>
+          -- `array.push()` may be a tuple-assignment target.  Snapshot every RHS
+          -- component first, then perform all push effects left-to-right, then
+          -- assign from the temp reads.  This is solc's observable ordering and
+          -- also ensures implicit destination-width conversion precedes pushes.
+          match
+              TupleItems.toCoreLValueTargetsWithDirectPush?
+                storageNames lhsItems with
+          | some (lhsPrefix, targets, true) => do
+              let targetTys ←
+                FunctionDecl.tupleAssignTargetTysWithDirectPush?
+                  functions freeFunctions env lhsItems rhsItems
+              FunctionDecl.tupleItemsUseCoreWithInternalCalls?
+                internalFuel storageRefEnv env externalCallKindEnv storageNames
+                modifiers functions freeFunctions "_sol_tuple_push_rhs"
+                0 targetTys rhsItems
+                (fun coreExprs =>
+                  SolidCore.Solidity.Source.Stmt.block
+                    (lhsPrefix ++
+                      [ SolidCore.Solidity.Source.Stmt.assignTuple targets
+                          (SolidCore.Solidity.Source.Expr.tuple coreExprs) ]))
+          | _ =>
           -- Stage B (boundary-completion arc): tuple-literal RHS whose components
           -- contain internal calls — `(a, b) = (f(), g())`, `(, b) = (f(), g())`.
           -- solc evaluates the components LEFT-to-right, each into its own temp,
