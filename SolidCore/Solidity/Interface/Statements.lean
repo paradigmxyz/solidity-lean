@@ -9199,12 +9199,11 @@ def modifierApplyToCoreWithInternalCalls? (internalFuel : Nat)
       inner body
   some (SolidCore.Solidity.Source.Stmt.block (prefixCore ++ [bodyCore]))
 
-/-- Body-level ANF preprocessing (the fallback wiring). Recurses into every
-    child statement; a statement that already lowers (via the enumerated arms)
-    is left BYTE-IDENTICAL, so all currently-green cases are untouched. Only a
-    statement that fails to lower gets its own top-level expressions
-    ANF-normalized (`Stmt.anfNormalizeSelf?`) into a `block` of flat statements
-    the existing arms can then lower. -/
+/-- Body-level ANF preprocessing. Recurses into every child statement, then
+    normalizes every top-level expression which contains a hoistable call into
+    a `block` of flat statements. Surface lowering success is not a sufficient
+    reason to skip this pass: some legacy dispatcher arms build a Core term
+    which fails only during checked-executable generation. -/
 def Stmt.anfPreprocess (structEnv : StructEnv) (internalFuel : Nat)
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
     (externalCallKindEnv : ExternalCallKindEnv) (storageNames : List Name)
@@ -9227,16 +9226,151 @@ def Stmt.anfPreprocess (structEnv : StructEnv) (internalFuel : Nat)
             -- follow it.  Splice only blocks introduced while recurring over
             -- a non-block child; preserve every block that existed in the
             -- source, since that block carries Solidity lexical scope.
-            Stmt.block (ss.flatMap (fun child =>
-              let normalized := recur child
-              match child, normalized with
-              | Stmt.block _, _ => [normalized]
-              | _, Stmt.block inner => inner
-              | _, _ => [normalized]))
+            let step := fun
+                (acc : List Stmt × TypeEnv × StorageRefEnv) (child : Stmt) =>
+              let (out, childEnv, childStorageRefEnv) := acc
+              let normalized :=
+                Stmt.anfPreprocess structEnv internalFuel childStorageRefEnv
+                  childEnv externalCallKindEnv storageNames modifiers functions
+                  freeFunctions returnTys eventIndexedEnv fuel child
+              let pieces :=
+                match child, normalized with
+                | Stmt.block _, _ => [normalized]
+                | _, Stmt.block inner => inner
+                | _, _ => [normalized]
+              let nextEnv :=
+                match child with
+                | Stmt.varDecl bindings _ =>
+                    VarBindings.extendTypeEnv childEnv bindings
+                | _ => childEnv
+              let nextStorageRefEnv :=
+                match child with
+                | Stmt.varDecl bindings _ =>
+                    VarBindings.extendStorageRefEnv childStorageRefEnv bindings
+                | _ => childStorageRefEnv
+              (out ++ pieces, nextEnv, nextStorageRefEnv)
+            let (out, _, _) := ss.foldl step ([], env, storageRefEnv)
+            Stmt.block out
         | Stmt.ifElse c t e => Stmt.ifElse c (recur t) (e.map recur)
-        | Stmt.whileLoop c b => Stmt.whileLoop c (recur b)
-        | Stmt.doWhile b c => Stmt.doWhile (recur b) c
-        | Stmt.forLoop i c p b => Stmt.forLoop (i.map recur) c p (recur b)
+        | Stmt.whileLoop c b =>
+            let b' := recur b
+            let (_, pre, c') :=
+              Expr.anfHoist functions freeFunctions env externalCallKindEnv
+                storageNames anfHoistFuel 0 c
+            if pre.isEmpty then Stmt.whileLoop c b'
+            else
+              Stmt.annotateAbi env
+                (Stmt.resolveStructs structEnv env
+                  (Stmt.whileLoop (Expr.literal (Literal.bool true))
+                    (Stmt.block
+                      (pre ++ [Stmt.ifElse c' b' (some Stmt.break)]))))
+        | Stmt.doWhile b c =>
+            let b' := recur b
+            let (_, pre, c') :=
+              Expr.anfHoist functions freeFunctions env externalCallKindEnv
+                storageNames anfHoistFuel 0 c
+            if pre.isEmpty then Stmt.doWhile b' c
+            else
+              let check :=
+                Stmt.block
+                  (pre ++ [Stmt.ifElse c' Stmt.empty (some Stmt.break)])
+              let loop :=
+                if Stmt.mentionsBareContinue b then
+                  let first := "__solidcore_anf_loop_first"
+                  Stmt.block
+                    [ Stmt.varDecl
+                        [{ name := some first, ty := some Ty.bool,
+                           location := none }]
+                        (some (Expr.literal (Literal.bool true)))
+                    , Stmt.whileLoop (Expr.literal (Literal.bool true))
+                        (Stmt.block
+                          [ Stmt.ifElse (Expr.ident first)
+                              (Stmt.expr
+                                (Expr.assign (Expr.ident first)
+                                  AssignOp.assign
+                                  (Expr.literal (Literal.bool false))))
+                              (some check)
+                          , b' ]) ]
+                else
+                  Stmt.whileLoop (Expr.literal (Literal.bool true))
+                    (Stmt.block [b', check])
+              Stmt.annotateAbi env (Stmt.resolveStructs structEnv env loop)
+        | Stmt.forLoop i c p b =>
+            let loopEnv :=
+              match i with
+              | some (Stmt.varDecl bindings _) =>
+                  VarBindings.extendTypeEnv env bindings
+              | _ => env
+            let loopStorageRefEnv :=
+              match i with
+              | some (Stmt.varDecl bindings _) =>
+                  VarBindings.extendStorageRefEnv storageRefEnv bindings
+              | _ => storageRefEnv
+            let b' :=
+              Stmt.anfPreprocess structEnv internalFuel loopStorageRefEnv
+                loopEnv externalCallKindEnv storageNames modifiers functions
+                freeFunctions returnTys eventIndexedEnv fuel b
+            let (counter, condPre, c') :=
+              match c with
+              | some cond =>
+                  Expr.anfHoist functions freeFunctions loopEnv
+                    externalCallKindEnv storageNames anfHoistFuel 0 cond
+              | none =>
+                  (0, [], Expr.literal (Literal.bool true))
+            let (_, postPre, p') :=
+              match p with
+              | some post =>
+                  Expr.anfHoist functions freeFunctions loopEnv
+                    externalCallKindEnv storageNames anfHoistFuel counter post
+              | none =>
+                  (counter, [], Expr.literal (Literal.bool true))
+            if condPre.isEmpty && postPre.isEmpty then
+              -- Keep a green initializer on the dedicated for-init lowering
+              -- path.  In particular, normalizing `uint i = f()` into a block
+              -- would scope `i` out before the condition.
+              Stmt.forLoop i c p b'
+            else
+              let initPieces :=
+                match i with
+                | some init =>
+                    let init' := recur init
+                    match init, init' with
+                    | Stmt.block _, _ => [init']
+                    | _, Stmt.block inner => inner
+                    | _, _ => [init']
+                | none => []
+              let check :=
+                Stmt.block
+                  (condPre ++ [Stmt.ifElse c' Stmt.empty (some Stmt.break)])
+              let postStmt :=
+                match p with
+                | some _ => Stmt.block (postPre ++ [Stmt.expr p'])
+                | none => Stmt.empty
+              let loop :=
+                if Stmt.mentionsBareContinue b then
+                  let first := "__solidcore_anf_loop_first"
+                  Stmt.block
+                    (initPieces ++
+                      [ Stmt.varDecl
+                          [{ name := some first, ty := some Ty.bool,
+                             location := none }]
+                          (some (Expr.literal (Literal.bool true)))
+                      , Stmt.whileLoop (Expr.literal (Literal.bool true))
+                          (Stmt.block
+                            [ Stmt.ifElse (Expr.ident first)
+                                (Stmt.expr
+                                  (Expr.assign (Expr.ident first)
+                                    AssignOp.assign
+                                    (Expr.literal (Literal.bool false))))
+                                (some postStmt)
+                            , check
+                            , b' ]) ])
+                else
+                  Stmt.block
+                    (initPieces ++
+                      [ Stmt.whileLoop (Expr.literal (Literal.bool true))
+                          (Stmt.block [check, b', postStmt]) ])
+              Stmt.annotateAbi env (Stmt.resolveStructs structEnv env loop)
         | Stmt.unchecked b => Stmt.unchecked (recur b)
         | Stmt.tryCatch e clauses =>
             Stmt.tryCatch e
@@ -9251,25 +9385,9 @@ def Stmt.anfPreprocess (structEnv : StructEnv) (internalFuel : Nat)
                 | CatchClause.clause n ps' body =>
                     CatchClause.clause n ps' (recur body)))
         | other => other
-      -- Test lowerability in a BLOCK context, not isolated: a var-decl whose
-      -- initializer nests a call lowers only via the block-level sibling-prefix
-      -- hoister (`Expr.argPositionHoistPrefix?` emits flat SIBLING statements
-      -- into the enclosing list), which is unreachable for a lone statement.
-      -- Probing the statement wrapped in a singleton block reflects exactly how
-      -- it lowers in place, so a green cell reports `true` and is kept
-      -- byte-identical; only a genuinely un-lowerable statement reports `false`
-      -- and is routed through the ANF fallback.
-      let lowers := fun (s : Stmt) =>
-        (Stmt.toCoreWithInternalCalls? internalFuel storageRefEnv env
-          externalCallKindEnv storageNames modifiers functions freeFunctions
-          returnTys (Stmt.block [s])).isSome
-      -- Green cases: a statement that already lowers is kept BYTE-IDENTICAL.
-      -- Only a statement the enumerated dispatcher declined is ANF-normalized.
-      -- The normalized form is returned unconditionally when hoisting happened:
-      -- `stmt1` here already fails to lower, so `stmt2` cannot be worse, and a
-      -- `lowers stmt2` gate would spuriously reject valid hoists whose residual
-      -- needs a hoisted block-local's type (absent from the function-level env
-      -- used for the probe).
+      -- A generated ANF block is returned unconditionally. Requiring it to pass
+      -- a function-entry lowerability probe would reject valid hoists whose
+      -- residual depends on a preceding block-local declaration.
       -- STAGE-D #195: a `Stmt.emitEvent` with a NON-identity two-phase schedule
       -- (an indexed argument follows a data argument in source order, e.g.
       -- `emit E3(f(), g())` both-indexed) must be normalized EVEN IF it already
@@ -9290,18 +9408,45 @@ def Stmt.anfPreprocess (structEnv : StructEnv) (internalFuel : Nat)
              | none => none)
         | _ => none) with
       | some stmt2 =>
-          if lowers stmt2 then stmt2
-          else if lowers stmt1 then stmt1
-          else
-            match Stmt.anfNormalizeSelf? structEnv functions freeFunctions env
-                externalCallKindEnv storageNames eventIndexedEnv stmt1 with
-            | some stmt3 => stmt3
-            | none => stmt1
+          stmt2
       | none =>
-      if lowers stmt1 then stmt1
-      else
-        match Stmt.anfNormalizeSelf? structEnv functions freeFunctions env
-            externalCallKindEnv storageNames eventIndexedEnv stmt1 with
+        -- A few statement families have dedicated lowering that carries
+        -- semantics the general value ANF does not yet encode: storage aliases,
+        -- tuple target/return scheduling, and `.selector` receiver effects.
+        -- Preserve those specialized paths while applying ANF eagerly to the
+        -- ordinary expression positions above.
+        let normalized? :=
+          match stmt1 with
+          | Stmt.varDecl bindings _ =>
+              if bindings.any (fun b =>
+                  b.location == some DataLocation.storage) then none
+              else
+                Stmt.anfNormalizeSelf? structEnv functions freeFunctions env
+                  externalCallKindEnv storageNames eventIndexedEnv stmt1
+          | Stmt.returnValues (some (Expr.tuple _)) => none
+          | Stmt.returnValues
+              (some (Expr.call (Expr.typeName _)
+                [Arg.positional (Expr.member _ "selector")])) => none
+          | Stmt.expr e@(Expr.call _ _) =>
+              match Expr.anfHoistableCallTy? functions freeFunctions env
+                  externalCallKindEnv storageNames e with
+              | some _ => none
+              | none =>
+                  Stmt.anfNormalizeSelf? structEnv functions freeFunctions env
+                    externalCallKindEnv storageNames eventIndexedEnv stmt1
+          | Stmt.expr e@(Expr.callWithOptions _ _ _) =>
+              match Expr.anfHoistableCallTy? functions freeFunctions env
+                  externalCallKindEnv storageNames e with
+              | some _ => none
+              | none =>
+                  Stmt.anfNormalizeSelf? structEnv functions freeFunctions env
+                    externalCallKindEnv storageNames eventIndexedEnv stmt1
+          | Stmt.expr (Expr.member _ "selector") => none
+          | Stmt.expr (Expr.assign (Expr.tuple _) _ _) => none
+          | _ =>
+              Stmt.anfNormalizeSelf? structEnv functions freeFunctions env
+                externalCallKindEnv storageNames eventIndexedEnv stmt1
+        match normalized? with
         | some stmt2 => stmt2
         | none => stmt1
 termination_by fuel _ => fuel
