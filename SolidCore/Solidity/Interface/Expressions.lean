@@ -6926,21 +6926,22 @@ def Arg.internalSingleReturnCallExpr? : Arg -> Option Expr
       some expr
 
 def Args.replaceInternalSingleReturnCallExprArg? (fallbackPrefix : String) :
-    Nat -> List Arg -> Option (Expr × Name × List Arg)
+    Nat -> List Arg -> Option (Nat × Expr × Name × List Arg)
   | _, [] => none
   | index, arg :: rest =>
       let tempName := internalCallArgTempName fallbackPrefix index
       match Arg.internalSingleReturnCallExpr? arg with
       | some expr =>
           some
-            ( expr
+            ( index
+            , expr
             , tempName
             , Arg.withExpr (Expr.ident tempName) arg :: rest )
       | none => do
-          let (expr, foundTemp, rest') ←
+          let (foundIndex, expr, foundTemp, rest') ←
             Args.replaceInternalSingleReturnCallExprArg?
               fallbackPrefix (index + 1) rest
-          some (expr, foundTemp, arg :: rest')
+          some (foundIndex, expr, foundTemp, arg :: rest')
 
 def Expr.actualInternalSingleReturnCall?
     (functions : List FunctionDecl) (env : TypeEnv) (expr : Expr) :

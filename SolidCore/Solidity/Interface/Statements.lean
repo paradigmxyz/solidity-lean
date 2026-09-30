@@ -510,6 +510,41 @@ def FunctionDecl.internalSingleReturnCallCore?
   | _ => none
 termination_by (3, internalFuel, 0, 2)
 
+/-- Snapshot the first `count` arguments of a residual internal call into typed
+    temporaries.  This is used when a later argument has been hoisted for an
+    internal call: Solidity evaluates arguments left-to-right, so earlier state
+    reads must occur before that later call can mutate storage. -/
+def Args.snapshotPrefixBeforeLaterCall?
+    (functions freeFunctions : List FunctionDecl) (env : TypeEnv)
+    (storageNames : List Name) (fallbackPrefix : String) :
+    Nat -> Nat -> List Arg ->
+      Option (List CoreStmt × List (Name × Ty) × List Arg)
+  | 0, _, args => some ([], [], args)
+  | _ + 1, _, [] => none
+  | count + 1, counter, arg :: rest => do
+      let argExpr :=
+        match arg with
+        | Arg.positional expr => expr
+        | Arg.named _ expr => expr
+      let argTy ←
+        Expr.abiTyWithInternalFunctionsEnv?
+          functions freeFunctions env argExpr
+      let argCoreTy ← Ty.toCore? argTy
+      let argCore ←
+        match Expr.toCoreAsWithEnv? storageNames env argTy argExpr with
+        | some core => some core
+        | none => Expr.toCore? storageNames argExpr
+      let tempName := internalCallArgTempName fallbackPrefix counter
+      let (restPre, restEnv, restArgs) ←
+        Args.snapshotPrefixBeforeLaterCall?
+          functions freeFunctions env storageNames fallbackPrefix
+          count (counter + 1) rest
+      some
+        ( CoreTy.tempDeclStmt argCoreTy tempName (some argCore) :: restPre
+        , (tempName, argTy) :: restEnv
+        , Arg.withExpr (Expr.ident tempName) arg :: restArgs )
+termination_by count _ _ => count
+
 def FunctionDecl.internalSingleReturnCallExprCore?
     (internalFuel : Nat)
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
@@ -542,12 +577,16 @@ def FunctionDecl.internalSingleReturnCallExprCore?
       match
           Args.replaceInternalSingleReturnCallExprArg?
             argTempPrefix 0 args with
-      | some (argExpr, argTmp, replacedArgs) => do
+      | some (argIndex, argExpr, argTmp, replacedArgs) => do
           let argTy ←
             Expr.abiTyWithInternalFunctionsEnv?
               functions freeFunctions env argExpr
           let argCoreTy ← Ty.toCore? argTy
-          let envWithArgTmp := (argTmp, argTy) :: env
+          let (priorPre, priorEnv, replacedArgs) ←
+            Args.snapshotPrefixBeforeLaterCall?
+              functions freeFunctions env storageNames
+              (argTempPrefix ++ "_prior") argIndex 0 replacedArgs
+          let envWithArgTmp := (argTmp, argTy) :: (priorEnv ++ env)
           let argCore ←
             FunctionDecl.internalSingleReturnCallExprCore?
               fuel storageRefEnv env externalCallKindEnv storageNames
@@ -564,9 +603,10 @@ def FunctionDecl.internalSingleReturnCallExprCore?
               (fun retExpr => useResult (convert retExpr))
           some
             (SolidCore.Solidity.Source.Stmt.block
-              [ SolidCore.Solidity.Source.Stmt.varDecl argCoreTy argTmp none
-              , argCore
-              , outerCore ])
+              (priorPre ++
+                [ SolidCore.Solidity.Source.Stmt.varDecl argCoreTy argTmp none
+                , argCore
+                , outerCore ]))
       | none =>
           FunctionDecl.internalSingleReturnCallCore?
             (fuel + 1) storageRefEnv env externalCallKindEnv storageNames
@@ -1102,13 +1142,17 @@ def FunctionDecl.internalTypeConversionSingleReturnUseCore?
           match
               Args.replaceInternalSingleReturnCallExprArg?
                 "_sol_internal_call_arg" 0 args with
-          | some (argExpr, argTmp, replacedArgs) =>
+          | some (argIndex, argExpr, argTmp, replacedArgs) =>
               match
                   Expr.abiTyWithInternalFunctionsEnv?
                     functions freeFunctions env argExpr with
               | some argTy => do
                   let argCoreTy ← Ty.toCore? argTy
-                  let envWithArgTmp := (argTmp, argTy) :: env
+                  let (priorPre, priorEnv, replacedArgs) ←
+                    Args.snapshotPrefixBeforeLaterCall?
+                      functions freeFunctions env storageNames
+                      "_sol_internal_call_arg_prior" argIndex 0 replacedArgs
+                  let envWithArgTmp := (argTmp, argTy) :: (priorEnv ++ env)
                   let argCore ←
                     FunctionDecl.internalSingleReturnCallExprCore?
                       fuel storageRefEnv env externalCallKindEnv storageNames
@@ -1127,10 +1171,11 @@ def FunctionDecl.internalTypeConversionSingleReturnUseCore?
                         useResult (convert (innerConvert retExpr)))
                   some
                     (SolidCore.Solidity.Source.Stmt.block
-                      [ SolidCore.Solidity.Source.Stmt.varDecl
-                          argCoreTy argTmp none
-                      , argCore
-                      , outerCore ])
+                      (priorPre ++
+                        [ SolidCore.Solidity.Source.Stmt.varDecl
+                            argCoreTy argTmp none
+                        , argCore
+                        , outerCore ]))
               | none =>
                   FunctionDecl.internalSingleReturnCallCore?
                     (fuel + 1) storageRefEnv env externalCallKindEnv
@@ -2274,6 +2319,25 @@ def Expr.toCoreLValueWithEnv? (storageNames : List Name) (env : TypeEnv) :
       -- Recursing into the base preserves the same lvalue shape while applying
       -- the checked-width rule at every path component.
       let keyCore? : Option CoreExpr :=
+        -- An explicit narrow conversion is TRUNCATING, not a checked implicit
+        -- conversion.  Lower its operand at the operand's own width first (so
+        -- checked arithmetic inside still panics), then apply the explicit cast
+        -- before the mapping key is hashed.
+        match (match key with
+          | Expr.call (Expr.typeName castTy) [Arg.positional inner] => do
+              let (isSigned, bits) ← Ty.narrowIntCastTarget? castTy
+              let innerTy ← Expr.abiTyWithEnv? env inner
+              let innerCore ←
+                match Expr.toCoreAsWithEnv? storageNames env innerTy inner with
+                | some core => some core
+                | none => Expr.toCore? storageNames inner
+              if isSigned then
+                some (SolidCore.Solidity.Source.Expr.intCast bits innerCore)
+              else
+                some (SolidCore.Solidity.Source.Expr.uintCast bits innerCore)
+          | _ => none) with
+        | some c => some c
+        | none =>
         match (do
             let keyTy ← Expr.abiTyWithEnv? env key
             let _ ← Ty.narrowIntCastTarget? keyTy

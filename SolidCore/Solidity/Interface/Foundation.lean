@@ -28,7 +28,7 @@ abbrev CoreImmutableField := SolidCore.Solidity.Source.ImmutableField
     as discarded, bare expression statements (`msg;`, `keccak256;`, `addmod;`).
     Referencing these symbols has no runtime effect. -/
 def strayBuiltinIdentAllowed (name : Name) : Bool :=
-  name == "msg" || name == "block" || name == "tx" ||
+  name == "msg" || name == "block" || name == "tx" || name == "super" ||
     name == "gasleft" || name == "blockhash" || name == "blobhash" ||
     name == "addmod" || name == "mulmod" ||
     name == "keccak256" || name == "sha256" || name == "ripemd160" ||
