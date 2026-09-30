@@ -5482,10 +5482,68 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
             | some (Stmt.varDecl bindings _) =>
                 VarBindings.extendTypeEnv env bindings
             | _ => env
-          let initCore ←
+          -- A call-valued loop declaration must keep the declared variable in
+          -- the scope shared by the condition, post expression, and body.
+          -- The ordinary single-statement varDecl lowerer returns
+          -- `block [decl, call]`; using that block as the `forLoop` initializer
+          -- pops the declaration before the first condition check. Split only
+          -- this direct internal-call shape into an outer prefix and use a
+          -- no-op loop initializer.
+          let (initCore, initPrefix) ←
             match init with
+            | some (Stmt.varDecl [binding]
+                (some (Expr.call (Expr.ident name) args))) =>
+                match binding.name with
+                | some localName =>
+                    match FunctionDecl.internalSingleReturnCallCore?
+                        internalFuel storageRefEnv env externalCallKindEnv
+                        storageNames modifiers functions freeFunctions name args
+                        (fun retExpr =>
+                          SolidCore.Solidity.Source.Stmt.assign
+                            (SolidCore.Solidity.Source.LValue.var localName)
+                            (match binding.ty with
+                            | some targetTy =>
+                                Ty.implicitCleanupCore targetTy retExpr
+                            | none => retExpr)) with
+                    | some callCore => do
+                        let declCore ←
+                          Stmt.toCore? storageNames
+                            (Stmt.varDecl [binding] none)
+                        some
+                          ( SolidCore.Solidity.Source.Stmt.skip
+                          , [declCore, callCore] )
+                    | none => do
+                        let core ←
+                          Stmt.toCoreWithInternalCalls?
+                            (internalFuel := internalFuel)
+                            (storageRefEnv := storageRefEnv)
+                            (env := env)
+                            (externalCallKindEnv := externalCallKindEnv)
+                            (storageNames := storageNames)
+                            (modifiers := modifiers)
+                            (functions := functions)
+                            (freeFunctions := freeFunctions)
+                            (returnTys := returnTys)
+                            (stmt := Stmt.varDecl [binding]
+                              (some (Expr.call (Expr.ident name) args)))
+                        some (core, [])
+                | none => do
+                    let core ←
+                      Stmt.toCoreWithInternalCalls?
+                        (internalFuel := internalFuel)
+                        (storageRefEnv := storageRefEnv)
+                        (env := env)
+                        (externalCallKindEnv := externalCallKindEnv)
+                        (storageNames := storageNames)
+                        (modifiers := modifiers)
+                        (functions := functions)
+                        (freeFunctions := freeFunctions)
+                        (returnTys := returnTys)
+                        (stmt := Stmt.varDecl [binding]
+                          (some (Expr.call (Expr.ident name) args)))
+                    some (core, [])
             | some stmt =>
-                Stmt.toCoreWithInternalCalls?
+                (Stmt.toCoreWithInternalCalls?
                   (internalFuel := internalFuel)
                   (storageRefEnv := storageRefEnv)
                   (env := env)
@@ -5495,8 +5553,9 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                   (functions := functions)
                   (freeFunctions := freeFunctions)
                   (returnTys := returnTys)
-                  (stmt := stmt)
-            | none => some SolidCore.Solidity.Source.Stmt.skip
+                  (stmt := stmt)).map (fun core => (core, []))
+            | none =>
+                some (SolidCore.Solidity.Source.Stmt.skip, [])
           let postCore ←
             match post with
             | some expr =>
@@ -5534,8 +5593,15 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
             | none => some (SolidCore.Solidity.Source.Expr.word 1)
           match purecond? with
           | some condCore =>
-              some (SolidCore.Solidity.Source.Stmt.forLoop
-                initCore condCore postCore bodyCore)
+              let loopCore :=
+                SolidCore.Solidity.Source.Stmt.forLoop
+                  initCore condCore postCore bodyCore
+              if initPrefix.isEmpty then
+                some loopCore
+              else
+                some
+                  (SolidCore.Solidity.Source.Stmt.block
+                    (initPrefix ++ [loopCore]))
           | none =>
               -- CALL-POSITION (#1): the condition contains a call. Desugar
               -- `for (init; cond; post) body` into
@@ -5576,7 +5642,7 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                           let flagName := "__solidcore_loop_first"
                           some
                             (SolidCore.Solidity.Source.Stmt.block
-                              [ initCore
+                              (initPrefix ++ [ initCore
                               , SolidCore.Solidity.Source.Stmt.varDecl
                                   SolidCore.Solidity.Source.Ty.bool flagName
                                   (some (SolidCore.Solidity.Source.Expr.word 1))
@@ -5590,15 +5656,15 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                                           (SolidCore.Solidity.Source.Expr.word 0))
                                         postCore
                                     , checkCore
-                                    , bodyCore ]) ])
+                                    , bodyCore ]) ]))
                         else
                           some
                             (SolidCore.Solidity.Source.Stmt.block
-                              [ initCore
+                              (initPrefix ++ [ initCore
                               , SolidCore.Solidity.Source.Stmt.whileLoop
                                   (SolidCore.Solidity.Source.Expr.word 1)
                                   (SolidCore.Solidity.Source.Stmt.block
-                                    [checkCore, bodyCore, postCore]) ])
+                                    [checkCore, bodyCore, postCore]) ]))
                     | none => none
       | Stmt.tryCatch expr clauses => do
           match Expr.toExternalCallWithKindEnv? (argEnvLower := Expr.externalCallArgEnvLower storageNames env)
