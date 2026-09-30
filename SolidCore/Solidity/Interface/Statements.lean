@@ -9620,7 +9620,11 @@ def UsingDecl.targetMatches? (env : TypeEnv)
     (receiver : Expr) (decl : UsingDecl) : Option Bool :=
   match decl.target with
   | some targetTy => do
-      let receiverTy ← Expr.abiTyWithEnv? env receiver
+      let receiverTy ←
+        match receiver, targetTy with
+        | Expr.enumFromUInt maxValue _, Ty.enum path _ =>
+            some (Ty.enum path maxValue)
+        | _, _ => Expr.abiTyWithEnv? env receiver
       some (Ty.matchesShape receiverTy targetTy)
   | none => some true
 
@@ -9630,8 +9634,12 @@ def UsingDecl.targetMatchesWithInternalFunctions?
   match decl.target with
   | some targetTy => do
       let receiverTy ←
-        Expr.abiTyWithInternalFunctionsEnv?
-          functions freeFunctions env receiver
+        match receiver, targetTy with
+        | Expr.enumFromUInt maxValue _, Ty.enum path _ =>
+            some (Ty.enum path maxValue)
+        | _, _ =>
+            Expr.abiTyWithInternalFunctionsEnv?
+              functions freeFunctions env receiver
       some (Ty.matchesShape receiverTy targetTy)
   | none => some true
 

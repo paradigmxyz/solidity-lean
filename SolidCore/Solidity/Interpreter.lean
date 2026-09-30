@@ -3523,14 +3523,35 @@ def State.clearStorageByteAt (state : State) (slot key : Word) :
 
 def State.pushStorageByteAt (state : State) (slot : Word) (byte : Word) :
     Except RevertData State := do
-  let bytes ← State.loadStorageBytesAt state slot
-  let newLength := bytes.length + 1
+  let headerWord := state.loadSlot slot
+  let header ← storageBytesHeader? headerWord
+  let newLength := header.length + 1
   if wordModulus <= newLength then
     Except.error RevertData.overflow
-  else
+  else if !header.long && header.length < wordBytes - 1 then
+    -- solc writes only the new byte lane and the length marker. In particular,
+    -- unused dirty lanes in a short bytes/string slot survive a push.
+    let byteOffset := (wordBytes - 1 - header.length) * 8
+    let withByte := wordReplaceBitRange byteOffset 8 headerWord byte
+    let withLength := wordReplaceBitRange 0 8 withByte (newLength * 2)
+    Except.ok (state.storeSlot slot withLength)
+  else if header.long then
+    -- The long representation likewise touches one byte in the current tail
+    -- chunk and the header, preserving every other lane in that chunk.
+    let chunk := header.length / wordBytes
+    let index := header.length % wordBytes
+    let dataSlot := storageBytesLongDataSlot slot chunk
+    let current := state.loadSlot dataSlot
+    let withByte :=
+      wordReplaceBitRange ((wordBytes - 1 - index) * 8) 8 current byte
     Except.ok
-      (State.storeStorageBytesAt state slot
-        (bytes ++ [normByte byte]))
+      ((state.storeSlot dataSlot withByte).storeSlot slot
+        (storageBytesLongHeader newLength))
+  else
+    -- Short length 31 crosses to the long representation; rebuilding is
+    -- required because all 32 payload bytes move to the hashed data area.
+    let bytes ← State.loadStorageBytesAt state slot
+    Except.ok (State.storeStorageBytesAt state slot (bytes ++ [normByte byte]))
 
 def State.popStorageByteAt (state : State) (slot : Word) :
     Except RevertData State := do
@@ -4481,12 +4502,11 @@ def Runtime.deleteStorageIndex (context : Context)
       let state ←
         State.clearStorageLayoutAtDeep runtime.state slot valueLayout
       Except.ok { runtime with state }
-  | some StorageLayout.bytes => do
+  | some StorageLayout.bytes
+  | some StorageLayout.string => do
       let key ← index.expectWord
       let state ← State.clearStorageByteAt runtime.state field.slot key
       Except.ok { runtime with state }
-  | some StorageLayout.string =>
-      Except.error RevertData.typeMismatch
   | some (StorageLayout.dynamicArray elementLayout) => do
       let key ← index.expectWord
       let length := runtime.state.loadSlot field.slot
@@ -4824,7 +4844,8 @@ def Runtime.loadStorageIndex (context : Context)
   | some (StorageLayout.mapping keyTy valueLayout) => do
       let slot ← mappingStorageSlotForKey field.slot keyTy index
       runtime.state.loadStorageLayoutAt slot valueLayout
-  | some StorageLayout.bytes => do
+  | some StorageLayout.bytes
+  | some StorageLayout.string => do
       let key ← index.expectWord
       let byte ← State.loadStorageByteAt runtime.state field.slot key
       -- Solidity indexes a dynamic `bytes` value as `bytes1`.  Keeping the
@@ -4832,8 +4853,6 @@ def Runtime.loadStorageIndex (context : Context)
       -- `data[i] == bytes1(x)`; an untagged word mismatches the fixed-bytes
       -- operand in the core evaluator and spuriously reverts with Panic(0).
       Except.ok (Value.fixedBytes 1 byte)
-  | some StorageLayout.string =>
-      Except.error RevertData.typeMismatch
   | some (StorageLayout.dynamicArray elementLayout) => do
       let key ← index.expectWord
       let length := runtime.state.loadSlot field.slot
@@ -4991,7 +5010,8 @@ def Runtime.storageArrayPush (context : Context)
         Except.ok
           { runtime with
             state := state.storeSlot field.slot (normWord rawLength) }
-    | some StorageLayout.bytes => do
+    | some StorageLayout.bytes
+    | some StorageLayout.string => do
         let word ←
           match value? with
           | some value => coerceStorageWordAs (Ty.fixedBytes 1) value
@@ -5000,8 +5020,6 @@ def Runtime.storageArrayPush (context : Context)
           State.pushStorageByteAt runtime.state field.slot word
         Except.ok
           { runtime with state }
-    | some StorageLayout.string =>
-        Except.error RevertData.typeMismatch
     | none => do
         let length := runtime.state.loadSlot field.slot
         let rawLength := SolidCore.Solidity.Shared.norm length + 1
@@ -5034,8 +5052,8 @@ def Runtime.storageArrayPop (context : Context)
     | none => Except.error RevertData.typeMismatch
   match field.layout? with
   | some (StorageLayout.dynamicArray _) => Except.ok ()
-  | some StorageLayout.bytes => Except.ok ()
-  | some StorageLayout.string => Except.error RevertData.typeMismatch
+  | some StorageLayout.bytes
+  | some StorageLayout.string => Except.ok ()
   | none => Except.ok ()
   | _ => Except.error RevertData.typeMismatch
   match field.layout? with
@@ -5056,7 +5074,8 @@ def Runtime.storageArrayPop (context : Context)
             elementSlot elementSlotLayout
         Except.ok
           { runtime with state := state.storeSlot field.slot newLength }
-    | some StorageLayout.bytes => do
+    | some StorageLayout.bytes
+    | some StorageLayout.string => do
         let state ← State.popStorageByteAt runtime.state field.slot
         Except.ok { runtime with state }
     | none => do
@@ -5107,15 +5126,14 @@ def Runtime.storageArrayPushAt
             Except.ok
               { runtime with
                 state := state.storeSlot slot (normWord rawLength) }
-        | StorageLayout.bytes => do
+        | StorageLayout.bytes
+        | StorageLayout.string => do
             let word ←
               match value? with
               | some value => coerceStorageWordAs (Ty.fixedBytes 1) value
               | none => Except.ok 0
             let state ← State.pushStorageByteAt runtime.state slot word
             Except.ok { runtime with state }
-        | StorageLayout.string =>
-            Except.error RevertData.typeMismatch
         | _ => Except.error RevertData.typeMismatch
 
 /-- WS2: base-rooted push. A whole-variable base with no extra indexes keeps
@@ -5165,11 +5183,10 @@ def Runtime.storageArrayPopAt
                 elementSlot elementSlotLayout
             Except.ok
               { runtime with state := state.storeSlot slot newLength }
-        | StorageLayout.bytes => do
+        | StorageLayout.bytes
+        | StorageLayout.string => do
             let state ← State.popStorageByteAt runtime.state slot
             Except.ok { runtime with state }
-        | StorageLayout.string =>
-            Except.error RevertData.typeMismatch
         | _ => Except.error RevertData.typeMismatch
 
 /-- WS2: base-rooted pop (see `storageArrayPushBasePath`). -/

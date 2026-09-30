@@ -1567,12 +1567,18 @@ def StateVarDecl.toCoreInitWithInternalCalls?
     (internalFuel : Nat) (env : TypeEnv)
     (externalCallKindEnv : ExternalCallKindEnv)
     (storageNames : List Name) (constants : ConstantEnv)
+    (internalFnIds : List (Name × Nat))
     (modifiers : List SourceModifierDecl)
     (functions freeFunctions : List FunctionDecl)
     (decl : StateVarDecl) : Option CoreStmt :=
   let envAware : Option CoreStmt := do
     let expr0 ← decl.init
     let expr := Expr.inlineConstants constants expr0
+    let expr :=
+      if internalFnIds.isEmpty then expr
+      else
+        Expr.rewriteInternalFnValueIdentsFuel internalFnIds []
+          defaultInlineConstantsFuel expr
     if Expr.abiArgNeedsEnvCleanup? expr then some () else none
     let sourceTy ← Expr.abiTyWithEnv? env expr
     let initCore ← Expr.toCoreAsWithEnv? storageNames env sourceTy expr
@@ -1590,6 +1596,13 @@ def StateVarDecl.toCoreInitWithInternalCalls?
   match envAware with
   | some coreStmt => some coreStmt
   | none =>
+  let decl :=
+    { decl with init := decl.init.map (fun expr =>
+        let expr := Expr.inlineConstants constants expr
+        if internalFnIds.isEmpty then expr
+        else
+          Expr.rewriteInternalFnValueIdentsFuel internalFnIds []
+            defaultInlineConstantsFuel expr) }
   match StateVarDecl.toCoreInit? storageNames constants decl with
   | some coreStmt => some coreStmt
   | none =>
@@ -1866,7 +1879,7 @@ def ContractDecl.constructorBodyForDeployment?
     mapOption
       (StateVarDecl.toCoreInitWithInternalCalls?
         defaultInternalCallInlineFuel initEnv externalCallKindEnv storageNames
-        constants modifiers functions freeFunctions)
+        constants internalFnIds modifiers functions freeFunctions)
       (ContractDecl.directStateVars decl)
   let baseArgs := baseArgs.map (Expr.inlineConstants constants)
   -- Base-constructor arguments are evaluated in the SUPPLYING (immediate-derived)
@@ -1913,6 +1926,10 @@ def ContractDecl.constructorBodyForDeployment?
             (ModifierDecl.expandUsing
               allContracts usingFunctionScope usingDecls env)
       let body := Stmt.resolveNamedEventErrorArgs eventArgEnv errorArgEnv body
+      -- Constructors are lowered outside `contextualOrdinaryFunctions`, so
+      -- contextualize both direct `super.f(...)` calls and bare `super.f`
+      -- function values here before dispatch-ID rewriting.
+      let body := Stmt.rewriteSuperCalls decl.name body
       -- Rewrite function-pointer VALUE uses in the constructor body (and the
       -- modifier bodies inlined into it) to their dispatch-ID literals, exactly
       -- as ordinary function bodies get (boundary-completion arc, ctor/modifier
@@ -2060,21 +2077,26 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
     dispatchOrder.map
       (ContractDecl.resolveStructsInHierarchy structEnv structHierarchy)
   let postStructUsingContracts := allContracts
+  let postStructUsingSourceDecls :=
+    usingSourceDecls.map (UsingDecl.resolveStructs structEnv)
   let postStructUsingFreeFunctions :=
     sourceFunctions ++
       concatMapList ContractDecl.directOrdinaryFunctions postStructUsingContracts
   let allContracts :=
     allContracts.map
-      (ContractDecl.expandDirectUsingSurface
-        postStructUsingContracts postStructUsingFreeFunctions)
+      (ContractDecl.expandUsingSurface
+        postStructUsingContracts postStructUsingFreeFunctions
+        postStructUsingSourceDecls)
   let storageOrder :=
     storageOrder.map
-      (ContractDecl.expandDirectUsingSurface
-        postStructUsingContracts postStructUsingFreeFunctions)
+      (ContractDecl.expandUsingSurface
+        postStructUsingContracts postStructUsingFreeFunctions
+        postStructUsingSourceDecls)
   let dispatchOrder :=
     dispatchOrder.map
-      (ContractDecl.expandDirectUsingSurface
-        postStructUsingContracts postStructUsingFreeFunctions)
+      (ContractDecl.expandUsingSurface
+        postStructUsingContracts postStructUsingFreeFunctions
+        postStructUsingSourceDecls)
   let allContracts := allContracts.map (ContractDecl.resolveUserTypes userEnv)
   let sourceUsingDecls := sourceUsingDecls.map (UsingDecl.resolveUserTypes userEnv)
   let sourceFunctions := sourceFunctions.map (FunctionDecl.resolveUserTypes userEnv)
@@ -2361,10 +2383,15 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
   -- table stamp (boundary-completion arc, ctor/modifier residue). The
   -- constructor elaboration path numbers with identical arguments.
   let constructorDecls : List FunctionDecl :=
-    concatMapList ContractDecl.directConstructors dispatchOrder
+    concatMapList
+      (fun contract =>
+        (ContractDecl.directConstructors contract).map fun ctor =>
+          { ctor with
+            body := ctor.body.map (Stmt.rewriteSuperCalls contract.name) })
+      dispatchOrder
   let internalFnIds :=
     FunctionDecls.internalFnValueNumberingFull fnIdCandidates ordinaryFunctions
-      modifiers constructorDecls
+      modifiers constructorDecls (stateVars.filterMap fun decl => decl.init)
   let contractEvents := concatMapList ContractDecl.directEvents dispatchOrder
   let visibleSourceEvents := EventDecls.withoutNamesOf contractEvents sourceEvents
   let contractErrors := concatMapList ContractDecl.directErrors dispatchOrder
@@ -2457,10 +2484,21 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
   let helperCandidates :=
     (superHelpers ++ baseHelpers).filter
       (fun fn => FunctionDecl.isBoundaryCallee fn && fn.body.isSome)
-  let seedKeys :=
+  let bodySeedKeys :=
     concatMapList
       (fun (fd : CoreFunctionDef) => CoreStmt.collectInternalCallKeys fd.body)
       eagerEntries
+  -- A helper used only as a function VALUE in a constructor has no
+  -- `internalCall` node to seed demand-driven elaboration. Its dispatch ID
+  -- nevertheless needs a table target after deployment. Seed such numbered
+  -- helpers explicitly; ordinary/free functions are already eager, so this
+  -- only adds the relevant super/base candidate entries.
+  let valueSeedKeys :=
+    internalFnIds.filterMap fun pair => do
+      let fnDecl ←
+        availableFunctions.find? (fun fn => fn.name == some pair.fst)
+      FunctionDecl.internalTableKey? fnDecl
+  let seedKeys := bodySeedKeys ++ valueSeedKeys
   let demandedEntries ←
     FunctionDecls.demandedHelperEntries elabHelper
       (helperCandidates.length + 1) helperCandidates seedKeys []
@@ -2679,21 +2717,26 @@ def ContractDecl.constructorFunctionFromOrders?
     dispatchOrder.map
       (ContractDecl.resolveStructsInHierarchy structEnv structHierarchy)
   let postStructUsingContracts := allContracts
+  let postStructUsingSourceDecls :=
+    usingSourceDecls.map (UsingDecl.resolveStructs structEnv)
   let postStructUsingFreeFunctions :=
     sourceFunctions ++
       concatMapList ContractDecl.directOrdinaryFunctions postStructUsingContracts
   let allContracts :=
     allContracts.map
-      (ContractDecl.expandDirectUsingSurface
-        postStructUsingContracts postStructUsingFreeFunctions)
+      (ContractDecl.expandUsingSurface
+        postStructUsingContracts postStructUsingFreeFunctions
+        postStructUsingSourceDecls)
   let storageOrder :=
     storageOrder.map
-      (ContractDecl.expandDirectUsingSurface
-        postStructUsingContracts postStructUsingFreeFunctions)
+      (ContractDecl.expandUsingSurface
+        postStructUsingContracts postStructUsingFreeFunctions
+        postStructUsingSourceDecls)
   let dispatchOrder :=
     dispatchOrder.map
-      (ContractDecl.expandDirectUsingSurface
-        postStructUsingContracts postStructUsingFreeFunctions)
+      (ContractDecl.expandUsingSurface
+        postStructUsingContracts postStructUsingFreeFunctions
+        postStructUsingSourceDecls)
   let allContracts := allContracts.map (ContractDecl.resolveUserTypes userEnv)
   let constructorUsingDecls :=
     constructorUsingDecls.map (UsingDecl.resolveUserTypes userEnv)
@@ -2960,10 +3003,15 @@ def ContractDecl.constructorFunctionFromOrders?
     ((availableFunctions ++ sourceFunctions).filterMap FunctionDecl.name).filter
       (fun n => !storageNames.contains n)
   let constructorDecls : List FunctionDecl :=
-    concatMapList ContractDecl.directConstructors dispatchOrder
+    concatMapList
+      (fun contract =>
+        (ContractDecl.directConstructors contract).map fun ctor =>
+          { ctor with
+            body := ctor.body.map (Stmt.rewriteSuperCalls contract.name) })
+      dispatchOrder
   let internalFnIds :=
     FunctionDecls.internalFnValueNumberingFull fnIdCandidates ordinaryFunctions
-      modifiers constructorDecls
+      modifiers constructorDecls (stateVars.filterMap fun decl => decl.init)
   let contractEvents := concatMapList ContractDecl.directEvents dispatchOrder
   let visibleSourceEvents := EventDecls.withoutNamesOf contractEvents sourceEvents
   let contractErrors := concatMapList ContractDecl.directErrors dispatchOrder

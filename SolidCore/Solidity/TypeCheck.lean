@@ -6259,6 +6259,23 @@ def checkExpr (env : CheckEnv) :
       checkTy env.types ty
       Except.ok { source := expr, ty := ty, lvalue := false }
   | expr@(Solidity.Expr.member
+      (Solidity.Expr.ident "super") member) => do
+      -- A bare `super.f` is an internal-function value selecting the same next
+      -- concrete base implementation as `super.f()`. Validate it against the
+      -- already-linearized super-function table; lowering rewrites the value to
+      -- the generated `__super_<contract>_<member>` helper.
+      let sig ←
+        FunctionSigs.resolveInternalFunctionValueByName
+          env.superFunctions member
+      match FunctionSig.internalFunctionValueTy? sig with
+      | some ty =>
+          Except.ok
+            { source := expr
+              ty := ty
+              lvalue := false
+              stateLValue := false }
+      | none => Except.error (TypeError.unknownFunction member)
+  | expr@(Solidity.Expr.member
       (Solidity.Expr.ident name) "selector") => do
       -- A lexical variable shadows a same-named function, error, or event.
       -- Selector rewriting leaves that member access intact, so recognize the
@@ -7347,40 +7364,60 @@ def checkExpr (env : CheckEnv) :
       let targetPath : Path :=
         { segments := parentPath.segments ++ [typeName] }
       let targetTy := Solidity.Ty.user targetPath
-      checkTy env.types targetTy
-      match env.types.lookupUserValueType? targetPath with
-      | some underlying =>
+      -- `E.Case.attached()` has the same surface shape as a qualified nested
+      -- UDVT static call (`C.T.wrap(...)`). Detect the enum surface first; for
+      -- every non-enum path retain the exact pre-existing `checkTy`/UDVT flow,
+      -- including its diagnostics used by contextual custom-error resolution.
+      match env.types.lookupEnum? parentPath with
+      | some enumDecl => do
+          require (enumDecl.cases.contains typeName)
+            (TypeError.invalidEnum typeName)
+          let targetExpr :=
+            Solidity.Expr.member
+              (Solidity.Expr.typeName (Solidity.Ty.user parentPath))
+              typeName
+          let targetChecked ← checkExpr env targetExpr
           let checkedArgs ← checkArgs env args
-          let argInfos := checkedArgInfos args checkedArgs
-          requireNoNamedArgs ("user-value-type " ++ member) argInfos
-          if member == "wrap" then
-            match checkedArgs with
-            | [arg] => do
-                arg.expectAssignableToIn env.types underlying
-                Except.ok
-                  { source := expr
-                    ty := targetTy
-                    lvalue := false }
-            | _ =>
-                Except.error
-                  (TypeError.arityMismatch
-                    "user value type wrap" 1 checkedArgs.length)
-          else if member == "unwrap" then
-            match checkedArgs with
-            | [arg] => do
-                arg.expectAssignableToIn env.types targetTy
-                Except.ok
-                  { source := expr
-                    ty := underlying
-                    lvalue := false }
-            | _ =>
-                Except.error
-                  (TypeError.arityMismatch
-                    "user value type unwrap" 1 checkedArgs.length)
-          else
-            Except.error (TypeError.unsupported ("member call " ++ member))
-      | none =>
-          Except.error (TypeError.unsupported ("member call " ++ member))
+          let sig ←
+            env.resolveUsingMemberFunctionChecked targetChecked member
+              (checkedArgInfosFull args checkedArgs)
+          requireCallMutabilityAllowed env sig.mutability
+          Except.ok (sig.checkedResult expr)
+      | none => do
+          checkTy env.types targetTy
+          match env.types.lookupUserValueType? targetPath with
+          | some underlying =>
+              let checkedArgs ← checkArgs env args
+              let argInfos := checkedArgInfos args checkedArgs
+              requireNoNamedArgs ("user-value-type " ++ member) argInfos
+              if member == "wrap" then
+                match checkedArgs with
+                | [arg] => do
+                    arg.expectAssignableToIn env.types underlying
+                    Except.ok
+                      { source := expr
+                        ty := targetTy
+                        lvalue := false }
+                | _ =>
+                    Except.error
+                      (TypeError.arityMismatch
+                        "user value type wrap" 1 checkedArgs.length)
+              else if member == "unwrap" then
+                match checkedArgs with
+                | [arg] => do
+                    arg.expectAssignableToIn env.types targetTy
+                    Except.ok
+                      { source := expr
+                        ty := underlying
+                        lvalue := false }
+                | _ =>
+                    Except.error
+                      (TypeError.arityMismatch
+                        "user value type unwrap" 1 checkedArgs.length)
+              else
+                Except.error (TypeError.unsupported ("member call " ++ member))
+          | none =>
+              Except.error (TypeError.unsupported ("member call " ++ member))
   | Solidity.Expr.call
       (Solidity.Expr.member target member) args => do
       let expr :=
