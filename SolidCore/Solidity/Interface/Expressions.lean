@@ -7931,7 +7931,30 @@ def Expr.anfHoist
               -- Ordinary binary operands: RIGHT then LEFT (solc legacy order).
               let (c1, rpre, r') := rec1 c r
               let (c2, lpre, l') := rec1 c1 l
-              (c2, rpre ++ lpre, Expr.binary op l' r')
+              if lpre.isEmpty then
+                (c2, rpre, Expr.binary op l' r')
+              else
+                -- The left prelude can mutate state observed by the earlier
+                -- evaluated right operand.  Keeping `r'` in the residual
+                -- expression would read it only after `lpre` (for example,
+                -- `values[wrap(index())] ^ trace`).  Materialize the complete
+                -- right value between its own prelude and the left prelude,
+                -- preserving Solidity's right-before-left schedule.
+                match Expr.abiTyWithInternalFunctionsEnv?
+                    functions freeFunctions env r with
+                | some rTy =>
+                    let t := anfHoistName c2
+                    let decl := Stmt.varDecl
+                      [{ name := some t, ty := some (Ty.anfTempTy rTy),
+                         location := Ty.anfHoistLocation? rTy }]
+                      (some r')
+                    (c2 + 1, rpre ++ [decl] ++ lpre,
+                      Expr.binary op l' (Expr.ident t))
+                | none =>
+                    -- If the source typer cannot name the right operand, keep
+                    -- the conservative prior shape; downstream lowering still
+                    -- fails closed rather than inventing a temp type.
+                    (c2, rpre ++ lpre, Expr.binary op l' r')
       | Expr.ternary cond a b =>
           let (c1, cpre, cond') := rec1 c cond
           let (c2, apre, a') := rec1 c1 a
