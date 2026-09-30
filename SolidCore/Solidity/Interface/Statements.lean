@@ -3744,6 +3744,24 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
               (fun e => Stmt.expr e)
           let builtinEnvAware? : Option CoreStmt :=
             match name, args with
+            | "require", [Arg.positional cond, Arg.positional reason] =>
+                if Expr.abiArgNeedsEnvCleanup? cond ||
+                    Expr.abiArgNeedsEnvCleanup? reason then do
+                  -- Both arguments are evaluated eagerly, left-to-right. Keep
+                  -- narrow arithmetic under a dynamic reason expression (for
+                  -- example `string(abi.encode(a + b))`) at its source width
+                  -- before `require` consumes it.
+                  let condCore ←
+                    Expr.toCoreAsWithEnv?
+                      storageNames env Ty.bool cond
+                  let reasonTy ← Expr.abiTyWithEnv? env reason
+                  let reasonCore ←
+                    Expr.toCoreAsWithEnv?
+                      storageNames env reasonTy reason
+                  some
+                    (SolidCore.Solidity.Source.Stmt.requireErrorExpr
+                      condCore reasonCore)
+                else none
             | "selfdestruct", [Arg.positional recipient] =>
                 if Expr.abiArgNeedsEnvCleanup? recipient then do
                   let recipientTy ← Expr.abiTyWithEnv? env recipient
