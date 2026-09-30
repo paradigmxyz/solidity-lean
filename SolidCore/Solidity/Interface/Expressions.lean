@@ -662,14 +662,7 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
               match
                   (match op with
                    | BinaryOp.shl | BinaryOp.shr =>
-                       let lhsNeeds :=
-                         match Expr.peelToOverflowArithmetic? lhs with
-                         | some _ =>
-                             match Expr.abiTyWithEnv? env lhs with
-                             | some lhsTy =>
-                                 (Ty.narrowIntCastTarget? lhsTy).isSome
-                             | none => false
-                         | none => false
+                       let lhsNeeds := Expr.abiArgNeedsEnvCleanup? lhs
                        let rhsNeeds := Expr.abiArgNeedsEnvCleanup? rhs
                        if lhsNeeds || rhsNeeds then do
                          let coreOp ← BinaryOp.toCore? op
@@ -4890,7 +4883,8 @@ def FunctionDecls.internalFnValueNumbering
 def FunctionDecls.internalFnValueNumberingFull
     (candidates : List Name) (fns : List FunctionDecl)
     (modifiers : List SourceModifierDecl)
-    (constructors : List FunctionDecl) : List (Name × Nat) :=
+    (constructors : List FunctionDecl)
+    (stateInitializers : List Expr := []) : List (Name × Nat) :=
   let collectBody (bound : List Name) : Stmt -> List Name :=
     Stmt.collectInternalFnValueIdentsFuel candidates bound
       defaultInlineConstantsFuel
@@ -4917,8 +4911,14 @@ def FunctionDecls.internalFnValueNumberingFull
             collectBody (FunctionDecl.fnValueScopeBoundNames ctor) body
         | none => [])
       constructors
+  let initializerUses :=
+    concatMapList
+      (Expr.collectInternalFnValueIdentsFuel candidates []
+        defaultInlineConstantsFuel)
+      stateInitializers
   let ordered :=
-    Names.dedupPreservingOrder (fnUses ++ modifierUses ++ constructorUses)
+    Names.dedupPreservingOrder
+      (fnUses ++ modifierUses ++ constructorUses ++ initializerUses)
   (ordered.zipIdx.map (fun p => (p.fst, p.snd + 1)))
 
 def Parameter.runtimeName (fallbackPrefix : String) (index : Nat) : Name :=

@@ -413,6 +413,8 @@ def Expr.rewriteSuperCallsFuel (contractName : Name) : Nat -> Expr -> Expr
       | Expr.literal literal => Expr.literal literal
       | Expr.ident name => Expr.ident name
       | Expr.typeName ty => Expr.typeName ty
+      | Expr.member (Expr.ident "super") member =>
+          Expr.ident (superHelperName contractName member)
       | Expr.member base member => Expr.member (rewrite base) member
       | Expr.index base index => Expr.index (rewrite base) (rewrite index)
       | Expr.slice base start stop =>
@@ -7300,6 +7302,12 @@ def Expr.storagePathCore? (storageNames : List Name) :
       match stateNameRuntimeKey? name storageNames with
       | some key => some (key, [])
       | none => none
+  | Expr.call (Expr.typeName Ty.bytes) [Arg.positional inner]
+  | Expr.call (Expr.typeName Ty.string) [Arg.positional inner] =>
+      -- A storage string/bytes conversion is a layout-preserving reference
+      -- reinterpretation. Mutation paths such as `bytes(s).push(v)` must keep
+      -- pointing at `s`, just like indexed writes already do in `toCoreLValue?`.
+      Expr.storagePathCore? storageNames inner
   | Expr.index base index => do
       let (name, indexes) ← Expr.storagePathCore? storageNames base
       let indexCore ← Expr.toCore? storageNames index
@@ -7459,6 +7467,13 @@ end
 
 def Expr.abiTyWithEnv? (env : TypeEnv) : Expr -> Option Ty
   | Expr.ident name => TypeEnv.lookup? env name
+  | Expr.call
+      (Expr.member (Expr.typeName ty@(Ty.user _)) "wrap") [_] =>
+      some ty
+  | Expr.call
+      (Expr.member
+        (Expr.member (Expr.typeName (Ty.user parentPath)) typeName) "wrap") [_] =>
+      some (Ty.user { segments := parentPath.segments ++ [typeName] })
   | Expr.tuple [] => some (Ty.tuple [])
   | Expr.tuple (TupleItem.hole :: _) => none
   | Expr.tuple (TupleItem.value head :: rest) => do
