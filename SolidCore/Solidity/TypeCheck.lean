@@ -606,6 +606,23 @@ def TypeContext.requireNoFixedPointValue
   require (!types.tyContainsFixedPoint ty)
     (TypeError.unsupported (what ++ " fixed point value"))
 
+def TypeContext.tyIsFixedPointScalarFuel
+    (types : TypeContext) : Nat -> Ty -> Bool
+  | 0, _ => false
+  | _ + 1, Solidity.Ty.fixed _ _ => true
+  | _ + 1, Solidity.Ty.ufixed _ _ => true
+  | fuel + 1, Solidity.Ty.user path =>
+      match types.lookupUserValueType? path with
+      | some underlying => types.tyIsFixedPointScalarFuel fuel underlying
+      | none => false
+  | _ + 1, _ => false
+
+def TypeContext.requireNoDirectFixedPointValue
+    (types : TypeContext) (ty : Ty) (what : String) :
+    Except TypeError Unit :=
+  require (!types.tyIsFixedPointScalarFuel 64 ty)
+    (TypeError.unsupported (what ++ " fixed point value"))
+
 def TypeContext.requireNoFixedPointAssignment
     (types : TypeContext) (actual expected : Ty) :
     Except TypeError Unit := do
@@ -3862,10 +3879,12 @@ def Expr.isDirectLiteral : Solidity.Expr -> Bool
 
 def CheckedExpr.commonArrayElementTy? (types : TypeContext)
     (left right : CheckedExpr) : Option Ty :=
-  if Expr.isDirectLiteral right.source &&
+  if (Expr.isDirectLiteral right.source ||
+        exprIsUntypedNumberLiteralExpression right.source) &&
       implicitLiteralFits left.ty right.source then
     some left.ty
-  else if Expr.isDirectLiteral left.source &&
+  else if (Expr.isDirectLiteral left.source ||
+        exprIsUntypedNumberLiteralExpression left.source) &&
       implicitLiteralFits right.ty left.source then
     some right.ty
   else
@@ -3910,7 +3929,8 @@ def CheckedExprs.commonArrayElementTyFrom? (types : TypeContext)
       -- alone rejects); otherwise fold `current` with the element's own mobile
       -- type (untyped literal) or checked type.
       let next ←
-        if Expr.isDirectLiteral checked.source
+        if (Expr.isDirectLiteral checked.source ||
+              exprIsUntypedNumberLiteralExpression checked.source)
             && implicitLiteralFits current checked.source then
           some current
         else
@@ -4913,7 +4933,7 @@ def checkCallTargetExpr (env : CheckEnv)
             requireStateReadAllowed env
           else
             Except.ok ()
-          env.types.requireNoFixedPointValue ty "read"
+          env.types.requireNoDirectFixedPointValue ty "read"
           Except.ok
             { source := expr
               ty := ty
@@ -6196,7 +6216,26 @@ def checkShadowedMagicGlobalMember (env : CheckEnv) (expr : Solidity.Expr)
                   dataLocation? := baseChecked.dataLocation? }
           | none => Except.error (TypeError.unsupported ("member " ++ member))
       | none => Except.error (TypeError.unsupported ("member " ++ member))
-  | _ => Except.error (TypeError.unsupported ("member " ++ member))
+  | _ =>
+      -- A shadowing local need not be a struct.  Once the magic-global name
+      -- is shadowed, ordinary receiver members such as `bytes.length` are
+      -- resolved from the receiver's type table just like any other local.
+      match Ty.builtinValueMemberInfo? baseChecked.ty member with
+      | some info => do
+          if info.needsStateRead then
+            requireStateReadAllowed env
+          else
+            Except.ok ()
+          if info.needsConstantinople then
+            requireConstantinopleOrLater env "address.codehash"
+          else
+            Except.ok ()
+          Except.ok
+            { source := expr
+              ty := info.ty
+              lvalue := false
+              stateLValue := false }
+      | none => Except.error (TypeError.unsupported ("member " ++ member))
 
 mutual
 
@@ -6235,7 +6274,7 @@ def checkExpr (env : CheckEnv) :
             requireStateReadAllowed env
           else
             Except.ok ()
-          env.types.requireNoFixedPointValue ty "read"
+          env.types.requireNoDirectFixedPointValue ty "read"
           Except.ok
             { source := expr
               ty := ty
@@ -8370,7 +8409,37 @@ def checkExpr (env : CheckEnv) :
           ty := Solidity.Ty.uint 8
           lvalue := false }
   | expr@(Solidity.Expr.unary op inner) => do
-      let checked ← checkExpr env inner
+      let checked ←
+        match op, inner with
+        | Solidity.UnaryOp.delete, Solidity.Expr.ident name =>
+            match env.lookupVar? name with
+            | some ty =>
+                -- `delete x` writes the zero value and never reads the fixed
+                -- point payload.  Build the direct identifier lvalue without
+                -- applying the ordinary value-read fixed-point guard; all
+                -- writability, data-location, and mutability checks still run
+                -- in the delete arm below.
+                let isState := env.isStateName name && !env.isLocalName name
+                let isStorageRef := env.isLocalStorageRef name
+                let isConstant := env.isConstantName name
+                let isImmutable := env.isImmutableName name
+                let dataLocation? :=
+                  if Ty.needsDataLocation env.types ty then
+                    if isState || isStorageRef then
+                      some Solidity.DataLocation.storage
+                    else
+                      env.lookupLocalDataLocation? name
+                  else
+                    none
+                Except.ok
+                  { source := inner
+                    ty := ty
+                    lvalue := !isConstant &&
+                      (!isImmutable || env.inConstructor)
+                    stateLValue := isState || isStorageRef
+                    dataLocation? := dataLocation? }
+            | none => checkExpr env inner
+        | _, _ => checkExpr env inner
       let usingOperator? ←
         CheckEnv.resolveUsingUnaryOperator? env op checked
       match usingOperator? with

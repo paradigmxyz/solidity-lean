@@ -4730,8 +4730,17 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                   storageNames externalCallKindEnv expr with
               | some coreExpr =>
                   some (SolidCore.Solidity.Source.Stmt.assign lhsCore coreExpr)
-              | none => Stmt.toCore? storageNames
-                  (Stmt.expr (Expr.assign lhs AssignOp.assign expr))
+              | none =>
+                  -- A memory-array allocation is not contract creation.  Its
+                  -- length still evaluates at the source operand width before
+                  -- allocation, so route a flagged length through the ordinary
+                  -- env-aware assignment path.
+                  match (if Expr.abiBuiltinArgsNeedEnvCleanup expr then
+                      assignmentCoreWithEnv? storageNames env lhs expr
+                    else none) with
+                  | some coreStmt => some coreStmt
+                  | none => Stmt.toCore? storageNames
+                      (Stmt.expr (Expr.assign lhs AssignOp.assign expr))
           | none => Stmt.toCore? storageNames
               (Stmt.expr (Expr.assign lhs AssignOp.assign expr))
       | Stmt.expr (Expr.assign lhs AssignOp.assign
@@ -5552,6 +5561,32 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
               | none =>
                   Stmt.toCore? storageNames
                     (Stmt.emitEvent (Expr.call (Expr.ident eventName) args))
+      | Stmt.emitEvent
+          (Expr.call (Expr.member qualifier eventName) args) =>
+          -- Qualified emits have the same argument evaluation obligations as
+          -- bare emits.  The qualifier selects the declaration but does not
+          -- change the emitted event name; retain it only in the fallback.
+          match FunctionDecl.eventErrorCallArgsCore?
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions "_sol_event" true
+              (fun coreArgs =>
+                SolidCore.Solidity.Source.Stmt.emitEvent eventName coreArgs)
+              (Stmt.emitEvent
+                (Expr.call (Expr.member qualifier eventName) args))
+              args with
+          | some result => result
+          | none =>
+              match (if Args.anyAbiArgNeedsEnvCleanup args then
+                  (Args.toCoreExprsWithEnvCleanup? storageNames env args).map
+                    (fun coreArgs =>
+                      SolidCore.Solidity.Source.Stmt.emitEvent
+                        eventName coreArgs)
+                else none) with
+              | some coreStmt => some coreStmt
+              | none =>
+                  Stmt.toCore? storageNames
+                    (Stmt.emitEvent
+                      (Expr.call (Expr.member qualifier eventName) args))
       | Stmt.revertCall (Expr.call (Expr.ident errorName) args) =>
           -- §3c COLLAPSE + #201 (E): every call-bearing custom-error revert
           -- routes through the SAME shared lowering as emit, so the pure
@@ -5599,6 +5634,32 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
               | none =>
                   Stmt.toCore? storageNames
                     (Stmt.revertCall (Expr.call (Expr.ident errorName) args))
+      | Stmt.revertCall
+          (Expr.call (Expr.member qualifier errorName) args) =>
+          -- Qualified custom errors likewise use the bare error name in the
+          -- revert selector while evaluating each argument through the same
+          -- env-aware path as an unqualified custom error.
+          match FunctionDecl.eventErrorCallArgsCore?
+              internalFuel storageRefEnv env externalCallKindEnv storageNames
+              modifiers functions freeFunctions "_sol_error" true
+              (fun coreArgs =>
+                SolidCore.Solidity.Source.Stmt.revert errorName coreArgs)
+              (Stmt.revertCall
+                (Expr.call (Expr.member qualifier errorName) args))
+              args with
+          | some result => result
+          | none =>
+              match (if Args.anyAbiArgNeedsEnvCleanup args then
+                  (Args.toCoreExprsWithEnvCleanup? storageNames env args).map
+                    (fun coreArgs =>
+                      SolidCore.Solidity.Source.Stmt.revert
+                        errorName coreArgs)
+                else none) with
+              | some coreStmt => some coreStmt
+              | none =>
+                  Stmt.toCore? storageNames
+                    (Stmt.revertCall
+                      (Expr.call (Expr.member qualifier errorName) args))
       | Stmt.returnValues
           (some (Expr.ternary cond thenExpr elseExpr)) =>
           let fallback :=
@@ -6226,6 +6287,13 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
             | some (Stmt.varDecl bindings _) =>
                 VarBindings.extendTypeEnv env bindings
             | _ => env
+          -- A for-init local also shadows an equally named state variable for
+          -- the condition, post expression, and body.  These expressions are
+          -- lowered directly under `loopEnv`, so recompute the storage-name
+          -- set here instead of relying on the nested statement entry guard.
+          let loopStorageNames :=
+            stateNamesExcludingBound
+              (TypeEnv.shadowedStateNames loopEnv) storageNames
           -- A call-valued loop declaration must keep the declared variable in
           -- the scope shared by the condition, post expression, and body.
           -- The ordinary single-statement varDecl lowerer returns
@@ -6308,7 +6376,7 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                   (storageRefEnv := storageRefEnv)
                   (env := loopEnv)
                   (externalCallKindEnv := externalCallKindEnv)
-                  (storageNames := storageNames)
+                  (storageNames := loopStorageNames)
                   (modifiers := modifiers)
                   (functions := functions)
                   (freeFunctions := freeFunctions)
@@ -6321,7 +6389,7 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
               (storageRefEnv := storageRefEnv)
               (env := loopEnv)
               (externalCallKindEnv := externalCallKindEnv)
-              (storageNames := storageNames)
+              (storageNames := loopStorageNames)
               (modifiers := modifiers)
               (functions := functions)
               (freeFunctions := freeFunctions)
@@ -6333,7 +6401,8 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           -- scope for the condition).
           let purecond? : Option CoreExpr :=
             match cond with
-            | some expr => Expr.conditionCoreWithEnv? storageNames loopEnv expr
+            | some expr =>
+                Expr.conditionCoreWithEnv? loopStorageNames loopEnv expr
             | none => some (SolidCore.Solidity.Source.Expr.word 1)
           match purecond? with
           | some condCore =>
@@ -6365,7 +6434,7 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                     match
                         FunctionDecl.conditionUseCoreWithInternalCalls?
                           internalFuel storageRefEnv condEnv externalCallKindEnv
-                          storageNames modifiers functions freeFunctions condExpr
+                          loopStorageNames modifiers functions freeFunctions condExpr
                           (fun condCore =>
                             SolidCore.Solidity.Source.Stmt.ifElse
                               condCore SolidCore.Solidity.Source.Stmt.skip
