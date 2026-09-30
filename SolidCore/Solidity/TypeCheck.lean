@@ -7452,68 +7452,92 @@ def checkExpr (env : CheckEnv) :
                 (TypeError.arityMismatch "transfer" 1 checkedArgs.length)
       match target with
         | Solidity.Expr.ident "abi" =>
-            requireNoNamedArgs ("abi." ++ member) argInfos
-            if member == "encode" then
-              checkAbiEncodableArgs env.types checkedArgs
-              Except.ok
-                { source := expr
-                  ty := Solidity.Ty.bytes
-                  lvalue := false }
-            else if member == "encodePacked" then
-              checkAbiEncodePackedArgs env.types checkedArgs
-              Except.ok
-                { source := expr
-                  ty := Solidity.Ty.bytes
-                  lvalue := false }
-            else if member == "decode" then
-              match args, checkedArgs with
-              | [ Solidity.Arg.positional _,
-                  Solidity.Arg.positional typesExpr ],
-                [data, _] => do
-                  data.expectBytesLike
-                  let rawTys ← checkAbiDecodeTypesExpr env.types typesExpr
-                  require (rawTys.length > 0)
-                    (TypeError.invalidAbiCall
-                      "abi.decode expects at least one target type")
-                  -- solc forces each top-level decoded `address` to `address
-                  -- payable` (TypeChecker.cpp:150-152).
-                  let tys := rawTys.map coerceAbiDecodeAddressPayable
-                  Except.ok
-                    { source := expr
-                      ty := resultTyFromReturns tys
-                      lvalue := false }
-              | _, _ =>
-                  Except.error
-                    (TypeError.arityMismatch
-                      "abi.decode" 2 checkedArgs.length)
-            else if member == "encodeWithSelector" then
-              match checkedArgs with
-              | selector :: rest => do
-                  selector.expectAssignableTo (Solidity.Ty.bytesN 4)
-                  checkAbiEncodableArgs env.types rest
-                  Except.ok
-                    { source := expr
-                      ty := Solidity.Ty.bytes
-                      lvalue := false }
-              | [] =>
-                  Except.error
-                    (TypeError.arityMismatch
-                      "abi.encodeWithSelector" 1 0)
-            else if member == "encodeWithSignature" then
-              match checkedArgs with
-              | signature :: rest => do
-                  signature.expectStringLike
-                  checkAbiEncodableArgs env.types rest
-                  Except.ok
-                    { source := expr
-                      ty := Solidity.Ty.bytes
-                      lvalue := false }
-              | [] =>
-                  Except.error
-                    (TypeError.arityMismatch
-                      "abi.encodeWithSignature" 1 0)
-            else
-              Except.error (TypeError.unsupported ("member " ++ member))
+            -- A lexical declaration shadows the magic `abi` namespace.  Route
+            -- `abi.m(...)` through ordinary attached-function resolution in
+            -- that case; only an unbound identifier denotes the builtin.
+            if (env.lookupVar? "abi").isSome then do
+              let targetTy ←
+                match env.lookupVar? "abi" with
+                | some ty => Except.ok ty
+                | none => Except.error (TypeError.unknownIdentifier "abi")
+              let dataLocation? :=
+                if Ty.needsDataLocation env.types targetTy then
+                  env.lookupLocalDataLocation? "abi"
+                else
+                  none
+              let targetChecked : CheckedExpr :=
+                { source := target
+                  ty := targetTy
+                  lvalue := true
+                  dataLocation? := dataLocation? }
+              let sig ←
+                env.resolveUsingMemberFunctionChecked targetChecked member
+                  checkedInfos
+              requireCallMutabilityAllowed env sig.mutability
+              Except.ok (sig.checkedResult expr)
+            else do
+              requireNoNamedArgs ("abi." ++ member) argInfos
+              if member == "encode" then
+                checkAbiEncodableArgs env.types checkedArgs
+                Except.ok
+                  { source := expr
+                    ty := Solidity.Ty.bytes
+                    lvalue := false }
+              else if member == "encodePacked" then
+                checkAbiEncodePackedArgs env.types checkedArgs
+                Except.ok
+                  { source := expr
+                    ty := Solidity.Ty.bytes
+                    lvalue := false }
+              else if member == "decode" then
+                match args, checkedArgs with
+                | [ Solidity.Arg.positional _,
+                    Solidity.Arg.positional typesExpr ],
+                  [data, _] => do
+                    data.expectBytesLike
+                    let rawTys ← checkAbiDecodeTypesExpr env.types typesExpr
+                    require (rawTys.length > 0)
+                      (TypeError.invalidAbiCall
+                        "abi.decode expects at least one target type")
+                    -- solc forces each top-level decoded `address` to `address
+                    -- payable` (TypeChecker.cpp:150-152).
+                    let tys := rawTys.map coerceAbiDecodeAddressPayable
+                    Except.ok
+                      { source := expr
+                        ty := resultTyFromReturns tys
+                        lvalue := false }
+                | _, _ =>
+                    Except.error
+                      (TypeError.arityMismatch
+                        "abi.decode" 2 checkedArgs.length)
+              else if member == "encodeWithSelector" then
+                match checkedArgs with
+                | selector :: rest => do
+                    selector.expectAssignableTo (Solidity.Ty.bytesN 4)
+                    checkAbiEncodableArgs env.types rest
+                    Except.ok
+                      { source := expr
+                        ty := Solidity.Ty.bytes
+                        lvalue := false }
+                | [] =>
+                    Except.error
+                      (TypeError.arityMismatch
+                        "abi.encodeWithSelector" 1 0)
+              else if member == "encodeWithSignature" then
+                match checkedArgs with
+                | signature :: rest => do
+                    signature.expectStringLike
+                    checkAbiEncodableArgs env.types rest
+                    Except.ok
+                      { source := expr
+                        ty := Solidity.Ty.bytes
+                        lvalue := false }
+                | [] =>
+                    Except.error
+                      (TypeError.arityMismatch
+                        "abi.encodeWithSignature" 1 0)
+              else
+                Except.error (TypeError.unsupported ("member " ++ member))
         | Solidity.Expr.ident "bytes" =>
             require (member == "concat")
               (TypeError.unsupported ("member " ++ member))

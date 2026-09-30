@@ -1545,6 +1545,30 @@ def Expr.storagePathCoreWithEnv? (storageNames : List Name) (env : TypeEnv) :
       some (name, indexes ++ [indexCore])
   | _ => none
 
+/-- Resolve a path rooted at an existing storage-reference local while lowering
+    every index at its Solidity source type. -/
+def Expr.storageRefPathCoreWithEnv? (storageRefEnv : StorageRefEnv)
+    (storageNames : List Name) (env : TypeEnv) :
+    Expr -> Option (Name × List CoreExpr)
+  | Expr.ident name =>
+      if (stateNameRuntimeKey? name storageNames).isSome then
+        none
+      else if StorageRefEnv.isStorageRef storageRefEnv name then
+        some (name, [])
+      else
+        none
+  | Expr.index base index => do
+      let (name, indexes) ←
+        Expr.storageRefPathCoreWithEnv? storageRefEnv storageNames env base
+      let indexCore ←
+        if Expr.abiArgNeedsEnvCleanup? index then do
+          let indexTy ← Expr.abiTyWithEnv? env index
+          Expr.toCoreAsWithEnv? storageNames env indexTy index
+        else
+          Expr.toCore? storageNames index
+      some (name, indexes ++ [indexCore])
+  | _ => none
+
 /-- FB-COMPOUND (S, bare-literal-rhs-of-compound-bitwise-assign-on-bytesn):
     a compound BITWISE assignment (`|=` / `&=` / `^=`) whose LValue is a `bytesN`
     must lower its RHS AT THE LVALUE'S `bytesN` TYPE. The general
@@ -1650,6 +1674,55 @@ def Expr.abiArgCoreWithEnvCleanup? (storageNames : List Name) (env : TypeEnv)
     | none => Expr.abiArgCoreOrEnvArray? storageNames env expr
   else
     Expr.abiArgCoreOrEnvArray? storageNames env expr
+
+/-- Lower an indexable base recursively without coercing mapping-valued
+    intermediate reads to an ABI type. This is used when the outer index is an
+    internal call that is hoisted separately. -/
+def Expr.indexBaseCoreWithEnvCleanup? (storageNames : List Name) (env : TypeEnv) :
+    Expr -> Option CoreExpr
+  | Expr.index base key => do
+      let keyCore ← Expr.abiArgCoreWithEnvCleanup? storageNames env key
+      match base with
+      | Expr.ident name =>
+          match stateNameRuntimeKey? name storageNames with
+          | some storageKey =>
+              some (SolidCore.Solidity.Source.Expr.storageIndex storageKey keyCore)
+          | none => do
+              let baseCore ← Expr.toCore? storageNames base
+              some (SolidCore.Solidity.Source.Expr.index baseCore keyCore)
+      | _ => do
+          let baseCore ← Expr.indexBaseCoreWithEnvCleanup? storageNames env base
+          match Expr.abiTyWithEnv? env base with
+          | some ty =>
+              match Ty.fixedBytesSize? ty with
+              | some size =>
+                  some
+                    (SolidCore.Solidity.Source.Expr.fixedBytesIndex
+                      size baseCore keyCore)
+              | none =>
+                  some (SolidCore.Solidity.Source.Expr.index baseCore keyCore)
+          | none =>
+              some (SolidCore.Solidity.Source.Expr.index baseCore keyCore)
+  | other => Expr.toCore? storageNames other
+
+/-- Build an outer index read whose base may itself contain narrow checked
+    index expressions. -/
+def Expr.indexReadCoreBuilderWithEnvCleanup? (storageNames : List Name)
+    (env : TypeEnv) (base : Expr) : Option (CoreExpr -> CoreExpr) := do
+  if !Expr.abiArgNeedsEnvCleanup? base then
+    Expr.indexReadCoreBuilder? storageNames base
+  else
+    let baseCore ← Expr.indexBaseCoreWithEnvCleanup? storageNames env base
+    match Expr.abiTyWithEnv? env base with
+    | some ty =>
+        match Ty.fixedBytesSize? ty with
+        | some size =>
+            some (fun idx =>
+              SolidCore.Solidity.Source.Expr.fixedBytesIndex size baseCore idx)
+        | none =>
+            some (fun idx => SolidCore.Solidity.Source.Expr.index baseCore idx)
+    | none =>
+        some (fun idx => SolidCore.Solidity.Source.Expr.index baseCore idx)
 
 /-- #201 (D/E): does any positional argument need the env-aware cleanup? Gates
     the emit/revert reroutes so every unflagged statement keeps its existing
@@ -6354,7 +6427,7 @@ def Expr.storageRefArrayMemberStmtCore?
     Expr -> Option CoreStmt
   | Expr.call (Expr.member target "push") [] => do
       let (source, indexes) ←
-        Expr.storageRefPathCore? storageRefEnv storageNames target
+        Expr.storageRefPathCoreWithEnv? storageRefEnv storageNames env target
       match target with
       | Expr.ident name => do
           let ty ← TypeEnv.lookup? env name
@@ -6372,7 +6445,7 @@ def Expr.storageRefArrayMemberStmtCore?
               source indexes none)
   | Expr.call (Expr.member target "push") [Arg.positional value] => do
       let (source, indexes) ←
-        Expr.storageRefPathCore? storageRefEnv storageNames target
+        Expr.storageRefPathCoreWithEnv? storageRefEnv storageNames env target
       match target with
       | Expr.ident name => do
           let ty ← TypeEnv.lookup? env name
@@ -6408,7 +6481,7 @@ def Expr.storageRefArrayMemberStmtCore?
               source indexes (some valueCore))
   | Expr.call (Expr.member target "pop") [] => do
       let (source, indexes) ←
-        Expr.storageRefPathCore? storageRefEnv storageNames target
+        Expr.storageRefPathCoreWithEnv? storageRefEnv storageNames env target
       match target with
       | Expr.ident name => do
           let ty ← TypeEnv.lookup? env name
@@ -6431,7 +6504,7 @@ def Expr.storageRefArrayPushAssignStmtCore?
     (storageNames : List Name) (target : Expr) (rhs : Expr) :
     Option CoreStmt := do
   let (name, indexes) ←
-    Expr.storageRefPathCore? storageRefEnv storageNames target
+    Expr.storageRefPathCoreWithEnv? storageRefEnv storageNames env target
   match target with
   | Expr.ident ident => do
       let ty ← TypeEnv.lookup? env ident
@@ -6584,13 +6657,13 @@ def storageAliasDeclFromRefCore? (storageRefEnv : StorageRefEnv)
   | _, _ => none
 
 def storageAliasDeclFromRefPathCore? (storageRefEnv : StorageRefEnv)
-    (storageNames : List Name) (binding : VarBinding)
+    (env : TypeEnv) (storageNames : List Name) (binding : VarBinding)
     (source : Expr) : Option CoreStmt := do
   let name ← binding.name
   match binding.location with
   | some DataLocation.storage =>
       let (target, indexes) ←
-        Expr.storageRefPathCore? storageRefEnv storageNames source
+        Expr.storageRefPathCoreWithEnv? storageRefEnv storageNames env source
       match indexes with
       | [] =>
           some (SolidCore.Solidity.Source.Stmt.storageAliasFrom name target)
@@ -6607,12 +6680,12 @@ def storageAliasDeclFromRefPathCore? (storageRefEnv : StorageRefEnv)
     matching storage-alias DECL in the CURRENT scope (the `ifElse` evaluator runs
     the chosen bare branch directly — no scope push — so `p` persists). -/
 def storageAliasDeclFromTernaryCore? (storageRefEnv : StorageRefEnv)
-    (storageNames : List Name) (binding : VarBinding)
+    (env : TypeEnv) (storageNames : List Name) (binding : VarBinding)
     (cond thenExpr elseExpr : Expr) : Option CoreStmt := do
   let name ← binding.name
   match binding.location with
   | some DataLocation.storage =>
-      let condCore ← Expr.toCore? storageNames cond
+      let condCore ← Expr.conditionCoreWithEnv? storageNames env cond
       let thenStmt ←
         Expr.storageRefBranchAliasDeclCore? storageRefEnv storageNames
           name thenExpr
@@ -6662,7 +6735,7 @@ def storageAliasAssignmentExprCore? (storageRefEnv : StorageRefEnv)
       -- ternary. Without this arm the ternary RHS fell through to generic
       -- lowering, which left `p` aliasing its original decl target.
       if StorageRefEnv.isStorageRef storageRefEnv name then do
-        let condCore ← Expr.toCore? storageNames cond
+        let condCore ← Expr.conditionCoreWithEnv? storageNames env cond
         let thenStmt ←
           storageAliasAssignmentExprCore? storageRefEnv env storageNames name thenExpr
         let elseStmt ←
@@ -6672,7 +6745,7 @@ def storageAliasAssignmentExprCore? (storageRefEnv : StorageRefEnv)
         none
   | rhs =>
       if StorageRefEnv.isStorageRef storageRefEnv name then
-        match Expr.storageRefPathCore? storageRefEnv storageNames rhs with
+        match Expr.storageRefPathCoreWithEnv? storageRefEnv storageNames env rhs with
         | some (source, indexes) =>
             match indexes with
             | [] =>
