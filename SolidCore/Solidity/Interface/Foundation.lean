@@ -4702,7 +4702,12 @@ def Expr.addressOfNestedConversionCore? (storageNames : List Name)
           match Expr.toCoreNumericLiteralAs? innerTy innerExpr with
           | some coreExpr => some coreExpr
           | none =>
-              if Expr.isNumberLiteralExpression innerExpr then
+              -- Only a RAW rational literal must fit uint160 exactly.  A
+              -- typed inner conversion such as uint160(uint256(max)) is a
+              -- run-time truncation that solc accepts; isNumberLiteralExpression
+              -- deliberately looks through that conversion and used to reject
+              -- the accepted address(uint160(uint256(max))) composition.
+              if Expr.isRawNumberLiteralExpression innerExpr then
                 none
               else
                 match Expr.abiTy? storageNames innerExpr with
@@ -7253,12 +7258,23 @@ def storageArrayPushReturnAliasCore? (storageNames : List Name)
   | some DataLocation.storage =>
       storageReferenceBindingSupported? binding
       let (name, indexes) ← Expr.storagePathCore? storageNames target
-      let pushStmt ← storageArrayPushPathCore? storageNames target none
-      let lastIndex := storageLastPushedIndexExpr name indexes
-      some
-        ( pushStmt
-        , SolidCore.Solidity.Source.Stmt.storageAliasPath
-            localName name (indexes ++ [lastIndex]) )
+      match indexes with
+      | [] =>
+          let pushStmt ← storageArrayPushPathCore? storageNames target none
+          let lastIndex := storageLastPushedIndexExpr name indexes
+          some
+            ( pushStmt
+            , SolidCore.Solidity.Source.Stmt.storageAliasPath
+                localName name [lastIndex] )
+      | _ =>
+          -- Evaluate an indexed receiver once, push, and bind the returned
+          -- reference atomically.  Spelling this as a push followed by an
+          -- alias repeated every index expression (e.g. xs[i++].push()), so
+          -- the alias pointed into a different outer array.
+          some
+            ( SolidCore.Solidity.Source.Stmt.storageArrayPushPathAlias
+                localName name indexes
+            , SolidCore.Solidity.Source.Stmt.skip )
   | _ => none
 
 def storageArrayPushReturnAliasBlockCore? (storageNames : List Name)

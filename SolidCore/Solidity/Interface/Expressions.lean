@@ -370,6 +370,36 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
                    Expr.toCoreAsWithEnvDirect?
                      storageNames env targetTy expr)
           | Expr.call (Expr.typeName castTy) [Arg.positional argExpr] =>
+              -- A resolved struct constructor wraps every field in its
+              -- declared type.  For an internal-function field whose value is
+              -- a ternary, `rewriteInternalFnValueIdents` has changed the two
+              -- function names into dispatch-ID number literals.  Lower each
+              -- branch in the function-pointer target type so the literals
+              -- become `Value.internalFunction`; lowering the ternary whole
+              -- through the env-less cast instead produced ordinary words and
+              -- a later call through the field Panicked(0).
+              let internalFunctionTernary? : Option CoreExpr :=
+                if Ty.isInternalFunctionValueTy castTy then
+                  match argExpr with
+                  | Expr.ternary cond thenExpr elseExpr => do
+                      let condCore ←
+                        Expr.toCoreAsWithEnvFuel?
+                          fuel storageNames env Ty.bool cond
+                      let thenCore ←
+                        Expr.toCoreAsWithEnvFuel?
+                          fuel storageNames env castTy thenExpr
+                      let elseCore ←
+                        Expr.toCoreAsWithEnvFuel?
+                          fuel storageNames env castTy elseExpr
+                      some
+                        (SolidCore.Solidity.Source.Expr.ternary
+                          condCore thenCore elseCore)
+                  | _ => none
+                else
+                  none
+              match internalFunctionTernary? with
+              | some coreExpr => some coreExpr
+              | none =>
               -- An explicit narrow integer conversion is truncating.  First
               -- evaluate its argument at the argument's own Solidity type
               -- (which preserves any checked arithmetic inside), then apply
@@ -6573,19 +6603,12 @@ def Expr.storageRefArrayPushAssignStmtCore?
     | none => Expr.toCore? storageNames rhs
   match indexes with
   | [] =>
-      let lastIndex :=
-        SolidCore.Solidity.Source.Expr.binary
-          SolidCore.Solidity.Source.BinaryOp.sub
-          (SolidCore.Solidity.Source.Expr.var name)
-          (SolidCore.Solidity.Source.Expr.word 1)
+      -- `name` stores a storage pointer, not the referenced array length.
+      -- Let the atomic ref-path operation push, read the live length at that
+      -- pointer, and assign the newly appended element.
       some
-        (SolidCore.Solidity.Source.Stmt.block
-          [ SolidCore.Solidity.Source.Stmt.storageArrayPushRef name none
-          , SolidCore.Solidity.Source.Stmt.assign
-              (SolidCore.Solidity.Source.LValue.index
-                (SolidCore.Solidity.Source.LValue.var name)
-                lastIndex)
-              rhsCore ])
+        (SolidCore.Solidity.Source.Stmt.storageArrayPushRefPathAssign
+          name [] rhsCore)
   | _ =>
       some
         (SolidCore.Solidity.Source.Stmt.storageArrayPushRefPathAssign

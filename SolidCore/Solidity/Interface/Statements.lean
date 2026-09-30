@@ -5221,10 +5221,14 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
       | Stmt.varDecl [binding] (some expr@(Expr.call (Expr.ident name) args)) =>
           -- #201 (B): a HASH-builtin initializer with a flagged argument
           -- (`bytes32 h = keccak256(abi.encodePacked(a + b))`, `uint8 a,b`) is
-          -- never a user function, so every chain below declines and the
-          -- statement fell env-less (hashing 300). Gated on the builtin flag, so
-          -- every user-function vardecl keeps the existing chain byte-identically.
-          match (if Expr.abiBuiltinArgsNeedEnvCleanup expr then
+          -- normally is not a user function, so every chain below declines and
+          -- the statement fell env-less (hashing 300). Resolve source declarations
+          -- first because Solidity permits them to shadow a global builtin.
+          match (if Expr.abiBuiltinArgsNeedEnvCleanup expr &&
+                (FunctionDecl.findInternalCalleeWithArgs?
+                  functions env name args).isNone &&
+                (FunctionDecl.findInternalCalleeWithArgs?
+                  freeFunctions env name args).isNone then
               varDeclCoreWithEnv? storageNames env binding expr
             else none) with
           | some coreStmt => some coreStmt
@@ -5414,13 +5418,17 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           (some expr@(Expr.call (Expr.ident name) args)) => do
           -- #201 (B): a HASH-builtin initializer with a flagged argument
           -- (`bytes32 h = keccak256(abi.encodePacked(a + b))`, `uint8 a,b`) is
-          -- never an internal function, so the `_sol_vardecl_arg` hoist / internal
-          -- chains below decline and the statement fell env-less. Route it through
-          -- `varDeclCoreWithEnv?` first (gated on the builtin flag, so every
-          -- user-function vardecl keeps the existing chain byte-identically).
+          -- normally is not an internal function, so the `_sol_vardecl_arg` hoist /
+          -- internal chains below decline and the statement fell env-less. Route it
+          -- through `varDeclCoreWithEnv?` first, except when source declaration
+          -- resolution finds a user function shadowing the global builtin.
           match (match bindings with
             | [binding] =>
-                if Expr.abiBuiltinArgsNeedEnvCleanup expr then
+                if Expr.abiBuiltinArgsNeedEnvCleanup expr &&
+                    (FunctionDecl.findInternalCalleeWithArgs?
+                      functions env name args).isNone &&
+                    (FunctionDecl.findInternalCalleeWithArgs?
+                      freeFunctions env name args).isNone then
                   varDeclCoreWithEnv? storageNames env binding expr
                 else none
             | _ => none) with
@@ -5798,7 +5806,16 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           -- lowers the hash at its natural width, leaving the digest right-aligned
           -- (wrong value), so route it through the return-type-aware env path — an
           -- identity for a `bytes20` target, the `fixedBytesCast` widening otherwise.
-          match (if Expr.abiBuiltinArgsNeedEnvCleanup expr || name == "ripemd160" then
+          let userDeclaredCallee :=
+            (FunctionDecl.findInternalCalleeWithArgs?
+              functions env name args).isSome ||
+            (FunctionDecl.findInternalCalleeWithArgs?
+              freeFunctions env name args).isSome
+          -- A source declaration may legally shadow a global builtin (for
+          -- example an internal `keccak256(bytes)`).  The builtin cleanup
+          -- shortcut must not steal that call before declaration resolution.
+          match (if !userDeclaredCallee &&
+                (Expr.abiBuiltinArgsNeedEnvCleanup expr || name == "ripemd160") then
               match returnTys with
               | [returnTy] =>
                   (Expr.toCoreAsWithEnv? storageNames env returnTy expr).map
@@ -7978,10 +7995,14 @@ def Stmt.listLowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           -- (`bytes32 h = keccak256(abi.encodePacked(a + b))`, `uint8 a,b`) —
           -- list form of the per-statement fix: this arm bottoms out in the
           -- env-less `Stmt.toCore?` WITHOUT consulting the per-statement
-          -- dispatcher, so the vardecl fell env-less (hashing 300). `name` is a
-          -- builtin, never a user function, when the flag fires; everything else
-          -- keeps the chain below byte-identically.
-          match (if Expr.abiBuiltinArgsNeedEnvCleanup expr then
+          -- dispatcher, so the vardecl fell env-less (hashing 300). A source
+          -- declaration may shadow the global builtin, so declaration resolution
+          -- retains precedence over this cleanup shortcut.
+          match (if Expr.abiBuiltinArgsNeedEnvCleanup expr &&
+                (FunctionDecl.findInternalCalleeWithArgs?
+                  functions env name args).isNone &&
+                (FunctionDecl.findInternalCalleeWithArgs?
+                  freeFunctions env name args).isNone then
               varDeclCoreWithEnv? storageNames env binding expr
             else none) with
           | some head => do
@@ -9171,34 +9192,6 @@ def Stmt.toCoreWithInternalCallsReplacingModifierPlaceholder?
     externalCallKindEnv storageNames modifiers functions freeFunctions
     returnTys returnNames replacement stmt
 
-def modifierApplyToCoreWithInternalCalls? (internalFuel : Nat)
-    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
-    (externalCallKindEnv : ExternalCallKindEnv)
-    (storageNames returnNames : List Name)
-    (available : List SourceModifierDecl) (functions : List FunctionDecl)
-    (freeFunctions : List FunctionDecl) (returnTys : List Ty)
-    (decl : SourceModifierDecl)
-    (invocation : SourceModifierInvocation) (inner : CoreStmt) :
-    Option CoreStmt := do
-  let body ← decl.body
-  let body := ModifierDecl.aliasParamsInBody decl body
-  let prefixStmts ← modifierParamBindingsWithArgs? decl invocation.args
-  let prefixCore ←
-    Stmt.listToCoreWithInternalCallsWithRefs?
-      internalFuel storageRefEnv env externalCallKindEnv storageNames available functions
-      freeFunctions returnTys prefixStmts
-  let modifierParams := ModifierDecl.aliasedParams decl
-  let modifierEnv := Parameters.extendTypeEnv "_mod" env modifierParams
-  let modifierStorageRefEnv :=
-    Parameters.extendStorageRefEnv "_mod" storageRefEnv modifierParams
-  let body := Stmt.annotateAbi modifierEnv body
-  let bodyCore ←
-    Stmt.toCoreWithInternalCallsReplacingModifierPlaceholder?
-      internalFuel modifierStorageRefEnv modifierEnv externalCallKindEnv
-      storageNames available functions freeFunctions returnTys returnNames
-      inner body
-  some (SolidCore.Solidity.Source.Stmt.block (prefixCore ++ [bodyCore]))
-
 /-- Body-level ANF preprocessing. Recurses into every child statement, then
     normalizes every top-level expression which contains a hoistable call into
     a `block` of flat statements. Surface lowering success is not a sufficient
@@ -9453,6 +9446,43 @@ termination_by fuel _ => fuel
 
 def defaultAnfPreprocessFuel : Nat := 1024
 
+def modifierApplyToCoreWithInternalCalls? (internalFuel : Nat)
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
+    (storageNames returnNames : List Name)
+    (available : List SourceModifierDecl) (functions : List FunctionDecl)
+    (freeFunctions : List FunctionDecl) (returnTys : List Ty)
+    (decl : SourceModifierDecl)
+    (invocation : SourceModifierInvocation) (inner : CoreStmt)
+    (structEnv : StructEnv := [])
+    (eventIndexedEnv : EventIndexedEnv := []) : Option CoreStmt := do
+  let body ← decl.body
+  let body := ModifierDecl.aliasParamsInBody decl body
+  let prefixStmts ← modifierParamBindingsWithArgs? decl invocation.args
+  let prefixCore ←
+    Stmt.listToCoreWithInternalCallsWithRefs?
+      internalFuel storageRefEnv env externalCallKindEnv storageNames available functions
+      freeFunctions returnTys prefixStmts
+  let modifierParams := ModifierDecl.aliasedParams decl
+  let modifierEnv := Parameters.extendTypeEnv "_mod" env modifierParams
+  let modifierStorageRefEnv :=
+    Parameters.extendStorageRefEnv "_mod" storageRefEnv modifierParams
+  let body := Stmt.annotateAbi modifierEnv body
+  -- Modifier bodies are assembled after the modified function's source body
+  -- has passed through ANF preprocessing.  Run the same pass here so nested
+  -- calls, including indexed-event two-phase scheduling, receive identical
+  -- treatment before the placeholder is replaced by Core.
+  let body :=
+    Stmt.anfPreprocess structEnv internalFuel modifierStorageRefEnv modifierEnv
+      externalCallKindEnv storageNames available functions freeFunctions
+      returnTys eventIndexedEnv defaultAnfPreprocessFuel body
+  let bodyCore ←
+    Stmt.toCoreWithInternalCallsReplacingModifierPlaceholder?
+      internalFuel modifierStorageRefEnv modifierEnv externalCallKindEnv
+      storageNames available functions freeFunctions returnTys returnNames
+      inner body
+  some (SolidCore.Solidity.Source.Stmt.block (prefixCore ++ [bodyCore]))
+
 def functionExpandModifiersToCoreWithInternalCallsFull?
     (internalFuel : Nat)
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
@@ -9499,6 +9529,7 @@ def functionExpandModifiersToCoreWithInternalCallsFull?
       modifierApplyToCoreWithInternalCalls? internalFuel storageRefEnv env
         externalCallKindEnv storageNames returnNames available functions
         freeFunctions returnTys modifierDecl invocation inner
+        (structEnv := structEnv) (eventIndexedEnv := eventIndexedEnv)
 termination_by invocations.length
 
 def libraryHelperNameForIndex (libraryName functionName : Name)
