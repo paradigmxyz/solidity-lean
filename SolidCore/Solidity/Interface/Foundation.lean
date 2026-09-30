@@ -322,13 +322,23 @@ def Stmt.inlineConstantsFuel : Nat -> ConstantEnv -> Stmt -> Stmt
       | Stmt.doWhile body cond =>
           Stmt.doWhile (inlineStmt body) (inlineExpr cond)
       | Stmt.forLoop init cond post body =>
-          Stmt.forLoop (init.map inlineStmt) (cond.map inlineExpr)
-            (post.map inlineExpr) (inlineStmt body)
+          let loopConstants :=
+            match init with
+            | some (Stmt.varDecl bindings _) =>
+                constants.withoutNames (VarBindings.boundNames bindings)
+            | _ => constants
+          let inlineLoopExpr := Expr.inlineConstantsFuel fuel loopConstants
+          let inlineLoopStmt := Stmt.inlineConstantsFuel fuel loopConstants
+          Stmt.forLoop (init.map inlineStmt) (cond.map inlineLoopExpr)
+            (post.map inlineLoopExpr) (inlineLoopStmt body)
       | Stmt.tryCatch expr clauses =>
           Stmt.tryCatch (inlineExpr expr) (clauses.map inlineClause)
       | Stmt.tryCatchReturns expr returns success clauses =>
+          let successConstants :=
+            constants.withoutNames (Parameters.constantShadowNames returns)
           Stmt.tryCatchReturns (inlineExpr expr) returns
-            (inlineStmt success) (clauses.map inlineClause)
+            (Stmt.inlineConstantsFuel fuel successConstants success)
+            (clauses.map inlineClause)
       | Stmt.emitEvent expr => Stmt.emitEvent (inlineExpr expr)
       | Stmt.revertCall expr => Stmt.revertCall (inlineExpr expr)
       | Stmt.returnValues expr? => Stmt.returnValues (expr?.map inlineExpr)
@@ -359,8 +369,10 @@ def CatchClause.inlineConstantsFuel :
   | fuel + 1, constants, clause =>
       match clause with
       | CatchClause.clause name params body =>
+          let clauseConstants :=
+            constants.withoutNames (Parameters.constantShadowNames params)
           CatchClause.clause name params
-            (Stmt.inlineConstantsFuel fuel constants body)
+            (Stmt.inlineConstantsFuel fuel clauseConstants body)
 
 end
 
@@ -392,6 +404,8 @@ def FunctionDecl.inlineConstants (constants : ConstantEnv)
 
 def ModifierDecl.inlineConstants (constants : ConstantEnv)
     (decl : ModifierDecl) : ModifierDecl :=
+  let constants :=
+    constants.withoutNames (Parameters.constantShadowNames decl.params)
   { decl with body := decl.body.map (Stmt.inlineConstants constants) }
 
 def superHelperName (contractName functionName : Name) : Name :=
@@ -1853,26 +1867,27 @@ def Expr.resolveStructsFuel :
           -- source type is computed on the UN-resolved base so the
           -- struct-member arm of `sourceTyWithEnv?` still applies (after
           -- `resolve`, `s.b` becomes an ordinal index whose type is opaque).
-          match base with
-          | Expr.index _ _ | Expr.member _ _ =>
-              match Expr.sourceTyWithEnv? env typeEnv base with
-              | some (Ty.bytesN size) =>
-                  if 0 < size && size <= 32 then
-                    Expr.index
-                      (Expr.call (Expr.typeName (Ty.bytesN size))
-                        [Arg.positional (resolve base)])
-                      (resolve index)
-                  else
-                    Expr.index (resolve base) (resolve index)
-              | some (Ty.fixedBytes size) =>
-                  if 0 < size && size <= 32 then
-                    Expr.index
-                      (Expr.call (Expr.typeName (Ty.fixedBytes size))
-                        [Arg.positional (resolve base)])
-                      (resolve index)
-                  else
-                    Expr.index (resolve base) (resolve index)
-              | _ => Expr.index (resolve base) (resolve index)
+          -- The same representation boundary applies to every non-identifier
+          -- expression that produces `bytesN`, including a ternary-selected
+          -- byte (`(c ? bs[0] : bs[1])[0]`).  Type the unresolved source base
+          -- and wrap any fixed-bytes result before recursive lowering.
+          match Expr.sourceTyWithEnv? env typeEnv base with
+          | some (Ty.bytesN size) =>
+              if 0 < size && size <= 32 then
+                Expr.index
+                  (Expr.call (Expr.typeName (Ty.bytesN size))
+                    [Arg.positional (resolve base)])
+                  (resolve index)
+              else
+                Expr.index (resolve base) (resolve index)
+          | some (Ty.fixedBytes size) =>
+              if 0 < size && size <= 32 then
+                Expr.index
+                  (Expr.call (Expr.typeName (Ty.fixedBytes size))
+                    [Arg.positional (resolve base)])
+                  (resolve index)
+              else
+                Expr.index (resolve base) (resolve index)
           | _ => Expr.index (resolve base) (resolve index)
       | Expr.slice base start stop =>
           Expr.slice (resolve base) (start.map resolve) (stop.map resolve)
@@ -2456,6 +2471,16 @@ def Ty.toCoreStorageWord? : Ty -> Option CoreTy
         some SolidCore.Solidity.Source.Ty.int256
       else
         none
+  | Ty.fixed bits decimals =>
+      if Ty.validFixedPointShape bits decimals then
+        some SolidCore.Solidity.Source.Ty.int256
+      else
+        none
+  | Ty.ufixed bits decimals =>
+      if Ty.validFixedPointShape bits decimals then
+        some SolidCore.Solidity.Source.Ty.uint256
+      else
+        none
   | Ty.enum _ _ =>
       some SolidCore.Solidity.Source.Ty.uint256
   | Ty.bytesN size =>
@@ -2495,6 +2520,12 @@ def Ty.storagePackedBytes? : Ty -> Option Nat
         some (bits / 8)
       else
         none
+  | Ty.fixed bits decimals
+  | Ty.ufixed bits decimals =>
+      if Ty.validFixedPointShape bits decimals then
+        some (bits / 8)
+      else
+        none
   | Ty.enum _ _ => some 1
   | Ty.bytesN size =>
       if 0 < size && size <= SolidCore.Solidity.Source.wordBytes then
@@ -2517,6 +2548,7 @@ def Ty.storagePackedBytes? : Ty -> Option Nat
 
 def Ty.storagePackedSigned : Ty -> Bool
   | Ty.int _ => true
+  | Ty.fixed _ _ => true
   | _ => false
 
 /-- Enum member bound for storage-layout lowering (`none` for non-enums). -/
@@ -3827,6 +3859,11 @@ def Ty.implicitCleanupCore? (targetTy : Ty) (expr : CoreExpr) :
     | SolidCore.Solidity.Source.Expr.binary
         SolidCore.Solidity.Source.BinaryOp.shl _ _ => true
     | _ => false
+  let isBitNot :=
+    match expr with
+    | SolidCore.Solidity.Source.Expr.unary
+        SolidCore.Solidity.Source.UnaryOp.bitNot _ => true
+    | _ => false
   -- NARROW-BITWISE (F2): `~x` on a narrow `uintN` is masked by solc with
   -- `cleanup_t_uintN` (`and(not(x),2^N-1)`), NEVER a range check — even in a
   -- checked block. Routing it through the checked `uintCleanup` would panic
@@ -3874,7 +3911,7 @@ def Ty.implicitCleanupCore? (targetTy : Ty) (expr : CoreExpr) :
       -- `Expr.toCoreFixedBytesBitOp?` walk handles nested shifts and `~`.
       match Ty.fixedBytesSize? targetTy with
       | some size =>
-          if isLeftShift then
+          if isLeftShift || isBitNot then
             some (SolidCore.Solidity.Source.Expr.fixedBytesCast size size expr)
           else
             some expr
@@ -8487,13 +8524,21 @@ def Expr.abiArgNeedsEnvCleanupFuel? : Nat -> Expr -> Bool
               -- Only fires when an operand ITSELF needs the cleanup, so a
               -- comparison with no narrow arithmetic stays byte-identical.
               | Expr.binary op lhs rhs =>
-                  (match op with
-                   | BinaryOp.lt | BinaryOp.gt | BinaryOp.le | BinaryOp.ge
-                   | BinaryOp.eq | BinaryOp.ne
-                   | BinaryOp.boolAnd | BinaryOp.boolOr => true
-                   | _ => false) &&
-                    (Expr.abiArgNeedsEnvCleanupFuel? fuel lhs ||
-                      Expr.abiArgNeedsEnvCleanupFuel? fuel rhs)
+                  match op with
+                  -- A shift keeps the left operand's Solidity type. Checked
+                  -- arithmetic nested below either shift must therefore run at
+                  -- that width before the shift consumes it; a nested `<<`
+                  -- also retains its own truncating cleanup under an outer
+                  -- `>>`.
+                  | BinaryOp.shl | BinaryOp.shr =>
+                      Expr.abiArgNeedsEnvCleanupFuel? fuel lhs ||
+                        Expr.abiArgNeedsEnvCleanupFuel? fuel rhs
+                  | BinaryOp.lt | BinaryOp.gt | BinaryOp.le | BinaryOp.ge
+                  | BinaryOp.eq | BinaryOp.ne
+                  | BinaryOp.boolAnd | BinaryOp.boolOr =>
+                      Expr.abiArgNeedsEnvCleanupFuel? fuel lhs ||
+                        Expr.abiArgNeedsEnvCleanupFuel? fuel rhs
+                  | _ => false
               -- `!c` in a bool position: the env-aware `logicalNot` arm recurses
               -- on the operand at `Ty.bool`, so a comparison under `!`
               -- (`abi.encode(!((a + b) < n))`) keeps the operand-width cleanup.
