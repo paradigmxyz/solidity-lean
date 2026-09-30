@@ -3406,6 +3406,9 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           -- `Stmt.toCore?` below would succeed FIRST via `storageArrayPushPathCore?`
           -- and silently drop the operand-width cleanup, so intercept it here.
           match (match expr with
+                 | Expr.call (Expr.member target "push") [] =>
+                     storageArrayEmptyPushPathCoreWithEnv?
+                       env storageNames target
                  | Expr.call (Expr.member target "push") [Arg.positional value] =>
                      storageArrayPushPathCoreWithEnv? env storageNames target value
                  | _ => none) with

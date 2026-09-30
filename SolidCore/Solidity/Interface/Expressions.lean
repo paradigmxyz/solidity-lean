@@ -6507,6 +6507,32 @@ def storageArrayPushPathCoreWithEnv? (env : TypeEnv) (storageNames : List Name)
           (SolidCore.Solidity.Source.Stmt.storageArrayPushPath
             name indexes (some valueCore))
 
+/-- Env-aware zero-argument sibling for a ternary-selected storage-array
+    receiver. The condition is evaluated before the selected `push()`, at its
+    inferred source width, matching Solidity's conditional-expression
+    semantics. Ordinary storage paths keep the same push core as the env-less
+    lowering. -/
+def storageArrayEmptyPushPathCoreWithEnv? (env : TypeEnv)
+    (storageNames : List Name) (target : Expr) : Option CoreStmt :=
+  match target with
+  | Expr.ternary cond thenTarget elseTarget => do
+      let condCore ← Expr.toCoreAsWithEnv? storageNames env Ty.bool cond
+      let thenStmt ←
+        storageArrayEmptyPushPathCoreWithEnv? env storageNames thenTarget
+      let elseStmt ←
+        storageArrayEmptyPushPathCoreWithEnv? env storageNames elseTarget
+      some (SolidCore.Solidity.Source.Stmt.ifElse condCore thenStmt elseStmt)
+  | _ => do
+      let (name, indexes) ←
+        Expr.storagePathCoreWithEnv? storageNames env target
+      match indexes with
+      | [] =>
+          some (SolidCore.Solidity.Source.Stmt.storageArrayPush name none)
+      | _ =>
+          some
+            (SolidCore.Solidity.Source.Stmt.storageArrayPushPath
+              name indexes none)
+
 def Expr.noReturnEffectStmtCoreWithStorageRefs?
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
     (storageNames : List Name) (expr : Expr) : Option CoreStmt :=
@@ -6515,6 +6541,15 @@ def Expr.noReturnEffectStmtCoreWithStorageRefs?
   -- before the env-less `noReturnEffectStmtCore?` would drop it. Any shape the
   -- env-aware helper cannot lower (`none`) falls through to the prior paths.
   match expr with
+  | Expr.call (Expr.member target "push") [] =>
+      match storageArrayEmptyPushPathCoreWithEnv? env storageNames target with
+      | some coreStmt => some coreStmt
+      | none =>
+          match Expr.noReturnEffectStmtCore? storageNames expr with
+          | some coreStmt => some coreStmt
+          | none =>
+              Expr.storageRefArrayMemberStmtCore?
+                storageRefEnv env storageNames expr
   | Expr.call (Expr.member target "push") [Arg.positional value] =>
       match storageArrayPushPathCoreWithEnv? env storageNames target value with
       | some coreStmt => some coreStmt
