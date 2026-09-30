@@ -8473,8 +8473,16 @@ def checkExpr (env : CheckEnv) :
       | Solidity.BinaryOp.add
       | Solidity.BinaryOp.sub
       | Solidity.BinaryOp.mul =>
-          let ty ← CheckedExprs.arithmeticTy env.types lhsChecked rhsChecked
-          Except.ok { source := expr, ty := ty }
+          -- A pure rational-constant expression stays in solc's untyped
+          -- constant domain until the surrounding context asks for a mobile
+          -- type. Do not prematurely require the two intermediate mobile
+          -- types to have matching signedness: `132 & ~1` and larger folded
+          -- expressions legitimately combine positive and negative constants.
+          if (Solidity.Executable.Expr.untypedNumberLiteralRat? expr).isSome then
+            Except.ok { source := expr, ty := lhsChecked.ty }
+          else
+            let ty ← CheckedExprs.arithmeticTy env.types lhsChecked rhsChecked
+            Except.ok { source := expr, ty := ty }
       | Solidity.BinaryOp.div
       | Solidity.BinaryOp.mod =>
           -- solc folds a constant `/` or `%` whose operands are both number
@@ -8495,8 +8503,11 @@ def checkExpr (env : CheckEnv) :
              | some _, some divisor => divisor.num != 0
              | _, _ => true)
             (TypeError.unsupported "constant division or modulo by zero")
-          let ty ← CheckedExprs.arithmeticTy env.types lhsChecked rhsChecked
-          Except.ok { source := expr, ty := ty }
+          if (Solidity.Executable.Expr.untypedNumberLiteralRat? expr).isSome then
+            Except.ok { source := expr, ty := lhsChecked.ty }
+          else
+            let ty ← CheckedExprs.arithmeticTy env.types lhsChecked rhsChecked
+            Except.ok { source := expr, ty := ty }
       | Solidity.BinaryOp.exp =>
           -- A `**` whose base and exponent are both constant number literals is
           -- folded by solc in the rational domain, where the exponent's type is
@@ -8513,8 +8524,11 @@ def checkExpr (env : CheckEnv) :
       | Solidity.BinaryOp.bitAnd
       | Solidity.BinaryOp.bitOr
       | Solidity.BinaryOp.bitXor =>
-          let ty ← CheckedExprs.bitwiseTy env.types lhsChecked rhsChecked
-          Except.ok { source := expr, ty := ty }
+          if (Solidity.Executable.Expr.untypedNumberLiteralRat? expr).isSome then
+            Except.ok { source := expr, ty := lhsChecked.ty }
+          else
+            let ty ← CheckedExprs.bitwiseTy env.types lhsChecked rhsChecked
+            Except.ok { source := expr, ty := ty }
       | Solidity.BinaryOp.shl
       | Solidity.BinaryOp.shr =>
           lhsChecked.expectShiftLeftOperand

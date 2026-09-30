@@ -5613,6 +5613,18 @@ def Expr.toCoreStorageArrayAs? (storageNames : List Name)
       | _ => none
   | _ => none
 
+def Expr.nestedStoragePathCore? (storageNames : List Name) :
+    Expr -> Option (Name × List CoreExpr)
+  | Expr.ident name => do
+      let key ← stateNameRuntimeKey? name storageNames
+      some (key, [])
+  | Expr.index base index => do
+      let (name, indexes) ← Expr.nestedStoragePathCore? storageNames base
+      let indexCore ← Expr.toCore? storageNames index
+      some (name, indexes ++ [indexCore])
+  | _ => none
+termination_by expr => (sizeOf expr, 0)
+
 /-- A fn-value number literal (the shape a bare function NAME takes after
     `rewriteInternalFnValueIdents`) targeted at an INTERNAL function type becomes
     the core internal-function-pointer value. This is the value-production site
@@ -5633,8 +5645,8 @@ def Expr.toCoreInternalFunctionValueLiteralAs? (targetTy : Ty) :
         none
   | _ => none
 
-/-- AL-EXEC (executable lowering of an inline array literal into a fixed-size
-    memory-array target). solc types an inline array literal bottom-up (smallest
+/-- AL-EXEC (executable lowering of an inline array literal into an array
+    target). solc types an inline array literal bottom-up (smallest
     common mobile element type — `[1,2,3] : uint8[3]`) and a fixed→fixed
     memory-array conversion requires the target's element type to EQUAL that
     bottom-up element type (`ArrayType::isImplicitlyConvertibleTo`, non-copy
@@ -5657,12 +5669,34 @@ def Expr.fixedArrayLiteralAs? (storageNames : List Name)
           SolidCore.Solidity.Source.Expr.fixedArray
       else
         none
+  | Ty.array elemTy none, Expr.array elems =>
+      -- Inline literals are fixed-size values even when a storage-copy target
+      -- is dynamic (`int16[] x = [-1, -2]`). The typechecker has already
+      -- established that the fixed source can be copied into the dynamic
+      -- storage destination, so lower each element at the destination base
+      -- type and retain the literal's fixed runtime value shape.
+      (Expr.arrayLiteralCoreExprsAs? storageNames elemTy elems).map
+        SolidCore.Solidity.Source.Expr.fixedArray
   | _, _ => none
 termination_by (sizeOf expr, 0)
 
 def Expr.toCoreAs? (storageNames : List Name)
     (targetTy : Ty) (expr : Expr) : Option CoreExpr :=
   match Expr.fixedArrayLiteralAs? storageNames targetTy expr with
+  | some coreExpr => some coreExpr
+  | none =>
+  -- Materialize an array member reached through a nested storage path in one
+  -- operation. Recursively lowering `boxes[0].words` would load `boxes[0]`
+  -- as a whole struct before selecting `words`; that is impossible when the
+  -- struct also contains a mapping. Keeping the complete path resolves
+  -- directly to the selected dynamic-array field.
+  match
+      (match targetTy, Expr.nestedStoragePathCore? storageNames expr with
+      | Ty.array _ _, some (name, indexes) =>
+          if indexes.isEmpty then none
+          else some (SolidCore.Solidity.Source.Expr.storagePath name indexes)
+      | _, _ => none)
+  with
   | some coreExpr => some coreExpr
   | none =>
   match Expr.toCoreStorageArrayAs? storageNames targetTy expr with
