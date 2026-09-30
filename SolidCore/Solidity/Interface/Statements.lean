@@ -2177,6 +2177,27 @@ def FunctionDecl.hoistDirectInternalCallArgs?
   if prefixPieces.isEmpty then none
   else some (prefixPieces, tempEnv, replacedArgs)
 
+/-- `addmod` and `mulmod` are the two legacy-codegen builtins whose argument
+    effects run right-to-left. Hoist their nested calls in that order, then put
+    the rewritten arguments back into their original positional slots. -/
+def FunctionDecl.hoistDirectInternalCallArgsForCallee?
+    (internalFuel : Nat)
+    (storageRefEnv : StorageRefEnv) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv)
+    (storageNames : List Name) (modifiers : List SourceModifierDecl)
+    (functions freeFunctions : List FunctionDecl) (fallbackPrefix : String)
+    (calleeName : Name) (args : List Arg) :
+    Option (List CoreStmt × List (Name × Ty) × List Arg) := do
+  let reverseOrder := calleeName == "addmod" || calleeName == "mulmod"
+  let orderedArgs := if reverseOrder then args.reverse else args
+  let (prefixPieces, tempEnv, replacedOrdered) ←
+    FunctionDecl.hoistDirectInternalCallArgs?
+      internalFuel storageRefEnv env externalCallKindEnv storageNames
+      modifiers functions freeFunctions fallbackPrefix orderedArgs
+  let replacedArgs :=
+    if reverseOrder then replacedOrdered.reverse else replacedOrdered
+  some (prefixPieces, tempEnv, replacedArgs)
+
 /-- NARROW-STRUCT-CTOR (#184): lower a value against `targetTy` with the
     env-aware `toCoreAsWithEnv?`, EXCEPT a struct-literal-tuple RHS (the shape
     `Expr.resolveStructsFuel` produces for `S(a+c, 0)` — an `Expr.tuple` of
@@ -3699,9 +3720,9 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                     | some coreStmt => some coreStmt
                     | none => Stmt.toCore? storageNames
                         (Stmt.expr (Expr.call (Expr.ident name) args))
-          match FunctionDecl.hoistDirectInternalCallArgs?
+          match FunctionDecl.hoistDirectInternalCallArgsForCallee?
               internalFuel storageRefEnv env externalCallKindEnv storageNames
-              modifiers functions freeFunctions "_sol_call_arg" args with
+              modifiers functions freeFunctions "_sol_call_arg" name args with
           | some (prefixPieces, tempEnv, replacedArgs) =>
               (match FunctionDecl.internalStatementCallCore?
                   internalFuel storageRefEnv (tempEnv ++ env) externalCallKindEnv
@@ -4637,9 +4658,9 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                         some
                           (SolidCore.Solidity.Source.Stmt.block
                             (decls ++ [callCore]))
-          match FunctionDecl.hoistDirectInternalCallArgs?
+          match FunctionDecl.hoistDirectInternalCallArgsForCallee?
               internalFuel storageRefEnv env externalCallKindEnv storageNames
-              modifiers functions freeFunctions "_sol_vardecl_arg" args with
+              modifiers functions freeFunctions "_sol_vardecl_arg" name args with
           | some (prefixPieces, tempEnv, replacedArgs) =>
               (match FunctionDecl.internalVarDeclAssignReturnCallCorePieces?
                   internalFuel storageRefEnv (tempEnv ++ env) externalCallKindEnv
@@ -4995,9 +5016,9 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                           | none => Stmt.toCore? storageNames
                               (Stmt.returnValues
                                 (some (Expr.call (Expr.ident name) args)))
-          match FunctionDecl.hoistDirectInternalCallArgs?
+          match FunctionDecl.hoistDirectInternalCallArgsForCallee?
               internalFuel storageRefEnv env externalCallKindEnv storageNames
-              modifiers functions freeFunctions "_sol_return_arg" args with
+              modifiers functions freeFunctions "_sol_return_arg" name args with
           | some (prefixPieces, tempEnv, replacedArgs) =>
               let envWith := tempEnv ++ env
               (match

@@ -6875,6 +6875,13 @@ def Expr.toCoreLValue? (storageNames : List Name) : Expr -> Option CoreLValue
       let baseCore ← Expr.toCoreLValue? storageNames base
       let indexCore ← Expr.toCore? storageNames index
       some (SolidCore.Solidity.Source.LValue.index baseCore indexCore)
+  | Expr.ternary cond thenExpr elseExpr => do
+      let condCore ← Expr.toCore? storageNames cond
+      let thenTarget ← Expr.toCoreLValue? storageNames thenExpr
+      let elseTarget ← Expr.toCoreLValue? storageNames elseExpr
+      some
+        (SolidCore.Solidity.Source.LValue.ternary
+          condCore thenTarget elseTarget)
   | Expr.member (Expr.typeName (Ty.user _)) name =>
       -- Qualified (inherited) STATE-VARIABLE write target (`Base.v = …`):
       -- resolves to the same storage/immutable slot as the bare identifier.
