@@ -8710,6 +8710,9 @@ inductive Stmt where
   | storageArrayPushRef : String -> Option Expr -> Stmt
   | storageArrayPushRefPath : String -> List Expr -> Option Expr -> Stmt
   | storageArrayPushPath : String -> List Expr -> Option Expr -> Stmt
+  /-- Evaluate an indexed state-array receiver once, append a zero element,
+      and bind a storage-reference local to that new element. -/
+  | storageArrayPushPathAlias : String -> String -> List Expr -> Stmt
   | storageArrayPushPathAssign : String -> List Expr -> Expr -> Stmt
   | storageArrayPushRefPathAssign : String -> List Expr -> Expr -> Stmt
   | storageArrayPop : String -> Stmt
@@ -9134,6 +9137,9 @@ def Stmt.normalizeStorageValueUses : Stmt -> Stmt
       Stmt.storageArrayPushPath name
         (Expr.normalizeStorageValueUsesList StoragePosition.valueUse indexes)
         (Expr.normalizeStorageValueUsesOpt StoragePosition.valueUse arg?)
+  | Stmt.storageArrayPushPathAlias aliasName name indexes =>
+      Stmt.storageArrayPushPathAlias aliasName name
+        (Expr.normalizeStorageValueUsesList StoragePosition.valueUse indexes)
   | Stmt.storageArrayPushPathAssign name indexes rhs =>
       Stmt.storageArrayPushPathAssign name
         (Expr.normalizeStorageValueUsesList StoragePosition.valueUse indexes)
@@ -10152,6 +10158,33 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
                   with
                   | Except.ok updated => pure (Result.normal updated)
                   | Except.error err => pure (Result.reverted runtime err)
+          | Except.error err => pure (Result.reverted runtime err)
+      | Stmt.storageArrayPushPathAlias aliasName name indexes => do
+          match ← (Expr.evalList context runtime indexes).caught with
+          | Except.ok (indexValues, runtime') =>
+              match runtime'.storageArrayPushPath context name indexValues none with
+              | Except.ok pushed =>
+                  match pushed.loadStoragePath context name indexValues with
+                  | Except.ok container =>
+                      match container.storageArrayLength? with
+                      | some length =>
+                          let last := length - 1
+                          match
+                              pushed.bindStorageRef context
+                                (StorageBase.field name)
+                                (indexValues ++ [Value.word last])
+                          with
+                          | Except.ok ref =>
+                              pure
+                                (Result.normal
+                                  (pushed.declareLocal aliasName ref))
+                          | Except.error err =>
+                              pure (Result.reverted pushed err)
+                      | none =>
+                          pure
+                            (Result.reverted pushed RevertData.typeMismatch)
+                  | Except.error err => pure (Result.reverted pushed err)
+              | Except.error err => pure (Result.reverted runtime' err)
           | Except.error err => pure (Result.reverted runtime err)
       | Stmt.storageArrayPushPathAssign name indexes rhs => do
           match ← (Expr.evalList
