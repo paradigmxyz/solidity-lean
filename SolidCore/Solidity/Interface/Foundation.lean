@@ -2575,10 +2575,10 @@ def Ty.toCoreStorageLayout? : Ty -> Option CoreStorageLayout
       let fields ← Tys.toCorePackedStorageLayouts? tys
       some (SolidCore.Solidity.Source.StorageLayout.struct fields)
   | Ty.array elementTy none => do
-      let element ← Ty.toCoreStorageMemberLayout? elementTy
+      let element ← Ty.toCoreStorageArrayElementLayout? elementTy
       some (SolidCore.Solidity.Source.StorageLayout.dynamicArray element)
   | Ty.array elementTy (some size) => do
-      let element ← Ty.toCoreStorageMemberLayout? elementTy
+      let element ← Ty.toCoreStorageArrayElementLayout? elementTy
       some (SolidCore.Solidity.Source.StorageLayout.fixedArray size element)
   | Ty.mapping keyTy valueTy => do
       let key ← Ty.toCoreMappingKey? keyTy
@@ -2629,6 +2629,29 @@ def Ty.toCoreStorageMemberLayout? (ty : Ty) :
       some
         (SolidCore.Solidity.Source.StorageLayout.packedScalar
           0 widthBytes (Ty.storagePackedSigned ty) scalar)
+  | _, _, _ => Ty.toCoreStorageLayout? ty
+
+/-- Array elements of at most 16 bytes pack multiple values into one slot.
+    Wider elementary elements occupy a fresh full slot per element, even
+    though their source type is narrower than 256 bits. In particular, solc
+    stores a negative `int192` array element as a sign-extended full word;
+    treating it as a 24-byte packed lane incorrectly leaves the high eight
+    bytes zero. Struct fields retain the ordinary adjacent-field packing above. -/
+def Ty.toCoreStorageArrayElementLayout? (ty : Ty) :
+    Option CoreStorageLayout :=
+  match Ty.storageEnumMax? ty,
+      Ty.storagePackedBytes? ty, Ty.toCoreStorageWord? ty with
+  | some maxValue, _, _ =>
+      some
+        (SolidCore.Solidity.Source.StorageLayout.packedScalar 0 1 false
+          (SolidCore.Solidity.Source.Ty.enumStorage maxValue))
+  | none, some widthBytes, some scalar =>
+      if widthBytes <= SolidCore.Solidity.Source.wordBytes / 2 then
+        some
+          (SolidCore.Solidity.Source.StorageLayout.packedScalar
+            0 widthBytes (Ty.storagePackedSigned ty) scalar)
+      else
+        some (SolidCore.Solidity.Source.StorageLayout.scalar scalar)
   | _, _, _ => Ty.toCoreStorageLayout? ty
 
 def Tys.toCoreStorageLayouts? : List Ty -> Option (List CoreStorageLayout)
