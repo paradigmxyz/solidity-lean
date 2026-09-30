@@ -2244,15 +2244,12 @@ def Expr.toCoreLValueWithEnv? (storageNames : List Name) (env : TypeEnv) :
       -- Recursing into the base preserves the same lvalue shape while applying
       -- the checked-width rule at every path component.
       let keyCore? : Option CoreExpr :=
-        if Expr.abiArgNeedsEnvCleanup? key then
-          match (do
-              let keyTy ← Expr.abiTyWithEnv? env key
-              let _ ← Ty.narrowIntCastTarget? keyTy
-              Expr.toCoreAsWithEnv? storageNames env keyTy key) with
+        match (do
+            let keyTy ← Expr.abiTyWithEnv? env key
+            let _ ← Ty.narrowIntCastTarget? keyTy
+            Expr.toCoreAsWithEnv? storageNames env keyTy key) with
           | some c => some c
           | none => Expr.toCore? storageNames key
-        else
-          Expr.toCore? storageNames key
       (do
         let keyCore ← keyCore?
         match base with
