@@ -32,12 +32,22 @@ partial def renderValue (v : SolidCore.Solidity.Source.Value) : String :=
 def renderValues (vs : List SolidCore.Solidity.Source.Value) : String :=
   String.intercalate "," (vs.map renderValue)
 
+/-- Qualified custom-error lookup keys are an interface-lowering detail.  The
+    EVM observable names an error by its canonical Solidity declaration name,
+    so render `Library.Bad` and `Bad` alike as `Bad`; the qualified runtime entry
+    still carries the distinct selector used to resolve a collision. -/
+def renderCustomErrorName (name : String) : String :=
+  match (name.splitOn ".").getLast? with
+  | some unqualified => unqualified
+  | none => name
+
 def renderRevert (rd : SolidCore.Solidity.Source.RevertData) : String :=
   match rd with
   | RevertData.empty => "empty"
   | RevertData.panic w => "panic:" ++ toString (SolidCore.Solidity.Shared.norm w)
   | RevertData.error s => "error:" ++ s
-  | RevertData.custom name vs => "custom:" ++ name ++ ":" ++ renderValues vs
+  | RevertData.custom name vs =>
+      "custom:" ++ renderCustomErrorName name ++ ":" ++ renderValues vs
   | RevertData.raw bs =>
       "raw:0x" ++ String.join (bs.map (fun byte =>
         let h := Nat.toDigits 16 (byte % 256)

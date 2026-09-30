@@ -425,7 +425,11 @@ def FunctionDecl.ptrBoundaryCallExprParts?
     (callee : Expr) (returnPrefix : String) (args : List Arg) :
     Option (List CoreBindingDecl × List Bool × List CoreStmt × CoreStmt) := do
   let fnTy ← Expr.abiTyWithEnv? env callee
-  let fnCore ← Expr.toCore? storageNames callee
+  let fnCore ←
+    if Expr.abiArgNeedsEnvCleanup? callee then
+      Expr.indexBaseCoreWithEnvCleanup? storageNames env callee
+    else
+      Expr.toCore? storageNames callee
   FunctionDecl.ptrBoundaryCallCoreParts? storageRefEnv env storageNames
     fnTy fnCore returnPrefix args
 
@@ -1217,8 +1221,8 @@ def FunctionDecl.internalTernaryConditionSingleReturnUseCore?
     (useResult : CoreExpr -> CoreStmt) : Option CoreStmt :=
   match cond with
   | Expr.call (Expr.ident name) args => do
-      let thenCore ← Expr.toCore? storageNames thenExpr
-      let elseCore ← Expr.toCore? storageNames elseExpr
+      let thenCore ← Expr.abiArgCoreWithEnvCleanup? storageNames env thenExpr
+      let elseCore ← Expr.abiArgCoreWithEnvCleanup? storageNames env elseExpr
       FunctionDecl.internalSingleReturnCallCore?
         internalFuel storageRefEnv env externalCallKindEnv storageNames
         modifiers functions freeFunctions name args
@@ -1234,8 +1238,8 @@ def FunctionDecl.internalTernaryConditionSingleReturnUseCore?
       -- into a temp, then a core `ternary` on the temp). Branches must be pure
       -- (`Expr.toCore?` — no calls), so the untaken branch has no side effect and
       -- the core `ternary` reproduces the value.
-      let thenCore ← Expr.toCore? storageNames thenExpr
-      let elseCore ← Expr.toCore? storageNames elseExpr
+      let thenCore ← Expr.abiArgCoreWithEnvCleanup? storageNames env thenExpr
+      let elseCore ← Expr.abiArgCoreWithEnvCleanup? storageNames env elseExpr
       Expr.externalCallSingleReturnCoreWithKindEnv? (argEnvLower := Expr.externalCallArgEnvLower storageNames env)
         storageNames env externalCallKindEnv Ty.bool cond
         (fun condExpr =>
@@ -1271,7 +1275,7 @@ def FunctionDecl.internalTernaryBranchSingleReturnUseCore?
         (SolidCore.Solidity.Source.Stmt.ifElse
           condCore thenCore elseCore)
   | Expr.call (Expr.ident thenName) thenArgs, _ => do
-      let elseCore ← Expr.toCore? storageNames elseExpr
+      let elseCore ← Expr.abiArgCoreWithEnvCleanup? storageNames env elseExpr
       let thenCore ←
         FunctionDecl.internalSingleReturnCallCore?
           internalFuel storageRefEnv env externalCallKindEnv storageNames
@@ -1281,7 +1285,7 @@ def FunctionDecl.internalTernaryBranchSingleReturnUseCore?
         (SolidCore.Solidity.Source.Stmt.ifElse
           condCore thenCore (useResult elseCore))
   | _, Expr.call (Expr.ident elseName) elseArgs => do
-      let thenCore ← Expr.toCore? storageNames thenExpr
+      let thenCore ← Expr.abiArgCoreWithEnvCleanup? storageNames env thenExpr
       let elseCore ←
         FunctionDecl.internalSingleReturnCallCore?
           internalFuel storageRefEnv env externalCallKindEnv storageNames
@@ -1410,7 +1414,7 @@ def FunctionDecl.internalExprSingleReturnUseCore?
       -- A struct member on a returned memory value is resolved to an index
       -- whose BASE is the call. Capture the aggregate return first, then read
       -- the indexed field from that same memory reference.
-      let indexCore ← Expr.toCore? storageNames index
+      let indexCore ← Expr.abiArgCoreWithEnvCleanup? storageNames env index
       FunctionDecl.internalSingleReturnCallExprCore?
         internalFuel storageRefEnv env externalCallKindEnv storageNames
         modifiers functions freeFunctions
@@ -1431,7 +1435,7 @@ def FunctionDecl.internalExprSingleReturnUseCore?
       -- base containing its own call makes `indexReadCoreBuilder?` return `none`,
       -- so the caller preserves the prior over-reject rather than emit unsound
       -- code.
-      match Expr.indexReadCoreBuilder? storageNames base with
+      match Expr.indexReadCoreBuilderWithEnvCleanup? storageNames env base with
       | some buildRead =>
           FunctionDecl.internalSingleReturnCallCore?
             internalFuel storageRefEnv env externalCallKindEnv storageNames
@@ -1609,7 +1613,7 @@ def FunctionDecl.internalBinarySingleReturnUseCore?
               | _, _ => none
   | some (name, args, convert), none => do
       let coreOp ← BinaryOp.toCore? op
-      match Expr.toCore? storageNames rhs with
+      match Expr.abiArgCoreWithEnvCleanup? storageNames env rhs with
       | some rhsCore =>
           -- LEFT operand is a call, RIGHT is core-lowerable. Ordinary
           -- operators: solc evaluates the RIGHT operand FIRST
@@ -1789,7 +1793,7 @@ def FunctionDecl.internalBinarySingleReturnUseCore?
               [ SolidCore.Solidity.Source.Stmt.varDecl
                   lhsCoreTy lhsTmp (some lhsCore)
               , rhsCallCore ]
-      match op, Expr.toCore? storageNames lhs with
+      match op, Expr.abiArgCoreWithEnvCleanup? storageNames env lhs with
       | BinaryOp.boolAnd, some lhsCore => some (lhsThen lhsCore)
       | BinaryOp.boolOr, some lhsCore => some (lhsThen lhsCore)
       | _, some lhsCore =>
@@ -2377,6 +2381,17 @@ def Expr.toCoreLValueWithEnv? (storageNames : List Name) (env : TypeEnv) :
             some (SolidCore.Solidity.Source.LValue.index baseCore keyCore))
   | other => Expr.toCoreLValue? storageNames other
 
+/-- Use the env-aware lvalue path only when some part of the target needs
+    source-type cleanup.  This keeps ordinary lvalues on the established
+    lowering while making every specialized assignment arm honor narrow
+    checked arithmetic in nested index keys. -/
+def Expr.toCoreLValueWithEnvCleanup? (storageNames : List Name) (env : TypeEnv)
+    (expr : Expr) : Option CoreLValue :=
+  if Expr.abiArgNeedsEnvCleanup? expr then
+    Expr.toCoreLValueWithEnv? storageNames env expr
+  else
+    Expr.toCoreLValue? storageNames expr
+
 /-- A compound shift assignment whose count needs operand-width cleanup.
     Shift counts keep their own Solidity type, so `x <<= a + b` with `uint8`
     operands must evaluate `a + b` at `uint8` and Panic 0x11 on overflow before
@@ -2578,7 +2593,9 @@ def FunctionDecl.tupleLhsIndexCallHoistTargets?
         Expr.abiTyWithInternalFunctionsEnv? functions freeFunctions env
           (Expr.call (Expr.ident iname) iargs)
       let idxCoreTy ← Ty.toCore? idxTy
-      let buildLV ← Expr.indexLValueCoreBuilder? storageNames base
+      let baseLV ← Expr.toCoreLValueWithEnvCleanup? storageNames env base
+      let buildLV := fun index =>
+        SolidCore.Solidity.Source.LValue.index baseLV index
       let hoisted ←
         FunctionDecl.internalSingleReturnCallCore?
           internalFuel storageRefEnv env externalCallKindEnv storageNames
@@ -2596,7 +2613,11 @@ def FunctionDecl.tupleLhsIndexCallHoistTargets?
         , some (buildLV (SolidCore.Solidity.Source.Expr.var tmp))
             :: restTargets )
   | idx, TupleItem.value expr :: rest => do
-      let target ← Expr.toCoreLValue? storageNames expr
+      let target ←
+        if Expr.abiArgNeedsEnvCleanup? expr then
+          Expr.toCoreLValueWithEnv? storageNames env expr
+        else
+          Expr.toCoreLValue? storageNames expr
       let (restPre, restTargets) ←
         FunctionDecl.tupleLhsIndexCallHoistTargets?
           internalFuel storageRefEnv env externalCallKindEnv storageNames
@@ -2721,6 +2742,43 @@ def Expr.storageArrayDirectPushAssignOpCoreWithEnv?
                     (SolidCore.Solidity.Source.Expr.var rhsTmp) cleanup) ])
       | _ => none
   | _ => none
+
+/-- Environment-aware form of assignment through a subfield/index of the
+    reference returned by `array.push()`.  The destination type is recovered by
+    walking the array element type down the trailing index path, so the RHS is
+    checked at that exact width before the push mutates storage. -/
+def Expr.storageArrayPushIndexedAssignCoreWithEnv?
+    (storageNames : List Name) (env : TypeEnv)
+    (lhs rhs : Expr) : Option CoreStmt := do
+  let (target, trailing) ← Expr.stripPushIndexPath? lhs
+  match trailing with
+  | [] => none
+  | _ =>
+      let (name, indexes) ← Expr.storagePathCore? storageNames target
+      match indexes with
+      | [] => do
+          let targetTy ← Expr.abiTyWithEnv? env target
+          let elemTy ←
+            match targetTy with
+            | Ty.array elemTy none => some elemTy
+            | _ => none
+          let valueTy ← Ty.peelIndexSpineTy? elemTy trailing
+          let rhsCore ← Expr.toCoreAsWithEnv? storageNames env valueTy rhs
+          let trailingCore ←
+            mapOption
+              (Expr.abiArgCoreWithEnvCleanup? storageNames env) trailing
+          let lastIndex := storageLastPushedIndexExpr name []
+          let baseLv :=
+            SolidCore.Solidity.Source.LValue.storageIndex name lastIndex
+          let lv :=
+            trailingCore.foldl
+              (fun acc idx => SolidCore.Solidity.Source.LValue.index acc idx)
+              baseLv
+          some
+            (SolidCore.Solidity.Source.Stmt.block
+              [ SolidCore.Solidity.Source.Stmt.storageArrayPush name none
+              , SolidCore.Solidity.Source.Stmt.assign lv rhsCore ])
+      | _ => none
 
 def FunctionDecl.tupleItemsUseCoreWithInternalCalls?
     (internalFuel : Nat)
@@ -2945,11 +3003,66 @@ def Expr.isLowLevelCallExpr : Expr -> Bool
       true
   | _ => false
 
-def Expr.lowLevelTupleReturnCore? (storageNames : List Name)
+def Expr.lowLevelCallCoreWithEnvCleanup? (storageNames : List Name)
+    (env : TypeEnv) : Expr -> Option CoreExpr
+  | Expr.call (Expr.member target "call") [Arg.positional payload] => do
+      let targetCore ← Expr.toCore? storageNames target
+      let payloadCore ← Expr.abiArgCoreWithEnvCleanup? storageNames env payload
+      some
+        (SolidCore.Solidity.Source.Expr.lowLevelCall
+          SolidCore.Solidity.Source.LowLevelCallKind.call targetCore payloadCore
+          (SolidCore.Solidity.Source.Expr.word 0) none false)
+  | Expr.call (Expr.member target "staticcall") [Arg.positional payload] => do
+      let targetCore ← Expr.toCore? storageNames target
+      let payloadCore ← Expr.abiArgCoreWithEnvCleanup? storageNames env payload
+      some
+        (SolidCore.Solidity.Source.Expr.lowLevelCall
+          SolidCore.Solidity.Source.LowLevelCallKind.staticcall targetCore payloadCore
+          (SolidCore.Solidity.Source.Expr.word 0) none false)
+  | Expr.call (Expr.member target "delegatecall") [Arg.positional payload] => do
+      let targetCore ← Expr.toCore? storageNames target
+      let payloadCore ← Expr.abiArgCoreWithEnvCleanup? storageNames env payload
+      some
+        (SolidCore.Solidity.Source.Expr.lowLevelCall
+          SolidCore.Solidity.Source.LowLevelCallKind.delegatecall targetCore payloadCore
+          (SolidCore.Solidity.Source.Expr.word 0) none false)
+  | Expr.callWithOptions (Expr.member target "call") options
+      [Arg.positional payload] => do
+      let targetCore ← Expr.toCore? storageNames target
+      let payloadCore ← Expr.abiArgCoreWithEnvCleanup? storageNames env payload
+      let (valueCore, gasCore?, gasFirst) ←
+        CallOptions.lowLevelCallValueGasCore? storageNames options
+      some
+        (SolidCore.Solidity.Source.Expr.lowLevelCall
+          SolidCore.Solidity.Source.LowLevelCallKind.call targetCore payloadCore
+          valueCore gasCore? gasFirst)
+  | Expr.callWithOptions (Expr.member target "staticcall") options
+      [Arg.positional payload] => do
+      let targetCore ← Expr.toCore? storageNames target
+      let payloadCore ← Expr.abiArgCoreWithEnvCleanup? storageNames env payload
+      let (valueCore, gasCore?, gasFirst) ←
+        CallOptions.lowLevelDelegateGasCore? storageNames options
+      some
+        (SolidCore.Solidity.Source.Expr.lowLevelCall
+          SolidCore.Solidity.Source.LowLevelCallKind.staticcall targetCore payloadCore
+          valueCore gasCore? gasFirst)
+  | Expr.callWithOptions (Expr.member target "delegatecall") options
+      [Arg.positional payload] => do
+      let targetCore ← Expr.toCore? storageNames target
+      let payloadCore ← Expr.abiArgCoreWithEnvCleanup? storageNames env payload
+      let (valueCore, gasCore?, gasFirst) ←
+        CallOptions.lowLevelDelegateGasCore? storageNames options
+      some
+        (SolidCore.Solidity.Source.Expr.lowLevelCall
+          SolidCore.Solidity.Source.LowLevelCallKind.delegatecall targetCore payloadCore
+          valueCore gasCore? gasFirst)
+  | _ => none
+
+def Expr.lowLevelTupleReturnCore? (storageNames : List Name) (env : TypeEnv)
     (returnTys : List Ty) (expr : Expr) : Option CoreStmt := do
   if returnTys == [Ty.bool, Ty.bytes] && Expr.isLowLevelCallExpr expr then
     let returnTy ← Ty.toCore? lowLevelCallReturnTy
-    let coreExpr ← Expr.toCore? storageNames expr
+    let coreExpr ← Expr.lowLevelCallCoreWithEnvCleanup? storageNames env expr
     let resultName := "__solidcore_low_level_return"
     some
       (SolidCore.Solidity.Source.Stmt.block
@@ -2971,7 +3084,7 @@ def VarBindings.lowLevelTupleReturnCompatible :
   | [ { ty := some Ty.bool, .. }, { name := none, ty := none, .. } ] => true
   | _ => false
 
-def Expr.lowLevelTupleVarDeclCorePieces? (storageNames : List Name)
+def Expr.lowLevelTupleVarDeclCorePieces? (storageNames : List Name) (env : TypeEnv)
     (bindings : List VarBinding) (expr : Expr) :
     Option (List CoreStmt) := do
   if VarBindings.lowLevelTupleReturnCompatible bindings &&
@@ -2982,10 +3095,28 @@ def Expr.lowLevelTupleVarDeclCorePieces? (storageNames : List Name)
   let decls ← VarBindings.toCoreTupleDecls? bindings
   let targets ← VarBindings.toCoreTupleTargets? bindings
   let returnTy ← Ty.toCore? lowLevelCallReturnTy
-  let coreExpr ← Expr.toCore? storageNames expr
+  let coreExpr ← Expr.lowLevelCallCoreWithEnvCleanup? storageNames env expr
   let resultName := "__solidcore_low_level_return"
   some
     (decls ++
+      [ SolidCore.Solidity.Source.Stmt.varDecl
+          returnTy resultName (some coreExpr)
+      , SolidCore.Solidity.Source.Stmt.assignTuple
+          targets (SolidCore.Solidity.Source.Expr.var resultName) ])
+
+/-- Existing-variable sibling of `lowLevelTupleVarDeclCorePieces?`.  A
+    low-level call always returns `(bool, bytes)`; bind that pair once, with its
+    payload lowered env-aware, then destructure it into the tuple lvalues. -/
+def Expr.lowLevelTupleAssignCore? (storageNames : List Name) (env : TypeEnv)
+    (lhsItems : List TupleItem) (expr : Expr) : Option CoreStmt := do
+  if Expr.isLowLevelCallExpr expr then some () else none
+  let targets ← TupleItems.toCoreLValueTargets? storageNames lhsItems
+  if targets.length == 2 then some () else none
+  let returnTy ← Ty.toCore? lowLevelCallReturnTy
+  let coreExpr ← Expr.lowLevelCallCoreWithEnvCleanup? storageNames env expr
+  let resultName := "__solidcore_low_level_assign"
+  some
+    (SolidCore.Solidity.Source.Stmt.block
       [ SolidCore.Solidity.Source.Stmt.varDecl
           returnTy resultName (some coreExpr)
       , SolidCore.Solidity.Source.Stmt.assignTuple
@@ -3145,7 +3276,7 @@ def storageTupleDeclItemPiecesWithEnv? (storageRefEnv : StorageRefEnv)
   | Expr.member _ _
   | Expr.index _ _ =>
       match storageAliasDeclFromRefPathCore?
-          storageRefEnv storageNames binding item with
+          storageRefEnv env storageNames binding item with
       | some stmt => some [stmt]
       | none => (storageVarDeclCoreWithEnv? storageNames env binding item).map
           (fun stmt => [stmt])
@@ -3215,7 +3346,7 @@ def storageTernaryConditionAliasPieces? (internalFuel : Nat)
       match returnBindings with
       | [ret] => do
           let aliasStmt ←
-            storageAliasDeclFromTernaryCore? storageRefEnv storageNames binding
+            storageAliasDeclFromTernaryCore? storageRefEnv env storageNames binding
               (Expr.ident ret.name) thenExpr elseExpr
           some
             (prefixCore ++
@@ -3234,7 +3365,7 @@ def storageTernaryConditionAliasPieces? (internalFuel : Nat)
           | [] => none
           | _ :: _ => do
               let aliasStmt ←
-                storageAliasDeclFromTernaryCore? storageRefEnv storageNames binding
+                storageAliasDeclFromTernaryCore? storageRefEnv env storageNames binding
                   residualCond thenExpr elseExpr
               some (prefixStmts ++ [aliasStmt])
 
@@ -3327,6 +3458,27 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
       let storageNames :=
         stateNamesExcludingBound (TypeEnv.shadowedStateNames env) storageNames
       (match stmt with
+      | Stmt.expr
+          (Expr.assign lhs@(Expr.index
+            (Expr.call (Expr.member _ "push") []) _) AssignOp.assign rhs) =>
+          match Expr.storageArrayPushIndexedAssignCoreWithEnv?
+              storageNames env lhs rhs with
+          | some coreStmt => some coreStmt
+          | none =>
+              Stmt.toCore? storageNames
+                (Stmt.expr (Expr.assign lhs AssignOp.assign rhs))
+      | Stmt.expr
+          (Expr.assign lhs@(Expr.call (Expr.member target "push") [])
+            AssignOp.assign rhs) =>
+          match storageArrayPushPathCoreWithEnv? env storageNames target rhs with
+          | some coreStmt => some coreStmt
+          | none =>
+              match Expr.storageRefArrayPushAssignStmtCore?
+                  storageRefEnv env storageNames target rhs with
+              | some coreStmt => some coreStmt
+              | none =>
+                  Stmt.toCore? storageNames
+                    (Stmt.expr (Expr.assign lhs AssignOp.assign rhs))
       | Stmt.expr expr@(Expr.unary UnaryOp.preIncrement _)
       | Stmt.expr expr@(Expr.unary UnaryOp.preDecrement _)
       | Stmt.expr expr@(Expr.unary UnaryOp.postIncrement _)
@@ -3430,7 +3582,8 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                   match
                     (do
                       let coreOp ← AssignOp.toCoreBinary? op
-                      let lhsCore ← Expr.toCoreLValue? storageNames lhs
+                      let lhsCore ←
+                        Expr.toCoreLValueWithEnvCleanup? storageNames env lhs
                       let lhsTy ← Expr.abiTyWithEnv? env lhs
                       let cleanup ← Ty.toCoreValueCleanup? lhsTy
                       let useResult : CoreExpr -> CoreStmt := fun retExpr =>
@@ -3549,6 +3702,23 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           -- no per-component target type and drops the mask (wrong value, no
           -- revert). Reroute env-aware only when a mask is actually inserted;
           -- every other tuple assignment keeps the byte-identical path below.
+          match (if TupleItems.anyAbiArgNeedsEnvCleanup rhsItems then do
+              let targetTys ←
+                FunctionDecl.tupleAssignTargetTysWithDirectPush?
+                  functions freeFunctions env lhsItems rhsItems
+              let targets ←
+                TupleItems.toCoreLValueTargets? storageNames lhsItems
+              FunctionDecl.tupleItemsUseCoreWithInternalCalls?
+                internalFuel storageRefEnv env externalCallKindEnv storageNames
+                modifiers functions freeFunctions "_sol_tuple_cleanup_rhs"
+                0 targetTys rhsItems
+                (fun coreExprs =>
+                  SolidCore.Solidity.Source.Stmt.assignTuple
+                    targets
+                    (SolidCore.Solidity.Source.Expr.tuple coreExprs))
+            else none) with
+          | some coreStmt => some coreStmt
+          | none =>
           match tupleAssignBitAwareCore? storageNames env lhsItems rhsItems with
           | some coreStmt => some coreStmt
           | none =>
@@ -3626,6 +3796,14 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                           (lhsPrefix ++
                             [ SolidCore.Solidity.Source.Stmt.assignTuple targets
                                 (SolidCore.Solidity.Source.Expr.tuple coreExprs) ]))
+      | Stmt.expr
+          (Expr.assign (Expr.tuple lhsItems) AssignOp.assign expr) =>
+          match Expr.lowLevelTupleAssignCore? storageNames env lhsItems expr with
+          | some coreStmt => some coreStmt
+          | none =>
+              Stmt.toCore? storageNames
+                (Stmt.expr
+                  (Expr.assign (Expr.tuple lhsItems) AssignOp.assign expr))
       | Stmt.expr
           (Expr.call
             (Expr.member (Expr.call (Expr.ident name) args) "push")
@@ -3740,7 +3918,8 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                 some ()
               else
                 none
-              let indexCore ← Expr.toCore? storageNames index
+              let indexCore ←
+                Expr.abiArgCoreWithEnvCleanup? storageNames env index
               FunctionDecl.internalSingleStorageReturnRefCore?
                 internalFuel storageRefEnv env externalCallKindEnv storageNames
                 modifiers functions freeFunctions name args
@@ -3773,7 +3952,8 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                      let (name, args, indexes) ←
                        Expr.callRootedIndexSpine? receiver
                      let indexCores ←
-                       mapOption (Expr.toCore? storageNames) indexes
+                       mapOption
+                         (Expr.abiArgCoreWithEnvCleanup? storageNames env) indexes
                      FunctionDecl.internalSingleStorageReturnRefCore?
                        internalFuel storageRefEnv env externalCallKindEnv
                        storageNames modifiers functions freeFunctions name args
@@ -3785,7 +3965,8 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                      let (name, args, indexes) ←
                        Expr.callRootedIndexSpine? receiver
                      let indexCores ←
-                       mapOption (Expr.toCore? storageNames) indexes
+                       mapOption
+                         (Expr.abiArgCoreWithEnvCleanup? storageNames env) indexes
                      -- NARROW-PUSH (#183) through the returned ref: lower the
                      -- pushed value against the array ELEMENT type recovered
                      -- from the callee's return type down the index spine, so
@@ -3842,6 +4023,13 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                  | Expr.call (Expr.member target "push") [Arg.positional value] =>
                      storageArrayPushPathCoreWithEnv? env storageNames target value
                  | _ => none) with
+          | some coreStmt => some coreStmt
+          | none =>
+          match (if Expr.abiArgNeedsEnvCleanup? expr then do
+              let ty ← Expr.abiTyWithEnv? env expr
+              let coreExpr ← Expr.toCoreAsWithEnv? storageNames env ty expr
+              some (SolidCore.Solidity.Source.Stmt.exprStmt coreExpr)
+            else none) with
           | some coreStmt => some coreStmt
           | none =>
           match Stmt.toCore? storageNames (Stmt.expr expr) with
@@ -3923,18 +4111,6 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           | none =>
               Expr.externalCallDiscardCoreWithKindEnv? (argEnvLower := Expr.externalCallArgEnvLower storageNames env)
                 storageNames env externalCallKindEnv expr
-      | Stmt.expr
-          (Expr.assign
-            (Expr.call (Expr.member target "push") [])
-            AssignOp.assign rhs) =>
-          match Expr.storageRefArrayPushAssignStmtCore?
-              storageRefEnv env storageNames target rhs with
-          | some coreStmt => some coreStmt
-          | none => Stmt.toCore? storageNames
-              (Stmt.expr
-                (Expr.assign
-                  (Expr.call (Expr.member target "push") [])
-                  AssignOp.assign rhs))
       | Stmt.expr
           (Expr.call (Expr.ident "assert")
             [Arg.positional (Expr.call (Expr.ident name) args)]) =>
@@ -4107,7 +4283,7 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
             , Arg.positional
                 (Expr.call (Expr.ident errorName)
                   [Arg.positional (Expr.call (Expr.ident name) args)]) ]) => do
-          let condCore ← Expr.toCore? storageNames cond
+          let condCore ← Expr.conditionCoreWithEnv? storageNames env cond
           let condTmp := "_sol_require_cond"
           match FunctionDecl.internalSingleReturnCallCore?
               internalFuel storageRefEnv env externalCallKindEnv storageNames
@@ -4140,7 +4316,7 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           | some coreStmt => some coreStmt
           | none =>
               do
-                let condCore ← Expr.toCore? storageNames cond
+                let condCore ← Expr.conditionCoreWithEnv? storageNames env cond
                 let condTmp := "_sol_require_cond"
                 match FunctionDecl.internalSingleReturnCallCore?
                     internalFuel storageRefEnv env externalCallKindEnv storageNames
@@ -4215,6 +4391,13 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
             match builtinEnvAware? with
             | some coreStmt => some coreStmt
             | none =>
+            match (if Expr.abiArgNeedsEnvCleanup? expr then do
+                let ty ← Expr.abiTyWithEnv? env expr
+                let coreExpr ← Expr.toCoreAsWithEnv? storageNames env ty expr
+                some (SolidCore.Solidity.Source.Stmt.exprStmt coreExpr)
+              else none) with
+            | some coreStmt => some coreStmt
+            | none =>
             match Expr.externalFunctionValueCallDiscardCore? storageNames env expr with
             | some coreStmt => some coreStmt
             | none =>
@@ -4249,9 +4432,19 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
               (fun _ => SolidCore.Solidity.Source.Stmt.skip) with
           | some coreStmt => some coreStmt
           | none =>
-              Stmt.toCore? storageNames
-                (Stmt.expr
-                  (Expr.call (Expr.typeName targetTy) [Arg.positional inner]))
+              match (if Expr.abiArgNeedsEnvCleanup? inner then do
+                  let coreExpr ←
+                    Expr.toCoreAsWithEnv? storageNames env targetTy
+                      (Expr.call (Expr.typeName targetTy)
+                        [Arg.positional inner])
+                  some (SolidCore.Solidity.Source.Stmt.exprStmt coreExpr)
+                else none) with
+              | some coreStmt => some coreStmt
+              | none =>
+                  Stmt.toCore? storageNames
+                    (Stmt.expr
+                      (Expr.call (Expr.typeName targetTy)
+                        [Arg.positional inner]))
       | Stmt.expr expr@(Expr.callWithOptions (Expr.ident _) _ _) =>
           match Expr.externalFunctionValueCallDiscardCore? storageNames env expr with
           | some coreStmt => some coreStmt
@@ -4268,7 +4461,16 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                     externalCallKindEnv storageNames modifiers functions
                     freeFunctions returnTys expr (fun e => Stmt.expr e) with
               | some coreStmt => some coreStmt
-              | none => Stmt.toCore? storageNames (Stmt.expr expr)
+              | none =>
+                  match (if Expr.abiArgNeedsEnvCleanup? expr then do
+                      let ty ← Expr.abiTyWithEnv? env expr
+                      let coreExpr ←
+                        Expr.toCoreAsWithEnv? storageNames env ty expr
+                      some
+                        (SolidCore.Solidity.Source.Stmt.exprStmt coreExpr)
+                    else none) with
+                  | some coreStmt => some coreStmt
+                  | none => Stmt.toCore? storageNames (Stmt.expr expr)
       | Stmt.expr expr@(Expr.callWithOptions (Expr.newExpr _ []) _ _) =>
           match
             Expr.toContractCreationCoreWithKindEnv?
@@ -4302,7 +4504,9 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                     (Expr.index base (Expr.call (Expr.ident iname) iargs))
                 let targetCoreTy ← Ty.toCore? targetTy
                 let rhsCore ← Expr.toCoreAsWithEnv? storageNames env targetTy rhs
-                let buildLV ← Expr.indexLValueCoreBuilder? storageNames base
+                let baseLV ← Expr.toCoreLValueWithEnvCleanup? storageNames env base
+                let buildLV := fun idx =>
+                  SolidCore.Solidity.Source.LValue.index baseLV idx
                 let hoisted ←
                   FunctionDecl.internalSingleReturnCallCore?
                     internalFuel storageRefEnv env externalCallKindEnv storageNames
@@ -4330,7 +4534,10 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                       Expr.abiTyWithEnv? env
                         (Expr.index base (Expr.call (Expr.ident iname) iargs))
                     let targetCoreTy ← Ty.toCore? targetTy
-                    let buildLV ← Expr.indexLValueCoreBuilder? storageNames base
+                    let baseLV ←
+                      Expr.toCoreLValueWithEnvCleanup? storageNames env base
+                    let buildLV := fun idx =>
+                      SolidCore.Solidity.Source.LValue.index baseLV idx
                     let indexHoist ←
                       FunctionDecl.internalSingleReturnCallCore?
                         internalFuel storageRefEnv env externalCallKindEnv
@@ -4358,7 +4565,7 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
               | none => Stmt.toCore? storageNames original
       | Stmt.expr (Expr.assign lhs AssignOp.assign
           expr@(Expr.call (Expr.member _ _) _)) =>
-          match Expr.toCoreLValue? storageNames lhs,
+          match Expr.toCoreLValueWithEnvCleanup? storageNames env lhs,
               Expr.abiTyWithEnv? env lhs with
           | some lhsCore, some expectedTy =>
               match Expr.externalCallSingleReturnCoreWithKindEnv? (argEnvLower := Expr.externalCallArgEnvLower storageNames env)
@@ -4385,7 +4592,7 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
               (Stmt.expr (Expr.assign lhs AssignOp.assign expr))
       | Stmt.expr (Expr.assign lhs AssignOp.assign
           expr@(Expr.callWithOptions (Expr.member _ _) _ _)) =>
-          match Expr.toCoreLValue? storageNames lhs,
+          match Expr.toCoreLValueWithEnvCleanup? storageNames env lhs,
               Expr.abiTyWithEnv? env lhs with
           | some lhsCore, some expectedTy =>
               match Expr.externalCallSingleReturnCoreWithKindEnv? (argEnvLower := Expr.externalCallArgEnvLower storageNames env)
@@ -4399,7 +4606,7 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
               (Stmt.expr (Expr.assign lhs AssignOp.assign expr))
       | Stmt.expr (Expr.assign lhs AssignOp.assign
           expr@(Expr.call (Expr.ident name) args)) =>
-          match Expr.toCoreLValue? storageNames lhs with
+          match Expr.toCoreLValueWithEnvCleanup? storageNames env lhs with
           | some lhsCore =>
               let lhsTy? := Expr.abiTyWithEnv? env lhs
               match Expr.externalFunctionValueCallSingleReturnCore?
@@ -4440,7 +4647,7 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                   (Expr.call (Expr.ident name) args)))
       | Stmt.expr (Expr.assign lhs AssignOp.assign
           expr@(Expr.callWithOptions (Expr.ident _) _ _)) =>
-          match Expr.toCoreLValue? storageNames lhs with
+          match Expr.toCoreLValueWithEnvCleanup? storageNames env lhs with
           | some lhsCore =>
               let lhsTy? := Expr.abiTyWithEnv? env lhs
               match Expr.externalFunctionValueCallSingleReturnCore?
@@ -4460,7 +4667,7 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
               (Stmt.expr (Expr.assign lhs AssignOp.assign expr))
       | Stmt.expr (Expr.assign lhs AssignOp.assign
           expr@(Expr.newExpr _ _)) =>
-          match Expr.toCoreLValue? storageNames lhs with
+          match Expr.toCoreLValueWithEnvCleanup? storageNames env lhs with
           | some lhsCore =>
               match
                 Expr.toContractCreationCoreWithKindEnv?
@@ -4473,7 +4680,7 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
               (Stmt.expr (Expr.assign lhs AssignOp.assign expr))
       | Stmt.expr (Expr.assign lhs AssignOp.assign
           expr@(Expr.callWithOptions (Expr.newExpr _ []) _ _)) =>
-          match Expr.toCoreLValue? storageNames lhs with
+          match Expr.toCoreLValueWithEnvCleanup? storageNames env lhs with
           | some lhsCore =>
               match
                 Expr.toContractCreationCoreWithKindEnv?
@@ -4491,7 +4698,7 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
             Stmt.expr
               (Expr.assign target AssignOp.assign
                 (Expr.ternary cond thenExpr elseExpr))
-          match Expr.toCoreLValue? storageNames target with
+          match Expr.toCoreLValueWithEnvCleanup? storageNames env target with
           | some targetCore =>
               let targetTy? := Expr.abiTyWithEnv? env target
               let conditionBranchAssign? : Option CoreStmt := do
@@ -4584,7 +4791,7 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
             Stmt.expr
               (Expr.assign target AssignOp.assign
                 (Expr.unary op expr))
-          match Expr.toCoreLValue? storageNames target with
+          match Expr.toCoreLValueWithEnvCleanup? storageNames env target with
           | some targetCore =>
               let targetTy? := Expr.abiTyWithEnv? env target
               match FunctionDecl.internalUnarySingleReturnUseCore?
@@ -4612,7 +4819,7 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
               (Expr.assign target AssignOp.assign
                 (Expr.call (Expr.typeName targetTy)
                   [Arg.positional inner]))
-          match Expr.toCoreLValue? storageNames target with
+          match Expr.toCoreLValueWithEnvCleanup? storageNames env target with
           | some targetCore =>
               let targetTy? := Expr.abiTyWithEnv? env target
               match FunctionDecl.internalTypeConversionSingleReturnUseCore?
@@ -4638,7 +4845,7 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
             Stmt.expr
               (Expr.assign target AssignOp.assign
                 (Expr.binary op lhs rhs))
-          match Expr.toCoreLValue? storageNames target with
+          match Expr.toCoreLValueWithEnvCleanup? storageNames env target with
           | some targetCore =>
               let targetTy? := Expr.abiTyWithEnv? env target
               match FunctionDecl.internalBinarySingleReturnUseCore?
@@ -4668,7 +4875,7 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
               -- contains a call fails there and preserves the prior over-reject.
               -- solc evaluates the RHS then the (pure-index) LHS reference, which
               -- the prefix-then-assign shape reproduces.
-              match Expr.toCoreLValue? storageNames lhs with
+              match Expr.toCoreLValueWithEnvCleanup? storageNames env lhs with
               | some targetCore =>
                   let targetTy? := Expr.abiTyWithEnv? env lhs
                   match FunctionDecl.internalExprSingleReturnUseCore?
@@ -5465,7 +5672,7 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
             else none) with
           | some coreStmt => some coreStmt
           | none =>
-          match Expr.lowLevelTupleReturnCore? storageNames returnTys expr with
+          match Expr.lowLevelTupleReturnCore? storageNames env returnTys expr with
           | some coreStmt => some coreStmt
           | none =>
             if returnTys.isEmpty then
@@ -5486,7 +5693,7 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                   Stmt.toCore? storageNames (Stmt.returnValues (some expr))
       | Stmt.returnValues
           (some expr@(Expr.callWithOptions (Expr.member _ _) _ _)) =>
-          match Expr.lowLevelTupleReturnCore? storageNames returnTys expr with
+          match Expr.lowLevelTupleReturnCore? storageNames env returnTys expr with
           | some coreStmt => some coreStmt
           | none =>
               match Expr.externalCallReturnCoreWithKindEnv? (argEnvLower := Expr.externalCallArgEnvLower storageNames env)
@@ -5651,7 +5858,8 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
               (some (Expr.index base (Expr.call (Expr.ident iname) iargs)))
           match
               (do
-                let buildRead ← Expr.indexReadCoreBuilder? storageNames base
+                let buildRead ←
+                  Expr.indexReadCoreBuilderWithEnvCleanup? storageNames env base
                 FunctionDecl.internalSingleReturnCallCore?
                   internalFuel storageRefEnv env externalCallKindEnv storageNames
                   modifiers functions freeFunctions iname iargs
@@ -6248,6 +6456,14 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
             some SolidCore.Solidity.Source.Stmt.skip
           else
             Stmt.toCore? storageNames (Stmt.expr (Expr.ident name))
+      | Stmt.expr expr =>
+          match (if Expr.abiArgNeedsEnvCleanup? expr then do
+              let ty ← Expr.abiTyWithEnv? env expr
+              Expr.toCoreAsWithEnv? storageNames env ty expr
+            else none) with
+          | some coreExpr =>
+              some (SolidCore.Solidity.Source.Stmt.exprStmt coreExpr)
+          | none => Stmt.toCore? storageNames (Stmt.expr expr)
       | other => Stmt.toCore? storageNames other
       )
   | none =>
@@ -6763,7 +6979,7 @@ def Stmt.listLowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
       | Stmt.varDecl [binding] (some source@(Expr.member _ _)) :: rest =>
           match
               storageAliasDeclFromRefPathCore?
-                storageRefEnv storageNames binding source with
+                storageRefEnv env storageNames binding source with
           | some head => do
               let tail ←
                 Stmt.listToCoreWithInternalCallsWithRefs?
@@ -6797,7 +7013,7 @@ def Stmt.listLowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
       | Stmt.varDecl [binding] (some source@(Expr.index _ _)) :: rest =>
           match
               storageAliasDeclFromRefPathCore?
-                storageRefEnv storageNames binding source with
+                storageRefEnv env storageNames binding source with
           | some head => do
               let tail ←
                 Stmt.listToCoreWithInternalCallsWithRefs?
@@ -6994,6 +7210,25 @@ def Stmt.listLowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                 bindings items with
             | some decls => some decls
             | none =>
+            match (if TupleItems.anyAbiArgNeedsEnvCleanup items then do
+                if bindings.length == items.length then some () else none
+                let tys ←
+                  VarBindings.tupleDeclItemTysWithEnv?
+                    functions freeFunctions env bindings items
+                let coreDecls ← VarBindings.toCoreTupleDecls? bindings
+                let targets ← VarBindings.toCoreTupleTargets? bindings
+                let body ←
+                  FunctionDecl.tupleItemsUseCoreWithInternalCalls?
+                    internalFuel storageRefEnv env externalCallKindEnv
+                    storageNames modifiers functions freeFunctions
+                    "_sol_tuple_decl_cleanup" 0 tys items
+                    (fun coreExprs =>
+                      SolidCore.Solidity.Source.Stmt.assignTuple targets
+                        (SolidCore.Solidity.Source.Expr.tuple coreExprs))
+                some (coreDecls ++ [body])
+              else none) with
+            | some pieces => some pieces
+            | none =>
             -- FB1: `(bytesN x, …) = (b << k, …)` decl form — same lane-cleanup
             -- reroute as the tuple-assignment arm (see `tupleAssignBitAwareCore?`).
             -- The literal-tuple decl lowering below (`tupleVarDeclCorePieces?` via
@@ -7048,7 +7283,7 @@ def Stmt.listLowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           -- memory ternaries fall through to the branch-assignment lowering below.
           match
               storageAliasDeclFromTernaryCore?
-                storageRefEnv storageNames binding cond thenExpr elseExpr with
+                storageRefEnv env storageNames binding cond thenExpr elseExpr with
           | some head => do
               let tail ←
                 Stmt.listToCoreWithInternalCallsWithRefs?
@@ -7941,7 +8176,7 @@ def Stmt.listLowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           some (pieces ++ tail)
       | Stmt.varDecl bindings (some expr@(Expr.call (Expr.member _ _) _)) :: rest => do
           let callStmts ←
-            match Expr.lowLevelTupleVarDeclCorePieces? storageNames bindings expr with
+            match Expr.lowLevelTupleVarDeclCorePieces? storageNames env bindings expr with
             | some pieces => some pieces
             | none =>
                 Expr.externalCallAssignBindingsCorePiecesWithKindEnv? (argEnvLower := Expr.externalCallArgEnvLower storageNames env)
@@ -7957,7 +8192,7 @@ def Stmt.listLowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
       | Stmt.varDecl bindings
           (some expr@(Expr.callWithOptions (Expr.member _ _) _ _)) :: rest => do
           let callStmts ←
-            match Expr.lowLevelTupleVarDeclCorePieces? storageNames bindings expr with
+            match Expr.lowLevelTupleVarDeclCorePieces? storageNames env bindings expr with
             | some pieces => some pieces
             | none =>
                 Expr.externalCallAssignBindingsCorePiecesWithKindEnv? (argEnvLower := Expr.externalCallArgEnvLower storageNames env)

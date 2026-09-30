@@ -8260,8 +8260,7 @@ def Expr.abiArgNeedsEnvCleanupFuel? : Nat -> Expr -> Bool
               match expr with
               | Expr.call (Expr.typeName castTy) [Arg.positional inner] =>
                   Ty.isFixedBytes castTy &&
-                    ((Expr.peelToOverflowArithmetic? inner).isSome ||
-                      (Expr.peelToNarrowNeg? inner).isSome)
+                    Expr.abiArgNeedsEnvCleanupFuel? fuel inner
               -- A resolved struct constructor is a tuple of per-field casts.
               -- Look through each cast so a field such as
               -- `bool(a + b > 5)` retains the uintN operand-width check when
@@ -8285,7 +8284,8 @@ def Expr.abiArgNeedsEnvCleanupFuel? : Nat -> Expr -> Bool
               -- array-literal decline-fallback
               -- (`Expr.abiArrayLiteralWithEnvFuel?`) types and lowers it.
               | Expr.array elems =>
-                  (Expr.arrayLiteralCommonTy? [] elems).isNone
+                  (Expr.arrayLiteralCommonTy? [] elems).isNone ||
+                    elems.any (Expr.abiArgNeedsEnvCleanupFuel? fuel)
               -- ENCODECALL-ARG (S, narrow-add-abi-encodecall-arg): an argument
               -- that is ITSELF `abi.encodeCall(fnPtr, (…))` whose argument
               -- TUPLE carries narrow checked arithmetic
@@ -8455,6 +8455,12 @@ def defaultAbiCleanupDetectionFuel : Nat := 1024
 
 def Expr.abiArgNeedsEnvCleanup? (expr : Expr) : Bool :=
   Expr.abiArgNeedsEnvCleanupFuel? defaultAbiCleanupDetectionFuel expr
+
+def TupleItems.anyAbiArgNeedsEnvCleanup (items : List TupleItem) : Bool :=
+  items.any (fun item =>
+    match item with
+    | TupleItem.value expr => Expr.abiArgNeedsEnvCleanup? expr
+    | TupleItem.hole => false)
 
 /-- STAGE-D #193 (statement side): does a RETURN-position `abi.encode*` /
     `keccak256`/`sha256`/`ripemd160` / `bytes.concat`/`string.concat` call carry
