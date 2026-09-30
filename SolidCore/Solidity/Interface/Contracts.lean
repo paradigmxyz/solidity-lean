@@ -1579,9 +1579,15 @@ def StateVarDecl.toCoreInitWithInternalCalls?
       else
         Expr.rewriteInternalFnValueIdentsFuel internalFnIds []
           defaultInlineConstantsFuel expr
-    if Expr.abiArgNeedsEnvCleanup? expr then some () else none
+    let internalFnInit := Ty.isInternalFunctionValueTy decl.ty
+    if Expr.abiArgNeedsEnvCleanup? expr || internalFnInit then some () else none
     let sourceTy ← Expr.abiTyWithEnv? env expr
-    let initCore ← Expr.toCoreAsWithEnv? storageNames env sourceTy expr
+    -- Rewriting a bare internal-function name produces its numeric dispatch-ID
+    -- literal. Lower that literal against the DECLARED function type so it
+    -- becomes a core `internalFunction` value before the storage write; lowering
+    -- it at its inferred numeric type makes construction reject the value.
+    let initTy := if internalFnInit then decl.ty else sourceTy
+    let initCore ← Expr.toCoreAsWithEnv? storageNames env initTy expr
     match decl.mutability with
     | VarMutability.mutable
     | VarMutability.transient => do
@@ -2029,6 +2035,12 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
     sourceErrors.map (ErrorDecl.resolveEnums enumEnv)
   let sourceConstants :=
     sourceConstants.map (StateVarDecl.resolveEnums enumEnv)
+  -- File-scope structs participate in the struct environment below.  Resolve
+  -- enum fields before registering them; otherwise resolving a state variable
+  -- of that struct copies unresolved `Ty.user E` fields into the structural
+  -- type, where storage layout later mistakes each enum for an address word.
+  let sourceStructs :=
+    sourceStructs.map (StructDecl.resolveEnums enumEnv)
   let storageOrder :=
     storageOrder.map (ContractDecl.resolveEnums enumEnv)
   let dispatchOrder :=
@@ -2670,6 +2682,8 @@ def ContractDecl.constructorFunctionFromOrders?
     sourceErrors.map (ErrorDecl.resolveEnums enumEnv)
   let sourceConstants :=
     sourceConstants.map (StateVarDecl.resolveEnums enumEnv)
+  let sourceStructs :=
+    sourceStructs.map (StructDecl.resolveEnums enumEnv)
   let structEnv :=
     let freeEnv := StructEnv.extendDecls [] sourceStructs
     ContractDecl.structEnvFromContractsInScope

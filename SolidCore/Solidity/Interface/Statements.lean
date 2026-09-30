@@ -2490,6 +2490,19 @@ def TupleItems.toCoreRhsBitAwareExprs? (storageNames : List Name) (env : TypeEnv
           some (core :: restCore, restMasked)
   | _, _ => none
 
+/-- Detect a fixed-bytes bit operation anywhere in a nested tuple RHS.  Nested
+    tuple assignment normally takes the env-less fast path, which loses the
+    per-operation bytesN lane cleanup. -/
+def TupleItems.anyFixedBytesBitOpShape : List TupleItem -> Bool
+  | [] => false
+  | TupleItem.hole :: rest => TupleItems.anyFixedBytesBitOpShape rest
+  | TupleItem.value (Expr.tuple items) :: rest =>
+      TupleItems.anyFixedBytesBitOpShape items ||
+        TupleItems.anyFixedBytesBitOpShape rest
+  | TupleItem.value expr :: rest =>
+      Expr.isFixedBytesBitOpShape expr ||
+        TupleItems.anyFixedBytesBitOpShape rest
+
 /-- FB1 (tuple-RHS lane cleanup), ASSIGNMENT form `(x, y, …) = (r0, r1, …)`.
     The plain env-LESS tuple-assign lowering (`tupleAssignmentCore?` via
     `Expr.toCore?`) has no per-component target type, so a `bytesN` `<<` / `~`
@@ -2537,6 +2550,35 @@ def tupleVarDeclBitAwarePieces? (storageNames : List Name) (env : TypeEnv)
               (SolidCore.Solidity.Source.Expr.tuple coreExprs) ])
     else none
   else none
+
+def Expr.isDirectStorageByteString (storageNames : List Name)
+    (env : TypeEnv) : Expr -> Bool
+  | Expr.ident name =>
+      (stateNameRuntimeKey? name storageNames).isSome &&
+        (match TypeEnv.lookup? env name with
+         | some Ty.bytes | some Ty.string => true
+         | _ => false)
+  | _ => false
+
+/-- A tuple assignment between direct storage `bytes`/`string` variables does
+    not snapshot payloads. Legacy solc performs the component stores from right
+    to left; each later read therefore observes an earlier component store.
+    Emit those copies as sequential assignments in reverse component order. -/
+def tupleDirectStorageByteStringAssignPieces? (storageNames : List Name)
+    (env : TypeEnv) :
+    List TupleItem -> List TupleItem -> Option (List CoreStmt)
+  | [], [] => some []
+  | TupleItem.value lhs :: lhsRest, TupleItem.value rhs :: rhsRest => do
+      if Expr.isDirectStorageByteString storageNames env lhs &&
+          Expr.isDirectStorageByteString storageNames env rhs then
+        some ()
+      else none
+      let head ← assignmentCoreWithEnv? storageNames env lhs rhs
+      let tail ←
+        tupleDirectStorageByteStringAssignPieces?
+          storageNames env lhsRest rhsRest
+      some (head :: tail)
+  | _, _ => none
 
 def varDeclCoreWithEnv? (storageNames : List Name)
     (env : TypeEnv) (binding : VarBinding) (expr : Expr) :
@@ -3289,6 +3331,14 @@ def storageTupleDeclItemsPiecesWithEnv? (storageRefEnv : StorageRefEnv)
     (env : TypeEnv) (storageNames : List Name) :
     List VarBinding -> List TupleItem -> Option (List CoreStmt)
   | [], [] => some []
+  | { name := none, ty := none, location := none } :: bindings,
+      TupleItem.value (Expr.literal _) :: items =>
+      storageTupleDeclItemsPiecesWithEnv?
+        storageRefEnv env storageNames bindings items
+  | { name := none, ty := none, location := none } :: bindings,
+      TupleItem.hole :: items =>
+      storageTupleDeclItemsPiecesWithEnv?
+        storageRefEnv env storageNames bindings items
   | binding :: bindings, TupleItem.value item :: items => do
       let head ←
         storageTupleDeclItemPiecesWithEnv?
@@ -3308,9 +3358,11 @@ def storageTupleDeclAllPiecesWithEnv? (internalFuel : Nat)
     (modifiers : List SourceModifierDecl)
     (functions freeFunctions : List FunctionDecl)
     (bindings : List VarBinding) (items : List TupleItem) :
-    Option (List CoreStmt) := do
+  Option (List CoreStmt) := do
   if bindings.length == items.length then some () else none
-  if VarBindings.allStoragePointers bindings then some () else none
+  if VarBindings.allStoragePointersOrDiscardedLiterals bindings items then
+    some ()
+  else none
   match
       storageTupleDeclItemsPiecesWithEnv?
         storageRefEnv env storageNames bindings items with
@@ -3528,19 +3580,25 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           | some coreExpr =>
               some (SolidCore.Solidity.Source.Stmt.exprStmt coreExpr)
           | none =>
-          -- #201 (G): a compound-assign whose LVALUE index KEY carries narrow
-          -- checked arithmetic (`arr[a + b] += 1`, `uint8 a,b`) must lower the key
-          -- env-aware (`Expr.toCoreLValueWithEnv?`, exactly as plain `=` does via
-          -- `assignmentCoreWithEnv?`) so the operand-width Panic 0x11 fires BEFORE
-          -- the slot is computed; `Expr.toCoreAssignOpWithEnv?` below lowers the
-          -- lvalue env-LESS (key bare at 256 bits → read-modify-wrote arr[300]).
-          -- Same `assignOpCleanupExpr` shape; only flagged index keys reroute.
+          -- A compound assignment must preserve source-width cleanup in every
+          -- nested lvalue index and throughout its RHS.  The generic helper is
+          -- intentionally env-less; reroute only when either subtree is flagged.
           match (match expr with
-            | Expr.assign lhs@(Expr.index _ key) op rhs =>
-                if Expr.abiArgNeedsEnvCleanup? key then do
+            | Expr.assign lhs op rhs =>
+                if Expr.abiArgNeedsEnvCleanup? lhs ||
+                    Expr.abiArgNeedsEnvCleanup? rhs then do
                   let coreOp ← AssignOp.toCoreBinary? op
-                  let lhsCore ← Expr.toCoreLValueWithEnv? storageNames env lhs
-                  let rhsCore ← Expr.toCore? storageNames rhs
+                  let lhsCore ←
+                    if Expr.abiArgNeedsEnvCleanup? lhs then
+                      Expr.toCoreLValueWithEnv? storageNames env lhs
+                    else
+                      Expr.toCoreLValue? storageNames lhs
+                  let rhsCore ←
+                    if Expr.abiArgNeedsEnvCleanup? rhs then do
+                      let rhsTy ← Expr.abiTyWithEnv? env rhs
+                      Expr.toCoreAsWithEnv? storageNames env rhsTy rhs
+                    else
+                      Expr.toCore? storageNames rhs
                   let lhsTy ← Expr.abiTyWithEnv? env lhs
                   let cleanup ← Ty.toCoreValueCleanup? lhsTy
                   some
@@ -3620,6 +3678,10 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           -- write; every other delete keeps the env-less `Stmt.toCore?` path
           -- byte-identically.
           match (match target with
+            | Expr.call (Expr.member pushTarget "push") [] =>
+                -- The appended element starts at zero, so deleting it is a
+                -- value no-op. The array-growth effect must still occur.
+                storageArrayPushPathCore? storageNames pushTarget none
             | Expr.index _ key =>
                 if Expr.abiArgNeedsEnvCleanup? key then
                   (Expr.toCoreLValueWithEnv? storageNames env target).map
@@ -3687,6 +3749,11 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                       [ SolidCore.Solidity.Source.Stmt.assignTuple targets
                           (SolidCore.Solidity.Source.Expr.tuple coreExprs) ]))
           | _ =>
+          match tupleDirectStorageByteStringAssignPieces?
+              storageNames env lhsItems rhsItems with
+          | some pieces =>
+              some (SolidCore.Solidity.Source.Stmt.block pieces.reverse)
+          | none =>
           -- Stage B (boundary-completion arc): tuple-literal RHS whose components
           -- contain internal calls — `(a, b) = (f(), g())`, `(, b) = (f(), g())`.
           -- solc evaluates the components LEFT-to-right, each into its own temp,
@@ -3723,6 +3790,28 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           | some coreStmt => some coreStmt
           | none =>
           match tupleAssignBitAwareCore? storageNames env lhsItems rhsItems with
+          | some coreStmt => some coreStmt
+          | none =>
+          -- The flat bit-aware helper intentionally declines a nested target.
+          -- When a nested RHS contains a bytesN bit operation, reuse the
+          -- established nested hoister: it lowers every leaf at its inferred
+          -- source type through the env-aware path, then destructures the
+          -- resulting nested tuple after all RHS values are evaluated.
+          match (if TupleItems.hasNestedTuple lhsItems &&
+              TupleItems.anyFixedBytesBitOpShape rhsItems then do
+                let targets ←
+                  TupleItems.toCoreTupleTargets? storageNames lhsItems
+                let (prefixStmts, replExprs) ←
+                  FunctionDecl.nestedTupleRhsHoistList?
+                    internalFuel storageRefEnv env externalCallKindEnv
+                    storageNames modifiers functions freeFunctions
+                    "_sol_nested_tuple_cleanup_item" 0 rhsItems
+                some
+                  (SolidCore.Solidity.Source.Stmt.block
+                    (prefixStmts ++
+                      [ SolidCore.Solidity.Source.Stmt.assignTupleNested targets
+                          (SolidCore.Solidity.Source.Expr.tuple replExprs) ]))
+            else none) with
           | some coreStmt => some coreStmt
           | none =>
           match
@@ -5189,16 +5278,9 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                     (SolidCore.Solidity.Source.Stmt.block
                       [declCore, assignBlock])
               | none =>
-                  -- #201 (B): a MEMBER-call initializer that is an abi/concat
-                  -- builtin with a flagged argument
-                  -- (`bytes memory z = abi.encode(a + b)`,
-                  -- `bytes memory z = abi.encode(abi.encodePacked(a + b))`,
-                  -- `uint8 a,b`) is not an external call, so the chain above
-                  -- declines and the statement fell env-less (silently encoding
-                  -- 300). Route it through `varDeclCoreWithEnv?` so the env-aware
-                  -- `abi.*`/concat arms fire the operand-width Panic 0x11;
-                  -- unflagged member-call vardecls keep the env-less fallback
-                  -- byte-identically.
+                  -- Builtin member calls with flagged arguments need the
+                  -- env-aware declaration path. Unflagged concat calls retain
+                  -- the call-hoisting path below.
                   match (if Expr.abiBuiltinArgsNeedEnvCleanup expr then
                       varDeclCoreWithEnv? storageNames env binding expr
                     else none) with
@@ -5398,13 +5480,8 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           | _, _ => Stmt.toCore? storageNames
               (Stmt.varDecl [binding] (some expr))
       | Stmt.varDecl bindings (some expr@(Expr.call (Expr.member _ _) _)) =>
-          -- #201 (B): a MEMBER-call initializer that is an abi/concat builtin with
-          -- a flagged argument (`bytes memory z = abi.encode(a + b)`, `uint8 a,b`)
-          -- is not an external call, so the external-call pieces below decline and
-          -- the statement fell to the env-less lowering (silently encoding 300).
-          -- Route it through `varDeclCoreWithEnv?` (the generic vardecl arm's
-          -- helper) so the env-aware `abi.*`/concat arms fire the operand-width
-          -- Panic 0x11. Unflagged member-call vardecls are untouched.
+          -- Route only flagged builtin member calls through env-aware lowering;
+          -- unflagged calls may require the internal-call hoister below.
           match (match bindings with
             | [binding] =>
                 if Expr.abiBuiltinArgsNeedEnvCleanup expr then
@@ -5784,6 +5861,22 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           -- STAGE-D #193: additionally reroute when any argument carries narrow
           -- checked arithmetic (`abi.encode(a + b)`, `uint8` — must Panic 0x11 at
           -- the operand width); the env-aware `abi.*` arms handle both shapes.
+          match (if member == "encode" then do
+              let (coreTys, coreExprs, changed) ←
+                Args.toAbiEncodeWithBoundExternalFunctionsFuel?
+                  defaultAbiCleanupDetectionFuel storageNames env functions args
+              if changed then
+                match returnTys with
+                | [_] =>
+                    some
+                      (SolidCore.Solidity.Source.Stmt.returnValues
+                        [SolidCore.Solidity.Source.Expr.abiEncode
+                          coreTys coreExprs])
+                | _ => none
+              else none
+            else none) with
+          | some coreStmt => some coreStmt
+          | none =>
           if ((member == "encode" || member == "encodePacked") &&
                 Args.anyAbiEncodeFixedBytesTernary? storageNames env args) ||
               Expr.abiBuiltinArgsNeedEnvCleanup expr then
@@ -6354,6 +6447,28 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                         (stmt := Stmt.varDecl [binding]
                           (some (Expr.call (Expr.ident name) args)))
                     some (core, [])
+            | some stmt@(Stmt.varDecl _ _) => do
+                -- Tuple, ternary, and multi-return declaration initializers can
+                -- lower to a Core block. A block placed in the `forLoop` init
+                -- slot ends its scope before the first condition. Move its
+                -- top-level pieces into the surrounding loop block instead.
+                let core ←
+                  Stmt.toCoreWithInternalCalls?
+                    (internalFuel := internalFuel)
+                    (storageRefEnv := storageRefEnv)
+                    (env := env)
+                    (externalCallKindEnv := externalCallKindEnv)
+                    (storageNames := storageNames)
+                    (modifiers := modifiers)
+                    (functions := functions)
+                    (freeFunctions := freeFunctions)
+                    (returnTys := returnTys)
+                    (stmt := stmt)
+                let pieces :=
+                  match core with
+                  | SolidCore.Solidity.Source.Stmt.block stmts => stmts
+                  | other => [other]
+                some (SolidCore.Solidity.Source.Stmt.skip, pieces)
             | some stmt =>
                 (Stmt.toCoreWithInternalCalls?
                   (internalFuel := internalFuel)
@@ -9533,7 +9648,14 @@ def modifierApplyToCoreWithInternalCalls? (internalFuel : Nat)
       internalFuel storageRefEnv env externalCallKindEnv storageNames available functions
       freeFunctions returnTys prefixStmts
   let modifierParams := ModifierDecl.aliasedParams decl
-  let modifierEnv := Parameters.extendTypeEnv "_mod" env modifierParams
+  -- Function params/returns are not in lexical scope inside a separately
+  -- declared modifier.  When one shadows a state name, peel only that nearest
+  -- binding so the underlying state type is visible to modifier annotation and
+  -- lowering; invocation arguments above still use the original function env.
+  let modifierBaseEnv :=
+    TypeEnv.dropFirstNames env (TypeEnv.shadowedStateNames env)
+  let modifierEnv :=
+    Parameters.extendTypeEnv "_mod" modifierBaseEnv modifierParams
   let modifierStorageRefEnv :=
     Parameters.extendStorageRefEnv "_mod" storageRefEnv modifierParams
   let body := Stmt.annotateAbi modifierEnv body

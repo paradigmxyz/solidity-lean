@@ -114,6 +114,26 @@ def Expr.binaryToCoreWithEnvTypedFuel? (fuel : Nat) (storageNames : List Name)
         (resultTy,
           SolidCore.Solidity.Source.Expr.binary coreOp lhsCore rhsCore)
 
+/-- Compute the common element type of an inline array literal with access to
+    lexical identifier types. The env-less array typer cannot type `[0, x]`,
+    which made a direct index of that otherwise-valid literal fail translation. -/
+def Exprs.inlineArrayLiteralCommonInfoFromWithEnv? (env : TypeEnv)
+    (current : Expr × Ty) : List Expr -> Option (Expr × Ty)
+  | [] => some current
+  | expr :: rest => do
+      let ty ← Expr.abiTyWithEnv? env expr
+      let next ← arrayLiteralCommonInfo? current (expr, ty)
+      Exprs.inlineArrayLiteralCommonInfoFromWithEnv? env next rest
+
+def Exprs.inlineArrayLiteralCommonTyWithEnv? (env : TypeEnv)
+    (exprs : List Expr) : Option Ty := do
+  let first ← exprs.head?
+  let firstTy ← Expr.abiTyWithEnv? env first
+  let info ←
+    Exprs.inlineArrayLiteralCommonInfoFromWithEnv? env
+      (first, firstTy) exprs.tail
+  some info.snd
+
 /-- Lower a `bytesN` shift/bitwise subtree while retaining env-aware evaluation
     of shift counts. The older non-recursive helper preserves bytes-lane
     cleanup but lowers shift counts through `toCore?`; consequently a count
@@ -191,6 +211,28 @@ def Expr.toCoreFixedBytesBitOpWithEnvFuel? (fuel : Nat)
                 (SolidCore.Solidity.Source.Expr.fixedBytesCast size size
                   (SolidCore.Solidity.Source.Expr.unary
                     SolidCore.Solidity.Source.UnaryOp.bitNot innerCore))
+          | Expr.call (Expr.typeName (Ty.bytesN castSize))
+              [Arg.positional inner]
+          | Expr.call (Expr.typeName (Ty.fixedBytes castSize))
+              [Arg.positional inner] =>
+              if castSize == size then
+                Expr.toCoreFixedBytesBitOpWithEnvFuel?
+                  fuel storageNames env size inner
+              else
+                Expr.toCoreAsWithEnvDirect?
+                  storageNames env (Ty.bytesN size) expr
+          | Expr.ternary cond thenExpr elseExpr => do
+              let condCore ←
+                Expr.toCoreAsWithEnvDirect? storageNames env Ty.bool cond
+              let thenCore ←
+                Expr.toCoreFixedBytesBitOpWithEnvFuel?
+                  fuel storageNames env size thenExpr
+              let elseCore ←
+                Expr.toCoreFixedBytesBitOpWithEnvFuel?
+                  fuel storageNames env size elseExpr
+              some
+                (SolidCore.Solidity.Source.Expr.ternary
+                  condCore thenCore elseCore)
           | expr =>
               Expr.toCoreAsWithEnvDirect?
                 storageNames env (Ty.bytesN size) expr
@@ -844,6 +886,22 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
                     Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr
               else
                 Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr
+          | Expr.index (Expr.array elems) key => do
+              -- A direct index of an inline array (`[0, x][0]`) has no env-less
+              -- base type when an element is an identifier. Type and lower the
+              -- literal at its env-aware common element type, then perform the
+              -- ordinary fixed-array index read.
+              let elemTy ←
+                Exprs.inlineArrayLiteralCommonTyWithEnv? env elems
+              let baseTy := Ty.array elemTy (some elems.length)
+              let baseCore ←
+                Expr.toCoreAsWithEnvFuel? fuel storageNames env baseTy
+                  (Expr.array elems)
+              let keyTy ← Expr.abiTyWithEnv? env key
+              let keyCore ←
+                Expr.toCoreAsWithEnvFuel? fuel storageNames env keyTy key
+              Expr.coreAsFromTy? targetTy elemTy
+                (SolidCore.Solidity.Source.Expr.index baseCore keyCore)
           | Expr.index base key =>
               -- R2 (Stage B, index-key cleanup): a NARROW (`uintN`/`intN`,
               -- N < 256) index key is evaluated by solc at ITS OWN type — a
@@ -1446,6 +1504,17 @@ def Expr.toAbiEncodeArgWithEnvFuel? (fuel : Nat) (storageNames : List Name)
       let coreTy ← Ty.toCore? ty
       some (coreTy, core)
   | none =>
+      match (do
+          let ty ← Expr.abiTyWithEnv? env expr
+          let _ ← Ty.fixedBytesSize? ty
+          if Expr.isFixedBytesBitOpShape expr then
+            let coreTy ← Ty.toCore? ty
+            let coreExpr ←
+              Expr.toCoreAsWithEnvFuel? fuel storageNames env ty expr
+            some (coreTy, coreExpr)
+          else none) with
+      | some result => some result
+      | none =>
       if Expr.abiArgNeedsEnvCleanup? expr then
         match (do
             let ty ← Expr.abiTyWithEnv? env expr
@@ -1487,6 +1556,17 @@ def Expr.toAbiEncodeSourceArgWithEnvFuel? (fuel : Nat) (storageNames : List Name
       let coreTy ← Ty.toCore? ty
       some (ty, coreTy, core)
   | none =>
+      match (do
+          let ty ← Expr.abiTyWithEnv? env expr
+          let _ ← Ty.fixedBytesSize? ty
+          if Expr.isFixedBytesBitOpShape expr then
+            let coreTy ← Ty.toCore? ty
+            let coreExpr ←
+              Expr.toCoreAsWithEnvFuel? fuel storageNames env ty expr
+            some (ty, coreTy, coreExpr)
+          else none) with
+      | some result => some result
+      | none =>
       if Expr.abiArgNeedsEnvCleanup? expr then
         match (do
             let ty ← Expr.abiTyWithEnv? env expr
@@ -1558,6 +1638,77 @@ def TupleItems.toAbiEncodeSourceWithEnvFuel? (fuel : Nat) (storageNames : List N
             TupleItems.toAbiEncodeSourceWithEnvFuel? fuel storageNames env rest
           some (sourceTy :: sourceTys, coreTy :: coreTys, coreExpr :: coreExprs)
   | TupleItem.hole :: _ => none
+
+/-- The external-function value type exposed by `this.f` for an externally
+    callable declaration.  Solidity ABI-encodes that value as its 20-byte
+    address followed by the 4-byte selector. -/
+def FunctionDecl.boundExternalFunctionValueTy? (decl : FunctionDecl) :
+    Option Ty :=
+  match decl.kind, decl.name, decl.visibility with
+  | FunctionKind.function, some _, some Visibility.public_
+  | FunctionKind.function, some _, some Visibility.external_ =>
+      some
+        (Ty.functionWithLocations
+          (decl.params.map Parameter.ty)
+          (decl.params.map Parameter.location)
+          (decl.returns.map Parameter.ty)
+          (decl.returns.map Parameter.location)
+          decl.mutability Visibility.external_)
+  | _, _, _ => none
+
+def FunctionDecls.uniqueBoundExternalFunctionValueTy?
+    (functions : List FunctionDecl) (name : Name) : Option Ty :=
+  match functions.filterMap (fun decl =>
+      match decl.name, FunctionDecl.boundExternalFunctionValueTy? decl with
+      | some declName, some ty => if declName == name then some ty else none
+      | _, _ => none) with
+  | [ty] => some ty
+  | _ => none
+
+/-- Env-aware ABI argument lowering with one additional source-type oracle:
+    direct bound external function values (`this.f`).  Their type comes from the
+    declaration list rather than the lexical value environment. -/
+def Args.toAbiEncodeWithBoundExternalFunctionsFuel? (fuel : Nat)
+    (storageNames : List Name) (env : TypeEnv)
+    (functions : List FunctionDecl) :
+    List Arg -> Option (List CoreTy × List CoreExpr × Bool)
+  | [] => some ([], [], false)
+  | Arg.positional expr :: rest =>
+      match fuel with
+      | 0 => do
+          let (tys, exprs) ←
+            Args.toAbiEncodeWithEnvFuel? 0 storageNames env
+              (Arg.positional expr :: rest)
+          some (tys, exprs, false)
+      | Nat.succ fuel => do
+          let (coreTy, coreExpr, changed) ←
+            match expr with
+            | Expr.member (Expr.ident "this") name =>
+                match
+                    FunctionDecls.uniqueBoundExternalFunctionValueTy?
+                      functions name with
+                | some fnTy => do
+                    let coreTy ← Ty.toCore? fnTy
+                    let coreExpr ←
+                      Expr.boundExternalFunctionValueCoreAs?
+                        storageNames fnTy expr
+                    some (coreTy, coreExpr, true)
+                | none => do
+                    let (coreTy, coreExpr) ←
+                      Expr.toAbiEncodeArgWithEnvFuel?
+                        fuel storageNames env expr
+                    some (coreTy, coreExpr, false)
+            | _ => do
+                let (coreTy, coreExpr) ←
+                  Expr.toAbiEncodeArgWithEnvFuel? fuel storageNames env expr
+                some (coreTy, coreExpr, false)
+          let (tys, coreExprs, restChanged) ←
+            Args.toAbiEncodeWithBoundExternalFunctionsFuel?
+              fuel storageNames env functions rest
+          some
+            (coreTy :: tys, coreExpr :: coreExprs,
+              changed || restChanged)
+  | Arg.named _ _ :: _ => none
 
 end
 
@@ -5574,9 +5725,16 @@ def Expr.abiTyWithInternalFunctionsEnv?
           | _ =>
               Expr.abiTyWithInternalFunctionsEnv?
                 functions freeFunctions env lhs
-      | Expr.ternary _ thenExpr _ =>
-          Expr.abiTyWithInternalFunctionsEnv?
-            functions freeFunctions env thenExpr
+      | Expr.ternary _ thenExpr elseExpr => do
+          let thenTy ←
+            Expr.abiTyWithInternalFunctionsEnv?
+              functions freeFunctions env thenExpr
+          let elseTy ←
+            Expr.abiTyWithInternalFunctionsEnv?
+              functions freeFunctions env elseExpr
+          match Ty.commonImplicit? thenTy elseTy with
+          | some commonTy => some commonTy
+          | none => some thenTy
       | Expr.member base "balance" => do
           let _ ←
             Expr.abiTyWithInternalFunctionsEnv?
@@ -7788,6 +7946,34 @@ end
     cannot lower, every currently-lowering (green) statement is left
     byte-identical. -/
 
+mutual
+
+/-- Dynamic concat expressions are compiled with their nested call effects
+    before a sibling binary operand is read.  Recognize the builtin through the
+    member and conversion wrappers used by expressions such as
+    `bytes(string.concat(...)).length`. -/
+def Expr.containsDynamicConcatCall : Expr -> Bool
+  | Expr.call (Expr.member (Expr.ident "bytes") "concat") _
+  | Expr.call (Expr.member (Expr.typeName Ty.bytes) "concat") _
+  | Expr.call (Expr.member (Expr.ident "string") "concat") _
+  | Expr.call (Expr.member (Expr.typeName Ty.string) "concat") _ => true
+  | Expr.call callee args =>
+      Expr.containsDynamicConcatCall callee ||
+        Args.containsDynamicConcatCall args
+  | Expr.member base _ => Expr.containsDynamicConcatCall base
+  | _ => false
+
+def Args.containsDynamicConcatCall : List Arg -> Bool
+  | [] => false
+  | Arg.positional expr :: rest =>
+      Expr.containsDynamicConcatCall expr ||
+        Args.containsDynamicConcatCall rest
+  | Arg.named _ expr :: rest =>
+      Expr.containsDynamicConcatCall expr ||
+        Args.containsDynamicConcatCall rest
+
+end
+
 /-- Reference-typed hoist temps need an explicit `memory` data location; value
     types take no location. -/
 def Ty.anfHoistLocation? : Ty -> Option DataLocation
@@ -7796,28 +7982,23 @@ def Ty.anfHoistLocation? : Ty -> Option DataLocation
   | Ty.string => some DataLocation.memory
   | Ty.struct _ _ => some DataLocation.memory
   | Ty.tuple _ => some DataLocation.memory
-  -- An unresolved user type is (in practice for a value-returning callee whose
-  -- result we hoist) a struct that needs a `memory` location; enums surface as
-  -- `Ty.enum`, so this does not mislocate a value-typed enum return.
-  | Ty.user _ => some DataLocation.memory
+  -- Struct returns have already resolved to `Ty.struct` at this stage. A
+  -- surviving user type is a contract/interface value and occupies an address
+  -- word, so giving its hoist temp a `memory` location is invalid.
+  | Ty.user _ => none
   | _ => none
 
 /-- The fresh-name supply: globally monotone within a function body. The
     `_sol_hoist_` prefix is reserved (verified unused elsewhere). -/
 def anfHoistName (n : Nat) : Name := "_sol_hoist_" ++ toString n
 
-/-- Declare a hoist temp with the callee's return type in its UNRESOLVED
-    surface form. A callee's return type is RESOLVED (`Ty.struct p fields`) by
-    the time it reaches the hoister, but `resolveStructs` — which the produced
-    block is re-run through to resolve struct MEMBER accesses on the temp
-    (`_sol_hoist_n.field` → ordinal index) — only descends into a member whose
-    base type is the unresolved reference `Ty.user p`; an already-resolved
-    `Ty.struct` base is treated as done and its members are left unresolved.
-    Restoring the surface `Ty.user p` lets the re-run resolve both the type and
-    the member. Non-struct types are already in surface form. -/
-def Ty.anfTempTy : Ty -> Ty
-  | Ty.struct p _ => Ty.user p
-  | ty => ty
+/-- Preserve the resolved return type on an ANF hoist temp.  Converting a
+    resolved file-scope struct back to `Ty.user` loses its declaration when the
+    transformed block is resolved again in a contract-local environment; the
+    surviving user type is then mistaken for a contract address.  Member
+    accesses have already been ordinal-resolved before ANF, so retaining the
+    structural type is sufficient for the re-run. -/
+def Ty.anfTempTy (ty : Ty) : Ty := ty
 
 /-- Oracle: is `e` a value-returning SINGLE-return call with no core `Expr`
     representation (a direct internal call, a library call, or an external
@@ -7956,28 +8137,26 @@ def Expr.anfHoist
               let (c2, lpre, l') := rec1 c1 l
               if lpre.isEmpty then
                 (c2, rpre, Expr.binary op l' r')
+              else if Expr.containsDynamicConcatCall l then
+                -- solc evaluates a dynamic concat's nested call before reading
+                -- the sibling operand (covered by StringConcatCallVarDecl).
+                (c2, rpre ++ lpre, Expr.binary op l' r')
               else
-                -- The left prelude can mutate state observed by the earlier
-                -- evaluated right operand.  Keeping `r'` in the residual
-                -- expression would read it only after `lpre` (for example,
-                -- `values[wrap(index())] ^ trace`).  Materialize the complete
-                -- right value between its own prelude and the left prelude,
-                -- preserving Solidity's right-before-left schedule.
-                match Expr.abiTyWithInternalFunctionsEnv?
-                    functions freeFunctions env r with
-                | some rTy =>
-                    let t := anfHoistName c2
-                    let decl := Stmt.varDecl
-                      [{ name := some t, ty := some (Ty.anfTempTy rTy),
-                         location := Ty.anfHoistLocation? rTy }]
-                      (some r')
-                    (c2 + 1, rpre ++ [decl] ++ lpre,
-                      Expr.binary op l' (Expr.ident t))
-                | none =>
-                    -- If the source typer cannot name the right operand, keep
-                    -- the conservative prior shape; downstream lowering still
-                    -- fails closed rather than inventing a temp type.
-                    (c2, rpre ++ lpre, Expr.binary op l' r')
+                    -- Legacy solc reads the sibling operand before executing
+                    -- other nested left-side calls. Materialize the right value
+                    -- before the call prelude to preserve that observed schedule.
+                    match Expr.abiTyWithInternalFunctionsEnv?
+                        functions freeFunctions env r with
+                    | some rTy =>
+                        let t := anfHoistName c2
+                        let decl := Stmt.varDecl
+                          [{ name := some t, ty := some (Ty.anfTempTy rTy),
+                             location := Ty.anfHoistLocation? rTy }]
+                          (some r')
+                        (c2 + 1, rpre ++ [decl] ++ lpre,
+                          Expr.binary op l' (Expr.ident t))
+                    | none =>
+                        (c2, rpre ++ lpre, Expr.binary op l' r')
       | Expr.ternary cond a b =>
           let (c1, cpre, cond') := rec1 c cond
           let (c2, apre, a') := rec1 c1 a
@@ -7986,7 +8165,7 @@ def Expr.anfHoist
             (c3, cpre, Expr.ternary cond' a' b')
           else
             match Expr.abiTyWithInternalFunctionsEnv?
-                functions freeFunctions env a with
+                functions freeFunctions env e with
             | some ty =>
                 let t := anfHoistName c3
                 let decl := Stmt.varDecl
