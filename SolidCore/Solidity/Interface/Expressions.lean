@@ -251,7 +251,8 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
         | _ => false) then
     Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr
   else
-  match Expr.toCoreIncDecWithEnv? storageNames env expr with
+  match Expr.toCoreIncDecWithEnv? env
+      (Expr.toCoreLValue? storageNames) expr with
   | some coreExpr => some coreExpr
   | none =>
       match Expr.toCoreAssignOpWithEnv? storageNames env expr with
