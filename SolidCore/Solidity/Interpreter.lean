@@ -7937,6 +7937,17 @@ def Expr.evalFuel (fuel : Nat)
                     | some len => pure (Value.word len)
                     | none => throw <| SolidityFailure.revert RevertData.typeMismatch
               match expr with
+              -- A materialized nested storage path (`load`) is already a value
+              -- expression, so `resolveLValueFuel` below cannot recover its
+              -- base. Read that base length directly. Other storage-read modes
+              -- keep their established header/ref/element/contents semantics.
+              | Expr.storageRead StorageReadMode.load name indexes => do
+                  let (indexValues, runtime') ←
+                    Expr.evalListFuel fuel context runtime indexes
+                  let len ←
+                    runtime'.loadStorageBaseLength context
+                      (StorageBase.field name) indexValues
+                  pure (len, runtime')
               | Expr.var name =>
                   match runtime.lookupStorageBase? name with
                   | some base => do

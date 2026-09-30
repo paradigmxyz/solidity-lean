@@ -7239,7 +7239,8 @@ def storageLastPushedIndexExpr (name : Name)
     (indexes : List CoreExpr) : CoreExpr :=
   SolidCore.Solidity.Source.Expr.binary
     SolidCore.Solidity.Source.BinaryOp.sub
-    (storagePathValueExpr name indexes)
+    (SolidCore.Solidity.Source.Expr.length
+      (storagePathValueExpr name indexes))
     (SolidCore.Solidity.Source.Expr.word 1)
 
 def storageArrayPushReturnAliasCore? (storageNames : List Name)
