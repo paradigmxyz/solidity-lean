@@ -6327,7 +6327,13 @@ def checkExpr (env : CheckEnv) :
               ty := Solidity.Ty.bytesN 4
               lvalue := false
               stateLValue := false }
-      | some _ => Except.error (TypeError.unsupported "member selector")
+      | some _ =>
+          -- `selector` is only reserved on an external-function receiver.  A
+          -- lexical struct value may legally have an ordinary field with that
+          -- name (including a local named `msg`); resolve that field through
+          -- the same path used for shadowed magic globals.
+          let baseChecked ← checkExpr env (Solidity.Expr.ident name)
+          checkShadowedMagicGlobalMember env expr baseChecked "selector"
       | none =>
           match ErrorSigs.resolveByName env.errors name with
           | Except.ok _ =>

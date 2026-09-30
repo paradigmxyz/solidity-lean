@@ -828,6 +828,19 @@ def TypeEnv.extend? (env : TypeEnv) (name? : Option Name)
   | some name, some ty => (name, ty) :: env
   | _, _ => env
 
+/-- Remove the nearest binding for `name`, exposing an older binding with the
+    same name when one exists.  Modifier bodies are declared outside the
+    modified function's parameter scope, so this is used to peel the function
+    parameter/return binding while retaining the underlying state binding. -/
+def TypeEnv.dropFirst (env : TypeEnv) (name : Name) : TypeEnv :=
+  match env with
+  | [] => []
+  | entry@(candidate, _) :: rest =>
+      if candidate == name then rest else entry :: TypeEnv.dropFirst rest name
+
+def TypeEnv.dropFirstNames (env : TypeEnv) (names : List Name) : TypeEnv :=
+  names.foldl (fun current name => TypeEnv.dropFirst current name) env
+
 /-- SHADOW-LOCAL (soundness): the names a local variable declaration has SHADOWED
     in the current scope. As the lowering threads `env`, every `varDecl` PREPENDS
     its binding, so a name a nearer local now owns appears ≥2× — once as the
@@ -5752,14 +5765,18 @@ def Expr.toCoreAs? (storageNames : List Name)
   match Expr.fixedArrayLiteralAs? storageNames targetTy expr with
   | some coreExpr => some coreExpr
   | none =>
-  -- Materialize an array member reached through a nested storage path in one
-  -- operation. Recursively lowering `boxes[0].words` would load `boxes[0]`
-  -- as a whole struct before selecting `words`; that is impossible when the
-  -- struct also contains a mapping. Keeping the complete path resolves
-  -- directly to the selected dynamic-array field.
+  -- Materialize an array or byte-string member reached through a nested
+  -- storage path in one operation. Recursively lowering `boxes[0].data` would
+  -- load `boxes[0]` as a whole struct before selecting `data`; that is
+  -- impossible when the struct also contains a mapping. Keeping the complete
+  -- path resolves directly to the selected dynamic field.
   match
       (match targetTy, Expr.nestedStoragePathCore? storageNames expr with
       | Ty.array _ _, some (name, indexes) =>
+          if indexes.isEmpty then none
+          else some (SolidCore.Solidity.Source.Expr.storagePath name indexes)
+      | Ty.bytes, some (name, indexes)
+      | Ty.string, some (name, indexes) =>
           if indexes.isEmpty then none
           else some (SolidCore.Solidity.Source.Expr.storagePath name indexes)
       | _, _ => none)
@@ -7389,17 +7406,40 @@ def VarBinding.toStoragePtrTupleDecl? (storageNames : List Name)
             (SolidCore.Solidity.Source.Stmt.storageAliasPath
               name target indexes)
 
--- Is every binding of a tuple declaration a NAMED `storage`-location pointer?
+-- Is every binding of a tuple declaration a named `storage` pointer?
 def VarBindings.allStoragePointers : List VarBinding -> Bool
   | [] => true
   | binding :: rest =>
-      binding.location == some DataLocation.storage
-        && binding.name.isSome
-        && VarBindings.allStoragePointers rest
+      binding.location == some DataLocation.storage &&
+        binding.name.isSome &&
+        VarBindings.allStoragePointers rest
+
+-- Is every named binding a `storage` pointer, with declaration holes paired
+-- only with effect-free literals (or an explicit source tuple hole)?
+def VarBindings.allStoragePointersOrDiscardedLiterals :
+    List VarBinding -> List TupleItem -> Bool
+  | [], [] => true
+  | { name := none, ty := none, location := none } :: bindings,
+      TupleItem.value (Expr.literal _) :: items =>
+      VarBindings.allStoragePointersOrDiscardedLiterals bindings items
+  | { name := none, ty := none, location := none } :: bindings,
+      TupleItem.hole :: items =>
+      VarBindings.allStoragePointersOrDiscardedLiterals bindings items
+  | binding :: bindings, TupleItem.value _ :: items =>
+      binding.location == some DataLocation.storage &&
+        binding.name.isSome &&
+        VarBindings.allStoragePointersOrDiscardedLiterals bindings items
+  | _, _ => false
 
 def VarBindings.toStoragePtrTupleDecls? (storageNames : List Name) :
     List VarBinding -> List TupleItem -> Option (List CoreStmt)
   | [], [] => some []
+  | { name := none, ty := none, location := none } :: bindings,
+      TupleItem.value (Expr.literal _) :: items =>
+      VarBindings.toStoragePtrTupleDecls? storageNames bindings items
+  | { name := none, ty := none, location := none } :: bindings,
+      TupleItem.hole :: items =>
+      VarBindings.toStoragePtrTupleDecls? storageNames bindings items
   | binding :: bindings, TupleItem.value item :: items => do
       let head ← VarBinding.toStoragePtrTupleDecl? storageNames binding item
       let tail ← VarBindings.toStoragePtrTupleDecls? storageNames bindings items
@@ -7426,7 +7466,9 @@ def tupleVarDeclAllStorageCore? (storageNames : List Name)
     (bindings : List VarBinding) (items : List TupleItem) :
     Option (List CoreStmt) := do
   if bindings.length == items.length then some () else none
-  if VarBindings.allStoragePointers bindings then some () else none
+  if VarBindings.allStoragePointersOrDiscardedLiterals bindings items then
+    some ()
+  else none
   VarBindings.toStoragePtrTupleDecls? storageNames bindings items
 
 def Expr.storageRefPathCore? (storageRefEnv : StorageRefEnv)
@@ -7538,6 +7580,23 @@ def Expr.abiTyWithEnv? (env : TypeEnv) : Expr -> Option Ty
       match restTy with
       | Ty.tuple restTys => some (Ty.tuple (headTy :: restTys))
       | _ => none
+  | Expr.ternary _ thenExpr elseExpr => do
+      -- `Expr.abiTy?` is deliberately env-less and can therefore infer a
+      -- conditional from only its first branch when the other branch is an
+      -- identifier.  Infer both branches here before consulting that fast
+      -- path so mixed-width conditionals retain their common source type.
+      let thenTy ← Expr.abiTyWithEnv? env thenExpr
+      let elseTy ← Expr.abiTyWithEnv? env elseExpr
+      if Expr.isRawNumberLiteralExpression elseExpr &&
+          implicitLiteralFits thenTy elseExpr then
+        some thenTy
+      else if Expr.isRawNumberLiteralExpression thenExpr &&
+          implicitLiteralFits elseTy thenExpr then
+        some elseTy
+      else
+        match Ty.commonImplicit? thenTy elseTy with
+        | some commonTy => some commonTy
+        | none => some thenTy
   | expr =>
       match Expr.abiTy? [] expr with
       | some ty => some ty
@@ -7587,8 +7646,6 @@ def Expr.abiTyWithEnv? (env : TypeEnv) : Expr -> Option Ty
                         (Expr.untypedLiteralMobileTy? rhs).getD rhsTy
                       else rhsTy
                     Ty.commonImplicit? lhsTy' rhsTy'
-          | Expr.ternary _ thenExpr _ =>
-              Expr.abiTyWithEnv? env thenExpr
           | Expr.member base "balance" => do
               let _ ← Expr.abiTyWithEnv? env base
               some (Ty.uint 256)
@@ -7809,6 +7866,9 @@ def Expr.toCoreAsWithEnvDirect? (storageNames : List Name) (env : TypeEnv)
     hide) bits above the low `size`-byte lane, so they are routed through
     `Expr.toCoreFixedBytesBitOp?` for solc-faithful per-op lane cleanup. -/
 def Expr.isFixedBytesBitOpShape : Expr -> Bool
+  | Expr.call (Expr.typeName (Ty.bytesN _)) [Arg.positional inner]
+  | Expr.call (Expr.typeName (Ty.fixedBytes _)) [Arg.positional inner] =>
+      Expr.isFixedBytesBitOpShape inner
   | Expr.binary BinaryOp.shl _ _ => true
   | Expr.binary BinaryOp.shr _ _ => true
   | Expr.binary BinaryOp.bitAnd _ _ => true
@@ -7831,6 +7891,15 @@ def Expr.isFixedBytesBitOpShape : Expr -> Bool
     lowering at `bytesN size`; shift counts (`rhs`) are `uint`, lowered as usual. -/
 def Expr.toCoreFixedBytesBitOp? (storageNames : List Name) (env : TypeEnv)
     (size : Nat) : Expr -> Option CoreExpr
+  | Expr.call (Expr.typeName (Ty.bytesN castSize)) [Arg.positional inner]
+  | Expr.call (Expr.typeName (Ty.fixedBytes castSize)) [Arg.positional inner] =>
+      if castSize == size then
+        Expr.toCoreFixedBytesBitOp? storageNames env size inner
+      else
+        Expr.toCoreAsWithEnvDirect?
+          storageNames env (Ty.bytesN size)
+            (Expr.call (Expr.typeName (Ty.bytesN castSize))
+              [Arg.positional inner])
   | Expr.binary BinaryOp.shl lhs rhs => do
       let lhsCore ← Expr.toCoreFixedBytesBitOp? storageNames env size lhs
       let rhsCore ← Expr.toCore? storageNames rhs
@@ -8596,7 +8665,8 @@ def Expr.abiBuiltinArgsNeedEnvCleanup : Expr -> Bool
           m == "encodeWithSignature") &&
         args.any (fun a =>
           match a with
-          | Arg.positional e => Expr.abiArgNeedsEnvCleanup? e
+          | Arg.positional e =>
+              Expr.abiArgNeedsEnvCleanup? e || Expr.isFixedBytesBitOpShape e
           | Arg.named _ _ => false)
   | Expr.call (Expr.member (Expr.ident "bytes") "concat") args
   | Expr.call (Expr.member (Expr.typeName Ty.bytes) "concat") args

@@ -178,6 +178,18 @@ def kindOfAddress? (w : Word) : Option Kind :=
     model unbounded work. -/
 def modexpLengthCap : Nat := 4096
 
+/-- A conservative EIP-2565 gas lower bound for ModExp.  The real charge
+    multiplies this complexity by an iteration count of at least one, so a
+    request below this bound must fail even when we decline to materialize
+    resource-capped operands. -/
+def modexpMinimumGas (input : Bytes) : Nat :=
+  let input := normalizeBytes input
+  let baseLength := natOfSliceRightPadded input 0 wordBytes
+  let modulusLength :=
+    natOfSliceRightPadded input (2 * wordBytes) wordBytes
+  let limbCount := (Nat.max baseLength modulusLength + 7) / 8
+  Nat.max 200 ((limbCount * limbCount) / 3)
+
 /-- The in-semantics precompile answer: `some (success, output)` when the
     kind is answered in-model, `none` (fail-closed, stays open-world) only
     for resource-capped inputs (modexp length headers over

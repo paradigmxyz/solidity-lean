@@ -2623,7 +2623,22 @@ def precompileAnswerCall? (world : SolidCore.Solidity.Shared.OpenWorld)
                     returnData := bytesToByteArray output
                     postWorld := world
                     returnedGas := request.requestedGas }
-            | none => none
+            | none =>
+                -- Above the evaluator's operand cap, preserve fail-closed
+                -- behavior unless EIP-2565's cheapest possible execution is
+                -- already more expensive than the supplied gas.  In that case
+                -- the EVM outcome is provably a failed call with empty output,
+                -- without evaluating the enormous operands.
+                if kind == SolidCore.Solidity.Shared.Precompile.Kind.modexp &&
+                    u256ToWord request.requestedGas <
+                      SolidCore.Solidity.Shared.Precompile.modexpMinimumGas
+                        (byteArrayToBytes request.calldata) then
+                  some
+                    { success := false
+                      returnData := ByteArray.empty
+                      postWorld := world
+                      returnedGas := wordToU256 0 }
+                else none
         | none => none
       else
         none
@@ -4592,7 +4607,8 @@ def State.resolveStoragePathSlot (state : State) :
           | none => Except.error RevertData.typeMismatch
         State.resolveStoragePathSlot state
           elementSlot elementSlotLayout rest
-  | slot, StorageLayout.bytes, index :: rest => do
+  | slot, StorageLayout.bytes, index :: rest
+  | slot, StorageLayout.string, index :: rest => do
       let key ← index.expectWord
       let (elementSlot, offset) ←
         State.storageBytesElementSlotAndOffset state slot key
