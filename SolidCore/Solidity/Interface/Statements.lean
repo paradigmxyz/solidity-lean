@@ -2156,7 +2156,37 @@ def FunctionDecl.hoistDirectInternalCallArgsAux?
                   internalFuel storageRefEnv env externalCallKindEnv storageNames
                   modifiers functions freeFunctions fallbackPrefix
                   fuel counter rest
-              some (c3, restPre, restEnv, arg :: restReplaced)
+              if restPre.isEmpty then
+                some (c3, restPre, restEnv, arg :: restReplaced)
+              else do
+                -- A later call can mutate state observed by this earlier,
+                -- otherwise-pure argument. Snapshot the argument before the
+                -- later call prefix so `combine(trace, mutate())` passes the
+                -- pre-mutation value of `trace`, matching Solidity's
+                -- left-to-right argument evaluation.
+                let argExpr :=
+                  match arg with
+                  | Arg.positional expr => expr
+                  | Arg.named _ expr => expr
+                let argTy ←
+                  Expr.abiTyWithInternalFunctionsEnv?
+                    functions freeFunctions env argExpr
+                let argCoreTy ← Ty.toCore? argTy
+                let argCore ←
+                  match
+                      Expr.toCoreAsWithEnv?
+                        storageNames env argTy argExpr with
+                  | some core => some core
+                  | none => Expr.toCore? storageNames argExpr
+                let tempName :=
+                  internalCallArgTempName fallbackPrefix counter
+                let thisPre :=
+                  [CoreTy.tempDeclStmt argCoreTy tempName (some argCore)]
+                some
+                  ( c3
+                  , thisPre ++ restPre
+                  , (tempName, argTy) :: restEnv
+                  , Arg.withExpr (Expr.ident tempName) arg :: restReplaced )
 
 /-- Wrapper over `hoistDirectInternalCallArgsAux?`: run the hoist over an
     argument list and surface the prefix pieces / temp env / residual args only
