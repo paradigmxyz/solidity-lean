@@ -3707,7 +3707,31 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
               externalCallKindEnv storageNames modifiers functions
               freeFunctions returnTys (Expr.call (Expr.ident name) args)
               (fun e => Stmt.expr e)
+          let builtinEnvAware? : Option CoreStmt :=
+            match name, args with
+            | "selfdestruct", [Arg.positional recipient] =>
+                if Expr.abiArgNeedsEnvCleanup? recipient then do
+                  let recipientTy ← Expr.abiTyWithEnv? env recipient
+                  let recipientCore ←
+                    Expr.toCoreAsWithEnv?
+                      storageNames env recipientTy recipient
+                  some
+                    (SolidCore.Solidity.Source.Stmt.selfdestruct recipientCore)
+                else none
+            | "revert", [Arg.positional reason] =>
+                if Expr.abiArgNeedsEnvCleanup? reason then do
+                  let reasonTy ← Expr.abiTyWithEnv? env reason
+                  let reasonCore ←
+                    Expr.toCoreAsWithEnv?
+                      storageNames env reasonTy reason
+                  some
+                    (SolidCore.Solidity.Source.Stmt.revertErrorExpr reasonCore)
+                else none
+            | _, _ => none
           let fallback? :=
+            match builtinEnvAware? with
+            | some coreStmt => some coreStmt
+            | none =>
             match Expr.externalFunctionValueCallDiscardCore? storageNames env expr with
             | some coreStmt => some coreStmt
             | none =>
@@ -4749,6 +4773,22 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           -- single-call hoist (no flagged-single-call env fallback) and its
           -- dedicated `Stmt.toCore?` arms. The call-free remainder keeps
           -- the #201 (E) env-cleanup gate byte-identically.
+          match (if errorName == "revert" then
+              match args with
+              | [Arg.positional reason] =>
+                  if Expr.abiArgNeedsEnvCleanup? reason then do
+                    let reasonTy ← Expr.abiTyWithEnv? env reason
+                    let reasonCore ←
+                      Expr.toCoreAsWithEnv?
+                        storageNames env reasonTy reason
+                    some
+                      (SolidCore.Solidity.Source.Stmt.revertErrorExpr
+                        reasonCore)
+                  else none
+              | _ => none
+            else none) with
+          | some coreStmt => some coreStmt
+          | none =>
           match FunctionDecl.eventErrorCallArgsCore?
               internalFuel storageRefEnv env externalCallKindEnv storageNames
               modifiers functions freeFunctions "_sol_error"
@@ -4865,6 +4905,21 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                   (Expr.call (Expr.typeName targetTy) [Arg.positional inner]) with
               | some coreStmt => some coreStmt
               | none => Stmt.toCore? storageNames fallback
+      | Stmt.returnValues
+          (some
+            (Expr.call (Expr.member (Expr.ident "abi") "decode")
+              [Arg.positional data, Arg.positional typesExpr])) => do
+          let (tys, cleanups, directDataCore) ←
+            Expr.toAbiDecode? storageNames data typesExpr
+          let dataCore ←
+            if Expr.abiArgNeedsEnvCleanup? data then do
+              let dataTy ← Expr.abiTyWithEnv? env data
+              Expr.toCoreAsWithEnv? storageNames env dataTy data
+            else
+              some directDataCore
+          some
+            (SolidCore.Solidity.Source.Stmt.returnValues
+              (abiDecodeReturnExprs tys cleanups dataCore))
       | Stmt.returnValues
           (some expr@(Expr.call (Expr.member (Expr.ident "abi") member) args)) =>
           -- TC1: `return abi.encode(c ? x : y)` / `abi.encodePacked(...)` with a

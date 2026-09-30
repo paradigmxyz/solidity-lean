@@ -889,6 +889,27 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
                        exprs)
                | none =>
                    Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
+          | Expr.call (Expr.member (Expr.ident "abi") "decode")
+              [Arg.positional data, Arg.positional typesExpr] =>
+              -- `abi.decode` consumes its data expression by value. Preserve
+              -- the data subtree's own integer width before decoding, e.g.
+              -- `abi.decode(abi.encode(a + b), ...)` with `uint8 a,b` must
+              -- Panic 0x11 while constructing the bytes.
+              (match (if Expr.abiArgNeedsEnvCleanup? data then
+                  (do
+                    let (tys, cleanups, _) ←
+                      Expr.toAbiDecode? storageNames data typesExpr
+                    let dataTy ← Expr.abiTyWithEnv? env data
+                    let dataCore ←
+                      Expr.toCoreAsWithEnvFuel?
+                        fuel storageNames env dataTy data
+                    some
+                      (SolidCore.Solidity.Source.Expr.abiDecode
+                        tys cleanups dataCore))
+                else none) with
+              | some coreExpr => some coreExpr
+              | none =>
+                  Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
           | Expr.call (Expr.member (Expr.ident "abi") "encodePacked") args =>
               (match Args.toAbiEncodeSourceWithEnvFuel? fuel storageNames env args with
                | some (sourceTys, coreTys, exprs) =>
@@ -992,6 +1013,31 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
                     | some coreExpr => some coreExpr
                     | none => some hashCore)
                | none => Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
+          | Expr.call (Expr.ident "ecrecover")
+              [ Arg.positional digest
+              , Arg.positional v
+              , Arg.positional r
+              , Arg.positional s ] =>
+              -- Each precompile argument is evaluated at its source type
+              -- before it is packed into the 128-byte input. The direct arm
+              -- lowered all four env-less, losing checks such as `uint8 a+b`
+              -- in the `v` position.
+              (match (if [digest, v, r, s].any Expr.abiArgNeedsEnvCleanup? then
+                  (do
+                    let lower := fun e => do
+                      let ty ← Expr.abiTyWithEnv? env e
+                      Expr.toCoreAsWithEnvFuel? fuel storageNames env ty e
+                    let digestCore ← lower digest
+                    let vCore ← lower v
+                    let rCore ← lower r
+                    let sCore ← lower s
+                    some
+                      (SolidCore.Solidity.Source.Expr.ecrecover
+                        digestCore vCore rCore sCore))
+                else none) with
+              | some coreExpr => some coreExpr
+              | none =>
+                  Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
           | Expr.call (Expr.member (Expr.ident "bytes") "concat") args
           | Expr.call (Expr.member (Expr.typeName Ty.bytes) "concat") args
           | Expr.call (Expr.member (Expr.ident "string") "concat") args
@@ -1023,6 +1069,37 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
                       Expr.toCoreAsWithEnvFuel? fuel storageNames env baseTy base
                     Expr.coreAsFromTy? targetTy (Ty.uint 256)
                       (SolidCore.Solidity.Source.Expr.length baseCore))
+                else none) with
+              | some coreExpr => some coreExpr
+              | none =>
+                  Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
+          | Expr.member base member =>
+              -- Account-member receivers are value-use boundaries too. Keep
+              -- a nested operand-width check while forming the address before
+              -- reading its balance/code/codehash.
+              (match (if (member == "balance" || member == "code" ||
+                      member == "codehash") &&
+                    Expr.abiArgNeedsEnvCleanup? base then
+                  (do
+                    let baseTy ← Expr.abiTyWithEnv? env base
+                    let baseCore ←
+                      Expr.toCoreAsWithEnvFuel?
+                        fuel storageNames env baseTy base
+                    if member == "balance" then
+                      some
+                        (SolidCore.Solidity.Source.Expr.envLookup
+                          SolidCore.Solidity.Source.EnvLookup.accountBalance
+                          baseCore)
+                    else if member == "code" then
+                      some
+                        (SolidCore.Solidity.Source.Expr.envBytesLookup
+                          SolidCore.Solidity.Source.EnvBytesLookup.accountCode
+                          baseCore)
+                    else
+                      some
+                        (SolidCore.Solidity.Source.Expr.envLookup
+                          SolidCore.Solidity.Source.EnvLookup.accountCodehash
+                          baseCore))
                 else none) with
               | some coreExpr => some coreExpr
               | none =>
@@ -1176,6 +1253,20 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
                      Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr
                | _ =>
                    Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
+          | Expr.payableConversion inner =>
+              -- Payability changes the static address type, not the runtime
+              -- word. Recurse through the wrapper so checked arithmetic inside
+              -- `payable(address(uint160(a + b)))` is still evaluated at the
+              -- operands' width.
+              (match (if Expr.abiArgNeedsEnvCleanup? inner then
+                  (do
+                    let innerTy ← Expr.abiTyWithEnv? env inner
+                    Expr.toCoreAsWithEnvFuel?
+                      fuel storageNames env innerTy inner)
+                else none) with
+              | some coreExpr => some coreExpr
+              | none =>
+                  Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
           | _ =>
               Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr
 
@@ -6397,7 +6488,8 @@ def storageArrayPushPathCoreWithEnv? (env : TypeEnv) (storageNames : List Name)
         storageArrayPushPathCoreWithEnv? env storageNames elseTarget value
       some (SolidCore.Solidity.Source.Stmt.ifElse condCore thenStmt elseStmt)
   | _ => do
-    let (name, indexes) ← Expr.storagePathCore? storageNames target
+    let (name, indexes) ←
+      Expr.storagePathCoreWithEnv? storageNames env target
     let valueCore ←
       match (match Expr.abiTyWithEnv? env target with
             | some (Ty.array elemTy _) => some elemTy
