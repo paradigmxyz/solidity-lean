@@ -212,8 +212,8 @@ private def aliasCtx : TypeContext :=
   (Ty.array (Ty.array (Ty.uint 8) (some 2)) (some 2))
 #guard saca (Ty.array (Ty.user (p "C")) none) (Ty.array (Ty.user (p "D")) none)
   -- element covariance through the storage copy
-#guard !(saca (Ty.array (Ty.user (p "S")) none) (Ty.array (Ty.user (p "S")) none))
-  -- legacy-codegen direct-struct-element carve-out (task #122)
+#guard saca (Ty.array (Ty.user (p "S")) none) (Ty.array (Ty.user (p "S")) none)
+  -- solc 0.8.35 accepts direct struct-element storage array copies
 
 -- ===========================================================================
 -- BUILTIN MEMBER TABLES (solc Type::members shape).

@@ -1259,43 +1259,44 @@ def FunctionDecl.internalTernaryBranchSingleReturnUseCore?
     (cond thenExpr elseExpr : Expr)
     (useResult : CoreExpr -> CoreStmt) : Option CoreStmt := do
   let condCore ← Expr.toCoreAsWithEnv? storageNames env Ty.bool cond
-  match thenExpr, elseExpr with
-  | Expr.call (Expr.ident thenName) thenArgs,
-    Expr.call (Expr.ident elseName) elseArgs => do
+  match Expr.internalSingleReturnCallConversion? thenExpr,
+      Expr.internalSingleReturnCallConversion? elseExpr with
+  | some (thenName, thenArgs, thenConvert),
+    some (elseName, elseArgs, elseConvert) => do
       let thenCore ←
         FunctionDecl.internalSingleReturnCallCore?
           internalFuel storageRefEnv env externalCallKindEnv storageNames
           modifiers functions freeFunctions thenName thenArgs
-          (fun retExpr => useResult retExpr)
+          (fun retExpr => useResult (thenConvert retExpr))
       let elseCore ←
         FunctionDecl.internalSingleReturnCallCore?
           internalFuel storageRefEnv env externalCallKindEnv storageNames
           modifiers functions freeFunctions elseName elseArgs
-          (fun retExpr => useResult retExpr)
+          (fun retExpr => useResult (elseConvert retExpr))
       some
         (SolidCore.Solidity.Source.Stmt.ifElse
           condCore thenCore elseCore)
-  | Expr.call (Expr.ident thenName) thenArgs, _ => do
+  | some (thenName, thenArgs, thenConvert), none => do
       let elseCore ← Expr.abiArgCoreWithEnvCleanup? storageNames env elseExpr
       let thenCore ←
         FunctionDecl.internalSingleReturnCallCore?
           internalFuel storageRefEnv env externalCallKindEnv storageNames
           modifiers functions freeFunctions thenName thenArgs
-          (fun retExpr => useResult retExpr)
+          (fun retExpr => useResult (thenConvert retExpr))
       some
         (SolidCore.Solidity.Source.Stmt.ifElse
           condCore thenCore (useResult elseCore))
-  | _, Expr.call (Expr.ident elseName) elseArgs => do
+  | none, some (elseName, elseArgs, elseConvert) => do
       let thenCore ← Expr.abiArgCoreWithEnvCleanup? storageNames env thenExpr
       let elseCore ←
         FunctionDecl.internalSingleReturnCallCore?
           internalFuel storageRefEnv env externalCallKindEnv storageNames
           modifiers functions freeFunctions elseName elseArgs
-          (fun retExpr => useResult retExpr)
+          (fun retExpr => useResult (elseConvert retExpr))
       some
         (SolidCore.Solidity.Source.Stmt.ifElse
           condCore (useResult thenCore) elseCore)
-  | _, _ => none
+  | none, none => none
 termination_by (3, internalFuel, 0, 4)
 
 def FunctionDecl.internalExprSingleReturnUseCore?
@@ -6904,6 +6905,27 @@ def Stmt.listLowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
       (match stmts with
       | [] => some []
       | Stmt.expr (Expr.assign (Expr.ident name) AssignOp.assign rhs) :: rest =>
+          let directStorageReturnCall? : Option (List CoreStmt) :=
+            if StorageRefEnv.isStorageRef storageRefEnv name then
+              match rhs with
+              | Expr.call (Expr.ident callee) args =>
+                  FunctionDecl.internalSingleStorageReturnRefCorePieces?
+                    internalFuel storageRefEnv env externalCallKindEnv
+                    storageNames modifiers functions freeFunctions callee args
+                    (fun retName =>
+                      SolidCore.Solidity.Source.Stmt.storageAliasAssignFrom
+                        name retName)
+              | _ => none
+            else
+              none
+          match directStorageReturnCall? with
+          | some heads => do
+              let tail ←
+                Stmt.listToCoreWithInternalCallsWithRefs?
+                  internalFuel storageRefEnv env externalCallKindEnv storageNames
+                  modifiers functions freeFunctions returnTys rest
+              some (heads ++ tail)
+          | none =>
           -- R3 (#188): the alias-ASSIGN intercept accepts ANY storage-reference
           -- RHS shape (bare ident as before, plus indexed/member paths — the
           -- storage-pointer-return rewrite shape). Non-storage assignments fall
