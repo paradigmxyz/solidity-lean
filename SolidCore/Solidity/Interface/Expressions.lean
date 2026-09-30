@@ -1054,15 +1054,15 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
                      Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr
                | none => Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
           | Expr.member base "length" =>
-              -- #201 (C): `.length` OF an abi/hash/concat builtin whose
-              -- arguments carry narrow checked arithmetic
-              -- (`require(abi.encode(a + b).length > 0)`, `uint8 a,b`) must
-              -- evaluate the builtin env-aware so the operand-width Panic 0x11
-              -- fires; the Direct fallback lowered the whole `.length` subtree
-              -- env-less (silently encoding 300). Result type is `uint 256`
-              -- exactly as `Expr.abiTyWithEnv?` types `.length`. Every
-              -- unflagged `.length` keeps the byte-identical Direct path.
-              (match (if Expr.abiBuiltinArgsNeedEnvCleanup base then
+              -- #201 (C): `.length` OF an expression carrying narrow checked
+              -- arithmetic must evaluate its base env-aware so the
+              -- operand-width Panic 0x11 fires. This includes abi/hash/concat
+              -- builtins and indexed memory elements such as
+              -- `values[a + b].length`; the Direct fallback lowered the whole
+              -- `.length` subtree env-less. Result type is `uint 256` exactly
+              -- as `Expr.abiTyWithEnv?` types `.length`. Every unflagged
+              -- `.length` keeps the byte-identical Direct path.
+              (match (if Expr.abiArgNeedsEnvCleanup? base then
                   (do
                     let baseTy ← Expr.abiTyWithEnv? env base
                     let baseCore ←
