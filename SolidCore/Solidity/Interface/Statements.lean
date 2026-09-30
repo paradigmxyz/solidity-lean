@@ -50,6 +50,7 @@ def Ty.peelIndexSpineTy? : Ty -> List Expr -> Option Ty
   | _, _ => none
 
 
+set_option maxHeartbeats 2000000 in
 mutual
 
 def modifierParamBindingsToCoreWithEnv? (storageNames : List Name) :
@@ -3483,7 +3484,8 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
       | Stmt.expr expr@(Expr.unary UnaryOp.preDecrement _)
       | Stmt.expr expr@(Expr.unary UnaryOp.postIncrement _)
       | Stmt.expr expr@(Expr.unary UnaryOp.postDecrement _) =>
-          match Expr.toCoreIncDecWithEnv? storageNames env expr with
+          match Expr.toCoreIncDecWithEnv? env
+              (Expr.toCoreLValueWithEnvCleanup? storageNames env) expr with
           | some coreExpr =>
               some (SolidCore.Solidity.Source.Stmt.exprStmt coreExpr)
           | none => Stmt.toCore? storageNames (Stmt.expr expr)
@@ -4022,6 +4024,17 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                        env storageNames target
                  | Expr.call (Expr.member target "push") [Arg.positional value] =>
                      storageArrayPushPathCoreWithEnv? env storageNames target value
+                 | Expr.call (Expr.member target "pop") [] => do
+                     let (name, indexes) ←
+                       Expr.storagePathCoreWithEnv? storageNames env target
+                     match indexes with
+                     | [] =>
+                         some
+                           (SolidCore.Solidity.Source.Stmt.storageArrayPop name)
+                     | _ =>
+                         some
+                           (SolidCore.Solidity.Source.Stmt.storageArrayPopPath
+                             name indexes)
                  | _ => none) with
           | some coreStmt => some coreStmt
           | none =>
@@ -5229,6 +5242,35 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           | none => Stmt.toCore? storageNames
               (Stmt.varDecl [binding]
                 (some (Expr.call (Expr.ident name) args)))
+      -- A call through a function pointer stored in an aggregate has an
+      -- arbitrary expression as its callee (`stored[k](x)`).  The direct-call
+      -- initializer arms above only cover identifier/member callees, leaving
+      -- this shape on the pure expression path where the storage word was
+      -- mistaken for a dispatch value.  Reuse the general internal-expression
+      -- call hoister, which already resolves and invokes aggregate-loaded
+      -- internal function pointers for assignment/return positions.
+      | Stmt.varDecl [binding] (some expr@(Expr.call _ _)) =>
+          match binding.name, binding.ty with
+          | some localName, some expectedTy =>
+              match FunctionDecl.internalExprSingleReturnUseCore?
+                  internalFuel storageRefEnv env externalCallKindEnv
+                  storageNames modifiers functions freeFunctions expr
+                  (fun retExpr =>
+                    SolidCore.Solidity.Source.Stmt.assign
+                      (SolidCore.Solidity.Source.LValue.var localName)
+                      (Ty.implicitCleanupCore expectedTy retExpr)) with
+              | some assignBlock => do
+                  let declCore ←
+                    Stmt.toCore? storageNames (Stmt.varDecl [binding] none)
+                  some
+                    (SolidCore.Solidity.Source.Stmt.block
+                      [declCore, assignBlock])
+              | none =>
+                  Stmt.toCore? storageNames
+                    (Stmt.varDecl [binding] (some expr))
+          | _, _ =>
+              Stmt.toCore? storageNames
+                (Stmt.varDecl [binding] (some expr))
       | Stmt.varDecl [binding]
           (some expr@(Expr.callWithOptions (Expr.ident _) _ _)) =>
           match binding.name with
@@ -6458,7 +6500,15 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
             Stmt.toCore? storageNames (Stmt.expr (Expr.ident name))
       | Stmt.expr expr =>
           match (if Expr.abiArgNeedsEnvCleanup? expr then do
-              let ty ← Expr.abiTyWithEnv? env expr
+              let ty ←
+                match expr with
+                | Expr.tuple items => do
+                    let tys ← mapOption
+                      (fun item => match item with
+                        | TupleItem.value e => Expr.abiTyWithEnv? env e
+                        | TupleItem.hole => none) items
+                    some (Ty.tuple tys)
+                | _ => Expr.abiTyWithEnv? env expr
               Expr.toCoreAsWithEnv? storageNames env ty expr
             else none) with
           | some coreExpr =>
@@ -8140,6 +8190,27 @@ def Stmt.listLowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                   externalCallKindEnv
                   storageNames modifiers functions freeFunctions returnTys rest
               some (head :: tail)
+      | Stmt.varDecl [binding] (some expr@(Expr.call _ _)) :: rest => do
+          let localName ← binding.name
+          let expectedTy ← binding.ty
+          let assignBlock ←
+            FunctionDecl.internalExprSingleReturnUseCore?
+              internalFuel storageRefEnv env externalCallKindEnv
+              storageNames modifiers functions freeFunctions expr
+              (fun retExpr =>
+                SolidCore.Solidity.Source.Stmt.assign
+                  (SolidCore.Solidity.Source.LValue.var localName)
+                  (Ty.implicitCleanupCore expectedTy retExpr))
+          let declCore ←
+            Stmt.toCore? storageNames (Stmt.varDecl [binding] none)
+          let tail ←
+            Stmt.listToCoreWithInternalCallsWithRefs?
+              internalFuel
+              (VarBinding.extendStorageRefEnv storageRefEnv binding)
+              (VarBinding.extendTypeEnv env binding)
+              externalCallKindEnv
+              storageNames modifiers functions freeFunctions returnTys rest
+          some (declCore :: assignBlock :: tail)
       -- TUPLE-VARDECL-FROM-ABI-DECODE (#171): `(uint x, uint y) = abi.decode(...)`
       -- in DECLARATION position. This member-call varDecl arm is reached on the live
       -- (internal-call-aware) body path; `abi.decode` is neither a low-level nor an

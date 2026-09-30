@@ -7559,8 +7559,9 @@ def Expr.toCoreAssignOpWithEnv? (storageNames : List Name)
           lhsCore.toExpr coreOp rhsCore cleanup)
   | _ => none
 
-def Expr.toCoreIncDecWithEnv? (storageNames : List Name)
-    (env : TypeEnv) : Expr -> Option CoreExpr
+def Expr.toCoreIncDecWithEnv? (env : TypeEnv)
+    (lowerLValue : Expr -> Option CoreLValue) :
+    Expr -> Option CoreExpr
   | Expr.unary op target => do
       let (coreOp, returnOld) ←
         match op with
@@ -7573,7 +7574,7 @@ def Expr.toCoreIncDecWithEnv? (storageNames : List Name)
         | UnaryOp.postDecrement =>
             some (SolidCore.Solidity.Source.BinaryOp.sub, true)
         | _ => none
-      let targetCore ← Expr.toCoreLValue? storageNames target
+      let targetCore ← lowerLValue target
       let targetTy ← Expr.abiTyWithEnv? env target
       let cleanup ← Ty.toCoreValueCleanup? targetTy
       some
@@ -8357,7 +8358,7 @@ def Expr.abiArgNeedsEnvCleanupFuel? : Nat -> Expr -> Bool
                     | Arg.named _ _ => false)
               | Expr.member base member =>
                   (member == "balance" || member == "code" ||
-                      member == "codehash") &&
+                      member == "codehash" || member == "length") &&
                     Expr.abiArgNeedsEnvCleanupFuel? fuel base
               | Expr.payableConversion inner =>
                   Expr.abiArgNeedsEnvCleanupFuel? fuel inner
