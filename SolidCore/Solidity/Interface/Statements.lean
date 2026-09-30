@@ -2340,6 +2340,17 @@ def TupleItems.toCoreRhsBitAwareExprs? (storageNames : List Name) (env : TypeEnv
   | ty? :: tyRest, TupleItem.value rhsExpr :: itemRest => do
       let (restCore, restMasked) ←
         TupleItems.toCoreRhsBitAwareExprs? storageNames env tyRest itemRest
+      -- A tuple component is still a value-use boundary. In particular,
+      -- `(uint8 value,) = (a + b, 0)` must evaluate `a + b` at its inferred
+      -- narrow source width before assigning the component. The ordinary
+      -- tuple path lowers every item env-less and loses that Panic 0x11.
+      match (do
+          let ty ← ty?
+          if Expr.abiArgNeedsEnvCleanup? rhsExpr then
+            Expr.toCoreAsWithEnv? storageNames env ty rhsExpr
+          else none) with
+      | some envAware => some (envAware :: restCore, true)
+      | none =>
       match (do
           let ty ← ty?
           let _ ← Ty.fixedBytesSize? ty
