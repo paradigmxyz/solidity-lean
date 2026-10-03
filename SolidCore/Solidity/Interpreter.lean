@@ -8195,25 +8195,34 @@ def Expr.memoryRefOrValueFuel
               Expr.memoryRefOrValueFuel fuel context
                 runtime' (if wordTruthy condWord then thenExpr else elseExpr)
           | Expr.index base idx => do
-              let finish (baseValue indexValue : Value)
-                  (runtime' : Runtime) :
-                  Except RevertData
-                    (Option Nat × Option Value × Runtime) := do
-                let indexWord ← indexValue.expectWord
-                let baseValue ← runtime'.derefMemoryValue baseValue
-                let value ← baseValue.index? indexWord
-                match value with
-                | Value.memoryRef id =>
-                    pure (some id, none, runtime')
-                | _ => pure (none, some value, runtime')
-              -- Intrinsic order (solc IndexAccess visitor): base BEFORE key.
-              let (baseValue, runtime') ←
-                Expr.evalFuel fuel context
-                  runtime base
-              let (indexValue, runtime'') ←
-                Expr.evalFuel fuel context
-                  runtime' idx
-              finish baseValue indexValue runtime''
+              -- A storage-rooted value copied into memory must resolve the
+              -- complete path before loading it. Evaluating `base` first can
+              -- materialize an enclosing struct that contains a mapping,
+              -- even when the selected member is an ordinary dynamic array.
+              if base.hasStorageRoot || base.hasStorageRefRoot runtime then
+                let (value, runtime') ←
+                  Expr.evalFuel fuel context runtime expr
+                pure (none, some value, runtime')
+              else
+                let finish (baseValue indexValue : Value)
+                    (runtime' : Runtime) :
+                    Except RevertData
+                      (Option Nat × Option Value × Runtime) := do
+                  let indexWord ← indexValue.expectWord
+                  let baseValue ← runtime'.derefMemoryValue baseValue
+                  let value ← baseValue.index? indexWord
+                  match value with
+                  | Value.memoryRef id =>
+                      pure (some id, none, runtime')
+                  | _ => pure (none, some value, runtime')
+                -- Intrinsic order (solc IndexAccess visitor): base BEFORE key.
+                let (baseValue, runtime') ←
+                  Expr.evalFuel fuel context
+                    runtime base
+                let (indexValue, runtime'') ←
+                  Expr.evalFuel fuel context
+                    runtime' idx
+                finish baseValue indexValue runtime''
           | _ => do
               -- Any other RHS shape: evaluate normally. Keeping this arm TOTAL
               -- (returning the evaluated value rather than `none, none`) lets
