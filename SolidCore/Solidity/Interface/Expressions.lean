@@ -1734,7 +1734,9 @@ def Expr.storagePathCoreWithEnv? (storageNames : List Name) (env : TypeEnv) :
       let indexCore ←
         if Expr.abiArgNeedsEnvCleanup? index then do
           let indexTy ← Expr.abiTyWithEnv? env index
-          let _ ← Ty.narrowIntCastTarget? indexTy
+          -- The index can be a full-width uint256 expression too. Requiring
+          -- a narrow cast here dropped its storage path and made a returned
+          -- storage pointer fall back to a materializing value assignment.
           Expr.toCoreAsWithEnv? storageNames env indexTy index
         else
           Expr.toCore? storageNames index
