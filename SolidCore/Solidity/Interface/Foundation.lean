@@ -2687,11 +2687,10 @@ def Ty.toCoreStorageMemberLayout? (ty : Ty) :
   | _, _, _ => Ty.toCoreStorageLayout? ty
 
 /-- Array elements of at most 16 bytes pack multiple values into one slot.
-    Wider elementary elements occupy a fresh full slot per element, even
-    though their source type is narrower than 256 bits. In particular, solc
-    stores a negative `int192` array element as a sign-extended full word;
-    treating it as a 24-byte packed lane incorrectly leaves the high eight
-    bytes zero. Struct fields retain the ordinary adjacent-field packing above. -/
+    Wider elementary elements occupy a fresh slot. A direct write to a wide
+    signed element masks to its source width, while a whole-array copy can
+    store the sign-extended word. Retain the width for the direct-write path;
+    the copy path handles sign extension separately. -/
 def Ty.toCoreStorageArrayElementLayout? (ty : Ty) :
     Option CoreStorageLayout :=
   match Ty.storageEnumMax? ty,
@@ -2701,7 +2700,8 @@ def Ty.toCoreStorageArrayElementLayout? (ty : Ty) :
         (SolidCore.Solidity.Source.StorageLayout.packedScalar 0 1 false
           (SolidCore.Solidity.Source.Ty.enumStorage maxValue))
   | none, some widthBytes, some scalar =>
-      if widthBytes <= SolidCore.Solidity.Source.wordBytes / 2 then
+      if widthBytes <= SolidCore.Solidity.Source.wordBytes / 2 ||
+          Ty.storagePackedSigned ty then
         some
           (SolidCore.Solidity.Source.StorageLayout.packedScalar
             0 widthBytes (Ty.storagePackedSigned ty) scalar)

@@ -3697,6 +3697,22 @@ def State.loadStructSlots (state : State) (slot : Word)
     (StorageLayouts.depth layouts + 1)
     state slot cursor layouts
 
+/-- Solidity's whole-array copy stores a wide signed element as a
+    sign-extended word. A direct element write instead masks to its declared
+    width. The layout retains that width for direct writes; use this only at
+    array-copy boundaries. -/
+def State.storeWideSignedArrayCopyElement? (state : State) (slot : Word)
+    (layout : StorageLayout) (value : Value) :
+    Option (Except RevertData State) :=
+  match layout with
+  | StorageLayout.packedScalar 0 bytes true Ty.int256 =>
+      if wordBytes / 2 < bytes && bytes < wordBytes then
+        some (do
+          let word ← coerceStorageWordAs Ty.int256 value
+          Except.ok (state.storeSlot slot word))
+      else none
+  | _ => none
+
 mutual
 
 def State.storeStorageLayoutAt (state : State) (slot : Word)
@@ -3780,7 +3796,10 @@ def State.storeFixedArrayLayoutSlots (state : State) (slot : Word)
         | some pair => Except.ok pair
         | none => Except.error RevertData.typeMismatch
       let state ←
-        State.storeStorageLayoutAt state elementSlot elementSlotLayout value
+        match State.storeWideSignedArrayCopyElement?
+            state elementSlot elementSlotLayout value with
+        | some stored => stored
+        | none => State.storeStorageLayoutAt state elementSlot elementSlotLayout value
       State.storeFixedArrayLayoutSlots state slot elementLayout
         (index + 1) rest
 
@@ -3795,7 +3814,10 @@ def State.storeDynamicArrayLayoutSlots (state : State) (slot : Word)
         | some pair => Except.ok pair
         | none => Except.error RevertData.typeMismatch
       let state ←
-        State.storeStorageLayoutAt state elementSlot elementSlotLayout value
+        match State.storeWideSignedArrayCopyElement?
+            state elementSlot elementSlotLayout value with
+        | some stored => stored
+        | none => State.storeStorageLayoutAt state elementSlot elementSlotLayout value
       State.storeDynamicArrayLayoutSlots state slot elementLayout
         (index + 1) rest
 
@@ -4126,6 +4148,18 @@ def State.clearDynamicArrayLayoutAt (state : State) (slot : Word)
     State.clearDynamicArrayLayoutSlots state slot elementLayout 0 length
   Except.ok (state.storeSlot slot 0)
 
+/-- Whole-array deletion clears every occupied slot, including the high
+    bytes left untouched by a direct narrow element write. Element deletion
+    and array pop continue to clear only the element's declared lane. -/
+def State.clearWideSignedArrayElement? (state : State) (slot : Word)
+    (layout : StorageLayout) : Option State :=
+  match layout with
+  | StorageLayout.packedScalar 0 bytes true Ty.int256 =>
+      if wordBytes / 2 < bytes && bytes < wordBytes then
+        some (state.storeSlot slot 0)
+      else none
+  | _ => none
+
 mutual
 
 def StorageLayout.clearDepth : StorageLayout -> Nat
@@ -4194,8 +4228,10 @@ def State.clearStorageLayoutAtFuel :
                   | some pair => Except.ok pair
                   | none => Except.error RevertData.typeMismatch
                 let state ←
-                  State.clearStorageLayoutAtFuel fuel state
-                    elementSlot elementSlotLayout
+                  match State.clearWideSignedArrayElement?
+                      state elementSlot elementSlotLayout with
+                  | some cleared => Except.ok cleared
+                  | none => State.clearStorageLayoutAtFuel fuel state elementSlot elementSlotLayout
                 Except.ok state)
               state
           Except.ok (state.storeSlot slot 0)
@@ -4210,8 +4246,10 @@ def State.clearStorageLayoutAtFuel :
                 | some pair => Except.ok pair
                 | none => Except.error RevertData.typeMismatch
               let state ←
-                State.clearStorageLayoutAtFuel fuel state
-                  elementSlot elementSlotLayout
+                match State.clearWideSignedArrayElement?
+                    state elementSlot elementSlotLayout with
+                | some cleared => Except.ok cleared
+                | none => State.clearStorageLayoutAtFuel fuel state elementSlot elementSlotLayout
               Except.ok state)
             state
 
@@ -4282,8 +4320,10 @@ def State.storeStorageLayoutAtWithDeepClearFuel :
                     slot index elementLayout with
                   | some pair => Except.ok pair
                   | none => Except.error RevertData.typeMismatch
-                State.storeStorageLayoutAtWithDeepClearFuel fuel state
-                  elementSlot elementSlotLayout value)
+                match State.storeWideSignedArrayCopyElement?
+                    state elementSlot elementSlotLayout value with
+                | some stored => stored
+                | none => State.storeStorageLayoutAtWithDeepClearFuel fuel state elementSlot elementSlotLayout value)
               state
           else
             Except.error RevertData.typeMismatch
@@ -4318,8 +4358,10 @@ def State.storeStorageLayoutAtWithDeepClearFuel :
                     slot index elementLayout with
                   | some pair => Except.ok pair
                   | none => Except.error RevertData.typeMismatch
-                State.storeStorageLayoutAtWithDeepClearFuel fuel state
-                  elementSlot elementSlotLayout value)
+                match State.storeWideSignedArrayCopyElement?
+                    state elementSlot elementSlotLayout value with
+                | some stored => stored
+                | none => State.storeStorageLayoutAtWithDeepClearFuel fuel state elementSlot elementSlotLayout value)
               state
           let newLength := values.length
           let state ←
