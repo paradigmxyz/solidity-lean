@@ -1056,8 +1056,16 @@ def Expr.resolveUserTypesFuel : Nat -> UserTypeEnv -> Expr -> Expr
       | Expr.index base index => Expr.index (resolve base) (resolve index)
       | Expr.slice base start stop =>
           Expr.slice (resolve base) (start.map resolve) (stop.map resolve)
-      | Expr.call (Expr.typeName ty@(Ty.user _)) args =>
-          Expr.call (Expr.typeName ty) (args.map resolveArg)
+      | Expr.call (Expr.typeName ty@(Ty.user path)) args =>
+          -- A user-defined value type conversion erases to its underlying
+          -- integer type, including a redundant conversion around an
+          -- `abi.decode` result. Preserve unresolved user paths: those can
+          -- name struct constructors rather than value-type conversions.
+          let castTy :=
+            match UserTypeEnv.lookup? env path with
+            | some _ => Ty.resolveUserTypesFuel fuel env ty
+            | none => ty
+          Expr.call (Expr.typeName castTy) (args.map resolveArg)
       | Expr.call (Expr.member (Expr.typeName ty@(Ty.user _)) member)
           [Arg.positional arg] =>
           if member == "wrap" || member == "unwrap" then
