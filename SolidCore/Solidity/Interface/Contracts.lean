@@ -1917,7 +1917,11 @@ def ContractDecl.constructorBodyForDeployment?
         | none => Stmt.empty
       let body := Stmt.inlineConstants constants body
       let usingDecls := ContractDecl.directUsingDecls decl ++ sourceUsingDecls
-      let env := FunctionDecl.typeEnv stateEnv ctor
+      -- Constructor bodies use the most-derived deployment address for
+      -- `this`, just like state initializers and base-constructor arguments.
+      -- Keep that binding in the type environment when lowering bound
+      -- external-function values such as `abi.encode(this.run)`.
+      let env := FunctionDecl.typeEnv initEnv ctor
       let usingFunctionScope := functions ++ freeFunctions
       let body :=
         if usingDecls.isEmpty && !ContractDecls.hasLibrary allContracts then
