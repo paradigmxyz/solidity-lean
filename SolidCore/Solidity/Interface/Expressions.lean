@@ -1486,6 +1486,20 @@ def Expr.abiArrayLiteralWithEnvFuel? (fuel : Nat) (storageNames : List Name)
           some (arrTy, coreExpr)
       | _ => none
 
+/-- Lower an unambiguous bound external-function value in an ABI argument.
+    The env-less argument path cannot infer `this.f`'s function signature, but
+    the checked contract's external-call environment records it. -/
+def Expr.thisExternalFunctionAbiArg? (storageNames : List Name)
+    (env : TypeEnv) (expr : Expr) : Option (CoreTy × CoreExpr) := do
+  let member ←
+    match expr with
+    | Expr.member (Expr.ident "this") member => some member
+    | _ => none
+  let ty ← TypeEnv.uniqueThisExternalFunctionTy? env member
+  let coreTy ← Ty.toCore? ty
+  let coreExpr ← Expr.boundExternalFunctionValueCoreAs? storageNames ty expr
+  some (coreTy, coreExpr)
+
 /-- STAGE-D #193: env-aware lowering of ONE `abi.encode`/`abi.encodeWithSelector`
     argument. TC1 `bytesN`-common-type conditionals stay on the dedicated ternary
     widening; a narrow-checked-arithmetic argument
@@ -1514,6 +1528,9 @@ def Expr.toAbiEncodeArgWithEnvFuel? (fuel : Nat) (storageNames : List Name)
               Expr.toCoreAsWithEnvFuel? fuel storageNames env ty expr
             some (coreTy, coreExpr)
           else none) with
+      | some result => some result
+      | none =>
+      match Expr.thisExternalFunctionAbiArg? storageNames env expr with
       | some result => some result
       | none =>
       if Expr.abiArgNeedsEnvCleanup? expr then
