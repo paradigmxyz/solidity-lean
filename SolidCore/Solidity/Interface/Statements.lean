@@ -6141,6 +6141,30 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                 SolidCore.Solidity.Source.Stmt.returnValues [resultExpr]) with
           | some coreStmt => some coreStmt
           | none => Stmt.toCore? storageNames (Stmt.returnValues (some expr))
+      | Stmt.returnValues
+          (some (Expr.member
+            (Expr.call (Expr.member target "push") []) "length")) =>
+          -- Zero-argument `push()` returns a storage reference to the new
+          -- element. Capture that reference atomically, then read its live
+          -- length; evaluating the receiver path twice could repeat effects.
+          match (do
+              let Ty.array elementTy none ← Expr.abiTyWithEnv? env target
+                | none
+              if !Ty.hasStorageArrayMembers elementTy then none else some ()
+              let (name, indexes) ←
+                Expr.storagePathCoreWithEnv? storageNames env target
+              let aliasName := "_sol_push_return_length"
+              some (SolidCore.Solidity.Source.Stmt.block
+                [ SolidCore.Solidity.Source.Stmt.storageArrayPushPathAlias
+                    aliasName name indexes
+                , SolidCore.Solidity.Source.Stmt.returnValues
+                    [SolidCore.Solidity.Source.Expr.length
+                      (SolidCore.Solidity.Source.Expr.var aliasName)] ])) with
+          | some coreStmt => some coreStmt
+          | none => Stmt.toCore? storageNames
+              (Stmt.returnValues
+                (some (Expr.member
+                  (Expr.call (Expr.member target "push") []) "length")))
       | Stmt.returnValues (some expr) =>
           match returnValuesCoreWithReturnTys? storageNames env returnTys expr with
           | some coreStmt => some coreStmt
