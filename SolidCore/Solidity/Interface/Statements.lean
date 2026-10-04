@@ -2600,18 +2600,12 @@ def varDeclCoreWithEnv? (storageNames : List Name)
   | _, _, _ => none
 termination_by (2, 0, 0, 0)
 
-/-- TUP-IDX: hoist internal-function calls out of the INDEX operand of a
-    tuple-assignment LHS component. For each component `base[iname(iargs)]`
-    (an internal call in the array-index / mapping-key position), bind the
-    call result into a per-component temp and build the tuple lvalue target
-    from that temp read, mirroring the MI1 single-assign path
-    (`Expr.assign (Expr.index base (call)) …`). Non-call-index components (a
-    plain lvalue, or an index whose operand is a param/storage-read/constant)
-    keep the ordinary pure `Expr.toCoreLValue?` path unchanged — no behaviour
-    change. Returns the prefix statements (the per-component index-call temp
-    binders, concatenated LEFT-to-right) and the resulting target list; the
-    caller sequences these AFTER the RHS temps so solc's order (RHS
-    left-to-right, THEN LHS index expressions left-to-right) is preserved. -/
+/-- TUP-IDX: hoist an internal call out of the full INDEX expression of a
+    tuple-assignment LHS component, including `base[f(args) % n]`. Bind each
+    computed index to a per-component temp and build the tuple lvalue from
+    that read. Pure index expressions retain ordinary lvalue lowering. The
+    caller sequences these prefixes after RHS evaluation, with LHS indexes
+    evaluated left-to-right. -/
 def FunctionDecl.tupleLhsIndexCallHoistTargets?
     (internalFuel : Nat)
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
@@ -2629,31 +2623,42 @@ def FunctionDecl.tupleLhsIndexCallHoistTargets?
       some (restPre, none :: restTargets)
   | idx,
       TupleItem.value
-        (Expr.index base (Expr.call (Expr.ident iname) iargs)) :: rest => do
+        (Expr.index base indexExpr) :: rest => do
       let tmp := "_sol_lhs_index_call_" ++ toString idx
-      let idxTy ←
-        Expr.abiTyWithInternalFunctionsEnv? functions freeFunctions env
-          (Expr.call (Expr.ident iname) iargs)
-      let idxCoreTy ← Ty.toCore? idxTy
-      let baseLV ← Expr.toCoreLValueWithEnvCleanup? storageNames env base
-      let buildLV := fun index =>
-        SolidCore.Solidity.Source.LValue.index baseLV index
-      let hoisted ←
-        FunctionDecl.internalSingleReturnCallCore?
-          internalFuel storageRefEnv env externalCallKindEnv storageNames
-          modifiers functions freeFunctions iname iargs
-          (fun idxCore =>
-            SolidCore.Solidity.Source.Stmt.assign
-              (SolidCore.Solidity.Source.LValue.var tmp) idxCore)
+      let (headPre, headTarget) ←
+        match (do
+            let idxTy ←
+              Expr.abiTyWithInternalFunctionsEnv? functions freeFunctions env
+                indexExpr
+            let idxCoreTy ← Ty.toCore? idxTy
+            let baseLV ← Expr.toCoreLValueWithEnvCleanup? storageNames env base
+            let hoisted ←
+              FunctionDecl.internalExprSingleReturnUseCore?
+                internalFuel storageRefEnv env externalCallKindEnv storageNames
+                modifiers functions freeFunctions indexExpr
+                (fun idxCore =>
+                  SolidCore.Solidity.Source.Stmt.assign
+                    (SolidCore.Solidity.Source.LValue.var tmp) idxCore)
+            some
+              ( [ SolidCore.Solidity.Source.Stmt.varDecl idxCoreTy tmp none
+                , hoisted ]
+              , SolidCore.Solidity.Source.LValue.index baseLV
+                  (SolidCore.Solidity.Source.Expr.var tmp) )) with
+        | some result => some result
+        | none => do
+            let target ←
+              if Expr.abiArgNeedsEnvCleanup?
+                  (Expr.index base indexExpr) then
+                Expr.toCoreLValueWithEnv? storageNames env
+                  (Expr.index base indexExpr)
+              else
+                Expr.toCoreLValue? storageNames (Expr.index base indexExpr)
+            some ([], target)
       let (restPre, restTargets) ←
         FunctionDecl.tupleLhsIndexCallHoistTargets?
           internalFuel storageRefEnv env externalCallKindEnv storageNames
           modifiers functions freeFunctions (idx + 1) rest
-      some
-        ( [ SolidCore.Solidity.Source.Stmt.varDecl idxCoreTy tmp none
-          , hoisted ] ++ restPre
-        , some (buildLV (SolidCore.Solidity.Source.Expr.var tmp))
-            :: restTargets )
+      some (headPre ++ restPre, some headTarget :: restTargets)
   | idx, TupleItem.value expr :: rest => do
       let target ←
         if Expr.abiArgNeedsEnvCleanup? expr then
