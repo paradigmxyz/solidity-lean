@@ -838,10 +838,11 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
                | none =>
                    Expr.toCoreAsWithEnvDirect? storageNames env targetTy expr)
           | Expr.unary UnaryOp.bitNot inner =>
-              -- A narrow bitwise NOT is evaluated at its operand type. Besides
+              -- A bitwise NOT is evaluated at its operand type. Besides
               -- masking the final `~` to that width, its operand must retain
               -- any checked arithmetic cleanup: `~(a + b)` with `uint8`
-              -- operands Panics 0x11 on the addition before the complement.
+              -- operands, or `~(a - b)` with `uint256` operands, Panics 0x11
+              -- on overflow/underflow before the complement.
               -- The prior env-aware reroute reached this node but then fell
               -- through to the env-less direct lowerer, which evaluated the
               -- addition at 256 bits. Lower the operand recursively at its own
@@ -849,8 +850,8 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
               -- then convert to the surrounding target type.
               (match Expr.abiTyWithEnv? env inner with
                | some operandTy =>
-                   (match Ty.narrowIntCastTarget? operandTy with
-                    | some _ =>
+                   (match operandTy with
+                    | Ty.uint _ | Ty.int _ =>
                         (match Expr.toCoreAsWithEnvFuel?
                             fuel storageNames env operandTy inner with
                          | some innerCore =>
@@ -863,7 +864,7 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
                          | none =>
                              Expr.toCoreAsWithEnvDirect?
                                storageNames env targetTy expr)
-                    | none =>
+                    | _ =>
                         Expr.toCoreAsWithEnvDirect?
                           storageNames env targetTy expr)
                | none =>
