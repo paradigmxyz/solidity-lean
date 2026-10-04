@@ -821,7 +821,14 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
                      | some _ => false
                      | none =>
                          match Ty.wordIntCastTarget? operandTy with
-                         | some true => Expr.hasSignedLiteralOperandMix env inner
+                         | some true =>
+                             -- ABI annotation can turn a raw divisor into an
+                             -- explicit `int256` cast. That removes the literal
+                             -- mix flag, but the env-less lowering still
+                             -- declines the signed division. Use the typed
+                             -- operand path when the direct one is unavailable.
+                             Expr.hasSignedLiteralOperandMix env inner ||
+                               (Expr.toCore? storageNames inner).isNone
                          | _ => false
                    (match (if reroute then
                          Expr.toCoreAsWithEnvFuel?
