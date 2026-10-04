@@ -8650,6 +8650,14 @@ def TupleItems.anyAbiArgNeedsEnvCleanup (items : List TupleItem) : Bool :=
     `abi.encode*`/`concat` call); every other return keeps its lowering
     byte-identical. -/
 def Expr.abiBuiltinArgsNeedEnvCleanup : Expr -> Bool
+  -- `abi.decode(abi.encode(a + b), (int8))` must evaluate the encoder's
+  -- checked addition before decode. The outer decode used to bypass the
+  -- var-declaration env-aware route, folding typed casts to an unchecked
+  -- constant; decode then rejected the out-of-range value with an empty
+  -- revert instead of the addition's Panic(0x11).
+  | Expr.call (Expr.member (Expr.ident "abi") "decode")
+      [Arg.positional data, Arg.positional _] =>
+      Expr.abiBuiltinArgsNeedEnvCleanup data
   -- ENCODECALL-ARG (S, narrow-add-abi-encodecall-arg): a RETURN/vardecl-position
   -- `abi.encodeCall(fnPtr, (…))` whose argument TUPLE carries narrow checked
   -- arithmetic (`return abi.encodeCall(this.g, (a + b))`, `uint8 a,b`). solc
