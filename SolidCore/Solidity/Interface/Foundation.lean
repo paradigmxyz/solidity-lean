@@ -4657,6 +4657,29 @@ def ExternalCallKindEnv.toTypeEnv? (env : ExternalCallKindEnv) :
 def TypeEnv.externalCallKindEntries (env : TypeEnv) : TypeEnv :=
   env.filter (fun entry => entry.fst.startsWith externalCallKindTypeEnvPrefix)
 
+/-- An uncontexted `this.f` function value is usable only when the external
+    overload set names one function. The external-call type environment already
+    carries its signature and ABI function type; recover that type without
+    guessing parameter types from an `abi.encode` call site. -/
+def TypeEnv.uniqueThisExternalFunctionTy? (env : TypeEnv)
+    (functionName : Name) : Option Ty := do
+  let thisTy ← TypeEnv.lookup? env "this"
+  let contractName ←
+    match thisTy with
+    | Ty.user path => path.segments.head?
+    | _ => none
+  let namePrefix :=
+    externalCallKindTypeEnvPrefix ++ contractName ++ ":" ++ functionName ++ "("
+  let matchingEntries :=
+    (TypeEnv.externalCallKindEntries env).filter
+      (fun entry => entry.fst.startsWith namePrefix)
+  match matchingEntries with
+  | [(_, ty)] =>
+      match ty with
+      | Ty.functionWithLocations _ _ _ _ _ Visibility.external_ => some ty
+      | _ => none
+  | _ => none
+
 def TypeEnv.lookupExternalMutability? (env : TypeEnv)
     (contractName functionName : Name) (paramTys : List Ty) :
     Option StateMutability := do
