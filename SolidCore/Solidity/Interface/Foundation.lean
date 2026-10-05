@@ -7628,6 +7628,38 @@ def Expr.abiTyWithEnv? (env : TypeEnv) : Expr -> Option Ty
         match Ty.commonImplicit? thenTy elseTy with
         | some commonTy => some commonTy
         | none => some thenTy
+  | Expr.binary op lhs rhs =>
+      -- A binary can contain an env-dependent subtree even when the env-less
+      -- typer returns a provisional type. For example, in
+      -- `(flag ? uint8(1) : first + second) | 1`, the env-less path sees only
+      -- the first ternary branch and reports uint8, while `first` and `second`
+      -- make the conditional and outer bitwise expression uint256. Infer both
+      -- operands with the environment before accepting any binary type.
+      match op with
+      | BinaryOp.lt | BinaryOp.gt | BinaryOp.le | BinaryOp.ge
+      | BinaryOp.eq | BinaryOp.ne
+      | BinaryOp.boolAnd | BinaryOp.boolOr => some Ty.bool
+      | BinaryOp.shl | BinaryOp.shr | BinaryOp.sar | BinaryOp.exp =>
+          Expr.abiTyWithEnv? env lhs
+      | _ => do
+          let lhsTy ← Expr.abiTyWithEnv? env lhs
+          let rhsTy ← Expr.abiTyWithEnv? env rhs
+          if Expr.isRawNumberLiteralExpression rhs &&
+              implicitLiteralFits lhsTy rhs then
+            some lhsTy
+          else if Expr.isRawNumberLiteralExpression lhs &&
+              implicitLiteralFits rhsTy lhs then
+            some rhsTy
+          else
+            let lhsTy' :=
+              if Expr.isRawNumberLiteralExpression lhs then
+                (Expr.untypedLiteralMobileTy? lhs).getD lhsTy
+              else lhsTy
+            let rhsTy' :=
+              if Expr.isRawNumberLiteralExpression rhs then
+                (Expr.untypedLiteralMobileTy? rhs).getD rhsTy
+              else rhsTy
+            Ty.commonImplicit? lhsTy' rhsTy'
   | expr =>
       match Expr.abiTy? [] expr with
       | some ty => some ty
@@ -7644,39 +7676,6 @@ def Expr.abiTyWithEnv? (env : TypeEnv) : Expr -> Option Ty
               Expr.abiTyWithEnv? env inner
           | Expr.assign lhs _ _ =>
               Expr.abiTyWithEnv? env lhs
-          | Expr.binary op lhs rhs =>
-              match op with
-              | BinaryOp.lt | BinaryOp.gt | BinaryOp.le | BinaryOp.ge
-              | BinaryOp.eq | BinaryOp.ne
-              | BinaryOp.boolAnd | BinaryOp.boolOr => some Ty.bool
-              -- Solidity shifts and exponentiation keep the left operand's
-              -- type.  The other arithmetic and bitwise operators use the
-              -- common operand type, including at every level of a
-              -- left-associated chain.  Returning only the left leaf here
-              -- made `uint16 x; uint56 y; uint8 z; x ^ y ^ z` appear to have
-              -- type uint16 and inserted a spurious checked narrowing around
-              -- the inner uint56 result.
-              | BinaryOp.shl | BinaryOp.shr | BinaryOp.sar | BinaryOp.exp =>
-                  Expr.abiTyWithEnv? env lhs
-              | _ => do
-                  let lhsTy ← Expr.abiTyWithEnv? env lhs
-                  let rhsTy ← Expr.abiTyWithEnv? env rhs
-                  if Expr.isRawNumberLiteralExpression rhs &&
-                      implicitLiteralFits lhsTy rhs then
-                    some lhsTy
-                  else if Expr.isRawNumberLiteralExpression lhs &&
-                      implicitLiteralFits rhsTy lhs then
-                    some rhsTy
-                  else
-                    let lhsTy' :=
-                      if Expr.isRawNumberLiteralExpression lhs then
-                        (Expr.untypedLiteralMobileTy? lhs).getD lhsTy
-                      else lhsTy
-                    let rhsTy' :=
-                      if Expr.isRawNumberLiteralExpression rhs then
-                        (Expr.untypedLiteralMobileTy? rhs).getD rhsTy
-                      else rhsTy
-                    Ty.commonImplicit? lhsTy' rhsTy'
           | Expr.member base "balance" => do
               let _ ← Expr.abiTyWithEnv? env base
               some (Ty.uint 256)
