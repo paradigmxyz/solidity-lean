@@ -101,28 +101,38 @@ def type_string(node: dict[str, Any]) -> str:
     return ""
 
 
-def enclosing_contract_name(ast: dict[str, Any], target: dict[str, Any]) -> str:
-    """Best-effort name of the ContractDefinition enclosing ``target``."""
-    stack: list[str] = []
+# One-entry memo (ast identity -> {id(node): enclosing contract name}). Detectors
+# call enclosing_contract_name once per hit; re-walking the whole AST each time
+# was quadratic and stalled on large real-world sources (e.g. every Yul node of
+# an assembly-heavy library is a hit).
+_ENCLOSING_MEMO: list[tuple[dict[str, Any], dict[int, str]]] = []
 
-    def walk(node: Any, current: Optional[str]) -> Optional[str]:
+
+def _enclosing_map(ast: dict[str, Any]) -> dict[int, str]:
+    if _ENCLOSING_MEMO and _ENCLOSING_MEMO[0][0] is ast:
+        return _ENCLOSING_MEMO[0][1]
+    owner: dict[int, str] = {}
+
+    def walk(node: Any, current: Optional[str]) -> None:
         if isinstance(node, dict):
-            if node is target:
-                return current
+            if current is not None:
+                owner.setdefault(id(node), current)
             if node.get("nodeType") == "ContractDefinition":
                 current = str(node.get("name") or "?")
             for value in node.values():
-                found = walk(value, current)
-                if found is not None:
-                    return found
+                walk(value, current)
         elif isinstance(node, list):
             for item in node:
-                found = walk(item, current)
-                if found is not None:
-                    return found
-        return None
+                walk(item, current)
 
-    return walk(ast, None) or "?"
+    walk(ast, None)
+    _ENCLOSING_MEMO[:] = [(ast, owner)]
+    return owner
+
+
+def enclosing_contract_name(ast: dict[str, Any], target: dict[str, Any]) -> str:
+    """Best-effort name of the ContractDefinition enclosing ``target``."""
+    return _enclosing_map(ast).get(id(target), "?")
 
 
 # ---------------------------------------------------------------------------
