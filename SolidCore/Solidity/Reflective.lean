@@ -34,13 +34,18 @@ open EvmCompiler.Simulation
 /-- One recorded invocation of an actor: the calls it made, in order, and what it
     returned to its caller. -/
 structure ActorInvocation where
-  calls : List (Word × Word × List Nat)  -- target, value, calldata
+  /-- caller, target, value, calldata. The caller is normally the actor itself; a
+      Foundry `vm.prank` in the recorded run makes it another address. -/
+  calls : List (Word × Word × Word × List Nat)
   success : Bool := true
   output : List Nat := []
   deriving Repr, Inhabited
 
 inductive Member where
-  | code (contract : Contract)
+  /-- `immutables`: (name, raw word) as deployed. Immutables live in code, not in the
+      world's storage, so the registry carries them; each is coerced through the
+      field's type exactly as the constructor's store would. -/
+  | code (contract : Contract) (immutables : List (String × Word))
   | actor (script : List ActorInvocation)
   | eoa
   deriving Inhabited
@@ -108,11 +113,18 @@ partial def answerCall (reg : Registry) (depth : Nat) (cs : Cursors)
   let some world1 := (if moves then transferValue world caller self value else some world)
     | return (failed world req, cs)
   match reg.find? target with
-  | some (.code contract) =>
+  | some (.code contract immutables) =>
       let base : Context := { contract.context with blockEnv := reg.blockEnv, txEnv := reg.txEnv }
       let ctx := ABI.Contract.callContextAtWithBase contract base self caller
         (u256ToWord req.apparentValue) calldata
-      let st0 := adoptWorld world1 ctx State.empty
+      let st0 := immutables.foldl (fun (st : State) (nw : String × Word) =>
+          match contract.immutableFields.find? (·.name == nw.1) with
+          | some field =>
+              match field.ty.coerceValue? (Value.word nw.2) with
+              | some v => st.storeImmutable nw.1 v
+              | none => st
+          | none => st)
+        (adoptWorld world1 ctx State.empty)
       let (r, cs) ← dispatch reg (depth - 1) cs contract base st0 self caller
         (u256ToWord req.apparentValue) calldata
       let post := if r.success then snapshotWorld ctx r.state else world
@@ -123,9 +135,9 @@ partial def answerCall (reg : Registry) (depth : Nat) (cs : Cursors)
       let some inv := script[n]? | .error s!"actor {target} called {n + 1} times, recorded {script.length}"
       let mut w := world1
       let mut cs := cs
-      for (t, v, cd) in inv.calls do
+      for (c, t, v, cd) in inv.calls do
         let sub : CallRequest :=
-          { kind := .call, requestedGas := req.requestedGas, caller := wordToAddress target,
+          { kind := .call, requestedGas := req.requestedGas, caller := wordToAddress c,
             recipient := wordToAddress t, codeAddress := wordToAddress t,
             transferValue := wordToU256 v, apparentValue := wordToU256 v,
             calldata := bytesToByteArray cd, permission := true }
@@ -138,7 +150,7 @@ partial def answerCall (reg : Registry) (depth : Nat) (cs : Cursors)
   | some .eoa =>
       return ({ success := true, returnData := ByteArray.empty, postWorld := world1,
                 returnedGas := req.requestedGas }, cs)
-  | none => .error s!"call to unregistered address {target}"
+  | none => .error s!"call to unregistered address {target} from {caller} (selector {calldata.take 4}, depth {depth})"
 
 /-- `ABI.Contract.callCalldataAtFromWithContext?`, but folding each function's call
     tree with `run` instead of the empty responder. -/
