@@ -57,11 +57,34 @@ structure Registry where
   fuel : Nat := 4096
 
 /-- Per-actor invocation cursors, threaded through the whole run. -/
-abbrev Cursors := List (Word × Nat)
+structure Cursors where
+  pos : List (Word × Nat) := []
+  /-- Every answered call, in order: caller, target, selector bytes, success. For
+      diffing a closed-world run against the recorded EVM call sequence. -/
+  log : Array (Word × Word × List Nat × Bool) := #[]
+  /-- Why a call failed inside the responder itself (not a callee revert). -/
+  notes : Array String := #[]
+  /-- Block environment overrides from replayed Foundry `vm.warp` / `vm.roll`. -/
+  timestamp? : Option Word := none
+  number? : Option Word := none
+  deriving Inhabited
+
+/-- Foundry's cheatcode address: actor scripts keep their `vm.warp`/`vm.roll` calls. -/
+def cheatAddress : Word := 0x7109709ECfa91a80626fF3989D68f67F5b1DD12D
+
+def Cursors.blockEnv (cs : Cursors) (b : BlockEnv) : BlockEnv :=
+  let b := match cs.timestamp? with | some t => { b with timestamp := t } | none => b
+  match cs.number? with | some n => { b with number := n } | none => b
+
+def Cursors.note (cs : Cursors) (s : String) : Cursors := { cs with notes := cs.notes.push s }
 
 def Cursors.next (cs : Cursors) (a : Word) : Nat × Cursors :=
-  let n := ((cs.find? (·.1 == a)).map (·.2)).getD 0
-  (n, (a, n + 1) :: cs.filter (·.1 != a))
+  let n := ((cs.pos.find? (·.1 == a)).map (·.2)).getD 0
+  (n, { cs with pos := (a, n + 1) :: cs.pos.filter (·.1 != a) })
+
+def Cursors.record (cs : Cursors) (caller target : Word) (calldata : List Nat) (ok : Bool) :
+    Cursors :=
+  { cs with log := cs.log.push (caller, target, calldata.take 4, ok) }
 
 def Registry.find? (reg : Registry) (a : Word) : Option Member :=
   (reg.members.find? (·.1 == Shared.norm a)).map (·.2)
@@ -81,6 +104,11 @@ def transferValue (world : Shared.OpenWorld) (src dst value : Word) :
   let d' : OpenAccount := { d with balance := wordToU256 (u256ToWord d.balance + value) }
   some { world with accounts := world.accounts.insert da d' }
 
+def balanceOfWorld (world : Shared.OpenWorld) (a : Word) : Word :=
+  match world.accounts.find? (wordToAddress a) with
+  | some acc => u256ToWord acc.balance
+  | none => 0
+
 def failed (world : Shared.OpenWorld) (req : CallRequest) : CallResponse :=
   { success := false, returnData := ByteArray.empty, postWorld := world,
     returnedGas := req.requestedGas }
@@ -99,22 +127,61 @@ partial def run {α : Type} (reg : Registry) (depth : Nat) (cs : Cursors) :
       .error "contract creation is not supported in the closed world"
   | .request (.resource r) k => run reg depth cs (k (Query.defaultAnswer (.resource r)))
 
-/-- Answer one call request by executing the callee. -/
+/-- Answer one call request by executing the callee; logged in pre-order. -/
 partial def answerCall (reg : Registry) (depth : Nat) (cs : Cursors)
     (world : Shared.OpenWorld) (req : CallRequest) : Except String (CallResponse × Cursors) := do
-  if depth == 0 then return (failed world req, cs)
+  let idx := cs.log.size
+  let cs := cs.record (addressToWord req.caller) (addressToWord req.codeAddress)
+    (byteArrayToBytes req.calldata) false
+  let (resp, cs) ← answerCallInner reg depth cs world req
+  let (c, t, sel, _) := cs.log[idx]!
+  return (resp, { cs with log := cs.log.set! idx (c, t, sel, resp.success) })
+
+partial def answerCallInner (reg : Registry) (depth : Nat) (cs : Cursors)
+    (world : Shared.OpenWorld) (req : CallRequest) : Except String (CallResponse × Cursors) := do
+  if depth == 0 then return (failed world req, cs.note "depth exhausted")
   if let some resp := precompileAnswerCall? world req then return (resp, cs)
   let caller := addressToWord req.caller
   let self := addressToWord req.recipient
   let target := addressToWord req.codeAddress
   let value := u256ToWord req.transferValue
   let calldata := byteArrayToBytes req.calldata
+  if target == cheatAddress then
+    -- Replayed Foundry cheatcodes from an actor script: `vm.warp(t)` (0xe5d6bf02),
+    -- `vm.roll(n)` (0x1f7b4f30) update the block environment; `vm.store(a, slot, v)`
+    -- (0x70ca10bb) and `vm.deal(a, wei)` (0xc88a5e6d) are out-of-band world edits
+    -- (Forge's `deal(token, who, n)` ends in a `vm.store`).
+    let word := fun (k : Nat) => (calldata.drop (4 + 32 * k)).take 32 |>.foldl (fun a b => a * 256 + b) 0
+    let (world', cs) := match calldata.take 4 with
+      | [0xe5, 0xd6, 0xbf, 0x02] => (world, { cs with timestamp? := some (word 0) })
+      | [0x1f, 0x7b, 0x4f, 0x30] => (world, { cs with number? := some (word 0) })
+      | [0x70, 0xca, 0x10, 0xbb] =>
+          let a := wordToAddress (word 0)
+          let acc := (world.accounts.find? a).getD default
+          let acc' : OpenAccount := { acc with storage := acc.storage.insert (wordToU256 (word 1)) (wordToU256 (word 2)) }
+          ({ world with accounts := world.accounts.insert a acc' }, cs)
+      | [0xc8, 0x8a, 0x5e, 0x6d] =>
+          let a := wordToAddress (word 0)
+          let acc := (world.accounts.find? a).getD default
+          let acc' : OpenAccount := { acc with balance := wordToU256 (word 1) }
+          ({ world with accounts := world.accounts.insert a acc' }, cs)
+      | _ => (world, cs.note s!"ignored cheatcode {calldata.take 4}")
+    return ({ success := true, returnData := ByteArray.empty, postWorld := world',
+              returnedGas := req.requestedGas }, cs)
   let moves := req.kind == .call || req.kind == .callcode
   let some world1 := (if moves then transferValue world caller self value else some world)
-    | return (failed world req, cs)
+    | return (failed world req, cs.note
+        s!"value {value} from {caller} to {self}: balance {balanceOfWorld world caller}")
   match reg.find? target with
   | some (.code contract immutables) =>
-      let base : Context := { contract.context with blockEnv := reg.blockEnv, txEnv := reg.txEnv }
+      -- A2 entry re-bases `selfBalance` from the Context seed `accountBalances` plus
+      -- `msg.value` (`FunctionDef.call`), not from the adopted world. Seed it with the
+      -- world balance minus the value the entry will add back, so the callee starts
+      -- with exactly its post-transfer balance (call) / unchanged balance (delegatecall).
+      let entrySeed := balanceOfWorld world1 self - u256ToWord req.apparentValue
+      let base : Context := { contract.context with
+        blockEnv := cs.blockEnv reg.blockEnv, txEnv := reg.txEnv,
+        accountBalances := (self, entrySeed) :: contract.context.accountBalances }
       let ctx := ABI.Contract.callContextAtWithBase contract base self caller
         (u256ToWord req.apparentValue) calldata
       let st0 := immutables.foldl (fun (st : State) (nw : String × Word) =>
@@ -210,11 +277,30 @@ end
 
 /-- Run a sequence of top-level calls (sender, target, value, calldata) from `world0`.
     Returns per-call success and the final world. -/
+def runTopLog (reg : Registry) (world0 : Shared.OpenWorld)
+    (calls : List (Word × Word × Word × List Nat)) :
+    Except String (List Bool × Shared.OpenWorld × Array (Word × Word × List Nat × Bool) ×
+      Array String) := do
+  let mut w := world0
+  let mut cs : Cursors := {}
+  let mut oks := []
+  for (sender, target, value, cd) in calls do
+    let req : CallRequest :=
+      { kind := .call, requestedGas := wordToU256 30000000, caller := wordToAddress sender,
+        recipient := wordToAddress target, codeAddress := wordToAddress target,
+        transferValue := wordToU256 value, apparentValue := wordToU256 value,
+        calldata := bytesToByteArray cd, permission := true }
+    let (resp, cs') ← answerCall reg 1024 cs w req
+    cs := cs'
+    oks := oks ++ [resp.success]
+    if resp.success then w := resp.postWorld
+  return (oks, w, cs.log, cs.notes)
+
 def runTop (reg : Registry) (world0 : Shared.OpenWorld)
     (calls : List (Word × Word × Word × List Nat)) :
     Except String (List Bool × Shared.OpenWorld) := do
   let mut w := world0
-  let mut cs : Cursors := []
+  let mut cs : Cursors := {}
   let mut oks := []
   for (sender, target, value, cd) in calls do
     let req : CallRequest :=
