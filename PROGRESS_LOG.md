@@ -96,3 +96,9 @@ documentation/freeze phase) is recorded — one dated entry per decision — in
 - Credited report `13324306-3e94-4a9e-9fd9-76d258d7a67f` still diverged at PR 75's merge commit: the importer unwraps `(a+b)`, while the previous fix and hand-built witness matched a singleton tuple only.
 - Add plain-expression encodeCall arms to both cleanup-routing predicates and env-aware lowering. Preserve the operand's own type width. Witness covers actual importer shape plus original tuple shape, safe and overflowing cases.
 - Twelve real solc/Foundry/importer controls (uint8/int8; single/nested/tuple; safe/overflow) pass. Original submission now agrees. Full build and queue replay results are recorded in the PR; existing first-file credit remains unchanged.
+
+## 2026-10-11 — pop through a conditional storage array reference
+
+- Report `c7242299-9147-444b-84ab-0f736f41c75b` selects one of two state arrays and calls `pop()`. Solc succeeds; the previous lowering treated the receiver as an external call and reverted.
+- Lower conditional pop receivers to an env-aware conditional with one concrete array mutation per branch. Ordinary and indexed storage paths retain their existing operations.
+- Add a checked witness for both selections: the returned length score is 1 when selecting the left array and 10 when selecting the right array.

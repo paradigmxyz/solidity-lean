@@ -100,6 +100,7 @@ import SolidCore.Witness.CalldataEvmWrap
 import SolidCore.Witness.AbiDecodeStorageBytes
 import SolidCore.Witness.TernaryStorageBytesKeccak
 import SolidCore.Witness.PushThroughTernaryStorageRef
+import SolidCore.Witness.PopThroughTernaryStorageRef
 import SolidCore.Witness.TupleRhsStorageBytes
 import SolidCore.Witness.TupleRhsBytesNShiftMask
 import SolidCore.Witness.CompoundAssignBytesNLiteral

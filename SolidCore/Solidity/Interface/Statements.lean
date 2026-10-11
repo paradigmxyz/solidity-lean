@@ -4153,17 +4153,8 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                        env storageNames target
                  | Expr.call (Expr.member target "push") [Arg.positional value] =>
                      storageArrayPushPathCoreWithEnv? env storageNames target value
-                 | Expr.call (Expr.member target "pop") [] => do
-                     let (name, indexes) ←
-                       Expr.storagePathCoreWithEnv? storageNames env target
-                     match indexes with
-                     | [] =>
-                         some
-                           (SolidCore.Solidity.Source.Stmt.storageArrayPop name)
-                     | _ =>
-                         some
-                           (SolidCore.Solidity.Source.Stmt.storageArrayPopPath
-                             name indexes)
+                 | Expr.call (Expr.member target "pop") [] =>
+                     storageArrayPopPathCoreWithEnv? env storageNames target
                  | _ => none) with
           | some coreStmt => some coreStmt
           | none =>

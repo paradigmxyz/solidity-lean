@@ -6867,6 +6867,30 @@ def storageArrayEmptyPushPathCoreWithEnv? (env : TypeEnv)
             (SolidCore.Solidity.Source.Stmt.storageArrayPushPath
               name indexes none)
 
+/-- Env-aware lowering for `pop()` on a state-variable storage array. A
+    conditional receiver denotes the storage reference selected by the
+    condition, so lower it to an `ifElse` whose branches pop the corresponding
+    concrete path. The condition is evaluated once before either mutation. -/
+def storageArrayPopPathCoreWithEnv? (env : TypeEnv)
+    (storageNames : List Name) (target : Expr) : Option CoreStmt :=
+  match target with
+  | Expr.ternary cond thenTarget elseTarget => do
+      let condCore ← Expr.toCoreAsWithEnv? storageNames env Ty.bool cond
+      let thenStmt ←
+        storageArrayPopPathCoreWithEnv? env storageNames thenTarget
+      let elseStmt ←
+        storageArrayPopPathCoreWithEnv? env storageNames elseTarget
+      some (SolidCore.Solidity.Source.Stmt.ifElse condCore thenStmt elseStmt)
+  | _ => do
+      let (name, indexes) ←
+        Expr.storagePathCoreWithEnv? storageNames env target
+      match indexes with
+      | [] =>
+          some (SolidCore.Solidity.Source.Stmt.storageArrayPop name)
+      | _ =>
+          some
+            (SolidCore.Solidity.Source.Stmt.storageArrayPopPath name indexes)
+
 def Expr.noReturnEffectStmtCoreWithStorageRefs?
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
     (storageNames : List Name) (expr : Expr) : Option CoreStmt :=
@@ -6886,6 +6910,15 @@ def Expr.noReturnEffectStmtCoreWithStorageRefs?
                 storageRefEnv env storageNames expr
   | Expr.call (Expr.member target "push") [Arg.positional value] =>
       match storageArrayPushPathCoreWithEnv? env storageNames target value with
+      | some coreStmt => some coreStmt
+      | none =>
+          match Expr.noReturnEffectStmtCore? storageNames expr with
+          | some coreStmt => some coreStmt
+          | none =>
+              Expr.storageRefArrayMemberStmtCore?
+                storageRefEnv env storageNames expr
+  | Expr.call (Expr.member target "pop") [] =>
+      match storageArrayPopPathCoreWithEnv? env storageNames target with
       | some coreStmt => some coreStmt
       | none =>
           match Expr.noReturnEffectStmtCore? storageNames expr with
