@@ -1245,40 +1245,60 @@ def FunctionDecl.internalTernaryConditionSingleReturnUseCore?
           useResult
             (SolidCore.Solidity.Source.Expr.ternary
               condExpr thenCore elseCore))
-  | Expr.binary op lhs rhs => do
-      -- A call can be nested as the left operand of an ordinary binary
-      -- condition (`id(a) != 0 ? a : b`). Solidity evaluates the right operand
-      -- first, so snapshot that pure value before running the left call. The
-      -- short-circuit operators have different ordering and keep declining
-      -- here for their guarded lowering path.
-      match op with
-      | BinaryOp.boolAnd | BinaryOp.boolOr => none
-      | _ => some ()
-      let (name, args, convert) ← Expr.internalSingleReturnCallConversion? lhs
-      let coreOp ← BinaryOp.toCore? op
-      let rhsCore ← Expr.abiArgCoreWithEnvCleanup? storageNames env rhs
-      let rhsTy ←
-        Expr.abiTyWithInternalFunctionsEnv? functions freeFunctions env rhs
-      let rhsCoreTy ← Ty.toCore? rhsTy
-      let thenCore ← Expr.abiArgCoreWithEnvCleanup? storageNames env thenExpr
-      let elseCore ← Expr.abiArgCoreWithEnvCleanup? storageNames env elseExpr
-      let rhsTmp := "_sol_ternary_cond_rhs"
-      let callCore ←
-        FunctionDecl.internalSingleReturnCallCore?
-          internalFuel storageRefEnv env externalCallKindEnv storageNames
-          modifiers functions freeFunctions name args
-          (fun lhsExpr =>
-            useResult
-              (SolidCore.Solidity.Source.Expr.ternary
-                (SolidCore.Solidity.Source.Expr.binary coreOp
-                  (convert lhsExpr)
-                  (SolidCore.Solidity.Source.Expr.var rhsTmp))
-                thenCore elseCore))
-      some
-        (SolidCore.Solidity.Source.Stmt.block
-          [ SolidCore.Solidity.Source.Stmt.varDecl
-              rhsCoreTy rhsTmp (some rhsCore)
-          , callCore ])
+  | Expr.binary op lhs rhs =>
+      match (do
+        -- A call can be nested as the left operand of an ordinary binary
+        -- condition (`id(a) != 0 ? a : b`). Solidity evaluates the right operand
+        -- first, so snapshot that pure value before running the left call. The
+        -- short-circuit operators have different ordering and keep declining
+        -- here for their guarded lowering path.
+        match op with
+        | BinaryOp.boolAnd | BinaryOp.boolOr => none
+        | _ => some ()
+        let (name, args, convert) ← Expr.internalSingleReturnCallConversion? lhs
+        let coreOp ← BinaryOp.toCore? op
+        let rhsCore ← Expr.abiArgCoreWithEnvCleanup? storageNames env rhs
+        let rhsTy ←
+          Expr.abiTyWithInternalFunctionsEnv? functions freeFunctions env rhs
+        let rhsCoreTy ← Ty.toCore? rhsTy
+        let thenCore ← Expr.abiArgCoreWithEnvCleanup? storageNames env thenExpr
+        let elseCore ← Expr.abiArgCoreWithEnvCleanup? storageNames env elseExpr
+        let rhsTmp := "_sol_ternary_cond_rhs"
+        let callCore ←
+          FunctionDecl.internalSingleReturnCallCore?
+            internalFuel storageRefEnv env externalCallKindEnv storageNames
+            modifiers functions freeFunctions name args
+            (fun lhsExpr =>
+              useResult
+                (SolidCore.Solidity.Source.Expr.ternary
+                  (SolidCore.Solidity.Source.Expr.binary coreOp
+                    (convert lhsExpr)
+                    (SolidCore.Solidity.Source.Expr.var rhsTmp))
+                  thenCore elseCore))
+        some
+          (SolidCore.Solidity.Source.Stmt.block
+            [ SolidCore.Solidity.Source.Stmt.varDecl
+                rhsCoreTy rhsTmp (some rhsCore)
+            , callCore ])) with
+      | some core => some core
+      | none => do
+          match op with
+          | BinaryOp.boolAnd | BinaryOp.boolOr => none
+          | _ => some ()
+          let (name, args, convert) ← Expr.internalSingleReturnCallConversion? rhs
+          let coreOp ← BinaryOp.toCore? op
+          let lhsCore ← Expr.abiArgCoreWithEnvCleanup? storageNames env lhs
+          let thenCore ← Expr.abiArgCoreWithEnvCleanup? storageNames env thenExpr
+          let elseCore ← Expr.abiArgCoreWithEnvCleanup? storageNames env elseExpr
+          -- The right call runs first; the pure left operand is read afterwards.
+          FunctionDecl.internalSingleReturnCallCore?
+            internalFuel storageRefEnv env externalCallKindEnv storageNames
+            modifiers functions freeFunctions name args
+            (fun rhsExpr =>
+              useResult
+                (SolidCore.Solidity.Source.Expr.ternary
+                  (SolidCore.Solidity.Source.Expr.binary coreOp lhsCore (convert rhsExpr))
+                  thenCore elseCore))
   | _ => none
 termination_by (3, internalFuel, 0, 4)
 

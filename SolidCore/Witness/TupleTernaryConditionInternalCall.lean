@@ -76,4 +76,29 @@ def falseBranchMatches : Except TypeError Bool :=
 #guard isOkTrue trueBranchMatches
 #guard isOkTrue falseBranchMatches
 
+private def rightCondition : Expr :=
+  Expr.binary BinaryOp.ne
+    (Expr.call (Expr.typeName (Ty.uint 256)) [Arg.positional (Expr.ident "a")])
+    (Expr.call (Expr.ident "id") [Arg.positional (Expr.ident "b")])
+
+private def rightRun : FunctionDecl :=
+  { runFn with body := some (Stmt.block
+      [ Stmt.varDecl [{ name := some "result", ty := Ty.uint 256 }] none
+      , Stmt.expr (Expr.assign
+          (Expr.tuple [TupleItem.value (Expr.ident "result"), TupleItem.hole])
+          AssignOp.assign
+          (Expr.tuple
+            [ TupleItem.value
+                (Expr.ternary rightCondition (Expr.ident "a") (Expr.ident "b"))
+            , TupleItem.value (Expr.ident "b") ]))
+      , Stmt.returnValues (some (Expr.ident "result")) ]) }
+
+def rightContract : ContractDecl :=
+  { contract with items := [ContractItem.function idFn, ContractItem.function rightRun] }
+
+#guard isOkTrue (Examples.checkedOwnCallWordMatches 4096 rightContract "run"
+  State.empty [Value.word 1, Value.word 2] 1)
+#guard isOkTrue (Examples.checkedOwnCallWordMatches 4096 rightContract "run"
+  State.empty [Value.word 2, Value.word 2] 2)
+
 end SolidCore.Solidity.Witness.TupleTernaryConditionInternalCall
