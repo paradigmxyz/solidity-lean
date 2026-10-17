@@ -1245,6 +1245,34 @@ def FunctionDecl.internalTernaryConditionSingleReturnUseCore?
           useResult
             (SolidCore.Solidity.Source.Expr.ternary
               condExpr thenCore elseCore))
+  | Expr.binary BinaryOp.boolAnd lhs rhs => do
+      let (name, args, convert) ← Expr.internalSingleReturnCallConversion? lhs
+      let rhsCore ← Expr.toCoreAsWithEnv? storageNames env Ty.bool rhs
+      let thenCore ← Expr.abiArgCoreWithEnvCleanup? storageNames env thenExpr
+      let elseCore ← Expr.abiArgCoreWithEnvCleanup? storageNames env elseExpr
+      FunctionDecl.internalSingleReturnCallCore?
+        internalFuel storageRefEnv env externalCallKindEnv storageNames
+        modifiers functions freeFunctions name args
+        (fun lhsExpr =>
+          useResult
+            (SolidCore.Solidity.Source.Expr.ternary
+              (SolidCore.Solidity.Source.Expr.ternary (convert lhsExpr)
+                (rhsCore) (SolidCore.Solidity.Source.Expr.word 0))
+              thenCore elseCore))
+  | Expr.binary BinaryOp.boolOr lhs rhs => do
+      let (name, args, convert) ← Expr.internalSingleReturnCallConversion? lhs
+      let rhsCore ← Expr.toCoreAsWithEnv? storageNames env Ty.bool rhs
+      let thenCore ← Expr.abiArgCoreWithEnvCleanup? storageNames env thenExpr
+      let elseCore ← Expr.abiArgCoreWithEnvCleanup? storageNames env elseExpr
+      FunctionDecl.internalSingleReturnCallCore?
+        internalFuel storageRefEnv env externalCallKindEnv storageNames
+        modifiers functions freeFunctions name args
+        (fun lhsExpr =>
+          useResult
+            (SolidCore.Solidity.Source.Expr.ternary
+              (SolidCore.Solidity.Source.Expr.ternary (convert lhsExpr)
+                (SolidCore.Solidity.Source.Expr.word 1) (rhsCore))
+              thenCore elseCore))
   | Expr.binary op lhs rhs =>
       match (do
         -- A call can be nested as the left operand of an ordinary binary

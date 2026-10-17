@@ -101,4 +101,36 @@ def rightContract : ContractDecl :=
 #guard isOkTrue (Examples.checkedOwnCallWordMatches 4096 rightContract "run"
   State.empty [Value.word 2, Value.word 2] 2)
 
+private def yesFn : FunctionDecl :=
+  { idFn with
+    name := some "yes"
+    returns := [{ name := none, ty := Ty.bool }]
+    body := some (Stmt.block [Stmt.returnValues (some
+      (Expr.binary BinaryOp.ne (Expr.ident "x") (num "0")))]) }
+
+private def shortCondition : Expr :=
+  Expr.binary BinaryOp.boolAnd
+    (Expr.call (Expr.ident "yes") [Arg.positional (Expr.ident "a")])
+    (Expr.binary BinaryOp.ne (Expr.ident "b") (num "0"))
+
+private def shortRun : FunctionDecl :=
+  { runFn with body := some (Stmt.block
+      [ Stmt.varDecl [{ name := some "result", ty := Ty.uint 256 }] none
+      , Stmt.expr (Expr.assign
+          (Expr.tuple [TupleItem.value (Expr.ident "result"), TupleItem.hole])
+          AssignOp.assign
+          (Expr.tuple
+            [ TupleItem.value
+                (Expr.ternary shortCondition (Expr.ident "a") (Expr.ident "b"))
+            , TupleItem.value (Expr.ident "b") ]))
+      , Stmt.returnValues (some (Expr.ident "result")) ]) }
+
+def shortContract : ContractDecl :=
+  { contract with items := [ContractItem.function yesFn, ContractItem.function shortRun] }
+
+#guard isOkTrue (Examples.checkedOwnCallWordMatches 4096 shortContract "run"
+  State.empty [Value.word 1, Value.word 2] 1)
+#guard isOkTrue (Examples.checkedOwnCallWordMatches 4096 shortContract "run"
+  State.empty [Value.word 0, Value.word 2] 2)
+
 end SolidCore.Solidity.Witness.TupleTernaryConditionInternalCall
