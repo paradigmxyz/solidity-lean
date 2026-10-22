@@ -54,4 +54,27 @@ def outerLengthMatches : Except TypeError Bool := do
 #guard isOkTrue returnMatches
 #guard isOkTrue outerLengthMatches
 
+def initializerContract : ContractDecl :=
+  { contract with items :=
+    [ ContractItem.stateVar
+        { name := "values", ty := Ty.array (Ty.array (Ty.uint 256) none) none }
+    , ContractItem.function
+        { kind := FunctionKind.function
+          name := some "run"
+          visibility := some Visibility.external_
+          mutability := StateMutability.nonpayable
+          returns := [{ name := none, ty := Ty.uint 256 }]
+          body := some (Stmt.block
+            [ Stmt.varDecl [{ name := some "length", ty := Ty.uint 256 }]
+                (some (Expr.member
+                  (Expr.call (Expr.member (Expr.ident "values") "push") []) "length"))
+            , Stmt.returnValues (some (Expr.binary BinaryOp.add (Expr.ident "length")
+                (Expr.member (Expr.ident "values") "length"))) ]) } ] }
+
+#guard isOkTrue (Examples.checkedOwnCallWordMatches 4096 initializerContract
+  "run" State.empty [] 1)
+#guard isOkTrue (do
+  let state ← Examples.checkedOwnCallState 4096 initializerContract "run" State.empty []
+  Except.ok (wordEq (state.loadSlot 0) 1))
+
 end SolidCore.Solidity.Witness.PushReturnLength

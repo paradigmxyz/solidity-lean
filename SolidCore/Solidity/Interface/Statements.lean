@@ -5656,6 +5656,29 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
             Expr.externalFunctionValueCallAssignBindingsCorePieces?
               storageNames env bindings expr
           some (SolidCore.Solidity.Source.Stmt.block pieces)
+      | Stmt.varDecl [binding]
+          (some expr@(Expr.member
+            (Expr.call (Expr.member target "push") []) "length")) =>
+          match (do
+              let Ty.array elementTy none ← Expr.abiTyWithEnv? env target | none
+              if !Ty.hasStorageArrayMembers elementTy then none else some ()
+              let (name, indexes) ← Expr.storagePathCoreWithEnv? storageNames env target
+              let localName ← binding.name
+              let declCore ← Stmt.toCore? storageNames (Stmt.varDecl [binding] none)
+              let aliasName := "_sol_push_initializer_length"
+              let value := SolidCore.Solidity.Source.Expr.length
+                (SolidCore.Solidity.Source.Expr.var aliasName)
+              some (SolidCore.Solidity.Source.Stmt.block
+                [ declCore
+                , SolidCore.Solidity.Source.Stmt.storageArrayPushPathAlias
+                    aliasName name indexes
+                , SolidCore.Solidity.Source.Stmt.assign
+                    (SolidCore.Solidity.Source.LValue.var localName)
+                    (match binding.ty with
+                    | some targetTy => Ty.implicitCleanupCore targetTy value
+                    | none => value) ])) with
+          | some coreStmt => some coreStmt
+          | none => varDeclCoreWithEnv? storageNames env binding expr
       | Stmt.varDecl [binding] (some expr) =>
           match storageVarDeclCoreWithEnv? storageNames env binding expr with
           | some coreStmt => some coreStmt
@@ -7393,6 +7416,20 @@ def Stmt.listLowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                   externalCallKindEnv
                   storageNames modifiers functions freeFunctions returnTys rest
               some (head :: tail)
+      | Stmt.varDecl [binding]
+          (some expr@(Expr.member
+            (Expr.call (Expr.member _ "push") []) "length")) :: rest => do
+          let head ← Stmt.toCoreWithInternalCalls? internalFuel storageRefEnv env
+            externalCallKindEnv storageNames modifiers functions freeFunctions
+            returnTys (Stmt.varDecl [binding] (some expr))
+          let tail ← Stmt.listToCoreWithInternalCallsWithRefs? internalFuel
+            (VarBindings.extendStorageRefEnv storageRefEnv [binding])
+            (VarBindings.extendTypeEnv env [binding]) externalCallKindEnv
+            storageNames modifiers functions freeFunctions returnTys rest
+          -- Keep the declared local in the surrounding sequence's scope.
+          match head with
+          | SolidCore.Solidity.Source.Stmt.block pieces => some (pieces ++ tail)
+          | _ => some (head :: tail)
       | Stmt.varDecl [binding] (some source@(Expr.member _ _)) :: rest =>
           match
               storageAliasDeclFromRefPathCore?
