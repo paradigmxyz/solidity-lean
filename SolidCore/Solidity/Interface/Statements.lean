@@ -4111,6 +4111,21 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
               Stmt.toCore? storageNames
                 (Stmt.returnValues
                   (some (Expr.index (Expr.call (Expr.ident name) args) index)))
+      | Stmt.expr (Expr.call
+          (Expr.member (Expr.call (Expr.member target "push") []) "push") args) => do
+          let Ty.array (Ty.array elementTy none) none ← Expr.abiTyWithEnv? env target
+            | none
+          let (name, indexes) ← Expr.storagePathCoreWithEnv? storageNames env target
+          let value ← match args with
+            | [] => some none
+            | [Arg.positional value] => do
+                let core ← Expr.toCoreAsWithEnv? storageNames env elementTy value
+                some (some core)
+            | _ => none
+          let aliasName := "_sol_chained_push_ref"
+          some (SolidCore.Solidity.Source.Stmt.block
+            [ SolidCore.Solidity.Source.Stmt.storageArrayPushPathAlias aliasName name indexes
+            , SolidCore.Solidity.Source.Stmt.storageArrayPushRef aliasName value ])
       | Stmt.expr expr@(Expr.call (Expr.member _ _) _) =>
           -- LIB-STORAGE-RETURN-USE, ARRAY-FIELD push/pop: `L.ref(s).a.push(v)` /
           -- `.push()` / `.pop()` — after the struct-member→index rewrite the
