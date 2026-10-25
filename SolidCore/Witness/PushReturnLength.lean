@@ -101,4 +101,30 @@ def chainedContract : ContractDecl :=
   let state ← Examples.checkedOwnCallState 4096 chainedContract "run" State.empty []
   Except.ok (wordEq (state.loadSlot 0) 1))
 
+def nestedFieldContract : ContractDecl :=
+  { contract with items :=
+    [ ContractItem.structDecl
+        { name := "Item", fields := [{ name := "value", ty := Ty.uint 256 }] }
+    , ContractItem.stateVar
+        { name := "values", ty := Ty.array
+            (Ty.array (Ty.user { segments := ["Item"] }) none) none }
+    , ContractItem.function
+        { kind := FunctionKind.function
+          name := some "run"
+          visibility := some Visibility.external_
+          mutability := StateMutability.nonpayable
+          returns := [{ name := none, ty := Ty.uint 256 }]
+          body := some (Stmt.block
+            [ Stmt.expr (Expr.call (Expr.member (Expr.ident "values") "push") [])
+            , Stmt.expr (Expr.assign (Expr.member
+                (Expr.call (Expr.member
+                  (Expr.index (Expr.ident "values") (Expr.literal (Literal.number "0")))
+                  "push") []) "value") AssignOp.assign (Expr.literal (Literal.number "7")))
+            , Stmt.returnValues (some (Expr.member (Expr.index
+                (Expr.index (Expr.ident "values") (Expr.literal (Literal.number "0")))
+                (Expr.literal (Literal.number "0"))) "value")) ]) } ] }
+
+#guard isOkTrue (Examples.checkedOwnCallWordMatches 4096 nestedFieldContract
+  "run" State.empty [] 7)
+
 end SolidCore.Solidity.Witness.PushReturnLength

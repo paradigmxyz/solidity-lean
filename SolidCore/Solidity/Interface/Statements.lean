@@ -2907,7 +2907,25 @@ def Expr.storageArrayPushIndexedAssignCoreWithEnv?
             (SolidCore.Solidity.Source.Stmt.block
               [ SolidCore.Solidity.Source.Stmt.storageArrayPush name none
               , SolidCore.Solidity.Source.Stmt.assign lv rhsCore ])
-      | _ => none
+      | _ => do
+          let Ty.array elemTy none ← Expr.abiTyWithEnv? env target | none
+          let valueTy ← Ty.peelIndexSpineTy? elemTy trailing
+          let valueCoreTy ← Ty.toCore? valueTy
+          let rhsCore ← Expr.toCoreAsWithEnv? storageNames env valueTy rhs
+          let trailingCore ← mapOption
+            (Expr.abiArgCoreWithEnvCleanup? storageNames env) trailing
+          let aliasName := "_sol_indexed_push_field_ref"
+          let rhsName := "_sol_indexed_push_field_rhs"
+          let lv := trailingCore.foldl
+            (fun acc idx => SolidCore.Solidity.Source.LValue.index acc idx)
+            (SolidCore.Solidity.Source.LValue.var aliasName)
+          some (SolidCore.Solidity.Source.Stmt.block
+            [ CoreTy.tempDeclStmt valueCoreTy rhsName (some rhsCore)
+            , SolidCore.Solidity.Source.Stmt.storageArrayPushPathAlias
+                aliasName name indexes
+            , SolidCore.Solidity.Source.Stmt.assign lv
+                (SolidCore.Solidity.Source.Expr.var rhsName) ])
+
 
 def FunctionDecl.tupleItemsUseCoreWithInternalCalls?
     (internalFuel : Nat)
