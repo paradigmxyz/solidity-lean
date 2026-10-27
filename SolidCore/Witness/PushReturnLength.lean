@@ -127,4 +127,31 @@ def nestedFieldContract : ContractDecl :=
 #guard isOkTrue (Examples.checkedOwnCallWordMatches 4096 nestedFieldContract
   "run" State.empty [] 7)
 
+def conditionalAliasContract : ContractDecl :=
+  { contract with items :=
+    [ ContractItem.stateVar
+        { name := "left", ty := Ty.array (Ty.array (Ty.uint 256) none) none }
+    , ContractItem.stateVar
+        { name := "right", ty := Ty.array (Ty.array (Ty.uint 256) none) none }
+    , ContractItem.function
+        { kind := FunctionKind.function
+          name := some "run"
+          visibility := some Visibility.external_
+          mutability := StateMutability.nonpayable
+          params := [{ name := some "chooseLeft", ty := Ty.bool }]
+          returns := [{ name := none, ty := Ty.uint 256 }]
+          body := some (Stmt.block
+            [ Stmt.varDecl [{ name := some "row", ty := (Ty.array (Ty.uint 256) none), location := some DataLocation.storage }]
+                (some (Expr.call (Expr.member (Expr.ternary (Expr.ident "chooseLeft")
+                  (Expr.ident "left") (Expr.ident "right")) "push") []))
+            , Stmt.expr (Expr.call (Expr.member (Expr.ident "row") "push")
+                [Arg.positional (Expr.literal (Literal.number "7"))])
+            , Stmt.returnValues (some (Expr.index (Expr.ident "row")
+                (Expr.literal (Literal.number "0")))) ]) } ] }
+
+#guard isOkTrue (Examples.checkedOwnCallWordMatches 4096 conditionalAliasContract
+  "run" State.empty [Value.word 1] 7)
+#guard isOkTrue (Examples.checkedOwnCallWordMatches 4096 conditionalAliasContract
+  "run" State.empty [Value.word 0] 7)
+
 end SolidCore.Solidity.Witness.PushReturnLength
