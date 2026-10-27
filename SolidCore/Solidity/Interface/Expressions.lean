@@ -6891,6 +6891,23 @@ def storageArrayPopPathCoreWithEnv? (env : TypeEnv)
           some
             (SolidCore.Solidity.Source.Stmt.storageArrayPopPath name indexes)
 
+/-- Capture a push-returned storage reference while preserving conditional
+    receiver selection. Each selected atomic push binds the same alias. -/
+def storageArrayConditionalPushAliasCoreWithEnv? (env : TypeEnv)
+    (storageNames : List Name) (aliasName : Name) (target : Expr) : Option CoreStmt :=
+  match target with
+  | Expr.ternary cond thenTarget elseTarget => do
+      let condCore ← Expr.toCoreAsWithEnv? storageNames env Ty.bool cond
+      let thenCore ← storageArrayConditionalPushAliasCoreWithEnv?
+        env storageNames aliasName thenTarget
+      let elseCore ← storageArrayConditionalPushAliasCoreWithEnv?
+        env storageNames aliasName elseTarget
+      some (SolidCore.Solidity.Source.Stmt.ifElse condCore thenCore elseCore)
+  | _ => do
+      let (name, indexes) ← Expr.storagePathCoreWithEnv? storageNames env target
+      some (SolidCore.Solidity.Source.Stmt.storageArrayPushPathAlias
+        aliasName name indexes)
+
 def Expr.noReturnEffectStmtCoreWithStorageRefs?
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
     (storageNames : List Name) (expr : Expr) : Option CoreStmt :=

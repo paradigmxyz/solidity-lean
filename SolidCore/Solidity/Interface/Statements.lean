@@ -7384,6 +7384,17 @@ def Stmt.listLowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
               else
                 generic
       | Stmt.varDecl [binding]
+          (some (Expr.call (Expr.member target@(Expr.ternary _ _ _) "push") [])) :: rest => do
+          let some DataLocation.storage := binding.location | none
+          let aliasName ← binding.name
+          let head ← storageArrayConditionalPushAliasCoreWithEnv?
+            env storageNames aliasName target
+          let tail ← Stmt.listToCoreWithInternalCallsWithRefs? internalFuel
+            (VarBinding.extendStorageRefEnv storageRefEnv binding)
+            (VarBinding.extendTypeEnv env binding) externalCallKindEnv
+            storageNames modifiers functions freeFunctions returnTys rest
+          some (head :: tail)
+      | Stmt.varDecl [binding]
           (some (Expr.call (Expr.member target "push") [])) :: rest =>
           match storageArrayPushReturnAliasCore? storageNames binding target with
           | some (pushStmt, aliasStmt) => do
