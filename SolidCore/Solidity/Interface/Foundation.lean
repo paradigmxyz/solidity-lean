@@ -6277,6 +6277,11 @@ termination_by items => (sizeOf items, 0)
 def Expr.functionPointerSelectorCore? (storageNames : List Name)
     (functionPointer : Expr) (argTys : List Ty) : Option CoreExpr :=
   match functionPointer with
+  | Expr.ternary cond thenPointer elsePointer => do
+      let condCore ← Expr.toCore? storageNames cond
+      let thenCore ← Expr.functionPointerSelectorCore? storageNames thenPointer argTys
+      let elseCore ← Expr.functionPointerSelectorCore? storageNames elsePointer argTys
+      some (SolidCore.Solidity.Source.Expr.ternary condCore thenCore elseCore)
   | Expr.member _ name => do
       if name == "call" || name == "staticcall" ||
           name == "delegatecall" || name == "send" ||
@@ -6294,6 +6299,7 @@ def Expr.functionPointerSelectorCore? (storageNames : List Name)
         (SolidCore.Solidity.Source.Expr.externalFunctionSelector
           pointerCore)
   | _ => none
+termination_by (sizeOf functionPointer, 0)
 
 def Expr.externalCallKindForTarget (target : Expr) : CoreLowLevelCallKind :=
   match target with
