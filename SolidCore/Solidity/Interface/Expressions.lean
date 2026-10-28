@@ -2179,6 +2179,10 @@ def Expr.externalFunctionValueCallReturnCore?
 def Expr.encodeCallDeclaredParamTys? (env : TypeEnv)
     (functionPointer : Expr) : Option (List Ty) :=
   match functionPointer with
+  | Expr.ternary _ thenPointer elsePointer => do
+      let thenTys ← Expr.encodeCallDeclaredParamTys? env thenPointer
+      let elseTys ← Expr.encodeCallDeclaredParamTys? env elsePointer
+      if thenTys == elseTys then some thenTys else none
   | Expr.member target name => do
       let contractName ← Expr.externalCallTargetContractNameWithEnv? env target
       let keyPrefix :=
