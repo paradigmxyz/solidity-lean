@@ -149,3 +149,5 @@ import SolidCore.Witness.UninitializedFnPtrComparison
 import SolidCore.Witness.BaseQualifiedFunctionStateVariable
 
 import SolidCore.Witness.EncodeCallConditional
+
+import SolidCore.Witness.PushFieldCompound
