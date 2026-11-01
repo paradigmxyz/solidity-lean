@@ -2757,39 +2757,50 @@ termination_by _ items => (3, internalFuel, sizeOf items, 8)
 /-- Lower tuple-assignment targets that include the storage reference returned
     by a zero-argument push on a direct state array.  The returned prefix grows
     those arrays, left-to-right, and each corresponding target names the newly
-    appended element.  We deliberately keep this helper to direct arrays: for
-    `matrix[i()].push()` the path expression must be captured once and reused,
-    while spelling it in both a push statement and a later lvalue would evaluate
-    `i()` twice.  Those effectful nested paths therefore remain rejected until
-    they have a dedicated captured-path core operation. -/
+    appended element. Indexed scalar targets capture the pushed reference once
+    so receiver indexes are not repeated. Reference-valued nested targets remain
+    unsupported here because a bare alias target would otherwise rebind a pointer
+    instead of copying through it. -/
 def TupleItems.toCoreLValueTargetsWithDirectPush?
-    (storageNames : List Name) :
+    (storageNames : List Name) (env : TypeEnv) :
     List TupleItem ->
       Option (List CoreStmt × List (Option CoreLValue) × Bool)
   | [] => some ([], [], false)
   | TupleItem.hole :: rest => do
       let (restPre, restTargets, restHasPush) ←
-        TupleItems.toCoreLValueTargetsWithDirectPush? storageNames rest
+        TupleItems.toCoreLValueTargetsWithDirectPush? storageNames env rest
       some (restPre, none :: restTargets, restHasPush)
   | TupleItem.value
       (Expr.call (Expr.member target "push") []) :: rest => do
-      let (name, indexes) ← Expr.storagePathCore? storageNames target
+      let (name, indexes) ← Expr.storagePathCoreWithEnv? storageNames env target
       match indexes with
       | [] => do
           let pushStmt ← storageArrayPushPathCore? storageNames target none
           let lastIndex := storageLastPushedIndexExpr name []
           let (restPre, restTargets, _) ←
-            TupleItems.toCoreLValueTargetsWithDirectPush? storageNames rest
+            TupleItems.toCoreLValueTargetsWithDirectPush? storageNames env rest
           some
             ( pushStmt :: restPre
             , some (SolidCore.Solidity.Source.LValue.storageIndex name lastIndex)
                 :: restTargets
             , true )
-      | _ => none
+      | _ => do
+          let Ty.array elemTy none ← Expr.abiTyWithEnv? env target | none
+          match elemTy with
+          | Ty.uint _ | Ty.int _ | Ty.bool => some ()
+          | _ => none
+          let aliasName := "_sol_tuple_nested_push_ref_" ++ toString rest.length
+          let (restPre, restTargets, _) ←
+            TupleItems.toCoreLValueTargetsWithDirectPush? storageNames env rest
+          some
+            ( SolidCore.Solidity.Source.Stmt.storageArrayPushPathAlias
+                aliasName name indexes :: restPre
+            , some (SolidCore.Solidity.Source.LValue.var aliasName) :: restTargets
+            , true )
   | TupleItem.value expr :: rest => do
       let target ← Expr.toCoreLValue? storageNames expr
       let (restPre, restTargets, restHasPush) ←
-        TupleItems.toCoreLValueTargetsWithDirectPush? storageNames rest
+        TupleItems.toCoreLValueTargetsWithDirectPush? storageNames env rest
       some (restPre, some target :: restTargets, restHasPush)
 termination_by items => (sizeOf items, 1)
 
@@ -3874,7 +3885,7 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           -- also ensures implicit destination-width conversion precedes pushes.
           match
               TupleItems.toCoreLValueTargetsWithDirectPush?
-                storageNames lhsItems with
+                storageNames env lhsItems with
           | some (lhsPrefix, targets, true) => do
               let targetTys ←
                 FunctionDecl.tupleAssignTargetTysWithDirectPush?
