@@ -5,7 +5,7 @@ set_option maxHeartbeats 8000000
 
 /-!
 A direct write to a wide signed array element masks to the source width,
-whereas a whole-array copy of a negative element stores its sign-extended
+whereas a memory/value whole-array copy of a negative element stores its sign-extended
 word. Both paths occupy one slot per element.
 -/
 

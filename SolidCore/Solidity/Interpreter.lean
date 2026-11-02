@@ -3697,19 +3697,19 @@ def State.loadStructSlots (state : State) (slot : Word)
     (StorageLayouts.depth layouts + 1)
     state slot cursor layouts
 
-/-- Solidity's whole-array copy stores a wide signed element as a
-    sign-extended word. A direct element write instead masks to its declared
-    width. The layout retains that width for direct writes; use this only at
-    array-copy boundaries. -/
+/-- Wide signed array-copy stores depend on the source location. Memory/value
+    copies sign-extend, while storage-to-storage copies clean the destination
+    word to the element width. Direct element writes use the packed RMW path. -/
 def State.storeWideSignedArrayCopyElement? (state : State) (slot : Word)
-    (layout : StorageLayout) (value : Value) :
+    (layout : StorageLayout) (value : Value) (signExtend : Bool := true) :
     Option (Except RevertData State) :=
   match layout with
   | StorageLayout.packedScalar 0 bytes true Ty.int256 =>
       if wordBytes / 2 < bytes && bytes < wordBytes then
         some (do
           let word ← coerceStorageWordAs Ty.int256 value
-          Except.ok (state.storeSlot slot word))
+          Except.ok (state.storeSlot slot
+            (if signExtend then word else word % (2 ^ (bytes * 8)))))
       else none
   | _ => none
 
@@ -4272,7 +4272,7 @@ def State.clearDynamicArrayLayoutTail (state : State) (slot : Word)
         elementSlot elementSlotLayout)
     state
 
-def State.storeStorageLayoutAtWithDeepClearFuel :
+def State.storeStorageLayoutAtWithDeepClearFuelMode (signExtend : Bool) :
     Nat -> State -> Word -> StorageLayout -> Value ->
     Except RevertData State
   | 0, state, slot, layout, value =>
@@ -4291,7 +4291,7 @@ def State.storeStorageLayoutAtWithDeepClearFuel :
                   let fieldSlot :=
                     normWord (SolidCore.Solidity.Shared.norm slot + offset)
                   let state ←
-                    State.storeStorageLayoutAtWithDeepClearFuel
+                    State.storeStorageLayoutAtWithDeepClearFuelMode signExtend
                       fuel state fieldSlot layout value
                   Except.ok
                     (state, nextCursor))
@@ -4321,9 +4321,9 @@ def State.storeStorageLayoutAtWithDeepClearFuel :
                   | some pair => Except.ok pair
                   | none => Except.error RevertData.typeMismatch
                 match State.storeWideSignedArrayCopyElement?
-                    state elementSlot elementSlotLayout value with
+                    state elementSlot elementSlotLayout value (signExtend := signExtend) with
                 | some stored => stored
-                | none => State.storeStorageLayoutAtWithDeepClearFuel fuel state elementSlot elementSlotLayout value)
+                | none => State.storeStorageLayoutAtWithDeepClearFuelMode signExtend fuel state elementSlot elementSlotLayout value)
               state
           else
             Except.error RevertData.typeMismatch
@@ -4359,9 +4359,9 @@ def State.storeStorageLayoutAtWithDeepClearFuel :
                   | some pair => Except.ok pair
                   | none => Except.error RevertData.typeMismatch
                 match State.storeWideSignedArrayCopyElement?
-                    state elementSlot elementSlotLayout value with
+                    state elementSlot elementSlotLayout value (signExtend := signExtend) with
                 | some stored => stored
-                | none => State.storeStorageLayoutAtWithDeepClearFuel fuel state elementSlot elementSlotLayout value)
+                | none => State.storeStorageLayoutAtWithDeepClearFuelMode signExtend fuel state elementSlot elementSlotLayout value)
               state
           let newLength := values.length
           let state ←
@@ -4374,13 +4374,17 @@ def State.storeStorageLayoutAtWithDeepClearFuel :
       | _, _ =>
           State.storeStorageLayoutAt state slot layout value
 
+def State.storeStorageLayoutAtWithDeepClearFuel (fuel : Nat) (state : State)
+    (slot : Word) (layout : StorageLayout) (value : Value) : Except RevertData State :=
+  State.storeStorageLayoutAtWithDeepClearFuelMode true fuel state slot layout value
+
 def State.storeStorageLayoutAtWithDeepClear (state : State) (slot : Word)
-    (layout : StorageLayout) (value : Value) : Except RevertData State :=
-  State.storeStorageLayoutAtWithDeepClearFuel
+    (layout : StorageLayout) (value : Value) (signExtend : Bool := true) : Except RevertData State :=
+  State.storeStorageLayoutAtWithDeepClearFuelMode signExtend
     (StorageLayout.clearDepth layout) state slot layout value
 
 def Runtime.storeStorageFieldWithDeepClear (context : Context)
-    (runtime : Runtime) (name : String) (value : Value) :
+    (runtime : Runtime) (name : String) (value : Value) (signExtend : Bool := true) :
     Except RevertData Runtime := do
   let field ←
     match context.storageField? name with
@@ -4395,7 +4399,7 @@ def Runtime.storeStorageFieldWithDeepClear (context : Context)
       let state ←
         State.storeStorageLayoutAtWithDeepClear runtime.state
           field.slot (StorageLayout.dynamicArray elementLayout)
-          value
+          value (signExtend := signExtend)
       Except.ok { runtime with state }
   | some layout@(StorageLayout.struct _), Value.tuple _ => do
       -- STORE-TAIL-CLEAR: a whole-struct assignment must recurse so that any
@@ -4405,7 +4409,7 @@ def Runtime.storeStorageFieldWithDeepClear (context : Context)
       -- this at every level; the plain `storeStorageField` path did not.
       let state ←
         State.storeStorageLayoutAtWithDeepClear runtime.state
-          field.slot layout value
+          field.slot layout value (signExtend := signExtend)
       Except.ok { runtime with state }
   | some layout@(StorageLayout.fixedArray size _), Value.fixedArray _ => do
       -- STORE-TAIL-CLEAR: same for a whole fixed-array assignment whose
@@ -4414,7 +4418,7 @@ def Runtime.storeStorageFieldWithDeepClear (context : Context)
       -- dynamic-array members at every level.
       let state ←
         State.storeStorageLayoutAtWithDeepClear runtime.state
-          field.slot layout (value.padFixedArrayTo size)
+          field.slot layout (value.padFixedArrayTo size) (signExtend := signExtend)
       Except.ok { runtime with state }
   | _, _ =>
       Runtime.storeStorageField context runtime name value
@@ -9983,10 +9987,22 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
           | Except.ok (_, runtime') => pure (Result.normal runtime')
           | Except.error err => pure (Result.reverted runtime err)
       | Stmt.assign target expr =>
+          let storageSource := match expr with
+            | Expr.storageRead _ _ _ => true
+            | Expr.var name => (runtime.lookupStorageBase? name).isSome
+            | _ => false
           let writeAssigned
               (resolved : ResolvedLValue) (value : Value)
               (runtime' : Runtime) : SolI Result :=
-            match resolved.write context runtime' value with
+            let stored :=
+              if storageSource then
+                match resolved with
+                | ResolvedLValue.storageField name =>
+                    Runtime.storeStorageFieldWithDeepClear context runtime' name value
+                      (signExtend := false)
+                | _ => resolved.write context runtime' value
+              else resolved.write context runtime' value
+            match stored with
             | Except.ok updated => pure (Result.normal updated)
             | Except.error err => pure (Result.reverted runtime err)
           -- M1/M3: a memory target aliases a memory-ref RHS (ternary, index/
