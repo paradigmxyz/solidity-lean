@@ -153,3 +153,5 @@ import SolidCore.Witness.EncodeCallConditional
 import SolidCore.Witness.PushFieldCompound
 
 import SolidCore.Witness.TupleNestedPush
+
+import SolidCore.Witness.WideSignedStorageCopy
