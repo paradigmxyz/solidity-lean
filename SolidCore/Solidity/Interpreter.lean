@@ -2031,6 +2031,9 @@ def mappingStorageSlot (slot key : Word) : Word :=
 
 def coerceMappingKeyWordAs (ty : Ty) (value : Value) :
     Except RevertData Word := do
+  -- Hashing a mapping key is a use site: force deferred storage-enum
+  -- validation before type coercion, preserving Panic(0x21) on dirty keys.
+  let value ← value.forceAbiLazy
   let coerced ←
     match ty.coerceValue? value with
     | some coerced => Except.ok coerced
