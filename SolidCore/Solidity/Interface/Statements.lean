@@ -2517,6 +2517,46 @@ def assignmentCoreWithEnv? (storageNames : List Name)
   some
     (SolidCore.Solidity.Source.Stmt.assign lhsCore rhsCore)
 
+/-- A tuple-valued right-hand side that is not a tuple literal
+    (`abi.decode(abi.encode(a + b, 1), (uint, uint))`, a conditional of
+    tuples `c ? (uint(a * 2), 1) : (0, 0)`) is consumed by value before any
+    component is stored. When its subtree carries narrow checked arithmetic,
+    lower it env-aware at its own tuple type so the operand-width Panic 0x11
+    fires; `none` keeps the env-less lowering for every other right-hand
+    side. -/
+def Expr.tupleRhsCoreWithEnvCleanup? (storageNames : List Name)
+    (env : TypeEnv) (rhs : Expr) : Option CoreExpr :=
+  if Expr.abiArgNeedsEnvCleanup? rhs then do
+    let rhsTy ← Expr.abiTyWithEnv? env rhs
+    Expr.toCoreAsWithEnv? storageNames env rhsTy rhs
+  else
+    none
+
+/-- Flat tuple assignment `(a, b) = rhs` with a non-literal right-hand side
+    that needs the env-aware cleanup (see `Expr.tupleRhsCoreWithEnvCleanup?`).
+    Same `assignTuple` shape as `tupleAssignmentCore?`. -/
+def tupleAssignmentCoreWithEnvCleanup? (storageNames : List Name)
+    (env : TypeEnv) (lhsItems : List TupleItem) (rhs : Expr) :
+    Option CoreStmt := do
+  if TupleItems.hasNestedTuple lhsItems then none else some ()
+  let rhsCore ← Expr.tupleRhsCoreWithEnvCleanup? storageNames env rhs
+  let targets ← TupleItems.toCoreLValueTargets? storageNames lhsItems
+  some (SolidCore.Solidity.Source.Stmt.assignTuple targets rhsCore)
+
+/-- `tupleVarDeclGeneralCorePieces?` with the env-aware right-hand side of
+    `Expr.tupleRhsCoreWithEnvCleanup?` when it applies. -/
+def tupleVarDeclGeneralCorePiecesWithEnv? (storageNames : List Name)
+    (env : TypeEnv) (bindings : List VarBinding) (rhs : Expr) :
+    Option (List CoreStmt × List CoreStmt) :=
+  match Expr.tupleRhsCoreWithEnvCleanup? storageNames env rhs with
+  | some rhsCore => do
+      let coreDecls ← VarBindings.toCoreTupleDecls? bindings
+      let targets ← VarBindings.toCoreTupleTargets? bindings
+      some
+        ( coreDecls
+        , [SolidCore.Solidity.Source.Stmt.assignTuple targets rhsCore] )
+  | none => tupleVarDeclGeneralCorePieces? storageNames bindings rhs
+
 /-- FB1 (tuple-RHS target typing) — shared component lowering. Given each
     component's declared target type (`tys`; `none` = anonymous binding / hole
     LHS / non-`bytesN`) and the RHS tuple `items`, lower every component: one
@@ -4042,6 +4082,10 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
       | Stmt.expr
           (Expr.assign (Expr.tuple lhsItems) AssignOp.assign expr) =>
           match Expr.lowLevelTupleAssignCore? storageNames env lhsItems expr with
+          | some coreStmt => some coreStmt
+          | none =>
+          match tupleAssignmentCoreWithEnvCleanup?
+              storageNames env lhsItems expr with
           | some coreStmt => some coreStmt
           | none =>
               Stmt.toCore? storageNames
@@ -8718,7 +8762,8 @@ def Stmt.listLowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
       | Stmt.varDecl bindings
           (some expr@(Expr.call (Expr.member (Expr.ident "abi") "decode") _)) :: rest => do
           let pieces ←
-            match tupleVarDeclGeneralCorePieces? storageNames bindings expr with
+            match tupleVarDeclGeneralCorePiecesWithEnv?
+                storageNames env bindings expr with
             | some (coreDecls, assigns) => some (coreDecls ++ assigns)
             | none =>
                 match internalFuel with
@@ -8850,7 +8895,8 @@ def Stmt.listLowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
             match bindings with
             | _ :: _ :: _ => do
                 let (coreDecls, assigns) ←
-                  tupleVarDeclGeneralCorePieces? storageNames bindings expr
+                  tupleVarDeclGeneralCorePiecesWithEnv?
+                    storageNames env bindings expr
                 let tail ←
                   Stmt.listToCoreWithInternalCallsWithRefs? internalFuel
                     (VarBindings.extendStorageRefEnv storageRefEnv bindings)
