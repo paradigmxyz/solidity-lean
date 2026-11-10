@@ -570,7 +570,10 @@ def FunctionDecls.libraryHelperFunctionsFor (libraryName : Name)
               FunctionDecl.asLibraryHelper?
                 libraryName helperName libraryFunctions fn with
           | some helper =>
-              FunctionDecl.inlineConstants constants helper :: tail
+              let helper := FunctionDecl.inlineConstants constants helper
+              match FunctionDecl.receiverLastTwin? helper with
+              | some twin => helper :: twin :: tail
+              | none => helper :: tail
           | none => tail
       | none => tail
 
@@ -1689,6 +1692,30 @@ def CoreTryCatchClauses.collectInternalCallKeys :
 
 end
 
+/-- The table entry `entry` (the elaborated `fn`) followed by the entry of
+    `fn`'s receiver-last twin, when it has one: the same body with the first
+    parameter moved to the end, under the twin's own table key. -/
+def CoreFunctionDef.withReceiverLastTwin (fn : FunctionDecl)
+    (entry : CoreFunctionDef) : List CoreFunctionDef :=
+  let rotate {α : Type} : List α -> List α
+    | [] => []
+    | first :: rest => rest ++ [first]
+  match FunctionDecl.receiverLastTwin? fn with
+  | some twin =>
+      match FunctionDecl.internalTableKey? twin with
+      | some key =>
+          [ entry
+          , { entry with
+              name := key
+              params := rotate entry.params
+              paramAbiCleanups :=
+                if entry.paramAbiCleanups.length == entry.params.length then
+                  rotate entry.paramAbiCleanups
+                else
+                  entry.paramAbiCleanups } ]
+      | none => [entry]
+  | none => [entry]
+
 /-- Demand-driven elaboration of helper table entries (function-boundary
     refactor R1). `candidates` are value-boundary helper decls (super/base
     helpers); an entry is elaborated only when its `internalTableKey?` is
@@ -2380,7 +2407,8 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
     ContractDecls.contextualSuperHelpers? dispatchOrder sharedConstantTail
       baseNames dispatchOrder
   let sourceFunctions :=
-    sourceFunctions.map (FunctionDecl.inlineConstants sourceConstantEnv)
+    FunctionDecls.withReceiverLastTwins
+      (sourceFunctions.map (FunctionDecl.inlineConstants sourceConstantEnv))
   let availableFunctions :=
     ordinaryFunctions ++ superHelpers ++ baseHelpers ++ libraryHelpers
   -- Stage C: per-contract internal-dispatch numbering — functions used as
@@ -2461,16 +2489,22 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
       (internalFnIds := internalFnIds) (structEnv := structEnv)
       (eventIndexedEnv := eventIndexedEnv)
       (overloadEvents := contractEvents ++ visibleSourceEvents)
+  -- A receiver-last twin (`FunctionDecl.receiverLastTwin?`) shares its
+  -- original's elaborated body: only the parameter order differs.
   let libraryInternalEntries ←
     filterMapOption
       (fun fn =>
-        if FunctionDecl.isBoundaryCallee fn && fn.body.isSome then do
+        if FunctionDecl.isBoundaryCallee fn && fn.body.isSome &&
+            !FunctionDecl.isReceiverLastTwin fn then do
           let fd ← elabHelper fn
           let key ← FunctionDecl.internalTableKey? fn
-          some (some { fd with name := key, selector? := none })
+          some (some
+            (CoreFunctionDef.withReceiverLastTwin fn
+              { fd with name := key, selector? := none }))
         else
           some none)
       libraryHelpers
+  let libraryInternalEntries := concatLists libraryInternalEntries
   -- Function-boundary refactor stage 2: value-boundary FREE functions also get
   -- selector-less table entries (they are resolved via the freeFunctions branch
   -- of `internalCallParts?` and node-emitted under the same `internalTableKey?`).
@@ -2480,7 +2514,8 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
   let freeInternalEntries ←
     filterMapOption
       (fun fn =>
-        if FunctionDecl.isBoundaryCallee fn && fn.body.isSome then do
+        if FunctionDecl.isBoundaryCallee fn && fn.body.isSome &&
+            !FunctionDecl.isReceiverLastTwin fn then do
           let fd ←
             FunctionDecl.toCore?
               [] constants externalCallKindTypeEnv allContracts
@@ -2491,10 +2526,13 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
               (internalFnIds := internalFnIds) (structEnv := structEnv)
               (eventIndexedEnv := eventIndexedEnv)
           let key ← FunctionDecl.internalTableKey? fn
-          some (some { fd with name := key, selector? := none })
+          some (some
+            (CoreFunctionDef.withReceiverLastTwin fn
+              { fd with name := key, selector? := none }))
         else
           some none)
       sourceFunctions
+  let freeInternalEntries := concatLists freeInternalEntries
   let eagerEntries :=
     concatLists functionGroups ++ libraryInternalEntries ++ freeInternalEntries
   let helperCandidates :=
@@ -3010,7 +3048,8 @@ def ContractDecl.constructorFunctionFromOrders?
     ContractDecls.contextualSuperHelpers? dispatchOrder sharedConstantTail
       baseNames dispatchOrder
   let sourceFunctions :=
-    sourceFunctions.map (FunctionDecl.inlineConstants sourceConstantEnv)
+    FunctionDecls.withReceiverLastTwins
+      (sourceFunctions.map (FunctionDecl.inlineConstants sourceConstantEnv))
   let availableFunctions :=
     ordinaryFunctions ++ superHelpers ++ baseHelpers ++ libraryHelpers
   -- Internal-dispatch numbering, computed IDENTICALLY to `toCoreFromOrders?`

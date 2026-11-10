@@ -4692,6 +4692,47 @@ and the same name is a function value again after the shadowing block ends. -/
 def libraryHelperName (libraryName functionName : Name) : Name :=
   "__library_" ++ libraryName ++ "_" ++ functionName
 
+/-- Name of the receiver-last twin of an internal function that can be
+    attached with `using ... for` (`FunctionDecl.receiverLastTwin?`). -/
+def receiverLastTwinName (name : Name) : Name :=
+  name ++ "__recv_last"
+
+def isReceiverLastTwinName (name : Name) : Bool :=
+  name.endsWith "__recv_last"
+
+/-- The receiver-last twin of an internal library or free function: the same
+    function with its first (bound) parameter moved to the end. solc evaluates
+    the arguments of an attached internal call `recv.g(args)` before the
+    receiver (ExpressionCompiler.cpp v0.8.35 lines 704-723,
+    `FunctionType::Kind::Internal`), so the attached call is rewritten to
+    `g__recv_last(args, recv)`, whose ordinary left-to-right argument
+    evaluation is solc's order. The body reads parameters by name, so it is
+    unchanged. -/
+def FunctionDecl.receiverLastTwin? (decl : FunctionDecl) :
+    Option FunctionDecl := do
+  let name ← decl.name
+  if isReceiverLastTwinName name then none else some ()
+  match decl.params with
+  | first :: rest@(_ :: _) =>
+      some { decl with
+        name := some (receiverLastTwinName name)
+        params := rest ++ [first] }
+  | _ => none
+
+def FunctionDecl.isReceiverLastTwin (decl : FunctionDecl) : Bool :=
+  match decl.name with
+  | some name => isReceiverLastTwinName name
+  | none => false
+
+/-- `decls` with each function's receiver-last twin appended after it. -/
+def FunctionDecls.withReceiverLastTwins :
+    List FunctionDecl -> List FunctionDecl
+  | [] => []
+  | decl :: rest =>
+      match FunctionDecl.receiverLastTwin? decl with
+      | some twin => decl :: twin :: FunctionDecls.withReceiverLastTwins rest
+      | none => decl :: FunctionDecls.withReceiverLastTwins rest
+
 /-- Both numbering keys a member-form fn-value `Base.member` could resolve to:
     the library-helper mangling (when `Base` is a library) and the plain member
     name (when `Base` is the current/ancestor contract). The candidate filter
