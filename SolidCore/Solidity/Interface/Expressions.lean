@@ -8402,7 +8402,28 @@ def Exprs.anfHoist
         externalCallKindEnv storageNames fuel c e
       let (c2, p2, rest') := Exprs.anfHoist functions freeFunctions env
         externalCallKindEnv storageNames fuel c1 rest
-      (c2, p1 ++ p2, e' :: rest')
+      if p2.isEmpty then
+        (c2, p1, e' :: rest')
+      else
+        -- Inline-array elements are evaluated left to right
+        -- (`ExpressionCompiler.cpp` `TupleExpression`): a later element's
+        -- hoisted call must not run before this element is read, so
+        -- materialize it between its own prelude and the later one, exactly
+        -- as `Args.anfHoist` does for call arguments. Literals cannot change.
+        match e' with
+        | Expr.literal _ => (c2, p1 ++ p2, e' :: rest')
+        | Expr.unary UnaryOp.neg (Expr.literal _) => (c2, p1 ++ p2, e' :: rest')
+        | _ =>
+            match Expr.abiTyWithInternalFunctionsEnv?
+                functions freeFunctions env e' with
+            | some elemTy =>
+                let t := anfHoistName c2
+                let decl := Stmt.varDecl
+                  [{ name := some t, ty := some (Ty.anfTempTy elemTy),
+                     location := Ty.anfHoistLocation? elemTy }]
+                  (some e')
+                (c2 + 1, p1 ++ [decl] ++ p2, Expr.ident t :: rest')
+            | none => (c2, p1 ++ p2, e' :: rest')
 termination_by fuel _ _ => fuel
 
 def TupleItems.anfHoist
