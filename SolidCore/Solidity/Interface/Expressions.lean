@@ -2435,7 +2435,11 @@ def Expr.annotateAbiFuel : Nat -> TypeEnv -> Expr -> Expr
       | Expr.ternary cond thenExpr elseExpr =>
           Expr.ternary (annotate cond) (annotate thenExpr)
             (annotate elseExpr)
-      | Expr.assign lhs op rhs => Expr.assign lhs op (annotate rhs)
+      -- The target's index keys are value uses like any other: annotate them
+      -- so an explicit conversion in a key keeps its source type
+      -- (`s[uint256(p)] = v` with `int256 p`, `m[uint32(bytes4(b))] = v`
+      -- with `bytes memory b`), exactly as the same key does in a read.
+      | Expr.assign lhs op rhs => Expr.assign (annotate lhs) op (annotate rhs)
       | Expr.payableConversion inner => Expr.payableConversion (annotate inner)
 
 def defaultAnnotateAbiFuel : Nat := 1024
