@@ -3460,6 +3460,22 @@ def BinaryOp.applyNumberBool? (op : BinaryOp)
 def numberLiteralBoolWord (value : Bool) : Word :=
   SolidCore.Solidity.Source.boolWord value
 
+/-- Whether the integer `value` lies in the range of the fixed-width integer
+    conversion target `ty` (`none` when `ty` is not an integer type). An
+    explicit `T(c)` of a constant `c` outside `T`'s range is a run-time
+    truncation (only reachable through an inner typed conversion such as
+    `uint8(uint16(0x1234))`), so it must not fold to `c`. -/
+def Ty.conversionIntRangeFits? (ty : Ty) (value : Int) : Option Bool :=
+  match ty with
+  | Ty.uint bits =>
+      let width := if bits == 0 then 256 else bits
+      some (0 <= value && value < (2 ^ width : Int))
+  | Ty.int bits =>
+      let width := if bits == 0 then 256 else bits
+      some (-(2 ^ (width - 1) : Int) <= value &&
+        value <= (2 ^ (width - 1) : Int) - 1)
+  | _ => none
+
 mutual
 
 def Expr.numberLiteralRat? : Expr -> Option NumberRat
@@ -3479,8 +3495,17 @@ def Expr.numberLiteralRat? : Expr -> Option NumberRat
       let lhsValue ← Expr.numberLiteralRat? lhs
       let rhsValue ← Expr.numberLiteralRat? rhs
       BinaryOp.applyNumberRat? op lhsValue rhsValue
-  | Expr.call (Expr.typeName _) [Arg.positional expr] =>
-      Expr.numberLiteralRat? expr
+  | Expr.call (Expr.typeName ty) [Arg.positional expr] => do
+      -- An integer conversion keeps the constant only when it fits the target
+      -- range; otherwise it truncates at run time (`uint8(uint16(0x1234))` is
+      -- `0x34`), so the expression is not a foldable constant.
+      let value ← Expr.numberLiteralRat? expr
+      match value.exactInt? with
+      | some i =>
+          match Ty.conversionIntRangeFits? ty i with
+          | some false => none
+          | _ => some value
+      | none => some value
   | Expr.enumFromUInt _ inner =>
       -- An enum value built from a constant ordinal is itself a constant
       -- integer (solc's ConstantEvaluator folds enum members/conversions).
