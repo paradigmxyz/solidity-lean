@@ -216,8 +216,23 @@ def Expr.toCoreFixedBytesBitOpWithEnvFuel? (fuel : Nat)
           | Expr.call (Expr.typeName (Ty.fixedBytes castSize))
               [Arg.positional inner] =>
               if castSize == size then
-                Expr.toCoreFixedBytesBitOpWithEnvFuel?
-                  fuel storageNames env size inner
+                -- The operand of a `bytesN` conversion runs at its own width
+                -- (see `Expr.toCoreFixedBytesBitOp?`): convert after the
+                -- operator, never widen the leaves first.
+                match (Expr.abiTyWithEnv? env inner).bind Ty.fixedBytesSize? with
+                | some innerSize =>
+                    if innerSize != size && Expr.isFixedBytesBitOpShape inner then do
+                      let innerCore ←
+                        Expr.toCoreFixedBytesBitOpWithEnvFuel?
+                          fuel storageNames env innerSize inner
+                      some (SolidCore.Solidity.Source.Expr.fixedBytesCast
+                        size innerSize innerCore)
+                    else
+                      Expr.toCoreFixedBytesBitOpWithEnvFuel?
+                        fuel storageNames env size inner
+                | none =>
+                    Expr.toCoreFixedBytesBitOpWithEnvFuel?
+                      fuel storageNames env size inner
               else
                 Expr.toCoreAsWithEnvDirect?
                   storageNames env (Ty.bytesN size) expr

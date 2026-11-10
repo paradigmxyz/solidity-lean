@@ -7930,7 +7930,21 @@ def Expr.toCoreFixedBytesBitOp? (storageNames : List Name) (env : TypeEnv)
   | Expr.call (Expr.typeName (Ty.bytesN castSize)) [Arg.positional inner]
   | Expr.call (Expr.typeName (Ty.fixedBytes castSize)) [Arg.positional inner] =>
       if castSize == size then
-        Expr.toCoreFixedBytesBitOp? storageNames env size inner
+        -- A conversion to `bytesN size` of a narrower (or wider) shift/bitwise
+        -- operand: the operator runs at the OPERAND's width, then the result
+        -- is converted. Walking the operand at `size` would widen the leaves
+        -- first, so `bytes32(bytes2(x) >> c)` kept the bits shifted below the
+        -- 2-byte lane instead of discarding them.
+        match (Expr.abiTyWithEnv? env inner).bind Ty.fixedBytesSize? with
+        | some innerSize =>
+            if innerSize != size && Expr.isFixedBytesBitOpShape inner then do
+              let innerCore ←
+                Expr.toCoreFixedBytesBitOp? storageNames env innerSize inner
+              some (SolidCore.Solidity.Source.Expr.fixedBytesCast
+                size innerSize innerCore)
+            else
+              Expr.toCoreFixedBytesBitOp? storageNames env size inner
+        | none => Expr.toCoreFixedBytesBitOp? storageNames env size inner
       else
         Expr.toCoreAsWithEnvDirect?
           storageNames env (Ty.bytesN size)
