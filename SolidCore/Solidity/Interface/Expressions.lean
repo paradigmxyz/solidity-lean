@@ -8421,7 +8421,30 @@ def TupleItems.anfHoist
             (c', p, TupleItem.value e')
       let (c2, p2, rest') := TupleItems.anfHoist functions freeFunctions env
         externalCallKindEnv storageNames fuel c1 rest
-      (c2, p1 ++ p2, item' :: rest')
+      if p2.isEmpty then
+        (c2, p1, item' :: rest')
+      else
+        -- Tuple components (and struct-constructor arguments, which
+        -- `resolveStructs` turns into a tuple of per-field casts) are evaluated
+        -- left to right (`ExpressionCompiler.cpp`): a later component's
+        -- hoisted call must not run before this component is read, so
+        -- materialize it between its own prelude and the later one, exactly
+        -- as `Args.anfHoist` does for call arguments. Literals cannot change.
+        match item' with
+        | TupleItem.hole => (c2, p1 ++ p2, item' :: rest')
+        | TupleItem.value (Expr.literal _) => (c2, p1 ++ p2, item' :: rest')
+        | TupleItem.value e' =>
+            match Expr.abiTyWithInternalFunctionsEnv?
+                functions freeFunctions env e' with
+            | some itemTy =>
+                let t := anfHoistName c2
+                let decl := Stmt.varDecl
+                  [{ name := some t, ty := some (Ty.anfTempTy itemTy),
+                     location := Ty.anfHoistLocation? itemTy }]
+                  (some e')
+                (c2 + 1, p1 ++ [decl] ++ p2,
+                  TupleItem.value (Expr.ident t) :: rest')
+            | none => (c2, p1 ++ p2, item' :: rest')
 termination_by fuel _ _ => fuel
 
 end
