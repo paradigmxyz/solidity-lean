@@ -5238,12 +5238,14 @@ def checkBuiltinIdentCall (env : CheckEnv) (name : Name)
         modulus.expectAssignableTo (Solidity.Ty.uint 256)
         -- solc's constant evaluator (ConstantEvaluator.cpp) folds the modulus
         -- argument and raises Error 4195 "Arithmetic modulo zero" whenever it
-        -- folds to a constant zero — regardless of whether the other operands
-        -- are constant. Mirror the div/mod mechanism: reject a modulus whose
-        -- constant fold (`numberLiteralRat?`, catching `0`, `1-1`, `2*0`) is
-        -- zero. A non-constant modulus (fold `none`) stays a runtime Panic 0x12.
+        -- is a rational constant equal to zero, regardless of whether the other
+        -- operands are constant. The fold covers only untyped number-literal
+        -- expressions (`0`, `1-1`, `2*0`): an explicit conversion such as
+        -- `uint256(0)` gives the modulus a typed integer type, which solc does
+        -- not fold, so it compiles and reverts with Panic 0x12 at runtime. Use
+        -- the strict literal folder, as for `/` and `%`.
         require
-          (match Solidity.Executable.Expr.numberLiteralRat? modulus.source with
+          (match Solidity.Executable.Expr.untypedNumberLiteralRat? modulus.source with
            | some value => value.num != 0
            | none => true)
           (TypeError.unsupported (name ++ " with constant zero modulus"))
