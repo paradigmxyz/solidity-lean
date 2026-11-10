@@ -3537,6 +3537,14 @@ def Ty.fixedBytesSize? : Ty -> Option Nat
         none
   | _ => none
 
+/-- The type of `x.length`: solc types the length of a fixed-size `bytesN`
+    value as `uint8` (`FixedBytesType::nativeMembers`); every other `.length`
+    (arrays, `bytes`, `string`) is `uint256`. -/
+def Ty.lengthMemberTy (baseTy : Ty) : Ty :=
+  match Ty.fixedBytesSize? baseTy with
+  | some _ => Ty.uint 8
+  | none => Ty.uint 256
+
 def Ty.isFixedBytes (ty : Ty) : Bool :=
   match Ty.fixedBytesSize? ty with
   | some _ => true
@@ -6040,8 +6048,8 @@ def Expr.abiTy? (storageNames : List Name) : Expr -> Option Ty
       let _ ← Expr.abiTy? storageNames base
       some (Ty.bytesN 32)
   | Expr.member base "length" => do
-      let _ ← Expr.abiTy? storageNames base
-      some (Ty.uint 256)
+      let baseTy ← Expr.abiTy? storageNames base
+      some (Ty.lengthMemberTy baseTy)
   | Expr.unary UnaryOp.logicalNot _ => some Ty.bool
   | Expr.unary UnaryOp.bitNot expr => Expr.abiTy? storageNames expr
   | Expr.unary UnaryOp.neg expr => Expr.abiTy? storageNames expr
@@ -7692,8 +7700,8 @@ def Expr.abiTyWithEnv? (env : TypeEnv) : Expr -> Option Ty
               let _ ← Expr.abiTyWithEnv? env base
               some (Ty.bytesN 32)
           | Expr.member base "length" => do
-              let _ ← Expr.abiTyWithEnv? env base
-              some (Ty.uint 256)
+              let baseTy ← Expr.abiTyWithEnv? env base
+              some (Ty.lengthMemberTy baseTy)
           | Expr.member base "selector" => do
               match Expr.abiTyWithEnv? env base with
               | some (Ty.functionWithLocations _ _ _ _ _ Visibility.external_) =>
