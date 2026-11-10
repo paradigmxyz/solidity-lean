@@ -50,6 +50,20 @@ def Ty.peelIndexSpineTy? : Ty -> List Expr -> Option Ty
   | _, _ => none
 
 
+/-- Pure (call-free) operand of a binary whose other operand carries nested
+    internal calls. Gate on the env-less lowering exactly as before, so the set
+    of accepted shapes is unchanged, but produce the value with the env-aware
+    lowering: a narrow `~uint8(x)`, shift or checked arithmetic operand must be
+    cleaned at its own width before the residual binary combines it with the
+    hoisted call result (the env-less `~` flips all 256 bits). -/
+def Expr.pureBinaryOperandCoreWithEnvCleanup? (storageNames : List Name)
+    (env : TypeEnv) (expr : Expr) : Option CoreExpr := do
+  let plainCore ← Expr.toCore? storageNames expr
+  match Expr.abiArgCoreWithEnvCleanup? storageNames env expr with
+  | some coreExpr => some coreExpr
+  | none => some plainCore
+
+
 set_option maxHeartbeats 2000000 in
 mutual
 
@@ -1999,7 +2013,8 @@ def FunctionDecl.internalBinarySingleReturnUseCore?
                   [ SolidCore.Solidity.Source.Stmt.varDecl
                       lhsCoreTy lhsTmp (some lhsCore)
                   , rhsCallCore ]
-          match op, Expr.toCore? storageNames lhs with
+          match op,
+              Expr.pureBinaryOperandCoreWithEnvCleanup? storageNames env lhs with
           | BinaryOp.boolAnd, some lhsCore => some (lhsThen lhsCore)
           | BinaryOp.boolOr, some lhsCore => some (lhsThen lhsCore)
           | _, some lhsCore =>
@@ -2066,7 +2081,8 @@ def FunctionDecl.internalBinarySingleReturnUseCore?
           match Expr.toCore? storageNames lhs with
           | some _ => none
           | none => do
-              let rhsCore ← Expr.toCore? storageNames rhs
+              let rhsCore ←
+                Expr.pureBinaryOperandCoreWithEnvCleanup? storageNames env rhs
               let previousShape? : Option CoreStmt :=
                 FunctionDecl.internalExprSingleReturnUseCore?
                   internalFuel storageRefEnv env externalCallKindEnv
