@@ -6686,6 +6686,29 @@ def InternalFunctionAliasEnv.targetPairs
     List (Name × Option Name) :=
   env.map InternalFunctionAliasBinding.targetPair
 
+/-- The value of a storage `push(value)`, lowered against the receiver's
+    element type. A `T[]` element is lowered env-aware at `T`, so narrow
+    checked arithmetic keeps its operand-width cleanup (Panic 0x11). A `bytes`
+    receiver stores `bytes1` elements; its value is lowered env-aware at
+    `bytes1` when it carries narrow checked arithmetic
+    (`bs.push(bytes1(x + 100))` with `uint8 x` must Panic 0x11 before the
+    push). Every other value keeps the env-less lowering. -/
+def Expr.storagePushValueCoreWithEnv? (storageNames : List Name)
+    (env : TypeEnv) (target value : Expr) : Option CoreExpr :=
+  match Expr.abiTyWithEnv? env target with
+  | some (Ty.array elemTy _) =>
+      match Expr.toCoreAsWithEnv? storageNames env elemTy value with
+      | some c => some c
+      | none => Expr.toCore? storageNames value
+  | some Ty.bytes =>
+      if Expr.abiArgNeedsEnvCleanup? value then
+        match Expr.toCoreAsWithEnv? storageNames env (Ty.bytesN 1) value with
+        | some c => some c
+        | none => Expr.toCore? storageNames value
+      else
+        Expr.toCore? storageNames value
+  | _ => Expr.toCore? storageNames value
+
 def Expr.storageRefArrayMemberStmtCore?
     (storageRefEnv : StorageRefEnv) (env : TypeEnv)
     (storageNames : List Name) :
@@ -6726,15 +6749,7 @@ def Expr.storageRefArrayMemberStmtCore?
       -- The env-less `toCore?` dropped it and silently wrapped at 256 bits.
       -- A genuine explicit truncating cast (`arr.push(uint8(w))`) is NOT
       -- peeled by `toCoreAsWithEnv?` and still truncates.
-      let valueCore ←
-        match (match Expr.abiTyWithEnv? env target with
-              | some (Ty.array elemTy _) => some elemTy
-              | _ => none) with
-        | some elemTy =>
-            match Expr.toCoreAsWithEnv? storageNames env elemTy value with
-            | some c => some c
-            | none => Expr.toCore? storageNames value
-        | none => Expr.toCore? storageNames value
+      let valueCore ← Expr.storagePushValueCoreWithEnv? storageNames env target value
       match indexes with
       | [] =>
           some
@@ -6828,15 +6843,7 @@ def storageArrayPushPathCoreWithEnv? (env : TypeEnv) (storageNames : List Name)
   | _ => do
     let (name, indexes) ←
       Expr.storagePathCoreWithEnv? storageNames env target
-    let valueCore ←
-      match (match Expr.abiTyWithEnv? env target with
-            | some (Ty.array elemTy _) => some elemTy
-            | _ => none) with
-      | some elemTy =>
-          match Expr.toCoreAsWithEnv? storageNames env elemTy value with
-          | some c => some c
-          | none => Expr.toCore? storageNames value
-      | none => Expr.toCore? storageNames value
+    let valueCore ← Expr.storagePushValueCoreWithEnv? storageNames env target value
     match indexes with
     | [] =>
         some (SolidCore.Solidity.Source.Stmt.storageArrayPush name (some valueCore))
