@@ -2435,10 +2435,17 @@ def Expr.toCoreLValueWithEnv? (storageNames : List Name) (env : TypeEnv) :
           | _ => none) with
         | some c => some c
         | none =>
+        -- A WIDE key whose subtree carries narrow checked arithmetic
+        -- (`m[uint256(a + b)] = v`, `uint8 a,b`) also lowers env-aware at
+        -- its own type, mirroring the read-side index arm: the inner
+        -- arithmetic must Panic 0x11 before the slot is computed.
         match (do
             let keyTy ← Expr.abiTyWithEnv? env key
-            let _ ← Ty.narrowIntCastTarget? keyTy
-            Expr.toCoreAsWithEnv? storageNames env keyTy key) with
+            if (Ty.narrowIntCastTarget? keyTy).isSome ||
+                Expr.abiArgNeedsEnvCleanup? key then
+              Expr.toCoreAsWithEnv? storageNames env keyTy key
+            else
+              none) with
           | some c => some c
           | none => Expr.toCore? storageNames key
       (do
