@@ -5489,7 +5489,20 @@ def Expr.toCore? (storageNames : List Name) : Expr -> Option CoreExpr
   | Expr.unary op expr => do
       let coreOp ← UnaryOp.toCore? op
       let coreExpr ← Expr.toCore? storageNames expr
-      some (SolidCore.Solidity.Source.Expr.unary coreOp coreExpr)
+      let core := SolidCore.Solidity.Source.Expr.unary coreOp coreExpr
+      -- `~x` on a narrow `uintN` operand is the uintN complement: solc cleans
+      -- it with `cleanup_t_uintN` (`and(not(x), 2^N-1)`). Without the mask the
+      -- full-width `not(x)` leaks into consumers that do not re-clean, such as
+      -- an `abi.encode` argument decoded back as `uintN`. An untyped literal
+      -- operand (`~5`) is a rational constant, not a uintN value.
+      match op, Expr.abiTy? storageNames expr with
+      | UnaryOp.bitNot, some (Ty.uint bits) =>
+          if 0 < bits && bits < 256 &&
+              !Expr.isRawNumberLiteralExpression expr then
+            some (SolidCore.Solidity.Source.Expr.uintCast bits core)
+          else
+            some core
+      | _, _ => some core
   | Expr.assign lhs AssignOp.assign rhs => do
       let lhsCore ← Expr.toCoreLValue? storageNames lhs
       let rhsCore ← Expr.toCore? storageNames rhs

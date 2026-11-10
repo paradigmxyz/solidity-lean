@@ -2509,6 +2509,39 @@ def Expr.toCoreAssignOpShiftRhsAware? (storageNames : List Name)
             lhsCore.toExpr coreOp rhsCore cleanup)
   | _ => none
 
+/-- Env-aware `abi.decode(data, (T1, …))` for a tuple destination. The
+    `data` bytes are built at their own source types when a subtree needs
+    the operand-width cleanup (`abi.encode(~uint32(c), …)`, `abi.encode(~x, …)`,
+    `abi.encode(a + b, …)` with narrow operands), exactly as the single-value
+    and `return abi.decode(…)` paths do. The env-less lowering built a
+    full-width `~` word, which the decoder then rejected as a dirty `uint32`. -/
+def Expr.abiDecodeCoreWithEnv? (storageNames : List Name) (env : TypeEnv) :
+    Expr -> Option CoreExpr
+  | Expr.call (Expr.member (Expr.ident "abi") "decode")
+      [Arg.positional data, Arg.positional typesExpr] =>
+      if Expr.abiArgNeedsEnvCleanup? data then do
+        let (tys, cleanups, _) ←
+          Expr.toAbiDecode? storageNames data typesExpr
+        let dataTy ← Expr.abiTyWithEnv? env data
+        let dataCore ← Expr.toCoreAsWithEnv? storageNames env dataTy data
+        some (SolidCore.Solidity.Source.Expr.abiDecode tys cleanups dataCore)
+      else
+        none
+  | _ => none
+
+/-- `tupleVarDeclGeneralCorePieces?` with the env-aware `abi.decode` RHS. -/
+def tupleVarDeclGeneralCorePiecesWithEnv? (storageNames : List Name)
+    (env : TypeEnv) (bindings : List VarBinding) (rhs : Expr) :
+    Option (List CoreStmt × List CoreStmt) :=
+  match Expr.abiDecodeCoreWithEnv? storageNames env rhs with
+  | some rhsCore => do
+      let coreDecls ← VarBindings.toCoreTupleDecls? bindings
+      let targets ← VarBindings.toCoreTupleTargets? bindings
+      some
+        ( coreDecls
+        , [SolidCore.Solidity.Source.Stmt.assignTuple targets rhsCore] )
+  | none => tupleVarDeclGeneralCorePieces? storageNames bindings rhs
+
 def assignmentCoreWithEnv? (storageNames : List Name)
     (env : TypeEnv) (lhs rhs : Expr) : Option CoreStmt := do
   let lhsCore ← Expr.toCoreLValueWithEnv? storageNames env lhs
@@ -4042,6 +4075,12 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
       | Stmt.expr
           (Expr.assign (Expr.tuple lhsItems) AssignOp.assign expr) =>
           match Expr.lowLevelTupleAssignCore? storageNames env lhsItems expr with
+          | some coreStmt => some coreStmt
+          | none =>
+          match (do
+              let rhsCore ← Expr.abiDecodeCoreWithEnv? storageNames env expr
+              let targets ← TupleItems.toCoreLValueTargets? storageNames lhsItems
+              some (SolidCore.Solidity.Source.Stmt.assignTuple targets rhsCore)) with
           | some coreStmt => some coreStmt
           | none =>
               Stmt.toCore? storageNames
@@ -8718,7 +8757,8 @@ def Stmt.listLowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
       | Stmt.varDecl bindings
           (some expr@(Expr.call (Expr.member (Expr.ident "abi") "decode") _)) :: rest => do
           let pieces ←
-            match tupleVarDeclGeneralCorePieces? storageNames bindings expr with
+            match tupleVarDeclGeneralCorePiecesWithEnv?
+                storageNames env bindings expr with
             | some (coreDecls, assigns) => some (coreDecls ++ assigns)
             | none =>
                 match internalFuel with
@@ -8732,8 +8772,8 @@ def Stmt.listLowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                     | [] => none
                     | _ :: _ => do
                         let (coreDecls, assigns) ←
-                          tupleVarDeclGeneralCorePieces?
-                            storageNames bindings residual
+                          tupleVarDeclGeneralCorePiecesWithEnv?
+                            storageNames env bindings residual
                         some (prefixStmts ++ coreDecls ++ assigns)
           let tail ←
             Stmt.listToCoreWithInternalCallsWithRefs?
@@ -8850,7 +8890,8 @@ def Stmt.listLowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
             match bindings with
             | _ :: _ :: _ => do
                 let (coreDecls, assigns) ←
-                  tupleVarDeclGeneralCorePieces? storageNames bindings expr
+                  tupleVarDeclGeneralCorePiecesWithEnv?
+                    storageNames env bindings expr
                 let tail ←
                   Stmt.listToCoreWithInternalCallsWithRefs? internalFuel
                     (VarBindings.extendStorageRefEnv storageRefEnv bindings)
