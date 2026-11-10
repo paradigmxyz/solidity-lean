@@ -223,6 +223,55 @@ def run_perturbed_extfn_selftest(timeout: int = 500) -> tuple[bool, str]:
     return ok, detail
 
 
+def run_perturbed_udvt_selftest(timeout: int = 500) -> tuple[bool, str]:
+    """Divergence-DIRECTION control for signed UDVT returns: run
+    ``udvt_return`` (a negative ``U is int128`` leads the return tuple) through
+    the FULL live pipeline, then bump the measured EVM observable's leading
+    ``i:`` value by one unit. Once both engines decode the UDVT as its signed
+    underlying type, a genuine signed-value disagreement must still bank
+    SOUNDNESS_GAP(wrong-value), not be equalized away."""
+    report = adj.adjudicate(
+        SAMPLES / "udvt_return", timeout=timeout,
+        _selftest_perturb_evm=obs.perturb_leading_int)
+    comp = (report.evidence.get("comparison", {}) or {}).get("differing_component")
+    ok = (report.verdict == "SOUNDNESS_GAP" and report.lane == "S"
+          and comp == "wrong-value" and report.qualifies)
+    detail = (f"verdict={report.verdict} lane={report.lane} component={comp} "
+              f"qualifies={report.qualifies} :: {report.reason[:140]}")
+    return ok, detail
+
+
+def udvt_type_resolution_tests() -> tuple[bool, str]:
+    """User-defined value types resolve to their ABI (underlying) types in
+    every type list the decoders and encoders read (measure._param_type):
+    entry params and returns, struct members and custom-error params, through
+    fixed and dynamic arrays and at file and contract level, while enums,
+    contracts and structs keep their typeStrings."""
+    from contest import measure as meas
+    from contest import reject_gate as G
+
+    src = SAMPLES / "udvt_return" / "src" / "Udvt.sol"
+    sig = meas.entry_signature(src, "Udvt", "f", G.DEFAULT_SOLC)
+    if sig is None:
+        return False, "entry signature not found"
+    params = [obs._clean_type(t) for t in sig.param_types]
+    returns = [obs._clean_type(t) for t in sig.return_types]
+    structs = meas.struct_definitions(src, G.DEFAULT_SOLC)
+    checks = [
+        ("params", params == ["int128", "int8"]),
+        ("returns", returns == ["int128", "int8[2]", "struct Udvt.S",
+                                "enum Udvt.E", "uint16[]"]),
+        ("struct members", [obs._clean_type(t) for t in
+                            structs.get("Udvt.S", [])]
+         == ["int128", "int8", "uint16"]),
+        ("signed render", obs.render_word_for_type((1 << 256) - 7, returns[0])
+         == "i:-7"),
+    ]
+    bad = [n for n, ok in checks if not ok]
+    return (not bad, f"params={params} returns={returns} "
+            f"structs={structs.get('Udvt.S')} failed={bad}")
+
+
 def run_real_deploy_soundness_selftest(timeout: int = 500) -> tuple[bool, str]:
     """REAL end-to-end DEPLOY-OUTCOME soundness-detector test.
 
@@ -1511,6 +1560,8 @@ def main() -> int:
 
     _defer("infra-fail routes to NEEDS_REVIEW", lambda: infra_fail_routing_test())
 
+    _defer("udvt type resolution (solc AST)", lambda: udvt_type_resolution_tests())
+
     # --- FULL end-to-end runs (real solc + Foundry + solidity-lean/Lean) ---
     # REAL detector tests: full live pipeline + fault injection at the result
     # boundary (methodology steps 2 & 3). No bug in solidity-lean.
@@ -1600,6 +1651,15 @@ def main() -> int:
     # bytesN (N<32) return parity (audit round 2): a bytes4 return must classify
     # NO_DIVERGENCE, not a fake SOUNDNESS_GAP from EVM left- vs Lean right-alignment.
     _defer("bytesn_return parity (FULL)", lambda: run_full("bytesn_return", "NO_DIVERGENCE"))
+
+    # user-defined value type returns (and params): the EVM side decodes a UDVT
+    # as its ABI (underlying) type, so a negative signed UDVT return renders
+    # i:-7 on both engines -> NO_DIVERGENCE, not a fake w:2^256-7 wrong-value.
+    _defer("udvt_return parity (FULL)", lambda: run_full("udvt_return", "NO_DIVERGENCE"))
+
+    # Divergence DIRECTION for signed UDVT returns: perturb the measured
+    # leading i: value by one unit -> SOUNDNESS_GAP(wrong-value) must be banked.
+    _defer("udvt signed divergence-detector (REAL + delta)", lambda: run_perturbed_udvt_selftest())
 
     # mixed-scalar multi-return differential probe (round 8): a single tuple return
     # of int256/uint128/address/bytes4 must render identically on both engines

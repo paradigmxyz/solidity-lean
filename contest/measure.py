@@ -74,6 +74,7 @@ class Measurement:
 def entry_signature(source: Path, contract: str, function: str,
                     solc: str) -> Optional[EntrySig]:
     _name, ast = gate._IMPORTER.run_solc_ast(solc, source)
+    udvts = _udvt_underlying(ast)
     for node in gate.iter_nodes(ast):
         if node.get("nodeType") != "ContractDefinition" or node.get("name") != contract:
             continue
@@ -84,18 +85,92 @@ def entry_signature(source: Path, contract: str, function: str,
             selector = item.get("functionSelector")
             if not selector:
                 return None
-            params = [_param_type(p) for p in
+            params = [_param_type(p, udvts) for p in
                       item.get("parameters", {}).get("parameters", [])]
-            returns = [_param_type(p) for p in
+            returns = [_param_type(p, udvts) for p in
                        item.get("returnParameters", {}).get("parameters", [])]
             return EntrySig(selector, params, returns, source, contract,
                             overload_count=len(matches))
     return None
 
 
-def _param_type(p: dict[str, Any]) -> str:
+def _param_type(p: dict[str, Any],
+                udvts: Optional[dict[int, str]] = None) -> str:
+    """The decode/encode type string of a parameter, return parameter, error
+    parameter or struct member declaration.
+
+    This is the AST ``typeString`` except that every user-defined value type
+    (``type U is int128``) is replaced by its UNDERLYING elementary type, which
+    is what the ABI encodes it as (solc's own ABI JSON gives ``type: int128``,
+    ``internalType: U``). The typeString of a UDVT is only its canonical name
+    (``U``, ``C.U``, ``U[] memory``), which no downstream consumer understands:
+    observable.render_word_for_type fell back to the unsigned ``w:`` form, so a
+    negative signed-UDVT return decoded as 2^256-5 against solidity-lean's
+    ``i:-5`` (a fake wrong-value gap). Resolution follows the typeName's
+    ``referencedDeclaration`` through ``udvts`` (:func:`_udvt_underlying`), not
+    name matching, and recurses through array type names (``U[]``,
+    ``C.V[2][]``). Enums, contracts and structs keep their typeStrings, which
+    the decoders already handle (enum/contract -> ``w:``, struct -> the struct
+    table, whose members go through this same resolution)."""
     td = p.get("typeDescriptions") or {}
-    return str(td.get("typeString") or "")
+    ts = str(td.get("typeString") or "")
+    if not udvts:
+        return ts
+    tn = p.get("typeName")
+    if not isinstance(tn, dict):
+        return ts
+    resolved = _resolve_udvt_type_name(tn, udvts)
+    if resolved is None:
+        return ts
+    # Keep the data-location suffix (" memory" / " calldata" / ...) that the
+    # declaration's typeString adds after the type name it qualifies.
+    tn_ts = str((tn.get("typeDescriptions") or {}).get("typeString") or "")
+    suffix = ts[len(tn_ts):] if tn_ts and ts.startswith(tn_ts) else ""
+    return resolved + suffix
+
+
+def _resolve_udvt_type_name(tn: dict[str, Any],
+                            udvts: dict[int, str]) -> Optional[str]:
+    """The type string of type name ``tn`` with UDVTs replaced by their
+    underlying types, or None when ``tn`` mentions no UDVT (callers then keep
+    solc's own typeString unchanged)."""
+    kind = tn.get("nodeType")
+    if kind == "UserDefinedTypeName":
+        ref = tn.get("referencedDeclaration")
+        return udvts.get(ref) if isinstance(ref, int) else None
+    if kind == "ArrayTypeName":
+        base = tn.get("baseType")
+        if not isinstance(base, dict):
+            return None
+        inner = _resolve_udvt_type_name(base, udvts)
+        if inner is None:
+            return None
+        base_ts = str((base.get("typeDescriptions") or {}).get("typeString")
+                      or "")
+        arr_ts = str((tn.get("typeDescriptions") or {}).get("typeString") or "")
+        if base_ts and arr_ts.startswith(base_ts):
+            dims = arr_ts[len(base_ts):].split(" ")[0]
+        else:
+            length = (tn.get("length") or {}).get("value")
+            dims = f"[{length}]" if length is not None else "[]"
+        return inner + dims
+    return None
+
+
+def _udvt_underlying(ast: Any) -> dict[int, str]:
+    """Map each UserDefinedValueTypeDefinition's AST id to its underlying
+    elementary typeString (``int128`` for ``type U is int128``). Submissions are
+    single flattened source units (no imports), so the map is complete."""
+    out: dict[int, str] = {}
+    for node in gate.iter_nodes(ast):
+        if node.get("nodeType") != "UserDefinedValueTypeDefinition":
+            continue
+        nid = node.get("id")
+        under = node.get("underlyingType") or {}
+        uts = str((under.get("typeDescriptions") or {}).get("typeString") or "")
+        if isinstance(nid, int) and uts:
+            out[nid] = uts
+    return out
 
 
 def error_definitions(
@@ -121,6 +196,7 @@ def error_definitions(
     ambiguous: set[str] = set()
     try:
         _name, ast = gate._IMPORTER.run_solc_ast(solc, source)
+        udvts = _udvt_underlying(ast)
     except Exception:
         return out, ambiguous
     for node in gate.iter_nodes(ast):
@@ -131,7 +207,7 @@ def error_definitions(
         if not sel or not name:
             continue
         sel = str(sel).lower()
-        types = [_param_type(p) for p in
+        types = [_param_type(p, udvts) for p in
                  node.get("parameters", {}).get("parameters", [])]
         prior = out.get(sel)
         if prior is not None and prior[0] != str(name):
@@ -151,6 +227,7 @@ def error_definition_list(
     out: list[tuple[str, str, list[str]]] = []
     try:
         _name, ast = gate._IMPORTER.run_solc_ast(solc, source)
+        udvts = _udvt_underlying(ast)
     except Exception:
         return out
     for node in gate.iter_nodes(ast):
@@ -160,7 +237,7 @@ def error_definition_list(
         name = node.get("name")
         if not sel or not name:
             continue
-        types = [_param_type(p) for p in
+        types = [_param_type(p, udvts) for p in
                  node.get("parameters", {}).get("parameters", [])]
         out.append((str(sel).lower(), str(name), types))
     return out
@@ -174,6 +251,7 @@ def struct_definitions(source: Path, solc: str) -> dict[str, list[str]]:
     out: dict[str, list[str]] = {}
     try:
         _name, ast = gate._IMPORTER.run_solc_ast(solc, source)
+        udvts = _udvt_underlying(ast)
     except Exception:
         return out
     for node in gate.iter_nodes(ast):
@@ -182,7 +260,7 @@ def struct_definitions(source: Path, solc: str) -> dict[str, list[str]]:
         canonical = node.get("canonicalName") or node.get("name")
         if not canonical:
             continue
-        out[str(canonical)] = [_param_type(m) for m in (node.get("members") or [])]
+        out[str(canonical)] = [_param_type(m, udvts) for m in (node.get("members") or [])]
     return out
 
 
@@ -193,6 +271,7 @@ def constructor_param_types(source: Path, contract: str,
     constructor_args the same way it validates entry args."""
     try:
         _name, ast = gate._IMPORTER.run_solc_ast(solc, source)
+        udvts = _udvt_underlying(ast)
     except Exception:
         return []
     for node in gate.iter_nodes(ast):
@@ -202,7 +281,7 @@ def constructor_param_types(source: Path, contract: str,
         for item in node.get("nodes", []):
             if item.get("nodeType") == "FunctionDefinition" and \
                     item.get("kind") == "constructor":
-                return [_param_type(p) for p in
+                return [_param_type(p, udvts) for p in
                         item.get("parameters", {}).get("parameters", [])]
     return []
 
