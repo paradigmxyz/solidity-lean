@@ -1594,6 +1594,24 @@ def FunctionDecl.internalBinarySingleReturnUseCore?
     (functions freeFunctions : List FunctionDecl)
     (op : BinaryOp) (lhs rhs : Expr) (useResult : CoreExpr -> CoreStmt) :
     Option CoreStmt :=
+  -- Checked arithmetic whose result type is a narrow `uintN`/`intN`
+  -- overflows at that width, not at 256 bits. The residual binary built below
+  -- carries no operand-width cleanup, so a consumer that does not itself
+  -- clean to the same width (`(uint32(g()) * k) & m`, a comparison, a
+  -- widening cast) lost the Panic 0x11. Apply the result type's implicit
+  -- cleanup to every residual this lowering hands to `useResult`.
+  let narrowResultTy? : Option Ty :=
+    if BinaryOp.isOverflowArithmetic op then
+      match Expr.abiTyWithInternalFunctionsEnv?
+          functions freeFunctions env (Expr.binary op lhs rhs) with
+      | some ty => if (Ty.narrowIntCastTarget? ty).isSome then some ty else none
+      | none => none
+    else
+      none
+  let useResult : CoreExpr -> CoreStmt := fun resultExpr =>
+    match narrowResultTy? with
+    | some ty => useResult (Ty.implicitCleanupCore ty resultExpr)
+    | none => useResult resultExpr
   let lhsCall? := Expr.internalSingleReturnCallConversion? lhs
   let rhsCall? := Expr.internalSingleReturnCallConversion? rhs
   match lhsCall?, rhsCall? with
