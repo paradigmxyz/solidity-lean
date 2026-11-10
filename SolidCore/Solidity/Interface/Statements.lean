@@ -4612,6 +4612,19 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                             (some condCore)
                         , coreStmt ])
                 | none =>
+                    -- `name` is not an internal function, so this is a custom
+                    -- error. The condition evaluates first and must keep its
+                    -- narrow checked arithmetic (`require(x * 2 > 0, E())`
+                    -- with `uint16 x` Panics 0x11); the env-less fallback
+                    -- below would compute it at 256 bits.
+                    match (if Expr.abiArgNeedsEnvCleanup? cond then do
+                        let coreArgs ← Args.toCoreExprs? storageNames args
+                        some
+                          (SolidCore.Solidity.Source.Stmt.requireCustom
+                            condCore name coreArgs)
+                      else none) with
+                    | some coreStmt => some coreStmt
+                    | none =>
                     Stmt.toCore? storageNames
                       (Stmt.expr
                         (Expr.call (Expr.ident "require")
