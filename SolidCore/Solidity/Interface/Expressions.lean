@@ -7795,6 +7795,66 @@ def Expr.reorderNamedInternalCallArgs
             | none => args
     | _ => args
 
+/-- Call-free, side-effect-free expression shapes (reads, pure operators and
+    elementary conversions). -/
+def Expr.argPosCallFreeFuel : Nat -> Expr -> Bool
+  | 0, _ => false
+  | fuel + 1, e =>
+      match e with
+      | Expr.literal _ => true
+      | Expr.ident _ => true
+      | Expr.member base _ => Expr.argPosCallFreeFuel fuel base
+      | Expr.index base key =>
+          Expr.argPosCallFreeFuel fuel base && Expr.argPosCallFreeFuel fuel key
+      | Expr.unary UnaryOp.logicalNot x
+      | Expr.unary UnaryOp.bitNot x
+      | Expr.unary UnaryOp.neg x => Expr.argPosCallFreeFuel fuel x
+      | Expr.binary _ l r =>
+          Expr.argPosCallFreeFuel fuel l && Expr.argPosCallFreeFuel fuel r
+      | Expr.call (Expr.typeName _) [Arg.positional x] =>
+          Expr.argPosCallFreeFuel fuel x
+      | Expr.enumFromUInt _ x => Expr.argPosCallFreeFuel fuel x
+      | Expr.payableConversion x => Expr.argPosCallFreeFuel fuel x
+      | _ => false
+
+def Expr.argPosCallFree (e : Expr) : Bool :=
+  Expr.argPosCallFreeFuel 10000 e
+
+/-- Values no later call can change: literals and hoist-temp reads. -/
+def Expr.argPosSettled : Expr -> Bool
+  | Expr.literal _ => true
+  | Expr.unary UnaryOp.neg (Expr.literal _) => true
+  | Expr.ident name =>
+      name.startsWith "_sol_argpos_" || name.startsWith "_sol_hoist_"
+  | Expr.call (Expr.typeName _) [Arg.positional (Expr.ident name)] =>
+      name.startsWith "_sol_argpos_" || name.startsWith "_sol_hoist_"
+  | _ => false
+
+def Ty.argPosParkable : Ty -> Bool
+  | Ty.bool | Ty.address _ | Ty.uint _ | Ty.int _ | Ty.bytesN _
+  | Ty.fixedBytes _ | Ty.enum _ _ => true
+  | _ => false
+
+/-- Sibling parking for the argument-position hoister. solc evaluates call
+    arguments, tuple components and inline-array elements left to right
+    (`ExpressionCompiler.cpp`), so a call nested in a LATER sibling must not be
+    hoisted ahead of an EARLIER sibling that reads state the call may change
+    (`abi.encodePacked(n, bump())` reads `n` before `bump()` runs). Such an
+    earlier sibling, when call-free and value-typed, is returned in place of
+    the call: the caller binds it to the temp first, and the call is peeled on
+    the next round. Settled siblings (literals, temp reads) are left alone. -/
+def Expr.argPosPark? (env : TypeEnv) (tmp : Name) (e : Expr) :
+    Option (Expr × Ty × Expr) :=
+  if Expr.argPosSettled e || !(Expr.argPosCallFree e) then none
+  else
+    match Expr.abiTyWithEnv? env e with
+    | some ty =>
+        if Ty.argPosParkable ty then
+          some (e, ty,
+            Expr.call (Expr.typeName ty) [Arg.positional (Expr.ident tmp)])
+        else none
+    | none => none
+
 mutual
 
 def Expr.findArgPosInnerCall? (functions : List FunctionDecl)
@@ -7930,21 +7990,34 @@ def Expr.findArgPosInnerCall? (functions : List FunctionDecl)
               | some (c, t, m') =>
                   some (c, t, Expr.call callee [a, b, Arg.withExpr m' m])
               | none =>
+                  -- An operand evaluated before the operand holding the call
+                  -- (the modulus, then the second operand) is parked first.
+                  let parkM := fun (fallback : Option (Expr × Ty × Expr)) =>
+                    match Expr.argPosPark? env tmp mExpr with
+                    | some (p, pt, m') =>
+                        some (p, pt, Expr.call callee [a, b, Arg.withExpr m' m])
+                    | none => fallback
                   match
                       Expr.findArgPosInnerCall?
                         functions env tmp false fuel bExpr
                   with
                   | some (c, t, b') =>
-                      some (c, t,
-                        Expr.call callee [a, Arg.withExpr b' b, m])
+                      parkM (some (c, t,
+                        Expr.call callee [a, Arg.withExpr b' b, m]))
                   | none =>
                       match
                           Expr.findArgPosInnerCall?
                             functions env tmp false fuel aExpr
                       with
                       | some (c, t, a') =>
-                          some (c, t,
-                            Expr.call callee [Arg.withExpr a' a, b, m])
+                          parkM
+                            (match Expr.argPosPark? env tmp bExpr with
+                             | some (p, pt, b') =>
+                                 some (p, pt,
+                                   Expr.call callee [a, Arg.withExpr b' b, m])
+                             | none =>
+                                 some (c, t,
+                                   Expr.call callee [Arg.withExpr a' a, b, m]))
                       | none => normal
             else
               normal
@@ -7967,7 +8040,10 @@ def Expr.findArgPosInnerCallExprs? (functions : List FunctionDecl)
     | some (c, t, e') => some (c, t, e' :: rest)
     | none =>
         match Expr.findArgPosInnerCallExprs? functions env tmp fuel rest with
-        | some (c, t, rest') => some (c, t, e :: rest')
+        | some (c, t, rest') =>
+            match Expr.argPosPark? env tmp e with
+            | some (p, pt, e') => some (p, pt, e' :: rest)
+            | none => some (c, t, e :: rest')
         | none => none
 termination_by fuel _ => fuel
 
@@ -7985,7 +8061,10 @@ def Expr.findArgPosInnerCallArgs? (functions : List FunctionDecl)
     | some (c, t, e') => some (c, t, Arg.withExpr e' arg :: rest)
     | none =>
         match Expr.findArgPosInnerCallArgs? functions env tmp fuel rest with
-        | some (c, t, rest') => some (c, t, arg :: rest')
+        | some (c, t, rest') =>
+            match Expr.argPosPark? env tmp argExpr with
+            | some (p, pt, e') => some (p, pt, Arg.withExpr e' arg :: rest)
+            | none => some (c, t, arg :: rest')
         | none => none
 termination_by fuel _ => fuel
 
@@ -8005,7 +8084,10 @@ def Expr.findArgPosInnerCallTuple? (functions : List FunctionDecl)
         | some (c, t, e') => some (c, t, TupleItem.value e' :: rest)
         | none =>
             match Expr.findArgPosInnerCallTuple? functions env tmp fuel rest with
-            | some (c, t, rest') => some (c, t, item :: rest')
+            | some (c, t, rest') =>
+                match Expr.argPosPark? env tmp expr with
+                | some (p, pt, e') => some (p, pt, TupleItem.value e' :: rest)
+                | none => some (c, t, item :: rest')
             | none => none
 termination_by fuel _ => fuel
 
@@ -8291,9 +8373,44 @@ def Expr.anfHoist
                   let (c1, pm, m') := rec1 c m
                   let (c2, pb, b') := rec1 c1 b
                   let (c3, pa, a') := rec1 c2 a
-                  ( c3
-                  , pm ++ pb ++ pa
-                  , [Arg.positional a', Arg.positional b', Arg.positional m'] )
+                  -- A later-evaluated operand's hoisted calls must not run
+                  -- before an earlier-evaluated operand is read: park the
+                  -- modulus (and check it for zero, as solc does before the
+                  -- operands) ahead of the operand preludes, and the second
+                  -- operand ahead of the first operand's prelude.
+                  let park := fun (cc : Nat) (x : Expr) =>
+                    match x with
+                    | Expr.literal _ => (cc, [], x)
+                    | _ =>
+                        let t := anfHoistName cc
+                        ( cc + 1
+                        , [Stmt.varDecl
+                            [{ name := some t, ty := some (Ty.uint 256),
+                               location := none }]
+                            (some x)]
+                        , Expr.ident t )
+                  let (c4, mFix, m'') :=
+                    if pb.isEmpty && pa.isEmpty then (c3, [], m')
+                    else
+                      match park c3 m' with
+                      | (cc, [], x) => (cc, [], x)
+                      | (cc, decls, x) =>
+                          let chk := anfHoistName cc
+                          ( cc + 1
+                          , decls ++
+                              [Stmt.varDecl
+                                [{ name := some chk, ty := some (Ty.uint 256),
+                                   location := none }]
+                                (some (Expr.call (Expr.ident name)
+                                  [ Arg.positional (Expr.literal (Literal.number "0"))
+                                  , Arg.positional (Expr.literal (Literal.number "0"))
+                                  , Arg.positional x ]))]
+                          , x )
+                  let (c5, bFix, b'') :=
+                    if pa.isEmpty then (c4, [], b') else park c4 b'
+                  ( c5
+                  , pm ++ mFix ++ pb ++ bFix ++ pa
+                  , [Arg.positional a', Arg.positional b'', Arg.positional m''] )
                 else
                   recArgs c args
             | _, _ => recArgs c args
