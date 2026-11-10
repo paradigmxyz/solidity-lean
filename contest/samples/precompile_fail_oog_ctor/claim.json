@@ -1,0 +1,17 @@
+{
+  "lane": "S",
+  "entry": {
+    "contract": "PointEvalOogCtor",
+    "function": "get",
+    "args": [],
+    "constructor_args": [],
+    "value": 0
+  },
+  "expected_divergence": "SEM-CLOSEDGAS (measured), constructor frame: failing point-evaluation staticcalls in the constructor exhaust the CREATE's gas; the EVM deploy halts out-of-gas (deployrevert|empty, halt=1) while solidity-lean deploys -> REJECTED_OOS.",
+  "declared_observable": {
+    "kind": "deploy_revert_data",
+    "normal_form": "deployrevert|empty"
+  },
+  "feature": "failed-point-evaluation-staticcall-consumes-forwarded-gas-ctor",
+  "register_version_seen": "1.6.0"
+}

@@ -65,6 +65,16 @@ class Measurement:
     # PREDICTED create address (what the contract's address would have been),
     # so address(this) inside the model's constructor still mirrors the EVM.
     deploy_reverted: bool = False
+    # True when the failed frame (entry call, or the constructor when
+    # deploy_reverted) HALTED EXCEPTIONALLY and so returned none of its
+    # forwarded gas: out-of-gas (incl. gas burnt by a failing precompile
+    # call inside it) or another resource-limit halt. REVERT refunds the
+    # unused gas; an exceptional halt keeps all of it, which leaves the
+    # caller at most the 1/64 that EIP-150 withholds. The harness reads
+    # gas() right before and after the CALL/CREATE and sets the flag when
+    # what is left is within that 1/64. Such an outcome depends on the
+    # gas budget, which solidity-lean does not meter (SEM-CLOSEDGAS).
+    exhausted: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -447,7 +457,7 @@ def _harness_source(sig: EntrySig, calldata_hex: str, out_path: Path,
     if ov.value:
         pin.append(f"vm.deal(address(this), {ov.value});")
     pin_block = "\n        ".join(pin)
-    value_opt = f"{{value: {ov.value}}}" if ov.value else ""
+    call_value = ov.value or 0
     # Observed storage (§3.4 component 5), BROAD auto-detection (contest #8): we no
     # longer trust a submitter-declared slot list. `vm.record()` (armed before the
     # deploy, so constructor writes are captured too) lets `vm.accesses(target)`
@@ -479,8 +489,7 @@ def _harness_source(sig: EntrySig, calldata_hex: str, out_path: Path,
         # ctor would see the test-harness address and `owner = msg.sender`
         # would diverge. (Cheatcode calls above do not consume the prank.)
         f'        vm.prank({sender_expr});\n'
-        f'        address _addr;\n'
-        f'        assembly {{ _addr := create(0, add(_init, 0x20), mload(_init)) }}\n'
+        f'        (address _addr, bool _dhalt) = _create(_init);\n'
         f'        if (_addr == address(0)) {{\n'
         f'            bytes memory _crd;\n'
         f'            assembly {{\n'
@@ -494,6 +503,7 @@ def _harness_source(sig: EntrySig, calldata_hex: str, out_path: Path,
         f'                "deployrevert|", vm.toString(_crd),\n'
         f'                "|self=", vm.toString(_pred),\n'
         f'                "|origin=", vm.toString(tx.origin),\n'
+        f'                "|halt=", _dhalt ? "1" : "0",\n'
         f'                "|evt=|sto=")));\n'
         f'            return;\n'
         f'        }}\n'
@@ -530,6 +540,38 @@ import {{{sig.contract}}} from "{rel_import}";
 contract ContestMeasure {{
     CVm constant vm = CVm({_CHEAT_EXPR});
 
+    // The entry CALL, bracketed by gas() reads (see Measurement.exhausted):
+    // an exceptionally halted frame returns no gas, leaving the caller at
+    // most g0 / 64; a REVERT refunds what it did not use. The prank set by
+    // the caller applies to this CALL (an internal call is not a call).
+    function _call(address t, bytes memory cd)
+        internal returns (bool ok, bytes memory ret, bool halt) {{
+        uint256 g0;
+        uint256 g1;
+        assembly {{
+            g0 := gas()
+            ok := call(gas(), t, {call_value}, add(cd, 0x20), mload(cd), 0, 0)
+            g1 := gas()
+            ret := mload(0x40)
+            mstore(ret, returndatasize())
+            returndatacopy(add(ret, 0x20), 0, returndatasize())
+            mstore(0x40, add(add(ret, 0x20), and(add(returndatasize(), 0x3f), not(0x1f))))
+        }}
+        halt = !ok && g1 <= g0 / 64;
+    }}
+
+    // The deploy CREATE, bracketed the same way.
+    function _create(bytes memory init) internal returns (address a, bool halt) {{
+        uint256 g0;
+        uint256 g1;
+        assembly {{
+            g0 := gas()
+            a := create(0, add(init, 0x20), mload(init))
+            g1 := gas()
+        }}
+        halt = a == address(0) && g1 <= g0 / 64;
+    }}
+
     function test_ContestMeasure() public {{
         {pin_block}
         // Arm storage recording BEFORE the deploy so constructor SSTOREs count.
@@ -541,7 +583,8 @@ contract ContestMeasure {{
         {inject_block}
         vm.recordLogs();
         vm.prank(address(uint160({ov.sender})));
-        (bool ok, bytes memory ret) = address(target).call{value_opt}(hex"{calldata_hex}");
+        (bool ok, bytes memory ret, bool _halt) =
+            _call(address(target), hex"{calldata_hex}");
         // Events (§3.4 component 4): rolled back on revert, so only on success.
         bytes memory evt = "";
         bytes memory sto = "";
@@ -571,6 +614,7 @@ contract ContestMeasure {{
             ok ? "ok" : "revert", "|", vm.toString(ret),
             "|self=", vm.toString(address(target)),
             "|origin=", vm.toString(tx.origin),
+            "|halt=", _halt ? "1" : "0",
             "|evt=", string(evt), "|sto=", string(sto)));
         vm.writeFile("{out_path}", out);
     }}
@@ -728,6 +772,7 @@ def _tail(path: Path, n: int = 600) -> str:
 _MEAS_RE = re.compile(
     r"^(ok|revert|deployrevert)\|(0x(?:[0-9a-fA-F]{2})*)"
     r"\|self=(0x[0-9a-fA-F]+)\|origin=(0x[0-9a-fA-F]+)"
+    r"(?:\|halt=([01]))?"
     r"(?:\|evt=(.*)\|sto=(.*))?$")
 
 
@@ -741,8 +786,11 @@ def _parse_measurement(raw: str) -> Optional[Measurement]:
     ret_hex = match.group(2)
     self_addr = int(match.group(3), 16)
     origin = int(match.group(4), 16)
-    events = match.group(5) or ""
-    storage = match.group(6) or ""
+    # A halt flag on a successful call is impossible (the harness only sets
+    # it on failure); ignore it rather than trust a malformed line.
+    exhausted = match.group(5) == "1" and not ok
+    events = match.group(6) or ""
+    storage = match.group(7) or ""
     return Measurement(ok, ret_hex, self_addr, origin, raw,
                        events=events, storage=storage,
-                       deploy_reverted=deploy_reverted)
+                       deploy_reverted=deploy_reverted, exhausted=exhausted)
