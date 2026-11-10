@@ -1,0 +1,17 @@
+{
+  "lane": "S",
+  "entry": {
+    "contract": "PointEvalRevert",
+    "function": "f",
+    "args": [],
+    "constructor_args": [],
+    "value": 0
+  },
+  "expected_divergence": "none expected - control for precompile_fail_oog: ONE failing point-evaluation staticcall (success false, empty returndata on both engines) burns most of the frame's gas but not all of it, then a source-level custom-error revert carries ok and the returndata length. REVERT refunds the rest, so the harness measures no exceptional halt (halt=0) and the observable is compared -> NO_DIVERGENCE.",
+  "declared_observable": {
+    "kind": "revert",
+    "normal_form": "revert|custom:Failed:w:0,w:0##EVT####STO##"
+  },
+  "feature": "failed-point-evaluation-staticcall-semantics",
+  "register_version_seen": "1.6.0"
+}
