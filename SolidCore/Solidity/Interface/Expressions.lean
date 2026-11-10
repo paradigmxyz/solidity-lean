@@ -1177,15 +1177,15 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
               -- operand-width Panic 0x11 fires. This includes abi/hash/concat
               -- builtins and indexed memory elements such as
               -- `values[a + b].length`; the Direct fallback lowered the whole
-              -- `.length` subtree env-less. Result type is `uint 256` exactly
-              -- as `Expr.abiTyWithEnv?` types `.length`. Every unflagged
+              -- `.length` subtree env-less. Result type is `Ty.lengthMemberTy`
+              -- exactly as `Expr.abiTyWithEnv?` types `.length`. Every unflagged
               -- `.length` keeps the byte-identical Direct path.
               (match (if Expr.abiArgNeedsEnvCleanup? base then
                   (do
                     let baseTy ← Expr.abiTyWithEnv? env base
                     let baseCore ←
                       Expr.toCoreAsWithEnvFuel? fuel storageNames env baseTy base
-                    Expr.coreAsFromTy? targetTy (Ty.uint 256)
+                    Expr.coreAsFromTy? targetTy (Ty.lengthMemberTy baseTy)
                       (SolidCore.Solidity.Source.Expr.length baseCore))
                 else none) with
               | some coreExpr => some coreExpr
@@ -5782,10 +5782,10 @@ def Expr.abiTyWithInternalFunctionsEnv?
               functions freeFunctions env base
           some (Ty.bytesN 32)
       | Expr.member base "length" => do
-          let _ ←
+          let baseTy ←
             Expr.abiTyWithInternalFunctionsEnv?
               functions freeFunctions env base
-          some (Ty.uint 256)
+          some (Ty.lengthMemberTy baseTy)
       | Expr.member base "selector" => do
           match
               Expr.abiTyWithInternalFunctionsEnv?

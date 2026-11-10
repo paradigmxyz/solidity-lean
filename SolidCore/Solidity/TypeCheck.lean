@@ -4818,9 +4818,10 @@ def Ty.builtinValueMembers : Ty -> List (Name × BuiltinMemberInfo)
   | Solidity.Ty.bytes =>
       [("length", { ty := Solidity.Ty.uint 256 })]
   | Solidity.Ty.bytesN _ =>
-      [("length", { ty := Solidity.Ty.uint 256 })]
+      -- solc FixedBytesType::nativeMembers: `length` is `uint8`.
+      [("length", { ty := Solidity.Ty.uint 8 })]
   | Solidity.Ty.fixedBytes _ =>
-      [("length", { ty := Solidity.Ty.uint 256 })]
+      [("length", { ty := Solidity.Ty.uint 8 })]
   | Solidity.Ty.array _ _ =>
       [("length", { ty := Solidity.Ty.uint 256 })]
   | Solidity.Ty.functionWithLocations _ _ _ _ _ Solidity.Visibility.external_ =>
@@ -5681,7 +5682,10 @@ def exprContextualTyFuel? (env : CheckEnv) :
               | none => none
           | Solidity.Expr.member base "length" =>
               match exprContextualTyFuel? env fuel base with
-              | some _ => some (Solidity.Ty.uint 256)
+              | some baseTy =>
+                  match Ty.fixedBytesSize? baseTy with
+                  | some _ => some (Solidity.Ty.uint 8)
+                  | none => some (Solidity.Ty.uint 256)
               | none => none
           | Solidity.Expr.member base member => do
               let baseTy ← exprContextualTyFuel? env fuel base

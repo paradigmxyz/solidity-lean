@@ -1468,7 +1468,14 @@ def FunctionDecl.internalExprSingleReturnUseCore?
       | some ty =>
           match Ty.fixedBytesSize? ty with
           | some size =>
-              some (useResult (SolidCore.Solidity.Source.Expr.word size))
+              -- The length of a `bytesN` is the constant `size`, but only a base
+              -- that itself holds an internal call needs hoisting (and must
+              -- still run). A call-free base declines, so the caller keeps its
+              -- ordinary lowering instead of wrapping a declaration in a block.
+              FunctionDecl.internalExprSingleReturnUseCore?
+                internalFuel storageRefEnv env externalCallKindEnv storageNames
+                modifiers functions freeFunctions base
+                (fun _ => useResult (SolidCore.Solidity.Source.Expr.word size))
           | none =>
               FunctionDecl.internalExprSingleReturnUseCore?
                 internalFuel storageRefEnv env externalCallKindEnv storageNames

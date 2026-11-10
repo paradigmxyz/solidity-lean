@@ -157,3 +157,4 @@ import SolidCore.Witness.TupleNestedPush
 import SolidCore.Witness.WideSignedStorageCopy
 import SolidCore.Witness.EnumMappingKeyCleanup
 import SolidCore.Witness.EnumMappingKeyContract
+import SolidCore.Witness.FixedBytesLengthUint8
