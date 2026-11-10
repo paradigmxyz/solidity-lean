@@ -3345,6 +3345,12 @@ def Stmt.argPositionHoist? (internalFuel : Nat)
     | some (callExpr, retTy, replacedExpr) => do
         let retCoreTy ← Ty.toCore? retTy
         let callCore ←
+          if Expr.argPosCallFree callExpr then do
+            -- A parked earlier sibling (`Expr.argPosPark?`): bind its value.
+            let valueCore ← Expr.toCoreAsWithEnv? storageNames env retTy callExpr
+            some (SolidCore.Solidity.Source.Stmt.assign
+              (SolidCore.Solidity.Source.LValue.var tmp) valueCore)
+          else
           FunctionDecl.internalExprSingleReturnUseCore?
             fuel storageRefEnv env externalCallKindEnv storageNames
             modifiers functions freeFunctions callExpr
@@ -3390,6 +3396,13 @@ def Expr.argPositionHoistPrefix? (internalFuel : Nat)
         (do
           let retCoreTy ← Ty.toCore? retTy
           let callCore ←
+            if Expr.argPosCallFree callExpr then do
+              -- A parked earlier sibling (`Expr.argPosPark?`): bind its value.
+              let valueCore ←
+                Expr.toCoreAsWithEnv? storageNames env retTy callExpr
+              some (SolidCore.Solidity.Source.Stmt.assign
+                (SolidCore.Solidity.Source.LValue.var tmp) valueCore)
+            else
             FunctionDecl.internalExprSingleReturnUseCore?
               fuel storageRefEnv env externalCallKindEnv storageNames
               modifiers functions freeFunctions callExpr
