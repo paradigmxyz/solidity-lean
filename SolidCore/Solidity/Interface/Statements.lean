@@ -10274,6 +10274,85 @@ def UsingDecl.targetMatchesBinaryWithInternalFunctions?
       | none, none => none
   | none => some true
 
+/-- An operand of an attached call whose evaluation neither writes nor
+    reverts, so it commutes with any other operand except one that writes
+    what it reads: literals, names, member reads and elementary value
+    conversions of them. -/
+def Expr.usingOperandAtomic : Nat -> Expr -> Bool
+  | 0, _ => false
+  | _ + 1, Expr.literal _ => true
+  | _ + 1, Expr.ident _ => true
+  | _ + 1, Expr.typeName _ => true
+  | fuel + 1, Expr.member base _ => Expr.usingOperandAtomic fuel base
+  | fuel + 1, Expr.payableConversion inner => Expr.usingOperandAtomic fuel inner
+  | fuel + 1, Expr.call (Expr.typeName ty) [Arg.positional inner] =>
+      (match ty with
+       | Ty.bool | Ty.address _ | Ty.uint _ | Ty.int _ | Ty.bytesN _
+       | Ty.fixedBytes _ => true
+       | _ => false) &&
+        Expr.usingOperandAtomic fuel inner
+  | _, _ => false
+
+/-- An operand of an attached call that writes nothing (it may still revert):
+    no calls other than type conversions, no assignments, increments,
+    decrements, deletes or `new`. -/
+def Expr.usingOperandWriteFree : Nat -> Expr -> Bool
+  | 0, _ => false
+  | fuel + 1, expr =>
+      let go := Expr.usingOperandWriteFree fuel
+      let goArg : Arg -> Bool
+        | Arg.positional e => go e
+        | Arg.named _ e => go e
+      match expr with
+      | Expr.literal _ | Expr.ident _ | Expr.typeName _ => true
+      | Expr.member base _ => go base
+      | Expr.index base index => go base && go index
+      | Expr.slice base start stop =>
+          go base && (start.map go).getD true && (stop.map go).getD true
+      | Expr.call (Expr.typeName _) args => args.all goArg
+      | Expr.tuple items =>
+          items.all (fun item =>
+            match item with
+            | TupleItem.hole => true
+            | TupleItem.value e => go e)
+      | Expr.array items => items.all go
+      | Expr.enumFromUInt _ inner => go inner
+      | Expr.unary op inner =>
+          (match op with
+           | UnaryOp.logicalNot | UnaryOp.bitNot | UnaryOp.neg => true
+           | _ => false) && go inner
+      | Expr.binary _ lhs rhs => go lhs && go rhs
+      | Expr.ternary cond lhs rhs => go cond && go lhs && go rhs
+      | Expr.payableConversion inner => go inner
+      | _ => false
+
+/-- Whether an attached internal call `receiver.g(args)` must evaluate its
+    receiver after its arguments to match solc, i.e. whether the order is
+    observable: some argument can write or revert and the receiver is not
+    atomic, or the receiver can write what the (atomic) arguments read.
+    Otherwise the ordinary receiver-first helper call is kept. -/
+def Expr.usingReceiverMustRunLast (receiver : Expr) (args : List Expr) : Bool :=
+  let fuel := 64
+  if args.all (Expr.usingOperandAtomic fuel) then
+    !args.all (fun arg => match arg with | Expr.literal _ => true | _ => false) &&
+      !Expr.usingOperandWriteFree fuel receiver
+  else
+    !(Expr.usingOperandAtomic fuel receiver &&
+      args.all (Expr.usingOperandWriteFree fuel))
+
+/-- The call an attached internal call `receiver.g(args)` lowers to: the
+    helper `callee(receiver, args)`, or, when the evaluation order is
+    observable, its receiver-last twin `callee__recv_last(args, receiver)`
+    (`FunctionDecl.receiverLastTwin?`). -/
+def usingAttachedInternalCall (callee : Name) (receiver : Expr)
+    (args : List Expr) : Expr :=
+  if Expr.usingReceiverMustRunLast receiver args then
+    Expr.call (Expr.ident (receiverLastTwinName callee))
+      ((args ++ [receiver]).map Arg.positional)
+  else
+    Expr.call (Expr.ident callee) ((receiver :: args).map Arg.positional)
+
+
 def FunctionDecl.usingFreeFunctionArgs?
     (functions freeFunctions : List FunctionDecl)
     (env : TypeEnv) (receiver : Expr) (functionName : Name)
@@ -10426,9 +10505,7 @@ def FunctionDecl.rewriteUsingLibraryCandidateWithSignature?
   | some true =>
       some <|
         FunctionDecl.annotateSingleCoreReturn sourceFn
-          (Expr.call
-            (Expr.ident helperName)
-            ((receiver :: orderedArgs).map Arg.positional))
+          (usingAttachedInternalCall helperName receiver orderedArgs)
   | _ => none
 
 def FunctionDecl.rewriteUsingLibraryCandidate? (libraryName _method : Name)
@@ -10524,8 +10601,7 @@ def FunctionDecl.rewriteUsingLibraryCandidateByArity?
   if Parameters.arityFallbackCompatible env (fn.params.drop 1) orderedArgs then
     some <|
       FunctionDecl.annotateSingleCoreReturn fn
-        (Expr.call (Expr.ident helperName)
-          ((receiver :: orderedArgs).map Arg.positional))
+        (usingAttachedInternalCall helperName receiver orderedArgs)
   else
     none
 
@@ -10636,9 +10712,10 @@ def UsingFunction.rewriteCall? (contracts : List ContractDecl)
     let orderedArgs ←
       FunctionDecl.usingFreeFunctionArgs?
         freeFunctions freeFunctions env receiver functionName args
-    some
-      (Expr.call (Expr.ident functionName)
-        (orderedArgs.map Arg.positional))
+    match orderedArgs with
+    | receiver :: rest =>
+        some (usingAttachedInternalCall functionName receiver rest)
+    | [] => none
   else
     let libraryName ← pathLast? libraryPath
     let libraryDecl ← ContractDecl.findLibraryByName? contracts libraryName
