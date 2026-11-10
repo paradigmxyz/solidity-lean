@@ -882,6 +882,23 @@ def perturb_leading_value(o: "Observable") -> "Observable":
     return Observable(raw=new_line + tail)
 
 
+def perturb_leading_int(o: "Observable") -> "Observable":
+    """Return a copy of ``o`` with its leading signed ``i:N`` value incremented
+    by one (N may be negative). SELF-TEST only, like
+    :func:`perturb_leading_value`: it injects a one-unit delta into a SIGNED
+    return so run_samples proves a real signed-value divergence (for example
+    on a signed UDVT return) is still detected after both engines render the
+    same ``i:`` form. Never used in real adjudication."""
+    import re
+    m = re.search(r"i:(-?\d+)", o.outcome_line)
+    if not m:
+        return Observable(raw=o.raw)
+    new_line = o.outcome_line[:m.start()] + f"i:{int(m.group(1)) + 1}" + \
+        o.outcome_line[m.end():]
+    tail = o.raw[len(o.outcome_line):]
+    return Observable(raw=new_line + tail)
+
+
 def perturb_extfn_value(o: "Observable") -> "Observable":
     """Return a copy of ``o`` with the SELECTOR of its first canonical external
     function value ``f:<addr>:<sel>`` incremented by one.
