@@ -389,7 +389,23 @@ def Expr.toCoreAsWithEnvFuel? (fuel : Nat) (storageNames : List Name)
                     | none => fallback
                   else
                     fallback
-              | _ => fallback
+              | _ =>
+                  -- A `bytesN` conversion of a dynamic `bytes` value
+                  -- (`bytes32(abi.encodePacked(a + b))`) consumes the bytes
+                  -- by value. When they carry narrow checked arithmetic, lower
+                  -- them env-aware so the operand-width Panic 0x11 fires before
+                  -- the conversion; unflagged arguments keep the Direct path.
+                  match (if Expr.abiArgNeedsEnvCleanup? argExpr then
+                      match Expr.abiTyWithEnv? env argExpr with
+                      | some Ty.bytes =>
+                          (Expr.toCoreAsWithEnvFuel?
+                            fuel storageNames env Ty.bytes argExpr).map
+                            (SolidCore.Solidity.Source.Expr.fixedBytesFromBytes
+                              cbSize)
+                      | _ => none
+                    else none) with
+                  | some coreExpr => some coreExpr
+                  | none => fallback
           | Expr.enumFromUInt maxValue inner =>
               -- An enum conversion checks the integer expression before it checks
               -- the enum range. Preserve the expression's own integer width here:
