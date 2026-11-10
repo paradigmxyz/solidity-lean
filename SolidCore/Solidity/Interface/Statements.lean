@@ -2435,10 +2435,20 @@ def Expr.toCoreLValueWithEnv? (storageNames : List Name) (env : TypeEnv) :
           | _ => none) with
         | some c => some c
         | none =>
+        -- A WIDE key that needs operand-width cleanup also lowers env-aware
+        -- at its own type, as the read-side index key does
+        -- (`Expr.abiArgCoreWithEnvCleanup?`). `m[int256(x << 4)] = v` with
+        -- `int8 x` shifts at int8 and wraps before widening; the env-less
+        -- fallback shifted at 256 bits and stored under the wrong slot. The
+        -- same holds for `~x`, narrow checked arithmetic and narrow constant
+        -- shifts under a widening conversion.
         match (do
             let keyTy ← Expr.abiTyWithEnv? env key
-            let _ ← Ty.narrowIntCastTarget? keyTy
-            Expr.toCoreAsWithEnv? storageNames env keyTy key) with
+            if (Ty.narrowIntCastTarget? keyTy).isSome ||
+                Expr.abiArgNeedsEnvCleanup? key then
+              Expr.toCoreAsWithEnv? storageNames env keyTy key
+            else
+              none) with
           | some c => some c
           | none => Expr.toCore? storageNames key
       (do
