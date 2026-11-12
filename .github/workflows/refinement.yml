@@ -1,0 +1,107 @@
+name: refinement
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: refinement-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  refinement:
+    name: Refinement against solar
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install elan
+        run: |
+          curl -fsSL -o elan-init.sh \
+            https://raw.githubusercontent.com/leanprover/elan/227caca133724d5516bee25c2aeb3e609478f2d8/elan-init.sh
+          sh elan-init.sh -y --default-toolchain none
+          rm elan-init.sh
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Cache solar, solc and Z3
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .cache
+          key: refinement-tools-${{ hashFiles('scripts/refinement/solar-rev', 'scripts/refinement/gen.sh', 'scripts/refinement/prove-rev', 'scripts/refinement/facts.sh') }}
+
+      - name: Cache Lake build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .lake
+          key: refinement-lake-${{ hashFiles('lean-toolchain', 'lake-manifest.json') }}-${{ github.sha }}
+          restore-keys: refinement-lake-${{ hashFiles('lean-toolchain', 'lake-manifest.json') }}-
+
+      # The solar checkout the milestone checks clone next to this repository: its build and the
+      # Lean builds of solar-tv (W1Proofs, counter), keyed by the scripts that pin it.
+      - name: Cache the solar checkout's builds
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ../ck-pipeline/target
+            ../ck-pipeline/solar-tv/.lake
+            ../ck-pipeline/scripts/evm-rules/lean/.lake
+          key: refinement-solar-${{ hashFiles('lakefile.lean', 'scripts/refinement/w5-milestone.sh', 'scripts/refinement/counter/milestone.sh') }}
+
+      # Clones solar at the pinned commit into the path lakefile.lean requires solar_tv from
+      # (../ck-pipeline), so it runs before check.sh. Mathlib comes from the Lake build cache
+      # above, else from its build cache (lake exe cache get).
+      - name: Check the w5 milestone
+        env:
+          SOLAR_REPO: https://github.com/paradigmxyz/solar.git
+          REQUIRE_SOLC: "1"
+          CARGO_BUILD_JOBS: "4"
+          # The runner has 16 GB: each Lean process is capped, and the statement lowering,
+          # which peaks at about 5.4 GB, builds alone on one thread under its own cap.
+          LEAN_NUM_THREADS: "2"
+          LEAN_MEMORY: "4500"
+          W5_LOWERING_MEMORY: "7000"
+        run: scripts/refinement/w5-milestone.sh
+
+      # The storage counter's milestone, on the solar checkout the w5 check made.
+      - name: Check the counter milestone
+        env:
+          SOLAR_REPO: https://github.com/paradigmxyz/solar.git
+          REQUIRE_SOLC: "1"
+          CARGO_BUILD_JOBS: "4"
+          LEAN_NUM_THREADS: "2"
+          LEAN_MEMORY: "4500"
+        run: scripts/refinement/counter/milestone.sh
+
+      # The generic assembly theorem on solar's RequireModuloCases, whose layout has a turned
+      # branch, fallthroughs and a backward jump, on the same solar checkout.
+      - name: Check RequireModuloCases' assembly
+        env:
+          SOLAR_REPO: https://github.com/paradigmxyz/solar.git
+          CARGO_BUILD_JOBS: "4"
+          LEAN_NUM_THREADS: "2"
+          LEAN_MEMORY: "4500"
+        run: scripts/refinement/require-modulo.sh
+
+      # The generic assembly theorem on c4, two uint8 fields packed in one slot (BYTE, NOT and
+      # SHL), on the same solar checkout.
+      - name: Check c4's assembly
+        env:
+          SOLAR_REPO: https://github.com/paradigmxyz/solar.git
+          CARGO_BUILD_JOBS: "4"
+          LEAN_NUM_THREADS: "2"
+          LEAN_MEMORY: "4500"
+        run: scripts/refinement/c4.sh
+
+      - name: Check the refinement proofs and analysis facts
+        env:
+          # Each Z3 process may use up to 8 GB; the runner has 16 GB.
+          FACTS_JOBS: 1
+        run: scripts/refinement/check.sh

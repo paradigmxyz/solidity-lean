@@ -13,3 +13,4 @@ tests/.foundry-suites/
 __pycache__/
 tests/forge-harness/*/out/
 tests/forge-harness/*/cache/
+/.cache/

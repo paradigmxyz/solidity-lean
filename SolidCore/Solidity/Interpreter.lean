@@ -2327,7 +2327,7 @@ def evmLogEntryToShared (e : EvmYul.LogEntry) :
     data := byteArrayToBytes e.data }
 
 def addressSetOfWords (words : List Word) :
-    Batteries.RBSet EvmCompiler.Simulation.OpenAddress compare :=
+    RBTree.RBSet EvmCompiler.Simulation.OpenAddress compare :=
   words.foldl (fun acc w => acc.insert (wordToAddress w)) default
 
 /-- Canonical log series: the adopted prefix (whatever the last answered
@@ -7654,9 +7654,12 @@ def Expr.evalFuel (fuel : Nat)
               let value ← BinaryOp.apply context.checked op lhsValue rhsValue
               pure (value, runtime'')
           | Expr.addMod lhs rhs modulus => do
-              -- Legacy codegen evaluates builtin arguments right-to-left.
+              -- Legacy codegen evaluates builtin arguments right-to-left and
+              -- checks the modulus for zero before evaluating the operands
+              -- (solc ExpressionCompiler.cpp, Kind::AddMod/MulMod).
               let (modulusValue, runtime') ←
                 Expr.evalFuel fuel context runtime modulus
+              let _ ← checkedAddMod 0 0 (← modulusValue.expectWord)
               let (rhsValue, runtime'') ←
                 Expr.evalFuel fuel context runtime' rhs
               let (lhsValue, runtime''') ←
@@ -7669,6 +7672,7 @@ def Expr.evalFuel (fuel : Nat)
           | Expr.mulMod lhs rhs modulus => do
               let (modulusValue, runtime') ←
                 Expr.evalFuel fuel context runtime modulus
+              let _ ← checkedMulMod 0 0 (← modulusValue.expectWord)
               let (rhsValue, runtime'') ←
                 Expr.evalFuel fuel context runtime' rhs
               let (lhsValue, runtime''') ←

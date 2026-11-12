@@ -2981,6 +2981,17 @@ def FunctionDecl.tupleItemsUseCoreWithInternalCalls?
       Option CoreStmt
   | _, [], [], useItems => some (useItems [])
   | index, targetTy :: targetTys, TupleItem.value expr :: rest, useItems => do
+      -- A storage aggregate component is copied when the tuple is used, after
+      -- the later components ran (`Expr.isDeferredStorageAggregate`).
+      if Expr.isDeferredStorageAggregate storageNames env targetTy expr then
+        if let some coreExpr :=
+            (Expr.toCoreAsWithEnv? storageNames env targetTy expr).orElse
+              (fun _ => Expr.toCore? storageNames expr) then
+          return ← FunctionDecl.tupleItemsUseCoreWithInternalCalls?
+            internalFuel storageRefEnv env externalCallKindEnv storageNames
+            modifiers functions freeFunctions fallbackPrefix
+            (index + 1) targetTys rest
+            (fun coreExprs => useItems (coreExpr :: coreExprs))
       let tmp := internalCallArgTempName fallbackPrefix index
       let tmpTy ← Ty.toCore? targetTy
       let assignCore ←
@@ -3345,6 +3356,12 @@ def Stmt.argPositionHoist? (internalFuel : Nat)
     | some (callExpr, retTy, replacedExpr) => do
         let retCoreTy ← Ty.toCore? retTy
         let callCore ←
+          if Expr.argPosCallFree callExpr then do
+            -- A parked earlier sibling (`Expr.argPosPark?`): bind its value.
+            let valueCore ← Expr.toCoreAsWithEnv? storageNames env retTy callExpr
+            some (SolidCore.Solidity.Source.Stmt.assign
+              (SolidCore.Solidity.Source.LValue.var tmp) valueCore)
+          else
           FunctionDecl.internalExprSingleReturnUseCore?
             fuel storageRefEnv env externalCallKindEnv storageNames
             modifiers functions freeFunctions callExpr
@@ -3390,6 +3407,13 @@ def Expr.argPositionHoistPrefix? (internalFuel : Nat)
         (do
           let retCoreTy ← Ty.toCore? retTy
           let callCore ←
+            if Expr.argPosCallFree callExpr then do
+              -- A parked earlier sibling (`Expr.argPosPark?`): bind its value.
+              let valueCore ←
+                Expr.toCoreAsWithEnv? storageNames env retTy callExpr
+              some (SolidCore.Solidity.Source.Stmt.assign
+                (SolidCore.Solidity.Source.LValue.var tmp) valueCore)
+            else
             FunctionDecl.internalExprSingleReturnUseCore?
               fuel storageRefEnv env externalCallKindEnv storageNames
               modifiers functions freeFunctions callExpr
@@ -9855,7 +9879,7 @@ def Stmt.anfPreprocess (structEnv : StructEnv) (internalFuel : Nat)
         match normalized? with
         | some stmt2 => stmt2
         | none => stmt1
-termination_by fuel _ => fuel
+termination_by structural fuel _ => fuel
 
 def defaultAnfPreprocessFuel : Nat := 1024
 

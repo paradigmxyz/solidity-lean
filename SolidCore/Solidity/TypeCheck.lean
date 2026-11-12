@@ -10185,7 +10185,7 @@ def constantDepStep (adj : List (Name × List Name))
 
 /-- Whether `start` can reach itself through the `constant`-dependency graph
 `adj` (i.e. lies on a cycle). Fuel-bounded by the node count. -/
-partial def constantReachesSelf (adj : List (Name × List Name))
+def constantReachesSelf (adj : List (Name × List Name))
     (start : Name) : Bool :=
   let rec go (fuel : Nat) (reached : List Name) : Bool :=
     if reached.contains start then true
