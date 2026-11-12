@@ -44,6 +44,48 @@ def mapOf? (fields : List StorageField) (x : String) : Option Nat :=
   | some f => if mapOk f then some f.slot else none
   | none => none
 
+/-- A mapping from `address` or `uint256` keys to `bool` values, not transient. -/
+def boolMapOk (f : StorageField) : Bool :=
+  (match f.layout? with
+    | some (.mapping .address (.scalar .bool)) => true
+    | some (.mapping .uint256 (.scalar .bool)) => true
+    | _ => false) && !f.transient && decide (f.slot < wordSize)
+
+/-- The slot of the mapping to `bool` `x`, when the fragment reads and writes it. -/
+def boolMapOf? (fields : List StorageField) (x : String) : Option Nat :=
+  match fields.find? (fun f => f.name == x) with
+  | some f => if boolMapOk f then some f.slot else none
+  | none => none
+
+/-- A mapping from `address` keys to mappings from `address` keys to `uint256` words, as
+an ERC-20 allowance table, not transient. -/
+def map2Ok (f : StorageField) : Bool :=
+  (match f.layout? with
+    | some (.mapping .address (.mapping .address (.scalar .uint256))) => true
+    | _ => false) && !f.transient && decide (f.slot < wordSize)
+
+/-- The slot of the nested mapping `x`, when the fragment reads and writes it. -/
+def map2Of? (fields : List StorageField) (x : String) : Option Nat :=
+  match fields.find? (fun f => f.name == x) with
+  | some f => if map2Ok f then some f.slot else none
+  | none => none
+
+/-- An `address` field the fragment reads: 20 bytes at byte offset `packedOffset` of its
+slot, not transient. -/
+def addrFieldOk (f : StorageField) : Bool :=
+  (match f.layout? with | some (.scalar .address) => true | _ => false) && !f.transient &&
+    decide (f.packedBytes = 20) && decide (f.packedOffset + 20 ≤ 32) && decide (f.slot < wordSize)
+
+/-- The slot and byte offset of the `address` field `x`, when the fragment reads it. -/
+def addrFieldOf? (fields : List StorageField) (x : String) : Option (Nat × Nat) :=
+  match fields.find? (fun f => f.name == x) with
+  | some f => if addrFieldOk f then some (f.slot, f.packedOffset) else none
+  | none => none
+
+/-- The `bool` SolidCore reads from a storage word: whether its low byte is not zero, spelled
+as solar's `ne (and w 255) 0`. -/
+def boolOfWord (w : WExpr) : WExpr := .un .iszero (.bin .eq (.bin .and w (.lit 255)) (.lit 0))
+
 /-- The slot, byte offset and size of the storage field `x`, when the fragment reads and
 writes it. -/
 def fieldOf? (fields : List StorageField) (x : String) : Option (Nat × Nat × Nat) :=
@@ -133,6 +175,14 @@ def binOf : BinaryOp → Option BinOp
   | .bitXor => some .xor
   | _ => none
 
+/-- The fragment's negated comparisons: `a >= b` is `iszero (lt a b)`, `a <= b` is
+`iszero (gt a b)`, `a != b` is `iszero (eq a b)`. -/
+def negOf : BinaryOp → Option BinOp
+  | .ge => some .lt
+  | .le => some .gt
+  | .ne => some .eq
+  | _ => none
+
 /-- The erasure of an expression of the fragment: the overflow conditions it checks, each
 reverting with `Panic(0x11)` when not zero, and its word. -/
 def eraseExpr (fields : List StorageField) (S : SymState) : Expr → Option (List WExpr × WExpr)
@@ -149,21 +199,44 @@ def eraseExpr (fields : List StorageField) (S : SymState) : Expr → Option (Lis
     if b = 256 then some (gs, v)
     else if 0 < b ∧ b < 256 then some (gs, .bin .and v (.lit (2 ^ b - 1)))
     else none
-  | .binary op l r => do
-    let o ← binOf op
-    let (gl, vl) ← eraseExpr fields S l
-    let (gr, vr) ← eraseExpr fields S r
-    match overflow o vl vr with
-    | some g => some (gl ++ gr ++ [g], .bin o vl vr)
-    | none => some (gl ++ gr, .bin o vl vr)
+  | .binary op l r =>
+    match binOf op with
+    | some o => do
+      let (gl, vl) ← eraseExpr fields S l
+      let (gr, vr) ← eraseExpr fields S r
+      match overflow o vl vr with
+      | some g => some (gl ++ gr ++ [g], .bin o vl vr)
+      | none => some (gl ++ gr, .bin o vl vr)
+    | none => do
+      let o ← negOf op
+      let (gl, vl) ← eraseExpr fields S l
+      let (gr, vr) ← eraseExpr fields S r
+      some (gl ++ gr, .un .iszero (.bin o vl vr))
+  | .unary .logicalNot e => do
+    let (gs, v) ← eraseExpr fields S e
+    some (gs, .un .iszero v)
   | .storageRead .header x [] =>
-    (fieldOf? fields x).map fun (k, off, bytes) => ([], readField (S.writes.read (.lit k)) off bytes)
+    match fieldOf? fields x with
+    | some (k, off, bytes) => some ([], readField (S.writes.read (.lit k)) off bytes)
+    | none => (addrFieldOf? fields x).map fun (k, off) => ([], readField (S.writes.read (.lit k)) off 20)
   | .storageRead .ref x [] =>
-    (fieldOf? fields x).map fun (k, off, bytes) => ([], readField (S.writes.read (.lit k)) off bytes)
-  | .storageRead .element x [idx] => do
-    let k ← mapOf? fields x
-    let (gs, v) ← eraseExpr fields S idx
-    some (gs, S.writes.read (.hash v (.lit k)))
+    match fieldOf? fields x with
+    | some (k, off, bytes) => some ([], readField (S.writes.read (.lit k)) off bytes)
+    | none => (addrFieldOf? fields x).map fun (k, off) => ([], readField (S.writes.read (.lit k)) off 20)
+  | .storageRead .element x [idx] =>
+    match mapOf? fields x with
+    | some k => do
+      let (gs, v) ← eraseExpr fields S idx
+      some (gs, S.writes.read (.hash v (.lit k)))
+    | none => do
+      let k ← boolMapOf? fields x
+      let (gs, v) ← eraseExpr fields S idx
+      some (gs, boolOfWord (S.writes.read (.hash v (.lit k))))
+  | .index (.storageRead .element x [i1]) i2 => do
+    let k ← map2Of? fields x
+    let (g1, v1) ← eraseExpr fields S i1
+    let (g2, v2) ← eraseExpr fields S i2
+    some (g1 ++ g2, S.writes.read (.hash v2 (.hash v1 (.lit k))))
   | _ => none
 
 
@@ -257,6 +330,33 @@ theorem apply_eq (a b : Nat) (ha : a < wordSize) (hb : b < wordSize) :
     BinaryOp.apply true .eq (.word a) (.word b) = .ok (.word (if a = b then 1 else 0)) := by
   simp [BinaryOp.apply, Value.forceAbiLazy, bind, Except.bind, Functor.map, Except.map, boolWord, wordEq,
     norm_lt ha, norm_lt hb]
+
+theorem apply_ne (a b : Nat) (ha : a < wordSize) (hb : b < wordSize) :
+    BinaryOp.apply true .ne (.word a) (.word b) = .ok (.word (if a = b then 0 else 1)) := by
+  by_cases h : a = b <;>
+  simp [BinaryOp.apply, Value.forceAbiLazy, bind, Except.bind, Functor.map, Except.map, boolWord, wordEq,
+    norm_lt ha, norm_lt hb, h]
+
+theorem apply_ge (a b : Nat) (ha : a < wordSize) (hb : b < wordSize) :
+    BinaryOp.apply true .ge (.word a) (.word b) = .ok (.word (if a < b then 0 else 1)) := by
+  by_cases h : a < b <;>
+  simp [BinaryOp.apply, Value.forceAbiLazy, BinaryOp.applyWord, bind, Except.bind, Functor.map,
+    Except.map, ltWord_eq, Nat.mod_eq_of_lt ha, Nat.mod_eq_of_lt hb, boolWord, wordTruthy, h,
+    SolidCore.Solidity.Shared.norm, modulus_eq]
+
+theorem apply_le (a b : Nat) (ha : a < wordSize) (hb : b < wordSize) :
+    BinaryOp.apply true .le (.word a) (.word b) = .ok (.word (if b < a then 0 else 1)) := by
+  by_cases h : b < a <;>
+  simp [BinaryOp.apply, Value.forceAbiLazy, BinaryOp.applyWord, bind, Except.bind, Functor.map,
+    Except.map, gtWord_eq, Nat.mod_eq_of_lt ha, Nat.mod_eq_of_lt hb, boolWord, wordTruthy, h,
+    SolidCore.Solidity.Shared.norm, modulus_eq]
+
+/-- SolidCore's \`!\` on a word is \`iszero\`. -/
+theorem apply_not (a : Nat) (ha : a < wordSize) :
+    UnaryOp.apply true .logicalNot (.word a) = .ok (.word (if a = 0 then 1 else 0)) := by
+  by_cases h : a = 0 <;>
+  simp [UnaryOp.apply, boolWord, wordTruthy, SolidCore.Solidity.Shared.norm, modulus_eq,
+    Nat.mod_eq_of_lt ha, h]
 
 theorem fieldOk_spec {f : StorageField} (h : fieldOk f = true) :
     f.layout? = some (.scalar .uint256) ∧ f.transient = false ∧ 0 < f.packedBytes ∧
@@ -489,6 +589,9 @@ theorem guard_mul (ρ : Val) (l r : WExpr) :
     · have : wordSize ≤ a * b := Nat.not_lt.mp (fun h' => h (key.mpr h'))
       simp [h, this]
 
+theorem bind_done_ok' {α β : Type} (a : α) (k : α → SolI β) :
+    ((.done (.ok a) : SolI α) >>= k) = k a := rfl
+
 theorem bind_exprResult {α : Type} (ρ : Val) (gs : List WExpr) (v : WExpr) (rt : Runtime)
     (k : Value × Runtime → SolI α) :
     (exprResult ρ gs v rt >>= k) =
@@ -541,6 +644,85 @@ theorem norm_mod (n : Nat) : SolidCore.Solidity.Shared.norm n = n % wordSize := 
 theorem loadSlot_mod (st : State) (k : Nat) : st.loadSlot (k % wordSize) = st.loadSlot k := by
   simp only [State.loadSlot, StorageMap.lookup?, norm_mod, Nat.mod_mod]
 
+/-- SolidCore hashes an `address` or `uint256` mapping key word as itself. -/
+theorem key_word {ty : Ty} (hty : ty = .address ∨ ty = .uint256) {w : Nat} (h : w < wordSize) :
+    coerceMappingKeyWordAs ty (.word w) = .ok w := by
+  rcases hty with rfl | rfl <;>
+  simp [coerceMappingKeyWordAs, Value.forceAbiLazy, Ty.coerceValue?, Value.asStorageWord?, norm_lt h,
+    bind, Except.bind]
+
+/-- The slot of a mapping's entry at an `address` or `uint256` key word: `solHash key slot`. -/
+theorem slot_key (slot : Nat) {ty : Ty} (hty : ty = .address ∨ ty = .uint256) {w : Nat}
+    (h : w < wordSize) : mappingStorageSlotForKey slot ty (.word w) = .ok (solHash w slot) := by
+  have hk := key_word hty h
+  rcases hty with rfl | rfl <;>
+  simp only [mappingStorageSlotForKey, hk, bind, Except.bind, mappingStorageSlot_eq]
+
+/-- One key of a storage path through a mapping. -/
+theorem resolve_step (st : State) (slot : Nat) {ty : Ty} (hty : ty = .address ∨ ty = .uint256)
+    (l : StorageLayout) (rest : List Value) {w : Nat} (h : w < wordSize) :
+    st.resolveStoragePathSlot slot (.mapping ty l) (.word w :: rest) =
+      st.resolveStoragePathSlot (solHash w slot) l rest := by
+  rw [State.resolveStoragePathSlot.eq_2, slot_key _ hty h]
+  rfl
+
+/-- SolidCore's slot hash is a word. -/
+theorem solHash_lt (a b : Nat) : solHash a b < wordSize := by
+  simp only [solHash, keccakWord, bytesToWordBE, norm_mod]
+  exact Nat.mod_lt _ (by decide)
+
+/-- What the fragment knows of a nested mapping it reads and writes. -/
+structure Map2Ok (ctx : Context) (x : String) (f : StorageField) : Prop where
+  find : ctx.storageField? x = some f
+  layout : f.layout? = some (.mapping .address (.mapping .address (.scalar .uint256)))
+  transient : f.transient = false
+  slot : f.slot < wordSize
+
+theorem map2Of?_spec {fields : List StorageField} {ctx : Context} (hf : ctx.storageFields = fields)
+    {x : String} {k : Nat} (h : map2Of? fields x = some k) :
+    ∃ f, Map2Ok ctx x f ∧ f.slot = k := by
+  unfold map2Of? at h
+  split at h
+  · rename_i f hfind
+    split at h
+    · rename_i hs
+      simp only [Option.some.injEq] at h
+      subst h
+      unfold map2Ok at hs
+      simp only [Bool.and_eq_true, Bool.not_eq_true', decide_eq_true_eq] at hs
+      obtain ⟨⟨hl, ht⟩, hsl⟩ := hs
+      refine ⟨f, ⟨by simp [Context.storageField?, hf, hfind], ?_, ht, hsl⟩, rfl⟩
+      split at hl
+      · rename_i h; exact h
+      · simp at hl
+    · simp at h
+  · simp at h
+
+/-- The slot of the entry of a nested mapping at two key words. -/
+theorem resolve_map2 {ctx : Context} {rt : Runtime} {x : String} {f : StorageField}
+    (hf : Map2Ok ctx x f) {w1 w2 : Nat} (h1 : w1 < wordSize) (h2 : w2 < wordSize) :
+    rt.resolveStorageBasePath ctx (.field x) [.word w1, .word w2] =
+      .ok (solHash w2 (solHash w1 f.slot), .scalar .uint256) := by
+  have ha : (Ty.address = .address ∨ Ty.address = .uint256) := .inl rfl
+  simp only [Runtime.resolveStorageBasePath, Runtime.storageBaseAnchor, hf.find, hf.layout,
+    hf.transient, Bool.false_and, Bool.false_eq_true, ↓reduceIte, bind, Except.bind, pure,
+    Except.pure]
+  rw [resolve_step _ _ ha _ _ h1, resolve_step _ _ ha _ _ h2, State.resolveStoragePathSlot.eq_1]
+
+/-- SolidCore reads the entry of a nested mapping at two key words as the writes' read of the slot
+word `hash key2 (hash key1 slot)`. -/
+theorem loadPath_map2 {ρ : Val} {fields : List StorageField} {ctx : Context} {rt : Runtime}
+    {S : SymState} (hrel : ExprRel ρ fields ctx rt S) {x : String} {k : Nat}
+    (hk : map2Of? fields x = some k) {w1 w2 : Nat} (h1 : w1 < wordSize) (h2 : w2 < wordSize) :
+    rt.loadStorageBasePath ctx (.field x) [.word w1, .word w2] =
+      .ok (.word (Writes.store ρ S.writes (solHash w2 (solHash w1 k % wordSize) % wordSize))) := by
+  obtain ⟨f, hf, rfl⟩ := map2Of?_spec hrel.fields hk
+  rw [Runtime.loadStorageBasePath, resolve_map2 hf h1 h2]
+  simp only [bind, Except.bind, State.loadStorageLayoutAt, StorageLayout.depth,
+    State.loadStorageLayoutAtFuel, loadStorageWordAs, Ty.storageValueFromWord?]
+  rw [Nat.mod_eq_of_lt (solHash_lt w1 f.slot), ← loadSlot_mod,
+    hrel.store _ (Nat.mod_lt _ (by decide))]
+
 /-- What the fragment knows of a mapping it reads and writes. -/
 structure MapOk (ctx : Context) (x : String) (f : StorageField) : Prop where
   find : ctx.storageField? x = some f
@@ -570,6 +752,7 @@ theorem mapOf?_spec {fields : List StorageField} {ctx : Context} (hf : ctx.stora
     · simp at h
   · simp at h
 
+
 /-- SolidCore reads the entry of a mapping at a key word as the writes' read of the slot word
 `hash key slot`. -/
 theorem loadIndex_map {ρ : Val} {fields : List StorageField} {ctx : Context} {rt : Runtime}
@@ -585,6 +768,120 @@ theorem loadIndex_map {ρ : Val} {fields : List StorageField} {ctx : Context} {r
     Value.forceAbiLazy, Ty.coerceValue?, Value.asStorageWord?, norm_lt hw, bind, Except.bind,
     State.loadStorageLayoutAt, State.loadStorageLayoutAtFuel, loadStorageWordAs,
     Ty.storageValueFromWord?, mappingStorageSlot_eq, hsl, pure, Except.pure, StorageLayout.depth]
+
+/-- What the fragment knows of a mapping to `bool` it reads and writes. -/
+structure BoolMapOk (ctx : Context) (x : String) (f : StorageField) : Prop where
+  find : ctx.storageField? x = some f
+  layout : f.layout? = some (.mapping .address (.scalar .bool)) ∨
+    f.layout? = some (.mapping .uint256 (.scalar .bool))
+  transient : f.transient = false
+  slot : f.slot < wordSize
+
+theorem boolMapOf?_spec {fields : List StorageField} {ctx : Context} (hf : ctx.storageFields = fields)
+    {x : String} {k : Nat} (h : boolMapOf? fields x = some k) :
+    ∃ f, BoolMapOk ctx x f ∧ f.slot = k := by
+  unfold boolMapOf? at h
+  split at h
+  · rename_i f hfind
+    split at h
+    · rename_i hs
+      simp only [Option.some.injEq] at h
+      subst h
+      unfold boolMapOk at hs
+      simp only [Bool.and_eq_true, Bool.not_eq_true', decide_eq_true_eq] at hs
+      obtain ⟨⟨hl, ht⟩, hsl⟩ := hs
+      refine ⟨f, ⟨by simp [Context.storageField?, hf, hfind], ?_, ht, hsl⟩, rfl⟩
+      split at hl
+      · rename_i h; exact .inl h
+      · rename_i h; exact .inr h
+      · simp at hl
+    · simp at h
+  · simp at h
+
+/-- The `bool` of a storage word, as `boolOfWord` computes it: whether its low byte is not zero. -/
+theorem boolOfWord_eval (ρ : Val) (w : WExpr) :
+    (boolOfWord w).eval ρ = if w.eval ρ % 256 = 0 then 0 else 1 := by
+  have hm : (w.eval ρ &&& 255 % wordSize) % wordSize = w.eval ρ % 256 := by
+    rw [Nat.mod_eq_of_lt (show 255 < wordSize by decide), show (255 : Nat) = 2 ^ 8 - 1 from rfl,
+      Nat.and_two_pow_sub_one_eq_mod]
+    exact Nat.mod_eq_of_lt (Nat.lt_of_lt_of_le (Nat.mod_lt _ (by decide)) (by decide))
+  simp only [boolOfWord, WExpr.eval, BinOp.eval, UnOp.eval, hm, Nat.zero_mod]
+  by_cases h : w.eval ρ % 256 = 0 <;> simp [h]
+
+/-- SolidCore reads the entry of a mapping to `bool` at a key word as whether the low byte of the
+writes' read of the slot word `hash key slot` is not zero. -/
+theorem loadIndex_boolMap {ρ : Val} {fields : List StorageField} {ctx : Context} {rt : Runtime}
+    {S : SymState} (hrel : ExprRel ρ fields ctx rt S) {x : String} {k : Nat}
+    (hk : boolMapOf? fields x = some k) {w : Nat} (hw : w < wordSize) :
+    rt.loadStorageIndex ctx x (.word w) =
+      .ok (.word (if Writes.store ρ S.writes (solHash w k % wordSize) % 256 = 0 then 0 else 1)) := by
+  obtain ⟨f, hf, rfl⟩ := boolMapOf?_spec hrel.fields hk
+  have hsl : rt.state.loadSlot (solHash w f.slot) = Writes.store ρ S.writes (solHash w f.slot % wordSize) := by
+    rw [← loadSlot_mod, hrel.store _ (Nat.mod_lt _ (by decide))]
+  have hlt : Writes.store ρ S.writes (solHash w f.slot % wordSize) < wordSize :=
+    Writes.store_word hrel.ok _ _
+  rcases hf.layout with hl | hl <;>
+  simp [Runtime.loadStorageIndex, hf.find, hl, mappingStorageSlotForKey, coerceMappingKeyWordAs,
+    Value.forceAbiLazy, Ty.coerceValue?, Value.asStorageWord?, norm_lt hw, bind, Except.bind,
+    State.loadStorageLayoutAt, State.loadStorageLayoutAtFuel, loadStorageWordAs,
+    Ty.storageValueFromWord?, mappingStorageSlot_eq, hsl, StorageLayout.depth, norm_lt hlt]
+
+/-- What the fragment knows of an `address` field it reads. -/
+structure AddrFieldOk (ctx : Context) (x : String) (f : StorageField) : Prop where
+  find : ctx.storageField? x = some f
+  layout : f.layout? = some (.scalar .address)
+  transient : f.transient = false
+  bytes : f.packedBytes = 20
+  fits : f.packedOffset + 20 ≤ 32
+  slot : f.slot < wordSize
+
+theorem addrFieldOf?_spec {fields : List StorageField} {ctx : Context} (hf : ctx.storageFields = fields)
+    {x : String} {k off : Nat} (h : addrFieldOf? fields x = some (k, off)) :
+    ∃ f, AddrFieldOk ctx x f ∧ f.slot = k ∧ f.packedOffset = off := by
+  unfold addrFieldOf? at h
+  split at h
+  · rename_i f hfind
+    split at h
+    · rename_i hs
+      simp only [Option.some.injEq, Prod.mk.injEq] at h
+      obtain ⟨rfl, rfl⟩ := h
+      unfold addrFieldOk at hs
+      simp only [Bool.and_eq_true, Bool.not_eq_true', decide_eq_true_eq] at hs
+      obtain ⟨⟨⟨⟨hl, ht⟩, hb⟩, ho⟩, hsl⟩ := hs
+      refine ⟨f, ⟨by simp [Context.storageField?, hf, hfind], ?_, ht, hb, ho, hsl⟩, rfl, rfl⟩
+      split at hl
+      · rename_i h; exact h
+      · simp at hl
+    · simp at h
+  · simp at h
+
+theorem load_addrField {ctx : Context} {rt : Runtime} {x : String} {f : StorageField}
+    (hf : AddrFieldOk ctx x f) (hw : rt.state.loadSlot f.slot < wordSize) :
+    rt.loadStorageField ctx x =
+      .ok (.word (fieldValue (rt.state.loadSlot f.slot) f.packedOffset 20)) := by
+  have := hf.fits
+  have hv : fieldValue (rt.state.loadSlot f.slot) f.packedOffset 20 < 2 ^ 160 := by
+    unfold fieldValue
+    simp only [show ¬ (f.packedOffset = 0 ∧ (20 : Nat) = 32) by omega, ↓reduceIte]
+    exact Nat.mod_lt _ (by decide)
+  simp [Runtime.loadStorageField, hf.find, hf.layout, StorageField.storageValueFromWord?,
+    Ty.storageValueFromWord?, State.loadFieldWord, StorageField.isPacked,
+    SolidCore.Solidity.Source.wordBytes, State.loadFieldSlot, hf.transient, fieldValue, wordBitRange,
+    StorageField.packedBitWidth, StorageField.packedBitOffset, norm_lt hw, hf.bytes,
+    SolidCore.Solidity.Shared.Account.addressWord]
+  have hx : rt.state.loadSlot f.slot / 2 ^ (f.packedOffset * 8) %
+      1461501637330902918203684832716283019655932542976 < wordSize :=
+    Nat.lt_of_lt_of_le (Nat.mod_lt _ (by decide)) (by decide)
+  rw [norm_lt hx, norm_lt hx, SolidCore.Solidity.Shared.Account.addressModulus,
+    show (2 : Nat) ^ 160 = 1461501637330902918203684832716283019655932542976 from rfl, Nat.mod_mod]
+
+theorem loadHeader_addrField {ctx : Context} {rt : Runtime} {x : String} {f : StorageField}
+    (hf : AddrFieldOk ctx x f) (hw : rt.state.loadSlot f.slot < wordSize) :
+    rt.loadStorageFieldHeader ctx x =
+      .ok (.word (fieldValue (rt.state.loadSlot f.slot) f.packedOffset 20)) := by
+  simp only [Runtime.loadStorageFieldHeader, hf.find, hf.layout]
+  exact load_addrField hf hw
+
 
 theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt : Runtime)
     (S : SymState) (hrel : ExprRel ρ fields ctx rt S) (e : Expr) :
@@ -688,10 +985,10 @@ theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
     all_goals simp [eraseExpr] at h
   | binary op l r =>
     cases hl : eraseExpr fields S l with
-    | none => cases op <;> simp [eraseExpr, hl, binOf] at h
+    | none => cases op <;> simp [eraseExpr, hl, binOf, negOf] at h
     | some pl =>
     cases hr : eraseExpr fields S r with
-    | none => cases op <;> simp [eraseExpr, hl, hr, binOf] at h
+    | none => cases op <;> simp [eraseExpr, hl, hr, binOf, negOf] at h
     | some pr =>
     obtain ⟨gl, vl⟩ := pl
     obtain ⟨gr, vr⟩ := pr
@@ -701,7 +998,7 @@ theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
     have ihr := eval_erase ρ fields ctx rt S hrel r gr vr n hr hfr
     have hal := vl.eval_lt ρ
     have har := vr.eval_lt ρ
-    cases op <;> simp only [eraseExpr, hl, hr, binOf, overflow, Option.bind_eq_bind,
+    cases op <;> simp only [eraseExpr, hl, hr, binOf, negOf, overflow, Option.bind_eq_bind,
       Option.bind_some, Option.some.injEq, Prod.mk.injEq, reduceCtorEq, Option.bind_none] at h
     all_goals first
       | (simp at h; done)
@@ -722,12 +1019,36 @@ theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
             EvmCompiler.Simulation.Interaction.bind, liftM, monadLift, MonadLift.monadLift,
             apply_add _ _ hal har, apply_sub _ _ hal har, apply_mul _ _ hal har, apply_lt _ _ hal har,
             apply_gt _ _ hal har, apply_eq _ _ hal har, apply_bitAnd _ _ hal har,
-            apply_bitOr _ _ hal har, apply_bitXor _ _ hal har]
-          split <;> simp_all [SolI.ofExcept, WExpr.eval, BinOp.eval, Nat.mod_mod]
+            apply_bitOr _ _ hal har, apply_bitXor _ _ hal har, apply_ge _ _ hal har,
+            apply_le _ _ hal har, apply_ne _ _ hal har]
+          split <;> simp_all [SolI.ofExcept, WExpr.eval, BinOp.eval, UnOp.eval, Nat.mod_mod]
           all_goals first
             | exact add_wrap_lt hal har (by assumption)
             | exact add_nowrap_le (by assumption)
             | (split <;> simp_all <;> omega)
+            | (split <;> simp_all)
+  | unary op e =>
+    cases op
+    case logicalNot =>
+      cases he : eraseExpr fields S e with
+      | none => simp [eraseExpr, he] at h
+      | some p =>
+      obtain ⟨gs0, v0⟩ := p
+      simp only [eraseExpr, he, Option.bind_eq_bind, Option.bind_some, Option.some.injEq,
+        Prod.mk.injEq] at h
+      obtain ⟨rfl, rfl⟩ := h
+      have ih := eval_erase ρ fields ctx rt S hrel e gs0 v0 n he
+        (by simp [Expr.orderFuel] at hf; omega)
+      simp only [Expr.evalFuel, ih, bind_exprResult, hrel.checked]
+      unfold exprResult
+      split
+      · rfl
+      · simp only [bind, EvmCompiler.Simulation.Interaction.bind, liftM, monadLift,
+          MonadLift.monadLift, apply_not _ (v0.eval_lt ρ), SolI.ofExcept, pure,
+          EvmCompiler.Simulation.Interaction.pure]
+        simp only [WExpr.eval, UnOp.eval]
+        split <;> rfl
+    all_goals simp [eraseExpr] at h
   | caller =>
     simp only [eraseExpr, Option.some.injEq, Prod.mk.injEq] at h
     obtain ⟨rfl, rfl⟩ := h
@@ -739,35 +1060,107 @@ theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
     case element =>
       match idx, h with
       | [i], h =>
-        simp only [eraseExpr, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq,
-          Prod.mk.injEq] at h
-        obtain ⟨k, hk, ⟨gs0, v0⟩, hi, rfl, rfl⟩ := h
-        have ih := eval_erase ρ fields ctx rt S hrel i gs0 v0 n hi
-          (by simp [Expr.orderFuel, Expr.listEvalFuel] at hf; omega)
-        simp only [Expr.evalFuel, ih, bind_exprResult]
-        unfold exprResult
-        split
-        · rfl
-        · obtain ⟨f, hf, rfl⟩ := mapOf?_spec hrel.fields hk
-          rw [loadIndex_map hrel hk (v0.eval_lt ρ), Writes.eval_read hrel.ok]
-          simp only [WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf.slot]
-          rfl
+        cases hk : mapOf? fields x with
+        | some k =>
+          simp only [eraseExpr, hk, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq,
+            Prod.mk.injEq] at h
+          obtain ⟨⟨gs0, v0⟩, hi, rfl, rfl⟩ := h
+          have ih := eval_erase ρ fields ctx rt S hrel i gs0 v0 n hi
+            (by simp [Expr.orderFuel, Expr.listEvalFuel] at hf; omega)
+          simp only [Expr.evalFuel, ih, bind_exprResult]
+          unfold exprResult
+          split
+          · rfl
+          · obtain ⟨f, hf, rfl⟩ := mapOf?_spec hrel.fields hk
+            rw [loadIndex_map hrel hk (v0.eval_lt ρ), Writes.eval_read hrel.ok]
+            simp only [WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf.slot]
+            rfl
+        | none =>
+          simp only [eraseExpr, hk, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq,
+            Prod.mk.injEq] at h
+          obtain ⟨k, hk', ⟨gs0, v0⟩, hi, rfl, rfl⟩ := h
+          have ih := eval_erase ρ fields ctx rt S hrel i gs0 v0 n hi
+            (by simp [Expr.orderFuel, Expr.listEvalFuel] at hf; omega)
+          simp only [Expr.evalFuel, ih, bind_exprResult]
+          unfold exprResult
+          split
+          · rfl
+          · obtain ⟨f, hf, rfl⟩ := boolMapOf?_spec hrel.fields hk'
+            rw [loadIndex_boolMap hrel hk' (v0.eval_lt ρ), boolOfWord_eval, Writes.eval_read hrel.ok]
+            simp only [WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf.slot]
+            rfl
     all_goals
-      cases idx <;> simp only [eraseExpr, Option.map_eq_some_iff, Prod.mk.injEq] at h
+      cases idx <;> simp only [eraseExpr] at h
     all_goals first
       | (simp at h; done)
       | skip
     all_goals
-      obtain ⟨⟨k, off, bytes⟩, hk, rfl, rfl⟩ := h
-      obtain ⟨f, hfx, rfl, rfl, rfl⟩ := fieldOf?_spec hrel.fields hk
-      have hsl := slot_read hrel hfx.slot
-      have hw : rt.state.loadSlot f.slot < wordSize := by
-        rw [hsl]; exact WExpr.eval_lt _ _
-      simp only [Expr.evalFuel, loadHeader_field hfx hw, load_field hfx hw, bind,
-        EvmCompiler.Simulation.Interaction.bind, liftM, monadLift, MonadLift.monadLift, SolI.ofExcept,
-        exprResult, List.any_nil, Bool.false_eq_true, ↓reduceIte, hsl,
-        readField_eval ρ _ hfx.fits hfx.bytes]
-      try rfl
+      cases hk : fieldOf? fields x with
+      | some p =>
+        obtain ⟨k, off, bytes⟩ := p
+        simp only [hk, Option.some.injEq, Prod.mk.injEq] at h
+        obtain ⟨rfl, rfl⟩ := h
+        obtain ⟨f, hfx, rfl, rfl, rfl⟩ := fieldOf?_spec hrel.fields hk
+        have hsl := slot_read hrel hfx.slot
+        have hw : rt.state.loadSlot f.slot < wordSize := by
+          rw [hsl]; exact WExpr.eval_lt _ _
+        simp only [Expr.evalFuel, loadHeader_field hfx hw, load_field hfx hw, bind,
+          EvmCompiler.Simulation.Interaction.bind, liftM, monadLift, MonadLift.monadLift, SolI.ofExcept,
+          exprResult, List.any_nil, Bool.false_eq_true, ↓reduceIte, hsl,
+          readField_eval ρ _ hfx.fits hfx.bytes]
+        try rfl
+      | none =>
+        simp only [hk, Option.map_eq_some_iff, Prod.mk.injEq] at h
+        obtain ⟨⟨k, off⟩, hk', rfl, rfl⟩ := h
+        obtain ⟨f, hfx, rfl, rfl⟩ := addrFieldOf?_spec hrel.fields hk'
+        have hsl := slot_read hrel hfx.slot
+        have hw : rt.state.loadSlot f.slot < wordSize := by
+          rw [hsl]; exact WExpr.eval_lt _ _
+        simp only [Expr.evalFuel, loadHeader_addrField hfx hw, load_addrField hfx hw, bind,
+          EvmCompiler.Simulation.Interaction.bind, liftM, monadLift, MonadLift.monadLift, SolI.ofExcept,
+          exprResult, List.any_nil, Bool.false_eq_true, ↓reduceIte, hsl,
+          readField_eval ρ _ hfx.fits (by decide)]
+        try rfl
+  | index base i2 =>
+    cases base
+    case storageRead m x idx =>
+      cases m
+      case element =>
+        rcases idx with _ | ⟨i1, _ | ⟨_, _⟩⟩
+        · simp [eraseExpr] at h
+        · simp only [eraseExpr, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq,
+            Prod.mk.injEq] at h
+          obtain ⟨k, hk, ⟨g1, v1⟩, h1, ⟨g2, v2⟩, h2, rfl, rfl⟩ := h
+          obtain ⟨m, rfl⟩ : ∃ m, n = m + 1 :=
+            ⟨n - 1, by simp [Expr.orderFuel, Expr.listEvalFuel] at hf; omega⟩
+          have ih1 := eval_erase ρ fields ctx rt S hrel i1 g1 v1 m h1
+            (by simp [Expr.orderFuel, Expr.listEvalFuel] at hf; omega)
+          have ih2 := eval_erase ρ fields ctx rt S hrel i2 g2 v2 (m + 1) h2
+            (by simp [Expr.orderFuel, Expr.listEvalFuel] at hf; omega)
+          rw [Expr.evalFuel]
+          rotate_left
+          · intro _ h; cases h
+          simp only [Expr.hasStorageRoot, ↓reduceIte, Expr.resolveLValueFuel, ih1, bind_exprResult]
+          unfold exprResult
+          by_cases hg1 : g1.any (fun g => g.eval ρ != 0) = true
+          · simp only [hg1, any_append, Bool.true_or, ↓reduceIte]
+            rfl
+          · simp only [hg1, Bool.false_eq_true, ↓reduceIte, bind_done_ok', pure,
+              EvmCompiler.Simulation.Interaction.pure, ResolvedLValue.asStoragePath?, ih2,
+              bind_exprResult]
+            by_cases hg2 : g2.any (fun g => g.eval ρ != 0) = true
+            · simp only [hg2, any_append, Bool.or_true, ↓reduceIte]
+            · simp only [hg2, Bool.false_eq_true, ↓reduceIte, any_append, hg1, Bool.false_or,
+                List.cons_append, List.nil_append]
+              obtain ⟨f, hf, rfl⟩ := map2Of?_spec hrel.fields hk
+              simp only [bind, EvmCompiler.Simulation.Interaction.bind, liftM, monadLift,
+                MonadLift.monadLift, SolI.ofExcept,
+                loadPath_map2 hrel hk (v1.eval_lt ρ) (v2.eval_lt ρ)]
+              rw [Writes.eval_read hrel.ok]
+              simp only [WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf.slot]
+        · simp [eraseExpr] at h
+      all_goals simp [eraseExpr] at h
+    all_goals simp [eraseExpr] at h
   | _ => simp [eraseExpr] at h
 
 end SolidCore.Refinement.Generic

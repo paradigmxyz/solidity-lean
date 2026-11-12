@@ -30,15 +30,19 @@ module that reads the caller and hashes nothing, under every oracle with SolidCo
 Nothing else of the oracle is assumed.
 
 The fragment is what `eraseFn` and `symTree` accept: parameters that are unsigned words of
-`0 < b ≤ 256` bits or addresses (a dirty argument word reverts), `uint256`-word returns, checked
-`+`, `-`, `*` with narrow cleanups, truncating casts such as `uint256(a)`, bitwise `&`, `|`, `^`,
-comparisons, scoped locals, `msg.sender`, unsigned storage fields alone in their slot or packed
-with others and mappings to `uint256` (reads, writes and compound assignments such as `v += x` and
-`w ^= x`), `if`, blocks, returns and reverts with `Panic`, and the other statements `eraseStmt`
-erases, dispatched by selector with static call data. `check` asks, for each function of `fns`, that its selector fits in four bytes,
-that SolidCore dispatches it to a function with that many parameters, and that the two trees
+`0 < b ≤ 256` bits or addresses (a dirty argument word reverts), `uint256`, `address` and `bool`
+returns, checked `+`, `-`, `*` with narrow cleanups, truncating casts such as `uint256(a)`,
+bitwise `&`, `|`, `^`, comparisons and `!`, scoped locals, `msg.sender`, unsigned storage fields
+alone in their slot or packed with others and mappings to `uint256` (reads, writes and compound
+assignments such as `v += x` and `w ^= x`), `address` fields (reads), mappings to `bool` and
+nested mappings `m[k1][k2]` to `uint256` (reads and writes), `if` and `else if`, blocks,
+returns, `require(c)`, `require(c, msg)`, `revert(msg)` and reverts with `Panic`, logs with
+indexed `address` topics, and the other statements `eraseStmt` erases, dispatched by selector
+with static call data. `check` asks, for each function of `fns`, that its selector fits in four
+bytes, that SolidCore dispatches it to a function with that many parameters, and that the two trees
 agree: the erasure of the SolidCore function in the contract's `envOf` and the symbolic run of
-the MIR module on its selector, compared by `=` on their canonical forms (`Tree.canon`).
+the MIR module on its selector, compared by `Tree.beq` (equality) on their canonical forms
+(`Tree.canon`).
 
 The proof joins the two halves: `source_run` (SolidCore runs the call as the erased tree, with
 the call's argument words, storage and `solHash`) and `symTree_sound` (the module runs the call as
@@ -168,7 +172,7 @@ theorem SourceAsk.envAsk {env : EnvFlags} {o : Oracle} (h : SourceAsk env o) (ar
 /-- Whether the function of `fns` with selector `f.sel` lowers to `m`: SolidCore dispatches the
 selector to a function with `f`'s parameter count, and its erased tree and the symbolic run of
 `m` on the selector, with `mirFuel` blocks along each path and the environment flag `env`, agree in
-canonical form. -/
+canonical form (`Tree.beq`). -/
 def checkFn (fuel mirFuel : Nat) (core : Contract) (m : Module) (env : EnvFlags) (f : Fn) : Bool :=
   decide (f.sel < 2 ^ 32) &&
     match core.findFunctionBySelector? f.sel with
@@ -176,7 +180,7 @@ def checkFn (fuel mirFuel : Nat) (core : Contract) (m : Module) (env : EnvFlags)
     | some fn =>
       decide (fn.params.length = f.params.length) &&
         match eraseFn (envOf core) fuel fn, symTree m f.sel f.params.length mirFuel env with
-        | some t1, some t2 => decide (t1.canon = t2.canon)
+        | some t1, some t2 => t1.canon.beq t2.canon
         | _, _ => false
 
 /-- Whether every function of `fns` lowers to `m`, with the environment flag `env` (off by
@@ -206,6 +210,7 @@ theorem stageAtWith (o : Oracle) {fuel mirFuel : Nat} {c : TypeCheck.CheckedCont
   | some t2 =>
   simp only [hfind, ht1, ht2, Bool.and_eq_true, decide_eq_true_eq] at hcf
   obtain ⟨hsel, hpl, hcf⟩ := hcf
+  have hcf := Tree.eq_of_beq hcf
   have hsrc := source_run hd hcov hsel hfind ht1 args (by rw [hlen, hpl]) hargs
   change Source.run fuel c _ = some obs at hrun
   rw [hsrc] at hrun

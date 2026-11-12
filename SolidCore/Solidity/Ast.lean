@@ -217,10 +217,11 @@ def Ty.reprFlatItems : List Ty -> String
 end
 
 /-- `toString (repr ts)`, by the flat print when it is short enough to fit on one line
-(`Std.Format.defWidth` is 120 columns) and so is the derived print itself. -/
+(`Std.Format.defWidth` is 120 columns) and so is the derived print itself: up to 120
+characters, which the kernel evaluates, as it cannot `Std.Format`'s `partial` printer. -/
 def Ty.reprListString (ts : List Ty) : String :=
   let s := Ty.reprFlatList ts
-  if s.length < 100 then s else toString (repr ts)
+  if s.length ≤ 120 then s else toString (repr ts)
 
 def Ty.function (params returns : List Ty)
     (mutability : StateMutability) (visibility : Visibility) : Ty :=

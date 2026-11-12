@@ -700,7 +700,16 @@ theorem symInsts_sound {ev : EnvFlags} {cv : SV} {sel n : Nat} {ρ : Val} {call 
           exact symInsts_sound hc henv hK rest _ _ _ _ h env s he hs
       · simp at h
     · simp at h
-  | .word .. :: _, _, _, _, _, h, _, _, _, _ => by simp [symInsts] at h
+  | .word dst a :: rest, senv, senv', st, st', h, env, s, he, hs => by
+    simp only [symInsts] at h
+    split at h
+    · rename_i e hx
+      have ha := rel_operand he a
+      rw [hx] at ha
+      obtain ⟨env', s', h1, h2, h3⟩ :=
+        symInsts_sound hc henv hK rest _ _ _ _ h _ s (he.set ha dst) hs
+      exact ⟨env', s', by simp only [execInsts]; exact h1, h2, h3⟩
+    · simp at h
   | .low .. :: _, _, _, _, _, h, _, _, _, _ => by simp [symInsts] at h
   | .select .. :: _, _, _, _, _, h, _, _, _, _ => by simp [symInsts] at h
   | .call .. :: _, _, _, _, _, h, _, _, _, _ => by simp [symInsts] at h

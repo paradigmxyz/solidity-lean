@@ -24,7 +24,8 @@ whose hash is EthLib's KECCAK256 (`OracleOk`, `stage_of_check_eth`).
   the certificate (`SolarTV.Assembly.walk`, as -Zvalidate-assembly decodes it), each label is
   a valid jump destination of the code by EthLib's own analysis, stack reads never pass the
   entry heights of the certificate, each memory access (MSTORE, KECCAK256, LOGn, RETURN,
-  REVERT) has a constant offset and size below the certificate's memory bound, and the code is
+  REVERT) has a constant offset and size (pushed, or a DUP of a pushed one) below the
+  certificate's memory bound, and the code is
   below 2^32 bytes. Each block has a potential, a bound on the items its runs execute (the
   certificate's, or by default the items from it to the end of the layout): each item takes one
   unit, and a jump or a fall goes to a block whose potential is at most what is left, so a run
@@ -242,6 +243,13 @@ def fallOk (p : Program) (c : Cert) (b h : Nat) (ty : List Ty) (k : Nat) : Bool 
 /-- A memory range of constant offset and size within the certificate's bound. -/
 def rangeOk (c : Cert) (o s : Word) : Bool := decide (s.toNat = 0) || decide (o.toNat + s.toNat ≤ c.top)
 
+/-- The constants on top of the stack after DUP of the word at depth `i`, from the constants
+`known` on top before it: that word, when it is one of them, on top of the constant below it. -/
+def dupKnown (known : List Word) (i : Nat) : List Word :=
+  match known[i]? with
+  | some v => v :: known.take 1
+  | none => []
+
 /-- The check of one instruction from a stack of at least `h` words whose top words are
 `known`, constants just pushed, typed `ty`, with potential `k`, and `ok` for the rest of the block:
 each item takes one unit of potential, each instruction finds the words it reads, as data
@@ -253,7 +261,8 @@ def blockStep (p : Program) (c : Cert) (ok : Nat → List Word → List Ty → N
   | h, known, ty, k, .op (.stack op) =>
     match op with
     | .push v => decide (1 ≤ k) && ok (h + 1) (v :: known.take 1) (some false :: ty) (k - 1)
-    | .dup i => decide (1 ≤ k) && decide (i.val + 1 ≤ h) && ok (h + 1) [] (tyAt ty i.val :: ty) (k - 1)
+    | .dup i => decide (1 ≤ k) && decide (i.val + 1 ≤ h) &&
+      ok (h + 1) (dupKnown known i.val) (tyAt ty i.val :: ty) (k - 1)
     | .swap i => decide (1 ≤ k) && decide (i.val + 2 ≤ h) && ok h [] (tySwap ty i.val) (k - 1)
     | .pop => decide (1 ≤ k) && decide (1 ≤ h) && ok (h - 1) [] ty.tail (k - 1)
     | op =>

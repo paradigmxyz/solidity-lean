@@ -21,7 +21,7 @@ the position (SolarTV's `Pos`), the symbolic values, the symbolic state and the 
   argument `i`;
 * pure operations of the fragment (`binOfOp`: arithmetic, comparisons, `and`, `or`, `xor`,
   `shl`, `shr`, `byte`; `iszero`, `not`, `ne`) build words, folding constants
-  (`mkBin`, `mkUn`); memory is a function from byte offsets to `OByte`s, written by `mstore` at
+  (`mkBin`, `mkUn`), and a widening cast (`Inst.word`: `zext` to 256 bits) keeps its word; memory is a function from byte offsets to `OByte`s, written by `mstore` at
   constant offsets;
 * storage is the writes of the run (`Writes`): `sload` and `sstore` take any slot word, `sload`
   reading `Writes.read` and `sstore` writing `Writes.set`;
@@ -210,8 +210,13 @@ def symInsts (ev : EnvFlags) (cv : SV) (sel n : Nat) (K : Facts) :
         else (if negated then none else symInsts ev cv sel n K rest env st)
       | none => none
     | _ => none
-  -- Outside the fragment (a cast, a low-bits mask, a select, a heap floor, an allocation) or
-  -- an internal call, which
+  -- A widening cast (`zext`, `inttoptr`, `ptrtoint` to 256 bits) keeps its word.
+  | .word dst a :: rest, env, st =>
+    match SV.ofOperand env a with
+    | .w e => symInsts ev cv sel n K rest (env.set dst (.w e)) st
+    | _ => none
+  -- Outside the fragment (a low-bits mask, a select, a heap floor, an allocation) or an
+  -- internal call, which
   -- `symSegment` splits off first: no run.
   | _ :: _, _, _ => none
 

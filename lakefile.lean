@@ -149,3 +149,15 @@ lean_lib SolidCoreSolarBank where
 lean_lib SolidCoreSolarBankSource where
   roots := #[`SolidCore.Refinement.Solar.Bank.Lowering, `SolidCore.Refinement.Solar.Events.Lowering,
     `SolidCore.Refinement.Solar.Bank.Certified, `SolidCore.Refinement.Solar.Events.Certified]
+
+-- token (solar-tv/milestone/token/token.sol at solar 3ca8f483, copied to
+-- scripts/refinement/token/token.sol: an ERC-20 with a nested allowance mapping, a mapping to
+-- bool, an address field, require and revert with Error(string) and two indexed address topics):
+-- the generic source stage against solar's own first lowered MIR (token.gen.Token.Stage0, the
+-- module solar-tv's backend stages start from), the generic assembler check under an oracle whose
+-- caller and hash are EthLib's, the composition from SolidCore to the bytecode bound to the
+-- export's manifest, and one-byte mutants. Outside the default root: the export shares solar-tv's
+-- milestone libraries.
+lean_lib SolidCoreSolarToken where
+  roots := #[`SolidCore.Refinement.Solar.Token.Lowering, `SolidCore.Refinement.Solar.Token.Assembly,
+    `SolidCore.Refinement.Solar.Token.Mutants, `SolidCore.Refinement.Solar.Token.Certified]
