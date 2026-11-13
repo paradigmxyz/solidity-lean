@@ -1,4 +1,5 @@
 import SolidCore.Verify.CounterBump
+import SolidCore.Verify.Fuel
 
 /-! Axioms of the Loom pieces SolidCore's verification builds on, and of Counter's `bump`. Each
 shows only `propext`, `Classical.choice` and `Quot.sound`. -/
@@ -27,3 +28,12 @@ shows only `propext`, `Classical.choice` and `Quot.sound`. -/
 #print axioms SolidCore.Verify.satisfies_of_triple
 #print axioms SolidCore.Verify.CounterBump.body_step
 #print axioms SolidCore.Verify.CounterBump.bump_spec
+#print axioms SolidCore.Verify.runAny_isSome_iff
+#print axioms SolidCore.Verify.runAny_spec
+#print axioms SolidCore.Verify.runAny_of_run
+#print axioms SolidCore.Verify.tripleAny_of_wp
+#print axioms SolidCore.Verify.TripleAny.some
+#print axioms SolidCore.Verify.implementsAny_of_some
+#print axioms SolidCore.Verify.tripleAny_of_some
+#print axioms SolidCore.Verify.triple_of_within
+#print axioms SolidCore.Verify.Triple.any

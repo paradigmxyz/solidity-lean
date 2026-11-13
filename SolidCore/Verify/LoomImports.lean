@@ -1,4 +1,5 @@
 import SolidCore.Verify.CounterBump
+import SolidCore.Verify.Fuel
 
 /-! The certified Loom path does not reach Loom's SMT layer (lean-auto, z3, cvc5), its
 VC tactic layer or `SolidCore.Verify.Finite` (which uses `native_decide`): elaboration fails
