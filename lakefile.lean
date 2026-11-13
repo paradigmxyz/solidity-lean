@@ -156,18 +156,6 @@ lean_lib SolidCoreSolarBankSource where
 lean_lib SolidCoreSolarTotality where
   roots := #[`SolidCore.Refinement.Solar.Totality]
 
--- token (solar-tv/milestone/token/token.sol at solar 3ca8f483, copied to
--- scripts/refinement/token/token.sol: an ERC-20 with a nested allowance mapping, a mapping to
--- bool, an address field, require and revert with Error(string) and two indexed address topics):
--- the generic source stage against solar's own first lowered MIR (token.gen.Token.Stage0, the
--- module solar-tv's backend stages start from), the generic assembler check under an oracle whose
--- caller and hash are EthLib's, the composition from SolidCore to the bytecode bound to the
--- export's manifest, and one-byte mutants. Outside the default root: the export shares solar-tv's
--- milestone libraries.
-lean_lib SolidCoreSolarToken where
-  roots := #[`SolidCore.Refinement.Solar.Token.Lowering, `SolidCore.Refinement.Solar.Token.Assembly,
-    `SolidCore.Refinement.Solar.Token.Mutants, `SolidCore.Refinement.Solar.Token.Certified]
-
 /-! solar's translation validation (formerly solar's `solar-tv` Lean package, moved here so that
 every Lean source of the certified translation lives in this repository; solar keeps only the
 stage exporter and the drivers that generate Lean against a pinned commit of this repository).
@@ -269,14 +257,6 @@ lean_lib reader where
   globs := #[.submodules `reader]
   leanOptions := solarTVOptions
   moreLeanArgs := #["-M", "3000"]
-
-lean_lib token where
-  srcDir := "Certified"
-  roots := #[`token.Proofs]
-  globs := #[.submodules `token]
-  leanOptions := solarTVOptions
-  -- Evm9 peaks above 3 GB in the kernel.
-  moreLeanArgs := #["-M", "6000"]
 
 /-- solar-verify's Token (Contracts/Token/VC's source): its exported stages and backend proofs. -/
 lean_lib verify_token where

@@ -77,6 +77,15 @@ gate — see the exclusion register for the precise, versioned list. The
 multi-contract responder (v2) has a documented seam but is not part of the
 contest today.
 
+## Follow-ups
+
+- Two SMT term ASTs coexist: `Verify/Obligation/Smt.lean` (`Srt`, `Op`, `Term`, the
+  obligations the certified contracts discharge) and `Verify/VC/Term.lean` (`Srt`, `Tm`, `Cmd`,
+  solar-verify's SMT-LIB transcripts). They should become one AST with one evaluator. This is
+  deferred: the frozen VC manifests (`Contracts/{ArrayMax,Vault}/Vc/manifest.json`,
+  `Verify/Discharge/frozen/PINS`) record the sha256 of `Smt.lean`, so merging them means
+  regenerating and re-checking those obligations against the new hash in one change.
+
 ## License
 
 Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or
