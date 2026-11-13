@@ -111,11 +111,11 @@ as that bytecode, and the stage from SolidCore's checked Main to those bytes, fr
 storage and from any storage that writes slot 0, under every oracle. -/
 theorem certified (o : SolarTV.Machine.Oracle) {c : TypeCheck.CheckedContract}
     (hc : contract? = .ok c) :
-    Manifest.sources = [("solar-tv/milestone/mulx/mulx.sol",
+    Manifest.sources = [("Certified/mulx/mulx.sol",
       "50ef03a3c5724105509c3ed40b7ee7d92ea43b5d48a67d0e6722b26806dd4980")] ∧
-    Manifest.compiler = "0.8.38+commit.4a7d9ede.solar.0.3.0-dev" ∧
-    Manifest.arguments = ["solar-tv/milestone/mulx/mulx.sol", "-Zcheck-analyses=false",
-      "--emit=bin-runtime", "-Zemit-lean-stages=solar-tv/milestone/mulx/gen"] ∧
+    Manifest.compiler = "0.8.38+commit.ebdc3376.solar.0.3.0-dev" ∧
+    Manifest.arguments = ["Certified/mulx/mulx.sol", "-Zcheck-analyses=false",
+      "--emit=bin-runtime", "-Zemit-lean-stages=Certified/mulx/gen"] ∧
     Manifest.optimization = "Gas" ∧ Manifest.evmVersion = "osaka" ∧
     Manifest.bytecodeSha256 = "42ecdc71b09d339299d2b7ce61e121c77b141c5386eb9cbf18792a9ba9ca4cfe" ∧
     Manifest.bytecodeHex = bytecodeHex ∧ hexBytes (codes Manifest.bytecodeHex) = some bytecode ∧

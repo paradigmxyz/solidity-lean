@@ -1,6 +1,7 @@
 import SolidCore.Refinement.Evm.Wide
 import SolarTV.Composition
 import SolarTV.Stages.AssemblyCheck
+import SolidCore.Refinement.Solar.AssembleStackN
 
 /-!
 # EVM IR to bytecode, once for every program
@@ -389,18 +390,8 @@ theorem byteAt_toNat (code : ByteArray) (i : Nat) :
 
 theorem decode_op {code : List Nat} {pc next byte : Nat}
     (h : decode code pc = some (.op byte, next)) : code[pc]? = some byte ∧ next = pc + 1 := by
-  unfold decode at h
-  split at h
-  · cases h
-  · rename_i b hb
-    by_cases h0 : b = PUSH0
-    · simp [h0] at h
-    · by_cases h1 : PUSH1 ≤ b ∧ b ≤ PUSH32
-      · rw [if_neg h0, if_pos h1] at h
-        split at h <;> simp at h
-      · rw [if_neg h0, if_neg h1] at h
-        simp only [Option.some.injEq, Prod.mk.injEq, Instr.op.injEq] at h
-        exact ⟨by rw [hb, h.1], h.2.symm⟩
+  obtain ⟨hb, -, -, -, hn⟩ := decode_op_inv h
+  exact ⟨hb, hn⟩
 
 theorem decode_push {code : List Nat} {pc next v : Nat}
     (h : decode code pc = some (.push v, next)) :
@@ -424,7 +415,8 @@ theorem decode_push {code : List Nat} {pc next v : Nat}
           exact .inr ⟨h1.1, h1.2, h.2.symm, by omega, h.1.symm⟩
         · cases h
       · rw [if_neg h0, if_neg h1] at h
-        simp at h
+        repeat' split at h
+        all_goals simp at h
 
 theorem decode_pushByte : ∀ b : Fin 32,
     Op.decode (UInt8.ofNat (0x60 + b.val)) = some (.push ⟨b.val + 1, by omega⟩) := by
@@ -843,5 +835,33 @@ theorem stack_rule {op : SolarTV.EVM.Op} {byte : Nat} {stack next : List Word}
       | (rw [← mod_agree x y]; exact binary hlt hcode rfl (instr_stack _ _ rfl) hgas)
 
 end Rules
+
+/-! ## DUPN, SWAPN and EXCHANGE are outside the fragment
+
+The fragment runs at Fusaka, where EIP-8024's DUPN, SWAPN and EXCHANGE are no instruction
+(`stackN_fusaka`), so the check refuses every `dup` and `swap` past the sixteenth word and every
+`exchange`: the program solar's assembler lowers with them is not the bytecode this stage proves. -/
+
+theorem blockStep_dup {p : Program} {c : Cert} {ok : Nat → List Word → List Ty → Nat → Bool}
+    {h : Nat} {known : List Word} {ty : List Ty} {k : Nat} {i : Fin 256}
+    (hc : blockStep p c ok h known ty k (.op (.stack (.dup i))) = true) : i.val < 16 := by
+  simp only [blockStep, Bool.and_eq_true, decide_eq_true_eq] at hc
+  exact hc.1.1.2
+
+theorem blockStep_swap {p : Program} {c : Cert} {ok : Nat → List Word → List Ty → Nat → Bool}
+    {h : Nat} {known : List Word} {ty : List Ty} {k : Nat} {i : Fin 256}
+    (hc : blockStep p c ok h known ty k (.op (.stack (.swap i))) = true) : i.val < 16 := by
+  simp only [blockStep, Bool.and_eq_true, decide_eq_true_eq] at hc
+  exact hc.1.1.2
+
+theorem blockStep_exchange {p : Program} {c : Cert} {ok : Nat → List Word → List Ty → Nat → Bool}
+    {h : Nat} {known : List Word} {ty : List Ty} {k : Nat} {n m : Fin 32} :
+    blockStep p c ok h known ty k (.op (.stack (.exchange n m))) = false := by
+  simp [blockStep, stackNeed]
+
+/-- The lowering never spells an instruction with an immediate: `dup` and `swap` past the
+sixteenth word and `exchange` are INVALID, which the check refuses. -/
+theorem lowerInstr_no_opImm (i : Instr) (b imm : Nat) : Item.opImm b imm ∉ lowerInstr i := by
+  cases i <;> simp [lowerInstr] <;> split <;> simp
 
 end SolidCore.Refinement.Solar.Assemble

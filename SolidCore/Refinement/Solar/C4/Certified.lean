@@ -132,11 +132,11 @@ storage and from any storage that writes slot 0, with no value and with any valu
 oracle, with the specification it carries. -/
 theorem certified (o : SolarTV.Machine.Oracle) {c : TypeCheck.CheckedContract}
     (hc : Corpus.C4.contract? = .ok c) :
-    Manifest.sources = [("solar-tv/milestone/c4/c4.sol",
+    Manifest.sources = [("Certified/c4/c4.sol",
       "31c39cd4e9c5cba0f78aff3a986d69be40c5f68cdb36fbf05ad3d0a5e950e858")] ∧
-    Manifest.compiler = "0.8.38+commit.a8179dfc.solar.0.3.0-dev" ∧
-    Manifest.arguments = ["solar-tv/milestone/c4/c4.sol", "-Zcheck-analyses=false",
-      "--emit=bin-runtime", "-Zemit-lean-stages=solar-tv/milestone/c4/gen"] ∧
+    Manifest.compiler = "0.8.38+commit.ebdc3376.solar.0.3.0-dev" ∧
+    Manifest.arguments = ["Certified/c4/c4.sol", "-Zcheck-analyses=false",
+      "--emit=bin-runtime", "-Zemit-lean-stages=Certified/c4/gen"] ∧
     Manifest.optimization = "Gas" ∧ Manifest.evmVersion = "osaka" ∧
     Manifest.bytecodeSha256 = "8a21bc207d9dd8be48d921a717eda3ecb7e5bfcb5397850bc3d64a29037fac47" ∧
     Manifest.bytecodeHex = bytecodeHex ∧ hexBytes (codes Manifest.bytecodeHex) = some bytecode ∧

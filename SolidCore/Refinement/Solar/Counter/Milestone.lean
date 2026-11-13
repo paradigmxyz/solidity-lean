@@ -88,7 +88,7 @@ theorem certified :
     bytes = SolarTV.Export.Counter.bytecode ∧
     SolarTV.Export.Counter.Manifest.bytecodeHex = runtimeHex ∧
     SolarTV.Export.Counter.Manifest.bytecodeSha256 = runtimeSha256 ∧
-    SolarTV.Export.Counter.Manifest.compiler = "0.8.38+commit.1134e61f.solar.0.3.0-dev" ∧
+    SolarTV.Export.Counter.Manifest.compiler = "0.8.38+commit.ebdc3376.solar.0.3.0-dev" ∧
     SolarTV.Export.Counter.Manifest.optimization = "Gas" ∧
     SolarTV.Export.Counter.Manifest.evmVersion = "osaka" ∧
     Satisfies ethLib code scope pre post := by

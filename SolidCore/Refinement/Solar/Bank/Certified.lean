@@ -108,7 +108,7 @@ theorem mutant_hex_rejected :
 
 open SolarTV.Export.Bank Hex in
 /-- **The certified translation of bank**, bound to what it was compiled from and by: the source
-(path and sha256), solar's version with the commit its manifest records (a8179dfc), its arguments
+(path and sha256), solar's version with the commit its manifest records (ebdc3376), its arguments
 (-Ogas, osaka), the bytecode with its sha256 and hex, the bytes the stages run as that bytecode,
 and the stage from SolidCore's checked `Bank` to those bytes, with no value and with any value,
 on every call of `deposit`, `depositFor` and `balanceOf` from any storage, under every oracle
@@ -117,11 +117,11 @@ of two words (`EthKeccakAgree`, kept explicit here; `certifiedManifest'` dischar
 `ethKeccakAgree`). -/
 theorem certifiedManifest (o : SolarTV.Machine.Oracle) (ho : Assemble.OracleOk o)
     (hk : EthKeccakAgree) {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) :
-    Manifest.sources = [("solar-tv/milestone/bank/bank.sol",
+    Manifest.sources = [("Certified/bank/bank.sol",
       "513398d47335b204a6b047493dd86e9c05066e950ba1300ba5d25850a5f8cb1f")] ∧
-    Manifest.compiler = "0.8.38+commit.4a7d9ede.solar.0.3.0-dev" ∧
-    Manifest.arguments = ["solar-tv/milestone/bank/bank.sol", "-Ogas", "--evm-version", "osaka",
-      "--emit=bin-runtime", "-Zemit-lean-stages=solar-tv/milestone/bank/gen"] ∧
+    Manifest.compiler = "0.8.38+commit.ebdc3376.solar.0.3.0-dev" ∧
+    Manifest.arguments = ["Certified/bank/bank.sol", "-Ogas", "--evm-version", "osaka",
+      "--emit=bin-runtime", "-Zemit-lean-stages=Certified/bank/gen"] ∧
     Manifest.optimization = "Gas" ∧ Manifest.evmVersion = "osaka" ∧
     Manifest.bytecodeSha256 = "bff0578068ce4ab4a041f226e4e960c13d358c8b430718fefe9ce3a22d760543" ∧
     Manifest.bytecodeHex = bytecodeHex ∧
@@ -159,11 +159,11 @@ open SolarTV.Export.Bank Hex in
 and evmyul's Keccak-256 proved equal on every 64-byte message). -/
 theorem certifiedManifest' (o : SolarTV.Machine.Oracle) (ho : Assemble.OracleOk o)
     {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) :
-    Manifest.sources = [("solar-tv/milestone/bank/bank.sol",
+    Manifest.sources = [("Certified/bank/bank.sol",
       "513398d47335b204a6b047493dd86e9c05066e950ba1300ba5d25850a5f8cb1f")] ∧
-    Manifest.compiler = "0.8.38+commit.4a7d9ede.solar.0.3.0-dev" ∧
-    Manifest.arguments = ["solar-tv/milestone/bank/bank.sol", "-Ogas", "--evm-version", "osaka",
-      "--emit=bin-runtime", "-Zemit-lean-stages=solar-tv/milestone/bank/gen"] ∧
+    Manifest.compiler = "0.8.38+commit.ebdc3376.solar.0.3.0-dev" ∧
+    Manifest.arguments = ["Certified/bank/bank.sol", "-Ogas", "--evm-version", "osaka",
+      "--emit=bin-runtime", "-Zemit-lean-stages=Certified/bank/gen"] ∧
     Manifest.optimization = "Gas" ∧ Manifest.evmVersion = "osaka" ∧
     Manifest.bytecodeSha256 = "bff0578068ce4ab4a041f226e4e960c13d358c8b430718fefe9ce3a22d760543" ∧
     Manifest.bytecodeHex = bytecodeHex ∧
