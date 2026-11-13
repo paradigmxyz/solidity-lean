@@ -7,7 +7,7 @@ import SolidCore.Refinement.Generic.Mir
 data of `4 + 32 * n` bytes whose words are the arguments and whose selector is `sel`, storage
 `ρ.store`, which reads every slot as a word), SolarTV's lowered MIR semantics `moduleSem o` runs
 the module, under every oracle `o`, to the result of the tree `symTree` computes; with the
-environment flag set, the oracle must be one `EnvOk` describes: its caller is `callerWord` and its
+environment flag set, the oracle must be one `EnvOk` describes: its caller is the call's, `ρ.caller`, and its
 hash of the 64 bytes of two words is `ρ.hash` of them. `symTreeValue_sound` is the same for a call
 with a value other than 0 and the tree `symTreeValue` computes. Both are cases of one run whose
 value is a symbolic value `cv` (`CallFactsAt`).
@@ -39,16 +39,16 @@ def wordBytes (v : Nat) : List (BitVec 8) :=
   (List.range 32).map fun i => BitVec.ofNat 8 (v / 256 ^ (31 - i))
 
 /-- An oracle whose environment the symbolic run with the environment flag takes: its caller
-is `callerWord`, and its hash of the 64 bytes of two words is `ρ.hash` of them. -/
+is the call's, `ρ.caller` below `2 ^ 160`, and its hash of the 64 bytes of two words is `ρ.hash` of them. -/
 structure EnvOk (o : Oracle) (ρ : Val) : Prop where
-  caller : (o.caller.setWidth 256).toNat = callerWord
+  caller : (o.caller.setWidth 256).toNat = ρ.caller % 2 ^ 160
   hash : ∀ a b, a < wordSize → b < wordSize →
     (o.keccak (wordBytes a ++ wordBytes b)).toNat = ρ.hash a b % wordSize
 
 /-- What the flags `ev` ask of the oracle: its caller when they read the caller, its hash of two
 words when they hash. -/
 structure EnvAsk (ev : EnvFlags) (o : Oracle) (ρ : Val) : Prop where
-  caller : ev.caller = true → (o.caller.setWidth 256).toNat = callerWord
+  caller : ev.caller = true → (o.caller.setWidth 256).toNat = ρ.caller % 2 ^ 160
   hash : ev.hash = true → ∀ a b, a < wordSize → b < wordSize →
     (o.keccak (wordBytes a ++ wordBytes b)).toNat = ρ.hash a b % wordSize
 
@@ -527,7 +527,6 @@ theorem symEffect_sound {ev : EnvFlags} {cv : SV} {sel n : Nat} {ρ : Val} {call
       | [], _ =>
         refine ⟨_, _, rfl, ?_, hs⟩
         simp only [OptRel, SV.Rel, WExpr.eval, henv.caller hev]
-        exact (Nat.mod_eq_of_lt callerWord_lt).symm
     · simp at h
   · -- keccak256
     rename_i off size

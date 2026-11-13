@@ -89,6 +89,24 @@ theorem backend (o : SolarTV.Machine.Oracle) (ho : Assemble.OracleOk o)
   SolarTV.Stage.trans (B := SolarTV.evmirSem o)
     (fun call _ => SolarTV.Milestone.Bank.bank_mir_to_evmir o call trivial) (stageOk o ho scope)
 
+/-- EVM IR to bytecode from any caller: on every call from the account `a`, any account but the
+contract's, under every oracle whose caller is `a` and whose hash is EthLib's. -/
+theorem stageOkFrom (a : Nat) (hAB : Target.address selfAddress ≠ Target.address a)
+    (o : SolarTV.Machine.Oracle) (ho : Assemble.OracleOkAt a o) (scope : SolarTV.Call → Prop) :
+    SolarTV.Stage (SolarTV.evmirSem o) (SolidCore.Refinement.ethLibFrom a) evm11
+      (show (SolidCore.Refinement.ethLibFrom a).Prog from code) scope :=
+  Assemble.stage_of_check_envFrom a hAB check_ok o (fun _ => ho) scope
+
+/-- The backend from any caller: solar-tv's stages from stage0 to evm11, then the assembly stage,
+on every call from the account `a`, under every oracle whose caller is `a` and whose hash is
+EthLib's. -/
+theorem backendFrom (a : Nat) (hAB : Target.address selfAddress ≠ Target.address a)
+    (o : SolarTV.Machine.Oracle) (ho : Assemble.OracleOkAt a o) (scope : SolarTV.Call → Prop) :
+    SolarTV.Stage (SolarTV.mirSem o) (SolidCore.Refinement.ethLibFrom a) stage0
+      (show (SolidCore.Refinement.ethLibFrom a).Prog from code) scope :=
+  SolarTV.Stage.trans (B := SolarTV.evmirSem o)
+    (fun call _ => SolarTV.Milestone.Bank.bank_mir_to_evmir o call trivial) (stageOkFrom a hAB o ho scope)
+
 /-- info: 'SolidCore.Refinement.Solar.Bank.check_ok' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms check_ok
@@ -100,5 +118,9 @@ theorem backend (o : SolarTV.Machine.Oracle) (ho : Assemble.OracleOk o)
 /-- info: 'SolidCore.Refinement.Solar.Bank.backend' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in
 #print axioms backend
+
+/-- info: 'SolidCore.Refinement.Solar.Bank.backendFrom' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in
+#print axioms backendFrom
 
 end SolidCore.Refinement.Solar.Bank

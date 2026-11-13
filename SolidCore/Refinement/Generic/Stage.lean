@@ -29,6 +29,12 @@ its Keccak-256 of the 64 bytes of two words is SolidCore's slot hash `solHash` o
 module that reads the caller and hashes nothing, under every oracle with SolidCore's caller.
 Nothing else of the oracle is assumed.
 
+The caller is not fixed: `stageAtWithFrom` is the stage from SolidCore called from any account
+`a` below `2 ^ 160` (`solidCoreFrom a`), under every oracle whose caller is `a` when the flags
+read it (`SourceAskAt a`), since both trees read the caller as the symbolic word `WExpr.caller`.
+`stageAtEnvFrom`, `stageEnvFrom`, `stageAtCallerFrom` and `stageCallerFrom` are its cases, and
+the stages above are its case `a = callerAddress`.
+
 The fragment is what `eraseFn` and `symTree` accept: parameters that are unsigned words of
 `0 < b ≤ 256` bits or addresses (a dirty argument word reverts), `uint256`-word returns, checked
 `+`, `-`, `*` with narrow cleanups, truncating casts such as `uint256(a)`, bitwise `&`, `|`, `^`,
@@ -92,11 +98,11 @@ theorem calldataWord_eq (call : Call) (off : BitVec 256) :
   rw [show (0 : BitVec 256) = BitVec.ofNat 256 0 from rfl, foldl_word, List.foldl_map]
 
 /-- The call of selector `sel` on the argument words `args` from the storage `σ` gives the
-symbolic run its facts, with the argument words, the storage and SolidCore's slot hash
-`⟨args, slotValue σ, solHash⟩`. -/
-theorem callFacts (sel : Nat) (hsel : sel < 2 ^ 32) (args : List Nat)
+symbolic run its facts, with the argument words, the storage, SolidCore's slot hash and any
+sender `caller`: `⟨args, slotValue σ, solHash, caller⟩`. -/
+theorem callFacts (caller : Nat) (sel : Nat) (hsel : sel < 2 ^ 32) (args : List Nat)
     (hargs : ∀ a ∈ args, a < 2 ^ 256) (σ : List (Nat × Nat)) :
-    CallFacts sel args.length ⟨args, slotValue σ, solHash⟩
+    CallFacts sel args.length ⟨args, slotValue σ, solHash, caller⟩
       { calldata := Abi.calldata sel args, callvalue := 0, storage := σ } := by
   have hcd := calldata_eq_cdOf sel args hargs
   refine ⟨rfl, ?_, ?_, ?_, rfl, slotValue_store σ⟩
@@ -134,17 +140,70 @@ structure SourceEnvOk (o : Oracle) : Prop where
   caller : CallerOk o
   hash : HashOk o
 
-/-- An oracle `SourceEnvOk` describes is one the symbolic run with the environment flag takes, for
-every call whose hash is `solHash`. -/
-theorem SourceEnvOk.envOk {o : Oracle} (h : SourceEnvOk o) (args : List Nat) (store : Nat → Nat) :
-    EnvOk o ⟨args, store, solHash⟩ :=
+/-- The oracle's caller is the account `a`. -/
+def CallerAt (a : Nat) (o : Oracle) : Prop := (o.caller.setWidth 256).toNat = a
+
+/-- What the stages with the environment flag ask of the oracle on a call from the account `a`:
+its caller is `a` (`CallerAt`) and `HashOk`. -/
+structure SourceEnvOkAt (a : Nat) (o : Oracle) : Prop where
+  caller : CallerAt a o
+  hash : HashOk o
+
+/-- An oracle with SolidCore's caller has the caller `callerAddress`. -/
+theorem CallerOk.at {o : Oracle} (h : CallerOk o) : CallerAt callerAddress o := h
+
+/-- An oracle `SourceEnvOk` describes is one `SourceEnvOkAt callerAddress` describes. -/
+theorem SourceEnvOk.at {o : Oracle} (h : SourceEnvOk o) : SourceEnvOkAt callerAddress o :=
   ⟨h.caller, h.hash⟩
+
+/-- An oracle `SourceEnvOkAt a` describes is one the symbolic run with the environment flag takes,
+for every call from `a` whose hash is `solHash`. -/
+theorem SourceEnvOkAt.envOk {a : Nat} (ha : a < 2 ^ 160) {o : Oracle} (h : SourceEnvOkAt a o)
+    (args : List Nat) (store : Nat → Nat) : EnvOk o ⟨args, store, solHash, a⟩ :=
+  ⟨by rw [h.caller, Nat.mod_eq_of_lt ha], h.hash⟩
+
+/-- An oracle `SourceEnvOk` describes is one the symbolic run with the environment flag takes, for
+every call from `callerAddress` whose hash is `solHash`. -/
+theorem SourceEnvOk.envOk {o : Oracle} (h : SourceEnvOk o) (args : List Nat) (store : Nat → Nat) :
+    EnvOk o ⟨args, store, solHash, callerAddress⟩ :=
+  h.at.envOk (by decide) args store
 
 /-- What the flags `env` ask of the oracle: SolidCore's caller when they read the caller, and
 SolidCore's hash of two words when they hash. -/
 structure SourceAsk (env : EnvFlags) (o : Oracle) : Prop where
   caller : env.caller = true → CallerOk o
   hash : env.hash = true → HashOk o
+
+/-- What the flags `env` ask of the oracle on a call from the account `a`: the caller `a` when
+they read the caller, and SolidCore's hash of two words when they hash. -/
+structure SourceAskAt (a : Nat) (env : EnvFlags) (o : Oracle) : Prop where
+  caller : env.caller = true → CallerAt a o
+  hash : env.hash = true → HashOk o
+
+/-- What `SourceAsk` asks is what `SourceAskAt callerAddress` asks. -/
+theorem SourceAsk.at {env : EnvFlags} {o : Oracle} (h : SourceAsk env o) :
+    SourceAskAt callerAddress env o :=
+  ⟨h.caller, h.hash⟩
+
+/-- The flags off ask nothing, from any account. -/
+theorem SourceAskAt.off {a : Nat} {o : Oracle} : SourceAskAt a .off o :=
+  ⟨fun h => by simp [EnvFlags.off] at h, fun h => by simp [EnvFlags.off] at h⟩
+
+/-- An oracle `SourceEnvOkAt a` describes gives every flag what it asks on a call from `a`. -/
+theorem SourceEnvOkAt.ask {a : Nat} {o : Oracle} (h : SourceEnvOkAt a o) {env : EnvFlags} :
+    SourceAskAt a env o :=
+  ⟨fun _ => h.caller, fun _ => h.hash⟩
+
+/-- An oracle with the caller `a` gives the caller-only flags what they ask on a call from `a`. -/
+theorem CallerAt.ask {a : Nat} {o : Oracle} (h : CallerAt a o) : SourceAskAt a .callerOnly o :=
+  ⟨fun _ => h, fun h => by simp [EnvFlags.callerOnly] at h⟩
+
+/-- What the flags ask of the oracle, for the symbolic run on a call from `a` whose hash is
+`solHash`. -/
+theorem SourceAskAt.envAsk {a : Nat} (ha : a < 2 ^ 160) {env : EnvFlags} {o : Oracle}
+    (h : SourceAskAt a env o) (args : List Nat) (store : Nat → Nat) :
+    EnvAsk env o ⟨args, store, solHash, a⟩ :=
+  ⟨fun hc => by rw [h.caller hc, Nat.mod_eq_of_lt ha], h.hash⟩
 
 /-- The flags off ask nothing. -/
 theorem SourceAsk.off {o : Oracle} : SourceAsk .off o :=
@@ -158,10 +217,11 @@ theorem SourceEnvOk.ask {o : Oracle} (h : SourceEnvOk o) {env : EnvFlags} : Sour
 theorem CallerOk.ask {o : Oracle} (h : CallerOk o) : SourceAsk .callerOnly o :=
   ⟨fun _ => h, fun h => by simp [EnvFlags.callerOnly] at h⟩
 
-/-- What the flags ask of the oracle, for the symbolic run on a call whose hash is `solHash`. -/
+/-- What the flags ask of the oracle, for the symbolic run on a call from `callerAddress` whose
+hash is `solHash`. -/
 theorem SourceAsk.envAsk {env : EnvFlags} {o : Oracle} (h : SourceAsk env o) (args : List Nat)
-    (store : Nat → Nat) : EnvAsk env o ⟨args, store, solHash⟩ :=
-  ⟨h.caller, h.hash⟩
+    (store : Nat → Nat) : EnvAsk env o ⟨args, store, solHash, callerAddress⟩ :=
+  h.at.envAsk (by decide) args store
 
 /-! ## The check and the stage -/
 
@@ -185,13 +245,17 @@ def check (fuel mirFuel : Nat) (core : Contract) (m : Module) (fns : List Fn) (e
     Bool :=
   fns.all (checkFn fuel mirFuel core m env)
 
-/-- The generic source stage for `check` with the environment flag `env`, under every oracle when
-the flag is off and every oracle `SourceEnvOk` describes when it is on. -/
-theorem stageAtWith (o : Oracle) {fuel mirFuel : Nat} {c : TypeCheck.CheckedContract}
-    {d : Source.State} {s : List (Nat × Nat)} (hd : SolidCore.Refinement.Wide.DeployedAt fuel c d s)
-    {m : Module} {fns : List Fn} {env : EnvFlags} (henv : SourceAsk env o)
+/-- **The generic source stage from any caller**, for `check` with the environment flag `env`:
+SolidCore called from the account `a` (any address, below `2 ^ 160`) to the module's lowered MIR
+semantics under every oracle when the flag is off, and under every oracle whose caller is `a`
+and, when the flags hash, whose hash is SolidCore's (`SourceAskAt a env`). -/
+theorem stageAtWithFrom (a : Nat) (ha : a < 2 ^ 160) (o : Oracle) {fuel mirFuel : Nat}
+    {c : TypeCheck.CheckedContract} {d : Source.State} {s : List (Nat × Nat)}
+    (hd : SolidCore.Refinement.Wide.DeployedAt fuel c d s)
+    {m : Module} {fns : List Fn} {env : EnvFlags} (henv : SourceAskAt a env o)
     (hchk : check fuel mirFuel c.core m fns env = true) :
-    Stage (solidCore fuel) (moduleSem o) c m (fun call => ∃ σ, Covers s σ ∧ fullScope fns σ call) := by
+    Stage (solidCoreFrom a fuel) (moduleSem o) c m
+      (fun call => ∃ σ, Covers s σ ∧ fullScope fns σ call) := by
   rintro _ ⟨σ, hcov, f, hf, args, hlen, hargs, rfl⟩ obs hrun
   have hcf := List.all_eq_true.mp hchk f hf
   unfold checkFn at hcf
@@ -206,13 +270,22 @@ theorem stageAtWith (o : Oracle) {fuel mirFuel : Nat} {c : TypeCheck.CheckedCont
   | some t2 =>
   simp only [hfind, ht1, ht2, Bool.and_eq_true, decide_eq_true_eq] at hcf
   obtain ⟨hsel, hpl, hcf⟩ := hcf
-  have hsrc := source_run hd hcov hsel hfind ht1 args (by rw [hlen, hpl]) hargs
-  change Source.run fuel c _ = some obs at hrun
+  have hsrc := source_run a ha hd hcov hsel hfind ht1 args (by rw [hlen, hpl]) hargs
+  change Source.runFrom a fuel c _ = some obs at hrun
   rw [hsrc] at hrun
   cases hrun
   rw [← hlen] at ht2
-  rw [symTree_sound (callFacts f.sel hsel args hargs σ) o m (henv.envAsk _ _) ht2,
+  rw [symTree_sound (callFacts a f.sel hsel args hargs σ) o m (henv.envAsk ha _ _) ht2,
     ← Tree.eval_canon, ← hcf, Tree.eval_canon]
+
+/-- The generic source stage for `check` with the environment flag `env`, under every oracle when
+the flag is off and every oracle `SourceEnvOk` describes when it is on. -/
+theorem stageAtWith (o : Oracle) {fuel mirFuel : Nat} {c : TypeCheck.CheckedContract}
+    {d : Source.State} {s : List (Nat × Nat)} (hd : SolidCore.Refinement.Wide.DeployedAt fuel c d s)
+    {m : Module} {fns : List Fn} {env : EnvFlags} (henv : SourceAsk env o)
+    (hchk : check fuel mirFuel c.core m fns env = true) :
+    Stage (solidCore fuel) (moduleSem o) c m (fun call => ∃ σ, Covers s σ ∧ fullScope fns σ call) :=
+  stageAtWithFrom callerAddress (by decide) o hd henv.at hchk
 
 /-- **The generic source stage**: a checked contract whose constructor leaves the storage entries
 `s` and no logs and a lowered MIR module that `check` accepts give the stage from SolidCore to the
@@ -285,6 +358,47 @@ theorem stageCaller (o : Oracle) (henv : CallerOk o) {fuel mirFuel : Nat}
     (hchk : check fuel mirFuel c.core m fns .callerOnly = true) :
     Stage (solidCore fuel) (moduleSem o) c m (fun call => ∃ σ, fullScope fns σ call) :=
   SolarTV.Stage.mono (stageAtCaller o henv hd hchk) fun _ ⟨σ, h⟩ =>
+    ⟨σ, fun _ hkv => absurd hkv List.not_mem_nil, h⟩
+
+/-- **The generic source stage with the environment flag, from any caller**: `stageAtEnv` on calls
+from the account `a`, under every oracle whose caller is `a` and whose Keccak-256 of two words is
+`solHash` (`SourceEnvOkAt a`). -/
+theorem stageAtEnvFrom (a : Nat) (ha : a < 2 ^ 160) (o : Oracle) (henv : SourceEnvOkAt a o)
+    {fuel mirFuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.State} {s : List (Nat × Nat)}
+    (hd : SolidCore.Refinement.Wide.DeployedAt fuel c d s) {m : Module} {fns : List Fn}
+    (hchk : check fuel mirFuel c.core m fns .all = true) :
+    Stage (solidCoreFrom a fuel) (moduleSem o) c m
+      (fun call => ∃ σ, Covers s σ ∧ fullScope fns σ call) :=
+  stageAtWithFrom a ha o hd henv.ask hchk
+
+/-- The generic source stage with the environment flag from any caller, for a contract whose
+constructor leaves no storage, from any storage. -/
+theorem stageEnvFrom (a : Nat) (ha : a < 2 ^ 160) (o : Oracle) (henv : SourceEnvOkAt a o)
+    {fuel mirFuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.State}
+    (hd : SolidCore.Refinement.Wide.DeployedAt fuel c d []) {m : Module} {fns : List Fn}
+    (hchk : check fuel mirFuel c.core m fns .all = true) :
+    Stage (solidCoreFrom a fuel) (moduleSem o) c m (fun call => ∃ σ, fullScope fns σ call) :=
+  SolarTV.Stage.mono (stageAtEnvFrom a ha o henv hd hchk) fun _ ⟨σ, h⟩ =>
+    ⟨σ, fun _ hkv => absurd hkv List.not_mem_nil, h⟩
+
+/-- **The caller-only stage from any caller**: `stageAtCaller` on calls from the account `a`,
+under every oracle whose caller is `a`. -/
+theorem stageAtCallerFrom (a : Nat) (ha : a < 2 ^ 160) (o : Oracle) (henv : CallerAt a o)
+    {fuel mirFuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.State} {s : List (Nat × Nat)}
+    (hd : SolidCore.Refinement.Wide.DeployedAt fuel c d s) {m : Module} {fns : List Fn}
+    (hchk : check fuel mirFuel c.core m fns .callerOnly = true) :
+    Stage (solidCoreFrom a fuel) (moduleSem o) c m
+      (fun call => ∃ σ, Covers s σ ∧ fullScope fns σ call) :=
+  stageAtWithFrom a ha o hd henv.ask hchk
+
+/-- The caller-only stage from any caller, for a contract whose constructor leaves no storage,
+from any storage. -/
+theorem stageCallerFrom (a : Nat) (ha : a < 2 ^ 160) (o : Oracle) (henv : CallerAt a o)
+    {fuel mirFuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.State}
+    (hd : SolidCore.Refinement.Wide.DeployedAt fuel c d []) {m : Module} {fns : List Fn}
+    (hchk : check fuel mirFuel c.core m fns .callerOnly = true) :
+    Stage (solidCoreFrom a fuel) (moduleSem o) c m (fun call => ∃ σ, fullScope fns σ call) :=
+  SolarTV.Stage.mono (stageAtCallerFrom a ha o henv hd hchk) fun _ ⟨σ, h⟩ =>
     ⟨σ, fun _ hkv => absurd hkv List.not_mem_nil, h⟩
 
 end SolidCore.Refinement.Generic

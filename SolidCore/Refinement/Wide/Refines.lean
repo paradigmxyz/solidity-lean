@@ -166,6 +166,25 @@ theorem run_eq_at {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.State
     Source.Context) = ctxOf c from rfl, hc]
   simp only [TypeCheck.CheckedContract.callCalldataAtFromWithContext?, Dirty.bytes_calldata]
 
+/-- `Source.runFrom caller` of a call from the storage `σ`, once the constructor's result is
+known: `run_eq_at` with the dispatcher called from `caller`. -/
+theorem run_eq_atFrom (caller : Nat) {fuel : Nat} {c : TypeCheck.CheckedContract}
+    {d : Source.State} {s : List (Nat × Nat)} (hd : DeployedAt fuel c d s) (sel : Nat)
+    (ws : List U256) (σ : List (Nat × Nat)) :
+    Source.runFrom caller fuel c (callAt sel ws σ) =
+      Option.map (Source.observe (callAt sel ws σ))
+        (ABI.Contract.callCalldataAtFromWithContext? fuel c.core (ctxOf c)
+          { d with storage := σ.foldl (fun acc kv => StorageMap.insertLoop acc kv.1 kv.2) d.storage }
+          selfAddress caller 0
+          ((natToBytes 4 sel).map (·.toNat) ++ Dirty.argBytes (ws.map (·.toNat)))) := by
+  obtain ⟨vs, hc⟩ := hd.cons
+  simp only [Source.runFrom, Source.resultFrom?, show (callAt sel ws σ).callvalue = 0 from rfl,
+    show (callAt sel ws σ).storage = σ from rfl,
+    show (callAt sel ws σ).calldata = Abi.calldata sel (ws.map (·.toNat)) from rfl]
+  rw [show ({ c.core.context with sender := callerAddress, self := selfAddress, value := 0 } :
+    Source.Context) = ctxOf c from rfl, hc]
+  simp only [TypeCheck.CheckedContract.callCalldataAtFromWithContext?, Dirty.bytes_calldata]
+
 theorem map_ofNat_toNat (args : List Nat) (hargs : ∀ a ∈ args, a < 2 ^ 256) :
     (args.map (BitVec.ofNat 256)).map BitVec.toNat = args := by
   rw [List.map_map]

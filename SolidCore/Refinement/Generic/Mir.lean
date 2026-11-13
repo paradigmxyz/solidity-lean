@@ -27,8 +27,8 @@ the position (SolarTV's `Pos`), the symbolic values, the symbolic state and the 
   reading `Writes.read` and `sstore` writing `Writes.set`;
 * a log (`log0` to `log4`) with a constant offset and size appends its topic words and its data
   bytes to the logs of the state (`SState.logs`, oldest first);
-* with the environment flags `env` (`EnvFlags`), `caller` is `callerWord` when they read the
-  caller, and `keccak256` of 64 bytes at a constant offset whose memory holds two words
+* with the environment flags `env` (`EnvFlags`), `caller` is the call's sender, the word `WExpr.caller`, when they
+  read the caller, and `keccak256` of 64 bytes at a constant offset whose memory holds two words
   (`memWord`) is `WExpr.hash` of them when they hash, as an oracle that `MirRun.EnvAsk`
   describes computes them; otherwise neither has a run;
 * an `assume` needs its word, simplified on the facts of the path (`WExpr.simp`), to be a
@@ -133,7 +133,7 @@ def symPure (sel : Nat) : EVM.Op → List SV → Option SV
 def outBytes (mem : Nat → OByte) (off size : Nat) : List OByte :=
   (List.range size).map fun i => mem (off + i)
 
-/-- The environment reads the symbolic run may take: `caller` (as `callerWord`) and
+/-- The environment reads the symbolic run may take: `caller` (as the word `WExpr.caller`) and
 `keccak256` of two words (as `hash`). -/
 structure EnvFlags where
   caller : Bool
@@ -159,7 +159,7 @@ def symEffect (ev : EnvFlags) (cv : SV) (n : Nat) : Effect → List SV → SStat
   | .sstore, [.w k, .w e], st => some (none, { st with writes := st.writes.set k e })
   | .mstore, [.w (.lit off), .w e], st =>
     some (none, { st with mem := storeBytes st.mem (off % wordSize) e })
-  | .caller, [], st => if ev.caller = true then some (some (.w (.lit callerWord)), st) else none
+  | .caller, [], st => if ev.caller = true then some (some (.w .caller), st) else none
   | .keccak256, [.w (.lit off), .w (.lit size)], st =>
     if ev.hash = true ∧ size % wordSize = 64 then
       match memWord st.mem (off % wordSize), memWord st.mem (off % wordSize + 32) with

@@ -35,6 +35,12 @@ decode to those bytes. The sha256s are of the files, checked outside the kernel 
 certify.sh; the source's, each stage's and the bytecode's match the files at solar c8ea95b8f).
 `certifiedManifest'` is the same conjunction with `EthKeccakAgree` discharged (`ethKeccakAgree`).
 
+The caller is not fixed: `certifiedFrom`, `certifiedValueFrom` and their primed forms are the same
+stages with both sides called from any account `a` below `2 ^ 160` other than the contract's
+(`solidCoreFrom a`, `ethLibFrom a`), under every oracle whose caller is `a` and whose hash is
+EthLib's (`Assemble.OracleOkAt a`); `certified` and the rest are their case `callerAddress`.
+`certifiedManifestFrom` and `certifiedManifestFrom'` bind them to the manifest.
+
 No sorry, native_decide or bv_decide: the theorems depend on propext, Classical.choice and
 Quot.sound only (pinned below).
 -/
@@ -81,6 +87,40 @@ theorem certifiedValue (o : SolarTV.Machine.Oracle) (ho : Assemble.OracleOk o)
     (hk : EthKeccakAgree) {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) :
     Stage (solidCore fuel) ethLib c code (fun call => ∃ σ v, Generic.fullScopeValue fns σ v call) :=
   (loweringValue o (sourceEnvOk_of o ho hk) hc).trans (backend o ho _)
+
+/-- An oracle whose caller is EthLib's caller `a`, an address, has the caller `a` as a word. -/
+theorem callerAt_of (a : Nat) (ha : a < 2 ^ 160) (o : SolarTV.Machine.Oracle)
+    (ho : Assemble.OracleOkAt a o) : Generic.CallerAt a o := by
+  unfold Generic.CallerAt
+  rw [ho.1]
+  exact Assemble.address_toNat ha
+
+/-- An oracle with EthLib's caller `a` and hash is one the source stage from `a` takes, when
+EthLib's and SolidCore's Keccak-256 agree on two words. -/
+theorem sourceEnvOkAt_of (a : Nat) (ha : a < 2 ^ 160) (o : SolarTV.Machine.Oracle)
+    (ho : Assemble.OracleOkAt a o) (hk : EthKeccakAgree) : Generic.SourceEnvOkAt a o :=
+  ⟨callerAt_of a ha o ho, fun x y hx hy => by rw [ho.2]; exact hk x y hx hy⟩
+
+/-- **Bank from SolidCore to solar's bytecode, from any caller**: every result SolidCore's `Bank`
+gives on a call of `deposit`, `depositFor` and `balanceOf` from the account `a` (any address
+below `2 ^ 160` but the contract's) on any argument words, no value, from any storage, the
+bytecode gives under EthLib called from `a`, for every oracle whose caller is `a` and whose
+hash is EthLib's. -/
+theorem certifiedFrom (a : Nat) (ha : a < 2 ^ 160) (hself : a ≠ selfAddress)
+    (o : SolarTV.Machine.Oracle) (ho : Assemble.OracleOkAt a o) (hk : EthKeccakAgree)
+    {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) :
+    Stage (solidCoreFrom a fuel) (ethLibFrom a) c code (fun call => ∃ σ, fullScope fns σ call) :=
+  (loweringFrom a ha o (sourceEnvOkAt_of a ha o ho hk) hc).trans
+    (backendFrom a (Assemble.address_ne_self ha hself) o ho _)
+
+/-- **Bank from SolidCore to solar's bytecode at every value, from any caller**. -/
+theorem certifiedValueFrom (a : Nat) (ha : a < 2 ^ 160) (hself : a ≠ selfAddress)
+    (o : SolarTV.Machine.Oracle) (ho : Assemble.OracleOkAt a o) (hk : EthKeccakAgree)
+    {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) :
+    Stage (solidCoreFrom a fuel) (ethLibFrom a) c code
+      (fun call => ∃ σ v, Generic.fullScopeValue fns σ v call) :=
+  (loweringValueFrom a ha o (sourceEnvOkAt_of a ha o ho hk) hc).trans
+    (backendFrom a (Assemble.address_ne_self ha hself) o ho _)
 
 open SolarTV.Export.Bank Hex in
 set_option maxRecDepth 100000 in
@@ -174,6 +214,69 @@ theorem certifiedManifest' (o : SolarTV.Machine.Oracle) (ho : Assemble.OracleOk 
     Stage (solidCore fuel) ethLib c code (fun call => ∃ σ v, Generic.fullScopeValue fns σ v call) :=
   certifiedManifest o ho ethKeccakAgree hc
 
+/-- **Bank from SolidCore to solar's bytecode from any caller**, with no Keccak hypothesis. -/
+theorem certifiedFrom' (a : Nat) (ha : a < 2 ^ 160) (hself : a ≠ selfAddress)
+    (o : SolarTV.Machine.Oracle) (ho : Assemble.OracleOkAt a o)
+    {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) :
+    Stage (solidCoreFrom a fuel) (ethLibFrom a) c code (fun call => ∃ σ, fullScope fns σ call) :=
+  certifiedFrom a ha hself o ho ethKeccakAgree hc
+
+/-- **Bank from SolidCore to solar's bytecode at every value from any caller**, with no Keccak
+hypothesis. -/
+theorem certifiedValueFrom' (a : Nat) (ha : a < 2 ^ 160) (hself : a ≠ selfAddress)
+    (o : SolarTV.Machine.Oracle) (ho : Assemble.OracleOkAt a o)
+    {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) :
+    Stage (solidCoreFrom a fuel) (ethLibFrom a) c code
+      (fun call => ∃ σ v, Generic.fullScopeValue fns σ v call) :=
+  certifiedValueFrom a ha hself o ho ethKeccakAgree hc
+
+open SolarTV.Export.Bank Hex in
+/-- **The certified translation of bank from any caller**, bound to its manifest:
+`certifiedManifest`'s conjunction with the stages on every call from the account `a` (any address
+below `2 ^ 160` but the contract's), under every oracle whose caller is `a` and whose hash is
+EthLib's, given `EthKeccakAgree` (`certifiedManifestFrom'` discharges it). -/
+theorem certifiedManifestFrom (a : Nat) (ha : a < 2 ^ 160) (hself : a ≠ selfAddress)
+    (o : SolarTV.Machine.Oracle) (ho : Assemble.OracleOkAt a o) (hk : EthKeccakAgree)
+    {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) :
+    Manifest.sources = [("solar-tv/milestone/bank/bank.sol",
+      "513398d47335b204a6b047493dd86e9c05066e950ba1300ba5d25850a5f8cb1f")] ∧
+    Manifest.compiler = "0.8.38+commit.4a7d9ede.solar.0.3.0-dev" ∧
+    Manifest.arguments = ["solar-tv/milestone/bank/bank.sol", "-Ogas", "--evm-version", "osaka",
+      "--emit=bin-runtime", "-Zemit-lean-stages=solar-tv/milestone/bank/gen"] ∧
+    Manifest.optimization = "Gas" ∧ Manifest.evmVersion = "osaka" ∧
+    Manifest.bytecodeSha256 = "bff0578068ce4ab4a041f226e4e960c13d358c8b430718fefe9ce3a22d760543" ∧
+    Manifest.bytecodeHex = bytecodeHex ∧
+    Manifest.bytecodeHex = String.ofList (hexChars bytecode) ∧
+    hexBytes (codes Manifest.bytecodeHex) = some bytecode ∧
+    code = ⟨(bytecode.map UInt8.ofNat).toArray⟩ ∧
+    Stage (solidCoreFrom a fuel) (ethLibFrom a) c code (fun call => ∃ σ, fullScope fns σ call) ∧
+    Stage (solidCoreFrom a fuel) (ethLibFrom a) c code
+      (fun call => ∃ σ v, Generic.fullScopeValue fns σ v call) :=
+  ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, manifest_hex, bytecode_of_manifest, rfl,
+    certifiedFrom a ha hself o ho hk hc, certifiedValueFrom a ha hself o ho hk hc⟩
+
+open SolarTV.Export.Bank Hex in
+/-- **The certified translation of bank from any caller, with no Keccak hypothesis**, bound to its
+manifest: `certifiedManifestFrom` with `EthKeccakAgree` discharged by `ethKeccakAgree`. -/
+theorem certifiedManifestFrom' (a : Nat) (ha : a < 2 ^ 160) (hself : a ≠ selfAddress)
+    (o : SolarTV.Machine.Oracle) (ho : Assemble.OracleOkAt a o)
+    {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) :
+    Manifest.sources = [("solar-tv/milestone/bank/bank.sol",
+      "513398d47335b204a6b047493dd86e9c05066e950ba1300ba5d25850a5f8cb1f")] ∧
+    Manifest.compiler = "0.8.38+commit.4a7d9ede.solar.0.3.0-dev" ∧
+    Manifest.arguments = ["solar-tv/milestone/bank/bank.sol", "-Ogas", "--evm-version", "osaka",
+      "--emit=bin-runtime", "-Zemit-lean-stages=solar-tv/milestone/bank/gen"] ∧
+    Manifest.optimization = "Gas" ∧ Manifest.evmVersion = "osaka" ∧
+    Manifest.bytecodeSha256 = "bff0578068ce4ab4a041f226e4e960c13d358c8b430718fefe9ce3a22d760543" ∧
+    Manifest.bytecodeHex = bytecodeHex ∧
+    Manifest.bytecodeHex = String.ofList (hexChars bytecode) ∧
+    hexBytes (codes Manifest.bytecodeHex) = some bytecode ∧
+    code = ⟨(bytecode.map UInt8.ofNat).toArray⟩ ∧
+    Stage (solidCoreFrom a fuel) (ethLibFrom a) c code (fun call => ∃ σ, fullScope fns σ call) ∧
+    Stage (solidCoreFrom a fuel) (ethLibFrom a) c code
+      (fun call => ∃ σ v, Generic.fullScopeValue fns σ v call) :=
+  certifiedManifestFrom a ha hself o ho ethKeccakAgree hc
+
 /-- info: 'SolidCore.Refinement.Solar.Bank.callerOk_of' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms callerOk_of
@@ -213,5 +316,29 @@ theorem certifiedManifest' (o : SolarTV.Machine.Oracle) (ho : Assemble.OracleOk 
 /-- info: 'SolidCore.Refinement.Solar.Bank.certifiedManifest'' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in
 #print axioms certifiedManifest'
+
+/-- info: 'SolidCore.Refinement.Solar.Bank.certifiedFrom' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in
+#print axioms certifiedFrom
+
+/-- info: 'SolidCore.Refinement.Solar.Bank.certifiedValueFrom' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in
+#print axioms certifiedValueFrom
+
+/-- info: 'SolidCore.Refinement.Solar.Bank.certifiedFrom'' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in
+#print axioms certifiedFrom'
+
+/-- info: 'SolidCore.Refinement.Solar.Bank.certifiedValueFrom'' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in
+#print axioms certifiedValueFrom'
+
+/-- info: 'SolidCore.Refinement.Solar.Bank.certifiedManifestFrom' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in
+#print axioms certifiedManifestFrom
+
+/-- info: 'SolidCore.Refinement.Solar.Bank.certifiedManifestFrom'' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in
+#print axioms certifiedManifestFrom'
 
 end SolidCore.Refinement.Solar.Bank

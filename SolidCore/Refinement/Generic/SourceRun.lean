@@ -8,10 +8,10 @@ import SolidCore.Refinement.Dirty.Source
 `source_run` is the source half of the generic source stage: on a call of the function `fn` with
 selector `sel` (call data `Abi.calldata sel args`, any argument words below `2 ^ 256`, no value,
 initial storage `σ`) to a contract whose constructor leaves the storage entries `s` and no logs,
-when `σ` writes every slot `s` does (`Covers s σ`), SolidCore's `Source.run` shows
-`(T.eval ⟨args, slotValue σ, solHash⟩).obs`, where `T` is the erasure `eraseFn` of `fn` in the
+when `σ` writes every slot `s` does (`Covers s σ`), SolidCore's `Source.runFrom caller` shows
+`(T.eval ⟨args, slotValue σ, solHash, caller⟩).obs`, from any `caller` below `2 ^ 160`, where `T` is the erasure `eraseFn` of `fn` in the
 contract's `EraseEnv` (`envOf`: its storage fields, events and function table): the call's
-argument words, its storage, and SolidCore's slot hash `solHash`.
+argument words, its storage, SolidCore's slot hash `solHash` and its sender.
 
 The proof follows SolidCore's ABI dispatcher. The decoder reads each argument word, rejecting an
 `address` word at or above `2 ^ 160` with empty data, then applies the `uint b` cleanups, which
@@ -20,7 +20,7 @@ dirty for its parameter's width reverts with empty data (`run_rejected`), as the
 checks do (`paramGuards_eval`). Otherwise the selector reads back (`readSelector_calldata`), the
 parameters decode to their words, the frame binds each parameter to its word and each return to
 zero (`bindArgs_words`, `defaults_words`), the body runs as its branch tree (`eval_stmt`, from a
-runtime that `StmtRel` relates to `initState`: the context's caller is `callerWord` and its events
+runtime that `StmtRel` relates to `initState`: the context's caller is the call's and its events
 are the contract's), and the end of the body is encoded as the leaf of the tree says: the returned
 words (`collect_words`, `coerce_words`, `encode_words`) or the revert data (`encode_panic`). A
 success keeps the body's storage, which `loadSlot_eq` reads as the tree's writes over `σ`, and its
@@ -593,12 +593,12 @@ theorem paramGuards_eval (ρ : Val) (t : Tree) (hρ : ∀ a ∈ ρ.args, a < wor
 
 /-- **SolidCore rejects dirty argument words**: a call whose argument words SolidCore's decoder
 rejects with empty data reverts with empty output and keeps the call's storage. -/
-theorem run_rejected {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.State}
+theorem run_rejected (caller : Nat) {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.State}
     {s : List (Nat × Nat)} (hd : Wide.DeployedAt fuel c d s) {sel : Nat} (hsel : sel < 2 ^ 32)
     {fn : FunctionDef} (hfind : c.core.findFunctionBySelector? sel = some fn) (args : List Nat)
     (hdec : ABI.decodeFunctionArgs? fn (Dirty.argBytes args) = .error .empty)
     (σ : List (Nat × Nat)) :
-    Source.run fuel c { calldata := Abi.calldata sel args, callvalue := 0, storage := σ } =
+    Source.runFrom caller fuel c { calldata := Abi.calldata sel args, callvalue := 0, storage := σ } =
       some (Abi.rejected σ) := by
   obtain ⟨s0, hdep⟩ := deployedStorage_of hd
   unfold Abi.deployedStorage at hdep
@@ -606,7 +606,7 @@ theorem run_rejected {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.St
   split at hdep
   case h_2 => simp at hdep
   rename_i deployed st hcons
-  simp only [Source.run, Source.result?, hcons,
+  simp only [Source.runFrom, Source.resultFrom?, hcons,
     TypeCheck.CheckedContract.callCalldataAtFromWithContext?,
     ABI.Contract.callCalldataAtFromWithContext?, Dirty.bytes_calldata,
     Dirty.readSelector_calldata _ hsel, hfind]
@@ -640,7 +640,7 @@ theorem eraseFn_widths {E : EraseEnv} {fuel : Nat} {fn : FunctionDef} {T : Tree}
 
 /-- SolidCore runs a call of a function of the fragment on clean argument words as its body's
 tree. -/
-theorem source_run_clean {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.State}
+theorem source_run_clean (caller : Nat) (hcaller : caller < 2 ^ 160) {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.State}
     {s : List (Nat × Nat)} (hd : Wide.DeployedAt fuel c d s) {σ : List (Nat × Nat)}
     (hcov : Covers s σ) {sel : Nat} (hsel : sel < 2 ^ 32) {fn : FunctionDef}
     (hfind : c.core.findFunctionBySelector? sel = some fn) {ws : List Nat}
@@ -650,10 +650,10 @@ theorem source_run_clean {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Sourc
     (hT : brTree fn b = some T) (args : List Nat)
     (hlen : args.length = fn.params.length) (hargs : ∀ a ∈ args, a < 2 ^ 256)
     (hdec : ABI.decodeFunctionArgs? fn (Dirty.argBytes args) = .ok (args.map .word)) :
-    Source.run fuel c { calldata := Abi.calldata sel args, callvalue := 0, storage := σ } =
-      some (T.eval ⟨args, slotValue σ, solHash⟩).obs := by
+    Source.runFrom caller fuel c { calldata := Abi.calldata sel args, callvalue := 0, storage := σ } =
+      some (T.eval ⟨args, slotValue σ, solHash, caller⟩).obs := by
   rw [SolidCore.Refinement.Wide.callAt_of_args sel args hargs σ,
-    SolidCore.Refinement.Wide.run_eq_at hd, SolidCore.Refinement.Wide.map_ofNat_toNat args hargs]
+    SolidCore.Refinement.Wide.run_eq_atFrom caller hd, SolidCore.Refinement.Wide.map_ofNat_toNat args hargs]
   have hdrop : ((EthLib.Base.natToBytes 4 sel).map (·.toNat) ++ Dirty.argBytes args).drop
       ABI.selectorBytes = Dirty.argBytes args := by
     simp [ABI.selectorBytes, EthLib.Base.natToBytes_length]
@@ -662,7 +662,7 @@ theorem source_run_clean {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Sourc
   have hp := (widthsOf_spec hw).2.2.1
   have hr : ∀ r ∈ fn.returns, r.ty = .uint256 ∧ r.isStorageRef = false :=
     fun r hr => wordBinding_ty (List.all_eq_true.mp hret r hr)
-  generalize hctx : ABI.Contract.callContextAtWithBase c.core (Wide.ctxOf c) selfAddress callerAddress 0
+  generalize hctx : ABI.Contract.callContextAtWithBase c.core (Wide.ctxOf c) selfAddress caller 0
     ((EthLib.Base.natToBytes 4 sel).map (·.toNat) ++ Dirty.argBytes args) = ctx
   generalize hst : ({ d with storage := σ.foldl (fun acc kv => acc.insertLoop kv.1 kv.2) d.storage } :
     Source.State) = st0
@@ -670,7 +670,7 @@ theorem source_run_clean {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Sourc
     simp [FunctionDef.acceptsValue, wordEq]
   have hctxv : ctx.value = 0 := by
     subst hctx; simp [ABI.Contract.callContextAtWithBase, SolidCore.Solidity.Shared.norm]
-  set ρ : Val := ⟨args, slotValue σ, solHash⟩ with hρ
+  set ρ : Val := ⟨args, slotValue σ, solHash, caller⟩ with hρ
   have hρok : ρ.Ok := slotValue_store σ
   have hframe : fn.initialFrame? (args.map .word) =
       some (frameOf ρ (paramLocals fn.params 0 ++ fn.returns.map fun r => (r.name, .lit 0))) := by
@@ -689,7 +689,14 @@ theorem source_run_clean {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Sourc
     { fields := by subst hctx; rfl
       events := by subst hctx; rfl
       checked := by subst hctx; rfl
-      sender := by subst hctx; rfl
+      sender := by
+        subst hctx
+        have h256 : caller < SolidCore.Solidity.Shared.wordModulus :=
+          Nat.lt_of_lt_of_le hcaller (by decide)
+        have h160 : caller % 1461501637330902918203684832716283019655932542976 = caller :=
+          Nat.mod_eq_of_lt hcaller
+        simp [ABI.Contract.callContextAtWithBase, SolidCore.Solidity.Shared.norm,
+          Nat.mod_eq_of_lt h256, h160, hρ]
       hash := rfl
       ok := hρok
       frames := rfl
@@ -783,14 +790,14 @@ theorem source_run_clean {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Sourc
 /-- **SolidCore runs a call of a function of the fragment as its erased tree**, from any storage
 `σ` that writes every slot the constructor's entries `s` write, on any argument words below
 `2 ^ 256`, clean or dirty. -/
-theorem source_run {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.State}
+theorem source_run (caller : Nat) (hcaller : caller < 2 ^ 160) {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.State}
     {s : List (Nat × Nat)} (hd : Wide.DeployedAt fuel c d s) {σ : List (Nat × Nat)}
     (hcov : Covers s σ) {sel : Nat} (hsel : sel < 2 ^ 32) {fn : FunctionDef}
     (hfind : c.core.findFunctionBySelector? sel = some fn) {T : Tree}
     (hT : eraseFn (envOf c.core) fuel fn = some T) (args : List Nat)
     (hlen : args.length = fn.params.length) (hargs : ∀ a ∈ args, a < 2 ^ 256) :
-    Source.run fuel c { calldata := Abi.calldata sel args, callvalue := 0, storage := σ } =
-      some (T.eval ⟨args, slotValue σ, solHash⟩).obs := by
+    Source.runFrom caller fuel c { calldata := Abi.calldata sel args, callvalue := 0, storage := σ } =
+      some (T.eval ⟨args, slotValue σ, solHash, caller⟩).obs := by
   unfold eraseFn at hT
   split at hT
   · simp at hT
@@ -800,15 +807,15 @@ theorem source_run {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.Stat
   rename_i hret
   simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at hT
   obtain ⟨b, hb, t, ht, rfl⟩ := hT
-  rw [paramGuards_eval ⟨args, slotValue σ, solHash⟩ t hargs ws 0, List.drop_zero]
+  rw [paramGuards_eval ⟨args, slotValue σ, solHash, caller⟩ t hargs ws 0, List.drop_zero]
   have hdec := decode_args hw args hlen hargs
   by_cases hclean : argsClean ws args = true
   · rw [if_pos hclean]
     rw [if_pos hclean] at hdec
-    exact source_run_clean hd hcov hsel hfind hw hret hb ht args hlen hargs hdec
+    exact source_run_clean caller hcaller hd hcov hsel hfind hw hret hb ht args hlen hargs hdec
   · rw [if_neg hclean]
     rw [if_neg hclean] at hdec
-    rw [run_rejected hd hsel hfind args hdec σ]
+    rw [run_rejected caller hd hsel hfind args hdec σ]
     rfl
 
 end SolidCore.Refinement.Generic

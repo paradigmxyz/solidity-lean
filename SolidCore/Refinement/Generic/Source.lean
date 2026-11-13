@@ -138,7 +138,7 @@ reverting with `Panic(0x11)` when not zero, and its word. -/
 def eraseExpr (fields : List StorageField) (S : SymState) : Expr → Option (List WExpr × WExpr)
   | .word n => some ([], .lit n)
   | .var x => (Scopes.get? S.scopes x).map fun e => ([], e)
-  | .caller => some ([], .lit callerWord)
+  | .caller => some ([], .caller)
   | .castOp .uintCleanup b e => do
     let (gs, v) ← eraseExpr fields S e
     if b = 256 then some (gs, v)
@@ -400,7 +400,7 @@ structure ExprRel (ρ : Val) (fields : List StorageField) (ctx : Context) (rt : 
     (S : SymState) : Prop where
   fields : ctx.storageFields = fields
   checked : ctx.checked = true
-  sender : ctx.sender = callerWord
+  sender : ctx.sender = ρ.caller % 2 ^ 160
   hash : ρ.hash = solHash
   ok : ρ.Ok
   locals : ∀ x e, Scopes.get? S.scopes x = some e → rt.lookupLocal? x = some (.word (e.eval ρ))
@@ -732,7 +732,7 @@ theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
     simp only [eraseExpr, Option.some.injEq, Prod.mk.injEq] at h
     obtain ⟨rfl, rfl⟩ := h
     simp only [Expr.evalFuel, exprResult, List.any_nil, Bool.false_eq_true, ↓reduceIte, WExpr.eval,
-      hrel.sender, callerWord]
+      hrel.sender]
     rfl
   | storageRead m x idx =>
     cases m

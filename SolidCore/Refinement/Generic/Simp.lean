@@ -209,6 +209,7 @@ def bound (K : Facts) : WExpr → Nat
   | .sinit k => K.bound (.sinit k)
   | .sel _ a b => max (bound K a) (bound K b)
   | .hash a b => K.bound (.hash a b)
+  | .caller => 2 ^ 160 - 1
 
 theorem orBound_sound {a b x y : Nat} (ha : a ≤ x) (hb : b ≤ y) {f : Nat → Nat → Nat}
     (hf : ∀ n, a < 2 ^ n → b < 2 ^ n → f a b < 2 ^ n) (v : Nat) (hv : v < wordSize)
@@ -303,6 +304,10 @@ theorem bound_sound {ρ : Val} {K : Facts} (h : K.Hold ρ) : ∀ e : WExpr, e.ev
       binBound_sound h op a b _ _ (bound_sound h a) (bound_sound h b)⟩
   | .sinit k => Facts.bound_sound h _
   | .hash a b => Facts.bound_sound h _
+  | .caller => by
+    simp only [bound, WExpr.eval]
+    have := Nat.mod_lt ρ.caller (show 0 < 2 ^ 160 by decide)
+    omega
   | .sel c a b => by
     simp only [bound, WExpr.eval]
     have := bound_sound h a
@@ -391,6 +396,7 @@ def WExpr.simp (K : Facts) : WExpr → WExpr
       | some false => b.simp K
       | none => .sel (c.simp K) (a.simp K) (b.simp K)
   | .hash a b => .hash (a.simp K) (b.simp K)
+  | .caller => .caller
 
 theorem eval_sAndLit {ρ : Val} {K : Facts} (h : K.Hold ρ) (a : WExpr) {m : Nat}
     (hm : m < wordSize) : (sAndLit K a m).eval ρ = (WExpr.bin .and a (.lit m)).eval ρ := by
@@ -567,6 +573,7 @@ theorem WExpr.eval_simp {ρ : Val} {K : Facts} (h : K.Hold ρ) : ∀ e : WExpr, 
     simp only [WExpr.eval, WExpr.eval_simp h a, WExpr.eval_simp h b]
   | .sinit k => by simp only [WExpr.simp, WExpr.eval, WExpr.eval_simp h k]
   | .hash a b => by simp only [WExpr.simp, WExpr.eval, WExpr.eval_simp h a, WExpr.eval_simp h b]
+  | .caller => rfl
   | .sel c a b => by
     have hc := WExpr.eval_simp h c
     simp only [WExpr.simp]

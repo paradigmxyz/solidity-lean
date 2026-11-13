@@ -555,6 +555,13 @@ def noCaller : SolarTV.MIR.Lowered.Inst → SolarTV.MIR.Lowered.Inst
   | .effect (some 1) .caller [] => .effect (some 1) .calldataload [.const 4]
   | i => i
 
+/-- `deposit` crediting the constant word 0x2000, SolidCore's `callerAddress`, instead of
+`msg.sender`: the generic check reads the caller as a symbolic word (`WExpr.caller`), not as that
+constant, so it tells a module that reads CALLER from one that assumes a fixed caller. -/
+def fixedCaller : SolarTV.MIR.Lowered.Inst → SolarTV.MIR.Lowered.Inst
+  | .effect (some 1) .caller [] => .pure 1 .add [.const 0x2000, .const 0]
+  | i => i
+
 /-- `deposit`'s log with another first topic. -/
 def wrongTopic : SolarTV.MIR.Lowered.Inst → SolarTV.MIR.Lowered.Inst
   | .effect none (.log 2) [a, b, .const t, c] => .effect none (.log 2) [a, b, .const (t + 1), c]
@@ -570,6 +577,12 @@ set_option maxRecDepth 100000 in
 /-- The kernel's evaluation: the check rejects `deposit` crediting its argument word. -/
 theorem check_rejects_caller :
     Generic.check fuel mirFuel coreLit (mapFn 1 noCaller) [fnDeposit] .all = false := by
+  decide +kernel
+
+set_option maxRecDepth 100000 in
+/-- The kernel's evaluation: the check rejects `deposit` crediting the constant 0x2000. -/
+theorem check_rejects_fixedCaller :
+    Generic.check fuel mirFuel coreLit (mapFn 1 fixedCaller) [fnDeposit] .all = false := by
   decide +kernel
 
 set_option maxRecDepth 100000 in
@@ -608,6 +621,25 @@ theorem loweringValue (o : SolarTV.Machine.Oracle) (henv : Generic.SourceEnvOk o
   exact Generic.stageValueEnv o henv hd (by rw [hk]; exact check_stage0)
     (by rw [hk]; exact checkValue_stage0)
 
+/-- **The source stage of `Bank` from any caller**: `lowering` with SolidCore called from the
+account `a` (any address, below `2 ^ 160`), under every oracle whose caller is `a` and whose
+Keccak-256 of two words is SolidCore's (`Generic.SourceEnvOkAt a`). -/
+theorem loweringFrom (a : Nat) (ha : a < 2 ^ 160) (o : SolarTV.Machine.Oracle)
+    (henv : Generic.SourceEnvOkAt a o) {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) :
+    Stage (solidCoreFrom a fuel) (SolarTV.MIR.Lowered.moduleSem o) c
+      SolarTV.Export.Bank.stage0 (fun call => ∃ σ, fullScope fns σ call) := by
+  obtain ⟨hk, d, hd⟩ := deployed_of hc
+  exact Generic.stageEnvFrom a ha o henv hd (by rw [hk]; exact check_stage0)
+
+/-- **The source stage of `Bank` at every value from any caller**. -/
+theorem loweringValueFrom (a : Nat) (ha : a < 2 ^ 160) (o : SolarTV.Machine.Oracle)
+    (henv : Generic.SourceEnvOkAt a o) {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) :
+    Stage (solidCoreFrom a fuel) (SolarTV.MIR.Lowered.moduleSem o) c
+      SolarTV.Export.Bank.stage0 (fun call => ∃ σ v, Generic.fullScopeValue fns σ v call) := by
+  obtain ⟨hk, d, hd⟩ := deployed_of hc
+  exact Generic.stageValueEnvFrom a ha o henv hd (by rw [hk]; exact check_stage0)
+    (by rw [hk]; exact checkValue_stage0)
+
 #print axioms selector_eq
 
 #print axioms digest_eq
@@ -624,8 +656,14 @@ theorem loweringValue (o : SolarTV.Machine.Oracle) (henv : Generic.SourceEnvOk o
 
 #print axioms check_rejects_topic
 
+#print axioms check_rejects_fixedCaller
+
 #print axioms lowering
 
 #print axioms loweringValue
+
+#print axioms loweringFrom
+
+#print axioms loweringValueFrom
 
 end SolidCore.Refinement.Solar.Bank

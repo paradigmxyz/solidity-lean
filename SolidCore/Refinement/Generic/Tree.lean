@@ -88,6 +88,8 @@ inductive WExpr where
   | sel (c a b : WExpr)
   /-- The hash of the 64 bytes of the two words, big-endian (`Val.hash`). -/
   | hash (a b : WExpr)
+  /-- The account that sent the call, an address (`Val.caller`, below `2 ^ 160`). -/
+  | caller
   deriving DecidableEq, Repr
 
 /-- What a call reads: its argument words, the callee's storage before it, and the hash of two
@@ -97,6 +99,8 @@ structure Val where
   args : List Nat
   store : Nat → Nat
   hash : Nat → Nat → Nat
+  /-- The account that sent the call (`WExpr.caller` reads it below `2 ^ 160`). -/
+  caller : Nat
 
 /-- The value of a word of the call, below `2 ^ 256`. -/
 def WExpr.eval (ρ : Val) : WExpr → Nat
@@ -108,6 +112,7 @@ def WExpr.eval (ρ : Val) : WExpr → Nat
   | .sinit k => ρ.store (k.eval ρ) % wordSize
   | .sel c a b => if c.eval ρ = 0 then b.eval ρ else a.eval ρ
   | .hash a b => ρ.hash (a.eval ρ) (b.eval ρ) % wordSize
+  | .caller => ρ.caller % 2 ^ 160
 
 theorem WExpr.eval_lt (ρ : Val) : ∀ e : WExpr, e.eval ρ < wordSize
   | .sel c a b => by
@@ -117,6 +122,7 @@ theorem WExpr.eval_lt (ρ : Val) : ∀ e : WExpr, e.eval ρ < wordSize
     · exact WExpr.eval_lt ρ a
   | .lit _ | .arg _ | .init _ | .un _ _ | .bin _ _ _ | .sinit _ | .hash _ _ =>
     Nat.mod_lt _ (by decide)
+  | .caller => Nat.lt_of_lt_of_le (Nat.mod_lt _ (by decide)) (by decide)
 
 theorem eval_bin (ρ : Val) (op : BinOp) (a b : WExpr) :
     (WExpr.bin op a b).eval ρ = op.eval (a.eval ρ) (b.eval ρ) % wordSize := rfl
@@ -385,6 +391,7 @@ def WExpr.norm : WExpr → WExpr
   | .sinit k => .sinit k.norm
   | .sel c a b => mkSel c.norm a.norm b.norm
   | .hash a b => .hash a.norm b.norm
+  | .caller => .caller
 
 theorem WExpr.eval_norm (ρ : Val) : ∀ e : WExpr, e.norm.eval ρ = e.eval ρ
   | .lit n => by simp [WExpr.norm, WExpr.eval, Nat.mod_mod]
@@ -398,6 +405,7 @@ theorem WExpr.eval_norm (ρ : Val) : ∀ e : WExpr, e.norm.eval ρ = e.eval ρ
     rw [WExpr.norm, eval_mkSel]
     simp only [WExpr.eval, WExpr.eval_norm ρ c, WExpr.eval_norm ρ a, WExpr.eval_norm ρ b]
   | .hash a b => by simp only [WExpr.norm, WExpr.eval, WExpr.eval_norm ρ a, WExpr.eval_norm ρ b]
+  | .caller => rfl
 
 /-- A byte of output, a literal when its word is a constant. -/
 def OByte.norm : OByte → OByte

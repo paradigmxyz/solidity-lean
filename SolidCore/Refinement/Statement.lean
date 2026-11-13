@@ -91,6 +91,28 @@ def result? (fuel : Nat) (contract : TypeCheck.CheckedContract) (call : Call) :
       (call.calldata.data.toList.map (·.toNat))
   | _ => none
 
+/-- SolidCore's result for `call` from the account `caller`: the contract is constructed as
+`result?` constructs it (from `callerAddress`, its deployer), its storage replaced with the
+call's, and then called through the ABI dispatcher from `caller`, which the dispatcher's call
+context takes as `msg.sender`. From `callerAddress` it is `result?`
+(`resultFrom?_callerAddress`). -/
+def resultFrom? (caller : Nat) (fuel : Nat) (contract : TypeCheck.CheckedContract) (call : Call) :
+    Option TypeCheck.CoreAbiCallResult :=
+  let base := contract.core.context
+  let context :=
+    { base with sender := callerAddress, self := selfAddress, value := call.callvalue }
+  match TypeCheck.CheckedContract.constructWithContext? fuel contract context
+      State.empty selfAddress 0 [] with
+  | some (CallResult.returned deployed _) =>
+    let storage := call.storage.foldl
+      (fun acc kv => StorageMap.insertLoop acc kv.1 kv.2) deployed.storage
+    TypeCheck.CheckedContract.callCalldataAtFromWithContext? fuel contract context
+      { deployed with storage := storage } selfAddress caller call.callvalue
+      (call.calldata.data.toList.map (·.toNat))
+  | _ => none
+
+theorem resultFrom?_callerAddress : resultFrom? callerAddress = result? := rfl
+
 /-- What `result` shows outside the callee. -/
 def observe (call : Call) (result : TypeCheck.CoreAbiCallResult) : Observable :=
   { success := result.success
@@ -106,6 +128,13 @@ def observe (call : Call) (result : TypeCheck.CoreAbiCallResult) : Observable :=
 def run (fuel : Nat) (contract : TypeCheck.CheckedContract) (call : Call) :
     Option Observable :=
   (result? fuel contract call).map (observe call)
+
+/-- Run `call` against `contract` in SolidCore with `fuel`, from the account `caller`. -/
+def runFrom (caller : Nat) (fuel : Nat) (contract : TypeCheck.CheckedContract) (call : Call) :
+    Option Observable :=
+  (resultFrom? caller fuel contract call).map (observe call)
+
+theorem runFrom_callerAddress : runFrom callerAddress = run := rfl
 
 end Source
 
@@ -177,6 +206,67 @@ def run (code : ByteArray) (call : Call) : Option Observable :=
         storage := fun slot =>
           if success then (evm.state.getStorage (address selfAddress) (storageKey slot)).toNat
           else slotValue call.storage slot }
+
+/-- The transaction of a call from the account `caller`, its origin. -/
+def txEnvFrom (caller : Nat) : TransactionEnvironment .fusaka :=
+  { origin := address caller, gasPrice := 0, blobVersionedHashes := fun _ => [] }
+
+/-- The state before a call from the account `caller`: `code` at `selfAddress` with the
+call's storage, and `caller` holding exactly the call value. -/
+def preStateFrom (caller : Nat) (code : ByteArray) (call : Call) : TransactionState :=
+  let hash := EthLib.Cryptography.Hash.Keccak.keccak256 code
+  let storage : Std.ExtTreeMap Bytes32 U256 :=
+    call.storage.foldl (fun m kv => m.insert (storageKey kv.1) (BitVec.ofNat 256 kv.2)) ∅
+  let pre : State :=
+    { accounts := ((∅ : Std.ExtTreeMap Address Account).insert (address selfAddress)
+          { nonce := 1, balance := 0, codeHash := hash }).insert (address caller)
+          { nonce := 0, balance := BitVec.ofNat 256 call.callvalue,
+            codeHash := EthLib.Cryptography.Hash.Keccak.keccak256 .empty },
+      storage := (∅ : Std.ExtTreeMap Address (Std.ExtTreeMap Bytes32 U256)).insert
+        (address selfAddress) storage,
+      code := (∅ : Std.ExtTreeMap Hash32 ByteArray).insert hash code }
+  TransactionState.ofBlock
+    { preState := pre, accountWrites := ∅, storageWrites := ∅, codeWrites := ∅,
+      storageClears := ∅ }
+
+/-- The message of a call from the account `caller`: `gasLimit` gas to `selfAddress`. -/
+def messageFrom (caller : Nat) (code : ByteArray) (call : Call) : Message .fusaka :=
+  { blockEnv, txEnv := txEnvFrom caller, caller := address caller,
+    target := some (address selfAddress),
+    currentTarget := address selfAddress, gas := gasLimit, value := call.callvalue,
+    data := call.calldata, codeAddress := some (address selfAddress),
+    code, depth := 0, shouldTransferValue := true, isStatic := false,
+    disablePrecompiles := false }
+
+/-- Run `call` against `code` in EthLib from the account `caller` (its sender and origin).
+From `callerAddress` it is `run` (`runFrom_callerAddress`). -/
+def runFrom (caller : Nat) (code : ByteArray) (call : Call) : Option Observable :=
+  match processMessage (Meter := Nat) .fusaka (messageFrom caller code call)
+      (preStateFrom caller code call) Substate.empty with
+  | .error _ => none
+  | .ok ⟨evm, _⟩ =>
+    let success := evm.error.isNone
+    some
+      { success
+        output := evm.output.toList.map (·.toNat)
+        logs :=
+          if success then
+            evm.substate.logs.toList.map fun log =>
+              (log.topics.map fun topic => bytesToNat topic.toList,
+                log.data.toList.map (·.toNat))
+          else []
+        storage := fun slot =>
+          if success then (evm.state.getStorage (address selfAddress) (storageKey slot)).toNat
+          else slotValue call.storage slot }
+
+theorem preStateFrom_callerAddress : preStateFrom callerAddress = preState := rfl
+
+theorem messageFrom_callerAddress : messageFrom callerAddress = message := rfl
+
+theorem runFrom_callerAddress : runFrom callerAddress = run := by
+  funext code call
+  simp only [runFrom, run, messageFrom_callerAddress, preStateFrom_callerAddress]
+  split <;> rename_i h <;> rw [h]
 
 end Target
 

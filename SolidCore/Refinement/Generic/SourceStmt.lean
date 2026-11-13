@@ -334,14 +334,14 @@ def logOf (ev : Event) : List Nat × List Nat :=
     SolidCore.Solidity.Shared.Account.normalizeBytes ev.dataBytes)
 
 /-- What SolidCore's runtime holds of a symbolic state inside a function body: the context's
-storage fields and events are the erasure's, arithmetic is checked, the caller is `callerWord`,
+storage fields and events are the erasure's, arithmetic is checked, the caller is the call's, `ρ.caller`,
 the hash is SolidCore's, the locals are the state's scopes, every slot holds the word the writes
 leave there, and the events are the state's logs. -/
 structure StmtRel (ρ : Val) (E : EraseEnv) (ctx : Context) (rt : Runtime) (S : SymState) : Prop where
   fields : ctx.storageFields = E.fields
   events : ctx.eventDecls = E.events
   checked : ctx.checked = true
-  sender : ctx.sender = callerWord
+  sender : ctx.sender = ρ.caller % 2 ^ 160
   hash : ρ.hash = solHash
   ok : ρ.Ok
   frames : rt.locals = S.scopes.map (frameOf ρ)

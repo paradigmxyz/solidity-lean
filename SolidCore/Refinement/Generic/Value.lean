@@ -62,14 +62,14 @@ theorem fullScopeValue_zero (fns : List Fn) (s : List (Nat × Nat)) (call : Call
 
 /-- **SolidCore rejects a value**: a call with a value other than 0 of a non-payable function of
 the fragment, on any argument words, reverts with empty output and leaves the storage. -/
-theorem source_run_value {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.State}
+theorem source_run_value (caller : Nat) {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.State}
     {s : List (Nat × Nat)} (hd : Wide.DeployedAt fuel c d s) {sel : Nat} (hsel : sel < 2 ^ 32)
     {fn : FunctionDef} (hfind : c.core.findFunctionBySelector? sel = some fn)
     {ws : List Nat} (hw : widthsOf fn.params fn.paramAbiCleanups = some ws)
     (hpay : fn.payable = false) (args : List Nat)
     (hlen : args.length = fn.params.length) (hargs : ∀ a ∈ args, a < 2 ^ 256) {v : Nat}
     (hv0 : v ≠ 0) (hv : v < 2 ^ 256) (σ : List (Nat × Nat)) :
-    Source.run fuel c { calldata := Abi.calldata sel args, callvalue := v, storage := σ } =
+    Source.runFrom caller fuel c { calldata := Abi.calldata sel args, callvalue := v, storage := σ } =
       some (rejected σ) := by
   obtain ⟨s0, hdep⟩ := deployedStorage_of hd
   unfold Abi.deployedStorage at hdep
@@ -91,7 +91,7 @@ theorem source_run_value {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Sourc
   have hvm : v % SolidCore.Solidity.Shared.wordModulus = v := Nat.mod_eq_of_lt hv
   have hacc : fn.acceptsValue v = false := by
     simp [FunctionDef.acceptsValue, hpay, wordEq, SolidCore.Solidity.Shared.norm, hvm, hv0]
-  simp only [Source.run, Source.result?, hcons',
+  simp only [Source.runFrom, Source.resultFrom?, hcons',
     TypeCheck.CheckedContract.callCalldataAtFromWithContext?,
     ABI.Contract.callCalldataAtFromWithContext?, Dirty.bytes_calldata,
     Dirty.readSelector_calldata _ hsel, hfind]
@@ -147,21 +147,21 @@ def checkValue (mirFuel : Nat) (core : Contract) (m : Module) (fns : List Fn) (e
 
 /-! ## The stage -/
 
-/-- The generic source stage at every value for `check` and `checkValue` with the environment flag
-`env`, under every oracle when the flag is off and every oracle `SourceEnvOk` describes when it is
-on. -/
-theorem stageAtValueWith (o : Oracle) {fuel mirFuel : Nat} {c : TypeCheck.CheckedContract}
-    {d : Source.State} {s : List (Nat × Nat)}
+/-- **The generic source stage at every value from any caller**, for `check` and `checkValue` with
+the environment flag `env`: SolidCore called from the account `a` below `2 ^ 160`, under every
+oracle when the flag is off and every oracle `SourceAskAt a env` describes when it is on. -/
+theorem stageAtValueWithFrom (a : Nat) (ha : a < 2 ^ 160) (o : Oracle) {fuel mirFuel : Nat}
+    {c : TypeCheck.CheckedContract} {d : Source.State} {s : List (Nat × Nat)}
     (hd : SolidCore.Refinement.Wide.DeployedAt fuel c d s)
-    {m : Module} {fns : List Fn} {env : EnvFlags} (henv : SourceAsk env o)
+    {m : Module} {fns : List Fn} {env : EnvFlags} (henv : SourceAskAt a env o)
     (hchk : check fuel mirFuel c.core m fns env = true)
     (hval : checkValue mirFuel c.core m fns env = true) :
-    Stage (solidCore fuel) (moduleSem o) c m
+    Stage (solidCoreFrom a fuel) (moduleSem o) c m
       (fun call => ∃ σ v, Covers s σ ∧ fullScopeValue fns σ v call) := by
   rintro _ ⟨σ, v, hcov, hv, f, hf, args, hlen, hargs, rfl⟩ obs hrun
   by_cases hv0 : v = 0
   · subst hv0
-    exact stageAtWith o hd henv hchk _ ⟨σ, hcov, f, hf, args, hlen, hargs, rfl⟩ obs hrun
+    exact stageAtWithFrom a ha o hd henv hchk _ ⟨σ, hcov, f, hf, args, hlen, hargs, rfl⟩ obs hrun
   have hcf := List.all_eq_true.mp hchk f hf
   have hcv := List.all_eq_true.mp hval f hf
   unfold checkFn at hcf
@@ -180,12 +180,12 @@ theorem stageAtValueWith (o : Oracle) {fuel mirFuel : Nat} {c : TypeCheck.Checke
   simp only [hfind, ht2, Bool.and_eq_true, Bool.not_eq_true'] at hcv
   obtain ⟨hpay, hrev⟩ := hcv
   obtain ⟨ws, hw⟩ := eraseFn_widths ht1
-  have hsrc := source_run_value hd hsel hfind hw hpay args (by rw [hlen, hpl]) hargs hv0 hv σ
-  change Source.run fuel c _ = some obs at hrun
+  have hsrc := source_run_value a hd hsel hfind hw hpay args (by rw [hlen, hpl]) hargs hv0 hv σ
+  change Source.runFrom a fuel c _ = some obs at hrun
   rw [hsrc] at hrun
   cases hrun
-  have hc0 := callFacts f.sel hsel args hargs σ
-  have hcfv : CallFactsAt .paid f.sel args.length ⟨args, slotValue σ, solHash⟩
+  have hc0 := callFacts a f.sel hsel args hargs σ
+  have hcfv : CallFactsAt .paid f.sel args.length ⟨args, slotValue σ, solHash, a⟩
       { calldata := Abi.calldata f.sel args, callvalue := v, storage := σ } :=
     { value := by
         show BitVec.ofNat 256 v ≠ 0
@@ -200,8 +200,21 @@ theorem stageAtValueWith (o : Oracle) {fuel mirFuel : Nat} {c : TypeCheck.Checke
       store := hc0.store
       ok := hc0.ok }
   rw [← hlen] at ht2
-  rw [symTreeValue_sound hcfv o m (henv.envAsk _ _) ht2, Tree.eval_revertsEmpty _ _ hrev]
+  rw [symTreeValue_sound hcfv o m (henv.envAsk ha _ _) ht2, Tree.eval_revertsEmpty _ _ hrev]
   rfl
+
+/-- The generic source stage at every value for `check` and `checkValue` with the environment flag
+`env`, under every oracle when the flag is off and every oracle `SourceEnvOk` describes when it is
+on. -/
+theorem stageAtValueWith (o : Oracle) {fuel mirFuel : Nat} {c : TypeCheck.CheckedContract}
+    {d : Source.State} {s : List (Nat × Nat)}
+    (hd : SolidCore.Refinement.Wide.DeployedAt fuel c d s)
+    {m : Module} {fns : List Fn} {env : EnvFlags} (henv : SourceAsk env o)
+    (hchk : check fuel mirFuel c.core m fns env = true)
+    (hval : checkValue mirFuel c.core m fns env = true) :
+    Stage (solidCore fuel) (moduleSem o) c m
+      (fun call => ∃ σ v, Covers s σ ∧ fullScopeValue fns σ v call) :=
+  stageAtValueWithFrom callerAddress (by decide) o hd henv.at hchk hval
 
 /-- **The generic source stage at every value**: a checked contract whose constructor leaves the
 storage entries `s` and no logs and a lowered MIR module that `check` and `checkValue` accept give
@@ -280,6 +293,31 @@ theorem stageValueCaller (o : Oracle) (henv : CallerOk o) {fuel mirFuel : Nat}
     (hval : checkValue mirFuel c.core m fns .callerOnly = true) :
     Stage (solidCore fuel) (moduleSem o) c m (fun call => ∃ σ v, fullScopeValue fns σ v call) :=
   SolarTV.Stage.mono (stageAtValueWith o hd henv.ask hchk hval) fun _ ⟨σ, v, h⟩ =>
+    ⟨σ, v, fun _ hkv => absurd hkv List.not_mem_nil, h⟩
+
+/-- The generic source stage at every value with the environment flag from any caller, for a
+contract whose constructor leaves no storage, from any storage, under every oracle
+`SourceEnvOkAt a` describes. -/
+theorem stageValueEnvFrom (a : Nat) (ha : a < 2 ^ 160) (o : Oracle) (henv : SourceEnvOkAt a o)
+    {fuel mirFuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.State}
+    (hd : SolidCore.Refinement.Wide.DeployedAt fuel c d []) {m : Module}
+    {fns : List Fn} (hchk : check fuel mirFuel c.core m fns .all = true)
+    (hval : checkValue mirFuel c.core m fns .all = true) :
+    Stage (solidCoreFrom a fuel) (moduleSem o) c m
+      (fun call => ∃ σ v, fullScopeValue fns σ v call) :=
+  SolarTV.Stage.mono (stageAtValueWithFrom a ha o hd henv.ask hchk hval) fun _ ⟨σ, v, h⟩ =>
+    ⟨σ, v, fun _ hkv => absurd hkv List.not_mem_nil, h⟩
+
+/-- The caller-only stage at every value from any caller, for a contract whose constructor leaves
+no storage, from any storage, under every oracle whose caller is `a`. -/
+theorem stageValueCallerFrom (a : Nat) (ha : a < 2 ^ 160) (o : Oracle) (henv : CallerAt a o)
+    {fuel mirFuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.State}
+    (hd : SolidCore.Refinement.Wide.DeployedAt fuel c d []) {m : Module}
+    {fns : List Fn} (hchk : check fuel mirFuel c.core m fns .callerOnly = true)
+    (hval : checkValue mirFuel c.core m fns .callerOnly = true) :
+    Stage (solidCoreFrom a fuel) (moduleSem o) c m
+      (fun call => ∃ σ v, fullScopeValue fns σ v call) :=
+  SolarTV.Stage.mono (stageAtValueWithFrom a ha o hd henv.ask hchk hval) fun _ ⟨σ, v, h⟩ =>
     ⟨σ, v, fun _ hkv => absurd hkv List.not_mem_nil, h⟩
 
 end SolidCore.Refinement.Generic

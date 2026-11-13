@@ -215,6 +215,13 @@ def noCaller : SolarTV.MIR.Lowered.Inst → SolarTV.MIR.Lowered.Inst
   | .effect (some 3) .caller [] => .effect (some 3) .calldataload [.const 36]
   | i => i
 
+/-- `transfer` logging the constant word 0x2000, SolidCore's `callerAddress`, as the caller topic:
+the generic check reads the caller as a symbolic word (`WExpr.caller`), not as that constant, so it
+tells a module that reads CALLER from one that assumes a fixed caller. -/
+def fixedCaller : SolarTV.MIR.Lowered.Inst → SolarTV.MIR.Lowered.Inst
+  | .effect (some 3) .caller [] => .pure 3 .add [.const 0x2000, .const 0]
+  | i => i
+
 /-- `transfer`'s log with another signature topic. -/
 def wrongTopic : SolarTV.MIR.Lowered.Inst → SolarTV.MIR.Lowered.Inst
   | .effect none (.log 3) [a, b, .const t, c, d] => .effect none (.log 3) [a, b, .const (t + 1), c, d]
@@ -229,6 +236,13 @@ set_option maxRecDepth 100000 in
 /-- The kernel's evaluation: the check rejects `transfer` logging the value as the caller. -/
 theorem check_rejects_caller :
     Generic.check fuel mirFuel coreLit (mapFn 0 noCaller) fns .callerOnly = false := by
+  decide +kernel
+
+set_option maxRecDepth 100000 in
+/-- The kernel's evaluation: the check rejects `transfer` logging the constant 0x2000 for the
+caller. -/
+theorem check_rejects_fixedCaller :
+    Generic.check fuel mirFuel coreLit (mapFn 0 fixedCaller) fns .callerOnly = false := by
   decide +kernel
 
 set_option maxRecDepth 100000 in
@@ -273,6 +287,25 @@ theorem loweringValue (o : SolarTV.Machine.Oracle) (henv : Generic.CallerOk o)
   exact Generic.stageValueCaller o henv hd (by rw [hk]; exact check_stage0)
     (by rw [hk]; exact checkValue_stage0)
 
+/-- **The source stage of `Events` from any caller**: `lowering` with SolidCore called from the
+account `a` (any address, below `2 ^ 160`), under every oracle whose caller is `a`
+(`Generic.CallerAt a`). -/
+theorem loweringFrom (a : Nat) (ha : a < 2 ^ 160) (o : SolarTV.Machine.Oracle)
+    (henv : Generic.CallerAt a o) {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) :
+    Stage (solidCoreFrom a fuel) (SolarTV.MIR.Lowered.moduleSem o) c
+      SolarTV.Export.Events.stage0 (fun call => ∃ σ, fullScope fns σ call) := by
+  obtain ⟨hk, d, hd⟩ := deployed_of hc
+  exact Generic.stageCallerFrom a ha o henv hd (by rw [hk]; exact check_stage0)
+
+/-- **The source stage of `Events` at every value from any caller**. -/
+theorem loweringValueFrom (a : Nat) (ha : a < 2 ^ 160) (o : SolarTV.Machine.Oracle)
+    (henv : Generic.CallerAt a o) {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) :
+    Stage (solidCoreFrom a fuel) (SolarTV.MIR.Lowered.moduleSem o) c
+      SolarTV.Export.Events.stage0 (fun call => ∃ σ v, Generic.fullScopeValue fns σ v call) := by
+  obtain ⟨hk, d, hd⟩ := deployed_of hc
+  exact Generic.stageValueCallerFrom a ha o henv hd (by rw [hk]; exact check_stage0)
+    (by rw [hk]; exact checkValue_stage0)
+
 #print axioms selector_eq
 
 #print axioms digest_eq
@@ -287,10 +320,16 @@ theorem loweringValue (o : SolarTV.Machine.Oracle) (henv : Generic.CallerOk o)
 
 #print axioms check_rejects_topic
 
+#print axioms check_rejects_fixedCaller
+
 #print axioms check_rejects_order
 
 #print axioms lowering
 
 #print axioms loweringValue
+
+#print axioms loweringFrom
+
+#print axioms loweringValueFrom
 
 end SolidCore.Refinement.Solar.Events

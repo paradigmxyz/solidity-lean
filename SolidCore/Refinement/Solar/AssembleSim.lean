@@ -747,6 +747,14 @@ def ethOracle (o : SolarTV.Machine.Oracle) : SolarTV.Machine.Oracle :=
   { o with caller := BitVec.ofNat 160 callerAddress,
            keccak := fun bytes => keccak ⟨(bytes.map UInt8.ofBitVec).toArray⟩ }
 
+/-- An oracle whose CALLER is the account `a`, the caller of `Target.runFrom a`'s calls, and whose
+hash is EthLib's. `OracleOk` is the case of `callerAddress` (`OracleOk.at`). -/
+def OracleOkAt (a : Nat) (o : SolarTV.Machine.Oracle) : Prop :=
+  o.caller.setWidth 256 = (Target.address a).toU256 ∧
+    ∀ bytes, o.keccak bytes = keccak ⟨(bytes.map UInt8.ofBitVec).toArray⟩
+
+theorem OracleOk.at {o : SolarTV.Machine.Oracle} (h : OracleOk o) : OracleOkAt callerAddress o := h
+
 theorem ethOracle_ok (o : SolarTV.Machine.Oracle) : OracleOk (ethOracle o) :=
   ⟨show (BitVec.ofNat 160 callerAddress).setWidth 256 = (Target.address callerAddress).toU256 by
     decide +kernel, fun _ => rfl⟩
@@ -770,9 +778,10 @@ open SolarTV.EVM.Program in
 runs them. -/
 theorem exec_sim {p : Program} {c : Cert} {code : ByteArray} (G : Glob p c code)
     {o : SolarTV.Machine.Oracle} {call : SolarTV.Call} {msg : Message .fusaka} {ss0 : Substate}
+    {a : Nat}
     (hdata : msg.data = call.calldata) (hvalue : msg.value = BitVec.ofNat 256 call.callvalue)
     (hstatic : msg.isStatic = false) (hself : msg.currentTarget = Target.address selfAddress)
-    (hcaller : msg.caller = Target.address callerAddress) (ho : c.env = true → OracleOk o)
+    (hcaller : msg.caller = Target.address a) (ho : c.env = true → OracleOkAt a o)
     (b : Nat) (hb : b < p.blocks.length) :
     ∀ (is : List Instr) (h : Nat) (known : List Word) (ty : List Ty) (S T : List Word) (k : Nat)
       (s : SolarTV.Machine.State) (pc : Nat) (M : ByteArray) (g : Nat)
@@ -1391,9 +1400,10 @@ open SolarTV.EVM.Program in
 to the observable SolarTV's run ends with. -/
 theorem run_sim {p : Program} {c : Cert} {code : ByteArray} (G : Glob p c code)
     {o : SolarTV.Machine.Oracle} {call : SolarTV.Call} {msg : Message .fusaka} {ss0 : Substate}
+    {a : Nat}
     (hdata : msg.data = call.calldata) (hvalue : msg.value = BitVec.ofNat 256 call.callvalue)
     (hstatic : msg.isStatic = false) (hself : msg.currentTarget = Target.address selfAddress)
-    (hcaller : msg.caller = Target.address callerAddress) (ho : c.env = true → OracleOk o) :
+    (hcaller : msg.caller = Target.address a) (ho : c.env = true → OracleOkAt a o) :
     ∀ (fuel b : Nat) (S T : List Word) (s : SolarTV.Machine.State) (pc : Nat) (M : ByteArray)
       (g : Nat) (st : State.TransactionState) (ss : Substate)
       (r : SolarTV.Machine.Halt × SolarTV.Machine.State),
@@ -1762,6 +1772,210 @@ theorem run_of_rel (code : ByteArray) (call : SolarTV.Call) (s : SolarTV.Machine
       · simp [(hfail hs).2]
       · simp only [ite_true]
         exact (hst hs).2 slot
+
+section CallFrom
+
+open EthLib.Execution.State
+
+/-! ## Calls from any caller
+
+`Target.runFrom a` is `Target.run` with the account `a` as the caller and origin, holding the
+call's value. The lemmas above hold for it as long as `a`'s account is not the contract's
+(`Target.address selfAddress ≠ Target.address a`): the contract's account and storage are the
+same, the caller holds exactly the call's value, and CALLER is `a`. -/
+
+/-- The word of the address of a number below `2 ^ 160` is the number. -/
+theorem address_toNat {n : Nat} (h : n < 2 ^ 160) : (Target.address n).toU256.toNat = n := by
+  have h20 : n < 256 ^ 20 := by simpa using h
+  simp only [Address.toU256, Target.address, BitVec.toNat_ofNat]
+  rw [show (⟨(natToBytes 20 n).toArray, _⟩ : Address).toList = natToBytes 20 n from rfl,
+    bytesToNat_natToBytes_of_lt h20]
+  exact Nat.mod_eq_of_lt (Nat.lt_trans h (by decide))
+
+/-- The address of an account below `2 ^ 160` other than `selfAddress` is not the contract's. -/
+theorem address_ne_self {a : Nat} (ha : a < 2 ^ 160) (hne : a ≠ selfAddress) :
+    Target.address selfAddress ≠ Target.address a := fun h => by
+  apply hne
+  have : (Target.address selfAddress).toU256.toNat = (Target.address a).toU256.toNat :=
+    congrArg (fun x : Address => x.toU256.toNat) h
+  rw [address_toNat ha, address_toNat (show selfAddress < 2 ^ 160 by decide)] at this
+  exact this.symm
+
+theorem precompileAddress_messageFrom (a : Nat) (code : ByteArray) (call : SolarTV.Call) :
+    precompileAddress .fusaka (Target.messageFrom a code call) = none := by
+  have h := precompileAddress_message code call
+  unfold precompileAddress at h ⊢
+  exact h
+
+theorem getStorage_preStateFrom (a : Nat) (code : ByteArray) (call : SolarTV.Call) (k : Nat) :
+    ((Target.preStateFrom a code call).getStorage (Target.address selfAddress)
+      (Target.storageKey k)).toNat = slotValue call.storage k := by
+  simp only [Target.preStateFrom, TransactionState.getStorage, TransactionState.ofBlock,
+    StorageMap.slot, State.getStorage]
+  simp
+  exact getD_foldl_insert _ _ _ _ (by simp)
+
+theorem getAccount_preStateFrom_self (a : Nat) (hAB : Target.address selfAddress ≠ Target.address a)
+    (code : ByteArray) (call : SolarTV.Call) :
+    (Target.preStateFrom a code call).getAccount (Target.address selfAddress) =
+      { nonce := 1, balance := 0, codeHash := EthLib.Cryptography.Hash.Keccak.keccak256 code } := by
+  simp only [Target.preStateFrom, TransactionState.getAccount, TransactionState.getAccountOptional,
+    TransactionState.ofBlock, State.getAccountOptional]
+  rw [Std.ExtTreeMap.getElem?_insert, ite_eq_right (fun h => absurd (Std.LawfulEqCmp.eq_of_compare h).symm hAB),
+    Std.ExtTreeMap.getElem?_insert, ite_eq_left (Std.ReflCmp.compare_self)]
+  simp
+
+theorem account_preStateFrom (a : Nat) (hAB : Target.address selfAddress ≠ Target.address a)
+    (code : ByteArray) (call : SolarTV.Call) :
+    (Target.preStateFrom a code call).getAccountOptional (Target.address selfAddress) ≠ none := by
+  simp only [Target.preStateFrom, TransactionState.getAccountOptional, TransactionState.ofBlock,
+    State.getAccountOptional]
+  rw [Std.ExtTreeMap.getElem?_insert, ite_eq_right (fun h => absurd (Std.LawfulEqCmp.eq_of_compare h).symm hAB),
+    Std.ExtTreeMap.getElem?_insert, ite_eq_left (Std.ReflCmp.compare_self)]
+  simp
+
+theorem getAccount_preStateFrom_caller (a : Nat) (code : ByteArray) (call : SolarTV.Call) :
+    ((Target.preStateFrom a code call).getAccount (Target.address a)).balance =
+      BitVec.ofNat 256 call.callvalue := by
+  simp only [Target.preStateFrom, TransactionState.getAccount, TransactionState.getAccountOptional,
+    TransactionState.ofBlock, State.getAccountOptional]
+  simp
+
+/-- `rel_initial` from the account `a`. -/
+theorem rel_initialFrom (a : Nat) (hAB : Target.address selfAddress ≠ Target.address a)
+    (code : ByteArray) (call : SolarTV.Call) :
+    Rel (Target.messageFrom a code call) Substate.empty (Target.preStateFrom a code call)
+      Substate.empty (SolarTV.Machine.State.initial call) := by
+  have htgt : (Target.messageFrom a code call).currentTarget = Target.address selfAddress := rfl
+  refine ⟨fun k => ?_, ?_, ⟨[], by simp, .nil⟩⟩
+  · apply BitVec.eq_of_toNat_eq
+    have hkey : U256.toBeBytes k = Target.storageKey k.toNat :=
+      ((storageKey_eq_toBeBytes k.toNat k).2 (Nat.mod_eq_of_lt k.isLt)).symm
+    rw [htgt, hkey, getStorage_preStateFrom a code call k.toNat]
+    simp only [SolarTV.Machine.State.initial, BitVec.toNat_ofNat]
+    exact (Nat.mod_eq_of_lt (slotValue_lt _ _)).symm
+  · rw [htgt]
+    exact Option.isSome_iff_ne_none.2 (account_preStateFrom a hAB code call)
+
+/-- `moveEther_preState_any` from the account `a`. -/
+theorem moveEther_preStateFrom_any (a : Nat) (hAB : Target.address selfAddress ≠ Target.address a)
+    (code : ByteArray) (call : SolarTV.Call) :
+    ∃ st', (Target.preStateFrom a code call).moveEther .fusaka (Target.address a)
+      (Target.address selfAddress) (BitVec.ofNat 256 call.callvalue) = .ok st' := by
+  have hd : Account.debit (Target.address a) (BitVec.ofNat 256 call.callvalue)
+      ((Target.preStateFrom a code call).getAccount (Target.address a)) =
+      .ok { (Target.preStateFrom a code call).getAccount (Target.address a) with
+        balance := 0 } := by
+    simp [Account.debit, getAccount_preStateFrom_caller]
+  obtain ⟨t1, h1⟩ := modifyState_exists (fork := .fusaka) hd
+  have ha1 := (modifyState_ne h1 hAB (Target.storageKey 0)).2
+  have hc : Account.credit (Target.address selfAddress) (BitVec.ofNat 256 call.callvalue)
+      (t1.getAccount (Target.address selfAddress)) =
+      .ok { t1.getAccount (Target.address selfAddress) with
+        balance := 0 + BitVec.ofNat 256 call.callvalue } := by
+    have : t1.getAccount (Target.address selfAddress) =
+        (Target.preStateFrom a code call).getAccount (Target.address selfAddress) := by
+      simp only [TransactionState.getAccount, ha1]
+    rw [this, getAccount_preStateFrom_self a hAB]
+    unfold Account.credit
+    rw [ite_eq_left_iff.mpr (fun h => absurd ?_ h)]
+    dsimp only
+    have h1 := (BitVec.ofNat 256 call.callvalue).isLt
+    have h0 : (0 : U256).toNat = 0 := rfl
+    omega
+  obtain ⟨t2, h2⟩ := modifyState_exists (fork := .fusaka) hc
+  exact ⟨t2, by simp [TransactionState.moveEther, bind, Except.bind, h1, h2]⟩
+
+/-- `run_of_rel` from the account `a`: `Target.runFrom a` of any call, with or without value. -/
+theorem run_of_relFrom (a : Nat) (hAB : Target.address selfAddress ≠ Target.address a)
+    (code : ByteArray) (call : SolarTV.Call) (s : SolarTV.Machine.State)
+    (halt : SolarTV.Machine.Halt)
+    (h : ∀ st, Rel (Target.messageFrom a code call) Substate.empty st Substate.empty
+        (SolarTV.Machine.State.initial call) →
+      Spec .fusaka (At code (Target.messageFrom a code call) 0 [] .empty 10000000 st Substate.empty
+        .empty) (PostL call (Target.address selfAddress) Substate.empty s halt)) :
+    Target.runFrom a code call = some (SolarTV.Machine.observe call s halt) := by
+  have key : ∃ evm, processMessage (Meter := Nat) .fusaka (Target.messageFrom a code call)
+      (Target.preStateFrom a code call) Substate.empty = .ok evm ∧
+      MsgOut (SolarTV.Machine.observe call s halt) (Target.address selfAddress) Substate.empty
+        s.world evm.1 := by
+    by_cases hv : (Target.messageFrom a code call).value = 0
+    · exact processMessage_postL _ rfl hv (precompileAddress_messageFrom a code call) _ _ _ _ _
+        (h _ (rel_initialFrom a hAB code call))
+    · obtain ⟨st', hmove⟩ := moveEther_preStateFrom_any a hAB code call
+      have hn : ((Target.preStateFrom a code call).getAccount
+          (Target.address selfAddress)).nonce ≠ 0 := by
+        rw [getAccount_preStateFrom_self a hAB]; simp
+      have R0 := rel_initialFrom a hAB code call
+      have R : Rel (Target.messageFrom a code call) Substate.empty st' Substate.empty
+          (SolarTV.Machine.State.initial call) :=
+        ⟨fun k => ((moveEther_recipient hmove hAB hn _).1).trans (R0.storage k),
+          (moveEther_recipient hmove hAB hn (Target.storageKey 0)).2, R0.logs⟩
+      exact processMessage_postL_move _ rfl rfl hv (precompileAddress_messageFrom a code call) _ _ _ _
+        st' _ hmove (h st' R)
+  obtain ⟨evm, hr, ssF, ⟨L, hL1, hL2⟩, herr, hout, hst⟩ := key
+  have hlogs := logs_of_match hL2
+  have hL1' : ssF.logs.toList = L := by simpa [Substate.empty] using hL1
+  have hfail : (SolarTV.Machine.observe call s halt).success = false →
+      (SolarTV.Machine.observe call s halt).logs = [] ∧
+      (SolarTV.Machine.observe call s halt).storage = slotValue call.storage := by
+    cases halt <;> simp [SolarTV.Machine.observe]
+  have hok : (SolarTV.Machine.observe call s halt).success = true →
+      (SolarTV.Machine.observe call s halt).logs = SolarTV.Machine.logs s := by
+    cases halt <;> simp [SolarTV.Machine.observe]
+  simp only [Target.runFrom, hr]
+  generalize SolarTV.Machine.observe call s halt = X at *
+  have hsucc : evm.1.error.isNone = X.success := by
+    rw [herr]; cases hX : X.success <;> simp [errorOf, hX]
+  congr 1
+  cases X with
+  | mk success output logs storage =>
+    simp only at hsucc hout hfail hok hst ⊢
+    rw [SolarTV.Observable.mk.injEq]
+    refine ⟨hsucc, hout, ?_, ?_⟩
+    · rw [hsucc]
+      cases hs : success
+      · simp [(hfail hs).1]
+      · simp only [ite_true]
+        rw [(hst hs).1, hL1', hlogs, hok hs]
+        rfl
+    · funext slot
+      rw [hsucc]
+      cases hs : success
+      · simp [(hfail hs).2]
+      · simp only [ite_true]
+        exact (hst hs).2 slot
+
+/-- **EVM IR to bytecode from any caller**: `stage_of_check_env` with EthLib called from the account
+`a` (`ethLibFrom a`), any account but the contract's, under every oracle whose caller is `a`
+and whose hash is EthLib's when the program reads them. -/
+theorem stage_of_check_envFrom (a : Nat) (hAB : Target.address selfAddress ≠ Target.address a)
+    {p : Program} {code : ByteArray} {c : Cert} (hc : check p code c = true)
+    (o : SolarTV.Machine.Oracle) (ho : c.env = true → OracleOkAt a o) (scope : SolarTV.Call → Prop) :
+    SolarTV.Stage (SolarTV.evmirSem o) (SolidCore.Refinement.ethLibFrom a) p
+      (show (SolidCore.Refinement.ethLibFrom a).Prog from code) scope := by
+  obtain ⟨G, hseg, hneed0, hlen, hgas⟩ := glob_of_check hc
+  intro call _ obs hrun
+  change (SolarTV.EVM.Program.layer.result o p call).map _ = _ at hrun
+  obtain ⟨r, hr, rfl⟩ := Option.map_eq_some_iff.1 hrun
+  obtain ⟨n, hn⟩ := SolarTV.EVM.Program.layer.ends_of_result hr
+  have hm0 : memoryGasCost (ByteArray.empty).size = 0 := by decide
+  have I0 : Inv c code call (lowerFrom p c 0 (p.blocks.drop 0)) (cost p c 0) 0 []
+      (SolarTV.Machine.State.initial call) .empty 10000000 :=
+    ⟨by rw [List.drop_zero]; exact hseg, by simpa using hlen, by rw [hm0]; omega,
+      by simp, memRel_initial⟩
+  exact run_of_relFrom a hAB code call r.2 r.1 fun st R =>
+    run_sim (msg := Target.messageFrom a code call)
+    (ss0 := Substate.empty) G rfl (by simp [Target.messageFrom]) rfl rfl rfl ho n 0 [] [] _ 0 .empty
+    10000000 st Substate.empty r (Nat.zero_le _) (by simp [hneed0]) (SR.nil c _) I0 R hn
+
+/--
+info: 'SolidCore.Refinement.Solar.Assemble.stage_of_check_envFrom' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms stage_of_check_envFrom
+
+end CallFrom
 
 /-- EVM IR to bytecode, for every program and code the checker accepts: on every call, with or
 without value, from any storage, under every oracle whose caller and hash are EthLib's when the

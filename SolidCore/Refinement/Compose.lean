@@ -35,6 +35,20 @@ def solidCore (fuel : Nat) : Sem :=
 /-- EthLib on runtime bytecode. -/
 def ethLib : Sem := { Prog := ByteArray, run := Target.run }
 
+/-- SolidCore with fixed fuel, on checked contracts, called from the account `caller`. -/
+def solidCoreFrom (caller fuel : Nat) : Sem :=
+  { Prog := SolidCore.Solidity.TypeCheck.CheckedContract, run := Source.runFrom caller fuel }
+
+/-- EthLib on runtime bytecode, called from the account `caller`. -/
+def ethLibFrom (caller : Nat) : Sem := { Prog := ByteArray, run := Target.runFrom caller }
+
+theorem solidCoreFrom_callerAddress (fuel : Nat) : solidCoreFrom callerAddress fuel = solidCore fuel :=
+  rfl
+
+theorem ethLibFrom_callerAddress : ethLibFrom callerAddress = ethLib := by
+  unfold ethLibFrom ethLib
+  rw [Target.runFrom_callerAddress]
+
 /-- A chain of stages from SolidCore to EthLib gives `Refines` on the calls where
 SolidCore finishes. -/
 theorem refines_of_stage {fuel : Nat} {contract : SolidCore.Solidity.TypeCheck.CheckedContract}

@@ -76,9 +76,18 @@ sweep must report no violation. Run with `scripts/refinement/axiom-audit.sh`. -/
 #print axioms SolidCore.Refinement.Solar.Bank.ethKeccakAgree
 #print axioms SolidCore.Refinement.Solar.Bank.lowering
 #print axioms SolidCore.Refinement.Solar.Bank.loweringValue
+#print axioms SolidCore.Refinement.Solar.Bank.certifiedFrom
+#print axioms SolidCore.Refinement.Solar.Bank.certifiedValueFrom
+#print axioms SolidCore.Refinement.Solar.Bank.certifiedFrom'
+#print axioms SolidCore.Refinement.Solar.Bank.certifiedValueFrom'
+#print axioms SolidCore.Refinement.Solar.Bank.certifiedManifestFrom
+#print axioms SolidCore.Refinement.Solar.Bank.certifiedManifestFrom'
+#print axioms SolidCore.Refinement.Solar.Bank.loweringFrom
+#print axioms SolidCore.Refinement.Solar.Bank.loweringValueFrom
 #print axioms SolidCore.Refinement.Solar.Bank.mutant_hex_rejected
 #print axioms SolidCore.Refinement.Solar.Bank.check_rejects_slot
 #print axioms SolidCore.Refinement.Solar.Bank.check_rejects_caller
+#print axioms SolidCore.Refinement.Solar.Bank.check_rejects_fixedCaller
 #print axioms SolidCore.Refinement.Solar.Bank.check_rejects_topic
 -- events.
 #print axioms SolidCore.Refinement.Solar.Events.certified
@@ -86,8 +95,14 @@ sweep must report no violation. Run with `scripts/refinement/axiom-audit.sh`. -/
 #print axioms SolidCore.Refinement.Solar.Events.certifiedManifest
 #print axioms SolidCore.Refinement.Solar.Events.lowering
 #print axioms SolidCore.Refinement.Solar.Events.loweringValue
+#print axioms SolidCore.Refinement.Solar.Events.certifiedFrom
+#print axioms SolidCore.Refinement.Solar.Events.certifiedValueFrom
+#print axioms SolidCore.Refinement.Solar.Events.certifiedManifestFrom
+#print axioms SolidCore.Refinement.Solar.Events.loweringFrom
+#print axioms SolidCore.Refinement.Solar.Events.loweringValueFrom
 #print axioms SolidCore.Refinement.Solar.Events.mutant_hex_rejected
 #print axioms SolidCore.Refinement.Solar.Events.check_rejects_caller
+#print axioms SolidCore.Refinement.Solar.Events.check_rejects_fixedCaller
 #print axioms SolidCore.Refinement.Solar.Events.check_rejects_topic
 #print axioms SolidCore.Refinement.Solar.Events.check_rejects_order
 

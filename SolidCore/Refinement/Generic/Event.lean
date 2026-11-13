@@ -57,6 +57,7 @@ def evFieldOk (f : EventField) (w : WExpr) : Bool :=
   match f.ty, w with
   | .uint256, _ => true
   | .address, .lit n => decide (n < 2 ^ 160)
+  | .address, .caller => true
   | _, _ => false
 
 /-- Whether every field is one the fragment logs, with its word. -/
@@ -98,6 +99,16 @@ theorem evFieldOk_static (ρ : Val) {f : EventField} {w : WExpr} (h : evFieldOk 
     have hb : abiStaticBytes? Ty.address (.word ((WExpr.lit n).eval ρ)) =
         some (wordToBytesBE wordBytes ((WExpr.lit n).eval ρ)) := by
       simp [abiStaticBytes?, abiAddressFits, WExpr.eval, norm_mod, Nat.mod_mod, hn']
+    exact ⟨hb, hb, rfl, rfl, rfl⟩
+  · rename_i hty
+    rw [hty]
+    have h1 : ρ.caller % 1461501637330902918203684832716283019655932542976 % wordSize <
+        1461501637330902918203684832716283019655932542976 := by
+      rw [Nat.mod_eq_of_lt (Nat.lt_of_lt_of_le (Nat.mod_lt _ (by decide)) (by decide))]
+      exact Nat.mod_lt _ (by decide)
+    have hb : abiStaticBytes? Ty.address (.word (WExpr.caller.eval ρ)) =
+        some (wordToBytesBE wordBytes (WExpr.caller.eval ρ)) := by
+      simp [abiStaticBytes?, abiAddressFits, WExpr.eval, norm_mod, h1]
     exact ⟨hb, hb, rfl, rfl, rfl⟩
   · simp at h
 
