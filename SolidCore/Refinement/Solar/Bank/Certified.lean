@@ -21,9 +21,9 @@ An oracle with EthLib's caller has SolidCore's caller (`callerOk_of`). SolidCore
 evmyul's Keccak-256 and EthLib with its own: `certified` and `certifiedValue` take, as their one
 hypothesis beyond `OracleOk`, that they agree on the 64 bytes of two words (`EthKeccakAgree`,
 the inputs a mapping's slot hashes), and `certified'` and `certifiedValue'` discharge it:
-Keccak/Agree.lean proves the two implementations equal on every 64-byte message (same padding,
-same Keccak-f[1600] round by round, same squeeze), and Keccak/TwoWords.lean reads that as
-`EthKeccakAgree` (`ethKeccakAgree`). `certified` holds for every call of `deposit`, `depositFor` and `balanceOf` on any argument words,
+Keccak/Agree.lean proves the two implementations equal on every message (same padding, same
+blocks, same Keccak-f[1600] round by round, same squeeze), and Keccak/TwoWords.lean reads that,
+on the 64 bytes of two words, as `EthKeccakAgree` (`ethKeccakAgree`). `certified` holds for every call of `deposit`, `depositFor` and `balanceOf` on any argument words,
 from any storage, with no value, and `certifiedValue` with any value.
 
 `certifiedManifest` binds both to the export's manifest (gen/…/Manifest.lean): the source's path
@@ -134,9 +134,11 @@ theorem certifiedManifest (o : SolarTV.Machine.Oracle) (ho : Assemble.OracleOk o
     certifiedValue o ho hk hc⟩
 
 /-- EthLib's and SolidCore's Keccak-256 agree on the 64 bytes of two words (for every pair of
-numbers, not only words). -/
-theorem ethKeccakAgree : EthKeccakAgree :=
-  fun a b _ _ => Keccak.ethKeccak_twoWords a b
+numbers, not only words): EthLib's KECCAK256 of any bytes is SolidCore's `keccakWord` of them
+(`Keccak.ethKeccak_bytes`, from the two implementations' agreement on every message), here on the
+bytes of the two words. -/
+theorem ethKeccakAgree : EthKeccakAgree := fun a b _ _ => by
+  rw [Keccak.ethKeccak_bytes, Keccak.twoWords_bytes, Generic.solHash]
 
 /-- **Bank from SolidCore to solar's bytecode**, with no Keccak hypothesis: every result
 SolidCore's `Bank` gives on a call of `deposit`, `depositFor` and `balanceOf` on any argument
@@ -156,7 +158,7 @@ theorem certifiedValue' (o : SolarTV.Machine.Oracle) (ho : Assemble.OracleOk o)
 open SolarTV.Export.Bank Hex in
 /-- **The certified translation of bank, with no Keccak hypothesis**, bound to its manifest:
 `certifiedManifest`'s conjunction with `EthKeccakAgree` discharged by `ethKeccakAgree` (EthLib's
-and evmyul's Keccak-256 proved equal on every 64-byte message). -/
+and evmyul's Keccak-256 proved equal on every message). -/
 theorem certifiedManifest' (o : SolarTV.Machine.Oracle) (ho : Assemble.OracleOk o)
     {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) :
     Manifest.sources = [("solar-tv/milestone/bank/bank.sol",

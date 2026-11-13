@@ -2,7 +2,7 @@ import EthLib.Cryptography.Hash.Keccak
 import EvmYul.SpongeHash.Keccak256
 
 /-!
-# EthLib's Keccak-256 and evmyul's agree on 64 bytes
+# EthLib's Keccak-256 and evmyul's agree on every message
 
 SolidCore hashes with evmyul's pure Keccak-256 (`EvmYul.SpongeHash.Keccak256`: lanes as `Nat`s in a
 list of 25, bitwise operations reduced mod 2^64) and EthLib with its own (`Hash.Keccak`: a record of
@@ -14,14 +14,15 @@ list of 25, bitwise operations reduced mod 2^64) and EthLib with its own (`Hash.
    (`theta_toL`; evmyul's `rhoPi` is EthLib's `pi ∘ rho`, `rhoPi_toL`; `chi_toL`; `iota_toL`), so
    every round does (`round_toL`), evmyul's round constants are EthLib's (`rc_get`) and the two
    Keccak-f[1600] agree on every state (`keccakF1600_toL`);
-3. the sponge on a 64-byte message: both pad to the same one block of 136 bytes (`pad64`), absorb
-   it into the same lanes (`absorb64`, each lane the little-endian number of its 8 bytes on both
-   sides: `chainE`, `laneAt_toNat`), permute once, and squeeze the same first 32 bytes
-   (`squeeze_toL`): `keccak256_64`.
+3. the sponge on every message: both pad the same way (`pad_toList`: pad10*1, one byte `0x81`
+   when one byte of the block is left), cut the padded message into the same blocks of 136 bytes,
+   absorb each into the same lanes from any state (`absorbBlock_toL`: byte by byte on evmyul's
+   side, `absorbLane`; each lane the little-endian number of its 8 bytes on EthLib's,
+   `laneAt_toNat`), permute after each (`absorbBlocks_toL`), and squeeze the same first 32 bytes
+   (`squeeze_toL`): `keccak256_eq`, for every input length. `keccak256_64` is its 64-byte case.
 
-The sponge is proved for 64-byte messages, the inputs a mapping's slot hashes (two words); the
-permutation for every state. No sorry, native_decide or bv_decide; `decide +kernel` only on closed
-tables.
+The sponge is proved for every message and the permutation for every state. No sorry,
+native_decide or bv_decide; `decide +kernel` only on closed tables.
 -/
 
 
@@ -185,23 +186,6 @@ theorem bxor_zero_left (x : Nat) (h : x < 2 ^ 64) : E.bxor 0 x = x := by
   simp only [E.bxor, E.u64, E.word64, show (18446744073709551616 : Nat) = 2 ^ 64 from rfl, Nat.zero_mod,
     Nat.mod_eq_of_lt h, nat_xor_eq, Nat.zero_xor]
 
-theorem chainE (c0 c1 c2 c3 c4 c5 c6 c7 : Nat) (h0 : c0 < 256) (h1 : c1 < 256) (h2 : c2 < 256)
-    (h3 : c3 < 256) (h4 : c4 < 256) (h5 : c5 < 256) (h6 : c6 < 256) (h7 : c7 < 256) :
-    E.bxor 0 (E.bxor c0 (E.bxor (c1 * 256) (E.bxor (c2 * 65536) (E.bxor (c3 * 16777216)
-      (E.bxor (c4 * 4294967296) (E.bxor (c5 * 1099511627776)
-        (E.bxor (c6 * 281474976710656) (c7 * 72057594037927936)))))))) =
-      c0 + c1 * 256 + c2 * 65536 + c3 * 16777216 + c4 * 4294967296 + c5 * 1099511627776 +
-        c6 * 281474976710656 + c7 * 72057594037927936 := by
-  simp only [← bxor_assoc]
-  rw [bxor_zero_left c0 (by omega),
-    bxor_shift _ _ 256 8 rfl (by omega) (by omega),
-    bxor_shift _ _ 65536 16 rfl (by omega) (by omega),
-    bxor_shift _ _ 16777216 24 rfl (by omega) (by omega),
-    bxor_shift _ _ 4294967296 32 rfl (by omega) (by omega),
-    bxor_shift _ _ 1099511627776 40 rfl (by omega) (by omega),
-    bxor_shift _ _ 281474976710656 48 rfl (by omega) (by omega),
-    bxor_shift _ _ 72057594037927936 56 rfl (by omega) (by omega)]
-
 theorem laneAt_toNat (bytes : ByteArray) (s : Nat) :
     (Internal.laneAt bytes s).toNat =
       (EthLib.Base.byteAt bytes s).toNat + (EthLib.Base.byteAt bytes (s + 1)).toNat * 256 +
@@ -243,65 +227,230 @@ theorem laneAt_toNat (bytes : ByteArray) (s : Nat) :
     or_shift _ c6 48 (by omega),
     or_shift _ c7 56 (by omega)]
 
-theorem padding64 : (padding 136 64).data = #[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 128] := by decide
+/-! ## evmyul's list operations -/
 
-theorem pad64 (b0 b1 b2 b3 b4 b5 b6 b7 b8 b9 b10 b11 b12 b13 b14 b15 b16 b17 b18 b19 b20 b21 b22 b23 b24 b25 b26 b27 b28 b29 b30 b31 b32 b33 b34 b35 b36 b37 b38 b39 b40 b41 b42 b43 b44 b45 b46 b47 b48 b49 b50 b51 b52 b53 b54 b55 b56 b57 b58 b59 b60 b61 b62 b63 : UInt8) :
-    pad 136 ⟨#[b0, b1, b2, b3, b4, b5, b6, b7, b8, b9, b10, b11, b12, b13, b14, b15, b16, b17, b18, b19, b20, b21, b22, b23, b24, b25, b26, b27, b28, b29, b30, b31, b32, b33, b34, b35, b36, b37, b38, b39, b40, b41, b42, b43, b44, b45, b46, b47, b48, b49, b50, b51, b52, b53, b54, b55, b56, b57, b58, b59, b60, b61, b62, b63]⟩ = ⟨#[b0, b1, b2, b3, b4, b5, b6, b7, b8, b9, b10, b11, b12, b13, b14, b15, b16, b17, b18, b19, b20, b21, b22, b23, b24, b25, b26, b27, b28, b29, b30, b31, b32, b33, b34, b35, b36, b37, b38, b39, b40, b41, b42, b43, b44, b45, b46, b47, b48, b49, b50, b51, b52, b53, b54, b55, b56, b57, b58, b59, b60, b61, b62, b63, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 128]⟩ := by
-  apply ByteArray.ext
-  rw [pad, ByteArray.data_append, show ByteArray.size ⟨#[b0, b1, b2, b3, b4, b5, b6, b7, b8, b9, b10, b11, b12, b13, b14, b15, b16, b17, b18, b19, b20, b21, b22, b23, b24, b25, b26, b27, b28, b29, b30, b31, b32, b33, b34, b35, b36, b37, b38, b39, b40, b41, b42, b43, b44, b45, b46, b47, b48, b49, b50, b51, b52, b53, b54, b55, b56, b57, b58, b59, b60, b61, b62, b63]⟩ = 64 from rfl, padding64]
-  simp only [List.append_toArray, List.cons_append, List.nil_append]
+theorem length_setD : ∀ (xs : List Nat) (i v : Nat), (E.setD xs i v).length = xs.length
+  | [], _, _ => rfl
+  | _ :: _, 0, _ => rfl
+  | _ :: xs, i + 1, v => by simp only [E.setD, List.length_cons, length_setD xs i v]
 
-set_option maxRecDepth 100000 in
-set_option maxHeartbeats 4000000 in
-theorem absorb64 (b0 b1 b2 b3 b4 b5 b6 b7 b8 b9 b10 b11 b12 b13 b14 b15 b16 b17 b18 b19 b20 b21 b22 b23 b24 b25 b26 b27 b28 b29 b30 b31 b32 b33 b34 b35 b36 b37 b38 b39 b40 b41 b42 b43 b44 b45 b46 b47 b48 b49 b50 b51 b52 b53 b54 b55 b56 b57 b58 b59 b60 b61 b62 b63 : UInt8) :
-    E.absorbBlockFrom (List.replicate 25 0) 0 (E.padKeccak [b0.toNat, b1.toNat, b2.toNat, b3.toNat, b4.toNat, b5.toNat, b6.toNat, b7.toNat, b8.toNat, b9.toNat, b10.toNat, b11.toNat, b12.toNat, b13.toNat, b14.toNat, b15.toNat, b16.toNat, b17.toNat, b18.toNat, b19.toNat, b20.toNat, b21.toNat, b22.toNat, b23.toNat, b24.toNat, b25.toNat, b26.toNat, b27.toNat, b28.toNat, b29.toNat, b30.toNat, b31.toNat, b32.toNat, b33.toNat, b34.toNat, b35.toNat, b36.toNat, b37.toNat, b38.toNat, b39.toNat, b40.toNat, b41.toNat, b42.toNat, b43.toNat, b44.toNat, b45.toNat, b46.toNat, b47.toNat, b48.toNat, b49.toNat, b50.toNat, b51.toNat, b52.toNat, b53.toNat, b54.toNat, b55.toNat, b56.toNat, b57.toNat, b58.toNat, b59.toNat, b60.toNat, b61.toNat, b62.toNat, b63.toNat]) =
-      toL (Internal.absorbBlock 136 State.zero (pad 136 ⟨#[b0, b1, b2, b3, b4, b5, b6, b7, b8, b9, b10, b11, b12, b13, b14, b15, b16, b17, b18, b19, b20, b21, b22, b23, b24, b25, b26, b27, b28, b29, b30, b31, b32, b33, b34, b35, b36, b37, b38, b39, b40, b41, b42, b43, b44, b45, b46, b47, b48, b49, b50, b51, b52, b53, b54, b55, b56, b57, b58, b59, b60, b61, b62, b63]⟩) 0) := by
-  rw [pad64]
-  simp [E.padKeccak, E.rateBytes, E.absorbBlockFrom, E.absorbByte, E.byteShift, E.getD, E.setD, toL, Internal.absorbBlock,
-      Internal.blockLane, laneAt_toNat, byteAt_mk, State.zero, chainE, toNat_lt256]
-  all_goals decide
+theorem getD_setD_self : ∀ (xs : List Nat) (i v : Nat), i < xs.length → E.getD (E.setD xs i v) i = v
+  | [], _, _, h => absurd h (Nat.not_lt_zero _)
+  | _ :: _, 0, _, _ => rfl
+  | _ :: xs, i + 1, v, h => getD_setD_self xs i v (by simp at h; omega)
 
-theorem chunksOf_single (bs : List Nat) (h : bs.length = 136) : E.chunksOf 136 bs = [bs] := by
-  simp only [E.chunksOf, h]
-  show E.chunksOfWithFuel (136 + 1) 136 bs = [bs]
-  cases bs with
-  | nil => simp at h
-  | cons x xs =>
-    rw [E.chunksOfWithFuel, List.take_of_length_le (Nat.le_of_eq h),
-      List.drop_of_length_le (Nat.le_of_eq h)]
-    all_goals first | rfl | simp
+theorem setD_setD : ∀ (xs : List Nat) (i v w : Nat), E.setD (E.setD xs i v) i w = E.setD xs i w
+  | [], _, _, _ => rfl
+  | _ :: _, 0, _, _ => rfl
+  | _ :: xs, i + 1, v, w => by simp only [E.setD, setD_setD xs i v w]
 
-theorem keccak64_explicit (b0 b1 b2 b3 b4 b5 b6 b7 b8 b9 b10 b11 b12 b13 b14 b15 b16 b17 b18 b19 b20 b21 b22 b23 b24 b25 b26 b27 b28 b29 b30 b31 b32 b33 b34 b35 b36 b37 b38 b39 b40 b41 b42 b43 b44 b45 b46 b47 b48 b49 b50 b51 b52 b53 b54 b55 b56 b57 b58 b59 b60 b61 b62 b63 : UInt8) :
-    E.keccak256Bytes [b0.toNat, b1.toNat, b2.toNat, b3.toNat, b4.toNat, b5.toNat, b6.toNat, b7.toNat, b8.toNat, b9.toNat, b10.toNat, b11.toNat, b12.toNat, b13.toNat, b14.toNat, b15.toNat, b16.toNat, b17.toNat, b18.toNat, b19.toNat, b20.toNat, b21.toNat, b22.toNat, b23.toNat, b24.toNat, b25.toNat, b26.toNat, b27.toNat, b28.toNat, b29.toNat, b30.toNat, b31.toNat, b32.toNat, b33.toNat, b34.toNat, b35.toNat, b36.toNat, b37.toNat, b38.toNat, b39.toNat, b40.toNat, b41.toNat, b42.toNat, b43.toNat, b44.toNat, b45.toNat, b46.toNat, b47.toNat, b48.toNat, b49.toNat, b50.toNat, b51.toNat, b52.toNat, b53.toNat, b54.toNat, b55.toNat, b56.toNat, b57.toNat, b58.toNat, b59.toNat, b60.toNat, b61.toNat, b62.toNat, b63.toNat] =
-      (keccak256 ⟨#[b0, b1, b2, b3, b4, b5, b6, b7, b8, b9, b10, b11, b12, b13, b14, b15, b16, b17, b18, b19, b20, b21, b22, b23, b24, b25, b26, b27, b28, b29, b30, b31, b32, b33, b34, b35, b36, b37, b38, b39, b40, b41, b42, b43, b44, b45, b46, b47, b48, b49, b50, b51, b52, b53, b54, b55, b56, b57, b58, b59, b60, b61, b62, b63]⟩).toList.map UInt8.toNat := by
-  rw [E.keccak256Bytes, show E.rateBytes = 136 from rfl, chunksOf_single _ (by simp [E.padKeccak, E.rateBytes])]
-  simp only [E.absorbBlocks, E.absorbBlock]
-  rw [absorb64, keccakF1600_toL, squeeze_toL, keccak256, spongeAbsorb]
-  have hc : blockCount RATE (ByteArray.size ⟨#[b0, b1, b2, b3, b4, b5, b6, b7, b8, b9, b10, b11, b12, b13, b14, b15, b16, b17, b18, b19, b20, b21, b22, b23, b24, b25, b26, b27, b28, b29, b30, b31, b32, b33, b34, b35, b36, b37, b38, b39, b40, b41, b42, b43, b44, b45, b46, b47, b48, b49, b50, b51, b52, b53, b54, b55, b56, b57, b58, b59, b60, b61, b62, b63]⟩) = 1 := by
-    simp [blockCount, RATE, ByteArray.size]
-  rw [hc]
+theorem absorbBlockFrom_append : ∀ (xs ys : List Nat) (st : List Nat) (i : Nat),
+    E.absorbBlockFrom st i (xs ++ ys) = E.absorbBlockFrom (E.absorbBlockFrom st i xs) (i + xs.length) ys
+  | [], _, _, _ => rfl
+  | x :: xs, ys, st, i => by
+    simp only [List.cons_append, E.absorbBlockFrom, List.length_cons]
+    rw [absorbBlockFrom_append xs ys, Nat.add_assoc, Nat.add_comm 1]
+
+/-! ## A lane: 8 bytes absorbed one by one are the lane of their little-endian number -/
+
+theorem chain8 (c0 c1 c2 c3 c4 c5 c6 c7 : Nat) (h0 : c0 < 256) (h1 : c1 < 256) (h2 : c2 < 256)
+    (h3 : c3 < 256) (h4 : c4 < 256) (h5 : c5 < 256) (h6 : c6 < 256) (h7 : c7 < 256) :
+    E.bxor c0 (E.bxor (c1 * 256) (E.bxor (c2 * 65536) (E.bxor (c3 * 16777216)
+      (E.bxor (c4 * 4294967296) (E.bxor (c5 * 1099511627776)
+        (E.bxor (c6 * 281474976710656) (c7 * 72057594037927936))))))) =
+      c0 + c1 * 256 + c2 * 65536 + c3 * 16777216 + c4 * 4294967296 + c5 * 1099511627776 +
+        c6 * 281474976710656 + c7 * 72057594037927936 := by
+  simp only [← bxor_assoc]
+  rw [bxor_shift _ _ 256 8 rfl (by omega) (by omega),
+    bxor_shift _ _ 65536 16 rfl (by omega) (by omega),
+    bxor_shift _ _ 16777216 24 rfl (by omega) (by omega),
+    bxor_shift _ _ 4294967296 32 rfl (by omega) (by omega),
+    bxor_shift _ _ 1099511627776 40 rfl (by omega) (by omega),
+    bxor_shift _ _ 281474976710656 48 rfl (by omega) (by omega),
+    bxor_shift _ _ 72057594037927936 56 rfl (by omega) (by omega)]
+
+theorem absorbByte_lane (st : List Nat) (l k c : Nat) (hk : k < 8) (hc : c < 256) :
+    E.absorbByte st (8 * l + k) c = E.setD st l (E.bxor (E.getD st l) (c * 2 ^ (8 * k))) := by
+  have h1 : (8 * l + k) / 8 = l := by omega
+  have h2 : (8 * l + k) % 8 = k := by omega
+  simp only [E.absorbByte, E.byteShift, h1, h2, Nat.mod_eq_of_lt hc]
+
+theorem absorbByte_set (st : List Nat) (l k c v : Nat) (hl : l < st.length) (hk : k < 8) (hc : c < 256) :
+    E.absorbByte (E.setD st l v) (8 * l + k) c = E.setD st l (E.bxor v (c * 2 ^ (8 * k))) := by
+  rw [absorbByte_lane _ l k c hk hc, getD_setD_self _ _ _ hl, setD_setD]
+
+theorem absorbLane (st : List Nat) (l : Nat) (hl : l < st.length) (c0 c1 c2 c3 c4 c5 c6 c7 : Nat)
+    (h0 : c0 < 256) (h1 : c1 < 256) (h2 : c2 < 256) (h3 : c3 < 256) (h4 : c4 < 256) (h5 : c5 < 256)
+    (h6 : c6 < 256) (h7 : c7 < 256) :
+    E.absorbBlockFrom st (8 * l) [c0, c1, c2, c3, c4, c5, c6, c7] =
+      E.setD st l (E.bxor (E.getD st l) (c0 + c1 * 256 + c2 * 65536 + c3 * 16777216 +
+        c4 * 4294967296 + c5 * 1099511627776 + c6 * 281474976710656 + c7 * 72057594037927936)) := by
+  have e0 := absorbByte_lane st l 0 c0 (by omega) h0
+  rw [Nat.add_zero] at e0
+  simp only [E.absorbBlockFrom, Nat.add_assoc, Nat.reduceAdd]
+  rw [e0, absorbByte_set _ l 1 _ _ hl (by omega) h1, absorbByte_set _ l 2 _ _ hl (by omega) h2,
+    absorbByte_set _ l 3 _ _ hl (by omega) h3, absorbByte_set _ l 4 _ _ hl (by omega) h4,
+    absorbByte_set _ l 5 _ _ hl (by omega) h5, absorbByte_set _ l 6 _ _ hl (by omega) h6,
+    absorbByte_set _ l 7 _ _ hl (by omega) h7]
+  congr 1
+  simp only [bxor_assoc, Nat.reduceMul, Nat.reducePow, Nat.mul_one]
+  rw [chain8 _ _ _ _ _ _ _ _ h0 h1 h2 h3 h4 h5 h6 h7]
+  simp only [Nat.add_assoc]
+
+/-! ## A block: 17 lanes -/
+
+/-- The little-endian number of the 8 bytes `f j` to `f (j + 7)`. -/
+def laneVal (f : Nat → Nat) (j : Nat) : Nat :=
+  f j + f (j + 1) * 256 + f (j + 2) * 65536 + f (j + 3) * 16777216 + f (j + 4) * 4294967296 +
+    f (j + 5) * 1099511627776 + f (j + 6) * 281474976710656 + f (j + 7) * 72057594037927936
+
+/-- Lanes `l` to `l + m - 1` of the state, each XORed with the lane its 8 bytes of `f` spell. -/
+def lanesFrom : List Nat → (Nat → Nat) → Nat → Nat → List Nat
+  | st, _, _, 0 => st
+  | st, f, l, m + 1 => lanesFrom (E.setD st l (E.bxor (E.getD st l) (laneVal f (8 * l)))) f (l + 1) m
+
+theorem absorbLanes (f : Nat → Nat) (hf : ∀ j, f j < 256) : ∀ (m : Nat) (st : List Nat) (l : Nat),
+    l + m ≤ st.length →
+    E.absorbBlockFrom st (8 * l) ((List.range' (8 * l) (8 * m)).map f) = lanesFrom st f l m
+  | 0, st, l, _ => by simp [lanesFrom, E.absorbBlockFrom]
+  | m + 1, st, l, h => by
+    rw [show 8 * (m + 1) = 8 + 8 * m by omega, ← List.range'_append_1, List.map_append,
+      absorbBlockFrom_append]
+    have hr : (List.range' (8 * l) 8).map f = [f (8 * l), f (8 * l + 1), f (8 * l + 2), f (8 * l + 3),
+        f (8 * l + 4), f (8 * l + 5), f (8 * l + 6), f (8 * l + 7)] := by
+      rfl
+    rw [hr, absorbLane st l (by omega) _ _ _ _ _ _ _ _ (hf _) (hf _) (hf _) (hf _) (hf _) (hf _) (hf _) (hf _)]
+    simp only [List.length_cons, List.length_nil, Nat.reduceAdd]
+    rw [show 8 * l + 8 = 8 * (l + 1) by omega,
+      absorbLanes f hf m _ (l + 1) (by rw [length_setD]; omega)]
+    rfl
+
+theorem size_eq (Q : ByteArray) : Q.size = Q.data.toList.length := rfl
+
+theorem byteAt_eq (Q : ByteArray) (i : Nat) : EthLib.Base.byteAt Q i = Q.data.toList.getD i 0 := by
+  have := byteAt_mk Q.data.toList i
+  simpa using this
+
+theorem block_eq (Q : ByteArray) (s : Nat) (h : s + 136 ≤ Q.size) :
+    ((Q.data.toList.map UInt8.toNat).drop s).take 136 =
+      (List.range' 0 136).map (fun j => (EthLib.Base.byteAt Q (s + j)).toNat) := by
+  rw [size_eq] at h
+  apply List.ext_getElem
+  · simp only [List.length_take, List.length_drop, List.length_map, List.length_range']; omega
+  · intro i h1 h2
+    have hi : i < 136 := by simpa only [List.length_map, List.length_range'] using h2
+    simp only [List.getElem_take, List.getElem_drop, List.getElem_map, List.getElem_range', byteAt_eq]
+    rw [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem (by omega)]
+    simp
+
+theorem lanes_toL (S : State) (Q : ByteArray) (s : Nat) :
+    lanesFrom (toL S) (fun j => (EthLib.Base.byteAt Q (s + j)).toNat) 0 17 =
+      toL (Internal.absorbBlock 136 S Q s) := by
+  simp [lanesFrom, toL, E.setD, E.getD, laneVal, Internal.absorbBlock, Internal.blockLane,
+    laneAt_toNat, Nat.add_assoc]
+
+/-- A block of 136 bytes from `s` on, absorbed and permuted from any state, is EthLib's. -/
+theorem absorbBlock_toL (S : State) (Q : ByteArray) (s : Nat) (h : s + 136 ≤ Q.size) :
+    E.absorbBlock (toL S) (((Q.data.toList.map UInt8.toNat).drop s).take 136) =
+      toL (keccakF (Internal.absorbBlock 136 S Q s)) := by
+  rw [E.absorbBlock, block_eq Q s h,
+    (absorbLanes (fun j => (EthLib.Base.byteAt Q (s + j)).toNat) (fun j => toNat_lt256 _) 17 (toL S) 0
+      (by simp [toL]) : E.absorbBlockFrom (toL S) 0 ((List.range' 0 136).map _) = _),
+    lanes_toL, keccakF1600_toL]
+
+/-! ## Every block -/
+
+theorem chunks_nil : ∀ fuel, E.chunksOfWithFuel fuel 136 [] = []
+  | 0 => rfl
+  | _ + 1 => rfl
+
+/-- The `n` blocks from `s` on, cut and absorbed by evmyul, are the `n` blocks EthLib absorbs in
+place. -/
+theorem absorbBlocks_toL (Q : ByteArray) : ∀ (n fuel s : Nat) (S : State), s + 136 * n = Q.size →
+    n ≤ fuel →
+    E.absorbBlocks (toL S) (E.chunksOfWithFuel fuel 136 ((Q.data.toList.map UInt8.toNat).drop s)) =
+      toL (Internal.absorbBlocks keccakF 136 Q n s S)
+  | 0, fuel, s, S, h, _ => by
+    have : (Q.data.toList.map UInt8.toNat).drop s = [] :=
+      List.drop_eq_nil_of_le (by rw [size_eq] at h; rw [List.length_map]; omega)
+    rw [this, chunks_nil]; rfl
+  | n + 1, 0, _, _, _, hf => absurd hf (by omega)
+  | n + 1, fuel + 1, s, S, h, hf => by
+    have hne : (Q.data.toList.map UInt8.toNat).drop s ≠ [] := by
+      intro he
+      have := congrArg List.length he
+      rw [List.length_drop, List.length_map, List.length_nil] at this
+      rw [size_eq] at h; omega
+    obtain ⟨x, xs, hx⟩ := List.exists_cons_of_ne_nil hne
+    rw [hx, E.chunksOfWithFuel, ← hx, E.absorbBlocks, absorbBlock_toL S Q s (by omega), List.drop_drop,
+      Internal.absorbBlocks]
+    · exact absorbBlocks_toL Q n fuel (s + 136) _ (by omega) (by omega)
+    · exact List.cons_ne_nil x xs
+
+/-! ## Padding -/
+
+theorem modify_last {α} (f : α → α) (a x : α) : ∀ j,
+    (List.replicate j a ++ [x]).modify j f = List.replicate j a ++ [f x]
+  | 0 => rfl
+  | j + 1 => by
+    simp only [List.replicate_succ, List.cons_append, List.modify_succ_cons, modify_last f a x j]
+
+/-- EthLib's `k` bytes of padding are evmyul's. -/
+theorem padBytes (k : Nat) (hk : 1 ≤ k) :
+    (((Array.replicate k (0 : UInt8)).modify 0 (· ||| 0x01)).modify (k - 1) (· ||| 0x80)).toList.map
+      UInt8.toNat = if k == 1 then [0x81] else [0x01] ++ List.replicate (k - 2) 0 ++ [0x80] := by
+  match k, hk with
+  | 1, _ => decide
+  | j + 2, _ =>
+    simp only [Array.toList_modify, Array.toList_replicate]
+    rw [show List.replicate (j + 2) (0 : UInt8) = 0 :: (List.replicate j 0 ++ [0]) by
+      rw [List.replicate_succ, List.replicate_succ']]
+    simp only [List.modify_zero_cons, show j + 2 - 1 = j + 1 by omega, List.modify_succ_cons,
+      modify_last, List.map_cons, List.map_append, List.map_replicate]
+    simp
+
+/-- The padded message is evmyul's (`padKeccak`). -/
+theorem pad_toList (bs : List UInt8) :
+    (pad 136 ⟨bs.toArray⟩).data.toList.map UInt8.toNat = E.padKeccak (bs.map UInt8.toNat) := by
+  have hb : ByteArray.size ⟨bs.toArray⟩ = bs.length := by simp [ByteArray.size]
+  rw [pad, ByteArray.data_append, Array.toList_append, List.map_append, hb, padding]
+  dsimp only
+  rw [padBytes _ (by omega)]
+  simp only [E.padKeccak, E.rateBytes, List.length_map, List.append_assoc]
+  split <;> simp_all
+
+theorem pad_size (bs : List UInt8) :
+    (pad 136 ⟨bs.toArray⟩).size = 136 * (bs.length / 136 + 1) := by
+  simp only [pad, padding, ByteArray.size]
+  simp
+  omega
+
+/-! ## Keccak-256 on every message -/
+
+/-- **EthLib's Keccak-256 and evmyul's agree on every message**: the same padding, the same blocks
+absorbed into the same lanes, the same Keccak-f[1600] after each, the same squeeze. -/
+theorem keccak256_eq (bs : List UInt8) :
+    E.keccak256Bytes (bs.map UInt8.toNat) = (keccak256 ⟨bs.toArray⟩).toList.map UInt8.toNat := by
+  have hpad := pad_toList bs
+  have hsize := pad_size bs
+  have key := absorbBlocks_toL (pad 136 ⟨bs.toArray⟩) (bs.length / 136 + 1)
+    (((pad 136 ⟨bs.toArray⟩).data.toList.map UInt8.toNat).length + 1) 0 State.zero
+    (by omega) (by rw [size_eq] at hsize; rw [List.length_map]; omega)
+  rw [List.drop_zero] at key
+  rw [E.keccak256Bytes, ← hpad, show E.rateBytes = 136 from rfl,
+    show ∀ P, E.chunksOf 136 P = E.chunksOfWithFuel (P.length + 1) 136 P from fun _ => rfl,
+    show List.replicate 25 0 = toL State.zero from rfl, key, squeeze_toL]
   rfl
 
+#print axioms keccak256_eq
+
+/-- EthLib's Keccak-256 and evmyul's agree on 64-byte messages, the inputs a mapping's slot hashes
+(two words): `keccak256_eq` at that length. -/
 theorem keccak256_64 (bs : List UInt8) (h : bs.length = 64) :
     E.keccak256Bytes (bs.map UInt8.toNat) = (keccak256 ⟨bs.toArray⟩).toList.map UInt8.toNat := by
-  match bs, h with
-  | b0 :: b1 :: b2 :: b3 :: b4 :: b5 :: b6 :: b7 :: b8 :: b9 :: b10 :: b11 :: b12 :: b13 :: b14 :: b15 :: b16 :: b17 :: b18 :: b19 :: b20 :: b21 :: b22 :: b23 :: b24 :: b25 :: b26 :: b27 :: b28 :: b29 :: b30 :: b31 :: b32 :: b33 :: b34 :: b35 :: b36 :: b37 :: b38 :: b39 :: b40 :: b41 :: b42 :: b43 :: b44 :: b45 :: b46 :: b47 :: b48 :: b49 :: b50 :: b51 :: b52 :: b53 :: b54 :: b55 :: b56 :: b57 :: b58 :: b59 :: b60 :: b61 :: b62 :: b63 :: [], _ => exact keccak64_explicit b0 b1 b2 b3 b4 b5 b6 b7 b8 b9 b10 b11 b12 b13 b14 b15 b16 b17 b18 b19 b20 b21 b22 b23 b24 b25 b26 b27 b28 b29 b30 b31 b32 b33 b34 b35 b36 b37 b38 b39 b40 b41 b42 b43 b44 b45 b46 b47 b48 b49 b50 b51 b52 b53 b54 b55 b56 b57 b58 b59 b60 b61 b62 b63
+  have _ := h
+  exact keccak256_eq bs
 
 #print axioms keccak256_64
-
-/-! Concrete agreement, checked by the kernel, on messages the 64-byte theorem does not cover: the
-empty message, one byte short of a block, a whole block (the padding a block of its own) and two
-blocks. Evidence for the general statement, which is not proved here. -/
-
-example : (keccak256 ⟨#[]⟩).toList.map UInt8.toNat = E.keccak256Bytes [] := by decide +kernel
-
-example : (keccak256 ⟨(List.range 135).toArray.map UInt8.ofNat⟩).toList.map UInt8.toNat =
-    E.keccak256Bytes (List.range 135) := by decide +kernel
-
-example : (keccak256 ⟨(List.range 136).toArray.map UInt8.ofNat⟩).toList.map UInt8.toNat =
-    E.keccak256Bytes (List.range 136) := by decide +kernel
-
-example : (keccak256 ⟨(List.range 200).toArray.map UInt8.ofNat⟩).toList.map UInt8.toNat =
-    E.keccak256Bytes (List.range 200) := by decide +kernel
 
 end SolidCore.Refinement.Keccak
