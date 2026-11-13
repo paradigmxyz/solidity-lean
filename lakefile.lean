@@ -134,7 +134,8 @@ lean_lib Loom where
     `Loom.MonadAlgebras.Instances.Basic, `Loom.MonadAlgebras.Instances.StateT,
     `Loom.MonadAlgebras.Instances.ExceptT, `Loom.MonadAlgebras.Instances.ReaderT,
     `Loom.MonadAlgebras.Instances.Gen, `Loom.MonadAlgebras.WP.Basic,
-    `Loom.MonadAlgebras.WP.Liberal]
+    `Loom.MonadAlgebras.WP.Liberal, `Loom.MonadAlgebras.Instances.ExceptTErr,
+    `Loom.MonadAlgebras.WP.Variant]
 
 -- bank's and events' assembly stages against solar's exports (solar-tv/milestone/bank and
 -- solar-tv/milestone/events at 0a455fda): the generic assembler check with mapping hashes,

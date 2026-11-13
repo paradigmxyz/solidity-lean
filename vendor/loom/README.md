@@ -1,18 +1,33 @@
 # Loom, vendored
 
-**Port in progress (branch loom-4.35).** All of upstream Loom (and its case studies) is now
-under vendor/loom. Built on Lean 4.35 so far: Defs, Instances/Basic (with DivM and its partial
-and total correctness algebras), Instances/StateT, ExceptT, ReaderT, Gen, WP/Basic (with the
-loop, lifting, ExceptT, StateT and ReaderT sections) and WP/Liberal; the lean_lib Loom lists
-these as roots. The VC tactic layer, NonDetT and the SMT layer follow. The sections below
-describe the earlier, partial vendoring and are rewritten when the port completes.
+**Port in progress (branch loom-4.35).** All of upstream Loom (and its case studies) is under
+vendor/loom. Built on Lean 4.35 so far: Defs, Instances/Basic (with DivM and its partial and
+total correctness algebras), Instances/StateT, ExceptT, ReaderT, Gen, WP/Basic (with the loop,
+lifting, ExceptT, StateT and ReaderT sections) and WP/Liberal; the lean_lib Loom lists the
+built modules as roots. The VC tactic layer (DoNames', Options, Gen, Attr, Matcher, Tactic),
+NonDetT, Meta, TacticAsync and the SMT layer are not ported yet and nothing builds them.
 
-The parts of [Loom](https://github.com/verse-lab/loom) (verse-lab, Apache-2.0, see
-`LICENSE`) that SolidCore's verification-condition generator (`SolidCore/Verify/`) builds on,
-from commit `78928abc9054b31d0bea85985496490baae95244` (master, 2026-02-21), which targets Lean
-4.24 and Mathlib v4.24. Ported to this repository's Lean 4.35 and Mathlib v4.35.0 and built as
-the `Loom` library of the main package (`lean_lib Loom where srcDir := "vendor/loom"` in the
-root lakefile), so it adds no package and no manifest entry.
+Statements changed by the Lean 4.35 API:
+
+* `MAlgPartial.csup_lift` and `PartialCorrectness.wp_csup` take the chain proof
+  (`Lean.Order.CCPO.csup` now takes a proof of `chain`, not the set).
+* `triple_forIn_range` and `triple_forIn_range_step1` are on `Std.Legacy.Range` (Lean renamed
+  `Std.Range`).
+* The `ForIn m Lean.Loop Unit` instance's `forIn` no longer takes the loop value separately
+  (`ForIn.forIn`'s signature changed).
+
+Added (not upstream; candidates for an upstream PR):
+
+* `DivM.csup_eq`, `StateT.csup_apply`, `StateT.bot_apply`, `ReaderT.csup_apply`,
+  `ReaderT.bot_apply`: the supremum of a chain, now a choice, as the flat or pointwise one.
+* `Instances/ExceptTErr.lean`: an error-aware algebra, `MAlgExceptErr` on `ExceptT ε m` with
+  assertions `(ε → l) → l`, and `MAlgExceptErrProp` on `Except ε` with `(ε → Prop) → Prop`
+  (and `MAlgDet`), whose weakest precondition takes the predicate an exception must meet.
+* `WP/Variant.lean`: `Loop.bounded`, `Loop.whileBounded`, and the total-correctness rules
+  `triple_bounded` and `triple_while` (invariant plus a natural-number variant) for monads
+  that cannot diverge, with `bounded_eq_of_variant`.
+
+The sections below describe the earlier, partial vendoring.
 
 ## Kept
 
