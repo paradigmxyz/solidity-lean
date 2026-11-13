@@ -18,11 +18,30 @@ table of internal functions, which the relation asks to be the context's and the
 namespace SolidCore.Refinement.Generic
 open SolidCore.Solidity.Source
 
+/-- Why a statement of the fragment reverts: with empty data, with `Panic(code)`, or with
+`Error(msg)`, as `require(c, msg)` and `revert(msg)` do. -/
+inductive Fail where
+  | empty
+  | panic (code : Nat)
+  | error (msg : String)
+  deriving DecidableEq, Repr
+
+/-- SolidCore's revert data of a revert. -/
+def Fail.data : Fail → RevertData
+  | .empty => .empty
+  | .panic c => .panic c
+  | .error m => .error m
+
+/-- The revert of a `require` or `revert` with the reason `r`, if any. -/
+def failOf : Option String → Fail
+  | none => .empty
+  | some m => .error m
+
 /-- How a statement of the fragment ends. -/
 inductive Leaf where
   | normal (S : SymState)
   | returned (S : SymState) (vals : List WExpr)
-  | reverted (panic : Option Nat)
+  | reverted (f : Fail)
   deriving DecidableEq, Repr
 
 /-- A statement's outcome as a tree of branches on words. -/
@@ -37,11 +56,11 @@ def Br.eval (ρ : Val) : Br → Leaf
 
 /-- Revert with `Panic(0x11)` when one of the overflow conditions holds, else go on. -/
 def guards (gs : List WExpr) (rest : Br) : Br :=
-  gs.foldr (fun g acc => .ite g (.leaf (.reverted (some 0x11))) acc) rest
+  gs.foldr (fun g acc => .ite g (.leaf (.reverted (.panic 0x11))) acc) rest
 
 theorem guards_eval (ρ : Val) (gs : List WExpr) (rest : Br) :
     (guards gs rest).eval ρ =
-      if gs.any (fun g => g.eval ρ != 0) then .reverted (some 0x11) else rest.eval ρ := by
+      if gs.any (fun g => g.eval ρ != 0) then .reverted (.panic 0x11) else rest.eval ρ := by
   induction gs with
   | nil => rfl
   | cons g gs ih =>
@@ -134,11 +153,13 @@ theorem wordTy_coerce {ty : Ty} (h : wordTy ty = true) (v : Nat) :
   cases ty <;> simp_all [wordTy, Ty.coerceValue?, Ty.defaultValue]
 
 /-- What the erasure reads of the contract: its storage fields, its events and the table of its
-internal functions. -/
+internal functions, with the facts that hold of every call it erases (`facts`: the argument
+checks of the external function, which bound its `address` words for logs). -/
 structure EraseEnv where
   fields : List StorageField
   events : List EventDecl
   tbl : FunctionTable
+  facts : Facts := []
 
 /-- The erasure of a list of expressions: their overflow conditions and their words. -/
 def eraseExprs (fields : List StorageField) (S : SymState) : List Expr → Option (List WExpr × List WExpr)
@@ -298,7 +319,30 @@ def eraseStmt (E : EraseEnv) : Nat → Stmt → SymState → Option Br
       let bt ← eraseStmt E n t S
       let be ← eraseStmt E n e S
       some (guards gs (.ite v bt be))
-    | .panic code => some (.leaf (.reverted (some code)))
+    | .panic code => some (.leaf (.reverted (.panic code)))
+    | .requireStmt c r => do
+      let (gs, v) ← eraseExpr E.fields S c
+      some (guards gs (.ite v (.leaf (.normal S)) (.leaf (.reverted (failOf r)))))
+    | .revertError r => some (.leaf (.reverted (failOf r)))
+    | .assign (.storageIndex x i) e => do
+      let (gs, v) ← eraseExpr E.fields S e
+      let (gi, key) ← eraseExpr E.fields S i
+      match mapOf? E.fields x with
+      | some k =>
+        some (guards (gs ++ gi) (.leaf (.normal { S with writes := S.writes.set (.hash key (.lit k)) v })))
+      | none => do
+        let k ← boolMapOf? E.fields x
+        if bound E.facts v ≤ 1 then
+          some (guards (gs ++ gi)
+            (.leaf (.normal { S with writes := S.writes.set (.hash key (.lit k)) v })))
+        else none
+    | .assign (.index (.storageIndex x i1) i2) e => do
+      let k ← map2Of? E.fields x
+      let (gs, v) ← eraseExpr E.fields S e
+      let (g1, k1) ← eraseExpr E.fields S i1
+      let (g2, k2) ← eraseExpr E.fields S i2
+      some (guards (gs ++ g1 ++ g2)
+        (.leaf (.normal { S with writes := S.writes.set (.hash k2 (.hash k1 (.lit k))) v })))
     | .internalCall targets callee args => do
       let fn ← E.tbl.lookup? callee
       if fn.params.all wordDecl && fn.returns.all wordDecl && args.length = fn.params.length then
@@ -316,7 +360,7 @@ def eraseStmt (E : EraseEnv) : Nat → Stmt → SymState → Option Br
       let sched := emitSchedule (emitFlags (some decl) es) es.length
       let (gs, svs) ← eraseExprs E.fields S (sched.filterMap (fun i => es[i]?))
       let ws := unschedule sched svs es.length
-      if evOk decl.fields ws then
+      if evOk E.facts decl.fields ws then
         some (guards gs (.leaf (.normal { S with logs := S.logs ++
           [⟨.lit t :: evTopics decl.fields ws, (evData decl.fields ws).flatMap wordOBytes⟩] })))
       else none
@@ -347,6 +391,7 @@ structure StmtRel (ρ : Val) (E : EraseEnv) (ctx : Context) (rt : Runtime) (S : 
   frames : rt.locals = S.scopes.map (frameOf ρ)
   store : ∀ k, k < wordSize → rt.state.loadSlot k = Writes.store ρ S.writes k
   logs : rt.state.events.map logOf = S.logs.map (Log.eval ρ)
+  facts : E.facts.Hold ρ
 
 theorem frame_lookup (ρ : Val) (L : Locals) (x : String) :
     Frame.lookup? (frameOf ρ L) x = (L.get? x).map fun e => Value.word (e.eval ρ) := by
@@ -473,7 +518,8 @@ theorem StmtRel.write {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {
       by_cases h : q = k.eval ρ
       · simp [h]
       · simp [h, Ne.symm h]
-    logs := by simp [State.storeSlot, hrel.logs] }
+    logs := by simp [State.storeSlot, hrel.logs]
+    facts := hrel.facts }
 
 /-- Writing a field keeps the relation, with the field's slot set to `writeField`. -/
 theorem StmtRel.writeField {ρ : Val} {E : EraseEnv} {ctx : Context}
@@ -495,8 +541,7 @@ def LeafRel (ρ : Val) (E : EraseEnv) (ctx : Context) : Result → Leaf → Prop
   | .normal rt, .normal S => StmtRel ρ E ctx rt S
   | .returned rt vs, .returned S ws =>
     StmtRel ρ E ctx rt S ∧ vs = ws.map fun e => Value.word (e.eval ρ)
-  | .reverted _ r, .reverted none => r = .empty
-  | .reverted _ r, .reverted (some c) => r = .panic c
+  | .reverted _ r, .reverted f => r = f.data
   | _, _ => False
 
 theorem caught_exprResult (ρ : Val) (gs : List WExpr) (v : WExpr) (rt : Runtime) :
@@ -824,6 +869,82 @@ theorem eval_mapAssign (ρ : Val) (E : EraseEnv) (ctx : Context) (rt : Runtime) 
         · simp only [hc, decide_false, Bool.not_false, ↓reduceIte]
           exact ⟨.reverted rt (.panic 0x11), rfl, rfl⟩
 
+
+/-- A plain write of a `bool` word to a mapping to `bool`'s entry stores the word in the entry's
+slot. -/
+theorem storeIndex_boolMap {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {S : SymState}
+    (hrel : StmtRel ρ E ctx rt S) {x : String} {k : Nat}
+    (hk : boolMapOf? E.fields x = some k) {w v : Nat} (hw : w < wordSize) (hv : v ≤ 1) :
+    rt.storeStorageIndexWithDeepClear ctx x (.word w) (.word v) =
+      .ok { rt with state := rt.state.storeSlot (solHash w k) v } := by
+  obtain ⟨f, hf, rfl⟩ := boolMapOf?_spec hrel.fields hk
+  have hv' : v = 0 ∨ v = 1 := by omega
+  rcases hf.layout with hl | hl <;> rcases hv' with rfl | rfl <;>
+  simp [Runtime.storeStorageIndexWithDeepClear, hf.find, hl, mappingStorageSlotForKey,
+    coerceMappingKeyWordAs, Value.forceAbiLazy, Ty.coerceValue?, Value.asStorageWord?, norm_lt hw,
+    bind, Except.bind, State.storeStorageLayoutAtWithDeepClear,
+    State.storeStorageLayoutAtWithDeepClearFuelMode, State.storeStorageLayoutAt, coerceStorageWordAs,
+    Runtime.storageMaterializedValue, Runtime.derefMemoryValueDeep, Runtime.derefMemoryValueWithFuel,
+    StorageLayout.clearDepth, mappingStorageSlot_eq, pure, Except.pure, wordEq,
+    SolidCore.Solidity.Shared.norm, modulus_eq, Nat.mod_eq_of_lt hw]
+
+/-- A plain write of a word to a nested mapping's entry stores the word in the entry's slot. -/
+theorem storePath_map2 {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {S : SymState}
+    (hrel : StmtRel ρ E ctx rt S) {x : String} {k : Nat}
+    (hk : map2Of? E.fields x = some k) {w1 w2 v : Nat} (h1 : w1 < wordSize) (h2 : w2 < wordSize)
+    (hv : v < wordSize) :
+    rt.storeStoragePathWithDeepClear ctx x [.word w1, .word w2] (.word v) =
+      .ok { rt with state := rt.state.storeSlot (solHash w2 (solHash w1 k)) v } := by
+  obtain ⟨f, hf, rfl⟩ := map2Of?_spec hrel.fields hk
+  rw [Runtime.storeStoragePathWithDeepClear, Runtime.storeStorageBasePathWithDeepClear]
+  simp only [Runtime.storageMaterializedValue, Runtime.derefMemoryValueDeep,
+    Runtime.derefMemoryValueWithFuel, bind, Except.bind, pure, Except.pure]
+  rw [resolve_map2 hf h1 h2]
+  simp [State.storeStorageLayoutAtWithDeepClear, State.storeStorageLayoutAtWithDeepClearFuelMode,
+    State.storeStorageLayoutAt, coerceStorageWordAs, Value.forceAbiLazy, Ty.coerceValue?,
+    Value.asStorageWord?, norm_lt hv, StorageLayout.clearDepth, bind, Except.bind, pure, Except.pure]
+
+/-- SolidCore resolves the target `m[i]` to the entry at `i`'s word, after `i`'s overflow
+checks. -/
+theorem resolve_storageIndex (ρ : Val) (fields : List StorageField) (ctx : Context) (rt : Runtime)
+    (S : SymState) (hrel : ExprRel ρ fields ctx rt S) (x : String) {i : Expr} {gi : List WExpr}
+    {key : WExpr} (hi : eraseExpr fields S i = some (gi, key)) :
+    (LValue.resolveWithRuntime (.storageIndex x i) ctx rt).caught =
+      .done (.ok (if gi.any (fun g => g.eval ρ != 0) then .error (.panic 0x11)
+        else .ok (.storageIndex x (.word (key.eval ρ)), rt))) := by
+  simp only [LValue.resolveWithRuntime, Expr.resolveLValue, LValue.toExpr, Expr.storageIndex,
+    Expr.orderFuel, Expr.listEvalFuel]
+  rw [Expr.resolveLValueFuel]
+  rw [eval_erase ρ fields ctx rt S hrel i gi key _ hi (by omega)]
+  unfold exprResult
+  split <;> rfl
+
+/-- SolidCore resolves the target `m[i1][i2]` to the path of the two keys' words, after their
+overflow checks. -/
+theorem resolve_index2 (ρ : Val) (fields : List StorageField) (ctx : Context) (rt : Runtime)
+    (S : SymState) (hrel : ExprRel ρ fields ctx rt S) (x : String) {i1 i2 : Expr}
+    {g1 g2 : List WExpr} {k1 k2 : WExpr} (h1 : eraseExpr fields S i1 = some (g1, k1))
+    (h2 : eraseExpr fields S i2 = some (g2, k2)) :
+    (LValue.resolveWithRuntime (.index (.storageIndex x i1) i2) ctx rt).caught =
+      .done (.ok (if (g1 ++ g2).any (fun g => g.eval ρ != 0) then .error (.panic 0x11)
+        else .ok (.storagePath x [.word (k1.eval ρ), .word (k2.eval ρ)], rt))) := by
+  simp only [LValue.resolveWithRuntime, Expr.resolveLValue, LValue.toExpr, Expr.storageIndex,
+    Expr.orderFuel, Expr.listEvalFuel]
+  rw [Expr.resolveLValueFuel]
+  rw [Expr.resolveLValueFuel]
+  rw [eval_erase ρ fields ctx rt S hrel i1 g1 k1 _ h1 (by omega), bind_exprResult]
+  by_cases hg1 : g1.any (fun g => g.eval ρ != 0) = true
+  · simp only [hg1, any_append, Bool.true_or, ↓reduceIte]
+    rfl
+  · simp only [hg1, Bool.false_eq_true, ↓reduceIte, bind_done_ok, pure,
+      EvmCompiler.Simulation.Interaction.pure]
+    rw [eval_erase ρ fields ctx rt S hrel i2 g2 k2 _ h2 (by omega), bind_exprResult]
+    by_cases hg2 : g2.any (fun g => g.eval ρ != 0) = true
+    · simp only [hg2, any_append, Bool.or_true, ↓reduceIte]
+      rfl
+    · simp only [hg2, any_append, hg1, Bool.or_false, Bool.false_eq_true, ↓reduceIte]
+      rfl
+
 theorem eval_exprList (ρ : Val) (fields : List StorageField) (ctx : Context) (rt : Runtime)
     (S : SymState) (hrel : ExprRel ρ fields ctx rt S) :
     ∀ (es : List Expr) (gs vs : List WExpr) (fuel : Nat), eraseExprs fields S es = some (gs, vs) →
@@ -872,13 +993,13 @@ theorem materialize_words (ctx : Context) (rt : Runtime) (ρ : Val) : ∀ ws : L
 /-- SolidCore emits a log of the fragment as the log the erasure appends. -/
 theorem emit_words (ρ : Val) (ctx : Context) (rt : Runtime) {name : String} {decl : EventDecl}
     {t : Nat} (hfind : ctx.eventDecl? name = some decl) (ht : decl.topic? = some t)
-    {ws : List WExpr} (hok : evOk decl.fields ws = true) :
+    {K : Facts} (hK : K.Hold ρ) {ws : List WExpr} (hok : evOk K decl.fields ws = true) :
     ∃ ev rt', rt.emitEvent ctx name (ws.map fun e => Value.word (e.eval ρ)) = .ok rt' ∧
       rt'.state.events = rt.state.events ++ [ev] ∧ rt'.locals = rt.locals ∧
       rt'.state.storage = rt.state.storage ∧
       logOf ev = Log.eval ρ ⟨.lit t :: evTopics decl.fields ws, (evData decl.fields ws).flatMap wordOBytes⟩ := by
-  obtain ⟨a, b, henc⟩ := encode_ok ρ decl.fields ws hok
-  have hdata := encodeValues_ok ρ decl.fields ws hok
+  obtain ⟨a, b, henc⟩ := encode_ok ρ hK decl.fields ws hok
+  have hdata := encodeValues_ok ρ hK decl.fields ws hok
   have hun : (ws.map fun e => Value.word (e.eval ρ)).map Value.untagFixedBytes =
       ws.map fun e => Value.word (e.eval ρ) := by
     simp [Value.untagFixedBytes]
@@ -1240,7 +1361,7 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
       have hfind : ctx.eventDecl? name = some decl := by
         simp [Context.eventDecl?, hrel.events, hdecl]
       have hlist := eval_exprList ρ E.fields ctx rt S hrel.expr _ gs svs _ hes (Nat.le_refl _)
-      have hlog := emit_words ρ ctx rt hfind ht hok
+      have hlog := emit_words ρ ctx rt hfind ht hrel.facts hok
       have heq : Stmt.eval (n + 1) E.tbl ctx rt (.emitEvent name es) =
           (do
             match ← (Expr.evalList ctx rt
@@ -1322,6 +1443,37 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
       simp only [eraseStmt, Option.some.injEq] at h
       subst h
       exact ⟨.reverted rt (.panic code), by rw [Stmt.eval]; rfl, rfl⟩
+    case requireStmt c r =>
+      simp only [eraseStmt, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
+      obtain ⟨⟨gs, v⟩, hc, rfl⟩ := h
+      have heval := eval_eq ρ E.fields ctx rt S hrel.expr hc
+      rw [Stmt.eval]
+      simp only [heval, caught_exprResult, guards_eval]
+      by_cases hg : gs.any (fun g => g.eval ρ != 0) = true
+      · simp only [hg, ↓reduceIte]
+        exact ⟨.reverted rt (.panic 0x11), rfl, rfl⟩
+      · simp only [hg, Bool.false_eq_true, ↓reduceIte, bind_done_ok, Value.expectWord,
+          norm_lt (v.eval_lt ρ), Br.eval, wordTruthy]
+        by_cases hv : v.eval ρ = 0
+        · cases r
+          case none =>
+            refine ⟨.reverted rt .empty, ?_, by simp only [hv, ↓reduceIte, LeafRel]; rfl⟩
+            simp [hv]
+            rfl
+          case some m =>
+            refine ⟨.reverted rt (.error m), ?_, by simp only [hv, ↓reduceIte, LeafRel]; rfl⟩
+            simp [hv]
+            rfl
+        · refine ⟨.normal rt, ?_, by simp only [hv, ↓reduceIte, LeafRel]; exact hrel⟩
+          simp [hv, SolidCore.Solidity.Shared.norm, modulus_eq, Nat.mod_eq_of_lt (v.eval_lt ρ)]
+          rfl
+    case revertError r =>
+      simp only [eraseStmt, Option.some.injEq] at h
+      subst h
+      cases r
+      case none => exact ⟨.reverted rt .empty, by rw [Stmt.eval]; rfl, rfl⟩
+      case some m => exact ⟨.reverted rt (.error m), by rw [Stmt.eval]; rfl, rfl⟩
+
     case assign target e =>
       cases target
       case var x =>
@@ -1358,6 +1510,80 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
               rfl
           · simp only [bind_done_ok, hres, caught_done_ok, ite_self, ResolvedLValue.write, hassign]
             rfl
+      case storageIndex x i =>
+        simp only [eraseStmt, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+        obtain ⟨⟨gs, v⟩, he, ⟨gi, key⟩, hi, h⟩ := h
+        obtain ⟨k, hk, hst, rfl⟩ : ∃ k, k < wordSize ∧
+            rt.storeStorageIndexWithDeepClear ctx x (.word (key.eval ρ)) (.word (v.eval ρ)) =
+              .ok { rt with state := rt.state.storeSlot (solHash (key.eval ρ) k) (v.eval ρ) } ∧
+            b = guards (gs ++ gi)
+              (.leaf (.normal { S with writes := S.writes.set (.hash key (.lit k)) v })) := by
+          split at h
+          · rename_i k hk
+            simp only [Option.some.injEq] at h
+            obtain ⟨f, hf, rfl⟩ := mapOf?_spec hrel.fields hk
+            exact ⟨f.slot, hf.slot, storeIndex_map hrel hk (key.eval_lt ρ) (v.eval_lt ρ), h.symm⟩
+          · simp only [Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+            obtain ⟨k, hk, h⟩ := h
+            split at h
+            · rename_i hb
+              simp only [Option.some.injEq] at h
+              obtain ⟨f, hf, rfl⟩ := boolMapOf?_spec hrel.fields hk
+              exact ⟨f.slot, hf.slot, storeIndex_boolMap hrel hk (key.eval_lt ρ)
+                (Nat.le_trans (bound_sound hrel.facts v) hb), h.symm⟩
+            · simp at h
+        have heval := eval_eq ρ E.fields ctx rt S hrel.expr he
+        have hres := resolve_storageIndex ρ E.fields ctx rt S hrel.expr x hi
+        have hsl : (WExpr.hash key (.lit k)).eval ρ = solHash (key.eval ρ) k % wordSize := by
+          simp only [WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hk]
+        have hw := hrel.write (.hash key (.lit k)) v
+        rw [hsl, storeSlot_mod] at hw
+        rw [Stmt.eval]
+        simp only [LValue.wantsMemoryRefRhs, Bool.false_eq_true, ↓reduceIte, heval, caught_exprResult]
+        rw [guards_eval]
+        simp only [any_append]
+        by_cases hg : gs.any (fun g => g.eval ρ != 0) = true
+        · simp only [hg, Bool.true_or, ↓reduceIte]
+          exact ⟨.reverted rt (.panic 0x11), rfl, rfl⟩
+        · simp only [hg, Bool.false_or, Bool.false_eq_true, ↓reduceIte, bind_done_ok, hres]
+          by_cases hgi : gi.any (fun g => g.eval ρ != 0) = true
+          · simp only [hgi, ↓reduceIte]
+            exact ⟨.reverted rt (.panic 0x11), rfl, rfl⟩
+          · simp only [hgi, Bool.false_eq_true, ↓reduceIte, bind_done_ok, ResolvedLValue.write, hst,
+              ite_self]
+            exact ⟨_, rfl, hw⟩
+      case index base i2 =>
+        cases base
+        case storageIndex x i1 =>
+          simp only [eraseStmt, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
+          obtain ⟨k, hk, ⟨gs, v⟩, he, ⟨g1, k1⟩, h1, ⟨g2, k2⟩, h2, rfl⟩ := h
+          obtain ⟨f, hf, rfl⟩ := map2Of?_spec hrel.fields hk
+          have heval := eval_eq ρ E.fields ctx rt S hrel.expr he
+          have hres := resolve_index2 ρ E.fields ctx rt S hrel.expr x h1 h2
+          simp only [any_append] at hres
+          have hsl : (WExpr.hash k2 (.hash k1 (.lit f.slot))).eval ρ =
+              solHash (k2.eval ρ) (solHash (k1.eval ρ) f.slot) % wordSize := by
+            simp only [WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf.slot,
+              Nat.mod_eq_of_lt (solHash_lt _ _)]
+          have hw := hrel.write (.hash k2 (.hash k1 (.lit f.slot))) v
+          rw [hsl, storeSlot_mod] at hw
+          have hst := storePath_map2 hrel hk (k1.eval_lt ρ) (k2.eval_lt ρ) (v.eval_lt ρ)
+          rw [Stmt.eval]
+          simp only [LValue.wantsMemoryRefRhs, LValue.toExpr, Expr.hasStorageRoot, Bool.true_or,
+            Bool.not_true, Bool.false_eq_true, ↓reduceIte, heval, caught_exprResult]
+          rw [guards_eval]
+          simp only [any_append]
+          by_cases hg : gs.any (fun g => g.eval ρ != 0) = true
+          · simp only [hg, Bool.true_or, ↓reduceIte]
+            exact ⟨.reverted rt (.panic 0x11), rfl, rfl⟩
+          · simp only [hg, Bool.false_or, Bool.false_eq_true, ↓reduceIte, bind_done_ok, hres]
+            by_cases hgi : (g1.any (fun g => g.eval ρ != 0) || g2.any (fun g => g.eval ρ != 0)) = true
+            · simp only [hgi, ↓reduceIte, Bool.or_assoc]
+              exact ⟨.reverted rt (.panic 0x11), rfl, rfl⟩
+            · simp only [hgi, Bool.or_assoc, Bool.false_eq_true, ↓reduceIte, bind_done_ok,
+                ResolvedLValue.write, hst, ite_self]
+              exact ⟨_, rfl, hw⟩
+        all_goals simp [eraseStmt] at h
       case storage x =>
         simp only [eraseStmt, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
         obtain ⟨⟨k, off, bytes⟩, hk, ⟨gs, v⟩, he, rfl⟩ := h

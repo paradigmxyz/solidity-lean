@@ -31,7 +31,8 @@ the slot words otherwise, since a computed slot may be any slot (`Writes.eval_re
 source side (`Generic.Source`) proves that SolidCore's interpreter runs a function of the
 fragment as the tree its erasure computes; the target side (`Generic.Mir`) proves that the
 lowered MIR runs as the tree its symbolic execution computes. The two trees are compared by
-`Tree.canon` (Simp.lean, after `Tree.norm` here) and `=`, which the kernel decides.
+`Tree.canon` (Simp.lean, after `Tree.norm` here) and `Tree.beq`, equality as a `Bool`, which the
+kernel evaluates.
 -/
 
 namespace SolidCore.Refinement.Generic
@@ -306,6 +307,25 @@ inductive Tree where
   | halt (success : Bool) (out : List OByte) (writes : Writes) (logs : List Log)
   | ite (c : WExpr) (t e : Tree)
   deriving DecidableEq, Repr
+
+/-- Equality of trees as a `Bool`, by structural recursion on both: the kernel evaluates it on the
+large trees of a call where it gets stuck on the derived `DecidableEq Tree`. -/
+def Tree.beq : Tree → Tree → Bool
+  | .halt s o w l, .halt s' o' w' l' => s == s' && decide (o = o') && decide (w = w') && decide (l = l')
+  | .ite c t e, .ite c' t' e' => decide (c = c') && Tree.beq t t' && Tree.beq e e'
+  | _, _ => false
+
+theorem Tree.eq_of_beq : ∀ {a b : Tree}, Tree.beq a b = true → a = b
+  | .halt _ _ _ _, .halt _ _ _ _, h => by
+    simp only [Tree.beq, Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq] at h
+    obtain ⟨⟨⟨rfl, rfl⟩, rfl⟩, rfl⟩ := h
+    rfl
+  | .ite _ _ _, .ite _ _ _, h => by
+    simp only [Tree.beq, Bool.and_eq_true, decide_eq_true_eq] at h
+    obtain ⟨⟨rfl, ht⟩, he⟩ := h
+    rw [Tree.eq_of_beq ht, Tree.eq_of_beq he]
+  | .halt _ _ _ _, .ite _ _ _, h => by simp [Tree.beq] at h
+  | .ite _ _ _, .halt _ _ _ _, h => by simp [Tree.beq] at h
 
 /-- What a call shows: whether it succeeded, its output, its logs and the storage after it. -/
 structure Res where

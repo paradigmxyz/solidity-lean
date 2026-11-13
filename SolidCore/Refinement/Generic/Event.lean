@@ -1,12 +1,15 @@
 import SolidCore.Refinement.Generic.Source
+import SolidCore.Refinement.Generic.Simp
 
 /-!
 # Events of the fragment: SolidCore's encoding of a log
 
 A log of the fragment has a non-anonymous event's signature topic, then its indexed fields'
 words as topics, and its other fields' words, ABI-encoded, as data. Each field is a `uint256`
-word, or an `address` constant that fits in 160 bits (`evOk`; SolidCore reverts on an
-address that does not, which the fragment leaves out). `encode_ok` and `encodeValues_ok`
+word, or an `address` word that fits in 160 bits on every path the facts `K` hold on (`evOk K`:
+its upper bound `bound K w` is below `2 ^ 160`, as for a constant such as `msg.sender`'s
+`callerWord`, an `address` parameter, whose argument check `K` records, or a masked storage
+read; SolidCore reverts on an address that does not fit, which the fragment leaves out). `encode_ok` and `encodeValues_ok`
 compute SolidCore's `EventDecl.encodeFields?` on such words: the topics are the indexed words
 (`evTopics`), the data the 32-byte big-endian encodings of the others (`evData`).
 -/
@@ -51,18 +54,18 @@ theorem wordBytes_eval (ρ : Val) (e : WExpr) :
   simp only [List.mem_range] at hi
   simp [OByte.eval, wordBytes, show 32 - 1 - i = 31 - i by omega]
 
-/-- A field the fragment logs, with its word: any `uint256` word, or an `address` constant that
-fits in 160 bits. -/
-def evFieldOk (f : EventField) (w : WExpr) : Bool :=
-  match f.ty, w with
-  | .uint256, _ => true
-  | .address, .lit n => decide (n < 2 ^ 160)
-  | _, _ => false
+/-- A field the fragment logs, with its word: any `uint256` word, or an `address` word whose bound
+on the facts `K` fits in 160 bits. -/
+def evFieldOk (K : Facts) (f : EventField) (w : WExpr) : Bool :=
+  match f.ty with
+  | .uint256 => true
+  | .address => decide (bound K w < 2 ^ 160)
+  | _ => false
 
 /-- Whether every field is one the fragment logs, with its word. -/
-def evOk : List EventField → List WExpr → Bool
+def evOk (K : Facts) : List EventField → List WExpr → Bool
   | [], [] => true
-  | f :: fs, w :: ws => evFieldOk f w && evOk fs ws
+  | f :: fs, w :: ws => evFieldOk K f w && evOk K fs ws
   | _, _ => false
 
 /-- The words of the indexed fields: the log's topics after the signature's. -/
@@ -80,7 +83,8 @@ def evDataTys : List EventField → List WExpr → List Ty
   | f :: fs, _ :: ws => if f.indexed then evDataTys fs ws else f.ty :: evDataTys fs ws
   | _, _ => []
 
-theorem evFieldOk_static (ρ : Val) {f : EventField} {w : WExpr} (h : evFieldOk f w = true) :
+theorem evFieldOk_static (ρ : Val) {K : Facts} (hK : K.Hold ρ) {f : EventField} {w : WExpr}
+    (h : evFieldOk K f w = true) :
     abiStaticBytes? f.ty (.word (w.eval ρ)) = some (wordToBytesBE wordBytes (w.eval ρ)) ∧
       abiEncodeStaticValue? f.ty (.word (w.eval ρ)) = some (wordToBytesBE wordBytes (w.eval ρ)) ∧
       Ty.isHashedEventIndexed f.ty = false ∧ Ty.isDynamicAbi f.ty = false ∧
@@ -90,26 +94,27 @@ theorem evFieldOk_static (ρ : Val) {f : EventField} {w : WExpr} (h : evFieldOk 
   · rename_i hty
     rw [hty]
     exact ⟨rfl, rfl, rfl, rfl, rfl⟩
-  · rename_i n hty
+  · rename_i hty
     simp only [decide_eq_true_eq] at h
-    have hn : n % wordSize < 2 ^ 160 := Nat.lt_of_le_of_lt (Nat.mod_le _ _) h
-    have hn' : n % wordSize < 1461501637330902918203684832716283019655932542976 := hn
+    have hn : w.eval ρ < 1461501637330902918203684832716283019655932542976 :=
+      Nat.lt_of_le_of_lt (bound_sound hK w) h
     rw [hty]
-    have hb : abiStaticBytes? Ty.address (.word ((WExpr.lit n).eval ρ)) =
-        some (wordToBytesBE wordBytes ((WExpr.lit n).eval ρ)) := by
-      simp [abiStaticBytes?, abiAddressFits, WExpr.eval, norm_mod, Nat.mod_mod, hn']
+    have hb : abiStaticBytes? Ty.address (.word (w.eval ρ)) =
+        some (wordToBytesBE wordBytes (w.eval ρ)) := by
+      simp [abiStaticBytes?, abiAddressFits, norm_mod, Nat.mod_eq_of_lt (w.eval_lt ρ), hn]
     exact ⟨hb, hb, rfl, rfl, rfl⟩
   · simp at h
 
-theorem encode_ok (ρ : Val) : ∀ (fs : List EventField) (ws : List WExpr), evOk fs ws = true →
+theorem encode_ok (ρ : Val) {K : Facts} (hK : K.Hold ρ) :
+    ∀ (fs : List EventField) (ws : List WExpr), evOk K fs ws = true →
     ∃ a b, EventDecl.encodeFields?.encode fs (ws.map fun e => Value.word (e.eval ρ)) =
       some ((evTopics fs ws).map (WExpr.eval ρ), evDataTys fs ws,
         (evData fs ws).map (fun e => Value.word (e.eval ρ)), a, b)
   | [], [], _ => ⟨[], [], rfl⟩
   | f :: fs, w :: ws, h => by
     simp only [evOk, Bool.and_eq_true] at h
-    obtain ⟨a, b, ih⟩ := encode_ok ρ fs ws h.2
-    obtain ⟨hs, -, hh, -, -⟩ := evFieldOk_static ρ h.1
+    obtain ⟨a, b, ih⟩ := encode_ok ρ hK fs ws h.2
+    obtain ⟨hs, -, hh, -, -⟩ := evFieldOk_static ρ hK h.1
     simp only [List.map_cons, EventDecl.encodeFields?.encode, ih, bind, Option.bind]
     by_cases hi : f.indexed = true
     · simp only [hi, ↓reduceIte, evTopics, evDataTys, evData, abiEventTopic?, hh,
@@ -119,16 +124,16 @@ theorem encode_ok (ρ : Val) : ∀ (fs : List EventField) (ws : List WExpr), evO
       exact ⟨_, _, rfl⟩
   | [], _ :: _, h | _ :: _, [], h => by simp [evOk] at h
 
-theorem evData_ok : ∀ (fs : List EventField) (ws : List WExpr), evOk fs ws = true →
-    ∀ (ρ : Val) (off : Nat),
+theorem evData_ok {K : Facts} : ∀ (fs : List EventField) (ws : List WExpr), evOk K fs ws = true →
+    ∀ (ρ : Val), K.Hold ρ → ∀ (off : Nat),
       Ty.listAbiHeadWords? (evDataTys fs ws) = some (evData fs ws).length ∧
       abiEncodeValuesAux? (evDataTys fs ws) ((evData fs ws).map fun e => Value.word (e.eval ρ)) off =
         some (((evData fs ws).flatMap wordOBytes).map (OByte.eval ρ), [], off)
-  | [], [], _, _, _ => ⟨rfl, rfl⟩
-  | f :: fs, w :: ws, h, ρ, off => by
+  | [], [], _, _, _, _ => ⟨rfl, rfl⟩
+  | f :: fs, w :: ws, h, ρ, hK, off => by
     simp only [evOk, Bool.and_eq_true] at h
-    obtain ⟨ih1, ih2⟩ := evData_ok fs ws h.2 ρ off
-    obtain ⟨-, hs, -, hd, hw⟩ := evFieldOk_static ρ h.1
+    obtain ⟨ih1, ih2⟩ := evData_ok fs ws h.2 ρ hK off
+    obtain ⟨-, hs, -, hd, hw⟩ := evFieldOk_static ρ hK h.1
     by_cases hi : f.indexed = true
     · simp only [evDataTys, evData, hi, ↓reduceIte]
       exact ⟨ih1, ih2⟩
@@ -137,12 +142,13 @@ theorem evData_ok : ∀ (fs : List EventField) (ws : List WExpr), evOk fs ws = t
       refine ⟨?_, ?_⟩
       · simp [Ty.listAbiHeadWords?, Ty.abiHeadWords?, hd, hw, ih1, bind, Option.bind, Nat.add_comm]
       · simp only [abiEncodeValuesAux?, hd, Bool.false_eq_true, ↓reduceIte, hs, ih2, wordBytes_eval]
-  | [], _ :: _, h, _, _ | _ :: _, [], h, _, _ => by simp [evOk] at h
+  | [], _ :: _, h, _, _, _ | _ :: _, [], h, _, _, _ => by simp [evOk] at h
 
-theorem encodeValues_ok (ρ : Val) (fs : List EventField) (ws : List WExpr) (h : evOk fs ws = true) :
+theorem encodeValues_ok (ρ : Val) {K : Facts} (hK : K.Hold ρ) (fs : List EventField)
+    (ws : List WExpr) (h : evOk K fs ws = true) :
     abiEncodeValues? (evDataTys fs ws) ((evData fs ws).map fun e => Value.word (e.eval ρ)) =
       some (((evData fs ws).flatMap wordOBytes).map (OByte.eval ρ)) := by
-  obtain ⟨h1, h2⟩ := evData_ok fs ws h ρ (wordBytes * (evData fs ws).length)
+  obtain ⟨h1, h2⟩ := evData_ok fs ws h ρ hK (wordBytes * (evData fs ws).length)
   simp [abiEncodeValues?, h1, h2, bind, Option.bind]
 
 end SolidCore.Refinement.Generic

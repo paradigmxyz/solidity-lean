@@ -34,7 +34,8 @@ open SolidCore.Solidity SolidCore.Solidity.Source SolidCore.Refinement
 
 /-- The erasure environment of a contract: its storage fields, its events and its function
 table. -/
-def envOf (core : Contract) : EraseEnv := ⟨core.storageFields, core.eventDecls, core.table⟩
+def envOf (core : Contract) : EraseEnv :=
+  { fields := core.storageFields, events := core.eventDecls, tbl := core.table }
 
 /-! ## The shape of the parameters -/
 
@@ -286,8 +287,11 @@ theorem bindArgs_words (ρ : Val) (hρ : ∀ a ∈ ρ.args, a < wordSize) :
       bind, Option.bind, paramLocals, frameOf, List.map_cons, WExpr.eval, List.getD_eq_getElem?_getD,
       List.getElem?_eq_getElem hi, Option.getD_some, Nat.mod_eq_of_lt hlt]
 
+/-- A return the fragment encodes: a `uint256`, `address` or `bool`. -/
+abbrev RetTy (ty : Source.Ty) : Prop := ty = .uint256 ∨ ty = .address ∨ ty = .bool
+
 theorem defaults_words (ρ : Val) (rs : List BindingDecl)
-    (hrs : ∀ r ∈ rs, r.ty = .uint256 ∧ r.isStorageRef = false) :
+    (hrs : ∀ r ∈ rs, RetTy r.ty ∧ r.isStorageRef = false) :
     rs.map BindingDecl.defaultBinding = frameOf ρ (rs.map fun r => (r.name, WExpr.lit 0)) := by
   induction rs with
   | nil => rfl
@@ -295,16 +299,49 @@ theorem defaults_words (ρ : Val) (rs : List BindingDecl)
     have h := hrs r List.mem_cons_self
     simp only [List.map_cons, frameOf] at ih ⊢
     rw [ih (fun q hq => hrs q (List.mem_cons_of_mem _ hq))]
-    simp [BindingDecl.defaultBinding, h.1, h.2, Source.Ty.defaultValue, WExpr.eval]
+    rcases h.1 with h1 | h1 | h1 <;>
+    simp [BindingDecl.defaultBinding, h1, h.2, Source.Ty.defaultValue, WExpr.eval]
+
+/-- A word `retOk` accepts is one SolidCore coerces to its return's type and encodes as its
+32-byte word. -/
+theorem retOk_spec {ρ : Val} {K : Facts} (hK : K.Hold ρ) {ty : Source.Ty} {w : WExpr}
+    (h : retOk K ty w = true) :
+    ty.coerceValue? (.word (w.eval ρ)) = some (.word (w.eval ρ)) ∧
+      ABI.Ty.isDynamicAbi ty = false ∧ ABI.Ty.staticAbiHeadWords? ty = some 1 ∧
+      ABI.encodeStaticValue? ty (.word (w.eval ρ)) = some (ABI.encodeWord (w.eval ρ)) := by
+  have hlt := w.eval_lt ρ
+  unfold retOk at h
+  split at h
+  · exact ⟨by simp [Source.Ty.coerceValue?], rfl, rfl, rfl⟩
+  · simp only [decide_eq_true_eq] at h
+    have hn : w.eval ρ < 1461501637330902918203684832716283019655932542976 :=
+      Nat.lt_of_le_of_lt (bound_sound hK w) h
+    exact ⟨by simp [Source.Ty.coerceValue?], rfl, rfl,
+      by simp [ABI.encodeStaticValue?, ABI.addressFits, norm_lt hlt, hn]⟩
+  · simp only [decide_eq_true_eq] at h
+    have hn : w.eval ρ ≤ 1 := Nat.le_trans (bound_sound hK w) h
+    have hv : w.eval ρ = 0 ∨ w.eval ρ = 1 := by omega
+    rcases hv with hv | hv <;>
+    exact ⟨by simp [Source.Ty.coerceValue?, wordEq, hv], rfl, rfl,
+      by simp [ABI.encodeStaticValue?, wordEq, hv]⟩
+  · simp at h
+
+theorem retsOk_length {K : Facts} : ∀ {rs : List BindingDecl} {ws : List WExpr},
+    retsOk K rs ws = true → ws.length = rs.length
+  | [], [], _ => rfl
+  | _ :: rs, _ :: ws, h => by
+    simp only [retsOk, Bool.and_eq_true] at h
+    simp [retsOk_length h.2]
+  | [], _ :: _, h | _ :: _, [], h => by simp [retsOk] at h
 
 /-! ## Reading the returned words -/
 
 theorem deref_word (rt : Runtime) (v : Nat) : rt.derefMemoryValueDeep (.word v) = .ok (.word v) := by
   simp [Runtime.derefMemoryValueDeep, Runtime.derefMemoryValueWithFuel]
 
-theorem collect_words (ρ : Val) (rt : Runtime) (S : SymState)
+theorem collect_words (ρ : Val) (rt : Runtime) (S : SymState) {K : Facts} (hK : K.Hold ρ)
     (hl : ∀ x e, Scopes.get? S.scopes x = some e → rt.lookupLocal? x = some (.word (e.eval ρ))) :
-    ∀ (rs : List BindingDecl) (ws : List WExpr), (∀ r ∈ rs, r.ty = .uint256) →
+    ∀ (rs : List BindingDecl) (ws : List WExpr), retsOk K rs ws = true →
       rs.mapM (fun r => Scopes.get? S.scopes r.name) = some ws →
       collectReturnBindings.collect rt rs = .ok (ws.map fun e => .word (e.eval ρ))
   | [], ws, _, h => by
@@ -314,23 +351,23 @@ theorem collect_words (ρ : Val) (rt : Runtime) (S : SymState)
     simp only [List.mapM_cons, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.pure_def,
       Option.some.injEq] at h
     obtain ⟨e, he, ws', hws', rfl⟩ := h
-    have ih := collect_words ρ rt S hl rs ws' (fun q hq => hrs q (List.mem_cons_of_mem _ hq)) hws'
-    simp [collectReturnBindings.collect, hl _ _ he, deref_word, hrs r List.mem_cons_self,
-      coerce_word, ih, bind, Except.bind, pure, Except.pure]
+    simp only [retsOk, Bool.and_eq_true] at hrs
+    have ih := collect_words ρ rt S hK hl rs ws' hrs.2 hws'
+    simp [collectReturnBindings.collect, hl _ _ he, deref_word, (retOk_spec hK hrs.1).1, ih, bind,
+      Except.bind, pure, Except.pure]
 
-theorem coerce_words (ρ : Val) (rt : Runtime) :
-    ∀ (rs : List BindingDecl) (ws : List WExpr), (∀ r ∈ rs, r.ty = .uint256) →
-      ws.length = rs.length →
+theorem coerce_words (ρ : Val) (rt : Runtime) {K : Facts} (hK : K.Hold ρ) :
+    ∀ (rs : List BindingDecl) (ws : List WExpr), retsOk K rs ws = true →
       coerceReturnBindings.coerce rt rs (ws.map fun e => .word (e.eval ρ)) =
         .ok (ws.map fun e => .word (e.eval ρ))
-  | [], [], _, _ => rfl
-  | r :: rs, e :: ws, hrs, hl => by
-    have ih := coerce_words ρ rt rs ws (fun q hq => hrs q (List.mem_cons_of_mem _ hq))
-      (by simpa using hl)
+  | [], [], _ => rfl
+  | r :: rs, e :: ws, hrs => by
+    simp only [retsOk, Bool.and_eq_true] at hrs
+    have ih := coerce_words ρ rt hK rs ws hrs.2
     simp only [List.map_cons] at ih ⊢
-    simp [coerceReturnBindings.coerce, deref_word, hrs r List.mem_cons_self, coerce_word, ih,
+    simp [coerceReturnBindings.coerce, deref_word, (retOk_spec hK hrs.1).1, ih,
       bind, Except.bind, pure, Except.pure]
-  | [], _ :: _, _, hl | _ :: _, [], _, hl => by simp at hl
+  | [], _ :: _, h | _ :: _, [], h => by simp [retsOk] at h
 
 /-! ## Encoding the output -/
 
@@ -374,35 +411,37 @@ theorem litBytes_eval (ρ : Val) (n : Nat) :
   intro i hi
   simp [OByte.eval, show 32 - 1 - i = 31 - i by omega]
 
-theorem encodeAux_words (ρ : Val) :
-    ∀ (rs : List BindingDecl) (ws : List WExpr) (off : Nat), (∀ r ∈ rs, r.ty = .uint256) →
-      ws.length = rs.length →
+theorem encodeAux_words (ρ : Val) {K : Facts} (hK : K.Hold ρ) :
+    ∀ (rs : List BindingDecl) (ws : List WExpr) (off : Nat), retsOk K rs ws = true →
       ABI.encodeValuesAux? (rs.map BindingDecl.ty) (ws.map fun e => .word (e.eval ρ)) off =
         some ((ws.flatMap wordOBytes).map (OByte.eval ρ), [], off)
-  | [], [], _, _, _ => rfl
-  | r :: rs, e :: ws, off, hrs, hl => by
-    have ih := encodeAux_words ρ rs ws off (fun q hq => hrs q (List.mem_cons_of_mem _ hq))
-      (by simpa using hl)
-    have hty := hrs r List.mem_cons_self
-    simp only [List.map_cons, hty, ABI.encodeValuesAux?, ABI.Ty.isDynamicAbi, ABI.encodeStaticValue?,
-      ih, List.flatMap_cons, List.map_append, encodeWord_eval]
-    rfl
-  | [], _ :: _, _, _, hl | _ :: _, [], _, _, hl => by simp at hl
+  | [], [], _, _ => rfl
+  | r :: rs, e :: ws, off, hrs => by
+    simp only [retsOk, Bool.and_eq_true] at hrs
+    have ih := encodeAux_words ρ hK rs ws off hrs.2
+    obtain ⟨-, hd, -, he⟩ := retOk_spec hK hrs.1
+    simp only [List.map_cons, ABI.encodeValuesAux?, hd, he, ih, Bool.false_eq_true, ↓reduceIte,
+      List.flatMap_cons, List.map_append, encodeWord_eval]
+  | [], _ :: _, _, h | _ :: _, [], _, h => by simp [retsOk] at h
 
-theorem encode_words (ρ : Val) (rs : List BindingDecl) (ws : List WExpr)
-    (hrs : ∀ r ∈ rs, r.ty = .uint256) (hl : ws.length = rs.length) :
+theorem encode_words (ρ : Val) {K : Facts} (hK : K.Hold ρ) (rs : List BindingDecl) (ws : List WExpr)
+    (hrs : retsOk K rs ws = true) :
     ABI.encodeValues? (rs.map BindingDecl.ty) (ws.map fun e => .word (e.eval ρ)) =
       some ((ws.flatMap wordOBytes).map (OByte.eval ρ)) := by
-  have hhw : ∀ (rs : List BindingDecl), (∀ r ∈ rs, r.ty = .uint256) →
+  have hhw : ∀ (rs : List BindingDecl) (ws : List WExpr), retsOk K rs ws = true →
       ABI.Ty.listAbiHeadWords? (rs.map BindingDecl.ty) = some rs.length := by
-    intro rs hrs
+    intro rs
     induction rs with
-    | nil => rfl
+    | nil => intro ws _; rfl
     | cons r rs ih =>
-      simp [ABI.Ty.listAbiHeadWords?, hrs r List.mem_cons_self, ABI.Ty.abiHeadWords?,
-        ABI.Ty.isDynamicAbi, ABI.Ty.staticAbiHeadWords?,
-        ih (fun q hq => hrs q (List.mem_cons_of_mem _ hq)), Nat.add_comm]
-  simp [ABI.encodeValues?, hhw rs hrs, encodeAux_words ρ rs ws _ hrs hl, bind, Option.bind]
+      intro ws h
+      cases ws with
+      | nil => simp [retsOk] at h
+      | cons w ws =>
+        simp only [retsOk, Bool.and_eq_true] at h
+        obtain ⟨-, hd, hw, -⟩ := retOk_spec (ρ := ρ) hK h.1
+        simp [ABI.Ty.listAbiHeadWords?, ABI.Ty.abiHeadWords?, hd, hw, ih ws h.2, Nat.add_comm]
+  simp [ABI.encodeValues?, hhw rs ws hrs, encodeAux_words ρ hK rs ws _ hrs, bind, Option.bind]
 
 theorem encode_panic (ρ : Val) (core : Contract) (c : Nat) :
     ABI.Contract.encodeRevertData? core (.panic c) = some ((panicBytes c).map (OByte.eval ρ)) := by
@@ -414,19 +453,41 @@ theorem encode_panic (ρ : Val) (core : Contract) (c : Nat) :
   simp only [ABI.Contract.encodeRevertData?, h2, panicBytes, List.map_append]
   congr 2
 
+/-- SolidCore's `Error(msg)` revert data are `errorBytes msg`. -/
+theorem encode_error (ρ : Val) (core : Contract) {m : String} {bs : List OByte}
+    (h : errorBytes m = some bs) :
+    ABI.Contract.encodeRevertData? core (.error m) = some (bs.map (OByte.eval ρ)) := by
+  unfold errorBytes at h
+  split at h
+  · rename_i p hp
+    dsimp only at h
+    split at h
+    · rename_i hall
+      simp only [Option.some.injEq] at h
+      subst h
+      simp only [ABI.Contract.encodeRevertData?, hp, List.map_map, Option.some.injEq]
+      symm
+      have hid : ∀ b ∈ ABI.encodeSelector ABI.errorSelector ++ p, (OByte.eval ρ ∘ OByte.lit) b = id b :=
+        fun b hb => by
+          simp only [Function.comp, OByte.eval, id]
+          exact Nat.mod_eq_of_lt (by simpa using List.all_eq_true.mp hall b hb)
+      rw [List.map_congr_left hid, List.map_id]
+    · simp at h
+  · simp at h
+
 /-! ## The call -/
 
-theorem brTree_eval (fn : FunctionDef) (ρ : Val) :
-    ∀ (b : Br) (T : Tree), brTree fn b = some T →
-      ∃ T', leafTree fn (b.eval ρ) = some T' ∧ T'.eval ρ = T.eval ρ
+theorem brTree_eval (fn : FunctionDef) (K : Facts) (ρ : Val) :
+    ∀ (b : Br) (T : Tree), brTree fn K b = some T →
+      ∃ T', leafTree fn K (b.eval ρ) = some T' ∧ T'.eval ρ = T.eval ρ
   | .leaf l, T, h => ⟨T, h, rfl⟩
   | .ite c t e, T, h => by
     simp only [brTree, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
     obtain ⟨t', ht, e', he, rfl⟩ := h
     simp only [Br.eval, Tree.eval]
     split
-    · exact brTree_eval fn ρ e e' he
-    · exact brTree_eval fn ρ t t' ht
+    · exact brTree_eval fn K ρ e e' he
+    · exact brTree_eval fn K ρ t t' ht
 
 theorem slotValue_lt (σ : List (Nat × Nat)) (k : Nat) : slotValue σ k < wordSize := by
   unfold slotValue
@@ -591,6 +652,51 @@ theorem paramGuards_eval (ρ : Val) (t : Tree) (hρ : ∀ a ∈ ρ.args, a < wor
         have : a < 2 ^ w := Nat.lt_of_lt_of_le halt (Nat.pow_le_pow_right (by decide) (by omega))
         simp [ih, this]
 
+/-- Past the argument checks, the facts they leave hold. -/
+theorem argFacts_hold (ρ : Val) (hρ : ∀ a ∈ ρ.args, a < wordSize) :
+    ∀ (ws : List Nat) (i : Nat), argsClean ws (ρ.args.drop i) = true → (argFacts ws i).Hold ρ
+  | [], _, _ => by simp [argFacts, Facts.Hold]
+  | w :: ws, i, h => by
+    have key : ∀ a, (WExpr.arg i).eval ρ = a → a < 2 ^ w → argsClean ws (ρ.args.drop (i + 1)) = true →
+        (argFacts (w :: ws) i).Hold ρ := by
+      intro a ha haw hrest
+      have ih := argFacts_hold ρ hρ ws (i + 1) hrest
+      simp only [argFacts]
+      split
+      · rename_i hw256
+        refine Facts.Hold.cons ih ?_
+        have hpos := Nat.two_pow_pos w
+        have hm : (2 ^ w - 1) % wordSize = 2 ^ w - 1 :=
+          Nat.mod_eq_of_lt (Nat.lt_of_lt_of_le (Nat.sub_lt hpos (by decide))
+            (Nat.pow_le_pow_right (by decide) (by omega)))
+        have : ¬ 2 ^ w - 1 < a := by omega
+        simp only [eval_bin, eval_lit, ha, hm, BinOp.eval]
+        simp [this]
+      · exact ih
+    cases hdrop : ρ.args.drop i with
+    | nil =>
+      have hge : ρ.args.length ≤ i := by simpa using hdrop
+      have hd1 : ρ.args.drop (i + 1) = [] := by simp; omega
+      have harg : (WExpr.arg i).eval ρ = 0 := by
+        simp [WExpr.eval, List.getD_eq_getElem?_getD, List.getElem?_eq_none hge]
+      refine key 0 harg (Nat.two_pow_pos w) ?_
+      rw [hd1]; cases ws <;> rfl
+    | cons a as =>
+      have hi : i < ρ.args.length := by
+        have := congrArg List.length hdrop; simp at this; omega
+      have ha : ρ.args.getD i 0 = a := by
+        rw [List.getD_eq_getElem?_getD, ← List.head?_drop, hdrop]; rfl
+      have hd1 : ρ.args.drop (i + 1) = as := by
+        rw [← List.drop_drop, hdrop]; rfl
+      have halt : a < wordSize := by
+        rw [← ha, List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hi]
+        exact hρ _ (List.getElem_mem hi)
+      rw [hdrop] at h
+      simp only [argsClean, Bool.and_eq_true, decide_eq_true_eq] at h
+      refine key a ?_ h.1 (by rw [hd1]; exact h.2)
+      have ha' : ρ.args[i]?.getD 0 = a := by rw [← List.getD_eq_getElem?_getD]; exact ha
+      simp [WExpr.eval, ha', Nat.mod_eq_of_lt halt]
+
 /-- **SolidCore rejects dirty argument words**: a call whose argument words SolidCore's decoder
 rejects with empty data reverts with empty output and keeps the call's storage. -/
 theorem run_rejected {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.State}
@@ -620,13 +726,15 @@ theorem run_rejected {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.St
 /-! ## The call -/
 
 theorem wordBinding_ty {b : BindingDecl} (h : wordBinding b = true) :
-    b.ty = .uint256 ∧ b.isStorageRef = false := by
+    RetTy b.ty ∧ b.isStorageRef = false := by
   unfold wordBinding at h
   simp only [Bool.and_eq_true, Bool.not_eq_true'] at h
   refine ⟨?_, h.2⟩
   have := h.1
   split at this
-  · rename_i h'; exact h'
+  · rename_i h'; exact .inl h'
+  · rename_i h'; exact .inr (.inl h')
+  · rename_i h'; exact .inr (.inr h')
   · simp at this
 
 /-- The parameter widths of a function the erasure accepts. -/
@@ -646,9 +754,10 @@ theorem source_run_clean {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Sourc
     (hfind : c.core.findFunctionBySelector? sel = some fn) {ws : List Nat}
     (hw : widthsOf fn.params fn.paramAbiCleanups = some ws)
     (hret : fn.returns.all wordBinding = true) {b : Br}
-    (hb : eraseStmt (envOf c.core) fuel fn.body (initState fn) = some b) {T : Tree}
-    (hT : brTree fn b = some T) (args : List Nat)
+    (hb : eraseStmt { envOf c.core with facts := argFacts ws 0 } fuel fn.body (initState fn) = some b)
+    {T : Tree} (hT : brTree fn (argFacts ws 0) b = some T) (args : List Nat)
     (hlen : args.length = fn.params.length) (hargs : ∀ a ∈ args, a < 2 ^ 256)
+    (hclean : argsClean ws args = true)
     (hdec : ABI.decodeFunctionArgs? fn (Dirty.argBytes args) = .ok (args.map .word)) :
     Source.run fuel c { calldata := Abi.calldata sel args, callvalue := 0, storage := σ } =
       some (T.eval ⟨args, slotValue σ, solHash⟩).obs := by
@@ -660,7 +769,7 @@ theorem source_run_clean {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Sourc
   simp only [ABI.Contract.callCalldataAtFromWithContext?, Dirty.readSelector_calldata _ hsel, hfind,
     hdrop, hdec]
   have hp := (widthsOf_spec hw).2.2.1
-  have hr : ∀ r ∈ fn.returns, r.ty = .uint256 ∧ r.isStorageRef = false :=
+  have hr : ∀ r ∈ fn.returns, RetTy r.ty ∧ r.isStorageRef = false :=
     fun r hr => wordBinding_ty (List.all_eq_true.mp hret r hr)
   generalize hctx : ABI.Contract.callContextAtWithBase c.core (Wide.ctxOf c) selfAddress callerAddress 0
     ((EthLib.Base.natToBytes 4 sel).map (·.toNat) ++ Dirty.argBytes args) = ctx
@@ -672,6 +781,9 @@ theorem source_run_clean {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Sourc
     subst hctx; simp [ABI.Contract.callContextAtWithBase, SolidCore.Solidity.Shared.norm]
   set ρ : Val := ⟨args, slotValue σ, solHash⟩ with hρ
   have hρok : ρ.Ok := slotValue_store σ
+  set K := argFacts ws 0 with hK
+  have hKρ : K.Hold ρ := argFacts_hold ρ hargs ws 0 (by simpa [hρ] using hclean)
+  set E : EraseEnv := { envOf c.core with facts := K } with hE
   have hframe : fn.initialFrame? (args.map .word) =
       some (frameOf ρ (paramLocals fn.params 0 ++ fn.returns.map fun r => (r.name, .lit 0))) := by
     have h0 : BindingDecl.bindArgs? fn.params (args.map .word) =
@@ -679,7 +791,7 @@ theorem source_run_clean {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Sourc
       bindArgs_words ρ hargs fn.params 0 hp (by simp [hρ, hlen])
     simp only [FunctionDef.initialFrame?, h0, FunctionDef.returnDefaultBindings,
       defaults_words ρ fn.returns hr, frameOf, List.map_append]
-  have hrel : StmtRel ρ (envOf c.core) ctx
+  have hrel : StmtRel ρ E ctx
       { state := { st0 with
           selfBalance := SolidCore.Solidity.Shared.addWord
             (SolidCore.Solidity.Shared.Account.balanceAt ctx.accountBalances ctx.self) ctx.value
@@ -701,31 +813,33 @@ theorem source_run_clean {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Sourc
         rw [← this]
         simp only [SolidCore.Solidity.Shared.norm, modulus_eq, Std.HashMap.get?_eq_getElem?]
         cases (List.foldl (fun acc kv => acc.insertLoop kv.1 kv.2) d.storage σ)[k % wordSize]? <;> rfl
-      logs := by subst hst; simp [hd.events, initState] }
-  obtain ⟨r, hrun, hleaf⟩ := eval_stmt ρ (envOf c.core) ctx fuel fn.body (initState fn) b hb _ hrel
+      logs := by subst hst; simp [hd.events, initState]
+      facts := hKρ }
+  obtain ⟨r, hrun, hleaf⟩ := eval_stmt ρ E ctx fuel fn.body (initState fn) b hb _ hrel
   have hcall : fn.call? fuel c.core.table ctx st0 (args.map .word) =
       some (fn.callBodyResult st0 r) := by
     have hacc' : fn.acceptsValue ctx.value = true := hctxv ▸ hacc
     simp only [FunctionDef.call?, FunctionDef.call, FunctionDef.evalBodyEntry, hacc', hframe,
       if_true, Option.map_some, Option.bind_some]
-    rw [show c.core.table = (envOf c.core).tbl from rfl, hrun]
+    rw [show c.core.table = E.tbl from rfl, hrun]
     rfl
-  obtain ⟨T', hT', hTe⟩ := brTree_eval fn ρ b T hT
+  obtain ⟨T', hT', hTe⟩ := brTree_eval fn K ρ b T hT
   rw [hacc, if_pos rfl, hcall, ← hTe]
-  have hrl : ∀ l : List BindingDecl, (∀ x ∈ l, x.ty = .uint256 ∧ x.isStorageRef = false) →
-      ∀ x ∈ l, x.ty = .uint256 := fun l h x hx => (h x hx).1
   generalize b.eval ρ = l at hT' hleaf
   cases l with
   | normal S =>
     cases r <;> simp only [LeafRel] at hleaf
     rename_i rt
-    simp only [leafTree, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at hT'
-    obtain ⟨ws, hws, rfl⟩ := hT'
-    have hlen' : ws.length = fn.returns.length := by
-      exact length_of_mapM _ _ _ hws
+    simp only [leafTree, Option.bind_eq_bind, Option.bind_eq_some_iff] at hT'
+    obtain ⟨ws, hws, hT'⟩ := hT'
+    split at hT'
+    case isFalse => simp at hT'
+    rename_i hok
+    simp only [Option.some.injEq] at hT'
+    subst hT'
     simp only [FunctionDef.callBodyResult, FunctionDef.collectReturns, collectReturnBindings,
-      collect_words ρ rt S hleaf.expr.locals fn.returns ws (hrl _ hr) hws, untag_words,
-      encode_words ρ fn.returns ws (hrl _ hr) hlen', bind, Option.bind, Option.map_some]
+      collect_words ρ rt S hKρ hleaf.expr.locals fn.returns ws hok hws, untag_words,
+      encode_words ρ hKρ fn.returns ws hok, bind, Option.bind, Option.map_some]
     simp only [Source.observe, Tree.eval, Res.obs, if_true, ↓reduceIte, logEntries_map,
       hleaf.logs, Option.some.injEq, Observable.mk.injEq, true_and]
     funext slot
@@ -736,14 +850,17 @@ theorem source_run_clean {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Sourc
     obtain ⟨hst', rfl⟩ := hleaf
     by_cases hv : vs = []
     · subst hv
-      simp only [leafTree, if_true, Option.bind_eq_bind, Option.bind_eq_some_iff,
-        Option.some.injEq] at hT'
-      obtain ⟨ws, hws, rfl⟩ := hT'
-      have hlen' : ws.length = fn.returns.length := length_of_mapM _ _ _ hws
+      simp only [leafTree, if_true, Option.bind_eq_bind, Option.bind_eq_some_iff] at hT'
+      obtain ⟨ws, hws, hT'⟩ := hT'
+      split at hT'
+      case isFalse => simp at hT'
+      rename_i hok
+      simp only [Option.some.injEq] at hT'
+      subst hT'
       simp only [FunctionDef.callBodyResult, List.map_nil, List.isEmpty_nil, if_true,
         FunctionDef.collectReturns, collectReturnBindings,
-        collect_words ρ rt S hst'.expr.locals fn.returns ws (hrl _ hr) hws, untag_words,
-        encode_words ρ fn.returns ws (hrl _ hr) hlen', bind, Option.bind, Option.map_some]
+        collect_words ρ rt S hKρ hst'.expr.locals fn.returns ws hok hws, untag_words,
+        encode_words ρ hKρ fn.returns ws hok, bind, Option.bind, Option.map_some]
       simp only [Source.observe, Tree.eval, Res.obs, if_true, ↓reduceIte, logEntries_map,
         hst'.logs, Option.some.injEq, Observable.mk.injEq, true_and]
       funext slot
@@ -751,7 +868,7 @@ theorem source_run_clean {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Sourc
     · simp only [leafTree, hv, if_false] at hT'
       split at hT'
       case isFalse => simp at hT'
-      rename_i hlen'
+      rename_i hok
       simp only [Option.some.injEq] at hT'
       subst hT'
       have hne : (vs.map fun e => Value.word (e.eval ρ)).isEmpty = false := by
@@ -760,24 +877,31 @@ theorem source_run_clean {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Sourc
         | cons _ _ => rfl
       simp only [FunctionDef.callBodyResult, hne, Bool.false_eq_true, if_false,
         FunctionDef.coerceReturnValues, coerceReturnBindings,
-        coerce_words ρ rt fn.returns vs (hrl _ hr) hlen', untag_words,
-        encode_words ρ fn.returns vs (hrl _ hr) hlen', bind, Option.bind, Option.map_some]
+        coerce_words ρ rt hKρ fn.returns vs hok, untag_words,
+        encode_words ρ hKρ fn.returns vs hok, bind, Option.bind, Option.map_some]
       simp only [Source.observe, Tree.eval, Res.obs, if_true, ↓reduceIte, logEntries_map,
         hst'.logs, Option.some.injEq, Observable.mk.injEq, true_and]
       funext slot
       exact loadSlot_eq _ S.writes ρ hρok hst'.store slot
   | reverted p =>
-    cases p <;> cases r <;> simp only [LeafRel] at hleaf
-    · subst hleaf
+    cases r <;> simp only [LeafRel] at hleaf
+    subst hleaf
+    cases p with
+    | empty =>
       simp only [leafTree, Option.some.injEq] at hT'
       subst hT'
-      simp [FunctionDef.callBodyResult, RevertData.untagFixedBytes,
+      simp [FunctionDef.callBodyResult, RevertData.untagFixedBytes, Fail.data,
         ABI.Contract.encodeRevertData?, Source.observe, Tree.eval, Res.obs, hρ,
         SolidCore.Refinement.Evm.Wide.callAt]
-    · subst hleaf
+    | panic c =>
       simp only [leafTree, Option.some.injEq] at hT'
       subst hT'
-      simp [FunctionDef.callBodyResult, RevertData.untagFixedBytes, encode_panic ρ,
+      simp [FunctionDef.callBodyResult, RevertData.untagFixedBytes, Fail.data, encode_panic ρ,
+        Source.observe, Tree.eval, Res.obs, hρ, SolidCore.Refinement.Evm.Wide.callAt]
+    | error m =>
+      simp only [leafTree, Option.map_eq_some_iff] at hT'
+      obtain ⟨bs, hbs, rfl⟩ := hT'
+      simp [FunctionDef.callBodyResult, RevertData.untagFixedBytes, Fail.data, encode_error ρ _ hbs,
         Source.observe, Tree.eval, Res.obs, hρ, SolidCore.Refinement.Evm.Wide.callAt]
 
 /-- **SolidCore runs a call of a function of the fragment as its erased tree**, from any storage
@@ -805,7 +929,7 @@ theorem source_run {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.Stat
   by_cases hclean : argsClean ws args = true
   · rw [if_pos hclean]
     rw [if_pos hclean] at hdec
-    exact source_run_clean hd hcov hsel hfind hw hret hb ht args hlen hargs hdec
+    exact source_run_clean hd hcov hsel hfind hw hret hb ht args hlen hargs hclean hdec
   · rw [if_neg hclean]
     rw [if_neg hclean] at hdec
     rw [run_rejected hd hsel hfind args hdec σ]

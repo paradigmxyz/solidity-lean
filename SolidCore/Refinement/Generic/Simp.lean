@@ -19,7 +19,8 @@ checks with `or`. `canon` brings both trees to one form, which the kernel then c
   `c` (`gt a c` taken as zero) bounds `a`, a branch on a word already decided takes its side,
   and `sub a b` with `lt a b` taken as zero is at most `a`;
 * `Tree.splitNeg` then turns a branch on a negation (`iszero a`, `eq a 0`) into a branch on
-  `a` with its sides swapped, and splits the disjunctions the simplification left, such as
+  `a` with its sides swapped, a branch on `not a` (solar's `a != type(uint256).max`) into a
+  branch on `eq a maxWord` with its sides swapped, and splits the disjunctions the simplification left, such as
   `uint256`'s mul overflow check `iszero (or (iszero r) …)` against solar's branch on
   `or (eq r 0) …`; a second `Tree.simp` simplifies along the new paths.
 
@@ -671,12 +672,14 @@ theorem Tree.eval_simp {ρ : Val} : ∀ {K : Facts}, K.Hold ρ → ∀ T : Tree,
 /-! ## Negations -/
 
 /-- A branch on `c`, a negation `iszero a`, `eq a 0` or `eq 0 a` turned into a branch on `a`
-with its sides swapped, and a disjunction split as `splitCond` does. -/
+with its sides swapped, a branch on `not a` (zero exactly when `a` is the largest word) into a
+branch on `eq a maxWord` with its sides swapped, and a disjunction split as `splitCond` does. -/
 def splitNeg : WExpr → Tree → Tree → Tree
   | .un .iszero a, t, e => splitNeg a e t
   | .bin .eq a (.lit 0), t, e => splitNeg a e t
   | .bin .eq (.lit 0) a, t, e => splitNeg a e t
   | .bin .or a b, t, e => splitNeg a t (splitNeg b t e)
+  | .un .not a, t, e => .ite (.bin .eq a (.lit maxWord)) e t
   | c, t, e => .ite c t e
 
 /-- Every branch of a tree, its negations and disjunctions split. -/
@@ -702,7 +705,24 @@ theorem splitNeg_eval (ρ : Val) (c : WExpr) (t e : Tree) :
     rw [iha, ihb]
     simp only [or_eval_eq_zero]
     by_cases ha : a.eval ρ = 0 <;> by_cases hb : b.eval ρ = 0 <;> simp [ha, hb]
-  | case5 => rfl
+  | case5 a t e =>
+    have ha := a.eval_le ρ
+    have hm : maxWord % wordSize = maxWord := Nat.mod_eq_of_lt (by decide)
+    simp only [Tree.eval, WExpr.eval, BinOp.eval, UnOp.eval, hm]
+    by_cases h : a.eval ρ = maxWord
+    · simp [h]
+    · have hlt := a.eval_lt ρ
+      have h3 : (wordSize - 1 - a.eval ρ) % wordSize ≠ 0 := by
+        rw [Nat.mod_eq_of_lt (by omega)]
+        simp only [maxWord] at h
+        omega
+      have h4 : (if a.eval ρ = maxWord then 1 else 0) % wordSize = 0 := by
+        split
+        · exact absurd ‹_› h
+        · rfl
+      rw [h4, if_pos rfl]
+      exact (ite_cond_eq_false _ _ (eq_false h3)).symm
+  | case6 => rfl
 
 theorem Tree.eval_splitNeg (ρ : Val) : ∀ T : Tree, T.splitNeg.eval ρ = T.eval ρ
   | .halt _ _ _ _ => rfl
