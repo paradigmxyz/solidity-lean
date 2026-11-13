@@ -68,7 +68,7 @@ jobs:
         env:
           LEAN_NUM_THREADS: "2"
         run: |
-          lake build -KleanMemory=6000 Loom Verify VerifySpec VerifySpecTrustedBase VerifyLoom VerifyDischarge VerifyVC ContractsVC ContractsCounter ContractsArrayMaxVault ContractsVerifyCounter ContractsToken ContractsCallFamilies ContractsShapes
+          lake build -KleanMemory=6000 Loom Verify VerifySpec VerifySpecTrustedBase VerifyLoom VerifyDischarge VerifyVC ContractsVC ContractsCounter ContractsArrayMaxVault ContractsVerifyCounter ContractsCallSqrt ContractsToken ContractsCallFamilies ContractsShapes ContractsCallSqrt
 
       - name: Build SolidCore's refinement milestones
         env:

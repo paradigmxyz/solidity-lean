@@ -4631,8 +4631,8 @@ def externalCallKindTypeEnvName? (contractName functionName : Name)
   -- identity of the resolved parameter types (derived `repr`, which carries
   -- the canonical enum path and struct path) — computed identically at entry
   -- build and lookup, so the key stays symmetric. Repr-identity only: the
-  -- key never reaches an ABI boundary. `Ty.reprListString` is the derived print,
-  -- computed structurally when short so the kernel can evaluate it.
+  -- key never reaches an ABI boundary. `Ty.reprListString` is the flat print,
+  -- which the kernel evaluates (the derived print when short).
   some
     (externalCallKindTypeEnvPrefix ++ contractName ++ ":" ++ signature ++
       "#" ++ Ty.reprListString paramTys)

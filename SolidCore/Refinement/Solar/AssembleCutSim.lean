@@ -32,7 +32,9 @@ inductive CRes where
 
 /-- The effects whose result is not monotone in gas or is the oracle's answer to a message. -/
 def cutEffect : SolarTV.Machine.Effect → Bool
-  | .gas | .call _ | .create | .create2 | .keccak256 | .log _ | .calldatacopy => true
+  | .gas | .call _ | .create | .create2 | .keccak256 | .log _ | .calldatacopy | .returndatasize
+  | .returndatacopy =>
+    true
   | _ => false
 
 /-- The memory operations that run at the frame's own gas: MLOAD and MSTORE, whose growth of
@@ -297,22 +299,39 @@ def isCdcI : Assemble.Instr → Bool
   | .effect .calldatacopy 3 => true
   | _ => false
 
-/-- MLOAD, MSTORE, RETURN, REVERT, KECCAK256, LOGn and CALLDATACOPY: memory at ranges only the
-gas of the run bounds. -/
+/-- STATICCALL, with its six operands. -/
+def isScI : Assemble.Instr → Bool
+  | .effect (.call .staticcall) 6 => true
+  | _ => false
+
+/-- RETURNDATASIZE, which reads the return data of the frame's last call. -/
+def isRdsI : Assemble.Instr → Bool
+  | .effect .returndatasize 0 => true
+  | _ => false
+
+/-- RETURNDATACOPY, which copies a range of the return data of the frame's last call. -/
+def isRdcI : Assemble.Instr → Bool
+  | .effect .returndatacopy 3 => true
+  | _ => false
+
+/-- MLOAD, MSTORE, RETURN, REVERT, KECCAK256, LOGn, CALLDATACOPY, STATICCALL, RETURNDATASIZE and
+RETURNDATACOPY: memory at ranges
+only the gas of the run bounds. -/
 def isMemCutI (i : Assemble.Instr) : Bool :=
-  isLoadI i || isStoreI i || isRetI i || isRevI i || isKecI i || isLogI i || isCdcI i
+  isLoadI i || isStoreI i || isRetI i || isRevI i || isKecI i || isLogI i || isCdcI i || isScI i ||
+    isRdsI i || isRdcI i
 
 theorem execC_cut {o : SolarTV.Machine.Oracle} {call : SolarTV.Call} {b : Nat}
     {i : Assemble.Instr} {rest : List Assemble.Instr} {S : List Word} {s : SolarTV.Machine.State}
     (h : isMemCutI i = true) : execC o call b (i :: rest) S s = .cut i rest S s := by
   cases i with
-  | op op => cases op <;> simp_all [isMemCutI, isLoadI, isStoreI, isRetI, isRevI, isKecI, isLogI, isCdcI, execC, cutOp]
+  | op op => cases op <;> simp_all [isMemCutI, isLoadI, isStoreI, isRetI, isRevI, isKecI, isLogI, isCdcI, isScI, isRdsI, isRdcI, execC, cutOp]
   | ret => rfl
   | revert => rfl
   | effect e a =>
-    cases e <;> simp_all [isMemCutI, isLoadI, isStoreI, isRetI, isRevI, isKecI, isLogI, isCdcI] <;>
+    cases e <;> simp_all [isMemCutI, isLoadI, isStoreI, isRetI, isRevI, isKecI, isLogI, isCdcI, isScI, isRdsI, isRdcI] <;>
       simp [execC, cutEffect]
-  | _ => simp_all [isMemCutI, isLoadI, isStoreI, isRetI, isRevI, isKecI, isLogI, isCdcI]
+  | _ => simp_all [isMemCutI, isLoadI, isStoreI, isRetI, isRevI, isKecI, isLogI, isCdcI, isScI, isRdsI, isRdcI]
 
 /-- The instructions a block's segment stops at. -/
 def isCutI (i : Assemble.Instr) : Bool := isGasI i || isMemCutI i
@@ -351,6 +370,14 @@ def blockOkC (p : Assemble.Program) (c : Cert) (mx : List Nat) (b : Nat) :
         | _ => false
       else if isCdcI i then
         decide (1 ≤ k) && decide (3 ≤ h) && isData ty 3 && decide (2 ^ 140 ≤ c.top) &&
+          blockOkC p c mx b (h - 3) [] (ty.drop 3) (k - 1) rest
+      else if isScI i then
+        c.calls && decide (1 ≤ k) && decide (6 ≤ h) && isData ty 6 && decide (2 ^ 140 ≤ c.top) &&
+          blockOkC p c mx b (h - 5) [] (some false :: ty.drop 6) (k - 1) rest
+      else if isRdsI i then
+        c.calls && decide (1 ≤ k) && blockOkC p c mx b (h + 1) [] (some false :: ty) (k - 1) rest
+      else if isRdcI i then
+        c.calls && decide (1 ≤ k) && decide (3 ≤ h) && isData ty 3 && decide (2 ^ 140 ≤ c.top) &&
           blockOkC p c mx b (h - 3) [] (ty.drop 3) (k - 1) rest
       else blockStepL p c mx b (fun h known ty k => blockOkC p c mx b h known ty k rest) h known ty k i
 
@@ -394,27 +421,27 @@ theorem gas_le_of_hoareG {code : ByteArray} {msg : Message .fusaka} {pc pc' : Na
 
 /-- `SimOutL` with the budget `Gs` at the next block's entry. -/
 def SimOutB (p : Assemble.Program) (c : Cert) (mx : List Nat) (code : ByteArray) (call : SolarTV.Call)
-    (msg : Message .fusaka) (ss0 : Substate) (st : State.TransactionState) (ss : Substate)
-    (b R pc : Nat) (T : List Word) (M : ByteArray) (g Gs : Nat) :
+    (msg : Message .fusaka) (ss0 : Substate) (rd : ByteArray) (st : State.TransactionState)
+    (ss : Substate) (b R pc : Nat) (T : List Word) (M : ByteArray) (g Gs : Nat) :
     (SolarTV.Machine.Halt × SolarTV.Machine.State) ⊕ (Nat × List Word × SolarTV.Machine.State) →
       Prop
   | .inl (halt, s') =>
-    SpecG .fusaka (At code msg pc T M g st ss .empty) (PostL call msg.currentTarget ss0 s' halt)
+    SpecG .fusaka (At code msg pc T M g st ss rd) (PostL call msg.currentTarget ss0 s' halt)
   | .inr (t, S', s') => (t ≤ p.blocks.length ∧
       (t < p.blocks.length → c.need t ≤ S'.length ∧ S'.length ≤ maxH mx t) ∧
       (t = b + 1 ∨ isTarget p c t = true)) ∧
-      ∃ pc' T' M' g' st' ss', HoareG .fusaka (At code msg pc T M g st ss .empty)
-        (At code msg pc' T' M' g' st' ss' .empty) ∧ SR c (c.entry t) S' T' ∧
+      ∃ pc' T' M' g' st' ss', HoareG .fusaka (At code msg pc T M g st ss rd)
+        (At code msg pc' T' M' g' st' ss' rd) ∧ SR c (c.entry t) S' T' ∧
         EntryL c code call (lowerFrom p c t (p.blocks.drop t)) R pc' s' M' g' ∧
         Rel msg ss0 st' ss' s' ∧ MemBudget Gs M' g'
 
 theorem SimOutB.pre {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray}
     {call : SolarTV.Call} {msg : Message .fusaka} {ss0 : Substate} {st st1 : State.TransactionState}
-    {ss ss1 : Substate} {b R pc pc1 : Nat} {T T1 : List Word} {M M1 : ByteArray} {g g1 Gs : Nat}
-    {r : (SolarTV.Machine.Halt × SolarTV.Machine.State) ⊕ (Nat × List Word × SolarTV.Machine.State)}
-    (h : HoareG .fusaka (At code msg pc T M g st ss .empty) (At code msg pc1 T1 M1 g1 st1 ss1 .empty))
-    (h1 : SimOutB p c mx code call msg ss0 st1 ss1 b R pc1 T1 M1 g1 Gs r) :
-    SimOutB p c mx code call msg ss0 st ss b R pc T M g Gs r := by
+    {ss ss1 : Substate} {rd : ByteArray} {b R pc pc1 : Nat} {T T1 : List Word} {M M1 : ByteArray}
+    {g g1 Gs : Nat} {r : (SolarTV.Machine.Halt × SolarTV.Machine.State) ⊕ (Nat × List Word × SolarTV.Machine.State)}
+    (h : HoareG .fusaka (At code msg pc T M g st ss rd) (At code msg pc1 T1 M1 g1 st1 ss1 rd))
+    (h1 : SimOutB p c mx code call msg ss0 rd st1 ss1 b R pc1 T1 M1 g1 Gs r) :
+    SimOutB p c mx code call msg ss0 rd st ss b R pc T M g Gs r := by
   match r, h1 with
   | .inl (_, _), hspec => exact SpecG.seq h hspec
   | .inr (_, _, _), ⟨hneed, pc', T', M', g', st', ss', hh, hR, hinv, hrel, hb⟩ =>
@@ -423,14 +450,14 @@ theorem SimOutB.pre {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : By
 /-- What a block's instructions give: `SimOutL` for SolarTV's halt or next block, and at a stop, GAS,
 with EthLib's frame at its offset, its stack related, the check of the rest and the invariant. -/
 def SimOutC (p : Assemble.Program) (c : Cert) (mx : List Nat) (code : ByteArray) (call : SolarTV.Call)
-    (msg : Message .fusaka) (ss0 : Substate)
+    (msg : Message .fusaka) (ss0 : Substate) (rd : ByteArray)
     (st : State.TransactionState) (ss : Substate) (b R pc : Nat) (T : List Word) (M : ByteArray)
     (g Gs : Nat) : CRes → Prop
-  | .done r => SimOutB p c mx code call msg ss0 st ss b R pc T M g Gs r
+  | .done r => SimOutB p c mx code call msg ss0 rd st ss b R pc T M g Gs r
   | .cut i rest S' s' => isCutI i = true ∧
     ∃ (h : Nat) (known : List Word) (ty : List Ty) (k pc' : Nat) (T' : List Word) (M' : ByteArray)
       (g' : Nat) (st' : State.TransactionState) (ss' : Substate),
-      HoareG .fusaka (At code msg pc T M g st ss .empty) (At code msg pc' T' M' g' st' ss' .empty) ∧
+      HoareG .fusaka (At code msg pc T M g st ss rd) (At code msg pc' T' M' g' st' ss' rd) ∧
       blockOkC p c mx b h known ty k (i :: rest) = true ∧ h ≤ S'.length ∧
       S'.length + c.need b ≤ h + maxH mx b ∧ known <+: S' ∧ SR c ty S' T' ∧
       InvL c code call (lowerInstrs p c b (i :: rest) ++
@@ -440,10 +467,11 @@ def SimOutC (p : Assemble.Program) (c : Cert) (mx : List Nat) (code : ByteArray)
 theorem SimOutC.pre {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray}
     {call : SolarTV.Call}
     {msg : Message .fusaka} {ss0 : Substate} {st st1 : State.TransactionState} {ss ss1 : Substate}
-    {b R pc pc1 : Nat} {T T1 : List Word} {M M1 : ByteArray} {g g1 Gs : Nat} {r : CRes}
-    (h : HoareG .fusaka (At code msg pc T M g st ss .empty) (At code msg pc1 T1 M1 g1 st1 ss1 .empty))
-    (h1 : SimOutC p c mx code call msg ss0 st1 ss1 b R pc1 T1 M1 g1 Gs r) :
-    SimOutC p c mx code call msg ss0 st ss b R pc T M g Gs r := by
+    {rd : ByteArray} {b R pc pc1 : Nat} {T T1 : List Word} {M M1 : ByteArray} {g g1 Gs : Nat}
+    {r : CRes}
+    (h : HoareG .fusaka (At code msg pc T M g st ss rd) (At code msg pc1 T1 M1 g1 st1 ss1 rd))
+    (h1 : SimOutC p c mx code call msg ss0 rd st1 ss1 b R pc1 T1 M1 g1 Gs r) :
+    SimOutC p c mx code call msg ss0 rd st ss b R pc T M g Gs r := by
   match r, h1 with
   | .done _, h1 => exact SimOutB.pre h h1
   | .cut _ _ _ _, ⟨hi, hc, known, ty, k, pc', T', M', g', st', ss', hh, rest'⟩ =>
@@ -471,7 +499,7 @@ theorem exec_simC {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
     (hcaller : msg.caller = Target.address callerAddress) (ho : c.env = true → OracleOk o)
     (hbenv : msg.blockEnv = Target.blockEnv) (htx : msg.txEnv = Target.txEnv)
     (he : c.reads = true → EnvOk o)
-    (b : Nat) (hb : b < p.blocks.length) (Rv Gs : Nat) :
+    (b : Nat) (hb : b < p.blocks.length) (Rv Gs : Nat) (rd : ByteArray) :
     ∀ (is : List Assemble.Instr) (h : Nat) (known : List Word) (ty : List Ty) (S T : List Word) (k : Nat)
       (s : SolarTV.Machine.State) (pc : Nat) (M : ByteArray) (g : Nat)
       (st : State.TransactionState) (ss : Substate),
@@ -479,7 +507,7 @@ theorem exec_simC {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
       S.length + c.need b ≤ h + maxH mx b → known <+: S → SR c ty S T →
       InvL c code call (lowerInstrs p c b is ++ lowerFrom p c (b + 1) (p.blocks.drop (b + 1))) k Rv
         pc S s M g → Rel msg ss0 st ss s → MemBudget Gs M g →
-      SimOutC p c mx code call msg ss0 st ss b Rv pc T M g Gs (execC o call b is S s)
+      SimOutC p c mx code call msg ss0 rd st ss b Rv pc T M g Gs (execC o call b is S s)
   | [], h, known, ty, S, T, k, s, pc, M, g, st, ss, hok, hh, hu, _, hR, I, R, Hb => by
     simp only [blockOkC, fallOkL, Bool.and_eq_true, Bool.or_eq_true, decide_eq_true_eq] at hok
     have I2 := I.entry
@@ -514,12 +542,12 @@ theorem exec_simC {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
       obtain ⟨hlt2, hcode2, rfl⟩ := op_item hd2
       have hS := I.stack; have hG := I.gas
       simp only [List.length_cons] at hS hh hu
-      obtain ⟨g0, hg0, hisz⟩ := stack_ruleG (msg := msg) (M := M) (st := st) (ss := ss) (gas := g)
+      obtain ⟨g0, hg0, hisz⟩ := stack_ruleG (msg := msg) (M := M) (st := st) (ss := ss) (rd := rd) (gas := g)
         (op := .iszero) (stack := cond :: T') (next := EvmRules.Evm.iszero cond :: T')
         (r := o.env "returndatasize" s.world []) rfl hlt0 hcode0 rfl (by omega)
         (by simp only [List.length_cons]; omega)
       have hg0u := gas_le_of_hoareG hisz (by first | omega | (simp only [List.length_cons] at *; omega) | simp_all)
-      obtain ⟨g1, hg1, hpush⟩ := push_itemG (msg := msg) (M := M) (st := st) (ss := ss)
+      obtain ⟨g1, hg1, hpush⟩ := push_itemG (msg := msg) (M := M) (st := st) (ss := ss) (rd := rd)
         (gas := g0) (stack := EvmRules.Evm.iszero cond :: T') hd1 (by omega)
         (by simp only [List.length_cons]; omega)
       have hg1u := gas_le_of_hoareG hpush (by first | omega | (simp only [List.length_cons] at *; omega) | simp_all)
@@ -528,7 +556,7 @@ theorem exec_simC {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
         subst hc
         have hoff := toNat_offset (G.target e hen hetgt).2.1 G.size_lt
         have hj := Logic.jumpi_takenG (message := msg) (memory := M) (state := st)
-          (substate := ss) (returnData := .empty) (destination := BitVec.ofNat 256 (c.offset e))
+          (substate := ss) (returnData := rd) (destination := BitVec.ofNat 256 (c.offset e))
           (rest := T') hlt2 hcode2 (show 10 ≤ g1 by omega) iszero_zero
           (by rw [hoff]; exact (G.target e hen hetgt).1)
         rw [hoff] at hj
@@ -539,7 +567,7 @@ theorem exec_simC {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
           I.targetT G hen hetgt (m := 3) (by omega) (by omega), R, by bud_tac⟩
       · -- The condition is not zero: ISZERO gives zero and the code falls into the next block.
         have hj := Logic.jumpi_of_eq_zeroG (message := msg) (memory := M) (state := st)
-          (substate := ss) (returnData := .empty) (destination := BitVec.ofNat 256 (c.offset e))
+          (substate := ss) (returnData := rd) (destination := BitVec.ofNat 256 (c.offset e))
           (rest := T') hlt2 hcode2 (show 10 ≤ g1 by omega) (iszero_nonzero hc)
         simp only [execC, List.length_cons, show ¬ S'.length + 1 + 1 > 1024 by omega, ite_false,
           hc, SimOutC, SimOutB]
@@ -581,15 +609,15 @@ theorem exec_simC {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
           hok, hh, hu, hk, hR, I, R, Hb⟩
       have hMc' : isMemCutI i = false := by simpa using hMc
       simp only [isMemCutI, Bool.or_eq_false_iff] at hMc'
-      obtain ⟨⟨⟨⟨⟨⟨hnl, hns⟩, hnr⟩, hnv⟩, hnk⟩, hnlog⟩, hncd⟩ := hMc'
+      obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨hnl, hns⟩, hnr⟩, hnv⟩, hnk⟩, hnlog⟩, hncd⟩, hnsc⟩, hnrds⟩, hnrdc⟩ := hMc'
       have hok' : blockStepL p c mx b (fun h known ty k => blockOkC p c mx b h known ty k rest) h known ty k i =
           true := by
-        simpa only [blockOkC, hT, hD', hG', hnl, hns, hnr, hnv, hnk, hnlog, hncd, Bool.or_false, Bool.false_eq_true, ite_false] using hok
+        simpa only [blockOkC, hT, hD', hG', hnl, hns, hnr, hnv, hnk, hnlog, hncd, hnsc, hnrds, hnrdc, Bool.or_false, Bool.false_eq_true, ite_false] using hok
       have I' : InvL c code call (lowerInstr i ++ (lowerInstrs p c b rest ++
           lowerFrom p c (b + 1) (p.blocks.drop (b + 1)))) k Rv pc S s M g := by
         simpa only [lowerInstrs, hT, hD', Bool.false_eq_true, ite_false, List.append_assoc] using I
       clear hok hD hD' hT
-      have IH := exec_simC (mx := mx) (o := o) (ss0 := ss0) G hdata hvalue hstatic hself hcaller ho hbenv htx he b hb Rv Gs rest
+      have IH := exec_simC (mx := mx) (o := o) (ss0 := ss0) G hdata hvalue hstatic hself hcaller ho hbenv htx he b hb Rv Gs rd rest
       rcases i with mop | ⟨e, ar⟩ | t | t | t | _ | _ | _ | _ | _ | _ | _
       · rcases mop with sop | _ | _ | _ | _ | _ | _
         · by_cases hpush : ∃ v, sop = .push v
@@ -599,7 +627,7 @@ theorem exec_simC {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
             obtain ⟨next, hd, hseg⟩ := I'.seg.head
             simp only [Item.expected] at hd
             have hS := I'.stack; have hG := I'.gas
-            obtain ⟨g1, hg1, hpush⟩ := push_itemG (msg := msg) (M := M) (st := st) (ss := ss) (gas := g)
+            obtain ⟨g1, hg1, hpush⟩ := push_itemG (msg := msg) (M := M) (st := st) (ss := ss) (rd := rd) (gas := g)
               (stack := T) hd (by omega) (by omega)
             have hg1u := gas_le_of_hoareG hpush (by first | omega | (simp only [List.length_cons] at *; omega) | simp_all)
             have hv : BitVec.ofNat 256 v.toNat = v := by simp
@@ -619,7 +647,7 @@ theorem exec_simC {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
             obtain ⟨hlt, hcode, rfl⟩ := op_item hd
             rw [← hctx] at hstepT
             have hS := I'.stack; have hG := I'.gas
-            obtain ⟨g1, hg1, hrule⟩ := stack_ruleG (M := M) (st := st) (ss := ss) (gas := g)
+            obtain ⟨g1, hg1, hrule⟩ := stack_ruleG (M := M) (st := st) (ss := ss) (rd := rd) (gas := g)
               (stack := T) hbyte hlt hcode hstepT (by omega) (by omega)
             have hg1u := gas_le_of_hoareG hrule (by first | omega | (simp only [List.length_cons] at *; omega) | simp_all)
             rw [execC_stack hstep (by omega) (by omega)]
@@ -656,7 +684,7 @@ theorem exec_simC {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
           simp only [List.length_cons] at hS hG hh hL hu
           rw [execC_effect1 rfl (w := s.storage x) rfl (by omega)]
           have hrule := Logic.sloadG (message := msg) (memory := M) (state := st) (substate := ss)
-            (returnData := .empty) (key := x) (rest := T') (gas := g) (by decide) hlt hcode rfl
+            (returnData := rd) (key := x) (rest := T') (gas := g) (by decide) hlt hcode rfl
             (by split <;> omega)
           rw [R.storage x] at hrule
           refine SimOutC.pre hrule ?_
@@ -699,7 +727,7 @@ theorem exec_simC {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
             (st.getStorage msg.currentTarget (U256.toBeBytes x)) v
             (decide (U256.toBeBytes x ∉ ss.accessedStorageKeys.getD msg.currentTarget ∅))
           obtain ⟨st', hnew, hothers, -, hacc, -, -, hrule⟩ := sstore_of_accountG
-            (message := msg) (memory := M) (state := st) (substate := ss) (returnData := .empty)
+            (message := msg) (memory := M) (state := st) (substate := ss) (returnData := rd)
             (key := x) (new := v) (rest := T') (gas := g) (by decide) (by decide) hlt hcode hstatic
             rfl (by simp only [CALL_STIPEND]; omega) (by omega) R.account
           refine SimOutC.pre hrule ?_
@@ -733,7 +761,7 @@ theorem exec_simC {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
           simp only [List.length_cons] at hS hG hh hL hu
           rw [execC_effect1 rfl (w := SolarTV.Machine.calldataWord call x) rfl (by omega)]
           have hrule := Logic.calldataloadG (message := msg) (memory := M) (state := st)
-            (substate := ss) (returnData := .empty) (start := x) (rest := T') (gas := g) hlt hcode
+            (substate := ss) (returnData := rd) (start := x) (rest := T') (gas := g) hlt hcode
             (by omega)
           rw [hdata, ← calldataWord_eq] at hrule
           exact SimOutC.pre hrule (IH h [] _ _ _ (k - 1) s (pc + 1) M (g - 3) st ss hok (by simp; omega) (by hu_tac)
@@ -751,7 +779,7 @@ theorem exec_simC {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
           have hS := I'.stack; have hG := I'.gas
           rw [execC_effect0 rfl (w := BitVec.ofNat 256 call.calldata.size) rfl (by omega)]
           have hrule := Logic.calldatasizeG (message := msg) (memory := M) (state := st)
-            (substate := ss) (returnData := .empty) (stack := T) (gas := g) hlt hcode (by omega)
+            (substate := ss) (returnData := rd) (stack := T) (gas := g) hlt hcode (by omega)
             (by unfold STACK_LIMIT; omega)
           rw [hdata] at hrule
           exact SimOutC.pre hrule (IH (h + 1) [] _ _ _ (k - 1) s (pc + 1) M (g - 2) st ss hok
@@ -769,7 +797,7 @@ theorem exec_simC {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
           have hS := I'.stack; have hG := I'.gas
           rw [execC_effect0 rfl (w := BitVec.ofNat 256 call.callvalue) rfl (by omega)]
           have hrule := Logic.callvalueG (message := msg) (memory := M) (state := st)
-            (substate := ss) (returnData := .empty) (stack := T) (gas := g) hlt hcode (by omega)
+            (substate := ss) (returnData := rd) (stack := T) (gas := g) hlt hcode (by omega)
             (by unfold STACK_LIMIT; omega)
           rw [hvalue] at hrule
           exact SimOutC.pre hrule (IH (h + 1) [] _ _ _ (k - 1) s (pc + 1) M (g - 2) st ss hok
@@ -788,7 +816,7 @@ theorem exec_simC {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
           have hS := I'.stack; have hG := I'.gas
           rw [execC_effect0 rfl (w := o.caller.setWidth 256) rfl (by omega)]
           have hrule := Logic.callerG (message := msg) (memory := M) (state := st)
-            (substate := ss) (returnData := .empty) (stack := T) (gas := g) hlt hcode (by omega)
+            (substate := ss) (returnData := rd) (stack := T) (gas := g) hlt hcode (by omega)
             (by unfold STACK_LIMIT; omega)
           rw [hcaller, ← hoc] at hrule
           exact SimOutC.pre hrule (IH (h + 1) [] _ _ _ (k - 1) s (pc + 1) M (g - 2) st ss hok
@@ -806,7 +834,7 @@ theorem exec_simC {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
           have hS := I'.stack; have hG := I'.gas
           rw [execC_effect0 rfl (w := BitVec.ofNat 256 SolarTV.environment.callee) rfl (by omega)]
           have hrule := Logic.addressG (message := msg) (memory := M) (state := st)
-            (substate := ss) (returnData := .empty) (stack := T) (gas := g) hlt hcode (by omega)
+            (substate := ss) (returnData := rd) (stack := T) (gas := g) hlt hcode (by omega)
             (by unfold STACK_LIMIT; omega)
           rw [hself, address_word] at hrule
           exact SimOutC.pre hrule (IH (h + 1) [] _ _ _ (k - 1) s (pc + 1) M (g - 2) st ss hok
@@ -840,7 +868,7 @@ theorem exec_simC {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
           have hS := I'.stack; have hG := I'.gas
           rw [execC_effect0 rfl (w := BitVec.ofNat 256 w)
             (by simp [SolarTV.Machine.Effect.apply, he hreads name byte w hread]) (by omega)]
-          have hrule := env_readG (msg := msg) (M := M) (st := st) (ss := ss) (gas := g)
+          have hrule := env_readG (msg := msg) (M := M) (st := st) (ss := ss) (rd := rd) (gas := g)
             (stack := T) hread hlt hcode hbenv htx (by omega) (by unfold STACK_LIMIT; omega)
           exact SimOutC.pre hrule (IH (h + 1) [] _ _ _ (k - 1) s (pc + 1) M (g - 2) st ss hok
             (by simp; omega) (by hu_tac) (List.nil_prefix) (SR.cons (τ := some false) rfl hR) (I'.next hk1 hseg (by simp) (by omega)) R (by bud_tac))
@@ -854,11 +882,11 @@ theorem exec_simC {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
         obtain ⟨hlt2, hcode2, rfl⟩ := op_item hd2
         have hS := I'.stack; have hG := I'.gas
         have hoff := toNat_offset (G.target t htn htgt).2.1 G.size_lt
-        obtain ⟨g1, hg1, hpush⟩ := push_itemG (msg := msg) (M := M) (st := st) (ss := ss) (gas := g)
+        obtain ⟨g1, hg1, hpush⟩ := push_itemG (msg := msg) (M := M) (st := st) (ss := ss) (rd := rd) (gas := g)
           (stack := T) hd1 (by omega) (by omega)
         have hg1u := gas_le_of_hoareG hpush (by first | omega | (simp only [List.length_cons] at *; omega) | simp_all)
         have hj := Logic.jumpG (message := msg) (memory := M) (state := st) (substate := ss)
-          (returnData := .empty) (rest := T) hlt2 hcode2 (show 8 ≤ g1 by omega)
+          (returnData := rd) (rest := T) hlt2 hcode2 (show 8 ≤ g1 by omega)
           (by rw [hoff]; exact (G.target t htn htgt).1)
         rw [hoff] at hj
         simp only [execC, show ¬ S.length + 1 > 1024 by omega, ite_false, SimOutC, SimOutB]
@@ -882,13 +910,13 @@ theorem exec_simC {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
         have hS := I'.stack; have hG := I'.gas
         simp only [List.length_cons] at hS hh hL hu
         have hoff := toNat_offset (G.target t htn htgt).2.1 G.size_lt
-        obtain ⟨g1, hg1, hpush⟩ := push_itemG (msg := msg) (M := M) (st := st) (ss := ss) (gas := g)
+        obtain ⟨g1, hg1, hpush⟩ := push_itemG (msg := msg) (M := M) (st := st) (ss := ss) (rd := rd) (gas := g)
           (stack := cond :: T') hd1 (by omega) (by simp; omega)
         have hg1u := gas_le_of_hoareG hpush (by first | omega | (simp only [List.length_cons] at *; omega) | simp_all)
         by_cases hc : cond = 0
         · subst hc
           have hj := Logic.jumpi_of_eq_zeroG (message := msg) (memory := M) (state := st)
-            (substate := ss) (returnData := .empty) (destination := BitVec.ofNat 256 (c.offset t))
+            (substate := ss) (returnData := rd) (destination := BitVec.ofNat 256 (c.offset t))
             (rest := T') hlt2 hcode2 (show 10 ≤ g1 by omega) rfl
           simp only [execC, List.length_cons, show ¬ S'.length + 1 + 1 > 1024 by omega, ite_false,
             ite_true]
@@ -896,7 +924,7 @@ theorem exec_simC {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
             (g1 - 10) st ss hok' (by omega) (by hu_tac) (List.nil_prefix) hR'
             (I'.next2 hk2 hseg (by simp only [List.length_cons]; omega) (by omega)) R (by bud_tac))
         · have hj := Logic.jumpi_takenG (message := msg) (memory := M) (state := st)
-            (substate := ss) (returnData := .empty) (destination := BitVec.ofNat 256 (c.offset t))
+            (substate := ss) (returnData := rd) (destination := BitVec.ofNat 256 (c.offset t))
             (rest := T') hlt2 hcode2 (show 10 ≤ g1 by omega) hc
             (by rw [hoff]; exact (G.target t htn htgt).1)
           rw [hoff] at hj
@@ -913,7 +941,7 @@ theorem exec_simC {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
         obtain ⟨next, hd, hseg⟩ := I'.seg.head
         simp only [Item.expected] at hd
         have hS := I'.stack; have hG := I'.gas
-        obtain ⟨g1, hg1, hpush⟩ := push_itemG (msg := msg) (M := M) (st := st) (ss := ss) (gas := g)
+        obtain ⟨g1, hg1, hpush⟩ := push_itemG (msg := msg) (M := M) (st := st) (ss := ss) (rd := rd) (gas := g)
           (stack := T) hd (by omega) (by omega)
         have hg1u := gas_le_of_hoareG hpush (by first | omega | (simp only [List.length_cons] at *; omega) | simp_all)
         have htn : (BitVec.ofNat 256 t).toNat = t := by
@@ -944,7 +972,7 @@ theorem exec_simC {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
         simp only [List.length_cons] at hS hh hL hu
         have hoff := toNat_offset (G.target _ htn htgt).2.1 G.size_lt
         have hj := Logic.jumpG (message := msg) (memory := M) (state := st) (substate := ss)
-          (returnData := .empty) (destination := BitVec.ofNat 256 (c.offset x.toNat)) (rest := T')
+          (returnData := rd) (destination := BitVec.ofNat 256 (c.offset x.toNat)) (rest := T')
           hlt hcode (show 8 ≤ g by omega) (by rw [hoff]; exact (G.target _ htn htgt).1)
         rw [hoff] at hj
         simp only [execC, SimOutC, SimOutB]

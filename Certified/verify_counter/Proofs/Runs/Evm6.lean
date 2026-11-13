@@ -2,6 +2,7 @@
 import W1Proofs.Segment
 import W1Proofs.Stage
 import W1Proofs.Axioms
+import SolarTV.Termination
 import verify_counter.gen.Counter.Evm6
 import verify_counter.gen.Counter.Evm5
 
@@ -35,24 +36,24 @@ theorem evm6_mk1 {call : Call} {w0 w1 w2 w3 w4 w5 : EvmRules.Word} {s : State} {
 
 set_option maxHeartbeats 2000000 in
 theorem evm6_seg0 (o : Oracle) (call : Call)  :
-    ∃ k k', SegRel Agree (fun y y' => ∃ Q ∈ evm6_rels call, Q y y')
+    ∃ k, SegRel Agree (fun y y' => ∃ Q ∈ evm6_rels call, Q y y')
       (seg (EVM.Program.block o call evm5) evm6_cutA k (0, [], State.initial call))
-      (seg (EVM.Program.block o call evm6) evm6_cutB k' (0, [], State.initial call)) := by
-  refine ⟨24, 21, ?_⟩
+      (seg (EVM.Program.block o call evm6) evm6_cutB 21 (0, [], State.initial call)) := by
+  refine ⟨24, ?_⟩
   sym_seg [evm6_cutA_mk, evm6_cutB_mk] [evm6_mk1]
 
 set_option maxHeartbeats 2000000 in
 theorem evm6_seg1 (o : Oracle) (call : Call) (w0 w1 w2 w3 w4 w5 : EvmRules.Word) (s : State) :
-    ∃ k k', SegRel Agree (fun y y' => ∃ Q ∈ evm6_rels call, Q y y')
+    ∃ k, SegRel Agree (fun y y' => ∃ Q ∈ evm6_rels call, Q y y')
       (seg (EVM.Program.block o call evm5) evm6_cutA k (7, [w0, w1, w2, w3, w4, w5], s))
-      (seg (EVM.Program.block o call evm6) evm6_cutB k' (7, [w0, w1, w2, w3, w4, w5], s)) := by
-  refine ⟨24, 21, ?_⟩
+      (seg (EVM.Program.block o call evm6) evm6_cutB 21 (7, [w0, w1, w2, w3, w4, w5], s)) := by
+  refine ⟨24, ?_⟩
   sym_seg [evm6_cutA_mk, evm6_cutB_mk] [evm6_mk1]
 
 theorem evm6_segments (o : Oracle) (call : Call) :
-    ∀ P ∈ evm6_rels call, ∀ x x', P x x' → ∃ k k', SegRel Agree (fun y y' => ∃ Q ∈ evm6_rels call, Q y y')
+    ∀ P ∈ evm6_rels call, ∀ x x', P x x' → ∃ k, SegRel Agree (fun y y' => ∃ Q ∈ evm6_rels call, Q y y')
       (seg (EVM.Program.block o call evm5) evm6_cutA k x)
-      (seg (EVM.Program.block o call evm6) evm6_cutB k' x') := by
+      (seg (EVM.Program.block o call evm6) evm6_cutB 21 x') := by
   intro P mem x x' holds
   simp only [evm6_rels, List.mem_cons, List.not_mem_nil, or_false] at mem
   rcases mem with rfl | rfl
@@ -76,7 +77,16 @@ def evm6_sim (o : Oracle) :
   cut' := evm6_cutB
   Rel call := fun x x' => ∃ P ∈ evm6_rels call, P x x'
   start _ _ := ⟨_, List.Mem.head _, rfl, rfl⟩
-  sim call _ := CutPoint.Sim.of_each (evm6_segments o call)
+  sim call _ := CutPoint.Sim.of_each fun P m x x' h =>
+    match evm6_segments o call P m x x' h with | ⟨k, s⟩ => ⟨k, 21, s⟩
+
+/-- Every segment of `evm6` takes at most 21 steps: the bound that carries a loop's
+ranking certificate on `evm5` to a step bound on `evm6` (`CutPoint.ends_within_sim_start`). -/
+theorem evm6_bounded (o : Oracle) (call : Call) :
+    CutPoint.BoundedSim (EVM.Program.block o call evm5) evm6_cutA
+      (EVM.Program.block o call evm6) evm6_cutB Agree
+      (fun x x' => ∃ P ∈ evm6_rels call, P x x') 21 :=
+  fun x x' ⟨P, m, h⟩ => evm6_segments o call P m x x' h
 
 /-- Every end of `evm5` on a call is matched by an agreeing end of `evm6`. -/
 theorem evm6_certified (o : Oracle) :

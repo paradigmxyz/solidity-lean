@@ -1,0 +1,25 @@
+{
+  "kind": "functional",
+  "sem": "SolarTV.mirSem SolidCore.Refinement.Shapes.oracle",
+  "prog": "SolarTV.Export.Counter.stage0",
+  "valid": "SolarTV.Milestone.VerifyCounter.Bump.IsBump",
+  "allowed": "fun _ _ => True",
+  "post": "SolidCore.Refinement.Shapes.specPost SolidCore.Refinement.Solar.VerifyCounter.spec",
+  "env": [],
+  "spec": "solar-verify's Counter spec (crates/verify/examples/Counter.sol NatSpec, SolidCore.Refinement.Solar.VerifyCounter.spec), proved of stage0 by holds_stage0",
+  "spec_modules": [
+    "Contracts.VerifyCounter.Holds",
+    "Contracts.VerifyCounter.Bump",
+    "Verify.ShapeGeneric"
+  ],
+  "proof_module": "Contracts.VerifyCounter.Shape",
+  "proof": "Contracts.VerifyCounter.Shape.published",
+  "excluded": [
+    "source: solar's first lowered MIR (stage0) under the oracle with EthLib's caller, Keccak-256 and environment, not SolidCore: no SolidCore stage reaches loops yet (frontend trust boundary at the first lowered MIR)",
+    "valid calls: every call whose selector is bump(uint256) (any further call data, any value, any storage); the other functions of the contract are outside this statement",
+    "resources: not proved; the cut-point backend stages give the final EVM IR's end, not its block count, so the loop checker's forward theorem has no bound; equivalence admits a failure that changes nothing at any gas",
+    "allowed statuses: every status (the spec states success conditions; Outcome of specPost carries what the spec says of reverts)",
+    "deployment: the init code is not covered",
+    "calls: one frame, caller 0x2000, contract at 0x1000, the block and transaction of Target.message"
+  ]
+}

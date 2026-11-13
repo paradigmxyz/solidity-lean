@@ -44,6 +44,7 @@ def at5 (call : Call) (env : MIR.Lowered.Env) (s : State) : Prop :=
     s.storage = (State.initial call).storage ∧
     env 91 = calldataWord call (calldataWord call 4 + (4 : EvmRules.Word)) ∧
     env 119 = (128 : EvmRules.Word) ∧
+    env 12 = (0 : EvmRules.Word) ∧
     (∀ j : EvmRules.Word, j < calldataWord call (calldataWord call 4 + (4 : EvmRules.Word)) → s.memory.load (((128 : EvmRules.Word) + (32 : EvmRules.Word)) + 32 * j).toNat = calldataWord call (((calldataWord call 4 + (4 : EvmRules.Word)) + (32 : EvmRules.Word)) + 32 * j)) ∧
     s.memory.load (env 119).toNat = env 91
 
@@ -64,6 +65,7 @@ def at10 (call : Call) (env : MIR.Lowered.Env) (s : State) : Prop :=
     s.storage = (State.initial call).storage ∧
     env 91 = calldataWord call (calldataWord call 4 + (4 : EvmRules.Word)) ∧
     env 119 = (128 : EvmRules.Word) ∧
+    env 12 = (0 : EvmRules.Word) ∧
     (∀ j : EvmRules.Word, j < calldataWord call (calldataWord call 4 + (4 : EvmRules.Word)) → s.memory.load (((128 : EvmRules.Word) + (32 : EvmRules.Word)) + 32 * j).toNat = calldataWord call (((calldataWord call 4 + (4 : EvmRules.Word)) + (32 : EvmRules.Word)) + 32 * j)) ∧
     s.memory.load (env 119).toNat = env 91
 

@@ -26,6 +26,8 @@ open SolarTV.Assembly
 open EthLib.Base EthLib.Execution EthLib.Execution.Evm EthLib.Execution.Evm.Logic GasCosts
 open SolidCore.Refinement.Evm.Wide
 
+variable {rd : ByteArray}
+
 /-! ## Gas bounds memory -/
 
 /-- **A paid growth of memory keeps the budget**: when the frame pays `pre` and the growth for a
@@ -58,7 +60,7 @@ theorem budget_grow {size g G pre : Nat} (hmod : size % 32 = 0) {o sz : Word} (h
 the run goes on from the frame after it. -/
 theorem mstore_back {code : ByteArray} {msg : Message .fusaka} {pc : Nat} {o v : Word}
     {T : List Word} {M : ByteArray} {g : Nat} {st : State.TransactionState} {ss : Substate}
-    {evm : Evm .fusaka Nat} (hat : At code msg pc (o :: v :: T) M g st ss .empty evm)
+    {evm : Evm .fusaka Nat} (hat : At code msg pc (o :: v :: T) M g st ss rd evm)
     (hlt : pc < code.size) (hbyte : code[pc] = 0x52) {bound : Nat}
     {runChild : MessageRunner .fusaka Nat bound} (within : GasMeter.gasHeld evm.gas ≤ bound)
     {fin : Evm .fusaka Nat}
@@ -69,7 +71,7 @@ theorem mstore_back {code : ByteArray} {msg : Message .fusaka} {pc : Nat} {o v :
       At code msg (pc + 1) T
         (memoryWrite (memoryExtend M (extendMemory M.size [(o, 32)]).expandBy) o.toNat
           (wordBytes v))
-        (g - (3 + (extendMemory M.size [(o, 32)]).cost)) st ss .empty m ∧
+        (g - (3 + (extendMemory M.size [(o, 32)]).cost)) st ss rd m ∧
       runFrame (step .fusaka) (step_decreases .fusaka) bound runChild m within' = .ok fin := by
   by_cases hg : 3 + (extendMemory M.size [(o, 32)]).cost ≤ g
   · obtain ⟨m, hr, hm⟩ := Logic.mstore (fork := .fusaka) hlt hbyte hg evm hat
@@ -77,7 +79,7 @@ theorem mstore_back {code : ByteArray} {msg : Message .fusaka} {pc : Nat} {o v :
     rw [this] at hrun
     exact ⟨hg, m, _, hm, hrun⟩
   · exfalso
-    have hspec : Spec .fusaka (At code msg pc (o :: v :: T) M g st ss .empty)
+    have hspec : Spec .fusaka (At code msg pc (o :: v :: T) M g st ss rd)
         (Faulted .outOfGas st ss) := by
       refine At.fault rfl fun e hat' => ?_
       obtain ⟨hcode, -, -, hpc, hst, hmem, hgas, -⟩ := hat'
@@ -104,7 +106,7 @@ theorem mstore_back {code : ByteArray} {msg : Message .fusaka} {pc : Nat} {o v :
 the run goes on from the frame after it. -/
 theorem mload_back {code : ByteArray} {msg : Message .fusaka} {pc : Nat} {o : Word}
     {T : List Word} {M : ByteArray} {g : Nat} {st : State.TransactionState} {ss : Substate}
-    {evm : Evm .fusaka Nat} (hat : At code msg pc (o :: T) M g st ss .empty evm)
+    {evm : Evm .fusaka Nat} (hat : At code msg pc (o :: T) M g st ss rd evm)
     (hlt : pc < code.size) (hbyte : code[pc] = 0x51) {bound : Nat}
     {runChild : MessageRunner .fusaka Nat bound} (within : GasMeter.gasHeld evm.gas ≤ bound)
     {fin : Evm .fusaka Nat}
@@ -116,7 +118,7 @@ theorem mload_back {code : ByteArray} {msg : Message .fusaka} {pc : Nat} {o : Wo
         (loadWord (memoryReadBytes
           (memoryExtend M (extendMemory M.size [(o, 32)]).expandBy) o.toNat 32) 0 32 :: T)
         (memoryExtend M (extendMemory M.size [(o, 32)]).expandBy)
-        (g - (3 + (extendMemory M.size [(o, 32)]).cost)) st ss .empty m ∧
+        (g - (3 + (extendMemory M.size [(o, 32)]).cost)) st ss rd m ∧
       runFrame (step .fusaka) (step_decreases .fusaka) bound runChild m within' = .ok fin := by
   by_cases hg : 3 + (extendMemory M.size [(o, 32)]).cost ≤ g
   · obtain ⟨m, hr, hm⟩ := Logic.mload (fork := .fusaka) hlt hbyte hg evm hat
@@ -124,7 +126,7 @@ theorem mload_back {code : ByteArray} {msg : Message .fusaka} {pc : Nat} {o : Wo
     rw [this] at hrun
     exact ⟨hg, m, _, hm, hrun⟩
   · exfalso
-    have hspec : Spec .fusaka (At code msg pc (o :: T) M g st ss .empty)
+    have hspec : Spec .fusaka (At code msg pc (o :: T) M g st ss rd)
         (Faulted .outOfGas st ss) := by
       refine At.fault rfl fun e hat' => ?_
       obtain ⟨hcode, -, -, hpc, hst, hmem, hgas, -⟩ := hat'
@@ -230,7 +232,7 @@ theorem revert_false {code : ByteArray} {msg : Message .fusaka} {pc : Nat} {o sz
 memory to its range, and the run goes on from the frame after it. -/
 theorem keccak_back {code : ByteArray} {msg : Message .fusaka} {pc : Nat} {o sz : Word}
     {T : List Word} {M : ByteArray} {g : Nat} {st : State.TransactionState} {ss : Substate}
-    {evm : Evm .fusaka Nat} (hat : At code msg pc (o :: sz :: T) M g st ss .empty evm)
+    {evm : Evm .fusaka Nat} (hat : At code msg pc (o :: sz :: T) M g st ss rd evm)
     (hlt : pc < code.size) (hbyte : code[pc] = 0x20) {bound : Nat}
     {runChild : MessageRunner .fusaka Nat bound} (within : GasMeter.gasHeld evm.gas ≤ bound)
     {fin : Evm .fusaka Nat}
@@ -242,7 +244,7 @@ theorem keccak_back {code : ByteArray} {msg : Message .fusaka} {pc : Nat} {o sz 
         (keccak (memoryReadBytes (memoryExtend M (extendMemory M.size [(o, sz)]).expandBy)
           o.toNat sz.toNat) :: T)
         (memoryExtend M (extendMemory M.size [(o, sz)]).expandBy)
-        (g - (keccak256Cost sz + (extendMemory M.size [(o, sz)]).cost)) st ss .empty m ∧
+        (g - (keccak256Cost sz + (extendMemory M.size [(o, sz)]).cost)) st ss rd m ∧
       runFrame (step .fusaka) (step_decreases .fusaka) bound runChild m within' = .ok fin := by
   by_cases hg : keccak256Cost sz + (extendMemory M.size [(o, sz)]).cost ≤ g
   · obtain ⟨m, hr, hm⟩ := Logic.keccak256 (fork := .fusaka) hlt hbyte hg evm hat
@@ -250,7 +252,7 @@ theorem keccak_back {code : ByteArray} {msg : Message .fusaka} {pc : Nat} {o sz 
     rw [this] at hrun
     exact ⟨hg, m, _, hm, hrun⟩
   · exfalso
-    have hspec : Spec .fusaka (At code msg pc (o :: sz :: T) M g st ss .empty)
+    have hspec : Spec .fusaka (At code msg pc (o :: sz :: T) M g st ss rd)
         (Faulted .outOfGas st ss) := by
       refine At.fault rfl fun e hat' => ?_
       obtain ⟨hcode, -, -, hpc, hst, hmem, hgas, -⟩ := hat'
@@ -279,7 +281,7 @@ goes on. -/
 theorem keccak_dyn {code : ByteArray} {msg : Message .fusaka} {pc : Nat} {o sz : Word}
     {T : List Word} {M : ByteArray} {g G : Nat} {st : State.TransactionState} {ss : Substate}
     {m0 : SolarTV.Machine.Mem} (hm : MemRel m0 M) (hb : MemBudget G M g) (hG : G < 2 ^ 300)
-    {evm : Evm .fusaka Nat} (hat : At code msg pc (o :: sz :: T) M g st ss .empty evm)
+    {evm : Evm .fusaka Nat} (hat : At code msg pc (o :: sz :: T) M g st ss rd evm)
     (hlt : pc < code.size) (hbyte : code[pc] = 0x20) {bound : Nat}
     {runChild : MessageRunner .fusaka Nat bound} (within : GasMeter.gasHeld evm.gas ≤ bound)
     {fin : Evm .fusaka Nat}
@@ -293,7 +295,7 @@ theorem keccak_dyn {code : ByteArray} {msg : Message .fusaka} {pc : Nat} {o sz :
         (keccak (memoryReadBytes (memoryExtend M (extendMemory M.size [(o, sz)]).expandBy)
           o.toNat sz.toNat) :: T)
         (memoryExtend M (extendMemory M.size [(o, sz)]).expandBy)
-        (g - (keccak256Cost sz + (extendMemory M.size [(o, sz)]).cost)) st ss .empty m ∧
+        (g - (keccak256Cost sz + (extendMemory M.size [(o, sz)]).cost)) st ss rd m ∧
       runFrame (step .fusaka) (step_decreases .fusaka) bound runChild m within' = .ok fin := by
   obtain ⟨hg, m, within', hat', hrun'⟩ := keccak_back hat hlt hbyte within hrun hok
   have hmod : M.size % 32 = 0 := by rw [hm.1]; omega
@@ -311,7 +313,7 @@ to its range, and the run goes on from the frame after it, with the log appended
 theorem log_back {n : Fin 5} {byte : UInt8} {code : ByteArray} {msg : Message .fusaka} {pc : Nat}
     {o sz : Word} {words T : List Word} {M : ByteArray} {g : Nat} {st : State.TransactionState}
     {ss : Substate} {evm : Evm .fusaka Nat}
-    (hat : At code msg pc (o :: sz :: (words ++ T)) M g st ss .empty evm)
+    (hat : At code msg pc (o :: sz :: (words ++ T)) M g st ss rd evm)
     (hlen : words.length = n.val) (hlt : pc < code.size) (hbyte : code[pc] = byte)
     (decoded : Op.decode byte = some (.log n)) (hstatic : msg.isStatic = false) {bound : Nat}
     {runChild : MessageRunner .fusaka Nat bound} (within : GasMeter.gasHeld evm.gas ≤ bound)
@@ -327,7 +329,7 @@ theorem log_back {n : Fin 5} {byte : UInt8} {code : ByteArray} {msg : Message .f
             { address := msg.currentTarget
               topics := words.map U256.toBeBytes
               data := memoryReadBytes (memoryExtend M (extendMemory M.size [(o, sz)]).expandBy)
-                o.toNat sz.toNat } } .empty m ∧
+                o.toNat sz.toNat } } rd m ∧
       runFrame (step .fusaka) (step_decreases .fusaka) bound runChild m within' = .ok fin := by
   by_cases hg : logCost n.val sz + (extendMemory M.size [(o, sz)]).cost ≤ g
   · obtain ⟨m, hr, hm⟩ := Logic.log (fork := .fusaka) hlen hlt hbyte decoded hstatic hg evm hat
@@ -335,7 +337,7 @@ theorem log_back {n : Fin 5} {byte : UInt8} {code : ByteArray} {msg : Message .f
     rw [this] at hrun
     exact ⟨hg, m, _, hm, hrun⟩
   · exfalso
-    have hspec : Spec .fusaka (At code msg pc (o :: sz :: (words ++ T)) M g st ss .empty)
+    have hspec : Spec .fusaka (At code msg pc (o :: sz :: (words ++ T)) M g st ss rd)
         (Faulted .outOfGas st ss) := by
       refine At.fault rfl fun e hat' => ?_
       obtain ⟨hcode, -, -, hpc, hst, hmem, hgas, -⟩ := hat'
@@ -372,7 +374,7 @@ theorem log_dyn {n : Fin 5} {byte : UInt8} {code : ByteArray} {msg : Message .fu
     {o sz : Word} {words T : List Word} {M : ByteArray} {g G : Nat} {st : State.TransactionState}
     {ss : Substate} {m0 : SolarTV.Machine.Mem} (hm : MemRel m0 M) (hb : MemBudget G M g)
     (hG : G < 2 ^ 300) {evm : Evm .fusaka Nat}
-    (hat : At code msg pc (o :: sz :: (words ++ T)) M g st ss .empty evm)
+    (hat : At code msg pc (o :: sz :: (words ++ T)) M g st ss rd evm)
     (hlen : words.length = n.val) (hlt : pc < code.size) (hbyte : code[pc] = byte)
     (decoded : Op.decode byte = some (.log n)) (hstatic : msg.isStatic = false) {bound : Nat}
     {runChild : MessageRunner .fusaka Nat bound} (within : GasMeter.gasHeld evm.gas ≤ bound)
@@ -390,7 +392,7 @@ theorem log_dyn {n : Fin 5} {byte : UInt8} {code : ByteArray} {msg : Message .fu
             { address := msg.currentTarget
               topics := words.map U256.toBeBytes
               data := memoryReadBytes (memoryExtend M (extendMemory M.size [(o, sz)]).expandBy)
-                o.toNat sz.toNat } } .empty m ∧
+                o.toNat sz.toNat } } rd m ∧
       runFrame (step .fusaka) (step_decreases .fusaka) bound runChild m within' = .ok fin := by
   obtain ⟨hg, m, within', hat', hrun'⟩ := log_back hat hlen hlt hbyte decoded hstatic within hrun hok
   have hmod : M.size % 32 = 0 := by rw [hm.1]; omega
@@ -408,7 +410,7 @@ store agrees with EthLib's memory after it, the budget holds at the gas left, an
 theorem mstore_dyn {code : ByteArray} {msg : Message .fusaka} {pc : Nat} {o v : Word}
     {T : List Word} {M : ByteArray} {g G : Nat} {st : State.TransactionState} {ss : Substate}
     {m0 : SolarTV.Machine.Mem} (hm : MemRel m0 M) (hb : MemBudget G M g) (hG : G < 2 ^ 300)
-    {evm : Evm .fusaka Nat} (hat : At code msg pc (o :: v :: T) M g st ss .empty evm)
+    {evm : Evm .fusaka Nat} (hat : At code msg pc (o :: v :: T) M g st ss rd evm)
     (hlt : pc < code.size) (hbyte : code[pc] = 0x52) {bound : Nat}
     {runChild : MessageRunner .fusaka Nat bound} (within : GasMeter.gasHeld evm.gas ≤ bound)
     {fin : Evm .fusaka Nat}
@@ -416,7 +418,7 @@ theorem mstore_dyn {code : ByteArray} {msg : Message .fusaka} {pc : Nat} {o v : 
     (hok : fin.error = none) :
     ∃ (M' : ByteArray) (g' : Nat) (m : Evm .fusaka Nat) (within' : GasMeter.gasHeld m.gas ≤ bound),
       MemRel (m0.store o.toNat v) M' ∧ MemBudget G M' g' ∧ g' ≤ g ∧
-      At code msg (pc + 1) T M' g' st ss .empty m ∧
+      At code msg (pc + 1) T M' g' st ss rd m ∧
       runFrame (step .fusaka) (step_decreases .fusaka) bound runChild m within' = .ok fin := by
   obtain ⟨hg, m, within', hat', hrun'⟩ := mstore_back hat hlt hbyte within hrun hok
   have hmod : M.size % 32 = 0 := by rw [hm.1]; omega
@@ -439,7 +441,7 @@ agrees with EthLib's memory after it, the budget holds at the gas left, and the 
 theorem mload_dyn {code : ByteArray} {msg : Message .fusaka} {pc : Nat} {o : Word}
     {T : List Word} {M : ByteArray} {g G : Nat} {st : State.TransactionState} {ss : Substate}
     {m0 : SolarTV.Machine.Mem} (hm : MemRel m0 M) (hb : MemBudget G M g) (hG : G < 2 ^ 300)
-    {evm : Evm .fusaka Nat} (hat : At code msg pc (o :: T) M g st ss .empty evm)
+    {evm : Evm .fusaka Nat} (hat : At code msg pc (o :: T) M g st ss rd evm)
     (hlt : pc < code.size) (hbyte : code[pc] = 0x51) {bound : Nat}
     {runChild : MessageRunner .fusaka Nat bound} (within : GasMeter.gasHeld evm.gas ≤ bound)
     {fin : Evm .fusaka Nat}
@@ -447,7 +449,7 @@ theorem mload_dyn {code : ByteArray} {msg : Message .fusaka} {pc : Nat} {o : Wor
     (hok : fin.error = none) :
     ∃ (M' : ByteArray) (g' : Nat) (m : Evm .fusaka Nat) (within' : GasMeter.gasHeld m.gas ≤ bound),
       MemRel (m0.expand o.toNat 32) M' ∧ MemBudget G M' g' ∧ g' ≤ g ∧
-      At code msg (pc + 1) (m0.load o.toNat :: T) M' g' st ss .empty m ∧
+      At code msg (pc + 1) (m0.load o.toNat :: T) M' g' st ss rd m ∧
       runFrame (step .fusaka) (step_decreases .fusaka) bound runChild m within' = .ok fin := by
   obtain ⟨hg, m, within', hat', hrun'⟩ := mload_back hat hlt hbyte within hrun hok
   have hmod : M.size % 32 = 0 := by rw [hm.1]; omega

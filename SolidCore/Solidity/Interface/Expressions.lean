@@ -3006,7 +3006,7 @@ def FunctionDecl.internalTableKey? (decl : FunctionDecl) : Option Name := do
   -- struct `Path`, enum tag, and user `Path`) so the key is unique per resolved
   -- callee. Computed identically at the call-site emit and the table build (both
   -- from the same resolved `FunctionDecl`), so the two never drift. `Ty.reprListString`
-  -- is the derived print, computed structurally when short so the kernel can evaluate it.
+  -- is the flat print, which the kernel evaluates (the derived print when short).
   let identity := Ty.reprListString (decl.params.map Parameter.ty)
   some ("__internal_" ++ sig ++ "#" ++ identity)
 

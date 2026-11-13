@@ -174,7 +174,9 @@ lean_lib SolidCoreSolarRunOracle where
     `SolidCore.Refinement.Solar.RunOracleSource,
     `SolidCore.Refinement.Solar.AssembleCut, `SolidCore.Refinement.Solar.AssembleDyn,
     `SolidCore.Refinement.Solar.AssembleMem, `SolidCore.Refinement.Solar.AssembleDynCopy,
-    `SolidCore.Refinement.Solar.AssembleDynExample]
+    `SolidCore.Refinement.Solar.AssembleDynExample, `SolidCore.Refinement.Solar.AssembleCall,
+    `SolidCore.Refinement.Solar.AssembleCallWorld, `SolidCore.Refinement.Solar.AssembleCallCut,
+    `SolidCore.Refinement.Solar.AssembleCallSeg, `SolidCore.Refinement.Solar.AssembleCallExample]
 
 /-! solar's translation validation (formerly solar's `solar-tv` Lean package, moved here so that
 every Lean source of the certified translation lives in this repository; solar keeps only the
@@ -353,10 +355,10 @@ lean_lib ContractsCounter where
 -- negative controls (ShapeNeg). Certified/counter/Final.lean, which solar's certify driver writes,
 -- states the published theorem over them.
 lean_lib ContractsShapes where
-  roots := #[`Verify.Shapes, `SolidCore.Refinement.Solar.AssembleGas,
+  roots := #[`Verify.Shapes, `Verify.ShapeGeneric, `SolidCore.Refinement.Solar.AssembleGas,
     `SolidCore.Refinement.Solar.AssembleGasLoop, `Contracts.Counter.Execution, `Contracts.Counter.ShapeSpec,
     `Contracts.Counter.Shape, `Contracts.Counter.ShapeNeg]
-  globs := #[.one `Verify.Shapes, .one `SolidCore.Refinement.Solar.AssembleGas,
+  globs := #[.one `Verify.Shapes, .one `Verify.ShapeGeneric, .one `SolidCore.Refinement.Solar.AssembleGas,
     .one `SolidCore.Refinement.Solar.AssembleGasLoop,
     .one `Contracts.Counter.Execution, .one `Contracts.Counter.ShapeSpec,
     .one `Contracts.Counter.Shape, .one `Contracts.Counter.ShapeNeg]
@@ -404,6 +406,15 @@ lean_lib verify_counter where
 lean_lib ContractsVerifyCounter where
   roots := #[`Contracts.VerifyCounter.Holds]
   globs := #[.submodules `Contracts.VerifyCounter]
+  leanOptions := solarTVOptions
+  moreLeanArgs := #["-M", "3000"]
+
+-- Math.sqrt's Newton loop inside CallSqrt's internal call: its generated ranking certificate
+-- (Contracts/CallSqrt/Inferred.lean), sqrt's total contract under any caller, every call ending on
+-- the first lowered MIR and the final EVM IR, and the exact bytecode (Final.lean).
+lean_lib ContractsCallSqrt where
+  roots := #[`Contracts.CallSqrt.Final]
+  globs := #[.submodules `Contracts.CallSqrt]
   leanOptions := solarTVOptions
   moreLeanArgs := #["-M", "3000"]
 

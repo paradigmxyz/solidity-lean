@@ -2,6 +2,7 @@
 import W1Proofs.Segment
 import W1Proofs.Stage
 import W1Proofs.Axioms
+import SolarTV.Termination
 import verify_counter.gen.Counter.Mir1
 import verify_counter.gen.Counter.Stage0
 
@@ -55,32 +56,32 @@ theorem mir1_mk2 {call : Call} {env : MIR.Lowered.Env} {s : State} {y : MIR.Lowe
 
 set_option maxHeartbeats 2000000 in
 theorem mir1_seg0 (o : Oracle) (call : Call)  :
-    ∃ k k', SegRel Agree (fun y y' => ∃ Q ∈ mir1_rels call, Q y y')
+    ∃ k, SegRel Agree (fun y y' => ∃ Q ∈ mir1_rels call, Q y y')
       (seg (MIR.Lowered.moduleBlock o call stage0) mir1_cutA k ([], .enter stage0.entry 0 0, fun _ => 0, MIR.Lowered.Module.startState stage0 (State.initial call)))
-      (seg (MIR.Lowered.moduleBlock o call mir1) mir1_cutB k' ([], .enter mir1.entry 0 0, fun _ => 0, MIR.Lowered.Module.startState mir1 (State.initial call))) := by
-  refine ⟨33, 46, ?_⟩
+      (seg (MIR.Lowered.moduleBlock o call mir1) mir1_cutB 46 ([], .enter mir1.entry 0 0, fun _ => 0, MIR.Lowered.Module.startState mir1 (State.initial call))) := by
+  refine ⟨33, ?_⟩
   sym_seg [mir1_cutA_enter, mir1_cutA_resume, mir1_cutB_enter, mir1_cutB_resume] [mir1_mk1, mir1_mk2]
 
 set_option maxHeartbeats 2000000 in
 theorem mir1_seg1 (o : Oracle) (call : Call) (env : MIR.Lowered.Env) (s : State) (env' : MIR.Lowered.Env) (h0 : env' 30 = env 30) (h1 : env' 62 = env 62) (h2 : env' 2 = env 2) (h3 : s.storage (0x0 : EvmRules.Word) = env 30) (h4 : s.memory.load 128 = env 2) (h5 : s.memory.load 160 = (0 : EvmRules.Word)) :
-    ∃ k k', SegRel Agree (fun y y' => ∃ Q ∈ mir1_rels call, Q y y')
+    ∃ k, SegRel Agree (fun y y' => ∃ Q ∈ mir1_rels call, Q y y')
       (seg (MIR.Lowered.moduleBlock o call stage0) mir1_cutA k ([], MIR.Lowered.Pos.enter 4 7 1, env, s))
-      (seg (MIR.Lowered.moduleBlock o call mir1) mir1_cutB k' ([], MIR.Lowered.Pos.enter 4 23 1, env', s)) := by
-  refine ⟨33, 46, ?_⟩
+      (seg (MIR.Lowered.moduleBlock o call mir1) mir1_cutB 46 ([], MIR.Lowered.Pos.enter 4 23 1, env', s)) := by
+  refine ⟨33, ?_⟩
   sym_seg [mir1_cutA_enter, mir1_cutA_resume, mir1_cutB_enter, mir1_cutB_resume] [mir1_mk1, mir1_mk2]
 
 set_option maxHeartbeats 2000000 in
 theorem mir1_seg2 (o : Oracle) (call : Call) (env : MIR.Lowered.Env) (s : State) (env' : MIR.Lowered.Env) (h0 : env' 30 = env 30) (h1 : env' 62 = env 62) (h2 : env' 20 = env 20) (h3 : env' 43 = env 43) (h4 : s.storage (0x0 : EvmRules.Word) = env 30) (h5 : s.memory.load 128 = env 43) (h6 : s.memory.load 160 = (1 : EvmRules.Word)) :
-    ∃ k k', SegRel Agree (fun y y' => ∃ Q ∈ mir1_rels call, Q y y')
+    ∃ k, SegRel Agree (fun y y' => ∃ Q ∈ mir1_rels call, Q y y')
       (seg (MIR.Lowered.moduleBlock o call stage0) mir1_cutA k ([], MIR.Lowered.Pos.enter 4 10 1, env, s))
-      (seg (MIR.Lowered.moduleBlock o call mir1) mir1_cutB k' ([], MIR.Lowered.Pos.enter 4 25 1, env', s)) := by
-  refine ⟨33, 46, ?_⟩
+      (seg (MIR.Lowered.moduleBlock o call mir1) mir1_cutB 46 ([], MIR.Lowered.Pos.enter 4 25 1, env', s)) := by
+  refine ⟨33, ?_⟩
   sym_seg [mir1_cutA_enter, mir1_cutA_resume, mir1_cutB_enter, mir1_cutB_resume] [mir1_mk1, mir1_mk2]
 
 theorem mir1_segments (o : Oracle) (call : Call) :
-    ∀ P ∈ mir1_rels call, ∀ x x', P x x' → ∃ k k', SegRel Agree (fun y y' => ∃ Q ∈ mir1_rels call, Q y y')
+    ∀ P ∈ mir1_rels call, ∀ x x', P x x' → ∃ k, SegRel Agree (fun y y' => ∃ Q ∈ mir1_rels call, Q y y')
       (seg (MIR.Lowered.moduleBlock o call stage0) mir1_cutA k x)
-      (seg (MIR.Lowered.moduleBlock o call mir1) mir1_cutB k' x') := by
+      (seg (MIR.Lowered.moduleBlock o call mir1) mir1_cutB 46 x') := by
   intro P mem x x' holds
   simp only [mir1_rels, List.mem_cons, List.not_mem_nil, or_false] at mem
   rcases mem with rfl | rfl | rfl
@@ -106,7 +107,16 @@ def mir1_sim (o : Oracle) :
   cut' := mir1_cutB
   Rel call := fun x x' => ∃ P ∈ mir1_rels call, P x x'
   start _ _ := ⟨_, List.Mem.head _, rfl, rfl⟩
-  sim call _ := CutPoint.Sim.of_each (mir1_segments o call)
+  sim call _ := CutPoint.Sim.of_each fun P m x x' h =>
+    match mir1_segments o call P m x x' h with | ⟨k, s⟩ => ⟨k, 46, s⟩
+
+/-- Every segment of `mir1` takes at most 46 steps: the bound that carries a loop's
+ranking certificate on `stage0` to a step bound on `mir1` (`CutPoint.ends_within_sim_start`). -/
+theorem mir1_bounded (o : Oracle) (call : Call) :
+    CutPoint.BoundedSim (MIR.Lowered.moduleBlock o call stage0) mir1_cutA
+      (MIR.Lowered.moduleBlock o call mir1) mir1_cutB Agree
+      (fun x x' => ∃ P ∈ mir1_rels call, P x x') 46 :=
+  fun x x' ⟨P, m, h⟩ => mir1_segments o call P m x x' h
 
 /-- Every end of `stage0` on a call is matched by an agreeing end of `mir1`. -/
 theorem mir1_certified (o : Oracle) :

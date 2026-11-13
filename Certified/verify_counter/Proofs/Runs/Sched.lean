@@ -2,6 +2,7 @@
 import W1Proofs.Segment
 import W1Proofs.Stage
 import W1Proofs.Axioms
+import SolarTV.Termination
 import verify_counter.gen.Counter.Sched
 import verify_counter.gen.Counter.Mir1
 
@@ -49,32 +50,32 @@ theorem sched_mk2 {call : Call} {env : MIR.Lowered.Env} {s : State} {y : Nat × 
 
 set_option maxHeartbeats 2000000 in
 theorem sched_seg0 (o : Oracle) (call : Call)  :
-    ∃ k k', SegRel Agree (fun y y' => ∃ Q ∈ sched_rels call, Q y y')
+    ∃ k, SegRel Agree (fun y y' => ∃ Q ∈ sched_rels call, Q y y')
       (seg (MIR.Lowered.moduleBlock o call mir1) sched_cutA k ([], .enter mir1.entry 0 0, fun _ => 0, MIR.Lowered.Module.startState mir1 (State.initial call)))
-      (seg (EVM.Program.block o call sched) sched_cutB k' (0, [], State.initial call)) := by
-  refine ⟨46, 45, ?_⟩
+      (seg (EVM.Program.block o call sched) sched_cutB 45 (0, [], State.initial call)) := by
+  refine ⟨46, ?_⟩
   sym_seg [sched_cutA_enter, sched_cutA_resume, sched_cutB_mk] [sched_mk1, sched_mk2]
 
 set_option maxHeartbeats 2000000 in
 theorem sched_seg1 (o : Oracle) (call : Call) (env : MIR.Lowered.Env) (s : State) (j0 : EvmRules.Word) :
-    ∃ k k', SegRel Agree (fun y y' => ∃ Q ∈ sched_rels call, Q y y')
+    ∃ k, SegRel Agree (fun y y' => ∃ Q ∈ sched_rels call, Q y y')
       (seg (MIR.Lowered.moduleBlock o call mir1) sched_cutA k ([], MIR.Lowered.Pos.enter 4 23 1, env, s))
-      (seg (EVM.Program.block o call sched) sched_cutB k' (18, [(0 : EvmRules.Word), (0 : EvmRules.Word), env 30, env 2, env 62, j0], s)) := by
-  refine ⟨46, 45, ?_⟩
+      (seg (EVM.Program.block o call sched) sched_cutB 45 (18, [(0 : EvmRules.Word), (0 : EvmRules.Word), env 30, env 2, env 62, j0], s)) := by
+  refine ⟨46, ?_⟩
   sym_seg [sched_cutA_enter, sched_cutA_resume, sched_cutB_mk] [sched_mk1, sched_mk2]
 
 set_option maxHeartbeats 2000000 in
 theorem sched_seg2 (o : Oracle) (call : Call) (env : MIR.Lowered.Env) (s : State) (j0 : EvmRules.Word) :
-    ∃ k k', SegRel Agree (fun y y' => ∃ Q ∈ sched_rels call, Q y y')
+    ∃ k, SegRel Agree (fun y y' => ∃ Q ∈ sched_rels call, Q y y')
       (seg (MIR.Lowered.moduleBlock o call mir1) sched_cutA k ([], MIR.Lowered.Pos.enter 4 25 1, env, s))
-      (seg (EVM.Program.block o call sched) sched_cutB k' (18, [(1 : EvmRules.Word), env 20, env 30, env 43, env 62, j0], s)) := by
-  refine ⟨46, 45, ?_⟩
+      (seg (EVM.Program.block o call sched) sched_cutB 45 (18, [(1 : EvmRules.Word), env 20, env 30, env 43, env 62, j0], s)) := by
+  refine ⟨46, ?_⟩
   sym_seg [sched_cutA_enter, sched_cutA_resume, sched_cutB_mk] [sched_mk1, sched_mk2]
 
 theorem sched_segments (o : Oracle) (call : Call) :
-    ∀ P ∈ sched_rels call, ∀ x x', P x x' → ∃ k k', SegRel Agree (fun y y' => ∃ Q ∈ sched_rels call, Q y y')
+    ∀ P ∈ sched_rels call, ∀ x x', P x x' → ∃ k, SegRel Agree (fun y y' => ∃ Q ∈ sched_rels call, Q y y')
       (seg (MIR.Lowered.moduleBlock o call mir1) sched_cutA k x)
-      (seg (EVM.Program.block o call sched) sched_cutB k' x') := by
+      (seg (EVM.Program.block o call sched) sched_cutB 45 x') := by
   intro P mem x x' holds
   simp only [sched_rels, List.mem_cons, List.not_mem_nil, or_false] at mem
   rcases mem with rfl | rfl | rfl
@@ -100,7 +101,16 @@ def sched_sim (o : Oracle) :
   cut' := sched_cutB
   Rel call := fun x x' => ∃ P ∈ sched_rels call, P x x'
   start _ _ := ⟨_, List.Mem.head _, rfl, rfl⟩
-  sim call _ := CutPoint.Sim.of_each (sched_segments o call)
+  sim call _ := CutPoint.Sim.of_each fun P m x x' h =>
+    match sched_segments o call P m x x' h with | ⟨k, s⟩ => ⟨k, 45, s⟩
+
+/-- Every segment of `sched` takes at most 45 steps: the bound that carries a loop's
+ranking certificate on `mir1` to a step bound on `sched` (`CutPoint.ends_within_sim_start`). -/
+theorem sched_bounded (o : Oracle) (call : Call) :
+    CutPoint.BoundedSim (MIR.Lowered.moduleBlock o call mir1) sched_cutA
+      (EVM.Program.block o call sched) sched_cutB Agree
+      (fun x x' => ∃ P ∈ sched_rels call, P x x') 45 :=
+  fun x x' ⟨P, m, h⟩ => sched_segments o call P m x x' h
 
 /-- Every end of `mir1` on a call is matched by an agreeing end of `sched`. -/
 theorem sched_certified (o : Oracle) :

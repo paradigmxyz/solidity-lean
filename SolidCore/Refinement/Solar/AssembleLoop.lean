@@ -302,14 +302,14 @@ theorem InvL.target {p : Program} {c : Cert} {mx : List Nat} {code : ByteArray}
 section Rules
 
 variable {code : ByteArray} {msg : Message .fusaka} {pc gas : Nat} {M : ByteArray}
-  {st : State.TransactionState} {ss : Substate}
+  {st : State.TransactionState} {ss : Substate} {rd : ByteArray}
 
 /-- PUSH of a decoded constant, PUSH0 or PUSHn. -/
 theorem push_itemG {v next : Nat} {stack : List Word}
     (h : decode (bytesOf code) pc = some (.push v, next)) (hgas : 3 ≤ gas)
     (hstack : stack.length < 1024) :
-    ∃ g, gas - 3 ≤ g ∧ HoareG .fusaka (At code msg pc stack M gas st ss .empty)
-      (At code msg next (BitVec.ofNat 256 v :: stack) M g st ss .empty) := by
+    ∃ g, gas - 3 ≤ g ∧ HoareG .fusaka (At code msg pc stack M gas st ss rd)
+      (At code msg next (BitVec.ofNat 256 v :: stack) M g st ss rd) := by
   obtain ⟨byte, hb, h⟩ := decode_push h
   obtain ⟨hlt, hcode⟩ := getElem?_bytesOf hb
   rcases h with ⟨rfl, rfl, rfl⟩ | ⟨h1, h2, rfl, hle, rfl⟩
@@ -322,7 +322,7 @@ theorem push_itemG {v next : Nat} {stack : List Word}
     refine ⟨gas - 3, le_refl _, ?_⟩
     have hle' : pc + 1 + (byte - PUSH1 + 1) ≤ code.size := by rw [← length_bytesOf]; exact hle
     have := push_of_decodeG (fork := .fusaka) (message := msg) (memory := M) (state := st)
-      (substate := ss) (returnData := .empty) hlt hcode hdec (by simp)
+      (substate := ss) (returnData := rd) hlt hcode hdec (by simp)
       (pushData_eq hle') hgas hstack
     simpa [Nat.add_assoc] using this
 
@@ -357,8 +357,8 @@ theorem env_readG {name : String} {byte w : Nat} {stack : List Word}
     (he : envRead name = some (byte, w)) (hlt : pc < code.size)
     (hcode : code[pc] = UInt8.ofNat byte) (hblock : msg.blockEnv = Target.blockEnv)
     (htx : msg.txEnv = Target.txEnv) (hgas : 2 ≤ gas) (hstack : stack.length < STACK_LIMIT) :
-    HoareG .fusaka (At code msg pc stack M gas st ss .empty)
-      (At code msg (pc + 1) (BitVec.ofNat 256 w :: stack) M (gas - 2) st ss .empty) := by
+    HoareG .fusaka (At code msg pc stack M gas st ss rd)
+      (At code msg (pc + 1) (BitVec.ofNat 256 w :: stack) M (gas - 2) st ss rd) := by
   unfold envRead at he
   split at he <;> simp only [Option.some.injEq, Prod.mk.injEq, reduceCtorEq] at he <;>
     obtain ⟨rfl, rfl⟩ := he
@@ -383,8 +383,8 @@ theorem stack_rule_cheapG {op : SolarTV.EVM.Op} {byte : Nat} {stack next : List 
     (hcode : code[pc] = UInt8.ofNat byte)
     (hstep : SolarTV.EVM.step ⟨BitVec.ofNat 256 msg.data.size, r⟩ op stack = some next)
     (hgas : 3 ≤ gas) (hlen : stack.length < 1024) :
-    ∃ g, gas - 3 ≤ g ∧ HoareG .fusaka (At code msg pc stack M gas st ss .empty)
-      (At code msg (pc + 1) next M g st ss .empty) := by
+    ∃ g, gas - 3 ≤ g ∧ HoareG .fusaka (At code msg pc stack M gas st ss rd)
+      (At code msg (pc + 1) next M g st ss rd) := by
   cases op <;> simp only [opByte, reduceCtorEq, Option.some.injEq] at hb <;> try subst hb
   case mod | mul | div => simp [low] at hm
   case add => bin_ruleG add_agree
@@ -438,8 +438,8 @@ theorem stack_ruleG {op : SolarTV.EVM.Op} {byte : Nat} {stack next : List Word}
     (hcode : code[pc] = UInt8.ofNat byte)
     (hstep : SolarTV.EVM.step ⟨BitVec.ofNat 256 msg.data.size, r⟩ op stack = some next)
     (hgas : 5 ≤ gas) (hlen : stack.length < 1024) :
-    ∃ g, gas - 5 ≤ g ∧ HoareG .fusaka (At code msg pc stack M gas st ss .empty)
-      (At code msg (pc + 1) next M g st ss .empty) := by
+    ∃ g, gas - 5 ≤ g ∧ HoareG .fusaka (At code msg pc stack M gas st ss rd)
+      (At code msg (pc + 1) next M g st ss rd) := by
   cases hm : low op
   · obtain ⟨g, hg, H⟩ := stack_rule_cheapG hm hb hlt hcode hstep (Nat.le_trans (by decide) hgas) hlen
     exact ⟨g, by omega, H⟩

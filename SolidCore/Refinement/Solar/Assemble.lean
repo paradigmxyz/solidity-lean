@@ -98,6 +98,10 @@ structure Cert where
   COINBASE, GASLIMIT, GASPRICE, ORIGIN), which holds only under an oracle whose reads are those of
   EthLib's environment of the call (`EnvOk`). -/
   reads : Bool := false
+  /-- Whether the program makes STATICCALLs, which the checker cuts at (`AssembleCutSim.blockOkC`)
+  and only the checker of runs with calls (`AssembleCutCall`) accepts, under a runner of messages
+  meeting `AssembleCallCut.StaticOk`. -/
+  calls : Bool := false
   deriving Repr
 
 def Cert.offset (c : Cert) (b : Nat) : Nat := c.offsets.getD b 0

@@ -22,7 +22,8 @@ macro_rules
        exact copy_entry call _ fits hA hB hC)
     | (rw [show (128 : W).toNat = 128 from rfl, load_write_below _ _ _ _ _ (by decide),
         Mem.load_store_same])
-    | bv_omega)
+    | bv_omega
+    | (simp only [EvmRules.Evm.gt, BitVec.ult, Bool.cond_eq_ite, decide_eq_true_eq]; split <;> bv_omega))
 
 set_option maxHeartbeats 8000000 in
 theorem seg0 (o : Oracle) (call : Call) (hsel : IsMax call) (fits : CalldataFits call) :

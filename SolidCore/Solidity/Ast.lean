@@ -218,10 +218,25 @@ end
 
 /-- `toString (repr ts)`, by the flat print when it is short enough to fit on one line
 (`Std.Format.defWidth` is 120 columns) and so is the derived print itself: up to 120
-characters, which the kernel evaluates, as it cannot `Std.Format`'s `partial` printer. -/
-def Ty.reprListString (ts : List Ty) : String :=
+characters. The kernel cannot evaluate the longer case (`Std.Format`'s printer is
+`partial`), so the translation's keys use `Ty.reprListString` instead. -/
+def Ty.reprListStringDerived (ts : List Ty) : String :=
   let s := Ty.reprFlatList ts
   if s.length ≤ 120 then s else toString (repr ts)
+
+/-- A structural identity of a list of types, for the keys of internal functions and of
+external call kinds: the flat print `Ty.reprFlatList`, which the kernel evaluates at any
+length. It is `Ty.reprListStringDerived` whenever that is the flat print, so every key of
+up to 120 characters of parameter types is unchanged (`Ty.reprListString_eq_derived`);
+longer lists of parameter types (such as a seven-argument `permit`) get their one-line
+print instead of the derived print's line breaks. -/
+def Ty.reprListString (ts : List Ty) : String :=
+  Ty.reprFlatList ts
+
+theorem Ty.reprListString_eq_derived (ts : List Ty)
+    (h : (Ty.reprFlatList ts).length ≤ 120) :
+    Ty.reprListString ts = Ty.reprListStringDerived ts := by
+  simp [Ty.reprListString, Ty.reprListStringDerived, h]
 
 def Ty.function (params returns : List Ty)
     (mutability : StateMutability) (visibility : Visibility) : Ty :=

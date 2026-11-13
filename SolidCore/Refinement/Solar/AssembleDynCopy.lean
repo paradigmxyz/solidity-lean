@@ -18,11 +18,13 @@ open SolarTV.Assembly
 open EthLib.Base EthLib.Execution EthLib.Execution.Evm EthLib.Execution.Evm.Logic GasCosts
 open SolidCore.Refinement.Evm.Wide
 
+variable {rd : ByteArray}
+
 /-- **CALLDATACOPY in a run that succeeds**: the frame had the gas for the copy and the growth of
 memory, and the run goes on from the frame after it. -/
 theorem cdc_back {code : ByteArray} {msg : Message .fusaka} {pc : Nat} {d off sz : Word}
     {T : List Word} {M : ByteArray} {g : Nat} {st : State.TransactionState} {ss : Substate}
-    {evm : Evm .fusaka Nat} (hat : At code msg pc (d :: off :: sz :: T) M g st ss .empty evm)
+    {evm : Evm .fusaka Nat} (hat : At code msg pc (d :: off :: sz :: T) M g st ss rd evm)
     (hlt : pc < code.size) (hbyte : code[pc] = 0x37) {bound : Nat}
     {runChild : MessageRunner .fusaka Nat bound} (within : GasMeter.gasHeld evm.gas ≤ bound)
     {fin : Evm .fusaka Nat}
@@ -33,7 +35,7 @@ theorem cdc_back {code : ByteArray} {msg : Message .fusaka} {pc : Nat} {d off sz
       At code msg (pc + 1) T
         (memoryWrite (memoryExtend M (extendMemory M.size [(d, sz)]).expandBy)
           d.toNat ⟨(bufferRead msg.data off.toNat sz.toNat).toArray⟩)
-        (g - (3 + 3 * wordCount sz.toNat + (extendMemory M.size [(d, sz)]).cost)) st ss .empty m ∧
+        (g - (3 + 3 * wordCount sz.toNat + (extendMemory M.size [(d, sz)]).cost)) st ss rd m ∧
       runFrame (step .fusaka) (step_decreases .fusaka) bound runChild m within' = .ok fin := by
   by_cases hg : 3 + 3 * wordCount sz.toNat + (extendMemory M.size [(d, sz)]).cost ≤ g
   · obtain ⟨m, hr, hm⟩ := Logic.calldatacopy (fork := .fusaka) hlt hbyte hg evm hat
@@ -41,7 +43,7 @@ theorem cdc_back {code : ByteArray} {msg : Message .fusaka} {pc : Nat} {d off sz
     rw [this] at hrun
     exact ⟨hg, m, _, hm, hrun⟩
   · exfalso
-    have hspec : Spec .fusaka (At code msg pc (d :: off :: sz :: T) M g st ss .empty)
+    have hspec : Spec .fusaka (At code msg pc (d :: off :: sz :: T) M g st ss rd)
         (Faulted .outOfGas st ss) := by
       refine At.fault rfl fun e hat' => ?_
       obtain ⟨hcode, -, -, hpc, hst, hmem, hgas, -⟩ := hat'
@@ -74,7 +76,7 @@ theorem cdc_dyn {code : ByteArray} {msg : Message .fusaka} {call : Call} (hdata 
     {pc : Nat} {d off sz : Word} {T : List Word} {M : ByteArray} {g G : Nat}
     {st : State.TransactionState} {ss : Substate} {m0 : SolarTV.Machine.Mem} (hm : MemRel m0 M)
     (hb : MemBudget G M g) (hG : G < 2 ^ 300) {evm : Evm .fusaka Nat}
-    (hat : At code msg pc (d :: off :: sz :: T) M g st ss .empty evm)
+    (hat : At code msg pc (d :: off :: sz :: T) M g st ss rd evm)
     (hlt : pc < code.size) (hbyte : code[pc] = 0x37) {bound : Nat}
     {runChild : MessageRunner .fusaka Nat bound} (within : GasMeter.gasHeld evm.gas ≤ bound)
     {fin : Evm .fusaka Nat}
@@ -82,7 +84,7 @@ theorem cdc_dyn {code : ByteArray} {msg : Message .fusaka} {call : Call} (hdata 
     (hok : fin.error = none) :
     ∃ (M' : ByteArray) (g' : Nat) (m : Evm .fusaka Nat) (within' : GasMeter.gasHeld m.gas ≤ bound),
       MemRel (m0.write d.toNat sz.toNat (fun i => calldataByte call (off.toNat + i))) M' ∧
-      MemBudget G M' g' ∧ g' ≤ g ∧ At code msg (pc + 1) T M' g' st ss .empty m ∧
+      MemBudget G M' g' ∧ g' ≤ g ∧ At code msg (pc + 1) T M' g' st ss rd m ∧
       runFrame (step .fusaka) (step_decreases .fusaka) bound runChild m within' = .ok fin := by
   obtain ⟨hg, m, within', hat', hrun'⟩ := cdc_back hat hlt hbyte within hrun hok
   have hmod : M.size % 32 = 0 := by rw [hm.1]; omega

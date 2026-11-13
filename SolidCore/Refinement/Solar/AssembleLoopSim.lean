@@ -825,7 +825,7 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
           have hS := I'.stack; have hG := I'.gas
           rw [exec_effect0 (w := BitVec.ofNat 256 w)
             (by simp [SolarTV.Machine.Effect.apply, he hreads name byte w hread]) (by omega)]
-          have hrule := env_readG (msg := msg) (M := M) (st := st) (ss := ss) (gas := g)
+          have hrule := env_readG (msg := msg) (M := M) (st := st) (ss := ss) (rd := .empty) (gas := g)
             (stack := T) hread hlt hcode hbenv htx (by omega) (by unfold STACK_LIMIT; omega)
           exact SimOutL.pre hrule (IH (h + 1) [] _ _ _ (k - 1) s (pc + 1) M (g - 2) st ss hok
             (by simp; omega) (by hu_tac) (List.nil_prefix) (SR.cons (τ := some false) rfl hR) (I'.next hk1 hseg (by simp) (by omega)) R)

@@ -1,0 +1,32 @@
+{
+  "kind": "compiled",
+  "contract": "SolidCore.Refinement.Solar.Events.contract?",
+  "fuel": "SolidCore.Refinement.Solar.Events.fuel",
+  "valid": "SolidCore.Refinement.Shapes.genericValid (SolidCore.Refinement.Solar.Events.fns) ([])",
+  "gas": "fun _ => 2386812",
+  "env": [],
+  "spec": "none: solar-verify has no specification of events",
+  "spec_modules": [
+    "SolidCore.Refinement.Solar.Events.Lowering",
+    "Verify.ShapeGeneric"
+  ],
+  "proof_module": "events.Shape",
+  "proof": "Certified.events.Shape.published",
+  "generic": {
+    "lowering": "SolidCore.Refinement.Solar.Events.Lowering",
+    "ns": "SolidCore.Refinement.Solar.Events",
+    "style": "core",
+    "check": "check_stage0",
+    "check_value": "checkValue_stage0",
+    "fns": "SolidCore.Refinement.Solar.Events.fns",
+    "storage": "[]"
+  },
+  "excluded": [
+    "deployment: the init code is not covered; the statement is about the runtime bytecode from any storage that writes the slots the constructor writes",
+    "source model trusted: SolidCore's checked contract (the solc AST through scripts/solc_ast_to_lean_source.py and the type checker) is the meaning of the source (frontend trust boundary)",
+    "calls: one frame, caller 0x2000, contract at 0x1000, the block and transaction of Target.message; no external calls, GAS reads or return data in the code (the loop checker's fragment)",
+    "gas: the bound is the loop checker's (22100 per item times the final EVM IR's block fuel, plus memory), coarse; below it the bytecode may fail without effects, which equivalence admits",
+    "valid calls: the functions of Events.fns ABI-encoded with clean argument words, any value below 2^256, any storage; other call data is outside the statement",
+    "spec: none (solar-verify has no specification of events): equivalence, termination and resources only"
+  ]
+}
