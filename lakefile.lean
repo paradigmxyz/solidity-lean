@@ -165,4 +165,5 @@ lean_lib SolidCoreSolarToken where
 -- solar-verify's verification conditions checked against SolidCore through the Loom generator
 -- (SolidCore/Verify/VC.lean), outside the default root: it builds on the generic source stage.
 lean_lib SolidCoreVerifyVC where
-  roots := #[`SolidCore.Verify.VC, `SolidCore.Verify.VC.Token]
+  roots := #[`SolidCore.Verify.VC, `SolidCore.Verify.VC.Token, `SolidCore.Verify.VC.TokenTransfer,
+    `SolidCore.Verify.VC.TokenMutants]

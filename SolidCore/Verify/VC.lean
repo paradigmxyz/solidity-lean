@@ -30,6 +30,13 @@ that encoding out of it, one step at a time:
   solar-verify's obligation for it, normalized by `checkScript` and instantiated at the assignment a
   successful call gives. `KernelIdx` makes `Std.HashMap`, the storage of SolidCore's state, reduce in
   the kernel (`mkIdx_eq`), which the constructor run needs.
+* `TokenTransfer`: `Token.transfer`'s three ensures clauses on distinct addresses as a `Triple`
+  against SolidCore (`transfer_triple`), each read off solar-verify's checked obligation through the
+  binding `trStore_eval`: SolidCore's storage after the call, read through `balanceOf`'s layout, is
+  solar-verify's array term at the assignment the call binds. Injectivity of the mapping slot on
+  address keys (`HashInj`) is a hypothesis of the theorem. `TokenMutants`: for a one-line source
+  mutant and a one-line spec mutant of `Token.sol`, exported by the same solar-verify, `checkScript`
+  rejects the obligations `transfer`'s clauses need.
 
 Nothing here uses `native_decide`, `bv_decide` or `ofReduceBool`, or imports
 `SolidCore.Verify.Finite`. `Bind`'s check runs Lean's evaluator (`#guard`), not the kernel: it
