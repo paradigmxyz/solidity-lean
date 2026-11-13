@@ -3,6 +3,7 @@ import SolidCore.Refinement.Corpus
 import SolidCore.Refinement.Compose
 import SolidCore.Refinement.Spec
 import SolidCore.Refinement.Behaviours
+import SolidCore.Refinement.Fuel
 import SolidCore.Refinement.Headline
 import SolidCore.Refinement.Seq.Corpus
 import SolidCore.Refinement.Solar.W1

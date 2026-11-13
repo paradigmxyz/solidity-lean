@@ -113,13 +113,25 @@ revert, a wrong slot). With a relation that related everything none of these wou
 ## Fuel and gas
 
 * SolidCore: a run that runs out of statement fuel is `none`, which refutes `Total`, `Refines` and
-  `Satisfies`; it never satisfies them. Expression and ABI-decoding fuel are structural (computed from
-  the expression or type) and their exhaustion is a revert; the design argues it is unreachable,
-  which is not proved. `FuelMonotonicity.lean` proves the statement-fuel interpreter's trees equal at
-  every higher fuel when no branch runs out (`callTree_fuel_mono`). **Open**: the same at the folded
-  seam `Source.run` (`Source.run n c call = some obs → n ≤ m → Source.run m c call = some obs`). It
-  needs a per-path form of the tree theorem, since the fold answers precompile and resource requests
-  and a successful fold says nothing about other branches.
+  `Satisfies`; it never satisfies them. `Solidity/FuelExtension.lean` proves this holds along every path,
+  not only for trees with no `outOfFuel` anywhere: each statement evaluator at fuel `n` is extended
+  (`SolI.Ext`: some `outOfFuel` leaves replaced) by itself at any `m ≥ n` (`Stmt.eval_fuel_ext`), a
+  fold that does not end in `outOfFuel` ends the same way on an extension (`SolI.Ext.runWith`), so
+  `FunctionDef.call?` and the ABI dispatcher (`ABI.Contract.callCalldataAtFromWithContext?_fuel_mono`) are
+  fuel-monotone. `Refinement/Fuel.lean` lifts it to `Source.run_fuel_mono`, `Refines.fuel_mono` and
+  `Satisfies.fuel_mono`, under one hypothesis, `CtorStable n m`: the constructor gives the same result at
+  both fuels. **Open**: discharging `CtorStable`. The constructor runs under a self-dispatch hook whose
+  depth is the fuel (`CheckedContract.constructWithContext?`), so its context differs between fuels; the hook
+  is never reached during construction (a statement-level self-call reverts, a low-level one fails
+  closed), but proving that needs an induction over the expression evaluator too.
+  Expression and ABI-decoding fuel are structural (computed from the expression or type) and their
+  exhaustion is a revert; the design argues it is unreachable, which is not proved.
+* Self-dispatch: where the hook is installed and reached (`Contract.callWithSelfDispatch` and its
+  transaction twin, not `Source.run`), a hook that returns `none`, which includes a nested call that ran
+  out of fuel or depth, is a *failed call* (`success = false`), not `outOfFuel` (`selfDispatchCall`). That
+  result depends on the fuel, so those entry points are not fuel-monotone; mapping `none` to `outOfFuel`
+  there would fail closed instead. `Source.run`'s dispatch context installs no hook, so self-calls fail
+  closed and the theorems above are unaffected.
 * solar's MIR and EVM IR: no fuel cut-off (`Layer.result`).
 * EthLib: one fixed gas, `gasLimit`. `Total` at it forces the bytecode not to run out of gas on any call of
   the scope where SolidCore finishes (it would give `success = false` where SolidCore succeeds).
