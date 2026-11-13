@@ -327,8 +327,11 @@ lean_lib VerifyLoom where
 lean_lib ContractsCounter where
   roots := #[`Contracts.Counter.Final, `Contracts.Counter.Verdict, `Contracts.Counter.EndToEnd,
     `Contracts.Counter.Headline]
-  -- The spec exports and the source binding the roots import.
-  globs := #[.one `Contracts.Counter.Verify, .one `Contracts.Counter.Deploy,
+  -- The roots themselves (explicit globs replace the default of one glob per root), and the
+  -- spec exports, deploy proof and source binding they import.
+  globs := #[.one `Contracts.Counter.Final, .one `Contracts.Counter.Verdict,
+    .one `Contracts.Counter.EndToEnd, .one `Contracts.Counter.Headline,
+    .one `Contracts.Counter.Verify, .one `Contracts.Counter.Deploy,
     .submodules `Contracts.Counter.Spec]
 
 /-! solar-verify's verification conditions and their kernel-checked discharge (formerly solar's
