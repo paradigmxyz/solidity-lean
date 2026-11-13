@@ -12,23 +12,9 @@ limit (Vault's reentrancy-lock obligations):
    arguments of matching array reads, and never again;
 3. a conditional whose condition has quantifiers (a path condition the context restates) is
    proved from the context by `and_intros`, `assumption` and `omega`, and otherwise split;
-4. each case clears its quantified hypotheses and is closed by `omega`.
-
-Every step builds a proof term the kernel checks; a goal it cannot close fails, never passes.
--/
-/-
-A bounded variant of `vc_search` (Verify.Discharge) for obligations whose hypotheses chain a loop
-or path condition through many local Booleans, where the unbounded search times out or exhausts
-memory (ArrayMax `max`'s preserved quantified invariants) or `vc_norm` exceeds the recursion
-limit (Vault's reentrancy-lock obligations):
-
-1. definitions of local symbols are substituted away, and every remaining Boolean constant is
-   split into its two cases, so that Boolean formulas fold to literals before `vc_norm`;
-2. quantified hypotheses are instantiated once, at the witnesses of existentials and at the
-   arguments of matching array reads, and never again;
-3. a conditional whose condition has quantifiers (a path condition the context restates) is
-   proved from the context by `and_intros`, `assumption` and `omega`, and otherwise split;
-4. each case clears its quantified hypotheses and is closed by `omega`.
+4. each case clears its quantified hypotheses and is closed by `omega`; `vc_bounded_leaf` first
+   instantiates them once more at the leaf and, when `omega` fails, splits on whether a witness
+   equals another array index, adding the read's congruence (`congrArg`), at most four deep.
 
 Every step builds a proof term the kernel checks; a goal it cannot close fails, never passes.
 -/
@@ -156,3 +142,90 @@ elab "vc_bounded_bool" : tactic => do boundedPreB; boundedLeaf 16
 
 /-- `vc_valid_prep`, then the bounded search with Boolean case splits. -/
 macro "vc_bounded_valid" : tactic => `(tactic| (vc_valid_prep <;> vc_bounded_bool))
+
+namespace Contracts.Bounded
+
+/-- The pairs of reads `f w`, `f t` of one local function of one integer argument where `w` is a
+witness and `t` is not, witnesses in context order. -/
+def readPairs : TacticM (List (Expr × Expr)) := withMainContext do
+  let ws ← witnesses
+  let mut ground : Array Expr := #[]
+  for ldecl in (← getLCtx) do
+    if !ldecl.isImplementationDetail then
+      ground := localApps (← instantiateMVars ldecl.type) ground
+  let mut reads : Array Expr := #[]
+  for e in ground do
+    -- only reads over the goal's own locals (an instance may mention a cleared one)
+    if e.getAppNumArgs == 1 && !(reads.contains e) then
+      let lctx ← getLCtx
+      unless (Lean.collectFVars {} e).fvarIds.all lctx.contains do continue
+      if (← inferType (e.getArg! 0)) == mkConst `Int then reads := reads.push e
+  let mut out := #[]
+  for w in ws do
+    for a in reads do
+      unless a.getArg! 0 == w do continue
+      for b in reads do
+        if b.getAppFn == a.getAppFn && !(ws.contains (b.getArg! 0)) then out := out.push (a, b)
+  return out.toList
+
+/-- `omega`, and when it fails, a case split on whether the arguments of two reads are equal
+(adding `f a = f b` by `congrArg` when they are), at most `fuel` deep. -/
+partial def congrOmega (pairs : List (Expr × Expr)) (fuel : Nat) : TacticM Unit := do
+  let s ← saveState
+  try
+    evalTactic (← `(tactic| omega))
+  catch err =>
+    s.restore
+    let (a, b) :: rest := pairs | throw err
+    if fuel = 0 then throw err
+    let g ← getMainGoal
+    let subs ← g.withContext do
+      let eq ← mkEq (a.getArg! 0) (b.getArg! 0)
+      let em ← mkAppM ``Classical.em #[eq]
+      let (fv, g1) ← (← g.assert (← mkFreshUserName `hem) (mkOr eq (mkNot eq)) em).intro1P
+      g1.cases fv
+    let [sp, sn] := subs.toList | throwError "congrOmega: cases"
+    let gp ← sp.mvarId.withContext do
+      let pf ← mkCongrArg a.getAppFn sp.fields[0]!
+      let (_, g') ← (← sp.mvarId.assert (← mkFreshUserName `cong) (← inferType pf) pf).intro1P
+      pure g'
+    setGoals [gp]
+    congrOmega rest (fuel - 1)
+    setGoals [sn.mvarId]
+    congrOmega rest (fuel - 1)
+
+/-- `boundedLeaf`, but each leaf instantiates its quantified hypotheses once more (at the
+witnesses and array reads the case split exposed) before `omega`. -/
+partial def boundedLeaf2 (fuel : Nat) : TacticM Unit := do
+  if fuel = 0 then throwError "bounded: depth exhausted"
+  for g in (← getGoals) do
+    setGoals [g]
+    evalTactic (← `(tactic| vc_norm))
+    if (← getGoals).isEmpty then continue
+    splitHyps
+    for g in (← getGoals) do
+      setGoals [g]
+      if (← findIteCond).isSome then
+        splitIteB
+        boundedLeaf2 (fuel - 1)
+      else if let some p ← findPropAtom then
+        splitProp p
+        boundedLeaf2 (fuel - 1)
+      else
+        let _ ← instantiate (← witnesses) {}
+        evalTactic (← `(tactic| vc_norm))
+        for g in (← getGoals) do
+          setGoals [g]
+          splitHyps
+          for g in (← getGoals) do
+            setGoals [g]
+            clearQuantified
+            congrOmega (← readPairs) 4
+  setGoals []
+
+end Contracts.Bounded
+
+open Contracts.Bounded
+
+/-- The bounded search on a goal `vc_valid_prep` left, instantiating again at each leaf. -/
+elab "vc_bounded_leaf" : tactic => do boundedPre; boundedLeaf2 16

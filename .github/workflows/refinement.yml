@@ -37,8 +37,11 @@ jobs:
           path: .cache
           key: refinement-tools-${{ hashFiles('scripts/refinement/solar-rev', 'scripts/refinement/gen.sh', 'scripts/refinement/prove-rev', 'scripts/refinement/facts.sh') }}
 
-      - name: Cache Lake build
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # Restored here and saved after the builds even when one fails or the runner stops, so a
+      # later run resumes where this one got to (the native objects of Mathlib and EthLib, which
+      # EthLib's precompiled modules need, take most of a cold build).
+      - name: Restore the Lake build
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .lake
           key: refinement-lake-${{ hashFiles('lean-toolchain', 'lake-manifest.json') }}-${{ github.sha }}
@@ -47,13 +50,38 @@ jobs:
       # SolarTV and solar's generated stages and proofs live in this repository (tv/, Certified/),
       # so the milestones build here with no solar checkout. solar's certify job regenerates
       # Certified/<name> against a pinned commit of this repository and fails on any difference.
-      - name: Build the certified libraries
+      # In stages, two jobs at a time and each Lean process capped, so that the 16 GB runner does
+      # not run out of memory.
+      - name: Build SolarTV and the dependencies
         env:
-          # The runner has 16 GB: each Lean process is capped.
           LEAN_NUM_THREADS: "2"
         run: |
           lake exe cache get || true
-          lake build -KleanMemory=4500 EvmRules SolarTV W1Proofs W1 counter w4 masks bank c4 mulx             events reader Loom Verify VerifySpec VerifySpecTrustedBase VerifyLoom VerifyDischarge             VerifyVC ContractsVC ContractsCounter ContractsArrayMaxVault SolidCore SolidCoreSolarW4             SolidCoreSolarC4 SolidCoreSolarMulX SolidCoreSolarBank SolidCoreSolarBankSource             ContractsC4Spec SolidCore.Refinement.Axioms.Audit
+          lake build -KleanMemory=3000 EvmRules SolarTV W1Proofs
+
+      - name: Build the Certified contracts
+        env:
+          LEAN_NUM_THREADS: "2"
+        run: lake build -KleanMemory=3000 W1 counter w4 masks bank c4 mulx events reader
+
+      - name: Build the verification libraries and Contracts
+        env:
+          LEAN_NUM_THREADS: "2"
+        run: |
+          lake build -KleanMemory=3000 Loom Verify VerifySpec VerifySpecTrustedBase VerifyLoom VerifyDischarge VerifyVC ContractsVC ContractsCounter ContractsArrayMaxVault
+
+      - name: Build SolidCore's refinement milestones
+        env:
+          LEAN_NUM_THREADS: "2"
+        run: |
+          lake build -KleanMemory=4500 SolidCore SolidCoreSolarW4 SolidCoreSolarC4 SolidCoreSolarMulX SolidCoreSolarBank SolidCoreSolarBankSource ContractsC4Spec SolidCore.Refinement.Axioms.Audit
+
+      - name: Save the Lake build
+        if: always()
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .lake
+          key: refinement-lake-${{ hashFiles('lean-toolchain', 'lake-manifest.json') }}-${{ github.sha }}
 
       # Every headline's #print axioms, the sweep over their modules and the closure grep for
       # sorry, native_decide, bv_decide and ofReduceBool.
