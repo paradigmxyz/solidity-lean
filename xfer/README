@@ -1,5 +1,5 @@
 Transfer branch: git bundles of paradigmxyz/solar branches, relayed for pushing. Not part of solidity-lean; delete this branch once relayed.
 
-certified.bundle -> solar branch alpharush/certified (draft PR 2637; prerequisite de3967800 on solar main), head 735d5c7295ddb145d3d1884502bcf19b8045de6b, a fast-forward of b449816e4, title fix(certify): start a hollow solidity-lean checkout afresh.
+certified.bundle (sha256 5d08f93bc90849e0305e478d9bb84ac25e2b13948b610aed25ade53fd51b9932) -> solar branch alpharush/certified (draft PR 2637). Range 9830acd03..a3d95a754 (prerequisite 9830acd03b83776c3354caf00e6e4a1f81dd4503, whose tree equals the PR head ed02032). Head a3d95a75490943e3ceeddcd04be0a4437e703bfe, 2 commits: fix(tv): carry checked facts through MIR cut points; chore(certify): pin solidity-lean 037666c. Push so the PR head tree equals a3d95a754's tree.
 
-verify-liveness.bundle -> solar alpharush/verify-liveness head 90b819a5 (90b819a5e2ca26f9898fc43bc7c595861a84d380; range origin/main..alpharush/verify-liveness, prerequisites on solar main; sha256 98079afa1a853bada555f310dece409d91d095e99465b0b7514696ccf40af532)
+verify-liveness.bundle -> solar alpharush/verify-liveness head 90b819a5 (already relayed earlier; ignore).
