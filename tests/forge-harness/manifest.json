@@ -14975,6 +14975,84 @@
      }
     ]
    }
+  },
+  {
+   "name": "fixed-bytes-constant-widths",
+   "description": "A bytesN constant used to be inlined as an untyped literal, so it lost its width and its left alignment: bytes2 0x1234 == bytes4 0x12340000 and bytes4 0x12345678 == bytes8 0x1234567800000000 folded as numbers to false, widening, |, a conditional, .length, abi.encode and abi.encodePacked of such a constant all read the bare number. Constants of bytesN type now keep their declared type at each use, as integer constants already did. Separately, bytesN.length of an internal call's result (makeBytes().length) folded to N and dropped the call, so its storage write was lost; the call now runs and its value is discarded. Forge pins real solc values; Lean imports the same source and runs own-call execution.",
+   "forge": {
+    "root": "tests/forge-harness/fixed-bytes-constant-widths",
+    "match_contract": "FixedBytesConstantWidthsForgeTest",
+    "match_test": "test*",
+    "quiet": true
+   },
+   "solc_import": {
+    "source": "tests/forge-harness/fixed-bytes-constant-widths/src/FixedBytesConstantWidths.sol",
+    "contract": "FixedBytesConstantWidthsHarnessTarget",
+    "namespace": "SolidCore.Solidity.SolcAstImport.FixedBytesConstantWidths"
+   },
+   "lean": {
+    "imports": [
+     "SolidCore.Solidity.Checked",
+     "SolidCore.Witness.Checked"
+    ],
+    "evals": [
+     {
+      "label": "importedContractAccepted",
+      "expr": "SolidCore.Solidity.SolcAstImport.FixedBytesConstantWidths.importedContractAccepted",
+      "expect": "true"
+     },
+     {
+      "label": "compared",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.FixedBytesConstantWidths.importedContract \"compared\" SolidCore.Solidity.Source.State.empty [] 1",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "widenedCompare",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.FixedBytesConstantWidths.importedContract \"widenedCompare\" SolidCore.Solidity.Source.State.empty [] 1",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "widened",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.FixedBytesConstantWidths.importedContract \"widened\" SolidCore.Solidity.Source.State.empty [] 0x12340000",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "combined",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.FixedBytesConstantWidths.importedContract \"combined\" SolidCore.Solidity.Source.State.empty [] 0x12345678",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "selected",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.FixedBytesConstantWidths.importedContract \"selected\" SolidCore.Solidity.Source.State.empty [] 0x12340000",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "compareParam",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.FixedBytesConstantWidths.importedContract \"compareParam\" SolidCore.Solidity.Source.State.empty [SolidCore.Solidity.Source.Value.word 0x12340000] 1",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "constantLength",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.FixedBytesConstantWidths.importedContract \"constantLength\" SolidCore.Solidity.Source.State.empty [] 4",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "packedHash",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.FixedBytesConstantWidths.importedContract \"packedHash\" SolidCore.Solidity.Source.State.empty [] 41831748528820002862714250381983648678165109996922297781863539481003468907238",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "encodedHash",
+      "expr": "SolidCore.Solidity.TypeCheck.Examples.checkedOwnCallWordMatches 256 SolidCore.Solidity.SolcAstImport.FixedBytesConstantWidths.importedContract \"encodedHash\" SolidCore.Solidity.Source.State.empty [] 19880203774632219570047617290932656194974593042710999556377403133095601454863",
+      "expect": "Except.ok true"
+     },
+     {
+      "label": "sideEffect",
+      "expr": "(do let result \u2190 SolidCore.Solidity.TypeCheck.CheckedInput.ownCall 256 SolidCore.Solidity.SolcAstImport.FixedBytesConstantWidths.importedContract (SolidCore.Solidity.Source.CallTarget.name \"sideEffect\") SolidCore.Solidity.Source.State.empty []; match result with | SolidCore.Solidity.Source.CallResult.returned state [length, calls] => pure (length.asWord? == some 4 && calls.asWord? == some 1 && SolidCore.Solidity.Source.wordEq (state.loadSlot 0) 1) | _ => pure false : Except SolidCore.Solidity.TypeCheck.TypeError Bool)",
+      "expect": "Except.ok true"
+     }
+    ]
+   }
   }
  ]
 }

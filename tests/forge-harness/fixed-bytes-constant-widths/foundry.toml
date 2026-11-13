@@ -1,0 +1,6 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "../../.foundry-suites/fixed-bytes-constant-widths/out"
+cache_path = "../../.foundry-suites/fixed-bytes-constant-widths/cache"
+evm_version = "cancun"

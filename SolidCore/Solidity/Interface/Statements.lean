@@ -1468,7 +1468,20 @@ def FunctionDecl.internalExprSingleReturnUseCore?
       | some ty =>
           match Ty.fixedBytesSize? ty with
           | some size =>
-              some (useResult (SolidCore.Solidity.Source.Expr.word size))
+              -- `bytesN.length` is the constant N, but solc still evaluates the
+              -- base for its effects (`f().length` runs `f`, which may write
+              -- storage or revert). Hoist the base like any other operand and
+              -- discard its value. Only a base the pure lowering accepts (no
+              -- internal call) may fall back to the bare constant; any other
+              -- base that cannot be hoisted is rejected rather than dropped.
+              match FunctionDecl.internalExprSingleReturnUseCore?
+                  internalFuel storageRefEnv env externalCallKindEnv storageNames
+                  modifiers functions freeFunctions base
+                  (fun _ => useResult (SolidCore.Solidity.Source.Expr.word size)) with
+              | some coreStmt => some coreStmt
+              | none => do
+                  let _ ← Expr.toCore? storageNames base
+                  some (useResult (SolidCore.Solidity.Source.Expr.word size))
           | none =>
               FunctionDecl.internalExprSingleReturnUseCore?
                 internalFuel storageRefEnv env externalCallKindEnv storageNames

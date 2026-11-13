@@ -200,7 +200,7 @@ def Parameters.constantShadowNames (params : List Parameter) : List Name :=
     looking through the declaration's type. -/
 def Expr.constantUse (ty : Ty) (replacement : Expr) : Expr :=
   match ty with
-  | Ty.uint _ | Ty.int _ =>
+  | Ty.uint _ | Ty.int _ | Ty.bytesN _ | Ty.fixedBytes _ =>
       let typed := Expr.call (Expr.typeName ty) [Arg.positional replacement]
       Expr.ternary (Expr.literal (Literal.bool true)) typed typed
   | _ => replacement
