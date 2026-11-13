@@ -3,6 +3,7 @@ import SolidCore.Refinement.Solar.C4.LoweringGeneric
 import SolidCore.Refinement.Solar.C4.Assembly
 import c4.Proofs.Stages
 import c4.gen.Main.Manifest
+import SolidCore.Refinement.Solar.Hex
 
 /-!
 # c4: SolidCore to solar's bytecode, through every stage
@@ -74,6 +75,8 @@ def codes (s : String) : List Nat := s.toUTF8.toList.map (·.toNat)
 set_option maxRecDepth 100000 in
 /-- The bytes the stages run are the manifest's hex, which --emit=bin-runtime printed. -/
 theorem bytecode_of_manifest : hexBytes (codes Manifest.bytecodeHex) = some bytecode := by
+  rw [show Manifest.bytecodeHex = String.ofList (Hex.hexChars bytecode) from rfl, codes,
+    Hex.toUTF8_toList_ofList]
   decide +kernel
 
 set_option maxRecDepth 100000 in

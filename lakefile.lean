@@ -71,7 +71,7 @@ lean_lib SolidCoreSolarC4 where
 -- (scripts/refinement/mulx/mul.sol; solar-tv/milestone/mulx, solar's export at a8179dfc),
 -- composed with solar-tv's backend stages and the assembly stage into one theorem from
 -- SolidCore to the bytecode (Solar/MulX/Certified.lean), outside the default root for the same
--- reason. Lowering.lean and Certified.lean need -KleanMemory=7000 (peaks of 5.4 and 4.3 GB).
+-- reason. Lowering.lean needs -KleanMemory=3500 (a peak of 3.4 GB); Certified.lean fits in 3000.
 lean_lib SolidCoreSolarMulX where
   roots := #[`SolidCore.Refinement.Solar.MulX.Lowering, `SolidCore.Refinement.Solar.MulX.Certified]
 

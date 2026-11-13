@@ -2,6 +2,7 @@ import SolidCore.Refinement.Solar.MulX.Lowering
 import SolidCore.Refinement.Solar.MulX.Assembly
 import mulx.Proofs.Stages
 import mulx.gen.Main.Manifest
+import SolidCore.Refinement.Solar.Hex
 
 /-!
 # mulx: SolidCore to solar's bytecode, through every stage
@@ -65,6 +66,8 @@ def codes (s : String) : List Nat := s.toUTF8.toList.map (·.toNat)
 set_option maxRecDepth 100000 in
 /-- The bytes the stages run are the manifest's hex, which --emit=bin-runtime printed. -/
 theorem bytecode_of_manifest : hexBytes (codes Manifest.bytecodeHex) = some bytecode := by
+  rw [show Manifest.bytecodeHex = String.ofList (Hex.hexChars bytecode) from rfl, codes,
+    Hex.toUTF8_toList_ofList]
   decide +kernel
 
 /-- The backend: solar-tv's stages from stage0 to evm8, then the assembly stage. -/
