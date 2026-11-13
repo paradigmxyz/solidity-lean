@@ -148,4 +148,5 @@ lean_lib SolidCoreSolarBank where
 -- manifests (Solar/Hex.lean decodes the manifest's hex).
 lean_lib SolidCoreSolarBankSource where
   roots := #[`SolidCore.Refinement.Solar.Bank.Lowering, `SolidCore.Refinement.Solar.Events.Lowering,
-    `SolidCore.Refinement.Solar.Bank.Certified, `SolidCore.Refinement.Solar.Events.Certified]
+    `SolidCore.Refinement.Solar.Bank.Certified, `SolidCore.Refinement.Solar.Events.Certified,
+    `SolidCore.Refinement.Solar.Total]
