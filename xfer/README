@@ -1,5 +1,5 @@
 Transfer branch: git bundles of paradigmxyz/solar branches, relayed for pushing. Not part of solidity-lean; delete this branch once relayed.
 
-certified.bundle -> solar branch alpharush/certified (draft PR 2637; prerequisite de3967800 on solar main), head abe5287c79ad03453704fc82644ad4695847eb56, a fast-forward of 16ee60142 (already published as 415e2f44d), title fix: build the workspace and merge solar-verify fixes.
+certified.bundle -> solar branch alpharush/certified (draft PR 2637; prerequisite de3967800 on solar main), head d060a721214e318d23d21fb9b7806f9a2d29126c, a fast-forward of abe5287c7 (published as 5441855a5), title fix: repair docs and UI tests and certify every contract.
 
 verify-liveness.bundle -> solar alpharush/verify-liveness head 90b819a5 (90b819a5e2ca26f9898fc43bc7c595861a84d380; range origin/main..alpharush/verify-liveness, prerequisites on solar main; sha256 98079afa1a853bada555f310dece409d91d095e99465b0b7514696ccf40af532)
