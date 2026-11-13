@@ -149,3 +149,16 @@ lean_lib SolidCoreSolarBank where
 lean_lib SolidCoreSolarBankSource where
   roots := #[`SolidCore.Refinement.Solar.Bank.Lowering, `SolidCore.Refinement.Solar.Events.Lowering,
     `SolidCore.Refinement.Solar.Bank.Certified, `SolidCore.Refinement.Solar.Events.Certified]
+
+-- solar-verify's spec language: its meaning over SolidCore's and EthLib's calls and observables,
+-- ghost erasure, the trusted base as named hypotheses, and the specs solar-verify exports
+-- (SolidCore/Spec, scripts/refinement/spec/check.sh).
+lean_lib SolidCoreSpec where
+  roots := #[`SolidCore.Spec.Syntax, `SolidCore.Spec.Semantics, `SolidCore.Spec.Contract,
+    `SolidCore.Spec.Ghost, `SolidCore.Spec.TrustedBase, `SolidCore.Spec.Export.C4,
+    `SolidCore.Spec.Export.C4Wrong]
+
+-- c4's exported spec proved of SolidCore and of solar's bytecode, and the axiom audit. Needs the
+-- generated corpus (scripts/refinement/gen.sh), so it is outside the default root.
+lean_lib SolidCoreSpecC4 where
+  roots := #[`SolidCore.Spec.Solar.C4, `SolidCore.Spec.Axioms]
