@@ -161,3 +161,8 @@ lean_lib SolidCoreSolarBankSource where
 lean_lib SolidCoreSolarToken where
   roots := #[`SolidCore.Refinement.Solar.Token.Lowering, `SolidCore.Refinement.Solar.Token.Assembly,
     `SolidCore.Refinement.Solar.Token.Mutants, `SolidCore.Refinement.Solar.Token.Certified]
+
+-- solar-verify's verification conditions checked against SolidCore through the Loom generator
+-- (SolidCore/Verify/VC.lean), outside the default root: it builds on the generic source stage.
+lean_lib SolidCoreVerifyVC where
+  roots := #[`SolidCore.Verify.VC]
