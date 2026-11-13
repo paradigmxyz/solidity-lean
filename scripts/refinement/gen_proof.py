@@ -54,6 +54,7 @@ gen.sh reads "// refinement: solar-flags=F1,F2" and passes the flags to solar.
 """
 import json
 import math
+import os
 import re
 import subprocess
 import sys
@@ -90,6 +91,13 @@ if m:
 # "// refinement: shape=kernel" has the kernel check a small symbolic contract's dirty shapeOk
 # (kernel_rfl) instead of native_decide. Every contract's core shape is the kernel's.
 kernel_shape = re.search(r"//\s*refinement:.*\bshape=kernel\b", Path(source).read_text()) is not None
+# A certified contract (REFINEMENT_CERTIFIED=1, which gen.sh sets for the names in
+# scripts/refinement/certified) must be proved by the kernel alone: no native_decide or
+# bv_decide fallback, so it needs "// refinement: shape=kernel". gen.sh then checks the
+# written modules with scripts/refinement/kernel_only.py.
+if os.environ.get("REFINEMENT_CERTIFIED") == "1" and not kernel_shape:
+    sys.exit(f"{source}: a certified contract needs '// refinement: shape=kernel'; without it "
+             "the shape check falls back to native_decide")
 
 
 # Each function's selector as solc's AST gives it (functionSelector), by name, for the

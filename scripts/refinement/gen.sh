@@ -15,6 +15,11 @@
 # "// refinement: solar-flags=F1,F2" in a source passes F1 and F2 to solar; the
 # bytecode file then records the flags and the runtime's SHA-256.
 #
+# The names in scripts/refinement/certified (the corpus contracts that certified libraries
+# import) must get a proof the kernel checks alone, without native_decide or bv_decide:
+# gen_proof.py refuses their fallbacks and scripts/refinement/kernel_only.py checks the
+# written modules.
+#
 # scripts/refinement/solar-rev names the paradigmxyz/solar commit, built here
 # with cargo into SOLAR_DIR (default .cache/solar). SOLAR_BIN skips the build and
 # uses that binary instead, which must report the pinned commit. The source AST
@@ -140,13 +145,22 @@ EOF
   echo "$sol -> $out/$module.lean, $src_out/$module.lean"
   "$SOLAR_BIN" ${solar_flags[@]+"${solar_flags[@]}"} --emit abi,hashes --no-warnings "$sol" > "$tmp/solar.json"
   "$SOLC" --combined-json ast "$sol" > "$tmp/ast.json"
+  # A name in scripts/refinement/certified must get a proof the kernel checks alone.
+  certified=0
+  grep -qx "$name" scripts/refinement/certified && certified=1
   status=0
-  python3 scripts/refinement/gen_proof.py "$name" "$module" "$tmp/solar.json" "$tmp/ast.json" \
-    "$sol" || status=$?
+  REFINEMENT_CERTIFIED=$certified python3 scripts/refinement/gen_proof.py "$name" "$module" \
+    "$tmp/solar.json" "$tmp/ast.json" "$sol" || status=$?
   if (( status == 0 )); then
     proved+=("$module")
+    if (( certified )); then
+      python3 scripts/refinement/kernel_only.py "SolidCore.Refinement.Corpus.$module"
+    fi
   elif (( status != 3 )); then
     exit "$status"
+  elif (( certified )); then
+    echo "error: $sol is certified but gets no proof" >&2
+    exit 1
   fi
 done
 
