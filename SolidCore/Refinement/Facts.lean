@@ -16,10 +16,15 @@ import SolidCore.Refinement.Facts.C6
 import SolidCore.Refinement.Facts.C7
 import SolidCore.Refinement.Facts.C8
 import SolidCore.Refinement.Facts.C9
+import SolidCore.Refinement.Facts.D1
+import SolidCore.Refinement.Facts.D2
+import SolidCore.Refinement.Facts.D3
+import SolidCore.Refinement.Facts.D4
 import SolidCore.Refinement.Facts.W1
 import SolidCore.Refinement.Facts.W2
 import SolidCore.Refinement.Facts.W3
 import SolidCore.Refinement.Facts.W4
+import SolidCore.Refinement.Facts.W5
 import SolidCore.Refinement.Facts.C10
 import SolidCore.Refinement.Facts.C11
 

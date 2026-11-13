@@ -102,12 +102,32 @@ theorem ite_beq {α : Type} [BEq α] (c : Prop) [Decidable c] (a b n : α) :
     ((if c then a else b) == n) = (if c then a == n else b == n) := by
   split <;> rfl
 
+/-- `0 < a` as a word is `a ≠ 0`: the scheduler may test a value's `ne` against zero with
+`lt`, and a segment's two ends then agree only through this. -/
+theorem evm_lt_zero_left (a : EvmRules.Word) : EvmRules.Evm.lt 0 a = EvmRules.Evm.ne a 0 := by
+  unfold EvmRules.Evm.lt EvmRules.Evm.ne
+  by_cases h : a = 0
+  · subst h; decide
+  · have hn : a.toNat ≠ 0 := fun e => h (BitVec.eq_of_toNat_eq (by simpa using e))
+    have hu : (0#256).ult a = true := by
+      simp only [BitVec.ult, BitVec.toNat_ofNat, decide_eq_true_eq]; omega
+    simpa [hu] using h
+
+/-- The initial state rebuilt field by field, as a program that writes none of it leaves it, is
+the initial state: a cut point reached before either program writes the state relates it as one
+state. -/
+theorem state_initial_eta (call : Call) :
+    ({ memory := Mem.initial, storage := (State.initial call).storage,
+       transient := (State.initial call).transient, world := (State.initial call).world } : State) =
+      State.initial call := rfl
+
 /-- A cut test of a block a branch picks (`(if c then 15 else 14) == 1`) evaluates on both
 branches, so a test that holds on neither is `false` before any case split. Splitting on it
 first instead leaves leaves whose contradiction only the branch condition shows, and the case
 splits multiply. -/
 macro "seg_cut_test" : tactic => `(tactic|
   simp only [ite_beq, Nat.reduceBEq, BitVec.reduceEq, BitVec.reduceNe, ite_self, Bool.false_eq_true,
+    evm_lt_zero_left, state_initial_eta,
     ↓reduceIte, Mem.load_store_of_disjoint, Mem.load_store_same, Mem.load_expand, Nat.reduceAdd,
     Nat.reduceLeDiff, true_or, or_true])
 
