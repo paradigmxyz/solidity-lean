@@ -74,7 +74,7 @@ jobs:
         env:
           LEAN_NUM_THREADS: "2"
         run: |
-          lake build -KleanMemory=6000 SolidCore SolidCoreSolarW4 SolidCoreSolarC4 SolidCoreSolarMulX SolidCoreSolarBank SolidCoreSolarBankSource ContractsC4Spec SolidCore.Refinement.Axioms.Audit
+          lake build -KleanMemory=7000 SolidCore SolidCoreSolarW4 SolidCoreSolarC4 SolidCoreSolarMulX SolidCoreSolarBank SolidCoreSolarBankSource ContractsC4Spec SolidCore.Refinement.Axioms.Audit
 
       - name: Save the Lake build
         if: always()
