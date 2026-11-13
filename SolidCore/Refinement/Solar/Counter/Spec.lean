@@ -1,4 +1,4 @@
-import SolidCore.Verify.Tactic
+import Verify.Tactic
 import SolidCore.Refinement.Wide.Refines
 import SolidCore.Refinement.KernelCopies
 import SolidCore.Refinement.KernelRfl

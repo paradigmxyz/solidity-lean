@@ -1,5 +1,5 @@
 import SolidCore.Refinement.Solar.W4Lowering
-import SolidCore.Verify.W4
+import Verify.W4
 import SolidCore.Refinement.Evm.WideStorage
 import SolidCore.Refinement.Spec
 import w4.Proofs

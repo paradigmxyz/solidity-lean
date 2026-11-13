@@ -1,5 +1,5 @@
 import SolidCore.Refinement.Generic.Value
-import SolidCore.Verify.C4
+import Verify.C4
 import c4.gen.Main.Stage0
 
 /-!

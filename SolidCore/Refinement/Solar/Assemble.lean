@@ -24,7 +24,8 @@ whose hash is EthLib's KECCAK256 (`OracleOk`, `stage_of_check_eth`).
   the certificate (`SolarTV.Assembly.walk`, as -Zvalidate-assembly decodes it), each label is
   a valid jump destination of the code by EthLib's own analysis, stack reads never pass the
   entry heights of the certificate, each memory access (MSTORE, KECCAK256, LOGn, RETURN,
-  REVERT) has a constant offset and size below the certificate's memory bound, and the code is
+  REVERT) has a constant offset and size (pushed, or a DUP of a pushed one) below the
+  certificate's memory bound, and the code is
   below 2^32 bytes. Each block has a potential, a bound on the items its runs execute (the
   certificate's, or by default the items from it to the end of the layout): each item takes one
   unit, and a jump or a fall goes to a block whose potential is at most what is left, so a run
@@ -110,8 +111,7 @@ def opByte : SolarTV.EVM.Op → Option Nat
   | .xor => some 0x18 | .not => some 0x19 | .byte => some 0x1a | .shl => some 0x1b
   | .shr => some 0x1c
   | .calldatasize => some 0x36 | .pop => some 0x50
-  | .dup i => if i.val < 16 then some (0x80 + i.val) else none
-  | .swap i => if i.val < 16 then some (0x90 + i.val) else none
+  | .dup i => some (0x80 + i.val) | .swap i => some (0x90 + i.val)
   | _ => none
 
 /-- The assembly items of an instruction. Outside the fragment it is INVALID, which the check
@@ -224,8 +224,8 @@ def stackNeed : SolarTV.EVM.Op → Option (Nat × Int)
   | .iszero | .not => some (1, 0)
   | .calldatasize => some (0, 1)
   | .pop => some (1, -1)
-  | .dup i => if i.val < 16 then some (i.val + 1, 1) else none
-  | .swap i => if i.val < 16 then some (i.val + 2, 0) else none
+  | .dup i => some (i.val + 1, 1)
+  | .swap i => some (i.val + 2, 0)
   | _ => none
 
 /-- A jump to block `t` with a stack of at least `h` words typed `ty` and potential `k` left: `t` is a
@@ -243,6 +243,13 @@ def fallOk (p : Program) (c : Cert) (b h : Nat) (ty : List Ty) (k : Nat) : Bool 
 /-- A memory range of constant offset and size within the certificate's bound. -/
 def rangeOk (c : Cert) (o s : Word) : Bool := decide (s.toNat = 0) || decide (o.toNat + s.toNat ≤ c.top)
 
+/-- The constants on top of the stack after DUP of the word at depth `i`, from the constants
+`known` on top before it: that word, when it is one of them, on top of the constant below it. -/
+def dupKnown (known : List Word) (i : Nat) : List Word :=
+  match known[i]? with
+  | some v => v :: known.take 1
+  | none => []
+
 /-- The check of one instruction from a stack of at least `h` words whose top words are
 `known`, constants just pushed, typed `ty`, with potential `k`, and `ok` for the rest of the block:
 each item takes one unit of potential, each instruction finds the words it reads, as data
@@ -254,8 +261,9 @@ def blockStep (p : Program) (c : Cert) (ok : Nat → List Word → List Ty → N
   | h, known, ty, k, .op (.stack op) =>
     match op with
     | .push v => decide (1 ≤ k) && ok (h + 1) (v :: known.take 1) (some false :: ty) (k - 1)
-    | .dup i => decide (i.val < 16) && decide (1 ≤ k) && decide (i.val + 1 ≤ h) && ok (h + 1) [] (tyAt ty i.val :: ty) (k - 1)
-    | .swap i => decide (i.val < 16) && decide (1 ≤ k) && decide (i.val + 2 ≤ h) && ok h [] (tySwap ty i.val) (k - 1)
+    | .dup i => decide (1 ≤ k) && decide (i.val + 1 ≤ h) &&
+      ok (h + 1) (dupKnown known i.val) (tyAt ty i.val :: ty) (k - 1)
+    | .swap i => decide (1 ≤ k) && decide (i.val + 2 ≤ h) && ok h [] (tySwap ty i.val) (k - 1)
     | .pop => decide (1 ≤ k) && decide (1 ≤ h) && ok (h - 1) [] ty.tail (k - 1)
     | op =>
       match stackNeed op with
@@ -765,7 +773,7 @@ theorem stack_rule_cheap {op : SolarTV.EVM.Op} {byte : Nat} {stack next : List W
     (hgas : 3 ≤ gas) (hlen : stack.length < 1024) :
     ∃ g, gas - 3 ≤ g ∧ Hoare .fusaka (At code msg pc stack M gas st ss .empty)
       (At code msg (pc + 1) next M g st ss .empty) := by
-  cases op <;> simp only [opByte, reduceCtorEq, Option.some.injEq] at hb <;> (try subst hb)
+  cases op <;> simp only [opByte, reduceCtorEq, Option.some.injEq] at hb <;> subst hb
   case mod | mul | div => simp [low] at hm
   case add => bin_rule add_agree
   case sub => bin_rule sub_agree
@@ -790,26 +798,15 @@ theorem stack_rule_cheap {op : SolarTV.EVM.Op} {byte : Nat} {stack next : List W
     subst hstep
     exact ⟨_, by omega, calldatasize hlt hcode (by omega) hlen⟩
   case dup i =>
-    -- NOTE: SolarTV's positions are Fin 256, but only the first 16 have a DUP opcode, which
-    -- opByte checks.
-    split at hb
-    · rename_i hi
-      cases hb
-      simp only [SolarTV.EVM.step, Option.map_eq_some_iff] at hstep
-      obtain ⟨x, hx, rfl⟩ := hstep
-      exact ⟨_, le_refl _, dup (⟨i.val, hi⟩ : Fin 16) hlt hcode hx hgas hlen⟩
-    · cases hb
+    simp only [SolarTV.EVM.step, Option.map_eq_some_iff] at hstep
+    obtain ⟨x, hx, rfl⟩ := hstep
+    exact ⟨_, le_refl _, dup i hlt hcode hx hgas hlen⟩
   case swap i =>
-    split at hb
-    · rename_i hi
-      cases hb
-      rcases stack with _ | ⟨top, rest⟩
-      · simp [SolarTV.EVM.step] at hstep
-      · simp only [SolarTV.EVM.step, Option.map_eq_some_iff] at hstep
-        obtain ⟨x, hx, rfl⟩ := hstep
-        exact ⟨_, le_refl _,
-          swap_of_decode hlt hcode (decode_swap (⟨i.val, hi⟩ : Fin 16)) hx hgas⟩
-    · cases hb
+    rcases stack with _ | ⟨top, rest⟩
+    · simp [SolarTV.EVM.step] at hstep
+    · simp only [SolarTV.EVM.step, Option.map_eq_some_iff] at hstep
+      obtain ⟨x, hx, rfl⟩ := hstep
+      exact ⟨_, le_refl _, swap_of_decode hlt hcode (decode_swap i) hx hgas⟩
 
 /-- A stack operation of the fragment, at its opcode, does what SolarTV's semantics does, for at
 most 5 gas (the price of MUL, DIV and MOD; the rest cost 3). -/

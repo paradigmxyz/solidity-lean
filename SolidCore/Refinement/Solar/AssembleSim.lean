@@ -205,6 +205,20 @@ theorem SR.dup {c : Cert} {ty : List Ty} {S T : List Word} (h : SR c ty S T) {i 
     SR c (tyAt ty i :: ty) (S[i] :: S) (T[i] :: T) :=
   SR.cons (h.2 i hi hi') h
 
+/-- DUP of a word keeps the known constants a prefix of the stack. -/
+theorem dupKnown_prefix {known S : List Word} (hk : known <+: S) {i : Nat} (hi : i < S.length) :
+    dupKnown known i <+: S[i] :: S := by
+  unfold dupKnown
+  split
+  · rename_i v hv
+    have hS : S[i]? = some v := by
+      obtain ⟨t, rfl⟩ := hk
+      rw [List.getElem?_append_left (List.getElem?_eq_some_iff.1 hv).1, hv]
+    rw [List.getElem?_eq_getElem hi, Option.some.injEq] at hS
+    rw [hS]
+    exact (List.prefix_cons_inj v).2 ((List.take_prefix 1 known).trans hk)
+  · exact List.nil_prefix
+
 theorem tyAt_tySwap (ty : List Ty) (i j : Nat) :
     tyAt (tySwap ty i) j =
       if j = 0 then tyAt ty (i + 1) else if j = i + 1 then tyAt ty 0 else tyAt ty j := by
@@ -417,7 +431,7 @@ theorem exec_stack {o : SolarTV.Machine.Oracle} {call : SolarTV.Call} {b : Nat}
 
 theorem opByte_of_stackNeed {op : SolarTV.EVM.Op} {x : Nat × Int} (h : stackNeed op = some x) :
     ∃ byte, opByte op = some byte := by
-  cases op <;> simp [stackNeed, opByte] at h ⊢ <;> exact h.1
+  cases op <;> simp [stackNeed, opByte] at h ⊢
 
 theorem lowerInstr_stack {op : SolarTV.EVM.Op} (hne : ∀ v, op ≠ .push v) :
     lowerInstr (.op (.stack op)) = [.op ((opByte op).getD 0xfe)] := by
@@ -460,24 +474,26 @@ theorem stack_sim {p : Program} {c : Cert} {ok : Nat → List Word → List Ty �
     {h k : Nat} {known : List Word} {ty : List Ty} {op : SolarTV.EVM.Op} (hne : ∀ v, op ≠ .push v)
     {ctx : SolarTV.EVM.Context} {S T : List Word}
     (hok : blockStep p c ok h known ty k (.op (.stack op)) = true) (hh : h ≤ S.length)
-    (hR : SR c ty S T) :
+    (hk : known <+: S) (hR : SR c ty S T) :
     1 ≤ k ∧ ∃ byte, opByte op = some byte ∧ ∃ h' ty' S' T',
       SolarTV.EVM.step ctx op S = some S' ∧ SolarTV.EVM.step ctx op T = some T' ∧
-      SR c ty' S' T' ∧ h' ≤ S'.length ∧ S'.length ≤ S.length + 1 ∧ ok h' [] ty' (k - 1) = true := by
+      SR c ty' S' T' ∧ h' ≤ S'.length ∧ S'.length ≤ S.length + 1 ∧
+      ∃ known', known' <+: S' ∧ ok h' known' ty' (k - 1) = true := by
   have hL := hR.length
   by_cases hd : ∃ i, op = .dup i
   · obtain ⟨i, rfl⟩ := hd
     simp only [blockStep, Bool.and_eq_true, decide_eq_true_eq] at hok
-    obtain ⟨⟨⟨h16, hk⟩, hi⟩, hok⟩ := hok
+    obtain ⟨⟨hk1, hi⟩, hok⟩ := hok
     have hiS : i.val < S.length := by omega
     have hiT : i.val < T.length := by omega
-    refine ⟨hk, 0x80 + i.val, by simp [opByte, h16], h + 1, _, _, _, ?_, ?_, SR.dup hR hiS hiT, by simp; omega, by simp, hok⟩
+    refine ⟨hk1, _, rfl, h + 1, _, _, _, ?_, ?_, SR.dup hR hiS hiT, by simp; omega, by simp, _,
+      dupKnown_prefix hk hiS, hok⟩
     · simp [SolarTV.EVM.step, List.getElem?_eq_getElem hiS]
     · simp [SolarTV.EVM.step, List.getElem?_eq_getElem hiT]
   by_cases hs : ∃ i, op = .swap i
   · obtain ⟨i, rfl⟩ := hs
     simp only [blockStep, Bool.and_eq_true, decide_eq_true_eq] at hok
-    obtain ⟨⟨⟨h16, hk⟩, hi⟩, hok⟩ := hok
+    obtain ⟨⟨hk1, hi⟩, hok⟩ := hok
     rcases S with _ | ⟨a, S⟩
     · simp at hh; omega
     rcases T with _ | ⟨b, T⟩
@@ -485,26 +501,27 @@ theorem stack_sim {p : Program} {c : Cert} {ok : Nat → List Word → List Ty �
     simp only [List.length_cons] at hh hL
     have hiS : i.val < S.length := by omega
     have hiT : i.val < T.length := by omega
-    refine ⟨hk, 0x90 + i.val, by simp [opByte, h16], h, _, _, _, ?_, ?_, SR.swap hR hiS hiT, by simp; omega, by simp, hok⟩
+    refine ⟨hk1, _, rfl, h, _, _, _, ?_, ?_, SR.swap hR hiS hiT, by simp; omega, by simp, [],
+      List.nil_prefix, hok⟩
     · simp [SolarTV.EVM.step, List.getElem?_eq_getElem hiS]
     · simp [SolarTV.EVM.step, List.getElem?_eq_getElem hiT]
   by_cases hp : op = .pop
   · subst hp
     simp only [blockStep, Bool.and_eq_true, decide_eq_true_eq] at hok
-    obtain ⟨⟨hk, h1⟩, hok⟩ := hok
+    obtain ⟨⟨hk1, h1⟩, hok⟩ := hok
     rcases S with _ | ⟨a, S⟩
     · simp at hh; omega
     rcases T with _ | ⟨b, T⟩
     · simp at hL
-    refine ⟨hk, _, rfl, h - 1, _, _, _, rfl, rfl, (SR.uncons.1 hR).2, by simp at hh; omega,
-      by simp only [List.length_cons]; omega, hok⟩
+    refine ⟨hk1, _, rfl, h - 1, _, _, _, rfl, rfl, (SR.uncons.1 hR).2, by simp at hh; omega,
+      by simp only [List.length_cons]; omega, [], List.nil_prefix, hok⟩
   have hd' : ∀ i, op ≠ .dup i := fun i e => hd ⟨i, e⟩
   have hs' : ∀ i, op ≠ .swap i := fun i e => hs ⟨i, e⟩
   rw [blockStep_stack hne hd' hs' hp] at hok
   split at hok
   · rename_i need d hn
     simp only [Bool.and_eq_true, decide_eq_true_eq] at hok
-    obtain ⟨⟨⟨hk, hneed⟩, hdata⟩, hok⟩ := hok
+    obtain ⟨⟨⟨hk1, hneed⟩, hdata⟩, hok⟩ := hok
     obtain ⟨byte, hbyte⟩ := opByte_of_stackNeed hn
     have hS' : ∃ S', SolarTV.EVM.step ctx op S = some S' := by
       cases op <;> simp only [stackNeed, reduceCtorEq, Option.some.injEq, Prod.mk.injEq] at hn
@@ -519,8 +536,8 @@ theorem stack_sim {p : Program} {c : Cert} {ok : Nat → List Word → List Ty �
     have hd1 : (need : Int) + d = 1 := by
       cases op <;> simp [stackNeed] at hn <;>
         first | omega | exact absurd rfl (hd' _) | exact absurd rfl (hs' _) | exact absurd rfl hp
-    refine ⟨hk, byte, hbyte, (h + d).toNat, _, _, _, hstep, hstepT,
-      SR.cons (τ := some false) rfl (SR.drop need hR), ?_, ?_, hok⟩
+    refine ⟨hk1, byte, hbyte, (h + d).toNat, _, _, _, hstep, hstepT,
+      SR.cons (τ := some false) rfl (SR.drop need hR), ?_, ?_, [], List.nil_prefix, hok⟩
     · simp only [List.length_cons, List.length_drop]; omega
     · simp only [List.length_cons, List.length_drop]; omega
   · cases hok
@@ -877,7 +894,7 @@ theorem exec_sim {p : Program} {c : Cert} {code : ByteArray} (G : Glob p c code)
       clear hok hD hD' hT
       have IH := exec_sim (o := o) (ss0 := ss0) G hdata hvalue hstatic hself hcaller ho b hb rest
       rcases i with mop | ⟨e, ar⟩ | t | t | t | _ | _ | _ | _ | _ | _ | _
-      · rcases mop with sop | _ | _ | _ | _ | _ | _
+      · rcases mop with sop | _ | _ | _ | _
         · by_cases hpush : ∃ v, sop = .push v
           · obtain ⟨v, rfl⟩ := hpush
             simp only [blockStep, Bool.and_eq_true, decide_eq_true_eq] at hok'
@@ -895,8 +912,8 @@ theorem exec_sim {p : Program} {c : Cert} {code : ByteArray} (G : Glob p c code)
               ((List.prefix_cons_inj v).2 ((List.take_prefix 1 known).trans hk))
               (SR.cons (τ := some false) rfl hR) (I'.next hok'.1 hseg (by simp) (by omega)) R)
           · have hne : ∀ v, sop ≠ .push v := fun v he => hpush ⟨v, he⟩
-            obtain ⟨hk1, byte, hbyte, h', ty', S', T', hstep, hstepT, hR', hh', hlen', hok⟩ :=
-              stack_sim (ctx := context o call s) hne hok' hh hR
+            obtain ⟨hk1, byte, hbyte, h', ty', S', T', hstep, hstepT, hR', hh', hlen', known', hkn,
+              hok⟩ := stack_sim (ctx := context o call s) hne hok' hh hk hR
             rw [lowerInstr_stack hne, hbyte] at I'
             simp only [Option.getD_some, List.singleton_append] at I'
             obtain ⟨next, hd, hseg⟩ := I'.seg.head
@@ -907,8 +924,8 @@ theorem exec_sim {p : Program} {c : Cert} {code : ByteArray} (G : Glob p c code)
             obtain ⟨g1, hg1, hrule⟩ := stack_rule (M := M) (st := st) (ss := ss) (gas := g)
               (stack := T) hbyte hlt hcode hstepT (by omega) (by omega)
             rw [exec_stack hstep (by omega) (by omega)]
-            exact SimOut.pre hrule (IH h' [] ty' S' T' (k - 1) s (pc + 1) M g1 st ss hok (by omega)
-              (List.nil_prefix) hR' (I'.next hk1 hseg (by omega) (by omega)) R)
+            exact SimOut.pre hrule (IH h' known' ty' S' T' (k - 1) s (pc + 1) M g1 st ss hok (by omega)
+              hkn hR' (I'.next hk1 hseg (by omega) (by omega)) R)
         · simp [blockStep] at hok'
         · -- MSTORE.
           rcases known with _ | ⟨ow, known'⟩
@@ -950,8 +967,6 @@ theorem exec_sim {p : Program} {c : Cert} {code : ByteArray} (G : Glob p c code)
             (by omega) (List.nil_prefix) hR' ⟨hseg, by omega, ?_, by rw [hM']; omega, hmem'⟩
             ⟨R.storage, R.account, R.logs⟩)
           rw [hM']; omega
-        · simp [blockStep] at hok'
-        · simp [blockStep] at hok'
         · simp [blockStep] at hok'
         · simp [blockStep] at hok'
       · rcases e with _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | n | _ | _ | _

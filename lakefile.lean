@@ -16,11 +16,11 @@ require «evm-interaction» from "vendor" / "evm-interaction"
 -- solar's translation validation library: its contract semantics interface (SolarTV.Sem:
 -- Call, Observable, Sem, Stage) is this library's, its lowered MIR and EVM IR semantics are
 -- the languages of the w5 milestone's stages, and its W1Proofs library proves the backend
--- stages. A git dependency on solar at 24b3d2ee (paradigmxyz/solar#2604, which restores the milestone proofs on the 256-position stack semantics), whose solar-tv has the w1, w4,
+-- stages. A git dependency on solar at 2144dccb, whose solar-tv has the w1, w4,
 -- counter, c4, mulx, bank and events milestones and the semantics of internal calls, casts and
 -- selects.
 require solar_tv from git
-  "https://github.com/paradigmxyz/solar.git" @ "24b3d2ee71b0d122b6679862ef42614156523216" / "solar-tv"
+  "https://github.com/paradigmxyz/solar.git" @ "2144dccb0984e6df238cc2e5e9d741e2e52e722d" / "solar-tv"
 
 -- Mathlib at the release EthLib builds against. Listed last, so its pins of
 -- Batteries, Aesop and the rest win over older ones further up.
@@ -124,11 +124,19 @@ lean_exe specHuntRunner where
   root := `SpecHuntRunner
   supportInterpreter := true
 
-/-- Loom's monad algebras and weakest preconditions, vendored with the changes Lean
-4.35 needs; see vendor/loom/README.md. -/
+/-- Loom's monad algebras and weakest preconditions, ported to Lean 4.35 (Loom/README.md). Only
+the ported modules are kept; every one builds. -/
 lean_lib Loom where
-  srcDir := "vendor/loom"
-  globs := #[.submodules `Loom]
+  roots := #[`Loom]
+  globs := #[.andSubmodules `Loom]
+
+/-- Verification on top of SolidCore: the Loom-based VC generator and the specs it proves
+(Verify/*.lean), solar-verify's spec language with ghost erasure and its trusted base
+(Verify/Spec), solar-verify's VCs checked against Loom models (Verify/VC) and the composition
+of a source triple with the refinement to bytecode (Verify/Final.lean). `lake build Verify`
+builds the root's closure; the libraries below hold the heavier, generated-input parts. -/
+lean_lib Verify where
+  roots := #[`Verify]
 
 -- bank's and events' assembly stages against solar's exports (solar-tv/milestone/bank and
 -- solar-tv/milestone/events at 0a455fda): the generic assembler check with mapping hashes,
@@ -150,20 +158,59 @@ lean_lib SolidCoreSolarBankSource where
   roots := #[`SolidCore.Refinement.Solar.Bank.Lowering, `SolidCore.Refinement.Solar.Events.Lowering,
     `SolidCore.Refinement.Solar.Bank.Certified, `SolidCore.Refinement.Solar.Events.Certified]
 
+-- token (solar-tv/milestone/token/token.sol at solar 3ca8f483, copied to
+-- scripts/refinement/token/token.sol: an ERC-20 with a nested allowance mapping, a mapping to
+-- bool, an address field, require and revert with Error(string) and two indexed address topics):
+-- the generic source stage against solar's own first lowered MIR (token.gen.Token.Stage0, the
+-- module solar-tv's backend stages start from), the generic assembler check under an oracle whose
+-- caller and hash are EthLib's, the composition from SolidCore to the bytecode bound to the
+-- export's manifest, and one-byte mutants. Outside the default root: the export shares solar-tv's
+-- milestone libraries.
+lean_lib SolidCoreSolarToken where
+  roots := #[`SolidCore.Refinement.Solar.Token.Lowering, `SolidCore.Refinement.Solar.Token.Assembly,
+    `SolidCore.Refinement.Solar.Token.Mutants, `SolidCore.Refinement.Solar.Token.Certified]
+
 -- solar-verify's spec language: its meaning over SolidCore's and EthLib's calls and observables,
 -- ghost erasure, the trusted base as named hypotheses, and the specs solar-verify exports
--- (SolidCore/Spec, scripts/refinement/spec/check.sh).
-lean_lib SolidCoreSpec where
-  roots := #[`SolidCore.Spec.Syntax, `SolidCore.Spec.Semantics, `SolidCore.Spec.Contract,
-    `SolidCore.Spec.Ghost, `SolidCore.Spec.TrustedBase, `SolidCore.Spec.TrustedBase.Hypotheses,
-    `SolidCore.Spec.Export.C4, `SolidCore.Spec.Export.C4Wrong]
+-- (Verify/Spec, scripts/refinement/spec/check.sh).
+lean_lib VerifySpec where
+  roots := #[`Verify.Spec.Syntax, `Verify.Spec.Semantics, `Verify.Spec.Contract,
+    `Verify.Spec.Ghost, `Verify.Spec.GhostFree, `Verify.Spec.TrustedBase,
+    `Verify.Spec.TrustedBase.Hypotheses, `Verify.Spec.TrustedBase.Interface]
 
 -- The trusted base discharged for c4 and Counter on their checked-in source ASTs, and its axiom
--- audit. Separate from SolidCoreSpec because the ASTs import the type checker.
-lean_lib SolidCoreSpecTrustedBase where
-  roots := #[`SolidCore.Spec.TrustedBase.Instances, `SolidCore.Spec.TrustedBase.Axioms]
+-- audit. Separate from VerifySpec because the ASTs import the type checker.
+lean_lib VerifySpecTrustedBase where
+  roots := #[`Verify.Spec.TrustedBase.Instances, `Verify.Spec.TrustedBase.Axioms]
 
--- c4's exported spec proved of SolidCore and of solar's bytecode, and the axiom audit. Needs the
--- generated corpus (scripts/refinement/gen.sh), so it is outside the default root.
-lean_lib SolidCoreSpecC4 where
-  roots := #[`SolidCore.Spec.Solar.C4, `SolidCore.Spec.Axioms]
+-- c4's exported spec (solar-verify --emit-lean-spec, scripts/refinement/spec/check.sh) proved of
+-- SolidCore and of solar's bytecode, and the axiom audit. Needs the generated corpus
+-- (scripts/refinement/gen.sh), so it is outside the default root.
+lean_lib ExamplesC4Spec where
+  roots := #[`Examples.C4.Spec.Export, `Examples.C4.Spec.ExportWrong, `Examples.C4.Spec.Bytecode,
+    `Examples.C4.Spec.Axioms]
+
+-- solar-verify's verification conditions checked against SolidCore through the Loom generator
+-- (Verify/VC.lean), outside the default root: it builds on the generic source stage.
+lean_lib VerifyVC where
+  roots := #[`Verify.VC]
+
+-- solar-verify's transcripts of scripts/verify/{Counter,Token}.sol (scripts/verify/check.sh) bound
+-- to their scripts, Token.burn and Token.transfer proved from the checked VCs, and the mutants.
+lean_lib ExamplesVC where
+  roots := #[`Examples.Counter.VC.Bind, `Examples.Token.VC.Bind, `Examples.Token.VC.Burn,
+    `Examples.Token.VC.Transfer, `Examples.Token.VC.Mutants, `Examples.Counter.VC.Inc, `Examples.Counter.VC.Get,
+    `Examples.Counter.VC.Mutants]
+
+-- Loom's axiom audit and the check that the certified Loom path stays off Loom's unported
+-- layers (Verify/LoomAxioms.lean, Verify/LoomImports.lean).
+lean_lib VerifyLoom where
+  roots := #[`Verify.LoomAxioms, `Verify.LoomImports]
+
+-- Counter end to end: its source triple carried through the refinement to solar's bytecode
+-- (Verify.Final) and solar-verify's verdict as named hypotheses; the headline
+-- (Examples/Counter/Headline.lean) discharges the verdict for solar-verify's exported spec of
+-- scripts/verify/CounterMilestone.sol and states it of solar's bytecode.
+lean_lib ExamplesCounter where
+  roots := #[`Examples.Counter.Final, `Examples.Counter.Verdict, `Examples.Counter.EndToEnd,
+    `Examples.Counter.Headline]
