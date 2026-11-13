@@ -1,5 +1,5 @@
 Transfer branch: git bundles of paradigmxyz/solar branches, relayed for pushing. Not part of solidity-lean; delete this branch once relayed.
 
-certified.bundle (sha256 70ee0eea9506d08a235ab4b100e0df336033e0c9fe04b9f4cd390970677d6050) -> solar branch alpharush/certified (draft PR 2637). Range a3d95a754..13a5f38ff (prerequisite a3d95a75490943e3ceeddcd04be0a4437e703bfe, tree-equal to PR head 32129be). Head 13a5f38ffcc2f8afaedcea8bb17d68862858aad4, 4 commits: feat(tv): certify Uniswap v2 sqrt loops by cut points; feat(certify): certify looping contracts by cut points; ci(certify): certify verify_token instead of token; chore(certify): pin solidity-lean 3813b7f.
+certified.bundle (sha256 189a9d12ef9e44690ed1cc2d141ec31b278c4f1fddd8c6e89fd70e3a1e1ca4d2) -> solar branch alpharush/certified (draft PR 2637). Range 13a5f38ff..866c0f90d (prerequisite 13a5f38ffcc2f8afaedcea8bb17d68862858aad4, tree-equal to PR head 0cb50dd). Head 866c0f90d013fb6b72ab16774fa334142e19c5e1, 2 commits: fix(certify): type-check the cut-point import; chore(certify): pin solidity-lean 89e812b.
 
 verify-liveness.bundle: already relayed earlier; ignore.
