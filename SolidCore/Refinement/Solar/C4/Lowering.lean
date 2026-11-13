@@ -274,6 +274,8 @@ theorem mir_run_of (o : Oracle) (call : Call) (x : EvmRules.Word) (hv : call.cal
   repeat (first | sym_eval | sym_cond | simp (config := {decide := true}) only [↓reduceIte, hs0, hgt, ha, hadd, hlt])
   have hsw := slot_word x hx
   have hlb := low_byte x hx
+  -- `sym_eval` folds the constant `and 1792 mask` in the goal: fold it in the lemma too.
+  try dsimp only [SolarTV.Milestone.W1.foldAnd] at hsw
   try comm_order at hsw hlb
   rw [hsw]
   try comm_order

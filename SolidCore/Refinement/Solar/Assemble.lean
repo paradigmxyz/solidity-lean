@@ -124,6 +124,7 @@ def lowerInstr : Instr → List Item
   | .op (.stack (.push v)) => [.push v.toNat]
   | .op (.stack op) => [.op ((opByte op).getD 0xfe)]
   | .op .store => [.op 0x52]
+  | .op .load => [.op 0x51]
   | .op _ => [.op 0xfe]
   | .effect .callvalue _ => [.op 0x34]
   | .effect .calldataload _ => [.op 0x35]

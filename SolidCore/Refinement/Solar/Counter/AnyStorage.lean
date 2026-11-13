@@ -205,7 +205,7 @@ theorem mir_run_of_at (o : Oracle) (call : Call) (d : EvmRules.Word) (hv : call.
   · simp only [Machine.observe, expectedAt, hof, ↓reduceIte, Option.some.injEq,
       Observable.mk.injEq]
     refine ⟨trivial, ?_, trivial, trivial⟩
-    simp only [State.initial]
+    try simp only [State.initial]
     decide
 
 end Lowering

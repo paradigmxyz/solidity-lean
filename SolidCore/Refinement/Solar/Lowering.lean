@@ -85,8 +85,7 @@ theorem mir_run_of (o : Oracle) (call : Call) (a b : EvmRules.Word) (hv : call.c
   · simp only [BitVec.reduceToNat, observe, expectedAt, expected, hof, ↓reduceIte,
       Option.some.injEq, Observable.mk.injEq]
     refine ⟨trivial, ?_, trivial, ?_⟩
-    · simp only [State.initial]
-      decide
+    · decide
     · trivial
 
 /-- A run of a lowered MIR module that ends within some fuel is its fuel-free result. -/
@@ -268,8 +267,7 @@ theorem bad_run_of (o : Oracle) (call : Call) (hv : call.callvalue = 0)
   repeat (first | sym_eval | sym_cond | simp (config := {decide := true}) only [↓reduceIte])
   simp only [BitVec.reduceToNat, observe, badObs, Option.some.injEq, Observable.mk.injEq]
   refine ⟨trivial, ?_, trivial, ?_⟩
-  · simp only [State.initial]
-    decide
+  · decide
   · funext slot
     simp [hst, slotValue]
 

@@ -58,7 +58,7 @@ theorem mir_run_of_at (o : Oracle) (call : Call) (d : EvmRules.Word) (hv : call.
       exact slotValue_mod_mod call.storage slot
   · simp only [observe, expectedAt, hof, ↓reduceIte, Option.some.injEq, Observable.mk.injEq]
     refine ⟨trivial, ?_, trivial, trivial⟩
-    simp only [State.initial]
+    try simp only [State.initial]
     decide
 
 /-- The same from any storage ¤σ¤: SolarTV's lowered MIR runs stage0 on inc(d) from ¤σ¤ to

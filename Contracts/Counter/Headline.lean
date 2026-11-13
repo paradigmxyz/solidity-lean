@@ -59,6 +59,7 @@ namespace SolidCore.Refinement.Solar.Counter.Headline
 
 open SolidCore.Refinement SolidCore.Refinement.Abi SolidCore.Refinement.Evm
 open SolidCore.Refinement.Evm.Wide SolidCore.Refinement.Final
+open EthLib.Base (U256)
 
 /-- The exported spec. -/
 abbrev spec : SolidCore.Spec.Bundle := SolidCore.Spec.Export.Counter.Counter
@@ -111,11 +112,12 @@ theorem words_inc (d : U256) :
 /-- Fewer than 32 bytes after the selector: no argument word. -/
 theorem words_short (s : Nat) (data : ByteArray) (h : data.size < 32) :
     SolidCore.Spec.words (((selectorOf s ++ data).data.toList.map (·.toNat)).drop 4) = [] := by
-  simp only [SolidCore.Spec.words, selectorOf, ByteArray.data_append, Array.toList_append,
-    List.map_append, List.toList_toArray]
-  rw [List.drop_append_of_le_length (by simp [EthLib.Base.natToBytes_length])]
-  simp [EthLib.Base.natToBytes_length, ByteArray.size] at h ⊢
-  omega
+  have hl : ((selectorOf s ++ data).data.toList.map (·.toNat)).length = 4 + data.size := by
+    rw [List.length_map, Array.length_toList]
+    exact (ByteArray.size_append ..).trans (by rw [size_selectorOf])
+  unfold SolidCore.Spec.words
+  rw [List.length_drop, hl, show (4 + data.size - 4) / 32 = 0 by omega]
+  simp only [List.range_zero, List.map_nil]
 
 theorem rejected_success (σ : List (Nat × Nat)) : (Abi.rejected σ).success = false := rfl
 
@@ -149,7 +151,7 @@ theorem post_every {call : Call} (hs : scopeEvery call) {fs : SolidCore.Spec.FnS
         { callOf incSelector [d] with storage := σ } := rfl
     rw [hcall, expectedEvery_inc] at hsucc ⊢
     rw [words_inc] at hdec
-    simp only [SolidCore.Spec.Export.Counter.Counter, List.head, SolidCore.Spec.decodeWords,
+    simp only [spec, SolidCore.Spec.Export.Counter.Counter, List.head, SolidCore.Spec.decodeWords,
       SolidCore.Spec.Ty.ofWord, d.isLt, ite_true, bind, pure, Option.bind, Option.some.injEq] at hdec
     subst hdec
     unfold expectedAt at hsucc ⊢
@@ -163,7 +165,7 @@ theorem post_every {call : Call} (hs : scopeEvery call) {fs : SolidCore.Spec.FnS
           SolidCore.Spec.Export.Counter.Counter, hpre0]
         omega
       · simp [SolidCore.Spec.Bundle.satAll, SolidCore.Spec.Export.Counter.Counter]
-    · simp at hsucc
+    all_goals simp at hsucc
   · -- get's call data: not inc's selector.
     have : SolidCore.Spec.selectorOf
         ({ calldata := (callOf getSelector []).calldata, callvalue := 0, storage := σ } : Call) =
@@ -171,14 +173,14 @@ theorem post_every {call : Call} (hs : scopeEvery call) {fs : SolidCore.Spec.FnS
       rw [calldata_get]
       exact spec_selectorOf_append _ (by decide) _ _ _
     rw [this] at hsel
-    simp [SolidCore.Spec.Export.Counter.Counter, getSelector] at hsel
+    simp [spec, SolidCore.Spec.Export.Counter.Counter, getSelector] at hsel
   · exact absurd h4 (by omega)
   · rw [spec_selectorOf_append s hs data 0 σ] at hsel
-    simp only [SolidCore.Spec.Export.Counter.Counter, List.head] at hsel
+    simp only [spec, SolidCore.Spec.Export.Counter.Counter, List.head] at hsel
     rcases hsel' with ⟨hne, -⟩ | ⟨-, hshort⟩
     · exact absurd hsel (by simpa [incSelector] using hne)
     · rw [words_short s data hshort] at hdec
-      simp [SolidCore.Spec.Export.Counter.Counter, SolidCore.Spec.decodeWords] at hdec
+      simp [spec, SolidCore.Spec.Export.Counter.Counter, SolidCore.Spec.decodeWords] at hdec
 
 /-- **solar-verify's spec, of SolidCore's checked `Counter`**, on every call of the scope. -/
 theorem holds_source {c : SolidCore.Solidity.TypeCheck.CheckedContract} (hc : contract? = .ok c) :
@@ -249,10 +251,12 @@ theorem wrong_fails :
     · have := size_callOf 1#256
       simp only [call] at this ⊢
       omega
-    · show SolidCore.Spec.selectorOf call = _
+    · change SolidCore.Spec.selectorOf
+        ({ calldata := (callOf incSelector [1#256]).calldata, callvalue := 0, storage := [] } : Call) = _
       have := spec_selectorOf_append incSelector (by decide) (wordsBytes [1#256]) 0 []
       rw [← calldata_inc] at this
-      simpa [SolidCore.Spec.Export.CounterSpecMut.Counter, incSelector] using this
+      rw [this]
+      simp [SolidCore.Spec.Export.CounterSpecMut.Counter, incSelector]
     · show SolidCore.Spec.decodeWords _ (SolidCore.Spec.words
         (((callOf incSelector [1#256]).calldata.data.toList.map (·.toNat)).drop 4)) = _
       rw [words_inc]
@@ -261,8 +265,10 @@ theorem wrong_fails :
     · simp [SolidCore.Spec.Bundle.satAll, SolidCore.Spec.Export.CounterSpecMut.Counter]
     · simp [SolidCore.Spec.Bundle.satAll, SolidCore.Spec.Export.CounterSpecMut.Counter]
   obtain ⟨obs, hrun, hpost⟩ := h _ hfs call hs [1] pre hpre
+  simp only [ethLib] at hrun
   rw [Final.target_every call hs] at hrun
-  cases hrun
+  have hobs := Option.some.inj hrun
+  subst hobs
   have hcall : call = { callOf incSelector [1#256] with storage := [] } := rfl
   rw [hcall, expectedEvery_inc] at hpost
   have hok : (expectedAt [] 1#256).success = true := by simp [expectedAt, slotValue]
@@ -274,11 +280,11 @@ theorem wrong_fails :
     expectedAt, slotValue] at this
 
 /-- info: 'SolidCore.Refinement.Solar.Counter.Headline.spec_holds_of_bytecode' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #print axioms spec_holds_of_bytecode
 
 /-- info: 'SolidCore.Refinement.Solar.Counter.Headline.wrong_fails' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #print axioms wrong_fails
 
 end SolidCore.Refinement.Solar.Counter.Headline

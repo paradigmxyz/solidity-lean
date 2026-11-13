@@ -381,7 +381,7 @@ theorem noValue_run_of (o : Oracle) (call : Call) (a b : EvmRules.Word)
   · simp only [BitVec.reduceToNat, observe, expectedAt, expected, hof, ↓reduceIte,
       Option.some.injEq, Observable.mk.injEq]
     refine ⟨trivial, ?_, trivial, ?_⟩
-    · simp only [State.initial]
+    · try simp only [State.initial]
       decide
     · trivial
 

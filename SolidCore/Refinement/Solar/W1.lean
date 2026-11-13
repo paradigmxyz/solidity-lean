@@ -437,7 +437,7 @@ theorem evmir_run_of (o : Oracle) (call : Call) (a b : W) (hv : call.callvalue =
     simp only [output, Option.map_some, ↓reduceIte, BitVec.reduceToNat, observe, expectedAt,
       expected, hof, Option.some.injEq, Observable.mk.injEq]
     refine ⟨trivial, ?_, trivial, ?_⟩
-    · simp only [State.initial]
+    · try simp only [State.initial]
       decide
     · trivial
 
