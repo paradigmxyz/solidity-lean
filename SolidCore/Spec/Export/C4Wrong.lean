@@ -1,7 +1,7 @@
 import SolidCore.Spec.Contract
 
 /-!
-Specs of `scripts/refinement/spec/c4_wrong.sol`, exported by solar-verify 0.3.0 with `--emit-lean`.
+Specs of `scripts/refinement/spec/c4_wrong.sol`, exported by solar-verify 0.3.0 with `--emit-lean-spec`.
 Generated: do not edit.
 -/
 

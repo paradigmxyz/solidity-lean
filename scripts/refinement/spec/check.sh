@@ -4,7 +4,7 @@
 #   SOLAR_VERIFY=path/to/solar-verify scripts/refinement/spec/check.sh
 #
 # For each annotated source NAME.sol it
-#   1. regenerates SolidCore/Spec/Export/<Module>.lean with solar-verify --emit-lean and fails if it
+#   1. regenerates SolidCore/Spec/Export/<Module>.lean with solar-verify --emit-lean-spec and fails if it
 #      differs from the checked-in file;
 #   2. checks that the annotated source is the corpus source it annotates
 #      (scripts/refinement/corpus/c4.sol) with comments and whitespace removed, so the compiler
@@ -14,7 +14,7 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../../.."
 
-sv="${SOLAR_VERIFY:?set SOLAR_VERIFY to a solar-verify binary with --emit-lean}"
+sv="${SOLAR_VERIFY:?set SOLAR_VERIFY to a solar-verify binary with --emit-lean-spec}"
 compiler="solar 0.3.0-dev+commit.9688f215"
 sha="8a21bc207d9dd8be48d921a717eda3ecb7e5bfcb5397850bc3d64a29037fac47"
 tmp="$(mktemp -d)"
@@ -23,9 +23,9 @@ trap 'rm -rf "$tmp"' EXIT
 for pair in c4:C4 c4_wrong:C4Wrong; do
   name="${pair%%:*}"
   mod="${pair##*:}"
-  "$sv" "scripts/refinement/spec/$name.sol" --emit-lean "$tmp/$mod.lean" \
-    --lean-module "SolidCore.Spec.Export.$mod" --lean-compiler "$compiler" \
-    --lean-bytecode-sha256 "$sha"
+  "$sv" "scripts/refinement/spec/$name.sol" --emit-lean-spec "$tmp/$mod.lean" \
+    --lean-spec-module "SolidCore.Spec.Export.$mod" --lean-spec-compiler "$compiler" \
+    --lean-spec-bytecode-sha256 "$sha"
   diff -u "SolidCore/Spec/Export/$mod.lean" "$tmp/$mod.lean"
 done
 
