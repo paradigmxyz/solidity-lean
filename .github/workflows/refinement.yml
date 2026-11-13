@@ -62,19 +62,19 @@ jobs:
       - name: Build the Certified contracts
         env:
           LEAN_NUM_THREADS: "2"
-        run: lake build -KleanMemory=3000 W1 counter w4 masks bank c4 mulx events reader
+        run: lake build -KleanMemory=3000 W1 counter w4 masks bank c4 mulx events reader token verify_token
 
       - name: Build the verification libraries and Contracts
         env:
           LEAN_NUM_THREADS: "2"
         run: |
-          lake build -KleanMemory=3000 Loom Verify VerifySpec VerifySpecTrustedBase VerifyLoom VerifyDischarge VerifyVC ContractsVC ContractsCounter ContractsArrayMaxVault
+          lake build -KleanMemory=6000 Loom Verify VerifySpec VerifySpecTrustedBase VerifyLoom VerifyDischarge VerifyVC ContractsVC ContractsCounter ContractsArrayMaxVault
 
       - name: Build SolidCore's refinement milestones
         env:
           LEAN_NUM_THREADS: "2"
         run: |
-          lake build -KleanMemory=4500 SolidCore SolidCoreSolarW4 SolidCoreSolarC4 SolidCoreSolarMulX SolidCoreSolarBank SolidCoreSolarBankSource ContractsC4Spec SolidCore.Refinement.Axioms.Audit
+          lake build -KleanMemory=6000 SolidCore SolidCoreSolarW4 SolidCoreSolarC4 SolidCoreSolarMulX SolidCoreSolarBank SolidCoreSolarBankSource ContractsC4Spec SolidCore.Refinement.Axioms.Audit
 
       - name: Save the Lake build
         if: always()

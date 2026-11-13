@@ -22,6 +22,17 @@ if ! grep -v '^ *///' scripts/verify/CounterMilestone.sol | cmp -s - scripts/ref
   echo "error: scripts/verify/CounterMilestone.sol is not scripts/refinement/counter/counter.sol plus NatSpec" >&2
   status=1
 fi
+# Token's certified backend (Certified/verify_token) compiles this Token: the same bytes, and the
+# source hash its stage manifest records is the one MANIFEST pins.
+if ! cmp -s scripts/verify/Token.sol Certified/verify_token/verify_token.sol; then
+  echo "error: Certified/verify_token/verify_token.sol is not scripts/verify/Token.sol" >&2
+  status=1
+fi
+token_sha="$(grep ' Token.sol$' scripts/verify/MANIFEST | cut -d' ' -f1)"
+if ! grep -qF "\"$token_sha\")]" Certified/verify_token/gen/Token/Manifest.lean; then
+  echo "error: Certified/verify_token's stage manifest records no source with sha256 $token_sha" >&2
+  status=1
+fi
 # The Lean module of each transcript.
 out_of() {
   case "$1" in

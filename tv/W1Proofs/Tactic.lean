@@ -164,6 +164,21 @@ theorem zero_eq_shr160 (x : Word) :
   rw [← shr160_eq_zero]
   exact propext eq_comm
 
+/-- The address mask as `late-word` spells it, shifting the high 96 bits out and back
+(`shr(96, shl(96, x))`), as the mask: so a test on a masked word reads the same in both programs. -/
+theorem shr_shl96 (x : Word) :
+    Evm.shr 96 (Evm.shl 96 x) = Evm.and x 1461501637330902918203684832716283019655932542975 := by
+  unfold Evm.shr Evm.shl Evm.and
+  rw [show (96 : Word).ult 256 = true from rfl, Bool.cond_true, Bool.cond_true,
+    BitVec.ushiftRight_eq', BitVec.shiftLeft_eq']
+  apply BitVec.eq_of_toNat_eq
+  have hm : (1461501637330902918203684832716283019655932542975 : Word).toNat = 2 ^ 160 - 1 := rfl
+  have h96 : (96 : Word).toNat = 96 := rfl
+  rw [BitVec.toNat_ushiftRight, BitVec.toNat_shiftLeft, BitVec.toNat_and, hm, h96,
+    Nat.and_two_pow_sub_one_eq_mod, Nat.shiftLeft_eq, Nat.shiftRight_eq_div_pow,
+    show 2 ^ 256 = 2 ^ 96 * 2 ^ 160 by rw [← Nat.pow_add], Nat.mod_mul_right_div_self,
+    Nat.mul_div_cancel _ (Nat.two_pow_pos 96)]
+
 /-! Tests the cases decide, as the words they leave, and the arithmetic a select becomes:
 `if-convert` turns a branch on a test `c` between `t` and `f` into `f + c * (t - f)`. -/
 
@@ -1039,7 +1054,8 @@ macro "sym_cond" : tactic => `(tactic|
     cond_ne, cond_eq, cond_sub, cond_lt, cond_gt, cond_iszero, cond_or,
     cond_zero_lt, cond_zero_gt, cond_zero_eq, cond_zero_ne, cond_zero_iszero,
     wordAddComm, wordMulComm, wordAndComm, wordOrComm, wordXorComm, and_mask,
-    mask_and, caller_le_mask, immutable20_le_mask, shr160_eq_zero, zero_eq_shr160, and_self, and_true, true_and, and_false, false_and,
+    mask_and, caller_le_mask, immutable20_le_mask, shr160_eq_zero, zero_eq_shr160, shr_shl96,
+    and_self, and_true, true_and, and_false, false_and,
     ite_true, ite_false,
     not_false_eq_true, not_true_eq_false, Classical.not_not, ↓reduceIte, Nat.reduceGT, Nat.reduceLT,
     Nat.reduceEqDiff, Nat.reduceLeDiff, Nat.reduceAdd, Nat.reduceSub, Nat.lt_irrefl,
@@ -1072,6 +1088,16 @@ macro "sym_mem" : tactic => `(tactic| first
       Mem.read_of_eq_zero, Mem.read_write_at, List.append_nil, List.nil_append, List.append_assoc]
   | simp only [Mem.read_split, Nat.reduceLT, Nat.reduceLeDiff, Nat.reduceSub, Nat.reduceAdd])
 
+/-- Memory in a normal form: expansions outside the stores, stores to disjoint literal words in
+order of their offsets, and a store overwritten at the same offset dropped. Two runs that write
+the same words in another order, or one that writes a word once more with the value it holds
+(`block-cse` dropping a second `mstore(32, 0)` before a second mapping hash), then agree. Every
+step is an equation on `Mem`, rewriting the goal and every hypothesis, so a path whose two
+programs decided the same condition in two memory forms becomes a contradiction. -/
+macro "sym_mem_order" : tactic => `(tactic|
+  simp (disch := decide) only [Mem.store_expand_comm, Mem.store_store_same, Mem.expand_expand,
+    Mem.expand_comm, Mem.expand_store, Mem.store_store_comm] at *)
+
 /-- Evaluate, decide conditions and move memory reads until none changes the goal. -/
 macro "sym_norm" : tactic => `(tactic| repeat (first | sym_eval | sym_cond | sym_mem))
 
@@ -1103,6 +1129,13 @@ macro "sym_exec" : tactic => `(tactic| (
     | sym_select
     | sym_agree
     | sym_expand
+    | (sym_mem_order <;> first
+        | with_reducible rfl
+        | (exfalso; bv_omega)
+        | (exfalso; sym_omega)
+        | (exfalso; sym_comm_contra)
+        | sym_select
+        | sym_agree)
     | fail "sym_exec: the runs end in different results on this path, or the procedure cannot tell"))
 
 end SolarTV.Milestone.W1

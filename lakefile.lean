@@ -271,6 +271,14 @@ lean_lib token where
   leanOptions := solarTVOptions
   moreLeanArgs := #["-M", "3000"]
 
+/-- solar-verify's Token (Contracts/Token/VC's source): its exported stages and backend proofs. -/
+lean_lib verify_token where
+  srcDir := "Certified"
+  roots := #[`verify_token.Proofs]
+  globs := #[.submodules `verify_token]
+  leanOptions := solarTVOptions
+  moreLeanArgs := #["-M", "3000"]
+
 -- solar-verify's spec language: its meaning over SolidCore's and EthLib's calls and observables,
 -- ghost erasure, the trusted base as named hypotheses, and the specs solar-verify exports
 -- (Verify/Spec, scripts/refinement/spec/check.sh).
