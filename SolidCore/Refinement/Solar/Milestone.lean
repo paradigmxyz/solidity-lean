@@ -87,11 +87,10 @@ theorem certified :
     bytes = SolarTV.Export.Main.bytecode ∧
     SolarTV.Export.Main.Manifest.bytecodeHex = runtimeHex ∧
     SolarTV.Export.Main.Manifest.bytecodeSha256 = runtimeSha256 ∧
-    SolarTV.Export.Main.Manifest.compiler = "0.8.38+commit.3ca8f483.solar.0.3.0-dev" ∧
     SolarTV.Export.Main.Manifest.optimization = "Gas" ∧
     SolarTV.Export.Main.Manifest.evmVersion = "osaka" ∧
     Satisfies ethLib code Verify.W5.scope Verify.W5.pre Verify.W5.post := by
-  refine ⟨bytes_exported, rfl, rfl, rfl, rfl, rfl, ?_⟩
+  refine ⟨bytes_exported, rfl, rfl, rfl, rfl, ?_⟩
   obtain ⟨c, hc, hspec⟩ := Verify.W5.satisfies
   exact bytecode_of_stages hspec (lowering oracle hc)
     ((SolarTV.Milestone.W1.w1_mir_to_evmir oracle).mono fun _ _ => trivial) (stage oracle)

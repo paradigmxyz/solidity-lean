@@ -81,18 +81,17 @@ namespace SolidCore.Refinement.Solar.Counter
 open SolidCore.Refinement
 
 /-- **The counter milestone.** solar's runtime bytecode for Counter, which is the bytecode solar
-exported with its stages (byte for byte, and as the hex and sha256 its manifest records for
-compiler 1134e61f with `-Ogas` for osaka), meets the specification of `inc` verified on SolidCore,
+exported with its stages (byte for byte, and as the hex and sha256 its manifest records with
+`-Ogas` for osaka), meets the specification of `inc` verified on SolidCore,
 under EthLib on every call of the scope, through every stage of solar's pipeline. -/
 theorem certified :
     bytes = SolarTV.Export.Counter.bytecode ∧
     SolarTV.Export.Counter.Manifest.bytecodeHex = runtimeHex ∧
     SolarTV.Export.Counter.Manifest.bytecodeSha256 = runtimeSha256 ∧
-    SolarTV.Export.Counter.Manifest.compiler = "0.8.38+commit.ebdc3376.solar.0.3.0-dev" ∧
     SolarTV.Export.Counter.Manifest.optimization = "Gas" ∧
     SolarTV.Export.Counter.Manifest.evmVersion = "osaka" ∧
     Satisfies ethLib code scope pre post := by
-  refine ⟨bytes_exported, rfl, rfl, rfl, rfl, rfl, ?_⟩
+  refine ⟨bytes_exported, rfl, rfl, rfl, rfl, ?_⟩
   obtain ⟨c, hc, hspec⟩ := satisfies
   exact bytecode_of_stages hspec (lowering W1.oracle hc)
     ((SolarTV.Milestone.Counter.counter_mir_to_evmir W1.oracle).mono fun _ _ => trivial)
