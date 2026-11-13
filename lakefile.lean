@@ -16,11 +16,11 @@ require «evm-interaction» from "vendor" / "evm-interaction"
 -- solar's translation validation library: its contract semantics interface (SolarTV.Sem:
 -- Call, Observable, Sem, Stage) is this library's, its lowered MIR and EVM IR semantics are
 -- the languages of the w5 milestone's stages, and its W1Proofs library proves the backend
--- stages. A git dependency on solar at 2144dccb, whose solar-tv has the w1, w4,
+-- stages. A git dependency on solar at 24b3d2ee (paradigmxyz/solar#2604, which restores the milestone proofs on the 256-position stack semantics), whose solar-tv has the w1, w4,
 -- counter, c4, mulx, bank and events milestones and the semantics of internal calls, casts and
 -- selects.
 require solar_tv from git
-  "https://github.com/paradigmxyz/solar.git" @ "2144dccb0984e6df238cc2e5e9d741e2e52e722d" / "solar-tv"
+  "https://github.com/paradigmxyz/solar.git" @ "24b3d2ee71b0d122b6679862ef42614156523216" / "solar-tv"
 
 -- Mathlib at the release EthLib builds against. Listed last, so its pins of
 -- Batteries, Aesop and the rest win over older ones further up.
@@ -149,3 +149,21 @@ lean_lib SolidCoreSolarBank where
 lean_lib SolidCoreSolarBankSource where
   roots := #[`SolidCore.Refinement.Solar.Bank.Lowering, `SolidCore.Refinement.Solar.Events.Lowering,
     `SolidCore.Refinement.Solar.Bank.Certified, `SolidCore.Refinement.Solar.Events.Certified]
+
+-- solar-verify's spec language: its meaning over SolidCore's and EthLib's calls and observables,
+-- ghost erasure, the trusted base as named hypotheses, and the specs solar-verify exports
+-- (SolidCore/Spec, scripts/refinement/spec/check.sh).
+lean_lib SolidCoreSpec where
+  roots := #[`SolidCore.Spec.Syntax, `SolidCore.Spec.Semantics, `SolidCore.Spec.Contract,
+    `SolidCore.Spec.Ghost, `SolidCore.Spec.TrustedBase, `SolidCore.Spec.TrustedBase.Hypotheses,
+    `SolidCore.Spec.Export.C4, `SolidCore.Spec.Export.C4Wrong]
+
+-- The trusted base discharged for c4 and Counter on their checked-in source ASTs, and its axiom
+-- audit. Separate from SolidCoreSpec because the ASTs import the type checker.
+lean_lib SolidCoreSpecTrustedBase where
+  roots := #[`SolidCore.Spec.TrustedBase.Instances, `SolidCore.Spec.TrustedBase.Axioms]
+
+-- c4's exported spec proved of SolidCore and of solar's bytecode, and the axiom audit. Needs the
+-- generated corpus (scripts/refinement/gen.sh), so it is outside the default root.
+lean_lib SolidCoreSpecC4 where
+  roots := #[`SolidCore.Spec.Solar.C4, `SolidCore.Spec.Axioms]

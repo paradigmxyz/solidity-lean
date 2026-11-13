@@ -417,7 +417,7 @@ theorem exec_stack {o : SolarTV.Machine.Oracle} {call : SolarTV.Call} {b : Nat}
 
 theorem opByte_of_stackNeed {op : SolarTV.EVM.Op} {x : Nat × Int} (h : stackNeed op = some x) :
     ∃ byte, opByte op = some byte := by
-  cases op <;> simp [stackNeed, opByte] at h ⊢
+  cases op <;> simp [stackNeed, opByte] at h ⊢ <;> exact h.1
 
 theorem lowerInstr_stack {op : SolarTV.EVM.Op} (hne : ∀ v, op ≠ .push v) :
     lowerInstr (.op (.stack op)) = [.op ((opByte op).getD 0xfe)] := by
@@ -468,16 +468,16 @@ theorem stack_sim {p : Program} {c : Cert} {ok : Nat → List Word → List Ty �
   by_cases hd : ∃ i, op = .dup i
   · obtain ⟨i, rfl⟩ := hd
     simp only [blockStep, Bool.and_eq_true, decide_eq_true_eq] at hok
-    obtain ⟨⟨hk, hi⟩, hok⟩ := hok
+    obtain ⟨⟨⟨h16, hk⟩, hi⟩, hok⟩ := hok
     have hiS : i.val < S.length := by omega
     have hiT : i.val < T.length := by omega
-    refine ⟨hk, _, rfl, h + 1, _, _, _, ?_, ?_, SR.dup hR hiS hiT, by simp; omega, by simp, hok⟩
+    refine ⟨hk, 0x80 + i.val, by simp [opByte, h16], h + 1, _, _, _, ?_, ?_, SR.dup hR hiS hiT, by simp; omega, by simp, hok⟩
     · simp [SolarTV.EVM.step, List.getElem?_eq_getElem hiS]
     · simp [SolarTV.EVM.step, List.getElem?_eq_getElem hiT]
   by_cases hs : ∃ i, op = .swap i
   · obtain ⟨i, rfl⟩ := hs
     simp only [blockStep, Bool.and_eq_true, decide_eq_true_eq] at hok
-    obtain ⟨⟨hk, hi⟩, hok⟩ := hok
+    obtain ⟨⟨⟨h16, hk⟩, hi⟩, hok⟩ := hok
     rcases S with _ | ⟨a, S⟩
     · simp at hh; omega
     rcases T with _ | ⟨b, T⟩
@@ -485,7 +485,7 @@ theorem stack_sim {p : Program} {c : Cert} {ok : Nat → List Word → List Ty �
     simp only [List.length_cons] at hh hL
     have hiS : i.val < S.length := by omega
     have hiT : i.val < T.length := by omega
-    refine ⟨hk, _, rfl, h, _, _, _, ?_, ?_, SR.swap hR hiS hiT, by simp; omega, by simp, hok⟩
+    refine ⟨hk, 0x90 + i.val, by simp [opByte, h16], h, _, _, _, ?_, ?_, SR.swap hR hiS hiT, by simp; omega, by simp, hok⟩
     · simp [SolarTV.EVM.step, List.getElem?_eq_getElem hiS]
     · simp [SolarTV.EVM.step, List.getElem?_eq_getElem hiT]
   by_cases hp : op = .pop
@@ -877,7 +877,7 @@ theorem exec_sim {p : Program} {c : Cert} {code : ByteArray} (G : Glob p c code)
       clear hok hD hD' hT
       have IH := exec_sim (o := o) (ss0 := ss0) G hdata hvalue hstatic hself hcaller ho b hb rest
       rcases i with mop | ⟨e, ar⟩ | t | t | t | _ | _ | _ | _ | _ | _ | _
-      · rcases mop with sop | _ | _ | _ | _
+      · rcases mop with sop | _ | _ | _ | _ | _ | _
         · by_cases hpush : ∃ v, sop = .push v
           · obtain ⟨v, rfl⟩ := hpush
             simp only [blockStep, Bool.and_eq_true, decide_eq_true_eq] at hok'
@@ -950,6 +950,8 @@ theorem exec_sim {p : Program} {c : Cert} {code : ByteArray} (G : Glob p c code)
             (by omega) (List.nil_prefix) hR' ⟨hseg, by omega, ?_, by rw [hM']; omega, hmem'⟩
             ⟨R.storage, R.account, R.logs⟩)
           rw [hM']; omega
+        · simp [blockStep] at hok'
+        · simp [blockStep] at hok'
         · simp [blockStep] at hok'
         · simp [blockStep] at hok'
       · rcases e with _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | n | _ | _ | _
