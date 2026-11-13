@@ -145,4 +145,47 @@ theorem bytecodeRdc (codes : SolidCore.Solidity.Shared.Account.BytesMap) (scope 
 #guard_msgs (whitespace := lax) in
 #print axioms bytecodeRdc
 
+
+/-! ## A STATICCALL to ECRECOVER -/
+
+/-- PUSH1 32, PUSH0, PUSH1 128, PUSH0, PUSH1 1, GAS, STATICCALL: ECRECOVER on the 128 bytes of
+memory at 0, its 32-byte output written at 0; the flag stored at 64, and the output returned. -/
+def progEc : Assemble.Program :=
+  { blocks := [[.op (.stack (.push 32)), .op (.stack (.push 0)), .op (.stack (.push 128)),
+      .op (.stack (.push 0)), .op (.stack (.push 1)), .effect .gas 0,
+      .effect (.call .staticcall) 6, .op (.stack (.push 64)), .op .store, .op (.stack (.push 32)),
+      .op (.stack (.push 0)), .ret]] }
+
+def codeEc : ByteArray :=
+  ⟨#[0x60, 0x20, 0x5f, 0x60, 0x80, 0x5f, 0x60, 0x01, 0x5a, 0xfa, 0x60, 0x40, 0x52, 0x60, 0x20, 0x5f,
+    0xf3]⟩
+
+/-- The STATICCALL to address 2 (SHA-256) in place of ECRECOVER. -/
+def mutantEcAddr : ByteArray :=
+  ⟨#[0x60, 0x20, 0x5f, 0x60, 0x80, 0x5f, 0x60, 0x02, 0x5a, 0xfa, 0x60, 0x40, 0x52, 0x60, 0x20, 0x5f,
+    0xf3]⟩
+
+def certEc : Assemble.Cert :=
+  { offsets := [0], needs := [0], top := 2 ^ 140, costs := [12], types := [[]], calls := true }
+
+theorem checkEc_ok : checkCB progEc codeEc certEc maxs = true := by decide +kernel
+
+theorem mutantEcAddr_fails : checkCB progEc mutantEcAddr certEc maxs = false := by decide +kernel
+
+/-- **The ECRECOVER bytecode, at every gas below `2 ^ 256`**: every result is the program's
+under an oracle that agrees with an open world, in which the call to address 1 is answered by the
+source's ECRECOVER; `CalleesRun` admits the call through `AssembleCallCut.PreOk`, which names
+`AssembleCallPre.EcrecoverAgree`. -/
+theorem bytecodeEc (codes : SolidCore.Solidity.Shared.Account.BytesMap)
+    (scope : SolarTV.Call → Prop) (hP : ∀ gas, StaticRunner gas)
+    (hQ : ∀ gas call, scope call → CalleesRun gas codeEc call) :
+    ∀ gas, gas < 2 ^ 256 → ∀ call, scope call → ∃ (o : SolarTV.Machine.Oracle) (W : World),
+      W.Open ∧ SolidCore.Refinement.CallsAgree o W ∧ RunOracle.CertOk certEc o ∧
+      SolidCore.Refinement.Final.Within (SolarTV.evmirSem o) (ethLibWith gas) progEc codeEc (· = call) :=
+  assembly_of_checkCB checkEc_ok codes scope hP hQ
+
+/-- info: 'SolidCore.Refinement.Solar.AssembleCallExample.bytecodeEc' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs (whitespace := lax) in
+#print axioms bytecodeEc
+
 end SolidCore.Refinement.Solar.AssembleCallExample

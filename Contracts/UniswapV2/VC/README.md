@@ -25,19 +25,32 @@ mean step, `newton_lt`) and `x ≤ (y / x + x) / 2 → x * x ≤ y` (`newton_le`
 Verify/Discharge/IteApply.lean makes a store into a nested mapping (an ERC20 allowance)
 readable by both backends.
 
-## Results so far (2026-11-13, partial: the runs were still going)
+## Results (2026-11-13)
 
-With `DISCHARGE_BACKENDS='smt=vc_smt;vc_valid=vc_valid@90'`, 150 s per attempt, on a loaded
-machine (`OUT/vcs/<C>/discharge/summary.tsv`):
+With `DISCHARGE_BACKENDS='smt=vc_smt;vc_valid=vc_valid@90'`, every required row run
+(`OUT/vcs/<C>/discharge/summary.tsv`):
 
-| Contract | Required | Rows run | Proved (smt / vc_valid) | Failed | Vacuous |
-|---|---|---|---|---|---|
-| Math | 82 | 40 | 31 (18 / 13) | 9 | 0 |
-| ERC20 | 40 | 10 | 8 (8 / 0) | 2 | 0 |
-| Factory | 27 | 3 | 1 (1 / 0) | 2 | 0 |
+| Contract | Required | Proved (smt / vc_valid) | Failed | Vacuous |
+|---|---|---|---|---|
+| Math | 82 | 82 (34 / 48) | 0 | 0 |
+| ERC20 | 40 | 33 (17 / 16) | 7 | 0 |
+| Factory | 27 | 21 (19 / 2) | 6 | 0 |
 
-Every proved row's axioms are `propext`, `Classical.choice`, `Quot.sound`. Failures: Math's
-`sqrt#46, 49, 52, 53, 56, 57, 58, 65, 69` (cvc5's `div` purification is not reconstructed;
-`vc_valid` either exceeds simp's step bound when reading `ediv` as `/` or lacks a nonlinear fact),
-ERC20 `transfer#1, #2` (the same reconstruction gap, `vc_valid` timing out), and Factory's
-quantified-invariant rows (both backends time out). No row fails by a counterexample.
+Every proved row's axioms are `propext`, `Classical.choice`, `Quot.sound`; no row fails by a
+counterexample. `vc_valid` tries `vc_lite` (Verify/Discharge/Lite.lean) before its search: it
+reads pointwise array definitions as function equations, opens a negated quantified goal into a
+witness, splits on every `if` and calls `omega` with the facts of Nonlinear.lean, which now also
+compare `y / x` with `2`, `x`, `x + 1`, `x + 2` and `x + 3` over the atom `x * x`
+(`div_cmp`), expand `(a + 1) * (a + 1)` and bound a Newton step from below. That closes all of
+Math.sqrt, including solar-verify's inferred loop invariants and the postcondition
+`z * z <= y && y < (z + 1) * (z + 1)`. Quantifiers over two to four integers (Factory's
+invariants over pairs of addresses) are evaluated as Lean binders (`eval_forall_int2` to `4`).
+
+Still failing: ERC20 `transferFrom#5, #6, #10, #11` (the conditional allowance update in a
+nested mapping: `vc_lite`'s `omega` leaf misses the case split, the search times out) and
+`permit#2, #4, #8` (simp exceeds the recursion limit on the signature digest terms), Factory
+`createPair#4` to `#9`: their goals need an instance of a quantified assertion about an
+uninterpreted two-argument symbol (the pair address of `(token0, token1)`), which neither
+`omega` nor the search instantiates; `vc_lite`'s `simp_all` alternative also loops there, and its
+recursion-limit error, a runtime exception, is not caught by `first`. These rows prove solar-verify's exported obligations only; tying them to the source
+semantics and the bytecode is the spec connection's work (Verify/Spec), not this directory's.

@@ -30,6 +30,12 @@ theorem ite_val (s : Srt) (c : Bool) (a b : s.Den) :
     (if c = true then (⟨s, a⟩ : Val) else ⟨s, b⟩) = ⟨s, if c = true then a else b⟩ := by
   cases c <;> rfl
 
+/-- `ite_val` for integer branches stated over `Int`, which `simp` matches against literal
+branches such as `⟨.int, 1⟩` (where `Srt.Den .int` is not reducibly `Int`). -/
+theorem ite_val_int (c : Bool) (a b : Int) :
+    (if c = true then (⟨.int, a⟩ : Val) else ⟨.int, b⟩) = ⟨.int, if c = true then a else b⟩ := by
+  cases c <;> rfl
+
 /-! Binders: a quantifier over the values of a list of sorts becomes one quantifier per sort,
 over the sort's Lean type. -/
 
@@ -59,7 +65,7 @@ theorem beq_array (i e : Srt) (a b : Srt.Den (.array i e)) :
     Srt.beq (.array i e) a b = qdec (∀ k : Srt.Den i, Srt.beq e (a k) (b k) = true) := by
   rw [Srt.beq]; rfl
 
-/-! Quantifiers over one integer, the only ones the exporter emits so far: the binder becomes a
+/-! Quantifiers over one to four integers, the ones the exporter emits so far: each binder becomes a
 Lean `∀ x : Int` (`∃`), with the bound value at the head of the locals. -/
 
 theorem eval_forall_int (env : Env) (decls : List Decl) (locals : Locals) (body : SolarVerify.Smt.Term) :
@@ -94,6 +100,77 @@ theorem eval_exists_int (env : Env) (decls : List Decl) (locals : Locals) (body 
       boolOf (Term.eval env decls (bindAll [.int] xs locals) body) = some true) =
       ∃ x : Int, boolOf (Term.eval env decls (⟨.int, x⟩ :: locals) body) = some true :=
     propext ⟨fun ⟨p, h⟩ => ⟨p.1, h⟩, fun ⟨x, h⟩ => ⟨(x, ()), h⟩⟩
+  rw [h1, h2]; rfl
+/-- `forall` over 2 integers: the binders become Lean binders, the last one at the head of the locals. -/
+theorem eval_forall_int2 (env : Env) (decls : List Decl) (locals : Locals) (body : SolarVerify.Smt.Term) :
+    Term.eval env decls locals (.forall [.int, .int] body) =
+      qite (∀ x y : Int, (boolOf (Term.eval env decls (⟨.int, y⟩ :: ⟨.int, x⟩ :: locals) body)).isSome)
+        (some ⟨.bool, qdec (∀ x y : Int,
+          boolOf (Term.eval env decls (⟨.int, y⟩ :: ⟨.int, x⟩ :: locals) body) = some true)⟩)
+        none := by
+  rw [Term.eval]
+  have h1 : (∀ xs : Srt.DenList [.int, .int],
+      (boolOf (Term.eval env decls (bindAll [.int, .int] xs locals) body)).isSome) =
+      ∀ x y : Int, (boolOf (Term.eval env decls (⟨.int, y⟩ :: ⟨.int, x⟩ :: locals) body)).isSome :=
+    propext ⟨fun h x y => h (x, (y, ())), fun h p => h p.1 p.2.1⟩
+  have h2 : (∀ xs : Srt.DenList [.int, .int],
+      boolOf (Term.eval env decls (bindAll [.int, .int] xs locals) body) = some true) =
+      ∀ x y : Int, boolOf (Term.eval env decls (⟨.int, y⟩ :: ⟨.int, x⟩ :: locals) body) = some true :=
+    propext ⟨fun h x y => h (x, (y, ())), fun h p => h p.1 p.2.1⟩
+  rw [h1, h2]; rfl
+
+/-- `forall` over 3 integers: the binders become Lean binders, the last one at the head of the locals. -/
+theorem eval_forall_int3 (env : Env) (decls : List Decl) (locals : Locals) (body : SolarVerify.Smt.Term) :
+    Term.eval env decls locals (.forall [.int, .int, .int] body) =
+      qite (∀ x y z : Int, (boolOf (Term.eval env decls (⟨.int, z⟩ :: ⟨.int, y⟩ :: ⟨.int, x⟩ :: locals) body)).isSome)
+        (some ⟨.bool, qdec (∀ x y z : Int,
+          boolOf (Term.eval env decls (⟨.int, z⟩ :: ⟨.int, y⟩ :: ⟨.int, x⟩ :: locals) body) = some true)⟩)
+        none := by
+  rw [Term.eval]
+  have h1 : (∀ xs : Srt.DenList [.int, .int, .int],
+      (boolOf (Term.eval env decls (bindAll [.int, .int, .int] xs locals) body)).isSome) =
+      ∀ x y z : Int, (boolOf (Term.eval env decls (⟨.int, z⟩ :: ⟨.int, y⟩ :: ⟨.int, x⟩ :: locals) body)).isSome :=
+    propext ⟨fun h x y z => h (x, (y, (z, ()))), fun h p => h p.1 p.2.1 p.2.2.1⟩
+  have h2 : (∀ xs : Srt.DenList [.int, .int, .int],
+      boolOf (Term.eval env decls (bindAll [.int, .int, .int] xs locals) body) = some true) =
+      ∀ x y z : Int, boolOf (Term.eval env decls (⟨.int, z⟩ :: ⟨.int, y⟩ :: ⟨.int, x⟩ :: locals) body) = some true :=
+    propext ⟨fun h x y z => h (x, (y, (z, ()))), fun h p => h p.1 p.2.1 p.2.2.1⟩
+  rw [h1, h2]; rfl
+
+/-- `forall` over 4 integers: the binders become Lean binders, the last one at the head of the locals. -/
+theorem eval_forall_int4 (env : Env) (decls : List Decl) (locals : Locals) (body : SolarVerify.Smt.Term) :
+    Term.eval env decls locals (.forall [.int, .int, .int, .int] body) =
+      qite (∀ x y z w : Int, (boolOf (Term.eval env decls (⟨.int, w⟩ :: ⟨.int, z⟩ :: ⟨.int, y⟩ :: ⟨.int, x⟩ :: locals) body)).isSome)
+        (some ⟨.bool, qdec (∀ x y z w : Int,
+          boolOf (Term.eval env decls (⟨.int, w⟩ :: ⟨.int, z⟩ :: ⟨.int, y⟩ :: ⟨.int, x⟩ :: locals) body) = some true)⟩)
+        none := by
+  rw [Term.eval]
+  have h1 : (∀ xs : Srt.DenList [.int, .int, .int, .int],
+      (boolOf (Term.eval env decls (bindAll [.int, .int, .int, .int] xs locals) body)).isSome) =
+      ∀ x y z w : Int, (boolOf (Term.eval env decls (⟨.int, w⟩ :: ⟨.int, z⟩ :: ⟨.int, y⟩ :: ⟨.int, x⟩ :: locals) body)).isSome :=
+    propext ⟨fun h x y z w => h (x, (y, (z, (w, ())))), fun h p => h p.1 p.2.1 p.2.2.1 p.2.2.2.1⟩
+  have h2 : (∀ xs : Srt.DenList [.int, .int, .int, .int],
+      boolOf (Term.eval env decls (bindAll [.int, .int, .int, .int] xs locals) body) = some true) =
+      ∀ x y z w : Int, boolOf (Term.eval env decls (⟨.int, w⟩ :: ⟨.int, z⟩ :: ⟨.int, y⟩ :: ⟨.int, x⟩ :: locals) body) = some true :=
+    propext ⟨fun h x y z w => h (x, (y, (z, (w, ())))), fun h p => h p.1 p.2.1 p.2.2.1 p.2.2.2.1⟩
+  rw [h1, h2]; rfl
+
+/-- `exists` over 2 integers: the binders become Lean binders, the last one at the head of the locals. -/
+theorem eval_exists_int2 (env : Env) (decls : List Decl) (locals : Locals) (body : SolarVerify.Smt.Term) :
+    Term.eval env decls locals (.exists [.int, .int] body) =
+      qite (∀ x y : Int, (boolOf (Term.eval env decls (⟨.int, y⟩ :: ⟨.int, x⟩ :: locals) body)).isSome)
+        (some ⟨.bool, qdec (∃ x y : Int,
+          boolOf (Term.eval env decls (⟨.int, y⟩ :: ⟨.int, x⟩ :: locals) body) = some true)⟩)
+        none := by
+  rw [Term.eval]
+  have h1 : (∀ xs : Srt.DenList [.int, .int],
+      (boolOf (Term.eval env decls (bindAll [.int, .int] xs locals) body)).isSome) =
+      ∀ x y : Int, (boolOf (Term.eval env decls (⟨.int, y⟩ :: ⟨.int, x⟩ :: locals) body)).isSome :=
+    propext ⟨fun h x y => h (x, (y, ())), fun h p => h p.1 p.2.1⟩
+  have h2 : (∃ xs : Srt.DenList [.int, .int],
+      boolOf (Term.eval env decls (bindAll [.int, .int] xs locals) body) = some true) =
+      ∃ x y : Int, boolOf (Term.eval env decls (⟨.int, y⟩ :: ⟨.int, x⟩ :: locals) body) = some true :=
+    propext ⟨fun ⟨p, h⟩ => ⟨p.1, p.2.1, h⟩, fun ⟨x, y, h⟩ => ⟨(x, (y, ())), h⟩⟩
   rw [h1, h2]; rfl
 /-- A value's view at its own sort. -/
 theorem as_self (s : Srt) (x : s.Den) : Val.as ⟨s, x⟩ s = some x := by
@@ -190,7 +267,8 @@ def SolarVerify.Discharge.step (tac : Syntax) : TacticM Unit := do
 /-- Evaluates the exported terms symbolically: see the module comment. -/
 macro "vc_eval" : tactic => `(tactic| simp -failIfUnchanged only [SolarVerify.Vc.Obligation.Valid, SolarVerify.Vc.Obligation.formula,
     SolarVerify.Smt.Holds, ↓SolarVerify.Discharge.eval_forall_int,
-    ↓SolarVerify.Discharge.eval_exists_int, SolarVerify.Smt.Term.eval, SolarVerify.Smt.Term.evalList,
+    ↓SolarVerify.Discharge.eval_exists_int, ↓SolarVerify.Discharge.eval_forall_int2, ↓SolarVerify.Discharge.eval_forall_int3,
+    ↓SolarVerify.Discharge.eval_forall_int4, ↓SolarVerify.Discharge.eval_exists_int2, SolarVerify.Smt.Term.eval, SolarVerify.Smt.Term.evalList,
     SolarVerify.Smt.Op.apply, SolarVerify.Smt.boolOf, SolarVerify.Smt.bools, SolarVerify.Smt.ints,
     SolarVerify.Smt.Val.asList, SolarVerify.Smt.intRel, SolarVerify.Smt.chain,
     SolarVerify.Smt.impliesChain, SolarVerify.Smt.foldl2, SolarVerify.Smt.sameSort,
@@ -198,7 +276,7 @@ macro "vc_eval" : tactic => `(tactic| simp -failIfUnchanged only [SolarVerify.Vc
     ↓SolarVerify.Discharge.dite_self, ↓SolarVerify.Discharge.beq_array, ↓SolarVerify.Discharge.as_int, ↓SolarVerify.Discharge.as_bool, SolarVerify.Smt.Val.as,
     List.take, List.cons_append, List.nil_append, List.all, List.any,
     List.reverse, List.reverseAux, List.foldl, id, bind, pure, List.getElem?_cons_succ,
-    List.getElem?_cons_zero, SolarVerify.Smt.Srt.beq, ↓reduceDIte, ↓reduceIte, Option.some.injEq, SolarVerify.Discharge.ite_val,
+    List.getElem?_cons_zero, SolarVerify.Smt.Srt.beq, ↓reduceDIte, ↓reduceIte, Option.some.injEq, SolarVerify.Discharge.ite_val, SolarVerify.Discharge.ite_val_int,
     SolarVerify.Smt.bindAll, SolarVerify.Smt.Srt.unpack, List.reverse_cons, List.reverse_nil,
     List.singleton_append, SolarVerify.Discharge.forall_denList_nil,
     SolarVerify.Discharge.forall_denList_cons, SolarVerify.Discharge.exists_denList_nil,

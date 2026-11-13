@@ -176,7 +176,8 @@ lean_lib SolidCoreSolarRunOracle where
     `SolidCore.Refinement.Solar.AssembleMem, `SolidCore.Refinement.Solar.AssembleDynCopy,
     `SolidCore.Refinement.Solar.AssembleDynExample, `SolidCore.Refinement.Solar.AssembleCall,
     `SolidCore.Refinement.Solar.AssembleCallWorld, `SolidCore.Refinement.Solar.AssembleCallCut,
-    `SolidCore.Refinement.Solar.AssembleCallSeg, `SolidCore.Refinement.Solar.AssembleCallExample]
+    `SolidCore.Refinement.Solar.AssembleCallSeg, `SolidCore.Refinement.Solar.AssembleCallExample,
+    `SolidCore.Refinement.Solar.AssembleCallPre]
 
 /-! solar's translation validation (formerly solar's `solar-tv` Lean package, moved here so that
 every Lean source of the certified translation lives in this repository; solar keeps only the

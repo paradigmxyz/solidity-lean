@@ -19,10 +19,14 @@ that succeeds (`rdc_back`).
 The final theorems name what they assume of the run, beside `AssembleCallCut.StaticOk`'s
 `StaticNoLogs` and `OutputFits`:
 
-* `CalleesOk`: at every STATICCALL of the run, the callee is not a precompile and holds code that
-  EthLib reads and that is not an EIP-7702 delegation. (The run's own transaction state at the call
-  decides it; the state of accounts other than the frame's is not tracked by `Rel`, so it is a
-  hypothesis on the run, not derived.)
+* `CalleesOk`: at every STATICCALL of the run, the callee address is not a precompile's, or it is
+  ECRECOVER's and `AssembleCallCut.PreOk` holds (the named `AssembleCallPre.EcrecoverAgree`, at
+  least 3000 gas passed on, no delegation at address 1); then the source's answer gives the flag
+  and return data and EthLib's ECRECOVER frame matches it. For calls to code it is a condition on
+  the addresses the run calls only, not on any state: the callee's code (and, for an
+  EIP-7702 delegation, its delegate's) is derived from the run succeeding
+  (`AssembleCall.staticcall_routes_of_ok`), and delegated callees are covered
+  (`AssembleCall.staticcall_back` follows EthLib's `callKindRoute` along any route).
 -/
 
 namespace SolidCore.Refinement.Solar.AssembleCallSeg
@@ -40,23 +44,31 @@ open SolidCore.Refinement.Evm.Wide
 
 /-! ## The named hypothesis on the run's callees -/
 
-/-- A STATICCALL from the transaction state `st` to `addr` reaches code: not a precompile, with
-code EthLib reads that is not an EIP-7702 delegation. -/
-def CalleeOk (st : State.TransactionState) (addr : U256) : Prop :=
-  toCode .staticcall (addr.toNat % 2 ^ 160) 0 = true ∧
-    ∃ cc, st.getCode (st.getAccount (toAddressMasked addr)).codeHash = .ok cc ∧
-      delegatedAddress cc = none
+/-- A STATICCALL to `addr` is answered by the run's table: `addr` is no precompile's address.
+Nothing about the state: the callee's code and route come from the run (`staticcall_back`). -/
+def CalleeOk (addr : U256) : Prop :=
+  toCode .staticcall (addr.toNat % 2 ^ 160) 0 = true
 
 /-- **Named hypothesis on a run**: every frame of the code that the run goes on from to `fin` and
-that is at a STATICCALL calls code (`CalleeOk`). -/
-def CalleesOk (code : ByteArray) (msg : Message .fusaka) (bound : Nat)
+that is at a STATICCALL calls an address that is no precompile's (`CalleeOk`), or calls ECRECOVER
+(address 1) as `AssembleCallCut.PreOk` asks: under the named `AssembleCallPre.EcrecoverAgree`, with
+an account at address 1 that is no delegation and at least 3000 gas passed on. -/
+def CalleesOk (code : ByteArray) (msg : Message .fusaka)
+    (P : Evm .fusaka Nat → Message .fusaka → Evm .fusaka Nat → Prop) (bound : Nat)
     (runChild : MessageRunner .fusaka Nat bound) (fin : Evm .fusaka Nat) : Prop :=
-  ∀ {e : Evm .fusaka Nat} {within : GasMeter.gasHeld e.gas ≤ bound} {pc : Nat} {a addr : U256}
+  ∀ {e : Evm .fusaka Nat} {within : GasMeter.gasHeld e.gas ≤ bound} {pc : Nat}
+    {asked addr inOff inSize outOff outSize : U256}
     {S : List U256} {M : ByteArray} {g : Nat} {st : State.TransactionState} {ss : Substate}
     {rd : ByteArray},
-    At code msg pc (a :: addr :: S) M g st ss rd e → (hlt : pc < code.size) → code[pc] = 0xfa →
+    At code msg pc (asked :: addr :: inOff :: inSize :: outOff :: outSize :: S) M g st ss rd e →
+    (hlt : pc < code.size) → code[pc] = 0xfa →
     runFrame (step .fusaka) (step_decreases .fusaka) bound runChild e within = .ok fin →
-    CalleeOk st addr
+    CalleeOk addr ∨ PreOk P st ss M g asked addr inOff inSize outOff outSize
+
+/-- What the final theorems ask of the runner's callee frames: `StaticOk`, and EthLib's ECRECOVER
+on priced messages to address 1 (proved, `AssembleCallPre.meets_ecrecover`). -/
+def StaticOkE (caller : Evm .fusaka Nat) (m : Message .fusaka) (child : Evm .fusaka Nat) : Prop :=
+  StaticOk caller m child ∧ AssembleCallPre.EcrecoverRuns caller m child
 
 /-! ## The table and the frame's world -/
 
@@ -417,8 +429,10 @@ theorem segS {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
     (hbenv : msg.blockEnv = Target.blockEnv) (htx : msg.txEnv = Target.txEnv)
     {b : Nat} (hb : b < p.blocks.length) {bound : Nat} {runChild : MessageRunner .fusaka Nat bound}
     {fin : Evm .fusaka Nat} (hok : fin.error = none) {G0 : Nat} (hG0 : G0 < 2 ^ 256)
-    (hdepth : msg.depth + 1 ≤ STACK_DEPTH_LIMIT) (meets : Meets StaticOk runChild)
-    (hcal : CalleesOk code msg bound runChild fin) :
+    (hdepth : msg.depth + 1 ≤ STACK_DEPTH_LIMIT)
+    {P : Evm .fusaka Nat → Message .fusaka → Evm .fusaka Nat → Prop} (meets : Meets P runChild)
+    (hPok : ∀ c m ch, P c m ch → StaticOk c m ch)
+    (hcal : CalleesOk code msg P bound runChild fin) :
     ∀ (n : Nat) (is : List Assemble.Instr) (h : Nat) (known : List Word) (ty : List Ty) (k : Nat)
       (S Tw : List Word) (s : State) (pc : Nat) (M : ByteArray) (g : Nat)
       (st : State.TransactionState) (ss : Substate) (rd : ByteArray) (T : RunTable) (evm : Evm .fusaka Nat)
@@ -530,7 +544,7 @@ theorem segS {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
           rw [getD_of_prefix hle.2.2.2.2 (by simp [T1]; omega)]
           simp [T1, List.getD_eq_getElem?_getD, hc1.1, ← hTg]
         obtain ⟨T2, r, hle2, hex2, hpost, hnext⟩ := segS (G0 := G0) G codes hdata hvalue hstatic hself hcaller hbenv
-          htx hb hok hG0 hdepth meets hcal n rest (h' + 1) [] (some false :: ty') (k' - 1)
+          htx hb hok hG0 hdepth meets hPok hcal n rest (h' + 1) [] (some false :: ty') (k' - 1)
           (BitVec.ofNat 256 (m.gas - 2) :: S') (BitVec.ofNat 256 (m.gas - 2) :: T')
           { s' with world := s'.world ++ [.read "gas"] } (pc' + 1) M' (m.gas - 2) st' ss' rd T1 m2
           within2 (by omega) hok3 (by simp; omega) (by simp; omega)
@@ -569,7 +583,7 @@ theorem segS {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
           have := size_le_of_cost (B := G0) (by unfold MemBudget at hb2; omega) hG0 hmod
           omega
         obtain ⟨T2, r, hle2, hex2, hpost, hnext⟩ := segS (G0 := G0) G codes hdata hvalue hstatic hself
-          hcaller hbenv htx hb hok hG0 hdepth meets hcal n rest h' [] (some false :: ty'.drop 1) (k' - 1)
+          hcaller hbenv htx hb hok hG0 hdepth meets hPok hcal n rest h' [] (some false :: ty'.drop 1) (k' - 1)
           (s'.memory.load x.toNat :: S'') (s'.memory.load x.toNat :: Tr)
           { s' with memory := s'.memory.expand x.toNat 32 } (pc' + 1) M2 g2 st' ss' rd T m2
           within2 (by omega) hok3 (by simp; omega) (by simp; omega)
@@ -610,7 +624,7 @@ theorem segS {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
           have := size_le_of_cost (B := G0) (by unfold MemBudget at hb2; omega) hG0 hmod
           omega
         obtain ⟨T2, r, hle2, hex2, hpost, hnext⟩ := segS (G0 := G0) G codes hdata hvalue hstatic hself
-          hcaller hbenv htx hb hok hG0 hdepth meets hcal n rest (h' - 2) [] (ty'.drop 2) (k' - 1) S'' Tr
+          hcaller hbenv htx hb hok hG0 hdepth meets hPok hcal n rest (h' - 2) [] (ty'.drop 2) (k' - 1) S'' Tr
           { s' with memory := s'.memory.store x.toNat y } (pc' + 1) M2 g2 st' ss' rd T m2
           within2 (by omega) hok3 (by omega) (by omega)
           List.nil_prefix hR'' hseg' (by omega) hsz hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2
@@ -697,7 +711,7 @@ theorem segS {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
           have := size_le_of_cost (B := G0) (by unfold MemBudget at hb2; omega) hG0 hmod
           omega
         obtain ⟨T2, r, hle2, hex2, hpost, hnext⟩ := segS (G0 := G0) G codes hdata hvalue hstatic hself
-          hcaller hbenv htx hb hok hG0 hdepth meets hcal n rest (h' - 1) [] (some false :: ty'.drop 2) (k' - 1)
+          hcaller hbenv htx hb hok hG0 hdepth meets hPok hcal n rest (h' - 1) [] (some false :: ty'.drop 2) (k' - 1)
           ((OS codes T).keccak ((s'.memory.expand x.toNat y.toNat).read x.toNat y.toNat) :: S'')
           ((OS codes T).keccak ((s'.memory.expand x.toNat y.toNat).read x.toNat y.toNat) :: Tr)
           { s' with memory := s'.memory.expand x.toNat y.toNat } (pc' + 1) _ _ st' ss' rd T m2
@@ -751,7 +765,7 @@ theorem segS {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
           omega
         obtain ⟨L, hL1, hL2⟩ := R'.logs
         obtain ⟨T2', r, hle2, hex2, hpost, hnext⟩ := segS (G0 := G0) (ss0 := ss0) G codes hdata hvalue hstatic hself
-          hcaller hbenv htx hb hok hG0 hdepth meets hcal n rest (h' - (tops.length + 2)) [] (ty'.drop (tops.length + 2))
+          hcaller hbenv htx hb hok hG0 hdepth meets hPok hcal n rest (h' - (tops.length + 2)) [] (ty'.drop (tops.length + 2))
           (k' - 1) S2 T2
           ⟨s'.memory.expand x.toNat y.toNat, s'.storage, s'.transient,
             s'.world ++ [.log tops ((s'.memory.expand x.toNat y.toNat).read x.toNat y.toNat)]⟩
@@ -803,7 +817,7 @@ theorem segS {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
           have := size_le_of_cost (B := G0) (by unfold MemBudget at hb2; omega) hG0 hmod
           omega
         obtain ⟨T2, r, hle2, hex2, hpost, hnext⟩ := segS (G0 := G0) (ss0 := ss0) G codes hdata hvalue
-          hstatic hself hcaller hbenv htx hb hok hG0 hdepth meets hcal n rest (h' - 3) [] (ty'.drop 3) (k' - 1) S'' Tr
+          hstatic hself hcaller hbenv htx hb hok hG0 hdepth meets hPok hcal n rest (h' - 3) [] (ty'.drop 3) (k' - 1) S'' Tr
           { s' with
             memory := s'.memory.write x.toNat z.toNat
               (fun i => SolarTV.Machine.calldataByte call (y.toNat + i)) } (pc' + 1) M2 g2 st' ss' rd T m2
@@ -835,11 +849,11 @@ theorem segS {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
         obtain ⟨rfl, rfl, rfl, rfl, rfl, rfl, -⟩ := htake
         have hR'' : SR c (ty'.drop 6) S'' Tr := by simpa using SR.drop 6 hR'
         simp only [List.length_cons] at hL hst hh2 hu2
-        obtain ⟨hco, cc, hcc, hdel⟩ := hcal hatm hlt hcode hrm
+        have hco := hcal hatm hlt hcode hrm
         obtain ⟨hi1, hi2, hi3⟩ := hs0
         obtain ⟨ok, out, s2, M2, g2, st2, ss2, m2, within2, happ, ⟨ev, hw, hev1, hev2, hev3⟩, hmem2,
           R2, hb2, hg2, hat2, hrun2⟩ := staticcall_cut codes T I'.mem R' hmB (by omega) hatm hlt hcode
-            hcc hdel hdepth meets within1 hrm hok hco (by rw [hmc, hi2]) (by rw [hmc, hi2, hi3])
+            hdepth meets hPok within1 hrm hok hco (by rw [hmc, hi2]) (by rw [hmc, hi2, hi3])
             (by rw [hc1.1]; omega)
         let T1 : RunTable := { T with oks := T.oks ++ [ok], outs := T.outs ++ [out] }
         have hle1 : T.Le T1 := ⟨List.prefix_append _ _, List.prefix_append _ _, List.prefix_refl _,
@@ -859,7 +873,7 @@ theorem segS {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
           rw [hw, gasReads_append, hev2, hc1.1]
           simpa [T1] using hTg
         obtain ⟨T2, r, hle2, hex2, hpost, hnext⟩ := segS (G0 := G0) G codes hdata hvalue hstatic
-          hself hcaller hbenv htx hb hok hG0 hdepth meets hcal n rest (h' - 5) []
+          hself hcaller hbenv htx hb hok hG0 hdepth meets hPok hcal n rest (h' - 5) []
           (some false :: ty'.drop 6) (k' - 1) ((if ok then 1 else 0) :: S'')
           ((if ok then 1 else 0) :: Tr) s2 (pc' + 1) M2 g2 st2 ss2 out T1 m2 within2 (by omega) hok3
           (by simp; omega) (by simp; omega) List.nil_prefix (SR.cons (τ := some false) rfl hR'')
@@ -893,7 +907,7 @@ theorem segS {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
           apply BitVec.eq_of_toNat_eq
           rw [BitVec.toNat_ofNat, h1, Nat.mod_eq_of_lt hlt']
         obtain ⟨T2, r, hle2, hex2, hpost, hnext⟩ := segS (G0 := G0) G codes hdata hvalue hstatic
-          hself hcaller hbenv htx hb hok hG0 hdepth meets hcal n rest (h' + 1) [] (some false :: ty')
+          hself hcaller hbenv htx hb hok hG0 hdepth meets hPok hcal n rest (h' + 1) [] (some false :: ty')
           (k' - 1) (BitVec.ofNat 256 rd.size :: S') (BitVec.ofNat 256 rd.size :: T') s' (pc' + 1) M'
           (m.gas - 2) st' ss' rd T m2 within2 (by omega) hok3 (by simp; omega) (by simp; omega)
           List.nil_prefix (SR.cons (τ := some false) rfl hR') hseg' (by simp; omega) I'.le_top
@@ -943,7 +957,7 @@ theorem segS {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
           rw [OS_env_ext codes hle (by rw [hmc, hs0.2.1]) (by rw [hmc, hs0.2.1, hs0.2.2])
             (by rw [hc1.1]; omega) (by decide)]
         obtain ⟨T2, r, hle2, hex2, hpost, hnext⟩ := segS (G0 := G0) G codes hdata hvalue
-          hstatic hself hcaller hbenv htx hb hok hG0 hdepth meets hcal n rest (h' - 3) [] (ty'.drop 3)
+          hstatic hself hcaller hbenv htx hb hok hG0 hdepth meets hPok hcal n rest (h' - 3) [] (ty'.drop 3)
           (k' - 1) S'' Tr
           { s' with
             memory := s'.memory.write x.toNat z.toNat
@@ -1162,7 +1176,8 @@ theorem advances_checkCS {p : Assemble.Program} {c : Cert} {mx : List Nat} {code
     (hgas : msg.gas < 2 ^ 256) (hdepth : msg.depth + 1 ≤ STACK_DEPTH_LIMIT)
     (T0 : RunTable) (x : Nat × List Word × State) (evm : Evm .fusaka Nat)
     (hE : EntS codes p c mx code msg ss0 T0 x evm) :
-    AdvancesQ (fun o => SolarTV.EVM.Program.block o call p) (OS codes) StaticOk (CalleesOk code msg)
+    AdvancesQ (fun o => SolarTV.EVM.Program.block o call p) (OS codes) StaticOkE
+      (CalleesOk code msg StaticOkE)
       (EntS codes p c mx code msg ss0)
       (fun res => PostL call msg.currentTarget ss0 res.2 res.1)
       (fun y e => AssembleLoop.meas p c e.gas y.1) T0 x evm := by
@@ -1198,7 +1213,7 @@ theorem advances_checkCS {p : Assemble.Program} {c : Cert} {mx : List Nat} {code
         exact ⟨pc, evm, within, hat, hseg, by simp only [ht, Bool.false_eq_true, ite_false]; omega,
           hrun⟩
     obtain ⟨T', r, hle', hex, hpost, hnext⟩ := segS (G0 := msg.gas) G.toGlobT codes hdata hvalue hstatic hself hcaller
-      hbenv htx hb hok hgas hdepth meets hcal (p.blocks[b].length + 1) p.blocks[b] (c.need b) [] (c.entry b)
+      hbenv htx hb hok hgas hdepth meets (fun _ _ _ h => h.1) hcal (p.blocks[b].length + 1) p.blocks[b] (c.need b) [] (c.entry b)
       (budget c b - labelItems p c b) S Tw s pc1 M m1.gas st ss rd T0 m1 within1 (Nat.lt_succ_self _)
       hblock hn (by omega) List.nil_prefix hR hseg1 (by omega) htop hmem R hat1 hTg hs0
       (by rw [← hat.2.2.2.2.2.2.2.2.2.2.2.2]; exact hrdr)
@@ -1234,7 +1249,7 @@ at each STATICCALL (`CalleesOk`). -/
 def CalleesRun (gas : Nat) (code : ByteArray) (call : Call) : Prop :=
   ∀ r, processMessage (Meter := Nat) .fusaka (Final.Target.messageWith gas code call)
       (SolidCore.Refinement.Target.preState code call) Substate.empty = .ok r → r.1.error = none →
-    CalleesOk code (Final.Target.messageWith gas code call) gas (processRunner .fusaka (Meter := Nat) gas) r.1
+    CalleesOk code (Final.Target.messageWith gas code call) StaticOkE gas (processRunner .fusaka (Meter := Nat) gas) r.1
 
 /-- **Named hypotheses on the runner of messages**: a static message that succeeds ends with no log
 (EIP-214), and a callee's output has fewer than `2 ^ 256` bytes. -/
@@ -1245,6 +1260,11 @@ def StaticRunner (gas : Nat) : Prop :=
 theorem staticOk_of (gas : Nat) (h : StaticRunner gas) :
     Meets (bound := gas) StaticOk (processRunner .fusaka (Meter := Nat) gas) :=
   ⟨fun a b c d e => ⟨(meets_static gas).ok a b c d e, h.ok a b c d e⟩, h.aborts⟩
+
+theorem staticOkE_of (gas : Nat) (h : StaticRunner gas) :
+    Meets (bound := gas) StaticOkE (processRunner .fusaka (Meter := Nat) gas) :=
+  ⟨fun a b c d e => ⟨(staticOk_of gas h).ok a b c d e, (AssembleCallPre.meets_ecrecover gas).ok a b c d e⟩,
+    h.aborts⟩
 
 /-- **EVM IR to bytecode, run by run, for code with loops, GAS, memory at any offset and
 STATICCALLs to code**: for every program the checker without the no-call gate accepts, at every
@@ -1257,10 +1277,10 @@ theorem runs_of_checkCB {p : Assemble.Program} {code : ByteArray} {c : Cert} {mx
     (hQ : CalleesRun gas code call) :
     ∃ T, Within (evmirSem (OS codes T)) (ethLibWith gas) p code (· = call) := by
   obtain ⟨G, hseg, hneed0⟩ := globC_of_checkC hc
-  refine within_of_advancesQ (OS codes) StaticOk
-    (CalleesOk code (Final.Target.messageWith gas code call))
+  refine within_of_advancesQ (OS codes) StaticOkE
+    (CalleesOk code (Final.Target.messageWith gas code call) StaticOkE)
     (fun ss0 => EntS codes p c mx code (Final.Target.messageWith gas code call) ss0)
-    (fun y e => AssembleLoop.meas p c e.gas y.1) (staticOk_of gas hP) hQ (fun st' ss' R => ?_)
+    (fun y e => AssembleLoop.meas p c e.gas y.1) (staticOkE_of gas hP) hQ (fun st' ss' R => ?_)
     (fun ss0 T x evm hE => advances_checkCS G codes rfl
       (by simp [Final.Target.messageWith, SolidCore.Refinement.Target.message]) rfl rfl rfl rfl rfl
       hgas (by show 0 + 1 ≤ 1024; decide) T x evm hE)
@@ -1336,5 +1356,73 @@ theorem runs_shape_of_checkCB {p : Assemble.Program} {code : ByteArray} {c : Cer
 /-- info: 'SolidCore.Refinement.Solar.AssembleCallSeg.runs_shape_of_checkCB' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs (whitespace := lax) in
 #print axioms runs_shape_of_checkCB
+
+
+/-! ## The ECRECOVER agreement as a hypothesis of its own -/
+
+/-- `AssembleCallCut.PreOk` without the named agreement of the two ECRECOVER implementations: what a
+run must give a STATICCALL to address 1 (no delegation there, at least 3000 gas passed on), the
+runner's ECRECOVER frames being proved (`AssembleCallPre.meets_ecrecover`). -/
+def PreRun (P : Evm .fusaka Nat → Message .fusaka → Evm .fusaka Nat → Prop)
+    (st : State.TransactionState) (ss : Substate) (M : ByteArray) (g : Nat)
+    (asked addr inOff inSize outOff outSize : U256) : Prop :=
+  addr.toNat % 2 ^ 160 = 1 ∧ (∀ c m ch, P c m ch → AssembleCallPre.EcrecoverRuns c m ch) ∧
+    (∀ cc, st.getCode (st.getAccount (toAddressMasked addr)).codeHash = .ok cc →
+      delegatedAddress cc = none) ∧
+    3000 ≤ (messageCallGas .fusaka 0 asked.toNat g
+      (extendMemory M.size [(inOff, inSize), (outOff, outSize)]).cost
+      (if decide (toAddressMasked addr ∉ ss.accessedAddresses) then 2600 else 100)).subCall
+
+/-- `CalleesOk` with `PreRun` for the calls to ECRECOVER. -/
+def CalleesOkR (code : ByteArray) (msg : Message .fusaka)
+    (P : Evm .fusaka Nat → Message .fusaka → Evm .fusaka Nat → Prop) (bound : Nat)
+    (runChild : MessageRunner .fusaka Nat bound) (fin : Evm .fusaka Nat) : Prop :=
+  ∀ {e : Evm .fusaka Nat} {within : GasMeter.gasHeld e.gas ≤ bound} {pc : Nat}
+    {asked addr inOff inSize outOff outSize : U256}
+    {S : List U256} {M : ByteArray} {g : Nat} {st : State.TransactionState} {ss : Substate}
+    {rd : ByteArray},
+    At code msg pc (asked :: addr :: inOff :: inSize :: outOff :: outSize :: S) M g st ss rd e →
+    (hlt : pc < code.size) → code[pc] = 0xfa →
+    runFrame (step .fusaka) (step_decreases .fusaka) bound runChild e within = .ok fin →
+    CalleeOk addr ∨ PreRun P st ss M g asked addr inOff inSize outOff outSize
+
+/-- **Named hypothesis on a run**, without the ECRECOVER agreement: its STATICCALLs call code, or
+ECRECOVER as `PreRun` asks. -/
+def CalleesRunR (gas : Nat) (code : ByteArray) (call : Call) : Prop :=
+  ∀ r, processMessage (Meter := Nat) .fusaka (Final.Target.messageWith gas code call)
+      (SolidCore.Refinement.Target.preState code call) Substate.empty = .ok r → r.1.error = none →
+    CalleesOkR code (Final.Target.messageWith gas code call) StaticOkE gas
+      (processRunner .fusaka (Meter := Nat) gas) r.1
+
+theorem calleesRun_of_R (hagree : AssembleCallPre.EcrecoverAgree) {gas : Nat} {code : ByteArray}
+    {call : Call} (h : CalleesRunR gas code call) : CalleesRun gas code call :=
+by
+  intro r hr he e within pc asked addr inOff inSize outOff outSize S M g st ss rd hat hlt hb hrun
+  exact (h r hr he hat hlt hb hrun).imp id fun ⟨a, b, c, d⟩ => ⟨a, hagree, b, c, d⟩
+
+/-- **`holds_of_checkCB` with every assumption named in its statement**: the source's
+specification at every open world, its totality, the stages and the checker give the
+specification of the exact bytecode at every gas below `2 ^ 256`, under the named hypotheses
+`StaticRunner` (EIP-214 logs, output sizes), `AssembleCallPre.EcrecoverAgree` (SolidCore's and
+EthLib's ECRECOVER agree) and `CalleesRunR` (each STATICCALL of the run calls code, or ECRECOVER
+with its price passed on and no delegation at address 1). -/
+theorem holds_of_checkCB_named {St : Type} {fuel : Nat}
+    {mirSem : SolarTV.Machine.Oracle → Sem} {c : SolidCore.Solidity.TypeCheck.CheckedContract}
+    {mir : ∀ o, (mirSem o).Prog} {p : Assemble.Program} {code : ByteArray} {cert : Cert}
+    {mx : List Nat} {spec : Final.ContractSpec St}
+    (source : ∀ W : World, W.Open → Final.Holds (solidCoreIn W fuel) c spec)
+    (fin : ∀ W : World, W.Open → ∀ call, spec.Calls call → (Source.runIn W fuel c call).isSome)
+    (lowering : ∀ o W, CallsAgree o W → Stage (solidCoreIn W fuel) (mirSem o) c (mir o) spec.Calls)
+    (backend : ∀ o, Stage (mirSem o) (evmirSem o) (mir o) p spec.Calls)
+    (hc : checkCB p code cert mx = true) (codes : SolidCore.Solidity.Shared.Account.BytesMap)
+    (hP : ∀ gas, StaticRunner gas) (hagree : AssembleCallPre.EcrecoverAgree)
+    (hQ : ∀ gas call, spec.Calls call → CalleesRunR gas code call)
+    (gas : Nat) (hgas : gas < 2 ^ 256) : Final.Holds (Final.ethLibWith gas) code spec :=
+  holds_of_checkCB source fin lowering backend hc codes hP
+    (fun gas call hcall => calleesRun_of_R hagree (hQ gas call hcall)) gas hgas
+
+/-- info: 'SolidCore.Refinement.Solar.AssembleCallSeg.holds_of_checkCB_named' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs (whitespace := lax) in
+#print axioms holds_of_checkCB_named
 
 end SolidCore.Refinement.Solar.AssembleCallSeg

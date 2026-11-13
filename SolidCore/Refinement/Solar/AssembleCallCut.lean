@@ -1,5 +1,7 @@
 import SolidCore.Refinement.Solar.AssembleCall
 import SolidCore.Refinement.Solar.AssembleCallWorld
+import SolidCore.Refinement.Solar.AssembleCallPre
+import EthLib.Base.Proofs.U256
 
 /-!
 # A STATICCALL to code as a cut of a run, at the frame's own gas
@@ -11,6 +13,11 @@ with the callee frame's flag and output. The run's table grows by that flag and 
 (`RunTable.oks`, `RunTable.outs`), and under the oracle of every extension of it
 (`AssembleCallWorld.OS`) SolarTV's STATICCALL pushes the same flag, leaves the same return data and
 memory, and keeps storage and logs as EthLib's frame does: the relation of a block entry holds again.
+
+The same cut covers a STATICCALL to ECRECOVER (address 1) under `PreOk`: there the oracle answers
+as the source does (SolidCore's precompile semantics, `tabResp` falls back to `failResp`), and
+`AssembleCallPre.ecrecover_answer` shows EthLib's callee frame gives that flag and output, under
+the named `AssembleCallPre.EcrecoverAgree`. The table still grows by one entry per STATICCALL.
 
 The runner of messages must meet `StaticOk`: `StaticKept`, proved of EthLib's runner
 (`AssembleCall.meets_static`), and two named hypotheses that a final theorem using this cut lists:
@@ -269,26 +276,129 @@ theorem execC_calls (o : Oracle) (call : Call) (b : Nat) :
 
 /-! ## The cut -/
 
+/-- The word of a masked address is the word modulo `2 ^ 160` (as EthLib's Base.Proofs.Address,
+which the build of this library does not include). -/
+theorem toNat_toU256_masked (w : U256) :
+    (toAddressMasked w).toU256.toNat = w.toNat % 2 ^ 160 := by
+  have h1 : (toAddressMasked w).toList = natToBytes 20 w.toNat := by
+    rw [toAddressMasked, Vector.toList_drop, U256.toList_toBeBytes]
+    rw [show 32 = 12 + 20 from rfl, natToBytes_add]
+    exact List.drop_left' (natToBytes_length _ _)
+  have h := bytesToNat_lt (toAddressMasked w).toList
+  rw [Vector.length_toList] at h
+  show (BitVec.ofNat 256 (bytesToNat (toAddressMasked w).toList)).toNat = _
+  rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (Nat.lt_trans h (by decide)), h1, bytesToNat_natToBytes]
+  rfl
+
+/-- What a STATICCALL to ECRECOVER (address 1) asks: the named EcrecoverAgree, a runner whose
+frames for priced ECRECOVER messages are EthLib's (AssembleCallPre.meets_ecrecover), an account at
+address 1 that is no EIP-7702 delegation, and at least ECRECOVER's price, 3000, passed on. -/
+def PreOk (P : Evm .fusaka Nat → Message .fusaka → Evm .fusaka Nat → Prop)
+    (st : State.TransactionState) (ss : Substate) (M : ByteArray) (g : Nat)
+    (asked addr inOff inSize outOff outSize : U256) : Prop :=
+  addr.toNat % 2 ^ 160 = 1 ∧ AssembleCallPre.EcrecoverAgree ∧
+    (∀ c m ch, P c m ch → AssembleCallPre.EcrecoverRuns c m ch) ∧
+    (∀ cc, st.getCode (st.getAccount (toAddressMasked addr)).codeHash = .ok cc →
+      delegatedAddress cc = none) ∧
+    3000 ≤ (messageCallGas .fusaka 0 asked.toNat g
+      (extendMemory M.size [(inOff, inSize), (outOff, outSize)]).cost
+      (if decide (toAddressMasked addr ∉ ss.accessedAddresses) then 2600 else 100)).subCall
+
+open SolarTV.Machine in
+/-- The input range of a STATICCALL, read from both memories once both ranges grew. -/
+theorem read_eq2 {m : Mem} {M : ByteArray} {i isz o osz : Word} (hm : MemRel m M) :
+    (memoryReadBytes (memoryExtend M (extendMemory M.size [(i, isz), (o, osz)]).expandBy) i.toNat
+        isz.toNat).toList.map (·.toNat) =
+      (((m.expand i.toNat isz.toNat).expand o.toNat osz.toNat).read i.toNat isz.toNat).map
+        BitVec.toNat := by
+  have hmod : M.size % 32 = 0 := by rw [hm.1]; omega
+  by_cases hz : isz = 0
+  · subst hz
+    simp [memoryReadBytes, Mem.read]
+  · have hfit : i.toNat + isz.toNat ≤
+        (memoryExtend M (extendMemory M.size [(i, isz), (o, osz)]).expandBy).size := by
+      have := le_ceil32_add_expandBy M.size [(i, isz), (o, osz)] (i, isz) (by simp) hz
+      dsimp only at this
+      rw [ceil32_of_mod hmod] at this
+      rw [size_memoryExtend]
+      have := le_ceil32 (i.toNat + isz.toNat)
+      omega
+    rw [toList_map_toNat, size_memoryReadBytes hfit]
+    have hb : ((m.expand i.toNat isz.toNat).expand o.toNat osz.toNat).bytes = m.bytes := by
+      unfold Mem.expand; split <;> split <;> rfl
+    simp only [Mem.read, hb, List.map_map]
+    apply List.map_congr_left
+    intro k hk
+    simp only [List.mem_range] at hk
+    rw [byteAt_memoryReadBytes hfit, if_pos hk, byteAt_memoryExtend, Function.comp_apply,
+      ← hm.2 (i.toNat + k), UInt8.toNat_toBitVec]
+
+/-- A STATICCALL under the oracle of a run answers as the table's world does at that call
+(`tabResp`): its flag, and its output as the return data until the next call. -/
+theorem OS_ans (codes : SolidCore.Solidity.Shared.Account.BytesMap) (T : RunTable)
+    (w : List SolarTV.Machine.Event) (gas addr : (BitVec 256)) (input : List SolarTV.Memory.Byte) (st tr : (BitVec 256) → (BitVec 256))
+    (ok : Bool) (out : ByteArray)
+    (hr : tabResp T.oks T.outs (machineCalls w).length .staticcall (addr.toNat % 2 ^ 160) 0
+      (input.map BitVec.toNat) = (ok, out))
+    (hsz : out.size < 2 ^ 256) :
+    callFlag (OS codes T) (w ++ [.call .staticcall [gas, addr] input st tr]) =
+        (if ok then 1 else 0) ∧
+      ∀ rest, machineCalls rest = [] →
+        RdRel (OS codes T) (w ++ [.call .staticcall [gas, addr] input st tr] ++ rest)
+          out := by
+  have hm := machineCalls_static w gas addr input st tr
+  refine ⟨?_, fun rest hrest => ?_⟩
+  · show (if tabResult T.oks T.outs _ = 0 then _ else _) = _
+    simp only [tabResult, hm, List.getLast?_append, List.getLast?_singleton, Option.some_or,
+      List.length_append, List.length_singleton, Nat.add_sub_cancel, hr]
+    cases ok <;> simp
+  · have hmr : machineCalls (w ++ [.call .staticcall [gas, addr] input st tr] ++ rest) =
+        machineCalls w ++ [(.staticcall, addr.toNat % 2 ^ 160, 0, input.map BitVec.toNat)] := by
+      rw [machineCalls_append, hm, hrest, List.append_nil]
+    refine ⟨?_, fun i hi => ?_⟩
+    · show ((OS codes T).env "returndatasize" _ []).toNat = _
+      rw [OS_env codes T _ _ _ (by decide) rfl]
+      simp only [tabEnv, show ("returndatasize" = "extcodesize") = False by simp, ite_false, hmr,
+        List.getLast?_append, List.getLast?_singleton, Option.some_or, List.length_append,
+        List.length_singleton, Nat.add_sub_cancel, hr, BitVec.toNat_ofNat]
+      exact Nat.mod_eq_of_lt hsz
+    · show ((OS codes T).env "returndata" _ [BitVec.ofNat 256 i]).setWidth 8 = _
+      rw [OS_env codes T _ _ _ (by decide) rfl]
+      simp only [tabEnv, show ("returndata" = "extcodesize") = False by simp, ite_false, hmr,
+        List.getLast?_append, List.getLast?_singleton, Option.some_or, List.length_append,
+        List.length_singleton, Nat.add_sub_cancel, hr]
+      apply BitVec.eq_of_toNat_eq
+      have hi' : i < 2 ^ 256 := by omega
+      simp only [BitVec.toNat_setWidth, BitVec.toNat_ofNat, UInt8.toNat_toBitVec,
+        Nat.mod_eq_of_lt hi', EthLib.Base.byteAt, hi, dite_true]
+      have := (out.get! i).toNat_lt
+      rw [Nat.mod_eq_of_lt (by omega), Nat.mod_eq_of_lt (by omega)]
+      simp only [ByteArray.get!]
+      clear this
+      exact congrArg UInt8.toNat (data_getElem! _ i hi)
+
 /-- **A STATICCALL to code, read back from a run that succeeds**, at the frame's own gas: the run's
 table grows by the callee frame's flag and output, and under the oracle of every extension of it,
 SolarTV's STATICCALL pushes that flag and leaves that return data, and the frame after it relates to
 SolarTV's state as a block entry does (memory, storage, logs, the budget of memory and gas). -/
 theorem staticcall_cut {code : ByteArray} {msg : Message .fusaka} {call : Call} {pc g G : Nat}
     {M : ByteArray} {st : State.TransactionState} {ss ss0 : Substate} {rd : ByteArray}
-    {asked addr inOff inSize outOff outSize : U256} {Tr : List U256} {calleeCode : ByteArray}
+    {asked addr inOff inSize outOff outSize : U256} {Tr : List U256}
     {s : State} {evm : Evm .fusaka Nat}
     (codes : SolidCore.Solidity.Shared.Account.BytesMap) (T : RunTable)
     (hm : MemRel s.memory M) (R : Rel msg ss0 st ss s) (hb : MemBudget G M g) (hG : G < 2 ^ 300)
     (hat : At code msg pc (asked :: addr :: inOff :: inSize :: outOff :: outSize :: Tr) M g st ss
       rd evm)
     (hlt : pc < code.size) (hbyte : code[pc] = 0xfa)
-    (hcode : st.getCode (st.getAccount (toAddressMasked addr)).codeHash = .ok calleeCode)
-    (hdel : delegatedAddress calleeCode = none) (hdepth : msg.depth + 1 ≤ STACK_DEPTH_LIMIT)
-    {bound : Nat} {runChild : MessageRunner .fusaka Nat bound} (meets : Meets StaticOk runChild)
+    (hdepth : msg.depth + 1 ≤ STACK_DEPTH_LIMIT)
+    {bound : Nat} {runChild : MessageRunner .fusaka Nat bound}
+    {P : Evm .fusaka Nat → Message .fusaka → Evm .fusaka Nat → Prop} (meets : Meets P runChild)
+    (hPok : ∀ c m ch, P c m ch → StaticOk c m ch)
     (within : GasMeter.gasHeld evm.gas ≤ bound) {fin : Evm .fusaka Nat}
     (hrun : runFrame (step .fusaka) (step_decreases .fusaka) bound runChild evm within = .ok fin)
     (hok : fin.error = none)
-    (hto : toCode .staticcall (addr.toNat % 2 ^ 160) 0 = true)
+    (hto : toCode .staticcall (addr.toNat % 2 ^ 160) 0 = true ∨
+      PreOk P st ss M g asked addr inOff inSize outOff outSize)
     (hoks : T.oks.length = (machineCalls s.world).length)
     (houts : T.outs.length = (machineCalls s.world).length)
     (hgr : gasReads s.world ≤ T.gases.length) :
@@ -304,11 +414,15 @@ theorem staticcall_cut {code : ByteArray} {msg : Message .fusaka} {call : Call} 
       MemRel s'.memory M' ∧ Rel msg ss0 st' ss' s' ∧ MemBudget G M' g' ∧ g' ≤ g ∧
       At code msg (pc + 1) ((if ok then 1 else 0) :: Tr) M' g' st' ss' out m ∧
       runFrame (step .fusaka) (step_decreases .fusaka) bound runChild m within' = .ok fin := by
-  obtain ⟨hg, caller, mm, child, after, within', g', hP, -, hcs, hcsub, hms, hmv, hmc, hmt, htg, -,
-    hg', hat', hrun'⟩ := staticcall_back hat hlt hbyte hcode hdel hdepth meets within hrun hok
+  obtain ⟨calleeCode, route, hcode, hroute, hg, caller, mm, child, after, within', g', hPP, -, hcs,
+    hcsub, hms, hmv, hmc, hmt, htg, hmd, hmca, hmdp, hmgas, hg', hat', hrun'⟩ :=
+    staticcall_back hat hlt hbyte hdepth meets within hrun hok
+  have hP := hPok _ _ _ hPP
   have hmod : M.size % 32 = 0 := by rw [hm.1]; omega
-  obtain ⟨hb1, hb2, hbud, hfit⟩ := budget_grow2 (pre := if decide (toAddressMasked addr ∉
-    ss.accessedAddresses) then 2600 else 100) hmod hb hG (by omega)
+  obtain ⟨hb1, hb2, hbud, hfit⟩ := budget_grow2 (pre := (if decide (toAddressMasked addr ∉
+    ss.accessedAddresses) then 2600 else 100) +
+      routeCost .fusaka (ss.accessedAddresses.insert (toAddressMasked addr)) route) hmod hb hG
+    (by omega)
   -- The table with the call's flag and output.
   let T1 : RunTable := { T with oks := T.oks ++ [child.error.isNone], outs := T.outs ++ [child.output] }
   have hle1 : T.Le T1 := ⟨List.prefix_append _ _, List.prefix_append _ _, List.prefix_refl _,
@@ -326,12 +440,44 @@ theorem staticcall_cut {code : ByteArray} {msg : Message .fusaka} {call : Call} 
     have hout' : T''.outs.getD (machineCalls s.world).length .empty = child.output := by
       rw [getD_of_prefix hle.2.1 (by simp [T1, houts])]
       simp [T1, houts]
-    obtain ⟨hf, hr⟩ := OS_static codes T'' s.world asked addr
+    have hresp : tabResp T''.oks T''.outs (machineCalls s.world).length .staticcall
+        (addr.toNat % 2 ^ 160) 0
+        ((((s.memory.expand inOff.toNat inSize.toNat).expand outOff.toNat outSize.toNat).read
+          inOff.toNat inSize.toNat).map BitVec.toNat) = (child.error.isNone, child.output) := by
+      rcases hto with hto | ⟨h1, hag, hER, hnd, hg3⟩
+      · simp only [tabResp, hto, ite_true]
+        rw [hok', hout']
+      · -- ECRECOVER: the source's answer, which the callee frame matches.
+        have htc : toCode .staticcall (addr.toNat % 2 ^ 160) 0 = false := by rw [h1]; decide
+        simp only [tabResp, htc, Bool.false_eq_true, ite_false]
+        have hrn : route = none := by
+          rcases route with _ | ⟨d, c'⟩
+          · rfl
+          · have := hroute.2.1
+            rw [hnd _ hcode] at this
+            cases this
+        subst hrn
+        have hmsg : AssembleCallPre.EcrecoverMsg mm := by
+          refine ⟨by rw [htg]; rfl, ?_, by simpa using hmdp, hmv, ?_⟩
+          · have h1' : (toAddressMasked addr).toU256.toNat = 1 := by
+              rw [toNat_toU256_masked]; exact h1
+            simp only [precompileAddress, hmca, routeAddr, h1']
+            decide
+          · rw [hmgas]
+            simpa [routeCost] using hg3
+        have hin : (((s.memory.expand inOff.toNat inSize.toNat).expand outOff.toNat
+            outSize.toNat).read inOff.toNat inSize.toNat).map BitVec.toNat =
+            SolidCore.Solidity.Source.byteArrayToBytes mm.data := by
+          rw [hmd, ← read_eq2 hm]
+          rfl
+        rw [h1, hin]
+        exact AssembleCallPre.ecrecover_answer hag (hER _ _ _ hPP) hmsg
+    obtain ⟨hf, hr⟩ := OS_ans codes T'' s.world asked addr
       (((s.memory.expand inOff.toNat inSize.toNat).expand outOff.toNat outSize.toNat).read
-        inOff.toNat inSize.toNat) s.storage s.transient hto (by rw [hout']; exact hP.2.2)
-    refine ⟨by rw [hf, hok'], ?_⟩
+        inOff.toNat inSize.toNat) s.storage s.transient _ _ hresp hP.2.2
+    refine ⟨hf, ?_⟩
     have := hr [] rfl
-    rw [List.append_nil, hout'] at this
+    rw [List.append_nil] at this
     exact this
   -- SolarTV's STATICCALL under the table's oracle.
   obtain ⟨s', happ, hsto, htr, hrd, hw, hmem'⟩ := staticcall_effectW (o := OS codes T1) (call := call)
@@ -368,7 +514,7 @@ theorem staticcall_cut {code : ByteArray} {msg : Message .fusaka} {call : Call} 
     rw [hw]
     exact (hev T'' hle).2
   · -- Storage and the account are the caller's; the logs are the frame's, with no log of the callee.
-    have hso := staticcall_state hcode hP.1 hcs hms hmv hmc hmt htg
+    have hso := staticcall_state hcode hroute hP.1 hcs hms hmv hmc hmt htg
     refine ⟨fun k => ?_, ?_, ?_⟩
     · rw [(hso msg.currentTarget (List.not_mem_nil)).2.1, hsto]
       exact R.storage k
@@ -381,8 +527,8 @@ theorem staticcall_cut {code : ByteArray} {msg : Message .fusaka} {call : Call} 
           split
           · rename_i hn
             have h0 := hP.2.1 hms (by simpa using hn)
-            simp [Array.toList_append, h0, hcsub]
-          · simp [hcsub]
+            rcases route with _ | ⟨d, c'⟩ <;> simp [Array.toList_append, h0, hcsub, routeSub]
+          · rcases route with _ | ⟨d, c'⟩ <;> simp [hcsub, routeSub]
         rw [hlogs, hL1]
       · rw [hw, List.filter_append]
         simpa [ev, isLogE] using hL2
