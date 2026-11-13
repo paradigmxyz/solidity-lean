@@ -37,6 +37,13 @@ that encoding out of it, one step at a time:
   address keys (`HashInj`) is a hypothesis of the theorem. `TokenMutants`: for a one-line source
   mutant and a one-line spec mutant of `Token.sol`, exported by the same solar-verify, `checkScript`
   rejects the obligations `transfer`'s clauses need.
+* `CounterInc`: the certified counter milestone's `inc` (`scripts/refinement/counter/counter.sol`,
+  annotated in `scripts/verify/CounterMilestone.sol`). `inc_triple`: on the stage's scope `inc`
+  succeeds exactly when `x + d < 2 ^ 256`, then slot 0 holds `x + d` and every other slot is unchanged.
+  solar-verify's obligation for its clause is valid by its own encoding (`x + d = x + d` once its
+  definition is inlined), so the theorem takes no verdict: `inc_check` ties solar-verify's script to the
+  Lean obligation and `inc_binding` ties solar-verify's encoded effect and guard to what SolidCore runs.
+  `CounterMutants`: `checkScript` rejects a one-line source mutant and a one-line spec mutant.
 
 Nothing here uses `native_decide`, `bv_decide` or `ofReduceBool`, or imports
 `SolidCore.Verify.Finite`. `Bind`'s check runs Lean's evaluator (`#guard`), not the kernel: it
