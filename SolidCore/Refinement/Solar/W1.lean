@@ -730,7 +730,7 @@ info: 'SolidCore.Refinement.Solar.W1.mutant_not_stage' depends on axioms: [prope
 #guard_msgs in
 #print axioms mutant_not_stage
 
-/-- info: 'SolidCore.Refinement.Solar.W1.mutant_no_walk' depends on axioms: [propext, Quot.sound] -/
+/-- info: 'SolidCore.Refinement.Solar.W1.mutant_no_walk' depends on axioms: [propext] -/
 #guard_msgs in
 #print axioms mutant_no_walk
 

@@ -269,7 +269,8 @@ lean_lib token where
   roots := #[`token.Proofs]
   globs := #[.submodules `token]
   leanOptions := solarTVOptions
-  moreLeanArgs := #["-M", "3000"]
+  -- Evm9 peaks above 3 GB in the kernel.
+  moreLeanArgs := #["-M", "6000"]
 
 /-- solar-verify's Token (Contracts/Token/VC's source): its exported stages and backend proofs. -/
 lean_lib verify_token where
