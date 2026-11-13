@@ -17,8 +17,8 @@ copy `scripts/verify/CounterMilestone.sol` adds `@custom:ensures x == old(x) + d
 * `Counter.Verdict.bytecode_of_triple`: the stage from SolidCore's checked counter to solar's
   bytecode (`Counter.Verdict.agree`, through solar-tv's backend stages and the assembly stage)
   carries it to the bytecode under EthLib.
-* `Counter.Final.bound`, `Counter.Final.frameLocal`: the bytecode is the exporter's (its hex and
-  SHA-256, checked by the kernel), and it runs in one frame: no instruction calls out, creates or
+* `Counter.Final.bound`, `Counter.Final.frameLocal`: the bytecode is the exporter's (its hex is the
+  manifest's, checked by the kernel), and it runs in one frame: no instruction calls out, creates or
   reads outside its frame.
 
 `incPost` says the call succeeds exactly when `x + d` does not overflow, and then sets slot 0 to

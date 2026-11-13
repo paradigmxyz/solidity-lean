@@ -2,6 +2,9 @@ import Verify.VC.Term
 import Verify.VC.Check
 import Verify.VC.Model
 import Verify.VC.Obligations
+import Verify.VC.Discharge
+import Verify.VC.ScriptBinds
+import Verify.VC.EndToEnd
 
 /-!
 # solar-verify's verification conditions, checked in Lean
@@ -24,6 +27,15 @@ that encoding out of it, one step at a time:
   `checkScript`) and a binding of the erased tree to them (`Binds`, about the tree alone) give the
   function's triple against SolidCore on the stage's scope. `Contracts.Counter.VC.Generic` derives
   the counter milestone's `inc_triple` from it.
+* `Discharge`: `dischargeScript`, a decision procedure the kernel runs over a whole script (definitions
+  substituted, read over write, a tableau over the connectives, integer `ite`s and negated
+  quantifiers, and Fourier-Motzkin over linear constraints), and `dischargeScript_sound`: when it
+  answers `true`, `Valid` holds, with no solver. It fails closed; `dischargeAt` checks one obligation
+  (`dischargeScript_of_each`), and `vacuousAt` reports obligations whose hypotheses alone have no model.
+  `Contracts/{Counter,Token}/VC/Discharged` (scripts/verify/gen-discharged.py) discharge their scripts.
+* `ScriptBinds`: a script bound to a program's spec (`holds_of_valid_script`, `holds_of_discharged`).
+* `EndToEnd`: `bytecode_of_discharged`, one theorem from a discharged script, its checked obligations
+  and a function's binding, through a stage, to EthLib's run of the exact bytecode.
 * `Contracts/*/VC/Export`: solar-verify's transcripts of `scripts/verify/Counter.sol`, `CounterMilestone.sol`
   and `Token.sol` (`solar-verify --dry-run --dump-lean`), and `Contracts/*/VC/Bind`, which checks that each
   script prints back to its transcript byte for byte.

@@ -13,9 +13,10 @@ block is no instruction, and of a final `jumpi then; jump else` that falls throu
 `JUMPI` to the other block stays, after an `ISZERO` when `then` is the one that follows. The
 EVM IR semantics enters the next block past the end of a block, so the spelling runs the same
 blocks. The last block's final `stop` is no instruction either, as `lower_terminator` leaves
-it out of runtime code that nothing follows: the code ends there, which halts as STOP does. It
-is partial: an effect outside the EVM's opcodes (an oracle's environment read or
-call) or with another arity than its opcode's has no item, so a program outside that scope
+it out of runtime code that nothing follows: the code ends there, which halts as STOP does. An
+environment read the oracle answers (`.env`) is spelled as the opcode of the mnemonic the
+exporter names it with, as solar lowers it. It is partial: an effect outside the EVM's
+opcodes or with another arity than its opcode's has no item, so a program outside that scope
 fails the check. Every contract's `Assembly` module (w1's and the ones
 `milestone/certify.py` writes) evaluates `SolarTV.Assembly.walk` over its bytecode against
 these items.
@@ -163,6 +164,24 @@ def effectItem : Machine.Effect → Nat → Option Item
   | .create, 3 => some (.op 0xf0)
   | .create2, 4 => some (.op 0xf5)
   | .log n, arity => if n ≤ 4 ∧ arity = n + 2 then some (.op (0xa0 + n)) else none
+  -- The oracle's environment reads, by the mnemonic the exporter names each with.
+  | .env "balance", 1 => some (.op 0x31)
+  | .env "origin", 0 => some (.op 0x32)
+  | .env "codesize", 0 => some (.op 0x38)
+  | .env "gasprice", 0 => some (.op 0x3a)
+  | .env "extcodesize", 1 => some (.op 0x3b)
+  | .env "extcodehash", 1 => some (.op 0x3f)
+  | .env "blockhash", 1 => some (.op 0x40)
+  | .env "coinbase", 0 => some (.op 0x41)
+  | .env "timestamp", 0 => some (.op 0x42)
+  | .env "number", 0 => some (.op 0x43)
+  | .env "prevrandao", 0 => some (.op 0x44)
+  | .env "gaslimit", 0 => some (.op 0x45)
+  | .env "chainid", 0 => some (.op 0x46)
+  | .env "selfbalance", 0 => some (.op 0x47)
+  | .env "basefee", 0 => some (.op 0x48)
+  | .env "blobhash", 1 => some (.op 0x49)
+  | .env "blobbasefee", 0 => some (.op 0x4a)
   | _, _ => none
 
 /-- The items of an instruction. -/

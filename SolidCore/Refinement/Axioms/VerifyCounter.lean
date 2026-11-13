@@ -6,5 +6,6 @@ environment (its exported stages share names with the other contracts'). Run wit
 `scripts/refinement/axiom-audit.sh`. -/
 
 #print axioms SolidCore.Refinement.Solar.VerifyCounter.spec_holds_of_bytecode
+#print axioms SolidCore.Refinement.Solar.VerifyCounter.spec_holds_of_bytecode_generic
 
 #axiom_audit ".lake/axiom-closure-verifycounter.txt" "Contracts.VerifyCounter" "SolidCore.Refinement.Solar"

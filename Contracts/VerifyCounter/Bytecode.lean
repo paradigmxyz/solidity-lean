@@ -2,6 +2,7 @@ import Contracts.VerifyCounter.Holds
 import Contracts.VerifyCounter.Bump
 import verify_counter.Proofs.Stages
 import Contracts.VerifyCounter.Assembly
+import SolidCore.Refinement.Solar.EndToEnd
 
 /-!
 # solar-verify's Counter: its specification holds of its bytecode at every gas
@@ -86,6 +87,15 @@ theorem holds_evm11 (o : Oracle) : Holds (SolarTV.evmirSem o) SolarTV.Export.Cou
 theorem spec_holds_of_bytecode (gas : Nat) : Holds (ethLibWith gas) code spec := by
   rw [← asm_code_eq]
   exact (holds_evm11 anyOracle).of_within (VerifyCounterAsm.assembly anyOracle spec.Calls gas)
+
+/-- The same theorem by the generic composition (`EndToEnd.holds_of_checkL`) that generated proofs
+use: the specification on stage0, solar-tv's backend stages read backwards, and the checker of code
+with loops. -/
+theorem spec_holds_of_bytecode_generic (gas : Nat) : Holds (ethLibWith gas) code spec := by
+  rw [← asm_code_eq]
+  exact EndToEnd.holds_of_checkL (Mir.holds_stage0 anyOracle)
+    (Milestone.VerifyCounter.verify_counter_certified_back anyOracle) (fun _ _ => trivial)
+    VerifyCounterAsm.check_ok (fun h => absurd h (by decide)) gas
 
 /-- The bytecode whose loop jumps back to block 7's JUMPDEST in place of block 8's is rejected. -/
 theorem loopTarget_rejected :

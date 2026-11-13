@@ -291,14 +291,16 @@ lean_lib ContractsC4Spec where
 -- (Verify/VC/Obligations.lean) and its fuel uniformity (Verify/FuelStable.lean), outside the default
 -- root: it builds on the generic source stage.
 lean_lib VerifyVC where
-  roots := #[`Verify.VC, `Verify.FuelStable]
+  roots := #[`Verify.VC, `Verify.FuelStable, `Verify.Spec.Tree, `Verify.Spec.Hash]
 
 -- solar-verify's transcripts of scripts/verify/{Counter,Token}.sol (scripts/verify/check.sh) bound
 -- to their scripts, Token.burn and Token.transfer proved from the checked VCs, and the mutants.
 lean_lib ContractsVC where
   roots := #[`Contracts.Counter.VC.Bind, `Contracts.Token.VC.Bind, `Contracts.Token.VC.Burn,
     `Contracts.Token.VC.Transfer, `Contracts.Token.VC.Mutants, `Contracts.Counter.VC.Inc, `Contracts.Counter.VC.Get,
-    `Contracts.Counter.VC.Mutants, `Contracts.Counter.VC.Generic]
+    `Contracts.Counter.VC.Mutants, `Contracts.Counter.VC.Generic, `Contracts.Counter.VC.Discharged,
+    `Contracts.Token.VC.Discharged, `Contracts.Token.VC.FromScript,
+    `Contracts.Counter.VC.MilestoneDischarged, `Contracts.Counter.VC.ScriptEndToEnd]
   -- The exports, sources and mutants the roots import are under the same directories.
   globs := #[.submodules `Contracts.Counter.VC, .submodules `Contracts.Token.VC]
 
@@ -313,12 +315,13 @@ lean_lib VerifyLoom where
 -- scripts/verify/CounterMilestone.sol and states it of solar's bytecode.
 lean_lib ContractsCounter where
   roots := #[`Contracts.Counter.Final, `Contracts.Counter.Verdict, `Contracts.Counter.EndToEnd,
-    `Contracts.Counter.Headline]
+    `Contracts.Counter.Headline, `Contracts.Counter.SpecTree, `Contracts.Counter.Exports]
   -- The roots themselves (explicit globs replace the default of one glob per root), and the
   -- spec exports, deploy proof and source binding they import.
   globs := #[.one `Contracts.Counter.Final, .one `Contracts.Counter.Verdict,
     .one `Contracts.Counter.EndToEnd, .one `Contracts.Counter.Headline,
     .one `Contracts.Counter.Verify, .one `Contracts.Counter.Deploy,
+    .one `Contracts.Counter.SpecTree, .one `Contracts.Counter.Exports, .one `SolidCore.Refinement.Deploy,
     .submodules `Contracts.Counter.Spec]
 
 -- solar-verify's Token end to end: the generic source stage from SolidCore's checked Token to
@@ -326,9 +329,10 @@ lean_lib ContractsCounter where
 -- triples carried to solar's bytecode.
 lean_lib ContractsToken where
   roots := #[`Contracts.Token.Lowering, `Contracts.Token.Assembly, `Contracts.Token.Discharge,
-    `Contracts.Token.EndToEnd]
+    `Contracts.Token.EndToEnd, `Contracts.Token.Exports]
   globs := #[.one `Contracts.Token.Lowering, .one `Contracts.Token.Assembly,
-    .one `Contracts.Token.Discharge, .one `Contracts.Token.EndToEnd]
+    .one `Contracts.Token.Discharge, .one `Contracts.Token.EndToEnd,
+    .one `Contracts.Token.Exports, .submodules `Contracts.Token.Spec]
 
 /-! solar-verify's verification conditions and their kernel-checked discharge (formerly solar's
 crates/verify/lean). An exported VC module imports `Verify.Obligation`; `Verify.Discharge` holds the
@@ -363,3 +367,10 @@ lean_lib ContractsVerifyCounter where
   globs := #[.submodules `Contracts.VerifyCounter]
   leanOptions := solarTVOptions
   moreLeanArgs := #["-M", "3000"]
+
+-- callsqrt: the stages of Certified/callsqrt/callsqrt.sol's CallSqrt and their kernel proofs, which
+-- solar's scripts/certify writes.
+lean_lib «callsqrt» where
+  srcDir := "Certified"
+  roots := #[`callsqrt.Proofs]
+  globs := #[.submodules `callsqrt]

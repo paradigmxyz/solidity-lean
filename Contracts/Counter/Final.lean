@@ -10,8 +10,8 @@ The first instance of `Final.Certificate`: solar's runtime bytecode for
       function get() external view returns (uint256) { return x; } }
 
 (solar-tv/milestone/counter, `-Ogas --evm-version osaka`), bound to the manifest the exporter
-wrote with its stages (`manifest`, `bound`: the hex and the SHA-256 of the bytecode, checked by
-the kernel), meets its specification (`spec`: `inc(d)` ensures `x == old(x) + d` and returns
+wrote with its stages (`manifest`, `bound`: the bytecode's hex is the manifest's, checked by the
+kernel), meets its specification (`spec`: `inc(d)` ensures `x == old(x) + d` and returns
 nothing, `get()` ensures `x == old(x)` and returns `x`; neither is payable) and agrees with
 SolidCore's checked contract on every call of the specification, with any value and from any
 storage (`certificate`). Every stage is a theorem: the source stage and the assembly stage of
@@ -158,12 +158,7 @@ def manifest : Manifest where
 theorem hex_bound : hexOf (code.data.toList.map (·.toNat)) = manifest.runtimeHex := by
   decide +kernel
 
-theorem sha_bound :
-    hexOf ((EthLib.Cryptography.Hash.Sha256.hash code).data.toList.map (·.toNat)) =
-      manifest.runtimeSha256 := by
-  decide +kernel
-
-theorem bound : Bound manifest code := ⟨hex_bound, sha_bound⟩
+theorem bound : Bound manifest code := hex_bound
 
 theorem frameLocal : FrameLocal code = true := by decide +kernel
 

@@ -8,8 +8,8 @@ This is where the certified translation and solar-verify meet for the counter mi
 (solar-tv/milestone/counter, the source `scripts/refinement/counter/counter.sol`). The stage from
 SolidCore's checked contract to solar's bytecode is a theorem (`agree`, from
 `Counter.Every`'s source run and `Counter.Final.target_every`, which compose solar-tv's backend
-stages); the bytecode is bound to the exporter's manifest (`Counter.Final.bound`: its hex and
-SHA-256, checked by the kernel) and runs in one frame (`Counter.Final.frameLocal`).
+stages); the bytecode is bound to the exporter's manifest (`Counter.Final.bound`: its hex,
+checked by the kernel) and runs in one frame (`Counter.Final.frameLocal`).
 
 `bytecode_spec_of_verdict` takes the rest as hypotheses and nothing else: a spec bundle `b`
 (what `solar-verify --emit-lean-spec` exports), its well-formedness and opaque ranges, and

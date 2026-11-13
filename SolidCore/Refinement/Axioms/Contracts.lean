@@ -9,6 +9,11 @@ import Contracts.Counter.VC.Mutants
 import Contracts.Token.VC.Burn
 import Contracts.Token.VC.Transfer
 import Contracts.Token.VC.Mutants
+import Contracts.Counter.Exports
+import Contracts.Counter.SpecTree
+import Contracts.Counter.VC.Discharged
+import Contracts.Counter.VC.ScriptEndToEnd
+import SolidCore.Refinement.Solar.EndToEnd
 import Verify.LoomAxioms
 import Verify.Spec.TrustedBase.Axioms
 
@@ -35,5 +40,19 @@ Classical.choice, Quot.sound], and the sweep must report no violation. Run with
 #print axioms SolidCore.Verify.VC.Counter.specMut_rejected
 #print axioms SolidCore.Verify.VC.Token.burn_triple
 #print axioms SolidCore.Verify.VC.Token.transfer_triple
+
+-- Scripts discharged in the kernel and carried to bytecode.
+#print axioms SolidCore.Verify.VC.dischargeScript_sound
+#print axioms SolidCore.Verify.VC.bytecode_of_discharged
+#print axioms SolidCore.Verify.VC.bytecode_of_checked
+#print axioms SolidCore.Verify.VC.Counter.Discharged.script_valid
+#print axioms SolidCore.Verify.VC.Counter.inc_bytecode_of_script
+#print axioms SolidCore.Refinement.Solar.Counter.SpecTree.inc_spec_bytecode
+#print axioms Contracts.Counter.deploys
+
+-- The generic composition of the backend stages with the assembler checks.
+#print axioms SolidCore.Refinement.Solar.EndToEnd.stage_of_check
+#print axioms SolidCore.Refinement.Solar.EndToEnd.within_of_checkL
+#print axioms SolidCore.Refinement.Solar.EndToEnd.holds_of_checkL
 
 #axiom_audit ".lake/axiom-closure-contracts.txt" "Contracts" "Verify" "Loom"

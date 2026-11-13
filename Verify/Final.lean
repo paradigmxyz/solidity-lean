@@ -1,7 +1,6 @@
 import SolidCore.Refinement.ComposeSeq
 import SolidCore.Refinement.Abi
 import Verify.Basic
-import EthLib.Cryptography.Hash.Sha256
 
 /-!
 # The final statement: a verified specification holds of deployed bytecode
@@ -537,10 +536,10 @@ def bytesOfHex (s : String) : ByteArray :=
     | _ => []
   ⟨(go s.toList).toArray⟩
 
-/-- The bytecode is the manifest's: its hex and its SHA-256. -/
+/-- The bytecode is the manifest's, byte for byte: its hex is the manifest's hex. The manifest's
+`runtimeSha256` is recorded with it, not checked: exact equality already binds the bytes. -/
 def Bound (m : Manifest) (code : ByteArray) : Prop :=
-  hexOf (code.data.toList.map (·.toNat)) = m.runtimeHex ∧
-    hexOf ((EthLib.Cryptography.Hash.Sha256.hash code).data.toList.map (·.toNat)) = m.runtimeSha256
+  hexOf (code.data.toList.map (·.toNat)) = m.runtimeHex
 
 /-- **The certificate of a compilation**: the bytecode bound to its manifest, running in one
 frame, (a) agreeing with SolidCore's checked contract on every call of the specification, and

@@ -62,7 +62,7 @@ jobs:
       - name: Build the Certified contracts
         env:
           LEAN_NUM_THREADS: "2"
-        run: lake build -KleanMemory=3000 W1 counter w4 masks bank c4 mulx events reader verify_token verify_counter
+        run: lake build -KleanMemory=3000 W1 counter w4 masks bank c4 mulx events reader verify_token verify_counter callsqrt
 
       - name: Build the verification libraries and Contracts
         env:

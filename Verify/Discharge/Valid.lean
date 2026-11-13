@@ -17,6 +17,7 @@ Every step builds a proof term the kernel checks; nothing here is trusted.
 import Lean
 import Verify.Obligation.Vc
 import Verify.Discharge.Search
+import Verify.Discharge.IteApply
 
 open Lean Meta Elab Tactic
 
@@ -236,6 +237,8 @@ elab "vc_valid_prep" : tactic => do
   step (← `(tactic| refine Classical.byContradiction ?_))
   step (← `(tactic| intro))
   step (← `(tactic| vc_split_hyps))
+  -- a nested store applied to its inner key (IteApply.lean)
+  step (← `(tactic| all_goals simp -failIfUnchanged only [SolarVerify.Discharge.iteFunApply] at *))
 
 /-- Proves `Obligation.Valid ob` for an exported obligation `ob`: see the module comment. -/
 macro "vc_valid" : tactic => `(tactic| (vc_valid_prep <;> vc_search))

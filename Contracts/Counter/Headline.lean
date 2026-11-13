@@ -36,7 +36,7 @@ that it succeeds.
   `x` and of the success guard to SolidCore's run), and `get`'s triple, each carried to the
   bytecode by the certified stage; the headline includes both.
 * **`spec_holds_of_bytecode`**: the headline. solar's runtime bytecode, bound to the exporter's
-  manifest by its hex and SHA-256 and to the spec export by the same SHA-256, runs in one frame,
+  manifest by its hex and to the spec export by the manifest's SHA-256 string, runs in one frame,
   agrees with SolidCore's checked `Counter` on every call of the scope, and meets solar-verify's
   spec under EthLib, through the composition `Verdict.bytecode_spec_of_verdict` of the certified
   stages (source, backend, assembly) with the verdict.
@@ -203,8 +203,8 @@ theorem export_bound :
   decide +kernel
 
 /-- **solar-verify's spec of `Counter` holds of solar's deployed bytecode.** solar's runtime
-bytecode for the counter milestone is bound to the exporter's manifest (hex and SHA-256, by the
-kernel) and to the spec export (the same SHA-256), runs in one frame, agrees with SolidCore's
+bytecode for the counter milestone is bound to the exporter's manifest (its hex, by the
+kernel) and to the spec export (the manifest's SHA-256 string), runs in one frame, agrees with SolidCore's
 checked `Counter` on every call of `scopeEvery`, and meets solar-verify's exported spec under
 EthLib on every call of `scopeEvery`: any value, any storage, inc's and get's ABI encodings,
 short call data, unknown selectors and short arguments. The spec's well-formedness is checked

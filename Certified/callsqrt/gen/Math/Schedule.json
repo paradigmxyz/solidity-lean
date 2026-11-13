@@ -1,0 +1,8 @@
+{
+  "functions": [
+    {"function": 0, "entry": null, "returns": false, "rebuilt": false, "unsupported": null, "blocks": [
+      {"block": 0, "start": [0, 0], "layout": [], "floating": true, "continues": null}
+    ], "calls": [
+    ]}
+  ]
+}
