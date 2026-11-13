@@ -11,15 +11,21 @@ checks with `or`. `canon` brings both trees to one form, which the kernel then c
 
 * `Tree.split` turns a branch on `or a b` into a branch on `a`, then on `b` (`splitCond`);
 * `Tree.simp K` simplifies every word bottom up (`WExpr.simp`): constants fold, `or` with zero
-  and shifts by zero drop, `byte i v` becomes `and (shr (8 * (31 - i)) v) 255`, a mask
-  `and a (2 ^ k - 1)` drops when `a` is at most the mask, and a comparison that cannot hold
-  (`gt a c` with `a ≤ c`, `uint256`'s add and mul overflow checks on operands too small to
-  overflow) becomes zero. Upper bounds (`bound`) come from the words' shapes and from the facts
+  and shifts by zero drop, `add` of zero, `mul` and `div` by one and `mul` by zero fold,
+  `byte i v` becomes `and (shr (8 * (31 - i)) v) 255`, a mask `and a (2 ^ k - 1)` drops when `a`
+  is at most the mask, a mask `m` over `or (and x M) v` with `M` clearing `m`'s bits drops the
+  `and x M` (SolidCore reading a packed field back after writing it, which solar forwards),
+  `uint256`'s overflow check of a product by a constant `c`, `eq (div (mul x c) c) x`, becomes
+  solar's range test `iszero (gt x (maxWord / c))`, `lt a n` becomes `iszero (gt a (n - 1))`
+  (solar spells that range test either way), and a comparison that cannot hold (`gt a c` with
+  `a ≤ c`, `uint256`'s add and mul overflow checks on operands too small to overflow) becomes
+  zero. Upper bounds (`bound`) come from the words' shapes and from the facts
   `K` of the path: each branch taken records its word and side, so a word known to be at most
   `c` (`gt a c` taken as zero) bounds `a`, a branch on a word already decided takes its side,
   and `sub a b` with `lt a b` taken as zero is at most `a`;
 * `Tree.splitNeg` then turns a branch on a negation (`iszero a`, `eq a 0`) into a branch on
-  `a` with its sides swapped, and splits the disjunctions the simplification left, such as
+  `a` with its sides swapped, splits a conjunction of two comparisons (solar's joined range
+  tests) into a branch on each, and splits the disjunctions the simplification left, such as
   `uint256`'s mul overflow check `iszero (or (iszero r) …)` against solar's branch on
   `or (eq r 0) …`; a second `Tree.simp` simplifies along the new paths.
 
@@ -318,23 +324,103 @@ def sAndLit (K : Facts) (a : WExpr) (m : Nat) : WExpr :=
 /-- `or a b` without a zero operand. -/
 def sOr (a b : WExpr) : WExpr := if a = .lit 0 then b else if b = .lit 0 then a else .bin .or a b
 
-/-- `and a b`, a constant mask through `sAndLit`. -/
+/-- Whether `e` is a constant that clears every bit of `m`. -/
+def maskClears (e : WExpr) (m : Nat) : Bool :=
+  match e.lit? with
+  | some M => M % wordSize &&& m == 0
+  | none => false
+
+/-- Whether `p` is `and x M` or `and M x` with a constant `M` that clears every bit of `m`. -/
+def clears (p : WExpr) (m : Nat) : Bool :=
+  match p with
+  | .bin .and x y => maskClears y m || maskClears x m
+  | _ => false
+
+/-- `and a (lit m)`, a disjunction's operand that `m` clears dropped: a packed field read back
+after its write `or (and slot M) v`, `M` clearing the field's bits, reads `and v m`. Then
+through `sAndLit`. -/
+def sAndMask (K : Facts) (a : WExpr) (m : Nat) : WExpr :=
+  match a with
+  | .bin .or p q =>
+    if clears p m then sAndLit K q m else if clears q m then sAndLit K p m else sAndLit K a m
+  | _ => sAndLit K a m
+
+/-- `and a b`, a constant mask through `sAndMask`. -/
 def sAnd (K : Facts) (a b : WExpr) : WExpr :=
   match b with
-  | .lit m => sAndLit K a (m % wordSize)
+  | .lit m => sAndMask K a (m % wordSize)
   | _ => .bin .and a b
 
-/-- `gt a c`, zero when `a ≤ c`. -/
+/-- `gt a c`, zero when `a ≤ c` or `a` is `c`. -/
 def sGt (K : Facts) (a b : WExpr) : WExpr :=
+  if a = b then .lit 0 else
   match b with
   | .lit c => if bound K a ≤ c % wordSize then .lit 0 else .bin .gt a b
   | _ => .bin .gt a b
 
-/-- `lt (add x y) x`, `uint256`'s add overflow check, zero when `x + y` cannot overflow. -/
-def sLt (K : Facts) (a b : WExpr) : WExpr :=
+/-- A unary operation on a simplified operand: `uint256`'s multiplication overflow check
+`iszero (or (iszero r) (eq (div (mul l r) r) l))` is zero when `l * r` cannot overflow. -/
+def sUn (K : Facts) (op : UnOp) (a : WExpr) : WExpr :=
   match a with
-  | .bin .add x y => if x = b ∧ bound K x + bound K y < wordSize then .lit 0 else .bin .lt a b
+  | .lit x => .lit (op.eval (x % wordSize) % wordSize)
+  | .bin .or (.un .iszero r) (.bin .eq (.bin .div (.bin .mul l r') r'') l') =>
+    if op = .iszero ∧ r = r' ∧ r = r'' ∧ l = l' ∧ bound K l * bound K r < wordSize then .lit 0
+    else .un op a
+  | _ => .un op a
+
+/-- `lt a (lit n)` as `iszero (gt a (n - 1))`, zero for `n = 0`: solar's range test `lt x (q + 1)`
+and its `gt x q` then meet in one form. -/
+def sLtLit (K : Facts) (a b : WExpr) : WExpr :=
+  match b with
+  | .lit n =>
+    if n % wordSize = 0 then .lit 0 else sUn K .iszero (sGt K a (.lit (n % wordSize - 1)))
   | _ => .bin .lt a b
+
+/-- `lt (add x y) x`, `uint256`'s add overflow check, zero when `x + y` cannot overflow; else
+through `sLtLit`; zero on equal operands. -/
+def sLt (K : Facts) (a b : WExpr) : WExpr :=
+  if a = b then .lit 0 else
+  match a with
+  | .bin .add x y => if x = b ∧ bound K x + bound K y < wordSize then .lit 0 else sLtLit K a b
+  | _ => sLtLit K a b
+
+/-- `uint256`'s overflow check of a product by a nonzero
+constant, `eq (div (mul x c) c) x`, as the range test `iszero (gt x (maxWord / c))` solar
+emits for it. -/
+def sEqMul (K : Facts) (x l l' b : WExpr) : WExpr :=
+  match l.lit? with
+  | some c =>
+    if l = l' ∧ x = b ∧ c % wordSize ≠ 0 then
+      sUn K .iszero (sGt K x (.lit (maxWord / (c % wordSize))))
+    else .bin .eq (.bin .div (.bin .mul x l) l') b
+  | none => .bin .eq (.bin .div (.bin .mul x l) l') b
+
+/-- `eq a b`, one when `a = b`, and `eq (div (mul x c) c) x` through `sEqMul`. -/
+def sEq (K : Facts) (a b : WExpr) : WExpr :=
+  if a = b then .lit 1 else
+  match a with
+  | .bin .div (.bin .mul x l) l' => sEqMul K x l l' b
+  | _ => .bin .eq a b
+
+/-- `add`, `mul` and `div` without an identity operand, `mul` by zero as zero, and `add a a` as
+`mul a 2`. -/
+def sArith (op : BinOp) (a b : WExpr) : WExpr :=
+  match op with
+  | .add =>
+    if a = .lit 0 then b else if b = .lit 0 then a else if a = b then .bin .mul a (.lit 2)
+    else .bin .add a b
+  | .mul =>
+    if a = .lit 0 ∨ b = .lit 0 then .lit 0
+    else if a = .lit 1 then b else if b = .lit 1 then a else .bin .mul a b
+  | .div => if b = .lit 1 then a else .bin .div a b
+  | op => .bin op a b
+
+/-- `shl k b` by a constant as `mul b (2 ^ k)` (zero from `k = 256` on): solar multiplies by a
+power of two with a shift, SolidCore with `mul`. -/
+def sShl (a b : WExpr) : WExpr :=
+  match a with
+  | .lit k => if k % wordSize < 256 then sArith .mul b (.lit (2 ^ (k % wordSize))) else .lit 0
+  | _ => .bin .shl a b
 
 /-- A shift by zero is its value. -/
 def sShift (op : BinOp) (a b : WExpr) : WExpr := if a = .lit 0 then b else .bin op a b
@@ -358,21 +444,14 @@ def sBin (K : Facts) (op : BinOp) (a b : WExpr) : WExpr :=
     | .and => sAnd K a b
     | .gt => sGt K a b
     | .lt => sLt K a b
-    | .shl => sShift .shl a b
+    | .shl => sShl a b
     | .shr => sShift .shr a b
     | .byte => sByte K a b
-    | .eq => if a = b then .lit 1 else .bin .eq a b
+    | .eq => sEq K a b
+    | .add => sArith .add a b
+    | .mul => sArith .mul a b
+    | .div => sArith .div a b
     | _ => .bin op a b
-
-/-- A unary operation on a simplified operand: `uint256`'s multiplication overflow check
-`iszero (or (iszero r) (eq (div (mul l r) r) l))` is zero when `l * r` cannot overflow. -/
-def sUn (K : Facts) (op : UnOp) (a : WExpr) : WExpr :=
-  match a with
-  | .lit x => .lit (op.eval (x % wordSize) % wordSize)
-  | .bin .or (.un .iszero r) (.bin .eq (.bin .div (.bin .mul l r') r'') l') =>
-    if op = .iszero ∧ r = r' ∧ r = r'' ∧ l = l' ∧ bound K l * bound K r < wordSize then .lit 0
-    else .un op a
-  | _ => .un op a
 
 /-- A word simplified on the paths the facts hold on. -/
 def WExpr.simp (K : Facts) : WExpr → WExpr
@@ -420,18 +499,79 @@ theorem eval_sOr (ρ : Val) (a b : WExpr) : (sOr a b).eval ρ = (WExpr.bin .or a
       simp [BinOp.eval, Nat.mod_eq_of_lt (a.eval_lt ρ)]
     · rfl
 
+theorem and_or_clear {u v M m : Nat} (h : M &&& m = 0) : ((u &&& M) ||| v) &&& m = v &&& m := by
+  apply Nat.eq_of_testBit_eq
+  intro i
+  have hi := congrArg (fun x => Nat.testBit x i) h
+  simp only [Nat.testBit_and, Nat.zero_testBit] at hi
+  simp only [Nat.testBit_and, Nat.testBit_or]
+  cases hu : u.testBit i <;> cases hv : v.testBit i <;> cases hM : M.testBit i <;>
+    cases hm : m.testBit i <;> simp_all
+
+theorem maskClears_eval {ρ : Val} {e : WExpr} {m : Nat} (h : maskClears e m = true) :
+    e.eval ρ &&& m = 0 := by
+  unfold maskClears at h
+  split at h
+  · rename_i M hM
+    rw [WExpr.eq_of_lit? hM, eval_lit]
+    simpa using h
+  · simp at h
+
+theorem clears_eval {ρ : Val} {p : WExpr} {m : Nat} (hc : clears p m = true) (v : Nat) :
+    (p.eval ρ ||| v) &&& m = v &&& m := by
+  unfold clears at hc
+  split at hc
+  · next x y =>
+    rw [eval_bin]
+    simp only [BinOp.eval]
+    rw [Nat.mod_eq_of_lt (Nat.and_lt_two_pow _ (y.eval_lt ρ))]
+    rcases (Bool.or_eq_true _ _ ▸ hc : maskClears y m = true ∨ maskClears x m = true) with hy | hx
+    · exact and_or_clear (maskClears_eval hy)
+    · rw [Nat.and_comm (x.eval ρ) (y.eval ρ)]
+      exact and_or_clear (maskClears_eval hx)
+  · simp at hc
+
+theorem eval_and_lit (ρ : Val) (e : WExpr) {m : Nat} (hm : m < wordSize) :
+    (WExpr.bin .and e (.lit m)).eval ρ = e.eval ρ &&& m := by
+  rw [eval_bin, eval_lit, Nat.mod_eq_of_lt hm]
+  simp only [BinOp.eval]
+  rw [Nat.mod_eq_of_lt (Nat.and_lt_two_pow _ hm)]
+
+theorem eval_sAndMask {ρ : Val} {K : Facts} (h : K.Hold ρ) (a : WExpr) {m : Nat}
+    (hm : m < wordSize) : (sAndMask K a m).eval ρ = (WExpr.bin .and a (.lit m)).eval ρ := by
+  unfold sAndMask
+  split
+  · next p q =>
+    have hor : (WExpr.bin .or p q).eval ρ = p.eval ρ ||| q.eval ρ := by
+      rw [eval_bin]
+      simp only [BinOp.eval]
+      rw [Nat.mod_eq_of_lt (Nat.or_lt_two_pow (p.eval_lt ρ) (q.eval_lt ρ))]
+    split
+    · rename_i hc
+      rw [eval_sAndLit h q hm, eval_and_lit ρ _ hm, eval_and_lit ρ _ hm, hor, clears_eval hc]
+    · split
+      · rename_i _ hc
+        rw [eval_sAndLit h p hm, eval_and_lit ρ _ hm, eval_and_lit ρ _ hm, hor, Nat.or_comm,
+          clears_eval hc]
+      · exact eval_sAndLit h _ hm
+  · exact eval_sAndLit h a hm
+
 theorem eval_sAnd {ρ : Val} {K : Facts} (h : K.Hold ρ) (a b : WExpr) :
     (sAnd K a b).eval ρ = (WExpr.bin .and a b).eval ρ := by
   unfold sAnd
   split
   · next m =>
-    rw [eval_sAndLit h a (Nat.mod_lt _ (by decide)), eval_bin, eval_bin, eval_lit, eval_lit,
+    rw [eval_sAndMask h a (Nat.mod_lt _ (by decide)), eval_bin, eval_bin, eval_lit, eval_lit,
       Nat.mod_mod]
   · rfl
 
 theorem eval_sGt {ρ : Val} {K : Facts} (h : K.Hold ρ) (a b : WExpr) :
     (sGt K a b).eval ρ = (WExpr.bin .gt a b).eval ρ := by
   unfold sGt
+  split
+  · rename_i hab
+    subst hab
+    simp [WExpr.eval, BinOp.eval]
   split
   · next c =>
     split
@@ -445,9 +585,72 @@ theorem eval_sGt {ρ : Val} {K : Facts} (h : K.Hold ρ) (a b : WExpr) :
     · rfl
   · rfl
 
+theorem eval_sUn {ρ : Val} {K : Facts} (h : K.Hold ρ) (op : UnOp) (a : WExpr) :
+    (sUn K op a).eval ρ = (WExpr.un op a).eval ρ := by
+  unfold sUn
+  split
+  · simp [WExpr.eval, Nat.mod_mod]
+  · next r l r' r'' l' =>
+    split
+    · rename_i hc
+      obtain ⟨rfl, rfl, rfl, rfl, hb⟩ := hc
+      have hl := bound_sound h l
+      have hr := bound_sound h r
+      have hlr : l.eval ρ * r.eval ρ < wordSize :=
+        Nat.lt_of_le_of_lt (Nat.mul_le_mul hl hr) hb
+      have hlt := l.eval_lt ρ
+      have hor : (WExpr.bin .or (.un .iszero r) (.bin .eq (.bin .div (.bin .mul l r) r) l)).eval ρ
+          ≠ 0 := by
+        rw [Ne, or_eval_eq_zero]
+        intro ⟨h1, h2⟩
+        by_cases hw : r.eval ρ = 0
+        · simp [WExpr.eval, UnOp.eval, hw] at h1
+        · have : (WExpr.bin .eq (.bin .div (.bin .mul l r) r) l).eval ρ = 1 := by
+            simp only [WExpr.eval, BinOp.eval, Nat.mod_mod, hw, ↓reduceIte, Nat.mod_eq_of_lt hlr,
+              Nat.mul_div_cancel _ (Nat.pos_of_ne_zero hw), Nat.mod_eq_of_lt hlt]
+            rfl
+          omega
+      rw [show (WExpr.un .iszero (.bin .or (.un .iszero r)
+          (.bin .eq (.bin .div (.bin .mul l r) r) l))).eval ρ =
+          (if (WExpr.bin .or (.un .iszero r) (.bin .eq (.bin .div (.bin .mul l r) r) l)).eval ρ = 0
+            then 1 else 0) % wordSize from rfl, if_neg hor]
+      rfl
+    · rfl
+  · rfl
+
+theorem eval_un_iszero (ρ : Val) (e : WExpr) :
+    (WExpr.un .iszero e).eval ρ = (if e.eval ρ = 0 then 1 else 0) % wordSize := rfl
+
+theorem eval_sLtLit {ρ : Val} {K : Facts} (h : K.Hold ρ) (a b : WExpr) :
+    (sLtLit K a b).eval ρ = (WExpr.bin .lt a b).eval ρ := by
+  unfold sLtLit
+  split
+  · next n =>
+    have ha := a.eval_lt ρ
+    have hn := Nat.mod_lt n (show 0 < wordSize by decide)
+    split
+    · rename_i h0
+      rw [eval_bin, eval_lit, eval_lit, h0]
+      simp [BinOp.eval]
+    · rename_i h0
+      rw [eval_sUn h, eval_un_iszero, eval_sGt h, eval_bin, eval_bin, eval_lit, eval_lit,
+        Nat.mod_eq_of_lt (show n % wordSize - 1 < wordSize by omega)]
+      simp only [BinOp.eval, Nat.mod_mod]
+      by_cases hc : a.eval ρ < n % wordSize
+      · have : ¬ (n % wordSize - 1 < a.eval ρ) := by omega
+        simp [hc, this]
+      · have : n % wordSize - 1 < a.eval ρ := by omega
+        simp [hc, this]
+  · rfl
+
 theorem eval_sLt {ρ : Val} {K : Facts} (h : K.Hold ρ) (a b : WExpr) :
     (sLt K a b).eval ρ = (WExpr.bin .lt a b).eval ρ := by
   unfold sLt
+  split
+  · rename_i hab
+    subst hab
+    simp [WExpr.eval, BinOp.eval]
+  rename_i hne
   split
   · next x y =>
     split
@@ -461,6 +664,97 @@ theorem eval_sLt {ρ : Val} {K : Facts} (h : K.Hold ρ) (a b : WExpr) :
       split
       · omega
       · rfl
+    · exact eval_sLtLit h _ _
+  · exact eval_sLtLit h _ _
+
+/-- A product by a nonzero constant `c` divides back to its operand exactly when it does not
+overflow, that is when the operand is at most `maxWord / c`. -/
+theorem mul_div_check {x c : Nat} (hx : x < wordSize) (hc : 0 < c) :
+    x * c % wordSize / c = x ↔ x ≤ maxWord / c := by
+  constructor
+  · intro he
+    apply Classical.byContradiction
+    intro hlt
+    have hlt : maxWord / c < x := by omega
+    have h1 : wordSize ≤ x * c := by
+      have := (Nat.div_lt_iff_lt_mul hc).mp hlt
+      simp only [maxWord] at this
+      omega
+    have h2 : x * c % wordSize < x * c := Nat.lt_of_lt_of_le (Nat.mod_lt _ (by decide)) h1
+    have h3 : x * c % wordSize / c < x := (Nat.div_lt_iff_lt_mul hc).mpr h2
+    omega
+  · intro hle
+    have : x * c ≤ maxWord := (Nat.le_div_iff_mul_le hc).mp hle
+    rw [Nat.mod_eq_of_lt (by simp only [maxWord] at this; omega), Nat.mul_div_cancel _ hc]
+
+theorem eval_sEqMul {ρ : Val} {K : Facts} (h : K.Hold ρ) (x l l' b : WExpr) :
+    (sEqMul K x l l' b).eval ρ = (WExpr.bin .eq (.bin .div (.bin .mul x l) l') b).eval ρ := by
+  unfold sEqMul
+  split
+  · rename_i c hl
+    split
+    · rename_i hc
+      obtain ⟨rfl, rfl, hc0⟩ := hc
+      rw [WExpr.eq_of_lit? hl]
+      have hx := x.eval_lt ρ
+      have hcp : 0 < c % wordSize := Nat.pos_of_ne_zero hc0
+      have hq : maxWord / (c % wordSize) < wordSize :=
+        Nat.lt_of_le_of_lt (Nat.div_le_self _ _) (by simp only [maxWord]; omega)
+      have key := mul_div_check hx hcp
+      have hd : x.eval ρ * (c % wordSize) % wordSize / (c % wordSize) < wordSize :=
+        Nat.lt_of_le_of_lt (Nat.div_le_self _ _) (Nat.mod_lt _ (by decide))
+      rw [eval_sUn h, eval_un_iszero, eval_sGt h, eval_bin, eval_lit, Nat.mod_eq_of_lt hq,
+        eval_bin, eval_bin, eval_bin, eval_lit]
+      generalize x.eval ρ = X at *
+      generalize c % wordSize = C at *
+      simp only [BinOp.eval, hc0, ↓reduceIte, Nat.mod_mod, Nat.mod_eq_of_lt hd]
+      by_cases hle : X ≤ maxWord / C
+      · have h1 : ¬ (maxWord / C < X) := by omega
+        simp only [h1, key.mpr hle, ↓reduceIte]
+        simp
+      · have h1 : maxWord / C < X := by omega
+        have h2 : ¬ (X * C % wordSize / C = X) := fun he => hle (key.mp he)
+        simp only [h1, h2, ↓reduceIte]
+        simp
+    · rfl
+  · rfl
+
+theorem eval_sEq {ρ : Val} {K : Facts} (h : K.Hold ρ) (a b : WExpr) :
+    (sEq K a b).eval ρ = (WExpr.bin .eq a b).eval ρ := by
+  unfold sEq
+  split
+  · rename_i hab
+    subst hab
+    simp [WExpr.eval, BinOp.eval]
+  · split
+    · exact eval_sEqMul h _ _ _ _
+    · rfl
+
+theorem eval_sArith (ρ : Val) (op : BinOp) (a b : WExpr) :
+    (sArith op a b).eval ρ = (WExpr.bin op a b).eval ρ := by
+  have ha := a.eval_lt ρ
+  have hb := b.eval_lt ρ
+  unfold sArith
+  split
+  · split
+    · rename_i he; subst he; simp [eval_bin, eval_lit, BinOp.eval, Nat.mod_eq_of_lt hb]
+    · split
+      · rename_i _ he; subst he; simp [eval_bin, eval_lit, BinOp.eval, Nat.mod_eq_of_lt ha]
+      · split
+        · rename_i _ _ he
+          subst he
+          simp only [eval_bin, eval_lit, BinOp.eval, Nat.mod_mod]
+          rw [Nat.mod_eq_of_lt (show (2 : Nat) < wordSize by decide), Nat.mul_two]
+        · rfl
+  · split
+    · rename_i he; rcases he with rfl | rfl <;> simp [eval_bin, eval_lit, BinOp.eval]
+    · split
+      · rename_i _ he; subst he; simp [eval_bin, eval_lit, BinOp.eval, Nat.mod_eq_of_lt hb]
+      · split
+        · rename_i _ _ he; subst he; simp [eval_bin, eval_lit, BinOp.eval, Nat.mod_eq_of_lt ha]
+        · rfl
+  · split
+    · rename_i he; subst he; simp [eval_bin, eval_lit, BinOp.eval, Nat.mod_eq_of_lt ha]
     · rfl
   · rfl
 
@@ -502,6 +796,21 @@ theorem eval_sByte {ρ : Val} {K : Facts} (h : K.Hold ρ) (a b : WExpr) :
     · rfl
   · rfl
 
+theorem eval_sShl (ρ : Val) (a b : WExpr) :
+    (sShl a b).eval ρ = (WExpr.bin .shl a b).eval ρ := by
+  unfold sShl
+  split
+  · next k =>
+    split
+    · rename_i hk
+      have hp : 2 ^ (k % wordSize) < wordSize := Nat.pow_lt_pow_right (by decide) hk
+      rw [eval_sArith, eval_bin, eval_bin, eval_lit, eval_lit, Nat.mod_eq_of_lt hp]
+      simp only [BinOp.eval, if_pos hk]
+    · rename_i hk
+      rw [eval_bin, eval_lit, eval_lit]
+      simp [BinOp.eval, hk]
+  · rfl
+
 theorem eval_sBin {ρ : Val} {K : Facts} (h : K.Hold ρ) (op : BinOp) (a b : WExpr) :
     (sBin K op a b).eval ρ = (WExpr.bin op a b).eval ρ := by
   unfold sBin
@@ -512,48 +821,14 @@ theorem eval_sBin {ρ : Val} {K : Facts} (h : K.Hold ρ) (op : BinOp) (a b : WEx
     case and => exact eval_sAnd h a b
     case gt => exact eval_sGt h a b
     case lt => exact eval_sLt h a b
-    case shl => exact eval_sShift ρ .shl (.inl rfl) a b
+    case shl => exact eval_sShl ρ a b
     case shr => exact eval_sShift ρ .shr (.inr rfl) a b
     case byte => exact eval_sByte h a b
-    case eq =>
-      show (if a = b then WExpr.lit 1 else .bin .eq a b).eval ρ = _
-      by_cases hab : a = b
-      · subst hab; simp [WExpr.eval, BinOp.eval]
-      · rw [if_neg hab]
+    case eq => exact eval_sEq h a b
+    case add => exact eval_sArith ρ .add a b
+    case mul => exact eval_sArith ρ .mul a b
+    case div => exact eval_sArith ρ .div a b
     all_goals rfl
-
-theorem eval_sUn {ρ : Val} {K : Facts} (h : K.Hold ρ) (op : UnOp) (a : WExpr) :
-    (sUn K op a).eval ρ = (WExpr.un op a).eval ρ := by
-  unfold sUn
-  split
-  · simp [WExpr.eval, Nat.mod_mod]
-  · next r l r' r'' l' =>
-    split
-    · rename_i hc
-      obtain ⟨rfl, rfl, rfl, rfl, hb⟩ := hc
-      have hl := bound_sound h l
-      have hr := bound_sound h r
-      have hlr : l.eval ρ * r.eval ρ < wordSize :=
-        Nat.lt_of_le_of_lt (Nat.mul_le_mul hl hr) hb
-      have hlt := l.eval_lt ρ
-      have hor : (WExpr.bin .or (.un .iszero r) (.bin .eq (.bin .div (.bin .mul l r) r) l)).eval ρ
-          ≠ 0 := by
-        rw [Ne, or_eval_eq_zero]
-        intro ⟨h1, h2⟩
-        by_cases hw : r.eval ρ = 0
-        · simp [WExpr.eval, UnOp.eval, hw] at h1
-        · have : (WExpr.bin .eq (.bin .div (.bin .mul l r) r) l).eval ρ = 1 := by
-            simp only [WExpr.eval, BinOp.eval, Nat.mod_mod, hw, ↓reduceIte, Nat.mod_eq_of_lt hlr,
-              Nat.mul_div_cancel _ (Nat.pos_of_ne_zero hw), Nat.mod_eq_of_lt hlt]
-            rfl
-          omega
-      rw [show (WExpr.un .iszero (.bin .or (.un .iszero r)
-          (.bin .eq (.bin .div (.bin .mul l r) r) l))).eval ρ =
-          (if (WExpr.bin .or (.un .iszero r) (.bin .eq (.bin .div (.bin .mul l r) r) l)).eval ρ = 0
-            then 1 else 0) % wordSize from rfl, if_neg hor]
-      rfl
-    · rfl
-  · rfl
 
 theorem WExpr.eval_simp {ρ : Val} {K : Facts} (h : K.Hold ρ) : ∀ e : WExpr, (e.simp K).eval ρ = e.eval ρ
   | .lit n => by simp [WExpr.simp, WExpr.eval, Nat.mod_mod]
@@ -670,13 +945,44 @@ theorem Tree.eval_simp {ρ : Val} : ∀ {K : Facts}, K.Hold ρ → ∀ T : Tree,
 
 /-! ## Negations -/
 
+/-- Whether a word is a comparison or a negation, or a conjunction or disjunction of such words,
+so zero or one. -/
+def WExpr.isBool : WExpr → Bool
+  | .un .iszero _ => true
+  | .bin .lt _ _ => true
+  | .bin .gt _ _ => true
+  | .bin .eq _ _ => true
+  | .bin .or a b => a.isBool && b.isBool
+  | .bin .and a b => a.isBool && b.isBool
+  | _ => false
+
+theorem WExpr.isBool_le (ρ : Val) (e : WExpr) (h : e.isBool = true) : e.eval ρ ≤ 1 := by
+  induction e with
+  | un op a _ =>
+    cases op <;> simp [WExpr.isBool] at h
+    simp only [WExpr.eval, UnOp.eval]
+    split <;> simp
+  | bin op a b iha ihb =>
+    cases op <;> simp [WExpr.isBool] at h
+    case or | and =>
+      have ha := iha h.1
+      have hb := ihb h.2
+      rcases (show a.eval ρ = 0 ∨ a.eval ρ = 1 by omega) with h1 | h1 <;>
+        rcases (show b.eval ρ = 0 ∨ b.eval ρ = 1 by omega) with h2 | h2 <;>
+        simp [WExpr.eval, BinOp.eval, h1, h2]
+    all_goals simp only [WExpr.eval, BinOp.eval]; split <;> simp
+  | _ => simp [WExpr.isBool] at h
+
 /-- A branch on `c`, a negation `iszero a`, `eq a 0` or `eq 0 a` turned into a branch on `a`
-with its sides swapped, and a disjunction split as `splitCond` does. -/
+with its sides swapped, a disjunction split as `splitCond` does, and a conjunction of two
+comparisons `and a b` (solar's joined range tests) split into a branch on `a`, then on `b`. -/
 def splitNeg : WExpr → Tree → Tree → Tree
   | .un .iszero a, t, e => splitNeg a e t
   | .bin .eq a (.lit 0), t, e => splitNeg a e t
   | .bin .eq (.lit 0) a, t, e => splitNeg a e t
   | .bin .or a b, t, e => splitNeg a t (splitNeg b t e)
+  | .bin .and a b, t, e =>
+    if a.isBool && b.isBool then splitNeg a (splitNeg b t e) e else .ite (.bin .and a b) t e
   | c, t, e => .ite c t e
 
 /-- Every branch of a tree, its negations and disjunctions split. -/
@@ -702,7 +1008,16 @@ theorem splitNeg_eval (ρ : Val) (c : WExpr) (t e : Tree) :
     rw [iha, ihb]
     simp only [or_eval_eq_zero]
     by_cases ha : a.eval ρ = 0 <;> by_cases hb : b.eval ρ = 0 <;> simp [ha, hb]
-  | case5 => rfl
+  | case5 a b t e hab ihb iha =>
+    rw [iha, ihb]
+    simp only [Bool.and_eq_true] at hab
+    have ha1 := WExpr.isBool_le ρ a hab.1
+    have hb1 := WExpr.isBool_le ρ b hab.2
+    rcases (show a.eval ρ = 0 ∨ a.eval ρ = 1 by omega) with h1 | h1 <;>
+      rcases (show b.eval ρ = 0 ∨ b.eval ρ = 1 by omega) with h2 | h2 <;>
+      simp [WExpr.eval, BinOp.eval, h1, h2]
+  | case6 => rfl
+  | case7 => rfl
 
 theorem Tree.eval_splitNeg (ρ : Val) : ∀ T : Tree, T.splitNeg.eval ρ = T.eval ρ
   | .halt _ _ _ _ => rfl
