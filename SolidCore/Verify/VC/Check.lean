@@ -788,4 +788,31 @@ theorem checkScript_sound {cs : List Cmd} {obs : List (List Tm × Tm)}
   have hp : isProbe e = false := by simpa using he.2
   exact checkOb_sound hc (fun τ hτ => hv e he.1 hp τ hτ) σ hh
 
+/-! ## One function's obligations -/
+
+/-- The commands of the function `name` (`Contract.fn`): those after its `; ===== name` line, up to
+the next function's. -/
+def fnSlice (cs : List Cmd) (name : String) : List Cmd :=
+  let isMark : Cmd → String → Bool := fun c n => match c with
+    | .raw l => l == "; ===== " ++ n
+    | _ => false
+  let isAny : Cmd → Bool := fun c => match c with
+    | .raw l => l.startsWith "; ===== "
+    | _ => false
+  ((cs.dropWhile (fun c => !isMark c name)).drop 1).takeWhile (fun c => !isAny c)
+
+/-- An obligation of solar-verify's, normalized as `checkOb` normalizes it: its facts, flattened,
+and its goal. -/
+def normOb (e : List Tm) : Option (List Tm × Tm) :=
+  let e1 := inline e
+  if e1.all Tm.renameOk then
+    match (e1.map Tm.rename).reverse with
+    | .app "not" [φ] :: rhyps => some (flattenList rhyps, φ)
+    | _ => none
+  else none
+
+/-- The obligations of the function `name`, normalized, without the probe. -/
+def fnObs (cs : List Cmd) (name : String) : List (List Tm × Tm) :=
+  ((obligations (fnSlice cs name)).filter (fun e => !isProbe e)).filterMap normOb
+
 end SolidCore.Verify.VC

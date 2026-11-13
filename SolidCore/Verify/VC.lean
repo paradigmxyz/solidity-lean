@@ -24,6 +24,12 @@ that encoding out of it, one step at a time:
 * `Export`: solar-verify's transcripts of `scripts/verify/Counter.sol` and `Token.sol`
   (`solar-verify --dry-run --dump-lean`), and `Bind`, which checks that each script prints back to
   its transcript byte for byte.
+* `Token` (its own root, since it imports this one): `Token`'s `burn` end to end. The kernel computes
+  that `Token` deploys with only `owner` in storage and that the stage erases `burn` to `burnTree`;
+  `burn_triple` is its ensures clause as a `Triple` against SolidCore, and `burn_obligation` is
+  solar-verify's obligation for it, normalized by `checkScript` and instantiated at the assignment a
+  successful call gives. `KernelIdx` makes `Std.HashMap`, the storage of SolidCore's state, reduce in
+  the kernel (`mkIdx_eq`), which the constructor run needs.
 
 Nothing here uses `native_decide`, `bv_decide` or `ofReduceBool`, or imports
 `SolidCore.Verify.Finite`. `Bind`'s check runs Lean's evaluator (`#guard`), not the kernel: it
