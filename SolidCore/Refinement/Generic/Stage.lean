@@ -38,12 +38,14 @@ with others and mappings to `uint256` (reads, writes and compound assignments su
 erases, dispatched by selector with static call data. `check` asks, for each function of `fns`, that its selector fits in four bytes,
 that SolidCore dispatches it to a function with that many parameters, and that the two trees
 agree: the erasure of the SolidCore function in the contract's `envOf` and the symbolic run of
-the MIR module on its selector, compared by `=` on their canonical forms (`Tree.canon`).
+the MIR module on its selector, compared by `=` on their canonical forms (`Tree.canonWith solHash`:
+`Tree.canon`, with the hash of two constants folded by SolidCore's slot hash).
 
 The proof joins the two halves: `source_run` (SolidCore runs the call as the erased tree, with
 the call's argument words, storage and `solHash`) and `symTree_sound` (the module runs the call as
 its symbolic tree), with `callFacts` giving the symbolic run's facts about the call data, and
-`Tree.eval_canon` the agreement of the trees.
+`Tree.eval_canonWith` the agreement of the trees, on calls whose hash is `solHash` as both halves'
+are.
 
 `calldataWord_eq` and its two helpers are Solar.W1's, restated here so that the generic stage
 does not depend on a milestone's artifacts.
@@ -176,7 +178,7 @@ def checkFn (fuel mirFuel : Nat) (core : Contract) (m : Module) (env : EnvFlags)
     | some fn =>
       decide (fn.params.length = f.params.length) &&
         match eraseFn (envOf core) fuel fn, symTree m f.sel f.params.length mirFuel env with
-        | some t1, some t2 => decide (t1.canon = t2.canon)
+        | some t1, some t2 => decide (t1.canonWith solHash = t2.canonWith solHash)
         | _, _ => false
 
 /-- Whether every function of `fns` lowers to `m`, with the environment flag `env` (off by
@@ -212,7 +214,7 @@ theorem stageAtWith (o : Oracle) {fuel mirFuel : Nat} {c : TypeCheck.CheckedCont
   cases hrun
   rw [← hlen] at ht2
   rw [symTree_sound (callFacts f.sel hsel args hargs σ) o m (henv.envAsk _ _) ht2,
-    ← Tree.eval_canon, ← hcf, Tree.eval_canon]
+    ← Tree.eval_canonWith rfl, ← hcf, Tree.eval_canonWith rfl]
 
 /-- **The generic source stage**: a checked contract whose constructor leaves the storage entries
 `s` and no logs and a lowered MIR module that `check` accepts give the stage from SolidCore to the
