@@ -68,13 +68,13 @@ jobs:
         env:
           LEAN_NUM_THREADS: "2"
         run: |
-          lake build -KleanMemory=6000 Loom Verify VerifySpec VerifySpecTrustedBase VerifyLoom VerifyDischarge VerifyVC ContractsVC ContractsCounter ContractsArrayMaxVault ContractsVerifyCounter ContractsToken
+          lake build -KleanMemory=6000 Loom Verify VerifySpec VerifySpecTrustedBase VerifyLoom VerifyDischarge VerifyVC ContractsVC ContractsCounter ContractsArrayMaxVault ContractsVerifyCounter ContractsToken ContractsCallFamilies
 
       - name: Build SolidCore's refinement milestones
         env:
           LEAN_NUM_THREADS: "2"
         run: |
-          lake build -KleanMemory=7000 SolidCore SolidCoreSolarW4 SolidCoreSolarC4 SolidCoreSolarMulX SolidCoreSolarBank SolidCoreSolarBankSource SolidCoreSolarTotality ContractsC4Spec SolidCore.Refinement.Axioms.Audit SolidCore.Refinement.Axioms.Main SolidCore.Refinement.Axioms.C4 SolidCore.Refinement.Axioms.MulX SolidCore.Refinement.Axioms.W4 SolidCore.Refinement.Axioms.CounterGeneric SolidCore.Refinement.Axioms.Contracts SolidCore.Refinement.Axioms.Token SolidCore.Refinement.Axioms.VerifyCounter
+          lake build -KleanMemory=7000 SolidCore SolidCoreSolarW4 SolidCoreSolarC4 SolidCoreSolarMulX SolidCoreSolarBank SolidCoreSolarBankSource SolidCoreSolarTotality SolidCoreSolarAssemblyEnv SolidCoreSolarRunOracle ContractsC4Spec SolidCore.Refinement.Axioms.Audit SolidCore.Refinement.Axioms.Main SolidCore.Refinement.Axioms.C4 SolidCore.Refinement.Axioms.MulX SolidCore.Refinement.Axioms.W4 SolidCore.Refinement.Axioms.CounterGeneric SolidCore.Refinement.Axioms.Contracts SolidCore.Refinement.Axioms.Token SolidCore.Refinement.Axioms.VerifyCounter
 
       - name: Save the Lake build
         if: always()

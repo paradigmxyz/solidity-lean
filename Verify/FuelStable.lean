@@ -126,6 +126,11 @@ theorem eraseStmt_mono (E : EraseEnv) : ∀ (n m : Nat), n ≤ m →
       simp only [Option.bind_eq_bind, Option.bind_eq_some_iff] at h ⊢
       obtain ⟨b0, h0, hb⟩ := h
       exact ⟨b0, ih _ _ _ h0, hb⟩
+    -- An `unchecked` block: its erasure needs fuel 2 and does not recurse.
+    all_goals
+      split at h
+      · rw [if_pos (by omega)]; exact h
+      · simp at h
 
 /-- **An erased function's tree at fuel `n` is its tree at every `m ≥ n`.** -/
 theorem eraseFn_mono {E : EraseEnv} {n m : Nat} (hnm : n ≤ m) {fn : Source.FunctionDef} {T : Tree}

@@ -22,7 +22,13 @@ run however many blocks it enters (`maxH t + budget t ≤ 1000`).
 
 The rest is `Assemble.check`'s: the code's linear decoding is the lowered program at the
 layout, labels are valid jump destinations, the stack types, memory accesses at constant
-offsets below the certificate's bound, and the same fragment of instructions.
+offsets below the certificate's bound, and the same fragment of instructions, with SLT, SGT,
+ADDRESS and the reads of the block and the transaction `envRead` names (TIMESTAMP, NUMBER,
+CHAINID, COINBASE, GASLIMIT, GASPRICE, ORIGIN) besides. ADDRESS needs no hypothesis: it reads
+the callee both semantics fix. The reads need the certificate's `reads` flag, and the theorems
+then hold under every oracle whose reads are those of EthLib's environment of the call
+(`EnvOk`, met by `envOracle` of any oracle). External calls, GAS, RETURNDATASIZE,
+RETURNDATACOPY, CALLDATACOPY, CODECOPY, creations and immutables stay outside.
 -/
 
 namespace SolidCore.Refinement.Solar.AssembleLoop
@@ -88,6 +94,9 @@ def blockStepL (p : Program) (c : Cert) (mx : List Nat) (b : Nat)
   | h, _, ty, k, .effect .calldatasize 0 => decide (1 ≤ k) && ok (h + 1) [] (some false :: ty) (k - 1)
   | h, _, ty, k, .effect .caller 0 =>
     c.env && decide (1 ≤ k) && ok (h + 1) [] (some false :: ty) (k - 1)
+  | h, _, ty, k, .effect .address 0 => decide (1 ≤ k) && ok (h + 1) [] (some false :: ty) (k - 1)
+  | h, _, ty, k, .effect (.env name) 0 =>
+    c.reads && (envRead name).isSome && decide (1 ≤ k) && ok (h + 1) [] (some false :: ty) (k - 1)
   | h, _, ty, k, .effect .calldataload 1 => decide (1 ≤ k) && decide (1 ≤ h) && isData ty 1 &&
     ok h [] (some false :: ty.drop 1) (k - 1)
   | h, _, ty, k, .effect .sload 1 => decide (1 ≤ k) && decide (1 ≤ h) && isData ty 1 &&
@@ -337,6 +346,37 @@ local macro "un_ruleG" agree:term : tactic => `(tactic| (
   rw [← $agree x]
   exact unaryG hlt hcode rfl (instr_stack _ _ rfl) (Nat.le_trans (m := 3) (by decide) hgas)))
 
+/-- ADDRESS pushes the word of the callee, `SolarTV.environment.callee`. -/
+theorem address_word : (Target.address selfAddress).toU256 =
+    BitVec.ofNat 256 SolarTV.environment.callee := by
+  decide +kernel
+
+/-- An environment read of the fragment pushes the word `envRead` gives, for 2 gas, from
+EthLib's environment of `Target`'s calls. -/
+theorem env_readG {name : String} {byte w : Nat} {stack : List Word}
+    (he : envRead name = some (byte, w)) (hlt : pc < code.size)
+    (hcode : code[pc] = UInt8.ofNat byte) (hblock : msg.blockEnv = Target.blockEnv)
+    (htx : msg.txEnv = Target.txEnv) (hgas : 2 ≤ gas) (hstack : stack.length < STACK_LIMIT) :
+    HoareG .fusaka (At code msg pc stack M gas st ss .empty)
+      (At code msg (pc + 1) (BitVec.ofNat 256 w :: stack) M (gas - 2) st ss .empty) := by
+  unfold envRead at he
+  split at he <;> simp only [Option.some.injEq, Prod.mk.injEq, reduceCtorEq] at he <;>
+    obtain ⟨rfl, rfl⟩ := he
+  · exact (push_of_readFrameGA (op := .origin) hlt hcode (ofByte_of_decode rfl (by decide)) rfl
+      (fun _ _ hm _ _ => by rw [hm, htx]; decide +kernel) hgas hstack).toG
+  · exact (push_of_readFrameGA (op := .gasprice) hlt hcode (ofByte_of_decode rfl (by decide)) rfl
+      (fun _ _ hm _ _ => by rw [hm, htx]; decide +kernel) hgas hstack).toG
+  · exact (push_of_readFrameGA (op := .coinbase) hlt hcode (ofByte_of_decode rfl (by decide)) rfl
+      (fun _ _ hm _ _ => by rw [hm, hblock]; decide +kernel) hgas hstack).toG
+  · exact (push_of_readFrameGA (op := .timestamp) hlt hcode (ofByte_of_decode rfl (by decide)) rfl
+      (fun _ _ hm _ _ => by rw [hm, hblock]; decide +kernel) hgas hstack).toG
+  · exact (push_of_readFrameGA (op := .number) hlt hcode (ofByte_of_decode rfl (by decide)) rfl
+      (fun _ _ hm _ _ => by rw [hm, hblock]; decide +kernel) hgas hstack).toG
+  · exact (push_of_readFrameGA (op := .gaslimit) hlt hcode (ofByte_of_decode rfl (by decide)) rfl
+      (fun _ _ hm _ _ => by rw [hm, hblock]; decide +kernel) hgas hstack).toG
+  · exact (push_of_readFrameGA (op := .chainid) hlt hcode (ofByte_of_decode rfl (by decide)) rfl
+      (fun _ _ hm _ _ => by rw [hm, hblock]; decide +kernel) hgas hstack).toG
+
 /-- `Assemble.stack_rule_cheap` over steps monotone in gas. -/
 theorem stack_rule_cheapG {op : SolarTV.EVM.Op} {byte : Nat} {stack next : List Word}
     {r : Word} (hm : low op = false) (hb : opByte op = some byte) (hlt : pc < code.size)
@@ -351,6 +391,8 @@ theorem stack_rule_cheapG {op : SolarTV.EVM.Op} {byte : Nat} {stack next : List 
   case sub => bin_ruleG sub_agree
   case lt => bin_ruleG lt_agree
   case gt => bin_ruleG gt_agree
+  case slt => bin_ruleG slt_agree
+  case sgt => bin_ruleG sgt_agree
   case eq => bin_ruleG eq_agree
   case and => bin_ruleG and_agree
   case or => bin_ruleG or_agree

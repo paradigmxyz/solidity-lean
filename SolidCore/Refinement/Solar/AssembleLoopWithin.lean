@@ -84,11 +84,14 @@ open SolidCore.Refinement.Solar.Assemble SolidCore.Refinement.Evm.Wide SolidCore
   SolidCore.Refinement.Evm.Symex in
 /-- **EVM IR to bytecode at every gas, for code with loops.** For every program and code the checker
 of code with loops accepts, under every oracle whose caller and hash are EthLib's when the program
-reads them, at every gas: every result the bytecode gives on a call is the result SolarTV's EVM IR
-semantics gives, or a failure that leaves the storage and logs nothing. -/
+reads them and whose reads of the block and the transaction are EthLib's when the program reads
+them (`EnvOk`, which the certificate's `reads` states), at every gas: every result the bytecode
+gives on a call is the result SolarTV's EVM IR semantics gives, or a failure that leaves the
+storage and logs nothing. -/
 theorem within_of_checkL {p : Assemble.Program} {code : ByteArray} {c : Cert} {mx : List Nat}
     (hc : checkL p code c mx = true) (o : SolarTV.Machine.Oracle) (ho : c.env = true → OracleOk o)
-    (scope : SolarTV.Call → Prop) (gas : Nat) :
+    (scope : SolarTV.Call → Prop) (gas : Nat)
+    (he : c.reads = true → EnvOk o := by intro h; exact absurd h (by decide)) :
     Within (SolarTV.evmirSem o) (ethLibWith gas) p code scope := by
   obtain ⟨G, hseg, hneed0⟩ := globL_of_checkL hc
   intro call _ obs hrun
@@ -120,7 +123,7 @@ theorem within_of_checkL {p : Assemble.Program} {code : ByteArray} {c : Cert} {m
       (SolarTV.Machine.State.initial call) .empty (gas + K) :=
     ⟨by rw [List.drop_zero]; exact hseg, by rw [hm0]; omega, by simp, memRel_initial⟩
   have hsim := run_simL (msg := msg) (ss0 := ss') G rfl (by simp [msg, Final.Target.messageWith,
-    Target.message]) rfl rfl rfl ho n 0 [] [] _ 0 .empty (gas + K) st' ss' (Nat.zero_le _)
+    Target.message]) rfl rfl rfl ho rfl rfl he n 0 [] [] _ 0 .empty (gas + K) st' ss' (Nat.zero_le _)
     (fun _ => ⟨by simp [hneed0], by simp⟩) (SR.nil c _) E0 R
   have hl : At code msg 0 [] .empty gas st' ss' .empty (startFrame msg st' ss' msg.gas) :=
     ⟨by simp [startFrame, hcode], by simp [startFrame, hcode], rfl, rfl, rfl, rfl, rfl, rfl, rfl,

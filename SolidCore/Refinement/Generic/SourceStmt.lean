@@ -258,10 +258,63 @@ theorem unschedule_map {α β : Type} (f : α → β) (sched : List Nat) (vals :
   simp only [unschedule, List.map_filterMap, List.zip_map_right, List.find?_map, Option.map_map]
   rfl
 
+/-! ## `unchecked` blocks of the fragment
+
+An `unchecked` block of the fragment is SafeMath's check of a wrapped result: one
+`require((z = a op b) cmp c, msg)` whose local `z` takes the wrapped `a op b` (`+` or `-`
+of locals, no overflow check) and whose condition compares it with `c` (`>=`, `<=` or
+`!=`). SolidCore evaluates the right operand `c` first, then the assignment. -/
+
+/-- The wrapping operators of an `unchecked` block of the fragment. -/
+def wrapOf : BinaryOp → Option BinOp
+  | .add => some .add
+  | .sub => some .sub
+  | _ => none
+
+/-- The word of an expression of an `unchecked` block of the fragment: locals under `uint256`
+cleanups and wrapping `+` and `-` of them, none of which reverts. -/
+def wrapRead (S : SymState) : Expr → Option WExpr
+  | .var x => Scopes.get? S.scopes x
+  | .castOp .uintCleanup 256 e => wrapRead S e
+  | .binary op l r => do
+    let o ← wrapOf op
+    let vl ← wrapRead S l
+    let vr ← wrapRead S r
+    some (.bin o vl vr)
+  | _ => none
+
+/-- The word of `a >= b`, `a <= b` or `a != b`, with `<=` as solar compares, by `lt` of the
+swapped operands. -/
+def cmpOf : BinaryOp → WExpr → WExpr → Option WExpr
+  | .ge, a, b => some (.un .iszero (.bin .lt a b))
+  | .le, a, b => some (.un .iszero (.bin .lt b a))
+  | .ne, a, b => some (.un .iszero (.bin .eq a b))
+  | _, _, _ => none
+
+/-- A `require` condition `(z = rhs) cmp c` of an `unchecked` block of the fragment: the local `z`,
+its new word and the condition's word. -/
+def uncheckedCond (S : SymState) : Expr → Option (String × WExpr × WExpr)
+  | .binary cmp (.castOp .uintCleanup 256 (.assignment none none (.var z) rhs)) c => do
+    let vc ← wrapRead S c
+    let w ← wrapRead S rhs
+    let v ← cmpOf cmp w vc
+    some (z, w, v)
+  | _ => none
+
+/-- The erasure of the body of an `unchecked` block of the fragment: a block of one `require`
+whose condition assigns a local, as SafeMath's `add` and `sub` check their wrapped result. -/
+def eraseUnchecked (S : SymState) : Stmt → Option Br
+  | .block [.requireStmt c r] => do
+    let (z, w, v) ← uncheckedCond S.push c
+    let L ← Scopes.set S.push.scopes z w
+    some (Br.mapS SymState.pop
+      (.ite v (.leaf (.normal { S.push with scopes := L })) (.leaf (.reverted (failOf r)))))
+  | _ => none
+
 /-- The erasure of a statement of the fragment with fuel `n`, the fuel SolidCore runs it with:
 skips, blocks (a scope each), assignments to locals and to storage fields, compound assignments
 to storage fields (`v += x`, `w ^= x`: the operation's overflow check, then the cleanup's range
-check), returns, `if` and panics. -/
+check), returns, `if`, panics and SafeMath's `unchecked` blocks (`eraseUnchecked`). -/
 def eraseStmt (E : EraseEnv) : Nat → Stmt → SymState → Option Br
   | 0, _, _ => none
   | n + 1, s, S =>
@@ -364,6 +417,7 @@ def eraseStmt (E : EraseEnv) : Nat → Stmt → SymState → Option Br
         some (guards gs (.leaf (.normal { S with logs := S.logs ++
           [⟨.lit t :: evTopics decl.fields ws, (evData decl.fields ws).flatMap wordOBytes⟩] })))
       else none
+    | .unchecked body => if 2 ≤ n then eraseUnchecked S body else none
     | _ => none
 
 
@@ -1292,6 +1346,191 @@ theorem capture_ok {ρ : Val} {E : EraseEnv} {ctx : Context} (names : List Strin
   | .broke _, _, _, h1, _ | .continued _, _, _, h1, _ | .selfdestructed _, _, _, h1, _ => by
     first | (cases h1) | (rename_i l; cases l <;> cases h1) | skip
 
+theorem uintCleanup_256_unchecked (w : Nat) (hw : w < wordSize) :
+    uintCleanup? false 256 (.word w) = .ok (.word w) := by
+  simp [uintCleanup?, Value.forceAbiLazy, Value.asStorageWord?, norm_lt hw, uintCast?, bind,
+    Except.bind, Nat.mod_eq_of_lt hw]
+
+theorem apply_add_wrap (a b : Nat) (ha : a < wordSize) (hb : b < wordSize) :
+    BinaryOp.apply false .add (.word a) (.word b) = .ok (.word ((a + b) % wordSize)) := by
+  simp [BinaryOp.apply, Value.forceAbiLazy, BinaryOp.applyWord, norm_lt ha, norm_lt hb,
+    bind, Except.bind, Functor.map, Except.map, checkedAdd, addWord_eq]
+
+theorem apply_sub_wrap (a b : Nat) (ha : a < wordSize) (hb : b < wordSize) :
+    BinaryOp.apply false .sub (.word a) (.word b) = .ok (.word ((a + (wordSize - b)) % wordSize)) := by
+  simp [BinaryOp.apply, Value.forceAbiLazy, BinaryOp.applyWord, norm_lt ha, norm_lt hb,
+    bind, Except.bind, Functor.map, Except.map, checkedSub, subWord_eq a b ha hb]
+
+theorem apply_ge_unchecked (a b : Nat) (ha : a < wordSize) (hb : b < wordSize) :
+    BinaryOp.apply false .ge (.word a) (.word b) = .ok (.word (if a < b then 0 else 1)) := by
+  by_cases h : a < b <;>
+  simp [BinaryOp.apply, Value.forceAbiLazy, BinaryOp.applyWord, bind, Except.bind, Functor.map,
+    Except.map, ltWord_eq, Nat.mod_eq_of_lt ha, Nat.mod_eq_of_lt hb, boolWord, wordTruthy, h,
+    SolidCore.Solidity.Shared.norm, modulus_eq]
+
+theorem apply_le_unchecked (a b : Nat) (ha : a < wordSize) (hb : b < wordSize) :
+    BinaryOp.apply false .le (.word a) (.word b) = .ok (.word (if b < a then 0 else 1)) := by
+  by_cases h : b < a <;>
+  simp [BinaryOp.apply, Value.forceAbiLazy, BinaryOp.applyWord, bind, Except.bind, Functor.map,
+    Except.map, gtWord_eq, Nat.mod_eq_of_lt ha, Nat.mod_eq_of_lt hb, boolWord, wordTruthy, h,
+    SolidCore.Solidity.Shared.norm, modulus_eq]
+
+theorem apply_ne_unchecked (a b : Nat) (ha : a < wordSize) (hb : b < wordSize) :
+    BinaryOp.apply false .ne (.word a) (.word b) = .ok (.word (if a = b then 0 else 1)) := by
+  by_cases h : a = b <;>
+  simp [BinaryOp.apply, Value.forceAbiLazy, bind, Except.bind, Functor.map, Except.map, boolWord, wordEq,
+    norm_lt ha, norm_lt hb, h]
+
+theorem eval_wrapRead (ρ : Val) (ctx : Context) (rt : Runtime) (S : SymState)
+    (hchk : ctx.checked = false)
+    (hloc : ∀ x e, Scopes.get? S.scopes x = some e → rt.lookupLocal? x = some (.word (e.eval ρ))) :
+    ∀ (e : Expr) (w : WExpr) (fuel : Nat), wrapRead S e = some w → Expr.orderFuel e < fuel →
+      Expr.evalFuel fuel ctx rt e = .done (.ok (.word (w.eval ρ), rt)) := by
+  intro e w fuel h hf
+  obtain ⟨n, rfl⟩ : ∃ n, fuel = n + 1 := ⟨fuel - 1, by omega⟩
+  cases e
+  case var x =>
+    simp only [wrapRead] at h
+    have hl := hloc x w h
+    simp [Expr.evalFuel, Runtime.lookupStorageBase?, hl, Runtime.derefMemoryValue]
+    rfl
+  case castOp k b e =>
+    cases k
+    case uintCleanup =>
+      by_cases hb : b = 256
+      · subst hb
+        simp only [wrapRead] at h
+        have ih := eval_wrapRead ρ ctx rt S hchk hloc e w n h (by simp [Expr.orderFuel] at hf; omega)
+        simp only [Expr.evalFuel, ih, hchk]
+        simp only [bind, EvmCompiler.Simulation.Interaction.bind, liftM, monadLift,
+          MonadLift.monadLift, uintCleanup_256_unchecked _ (w.eval_lt ρ), SolI.ofExcept]
+        rfl
+      · simp [wrapRead, hb] at h
+    all_goals simp [wrapRead] at h
+  case binary op l r =>
+    cases hl : wrapRead S l with
+    | none => simp [wrapRead, hl] at h
+    | some vl =>
+    cases hr : wrapRead S r with
+    | none => simp [wrapRead, hl, hr] at h
+    | some vr =>
+    have ihl := eval_wrapRead ρ ctx rt S hchk hloc l vl n hl (by simp [Expr.orderFuel] at hf; omega)
+    have ihr := eval_wrapRead ρ ctx rt S hchk hloc r vr n hr (by simp [Expr.orderFuel] at hf; omega)
+    have hal := vl.eval_lt ρ
+    have har := vr.eval_lt ρ
+    cases op <;> simp only [wrapRead, wrapOf, hl, hr, Option.bind_eq_bind, Option.bind_some,
+      Option.some.injEq, reduceCtorEq, Option.bind_none] at h
+    all_goals
+      subst h
+      simp only [Expr.evalFuel, ihr, ihl, hchk]
+      simp only [pure, EvmCompiler.Simulation.Interaction.pure, bind,
+        EvmCompiler.Simulation.Interaction.bind, liftM, monadLift, MonadLift.monadLift, ihl, ihr,
+        apply_add_wrap _ _ hal har, apply_sub_wrap _ _ hal har, SolI.ofExcept]
+      simp [WExpr.eval, BinOp.eval, Nat.mod_mod]
+  all_goals simp [wrapRead] at h
+
+theorem eval_uncheckedCond (ρ : Val) (ctx : Context) (rt : Runtime) (S : SymState)
+    (hchk : ctx.checked = false) (hframes : rt.locals = S.scopes.map (frameOf ρ))
+    (hloc : ∀ x e, Scopes.get? S.scopes x = some e → rt.lookupLocal? x = some (.word (e.eval ρ)))
+    {c : Expr} {z : String} {w v : WExpr} {L : Scopes}
+    (h : uncheckedCond S c = some (z, w, v)) (hL : Scopes.set S.scopes z w = some L) :
+    ∀ fuel, Expr.orderFuel c < fuel →
+      Expr.evalFuel fuel ctx rt c = .done (.ok (.word (v.eval ρ), { rt with locals := L.map (frameOf ρ) })) := by
+  intro fuel hf
+  unfold uncheckedCond at h
+  split at h
+  case h_2 => simp at h
+  rename_i cmp z' rhs c2
+  simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq, Prod.mk.injEq] at h
+  obtain ⟨vc, hc, w', hw, v', ho, rfl, rfl, rfl⟩ := h
+  obtain ⟨old, hold⟩ := Scopes.get?_of_set hL
+  have hx := hloc z' old hold
+  have hbase : rt.lookupStorageBase? z' = none := by simp [Runtime.lookupStorageBase?, hx]
+  have hassign : rt.assignLocal? z' (.word (w'.eval ρ)) = some { rt with locals := L.map (frameOf ρ) } := by
+    simp [Runtime.assignLocal?, hx, Value.coerceLike?, hframes, env_assign ρ S.scopes z' w', hL]
+  simp only [Expr.orderFuel] at hf
+  obtain ⟨n, rfl⟩ : ∃ n, fuel = n + 1 := ⟨fuel - 1, by omega⟩
+  obtain ⟨m, rfl⟩ : ∃ m, n = m + 1 := ⟨n - 1, by omega⟩
+  obtain ⟨k, rfl⟩ : ∃ k, m = k + 1 := ⟨m - 1, by omega⟩
+  obtain ⟨j, rfl⟩ : ∃ j, k = j + 1 := ⟨k - 1, by omega⟩
+  have hvc := eval_wrapRead ρ ctx rt S hchk hloc c2 vc (j + 1 + 1 + 1) hc (by omega)
+  have hvw := eval_wrapRead ρ ctx rt S hchk hloc rhs w' (j + 1) hw (by omega)
+  have hres : Expr.resolveLValueFuel (j + 1) ctx rt (.var z') = .done (.ok (.local z', rt)) := by
+    simp [Expr.resolveLValueFuel, hbase, hx]
+    rfl
+  have hwv := w'.eval_lt ρ
+  have hcv := vc.eval_lt ρ
+  have hA : Expr.evalFuel (j + 1 + 1) ctx rt (.assignment none none (.var z') rhs) =
+      .done (.ok (.word (w'.eval ρ), { rt with locals := L.map (frameOf ρ) })) := by
+    rw [Expr.evalFuel]
+    simp only [pure, EvmCompiler.Simulation.Interaction.pure, bind,
+      EvmCompiler.Simulation.Interaction.bind, liftM, monadLift, MonadLift.monadLift, hvw, hres,
+      ResolvedLValue.write, hassign, SolI.ofExcept]
+  have hC : Expr.evalFuel (j + 1 + 1 + 1) ctx rt
+      (.castOp .uintCleanup 256 (.assignment none none (.var z') rhs)) =
+      .done (.ok (.word (w'.eval ρ), { rt with locals := L.map (frameOf ρ) })) := by
+    rw [Expr.evalFuel]
+    simp only [pure, EvmCompiler.Simulation.Interaction.pure, bind,
+      EvmCompiler.Simulation.Interaction.bind, liftM, monadLift, MonadLift.monadLift, hA, hchk,
+      uintCleanup_256_unchecked _ hwv, SolI.ofExcept]
+  cases cmp <;> simp [cmpOf] at ho
+  all_goals
+    subst ho
+    rw [Expr.evalFuel] <;> try (intro h; cases h)
+    simp only [pure, EvmCompiler.Simulation.Interaction.pure, bind,
+      EvmCompiler.Simulation.Interaction.bind, liftM, monadLift, MonadLift.monadLift, hvc, hC, hchk,
+      SolI.ofExcept, apply_ge_unchecked _ _ hwv hcv, apply_le_unchecked _ _ hwv hcv,
+      apply_ne_unchecked _ _ hwv hcv]
+    simp only [WExpr.eval, BinOp.eval, UnOp.eval]
+    split <;> simp_all
+
+theorem eval_unchecked (ρ : Val) (E : EraseEnv) (ctx : Context) (k : Nat) (body : Stmt)
+    (S : SymState) (b : Br) (h : eraseUnchecked S body = some b) (rt : Runtime)
+    (hrel : StmtRel ρ E ctx rt S) :
+    ∃ r, Stmt.eval (k + 2) E.tbl { ctx with checked := false } rt body = .done (.ok r) ∧
+      LeafRel ρ E ctx r (b.eval ρ) := by
+  unfold eraseUnchecked at h
+  split at h
+  case h_2 => simp at h
+  rename_i c rs
+  simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
+  obtain ⟨⟨z, w, v⟩, hc, L, hL, rfl⟩ := h
+  have hrel' := hrel.pushScope
+  have hcond : Expr.eval { ctx with checked := false } rt.pushScope c =
+      .done (.ok (.word (v.eval ρ), { rt.pushScope with locals := L.map (frameOf ρ) })) :=
+    eval_uncheckedCond ρ _ rt.pushScope S.push rfl hrel'.frames
+      (fun x e he => hrel'.expr.locals x e he) hc hL _ (Nat.lt_succ_self _)
+  have hrelL : StmtRel ρ E ctx { rt.pushScope with locals := L.map (frameOf ρ) }
+      { S.push with scopes := L } := { hrel' with frames := rfl }
+  have hinner : ∃ r, Stmt.evalList (k + 1) E.tbl { ctx with checked := false } rt.pushScope
+      [.requireStmt c rs] = .done (.ok r) ∧
+      LeafRel ρ E ctx r ((Br.ite v (.leaf (.normal { S.push with scopes := L }))
+        (.leaf (.reverted (failOf rs)))).eval ρ) := by
+    rw [Stmt.evalList, Stmt.eval]
+    simp only [hcond, caught_done_ok, bind_done_ok, Value.expectWord, norm_lt (v.eval_lt ρ), Br.eval,
+      wordTruthy]
+    by_cases hv : v.eval ρ = 0
+    · cases rs
+      case none =>
+        refine ⟨.reverted { rt.pushScope with locals := L.map (frameOf ρ) } .empty, ?_, by simp only [hv, ↓reduceIte, LeafRel]; rfl⟩
+        simp [hv, Stmt.evalList]
+        rfl
+      case some m =>
+        refine ⟨.reverted { rt.pushScope with locals := L.map (frameOf ρ) } (.error m), ?_, by simp only [hv, ↓reduceIte, LeafRel]; rfl⟩
+        simp [hv, Stmt.evalList]
+        rfl
+    · refine ⟨.normal { rt.pushScope with locals := L.map (frameOf ρ) }, ?_, by simp only [hv, ↓reduceIte, LeafRel]; exact hrelL⟩
+      simp [hv, SolidCore.Solidity.Shared.norm, modulus_eq, Nat.mod_eq_of_lt (v.eval_lt ρ),
+        Stmt.evalList]
+      rfl
+  obtain ⟨r, hr, hl⟩ := hinner
+  refine ⟨r.mapRuntime Runtime.popScope, ?_, ?_⟩
+  · rw [Stmt.eval]
+    simp only [hr, bind, EvmCompiler.Simulation.Interaction.bind]
+    rfl
+  · rw [Br.eval_mapS]
+    exact hl.popScope
+
 theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
     ∀ n s S b, eraseStmt E n s S = some b → ∀ rt, StmtRel ρ E ctx rt S →
       ∃ r, Stmt.eval n E.tbl ctx rt s = .done (.ok r) ∧ LeafRel ρ E ctx r (b.eval ρ) := by
@@ -1738,6 +1977,14 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
         all_goals simp [eraseStmt] at h
         all_goals simp [eraseStmt] at h
       all_goals simp [eraseStmt] at h
+    case unchecked body =>
+      simp only [eraseStmt] at h
+      split at h
+      case isFalse => simp at h
+      rename_i hn
+      obtain ⟨k, rfl⟩ : ∃ k, n = k + 2 := ⟨n - 2, by omega⟩
+      obtain ⟨r, hr, hl⟩ := eval_unchecked ρ E ctx k body S b h rt hrel
+      exact ⟨r, by rw [Stmt.eval]; exact hr, hl⟩
     all_goals simp [eraseStmt] at h
 
 

@@ -61,7 +61,9 @@ theorem run_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteA
     {o : SolarTV.Machine.Oracle} {call : SolarTV.Call} {msg : Message .fusaka} {ss0 : Substate}
     (hdata : msg.data = call.calldata) (hvalue : msg.value = BitVec.ofNat 256 call.callvalue)
     (hstatic : msg.isStatic = false) (hself : msg.currentTarget = Target.address selfAddress)
-    (hcaller : msg.caller = Target.address callerAddress) (ho : c.env = true → OracleOk o) :
+    (hcaller : msg.caller = Target.address callerAddress) (ho : c.env = true → OracleOk o)
+    (hbenv : msg.blockEnv = Target.blockEnv) (htx : msg.txEnv = Target.txEnv)
+    (he : c.reads = true → EnvOk o) :
     ∀ (fuel b : Nat) (S T : List Word) (s : SolarTV.Machine.State) (pc : Nat) (M : ByteArray)
       (g : Nat) (st : State.TransactionState) (ss : Substate),
       b ≤ p.blocks.length → (b < p.blocks.length → c.need b ≤ S.length ∧ S.length ≤ maxH mx b) →
@@ -109,7 +111,7 @@ theorem run_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteA
           simp only [ht, Bool.false_eq_true, ite_false, List.nil_append] at E'
           exact ⟨pc, g, Triple.of_imp fun _ h => h, by simp only [ht, Bool.false_eq_true, ite_false]; omega,
             ⟨E'.seg, by omega, by omega, E'.le_top, E'.mem⟩⟩
-      have hsim := exec_simL (o := o) G hdata hvalue hstatic hself hcaller ho b hb (fuel * bmax c)
+      have hsim := exec_simL (o := o) G hdata hvalue hstatic hself hcaller ho hbenv htx he b hb (fuel * bmax c)
         p.blocks[b] (c.need b) [] (c.entry b) S T _ s pc1 M g1 st ss hblock hn (by omega)
         (List.nil_prefix) hR I1 R
       simp only [SolarTV.Machine.iterate, block, hblk]
@@ -120,7 +122,7 @@ theorem run_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteA
         subst hr
         exact SpecG.seq hlabel hsim
       · obtain ⟨⟨htle, hneedt, hj⟩, pc', T', M', g', st', ss', hh, hR', E', R'⟩ := hsim
-        have IH := run_simL G hdata hvalue hstatic hself hcaller ho fuel t S' T' s' pc' M' g' st' ss'
+        have IH := run_simL G hdata hvalue hstatic hself hcaller ho hbenv htx he fuel t S' T' s' pc' M' g' st' ss'
           htle hneedt hR' E' R'
         refine ⟨fun r hr => SpecG.seq (Triple.seq hlabel hh) (IH.1 r hr), fun hr evm hp => ?_⟩
         obtain ⟨e1, r1, he1⟩ := hlabel evm hp

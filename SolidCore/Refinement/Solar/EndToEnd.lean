@@ -43,10 +43,11 @@ theorem within_of_checkL {stage0 : MIR.Lowered.moduleLayer.Prog} {p : Assemble.P
     (back : Certified EVM.Program.layer MIR.Lowered.moduleLayer o p stage0 S)
     (hS : ∀ call, scope call → S call)
     (hc : AssembleLoop.checkL p code c mx = true) (ho : c.env = true → Assemble.OracleOk o)
-    (gas : Nat) :
+    (gas : Nat)
+    (he : c.reads = true → Assemble.EnvOk o := by intro h; exact absurd h (by decide)) :
     Within (mirSem o) (ethLibWith gas) stage0 code scope := by
   intro call hcall obs hrun
-  rcases AssembleLoop.within_of_checkL hc o ho scope gas call hcall obs hrun with h | h
+  rcases AssembleLoop.within_of_checkL hc o ho scope gas he call hcall obs hrun with h | h
   · exact Or.inl (stage_of_certified back call (hS call hcall) obs h)
   · exact Or.inr h
 
@@ -57,8 +58,10 @@ theorem holds_of_checkL {St : Type} {spec : ContractSpec St} {stage0 : MIR.Lower
     (back : Certified EVM.Program.layer MIR.Lowered.moduleLayer o p stage0 S)
     (hS : ∀ call, spec.Calls call → S call)
     (hc : AssembleLoop.checkL p code c mx = true) (ho : c.env = true → Assemble.OracleOk o)
-    (gas : Nat) : Holds (ethLibWith gas) code spec :=
-  holds.of_within (within_of_checkL back hS hc ho gas)
+    (gas : Nat)
+    (he : c.reads = true → Assemble.EnvOk o := by intro h; exact absurd h (by decide)) :
+    Holds (ethLibWith gas) code spec :=
+  holds.of_within (within_of_checkL back hS hc ho gas he)
 
 /-- info: 'SolidCore.Refinement.Solar.EndToEnd.stage_of_check' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs (whitespace := lax) in

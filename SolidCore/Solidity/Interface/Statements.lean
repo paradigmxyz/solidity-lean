@@ -10912,6 +10912,68 @@ def UsingDecls.rewriteCall? (contracts : List ContractDecl)
           UsingDecls.rewriteCall?
             contracts freeFunctions env receiver method args rest
 
+/-- USING-FOR on an external call's result (`IERC20(t).balanceOf(a).sub(b)`):
+    the receiver's type is the single return type of the function the call
+    names, declared directly on the interface or contract it converts to.
+    `Expr.abiTyWithEnv?` cannot type a call result, so without this the
+    attached call stays unresolved and the contract fails to translate. -/
+def Expr.externalCallReturnTy? (contracts : List ContractDecl) :
+    Expr -> Option Ty
+  | Expr.call (Expr.member (Expr.call (Expr.typeName (Ty.user path))
+      [Arg.positional _]) method) _ => do
+      let name ← pathLast? path
+      let decl ← contracts.find? (fun d => d.name == name)
+      if decl.kind == ContractKind.library then none else some ()
+      let fns := decl.items.filterMap (fun item =>
+        match item with
+        | ContractItem.function fn =>
+            if fn.name == some method then some fn else none
+        | _ => none)
+      match fns with
+      | [fn] =>
+          match fn.returns with
+          | [ret] => some ret.ty
+          | _ => none
+      | _ => none
+  | _ => none
+
+/-- The name the attached call on an external call's result binds its
+    receiver to while it resolves: not a Solidity identifier, so no local
+    shadows it. -/
+def usingReceiverName : Name := "using receiver"
+
+/-- `rewritten` with its receiver argument, `Expr.ident usingReceiverName`,
+    replaced by `receiver`: the two shapes the attached-call rewrite builds
+    (`f(self, args)` and that call under its return conversion). -/
+def Expr.replaceUsingReceiver? (receiver : Expr) : Expr -> Option Expr
+  | Expr.call (Expr.ident helper) (Arg.positional (Expr.ident x) :: rest) =>
+      if x == usingReceiverName then
+        some (Expr.call (Expr.ident helper) (Arg.positional receiver :: rest))
+      else none
+  | Expr.call (Expr.typeName ty)
+      [Arg.positional
+        (Expr.call (Expr.ident helper) (Arg.positional (Expr.ident x) :: rest))] =>
+      if x == usingReceiverName then
+        some (Expr.call (Expr.typeName ty)
+          [Arg.positional
+            (Expr.call (Expr.ident helper) (Arg.positional receiver :: rest))])
+      else none
+  | _ => none
+
+/-- `UsingDecls.rewriteCall?` for a receiver that is an external call: it
+    resolves the attached call on a fresh name of the call's return type, then
+    puts the call back in the receiver's place. -/
+def UsingDecls.rewriteCallOnExternalResult? (contracts : List ContractDecl)
+    (freeFunctions : List FunctionDecl)
+    (env : TypeEnv) (receiver : Expr) (method : Name)
+    (args : List Arg) (usingDecls : List UsingDecl) : Option Expr := do
+  let ty ← Expr.externalCallReturnTy? contracts receiver
+  let rewritten ←
+    UsingDecls.rewriteCall? contracts freeFunctions
+      ((usingReceiverName, ty) :: env) (Expr.ident usingReceiverName) method
+      args usingDecls
+  Expr.replaceUsingReceiver? receiver rewritten
+
 def UsingDecls.rewriteBinaryOperator? (freeFunctions : List FunctionDecl)
     (env : TypeEnv) (op : BinaryOp) (lhs rhs : Expr) :
     List UsingDecl -> Option Expr
@@ -11216,7 +11278,12 @@ def Expr.expandUsingFuel :
                           contracts freeFunctions env receiver' method args'
                           usingDecls with
                       | some rewritten => rewritten
-                      | none => Expr.call (Expr.member receiver' method) args'
+                      | none =>
+                          match UsingDecls.rewriteCallOnExternalResult?
+                              contracts freeFunctions env receiver' method args'
+                              usingDecls with
+                          | some rewritten => rewritten
+                          | none => Expr.call (Expr.member receiver' method) args'
       | Expr.call fn args =>
           Expr.call (expand fn) (args.map expandArg)
       | Expr.callWithOptions (Expr.member receiver method) options args =>

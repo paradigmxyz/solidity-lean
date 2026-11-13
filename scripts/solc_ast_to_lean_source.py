@@ -2213,6 +2213,29 @@ def render_module(ast: dict[str, Any], source_name: str, contract_name: str, nam
     return "\n".join(lines)
 
 
+def omit_functions(ast: dict[str, Any], names: Sequence[str]) -> dict[str, Any]:
+    """The AST with each named function definition removed; each name must match at least once."""
+    wanted: dict[tuple[str, str], int] = {}
+    for name in names:
+        contract, sep, function = name.partition(".")
+        if not sep or not contract or not function:
+            fail(f"--omit-function {name!r} is not CONTRACT.FUNCTION")
+        wanted[(contract, function)] = 0
+    for node in contract_definitions(ast):
+        kept = []
+        for item in node.get("nodes", []):
+            key = (node.get("name"), item.get("name"))
+            if item.get("nodeType") == "FunctionDefinition" and key in wanted:
+                wanted[key] += 1
+            else:
+                kept.append(item)
+        node["nodes"] = kept
+    missing = [f"{c}.{f}" for (c, f), n in wanted.items() if n == 0]
+    if missing:
+        fail("--omit-function matched no function: " + ", ".join(missing))
+    return ast
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path)
@@ -2223,6 +2246,14 @@ def build_parser() -> argparse.ArgumentParser:
         default="SolidCore.Solidity.SolcAstImport.Generated",
     )
     parser.add_argument("--body-only", action="store_true")
+    parser.add_argument(
+        "--omit-function",
+        action="append",
+        default=[],
+        metavar="CONTRACT.FUNCTION",
+        help="leave the named function out of the translation (every overload of it); the result "
+        "is a contract without it, so nothing proved of the result covers that function",
+    )
     parser.add_argument(
         "--audit-coverage",
         action="store_true",
@@ -2246,6 +2277,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         solc = resolve_executable(args.solc)
         source = args.source.resolve()
         source_name, ast = run_solc_ast(solc, source)
+        if args.omit_function:
+            ast = omit_functions(ast, args.omit_function)
         if args.audit_coverage:
             print(json.dumps(frontend_coverage(ast), indent=2, sort_keys=True))
             return 0

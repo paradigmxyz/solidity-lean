@@ -156,6 +156,21 @@ lean_lib SolidCoreSolarBankSource where
 lean_lib SolidCoreSolarTotality where
   roots := #[`SolidCore.Refinement.Solar.Totality]
 
+-- The assembly checker for code with loops on reads of the block and the transaction, ADDRESS
+-- and SLT: an accepted program and its kernel-checked execution theorem, and a mutant of an
+-- environment read that the checker rejects by evaluation (Solar/AssembleLoopEnv.lean).
+lean_lib SolidCoreSolarAssemblyEnv where
+  roots := #[`SolidCore.Refinement.Solar.AssembleLoopEnv]
+
+-- The assembly theorem in its per-run oracle form (Solar/RunOracle.lean), and what GAS,
+-- RETURNDATASIZE, RETURNDATACOPY, CALLDATACOPY and STATICCALL do in SolarTV and EthLib, one
+-- instruction at a time, under the oracle of a run (Solar/AssembleEffects.lean), and the
+-- refinement at the gas a run has from a block simulation under the runner of messages
+-- (Solar/AssembleRun.lean).
+lean_lib SolidCoreSolarRunOracle where
+  roots := #[`SolidCore.Refinement.Solar.RunOracle, `SolidCore.Refinement.Solar.AssembleEffects,
+    `SolidCore.Refinement.Solar.AssembleRun]
+
 /-! solar's translation validation (formerly solar's `solar-tv` Lean package, moved here so that
 every Lean source of the certified translation lives in this repository; solar keeps only the
 stage exporter and the drivers that generate Lean against a pinned commit of this repository).
@@ -329,8 +344,8 @@ lean_lib ContractsCounter where
 -- triples carried to solar's bytecode.
 lean_lib ContractsToken where
   roots := #[`Contracts.Token.Lowering, `Contracts.Token.Assembly, `Contracts.Token.Discharge,
-    `Contracts.Token.EndToEnd, `Contracts.Token.Exports]
-  globs := #[.one `Contracts.Token.Lowering, .one `Contracts.Token.Assembly,
+    `Contracts.Token.EndToEnd, `Contracts.Token.Exports, `Contracts.Token.LoweringIn]
+  globs := #[.one `Contracts.Token.Lowering, .one `Contracts.Token.LoweringIn, .one `Contracts.Token.Assembly,
     .one `Contracts.Token.Discharge, .one `Contracts.Token.EndToEnd,
     .one `Contracts.Token.Exports, .submodules `Contracts.Token.Spec]
 
@@ -374,3 +389,12 @@ lean_lib «callsqrt» where
   srcDir := "Certified"
   roots := #[`callsqrt.Proofs]
   globs := #[.submodules `callsqrt]
+
+-- Non-vacuity of the source semantics under a call oracle (SolidCore/Refinement/SourceOracle.lean):
+-- one contract per external-call family of a constant-product pair (Contracts/CallFamilies/Calls.sol),
+-- each function kernel-evaluated to a normal return in an open world and to no normal return in the
+-- closed world of Source.run. The kernel_rfl selector table needs more than 3000 MB.
+lean_lib ContractsCallFamilies where
+  roots := #[`Contracts.CallFamilies.NonVacuity]
+  globs := #[.submodules `Contracts.CallFamilies]
+  moreLeanArgs := #["-M", "6000"]

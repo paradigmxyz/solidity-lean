@@ -94,6 +94,10 @@ structure Cert where
   /-- Whether the program reads CALLER and hashes with KECCAK256, which holds only under an oracle
   whose caller and hash are EthLib's (`OracleOk`). -/
   env : Bool := false
+  /-- Whether the program reads the block or the transaction (TIMESTAMP, NUMBER, CHAINID,
+  COINBASE, GASLIMIT, GASPRICE, ORIGIN), which holds only under an oracle whose reads are those of
+  EthLib's environment of the call (`EnvOk`). -/
+  reads : Bool := false
   deriving Repr
 
 def Cert.offset (c : Cert) (b : Nat) : Nat := c.offsets.getD b 0
@@ -109,13 +113,26 @@ as SolarTV's EVM IR does; only DUP1 to DUP16 and SWAP1 to SWAP16 are one-byte op
 position (DUPN and SWAPN, which take an immediate) is outside the fragment. -/
 def opByte : SolarTV.EVM.Op → Option Nat
   | .add => some 0x01 | .mul => some 0x02 | .sub => some 0x03 | .div => some 0x04
-  | .mod => some 0x06 | .lt => some 0x10 | .gt => some 0x11
+  | .mod => some 0x06 | .lt => some 0x10 | .gt => some 0x11 | .slt => some 0x12 | .sgt => some 0x13
   | .eq => some 0x14 | .iszero => some 0x15 | .and => some 0x16 | .or => some 0x17
   | .xor => some 0x18 | .not => some 0x19 | .byte => some 0x1a | .shl => some 0x1b
   | .shr => some 0x1c
   | .calldatasize => some 0x36 | .pop => some 0x50
   | .dup i => if i.val < 16 then some (0x80 + i.val) else none
   | .swap i => if i.val < 16 then some (0x90 + i.val) else none
+  | _ => none
+
+/-- The environment reads of the fragment, by the name the exporter gives each: its opcode and
+the word it reads in EthLib's environment of the call (`Target.blockEnv` and `Target.txEnv`),
+the oracle's answer under `EnvOk`. -/
+def envRead : String → Option (Nat × Nat)
+  | "origin" => some (0x32, 0x2000)
+  | "gasprice" => some (0x3a, 0)
+  | "coinbase" => some (0x41, 0)
+  | "timestamp" => some (0x42, 1)
+  | "number" => some (0x43, 1)
+  | "gaslimit" => some (0x45, 30000000)
+  | "chainid" => some (0x46, 1)
   | _ => none
 
 /-- The assembly items of an instruction. Outside the fragment it is INVALID, which the check
@@ -130,6 +147,8 @@ def lowerInstr : Instr → List Item
   | .effect .calldataload _ => [.op 0x35]
   | .effect .calldatasize _ => [.op 0x36]
   | .effect .caller _ => [.op 0x33]
+  | .effect .address _ => [.op 0x30]
+  | .effect (.env name) _ => [.op (((envRead name).map Prod.fst).getD 0xfe)]
   | .effect .keccak256 _ => [.op 0x20]
   | .effect (.log n) _ => [.op (if n ≤ 4 then 0xa0 + n else 0xfe)]
   | .effect .sload _ => [.op 0x54]
@@ -224,8 +243,8 @@ def bytesOf (code : ByteArray) : List Nat := code.data.toList.map (·.toNat)
 /-- The stack height a stack operation of the fragment needs, and the height after it, from
 height `h`. -/
 def stackNeed : SolarTV.EVM.Op → Option (Nat × Int)
-  | .add | .mul | .sub | .div | .mod | .lt | .gt | .eq | .and | .or | .xor | .byte | .shl | .shr =>
-    some (2, -1)
+  | .add | .mul | .sub | .div | .mod | .lt | .gt | .slt | .sgt | .eq | .and | .or | .xor | .byte
+  | .shl | .shr => some (2, -1)
   | .iszero | .not => some (1, 0)
   | .calldatasize => some (0, 1)
   | .pop => some (1, -1)
@@ -698,6 +717,16 @@ theorem lt_agree (x y : Word) : lessThan x y = EvmRules.Evm.lt x y := by
   unfold lessThan EvmRules.Evm.lt
   by_cases h : x.toNat < y.toNat <;> simp [h, BitVec.ult]
 
+theorem slt_agree (x y : Word) : signedLessThan x y = EvmRules.Evm.slt x y := by
+  unfold signedLessThan EvmRules.Evm.slt
+  rw [U256.toSigned_eq_toInt, U256.toSigned_eq_toInt]
+  by_cases h : x.toInt < y.toInt <;> simp [h, BitVec.slt_iff_toInt_lt]
+
+theorem sgt_agree (x y : Word) : signedGreaterThan x y = EvmRules.Evm.sgt x y := by
+  unfold signedGreaterThan EvmRules.Evm.sgt
+  rw [U256.toSigned_eq_toInt, U256.toSigned_eq_toInt]
+  by_cases h : y.toInt < x.toInt <;> simp [h, BitVec.slt_iff_toInt_lt]
+
 theorem gt_agree (x y : Word) : greaterThan x y = EvmRules.Evm.gt x y := by
   unfold greaterThan EvmRules.Evm.gt
   by_cases h : y.toNat < x.toNat <;> simp [h, BitVec.ult]
@@ -776,6 +805,8 @@ theorem stack_rule_cheap {op : SolarTV.EVM.Op} {byte : Nat} {stack next : List W
   case sub => bin_rule sub_agree
   case lt => bin_rule lt_agree
   case gt => bin_rule gt_agree
+  case slt => bin_rule slt_agree
+  case sgt => bin_rule sgt_agree
   case eq => bin_rule eq_agree
   case and => bin_rule and_agree
   case or => bin_rule or_agree

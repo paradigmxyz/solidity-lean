@@ -759,6 +759,23 @@ def OracleOk (o : SolarTV.Machine.Oracle) : Prop :=
   o.caller.setWidth 256 = (Target.address callerAddress).toU256 ∧
     ∀ bytes, o.keccak bytes = keccak ⟨(bytes.map UInt8.ofBitVec).toArray⟩
 
+/-- An oracle whose environment reads of the fragment (`envRead`), in every world, are the words of
+EthLib's environment of `Target`'s calls (`Target.blockEnv` and `Target.txEnv`). -/
+def EnvOk (o : SolarTV.Machine.Oracle) : Prop :=
+  ∀ name byte w, envRead name = some (byte, w) → ∀ world, o.env name world [] = BitVec.ofNat 256 w
+
+/-- Any oracle with the reads of EthLib's environment. -/
+def envOracle (o : SolarTV.Machine.Oracle) : SolarTV.Machine.Oracle :=
+  { o with env := fun name world args =>
+      match envRead name, args with
+      | some (_, w), [] => BitVec.ofNat 256 w
+      | _, _ => o.env name world args }
+
+/-- `EnvOk` is no vacuous hypothesis: every oracle has a form that meets it. -/
+theorem envOracle_ok (o : SolarTV.Machine.Oracle) : EnvOk (envOracle o) := by
+  intro name byte w h world
+  simp [envOracle, h]
+
 /-- Any oracle with EthLib's caller and hash. -/
 def ethOracle (o : SolarTV.Machine.Oracle) : SolarTV.Machine.Oracle :=
   { o with caller := BitVec.ofNat 160 callerAddress,
