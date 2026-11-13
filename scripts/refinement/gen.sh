@@ -9,7 +9,8 @@
 #   SolidCore/Refinement/Bytecode/NAME.lean  solar's runtime bytecode and selectors
 #   SolidCore/Refinement/Source/NAME.lean    the SolidCore source AST, through
 #                                            scripts/solc_ast_to_lean_source.py
-#   SolidCore/Refinement/Corpus/NAME*.lean   the refinement proof, through
+#   SolidCore/Refinement/Corpus/NAME*.lean   the refinement proof of each name in
+#                                            scripts/refinement/kept, through
 #                                            scripts/refinement/gen_proof.py
 # and SolidCore/Refinement/Corpus.lean imports every proof. A line
 # "// refinement: solar-flags=F1,F2" in a source passes F1 and F2 to solar; the
@@ -143,6 +144,15 @@ EOF
       | sed "s|^def importedSourceName : String := .*$|def importedSourceName : String := \"$sol\"|"
   } > "$src_out/$module.lean"
   echo "$sol -> $out/$module.lean, $src_out/$module.lean"
+  # Only the names in scripts/refinement/kept get a committed proof; the rest stop at bytecode
+  # and source.
+  if ! grep -qx "$name" scripts/refinement/kept; then
+    if grep -qx "$name" scripts/refinement/certified; then
+      echo "error: $sol is certified but not in scripts/refinement/kept" >&2
+      exit 1
+    fi
+    continue
+  fi
   "$SOLAR_BIN" ${solar_flags[@]+"${solar_flags[@]}"} --emit abi,hashes --no-warnings "$sol" > "$tmp/solar.json"
   "$SOLC" --combined-json ast "$sol" > "$tmp/ast.json"
   # A name in scripts/refinement/certified must get a proof the kernel checks alone.
