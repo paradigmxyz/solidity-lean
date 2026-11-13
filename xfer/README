@@ -3,3 +3,4 @@ Transfer branch: git bundles of paradigmxyz/solar branches, relayed for pushing.
 certified.bundle (sha256 6b57113d4488b1043d3dfa9747ebbe7f66ae4e8bb335081aefb4863abee2f957) -> solar branch alpharush/certified (draft PR 2637). Range 6f4a92107..86b029020691f9300f7a4e34ba11d4cb2b9a0ebc (prerequisite 6f4a92107, tree-equal to PR head 4635ea0). 1 commit: fix(verify): read enum variant names after the AST change.
 
 verify-liveness.bundle: already relayed earlier; ignore.
+stack-lean-solar.bundle -> solar branch alpharush/certified (fast-forward from 67946d7; prerequisites 67946d7 and feat/lean-solar 3a2a8bb4), head 0c1e5b7b, sha256 e45e59cb
