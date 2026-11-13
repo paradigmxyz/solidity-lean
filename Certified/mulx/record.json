@@ -4,12 +4,51 @@
   "source": "Certified/mulx/mulx.sol",
   "bytecode": "34601d575f3560e01c806316ea58cb14606d5780639db20e58146033575b5f5ffd5b6011602052634e487b715f526024601cfd5b60243560101c6064361060ff600435111717601d576004602435604435913502808280159202928304141715602157806001555f5260205ff35b60243560101c6044361060ff600435111717601d575f5460ff81166004350260ff81119160ff1916178060081c61ffff16602435028060101c90921760215762ffff0019169060081b175f55",
   "solar": "cb5053ab39adfd59820913b336d346389ce1b8d9",
-  "solidity_lean": "696df0a81602fc416fabec7b892073e15e8920de",
+  "solidity_lean": "11fb9334142fbb8ded0b1d699015a978cdc3ed52",
   "mir_to_evmir": "proved: SolarTV.Milestone.Mulx.mulx_mir_to_evmir",
   "assembly": "decoded only: mulx.Proofs.Assembly (the bytecode decodes to the final EVM IR's instructions; no execution theorem)",
   "vc": "exported to .lake/certify/mulx/VC.lean",
   "end_to_end": "not proved",
+  "statuses": {
+    "equivalence": "proved (published statement, Shapes.Equiv): at every gas below 2^256 every result of the exact bytecode on a valid call is the source's, or a failure that changes nothing (out of gas or a revert, whatever its data); such a failure only below the gas bound, and from the bound on exactly the source's, revert data included (Shapes.EquivG, a field of Shapes.Compiled)",
+    "termination": "proved (published statement, Shapes.Terminates): the source ends on every valid call with any status (no specification declares the allowed ones); the bytecode too, at gas from the bound on",
+    "spec": "none: solar-verify has no specification of mulx",
+    "resources": "proved (published statement, Shapes.Resources): from the gas bound on, below 2^64, the bytecode gives the source's result",
+    "assumptions": "none beyond the statement's scope",
+    "excluded": [
+      "deployment: the init code is not covered; the statement is about the runtime bytecode from any storage that writes the slots the constructor writes",
+      "source model trusted: SolidCore's checked contract (the solc AST through scripts/solc_ast_to_lean_source.py and the type checker) is the meaning of the source (frontend trust boundary)",
+      "calls: one frame, caller 0x2000, contract at 0x1000, the block and transaction of Target.message; no external calls, GAS reads or return data in the code (the loop checker's fragment)",
+      "gas: the bound is the loop checker's (22100 per item times the final EVM IR's block fuel, plus memory), coarse; below it the bytecode may fail without effects, which equivalence admits",
+      "valid calls: m(uint8,uint16) and n(uint8,uint16,uint256) ABI-encoded with clean argument words, any value below 2^256, from any storage that writes slot 0; other call data is outside the statement",
+      "spec: none (solar-verify has no specification of mulx): equivalence, termination and resources only"
+    ],
+    "strongest": false
+  },
+  "final": {
+    "module": "mulx.Final",
+    "theorem": "Certified.mulx.Final.final",
+    "kind": "compiled",
+    "statement": "code.data.toList.map (·.toNat) = runtimeBytes ∧ (∃ c, SolidCore.Refinement.Solar.MulX.contract? = .ok c ∧ Shapes.Compiled (solidCore (SolidCore.Refinement.Solar.MulX.fuel)) c code (SolidCore.Refinement.Shapes.genericValid (SolidCore.Refinement.Solar.MulX.fns) (SolidCore.Refinement.Solar.MulX.deployed)) (fun _ => 6298506))",
+    "assumptions": [],
+    "excluded": [
+      "deployment: the init code is not covered; the statement is about the runtime bytecode from any storage that writes the slots the constructor writes",
+      "source model trusted: SolidCore's checked contract (the solc AST through scripts/solc_ast_to_lean_source.py and the type checker) is the meaning of the source (frontend trust boundary)",
+      "calls: one frame, caller 0x2000, contract at 0x1000, the block and transaction of Target.message; no external calls, GAS reads or return data in the code (the loop checker's fragment)",
+      "gas: the bound is the loop checker's (22100 per item times the final EVM IR's block fuel, plus memory), coarse; below it the bytecode may fail without effects, which equivalence admits",
+      "valid calls: m(uint8,uint16) and n(uint8,uint16,uint256) ABI-encoded with clean argument words, any value below 2^256, from any storage that writes slot 0; other call data is outside the statement",
+      "spec: none (solar-verify has no specification of mulx): equivalence, termination and resources only"
+    ],
+    "spec": "none: solar-verify has no specification of mulx",
+    "statuses": {
+      "equivalence": "proved (published statement, Shapes.Equiv): at every gas below 2^256 every result of the exact bytecode on a valid call is the source's, or a failure that changes nothing (out of gas or a revert, whatever its data); such a failure only below the gas bound, and from the bound on exactly the source's, revert data included (Shapes.EquivG, a field of Shapes.Compiled)",
+      "termination": "proved (published statement, Shapes.Terminates): the source ends on every valid call with any status (no specification declares the allowed ones); the bytecode too, at gas from the bound on",
+      "spec": "none: solar-verify has no specification of mulx",
+      "resources": "proved (published statement, Shapes.Resources): from the gas bound on, below 2^64, the bytecode gives the source's result"
+    }
+  },
   "end_to_end_statement": {},
+  "binding": {},
   "hypotheses": {},
   "refused": [],
   "vacuous": "not checked",
@@ -17,13 +56,34 @@
   "assembly_hypotheses": null,
   "negative_tests": false,
   "caveats": [
-    "solidity-lean at 696df0a81602fc416fabec7b892073e15e8920de, not the pinned 813949dc3556d3c3f1c129e8254a4eead78bac87",
+    "solidity-lean at 11fb9334142fbb8ded0b1d699015a978cdc3ed52, not the pinned 95ebfd5f178b93b42d498a124104fc92bfc6b74f",
     "solar cb5053ab39adfd59820913b336d346389ce1b8d9, not built from this checkout's compiler sources",
     "assembly decoded, not executed",
     "not end to end: solidity-lean states no source or spec theorem for mulx",
     "negative tests skipped"
   ],
   "backend": {
-    "theorem": "SolarTV.Milestone.Mulx.mulx_mir_to_evmir"
+    "theorem": {
+      "module": "mulx.Final",
+      "theorem": "Certified.mulx.Final.final",
+      "kind": "compiled",
+      "statement": "code.data.toList.map (·.toNat) = runtimeBytes ∧ (∃ c, SolidCore.Refinement.Solar.MulX.contract? = .ok c ∧ Shapes.Compiled (solidCore (SolidCore.Refinement.Solar.MulX.fuel)) c code (SolidCore.Refinement.Shapes.genericValid (SolidCore.Refinement.Solar.MulX.fns) (SolidCore.Refinement.Solar.MulX.deployed)) (fun _ => 6298506))",
+      "assumptions": [],
+      "excluded": [
+        "deployment: the init code is not covered; the statement is about the runtime bytecode from any storage that writes the slots the constructor writes",
+        "source model trusted: SolidCore's checked contract (the solc AST through scripts/solc_ast_to_lean_source.py and the type checker) is the meaning of the source (frontend trust boundary)",
+        "calls: one frame, caller 0x2000, contract at 0x1000, the block and transaction of Target.message; no external calls, GAS reads or return data in the code (the loop checker's fragment)",
+        "gas: the bound is the loop checker's (22100 per item times the final EVM IR's block fuel, plus memory), coarse; below it the bytecode may fail without effects, which equivalence admits",
+        "valid calls: m(uint8,uint16) and n(uint8,uint16,uint256) ABI-encoded with clean argument words, any value below 2^256, from any storage that writes slot 0; other call data is outside the statement",
+        "spec: none (solar-verify has no specification of mulx): equivalence, termination and resources only"
+      ],
+      "spec": "none: solar-verify has no specification of mulx",
+      "statuses": {
+        "equivalence": "proved (published statement, Shapes.Equiv): at every gas below 2^256 every result of the exact bytecode on a valid call is the source's, or a failure that changes nothing (out of gas or a revert, whatever its data); such a failure only below the gas bound, and from the bound on exactly the source's, revert data included (Shapes.EquivG, a field of Shapes.Compiled)",
+        "termination": "proved (published statement, Shapes.Terminates): the source ends on every valid call with any status (no specification declares the allowed ones); the bytecode too, at gas from the bound on",
+        "spec": "none: solar-verify has no specification of mulx",
+        "resources": "proved (published statement, Shapes.Resources): from the gas bound on, below 2^64, the bytecode gives the source's result"
+      }
+    }
   }
 }
