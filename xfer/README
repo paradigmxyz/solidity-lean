@@ -1,3 +1,3 @@
 Transfer branch: git bundles of paradigmxyz/solar branches, relayed for pushing. Not part of solidity-lean; delete this branch once relayed.
 
-certified.bundle -> solar branch alpharush/certified (new; prerequisite de3967800 on solar main), head 16ee60142c9f11fbb0b3f00cb901bdb051bd7dec, title feat: certified translation for solar. 643 files: publish in two steps (512-file limit): first everything except tests/ui/ as a draft pull request, then tests/ui/ pushed to the same branch.
+certified.bundle -> solar branch alpharush/certified (draft PR 2637; prerequisite de3967800 on solar main), head b44b37a22bfc427bb4b14b3dc66bd45983d9b80d, a fast-forward of 16ee60142 (already published as 415e2f44d), title fix: build the workspace with the certify tools.
