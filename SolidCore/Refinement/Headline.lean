@@ -4,9 +4,9 @@ import SolidCore.Refinement.Corpus.W1
 import SolidCore.Refinement.Corpus.W4
 import SolidCore.Refinement.Corpus.C4
 import SolidCore.Refinement.Corpus.W5
-import Verify
-import Verify.C4
-import Verify.W5
+import SolidCore.Verify
+import SolidCore.Verify.C4
+import SolidCore.Verify.W5
 
 /-!
 # Verified source, verified bytecode

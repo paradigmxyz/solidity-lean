@@ -1,5 +1,5 @@
 import SolidCore.Refinement.Solar.W1
-import Verify.W5
+import SolidCore.Verify.W5
 import W1Proofs.Tactic
 import gen.Main.Stage0
 

@@ -1,4 +1,4 @@
-import Verify.C4
+import SolidCore.Verify.C4
 import SolidCore.Refinement.Spec
 import SolidCore.Refinement.Evm.WideStorage
 import W1Proofs.Tactic

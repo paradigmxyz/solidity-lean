@@ -1,3 +1,0 @@
-Transfer branch: git bundles of paradigmxyz/solar branches, relayed for pushing. Not part of solidity-lean; delete this branch once relayed.
-
-certified-driver.bundle -> solar branch alpharush/certified-driver (prerequisite de3967800 on solar main), head 8bd7d624e8f5bbf7a303c3c78a1def069949f2f2, title feat(certify): record refused specs and audit negatives (fast-forward on top of 358d7a56 already pushed)
