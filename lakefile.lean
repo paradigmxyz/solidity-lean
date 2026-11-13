@@ -155,8 +155,8 @@ lean_lib SolidCoreSolarBankSource where
 -- (SolidCore/Spec, scripts/refinement/spec/check.sh).
 lean_lib SolidCoreSpec where
   roots := #[`SolidCore.Spec.Syntax, `SolidCore.Spec.Semantics, `SolidCore.Spec.Contract,
-    `SolidCore.Spec.Ghost, `SolidCore.Spec.TrustedBase, `SolidCore.Spec.Export.C4,
-    `SolidCore.Spec.Export.C4Wrong]
+    `SolidCore.Spec.Ghost, `SolidCore.Spec.GhostFree, `SolidCore.Spec.TrustedBase,
+    `SolidCore.Spec.Export.C4, `SolidCore.Spec.Export.C4Wrong]
 
 -- c4's exported spec proved of SolidCore and of solar's bytecode, and the axiom audit. Needs the
 -- generated corpus (scripts/refinement/gen.sh), so it is outside the default root.
