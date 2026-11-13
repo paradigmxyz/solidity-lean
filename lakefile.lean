@@ -156,6 +156,7 @@ lean_lib SolidCoreSolarBankSource where
 lean_lib SolidCoreSpec where
   roots := #[`SolidCore.Spec.Syntax, `SolidCore.Spec.Semantics, `SolidCore.Spec.Contract,
     `SolidCore.Spec.Ghost, `SolidCore.Spec.TrustedBase, `SolidCore.Spec.TrustedBase.Hypotheses,
+    `SolidCore.Spec.TrustedBase.Interface,
     `SolidCore.Spec.Export.C4, `SolidCore.Spec.Export.C4Wrong]
 
 -- The trusted base discharged for c4 and Counter on their checked-in source ASTs, and its axiom

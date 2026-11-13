@@ -1,4 +1,5 @@
 import SolidCore.Spec.TrustedBase.Instances
+import SolidCore.Spec.TrustedBase.Interface
 
 /-! The axioms of the trusted base's theorems: `propext`, `Classical.choice` and `Quot.sound` at most,
 and no `sorry`, `native_decide` (`Lean.ofReduceBool`) or `bv_decide`. -/
@@ -20,6 +21,9 @@ section
 #print axioms follows_transcriptWith
 #print axioms defaultCalls_transcriptWith
 #print axioms interfaceEnsures_of_default
+#print axioms interfaceEnsures_of_default'
+#print axioms interfaceEnsures_one
+#print axioms not_interfaceEnsures_zero
 #print axioms viewDeterministic_of_default
 #print axioms noForeignWrites_of_default
 #print axioms viewDeterministic_twice

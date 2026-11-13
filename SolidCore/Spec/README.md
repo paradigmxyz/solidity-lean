@@ -58,7 +58,7 @@ Stated precisely in `TrustedBase/Hypotheses.lean`:
 | 2. `@custom:assume` | `Core.AssumesHold s σ`: no assume cuts off an execution of the core program from `σ` | `assumesHold_assumeX` / `not_assumesHold_assumeX` | no assume: `assumesHold_of_noAssume` |
 | 2. `@custom:trusted`, internal | `Core.MeetsContract s req ens` | `meetsContract_assign` / `not_meetsContract_assign` | no trusted function |
 | 2. `@custom:trusted`, external | `TrustedHold`: `Holds` of the trusted functions' specs |  | `trustedHold_nil`, `trustedHold_of_holds` |
-| 2. Interface ensures | `InterfaceEnsures ens tr` over a transcript's call exchanges |  | no call returns: `interfaceEnsures_of_default` |
+| 2. Interface ensures | `InterfaceEnsures ens tr` over a transcript's call exchanges; `ens := ifaceEnsOf iface ctx st` builds it from an exported interface spec (`Interface.lean`) | `interfaceEnsures_one` / `not_interfaceEnsures_zero` | no call returns: `interfaceEnsures_of_default` |
 | 3. No `delegatecall` into the contract | `NoForeignWrites` within a call; `Reach` from deployment across calls | `Reach.refl` | `noForeignWrites_of_default` |
 | 4. keccak256 | `KeccakSeparated S` of the call's preimages | `keccakSeparated_mapping` (six real mapping slots, kernel-evaluated) / `not_keccakSeparated_univ` | nothing hashed: `keccakSeparated_empty` |
 | 5. Assembly | `AsmFree u`, stronger: SolidCore rejects assembly | `asmFree_example` / `not_asmFree_example` | by `decide`: `asmFree_c4`, `asmFree_counter` |
@@ -69,8 +69,7 @@ Stated precisely in `TrustedBase/Hypotheses.lean`:
 preimages and its transcript are supplied with `Hyps`, not yet derived from SolidCore's run
 (`transcriptWith` computes a transcript from an interaction tree, but `Source.run` folds its tree
 without exposing it, and SolidCore hashes inside its interpreter); `MulDivSummary` is not yet
-instantiated with SolidCore's internal-call semantics; the interface ensures are a predicate on the
-request and response, not yet built from an exported interface spec.
+instantiated with SolidCore's internal-call semantics.
 
 c4 needs none of them: `Assumptions.none_on`, and its spec has no opaque functions.
 
