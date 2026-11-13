@@ -8,17 +8,17 @@ stage's file, its definition, the pass whose output it is, and the SHA-256 of th
 namespace SolarTV.Export.Bank.Manifest
 
 def sources : List (String × String) :=
-  [("solar-tv/milestone/bank/bank.sol", "513398d47335b204a6b047493dd86e9c05066e950ba1300ba5d25850a5f8cb1f")]
+  [("Certified/bank/bank.sol", "513398d47335b204a6b047493dd86e9c05066e950ba1300ba5d25850a5f8cb1f")]
 
-def compiler : String := "0.8.38+commit.4a7d9ede.solar.0.3.0-dev"
+def compiler : String := "0.8.38+commit.ebdc3376.solar.0.3.0-dev"
 
 def arguments : List String :=
-  ["solar-tv/milestone/bank/bank.sol",
+  ["Certified/bank/bank.sol",
    "-Ogas",
    "--evm-version",
    "osaka",
    "--emit=bin-runtime",
-   "-Zemit-lean-stages=solar-tv/milestone/bank/gen"]
+   "-Zemit-lean-stages=Certified/bank/gen"]
 
 def evmVersion : String := "osaka"
 

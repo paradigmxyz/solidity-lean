@@ -115,11 +115,19 @@ lean_exe specHuntRunner where
   root := `SpecHuntRunner
   supportInterpreter := true
 
-/-- Loom's monad algebras and weakest preconditions, vendored with the changes Lean
-4.35 needs; see vendor/loom/README.md. -/
+/-- Loom's monad algebras and weakest preconditions, ported to Lean 4.35 (Loom/README.md). Only
+the ported modules are kept; every one builds. -/
 lean_lib Loom where
-  srcDir := "vendor/loom"
-  globs := #[.submodules `Loom]
+  roots := #[`Loom]
+  globs := #[.andSubmodules `Loom]
+
+/-- Verification on top of SolidCore: the Loom-based VC generator and the specs it proves
+(Verify/*.lean), solar-verify's spec language with ghost erasure and its trusted base
+(Verify/Spec), solar-verify's VCs checked against Loom models (Verify/VC) and the composition
+of a source triple with the refinement to bytecode (Verify/Final.lean). `lake build Verify`
+builds the root's closure; the libraries below hold the heavier, generated-input parts. -/
+lean_lib Verify where
+  roots := #[`Verify]
 
 -- bank's and events' assembly stages against solar's exports (solar-tv/milestone/bank and
 -- solar-tv/milestone/events at 0a455fda): the generic assembler check with mapping hashes,
@@ -202,62 +210,129 @@ lean_lib W1 where
 lean_lib counter where
   srcDir := "Certified"
   roots := #[`counter.Proofs]
-  globs := #[.andSubmodules `counter]
+  globs := #[.submodules `counter]
   leanOptions := solarTVOptions
   moreLeanArgs := #["-M", "3000"]
 
 lean_lib w4 where
   srcDir := "Certified"
   roots := #[`w4.Proofs]
-  globs := #[.andSubmodules `w4]
+  globs := #[.submodules `w4]
   leanOptions := solarTVOptions
   moreLeanArgs := #["-M", "3000"]
 
 lean_lib masks where
   srcDir := "Certified"
   roots := #[`masks.Proofs]
-  globs := #[.andSubmodules `masks]
+  globs := #[.submodules `masks]
   leanOptions := solarTVOptions
   moreLeanArgs := #["-M", "3000"]
 
 lean_lib bank where
   srcDir := "Certified"
   roots := #[`bank.Proofs]
-  globs := #[.andSubmodules `bank]
+  globs := #[.submodules `bank]
   leanOptions := solarTVOptions
   moreLeanArgs := #["-M", "3000"]
 
 lean_lib c4 where
   srcDir := "Certified"
   roots := #[`c4.Proofs]
-  globs := #[.andSubmodules `c4]
+  globs := #[.submodules `c4]
   leanOptions := solarTVOptions
   moreLeanArgs := #["-M", "3000"]
 
 lean_lib mulx where
   srcDir := "Certified"
   roots := #[`mulx.Proofs]
-  globs := #[.andSubmodules `mulx]
+  globs := #[.submodules `mulx]
   leanOptions := solarTVOptions
   moreLeanArgs := #["-M", "3000"]
 
 lean_lib events where
   srcDir := "Certified"
   roots := #[`events.Proofs]
-  globs := #[.andSubmodules `events]
+  globs := #[.submodules `events]
   leanOptions := solarTVOptions
   moreLeanArgs := #["-M", "3000"]
 
 lean_lib reader where
   srcDir := "Certified"
   roots := #[`reader.Proofs]
-  globs := #[.andSubmodules `reader]
+  globs := #[.submodules `reader]
   leanOptions := solarTVOptions
   moreLeanArgs := #["-M", "3000"]
 
 lean_lib token where
   srcDir := "Certified"
   roots := #[`token.Proofs]
-  globs := #[.andSubmodules `token]
+  globs := #[.submodules `token]
   leanOptions := solarTVOptions
   moreLeanArgs := #["-M", "3000"]
+
+-- solar-verify's spec language: its meaning over SolidCore's and EthLib's calls and observables,
+-- ghost erasure, the trusted base as named hypotheses, and the specs solar-verify exports
+-- (Verify/Spec, scripts/refinement/spec/check.sh).
+lean_lib VerifySpec where
+  roots := #[`Verify.Spec.Syntax, `Verify.Spec.Semantics, `Verify.Spec.Contract,
+    `Verify.Spec.Ghost, `Verify.Spec.GhostFree, `Verify.Spec.TrustedBase,
+    `Verify.Spec.TrustedBase.Hypotheses, `Verify.Spec.TrustedBase.Interface]
+
+-- The trusted base discharged for c4 and Counter on their checked-in source ASTs, and its axiom
+-- audit. Separate from VerifySpec because the ASTs import the type checker.
+lean_lib VerifySpecTrustedBase where
+  roots := #[`Verify.Spec.TrustedBase.Instances, `Verify.Spec.TrustedBase.Axioms]
+
+-- c4's exported spec (solar-verify --emit-lean-spec, scripts/refinement/spec/check.sh) proved of
+-- SolidCore and of solar's bytecode, and the axiom audit. Needs the generated corpus
+-- (scripts/refinement/gen.sh), so it is outside the default root.
+lean_lib ContractsC4Spec where
+  roots := #[`Contracts.C4.Spec.Export, `Contracts.C4.Spec.ExportWrong, `Contracts.C4.Spec.Bytecode,
+    `Contracts.C4.Spec.Axioms]
+
+-- solar-verify's verification conditions checked against SolidCore through the Loom generator
+-- (Verify/VC.lean), the generic theorem from an erased function to its obligations
+-- (Verify/VC/Obligations.lean) and its fuel uniformity (Verify/FuelStable.lean), outside the default
+-- root: it builds on the generic source stage.
+lean_lib VerifyVC where
+  roots := #[`Verify.VC, `Verify.FuelStable]
+
+-- solar-verify's transcripts of scripts/verify/{Counter,Token}.sol (scripts/verify/check.sh) bound
+-- to their scripts, Token.burn and Token.transfer proved from the checked VCs, and the mutants.
+lean_lib ContractsVC where
+  roots := #[`Contracts.Counter.VC.Bind, `Contracts.Token.VC.Bind, `Contracts.Token.VC.Burn,
+    `Contracts.Token.VC.Transfer, `Contracts.Token.VC.Mutants, `Contracts.Counter.VC.Inc, `Contracts.Counter.VC.Get,
+    `Contracts.Counter.VC.Mutants, `Contracts.Counter.VC.Generic]
+  -- The exports, sources and mutants the roots import are under the same directories.
+  globs := #[.submodules `Contracts.Counter.VC, .submodules `Contracts.Token.VC]
+
+-- Loom's axiom audit and the check that the certified Loom path stays off Loom's unported
+-- layers (Verify/LoomAxioms.lean, Verify/LoomImports.lean).
+lean_lib VerifyLoom where
+  roots := #[`Verify.LoomAxioms, `Verify.LoomImports]
+
+-- Counter end to end: its source triple carried through the refinement to solar's bytecode
+-- (Verify.Final) and solar-verify's verdict as named hypotheses; the headline
+-- (Contracts/Counter/Headline.lean) discharges the verdict for solar-verify's exported spec of
+-- scripts/verify/CounterMilestone.sol and states it of solar's bytecode.
+lean_lib ContractsCounter where
+  roots := #[`Contracts.Counter.Final, `Contracts.Counter.Verdict, `Contracts.Counter.EndToEnd,
+    `Contracts.Counter.Headline]
+  -- The spec exports and the source binding the roots import.
+  globs := #[.one `Contracts.Counter.Verify, .submodules `Contracts.Counter.Spec]
+
+/-! solar-verify's verification conditions and their kernel-checked discharge (formerly solar's
+crates/verify/lean). An exported VC module imports `Verify.Obligation`; `Verify.Discharge` holds the
+certificate checkers a VC is accepted by (Verify/Discharge/README.md). Lean's default options, as
+solar's `solar_verify` package had. -/
+lean_lib VerifyDischarge where
+  roots := #[`Verify.Obligation, `Verify.Discharge]
+  leanOptions := #[⟨`maxHeartbeats, (200000 : Nat)⟩, ⟨`backward.do.legacy, false⟩]
+
+-- ArrayMax and Vault: solar-verify's exported VCs of their specs (Contracts/{ArrayMax,Vault}/Vc),
+-- every required obligation proved in the kernel (Proofs/), Vault's vacuous obligations shown
+-- vacuous (Contracts/Vault/Proofs/Vacuous.lean), and the axiom audits.
+lean_lib ContractsArrayMaxVault where
+  roots := #[`Contracts.ArrayMax.Audit, `Contracts.Vault.Audit]
+  globs := #[.submodules `Contracts.ArrayMax, .submodules `Contracts.Vault]
+  leanOptions := #[⟨`maxHeartbeats, (200000 : Nat)⟩, ⟨`backward.do.legacy, false⟩]

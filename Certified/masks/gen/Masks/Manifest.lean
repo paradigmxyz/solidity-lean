@@ -8,17 +8,17 @@ stage's file, its definition, the pass whose output it is, and the SHA-256 of th
 namespace SolarTV.Export.Masks.Manifest
 
 def sources : List (String × String) :=
-  [("solar-tv/milestone/masks/masks.sol", "07aea44de99801385666f8de90ffb4edfba9f7ce9c874a89392f7d19fcd34d8e")]
+  [("Certified/masks/masks.sol", "07aea44de99801385666f8de90ffb4edfba9f7ce9c874a89392f7d19fcd34d8e")]
 
-def compiler : String := "0.8.38+commit.4a7d9ede.solar.0.3.0-dev"
+def compiler : String := "0.8.38+commit.ebdc3376.solar.0.3.0-dev"
 
 def arguments : List String :=
-  ["solar-tv/milestone/masks/masks.sol",
+  ["Certified/masks/masks.sol",
    "-Ogas",
    "--evm-version",
    "osaka",
    "--emit=bin-runtime",
-   "-Zemit-lean-stages=solar-tv/milestone/masks/gen"]
+   "-Zemit-lean-stages=Certified/masks/gen"]
 
 def evmVersion : String := "osaka"
 

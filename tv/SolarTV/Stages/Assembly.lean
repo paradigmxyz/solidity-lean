@@ -36,19 +36,128 @@ namespace SolarTV.Assembly
 inductive Instr where
   | op (byte : Nat)
   | push (value : Nat)
+  /-- An opcode that reads the byte after it as its immediate: DUPN, SWAPN or EXCHANGE
+  (EIP-8024). -/
+  | opImm (byte imm : Nat)
   deriving DecidableEq, Repr
 
 def PUSH0 : Nat := 0x5f
 def PUSH1 : Nat := 0x60
 def PUSH32 : Nat := 0x7f
 def JUMPDEST : Nat := 0x5b
+def DUPN : Nat := 0xe6
+def SWAPN : Nat := 0xe7
+def EXCHANGE : Nat := 0xe8
+
+/-- Whether an opcode reads the byte after it as an immediate (EIP-8024's DUPN, SWAPN and
+EXCHANGE), so that decoding steps over two bytes. -/
+def hasImmediate (byte : Nat) : Bool := byte == DUPN || byte == SWAPN || byte == EXCHANGE
+
+/-! ### EIP-8024 immediates
+
+The immediates of DUPN, SWAPN and EXCHANGE as solar's assembler writes them
+(`encode_stack_depth` and `encode_exchange` in `crates/evmir/src/op.rs`) and as EIP-8024 decodes
+them (EthLib's `decodeSingle` and `decodePair`). A depth counts from 1 at the top: DUPN of depth
+`n` pushes a copy of the `n`th word and SWAPN of depth `n` exchanges the top with the word `n`
+below it, so EVM IR's `dup i` and `swap i` are depth `i + 1`. EXCHANGE exchanges the words at two
+depths `n < m` below the top, with `n + m ≤ 30`: EVM IR's `exchange n m`. -/
+
+/-- The immediate of DUPN or SWAPN for a depth from 17 to 235. -/
+def encodeDepth (n : Nat) : Nat := (n + 111) % 256
+
+/-- The depth a DUPN or SWAPN immediate encodes, from 17 to 235; none for 91 to 127. -/
+def decodeDepth (x : Nat) : Option Nat :=
+  if 90 < x ∧ x < 128 then none else some ((x + 145) % 256)
+
+/-- Whether DUPN and SWAPN reach a depth. -/
+def depthOk (n : Nat) : Bool := 17 ≤ n && n ≤ 235
+
+/-- The immediate of EXCHANGE for the depths `n < m` with `n + m ≤ 30`. -/
+def encodePair (n m : Nat) : Nat :=
+  (if m ≤ 16 then 16 * (n - 1) + (m - 1) else 16 * (29 - m) + (n - 1)) ^^^ 143
+
+/-- The depths an EXCHANGE immediate encodes; none for 82 to 127. -/
+def decodePair (x : Nat) : Option (Nat × Nat) :=
+  if 81 < x ∧ x < 128 then none
+  else
+    let k := x ^^^ 143
+    if k / 16 < k % 16 then some (k / 16 + 1, k % 16 + 1) else some (k % 16 + 1, 29 - k / 16)
+
+/-- Whether EXCHANGE reaches a pair of depths. -/
+def pairOk (n m : Nat) : Bool := 1 ≤ n && n < m && n + m ≤ 30
+
+/-- Whether the byte after an opcode with an immediate encodes an operand of it. -/
+def immediateOk (byte imm : Nat) : Bool :=
+  if byte = EXCHANGE then (decodePair imm).isSome else (decodeDepth imm).isSome
+
+/-- Each immediate that decodes is the encoding of what it decodes to. -/
+def depthRound (x : Nat) : Bool :=
+  match decodeDepth x with
+  | some n => depthOk n && encodeDepth n == x
+  | none => true
+
+/-- Each EXCHANGE immediate that decodes is the encoding of the pair it decodes to. -/
+def pairRound (x : Nat) : Bool :=
+  match decodePair x with
+  | some (n, m) => pairOk n m && encodePair n m == x
+  | none => true
+
+set_option maxRecDepth 8000 in
+theorem decodeDepth_encodeDepth_all :
+    ∀ n < 256, depthOk n = true → decodeDepth (encodeDepth n) = some n := by
+  decide
+
+/-- Decoding the immediate of a depth DUPN and SWAPN reach gives the depth. -/
+theorem decodeDepth_encodeDepth {n : Nat} (h : depthOk n = true) :
+    decodeDepth (encodeDepth n) = some n :=
+  decodeDepth_encodeDepth_all n (by simp [depthOk] at h; omega) h
+
+theorem encodeDepth_lt (n : Nat) : encodeDepth n < 256 := Nat.mod_lt _ (by decide)
+
+set_option maxRecDepth 8000 in
+theorem depthRound_all : ∀ x < 256, depthRound x = true := by decide
+
+/-- A byte that decodes to a depth is that depth's encoding, and DUPN and SWAPN reach it. -/
+theorem encodeDepth_decodeDepth {x n : Nat} (hx : x < 256) (h : decodeDepth x = some n) :
+    depthOk n = true ∧ encodeDepth n = x := by
+  have := depthRound_all x hx
+  simp only [depthRound, h, Bool.and_eq_true, beq_iff_eq] at this
+  exact this
+
+theorem decodePair_encodePair_all :
+    ∀ n < 32, ∀ m < 32, pairOk n m = true →
+      decodePair (encodePair n m) = some (n, m) ∧ encodePair n m < 256 := by
+  decide
+
+/-- Decoding the immediate of a pair EXCHANGE reaches gives the pair. -/
+theorem decodePair_encodePair {n m : Nat} (h : pairOk n m = true) :
+    decodePair (encodePair n m) = some (n, m) ∧ encodePair n m < 256 :=
+  decodePair_encodePair_all n (by simp [pairOk] at h; omega) m (by simp [pairOk] at h; omega) h
+
+set_option maxRecDepth 8000 in
+theorem pairRound_all : ∀ x < 256, pairRound x = true := by decide
+
+/-- A byte that decodes to a pair is that pair's encoding, and EXCHANGE reaches it. -/
+theorem encodePair_decodePair {x n m : Nat} (hx : x < 256) (h : decodePair x = some (n, m)) :
+    pairOk n m = true ∧ encodePair n m = x := by
+  have := pairRound_all x hx
+  simp only [pairRound, h, Bool.and_eq_true, beq_iff_eq] at this
+  exact this
+
+/-- No immediate that decodes is a PUSH opcode (PUSH0 to PUSH32) or JUMPDEST, so a scan for
+jump destinations that steps over the immediate as an opcode of its own (as EIP-8024 keeps it)
+stays on the same boundaries. -/
+theorem immediateOk_not_push {byte imm : Nat} (h : immediateOk byte imm = true) :
+    ¬(0x5b ≤ imm ∧ imm ≤ 0x7f) := by
+  unfold immediateOk decodePair decodeDepth at h
+  split at h <;> split at h <;> simp_all <;> omega
 
 /-- The big-endian value of `bytes`. -/
 def bigEndian (bytes : List Nat) : Nat :=
   bytes.foldl (fun value byte => value * 256 + byte) 0
 
 /-- The instruction at `pc` of `code` and the offset after it, or `none` past the end of the
-code or for a push whose immediate runs past it, as the checker reads it. -/
+code or for a push or an opcode whose immediate runs past it, as the checker reads it. -/
 def decode (code : List Nat) (pc : Nat) : Option (Instr × Nat) :=
   match code[pc]? with
   | none => none
@@ -59,6 +168,12 @@ def decode (code : List Nat) (pc : Nat) : Option (Instr × Nat) :=
         some (.push (bigEndian ((code.drop (pc + 1)).take (byte - PUSH1 + 1))),
           pc + 1 + (byte - PUSH1 + 1))
       else none
+    else if hasImmediate byte then
+      -- NOTE: EthLib reads 0 past the end of the code and halts on an immediate that encodes no
+      -- depth; the walk refuses both, as solar's assembler does.
+      match code[pc + 1]? with
+      | some imm => if immediateOk byte imm then some (.opImm byte imm, pc + 2) else none
+      | none => none
     else some (.op byte, pc + 1)
 
 /-- Linear decoding of `code` from `pc`, each instruction at its offset, for at most `fuel`
@@ -85,6 +200,8 @@ inductive Item where
   /-- Entry `index` of a stride table whose first entry is label `table`: a `JUMPDEST`
   `index` strides past the table's offset. -/
   | entry (table index stride : Nat)
+  /-- An opcode with its one-byte immediate: DUPN, SWAPN or EXCHANGE (EIP-8024). -/
+  | opImm (byte imm : Nat)
   deriving DecidableEq, Repr
 
 /-- The instruction an item is at a layout that puts each label at `offset`. -/
@@ -96,6 +213,7 @@ def Item.expected (offset : Nat → Nat) : Item → Instr
   | .immutable _ _ => .push 0
   | .pushTable labels => .push (bigEndian (labels.map offset))
   | .entry _ _ _ => .op JUMPDEST
+  | .opImm byte imm => .opImm byte imm
 
 /-- Whether an item is placed where the layout says at `pc`: a label at its offset, a packed
 table's every offset in one byte, so that the word's bytes are the offsets, and a stride table's
@@ -123,16 +241,43 @@ theorem decode_advances {code : List Nat} {pc next : Nat} {instr : Instr}
   unfold decode at h
   split at h
   · simp at h
-  · split at h
-    · rcases h with ⟨_, rfl⟩
-      omega
-    · split at h
-      · split at h
-        · rcases h with ⟨_, rfl⟩
-          omega
-        · simp at h
-      · rcases h with ⟨_, rfl⟩
-        omega
+  · repeat' split at h
+    all_goals first
+      | (simp at h; done)
+      | (simp only [Option.some.injEq, Prod.mk.injEq] at h; obtain ⟨-, rfl⟩ := h; omega)
+
+/-- An instruction decodes to an opcode only from its byte, one byte on, when the byte is no
+push and takes no immediate. -/
+theorem decode_op_inv {code : List Nat} {pc next byte : Nat}
+    (h : decode code pc = some (.op byte, next)) :
+    code[pc]? = some byte ∧ byte ≠ PUSH0 ∧ ¬(PUSH1 ≤ byte ∧ byte ≤ PUSH32) ∧
+      hasImmediate byte = false ∧ next = pc + 1 := by
+  unfold decode at h
+  split at h
+  · simp at h
+  · rename_i b hb
+    repeat' split at h
+    all_goals simp only [Option.some.injEq, Prod.mk.injEq, reduceCtorEq, Instr.op.injEq,
+      false_and] at h
+    all_goals first
+      | (rename_i h0 h1 hi; obtain ⟨rfl, rfl⟩ := h; exact ⟨hb, h0, h1, by simpa using hi, rfl⟩)
+      | skip
+    all_goals simp_all
+
+/-- An opcode with an immediate decodes from its byte and the next, two bytes on, when the
+next byte encodes an operand of it. -/
+theorem decode_opImm_inv {code : List Nat} {pc next byte imm : Nat}
+    (h : decode code pc = some (.opImm byte imm, next)) :
+    code[pc]? = some byte ∧ hasImmediate byte = true ∧ code[pc + 1]? = some imm ∧
+      immediateOk byte imm = true ∧ next = pc + 2 := by
+  unfold decode at h
+  split at h
+  · simp at h
+  · rename_i b hb
+    repeat' split at h
+    all_goals simp only [Option.some.injEq, Prod.mk.injEq, reduceCtorEq, Instr.opImm.injEq,
+      false_and] at h
+    all_goals simp_all
 
 /-- Each item takes at least a byte. -/
 theorem walk_length {code : List Nat} {offset : Nat → Nat} {pc : Nat} {items : List Item}
@@ -244,5 +389,43 @@ theorem example_fault (stream : List (Nat × Instr)) :
   cases w with
   | cons decoded _ _ =>
     simp [decode, bigEndian, Item.expected, PUSH0, PUSH1, PUSH32] at decoded
+
+/-! DUPN of depth 17 (`dup 16`): the immediate 0x80, two bytes on. A JUMPDEST byte or no byte
+after DUPN encodes no depth, which the walk refuses. -/
+
+theorem example_dupn :
+    Walk [0xe6, 0x80, 0x00] (fun _ => 0) 0 [.opImm DUPN (encodeDepth 17), .op 0x00]
+      [(0, .opImm 0xe6 0x80), (2, .op 0x00)] :=
+  .cons (by rfl) rfl (.cons (by rfl) rfl .nil)
+
+theorem example_dupn_jumpdest : decode [0xe6, 0x5b] 0 = none := by decide
+
+theorem example_dupn_short : decode [0xe6] 0 = none := by decide
+
+theorem example_exchange : decodePair (encodePair 1 29) = some (1, 29) := by decide
+
+/-- A wrong immediate fails: DUPN with 0x81 (depth 18) where the item is depth 17's 0x80 has no
+walk, though 0x81 is a valid immediate, as the checker reports. -/
+theorem example_dupn_wrong (stream : List (Nat × Instr)) :
+    ¬ Walk [0xe6, 0x81, 0x00] (fun _ => 0) 0 [.opImm DUPN (encodeDepth 17), .op 0x00] stream := by
+  intro w
+  cases w with
+  | cons decoded _ _ =>
+    have e : decode [0xe6, 0x81, 0x00] 0 = some (.opImm 0xe6 0x81, 2) := by decide
+    rw [e] at decoded
+    simp [Item.expected, DUPN, encodeDepth] at decoded
+
+/-- A wrong EXCHANGE immediate fails the same way: pair (1, 3)'s byte where (1, 2)'s is due. -/
+theorem example_exchange_wrong (stream : List (Nat × Instr)) :
+    ¬ Walk [0xe8, encodePair 1 3, 0x00] (fun _ => 0) 0
+      [.opImm EXCHANGE (encodePair 1 2), .op 0x00] stream := by
+  intro w
+  cases w with
+  | cons decoded _ _ =>
+    have e : decode [0xe8, encodePair 1 3, 0x00] 0 = some (.opImm 0xe8 (encodePair 1 3), 2) := by
+      decide
+    rw [e] at decoded
+    simp only [Item.expected, Option.some.injEq, Prod.mk.injEq, Instr.opImm.injEq] at decoded
+    exact absurd decoded.1.2 (by decide)
 
 end SolarTV.Assembly

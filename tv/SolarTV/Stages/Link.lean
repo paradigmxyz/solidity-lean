@@ -166,7 +166,22 @@ theorem decode_congr {code code' : List Nat} {pc next : Nat} {instr : Instr}
             · rfl
           simp only [len, fits, take, ↓reduceIte]
         · simp [fits] at h
-      · simp only [hr, ↓reduceIte] at h ⊢; exact h
+      · simp only [hr, ↓reduceIte] at h ⊢
+        by_cases hi : hasImmediate byte = true
+        · simp only [hi, ↓reduceIte] at h ⊢
+          cases hm : code[pc + 1]? with
+          | none => rw [hm] at h; simp at h
+          | some imm =>
+            rw [hm] at h
+            by_cases ok : immediateOk byte imm = true
+            · simp only [ok, ↓reduceIte, Option.some.injEq, Prod.mk.injEq] at h
+              obtain ⟨rfl, rfl⟩ := h
+              rw [same (pc + 1) (by omega) (by omega), hm]
+              simp [ok]
+            · simp [ok] at h
+        · simp only [Bool.not_eq_true] at hi
+          simp only [hi] at h ⊢
+          exact h
 
 /-- The offsets a walk reaches are at least where it starts. -/
 theorem walk_ge {code : List Nat} {offset : Nat → Nat} {pc : Nat} {items : List Item}

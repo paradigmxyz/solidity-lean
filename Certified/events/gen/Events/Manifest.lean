@@ -8,17 +8,17 @@ stage's file, its definition, the pass whose output it is, and the SHA-256 of th
 namespace SolarTV.Export.Events.Manifest
 
 def sources : List (String × String) :=
-  [("solar-tv/milestone/events/events.sol", "8b951679cab695d07c193e56dd5d96d14a1c63976673c79a72c690f07c50b5b0")]
+  [("Certified/events/events.sol", "8b951679cab695d07c193e56dd5d96d14a1c63976673c79a72c690f07c50b5b0")]
 
-def compiler : String := "0.8.38+commit.0a455fda.solar.0.3.0-dev"
+def compiler : String := "0.8.38+commit.ebdc3376.solar.0.3.0-dev"
 
 def arguments : List String :=
-  ["solar-tv/milestone/events/events.sol",
+  ["Certified/events/events.sol",
    "-Ogas",
    "--evm-version",
    "osaka",
    "--emit=bin-runtime",
-   "-Zemit-lean-stages=solar-tv/milestone/events/gen"]
+   "-Zemit-lean-stages=Certified/events/gen"]
 
 def evmVersion : String := "osaka"
 

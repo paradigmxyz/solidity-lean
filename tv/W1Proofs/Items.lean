@@ -38,9 +38,11 @@ namespace SolarTV.Milestone.W1
 
 open SolarTV.Assembly
 
-/-- The opcode of a stack operation, or `none` for one with no single-byte opcode: `dup` and
-`swap` past the sixteenth word and `exchange` take an immediate, and the exporter writes none
-of them. -/
+/-- The opcode of a stack operation, or `none` for one no opcode reaches: `dup` and `swap` of the
+first sixteen words are DUP1 to DUP16 and SWAP1 to SWAP16, deeper ones DUPN and SWAPN with the
+depth's immediate up to depth 235, and `exchange` EXCHANGE with its pair's immediate, as solar's
+assembler encodes them where the EVM version has EIP-8024's opcodes. Where it has not, the
+assembler writes no such opcode and the walk finds none. -/
 def stackItem : EVM.Op → Option Item
   | .add => some (.op 0x01) | .mul => some (.op 0x02) | .sub => some (.op 0x03)
   | .div => some (.op 0x04) | .sdiv => some (.op 0x05) | .mod => some (.op 0x06)
@@ -54,11 +56,70 @@ def stackItem : EVM.Op → Option Item
   | .calldatasize => some (.op 0x36) | .returndatasize => some (.op 0x3d)
   | .pop => some (.op 0x50)
   | .push value => some (.push value.toNat)
-  -- NOTE: DUP1..16 and SWAP1..16 only; deeper positions and EXCHANGE take an immediate,
-  -- outside these items.
-  | .dup index => if index.val < 16 then some (.op (0x80 + index.val)) else none
-  | .swap index => if index.val < 16 then some (.op (0x90 + index.val)) else none
-  | .exchange _ _ => none
+  | .dup index =>
+    if index.val < 16 then some (.op (0x80 + index.val))
+    else if depthOk (index.val + 1) then some (.opImm DUPN (encodeDepth (index.val + 1)))
+    else none
+  | .swap index =>
+    if index.val < 16 then some (.op (0x90 + index.val))
+    else if depthOk (index.val + 1) then some (.opImm SWAPN (encodeDepth (index.val + 1)))
+    else none
+  | .exchange first second =>
+    if pairOk first.val second.val then some (.opImm EXCHANGE (encodePair first.val second.val))
+    else none
+
+/-! The immediates `stackItem` writes decode back to the operation: DUPN and SWAPN to the
+depth `index + 1`, EXCHANGE to its pair, each a valid immediate, so the walk's decoding of the
+bytes (`decode`) reads the item and nothing else. -/
+
+theorem stackItem_dup_opImm {index : Fin 256} {byte imm : Nat}
+    (h : stackItem (.dup index) = some (.opImm byte imm)) :
+    byte = DUPN ∧ decodeDepth imm = some (index.val + 1) ∧ immediateOk byte imm = true := by
+  simp only [stackItem] at h
+  split at h
+  · cases h
+  · split at h
+    · rename_i hd
+      cases h
+      have := decodeDepth_encodeDepth hd
+      exact ⟨rfl, this, by simp [immediateOk, DUPN, EXCHANGE, this]⟩
+    · cases h
+
+theorem stackItem_swap_opImm {index : Fin 256} {byte imm : Nat}
+    (h : stackItem (.swap index) = some (.opImm byte imm)) :
+    byte = SWAPN ∧ decodeDepth imm = some (index.val + 1) ∧ immediateOk byte imm = true := by
+  simp only [stackItem] at h
+  split at h
+  · cases h
+  · split at h
+    · rename_i hd
+      cases h
+      have := decodeDepth_encodeDepth hd
+      exact ⟨rfl, this, by simp [immediateOk, SWAPN, EXCHANGE, this]⟩
+    · cases h
+
+theorem stackItem_exchange_opImm {first second : Fin 32} {byte imm : Nat}
+    (h : stackItem (.exchange first second) = some (.opImm byte imm)) :
+    byte = EXCHANGE ∧ decodePair imm = some (first.val, second.val) ∧
+      immediateOk byte imm = true := by
+  simp only [stackItem] at h
+  split at h
+  · rename_i hp
+    cases h
+    have := (decodePair_encodePair hp).1
+    exact ⟨rfl, this, by simp [immediateOk, this]⟩
+  · cases h
+
+/-- The bytes of an item `stackItem` writes with an immediate decode to that item, two bytes on. -/
+theorem decode_opImm_of_valid {code : List Nat} {pc byte imm : Nat}
+    (hb : code[pc]? = some byte) (hi : code[pc + 1]? = some imm) (hh : hasImmediate byte = true)
+    (ok : immediateOk byte imm = true) : decode code pc = some (.opImm byte imm, pc + 2) := by
+  have h0 : byte ≠ PUSH0 := by
+    intro e; subst e; simp [hasImmediate, PUSH0, DUPN, SWAPN, EXCHANGE] at hh
+  have h1 : ¬(PUSH1 ≤ byte ∧ byte ≤ PUSH32) := by
+    simp only [hasImmediate, Bool.or_eq_true, beq_iff_eq, DUPN, SWAPN, EXCHANGE] at hh
+    simp only [PUSH1, PUSH32]; omega
+  simp [decode, hb, hi, h0, h1, hh, ok]
 
 /-- The opcode of a memory instruction, or `none` for a copy or hash, which the program runs
 as effects. -/
