@@ -1,0 +1,7 @@
+# SHA-256 of the mutants of ../Token.sol and of solar-verify's transcripts of them (--dry-run --dump-smt).
+# Exported with the same solar-verify as ../MANIFEST into Examples/Token/VC/Mutant (--lean-namespace SolidCore.Verify.VC.Export.Mutant.NAME).
+# TokenSrcMut: line 40, transfer credits amount + 1. TokenSpecMut: line 33, the recipient clause claims old + amount + 1.
+7d9e63fce842edd61266528e84206a5a9815f1399f7756c0a0ea34799cacf3d2  TokenSpecMut.sol
+70fe01828715a428790c073162f481941d2758d80562eaeb5a48d6d2b8e1cfe8  TokenSrcMut.sol
+796fd3eda4a952cf78c8aa3cc6bb7494f0ea5d81094943b1d0299d80e495e772  TokenSpecMut.smt2
+7616295111ee5a10d43c4ee695e098a31e0c7ae8ad3ac16d3adf63b778d4744e  TokenSrcMut.smt2

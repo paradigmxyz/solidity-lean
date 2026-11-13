@@ -1,0 +1,6 @@
+# SHA-256 of the sources and of solar-verify's transcripts (--dry-run --dump-smt).
+# solar-verify: paradigmxyz/solar alpharush/verify at 4c1c187 with --dump-lean; solc 0.8.35 for the source AST.
+f1c87a334b8db31fc8f80541febeaf8617318d20b685634f44e26c74146ad326  Counter.sol
+45b62aa1152c4ec09e76735ac7257a06bf3e4be0f435fdacdc174f41e8c8e75c  Token.sol
+6db0750ba689e6aff86103e846e76739d732822f9a436efe2bc2ec69b935cb8e  Counter.smt2
+59ba90cc3e7c018685d759fb6c566d82bddd147db3cc7581f835154a95b52b90  Token.smt2
