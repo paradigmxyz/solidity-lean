@@ -59,4 +59,23 @@ theorem bytecode_spec_of_verdict {c : SolidCore.Solidity.TypeCheck.CheckedContra
 #guard_msgs (whitespace := lax) in
 #print axioms bytecode_spec_of_verdict
 
+/-- **The counter's bytecode meets every total-correctness triple of its source.** A
+`SolidCore.Verify.Triple` of SolidCore's checked counter, the shape solar-verify's VCs discharge
+to through Loom's `triple_of_wp`, on a scope inside `scopeEvery` carries to solar's bytecode
+under EthLib: each call of the scope that meets `pre` finishes on the bytecode with an
+observable meeting `post`. Pointwise: the fuel is the triple's own. -/
+theorem bytecode_of_triple {c : SolidCore.Solidity.TypeCheck.CheckedContract}
+    (hc : contract? = .ok c) {scope pre : Call → Prop} {post : Call → Observable → Prop}
+    (hs : ∀ call, scope call → scopeEvery call)
+    (h : SolidCore.Verify.Triple fuel c scope pre post) :
+    ∀ call, scope call → pre call → ∃ obs, Target.run code call = some obs ∧ post call obs := by
+  intro call hsc hp
+  obtain ⟨hsome, hpost⟩ := h call hsc hp
+  obtain ⟨obs, hobs⟩ := Option.isSome_iff_exists.mp hsome
+  exact ⟨obs, (agree hc).stage call (hs call hsc) obs hobs, hpost obs hobs⟩
+
+/-- info: 'SolidCore.Refinement.Solar.Counter.Verdict.bytecode_of_triple' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs (whitespace := lax) in
+#print axioms bytecode_of_triple
+
 end SolidCore.Refinement.Solar.Counter.Verdict
