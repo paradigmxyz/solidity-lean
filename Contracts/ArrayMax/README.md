@@ -27,3 +27,21 @@ case, not trusted: each is re-proved here as an ordinary obligation.
 
 `lake build ContractsArrayMaxVault` builds the exports, the proofs and `Audit.lean`, which fails
 unless every theorem uses no axiom but `propext`, `Classical.choice` and `Quot.sound`.
+
+## ArrayMaxEntry.max on solar's code
+
+`Entry.lean` (with `Entry/{Basic,Loop,Start}.lean`) proves `ArrayMaxEntry.max`'s ensures clauses (every
+element of the calldata array is at most the result, and one equals it) of solar's first lowered
+MIR of this file (Certified/arraymax), on every call of `max(uint256[])`, whatever the array's
+length: one cut point at the loop's header, where `Inferred.lean` is the invariant solar-verify
+inferred for `ArrayMax.max`'s loop (its `forall` and `exists` clauses over `xs` included), carried to the
+header by solar's `solar-tv/milestone/arraymax/inferred.sh`; it is generated, never written here, and
+every conjunct is checked on every segment. One named hypothesis, `CalldataFits`: the calldata
+is shorter than 2^64 bytes, without which the decoder's word arithmetic could wrap.
+`Wrong.lean`: the kernel runs the code on `max([1, 7, 3])` to a return of 7, which refutes the mutant
+spec "returns the first element".
+
+`Execution.lean`: the bytecode runs as the final EVM IR (`AssembleCut.checkC`, memory at any offset).
+Not covered: Certified/arraymax's MIR stages (`Runs.Mir1` fails `sym_seg` on the ABI decoder's
+checks, so the spec is not yet carried from the first lowered MIR to the final EVM IR), and the link from the VCs in `Vc/` (about solar-verify's
+model of the source) to this code: the spec here is restated on the code.

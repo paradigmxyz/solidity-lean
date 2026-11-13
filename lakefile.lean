@@ -345,6 +345,22 @@ lean_lib ContractsCounter where
     .one `Contracts.Counter.SpecTree, .one `Contracts.Counter.Exports, .one `SolidCore.Refinement.Deploy,
     .submodules `Contracts.Counter.Spec]
 
+-- The published shape of a certificate (Verify/Shapes.lean: equivalence, termination, spec and
+-- resources, apart), the forward assembly stage from a gas bound on (AssembleGas, and
+-- AssembleGasLoop for code with loops) and Counter's
+-- instance: its bytecode run by the checker with GAS
+-- (Contracts/Counter/Execution.lean), the statement's inputs (ShapeSpec), the proof (Shape) and the
+-- negative controls (ShapeNeg). Certified/counter/Final.lean, which solar's certify driver writes,
+-- states the published theorem over them.
+lean_lib ContractsShapes where
+  roots := #[`Verify.Shapes, `SolidCore.Refinement.Solar.AssembleGas,
+    `SolidCore.Refinement.Solar.AssembleGasLoop, `Contracts.Counter.Execution, `Contracts.Counter.ShapeSpec,
+    `Contracts.Counter.Shape, `Contracts.Counter.ShapeNeg]
+  globs := #[.one `Verify.Shapes, .one `SolidCore.Refinement.Solar.AssembleGas,
+    .one `SolidCore.Refinement.Solar.AssembleGasLoop,
+    .one `Contracts.Counter.Execution, .one `Contracts.Counter.ShapeSpec,
+    .one `Contracts.Counter.Shape, .one `Contracts.Counter.ShapeNeg]
+
 -- solar-verify's Token end to end: the generic source stage from SolidCore's checked Token to
 -- Certified/verify_token's stage0, the assembly stage of its evm12, and solar-verify's Token
 -- triples carried to solar's bytecode.
@@ -406,3 +422,12 @@ lean_lib ContractsCallFamilies where
   roots := #[`Contracts.CallFamilies.NonVacuity]
   globs := #[.submodules `Contracts.CallFamilies]
   moreLeanArgs := #["-M", "6000"]
+
+-- arraymax: the stages of Certified/arraymax/arraymax.sol's ArrayMaxEntry, which solar's
+-- scripts/certify writes, and the kernel proofs of its EVM IR stages (evm1 to evm15). The MIR stages
+-- (Runs.Mir1-3, Runs.Sched) and the composition (Proofs.Stages) do not check yet: the first fails
+-- sym_seg on the ABI decoder's checks; they are left out of the library until they do.
+lean_lib «arraymax» where
+  srcDir := "Certified"
+  roots := #[`arraymax.Proofs.Runs.Evm1, `arraymax.Proofs.Runs.Evm2, `arraymax.Proofs.Runs.Evm3, `arraymax.Proofs.Runs.Evm4, `arraymax.Proofs.Runs.Evm5, `arraymax.Proofs.Runs.Evm6, `arraymax.Proofs.Runs.Evm7, `arraymax.Proofs.Runs.Evm8, `arraymax.Proofs.Runs.Evm9, `arraymax.Proofs.Runs.Evm10, `arraymax.Proofs.Runs.Evm11, `arraymax.Proofs.Runs.Evm12, `arraymax.Proofs.Runs.Evm13, `arraymax.Proofs.Runs.Evm14, `arraymax.Proofs.Runs.Evm15]
+  globs := #[.submodules `arraymax.gen]
