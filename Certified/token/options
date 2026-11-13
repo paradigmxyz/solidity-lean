@@ -1,0 +1,4 @@
+-Zcheck-analyses=false
+-Ogas
+--evm-version
+osaka

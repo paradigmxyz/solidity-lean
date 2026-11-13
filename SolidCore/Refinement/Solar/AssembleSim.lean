@@ -483,17 +483,17 @@ theorem stack_sim {p : Program} {c : Cert} {ok : Nat → List Word → List Ty �
   by_cases hd : ∃ i, op = .dup i
   · obtain ⟨i, rfl⟩ := hd
     simp only [blockStep, Bool.and_eq_true, decide_eq_true_eq] at hok
-    obtain ⟨⟨hk1, hi⟩, hok⟩ := hok
+    obtain ⟨⟨⟨hk1, h16⟩, hi⟩, hok⟩ := hok
     have hiS : i.val < S.length := by omega
     have hiT : i.val < T.length := by omega
-    refine ⟨hk1, _, rfl, h + 1, _, _, _, ?_, ?_, SR.dup hR hiS hiT, by simp; omega, by simp, _,
+    refine ⟨hk1, 0x80 + i.val, by simp [opByte, h16], h + 1, _, _, _, ?_, ?_, SR.dup hR hiS hiT, by simp; omega, by simp, _,
       dupKnown_prefix hk hiS, hok⟩
     · simp [SolarTV.EVM.step, List.getElem?_eq_getElem hiS]
     · simp [SolarTV.EVM.step, List.getElem?_eq_getElem hiT]
   by_cases hs : ∃ i, op = .swap i
   · obtain ⟨i, rfl⟩ := hs
     simp only [blockStep, Bool.and_eq_true, decide_eq_true_eq] at hok
-    obtain ⟨⟨hk1, hi⟩, hok⟩ := hok
+    obtain ⟨⟨⟨hk1, h16⟩, hi⟩, hok⟩ := hok
     rcases S with _ | ⟨a, S⟩
     · simp at hh; omega
     rcases T with _ | ⟨b, T⟩
@@ -501,7 +501,7 @@ theorem stack_sim {p : Program} {c : Cert} {ok : Nat → List Word → List Ty �
     simp only [List.length_cons] at hh hL
     have hiS : i.val < S.length := by omega
     have hiT : i.val < T.length := by omega
-    refine ⟨hk1, _, rfl, h, _, _, _, ?_, ?_, SR.swap hR hiS hiT, by simp; omega, by simp, [],
+    refine ⟨hk1, 0x90 + i.val, by simp [opByte, h16], h, _, _, _, ?_, ?_, SR.swap hR hiS hiT, by simp; omega, by simp, [],
       List.nil_prefix, hok⟩
     · simp [SolarTV.EVM.step, List.getElem?_eq_getElem hiS]
     · simp [SolarTV.EVM.step, List.getElem?_eq_getElem hiT]

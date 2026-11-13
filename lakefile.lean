@@ -13,15 +13,6 @@ require evmyul from "vendor" / "evmyul"
 -- OpenWorld, and ForwardRel, extracted verbatim from evm-compiler.
 require «evm-interaction» from "vendor" / "evm-interaction"
 
--- solar's translation validation library: its contract semantics interface (SolarTV.Sem:
--- Call, Observable, Sem, Stage) is this library's, its lowered MIR and EVM IR semantics are
--- the languages of the w5 milestone's stages, and its W1Proofs library proves the backend
--- stages. A git dependency on solar at 2144dccb, whose solar-tv has the w1, w4,
--- counter, c4, mulx, bank and events milestones and the semantics of internal calls, casts and
--- selects.
-require solar_tv from git
-  "https://github.com/paradigmxyz/solar.git" @ "2144dccb0984e6df238cc2e5e9d741e2e52e722d" / "solar-tv"
-
 -- Mathlib at the release EthLib builds against. Listed last, so its pins of
 -- Batteries, Aesop and the rest win over older ones further up.
 require "leanprover-community" / "mathlib" @ git "v4.35.0"
@@ -161,3 +152,112 @@ lean_lib SolidCoreSolarBankSource where
 lean_lib SolidCoreSolarToken where
   roots := #[`SolidCore.Refinement.Solar.Token.Lowering, `SolidCore.Refinement.Solar.Token.Assembly,
     `SolidCore.Refinement.Solar.Token.Mutants, `SolidCore.Refinement.Solar.Token.Certified]
+
+/-! solar's translation validation (formerly solar's `solar-tv` Lean package, moved here so that
+every Lean source of the certified translation lives in this repository; solar keeps only the
+stage exporter and the drivers that generate Lean against a pinned commit of this repository).
+These libraries keep Lean's default options (as their own package had), not the ones above. -/
+
+/-- The option defaults of solar's former `solar_tv` package. -/
+def solarTVOptions : Array LeanOption := #[
+  ⟨`maxHeartbeats, (200000 : Nat)⟩,
+  ⟨`backward.do.legacy, false⟩
+]
+
+/-- solar's word semantics and rewrite-rule lemmas (`EvmRules`), vendored from solar's
+scripts/evm-rules/lean at the commit vendor/evm-rules/README.md names. -/
+lean_lib EvmRules where
+  srcDir := "vendor/evm-rules"
+  globs := #[.andSubmodules `EvmRules]
+  leanOptions := solarTVOptions
+
+/-- MIR and EVM IR semantics, the stages and their refinement, assembly walk, cut points and
+symbolic memory laws. -/
+lean_lib SolarTV where
+  srcDir := "tv"
+  globs := #[.andSubmodules `SolarTV]
+  leanOptions := solarTVOptions
+
+/-- The symbolic-execution procedures and assembly items that the generated per-contract proofs
+use, and w1's own stage proofs. Symbolic execution is heavy: fail on running out of memory rather
+than exhaust the machine. -/
+lean_lib W1Proofs where
+  srcDir := "tv"
+  globs := #[.andSubmodules `W1Proofs]
+  leanOptions := solarTVOptions
+  moreLeanArgs := #["-M", "3000"]
+
+/-! Generated per-contract stages and proofs that the headline theorems import, as solar's
+exporter and certify driver write them (Certified/<name>/gen and Certified/<name>/Proofs, module
+names without a `Certified` prefix). Regenerate with solar's certify driver; see
+Certified/README.md. -/
+
+/-- w1's exported stages and their checks. -/
+lean_lib W1 where
+  srcDir := "Certified/w1"
+  roots := #[`W1]
+  globs := #[.andSubmodules `W1, .submodules `gen]
+  leanOptions := solarTVOptions
+
+lean_lib counter where
+  srcDir := "Certified"
+  roots := #[`counter.Proofs]
+  globs := #[.andSubmodules `counter]
+  leanOptions := solarTVOptions
+  moreLeanArgs := #["-M", "3000"]
+
+lean_lib w4 where
+  srcDir := "Certified"
+  roots := #[`w4.Proofs]
+  globs := #[.andSubmodules `w4]
+  leanOptions := solarTVOptions
+  moreLeanArgs := #["-M", "3000"]
+
+lean_lib masks where
+  srcDir := "Certified"
+  roots := #[`masks.Proofs]
+  globs := #[.andSubmodules `masks]
+  leanOptions := solarTVOptions
+  moreLeanArgs := #["-M", "3000"]
+
+lean_lib bank where
+  srcDir := "Certified"
+  roots := #[`bank.Proofs]
+  globs := #[.andSubmodules `bank]
+  leanOptions := solarTVOptions
+  moreLeanArgs := #["-M", "3000"]
+
+lean_lib c4 where
+  srcDir := "Certified"
+  roots := #[`c4.Proofs]
+  globs := #[.andSubmodules `c4]
+  leanOptions := solarTVOptions
+  moreLeanArgs := #["-M", "3000"]
+
+lean_lib mulx where
+  srcDir := "Certified"
+  roots := #[`mulx.Proofs]
+  globs := #[.andSubmodules `mulx]
+  leanOptions := solarTVOptions
+  moreLeanArgs := #["-M", "3000"]
+
+lean_lib events where
+  srcDir := "Certified"
+  roots := #[`events.Proofs]
+  globs := #[.andSubmodules `events]
+  leanOptions := solarTVOptions
+  moreLeanArgs := #["-M", "3000"]
+
+lean_lib reader where
+  srcDir := "Certified"
+  roots := #[`reader.Proofs]
+  globs := #[.andSubmodules `reader]
+  leanOptions := solarTVOptions
+  moreLeanArgs := #["-M", "3000"]
+
+lean_lib token where
+  srcDir := "Certified"
+  roots := #[`token.Proofs]
+  globs := #[.andSubmodules `token]
+  leanOptions := solarTVOptions
+  moreLeanArgs := #["-M", "3000"]
