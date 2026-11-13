@@ -9,6 +9,8 @@ import Contracts.Counter.VC.Mutants
 import Contracts.Token.VC.Burn
 import Contracts.Token.VC.Transfer
 import Contracts.Token.VC.Mutants
+import Contracts.Token.EndToEnd
+import Contracts.VerifyCounter.Bytecode
 import Verify.LoomAxioms
 import Verify.Spec.TrustedBase.Axioms
 
@@ -35,5 +37,10 @@ Classical.choice, Quot.sound], and the sweep must report no violation. Run with
 #print axioms SolidCore.Verify.VC.Counter.specMut_rejected
 #print axioms SolidCore.Verify.VC.Token.burn_triple
 #print axioms SolidCore.Verify.VC.Token.transfer_triple
+
+-- Token and the looping Counter, source spec to bytecode.
+#print axioms Contracts.Token.spec_holds_of_bytecode
+#print axioms Contracts.Token.burn_spec_bytecode
+#print axioms SolidCore.Refinement.Solar.VerifyCounter.spec_holds_of_bytecode
 
 #axiom_audit ".lake/axiom-closure-contracts.txt" "Contracts" "Verify" "Loom"

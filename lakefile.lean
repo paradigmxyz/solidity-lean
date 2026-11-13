@@ -150,6 +150,12 @@ lean_lib SolidCoreSolarBankSource where
     `SolidCore.Refinement.Solar.Bank.Certified, `SolidCore.Refinement.Solar.Events.Certified,
     `SolidCore.Refinement.Solar.Total]
 
+-- SolidCore ends on bank's, events' and mulx's certified scopes (within fuel 4096), so their
+-- certified stages are total refinements (Solar/Totality.lean). Outside the default root: it
+-- imports the three certified theorems. Fits in -KleanMemory=3000.
+lean_lib SolidCoreSolarTotality where
+  roots := #[`SolidCore.Refinement.Solar.Totality]
+
 -- token (solar-tv/milestone/token/token.sol at solar 3ca8f483, copied to
 -- scripts/refinement/token/token.sol: an ERC-20 with a nested allowance mapping, a mapping to
 -- bool, an address field, require and revert with Error(string) and two indexed address topics):
@@ -334,6 +340,15 @@ lean_lib ContractsCounter where
     .one `Contracts.Counter.EndToEnd, .one `Contracts.Counter.Headline,
     .one `Contracts.Counter.Verify, .one `Contracts.Counter.Deploy,
     .submodules `Contracts.Counter.Spec]
+
+-- solar-verify's Token end to end: the generic source stage from SolidCore's checked Token to
+-- Certified/verify_token's stage0, the assembly stage of its evm12, and solar-verify's Token
+-- triples carried to solar's bytecode.
+lean_lib ContractsToken where
+  roots := #[`Contracts.Token.Lowering, `Contracts.Token.Assembly, `Contracts.Token.Discharge,
+    `Contracts.Token.EndToEnd]
+  globs := #[.one `Contracts.Token.Lowering, .one `Contracts.Token.Assembly,
+    .one `Contracts.Token.Discharge, .one `Contracts.Token.EndToEnd]
 
 /-! solar-verify's verification conditions and their kernel-checked discharge (formerly solar's
 crates/verify/lean). An exported VC module imports `Verify.Obligation`; `Verify.Discharge` holds the

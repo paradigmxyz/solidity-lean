@@ -678,10 +678,9 @@ theorem symInsts_sound {ev : EnvFlags} {cv : SV} {sel n : Nat} {ρ : Val} {call 
         obtain ⟨w, hw, hwv⟩ := symPure_sound hc hv (rel_args he args)
         have hwn : w.toNat = v % wordSize := by
           have hse := WExpr.eval_simp hK e
-          rw [WExpr.eq_of_lit? hl] at hse
+          rw [WExpr.decided_sound hK hl] at hse
           simp only [SV.Rel] at hwv
           rw [hwv, ← hse]
-          rfl
         have hz : (w = 0) ↔ (v % wordSize = 0) := by
           constructor
           · intro h0; rw [← hwn, h0]; rfl

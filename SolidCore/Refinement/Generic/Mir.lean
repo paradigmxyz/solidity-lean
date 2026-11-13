@@ -176,6 +176,39 @@ def symEffect (ev : EnvFlags) (cv : SV) (n : Nat) : Effect → List SV → SStat
     else none
   | _, _, _ => none
 
+/-- The value an `assume` reads off its simplified word: a constant, or `eq a 0` with the side of
+`a` that the path's facts record (solar's `assume` of a branch word it already took). -/
+def WExpr.decided (K : Facts) : WExpr → Option Nat
+  | .lit n => some n
+  | .bin .eq a (.lit 0) =>
+    match K.lookup a with
+    | some false => some 1
+    | some true => some 0
+    | none => none
+  | _ => none
+
+theorem WExpr.decided_sound {ρ : Val} {K : Facts} (h : K.Hold ρ) {e : WExpr} {v : Nat}
+    (hd : e.decided K = some v) : e.eval ρ = v % wordSize := by
+  match e, hd with
+  | .lit n, hd =>
+    simp only [WExpr.decided, Option.some.injEq] at hd
+    subst hd
+    rfl
+  | .bin .eq a (.lit 0), hd =>
+    simp only [WExpr.decided] at hd
+    split at hd
+    · rename_i hl
+      simp only [Option.some.injEq] at hd
+      subst hd
+      have ha := (Facts.lookup_sound h hl).mpr rfl
+      simp [WExpr.eval, BinOp.eval, ha]
+    · rename_i hl
+      simp only [Option.some.injEq] at hd
+      subst hd
+      have ha : ¬ a.eval ρ = 0 := fun h0 => by simpa using (Facts.lookup_sound h hl).mp h0
+      simp [WExpr.eval, BinOp.eval, ha]
+    · simp at hd
+
 /-- The instructions of a block up to its first internal call, on the facts `K` of the path. -/
 def symInsts (ev : EnvFlags) (cv : SV) (sel n : Nat) (K : Facts) :
     List Inst → SEnv → SState → Option (SEnv × SState)
@@ -204,7 +237,7 @@ def symInsts (ev : EnvFlags) (cv : SV) (sel n : Nat) (K : Facts) :
   | .assume negated op args :: rest, env, st =>
     match symPure sel op (args.map (SV.ofOperand env)) with
     | some (.w e) =>
-      match (e.simp K).lit? with
+      match (e.simp K).decided K with
       | some v =>
         if v % wordSize = 0 then (if negated then symInsts ev cv sel n K rest env st else none)
         else (if negated then none else symInsts ev cv sel n K rest env st)
