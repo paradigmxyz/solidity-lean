@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   refinement:
-    name: Refinement against solar
+    name: Refinement
     runs-on: ubuntu-latest
     timeout-minutes: 240
     steps:
@@ -44,61 +44,23 @@ jobs:
           key: refinement-lake-${{ hashFiles('lean-toolchain', 'lake-manifest.json') }}-${{ github.sha }}
           restore-keys: refinement-lake-${{ hashFiles('lean-toolchain', 'lake-manifest.json') }}-
 
-      # The solar checkout the milestone checks clone next to this repository: its build and the
-      # Lean builds of solar-tv (W1Proofs, counter), keyed by the scripts that pin it.
-      - name: Cache the solar checkout's builds
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ../ck-pipeline/target
-            ../ck-pipeline/solar-tv/.lake
-            ../ck-pipeline/scripts/evm-rules/lean/.lake
-          key: refinement-solar-${{ hashFiles('lakefile.lean', 'scripts/refinement/w5-milestone.sh', 'scripts/refinement/counter/milestone.sh') }}
-
-      # Clones solar at the pinned commit into the path lakefile.lean requires solar_tv from
-      # (../ck-pipeline), so it runs before check.sh. Mathlib comes from the Lake build cache
-      # above, else from its build cache (lake exe cache get).
-      - name: Check the w5 milestone
+      # SolarTV and solar's generated stages and proofs live in this repository (tv/, Certified/),
+      # so the milestones build here with no solar checkout. solar's certify job regenerates
+      # Certified/<name> against a pinned commit of this repository and fails on any difference.
+      - name: Build the certified libraries
         env:
-          SOLAR_REPO: https://github.com/paradigmxyz/solar.git
-          REQUIRE_SOLC: "1"
-          CARGO_BUILD_JOBS: "4"
-          # The runner has 16 GB: each Lean process is capped, and the statement lowering,
-          # which peaks at about 5.4 GB, builds alone on one thread under its own cap.
+          # The runner has 16 GB: each Lean process is capped.
           LEAN_NUM_THREADS: "2"
-          LEAN_MEMORY: "4500"
-          W5_LOWERING_MEMORY: "7000"
-        run: scripts/refinement/w5-milestone.sh
+        run: |
+          lake exe cache get || true
+          lake build -KleanMemory=4500 EvmRules SolarTV W1Proofs W1 counter w4 masks bank c4 mulx             events reader Loom Verify VerifySpec VerifySpecTrustedBase VerifyLoom VerifyDischarge             VerifyVC ContractsVC ContractsCounter ContractsArrayMaxVault SolidCore SolidCoreSolarW4             SolidCoreSolarC4 SolidCoreSolarMulX SolidCoreSolarBank SolidCoreSolarBankSource             ContractsC4Spec SolidCore.Refinement.Axioms.Audit
 
-      # The storage counter's milestone, on the solar checkout the w5 check made.
-      - name: Check the counter milestone
+      # Every headline's #print axioms, the sweep over their modules and the closure grep for
+      # sorry, native_decide, bv_decide and ofReduceBool.
+      - name: Audit the headlines' axioms
         env:
-          SOLAR_REPO: https://github.com/paradigmxyz/solar.git
-          REQUIRE_SOLC: "1"
-          CARGO_BUILD_JOBS: "4"
-          LEAN_NUM_THREADS: "2"
-          LEAN_MEMORY: "4500"
-        run: scripts/refinement/counter/milestone.sh
-
-      # The generic assembly theorem on solar's RequireModuloCases, whose layout has a turned
-      # branch, fallthroughs and a backward jump, on the same solar checkout.
-      - name: Check RequireModuloCases' assembly
-        env:
-          SOLAR_REPO: https://github.com/paradigmxyz/solar.git
-          CARGO_BUILD_JOBS: "4"
-          LEAN_NUM_THREADS: "2"
-          LEAN_MEMORY: "4500"
-        run: scripts/refinement/require-modulo.sh
-
-      # The generic assembly theorem on c4, two uint8 fields packed in one slot (BYTE, NOT and
-      # SHL), on the same solar checkout.
-      - name: Check c4's assembly
-        env:
-          SOLAR_REPO: https://github.com/paradigmxyz/solar.git
-          CARGO_BUILD_JOBS: "4"
-          LEAN_NUM_THREADS: "2"
-          LEAN_MEMORY: "4500"
-        run: scripts/refinement/c4.sh
+          AXIOM_MEMORY: "6000"
+        run: scripts/refinement/axiom-audit.sh
 
       - name: Check the refinement proofs and analysis facts
         env:

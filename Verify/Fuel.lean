@@ -27,8 +27,9 @@ higher fuel; a revert never stands for running out of fuel. Given it:
   some fuel at most `B`) gives the fixed-fuel `Triple B`. The bound is a hypothesis to prove
   for the contract (for a loop over a word, from the word's bound), not an assumption.
 
-`FuelStable` is not proved here: it is `Source.run`'s fuel monotonicity, whose interpreter-level
-parts are `SolidCore.Solidity.FuelMonotonicity` (trees with no out-of-fuel leaf on any branch).
+`FuelStable` is not proved here: `Verify.FuelStable` derives it (`fuelStable_of_ctorStable`) from
+`SolidCore.Refinement.Source.run_fuel_mono`, `Source.run`'s fuel monotonicity along every path,
+given the constructor's stability (`CtorStable`) as a hypothesis.
 -/
 
 namespace SolidCore.Verify

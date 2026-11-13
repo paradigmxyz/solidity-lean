@@ -147,7 +147,8 @@ lean_lib SolidCoreSolarBank where
 -- manifests (Solar/Hex.lean decodes the manifest's hex).
 lean_lib SolidCoreSolarBankSource where
   roots := #[`SolidCore.Refinement.Solar.Bank.Lowering, `SolidCore.Refinement.Solar.Events.Lowering,
-    `SolidCore.Refinement.Solar.Bank.Certified, `SolidCore.Refinement.Solar.Events.Certified]
+    `SolidCore.Refinement.Solar.Bank.Certified, `SolidCore.Refinement.Solar.Events.Certified,
+    `SolidCore.Refinement.Solar.Total]
 
 -- token (solar-tv/milestone/token/token.sol at solar 3ca8f483, copied to
 -- scripts/refinement/token/token.sol: an ERC-20 with a nested allowance mapping, a mapping to

@@ -1,5 +1,6 @@
 import Verify.Fuel
 import Verify.VC.Obligations
+import SolidCore.Refinement.Fuel
 
 /-!
 # Fuel: one fuel for every call, from a run at one fuel
@@ -177,5 +178,58 @@ theorem triple_of_binds_from {n m : Nat} (hnm : n ≤ m) {c : TypeCheck.CheckedC
   obtain ⟨d, hd⟩ := hdep n (Nat.le_refl n)
   exact Triple.mono_of_uniform (uniformFrom_stage hdep hsel hfind hlen hT) hnm
     (VC.triple_of_binds hd hsel hfind hlen hT hobs hbind)
+
+/-! ## `Source.run` fuel monotonicity, wired
+
+`SolidCore.Refinement.Source.run_fuel_mono` (`SolidCore/Refinement/Fuel.lean`, on
+`SolidCore.Solidity.FuelExtension`'s per-path extension) proves that a finished run is the run
+at every higher fuel, for a constructor that gives the same result at both fuels
+(`CtorStable`). `FuelStable` of `Verify.Fuel` is that statement for every pair of fuels; the
+constructor's stability stays a hypothesis there, for the reason `Refinement/Fuel.lean` gives
+(the hook's depth is the fuel, and its unreachability during construction is not proved).
+
+* `fuelStable_of_ctorStable`: constructor stability at every pair of fuels gives `FuelStable`,
+  so every some-fuel form of `Verify.Fuel` (`tripleAny_of_some`, `triple_of_within`) applies.
+* `Triple.mono_of_ctorStable`, `uniformFrom_of_triple`: a triple at `n` (every call of the scope
+  finishes at `n`) is a triple at every `m ≥ n`, and the runs are uniform from `n`, given only
+  constructor stability on the scope's calls, with no argument about the function.
+-/
+
+/-- Constructor stability at every pair of fuels gives fuel stability. -/
+theorem fuelStable_of_ctorStable {c : TypeCheck.CheckedContract}
+    (hctor : ∀ n m call, n ≤ m → CtorStable n m c call) : FuelStable c :=
+  fun n m call _ hnm h => Source.run_fuel_mono hnm (hctor n m call hnm) h
+
+/-- A triple at `n` is a triple at every `m ≥ n` whose constructor run is the one at `n`. -/
+theorem Triple.mono_of_ctorStable {n m : Nat} (hnm : n ≤ m) {c : TypeCheck.CheckedContract}
+    {scope pre : Call → Prop} {post : Call → Observable → Prop}
+    (hctor : ∀ call, scope call → CtorStable n m c call) (h : Triple n c scope pre post) :
+    Triple m c scope pre post := by
+  intro call hs hp
+  obtain ⟨hsome, hpost⟩ := h call hs hp
+  obtain ⟨obs, hobs⟩ := Option.isSome_iff_exists.mp hsome
+  have hm := Source.run_fuel_mono hnm (hctor call hs) hobs
+  refine ⟨by simp [hm], fun o ho => ?_⟩
+  rw [hm] at ho
+  cases ho
+  exact hpost obs hobs
+
+/-- The runs of a scope on which a triple holds at `n` are uniform from `n`, given constructor
+stability on the scope's calls. -/
+theorem uniformFrom_of_triple {n : Nat} {c : TypeCheck.CheckedContract}
+    {scope pre : Call → Prop} {post : Call → Observable → Prop}
+    (hctor : ∀ m, n ≤ m → ∀ call, scope call → CtorStable n m c call)
+    (h : Triple n c scope (fun _ => True) post) : UniformFrom n c scope := by
+  intro call hs m hnm
+  obtain ⟨hsome, -⟩ := h call hs trivial
+  obtain ⟨obs, hobs⟩ := Option.isSome_iff_exists.mp hsome
+  rw [hobs, Source.run_fuel_mono hnm (hctor m hnm call hs) hobs]
+
+#print axioms fuelStable_of_ctorStable
+#print axioms Triple.mono_of_ctorStable
+#print axioms uniformFrom_of_triple
+#print axioms Erase.eraseFn_mono
+#print axioms uniformFrom_stage
+#print axioms triple_of_binds_from
 
 end SolidCore.Verify

@@ -2,6 +2,8 @@ import SolidCore.Refinement.Statement
 import SolidCore.Refinement.Corpus
 import SolidCore.Refinement.Compose
 import SolidCore.Refinement.Spec
+import SolidCore.Refinement.Behaviours
+import SolidCore.Refinement.Fuel
 import SolidCore.Refinement.Headline
 import SolidCore.Refinement.Seq.Corpus
 import SolidCore.Refinement.Solar.W1
@@ -9,6 +11,8 @@ import SolidCore.Refinement.Solar.Lowering
 import SolidCore.Refinement.Solar.Milestone
 import SolidCore.Refinement.Solar.LoweringGeneric
 import SolidCore.Refinement.Generic.MulTest
+import SolidCore.Refinement.Generic.Total
+import SolidCore.Refinement.NonVacuity
 
 /-!
 # Refinement of solar's bytecode against SolidCore
