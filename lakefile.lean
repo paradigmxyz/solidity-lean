@@ -166,4 +166,5 @@ lean_lib SolidCoreSolarToken where
 -- (SolidCore/Verify/VC.lean), outside the default root: it builds on the generic source stage.
 lean_lib SolidCoreVerifyVC where
   roots := #[`SolidCore.Verify.VC, `SolidCore.Verify.VC.Token, `SolidCore.Verify.VC.TokenTransfer,
-    `SolidCore.Verify.VC.TokenMutants, `SolidCore.Verify.VC.CounterInc, `SolidCore.Verify.VC.CounterMutants]
+    `SolidCore.Verify.VC.TokenMutants, `SolidCore.Verify.VC.CounterInc, `SolidCore.Verify.VC.CounterMutants,
+    `SolidCore.Verify.VC.CounterGet]
