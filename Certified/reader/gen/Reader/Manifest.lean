@@ -10,7 +10,7 @@ namespace SolarTV.Export.Reader.Manifest
 def sources : List (String × String) :=
   [("Certified/reader/reader.sol", "bff96eb4b5b33ebc37c3dd379d4d55388525e9787dd991afa41cc0b809b89a7e")]
 
-def compiler : String := "0.8.38+commit.ebdc3376.solar.0.3.0-dev"
+def compiler : String := "0.8.38+commit.cb5053ab.solar.0.3.0-dev"
 
 def arguments : List String :=
   ["Certified/reader/reader.sol",

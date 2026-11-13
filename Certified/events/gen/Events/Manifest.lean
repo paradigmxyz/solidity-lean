@@ -10,7 +10,7 @@ namespace SolarTV.Export.Events.Manifest
 def sources : List (String × String) :=
   [("Certified/events/events.sol", "8b951679cab695d07c193e56dd5d96d14a1c63976673c79a72c690f07c50b5b0")]
 
-def compiler : String := "0.8.38+commit.ebdc3376.solar.0.3.0-dev"
+def compiler : String := "0.8.38+commit.cb5053ab.solar.0.3.0-dev"
 
 def arguments : List String :=
   ["Certified/events/events.sol",

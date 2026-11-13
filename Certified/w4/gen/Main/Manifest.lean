@@ -10,7 +10,7 @@ namespace SolarTV.Export.Main.Manifest
 def sources : List (String × String) :=
   [("Certified/w4/w4.sol", "942f34d659aeb6e6809054e007c8201ad58d6ddb4ac748444eb9442dc317f02d")]
 
-def compiler : String := "0.8.38+commit.ebdc3376.solar.0.3.0-dev"
+def compiler : String := "0.8.38+commit.cb5053ab.solar.0.3.0-dev"
 
 def arguments : List String :=
   ["Certified/w4/w4.sol",

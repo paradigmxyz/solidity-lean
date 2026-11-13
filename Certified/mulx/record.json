@@ -1,0 +1,29 @@
+{
+  "contract": "Main",
+  "name": "mulx",
+  "source": "Certified/mulx/mulx.sol",
+  "bytecode": "34601d575f3560e01c806316ea58cb14606d5780639db20e58146033575b5f5ffd5b6011602052634e487b715f526024601cfd5b60243560101c6064361060ff600435111717601d576004602435604435913502808280159202928304141715602157806001555f5260205ff35b60243560101c6044361060ff600435111717601d575f5460ff81166004350260ff81119160ff1916178060081c61ffff16602435028060101c90921760215762ffff0019169060081b175f55",
+  "solar": "cb5053ab39adfd59820913b336d346389ce1b8d9",
+  "solidity_lean": "696df0a81602fc416fabec7b892073e15e8920de",
+  "mir_to_evmir": "proved: SolarTV.Milestone.Mulx.mulx_mir_to_evmir",
+  "assembly": "decoded only: mulx.Proofs.Assembly (the bytecode decodes to the final EVM IR's instructions; no execution theorem)",
+  "vc": "exported to .lake/certify/mulx/VC.lean",
+  "end_to_end": "not proved",
+  "end_to_end_statement": {},
+  "hypotheses": {},
+  "refused": [],
+  "vacuous": "not checked",
+  "assembly_statement": null,
+  "assembly_hypotheses": null,
+  "negative_tests": false,
+  "caveats": [
+    "solidity-lean at 696df0a81602fc416fabec7b892073e15e8920de, not the pinned 813949dc3556d3c3f1c129e8254a4eead78bac87",
+    "solar cb5053ab39adfd59820913b336d346389ce1b8d9, not built from this checkout's compiler sources",
+    "assembly decoded, not executed",
+    "not end to end: solidity-lean states no source or spec theorem for mulx",
+    "negative tests skipped"
+  ],
+  "backend": {
+    "theorem": "SolarTV.Milestone.Mulx.mulx_mir_to_evmir"
+  }
+}

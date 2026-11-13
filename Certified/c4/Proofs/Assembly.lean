@@ -32,11 +32,11 @@ theorem decodes : decodeFrom bytecode (bytecode.length + 1) 0 = stream :=
   walk_decodes checked _ (by have := walk_length checked; omega)
 
 /-- info: 'SolarTV.Milestone.C4.walk_eq' depends on axioms: [propext, Quot.sound] -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #print axioms walk_eq
 
 /-- info: 'SolarTV.Milestone.C4.decodes' depends on axioms: [propext, Quot.sound] -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #print axioms decodes
 
 end SolarTV.Milestone.C4

@@ -344,10 +344,11 @@ lean_lib ContractsCounter where
 -- triples carried to solar's bytecode.
 lean_lib ContractsToken where
   roots := #[`Contracts.Token.Lowering, `Contracts.Token.Assembly, `Contracts.Token.Discharge,
-    `Contracts.Token.EndToEnd, `Contracts.Token.Exports, `Contracts.Token.LoweringIn]
+    `Contracts.Token.EndToEnd, `Contracts.Token.Exports, `Contracts.Token.LoweringIn,
+    `Contracts.Token.SpecTree]
   globs := #[.one `Contracts.Token.Lowering, .one `Contracts.Token.LoweringIn, .one `Contracts.Token.Assembly,
     .one `Contracts.Token.Discharge, .one `Contracts.Token.EndToEnd,
-    .one `Contracts.Token.Exports, .submodules `Contracts.Token.Spec]
+    .one `Contracts.Token.Exports, .one `Contracts.Token.SpecTree, .submodules `Contracts.Token.Spec]
 
 /-! solar-verify's verification conditions and their kernel-checked discharge (formerly solar's
 crates/verify/lean). An exported VC module imports `Verify.Obligation`; `Verify.Discharge` holds the

@@ -1,0 +1,44 @@
+{
+  "contract": "Counter",
+  "name": "counter",
+  "source": "Certified/counter/counter.sol",
+  "bytecode": "346034575f3560e01c80636d4ce63c146038578063812600df03603457602436106034575f5460043581019081106041575f55005b5f5ffd5b5f545f5260205ff35b6011602052634e487b715f526024601cfd",
+  "solar": "cb5053ab39adfd59820913b336d346389ce1b8d9",
+  "solidity_lean": "696df0a81602fc416fabec7b892073e15e8920de",
+  "mir_to_evmir": "proved: SolarTV.Milestone.Counter.counter_mir_to_evmir",
+  "assembly": "decoded only: counter.Proofs.Assembly (the bytecode decodes to the final EVM IR's instructions; no execution theorem)",
+  "vc": "exported to .lake/certify/counter/VC.lean",
+  "end_to_end": "proved (contract-specific): SolidCore.Refinement.Solar.Counter.Headline.spec_holds_of_bytecode, SolidCore.Refinement.Solar.Counter.Headline.wrong_fails, SolidCore.Refinement.Solar.Counter.EndToEnd.inc_spec_bytecode, SolidCore.Refinement.Solar.Counter.EndToEnd.get_spec_bytecode, SolidCore.Refinement.Solar.Counter.Deploy.initcode_runs",
+  "end_to_end_statement": {
+    "SolidCore.Refinement.Solar.Counter.Headline.spec_holds_of_bytecode": "SolidCore.Spec.Export.Counter.manifest.bytecodeSha256 = SolidCore.Refinement.Solar.Counter.Final.manifest.runtimeSha256 ∧ SolidCore.Refinement.Final.Bound SolidCore.Refinement.Solar.Counter.Final.manifest SolidCore.Refinement.Solar.Counter.code ∧ SolidCore.Refinement.Final.FrameLocal SolidCore.Refinement.Solar.Counter.code = true ∧ ∃ c, SolidCore.Refinement.Solar.Counter.contract? = Except.ok c ∧ SolidCore.Refinement.Final.Agree (SolidCore.Refinement.solidCore SolidCore.Refinement.Solar.Counter.fuel) SolidCore.Refinement.ethLib c SolidCore.Refinement.Solar.Counter.code SolidCore.Refinement.Solar.Counter.scopeEvery ∧ SolidCore.Spec.Holds SolidCore.Refinement.ethLib SolidCore.Refinement.Solar.Counter.code SolidCore.Refinement.Solar.Counter.scopeEvery SolidCore.Refinement.Solar.Counter.Headline.spec SolidCore.Refinement.Solar.Counter.Headline.ctxOf SolidCore.Refinement.Solar.Counter.Headline.step ∧ (∀ (call : SolarTV.Call), SolidCore.Verify.VC.stageScope SolidCore.Verify.VC.Counter.fnInc [] call → ∃ obs, SolidCore.Refinement.Target.run SolidCore.Refinement.Solar.Counter.code call = some obs ∧ SolidCore.Verify.VC.Counter.incPost call obs) ∧ (∀ (call : SolarTV.Call), SolidCore.Verify.VC.stageScope SolidCore.Verify.VC.Counter.fnGet [] call → ∃ obs, SolidCore.Refinement.Target.run SolidCore.Refinement.Solar.Counter.code call = some obs ∧ SolidCore.Verify.VC.Counter.getPost call obs) ∧ SolidCore.Refinement.Target.run SolidCore.Refinement.Solar.Counter.Deploy.initcode SolidCore.Refinement.Solar.Counter.Deploy.deployCall = some SolidCore.Refinement.Solar.Counter.Deploy.deployed",
+    "SolidCore.Refinement.Solar.Counter.Headline.wrong_fails": "¬SolidCore.Spec.Holds SolidCore.Refinement.ethLib SolidCore.Refinement.Solar.Counter.code SolidCore.Refinement.Solar.Counter.scopeEvery SolidCore.Spec.Export.CounterSpecMut.Counter SolidCore.Refinement.Solar.Counter.Headline.ctxOf SolidCore.Refinement.Solar.Counter.Headline.step",
+    "SolidCore.Refinement.Solar.Counter.EndToEnd.inc_spec_bytecode": "SolidCore.Refinement.Final.Bound SolidCore.Refinement.Solar.Counter.Final.manifest SolidCore.Refinement.Solar.Counter.code ∧ SolidCore.Refinement.Final.FrameLocal SolidCore.Refinement.Solar.Counter.code = true ∧ ∀ (call : SolarTV.Call), SolidCore.Verify.VC.stageScope SolidCore.Verify.VC.Counter.fnInc [] call → ∃ obs, SolidCore.Refinement.Target.run SolidCore.Refinement.Solar.Counter.code call = some obs ∧ SolidCore.Verify.VC.Counter.incPost call obs",
+    "SolidCore.Refinement.Solar.Counter.EndToEnd.get_spec_bytecode": "SolidCore.Refinement.Final.Bound SolidCore.Refinement.Solar.Counter.Final.manifest SolidCore.Refinement.Solar.Counter.code ∧ SolidCore.Refinement.Final.FrameLocal SolidCore.Refinement.Solar.Counter.code = true ∧ ∀ (call : SolarTV.Call), SolidCore.Verify.VC.stageScope SolidCore.Verify.VC.Counter.fnGet [] call → ∃ obs, SolidCore.Refinement.Target.run SolidCore.Refinement.Solar.Counter.code call = some obs ∧ SolidCore.Verify.VC.Counter.getPost call obs",
+    "SolidCore.Refinement.Solar.Counter.Deploy.initcode_runs": "SolidCore.Refinement.Target.run SolidCore.Refinement.Solar.Counter.Deploy.initcode SolidCore.Refinement.Solar.Counter.Deploy.deployCall = some SolidCore.Refinement.Solar.Counter.Deploy.deployed"
+  },
+  "hypotheses": {
+    "SolidCore.Refinement.Solar.Counter.Headline.spec_holds_of_bytecode": [],
+    "SolidCore.Refinement.Solar.Counter.Headline.wrong_fails": [],
+    "SolidCore.Refinement.Solar.Counter.EndToEnd.inc_spec_bytecode": [
+      "SolidCore.Refinement.Final.Bound SolidCore.Refinement.Solar.Counter.Final.manifest SolidCore.Refinement.Solar.Counter.code ∧ SolidCore.Refinement.Final.FrameLocal SolidCore.Refinement.Solar.Counter.code = true ∧ ∀ (call : SolarTV.Call), SolidCore.Verify.VC.stageScope SolidCore.Verify.VC.Counter.fnInc [] call"
+    ],
+    "SolidCore.Refinement.Solar.Counter.EndToEnd.get_spec_bytecode": [
+      "SolidCore.Refinement.Final.Bound SolidCore.Refinement.Solar.Counter.Final.manifest SolidCore.Refinement.Solar.Counter.code ∧ SolidCore.Refinement.Final.FrameLocal SolidCore.Refinement.Solar.Counter.code = true ∧ ∀ (call : SolarTV.Call), SolidCore.Verify.VC.stageScope SolidCore.Verify.VC.Counter.fnGet [] call"
+    ],
+    "SolidCore.Refinement.Solar.Counter.Deploy.initcode_runs": []
+  },
+  "refused": [],
+  "vacuous": "not checked",
+  "assembly_statement": null,
+  "assembly_hypotheses": null,
+  "negative_tests": false,
+  "caveats": [
+    "solidity-lean at 696df0a81602fc416fabec7b892073e15e8920de, not the pinned 813949dc3556d3c3f1c129e8254a4eead78bac87",
+    "solar cb5053ab39adfd59820913b336d346389ce1b8d9, not built from this checkout's compiler sources",
+    "assembly decoded, not executed",
+    "negative tests skipped"
+  ],
+  "backend": {
+    "theorem": "SolarTV.Milestone.Counter.counter_mir_to_evmir"
+  }
+}

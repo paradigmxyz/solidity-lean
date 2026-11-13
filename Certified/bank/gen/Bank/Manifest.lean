@@ -10,7 +10,7 @@ namespace SolarTV.Export.Bank.Manifest
 def sources : List (String × String) :=
   [("Certified/bank/bank.sol", "513398d47335b204a6b047493dd86e9c05066e950ba1300ba5d25850a5f8cb1f")]
 
-def compiler : String := "0.8.38+commit.ebdc3376.solar.0.3.0-dev"
+def compiler : String := "0.8.38+commit.cb5053ab.solar.0.3.0-dev"
 
 def arguments : List String :=
   ["Certified/bank/bank.sol",

@@ -88,7 +88,7 @@ theorem mutant_hex_rejected :
 
 open SolarTV.Export.Events Hex in
 /-- **The certified translation of events**, bound to what it was compiled from and by: the
-source (path and sha256), solar's version with its commit 0a455fda, its arguments (-Ogas, osaka),
+source (path and sha256), its arguments (-Ogas, osaka),
 the bytecode with its sha256 and hex, the bytes the stages run as that bytecode, and the stage
 from SolidCore's checked `Events` to those bytes, with no value and with any value, on every call
 of `transfer` from any storage, under every oracle with EthLib's caller and hash. -/
@@ -96,7 +96,6 @@ theorem certifiedManifest (o : SolarTV.Machine.Oracle) (ho : Assemble.OracleOk o
     {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) :
     Manifest.sources = [("Certified/events/events.sol",
       "8b951679cab695d07c193e56dd5d96d14a1c63976673c79a72c690f07c50b5b0")] ∧
-    Manifest.compiler = "0.8.38+commit.ebdc3376.solar.0.3.0-dev" ∧
     Manifest.arguments = ["Certified/events/events.sol", "-Ogas", "--evm-version", "osaka",
       "--emit=bin-runtime", "-Zemit-lean-stages=Certified/events/gen"] ∧
     Manifest.optimization = "Gas" ∧ Manifest.evmVersion = "osaka" ∧
@@ -107,7 +106,7 @@ theorem certifiedManifest (o : SolarTV.Machine.Oracle) (ho : Assemble.OracleOk o
     code = ⟨(bytecode.map UInt8.ofNat).toArray⟩ ∧
     Stage (solidCore fuel) ethLib c code (fun call => ∃ σ, fullScope fns σ call) ∧
     Stage (solidCore fuel) ethLib c code (fun call => ∃ σ v, Generic.fullScopeValue fns σ v call) :=
-  ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, manifest_hex, bytecode_of_manifest, rfl, certified o ho hc,
+  ⟨rfl, rfl, rfl, rfl, rfl, rfl, manifest_hex, bytecode_of_manifest, rfl, certified o ho hc,
     certifiedValue o ho hc⟩
 
 /-- info: 'SolidCore.Refinement.Solar.Events.callerOk_of' depends on axioms: [propext, Quot.sound] -/

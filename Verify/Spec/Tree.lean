@@ -93,6 +93,43 @@ theorem holdsFn_of_tree {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Source
   exact ⟨_, hrun, hm args (slotValue σ) iargs pre _ hl hargs (fun k => Generic.slotValue_lt σ k)
     hdec hst ht hreq hinv⟩
 
+/-! ## Functions that leave the ghost state alone -/
+
+/-- `TreeMeets` for a function whose calls leave the ghost state as it was: the post-state's
+ghost state is the pre-state's. -/
+def TreeMeetsFixed (b : Bundle) (fs : FnSpec) (ctx : Ctx) (n : Nat) (T : Tree) : Prop :=
+  ∀ (args : List Nat) (s : Storage) (iargs : List Int) (pre : State),
+    args.length = n → (∀ a ∈ args, a < 2 ^ 256) → (∀ k, s k < 2 ^ 256) →
+    decodeWords fs.params args = some iargs → pre.storage = s → pre.time ≤ ctx.timestamp →
+    b.satAll fs.requires (mkEnv ctx iargs [] pre pre) →
+    b.satAll b.spec.invariants (mkEnv ctx iargs [] pre pre) →
+    Post b fs ctx pre pre.ghost (T.eval ⟨args, s, solHash⟩).obs iargs
+
+/-- **`holdsFn_of_tree` for a function that leaves the ghost state alone**: the ghost step is the
+identity on the stage's calls of the function. -/
+theorem holdsFn_of_tree_fixed {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.State}
+    {s : List (Nat × Nat)} (hd : Wide.DeployedAt fuel c d s) {fn : Fn} {f : Source.FunctionDef}
+    (hsel : fn.sel < 2 ^ 32) (hfind : c.core.findFunctionBySelector? fn.sel = some f)
+    (hlen : f.params.length = fn.params.length) {T : Tree}
+    (hT : eraseFn (envOf c.core) fuel f = some T) {b : Bundle} {fs : FnSpec}
+    {ctxOf : Call → Ctx} {step : GhostStep} {ctx : Ctx}
+    (hctx : ∀ call : Call, call.callvalue = 0 → ctxOf call = ctx)
+    (hstep : ∀ call, SolidCore.Verify.VC.stageScope fn s call → ∀ g, step call g = g)
+    (hm : TreeMeetsFixed b fs ctx fn.params.length T) :
+    HoldsFn (solidCore fuel) c (SolidCore.Verify.VC.stageScope fn s) b ctxOf step fs := by
+  intro call hcall iargs pre hpre
+  have hg := hstep call hcall pre.ghost
+  obtain ⟨σ, hcov, fn', hfn', args, hl, hargs, rfl⟩ := hcall
+  simp only [List.mem_singleton] at hfn'
+  subst hfn'
+  have hrun := source_run hd hcov hsel hfind hT args (hl.trans hlen.symm) hargs
+  obtain ⟨⟨-, -, hdec⟩, hst, ht, hreq, hinv⟩ := hpre
+  rw [hctx _ rfl] at ht hreq hinv ⊢
+  rw [words_calldata _ hargs] at hdec
+  rw [hg]
+  exact ⟨_, hrun, hm args (slotValue σ) iargs pre hl hargs (fun k => Generic.slotValue_lt σ k)
+    hdec hst ht hreq hinv⟩
+
 /-! ## Proving `TreeMeets`
 
 `tree_meets [defs]` proves `TreeMeets b fs ctx n T` for a function of at most eight parameters
@@ -108,7 +145,32 @@ macro "tree_meets" "[" ds:Lean.Parser.Tactic.simpLemma,* "]" : tactic => `(tacti
     simp only [List.length_cons, List.length_nil] at hl <;> (try omega) <;>
     simp only [List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp, forall_eq,
       IsEmpty.forall_iff, implies_true, and_true] at hargs <;>
-    simp only [$ds,*, List.head, decodeWords, Ty.ofWord, hargs, ite_true, bind, pure, Option.bind,
+    simp only [$ds,*, List.head, List.getElem_cons_zero, List.getElem_cons_succ, decodeWords, Ty.ofWord,
+      hargs, ite_true, bind, pure, Option.bind,
+      Option.some.injEq] at hdec <;>
+    subst hdec <;>
+    refine ⟨fun hsucc => ?_, fun hne => ?_⟩ <;>
+    first
+    | (simp [$ds,*] at hne; done)
+    | (simp only [$ds,*, Tree.eval, WExpr.eval, BinOp.eval, Generic.wordSize, hsm,
+          List.getD_cons_zero, List.getD_cons_succ] at hsucc ⊢
+       split_ifs at hsucc ⊢ <;>
+       simp_all [$ds,*, Res.obs, Writes.store, WExpr.eval, BinOp.eval, Bundle.satAll, Bundle.sat,
+         eval, slotOf, mkEnv, Env.cur, BinOp.apply, Ty.ofBits, toWord, decodeWords, words,
+         Generic.wordSize] <;>
+       omega)))
+
+/-- `tree_meets` for `TreeMeetsFixed`: the same steps, with the post-state's ghost state the
+pre-state's. -/
+macro "tree_meets_fixed" "[" ds:Lean.Parser.Tactic.simpLemma,* "]" : tactic => `(tactic| (
+  intro args s iargs pre hl hargs hs hdec hst ht hreq hinv
+  have hsm : ∀ k, s k % 2 ^ 256 = s k := fun k => Nat.mod_eq_of_lt (hs k)
+  rcases args with _ | ⟨a0, _ | ⟨a1, _ | ⟨a2, _ | ⟨a3, _ | ⟨a4, _ | ⟨a5, _ | ⟨a6, _ | ⟨a7, _ | ⟨_, _⟩⟩⟩⟩⟩⟩⟩⟩⟩ <;>
+    simp only [List.length_cons, List.length_nil] at hl <;> (try omega) <;>
+    simp only [List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp, forall_eq,
+      IsEmpty.forall_iff, implies_true, and_true] at hargs <;>
+    simp only [$ds,*, List.head, List.getElem_cons_zero, List.getElem_cons_succ, decodeWords, Ty.ofWord,
+      hargs, ite_true, bind, pure, Option.bind,
       Option.some.injEq] at hdec <;>
     subst hdec <;>
     refine ⟨fun hsucc => ?_, fun hne => ?_⟩ <;>

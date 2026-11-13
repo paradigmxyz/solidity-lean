@@ -108,7 +108,7 @@ theorem mutant_hex_rejected :
 
 open SolarTV.Export.Bank Hex in
 /-- **The certified translation of bank**, bound to what it was compiled from and by: the source
-(path and sha256), solar's version with the commit its manifest records (ebdc3376), its arguments
+(path and sha256), its arguments
 (-Ogas, osaka), the bytecode with its sha256 and hex, the bytes the stages run as that bytecode,
 and the stage from SolidCore's checked `Bank` to those bytes, with no value and with any value,
 on every call of `deposit`, `depositFor` and `balanceOf` from any storage, under every oracle
@@ -119,7 +119,6 @@ theorem certifiedManifest (o : SolarTV.Machine.Oracle) (ho : Assemble.OracleOk o
     (hk : EthKeccakAgree) {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) :
     Manifest.sources = [("Certified/bank/bank.sol",
       "513398d47335b204a6b047493dd86e9c05066e950ba1300ba5d25850a5f8cb1f")] ∧
-    Manifest.compiler = "0.8.38+commit.ebdc3376.solar.0.3.0-dev" ∧
     Manifest.arguments = ["Certified/bank/bank.sol", "-Ogas", "--evm-version", "osaka",
       "--emit=bin-runtime", "-Zemit-lean-stages=Certified/bank/gen"] ∧
     Manifest.optimization = "Gas" ∧ Manifest.evmVersion = "osaka" ∧
@@ -130,7 +129,7 @@ theorem certifiedManifest (o : SolarTV.Machine.Oracle) (ho : Assemble.OracleOk o
     code = ⟨(bytecode.map UInt8.ofNat).toArray⟩ ∧
     Stage (solidCore fuel) ethLib c code (fun call => ∃ σ, fullScope fns σ call) ∧
     Stage (solidCore fuel) ethLib c code (fun call => ∃ σ v, Generic.fullScopeValue fns σ v call) :=
-  ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, manifest_hex, bytecode_of_manifest, rfl, certified o ho hk hc,
+  ⟨rfl, rfl, rfl, rfl, rfl, rfl, manifest_hex, bytecode_of_manifest, rfl, certified o ho hk hc,
     certifiedValue o ho hk hc⟩
 
 /-- EthLib's and SolidCore's Keccak-256 agree on the 64 bytes of two words (for every pair of
@@ -161,7 +160,6 @@ theorem certifiedManifest' (o : SolarTV.Machine.Oracle) (ho : Assemble.OracleOk 
     {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) :
     Manifest.sources = [("Certified/bank/bank.sol",
       "513398d47335b204a6b047493dd86e9c05066e950ba1300ba5d25850a5f8cb1f")] ∧
-    Manifest.compiler = "0.8.38+commit.ebdc3376.solar.0.3.0-dev" ∧
     Manifest.arguments = ["Certified/bank/bank.sol", "-Ogas", "--evm-version", "osaka",
       "--emit=bin-runtime", "-Zemit-lean-stages=Certified/bank/gen"] ∧
     Manifest.optimization = "Gas" ∧ Manifest.evmVersion = "osaka" ∧

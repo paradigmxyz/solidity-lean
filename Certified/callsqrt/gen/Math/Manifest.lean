@@ -10,7 +10,7 @@ namespace SolarTV.Export.Math.Manifest
 def sources : List (String × String) :=
   [("Certified/callsqrt/callsqrt.sol", "de1e97d3782481740b78753f4a9933eec66d15c015397a55b59255f9d56906d9")]
 
-def compiler : String := "0.8.38+commit.46672638.solar.0.3.0-dev"
+def compiler : String := "0.8.38+commit.cb5053ab.solar.0.3.0-dev"
 
 def arguments : List String :=
   ["Certified/callsqrt/callsqrt.sol",

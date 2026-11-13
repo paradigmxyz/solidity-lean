@@ -5,6 +5,7 @@
       {"block": 1, "start": [1, 0], "layout": [], "floating": true, "continues": null},
       {"block": 2, "start": [2, 0], "layout": [], "floating": true, "continues": null},
       {"block": 3, "start": [3, 0], "layout": [], "floating": true, "continues": null}
+    ], "calls": [
     ]},
     {"function": 0, "entry": 4, "returns": false, "rebuilt": false, "unsupported": null, "blocks": [
       {"block": 0, "start": [4, 3], "layout": [], "floating": true, "continues": null},
@@ -15,6 +16,7 @@
       {"block": 5, "start": [10, 0], "layout": [], "floating": true, "continues": null},
       {"block": 6, "start": [8, 0], "layout": ["v19"], "floating": true, "continues": null},
       {"block": 7, "start": [5, 0], "layout": [], "floating": true, "continues": null}
+    ], "calls": [
     ]}
   ]
 }

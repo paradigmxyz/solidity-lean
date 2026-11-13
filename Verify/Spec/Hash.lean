@@ -1,5 +1,6 @@
 import Verify.Spec.Semantics
 import SolidCore.Refinement.Generic.Source
+import Verify.Spec.TrustedBase.Hypotheses
 
 /-!
 # SolidCore's storage hash is the spec's
@@ -81,5 +82,54 @@ theorem solHash_eq (k s : Nat) :
   unfold SolidCore.Refinement.Generic.solHash SolidCore.Solidity.Source.storageWordBytes
   rw [keccakWord_eq, wordToBytesBE_eq, wordToBytesBE_eq]
   rfl
+
+/-! ## Mapping slots keyed by addresses
+
+`SlotsSeparated m` names the one keccak256 assumption a spec over an address-keyed mapping at
+slot `m` needs: keccak256 is separated (injective, every image at least `2 ^ 128`, so never a
+small constant slot) on the preimages of `m[a]` for every address `a`
+(`TrustedBase.KeccakSeparated`). It is not provable (keccak256 is not injective on all
+inputs) and not refutable from the definitions; a theorem that uses it states it as a premise.
+From it, SolidCore's slots of two addresses are equal only for equal addresses (`slot_inj`), and
+none is a small slot (`slot_ge`). -/
+
+theorem bytesWord_append (l : List Nat) (x : Nat) : bytesWord (l ++ [x]) = bytesWord l * 256 + x := by
+  simp [bytesWord, List.foldl_append]
+
+theorem bytesWord_wordToBytesBE : ∀ n v,
+    bytesWord (SolidCore.Solidity.Source.wordToBytesBE n v) = v % 256 ^ n
+  | 0, v => by simp [bytesWord, SolidCore.Solidity.Source.wordToBytesBE, Nat.mod_one]
+  | n + 1, v => by
+    rw [SolidCore.Solidity.Source.wordToBytesBE, bytesWord_append, bytesWord_wordToBytesBE n,
+      Nat.pow_succ, Nat.mul_comm (256 ^ n) 256, Nat.mod_mul]
+    simp only [SolidCore.Solidity.Source.normByte, SolidCore.Solidity.Shared.Account.byte]
+    omega
+
+theorem bytesWord_wordBytes (v : Nat) : bytesWord (wordBytes v) = v % 2 ^ 256 := by
+  have : wordBytes v = SolidCore.Solidity.Source.wordToBytesBE 32 v := by
+    rw [wordToBytesBE_eq]; rfl
+  rw [this, bytesWord_wordToBytesBE, show (256 : Nat) ^ 32 = 2 ^ 256 from rfl]
+
+theorem length_wordBytes (v : Nat) : (wordBytes v).length = 32 := by simp [wordBytes]
+
+/-- keccak256 is separated on the slots of `m[a]`, for every address `a`. -/
+def SlotsSeparated (m : Nat) : Prop :=
+  TrustedBase.KeccakSeparated (fun x => ∃ a < 2 ^ 160, x = TrustedBase.mappingPreimage a m)
+
+theorem slot_inj {m : Nat} (h : SlotsSeparated m) {a b : Nat} (ha : a < 2 ^ 160) (hb : b < 2 ^ 160)
+    (he : SolidCore.Refinement.Generic.solHash a m = SolidCore.Refinement.Generic.solHash b m) :
+    a = b := by
+  rw [solHash_eq, solHash_eq] at he
+  have := h.1 _ _ ⟨a, ha, rfl⟩ ⟨b, hb, rfl⟩ he
+  unfold TrustedBase.mappingPreimage at this
+  have hw := List.append_inj_left' this (by simp [length_wordBytes])
+  have := congrArg bytesWord hw
+  rw [bytesWord_wordBytes, bytesWord_wordBytes] at this
+  omega
+
+theorem slot_ge {m : Nat} (h : SlotsSeparated m) {a : Nat} (ha : a < 2 ^ 160) :
+    2 ^ 128 ≤ SolidCore.Refinement.Generic.solHash a m := by
+  rw [solHash_eq]
+  exact h.2 _ ⟨a, ha, rfl⟩
 
 end SolidCore.Spec

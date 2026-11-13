@@ -105,7 +105,7 @@ theorem certified_at_value (o : SolarTV.Machine.Oracle) {c : TypeCheck.CheckedCo
   (loweringAtValue o hc).trans (backend o _)
 
 /-- **The certified translation of mulx**, bound to what it was compiled from and by: the
-source (path and sha256), solar's version with its commit a8179dfc, its arguments
+source (path and sha256), its arguments
 (-Zcheck-analyses=false, -Ogas, osaka), the bytecode with its sha256, the bytes the stages run
 as that bytecode, and the stage from SolidCore's checked Main to those bytes, from the deployed
 storage and from any storage that writes slot 0, under every oracle. -/
@@ -113,7 +113,6 @@ theorem certified (o : SolarTV.Machine.Oracle) {c : TypeCheck.CheckedContract}
     (hc : contract? = .ok c) :
     Manifest.sources = [("Certified/mulx/mulx.sol",
       "50ef03a3c5724105509c3ed40b7ee7d92ea43b5d48a67d0e6722b26806dd4980")] ∧
-    Manifest.compiler = "0.8.38+commit.ebdc3376.solar.0.3.0-dev" ∧
     Manifest.arguments = ["Certified/mulx/mulx.sol", "-Zcheck-analyses=false",
       "--emit=bin-runtime", "-Zemit-lean-stages=Certified/mulx/gen"] ∧
     Manifest.optimization = "Gas" ∧ Manifest.evmVersion = "osaka" ∧
@@ -122,7 +121,7 @@ theorem certified (o : SolarTV.Machine.Oracle) {c : TypeCheck.CheckedContract}
     code = ⟨(bytecode.map UInt8.ofNat).toArray⟩ ∧
     Stage (solidCore fuel) ethLib c code (fullScope fns deployed) ∧
     Stage (solidCore fuel) ethLib c code scopeAt :=
-  ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, bytecode_of_manifest, rfl, certified_deployed o hc,
+  ⟨rfl, rfl, rfl, rfl, rfl, rfl, bytecode_of_manifest, rfl, certified_deployed o hc,
     certified_at o hc⟩
 
 /-- info: 'SolidCore.Refinement.Solar.MulX.backend' depends on axioms: [propext, Classical.choice, Quot.sound] -/

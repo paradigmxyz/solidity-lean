@@ -1,0 +1,35 @@
+{
+  "contract": "Token",
+  "name": "verify_token",
+  "source": "Certified/verify_token/verify_token.sol",
+  "bytecode": "346047575f3560e01c806318160ddd14608f57806340c10f191460a957806342966c681461024357806370a0823114605d5780638da5cb5b146099578063a9059cbb14610172575b5f5ffd5b6011602052634e487b715f526024601cfd5b60043560a01c60243610176047576004355f1960601c8116815f525f60205260405f20545f5281810361027f5760205ff35b6001545f5260205ff35b60025460601b60601c5f5260205ff35b60043560a01c60443610176047576004355f1960601c808216906002541633145f1960601c331161015957828203610134571561010c5750602435600154818101908110604b57600155905f525f60205260405f208054918201918210604b5755005b686e6f74206f776e657260b81b60095b602080526040526060526308c379a05b5f526064601cfd5b506d01020000000400000007000000155b6020525b60405260605263ed572b2761012c565b5f1960601c33690417000000040000000760201b610145565b60043560a01c60443610176047576004356024355f1960601c8216335f525f60205260405f2080548381105f1960601c331161022a5785840361020f57806101f85784909103909155925f525060405f208054918201918210604b575560015f52806101dd5760205ff35b6d01020000000500000004000000045f5b9060205290610149565b6b696e73756666696369656e7460a01b600c61011c565b50505090506d010200000005000000060000001c90916101ee565b33690417000000050000000660201b5f1960601c6101ee565b60243610604757600435335f525f60205260405f2080548281039083115f1960601c331161029357604b579055600154818110604b5703600155005b6d0102000000000000000200000009610145565b690417000000060000000560201b335f1960601c9161014556",
+  "solar": "cb5053ab39adfd59820913b336d346389ce1b8d9",
+  "solidity_lean": "696df0a81602fc416fabec7b892073e15e8920de",
+  "mir_to_evmir": "proved: SolarTV.Milestone.VerifyToken.verify_token_mir_to_evmir",
+  "assembly": "decoded only: verify_token.Proofs.Assembly (the bytecode decodes to the final EVM IR's instructions; no execution theorem)",
+  "vc": "exported to .lake/certify/verify_token/VC.lean",
+  "end_to_end": "proved (contract-specific): Contracts.Token.spec_holds_of_bytecode",
+  "end_to_end_statement": {
+    "Contracts.Token.spec_holds_of_bytecode": "SolidCore.Verify.VC.Token.HashInj → (∀ (call : SolarTV.Call), SolidCore.Verify.VC.stageScope SolidCore.Verify.VC.Token.fnTransfer [(2, 4096)] call → ∃ obs, SolidCore.Refinement.Target.run SolidCore.Refinement.Solar.VerifyTokenAsm.code call = some obs ∧ SolidCore.Verify.VC.Token.trPost call obs) ∧ ∀ (call : SolarTV.Call), SolidCore.Verify.VC.stageScope SolidCore.Verify.VC.Token.fnBurn [(2, 4096)] call → ∃ obs, SolidCore.Refinement.Target.run SolidCore.Refinement.Solar.VerifyTokenAsm.code call = some obs ∧ SolidCore.Verify.VC.Token.burnPost call obs"
+  },
+  "hypotheses": {
+    "Contracts.Token.spec_holds_of_bytecode": [
+      "SolidCore.Verify.VC.Token.HashInj",
+      "(∀ (call : SolarTV.Call), SolidCore.Verify.VC.stageScope SolidCore.Verify.VC.Token.fnTransfer [(2, 4096)] call → ∃ obs, SolidCore.Refinement.Target.run SolidCore.Refinement.Solar.VerifyTokenAsm.code call = some obs ∧ SolidCore.Verify.VC.Token.trPost call obs) ∧ ∀ (call : SolarTV.Call), SolidCore.Verify.VC.stageScope SolidCore.Verify.VC.Token.fnBurn [(2, 4096)] call"
+    ]
+  },
+  "refused": [],
+  "vacuous": "not checked",
+  "assembly_statement": null,
+  "assembly_hypotheses": null,
+  "negative_tests": false,
+  "caveats": [
+    "solidity-lean at 696df0a81602fc416fabec7b892073e15e8920de, not the pinned 813949dc3556d3c3f1c129e8254a4eead78bac87",
+    "solar cb5053ab39adfd59820913b336d346389ce1b8d9, not built from this checkout's compiler sources",
+    "assembly decoded, not executed",
+    "negative tests skipped"
+  ],
+  "backend": {
+    "theorem": "SolarTV.Milestone.VerifyToken.verify_token_mir_to_evmir"
+  }
+}

@@ -8,17 +8,17 @@ stage's file, its definition, the pass whose output it is, and the SHA-256 of th
 namespace SolarTV.Export.Counter.Manifest
 
 def sources : List (String × String) :=
-  [("solar-tv/milestone/verify_counter/verify_counter.sol", "f1c87a334b8db31fc8f80541febeaf8617318d20b685634f44e26c74146ad326")]
+  [("Certified/verify_counter/verify_counter.sol", "f1c87a334b8db31fc8f80541febeaf8617318d20b685634f44e26c74146ad326")]
 
-def compiler : String := "0.8.38+commit.ebdc3376.solar.0.3.0-dev"
+def compiler : String := "0.8.38+commit.cb5053ab.solar.0.3.0-dev"
 
 def arguments : List String :=
-  ["solar-tv/milestone/verify_counter/verify_counter.sol",
+  ["Certified/verify_counter/verify_counter.sol",
    "-Ogas",
    "--evm-version",
    "osaka",
    "--emit=bin-runtime",
-   "-Zemit-lean-stages=solar-tv/milestone/verify_counter/gen"]
+   "-Zemit-lean-stages=Certified/verify_counter/gen"]
 
 def evmVersion : String := "osaka"
 

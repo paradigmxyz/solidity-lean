@@ -1,0 +1,45 @@
+{
+  "contract": "Counter",
+  "name": "verify_counter",
+  "source": "Certified/verify_counter/verify_counter.sol",
+  "bytecode": "34603c575f3560e01c806306661abd1460525780636d5433e6146101af578063a4d66daf14605b578063b20eb4c4146073578063d09de08a146065575b5f5ffd5b6011602052634e487b715f526024601cfd5b5f545f5260205ff35b6001545f5260205ff35b5f5460010180156040575f55005b60243610603c576004355f54818101818110604057600154106101d25780816080525f60a0528082820361019a575f5f91925060db565b506080516001840180158583036101675760405780608052600160a05260018301925f191480610182575093505060015b8482105f54808503610111575060aa5760a051815f10828203610152571561010f5750505050608051815f5581810361013e575b005b90506d011100000004000000010000000f939091935b60205260405260605263ed572b275b5f526064601cfd5b6d012100000004000000050000000e610127565b506d012100000004000000040000000c610127565b505090506d0121000000040000000300000008929192610127565b5f6d0102000000040000000a00000012919091610127565b506d010300000004000000070000000b610127565b60443610603c576004356024358082106101cb57505f5260205ff35b5f5260205ff35b636f76657260e01b6004602080526040526060526308c379a061013656",
+  "solar": "cb5053ab39adfd59820913b336d346389ce1b8d9",
+  "solidity_lean": "696df0a81602fc416fabec7b892073e15e8920de",
+  "mir_to_evmir": "proved: SolarTV.Milestone.VerifyCounter.verify_counter_mir_to_evmir",
+  "assembly": "executed: SolarTV.Milestone.VerifyCounter.verify_counter_bytecode",
+  "vc": "exported to .lake/certify/verify_counter/VC.lean",
+  "end_to_end": "proved (contract-specific): SolidCore.Refinement.Solar.VerifyCounter.spec_holds_of_bytecode",
+  "end_to_end_statement": {
+    "SolidCore.Refinement.Solar.VerifyCounter.spec_holds_of_bytecode": "∀ (gas : ℕ), SolidCore.Refinement.Final.Holds (SolidCore.Refinement.Final.ethLibWith gas) SolidCore.Refinement.Solar.VerifyCounter.code SolidCore.Refinement.Solar.VerifyCounter.spec"
+  },
+  "hypotheses": {
+    "SolidCore.Refinement.Solar.VerifyCounter.spec_holds_of_bytecode": [
+      "gas : ℕ"
+    ]
+  },
+  "refused": [
+    {
+      "function": "Counter.bump",
+      "reason": "command outside the Lean fragment: (set-option :timeout 0)",
+      "status": "refused (unproved)"
+    }
+  ],
+  "vacuous": "not checked",
+  "assembly_statement": "∀ {anyCall : SolarTV.Call → Prop} (o : SolarTV.Machine.Oracle), (SolarTV.Milestone.VerifyCounter.cert.env = true → SolidCore.Refinement.Solar.Assemble.OracleOk o) → (SolarTV.Milestone.VerifyCounter.cert.reads = true → SolidCore.Refinement.Solar.Assemble.EnvOk o) → ∀ (gas : ℕ), SolidCore.Refinement.Final.Within (SolarTV.mirSem o) (SolidCore.Refinement.Final.ethLibWith gas) SolarTV.Export.Counter.stage0 SolarTV.Milestone.VerifyCounter.code anyCall",
+  "assembly_hypotheses": [
+    "anyCall : SolarTV.Call → Prop",
+    "o : SolarTV.Machine.Oracle",
+    "(SolarTV.Milestone.VerifyCounter.cert.env = true → SolidCore.Refinement.Solar.Assemble.OracleOk o)",
+    "(SolarTV.Milestone.VerifyCounter.cert.reads = true → SolidCore.Refinement.Solar.Assemble.EnvOk o)"
+  ],
+  "negative_tests": false,
+  "caveats": [
+    "solidity-lean at 696df0a81602fc416fabec7b892073e15e8920de, not the pinned 813949dc3556d3c3f1c129e8254a4eead78bac87",
+    "solar cb5053ab39adfd59820913b336d346389ce1b8d9, not built from this checkout's compiler sources",
+    "1 spec function(s) refused, unproved",
+    "negative tests skipped"
+  ],
+  "backend": {
+    "theorem": "SolarTV.Milestone.VerifyCounter.verify_counter_mir_to_evmir"
+  }
+}

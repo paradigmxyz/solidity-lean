@@ -10,7 +10,7 @@ namespace SolarTV.Export.Masks.Manifest
 def sources : List (String × String) :=
   [("Certified/masks/masks.sol", "07aea44de99801385666f8de90ffb4edfba9f7ce9c874a89392f7d19fcd34d8e")]
 
-def compiler : String := "0.8.38+commit.ebdc3376.solar.0.3.0-dev"
+def compiler : String := "0.8.38+commit.cb5053ab.solar.0.3.0-dev"
 
 def arguments : List String :=
   ["Certified/masks/masks.sol",

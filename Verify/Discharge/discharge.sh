@@ -291,8 +291,10 @@ verdict() {
   status=proved
   if [[ $code -eq 124 ]]; then
     status="failed: timeout after ${lim}s"
-  elif [[ $code -ne 0 ]] || printf '%s\n' "$body" | grep -q 'error'; then
-    status="failed: $(printf '%s\n' "$body" | grep -m1 -A2 'error' | tr '\t\n' '  ' | cut -c1-240)"
+  elif [[ $code -ne 0 ]] || grep -q 'error' <<<"$body"; then
+    # Here-strings, not pipes from printf: grep stopping at its first match must not end the
+    # script by SIGPIPE under pipefail.
+    status="failed: $(grep -m1 -A2 'error' <<<"$body" | tr '\t\n' '  ' | cut -c1-240)"
   elif [[ -z $axioms ]]; then
     status="failed: no axiom report"
   else

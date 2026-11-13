@@ -97,35 +97,35 @@ theorem events_mir_to_evmir (o : Oracle) : Stage (mirSem o) (evmirSem o) stage0 
     ⟨stage_evm1 o, stage_evm2 o, stage_evm3 o, stage_evm4 o, stage_evm5 o, trivial⟩
 
 /-- info: 'SolarTV.Milestone.Events.stage_mir1' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #print axioms stage_mir1
 
 /-- info: 'SolarTV.Milestone.Events.stage_sched' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #print axioms stage_sched
 
 /-- info: 'SolarTV.Milestone.Events.stage_evm1' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #print axioms stage_evm1
 
 /-- info: 'SolarTV.Milestone.Events.stage_evm2' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #print axioms stage_evm2
 
 /-- info: 'SolarTV.Milestone.Events.stage_evm3' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #print axioms stage_evm3
 
 /-- info: 'SolarTV.Milestone.Events.stage_evm4' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #print axioms stage_evm4
 
 /-- info: 'SolarTV.Milestone.Events.stage_evm5' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #print axioms stage_evm5
 
 /-- info: 'SolarTV.Milestone.Events.events_mir_to_evmir' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #print axioms events_mir_to_evmir
 
 end SolarTV.Milestone.Events

@@ -8,17 +8,17 @@ stage's file, its definition, the pass whose output it is, and the SHA-256 of th
 namespace SolarTV.Export.Token.Manifest
 
 def sources : List (String × String) :=
-  [("solar-tv/milestone/verify_token/verify_token.sol", "45b62aa1152c4ec09e76735ac7257a06bf3e4be0f435fdacdc174f41e8c8e75c")]
+  [("Certified/verify_token/verify_token.sol", "45b62aa1152c4ec09e76735ac7257a06bf3e4be0f435fdacdc174f41e8c8e75c")]
 
-def compiler : String := "0.8.38+commit.d5bf3d61.solar.0.3.0-dev"
+def compiler : String := "0.8.38+commit.cb5053ab.solar.0.3.0-dev"
 
 def arguments : List String :=
-  ["solar-tv/milestone/verify_token/verify_token.sol",
+  ["Certified/verify_token/verify_token.sol",
    "-Ogas",
    "--evm-version",
    "osaka",
    "--emit=bin-runtime",
-   "-Zemit-lean-stages=solar-tv/milestone/verify_token/gen"]
+   "-Zemit-lean-stages=Certified/verify_token/gen"]
 
 def evmVersion : String := "osaka"
 

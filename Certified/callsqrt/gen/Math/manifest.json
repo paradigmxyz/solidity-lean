@@ -9,7 +9,7 @@
   ],
   "bytecode": "5f5ffd",
   "bytecode_sha256": "fb46926419d6c8a637fd12b52e23f698ba5ad6bfe5afec13d064f59f7adcca4f",
-  "compiler": "0.8.38+commit.46672638.solar.0.3.0-dev",
+  "compiler": "0.8.38+commit.cb5053ab.solar.0.3.0-dev",
   "contract": "Math",
   "evm_version": "osaka",
   "optimization": "Gas",

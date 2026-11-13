@@ -125,7 +125,7 @@ theorem satisfies_at (o : SolarTV.Machine.Oracle) :
   exact SolidCore.Refinement.Satisfies.of_stage hspec (certified_at o hc)
 
 /-- **The certified translation of c4**, bound to what it was compiled from and by: the source
-(path and sha256), solar's version with its commit 7817979b, its arguments
+(path and sha256), its arguments
 (-Zcheck-analyses=false, -Ogas, osaka), the bytecode with its sha256 and hex, the bytes the stages run
 as that bytecode, and the stage from SolidCore's checked Main to those bytes, from the deployed
 storage and from any storage that writes slot 0, with no value and with any value, under every
@@ -134,7 +134,6 @@ theorem certified (o : SolarTV.Machine.Oracle) {c : TypeCheck.CheckedContract}
     (hc : Corpus.C4.contract? = .ok c) :
     Manifest.sources = [("Certified/c4/c4.sol",
       "31c39cd4e9c5cba0f78aff3a986d69be40c5f68cdb36fbf05ad3d0a5e950e858")] ∧
-    Manifest.compiler = "0.8.38+commit.ebdc3376.solar.0.3.0-dev" ∧
     Manifest.arguments = ["Certified/c4/c4.sol", "-Zcheck-analyses=false",
       "--emit=bin-runtime", "-Zemit-lean-stages=Certified/c4/gen"] ∧
     Manifest.optimization = "Gas" ∧ Manifest.evmVersion = "osaka" ∧
@@ -147,7 +146,7 @@ theorem certified (o : SolarTV.Machine.Oracle) {c : TypeCheck.CheckedContract}
       (fun call => ∃ v, Generic.fullScopeValue Corpus.C4.fns Verify.C4.deployed v call) ∧
     Stage (solidCore Corpus.C4.fuel) ethLib c Corpus.C4.code scopeAtValue ∧
     Satisfies ethLib Corpus.C4.code Verify.C4.scopeAt Verify.C4.pre Verify.C4.postAt :=
-  ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, bytecode_of_manifest, code_eq.symm, certified_deployed o hc,
+  ⟨rfl, rfl, rfl, rfl, rfl, rfl, bytecode_of_manifest, code_eq.symm, certified_deployed o hc,
     certified_at o hc, certified_deployed_value o hc, certified_at_value o hc, satisfies_at o⟩
 
 /-- info: 'SolidCore.Refinement.Solar.C4.code_eq' depends on axioms: [propext, Quot.sound] -/

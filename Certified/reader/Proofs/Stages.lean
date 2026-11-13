@@ -145,51 +145,51 @@ theorem reader_mir_to_evmir (o : Oracle) : Stage (mirSem o) (evmirSem o) stage0 
     ⟨stage_evm1 o, stage_evm2 o, stage_evm3 o, stage_evm4 o, stage_evm5 o, stage_evm6 o, stage_evm7 o, trivial⟩
 
 /-- info: 'SolarTV.Milestone.Reader.stage_mir1' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #print axioms stage_mir1
 
 /-- info: 'SolarTV.Milestone.Reader.stage_mir2' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #print axioms stage_mir2
 
 /-- info: 'SolarTV.Milestone.Reader.stage_mir3' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #print axioms stage_mir3
 
 /-- info: 'SolarTV.Milestone.Reader.stage_sched' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #print axioms stage_sched
 
 /-- info: 'SolarTV.Milestone.Reader.stage_evm1' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #print axioms stage_evm1
 
 /-- info: 'SolarTV.Milestone.Reader.stage_evm2' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #print axioms stage_evm2
 
 /-- info: 'SolarTV.Milestone.Reader.stage_evm3' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #print axioms stage_evm3
 
 /-- info: 'SolarTV.Milestone.Reader.stage_evm4' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #print axioms stage_evm4
 
 /-- info: 'SolarTV.Milestone.Reader.stage_evm5' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #print axioms stage_evm5
 
 /-- info: 'SolarTV.Milestone.Reader.stage_evm6' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #print axioms stage_evm6
 
 /-- info: 'SolarTV.Milestone.Reader.stage_evm7' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #print axioms stage_evm7
 
 /-- info: 'SolarTV.Milestone.Reader.reader_mir_to_evmir' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #print axioms reader_mir_to_evmir
 
 end SolarTV.Milestone.Reader
