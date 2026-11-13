@@ -47,6 +47,16 @@ def decodeS : List Nat → Nat → Option (SolarTV.Assembly.Instr × Nat × List
       | [] => none
     else some (.op byte, pc + 1, tl)
 
+/-- `Item.placed` at offset `pc` of the code whose rest from `pc` is the list. -/
+def placedS (rest : List Nat) (offset : Nat → Nat) (pc : Nat) : Item → Bool
+  | .immutable _ bytes =>
+    decide (1 ≤ bytes) && decide (bytes ≤ 32) && rest.head? == some (PUSH1 + bytes - 1)
+  | item => item.placed [] offset pc
+
+theorem placedS_drop (code : List Nat) (offset : Nat → Nat) (pc : Nat) (item : Item) :
+    placedS (code.drop pc) offset pc item = item.placed code offset pc := by
+  cases item <;> first | rfl | simp only [placedS, Item.placed, List.head?_drop]
+
 /-- `walk` from offset `pc` of the code whose rest from `pc` is the list: whether the walk
 succeeds. -/
 def walkS (offset : Nat → Nat) : List Nat → Nat → List Item → Bool
@@ -55,7 +65,7 @@ def walkS (offset : Nat → Nat) : List Nat → Nat → List Item → Bool
     match decodeS rest pc with
     | none => false
     | some (instr, next, rest') =>
-      instr == item.expected offset && labelAt offset pc item && walkS offset rest' next items
+      instr == item.expected offset && placedS rest offset pc item && walkS offset rest' next items
 
 /-- The checker `check`, with the walk on the rest of the code and without the labels' check,
 which the walk implies. -/
@@ -152,14 +162,14 @@ theorem walkS_drop (code : List Nat) (offset : Nat → Nat) :
       | nil => have := List.drop_eq_nil_iff.1 e; omega
       | cons x l => rfl
   | item :: items, pc, hpc => by
-    simp only [walkS, walk, decodeS_drop]
+    simp only [walkS, walk, decodeS_drop, placedS_drop]
     cases hd : decode code pc with
     | none => rfl
     | some x =>
       obtain ⟨instr, next⟩ := x
       simp only [Option.map_some]
       rw [walkS_drop code offset items next (decode_next_le hd)]
-      cases h1 : instr == item.expected offset <;> cases h2 : labelAt offset pc item <;>
+      cases h1 : instr == item.expected offset <;> cases h2 : item.placed code offset pc <;>
         cases walk code offset next items <;>
         simp only [beq_iff_eq, beq_eq_false_iff_ne] at h1 <;>
         simp only [h1, Bool.and_false, Bool.and_true, and_true, and_false, ↓reduceIte,
@@ -224,7 +234,12 @@ theorem decode_boundary {code : ByteArray} {pc next : Nat} {i : SolarTV.Assembly
     obtain ⟨hb', -, h1, -, rfl⟩ := decode_op_inv h
     have := hbyteOf pc b hb'
     unfold PUSH1 PUSH32 at h1
-    exact step pc hb (by omega) hn
+    have hx : (byteAt code pc).toNat < 0x60 ∨ 0x7f < (byteAt code pc).toNat := by
+      rw [this]
+      cases Nat.decLt b 0x60 with
+      | isTrue hlt => exact .inl hlt
+      | isFalse hge => exact .inr (Nat.lt_of_not_le (fun hle => h1 ⟨by omega, hle⟩))
+    exact step pc hb hx hn
   | opImm b imm =>
     obtain ⟨hb', him, hi, hok, rfl⟩ := decode_opImm_inv h
     have e1 := hbyteOf pc b hb'
@@ -232,9 +247,19 @@ theorem decode_boundary {code : ByteArray} {pc next : Nat} {i : SolarTV.Assembly
     have hnp := immediateOk_not_push hok
     have hb1 : b = 0xe6 ∨ b = 0xe7 ∨ b = 0xe8 := by
       simp only [hasImmediate, DUPN, SWAPN, EXCHANGE, Bool.or_eq_true, beq_iff_eq] at him
-      omega
-    have h1 := step pc hb (by omega) (by omega)
-    exact step (pc + 1) h1 (by omega) hn
+      rcases him with (e | e) | e
+      · exact .inl e
+      · exact .inr (.inl e)
+      · exact .inr (.inr e)
+    have hx : (byteAt code pc).toNat < 0x60 ∨ 0x7f < (byteAt code pc).toNat :=
+      .inr (by rcases hb1 with e | e | e <;> omega)
+    have h1 := step pc hb hx (by omega)
+    have hy : (byteAt code (pc + 1)).toNat < 0x60 ∨ 0x7f < (byteAt code (pc + 1)).toNat := by
+      rw [e2]
+      cases Nat.decLt imm 0x60 with
+      | isTrue hlt => exact .inl hlt
+      | isFalse hge => exact .inr (Nat.lt_of_not_le (fun hle => hnp ⟨by omega, hle⟩))
+    exact step (pc + 1) h1 hy hn
   | push v =>
     obtain ⟨b, hb', ⟨h0, -, rfl⟩ | ⟨h1, h2, rfl, -, -⟩⟩ := decode_push h
     · have := hbyteOf pc b hb'
@@ -243,7 +268,8 @@ theorem decode_boundary {code : ByteArray} {pc next : Nat} {i : SolarTV.Assembly
     · have e := hbyteOf pc b hb'
       have e' : nextOpcode code pc = pc + 1 + (b - PUSH1 + 1) := by
         rw [nextOpcode_eq_opLen, opLen_eq, e]
-        unfold PUSH1 PUSH32 at h1 h2 ⊢
+        unfold PUSH1 at h1 ⊢
+        unfold PUSH32 at h2
         simp only [h1, h2, and_self, ↓reduceIte]
         omega
       have := boundary_next hb (by rw [e']; exact hn)
@@ -263,14 +289,14 @@ theorem walk_labels {code : ByteArray} {offset : Nat → Nat} :
       obtain ⟨instr, next⟩ := x
       rw [hd] at hw
       simp only at hw
-      by_cases ok : instr = item.expected offset ∧ labelAt offset pc item = true
+      by_cases ok : instr = item.expected offset ∧ item.placed (bytesOf code) offset pc = true
       · simp only [ok, and_self, ↓reduceIte] at hw
         have hw' : (walk (bytesOf code) offset next items).isSome = true := by
           cases h' : walk (bytesOf code) offset next items <;> simp [h'] at hw ⊢
         obtain ⟨hpc, hnext⟩ := decode_boundary hd
         have hbpc := hb hpc
         rcases List.mem_cons.1 hl with rfl | hl
-        · have hoff : offset l = pc := by simpa [labelAt] using ok.2
+        · have hoff : offset l = pc := by simpa [Item.placed] using ok.2
           have hi : instr = .op SolarTV.Assembly.JUMPDEST := by simpa [Item.expected] using ok.1
           rw [hi] at hd
           obtain ⟨hbyte, -⟩ := decode_op hd

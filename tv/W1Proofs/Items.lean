@@ -324,6 +324,6 @@ theorem table_stride :
 theorem table_too_few : itemsWith [.packed] ⟨[[.jumpTable [1]], [.stop]]⟩ = none := by decide
 
 /-- An offset of 256 does not fit its byte. -/
-theorem table_wide (pc : Nat) : (Item.pushTable [1]).placed (fun _ => 256) pc = false := rfl
+theorem table_wide (pc : Nat) : (Item.pushTable [1]).placed [] (fun _ => 256) pc = false := rfl
 
 end SolarTV.Milestone.W1

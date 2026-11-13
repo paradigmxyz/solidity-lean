@@ -43,7 +43,7 @@ theorem seg_of_walk {code : List Nat} {offset : Nat → Nat} {pc : Nat} {items :
     Seg code offset pc items code.length := by
   induction w with
   | nil => exact .nil
-  | cons d l _ ih => exact .cons d l ih
+  | cons d l _ ih => exact .cons d (fun label he => by subst he; simpa [Item.placed] using l) ih
 
 theorem Seg.split {code : List Nat} {offset : Nat → Nat} :
     ∀ {pc pc'' : Nat} {A B : List Item}, Seg code offset pc (A ++ B) pc'' →
@@ -431,7 +431,7 @@ theorem exec_stack {o : SolarTV.Machine.Oracle} {call : SolarTV.Call} {b : Nat}
 
 theorem opByte_of_stackNeed {op : SolarTV.EVM.Op} {x : Nat × Int} (h : stackNeed op = some x) :
     ∃ byte, opByte op = some byte := by
-  cases op <;> simp [stackNeed, opByte] at h ⊢
+  cases op <;> simp [stackNeed, opByte] at h ⊢ <;> exact h.1
 
 theorem lowerInstr_stack {op : SolarTV.EVM.Op} (hne : ∀ v, op ≠ .push v) :
     lowerInstr (.op (.stack op)) = [.op ((opByte op).getD 0xfe)] := by
@@ -894,7 +894,7 @@ theorem exec_sim {p : Program} {c : Cert} {code : ByteArray} (G : Glob p c code)
       clear hok hD hD' hT
       have IH := exec_sim (o := o) (ss0 := ss0) G hdata hvalue hstatic hself hcaller ho b hb rest
       rcases i with mop | ⟨e, ar⟩ | t | t | t | _ | _ | _ | _ | _ | _ | _
-      · rcases mop with sop | _ | _ | _ | _
+      · rcases mop with sop | _ | _ | _ | _ | _ | _
         · by_cases hpush : ∃ v, sop = .push v
           · obtain ⟨v, rfl⟩ := hpush
             simp only [blockStep, Bool.and_eq_true, decide_eq_true_eq] at hok'
@@ -967,6 +967,8 @@ theorem exec_sim {p : Program} {c : Cert} {code : ByteArray} (G : Glob p c code)
             (by omega) (List.nil_prefix) hR' ⟨hseg, by omega, ?_, by rw [hM']; omega, hmem'⟩
             ⟨R.storage, R.account, R.logs⟩)
           rw [hM']; omega
+        · simp [blockStep] at hok'
+        · simp [blockStep] at hok'
         · simp [blockStep] at hok'
         · simp [blockStep] at hok'
       · rcases e with _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | n | _ | _ | _

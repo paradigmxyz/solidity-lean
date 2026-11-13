@@ -18,7 +18,7 @@ def walk (code : List Nat) (offset : Nat → Nat) : Nat → List Item → Option
     match decode code pc with
     | none => none
     | some (instr, next) =>
-      if instr = item.expected offset ∧ item.placed offset pc = true then
+      if instr = item.expected offset ∧ item.placed code offset pc = true then
         match walk code offset next items with
         | some rest => some ((pc, instr) :: rest)
         | none => none
@@ -44,7 +44,7 @@ theorem walk_sound {code : List Nat} {offset : Nat → Nat} :
       obtain ⟨instr, next⟩ := r
       rw [hd] at h
       simp only at h
-      by_cases ok : instr = item.expected offset ∧ item.placed offset pc = true
+      by_cases ok : instr = item.expected offset ∧ item.placed code offset pc = true
       · simp only [ok, and_self, ite_true] at h
         cases hw : walk code offset next items with
         | none => rw [hw] at h; cases h

@@ -363,4 +363,14 @@ theorem linked_instructions {code : List Nat} {offset : Nat → Nat} {pc : Nat} 
     clear decoded labels rest
     cases item <;> simp [linkedStream, Item.linked, ih]
 
+/-- A walk places each immutable item as a `PUSH<bytes>` of its width (`Item.placed`), so
+linking needs no check of its own. -/
+theorem walk_placed {code : List Nat} {offset : Nat → Nat} {pc : Nat} {items : List Item}
+    {stream : List (Nat × Instr)} (w : Walk code offset pc items stream) :
+    placed code stream items = true := by
+  induction w with
+  | nil => simp [placed]
+  | @cons pc next item items stream _ hp _ ih =>
+    cases item <;> simp_all [placed, Item.placed]
+
 end SolarTV.Assembly

@@ -149,8 +149,19 @@ jump destinations that steps over the immediate as an opcode of its own (as EIP-
 stays on the same boundaries. -/
 theorem immediateOk_not_push {byte imm : Nat} (h : immediateOk byte imm = true) :
     ¬(0x5b ≤ imm ∧ imm ≤ 0x7f) := by
-  unfold immediateOk decodePair decodeDepth at h
-  split at h <;> split at h <;> simp_all <;> omega
+  intro ⟨h1, h2⟩
+  unfold immediateOk at h
+  cases Nat.decEq byte EXCHANGE with
+  | isTrue hb =>
+    rw [if_pos hb] at h
+    unfold decodePair at h
+    rw [if_pos ⟨by omega, by omega⟩] at h
+    exact Bool.false_ne_true h
+  | isFalse hb =>
+    rw [if_neg hb] at h
+    unfold decodeDepth at h
+    rw [if_pos ⟨by omega, by omega⟩] at h
+    exact Bool.false_ne_true h
 
 /-- The big-endian value of `bytes`. -/
 def bigEndian (bytes : List Nat) : Nat :=
@@ -215,11 +226,15 @@ def Item.expected (offset : Nat → Nat) : Item → Instr
   | .entry _ _ _ => .op JUMPDEST
   | .opImm byte imm => .opImm byte imm
 
-/-- Whether an item is placed where the layout says at `pc`: a label at its offset, a packed
-table's every offset in one byte, so that the word's bytes are the offsets, and a stride table's
-entry its index of strides past the table's offset. -/
-def Item.placed (offset : Nat → Nat) (pc : Nat) : Item → Bool
+/-- Whether an item is placed where the layout says at `pc` of `code`: a label at its offset, a
+packed table's every offset in one byte, so that the word's bytes are the offsets, a stride table's
+entry its index of strides past the table's offset, and an immutable's placeholder a
+`PUSH<bytes>` of its width, `1 ≤ bytes ≤ 32`, which a deployment's linking overwrites byte for
+byte: a `PUSH0` or a narrower push of zero decodes to the same push but is no placeholder. -/
+def Item.placed (code : List Nat) (offset : Nat → Nat) (pc : Nat) : Item → Bool
   | .label l => offset l == pc
+  | .immutable _ bytes =>
+    decide (1 ≤ bytes) && decide (bytes ≤ 32) && code[pc]? == some (PUSH1 + bytes - 1)
   | .pushTable labels => labels.all (offset · < 256)
   | .entry table index stride => offset table + index * stride == pc
   | _ => true
@@ -232,7 +247,7 @@ inductive Walk (code : List Nat) (offset : Nat → Nat) :
   | nil : Walk code offset code.length [] []
   | cons {pc next : Nat} {item : Item} {items : List Item} {stream : List (Nat × Instr)} :
       decode code pc = some (item.expected offset, next) →
-      item.placed offset pc = true →
+      item.placed code offset pc = true →
       Walk code offset next items stream →
       Walk code offset pc (item :: items) ((pc, item.expected offset) :: stream)
 
@@ -403,6 +418,24 @@ theorem example_dupn_jumpdest : decode [0xe6, 0x5b] 0 = none := by decide
 theorem example_dupn_short : decode [0xe6] 0 = none := by decide
 
 theorem example_exchange : decodePair (encodePair 1 29) = some (1, 29) := by decide
+
+/-- An immutable's placeholder is a push of its width: a 32-byte placeholder walks as PUSH32 of
+zeros, and a PUSH0 or PUSH1 0 in its place, which decodes to the same push of zero, has no walk. -/
+theorem example_immutable :
+    Walk (0x7f :: List.replicate 32 0) (fun _ => 0) 0 [.immutable 0 32] [(0, .push 0)] :=
+  .cons (by decide) (by decide) .nil
+
+theorem example_immutable_push0 (stream : List (Nat × Instr)) :
+    ¬ Walk [0x5f] (fun _ => 0) 0 [.immutable 0 32] stream := by
+  intro w
+  cases w with
+  | cons _ placed _ => exact absurd placed (by decide)
+
+theorem example_immutable_push1 (stream : List (Nat × Instr)) :
+    ¬ Walk [0x60, 0x00] (fun _ => 0) 0 [.immutable 0 32] stream := by
+  intro w
+  cases w with
+  | cons _ placed _ => exact absurd placed (by decide)
 
 /-- A wrong immediate fails: DUPN with 0x81 (depth 18) where the item is depth 17's 0x80 has no
 walk, though 0x81 is a valid immediate, as the checker reports. -/
