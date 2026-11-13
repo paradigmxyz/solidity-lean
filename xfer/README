@@ -1,5 +1,5 @@
 Transfer branch: git bundles of paradigmxyz/solar branches, relayed for pushing. Not part of solidity-lean; delete this branch once relayed.
 
-certified.bundle (sha256 0770923c41dde3b072c12a8fe0efd9f1e435b39da90325c6329cc7d6f111db19) -> solar branch alpharush/certified (draft PR 2637). Range 42d31fa38..6c3ba9657 (prerequisite 42d31fa38cd45d7a63ed4c070688bc8499b81909, tree-equal to PR head e6b8f21). Head 6c3ba96570c6d8e31aaf0afbb2dbc75bd24d4d7b, 1 commit: chore(certify): pin solidity-lean 6c256e2.
+certified.bundle (sha256 1b434e9e5e000dfd218a2ac893f8d5066b92c9e0cf79366a5806052e134021bb) -> solar branch alpharush/certified (draft PR 2637). Range 6c3ba9657..6f4a92107 (prerequisites 6c3ba96570c6d8e31aaf0afbb2dbc75bd24d4d7b, tree-equal to PR head b00f5a1, and de3967800 on solar main). Head 6f4a92107cd2c286b37f37e4bca1ec251b8faa17 is a merge of solar main 05d39ec29 into the branch (conflicts in crates/config/src/opts.rs and tests/ui/cli/Zhelp.stdout resolved by keeping both sides; -Zhelp output checked).
 
 verify-liveness.bundle: already relayed earlier; ignore.
