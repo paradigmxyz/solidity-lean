@@ -128,7 +128,13 @@ lean_exe specHuntRunner where
 4.35 needs; see vendor/loom/README.md. -/
 lean_lib Loom where
   srcDir := "vendor/loom"
-  globs := #[.submodules `Loom]
+  -- The port is in progress: the modules below build on Lean 4.35; the rest of
+  -- vendor/loom/Loom is being ported and joins this list as it builds.
+  roots := #[`Loom.MonadUtil, `Loom.SpecMonad, `Loom.MonadAlgebras.Defs,
+    `Loom.MonadAlgebras.Instances.Basic, `Loom.MonadAlgebras.Instances.StateT,
+    `Loom.MonadAlgebras.Instances.ExceptT, `Loom.MonadAlgebras.Instances.ReaderT,
+    `Loom.MonadAlgebras.Instances.Gen, `Loom.MonadAlgebras.WP.Basic,
+    `Loom.MonadAlgebras.WP.Liberal]
 
 -- bank's and events' assembly stages against solar's exports (solar-tv/milestone/bank and
 -- solar-tv/milestone/events at 0a455fda): the generic assembler check with mapping hashes,

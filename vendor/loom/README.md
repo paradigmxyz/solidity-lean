@@ -1,5 +1,12 @@
 # Loom, vendored
 
+**Port in progress (branch loom-4.35).** All of upstream Loom (and its case studies) is now
+under vendor/loom. Built on Lean 4.35 so far: Defs, Instances/Basic (with DivM and its partial
+and total correctness algebras), Instances/StateT, ExceptT, ReaderT, Gen, WP/Basic (with the
+loop, lifting, ExceptT, StateT and ReaderT sections) and WP/Liberal; the lean_lib Loom lists
+these as roots. The VC tactic layer, NonDetT and the SMT layer follow. The sections below
+describe the earlier, partial vendoring and are rewritten when the port completes.
+
 The parts of [Loom](https://github.com/verse-lab/loom) (verse-lab, Apache-2.0, see
 `LICENSE`) that SolidCore's verification-condition generator (`SolidCore/Verify/`) builds on,
 from commit `78928abc9054b31d0bea85985496490baae95244` (master, 2026-02-21), which targets Lean
