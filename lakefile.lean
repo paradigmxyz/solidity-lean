@@ -346,3 +346,21 @@ lean_lib ContractsArrayMaxVault where
   roots := #[`Contracts.ArrayMax.Audit, `Contracts.Vault.Audit]
   globs := #[.submodules `Contracts.ArrayMax, .submodules `Contracts.Vault]
   leanOptions := #[⟨`maxHeartbeats, (200000 : Nat)⟩, ⟨`backward.do.legacy, false⟩]
+
+-- verify_counter: the stages of solar's crates/verify/examples/Counter.sol (the counter with
+-- bump's loop) that solar-tv/milestone/verify_counter exports; for now its first lowered MIR.
+lean_lib verify_counter where
+  srcDir := "Certified"
+  roots := #[`verify_counter.Proofs]
+  globs := #[.submodules `verify_counter]
+  leanOptions := solarTVOptions
+  moreLeanArgs := #["-M", "3000"]
+
+-- solar-verify's spec of that Counter (Contracts/Counter/Verify.lean) on solar's first lowered
+-- MIR, every function and every call, bump's loop through cut points (Bump.lean), and carried
+-- along any backend proved back to it (Holds.lean).
+lean_lib ContractsVerifyCounter where
+  roots := #[`Contracts.VerifyCounter.Holds]
+  globs := #[.submodules `Contracts.VerifyCounter]
+  leanOptions := solarTVOptions
+  moreLeanArgs := #["-M", "3000"]

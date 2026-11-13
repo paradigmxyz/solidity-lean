@@ -3,8 +3,9 @@ open Lake DSL
 
 -- cvc5 proof reconstruction for exported VCs (`vc_smt`, Tactic.lean), a package of its own so
 -- that building solidity-lean fetches no solver. It builds the obligation and discharge
--- modules from this repository's sources (srcDir "../..") rather than requiring the root
--- package, whose Mathlib and EVM dependencies it does not need.
+-- modules from this repository's sources (srcDir "../../..") rather than requiring the root
+-- package, whose Mathlib and EVM dependencies it does not need. discharge.sh runs every backend
+-- (`vc_valid` and `vc_smt`) against this one build.
 require smt from git "https://github.com/ufmg-smite/lean-smt.git" @ "6b26285ece45e38fc0d21809b944522233039829"
 
 package verify_reconstruct where
@@ -12,5 +13,5 @@ package verify_reconstruct where
 
 @[default_target]
 lean_lib VerifyReconstruct where
-  srcDir := "../.."
-  roots := #[`Verify.Obligation, `Verify.Discharge, `Verify.Reconstruct.Tactic]
+  srcDir := "../../.."
+  roots := #[`Verify.Obligation, `Verify.Discharge, `Verify.Discharge.Reconstruct.Tactic]

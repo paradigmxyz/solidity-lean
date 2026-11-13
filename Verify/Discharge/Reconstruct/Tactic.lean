@@ -4,7 +4,7 @@ import Smt
 /-!
 `vc_smt` proves an exported obligation `Obligation.Valid ob` from a cvc5 proof:
 
-1. `vc_valid_prep` (SolarVerify.Discharge) reduces it to a shallow goal `False` over Int, Bool and
+1. `vc_valid_prep` (Verify/Discharge) reduces it to a shallow goal `False` over Int, Bool and
    functions;
 2. `vc_smt_norm` substitutes away the definitions `x = t` of local symbols and turns Booleans,
    conditions of `if` included, into propositions, so that a quantifier the export evaluates
@@ -13,7 +13,7 @@ import Smt
    (CPC rules) as a Lean proof term, step by step. cvc5 gets 60 seconds; `unknown` fails the proof.
 
 The kernel checks the term; cvc5 and lean-smt's tactic code are not trusted. A step lean-smt cannot
-reconstruct becomes a hole (`sorryAx`), which reconstruct.sh rejects, so the proof fails closed.
+reconstruct becomes a hole (`sorryAx`), which discharge.sh rejects by its per-row axiom check, so the proof fails closed.
 -/
 
 namespace SolarVerify.Reconstruct

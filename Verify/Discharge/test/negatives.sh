@@ -91,5 +91,51 @@ jq '.version = 1' "$work/x/manifest.json" >"$work/m"
 mv "$work/m" "$work/x/manifest.json"
 expect "format version 1" "this checker reads 2" nolock
 
+# Certificates written as theorems (backend cert): the exports they were written against must be
+# every locked module, and no DISCHARGE_CERT_PATH entry may hold a module named like an export.
+certsetup() {
+  rm -rf "$work/cx" "$work/cp"
+  mkdir -p "$work/cx" "$work/cp"
+  (cd "$work/x" && tar cf - --exclude=./manifest.json --exclude='./*.smt2' --exclude='./*/*.smt2' .) | (cd "$work/cx" && tar xf -)
+  m1=$(jq -r '[.units[] | .module // empty][0]' "$work/x/manifest.json")
+  c1=$(jq -r '[.units[] | select(.module != null) | .obligations[] | select(.required) | .id][0]' "$work/x/manifest.json")
+  printf '%s\tCert.Module\tCert.theorem\n' "$c1" >"$work/certs.tsv"
+}
+certcheck() {
+  DISCHARGE_LOCK="$lock" DISCHARGE_SOURCE_ROOT="$work/root" DISCHARGE_INPUTS_ONLY=1 DISCHARGE_BACKENDS='cert=cert' \
+    DISCHARGE_CERTS="$work/certs.tsv" DISCHARGE_CERT_EXPORTS="$work/cx" DISCHARGE_CERT_PATH="$work/cp" \
+    "$here/discharge.sh" "$work/x" 2>&1
+}
+certexpect() {
+  local name=$1 msg=$2 out code
+  set +e
+  out=$(certcheck)
+  code=$?
+  set -e
+  if [[ -z $msg && $code -eq 0 ]] && grep -q '^inputs: ok' <<<"$out"; then
+    echo "ok: $name"; pass=$((pass + 1))
+  elif [[ -n $msg && $code -ne 0 ]] && grep -qF -- "$msg" <<<"$out" && ! grep -q '^inputs: ok' <<<"$out"; then
+    echo "ok: $name"; pass=$((pass + 1))
+  else
+    echo "FAILED: $name (exit $code): $(tail -2 <<<"$out" | tr '\n' ' ')"; bad=$((bad + 1))
+  fi
+}
+
+fresh; certsetup
+certexpect "certificate inputs, untouched" ""
+
+fresh; certsetup
+rm "$work/cx/$m1"
+certexpect "missing certificate export" "the certificates' exports lack $m1"
+
+fresh; certsetup
+echo '-- edited' >>"$work/cx/$m1"
+certexpect "edited certificate export" "the certificates import a $m1 that is not the exported one"
+
+fresh; certsetup
+mkdir -p "$work/cp/$(dirname "$m1")"
+: >"$work/cp/${m1%.lean}.olean"
+certexpect "stale same-name module on the certificate path" "which would shadow the exported module"
+
 echo "negatives: $pass passed, $bad failed"
 [[ $bad -eq 0 ]]

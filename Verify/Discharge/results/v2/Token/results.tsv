@@ -1,0 +1,14 @@
+id	role	answer	backend	status	seconds	peak_mb	axioms
+Token.constructor#1	obligation	unsat	smt	proved	1.9	1757	propext Classical.choice Quot.sound
+Token.constructor#2	obligation	unsat	smt	proved	2.0	1756	propext Classical.choice Quot.sound
+Token.mint#1	obligation	unsat	smt	proved	3.5	1821	propext Classical.choice Quot.sound
+Token.mint#2	obligation	unsat	smt	proved	4.1	1816	propext Classical.choice Quot.sound
+Token.mint#3	obligation	unsat	smt	proved	4.6	1831	propext Classical.choice Quot.sound
+Token.mint#4	obligation	unsat	smt	proved	5.5	1819	propext Classical.choice Quot.sound
+Token.transfer#1	obligation	unsat	smt	proved	4.6	1835	propext Classical.choice Quot.sound
+Token.transfer#2	obligation	unsat	smt	proved	4.0	1837	propext Classical.choice Quot.sound
+Token.transfer#3	obligation	unsat	smt	proved	4.4	1840	propext Classical.choice Quot.sound
+Token.transfer#4	obligation	unsat	smt	proved	3.1	1789	propext Classical.choice Quot.sound
+Token.transfer#5	obligation	settled	smt	proved	3.4	1824	propext Classical.choice Quot.sound
+Token.burn#1	obligation	unsat	smt	proved	3.4	1811	propext Classical.choice Quot.sound
+Token.burn#2	obligation	unsat	smt	proved	3.0	1810	propext Classical.choice Quot.sound

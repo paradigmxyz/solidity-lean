@@ -97,16 +97,31 @@ macro_rules
   | `(tactic| seg_eval [$ids,*]) => `(tactic|
       dsimp only [seg_mk, seg_zero, SegRel, $ids,*, finValLit, boolLit, boolAndLit, iteNatLit, Nat.reduceBEq, ↓reduceIte, Bool.false_eq_true])
 
+/-- The cut test of a block a branch picks, distributed over the branch. -/
+theorem ite_beq {α : Type} [BEq α] (c : Prop) [Decidable c] (a b n : α) :
+    ((if c then a else b) == n) = (if c then a == n else b == n) := by
+  split <;> rfl
+
+/-- A cut test of a block a branch picks (`(if c then 15 else 14) == 1`) evaluates on both
+branches, so a test that holds on neither is `false` before any case split. Splitting on it
+first instead leaves leaves whose contradiction only the branch condition shows, and the case
+splits multiply. -/
+macro "seg_cut_test" : tactic => `(tactic|
+  simp only [ite_beq, Nat.reduceBEq, BitVec.reduceEq, BitVec.reduceNe, ite_self, Bool.false_eq_true,
+    ↓reduceIte, Mem.load_store_of_disjoint, Mem.load_store_same, Mem.load_expand, Nat.reduceAdd,
+    Nat.reduceLeDiff, true_or, or_true])
+
 syntax "seg_norm" "[" Lean.Parser.Tactic.simpLemma,* "]" : tactic
 macro_rules
-  | `(tactic| seg_norm [$ids,*]) => `(tactic| repeat (first | sym_eval | seg_eval [$ids,*] | sym_cond))
+  | `(tactic| seg_norm [$ids,*]) =>
+    `(tactic| repeat (first | sym_eval | seg_eval [$ids,*] | seg_cut_test | sym_cond))
 
 /-- The equation of two words, configurations or results, by evaluation and `sym_exec`'s leaf
 procedures. -/
 macro "seg_word_eq" : tactic => `(tactic| (
   first
     | with_reducible rfl
-    | (sym_norm; first
+    | ((try seg_cut_test); sym_norm; first
         | with_reducible rfl
         | (exfalso; bv_omega)
         | (exfalso; sym_omega)
