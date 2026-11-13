@@ -2,6 +2,7 @@ import Verify.Final
 import SolidCore.Refinement.SourceOracle
 import SolidCore.Refinement.Generic.StageIn
 import SolidCore.Refinement.SourceOracleSat
+import SolidCore.Refinement.SourceOracleMono
 
 /-!
 # The composition under a call oracle
@@ -94,5 +95,52 @@ theorem holds_of_runs_generic {St : Type} {fuel mirFuel : Nat}
 /-- info: 'SolidCore.Refinement.holds_of_runs_generic' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs (whitespace := lax) in
 #print axioms holds_of_runs_generic
+
+/-! ## Specifications in every world -/
+
+/-- `Triple` with SolidCore in the world `W`. -/
+def TripleIn (W : World) (fuel : Nat) (c : SolidCore.Solidity.TypeCheck.CheckedContract)
+    (scope : SolarTV.Call → Prop) (pre : SolarTV.Call → Prop)
+    (post : SolarTV.Call → SolarTV.Observable → Prop) : Prop :=
+  ∀ call, scope call → pre call →
+    (Source.runIn W fuel c call).isSome ∧
+      ∀ obs, Source.runIn W fuel c call = some obs → post call obs
+
+/-- **A triple of a function the generic check accepts holds in every world**: such a function runs
+the same in every world (`Generic.runIn_eq_run`). -/
+theorem tripleIn_of_triple {fuel mirFuel : Nat} {c : SolidCore.Solidity.TypeCheck.CheckedContract}
+    {d : SolidCore.Solidity.Source.State} {s : List (Nat × Nat)} {m : SolarTV.MIR.Lowered.Module}
+    {fns : List Abi.Fn} {env : SolidCore.Refinement.Generic.EnvFlags}
+    (hd : Wide.DeployedAt fuel c d s) (hchk : Generic.check fuel mirFuel c.core m fns env = true)
+    {scope pre : SolarTV.Call → Prop} {post : SolarTV.Call → SolarTV.Observable → Prop}
+    (hscope : ∀ call, scope call → ∃ σ, Generic.Covers s σ ∧ Abi.fullScope fns σ call)
+    (h : SolidCore.Verify.Triple fuel c scope pre post) (W : World) :
+    TripleIn W fuel c scope pre post := by
+  intro call hs hp
+  rw [Generic.runIn_eq_run W hd hchk call (hscope call hs)]
+  exact h call hs hp
+
+/-- **A specification of the functions the generic check accepts holds in every world.** -/
+theorem holdsIn_of_holds {St : Type} {fuel mirFuel : Nat}
+    {c : SolidCore.Solidity.TypeCheck.CheckedContract} {d : SolidCore.Solidity.Source.State}
+    {s : List (Nat × Nat)} {m : SolarTV.MIR.Lowered.Module} {fns : List Abi.Fn}
+    {env : SolidCore.Refinement.Generic.EnvFlags} {spec : Final.ContractSpec St}
+    (hd : Wide.DeployedAt fuel c d s) (hchk : Generic.check fuel mirFuel c.core m fns env = true)
+    (hscope : ∀ call, spec.Calls call → ∃ σ, Generic.Covers s σ ∧ Abi.fullScope fns σ call)
+    (h : Final.Holds (solidCore fuel) c spec) (W : World) :
+    Final.Holds (solidCoreIn W fuel) c spec := by
+  intro f hf args ht v hv σ hinv hreq obs hrun
+  have hc : spec.Calls (f.call args v σ) := ⟨f, hf, args, ht, v, hv, σ, rfl⟩
+  change Source.runIn W fuel c _ = some obs at hrun
+  rw [Generic.runIn_eq_run W hd hchk _ (hscope _ hc)] at hrun
+  exact h f hf args ht v hv σ hinv hreq obs hrun
+
+/-- info: 'SolidCore.Refinement.tripleIn_of_triple' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs (whitespace := lax) in
+#print axioms tripleIn_of_triple
+
+/-- info: 'SolidCore.Refinement.holdsIn_of_holds' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs (whitespace := lax) in
+#print axioms holdsIn_of_holds
 
 end SolidCore.Refinement

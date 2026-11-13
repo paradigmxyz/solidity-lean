@@ -762,7 +762,7 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
           · refine ⟨L ++ [⟨msg.currentTarget, tops.map U256.toBeBytes,
               memoryReadBytes (memoryExtend M (extendMemory M.size [(ow, sw)]).expandBy)
                 ow.toNat sw.toNat⟩], by simp [Array.toList_push, hL1],
-              forall₂_snoc hL2 ⟨rfl, rfl, ?_⟩⟩
+              filter_snoc_log ▸ forall₂_snoc hL2 ⟨rfl, rfl, ?_⟩⟩
             exact read_eq I'.mem
         · -- KECCAK256.
           rcases ar with _ | _ | _ | ar

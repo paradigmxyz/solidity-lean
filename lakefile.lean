@@ -166,10 +166,15 @@ lean_lib SolidCoreSolarAssemblyEnv where
 -- RETURNDATASIZE, RETURNDATACOPY, CALLDATACOPY and STATICCALL do in SolarTV and EthLib, one
 -- instruction at a time, under the oracle of a run (Solar/AssembleEffects.lean), and the
 -- refinement at the gas a run has from a block simulation under the runner of messages
--- (Solar/AssembleRun.lean).
+-- (Solar/AssembleRun.lean), met by every program the loop checker accepts
+-- (Solar/AssembleRunLoop.lean).
 lean_lib SolidCoreSolarRunOracle where
   roots := #[`SolidCore.Refinement.Solar.RunOracle, `SolidCore.Refinement.Solar.AssembleEffects,
-    `SolidCore.Refinement.Solar.AssembleRun]
+    `SolidCore.Refinement.Solar.AssembleRun, `SolidCore.Refinement.Solar.AssembleRunLoop,
+    `SolidCore.Refinement.Solar.RunOracleSource,
+    `SolidCore.Refinement.Solar.AssembleCut, `SolidCore.Refinement.Solar.AssembleDyn,
+    `SolidCore.Refinement.Solar.AssembleMem, `SolidCore.Refinement.Solar.AssembleDynCopy,
+    `SolidCore.Refinement.Solar.AssembleDynExample]
 
 /-! solar's translation validation (formerly solar's `solar-tv` Lean package, moved here so that
 every Lean source of the certified translation lives in this repository; solar keeps only the
@@ -306,7 +311,8 @@ lean_lib ContractsC4Spec where
 -- (Verify/VC/Obligations.lean) and its fuel uniformity (Verify/FuelStable.lean), outside the default
 -- root: it builds on the generic source stage.
 lean_lib VerifyVC where
-  roots := #[`Verify.VC, `Verify.FuelStable, `Verify.Spec.Tree, `Verify.Spec.Hash]
+  roots := #[`Verify.VC, `Verify.FuelStable, `Verify.Spec.Tree, `Verify.Spec.Hash, `Verify.Spec.TreeMap,
+    `Verify.Spec.TreeIn]
 
 -- solar-verify's transcripts of scripts/verify/{Counter,Token}.sol (scripts/verify/check.sh) bound
 -- to their scripts, Token.burn and Token.transfer proved from the checked VCs, and the mutants.
@@ -345,10 +351,11 @@ lean_lib ContractsCounter where
 lean_lib ContractsToken where
   roots := #[`Contracts.Token.Lowering, `Contracts.Token.Assembly, `Contracts.Token.Discharge,
     `Contracts.Token.EndToEnd, `Contracts.Token.Exports, `Contracts.Token.LoweringIn,
-    `Contracts.Token.SpecTree]
-  globs := #[.one `Contracts.Token.Lowering, .one `Contracts.Token.LoweringIn, .one `Contracts.Token.Assembly,
+    `Contracts.Token.TransferMeets, `Contracts.Token.SpecTree, `Contracts.Token.WorldSpec]
+  globs := #[.one `Contracts.Token.Lowering, .one `Contracts.Token.LoweringIn, .one `Contracts.Token.WorldSpec, .one `Contracts.Token.Assembly,
     .one `Contracts.Token.Discharge, .one `Contracts.Token.EndToEnd,
-    .one `Contracts.Token.Exports, .one `Contracts.Token.SpecTree, .submodules `Contracts.Token.Spec]
+    .one `Contracts.Token.Exports, .one `Contracts.Token.TransferMeets, .one `Contracts.Token.SpecTree,
+    .submodules `Contracts.Token.Spec]
 
 /-! solar-verify's verification conditions and their kernel-checked discharge (formerly solar's
 crates/verify/lean). An exported VC module imports `Verify.Obligation`; `Verify.Discharge` holds the

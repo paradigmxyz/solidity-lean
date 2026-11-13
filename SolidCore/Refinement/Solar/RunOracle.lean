@@ -122,7 +122,7 @@ def tableOracle (base : Oracle) (T : RunTable) : Oracle :=
         match args with
         | [i] => BitVec.ofNat 256 (byteAt (T.out w) i.toNat).toNat
         | _ => base.env name w args
-      else if name = "gas" ∧ args = [] then
+      else if name = "gas" ∧ args = [] ∧ gasReads w ≠ 0 then
         BitVec.ofNat 256 (T.gases.getD (gasReads w - 1) 0)
       else base.env name w args
     result := fun w => if sent w ≠ 0 ∧ T.oks.getD (sent w - 1) false = true then 1 else 0

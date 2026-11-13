@@ -4,6 +4,7 @@ import Verify.Discharge.Search
 import Verify.Discharge.Valid
 import Verify.Discharge.Sat
 import Verify.Discharge.Leaf
+import Verify.Discharge.Lite
 
 /-! Kernel-checked certificates for exported obligations. A VC counts as discharged only when a
 certificate the Lean kernel checks proves `ob.Valid` (Verify/Obligation/Vc.lean), and the proof

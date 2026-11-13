@@ -9,7 +9,8 @@ relate those atoms to the rest, so that `omega` can finish:
 
 * for every square `P * P`: `2 * P - 1 ≤ P * P` and `4 * P - 4 ≤ P * P` (from
   `0 ≤ (P - k) * (P - k)`);
-* for every `y / x` with `x` not a literal: `x * (y / x) ≤ y < x * (y / x) + x` when `1 ≤ x`;
+* for every `y / x` with `x` not a literal: `x * (y / x) ≤ y < x * (y / x) + x` when `1 ≤ x`, and
+  when also `0 ≤ y`: `0 ≤ y / x ≤ y`, `1 ≤ y / x` when `x ≤ y`, `y / x = 0` when `y < x`;
 * for every Newton step `(y / x + x) / 2` of the integer square root: the step's successor
   squared exceeds `y` (the arithmetic-geometric mean inequality), and the step is below `x`
   unless `x * x ≤ y`.
@@ -43,6 +44,33 @@ theorem div_bounds (y x : Int) : ¬ 1 ≤ x ∨ (x * (y / x) ≤ y ∧ y < x * (
   have h2 := Int.emod_nonneg y (by omega : x ≠ 0)
   have h3 := Int.emod_lt_of_pos y (by omega : 0 < x)
   omega
+
+
+/-- The quotient of a nonnegative `y` by a positive `x`: nonnegative, at most `y`, at least 1 when
+`x ≤ y`, and 0 when `y < x`. -/
+theorem div_facts (y x : Int) : ¬ 1 ≤ x ∨ ¬ 0 ≤ y ∨
+    (0 ≤ y / x ∧ y / x ≤ y ∧ (¬ x ≤ y ∨ 1 ≤ y / x) ∧ (¬ y < x ∨ y / x = 0)) := by
+  refine Classical.or_iff_not_imp_left.mpr fun hx => Classical.or_iff_not_imp_left.mpr fun hy => ?_
+  have hx : 1 ≤ x := Classical.not_not.mp hx
+  have hy : 0 ≤ y := Classical.not_not.mp hy
+  have hb := (div_bounds y x).resolve_left (by omega)
+  have hq0 : 0 ≤ y / x := Int.ediv_nonneg hy (by omega)
+  have hxq : 1 * (y / x) ≤ x * (y / x) := Int.mul_le_mul_of_nonneg_right hx hq0
+  rw [Int.one_mul] at hxq
+  refine ⟨hq0, by omega, ?_, ?_⟩
+  · refine Classical.or_iff_not_imp_left.mpr fun hxy => ?_
+    have hxy : x ≤ y := Classical.not_not.mp hxy
+    refine Classical.byContradiction fun hc => ?_
+    have h0 : y / x = 0 := by omega
+    rw [h0, Int.mul_zero] at hb
+    omega
+  · refine Classical.or_iff_not_imp_left.mpr fun hlt => ?_
+    have hlt : y < x := Classical.not_not.mp hlt
+    refine Classical.byContradiction fun hc => ?_
+    have h1 : 1 ≤ y / x := by omega
+    have := Int.mul_le_mul_of_nonneg_left h1 (by omega : 0 ≤ x)
+    rw [Int.mul_one] at this
+    omega
 
 theorem newton_lt (y x : Int) :
     ¬ 1 ≤ x ∨ ¬ 0 ≤ y ∨ y < ((y / x + x) / 2 + 1) * ((y / x + x) / 2 + 1) := by
@@ -93,6 +121,7 @@ partial def scan (e : Expr) (acc : Array (Name × Array Expr)) : MetaM (Array (N
       let b := e.getArg! 5
       if !isNumeral b then
         acc := acc.push (``div_bounds, #[a, b])
+        acc := acc.push (``div_facts, #[a, b])
       else if a.isAppOfArity ``HAdd.hAdd 6 && isTwo b then
         let l := a.getArg! 4
         let r := a.getArg! 5

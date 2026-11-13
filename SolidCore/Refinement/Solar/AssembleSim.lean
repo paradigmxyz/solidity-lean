@@ -349,9 +349,15 @@ def LogMatch (a : Address) : SolarTV.Machine.Event → EthLib.Execution.Blocks.L
     l.address = a ∧ l.topics = topics.map U256.toBeBytes ∧ l.data.toList.map (·.toNat) = data.map BitVec.toNat
   | .call .., _ | .read _, _ | .create .., _ => False
 
-/-- EthLib's logs are those of `ss0` and then one for each event of SolarTV's world. -/
+/-- An event of SolarTV's world that is a log. -/
+def isLogE : SolarTV.Machine.Event → Bool
+  | .log .. => true
+  | _ => false
+
+/-- EthLib's logs are those of \`ss0\` and then one for each log of SolarTV's world; its reads,
+calls and creations write none. -/
 def LogsRel (a : Address) (ss0 ss : Substate) (w : List SolarTV.Machine.Event) : Prop :=
-  ∃ L, ss.logs.toList = ss0.logs.toList ++ L ∧ List.Forall₂ (LogMatch a) w L
+  ∃ L, ss.logs.toList = ss0.logs.toList ++ L ∧ List.Forall₂ (LogMatch a) (w.filter isLogE) L
 
 /-- SolarTV's storage is the storage of EthLib's account of the frame, which exists, and the
 substate's logs are those of `ss0`, the substate the frame started from, and then SolarTV's. -/
@@ -791,6 +797,20 @@ theorem forall₂_snoc {α β : Type} {R : α → β → Prop} {a : α} {b : β}
   | [], [], .nil, h => .cons h .nil
   | _ :: _, _ :: _, .cons h1 t, h => .cons h1 (forall₂_snoc t h)
 
+/-- A log is the last log of the world it ends. -/
+theorem filter_snoc_log {w : List SolarTV.Machine.Event} {t d} :
+    (w ++ [SolarTV.Machine.Event.log t d]).filter isLogE = w.filter isLogE ++ [.log t d] := by
+  rw [List.filter_append]
+  rfl
+
+/-- A read of the world writes no log. -/
+theorem logsRel_read {a : Address} {ss0 ss : Substate} {w : List SolarTV.Machine.Event} (n : String)
+    (h : LogsRel a ss0 ss w) : LogsRel a ss0 ss (w ++ [.read n]) := by
+  obtain ⟨L, h1, h2⟩ := h
+  refine ⟨L, h1, ?_⟩
+  rw [List.filter_append]
+  simpa [isLogE] using h2
+
 /-! ## The simulation of a block -/
 
 /-- The first instruction of a walk segment and the segment after it. -/
@@ -1201,7 +1221,7 @@ theorem exec_sim {p : Program} {c : Cert} {code : ByteArray} (G : Glob p c code)
           · refine ⟨L ++ [⟨msg.currentTarget, tops.map U256.toBeBytes,
               memoryReadBytes (memoryExtend M (extendMemory M.size [(ow, sw)]).expandBy)
                 ow.toNat sw.toNat⟩], by simp [Array.toList_push, hL1],
-              forall₂_snoc hL2 ⟨rfl, rfl, ?_⟩⟩
+              filter_snoc_log ▸ forall₂_snoc hL2 ⟨rfl, rfl, ?_⟩⟩
             exact read_eq I'.mem
         · -- KECCAK256.
           rcases ar with _ | _ | _ | ar
@@ -1487,8 +1507,7 @@ theorem run_sim {p : Program} {c : Cert} {code : ByteArray} (G : Glob p c code)
       exact Spec.consequence (Logic.stop_of_size_le (by omega))
         (fun _ h => h) fun evm h => postL_stop R hself evm h
 
-/-- The values of EthLib's logs that match SolarTV's world are SolarTV's logs. -/
-theorem logs_of_match {a : Address} : ∀ {w : List SolarTV.Machine.Event}
+theorem logs_of_match' {a : Address} : ∀ {w : List SolarTV.Machine.Event}
     {L : List EthLib.Execution.Blocks.Log}, List.Forall₂ (LogMatch a) w L →
     L.map (fun log => (log.topics.map fun topic => bytesToNat topic.toList,
       log.data.toList.map (·.toNat))) =
@@ -1497,7 +1516,7 @@ theorem logs_of_match {a : Address} : ∀ {w : List SolarTV.Machine.Event}
         | .call .. | .read _ | .create .. => none
   | [], [], .nil => rfl
   | .log topics data :: w, l :: L, .cons ⟨_, ht, hd⟩ rest => by
-    simp only [List.map_cons, List.filterMap_cons, logs_of_match rest, ht, hd, List.map_map]
+    simp only [List.map_cons, List.filterMap_cons, logs_of_match' rest, ht, hd, List.map_map]
     congr 2
     apply List.map_congr_left
     intro x _
@@ -1506,6 +1525,26 @@ theorem logs_of_match {a : Address} : ∀ {w : List SolarTV.Machine.Event}
   | .call .. :: _, _ :: _, .cons h _ => h.elim
   | .read _ :: _, _ :: _, .cons h _ => h.elim
   | .create .. :: _, _ :: _, .cons h _ => h.elim
+
+theorem filterMap_logs : ∀ (w : List SolarTV.Machine.Event),
+    (w.filter isLogE).filterMap (fun
+        | .log topics data => some (topics.map BitVec.toNat, data.map BitVec.toNat)
+        | .call .. | .read _ | .create .. => none) =
+      w.filterMap fun
+        | .log topics data => some (topics.map BitVec.toNat, data.map BitVec.toNat)
+        | .call .. | .read _ | .create .. => none
+  | [] => rfl
+  | e :: w => by cases e <;> simp [isLogE, List.filter_cons, filterMap_logs w]
+
+/-- The values of EthLib's logs that match SolarTV's world are SolarTV's logs. -/
+theorem logs_of_match {a : Address} {w : List SolarTV.Machine.Event}
+    {L : List EthLib.Execution.Blocks.Log} (h : List.Forall₂ (LogMatch a) (w.filter isLogE) L) :
+    L.map (fun log => (log.topics.map fun topic => bytesToNat topic.toList,
+      log.data.toList.map (·.toNat))) =
+      w.filterMap fun
+        | .log topics data => some (topics.map BitVec.toNat, data.map BitVec.toNat)
+        | .call .. | .read _ | .create .. => none := by
+  rw [logs_of_match' h, filterMap_logs]
 
 /-- The callee's storage before the call, at its account, which exists, is the call's: the
 relation at the start of the frame. -/

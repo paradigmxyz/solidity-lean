@@ -381,4 +381,32 @@ theorem stageIn_runs {fuel mirFuel : Nat} {c : TypeCheck.CheckedContract} {d : S
 #guard_msgs (whitespace := lax) in
 #print axioms stageIn_runs
 
+/-! ## The same run in every world -/
+
+/-- **A function the check accepts runs the same in every world**: on every call of the check's
+scope, SolidCore in the world `W` shows what `Source.run` shows. -/
+theorem runIn_eq_run (W : World) {fuel mirFuel : Nat} {c : TypeCheck.CheckedContract}
+    {d : Source.State} {s : List (Nat × Nat)} (hd : SolidCore.Refinement.Wide.DeployedAt fuel c d s)
+    {m : Module} {fns : List Fn} {env : EnvFlags}
+    (hchk : check fuel mirFuel c.core m fns env = true) :
+    ∀ call, (∃ σ, Covers s σ ∧ fullScope fns σ call) →
+      Source.runIn W fuel c call = Source.run fuel c call := by
+  rintro _ ⟨σ, hcov, f, hf, args, hlen, hargs, rfl⟩
+  have hcf := List.all_eq_true.mp hchk f hf
+  unfold checkFn at hcf
+  cases hfind : c.core.findFunctionBySelector? f.sel with
+  | none => simp [hfind] at hcf
+  | some fn =>
+  cases ht1 : eraseFn (envOf c.core) fuel fn with
+  | none => simp [hfind, ht1] at hcf
+  | some t1 =>
+  simp only [hfind, ht1, Bool.and_eq_true, decide_eq_true_eq] at hcf
+  obtain ⟨hsel, hpl, -⟩ := hcf
+  rw [source_runIn W hd hcov hsel hfind ht1 args (by rw [hlen, hpl]) hargs,
+    source_run hd hcov hsel hfind ht1 args (by rw [hlen, hpl]) hargs]
+
+/-- info: 'SolidCore.Refinement.Generic.runIn_eq_run' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs (whitespace := lax) in
+#print axioms runIn_eq_run
+
 end SolidCore.Refinement.Generic

@@ -30,11 +30,13 @@ FRONTEND = ROOT / "scripts" / "solc_ast_to_lean_source.py"
 # (contract, its file in the port, the Lean directory under Contracts/UniswapV2, the functions
 # the translation leaves out). `UniswapV2Factory.createPair` deploys the pair with inline
 # assembly `create2` of `type(UniswapV2Pair).creationCode`, outside SolidCore's fragment, so
-# SolidCore's Factory has no `createPair` and nothing proved of it covers that function.
+# SolidCore's Factory has no `createPair` (nor its interface, which would make the Factory
+# abstract), and nothing proved of it covers that function.
 CONTRACTS = [
     ("UniswapV2ERC20", "UniswapV2ERC20.sol", "ERC20", []),
     ("UniswapV2Pair", "UniswapV2Pair.sol", "Pair", []),
-    ("UniswapV2Factory", "UniswapV2Factory.sol", "Factory", ["UniswapV2Factory.createPair"]),
+    ("UniswapV2Factory", "UniswapV2Factory.sol", "Factory",
+     ["UniswapV2Factory.createPair", "IUniswapV2Factory.createPair"]),
 ]
 CHAINID_OLD = """        assembly {
             chainId := chainid()
