@@ -1,4 +1,4 @@
-import SolidCore.Verify.Tactic
+import Verify.Tactic
 import SolidCore.Refinement.Wide.Refines
 import SolidCore.Refinement.KernelCopies
 import SolidCore.Refinement.KernelRfl
@@ -7,7 +7,7 @@ import SolidCore.Refinement.Solar.Counter.Source
 /-!
 # counter: `inc(uint256 d)` adds `d` to the storage word `x`, or panics on overflow
 
-The contract (scripts/refinement/counter/counter.sol; solar-tv/milestone/counter/counter.sol in
+The contract (scripts/refinement/counter/counter.sol; Certified/counter/counter.sol in
 solar's tree, the same file),
 
     contract Counter { uint256 x; function inc(uint256 d) external { x += d; }

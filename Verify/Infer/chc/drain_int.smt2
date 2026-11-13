@@ -1,0 +1,10 @@
+; Drain.drain (a = n; b = 0; while (a > 0) { a--; b++; } return b; ensures result == n) CHC, mathematical Int (uint param >= 0, no overflow guards) semantics
+(set-logic HORN)
+(declare-fun Inv (Int Int Int) Bool)
+(assert (forall ((n Int)) (=> (<= 0 n) (Inv n n 0))))
+(assert (forall ((n Int) (a Int) (b Int))
+  (=> (and (Inv n a b) (> a 0) ) (Inv n (- a 1) (+ b 1)))))
+(assert (forall ((n Int) (a Int) (b Int))
+  (=> (and (Inv n a b) (not (> a 0)) (not (= b n))) false)))
+(check-sat)
+(get-model)

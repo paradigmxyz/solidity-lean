@@ -94,11 +94,11 @@ from SolidCore's checked `Events` to those bytes, with no value and with any val
 of `transfer` from any storage, under every oracle with EthLib's caller and hash. -/
 theorem certifiedManifest (o : SolarTV.Machine.Oracle) (ho : Assemble.OracleOk o)
     {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) :
-    Manifest.sources = [("solar-tv/milestone/events/events.sol",
+    Manifest.sources = [("Certified/events/events.sol",
       "8b951679cab695d07c193e56dd5d96d14a1c63976673c79a72c690f07c50b5b0")] ∧
-    Manifest.compiler = "0.8.38+commit.0a455fda.solar.0.3.0-dev" ∧
-    Manifest.arguments = ["solar-tv/milestone/events/events.sol", "-Ogas", "--evm-version", "osaka",
-      "--emit=bin-runtime", "-Zemit-lean-stages=solar-tv/milestone/events/gen"] ∧
+    Manifest.compiler = "0.8.38+commit.ebdc3376.solar.0.3.0-dev" ∧
+    Manifest.arguments = ["Certified/events/events.sol", "-Ogas", "--evm-version", "osaka",
+      "--emit=bin-runtime", "-Zemit-lean-stages=Certified/events/gen"] ∧
     Manifest.optimization = "Gas" ∧ Manifest.evmVersion = "osaka" ∧
     Manifest.bytecodeSha256 = "5ad38c8bca24e0ca8c4a5e95f1f07bf993aad9a02ac3bc0872fc41fab8a6298b" ∧
     Manifest.bytecodeHex = bytecodeHex ∧

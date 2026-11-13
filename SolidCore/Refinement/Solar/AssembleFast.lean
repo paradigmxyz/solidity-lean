@@ -41,7 +41,21 @@ def decodeS : List Nat → Nat → Option (SolarTV.Assembly.Instr × Nat × List
         some (.push (bigEndian (tl.take (byte - PUSH1 + 1))), pc + 1 + (byte - PUSH1 + 1),
           tl.drop (byte - PUSH1 + 1))
       else none
+    else if hasImmediate byte then
+      match tl with
+      | imm :: tl => if immediateOk byte imm then some (.opImm byte imm, pc + 2, tl) else none
+      | [] => none
     else some (.op byte, pc + 1, tl)
+
+/-- `Item.placed` at offset `pc` of the code whose rest from `pc` is the list. -/
+def placedS (rest : List Nat) (offset : Nat → Nat) (pc : Nat) : Item → Bool
+  | .immutable _ bytes =>
+    decide (1 ≤ bytes) && decide (bytes ≤ 32) && rest.head? == some (PUSH1 + bytes - 1)
+  | item => item.placed [] offset pc
+
+theorem placedS_drop (code : List Nat) (offset : Nat → Nat) (pc : Nat) (item : Item) :
+    placedS (code.drop pc) offset pc item = item.placed code offset pc := by
+  cases item <;> first | rfl | simp only [placedS, Item.placed, List.head?_drop]
 
 /-- `walk` from offset `pc` of the code whose rest from `pc` is the list: whether the walk
 succeeds. -/
@@ -51,7 +65,7 @@ def walkS (offset : Nat → Nat) : List Nat → Nat → List Item → Bool
     match decodeS rest pc with
     | none => false
     | some (instr, next, rest') =>
-      instr == item.expected offset && labelAt offset pc item && walkS offset rest' next items
+      instr == item.expected offset && placedS rest offset pc item && walkS offset rest' next items
 
 /-- The checker `check`, with the walk on the rest of the code and without the labels' check,
 which the walk implies. -/
@@ -96,26 +110,44 @@ theorem decodeS_drop (code : List Nat) (pc : Nat) :
           have h3 : ¬byte - PUSH1 + 1 ≤ tl.length := by omega
           simp [h0, h1, h3]
           omega
-      · simp [h0, h1, htl]
+      · by_cases h2 : hasImmediate byte = true
+        · rcases tl with _ | ⟨imm, tl⟩
+          · have h3 : code[pc + 1]? = none := List.getElem?_eq_none (by simp at hlen; omega)
+            simp [h0, h1, h2, h3]
+          · have h3 : code[pc + 1]? = some imm := by
+              rw [← List.head?_drop, htl]
+              rfl
+            have h4 : code.drop (pc + 2) = tl := by
+              rw [← List.drop_drop, h]
+              rfl
+            by_cases h5 : immediateOk byte imm = true <;> simp [h0, h1, h2, h3, h4, h5]
+        · simp [h0, h1, h2, htl]
 
 /-- A successful decode ends within the code. -/
-theorem decode_next_le {code : List Nat} {pc next : Nat} {i : SolarTV.Assembly.Instr}
-    (h : decode code pc = some (i, next)) : next ≤ code.length := by
+theorem decode_lt' {code : List Nat} {pc next : Nat} {i : SolarTV.Assembly.Instr}
+    (h : decode code pc = some (i, next)) : pc < code.length := by
   unfold decode at h
   split at h
   · cases h
   · rename_i byte hb
-    have hlt := (List.getElem?_eq_some_iff.1 hb).1
-    split at h
-    · cases h
+    exact (List.getElem?_eq_some_iff.1 hb).1
+
+theorem decode_next_le {code : List Nat} {pc next : Nat} {i : SolarTV.Assembly.Instr}
+    (h : decode code pc = some (i, next)) : next ≤ code.length := by
+  cases i with
+  | op b =>
+    obtain ⟨hb, -, -, -, rfl⟩ := decode_op_inv h
+    have := (List.getElem?_eq_some_iff.1 hb).1
+    omega
+  | opImm b imm =>
+    obtain ⟨-, -, hi, -, rfl⟩ := decode_opImm_inv h
+    have := (List.getElem?_eq_some_iff.1 hi).1
+    omega
+  | push v =>
+    obtain ⟨b, hb, ⟨-, -, rfl⟩ | ⟨-, -, -, hle, -⟩⟩ := decode_push h
+    · have := (List.getElem?_eq_some_iff.1 hb).1
       omega
-    · split at h
-      · split at h
-        · cases h
-          assumption
-        · cases h
-      · cases h
-        omega
+    · exact hle
 
 theorem walkS_drop (code : List Nat) (offset : Nat → Nat) :
     ∀ (items : List Item) (pc : Nat), pc ≤ code.length →
@@ -130,14 +162,14 @@ theorem walkS_drop (code : List Nat) (offset : Nat → Nat) :
       | nil => have := List.drop_eq_nil_iff.1 e; omega
       | cons x l => rfl
   | item :: items, pc, hpc => by
-    simp only [walkS, walk, decodeS_drop]
+    simp only [walkS, walk, decodeS_drop, placedS_drop]
     cases hd : decode code pc with
     | none => rfl
     | some x =>
       obtain ⟨instr, next⟩ := x
       simp only [Option.map_some]
       rw [walkS_drop code offset items next (decode_next_le hd)]
-      cases h1 : instr == item.expected offset <;> cases h2 : labelAt offset pc item <;>
+      cases h1 : instr == item.expected offset <;> cases h2 : item.placed code offset pc <;>
         cases walk code offset next items <;>
         simp only [beq_iff_eq, beq_eq_false_iff_ne] at h1 <;>
         simp only [h1, Bool.and_false, Bool.and_true, and_true, and_false, ↓reduceIte,
@@ -169,41 +201,79 @@ theorem opLen_eq (b : UInt8) :
   have h := opLen_ofNat b.toNat b.toNat_lt
   rwa [UInt8.ofNat_toNat] at h
 
-/-- The walk steps from an instruction to the next opcode, as EthLib's scan does. -/
-theorem next_eq_nextOpcode {code : ByteArray} {pc next : Nat} {i : SolarTV.Assembly.Instr}
-    (h : decode (bytesOf code) pc = some (i, next)) : next = nextOpcode code pc ∧ pc < code.size := by
-  unfold decode at h
-  split at h
-  · cases h
-  · rename_i byte hb
-    have hlt := (List.getElem?_eq_some_iff.1 hb).1
-    rw [length_bytesOf] at hlt
-    have hbyte : (byteAt code pc).toNat = byte := by
-      rw [byteAt_toNat, List.getD_eq_getElem?_getD, hb]
-      rfl
-    refine ⟨?_, hlt⟩
-    rw [nextOpcode_eq_opLen, opLen_eq, hbyte]
-    unfold PUSH0 PUSH1 PUSH32 at h
-    split at h
-    · cases h
-      rename_i h0
-      simp [h0]
-    · split at h
-      · split at h
-        · cases h
-          rename_i h0 h1 _
-          simp only [h1, and_self, ↓reduceIte]
-          omega
-        · cases h
-      · cases h
-        rename_i h1
-        simp only [h1, ↓reduceIte]
-
 theorem boundary_next {code : ByteArray} {s p : Nat} (h : BoundaryFrom code s p)
     (hn : nextOpcode code p < code.size) : BoundaryFrom code s (nextOpcode code p) := by
   induction h with
   | here hs => exact .step hs (.here hn)
   | step hs _ ih => exact .step hs (ih hn)
+
+/-- The walk steps from an instruction to the next opcode, as EthLib's scan does: over a push
+and its data, over one byte, or over an opcode and its immediate, which the scan steps over as
+an opcode of its own, since no immediate that decodes is a push (`immediateOk_not_push`). -/
+theorem decode_boundary {code : ByteArray} {pc next : Nat} {i : SolarTV.Assembly.Instr}
+    (h : decode (bytesOf code) pc = some (i, next)) :
+    pc < code.size ∧ (BoundaryFrom code 0 pc → next < code.size → BoundaryFrom code 0 next) := by
+  have hpc : pc < code.size := by
+    have := decode_lt' h
+    rwa [length_bytesOf] at this
+  refine ⟨hpc, fun hb hn => ?_⟩
+  have hbyteOf : ∀ q byte, (bytesOf code)[q]? = some byte → (byteAt code q).toNat = byte :=
+    fun q byte hq => by
+      rw [byteAt_toNat, List.getD_eq_getElem?_getD, hq]
+      rfl
+  have step : ∀ q, BoundaryFrom code 0 q → (byteAt code q).toNat < 0x60 ∨ 0x7f < (byteAt code q).toNat →
+      q + 1 < code.size → BoundaryFrom code 0 (q + 1) := fun q hq hnp hlt => by
+    have e : nextOpcode code q = q + 1 := by
+      rw [nextOpcode_eq_opLen, opLen_eq]
+      have : ¬(0x60 ≤ (byteAt code q).toNat ∧ (byteAt code q).toNat ≤ 0x7f) := by omega
+      simp only [this, ↓reduceIte]
+    have := boundary_next hq (by rw [e]; exact hlt)
+    rwa [e] at this
+  cases i with
+  | op b =>
+    obtain ⟨hb', -, h1, -, rfl⟩ := decode_op_inv h
+    have := hbyteOf pc b hb'
+    unfold PUSH1 PUSH32 at h1
+    have hx : (byteAt code pc).toNat < 0x60 ∨ 0x7f < (byteAt code pc).toNat := by
+      rw [this]
+      cases Nat.decLt b 0x60 with
+      | isTrue hlt => exact .inl hlt
+      | isFalse hge => exact .inr (Nat.lt_of_not_le (fun hle => h1 ⟨by omega, hle⟩))
+    exact step pc hb hx hn
+  | opImm b imm =>
+    obtain ⟨hb', him, hi, hok, rfl⟩ := decode_opImm_inv h
+    have e1 := hbyteOf pc b hb'
+    have e2 := hbyteOf (pc + 1) imm hi
+    have hnp := immediateOk_not_push hok
+    have hb1 : b = 0xe6 ∨ b = 0xe7 ∨ b = 0xe8 := by
+      simp only [hasImmediate, DUPN, SWAPN, EXCHANGE, Bool.or_eq_true, beq_iff_eq] at him
+      rcases him with (e | e) | e
+      · exact .inl e
+      · exact .inr (.inl e)
+      · exact .inr (.inr e)
+    have hx : (byteAt code pc).toNat < 0x60 ∨ 0x7f < (byteAt code pc).toNat :=
+      .inr (by rcases hb1 with e | e | e <;> omega)
+    have h1 := step pc hb hx (by omega)
+    have hy : (byteAt code (pc + 1)).toNat < 0x60 ∨ 0x7f < (byteAt code (pc + 1)).toNat := by
+      rw [e2]
+      cases Nat.decLt imm 0x60 with
+      | isTrue hlt => exact .inl hlt
+      | isFalse hge => exact .inr (Nat.lt_of_not_le (fun hle => hnp ⟨by omega, hle⟩))
+    exact step (pc + 1) h1 hy hn
+  | push v =>
+    obtain ⟨b, hb', ⟨h0, -, rfl⟩ | ⟨h1, h2, rfl, -, -⟩⟩ := decode_push h
+    · have := hbyteOf pc b hb'
+      unfold PUSH0 at h0
+      exact step pc hb (by omega) hn
+    · have e := hbyteOf pc b hb'
+      have e' : nextOpcode code pc = pc + 1 + (b - PUSH1 + 1) := by
+        rw [nextOpcode_eq_opLen, opLen_eq, e]
+        unfold PUSH1 at h1 ⊢
+        unfold PUSH32 at h2
+        simp only [h1, h2, and_self, ↓reduceIte]
+        omega
+      have := boundary_next hb (by rw [e']; exact hn)
+      rwa [e'] at this
 
 /-- Each label a successful walk from an opcode boundary reaches is a valid jump destination. -/
 theorem walk_labels {code : ByteArray} {offset : Nat → Nat} :
@@ -219,14 +289,14 @@ theorem walk_labels {code : ByteArray} {offset : Nat → Nat} :
       obtain ⟨instr, next⟩ := x
       rw [hd] at hw
       simp only at hw
-      by_cases ok : instr = item.expected offset ∧ labelAt offset pc item = true
+      by_cases ok : instr = item.expected offset ∧ item.placed (bytesOf code) offset pc = true
       · simp only [ok, and_self, ↓reduceIte] at hw
         have hw' : (walk (bytesOf code) offset next items).isSome = true := by
           cases h' : walk (bytesOf code) offset next items <;> simp [h'] at hw ⊢
-        obtain ⟨hnext, hpc⟩ := next_eq_nextOpcode hd
+        obtain ⟨hpc, hnext⟩ := decode_boundary hd
         have hbpc := hb hpc
         rcases List.mem_cons.1 hl with rfl | hl
-        · have hoff : offset l = pc := by simpa [labelAt] using ok.2
+        · have hoff : offset l = pc := by simpa [Item.placed] using ok.2
           have hi : instr = .op SolarTV.Assembly.JUMPDEST := by simpa [Item.expected] using ok.1
           rw [hi] at hd
           obtain ⟨hbyte, -⟩ := decode_op hd
@@ -235,9 +305,7 @@ theorem walk_labels {code : ByteArray} {offset : Nat → Nat} :
           apply UInt8.toNat_inj.mp
           rw [byteAt_toNat, List.getD_eq_getElem?_getD, hbyte]
           rfl
-        · refine walk_labels items next hw' (fun hn => ?_) l hl
-          rw [hnext] at hn ⊢
-          exact boundary_next hbpc hn
+        · exact walk_labels items next hw' (hnext hbpc) l hl
       · simp only [ok, ↓reduceIte] at hw
         simp at hw
 

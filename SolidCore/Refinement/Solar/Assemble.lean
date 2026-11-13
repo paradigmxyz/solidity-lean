@@ -1,6 +1,7 @@
 import SolidCore.Refinement.Evm.Wide
 import SolarTV.Composition
 import SolarTV.Stages.AssemblyCheck
+import SolidCore.Refinement.Solar.AssembleStackN
 
 /-!
 # EVM IR to bytecode, once for every program
@@ -103,7 +104,9 @@ def Cert.entry (c : Cert) (b : Nat) : List Ty := c.types.getD b []
 
 /-! ## Lowering EVM IR to assembly -/
 
-/-- The opcode of each stack operation of the fragment. -/
+/-- The opcode of each stack operation of the fragment. `dup` and `swap` take a `Fin 256` position,
+as SolarTV's EVM IR does; only DUP1 to DUP16 and SWAP1 to SWAP16 are one-byte opcodes, so a deeper
+position (DUPN and SWAPN, which take an immediate) is outside the fragment. -/
 def opByte : SolarTV.EVM.Op → Option Nat
   | .add => some 0x01 | .mul => some 0x02 | .sub => some 0x03 | .div => some 0x04
   | .mod => some 0x06 | .lt => some 0x10 | .gt => some 0x11
@@ -111,7 +114,8 @@ def opByte : SolarTV.EVM.Op → Option Nat
   | .xor => some 0x18 | .not => some 0x19 | .byte => some 0x1a | .shl => some 0x1b
   | .shr => some 0x1c
   | .calldatasize => some 0x36 | .pop => some 0x50
-  | .dup i => some (0x80 + i.val) | .swap i => some (0x90 + i.val)
+  | .dup i => if i.val < 16 then some (0x80 + i.val) else none
+  | .swap i => if i.val < 16 then some (0x90 + i.val) else none
   | _ => none
 
 /-- The assembly items of an instruction. Outside the fragment it is INVALID, which the check
@@ -224,8 +228,8 @@ def stackNeed : SolarTV.EVM.Op → Option (Nat × Int)
   | .iszero | .not => some (1, 0)
   | .calldatasize => some (0, 1)
   | .pop => some (1, -1)
-  | .dup i => some (i.val + 1, 1)
-  | .swap i => some (i.val + 2, 0)
+  | .dup i => if i.val < 16 then some (i.val + 1, 1) else none
+  | .swap i => if i.val < 16 then some (i.val + 2, 0) else none
   | _ => none
 
 /-- A jump to block `t` with a stack of at least `h` words typed `ty` and potential `k` left: `t` is a
@@ -261,9 +265,10 @@ def blockStep (p : Program) (c : Cert) (ok : Nat → List Word → List Ty → N
   | h, known, ty, k, .op (.stack op) =>
     match op with
     | .push v => decide (1 ≤ k) && ok (h + 1) (v :: known.take 1) (some false :: ty) (k - 1)
-    | .dup i => decide (1 ≤ k) && decide (i.val + 1 ≤ h) &&
+    | .dup i => decide (1 ≤ k) && decide (i.val < 16) && decide (i.val + 1 ≤ h) &&
       ok (h + 1) (dupKnown known i.val) (tyAt ty i.val :: ty) (k - 1)
-    | .swap i => decide (1 ≤ k) && decide (i.val + 2 ≤ h) && ok h [] (tySwap ty i.val) (k - 1)
+    | .swap i => decide (1 ≤ k) && decide (i.val < 16) && decide (i.val + 2 ≤ h) &&
+      ok h [] (tySwap ty i.val) (k - 1)
     | .pop => decide (1 ≤ k) && decide (1 ≤ h) && ok (h - 1) [] ty.tail (k - 1)
     | op =>
       match stackNeed op with
@@ -385,18 +390,8 @@ theorem byteAt_toNat (code : ByteArray) (i : Nat) :
 
 theorem decode_op {code : List Nat} {pc next byte : Nat}
     (h : decode code pc = some (.op byte, next)) : code[pc]? = some byte ∧ next = pc + 1 := by
-  unfold decode at h
-  split at h
-  · cases h
-  · rename_i b hb
-    by_cases h0 : b = PUSH0
-    · simp [h0] at h
-    · by_cases h1 : PUSH1 ≤ b ∧ b ≤ PUSH32
-      · rw [if_neg h0, if_pos h1] at h
-        split at h <;> simp at h
-      · rw [if_neg h0, if_neg h1] at h
-        simp only [Option.some.injEq, Prod.mk.injEq, Instr.op.injEq] at h
-        exact ⟨by rw [hb, h.1], h.2.symm⟩
+  obtain ⟨hb, -, -, -, hn⟩ := decode_op_inv h
+  exact ⟨hb, hn⟩
 
 theorem decode_push {code : List Nat} {pc next v : Nat}
     (h : decode code pc = some (.push v, next)) :
@@ -420,7 +415,8 @@ theorem decode_push {code : List Nat} {pc next v : Nat}
           exact .inr ⟨h1.1, h1.2, h.2.symm, by omega, h.1.symm⟩
         · cases h
       · rw [if_neg h0, if_neg h1] at h
-        simp at h
+        repeat' split at h
+        all_goals simp at h
 
 theorem decode_pushByte : ∀ b : Fin 32,
     Op.decode (UInt8.ofNat (0x60 + b.val)) = some (.push ⟨b.val + 1, by omega⟩) := by
@@ -773,7 +769,7 @@ theorem stack_rule_cheap {op : SolarTV.EVM.Op} {byte : Nat} {stack next : List W
     (hgas : 3 ≤ gas) (hlen : stack.length < 1024) :
     ∃ g, gas - 3 ≤ g ∧ Hoare .fusaka (At code msg pc stack M gas st ss .empty)
       (At code msg (pc + 1) next M g st ss .empty) := by
-  cases op <;> simp only [opByte, reduceCtorEq, Option.some.injEq] at hb <;> subst hb
+  cases op <;> simp only [opByte, reduceCtorEq, Option.some.injEq] at hb <;> try subst hb
   case mod | mul | div => simp [low] at hm
   case add => bin_rule add_agree
   case sub => bin_rule sub_agree
@@ -798,15 +794,25 @@ theorem stack_rule_cheap {op : SolarTV.EVM.Op} {byte : Nat} {stack next : List W
     subst hstep
     exact ⟨_, by omega, calldatasize hlt hcode (by omega) hlen⟩
   case dup i =>
-    simp only [SolarTV.EVM.step, Option.map_eq_some_iff] at hstep
-    obtain ⟨x, hx, rfl⟩ := hstep
-    exact ⟨_, le_refl _, dup i hlt hcode hx hgas hlen⟩
-  case swap i =>
-    rcases stack with _ | ⟨top, rest⟩
-    · simp [SolarTV.EVM.step] at hstep
-    · simp only [SolarTV.EVM.step, Option.map_eq_some_iff] at hstep
+    split at hb
+    · rename_i hi
+      simp only [Option.some.injEq] at hb
+      subst hb
+      simp only [SolarTV.EVM.step, Option.map_eq_some_iff] at hstep
       obtain ⟨x, hx, rfl⟩ := hstep
-      exact ⟨_, le_refl _, swap_of_decode hlt hcode (decode_swap i) hx hgas⟩
+      exact ⟨_, le_refl _, dup (⟨i.val, hi⟩ : Fin 16) hlt hcode hx hgas hlen⟩
+    · simp at hb
+  case swap i =>
+    split at hb
+    · rename_i hi
+      simp only [Option.some.injEq] at hb
+      subst hb
+      rcases stack with _ | ⟨top, rest⟩
+      · simp [SolarTV.EVM.step] at hstep
+      · simp only [SolarTV.EVM.step, Option.map_eq_some_iff] at hstep
+        obtain ⟨x, hx, rfl⟩ := hstep
+        exact ⟨_, le_refl _, swap_of_decode hlt hcode (decode_swap ⟨i.val, hi⟩) hx hgas⟩
+    · simp at hb
 
 /-- A stack operation of the fragment, at its opcode, does what SolarTV's semantics does, for at
 most 5 gas (the price of MUL, DIV and MOD; the rest cost 3). -/
@@ -829,5 +835,33 @@ theorem stack_rule {op : SolarTV.EVM.Op} {byte : Nat} {stack next : List Word}
       | (rw [← mod_agree x y]; exact binary hlt hcode rfl (instr_stack _ _ rfl) hgas)
 
 end Rules
+
+/-! ## DUPN, SWAPN and EXCHANGE are outside the fragment
+
+The fragment runs at Fusaka, where EIP-8024's DUPN, SWAPN and EXCHANGE are no instruction
+(`stackN_fusaka`), so the check refuses every `dup` and `swap` past the sixteenth word and every
+`exchange`: the program solar's assembler lowers with them is not the bytecode this stage proves. -/
+
+theorem blockStep_dup {p : Program} {c : Cert} {ok : Nat → List Word → List Ty → Nat → Bool}
+    {h : Nat} {known : List Word} {ty : List Ty} {k : Nat} {i : Fin 256}
+    (hc : blockStep p c ok h known ty k (.op (.stack (.dup i))) = true) : i.val < 16 := by
+  simp only [blockStep, Bool.and_eq_true, decide_eq_true_eq] at hc
+  exact hc.1.1.2
+
+theorem blockStep_swap {p : Program} {c : Cert} {ok : Nat → List Word → List Ty → Nat → Bool}
+    {h : Nat} {known : List Word} {ty : List Ty} {k : Nat} {i : Fin 256}
+    (hc : blockStep p c ok h known ty k (.op (.stack (.swap i))) = true) : i.val < 16 := by
+  simp only [blockStep, Bool.and_eq_true, decide_eq_true_eq] at hc
+  exact hc.1.1.2
+
+theorem blockStep_exchange {p : Program} {c : Cert} {ok : Nat → List Word → List Ty → Nat → Bool}
+    {h : Nat} {known : List Word} {ty : List Ty} {k : Nat} {n m : Fin 32} :
+    blockStep p c ok h known ty k (.op (.stack (.exchange n m))) = false := by
+  simp [blockStep, stackNeed]
+
+/-- The lowering never spells an instruction with an immediate: `dup` and `swap` past the
+sixteenth word and `exchange` are INVALID, which the check refuses. -/
+theorem lowerInstr_no_opImm (i : Instr) (b imm : Nat) : Item.opImm b imm ∉ lowerInstr i := by
+  cases i <;> simp [lowerInstr] <;> split <;> simp
 
 end SolidCore.Refinement.Solar.Assemble
