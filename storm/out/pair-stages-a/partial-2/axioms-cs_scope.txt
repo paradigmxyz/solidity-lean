@@ -1,0 +1,19 @@
+'SolarTV.Milestone.CsScope.cs_scope_mir_to_evmir' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.CsScope.cs_scope_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.CsScope.cs_scope_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.CsScope.cs_scope_bytecode' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.CsScope.cs_scope_bytecode_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+SolarTV.Milestone.CsScope.cs_scope_mir_to_evmir : ∀ (o : SolarTV.Machine.Oracle),
+  SolarTV.Stage (SolarTV.mirSem o) (SolarTV.evmirSem o) SolarTV.Export.CallSqrt.stage0 SolarTV.Export.CallSqrt.evm13
+    SolarTV.Milestone.CsScope.scope
+SolarTV.Milestone.CsScope.cs_scope_bytecode : ∀ (o : SolarTV.Machine.Oracle),
+  (SolarTV.Milestone.CsScope.cert.env = true → SolidCore.Refinement.Solar.Assemble.OracleOk o) →
+    (SolarTV.Milestone.CsScope.cert.reads = true → SolidCore.Refinement.Solar.Assemble.EnvOk o) →
+      ∀ (gas : ℕ),
+        SolidCore.Refinement.Final.Within (SolarTV.mirSem o) (SolidCore.Refinement.Final.ethLibWith gas)
+          SolarTV.Export.CallSqrt.stage0 SolarTV.Milestone.CsScope.code SolarTV.Milestone.CsScope.scope
+SolarTV.Milestone.CsScope.cs_scope_bytecode_run : SolidCore.Refinement.Solar.RunOracle.WithinRun SolarTV.mirSem
+  (fun x => SolarTV.Export.CallSqrt.stage0) SolarTV.Milestone.CsScope.code SolarTV.Milestone.CsScope.scope
+  (SolidCore.Refinement.Solar.RunOracle.CertOk SolarTV.Milestone.CsScope.cert)
+def SolarTV.Milestone.CsScope.scope : SolarTV.Call → Prop :=
+fun call => EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 3827312202

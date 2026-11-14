@@ -1,0 +1,75 @@
+From 9a976c181c78aa8abb60f6c7403f361a9ec9b1d3 Mon Sep 17 00:00:00 2001
+From: Troy Sargent <0xalpharush@protonmail.com>
+Date: Sat, 14 Nov 2026 16:31:41 +0000
+Subject: [PATCH 4/4] feat(certify): --arms cuts branch arms, --segment bound
+
+---
+ solar-tv/milestone/cutpoints.py | 16 +++++++++++++++-
+ tools/certify/certify.py        | 15 +++++++++++++++
+ 2 files changed, 30 insertions(+), 1 deletion(-)
+
+diff --git a/solar-tv/milestone/cutpoints.py b/solar-tv/milestone/cutpoints.py
+index 4220cf376..9230b8d76 100644
+--- a/solar-tv/milestone/cutpoints.py
++++ b/solar-tv/milestone/cutpoints.py
+@@ -946,6 +946,12 @@ EXCLUDED_NAMES = set()
+ # configuration graph of a program with calls does not enter them.
+ EXCLUDED_BLOCKS = set()
+ 
++# Under JOINS, whether to cut at branch arms too (certify.py's --arms): a block one branch of its
++# only predecessor enters, unless it ends the call (a revert, return, stop or tail call), so that
++# a segment runs at most one branch of the code it leaves, and no segment carries the terms of a
++# long path whose branches each a SMT-free case split doubles.
++ARMS = False
++
+ # Relations per list, and segment proofs per module, under JOINS.
+ CHUNK = 16
+ 
+@@ -1035,7 +1041,15 @@ def mir_join_cuts(a_funcs, b_funcs, cuts):
+             if (f, h) in have or h == 0:
+                 continue
+             pa, pb = preds(sa, h), preds(sb, h)
+-            if len(pa) < 2 or len(pb) < 2:
++            arm = (
++                ARMS
++                and len(pa) == 1
++                and len(pb) == 1
++                and len(sa[pa[0]]) >= 2
++                and len(sb[pb[0]]) >= 2
++                and not re.match(r"\.(revert|ret|stop|invalid|tailCall)\b", fa["blocks"][h][2])
++            )
++            if (len(pa) < 2 or len(pb) < 2) and not arm:
+                 continue
+             da = sorted(d for d, _ in fa["blocks"][h][0])
+             db = sorted(d for d, _ in fb["blocks"][h][0])
+diff --git a/tools/certify/certify.py b/tools/certify/certify.py
+index 8f9d6fb3d..182adc487 100755
+--- a/tools/certify/certify.py
++++ b/tools/certify/certify.py
+@@ -394,8 +394,23 @@ def main():
+         action="store_true",
+         help="cut the programs at their join points too, so that no path is evaluated twice",
+     )
++    ap.add_argument(
++        "--arms",
++        action="store_true",
++        help="with --joins, cut the programs at branch arms too, so that a segment runs at "
++        "most one branch of the code it leaves",
++    )
++    ap.add_argument(
++        "--segment",
++        type=int,
++        default=None,
++        help="with --joins, the most configurations one EVM segment evaluates before it is cut",
++    )
+     args = ap.parse_args()
+     cutpoints.JOINS = args.joins
++    cutpoints.ARMS = args.arms
++    if args.segment is not None:
++        cutpoints.SEGMENT = args.segment
+     manifest, stages = stage_list(args.gen, args.loops)
+     global DEPTH
+     if any(
+-- 
+2.43.0
+

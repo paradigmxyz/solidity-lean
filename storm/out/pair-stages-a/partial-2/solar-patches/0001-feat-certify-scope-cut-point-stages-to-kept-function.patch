@@ -1,0 +1,249 @@
+From 65fc70d5a128c1e68a4c9d5d668267cb846d5c52 Mon Sep 17 00:00:00 2001
+From: Troy Sargent <0xalpharush@protonmail.com>
+Date: Sat, 14 Nov 2026 03:31:03 +0000
+Subject: [PATCH 1/4] feat(certify): scope cut-point stages to kept functions
+
+certify.py turned cut-point (loop) proofs off whenever --exclude left
+functions out, so a contract with loops could be scoped only by giving
+up its loops. The cut-point simulation now takes the call predicate:
+Runs/Scope.lean defines scope from the excluded selectors, the entry
+relation of every stage carries scope call, the entry segment opens it
+into the selector hypotheses that prune the excluded paths, and the
+stage, composition and execution theorems are stated at scope.
+---
+ solar-tv/milestone/cutpoints.py | 38 ++++++++++++++++++---
+ tools/certify/certify.py        | 58 +++++++++++++++++++++++++--------
+ 2 files changed, 78 insertions(+), 18 deletions(-)
+
+diff --git a/solar-tv/milestone/cutpoints.py b/solar-tv/milestone/cutpoints.py
+index 004f739a2..1bac83431 100644
+--- a/solar-tv/milestone/cutpoints.py
++++ b/solar-tv/milestone/cutpoints.py
+@@ -709,6 +709,27 @@ def evm_pair(a, b, cuts, fuel_a, fuel_b, heartbeats, recdepth=None):
+     return "".join(out)
+ 
+ 
++def scope_term():
++    """The call predicate a stage is proved on: `scope` when functions are excluded."""
++    return "anyCall" if SCOPE is None else "scope"
++
++
++def scope_open(h):
++    """Tactic lines opening `h : scope call` into the selector hypotheses and their symmetric
++    forms, so that the dispatcher's tests of an excluded selector rewrite to false."""
++    names = [f"hsel{i}" for i in range(SCOPE)]
++    opener = (
++        f"  have {names[0]} := {h}\n"
++        if SCOPE == 1
++        else f"  obtain ⟨{', '.join(names)}⟩ := {h}\n"
++    )
++    return (
++        f"  simp only [scope] at {h}\n"
++        + opener
++        + "".join(f"  have {n}s := Ne.symm {n}\n" for n in names)
++    )
++
++
+ # --- Lowered MIR ---------------------------------------------------------------------------
+ 
+ 
+@@ -866,6 +887,12 @@ def mir_cuts(pass_name, a_funcs, b_funcs):
+ # Whether to cut at join points too (certify.py's --joins): for a program whose paths share
+ # so many blocks that evaluating every path from a loop's cut point does not end in time.
+ JOINS = False
++# The calls a stage is about, when certify.py leaves external functions out: the number of
++# selector hypotheses `scope` (a definition of the proof's Scope module) conjoins, else None for
++# every call (`anyCall`). The entry relation then carries `scope call`, and the entry segment
++# opens it into the selector hypotheses `hselN` (and their symmetric forms) that prune the
++# excluded functions' paths.
++SCOPE = None
+ 
+ # Relations per list, and segment proofs per module, under JOINS.
+ CHUNK = 16
+@@ -1174,7 +1201,7 @@ def pair_module(a, b, cuts_a, cuts_b, rels, fuel_a, fuel_b, heartbeats, entry_re
+         "tgt_vars": [],
+         "src": init_term(a["kind"], A),
+         "tgt": init_term(b["kind"], B),
+-        "conds": [],
++        "conds": ["scope call"] if SCOPE is not None else [],
+         "reach": entry_reach,
+     }
+     allrels = [entry] + rels
+@@ -1288,7 +1315,8 @@ def pair_module(a, b, cuts_a, cuts_b, rels, fuel_a, fuel_b, heartbeats, entry_re
+             f"    ∃ k, {seg_rel}\n"
+             f"      (seg ({step_term(a['kind'], A)}) {cut_a} k {r['src']})\n"
+             f"      (seg ({step_term(b['kind'], B)}) {cut_b} {fuel_b} {r['tgt']}) := by\n"
+-            f"  refine ⟨{fuel_a}, ?_⟩\n"
++            + (scope_open("h0") if n == 0 and SCOPE is not None else "")
++            + f"  refine ⟨{fuel_a}, ?_⟩\n"
+             f"  sym_seg [{unf}] [{', '.join(seg_mks(r))}]\n\n"
+             + ("\x00" if chunked else "")
+         )
+@@ -1356,7 +1384,7 @@ def pair_module(a, b, cuts_a, cuts_b, rels, fuel_a, fuel_b, heartbeats, entry_re
+         f"/-- `{A}` and `{B}` simulated through their cut points on every call. -/\n"
+         f"def {p}_sim (o : Oracle) :\n"
+         f"    CutPoint.LayerSim {layer_term(a['kind'])} {layer_term(b['kind'])} o {A} {B} "
+-        f"anyCall where\n"
++        f"{scope_term()} where\n"
+         f"  σ := {ca}\n  τ := {cb}\n"
+         f"  step call := {step_term(a['kind'], A)}\n"
+         f"  step' call := {step_term(b['kind'], B)}\n"
+@@ -1365,7 +1393,9 @@ def pair_module(a, b, cuts_a, cuts_b, rels, fuel_a, fuel_b, heartbeats, entry_re
+         f"  runs _ _ := rfl\n  runs' _ _ := rfl\n"
+         f"  cut := {cut_a}\n  cut' := {cut_b}\n"
+         f"  Rel call := fun x x' => ∃ P ∈ {p}_rels call, P x x'\n"
+-        f"  start _ _ := ⟨_, {mem_of(0)}, rfl, rfl⟩\n"
++        + (f"  start _ h := ⟨_, {mem_of(0)}, rfl, rfl, h⟩\n" if SCOPE is not None
++           else f"  start _ _ := ⟨_, {mem_of(0)}, rfl, rfl⟩\n")
++        + 
+         f"  sim call _ := CutPoint.Sim.of_each fun P m x x' h =>\n"
+         f"    match {p}_segments o call P m x x' h with | ⟨k, s⟩ => ⟨k, {fuel_b}, s⟩\n\n"
+     )
+diff --git a/tools/certify/certify.py b/tools/certify/certify.py
+index 7ff4e84cc..034e569bb 100755
+--- a/tools/certify/certify.py
++++ b/tools/certify/certify.py
+@@ -190,6 +190,29 @@ def split_segments(out, pm, module, p, body, imports, ns, opens, what):
+     return rest, mods
+ 
+ 
++def write_scope(out, pm, ns, opens, excluded, first_module):
++    """Runs/Scope.lean: the calls the stages are about, every call whose selector word is none of
++    the excluded functions'."""
++    (out / "Runs").mkdir(parents=True, exist_ok=True)
++    (out / "Runs" / "Scope.lean").write_text(
++        header(
++            ["W1Proofs.Segment", first_module],
++            "The calls the stages are about: every call whose selector word is none of the "
++            "excluded functions'.",
++            ns,
++            opens,
++        )
++        + "/-- Every call whose selector word is none of "
++        + ", ".join(f"`{sel:#010x}` (`{sig}`)" for sel, sig in excluded)
++        + ", whose functions are outside these proofs. -/\n"
++        "def scope : Call → Prop := fun call =>\n  "
++        + " ∧ ".join(
++            f"EvmRules.Evm.shr 224 (calldataWord call 0) ≠ {sel:#x}" for sel, _ in excluded
++        )
++        + f"\n\nend {ns}\n"
++    )
++
++
+ def write_cut_points(args, manifest, stages, ns, opens, label, every_doc):
+     """The proofs of a contract whose programs loop: per pair of consecutive stages a LayerSim
+     through the cut points cutpoints.py derives from what the compiler kept across the pass,
+@@ -220,12 +243,12 @@ def write_cut_points(args, manifest, stages, ns, opens, label, every_doc):
+             f"/-- Every end of `{a['def']}` on a call is matched by an agreeing end of "
+             f"`{p}`. -/\n"
+             f"theorem {p}_certified (o : Oracle) :\n"
+-            f"    Certified {layer(a)} {layer(b)} o {a['def']} {p} anyCall :=\n"
++            f"    Certified {layer(a)} {layer(b)} o {a['def']} {p} {cutpoints.scope_term()} :=\n"
+             f"  ({p}_sim o).certified\n\n"
+             f"/-- Every end of `{p}` on a call is matched by an agreeing end of "
+             f"`{a['def']}`. -/\n"
+             f"theorem {p}_certified_back (o : Oracle) :\n"
+-            f"    Certified {layer(b)} {layer(a)} o {p} {a['def']} anyCall :=\n"
++            f"    Certified {layer(b)} {layer(a)} o {p} {a['def']} {cutpoints.scope_term()} :=\n"
+             f"  ({p}_sim o).certified_back\n\n"
+         )
+         base = [
+@@ -233,6 +256,7 @@ def write_cut_points(args, manifest, stages, ns, opens, label, every_doc):
+             "W1Proofs.Stage",
+             "W1Proofs.Axioms",
+             "SolarTV.Termination",
++        ] + ([f"{pm}.Runs.Scope"] if cutpoints.SCOPE is not None else []) + [
+             f"{gm}.{b['module']}",
+             f"{gm}.{a['module']}",
+         ]
+@@ -279,8 +303,8 @@ def write_cut_points(args, manifest, stages, ns, opens, label, every_doc):
+             f"/-- Every stage from the first lowered MIR to the final EVM IR, each through cut "
+             f"points, chained by the library's composition, on every call. -/\n"
+             f"theorem {final} (o : Oracle) : Stage (mirSem o) (evmirSem o) {first['def']} "
+-            f"{last['def']} anyCall :=\n"
+-            f"  mir_to_evmir_certified o anyCall compilation {steps(mirs[1:])} "
++            f"{last['def']} {cutpoints.scope_term()} :=\n"
++            f"  mir_to_evmir_certified o {cutpoints.scope_term()} compilation {steps(mirs[1:])} "
+             f"({sched['def']}_certified o)\n    {steps(evms)}\n"
+         ),
+     ]
+@@ -295,20 +319,21 @@ def write_cut_points(args, manifest, stages, ns, opens, label, every_doc):
+         f"EVM IR, on every call. -/\n"
+         f"theorem {label}_certified (o : Oracle) :\n"
+         f"    Certified MIR.Lowered.moduleLayer EVM.Program.layer o {first['def']} "
+-        f"{last['def']} anyCall :=\n  {fwd}\n"
++        f"{last['def']} {cutpoints.scope_term()} :=\n  {fwd}\n"
+     )
+     body.append(
+         f"/-- Every end of the final EVM IR is matched by an agreeing end of the first "
+         f"lowered MIR, on every call: one ends exactly when the other does. -/\n"
+         f"theorem {label}_certified_back (o : Oracle) :\n"
+         f"    Certified EVM.Program.layer MIR.Lowered.moduleLayer o {last['def']} "
+-        f"{first['def']} anyCall :=\n  {back}\n"
++        f"{first['def']} {cutpoints.scope_term()} :=\n  {back}\n"
+     )
+     checks = "".join(
+         "\n" + axioms_check(ns, n)
+         for n in (final, f"{label}_certified", f"{label}_certified_back")
+     )
+-    imports = [f"{pm}.Runs.{s['module']}" for s in stages[1:]] + [
++    imports = [f"{pm}.Runs.{s['module']}" for s in stages[1:]] + (
++        [f"{pm}.Runs.Scope"] if cutpoints.SCOPE is not None else []) + [
+         "W1Proofs.Stage",
+         "SolarTV.Composition",
+     ]
+@@ -433,8 +458,13 @@ def main():
+             f"#guard_msgs in\n#axioms_within {name}\n"
+         )
+ 
+-    cut = loops_somewhere(args.gen, stages) and not excluded
++    cut = loops_somewhere(args.gen, stages)
+     if cut:
++        # Cut points on the calls of the functions left in: the entry relation of every stage
++        # carries `scope call` (Runs/Scope.lean), the rest relate configurations on any call.
++        cutpoints.SCOPE = len(excluded) if excluded else None
++        if excluded:
++            write_scope(out, pm, ns, opens, excluded, f"{gm}.{stages[0]['module']}")
+         final = write_cut_points(args, manifest, stages, ns, opens, label, every)
+         last = stages[-1]
+         first = stages[0]
+@@ -841,10 +871,10 @@ def main():
+             "(CertOk), under which every\nresult of the bytecode is the first lowered MIR's or a failure "
+             "that changes nothing. -/\n"
+             f"theorem {executes}_run :\n"
+-            f"    {C}.WithinRunLt mirSem (fun _ => {first['def']}) code anyCall\n"
++            f"    {C}.WithinRunLt mirSem (fun _ => {first['def']}) code {cutpoints.scope_term()}\n"
+             "      (SolidCore.Refinement.Solar.RunOracle.CertOk cert) :=\n"
+             f"  {C}.withinRun_mir_of_checkC {label}_certified_back\n"
+-            "    (fun _ _ => trivial) check_ok\n\n"
++            f"    {'(fun _ h => h)' if cutpoints.SCOPE is not None else '(fun _ _ => trivial)'} check_ok\n\n"
+             ) if dyn else (
+             "/-- The checker of code with loops accepts the bytecode for the final EVM IR. -/\n"
+             f"theorem check_ok : {L}.checkL {last['def']} code cert maxs = true := by\n"
+@@ -874,19 +904,19 @@ def main():
+             f"theorem {executes} (o : Machine.Oracle) (ho : cert.env = true → {A}.OracleOk o)\n"
+             f"    (he : cert.reads = true → {A}.EnvOk o) (gas : Nat) :\n"
+             f"    SolidCore.Refinement.Final.Within (mirSem o) (SolidCore.Refinement.Final.ethLibWith gas)\n"
+-            f"      {first['def']} code anyCall :=\n"
++            f"      {first['def']} code {cutpoints.scope_term()} :=\n"
+             f"  SolidCore.Refinement.Solar.EndToEnd.within_of_checkL ({label}_certified_back o)\n"
+-            "    (fun _ _ => trivial) check_ok ho gas he\n\n"
++            f"    {'(fun _ h => h)' if cutpoints.SCOPE is not None else '(fun _ _ => trivial)'} check_ok ho gas he\n\n"
+             "/-- **The first lowered MIR to the exact bytecode, run by run**: for every gas and every "
+             "call there is an oracle,\nmeeting the certificate's constraints (CertOk), under which "
+             "every result of the bytecode is the first\nlowered MIR's or a failure that changes "
+             "nothing; it composes with specifications proved for every\noracle "
+             "(RunOracle.holds_of_withinRun). -/\n"
+             f"theorem {executes}_run :\n"
+-            f"    SolidCore.Refinement.Solar.RunOracle.WithinRun mirSem (fun _ => {first['def']}) code anyCall\n"
++            f"    SolidCore.Refinement.Solar.RunOracle.WithinRun mirSem (fun _ => {first['def']}) code {cutpoints.scope_term()}\n"
+             "      (SolidCore.Refinement.Solar.RunOracle.CertOk cert) :=\n"
+             f"  SolidCore.Refinement.Solar.RunOracle.withinRun_mir_of_checkL {label}_certified_back\n"
+-            "    (fun _ _ => trivial) check_ok\n\n"
++            f"    {'(fun _ h => h)' if cutpoints.SCOPE is not None else '(fun _ _ => trivial)'} check_ok\n\n"
+             ))
+             + axioms_check(ns, "check_ok", "[propext, Quot.sound]")
+             + ("" if dyn else "\n" + axioms_check(ns, executes))
+-- 
+2.43.0
+

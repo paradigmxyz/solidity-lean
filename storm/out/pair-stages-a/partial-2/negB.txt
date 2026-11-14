@@ -1,0 +1,5 @@
+error: Certified/cs_negB/Proofs/Assembly.lean:26:67: Tactic `decide` proved that the proposition
+error: Certified/cs_negB/Proofs/Assembly.lean:35:0: ❌️ Docstring on `#guard_msgs` does not match generated message:
+error: Certified/cs_negB/Proofs/Assembly.lean:39:0: ❌️ Docstring on `#guard_msgs` does not match generated message:
+error: build failed
+EXIT 1 after 6s

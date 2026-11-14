@@ -1,0 +1,83 @@
+From 42d590963d5eb7054d13794df1ebd06c9812c898 Mon Sep 17 00:00:00 2001
+From: Troy Sargent <0xalpharush@protonmail.com>
+Date: Sat, 14 Nov 2026 15:26:13 +0000
+Subject: [PATCH 3/3] wip(tv): seg_case_contra closes contradictory cut-test
+ cases
+
+---
+ lakefile.lean            |  8 ++++++++
+ tv/W1Proofs/Segment.lean | 35 +++++++++++++++++++++++++++++++++++
+ 2 files changed, 43 insertions(+)
+
+diff --git a/lakefile.lean b/lakefile.lean
+index afb3f8a..a5a0c52 100644
+--- a/lakefile.lean
++++ b/lakefile.lean
+@@ -535,3 +535,11 @@ lean_lib «uv2_pair_mb» where
+   weakLeanArgs := #["--threads=1"]
+   roots := #[`uv2_pair_mb.Proofs]
+   globs := #[.submodules `uv2_pair_mb]
++
++-- UniswapV2Pair's backend stages on the calls of mint alone (generated at build time, not
++-- committed: v2-core is GPL-3.0).
++lean_lib «uv2_pair_m» where
++  srcDir := "Certified"
++  roots := #[`uv2_pair_m.Proofs]
++  globs := #[.submodules `uv2_pair_m]
++  weakLeanArgs := #["--threads=1"]
+diff --git a/tv/W1Proofs/Segment.lean b/tv/W1Proofs/Segment.lean
+index 11ec23b..0edf993 100644
+--- a/tv/W1Proofs/Segment.lean
++++ b/tv/W1Proofs/Segment.lean
+@@ -168,6 +168,40 @@ macro_rules
+         | (refine $m ?_; seg_eq)
+         | seg_cut [$ms,*])
+ 
++open Lean Elab Tactic Meta in
++/-- A path whose cases contradict once one is rewritten with another: a cut test of a block a
++branch picks, `(if c then false else true) = true`, is split before `c` itself, and the later
++case `¬c` reaches the goal but not that hypothesis. For each hypothesis with an `if` and each other
++hypothesis, rewrites the first with the second alone and the `if` and `Bool` lemmas, and closes
++the goal when that leaves `False`. No word lemmas and no rewriting of hypotheses into each other
++in general (`simp_all` would rewrite `0` into `s.storage 0` from `0 = s.storage 0`, without
++end), so its cost is bounded by the number of pairs. -/
++elab "seg_case_contra" : tactic => withMainContext do
++  let mut withIte : Array LocalDecl := #[]
++  let mut others : Array LocalDecl := #[]
++  for decl in ← getLCtx do
++    if decl.isImplementationDetail then continue
++    let ty ← instantiateMVars decl.type
++    unless ← Meta.isProp ty do continue
++    if (ty.find? fun e => e.isAppOfArity ``ite 5).isSome then
++      withIte := withIte.push decl
++    others := others.push decl
++  for h in withIte do
++    for g in others do
++      if g.fvarId == h.fvarId then continue
++      let saved ← saveState
++      try
++        let hs := mkIdent `seg_contra_h
++        let hx ← Term.exprToSyntax h.toExpr
++        let gs ← Term.exprToSyntax g.toExpr
++        evalTactic (← `(tactic| have $hs:ident := $hx))
++        evalTactic (← `(tactic| simp only [$gs:term, ite_not, ↓reduceIte, Bool.false_eq_true,
++          Bool.true_eq_false, not_true_eq_false, not_false_eq_true, ne_eq, Decidable.not_not, and_true, true_and, and_self, and_false, false_and, not_and, imp_false] at $hs:ident))
++        if (← getGoals).isEmpty then return
++        saved.restore
++      catch _ => saved.restore
++  throwError "seg_case_contra: no two hypotheses contradict"
++
+ /-- One segment obligation, from configurations of variables: evaluate both segments, split
+ on the conditions they leave, and close each leaf. `unfolds` are the cut tests' definitions
+ and `mks` the relation lemmas. -/
+@@ -185,6 +219,7 @@ macro_rules
+         | (exfalso; bv_omega)
+         | (exfalso; sym_omega)
+         | (exfalso; sym_comm_contra)
++        | (exfalso; seg_case_contra)
+         | fail "sym_seg: the segments end differently on this path, or the procedure cannot tell"))
+ 
+ end SolarTV.Milestone.W1
+-- 
+2.43.0
+
