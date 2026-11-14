@@ -1,0 +1,36 @@
+{
+  "contract": "Main",
+  "name": "c4",
+  "source": "Certified/c4/c4.sol",
+  "bytecode": "346055575f3560e01c806302067e6a036055576024361060ff60043511176055576004355f5460ff8116820160ff81116059579060ff1916179081601e1a1860081b9061ff00191617805f5560ff165f5260205ff35b5f5ffd5b6011602052634e487b715f526024601cfd",
+  "solar": "cb5053ab39adfd59820913b336d346389ce1b8d9",
+  "solidity_lean": "696df0a81602fc416fabec7b892073e15e8920de",
+  "mir_to_evmir": "proved: SolarTV.Milestone.C4.c4_mir_to_evmir",
+  "assembly": "decoded only: c4.Proofs.Assembly (the bytecode decodes to the final EVM IR's instructions; no execution theorem)",
+  "vc": "exported to .lake/certify/c4/VC.lean",
+  "end_to_end": "not proved",
+  "end_to_end_statement": {},
+  "hypotheses": {},
+  "refused": [
+    {
+      "function": "Main.add",
+      "reason": "undeclared symbol: |w@18#bv8|",
+      "status": "refused (unproved)"
+    }
+  ],
+  "vacuous": "not checked",
+  "assembly_statement": null,
+  "assembly_hypotheses": null,
+  "negative_tests": false,
+  "caveats": [
+    "solidity-lean at 696df0a81602fc416fabec7b892073e15e8920de, not the pinned 813949dc3556d3c3f1c129e8254a4eead78bac87",
+    "solar cb5053ab39adfd59820913b336d346389ce1b8d9, not built from this checkout's compiler sources",
+    "assembly decoded, not executed",
+    "1 spec function(s) refused, unproved",
+    "not end to end: solidity-lean states no source or spec theorem for c4",
+    "negative tests skipped"
+  ],
+  "backend": {
+    "theorem": "SolarTV.Milestone.C4.c4_mir_to_evmir"
+  }
+}

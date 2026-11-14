@@ -1,0 +1,38 @@
+{
+  "kind": "compiled",
+  "contract": "SolidCore.Refinement.Solar.AbiHash.contract?",
+  "fuel": "SolidCore.Refinement.Solar.AbiHash.fuel",
+  "valid": "SolidCore.Refinement.Shapes.genericValid (SolidCore.Refinement.Solar.AbiHash.fns) ([])",
+  "gas": "fun _ => 10000000",
+  "env": [],
+  "spec": "none: solar-verify has no specification of abi_hash",
+  "spec_modules": [
+    "SolidCore.Refinement.Solar.AbiHash.Lowering",
+    "Verify.ShapeGeneric"
+  ],
+  "proof_module": "abi_hash.Shape",
+  "proof": "Certified.abi_hash.Shape.published",
+  "generic": {
+    "lowering": "SolidCore.Refinement.Solar.AbiHash.Lowering",
+    "ns": "SolidCore.Refinement.Solar.AbiHash",
+    "style": "core",
+    "check": "check_stage0",
+    "check_value": "checkValue_stage0",
+    "fns": "SolidCore.Refinement.Solar.AbiHash.fns",
+    "storage": "[]"
+  },
+  "excluded": [
+    "deployment: the init code is not covered; the statement is about the runtime bytecode from any storage",
+    "source model trusted: SolidCore's checked contract (the solc AST through scripts/solc_ast_to_lean_source.py and the type checker) is the meaning of the source (frontend trust boundary)",
+    "calls: one frame, caller 0x2000, contract at 0x1000, the block and transaction of Target.message; no external calls, GAS reads or return data in the code (the loop checker's fragment)",
+    "hash: the bytecode's KECCAK256 is EthLib's Keccak-256 (the statement's oracle), the same function SolidCore applies to the ABI encoding; no injectivity or separation is assumed",
+    "gas: the bound is the loop checker's (22100 per item times the final EVM IR's block fuel, plus memory), coarse; below it the bytecode may fail without effects, which equivalence admits",
+    "valid calls: hashPair(uint256,uint256) ABI-encoded with clean argument words, any value below 2^256 (not payable: the value reverts on both sides), any storage; other call data is outside the statement",
+    "spec: none (solar-verify has no specification of abi_hash): equivalence, termination and resources only"
+  ],
+  "source_ast": {
+    "file": "SolidCore/Refinement/Source/AbiHash.lean",
+    "namespace": "SolidCore.Refinement.Source.AbiHash",
+    "contract": "AbiHash"
+  }
+}

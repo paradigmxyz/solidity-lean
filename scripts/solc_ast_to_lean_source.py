@@ -47,7 +47,9 @@ SOURCE_CHILD_FIELDS: set[tuple[str, str]] = {('ArrayTypeName', 'baseType'), ('Ar
 METADATA_CHILD_FIELDS: set[tuple[str, str]] = {('ContractDefinition', 'documentation'), ('EnumDefinition', 'documentation'), ('ErrorDefinition', 'documentation'), ('EventDefinition', 'documentation'), ('FunctionDefinition', 'documentation'), ('ModifierDefinition', 'documentation'), ('StructDefinition', 'documentation'), ('VariableDeclaration', 'documentation')}
 SOURCE_SCALAR_FIELDS: set[tuple[str, str]] = {('Assignment', 'operator'), ('BinaryOperation', 'operator'), ('ContractDefinition', 'abstract'), ('ContractDefinition', 'contractKind'), ('ContractDefinition', 'name'), ('ElementaryTypeName', 'name'), ('ElementaryTypeName', 'stateMutability'), ('EnumDefinition', 'name'), ('EnumValue', 'name'), ('ErrorDefinition', 'name'), ('EventDefinition', 'anonymous'), ('EventDefinition', 'name'), ('FunctionCall', 'names'), ('FunctionCallOptions', 'names'), ('FunctionDefinition', 'kind'), ('FunctionDefinition', 'name'), ('FunctionDefinition', 'stateMutability'), ('FunctionDefinition', 'virtual'), ('FunctionDefinition', 'visibility'), ('FunctionTypeName', 'stateMutability'), ('FunctionTypeName', 'visibility'), ('Identifier', 'name'), ('IdentifierPath', 'name'), ('Literal', 'hexValue'), ('Literal', 'kind'), ('Literal', 'subdenomination'), ('Literal', 'value'), ('MemberAccess', 'memberName'), ('ModifierDefinition', 'name'), ('ModifierDefinition', 'virtual'), ('PragmaDirective', 'literals'), ('StructDefinition', 'name'), ('TryCatchClause', 'errorName'), ('TupleExpression', 'components'), ('TupleExpression', 'isInlineArray'), ('UnaryOperation', 'operator'), ('UnaryOperation', 'prefix'), ('UserDefinedValueTypeDefinition', 'name'), ('UsingForDirective', 'functionList.operator'), ('UsingForDirective', 'global'), ('VariableDeclaration', 'constant'), ('VariableDeclaration', 'indexed'), ('VariableDeclaration', 'mutability'), ('VariableDeclaration', 'name'), ('VariableDeclaration', 'stateVariable'), ('VariableDeclaration', 'storageLocation'), ('VariableDeclaration', 'visibility'), ('VariableDeclarationStatement', 'declarations')}
 ANALYSIS_SCALAR_FIELDS: set[tuple[str, str]] = {('ArrayTypeName', 'typeDescriptions.typeIdentifier'), ('ArrayTypeName', 'typeDescriptions.typeString'), ('Assignment', 'isConstant'), ('Assignment', 'isLValue'), ('Assignment', 'isPure'), ('Assignment', 'lValueRequested'), ('Assignment', 'typeDescriptions.typeIdentifier'), ('Assignment', 'typeDescriptions.typeString'), ('BinaryOperation', 'commonType.typeIdentifier'), ('BinaryOperation', 'commonType.typeString'), ('BinaryOperation', 'isConstant'), ('BinaryOperation', 'isLValue'), ('BinaryOperation', 'isPure'), ('BinaryOperation', 'lValueRequested'), ('BinaryOperation', 'function'), ('BinaryOperation', 'typeDescriptions.typeIdentifier'), ('BinaryOperation', 'typeDescriptions.typeString'), ('Conditional', 'isConstant'), ('Conditional', 'isLValue'), ('Conditional', 'isPure'), ('Conditional', 'lValueRequested'), ('Conditional', 'typeDescriptions.typeIdentifier'), ('Conditional', 'typeDescriptions.typeString'), ('ContractDefinition', 'fullyImplemented'), ('ElementaryTypeName', 'typeDescriptions.typeIdentifier'), ('ElementaryTypeName', 'typeDescriptions.typeString'), ('ElementaryTypeNameExpression', 'argumentTypes.typeIdentifier'), ('ElementaryTypeNameExpression', 'argumentTypes.typeString'), ('ElementaryTypeNameExpression', 'isConstant'), ('ElementaryTypeNameExpression', 'isLValue'), ('ElementaryTypeNameExpression', 'isPure'), ('ElementaryTypeNameExpression', 'lValueRequested'), ('ElementaryTypeNameExpression', 'typeDescriptions.typeIdentifier'), ('ElementaryTypeNameExpression', 'typeDescriptions.typeString'), ('ForStatement', 'isSimpleCounterLoop'), ('FunctionCall', 'argumentTypes.typeIdentifier'), ('FunctionCall', 'argumentTypes.typeString'), ('FunctionCall', 'isConstant'), ('FunctionCall', 'isLValue'), ('FunctionCall', 'isPure'), ('FunctionCall', 'kind'), ('FunctionCall', 'lValueRequested'), ('FunctionCall', 'tryCall'), ('FunctionCall', 'typeDescriptions.typeIdentifier'), ('FunctionCall', 'typeDescriptions.typeString'), ('FunctionCallOptions', 'argumentTypes.typeIdentifier'), ('FunctionCallOptions', 'argumentTypes.typeString'), ('FunctionCallOptions', 'isConstant'), ('FunctionCallOptions', 'isLValue'), ('FunctionCallOptions', 'isPure'), ('FunctionCallOptions', 'lValueRequested'), ('FunctionCallOptions', 'typeDescriptions.typeIdentifier'), ('FunctionCallOptions', 'typeDescriptions.typeString'), ('FunctionDefinition', 'implemented'), ('FunctionTypeName', 'typeDescriptions.typeIdentifier'), ('FunctionTypeName', 'typeDescriptions.typeString'), ('Identifier', 'argumentTypes.typeIdentifier'), ('Identifier', 'argumentTypes.typeString'), ('Identifier', 'typeDescriptions.typeIdentifier'), ('Identifier', 'typeDescriptions.typeString'), ('IndexAccess', 'argumentTypes.typeIdentifier'), ('IndexAccess', 'argumentTypes.typeString'), ('IndexAccess', 'isConstant'), ('IndexAccess', 'isLValue'), ('IndexAccess', 'isPure'), ('IndexAccess', 'lValueRequested'), ('IndexAccess', 'typeDescriptions.typeIdentifier'), ('IndexAccess', 'typeDescriptions.typeString'), ('IndexRangeAccess', 'isConstant'), ('IndexRangeAccess', 'isLValue'), ('IndexRangeAccess', 'isPure'), ('IndexRangeAccess', 'lValueRequested'), ('IndexRangeAccess', 'typeDescriptions.typeIdentifier'), ('IndexRangeAccess', 'typeDescriptions.typeString'), ('Literal', 'isConstant'), ('Literal', 'isLValue'), ('Literal', 'isPure'), ('Literal', 'lValueRequested'), ('Literal', 'typeDescriptions.typeIdentifier'), ('Literal', 'typeDescriptions.typeString'), ('Mapping', 'typeDescriptions.typeIdentifier'), ('Mapping', 'typeDescriptions.typeString'), ('MemberAccess', 'argumentTypes.typeIdentifier'), ('MemberAccess', 'argumentTypes.typeString'), ('MemberAccess', 'isConstant'), ('MemberAccess', 'isLValue'), ('MemberAccess', 'isPure'), ('MemberAccess', 'lValueRequested'), ('MemberAccess', 'typeDescriptions.typeIdentifier'), ('MemberAccess', 'typeDescriptions.typeString'), ('ModifierInvocation', 'kind'), ('NewExpression', 'argumentTypes.typeIdentifier'), ('NewExpression', 'argumentTypes.typeString'), ('NewExpression', 'isConstant'), ('NewExpression', 'isLValue'), ('NewExpression', 'isPure'), ('NewExpression', 'lValueRequested'), ('NewExpression', 'typeDescriptions.typeIdentifier'), ('NewExpression', 'typeDescriptions.typeString'), ('TupleExpression', 'argumentTypes.typeIdentifier'), ('TupleExpression', 'argumentTypes.typeString'), ('TupleExpression', 'isConstant'), ('TupleExpression', 'isLValue'), ('TupleExpression', 'isPure'), ('TupleExpression', 'lValueRequested'), ('TupleExpression', 'typeDescriptions.typeIdentifier'), ('TupleExpression', 'typeDescriptions.typeString'), ('UnaryOperation', 'function'), ('UnaryOperation', 'isConstant'), ('UnaryOperation', 'isLValue'), ('UnaryOperation', 'isPure'), ('UnaryOperation', 'lValueRequested'), ('UnaryOperation', 'typeDescriptions.typeIdentifier'), ('UnaryOperation', 'typeDescriptions.typeString'), ('UserDefinedTypeName', 'typeDescriptions.typeIdentifier'), ('UserDefinedTypeName', 'typeDescriptions.typeString'), ('VariableDeclaration', 'typeDescriptions.typeIdentifier'), ('VariableDeclaration', 'typeDescriptions.typeString')}
-METADATA_SCALAR_FIELDS: set[tuple[str, str]] = {('Mapping', 'keyName'), ('Mapping', 'keyNameLocation'), ('Mapping', 'valueName'), ('Mapping', 'valueNameLocation'), ('ModifierDefinition', 'baseModifiers'), ('ModifierDefinition', 'visibility'), ('SourceUnit', 'absolutePath'), ('SourceUnit', 'license'), ('StructDefinition', 'visibility'), ('StructuredDocumentation', 'text'), ('VariableDeclarationStatement', 'assignments')}
+# Statement-level NatSpec (solar-verify's @custom: specs) is a comment: it does not change
+# the program, so it is metadata like declaration-level documentation.
+METADATA_SCALAR_FIELDS: set[tuple[str, str]] = {('Block', 'documentation'), ('Break', 'documentation'), ('Continue', 'documentation'), ('DoWhileStatement', 'documentation'), ('EmitStatement', 'documentation'), ('ExpressionStatement', 'documentation'), ('ForStatement', 'documentation'), ('IfStatement', 'documentation'), ('PlaceholderStatement', 'documentation'), ('Return', 'documentation'), ('RevertStatement', 'documentation'), ('TryStatement', 'documentation'), ('UncheckedBlock', 'documentation'), ('VariableDeclarationStatement', 'documentation'), ('WhileStatement', 'documentation'), ('Mapping', 'keyName'), ('Mapping', 'keyNameLocation'), ('Mapping', 'valueName'), ('Mapping', 'valueNameLocation'), ('ModifierDefinition', 'baseModifiers'), ('ModifierDefinition', 'visibility'), ('SourceUnit', 'absolutePath'), ('SourceUnit', 'license'), ('StructDefinition', 'visibility'), ('StructuredDocumentation', 'text'), ('VariableDeclarationStatement', 'assignments')}
 METADATA_SCALAR_FIELD_SUFFIXES: set[str] = {'baseFunctions', 'canonicalName', 'contractDependencies', 'errorSelector', 'eventSelector', 'functionReturnParameters', 'functionSelector', 'id', 'linearizedBaseContracts', 'memberLocation', 'nameLocation', 'nameLocations', 'overloadedDeclarations', 'referencedDeclaration', 'scope', 'src', 'usedErrors', 'usedEvents'}
 SOURCE_SCALAR_VALUE_DOMAINS: dict[tuple[str, str], set[Any]] = {
     ('Assignment', 'operator'): {'=', '+=', '-=', '*=', '/=', '%=', '&=', '|=', '^=', '<<=', '>>='},
@@ -2211,6 +2213,29 @@ def render_module(ast: dict[str, Any], source_name: str, contract_name: str, nam
     return "\n".join(lines)
 
 
+def omit_functions(ast: dict[str, Any], names: Sequence[str]) -> dict[str, Any]:
+    """The AST with each named function definition removed; each name must match at least once."""
+    wanted: dict[tuple[str, str], int] = {}
+    for name in names:
+        contract, sep, function = name.partition(".")
+        if not sep or not contract or not function:
+            fail(f"--omit-function {name!r} is not CONTRACT.FUNCTION")
+        wanted[(contract, function)] = 0
+    for node in contract_definitions(ast):
+        kept = []
+        for item in node.get("nodes", []):
+            key = (node.get("name"), item.get("name"))
+            if item.get("nodeType") == "FunctionDefinition" and key in wanted:
+                wanted[key] += 1
+            else:
+                kept.append(item)
+        node["nodes"] = kept
+    missing = [f"{c}.{f}" for (c, f), n in wanted.items() if n == 0]
+    if missing:
+        fail("--omit-function matched no function: " + ", ".join(missing))
+    return ast
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path)
@@ -2221,6 +2246,14 @@ def build_parser() -> argparse.ArgumentParser:
         default="SolidCore.Solidity.SolcAstImport.Generated",
     )
     parser.add_argument("--body-only", action="store_true")
+    parser.add_argument(
+        "--omit-function",
+        action="append",
+        default=[],
+        metavar="CONTRACT.FUNCTION",
+        help="leave the named function out of the translation (every overload of it); the result "
+        "is a contract without it, so nothing proved of the result covers that function",
+    )
     parser.add_argument(
         "--audit-coverage",
         action="store_true",
@@ -2244,6 +2277,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         solc = resolve_executable(args.solc)
         source = args.source.resolve()
         source_name, ast = run_solc_ast(solc, source)
+        if args.omit_function:
+            ast = omit_functions(ast, args.omit_function)
         if args.audit_coverage:
             print(json.dumps(frontend_coverage(ast), indent=2, sort_keys=True))
             return 0

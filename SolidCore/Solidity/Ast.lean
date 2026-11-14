@@ -95,7 +95,148 @@ inductive Ty where
       List Ty -> List (Option DataLocation) ->
       List Ty -> List (Option DataLocation) ->
       StateMutability -> Visibility -> Ty
-  deriving Repr, BEq
+  deriving Repr
+
+mutual
+
+/-- Structural equality of types, field by field as `deriving BEq` compares them.
+Written out because the derived instance of a nested inductive is a `partial` def,
+which the kernel cannot unfold. -/
+def Ty.beq : Ty -> Ty -> Bool
+  | .bool, .bool => true
+  | .address a, .address b => a == b
+  | .uint a, .uint b => a == b
+  | .int a, .int b => a == b
+  | .fixed a b, .fixed c d => a == c && b == d
+  | .ufixed a b, .ufixed c d => a == c && b == d
+  | .bytesN a, .bytesN b => a == b
+  | .bytes, .bytes => true
+  | .string, .string => true
+  | .fixedBytes a, .fixedBytes b => a == b
+  | .array a n, .array b m => Ty.beq a b && n == m
+  | .mapping a b, .mapping c d => Ty.beq a c && Ty.beq b d
+  | .tuple as, .tuple bs => Ty.beqList as bs
+  | .struct p as, .struct q bs => p == q && Ty.beqList as bs
+  | .user p, .user q => p == q
+  | .enum p n, .enum q m => p == q && n == m
+  | .functionWithLocations a b c d e f, .functionWithLocations a' b' c' d' e' f' =>
+      Ty.beqList a a' && b == b' && Ty.beqList c c' && d == d' && e == e' && f == f'
+  | _, _ => false
+
+/-- `Ty.beq` on lists, as `List`'s `BEq` compares them. -/
+def Ty.beqList : List Ty -> List Ty -> Bool
+  | [], [] => true
+  | a :: as, b :: bs => Ty.beq a b && Ty.beqList as bs
+  | _, _ => false
+
+end
+
+instance : BEq Ty := ⟨Ty.beq⟩
+
+/-! ### A flat print of types
+
+`Ty.reprFlat` prints a type as its derived `Repr` instance does when the print fits on
+one line, by structural recursion, so the kernel can evaluate it (the derived instance
+goes through `Std.Format.pretty`, a `partial` def). -/
+
+/-- The print of a constructor applied to the prints of its arguments, in parentheses in
+argument position (even with no arguments), as derived `Repr` instances print one on a
+single line. -/
+def Ty.reprApp (ctor : String) (args : List String) (arg : Bool) : String :=
+  let s := ctor ++ String.join (args.map (" " ++ ·))
+  if arg then "(" ++ s ++ ")" else s
+
+/-- A list's elements, as `List.repr` prints them on one line. -/
+def Ty.reprBrackets (items : List String) : String :=
+  "[" ++ ", ".intercalate items ++ "]"
+
+/-- A path, as its derived `Repr` prints it on one line. -/
+def Ty.reprPath (p : Path) : String :=
+  "{ segments := " ++ Ty.reprBrackets (p.segments.map String.quote) ++ " }"
+
+/-- An optional data location, as `Option`'s `Repr` prints it on one line. -/
+def Ty.reprLocation : Option DataLocation -> String
+  | none => "none"
+  | some .storage => "some (SolidCore.Solidity.DataLocation.storage)"
+  | some .memory => "some (SolidCore.Solidity.DataLocation.memory)"
+  | some .calldata => "some (SolidCore.Solidity.DataLocation.calldata)"
+
+/-- A state mutability, as its derived `Repr` prints it. -/
+def Ty.reprMutability : StateMutability -> String
+  | .pure => "SolidCore.Solidity.StateMutability.pure"
+  | .view => "SolidCore.Solidity.StateMutability.view"
+  | .nonpayable => "SolidCore.Solidity.StateMutability.nonpayable"
+  | .payable => "SolidCore.Solidity.StateMutability.payable"
+
+/-- A visibility, as its derived `Repr` prints it. -/
+def Ty.reprVisibility : Visibility -> String
+  | .public_ => "SolidCore.Solidity.Visibility.public_"
+  | .private_ => "SolidCore.Solidity.Visibility.private_"
+  | .internal_ => "SolidCore.Solidity.Visibility.internal_"
+  | .external_ => "SolidCore.Solidity.Visibility.external_"
+
+mutual
+
+/-- A type, as its derived `Repr` prints it on one line; `arg` is argument position. -/
+def Ty.reprFlat : Ty -> Bool -> String
+  | .bool, arg => Ty.reprApp "SolidCore.Solidity.Ty.bool" [] arg
+  | .address b, arg => Ty.reprApp "SolidCore.Solidity.Ty.address" [toString b] arg
+  | .uint n, arg => Ty.reprApp "SolidCore.Solidity.Ty.uint" [toString n] arg
+  | .int n, arg => Ty.reprApp "SolidCore.Solidity.Ty.int" [toString n] arg
+  | .fixed m n, arg => Ty.reprApp "SolidCore.Solidity.Ty.fixed" [toString m, toString n] arg
+  | .ufixed m n, arg => Ty.reprApp "SolidCore.Solidity.Ty.ufixed" [toString m, toString n] arg
+  | .bytesN n, arg => Ty.reprApp "SolidCore.Solidity.Ty.bytesN" [toString n] arg
+  | .bytes, arg => Ty.reprApp "SolidCore.Solidity.Ty.bytes" [] arg
+  | .string, arg => Ty.reprApp "SolidCore.Solidity.Ty.string" [] arg
+  | .fixedBytes n, arg => Ty.reprApp "SolidCore.Solidity.Ty.fixedBytes" [toString n] arg
+  | .array t n, arg =>
+      Ty.reprApp "SolidCore.Solidity.Ty.array"
+        [Ty.reprFlat t true, match n with | none => "none" | some n => "(some " ++ toString n ++ ")"] arg
+  | .mapping k v, arg =>
+      Ty.reprApp "SolidCore.Solidity.Ty.mapping" [Ty.reprFlat k true, Ty.reprFlat v true] arg
+  | .tuple ts, arg => Ty.reprApp "SolidCore.Solidity.Ty.tuple" [Ty.reprFlatList ts] arg
+  | .struct p ts, arg =>
+      Ty.reprApp "SolidCore.Solidity.Ty.struct" [Ty.reprPath p, Ty.reprFlatList ts] arg
+  | .user p, arg => Ty.reprApp "SolidCore.Solidity.Ty.user" [Ty.reprPath p] arg
+  | .enum p n, arg => Ty.reprApp "SolidCore.Solidity.Ty.enum" [Ty.reprPath p, toString n] arg
+  | .functionWithLocations ps pl rs rl m v, arg =>
+      Ty.reprApp "SolidCore.Solidity.Ty.functionWithLocations"
+        [Ty.reprFlatList ps, Ty.reprBrackets (pl.map Ty.reprLocation), Ty.reprFlatList rs,
+          Ty.reprBrackets (rl.map Ty.reprLocation), "(" ++ Ty.reprMutability m ++ ")", "(" ++ Ty.reprVisibility v ++ ")"] arg
+
+/-- A list of types, as `List.repr` prints it on one line. -/
+def Ty.reprFlatList (ts : List Ty) : String :=
+  "[" ++ Ty.reprFlatItems ts ++ "]"
+
+/-- The elements of a list of types, separated by `, `. -/
+def Ty.reprFlatItems : List Ty -> String
+  | [] => ""
+  | [t] => Ty.reprFlat t false
+  | t :: ts => Ty.reprFlat t false ++ ", " ++ Ty.reprFlatItems ts
+
+end
+
+/-- `toString (repr ts)`, by the flat print when it is short enough to fit on one line
+(`Std.Format.defWidth` is 120 columns) and so is the derived print itself: up to 120
+characters. The kernel cannot evaluate the longer case (`Std.Format`'s printer is
+`partial`), so the translation's keys use `Ty.reprListString` instead. -/
+def Ty.reprListStringDerived (ts : List Ty) : String :=
+  let s := Ty.reprFlatList ts
+  if s.length ≤ 120 then s else toString (repr ts)
+
+/-- A structural identity of a list of types, for the keys of internal functions and of
+external call kinds: the flat print `Ty.reprFlatList`, which the kernel evaluates at any
+length. It is `Ty.reprListStringDerived` whenever that is the flat print, so every key of
+up to 120 characters of parameter types is unchanged (`Ty.reprListString_eq_derived`);
+longer lists of parameter types (such as a seven-argument `permit`) get their one-line
+print instead of the derived print's line breaks. -/
+def Ty.reprListString (ts : List Ty) : String :=
+  Ty.reprFlatList ts
+
+theorem Ty.reprListString_eq_derived (ts : List Ty)
+    (h : (Ty.reprFlatList ts).length ≤ 120) :
+    Ty.reprListString ts = Ty.reprListStringDerived ts := by
+  simp [Ty.reprListString, Ty.reprListStringDerived, h]
 
 def Ty.function (params returns : List Ty)
     (mutability : StateMutability) (visibility : Visibility) : Ty :=

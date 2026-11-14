@@ -1,0 +1,89 @@
+{
+  "contract": "Events",
+  "name": "events",
+  "source": "Certified/events/events.sol",
+  "bytecode": "346053575f3560e01c80630cf79e0a03605357604436106053576024355f52600435337f7fa9aafeb8bb803d77de5d84bc2f2edbd842ca91b20cd5020aa21dfe26ab0be960205fa35f1960601c3311605757005b5f5ffd5b690417000000000000000260201b335f1960601c9160205260405260605263ed572b275f526064601cfd",
+  "solar": "cb5053ab39adfd59820913b336d346389ce1b8d9",
+  "solidity_lean": "11fb9334142fbb8ded0b1d699015a978cdc3ed52",
+  "mir_to_evmir": "proved: SolarTV.Milestone.Events.events_mir_to_evmir",
+  "assembly": "decoded only: events.Proofs.Assembly (the bytecode decodes to the final EVM IR's instructions; no execution theorem)",
+  "vc": "exported to .lake/certify/events/VC.lean",
+  "end_to_end": "not proved",
+  "statuses": {
+    "equivalence": "proved (published statement, Shapes.Equiv): at every gas below 2^256 every result of the exact bytecode on a valid call is the source's, or a failure that changes nothing (out of gas or a revert, whatever its data); such a failure only below the gas bound, and from the bound on exactly the source's, revert data included (Shapes.EquivG, a field of Shapes.Compiled)",
+    "termination": "proved (published statement, Shapes.Terminates): the source ends on every valid call with any status (no specification declares the allowed ones); the bytecode too, at gas from the bound on",
+    "spec": "none: solar-verify has no specification of events",
+    "resources": "proved (published statement, Shapes.Resources): from the gas bound on, below 2^64, the bytecode gives the source's result",
+    "assumptions": "none beyond the statement's scope",
+    "excluded": [
+      "deployment: the init code is not covered; the statement is about the runtime bytecode from any storage that writes the slots the constructor writes",
+      "source model trusted: SolidCore's checked contract (the solc AST through scripts/solc_ast_to_lean_source.py and the type checker) is the meaning of the source (frontend trust boundary)",
+      "calls: one frame, caller 0x2000, contract at 0x1000, the block and transaction of Target.message; no external calls, GAS reads or return data in the code (the loop checker's fragment)",
+      "gas: the bound is the loop checker's (22100 per item times the final EVM IR's block fuel, plus memory), coarse; below it the bytecode may fail without effects, which equivalence admits",
+      "valid calls: the functions of Events.fns ABI-encoded with clean argument words, any value below 2^256, any storage; other call data is outside the statement",
+      "spec: none (solar-verify has no specification of events): equivalence, termination and resources only"
+    ],
+    "strongest": false
+  },
+  "final": {
+    "module": "events.Final",
+    "theorem": "Certified.events.Final.final",
+    "kind": "compiled",
+    "statement": "code.data.toList.map (·.toNat) = runtimeBytes ∧ (∃ c, SolidCore.Refinement.Solar.Events.contract? = .ok c ∧ Shapes.Compiled (solidCore (SolidCore.Refinement.Solar.Events.fuel)) c code (SolidCore.Refinement.Shapes.genericValid (SolidCore.Refinement.Solar.Events.fns) ([])) (fun _ => 2386812))",
+    "assumptions": [],
+    "excluded": [
+      "deployment: the init code is not covered; the statement is about the runtime bytecode from any storage that writes the slots the constructor writes",
+      "source model trusted: SolidCore's checked contract (the solc AST through scripts/solc_ast_to_lean_source.py and the type checker) is the meaning of the source (frontend trust boundary)",
+      "calls: one frame, caller 0x2000, contract at 0x1000, the block and transaction of Target.message; no external calls, GAS reads or return data in the code (the loop checker's fragment)",
+      "gas: the bound is the loop checker's (22100 per item times the final EVM IR's block fuel, plus memory), coarse; below it the bytecode may fail without effects, which equivalence admits",
+      "valid calls: the functions of Events.fns ABI-encoded with clean argument words, any value below 2^256, any storage; other call data is outside the statement",
+      "spec: none (solar-verify has no specification of events): equivalence, termination and resources only"
+    ],
+    "spec": "none: solar-verify has no specification of events",
+    "statuses": {
+      "equivalence": "proved (published statement, Shapes.Equiv): at every gas below 2^256 every result of the exact bytecode on a valid call is the source's, or a failure that changes nothing (out of gas or a revert, whatever its data); such a failure only below the gas bound, and from the bound on exactly the source's, revert data included (Shapes.EquivG, a field of Shapes.Compiled)",
+      "termination": "proved (published statement, Shapes.Terminates): the source ends on every valid call with any status (no specification declares the allowed ones); the bytecode too, at gas from the bound on",
+      "spec": "none: solar-verify has no specification of events",
+      "resources": "proved (published statement, Shapes.Resources): from the gas bound on, below 2^64, the bytecode gives the source's result"
+    }
+  },
+  "end_to_end_statement": {},
+  "binding": {},
+  "hypotheses": {},
+  "refused": [],
+  "vacuous": "not checked",
+  "assembly_statement": null,
+  "assembly_hypotheses": null,
+  "negative_tests": false,
+  "caveats": [
+    "solidity-lean at 11fb9334142fbb8ded0b1d699015a978cdc3ed52, not the pinned 95ebfd5f178b93b42d498a124104fc92bfc6b74f",
+    "solar cb5053ab39adfd59820913b336d346389ce1b8d9, not built from this checkout's compiler sources",
+    "assembly decoded, not executed",
+    "not end to end: solidity-lean states no source or spec theorem for events",
+    "negative tests skipped"
+  ],
+  "backend": {
+    "theorem": {
+      "module": "events.Final",
+      "theorem": "Certified.events.Final.final",
+      "kind": "compiled",
+      "statement": "code.data.toList.map (·.toNat) = runtimeBytes ∧ (∃ c, SolidCore.Refinement.Solar.Events.contract? = .ok c ∧ Shapes.Compiled (solidCore (SolidCore.Refinement.Solar.Events.fuel)) c code (SolidCore.Refinement.Shapes.genericValid (SolidCore.Refinement.Solar.Events.fns) ([])) (fun _ => 2386812))",
+      "assumptions": [],
+      "excluded": [
+        "deployment: the init code is not covered; the statement is about the runtime bytecode from any storage that writes the slots the constructor writes",
+        "source model trusted: SolidCore's checked contract (the solc AST through scripts/solc_ast_to_lean_source.py and the type checker) is the meaning of the source (frontend trust boundary)",
+        "calls: one frame, caller 0x2000, contract at 0x1000, the block and transaction of Target.message; no external calls, GAS reads or return data in the code (the loop checker's fragment)",
+        "gas: the bound is the loop checker's (22100 per item times the final EVM IR's block fuel, plus memory), coarse; below it the bytecode may fail without effects, which equivalence admits",
+        "valid calls: the functions of Events.fns ABI-encoded with clean argument words, any value below 2^256, any storage; other call data is outside the statement",
+        "spec: none (solar-verify has no specification of events): equivalence, termination and resources only"
+      ],
+      "spec": "none: solar-verify has no specification of events",
+      "statuses": {
+        "equivalence": "proved (published statement, Shapes.Equiv): at every gas below 2^256 every result of the exact bytecode on a valid call is the source's, or a failure that changes nothing (out of gas or a revert, whatever its data); such a failure only below the gas bound, and from the bound on exactly the source's, revert data included (Shapes.EquivG, a field of Shapes.Compiled)",
+        "termination": "proved (published statement, Shapes.Terminates): the source ends on every valid call with any status (no specification declares the allowed ones); the bytecode too, at gas from the bound on",
+        "spec": "none: solar-verify has no specification of events",
+        "resources": "proved (published statement, Shapes.Resources): from the gas bound on, below 2^64, the bytecode gives the source's result"
+      }
+    }
+  }
+}

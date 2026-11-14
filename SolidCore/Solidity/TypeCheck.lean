@@ -10185,7 +10185,7 @@ def constantDepStep (adj : List (Name × List Name))
 
 /-- Whether `start` can reach itself through the `constant`-dependency graph
 `adj` (i.e. lies on a cycle). Fuel-bounded by the node count. -/
-partial def constantReachesSelf (adj : List (Name × List Name))
+def constantReachesSelf (adj : List (Name × List Name))
     (start : Name) : Bool :=
   let rec go (fuel : Nat) (reached : List Name) : Bool :=
     if reached.contains start then true
@@ -11569,6 +11569,35 @@ def checkNoInheritedSiblingIdentifierClashes
         (TypeError.invalidContractHeader
           "inherited identifier already declared")
       checkNoInheritedSiblingIdentifierClashes funcNames eventNames rest
+
+-- GETTER-IMPLEMENTS (solc: a public state variable may implement an external
+-- function of a base it inherits, e.g. `string public constant name` for an
+-- interface's `function name() external`; the two are one member of the
+-- contract's scope, not a clash). The inherited function names that some
+-- inherited contract's public state variable implements: every inherited
+-- contract that declares a function of that name directly is one of that
+-- contract's own bases. The own-contract override checks already ran on that
+-- contract, so only the derived contract's sibling clash check skips them; a
+-- function of that name from any other base still clashes.
+def ContractDecls.getterImplementedFunctionNames
+    (allContracts inherited : List Solidity.ContractDecl) : List Name :=
+  let declarers (n : Name) : List Name :=
+    (inherited.filter fun d =>
+      (ContractDecl.directFunctionSigs d).any fun s => s.name == n).map
+        (·.name)
+  inherited.flatMap fun d =>
+    match Solidity.Executable.ContractDecl.dispatchOrder? allContracts d with
+    | none => []
+    | some order =>
+        let bases := (order.drop 1).map (·.name)
+        (ContractDecl.visibleStateVars d).filterMap fun v =>
+          match v.visibility with
+          | some Solidity.Visibility.public_ =>
+              let ds := declarers v.name
+              if !ds.isEmpty && ds.all (fun b => bases.contains b) then
+                some v.name
+              else none
+          | _ => none
 
 structure OverrideMember where
   origin : Path
@@ -15261,7 +15290,12 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
   -- may not coincide with an event name. Names come from `ancestorPaths` /
   -- `inheritedContracts` (the C3 linearization, each base once), so a single
   -- declaration reached via multiple diamond paths appears once and is safe.
-  let inheritedClashFuncNames := inheritedFunctionSigs.map (·.name)
+  let getterImplementedNames :=
+    ContractDecls.getterImplementedFunctionNames allContracts
+      inheritedContracts
+  let inheritedClashFuncNames :=
+    (inheritedFunctionSigs.map (·.name)).filter fun n =>
+      !Solidity.Executable.nameIn n getterImplementedNames
   let inheritedNonOverloadableNames :=
     inheritedStateVarNames ++ inheritedNonEventTypeNames
   checkNoInheritedSiblingIdentifierClashes

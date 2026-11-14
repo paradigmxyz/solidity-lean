@@ -422,6 +422,29 @@ def decodeBytesTailWrap? (argData : Bytes) (base relSlot : Nat) :
       else
         Except.ok (Value.bytes (readBytesZeroPad argData addr2 length))
 
+/-- Decode `remaining` values in a row with `decode`, starting at head index `index`;
+each value after the first starts `step` head words after the one before. `step` is
+read after each value, so a value's own error comes first. -/
+def decodeValueSeq? (decode : Nat -> Except RevertData Value) (step : Option Nat) :
+    Nat -> Nat -> Except RevertData (List Value)
+  | 0, _ => Except.ok []
+  | remaining + 1, index => do
+      let value ← decode index
+      let width ← abiArgOpt step
+      let rest ← decodeValueSeq? decode step remaining (index + width)
+      Except.ok (value :: rest)
+
+/-- Decode one value of each type in `tys` with `decode`, starting at head index
+`index` and advancing by each type's head words, read after its value. -/
+def decodeValueList? (decode : Ty -> Nat -> Except RevertData Value) :
+    List Ty -> Nat -> Except RevertData (List Value)
+  | [], _ => Except.ok []
+  | ty :: tys, index => do
+      let value ← decode ty index
+      let width ← abiArgOpt (Ty.abiHeadWords? ty)
+      let rest ← decodeValueList? decode tys (index + width)
+      Except.ok (value :: rest)
+
 -- Returns `Except RevertData Value`: `Except.error RevertData.empty` is solc's
 -- empty `revert(0, 0)` (bounds / dirty-value / enum-range failure), while
 -- `Except.error RevertData.memoryAllocationTooLarge` is Panic(0x41), raised only
@@ -506,11 +529,8 @@ def decodeValueAtWithFuel? : Nat -> Bool -> Bytes -> Nat -> Ty -> Except RevertD
       -- termination measure is preserved. `lazy` is threaded unchanged into the
       -- element decode, so an eager array of eager reference elements fires each
       -- element's own Panic(0x41) guard.
-      let rec decodeDynamicArrayValues? :
-          Nat -> Nat -> Except RevertData (List Value)
-        | 0, _ => Except.ok []
-        | remaining + 1, index => do
-            let value ←
+      let decodeDynamicArrayValues? :=
+        decodeValueSeq? (fun index =>
               match
                 decodeValueAtWithFuel? fuel lazy
                   (argData.drop (offset + wordBytes)) index elementTy
@@ -553,9 +573,7 @@ def decodeValueAtWithFuel? : Nat -> Bool -> Bytes -> Nat -> Ty -> Except RevertD
                     | _ => Except.ok (Value.calldataDeferredInvalid elementTy)
                   else
                     Except.error e
-            let step ← abiArgOpt (Ty.abiHeadWords? elementTy)
-            let rest ← decodeDynamicArrayValues? remaining (index + step)
-            Except.ok (value :: rest)
+          ) (Ty.abiHeadWords? elementTy)
       let step ← abiArgOpt (Ty.abiHeadWords? elementTy)
       -- Head-area presence check (solc `abi_decode_available_length_*_array`:
       -- `srcEnd := add(arrayPos, mul(length, headStride)); if gt(srcEnd, end)`):
@@ -581,11 +599,8 @@ def decodeValueAtWithFuel? : Nat -> Bool -> Bytes -> Nat -> Ty -> Except RevertD
       -- constant (`size`), never attacker-controlled, so no length-panic arises
       -- here; an oversized inner *dynamic* element fires its own guard via the
       -- threaded (`lazy = false`) element decode below.
-      let rec decodeArrayValues? (arrayData : Bytes) :
-          Nat -> Nat -> Except RevertData (List Value)
-        | 0, _ => Except.ok []
-        | remaining + 1, index => do
-            let value ←
+      let decodeArrayValues? := fun (arrayData : Bytes) =>
+        decodeValueSeq? (fun index =>
               match decodeValueAtWithFuel? fuel lazy arrayData index elementTy with
               | Except.ok v => Except.ok v
               | Except.error e =>
@@ -597,9 +612,7 @@ def decodeValueAtWithFuel? : Nat -> Bool -> Bytes -> Nat -> Ty -> Except RevertD
                     Except.ok (Value.calldataDeferredInvalid elementTy)
                   else
                     Except.error e
-            let step ← abiArgOpt (Ty.abiHeadWords? elementTy)
-            let rest ← decodeArrayValues? arrayData remaining (index + step)
-            Except.ok (value :: rest)
+          ) (Ty.abiHeadWords? elementTy)
       if Ty.isDynamicAbi elementTy then
         do
         let offset ← abiArgOpt (readWord? argData (wordBytes * headIndex))
@@ -630,11 +643,8 @@ def decodeValueAtWithFuel? : Nat -> Bool -> Bytes -> Nat -> Ty -> Except RevertD
           let values ← decodeArrayValues? argData size headIndex
           Except.ok (Value.fixedArray values)
   | fuel + 1, lazy, argData, headIndex, Ty.tuple elementTys =>
-      let rec decodeTupleValues? (tupleData : Bytes) :
-          List Ty -> Nat -> Except RevertData (List Value)
-        | [], _ => Except.ok []
-        | ty :: tys, index => do
-            let value ←
+      let decodeTupleValues? := fun (tupleData : Bytes) =>
+        decodeValueList? (fun ty index =>
               match decodeValueAtWithFuel? fuel lazy tupleData index ty with
               | Except.ok v => Except.ok v
               | Except.error e =>
@@ -648,9 +658,7 @@ def decodeValueAtWithFuel? : Nat -> Bool -> Bytes -> Nat -> Ty -> Except RevertD
                     Except.ok (Value.calldataDeferredInvalid ty)
                   else
                     Except.error e
-            let step ← abiArgOpt (Ty.abiHeadWords? ty)
-            let rest ← decodeTupleValues? tupleData tys (index + step)
-            Except.ok (value :: rest)
+          )
       if Ty.listHasDynamicAbi elementTys then
         do
         let offset ← abiArgOpt (readWord? argData (wordBytes * headIndex))
@@ -820,7 +828,7 @@ def encodeReturnOutputForDispatch? (dispatchKind : AbiDispatchKind)
   match dispatchKind, returns, values with
   | AbiDispatchKind.fallback, [], [] => some []
   | AbiDispatchKind.fallback,
-      [{ ty := Ty.bytesCalldata, name := _ }], [Value.bytes bytes] =>
+      [{ ty := Ty.bytesCalldata, name := _, .. }], [Value.bytes bytes] =>
       some (normalizeBytes bytes)
   | _, _, _ => encodeValues? (returns.map BindingDecl.ty) values
 
@@ -864,7 +872,7 @@ def FunctionDef.encodeFallbackOutput? (function : FunctionDef)
     (values : List Value) : Option Bytes :=
   match function.returns, values with
   | [], [] => some []
-  | [{ ty := Ty.bytesCalldata, name := _ }], [Value.bytes bytes] =>
+  | [{ ty := Ty.bytesCalldata, name := _, .. }], [Value.bytes bytes] =>
       some (normalizeBytes bytes)
   | _, _ => encodeValues? (function.returns.map BindingDecl.ty) values
 

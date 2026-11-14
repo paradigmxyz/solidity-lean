@@ -1,0 +1,18 @@
+id	role	answer	backend	status	seconds	peak_mb	axioms
+Vault.constructor#1	obligation	unsat	smt	proved	2.6	1759	propext Classical.choice Quot.sound
+Vault.constructor#2	obligation	unsat	smt	proved	3.5	1784	propext Classical.choice Quot.sound
+Vault.deposit#0	side	unsat	smt	proved	3.7	1775	propext Classical.choice Quot.sound
+Vault.deposit#2	obligation	unsat	smt	proved	6.4	1841	propext Classical.choice Quot.sound
+Vault.deposit#3	obligation	unsat	smt	proved	3.3	1804	propext Classical.choice Quot.sound
+Vault.deposit#4	obligation	unsat	smt	proved	3.7	1840	propext Classical.choice Quot.sound
+Vault.deposit#5	obligation	unsat	smt	proved	5.1	1843	propext Classical.choice Quot.sound
+Vault.deposit#6	side	unsat	smt	proved	3.1	1769	propext Classical.choice Quot.sound
+Vault.deposit#7	obligation	unsat	smt	proved	4.2	1832	propext Classical.choice Quot.sound
+Vault.withdraw#0	obligation	unsat	smt	proved	3.5	1832	propext Classical.choice Quot.sound
+Vault.withdraw#1	side	unsat	smt	proved	2.9	1796	propext Classical.choice Quot.sound
+Vault.withdraw#3	obligation	unsat	smt	proved	4.0	1803	propext Classical.choice Quot.sound
+Vault.withdraw#4	obligation	unsat	smt	proved	5.6	1843	propext Classical.choice Quot.sound
+Vault.withdraw#5	obligation	unsat	smt	proved	4.7	1844	propext Classical.choice Quot.sound
+Vault.withdraw#6	obligation	unsat	smt	proved	5.3	1824	propext Classical.choice Quot.sound
+Vault.withdraw#7	side	unsat	smt	proved	3.5	1791	propext Classical.choice Quot.sound
+Vault.withdraw#8	obligation	unsat	smt	proved	3.8	1837	propext Classical.choice Quot.sound

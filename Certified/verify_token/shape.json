@@ -1,0 +1,78 @@
+{
+  "kind": "certified",
+  "contract": "SolidCore.Verify.VC.Token.contract?",
+  "fuel": "SolidCore.Verify.VC.Token.fuel",
+  "valid": "SolidCore.Refinement.Shapes.genericValid0 ([SolidCore.Verify.VC.Token.fnTransfer, SolidCore.Verify.VC.Token.fnBurn, SolidCore.Refinement.Solar.VerifyTokenSource.fnMint, SolidCore.Refinement.Solar.VerifyTokenSource.fnTotalSupply, SolidCore.Refinement.Solar.VerifyTokenSource.fnOwner]) ([(2, 4096)])",
+  "allowed_export": true,
+  "spec_export": {
+    "ctx": "SolidCore.Refinement.Shapes.ctxOfCall",
+    "step": "SolidCore.Refinement.Shapes.idStep"
+  },
+  "nonvacuous": "Certified.verify_token.Shape.nonvacuous",
+  "gas": "fun _ => 42697212",
+  "env": [
+    "SolidCore.Spec.MapSlotsSeparated [0]"
+  ],
+  "spec": "solar-verify's export of verify_token.sol in this run (Certified.verify_token.gen.Token.Spec.Token): mint, transfer and burn with their ensures (balances, totalSupply, frame of every other balance, transfer's return) and succeeds-if conditions (msg.value == 0; mint: the sender is the owner and neither sum overflows; transfer: the sender's balance covers the amount and the recipient's does not overflow; burn: the balance and the supply cover the amount). The postcondition (bundlePost) and the allowed statuses (bundleAllowed) are both read off that export",
+  "spec_modules": [
+    "Contracts.Token.Lowering",
+    "Verify.ShapeGeneric",
+    "Verify.Spec.TreeMap",
+    "Verify.ShapeSpecExport"
+  ],
+  "proof_module": "verify_token.Shape",
+  "proof": "Certified.verify_token.Shape.published",
+  "generic": {
+    "lowering": "Contracts.Token.Lowering",
+    "imports": [],
+    "ns": "SolidCore.Refinement.Solar.VerifyTokenSource",
+    "source_ns": "SolidCore.Verify.VC.Token",
+    "style": "checked",
+    "contract_ok": "SolidCore.Refinement.Solar.VerifyTokenSource.contract_ok",
+    "checks": [
+      [
+        "transfer",
+        "SolidCore.Refinement.Solar.VerifyTokenSource.check_transfer_eq"
+      ],
+      [
+        "burn",
+        "SolidCore.Refinement.Solar.VerifyTokenSource.check_burn_eq"
+      ],
+      [
+        "mint",
+        "SolidCore.Refinement.Solar.VerifyTokenSource.check_mint_eq"
+      ],
+      [
+        "totalSupply",
+        "SolidCore.Refinement.Solar.VerifyTokenSource.check_totalSupply_eq"
+      ],
+      [
+        "owner",
+        "SolidCore.Refinement.Solar.VerifyTokenSource.check_owner_eq"
+      ]
+    ],
+    "fns": "[SolidCore.Verify.VC.Token.fnTransfer, SolidCore.Verify.VC.Token.fnBurn, SolidCore.Refinement.Solar.VerifyTokenSource.fnMint, SolidCore.Refinement.Solar.VerifyTokenSource.fnTotalSupply, SolidCore.Refinement.Solar.VerifyTokenSource.fnOwner]",
+    "storage": "[(2, 4096)]",
+    "spec_connect": {
+      "witness": "transfer",
+      "ghost_fixed": true,
+      "core": "Contracts.Token.VC.Burn",
+      "ns": "SolidCore.Verify.VC.Token"
+    }
+  },
+  "excluded": [
+    "deployment: the init code is not covered; the statement is about the runtime bytecode from any storage that writes the slots the constructor writes",
+    "source model trusted: SolidCore's checked contract (the solc AST through scripts/solc_ast_to_lean_source.py and the type checker) is the meaning of the source (frontend trust boundary)",
+    "calls: one frame, caller 0x2000, contract at 0x1000, the block and transaction of Target.message; no external calls, GAS reads or return data in the code (the loop checker's fragment)",
+    "gas: the bound is the loop checker's (22100 per item times the final EVM IR's block fuel, plus memory), coarse; below it the bytecode may fail without effects, which equivalence admits",
+    "valid calls: transfer, burn, mint, totalSupply and owner ABI-encoded with clean argument words, no value, from any storage that writes slot 2 (owner); balanceOf (a public mapping getter outside the generic stage's fragment) and calls with value are outside the statement",
+    "spec: solar-verify's exported spec of mint, transfer and burn, with their succeeds-if conditions; totalSupply and owner are public getters with no spec; the ghost sum of balances is not stated (spec_connect proves ghost-free specs only)",
+    "assumption SolidCore.Spec.MapSlotsSeparated [0] (keccak256 as an uninterpreted function: injective on the preimages of balanceOf[a], with images at least 2^128, apart from the scalar slots), a named premise of the statement, not proved; it stands in for the KeccakModel premise and replaces HashInj",
+    "sender: every call is from 0x2000 (the interface's one frame); the owner is whatever slot 2 holds, any value"
+  ],
+  "source_ast": {
+    "file": "Contracts/Token/VC/Source.lean",
+    "namespace": "SolidCore.Verify.VC.Source.Token",
+    "contract": "Token"
+  }
+}
