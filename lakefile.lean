@@ -382,6 +382,18 @@ lean_lib ContractsUniswapV2ERC20Spec where
     .one `Contracts.UniswapV2.ERC20.Connect, .one `Contracts.UniswapV2.ERC20.SpecTreeKeccak,
     .one `Contracts.UniswapV2.ERC20.Meets, .one `Contracts.UniswapV2.ERC20.SpecTree]
 
+-- UniswapV2ERC20's approve and transferFrom (Contracts/UniswapV2/ERC20/Nested): the generic source
+-- stage's trees and check against solar's stage0, slot-level sequential posts, and key-level
+-- corollaries under keccak256 separation scoped to each call's footprint
+-- (Verify/Spec/HashScopeNested.lean). Generated first, not committed (GPL-3.0 port): stage0 by
+-- scripts/verify/uniswap_v2_erc20_stages.sh (lib uv2_erc20), its mutants by
+-- scripts/verify/uniswap_v2_stage0_mutants.py, then, after
+-- lake build Contracts.UniswapV2.ERC20.Core Contracts.UniswapV2.ERC20.SpecTreeKeccak, the trees by
+-- scripts/verify/uniswap_v2_trees.py. Every module is checked within 6 GB.
+lean_lib ContractsUniswapV2ERC20Nested where
+  roots := #[`Contracts.UniswapV2.ERC20.Nested.All]
+  globs := #[.submodules `Contracts.UniswapV2.ERC20.Nested, .one `Verify.Spec.HashScopeNested]
+
 -- UniswapV2ERC20.transfer's certified slice, E7 (docs/CERTIFICATION_TARGET.md): solar-verify's
 -- transfer-slice.spec exported, its VC discharged over SolidCore's runs with no global hash premise,
 -- the observable's postcondition, non-vacuity, the required concrete runs, the source mutants refused

@@ -114,6 +114,17 @@ jobs:
           scripts/verify/uniswap_v2_stages.sh
           lake build -KleanMemory=6000 uv2_erc20 ContractsUniswapV2ERC20SourceMir
 
+      # UniswapV2ERC20's approve and transferFrom: the source stage (E3) of each against the same
+      # stage0, its refused mutants and the slot-level posts. The trees, like the stages, come from the
+      # GPL-3.0 port and are generated here. Every module is checked within 6 GB.
+      - name: Generate and check UniswapV2ERC20's approve and transferFrom
+        env:
+          LEAN_NUM_THREADS: "2"
+        run: |
+          python3 scripts/verify/uniswap_v2_stage0_mutants.py
+          python3 scripts/verify/uniswap_v2_trees.py
+          lake build -KleanMemory=6000 uv2_erc20 ContractsUniswapV2ERC20Nested
+
       - name: Build SolidCore's refinement milestones
         env:
           LEAN_NUM_THREADS: "2"

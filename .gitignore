@@ -26,3 +26,4 @@ tests/forge-harness/*/cache/
 /Certified/uv2_erc20/CtxNeg.lean
 
 /Contracts/UniswapV2/ERC20/Runtime.lean
+/Contracts/UniswapV2/ERC20/Nested/Trees.lean
