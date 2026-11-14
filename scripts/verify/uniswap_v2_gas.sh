@@ -6,11 +6,12 @@
 #   SOLAR_DIR=... SOLAR=... scripts/verify/uniswap_v2_gas.sh
 #
 # Needs scripts/verify/uniswap_v2_gen.sh's scripts/verify/uniswap-v2/UniswapV2ERC20.sol, and:
-#   SOLAR_DIR  a solar checkout with tools/certify/{asm_cert,asm_ctx,gen_ctxgas}.py;
+#   SOLAR_DIR  a solar checkout with tools/certify/{asm_cert,asm_ctxl,gen_ctxgas}.py;
 #   SOLAR      its solar binary (default $SOLAR_DIR/target/release/solar).
 # Writes, under Certified/uv2_erc20/ (ignored by git):
-#   uv2_erc20.sol             the flattened port the binary compiles;
-#   gen/                      solar -Ogas --evm-version osaka -Zemit-lean-stages of it;
+#   uv2_erc20.sol             the flattened port, for reference;
+#   gen/                      scripts/verify/uniswap_v2_erc20_stages.sh's export of the port
+#                             (solar -Ogas --evm-version osaka -Zemit-lean-stages);
 #   CtxGas.lean               gen_ctxgas.py's certificate: the checker with contexts and gas on
 #                             the exact bytes against the final EVM IR, every block outside
 #                             transfer's slice (the dispatcher's jump on 0xa9059cbb) unchecked.
@@ -26,17 +27,12 @@ out=Certified/uv2_erc20
 mkdir -p "$out"
 outabs="$(realpath "$out")"
 cp "$src" "$out/uv2_erc20.sol"
-rm -rf "$out/gen"
-tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
-cp "$out/uv2_erc20.sol" "$tmp/UniswapV2ERC20.sol"
-bin() { python3 -c 'import json,sys; d=json.load(sys.stdin)["contracts"]; print([v["bin-runtime"] for k,v in d.items() if k.endswith(":UniswapV2ERC20")][0])'; }
-plain=$(cd "$tmp" && "$SOLAR" UniswapV2ERC20.sol -Ogas --evm-version osaka --emit=bin-runtime | bin)
-exported=$(cd "$tmp" && "$SOLAR" UniswapV2ERC20.sol -Ogas --evm-version osaka --emit=bin-runtime \
-  "-Zemit-lean-stages=$outabs/gen" | bin)
-[[ "$plain" == "$exported" ]] || { echo "error: -Zemit-lean-stages changed the bytecode" >&2; exit 1; }
+# The stages: scripts/verify/uniswap_v2_erc20_stages.sh exports them from the port with the same
+# solar (and checks that the export does not change the bytecode).
+SOLAR="$SOLAR" scripts/verify/uniswap_v2_erc20_stages.sh
 gen="$out/gen/UniswapV2ERC20"
 final=$(python3 -c 'import json,sys; s=json.load(open(sys.argv[1]))["stages"]; print([x["definition"] for x in s if x["kind"]=="evm"][-1])' "$gen/manifest.json")
 [[ "$final" == evm11 ]] || { echo "error: the final EVM IR is $final, the proofs name evm11" >&2; exit 1; }
 python3 "$SOLAR_DIR/tools/certify/gen_ctxgas.py" "$gen" --module-prefix uv2_erc20.gen.UniswapV2ERC20 \
   --contract UniswapV2ERC20 --final "$final" --selector 0xa9059cbb --out "$out/CtxGas.lean"
-echo "wrote $out/gen $out/CtxGas.lean ($(( ${#plain} / 2 )) bytes)"
+echo "wrote $out/gen $out/CtxGas.lean"

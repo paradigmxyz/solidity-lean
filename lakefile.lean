@@ -520,11 +520,22 @@ lean_lib ContractsUniswapV2PairSpec where
   roots := #[`Contracts.UniswapV2.PairSpec.Published, `Contracts.UniswapV2.PairSpec.Negative, `Contracts.UniswapV2.PairSpec.Axioms]
   globs := #[.submodules `Contracts.UniswapV2.PairSpec]
 
--- uv2_erc20: UniswapV2ERC20's exported stages (Certified/uv2_erc20/gen, written by solar's
--- -Zemit-lean-stages from the GPL-3.0 v2-core port before the build, so not committed), the
--- certificate of the checker with contexts and gas (CtxGas.lean, solar's tools/certify/gen_ctxgas.py,
--- also generated) and the transfer slice's gas bound (Gas.lean, GasGuard.lean).
+-- uv2_erc20: UniswapV2ERC20's exported stages (Certified/uv2_erc20/gen, solar -Zemit-lean-stages of the
+-- port, with the stage0 mutants of uniswap_v2_erc20_mutants.py; scripts/verify/uniswap_v2_erc20_stages.sh,
+-- after scripts/verify/uniswap_v2_gen.sh), the certificate of the checker with contexts and gas
+-- (CtxGas.lean, scripts/verify/uniswap_v2_gas.sh with solar's tools/certify/gen_ctxgas.py) and the
+-- transfer slice's gas bound (Gas.lean, GasGuard.lean). The generated files come from the GPL-3.0
+-- v2-core port, so none is committed.
 lean_lib «uv2_erc20» where
   srcDir := "Certified"
-  roots := #[`uv2_erc20.Gas]
+  roots := #[`uv2_erc20.Gas, `uv2_erc20.gen.UniswapV2ERC20.Stage0]
   globs := #[.submodules `uv2_erc20]
+  leanOptions := solarTVOptions
+
+-- E3 of docs/CERTIFICATION_TARGET.md's first slice: the generic source stage of UniswapV2ERC20.transfer
+-- against the exported stage0 (Contracts/UniswapV2/ERC20/SourceMir.lean) and its refused mutants.
+lean_lib ContractsUniswapV2ERC20SourceMir where
+  roots := #[`Contracts.UniswapV2.ERC20.SourceMir, `Contracts.UniswapV2.ERC20.SourceMirNeg]
+  globs := #[.one `Contracts.UniswapV2.ERC20.SourceMirDefs, .one `Contracts.UniswapV2.ERC20.SourceMirCheck,
+    .one `Contracts.UniswapV2.ERC20.SourceMirDeploy, .one `Contracts.UniswapV2.ERC20.SourceMir,
+    .one `Contracts.UniswapV2.ERC20.SourceMirNeg]
