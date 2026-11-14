@@ -516,7 +516,7 @@ theorem blockOkC_rds {p : Assemble.Program} {c : Cert} {mx : List Nat} {b h : Na
   simp only [blockOkC, turnedElse, dropped, isGasI, isLoadI, isStoreI, isRetI, isRevI, isKecI,
     isLogI, isCdcI, isScI, isRdsI, Bool.or_false, Bool.and_eq_true, decide_eq_true_eq,
     Bool.false_eq_true, ite_false, ite_true] at hok
-  exact ⟨hok.1.1.1, hok.1.2, hok.2⟩
+  exact ⟨hok.1.1, hok.1.2, hok.2⟩
 
 theorem isRdcI_eq {i : Assemble.Instr} (h : isRdcI i = true) : i = .effect .returndatacopy 3 := by
   unfold isRdcI at h
@@ -533,30 +533,20 @@ theorem blockOkC_rdc {p : Assemble.Program} {c : Cert} {mx : List Nat} {b h : Na
   simp only [blockOkC, turnedElse, dropped, isGasI, isLoadI, isStoreI, isRetI, isRevI, isKecI,
     isLogI, isCdcI, isScI, isRdsI, isRdcI, Bool.or_false, Bool.and_eq_true, decide_eq_true_eq,
     Bool.false_eq_true, ite_false, ite_true] at hok
-  exact ⟨hok.1.1.1.1.1.1, hok.1.1.1.1.2, hok.1.1.1.2, hok.1.1.2, hok.1.2, hok.2⟩
+  exact ⟨hok.1.1.1.1.1, hok.1.1.1.1.2, hok.1.1.1.2, hok.1.1.2, hok.1.2, hok.2⟩
 
-/-- A program that creates makes no STATICCALL, RETURNDATASIZE or RETURNDATACOPY the checker
-accepts: the checker of runs with creations reads no return data. -/
-theorem blockOkC_noRd_creates {p : Assemble.Program} {c : Cert} {mx : List Nat} {b h : Nat}
+/-- A program that creates makes no STATICCALL the checker accepts. (It may read the return data of
+its CALLs and CREATE2s: RETURNDATASIZE and RETURNDATACOPY, which `AssembleCreateSegF.segF` reads
+back from the run's tables.) -/
+theorem blockOkC_noSc_creates {p : Assemble.Program} {c : Cert} {mx : List Nat} {b h : Nat}
     {known : List Word} {ty : List Ty} {k : Nat} {i : Assemble.Instr} {rest : List Assemble.Instr}
-    (hi : isScI i = true ∨ isRdsI i = true ∨ isRdcI i = true)
+    (hi : isScI i = true)
     (hok : blockOkC p c mx b h known ty k (i :: rest) = true) : c.creates = false := by
-  rcases hi with hi | hi | hi
-  · obtain rfl := isScI_eq hi
-    simp only [blockOkC, turnedElse, dropped, isGasI, isLoadI, isStoreI, isRetI, isRevI, isKecI,
-      isLogI, isCdcI, isScI, Bool.or_false, Bool.and_eq_true, decide_eq_true_eq, Bool.false_eq_true,
-      ite_false, ite_true] at hok
-    simpa using hok.1.1.1.1.1.2
-  · obtain rfl := isRdsI_eq hi
-    simp only [blockOkC, turnedElse, dropped, isGasI, isLoadI, isStoreI, isRetI, isRevI, isKecI,
-      isLogI, isCdcI, isScI, isRdsI, Bool.or_false, Bool.and_eq_true, decide_eq_true_eq,
-      Bool.false_eq_true, ite_false, ite_true] at hok
-    simpa using hok.1.1.2
-  · obtain rfl := isRdcI_eq hi
-    simp only [blockOkC, turnedElse, dropped, isGasI, isLoadI, isStoreI, isRetI, isRevI, isKecI,
-      isLogI, isCdcI, isScI, isRdsI, isRdcI, Bool.or_false, Bool.and_eq_true, decide_eq_true_eq,
-      Bool.false_eq_true, ite_false, ite_true] at hok
-    simpa using hok.1.1.1.1.1.2
+  obtain rfl := isScI_eq hi
+  simp only [blockOkC, turnedElse, dropped, isGasI, isLoadI, isStoreI, isRetI, isRevI, isKecI,
+    isLogI, isCdcI, isScI, Bool.or_false, Bool.and_eq_true, decide_eq_true_eq, Bool.false_eq_true,
+    ite_false, ite_true] at hok
+  simpa using hok.1.1.1.1.1.2
 
 theorem isCallI_eq {i : Assemble.Instr} (h : isCallI i = true) : i = .effect (.call .call) 7 := by
   unfold isCallI at h

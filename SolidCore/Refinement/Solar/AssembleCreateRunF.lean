@@ -267,6 +267,7 @@ def EntF (p : Assemble.Program) (c : Cert) (mx : List Nat) (code : ByteArray)
     (msg : Message .fusaka) (ss0 : Substate) (T : Tabs) (x : Nat × List Word × State)
     (evm : Evm .fusaka Nat) : Prop :=
   EntC p c mx code msg ss0 x evm ∧ TabF T.run T.cre x.2.2.world ∧
+    RdF code T.run T.cre x.2.2.world evm.returnData ∧
     memoryGasCost evm.memory.size + evm.gas ≤ msg.gas
 
 /-- **A block of code with loops, GAS, CALLs, CREATE2s and CODECOPYs, read back from a run that
@@ -290,8 +291,11 @@ theorem advances_checkCF {p : Assemble.Program} {c : Cert} {mx : List Nat} {code
       (fun y e => AssembleLoop.meas p c e.gas y.1) T0 x evm := by
   intro bound runChild meets within fin hrun hok hsites
   obtain ⟨b, S, s⟩ := x
-  obtain ⟨⟨Tw, pc, M, st, ss, rd, hle, hneed, hR, hseg, htop, hmem, R, hat⟩, hTab, hbud⟩ := hE
-  simp only at hle hneed hR hseg hmem R hTab
+  obtain ⟨⟨Tw, pc, M, st, ss, rd, hle, hneed, hR, hseg, htop, hmem, R, hat⟩, hTab, hRd, hbud⟩ := hE
+  simp only at hle hneed hR hseg hmem R hTab hRd
+  have hRd' : RdF code T0.run T0.cre s.world rd := by
+    rw [hat.2.2.2.2.2.2.2.2.2.2.2.2] at hRd
+    exact hRd
   by_cases hb : b < p.blocks.length
   · obtain ⟨hL, hnm, hstk, hblock⟩ := G.block b hb
     obtain ⟨hn, hm⟩ := hneed hb
@@ -323,13 +327,13 @@ theorem advances_checkCF {p : Assemble.Program} {c : Cert} {mx : List Nat} {code
       (p.blocks[b].length + 1) p.blocks[b] (c.need b) [] (c.entry b)
       (budget c b - labelItems p c b) S Tw s pc1 M m1.gas st ss rd T0.run T0.cre m1 within1
       (Nat.lt_succ_self _) hblock hn (by omega) List.nil_prefix hR hseg1 (by omega) htop hmem R hat1
-      hTab (by unfold MemBudget; rw [← hat.2.2.2.2.2.1]; omega) hrun1
+      hTab hRd' (by unfold MemBudget; rw [← hat.2.2.2.2.2.1]; omega) hrun1
     refine ⟨⟨T', A'⟩, r, ⟨hle', hA'⟩, fun T'' h => ?_, fun res hres => hpost res hres, fun y hy => ?_⟩
     · simp only [SolarTV.EVM.Program.block, hblk]
       rw [hex T''.run T''.cre h.1 h.2]
     · obtain ⟨t, S', s'⟩ := y
-      obtain ⟨⟨htle, -, hj⟩, after, within', hE', hT', hga, hbud', hra⟩ := hnext _ hy
-      refine ⟨after, within', ⟨hE', hT', hbud'⟩, ?_, hra⟩
+      obtain ⟨⟨htle, -, hj⟩, after, within', hE', hT', hrdy, hga, hbud', hra⟩ := hnext _ hy
+      refine ⟨after, within', ⟨hE', hT', hrdy, hbud'⟩, ?_, hra⟩
       have := meas_step (c := c) (g := evm.gas) (g' := after.gas) hb htle (by omega) hj
       dsimp only at this ⊢
       omega
@@ -381,7 +385,7 @@ theorem runs_of_checkCF {p : Assemble.Program} {code : ByteArray} {c : Cert} {mx
       hgas (by show 0 + 1 ≤ 1024; decide) (fun _ runChild => RunOut runChild) T x evm hE)
   refine ⟨⟨[], 0, .empty, st', ss', .empty, Nat.zero_le _, fun _ => ⟨by simp [hneed0], by simp⟩,
     SR.nil c _, by rw [List.drop_zero]; exact hseg, by simp, memRel_initial, R, ?_⟩,
-    ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩, ?_⟩
+    ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩, RdF.nil code _ _, ?_⟩
   have hcode : (Final.Target.messageWith gas code call).code = code := rfl
   · exact ⟨by simp [startFrame, hcode], by simp [startFrame, hcode], rfl, rfl, rfl, rfl, rfl, rfl, rfl,
       rfl, rfl, rfl, rfl⟩

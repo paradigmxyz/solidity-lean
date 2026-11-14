@@ -394,9 +394,9 @@ def blockOkC (p : Assemble.Program) (c : Cert) (mx : List Nat) (b : Nat) :
         c.calls && !c.creates && decide (1 ≤ k) && decide (6 ≤ h) && isData ty 6 && decide (2 ^ 140 ≤ c.top) &&
           blockOkC p c mx b (h - 5) [] (some false :: ty.drop 6) (k - 1) rest
       else if isRdsI i then
-        c.calls && !c.creates && decide (1 ≤ k) && blockOkC p c mx b (h + 1) [] (some false :: ty) (k - 1) rest
+        c.calls && decide (1 ≤ k) && blockOkC p c mx b (h + 1) [] (some false :: ty) (k - 1) rest
       else if isRdcI i then
-        c.calls && !c.creates && decide (1 ≤ k) && decide (3 ≤ h) && isData ty 3 && decide (2 ^ 140 ≤ c.top) &&
+        c.calls && decide (1 ≤ k) && decide (3 ≤ h) && isData ty 3 && decide (2 ^ 140 ≤ c.top) &&
           blockOkC p c mx b (h - 3) [] (ty.drop 3) (k - 1) rest
       else if isCallI i then
         c.calls && c.creates && decide (1 ≤ k) && decide (7 ≤ h) && isData ty 7 &&
