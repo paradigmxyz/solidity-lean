@@ -1,0 +1,102 @@
+⚠ [10/26] Replayed SolarTV.Machine
+warning: tv/SolarTV/Machine.lean:110:19: `if_false` has been deprecated: Use `ite_false` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵f̵a̵l̵s̵e̵i̲t̲e̲_̲f̲a̲l̲s̲e̲
+warning: tv/SolarTV/Machine.lean:166:43: This simp argument is unused:
+  BitVec.getLsbD_zero
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [BitVec.getLsbD_ushiftRight]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+⚠ [17/26] Replayed W1Proofs.Tactic
+warning: tv/W1Proofs/Tactic.lean:662:10: `if_pos` has been deprecated: Use `ite_eq_left` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵p̵o̵s̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲
+warning: tv/W1Proofs/Tactic.lean:662:20: `if_pos` has been deprecated: Use `ite_eq_left` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵p̵o̵s̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲
+warning: tv/W1Proofs/Tactic.lean:666:10: `if_neg` has been deprecated: Use `ite_eq_right` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵n̵e̵g̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲
+warning: tv/W1Proofs/Tactic.lean:668:12: `if_pos` has been deprecated: Use `ite_eq_left` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵p̵o̵s̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲
+warning: tv/W1Proofs/Tactic.lean:668:23: `if_pos` has been deprecated: Use `ite_eq_left` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵p̵o̵s̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲
+warning: tv/W1Proofs/Tactic.lean:670:12: `if_neg` has been deprecated: Use `ite_eq_right` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵n̵e̵g̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲
+warning: tv/W1Proofs/Tactic.lean:670:23: `if_neg` has been deprecated: Use `ite_eq_right` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵n̵e̵g̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲
+✔ [25/26] Built uv2_erc20.gen.UniswapV2ERC20.Evm11 (433ms)
+✖ [26/26] Building uv2_erc20.ProofsT.Runs.Evm11 (19s)
+trace: .> LEAN_PATH=/home/hand/w/sl2/.lake/packages/cslib/.lake/build/lib/lean:/home/hand/w/sl2/.lake/packages/PolyFun/.lake/build/lib/lean:/home/hand/w/sl2/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/hand/w/sl2/.lake/packages/Cli/.lake/build/lib/lean:/home/hand/w/sl2/.lake/packages/VCVio/.lake/build/lib/lean:/home/hand/w/sl2/.lake/packages/batteries/.lake/build/lib/lean:/home/hand/w/sl2/.lake/packages/Qq/.lake/build/lib/lean:/home/hand/w/sl2/.lake/packages/aesop/.lake/build/lib/lean:/home/hand/w/sl2/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/hand/w/sl2/.lake/packages/importGraph/.lake/build/lib/lean:/home/hand/w/sl2/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/hand/w/sl2/.lake/packages/plausible/.lake/build/lib/lean:/home/hand/w/sl2/.lake/packages/EthLib/.lake/build/lib/lean:/home/hand/w/sl2/vendor/evmyul/.lake/build/lib/lean:/home/hand/w/sl2/vendor/evm-interaction/.lake/build/lib/lean:/home/hand/w/sl2/.lake/packages/mathlib/.lake/build/lib/lean:/home/hand/w/sl2/.lake/build/lib/lean /home/hand/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean -M 6000 /home/hand/w/sl2/Certified/uv2_erc20/ProofsT/Runs/Evm11.lean -o /home/hand/w/sl2/.lake/build/lib/lean/uv2_erc20/ProofsT/Runs/Evm11.olean -i /home/hand/w/sl2/.lake/build/lib/lean/uv2_erc20/ProofsT/Runs/Evm11.ilean -c /home/hand/w/sl2/.lake/build/ir/uv2_erc20/ProofsT/Runs/Evm11.c --setup /home/hand/w/sl2/.lake/build/ir/uv2_erc20/ProofsT/Runs/Evm11.setup.json --json
+error: Certified/uv2_erc20/ProofsT/Runs/Evm11.lean:67:2: sym_seg: the segments end differently on this path, or the procedure cannot tell
+case pos
+o : Oracle
+call : Call
+hsel0 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 117300739
+hsel1 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 2514000705
+hsel2 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 826074471
+hsel3 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 404098525
+hsel4 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 1889567281
+hsel5 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 3714247998
+hsel6 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 910484757
+hsel7 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 816707615
+hsel8 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 2127478272
+hsel9 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 3573918927
+hsel10 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 157198259
+hsel11 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 599290589
+hsel0s : 117300739 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel1s : 2514000705 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel2s : 826074471 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel3s : 404098525 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel4s : 1889567281 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel5s : 3714247998 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel6s : 910484757 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel7s : 816707615 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel8s : 2127478272 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel9s : 3573918927 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel10s : 157198259 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel11s : 599290589 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+cd : EvmRules.Word → EvmRules.Word
+hcd : cd = calldataWord call
+hc✝² hcs✝² : BitVec.ofNat 256 call.callvalue = 0 ∧ ¬BitVec.ofNat 256 call.calldata.size < 4
+hc✝¹ hcs✝¹ : ¬EvmRules.Evm.shr 224 (calldataWord call 0) < 910484757
+hc✝ hcs✝ : ¬¬EvmRules.Evm.shr 224 (calldataWord call 0) = 2835717307
+hc hcs :
+  ¬BitVec.ofNat 256 call.calldata.size < 68 ∧ ¬1461501637330902918203684832716283019655932542975 < calldataWord call 4
+⊢ ∃ Q,
+    Q ∈ evm11_rels call ∧
+      Q
+        (16,
+          [2#256, BitVec.setWidth 256 o.caller, calldataWord call 4, calldataWord call 36,
+            EvmRules.Evm.shr 224 (calldataWord call 0)],
+          State.initial call)
+        (16, [2#256, 8192, calldataWord call 4, calldataWord call 36, EvmRules.Evm.shr 224 (calldataWord call 0)],
+          State.initial call)
+error: Certified/uv2_erc20/ProofsT/Runs/Evm11.lean:183:0: 'SolarTV.Milestone.Uv2Erc20T.evm11_certified' depends on axioms outside [propext, Classical.choice, Quot.sound]: [sorryAx]
+error: Certified/uv2_erc20/ProofsT/Runs/Evm11.lean:182:0: ❌️ Docstring on `#guard_msgs` does not match generated message:
+
+- info: 'SolarTV.Milestone.Uv2Erc20T.evm11_certified' depends on axioms within [propext, Classical.choice, Quot.sound]
++ error: 'SolarTV.Milestone.Uv2Erc20T.evm11_certified' depends on axioms outside [propext, Classical.choice, Quot.sound]: [sorryAx]
+error: Certified/uv2_erc20/ProofsT/Runs/Evm11.lean:187:0: 'SolarTV.Milestone.Uv2Erc20T.evm11_certified_back' depends on axioms outside [propext, Classical.choice, Quot.sound]: [sorryAx]
+error: Certified/uv2_erc20/ProofsT/Runs/Evm11.lean:186:0: ❌️ Docstring on `#guard_msgs` does not match generated message:
+
+- info: 'SolarTV.Milestone.Uv2Erc20T.evm11_certified_back' depends on axioms within [propext, Classical.choice, Quot.sound]
++ error: 'SolarTV.Milestone.Uv2Erc20T.evm11_certified_back' depends on axioms outside [propext, Classical.choice, Quot.sound]: [sorryAx]
+Some required targets logged failures:
+- uv2_erc20.ProofsT.Runs.Evm11
+error: build failed
+exit=1 wall=21s max_rss_largest_process=1881MB

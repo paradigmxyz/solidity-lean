@@ -1,0 +1,14 @@
+/home/hand/w/sl2/.cache/uniswap-v2/src
+exit=0 wall=1s max_rss_largest_process=30MB
+warning[2264]: code generation is experimental
+
+warning[2264]: code generation is experimental
+
+wrote /home/hand/w/sl2/Certified/uv2_erc20/gen/UniswapV2ERC20 (697fc6864620d2fdb0b9b3ff66882ae4ad56b41e)
+selector 0xa9059cbb: block 15
+top=128 env=True reads=False
+wrote Certified/uv2_erc20/gen Certified/uv2_erc20/CtxGas.lean
+assembly: decoded only; the final EVM IR is outside the executed fragment: block 21: ('other', '.effect (.call .staticcall) 6')
+{"final": "SolarTV.Milestone.Uv2Erc20T.uv2_erc20_transfer_mir_to_evmir", "last": "evm11", "first": "stage0", "stages": ["stage0", "mir1", "mir2", "mir3", "mir4", "sched", "evm1", "evm2", "evm3", "evm4", "evm5", "evm6", "evm7", "evm8", "evm9", "evm10", "evm11"]}
+{"assembly": "checker accepts; bytes make calls", "calls": [[903, "STATICCALL"], [1158, "RETURNDATASIZE"], [1161, "RETURNDATACOPY"], [1162, "RETURNDATASIZE"]]}
+exit=0 wall=0s max_rss_largest_process=21MB
