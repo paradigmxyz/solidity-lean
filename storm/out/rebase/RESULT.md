@@ -4,17 +4,20 @@
 
 `solar-certified-merge.bundle` (solar). Prerequisites: alpharush/certified 38b5232ad and
 feat/lean-solar 807d57fac (its head on 2026-11-14). It holds branch
-`rebase/certified-on-lean-solar` = 79f56213f:
+`rebase/certified-on-lean-solar` = 3eb9a7d8e:
 
 - c1643e46f `chore: merge feat/lean-solar into alpharush/certified`, parents 38b5232ad (first)
   and 807d57fac (second).
 - 79f56213f `test(certify): keep the refused export outside the fragment` (a test fix for a
   failure already present on 38b5232ad, see below).
+- 4b01ab2b1 `fix(tv): prove refinement from equal observations` and 3eb9a7d8e
+  `test(tv): fix extcall ports of builtin tests`: fixes for solar-tv suite failures the merge
+  introduced (see "solar-tv Python suite").
 
 ```sh
 git fetch origin alpharush/certified feat/lean-solar
 git fetch storm/out/rebase/solar-certified-merge.bundle rebase/certified-on-lean-solar:rebase/certified-on-lean-solar
-git log --format='%h %p %s' -2 rebase/certified-on-lean-solar
+git log --format='%h %p %s' -4 rebase/certified-on-lean-solar
 ```
 
 The pin `tools/certify/solidity-lean.rev` is unchanged (7aedd63, as on 38b5232ad). Nothing was
@@ -86,9 +89,21 @@ SOLAR_VERIFY and skips this case, so CI did not see it.
 | nextest-tv | 0 | 34s | 425MiB | `nice cargo nextest run --locked -p solar-tv-replay -p solar-mir-interpreter -p solar-evmir-interpreter -p solar-evmir -p solar-mir` |
 | certify-counter-2 | 1 | 676s | 4409MiB | `env SOLC=~/bin/solc-0.8.35 SOLIDITY_LEAN_DIR=~/sl SOLAR_VERIFY=~/rb2/target/debug/solar-verify scripts/certify tools/certify/examples/counter.sol` |
 | certify-counter-4 | 0 | 2924s | 7839MiB | `env SOLC=~/bin/solc-0.8.35 SOLIDITY_LEAN_DIR=~/sl SOLAR_VERIFY=~/rb2/target/debug/solar-verify scripts/certify ~/sl/Certified/counter/counter.sol` |
-| solar-tv-py | running | | | `python -m unittest discover -s solar-tv/tests` (result in the next delivery) |
+| solar-tv-lake-2 | 0 | 2s | 1529MiB | `lake build` |
+| solar-tv-lake-3 | 0 | 0s | 81MiB | `bash -c 'cd solar-tv && lake build'` |
+| solar-tv-py-full | 1 | 3260s | 5204MiB | `~/pysuite.sh ~/receipts/pyf` |
+| nextest-tv-it | 0 | 85s | 1538MiB | `nice cargo nextest run --locked -p solar-compiler --test it --run-ignored all -E 'test(solar_tv::)'` |
+| baseline-807d57fac-layout | 1 | 172s | 1836MiB | `python -m unittest test_mir_layout` |
+| padding-zeroed-packed | 0 | 784s | 3208MiB | `python -m unittest test_mir_packed test_mir_packed_refs test_mir_abi` |
+| baseline-807d57fac-world | 0 | 68s | 4397MiB | `python -m unittest test_world.WorldTests.test_constructor_rejects_reserved_code_prefix test_world.WorldTests.test_create2_address_salt_and_collision` |
+| wp-lean4341 | 0 | 18s | 3478MiB | `timeout 1800 lake env lean ~/exp/wp/w.lean` |
+| merge-world-alone | 1 | 1209s | 1545MiB | `python -m unittest test_world.WorldTests.test_constructor_rejects_reserved_code_prefix test_world.WorldTests.test_create2_address_salt_and_collision` |
+| wp-lean4350 | 1 | 1576s | 8082MiB | `timeout 1800 lake env lean ~/exp/wp/w.lean` |
+| merge-world-lean4341-b | 0 | 55s | 4397MiB | `python -m unittest test_world.WorldTests.test_constructor_rejects_reserved_code_prefix test_world.WorldTests.test_create2_address_salt_and_collision` |
 
-Everything ran at 79f56213f (the merge c1643e46f has the same compiler sources). certify-counter, certify-counter-2 and certify-tests are the failed attempts explained below; certify-tests-fixed ran on 79f56213f. nextest-tv: `cargo nextest run -p solar-tv-replay -p solar-mir-interpreter -p solar-evmir-interpreter -p solar-evmir -p solar-mir`.
+baseline-*: a worktree of feat/lean-solar 807d57fac with its own solar build and Lean 4.34.1. padding-zeroed-packed: SOLAR built from 3eb9a7d8e plus padding-zeroed.diff. merge-world-lean4341-b and wp-lean4341: a copy of 3eb9a7d8e's solar-tv and scripts/evm-rules with both lean-toolchain files set to 4.34.1; wp-lean4350 is the same proof file (a world pair test_world writes) in 3eb9a7d8e's package on 4.35.0. solar-tv-lake-2 and -3 rebuilt solar-tv after 4b01ab2b1.
+
+certify-counter, certify-counter-2 and certify-tests are the failed attempts explained below; certify-tests-fixed ran on 79f56213f. nextest-tv: `cargo nextest run -p solar-tv-replay -p solar-mir-interpreter -p solar-evmir-interpreter -p solar-evmir -p solar-mir`.
 
 
 Toolchain: Lean 4.35.0 (solar-tv's lean-toolchain moved from 4.34.1 to 4.35.0, matching
@@ -125,6 +140,58 @@ SOLC=solc-0.8.35 SOLIDITY_LEAN_DIR=<solidity-lean at 7aedd63> SOLAR_VERIFY=targe
 Earlier failed attempts, kept for the record: certify-counter (cold EthLib build in the sandbox:
 read-only file system), certify-counter-2 (ran on solar's tools/certify/examples/counter.sol, which
 has no spec: NonVacuous mismatch; see notes).
+
+## solar-tv Python suite and counterexample stops
+
+`uv run python -m unittest discover -s solar-tv/tests` as CI runs it, here one process per module,
+4 at a time (receipt solar-tv-py-full, on 3eb9a7d8e): **47 modules, 42 pass, 5 fail**. The
+counterexample-stop tests (`cargo nextest run -p solar-compiler --test it --run-ignored all -E
+'test(solar_tv::)'`, receipt nextest-tv-it) pass: 3 run, 3 passed.
+
+Fixed in this bundle (failures the merge introduced, each module rerun green afterwards):
+
+- 4b01ab2b1: the undefined-source refinement makes `MIR.State.equivalent` a disjunction, which the
+  symbolic world proof's final `rfl` no longer closes. A lemma `equivalent_of_observe` closes it;
+  this fixed the inconclusive pairs in test_mir_aggregates, test_mir_aggregate_returns,
+  test_mir_calls, test_mir_state, test_mir_storage_bytes, test_precompiles and the symbolic
+  test_mir_abi cases.
+- 3eb9a7d8e: my extcall ports of test_mir_builtins (`send` returns `i1`, now widened) and
+  test_mir_precompile_builtins (MIR text writes `shl value, shift`; the precompile example's
+  after.mir regenerated for the extcall lowering).
+
+Still failing, not fixed here (each needs an owner's call):
+
+1. **Packed encodings: test_mir_abi (2 cases), test_mir_packed (2), test_mir_packed_refs (4).** All
+   are counterexamples, confirmed by the Lean kernel and the Rust interpreter: main's #2539
+   (8429431e7, "stop zeroing the padding of memory bytes", CODEGEN-029 in SOLC_DIVERGENCE.md)
+   reaches lean-solar's model for the first time here. Lowered `abi_encode_packed` /
+   `keccak256_packed` no longer clears the word after a non-word-aligned result, while
+   lean-solar's semantics of those operations still does, so `msize` and memory differ. The
+   validator is right to refuse the pairs. With only #2539's two codegen hunks reverted
+   (`padding-zeroed.diff`, applied on 3eb9a7d8e, not in the bundle), all three modules pass
+   (receipt padding-zeroed-packed). Either the solar-tv semantics of packed results and decoded
+   `bytes` leaves the padding unspecified, as CODEGEN-029 allows, or certified builds keep the
+   clear.
+2. **test_world: test_constructor_rejects_reserved_code_prefix and
+   test_create2_address_salt_and_collision** time out ("Lean validation timed out after 600
+   seconds"), alone too (receipt merge-world-alone). Cause: Lean 4.35.0. The merged solar-tv on
+   Lean 4.34.1 passes both in 55 s (receipt merge-world-lean4341-b, identical sources), and
+   feat/lean-solar alone passes them (baseline-807d57fac-world). One of the proof files takes 18 s
+   on 4.34.1 (wp-lean4341) and on 4.35.0 ends after 26 minutes and 8 GiB with "Tactic `decide`
+   failed to reduce" (wp-lean4350). The merge needs 4.35.0 because CI installs one Lean, from
+   scripts/evm-rules/lean/lean-toolchain, for the solar-tv, evm-rules and certify jobs, and the
+   solidity-lean pin builds on 4.35.0. Options: install 4.34.1 for solar-tv's own build beside
+   4.35.0 for the certify and `lean_agreement` steps, or make these kernel evaluations reduce on
+   4.35.0.
+3. **test_mir_layout: test_closed_initial_reads_preserve_symbolic_bytes** fails the same way on
+   feat/lean-solar 807d57fac alone (receipt baseline-807d57fac-layout): already present, not
+   caused by the merge.
+
+The certify counter run above is on 79f56213f. The two commits after it change only
+solar-tv/SolarTV/MIR (one lemma), solar-tv/validator/world_check.py, solar-tv/tests and one
+solar-tv example; scripts/certify uses solidity-lean's SolarTV and solar-tv/milestone, and no
+Rust changed, so the compiled bytecode is the same.
+
 
 ## Notes for the integrator
 
