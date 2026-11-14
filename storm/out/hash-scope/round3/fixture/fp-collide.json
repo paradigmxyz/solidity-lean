@@ -1,0 +1,26 @@
+{
+  "premises": [
+    {
+      "class": "scoped",
+      "definition": "D",
+      "constant": "SolidCore.Spec.ScopedSep",
+      "term": "(List.cons (List.cons 0 List.nil) (List.cons (List.cons 256 List.nil) List.nil))",
+      "checked": [
+        {
+          "footprint": "(List.cons (List.cons 0 List.nil) (List.cons (List.cons 256 List.nil) List.nil))",
+          "result": "refused",
+          "axioms": [
+            "propext",
+            "sorryAx",
+            "Quot.sound"
+          ]
+        }
+      ],
+      "unchecked": null
+    }
+  ],
+  "witnesses": [
+    "1",
+    "1461501637330902918203684832716283019655932542975"
+  ]
+}

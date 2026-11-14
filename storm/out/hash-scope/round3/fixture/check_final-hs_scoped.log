@@ -1,0 +1,4 @@
+STATEMENT Certified.hs_scoped.Final.Statement := forall (call : SolarTV.Call), Iff (And (SolidCore.Spec.UniswapV2.ERC20.Slice.Scope call) True) (SolidCore.Spec.UniswapV2.ERC20.Slice.Scope call)
+PREMISE scoped SolidCore.Spec.UniswapV2.ERC20.Slice.Scope SolidCore.Spec.ScopedSep (SolidCore.Spec.transferFootprint SolidCore.Spec.UniswapV2.ERC20.Slice.balanceSlot SolidCore.Spec.UniswapV2.ERC20.Slice.caller #dst)
+check_final: Certified.hs_scoped.Final.final : Certified.hs_scoped.Final.Statement (module hs_scoped.Statement, which does not import hs_scoped.Proof); axioms [propext]
+RECEIPT exit=0 wall_s=19.6 peak_rss_mb=7582

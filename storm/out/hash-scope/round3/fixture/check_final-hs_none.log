@@ -1,0 +1,4 @@
+STATEMENT Certified.hs_none.Final.Statement := forall (n : Nat), And (Eq.{1} Nat (HAdd.hAdd.{0, 0, 0} Nat Nat Nat (instHAdd.{0} Nat instAddNat) n (OfNat.ofNat.{0} Nat 0 (instOfNatNat 0))) n) True
+PREMISE none
+check_final: Certified.hs_none.Final.final : Certified.hs_none.Final.Statement (module hs_none.Statement, which does not import hs_none.Proof); axioms [propext]
+RECEIPT exit=0 wall_s=14.3 peak_rss_mb=7614

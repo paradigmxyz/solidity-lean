@@ -1,0 +1,4 @@
+check_final: Certified.hs_refuted.Final.Statement rests on SolidCore.Spec.NestedSlotsSeparated (List.cons 1 (List.cons 4 (List.nil))) (List.cons 2 (List.nil)) (in Certified.hs_refuted.Final.Statement), which Lean proves false: the statement is vacuous
+STATEMENT Certified.hs_refuted.Final.Statement := (SolidCore.Spec.NestedSlotsSeparated (List.cons.{0} Nat (OfNat.ofNat.{0} Nat 1 (instOfNatNat 1)) (List.cons.{0} Nat (OfNat.ofNat.{0} Nat 4 (instOfNatNat 4)) (List.nil.{0} Nat))) (List.cons.{0} Nat (OfNat.ofNat.{0} Nat 2 (instOfNatNat 2)) (List.nil.{0} Nat))) -> (And (Eq.{1} Nat (HAdd.hAdd.{0, 0, 0} Nat Nat Nat (instHAdd.{0} Nat instAddNat) (OfNat.ofNat.{0} Nat 1 (instOfNatNat 1)) (OfNat.ofNat.{0} Nat 1 (instOfNatNat 1))) (OfNat.ofNat.{0} Nat 2 (instOfNatNat 2))) True)
+PREMISE refuted Certified.hs_refuted.Final.Statement SolidCore.Spec.NestedSlotsSeparated (List.cons 1 (List.cons 4 (List.nil))) (List.cons 2 (List.nil))
+RECEIPT exit=1 wall_s=13.6 peak_rss_mb=7613

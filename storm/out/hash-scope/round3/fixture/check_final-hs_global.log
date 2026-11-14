@@ -1,0 +1,4 @@
+STATEMENT Certified.hs_global.Final.Statement := (SolidCore.Spec.MapSlotsSeparated (List.cons.{0} Nat (OfNat.ofNat.{0} Nat 0 (instOfNatNat 0)) (List.nil.{0} Nat))) -> (And (Eq.{1} Nat (HAdd.hAdd.{0, 0, 0} Nat Nat Nat (instHAdd.{0} Nat instAddNat) (OfNat.ofNat.{0} Nat 1 (instOfNatNat 1)) (OfNat.ofNat.{0} Nat 1 (instOfNatNat 1))) (OfNat.ofNat.{0} Nat 2 (instOfNatNat 2))) True)
+PREMISE global Certified.hs_global.Final.Statement SolidCore.Spec.MapSlotsSeparated (List.cons 0 (List.nil))
+check_final: Certified.hs_global.Final.final : Certified.hs_global.Final.Statement (module hs_global.Statement, which does not import hs_global.Proof); axioms [propext]
+RECEIPT exit=0 wall_s=14.1 peak_rss_mb=7613

@@ -1,0 +1,625 @@
+From 0b98e45d68a26611ad43949ee26a559f57bc5741 Mon Sep 17 00:00:00 2001
+From: pyramid <pyramid@tempo.xyz>
+Date: Sat, 14 Nov 2026 22:44:33 +0000
+Subject: [PATCH] feat(certify): print a statement's hash premises, check
+ footprints
+
+check_final prints every keccak256 premise the published statement
+rests on (PREMISE scoped|global|refuted ...), unfolding its
+definitions, and refuses a statement resting on a premise Lean proves
+false. footprint.py decides each scoped premise for the real keccak256
+in the kernel at concrete calls; the driver runs it after check_final
+and records the instances as the hash_premise status.
+---
+ scripts/certify                |  38 ++++-
+ tools/certify/README.md        |  17 ++-
+ tools/certify/check_final.lean | 174 +++++++++++++++++++++++
+ tools/certify/footprint.py     | 246 +++++++++++++++++++++++++++++++++
+ tools/certify/test.sh          |  27 ++++
+ 5 files changed, 498 insertions(+), 4 deletions(-)
+ create mode 100755 tools/certify/footprint.py
+
+diff --git a/scripts/certify b/scripts/certify
+index 4dbde978..0d672b7a 100755
+--- a/scripts/certify
++++ b/scripts/certify
+@@ -718,7 +718,7 @@ echo "== 6b. the published statement"
+ # Classical.choice and Quot.sound. The statuses come from the statement's kind alone.
+ final_record="$lean_dir/.lake/certify-$name.json.final"
+ replay_receipt="$lean_dir/.lake/certify-$name.json.replay"
+-rm -f "$final_record" "$replay_receipt"
++rm -f "$final_record" "$final_record.footprint" "$replay_receipt"
+ final_thm=
+ if [[ -f "$dir/shape.json" ]]; then
+     # A specification from solar-verify's export: written fresh from the source in this run, as
+@@ -913,6 +913,21 @@ PYEOF
+         die "the checker refuses the published statement of $name"
+     fi
+     grep -v '^MODULE ' "$log"
++    # The statement's hash premises (check_final's PREMISE lines, printed above): each scoped one,
++    # keccak256 separated on a call's footprint, is decided by the kernel for the real keccak256 at
++    # concrete calls (tools/certify/footprint.py; a recipient the statement quantifies over at the
++    # self-call, 1, 2^160 - 1 and shape.json's footprint_witnesses). A premise false at one of those
++    # calls fails the run; the record says the check is at those calls, not for every call.
++    fp_witness=()
++    fp_list="$(python3 -c 'import json,sys; w=json.load(open(sys.argv[1])).get("footprint_witnesses", []); assert isinstance(w, list); [print(x) for x in w]' "$dir/shape.json")" ||
++        die "shape.json: footprint_witnesses is not a list of addresses"
++    while IFS= read -r w; do
++        [[ -n "$w" ]] && fp_witness+=(--witness "$w")
++    done <<<"$fp_list"
++    no_planted_bins
++    python3 "$here/footprint.py" "$log" --lean-dir "$lean_dir" --name "$name" --out "$final_record.footprint" \
++        --lean "lake env $toolchain/bin/lean" ${fp_witness[@]+"${fp_witness[@]}"} ||
++        die "the footprint check refuses a hash premise of the published statement of $name (above)"
+     # Every module of final's closure that is not upstream must come from a committed, unchanged
+     # source, or be one of this contract's own modules: an untracked, ignored or edited file
+     # (another contract's generated module among them) imported by the statement or its proof is
+@@ -1102,6 +1117,22 @@ except (OSError, ValueError):
+     final = None
+ if final:
+     statuses = dict(final["statuses"])
++    # The hash premises the checker found in the statement, and the footprint check's instances.
++    try:
++        fp = json.load(open(final_file + ".footprint"))
++    except (OSError, ValueError):
++        fp = None
++    if fp is None:
++        statuses["hash_premise"] = "not reported: no footprint check record"
++    elif not fp["premises"]:
++        statuses["hash_premise"] = "none: the statement rests on no keccak256 premise"
++    else:
++        statuses["hash_premise"] = "; ".join(
++            (f"scoped {p['constant']} {p['term']} (in {p['definition']}): real keccak256 accepted by the kernel at "
++             f"{len(p['checked'])} concrete call(s) ({', '.join(c['footprint'] for c in p['checked'])}), not proved for every call"
++             if p["class"] == "scoped" and p["checked"]
++             else f"{p['class']} {p['constant']} {p['term']} (in {p['definition']}): not checked ({p['unchecked']})")
++            for p in fp["premises"])
+     statuses["assumptions"] = final["assumptions"] or "none beyond the statement's scope"
+     statuses["excluded"] = final["excluded"]
+     statuses["environment"] = ("fixed, not quantified: one frame, caller 0x2000, the contract at "
+@@ -1127,7 +1158,7 @@ if final:
+     statuses["strongest"] = bool(final.get("strongest")) and not provenance and replay_ok and all(
+         v.startswith(("proved", "not applicable")) for v in final["statuses"].values())
+ else:
+-    replay = None
++    replay = fp = None
+     statuses = {
+         "equivalence": "not proved: stage refinement only (" + mir + "; assembly " + assembly.split(":")[0] + ")",
+         "termination": "not proved",
+@@ -1164,6 +1195,7 @@ record = {
+     # nothing), and nothing here proves termination or gas bounds yet.
+     "statuses": statuses,
+     "final": final,
++    "hash_premises": (fp["premises"] if final and fp else None),
+     "replay": replay if final else None,
+     "end_to_end_statement": stmts,
+     "binding": binding,
+@@ -1196,7 +1228,7 @@ python3 -c 'import json,sys; print("assembly: " + json.load(open(sys.argv[1]))["
+ echo "vc: $spec_status"
+ if [[ ${#e2e_thms[@]} -gt 0 ]]; then echo "end_to_end: proved ($e2e_kind): ${e2e_thms[*]}"; else echo "end_to_end: not proved"; fi
+ python3 -c 'import json,sys; c=json.load(open(sys.argv[1]))["caveats"]; c and print("caveats: " + "; ".join(c))' "$record"
+-python3 -c 'import json,sys; s=json.load(open(sys.argv[1]))["statuses"]; print("statuses: " + ", ".join(k + " " + str(s[k]) for k in ("equivalence", "termination", "spec", "resources", "vacuity", "source", "strongest") if k in s))' "$record"
++python3 -c 'import json,sys; s=json.load(open(sys.argv[1]))["statuses"]; print("statuses: " + ", ".join(k + " " + str(s[k]) for k in ("equivalence", "termination", "spec", "resources", "vacuity", "hash_premise", "source", "strongest") if k in s))' "$record"
+ strongest="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["statuses"]["strongest"])' "$record")" ||
+     die "cannot read the strongest status from $record"
+ [[ "$strongest" == True || "$strongest" == False ]] || die "$record's strongest status is '$strongest'"
+diff --git a/tools/certify/README.md b/tools/certify/README.md
+index 63300ee0..b5007609 100644
+--- a/tools/certify/README.md
++++ b/tools/certify/README.md
+@@ -116,7 +116,22 @@ what is stated. The strongest status needs the specification from solar-verify's
+ run's source (`spec_export`: the driver writes it as `NAME.gen.C.Spec` and the statement reads it
+ with `Shapes.bundlePost`) and a non-vacuity witness in the statement (`NonVacuous`: a valid call
+ with a result the specification rejects, and one with a revert the allowed statuses reject). A
+-statement with a declared `vacuity` is recorded below the strongest status. When `shape.json`
++statement with a declared `vacuity` is recorded below the strongest status.
++
++**Hash premises.** The checker also prints every keccak256 premise the statement rests on, unfolding
++the statement's definitions (outside the toolchain and upstream packages, never through theorems),
++one `PREMISE CLASS DEFINITION CONSTANT TERM` line each (`PREMISE none` when there is none): `scoped`
++for `SolidCore.Spec.ScopedSep L`, keccak256 separated on the finite footprint `L` of one call;
++`global` for a premise over every key (`MapSlotsSeparated`, `UniversalTransferSep`, `HashInj`,
++`KeccakModel`, `KeccakSeparated` of any other predicate); `refuted` for one Lean proves false
++(`NestedSlotsSeparated` with a nested map, `KeccakSeparated (fun _ => True)`), which fails the check:
++the statement would be vacuous. [footprint.py](footprint.py) then decides each scoped premise for the
++real keccak256 in the kernel (`scopedSep_of_check (by decide +kernel)`, solidity-lean's
++Verify/Spec/HashScopeCheck.lean) at concrete calls: a footprint the statement quantifies over (a
++recipient printed as `#dst`) at the self-call, 1, 2^160 - 1 and `shape.json`'s
++`footprint_witnesses`. A refusal fails the run; the record's `hash_premise` status and
++`hash_premises` list say which calls were checked and that the premise is not proved for every call.
++The search is syntactic: a premise hidden behind a theorem or an opaque constant is not reported. When `shape.json`
+ names the checked source AST (`source_ast`), [source_bind.sh](source_bind.sh) regenerates it from
+ the run's source with the pinned solc and fails on any difference.
+ 
+diff --git a/tools/certify/check_final.lean b/tools/certify/check_final.lean
+index 9c2612dd..e05f3135 100644
+--- a/tools/certify/check_final.lean
++++ b/tools/certify/check_final.lean
+@@ -10,6 +10,8 @@ proof module reaches it. It fails (exit 1) unless:
+   imports do not reach the proof module (nor NAME.Final);
+ * the axioms final depends on are among propext, Classical.choice and Quot.sound, and not none of
+   them, and the statement is not True (its value is printed as a STATEMENT line).
++It prints a "PREMISE CLASS DEFINITION CONSTANT TERM" line for every keccak256 premise the statement
++rests on ("PREMISE none" when there is none) and fails on a refuted one (see Hash premises below).
+ It prints "MODULE M PATH replay|trusted IMPORTS" for every module of final's closure, marking for
+ replay each outside the toolchain and the upstream git-pinned lake packages (Mathlib and its
+ dependencies); the driver replays
+@@ -51,6 +53,170 @@ def printClosure (env : Environment) : IO Unit := do
+     let imports := d.imports.toList.map (·.module.toString)
+     IO.println s!"MODULE {m} {path} {if trusted then "trusted" else "replay"} {" ".intercalate imports}"
+ 
++/-! ## Hash premises
++
++A published statement may rest on a keccak256 premise. The checker reports every one it finds in
++the statement, unfolding the statement's definitions (outside the toolchain and the upstream
++packages, never through theorems) down to the premise constants below, one line each:
++
++  PREMISE <class> <definition> <constant> <term>
++
++with <class> one of
++* scoped: `SolidCore.Spec.ScopedSep L`, keccak256 separated on the finite footprint `L` of a call
++  (docs/CERTIFICATION_TARGET.md, "Hash premises"), or `TrustedBase.KeccakSeparated (· ∈ L)` written
++  out;
++* global: a premise over every key (`MapSlotsSeparated`, `UniversalTransferSep`, `HashInj`, the
++  Factory's `KeccakModel`, or `KeccakSeparated` of any other predicate), a named computational
++  assumption;
++* refuted: a premise Lean proves false (`NestedSlotsSeparated` with a nested map, by pigeonhole,
++  `not_nestedSlotsSeparated`; `KeccakSeparated (fun _ => True)`, `not_keccakSeparated_univ`): the
++  statement is vacuous, and the checker refuses it.
++
++<definition> is the declaration whose value holds the occurrence and <term> the premise's argument,
++fully qualified, implicit arguments dropped, numerals as decimals and a variable the definition
++binds as `#name`: the driver's footprint check (tools/certify/footprint.py) substitutes concrete
++values for those and has the kernel decide the premise. The search is syntactic: a premise reached
++only through a theorem, or hidden behind an opaque constant, is not reported. -/
++
++def scopedPremise : Name := `SolidCore.Spec.ScopedSep
++def keccakSeparated : Name := `SolidCore.Spec.TrustedBase.KeccakSeparated
++def globalPremises : List Name :=
++  [`SolidCore.Spec.MapSlotsSeparated, `SolidCore.Spec.UniversalTransferSep,
++   `SolidCore.Verify.VC.Token.HashInj, `Contracts.UniswapV2.Factory.Create2.KeccakModel]
++def refutedPremises : List Name := [`SolidCore.Spec.NestedSlotsSeparated]
++def premiseConsts : List Name := scopedPremise :: keccakSeparated :: globalPremises ++ refutedPremises
++
++/-- Modules whose definitions are not unfolded: the toolchain's and the upstream packages'. -/
++def upstreamRoots : List Name :=
++  [`Init, `Std, `Lean, `Lake, `Mathlib, `Batteries, `Aesop, `Qq, `Plausible, `ProofWidgets,
++   `ImportGraph, `LeanSearchClient]
++
++/-- The explicit-argument mask of a constant's type (true: explicit). -/
++def explicitMask (env : Environment) (c : Name) : List Bool :=
++  match env.find? c with
++  | none => []
++  | some ci =>
++    let rec go : Expr → List Bool
++      | .forallE _ _ b bi => (bi == .default) :: go b
++      | .mdata _ e => go e
++      | _ => []
++    go ci.type
++
++/-- A term as Lean source: fully qualified constants, implicit arguments dropped, numerals as
++decimals, a bound variable as `#name` (`ns`: the binder names, innermost first). -/
++partial def showExpr (env : Environment) (ns : List Name) (e : Expr) : String :=
++  match e with
++  | .bvar i => "#" ++ (ns.getD i .anonymous).toString
++  | .const n _ => n.toString
++  | .lit (.natVal n) => toString n
++  | .lit (.strVal s) => s.quote
++  | .mdata _ e => showExpr env ns e
++  | .lam n _ b _ => s!"(fun {n} => {showExpr env (n :: ns) b})"
++  | .forallE n t b _ => s!"(∀ ({n} : {showExpr env ns t}), {showExpr env (n :: ns) b})"
++  | .letE n _ v b _ => s!"(let {n} := {showExpr env ns v}; {showExpr env (n :: ns) b})"
++  | .proj _ i s => s!"({showExpr env ns s}).{i + 1}"
++  | .app .. =>
++    let fn := e.getAppFn
++    let args := e.getAppArgs
++    if fn.isConstOf ``OfNat.ofNat && args.size == 3 then
++      match args[1]! with
++      | .lit (.natVal n) => toString n
++      | a => showExpr env ns a
++    else
++      let mask := match fn with
++        | .const c _ => explicitMask env c
++        | _ => []
++      let shown := (args.toList.zip (List.range args.size)).filterMap fun (a, i) =>
++        if mask.getD i true then some (showExpr env ns a) else none
++      "(" ++ " ".intercalate (showExpr env ns fn :: shown) ++ ")"
++  | _ => "_"
++
++/-- `fun x => x ∈ L` (either argument order of `Membership.mem`) with `L` not mentioning `x`. -/
++def memPred? (e : Expr) : Option Expr :=
++  match e.consumeMData with
++  | .lam _ _ b _ =>
++    let b := b.consumeMData
++    if b.isAppOfArity ``Membership.mem 5 then
++      let a3 := b.getArg! 3
++      let a4 := b.getArg! 4
++      if a4 == .bvar 0 && !a3.hasLooseBVar 0 then some (a3.lowerLooseBVars 1 1)
++      else if a3 == .bvar 0 && !a4.hasLooseBVar 0 then some (a4.lowerLooseBVars 1 1)
++      else none
++    else none
++  | _ => none
++
++/-- `fun _ => True`. -/
++def isUniv (e : Expr) : Bool :=
++  match e.consumeMData with
++  | .lam _ _ b _ => b.consumeMData.isConstOf ``True
++  | _ => false
++
++structure Premise where
++  cls : String
++  defn : Name
++  const : Name
++  term : String
++
++/-- The premise occurrences in `e`, the value of `d` (`ns`: binder names, innermost first). -/
++partial def findPremises (env : Environment) (d : Name) (ns : List Name) (e : Expr) :
++    Array Premise :=
++  let here : Option Premise :=
++    match e.getAppFn with
++    | .const c _ =>
++      let args := e.getAppArgs
++      let arg := fun i => (args[i]?).getD (.const .anonymous [])
++      if c == scopedPremise then
++        some ⟨"scoped", d, c, showExpr env ns (arg 0)⟩
++      else if c == keccakSeparated then
++        match memPred? (arg 0) with
++        | some l => some ⟨"scoped", d, c, showExpr env ns l⟩
++        | none => some ⟨if isUniv (arg 0) then "refuted" else "global", d, c, showExpr env ns (arg 0)⟩
++      else if refutedPremises.contains c then
++        -- NestedSlotsSeparated ms ns is false exactly when ns has a mapping slot below 2 ^ 256;
++        -- reported refuted unless its second argument is the empty list.
++        let nested := args[1]?.map (·.consumeMData.isAppOf ``List.nil) |>.getD false
++        some ⟨if nested then "global" else "refuted", d, c,
++          " ".intercalate (args.toList.map (showExpr env ns))⟩
++      else if globalPremises.contains c then
++        some ⟨"global", d, c, " ".intercalate ((args.toList.zip (List.range args.size)).filterMap
++          fun (a, i) => if (explicitMask env c).getD i true then some (showExpr env ns a) else none)⟩
++      else none
++    | _ => none
++  match here with
++  | some p => #[p]
++  | none =>
++    match e with
++    | .app f a => findPremises env d ns f ++ findPremises env d ns a
++    | .lam n t b _ => findPremises env d ns t ++ findPremises env d (n :: ns) b
++    | .forallE n t b _ => findPremises env d ns t ++ findPremises env d (n :: ns) b
++    | .letE n t v b _ => findPremises env d ns t ++ findPremises env d ns v ++ findPremises env d (n :: ns) b
++    | .mdata _ e => findPremises env d ns e
++    | .proj _ _ s => findPremises env d ns s
++    | _ => #[]
++
++/-- Every hash premise the statement `stmt` rests on, through the definitions it unfolds to. -/
++def hashPremises (env : Environment) (stmt : Name) : Array Premise := Id.run do
++  let upstream := fun (c : Name) =>
++    match env.getModuleIdxFor? c with
++    | some i => upstreamRoots.contains (env.header.moduleNames[i.toNat]!).getRoot
++    | none => false
++  let mut seen : NameSet := {}
++  let mut todo : Array Name := #[stmt]
++  let mut out : Array Premise := #[]
++  while h : todo.size > 0 do
++    let c := todo.back
++    todo := todo.pop
++    if seen.contains c then continue
++    seen := seen.insert c
++    if premiseConsts.contains c || upstream c then continue
++    let some (.defnInfo v) := env.find? c | continue
++    let used := v.value.getUsedConstants
++    if used.any premiseConsts.contains then
++      out := out ++ findPremises env c [] v.value
++    for u in used do
++      unless seen.contains u do todo := todo.push u
++  return out
++
+ def main (args : List String) : IO UInt32 := do
+   initSearchPath (← findSysroot)
+   if let ["--closure", m] := args then
+@@ -100,6 +266,14 @@ def main (args : List String) : IO UInt32 := do
+     return ← fail s!"{stmt} is True"
+   if axs.isEmpty then
+     return ← fail s!"{finalThm} depends on no axiom at all: a published statement's proof uses propext, Classical.choice or Quot.sound"
++  -- The hash premises the statement rests on, each printed; a refuted one makes it vacuous.
++  let prems := hashPremises senv stmt
++  for p in prems do
++    IO.println s!"PREMISE {p.cls} {p.defn} {p.const} {p.term}"
++  if prems.isEmpty then
++    IO.println "PREMISE none"
++  if let some p := prems.find? (·.cls == "refuted") then
++    return ← fail s!"{stmt} rests on {p.const} {p.term} (in {p.defn}), which Lean proves false: the statement is vacuous"
+   -- The modules this package built (their oleans under its .lake/build), for the driver to
+   -- replay through the kernel (leanchecker): an olean records declarations without the kernel
+   -- having to have checked them, so the types and axioms read here are only as good as that replay.
+diff --git a/tools/certify/footprint.py b/tools/certify/footprint.py
+new file mode 100755
+index 00000000..b240ff38
+--- /dev/null
++++ b/tools/certify/footprint.py
+@@ -0,0 +1,246 @@
++#!/usr/bin/env python3
++"""The decidable footprint check of a published statement's scoped hash premises.
++
++    footprint.py CHECK_LOG --lean-dir DIR --name NAME --out JSON [--witness ADDR ...] [--lean CMD]
++
++CHECK_LOG is the output of tools/certify/check_final.lean, whose "PREMISE CLASS DEFINITION CONSTANT
++TERM" lines name every keccak256 premise the statement rests on. For each scoped premise
++(SolidCore.Spec.ScopedSep of a call's footprint), this writes one Lean file importing NAME.Statement
++and Verify.Spec.HashScopeCheck that proves the premise for the real keccak256 at concrete calls,
++
++    theorem fp_i : SolidCore.Spec.ScopedSep (FOOTPRINT) :=
++      SolidCore.Spec.scopedSep_of_check (by decide +kernel)
++
++(scopedSep_of_check: the Boolean check sepCheckBy keccakWord L = true implies ScopedSep L), and has
++the toolchain's lean elaborate it; the kernel evaluates the sponge. A footprint the statement
++quantifies over (a variable #x the checker printed, such as the recipient of transfer) is checked at
++concrete witnesses: the other addresses of the same footprint (the self-call), 1, 2^160 - 1 and
++every --witness. This is a check at those calls, not a proof for every call: the record says so.
++Global premises are listed as not checkable; a refused one never reaches here (check_final fails).
++
++Exits 0 when every instance is accepted with axioms among propext, Classical.choice and Quot.sound,
++1 when one is refused (the premise is false at a call the statement covers, or the axiom audit
++fails), 2 on malformed input.
++"""
++
++import argparse
++import itertools
++import json
++import os
++import re
++import subprocess
++import sys
++import tempfile
++
++ALLOWED = {"propext", "Classical.choice", "Quot.sound"}
++# Footprint constructors and the argument positions (from 0) that hold addresses; the others are
++# mapping slots, which must be closed.
++SHAPES = {
++    "SolidCore.Spec.transferFootprint": (1, 2),
++    "SolidCore.Spec.approveFootprint": (1, 2),
++    "SolidCore.Spec.transferFromFootprint": (2, 3, 4),
++}
++VAR = re.compile(r"#([^\s()]+)")
++MAX_INSTANCES = 32
++
++
++def fail(msg, code=2):
++    print(f"footprint.py: {msg}", file=sys.stderr)
++    sys.exit(code)
++
++
++def split_app(term):
++    """'(f a (g b) c)' -> ['f', 'a', '(g b)', 'c']; None when term is not one application."""
++    t = term.strip()
++    if not (t.startswith("(") and t.endswith(")")):
++        return None
++    inner, out, depth, cur = t[1:-1], [], 0, ""
++    for ch in inner:
++        if ch == "(":
++            depth += 1
++        elif ch == ")":
++            depth -= 1
++            if depth < 0:
++                return None
++        if ch == " " and depth == 0:
++            if cur:
++                out.append(cur)
++            cur = ""
++        else:
++            cur += ch
++    if depth != 0:
++        return None
++    if cur:
++        out.append(cur)
++    return out
++
++
++def premises(log):
++    out = []
++    with open(log, encoding="utf-8") as fh:
++        log_lines = fh.read().splitlines()
++    for line in log_lines:
++        if not line.startswith("PREMISE "):
++            continue
++        parts = line.rstrip("\n").split(" ", 4)
++        if parts[1:] == ["none"]:
++            continue
++        if len(parts) != 5 or parts[1] not in ("scoped", "global", "refuted"):
++            fail(f"malformed PREMISE line: {line.strip()!r}")
++        out.append(
++            {
++                "class": parts[1],
++                "definition": parts[2],
++                "constant": parts[3],
++                "term": parts[4],
++            }
++        )
++    return out
++
++
++def instances(term, witnesses):
++    """The closed footprints to check for TERM, or (None, reason)."""
++    vars_ = sorted(set(VAR.findall(term)))
++    if not vars_:
++        return [term], None
++    app = split_app(term)
++    if not app or app[0] not in SHAPES:
++        return None, "open footprint of a shape the driver does not know"
++    addr_pos = SHAPES[app[0]]
++    args = app[1:]
++    for i, a in enumerate(args):
++        if i not in addr_pos and VAR.search(a):
++            return None, f"open mapping slot (argument {i + 1})"
++    values = list(
++        dict.fromkeys(
++            [a for i, a in enumerate(args) if i in addr_pos and not VAR.search(a)]
++            + witnesses
++        )
++    )
++    out = []
++    for combo in itertools.product(values, repeat=len(vars_)):
++        sub = dict(zip(vars_, combo))
++        out.append(VAR.sub(lambda m, sub=sub: sub[m.group(1)], term))
++        if len(out) >= MAX_INSTANCES:
++            break
++    return out, None
++
++
++def main():
++    ap = argparse.ArgumentParser()
++    ap.add_argument("log")
++    ap.add_argument("--lean-dir", required=True)
++    ap.add_argument("--name", required=True)
++    ap.add_argument("--out", required=True)
++    ap.add_argument("--witness", action="append", default=[])
++    ap.add_argument("--lean", default="lake env lean")
++    a = ap.parse_args()
++    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", a.name):
++        fail("--name is not a Lean name")
++    witnesses = ["1", str(2**160 - 1)]
++    for w in a.witness:
++        try:
++            v = int(w, 16) if w.lower().startswith("0x") else int(w)
++        except ValueError:
++            fail(f"--witness is not a number: {w}")
++        if not 0 <= v < 2**160:
++            fail(f"--witness is not an address (below 2^160): {w}")
++        witnesses.append(str(v))
++    prems = premises(a.log)
++    if any(p["class"] == "refuted" for p in prems):
++        fail(
++            "the statement rests on a refuted premise (check_final should have refused it)",
++            1,
++        )
++    todo = []
++    for p in prems:
++        p["checked"], p["unchecked"] = [], None
++        if p["class"] != "scoped":
++            p["unchecked"] = (
++                "global premise: a claim about every key, not decidable per call"
++            )
++            continue
++        if "_" in p["term"].split() or re.search(r"[\s(]_[\s)]", p["term"]):
++            p["unchecked"] = "the checker could not print the footprint"
++            continue
++        inst, why = instances(p["term"], witnesses)
++        if inst is None:
++            p["unchecked"] = why
++            continue
++        for t in inst:
++            todo.append((p, t))
++    if todo:
++        lines = [f"import {a.name}.Statement", "import Verify.Spec.HashScopeCheck", ""]
++        for i, (_, t) in enumerate(todo):
++            lines += [
++                "set_option maxRecDepth 100000 in",
++                f"theorem fp_{i} : SolidCore.Spec.ScopedSep {t} :=",
++                "  SolidCore.Spec.scopedSep_of_check (by decide +kernel)",
++                f"#print axioms fp_{i}",
++                "",
++            ]
++        with tempfile.TemporaryDirectory() as d:
++            f = os.path.join(d, "FootprintCheck.lean")
++            with open(f, "w", encoding="utf-8") as fh:
++                fh.write("\n".join(lines))
++            r = subprocess.run(
++                a.lean.split() + [f],
++                cwd=a.lean_dir,
++                capture_output=True,
++                text=True,
++                check=False,
++            )
++        out = r.stdout + r.stderr
++        axs = {
++            int(m.group(1)): m.group(2)
++            for m in re.finditer(r"'fp_(\d+)' depends on axioms: \[([^\]]*)\]", out)
++        }
++        errors = re.findall(r"FootprintCheck\.lean:(\d+):\d+: error", out)
++        bad_lines = {int(x) for x in errors}
++        for i, (p, t) in enumerate(todo):
++            start = 4 + 5 * i  # the theorem's line in the file (1-based)
++            refused = (
++                any(start - 1 <= ln <= start + 3 for ln in bad_lines) or i not in axs
++            )
++            ax = [x.strip() for x in axs.get(i, "").split(",") if x.strip()]
++            if not refused and not set(ax) <= ALLOWED:
++                refused = True
++            p["checked"].append(
++                {
++                    "footprint": t,
++                    "result": "refused" if refused else "kernel accepted",
++                    "axioms": ax,
++                }
++            )
++        if r.returncode != 0 and not bad_lines:
++            sys.stderr.write(out)
++            fail("lean failed on the footprint check", 1)
++    for p in prems:
++        n = len(p["checked"])
++        for c in p["checked"]:
++            print(
++                f"FOOTPRINT {c['result']} ScopedSep {c['footprint']} (premise in {p['definition']}) axioms {c['axioms']}"
++            )
++        if p["unchecked"]:
++            print(
++                f"FOOTPRINT not checked: {p['constant']} {p['term']} ({p['unchecked']})"
++            )
++        elif p["class"] == "scoped" and n:
++            ok = sum(c["result"] == "kernel accepted" for c in p["checked"])
++            print(
++                f"FOOTPRINT {p['definition']}: real keccak256 decided by the kernel at {n} concrete call(s): "
++                f"{ok} accepted, {n - ok} refused; not claimed for every call"
++            )
++    with open(a.out, "w", encoding="utf-8") as fh:
++        json.dump(
++            {"premises": prems, "witnesses": witnesses},
++            fh,
++            indent=2,
++            ensure_ascii=False,
++        )
++    if any(c["result"] != "kernel accepted" for p in prems for c in p["checked"]):
++        sys.exit(1)
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/tools/certify/test.sh b/tools/certify/test.sh
+index 29498905..cd9e3ccd 100755
+--- a/tools/certify/test.sh
++++ b/tools/certify/test.sh
+@@ -246,6 +246,33 @@ python3 -c 'import json, sys; d = json.load(open(sys.argv[1])); del d["statuses"
+ unit final-record-no-status "has no status resources" "check_final_record '$tmp/final-nostatus.json'; echo REACHED"
+ unit run-record-missing "the run's record .* is missing or malformed" "check_run_record '$tmp/no-record.json'; echo REACHED"
+ 
++# The footprint check's reading of check_final's PREMISE lines (tools/certify/footprint.py), before
++# any Lean: a malformed line, a refuted premise and bad witnesses fail; a statement with no hash
++# premise or only a global one is recorded without running Lean (the stand-in --lean would fail).
++fp_case() { # fp_case FILE LINES...: a check_final log with these lines
++    local f=$1; shift; printf '%s\n' "$@" > "$f"
++}
++fp_case "$tmp/fp-bad.log" "PREMISE scoped onlythree"
++unit footprint-malformed "malformed PREMISE line" \
++    "python3 '$root/tools/certify/footprint.py' '$tmp/fp-bad.log' --lean-dir '$tmp' --name N --out '$tmp/fp.json' --lean false; echo REACHED"
++fp_case "$tmp/fp-refuted.log" "PREMISE refuted D SolidCore.Spec.NestedSlotsSeparated (List.cons 1 List.nil) (List.cons 2 List.nil)"
++unit footprint-refuted "rests on a refuted premise" \
++    "python3 '$root/tools/certify/footprint.py' '$tmp/fp-refuted.log' --lean-dir '$tmp' --name N --out '$tmp/fp.json' --lean false; echo REACHED"
++fp_case "$tmp/fp-none.log" "PREMISE none"
++unit footprint-witness-range "not an address" \
++    "python3 '$root/tools/certify/footprint.py' '$tmp/fp-none.log' --lean-dir '$tmp' --name N --out '$tmp/fp.json' --witness 0x10000000000000000000000000000000000000000 --lean false; echo REACHED"
++unit_ok footprint-none "premises.:\[\]" \
++    "python3 '$root/tools/certify/footprint.py' '$tmp/fp-none.log' --lean-dir '$tmp' --name N --out '$tmp/fp.json' --lean false && tr -d '\n ' < '$tmp/fp.json' | grep -o 'premises.:\[\]'"
++fp_case "$tmp/fp-global.log" "PREMISE global D SolidCore.Spec.MapSlotsSeparated (List.cons 0 List.nil)"
++unit_ok footprint-global "not checked: SolidCore.Spec.MapSlotsSeparated .*global premise" \
++    "python3 '$root/tools/certify/footprint.py' '$tmp/fp-global.log' --lean-dir '$tmp' --name N --out '$tmp/fp.json' --lean false"
++fp_case "$tmp/fp-open.log" "PREMISE scoped D SolidCore.Spec.ScopedSep (SolidCore.Spec.transferFootprint #m 1 2)"
++unit_ok footprint-open-slot "not checked: .*open mapping slot" \
++    "python3 '$root/tools/certify/footprint.py' '$tmp/fp-open.log' --lean-dir '$tmp' --name N --out '$tmp/fp.json' --lean false"
++fp_case "$tmp/fp-lean-fails.log" "PREMISE scoped D SolidCore.Spec.ScopedSep (SolidCore.Spec.transferFootprint 1 8192 #dst)"
++unit footprint-lean-fails "footprint.py: lean failed|refused" \
++    "python3 '$root/tools/certify/footprint.py' '$tmp/fp-lean-fails.log' --lean-dir '$tmp' --name N --out '$tmp/fp.json' --lean false; echo REACHED"
++
+ # spec.sh against a stand-in solar-verify: a run that exits non-zero after writing a whole
+ # module, one cut short before its summary line, one whose status contradicts its summary, and a
+ # truncated module all fail; a whole one passes.
+-- 
+2.43.0
+

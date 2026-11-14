@@ -1,0 +1,16 @@
+{
+  "premises": [
+    {
+      "class": "global",
+      "definition": "Certified.hs_global.Final.Statement",
+      "constant": "SolidCore.Spec.MapSlotsSeparated",
+      "term": "(List.cons 0 (List.nil))",
+      "checked": [],
+      "unchecked": "global premise: a claim about every key, not decidable per call"
+    }
+  ],
+  "witnesses": [
+    "1",
+    "1461501637330902918203684832716283019655932542975"
+  ]
+}

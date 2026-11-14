@@ -1,0 +1,41 @@
+{
+  "premises": [
+    {
+      "class": "scoped",
+      "definition": "SolidCore.Spec.UniswapV2.ERC20.Slice.Scope",
+      "constant": "SolidCore.Spec.ScopedSep",
+      "term": "(SolidCore.Spec.transferFootprint SolidCore.Spec.UniswapV2.ERC20.Slice.balanceSlot SolidCore.Spec.UniswapV2.ERC20.Slice.caller #dst)",
+      "checked": [
+        {
+          "footprint": "(SolidCore.Spec.transferFootprint SolidCore.Spec.UniswapV2.ERC20.Slice.balanceSlot SolidCore.Spec.UniswapV2.ERC20.Slice.caller SolidCore.Spec.UniswapV2.ERC20.Slice.caller)",
+          "result": "kernel accepted",
+          "axioms": [
+            "propext",
+            "Quot.sound"
+          ]
+        },
+        {
+          "footprint": "(SolidCore.Spec.transferFootprint SolidCore.Spec.UniswapV2.ERC20.Slice.balanceSlot SolidCore.Spec.UniswapV2.ERC20.Slice.caller 1)",
+          "result": "kernel accepted",
+          "axioms": [
+            "propext",
+            "Quot.sound"
+          ]
+        },
+        {
+          "footprint": "(SolidCore.Spec.transferFootprint SolidCore.Spec.UniswapV2.ERC20.Slice.balanceSlot SolidCore.Spec.UniswapV2.ERC20.Slice.caller 1461501637330902918203684832716283019655932542975)",
+          "result": "kernel accepted",
+          "axioms": [
+            "propext",
+            "Quot.sound"
+          ]
+        }
+      ],
+      "unchecked": null
+    }
+  ],
+  "witnesses": [
+    "1",
+    "1461501637330902918203684832716283019655932542975"
+  ]
+}

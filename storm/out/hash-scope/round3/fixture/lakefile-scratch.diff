@@ -1,0 +1,14 @@
+diff --git a/lakefile.lean b/lakefile.lean
+index cf551c3..5d23268 100644
+--- a/lakefile.lean
++++ b/lakefile.lean
+@@ -608,3 +608,9 @@ lean_lib «abi_hash» where
+ -- ContractsUniswapV2TransferSlice (scripts/verify/uniswap_v2_stages.sh, uniswap_v2_transfer_slice.sh).
+ lean_lib ContractsUniswapV2ERC20Certified where
+   roots := #[`Contracts.UniswapV2.ERC20.Certified.Transfer]
++
++-- scratch (not committed): check_final's hash-premise tests
++lean_lib HsTest where
++  srcDir := "hstest"
++  roots := #[`hs_scoped.Final, `hs_global.Final, `hs_refuted.Final, `hs_none.Final]
++  globs := #[.andSubmodules `hs_scoped, .andSubmodules `hs_global, .andSubmodules `hs_refuted, .andSubmodules `hs_none]
