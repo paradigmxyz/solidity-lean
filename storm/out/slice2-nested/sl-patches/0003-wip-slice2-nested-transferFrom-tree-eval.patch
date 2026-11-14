@@ -1,0 +1,148 @@
+From 4c092fb1d8714282b36760c362ab1b0bdb77ceba Mon Sep 17 00:00:00 2001
+From: pyramid <pyramid@tempo.xyz>
+Date: Sat, 14 Nov 2026 14:23:24 +0000
+Subject: [PATCH 3/4] wip(slice2-nested): transferFrom tree eval
+
+---
+ .../ERC20/Nested/TransferFromSpec.lean        | 128 ++++++++++++++++++
+ 1 file changed, 128 insertions(+)
+
+diff --git a/Contracts/UniswapV2/ERC20/Nested/TransferFromSpec.lean b/Contracts/UniswapV2/ERC20/Nested/TransferFromSpec.lean
+index 3dc7a21..75a0dda 100644
+--- a/Contracts/UniswapV2/ERC20/Nested/TransferFromSpec.lean
++++ b/Contracts/UniswapV2/ERC20/Nested/TransferFromSpec.lean
+@@ -68,3 +68,131 @@ def transferFromResult (st : Nat → Nat) (frm dst value : Nat) : Observable :=
+   else revertWith st []
+ 
+ end SolidCore.Spec.UniswapV2.ERC20.Nested
++
++namespace SolidCore.Spec.UniswapV2.ERC20.Nested
++
++open SolarTV SolidCore.Refinement SolidCore.Refinement.Generic
++
++/-! ## The tree, compactly
++
++`tfTree` is `transferFrom_tree` with its words named (`transferFrom_tree_eq`, by `rfl`): the slots `wA`
++(`allowance[frm][caller]`), `wF` (`balanceOf[frm]`), `wT` (`balanceOf[dst]`), and each read as the source
++makes it after the writes before it (`wbF`: `balanceOf[frm]` after the allowance write, `wdT`:
++`balanceOf[dst]` after both). -/
++
++def wV : WExpr := .arg 2
++def wA : WExpr := .hash (.lit 8192) (.hash (.arg 0) (.lit 2))
++def wF : WExpr := .hash (.arg 0) (.lit 1)
++def wT : WExpr := .hash (.arg 1) (.lit 1)
++def wA1 : WExpr := .bin .sub (.sinit wA) wV
++def wbF : WExpr := .sel (.bin .eq wF wA) wA1 (.sinit wF)
++def wbT1 : WExpr := .sel (.bin .eq wT wA) wA1 (.sinit wT)
++def wF2 : WExpr := .bin .sub wbF wV
++def wdT : WExpr := .sel (.bin .eq wT wF) wF2 wbT1
++def wF2n : WExpr := .bin .sub (.sinit wF) wV
++def wdTn : WExpr := .sel (.bin .eq wT wF) wF2n (.sinit wT)
++
++/-- A revert with the bytes `b`. -/
++def errT (b : List Nat) : Tree := .halt false (b.map OByte.lit) [] []
++
++/-- Success with the writes `ws`: returns `true`, logs `Transfer(frm, dst, value)`. -/
++def okT (ws : Writes) : Tree :=
++  .halt true (wordOBytes (.lit 1)) ws [⟨[.lit transferTopic, .arg 0, .arg 1], wordOBytes wV⟩]
++
++/-- SafeMath's check `require(x - y <= x)`, as the tree's condition (nonzero: no underflow). -/
++def noUnder (x x1 : WExpr) : WExpr := .un .iszero (.bin .lt x x1)
++
++def tfTree : Tree :=
++  .ite (.bin .gt (.arg 0) (.lit 1461501637330902918203684832716283019655932542975)) (errT [])
++  (.ite (.bin .gt (.arg 1) (.lit 1461501637330902918203684832716283019655932542975)) (errT [])
++  (.ite (.un .iszero (.bin .eq (.sinit wA) (.lit (2 ^ 256 - 1))))
++    (.ite (noUnder (.sinit wA) wA1)
++      (.ite (noUnder wbF wF2)
++        (.ite (noUnder (.bin .add wdT wV) wdT)
++          (okT [(wT, .bin .add wdT wV), (wF, .bin .sub wbF wV), (wA, wA1)])
++          (errT addOverflow))
++        (errT subUnderflow))
++      (errT subUnderflow))
++    (.ite (noUnder (.sinit wF) wF2n)
++      (.ite (noUnder (.bin .add wdTn wV) wdTn) (okT [(wT, .bin .add wdTn wV), (wF, wF2n)])
++        (errT addOverflow))
++      (errT subUnderflow))))
++
++theorem transferFrom_tree_eq : transferFrom_tree = tfTree := by
++  decide +kernel
++
++theorem errT_eval (ρ : Val) (b : List Nat) (hb : b.map (· % 256) = b) :
++    ((errT b).eval ρ).obs = { success := false, output := b, logs := [], storage := ρ.store } := by
++  simp only [errT, Tree.eval, Res.obs, List.map_map, Function.comp_def, OByte.eval]
++  simp only [Bool.false_eq_true, if_false, Observable.mk.injEq, and_true, true_and]
++  exact hb
++
++theorem wordOBytes_eval (ρ : Val) (e : WExpr) :
++    (wordOBytes e).map (OByte.eval ρ) = word32 (e.eval ρ) := by
++  simp [wordOBytes, word32, List.map_map, Function.comp_def, OByte.eval]
++
++theorem okT_eval (ρ : Val) (ws : Writes) :
++    ((okT ws).eval ρ).obs = (⟨true, word32 1,
++      [([transferTopic, ρ.args.getD 0 0 % 2 ^ 256, ρ.args.getD 1 0 % 2 ^ 256],
++        word32 (ρ.args.getD 2 0 % 2 ^ 256))], Writes.store ρ ws⟩ : Observable) := by
++  simp only [okT, Tree.eval, Res.obs, if_true, List.map_cons, List.map_nil, Log.eval, wordOBytes_eval,
++    WExpr.eval, wV, Generic.wordSize]
++  simp [word32]
++  all_goals decide
++
++theorem eval_ite_obs (ρ : Val) (c : WExpr) (t e : Tree) :
++    ((Tree.ite c t e).eval ρ).obs = if c.eval ρ = 0 then (e.eval ρ).obs else (t.eval ρ).obs := by
++  simp only [Tree.eval]
++  split <;> rfl
++
++theorem subUnderflow_mod : subUnderflow.map (· % 256) = subUnderflow := by decide +kernel
++theorem addOverflow_mod : addOverflow.map (· % 256) = addOverflow := by decide +kernel
++
++theorem ite01 (p : Prop) [Decidable p] : ((if p then 1 else 0) % 2 ^ 256 = 0) = ¬p := by
++  by_cases h : p <;> simp [h]
++
++set_option maxHeartbeats 4000000 in
++/-- **The generic source stage's tree of transferFrom gives exactly `transferFromResult`**, on every
++argument word and every storage of words, with no hash premise: the tree's selects on slot equality
++are the source's own aliasing, which `upd` reproduces. -/
++theorem transferFrom_tree_eval (frm dst value : Nat) (st : Nat → Nat) (hf : frm < 2 ^ 256)
++    (ht : dst < 2 ^ 256) (hv : value < 2 ^ 256) (hst : ∀ k, st k < 2 ^ 256) :
++    (transferFrom_tree.eval ⟨[frm, dst, value], st, solHash⟩).obs = transferFromResult st frm dst value := by
++  have hl := solHash_lt
++  simp only [Generic.wordSize] at hl
++  have hH : ∀ a b, solHash a b % 2 ^ 256 = solHash a b := fun a b => Nat.mod_eq_of_lt (hl a b)
++  have hS : ∀ k, st k % 2 ^ 256 = st k := fun k => Nat.mod_eq_of_lt (hst k)
++  have hfN : frm % 2 ^ 256 = frm := Nat.mod_eq_of_lt hf
++  have htN : dst % 2 ^ 256 = dst := Nat.mod_eq_of_lt ht
++  have hvN : value % 2 ^ 256 = value := Nat.mod_eq_of_lt hv
++  rw [transferFrom_tree_eq]
++  simp only [tfTree, noUnder, eval_ite_obs, okT_eval, errT_eval _ _ subUnderflow_mod,
++    errT_eval _ _ addOverflow_mod, errT_eval _ [] rfl]
++  simp only [wA, wF, wT, wV, wA1, wbF, wbT1, wF2, wdT, wF2n, wdTn, WExpr.eval, BinOp.eval, UnOp.eval,
++    Writes.store, List.getD_cons_zero, List.getD_cons_succ, Generic.wordSize, hH, hS, hfN, htN, hvN]
++  unfold transferFromResult transferSteps revertWith
++  simp only [allowanceSlot, balanceSlot, caller, umax]
++  have hA := hl 8192 (solHash frm 2)
++  have hF := hl frm 1
++  have hT := hl dst 1
++  have hsA := hst (solHash 8192 (solHash frm 2))
++  have hsF := hst (solHash frm 1)
++  have hsT := hst (solHash dst 1)
++  generalize solHash 8192 (solHash frm 2) = A at *
++  generalize solHash frm 1 = F at *
++  generalize solHash dst 1 = T at *
++  have hAm : A % 2 ^ 256 = A := Nat.mod_eq_of_lt hA
++  have hFm : F % 2 ^ 256 = F := Nat.mod_eq_of_lt hF
++  have hTm : T % 2 ^ 256 = T := Nat.mod_eq_of_lt hT
++  simp only [upd, ite01, not_not, Nat.mod_mod, hAm, hFm, hTm]
++  simp only [Nat.reducePow, Nat.reduceSub, Nat.reduceMod]
++  clear hl hH hS
++  split_ifs <;> first
++    | (exfalso; omega)
++    | (simp only [Observable.mk.injEq, true_and, and_true]
++       all_goals first
++         | rfl
++         | (funext n; (try simp only [upd]); (try dsimp only); split_ifs <;> omega))
++
++end SolidCore.Spec.UniswapV2.ERC20.Nested
++
+-- 
+2.43.0
+

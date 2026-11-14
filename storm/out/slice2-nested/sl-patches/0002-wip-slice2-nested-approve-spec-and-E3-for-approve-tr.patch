@@ -1,7 +1,7 @@
 From b5cf9baafcacd8d0a4a8078564a9b9f5b55f5e08 Mon Sep 17 00:00:00 2001
 From: pyramid <pyramid@tempo.xyz>
 Date: Sat, 14 Nov 2026 14:09:31 +0000
-Subject: [PATCH 2/2] wip(slice2-nested): approve spec and E3 for approve,
+Subject: [PATCH 2/4] wip(slice2-nested): approve spec and E3 for approve,
  transferFrom
 
 ---
