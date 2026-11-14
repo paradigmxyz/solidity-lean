@@ -1,10 +1,10 @@
-$ SOLAR=target/debug/solar SOLAR_VERIFY=target/debug/solar-verify tools/certify/test.sh   # solar cd6c21bb, Lean (version 4.35.0
-ok   unpinned-checkout: is at b7d65107dbe9685f8ca1d9b8836923274146d142, not the pinned 7aedd6330678291a0d13a465ddd398a7990de3a3
+$ SOLAR=target/debug/solar SOLAR_VERIFY=target/debug/solar-verify tools/certify/test.sh   # solar 66d9c98b (tree 4868389e), Lean (version 4.35.0
+ok   unpinned-checkout: is at d77f0c5edf5a2b567e75d4400e5284f14bd900d6, not the pinned 9fb89ee6c4fe68623f033aa9b702714c19e38506
 ok   ci-unpinned: CERTIFY_ALLOW_UNPINNED is refused in CI
 ok   ci-foreign-solar: CERTIFY_ALLOW_FOREIGN_SOLAR is refused in CI
 ok   bad-name: is not lowercase letters
 ok   no-source: no such file
-skip foreign-solar: /home/hand/pyramid-workspace/repos/631030757/target/debug/solar is built from this checkout
+skip foreign-solar: /home/hand/solar is built from this checkout
 ok   two-contracts: no single contract with runtime code
 ok   no-such-contract: has no contract Nope
 ok   bytecode-pin: the bytecode is not the pinned Examples/counter/bytecode.hex
@@ -45,27 +45,27 @@ ok   final-record-empty: final-empty.json is empty
 ok   final-record-truncated: final-cut.json is not JSON
 ok   final-record-incomplete: lacks theorem, strongest
 ok   final-record-no-status: has no status resources
-ok   run-record-missing: the run's record /tmp/tmp.bgf8cAkDsQ/no-record.json is missing or malformed
-ok   verify-nonzero-after-output: solar-verify fails on /tmp/tmp.bgf8cAkDsQ/counter.sol (exit 3)
+ok   run-record-missing: the run's record /tmp/tmp.3v0zzykYeM/no-record.json is missing or malformed
+ok   verify-nonzero-after-output: solar-verify fails on /tmp/tmp.3v0zzykYeM/counter.sol (exit 3)
 ok   verify-no-summary: solar-verify exits 1 without its summary line
 ok   verify-status-contradicts: solar-verify exits 1 but reports 0 errors
 ok   vc-export-truncated: does not end with a newline: it is truncated
 ok   vc-export-cut-at-a-line: does not end with 'end T.Counter' (its last line is 'def transcript : String := "(check-sat)\\n"'): it is truncated
 ok   vc-export-whole: is whole (17 lines, ends with end T.Counter)
-ok   replay-accounted: kernel replay: 3 of 3 modules of the closure outside the trusted directories replayed by leanchecker in this run; 2 trusted by directory (package:/tmp/tmp.bgf8cAkDsQ/replay/mathlib: 1, toolchain: 1); 0 unaccounted; closure 5 = 3 + 2
+ok   replay-accounted: kernel replay: 3 of 3 modules of the closure outside the trusted directories replayed by leanchecker in this run; 2 trusted by directory (package:/tmp/tmp.3v0zzykYeM/replay/mathlib: 1, toolchain: 1); 0 unaccounted; closure 5 = 3 + 2
 ok   replay-include-trusted: kernel replay: 5 of 5 modules of the closure outside the trusted directories replayed by leanchecker in this run; 0 trusted by directory (none); 0 unaccounted; closure 5 = 5 + 0
 ok   replay-module-missing: 1 of 3 modules of the closure were not replayed by leanchecker in this run: counter.Shape
 ok   replay-checker-silent: 3 of 3 modules of the closure were not replayed
 ok   replay-checker-nonzero-after-output: leanchecker exits 1: the kernel replay of the closure fails
-ok   replay-trusted-outside-roots: unaccounted for: counter.Shape (/tmp/tmp.bgf8cAkDsQ/replay/pkg/.lake/build/lib/lean/counter/Shape.olean) is marked trusted but is under no trusted directory
+ok   replay-trusted-outside-roots: unaccounted for: counter.Shape (/tmp/tmp.3v0zzykYeM/replay/pkg/.lake/build/lib/lean/counter/Shape.olean) is marked trusted but is under no trusted directory
 ok   replay-root-not-the-packages: unaccounted for: Evil.X
 ok   replay-malformed-line: malformed closure line
 ok   replay-duplicate-module: module counter.Shape is listed twice
 ok   replay-empty-closure: lists no module of the closure
 ok   replay-final-missing: the closure has no module counter.Final
-ok   replay-olean-missing: the olean of counter.Shape at /tmp/tmp.bgf8cAkDsQ/replay/pkg/.lake/build/lib/lean/counter/Gone.olean does not exist
+ok   replay-olean-missing: the olean of counter.Shape at /tmp/tmp.3v0zzykYeM/replay/pkg/.lake/build/lib/lean/counter/Gone.olean does not exist
 ok   replay-toolchain-checker: kernel replay: 3 of 3
-ok   replay-planted-checker: the replay ran /tmp/tmp.bgf8cAkDsQ/replay/pkg/.lake/build/bin/leanchecker (... not the toolchain's leanchecker
+ok   replay-planted-checker: the replay ran /tmp/tmp.3v0zzykYeM/replay/pkg/.lake/build/bin/leanchecker (... not the toolchain's leanchecker
 ok   replay-olean-changed: oleans of the closure changed since they were planned: counter.Shape
 ok   audit-axiom: axioms beyond propext, Classical.choice and Quot.sound: certify_bad
 ok   audit-native-decide: axioms beyond propext, Classical.choice and Quot.sound: uses_native._native.native_decide.ax_1_1
@@ -74,18 +74,20 @@ ok   audit-missing: does not check
 ok   audit-clean: clean and good pass
 ok   scan-bad: the axiom, native_decide and sorry lines are flagged
 ok   scan-good: Good.lean passes the scan
-ok   lean-replay-accounted: closure: 654 modules, 1 to replay, 653 trusted by directory; kernel replay: 1 of 1 modules of the closure outside the trusted directories replayed by leanchecker in this run; 653 trusted by directory (toolchain: 653); 0 unaccounted; closure 654 = 1 + 653
-ok   lean-replay-other-module: 1 of 1 modules of the closure were not replayed by leanchecker in this run: Good
+ok   lean-replay-accounted: closure: 654 modules, 654 to replay, 0 trusted by directory; kernel replay: 654 of 654 modules of the closure outside the trusted directories replayed by leanchecker in this run; 0 trusted by directory (none); 0 unaccounted; closure 654 = 654 + 0
+ok   lean-replay-other-module: 654 of 654 modules of the closure were not replayed
 ok   spec-counter: exported, nothing refused
-FAIL spec-refused: nothing refused:
-  export: /tmp/tmp.bgf8cAkDsQ/spec-nested/VC.lean is whole (132 lines, ends with end T.Nested)
+ok   spec-nested-supported: exported, C.f translated, nothing refused (is whole (132 lines, ends with end T.Nested))
+ok   spec-refused-function: C.f: undeclared symbol: |m@21|
+ok   spec-refused-whole: /tmp/tmp.3v0zzykYeM/structmap.sol (every function): command outside the Lean fragment: (declare-datatypes ((|S.S| 0)) ((
 ok   vc-export-real: whole passes, half of it fails: does not end with a newline: it is truncated
-ok   spec-export-whole: export: /tmp/tmp.bgf8cAkDsQ/Spec.lean is whole (48 lines, ends with end T.Counter.Spec)
+ok   spec-export-whole: export: /tmp/tmp.3v0zzykYeM/Spec.lean is whole (48 lines, ends with end T.Counter.Spec)
 ok   spec-export-truncated: it is truncated
 ok   spec-export-no-end: does not end with 'end T.Counter.Spec'
 ok   spec-export-empty: Spec-empty.lean is empty
 ok   spec-export-missing: the spec export is missing
 ok   spec-export-stale-source: is of a source with SHA-256 2b94af37f654079986183efe0e172cab71445bc30b88f7f1e38a0100490ea427, not
 ok   spec-export-other-contract: has no Bundle Token
-certify driver tests: 1 failed
-exit status: 1
+certify driver tests: all passed
+RECEIPT {"command": ["tools/certify/test.sh"], "exit_code": 0, "wall_seconds": 150.2, "max_rss_one_process_mib": 1941, "peak_tree_rss_mib": 1646, "peak_system_used_mib": 2790, "mem_total_mib": 14531, "started_utc": "2026-11-14T15:15:56Z"}
+exit status: 0

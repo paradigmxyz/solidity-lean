@@ -1,0 +1,12 @@
+{
+  "command": [
+    "tools/certify/test.sh"
+  ],
+  "exit_code": 0,
+  "wall_seconds": 150.2,
+  "max_rss_one_process_mib": 1941,
+  "peak_tree_rss_mib": 1646,
+  "peak_system_used_mib": 2790,
+  "mem_total_mib": 14531,
+  "started_utc": "2026-11-14T15:15:56Z"
+}
