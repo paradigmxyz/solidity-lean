@@ -1,0 +1,131 @@
+== 1. the pinned solidity-lean checkout
+certify: warning: solidity-lean at 5d51a4c04354aa2e44f65d475a376aac693fc12c, not the pinned 7aedd6330678291a0d13a465ddd398a7990de3a3
+solidity-lean 5d51a4c04354aa2e44f65d475a376aac693fc12c at /home/hand/w/dev
+== 2. solar
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.13s
+solar 38b5232add998cd34a311c8cecf5737d38f9cce6
+solar sha256 bfc1424eecee8ea579375253062b0b6ac3dbfa2f43d6c43f43542bee35f8d915
+== 3. compile Certified/abi_hash/abi_hash.sol and export its stages (-Ogas --evm-version osaka)
+stages: stage0 (lower-evm-shaped), mir1 (evm-inst-schedule), sched (stack-schedule), evm1 (cfg-simplify-early), evm2 (share-reverts), evm3 (terminal-dedup), evm4 (cfg-simplify-early), bytecode (assemble)
+bytecode: 34602f575f3560e01c806366d82b2b03602f5760443610602f576004355f5260243560205260405f205f5260205ff35b5f5ffd sha256 4ebf12dcd2d28ab92d3b72bb17f68f6da9eb5f46b8b6deba620d0fda68a3f31f
+== 4. write the proofs
+assembly: decoded only; the loop-free stages have no backward composition to run the bytecode with
+{"final": "SolarTV.Milestone.AbiHash.abi_hash_mir_to_evmir", "last": "evm4", "first": "stage0", "stages": ["stage0", "mir1", "sched", "evm1", "evm2", "evm3", "evm4"]}
+== 5. build and audit the proofs
+abi_hash.gen.AbiHash.Bytecode: Build completed successfully (2 jobs).
+abi_hash.gen.AbiHash.Evm1: Build completed successfully (12 jobs).
+abi_hash.gen.AbiHash.Evm2: Build completed successfully (12 jobs).
+abi_hash.gen.AbiHash.Evm3: Build completed successfully (12 jobs).
+abi_hash.gen.AbiHash.Evm4: Build completed successfully (12 jobs).
+abi_hash.gen.AbiHash.Manifest: Build completed successfully (2 jobs).
+abi_hash.gen.AbiHash.Mir1: Build completed successfully (11 jobs).
+abi_hash.gen.AbiHash.Sched: Build completed successfully (12 jobs).
+abi_hash.gen.AbiHash.Stage0: Build completed successfully (11 jobs).
+abi_hash.Proofs.Runs.Evm1: Build completed successfully (21 jobs).
+abi_hash.Proofs.Runs.Evm2: Build completed successfully (21 jobs).
+abi_hash.Proofs.Runs.Evm3: Build completed successfully (21 jobs).
+abi_hash.Proofs.Runs.Evm4: Build completed successfully (21 jobs).
+abi_hash.Proofs.Runs.Mir1: Build completed successfully (21 jobs).
+abi_hash.Proofs.Runs.Sched: Build completed successfully (21 jobs).
+abi_hash.Proofs.Runs.Stage0: Build completed successfully (20 jobs).
+abi_hash.Proofs.Stages: Build completed successfully (35 jobs).
+abi_hash.Proofs.Assembly: Build completed successfully (17 jobs).
+abi_hash.Proofs: Build completed successfully (41 jobs).
+'SolarTV.Milestone.AbiHash.abi_hash_mir_to_evmir' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.AbiHash.checked' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.AbiHash.decodes' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.AbiHash.evm1_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.AbiHash.evm1_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.AbiHash.evm2_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.AbiHash.evm2_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.AbiHash.evm3_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.AbiHash.evm3_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.AbiHash.evm4_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.AbiHash.items_eq' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.AbiHash.mir1_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.AbiHash.mir1_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.AbiHash.sched_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.AbiHash.sched_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.AbiHash.stage0_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.AbiHash.stage_evm1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.AbiHash.stage_evm2' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.AbiHash.stage_evm3' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.AbiHash.stage_evm4' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.AbiHash.stage_mir1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.AbiHash.stage_sched' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.AbiHash.walk_eq' depends on axioms: [propext, Quot.sound]
+audited 23 theorems
+== 6. the spec (solar-verify) and the headline theorems
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.10s
+spec: exported to .lake/certify/abi_hash/VC.lean
+no Certified/abi_hash/headline: no end-to-end theorem
+== 6b. the published statement
+{"proof": "Certified.abi_hash.Shape.published", "gas_needed": 1414406, "blocks": 2}
+source: SolidCore/Refinement/Source/AbiHash.lean is the front end's AST of AbiHash in Certified/abi_hash/abi_hash.sol (solc 0.8.35)
+abi_hash.Statement: Build completed successfully (2704 jobs).
+abi_hash.Final: Build completed successfully (2720 jobs).
+STATEMENT Certified.abi_hash.Final.Statement := And (Eq.{1} (List.{0} Nat) (List.map.{0, 0} UInt8 Nat (fun (x._@.abi_hash.Statement.1005636212._hygCtx._hyg.12 : UInt8) => UInt8.toNat x._@.abi_hash.Statement.1005636212._hygCtx._hyg.12) (Array.toList.{0} UInt8 (ByteArray.data Certified.abi_hash.Final.code))) Certified.abi_hash.Final.runtimeBytes) (Exists.{1} SolidCore.Solidity.TypeCheck.CheckedContract (fun (c : SolidCore.Solidity.TypeCheck.CheckedContract) => And (Eq.{1} (Except.{0, 0} SolidCore.Solidity.TypeCheck.TypeError SolidCore.Solidity.TypeCheck.CheckedContract) SolidCore.Refinement.Solar.AbiHash.contract? (Except.ok.{0, 0} SolidCore.Solidity.TypeCheck.TypeError SolidCore.Solidity.TypeCheck.CheckedContract c)) (SolidCore.Refinement.Shapes.Compiled (SolidCore.Refinement.solidCore SolidCore.Refinement.Solar.AbiHash.fuel) c Certified.abi_hash.Final.code (SolidCore.Refinement.Shapes.genericValid SolidCore.Refinement.Solar.AbiHash.fns (List.nil.{0} (Prod.{0, 0} Nat Nat))) (fun (x._@.abi_hash.Statement.1005636212._hygCtx._hyg.62 : SolarTV.Call) => OfNat.ofNat.{0} Nat 10000000 (instOfNatNat 10000000)))))
+check_final: Certified.abi_hash.Final.final : Certified.abi_hash.Final.Statement (module abi_hash.Statement, which does not import abi_hash.Shape); axioms [propext, Classical.choice, Quot.sound]
+kernel replay of 423 modules (0 replayed by an earlier run): ok
+'Certified.abi_hash.Final.final' depends on axioms: [propext, Classical.choice, Quot.sound]
+published: Certified.abi_hash.Final.final
+== 7. negative tests
+ok   bytecode-control: Certified/abi_hash/Proofs/Assembly.lean accepts the unedited Bytecode
+  bytecode offset 22: 0x10 as 0x11
+ok   bytecode-opcode: Certified/abi_hash/Proofs/Assembly.lean rejects it: Tactic `decide` proved that the proposition walk bytecode offset 0 items = some stream is false
+skip bytecode-lt: no such code in Bytecode
+skip bytecode-jump-table: no such code in Bytecode
+ok   Evm4-control: Certified/abi_hash/Proofs/Runs/Evm4.lean accepts the unedited Evm4
+skip Evm4-add-sub: no such code in Evm4
+skip Evm4-sstore-key: no such code in Evm4
+ok   Evm4-no-callvalue-check: Certified/abi_hash/Proofs/Runs/Evm4.lean rejects it: sym_exec: the runs end in different results on this path
+skip Evm4-no-overflow-check: no such code in Evm4
+skip Evm4-no-log: no such code in Evm4
+ok   Evm4-no-keccak: Certified/abi_hash/Proofs/Runs/Evm4.lean rejects it: sym_exec: the runs end in different results on this path
+skip Evm4-log-topic: no such code in Evm4
+skip Evm4-log-offset: no such code in Evm4
+  mapping key stored at 0 as the key plus one
+ok   Evm4-mapping-key: Certified/abi_hash/Proofs/Runs/Evm4.lean rejects it: sym_exec: the runs end in different results on this path
+skip Evm4-mapping-slot: no such code in Evm4
+skip Evm4-nested-mapping-key: no such code in Evm4
+skip Evm4-log-swap-topics: no such code in Evm4
+skip Evm4-no-storage-check: no such code in Evm4
+skip Evm4-no-all-ones-branch: no such code in Evm4
+skip Evm4-mul-add: no such code in Evm4
+skip Evm4-no-narrow-check: no such code in Evm4
+skip Evm4-call-kind: no such code in Evm4
+skip Evm4-no-call-check: no such code in Evm4
+skip Evm4-jump-table: no such code in Evm4
+skip sched-add-sub: no such code in Sched
+ok   Mir1-control: Certified/abi_hash/Proofs/Runs/Mir1.lean accepts the unedited Mir1
+  line 26: .calldataload [.const 36] as .calldataload [.const 68]
+ok   Mir1-wrote: Certified/abi_hash/Proofs/Runs/Mir1.lean rejects it: sym_exec: the runs end in different results on this path
+skip Mir1-wrote-cast: no such code in Mir1
+skip Mir1-wrote-phi: no such code in Mir1
+skip Mir1-wrote-op: no such code in Mir1
+skip Evm4-loop-add-sub: no such code in Evm4
+skip Evm4-loop-exit: no such code in Evm4
+abi_hash negative tests: all 8 passed
+stale-byte: refused by the kernel, statement (/home/hand/w/dev/.lake/certify-final-neg-abi_hash/stale-byte/Statement.lean:41:53: error: Tactic `decide` proved that the proposition)
+substituted-artifact: refused by the kernel, statement (/home/hand/w/dev/.lake/certify-final-neg-abi_hash/substituted-artifact/Statement.lean:77:53: error: Tactic `decide` proved that the proposition)
+strongest-with-vacuous-spec: refused by final.py (final.py: shape.json: allowed is trivially true ('fun _ _ => True'): it must reject something, or vacuity must say why it does not)
+strongest-with-vacuous-spec-witness: refused by the kernel (/home/hand/w/dev/.lake/certify-final-neg-abi_hash/strongest-with-vacuous-spec-witness/Final.lean:9:42: error: Application type mismatch: The argument)
+wrong-gas-bound: refused by the kernel (/home/hand/w/dev/.lake/certify-final-neg-abi_hash/wrong-gas-bound/Final.lean:9:42: error: Application type mismatch: The argument)
+spec-on-compiled: refused by final.py (final.py: shape.json: kind compiled states no specification (no post))
+vacuous-proof-no-witness: refused by final.py (final.py: shape.json: kind certified needs nonvacuous (a proof that the specification and the allowed statuses reject something) or vacuity (why that is not sho)
+vacuous-proof-sorry-witness: refused by the checker (check_final: Certified.abi_hash.Final.final depends on axioms beyond propext, Classical.choice and Quot.sound: [sorryAx])
+hijack-names: refused by the kernel (/home/hand/w/dev/.lake/certify-final-neg-abi_hash/hijack-names/Final.lean:9:42: error: Application type mismatch: The argument)
+hijack-alias: refused by the kernel (/home/hand/w/dev/.lake/certify-final-neg-abi_hash/hijack-alias/Final.lean:9:42: error: Application type mismatch: The argument)
+hijack-macro: refused by the checker (check_final: the type of Certified.abi_hash.Final.final is not exactly Certified.abi_hash.Final.Statement: True)
+hijack-skip-kernel: refused by the kernel replay ((kernel) declaration type mismatch, 'NegProof.fake' has type)
+sorry-proof: refused by the checker (check_final: Certified.abi_hash.Final.final depends on axioms beyond propext, Classical.choice and Quot.sound: [sorryAx])
+final_neg: every variant refused
+record: /home/hand/w/dev/.lake/certify-abi_hash.json and Certified/abi_hash/record.json
+mir_to_evmir: proved: SolarTV.Milestone.AbiHash.abi_hash_mir_to_evmir
+assembly: executed: inside the published statement Certified.abi_hash.Final.final (Shapes.Equiv and Resources over Target.runWith of the exact bytes); Proofs/: decoded only: abi_hash.Proofs.Assembly (the bytecode decodes to the final EVM IR's instructions; no execution theorem)
+vc: exported to .lake/certify/abi_hash/VC.lean
+end_to_end: not proved
+caveats: solidity-lean at 5d51a4c04354aa2e44f65d475a376aac693fc12c, not the pinned 7aedd6330678291a0d13a465ddd398a7990de3a3; provenance: the solidity-lean checkout is not its commit: changed: lakefile.lean;untracked or ignored: .cache/solc-0.8.35;untracked or ignored: Certified/abi_hash/Proofs.lean;untracked or ignored: Certified/abi_hash/abi_hash.sol;untracked or ignored: Certified/abi_hash/bytecode.hex;; provenance: the starting build directory is trusted, not rebuilt from source (CERTIFY_CLEAN_BUILD=1); not end to end: solidity-lean states no source or spec theorem for abi_hash
+statuses: equivalence proved (published statement, Shapes.Equiv): at every gas below 2^256 every result of the exact bytecode on a valid call is the source's, or a failure that changes nothing (out of gas or a revert, whatever its data); such a failure only below the gas bound, and from the bound on exactly the source's, revert data included (Shapes.EquivG, a field of Shapes.Compiled), termination proved (published statement, Shapes.Terminates): the source ends on every valid call with any status (no specification declares the allowed ones); the bytecode too, at gas from the bound on, spec none: solar-verify has no specification of abi_hash, resources proved (published statement, Shapes.Resources): from the gas bound on, below 2^64, the bytecode gives the source's result, vacuity not applicable (no specification), source SolidCore/Refinement/Source/AbiHash.lean is the front end's AST of AbiHash in Certified/abi_hash/abi_hash.sol (solc 0.8.35), strongest False
+CHECKED abi_hash (AbiHash), published Certified.abi_hash.Final.final; not certified: not proved: spec; bytecode 34602f575f3560e01c806366d82b2b03602f5760443610602f576004355f5260243560205260405f205f5260205ff35b5f5ffd
+EXIT 0

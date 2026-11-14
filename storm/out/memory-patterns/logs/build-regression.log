@@ -1,0 +1,136 @@
+⚠ [1352/1526] Replayed SolidCore.Refinement.Evm.Lemmas
+⚠ [2300/2509] Replayed EvmYul.UInt256
+⚠ [2309/2509] Replayed SolidCore.Solidity.Shared.PrecompilePairing
+⚠ [2358/2509] Replayed EvmYul.Wheels
+⚠ [2473/2509] Replayed EvmYul.Maps.ByteMap
+⚠ [2475/2509] Replayed EvmYul.Operations
+⚠ [2481/2509] Replayed EvmYul.Maps.StorageMap
+⚠ [2483/2509] Replayed EvmYul.State.Substate
+⚠ [2484/2509] Replayed Conform.Wheels
+⚠ [2485/2509] Replayed EvmYul.State.Transaction
+⚠ [2488/2509] Replayed EvmYul.Maps.AccountMap
+⚠ [2491/2509] Replayed EvmYul.State.Block
+⚠ [2492/2509] Replayed EvmYul.State
+⚠ [2499/2509] Replayed EvmYul.MachineStateOps
+⚠ [2500/2509] Replayed EvmInteraction.Simulation.Outcome
+⚠ [2506/2853] Replayed SolidCore.Solidity.Interface.Foundation
+⚠ [2508/2853] Replayed SolidCore.Solidity.TypeCheck
+⚠ [2510/2853] Replayed SolidCore.Solidity.Interface.Statements
+⚠ [2511/2853] Replayed SolidCore.Solidity.Interface.Contracts
+⚠ [2515/2853] Replayed SolidCore.Refinement.Statement
+⚠ [2516/2853] Replayed SolidCore.Refinement.Check
+⚠ [2517/2853] Replayed SolidCore.Refinement.Abi
+⚠ [2525/2853] Replayed SolarTV.Machine
+⚠ [2532/2853] Replayed SolarTV.Stages.Assembly
+⚠ [2534/2853] Replayed SolidCore.Refinement.Solar.AssembleStackN
+⚠ [2535/2853] Replayed SolidCore.Refinement.Solar.Assemble
+⚠ [2538/2853] Replayed SolidCore.Refinement.Solar.AssembleSim
+⚠ [2541/2853] Replayed SolidCore.Refinement.Solar.AssembleLoop
+⚠ [2543/2853] Replayed SolidCore.Refinement.Solar.AssembleMem
+⚠ [2544/2853] Replayed SolidCore.Refinement.Solar.AssembleCutSim
+⚠ [2545/2853] Replayed SolidCore.Refinement.Solar.AssembleDyn
+⚠ [2549/2853] Replayed Loom.MonadUtil
+⚠ [2550/2853] Replayed Loom.SpecMonad
+⚠ [2551/2853] Replayed Loom.MonadAlgebras.Defs
+definition with `@[instance_reducible]`. If it is intentionally semireducible, this warning can be disabled with `set_option warn.classDefReducibility false`.
+definition with `@[instance_reducible]`. If it is intentionally semireducible, this warning can be disabled with `set_option warn.classDefReducibility false`.
+definition with `@[instance_reducible]`. If it is intentionally semireducible, this warning can be disabled with `set_option warn.classDefReducibility false`.
+The goal is a proposition, so `let` is preferred over `letI`.
+The difference between `let` and `letI` is that `letI` inlines the value.
+But this is not relevant for proofs because of proof irrelevance.
+⚠ [2553/2853] Replayed Loom.MonadAlgebras.Instances.ExceptT
+definition with `@[instance_reducible]`. If it is intentionally semireducible, this warning can be disabled with `set_option warn.classDefReducibility false`.
+⚠️ There are 2 `[Monad m]` instances; one is sufficient.
+⚠ [2557/2853] Replayed Loom.MonadAlgebras.WP.Basic
+⚠️ There are 2 `[Monad m]` instances; one is sufficient.
+⚠️ There are 2 `[Monad m]` instances; one is sufficient.
+⚠ [2558/2853] Replayed Loom.MonadAlgebras.WP.Variant
+⚠ [2559/2853] Replayed Loom.MonadAlgebras.Instances.ExceptTErr
+definition with `@[instance_reducible]`. If it is intentionally semireducible, this warning can be disabled with `set_option warn.classDefReducibility false`.
+definition with `@[instance_reducible]`. If it is intentionally semireducible, this warning can be disabled with `set_option warn.classDefReducibility false`.
+⚠ [2560/2853] Replayed Verify.Basic
+⚠ [2561/2853] Replayed Verify.Final
+⚠ [2564/2853] Replayed SolidCore.Refinement.Solar.RunOracle
+⚠ [2589/2853] Replayed SolidCore.Refinement.Solar.AssembleEffects
+⚠ [2590/2853] Replayed SolidCore.Refinement.Solar.AssembleDynCopy
+⚠ [2591/2853] Replayed SolidCore.Refinement.Solar.AssembleRun
+⚠ [2594/2853] Replayed SolidCore.Refinement.SourceOracleSat
+⚠ [2596/2853] Replayed SolidCore.Refinement.Solar.AssembleCut
+⚠ [2598/2853] Replayed SolidCore.Refinement.Solar.AssembleCall
+⚠ [2600/2853] Replayed SolidCore.Refinement.Solar.AssembleCallPre
+⚠ [2601/2853] Replayed SolidCore.Refinement.Solar.AssembleCallCut
+⚠ [2602/2853] Replayed SolidCore.Refinement.Solar.AssembleCallSeg
+⚠ [2603/2853] Replayed SolidCore.Refinement.Solar.AssembleCallStatic
+⚠ [2607/2853] Replayed SolidCore.Refinement.Solar.AssembleFast
+⚠ [2614/2853] Replayed SolidCore.Refinement.Generic.Tree
+⚠ [2615/2853] Replayed SolidCore.Refinement.Generic.Packed
+⚠ [2616/2853] Replayed SolidCore.Refinement.Generic.Source
+⚠ [2617/2853] Replayed SolidCore.Refinement.Generic.Simp
+⚠ [2618/2853] Replayed SolidCore.Refinement.Generic.Event
+⚠ [2619/2853] Replayed SolidCore.Refinement.Generic.SourceStmt
+⚠ [2622/2853] Replayed SolidCore.Refinement.Dirty.Source
+⚠ [2623/2853] Replayed SolidCore.Refinement.Wide.Source
+⚠ [2627/2853] Replayed SolidCore.Refinement.Generic.SourceRun
+⚠ [2633/2853] Replayed SolidCore.Refinement.Generic.Value
+⚠ [2634/2853] Replayed SolidCore.Refinement.Keccak.Agree
+info: SolidCore/Refinement/Keccak/Agree.lean:290:0: 'SolidCore.Refinement.Keccak.keccak256_64' depends on axioms: [propext, Classical.choice, Quot.sound]
+⚠ [2635/2853] Replayed SolidCore.Refinement.Keccak.TwoWords
+info: SolidCore/Refinement/Keccak/TwoWords.lean:51:0: 'SolidCore.Refinement.Keccak.ethKeccak_twoWords' depends on axioms: [propext, Classical.choice, Quot.sound]
+ℹ [2637/2853] Replayed SolidCore.Refinement.KernelCopies
+info: SolidCore/Refinement/KernelCopies.lean:22:0: kernel_clone SolidCore.Solidity.TypeCheck.CheckedInput.contract: 588 copies in 7404 ms
+info: SolidCore/Refinement/KernelCopies.lean:23:0: kernel_clone SolidCore.Solidity.TypeCheck.checkedInputSourceUnit: 372 copies in 1817 ms
+info: SolidCore/Refinement/KernelCopies.lean:24:0: kernel_clone SolidCore.Refinement.Abi.deployedStorage: 116 copies in 317 ms
+info: SolidCore/Refinement/KernelCopies.lean:25:0: kernel_clone SolidCore.Refinement.Wide.deployedEmpty: 1 copies in 6 ms
+info: SolidCore/Refinement/KernelCopies.lean:26:0: kernel_clone SolidCore.Refinement.Dirty.fnShapeOk: nothing to copy
+ℹ [2641/2853] Replayed SolidCore.Refinement.Solar.Bank.Lowering
+info: SolidCore/Refinement/Solar/Bank/Lowering.lean:611:0: 'SolidCore.Refinement.Solar.Bank.selector_eq' depends on axioms: [propext, Quot.sound]
+info: SolidCore/Refinement/Solar/Bank/Lowering.lean:613:0: 'SolidCore.Refinement.Solar.Bank.digest_eq' depends on axioms: [propext, Quot.sound]
+info: SolidCore/Refinement/Solar/Bank/Lowering.lean:615:0: 'SolidCore.Refinement.Solar.Bank.shape_eq' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: SolidCore/Refinement/Solar/Bank/Lowering.lean:617:0: 'SolidCore.Refinement.Solar.Bank.check_stage0' depends on axioms: [propext]
+info: SolidCore/Refinement/Solar/Bank/Lowering.lean:619:0: 'SolidCore.Refinement.Solar.Bank.checkValue_stage0' depends on axioms: [propext]
+info: SolidCore/Refinement/Solar/Bank/Lowering.lean:621:0: 'SolidCore.Refinement.Solar.Bank.check_rejects_slot' depends on axioms: [propext]
+info: SolidCore/Refinement/Solar/Bank/Lowering.lean:623:0: 'SolidCore.Refinement.Solar.Bank.check_rejects_caller' depends on axioms: [propext]
+info: SolidCore/Refinement/Solar/Bank/Lowering.lean:625:0: 'SolidCore.Refinement.Solar.Bank.check_rejects_topic' depends on axioms: [propext]
+info: SolidCore/Refinement/Solar/Bank/Lowering.lean:627:0: 'SolidCore.Refinement.Solar.Bank.lowering' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: SolidCore/Refinement/Solar/Bank/Lowering.lean:629:0: 'SolidCore.Refinement.Solar.Bank.loweringValue' depends on axioms: [propext, Classical.choice, Quot.sound]
+ℹ [2644/2853] Replayed SolidCore.Refinement.Solar.Events.Lowering
+info: SolidCore/Refinement/Solar/Events/Lowering.lean:276:0: 'SolidCore.Refinement.Solar.Events.selector_eq' depends on axioms: [propext, Quot.sound]
+info: SolidCore/Refinement/Solar/Events/Lowering.lean:278:0: 'SolidCore.Refinement.Solar.Events.digest_eq' depends on axioms: [propext, Quot.sound]
+info: SolidCore/Refinement/Solar/Events/Lowering.lean:280:0: 'SolidCore.Refinement.Solar.Events.shape_eq' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: SolidCore/Refinement/Solar/Events/Lowering.lean:282:0: 'SolidCore.Refinement.Solar.Events.check_stage0' depends on axioms: [propext]
+info: SolidCore/Refinement/Solar/Events/Lowering.lean:284:0: 'SolidCore.Refinement.Solar.Events.checkValue_stage0' depends on axioms: [propext]
+info: SolidCore/Refinement/Solar/Events/Lowering.lean:286:0: 'SolidCore.Refinement.Solar.Events.check_rejects_caller' depends on axioms: [propext]
+info: SolidCore/Refinement/Solar/Events/Lowering.lean:288:0: 'SolidCore.Refinement.Solar.Events.check_rejects_topic' depends on axioms: [propext]
+info: SolidCore/Refinement/Solar/Events/Lowering.lean:290:0: 'SolidCore.Refinement.Solar.Events.check_rejects_order' depends on axioms: [propext]
+info: SolidCore/Refinement/Solar/Events/Lowering.lean:292:0: 'SolidCore.Refinement.Solar.Events.lowering' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: SolidCore/Refinement/Solar/Events/Lowering.lean:294:0: 'SolidCore.Refinement.Solar.Events.loweringValue' depends on axioms: [propext, Classical.choice, Quot.sound]
+⚠ [2652/2853] Replayed W1Proofs.Tactic
+⚠ [2791/2853] Replayed Contracts.VerifyCounter.Mir
+⚠ [2793/2853] Replayed Contracts.VerifyCounter.Holds
+ℹ [2802/2853] Replayed SolidCore.Refinement.Solar.AbiHash.Lowering
+info: SolidCore/Refinement/Solar/AbiHash/Lowering.lean:275:0: 'SolidCore.Refinement.Solar.AbiHash.shape_eq' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: SolidCore/Refinement/Solar/AbiHash/Lowering.lean:276:0: 'SolidCore.Refinement.Solar.AbiHash.check_stage0' depends on axioms: [propext]
+info: SolidCore/Refinement/Solar/AbiHash/Lowering.lean:277:0: 'SolidCore.Refinement.Solar.AbiHash.checkValue_stage0' depends on axioms: [propext]
+info: SolidCore/Refinement/Solar/AbiHash/Lowering.lean:278:0: 'SolidCore.Refinement.Solar.AbiHash.check_rejects_order' depends on axioms: [propext]
+info: SolidCore/Refinement/Solar/AbiHash/Lowering.lean:279:0: 'SolidCore.Refinement.Solar.AbiHash.check_rejects_size' depends on axioms: [propext]
+info: SolidCore/Refinement/Solar/AbiHash/Lowering.lean:280:0: 'SolidCore.Refinement.Solar.AbiHash.check_rejects_arg' depends on axioms: [propext]
+info: SolidCore/Refinement/Solar/AbiHash/Lowering.lean:281:0: 'SolidCore.Refinement.Solar.AbiHash.lowering' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: SolidCore/Refinement/Solar/AbiHash/Lowering.lean:282:0: 'SolidCore.Refinement.Solar.AbiHash.loweringValue' depends on axioms: [propext, Classical.choice, Quot.sound]
+ℹ [2819/2853] Replayed abi_hash.Final
+info: Certified/abi_hash/Final.lean:11:0: 'Certified.abi_hash.Final.final' depends on axioms: [propext, Classical.choice, Quot.sound]
+ℹ [2823/2853] Replayed SolidCore.Refinement.Solar.EventWords.Lowering
+info: SolidCore/Refinement/Solar/EventWords/Lowering.lean:373:0: 'SolidCore.Refinement.Solar.EventWords.selector_eq' depends on axioms: [propext, Quot.sound]
+info: SolidCore/Refinement/Solar/EventWords/Lowering.lean:375:0: 'SolidCore.Refinement.Solar.EventWords.digest_eq' depends on axioms: [propext, Quot.sound]
+info: SolidCore/Refinement/Solar/EventWords/Lowering.lean:377:0: 'SolidCore.Refinement.Solar.EventWords.shape_eq' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: SolidCore/Refinement/Solar/EventWords/Lowering.lean:379:0: 'SolidCore.Refinement.Solar.EventWords.check_stage0' depends on axioms: [propext]
+info: SolidCore/Refinement/Solar/EventWords/Lowering.lean:381:0: 'SolidCore.Refinement.Solar.EventWords.checkValue_stage0' depends on axioms: [propext]
+info: SolidCore/Refinement/Solar/EventWords/Lowering.lean:383:0: 'SolidCore.Refinement.Solar.EventWords.check_rejects_caller' depends on axioms: [propext]
+info: SolidCore/Refinement/Solar/EventWords/Lowering.lean:385:0: 'SolidCore.Refinement.Solar.EventWords.check_rejects_topic' depends on axioms: [propext]
+info: SolidCore/Refinement/Solar/EventWords/Lowering.lean:387:0: 'SolidCore.Refinement.Solar.EventWords.check_rejects_order' depends on axioms: [propext]
+info: SolidCore/Refinement/Solar/EventWords/Lowering.lean:389:0: 'SolidCore.Refinement.Solar.EventWords.check_rejects_data' depends on axioms: [propext]
+info: SolidCore/Refinement/Solar/EventWords/Lowering.lean:391:0: 'SolidCore.Refinement.Solar.EventWords.check_rejects_heap' depends on axioms: [propext]
+info: SolidCore/Refinement/Solar/EventWords/Lowering.lean:393:0: 'SolidCore.Refinement.Solar.EventWords.lowering' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: SolidCore/Refinement/Solar/EventWords/Lowering.lean:395:0: 'SolidCore.Refinement.Solar.EventWords.loweringValue' depends on axioms: [propext, Classical.choice, Quot.sound]
+ℹ [2857/2857] Replayed event_words.Final
+info: Certified/event_words/Final.lean:11:0: 'Certified.event_words.Final.final' depends on axioms: [propext, Classical.choice, Quot.sound]
+Build completed successfully (2857 jobs).

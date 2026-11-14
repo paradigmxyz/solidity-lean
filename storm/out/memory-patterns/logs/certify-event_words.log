@@ -1,0 +1,198 @@
+== 1. the pinned solidity-lean checkout
+certify: warning: solidity-lean at 5d51a4c04354aa2e44f65d475a376aac693fc12c, not the pinned 7aedd6330678291a0d13a465ddd398a7990de3a3
+solidity-lean 5d51a4c04354aa2e44f65d475a376aac693fc12c at /home/hand/w/dev2
+== 2. solar
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.14s
+solar 38b5232add998cd34a311c8cecf5737d38f9cce6
+solar sha256 bfc1424eecee8ea579375253062b0b6ac3dbfa2f43d6c43f43542bee35f8d915
+== 3. compile Certified/event_words/event_words.sol and export its stages (-Ogas --evm-version osaka)
+stages: stage0 (lower-evm-shaped), mir1 (place-reads), mir2 (dce), mir3 (spell-width-tests), mir4 (lower-assumes), mir5 (evm-inst-schedule), sched (stack-schedule), evm1 (peephole-early), evm2 (cfg-simplify-early), evm3 (compact-pushes), evm4 (block-layout), evm5 (share-reverts), evm6 (terminal-dedup), evm7 (cfg-simplify-early), evm8 (block-cse), bytecode (assemble)
+bytecode: 346089575f3560e01c8063562e19df03608957608060405260843560a01c60a43610176089576084355f1960601c8116608080600435825260243560a05260443560c05260643560e05283337fd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d8228385a380820360cb5750505f1960601c331160b357818103608d57005b5f5ffd5b6d010200000000000000020000001b5b60205260405260605263ed572b275f526064601cfd5b5f1960601c33690417000000000000000260201b609d565b6d0112000000000000000200000019919091609d56 sha256 7913fabebc485079bd90fbab5a4b2ae172c9915254a24e52fff8755366fa612e
+== 4. write the proofs
+assembly: decoded only; the loop-free stages have no backward composition to run the bytecode with
+{"final": "SolarTV.Milestone.EventWords.event_words_mir_to_evmir", "last": "evm8", "first": "stage0", "stages": ["stage0", "mir1", "mir2", "mir3", "mir4", "mir5", "sched", "evm1", "evm2", "evm3", "evm4", "evm5", "evm6", "evm7", "evm8"]}
+== 5. build and audit the proofs
+event_words.gen.EventWords.Bytecode: Build completed successfully (2 jobs).
+event_words.gen.EventWords.Evm1: Build completed successfully (12 jobs).
+event_words.gen.EventWords.Evm2: Build completed successfully (12 jobs).
+event_words.gen.EventWords.Evm3: Build completed successfully (12 jobs).
+event_words.gen.EventWords.Evm4: Build completed successfully (12 jobs).
+event_words.gen.EventWords.Evm5: Build completed successfully (12 jobs).
+event_words.gen.EventWords.Evm6: Build completed successfully (12 jobs).
+event_words.gen.EventWords.Evm7: Build completed successfully (12 jobs).
+event_words.gen.EventWords.Evm8: Build completed successfully (12 jobs).
+event_words.gen.EventWords.Manifest: Build completed successfully (2 jobs).
+event_words.gen.EventWords.Mir1: Build completed successfully (11 jobs).
+event_words.gen.EventWords.Mir2: Build completed successfully (11 jobs).
+event_words.gen.EventWords.Mir3: Build completed successfully (11 jobs).
+event_words.gen.EventWords.Mir4: Build completed successfully (11 jobs).
+event_words.gen.EventWords.Mir5: Build completed successfully (11 jobs).
+event_words.gen.EventWords.Sched: Build completed successfully (12 jobs).
+event_words.gen.EventWords.Stage0: Build completed successfully (11 jobs).
+event_words.Proofs.Runs.Evm1: Build completed successfully (21 jobs).
+event_words.Proofs.Runs.Evm2: Build completed successfully (21 jobs).
+event_words.Proofs.Runs.Evm3: Build completed successfully (21 jobs).
+event_words.Proofs.Runs.Evm4: Build completed successfully (21 jobs).
+event_words.Proofs.Runs.Evm5: Build completed successfully (21 jobs).
+event_words.Proofs.Runs.Evm6: Build completed successfully (21 jobs).
+event_words.Proofs.Runs.Evm7: Build completed successfully (21 jobs).
+event_words.Proofs.Runs.Evm8: Build completed successfully (21 jobs).
+event_words.Proofs.Runs.Mir1: Build completed successfully (21 jobs).
+event_words.Proofs.Runs.Mir2: Build completed successfully (21 jobs).
+event_words.Proofs.Runs.Mir3: Build completed successfully (21 jobs).
+event_words.Proofs.Runs.Mir4: Build completed successfully (21 jobs).
+event_words.Proofs.Runs.Mir5: Build completed successfully (21 jobs).
+event_words.Proofs.Runs.Sched: Build completed successfully (21 jobs).
+event_words.Proofs.Runs.Stage0: Build completed successfully (20 jobs).
+event_words.Proofs.Stages: Build completed successfully (51 jobs).
+event_words.Proofs.Assembly: Build completed successfully (17 jobs).
+event_words.Proofs: Build completed successfully (57 jobs).
+'SolarTV.Milestone.EventWords.checked' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.EventWords.decodes' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.EventWords.event_words_mir_to_evmir' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.evm1_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.evm1_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.evm2_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.evm2_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.evm3_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.evm3_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.evm4_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.evm4_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.evm5_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.evm5_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.evm6_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.evm6_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.evm7_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.evm7_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.evm8_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.items_eq' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.EventWords.mir1_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.mir1_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.mir2_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.mir2_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.mir3_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.mir3_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.mir4_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.mir4_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.mir5_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.mir5_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.sched_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.sched_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.stage0_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.stage_evm1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.stage_evm2' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.stage_evm3' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.stage_evm4' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.stage_evm5' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.stage_evm6' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.stage_evm7' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.stage_evm8' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.stage_mir1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.stage_mir2' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.stage_mir3' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.stage_mir4' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.stage_mir5' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.stage_sched' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.walk_eq' depends on axioms: [propext, Quot.sound]
+audited 47 theorems
+== 6. the spec (solar-verify) and the headline theorems
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.11s
+spec: exported to .lake/certify/event_words/VC.lean
+no Certified/event_words/headline: no end-to-end theorem
+== 6b. the published statement
+{"proof": "Certified.event_words.Shape.published", "gas_needed": 10210224, "blocks": 6}
+source: SolidCore/Refinement/Source/EventWords.lean is the front end's AST of EventWords in Certified/event_words/event_words.sol (solc 0.8.35)
+event_words.Statement: Build completed successfully (2704 jobs).
+event_words.Final: Build completed successfully (2736 jobs).
+STATEMENT Certified.event_words.Final.Statement := And (Eq.{1} (List.{0} Nat) (List.map.{0, 0} UInt8 Nat (fun (x._@.event_words.Statement.1005636212._hygCtx._hyg.12 : UInt8) => UInt8.toNat x._@.event_words.Statement.1005636212._hygCtx._hyg.12) (Array.toList.{0} UInt8 (ByteArray.data Certified.event_words.Final.code))) Certified.event_words.Final.runtimeBytes) (Exists.{1} SolidCore.Solidity.TypeCheck.CheckedContract (fun (c : SolidCore.Solidity.TypeCheck.CheckedContract) => And (Eq.{1} (Except.{0, 0} SolidCore.Solidity.TypeCheck.TypeError SolidCore.Solidity.TypeCheck.CheckedContract) SolidCore.Refinement.Solar.EventWords.contract? (Except.ok.{0, 0} SolidCore.Solidity.TypeCheck.TypeError SolidCore.Solidity.TypeCheck.CheckedContract c)) (SolidCore.Refinement.Shapes.Compiled (SolidCore.Refinement.solidCore SolidCore.Refinement.Solar.EventWords.fuel) c Certified.event_words.Final.code (SolidCore.Refinement.Shapes.genericValid SolidCore.Refinement.Solar.EventWords.fns (List.nil.{0} (Prod.{0, 0} Nat Nat))) (fun (x._@.event_words.Statement.1005636212._hygCtx._hyg.62 : SolarTV.Call) => OfNat.ofNat.{0} Nat 10210224 (instOfNatNat 10210224)))))
+check_final: Certified.event_words.Final.final : Certified.event_words.Final.Statement (module event_words.Statement, which does not import event_words.Shape); axioms [propext, Classical.choice, Quot.sound]
+kernel replay of 439 modules (0 replayed by an earlier run): ok
+'Certified.event_words.Final.final' depends on axioms: [propext, Classical.choice, Quot.sound]
+published: Certified.event_words.Final.final
+== 7. negative tests
+ok   bytecode-control: Certified/event_words/Proofs/Assembly.lean accepts the unedited Bytecode
+  bytecode offset 33: 0x10 as 0x11
+ok   bytecode-opcode: Certified/event_words/Proofs/Assembly.lean rejects it: Tactic `decide` proved that the proposition walk bytecode offset 0 items = some stream is false
+skip bytecode-lt: no such code in Bytecode
+skip bytecode-jump-table: no such code in Bytecode
+ok   Evm8-control: Certified/event_words/Proofs/Runs/Evm8.lean accepts the unedited Evm8
+skip Evm8-add-sub: no such code in Evm8
+skip Evm8-sstore-key: no such code in Evm8
+ok   Evm8-no-callvalue-check: Certified/event_words/Proofs/Runs/Evm8.lean rejects it: sym_exec: the runs end in different results on this path
+skip Evm8-no-overflow-check: no such code in Evm8
+ok   Evm8-no-log: Certified/event_words/Proofs/Runs/Evm8.lean rejects it: sym_exec: the runs end in different results on this path
+skip Evm8-no-keccak: no such code in Evm8
+  log topic 0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822 as 0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d823
+ok   Evm8-log-topic: Certified/event_words/Proofs/Runs/Evm8.lean rejects it: sym_exec: the runs end in different results on this path
+skip Evm8-log-offset: no such code in Evm8
+skip Evm8-mapping-key: no such code in Evm8
+skip Evm8-mapping-slot: no such code in Evm8
+skip Evm8-nested-mapping-key: no such code in Evm8
+skip Evm8-log-swap-topics: no such code in Evm8
+skip Evm8-no-storage-check: no such code in Evm8
+skip Evm8-no-all-ones-branch: no such code in Evm8
+skip Evm8-mul-add: no such code in Evm8
+skip Evm8-no-narrow-check: no such code in Evm8
+skip Evm8-call-kind: no such code in Evm8
+skip Evm8-no-call-check: no such code in Evm8
+skip Evm8-jump-table: no such code in Evm8
+ok   sched-add-sub: Certified/event_words/Proofs/Runs/Sched.lean rejects it: sym_exec: the runs end in different results on this path
+ok   Mir1-control: Certified/event_words/Proofs/Runs/Mir1.lean accepts the unedited Mir1
+  line 33: .calldataload [.const 132] as .calldataload [.const 164]
+ok   Mir1-wrote: Certified/event_words/Proofs/Runs/Mir1.lean rejects it: sym_exec: the runs end in different results on this path
+skip Mir1-wrote-cast: no such code in Mir1
+skip Mir1-wrote-phi: no such code in Mir1
+  line 38: .pure 49 .and [ as .pure 49 .or [
+ok   Mir1-wrote-op: Certified/event_words/Proofs/Runs/Mir1.lean rejects it: sym_exec: the runs end in different results on this path
+ok   Mir2-control: Certified/event_words/Proofs/Runs/Mir2.lean accepts the unedited Mir2
+skip Mir2-wrote: no such code in Mir2
+skip Mir2-wrote-cast: no such code in Mir2
+skip Mir2-wrote-phi: no such code in Mir2
+skip Mir2-wrote-op: no such code in Mir2
+ok   Mir3-control: Certified/event_words/Proofs/Runs/Mir3.lean accepts the unedited Mir3
+  line 20: .const 160 as .const 161
+ok   Mir3-wrote: Certified/event_words/Proofs/Runs/Mir3.lean rejects it: sym_exec: the runs end in different results on this path
+  line 21: .word 61 (.value 15) as .word 61 (.const 1)
+ok   Mir3-wrote-cast: Certified/event_words/Proofs/Runs/Mir3.lean rejects it: sym_exec: the runs end in different results on this path
+skip Mir3-wrote-phi: no such code in Mir3
+  line 20: .pure 58 .shr [ as .pure 58 .shl [
+ok   Mir3-wrote-op: Certified/event_words/Proofs/Runs/Mir3.lean rejects it: sym_exec: the runs end in different results on this path
+ok   Mir4-control: Certified/event_words/Proofs/Runs/Mir4.lean accepts the unedited Mir4
+  line 49: .branch (.value 65) 4 5 as .branch (.value 65) 5 4
+ok   Mir4-wrote: Certified/event_words/Proofs/Runs/Mir4.lean rejects it: sym_exec: the runs end in different results on this path
+skip Mir4-wrote-cast: no such code in Mir4
+skip Mir4-wrote-phi: no such code in Mir4
+  line 63: .pure 67 .gt [ as .pure 67 .lt [
+ok   Mir4-wrote-op: Certified/event_words/Proofs/Runs/Mir4.lean rejects it: sym_exec: the runs end in different results on this path
+ok   Mir5-control: Certified/event_words/Proofs/Runs/Mir5.lean accepts the unedited Mir5
+  line 17: .calldataload [.const 132] as .calldataload [.const 164]
+ok   Mir5-wrote: Certified/event_words/Proofs/Runs/Mir5.lean rejects it: sym_exec: the runs end in different results on this path
+skip Mir5-wrote-cast: no such code in Mir5
+skip Mir5-wrote-phi: no such code in Mir5
+skip Mir5-wrote-op: no such code in Mir5
+skip Evm8-loop-add-sub: no such code in Evm8
+skip Evm8-loop-exit: no such code in Evm8
+event_words negative tests: all 20 passed
+stale-byte: refused by the kernel, statement (/home/hand/w/dev2/.lake/certify-final-neg-event_words/stale-byte/Statement.lean:52:53: error: Tactic `decide` proved that the proposition)
+substituted-artifact: refused by the kernel, statement (/home/hand/w/dev2/.lake/certify-final-neg-event_words/substituted-artifact/Statement.lean:77:53: error: Tactic `decide` proved that the proposition)
+strongest-with-vacuous-spec: refused by final.py (final.py: shape.json: allowed is trivially true ('fun _ _ => True'): it must reject something, or vacuity must say why it does not)
+strongest-with-vacuous-spec-witness: refused by the kernel (/home/hand/w/dev2/.lake/certify-final-neg-event_words/strongest-with-vacuous-spec-witness/Final.lean:9:45: error: Application type mismatch: The argument)
+wrong-gas-bound: refused by the kernel (/home/hand/w/dev2/.lake/certify-final-neg-event_words/wrong-gas-bound/Final.lean:9:45: error: Application type mismatch: The argument)
+spec-on-compiled: refused by final.py (final.py: shape.json: kind compiled states no specification (no post))
+vacuous-proof-no-witness: refused by final.py (final.py: shape.json: kind certified needs nonvacuous (a proof that the specification and the allowed statuses reject something) or vacuity (why that is not sho)
+vacuous-proof-sorry-witness: refused by the checker (check_final: Certified.event_words.Final.final depends on axioms beyond propext, Classical.choice and Quot.sound: [sorryAx])
+hijack-names: refused by the kernel (/home/hand/w/dev2/.lake/certify-final-neg-event_words/hijack-names/Final.lean:9:45: error: Application type mismatch: The argument)
+hijack-alias: refused by the kernel (/home/hand/w/dev2/.lake/certify-final-neg-event_words/hijack-alias/Final.lean:9:45: error: Application type mismatch: The argument)
+hijack-macro: refused by the checker (check_final: the type of Certified.event_words.Final.final is not exactly Certified.event_words.Final.Statement: True)
+hijack-skip-kernel: refused by the kernel replay ((kernel) declaration type mismatch, 'NegProof.fake' has type)
+sorry-proof: refused by the checker (check_final: Certified.event_words.Final.final depends on axioms beyond propext, Classical.choice and Quot.sound: [sorryAx])
+final_neg: every variant refused
+record: /home/hand/w/dev2/.lake/certify-event_words.json and Certified/event_words/record.json
+mir_to_evmir: proved: SolarTV.Milestone.EventWords.event_words_mir_to_evmir
+assembly: executed: inside the published statement Certified.event_words.Final.final (Shapes.Equiv and Resources over Target.runWith of the exact bytes); Proofs/: decoded only: event_words.Proofs.Assembly (the bytecode decodes to the final EVM IR's instructions; no execution theorem)
+vc: exported to .lake/certify/event_words/VC.lean
+end_to_end: not proved
+caveats: solidity-lean at 5d51a4c04354aa2e44f65d475a376aac693fc12c, not the pinned 7aedd6330678291a0d13a465ddd398a7990de3a3; provenance: the solidity-lean checkout is not its commit: changed: Certified/event_words/shape.json;changed: SolidCore/Refinement/Solar/AssembleCallSeg.lean;changed: SolidCore/Refinement/Solar/AssembleCreateRunF.lean;changed: SolidCore/Refinement/Solar/AssembleCreateSegF.lean;changed: SolidCore/Refinement/Solar/AssembleCtx.lean;; provenance: the solar checkout (driver or compiler sources) is not its commit 38b5232add998cd34a311c8cecf5737d38f9cce6: changed: tools/certify/asm_cert.py;; provenance: the starting build directory is trusted, not rebuilt from source (CERTIFY_CLEAN_BUILD=1); not end to end: solidity-lean states no source or spec theorem for event_words; provenance: final's closure imports modules whose sources are not committed: changed: SolidCore/Refinement/Solar/AssembleLoop.lean;changed: SolidCore/Refinement/Solar/AssembleLoopRun.lean;changed: SolidCore/Refinement/Solar/AssembleLoopSim.lean;
+statuses: equivalence proved (published statement, Shapes.Equiv): at every gas below 2^256 every result of the exact bytecode on a valid call is the source's, or a failure that changes nothing (out of gas or a revert, whatever its data); such a failure only below the gas bound, and from the bound on exactly the source's, revert data included (Shapes.EquivG, a field of Shapes.Compiled), termination proved (published statement, Shapes.Terminates): the source ends on every valid call with any status (no specification declares the allowed ones); the bytecode too, at gas from the bound on, spec none: solar-verify has no specification of event_words, resources proved (published statement, Shapes.Resources): from the gas bound on, below 2^64, the bytecode gives the source's result, vacuity not applicable (no specification), source SolidCore/Refinement/Source/EventWords.lean is the front end's AST of EventWords in Certified/event_words/event_words.sol (solc 0.8.35), strongest False
+CHECKED event_words (EventWords), published Certified.event_words.Final.final; not certified: not proved: spec; bytecode 346089575f3560e01c8063562e19df03608957608060405260843560a01c60a43610176089576084355f1960601c8116608080600435825260243560a05260443560c05260643560e05283337fd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d8228385a380820360cb5750505f1960601c331160b357818103608d57005b5f5ffd5b6d010200000000000000020000001b5b60205260405260605263ed572b275f526064601cfd5b5f1960601c33690417000000000000000260201b609d565b6d0112000000000000000200000019919091609d56
+EXIT 0
