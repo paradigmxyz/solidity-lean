@@ -3,49 +3,61 @@
   "name": "verify_counter",
   "source": "Certified/verify_counter/verify_counter.sol",
   "bytecode": "34603c575f3560e01c806306661abd1460525780636d5433e6146101af578063a4d66daf14605b578063b20eb4c4146073578063d09de08a146065575b5f5ffd5b6011602052634e487b715f526024601cfd5b5f545f5260205ff35b6001545f5260205ff35b5f5460010180156040575f55005b60243610603c576004355f54818101818110604057600154106101d25780816080525f60a0528082820361019a575f5f91925060db565b506080516001840180158583036101675760405780608052600160a05260018301925f191480610182575093505060015b8482105f54808503610111575060aa5760a051815f10828203610152571561010f5750505050608051815f5581810361013e575b005b90506d011100000004000000010000000f939091935b60205260405260605263ed572b275b5f526064601cfd5b6d012100000004000000050000000e610127565b506d012100000004000000040000000c610127565b505090506d0121000000040000000300000008929192610127565b5f6d0102000000040000000a00000012919091610127565b506d010300000004000000070000000b610127565b60443610603c576004356024358082106101cb57505f5260205ff35b5f5260205ff35b636f76657260e01b6004602080526040526060526308c379a061013656",
-  "solar": "cb5053ab39adfd59820913b336d346389ce1b8d9",
-  "solidity_lean": "11fb9334142fbb8ded0b1d699015a978cdc3ed52",
+  "solar": "9aea52293a7b53ce980c99da99c7486983ed6ae9",
+  "solidity_lean": "3906fdfa41bb9985f0363d2b95c50b0fe988cb5c",
   "mir_to_evmir": "proved: SolarTV.Milestone.VerifyCounter.verify_counter_mir_to_evmir",
-  "assembly": "executed: SolarTV.Milestone.VerifyCounter.verify_counter_bytecode",
+  "assembly": "executed: inside the published statement Certified.verify_counter.Final.final (Shapes.Equiv and Resources over Target.runWith of the exact bytes); Proofs/: executed: SolarTV.Milestone.VerifyCounter.verify_counter_bytecode",
   "vc": "exported to .lake/certify/verify_counter/VC.lean",
   "end_to_end": "proved (contract-specific): SolidCore.Refinement.Solar.VerifyCounter.spec_holds_of_bytecode",
   "statuses": {
-    "equivalence": "proved (published statement, Shapes.Equiv): at every gas below 2^256 every result of the exact bytecode on a valid call is the source's, or a failure that changes nothing (out of gas or a revert, whatever its data)",
-    "termination": "proved (published statement, Shapes.Terminates): the source ends on every valid call with an allowed status; the bytecode's ending at a proved gas is not (resources)",
-    "spec": "proved (published statement, Shapes.Meets): the specification of every source result on a valid call, hence of every bytecode result that is not an inert failure",
-    "resources": "not proved",
+    "equivalence": "proved (published statement, Shapes.Equiv): at every gas below 2^256 every result of the exact bytecode on a valid call is the source's, or a failure that changes nothing (out of gas or a revert, whatever its data); such a failure only below the gas bound, and from the bound on exactly the source's, revert data included (Shapes.EquivG, Shapes.Certified.equivG)",
+    "termination": "proved (published statement, Shapes.Terminates): the source ends on every valid call with an allowed status; the bytecode too, at gas from the bound on",
+    "spec": "proved (published statement, Shapes.Meets of Shapes.bundlePost of the specification solar-verify exported in this run, NonVacuous in the statement): the specification of every source result on a valid call, hence of every bytecode result that is not an inert failure",
+    "resources": "proved (published statement, Shapes.Resources): from the gas bound on, below 2^64, the bytecode gives the source's result",
+    "vacuity": "proved non-vacuous (NonVacuous in the statement)",
     "assumptions": "none beyond the statement's scope",
     "excluded": [
-      "source: solar's first lowered MIR (stage0) under the oracle with EthLib's caller, Keccak-256 and environment, not SolidCore: no SolidCore stage reaches loops yet (frontend trust boundary at the first lowered MIR)",
-      "valid calls: every call whose selector is bump(uint256) (any further call data, any value, any storage); the other functions of the contract are outside this statement",
-      "resources: not proved; the cut-point backend stages give the final EVM IR's end, not its block count, so the loop checker's forward theorem has no bound; equivalence admits a failure that changes nothing at any gas",
-      "allowed statuses: every status (the spec states success conditions; Outcome of specPost carries what the spec says of reverts)",
-      "deployment: the init code is not covered",
-      "calls: one frame, caller 0x2000, contract at 0x1000, the block and transaction of Target.message"
+      "source model trusted: SolidCore's checked Counter (the solc AST through scripts/solc_ast_to_lean_source.py and the type checker) is the meaning of the source (frontend trust boundary)",
+      "source to MIR: SolidCore's runtime run equals solar's first lowered MIR on every valid call (Contracts.VerifyCounter.StageSource.mir_eq, from the generic erasure of bump with the loop's kernel-checked ranking certificate); the backend from MIR to the bytes is Contracts.VerifyCounter.Shape.functional and resources",
+      "deployment: the init code is not covered; runtime bytecode from any storage",
+      "calls: one frame, caller 0x2000, contract at 0x1000, the block and transaction of Target.message",
+      "valid calls: bump(uint256) with ABI call data, no value, any storage, argument n < 2^32 (where the gas bound stays below 2^64); count(), limit(), increment() and max() are outside this statement",
+      "resources: gas bound Bump.gasBound call, linear in n, coarse (22100 gas per item)"
     ],
-    "strongest": false
+    "environment": "fixed, not quantified: one frame, caller 0x2000, the contract at 0x1000, the block and transaction of Target.message",
+    "provenance": "the starting build directory is trusted, not rebuilt from source (CERTIFY_CLEAN_BUILD=1)",
+    "strongest": false,
+    "source": "Contracts/VerifyCounter/SourceAst.lean is the front end's AST of Counter in Certified/verify_counter/verify_counter.sol (solc 0.8.35)"
   },
   "final": {
     "module": "verify_counter.Final",
+    "statement_module": "verify_counter.Statement",
     "theorem": "Certified.verify_counter.Final.final",
-    "kind": "functional",
-    "statement": "code.data.toList.map (·.toNat) = runtimeBytes ∧ (Shapes.Functional (SolarTV.mirSem SolidCore.Refinement.Shapes.oracle) (SolarTV.Export.Counter.stage0) code (SolarTV.Milestone.VerifyCounter.Bump.IsBump) (fun _ _ => True) (SolidCore.Refinement.Shapes.specPost SolidCore.Refinement.Solar.VerifyCounter.spec))",
+    "kind": "certified",
+    "statement": "_root_.Certified.verify_counter.Final.code.data.toList.map (·.toNat) = _root_.Certified.verify_counter.Final.runtimeBytes ∧ _root_.Certified.verify_counter.Final.NonVacuous ∧ (∃ c, Contracts.VerifyCounter.Source.contract? = .ok c ∧ _root_.SolidCore.Refinement.Shapes.Certified (_root_.SolidCore.Refinement.Generic.Loop.solidCoreRuntime (Contracts.VerifyCounter.Source.fuel)) c _root_.Certified.verify_counter.Final.code (Contracts.VerifyCounter.ShapeSource.ValidS) (Contracts.VerifyCounter.ShapeSource.Allowed) (_root_.SolidCore.Refinement.Shapes.bundlePost _root_.Certified.verify_counter.gen.Counter.Spec.Counter (SolidCore.Refinement.Shapes.ctxOfCall) (SolidCore.Refinement.Shapes.idStep)) (SolarTV.Milestone.VerifyCounter.Bump.gasBound))",
+    "nonvacuous": "Certified.verify_counter.Final.NonVacuous",
+    "vacuity": null,
+    "allowed_vacuity": null,
+    "spec_bound_to_export": "Certified.verify_counter.gen.Counter.Spec.Counter",
+    "allowed_bound_to_export": false,
     "assumptions": [],
     "excluded": [
-      "source: solar's first lowered MIR (stage0) under the oracle with EthLib's caller, Keccak-256 and environment, not SolidCore: no SolidCore stage reaches loops yet (frontend trust boundary at the first lowered MIR)",
-      "valid calls: every call whose selector is bump(uint256) (any further call data, any value, any storage); the other functions of the contract are outside this statement",
-      "resources: not proved; the cut-point backend stages give the final EVM IR's end, not its block count, so the loop checker's forward theorem has no bound; equivalence admits a failure that changes nothing at any gas",
-      "allowed statuses: every status (the spec states success conditions; Outcome of specPost carries what the spec says of reverts)",
-      "deployment: the init code is not covered",
-      "calls: one frame, caller 0x2000, contract at 0x1000, the block and transaction of Target.message"
+      "source model trusted: SolidCore's checked Counter (the solc AST through scripts/solc_ast_to_lean_source.py and the type checker) is the meaning of the source (frontend trust boundary)",
+      "source to MIR: SolidCore's runtime run equals solar's first lowered MIR on every valid call (Contracts.VerifyCounter.StageSource.mir_eq, from the generic erasure of bump with the loop's kernel-checked ranking certificate); the backend from MIR to the bytes is Contracts.VerifyCounter.Shape.functional and resources",
+      "deployment: the init code is not covered; runtime bytecode from any storage",
+      "calls: one frame, caller 0x2000, contract at 0x1000, the block and transaction of Target.message",
+      "valid calls: bump(uint256) with ABI call data, no value, any storage, argument n < 2^32 (where the gas bound stays below 2^64); count(), limit(), increment() and max() are outside this statement",
+      "resources: gas bound Bump.gasBound call, linear in n, coarse (22100 gas per item)"
     ],
-    "spec": "solar-verify's Counter spec (crates/verify/examples/Counter.sol NatSpec, SolidCore.Refinement.Solar.VerifyCounter.spec), proved of stage0 by holds_stage0",
+    "spec": "solar-verify's export of verify_counter.sol in this run (Certified.verify_counter.gen.Counter.Spec.Counter): bump(n) ensures count == old(count) + n and the invariant count <= limit, read by Shapes.bundlePost; increment and max are in the export and do not apply to the valid calls (other selectors). Allowed statuses: success, Panic(0x11) or Error(\"over\") (ShapeSource.Allowed)",
     "statuses": {
-      "equivalence": "proved (published statement, Shapes.Equiv): at every gas below 2^256 every result of the exact bytecode on a valid call is the source's, or a failure that changes nothing (out of gas or a revert, whatever its data)",
-      "termination": "proved (published statement, Shapes.Terminates): the source ends on every valid call with an allowed status; the bytecode's ending at a proved gas is not (resources)",
-      "spec": "proved (published statement, Shapes.Meets): the specification of every source result on a valid call, hence of every bytecode result that is not an inert failure",
-      "resources": "not proved"
-    }
+      "equivalence": "proved (published statement, Shapes.Equiv): at every gas below 2^256 every result of the exact bytecode on a valid call is the source's, or a failure that changes nothing (out of gas or a revert, whatever its data); such a failure only below the gas bound, and from the bound on exactly the source's, revert data included (Shapes.EquivG, Shapes.Certified.equivG)",
+      "termination": "proved (published statement, Shapes.Terminates): the source ends on every valid call with an allowed status; the bytecode too, at gas from the bound on",
+      "spec": "proved (published statement, Shapes.Meets of Shapes.bundlePost of the specification solar-verify exported in this run, NonVacuous in the statement): the specification of every source result on a valid call, hence of every bytecode result that is not an inert failure",
+      "resources": "proved (published statement, Shapes.Resources): from the gas bound on, below 2^64, the bytecode gives the source's result",
+      "vacuity": "proved non-vacuous (NonVacuous in the statement)"
+    },
+    "strongest": true
   },
   "end_to_end_statement": {
     "SolidCore.Refinement.Solar.VerifyCounter.spec_holds_of_bytecode": "∀ (gas : ℕ), SolidCore.Refinement.Final.Holds (SolidCore.Refinement.Final.ethLibWith gas) SolidCore.Refinement.Solar.VerifyCounter.code SolidCore.Refinement.Solar.VerifyCounter.spec"
@@ -65,7 +77,9 @@
       "status": "refused (unproved)"
     }
   ],
-  "vacuous": "not checked",
+  "vacuous": "proved non-vacuous (NonVacuous in the statement)",
+  "vc_vacuous": "not checked",
+  "source_ast": "Contracts/VerifyCounter/SourceAst.lean is the front end's AST of Counter in Certified/verify_counter/verify_counter.sol (solc 0.8.35)",
   "assembly_statement": "∀ {anyCall : SolarTV.Call → Prop} (o : SolarTV.Machine.Oracle), (SolarTV.Milestone.VerifyCounter.cert.env = true → SolidCore.Refinement.Solar.Assemble.OracleOk o) → (SolarTV.Milestone.VerifyCounter.cert.reads = true → SolidCore.Refinement.Solar.Assemble.EnvOk o) → ∀ (gas : ℕ), SolidCore.Refinement.Final.Within (SolarTV.mirSem o) (SolidCore.Refinement.Final.ethLibWith gas) SolarTV.Export.Counter.stage0 SolarTV.Milestone.VerifyCounter.code anyCall",
   "assembly_hypotheses": [
     "anyCall : SolarTV.Call → Prop",
@@ -73,35 +87,41 @@
     "(SolarTV.Milestone.VerifyCounter.cert.env = true → SolidCore.Refinement.Solar.Assemble.OracleOk o)",
     "(SolarTV.Milestone.VerifyCounter.cert.reads = true → SolidCore.Refinement.Solar.Assemble.EnvOk o)"
   ],
-  "negative_tests": false,
+  "negative_tests": true,
   "caveats": [
-    "solidity-lean at 11fb9334142fbb8ded0b1d699015a978cdc3ed52, not the pinned 95ebfd5f178b93b42d498a124104fc92bfc6b74f",
-    "solar cb5053ab39adfd59820913b336d346389ce1b8d9, not built from this checkout's compiler sources",
-    "1 spec function(s) refused, unproved",
-    "negative tests skipped"
+    "provenance: the starting build directory is trusted, not rebuilt from source (CERTIFY_CLEAN_BUILD=1)",
+    "1 spec function(s) refused, unproved"
   ],
   "backend": {
     "theorem": {
       "module": "verify_counter.Final",
+      "statement_module": "verify_counter.Statement",
       "theorem": "Certified.verify_counter.Final.final",
-      "kind": "functional",
-      "statement": "code.data.toList.map (·.toNat) = runtimeBytes ∧ (Shapes.Functional (SolarTV.mirSem SolidCore.Refinement.Shapes.oracle) (SolarTV.Export.Counter.stage0) code (SolarTV.Milestone.VerifyCounter.Bump.IsBump) (fun _ _ => True) (SolidCore.Refinement.Shapes.specPost SolidCore.Refinement.Solar.VerifyCounter.spec))",
+      "kind": "certified",
+      "statement": "_root_.Certified.verify_counter.Final.code.data.toList.map (·.toNat) = _root_.Certified.verify_counter.Final.runtimeBytes ∧ _root_.Certified.verify_counter.Final.NonVacuous ∧ (∃ c, Contracts.VerifyCounter.Source.contract? = .ok c ∧ _root_.SolidCore.Refinement.Shapes.Certified (_root_.SolidCore.Refinement.Generic.Loop.solidCoreRuntime (Contracts.VerifyCounter.Source.fuel)) c _root_.Certified.verify_counter.Final.code (Contracts.VerifyCounter.ShapeSource.ValidS) (Contracts.VerifyCounter.ShapeSource.Allowed) (_root_.SolidCore.Refinement.Shapes.bundlePost _root_.Certified.verify_counter.gen.Counter.Spec.Counter (SolidCore.Refinement.Shapes.ctxOfCall) (SolidCore.Refinement.Shapes.idStep)) (SolarTV.Milestone.VerifyCounter.Bump.gasBound))",
+      "nonvacuous": "Certified.verify_counter.Final.NonVacuous",
+      "vacuity": null,
+      "allowed_vacuity": null,
+      "spec_bound_to_export": "Certified.verify_counter.gen.Counter.Spec.Counter",
+      "allowed_bound_to_export": false,
       "assumptions": [],
       "excluded": [
-        "source: solar's first lowered MIR (stage0) under the oracle with EthLib's caller, Keccak-256 and environment, not SolidCore: no SolidCore stage reaches loops yet (frontend trust boundary at the first lowered MIR)",
-        "valid calls: every call whose selector is bump(uint256) (any further call data, any value, any storage); the other functions of the contract are outside this statement",
-        "resources: not proved; the cut-point backend stages give the final EVM IR's end, not its block count, so the loop checker's forward theorem has no bound; equivalence admits a failure that changes nothing at any gas",
-        "allowed statuses: every status (the spec states success conditions; Outcome of specPost carries what the spec says of reverts)",
-        "deployment: the init code is not covered",
-        "calls: one frame, caller 0x2000, contract at 0x1000, the block and transaction of Target.message"
+        "source model trusted: SolidCore's checked Counter (the solc AST through scripts/solc_ast_to_lean_source.py and the type checker) is the meaning of the source (frontend trust boundary)",
+        "source to MIR: SolidCore's runtime run equals solar's first lowered MIR on every valid call (Contracts.VerifyCounter.StageSource.mir_eq, from the generic erasure of bump with the loop's kernel-checked ranking certificate); the backend from MIR to the bytes is Contracts.VerifyCounter.Shape.functional and resources",
+        "deployment: the init code is not covered; runtime bytecode from any storage",
+        "calls: one frame, caller 0x2000, contract at 0x1000, the block and transaction of Target.message",
+        "valid calls: bump(uint256) with ABI call data, no value, any storage, argument n < 2^32 (where the gas bound stays below 2^64); count(), limit(), increment() and max() are outside this statement",
+        "resources: gas bound Bump.gasBound call, linear in n, coarse (22100 gas per item)"
       ],
-      "spec": "solar-verify's Counter spec (crates/verify/examples/Counter.sol NatSpec, SolidCore.Refinement.Solar.VerifyCounter.spec), proved of stage0 by holds_stage0",
+      "spec": "solar-verify's export of verify_counter.sol in this run (Certified.verify_counter.gen.Counter.Spec.Counter): bump(n) ensures count == old(count) + n and the invariant count <= limit, read by Shapes.bundlePost; increment and max are in the export and do not apply to the valid calls (other selectors). Allowed statuses: success, Panic(0x11) or Error(\"over\") (ShapeSource.Allowed)",
       "statuses": {
-        "equivalence": "proved (published statement, Shapes.Equiv): at every gas below 2^256 every result of the exact bytecode on a valid call is the source's, or a failure that changes nothing (out of gas or a revert, whatever its data)",
-        "termination": "proved (published statement, Shapes.Terminates): the source ends on every valid call with an allowed status; the bytecode's ending at a proved gas is not (resources)",
-        "spec": "proved (published statement, Shapes.Meets): the specification of every source result on a valid call, hence of every bytecode result that is not an inert failure",
-        "resources": "not proved"
-      }
+        "equivalence": "proved (published statement, Shapes.Equiv): at every gas below 2^256 every result of the exact bytecode on a valid call is the source's, or a failure that changes nothing (out of gas or a revert, whatever its data); such a failure only below the gas bound, and from the bound on exactly the source's, revert data included (Shapes.EquivG, Shapes.Certified.equivG)",
+        "termination": "proved (published statement, Shapes.Terminates): the source ends on every valid call with an allowed status; the bytecode too, at gas from the bound on",
+        "spec": "proved (published statement, Shapes.Meets of Shapes.bundlePost of the specification solar-verify exported in this run, NonVacuous in the statement): the specification of every source result on a valid call, hence of every bytecode result that is not an inert failure",
+        "resources": "proved (published statement, Shapes.Resources): from the gas bound on, below 2^64, the bytecode gives the source's result",
+        "vacuity": "proved non-vacuous (NonVacuous in the statement)"
+      },
+      "strongest": true
     }
   }
 }

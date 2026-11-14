@@ -1,14 +1,21 @@
 {
-  "kind": "compiled",
+  "kind": "certified",
   "contract": "SolidCore.Refinement.Solar.Events.contract?",
   "fuel": "SolidCore.Refinement.Solar.Events.fuel",
   "valid": "SolidCore.Refinement.Shapes.genericValid (SolidCore.Refinement.Solar.Events.fns) ([])",
+  "allowed_export": true,
+  "spec_export": {
+    "ctx": "SolidCore.Refinement.Shapes.ctxOfCall",
+    "step": "SolidCore.Refinement.Shapes.idStep"
+  },
+  "nonvacuous": "Certified.events.Shape.nonvacuous",
   "gas": "fun _ => 2386812",
   "env": [],
-  "spec": "none: solar-verify has no specification of events",
+  "spec": "solar-verify's export of events.sol in this run (Certified.events.gen.Events.Spec.Events): transfer(id, value) succeeds-if msg.value == 0, so it must succeed on every valid call without a value; the postcondition (bundlePost) and the allowed statuses (bundleAllowed: success, or a call with a value) are both read off that export",
   "spec_modules": [
     "SolidCore.Refinement.Solar.Events.Lowering",
-    "Verify.ShapeGeneric"
+    "Verify.ShapeGeneric",
+    "Verify.ShapeSpecExport"
   ],
   "proof_module": "events.Shape",
   "proof": "Certified.events.Shape.published",
@@ -19,7 +26,13 @@
     "check": "check_stage0",
     "check_value": "checkValue_stage0",
     "fns": "SolidCore.Refinement.Solar.Events.fns",
-    "storage": "[]"
+    "storage": "[]",
+    "spec_connect": {
+      "witness": "transfer",
+      "using": [
+        "SolidCore.Refinement.Solar.Events.digest_eq"
+      ]
+    }
   },
   "excluded": [
     "deployment: the init code is not covered; the statement is about the runtime bytecode from any storage that writes the slots the constructor writes",
@@ -27,7 +40,7 @@
     "calls: one frame, caller 0x2000, contract at 0x1000, the block and transaction of Target.message; no external calls, GAS reads or return data in the code (the loop checker's fragment)",
     "gas: the bound is the loop checker's (22100 per item times the final EVM IR's block fuel, plus memory), coarse; below it the bytecode may fail without effects, which equivalence admits",
     "valid calls: the functions of Events.fns ABI-encoded with clean argument words, any value below 2^256, any storage; other call data is outside the statement",
-    "spec: none (solar-verify has no specification of events): equivalence, termination and resources only"
+    "spec: the exported spec states when transfer succeeds (no value) and nothing of its log, which solar-verify's spec language cannot name; the log is covered by equivalence (the bytecode's log is SolidCore's), not by the spec"
   ],
   "source_ast": {
     "file": "SolidCore/Refinement/Source/Events.lean",

@@ -1,28 +1,36 @@
 {
   "kind": "certified",
-  "sem": "SolarTV.mirSem SolidCore.Refinement.Shapes.oracle",
-  "prog": "SolarTV.Export.Counter.stage0",
-  "valid": "Contracts.VerifyCounter.ShapeSpec.ValidB",
-  "allowed": "fun _ _ => True",
-  "post": "SolidCore.Refinement.Shapes.specPost SolidCore.Refinement.Solar.VerifyCounter.spec",
+  "contract": "Contracts.VerifyCounter.Source.contract?",
+  "fuel": "Contracts.VerifyCounter.Source.fuel",
+  "source_sem": "SolidCore.Refinement.Generic.Loop.solidCoreRuntime",
+  "valid": "Contracts.VerifyCounter.ShapeSource.ValidS",
+  "allowed": "Contracts.VerifyCounter.ShapeSource.Allowed",
+  "spec_export": {
+    "ctx": "SolidCore.Refinement.Shapes.ctxOfCall",
+    "step": "SolidCore.Refinement.Shapes.idStep"
+  },
+  "nonvacuous": "Contracts.VerifyCounter.ShapeExport.nonvacuous",
+  "gas": "SolarTV.Milestone.VerifyCounter.Bump.gasBound",
   "env": [],
-  "spec": "solar-verify's Counter spec (crates/verify/examples/Counter.sol NatSpec, SolidCore.Refinement.Solar.VerifyCounter.spec), proved of stage0 by holds_stage0",
+  "spec": "solar-verify's export of verify_counter.sol in this run (Certified.verify_counter.gen.Counter.Spec.Counter): bump(n) ensures count == old(count) + n and the invariant count <= limit, read by Shapes.bundlePost; increment and max are in the export and do not apply to the valid calls (other selectors). Allowed statuses: success, Panic(0x11) or Error(\"over\") (ShapeSource.Allowed)",
   "spec_modules": [
-    "Contracts.VerifyCounter.Holds",
+    "Contracts.VerifyCounter.ShapeSource",
     "Contracts.VerifyCounter.Gas",
-    "Contracts.VerifyCounter.ShapeSpec",
-    "Verify.ShapeGeneric"
+    "Verify.ShapeSpecExport"
   ],
-  "proof_module": "Contracts.VerifyCounter.Shape",
-  "proof": "Contracts.VerifyCounter.Shape.published",
+  "proof_module": "Contracts.VerifyCounter.ShapeExport",
+  "proof": "Contracts.VerifyCounter.ShapeExport.published",
   "excluded": [
-    "source: solar's first lowered MIR (stage0) under the oracle with EthLib's caller, Keccak-256 and environment, not SolidCore: no SolidCore stage reaches loops yet (frontend trust boundary at the first lowered MIR)",
-    "allowed statuses: every status (the spec states success conditions; Outcome of specPost carries what the spec says of reverts)",
-    "deployment: the init code is not covered",
+    "source model trusted: SolidCore's checked Counter (the solc AST through scripts/solc_ast_to_lean_source.py and the type checker) is the meaning of the source (frontend trust boundary)",
+    "source to MIR: SolidCore's runtime run equals solar's first lowered MIR on every valid call (Contracts.VerifyCounter.StageSource.mir_eq, from the generic erasure of bump with the loop's kernel-checked ranking certificate); the backend from MIR to the bytes is Contracts.VerifyCounter.Shape.functional and resources",
+    "deployment: the init code is not covered; runtime bytecode from any storage",
     "calls: one frame, caller 0x2000, contract at 0x1000, the block and transaction of Target.message",
-    "valid calls: every call whose selector is bump(uint256) with argument word n < 2^32 (any further call data, any value, any storage); Contracts.VerifyCounter.Shape.functional states equivalence, termination and the spec for every n; the other functions of the contract are outside this statement",
-    "resources: gas bound Bump.gasBound call = gasBoundL cert ((n + 2) * 22), linear in n, from the final EVM IR's block bound (the MIR rank carried along the bounded stage simulations, termination's EvmBound.evm11_ends_within) and the loop checker run forward; coarse (22100 gas per item)"
+    "valid calls: bump(uint256) with ABI call data, no value, any storage, argument n < 2^32 (where the gas bound stays below 2^64); count(), limit(), increment() and max() are outside this statement",
+    "resources: gas bound Bump.gasBound call, linear in n, coarse (22100 gas per item)"
   ],
-  "vacuity": "Allowed is True (every status); the postcondition is the Lean restatement SolidCore.Refinement.Solar.VerifyCounter.spec, and the exported VC of Counter.bump is refused",
-  "gas": "SolarTV.Milestone.VerifyCounter.Bump.gasBound"
+  "source_ast": {
+    "file": "Contracts/VerifyCounter/SourceAst.lean",
+    "namespace": "SolidCore.Refinement.Source.VerifyCounter",
+    "contract": "Counter"
+  }
 }

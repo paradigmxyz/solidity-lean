@@ -1,14 +1,21 @@
 {
-  "kind": "compiled",
+  "kind": "certified",
   "contract": "SolidCore.Refinement.Solar.MulX.contract?",
   "fuel": "SolidCore.Refinement.Solar.MulX.fuel",
   "valid": "SolidCore.Refinement.Shapes.genericValid (SolidCore.Refinement.Solar.MulX.fns) (SolidCore.Refinement.Solar.MulX.deployed)",
+  "allowed_export": true,
+  "spec_export": {
+    "ctx": "SolidCore.Refinement.Shapes.ctxOfCall",
+    "step": "SolidCore.Refinement.Shapes.idStep"
+  },
+  "nonvacuous": "Certified.mulx.Shape.nonvacuous",
   "gas": "fun _ => 6298506",
   "env": [],
-  "spec": "none: solar-verify has no specification of mulx",
+  "spec": "solar-verify's export of mulx.sol in this run (Certified.mulx.gen.Main.Spec.Main): m(a, b) ensures x8 == old(x8) * a, y16 == old(y16) * b and z unchanged, and succeeds-if msg.value == 0 and both products fit their widths; n(a, b, c) ensures z == a * b * c and returns it, x8 and y16 unchanged, and succeeds-if msg.value == 0 and a * b * c < 2^256. The postcondition (bundlePost) and the allowed statuses (bundleAllowed) are both read off that export",
   "spec_modules": [
     "SolidCore.Refinement.Solar.MulX.Lowering",
-    "Verify.ShapeGeneric"
+    "Verify.ShapeGeneric",
+    "Verify.ShapeSpecExport"
   ],
   "proof_module": "mulx.Shape",
   "proof": "Certified.mulx.Shape.published",
@@ -19,7 +26,10 @@
     "check": "check_stage0",
     "check_value": "checkValue_stage0",
     "fns": "SolidCore.Refinement.Solar.MulX.fns",
-    "storage": "SolidCore.Refinement.Solar.MulX.deployed"
+    "storage": "SolidCore.Refinement.Solar.MulX.deployed",
+    "spec_connect": {
+      "witness": "m"
+    }
   },
   "excluded": [
     "deployment: the init code is not covered; the statement is about the runtime bytecode from any storage that writes the slots the constructor writes",
@@ -27,7 +37,7 @@
     "calls: one frame, caller 0x2000, contract at 0x1000, the block and transaction of Target.message; no external calls, GAS reads or return data in the code (the loop checker's fragment)",
     "gas: the bound is the loop checker's (22100 per item times the final EVM IR's block fuel, plus memory), coarse; below it the bytecode may fail without effects, which equivalence admits",
     "valid calls: m(uint8,uint16) and n(uint8,uint16,uint256) ABI-encoded with clean argument words, any value below 2^256, from any storage that writes slot 0; other call data is outside the statement",
-    "spec: none (solar-verify has no specification of mulx): equivalence, termination and resources only"
+    "spec: solar-verify's exported spec of m and n, with their succeeds-if conditions: every revert the statement allows is one from which no succeeds-if condition requires success (an overflow, or a call with a value)"
   ],
   "source_ast": {
     "file": "SolidCore/Refinement/Source/MulX.lean",

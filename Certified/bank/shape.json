@@ -1,14 +1,24 @@
 {
-  "kind": "compiled",
+  "kind": "certified",
   "contract": "SolidCore.Refinement.Solar.Bank.contract?",
   "fuel": "SolidCore.Refinement.Solar.Bank.fuel",
   "valid": "SolidCore.Refinement.Shapes.genericValid (SolidCore.Refinement.Solar.Bank.fns) ([])",
+  "allowed_export": true,
+  "spec_export": {
+    "ctx": "SolidCore.Refinement.Shapes.ctxOfCall",
+    "step": "SolidCore.Refinement.Shapes.idStep"
+  },
+  "nonvacuous": "Certified.bank.Shape.nonvacuous",
   "gas": "fun _ => 155937612",
-  "env": [],
-  "spec": "none: solar-verify has no specification of bank",
+  "env": [
+    "SolidCore.Spec.MapSlotsSeparated [0]"
+  ],
+  "spec": "solar-verify's export of bank.sol in this run (Certified.bank.gen.Bank.Spec.Bank): deposit and depositFor add the amount to the balance and the total, return the new balance and leave every other balance, and succeed-if msg.value == 0 and neither sum overflows; balanceOf returns the balance and changes nothing, and succeeds-if msg.value == 0. The postcondition (bundlePost) and the allowed statuses (bundleAllowed) are both read off that export",
   "spec_modules": [
     "SolidCore.Refinement.Solar.Bank.Lowering",
-    "Verify.ShapeGeneric"
+    "Verify.ShapeGeneric",
+    "Verify.Spec.TreeMap",
+    "Verify.ShapeSpecExport"
   ],
   "proof_module": "bank.Shape",
   "proof": "Certified.bank.Shape.published",
@@ -19,7 +29,14 @@
     "check": "check_stage0",
     "check_value": "checkValue_stage0",
     "fns": "SolidCore.Refinement.Solar.Bank.fns",
-    "storage": "[]"
+    "storage": "[]",
+    "spec_connect": {
+      "witness": "deposit",
+      "ghost_fixed": true,
+      "using": [
+        "SolidCore.Refinement.Solar.Bank.digest_eq"
+      ]
+    }
   },
   "excluded": [
     "deployment: the init code is not covered; the statement is about the runtime bytecode from any storage that writes the slots the constructor writes",
@@ -27,7 +44,8 @@
     "calls: one frame, caller 0x2000, contract at 0x1000, the block and transaction of Target.message; no external calls, GAS reads or return data in the code (the loop checker's fragment)",
     "gas: the bound is the loop checker's (22100 per item times the final EVM IR's block fuel, plus memory), coarse; below it the bytecode may fail without effects, which equivalence admits",
     "valid calls: deposit(uint256), depositFor(address,uint256) and balanceOf(address) ABI-encoded with clean argument words, any value below 2^256 (no function is payable: the value reverts on both sides), any storage; other call data is outside the statement",
-    "spec: none (solar-verify has no specification of bank): equivalence, termination and resources only"
+    "spec: solar-verify's exported spec of deposit, depositFor and balanceOf, with their succeeds-if conditions; the Deposit event is not in the spec language, and is covered by equivalence (the bytecode's log is SolidCore's)",
+    "assumption SolidCore.Spec.MapSlotsSeparated [0] (keccak256 as an uninterpreted function: injective on the preimages of balances[a], with images at least 2^128, apart from the scalar slots), a named premise of the statement, not proved; it stands in for the KeccakModel premise"
   ],
   "source_ast": {
     "file": "SolidCore/Refinement/Source/Bank.lean",

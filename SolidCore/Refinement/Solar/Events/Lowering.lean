@@ -8,7 +8,7 @@ import events.gen.Events.Stage0
 # events: the generic source stage on solar's own module
 
 solar-tv/milestone/events/events.sol (sha256
-8b951679cab695d07c193e56dd5d96d14a1c63976673c79a72c690f07c50b5b0, copied to
+c935cf243f303a252e4ee0bb10c9c75130eef92ca6c4a954830e67af9a939214, copied to
 scripts/refinement/events/events.sol),
 
     contract Events {

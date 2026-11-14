@@ -118,7 +118,7 @@ of two words (`EthKeccakAgree`, kept explicit here; `certifiedManifest'` dischar
 theorem certifiedManifest (o : SolarTV.Machine.Oracle) (ho : Assemble.OracleOk o)
     (hk : EthKeccakAgree) {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) :
     Manifest.sources = [("Certified/bank/bank.sol",
-      "513398d47335b204a6b047493dd86e9c05066e950ba1300ba5d25850a5f8cb1f")] ∧
+      "2a29919999674ac221097e3f50ed43bcddf094d19a08da5f5c9704a0dd099d03")] ∧
     Manifest.arguments = ["Certified/bank/bank.sol", "-Ogas", "--evm-version", "osaka",
       "--emit=bin-runtime", "-Zemit-lean-stages=Certified/bank/gen"] ∧
     Manifest.optimization = "Gas" ∧ Manifest.evmVersion = "osaka" ∧
@@ -159,7 +159,7 @@ and evmyul's Keccak-256 proved equal on every 64-byte message). -/
 theorem certifiedManifest' (o : SolarTV.Machine.Oracle) (ho : Assemble.OracleOk o)
     {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) :
     Manifest.sources = [("Certified/bank/bank.sol",
-      "513398d47335b204a6b047493dd86e9c05066e950ba1300ba5d25850a5f8cb1f")] ∧
+      "2a29919999674ac221097e3f50ed43bcddf094d19a08da5f5c9704a0dd099d03")] ∧
     Manifest.arguments = ["Certified/bank/bank.sol", "-Ogas", "--evm-version", "osaka",
       "--emit=bin-runtime", "-Zemit-lean-stages=Certified/bank/gen"] ∧
     Manifest.optimization = "Gas" ∧ Manifest.evmVersion = "osaka" ∧

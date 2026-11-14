@@ -8,9 +8,9 @@ stage's file, its definition, the pass whose output it is, and the SHA-256 of th
 namespace SolarTV.Export.Events.Manifest
 
 def sources : List (String × String) :=
-  [("Certified/events/events.sol", "8b951679cab695d07c193e56dd5d96d14a1c63976673c79a72c690f07c50b5b0")]
+  [("Certified/events/events.sol", "c935cf243f303a252e4ee0bb10c9c75130eef92ca6c4a954830e67af9a939214")]
 
-def compiler : String := "0.8.38+commit.cb5053ab.solar.0.3.0-dev"
+def compiler : String := "0.8.38+commit.9aea5229.solar.0.3.0-dev"
 
 def arguments : List String :=
   ["Certified/events/events.sol",

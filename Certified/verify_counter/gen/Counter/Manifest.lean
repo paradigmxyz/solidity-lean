@@ -10,7 +10,7 @@ namespace SolarTV.Export.Counter.Manifest
 def sources : List (String × String) :=
   [("Certified/verify_counter/verify_counter.sol", "f1c87a334b8db31fc8f80541febeaf8617318d20b685634f44e26c74146ad326")]
 
-def compiler : String := "0.8.38+commit.cb5053ab.solar.0.3.0-dev"
+def compiler : String := "0.8.38+commit.9aea5229.solar.0.3.0-dev"
 
 def arguments : List String :=
   ["Certified/verify_counter/verify_counter.sol",

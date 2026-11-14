@@ -95,7 +95,7 @@ of `transfer` from any storage, under every oracle with EthLib's caller and hash
 theorem certifiedManifest (o : SolarTV.Machine.Oracle) (ho : Assemble.OracleOk o)
     {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) :
     Manifest.sources = [("Certified/events/events.sol",
-      "8b951679cab695d07c193e56dd5d96d14a1c63976673c79a72c690f07c50b5b0")] ∧
+      "c935cf243f303a252e4ee0bb10c9c75130eef92ca6c4a954830e67af9a939214")] ∧
     Manifest.arguments = ["Certified/events/events.sol", "-Ogas", "--evm-version", "osaka",
       "--emit=bin-runtime", "-Zemit-lean-stages=Certified/events/gen"] ∧
     Manifest.optimization = "Gas" ∧ Manifest.evmVersion = "osaka" ∧

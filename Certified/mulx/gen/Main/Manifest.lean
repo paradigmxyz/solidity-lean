@@ -8,9 +8,9 @@ stage's file, its definition, the pass whose output it is, and the SHA-256 of th
 namespace SolarTV.Export.Main.Manifest
 
 def sources : List (String × String) :=
-  [("Certified/mulx/mulx.sol", "50ef03a3c5724105509c3ed40b7ee7d92ea43b5d48a67d0e6722b26806dd4980")]
+  [("Certified/mulx/mulx.sol", "c0dd0ad4558b8273ffd8b9e9abd7431eb429a29524df0b7cbe931076e0eb46d1")]
 
-def compiler : String := "0.8.38+commit.cb5053ab.solar.0.3.0-dev"
+def compiler : String := "0.8.38+commit.52e2060e.solar.0.3.0-dev"
 
 def arguments : List String :=
   ["Certified/mulx/mulx.sol",

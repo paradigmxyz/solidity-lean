@@ -112,7 +112,7 @@ storage and from any storage that writes slot 0, under every oracle. -/
 theorem certified (o : SolarTV.Machine.Oracle) {c : TypeCheck.CheckedContract}
     (hc : contract? = .ok c) :
     Manifest.sources = [("Certified/mulx/mulx.sol",
-      "50ef03a3c5724105509c3ed40b7ee7d92ea43b5d48a67d0e6722b26806dd4980")] ∧
+      "c0dd0ad4558b8273ffd8b9e9abd7431eb429a29524df0b7cbe931076e0eb46d1")] ∧
     Manifest.arguments = ["Certified/mulx/mulx.sol", "-Zcheck-analyses=false",
       "--emit=bin-runtime", "-Zemit-lean-stages=Certified/mulx/gen"] ∧
     Manifest.optimization = "Gas" ∧ Manifest.evmVersion = "osaka" ∧

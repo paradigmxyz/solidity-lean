@@ -8,9 +8,9 @@ stage's file, its definition, the pass whose output it is, and the SHA-256 of th
 namespace SolarTV.Export.Token.Manifest
 
 def sources : List (String × String) :=
-  [("Certified/verify_token/verify_token.sol", "45b62aa1152c4ec09e76735ac7257a06bf3e4be0f435fdacdc174f41e8c8e75c")]
+  [("Certified/verify_token/verify_token.sol", "273bfc34729a2a7e3301fc37589096b7efb80480b17636e8ba09b295e537b4a6")]
 
-def compiler : String := "0.8.38+commit.cb5053ab.solar.0.3.0-dev"
+def compiler : String := "0.8.38+commit.52e2060e.solar.0.3.0-dev"
 
 def arguments : List String :=
   ["Certified/verify_token/verify_token.sol",

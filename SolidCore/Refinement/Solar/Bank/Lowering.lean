@@ -8,7 +8,7 @@ import bank.gen.Bank.Stage0
 # bank: the generic source stage on solar's own module
 
 solar-tv/milestone/bank/bank.sol (sha256
-513398d47335b204a6b047493dd86e9c05066e950ba1300ba5d25850a5f8cb1f, copied to
+2a29919999674ac221097e3f50ed43bcddf094d19a08da5f5c9704a0dd099d03, copied to
 scripts/refinement/bank/bank.sol),
 
     contract Bank { mapping(address => uint256) balances; uint256 total;

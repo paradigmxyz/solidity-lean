@@ -8,7 +8,7 @@ import mulx.gen.Main.Stage0
 # Narrow checked multiplication: the generic source stage on solar's own module
 
 The test contract scripts/refinement/mulx/mul.sol (sha256
-50ef03a3c5724105509c3ed40b7ee7d92ea43b5d48a67d0e6722b26806dd4980),
+c0dd0ad4558b8273ffd8b9e9abd7431eb429a29524df0b7cbe931076e0eb46d1),
 
     contract Main { uint8 x8; uint16 y16 = 3; uint256 z;
       function m(uint8 a, uint16 b) external { x8 *= a; y16 *= b; }

@@ -3,26 +3,28 @@
   "contract": "SolidCore.Verify.VC.Token.contract?",
   "fuel": "SolidCore.Verify.VC.Token.fuel",
   "valid": "SolidCore.Refinement.Shapes.genericValid0 ([SolidCore.Verify.VC.Token.fnTransfer, SolidCore.Verify.VC.Token.fnBurn, SolidCore.Refinement.Solar.VerifyTokenSource.fnMint, SolidCore.Refinement.Solar.VerifyTokenSource.fnTotalSupply, SolidCore.Refinement.Solar.VerifyTokenSource.fnOwner]) ([(2, 4096)])",
-  "allowed": "fun _ _ => True",
-  "post": "fun call obs => (SolidCore.Verify.VC.stageScope SolidCore.Verify.VC.Token.fnTransfer [(2, 4096)] call → SolidCore.Verify.VC.Token.trPost call obs) ∧ (SolidCore.Verify.VC.stageScope SolidCore.Verify.VC.Token.fnBurn [(2, 4096)] call → SolidCore.Verify.VC.Token.burnPost call obs)",
+  "allowed_export": true,
+  "spec_export": {
+    "ctx": "SolidCore.Refinement.Shapes.ctxOfCall",
+    "step": "SolidCore.Refinement.Shapes.idStep"
+  },
+  "nonvacuous": "Certified.verify_token.Shape.nonvacuous",
   "gas": "fun _ => 42697212",
   "env": [
-    "SolidCore.Verify.VC.Token.HashInj"
+    "SolidCore.Spec.MapSlotsSeparated [0]"
   ],
-  "spec": "solar-verify's Token spec (scripts/verify/Token.sol): transfer's three ensures clauses on distinct addresses (trPost) and burn's (burnPost), on success; the discharged obligations Contracts.Token.Discharge / VC.Burn",
+  "spec": "solar-verify's export of verify_token.sol in this run (Certified.verify_token.gen.Token.Spec.Token): mint, transfer and burn with their ensures (balances, totalSupply, frame of every other balance, transfer's return) and succeeds-if conditions (msg.value == 0; mint: the sender is the owner and neither sum overflows; transfer: the sender's balance covers the amount and the recipient's does not overflow; burn: the balance and the supply cover the amount). The postcondition (bundlePost) and the allowed statuses (bundleAllowed) are both read off that export",
   "spec_modules": [
     "Contracts.Token.Lowering",
-    "Contracts.Token.VC.Burn",
-    "Contracts.Token.VC.Transfer",
-    "Verify.ShapeGeneric"
+    "Verify.ShapeGeneric",
+    "Verify.Spec.TreeMap",
+    "Verify.ShapeSpecExport"
   ],
   "proof_module": "verify_token.Shape",
   "proof": "Certified.verify_token.Shape.published",
   "generic": {
     "lowering": "Contracts.Token.Lowering",
-    "imports": [
-      "Contracts.Token.Discharge"
-    ],
+    "imports": [],
     "ns": "SolidCore.Refinement.Solar.VerifyTokenSource",
     "source_ns": "SolidCore.Verify.VC.Token",
     "style": "checked",
@@ -51,10 +53,12 @@
     ],
     "fns": "[SolidCore.Verify.VC.Token.fnTransfer, SolidCore.Verify.VC.Token.fnBurn, SolidCore.Refinement.Solar.VerifyTokenSource.fnMint, SolidCore.Refinement.Solar.VerifyTokenSource.fnTotalSupply, SolidCore.Refinement.Solar.VerifyTokenSource.fnOwner]",
     "storage": "[(2, 4096)]",
-    "triples": [
-      "SolidCore.Verify.VC.Token.transfer_triple_discharged _h0 hc",
-      "SolidCore.Verify.VC.Token.burn_triple hc"
-    ]
+    "spec_connect": {
+      "witness": "transfer",
+      "ghost_fixed": true,
+      "core": "Contracts.Token.VC.Burn",
+      "ns": "SolidCore.Verify.VC.Token"
+    }
   },
   "excluded": [
     "deployment: the init code is not covered; the statement is about the runtime bytecode from any storage that writes the slots the constructor writes",
@@ -62,10 +66,10 @@
     "calls: one frame, caller 0x2000, contract at 0x1000, the block and transaction of Target.message; no external calls, GAS reads or return data in the code (the loop checker's fragment)",
     "gas: the bound is the loop checker's (22100 per item times the final EVM IR's block fuel, plus memory), coarse; below it the bytecode may fail without effects, which equivalence admits",
     "valid calls: transfer, burn, mint, totalSupply and owner ABI-encoded with clean argument words, no value, from any storage that writes slot 2 (owner); balanceOf (a public mapping getter outside the generic stage's fragment) and calls with value are outside the statement",
-    "spec: transfer's three ensures clauses on distinct addresses (trPost) and burn's (burnPost), on success only; mint, totalSupply and owner have none; the spec declares no revert condition, so every status is allowed (Allowed is True): a revert meets the statement",
-    "assumption HashInj: keccak256 of (address, 0) is injective on addresses (the mapping's slots), a premise of the statement, not proved"
+    "spec: solar-verify's exported spec of mint, transfer and burn, with their succeeds-if conditions; totalSupply and owner are public getters with no spec; the ghost sum of balances is not stated (spec_connect proves ghost-free specs only)",
+    "assumption SolidCore.Spec.MapSlotsSeparated [0] (keccak256 as an uninterpreted function: injective on the preimages of balanceOf[a], with images at least 2^128, apart from the scalar slots), a named premise of the statement, not proved; it stands in for the KeccakModel premise and replaces HashInj",
+    "sender: every call is from 0x2000 (the interface's one frame); the owner is whatever slot 2 holds, any value"
   ],
-  "vacuity": "Allowed is True: solar-verify's Token spec declares no revert condition, so every status is allowed and a revert meets the statement; the postcondition is a Lean restatement (trPost, burnPost) on success only",
   "source_ast": {
     "file": "Contracts/Token/VC/Source.lean",
     "namespace": "SolidCore.Verify.VC.Source.Token",
