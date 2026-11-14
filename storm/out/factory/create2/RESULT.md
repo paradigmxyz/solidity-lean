@@ -80,5 +80,15 @@ Peak RSS = RUSAGE_CHILDREN max RSS (largest single process) via a wrapper.
   Tree/WExpr leaf for the CREATE2 request (CreateNode.eval_create2Bytes is the source half) and the
   MIR side's creation op. Not started.
 - E4-E8 for createPair not attempted on this base.
-- Regression of other CI libraries over the Ast/Interpreter change: see the update below (pending
-  at this checkpoint).
+- Regression: see below; two CI steps not run here.
+
+## Regression over the Ast/Interpreter change (update)
+
+| command | exit | wall | peak RSS |
+|---|---|---|---|
+| lake build -KleanMemory=3000 Loom Verify VerifySpec VerifySpecTrustedBase VerifyLoom VerifyDischarge VerifyVC ContractsVC ContractsCounter ContractsArrayMaxVault ContractsVerifyCounter ContractsCallSqrt ContractsToken ContractsCallFamilies ContractsShapes ContractsCreate2 | 0 | 4133 s | 5467 MB |
+| lake build -KleanMemory=6000 ContractsUniswapV2Pair (22 stages, rebuilt over the new Interpreter) | 0 | 888 s | 6078 MB |
+
+Peak RSS counts the mapped imports, so it can exceed the -M heap cap.
+Not run here: ContractsUniswapV2ERC20Spec (needs solar-verify's generated Spec/Connect) and the CI
+step at -KleanMemory=7000 (SolidCore and the Solar* libraries), which is above this lane's 6 GB cap.
