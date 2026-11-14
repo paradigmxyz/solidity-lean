@@ -506,3 +506,12 @@ lean_lib «arraymax» where
   srcDir := "Certified"
   roots := #[`arraymax.Proofs.Runs.Evm1, `arraymax.Proofs.Runs.Evm2, `arraymax.Proofs.Runs.Evm3, `arraymax.Proofs.Runs.Evm4, `arraymax.Proofs.Runs.Evm5, `arraymax.Proofs.Runs.Evm6, `arraymax.Proofs.Runs.Evm7, `arraymax.Proofs.Runs.Evm8, `arraymax.Proofs.Runs.Evm9, `arraymax.Proofs.Runs.Evm10, `arraymax.Proofs.Runs.Evm11, `arraymax.Proofs.Runs.Evm12, `arraymax.Proofs.Runs.Evm13, `arraymax.Proofs.Runs.Evm14, `arraymax.Proofs.Runs.Evm15]
   globs := #[.submodules `arraymax.gen]
+
+-- UniswapV2Pair's published statement of swap, skim and sync (Contracts/UniswapV2/PairSpec): the
+-- statement over an open world (Verify/ShapeOpen.lean), the stage theorems it composes as named
+-- Props, the composition wrapper and the negative controls. scripts/verify/uniswap_v2_pair_spec.sh
+-- generates its inputs (Spec, SpecWrongK, Bytecode, Runtime; derived from the GPL-3.0 port, so not
+-- committed) after scripts/verify/uniswap_v2_gen.sh.
+lean_lib ContractsUniswapV2PairSpec where
+  roots := #[`Contracts.UniswapV2.PairSpec.Published, `Contracts.UniswapV2.PairSpec.Negative]
+  globs := #[.submodules `Contracts.UniswapV2.PairSpec]

@@ -13,3 +13,6 @@ ERC20/VC/
 */Check.lean
 */Clones.lean
 */ClonesStaged.lean
+*/SpecWrongK.lean
+*/Bytecode.lean
+*/Runtime.lean
