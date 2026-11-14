@@ -1,0 +1,26 @@
+{
+  "kind": "certified",
+  "contract": "SolidCore.Verify.VC.UniswapV2ERC20.contract?",
+  "fuel": "SolidCore.Verify.VC.UniswapV2ERC20.fuel",
+  "valid": "SolidCore.Spec.UniswapV2.ERC20.Transfer.Valid",
+  "allowed": "SolidCore.Spec.UniswapV2.ERC20.Transfer.Allowed",
+  "post": "SolidCore.Spec.UniswapV2.ERC20.Transfer.Post",
+  "gas": "fun _ => 6401574412",
+  "nonvacuous": "SolidCore.Spec.UniswapV2.ERC20.Transfer.nonvacuous",
+  "env": [],
+  "spec": "slice-final's Lean restatement of docs/CERTIFICATION_TARGET.md's sequential post for UniswapV2ERC20.transfer (Contracts/UniswapV2/ERC20/Transfer/Spec.lean: Post, Allowed), not bound to a solar-verify export",
+  "spec_modules": [
+    "Contracts.UniswapV2.ERC20.Core",
+    "Contracts.UniswapV2.ERC20.Transfer.Spec"
+  ],
+  "proof_module": "Contracts.UniswapV2.ERC20.Transfer.Certified",
+  "proof": "SolidCore.Spec.UniswapV2.ERC20.Transfer.certified_lit",
+  "excluded": [
+    "functions: only transfer(address,uint256); every other selector of UniswapV2ERC20 is outside Valid",
+    "caller: one frame from the framework's caller 0x2000 (SolarTV calls carry no caller); the certification target's any-caller is not covered by this statement (executed tests only)",
+    "deployment: the init code is not covered; the statement is about the runtime bytecode from any storage that writes the constructor's slot 3",
+    "source model trusted: SolidCore's checked contract of the pinned port is the meaning of the source (frontend trust boundary)",
+    "gas: the bound is the context checker's (coarse, 6401574412); below it the bytecode may fail without effects, which equivalence admits",
+    "spec: a Lean restatement (not solar-verify's export), so never the strongest status by the driver's rule"
+  ]
+}

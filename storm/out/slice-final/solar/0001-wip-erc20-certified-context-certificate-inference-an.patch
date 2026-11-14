@@ -1,0 +1,485 @@
+From 542b3047eaa91150bcbe1790ae5eb4412b03aa2d Mon Sep 17 00:00:00 2001
+From: Troy Sargent <0xalpharush@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 04:39:40 +0000
+Subject: [PATCH 1/2] wip(erc20-certified): context certificate inference and
+ ctx/ctxgas module generators
+
+---
+ tools/certify/asm_ctx.py    | 248 ++++++++++++++++++++++++++++++++++++
+ tools/certify/gen_ctx.py    |  78 ++++++++++++
+ tools/certify/gen_ctxgas.py | 123 ++++++++++++++++++
+ 3 files changed, 449 insertions(+)
+ create mode 100644 tools/certify/asm_ctx.py
+ create mode 100644 tools/certify/gen_ctx.py
+ create mode 100644 tools/certify/gen_ctxgas.py
+
+diff --git a/tools/certify/asm_ctx.py b/tools/certify/asm_ctx.py
+new file mode 100644
+index 000000000..90a694ec2
+--- /dev/null
++++ b/tools/certify/asm_ctx.py
+@@ -0,0 +1,248 @@
++"""Certificates of the assembly checker with contexts, inferred (untrusted).
++
++infer_ctx(program_text, code) computes the AssembleCtx.CtxCert that
++SolidCore.Refinement.Solar.AssembleCtx.checkX / checkXB need for an exported EVM IR program
++whose internal functions are entered at several stack heights: one context per distinct
++(entry height, entry types, entry labels) a flow analysis from block 0 reaches, each with the
++context every successor enters in. It mirrors AssembleCutSim.blockOkC for heights and types and
++AssembleCtxTrack.exits for labels. Nothing here is trusted: the kernel's evaluation of the
++checker re-derives every claim.
++"""
++
++import asm_cert
++
++DYN_TOP = asm_cert.DYN_TOP
++
++
++def _swap(xs, i, fill):
++    size = max(len(xs), i + 2)
++    at = lambda j: xs[j] if j < len(xs) else fill
++    return [at(i + 1) if j == 0 else at(0) if j == i + 1 else at(j) for j in range(size)]
++
++
++def _need(op):
++    if op in asm_cert.STACK2:
++        return 2
++    if op in ("iszero", "not"):
++        return 1
++    if op == "calldatasize":
++        return 0
++    return None
++
++
++# Effects that leave no result (AssembleCtxTrack.pushesE).
++NOPUSH = {"mstore", "mstore8", "sstore", "tstore", "calldatacopy", "mcopy", "codecopy",
++          "returndatacopy"}
++
++
++def run_ctx(blocks, turned, b, h, ty, labs):
++    """The run of block b from the context (h, ty, labs): its exits (target, h, ty, labs), the
++    labels it pushes and whether it reads CALLER/KECCAK, the environment, or calls."""
++    n = len(blocks)
++    instrs = blocks[b]
++    ty, labs = list(ty), list(labs)
++    exits, pushed = [], []
++
++    def pad(x, k):
++        return x + [None] * (k - len(x)) if len(x) < k else x
++
++    def need(k):
++        if h < k:
++            raise SystemExit(f"error: block {b} needs {k} words at height {h}")
++
++    for k, i in enumerate(instrs):
++        tag = i[0]
++        last = k == len(instrs) - 1
++        if b in turned and k == len(instrs) - 2:
++            need(1)
++            exits.append((i[1], h - 1, ty[1:], labs[1:]))
++            exits.append((instrs[-1][1], h - 1, ty[1:], labs[1:]))
++            return exits, pushed
++        if last and ((tag == "jump" and i[1] == b + 1) or (tag == "stop" and b + 1 == n)):
++            if tag != "stop":
++                exits.append((b + 1, h, ty, labs))
++            return exits, pushed
++        if tag == "push":
++            h, ty, labs = h + 1, [False] + ty, [None] + labs
++        elif tag == "dup":
++            need(i[1] + 1)
++            h, ty, labs = h + 1, [ty[i[1]]] + ty, [pad(labs, i[1] + 1)[i[1]]] + labs
++        elif tag == "swap":
++            need(i[1] + 2)
++            ty, labs = _swap(ty, i[1], None), _swap(pad(labs, h), i[1], None)
++        elif tag == "stack" and i[1] == "pop":
++            need(1)
++            h, ty, labs = h - 1, ty[1:], labs[1:]
++        elif tag == "stack" and i[1] == "returndatasize":
++            h, ty, labs = h + 1, [False] + ty, [None] + labs
++        elif tag == "stack":
++            nd = _need(i[1])
++            if nd is None:
++                raise SystemExit(f"error: block {b}: stack op {i[1]} outside the fragment")
++            need(nd)
++            h, ty, labs = h - nd + 1, [False] + ty[nd:], [None] + labs[nd:]
++        elif tag == "load":
++            need(1)
++            ty, labs = [False] + ty[1:], [None] + labs[1:]
++        elif tag == "store":
++            need(2)
++            h, ty, labs = h - 2, ty[2:], labs[2:]
++        elif tag == "mem":
++            raise SystemExit(f"error: block {b}: memory op {i[1]} outside the fragment")
++        elif tag in ("effect", "env", "log", "other"):
++            if tag == "log":
++                name, arity = "log", i[2]
++            elif tag == "other":
++                if i[1].replace(" ", "") == ".effect(.call.staticcall)6":
++                    name, arity = "staticcall", 6
++                else:
++                    raise SystemExit(f"error: block {b}: {i[1]} outside the fragment")
++            elif tag == "env":
++                name, arity = "env", i[2]
++            else:
++                name, arity = i[1], i[2]
++            need(arity)
++            if name in NOPUSH or name == "log":
++                h, ty, labs = h - arity, ty[arity:], labs[arity:]
++            else:
++                h, ty, labs = h - arity + 1, [False] + ty[arity:], [None] + labs[arity:]
++        elif tag == "jump":
++            exits.append((i[1], h, ty, labs))
++            return exits, pushed
++        elif tag == "jumpi":
++            need(1)
++            h, ty, labs = h - 1, ty[1:], labs[1:]
++            exits.append((i[1], h, ty, labs))
++        elif tag == "pushLabel":
++            pushed.append(i[1])
++            h, ty, labs = h + 1, [True] + ty, [[i[1]]] + labs
++        elif tag == "jumpDyn":
++            need(1)
++            ts = labs[0] if labs else None
++            if ts is None:
++                raise SystemExit(f"error: block {b}: a dynamic jump to an unknown word")
++            for t in ts:
++                exits.append((t, h - 1, ty[1:], labs[1:]))
++            return exits, pushed
++        elif tag in ("stop", "ret", "revert"):
++            return exits, pushed
++        else:
++            raise SystemExit(f"error: block {b}: {i} outside the fragment")
++    exits.append((b + 1, h, ty, labs))
++    return exits, pushed
++
++
++def _norm(ty, labs, h):
++    ty = (list(ty) + [None] * h)[:h]
++    labs = (list(labs) + [None] * h)[:h]
++    while labs and labs[-1] is None:
++        labs.pop()
++    return tuple(ty), tuple(tuple(sorted(l)) if l is not None else None for l in labs)
++
++
++def _merge(a, b):
++    need = min(a[0], b[0])
++    mx = max(a[1], b[1])
++    ty = tuple(a[2][i] if a[2][i] == b[2][i] else None for i in range(need))
++    return (need, mx, ty, a[3])
++
++
++def infer_ctx(program_text, code):
++    blocks = asm_cert.parse_program(program_text)
++    n = len(blocks)
++    turned, offsets, labelled = asm_cert.layout(blocks, code)
++    ctxs = [[] for _ in range(n)]  # per block: list of (need, max, ty, labs)
++    ctxs[0].append((0, 0, (), ()))
++    succ, pushes = {}, {}
++    work = [(0, 0)]
++    steps = 0
++    while work:
++        steps += 1
++        if steps > 100000:
++            raise SystemExit("error: the contexts do not settle")
++        b, j = work.pop()
++        need, mx, ty, labs = ctxs[b][j]
++        exits, pushed = run_ctx(blocks, turned, b, need, list(ty), [list(l) if l else None for l in labs])
++        pushes[(b, j)] = pushed
++        m = {}
++        for t, th, tty, tlabs in exits:
++            if t >= n:
++                continue
++            nty, nlabs = _norm(tty, tlabs, th)
++            new = (th, th + (mx - need), nty, nlabs)
++            if t == b:
++                old = ctxs[b][j]
++                if _merge(old, new) != old:
++                    raise SystemExit(f"error: block {b} jumps to itself in another context")
++                continue
++            idx = next((k for k, x in enumerate(ctxs[t]) if x[3] == nlabs), None)
++            if idx is None:
++                ctxs[t].append(new)
++                idx = len(ctxs[t]) - 1
++                work.append((t, idx))
++            else:
++                merged = _merge(ctxs[t][idx], new)
++                if merged != ctxs[t][idx]:
++                    ctxs[t][idx] = merged
++                    work.append((t, idx))
++            if t in m and m[t] != idx:
++                raise SystemExit(f"error: block {b} enters block {t} in two contexts")
++            m[t] = idx
++        succ[(b, j)] = m
++    costs = []
++    for b in range(n):
++        items = 0
++        instrs = blocks[b]
++        for k, i in enumerate(instrs):
++            if b in turned and k == len(instrs) - 2:
++                items += 3
++                break
++            items += 2 if i[0] in ("jump", "jumpi") else 1
++        costs.append((1 if b in labelled else 0) + items)
++    rets = sorted({t for bl in blocks for i in bl if i[0] == "pushLabel" for t in [i[1]]})
++    flat = [i for bl in blocks for i in bl]
++    env = any(i[0] == "effect" and i[1] in ("caller", "keccak256") for i in flat)
++    reads = any(i[0] == "env" for i in flat)
++    calls = any(i[0] == "other" and "staticcall" in i[1] for i in flat) or any(
++        i[0] == "stack" and i[1] == "returndatasize" for i in flat) or any(
++        i[0] == "effect" and i[1] in ("returndatasize", "returndatacopy") for i in flat)
++    out = []
++    for b in range(n):
++        row = []
++        for j, (h, hmax, ty, labs) in enumerate(ctxs[b]):
++            r = set(pushes.get((b, j), []))
++            for l in labs:
++                if l is not None:
++                    r |= set(l)
++            row.append({"need": h, "max": hmax, "types": list(ty), "labs": list(labs),
++                        "succ": sorted(succ.get((b, j), {}).items()), "rets": sorted(r)})
++        out.append(row)
++    return {"offsets": offsets, "turned": turned, "costs": costs, "rets": rets, "env": env,
++            "reads": reads, "calls": calls, "ctxs": out}
++
++
++def _ty(t):
++    return "none" if t is None else ("some true" if t else "some false")
++
++
++def _lab(l):
++    return "none" if l is None else "some [" + ", ".join(str(x) for x in l) + "]"
++
++
++def lean_ctx_cert(c):
++    base = ("{ offsets := [" + ", ".join(hex(o) for o in c["offsets"]) + "],\n"
++            "      needs := [], top := 2 ^ 140, turned := " + str(c["turned"]) + ",\n"
++            "      costs := " + str(c["costs"]) + ",\n"
++            "      rets := " + str(c["rets"]) + ", env := " + ("true" if c["env"] else "false")
++            + ", reads := " + ("true" if c["reads"] else "false")
++            + ", calls := " + ("true" if c["calls"] else "false") + " }")
++    rows = []
++    for row in c["ctxs"]:
++        items = []
++        for x in row:
++            items.append("{ need := %d, max := %d, types := [%s], labs := [%s], succ := [%s], rets := %s }" % (
++                x["need"], x["max"], ", ".join(_ty(t) for t in x["types"]),
++                ", ".join(_lab(l) for l in x["labs"]),
++                ", ".join("(%d, %d)" % (t, j) for t, j in x["succ"]), str(x["rets"])))
++        rows.append("[" + ",\n       ".join(items) + "]")
++    return "{ base :=\n    " + base + ",\n  ctxs := [\n    " + ",\n    ".join(rows) + "] }"
+diff --git a/tools/certify/gen_ctx.py b/tools/certify/gen_ctx.py
+new file mode 100644
+index 000000000..165b31c7e
+--- /dev/null
++++ b/tools/certify/gen_ctx.py
+@@ -0,0 +1,78 @@
++#!/usr/bin/env python3
++"""Write the context checker's certificate module of a contract's exported stages (untrusted).
++
++gen_ctx.py GEN_DIR --module-prefix NAME.gen.C --contract C --final evmN --out OUT.lean
++
++The module states the certificate asm_ctx.infer_ctx inferred as data, proves by the kernel's
++evaluation that AssembleCtx.checkXB accepts the exact bytecode against the final EVM IR in its
++effect form (checkXB (norm evmN)), and instantiates AssembleCtx.assembly_of_checkXB_norm.
++"""
++import argparse, pathlib, sys
++sys.path.insert(0, str(pathlib.Path(__file__).parent))
++import asm_ctx
++
++ap = argparse.ArgumentParser()
++ap.add_argument("gen", type=pathlib.Path)
++ap.add_argument("--module-prefix", required=True)
++ap.add_argument("--contract", required=True)
++ap.add_argument("--final", required=True)
++ap.add_argument("--out", required=True, type=pathlib.Path)
++a = ap.parse_args()
++final_mod = a.final[0].upper() + a.final[1:]
++text = (a.gen / f"{final_mod}.lean").read_text()
++hexs = (a.gen / "manifest.json").read_text()
++import json
++code = bytes.fromhex(json.loads(hexs)["bytecode"])
++c = asm_ctx.infer_ctx(text, code)
++ns = f"SolarTV.Export.{a.contract}.Ctx"
++out = f"""import {a.module_prefix}.{final_mod}
++import {a.module_prefix}.Bytecode
++import SolidCore.Refinement.Solar.AssembleCtxCall
++
++-- Generated by solar's tools/certify/gen_ctx.py from the run's export; do not edit.
++
++/-!
++# {a.contract}: the exact bytecode against the final EVM IR, by the checker with contexts
++
++`cx` is tools/certify/asm_ctx.py's inferred certificate (untrusted data): one context per entry
++height range, entry types and return labels of each block. `check_ok`: the kernel evaluates
++`AssembleCtx.checkXB` of `{a.final}` in its effect form against the exact bytecode.
++`bytecode`: `assembly_of_checkXB_norm`, at every gas below `2 ^ 256`.
++-/
++
++namespace {ns}
++
++open SolidCore.Refinement.Solar SolidCore.Refinement.Solar.AssembleCtx
++
++/-- The exact runtime bytecode, byte by byte. -/
++abbrev bytes : List Nat := SolarTV.Export.{a.contract}.bytecode
++
++def code : ByteArray := ⟨(bytes.map UInt8.ofNat).toArray⟩
++
++/-- The final EVM IR. -/
++abbrev prog : SolarTV.Assembly.Program := SolarTV.Export.{a.contract}.{a.final}
++
++def cx : CtxCert :=
++  {asm_ctx.lean_ctx_cert(c)}
++
++set_option maxRecDepth 100000 in
++theorem check_ok : checkXB (norm prog) code cx = true := by decide +kernel
++
++/-- **The exact bytecode runs as the final EVM IR**, at every gas below `2 ^ 256`, under the
++checker's named hypotheses on the runner of messages. -/
++theorem bytecode (codes : SolidCore.Solidity.Shared.Account.BytesMap) (scope : SolarTV.Call → Prop)
++    (hP : ∀ gas, AssembleCallSeg.StaticRunner gas)
++    (hQ : ∀ gas call, scope call → AssembleCallSeg.CalleesRun gas code call) :
++    ∀ gas, gas < 2 ^ 256 → ∀ call, scope call → ∃ (o : SolarTV.Machine.Oracle) (W : SolidCore.Refinement.World),
++      W.Open ∧ AssembleCall.CallsAgree o W ∧ RunOracle.CertOk cx.base o ∧
++      SolarTV.Within (SolarTV.evmirSem o) (SolidCore.Refinement.Final.ethLibWith gas) prog code (· = call) :=
++  assembly_of_checkXB_norm check_ok codes scope hP hQ
++
++/-- info: '{ns}.bytecode' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms bytecode
++
++end {ns}
++"""
++a.out.write_text(out)
++print(f"{ns}.bytecode")
+diff --git a/tools/certify/gen_ctxgas.py b/tools/certify/gen_ctxgas.py
+new file mode 100644
+index 000000000..722e6c507
+--- /dev/null
++++ b/tools/certify/gen_ctxgas.py
+@@ -0,0 +1,123 @@
++#!/usr/bin/env python3
++"""Write the gas certificate module of a contract's exported stages: the checker with contexts
++and gas (untrusted inference, kernel-checked).
++
++gen_ctxgas.py GEN_DIR --module-prefix NAME.gen.C --contract C --final evmN --skip B,B --out OUT.lean
++
++--skip names the blocks of the final EVM IR outside the loop checker's fragment that no call in
++the statement reaches (a permit path's STATICCALL, GAS and return data, say): the module states
++guarded, the final EVM IR with each of them a jump to itself, and proves by the kernel's
++evaluation that AssembleCtxGas.checkXL accepts the exact bytecode against the final EVM IR,
++every other block checked in each of its calling contexts with memory below the inferred top.
++That the statement's calls never reach a skipped block is a stage (guard_run), proved apart by
++symbolic execution.
++"""
++import argparse, json, pathlib, re, sys
++sys.path.insert(0, str(pathlib.Path(__file__).parent))
++import asm_cert, asm_ctx
++
++ap = argparse.ArgumentParser()
++ap.add_argument("gen", type=pathlib.Path)
++ap.add_argument("--module-prefix", required=True)
++ap.add_argument("--contract", required=True)
++ap.add_argument("--final", required=True)
++ap.add_argument("--skip", required=True)
++ap.add_argument("--out", required=True, type=pathlib.Path)
++a = ap.parse_args()
++F = sorted(int(x) for x in a.skip.split(",") if x)
++final_mod = a.final[0].upper() + a.final[1:]
++text = (a.gen / f"{final_mod}.lean").read_text()
++code = bytes.fromhex(json.loads((a.gen / "manifest.json").read_text())["bytecode"])
++blocks = asm_cert.parse_program(text)
++n = len(blocks)
++if 0 in F or any(b >= n for b in F):
++    raise SystemExit("error: --skip names the entry block or a block past the program")
++turned, offsets, labelled = asm_cert.layout(blocks, code)
++c = asm_ctx.infer_ctx(text, code)
++# Memory reached by the checked blocks, in every context: constant offsets only.
++top, bail = 0, []
++for b in range(n):
++    if b in F:
++        continue
++    for x in c["ctxs"][b]:
++        ty = [bool(v) if v is not None else False for v in x["types"]]
++        _, _, t = asm_cert.run_block(blocks, turned, c["rets"], b, x["need"], ty, False, bail)
++        top = max(top, t)
++if bail:
++    raise SystemExit(f"error: blocks {sorted(set(bail))} reach memory at offsets the checker does not know")
++top = (top + 31) // 32 * 32
++env = any(i[0] == "effect" and i[1] in ("caller", "keccak256") for b in range(n) if b not in F for i in blocks[b])
++reads = any(i[0] == "env" for b in range(n) if b not in F for i in blocks[b])
++cert = asm_ctx.lean_ctx_cert(c)
++cert = cert.replace("top := 2 ^ 140", f"top := {top}")
++cert = re.sub(r"env := (true|false), reads := (true|false), calls := (true|false)",
++              f"env := {'true' if env else 'false'}, reads := {'true' if reads else 'false'}, calls := false", cert)
++# The guarded program: the same text with each skipped block a jump to itself.
++m = re.search(r"\{ blocks := \[\n", text)
++start = m.end()
++end = text.rindex("] }")
++body = text[start:end]
++parts = re.split(r"(?m)^(    -- bb\d+\n)", body)
++heads, bodies = parts[1::2], parts[2::2]
++if len(bodies) != n:
++    raise SystemExit(f"error: {len(bodies)} blocks in the text, {n} parsed")
++out_blocks = []
++for b, (h, bl) in enumerate(zip(heads, bodies)):
++    if b in F:
++        sep = "," if b < n - 1 else ""
++        bl = f"    [.jump {b}]{sep}\n"
++    out_blocks.append(h + bl)
++guarded = "{ blocks := [\n" + "".join(out_blocks) + "] }"
++ns = f"SolarTV.Export.{a.contract}.CtxGas"
++q = "\x60"
++out = f"""import {a.module_prefix}.{final_mod}
++import {a.module_prefix}.Bytecode
++import SolidCore.Refinement.Solar.AssembleCtxGas
++
++-- Generated by solar's tools/certify/gen_ctxgas.py from the run's export; do not edit.
++
++/-!
++# {a.contract}: the exact bytecode against the final EVM IR, with contexts and a gas bound
++
++{q}cx{q} is tools/certify/asm_ctx.py's inferred certificate (untrusted data) with the memory bound
++{top} of every block but {F}: those are outside the loop checker's fragment and {q}checkXL{q} leaves
++them unchecked. {q}check_ok{q}: the kernel evaluates {q}AssembleCtxGas.checkXL{q} of {q}{a.final}{q} against the
++exact bytecode. {q}guarded{q} is {q}{a.final}{q} with those blocks a jump to themselves
++({q}guarded_eq{q}); that the statement's calls never reach them is the stage {q}guard_run{q}.
++-/
++
++namespace {ns}
++
++open SolidCore.Refinement.Solar SolidCore.Refinement.Solar.AssembleCtx
++
++/-- The exact runtime bytecode, byte by byte. -/
++abbrev bytes : List Nat := SolarTV.Export.{a.contract}.bytecode
++
++def code : ByteArray := ⟨(bytes.map UInt8.ofNat).toArray⟩
++
++/-- The final EVM IR. -/
++abbrev prog : SolarTV.Assembly.Program := SolarTV.Export.{a.contract}.{a.final}
++
++/-- The blocks outside the checker's fragment. -/
++def F : List Nat := {F}
++
++def cx : CtxCert :=
++  {cert}
++
++set_option maxRecDepth 100000 in
++theorem check_ok : AssembleCtxGas.checkXL F prog code cx = true := by decide +kernel
++
++/-- The final EVM IR with each block of {q}F{q} a jump to itself. -/
++def guarded : SolarTV.EVM.Program.Program :=
++  {guarded}
++
++theorem guarded_eq : AssembleCtxGas.guard F prog = guarded := rfl
++
++/-- info: '{ns}.check_ok' depends on axioms: [propext] -/
++#guard_msgs (whitespace := lax) in
++#print axioms check_ok
++
++end {ns}
++"""
++a.out.write_text(out)
++print(f"top={top} env={env} reads={reads}")
+-- 
+2.43.0
+

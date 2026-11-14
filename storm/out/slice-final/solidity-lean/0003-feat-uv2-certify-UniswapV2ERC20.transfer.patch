@@ -1,0 +1,1111 @@
+From ff6962618cba0a539dc8635f1f66f30cc21024b7 Mon Sep 17 00:00:00 2001
+From: Pyramid <pyramid@tempo.xyz>
+Date: Sat, 14 Nov 2026 14:40:14 +0000
+Subject: [PATCH 3/3] feat(uv2): certify UniswapV2ERC20.transfer
+
+Spec, tree post, Certified shape for transfer on the exact runtime
+bytes with the context checker's gas bound, kernel negatives of the
+bytecode checker, and the shape manifest for final.py.
+---
+ Certified/uv2_erc20/shape_transfer.json       |  26 +
+ .../UniswapV2/ERC20/Transfer/Certified.lean   | 144 +++++
+ .../UniswapV2/ERC20/Transfer/Compiled.lean    |  92 ++++
+ Contracts/UniswapV2/ERC20/Transfer/Neg.lean   |  37 ++
+ .../UniswapV2/ERC20/Transfer/Source.lean      |  59 ++
+ Contracts/UniswapV2/ERC20/Transfer/Spec.lean  | 103 ++++
+ Contracts/UniswapV2/ERC20/Transfer/Tree.lean  | 521 ++++++++++++++++++
+ Verify/ShapeCtxGas.lean                       |  14 +-
+ lakefile.lean                                 |   7 +
+ 9 files changed, 996 insertions(+), 7 deletions(-)
+ create mode 100644 Certified/uv2_erc20/shape_transfer.json
+ create mode 100644 Contracts/UniswapV2/ERC20/Transfer/Certified.lean
+ create mode 100644 Contracts/UniswapV2/ERC20/Transfer/Compiled.lean
+ create mode 100644 Contracts/UniswapV2/ERC20/Transfer/Neg.lean
+ create mode 100644 Contracts/UniswapV2/ERC20/Transfer/Source.lean
+ create mode 100644 Contracts/UniswapV2/ERC20/Transfer/Spec.lean
+ create mode 100644 Contracts/UniswapV2/ERC20/Transfer/Tree.lean
+
+diff --git a/Certified/uv2_erc20/shape_transfer.json b/Certified/uv2_erc20/shape_transfer.json
+new file mode 100644
+index 0000000..8dbefe8
+--- /dev/null
++++ b/Certified/uv2_erc20/shape_transfer.json
+@@ -0,0 +1,26 @@
++{
++  "kind": "certified",
++  "contract": "SolidCore.Verify.VC.UniswapV2ERC20.contract?",
++  "fuel": "SolidCore.Verify.VC.UniswapV2ERC20.fuel",
++  "valid": "SolidCore.Spec.UniswapV2.ERC20.Transfer.Valid",
++  "allowed": "SolidCore.Spec.UniswapV2.ERC20.Transfer.Allowed",
++  "post": "SolidCore.Spec.UniswapV2.ERC20.Transfer.Post",
++  "gas": "fun _ => 6401574412",
++  "nonvacuous": "SolidCore.Spec.UniswapV2.ERC20.Transfer.nonvacuous",
++  "env": [],
++  "spec": "slice-final's Lean restatement of docs/CERTIFICATION_TARGET.md's sequential post for UniswapV2ERC20.transfer (Contracts/UniswapV2/ERC20/Transfer/Spec.lean: Post, Allowed), not bound to a solar-verify export",
++  "spec_modules": [
++    "Contracts.UniswapV2.ERC20.Core",
++    "Contracts.UniswapV2.ERC20.Transfer.Spec"
++  ],
++  "proof_module": "Contracts.UniswapV2.ERC20.Transfer.Certified",
++  "proof": "SolidCore.Spec.UniswapV2.ERC20.Transfer.certified_lit",
++  "excluded": [
++    "functions: only transfer(address,uint256); every other selector of UniswapV2ERC20 is outside Valid",
++    "caller: one frame from the framework's caller 0x2000 (SolarTV calls carry no caller); the certification target's any-caller is not covered by this statement (executed tests only)",
++    "deployment: the init code is not covered; the statement is about the runtime bytecode from any storage that writes the constructor's slot 3",
++    "source model trusted: SolidCore's checked contract of the pinned port is the meaning of the source (frontend trust boundary)",
++    "gas: the bound is the context checker's (coarse, 6401574412); below it the bytecode may fail without effects, which equivalence admits",
++    "spec: a Lean restatement (not solar-verify's export), so never the strongest status by the driver's rule"
++  ]
++}
+\ No newline at end of file
+diff --git a/Contracts/UniswapV2/ERC20/Transfer/Certified.lean b/Contracts/UniswapV2/ERC20/Transfer/Certified.lean
+new file mode 100644
+index 0000000..feb5dcc
+--- /dev/null
++++ b/Contracts/UniswapV2/ERC20/Transfer/Certified.lean
+@@ -0,0 +1,144 @@
++import Contracts.UniswapV2.ERC20.Transfer.Compiled
++import Contracts.UniswapV2.ERC20.Transfer.Tree
++import Verify.Spec.TreeOn
++
++/-!
++# UniswapV2ERC20.transfer: certified
++
++`shape_eq`: SolidCore's checked contract dispatches transfer's selector to a function of two
++parameters whose erased tree is `tree`, by the kernel's evaluation from the source text up.
++`meets`: every result of SolidCore's source on a valid call meets `Post` (from `tree_post` through
++`allowed_of_tree`); `allowed`: and its status is allowed. `certified`: with `compiled_valid`, all
++four obligations of `Certified` for the exact runtime bytes, on `Valid`, with the proved gas bound.
++-/
++
++namespace SolidCore.Spec.UniswapV2.ERC20.Transfer
++
++open SolarTV SolidCore.Refinement SolidCore.Refinement.Generic SolidCore.Refinement.Shapes
++
++/-- How SolidCore dispatches transfer and the generic source stage erases it. -/
++def shape? : Option (Option (Nat × Option Tree)) :=
++  match SolidCore.Verify.VC.UniswapV2ERC20.contract? with
++  | .ok c => some ((c.core.findFunctionBySelector? transferSel).map fun f =>
++      (f.params.length, eraseFn (envOf c.core) SolidCore.Verify.VC.UniswapV2ERC20.fuel f))
++  | .error _ => none
++
++kernel_rfl shape_eq shape? (some (some (2, some tree))) using SolidCore.Verify.VC.UniswapV2ERC20.selector_eq SolidCore.Verify.VC.mkIdx_eq SolidCore.Verify.VC.UniswapV2ERC20.digest_eq SolidCore.Spec.UniswapV2.ERC20.Keccak.keccakWord_eq
++
++/-- What the tree shows at a call's words, for the post. -/
++def Q (ρ : Generic.Val) (obs : Observable) : Prop :=
++  (∀ k, ρ.store k < 2 ^ 256) → ∀ t a, ρ.args = [t, a] → t < 2 ^ 160 → PostOf ρ.store t a obs
++
++theorem tree_on : SolidCore.Spec.TreeOn (SolidCore.Spec.StageVal 2) Q tree := by
++  rintro ⟨args, st, h⟩ ⟨-, hb, hh⟩ hs t a hargs ht
++  simp only at hargs hh hs hb ⊢
++  subst hargs hh
++  exact tree_post st hs t a ht (hb a (by simp))
++
++/-- **The specification**: every result of SolidCore's source on a valid call meets `Post`. -/
++theorem meets {c : SolidCore.Solidity.TypeCheck.CheckedContract}
++    (hc : SolidCore.Verify.VC.UniswapV2ERC20.contract? = .ok c) :
++    Meets (solidCore SolidCore.Verify.VC.UniswapV2ERC20.fuel) c Valid Post := by
++  intro call hv obs hrun
++  have hdep := deploy_eq
++  simp only [deploy?, hc] at hdep
++  obtain ⟨d, hd⟩ := Wide.deployedAt_of hdep
++  have hshape := shape_eq
++  simp only [shape?, hc, Option.some.injEq, Option.map_eq_some_iff, Prod.mk.injEq] at hshape
++  obtain ⟨f, hf, hlen, hT⟩ := hshape
++  have hq := SolidCore.Spec.allowed_of_tree (fn := fn_transfer) hd (by decide) hf hlen hT tree_on
++    call (valid_sub call hv) obs hrun
++  intro t a hcd ht ha
++  have hargs : ∀ x ∈ [t, a], x < 2 ^ 256 := by
++    intro x hx; simp at hx; rcases hx with rfl | rfl <;> omega
++  have hv' : SolidCore.Spec.valOf call = ⟨[t, a], slotValue call.storage, solHash⟩ := by
++    simp only [SolidCore.Spec.valOf, hcd]
++    rw [SolidCore.Spec.words_calldata _ hargs]
++  rw [hv'] at hq
++  exact hq (fun k => Generic.slotValue_lt _ k) t a rfl ht
++
++/-- **The allowed statuses** of every result of SolidCore's source on a valid call. -/
++theorem allowed {c : SolidCore.Solidity.TypeCheck.CheckedContract}
++    (hc : SolidCore.Verify.VC.UniswapV2ERC20.contract? = .ok c) :
++    ∀ call, Valid call → ∀ obs,
++      (solidCore SolidCore.Verify.VC.UniswapV2ERC20.fuel).run c call = some obs → Allowed call obs := by
++  intro call hv obs hrun
++  have hp := meets hc call hv obs hrun
++  by_cases hs : obs.success = true
++  · exact Or.inl hs
++  · refine Or.inr fun t a hcd ht ha => ?_
++    rcases allowed_of_postOf (hp t a hcd ht ha) with h | h | h
++    · exact absurd h hs
++    · exact Or.inl h
++    · exact Or.inr h
++
++/-- **UniswapV2ERC20.transfer is certified**: SolidCore's checked contract of the pinned source,
++on the statement's valid calls, is equivalent to the exact runtime bytes `code` from `gasBound` gas on,
++terminates with an allowed status, and meets the sequential post. -/
++theorem certified : ∃ c, SolidCore.Verify.VC.UniswapV2ERC20.contract? = .ok c ∧
++    Certified (solidCore SolidCore.Verify.VC.UniswapV2ERC20.fuel) c code Valid Allowed Post gasBound := by
++  obtain ⟨c, hc, h⟩ := compiled_valid
++  exact ⟨c, hc, Compiled.certified h (allowed hc) (meets hc)⟩
++
++/-- info: 'SolidCore.Spec.UniswapV2.ERC20.Transfer.certified' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms certified
++
++/-! ## The statement's required cases, as facts of the post -/
++
++/-- A self-transfer of 1 at the maximal balance succeeds and leaves the balance unchanged (no
++recipient overflow: the credit reads the debited slot). -/
++theorem self_max_succeeds (s : Nat → Nat) (h : s (balSlot C) = 2 ^ 256 - 1) :
++    Succeeds s C 1 ∧ credited (debited s 1) C 1 (balSlot C) = 2 ^ 256 - 1 := by
++  simp only [Succeeds, credited, debited, if_pos, h]
++  omega
++
++/-- A self-transfer above the balance reverts with the subtraction's data. -/
++theorem self_insufficient (s : Nat → Nat) (v : Nat) (h : s (balSlot C) < v) (obs : Observable)
++    (hp : PostOf s C v obs) : obs.success = false ∧ obs.storage = s ∧ obs.output = subUnderflow := by
++  have hn : ¬ Succeeds s C v := fun hs => by have := hs.1; omega
++  obtain ⟨e1, -, e3, e4⟩ := hp.2 hn
++  exact ⟨e1, e3, by rw [e4, if_pos h]⟩
++
++
++/-! ## The published statement's inputs -/
++
++/-- The proved gas bound, as its number. -/
++theorem certified_lit : ∃ c, SolidCore.Verify.VC.UniswapV2ERC20.contract? = .ok c ∧
++    Certified (solidCore SolidCore.Verify.VC.UniswapV2ERC20.fuel) c code Valid Allowed Post
++      (fun _ => 6401574412) := by
++  obtain ⟨c, hc, h⟩ := certified
++  have hg : gasBound = fun _ => 6401574412 := funext fun _ => gasBound_eq
++  rw [hg] at h
++  exact ⟨c, hc, h⟩
++
++/-- The valid call of recipient 0 and value 0 from the constructor's storage. -/
++def call0 : Call := { calldata := Abi.calldata transferSel [0, 0], callvalue := 0, storage := deployed }
++
++theorem valid0 : Valid call0 := ⟨deployed, 0, 0, fun kv hkv => ⟨kv, hkv, rfl⟩, by decide, by decide, rfl⟩
++
++/-- **Non-vacuity**: the post rejects a revert of a transfer that succeeds, and the allowed
++statuses reject a revert without the source's data. -/
++theorem nonvacuous :
++    (∃ (call : Call) (obs : Observable), Valid call ∧ ¬ Post call obs) ∧
++    (∃ (call : Call) (obs : Observable), Valid call ∧ obs.success = false ∧ ¬ Allowed call obs) := by
++  refine ⟨⟨call0, ⟨false, [], [], fun _ => 0⟩, valid0, fun h => ?_⟩,
++    ⟨call0, ⟨false, [], [], fun _ => 0⟩, valid0, rfl, fun h => ?_⟩⟩
++  · have hs : Succeeds (slotValue call0.storage) 0 0 := by
++      refine ⟨Nat.zero_le _, ?_⟩
++      have := Generic.slotValue_lt call0.storage (balSlot C)
++      have := Generic.slotValue_lt call0.storage (balSlot 0)
++      simp only [debited]
++      split <;> simp only [Generic.wordSize] at * <;> omega
++    exact absurd ((h 0 0 rfl (by decide) (by decide)).1 hs).1 (by decide)
++  · rcases h with h | h
++    · exact absurd h (by decide)
++    · rcases h 0 0 rfl (by decide) (by decide) with ⟨ho, -⟩ | ⟨ho, -⟩
++      · exact absurd ho (by decide)
++      · exact absurd ho (by decide)
++
++/-- info: 'SolidCore.Spec.UniswapV2.ERC20.Transfer.nonvacuous' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms nonvacuous
++
++end SolidCore.Spec.UniswapV2.ERC20.Transfer
+diff --git a/Contracts/UniswapV2/ERC20/Transfer/Compiled.lean b/Contracts/UniswapV2/ERC20/Transfer/Compiled.lean
+new file mode 100644
+index 0000000..6f7f57e
+--- /dev/null
++++ b/Contracts/UniswapV2/ERC20/Transfer/Compiled.lean
+@@ -0,0 +1,92 @@
++import Contracts.UniswapV2.ERC20.Transfer.Source
++import Verify.ShapeCtxGas
++import uv2_erc20.GuardT
++
++/-!
++# UniswapV2ERC20.transfer: source to the exact runtime bytes, with a proved gas bound
++
++`compiled` is `Shapes.Compiled` (equivalence at every gas below `2 ^ 256` with failures only
++below the bound, termination, resources from `gasBound` on) of SolidCore's checked
++`UniswapV2ERC20` and the exact runtime bytes solar emitted in this run, on transfer's calls. It
++composes, by `Shapes.compiled0XL` alone:
++
++* E3: `Transfer.check_ok`, the generic source checker on stage0 for transfer;
++* E4: `SolarTV.Milestone.Uv2Erc20T.uv2_erc20_t_mir_to_evmir`, the backend stages stage0 to evm11 on
++  every call whose selector is not one of the twelve other external functions;
++* the guard stage `SolarTV.Milestone.Uv2Erc20T.guard_run` / `guard_ends`: those calls never reach
++  the permit blocks (STATICCALL to ECRECOVER, GAS, return data);
++* E5 and E8: `CtxGas.check_ok`, the checker with contexts and gas on the exact bytes, through
++  `AssembleCtxGas.within_of_checkXL` and `forward_of_checkXL`. No hypothesis on the runner of
++  messages: neither `StaticRunner` (false, `AssembleNoCall.not_forall_staticRunner`) nor
++  `CalleesRun` appears.
++
++`compiled_valid` restricts it to the statement's `Valid` (a clean recipient address).
++-/
++
++namespace SolidCore.Spec.UniswapV2.ERC20.Transfer
++
++open SolidCore.Refinement SolidCore.Refinement.Shapes SolidCore.Refinement.Solar
++
++/-- The exact runtime bytes. -/
++abbrev code : ByteArray := SolarTV.Export.UniswapV2ERC20.CtxGas.code
++
++/-- **The gas bound**: from this gas on, every valid call ends with the source's result. -/
++def gasBound : SolarTV.Call → Nat :=
++  fun _ => AssembleLoop.gasBoundL SolarTV.Export.UniswapV2ERC20.CtxGas.cx.base 1984
++
++theorem gasBound_lt : AssembleLoop.gasBoundL SolarTV.Export.UniswapV2ERC20.CtxGas.cx.base 1984 < 2 ^ 64 := by
++  decide +kernel
++
++theorem gasBound_eq : AssembleLoop.gasBoundL SolarTV.Export.UniswapV2ERC20.CtxGas.cx.base 1984 = 6401574412 := by
++  decide +kernel
++
++theorem hscopeT : ∀ call, genericValid0 fnsT deployed call → SolarTV.Milestone.Uv2Erc20T.scope call := by
++  rintro _ ⟨σ, -, f, hf, args, hlen, hargs, rfl⟩
++  simp only [fnsT, List.mem_cons, List.not_mem_nil, or_false] at hf
++  subst hf
++  have h := (Generic.callFacts fn_transfer.sel (by decide) args hargs σ).selector
++  simp only [SolarTV.Milestone.Uv2Erc20T.scope]
++  rw [h]
++  decide
++
++/-- **transfer, from SolidCore's source to the exact bytes, with the gas bound.** -/
++theorem compiled : ∃ c, SolidCore.Verify.VC.UniswapV2ERC20.contract? = .ok c ∧
++    Compiled (solidCore SolidCore.Verify.VC.UniswapV2ERC20.fuel) c code (genericValid0 fnsT deployed) gasBound := by
++  obtain ⟨c, hc⟩ := SolidCore.Verify.VC.UniswapV2ERC20.contract_ok
++  have hdep := deploy_eq
++  simp only [deploy?, hc] at hdep
++  obtain ⟨dd, hdd⟩ := Wide.deployedAt_of hdep
++  exact ⟨c, hc, compiled0XL hdd (check_ok hc) (genericValid0_inhabited fn_transfer [] deployed)
++    (SolarTV.Milestone.Uv2Erc20T.uv2_erc20_t_mir_to_evmir oracle) hscopeT
++    (fun call h => SolarTV.Milestone.Uv2Erc20T.guard_ends oracle call (hscopeT call h))
++    (fun call h => SolarTV.Milestone.Uv2Erc20T.guard_run oracle call (hscopeT call h))
++    SolarTV.Export.UniswapV2ERC20.CtxGas.check_ok gasBound_lt⟩
++
++/-- A narrower inhabited precondition keeps the shape. -/
++theorem Compiled.restrict {S : Sem} {p : S.Prog} {code : ByteArray} {V V' : SolarTV.Call → Prop}
++    {G : SolarTV.Call → Nat} (h : Compiled S p code V G) (hsub : ∀ call, V' call → V call)
++    (inh : ∃ call, V' call) : Compiled S p code V' G where
++  inhabited := inh
++  equiv := fun gas hg call hc => h.equiv gas hg call (hsub call hc)
++  terminates := fun call hc => h.terminates call (hsub call hc)
++  resources := fun call hc => h.resources call (hsub call hc)
++
++theorem valid_sub : ∀ call, Valid call → genericValid0 fnsT deployed call := by
++  rintro _ ⟨σ, dst, v, hcov, hto, hv, rfl⟩
++  exact ⟨σ, hcov, fn_transfer, List.mem_singleton_self _, [dst, v], rfl,
++    by intro a ha; simp at ha; rcases ha with rfl | rfl <;> omega, rfl⟩
++
++theorem valid_inhabited : ∃ call, Valid call :=
++  ⟨_, deployed, 0, 0, fun kv hkv => ⟨kv, hkv, rfl⟩, by decide, by decide, rfl⟩
++
++/-- **The compiled shape on the statement's valid calls.** -/
++theorem compiled_valid : ∃ c, SolidCore.Verify.VC.UniswapV2ERC20.contract? = .ok c ∧
++    Compiled (solidCore SolidCore.Verify.VC.UniswapV2ERC20.fuel) c code Valid gasBound := by
++  obtain ⟨c, hc, h⟩ := compiled
++  exact ⟨c, hc, Compiled.restrict h valid_sub valid_inhabited⟩
++
++/-- info: 'SolidCore.Spec.UniswapV2.ERC20.Transfer.compiled_valid' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms compiled_valid
++
++end SolidCore.Spec.UniswapV2.ERC20.Transfer
+diff --git a/Contracts/UniswapV2/ERC20/Transfer/Neg.lean b/Contracts/UniswapV2/ERC20/Transfer/Neg.lean
+new file mode 100644
+index 0000000..e1203e8
+--- /dev/null
++++ b/Contracts/UniswapV2/ERC20/Transfer/Neg.lean
+@@ -0,0 +1,37 @@
++import uv2_erc20.CtxGas
++
++/-!
++# UniswapV2ERC20.transfer: the bytecode checker refuses altered bytes (kernel negatives)
++
++The checker that proves the exact bytes against the final EVM IR (`CtxGas.check_ok`) is not
++vacuous on transfer's code: with the same final EVM IR and certificate, the kernel evaluates it to
++`false` on two one-site alterations of the runtime bytes.
++
++* `missing_debit`: the caller's debit store (SWAP1 SSTORE at 0x426) replaced by POP POP;
++* `altered_jump`: the target of the PUSH2 at 0x437 (0x0466, the add-overflow check's jump)
++  changed to 0x0405.
++-/
++
++namespace SolidCore.Spec.UniswapV2.ERC20.Transfer.Neg
++
++open SolidCore.Refinement.Solar SolidCore.Refinement.Solar.AssembleCtx
++open SolarTV.Export.UniswapV2ERC20.CtxGas
++
++def ofBytes (bs : List Nat) : ByteArray := ⟨(bs.map UInt8.ofNat).toArray⟩
++
++/-- The runtime bytes without the caller's debit. -/
++def missingDebit : ByteArray := ofBytes ((bytes.set 0x426 0x50).set 0x427 0x50)
++
++/-- The runtime bytes with one jump target changed. -/
++def alteredJump : ByteArray := ofBytes (bytes.set 0x439 0x05)
++
++theorem missing_debit_sites : bytes.getD 0x426 0 = 0x90 ∧ bytes.getD 0x427 0 = 0x55 := by decide +kernel
++
++theorem altered_jump_sites : bytes.getD 0x437 0 = 0x61 ∧ bytes.getD 0x438 0 = 0x04 ∧
++    bytes.getD 0x439 0 = 0x66 := by decide +kernel
++
++theorem missing_debit : AssembleCtxGas.checkXL F (norm prog) missingDebit cx = false := by decide +kernel
++
++theorem altered_jump : AssembleCtxGas.checkXL F (norm prog) alteredJump cx = false := by decide +kernel
++
++end SolidCore.Spec.UniswapV2.ERC20.Transfer.Neg
+diff --git a/Contracts/UniswapV2/ERC20/Transfer/Source.lean b/Contracts/UniswapV2/ERC20/Transfer/Source.lean
+new file mode 100644
+index 0000000..1a03d70
+--- /dev/null
++++ b/Contracts/UniswapV2/ERC20/Transfer/Source.lean
+@@ -0,0 +1,59 @@
++import Contracts.UniswapV2.ERC20.Core
++import Contracts.UniswapV2.ERC20.SpecTreeKeccak
++import Verify.VC.KernelIdx
++import SolidCore.Refinement.KernelRfl
++import SolidCore.Refinement.Generic.Stage
++import uv2_erc20.gen.UniswapV2ERC20.Stage0
++import Contracts.UniswapV2.ERC20.Transfer.Spec
++
++/-!
++# UniswapV2ERC20.transfer: the source to the first lowered MIR (E3)
++
++`check_ok`: the generic source checker (`Generic.check`, the caller and the hash of two words)
++accepts solar's first lowered MIR `SolarTV.Export.UniswapV2ERC20.stage0` of the run's export for
++the one function `transfer(address,uint256)` against SolidCore's checked contract, by the kernel's
++evaluation from the source text up. `deploy_eq`: the constructor leaves `deployed`.
++`erase_eq`: the generic stage's erased tree of transfer, `tree`, which the specification is
++proved of.
++-/
++
++namespace SolidCore.Spec.UniswapV2.ERC20.Transfer
++
++open SolidCore.Refinement SolidCore.Refinement.Generic
++
++/-- `transfer(address,uint256)` as the stage's ABI sees it (two words). -/
++def fn_transfer : SolidCore.Refinement.Abi.Fn := ⟨0xa9059cbb, List.replicate 2 (.uint 256)⟩
++
++def fnsT : List SolidCore.Refinement.Abi.Fn := [fn_transfer]
++
++/-- The steps along each path of the symbolic run of the module. -/
++def mirFuel : Nat := 200
++
++def deploy? : Bool :=
++  match SolidCore.Verify.VC.UniswapV2ERC20.contract? with
++  | .ok c => Wide.deployedAt SolidCore.Verify.VC.UniswapV2ERC20.fuel c deployed
++  | .error _ => false
++
++kernel_rfl deploy_eq deploy? true using SolidCore.Verify.VC.UniswapV2ERC20.selector_eq SolidCore.Verify.VC.mkIdx_eq SolidCore.Verify.VC.UniswapV2ERC20.digest_eq SolidCore.Spec.UniswapV2.ERC20.Keccak.keccakWord_eq
++
++def check? : Bool :=
++  match SolidCore.Verify.VC.UniswapV2ERC20.contract? with
++  | .ok c => Generic.check SolidCore.Verify.VC.UniswapV2ERC20.fuel mirFuel c.core
++      SolarTV.Export.UniswapV2ERC20.stage0 fnsT .all
++  | .error _ => false
++
++kernel_rfl check_eq check? true using SolidCore.Verify.VC.UniswapV2ERC20.selector_eq SolidCore.Verify.VC.mkIdx_eq SolidCore.Verify.VC.UniswapV2ERC20.digest_eq SolidCore.Spec.UniswapV2.ERC20.Keccak.keccakWord_eq
++
++theorem check_ok {c : SolidCore.Solidity.TypeCheck.CheckedContract}
++    (hc : SolidCore.Verify.VC.UniswapV2ERC20.contract? = .ok c) :
++    Generic.check SolidCore.Verify.VC.UniswapV2ERC20.fuel mirFuel c.core
++      SolarTV.Export.UniswapV2ERC20.stage0 fnsT .all = true := by
++  have h := check_eq
++  simp only [check?, hc] at h
++  exact h
++
++/-- info: 'SolidCore.Spec.UniswapV2.ERC20.Transfer.check_ok' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms check_ok
++
++end SolidCore.Spec.UniswapV2.ERC20.Transfer
+diff --git a/Contracts/UniswapV2/ERC20/Transfer/Spec.lean b/Contracts/UniswapV2/ERC20/Transfer/Spec.lean
+new file mode 100644
+index 0000000..8164cda
+--- /dev/null
++++ b/Contracts/UniswapV2/ERC20/Transfer/Spec.lean
+@@ -0,0 +1,103 @@
++import Verify.ShapeGeneric
++import Verify.Spec.HashScope
++
++/-!
++# UniswapV2ERC20.transfer: the statement's inputs (reviewed specification, not proof)
++
++The scope is the one function `transfer(address,uint256)` of the pinned port's `UniswapV2ERC20`.
++
++* `Valid`: transfer's ABI-encoded calls with a clean recipient (`dst < 2 ^ 160`), any value word, no
++  call value, any storage (as a list that names the constructor's slot 3, whatever its value), from
++  the framework's caller `callerAddress` (0x2000; see RESULT.md: any caller is a named missing bridge).
++* `Post`: the sequential post of docs/CERTIFICATION_TARGET.md (a1c3143) over physical slots: debit the
++  caller's slot `balSlot C`, then credit the recipient's slot `balSlot dst` reading the debited state.
++  Success iff `value ≤ σ (balSlot C)` and the credit fits; then exactly those writes (every other
++  slot keeps its value), the Transfer log, and the word `true`; otherwise the source's revert data
++  (`ds-math-sub-underflow` or `ds-math-add-overflow`), no log, the storage as it was. When
++  `dst = C` the two slots are one, the credit reads the debited slot, so there is no overflow case
++  and the slot ends unchanged. The frame speaks of slots, never of keys, so it needs no hash premise.
++* `PostKeys`: the same in terms of keys, under the footprint-scoped premise
++  `ScopedSep (transferFootprint 1 C dst)` (hash-scope): for `C ≠ dst` the two slots differ.
++* `Allowed`: success, or a revert whose data is the source's and whose condition holds.
++* `gasBound`: the proved bound of the checker with contexts and gas.
++-/
++
++namespace SolidCore.Spec.UniswapV2.ERC20.Transfer
++
++open SolarTV SolidCore.Refinement SolidCore.Refinement.Generic
++
++/-- `transfer(address,uint256)`'s selector. -/
++def transferSel : Nat := 0xa9059cbb
++
++/-- The storage the constructor leaves (only its slot's presence matters to `Valid`). -/
++def deployed : List (Nat × Nat) := [(3, 78390027508550153555773896992835392567232765649225488394068785439274740276969)]
++
++/-- The caller every call of the framework comes from. -/
++abbrev C : Nat := callerAddress
++
++/-- The valid calls. -/
++def Valid (call : Call) : Prop :=
++  ∃ σ dst v, Covers deployed σ ∧ dst < 2 ^ 160 ∧ v < 2 ^ 256 ∧
++    call = { calldata := Abi.calldata transferSel [dst, v], callvalue := 0, storage := σ }
++
++/-- The slot of `balanceOf[a]` (mapping at slot 1). -/
++def balSlot (a : Nat) : Nat := solHash a 1
++
++/-- The storage after the debit of `v` at the caller's slot. -/
++def debited (σ : Nat → Nat) (v : Nat) : Nat → Nat :=
++  fun k => if k = balSlot C then σ (balSlot C) - v else σ k
++
++/-- The storage after the credit of `v` at `dst`'s slot, reading `σ'`. -/
++def credited (σ' : Nat → Nat) (dst v : Nat) : Nat → Nat :=
++  fun k => if k = balSlot dst then σ' (balSlot dst) + v else σ' k
++
++/-- The 32 bytes of a word, big-endian. -/
++def word (n : Nat) : List Nat := (List.range 32).map fun i => n / 256 ^ (31 - i) % 256
++
++/-- The data of `Error(msg)` for a message of at most 32 bytes. -/
++def errorData (msg : List Nat) : List Nat :=
++  [0x08, 0xc3, 0x79, 0xa0] ++ word 32 ++ word msg.length ++ msg ++ List.replicate (32 - msg.length) 0
++
++def subUnderflow : List Nat := errorData ("ds-math-sub-underflow".toList.map Char.toNat)
++def addOverflow : List Nat := errorData ("ds-math-add-overflow".toList.map Char.toNat)
++
++/-- `Transfer(address,address,uint256)`'s topic. -/
++def transferTopic : Nat := 0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef
++
++/-- Whether the transfer succeeds: the debit does not underflow and the credit, reading the
++debited state, does not overflow. -/
++def Succeeds (σ : Nat → Nat) (dst v : Nat) : Prop :=
++  v ≤ σ (balSlot C) ∧ debited σ v (balSlot dst) + v < 2 ^ 256
++
++/-- The post of one call with recipient `dst` and value `v` from storage `σ`. -/
++def PostOf (σ : Nat → Nat) (dst v : Nat) (obs : Observable) : Prop :=
++  (Succeeds σ dst v →
++    obs.success = true ∧ obs.output = word 1 ∧ obs.logs = [([transferTopic, C, dst], word v)] ∧
++      ∀ n < 2 ^ 256, obs.storage n = credited (debited σ v) dst v n) ∧
++  (¬ Succeeds σ dst v →
++    obs.success = false ∧ obs.logs = [] ∧ obs.storage = σ ∧
++      obs.output = if σ (balSlot C) < v then subUnderflow else addOverflow)
++
++/-- **The specification**: on a valid call, the post of its recipient and value. -/
++def Post (call : Call) (obs : Observable) : Prop :=
++  ∀ dst v, call.calldata = Abi.calldata transferSel [dst, v] → dst < 2 ^ 160 → v < 2 ^ 256 →
++    PostOf (slotValue call.storage) dst v obs
++
++/-- **The allowed statuses**: success, or the source's revert for its reason. -/
++def Allowed (call : Call) (obs : Observable) : Prop :=
++  obs.success = true ∨
++    ∀ dst v, call.calldata = Abi.calldata transferSel [dst, v] → dst < 2 ^ 160 → v < 2 ^ 256 →
++      (obs.output = subUnderflow ∧ slotValue call.storage (balSlot C) < v) ∨
++      (obs.output = addOverflow ∧ v ≤ slotValue call.storage (balSlot C) ∧
++        2 ^ 256 ≤ debited (slotValue call.storage) v (balSlot dst) + v)
++
++/-- The same post over keys, under the footprint-scoped premise of the call's two keys: for
++`C ≠ dst` the caller's balance is debited and the recipient's credited, each from its own value. -/
++def PostKeys (call : Call) (obs : Observable) : Prop :=
++  ∀ dst v, call.calldata = Abi.calldata transferSel [dst, v] → dst < 2 ^ 160 → v < 2 ^ 256 →
++    SolidCore.Spec.ScopedSep (SolidCore.Spec.transferFootprint 1 C dst) → C ≠ dst →
++    let σ := slotValue call.storage
++    v ≤ σ (balSlot C) → σ (balSlot dst) + v < 2 ^ 256 →
++      obs.storage (balSlot C) = σ (balSlot C) - v ∧ obs.storage (balSlot dst) = σ (balSlot dst) + v
++
++end SolidCore.Spec.UniswapV2.ERC20.Transfer
+diff --git a/Contracts/UniswapV2/ERC20/Transfer/Tree.lean b/Contracts/UniswapV2/ERC20/Transfer/Tree.lean
+new file mode 100644
+index 0000000..49eb9be
+--- /dev/null
++++ b/Contracts/UniswapV2/ERC20/Transfer/Tree.lean
+@@ -0,0 +1,521 @@
++import Contracts.UniswapV2.ERC20.Transfer.Spec
++
++/-!
++# UniswapV2ERC20.transfer: the specification of its erased tree
++
++`tree`: the generic stage's erased tree of transfer (`Certified.lean` proves it is SolidCore's,
++by the kernel). `tree_post` and `tree_allowed`: on every call's words, the tree's observable meets
++the sequential post and the allowed statuses, with no hash premise: the post speaks of physical
++slots, and the tree's test of whether the recipient's slot is the caller's is the post's.
++-/
++
++namespace SolidCore.Spec.UniswapV2.ERC20.Transfer
++
++open SolarTV SolidCore.Refinement SolidCore.Refinement.Generic
++
++/-- The generic stage's erased tree of transfer. -/
++def tree : Tree :=
++  (SolidCore.Refinement.Generic.Tree.ite
++    (SolidCore.Refinement.Generic.WExpr.bin
++      (SolidCore.Refinement.Generic.BinOp.gt)
++      (SolidCore.Refinement.Generic.WExpr.arg 0)
++      (SolidCore.Refinement.Generic.WExpr.lit 1461501637330902918203684832716283019655932542975))
++    (SolidCore.Refinement.Generic.Tree.halt false [] [] [])
++    (SolidCore.Refinement.Generic.Tree.ite
++      (SolidCore.Refinement.Generic.WExpr.un
++        (SolidCore.Refinement.Generic.UnOp.iszero)
++        (SolidCore.Refinement.Generic.WExpr.bin
++          (SolidCore.Refinement.Generic.BinOp.lt)
++          (SolidCore.Refinement.Generic.WExpr.sinit
++            (SolidCore.Refinement.Generic.WExpr.hash
++              (SolidCore.Refinement.Generic.WExpr.lit 8192)
++              (SolidCore.Refinement.Generic.WExpr.lit 1)))
++          (SolidCore.Refinement.Generic.WExpr.bin
++            (SolidCore.Refinement.Generic.BinOp.sub)
++            (SolidCore.Refinement.Generic.WExpr.sinit
++              (SolidCore.Refinement.Generic.WExpr.hash
++                (SolidCore.Refinement.Generic.WExpr.lit 8192)
++                (SolidCore.Refinement.Generic.WExpr.lit 1)))
++            (SolidCore.Refinement.Generic.WExpr.arg 1))))
++      (SolidCore.Refinement.Generic.Tree.ite
++        (SolidCore.Refinement.Generic.WExpr.un
++          (SolidCore.Refinement.Generic.UnOp.iszero)
++          (SolidCore.Refinement.Generic.WExpr.bin
++            (SolidCore.Refinement.Generic.BinOp.lt)
++            (SolidCore.Refinement.Generic.WExpr.bin
++              (SolidCore.Refinement.Generic.BinOp.add)
++              (SolidCore.Refinement.Generic.WExpr.sel
++                (SolidCore.Refinement.Generic.WExpr.bin
++                  (SolidCore.Refinement.Generic.BinOp.eq)
++                  (SolidCore.Refinement.Generic.WExpr.hash
++                    (SolidCore.Refinement.Generic.WExpr.arg 0)
++                    (SolidCore.Refinement.Generic.WExpr.lit 1))
++                  (SolidCore.Refinement.Generic.WExpr.hash
++                    (SolidCore.Refinement.Generic.WExpr.lit 8192)
++                    (SolidCore.Refinement.Generic.WExpr.lit 1)))
++                (SolidCore.Refinement.Generic.WExpr.bin
++                  (SolidCore.Refinement.Generic.BinOp.sub)
++                  (SolidCore.Refinement.Generic.WExpr.sinit
++                    (SolidCore.Refinement.Generic.WExpr.hash
++                      (SolidCore.Refinement.Generic.WExpr.lit 8192)
++                      (SolidCore.Refinement.Generic.WExpr.lit 1)))
++                  (SolidCore.Refinement.Generic.WExpr.arg 1))
++                (SolidCore.Refinement.Generic.WExpr.sinit
++                  (SolidCore.Refinement.Generic.WExpr.hash
++                    (SolidCore.Refinement.Generic.WExpr.arg 0)
++                    (SolidCore.Refinement.Generic.WExpr.lit 1))))
++              (SolidCore.Refinement.Generic.WExpr.arg 1))
++            (SolidCore.Refinement.Generic.WExpr.sel
++              (SolidCore.Refinement.Generic.WExpr.bin
++                (SolidCore.Refinement.Generic.BinOp.eq)
++                (SolidCore.Refinement.Generic.WExpr.hash
++                  (SolidCore.Refinement.Generic.WExpr.arg 0)
++                  (SolidCore.Refinement.Generic.WExpr.lit 1))
++                (SolidCore.Refinement.Generic.WExpr.hash
++                  (SolidCore.Refinement.Generic.WExpr.lit 8192)
++                  (SolidCore.Refinement.Generic.WExpr.lit 1)))
++              (SolidCore.Refinement.Generic.WExpr.bin
++                (SolidCore.Refinement.Generic.BinOp.sub)
++                (SolidCore.Refinement.Generic.WExpr.sinit
++                  (SolidCore.Refinement.Generic.WExpr.hash
++                    (SolidCore.Refinement.Generic.WExpr.lit 8192)
++                    (SolidCore.Refinement.Generic.WExpr.lit 1)))
++                (SolidCore.Refinement.Generic.WExpr.arg 1))
++              (SolidCore.Refinement.Generic.WExpr.sinit
++                (SolidCore.Refinement.Generic.WExpr.hash
++                  (SolidCore.Refinement.Generic.WExpr.arg 0)
++                  (SolidCore.Refinement.Generic.WExpr.lit 1))))))
++        (SolidCore.Refinement.Generic.Tree.halt
++          true
++          [SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.lit 1) 0,
++           SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.lit 1) 1,
++           SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.lit 1) 2,
++           SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.lit 1) 3,
++           SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.lit 1) 4,
++           SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.lit 1) 5,
++           SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.lit 1) 6,
++           SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.lit 1) 7,
++           SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.lit 1) 8,
++           SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.lit 1) 9,
++           SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.lit 1) 10,
++           SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.lit 1) 11,
++           SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.lit 1) 12,
++           SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.lit 1) 13,
++           SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.lit 1) 14,
++           SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.lit 1) 15,
++           SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.lit 1) 16,
++           SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.lit 1) 17,
++           SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.lit 1) 18,
++           SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.lit 1) 19,
++           SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.lit 1) 20,
++           SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.lit 1) 21,
++           SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.lit 1) 22,
++           SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.lit 1) 23,
++           SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.lit 1) 24,
++           SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.lit 1) 25,
++           SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.lit 1) 26,
++           SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.lit 1) 27,
++           SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.lit 1) 28,
++           SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.lit 1) 29,
++           SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.lit 1) 30,
++           SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.lit 1) 31]
++          [(SolidCore.Refinement.Generic.WExpr.hash
++              (SolidCore.Refinement.Generic.WExpr.arg 0)
++              (SolidCore.Refinement.Generic.WExpr.lit 1),
++            SolidCore.Refinement.Generic.WExpr.bin
++              (SolidCore.Refinement.Generic.BinOp.add)
++              (SolidCore.Refinement.Generic.WExpr.sel
++                (SolidCore.Refinement.Generic.WExpr.bin
++                  (SolidCore.Refinement.Generic.BinOp.eq)
++                  (SolidCore.Refinement.Generic.WExpr.hash
++                    (SolidCore.Refinement.Generic.WExpr.arg 0)
++                    (SolidCore.Refinement.Generic.WExpr.lit 1))
++                  (SolidCore.Refinement.Generic.WExpr.hash
++                    (SolidCore.Refinement.Generic.WExpr.lit 8192)
++                    (SolidCore.Refinement.Generic.WExpr.lit 1)))
++                (SolidCore.Refinement.Generic.WExpr.bin
++                  (SolidCore.Refinement.Generic.BinOp.sub)
++                  (SolidCore.Refinement.Generic.WExpr.sinit
++                    (SolidCore.Refinement.Generic.WExpr.hash
++                      (SolidCore.Refinement.Generic.WExpr.lit 8192)
++                      (SolidCore.Refinement.Generic.WExpr.lit 1)))
++                  (SolidCore.Refinement.Generic.WExpr.arg 1))
++                (SolidCore.Refinement.Generic.WExpr.sinit
++                  (SolidCore.Refinement.Generic.WExpr.hash
++                    (SolidCore.Refinement.Generic.WExpr.arg 0)
++                    (SolidCore.Refinement.Generic.WExpr.lit 1))))
++              (SolidCore.Refinement.Generic.WExpr.arg 1)),
++           (SolidCore.Refinement.Generic.WExpr.hash
++              (SolidCore.Refinement.Generic.WExpr.lit 8192)
++              (SolidCore.Refinement.Generic.WExpr.lit 1),
++            SolidCore.Refinement.Generic.WExpr.bin
++              (SolidCore.Refinement.Generic.BinOp.sub)
++              (SolidCore.Refinement.Generic.WExpr.sinit
++                (SolidCore.Refinement.Generic.WExpr.hash
++                  (SolidCore.Refinement.Generic.WExpr.lit 8192)
++                  (SolidCore.Refinement.Generic.WExpr.lit 1)))
++              (SolidCore.Refinement.Generic.WExpr.arg 1))]
++          [{ topics := [SolidCore.Refinement.Generic.WExpr.lit
++                          100389287136786176327247604509743168900146139575972864366142685224231313322991,
++                        SolidCore.Refinement.Generic.WExpr.lit 8192,
++                        SolidCore.Refinement.Generic.WExpr.arg 0],
++             data := [SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.arg 1) 0,
++                      SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.arg 1) 1,
++                      SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.arg 1) 2,
++                      SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.arg 1) 3,
++                      SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.arg 1) 4,
++                      SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.arg 1) 5,
++                      SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.arg 1) 6,
++                      SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.arg 1) 7,
++                      SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.arg 1) 8,
++                      SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.arg 1) 9,
++                      SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.arg 1) 10,
++                      SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.arg 1) 11,
++                      SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.arg 1) 12,
++                      SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.arg 1) 13,
++                      SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.arg 1) 14,
++                      SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.arg 1) 15,
++                      SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.arg 1) 16,
++                      SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.arg 1) 17,
++                      SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.arg 1) 18,
++                      SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.arg 1) 19,
++                      SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.arg 1) 20,
++                      SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.arg 1) 21,
++                      SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.arg 1) 22,
++                      SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.arg 1) 23,
++                      SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.arg 1) 24,
++                      SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.arg 1) 25,
++                      SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.arg 1) 26,
++                      SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.arg 1) 27,
++                      SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.arg 1) 28,
++                      SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.arg 1) 29,
++                      SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.arg 1) 30,
++                      SolidCore.Refinement.Generic.OByte.byteOf (SolidCore.Refinement.Generic.WExpr.arg 1) 31] }])
++        (SolidCore.Refinement.Generic.Tree.halt
++          false
++          [SolidCore.Refinement.Generic.OByte.lit 8,
++           SolidCore.Refinement.Generic.OByte.lit 195,
++           SolidCore.Refinement.Generic.OByte.lit 121,
++           SolidCore.Refinement.Generic.OByte.lit 160,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 32,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 20,
++           SolidCore.Refinement.Generic.OByte.lit 100,
++           SolidCore.Refinement.Generic.OByte.lit 115,
++           SolidCore.Refinement.Generic.OByte.lit 45,
++           SolidCore.Refinement.Generic.OByte.lit 109,
++           SolidCore.Refinement.Generic.OByte.lit 97,
++           SolidCore.Refinement.Generic.OByte.lit 116,
++           SolidCore.Refinement.Generic.OByte.lit 104,
++           SolidCore.Refinement.Generic.OByte.lit 45,
++           SolidCore.Refinement.Generic.OByte.lit 97,
++           SolidCore.Refinement.Generic.OByte.lit 100,
++           SolidCore.Refinement.Generic.OByte.lit 100,
++           SolidCore.Refinement.Generic.OByte.lit 45,
++           SolidCore.Refinement.Generic.OByte.lit 111,
++           SolidCore.Refinement.Generic.OByte.lit 118,
++           SolidCore.Refinement.Generic.OByte.lit 101,
++           SolidCore.Refinement.Generic.OByte.lit 114,
++           SolidCore.Refinement.Generic.OByte.lit 102,
++           SolidCore.Refinement.Generic.OByte.lit 108,
++           SolidCore.Refinement.Generic.OByte.lit 111,
++           SolidCore.Refinement.Generic.OByte.lit 119,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0,
++           SolidCore.Refinement.Generic.OByte.lit 0]
++          []
++          []))
++      (SolidCore.Refinement.Generic.Tree.halt
++        false
++        [SolidCore.Refinement.Generic.OByte.lit 8,
++         SolidCore.Refinement.Generic.OByte.lit 195,
++         SolidCore.Refinement.Generic.OByte.lit 121,
++         SolidCore.Refinement.Generic.OByte.lit 160,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 32,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 21,
++         SolidCore.Refinement.Generic.OByte.lit 100,
++         SolidCore.Refinement.Generic.OByte.lit 115,
++         SolidCore.Refinement.Generic.OByte.lit 45,
++         SolidCore.Refinement.Generic.OByte.lit 109,
++         SolidCore.Refinement.Generic.OByte.lit 97,
++         SolidCore.Refinement.Generic.OByte.lit 116,
++         SolidCore.Refinement.Generic.OByte.lit 104,
++         SolidCore.Refinement.Generic.OByte.lit 45,
++         SolidCore.Refinement.Generic.OByte.lit 115,
++         SolidCore.Refinement.Generic.OByte.lit 117,
++         SolidCore.Refinement.Generic.OByte.lit 98,
++         SolidCore.Refinement.Generic.OByte.lit 45,
++         SolidCore.Refinement.Generic.OByte.lit 117,
++         SolidCore.Refinement.Generic.OByte.lit 110,
++         SolidCore.Refinement.Generic.OByte.lit 100,
++         SolidCore.Refinement.Generic.OByte.lit 101,
++         SolidCore.Refinement.Generic.OByte.lit 114,
++         SolidCore.Refinement.Generic.OByte.lit 102,
++         SolidCore.Refinement.Generic.OByte.lit 108,
++         SolidCore.Refinement.Generic.OByte.lit 111,
++         SolidCore.Refinement.Generic.OByte.lit 119,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0,
++         SolidCore.Refinement.Generic.OByte.lit 0]
++        []
++        [])))
++
++section
++variable (s : Nat → Nat) (hs : ∀ k, s k < 2 ^ 256) (t a : Nat) (ht : t < 2 ^ 160) (ha : a < 2 ^ 256)
++
++/-- The caller's balance before the call. -/
++abbrev S0 : Nat := s (solHash 8192 1)
++
++/-- The recipient's balance after the debit. -/
++def mid : Nat := if solHash t 1 = solHash 8192 1 then S0 s - a else s (solHash t 1)
++
++include hs ht ha in
++theorem eval_cases :
++    let R := tree.eval ⟨[t, a], s, solHash⟩
++    (S0 s < a → R.success = false ∧ R.output = subUnderflow ∧ R.logs = [] ∧ R.store = s) ∧
++    (a ≤ S0 s → 2 ^ 256 ≤ mid s t a + a →
++      R.success = false ∧ R.output = addOverflow ∧ R.logs = [] ∧ R.store = s) ∧
++    (a ≤ S0 s → mid s t a + a < 2 ^ 256 →
++      R.success = true ∧ R.output = word 1 ∧ R.logs = [([transferTopic, 8192, t], word a)] ∧
++      ∀ n < 2 ^ 256, R.store n =
++        if n = solHash t 1 then mid s t a + a else if n = solHash 8192 1 then S0 s - a else s n) := by
++  intro R
++  have hsm : ∀ k, s k % 2 ^ 256 = s k := fun k => Nat.mod_eq_of_lt (hs k)
++  have ham : a % 2 ^ 256 = a := Nat.mod_eq_of_lt ha
++  have htm : t % 2 ^ 256 = t := Nat.mod_eq_of_lt (by omega)
++  have hbm : ∀ x y, solHash x y % 2 ^ 256 = solHash x y := fun x y => Nat.mod_eq_of_lt (solHash_lt x y)
++  have h8 : 8192 % 2 ^ 256 = 8192 := by decide
++  have h1 : 1 % 2 ^ 256 = 1 := by decide
++  have hA : 1461501637330902918203684832716283019655932542975 % 2 ^ 256 =
++      1461501637330902918203684832716283019655932542975 := by decide
++  have hz : ∀ (p : Prop) [Decidable p], ((if p then 1 else 0) % 2 ^ 256 = 0) = ¬ p := by
++    intro p _; by_cases hp : p <;> simp [hp]
++  have hS := hs (solHash 8192 1)
++  have hT := hs (solHash t 1)
++  have hnt : ¬ 1461501637330902918203684832716283019655932542975 < t := by omega
++  simp only [S0, mid]
++  have hXm : (if ¬solHash t 1 = solHash 8192 1 then s (solHash t 1) else s (solHash 8192 1) - a) =
++      (if solHash t 1 = solHash 8192 1 then s (solHash 8192 1) - a else s (solHash t 1)) := by
++    by_cases h : solHash t 1 = solHash 8192 1 <;> simp [h]
++  have hXlt : (if solHash t 1 = solHash 8192 1 then s (solHash 8192 1) - a else s (solHash t 1)) <
++      2 ^ 256 := by split <;> omega
++  refine ⟨fun hlt => ?_, fun hle hov => ?_, fun hle hov => ?_⟩
++  all_goals
++    simp only [R, tree, Tree.eval, WExpr.eval, BinOp.eval, UnOp.eval, Generic.wordSize,
++      List.getD_cons_zero, List.getD_cons_succ, htm, ham, hsm, hbm, h8, h1, hA, hz, Nat.mod_mod, ↓reduceIte,
++      hnt, not_false_eq_true, ite_true, Bool.false_eq_true, ite_false, not_not]
++  · have hu : s (solHash 8192 1) < (s (solHash 8192 1) + (2 ^ 256 - a)) % 2 ^ 256 := by omega
++    simp only [hu, ite_true]
++    refine ⟨?_, ?_, ?_, ?_⟩ <;> first | trivial | (simp only [List.map_cons, List.map_nil, OByte.eval]; decide +kernel) | rfl
++
++  · have hsub : (s (solHash 8192 1) + (2 ^ 256 - a)) % 2 ^ 256 = s (solHash 8192 1) - a := by omega
++    have hu : ¬ s (solHash 8192 1) < s (solHash 8192 1) - a := by omega
++    simp only [hsub, hu, ite_false]
++    rw [hXm]
++    generalize hX : (if solHash t 1 = solHash 8192 1 then s (solHash 8192 1) - a else s (solHash t 1)) = X at hov hXlt ⊢
++    have ho : (X + a) % 2 ^ 256 < X := by omega
++    simp only [ho, ite_true]
++    refine ⟨trivial, ?_, trivial, trivial⟩
++    simp only [List.map_cons, List.map_nil, OByte.eval]
++    decide +kernel
++  · have hsub : (s (solHash 8192 1) + (2 ^ 256 - a)) % 2 ^ 256 = s (solHash 8192 1) - a := by omega
++    have hu : ¬ s (solHash 8192 1) < s (solHash 8192 1) - a := by omega
++    simp only [hsub, hu, ite_false]
++    rw [hXm]
++    generalize hX : (if solHash t 1 = solHash 8192 1 then s (solHash 8192 1) - a else s (solHash t 1)) = X at hov hXlt ⊢
++    have ho : ¬ (X + a) % 2 ^ 256 < X := by omega
++    simp only [ho, ite_false]
++    refine ⟨trivial, ?_, ?_, ?_⟩
++    · simp only [List.map_cons, List.map_nil, OByte.eval, WExpr.eval]; decide +kernel
++    · simp only [Log.eval, List.map, WExpr.eval, OByte.eval, List.getD_cons_zero, List.getD_cons_succ,
++        htm, ham, Generic.wordSize]
++      first | rfl | decide
++    · intro n hn
++      subst hX
++      have hSa : (s (solHash 8192 1) - a) % 2 ^ 256 = s (solHash 8192 1) - a := Nat.mod_eq_of_lt (by omega)
++      simp only [Writes.store, WExpr.eval, BinOp.eval, Generic.wordSize, List.getD_cons_zero,
++        List.getD_cons_succ, htm, ham, hsm, hbm, h8, h1, hz, Nat.mod_mod, ↓reduceIte, hsub,
++        Nat.mod_eq_of_lt hn, hXm, hSa]
++      split_ifs at hov hXlt ⊢ <;> omega
++end
++
++
++/-- **The tree meets the sequential post** on every call's words with a clean recipient. -/
++theorem tree_post (s : Nat → Nat) (hs : ∀ k, s k < 2 ^ 256) (t a : Nat) (ht : t < 2 ^ 160)
++    (ha : a < 2 ^ 256) : PostOf s t a (tree.eval ⟨[t, a], s, solHash⟩).obs := by
++  obtain ⟨h1, h2, h3⟩ := eval_cases s hs t a ht ha
++  have hC : balSlot C = solHash 8192 1 := rfl
++  have hm : debited s a (balSlot t) = mid s t a := by
++    unfold debited mid; rw [hC]; rfl
++  simp only [PostOf, Succeeds, Res.obs, hm, hC]
++  refine ⟨fun ⟨hle, hov⟩ => ?_, fun hn => ?_⟩
++  · obtain ⟨e1, e2, e3, e4⟩ := h3 hle hov
++    refine ⟨e1, e2, by rw [e3]; rfl, fun n hn => ?_⟩
++    rw [e4 n hn]
++    rfl
++  · by_cases hlt : S0 s < a
++    · obtain ⟨e1, e2, e3, e4⟩ := h1 hlt
++      exact ⟨e1, e3, e4, by rw [e2, if_pos hlt]⟩
++    · have hle : a ≤ S0 s := by omega
++      have hov : 2 ^ 256 ≤ mid s t a + a := by
++        by_contra h; exact hn ⟨hle, by omega⟩
++      obtain ⟨e1, e2, e3, e4⟩ := h2 hle hov
++      exact ⟨e1, e3, e4, by rw [e2, if_neg hlt]⟩
++
++/-- The post's statuses are the allowed ones. -/
++theorem allowed_of_postOf {s : Nat → Nat} {t a : Nat} {obs : Observable} (h : PostOf s t a obs) :
++    obs.success = true ∨ (obs.output = subUnderflow ∧ s (balSlot C) < a) ∨
++      (obs.output = addOverflow ∧ a ≤ s (balSlot C) ∧ 2 ^ 256 ≤ debited s a (balSlot t) + a) := by
++  by_cases hs : Succeeds s t a
++  · exact Or.inl (h.1 hs).1
++  · obtain ⟨-, -, -, ho⟩ := h.2 hs
++    by_cases hlt : s (balSlot C) < a
++    · exact Or.inr (Or.inl ⟨by rw [ho, if_pos hlt], hlt⟩)
++    · refine Or.inr (Or.inr ⟨by rw [ho, if_neg hlt], by omega, ?_⟩)
++      by_contra hc; exact hs ⟨by omega, by omega⟩
++
++/-- info: 'SolidCore.Spec.UniswapV2.ERC20.Transfer.tree_post' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms tree_post
++
++end SolidCore.Spec.UniswapV2.ERC20.Transfer
+diff --git a/Verify/ShapeCtxGas.lean b/Verify/ShapeCtxGas.lean
+index c88a835..b40cdd9 100644
+--- a/Verify/ShapeCtxGas.lean
++++ b/Verify/ShapeCtxGas.lean
+@@ -44,10 +44,10 @@ theorem compiled_ofXL {S : Sem} {p : S.Prog} {m : MIR.Lowered.moduleLayer.Prog}
+     (backend : Stage (mirSem oracle) (evmirSem oracle) m q scope)
+     (hscope : ∀ call, Valid call → scope call)
+     (ends : ∀ call, Valid call →
+-      (EVM.Program.run oracle (AssembleCtxGas.guard F q) call N).isSome = true)
++      (EVM.Program.run oracle (AssembleCtxGas.guard F (AssembleCtx.norm q)) call N).isSome = true)
+     (guard_run : ∀ call, Valid call →
+-      EVM.Program.run oracle q call N = EVM.Program.run oracle (AssembleCtxGas.guard F q) call N)
+-    (asm : AssembleCtxGas.checkXL F q code cx = true)
++      EVM.Program.run oracle q call N = EVM.Program.run oracle (AssembleCtxGas.guard F (AssembleCtx.norm q)) call N)
++    (asm : AssembleCtxGas.checkXL F (AssembleCtx.norm q) code cx = true)
+     (hG : AssembleLoop.gasBoundL cx.base N < 2 ^ 64) :
+     Compiled S p code Valid (fun _ => AssembleLoop.gasBoundL cx.base N) := by
+   have total : ∀ call, Valid call → ∃ obs, S.run p call = some obs := fun call hc =>
+@@ -56,7 +56,7 @@ theorem compiled_ofXL {S : Sem} {p : S.Prog} {m : MIR.Lowered.moduleLayer.Prog}
+     src.trans (backend.mono hscope)
+   -- On a valid call: the guarded run's result, and the source's result is its observable.
+   have key : ∀ call, Valid call → ∃ r,
+-      Machine.iterate (EVM.Program.block oracle call (AssembleCtxGas.guard F q)) N
++      Machine.iterate (EVM.Program.block oracle call (AssembleCtxGas.guard F (AssembleCtx.norm q))) N
+         (0, [], Machine.State.initial call) = some r ∧
+       S.run p call = some (Machine.observe call r.2 r.1) ∧
+       (evmirSem oracle).run q call = some (Machine.observe call r.2 r.1) := by
+@@ -100,10 +100,10 @@ theorem compiled0XL {fuel mirFuel : Nat} {c : TypeCheck.CheckedContract} {d : So
+     (backend : Stage (mirSem oracle) (evmirSem oracle) m q scope)
+     (hscope : ∀ call, genericValid0 fns s call → scope call)
+     (ends : ∀ call, genericValid0 fns s call →
+-      (EVM.Program.run oracle (AssembleCtxGas.guard F q) call N).isSome = true)
++      (EVM.Program.run oracle (AssembleCtxGas.guard F (AssembleCtx.norm q)) call N).isSome = true)
+     (guard_run : ∀ call, genericValid0 fns s call →
+-      EVM.Program.run oracle q call N = EVM.Program.run oracle (AssembleCtxGas.guard F q) call N)
+-    (asm : AssembleCtxGas.checkXL F q code cx = true)
++      EVM.Program.run oracle q call N = EVM.Program.run oracle (AssembleCtxGas.guard F (AssembleCtx.norm q)) call N)
++    (asm : AssembleCtxGas.checkXL F (AssembleCtx.norm q) code cx = true)
+     (hG : AssembleLoop.gasBoundL cx.base N < 2 ^ 64) :
+     Compiled (solidCore fuel) c code (genericValid0 fns s)
+       (fun _ => AssembleLoop.gasBoundL cx.base N) :=
+diff --git a/lakefile.lean b/lakefile.lean
+index 45df99b..9498a86 100644
+--- a/lakefile.lean
++++ b/lakefile.lean
+@@ -528,3 +528,10 @@ lean_lib «uv2_erc20» where
+   srcDir := "Certified"
+   roots := #[`uv2_erc20.Ctx]
+   globs := #[.submodules `uv2_erc20]
++
++-- UniswapV2ERC20.transfer, the first certification slice (docs/CERTIFICATION_TARGET.md): its
++-- specification (Spec), the source check (Source), the composed shape (Compiled) and the published
++-- statement's proof. Needs scripts/verify/uniswap_v2_gen.sh (Core) and the uv2_erc20 export.
++lean_lib ContractsUniswapV2ERC20Transfer where
++  roots := #[`Contracts.UniswapV2.ERC20.Transfer.Certified]
++  globs := #[.submodules `Contracts.UniswapV2.ERC20.Transfer]
+-- 
+2.43.0
+
