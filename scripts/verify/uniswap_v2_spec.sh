@@ -23,6 +23,9 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 : "${SOLAR_DIR:?set SOLAR_DIR to a solar checkout}"
 : "${SOLAR_VERIFY:?set SOLAR_VERIFY to a solar-verify binary}"
+# Absolute paths: the steps below run solar-verify from temporary directories.
+SOLAR_DIR="$(realpath "$SOLAR_DIR")"
+SOLAR_VERIFY="$(realpath "$SOLAR_VERIFY")"
 LEAN="${LEAN:-lake env lean}"
 FUNCTIONS="${UV2_ERC20_FUNCTIONS:-UniswapV2ERC20.approve,UniswapV2ERC20.transfer}"
 sol=scripts/verify/uniswap-v2/UniswapV2ERC20.sol
