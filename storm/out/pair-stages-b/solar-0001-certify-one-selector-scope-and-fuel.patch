@@ -1,0 +1,107 @@
+From 9ac7846e36c5741680e8eec2c470062c5477f599 Mon Sep 17 00:00:00 2001
+From: pyramid <pyramid@tempo.xyz>
+Date: Sat, 14 Nov 2026 14:34:26 +0000
+Subject: [PATCH] feat(certify): one-selector scope and a fuel claim
+
+--only SELECTOR=SIGNATURE writes every run proof under the assumption
+that the call's selector word is SELECTOR, and the stages for that
+scope. --fuel N replaces the block-count fuel bound with N, a claim the
+run proofs check: too little fuel fails them. UniswapV2Pair's bound
+(1417572 blocks) is a numeral the kernel unfolds into deep recursion,
+while 300 blocks covers getReserves() and checks in seconds.
+---
+ tools/certify/certify.py | 43 ++++++++++++++++++++++++++++++++++++----
+ 1 file changed, 39 insertions(+), 4 deletions(-)
+
+diff --git a/tools/certify/certify.py b/tools/certify/certify.py
+index 7ff4e84c..87e76f05 100755
+--- a/tools/certify/certify.py
++++ b/tools/certify/certify.py
+@@ -359,6 +359,21 @@ def main():
+         help="leave the calls of this external function out of every theorem's scope: "
+         "each run proof assumes the call's selector word is not SELECTOR (hex)",
+     )
++    ap.add_argument(
++        "--fuel",
++        type=int,
++        default=None,
++        help="every run proof's fuel, in place of the block-count bound: a claim the proofs "
++        "check (too little fuel fails the run's proof), for a scope whose paths are short in a "
++        "program whose block-count bound is a numeral the kernel cannot afford",
++    )
++    ap.add_argument(
++        "--only",
++        default=None,
++        metavar="SELECTOR=SIGNATURE",
++        help="the calls of this one external function only: each run proof assumes the call's "
++        "selector word is SELECTOR (hex); with it, --exclude is ignored",
++    )
+     ap.add_argument(
+         "--axioms",
+         default="{}",
+@@ -372,6 +387,9 @@ def main():
+     args = ap.parse_args()
+     cutpoints.JOINS = args.joins
+     manifest, stages = stage_list(args.gen, args.loops)
++    if args.fuel is not None:
++        for st in stages:
++            st["fuel"] = args.fuel
+     global DEPTH
+     if any(
+         "set_option maxRecDepth" in (args.gen / f"{s['module']}.lean").read_text() for s in stages
+@@ -395,8 +413,16 @@ def main():
+         if not re.fullmatch(r"[0-9a-f]{8}", sel) or not sig:
+             raise SystemExit(f"error: --exclude {e} is not SELECTOR=SIGNATURE")
+         excluded.append((int(sel, 16), sig))
+-    # A run proof's assumptions: the call's selector word is none of the excluded ones.
+-    hyps = "".join(
++    only = None
++    if args.only:
++        sel, _, sig = args.only.partition("=")
++        if not re.fullmatch(r"[0-9a-f]{8}", sel) or not sig:
++            raise SystemExit(f"error: --only {args.only} is not SELECTOR=SIGNATURE")
++        only = (int(sel, 16), sig)
++        excluded = [only]
++    # A run proof's assumptions: the call's selector word is none of the excluded ones (or,
++    # with --only, is the one selector).
++    hyps = f" (hsel0 : EvmRules.Evm.shr 224 (calldataWord call 0) = {only[0]:#x})" if only else "".join(
+         f" (hsel{i} : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ {sel:#x})"
+         for i, (sel, _) in enumerate(excluded)
+     )
+@@ -405,6 +431,8 @@ def main():
+     every = (
+         "every call"
+         if not excluded
++        else f"every call of `{only[1]}`"
++        if only
+         else "every call but those of " + ", ".join(f"`{sig}`" for _, sig in excluded)
+     )
+ 
+@@ -417,7 +445,7 @@ def main():
+ 
+     # Both orientations of each assumption, so that the case split's test of the selector in
+     # either order rewrites to false and the path of an excluded function ends there.
+-    prune = "".join(
++    prune = "" if only else "".join(
+         f"  have hsel{i}s := Ne.symm hsel{i}\n" for i in range(len(excluded))
+     )
+ 
+@@ -508,7 +536,14 @@ def main():
+         last = stages[-1]
+         body = []
+         prev_ends = f"({lam} => {ends} o call{given('h')})"
+-        if excluded:
++        if only:
++            body.append(
++                f"/-- The calls the stages are about: every call whose selector word is "
++                f"`{only[0]:#010x}` (`{only[1]}`). -/\n"
++                "def scope : Call → Prop := fun call =>\n  "
++                f"EvmRules.Evm.shr 224 (calldataWord call 0) = {only[0]:#x}\n"
++            )
++        elif excluded:
+             body.append(
+                 "/-- The calls the stages are about: every call whose selector word is none of "
+                 + ", ".join(f"`{sel:#010x}` (`{sig}`)" for sel, sig in excluded)
+-- 
+2.43.0
+

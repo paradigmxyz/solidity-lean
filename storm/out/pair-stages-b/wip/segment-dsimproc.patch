@@ -1,0 +1,52 @@
+diff --git a/tv/W1Proofs/Segment.lean b/tv/W1Proofs/Segment.lean
+index 27be861..68f5ad5 100644
+--- a/tv/W1Proofs/Segment.lean
++++ b/tv/W1Proofs/Segment.lean
+@@ -60,24 +60,26 @@ dsimproc_decl finValLit (Fin.val _) := fun e => do
+   return .done (toExpr (k % n))
+ 
+ open Lean Meta Simp in
+-/-- `||` and `&&` of a literal, as a cut test of a known block leaves them. -/
++/-- `||` of a literal on the left, as a cut test of a known block leaves it: `true || b` and
++`false || b` reduce by `or`'s definition. A literal on the right only (`a || false` with `a` not
++a literal, such as a branch target before its case split) is not definitional: `seg_cut_test`
++rewrites it propositionally (`Bool.or_false`). -/
+ dsimproc_decl boolLit (_ || _) := fun e => do
+   let_expr or a b := e | return .continue
+-  match a.constName?, b.constName? with
+-  | some ``true, _ | _, some ``true => return .done (mkConst ``true)
+-  | some ``false, _ => return .done b
+-  | _, some ``false => return .done a
+-  | _, _ => return .continue
++  match a.constName? with
++  | some ``true => return .done (mkConst ``true)
++  | some ``false => return .done b
++  | _ => return .continue
+ 
+ open Lean Meta Simp in
+-/-- `&&` of a literal. -/
++/-- `&&` of a literal on the left (`false && b`, `true && b`), by `and`'s definition; a literal
++on the right only is `seg_cut_test`'s, as for `||`. -/
+ dsimproc_decl boolAndLit (_ && _) := fun e => do
+   let_expr and a b := e | return .continue
+-  match a.constName?, b.constName? with
+-  | some ``false, _ | _, some ``false => return .done (mkConst ``false)
+-  | some ``true, _ => return .done b
+-  | _, some ``true => return .done a
+-  | _, _ => return .continue
++  match a.constName? with
++  | some ``false => return .done (mkConst ``false)
++  | some ``true => return .done b
++  | _ => return .continue
+ 
+ open Lean Meta Simp in
+ /-- A conditional on two numerals being equal, as a MIR value lookup leaves it (`Env.set`
+@@ -129,7 +131,7 @@ macro "seg_cut_test" : tactic => `(tactic|
+   simp only [ite_beq, Nat.reduceBEq, BitVec.reduceEq, BitVec.reduceNe, ite_self, Bool.false_eq_true,
+     evm_lt_zero_left, state_initial_eta,
+     ↓reduceIte, Mem.load_store_of_disjoint, Mem.load_store_same, Mem.load_expand, Nat.reduceAdd,
+-    Nat.reduceLeDiff, true_or, or_true])
++    Nat.reduceLeDiff, true_or, or_true, Bool.or_false, Bool.or_true, Bool.and_false, Bool.and_true])
+ 
+ syntax "seg_norm" "[" Lean.Parser.Tactic.simpLemma,* "]" : tactic
+ macro_rules

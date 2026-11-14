@@ -1,0 +1,83 @@
+diff --git a/solar-tv/milestone/cutpoints.py b/solar-tv/milestone/cutpoints.py
+index 004f739a..cde370c9 100644
+--- a/solar-tv/milestone/cutpoints.py
++++ b/solar-tv/milestone/cutpoints.py
+@@ -1508,8 +1508,13 @@ def mir_mir_rels(pass_name, fa_list, fb_list, cuts, ctx_a=None, ctx_b=None, join
+                             "src": f"({sa}, MIR.Lowered.Pos.enter {f} {pa} {h}, env, s)",
+                             "tgt": f"({sb}, MIR.Lowered.Pos.enter {f} {pb} {h}, env', s)",
+                             "conds": conds + fconds,
++                            "block": (f, pa, h, ctx),
+                         }
+                     )
++    # Each segment's leaves try only the relations of the cut points it can reach.
++    for r in rels:
++        f, pa, h, ctx = r["block"]
++        r["reach"] = mir_reach(fa_list, tests, f, ctx, h)
+     return tests, tests, rels
+ 
+ 
+@@ -1715,6 +1720,7 @@ def stage_body(gen, a, b, heartbeats=2000000, recdepth=None):
+             b["pass"], fa, fb, cuts + joins, ctx_a, ctx_b, {(f, h) for f, h, _, _ in joins}
+         )
+         fuel_a, fuel_b = mir_fuel(fa), mir_fuel(fb)
++        entry_reach = mir_reach(fa, tests_a, mir_entry(ta), (), 0)
+     elif a["kind"] == "mir":
+         fa, sched = parse_mir(ta), parse_evm(tb)
+         cuts = mir_cuts(b["pass"], fa, fa)
+@@ -1870,3 +1876,56 @@ def main():
+ 
+ if __name__ == "__main__":
+     main()
++
++import re as _re
++
++def mir_reach(funcs, tests, f, ctx, h):
++    """The cut points (function, predecessor, block, call string) a segment of the module that
++    starts by entering block h of function f under the call string ctx can stop at: an abstract
++    run of the blocks, entering callees at their block 0 and returning to the call site's rest
++    the call string names, up to the first cut test it enters. Untrusted: a segment whose leaf
++    reaches a cut point outside this set fails its proof."""
++    tests = set(tests)
++    out, seen = set(), set()
++    work = [(f, ctx, h, 0)]
++
++    def enter(g, c, pred, t):
++        if (g, t) in tests:
++            out.add((g, pred, t, c))
++        else:
++            work.append((g, c, t, 0))
++
++    while work:
++        st = work.pop()
++        if st in seen:
++            continue
++        seen.add(st)
++        g, c, b, i = st
++        if g >= len(funcs) or b not in funcs[g]["blocks"]:
++            continue
++        _, insts, term = funcs[g]["blocks"][b]
++        k = sum(1 for ins in insts[:i] if ins.startswith(".call "))
++        called = False
++        for j in range(i, len(insts)):
++            ins = insts[j]
++            if ins.startswith(".call "):
++                callee = int(tokens(ins)[2])
++                enter(callee, ((g, b, k),) + c, 0, 0)
++                called = True
++                break
++        if called:
++            continue
++        m = _re.match(r"\.tailCall (\d+)", term)
++        if m:
++            enter(int(m[1]), c, 0, 0)
++            continue
++        succ = mir_succ(term)
++        if succ:
++            for t in succ:
++                enter(g, c, b, t)
++            continue
++        if term.startswith(".ret") and c:
++            (cf, cb, ck), rest = c[0], c[1:]
++            ci, _ = call_site(funcs[cf], cb, ck)
++            work.append((cf, rest, cb, ci + 1))
++    return out
