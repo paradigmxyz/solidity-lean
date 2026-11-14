@@ -1,0 +1,124 @@
+From 62b2e86817c6bfc5e7928f5b5777256fcaae83f3 Mon Sep 17 00:00:00 2001
+From: storm pair-spec <pair-spec@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 03:28:44 +0000
+Subject: [PATCH] feat(verify): export dynamic bytes and string parameters as
+ their head word
+
+--emit-lean-spec refused any function with a bytes or string parameter. Such a parameter
+is now exported as its ABI head word (the offset of its data, any uint256), so the call
+still decodes and the function's other parameters keep their positions; a spec that reads
+the parameter is refused, since its contents are not in the spec language. The selector
+uses the parameter's ABI name.
+---
+ crates/verify/src/spec_lean.rs                | 26 ++++++++++++++++++-
+ .../verify/tests/snapshots/lean_export.lean   | 11 +++++++-
+ crates/verify/tests/snapshots/lean_export.sol |  4 +++
+ .../lean_unsupported/dynamic_param.sol        |  8 ++++++
+ 4 files changed, 47 insertions(+), 2 deletions(-)
+ create mode 100644 crates/verify/tests/snapshots/lean_unsupported/dynamic_param.sol
+
+diff --git a/crates/verify/src/spec_lean.rs b/crates/verify/src/spec_lean.rs
+index c0f48b989..5cdf5a34e 100644
+--- a/crates/verify/src/spec_lean.rs
++++ b/crates/verify/src/spec_lean.rs
+@@ -764,7 +764,29 @@ pub(crate) fn export(program: &Program<'_>, unit: &SourceUnit<'_>, opts: &Opts)
+                 continue;
+             }
+             let mut params = vec![];
+-            for v in f.item.header.parameters.vars.iter() {
++            for (i, v) in f.item.header.parameters.vars.iter().enumerate() {
++                // A dynamic `bytes` or `string` parameter is exported as its ABI head word (the
++                // offset of its data, any uint256), so the call still decodes; its contents are not
++                // in the spec language, so a spec that reads the parameter is refused.
++                if matches!(
++                    v.ty.kind,
++                    TypeKind::Elementary(ElementaryType::Bytes | ElementaryType::String)
++                ) {
++                    if let Some((pn, _)) = f.params.get(i)
++                        && f.requires
++                            .iter()
++                            .chain(&f.ensures)
++                            .chain(&f.succeeds)
++                            .any(|s| mentions(s, pn))
++                    {
++                        return Err((
++                            v.span,
++                            format!("a spec reads dynamic parameter `{pn}`: not exported"),
++                        ));
++                    }
++                    params.push("(.uint 256)".to_string());
++                    continue;
++                }
+                 params.push(abi_ty(program, v, v.span)?);
+             }
+             let mut rets = vec![];
+@@ -930,6 +952,8 @@ fn mentions(s: &Spec<'_>, name: &str) -> bool {
+ fn abi_name<'a>(p: &Program<'a>, v: &'a ast::VariableDefinition<'a>) -> Option<String> {
+     Some(match &v.ty.kind {
+         TypeKind::Elementary(ElementaryType::FixedBytes(n)) => format!("bytes{}", n.bytes()),
++        TypeKind::Elementary(ElementaryType::Bytes) => "bytes".into(),
++        TypeKind::Elementary(ElementaryType::String) => "string".into(),
+         _ => match crate::vc::ty_of(p, &v.ty) {
+             Ty::Bool => "bool".into(),
+             Ty::Uint(n) => format!("uint{n}"),
+diff --git a/crates/verify/tests/snapshots/lean_export.lean b/crates/verify/tests/snapshots/lean_export.lean
+index 722963b1a..a06dd38e5 100644
+--- a/crates/verify/tests/snapshots/lean_export.lean
++++ b/crates/verify/tests/snapshots/lean_export.lean
+@@ -12,7 +12,7 @@ open SolidCore.Spec
+ /-- What the specs were exported from and are about. -/
+ def manifest : Manifest :=
+   { source := "tests/snapshots/lean_export.sol",
+-    sourceSha256 := "2a96b8a65f9b1b3fb66b0ded9d712639f11d1922cef275332a8a20ecd33ee073",
++    sourceSha256 := "f91cbfc36a817db63c67620c967fbba7e93d2a1e95df7a9927f79033a392a9fd",
+     compiler := "",
+     options := [],
+     bytecodeSha256 := "" }
+@@ -53,6 +53,15 @@ def Export : Bundle where
+         (.bin .eq (.ghost "total" []) (.bin .add (.old (.ghost "total" [])) (.lit 1))),
+         (.bin .eq (.ret 0) (.load (.slot 1) (.lit 0) 32 (.uint 256)))],
+       succeedsIf := [] },
++    { name := "Export.call",
++      selector := 0x4ae00041,
++      params := [.address, (.uint 256), (.uint 256)],
++      rets := [],
++      payable := false,
++      requires := [],
++      ensures := [
++        (.bin .eq (.load (.slot 1) (.lit 0) 32 (.uint 256)) (.old (.load (.slot 1) (.lit 0) 32 (.uint 256))))],
++      succeedsIf := [] },
+     { name := "Export.probe",
+       selector := 0xe357a605,
+       params := [.address, (.uint 256)],
+diff --git a/crates/verify/tests/snapshots/lean_export.sol b/crates/verify/tests/snapshots/lean_export.sol
+index eda13e243..4aab3e4ea 100644
+--- a/crates/verify/tests/snapshots/lean_export.sol
++++ b/crates/verify/tests/snapshots/lean_export.sol
+@@ -46,6 +46,10 @@ contract Export {
+         return count;
+     }
+ 
++    /// A dynamic `bytes` parameter: exported as its ABI head word, which no spec reads.
++    /// @custom:ensures count == old(count)
++    function call(address to, bytes calldata data, uint256 k) external view {}
++
+     /// @custom:ensures forall uint256 i :: i < items.length ==> items[i] == old(items[i])
+     /// @custom:ensures exists address a :: balances[a] > 0 <==> result
+     /// @custom:ensures flags[who][k] ==> sq(k) >= k
+diff --git a/crates/verify/tests/snapshots/lean_unsupported/dynamic_param.sol b/crates/verify/tests/snapshots/lean_unsupported/dynamic_param.sol
+new file mode 100644
+index 000000000..09cfeca22
+--- /dev/null
++++ b/crates/verify/tests/snapshots/lean_unsupported/dynamic_param.sol
+@@ -0,0 +1,8 @@
++// SPDX-License-Identifier: UNLICENSED
++pragma solidity ^0.8.28;
++contract C {
++    uint256 x;
++    // expect: a spec reads dynamic parameter `data`: not exported
++    /// @custom:ensures data.length >= 0
++    function f(bytes calldata data) external {}
++}
+-- 
+2.43.0
+
