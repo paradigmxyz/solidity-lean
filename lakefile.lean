@@ -575,7 +575,7 @@ lean_lib ContractsUniswapV2PairSpec where
 -- none is committed. Every module is checked within 6 GB.
 lean_lib «uv2_erc20» where
   srcDir := "Certified"
-  roots := #[`uv2_erc20.Gas, `uv2_erc20.gen.UniswapV2ERC20.Stage0, `uv2_erc20.ProofsT.Stages,
+  roots := #[`uv2_erc20.Gas, `uv2_erc20.AnyCaller, `uv2_erc20.gen.UniswapV2ERC20.Stage0, `uv2_erc20.ProofsT.Stages,
     `uv2_erc20.ProofsT.Assembly, `uv2_erc20.Ctx, `uv2_erc20.CtxNeg]
   globs := #[.submodules `uv2_erc20]
   leanOptions := solarTVOptions
@@ -601,3 +601,10 @@ lean_lib «abi_hash» where
   srcDir := "Certified"
   roots := #[`abi_hash.Proofs]
   globs := #[.submodules `abi_hash]
+
+-- UniswapV2ERC20.transfer certified at the caller 0x2000 (Contracts/UniswapV2/ERC20/Certified): E3, E4,
+-- E5 + E8 and E7 composed into one Shapes.Certified statement, with the two self-transfer cases on the
+-- exact bytes. Needs the generated modules of uv2_erc20, ContractsUniswapV2ERC20SourceMir and
+-- ContractsUniswapV2TransferSlice (scripts/verify/uniswap_v2_stages.sh, uniswap_v2_transfer_slice.sh).
+lean_lib ContractsUniswapV2ERC20Certified where
+  roots := #[`Contracts.UniswapV2.ERC20.Certified.Transfer]
