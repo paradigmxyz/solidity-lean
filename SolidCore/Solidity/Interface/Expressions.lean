@@ -2563,6 +2563,8 @@ def Stmt.annotateAbiInSeqFuel :
       | Stmt.continue => (Stmt.continue, env)
       | Stmt.unchecked body => (Stmt.unchecked (annotateStmt body), env)
       | Stmt.inlineAssembly code => (Stmt.inlineAssembly code, env)
+      | Stmt.assemblyCreate2 t v c s =>
+          (Stmt.assemblyCreate2 (annotateExpr t) (annotateExpr v) (annotateExpr c) (annotateExpr s), env)
       | Stmt.modifierPlaceholder => (Stmt.modifierPlaceholder, env)
 
 def Stmt.annotateAbiFuel (fuel : Nat) (env : TypeEnv) (stmt : Stmt) :
@@ -3391,6 +3393,8 @@ def Stmt.resolveInterfaceIdsFuel : Nat -> InterfaceIdEnv -> Stmt -> Stmt
       | Stmt.continue => Stmt.continue
       | Stmt.unchecked body => Stmt.unchecked (resolveStmt body)
       | Stmt.inlineAssembly code => Stmt.inlineAssembly code
+      | Stmt.assemblyCreate2 t v c s =>
+          Stmt.assemblyCreate2 (resolveExpr t) (resolveExpr v) (resolveExpr c) (resolveExpr s)
       | Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
 
 def CatchClause.resolveInterfaceIdsFuel :
@@ -3677,6 +3681,8 @@ def Stmt.resolveSelectorsFuel :
       | Stmt.continue => Stmt.continue
       | Stmt.unchecked body => Stmt.unchecked (resolveStmt body)
       | Stmt.inlineAssembly code => Stmt.inlineAssembly code
+      | Stmt.assemblyCreate2 t v c s =>
+          Stmt.assemblyCreate2 (resolveExpr t) (resolveExpr v) (resolveExpr c) (resolveExpr s)
       | Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
 
 def CatchClause.resolveSelectorsFuel :
@@ -3970,6 +3976,8 @@ def Stmt.resolveEventSelectorsFuel :
       | Stmt.continue => Stmt.continue
       | Stmt.unchecked body => Stmt.unchecked (resolveStmt body)
       | Stmt.inlineAssembly code => Stmt.inlineAssembly code
+      | Stmt.assemblyCreate2 t v c s =>
+          Stmt.assemblyCreate2 (resolveExpr t) (resolveExpr v) (resolveExpr c) (resolveExpr s)
       | Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
 
 def CatchClause.resolveEventSelectorsFuel :
@@ -4154,6 +4162,8 @@ def Stmt.resolveFunctionAddressesFuel :
       | Stmt.continue => Stmt.continue
       | Stmt.unchecked body => Stmt.unchecked (resolveStmt body)
       | Stmt.inlineAssembly code => Stmt.inlineAssembly code
+      | Stmt.assemblyCreate2 t v c s =>
+          Stmt.assemblyCreate2 (resolveExpr t) (resolveExpr v) (resolveExpr c) (resolveExpr s)
       | Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
 
 def CatchClause.resolveFunctionAddressesFuel :
@@ -4330,6 +4340,8 @@ def Stmt.resolveNamedEventErrorArgsFuel :
       | Stmt.continue => Stmt.continue
       | Stmt.unchecked body => Stmt.unchecked (resolveStmt body)
       | Stmt.inlineAssembly code => Stmt.inlineAssembly code
+      | Stmt.assemblyCreate2 t v c s =>
+          Stmt.assemblyCreate2 t v c s
       | Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
 
 def CatchClause.resolveNamedEventErrorArgsFuel :
@@ -4628,6 +4640,8 @@ def Stmt.renameIdentsFuel : Nat -> NameAliasEnv -> Stmt -> Stmt
   | fuel + 1, env, Stmt.unchecked body =>
       Stmt.unchecked (Stmt.renameIdentsFuel fuel env body)
   | _ + 1, _, Stmt.inlineAssembly code => Stmt.inlineAssembly code
+  | fuel + 1, env, Stmt.assemblyCreate2 t v c s =>
+      Stmt.assemblyCreate2 (Expr.renameIdentsFuel fuel env t) (Expr.renameIdentsFuel fuel env v) (Expr.renameIdentsFuel fuel env c) (Expr.renameIdentsFuel fuel env s)
   | _ + 1, _, Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
 termination_by fuel _ _ => fuel
 
@@ -6528,6 +6542,8 @@ def Stmt.inlineInternalFunctionAliasesFuel
         (Stmt.inlineInternalFunctionAliasesFuel
           functions freeFunctions fuel aliasEnv body)
   | _ + 1, _, Stmt.inlineAssembly code => Stmt.inlineAssembly code
+  | fuel + 1, aliasEnv, Stmt.assemblyCreate2 t v c s =>
+      Stmt.assemblyCreate2 (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv t) (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv v) (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv c) (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv s)
   | _ + 1, _, Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
 termination_by fuel _ _ => fuel
 

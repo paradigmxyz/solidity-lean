@@ -81,6 +81,7 @@ jobs:
           # UniswapV2Pair's source acceptance in 22 generated stage modules; the largest (swap's
           # lowering) peaks at 5.98 GB under -M 6000, so this step has little memory margin.
           lake build -KleanMemory=6000 ContractsUniswapV2Pair
+          lake build -KleanMemory=6000 ContractsUniswapV2Factory
 
       # The ERC20 specs' connection needs solar-verify and solar's spec tooling
       # (crates/verify/uniswap-v2, tools/certify/spec_connect.py) at the commit pinned in

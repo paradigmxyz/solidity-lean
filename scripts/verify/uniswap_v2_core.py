@@ -149,14 +149,15 @@ def render(contract: str, d: str, sigs: list[tuple[str, int]], topics: list[tupl
 
 # --- Staged translation check -------------------------------------------------------------
 #
-# A contract whose translation does not kernel-check in one declaration (UniswapV2Pair) is
+# A contract whose translation does not kernel-check in one declaration within 6 GB
+# (UniswapV2Pair, and UniswapV2Factory with createPair) is
 # checked in stages, each module its own process: Ctx.lean (the translation context, field by
 # field), Fn/<Contract>_<function>.lean (one function's translation each), Groups.lean (the
 # function groups from them), Asm.lean (the assembly) and Contract.lean (contract_ok from all).
 # Every stage's value is printed by kernel_some from a fresh evaluation and checked by the kernel;
 # the generator only decides how to split, so a wrong split fails a kernel check.
 
-STAGED = {"UniswapV2Pair"}
+STAGED = {"UniswapV2Pair", "UniswapV2Factory"}
 USING = "selector_eq digest_eq SolidCore.Verify.VC.mkIdx_eq"
 FAST = (" Executable.TypeEnv.shadowedStateNames_eq_K Executable.stringDecEq_eq_K"
         " Executable.toByteArray_eq_K")
@@ -194,7 +195,8 @@ FN_CHUNK = 1500
 # Functions whose translation the kernel cannot check in one module within 6 GB: each is checked
 # in three (`FromOrdersCtx.pairF_of_stages`): the passes before the lowering with the ANF
 # preprocessing of the body, the lowering of the body, and the rest.
-STAGED_FNS = {("UniswapV2Pair", "mint"), ("UniswapV2Pair", "swap")}
+STAGED_FNS = {("UniswapV2Pair", "mint"), ("UniswapV2Pair", "swap"), ("UniswapV2Pair", "burn"),
+              ("UniswapV2Pair", "_mintFee")}
 
 
 def chunks(fns: list[tuple[str, int]], staged: set[int] = set()) -> list[list[int]]:

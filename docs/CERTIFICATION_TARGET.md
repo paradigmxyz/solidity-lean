@@ -58,5 +58,5 @@ Negative controls by execution: altered bytecode/jump, missing debit, wrong post
 ## Reclassified (kept as lemmas until connected)
 - Contracts/UniswapV2/PairSpec/Published.lean published_of_stages: composition interface taking every stage as a hypothesis. Not a Pair proof.
 - PairSpec Negative.lean: formula checks on example states, not mutated program executions.
-- Factory/Create2 lemmas: createPair is OMITTED from the Factory source (create2 of creationCode is outside the frontend fragment). Blocked on E1.
+- Factory/Create2 lemmas and CreateNode (eval_create2Bytes, EvmCreate2): createPair is translated since the frontend covers its one assembly block (Stmt.assemblyCreate2, CREATE2 of the init code's bytes as an open-world request), and the whole Factory passes contract_ok. Lemmas until createPair's E3 (source -> MIR with a creation node) is proved.
 - ERC20 EndToEndAll.published: vacuous (NestedSlotsSeparated), StaticRunner/CalleesRun assumed, its generated stage modules are not in the CI build.

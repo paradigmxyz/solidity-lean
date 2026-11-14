@@ -2200,6 +2200,40 @@ def requireLogOrCreateAllowed (env : CheckEnv) (what : String) :
   require (mutabilityAllowsLogOrCreate env.currentMutability)
     (TypeError.mutabilityViolation what)
 
+/-- The operands of `Stmt.assemblyCreate2 target value code salt` (inline assembly
+    `target := create2(value, add(code, 32), mload(code), salt)`): `target` a local
+    `address`, `code` a local `bytes memory`, `value` a number literal below `2^256` or a
+    local `uint256`, and `salt` the same or a local `bytes32` (a full word, which Yul reads
+    as it is). Locals exclude state variables, constants and storage references. -/
+def checkAssemblyCreate2 (env : CheckEnv) (target value code salt : Solidity.Expr) :
+    Except TypeError Unit := do
+  let isLocal (e : Solidity.Expr) (ok : Ty -> Bool) : Bool :=
+    match e with
+    | .ident name =>
+        env.isLocalName name && !env.isLocalStorageRef name &&
+          (match env.lookupConstantBinding? name with | some true => false | _ => true) &&
+          (match env.lookupVar? name with | some ty => ok ty | none => false)
+    | _ => false
+  let isWord (e : Solidity.Expr) (ok : Ty -> Bool) : Bool :=
+    isLocal e ok ||
+      (match e with
+      | .literal (.number text) =>
+          match Solidity.Executable.parseNumberNat? text with
+          | some n => decide (n < 2 ^ 256)
+          | none => false
+      | _ => false)
+  require (isLocal target (fun ty => ty == Ty.address false || ty == Ty.address true))
+    (TypeError.unsupported "create2 target other than a local address")
+  require (isLocal code (fun ty => ty == Ty.bytes) &&
+      (match code with
+      | .ident name => env.lookupLocalDataLocation? name == some Solidity.DataLocation.memory
+      | _ => false))
+    (TypeError.unsupported "create2 init code other than a local bytes memory")
+  require (isWord value (fun ty => ty == Ty.uint 256))
+    (TypeError.unsupported "create2 value other than a literal or a local uint256")
+  require (isWord salt (fun ty => ty == Ty.uint 256 || ty == Ty.bytesN 32))
+    (TypeError.unsupported "create2 salt other than a literal or a local uint256 or bytes32")
+
 def requireCallMutabilityAllowed (env : CheckEnv)
     (callee : Solidity.StateMutability) :
     Except TypeError Unit :=
@@ -11258,6 +11292,10 @@ def checkStmt (env : CheckEnv) :
       Except.ok { source := stmt }
   | Solidity.Stmt.inlineAssembly _ =>
       Except.error (TypeError.unsupported "inline assembly")
+  | stmt@(Solidity.Stmt.assemblyCreate2 target value code salt) => do
+      requireLogOrCreateAllowed env "create2 in view or pure function"
+      checkAssemblyCreate2 env target value code salt
+      Except.ok { source := stmt }
   | stmt@Solidity.Stmt.modifierPlaceholder => do
       require env.inModifier TypeError.modifierPlaceholderOutsideModifier
       require (!env.inUnchecked) (TypeError.unsupported
@@ -13584,6 +13622,9 @@ def Stmt.pointerReturnFlowFuel :
       Stmt.pointerReturnFlowFuel fuel env requirements placeholder assigned body
   | _ + 1, _, _, _, _, Solidity.Stmt.inlineAssembly _ =>
       { unsafeReturn := true }
+  -- It writes an address local and only reads its other operands: no pointer flow.
+  | _ + 1, _, _, _, assigned, Solidity.Stmt.assemblyCreate2 _ _ _ _ =>
+      { normal? := some assigned }
   | fuel + 1, env, requirements, placeholder, assigned,
       Solidity.Stmt.modifierPlaceholder =>
       match placeholder with
@@ -14028,6 +14069,8 @@ def Stmt.pointerLocalFlowFuel :
       Stmt.pointerLocalFlowFuel fuel name assigned body
   | _ + 1, _, _, Solidity.Stmt.inlineAssembly _ =>
       { unsafeReturn := true }
+  | _ + 1, _, assigned, Solidity.Stmt.assemblyCreate2 _ _ _ _ =>
+      { normal? := some assigned }
   | _ + 1, _, assigned, Solidity.Stmt.modifierPlaceholder =>
       { normal? := some assigned }
 

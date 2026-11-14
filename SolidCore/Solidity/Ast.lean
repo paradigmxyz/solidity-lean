@@ -435,6 +435,13 @@ inductive Stmt where
   | continue
   | unchecked : Stmt -> Stmt
   | inlineAssembly : String -> Stmt
+  /-- An inline assembly block of exactly one Yul assignment
+      `target := create2(value, add(code, 32), mload(code), salt)`, where `target` and `code` are
+      Solidity locals (`code` a `bytes memory`) and `value`, `salt` are Yul literals or
+      Solidity locals: CREATE2 of the bytes of `code` as init code, endowed with `value`, salted
+      with `salt`, assigning the new account's address, or 0 when the creation fails (EVM's
+      CREATE2, which never reverts the caller). Fields: target, value, code, salt. -/
+  | assemblyCreate2 : Expr -> Expr -> Expr -> Expr -> Stmt
   | modifierPlaceholder
   deriving Repr
 

@@ -346,6 +346,8 @@ def Stmt.inlineConstantsFuel : Nat -> ConstantEnv -> Stmt -> Stmt
       | Stmt.continue => Stmt.continue
       | Stmt.unchecked body => Stmt.unchecked (inlineStmt body)
       | Stmt.inlineAssembly code => Stmt.inlineAssembly code
+      | Stmt.assemblyCreate2 t v c s =>
+          Stmt.assemblyCreate2 (inlineExpr t) (inlineExpr v) (inlineExpr c) (inlineExpr s)
       | Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
 
 /-- Rewrite a statement list in source order. A local declaration shadows a
@@ -533,6 +535,8 @@ def Stmt.rewriteSuperCallsFuel (contractName : Name) : Nat -> Stmt -> Stmt
       | Stmt.continue => Stmt.continue
       | Stmt.unchecked body => Stmt.unchecked (rewriteStmt body)
       | Stmt.inlineAssembly code => Stmt.inlineAssembly code
+      | Stmt.assemblyCreate2 t v c s =>
+          Stmt.assemblyCreate2 (rewriteExpr t) (rewriteExpr v) (rewriteExpr c) (rewriteExpr s)
       | Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
 
 def CatchClause.rewriteSuperCallsFuel (contractName : Name) :
@@ -740,6 +744,8 @@ def Stmt.rewriteBaseCallsFuel (baseNames stateNames : List Name) :
       | Stmt.continue => Stmt.continue
       | Stmt.unchecked body => Stmt.unchecked (rewriteStmt body)
       | Stmt.inlineAssembly code => Stmt.inlineAssembly code
+      | Stmt.assemblyCreate2 t v c s =>
+          Stmt.assemblyCreate2 (rewriteExpr t) (rewriteExpr v) (rewriteExpr c) (rewriteExpr s)
       | Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
 
 def CatchClause.rewriteBaseCallsFuel (baseNames stateNames : List Name) :
@@ -1228,6 +1234,8 @@ def Stmt.resolveUserTypesFuel : Nat -> UserTypeEnv -> Stmt -> Stmt
       | Stmt.continue => Stmt.continue
       | Stmt.unchecked body => Stmt.unchecked (resolveStmt body)
       | Stmt.inlineAssembly code => Stmt.inlineAssembly code
+      | Stmt.assemblyCreate2 t v c s =>
+          Stmt.assemblyCreate2 (resolveExpr t) (resolveExpr v) (resolveExpr c) (resolveExpr s)
       | Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
 
 def CatchClause.resolveUserTypesFuel :
@@ -1565,6 +1573,8 @@ def Stmt.resolveEnumsFuel : Nat -> EnumEnv -> Stmt -> Stmt
       | Stmt.continue => Stmt.continue
       | Stmt.unchecked body => Stmt.unchecked (resolveStmt body)
       | Stmt.inlineAssembly code => Stmt.inlineAssembly code
+      | Stmt.assemblyCreate2 t v c s =>
+          Stmt.assemblyCreate2 (resolveExpr t) (resolveExpr v) (resolveExpr c) (resolveExpr s)
       | Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
 
 def CatchClause.resolveEnumsFuel :
@@ -2207,6 +2217,8 @@ def Stmt.resolveStructsInSeqFuel :
       | Stmt.continue => (Stmt.continue, typeEnv)
       | Stmt.unchecked body => (Stmt.unchecked (resolveStmt body), typeEnv)
       | Stmt.inlineAssembly code => (Stmt.inlineAssembly code, typeEnv)
+      | Stmt.assemblyCreate2 t v c s =>
+          (Stmt.assemblyCreate2 (resolveExpr t) (resolveExpr v) (resolveExpr c) (resolveExpr s), typeEnv)
       | Stmt.modifierPlaceholder => (Stmt.modifierPlaceholder, typeEnv)
 
 end

@@ -1122,6 +1122,7 @@ def Stmt.mentionedNamesFuel : Nat -> Stmt -> List Name
       | Stmt.continue => []
       | Stmt.unchecked body => go body
       | Stmt.inlineAssembly _ => []
+      | Stmt.assemblyCreate2 t v c s => goExpr t ++ goExpr v ++ goExpr c ++ goExpr s
       | Stmt.modifierPlaceholder => []
 
 def Ty.mentionedNames (ty : Ty) : List Name :=

@@ -456,6 +456,7 @@ mutual
 /-- The statement contains inline assembly. -/
 def stmtHasAsm : Solidity.Stmt → Bool
   | .inlineAssembly _ => true
+  | .assemblyCreate2 _ _ _ _ => true
   | .block ss => stmtsHaveAsm ss
   | .ifElse _ s none => stmtHasAsm s
   | .ifElse _ s (some t) => stmtHasAsm s || stmtHasAsm t

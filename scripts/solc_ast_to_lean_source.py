@@ -1388,6 +1388,158 @@ def expr_from_node(node: dict[str, Any]) -> str:
     fail(f"unsupported expression node {node_type!r}")
 
 
+
+# Inline assembly is out of SolidCore's fragment except for one exact block (solc's AST of
+# the source text: one Yul assignment, no Yul locals, every identifier a Solidity local):
+#
+#     target := create2(value, add(code, 32), mload(code), salt)
+#
+# with target an address local, code a bytes memory local, and value, salt each a Yul number
+# literal or a uint256 (salt also bytes32) local. It is CREATE2 of exactly the bytes of code
+# (add(code, 32) is their first byte and mload(code) their length), so it translates to
+# Stmt.assemblyCreate2, whose semantics is that opcode's: the new account's address, or 0.
+DECLARATION_BY_ID: dict[int, dict[str, Any]] = {}
+
+
+def collect_declarations_by_id(ast: dict[str, Any]) -> dict[int, dict[str, Any]]:
+    found: dict[int, dict[str, Any]] = {}
+
+    def visit(node: Any) -> None:
+        if isinstance(node, dict):
+            node_id = node.get("id")
+            if node.get("nodeType") == "VariableDeclaration" and isinstance(node_id, int):
+                found[node_id] = node
+            for value in node.values():
+                visit(value)
+        elif isinstance(node, list):
+            for value in node:
+                visit(value)
+
+    visit(ast)
+    return found
+
+
+def yul_create2_assignment(node: dict[str, Any]) -> tuple[str, str, str, str] | None:
+    """The Lean expressions (target, value, code, salt) of an inline assembly block of the one
+    create2 shape the fragment covers, or None for any other block."""
+    if node.get("nodeType") != "InlineAssembly":
+        return None
+    if set(node) - {"AST", "evmVersion", "externalReferences", "id", "nodeType", "src", "flags", "documentation"}:
+        return None
+    if node.get("flags"):
+        return None
+    block = node.get("AST")
+    if not isinstance(block, dict) or block.get("nodeType") != "YulBlock":
+        return None
+    statements = block.get("statements")
+    if not isinstance(statements, list) or len(statements) != 1:
+        return None
+    assignment = statements[0]
+    if not isinstance(assignment, dict) or assignment.get("nodeType") != "YulAssignment":
+        return None
+    targets = assignment.get("variableNames")
+    if not isinstance(targets, list) or len(targets) != 1:
+        return None
+    references = node.get("externalReferences")
+    if not isinstance(references, list):
+        return None
+    by_src: dict[str, dict[str, Any]] = {}
+    for reference in references:
+        if not isinstance(reference, dict) or set(reference) - {"declaration", "isOffset", "isSlot", "src", "valueSize", "suffix"}:
+            return None
+        if reference.get("isOffset") or reference.get("isSlot") or reference.get("suffix") or reference.get("valueSize") != 1:
+            return None
+        by_src[reference.get("src")] = reference
+
+    def call(item: Any, name: str, arity: int) -> list[Any] | None:
+        if not isinstance(item, dict) or item.get("nodeType") != "YulFunctionCall":
+            return None
+        function_name = item.get("functionName")
+        if not isinstance(function_name, dict) or function_name.get("name") != name:
+            return None
+        arguments = item.get("arguments")
+        if not isinstance(arguments, list) or len(arguments) != arity:
+            return None
+        return arguments
+
+    def local(item: Any, types: set[str]) -> str | None:
+        # A Yul identifier naming a Solidity local (not a state, constant or storage variable)
+        # of one of the given types (solc type identifiers).
+        if not isinstance(item, dict) or item.get("nodeType") != "YulIdentifier":
+            return None
+        name = item.get("name")
+        reference = by_src.get(item.get("src"))
+        if not isinstance(name, str) or reference is None:
+            return None
+        declaration = DECLARATION_BY_ID.get(reference.get("declaration"))
+        if declaration is None or declaration.get("name") != name:
+            return None
+        if declaration.get("stateVariable") or declaration.get("constant"):
+            return None
+        type_identifier = (declaration.get("typeDescriptions") or {}).get("typeIdentifier")
+        if type_identifier not in types:
+            return None
+        return name
+
+    def number(item: Any) -> str | None:
+        if not isinstance(item, dict) or item.get("nodeType") != "YulLiteral" or item.get("kind") != "number":
+            return None
+        if item.get("type", "") != "":
+            return None
+        value = item.get("value")
+        if not isinstance(value, str):
+            return None
+        try:
+            int(value, 0)
+        except ValueError:
+            return None
+        return value
+
+    def word(item: Any, types: set[str]) -> str | None:
+        name = local(item, types)
+        if name is not None:
+            return f"Expr.ident {lean_string(name)}"
+        value = number(item)
+        if value is not None:
+            return f"Expr.literal (Literal.number {lean_string(str(int(value, 0)))})"
+        return None
+
+    target = local(targets[0], {"t_address", "t_address_payable"})
+    arguments = call(assignment.get("value"), "create2", 4)
+    if target is None or arguments is None:
+        return None
+    value = word(arguments[0], {"t_uint256"})
+    start = call(arguments[1], "add", 2)
+    length = call(arguments[2], "mload", 1)
+    salt = word(arguments[3], {"t_uint256", "t_bytes32"})
+    if value is None or start is None or length is None or salt is None:
+        return None
+    code = local(start[0], {"t_bytes_memory_ptr"})
+    if code is None or number(start[1]) is None or int(number(start[1]), 0) != 32:
+        return None
+    if local(length[0], {"t_bytes_memory_ptr"}) != code:
+        return None
+    # Every external reference is one of the identifiers read above.
+    used = {targets[0].get("src"), arguments[1]["arguments"][0].get("src"), arguments[2]["arguments"][0].get("src")}
+    for item in (arguments[0], arguments[3]):
+        if item.get("nodeType") == "YulIdentifier":
+            used.add(item.get("src"))
+    if set(by_src) != used or len(by_src) != len(references):
+        return None
+    return (f"Expr.ident {lean_string(target)}", value, f"Expr.ident {lean_string(code)}", salt)
+
+
+def without_create2_assembly(value: Any) -> Any:
+    """The AST with every inline assembly block of the covered create2 shape left out, so the
+    node guard rejects every other block."""
+    if isinstance(value, dict):
+        return {key: without_create2_assembly(child) for key, child in value.items()}
+    if isinstance(value, list):
+        return [without_create2_assembly(child) for child in value
+                if not (isinstance(child, dict) and yul_create2_assignment(child) is not None)]
+    return value
+
+
 def stmt_from_node(node: dict[str, Any]) -> str:
     node_type = node.get("nodeType")
     if node_type == "Block":
@@ -1531,6 +1683,11 @@ def stmt_from_node(node: dict[str, Any]) -> str:
         return "Stmt.continue"
     if node_type == "PlaceholderStatement":
         return "Stmt.modifierPlaceholder"
+    if node_type == "InlineAssembly":
+        create2 = yul_create2_assignment(node)
+        if create2 is None:
+            fail("inline assembly other than one create2 assignment is out of scope")
+        return "Stmt.assemblyCreate2 " + " ".join(f"({part})" for part in create2)
     fail(f"unsupported statement node {node_type!r}")
 
 
@@ -2155,7 +2312,9 @@ def render_module(ast: dict[str, Any], source_name: str, contract_name: str, nam
     global FUNCTION_NAME_BY_ID
     FUNCTION_PARAM_COUNT_BY_ID = collect_function_param_counts(ast)
     FUNCTION_NAME_BY_ID = collect_function_names_by_id(ast)
-    guard_no_unsupported_nodes(ast)
+    DECLARATION_BY_ID.clear()
+    DECLARATION_BY_ID.update(collect_declarations_by_id(ast))
+    guard_no_unsupported_nodes(without_create2_assembly(ast))
     contract = find_contract(ast, contract_name)
     contracts = contract_definitions(ast)
     segments = namespace_segments(namespace)

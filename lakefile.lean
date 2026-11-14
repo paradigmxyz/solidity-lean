@@ -366,11 +366,25 @@ lean_lib ContractsVC where
 -- GPL-3.0), so run it first: scripts/verify/uniswap_v2_gen.sh && lake build ContractsUniswapV2.
 -- Each Core is the kernel's type check and translation of its contract (contract_ok).
 lean_lib ContractsUniswapV2 where
-  roots := #[`Contracts.UniswapV2.ERC20.Core, `Contracts.UniswapV2.Factory.Core]
+  roots := #[`Contracts.UniswapV2.ERC20.Core]
   -- The generated sources the roots import belong to this library too, or Lake looks for their
   -- object files elsewhere instead of building them.
-  globs := #[.one `Contracts.UniswapV2.ERC20.Source, .one `Contracts.UniswapV2.ERC20.Core,
-    .one `Contracts.UniswapV2.Factory.Source, .one `Contracts.UniswapV2.Factory.Core]
+  globs := #[.one `Contracts.UniswapV2.ERC20.Source, .one `Contracts.UniswapV2.ERC20.Core]
+
+-- UniswapV2Factory's translation, createPair included, is checked in stages as the Pair's is (one
+-- module each, each within 6 GB; checked in one declaration it peaks at the 6 GB cap), with the
+-- CREATE2 address lemmas (Create2) and createPair's execution tests (Create2Run).
+lean_lib ContractsUniswapV2Factory where
+  roots := #[`Contracts.UniswapV2.Factory.Contract, `Contracts.UniswapV2.Factory.Create2,
+    `Contracts.UniswapV2.Factory.Create2Run]
+  globs := #[.submodules `Contracts.UniswapV2.Factory]
+
+-- Inline assembly create2 (Stmt.assemblyCreate2): Contracts/Create2/Deployer.sol's translation
+-- (scripts/verify/create2_sources.py) and its execution tests, with the view negative control,
+-- and the create node of the source semantics (SolidCore/Refinement/Generic/CreateNode.lean).
+lean_lib ContractsCreate2 where
+  roots := #[`Contracts.Create2.Run, `SolidCore.Refinement.Generic.CreateNode]
+  globs := #[.submodules `Contracts.Create2, .one `SolidCore.Refinement.Generic.CreateNode]
 
 -- solar-verify's ERC20 specs connected to SolidCore's checked UniswapV2ERC20 (Meets: approve and
 -- transfer meet their exported specs and the mutated spec is refused; SpecTree: the specs hold in

@@ -3636,6 +3636,14 @@ def storageTernaryBranchAliasPieces? (internalFuel : Nat)
     [ SolidCore.Solidity.Source.Stmt.storageAlias localName ""
     , SolidCore.Solidity.Source.Stmt.ifElse condCore thenCore elseCore ]
 
+/-- A Yul operand of `Stmt.assemblyCreate2`: a number literal, or a local read as its word. -/
+def Expr.assemblyWordCore? : Expr -> Option CoreExpr
+  | Expr.ident name => some (SolidCore.Solidity.Source.Expr.var name)
+  | Expr.literal (Literal.number text) => do
+      let value ← parseNumberNat? text
+      if value < 2 ^ 256 then some (SolidCore.Solidity.Source.Expr.word value) else none
+  | _ => none
+
 def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
     (storageNames : List Name) (stmt : Stmt) : Option CoreStmt :=
   -- ITEM-2 (§3c collapse, phase 1): statements whose lowering is IDENTICAL
@@ -3653,6 +3661,14 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
   match stmt with
   | Stmt.empty => some SolidCore.Solidity.Source.Stmt.skip
   | Stmt.inlineAssembly "" => some SolidCore.Solidity.Source.Stmt.skip
+  -- Inline assembly `target := create2(value, add(code, 32), mload(code), salt)` over locals
+  -- (checked by `checkAssemblyCreate2`): a Yul assignment writes the local's word as it is.
+  | Stmt.assemblyCreate2 (Expr.ident target) value (Expr.ident code) salt => do
+      let valueCore ← Expr.assemblyWordCore? value
+      let saltCore ← Expr.assemblyWordCore? salt
+      some (SolidCore.Solidity.Source.Stmt.assign (SolidCore.Solidity.Source.LValue.var target)
+        (SolidCore.Solidity.Source.Expr.create2Bytes valueCore
+          (SolidCore.Solidity.Source.Expr.var code) saltCore))
   -- Solidity accepts the special base-dispatch namespace as a bare
   -- expression statement (`super;`). Merely evaluating that namespace has
   -- no runtime effect; only a member call such as `super.f()` dispatches.
@@ -11576,6 +11592,8 @@ def Stmt.expandUsingInSeqFuel :
       | Stmt.continue => (Stmt.continue, env)
       | Stmt.unchecked body => (Stmt.unchecked (expandStmt body), env)
       | Stmt.inlineAssembly code => (Stmt.inlineAssembly code, env)
+      | Stmt.assemblyCreate2 t v c s =>
+          (Stmt.assemblyCreate2 (expandExpr t) (expandExpr v) (expandExpr c) (expandExpr s), env)
       | Stmt.modifierPlaceholder => (Stmt.modifierPlaceholder, env)
 
 def Stmt.expandUsing (contracts : List ContractDecl)
@@ -11868,6 +11886,9 @@ def Stmt.rewriteLibraryInternalCallsFuel (libraryName : Name)
         (Stmt.rewriteLibraryInternalCallsFuel
           libraryName libraryFunctions env fuel body)
   | _ + 1, Stmt.inlineAssembly code => Stmt.inlineAssembly code
+  | fuel + 1, Stmt.assemblyCreate2 t v c s =>
+      let go := Expr.rewriteLibraryInternalCallsFuel libraryName libraryFunctions env fuel
+      Stmt.assemblyCreate2 (go t) (go v) (go c) (go s)
   | _ + 1, Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
 termination_by fuel _ => fuel
 

@@ -4,9 +4,10 @@
     scripts/verify/uniswap_v2_sources.py --port DIR [--solc SOLC] [--check]
 
 SolidCore's frontend (scripts/solc_ast_to_lean_source.py) reads one file with no imports and no
-inline assembly, so for each certified contract this writes one file (scripts/verify/uniswap-v2/
-NAME.sol): the contract's file and every file it imports, in import order, each without its
-`import` and `pragma solidity` lines, under one `pragma solidity ^0.8.0;`. One edit changes
+inline assembly but one create2 assignment, so for each certified contract this writes one file
+(scripts/verify/uniswap-v2/NAME.sol): the contract's file and every file it imports, in import
+order, each without its `import` and `pragma solidity` lines, under one
+`pragma solidity ^0.8.0;`. One edit changes
 code: `UniswapV2ERC20`'s constructor reads the chain ID as `block.chainid` instead of with
 inline assembly `chainid()`, the same value (solc documents `block.chainid` as the `CHAINID`
 opcode). Every edit must apply exactly once. solar's certified backend compiles the same file.
@@ -29,14 +30,13 @@ OUT_SOL = ROOT / "scripts" / "verify" / "uniswap-v2"
 FRONTEND = ROOT / "scripts" / "solc_ast_to_lean_source.py"
 # (contract, its file in the port, the Lean directory under Contracts/UniswapV2, the functions
 # the translation leaves out). `UniswapV2Factory.createPair` deploys the pair with inline
-# assembly `create2` of `type(UniswapV2Pair).creationCode`, outside SolidCore's fragment, so
-# SolidCore's Factory has no `createPair` (nor its interface, which would make the Factory
-# abstract), and nothing proved of it covers that function.
+# assembly `pair := create2(0, add(bytecode, 32), mload(bytecode), salt)` of
+# `type(UniswapV2Pair).creationCode`, the one assembly block the frontend translates
+# (`Stmt.assemblyCreate2`), so every function is translated.
 CONTRACTS = [
     ("UniswapV2ERC20", "UniswapV2ERC20.sol", "ERC20", []),
     ("UniswapV2Pair", "UniswapV2Pair.sol", "Pair", []),
-    ("UniswapV2Factory", "UniswapV2Factory.sol", "Factory",
-     ["UniswapV2Factory.createPair", "IUniswapV2Factory.createPair"]),
+    ("UniswapV2Factory", "UniswapV2Factory.sol", "Factory", []),
 ]
 CHAINID_OLD = """        assembly {
             chainId := chainid()
