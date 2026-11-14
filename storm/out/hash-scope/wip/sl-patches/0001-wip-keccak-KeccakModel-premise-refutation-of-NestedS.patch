@@ -1,0 +1,1358 @@
+From 3460fe73b06004d1dd95a47b092fa55014c5ab1f Mon Sep 17 00:00:00 2001
+From: storm-hash-scope <storm@invalid>
+Date: Sat, 14 Nov 2026 04:39:37 +0000
+Subject: [PATCH] wip(keccak): KeccakModel premise, refutation of
+ NestedSlotsSeparated, Token collision control (pre-reset)
+
+---
+ Certified/verify_token/Final.lean             |   2 +-
+ Certified/verify_token/Shape.lean             |   4 +-
+ Certified/verify_token/record.json            |  20 +-
+ Certified/verify_token/shape.json             |   6 +-
+ Contracts/Token/EndToEnd.lean                 |  16 +-
+ Contracts/Token/KeccakNeg.lean                |  82 +++++
+ Contracts/Token/Spec/ExportCollide.lean       |  71 ++++
+ Contracts/Token/SpecTree.lean                 |  10 +-
+ Contracts/Token/VC/Transfer.lean              |   6 +
+ Contracts/UniswapV2/ERC20/EndToEnd.lean       |  13 +-
+ Contracts/UniswapV2/ERC20/EndToEndAll.lean    |  13 +-
+ Contracts/UniswapV2/ERC20/EndToEndTFSpec.lean |   6 +-
+ Contracts/UniswapV2/ERC20/Meets.lean          |   2 +-
+ Contracts/UniswapV2/ERC20/SpecTree.lean       |  13 +-
+ SolidCore/Refinement/Axioms/Token.lean        |   9 +
+ Verify/Spec/KeccakModel.lean                  | 313 ++++++++++++++++++
+ Verify/Spec/TreeMapNested.lean                |  99 ++----
+ Verify/Spec/TreeSplit.lean                    |   6 +-
+ docs/KECCAK_MODEL.md                          | 136 ++++++++
+ lakefile.lean                                 |   4 +-
+ scripts/verify/keccak/TokenSpecCollide.sol    |  50 +++
+ 21 files changed, 753 insertions(+), 128 deletions(-)
+ create mode 100644 Contracts/Token/KeccakNeg.lean
+ create mode 100644 Contracts/Token/Spec/ExportCollide.lean
+ create mode 100644 Verify/Spec/KeccakModel.lean
+ create mode 100644 docs/KECCAK_MODEL.md
+ create mode 100644 scripts/verify/keccak/TokenSpecCollide.sol
+
+diff --git a/Certified/verify_token/Final.lean b/Certified/verify_token/Final.lean
+index 016a258..2061b31 100644
+--- a/Certified/verify_token/Final.lean
++++ b/Certified/verify_token/Final.lean
+@@ -77,7 +77,7 @@ def code : ByteArray := ⟨(SolarTV.Export.Token.bytecode.map UInt8.ofNat).toArr
+ /-- **The published statement.** -/
+ def Statement : Prop :=
+   code.data.toList.map (·.toNat) = runtimeBytes ∧
+-    ((SolidCore.Verify.VC.Token.HashInj) →
++    ((SolidCore.Spec.KeccakModel (SolidCore.Spec.mapSlots [0])) →
+     ∃ c, SolidCore.Verify.VC.Token.contract? = .ok c ∧
+       Shapes.Certified (solidCore (SolidCore.Verify.VC.Token.fuel)) c code
+         (SolidCore.Refinement.Shapes.genericValid0 ([SolidCore.Verify.VC.Token.fnTransfer, SolidCore.Verify.VC.Token.fnBurn, SolidCore.Refinement.Solar.VerifyTokenSource.fnMint, SolidCore.Refinement.Solar.VerifyTokenSource.fnTotalSupply, SolidCore.Refinement.Solar.VerifyTokenSource.fnOwner]) ([(2, 4096)])) (fun _ _ => True) (fun call obs => (SolidCore.Verify.VC.stageScope SolidCore.Verify.VC.Token.fnTransfer [(2, 4096)] call → SolidCore.Verify.VC.Token.trPost call obs) ∧ (SolidCore.Verify.VC.stageScope SolidCore.Verify.VC.Token.fnBurn [(2, 4096)] call → SolidCore.Verify.VC.Token.burnPost call obs)) (fun _ => 42697212))
+diff --git a/Certified/verify_token/Shape.lean b/Certified/verify_token/Shape.lean
+index 7c82883..31c71c3 100644
+--- a/Certified/verify_token/Shape.lean
++++ b/Certified/verify_token/Shape.lean
+@@ -115,7 +115,7 @@ theorem gas_le : SolidCore.Refinement.Solar.AssembleLoop.gasBoundL cert 23 ≤ 4
+ 
+ 
+ /-- **What the published statement asks of this module.** -/
+-theorem published : (SolidCore.Verify.VC.Token.HashInj) →
++theorem published : (SolidCore.Spec.KeccakModel (SolidCore.Spec.mapSlots [0])) →
+     ∃ c, SolidCore.Verify.VC.Token.contract? = .ok c ∧
+       SolidCore.Refinement.Shapes.Certified (solidCore SolidCore.Verify.VC.Token.fuel) c code (SolidCore.Refinement.Shapes.genericValid0 ([SolidCore.Verify.VC.Token.fnTransfer, SolidCore.Verify.VC.Token.fnBurn, SolidCore.Refinement.Solar.VerifyTokenSource.fnMint, SolidCore.Refinement.Solar.VerifyTokenSource.fnTotalSupply, SolidCore.Refinement.Solar.VerifyTokenSource.fnOwner]) ([(2, 4096)])) (fun _ _ => True) (fun call obs => (SolidCore.Verify.VC.stageScope SolidCore.Verify.VC.Token.fnTransfer [(2, 4096)] call → SolidCore.Verify.VC.Token.trPost call obs) ∧ (SolidCore.Verify.VC.stageScope SolidCore.Verify.VC.Token.fnBurn [(2, 4096)] call → SolidCore.Verify.VC.Token.burnPost call obs)) (fun _ => 42697212) := by
+   intro _h0
+@@ -131,7 +131,7 @@ theorem published : (SolidCore.Verify.VC.Token.HashInj) →
+     simp only [h0, h1, h2, h3, h4, Bool.and_self]
+   exact ⟨c, hc, ((SolidCore.Refinement.Shapes.compiled0 hd hchk (SolidCore.Refinement.Shapes.genericValid0_inhabited _ _ _)
+       (SolarTV.Milestone.VerifyToken.verify_token_mir_to_evmir SolidCore.Refinement.Shapes.oracle) (fun _ _ => trivial) ends check_ok gas_lt).mono_gas (fun _ => gas_le) (fun _ => by decide)).certified
+-    (fun _ _ _ _ => trivial) (SolidCore.Refinement.Shapes.Meets.and (SolidCore.Refinement.Shapes.meets_of_triple (SolidCore.Verify.VC.Token.transfer_triple_discharged _h0 hc)) (SolidCore.Refinement.Shapes.meets_of_triple (SolidCore.Verify.VC.Token.burn_triple hc)))⟩
++    (fun _ _ _ _ => trivial) (SolidCore.Refinement.Shapes.Meets.and (SolidCore.Refinement.Shapes.meets_of_triple (SolidCore.Verify.VC.Token.transfer_triple_discharged (SolidCore.Verify.VC.Token.hashInj_of_model _h0) hc)) (SolidCore.Refinement.Shapes.meets_of_triple (SolidCore.Verify.VC.Token.burn_triple hc)))⟩
+ 
+ /-- info: 'Certified.verify_token.Shape.published' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+ #guard_msgs (whitespace := lax) in
+diff --git a/Certified/verify_token/record.json b/Certified/verify_token/record.json
+index 560366e..e1d049d 100644
+--- a/Certified/verify_token/record.json
++++ b/Certified/verify_token/record.json
+@@ -15,7 +15,7 @@
+     "spec": "proved (published statement, Shapes.Meets): the specification of every source result on a valid call, hence of every bytecode result that is not an inert failure",
+     "resources": "proved (published statement, Shapes.Resources): from the gas bound on, below 2^64, the bytecode gives the source's result",
+     "assumptions": [
+-      "SolidCore.Verify.VC.Token.HashInj"
++      "SolidCore.Spec.KeccakModel (SolidCore.Spec.mapSlots [0])"
+     ],
+     "excluded": [
+       "deployment: the init code is not covered; the statement is about the runtime bytecode from any storage that writes the slots the constructor writes",
+@@ -24,7 +24,7 @@
+       "gas: the bound is the loop checker's (22100 per item times the final EVM IR's block fuel, plus memory), coarse; below it the bytecode may fail without effects, which equivalence admits",
+       "valid calls: transfer, burn, mint, totalSupply and owner ABI-encoded with clean argument words, no value, from any storage that writes slot 2 (owner); balanceOf (a public mapping getter outside the generic stage's fragment) and calls with value are outside the statement",
+       "spec: transfer's three ensures clauses on distinct addresses (trPost) and burn's (burnPost), on success only; mint, totalSupply and owner have none; the spec declares no revert condition, so every status is allowed (Allowed is True): a revert meets the statement",
+-      "assumption HashInj: keccak256 of (address, 0) is injective on addresses (the mapping's slots), a premise of the statement, not proved"
++      "assumption KeccakModel (mapSlots [0]): the keccak256 model on the mapping's slots keccak256(address, 0) (injective with gaps of at least 2^64, images in [2^128, 2^256 - 2^64]; Verify/Spec/KeccakModel.lean), a premise of the statement, not proved; HashInj is derived from it"
+     ],
+     "strongest": true
+   },
+@@ -32,9 +32,9 @@
+     "module": "verify_token.Final",
+     "theorem": "Certified.verify_token.Final.final",
+     "kind": "certified",
+-    "statement": "code.data.toList.map (·.toNat) = runtimeBytes ∧ ((SolidCore.Verify.VC.Token.HashInj) → ∃ c, SolidCore.Verify.VC.Token.contract? = .ok c ∧ Shapes.Certified (solidCore (SolidCore.Verify.VC.Token.fuel)) c code (SolidCore.Refinement.Shapes.genericValid0 ([SolidCore.Verify.VC.Token.fnTransfer, SolidCore.Verify.VC.Token.fnBurn, SolidCore.Refinement.Solar.VerifyTokenSource.fnMint, SolidCore.Refinement.Solar.VerifyTokenSource.fnTotalSupply, SolidCore.Refinement.Solar.VerifyTokenSource.fnOwner]) ([(2, 4096)])) (fun _ _ => True) (fun call obs => (SolidCore.Verify.VC.stageScope SolidCore.Verify.VC.Token.fnTransfer [(2, 4096)] call → SolidCore.Verify.VC.Token.trPost call obs) ∧ (SolidCore.Verify.VC.stageScope SolidCore.Verify.VC.Token.fnBurn [(2, 4096)] call → SolidCore.Verify.VC.Token.burnPost call obs)) (fun _ => 42697212))",
++    "statement": "code.data.toList.map (·.toNat) = runtimeBytes ∧ ((SolidCore.Spec.KeccakModel (SolidCore.Spec.mapSlots [0])) → ∃ c, SolidCore.Verify.VC.Token.contract? = .ok c ∧ Shapes.Certified (solidCore (SolidCore.Verify.VC.Token.fuel)) c code (SolidCore.Refinement.Shapes.genericValid0 ([SolidCore.Verify.VC.Token.fnTransfer, SolidCore.Verify.VC.Token.fnBurn, SolidCore.Refinement.Solar.VerifyTokenSource.fnMint, SolidCore.Refinement.Solar.VerifyTokenSource.fnTotalSupply, SolidCore.Refinement.Solar.VerifyTokenSource.fnOwner]) ([(2, 4096)])) (fun _ _ => True) (fun call obs => (SolidCore.Verify.VC.stageScope SolidCore.Verify.VC.Token.fnTransfer [(2, 4096)] call → SolidCore.Verify.VC.Token.trPost call obs) ∧ (SolidCore.Verify.VC.stageScope SolidCore.Verify.VC.Token.fnBurn [(2, 4096)] call → SolidCore.Verify.VC.Token.burnPost call obs)) (fun _ => 42697212))",
+     "assumptions": [
+-      "SolidCore.Verify.VC.Token.HashInj"
++      "SolidCore.Spec.KeccakModel (SolidCore.Spec.mapSlots [0])"
+     ],
+     "excluded": [
+       "deployment: the init code is not covered; the statement is about the runtime bytecode from any storage that writes the slots the constructor writes",
+@@ -43,7 +43,7 @@
+       "gas: the bound is the loop checker's (22100 per item times the final EVM IR's block fuel, plus memory), coarse; below it the bytecode may fail without effects, which equivalence admits",
+       "valid calls: transfer, burn, mint, totalSupply and owner ABI-encoded with clean argument words, no value, from any storage that writes slot 2 (owner); balanceOf (a public mapping getter outside the generic stage's fragment) and calls with value are outside the statement",
+       "spec: transfer's three ensures clauses on distinct addresses (trPost) and burn's (burnPost), on success only; mint, totalSupply and owner have none; the spec declares no revert condition, so every status is allowed (Allowed is True): a revert meets the statement",
+-      "assumption HashInj: keccak256 of (address, 0) is injective on addresses (the mapping's slots), a premise of the statement, not proved"
++      "assumption KeccakModel (mapSlots [0]): the keccak256 model on the mapping's slots keccak256(address, 0) (injective with gaps of at least 2^64, images in [2^128, 2^256 - 2^64]; Verify/Spec/KeccakModel.lean), a premise of the statement, not proved; HashInj is derived from it"
+     ],
+     "spec": "solar-verify's Token spec (scripts/verify/Token.sol): transfer's three ensures clauses on distinct addresses (trPost) and burn's (burnPost), on success; the discharged obligations Contracts.Token.Discharge / VC.Burn",
+     "statuses": {
+@@ -54,14 +54,14 @@
+     }
+   },
+   "end_to_end_statement": {
+-    "Contracts.Token.spec_holds_of_bytecode": "SolidCore.Verify.VC.Token.HashInj → (∀ (call : SolarTV.Call), SolidCore.Verify.VC.stageScope SolidCore.Verify.VC.Token.fnTransfer [(2, 4096)] call → ∃ obs, SolidCore.Refinement.Target.run SolidCore.Refinement.Solar.VerifyTokenAsm.code call = some obs ∧ SolidCore.Verify.VC.Token.trPost call obs) ∧ ∀ (call : SolarTV.Call), SolidCore.Verify.VC.stageScope SolidCore.Verify.VC.Token.fnBurn [(2, 4096)] call → ∃ obs, SolidCore.Refinement.Target.run SolidCore.Refinement.Solar.VerifyTokenAsm.code call = some obs ∧ SolidCore.Verify.VC.Token.burnPost call obs"
++    "Contracts.Token.spec_holds_of_bytecode": "SolidCore.Spec.KeccakModel (SolidCore.Spec.mapSlots [0]) → (∀ (call : SolarTV.Call), SolidCore.Verify.VC.stageScope SolidCore.Verify.VC.Token.fnTransfer [(2, 4096)] call → ∃ obs, SolidCore.Refinement.Target.run SolidCore.Refinement.Solar.VerifyTokenAsm.code call = some obs ∧ SolidCore.Verify.VC.Token.trPost call obs) ∧ ∀ (call : SolarTV.Call), SolidCore.Verify.VC.stageScope SolidCore.Verify.VC.Token.fnBurn [(2, 4096)] call → ∃ obs, SolidCore.Refinement.Target.run SolidCore.Refinement.Solar.VerifyTokenAsm.code call = some obs ∧ SolidCore.Verify.VC.Token.burnPost call obs"
+   },
+   "binding": {
+     "Contracts.Token.spec_holds_of_bytecode": "statement reaches the fresh export"
+   },
+   "hypotheses": {
+     "Contracts.Token.spec_holds_of_bytecode": [
+-      "SolidCore.Verify.VC.Token.HashInj",
++      "SolidCore.Spec.KeccakModel (SolidCore.Spec.mapSlots [0])",
+       "(∀ (call : SolarTV.Call), SolidCore.Verify.VC.stageScope SolidCore.Verify.VC.Token.fnTransfer [(2, 4096)] call → ∃ obs, SolidCore.Refinement.Target.run SolidCore.Refinement.Solar.VerifyTokenAsm.code call = some obs ∧ SolidCore.Verify.VC.Token.trPost call obs) ∧ ∀ (call : SolarTV.Call), SolidCore.Verify.VC.stageScope SolidCore.Verify.VC.Token.fnBurn [(2, 4096)] call"
+     ]
+   },
+@@ -81,9 +81,9 @@
+       "module": "verify_token.Final",
+       "theorem": "Certified.verify_token.Final.final",
+       "kind": "certified",
+-      "statement": "code.data.toList.map (·.toNat) = runtimeBytes ∧ ((SolidCore.Verify.VC.Token.HashInj) → ∃ c, SolidCore.Verify.VC.Token.contract? = .ok c ∧ Shapes.Certified (solidCore (SolidCore.Verify.VC.Token.fuel)) c code (SolidCore.Refinement.Shapes.genericValid0 ([SolidCore.Verify.VC.Token.fnTransfer, SolidCore.Verify.VC.Token.fnBurn, SolidCore.Refinement.Solar.VerifyTokenSource.fnMint, SolidCore.Refinement.Solar.VerifyTokenSource.fnTotalSupply, SolidCore.Refinement.Solar.VerifyTokenSource.fnOwner]) ([(2, 4096)])) (fun _ _ => True) (fun call obs => (SolidCore.Verify.VC.stageScope SolidCore.Verify.VC.Token.fnTransfer [(2, 4096)] call → SolidCore.Verify.VC.Token.trPost call obs) ∧ (SolidCore.Verify.VC.stageScope SolidCore.Verify.VC.Token.fnBurn [(2, 4096)] call → SolidCore.Verify.VC.Token.burnPost call obs)) (fun _ => 42697212))",
++      "statement": "code.data.toList.map (·.toNat) = runtimeBytes ∧ ((SolidCore.Spec.KeccakModel (SolidCore.Spec.mapSlots [0])) → ∃ c, SolidCore.Verify.VC.Token.contract? = .ok c ∧ Shapes.Certified (solidCore (SolidCore.Verify.VC.Token.fuel)) c code (SolidCore.Refinement.Shapes.genericValid0 ([SolidCore.Verify.VC.Token.fnTransfer, SolidCore.Verify.VC.Token.fnBurn, SolidCore.Refinement.Solar.VerifyTokenSource.fnMint, SolidCore.Refinement.Solar.VerifyTokenSource.fnTotalSupply, SolidCore.Refinement.Solar.VerifyTokenSource.fnOwner]) ([(2, 4096)])) (fun _ _ => True) (fun call obs => (SolidCore.Verify.VC.stageScope SolidCore.Verify.VC.Token.fnTransfer [(2, 4096)] call → SolidCore.Verify.VC.Token.trPost call obs) ∧ (SolidCore.Verify.VC.stageScope SolidCore.Verify.VC.Token.fnBurn [(2, 4096)] call → SolidCore.Verify.VC.Token.burnPost call obs)) (fun _ => 42697212))",
+       "assumptions": [
+-        "SolidCore.Verify.VC.Token.HashInj"
++        "SolidCore.Spec.KeccakModel (SolidCore.Spec.mapSlots [0])"
+       ],
+       "excluded": [
+         "deployment: the init code is not covered; the statement is about the runtime bytecode from any storage that writes the slots the constructor writes",
+@@ -92,7 +92,7 @@
+         "gas: the bound is the loop checker's (22100 per item times the final EVM IR's block fuel, plus memory), coarse; below it the bytecode may fail without effects, which equivalence admits",
+         "valid calls: transfer, burn, mint, totalSupply and owner ABI-encoded with clean argument words, no value, from any storage that writes slot 2 (owner); balanceOf (a public mapping getter outside the generic stage's fragment) and calls with value are outside the statement",
+         "spec: transfer's three ensures clauses on distinct addresses (trPost) and burn's (burnPost), on success only; mint, totalSupply and owner have none; the spec declares no revert condition, so every status is allowed (Allowed is True): a revert meets the statement",
+-        "assumption HashInj: keccak256 of (address, 0) is injective on addresses (the mapping's slots), a premise of the statement, not proved"
++        "assumption KeccakModel (mapSlots [0]): the keccak256 model on the mapping's slots keccak256(address, 0) (injective with gaps of at least 2^64, images in [2^128, 2^256 - 2^64]; Verify/Spec/KeccakModel.lean), a premise of the statement, not proved; HashInj is derived from it"
+       ],
+       "spec": "solar-verify's Token spec (scripts/verify/Token.sol): transfer's three ensures clauses on distinct addresses (trPost) and burn's (burnPost), on success; the discharged obligations Contracts.Token.Discharge / VC.Burn",
+       "statuses": {
+diff --git a/Certified/verify_token/shape.json b/Certified/verify_token/shape.json
+index a750024..275362e 100644
+--- a/Certified/verify_token/shape.json
++++ b/Certified/verify_token/shape.json
+@@ -7,7 +7,7 @@
+   "post": "fun call obs => (SolidCore.Verify.VC.stageScope SolidCore.Verify.VC.Token.fnTransfer [(2, 4096)] call → SolidCore.Verify.VC.Token.trPost call obs) ∧ (SolidCore.Verify.VC.stageScope SolidCore.Verify.VC.Token.fnBurn [(2, 4096)] call → SolidCore.Verify.VC.Token.burnPost call obs)",
+   "gas": "fun _ => 42697212",
+   "env": [
+-    "SolidCore.Verify.VC.Token.HashInj"
++    "SolidCore.Spec.KeccakModel (SolidCore.Spec.mapSlots [0])"
+   ],
+   "spec": "solar-verify's Token spec (scripts/verify/Token.sol): transfer's three ensures clauses on distinct addresses (trPost) and burn's (burnPost), on success; the discharged obligations Contracts.Token.Discharge / VC.Burn",
+   "spec_modules": [
+@@ -52,7 +52,7 @@
+     "fns": "[SolidCore.Verify.VC.Token.fnTransfer, SolidCore.Verify.VC.Token.fnBurn, SolidCore.Refinement.Solar.VerifyTokenSource.fnMint, SolidCore.Refinement.Solar.VerifyTokenSource.fnTotalSupply, SolidCore.Refinement.Solar.VerifyTokenSource.fnOwner]",
+     "storage": "[(2, 4096)]",
+     "triples": [
+-      "SolidCore.Verify.VC.Token.transfer_triple_discharged _h0 hc",
++      "SolidCore.Verify.VC.Token.transfer_triple_discharged (SolidCore.Verify.VC.Token.hashInj_of_model _h0) hc",
+       "SolidCore.Verify.VC.Token.burn_triple hc"
+     ]
+   },
+@@ -63,7 +63,7 @@
+     "gas: the bound is the loop checker's (22100 per item times the final EVM IR's block fuel, plus memory), coarse; below it the bytecode may fail without effects, which equivalence admits",
+     "valid calls: transfer, burn, mint, totalSupply and owner ABI-encoded with clean argument words, no value, from any storage that writes slot 2 (owner); balanceOf (a public mapping getter outside the generic stage's fragment) and calls with value are outside the statement",
+     "spec: transfer's three ensures clauses on distinct addresses (trPost) and burn's (burnPost), on success only; mint, totalSupply and owner have none; the spec declares no revert condition, so every status is allowed (Allowed is True): a revert meets the statement",
+-    "assumption HashInj: keccak256 of (address, 0) is injective on addresses (the mapping's slots), a premise of the statement, not proved"
++    "assumption KeccakModel (mapSlots [0]): the keccak256 model on the mapping's slots keccak256(address, 0) (injective with gaps of at least 2^64, images in [2^128, 2^256 - 2^64]; Verify/Spec/KeccakModel.lean), a premise of the statement, not proved; HashInj is derived from it"
+   ],
+   "vacuity": "Allowed is True: solar-verify's Token spec declares no revert condition, so every status is allowed and a revert meets the statement; the postcondition is a Lean restatement (trPost, burnPost) on success only",
+   "source_ast": {
+diff --git a/Contracts/Token/EndToEnd.lean b/Contracts/Token/EndToEnd.lean
+index 1bdfbf9..374793d 100644
+--- a/Contracts/Token/EndToEnd.lean
++++ b/Contracts/Token/EndToEnd.lean
+@@ -19,7 +19,7 @@ bytes of runtime bytecode solar emits for it, every step a theorem:
+ 3. solar-verify's triples of SolidCore's Token (Contracts/Token/VC): `burn_triple`, with no
+    hypothesis, and `transfer_triple_discharged` (Discharge.lean: the obligations the kernel checks
+    solar-verify's script has, proved in Lean), whose one hypothesis is injectivity of the mapping
+-   slot on address keys.
++   slot on address keys (`HashInj`), derived from the keccak256 model (`hashInj_of_model`).
+ 
+ The stages hold under every oracle with EthLib's caller and Keccak-256 (`oracle` is one, and the
+ source stage's hash of two words is EthLib's by `Keccak.ethKeccak_twoWords`), so the composition
+@@ -30,8 +30,9 @@ is about EthLib's run of the bytes alone (`Target.run`).
+   that meets `burnPost` (on success the caller's balance and the total supply drop by the
+   amount). No hypothesis.
+ * `spec_holds_of_bytecode`: the same for `transfer(address,uint256)`'s three ensures clauses on
+-  distinct addresses (`trPost`) and for `burn`, given `HashInj` alone (an explicit
+-  hypothesis, never an axiom; no solver verdict).
++  distinct addresses (`trPost`) and for `burn`, given the keccak256 model on `balanceOf`'s slots
++  alone (`KeccakModel (mapSlots [0])`, Verify/Spec/KeccakModel.lean: an explicit premise, never an
++  axiom; no solver verdict).
+ * `certified`: the stage from SolidCore's checked Token to the bytecode for each checked function,
+   `mint` included; `manifest_hex`: the bytes are the exporter's manifest hex.
+ 
+@@ -96,18 +97,19 @@ theorem burn_spec_bytecode :
+   obtain ⟨c, hc⟩ := contract_ok
+   exact bytecode_of_triple hc (fn := fnBurn) check_burn_eq (burn_triple hc)
+ 
+-/-- **solar-verify's spec of Token holds of solar's bytecode**: given injectivity of the mapping slot
+-on address keys (Keccak-256 of an address and slot 0), every call of
++/-- **solar-verify's spec of Token holds of solar's bytecode**: given the keccak256 model on the
++mapping's slots (Keccak-256 of an address and slot 0: injective with large gaps, above the reserved
++small slots), every call of
+ `transfer(address,uint256)` in the binding scope runs under EthLib to an observable meeting
+ `transfer`'s ensures clauses on distinct addresses, and every call of `burn` to one meeting
+ `burn`'s. -/
+-theorem spec_holds_of_bytecode (inj : HashInj) :
++theorem spec_holds_of_bytecode (hk : SolidCore.Spec.KeccakModel (SolidCore.Spec.mapSlots [0])) :
+     (∀ call, stageScope fnTransfer [(2, 4096)] call →
+       ∃ obs, Target.run code call = some obs ∧ trPost call obs) ∧
+     (∀ call, stageScope fnBurn [(2, 4096)] call →
+       ∃ obs, Target.run code call = some obs ∧ burnPost call obs) := by
+   obtain ⟨c, hc⟩ := contract_ok
+-  exact ⟨bytecode_of_triple hc (fn := fnTransfer) check_transfer_eq (transfer_triple_discharged inj hc),
++  exact ⟨bytecode_of_triple hc (fn := fnTransfer) check_transfer_eq (transfer_triple_discharged (hashInj_of_model hk) hc),
+     burn_spec_bytecode⟩
+ 
+ open SolarTV.Export.Token Hex in
+diff --git a/Contracts/Token/KeccakNeg.lean b/Contracts/Token/KeccakNeg.lean
+new file mode 100644
+index 0000000..383f65a
+--- /dev/null
++++ b/Contracts/Token/KeccakNeg.lean
+@@ -0,0 +1,82 @@
++import Contracts.Token.TransferMeets
++import Contracts.Token.Spec.ExportCollide
++
++/-!
++# Token: a specification that needs a keccak256 collision is refuted under the keccak256 model
++
++The negative control of the keccak256 model (Verify/Spec/KeccakModel.lean, docs/KECCAK_MODEL.md).
++`Spec/ExportCollide.lean` is solar-verify's export of `scripts/verify/keccak/TokenSpecCollide.sol`,
++Token with one clause changed: `msg.sender != to ==> balanceOf[to] == old(balanceOf[msg.sender]) + amount`.
++It holds of a run only if the recipient's slot is the sender's, so a proof of it would need a
++collision of keccak256 on `balanceOf`'s slots.
++
++* `transfer_meets` (TransferMeets.lean): the real spec of `transfer` holds of the erased tree under
++  `SlotsSeparated 0`, which `KeccakModel (mapSlots [0])` gives (`transfer_meets_of_model`).
++* `collide_not_meets`: under the same model the collision spec fails: `transfer(1, 0)` from a
++  storage where only the caller's balance is 5 leaves `balanceOf[1]` at 0, and the spec asks for 5.
++
++So the model does not prove a spec that needs a collision. The model itself is satisfiable on
++concrete preimages (`keccakModel_mapping`), so the refutation is not vacuous either.
++-/
++
++namespace SolidCore.Spec.TreeDemo.Token
++
++open SolidCore.Spec SolidCore.Refinement SolidCore.Refinement.Generic SolidCore.Verify.VC.Token
++
++/-- `transfer`'s real spec under the keccak256 model. -/
++theorem transfer_meets_of_model (hk : KeccakModel (mapSlots [0])) :
++    TreeMeetsFixed spec transferSpec ctx 2 transferTree :=
++  transfer_meets (hk.slotsSeparated (List.mem_singleton_self 0))
++
++/-- The collision spec of `transfer`. -/
++def collideSpec : FnSpec := SolidCore.Spec.Export.TokenSpecCollide.Token.spec.specs[1]'(by decide)
++
++/-- The witness storage: the caller's balance is 5, every other slot 0. -/
++def collideStore : Storage := fun k => if k = solHash 8192 0 then 5 else 0
++
++set_option linter.unusedSimpArgs false in
++/-- **A spec that needs a collision does not follow from the keccak256 model**: under
++`KeccakModel (mapSlots [0])`, `transfer(1, 0)` from `collideStore` succeeds with `balanceOf[1]`
++still 0, and the collision spec asks for the caller's old balance, 5. -/
++theorem collide_not_meets (hk : KeccakModel (mapSlots [0])) :
++    ¬ TreeMeetsFixed SolidCore.Spec.Export.TokenSpecCollide.Token collideSpec ctx 2 transferTree := by
++  intro h
++  have hge0 : 2 ^ 128 ≤ solHash 8192 0 := map_ge' hk.mapSlotsSeparated 0 (by decide) 8192 (by decide)
++  have hne : solHash 1 0 ≠ solHash 8192 0 := fun he =>
++    absurd (hk.slot_inj (List.mem_singleton_self 0) (by decide) (by decide) he) (by decide)
++  have hs : ∀ k, collideStore k < 2 ^ 256 := fun k => by unfold collideStore; split <;> omega
++  have h1 : (1 : Nat) ≠ solHash 8192 0 := by omega
++  have hp := h [1, 0] collideStore [1, 0] ⟨collideStore, Ghost.zero, 0⟩ rfl (by simp) hs
++    (by simp [collideSpec, SolidCore.Spec.Export.TokenSpecCollide.Token, decodeWords, Ty.ofWord]) rfl
++    (by simp [ctx]) (by simp [Bundle.satAll, collideSpec, SolidCore.Spec.Export.TokenSpecCollide.Token])
++    (by simp [Bundle.satAll, Bundle.sat, SolidCore.Spec.Export.TokenSpecCollide.Token, eval, slotOf, mkEnv,
++      Env.cur, Ghost.zero, BinOp.apply, Ty.ofBits, collideStore, h1])
++  have hlt := solHash_lt'
++  have hkec := keccak_solHash
++  unfold collideStore at hp
++  generalize solHash = H at hp hlt hkec hge0 hne
++  simp only [transferTree, Tree.eval, WExpr.eval, BinOp.eval, UnOp.eval, Generic.wordSize, Res.obs,
++    Writes.store, List.getD_cons_zero, List.getD_cons_succ, Nat.reducePow, Nat.reduceMod, Nat.zero_mod,
++    Nat.reduceLT, ite_mod_nat, ite_true, ite_false, Nat.lt_irrefl, Nat.not_lt_zero, decide_false,
++    Nat.reduceAdd, Nat.reduceSub, Nat.zero_add, Nat.add_zero, ite_self, Nat.one_ne_zero, ite_false,
++    Nat.reduceEqDiff, reduceIte, hne, if_true, if_false] at hp
++  obtain ⟨rets, -, hens, -⟩ := hp.1 (by simp_all)
++  simp only [Bundle.satAll, Bundle.sat, collideSpec, SolidCore.Spec.Export.TokenSpecCollide.Token,
++    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false,
++    forall_eq_or_imp, forall_eq, eval, evalList, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits,
++    toWord, ctx, List.getD_cons_zero, List.getD_cons_succ, hkec, ofProp_ne_zero, ite_true, ite_false,
++    Nat.zero_div, Nat.zero_mod, Int.reduceMod, Int.reduceToNat] at hens
++  -- The recipient clause: balanceOf[1] after the call, 0 since its slot is not the caller's, is 5.
++  have hm1 := Nat.mod_eq_of_lt (hlt 1 0)
++  have hm2 := Nat.mod_eq_of_lt (hlt 8192 0)
++  simp_all
++
++/-- info: 'SolidCore.Spec.TreeDemo.Token.collide_not_meets' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs in
++#print axioms collide_not_meets
++
++/-- info: 'SolidCore.Spec.TreeDemo.Token.transfer_meets_of_model' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs in
++#print axioms transfer_meets_of_model
++
++end SolidCore.Spec.TreeDemo.Token
+diff --git a/Contracts/Token/Spec/ExportCollide.lean b/Contracts/Token/Spec/ExportCollide.lean
+new file mode 100644
+index 0000000..52a30ff
+--- /dev/null
++++ b/Contracts/Token/Spec/ExportCollide.lean
+@@ -0,0 +1,71 @@
++import Verify.Spec.Contract
++
++/-!
++Specs of `scripts/verify/keccak/TokenSpecCollide.sol`, exported by solar-verify 0.3.0 with `--emit-lean-spec`.
++Generated: do not edit.
++-/
++
++namespace SolidCore.Spec.Export.TokenSpecCollide
++
++open SolidCore.Spec
++
++/-- What the specs were exported from and are about. -/
++def manifest : Manifest :=
++  { source := "scripts/verify/keccak/TokenSpecCollide.sol",
++    sourceSha256 := "ca9f9157c21b7e8648a21a62dc7c848c2a32482d7bdac6a794f649028cd1a1a9",
++    compiler := "",
++    options := [],
++    bytecodeSha256 := "" }
++
++/-- The specs of `Token`. -/
++def Token : Bundle where
++  fuel := 0
++  spec :=
++  { name := "Token",
++    fns := [
++    ],
++    invariants := [
++    (.bin .eq (.load (.slot 1) (.lit 0) 32 (.uint 256)) (.ghost "sumBalances" []))],
++    ghosts := ["sumBalances"],
++    specs := [
++    { name := "Token.mint",
++      selector := 0x40c10f19,
++      params := [.address, (.uint 256)],
++      rets := [],
++      payable := false,
++      requires := [],
++      ensures := [
++        (.bin .eq (.load (.entry (.slot 0) (.arg 0)) (.lit 0) 32 (.uint 256)) (.bin .add (.old (.load (.entry (.slot 0) (.arg 0)) (.lit 0) 32 (.uint 256))) (.arg 1))),
++        (.bin .eq (.load (.slot 1) (.lit 0) 32 (.uint 256)) (.bin .add (.old (.load (.slot 1) (.lit 0) 32 (.uint 256))) (.arg 1))),
++        (.all "a" .address (.bin .implies (.bin .ne (.var "a") (.arg 0)) (.bin .eq (.load (.entry (.slot 0) (.var "a")) (.lit 0) 32 (.uint 256)) (.old (.load (.entry (.slot 0) (.var "a")) (.lit 0) 32 (.uint 256))))))],
++      succeedsIf := [] },
++    { name := "Token.transfer",
++      selector := 0xa9059cbb,
++      params := [.address, (.uint 256)],
++      rets := [.bool],
++      payable := false,
++      requires := [],
++      ensures := [
++        (.bin .implies (.bin .ne (.env .sender) (.arg 0)) (.bin .eq (.load (.entry (.slot 0) (.env .sender)) (.lit 0) 32 (.uint 256)) (.bin .sub (.old (.load (.entry (.slot 0) (.env .sender)) (.lit 0) 32 (.uint 256))) (.arg 1)))),
++        (.bin .implies (.bin .ne (.env .sender) (.arg 0)) (.bin .eq (.load (.entry (.slot 0) (.arg 0)) (.lit 0) 32 (.uint 256)) (.bin .add (.old (.load (.entry (.slot 0) (.env .sender)) (.lit 0) 32 (.uint 256))) (.arg 1)))),
++        (.all "a" .address (.bin .implies (.bin .and (.bin .ne (.var "a") (.env .sender)) (.bin .ne (.var "a") (.arg 0))) (.bin .eq (.load (.entry (.slot 0) (.var "a")) (.lit 0) 32 (.uint 256)) (.old (.load (.entry (.slot 0) (.var "a")) (.lit 0) 32 (.uint 256)))))),
++        (.bin .eq (.load (.slot 1) (.lit 0) 32 (.uint 256)) (.old (.load (.slot 1) (.lit 0) 32 (.uint 256))))],
++      succeedsIf := [] },
++    { name := "Token.burn",
++      selector := 0x42966c68,
++      params := [(.uint 256)],
++      rets := [],
++      payable := false,
++      requires := [],
++      ensures := [
++        (.bin .eq (.load (.entry (.slot 0) (.env .sender)) (.lit 0) 32 (.uint 256)) (.bin .sub (.old (.load (.entry (.slot 0) (.env .sender)) (.lit 0) 32 (.uint 256))) (.arg 0)))],
++      succeedsIf := [] }] }
++
++/-- Every spec function call resolves and nests within the fuel. -/
++theorem Token_wf : Token.WF = true := by decide +kernel
++
++/-- Trusted-base items these specs' proofs rely on beyond the verdict
++(`SolidCore.Spec.Assumptions`). -/
++def trusted : List String := []
++
++end SolidCore.Spec.Export.TokenSpecCollide
+diff --git a/Contracts/Token/SpecTree.lean b/Contracts/Token/SpecTree.lean
+index 36f24b5..a0a704c 100644
+--- a/Contracts/Token/SpecTree.lean
++++ b/Contracts/Token/SpecTree.lean
+@@ -13,8 +13,8 @@ import Contracts.Token.EndToEnd
+ the two balance clauses, the frame clause over every other address, the supply clause and the
+ invariant `totalSupply == sumBalances` (`TreeMeetsFixed`: `transfer` writes no ghost). The mapping
+ slots are SolidCore's `solHash`, which is the spec semantics' slot by `solHash_eq`; their
+-separation (distinct on distinct addresses, and from the scalar slots) is the one hypothesis,
+-`SlotsSeparated 0`. `transfer_holds` lifts it to SolidCore's checked Token (`holdsFn_of_tree_fixed`)
++separation (distinct on distinct addresses, and from the scalar slots) follows from the one
++hypothesis, the keccak256 model on them, `KeccakModel (mapSlots [0])` (Verify/Spec/KeccakModel.lean). `transfer_holds` lifts it to SolidCore's checked Token (`holdsFn_of_tree_fixed`)
+ and `transfer_spec_bytecode` carries it to solar's bytecode through the certified stages
+ (`Contracts.Token.certified`). No solver verdict is used. The negative, `wrong_not_meets`, is in
+ TransferMeets.lean.
+@@ -70,11 +70,11 @@ open SolidCore.Spec SolidCore.Refinement
+ 
+ /-- **solar-verify's exported spec of `transfer` holds of solar's runtime bytecode** under EthLib,
+ on every call of `transfer(address,uint256)` in the stage's scope (any argument words, no value,
+-any storage covering the owner slot), given `SlotsSeparated 0`, for any ghost step that leaves
++any storage covering the owner slot), given `KeccakModel (mapSlots [0])`, for any ghost step that leaves
+ the ghost state alone on those calls: the spec of the erased tree (`transfer_meets`), SolidCore's
+ run of the tree (`holdsFn_of_tree_fixed`) and the certified stage from SolidCore's Token to the
+ bytecode (`Contracts.Token.certified`). No solver verdict. -/
+-theorem transfer_spec_bytecode (hsep : SlotsSeparated 0) (step : GhostStep)
++theorem transfer_spec_bytecode (hk : KeccakModel (mapSlots [0])) (step : GhostStep)
+     (hstep : ∀ call, SolidCore.Verify.VC.stageScope SolidCore.Verify.VC.Token.fnTransfer [(2, 4096)] call →
+       ∀ g, step call g = g) :
+     HoldsFn ethLib SolidCore.Refinement.Solar.VerifyTokenAsm.code
+@@ -82,7 +82,7 @@ theorem transfer_spec_bytecode (hsep : SlotsSeparated 0) (step : GhostStep)
+       SolidCore.Spec.TreeDemo.Token.spec SolidCore.Spec.TreeDemo.Token.ctxOf step
+       SolidCore.Spec.TreeDemo.Token.transferSpec := by
+   obtain ⟨c, hc⟩ := SolidCore.Refinement.Solar.VerifyTokenSource.contract_ok
+-  exact (SolidCore.Spec.TreeDemo.Token.transfer_holds hsep hc step hstep).of_stage
++  exact (SolidCore.Spec.TreeDemo.Token.transfer_holds (hk.slotsSeparated (List.mem_singleton_self 0)) hc step hstep).of_stage
+     (Contracts.Token.certified hc SolidCore.Refinement.Solar.VerifyTokenSource.check_transfer_eq)
+ 
+ /-- info: 'SolidCore.Refinement.Solar.Token.SpecTree.transfer_spec_bytecode' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+diff --git a/Contracts/Token/VC/Transfer.lean b/Contracts/Token/VC/Transfer.lean
+index e62f68d..b377482 100644
+--- a/Contracts/Token/VC/Transfer.lean
++++ b/Contracts/Token/VC/Transfer.lean
+@@ -1,4 +1,5 @@
+ import Contracts.Token.VC.Burn
++import Verify.Spec.KeccakModel
+ 
+ /-!
+ # solar-verify's `Token.transfer`, bound to SolidCore
+@@ -423,6 +424,11 @@ theorem transfer_check : checkScript Export.Token.script trObs = true := by
+ hypothesis on Keccak-256, stated where it is used, never assumed. -/
+ def HashInj : Prop := ∀ x y, x < 2 ^ 160 → y < 2 ^ 160 → solHash x 0 = solHash y 0 → x = y
+ 
++/-- **`HashInj` is derived from the keccak256 model** on `balanceOf`'s slots (`mapSlots [0]`,
++Verify/Spec/KeccakModel.lean), the one keccak256 premise of the published statements. -/
++theorem hashInj_of_model (hk : SolidCore.Spec.KeccakModel (SolidCore.Spec.mapSlots [0])) : HashInj :=
++  fun _ _ hx hy he => hk.slot_inj (List.mem_singleton_self 0) hx hy he
++
+ /-- `balanceOf` as an array, through its storage layout. -/
+ def balArr (s : Storage) : Int → Int := fun k => s (solHash k.toNat 0)
+ 
+diff --git a/Contracts/UniswapV2/ERC20/EndToEnd.lean b/Contracts/UniswapV2/ERC20/EndToEnd.lean
+index 1527034..aabbc2e 100644
+--- a/Contracts/UniswapV2/ERC20/EndToEnd.lean
++++ b/Contracts/UniswapV2/ERC20/EndToEnd.lean
+@@ -28,8 +28,11 @@ It composes, by `Shapes.functional_ctx` alone:
+ 
+ Named hypotheses, all in the statement:
+ 
+-* `NestedSlotsSeparated [1, 4] [2]`: keccak256 injective with images at least `2 ^ 128` on the
+-  slots of `balanceOf[a]`, `nonces[a]` and `allowance[o][s]`; used by the specification only;
++* `KeccakModel (nestedSlots [1, 4] [2] [0, 8192]) (allNested [2])` (Verify/Spec/KeccakModel.lean): the keccak256
++  model (injective with gaps of at least `2 ^ 64`, images in `[2 ^ 128, 2 ^ 256 - 2 ^ 64]`) on the
++  slots of `balanceOf[a]`, `nonces[a]` and `allowance[o][s]` with `o` or `s` the stage's caller
++  `0x2000` or `address(0)`; used by the specification only. (The earlier premise over all pairs
++  `(o, s)` was false by counting, `not_nestedSlotsSeparated`.)
+ * `AssembleCallSeg.StaticRunner` at every gas (a static message that succeeds ends with no log, a
+   callee's output has fewer than `2 ^ 256` bytes) and `AssembleCallSeg.CalleesRun` on the valid
+   calls: the context checker's hypotheses on the message runner, used by equivalence only.
+@@ -70,7 +73,7 @@ theorem hscope : ∀ call, genericValid0 fns deployed call → SolarTV.Milestone
+ 
+ /-- **approve and transfer, from SolidCore's source to the exact bytecode**: equivalence,
+ termination and the exported specs, under the named hypotheses. -/
+-theorem published (hsep : NestedSlotsSeparated [1, 4] [2])
++theorem published (hk : KeccakModel (nestedSlots [1, 4] [2] [0, 8192]) (allNested [2]))
+     (hP : ∀ gas, SolidCore.Refinement.Solar.AssembleCallSeg.StaticRunner gas)
+     (hQ : ∀ gas call, genericValid0 fns deployed call →
+       SolidCore.Refinement.Solar.AssembleCallSeg.CalleesRun gas code call) :
+@@ -88,8 +91,8 @@ theorem published (hsep : NestedSlotsSeparated [1, 4] [2])
+     obtain ⟨o, -, -, -, hok, hw⟩ :=
+       SolarTV.Export.UniswapV2ERC20.Ctx.bytecode [] _ hP hQ gas hg call hv
+     exact ⟨o, hok, hw⟩
+-  · exact (meets_of_holdsFn (approve_holds hsep hc idStep (fun _ _ _ => rfl))).and
+-      (meets_of_holdsFn (transfer_holds hsep hc idStep (fun _ _ _ => rfl)))
++  · exact (meets_of_holdsFn (approve_holds hk hc idStep (fun _ _ _ => rfl))).and
++      (meets_of_holdsFn (transfer_holds hk hc idStep (fun _ _ _ => rfl)))
+ 
+ /-- info: 'SolidCore.Spec.UniswapV2.ERC20.EndToEnd.published' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+ #guard_msgs (whitespace := lax) in
+diff --git a/Contracts/UniswapV2/ERC20/EndToEndAll.lean b/Contracts/UniswapV2/ERC20/EndToEndAll.lean
+index 22d784b..00fb7ce 100644
+--- a/Contracts/UniswapV2/ERC20/EndToEndAll.lean
++++ b/Contracts/UniswapV2/ERC20/EndToEndAll.lean
+@@ -13,8 +13,9 @@ source stage for the three functions (`check_ok` and `check_tf_ok`, joined by `L
+ solar-tv's backend stages whose scope covers the three selectors (`Uv2Erc20ATF`), the context
+ checker's per-run theorem and solar-verify's exported specs of the three functions.
+ 
+-Named hypotheses, all in the statement: `NestedSlotsSeparated [1, 4] [2]` (keccak256 injective with large
+-images on the mapping slots; specification only), `AssembleCallSeg.StaticRunner` at every gas and
++Named hypotheses, all in the statement: `KeccakModel (nestedSlots [1, 4] [2] [0, 8192]) (allNested [2])` (the keccak256 model:
++injective with large gaps, images above the reserved small slots, on the mapping slots with one key
++of each nested slot in [0, 0x2000]; specification only), `AssembleCallSeg.StaticRunner` at every gas and
+ `AssembleCallSeg.CalleesRun` on the valid calls (equivalence only).
+ 
+ Not covered: resources (no gas bound, so not `Shapes.Certified`), `permit`, the getters, the
+@@ -62,7 +63,7 @@ theorem hscope3 : ∀ call, genericValid0 fns3 deployed call → SolarTV.Milesto
+ 
+ /-- **approve, transfer and transferFrom, from SolidCore's source to the exact bytecode**:
+ equivalence, termination and the exported specs, under the named hypotheses. -/
+-theorem published (hsep : NestedSlotsSeparated [1, 4] [2])
++theorem published (hk : KeccakModel (nestedSlots [1, 4] [2] [0, 8192]) (allNested [2]))
+     (hP : ∀ gas, SolidCore.Refinement.Solar.AssembleCallSeg.StaticRunner gas)
+     (hQ : ∀ gas call, genericValid0 fns3 deployed call →
+       SolidCore.Refinement.Solar.AssembleCallSeg.CalleesRun gas SolarTV.Export.UniswapV2ERC20.Ctx.code call) :
+@@ -80,9 +81,9 @@ theorem published (hsep : NestedSlotsSeparated [1, 4] [2])
+     obtain ⟨o, -, -, -, hok, hw⟩ :=
+       SolarTV.Export.UniswapV2ERC20.Ctx.bytecode [] _ hP hQ gas hg call hv
+     exact ⟨o, hok, hw⟩
+-  · exact ((meets_of_holdsFn (approve_holds hsep hc EndToEnd.idStep (fun _ _ _ => rfl))).and
+-      (meets_of_holdsFn (transfer_holds hsep hc EndToEnd.idStep (fun _ _ _ => rfl)))).and
+-      (meets_of_holdsFn (SolidCore.Spec.UniswapV2.ERC20TF.transferFrom_holds hsep hc EndToEndTF.idStep
++  · exact ((meets_of_holdsFn (approve_holds hk hc EndToEnd.idStep (fun _ _ _ => rfl))).and
++      (meets_of_holdsFn (transfer_holds hk hc EndToEnd.idStep (fun _ _ _ => rfl)))).and
++      (meets_of_holdsFn (SolidCore.Spec.UniswapV2.ERC20TF.transferFrom_holds hk hc EndToEndTF.idStep
+         (fun _ _ _ => rfl)))
+ 
+ /-- info: 'SolidCore.Spec.UniswapV2.ERC20.EndToEndAll.published' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+diff --git a/Contracts/UniswapV2/ERC20/EndToEndTFSpec.lean b/Contracts/UniswapV2/ERC20/EndToEndTFSpec.lean
+index 873a624..38d7926 100644
+--- a/Contracts/UniswapV2/ERC20/EndToEndTFSpec.lean
++++ b/Contracts/UniswapV2/ERC20/EndToEndTFSpec.lean
+@@ -6,7 +6,7 @@ import Contracts.UniswapV2.ERC20.ConnectTFSplit
+ 
+ `published_tf` is `functional_tf` with solar-verify's exported spec of `transferFrom`, proved of
+ SolidCore's checked contract branch by branch (ConnectTFSplit's `transferFrom_holds`, under
+-`NestedSlotsSeparated [1, 4] [2]`), with the identity ghost step. No gas bound: not
++`KeccakModel (nestedSlots [1, 4] [2] [0, 8192]) (allNested [2])`), with the identity ghost step. No gas bound: not
+ `Shapes.Certified`.
+ -/
+ 
+@@ -23,7 +23,7 @@ def Post (call : SolarTV.Call) (obs : SolarTV.Observable) : Prop :=
+     (SolidCore.Verify.VC.stageScope SolidCore.Spec.UniswapV2.ERC20TF.fn_transferFrom
+       SolidCore.Spec.UniswapV2.ERC20TF.deployed) call obs
+ 
+-theorem published_tf (hsep : NestedSlotsSeparated [1, 4] [2])
++theorem published_tf (hk : KeccakModel (nestedSlots [1, 4] [2] [0, 8192]) (allNested [2]))
+     (hP : ∀ gas, SolidCore.Refinement.Solar.AssembleCallSeg.StaticRunner gas)
+     (hQ : ∀ gas call, genericValid0 fnsTF deployed call →
+       SolidCore.Refinement.Solar.AssembleCallSeg.CalleesRun gas SolarTV.Export.UniswapV2ERC20.Ctx.code call) :
+@@ -32,7 +32,7 @@ theorem published_tf (hsep : NestedSlotsSeparated [1, 4] [2])
+         (genericValid0 fnsTF deployed) (fun _ _ => True) Post := by
+   obtain ⟨c, hc⟩ := SolidCore.Verify.VC.UniswapV2ERC20.contract_ok
+   exact ⟨c, hc, functional_tf hP hQ hc
+-    (meets_of_holdsFn (SolidCore.Spec.UniswapV2.ERC20TF.transferFrom_holds hsep hc idStep (fun _ _ _ => rfl)))⟩
++    (meets_of_holdsFn (SolidCore.Spec.UniswapV2.ERC20TF.transferFrom_holds hk hc idStep (fun _ _ _ => rfl)))⟩
+ 
+ /-- info: 'SolidCore.Spec.UniswapV2.ERC20.EndToEndTF.published_tf' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+ #guard_msgs (whitespace := lax) in
+diff --git a/Contracts/UniswapV2/ERC20/Meets.lean b/Contracts/UniswapV2/ERC20/Meets.lean
+index d8f6547..7eff0cd 100644
+--- a/Contracts/UniswapV2/ERC20/Meets.lean
++++ b/Contracts/UniswapV2/ERC20/Meets.lean
+@@ -12,7 +12,7 @@ erased tree by `tree_meets_map2` (`_meets`), and of SolidCore's checked UniswapV
+ stage's calls in every world (`_holds_in`). `transfer`'s tree is `_transfer` inlined with its
+ two SafeMath calls by `eraseFn`.
+ 
+-The hypotheses are named: `NestedSlotsSeparated [1] [2]` (keccak256 separated on the slots of
++The hypotheses are named: `KeccakModel (nestedSlots [1, 4] [2] [0, 8192]) (allNested [2])` (the keccak256 model on the slots of
+ `balanceOf[a]` and `allowance[o][s]`), and the ghost step (`hstep`): the ghosts `sumBalances` and
+ `zeroMinted` change only in `_mint` and `_burn`, so on a call of `approve` or `transfer` the
+ ghost state is unchanged. The specs' invariants (`totalSupply == sumBalances`,
+diff --git a/Contracts/UniswapV2/ERC20/SpecTree.lean b/Contracts/UniswapV2/ERC20/SpecTree.lean
+index a0177a7..cc99aba 100644
+--- a/Contracts/UniswapV2/ERC20/SpecTree.lean
++++ b/Contracts/UniswapV2/ERC20/SpecTree.lean
+@@ -10,8 +10,9 @@ checked UniswapV2ERC20 (`contract? = .ok c`, the kernel's type check and transla
+ covering the deployed one), in every world `W` (the functions call out nowhere), under two named
+ hypotheses:
+ 
+-* `NestedSlotsSeparated [1, 4] [2]`: keccak256 separated on the slots of `balanceOf[a]`, `nonces[a]` and
+-  `allowance[o][s]` (injective, images at least `2 ^ 128`); not provable of keccak256, so a premise;
++* `KeccakModel (nestedSlots [1, 4] [2] [0, 8192]) (allNested [2])`: the keccak256 model on the slots of `balanceOf[a]`,
++  `nonces[a]` and `allowance[o][s]` with `o` or `s` in `[0, 0x2000]` (injective with large gaps, images
++  above the reserved small slots; Verify/Spec/KeccakModel.lean); not provable of keccak256, so a premise;
+ * the ghost step leaves the ghost state (`sumBalances`, `zeroMinted`) alone on these calls: the spec
+   updates the ghosts only in `_mint` and `_burn`, which neither function reaches.
+ 
+@@ -28,9 +29,9 @@ namespace SolidCore.Spec.UniswapV2.ERC20
+ open SolidCore.Spec SolidCore.Refinement
+ 
+ /-- **approve's and transfer's exported specs hold of SolidCore's checked UniswapV2ERC20 in every
+-world**, under keccak256's separation on the mapping slots and a ghost step that leaves the ghosts
++world**, under the keccak256 model on the mapping slots and a ghost step that leaves the ghosts
+ alone on these calls. -/
+-theorem specs_hold_in (W : SolidCore.Refinement.World) (hsep : NestedSlotsSeparated [1, 4] [2])
++theorem specs_hold_in (W : SolidCore.Refinement.World) (hk : KeccakModel (nestedSlots [1, 4] [2] [0, 8192]) (allNested [2]))
+     {c : SolidCore.Solidity.TypeCheck.CheckedContract}
+     (hc : SolidCore.Verify.VC.UniswapV2ERC20.contract? = .ok c) (step : GhostStep)
+     (hstep : ∀ fn ∈ [fn_approve, fn_transfer], ∀ call,
+@@ -39,8 +40,8 @@ theorem specs_hold_in (W : SolidCore.Refinement.World) (hsep : NestedSlotsSepara
+         (SolidCore.Verify.VC.stageScope fn_approve deployed) spec ctxOf step approve_spec ∧
+       HoldsFn (solidCoreIn W SolidCore.Verify.VC.UniswapV2ERC20.fuel) c
+         (SolidCore.Verify.VC.stageScope fn_transfer deployed) spec ctxOf step transfer_spec :=
+-  ⟨approve_holds_in W hsep hc step (hstep _ (by simp)),
+-    transfer_holds_in W hsep hc step (hstep _ (by simp))⟩
++  ⟨approve_holds_in W hk hc step (hstep _ (by simp)),
++    transfer_holds_in W hk hc step (hstep _ (by simp))⟩
+ 
+ /-- info: 'SolidCore.Spec.UniswapV2.ERC20.specs_hold_in' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+ #guard_msgs in
+diff --git a/SolidCore/Refinement/Axioms/Token.lean b/SolidCore/Refinement/Axioms/Token.lean
+index f9fb8e1..3b68407 100644
+--- a/SolidCore/Refinement/Axioms/Token.lean
++++ b/SolidCore/Refinement/Axioms/Token.lean
+@@ -2,6 +2,7 @@ import SolidCore.Refinement.Axioms.Audit
+ import Contracts.Token.EndToEnd
+ import Contracts.Token.Exports
+ import Contracts.Token.VC.FromScript
++import Contracts.Token.KeccakNeg
+ 
+ /-! Axiom pass, the Token headline from solar-verify's spec to solar's bytecode, in its own
+ environment (its exported stages share names with the other contracts'). Run with
+@@ -12,5 +13,13 @@ environment (its exported stages share names with the other contracts'). Run wit
+ #print axioms Contracts.Token.certified
+ #print axioms SolidCore.Verify.VC.Token.Discharged.script_valid
+ #print axioms SolidCore.Verify.VC.Token.transfer_triple_of_script
++-- The keccak256 model (Verify/Spec/KeccakModel.lean): the derivation of HashInj, its satisfiability
++-- on concrete preimages and the negative controls.
++#print axioms SolidCore.Verify.VC.Token.hashInj_of_model
++#print axioms SolidCore.Spec.keccakModel_mapping
++#print axioms SolidCore.Spec.not_keccakModel_univ
++#print axioms SolidCore.Spec.not_nestedSlotsSeparated_erc20
++#print axioms SolidCore.Spec.TreeDemo.Token.collide_not_meets
++#print axioms SolidCore.Spec.TreeDemo.Token.transfer_meets_of_model
+ 
+ #axiom_audit ".lake/axiom-closure-token.txt" "Contracts.Token" "SolidCore.Refinement.Solar"
+diff --git a/Verify/Spec/KeccakModel.lean b/Verify/Spec/KeccakModel.lean
+new file mode 100644
+index 0000000..f8ebb01
+--- /dev/null
++++ b/Verify/Spec/KeccakModel.lean
+@@ -0,0 +1,313 @@
++import Verify.Spec.TreeMap
++import Mathlib.Data.Fintype.Prod
++
++/-!
++# The keccak256 model: an uninterpreted hash with named assumptions
++
++The proofs about mappings never compute keccak256 on a symbolic slot: after
++`generalize solHash = H` they reason about an arbitrary function `H` from facts about it.
++`KeccakModel S` collects those facts in one named premise, in the style of hevm and Certora
++(see docs/KECCAK_MODEL.md):
++
++* **injectivity** on `S` (hevm adds pairwise injectivity of keccak256 for the hashes of a query;
++  derived here from the gap);
++* **large gaps**: two distinct preimages of `S` hash at least `2 ^ 64` apart (Certora's
++  "injective with large gaps");
++* **reserved low slots**: every image is at least `2 ^ 128`, above every small constant slot
++  (Certora reserves slots 0 to 10000; `2 ^ 128` covers that and every slot a contract numbers
++  by declaration);
++* **room above**: every image is at most `2 ^ 256 - 2 ^ 64`, so `H x + i` for an offset
++  `i < 2 ^ 64` (a struct field, an array element) does not wrap around.
++
++From these, the base-plus-offset slots of different hashes never collide, and no offset slot is a
++small constant slot (`offset_ne`, `offset_ne_small`).
++
++`KeccakModel S` is a premise, never an axiom. It is about the real keccak256 (the kernel's
++EvmYul sponge), so a theorem under it speaks about the real EVM. For which `S` it is sound:
++
++* every `S` is not allowed: `not_keccakModel_univ` refutes it for all inputs;
++* nested mappings over all pairs of addresses are not allowed either: that set has `2 ^ 320`
++  preimages and only `2 ^ 256` words, so `not_nestedSlotsSeparated` refutes the earlier
++  premise `NestedSlotsSeparated ms ns` (any `ns ≠ []`) by counting alone, and with it every
++  theorem stated under it was vacuous;
++* `nestedSlots ms ns K` keeps one of the two keys of a nested slot in a finite list `K` (the
++  fixed caller, `address(0)`), so it has about `2 ^ 163` preimages, which fit, and the counting
++  argument does not apply; `keccakModel_mapping` checks the model on concrete preimages in the kernel.
++-/
++
++namespace SolidCore.Spec
++
++open SolidCore.Refinement SolidCore.Refinement.Generic TrustedBase
++
++/-- **The keccak256 model on the preimages `S`, apart from `T`**: images of `S` at least
++`2 ^ 128` (above the reserved small slots), at most `2 ^ 256 - 2 ^ 64` (room for offsets), at least
++`2 ^ 64` apart for distinct preimages of `S` (large gaps, hence injective), and as far from the
++image of every other preimage of the background `T` (none by default). `T` may be too large for a
++model of its own (all nested slots of all pairs of addresses): nothing is asked of two preimages of
++`T`, only that `S`'s images stay clear of it. -/
++structure KeccakModel (S : Preimages) (T : Preimages := fun _ => False) : Prop where
++  reserved : ∀ x, S x → 2 ^ 128 ≤ keccakWord x
++  room : ∀ x, S x → keccakWord x + 2 ^ 64 ≤ 2 ^ 256
++  gap : ∀ x y, S x → S y → x ≠ y →
++    keccakWord x + 2 ^ 64 ≤ keccakWord y ∨ keccakWord y + 2 ^ 64 ≤ keccakWord x
++  apart : ∀ x y, S x → T y → x ≠ y →
++    keccakWord x + 2 ^ 64 ≤ keccakWord y ∨ keccakWord y + 2 ^ 64 ≤ keccakWord x
++
++namespace KeccakModel
++
++variable {S T S' T' : Preimages}
++
++theorem mono (h : KeccakModel S' T') (hS : ∀ x, S x → S' x) (hT : ∀ x, T x → T' x) :
++    KeccakModel S T :=
++  ⟨fun x hx => h.reserved x (hS x hx), fun x hx => h.room x (hS x hx),
++    fun x y hx hy hne => h.gap x y (hS x hx) (hS y hy) hne,
++    fun x y hx hy hne => h.apart x y (hS x hx) (hT y hy) hne⟩
++
++/-- **Injectivity** (hevm's pairwise injectivity), from the gap. -/
++theorem inj (h : KeccakModel S T) : ∀ x y, S x → S y → keccakWord x = keccakWord y → x = y := by
++  intro x y hx hy he
++  by_contra hne
++  rcases h.gap x y hx hy hne with h1 | h1 <;> omega
++
++/-- No preimage of the background shares an image of `S` but its own. -/
++theorem injT (h : KeccakModel S T) : ∀ x y, S x → T y → keccakWord x = keccakWord y → x = y := by
++  intro x y hx hy he
++  by_contra hne
++  rcases h.apart x y hx hy hne with h1 | h1 <;> omega
++
++/-- The model gives the separation the tree tactics use (`TrustedBase.KeccakSeparated`). -/
++theorem separated (h : KeccakModel S T) : KeccakSeparated S :=
++  ⟨h.inj, h.reserved⟩
++
++/-- **Offsets of distinct hashes never collide**: `H x + i` and `H y + j` (as words) for
++distinct preimages and offsets below `2 ^ 64`. -/
++theorem offset_ne (h : KeccakModel S T) {x y : List Nat} (hx : S x) (hy : S y) (hne : x ≠ y)
++    {i j : Nat} (hi : i < 2 ^ 64) (hj : j < 2 ^ 64) :
++    (keccakWord x + i) % 2 ^ 256 ≠ (keccakWord y + j) % 2 ^ 256 := by
++  have rx := h.room x hx
++  have ry := h.room y hy
++  rw [Nat.mod_eq_of_lt (by omega), Nat.mod_eq_of_lt (by omega)]
++  rcases h.gap x y hx hy hne with h1 | h1 <;> omega
++
++/-- Two offsets of one hash are equal only when the offsets are. -/
++theorem offset_inj (h : KeccakModel S T) {x : List Nat} (hx : S x) {i j : Nat} (hi : i < 2 ^ 64)
++    (hj : j < 2 ^ 64) (he : (keccakWord x + i) % 2 ^ 256 = (keccakWord x + j) % 2 ^ 256) : i = j := by
++  have rx := h.room x hx
++  rw [Nat.mod_eq_of_lt (by omega), Nat.mod_eq_of_lt (by omega)] at he
++  omega
++
++/-- **No offset slot is a reserved small slot**: `H x + i ≠ c` for `c < 2 ^ 128` (Certora's
++reserved slots 0 to 10000 among them). -/
++theorem offset_ne_small (h : KeccakModel S T) {x : List Nat} (hx : S x) {i c : Nat}
++    (hi : i < 2 ^ 64) (hc : c < 2 ^ 128) : (keccakWord x + i) % 2 ^ 256 ≠ c := by
++  have rx := h.room x hx
++  have lx := h.reserved x hx
++  rw [Nat.mod_eq_of_lt (by omega)]
++  omega
++
++/-- Certora's reserved range, as such. -/
++theorem not_reserved (h : KeccakModel S T) {x : List Nat} (hx : S x) : 10000 < keccakWord x := by
++  have := h.reserved x hx
++  omega
++
++end KeccakModel
++
++/-- A model on nothing holds: a call that hashes nothing assumes nothing. -/
++theorem keccakModel_empty : KeccakModel (fun _ => False) :=
++  ⟨fun _ h => h.elim, fun _ h => h.elim, fun _ _ h => h.elim, fun _ _ h => h.elim⟩
++
++/-- Pairwise gaps of a list of words: each at least `2 ^ 64` from every later one. -/
++def GapsOk : List Nat → Prop
++  | [] => True
++  | v :: vs => (∀ w ∈ vs, v + 2 ^ 64 ≤ w ∨ w + 2 ^ 64 ≤ v) ∧ GapsOk vs
++
++instance : DecidablePred GapsOk := fun l => by
++  induction l with
++  | nil => exact isTrue trivial
++  | cons v vs ih => unfold GapsOk; exact instDecidableAnd
++
++theorem gapsOk_map {α : Type} {f : α → Nat} :
++    ∀ {l : List α}, GapsOk (l.map f) → ∀ x ∈ l, ∀ y ∈ l, x ≠ y →
++      f x + 2 ^ 64 ≤ f y ∨ f y + 2 ^ 64 ≤ f x
++  | [], _, _, hx, _, _, _ => by simp at hx
++  | a :: l, h, x, hx, y, hy, hne => by
++    simp only [List.map_cons, GapsOk, List.mem_map] at h
++    simp only [List.mem_cons] at hx hy
++    rcases hx with rfl | hx <;> rcases hy with rfl | hy
++    · exact absurd rfl hne
++    · exact h.1 _ ⟨y, hy, rfl⟩
++    · exact (h.1 _ ⟨x, hx, rfl⟩).symm
++    · exact gapsOk_map h.2 x hx y hy hne
++
++/-- The model on a list of preimages, from their images: each in range, pairwise far apart. The
++kernel checks the side conditions on concrete images. -/
++theorem keccakModel_of_images {L : List (List Nat)} {H : List Nat}
++    (hH : L.map keccakWord = H) (hgap : GapsOk H) (hlo : ∀ v ∈ H, 2 ^ 128 ≤ v)
++    (hhi : ∀ v ∈ H, v + 2 ^ 64 ≤ 2 ^ 256) : KeccakModel (· ∈ L) :=
++  ⟨fun _ hx => hlo _ (hH ▸ List.mem_map_of_mem hx), fun _ hx => hhi _ (hH ▸ List.mem_map_of_mem hx),
++    fun x y hx hy hne => gapsOk_map (hH ▸ hgap) x hx y hy hne, fun _ _ _ h => h.elim⟩
++
++/-- **Satisfiable on real preimages**: the model holds of keccak256 on the slots of `m[0]`,
++`m[1]` and `m[0x2000]` for mappings at slots 0 and 1, by the kernel's evaluation of the sponge
++(`TrustedBase.mappingPreimages_images`). -/
++theorem keccakModel_mapping : KeccakModel (· ∈ mappingPreimages) :=
++  keccakModel_of_images mappingPreimages_images (by decide) (by decide) (by decide)
++
++/-- **Not every input**: the model fails on all byte lists (it would make keccak256 injective). -/
++theorem not_keccakModel_univ : ¬ KeccakModel (fun _ => True) :=
++  fun h => not_keccakSeparated_univ h.separated
++
++/-! ## Slot sets -/
++
++/-- Equal preimages of two mapping slots have equal keys and equal mapping slots. -/
++theorem mappingPreimage_inj {a b m n : Nat} (ha : a < 2 ^ 256) (hb : b < 2 ^ 256)
++    (hm : m < 2 ^ 256) (hn : n < 2 ^ 256)
++    (h : TrustedBase.mappingPreimage a m = TrustedBase.mappingPreimage b n) : a = b ∧ m = n := by
++  unfold TrustedBase.mappingPreimage at h
++  obtain ⟨h1, h2⟩ := List.append_inj h (by simp [length_wordBytes])
++  have e1 := congrArg bytesWord h1
++  have e2 := congrArg bytesWord h2
++  rw [bytesWord_wordBytes, bytesWord_wordBytes] at e1 e2
++  omega
++
++/-- The preimages of the slots `m[a]` of mappings at the slots `ms`, for every address `a`. -/
++def mapSlots (ms : List Nat) : Preimages :=
++  fun x => ∃ a < 2 ^ 160, ∃ m ∈ ms, x = mappingPreimage a m
++
++/-- The preimages of `m[a]` for `m ∈ ms ++ ns` and of the nested slots `n[b][a]`
++(`solHash a (solHash b n)`) for `n ∈ ns`, for all addresses `a` and `b` of which at least one is
++in `K`. -/
++def nestedSlots (ms ns K : List Nat) : Preimages :=
++  fun x => (∃ a < 2 ^ 160, ∃ m ∈ ms ++ ns, x = mappingPreimage a m) ∨
++    ∃ a < 2 ^ 160, ∃ b < 2 ^ 160, (a ∈ K ∨ b ∈ K) ∧ ∃ n ∈ ns, x = mappingPreimage a (solHash b n)
++
++/-- The preimages of every nested slot `n[b][a]` for `n ∈ ns` and all addresses `a` and `b`: the
++background a model on `nestedSlots ms ns K` keeps clear of. -/
++def allNested (ns : List Nat) : Preimages :=
++  fun x => ∃ a < 2 ^ 160, ∃ b < 2 ^ 160, ∃ n ∈ ns, x = mappingPreimage a (solHash b n)
++
++/-- **Derived: `MapSlotsSeparated`** (the premise of `tree_meets_map`). -/
++theorem KeccakModel.mapSlotsSeparated {ms : List Nat} {T : Preimages} (h : KeccakModel (mapSlots ms) T) :
++    MapSlotsSeparated ms :=
++  h.separated
++
++/-- **Derived: `SlotsSeparated m`** for each mapping slot. -/
++theorem KeccakModel.slotsSeparated {ms : List Nat} {T : Preimages} (h : KeccakModel (mapSlots ms) T) {m : Nat}
++    (hm : m ∈ ms) : SlotsSeparated m :=
++  h.mapSlotsSeparated.slots hm
++
++/-- The first level of the nested set. -/
++theorem KeccakModel.nestedFlat {ms ns K : List Nat} {T : Preimages}
++    (h : KeccakModel (nestedSlots ms ns K) T) : KeccakModel (mapSlots (ms ++ ns)) :=
++  h.mono (fun _ hx => .inl hx) (fun _ h => h.elim)
++
++/-- **Address keys name distinct slots** (Token's `HashInj` for `m = 0`). -/
++theorem KeccakModel.slot_inj {ms : List Nat} {T : Preimages} (h : KeccakModel (mapSlots ms) T) {m : Nat} (hm : m ∈ ms)
++    {a b : Nat} (ha : a < 2 ^ 160) (hb : b < 2 ^ 160) (he : solHash a m = solHash b m) : a = b :=
++  SolidCore.Spec.slot_inj (h.slotsSeparated hm) ha hb he
++
++/-- A nested slot is at least `2 ^ 128`. -/
++theorem nmapK_ge_n {ms ns K : List Nat} {T : Preimages} (h : KeccakModel (nestedSlots ms ns K) T) (n : Nat)
++    (hn : n ∈ ns) (a c : Nat) (hK : a ∈ K ∨ c ∈ K) :
++    a < 2 ^ 160 → c < 2 ^ 160 → 2 ^ 128 ≤ solHash a (solHash c n) := by
++  intro ha hc
++  rw [solHash_eq a]
++  exact h.reserved _ (.inr ⟨a, ha, c, hc, hK, n, hn, rfl⟩)
++
++/-- A first-level slot of a small mapping slot is no nested slot, whatever its keys. -/
++theorem nmapK_inj_ln {ms ns K : List Nat} (h : KeccakModel (nestedSlots ms ns K) (allNested ns))
++    (m n : Nat) (hm : m ∈ ms ++ ns) (hn : n ∈ ns) (hmw : m < 2 ^ 128) (a b c : Nat) :
++    a < 2 ^ 160 → b < 2 ^ 160 → c < 2 ^ 160 → solHash a m = solHash b (solHash c n) → False := by
++  intro ha hb hc he
++  rw [solHash_eq a, solHash_eq b] at he
++  have := h.injT _ _ (.inl ⟨a, ha, m, hm, rfl⟩) ⟨b, hb, c, hc, n, hn, rfl⟩ he
++  obtain ⟨-, e⟩ := mappingPreimage_inj (by omega) (by omega) (by omega) (solHash_lt _ _) this
++  have hge := map_ge' h.nestedFlat.mapSlotsSeparated n (List.mem_append_right ms hn) c hc
++  omega
++
++/-- Two nested slots, one of them with a key in `K`, are equal only for the same keys and mapping. -/
++theorem nmapK_inj_nn {ms ns K : List Nat} (h : KeccakModel (nestedSlots ms ns K) (allNested ns))
++    (n n' : Nat) (hn : n ∈ ns) (hn' : n' ∈ ns) (hnw : n < 2 ^ 256) (hnw' : n' < 2 ^ 256)
++    (a b c d : Nat) (hK : (a ∈ K ∨ c ∈ K) ∨ (b ∈ K ∨ d ∈ K)) :
++    a < 2 ^ 160 → b < 2 ^ 160 → c < 2 ^ 160 → d < 2 ^ 160 →
++      solHash a (solHash c n) = solHash b (solHash d n') → a = b ∧ c = d ∧ n = n' := by
++  intro ha hb hc hd he
++  rw [solHash_eq a, solHash_eq b] at he
++  have hp : mappingPreimage a (solHash c n) = mappingPreimage b (solHash d n') := by
++    rcases hK with hK | hK
++    · exact h.injT _ _ (.inr ⟨a, ha, c, hc, hK, n, hn, rfl⟩) ⟨b, hb, d, hd, n', hn', rfl⟩ he
++    · exact (h.injT _ _ (.inr ⟨b, hb, d, hd, hK, n', hn', rfl⟩) ⟨a, ha, c, hc, n, hn, rfl⟩ he.symm).symm
++  obtain ⟨e1, e2⟩ := mappingPreimage_inj (by omega) (by omega) (solHash_lt _ _) (solHash_lt _ _) hp
++  obtain ⟨e3, e4⟩ := map_inj' h.nestedFlat.mapSlotsSeparated n n' (List.mem_append_right ms hn)
++    (List.mem_append_right ms hn') hnw hnw' c d hc hd e2
++  exact ⟨e1, e3, e4⟩
++
++/-! ## Negative controls -/
++
++/-- **The earlier nested premise** (kept only as a negative control): keccak256 separated on the
++slots of `m[a]` for `m ∈ ms ++ ns` and of `n[b][a]` for `n ∈ ns`, for all addresses `a` and `b`. -/
++def NestedSlotsSeparated (ms ns : List Nat) : Prop :=
++  TrustedBase.KeccakSeparated (fun x => ∃ a < 2 ^ 160,
++    (∃ m ∈ ms ++ ns, x = TrustedBase.mappingPreimage a m) ∨
++    ∃ b < 2 ^ 160, ∃ n ∈ ns, x = TrustedBase.mappingPreimage a (solHash b n))
++
++/-- **The earlier nested premise is refutable by counting**: `NestedSlotsSeparated ms ns` with a
++nested mapping `n ∈ ns` makes `(a, c) ↦ solHash a (solHash c n)` injective on `2 ^ 320` pairs of
++addresses, into words below `2 ^ 256`. Every theorem with it as a premise was vacuous. -/
++theorem not_nestedSlotsSeparated {ms ns : List Nat} {n : Nat} (hn : n ∈ ns) (hnw : n < 2 ^ 256) :
++    ¬ NestedSlotsSeparated ms ns := by
++  intro h
++  have hflat : MapSlotsSeparated (ms ++ ns) :=
++    h.mono fun _ ⟨a, ha, m, hm, hx⟩ => ⟨a, ha, .inl ⟨m, hm, hx⟩⟩
++  let g : Fin (2 ^ 160) × Fin (2 ^ 160) → Fin (2 ^ 256) :=
++    fun p => ⟨solHash p.1 (solHash p.2 n), solHash_lt _ _⟩
++  have hg : Function.Injective g := by
++    rintro ⟨a, c⟩ ⟨b, d⟩ he
++    have he' : solHash a (solHash c n) = solHash b (solHash d n) := congrArg Fin.val he
++    rw [solHash_eq a, solHash_eq b] at he'
++    have hp := h.1 _ _ ⟨a, a.isLt, .inr ⟨c, c.isLt, n, hn, rfl⟩⟩
++      ⟨b, b.isLt, .inr ⟨d, d.isLt, n, hn, rfl⟩⟩ he'
++    have hal : (a : Nat) < 2 ^ 256 := by have := a.isLt; omega
++    have hbl : (b : Nat) < 2 ^ 256 := by have := b.isLt; omega
++    obtain ⟨e1, e2⟩ := mappingPreimage_inj hal hbl (solHash_lt _ _) (solHash_lt _ _) hp
++    obtain ⟨e3, -⟩ := map_inj' hflat n n (List.mem_append_right ms hn) (List.mem_append_right ms hn)
++      hnw hnw c d c.isLt d.isLt e2
++    exact Prod.ext (Fin.ext e1) (Fin.ext e3)
++  have := Fintype.card_le_of_injective g hg
++  simp only [Fintype.card_prod, Fintype.card_fin] at this
++  exact absurd this (by decide)
++
++/-- The ERC20 instance: `NestedSlotsSeparated [1, 4] [2]` (UniswapV2ERC20's earlier premise) is
++false. -/
++theorem not_nestedSlotsSeparated_erc20 : ¬ NestedSlotsSeparated [1, 4] [2] :=
++  not_nestedSlotsSeparated (n := 2) (by decide) (by decide)
++
++/-- The same count refutes the model on nested slots over all pairs of addresses: `K` must
++restrict one key. -/
++theorem not_keccakModel_nested_all {ms ns : List Nat} {n : Nat} (hn : n ∈ ns) (hnw : n < 2 ^ 256) :
++    ¬ KeccakModel (fun x => ∃ a < 2 ^ 160,
++      (∃ m ∈ ms ++ ns, x = mappingPreimage a m) ∨
++      ∃ b < 2 ^ 160, ∃ n ∈ ns, x = mappingPreimage a (solHash b n)) :=
++  fun h => not_nestedSlotsSeparated hn hnw h.separated
++
++/-- **A specification that needs a collision is not provable under the model**: no two distinct
++addresses share a slot of a modeled mapping. -/
++theorem no_slot_collision {ms : List Nat} {T : Preimages} (h : KeccakModel (mapSlots ms) T) {m : Nat} (hm : m ∈ ms) :
++    ¬ ∃ a b, a < 2 ^ 160 ∧ b < 2 ^ 160 ∧ a ≠ b ∧ solHash a m = solHash b m :=
++  fun ⟨_, _, ha, hb, hne, he⟩ => hne (h.slot_inj hm ha hb he)
++
++/-- Nor do a balance slot and any nested slot coincide. -/
++theorem no_nested_collision {ms ns K : List Nat} (h : KeccakModel (nestedSlots ms ns K) (allNested ns))
++    {m n : Nat} (hm : m ∈ ms ++ ns) (hn : n ∈ ns) (hmw : m < 2 ^ 128) :
++    ¬ ∃ a b c, a < 2 ^ 160 ∧ b < 2 ^ 160 ∧ c < 2 ^ 160 ∧ solHash a m = solHash b (solHash c n) :=
++  fun ⟨a, b, c, ha, hb, hc, he⟩ => nmapK_inj_ln h m n hm hn hmw a b c ha hb hc he
++
++/-- info: 'SolidCore.Spec.not_nestedSlotsSeparated_erc20' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs in
++#print axioms not_nestedSlotsSeparated_erc20
++
++/-- info: 'SolidCore.Spec.keccakModel_mapping' depends on axioms: [propext, Quot.sound] -/
++#guard_msgs in
++#print axioms keccakModel_mapping
++
++end SolidCore.Spec
+diff --git a/Verify/Spec/TreeMapNested.lean b/Verify/Spec/TreeMapNested.lean
+index 2474f7d..7250e5e 100644
+--- a/Verify/Spec/TreeMapNested.lean
++++ b/Verify/Spec/TreeMapNested.lean
+@@ -1,80 +1,28 @@
+-import Verify.Spec.TreeMap
++import Verify.Spec.KeccakModel
+ 
+ /-!
+ # Nested mapping slots in tree specs
+ 
+ `tree_meets_map` (TreeMap.lean) knows the slots `m[a]` of mappings at literal slots. A mapping of
+ mappings at slot `n`, such as an ERC20 allowance `allowance[o][s]`, stores at
+-`solHash s (solHash o n)`, whose mapping slot is itself a hash. `NestedSlotsSeparated ms ns` is
+-the one hypothesis for both kinds: keccak256 is separated (injective, every image at least
+-`2 ^ 128`) on the preimages of `m[a]` for `m ∈ ms ++ ns` and of `n[b][a]` for `n ∈ ns`, for all
+-addresses `a` and `b`. It is `MapSlotsSeparated (ms ++ ns)` with the second level added and, like
+-it, a premise of the theorems that use it, never an axiom.
++`solHash s (solHash o n)`, whose mapping slot is itself a hash. The one hypothesis for both kinds is
++the keccak256 model (KeccakModel.lean) `KeccakModel (nestedSlots ms ns K) (allNested ns)` on the
++slots `m[a]` for `m ∈ ms ++ ns` and `n[b][a]` for `n ∈ ns` with one of `a`, `b` in the finite list `K`
++(the stage's caller and `address(0)`), kept clear of every nested slot (`allNested ns`). It is a
++premise of the theorems that use it, never an axiom. (Over all pairs of addresses the nested premise is false by counting:
++`not_nestedSlotsSeparated`.)
+ 
+-`nmap_inj_ln`, `nmap_inj_nn` and `nmap_ge_n` say when second-level slots are equal to others;
+-`hash_facts_nested` instantiates them for every pair of slot terms of the goal and the
+-hypotheses, beside `hash_facts`'s first-level instances. `tree_meets_map2` is `tree_meets_map` with
+-both: it proves `TreeMeetsFixed` from `NestedSlotsSeparated ms ns` with no other input, or fails.
++`nmapK_inj_ln`, `nmapK_inj_nn` and `nmapK_ge_n` (KeccakModel.lean) say when nested slots are equal
++to others; `hash_facts_nested` instantiates them for every pair of slot terms of the goal and the
++hypotheses, beside `hash_facts`'s first-level instances, with each key condition (one key of a
++nested slot in `K`) shown by `simp` or the instance left out. `tree_meets_map2` is `tree_meets_map` with both: it proves
++`TreeMeetsFixed` from `KeccakModel (nestedSlots ms ns K) (allNested ns)` with no other input, or fails.
+ -/
+ 
+ namespace SolidCore.Spec
+ 
+ open SolidCore.Refinement SolidCore.Refinement.Generic
+ 
+-/-- keccak256 is separated on the slots of `m[a]` for `m ∈ ms ++ ns` and of `n[b][a]` for `n ∈ ns`,
+-for all addresses `a` and `b`. -/
+-def NestedSlotsSeparated (ms ns : List Nat) : Prop :=
+-  TrustedBase.KeccakSeparated (fun x => ∃ a < 2 ^ 160,
+-    (∃ m ∈ ms ++ ns, x = TrustedBase.mappingPreimage a m) ∨
+-    ∃ b < 2 ^ 160, ∃ n ∈ ns, x = TrustedBase.mappingPreimage a (solHash b n))
+-
+-/-- Equal preimages of two mapping slots have equal keys and equal mapping slots. -/
+-theorem mappingPreimage_inj {a b m n : Nat} (ha : a < 2 ^ 256) (hb : b < 2 ^ 256)
+-    (hm : m < 2 ^ 256) (hn : n < 2 ^ 256)
+-    (h : TrustedBase.mappingPreimage a m = TrustedBase.mappingPreimage b n) : a = b ∧ m = n := by
+-  unfold TrustedBase.mappingPreimage at h
+-  obtain ⟨h1, h2⟩ := List.append_inj h (by simp [length_wordBytes])
+-  have e1 := congrArg bytesWord h1
+-  have e2 := congrArg bytesWord h2
+-  rw [bytesWord_wordBytes, bytesWord_wordBytes] at e1 e2
+-  omega
+-
+-/-- The first level of the nested hypothesis. -/
+-theorem NestedSlotsSeparated.flat {ms ns : List Nat} (h : NestedSlotsSeparated ms ns) :
+-    MapSlotsSeparated (ms ++ ns) :=
+-  h.mono fun _ ⟨a, ha, m, hm, hx⟩ => ⟨a, ha, .inl ⟨m, hm, hx⟩⟩
+-
+-/-- A second-level slot is at least `2 ^ 128`. -/
+-theorem nmap_ge_n {ms ns : List Nat} (h : NestedSlotsSeparated ms ns) (n : Nat) (hn : n ∈ ns)
+-    (a c : Nat) : a < 2 ^ 160 → c < 2 ^ 160 → 2 ^ 128 ≤ solHash a (solHash c n) := by
+-  intro ha hc
+-  rw [solHash_eq a]
+-  exact h.2 _ ⟨a, ha, .inr ⟨c, hc, n, hn, rfl⟩⟩
+-
+-/-- A first-level slot of a small mapping slot is no second-level slot. -/
+-theorem nmap_inj_ln {ms ns : List Nat} (h : NestedSlotsSeparated ms ns) (m n : Nat)
+-    (hm : m ∈ ms ++ ns) (hn : n ∈ ns) (hmw : m < 2 ^ 128) (a b c : Nat) :
+-    a < 2 ^ 160 → b < 2 ^ 160 → c < 2 ^ 160 → solHash a m = solHash b (solHash c n) → False := by
+-  intro ha hb hc he
+-  rw [solHash_eq a, solHash_eq b] at he
+-  have := h.1 _ _ ⟨a, ha, .inl ⟨m, hm, rfl⟩⟩ ⟨b, hb, .inr ⟨c, hc, n, hn, rfl⟩⟩ he
+-  obtain ⟨-, e⟩ := mappingPreimage_inj (by omega) (by omega) (by omega) (solHash_lt _ _) this
+-  have hge := map_ge' h.flat n (List.mem_append_right ms hn) c hc
+-  omega
+-
+-/-- Two second-level slots are equal only for the same keys and mapping. -/
+-theorem nmap_inj_nn {ms ns : List Nat} (h : NestedSlotsSeparated ms ns) (n n' : Nat) (hn : n ∈ ns)
+-    (hn' : n' ∈ ns) (hnw : n < 2 ^ 256) (hnw' : n' < 2 ^ 256) (a b c d : Nat) :
+-    a < 2 ^ 160 → b < 2 ^ 160 → c < 2 ^ 160 → d < 2 ^ 160 →
+-      solHash a (solHash c n) = solHash b (solHash d n') → a = b ∧ c = d ∧ n = n' := by
+-  intro ha hb hc hd he
+-  rw [solHash_eq a, solHash_eq b] at he
+-  have := h.1 _ _ ⟨a, ha, .inr ⟨c, hc, n, hn, rfl⟩⟩ ⟨b, hb, .inr ⟨d, hd, n', hn', rfl⟩⟩ he
+-  obtain ⟨e1, e2⟩ := mappingPreimage_inj (by omega) (by omega) (solHash_lt _ _) (solHash_lt _ _) this
+-  obtain ⟨e3, e4⟩ := map_inj' h.flat n n' (List.mem_append_right ms hn) (List.mem_append_right ms hn')
+-    hnw hnw' c d hc hd e2
+-  exact ⟨e1, e3, e4⟩
+-
+ /-- A natural number's cast modulo an integer literal, back in the naturals. -/
+ theorem toNat_natCast_emod_ofNat (a N : Nat) [N.AtLeastTwo] :
+     ((a : Int) % (OfNat.ofNat N : Int)).toNat = a % N := by
+@@ -114,7 +62,7 @@ elab "hash_facts_nested " H:ident hgn:ident hln:ident hnn:ident : tactic => do
+       let x ← Term.exprToSyntax t.appFn!.appArg!
+       let c ← Term.exprToSyntax t.appArg!.appFn!.appArg!
+       let n ← Term.exprToSyntax t.appArg!.appArg!
+-      evalTactic (← `(tactic| try have := $hgn $n (by decide) $x $c))
++      withoutRecover <| evalTactic (← `(tactic| try have := $hgn $n (by decide) $x $c (by simp)))
+     for j in [0:ts.size] do
+       if i == j then continue
+       let u := ts[j]!
+@@ -127,7 +75,7 @@ elab "hash_facts_nested " H:ident hgn:ident hln:ident hnn:ident : tactic => do
+           if i < j then
+             let c2 ← Term.exprToSyntax u.appArg!.appFn!.appArg!
+             let n2 ← Term.exprToSyntax u.appArg!.appArg!
+-            evalTactic (← `(tactic| try have := $hnn $n $n2 (by decide) (by decide) (by decide) (by decide) $x $x2 $c $c2))
++            withoutRecover <| evalTactic (← `(tactic| try have := $hnn $n $n2 (by decide) (by decide) (by decide) (by decide) $x $x2 $c $c2 (by simp)))
+         else
+           let m ← Term.exprToSyntax u.appArg!
+           evalTactic (← `(tactic| try have := $hln $m $n (by decide) (by decide) (by decide) $x2 $x $c))
+@@ -250,17 +198,18 @@ elab "hash_eqs " H:ident hinj:ident hge:ident hgn:ident hln:ident hnn:ident : ta
+           evalTactic (← `(tactic| try have := $hln $y2 $n1 (by decide) (by decide) (by decide) $x2 $x $c1 (by omega) (by omega) (by omega) ($hs).symm))
+         else
+           let (x, c1, n1, x2, c2, n2) := (← k l, ← c l, ← n l, ← k r, ← c r, ← n r)
+-          evalTactic (← `(tactic| try (have e := $hnn $n1 $n2 (by decide) (by decide) (by decide) (by decide) $x $x2 $c1 $c2 (by omega) (by omega) (by omega) (by omega) $hs; have := e.1; have := e.2.1; have := e.2.2; clear e)))
++          withoutRecover <| evalTactic (← `(tactic| try (have e := $hnn $n1 $n2 (by decide) (by decide) (by decide) (by decide) $x $x2 $c1 $c2 (by simp) (by omega) (by omega) (by omega) (by omega) $hs; have := e.1; have := e.2.1; have := e.2.2; clear e)))
+       for t in [l, r] do
+         if isN t then
+           let (x, c1, n1) := (← k t, ← c t, ← n t)
+-          evalTactic (← `(tactic| try have := $hgn $n1 (by decide) $x $c1 (by omega) (by omega)))
++          withoutRecover <| evalTactic (← `(tactic| try have := $hgn $n1 (by decide) $x $c1 (by simp) (by omega) (by omega)))
+         else if isH t then
+           let (x, y) := (← k t, ← m t)
+           evalTactic (← `(tactic| try have := $hge $y (by decide) $x (by omega)))
+ 
+-/-- `tree_meets_map2 [defs] hsep` is `tree_meets_map` for functions that also read and write
+-mappings of mappings keyed by addresses at the slots `ns`, from `hsep : NestedSlotsSeparated ms ns`:
++/-- `tree_meets_map2 [defs] hk` is `tree_meets_map` for functions that also read and write
++mappings of mappings keyed by addresses at the slots `ns`, from the keccak256 model
++`hk : KeccakModel (nestedSlots ms ns K) (allNested ns)`:
+ `hash_facts` instantiates the first level (`map_inj`, `map_ge` of `ms ++ ns`) and
+ `hash_facts_nested` the second. A case it cannot close stays an error: it never leaves a `sorry`. -/
+ macro "tree_meets_map2" "[" ds:Lean.Parser.Tactic.simpLemma,* "]" hsep:term:max : tactic => `(tactic| (
+@@ -274,9 +223,9 @@ macro "tree_meets_map2" "[" ds:Lean.Parser.Tactic.simpLemma,* "]" hsep:term:max
+       bind, pure, Option.bind, Nat.reducePow] at hdec <;>
+     split_ifs at hdec <;> simp only [Option.some.injEq, reduceCtorEq] at hdec <;>
+     subst hdec <;>
+-    have hinj := map_inj' (NestedSlotsSeparated.flat $hsep) <;>
+-    have hge := map_ge' (NestedSlotsSeparated.flat $hsep) <;>
+-    have hgn := nmap_ge_n $hsep <;> have hln := nmap_inj_ln $hsep <;> have hnn := nmap_inj_nn $hsep <;>
++    have hinj := map_inj' (KeccakModel.mapSlotsSeparated (KeccakModel.nestedFlat $hsep)) <;>
++    have hge := map_ge' (KeccakModel.mapSlotsSeparated (KeccakModel.nestedFlat $hsep)) <;>
++    have hgn := nmapK_ge_n $hsep <;> have hln := nmapK_inj_ln $hsep <;> have hnn := nmapK_inj_nn $hsep <;>
+     have hlt := solHash_lt' <;>
+     have hkec := keccak_solHash <;>
+     generalize solHash = H at hinj hge hgn hln hnn hlt hkec ⊢ <;>
+@@ -320,8 +269,8 @@ macro "tree_meets_map2" "[" ds:Lean.Parser.Tactic.simpLemma,* "]" hsep:term:max
+   all_goals hash_bounds H s hlt hs
+   all_goals ((try split_ifs) <;> (try simp only [Nat.cast_inj] at *) <;> (hash_eqs H hinj hge hgn hln hnn; (try subst_vars); first | contradiction | omega))))
+ 
+-/-- info: 'SolidCore.Spec.nmap_inj_nn' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++/-- info: 'SolidCore.Spec.nmapK_inj_nn' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+ #guard_msgs in
+-#print axioms nmap_inj_nn
++#print axioms nmapK_inj_nn
+ 
+ end SolidCore.Spec
+diff --git a/Verify/Spec/TreeSplit.lean b/Verify/Spec/TreeSplit.lean
+index 721cf79..77c53ba 100644
+--- a/Verify/Spec/TreeSplit.lean
++++ b/Verify/Spec/TreeSplit.lean
+@@ -94,9 +94,9 @@ macro "tree_meets_map2_on" "[" ds:Lean.Parser.Tactic.simpLemma,* "]" hsep:term:m
+       bind, pure, Option.bind, Nat.reducePow] at hdec <;>
+     split_ifs at hdec <;> simp only [Option.some.injEq, reduceCtorEq] at hdec <;>
+     subst hdec <;>
+-    have hinj := map_inj' (NestedSlotsSeparated.flat $hsep) <;>
+-    have hge := map_ge' (NestedSlotsSeparated.flat $hsep) <;>
+-    have hgn := nmap_ge_n $hsep <;> have hln := nmap_inj_ln $hsep <;> have hnn := nmap_inj_nn $hsep <;>
++    have hinj := map_inj' (KeccakModel.mapSlotsSeparated (KeccakModel.nestedFlat $hsep)) <;>
++    have hge := map_ge' (KeccakModel.mapSlotsSeparated (KeccakModel.nestedFlat $hsep)) <;>
++    have hgn := nmapK_ge_n $hsep <;> have hln := nmapK_inj_ln $hsep <;> have hnn := nmapK_inj_nn $hsep <;>
+     have hlt := solHash_lt' <;>
+     have hkec := keccak_solHash <;>
+     generalize solHash = H at hinj hge hgn hln hnn hlt hkec hP ⊢ <;>
+diff --git a/docs/KECCAK_MODEL.md b/docs/KECCAK_MODEL.md
+new file mode 100644
+index 0000000..b5f6562
+--- /dev/null
++++ b/docs/KECCAK_MODEL.md
+@@ -0,0 +1,136 @@
++# The keccak256 model
++
++Solidity places every dynamic storage item at a keccak256 image: `m[k]` of a mapping at slot `p` at
++`keccak256(k . p)`, `n[a][b]` of a mapping of mappings at `keccak256(b . keccak256(a . n))`, array
++elements and struct fields at `keccak256(...) + i`. A proof about such code has to know that these
++slots do not collide with each other or with the small slots of scalar state variables. Keccak-256
++is not injective (it maps every input length onto 2^256 words), so this cannot be proved. It has to
++be assumed, and the assumption has to be stated, named and checked for vacuity.
++
++solidity-lean states it once, as the premise `KeccakModel S` (Verify/Spec/KeccakModel.lean), in
++the style of the two EVM verifiers that model keccak256 the same way.
++
++## Prior art
++
++**hevm** represents `SHA3` as the uninterpreted term constructor `Keccak :: Expr Buf -> Expr EWord`:
++the hash of a symbolic buffer is a term, never a computed value, and the SMT encoding declares
++`keccak` as an uninterpreted function. To make storage reasoning work it adds, for every pair of
++keccak terms `(b1, b2)` occurring in a query, the quantifier-free assertion `b1 != b2 ->
++keccak(b1) != keccak(b2)` (pairwise injectivity, src/EVM/Keccak.hs), plus lower bounds on the
++results. Because the function is otherwise free, a counterexample may use hash values the real
++keccak256 never produces (hevm documents these as possible false positives:
++https://hevm.dev/completeness-and-false-positives.html; Dxo et al., "hevm, a Fast Symbolic Execution
++Framework for EVM Bytecode", CAV 2024).
++
++**Certora** models keccak256 "as an arbitrary function that is injective with large gaps"
++(https://docs.certora.com/en/latest/docs/prover/approx/hashing.html): distinct inputs hash far
++apart, so `keccak(a) + i != keccak(b) + j` for the offsets of array elements, and the results avoid
++the reserved slots 0 to 10000 and the large constants of the code, so no hash is a slot of a static
++state variable.
++
++## The model
++
++```lean
++structure KeccakModel (S : Preimages) : Prop where
++  reserved : ∀ x, S x → 2 ^ 128 ≤ keccakWord x
++  room : ∀ x, S x → keccakWord x + 2 ^ 64 ≤ 2 ^ 256
++  gap : ∀ x y, S x → S y → x ≠ y →
++    keccakWord x + 2 ^ 64 ≤ keccakWord y ∨ keccakWord y + 2 ^ 64 ≤ keccakWord x
++```
++
++| Field / lemma | Meaning | Source |
++|---|---|---|
++| `KeccakModel.inj` (from `gap`) | distinct preimages of `S` hash to distinct words | hevm's pairwise injectivity |
++| `gap` | distinct preimages hash at least `2^64` apart | Certora's large gaps |
++| `reserved` | every image is at least `2^128` (so above Certora's reserved 0..10000, `not_reserved`) | Certora's reserved slots |
++| `room` | every image is at most `2^256 - 2^64`: an offset `i < 2^64` does not wrap | Certora's offsets |
++| `offset_ne`, `offset_inj`, `offset_ne_small` | `H x + i` never equals `H y + j` (`x != y`), nor `H x + j` (`i != j`), nor a slot `c < 2^128` | the slot separation storage proofs need |
++
++`keccakWord` is the real keccak256 (EvmYul's sponge, the function SolidCore and EthLib both run), so
++a theorem under `KeccakModel S` is about the real EVM. The model is *uninterpreted* in the sense of
++hevm and Certora: the storage proofs never evaluate it on a symbolic slot. The tree tactics
++(`tree_meets_map`, `tree_meets_map2`) derive the facts they need from the premise and then
++`generalize solHash = H`, so the rest of the proof is about an arbitrary function `H` with those
++facts. It is a premise, never an axiom: the axiom audit still admits only `propext`,
++`Classical.choice` and `Quot.sound`.
++
++## Which preimage sets
++
++A model on every input is false (`not_keccakModel_univ`). The set `S` names the slots a contract's
++proofs use:
++
++* `mapSlots ms`: `m[a]` for every address `a` and every mapping slot `m ∈ ms`. Token uses
++  `KeccakModel (mapSlots [0])` (`balanceOf`).
++* `nestedSlots ms ns K`: `m[a]` for `m ∈ ms ++ ns`, and the nested slots `n[b][a]` for `n ∈ ns` and
++  all addresses `a`, `b` **of which one is in the finite list K**. UniswapV2ERC20 uses
++  `KeccakModel (nestedSlots [1, 4] [2] [0, 8192])`: `balanceOf` (1), `nonces` (4), `allowance` (2), with
++  the owner or the spender of every allowance slot the specs touch being `address(0)` (the
++  invariant `allowance[address(0)][s] == 0`) or the stage's caller `0x2000` (approve, transferFrom).
++
++The restriction to K is necessary. Over all pairs of addresses the nested set has `2^320`
++preimages, and the model would make `(a, c) ↦ keccak(a . keccak(c . n))` injective into `2^256`
++words. `not_nestedSlotsSeparated` refutes that by counting (Mathlib's `Fintype.card_le_of_injective`).
++This also refutes the earlier premise `NestedSlotsSeparated [1, 4] [2]` of the UniswapV2ERC20
++statements (`not_nestedSlotsSeparated_erc20`), so those statements were vacuous. `nestedSlots ms ns K`
++has about `(|ms| + |ns| + 2|ns||K|) · 2^160` preimages, which fit, and `keccakModel_mapping`
++checks the model on concrete mapping preimages in the kernel (non-vacuity on real values).
++
++### What remains assumed
++
++`KeccakModel` over a set of all addresses (`mapSlots`, `nestedSlots`) is not refutable in Lean and
++no counterexample is known, but it is a strong assumption. A random function on `2^160` inputs
++into `2^256` words is expected to have about `2^63` colliding pairs, and many more pairs closer than
++`2^64`, so these universal sets are expected to contain collisions of the real keccak256 that nobody
++can find. hevm's justification is per query: it assumes injectivity only of the finitely many hashes
++of one execution, which the real keccak256 satisfies except with negligible probability. The
++matching Lean form is a per-call premise, `KeccakModel (preimagesOf call)` inside the statement's
++quantifier over valid calls (as `TrustedBase.Hyps.keccakSeparated call` already does), with the
++specification's universally quantified slots asking only that the call's own writes avoid them.
++That form needs the generated statements to carry the premise in the postcondition rather than as
++a top-level hypothesis, and is not done here.
++
++## Derived premises
++
++| Earlier premise | Now |
++|---|---|
++| Token `HashInj` | `hashInj_of_model : KeccakModel (mapSlots [0]) → HashInj` (Contracts/Token/VC/Transfer.lean) |
++| `SlotsSeparated m` | `KeccakModel.slotsSeparated` |
++| `MapSlotsSeparated ms` | `KeccakModel.mapSlotsSeparated` |
++| `NestedSlotsSeparated ms ns` | refuted (`not_nestedSlotsSeparated`); replaced by `KeccakModel (nestedSlots ms ns K)` with `nmapK_ge_n`, `nmapK_inj_ln`, `nmapK_inj_nn` |
++
++The published statements take `KeccakModel` as their only keccak256 premise:
++`Contracts.Token.spec_holds_of_bytecode`, `Certified.verify_token.Shape.published` (and the
++statement solar's driver builds from Certified/verify_token/shape.json), and the UniswapV2ERC20
++statements (`EndToEnd.published`, `EndToEndAll.published`, `EndToEndTFSpec.published_tf`,
++`specs_hold_in`, and the `_holds` theorems solar's tools/certify/spec_connect.py generates).
++
++## Negative controls
++
++* `not_keccakModel_univ`: the model on every input is false.
++* `not_nestedSlotsSeparated`, `not_nestedSlotsSeparated_erc20`, `not_keccakModel_nested_all`: the nested
++  model over all pairs of addresses is false by counting.
++* `no_slot_collision`, `no_nested_collision`: a specification that needs two modeled slots to
++  coincide (two distinct addresses sharing a `balanceOf` slot, an allowance slot equal to a balance
++  slot) is refuted under the model, so it cannot be proved from it (the model itself is satisfiable
++  on concrete preimages, `keccakModel_mapping`).
++* solar's driver: `check_final` refuses a statement with the refuted premise
++  `NestedSlotsSeparated`, and `final.py` refuses a shape.json `env` that states keccak256 as
++  `HashInj`, `NestedSlotsSeparated`, `MapSlotsSeparated`, `SlotsSeparated` or `KeccakSeparated`,
++  or names the model twice.
++
++## In the certify driver
++
++solar's `tools/certify/check_final.lean` reads the claim's leading premises from the compiled
++statement and prints each as a `PREMISE` line, and the keccak256 model also as
++`KECCAK_MODEL SolidCore.Spec.KeccakModel S`. `scripts/certify` records them
++(`statuses.premises`, `statuses.keccak_model`) and prints `premises:` and `keccak:` lines beside the
++statuses. `spec_connect.py` emits `(hk : KeccakModel (nestedSlots ms ns [0, 8192]))` or
++`(hk : KeccakModel (mapSlots ms))` for the functions it connects.
++
++## Migrating a proof
++
++Replace `(hsep : NestedSlotsSeparated ms ns)` by `(hk : KeccakModel (nestedSlots ms ns [0, 8192]))`
++and pass `hk` where `hsep` went; `tree_meets_map2` and `tree_meets_map2_on` take it unchanged. Replace
++`(hsep : MapSlotsSeparated ms)` by `(hk : KeccakModel (mapSlots ms))` and pass
++`KeccakModel.mapSlotsSeparated hk` to `tree_meets_map`. A nested slot whose two keys are both
++outside K is not covered: its fact is left out, and a proof that needs it fails.
+diff --git a/lakefile.lean b/lakefile.lean
+index 46071a1..0524887 100644
+--- a/lakefile.lean
++++ b/lakefile.lean
+@@ -433,10 +433,12 @@ lean_lib ContractsShapes where
+ lean_lib ContractsToken where
+   roots := #[`Contracts.Token.Lowering, `Contracts.Token.Assembly, `Contracts.Token.Discharge,
+     `Contracts.Token.EndToEnd, `Contracts.Token.Exports, `Contracts.Token.LoweringIn,
+-    `Contracts.Token.TransferMeets, `Contracts.Token.SpecTree, `Contracts.Token.WorldSpec]
++    `Contracts.Token.TransferMeets, `Contracts.Token.SpecTree, `Contracts.Token.WorldSpec,
++    `Contracts.Token.KeccakNeg]
+   globs := #[.one `Contracts.Token.Lowering, .one `Contracts.Token.LoweringIn, .one `Contracts.Token.WorldSpec, .one `Contracts.Token.Assembly,
+     .one `Contracts.Token.Discharge, .one `Contracts.Token.EndToEnd,
+     .one `Contracts.Token.Exports, .one `Contracts.Token.TransferMeets, .one `Contracts.Token.SpecTree,
++    .one `Contracts.Token.KeccakNeg,
+     .submodules `Contracts.Token.Spec]
+ 
+ /-! solar-verify's verification conditions and their kernel-checked discharge (formerly solar's
+diff --git a/scripts/verify/keccak/TokenSpecCollide.sol b/scripts/verify/keccak/TokenSpecCollide.sol
+new file mode 100644
+index 0000000..1c5dc6a
+--- /dev/null
++++ b/scripts/verify/keccak/TokenSpecCollide.sol
+@@ -0,0 +1,50 @@
++// SPDX-License-Identifier: MIT
++pragma solidity ^0.8.20;
++
++/// A minimal token. The invariant ties the ghost sum of balances to totalSupply, with
++/// Certora-style ghost updates written next to every balance write.
++/// @custom:ghost uint256 sumBalances
++/// @custom:invariant totalSupply == sumBalances
++contract Token {
++    mapping(address => uint256) public balanceOf;
++    uint256 public totalSupply;
++    address public owner;
++
++    modifier onlyOwner() {
++        require(msg.sender == owner, "not owner");
++        _;
++    }
++
++    /// @custom:ensures owner == msg.sender
++    constructor() {
++        owner = msg.sender;
++    }
++
++    /// @custom:ensures balanceOf[to] == old(balanceOf[to]) + amount
++    /// @custom:ensures totalSupply == old(totalSupply) + amount
++    /// @custom:ensures forall address a :: a != to ==> balanceOf[a] == old(balanceOf[a])
++    function mint(address to, uint256 amount) external onlyOwner {
++        totalSupply += amount;
++        /// @custom:ghost sumBalances = sumBalances + amount
++        balanceOf[to] += amount;
++    }
++
++    /// @custom:ensures msg.sender != to ==> balanceOf[msg.sender] == old(balanceOf[msg.sender]) - amount
++    /// @custom:ensures msg.sender != to ==> balanceOf[to] == old(balanceOf[msg.sender]) + amount
++    /// @custom:ensures forall address a :: a != msg.sender && a != to ==> balanceOf[a] == old(balanceOf[a])
++    /// @custom:ensures totalSupply == old(totalSupply)
++    function transfer(address to, uint256 amount) external returns (bool) {
++        uint256 bal = balanceOf[msg.sender];
++        require(bal >= amount, "insufficient");
++        balanceOf[msg.sender] = bal - amount;
++        balanceOf[to] += amount;
++        return true;
++    }
++
++    /// @custom:ensures balanceOf[msg.sender] == old(balanceOf[msg.sender]) - amount
++    function burn(uint256 amount) external {
++        balanceOf[msg.sender] -= amount;
++        /// @custom:ghost sumBalances = sumBalances - amount
++        totalSupply -= amount;
++    }
++}
+-- 
+2.43.0
+

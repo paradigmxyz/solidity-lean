@@ -1,0 +1,216 @@
+From 49233354b687ba215633db6e48c77196a48fbe20 Mon Sep 17 00:00:00 2001
+From: storm-hash-scope <storm@invalid>
+Date: Sat, 14 Nov 2026 04:39:37 +0000
+Subject: [PATCH] wip(certify): print statement premises, refuse ad-hoc keccak
+ premises (pre-reset)
+
+---
+ scripts/certify                | 14 +++++++++++++-
+ tools/certify/check_final.lean | 35 +++++++++++++++++++++++++++++++++-
+ tools/certify/final.py         | 17 ++++++++++++++++-
+ tools/certify/spec_connect.py  | 27 ++++++++++++++++++--------
+ 4 files changed, 82 insertions(+), 11 deletions(-)
+
+diff --git a/scripts/certify b/scripts/certify
+index 056d900e..fd739781 100755
+--- a/scripts/certify
++++ b/scripts/certify
+@@ -702,6 +702,9 @@ if [[ -f "$dir/shape.json" ]]; then
+         die "the checker refuses the published statement of $name"
+     fi
+     grep -v '^MODULE ' "$log"
++    # The statement's named premises as the checker read them from the compiled statement (PREMISE
++    # lines; the keccak256 model also as KECCAK_MODEL), for the record and the summary.
++    grep -E '^(PREMISE|KECCAK_MODEL) ' "$log" > "$lean_dir/.lake/certify-$name.json.premises" || true
+     # Every module of final's closure that is not upstream must come from a committed, unchanged
+     # source, or be one of this contract's own modules: an untracked, ignored or edited file
+     # (another contract's generated module among them) imported by the statement or its proof is
+@@ -887,6 +890,14 @@ except (OSError, ValueError):
+ if final:
+     statuses = dict(final["statuses"])
+     statuses["assumptions"] = final["assumptions"] or "none beyond the statement's scope"
++    # The premises the checker read from the compiled statement, and the keccak256 model among them.
++    try:
++        plines = open(sys.argv[1] + ".premises").read().splitlines()
++    except OSError:
++        plines = []
++    statuses["premises"] = [l[len("PREMISE "):] for l in plines if l.startswith("PREMISE ") and l != "PREMISE none"]
++    km = [l[len("KECCAK_MODEL "):] for l in plines if l.startswith("KECCAK_MODEL ")]
++    statuses["keccak_model"] = km[0] if km else "not assumed (no KeccakModel premise)"
+     statuses["excluded"] = final["excluded"]
+     statuses["environment"] = ("fixed, not quantified: one frame, caller 0x2000, the contract at "
+                                "0x1000, the block and transaction of Target.message")
+@@ -954,13 +965,14 @@ for path in (out, committed):
+         json.dump(record, f, indent=2, ensure_ascii=False)
+         f.write("\n")
+ EOF
+-rm -f "$record.refused" "$record.caveats" "$record.headline" "$record.binding"
++rm -f "$record.refused" "$record.caveats" "$record.headline" "$record.binding" "$record.premises"
+ echo "record: $record and $dir/record.json"
+ echo "mir_to_evmir: $mir_status"
+ python3 -c 'import json,sys; print("assembly: " + json.load(open(sys.argv[1]))["assembly"])' "$record"
+ echo "vc: $spec_status"
+ if [[ ${#e2e_thms[@]} -gt 0 ]]; then echo "end_to_end: proved ($e2e_kind): ${e2e_thms[*]}"; else echo "end_to_end: not proved"; fi
+ python3 -c 'import json,sys; c=json.load(open(sys.argv[1]))["caveats"]; c and print("caveats: " + "; ".join(c))' "$record"
++python3 -c 'import json,sys; s=json.load(open(sys.argv[1]))["statuses"]; "premises" in s and print("premises: " + ("; ".join(s["premises"]) or "none")); "keccak_model" in s and print("keccak: " + s["keccak_model"])' "$record"
+ python3 -c 'import json,sys; s=json.load(open(sys.argv[1]))["statuses"]; print("statuses: " + ", ".join(k + " " + str(s[k]) for k in ("equivalence", "termination", "spec", "resources", "vacuity", "source", "strongest") if k in s))' "$record"
+ strongest="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["statuses"]["strongest"])' "$record")"
+ # CERTIFIED needs equivalence, termination, spec and resources together, from the published
+diff --git a/tools/certify/check_final.lean b/tools/certify/check_final.lean
+index 9c2612dd..e237b637 100644
+--- a/tools/certify/check_final.lean
++++ b/tools/certify/check_final.lean
+@@ -9,7 +9,10 @@ proof module reaches it. It fails (exit 1) unless:
+ * Certified.NAME.Final.Statement is a definition of module NAME.Statement, and NAME.Statement's
+   imports do not reach the proof module (nor NAME.Final);
+ * the axioms final depends on are among propext, Classical.choice and Quot.sound, and not none of
+-  them, and the statement is not True (its value is printed as a STATEMENT line).
++  them, and the statement is not True (its value is printed as a STATEMENT line);
++* no premise of the claim is one refuted upstream (NestedSlotsSeparated). Each premise is printed
++  as a PREMISE line, read from the compiled statement, and the keccak256 model
++  (SolidCore.Spec.KeccakModel S) also as a KECCAK_MODEL line.
+ It prints "MODULE M PATH replay|trusted IMPORTS" for every module of final's closure, marking for
+ replay each outside the toolchain and the upstream git-pinned lake packages (Mathlib and its
+ dependencies); the driver replays
+@@ -22,6 +25,25 @@ open Lean
+ 
+ def allowedAxioms : List Name := [``propext, ``Classical.choice, ``Quot.sound]
+ 
++/-- The claim of a published statement: the statement is the byte binding, then possibly
++NonVacuous, then the claim, joined by And. -/
++partial def claimOf (e : Expr) : Expr :=
++  match e.consumeMData.getAppFnArgs with
++  | (``And, #[_, b]) => claimOf b
++  | _ => e.consumeMData
++
++/-- The claim's named premises: its leading non-dependent arrows. -/
++partial def premisesOf (e : Expr) : List Expr :=
++  match e.consumeMData with
++  | .forallE _ d b _ => if b.hasLooseBVars then [] else d :: premisesOf b
++  | _ => []
++
++/-- The keccak256 model (solidity-lean's Verify/Spec/KeccakModel.lean). -/
++def keccakModel : Name := ``SolidCore.Spec.KeccakModel
++
++/-- Premises refuted in solidity-lean (`not_nestedSlotsSeparated`): a statement under one is vacuous. -/
++def refutedPremises : List Name := [``SolidCore.Spec.NestedSlotsSeparated]
++
+ def fail (msg : String) : IO UInt32 := do
+   IO.eprintln s!"check_final: {msg}"
+   return 1
+@@ -98,6 +120,17 @@ def main (args : List String) : IO UInt32 := do
+   IO.println s!"STATEMENT {stmt} := {sval}"
+   if sval.consumeMData.isConstOf ``True then
+     return ← fail s!"{stmt} is True"
++  -- Its named premises, read from the compiled statement (not from shape.json), one line each;
++  -- the keccak256 model also as a KECCAK_MODEL line. A premise refuted upstream is refused.
++  let prems := premisesOf (claimOf sval)
++  for d in prems do
++    IO.println s!"PREMISE {d}"
++    if d.getAppFn.isConstOf keccakModel then
++      IO.println s!"KECCAK_MODEL {d}"
++    if let some n := refutedPremises.find? (fun n => d.getAppFn.isConstOf n) then
++      return ← fail s!"{stmt} has the premise {n}, which is refuted (vacuous statement)"
++  if prems.isEmpty then
++    IO.println "PREMISE none"
+   if axs.isEmpty then
+     return ← fail s!"{finalThm} depends on no axiom at all: a published statement's proof uses propext, Classical.choice or Quot.sound"
+   -- The modules this package built (their oleans under its .lake/build), for the driver to
+diff --git a/tools/certify/final.py b/tools/certify/final.py
+index 15eb07fe..e394706f 100644
+--- a/tools/certify/final.py
++++ b/tools/certify/final.py
+@@ -42,7 +42,9 @@ shape.json keys (Lean terms without tactics or commands):
+   vacuity   why non-vacuity is not shown (recorded verbatim)
+   gas       `Call → Nat`: the gas bound (kinds "certified" and "compiled")
+   spec      what the specification is, or why there is none (recorded verbatim)
+-  env       list of named `Prop` assumptions, premises of the statement
++  env       list of named `Prop` assumptions, premises of the statement; keccak256 only as
++            `SolidCore.Spec.KeccakModel S` (at most once; HashInj, NestedSlotsSeparated and the
++            other ad-hoc keccak premises are refused)
+   spec_modules  modules defining valid/allowed/post/env (reviewed inputs, not proofs)
+   sem, prog (instead of contract and fuel) a source semantics and program below SolidCore, such as
+             the first lowered MIR under an oracle; the statement then has no checked contract
+@@ -62,6 +64,9 @@ NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_.?'!]*$")
+ # semicolon, backtick or tactic keyword); its meaning is checked by the kernel like the rest.
+ EXPR = re.compile(r"^[^\n:;\`]+$")
+ BANNED = {"sorry", "by", "decide", "native_decide", "admit", "axiom", "#eval", "#exit"}
++# keccak256 premises: the model, and the ad-hoc names it replaces.
++KECCAK_MODEL = re.compile(r"(^|[\s(.])KeccakModel(\s|$)")
++ADHOC_KECCAK = re.compile(r"(^|[\s(.])(HashInj|NestedSlotsSeparated|MapSlotsSeparated|SlotsSeparated|KeccakSeparated)(\s|\)|$)")
+ # An allowed status or specification that is true of everything, written out: refused at once
+ # (NonVacuous refuses the rest in the kernel).
+ TRIVIAL = re.compile(r"^[(\s]*fun\s+[\w\s]*=>[(\s]*True[)\s]*$")
+@@ -191,6 +196,15 @@ def main():
+     if not isinstance(env, list):
+         fail("shape.json: env must be a list")
+     env = [expr({"e": e}, "e") for e in env]
++    # keccak256 is assumed only through the one model (solidity-lean's Verify/Spec/KeccakModel.lean:
++    # an uninterpreted hash, injective with large gaps, above the reserved small slots), so the
++    # statement names it once and the record shows it; an ad-hoc keccak premise is refused.
++    for e in env:
++        if ADHOC_KECCAK.search(e):
++            fail(f"shape.json: env states keccak256 as {e!r}: state it as SolidCore.Spec.KeccakModel S")
++    keccak = [e for e in env if KECCAK_MODEL.search(e)]
++    if len(keccak) > 1:
++        fail("shape.json: env names the keccak256 model more than once: " + "; ".join(keccak))
+     spec_mods = shape.get("spec_modules", [])
+     proof_mod, proof = shape.get("proof_module"), expr(shape, "proof")
+     for m in spec_mods + [proof_mod]:
+@@ -292,6 +306,7 @@ theorem {ns}.final : _root_.{ns}.Statement :=
+                 "vacuity": vacuity,
+                 "spec_bound_to_export": (f"{export_ns}.{a.contract}" if bound_spec else None),
+                 "assumptions": env,
++                "keccak_model": (keccak[0] if keccak else None),
+                 "excluded": shape.get("excluded", []),
+                 "spec": shape.get("spec"),
+                 "statuses": statuses(kind, shape.get("spec"), bound_spec, vacuity),
+diff --git a/tools/certify/spec_connect.py b/tools/certify/spec_connect.py
+index 0b0df9c9..789a306f 100755
+--- a/tools/certify/spec_connect.py
++++ b/tools/certify/spec_connect.py
+@@ -61,6 +61,11 @@ open SolidCore.Refinement SolidCore.Refinement.Generic SolidCore.Solidity
+ """
+ 
+ 
++# The keys of which every nested mapping slot n[b][a] the specs read or write has one: address(0)
++# and the stage's caller (ctx.sender below). The keccak256 model is a premise on the slots with
++# such a key (KeccakModel (nestedSlots ms ns KECCAK_KEYS)).
++KECCAK_KEYS = "[0, 8192]"
++
+ def ident(name):
+     """A Lean identifier for a spec function's name (its part after the contract)."""
+     base = name.rsplit(".", 1)[-1]
+@@ -287,15 +292,21 @@ def main():
+         mod = args.module_name
+         lits, nests = slots
+         if nests:
+-            # Mappings of mappings: keccak256's separation on both levels of slots.
+-            hyp = f" (hsep : NestedSlotsSeparated [{', '.join(map(str, lits))}] [{', '.join(map(str, nests))}])"
+-            proof = f"  tree_meets_map2 [{fid}_tree, {fid}_spec, {mod}.spec, {args.bundle}, {mod}.ctx] hsep"
+-            use = f"{fid}_meets hsep"
++            # Mappings of mappings: the keccak256 model (solidity-lean's Verify/Spec/KeccakModel.lean)
++            # on both levels of slots, the nested ones with one key among KECCAK_KEYS (over all
++            # pairs of addresses the nested model is false by counting), kept clear of every nested
++            # slot (allNested), which a frame clause over all pairs reads.
++            nl = ', '.join(map(str, nests))
++            hyp = (f" (hk : KeccakModel (nestedSlots [{', '.join(map(str, lits))}] "
++                   f"[{nl}] {KECCAK_KEYS}) (allNested [{nl}]))")
++            proof = f"  tree_meets_map2 [{fid}_tree, {fid}_spec, {mod}.spec, {args.bundle}, {mod}.ctx] hk"
++            use = f"{fid}_meets hk"
+         elif lits:
+-            # Mappings: the one hypothesis is keccak256's separation on their slots.
+-            hyp = f" (hsep : MapSlotsSeparated [{', '.join(map(str, lits))}])"
+-            proof = f"  tree_meets_map [{fid}_tree, {fid}_spec, {mod}.spec, {args.bundle}, {mod}.ctx] hsep"
+-            use = f"{fid}_meets hsep"
++            # Mappings: the keccak256 model on their slots.
++            hyp = f" (hk : KeccakModel (mapSlots [{', '.join(map(str, lits))}]))"
++            proof = (f"  tree_meets_map [{fid}_tree, {fid}_spec, {mod}.spec, {args.bundle}, {mod}.ctx] "
++                     "(KeccakModel.mapSlotsSeparated hk)")
++            use = f"{fid}_meets hk"
+         else:
+             hyp = ""
+             proof = f"  {tactic} [{fid}_tree, {fid}_spec, spec, {args.bundle}]"
+-- 
+2.43.0
+
