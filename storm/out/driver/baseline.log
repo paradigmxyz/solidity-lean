@@ -1,0 +1,21 @@
+ok   unpinned-checkout: is at ca9437fcb9cf5c347cab17a306c485f4f3dd5218, not the pinned 7aedd6330678291a0d13a465ddd398a7990de3a3
+ok   ci-unpinned: CERTIFY_ALLOW_UNPINNED is refused in CI
+ok   ci-foreign-solar: CERTIFY_ALLOW_FOREIGN_SOLAR is refused in CI
+ok   bad-name: is not lowercase letters
+ok   no-source: no such file
+skip foreign-solar: /home/hand/pyramid-workspace/repos/631030757/target/debug/solar is built from this checkout
+ok   two-contracts: no single contract with runtime code
+ok   no-such-contract: has no contract Nope
+ok   bytecode-pin: the bytecode is not the pinned Examples/counter/bytecode.hex
+ok   not-compiling: solar does not compile
+ok   audit-axiom: axioms beyond propext, Classical.choice and Quot.sound: certify_bad
+ok   audit-native-decide: axioms beyond propext, Classical.choice and Quot.sound: uses_native._native.native_decide.ax_1_1
+ok   audit-sorry: axioms beyond propext, Classical.choice and Quot.sound: sorryAx
+ok   audit-missing: does not check
+ok   audit-clean: clean and good pass
+ok   scan-bad: the axiom, native_decide and sorry lines are flagged
+ok   scan-good: Good.lean passes the scan
+ok   spec-counter: exported, nothing refused
+FAIL spec-refused: nothing refused:
+certify driver tests: 1 failed
+exit status: 1
