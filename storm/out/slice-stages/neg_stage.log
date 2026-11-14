@@ -1,0 +1,676 @@
+⚠ [10/26] Replayed SolarTV.Machine
+warning: tv/SolarTV/Machine.lean:110:19: `if_false` has been deprecated: Use `ite_false` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵f̵a̵l̵s̵e̵i̲t̲e̲_̲f̲a̲l̲s̲e̲
+warning: tv/SolarTV/Machine.lean:166:43: This simp argument is unused:
+  BitVec.getLsbD_zero
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [BitVec.getLsbD_ushiftRight]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+⚠ [17/26] Replayed W1Proofs.Tactic
+warning: tv/W1Proofs/Tactic.lean:662:10: `if_pos` has been deprecated: Use `ite_eq_left` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵p̵o̵s̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲
+warning: tv/W1Proofs/Tactic.lean:662:20: `if_pos` has been deprecated: Use `ite_eq_left` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵p̵o̵s̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲
+warning: tv/W1Proofs/Tactic.lean:666:10: `if_neg` has been deprecated: Use `ite_eq_right` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵n̵e̵g̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲
+warning: tv/W1Proofs/Tactic.lean:668:12: `if_pos` has been deprecated: Use `ite_eq_left` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵p̵o̵s̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲
+warning: tv/W1Proofs/Tactic.lean:668:23: `if_pos` has been deprecated: Use `ite_eq_left` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵p̵o̵s̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲
+warning: tv/W1Proofs/Tactic.lean:670:12: `if_neg` has been deprecated: Use `ite_eq_right` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵n̵e̵g̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲
+warning: tv/W1Proofs/Tactic.lean:670:23: `if_neg` has been deprecated: Use `ite_eq_right` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵n̵e̵g̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲
+✔ [25/26] Built uv2_erc20.gen.UniswapV2ERC20.Evm11 (457ms)
+✖ [26/26] Building uv2_erc20.ProofsT.Runs.Evm11 (74s)
+trace: .> LEAN_PATH=/home/hand/w/sl2/.lake/packages/cslib/.lake/build/lib/lean:/home/hand/w/sl2/.lake/packages/PolyFun/.lake/build/lib/lean:/home/hand/w/sl2/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/hand/w/sl2/.lake/packages/Cli/.lake/build/lib/lean:/home/hand/w/sl2/.lake/packages/VCVio/.lake/build/lib/lean:/home/hand/w/sl2/.lake/packages/batteries/.lake/build/lib/lean:/home/hand/w/sl2/.lake/packages/Qq/.lake/build/lib/lean:/home/hand/w/sl2/.lake/packages/aesop/.lake/build/lib/lean:/home/hand/w/sl2/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/hand/w/sl2/.lake/packages/importGraph/.lake/build/lib/lean:/home/hand/w/sl2/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/hand/w/sl2/.lake/packages/plausible/.lake/build/lib/lean:/home/hand/w/sl2/.lake/packages/EthLib/.lake/build/lib/lean:/home/hand/w/sl2/vendor/evmyul/.lake/build/lib/lean:/home/hand/w/sl2/vendor/evm-interaction/.lake/build/lib/lean:/home/hand/w/sl2/.lake/packages/mathlib/.lake/build/lib/lean:/home/hand/w/sl2/.lake/build/lib/lean /home/hand/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean -M 6000 /home/hand/w/sl2/Generated/uv2_erc20/ProofsT/Runs/Evm11.lean -o /home/hand/w/sl2/.lake/build/lib/lean/uv2_erc20/ProofsT/Runs/Evm11.olean -i /home/hand/w/sl2/.lake/build/lib/lean/uv2_erc20/ProofsT/Runs/Evm11.ilean -c /home/hand/w/sl2/.lake/build/ir/uv2_erc20/ProofsT/Runs/Evm11.c --setup /home/hand/w/sl2/.lake/build/ir/uv2_erc20/ProofsT/Runs/Evm11.setup.json --json
+error: Generated/uv2_erc20/ProofsT/Runs/Evm11.lean:127:2: sym_seg: the segments end differently on this path, or the procedure cannot tell
+case pos
+o : Oracle
+call : Call
+hsel0 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 117300739
+hsel1 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 2514000705
+hsel2 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 826074471
+hsel3 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 404098525
+hsel4 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 1889567281
+hsel5 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 3714247998
+hsel6 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 910484757
+hsel7 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 816707615
+hsel8 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 2127478272
+hsel9 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 3573918927
+hsel10 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 157198259
+hsel11 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 599290589
+w1 w2 w3 w4 : EvmRules.Word
+s : State
+hsel0s : 117300739 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel1s : 2514000705 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel2s : 826074471 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel3s : 404098525 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel4s : 1889567281 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel5s : 3714247998 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel6s : 910484757 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel7s : 816707615 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel8s : 2127478272 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel9s : 3573918927 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel10s : 157198259 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel11s : 599290589 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+cd : EvmRules.Word → EvmRules.Word
+hcd : cd = calldataWord call
+hc✝² hcs✝² :
+  ¬s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64)) <
+      EvmRules.Evm.sub (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))) w3
+hc✝¹ hcs✝¹ :
+  ¬EvmRules.Evm.add w3
+        (update s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))
+          (EvmRules.Evm.sub (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))) w3)
+          (o.keccak ((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).read 0 64))) <
+      update s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))
+        (EvmRules.Evm.sub (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))) w3)
+        (o.keccak ((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).read 0 64))
+hc✝ hcs✝ :
+  ¬s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64)) <
+      EvmRules.Evm.add w3 (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64)))
+hc hcs :
+  ¬EvmRules.Evm.sub
+        (update s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))
+          (EvmRules.Evm.add w3 (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))))
+          (o.keccak ((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).read 0 64)))
+        w3 <
+      update s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))
+        (EvmRules.Evm.add w3 (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))))
+        (o.keccak ((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).read 0 64))
+⊢ Agree
+    (Halt.ret
+        ((((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).store 0 w3).store 0 1).read 0
+          32),
+      { memory := ((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).store 0 w3).store 0 1,
+        storage :=
+          update
+            (update s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))
+              (EvmRules.Evm.sub (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))) w3))
+            (o.keccak ((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).read 0 64))
+            (EvmRules.Evm.add w3
+              (update s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))
+                (EvmRules.Evm.sub (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64)))
+                  w3)
+                (o.keccak ((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).read 0 64)))),
+        transient := s.transient,
+        world :=
+          s.world ++
+            [Event.log [100389287136786176327247604509743168900146139575972864366142685224231313322991, w1, w2]
+                (((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).store 0 w3).read 0 32)] })
+    (Halt.ret
+        ((((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).store 0 w3).store 0 1).read 0
+          32),
+      { memory := ((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).store 0 w3).store 0 1,
+        storage :=
+          update
+            (update s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))
+              (EvmRules.Evm.add w3 (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64)))))
+            (o.keccak ((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).read 0 64))
+            (EvmRules.Evm.sub
+              (update s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))
+                (EvmRules.Evm.add w3
+                  (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))))
+                (o.keccak ((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).read 0 64)))
+              w3),
+        transient := s.transient,
+        world :=
+          s.world ++
+            [Event.log [100389287136786176327247604509743168900146139575972864366142685224231313322991, w1, w2]
+                (((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).store 0 w3).read 0 32)] })
+error: Generated/uv2_erc20/ProofsT/Runs/Evm11.lean:127:2: sym_seg: the segments end differently on this path, or the procedure cannot tell
+case neg
+o : Oracle
+call : Call
+hsel0 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 117300739
+hsel1 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 2514000705
+hsel2 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 826074471
+hsel3 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 404098525
+hsel4 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 1889567281
+hsel5 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 3714247998
+hsel6 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 910484757
+hsel7 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 816707615
+hsel8 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 2127478272
+hsel9 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 3573918927
+hsel10 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 157198259
+hsel11 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 599290589
+w1 w2 w3 w4 : EvmRules.Word
+s : State
+hsel0s : 117300739 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel1s : 2514000705 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel2s : 826074471 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel3s : 404098525 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel4s : 1889567281 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel5s : 3714247998 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel6s : 910484757 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel7s : 816707615 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel8s : 2127478272 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel9s : 3573918927 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel10s : 157198259 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel11s : 599290589 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+cd : EvmRules.Word → EvmRules.Word
+hcd : cd = calldataWord call
+hc✝² hcs✝² :
+  ¬s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64)) <
+      EvmRules.Evm.sub (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))) w3
+hc✝¹ hcs✝¹ :
+  ¬EvmRules.Evm.add w3
+        (update s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))
+          (EvmRules.Evm.sub (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))) w3)
+          (o.keccak ((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).read 0 64))) <
+      update s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))
+        (EvmRules.Evm.sub (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))) w3)
+        (o.keccak ((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).read 0 64))
+hc✝ hcs✝ :
+  ¬s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64)) <
+      EvmRules.Evm.add w3 (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64)))
+hc hcs :
+  ¬¬EvmRules.Evm.sub
+          (update s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))
+            (EvmRules.Evm.add w3 (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))))
+            (o.keccak ((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).read 0 64)))
+          w3 <
+        update s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))
+          (EvmRules.Evm.add w3 (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))))
+          (o.keccak ((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).read 0 64))
+⊢ Agree
+    (Halt.ret
+        ((((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).store 0 w3).store 0 1).read 0
+          32),
+      { memory := ((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).store 0 w3).store 0 1,
+        storage :=
+          update
+            (update s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))
+              (EvmRules.Evm.sub (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))) w3))
+            (o.keccak ((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).read 0 64))
+            (EvmRules.Evm.add w3
+              (update s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))
+                (EvmRules.Evm.sub (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64)))
+                  w3)
+                (o.keccak ((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).read 0 64)))),
+        transient := s.transient,
+        world :=
+          s.world ++
+            [Event.log [100389287136786176327247604509743168900146139575972864366142685224231313322991, w1, w2]
+                (((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).store 0 w3).read 0 32)] })
+    (Halt.revert
+        (((((((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).store 32 32).store 64
+                          20).store
+                      96 45434785798259124660451259184032529079373492369795387008523657748458537746432).store
+                  0 147028384).expand
+              28 100).read
+          28 100),
+      {
+        memory :=
+          (((((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).store 32 32).store 64
+                        20).store
+                    96 45434785798259124660451259184032529079373492369795387008523657748458537746432).store
+                0 147028384).expand
+            28 100,
+        storage :=
+          update s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))
+            (EvmRules.Evm.add w3 (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64)))),
+        transient := s.transient, world := s.world })
+error: Generated/uv2_erc20/ProofsT/Runs/Evm11.lean:127:2: sym_seg: the segments end differently on this path, or the procedure cannot tell
+case neg
+o : Oracle
+call : Call
+hsel0 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 117300739
+hsel1 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 2514000705
+hsel2 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 826074471
+hsel3 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 404098525
+hsel4 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 1889567281
+hsel5 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 3714247998
+hsel6 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 910484757
+hsel7 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 816707615
+hsel8 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 2127478272
+hsel9 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 3573918927
+hsel10 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 157198259
+hsel11 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 599290589
+w1 w2 w3 w4 : EvmRules.Word
+s : State
+hsel0s : 117300739 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel1s : 2514000705 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel2s : 826074471 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel3s : 404098525 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel4s : 1889567281 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel5s : 3714247998 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel6s : 910484757 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel7s : 816707615 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel8s : 2127478272 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel9s : 3573918927 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel10s : 157198259 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel11s : 599290589 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+cd : EvmRules.Word → EvmRules.Word
+hcd : cd = calldataWord call
+hc✝¹ hcs✝¹ :
+  ¬s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64)) <
+      EvmRules.Evm.sub (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))) w3
+hc✝ hcs✝ :
+  ¬EvmRules.Evm.add w3
+        (update s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))
+          (EvmRules.Evm.sub (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))) w3)
+          (o.keccak ((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).read 0 64))) <
+      update s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))
+        (EvmRules.Evm.sub (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))) w3)
+        (o.keccak ((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).read 0 64))
+hc hcs :
+  ¬¬s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64)) <
+        EvmRules.Evm.add w3 (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64)))
+⊢ Agree
+    (Halt.ret
+        ((((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).store 0 w3).store 0 1).read 0
+          32),
+      { memory := ((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).store 0 w3).store 0 1,
+        storage :=
+          update
+            (update s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))
+              (EvmRules.Evm.sub (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))) w3))
+            (o.keccak ((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).read 0 64))
+            (EvmRules.Evm.add w3
+              (update s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))
+                (EvmRules.Evm.sub (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64)))
+                  w3)
+                (o.keccak ((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).read 0 64)))),
+        transient := s.transient,
+        world :=
+          s.world ++
+            [Event.log [100389287136786176327247604509743168900146139575972864366142685224231313322991, w1, w2]
+                (((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).store 0 w3).read 0 32)] })
+    (Halt.revert
+        (((((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 32 32).store 64 21).store 96
+                      45434785798259124660894245428059312211213725548196251198658069351696294739968).store
+                  0 147028384).expand
+              28 100).read
+          28 100),
+      {
+        memory :=
+          (((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 32 32).store 64 21).store 96
+                    45434785798259124660894245428059312211213725548196251198658069351696294739968).store
+                0 147028384).expand
+            28 100,
+        storage := s.storage, transient := s.transient, world := s.world })
+error: Generated/uv2_erc20/ProofsT/Runs/Evm11.lean:127:2: sym_seg: the segments end differently on this path, or the procedure cannot tell
+case pos
+o : Oracle
+call : Call
+hsel0 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 117300739
+hsel1 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 2514000705
+hsel2 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 826074471
+hsel3 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 404098525
+hsel4 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 1889567281
+hsel5 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 3714247998
+hsel6 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 910484757
+hsel7 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 816707615
+hsel8 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 2127478272
+hsel9 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 3573918927
+hsel10 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 157198259
+hsel11 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 599290589
+w1 w2 w3 w4 : EvmRules.Word
+s : State
+hsel0s : 117300739 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel1s : 2514000705 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel2s : 826074471 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel3s : 404098525 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel4s : 1889567281 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel5s : 3714247998 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel6s : 910484757 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel7s : 816707615 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel8s : 2127478272 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel9s : 3573918927 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel10s : 157198259 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel11s : 599290589 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+cd : EvmRules.Word → EvmRules.Word
+hcd : cd = calldataWord call
+hc✝² hcs✝² :
+  ¬s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64)) <
+      EvmRules.Evm.sub (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))) w3
+hc✝¹ hcs✝¹ :
+  ¬¬EvmRules.Evm.add w3
+          (update s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))
+            (EvmRules.Evm.sub (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))) w3)
+            (o.keccak ((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).read 0 64))) <
+        update s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))
+          (EvmRules.Evm.sub (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))) w3)
+          (o.keccak ((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).read 0 64))
+hc✝ hcs✝ :
+  ¬s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64)) <
+      EvmRules.Evm.add w3 (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64)))
+hc hcs :
+  ¬EvmRules.Evm.sub
+        (update s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))
+          (EvmRules.Evm.add w3 (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))))
+          (o.keccak ((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).read 0 64)))
+        w3 <
+      update s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))
+        (EvmRules.Evm.add w3 (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))))
+        (o.keccak ((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).read 0 64))
+⊢ Agree
+    (Halt.revert
+        (((((((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).store 32 32).store 64
+                          20).store
+                      96 45434785798259124660451259184032529079373492369795387008523657748458537746432).store
+                  0 147028384).expand
+              28 100).read
+          28 100),
+      {
+        memory :=
+          (((((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).store 32 32).store 64
+                        20).store
+                    96 45434785798259124660451259184032529079373492369795387008523657748458537746432).store
+                0 147028384).expand
+            28 100,
+        storage :=
+          update s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))
+            (EvmRules.Evm.sub (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))) w3),
+        transient := s.transient, world := s.world })
+    (Halt.ret
+        ((((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).store 0 w3).store 0 1).read 0
+          32),
+      { memory := ((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).store 0 w3).store 0 1,
+        storage :=
+          update
+            (update s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))
+              (EvmRules.Evm.add w3 (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64)))))
+            (o.keccak ((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).read 0 64))
+            (EvmRules.Evm.sub
+              (update s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))
+                (EvmRules.Evm.add w3
+                  (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))))
+                (o.keccak ((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).read 0 64)))
+              w3),
+        transient := s.transient,
+        world :=
+          s.world ++
+            [Event.log [100389287136786176327247604509743168900146139575972864366142685224231313322991, w1, w2]
+                (((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).store 0 w3).read 0 32)] })
+error: Generated/uv2_erc20/ProofsT/Runs/Evm11.lean:127:2: sym_seg: the segments end differently on this path, or the procedure cannot tell
+case neg
+o : Oracle
+call : Call
+hsel0 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 117300739
+hsel1 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 2514000705
+hsel2 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 826074471
+hsel3 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 404098525
+hsel4 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 1889567281
+hsel5 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 3714247998
+hsel6 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 910484757
+hsel7 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 816707615
+hsel8 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 2127478272
+hsel9 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 3573918927
+hsel10 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 157198259
+hsel11 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 599290589
+w1 w2 w3 w4 : EvmRules.Word
+s : State
+hsel0s : 117300739 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel1s : 2514000705 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel2s : 826074471 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel3s : 404098525 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel4s : 1889567281 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel5s : 3714247998 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel6s : 910484757 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel7s : 816707615 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel8s : 2127478272 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel9s : 3573918927 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel10s : 157198259 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel11s : 599290589 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+cd : EvmRules.Word → EvmRules.Word
+hcd : cd = calldataWord call
+hc✝² hcs✝² :
+  ¬s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64)) <
+      EvmRules.Evm.sub (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))) w3
+hc✝¹ hcs✝¹ :
+  ¬¬EvmRules.Evm.add w3
+          (update s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))
+            (EvmRules.Evm.sub (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))) w3)
+            (o.keccak ((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).read 0 64))) <
+        update s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))
+          (EvmRules.Evm.sub (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))) w3)
+          (o.keccak ((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).read 0 64))
+hc✝ hcs✝ :
+  ¬s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64)) <
+      EvmRules.Evm.add w3 (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64)))
+hc hcs :
+  ¬¬EvmRules.Evm.sub
+          (update s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))
+            (EvmRules.Evm.add w3 (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))))
+            (o.keccak ((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).read 0 64)))
+          w3 <
+        update s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))
+          (EvmRules.Evm.add w3 (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))))
+          (o.keccak ((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).read 0 64))
+⊢ Agree
+    (Halt.revert
+        (((((((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).store 32 32).store 64
+                          20).store
+                      96 45434785798259124660451259184032529079373492369795387008523657748458537746432).store
+                  0 147028384).expand
+              28 100).read
+          28 100),
+      {
+        memory :=
+          (((((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).store 32 32).store 64
+                        20).store
+                    96 45434785798259124660451259184032529079373492369795387008523657748458537746432).store
+                0 147028384).expand
+            28 100,
+        storage :=
+          update s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))
+            (EvmRules.Evm.sub (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))) w3),
+        transient := s.transient, world := s.world })
+    (Halt.revert
+        (((((((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).store 32 32).store 64
+                          20).store
+                      96 45434785798259124660451259184032529079373492369795387008523657748458537746432).store
+                  0 147028384).expand
+              28 100).read
+          28 100),
+      {
+        memory :=
+          (((((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).store 32 32).store 64
+                        20).store
+                    96 45434785798259124660451259184032529079373492369795387008523657748458537746432).store
+                0 147028384).expand
+            28 100,
+        storage :=
+          update s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))
+            (EvmRules.Evm.add w3 (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64)))),
+        transient := s.transient, world := s.world })
+error: Generated/uv2_erc20/ProofsT/Runs/Evm11.lean:127:2: sym_seg: the segments end differently on this path, or the procedure cannot tell
+case neg
+o : Oracle
+call : Call
+hsel0 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 117300739
+hsel1 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 2514000705
+hsel2 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 826074471
+hsel3 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 404098525
+hsel4 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 1889567281
+hsel5 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 3714247998
+hsel6 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 910484757
+hsel7 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 816707615
+hsel8 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 2127478272
+hsel9 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 3573918927
+hsel10 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 157198259
+hsel11 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 599290589
+w1 w2 w3 w4 : EvmRules.Word
+s : State
+hsel0s : 117300739 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel1s : 2514000705 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel2s : 826074471 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel3s : 404098525 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel4s : 1889567281 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel5s : 3714247998 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel6s : 910484757 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel7s : 816707615 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel8s : 2127478272 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel9s : 3573918927 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel10s : 157198259 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel11s : 599290589 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+cd : EvmRules.Word → EvmRules.Word
+hcd : cd = calldataWord call
+hc✝¹ hcs✝¹ :
+  ¬s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64)) <
+      EvmRules.Evm.sub (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))) w3
+hc✝ hcs✝ :
+  ¬¬EvmRules.Evm.add w3
+          (update s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))
+            (EvmRules.Evm.sub (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))) w3)
+            (o.keccak ((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).read 0 64))) <
+        update s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))
+          (EvmRules.Evm.sub (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))) w3)
+          (o.keccak ((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).read 0 64))
+hc hcs :
+  ¬¬s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64)) <
+        EvmRules.Evm.add w3 (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64)))
+⊢ Agree
+    (Halt.revert
+        (((((((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).store 32 32).store 64
+                          20).store
+                      96 45434785798259124660451259184032529079373492369795387008523657748458537746432).store
+                  0 147028384).expand
+              28 100).read
+          28 100),
+      {
+        memory :=
+          (((((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).store 32 32).store 64
+                        20).store
+                    96 45434785798259124660451259184032529079373492369795387008523657748458537746432).store
+                0 147028384).expand
+            28 100,
+        storage :=
+          update s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))
+            (EvmRules.Evm.sub (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))) w3),
+        transient := s.transient, world := s.world })
+    (Halt.revert
+        (((((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 32 32).store 64 21).store 96
+                      45434785798259124660894245428059312211213725548196251198658069351696294739968).store
+                  0 147028384).expand
+              28 100).read
+          28 100),
+      {
+        memory :=
+          (((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 32 32).store 64 21).store 96
+                    45434785798259124660894245428059312211213725548196251198658069351696294739968).store
+                0 147028384).expand
+            28 100,
+        storage := s.storage, transient := s.transient, world := s.world })
+error: Generated/uv2_erc20/ProofsT/Runs/Evm11.lean:127:2: sym_seg: the segments end differently on this path, or the procedure cannot tell
+case pos
+o : Oracle
+call : Call
+hsel0 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 117300739
+hsel1 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 2514000705
+hsel2 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 826074471
+hsel3 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 404098525
+hsel4 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 1889567281
+hsel5 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 3714247998
+hsel6 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 910484757
+hsel7 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 816707615
+hsel8 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 2127478272
+hsel9 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 3573918927
+hsel10 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 157198259
+hsel11 : EvmRules.Evm.shr 224 (calldataWord call 0) ≠ 599290589
+w1 w2 w3 w4 : EvmRules.Word
+s : State
+hsel0s : 117300739 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel1s : 2514000705 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel2s : 826074471 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel3s : 404098525 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel4s : 1889567281 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel5s : 3714247998 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel6s : 910484757 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel7s : 816707615 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel8s : 2127478272 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel9s : 3573918927 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel10s : 157198259 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+hsel11s : 599290589 ≠ EvmRules.Evm.shr 224 (calldataWord call 0)
+cd : EvmRules.Word → EvmRules.Word
+hcd : cd = calldataWord call
+hc✝¹ hcs✝¹ :
+  ¬¬s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64)) <
+        EvmRules.Evm.sub (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))) w3
+hc✝ hcs✝ :
+  ¬s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64)) <
+      EvmRules.Evm.add w3 (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64)))
+hc hcs :
+  ¬EvmRules.Evm.sub
+        (update s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))
+          (EvmRules.Evm.add w3 (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))))
+          (o.keccak ((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).read 0 64)))
+        w3 <
+      update s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))
+        (EvmRules.Evm.add w3 (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))))
+        (o.keccak ((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).read 0 64))
+⊢ Agree
+    (Halt.revert
+        (((((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 32 32).store 64 21).store 96
+                      45434785798259124660894245428059312211213725548196251198658069351696294739968).store
+                  0 147028384).expand
+              28 100).read
+          28 100),
+      {
+        memory :=
+          (((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 32 32).store 64 21).store 96
+                    45434785798259124660894245428059312211213725548196251198658069351696294739968).store
+                0 147028384).expand
+            28 100,
+        storage := s.storage, transient := s.transient, world := s.world })
+    (Halt.ret
+        ((((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).store 0 w3).store 0 1).read 0
+          32),
+      { memory := ((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).store 0 w3).store 0 1,
+        storage :=
+          update
+            (update s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))
+              (EvmRules.Evm.add w3 (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64)))))
+            (o.keccak ((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).read 0 64))
+            (EvmRules.Evm.sub
+              (update s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))
+                (EvmRules.Evm.add w3
+                  (s.storage (o.keccak ((((s.memory.store 0 w1).store 32 1).expand 0 64).read 0 64))))
+                (o.keccak ((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).read 0 64)))
+              w3),
+        transient := s.transient,
+        world :=
+          s.world ++
+            [Event.log [100389287136786176327247604509743168900146139575972864366142685224231313322991, w1, w2]
+                (((((((s.memory.store 0 w1).store 32 1).expand 0 64).store 0 w2).expand 0 64).store 0 w3).read 0 32)] })
+error: Generated/uv2_erc20/ProofsT/Runs/Evm11.lean:110:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (2000000) has been reached
+
+Note: Use `set_option maxHeartbeats <num>` to set the limit.
+
+Hint: Additional diagnostic information may be available using the `set_option diagnostics true` command.
+error: Generated/uv2_erc20/ProofsT/Runs/Evm11.lean:129:8: (kernel) unknown constant 'SolarTV.Milestone.Uv2Erc20T.evm11_seg3'
+error: Generated/uv2_erc20/ProofsT/Runs/Evm11.lean:183:0: 'SolarTV.Milestone.Uv2Erc20T.evm11_certified' depends on axioms outside [propext, Classical.choice, Quot.sound]: [SolarTV.Milestone.Uv2Erc20T.evm11_segments]
+error: Generated/uv2_erc20/ProofsT/Runs/Evm11.lean:182:0: ❌️ Docstring on `#guard_msgs` does not match generated message:
+
+- info: 'SolarTV.Milestone.Uv2Erc20T.evm11_certified' depends on axioms within [propext, Classical.choice, Quot.sound]
++ error: 'SolarTV.Milestone.Uv2Erc20T.evm11_certified' depends on axioms outside [propext, Classical.choice, Quot.sound]: [SolarTV.Milestone.Uv2Erc20T.evm11_segments]
+error: Generated/uv2_erc20/ProofsT/Runs/Evm11.lean:187:0: 'SolarTV.Milestone.Uv2Erc20T.evm11_certified_back' depends on axioms outside [propext, Classical.choice, Quot.sound]: [SolarTV.Milestone.Uv2Erc20T.evm11_segments]
+error: Generated/uv2_erc20/ProofsT/Runs/Evm11.lean:186:0: ❌️ Docstring on `#guard_msgs` does not match generated message:
+
+- info: 'SolarTV.Milestone.Uv2Erc20T.evm11_certified_back' depends on axioms within [propext, Classical.choice, Quot.sound]
++ error: 'SolarTV.Milestone.Uv2Erc20T.evm11_certified_back' depends on axioms outside [propext, Classical.choice, Quot.sound]: [SolarTV.Milestone.Uv2Erc20T.evm11_segments]
+Some required targets logged failures:
+- uv2_erc20.ProofsT.Runs.Evm11
+error: build failed
+exit=1 wall=77s max_rss_largest_process=2293MB

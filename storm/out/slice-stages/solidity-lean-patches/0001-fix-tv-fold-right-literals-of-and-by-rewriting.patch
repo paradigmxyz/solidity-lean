@@ -1,0 +1,82 @@
+From 9e41e15a1e3fbee90555ab85b562c3444ad93a21 Mon Sep 17 00:00:00 2001
+From: Troy Sargent <0xalpharush@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 14:44:05 +0000
+Subject: [PATCH 1/2] fix(tv): fold right literals of || and && by rewriting
+
+boolLit and boolAndLit folded b || true and b && false as dsimp
+steps, which are not definitional while b is unknown, so the kernel
+refused the proof term. Fold only left literals there and leave right
+literals to seg_cut_test's Bool.or_true, or_false, and_true and
+and_false; also fold a test or'd with its negation before case
+splits.
+---
+ tv/W1Proofs/Segment.lean | 28 ++++++++++++++++++++--------
+ 1 file changed, 20 insertions(+), 8 deletions(-)
+
+diff --git a/tv/W1Proofs/Segment.lean b/tv/W1Proofs/Segment.lean
+index 27be861..5c1f1b6 100644
+--- a/tv/W1Proofs/Segment.lean
++++ b/tv/W1Proofs/Segment.lean
+@@ -60,23 +60,24 @@ dsimproc_decl finValLit (Fin.val _) := fun e => do
+   return .done (toExpr (k % n))
+ 
+ open Lean Meta Simp in
+-/-- `||` and `&&` of a literal, as a cut test of a known block leaves them. -/
++/-- `||` of a literal on the left, as a cut test of a known block leaves it: definitional, since
++`||` matches on its left argument. A literal on the right is `seg_cut_test`'s (`Bool.or_true`,
++`Bool.or_false`), by rewriting: `b || true` does not evaluate to `true` while `b` is unknown, and a
++`dsimp` step claiming it leaves a term the kernel refuses. -/
+ dsimproc_decl boolLit (_ || _) := fun e => do
+   let_expr or a b := e | return .continue
+   match a.constName?, b.constName? with
+-  | some ``true, _ | _, some ``true => return .done (mkConst ``true)
++  | some ``true, _ => return .done (mkConst ``true)
+   | some ``false, _ => return .done b
+-  | _, some ``false => return .done a
+   | _, _ => return .continue
+ 
+ open Lean Meta Simp in
+-/-- `&&` of a literal. -/
++/-- `&&` of a literal on the left (definitional, as `boolLit`). -/
+ dsimproc_decl boolAndLit (_ && _) := fun e => do
+   let_expr and a b := e | return .continue
+   match a.constName?, b.constName? with
+-  | some ``false, _ | _, some ``false => return .done (mkConst ``false)
++  | some ``false, _ => return .done (mkConst ``false)
+   | some ``true, _ => return .done b
+-  | _, some ``true => return .done a
+   | _, _ => return .continue
+ 
+ open Lean Meta Simp in
+@@ -121,15 +122,26 @@ theorem state_initial_eta (call : Call) :
+        transient := (State.initial call).transient, world := (State.initial call).world } : State) =
+       State.initial call := rfl
+ 
++/-- A test and its negation as Boolean branches (`if c then true else false` and
++`if c then false else true`, as a pass may leave them) joined by `||` are `true`: folded before
++any case split, where splitting on the two would leave a leaf only the excluded middle closes. -/
++theorem ite_or_ite_not (c : Prop) [Decidable c] :
++    ((if c then true else false) || (if c then false else true)) = true := by
++  by_cases h : c <;> simp [h]
++
++theorem ite_not_or_ite (c : Prop) [Decidable c] :
++    ((if c then false else true) || (if c then true else false)) = true := by
++  by_cases h : c <;> simp [h]
++
+ /-- A cut test of a block a branch picks (`(if c then 15 else 14) == 1`) evaluates on both
+ branches, so a test that holds on neither is `false` before any case split. Splitting on it
+ first instead leaves leaves whose contradiction only the branch condition shows, and the case
+ splits multiply. -/
+ macro "seg_cut_test" : tactic => `(tactic|
+   simp only [ite_beq, Nat.reduceBEq, BitVec.reduceEq, BitVec.reduceNe, ite_self, Bool.false_eq_true,
+-    evm_lt_zero_left, state_initial_eta,
++    evm_lt_zero_left, state_initial_eta, Bool.or_true, Bool.or_false, Bool.and_true, Bool.and_false,
+     ↓reduceIte, Mem.load_store_of_disjoint, Mem.load_store_same, Mem.load_expand, Nat.reduceAdd,
+-    Nat.reduceLeDiff, true_or, or_true])
++    Nat.reduceLeDiff, true_or, or_true, ite_or_ite_not, ite_not_or_ite])
+ 
+ syntax "seg_norm" "[" Lean.Parser.Tactic.simpLemma,* "]" : tactic
+ macro_rules
+-- 
+2.43.0
+

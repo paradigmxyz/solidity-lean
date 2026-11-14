@@ -1,0 +1,886 @@
+== stages 14:10:41
+warning[2264]: code generation is experimental
+
+assembly: decoded only; the final EVM IR is outside the executed fragment: block 21: ('other', '.effect (.call .staticcall) 6')
+{"final": "SolarTV.Milestone.Uv2Erc20T.uv2_erc20_transfer_mir_to_evmir", "last": "evm11", "first": "stage0", "stages": ["stage0", "mir1", "mir2", "mir3", "mir4", "sched", "evm1", "evm2", "evm3", "evm4", "evm5", "evm6", "evm7", "evm8", "evm9", "evm10", "evm11"]}
+{"assembly": "checker accepts; bytes make calls", "calls": [[903, "STATICCALL"], [1158, "RETURNDATASIZE"], [1161, "RETURNDATACOPY"], [1162, "RETURNDATASIZE"]]}
+exit=0 wall=0s max_rss_largest_process=17MB
+STAGES_EXIT 0
+== build 14:10:41
+⚠ [6/13] Replayed SolarTV.Machine
+warning: tv/SolarTV/Machine.lean:110:19: `if_false` has been deprecated: Use `ite_false` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵f̵a̵l̵s̵e̵i̲t̲e̲_̲f̲a̲l̲s̲e̲
+warning: tv/SolarTV/Machine.lean:166:43: This simp argument is unused:
+  BitVec.getLsbD_zero
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [BitVec.getLsbD_ushiftRight]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+✔ [11/189] Built uv2_erc20.gen.UniswapV2ERC20.Evm11 (460ms)
+✔ [188/1339] Built uv2_erc20.gen.UniswapV2ERC20.Bytecode (503ms)
+⚠ [1350/1899] Replayed SolidCore.Refinement.Evm.Lemmas
+warning: SolidCore/Refinement/Evm/Lemmas.lean: imports `EthLib.Execution.Proofs.Evm.Logic.Steps` from package `EthLib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: SolidCore/Refinement/Evm/Lemmas.lean: imports `EthLib.Execution.Proofs.Evm.Logic.Symbolic` from package `EthLib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [2312/2381] Replayed EvmYul.UInt256
+warning: EvmYul/UInt256.lean: imports `Mathlib.Data.Nat.Basic` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Data.Fin.Basic` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Data.Vector.Basic` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Algebra.Group.Defs` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Algebra.GroupWithZero.Defs` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Algebra.Ring.Basic` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Algebra.Order.Floor.Defs` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Algebra.Order.Floor.Ring` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Algebra.Order.Floor.Semiring` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Data.ZMod.Defs` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Tactic.Ring` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [2321/2381] Replayed SolidCore.Solidity.Shared.PrecompilePairing
+warning: SolidCore/Solidity/Shared/PrecompilePairing.lean:144:5: Variable name `h` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _h
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+⚠ [2370/2381] Replayed EvmYul.Wheels
+warning: EvmYul/Wheels.lean: imports `Mathlib.Data.Finmap` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [2485/2616] Replayed EvmYul.Maps.ByteMap
+warning: EvmYul/Maps/ByteMap.lean:20:0: it is recommended to use Std.TreeMap instead
+'Batteries.Data.RBMap' has been deprecated: please replace this import by
+
+import Batteries.Data.RBMap.Basic
+import Batteries.Data.RBMap.Depth
+import Batteries.Data.RBMap.Lemmas
+import Batteries.Data.RBMap.Alter
+import Batteries.Data.RBMap.WF
+⚠ [2487/2616] Replayed EvmYul.Operations
+warning: EvmYul/Operations.lean: imports `Mathlib.Data.Finmap` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [2493/2616] Replayed EvmYul.Maps.StorageMap
+warning: EvmYul/Maps/StorageMap.lean: imports `Mathlib.Data.Multiset.Sort` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/Maps/StorageMap.lean:20:0: it is recommended to use Std.TreeMap instead
+'Batteries.Data.RBMap' has been deprecated: please replace this import by
+
+import Batteries.Data.RBMap.Basic
+import Batteries.Data.RBMap.Depth
+import Batteries.Data.RBMap.Lemmas
+import Batteries.Data.RBMap.Alter
+import Batteries.Data.RBMap.WF
+⚠ [2495/2616] Replayed EvmYul.State.Substate
+warning: EvmYul/State/Substate.lean:1:0: it is recommended to use Std.TreeMap instead
+'Batteries.Data.RBMap' has been deprecated: please replace this import by
+
+import Batteries.Data.RBMap.Basic
+import Batteries.Data.RBMap.Depth
+import Batteries.Data.RBMap.Lemmas
+import Batteries.Data.RBMap.Alter
+import Batteries.Data.RBMap.WF
+⚠ [2496/2616] Replayed Conform.Wheels
+warning: Conform/Wheels.lean: imports `Mathlib.Data.Multiset.Sort` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: Conform/Wheels.lean:4:0: it is recommended to use Std.TreeMap instead
+'Batteries.Data.RBMap' has been deprecated: please replace this import by
+
+import Batteries.Data.RBMap.Basic
+import Batteries.Data.RBMap.Depth
+import Batteries.Data.RBMap.Lemmas
+import Batteries.Data.RBMap.Alter
+import Batteries.Data.RBMap.WF
+⚠ [2497/2616] Replayed EvmYul.State.Transaction
+warning: EvmYul/State/Transaction.lean: imports `Mathlib.Data.List.AList` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [2500/2616] Replayed EvmYul.Maps.AccountMap
+warning: EvmYul/Maps/AccountMap.lean:20:0: it is recommended to use Std.TreeMap instead
+'Batteries.Data.RBMap' has been deprecated: please replace this import by
+
+import Batteries.Data.RBMap.Basic
+import Batteries.Data.RBMap.Depth
+import Batteries.Data.RBMap.Lemmas
+import Batteries.Data.RBMap.Alter
+import Batteries.Data.RBMap.WF
+⚠ [2503/2616] Replayed EvmYul.State.Block
+warning: EvmYul/State/Block.lean: imports `Mathlib.Data.Finset.Basic` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [2504/2616] Replayed EvmYul.State
+warning: EvmYul/State.lean: imports `Mathlib.Data.Finset.Basic` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/State.lean:1:0: it is recommended to use Std.TreeMap instead
+'Batteries.Data.RBMap' has been deprecated: please replace this import by
+
+import Batteries.Data.RBMap.Basic
+import Batteries.Data.RBMap.Depth
+import Batteries.Data.RBMap.Lemmas
+import Batteries.Data.RBMap.Alter
+import Batteries.Data.RBMap.WF
+⚠ [2511/2616] Replayed EvmYul.MachineStateOps
+warning: EvmYul/MachineStateOps.lean:1:0: it is recommended to use Std.TreeMap instead
+'Batteries.Data.RBMap' has been deprecated: please replace this import by
+
+import Batteries.Data.RBMap.Basic
+import Batteries.Data.RBMap.Depth
+import Batteries.Data.RBMap.Lemmas
+import Batteries.Data.RBMap.Alter
+import Batteries.Data.RBMap.WF
+⚠ [2513/2616] Replayed EvmInteraction.Simulation.Outcome
+warning: EvmInteraction/Simulation/Outcome.lean: imports `Mathlib.Data.List.Basic` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [2518/2616] Replayed SolidCore.Solidity.Interface.Foundation
+warning: SolidCore/Solidity/Interface/Foundation.lean:4236:20: Unused tactic linter: `<;>` should be replaced with `;` or be removed.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+⚠ [2520/2616] Replayed SolidCore.Solidity.TypeCheck
+warning: SolidCore/Solidity/TypeCheck.lean:5145:34: Unused tactic linter: `<;>` should be replaced with `;` or be removed.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:6829:26: Variable name `tys` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _tys
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: SolidCore/Solidity/TypeCheck.lean:8978:8: Unused tactic linter: `subst rhs` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:8979:8: Unused tactic linter: `subst lhs` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:8985:6: Unused tactic linter: `(cases rhs) <;> simp_all [sizeOf] <;> omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:8987:6: Unused tactic linter: `(cases target) <;> simp_wf <;> try simp_all <;> omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:8989:6: Unused tactic linter: `(cases fn) <;> simp_wf <;> try simp_all [sizeOf] <;> omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:8998:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9000:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9012:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9044:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9046:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9121:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9161:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9201:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9230:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9329:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9331:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9342:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9359:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9383:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9589:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9591:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9614:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9628:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9630:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9642:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:8985:6: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:8985:42: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:8987:6: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:8987:35: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:8989:6: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:8989:31: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9802:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:10538:4: Variable name `other` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _other
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: SolidCore/Solidity/TypeCheck.lean:15746:14: `String.mk` has been deprecated: Use `String.ofList` instead
+
+Hint: Replace the deprecated name:
+  String.m̵k̵o̲f̲L̲i̲s̲t̲
+warning: SolidCore/Solidity/TypeCheck.lean:15753:29: `String.mk` has been deprecated: Use `String.ofList` instead
+
+Hint: Replace the deprecated name:
+  String.m̵k̵o̲f̲L̲i̲s̲t̲
+warning: SolidCore/Solidity/TypeCheck.lean:15755:26: `String.mk` has been deprecated: Use `String.ofList` instead
+
+Hint: Replace the deprecated name:
+  String.m̵k̵o̲f̲L̲i̲s̲t̲
+⚠ [2522/2616] Replayed SolidCore.Solidity.Interface.Statements
+warning: SolidCore/Solidity/Interface/Statements.lean:1053:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:516:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:1380:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:1331:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:792:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:1211:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:1130:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:3179:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:746:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:958:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:1024:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:1087:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:656:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:493:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:2189:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:679:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:994:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:701:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:95:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:9024:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:9079:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:9128:0: unused `termination_by`, function is not recursive
+⚠ [2523/2616] Replayed SolidCore.Solidity.Interface.Contracts
+warning: SolidCore/Solidity/Interface/Contracts.lean:1261:31: Unused tactic linter: `<;>` should be replaced with `;` or be removed.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/Interface/Contracts.lean:1261:31: Used `tac1 <;> tac2` where `(tac1; tac2)` would suffice
+
+Note: This linter can be disabled with `set_option linter.unnecessarySeqFocus false`
+warning: SolidCore/Solidity/Interface/Contracts.lean:3000:6: Variable name `storageOrder` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _storageOrder
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: SolidCore/Solidity/Interface/Contracts.lean:3165:6: Variable name `dispatchOrder` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _dispatchOrder
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: SolidCore/Solidity/Interface/Contracts.lean:3176:6: Variable name `sharedConstantTail` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _sharedConstantTail
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+⚠ [2526/2616] Replayed SolidCore.Refinement.Statement
+warning: SolidCore/Refinement/Statement.lean: imports `EthLib.Execution.Evm.Call.MessageCall` from package `EthLib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [2527/2616] Replayed SolidCore.Refinement.Check
+warning: SolidCore/Refinement/Check.lean: imports `EthLib.Base.Proofs.BigEndian` from package `EthLib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [2528/2616] Replayed SolidCore.Refinement.Abi
+warning: SolidCore/Refinement/Abi.lean: imports `EthLib.Execution.Proofs.Evm.Logic.NatCode` from package `EthLib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [2534/2616] Replayed SolarTV.Stages.Assembly
+warning: tv/SolarTV/Stages/Assembly.lean:156:8: `if_pos` has been deprecated: Use `ite_eq_left` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵p̵o̵s̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲
+warning: tv/SolarTV/Stages/Assembly.lean:158:8: `if_pos` has been deprecated: Use `ite_eq_left` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵p̵o̵s̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲
+warning: tv/SolarTV/Stages/Assembly.lean:161:8: `if_neg` has been deprecated: Use `ite_eq_right` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵n̵e̵g̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲
+warning: tv/SolarTV/Stages/Assembly.lean:163:8: `if_pos` has been deprecated: Use `ite_eq_left` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵p̵o̵s̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲
+⚠ [2536/2616] Replayed SolidCore.Refinement.Solar.AssembleStackN
+warning: SolidCore/Refinement/Solar/AssembleStackN.lean: imports `EthLib.Execution.Evm.Instructions.StackOnly` from package `EthLib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: SolidCore/Refinement/Solar/AssembleStackN.lean: imports `EthLib.Execution.Proofs.Evm.Logic.Rules` from package `EthLib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [2537/2616] Replayed SolidCore.Refinement.Solar.Assemble
+warning: SolidCore/Refinement/Solar/Assemble.lean:444:10: `if_pos` has been deprecated: Use `ite_eq_left` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵p̵o̵s̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲
+warning: SolidCore/Refinement/Solar/Assemble.lean:448:12: `if_neg` has been deprecated: Use `ite_eq_right` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵n̵e̵g̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲
+warning: SolidCore/Refinement/Solar/Assemble.lean:448:23: `if_pos` has been deprecated: Use `ite_eq_left` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵p̵o̵s̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲
+warning: SolidCore/Refinement/Solar/Assemble.lean:453:12: `if_neg` has been deprecated: Use `ite_eq_right` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵n̵e̵g̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲
+warning: SolidCore/Refinement/Solar/Assemble.lean:453:23: `if_neg` has been deprecated: Use `ite_eq_right` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵n̵e̵g̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲
+warning: SolidCore/Refinement/Solar/Assemble.lean:505:41: Variable name `hi` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _hi
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: SolidCore/Refinement/Solar/Assemble.lean:642:37: `if_pos` has been deprecated: Use `ite_eq_left` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵p̵o̵s̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲
+warning: SolidCore/Refinement/Solar/Assemble.lean:713:8: `if_neg` has been deprecated: Use `ite_eq_right` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵n̵e̵g̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲
+warning: SolidCore/Refinement/Solar/Assemble.lean:727:8: `if_neg` has been deprecated: Use `ite_eq_right` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵n̵e̵g̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲
+warning: SolidCore/Refinement/Solar/Assemble.lean:727:22: `cond_false` has been deprecated: Use `Bool.cond_false` instead
+
+Hint: Replace the deprecated name:
+  B̲o̲o̲l̲.̲cond_false
+warning: SolidCore/Refinement/Solar/Assemble.lean:776:8: `if_neg` has been deprecated: Use `ite_eq_right` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵n̵e̵g̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲
+⚠ [2540/2616] Replayed SolidCore.Refinement.Solar.AssembleSim
+warning: SolidCore/Refinement/Solar/AssembleSim.lean: imports `EthLib.Execution.Proofs.Evm.Logic.Log` from package `EthLib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [2543/2616] Replayed SolidCore.Refinement.Solar.AssembleLoop
+warning: SolidCore/Refinement/Solar/AssembleLoop.lean: imports `EthLib.Execution.Proofs.Evm.Logic.LessGas` from package `EthLib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [2545/2616] Replayed SolidCore.Refinement.Solar.AssembleMem
+warning: SolidCore/Refinement/Solar/AssembleMem.lean:54:56: exponent 270 exceeds the threshold 256, exponentiation operation was not evaluated, use `set_option exponentiation.threshold <num>` to set a new threshold
+⚠ [2546/2616] Replayed SolidCore.Refinement.Solar.AssembleCutSim
+warning: SolidCore/Refinement/Solar/AssembleCutSim.lean:231:6: Unused tactic linter: `rw [show (0 : BitVec 256) = BitVec.ofNat 256 0 from rfl, foldl_bytes]` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Refinement/Solar/AssembleCutSim.lean:603:106: Unused tactic linter: `simp_all` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Refinement/Solar/AssembleCutSim.lean:607:107: Unused tactic linter: `simp_all` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Refinement/Solar/AssembleCutSim.lean:705:30: Unused tactic linter: `(simp only [List.length_cons] at *; omega)` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Refinement/Solar/AssembleCutSim.lean:705:75: Unused tactic linter: `simp_all` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Refinement/Solar/AssembleCutSim.lean:733:68: Unused tactic linter: `(simp only [List.length_cons] at *; omega)` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Refinement/Solar/AssembleCutSim.lean:733:113: Unused tactic linter: `simp_all` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Refinement/Solar/AssembleCutSim.lean:753:68: Unused tactic linter: `(simp only [List.length_cons] at *; omega)` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Refinement/Solar/AssembleCutSim.lean:753:113: Unused tactic linter: `simp_all` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Refinement/Solar/AssembleCutSim.lean:988:64: Unused tactic linter: `(simp only [List.length_cons] at *; omega)` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Refinement/Solar/AssembleCutSim.lean:988:109: Unused tactic linter: `simp_all` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Refinement/Solar/AssembleCutSim.lean:1016:109: Unused tactic linter: `simp_all` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Refinement/Solar/AssembleCutSim.lean:1047:64: Unused tactic linter: `(simp only [List.length_cons] at *; omega)` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Refinement/Solar/AssembleCutSim.lean:1047:109: Unused tactic linter: `simp_all` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Refinement/Solar/AssembleCutSim.lean:603:106: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Refinement/Solar/AssembleCutSim.lean:607:107: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Refinement/Solar/AssembleCutSim.lean:705:30: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Refinement/Solar/AssembleCutSim.lean:705:75: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Refinement/Solar/AssembleCutSim.lean:733:68: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Refinement/Solar/AssembleCutSim.lean:733:113: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Refinement/Solar/AssembleCutSim.lean:753:68: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Refinement/Solar/AssembleCutSim.lean:753:113: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Refinement/Solar/AssembleCutSim.lean:988:64: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Refinement/Solar/AssembleCutSim.lean:988:109: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Refinement/Solar/AssembleCutSim.lean:1016:109: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Refinement/Solar/AssembleCutSim.lean:1047:64: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Refinement/Solar/AssembleCutSim.lean:1047:109: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+⚠ [2547/2616] Replayed SolidCore.Refinement.Solar.AssembleDyn
+warning: SolidCore/Refinement/Solar/AssembleDyn.lean:363:10: Unused tactic linter: `rfl` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+⚠ [2551/2616] Replayed Loom.MonadUtil
+warning: Loom/MonadUtil.lean: imports `Mathlib.Order.Basic` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: Loom/MonadUtil.lean: imports `Mathlib.Order.CompleteLattice.Basic` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [2552/2616] Replayed Loom.SpecMonad
+warning: Loom/SpecMonad.lean: imports `Mathlib.Order.Basic` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [2553/2616] Replayed Loom.MonadAlgebras.Defs
+warning: Loom/MonadAlgebras/Defs.lean: imports `Mathlib.Order.CompleteLattice.Basic` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: Loom/MonadAlgebras/Defs.lean:147:0: Definition `LogicLift.refl` of class type is semireducible. Most type class instances should be instance-reducible, so consider marking this
+definition with `@[instance_reducible]`. If it is intentionally semireducible, this warning can be disabled with `set_option warn.classDefReducibility false`.
+warning: Loom/MonadAlgebras/Defs.lean:196:0: Definition `MAlgLift.mk_rep` of class type is semireducible. Most type class instances should be instance-reducible, so consider marking this
+definition with `@[instance_reducible]`. If it is intentionally semireducible, this warning can be disabled with `set_option warn.classDefReducibility false`.
+warning: Loom/MonadAlgebras/Defs.lean:207:0: Definition `MAlgLift.mk_id` of class type is semireducible. Most type class instances should be instance-reducible, so consider marking this
+definition with `@[instance_reducible]`. If it is intentionally semireducible, this warning can be disabled with `set_option warn.classDefReducibility false`.
+warning: Loom/MonadAlgebras/Defs.lean:244:6: Try this: 
+  letI̵
+
+The goal is a proposition, so `let` is preferred over `letI`.
+The difference between `let` and `letI` is that `letI` inlines the value.
+But this is not relevant for proofs because of proof irrelevance.
+
+Note: This linter can be disabled with `set_option linter.style.haveILetI false`
+⚠ [2555/2616] Replayed Loom.MonadAlgebras.Instances.ExceptT
+warning: Loom/MonadAlgebras/Instances/ExceptT.lean:16:0: Definition `MAlgExcept` of class type is semireducible. Most type class instances should be instance-reducible, so consider marking this
+definition with `@[instance_reducible]`. If it is intentionally semireducible, this warning can be disabled with `set_option warn.classDefReducibility false`.
+warning: Loom/MonadAlgebras/Instances/ExceptT.lean:96:0: Overlapping instance parameters in `instMAlgLiftExceptT`:
+
+⚠️ There are 2 `[Monad m]` instances; one is sufficient.
+
+Note: This linter can be disabled with `set_option linter.overlappingInstances false`
+⚠ [2559/2616] Replayed Loom.MonadAlgebras.WP.Basic
+warning: Loom/MonadAlgebras/WP/Basic.lean:164:4: Overlapping instance parameters in `Loop.forIn`:
+
+⚠️ There are 2 `[Monad m]` instances; one is sufficient.
+
+Note: This linter can be disabled with `set_option linter.overlappingInstances false`
+warning: Loom/MonadAlgebras/WP/Basic.lean:169:0: Overlapping instance parameters in `instForInLoopUnitOfMonoBind_loom`:
+
+⚠️ There are 2 `[Monad m]` instances; one is sufficient.
+
+Note: This linter can be disabled with `set_option linter.overlappingInstances false`
+⚠ [2560/2616] Replayed Loom.MonadAlgebras.WP.Variant
+warning: Loom/MonadAlgebras/WP/Variant.lean:78:19: `if_true` has been deprecated: Use `ite_true` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵t̵r̵u̵e̵i̲t̲e̲_̲t̲r̲u̲e̲
+warning: Loom/MonadAlgebras/WP/Variant.lean:81:48: `if_false` has been deprecated: Use `ite_false` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵f̵a̵l̵s̵e̵i̲t̲e̲_̲f̲a̲l̲s̲e̲
+⚠ [2561/2616] Replayed Loom.MonadAlgebras.Instances.ExceptTErr
+warning: Loom/MonadAlgebras/Instances/ExceptTErr.lean:31:0: Definition `MAlgExceptErr` of class type is semireducible. Most type class instances should be instance-reducible, so consider marking this
+definition with `@[instance_reducible]`. If it is intentionally semireducible, this warning can be disabled with `set_option warn.classDefReducibility false`.
+warning: Loom/MonadAlgebras/Instances/ExceptTErr.lean:48:17: Definition `MAlgExceptErr` of class type is semireducible. Most type class instances should be instance-reducible, so consider marking this
+definition with `@[instance_reducible]`. If it is intentionally semireducible, this warning can be disabled with `set_option warn.classDefReducibility false`.
+⚠ [2562/2616] Replayed Verify.Basic
+warning: Verify/Basic.lean:79:44: This simp argument is unused:
+  h
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [Assn.ofOutcome, bind, Except.bind, pure, Except.pure]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+⚠ [2563/2616] Replayed Verify.Final
+warning: Verify/Final.lean:300:6: `dif_pos` has been deprecated: Use `dite_eq_left` instead
+
+Hint: Replace the deprecated name:
+  d̵i̵f̵_̵p̵o̵s̵d̲i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲
+⚠ [2566/2616] Replayed SolidCore.Refinement.Solar.RunOracle
+warning: SolidCore/Refinement/Solar/RunOracle.lean:48:10: Variable name `call` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _call
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+⚠ [2591/2616] Replayed SolidCore.Refinement.Solar.AssembleEffects
+warning: SolidCore/Refinement/Solar/AssembleEffects.lean: imports `EthLib.Execution.Proofs.Evm.Logic.Copy` from package `EthLib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: SolidCore/Refinement/Solar/AssembleEffects.lean: imports `EthLib.Execution.Proofs.Evm.Logic.Call` from package `EthLib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: SolidCore/Refinement/Solar/AssembleEffects.lean: imports `EthLib.Execution.Proofs.Evm.Logic.Known` from package `EthLib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: SolidCore/Refinement/Solar/AssembleEffects.lean:49:10: `if_pos` has been deprecated: Use `ite_eq_left` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵p̵o̵s̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲
+warning: SolidCore/Refinement/Solar/AssembleEffects.lean:53:10: `if_pos` has been deprecated: Use `ite_eq_left` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵p̵o̵s̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲
+warning: SolidCore/Refinement/Solar/AssembleEffects.lean:55:12: `if_neg` has been deprecated: Use `ite_eq_right` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵n̵e̵g̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲
+warning: SolidCore/Refinement/Solar/AssembleEffects.lean:234:8: `if_neg` has been deprecated: Use `ite_eq_right` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵n̵e̵g̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲
+warning: SolidCore/Refinement/Solar/AssembleEffects.lean:243:38: `if_pos` has been deprecated: Use `ite_eq_left` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵p̵o̵s̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲
+warning: SolidCore/Refinement/Solar/AssembleEffects.lean:290:27: `if_pos` has been deprecated: Use `ite_eq_left` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵p̵o̵s̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲
+warning: SolidCore/Refinement/Solar/AssembleEffects.lean:337:40: `if_pos` has been deprecated: Use `ite_eq_left` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵p̵o̵s̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲
+⚠ [2592/2616] Replayed SolidCore.Refinement.Solar.AssembleDynCopy
+warning: SolidCore/Refinement/Solar/AssembleDynCopy.lean:106:27: `ite_cond_eq_true` has been deprecated: Use `ite_eq_left_of_eq_true` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵t̵r̵u̵e̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲_̲o̲f̲_̲e̲q̲_̲t̲r̲u̲e̲
+⚠ [2593/2616] Replayed SolidCore.Refinement.Solar.AssembleRun
+warning: SolidCore/Refinement/Solar/AssembleRun.lean: imports `EthLib.Execution.Proofs.Evm.Logic.Message` from package `EthLib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [2596/2616] Replayed SolidCore.Refinement.SourceOracleSat
+warning: SolidCore/Refinement/SourceOracleSat.lean:62:19: This simp argument is unused:
+  beq_self_eq_true
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [hv, ↓reduceIte]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+⚠ [2598/2616] Replayed SolidCore.Refinement.Solar.AssembleCut
+warning: SolidCore/Refinement/Solar/AssembleCut.lean:68:33: This simp argument is unused:
+  returndataSize
+
+Hint: Omit it from the simp argument list.
+  [apply] simp_all [cutEffect, returndataByte, codeByte, immutableWord, immutableValue]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Solar/AssembleCut.lean:68:49: This simp argument is unused:
+  returndataByte
+
+Hint: Omit it from the simp argument list.
+  [apply] simp_all [cutEffect, returndataSize, codeByte, immutableWord, immutableValue]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Solar/AssembleCut.lean:68:65: This simp argument is unused:
+  codeByte
+
+Hint: Omit it from the simp argument list.
+  [apply] simp_all [cutEffect, returndataSize, returndataByte, immutableWord, immutableValue]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Solar/AssembleCut.lean:1188:33: This simp argument is unused:
+  List.singleton_append
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [ht, ite_true, List.cons_append] at hseg
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+⚠ [2602/2616] Replayed SolidCore.Refinement.Solar.AssembleCall
+warning: SolidCore/Refinement/Solar/AssembleCall.lean: imports `EthLib.Execution.Proofs.Evm.Call.StaticMessage` from package `EthLib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: SolidCore/Refinement/Solar/AssembleCall.lean: imports `EthLib.Execution.Proofs.Evm.Logic.CallSteps` from package `EthLib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: SolidCore/Refinement/Solar/AssembleCall.lean:337:40: `if_pos` has been deprecated: Use `ite_eq_left` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵p̵o̵s̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲
+⚠ [2604/2616] Replayed SolidCore.Refinement.Solar.AssembleCallPre
+warning: SolidCore/Refinement/Solar/AssembleCallPre.lean:46:8: `ite_cond_eq_false` has been deprecated: Use `ite_eq_right_of_eq_false` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵f̵a̵l̵s̵e̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲_̲o̲f̲_̲e̲q̲_̲f̲a̲l̲s̲e̲
+warning: SolidCore/Refinement/Solar/AssembleCallPre.lean:77:8: `ite_cond_eq_false` has been deprecated: Use `ite_eq_right_of_eq_false` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵f̵a̵l̵s̵e̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲_̲o̲f̲_̲e̲q̲_̲f̲a̲l̲s̲e̲
+warning: SolidCore/Refinement/Solar/AssembleCallPre.lean:99:8: `if_neg` has been deprecated: Use `ite_eq_right` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵n̵e̵g̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲
+warning: SolidCore/Refinement/Solar/AssembleCallPre.lean:119:8: `if_neg` has been deprecated: Use `ite_eq_right` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵n̵e̵g̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲
+⚠ [2605/2616] Replayed SolidCore.Refinement.Solar.AssembleCallCut
+warning: SolidCore/Refinement/Solar/AssembleCallCut.lean: imports `EthLib.Base.Proofs.U256` from package `EthLib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: SolidCore/Refinement/Solar/AssembleCallCut.lean:333:37: `if_pos` has been deprecated: Use `ite_eq_left` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵p̵o̵s̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲
+⚠ [2606/2616] Replayed SolidCore.Refinement.Solar.AssembleCallSeg
+warning: SolidCore/Refinement/Solar/AssembleCallSeg.lean:204:13: This simp argument is unused:
+  hg
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [hst, hrd, OPCODE_RETURNDATASIZE, BASE, GasMeter.gasLeft]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Solar/AssembleCallSeg.lean:204:22: This simp argument is unused:
+  OPCODE_RETURNDATASIZE
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [hst, hg, hrd, BASE, GasMeter.gasLeft]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Solar/AssembleCallSeg.lean:204:45: This simp argument is unused:
+  BASE
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [hst, hg, hrd, OPCODE_RETURNDATASIZE, GasMeter.gasLeft]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Solar/AssembleCallSeg.lean:204:51: This simp argument is unused:
+  GasMeter.gasLeft
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [hst, hg, hrd, OPCODE_RETURNDATASIZE, BASE]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Solar/AssembleCallSeg.lean:291:50: This simp argument is unused:
+  throw
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [hc, bind, Except.bind, pure, Except.pure, throwThe, MonadExceptOf.throw]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Solar/AssembleCallSeg.lean:291:57: This simp argument is unused:
+  throwThe
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [hc, bind, Except.bind, pure, Except.pure, throw, MonadExceptOf.throw]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Solar/AssembleCallSeg.lean:291:67: This simp argument is unused:
+  MonadExceptOf.throw
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [hc, bind, Except.bind, pure, Except.pure, throw, throwThe]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Solar/AssembleCallSeg.lean:398:38: `if_pos` has been deprecated: Use `ite_eq_left` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵p̵o̵s̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲
+warning: SolidCore/Refinement/Solar/AssembleCallSeg.lean:845:50: Unused tactic linter: `skip` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Refinement/Solar/AssembleCallSeg.lean:847:48: Unused tactic linter: `skip` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Refinement/Solar/AssembleCallSeg.lean:1211:33: This simp argument is unused:
+  List.singleton_append
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [ht, ite_true, List.cons_append] at hseg
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+⚠ [2607/2616] Replayed SolidCore.Refinement.Solar.AssembleFast
+warning: SolidCore/Refinement/Solar/AssembleFast.lean: imports `EthLib.Execution.Proofs.Evm.Machine.JumpDest` from package `EthLib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [2609/2616] Replayed SolidCore.Refinement.Solar.AssembleCallStatic
+warning: SolidCore/Refinement/Solar/AssembleCallStatic.lean: imports `EthLib.Execution.Proofs.Evm.Call.StepRules` from package `EthLib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: SolidCore/Refinement/Solar/AssembleCallStatic.lean: imports `EthLib.Execution.Proofs.Evm.Logic.Message` from package `EthLib`, which is designed for use with the module system; consider adding `module` to the start of this file
+✔ [2612/2616] Built uv2_erc20.gen.UniswapV2ERC20.Mir1 (471ms)
+✔ [2614/2668] Built uv2_erc20.gen.UniswapV2ERC20.Stage0 (470ms)
+⚠ [2619/2668] Replayed W1Proofs.Tactic
+warning: tv/W1Proofs/Tactic.lean:662:10: `if_pos` has been deprecated: Use `ite_eq_left` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵p̵o̵s̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲
+warning: tv/W1Proofs/Tactic.lean:662:20: `if_pos` has been deprecated: Use `ite_eq_left` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵p̵o̵s̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲
+warning: tv/W1Proofs/Tactic.lean:666:10: `if_neg` has been deprecated: Use `ite_eq_right` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵n̵e̵g̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲
+warning: tv/W1Proofs/Tactic.lean:668:12: `if_pos` has been deprecated: Use `ite_eq_left` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵p̵o̵s̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲
+warning: tv/W1Proofs/Tactic.lean:668:23: `if_pos` has been deprecated: Use `ite_eq_left` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵p̵o̵s̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲
+warning: tv/W1Proofs/Tactic.lean:670:12: `if_neg` has been deprecated: Use `ite_eq_right` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵n̵e̵g̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲
+warning: tv/W1Proofs/Tactic.lean:670:23: `if_neg` has been deprecated: Use `ite_eq_right` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵n̵e̵g̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲
+✔ [2625/2668] Built uv2_erc20.gen.UniswapV2ERC20.Mir2 (558ms)
+✔ [2626/2668] Built uv2_erc20.gen.UniswapV2ERC20.Mir3 (580ms)
+✔ [2627/2668] Built SolidCore.Refinement.Solar.AssembleNoCall (2.4s)
+✔ [2628/2668] Built uv2_erc20.gen.UniswapV2ERC20.Mir4 (494ms)
+✔ [2629/2668] Built uv2_erc20.gen.UniswapV2ERC20.Sched (492ms)
+✔ [2630/2668] Built uv2_erc20.gen.UniswapV2ERC20.Evm1 (471ms)
+✔ [2631/2668] Built uv2_erc20.gen.UniswapV2ERC20.Evm2 (466ms)
+✔ [2632/2668] Built uv2_erc20.gen.UniswapV2ERC20.Evm3 (486ms)
+✔ [2633/2668] Built uv2_erc20.gen.UniswapV2ERC20.Evm4 (498ms)
+✔ [2634/2668] Built uv2_erc20.gen.UniswapV2ERC20.Evm5 (452ms)
+✔ [2635/2668] Built uv2_erc20.gen.UniswapV2ERC20.Evm6 (474ms)
+✔ [2636/2668] Built uv2_erc20.gen.UniswapV2ERC20.Evm7 (450ms)
+✔ [2637/2668] Built uv2_erc20.gen.UniswapV2ERC20.Evm8 (443ms)
+✔ [2639/2668] Built uv2_erc20.gen.UniswapV2ERC20.Evm9 (446ms)
+✔ [2641/2668] Built uv2_erc20.gen.SafeMath.Manifest (167ms)
+✔ [2642/2668] Built uv2_erc20.gen.UniswapV2ERC20.Evm10 (451ms)
+✔ [2643/2668] Built uv2_erc20.gen.SafeMath.Bytecode (173ms)
+✔ [2644/2668] Built uv2_erc20.gen.SafeMath.Sched (220ms)
+✔ [2645/2668] Built uv2_erc20.gen.SafeMath.Stage0 (213ms)
+✔ [2646/2668] Built uv2_erc20.gen.UniswapV2ERC20.Manifest (187ms)
+✔ [2647/2668] Built uv2_erc20.ProofsT.Assembly (1.1s)
+✔ [2648/2668] Built uv2_erc20.Ctx (17s)
+✔ [2649/2668] Built uv2_erc20.ProofsT.Runs.Evm9 (21s)
+✔ [2650/2668] Built uv2_erc20.ProofsT.Runs.Evm7 (20s)
+✔ [2651/2668] Built uv2_erc20.ProofsT.Runs.Evm8 (28s)
+✔ [2652/2668] Built uv2_erc20.ProofsT.Runs.Evm5 (21s)
+✔ [2653/2668] Built uv2_erc20.ProofsT.Runs.Evm6 (24s)
+✔ [2654/2668] Built uv2_erc20.ProofsT.Runs.Evm3 (21s)
+✔ [2655/2668] Built uv2_erc20.ProofsT.Runs.Evm4 (28s)
+✔ [2656/2668] Built uv2_erc20.ProofsT.Runs.Evm1 (18s)
+✔ [2657/2668] Built uv2_erc20.ProofsT.Runs.Evm2 (47s)
+✔ [2658/2668] Built uv2_erc20.ProofsT.Runs.Sched (24s)
+⚠ [2659/2668] Built uv2_erc20.ProofsT.Runs.Mir4 (7.9s)
+warning: Generated/uv2_erc20/ProofsT/Runs/Mir4.lean:19:11: Variable name `f` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _f
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: Generated/uv2_erc20/ProofsT/Runs/Mir4.lean:19:15: Variable name `b` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _b
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: Generated/uv2_erc20/ProofsT/Runs/Mir4.lean:30:11: Variable name `f` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _f
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: Generated/uv2_erc20/ProofsT/Runs/Mir4.lean:30:15: Variable name `b` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _b
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+⚠ [2660/2668] Built uv2_erc20.ProofsT.Runs.Mir3 (11s)
+warning: Generated/uv2_erc20/ProofsT/Runs/Mir3.lean:19:11: Variable name `f` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _f
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: Generated/uv2_erc20/ProofsT/Runs/Mir3.lean:19:15: Variable name `b` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _b
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: Generated/uv2_erc20/ProofsT/Runs/Mir3.lean:30:11: Variable name `f` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _f
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: Generated/uv2_erc20/ProofsT/Runs/Mir3.lean:30:15: Variable name `b` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _b
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+⚠ [2661/2668] Built uv2_erc20.ProofsT.Runs.Mir2 (7.8s)
+warning: Generated/uv2_erc20/ProofsT/Runs/Mir2.lean:19:11: Variable name `f` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _f
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: Generated/uv2_erc20/ProofsT/Runs/Mir2.lean:19:15: Variable name `b` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _b
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: Generated/uv2_erc20/ProofsT/Runs/Mir2.lean:30:11: Variable name `f` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _f
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: Generated/uv2_erc20/ProofsT/Runs/Mir2.lean:30:15: Variable name `b` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _b
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+⚠ [2662/2668] Built uv2_erc20.ProofsT.Runs.Mir1 (7.7s)
+warning: Generated/uv2_erc20/ProofsT/Runs/Mir1.lean:19:11: Variable name `f` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _f
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: Generated/uv2_erc20/ProofsT/Runs/Mir1.lean:19:15: Variable name `b` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _b
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: Generated/uv2_erc20/ProofsT/Runs/Mir1.lean:30:11: Variable name `f` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _f
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: Generated/uv2_erc20/ProofsT/Runs/Mir1.lean:30:15: Variable name `b` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _b
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+✔ [2663/2668] Built uv2_erc20.ProofsT.Runs.Evm10 (23s)
+✔ [2664/2668] Built uv2_erc20.ProofsT.Runs.Evm11 (21s)
+✔ [2665/2668] Built uv2_erc20.ProofsT.Stages (696ms)
+✔ [2666/2668] Built uv2_erc20.ProofsT (646ms)
+✔ [2667/2668] Built uv2_erc20.CtxNeg (9.4s)
+Build completed successfully (2668 jobs).
+exit=0 wall=194s max_rss_largest_process=4693MB
+BUILD_EXIT 0
+== done 14:13:55
