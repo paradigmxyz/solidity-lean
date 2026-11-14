@@ -1,3 +1,5 @@
+92e13f428 fix(certify): build spec_connect's imports before its probe
+5eac0b5e0 chore(certify): pin solidity-lean
 280c89c80 chore(certify): pin solidity-lean
 f6876f296 chore(certify): pin solidity-lean
 122ba1f24 chore(certify): pin solidity-lean

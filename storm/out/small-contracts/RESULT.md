@@ -1,66 +1,82 @@
-# small-contracts: result (partial, 2026-11-14)
+# small-contracts: result (2026-11-14)
 
-Lane bundles against the PR heads: solidity-lean `9fb89ee` (alpharush/certified-translation) and
-solar `38b5232ad` (alpharush/certified). Apply with `git fetch <bundle> lane/sc2`.
+Lane bundles against the PR heads solidity-lean `9fb89ee` (alpharush/certified-translation) and solar
+`38b5232ad` (alpharush/certified); apply with `git fetch <bundle> lane/sc2`.
 
-- `solidity-lean.bundle`: `9fb89ee..b6d8550 (pin f962c2a; b6d8550 adds the clean run record)` (`solidity-lean.commits`)
-- `solar.bundle`: `38b5232ad..280c89c` (`solar.commits`); `tools/certify/solidity-lean.rev` pins f962c2a
-- `certify-verify_counter.run1.log`, `certify-events.run1.log`: full driver logs, every `#print axioms`
+- `solidity-lean.bundle`: `9fb89ee..6800bb4` (`solidity-lean.commits`)
+- `solar.bundle`: `38b5232ad..92e13f428` (`solar.commits`)
+- logs (full, every `#print axioms`): `certify-verify_counter.clean.log`, `certify-events.clean.log`
+  (the CERTIFIED runs); `*.run1.log` are earlier non-clean runs.
 
-Driver command (hosted Hand, 5 cores, 14 GB):
+Command (hosted Hand, 5 cores, 14 GB), solar and solar-verify built by the run:
 
-    SOLIDITY_LEAN_DIR=<sl> SOLC=<solc 0.8.35> SOLAR_VERIFY_Z3=<z3> LEAN_NUM_THREADS=3 \
-      LEAN=<wrapper: lean with LEAN_NUM_THREADS=1> scripts/certify <sl>/Certified/NAME/NAME.sol
+    CERTIFY_CLEAN_BUILD=1 LEAN_MEMORY=6000 LEAN_NUM_THREADS=2 LEAN=<lean wrapper, LEAN_NUM_THREADS=1> \
+      SOLIDITY_LEAN_DIR=<sl> SOLC=<solc 0.8.35> SOLAR_VERIFY_Z3=<z3> scripts/certify <sl>/Certified/NAME/NAME.sol
 
-Each module builds with lean -M 3000 (driver default); the driver builds solar and solar-verify itself.
+LEAN_MEMORY=6000 is needed for a clean build: with the default 3000 the upstream module
+SolidCore/Solidity/Interface/Statements.lean fails (kernel excessive memory).
 
 ## Per contract
 
-| contract | driver | E3 | E4 | E5 | E6 | E7 | E8 | CERTIFIED |
-|---|---|---|---|---|---|---|---|---|
-| verify_counter | CHECKED, exit 0, 2375 s, peak child RSS 11405 MB | proved | proved | proved | proved | proved (export-bound) | proved | **CERTIFIED** (clean run, exit 0, 3284 s, 10094 MB) |
-| events | CHECKED, exit 0, 1621 s, peak 10894 MB (run at a1c3143 + lane, before the rebase) | proved | proved | proved | proved | proved (export-bound) | proved | only provenance missing (prebuilt solar, non-clean build, uncommitted manifests then); rerun pending |
-| mulx | not run | proved (generic) | proved | driver | driver | **missing**: spec_connect tactics fail on uint8/uint16 decode and packed products | driver | no |
-| bank | not run | proved (generic) | proved | driver | driver | **missing**: deposit's spec needs a mapping-slot premise; only the global `MapSlotsSeparated [0]` is wired, not a footprint-scoped one | driver | no |
-| verify_token | not run | proved (generic) | proved | driver | driver | **missing**: (a) any sender: `SolarTV.Call` has no caller and `Target.preState` fixes 0x2000, so no statement quantifies the sender; (b) scoped premise: `HashScope`/`MapScope` (27a02d4) needs `apart` over all addresses, which no concrete call can show, so it cannot sit in Valid (inhabited); `ScopedSep` fits only once the spec's frame is over the footprint | driver | no |
+| contract | status | E3 | E4 | E5 | E6 | E7 | E8 |
+|---|---|---|---|---|---|---|---|
+| verify_counter | **CERTIFIED**, exit 0, 3284 s, peak child RSS 10094 MB (solidity-lean f962c2a, solar 280c89c) | proved | proved | proved | proved | proved | proved |
+| events | **CERTIFIED**, exit 0, 2350 s, peak child RSS 10332 MB (solidity-lean b6d8550, solar 92e13f428) | proved | proved | proved | proved | proved | proved |
+| mulx | not certified | proved (generic) | proved | - | - | **missing** | - |
+| bank | not certified | proved (generic) | proved | - | - | **missing** | - |
+| verify_token | not certified | proved (generic) | proved | - | - | **missing** | - |
 
-### verify_counter: CERTIFIED (clean build)
+Both CERTIFIED runs: check_final axioms [propext, Classical.choice, Quot.sound]; kernel replay ok
+(472 and 425 modules); backend negative tests all passed (15, 11); final_neg: every variant refused
+(stale byte, substituted artifact, wrong gas bound, wrong post, no allowed status, vacuous specs,
+hijacks, sorry). Premises (env): none. Scope: one frame, caller 0x2000.
 
-`certify-verify_counter.clean.log`: `CERTIFY_CLEAN_BUILD=1 LEAN_MEMORY=6000`, 2 lake jobs, solar and solar-verify
-built by the run, every package module rebuilt from source. Exit 0, 3284 s, peak child RSS 10094 MB. Result line:
-`CERTIFIED verify_counter (Counter): equivalence, termination, spec and resources by
-Certified.verify_counter.Final.final`. check_final axioms [propext, Classical.choice, Quot.sound]; kernel
-replay of 472 modules ok; backend negative tests 15/15; final_neg: every variant refused. Remaining caveat
-(not provenance): solar-verify's SMT VC for bump is refused (outside the Lean fragment).
-With the default LEAN_MEMORY=3000 a clean build fails in an upstream module
-(SolidCore/Solidity/Interface/Statements.lean: kernel excessive memory), so clean runs need 6000.
+### verify_counter (source-sourced)
 
-### verify_counter (source-sourced shape)
-
-`Certified.verify_counter.Final.final : Certified.verify_counter.Final.Statement`; check_final axioms
-[propext, Classical.choice, Quot.sound]; kernel replay of 472 modules; every final negative refused
-(stale byte, substituted artifact, wrong gas bound, wrong post, no allowed status, vacuous specs, hijacks,
-sorry); backend negative tests 15/15. Statement:
+`Certified.verify_counter.Final.final : Certified.verify_counter.Final.Statement`:
 
     Shapes.Certified (SolidCore.Refinement.Generic.Loop.solidCoreRuntime Source.fuel) c code
       ShapeSource.ValidS ShapeSource.Allowed
       (Shapes.bundlePost Certified.verify_counter.gen.Counter.Spec.Counter ctxOfCall idStep)
       Bump.gasBound
 
-with `Source.contract? = .ok c` (SolidCore's checked Counter, its AST bound to this run's source by
-source_bind with solc 0.8.35), `code` byte-equal to this run's solar output, `NonVacuous` in the
+`Source.contract? = .ok c` is SolidCore's checked Counter, its AST bound to this run's source by
+source_bind (solc 0.8.35); `code` is byte-equal to this run's solar output; `NonVacuous` is in the
 statement. The source is SolidCore, not the MIR-sourced Functional wrapper: E3 is
-`StageSource.mir_eq` (generic erasure, the loop's ranking certificate). The postcondition is the
-spec solar-verify exported in the run, not the Lean restatement: `Contracts/VerifyCounter/ShapeExport.lean`
-proves `meets` of it from `Source.success_spec` (`published`, `nonvacuous`: axioms
-[propext, Classical.choice, Quot.sound]). Premises: none (env []). Scope: `bump(n)`, `n < 2^32`,
-no value, any storage; caller 0x2000 fixed. solar-verify's SMT VC for bump is refused
-(`set-option :timeout 0` is outside the Lean fragment): a caveat of the SMT path, not of the statement.
+`StageSource.mir_eq` (generic erasure, the loop's ranking certificate). The postcondition is the spec
+solar-verify exported in the run: `Contracts/VerifyCounter/ShapeExport.lean` proves it from
+`Source.success_spec` (`published`, `nonvacuous`). Valid: `bump(n)`, `n < 2^32`, no value, any
+storage. Remaining caveat (not provenance): solar-verify's SMT VC for bump is refused
+(`set-option :timeout 0` is outside the Lean fragment); the statement does not use it.
+`Contracts/VerifyCounter/SourceAst.lean` was regenerated from Certified/verify_counter/verify_counter.sol
+(same AST body; header in the front end's layout so source_bind accepts it).
 
-### Generic pieces (in the bundles)
+### events
 
-- `Verify/ShapeSpecExport.lean`: allowed statuses read off the export (`bundleAllowed`), value-guarded
+`Certified.events.Final.final`: `Shapes.Certified` against SolidCore's checked Events on
+`genericValid fns []`, allowed `Shapes.bundleAllowed` and post `Shapes.bundlePost` of the export
+(transfer succeeds-if msg.value == 0), gas bound 2386812. Caveat: no separate solidity-lean source theorem
+(`headline`), which is not part of the certified statement.
+
+### What blocks the other three (E7)
+
+- **mulx**: the generic tactics do not close m and n. Through `tree_meets_map'` (handles the uint8/uint16
+  conditional decode) `m_meets0`/`n_meets0` time out in whnf at 4M heartbeats and hit kernel memory;
+  `tree_succeeds` exceeds simp's step limit. The packed narrow products need a hand proof of the tree.
+- **bank**: deposit/depositFor read and write `balances[msg.sender]`; the only wired hash premise is the
+  global `MapSlotsSeparated [0]`. The footprint-scoped premise (27a02d4, `ScopedSep`/`MapScope`) is not
+  yet in a statement: `MapScope`'s `apart` quantifies over every address, so no concrete call shows it
+  and it cannot sit in Valid (inhabited); `ScopedSep` can, once the spec's frames are stated over the
+  footprint instead of `forall a`.
+- **verify_token**: the same premise gap, plus **any sender**: `SolarTV.Call` has no caller field and
+  `Target.preState`/`ctxOfCall` fix 0x2000, so no statement can quantify the sender. Needs a caller in
+  `Call` (or a sender-indexed Target) from the statement infrastructure.
+
+## Generic pieces in the bundles
+
+- `Verify/ShapeSpecExport.lean`: allowed statuses from the export (`bundleAllowed`), value-guarded
   succeeds-if, `holdsFn_genericValid`, nonvacuous witness helpers.
-- `Verify/Spec/TreeSucceeds.lean`: `TreeSucceeds`, `tree_succeeds`, `tree_succeeds_map`,
-  `tree_meets_map'`, `mapSlotsSeparated_nil`.
-- solar driver: `source_sem`, `allowed_export`, spec_connect for succeeds-if specs.
+- `Verify/Spec/TreeSucceeds.lean`: `TreeSucceeds`, `tree_succeeds`, `tree_succeeds_map`, `tree_meets_map'`,
+  `mapSlotsSeparated_nil`.
+- solar driver: `source_sem`, `allowed_export`, spec_connect for succeeds-if specs, and a fix so
+  spec_connect's imports build before its probe (needed for clean builds).
