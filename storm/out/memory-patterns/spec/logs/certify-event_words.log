@@ -1,0 +1,123 @@
+== 1. the pinned solidity-lean checkout
+certify: warning: solidity-lean at f8a4a744379096f71eda92ce7b0e620b2743757e, not the pinned d0ab5d63a401ae615a4755742f3ab500a2a9d0b1
+solidity-lean f8a4a744379096f71eda92ce7b0e620b2743757e at /home/hand/w/dev
+== 2. solar
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.14s
+solar 902cccc2cb1213219789780a39caf3c1d4d9f35e
+solar sha256 aab2c68b87ce0d897aec7e1842d941e4640a68d76e37e504d1ad44ea19488d83
+== 3. compile Certified/event_words/event_words.sol and export its stages (-Ogas --evm-version osaka)
+stages: stage0 (lower-evm-shaped), mir1 (place-reads), mir2 (dce), mir3 (spell-width-tests), mir4 (lower-assumes), mir5 (evm-inst-schedule), sched (stack-schedule), evm1 (peephole-early), evm2 (cfg-simplify-early), evm3 (compact-pushes), evm4 (block-layout), evm5 (share-reverts), evm6 (terminal-dedup), evm7 (cfg-simplify-early), evm8 (block-cse), bytecode (assemble)
+bytecode: 346089575f3560e01c8063562e19df03608957608060405260843560a01c60a43610176089576084355f1960601c8116608080600435825260243560a05260443560c05260643560e05283337fd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d8228385a380820360cb5750505f1960601c331160b357818103608d57005b5f5ffd5b6d010200000000000000020000001b5b60205260405260605263ed572b275f526064601cfd5b5f1960601c33690417000000000000000260201b609d565b6d0112000000000000000200000019919091609d56 sha256 7913fabebc485079bd90fbab5a4b2ae172c9915254a24e52fff8755366fa612e
+== 4. write the proofs
+assembly: decoded only; the loop-free stages have no backward composition to run the bytecode with
+{"final": "SolarTV.Milestone.EventWords.event_words_mir_to_evmir", "last": "evm8", "first": "stage0", "stages": ["stage0", "mir1", "mir2", "mir3", "mir4", "mir5", "sched", "evm1", "evm2", "evm3", "evm4", "evm5", "evm6", "evm7", "evm8"]}
+== 5. build and audit the proofs
+event_words.gen.EventWords.Bytecode: Build completed successfully (2 jobs).
+event_words.gen.EventWords.Evm1: Build completed successfully (12 jobs).
+event_words.gen.EventWords.Evm2: Build completed successfully (12 jobs).
+event_words.gen.EventWords.Evm3: Build completed successfully (12 jobs).
+event_words.gen.EventWords.Evm4: Build completed successfully (12 jobs).
+event_words.gen.EventWords.Evm5: Build completed successfully (12 jobs).
+event_words.gen.EventWords.Evm6: Build completed successfully (12 jobs).
+event_words.gen.EventWords.Evm7: Build completed successfully (12 jobs).
+event_words.gen.EventWords.Evm8: Build completed successfully (12 jobs).
+event_words.gen.EventWords.Manifest: Build completed successfully (2 jobs).
+event_words.gen.EventWords.Mir1: Build completed successfully (11 jobs).
+event_words.gen.EventWords.Mir2: Build completed successfully (11 jobs).
+event_words.gen.EventWords.Mir3: Build completed successfully (11 jobs).
+event_words.gen.EventWords.Mir4: Build completed successfully (11 jobs).
+event_words.gen.EventWords.Mir5: Build completed successfully (11 jobs).
+event_words.gen.EventWords.Sched: Build completed successfully (12 jobs).
+event_words.gen.EventWords.Stage0: Build completed successfully (11 jobs).
+event_words.Proofs.Runs.Evm1: Build completed successfully (21 jobs).
+event_words.Proofs.Runs.Evm2: Build completed successfully (21 jobs).
+event_words.Proofs.Runs.Evm3: Build completed successfully (21 jobs).
+event_words.Proofs.Runs.Evm4: Build completed successfully (21 jobs).
+event_words.Proofs.Runs.Evm5: Build completed successfully (21 jobs).
+event_words.Proofs.Runs.Evm6: Build completed successfully (21 jobs).
+event_words.Proofs.Runs.Evm7: Build completed successfully (21 jobs).
+event_words.Proofs.Runs.Evm8: Build completed successfully (21 jobs).
+event_words.Proofs.Runs.Mir1: Build completed successfully (21 jobs).
+event_words.Proofs.Runs.Mir2: Build completed successfully (21 jobs).
+event_words.Proofs.Runs.Mir3: Build completed successfully (21 jobs).
+event_words.Proofs.Runs.Mir4: Build completed successfully (21 jobs).
+event_words.Proofs.Runs.Mir5: Build completed successfully (21 jobs).
+event_words.Proofs.Runs.Sched: Build completed successfully (21 jobs).
+event_words.Proofs.Runs.Stage0: Build completed successfully (20 jobs).
+event_words.Proofs.Stages: Build completed successfully (51 jobs).
+event_words.Proofs.Assembly: Build completed successfully (17 jobs).
+event_words.Proofs: Build completed successfully (57 jobs).
+'SolarTV.Milestone.EventWords.checked' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.EventWords.decodes' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.EventWords.event_words_mir_to_evmir' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.evm1_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.evm1_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.evm2_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.evm2_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.evm3_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.evm3_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.evm4_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.evm4_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.evm5_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.evm5_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.evm6_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.evm6_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.evm7_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.evm7_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.evm8_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.items_eq' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.EventWords.mir1_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.mir1_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.mir2_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.mir2_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.mir3_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.mir3_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.mir4_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.mir4_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.mir5_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.mir5_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.sched_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.sched_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.stage0_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.stage_evm1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.stage_evm2' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.stage_evm3' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.stage_evm4' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.stage_evm5' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.stage_evm6' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.stage_evm7' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.stage_evm8' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.stage_mir1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.stage_mir2' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.stage_mir3' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.stage_mir4' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.stage_mir5' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.stage_sched' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.EventWords.walk_eq' depends on axioms: [propext, Quot.sound]
+audited 47 theorems
+== 6. the spec (solar-verify) and the headline theorems
+lake packages (20 modules imported): Build completed successfully (2492 jobs).
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.11s
+export: /home/hand/w/dev/.lake/certify/event_words/VC.lean is whole (125 lines, ends with end Certified.EventWords.VC)
+spec: exported to .lake/certify/event_words/VC.lean
+no Certified/event_words/headline: no end-to-end theorem
+== 6b. the published statement
+export: Certified/event_words/gen/EventWords/Spec.lean is whole (48 lines, ends with end Certified.event_words.gen.EventWords.Spec)
+SolidCore.Refinement.Solar.EventWords.Lowering: Build completed successfully (2566 jobs).
+event_words.gen.EventWords.Spec: Build completed successfully (8 jobs).
+Verify.VC.Model: Build completed successfully (2549 jobs).
+Verify.Spec.Tree: Build completed successfully (2553 jobs).
+Verify.Spec.TreeMap: Build completed successfully (2558 jobs).
+Verify.Spec.TreeMapNested: Build completed successfully (2559 jobs).
+Verify.Spec.TreeIn: Build completed successfully (2567 jobs).
+Verify.Spec.TreeSucceeds: Build completed successfully (2559 jobs).
+Verify.VC.KernelIdx: Build completed successfully (2 jobs).
+SolidCore.Refinement.KernelRfl: Build completed successfully (3 jobs).
+spec connected generically: event_words.SpecConnect.swap_holds
+{"proof": "Certified.event_words.Shape.published", "gas_needed": 10210224, "blocks": 6}
+source: SolidCore/Refinement/Source/EventWords.lean is the front end's AST of EventWords in Certified/event_words/event_words.sol (solc 0.8.35)
+event_words.Statement: Build completed successfully (2712 jobs).
+event_words.Final: Build completed successfully (2756 jobs).
+STATEMENT Certified.event_words.Final.Statement := And (Eq.{1} (List.{0} Nat) (List.map.{0, 0} UInt8 Nat (fun (x._@.event_words.Statement.1005636212._hygCtx._hyg.12 : UInt8) => UInt8.toNat x._@.event_words.Statement.1005636212._hygCtx._hyg.12) (Array.toList.{0} UInt8 (ByteArray.data Certified.event_words.Final.code))) Certified.event_words.Final.runtimeBytes) (And Certified.event_words.Final.NonVacuous (Exists.{1} SolidCore.Solidity.TypeCheck.CheckedContract (fun (c : SolidCore.Solidity.TypeCheck.CheckedContract) => And (Eq.{1} (Except.{0, 0} SolidCore.Solidity.TypeCheck.TypeError SolidCore.Solidity.TypeCheck.CheckedContract) SolidCore.Refinement.Solar.EventWords.contract? (Except.ok.{0, 0} SolidCore.Solidity.TypeCheck.TypeError SolidCore.Solidity.TypeCheck.CheckedContract c)) (SolidCore.Refinement.Shapes.Certified (SolidCore.Refinement.solidCore SolidCore.Refinement.Solar.EventWords.fuel) c Certified.event_words.Final.code (SolidCore.Refinement.Shapes.genericValid SolidCore.Refinement.Solar.EventWords.fns (List.nil.{0} (Prod.{0, 0} Nat Nat))) (SolidCore.Refinement.Shapes.bundleAllowed Certified.event_words.gen.EventWords.Spec.EventWords SolidCore.Refinement.Shapes.ctxOfCall) (SolidCore.Refinement.Shapes.bundlePost Certified.event_words.gen.EventWords.Spec.EventWords SolidCore.Refinement.Shapes.ctxOfCall SolidCore.Refinement.Shapes.idStep) (fun (x._@.event_words.Statement.1005636212._hygCtx._hyg.83 : SolarTV.Call) => OfNat.ofNat.{0} Nat 10210224 (instOfNatNat 10210224))))))
+check_final: Certified.event_words.Final.final : Certified.event_words.Final.Statement (module event_words.Statement, which does not import event_words.Shape); axioms [propext, Classical.choice, Quot.sound]
+closure: 3942 modules, 3942 to replay, 0 trusted by directory

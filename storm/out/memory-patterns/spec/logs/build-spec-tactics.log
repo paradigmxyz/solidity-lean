@@ -1,0 +1,118 @@
+⚠ [962/1014] Replayed EvmYul.UInt256
+⚠ [971/1014] Replayed SolidCore.Solidity.Shared.PrecompilePairing
+⚠ [1020/1575] Replayed EvmYul.Wheels
+⚠ [1135/1575] Replayed EvmYul.Maps.ByteMap
+⚠ [1137/1575] Replayed EvmYul.Operations
+⚠ [1143/1575] Replayed EvmYul.Maps.StorageMap
+⚠ [1145/1575] Replayed EvmYul.State.Substate
+⚠ [1146/1575] Replayed Conform.Wheels
+⚠ [1147/1575] Replayed EvmYul.State.Transaction
+⚠ [1150/1575] Replayed EvmYul.Maps.AccountMap
+⚠ [1153/1575] Replayed EvmYul.State.Block
+⚠ [1154/1575] Replayed EvmYul.State
+⚠ [1161/1575] Replayed EvmYul.MachineStateOps
+⚠ [1163/1575] Replayed EvmInteraction.Simulation.Outcome
+⚠ [1168/1575] Replayed SolidCore.Solidity.Interface.Foundation
+⚠ [1170/1575] Replayed SolidCore.Solidity.TypeCheck
+⚠ [1172/1575] Replayed SolidCore.Solidity.Interface.Statements
+⚠ [1173/1575] Replayed SolidCore.Solidity.Interface.Contracts
+⚠ [1177/1575] Replayed SolidCore.Refinement.Generic.Tree
+⚠ [1178/1575] Replayed SolidCore.Refinement.Generic.Packed
+⚠ [1179/1575] Replayed SolidCore.Refinement.Generic.Source
+⚠ [1180/1575] Replayed SolidCore.Refinement.Generic.Simp
+⚠ [1181/1575] Replayed SolidCore.Refinement.Generic.Event
+⚠ [1182/1575] Replayed SolidCore.Refinement.Generic.SourceStmt
+⚠ [1184/1575] Replayed Loom.MonadUtil
+⚠ [1185/1575] Replayed Loom.SpecMonad
+⚠ [1186/1575] Replayed Loom.MonadAlgebras.Defs
+definition with `@[instance_reducible]`. If it is intentionally semireducible, this warning can be disabled with `set_option warn.classDefReducibility false`.
+definition with `@[instance_reducible]`. If it is intentionally semireducible, this warning can be disabled with `set_option warn.classDefReducibility false`.
+definition with `@[instance_reducible]`. If it is intentionally semireducible, this warning can be disabled with `set_option warn.classDefReducibility false`.
+The goal is a proposition, so `let` is preferred over `letI`.
+The difference between `let` and `letI` is that `letI` inlines the value.
+But this is not relevant for proofs because of proof irrelevance.
+⚠ [1188/1575] Replayed Loom.MonadAlgebras.Instances.ExceptT
+definition with `@[instance_reducible]`. If it is intentionally semireducible, this warning can be disabled with `set_option warn.classDefReducibility false`.
+⚠️ There are 2 `[Monad m]` instances; one is sufficient.
+⚠ [1192/1575] Replayed Loom.MonadAlgebras.WP.Basic
+⚠️ There are 2 `[Monad m]` instances; one is sufficient.
+⚠️ There are 2 `[Monad m]` instances; one is sufficient.
+⚠ [1193/1575] Replayed Loom.MonadAlgebras.WP.Variant
+⚠ [1194/1575] Replayed Loom.MonadAlgebras.Instances.ExceptTErr
+definition with `@[instance_reducible]`. If it is intentionally semireducible, this warning can be disabled with `set_option warn.classDefReducibility false`.
+definition with `@[instance_reducible]`. If it is intentionally semireducible, this warning can be disabled with `set_option warn.classDefReducibility false`.
+⚠ [2499/2619] Replayed SolidCore.Refinement.Statement
+⚠ [2513/2619] Replayed SolarTV.Machine
+⚠ [2533/2619] Replayed Verify.VC.Check
+⚠ [2534/2619] Replayed Verify.VC.Discharge
+⚠ [2543/2619] Replayed SolarTV.Stages.Assembly
+⚠ [2550/2668] Replayed Verify.Basic
+⚠ [2575/2668] Replayed SolidCore.Refinement.Evm.Lemmas
+⚠ [2576/2668] Replayed SolidCore.Refinement.Check
+⚠ [2577/2668] Replayed SolidCore.Refinement.Abi
+⚠ [2579/2668] Replayed SolidCore.Refinement.Dirty.Source
+⚠ [2580/2668] Replayed SolidCore.Refinement.Wide.Source
+⚠ [2587/2668] Replayed SolidCore.Refinement.Generic.SourceRun
+⚠ [2589/2668] Replayed SolidCore.Refinement.Generic.Value
+ℹ [2590/2668] Replayed SolidCore.Refinement.KernelCopies
+info: SolidCore/Refinement/KernelCopies.lean:22:0: kernel_clone SolidCore.Solidity.TypeCheck.CheckedInput.contract: 588 copies in 7280 ms
+info: SolidCore/Refinement/KernelCopies.lean:23:0: kernel_clone SolidCore.Solidity.TypeCheck.checkedInputSourceUnit: 372 copies in 1702 ms
+info: SolidCore/Refinement/KernelCopies.lean:24:0: kernel_clone SolidCore.Refinement.Abi.deployedStorage: 116 copies in 293 ms
+info: SolidCore/Refinement/KernelCopies.lean:25:0: kernel_clone SolidCore.Refinement.Wide.deployedEmpty: 1 copies in 6 ms
+info: SolidCore/Refinement/KernelCopies.lean:26:0: kernel_clone SolidCore.Refinement.Dirty.fnShapeOk: nothing to copy
+ℹ [2591/2668] Replayed SolidCore.Refinement.Solar.Events.Lowering
+info: SolidCore/Refinement/Solar/Events/Lowering.lean:276:0: 'SolidCore.Refinement.Solar.Events.selector_eq' depends on axioms: [propext, Quot.sound]
+info: SolidCore/Refinement/Solar/Events/Lowering.lean:278:0: 'SolidCore.Refinement.Solar.Events.digest_eq' depends on axioms: [propext, Quot.sound]
+info: SolidCore/Refinement/Solar/Events/Lowering.lean:280:0: 'SolidCore.Refinement.Solar.Events.shape_eq' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: SolidCore/Refinement/Solar/Events/Lowering.lean:282:0: 'SolidCore.Refinement.Solar.Events.check_stage0' depends on axioms: [propext]
+info: SolidCore/Refinement/Solar/Events/Lowering.lean:284:0: 'SolidCore.Refinement.Solar.Events.checkValue_stage0' depends on axioms: [propext]
+info: SolidCore/Refinement/Solar/Events/Lowering.lean:286:0: 'SolidCore.Refinement.Solar.Events.check_rejects_caller' depends on axioms: [propext]
+info: SolidCore/Refinement/Solar/Events/Lowering.lean:288:0: 'SolidCore.Refinement.Solar.Events.check_rejects_topic' depends on axioms: [propext]
+info: SolidCore/Refinement/Solar/Events/Lowering.lean:290:0: 'SolidCore.Refinement.Solar.Events.check_rejects_order' depends on axioms: [propext]
+info: SolidCore/Refinement/Solar/Events/Lowering.lean:292:0: 'SolidCore.Refinement.Solar.Events.lowering' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: SolidCore/Refinement/Solar/Events/Lowering.lean:294:0: 'SolidCore.Refinement.Solar.Events.loweringValue' depends on axioms: [propext, Classical.choice, Quot.sound]
+⚠ [2597/2668] Replayed SolidCore.Refinement.Generic.StageIn
+⚠ [2603/2668] Replayed Contracts.Counter.VC.Inc
+⚠ [2607/2668] Replayed Verify.Final
+⚠ [2608/2668] Replayed Verify.Finite
+⚠ [2612/2668] Replayed SolidCore.Refinement.Solar.AssembleStackN
+⚠ [2613/2668] Replayed SolidCore.Refinement.Solar.Assemble
+⚠ [2614/2668] Replayed SolidCore.Refinement.Solar.AssembleSim
+⚠ [2615/2668] Replayed SolidCore.Refinement.Solar.W1
+⚠ [2616/2668] Replayed SolidCore.Refinement.Corpus.W5
+⚠ [2622/2668] Replayed W1Proofs.Tactic
+⚠ [2624/2668] Replayed SolidCore.Refinement.Solar.Lowering
+⚠ [2626/2668] Replayed SolidCore.Refinement.Solar.Counter.Lowering
+⚠ [2649/2668] Replayed SolidCore.Refinement.Solar.Counter.SpecAt
+⚠ [2650/2668] Replayed SolidCore.Refinement.Solar.Counter.LoweringAt
+✔ [2660/2759] Built events.SpecConnect (12s)
+⚠ [2666/2759] Replayed SolidCore.Refinement.Solar.W1Value
+⚠ [2669/2759] Replayed SolidCore.Refinement.Dyn.Source
+⚠ [2670/2759] Replayed SolidCore.Refinement.Solar.Counter.Calls
+⚠ [2672/2759] Replayed Contracts.Counter.Final
+⚠ [2686/2759] Replayed SolidCore.Refinement.Keccak.Agree
+info: SolidCore/Refinement/Keccak/Agree.lean:290:0: 'SolidCore.Refinement.Keccak.keccak256_64' depends on axioms: [propext, Classical.choice, Quot.sound]
+⚠ [2687/2759] Replayed SolidCore.Refinement.Keccak.TwoWords
+info: SolidCore/Refinement/Keccak/TwoWords.lean:51:0: 'SolidCore.Refinement.Keccak.ethKeccak_twoWords' depends on axioms: [propext, Classical.choice, Quot.sound]
+ℹ [2690/2759] Replayed SolidCore.Refinement.Solar.Bank.Lowering
+info: SolidCore/Refinement/Solar/Bank/Lowering.lean:611:0: 'SolidCore.Refinement.Solar.Bank.selector_eq' depends on axioms: [propext, Quot.sound]
+info: SolidCore/Refinement/Solar/Bank/Lowering.lean:613:0: 'SolidCore.Refinement.Solar.Bank.digest_eq' depends on axioms: [propext, Quot.sound]
+info: SolidCore/Refinement/Solar/Bank/Lowering.lean:615:0: 'SolidCore.Refinement.Solar.Bank.shape_eq' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: SolidCore/Refinement/Solar/Bank/Lowering.lean:617:0: 'SolidCore.Refinement.Solar.Bank.check_stage0' depends on axioms: [propext]
+info: SolidCore/Refinement/Solar/Bank/Lowering.lean:619:0: 'SolidCore.Refinement.Solar.Bank.checkValue_stage0' depends on axioms: [propext]
+info: SolidCore/Refinement/Solar/Bank/Lowering.lean:621:0: 'SolidCore.Refinement.Solar.Bank.check_rejects_slot' depends on axioms: [propext]
+info: SolidCore/Refinement/Solar/Bank/Lowering.lean:623:0: 'SolidCore.Refinement.Solar.Bank.check_rejects_caller' depends on axioms: [propext]
+info: SolidCore/Refinement/Solar/Bank/Lowering.lean:625:0: 'SolidCore.Refinement.Solar.Bank.check_rejects_topic' depends on axioms: [propext]
+info: SolidCore/Refinement/Solar/Bank/Lowering.lean:627:0: 'SolidCore.Refinement.Solar.Bank.lowering' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: SolidCore/Refinement/Solar/Bank/Lowering.lean:629:0: 'SolidCore.Refinement.Solar.Bank.loweringValue' depends on axioms: [propext, Classical.choice, Quot.sound]
+⚠ [2692/2759] Replayed SolidCore.Refinement.Solar.AssembleFast
+⚠ [2788/2801] Replayed SolidCore.Refinement.Solar.AssembleLoop
+⚠ [2794/2801] Replayed SolidCore.Refinement.Solar.RunOracle
+✔ [2796/2803] Built Contracts.Token.VC.Source (981ms)
+✔ [2798/2803] Built Contracts.Token.VC.Export (521ms)
+✔ [2799/2803] Built verify_token.gen.Token.Stage0 (357ms)
+⚠ [2801/2803] Built Contracts.Token.VC.Burn (30s)
+⚠ [2802/2803] Built Contracts.Token.VC.Transfer (9.0s)
+✔ [2803/2803] Built Contracts.Token.Lowering (35s)
+Build completed successfully (2803 jobs).
+EXIT 0
