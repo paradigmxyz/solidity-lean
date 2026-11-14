@@ -433,10 +433,12 @@ lean_lib ContractsShapes where
 lean_lib ContractsToken where
   roots := #[`Contracts.Token.Lowering, `Contracts.Token.Assembly, `Contracts.Token.Discharge,
     `Contracts.Token.EndToEnd, `Contracts.Token.Exports, `Contracts.Token.LoweringIn,
-    `Contracts.Token.TransferMeets, `Contracts.Token.SpecTree, `Contracts.Token.WorldSpec]
+    `Contracts.Token.TransferMeets, `Contracts.Token.SpecTree, `Contracts.Token.WorldSpec,
+    `Contracts.Token.HashScope]
   globs := #[.one `Contracts.Token.Lowering, .one `Contracts.Token.LoweringIn, .one `Contracts.Token.WorldSpec, .one `Contracts.Token.Assembly,
     .one `Contracts.Token.Discharge, .one `Contracts.Token.EndToEnd,
     .one `Contracts.Token.Exports, .one `Contracts.Token.TransferMeets, .one `Contracts.Token.SpecTree,
+    .one `Contracts.Token.HashScope,
     .submodules `Contracts.Token.Spec]
 
 /-! solar-verify's verification conditions and their kernel-checked discharge (formerly solar's
