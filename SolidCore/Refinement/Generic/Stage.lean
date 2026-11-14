@@ -97,10 +97,10 @@ theorem calldataWord_eq (call : Call) (off : BitVec 256) :
 
 /-- The call of selector `sel` on the argument words `args` from the storage `σ` gives the
 symbolic run its facts, with the argument words, the storage and SolidCore's slot hash
-`⟨args, slotValue σ, solHash⟩`. -/
+`⟨args, slotValue σ, solHash, callerWord⟩`. -/
 theorem callFacts (sel : Nat) (hsel : sel < 2 ^ 32) (args : List Nat)
     (hargs : ∀ a ∈ args, a < 2 ^ 256) (σ : List (Nat × Nat)) :
-    CallFacts sel args.length ⟨args, slotValue σ, solHash⟩
+    CallFacts sel args.length ⟨args, slotValue σ, solHash, callerWord⟩
       { calldata := Abi.calldata sel args, callvalue := 0, storage := σ } := by
   have hcd := calldata_eq_cdOf sel args hargs
   refine ⟨rfl, ?_, ?_, ?_, rfl, slotValue_store σ⟩
@@ -141,7 +141,7 @@ structure SourceEnvOk (o : Oracle) : Prop where
 /-- An oracle `SourceEnvOk` describes is one the symbolic run with the environment flag takes, for
 every call whose hash is `solHash`. -/
 theorem SourceEnvOk.envOk {o : Oracle} (h : SourceEnvOk o) (args : List Nat) (store : Nat → Nat) :
-    EnvOk o ⟨args, store, solHash⟩ :=
+    EnvOk o ⟨args, store, solHash, callerWord⟩ :=
   ⟨h.caller, h.hash⟩
 
 /-- What the flags `env` ask of the oracle: SolidCore's caller when they read the caller, and
@@ -164,8 +164,11 @@ theorem CallerOk.ask {o : Oracle} (h : CallerOk o) : SourceAsk .callerOnly o :=
 
 /-- What the flags ask of the oracle, for the symbolic run on a call whose hash is `solHash`. -/
 theorem SourceAsk.envAsk {env : EnvFlags} {o : Oracle} (h : SourceAsk env o) (args : List Nat)
-    (store : Nat → Nat) : EnvAsk env o ⟨args, store, solHash⟩ :=
-  ⟨h.caller, h.hash⟩
+    (store : Nat → Nat) : EnvAsk env o ⟨args, store, solHash, callerWord⟩ :=
+  ⟨fun hc => by
+    have := h.caller hc
+    unfold CallerOk at this
+    unfold EnvFlags.callerExpr; split <;> simp [WExpr.eval, this, callerWord] <;> rfl, h.hash⟩
 
 /-! ## The check and the stage -/
 

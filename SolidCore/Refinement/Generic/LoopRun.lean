@@ -72,7 +72,7 @@ theorem runtime_run_clean {fuel : Nat} {c : TypeCheck.CheckedContract} {σ : Lis
     (hclean : argsClean ws args = true)
     (hdec : ABI.decodeFunctionArgs? fn (Dirty.argBytes args) = .ok (args.map .word)) :
     runtimeRun fuel c { calldata := Abi.calldata sel args, callvalue := 0, storage := σ } =
-      some (T.eval ⟨args, slotValue σ, solHash⟩).obs := by
+      some (T.eval ⟨args, slotValue σ, solHash, callerWord⟩).obs := by
   unfold runtimeRun runtimeResult?
   simp only [Dirty.bytes_calldata]
   rw [show ({ c.core.context with sender := callerAddress, self := selfAddress, value := 0 } :
@@ -94,7 +94,7 @@ theorem runtime_run_clean {fuel : Nat} {c : TypeCheck.CheckedContract} {σ : Lis
     simp [FunctionDef.acceptsValue, wordEq]
   have hctxv : ctx.value = 0 := by
     subst hctx; simp [ABI.Contract.callContextAtWithBase, SolidCore.Solidity.Shared.norm]
-  set ρ : Val := ⟨args, slotValue σ, solHash⟩ with hρ
+  set ρ : Val := ⟨args, slotValue σ, solHash, callerWord⟩ with hρ
   have hρok : ρ.Ok := slotValue_store σ
   set K := argFacts ws 0 with hK
   have hKρ : K.Hold ρ := argFacts_hold ρ hargs ws 0 (by simpa [hρ] using hclean)

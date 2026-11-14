@@ -127,7 +127,7 @@ theorem runs {c : SolidCore.Solidity.TypeCheck.CheckedContract} (hc : contract? 
     (hT : brTree bumpFn (argFacts [256] 0) bumpBr = some T) (σ : List (Nat × Nat)) (a : Nat)
     (ha : a < 2 ^ 256) :
     runtimeRun fuel c { calldata := Abi.calldata bumpSel [a], callvalue := 0, storage := σ } =
-      some (T.eval ⟨[a], slotValue σ, solHash⟩).obs := by
+      some (T.eval ⟨[a], slotValue σ, solHash, SolidCore.Refinement.Generic.callerWord⟩).obs := by
   obtain ⟨hf, hev, hfind⟩ := shape_of hc
   have hw : widthsOf bumpFn.params bumpFn.paramAbiCleanups = some [256] := rfl
   have hargs : ∀ x ∈ [a], x < 2 ^ 256 := by simpa using ha
@@ -168,7 +168,7 @@ theorem success_spec {c : SolidCore.Solidity.TypeCheck.CheckedContract} (hc : co
       ∀ k, k % Generic.wordSize ≠ 0 → obs.storage k = slotValue σ k := by
   rw [runs hc hT σ a ha] at h
   obtain rfl := Option.some.inj h
-  set ρ : Val := ⟨[a], slotValue σ, solHash⟩ with hρ
+  set ρ : Val := ⟨[a], slotValue σ, solHash, SolidCore.Refinement.Generic.callerWord⟩ with hρ
   have hok : ρ.Ok := slotValue_store σ
   obtain ⟨T', hT', hTe⟩ := brTree_eval bumpFn (argFacts [256] 0) ρ bumpBr T hT
   simp only [Res.obs] at hs ⊢

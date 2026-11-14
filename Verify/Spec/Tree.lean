@@ -69,7 +69,7 @@ def TreeMeets (b : Bundle) (fs : FnSpec) (ctx : Ctx) (n : Nat) (T : Tree) : Prop
     decodeWords fs.params args = some iargs → pre.storage = s → pre.time ≤ ctx.timestamp →
     b.satAll fs.requires (mkEnv ctx iargs [] pre pre) →
     b.satAll b.spec.invariants (mkEnv ctx iargs [] pre pre) →
-    Post b fs ctx pre ghost' (T.eval ⟨args, s, solHash⟩).obs iargs
+    Post b fs ctx pre ghost' (T.eval ⟨args, s, solHash, SolidCore.Refinement.Generic.callerWord⟩).obs iargs
 
 /-- **A function's spec holds of SolidCore's contract when it holds of the erased tree**, on
 the stage's calls of the function (any argument words, no value, any storage covering the
@@ -103,7 +103,7 @@ def TreeMeetsFixed (b : Bundle) (fs : FnSpec) (ctx : Ctx) (n : Nat) (T : Tree) :
     decodeWords fs.params args = some iargs → pre.storage = s → pre.time ≤ ctx.timestamp →
     b.satAll fs.requires (mkEnv ctx iargs [] pre pre) →
     b.satAll b.spec.invariants (mkEnv ctx iargs [] pre pre) →
-    Post b fs ctx pre pre.ghost (T.eval ⟨args, s, solHash⟩).obs iargs
+    Post b fs ctx pre pre.ghost (T.eval ⟨args, s, solHash, SolidCore.Refinement.Generic.callerWord⟩).obs iargs
 
 /-- **`holdsFn_of_tree` for a function that leaves the ghost state alone**: the ghost step is the
 identity on the stage's calls of the function. -/

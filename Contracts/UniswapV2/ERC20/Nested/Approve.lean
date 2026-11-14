@@ -64,7 +64,7 @@ def approveResult (st : Nat → Nat) (spender value : Nat) : Observable :=
 word and every storage. -/
 theorem approve_tree_eval (spender value : Nat) (st : Nat → Nat) (hs : spender < 2 ^ 256)
     (hv : value < 2 ^ 256) :
-    (approve_tree.eval ⟨[spender, value], st, solHash⟩).obs = approveResult st spender value := by
+    (approve_tree.eval ⟨[spender, value], st, solHash, SolidCore.Refinement.Generic.callerWord⟩).obs = approveResult st spender value := by
   have hl := solHash_lt
   simp only [Generic.wordSize] at hl
   have hsN : spender % 2 ^ 256 = spender := Nat.mod_eq_of_lt hs

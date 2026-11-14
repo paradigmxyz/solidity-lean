@@ -2,9 +2,11 @@ import Contracts.UniswapV2.ERC20.SourceMir
 import Contracts.UniswapV2.ERC20.Slice.Bytes
 import uv2_erc20.Gas
 import uv2_erc20.ProofsT.Stages
+import uv2_erc20.AnyCaller
+import Contracts.UniswapV2.ERC20.SourceMirFrom
 
 /-!
-# UniswapV2ERC20.transfer: certified, at the caller 0x2000
+# UniswapV2ERC20.transfer: certified, with the bytes matching the source from any caller
 
 The composition of the slice's edges into one `Shapes.Certified` statement (docs/CERTIFICATION_TARGET.md,
 first slice), for `transfer(address,uint256)` of the pinned port on the exact runtime bytes
@@ -21,8 +23,17 @@ first slice), for `transfer(address,uint256)` of the pinned port on the exact ru
   SolidCore run of a valid call, through `Slice.certified_of`.
 
 **Caller.** Every edge's semantics fixes the caller to `callerAddress` = `Generic.callerWord` =
-0x2000 (`SolarTV.Call` has no caller field), so this statement is about calls from 0x2000.
-`CtxGas.gas_edge` holds from every caller; the source side does not yet.
+0x2000 (`SolarTV.Call` has no caller field), so `certified` is about calls from 0x2000.
+`certified_any_caller` adds, for every caller `a < 2 ^ 160` other than the contract, that the exact
+bytes run from `a` give SolidCore's run of the call sent by `a` (`ResourcesFrom`): E3 from any
+caller (`SourceMirFrom.transfer_stage_from`, the generic check with a symbolic caller), E4 under
+every oracle and the gas edge from any caller (`AnyCaller.resources_any_caller`). The
+postcondition `TargetPost` is still stated at 0x2000.
+
+**Not yet covered.** The deployer stays `callerAddress`, and `TargetPost` and the allowed statuses
+are stated for calls from 0x2000 only. E6 (that `code` is the bytes a fresh solar run emits, by
+driver byte equality and a leanchecker replay) is pending: the statement is about `CtxGas.code` as
+exported at the pinned solar commit.
 
 **Premise.** The valid calls are `Slice.ValidIn` = `Valid deployed call ∧ Scope call`, where
 `Scope call` is the scoped hash premise
@@ -32,6 +43,8 @@ call it is about; nothing else is assumed.
 
 * `certified`: `∃ c, contract? = .ok c ∧ Certified (solidCore fuel) c code ValidIn Allowed
   TargetPost (fun _ => 8199112)`.
+* `certified_any_caller`: `certified` and `ResourcesFrom (fun a => (solidCoreFrom a fuel).run c)
+  code (genericValid0 fns deployed) (fun _ => 8199112)`.
 * `self_max_bytes`, `self_short_bytes`: the two required self-transfer cases run on the exact
   bytes (EthLib), from the gas bound on: balance `2 ^ 256 - 1`, `transfer(caller, 1)` succeeds
   with the storage unchanged and `Transfer(caller, caller, 1)` logged; a self-transfer of 6 from a
@@ -120,6 +133,50 @@ theorem certified : ∃ c, SolidCore.Verify.VC.UniswapV2ERC20.contract? = .ok c 
   rw [show (fun _ : Call => G) = fun _ => 8199112 from funext fun _ => G_eq] at h
   exact ⟨c, hc, h⟩
 
+/-- The oracle of a call from `a` meets E3's premise: its caller is `a` and its Keccak-256 is
+EthLib's. -/
+theorem fromOk_oracleFrom {a : Nat} (ha : a < 2 ^ 160) : Generic.FromOk a (Shapes.oracleFrom a) :=
+  ⟨by
+    show ((BitVec.ofNat 160 a).setWidth 256).toNat = a
+    rw [BitVec.toNat_setWidth, BitVec.toNat_ofNat, Nat.mod_eq_of_lt ha, Nat.mod_eq_of_lt (by omega)],
+   fun x y _ _ => by
+    show (Shapes.oracle.keccak _).toNat = _
+    rw [Shapes.oracle_ok.1.2]
+    exact SolidCore.Refinement.Keccak.ethKeccak_twoWords x y⟩
+
+/-- **E3 from any caller, E4 and E5 composed**: from every account `a` below `2 ^ 160` but the
+contract's own, on every call of transfer E3 takes, the exact runtime bytes run from `a` give
+SolidCore's run of the call sent by `a`, at every gas from `G` on. -/
+theorem resources_any_caller {c : SolidCore.Solidity.TypeCheck.CheckedContract}
+    (hc : SolidCore.Verify.VC.UniswapV2ERC20.contract? = .ok c) :
+    ResourcesFrom (fun a => (solidCoreFrom a fuel).run c) code
+      (genericValid0 SourceMir.fns SourceMir.deployed) (fun _ => G) := by
+  have hdep := SolidCore.Spec.UniswapV2.ERC20.SourceMirDeploy.deploy_eq
+  simp only [SourceMir.deploy?, hc] at hdep
+  obtain ⟨_, hdd⟩ := Wide.deployedAt_of hdep
+  refine SolarTV.Export.UniswapV2ERC20.AnyCaller.resources_any_caller selector_of ?_ ?_
+  · intro a ha _ call hv
+    exact Option.isSome_iff_exists.mp
+      (Generic.definedFrom a ha hdd (SourceMirFrom.checkFrom_ok hc) call hv)
+  · intro a ha _ call hv obs h
+    exact SourceMirFrom.transfer_stage_from a ha (Shapes.oracleFrom a) (fromOk_oracleFrom ha) hc
+      call hv obs h
+
+/-- **UniswapV2ERC20.transfer is certified, with the bytes matching the source from any caller**:
+the statement `certified` (at the caller 0x2000, where the postcondition is stated), and, from
+every caller `a < 2 ^ 160` other than the contract, on every call of `transfer(dst, v)` with
+well-formed calldata, no value and any storage writing the constructor's slot, the exact runtime
+bytes run from `a` give SolidCore's run of the call sent by `a`, exactly from 8199112 gas on. -/
+theorem certified_any_caller : ∃ c, SolidCore.Verify.VC.UniswapV2ERC20.contract? = .ok c ∧
+    Certified (solidCore fuel) c code ValidIn Allowed TargetPost (fun _ => 8199112) ∧
+    ResourcesFrom (fun a => (solidCoreFrom a fuel).run c) code
+      (genericValid0 SourceMir.fns SourceMir.deployed) (fun _ => 8199112) := by
+  obtain ⟨c, hc⟩ := SolidCore.Verify.VC.UniswapV2ERC20.contract_ok
+  have h := certified_of hc (equiv hc) (resources hc)
+  have hr := resources_any_caller hc
+  rw [show (fun _ : Call => G) = fun _ => 8199112 from funext fun _ => G_eq] at h hr
+  exact ⟨c, hc, h, hr⟩
+
 /-- The scoped hash premise inside the statement's valid calls, as stated. -/
 theorem validIn_iff (call : Call) :
     ValidIn call ↔ Valid deployed call ∧ ∀ σ dst v, call = transferCall σ dst v → dst < 2 ^ 160 →
@@ -168,5 +225,9 @@ theorem self_short_bytes (gas : Nat) (h1 : 8199112 ≤ gas) (h2 : gas < 2 ^ 256)
 /-- info: 'SolidCore.Spec.UniswapV2.ERC20.Certified.self_short_bytes' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs (whitespace := lax) in
 #print axioms self_short_bytes
+
+/-- info: 'SolidCore.Spec.UniswapV2.ERC20.Certified.certified_any_caller' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs (whitespace := lax) in
+#print axioms certified_any_caller
 
 end SolidCore.Spec.UniswapV2.ERC20.Certified

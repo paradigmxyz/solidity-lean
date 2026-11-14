@@ -23,7 +23,7 @@ theorem runDebit {c : SolidCore.Solidity.TypeCheck.CheckedContract}
     (hc : SolidCore.Verify.VC.UniswapV2ERC20MutDebit.contract? = .ok c) {σ : List (Nat × Nat)} {dst v : Nat}
     (hcov : Generic.Covers deployed σ) (hto : dst < 2 ^ 160) (hv : v < 2 ^ 256) :
     (solidCore fuel).run c (transferCall σ dst v) =
-      some (transfer_tree.eval ⟨[dst, v], slotValue σ, solHash⟩).obs := by
+      some (transfer_tree.eval ⟨[dst, v], slotValue σ, solHash, SolidCore.Refinement.Generic.callerWord⟩).obs := by
   have hdep := deploy_eq
   simp only [deploy?, hc] at hdep
   obtain ⟨d, hd⟩ := Wide.deployedAt_of hdep
@@ -119,8 +119,8 @@ set_option simprocs false in
 /-- The debit mutant's result on `transfer(1, 2)` from `σd`: success, with the caller's balance
 still 5. -/
 theorem debit_result :
-    (Gen.MutDebit.transfer_tree.eval ⟨[1, 2], slotValue σd, solHash⟩).obs.success = true ∧
-      (Gen.MutDebit.transfer_tree.eval ⟨[1, 2], slotValue σd, solHash⟩).obs.storage (balKey caller) = 5 := by
+    (Gen.MutDebit.transfer_tree.eval ⟨[1, 2], slotValue σd, solHash, SolidCore.Refinement.Generic.callerWord⟩).obs.success = true ∧
+      (Gen.MutDebit.transfer_tree.eval ⟨[1, 2], slotValue σd, solHash, SolidCore.Refinement.Generic.callerWord⟩).obs.storage (balKey caller) = 5 := by
   have hs : ∀ k, slotValue σd k < 2 ^ 256 := fun k => Generic.slotValue_lt σd k
   have hne : balKey 1 ≠ balKey caller := by
     rw [show balKey caller = solHash 8192 1 by simp only [balKey, caller, Generic.callerWord]]
@@ -132,7 +132,7 @@ theorem debit_result :
     simp only [slotValue, σd, List.foldl_cons, List.foldl_nil, if_neg h, Nat.zero_mod, ite_self]
   have h := debit_eval (s := slotValue σd) (dst := 1) (v := 2) hs (by norm_num) (by norm_num)
     (by rw [ha]; norm_num) hne (by rw [hb]; norm_num)
-  have e1 : (⟨[1, 2], slotValue σd, solHash⟩ : Val) = val (slotValue σd) 1 2 := rfl
+  have e1 : (⟨[1, 2], slotValue σd, solHash, SolidCore.Refinement.Generic.callerWord⟩ : Val) = val (slotValue σd) 1 2 := rfl
   rw [← e1] at h
   exact ⟨obs_success _ h.1, obs_storage _ _ (h.2.trans ha)⟩
 

@@ -82,7 +82,7 @@ theorem source_runIn_clean (W : World) {fuel : Nat} {c : TypeCheck.CheckedContra
     (hclean : argsClean ws args = true)
     (hdec : ABI.decodeFunctionArgs? fn (Dirty.argBytes args) = .ok (args.map .word)) :
     Source.runIn W fuel c { calldata := Abi.calldata sel args, callvalue := 0, storage := σ } =
-      some (T.eval ⟨args, slotValue σ, solHash⟩).obs := by
+      some (T.eval ⟨args, slotValue σ, solHash, callerWord⟩).obs := by
   rw [SolidCore.Refinement.Wide.callAt_of_args sel args hargs σ,
     runIn_eq_at W hd, SolidCore.Refinement.Wide.map_ofNat_toNat args hargs]
   have hdrop : ((EthLib.Base.natToBytes 4 sel).map (·.toNat) ++ Dirty.argBytes args).drop
@@ -101,7 +101,7 @@ theorem source_runIn_clean (W : World) {fuel : Nat} {c : TypeCheck.CheckedContra
     simp [FunctionDef.acceptsValue, wordEq]
   have hctxv : ctx.value = 0 := by
     subst hctx; simp [ABI.Contract.callContextAtWithBase, SolidCore.Solidity.Shared.norm]
-  set ρ : Val := ⟨args, slotValue σ, solHash⟩ with hρ
+  set ρ : Val := ⟨args, slotValue σ, solHash, callerWord⟩ with hρ
   have hρok : ρ.Ok := slotValue_store σ
   set K := argFacts ws 0 with hK
   have hKρ : K.Hold ρ := argFacts_hold ρ hargs ws 0 (by simpa [hρ] using hclean)
@@ -237,7 +237,7 @@ theorem source_runIn (W : World) {fuel : Nat} {c : TypeCheck.CheckedContract} {d
     (hT : eraseFn (envOf c.core) fuel fn = some T) (args : List Nat)
     (hlen : args.length = fn.params.length) (hargs : ∀ a ∈ args, a < 2 ^ 256) :
     Source.runIn W fuel c { calldata := Abi.calldata sel args, callvalue := 0, storage := σ } =
-      some (T.eval ⟨args, slotValue σ, solHash⟩).obs := by
+      some (T.eval ⟨args, slotValue σ, solHash, callerWord⟩).obs := by
   unfold eraseFn at hT
   split at hT
   · simp at hT
@@ -247,7 +247,7 @@ theorem source_runIn (W : World) {fuel : Nat} {c : TypeCheck.CheckedContract} {d
   rename_i hret
   simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at hT
   obtain ⟨b, hb, t, ht, rfl⟩ := hT
-  rw [paramGuards_eval ⟨args, slotValue σ, solHash⟩ t hargs ws 0, List.drop_zero]
+  rw [paramGuards_eval ⟨args, slotValue σ, solHash, callerWord⟩ t hargs ws 0, List.drop_zero]
   have hdec := decode_args hw args hlen hargs
   by_cases hclean : argsClean ws args = true
   · rw [if_pos hclean]

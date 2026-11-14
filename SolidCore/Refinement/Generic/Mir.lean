@@ -140,16 +140,24 @@ def outBytes (mem : Nat → OByte) (off size : Nat) : List OByte :=
 structure EnvFlags where
   caller : Bool
   hash : Bool
+  /-- Whether `caller` reads the symbolic caller `WExpr.caller` rather than `callerWord`. -/
+  sym : Bool := false
   deriving DecidableEq, Repr
 
 /-- No environment read. -/
-def EnvFlags.off : EnvFlags := ⟨false, false⟩
+def EnvFlags.off : EnvFlags := { caller := false, hash := false }
 
 /-- The caller and the hash of two words. -/
-def EnvFlags.all : EnvFlags := ⟨true, true⟩
+def EnvFlags.all : EnvFlags := { caller := true, hash := true }
 
 /-- The caller only. -/
-def EnvFlags.callerOnly : EnvFlags := ⟨true, false⟩
+def EnvFlags.callerOnly : EnvFlags := { caller := true, hash := false }
+
+/-- The symbolic caller and the hash of two words: the flags of a check for every caller. -/
+def EnvFlags.allSym : EnvFlags := { caller := true, hash := true, sym := true }
+
+/-- The word `caller` reads under the flags: the symbolic caller, or `callerWord`. -/
+def EnvFlags.callerExpr (ev : EnvFlags) : WExpr := if ev.sym then .caller else .lit callerWord
 
 /-- An effect on symbolic operands: its result and the state after it. `ev` says which
 environment reads `caller` and `keccak256` may take. -/
@@ -165,7 +173,7 @@ def symEffect (ev : EnvFlags) (cv : SV) (n : Nat) : Effect → List SV → SStat
     match memWord st.mem (off % wordSize) with
     | some e => some (some (.w e), st)
     | none => none
-  | .caller, [], st => if ev.caller = true then some (some (.w (.lit callerWord)), st) else none
+  | .caller, [], st => if ev.caller = true then some (some (.w ev.callerExpr), st) else none
   | .keccak256, [.w (.lit off), .w (.lit size)], st =>
     if ev.hash = true ∧ size % wordSize = 64 then
       match memWord st.mem (off % wordSize), memWord st.mem (off % wordSize + 32) with

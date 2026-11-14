@@ -30,7 +30,7 @@ def TreeSucceeds (b : Bundle) (fs : FnSpec) (ctx : Ctx) (n : Nat) (T : Tree) : P
     b.satAll fs.requires (mkEnv ctx iargs [] pre pre) →
     b.satAll b.spec.invariants (mkEnv ctx iargs [] pre pre) →
     b.satAll fs.succeedsIf (mkEnv ctx iargs [] pre pre) →
-    (T.eval ⟨args, s, solHash⟩).obs.success = true
+    (T.eval ⟨args, s, solHash, SolidCore.Refinement.Generic.callerWord⟩).obs.success = true
 
 /-- No mapping slots: nothing to separate. -/
 theorem mapSlotsSeparated_nil : MapSlotsSeparated [] :=

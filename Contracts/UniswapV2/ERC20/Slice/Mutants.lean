@@ -50,7 +50,7 @@ open SolidCore.Spec.UniswapV2.ERC20.Slice.Gen.MutLog in
 /-- SolidCore's run of `call0` on the mutant is its erased tree's result. -/
 theorem runLog {c : SolidCore.Solidity.TypeCheck.CheckedContract}
     (hc : SolidCore.Verify.VC.UniswapV2ERC20MutLog.contract? = .ok c) :
-    (solidCore fuel).run c call0 = some (transfer_tree.eval ⟨[1, 0], slotValue σ0, solHash⟩).obs := by
+    (solidCore fuel).run c call0 = some (transfer_tree.eval ⟨[1, 0], slotValue σ0, solHash, SolidCore.Refinement.Generic.callerWord⟩).obs := by
   have hdep := deploy_eq
   simp only [deploy?, hc] at hdep
   obtain ⟨d, hd⟩ := Wide.deployedAt_of hdep
@@ -67,7 +67,7 @@ open SolidCore.Spec.UniswapV2.ERC20.Slice.Gen.MutRet in
 /-- SolidCore's run of `call0` on the mutant is its erased tree's result. -/
 theorem runRet {c : SolidCore.Solidity.TypeCheck.CheckedContract}
     (hc : SolidCore.Verify.VC.UniswapV2ERC20MutRet.contract? = .ok c) :
-    (solidCore fuel).run c call0 = some (transfer_tree.eval ⟨[1, 0], slotValue σ0, solHash⟩).obs := by
+    (solidCore fuel).run c call0 = some (transfer_tree.eval ⟨[1, 0], slotValue σ0, solHash, SolidCore.Refinement.Generic.callerWord⟩).obs := by
   have hdep := deploy_eq
   simp only [deploy?, hc] at hdep
   obtain ⟨d, hd⟩ := Wide.deployedAt_of hdep
@@ -79,8 +79,8 @@ end Ret
 
 /-- The log mutant's result on `call0`: success, with `Transfer(1, caller, 0)`. -/
 theorem log_result :
-    (Gen.MutLog.transfer_tree.eval ⟨[1, 0], slotValue σ0, solHash⟩).obs.success = true ∧
-      (Gen.MutLog.transfer_tree.eval ⟨[1, 0], slotValue σ0, solHash⟩).obs.logs ≠ [transferLog caller 1 0] := by
+    (Gen.MutLog.transfer_tree.eval ⟨[1, 0], slotValue σ0, solHash, SolidCore.Refinement.Generic.callerWord⟩).obs.success = true ∧
+      (Gen.MutLog.transfer_tree.eval ⟨[1, 0], slotValue σ0, solHash, SolidCore.Refinement.Generic.callerWord⟩).obs.logs ≠ [transferLog caller 1 0] := by
   simp only [Res.obs, slotValue_σ0]
   generalize solHash = H
   simp [Gen.MutLog.transfer_tree, Tree.eval, WExpr.eval, BinOp.eval, UnOp.eval, Log.eval, transferLog,
@@ -88,8 +88,8 @@ theorem log_result :
 
 /-- The return mutant's result on `call0`: success, returning `false`. -/
 theorem ret_result :
-    (Gen.MutRet.transfer_tree.eval ⟨[1, 0], slotValue σ0, solHash⟩).obs.success = true ∧
-      (Gen.MutRet.transfer_tree.eval ⟨[1, 0], slotValue σ0, solHash⟩).obs.output = be32 0 := by
+    (Gen.MutRet.transfer_tree.eval ⟨[1, 0], slotValue σ0, solHash, SolidCore.Refinement.Generic.callerWord⟩).obs.success = true ∧
+      (Gen.MutRet.transfer_tree.eval ⟨[1, 0], slotValue σ0, solHash, SolidCore.Refinement.Generic.callerWord⟩).obs.output = be32 0 := by
   simp only [Res.obs, slotValue_σ0]
   generalize solHash = H
   simp [Gen.MutRet.transfer_tree, Tree.eval, WExpr.eval, BinOp.eval, UnOp.eval, OByte.eval, be32,

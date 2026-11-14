@@ -9,7 +9,7 @@ import SolidCore.Refinement.Generic.Loop
 when the old word is `2 ^ 256 - 1`, else the old word plus one written back.
 
 `StmtRel.congr` moves `StmtRel` to another valuation and symbolic state that show the same
-locals, storage and logs: what a loop's invariant needs to name the state at its header with
+locals, storage, logs and caller: what a loop's invariant needs to name the state at its header with
 fresh words for the values the loop changes.
 -/
 
@@ -21,12 +21,13 @@ theorem StmtRel.congr {ρ ρ' : Val} {E : EraseEnv} {ctx : Context} {rt : Runtim
     (h : StmtRel ρ E ctx rt S) (hash : ρ'.hash = solHash) (ok : ρ'.Ok) (facts : E.facts.Hold ρ')
     (frames : S.scopes.map (frameOf ρ) = S'.scopes.map (frameOf ρ'))
     (store : ∀ k, k < wordSize → Writes.store ρ S.writes k = Writes.store ρ' S'.writes k)
-    (logs : S.logs.map (Log.eval ρ) = S'.logs.map (Log.eval ρ')) :
+    (logs : S.logs.map (Log.eval ρ) = S'.logs.map (Log.eval ρ'))
+    (caller : S.caller.eval ρ = S'.caller.eval ρ' := by rfl) :
     StmtRel ρ' E ctx rt S' :=
   { fields := h.fields
     events := h.events
     checked := h.checked
-    sender := h.sender
+    sender := h.sender.trans caller
     hash := hash
     ok := ok
     frames := h.frames.trans frames

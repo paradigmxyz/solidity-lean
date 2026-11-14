@@ -474,8 +474,8 @@ theorem skim_source (k : Nat) (V : World) {c : SolidCore.Solidity.TypeCheck.Chec
         refine ⟨fun _ => ?_, fun h => absurd hE h⟩
         simp only [hlw, ↓reduceIte, caught_revert, bind_done_ok] at hrun
         simp only [sbind_pure, Result.mapRuntime, map_pure', foldAns_pure, FunctionDef.callBodyResult] at hrun
-        have hpd : (panicBytes 17).map (OByte.eval ⟨[], fun _ => 0, solHash⟩) = Skim.panicData := by rfl
-        simp only [RevertData.overflow, RevertData.untagFixedBytes, encode_panic ⟨[], fun _ => 0, solHash⟩, hpd, Option.bind_some,
+        have hpd : (panicBytes 17).map (OByte.eval ⟨[], fun _ => 0, solHash, SolidCore.Refinement.Generic.callerWord⟩) = Skim.panicData := by rfl
+        simp only [RevertData.overflow, RevertData.untagFixedBytes, encode_panic ⟨[], fun _ => 0, solHash, SolidCore.Refinement.Generic.callerWord⟩, hpd, Option.bind_some,
           Option.map_some, Option.some.injEq] at hrun
         simp only [bind, Option.bind, Option.map, Option.some.injEq] at hrun
         subst hrun
@@ -587,7 +587,7 @@ theorem skim_source (k : Nat) (V : World) {c : SolidCore.Solidity.TypeCheck.Chec
         have hemp : ABI.Contract.encodeRevertData? c.core RevertData.empty = some [] := by
           simp [ABI.Contract.encodeRevertData?]
         have he : ABI.Contract.encodeRevertData? c.core (RevertData.error "TRANSFER_FAILED") = some Skim.errData := by
-          rw [encode_error ⟨[], fun _ => 0, solHash⟩ c.core errB_eq', List.map_map]
+          rw [encode_error ⟨[], fun _ => 0, solHash, SolidCore.Refinement.Generic.callerWord⟩ c.core errB_eq', List.map_map]
           decide
         simp only [payRes, hl2] at hrun
         split_ifs at hrun with h1 h2 h3 h4 h5

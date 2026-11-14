@@ -44,6 +44,8 @@ MUTANTS = {
                         "the add overflow revert reason changed"),
     "SwappedLogArgs": (edit("_transfer", ".value 0, .value 1]]", ".value 1, .value 0]]"),
                        "from and to swapped in the Transfer topics"),
+    "PinnedCaller": (edit("transfer", ".effect (some 2) .caller [],", ".pure 2 .add [.const 0x2000, .const 0],"),
+                     "CALLER replaced by the constant 0x2000: right only for that caller"),
 }
 
 out = gen / "UniswapV2ERC20Mut"

@@ -43,7 +43,7 @@ def exitS : SymState :=
     writes := [(.lit 0, .bin .add (.init 0) (.arg 0))], logs := [] }
 
 /-- The words of the header: the call's `n`, and `i` and `count`. -/
-def hval (ρ : Val) (i c : Nat) : Val := ⟨[ρ.args.getD 0 0, i, c], ρ.store, ρ.hash⟩
+def hval (ρ : Val) (i c : Nat) : Val := ⟨[ρ.args.getD 0 0, i, c], ρ.store, ρ.hash, ρ.caller⟩
 
 /-- The call's `n`. -/
 def nOf (ρ : Val) : Nat := (WExpr.arg 0).eval ρ

@@ -40,7 +40,7 @@ def setStore (s' : Storage) : SolM Unit := fun _ => .ok ((), s')
 
 /-- The words of a call on the argument words `args` from the storage `s`, with SolidCore's slot
 hash. -/
-def valOf (args : List Nat) (s : Storage) : Val := ⟨args, s, solHash⟩
+def valOf (args : List Nat) (s : Storage) : Val := ⟨args, s, solHash, SolidCore.Refinement.Generic.callerWord⟩
 
 /-- A tree that emits no log. -/
 def noLogs : Tree → Bool
