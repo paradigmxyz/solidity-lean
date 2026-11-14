@@ -1,0 +1,274 @@
+⚠ [962/1116] Replayed EvmYul.UInt256
+warning: EvmYul/UInt256.lean: imports `Mathlib.Data.Nat.Basic` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Data.Fin.Basic` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Data.Vector.Basic` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Algebra.Group.Defs` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Algebra.GroupWithZero.Defs` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Algebra.Ring.Basic` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Algebra.Order.Floor.Defs` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Algebra.Order.Floor.Ring` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Algebra.Order.Floor.Semiring` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Data.ZMod.Defs` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Tactic.Ring` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [971/1116] Replayed SolidCore.Solidity.Shared.PrecompilePairing
+warning: SolidCore/Solidity/Shared/PrecompilePairing.lean:144:5: Variable name `h` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _h
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+⚠ [1020/1116] Replayed EvmYul.Wheels
+warning: EvmYul/Wheels.lean: imports `Mathlib.Data.Finmap` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [1136/1181] Replayed EvmYul.Maps.ByteMap
+warning: EvmYul/Maps/ByteMap.lean:20:0: it is recommended to use Std.TreeMap instead
+'Batteries.Data.RBMap' has been deprecated: please replace this import by
+
+import Batteries.Data.RBMap.Basic
+import Batteries.Data.RBMap.Depth
+import Batteries.Data.RBMap.Lemmas
+import Batteries.Data.RBMap.Alter
+import Batteries.Data.RBMap.WF
+⚠ [1138/1181] Replayed EvmYul.Operations
+warning: EvmYul/Operations.lean: imports `Mathlib.Data.Finmap` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [1144/1181] Replayed EvmYul.Maps.StorageMap
+warning: EvmYul/Maps/StorageMap.lean: imports `Mathlib.Data.Multiset.Sort` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/Maps/StorageMap.lean:20:0: it is recommended to use Std.TreeMap instead
+'Batteries.Data.RBMap' has been deprecated: please replace this import by
+
+import Batteries.Data.RBMap.Basic
+import Batteries.Data.RBMap.Depth
+import Batteries.Data.RBMap.Lemmas
+import Batteries.Data.RBMap.Alter
+import Batteries.Data.RBMap.WF
+⚠ [1146/1181] Replayed EvmYul.State.Substate
+warning: EvmYul/State/Substate.lean:1:0: it is recommended to use Std.TreeMap instead
+'Batteries.Data.RBMap' has been deprecated: please replace this import by
+
+import Batteries.Data.RBMap.Basic
+import Batteries.Data.RBMap.Depth
+import Batteries.Data.RBMap.Lemmas
+import Batteries.Data.RBMap.Alter
+import Batteries.Data.RBMap.WF
+⚠ [1147/1181] Replayed Conform.Wheels
+warning: Conform/Wheels.lean: imports `Mathlib.Data.Multiset.Sort` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: Conform/Wheels.lean:4:0: it is recommended to use Std.TreeMap instead
+'Batteries.Data.RBMap' has been deprecated: please replace this import by
+
+import Batteries.Data.RBMap.Basic
+import Batteries.Data.RBMap.Depth
+import Batteries.Data.RBMap.Lemmas
+import Batteries.Data.RBMap.Alter
+import Batteries.Data.RBMap.WF
+⚠ [1148/1181] Replayed EvmYul.State.Transaction
+warning: EvmYul/State/Transaction.lean: imports `Mathlib.Data.List.AList` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [1151/1181] Replayed EvmYul.Maps.AccountMap
+warning: EvmYul/Maps/AccountMap.lean:20:0: it is recommended to use Std.TreeMap instead
+'Batteries.Data.RBMap' has been deprecated: please replace this import by
+
+import Batteries.Data.RBMap.Basic
+import Batteries.Data.RBMap.Depth
+import Batteries.Data.RBMap.Lemmas
+import Batteries.Data.RBMap.Alter
+import Batteries.Data.RBMap.WF
+⚠ [1154/1181] Replayed EvmYul.State.Block
+warning: EvmYul/State/Block.lean: imports `Mathlib.Data.Finset.Basic` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [1155/1181] Replayed EvmYul.State
+warning: EvmYul/State.lean: imports `Mathlib.Data.Finset.Basic` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/State.lean:1:0: it is recommended to use Std.TreeMap instead
+'Batteries.Data.RBMap' has been deprecated: please replace this import by
+
+import Batteries.Data.RBMap.Basic
+import Batteries.Data.RBMap.Depth
+import Batteries.Data.RBMap.Lemmas
+import Batteries.Data.RBMap.Alter
+import Batteries.Data.RBMap.WF
+⚠ [1162/1181] Replayed EvmYul.MachineStateOps
+warning: EvmYul/MachineStateOps.lean:1:0: it is recommended to use Std.TreeMap instead
+'Batteries.Data.RBMap' has been deprecated: please replace this import by
+
+import Batteries.Data.RBMap.Basic
+import Batteries.Data.RBMap.Depth
+import Batteries.Data.RBMap.Lemmas
+import Batteries.Data.RBMap.Alter
+import Batteries.Data.RBMap.WF
+⚠ [1164/1181] Replayed EvmInteraction.Simulation.Outcome
+warning: EvmInteraction/Simulation/Outcome.lean: imports `Mathlib.Data.List.Basic` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [1169/1181] Replayed SolidCore.Solidity.Interface.Foundation
+warning: SolidCore/Solidity/Interface/Foundation.lean:4236:20: Unused tactic linter: `<;>` should be replaced with `;` or be removed.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+⚠ [1171/1181] Replayed SolidCore.Solidity.TypeCheck
+warning: SolidCore/Solidity/TypeCheck.lean:5145:34: Unused tactic linter: `<;>` should be replaced with `;` or be removed.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:6829:26: Variable name `tys` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _tys
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: SolidCore/Solidity/TypeCheck.lean:8978:8: Unused tactic linter: `subst rhs` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:8979:8: Unused tactic linter: `subst lhs` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:8985:6: Unused tactic linter: `(cases rhs) <;> simp_all [sizeOf] <;> omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:8987:6: Unused tactic linter: `(cases target) <;> simp_wf <;> try simp_all <;> omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:8989:6: Unused tactic linter: `(cases fn) <;> simp_wf <;> try simp_all [sizeOf] <;> omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:8998:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9000:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9012:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9044:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9046:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9121:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9161:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9201:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9230:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9329:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9331:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9342:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9359:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9383:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9589:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9591:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9614:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9628:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9630:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9642:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:8985:6: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:8985:42: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:8987:6: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:8987:35: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:8989:6: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:8989:31: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9802:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:10538:4: Variable name `other` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _other
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: SolidCore/Solidity/TypeCheck.lean:15746:14: `String.mk` has been deprecated: Use `String.ofList` instead
+
+Hint: Replace the deprecated name:
+  String.m̵k̵o̲f̲L̲i̲s̲t̲
+warning: SolidCore/Solidity/TypeCheck.lean:15753:29: `String.mk` has been deprecated: Use `String.ofList` instead
+
+Hint: Replace the deprecated name:
+  String.m̵k̵o̲f̲L̲i̲s̲t̲
+warning: SolidCore/Solidity/TypeCheck.lean:15755:26: `String.mk` has been deprecated: Use `String.ofList` instead
+
+Hint: Replace the deprecated name:
+  String.m̵k̵o̲f̲L̲i̲s̲t̲
+⚠ [1173/1181] Replayed SolidCore.Solidity.Interface.Statements
+warning: SolidCore/Solidity/Interface/Statements.lean:1053:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:516:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:1380:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:1331:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:792:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:1211:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:1130:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:3179:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:746:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:958:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:1024:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:1087:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:656:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:493:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:2189:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:679:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:994:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:701:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:95:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:9024:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:9079:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:9128:0: unused `termination_by`, function is not recursive
+⚠ [1174/1181] Replayed SolidCore.Solidity.Interface.Contracts
+warning: SolidCore/Solidity/Interface/Contracts.lean:1261:31: Unused tactic linter: `<;>` should be replaced with `;` or be removed.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/Interface/Contracts.lean:1261:31: Used `tac1 <;> tac2` where `(tac1; tac2)` would suffice
+
+Note: This linter can be disabled with `set_option linter.unnecessarySeqFocus false`
+warning: SolidCore/Solidity/Interface/Contracts.lean:3000:6: Variable name `storageOrder` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _storageOrder
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: SolidCore/Solidity/Interface/Contracts.lean:3165:6: Variable name `dispatchOrder` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _dispatchOrder
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: SolidCore/Solidity/Interface/Contracts.lean:3176:6: Variable name `sharedConstantTail` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _sharedConstantTail
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+✔ [1181/1181] Built Contracts.UniswapV2.ERC20.Slice.Gen.MutLog.Core (101s)
+Build completed successfully (1181 jobs).
+EXIT 0 time 104s peakKB 4712540

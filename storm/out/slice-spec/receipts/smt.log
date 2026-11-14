@@ -1,0 +1,12 @@
+✔ SafeMath.add (0 obligations)
+✔ SafeMath.sub (0 obligations)
+✔ SafeMath.mul (0 obligations)
+✔ UniswapV2ERC20.approve (0 obligations)
+✔ UniswapV2ERC20.transfer (7 obligations)
+✔ UniswapV2ERC20.transferFrom (0 obligations)
+✔ UniswapV2ERC20.permit (0 obligations)
+✔ UniswapV2ERC20.constructor (0 obligations)
+✔ UniswapV2ERC20._mint (0 obligations)
+✔ UniswapV2ERC20._burn (0 obligations)
+verification results:: 10 verified, 0 errors
+EXIT 0 time 61s peakKB 209872

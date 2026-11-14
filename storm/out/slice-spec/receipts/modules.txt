@@ -1,0 +1,23 @@
+Contracts.UniswapV2.ERC20.Slice.Gen.Spec EXIT 0 time 3s peakKB 
+Contracts.UniswapV2.ERC20.Slice.Gen.Tree EXIT 0 time 94s peakKB 6055944
+Contracts.UniswapV2.ERC20.Slice.Post EXIT 0 time 10s peakKB 2985480
+Contracts.UniswapV2.ERC20.Slice.Run EXIT 0 time 8s peakKB 2587000
+Contracts.UniswapV2.ERC20.Slice.Vc EXIT 0 time 34s peakKB 3747596
+Contracts.UniswapV2.ERC20.Slice.Statement EXIT 0 time 6s peakKB 2577092
+Contracts.UniswapV2.ERC20.Slice.Bytes EXIT 0 time 6s peakKB 2577284
+Contracts.UniswapV2.ERC20.Slice.Gen.MutLog.Source EXIT 0 time 6s peakKB 2089584
+Contracts.UniswapV2.ERC20.Slice.Gen.MutLog.Core EXIT 0 time 104s peakKB 4712540
+Contracts.UniswapV2.ERC20.Slice.Gen.MutLog.Tree EXIT 0 time 89s peakKB 6058012
+Contracts.UniswapV2.ERC20.Slice.Gen.MutRet.Source EXIT 0 time 5s peakKB 2049948
+Contracts.UniswapV2.ERC20.Slice.Gen.MutRet.Core EXIT 0 time 97s peakKB 4715672
+Contracts.UniswapV2.ERC20.Slice.Gen.MutRet.Tree EXIT 0 time 84s peakKB 6056216
+Contracts.UniswapV2.ERC20.Slice.Mutants EXIT 0 time 33s peakKB 4343880
+Contracts.UniswapV2.ERC20.Slice.BundleNeg EXIT 0 time 6s peakKB 2266648
+Contracts.UniswapV2.ERC20.Slice.Gen.MutDebit.Source EXIT 0 time 5s peakKB 2026920
+Contracts.UniswapV2.ERC20.Slice.Gen.MutDebit.Core EXIT 0 time 100s peakKB 4735280
+Contracts.UniswapV2.ERC20.Slice.Gen.MutDebit.Tree EXIT 0 time 82s peakKB 6085620
+Contracts.UniswapV2.ERC20.Slice.MutantsDebit EXIT 0 time 17s peakKB 3473496
+Contracts.UniswapV2.ERC20.Slice.All EXIT 0 time 7s peakKB 2606976
+lib ContractsUniswapV2TransferSlice EXIT 0 time 3s peakKB 
+sorry lines: 0
+DONE
