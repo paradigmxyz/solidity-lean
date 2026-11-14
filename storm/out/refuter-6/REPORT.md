@@ -1,168 +1,148 @@
-# refuter-6: attempts to reach a status stronger than what is proved
+# refuter-6: what still reaches the strongest status (round 3)
 
-Driver: solar `alpharush/certified` at 38b5232ad (scripts/certify, tools/certify/final.py,
-check_final.lean). Lean: solidity-lean `alpharush/certified-translation` at d5daff5. Target:
-docs/CERTIFICATION_TARGET.md (v1).
+Driver: solar `alpharush/certified` **902cccc2c** (scripts/certify, tools/certify/final.py,
+check_final.lean, replay.py). Lean: solidity-lean `alpharush/certified-translation` **f8a4a74**
+(transfer `Shapes.Certified` at caller 0x2000). Target: docs/CERTIFICATION_TARGET.md.
 
-Method: `Refute6/variant.sh` (in sl-refuter6.bundle) runs step 6b of the driver for one edited
-shape.json: the head final.py writes Statement/Final, `audit.sh scan` passes, lean compiles both,
-the head `check_final.lean` accepts the type, axioms and closure, `leanchecker` replays the
-variant's modules and the Refute6 modules, and the record's `strongest` flag is read with the
-driver's own rule (`strongest` and every status "proved"/"not applicable"). With a clean
-provenance (CERTIFY_CLEAN_BUILD=1, committed inputs), `strongest=True` is the condition under which
-the driver prints CERTIFIED. R1-R6 and R8 ran on the Counter tree of d54dabf (Verify/Shapes.lean,
-ShapeBundle.lean, Contracts/Counter, SolidCore/Refinement/Solar/Counter and Certified/counter are
-byte-identical at d5daff5; scripts/certify and check_final.lean are identical at 38b5232ad); R9
-ran on d5daff5. Every Lean file here builds with axioms propext, Classical.choice, Quot.sound only.
+## Summary
 
-Results at a glance (strongest = what final.py records and the driver prints as CERTIFIED):
+| id | class | 902cccc2 / f8a4a74 | evidence |
+|---|---|---|---|
+| R1 | premise equal to the conclusion | **still strongest** | Refute6/out/v3-r1-premise-is-conclusion.out |
+| R1b | premise `False` | **still strongest** | v3-r1b-premise-false.out |
+| R4 | gas bound 2^64-1 | **still strongest** | v3-r4-gas-2p64.out |
+| R4b | committed bounds above the Osaka tx cap | **still strongest** (bank, verify_token) | final.py on committed shapes, below |
+| R5 | statement input shadowed by an imported `Certified.<name>` | **still strongest** | v3-r5-shadowed-valid.out |
+| R6 | valid calls narrowed to one call | **still strongest** | v3-r6-one-valid-call.out |
+| R8 | planted `.lake/build/bin/leanchecker` | **fixed** (absolute path; `no_planted_bins`) | v3-r8-planted-bin.out, v3-r8-skipkernel-control.out: refused by the kernel replay |
+| R9 | open_functional with no admitted world | labels "proved", not strongest (kind) | v3-r9-open-empty-worlds.out |
+| R10 | planted `.lake/build/lib/libdl.so.2` | **still strongest**, full closure replay | v3-r10-planted-libdl-full.out; control with the fix: refused (v3-r10-fix-control.out) |
+| H1 | universal `MapSlotsSeparated [0]` premise | published by bank and verify_token at strongest | below |
+| T1-T3 | transfer statement (f8a4a74) | sound for its stated scope; gaps below | below |
 
-| id | class | variant | expected | actual |
-|---|---|---|---|---|
-| R1 | vacuous premise | env premise = the conclusion (named KeccakModel), proof `id` | refused | strongest=True |
-| R1b | vacuous premise | env premise `False`, proof `False.elim` | refused | strongest=True |
-| R4 | gas-bound vacuity | gas bound `2^64 - 1` | refused | strongest=True |
-| R4b | gas-bound vacuity | committed bounds above the Osaka tx cap (verify_token 42,697,212; bank 155,937,612; verify_counter unbounded in n) | resources not proved | resources "proved" |
-| R5 | statement shadowing | imported `Certified.<valid name>` replaces the declared valid calls by one call | refused | strongest=True |
-| R6 | Valid not pinned | `valid` = one call | below strongest | strongest=True |
-| R8 | toolchain substitution | committed path-dependency lakefile plants `.lake/build/bin/leanchecker`; proof uses a kernel-unchecked `False` | refused by replay | strongest=True (control without the plant: refused) |
-| R9 | open-world vacuity | open_functional with `env_ok` and `admit` = `fun _ => False` | refused / "not proved" | equivalence, termination, spec "proved", "proved non-vacuous" (not strongest: kind) |
-| R7 | env var | CERTIFY_WRAP drops leanchecker | refused | by reading only (see below) |
-| H1 | false premise | HashInj / SlotsSeparated over all 2^160 keys | not a premise of a published statement | verify_token publishes HashInj |
-| F1 | frontend binding | source_bind binds Source.lean, not the statement's `contract` term | bound | gap, not demonstrated |
+"Strongest" means the driver's own rule: final.py's record flag, every status "proved" or "not
+applicable", check_final accepting the exact type and axioms, and the kernel replay passing. With a
+clean provenance (CERTIFY_CLEAN_BUILD=1, committed inputs), that is when scripts/certify prints
+CERTIFIED.
 
-## R1: any Prop is accepted as an environment premise (incl. one equal to the conclusion, or False)
+## Method and receipts
 
-Repro: shape.json of counter with
-`"env": ["Refute6.KeccakModel"]`, `"spec_modules": [..., "Refute6.Model"]`, `"proof": "id"`, where
-`Refute6.KeccakModel` (Refute6/Model.lean) is defined as the very `∃ c, contract? = .ok c ∧
-Shapes.Certified …` the statement concludes. Statement: `bound ∧ NonVacuous ∧ (KeccakModel → …)`.
-R1b: `"env": ["False"]`, `"proof": "False.elim"`.
-Expected: refused, or recorded below strongest. Actual: both `strongest=True`, assumptions
-`['Refute6.KeccakModel']` / `['False']` (h-r1-premise-is-conclusion.out, h-r1b-premise-false.out).
-A name-based refusal of ad-hoc keccak premises (hash-scope's pre-reset patch) does not stop R1b or a
-premise with any other name.
-Fix: (a) premises only from an allow-list of reviewed constants, checked by check_final on the
-compiled statement (constant name and the hash of its value), never free terms; (b) the statement
-carries a satisfiability witness for the premises together with the precondition, generated by the
-driver: `∃ call, Valid call ∧ Env call` with premises stated per call (scoped to the call's
-preimages, as the target requires), so `False` or an unsatisfiable premise cannot be proved; (c)
-for the strongest status, no premise may mention the contract, the source or the code (check_final
-walks the premise's value for `Shapes.*`, the contract constant and `code`).
+Harness `Refute6/variant2.sh LEAN_DIR SOLAR_DIR counter Counter LABEL 'EDIT'` runs step 6b of the
+driver with SOLAR_DIR's tools: final.py, `audit.sh scan`, `$toolchain/bin/lean` (absolute path,
+under `lake env`, as 902cccc2 does) for Statement/Final and check_final.lean, and
+`$toolchain/bin/leanchecker --verbose` under `lake env` for the replay (the variant's modules and
+Refute6.*; `REPLAY=full` replays and accounts the whole closure with replay.py, as the driver does).
+`Refute6/v3-runs.sh` lists every run with its exact edit. Each output ends with a receipt line
+`RECEIPT exit=N peak_rss_mb=M wall_s=S cmd=...` (Refute6/rtime.py, getrusage of the children).
 
-## R4 / R4b: the gas bound is unbounded above
+- Build: `LEAN_NUM_THREADS=1 lake -R -KleanMemory=6000 build Refute6.Proof Refute6.Model
+  Refute6.Shadow Refute6.SkipKernel Refute6.Axioms counter.gen.Counter.Bytecode
+  Contracts.Counter.ShapeExport` on f8a4a74 + Refute6: **exit 0, peak 2905 MB, 105 s**
+  (Refute6/out/v3-build.log).
+- `#print axioms` (Refute6/Axioms.lean, same build): restrict, raise, published_huge, published_one,
+  post_rejects1, nonvacuous_one, published_open, nonvacuous_open, Refute6.KeccakModel: [propext,
+  Classical.choice, Quot.sound]; allowed_rejects1: [propext, Quot.sound]. No sorry. Refute6.SkipKernel
+  is the deliberately kernel-unchecked module of R8/R10 (`debug.skipKernelTC`), the negative input.
+- solar 902cccc2 built from its sources (`cargo build --locked --bin solar`, `-p solar-verify`: exit 0,
+  peak 1469 MB); its Counter runtime bytes equal Certified/counter/bytecode.hex; its spec export
+  regenerated Certified/counter/gen/Counter/Spec.lean and `lake build counter.gen.Counter.Spec
+  Refute6.Proof` exits 0.
+- Variant runs: peak RSS 7.8-7.9 GB is `lake env` + lean summed over the run's children
+  (ru_maxrss of the largest child); each lean ran with `-M 6000`.
+- Counter's Lean inputs (Verify/Shapes.lean, ShapeBundle.lean, Contracts/Counter,
+  SolidCore/Refinement/Solar/Counter, Certified/counter) are byte-identical between 9fb89ee and
+  f8a4a74; check_final.lean is unchanged since round 1; final.py at 902cccc2 adds allowed_export and
+  source_sem only.
 
-R4 repro: `"gas": "Refute6.hugeGas"` (`fun _ => 2^64 - 1`), proof `published_huge` (the published
-proof with the bound raised, Refute6/Variants.lean `raise`). Actual: `strongest=True`.
-`Resources` only asks `G call < 2^64`; any proved bound lifts to every larger one, so the status
-says nothing a chain can use.
-R4b (committed shapes, no edit): EthLib fixes `TX_MAX_GAS_LIMIT = 16777216` (EIP-7825,
-EthLib/Execution/Evm/Gas/Prices.lean:151) and its transaction validity proof requires
-`tx.gas ≤ TX_MAX_GAS_LIMIT` at fusaka (Proofs/Transactions/Validity.lean:163), the fork the runners
-use. verify_token's bound 42,697,212 and bank's 155,937,612 exceed it, and verify_counter's
-`gasBoundL cert ((n + 2) * 22)` exceeds it for large n. For those, no valid Osaka transaction reaches
-the bound, so `Resources` is vacuous on chain while `Equiv` admits an inert failure at every gas
-below it: the statements hold of bytecode that runs out of gas on every real call. The record says
-resources "proved".
-Fix: final.py states `∀ call, Valid call → G call + intrinsic call ≤ TX_MAX_GAS_LIMIT` (EthLib's
-constant and intrinsic gas) as a conjunct of the statement; a contract whose bound does not fit
-records resources "not proved: bound above the transaction gas cap".
+Note on R8's first control: a `libdl.so.2` left in `.lake/build/lib` by an earlier run made the
+plain kernel-unchecked control pass too. Nothing in the driver looks at that directory; it was
+removed and both R8 runs repeated (refused).
 
-## R5: statement inputs are resolved inside `namespace Certified.NAME.Final`
+## Findings still open
 
-final.py writes the shape's inputs (valid, allowed, contract, fuel, gas, env, spec_export ctx/step)
-without `_root_`, inside `namespace Certified.NAME.Final`. Lean resolves `A.B.c` to
-`Certified.A.B.c` first when that exists. Repro: Refute6/Shadow.lean declares
-`Certified.SolidCore.Refinement.Solar.Counter.ShapeSpec.cspec.Calls := oneCall`; listing it among
-spec_modules (any module of the statement's closure works, the proof module does not) makes the
-statement's valid calls one call; proof `published_one`, witness `nonvacuous_one`. Actual:
-`strongest=True`; the record's statement text still reads
-`SolidCore.Refinement.Solar.Counter.ShapeSpec.cspec.Calls`; only the kernel's STATEMENT line shows
-`Certified.SolidCore.Refinement.Solar.Counter.ShapeSpec.cspec.Calls` (h-r5-shadowed-valid.out).
-Fix: final.py prefixes every input identifier with `_root_` (or elaborates the inputs as
-definitions before `namespace`), and check_final refuses any constant under `Certified.` in the
-statement's value other than the module's own (`runtimeBytes`, `code`, `NonVacuous`).
+**R1/R1b** (premises). final.py takes any `Prop` in shape.json's `env`; the statement is
+`bound ∧ NonVacuous ∧ (env → shape)`. A premise equal to the conclusion (proof `id`) or `False`
+(proof `False.elim`) is strongest. Fix: premises from a reviewed allow-list checked by check_final
+on the compiled statement (constant name and value hash); state them per call inside a generated
+`∃ call, Valid call ∧ Env call` witness so an unsatisfiable premise cannot be proved; refuse a
+premise whose value mentions the contract, the source or `code`.
 
-## R6: the valid-call set is a free shape input
+**R4** (gas). `Resources` only asks `G call < 2^64`, and any proved bound lifts to every larger one.
+**R4b**: EthLib's `TX_MAX_GAS_LIMIT = 16777216` (EIP-7825, Execution/Evm/Gas/Prices.lean:151) bounds
+every Osaka transaction (Proofs/Transactions/Validity.lean:163). 902cccc2's final.py on the committed
+shapes of f8a4a74 gives the strongest flag, every status proved, to **bank** (bound 155,937,612) and
+**verify_token** (42,697,212), and verify_counter's `gasBoundL cert ((n + 2) * 22)` exceeds the cap
+for large n. Above the cap no real transaction reaches the bound, so Resources says nothing on chain
+while Equiv admits an inert failure below it. Fix: final.py adds `∀ call, Valid call →
+G call + intrinsic call ≤ TX_MAX_GAS_LIMIT` to the statement, else resources "not proved".
 
-Repro: `"valid": "SolidCore.Refinement.Solar.Counter.Refute6.oneCall"` (`fun c => c = incCall`),
-with the published proof restricted (`restrict`) and both non-vacuity witnesses at that call.
-Actual: `strongest=True`. `inhabited` and `NonVacuous` are met by the one call, so a statement
-about a single input is reported like one about every well-formed call. The target fixes the slice's
-Valid (any caller, any to and value, any storage).
-Fix: the driver writes Valid itself from the compiled ABI and the scope (`genericValid fns storage`
-with fns read from solar's ABI export of the run), or check_final requires `valid` to be
-definitionally that term; a narrower declared scope is recorded below strongest with its reason.
+**R5** (shadowing). Inputs other than spec_export/allowed_export are still written without
+`_root_` inside `namespace Certified.NAME.Final`; an imported
+`Certified.SolidCore.Refinement.Solar.Counter.ShapeSpec.cspec.Calls := oneCall` replaces the valid
+calls, and the record's statement text still shows the unprefixed name. Fix: prefix every input
+identifier with `_root_` (or elaborate inputs before `namespace`), and have check_final refuse any
+`Certified.*` constant in the statement other than the module's own.
 
-## R8: a committed lakefile replaces the kernel replay
+**R6** (valid calls). `valid` is a free input: one call meets `inhabited` and both NonVacuous
+witnesses. Fix: the driver writes Valid from solar's ABI export and the declared storage scope
+(`genericValid fns storage`); a narrower scope is recorded below strongest with its reason.
 
-Lake evaluates every lakefile of the workspace (the root's and the path dependencies' under vendor/),
-unsandboxed, when the driver first runs lake with no cached configuration, which CERTIFY_CLEAN_BUILD=1
-guarantees. `lake env` puts `<pkg>/.lake/build/bin` of every package, the root's and vendor/*'s
-before the toolchain's bin on PATH. Repro: append to vendor/evm-interaction/lakefile.lean an
-`#eval` that writes `.lake/build/bin/leanchecker` (`exit 0`); then `lake env which leanchecker`
-prints `<checkout>/.lake/build/bin/leanchecker`. With proof module Refute6/SkipKernel.lean (a
-`False` theorem added with `debug.skipKernelTC`, proof `False.elim Refute6.fake`), check_final
-accepts the type and axioms and the replay `lake env leanchecker …` succeeds: `strongest=True`
-(r8-planted-checker). Control with the plant removed: "refused by the kernel replay". Every file is
-committed, so clean_tree reports nothing; guard_build only snapshots `.lake/build/lib/lean`, and
-the fingerprints do not cover `.lake/build/bin`. The same PATH order lets a plant named `lean`
-reach the steps that run `lake env lean`.
-Fix: run the toolchain's binaries by absolute path from the checked toolchain directory
-(`$toolchain/bin/leanchecker`, `$toolchain/bin/lean`) in every step; refuse the run when any
-`.lake/build/bin` or `vendor/*/.lake/build/bin` exists after a step; treat lakefiles as untrusted
-(elaborate the configuration in the sandbox once, or refuse lakefiles with commands other than the
-Lake DSL's).
+**R10** (loader path). 902cccc2 runs lean and leanchecker by absolute path but still under
+`lake env`, whose LD_LIBRARY_PATH lists every package's `.lake/build/lib` (the root's third). The
+toolchain binaries need libdl.so.2, libm.so.6, libpthread.so.0, librt.so.1 from the system (only
+libc++, libLLVM, libz... ship in its lib/). A `libdl.so.2` there (Refute6/r10/shim.c, built with
+shim.map's GLIBC_2.2.5 version node) runs before leanchecker's main, prints `replaying M` for each
+argument and exits 0. With it, the full closure replay (423 modules planned, replay.py's account)
+passes and a proof of `False` added without the kernel check is strongest
+(v3-r10-planted-libdl-full.out). How it gets there in a run: `no_planted_bins` checks `bin` only,
+guard_build snapshots `lib/lean` only, and lake elaborates the path dependencies' lakefiles
+(vendor/*/lakefile.lean) unsandboxed; appending to vendor/evm-interaction/lakefile.lean an `#eval`
+that copies a committed file to `.lake/build/lib/libdl.so.2` plants it on the first `lake env`
+(checked; reverted). Fix: solar-refuter6-v3.bundle / patch/0001-fix-certify-run-the-checkers-
+without-lake-env-s-load.patch (on 902cccc2c): `tc_run` = `lake env env -u LD_LIBRARY_PATH -u
+LD_PRELOAD -u LD_AUDIT` for check_final's closure listing, check_final and the replay. With that
+invocation the same plant is refused by the kernel replay (v3-r10-fix-control.out, exit 1). Also
+worth doing: fail on any file under `*/.lake/build/lib` outside `lib/lean`, and elaborate lakefiles
+in the sandbox.
 
-## R9: open_functional admits empty environments and worlds
+**R9** (open_functional). `env_ok` and `admit` = `fun _ => False` still give equivalence,
+termination and spec "proved" and vacuity "proved non-vacuous"; not strongest (kind). Fix: generated
+`(∃ env, EnvOk env) ∧ (∃ W, Admit W)` conjunct; the allowed half of NonVacuous over some admitted
+world.
 
-Repro (d5daff5): counter with `"kind": "open_functional"`, `"env_ok": "fun _ => False"`,
-`"wide": "fun _ => True"`, `"admit": "fun _ => False"`, `"allowed": "fun _ => …ShapeSpec.allowed"`,
-proof `published_open` (every obligation but `inhabited` by `False.elim`), witness
-`nonvacuous_open` (its allowed half `∀ W, admit W → ¬ allowed W call obs` holds by `False.elim`).
-Actual: check_final and the replay accept; the record says equivalence, termination and spec
-"proved" and vacuity "proved non-vacuous" (r9.out). Not printed as CERTIFIED (kind), but the labels
-claim more than is proved, and the Pair statement uses this kind with `Admit = Wide ∧ PairFramed`,
-whose inhabitation nothing checks.
-Fix: the statement carries `(∃ env, EnvOk env) ∧ (∃ W, Admit W ∧ ∀ call, Valid call → …runIn W
-terminates)` or at least `∃ W, Admit W`, generated by final.py; the allowed half of NonVacuous
-quantifies over some admitted world (`∃ W, Admit W ∧ ¬ allowed W call obs`).
+**H1** (universal hash premise). bank and verify_token publish `SolidCore.Spec.MapSlotsSeparated [0]`
+= `KeccakSeparated` over all 2^160 keys: injective and every image `≥ 2^128`. For a random-like
+256-bit hash, 2^160 keys give about 2^32 expected images below 2^128 and 2^63 expected colliding pairs,
+so the premise is false by that heuristic (the kernel cannot decide it: an argument, not a proof).
+902cccc2's final.py records both at the strongest status. The target asks for the footprint-scoped
+form (`ScopedSep`), which the transfer slice uses. Fix: final.py refuses premises built from the
+universal definitions (MapSlotsSeparated, SlotsSeparated, NestedSlotsSeparated, HashInj) at the
+strongest status.
 
-## R7: CERTIFY_WRAP (by reading, not run)
+## The transfer statement (f8a4a74, Contracts/UniswapV2/ERC20/Certified/Transfer.lean)
 
-`run()` prefixes every cargo, lake, lean and leanchecker command with CERTIFY_WRAP, which is
-neither refused in CI nor recorded as a caveat. A wrapper that exits 0 for leanchecker (wrap.sh in
-the pre-reset bundle) gives R8's result without any committed change. Fix: record a non-empty
-CERTIFY_WRAP as a provenance caveat, and never wrap the replay and check_final steps.
+`certified : ∃ c, contract? = .ok c ∧ Certified (solidCore fuel) c code ValidIn Allowed TargetPost
+(fun _ => 8199112)`. Read against the target; no variant reaches a stronger claim:
 
-## H1: hash premises over all 2^160 keys are false for keccak with overwhelming likelihood
+- Premise: `ValidIn = Valid deployed ∧ Scope`, `Scope` = `ScopedSep (transferFootprint 1 0x2000 dst)`
+  per call, inhabited by `call0` with the premise proved of the real keccak256 by the kernel
+  (`scopedSep_transfer_example`). Not vacuous; calls whose two slots collide are outside the statement.
+- Gas: 8,199,112, under the tx cap (R4b does not apply).
+- Bytes: CtxGas.code is exported by scripts/verify/uniswap_v2_erc20_stages.sh from solar 697fc6864,
+  whose compiler sources (crates, Cargo.toml, Cargo.lock) equal 902cccc2c's.
 
-The target says single-level maps over 160-bit keys have no cardinality obstruction. True, but
-`keccakWord` is a fixed function, and `KeccakSeparated` adds `2^128 ≤ keccakWord x`. For a random
-function to 256 bits, 2^160 inputs give about 2^160 · 2^160 / 2^257 = 2^63 expected colliding pairs
-and 2^160 · 2^-128 = 2^32 expected images below 2^128. So `HashInj`
-(Contracts/Token/VC/Transfer.lean:424, a premise of Certified/verify_token's published statement),
-`SlotsSeparated m` and `MapSlotsSeparated` (Verify/Spec/Hash.lean, TreeMap.lean) are, by the
-random-oracle heuristic, false; the kernel cannot refute them, so this is not a proof. Fix: allow
-only the scoped form the target names (pairwise over the preimages a call hashes, here
-{caller, to} for balanceOf), and have final.py refuse premises built from these universal
-definitions.
-
-## F1: the source binding binds a file, not the statement's contract
-
-source_bind.sh checks that `source_ast.file` is the front end's AST of the run's source, but the
-statement's `contract` is a free term (counter: `SolidCore.Refinement.Solar.Counter.contract?` in
-the hand-written Spec.lean, `TypeCheck.CheckedInput.contract Source.Counter.importedSourceUnit
-"Counter"`). Nothing relates the two, so a committed edit of the term (another source unit, or a
-transformed AST) keeps "source: bound". Not demonstrated end to end (it needs a second proof).
-Fix: final.py writes `contract` itself as `TypeCheck.CheckedInput.contract
-<source_ast.namespace>.importedSourceUnit "<source_ast.contract>"`, or check_final requires the
-shape's term to unfold to it.
+Gaps (labels, not soundness):
+- **T1 caller.** Valid fixes the caller to 0x2000 (`SolarTV.Call` has no caller field); the target's
+  slice says ANY caller. AnyCaller.lean proves E4∘E5 from any caller but E3 does not yet. The theorem
+  is named `certified`; it must not be reported as the slice's CERTIFIED until the caller is
+  quantified.
+- **T2 allowed statuses.** `Allowed` (success or SafeMath's sub/add errors) has no rejection witness
+  in Lean (`nonVacuous_target` covers TargetPost only); the driver's NonVacuous asks for both.
+- **T3 binding.** There is no Certified/uv2_erc20/shape.json, so the driver neither states this
+  theorem with `bound` against its own compile nor replays and audits it: E6 rests on the export
+  script, not the published wrapper.
 
 ## Not found
 
-No bypass of check_final's type equality, the Statement/proof module split, or the axiom audit
-beyond R8. LEAN_PATH: lake env appends a caller's LEAN_PATH after the package paths, so a module
-of the workspace cannot be replaced that way. Transfer slice: the transfer statement has not landed
-on the PR branch; `EndToEndTFSpec.published_tf` (transferFrom) still takes
-`NestedSlotsSeparated [1, 4] [2]` (vacuous, as the target says) and a fixed caller.
+No bypass of check_final's exact type check, the Statement/proof split or the axiom audit other than
+through the replay (R10). R8 is closed by 902cccc2.

@@ -1,0 +1,61 @@
+From ff9ff50d146da8f89338d310f346fd0a6302890b Mon Sep 17 00:00:00 2001
+From: refuter6 <refuter6@localhost>
+Date: Sat, 14 Nov 2026 22:57:06 +0000
+Subject: [PATCH] fix(certify): run the checkers without lake env's loader path
+
+lake env sets LD_LIBRARY_PATH to every workspace package's .lake/build/lib,
+so a library planted there under a name the toolchain does not ship is
+loaded into lean and leanchecker before the system's. Run both by
+absolute path with the loader variables unset; the toolchain's binaries
+find their own libraries by RUNPATH.
+---
+ scripts/certify | 12 +++++++++---
+ 1 file changed, 9 insertions(+), 3 deletions(-)
+
+diff --git a/scripts/certify b/scripts/certify
+index 4dbde9786..ba15fe473 100755
+--- a/scripts/certify
++++ b/scripts/certify
+@@ -135,6 +135,12 @@ no_planted_bins() {
+         die "cannot search $lean_dir for build bin directories"
+     [[ -z "$found" ]] || die "the checkout has executables lake env would run before the toolchain's: $(head -3 <<<"$found" | tr '\n' ' ')"
+ }
++# tc_run CMD...: CMD (a toolchain binary by absolute path) under lake env's LEAN_PATH, without the
++# loader variables lake env sets: its LD_LIBRARY_PATH lists every package's .lake/build/lib, so a
++# library planted there under a name the toolchain does not ship (libdl.so.2, libm.so.6,
++# libpthread.so.0) would load into the checker before the system's. The toolchain's binaries find
++# their own libraries by RUNPATH.
++tc_run() { lake env env -u LD_LIBRARY_PATH -u LD_PRELOAD -u LD_AUDIT "$@"; }
+ iso_setup() {
+     [[ -n "$iso_bin" ]] && return
+     local tcroot
+@@ -848,7 +854,7 @@ PYEOF
+     # when the checker fails or lists none, so that a fingerprint never covers an empty closure.
+     closure_oleans() {
+         local listing
+-        listing="$(lake env "$toolchain/bin/lean" --run "$here/check_final.lean" --closure "$1")" || return 1
++        listing="$(tc_run "$toolchain/bin/lean" --run "$here/check_final.lean" --closure "$1")" || return 1
+         awk '$1 == "MODULE" { print $3 }' <<<"$listing" | grep . || return 1
+     }
+     # fingerprint_files: what the fingerprint covers, each producer's status checked (a group
+@@ -908,7 +914,7 @@ PYEOF
+     # final's axioms are the three admitted.
+     proof_mod="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["proof_module"])' "$dir/shape.json")"
+     no_planted_bins
+-    if ! lake env "$toolchain/bin/lean" --run "$here/check_final.lean" "$name" "$proof_mod" > "$log" 2>&1; then
++    if ! tc_run "$toolchain/bin/lean" --run "$here/check_final.lean" "$name" "$proof_mod" > "$log" 2>&1; then
+         cat "$log" >&2
+         die "the checker refuses the published statement of $name"
+     fi
+@@ -981,7 +987,7 @@ PYEOF
+     [[ "$batch" =~ ^[1-9][0-9]*$ ]] || die "CERTIFY_REPLAY_BATCH is not a positive number: $batch"
+     : > "$log.replay"
+     for ((i = 0; i < ${#replay_mods[@]}; i += batch)); do
+-        lake env "$toolchain/bin/leanchecker" --verbose "${replay_mods[@]:i:batch}" >> "$log.replay" 2>&1 ||
++        tc_run "$toolchain/bin/leanchecker" --verbose "${replay_mods[@]:i:batch}" >> "$log.replay" 2>&1 ||
+             { replay_status=$?; break; }
+     done
+     python3 "$here/replay.py" account "$replay_plan" "$log.replay" "$replay_status" "$replay_receipt" \
+-- 
+2.43.0
+

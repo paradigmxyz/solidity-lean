@@ -1,24 +1,28 @@
-# refuter-6 result
+# refuter-6 result (round 3: solar 902cccc2c, solidity-lean f8a4a74)
 
-Deliverable: REPORT.md (R1, R1b, R4, R4b, R5, R6, R8, R9 reproduced; R7, H1, F1 by reading).
+Still strongest at 902cccc2c: R1, R1b, R4, R5, R6, R10, and the committed bank and verify_token
+shapes (R4b gas above the tx cap, H1 universal hash premise). Fixed: R8. R9 labels "proved" without
+strongest. Transfer (f8a4a74): sound for caller 0x2000 with the scoped premise; gaps T1 (caller
+fixed), T2 (no Allowed witness), T3 (not through the driver). Details: REPORT.md.
 
-Checked:
-- sl-refuter6.bundle: solidity-lean branch refuter6/head, prerequisite d5daff5
-  (alpharush/certified-translation). Adds lean_lib Refute6 (lakefile) and Refute6/{Model, Variants,
-  Shadow, Open, Proof, SkipKernel}.lean, the harness Refute6/variant.sh and r9.out.
-  `lake -KleanMemory=6000 build Refute6.Proof`: exit 0 (2721 jobs), LEAN_NUM_THREADS=1.
-  Theorems (namespace SolidCore.Refinement.Solar.Counter.Refute6): restrict, raise, published_huge,
-  published_one, post_rejects1, allowed_rejects1, nonvacuous_one, published_open, nonvacuous_open;
-  axioms propext, Classical.choice, Quot.sound. Refute6/SkipKernel.lean is the hostile module of R8
-  (kernel-unchecked on purpose; the toolchain's leanchecker refuses it).
-- Variant runs: `Refute6/variant.sh LEAN_DIR SOLAR_DIR counter Counter LABEL 'EDIT'` with SOLAR_DIR at
-  solar 38b5232ad; exit 0 and `strongest=True` for R1, R1b, R4, R5, R6 and R8 (planted checker);
-  exit 1 "refused by the kernel replay" for R8's control; exit 0, labels "proved", strongest False
-  for R9. Outputs under wip/ (pre-reset bundle, Refute6/harness/*.out) and r9.out.
-- Memory: every Lean process capped at -M 6000 (peak not measured) on a 14 GB Hand.
+Deliverables here:
+- sl-refuter6-v3.bundle: solidity-lean branch refuter6/v3, prerequisite f8a4a74. lean_lib Refute6:
+  Model, Variants, Shadow, Open, Proof, SkipKernel (kernel-unchecked on purpose), Axioms; harness
+  Refute6/variant2.sh, Refute6/v3-runs.sh, Refute6/rtime.py; R10 shim sources Refute6/r10/; all run
+  outputs with receipts under Refute6/out/ (v3-* this round, v2-* the driver-lane round).
+- solar-refuter6-v3.bundle (prerequisite 902cccc2c, branch refuter6/r10-fix) and
+  patch/0001-fix-certify-run-the-checkers-without-lake-env-s-load.patch: the R10 fix, bash -n
+  checked, exercised by v3-r10-fix-control (refused). Not run as a full scripts/certify.
 
-Earlier full-driver run (pre-reset, storm/solar-sq): R1 passed steps 1-6b through check_final; the
-kernel replay did not finish before the Hand paused, so no full-driver CERTIFIED line was captured.
+Receipts:
+- `LEAN_NUM_THREADS=1 lake -R -KleanMemory=6000 build Refute6.Proof Refute6.Model Refute6.Shadow
+  Refute6.SkipKernel Refute6.Axioms counter.gen.Counter.Bytecode Contracts.Counter.ShapeExport`:
+  exit 0, peak RSS 2905 MB, 105 s.
+- `#print axioms`: every Refute6 theorem [propext, Classical.choice, Quot.sound] or a subset; no sorry.
+- solar 902cccc2c `cargo build --locked --bin solar` + `-p solar-verify`: exit 0, peak 1469 MB.
+- Variant runs (v3-*.out): exit 0 and strongest=True for baseline, R1, R1b, R4, R5, R6, R10 (full
+  closure replay); exit 1 "refused by the kernel replay" for R8 planted bin, the unchecked-proof
+  control and the R10 fix control; exit 0 strongest=False for R9. Each lean with -M 6000.
 
-Missing: a full scripts/certify run printing CERTIFIED for one variant (about 40 min with
-CERTIFY_CLEAN_BUILD=1); fixes are proposals, not patches.
+Missing: a full scripts/certify run printing CERTIFIED for a variant (the harness runs step 6b with
+the driver's own tools); the transfer slice through the driver (no shape.json exists).
