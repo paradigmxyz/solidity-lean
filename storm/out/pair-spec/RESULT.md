@@ -1,93 +1,99 @@
 # pair-spec lane: UniswapV2Pair swap/skim/sync statement, negative controls by execution
 
-Base: solidity-lean `alpharush/certified-translation` d5daff5 (target: docs/CERTIFICATION_TARGET.md v1),
-solar `alpharush/certified` 38b5232ad. Delivered as `sl-pair-spec.patch` / `sl-pair-spec.bundle`
-(one commit, e206d84, on d5daff5). No solar change this round. Earlier work: `wip/`.
+Base: solidity-lean `alpharush/certified-translation` **9fb89ee**. Deliverable: `sl-pair-spec.patch` /
+`sl-pair-spec.bundle`, three commits on 9fb89ee (e84e2de, 2cb7cd6, 1a855e0). No solar change.
+Earlier rounds: `wip/`.
 
-**Status: NOT CERTIFIED. No edge E3..E8 is proved for the pair's swap, skim or sync.**
-`published_of_stages` is still an interface: no stage theorem it needs exists yet (pair-stages-a/b
-have published none as of 05:20 UTC Nov 14), so nothing was replaced. What this round proves is
-the statement's repair (the premise), and negative controls by execution.
+**Status: NOT CERTIFIED. No edge E3, E4, E5, E7, termination or E8 is proved for the pair.**
+`published_of_stages` is still an interface. pair-stages-a and pair-stages-b have only `wip/` bundles
+under storm/out (no RESULT.md, no theorem names) as of 14:30 UTC Nov 14, so no stage hypothesis was
+replaced. This round: the premise is repaired, and the negative controls are mutated programs run.
 
-## Edges for UniswapV2Pair swap, skim, sync (target's table)
+## Edges (swap, skim, sync)
 
-| Edge | Status | Name / hypothesis |
+| Edge | Status | Name |
 |---|---|---|
-| E0 port | TRUSTED, stated | solar-tv/uniswap-v2/port.py |
-| E1 frontend | TRUSTED, stated | uniswap_v2_sources.py + solc_ast_to_lean_source.py |
+| E0 port, E1 frontend | TRUSTED, stated | port.py; uniswap_v2_sources.py + solc_ast_to_lean_source.py |
 | E2 semantics | definition | `Source.runIn W fuel c` (open world) |
-| E3 source -> MIR | **hypothetical** | inside `Stages.EquivSwap/EquivSkim/EquivSync c`; source acceptance only is proved: `SolidCore.Verify.VC.UniswapV2Pair.contract_ok` |
-| E4 MIR -> EVM IR | **hypothetical** | inside `Stages.Equiv*`; expected from pair-stages-b (no name published) |
-| E5 EVM IR -> bytes | **hypothetical** | inside `Stages.Equiv*`; CALL-making runner premises (CalleesRun) not discharged anywhere for the pair |
-| E6 binding | proved (kernel) | `PairSpec.Negative.bound`: export = solar's plain compile, 4446 bytes |
-| E7 spec | **hypothetical** | `Stages.MeetsSwap/MeetsSkim/MeetsSync c` (spec connection, open world; not proved: spec_connect/eraseFn do not erase functions with external calls) |
-| termination | **hypothetical** | `Stages.TermSwap/TermSkim/TermSync c` |
-| E8 resources | **not stated** | no gas bound (callees spend gas) |
+| source acceptance | proved | `SolidCore.Verify.VC.UniswapV2Pair.contract_ok` (upstream) |
+| E3 source -> MIR | **hypothesis** | `Stages.EquivSwap/EquivSkim/EquivSync c` |
+| E4 MIR -> EVM IR | **hypothesis** | inside `Stages.Equiv*` (pair-stages-b; no name yet) |
+| E5 EVM IR -> bytes | **hypothesis** | inside `Stages.Equiv*`; the pair makes CALLs, so AssembleNoCall's call-free route does not apply; CalleesRun undischarged |
+| E6 binding | proved | `PairSpec.Negative.bound` (kernel decide, 4446 bytes) |
+| E7 spec | **hypothesis** | `Stages.MeetsSwap/MeetsSkim/MeetsSync c` |
+| termination | **hypothesis** | `Stages.TermSwap/TermSkim/TermSync c` |
+| E8 gas | **not stated** | |
 
-Interface risk: pair-stages-b's restart scope models external calls in the assembly runner with
-`CalleesRun`; `Stages.EquivOn` is stated over `Target.runWithIn` (EthLib with other accounts). A
-bridge from their runner form to `EquivOn` will be needed; not written.
+## Premise (2cb7cd6)
 
-## Changes this round (`Contracts/UniswapV2/PairSpec`)
+`PairAllowanceApart := ∀ s < 2^160, 13 ≤ zeroAllowanceSlot s % 2^256`: the words
+`allowance[address(0)][s]` that the ERC20 invariant `forall s :: allowance[address(0)][s] == 0`
+reads avoid the pair's 13 fixed slots (swap/skim/sync write only 8, 9, 10, 12). This is avoidance,
+not injectivity, so there is no counting refutation. `PairAllowanceApart.satisfiable` shows it holds
+for a hash model. It is **not footprint-scoped**: the invariant quantifies over every address, so
+`Verify/Spec/HashScope.lean`'s `ScopedSep`/`HashScope` (finite footprint) do not express it. Named
+apart from `SolidCore.Spec.HashScope` to avoid a clash. The other keccak word the spec reads,
+`balanceOf[address(0)]`, needs no premise: `zeroBalance_ge` (kernel keccak, `TrustedBase.image3`).
 
-1. **Premise repaired.** The statement assumed `NestedSlotsSeparated [1, 4] [2]`, which is
-   unsatisfiable (target doc), so `Statement` held vacuously. Now `HashScope` (Inputs.lean):
-   `13 ≤ zeroBalanceSlot % 2^256 ∧ ∀ s < 2^160, 13 ≤ zeroAllowanceSlot s % 2^256`: the keccak
-   words the spec reads (`balanceOf[0]`, `allowance[0][s]` of the ERC20 invariants) avoid the
-   pair's 13 fixed slots (swap/skim/sync write only slots 8, 9, 10, 12). Avoidance, not
-   injectivity: no counting obstruction (2^160 + 1 outputs vs 13 values). Not proved; a premise,
-   placeholder for the hash-scope lane's name (none published yet).
-2. **Negative controls by execution** (Negative.lean, Refusal.lean). One swap,
-   `swap(0, 906, 0x3000, "")` from reserves 10000/10000 with 1000 token0 in, is run on the exact
-   bytes in EthLib (`Target.runWithIn` with two token accounts: `transfer` → true, else a fixed
-   balance) and on SolidCore's checked source in the matching world (`Source.runIn`):
+## Negative controls by execution
 
-| Control | Run (evaluated, `#guard`) | Refusal |
+Runs are of the exact bytes in EthLib (`Target.runWithIn`, token accounts at 0x4000/0x5000 whose code
+answers `transfer` with true and anything else with a fixed balance) and of SolidCore's checked source
+in the matching world (`Source.runIn`). Mutants are generated by
+`scripts/verify/uniswap_v2_pair_spec.sh` as source edits, compiled by solar (`-Ogas --evm-version osaka`)
+and translated by the same frontend (not committed: GPL-derived).
+
+| Control | Executed (evaluated, `#guard`) | Refused by (kernel theorem) |
 |---|---|---|
-| real bytes / real source | both succeed, reserves 11000/9094, unlocked | `k_accepts` (kernel): published K clause accepts every post-state with these reserves |
-| missing reserve update (swap without `_update`: solar's compile of the mutant and SolidCore's translation of it) | bytes and source both succeed, reserves 10000/10000 | `noUpdate_refused` (kernel): `HashScope → ¬ Post W swapCall obs` for every successful obs with reserves 10000/10000 |
-| wrong K (spec fee 4/1000) | real runs above | `wrongK_refused` (kernel): the mutated spec refuses every successful obs with reserves 11000/9094 |
-| altered jump (first PUSH2 t JUMPI, t+1) | altered bytes: swap fails | `altered_not_bound` (kernel): fails the binding |
-| mismatched environment | source in a world answering 11000/9000 ≠ bytes among tokens answering 11000/9094 | evaluated inequality |
-| closed world | bytes with no token accounts: swap reverts | evaluated (why a closed-world statement is vacuous) |
+| real swap `swap(0,906,0x3000,"")`, balances 11000/9094 | bytes and source: success, reserves 11000/9094 | `k_accepts`: published K clause accepts |
+| swap without `_update` | mutant bytes and mutant source: success, reserves 10000/10000 | `noUpdate_refused`: `PairAllowanceApart → ¬ Post W swapCall obs` for every successful obs with reserves 10000/10000 |
+| wrong K spec (fee 4/1000) | real runs | `wrongK_refused`: every successful obs with reserves 11000/9094 |
+| real skim `skim(0x3000)`, balances 11000/10500 | bytes and source: success, reserves 10000/10000 | — |
+| skim with `_update` first | mutant bytes and mutant source: success, reserves 11000/10500 | `skimUpdate_refused`: every successful skim obs with reserve0 ≠ 10000 |
+| altered jump (first PUSH2 t JUMPI, t+1) | altered bytes: swap fails | `altered_not_bound` (binding) |
+| mismatched environment | source in world 11000/9000 ≠ bytes among tokens 11000/9094 | evaluated inequality |
+| closed world | bytes with no token accounts: swap reverts | evaluated |
 
-What is kernel-checked: the refusals, over every observable with the executed features (success
-and the reserves word). What is evaluated, not kernel-checked: the runs themselves (`#guard`,
-Lean's compiled evaluator). EthLib's `processMessage` is well-founded recursion the kernel does
-not reduce (`decide +kernel` gets stuck), and a kernel source run needs the checked contract,
-which only the 22 staged modules produce. Mutants are generated by
-`scripts/verify/uniswap_v2_pair_spec.sh` (not committed; GPL-derived).
+**Limit, stated exactly:** the runs are checked by Lean's compiled evaluator (`#guard`), not the
+kernel. EthLib's `processMessage` is well-founded recursion that `decide +kernel` does not reduce. The
+refusals are kernel theorems that quantify over every observable with the evaluated features, so
+only the step "the run has these features" rests on the evaluator.
 
-solar-verify on the same mutants (`--only UniswapV2Pair.swap --timeout 60000`, z3 4.13.4):
-real source + published spec: verified (29 obligations, exit 0); real source + wrong-K spec:
-exit 1; mutant source + published spec: exit 1. Both refusals are **solver timeouts on the K
-clause, not counterexamples**, so they are weak evidence.
+Not refutable with this spec: a sync that skips `_update`. sync's exported ensures are only
+SUPPLY_KEPT and !LOCKED; the reserve postcondition sits on the private `_update`, which is not in the
+exported function specs. This is from reading `Spec.lean` and is not proved here. It is a spec gap
+for the spec lane.
 
-## Theorems (all `#print axioms` ⊆ propext, Classical.choice, Quot.sound; no sorry / native_decide)
+## Axioms (Axioms.lean, `#guard_msgs`; the build fails on any change)
 
-`SolidCore.Spec.UniswapV2.PairSpec.`: `published_of_stages` (interface), `bytecode_of_statement`,
-`nonVacuous`, `Negative.bound`, `Negative.altered_not_bound`, `Negative.pre_swap`,
-`Negative.noUpdate_refused`, `Negative.wrongK_refused`, `Negative.k_accepts`,
-`Negative.swapCall_valid`.
+| theorem | axioms |
+|---|---|
+| `published_of_stages`, `bytecode_of_statement`, `nonVacuous`, `Negative.pre_swap`, `pre_swapWrongK`, `pre_skim`, `noUpdate_refused`, `wrongK_refused`, `k_accepts`, `skimUpdate_refused`, `PairAllowanceApart.satisfiable`, `Shapes.OpenFunctional.bytecode_any`, `of_parts` | propext, Classical.choice, Quot.sound |
+| `inhabited`, `alterJump_changes`, `altered_not_bound`, `swapCall_valid`, `skimCall_valid`, `zeroBalance_ge` | propext |
+| `Negative.bound` | none |
 
-## Build (this Hand, 14 GB, LEAN_NUM_THREADS=1)
+There is no sorry, native_decide, bv_decide or ofReduceBool in PairSpec/*.lean or Verify/ShapeOpen.lean (grep).
+
+## Build receipts (this Hand, 14 GB, LEAN_NUM_THREADS=1, Lean 4.35)
 
 ```
-scripts/verify/uniswap_v2_gen.sh                                        # exit 0
-SOLAR_DIR=<solar 38b5232ad> SOLAR=.../solar SOLAR_VERIFY=.../solar-verify \
-  scripts/verify/uniswap_v2_pair_spec.sh                                # exit 0 (8892 / 8884 hex digits)
-lake build -KleanMemory=6000 ContractsUniswapV2PairSpec                 # exit 0
+scripts/verify/uniswap_v2_gen.sh                                     exit 0
+SOLAR_DIR=solar@38b5232ad SOLAR=… SOLAR_VERIFY=… \
+  scripts/verify/uniswap_v2_pair_spec.sh                             exit 0  (runtime 8892, mutants 8884 / 9076 hex digits)
+rm -rf .lake/build/{lib/lean,ir}/Contracts/UniswapV2/PairSpec
+lake build -KleanMemory=6000 ContractsUniswapV2PairSpec              exit 0  wall 136 s  peak RSS 2949 MB
 ```
-Per module (`lean -M 6000`): Refusal 7 s, Negative 59 s (the evaluated runs), Published 2 s,
-NonVacuous 4 s; peak RSS 2.9 GB.
+Negative.lean: 102 s for the evaluated runs. Peak RSS is the largest child process (python rusage).
 
-## Still hypothetical / missing (every edge)
+## solar-verify on the mutants
 
-- E3, E4, E5 for swap, skim, sync (`Stages.Equiv*`), including CalleesRun for CALLs; plus a bridge from the stage lanes' runner form to `Target.runWithIn`.
-- Termination (`Stages.Term*`).
-- E7 spec connection (`Stages.Meets*`), open world.
-- E8 gas bound: not stated.
-- `HashScope`: unproved premise (to be replaced by the hash-scope lane's scoped premise).
-- `PairFramed` admission: worlds with reentrant state change are `Unadmitted`, reported not covered.
-- mint, burn: out of the statement (world-dependent ghost step drafted in `wip/`, not wired in).
-- Runs in the negative controls are evaluated, not kernel-checked.
+The 60 s run of the earlier round refused both mutants only by solver timeout, not by counterexample. A 240 s rerun is in progress (`--only UniswapV2Pair.swap --timeout 240000`, z3 4.13.4). So far the real source with the published spec is verified (29 obligations, exit 0). The next push records the wrong-K and missing-update results.
+
+## Still hypothetical or missing
+
+- E3, E4, E5 for swap/skim/sync (`Stages.Equiv*`) and the bridge from the stage lanes' runner form to `Target.runWithIn`; CalleesRun for the CALLs.
+- Termination (`Stages.Term*`). E7 spec connection (`Stages.Meets*`) in the open world. E8 not stated.
+- `PairAllowanceApart`: an unproved premise, not footprint-scoped.
+- `PairFramed`: results only a reentrant world explains are `Unadmitted` and not covered.
+- mint and burn are not in the statement.
+- The runs in the negative controls are evaluated, not kernel-checked.

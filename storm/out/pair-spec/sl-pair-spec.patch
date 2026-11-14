@@ -1,7 +1,7 @@
-From e206d84f13de1c27f016e96c385db9f5364b584d Mon Sep 17 00:00:00 2001
+From e84e2de826d054ec62ecad47d174d9dab9c9c315 Mon Sep 17 00:00:00 2001
 From: pair-spec lane <pair-spec@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 05:21:22 +0000
-Subject: [PATCH] feat(uniswap-v2): pair negative controls by execution
+Subject: [PATCH 1/3] feat(uniswap-v2): pair negative controls by execution
 
 Run swap on the exact bytes in EthLib among two token accounts and on
 the checked source in the matching world, then on swap without its
@@ -553,6 +553,542 @@ index 7a91921..4ca94a2 100755
 +print("end SolidCore.Spec.UniswapV2.PairSpec")
 +PY
 +echo "wrote $out/SourceNoUpdate.lean $out/RuntimeNoUpdate.lean (${#hexmut} hex digits)"
+-- 
+2.43.0
+
+
+From 2cb7cd68da8c8b98c03b2f7598d6e0538605b6e9 Mon Sep 17 00:00:00 2001
+From: pair-spec lane <pair-spec@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 14:08:00 +0000
+Subject: [PATCH 2/3] fix(uniswap-v2): pair premise without hash injectivity
+
+Name the pair statement's premise PairAllowanceApart: the words
+allowance[address(0)][s] that the ERC20 invariant reads avoid the
+pair's 13 fixed slots. Drop the balanceOf[address(0)] half, which the
+kernel computes (TrustedBase.image3), and show the premise holds for a
+hash model, so it is not False in disguise. The new name keeps the
+pair's premise apart from Verify/Spec/HashScope.lean's HashScope.
+
+Add an axiom audit of every pair headline, checked by #guard_msgs.
+---
+ Contracts/UniswapV2/PairSpec/Axioms.lean    | 79 +++++++++++++++++++++
+ Contracts/UniswapV2/PairSpec/Inputs.lean    | 25 +++----
+ Contracts/UniswapV2/PairSpec/Published.lean |  2 +-
+ Contracts/UniswapV2/PairSpec/Refusal.lean   | 39 +++++++---
+ Contracts/UniswapV2/PairSpec/Stages.lean    |  2 +-
+ Contracts/UniswapV2/PairSpec/Statement.lean |  9 ++-
+ lakefile.lean                               |  2 +-
+ 7 files changed, 126 insertions(+), 32 deletions(-)
+ create mode 100644 Contracts/UniswapV2/PairSpec/Axioms.lean
+
+diff --git a/Contracts/UniswapV2/PairSpec/Axioms.lean b/Contracts/UniswapV2/PairSpec/Axioms.lean
+new file mode 100644
+index 0000000..bac590a
+--- /dev/null
++++ b/Contracts/UniswapV2/PairSpec/Axioms.lean
+@@ -0,0 +1,79 @@
++import Contracts.UniswapV2.PairSpec.Negative
++import Contracts.UniswapV2.PairSpec.NonVacuous
++
++/-!
++# UniswapV2Pair statement: the axiom audit
++
++Every theorem of the pair's statement, wrapper, binding and negative controls, with the axioms the
++kernel reports for it. The build fails if any gains an axiom (`#guard_msgs`): each is a subset of
++propext, Classical.choice and Quot.sound; none uses sorry, native_decide or ofReduceBool. The
++evaluated runs of Negative.lean (`#guard`) are not theorems and are not listed.
++-/
++
++/-- info: 'SolidCore.Spec.UniswapV2.PairSpec.inhabited' depends on axioms: [propext] -/
++#guard_msgs (whitespace := lax) in
++#print axioms SolidCore.Spec.UniswapV2.PairSpec.inhabited
++
++/-- info: 'SolidCore.Spec.UniswapV2.PairSpec.published_of_stages' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms SolidCore.Spec.UniswapV2.PairSpec.published_of_stages
++
++/-- info: 'SolidCore.Spec.UniswapV2.PairSpec.bytecode_of_statement' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms SolidCore.Spec.UniswapV2.PairSpec.bytecode_of_statement
++
++/-- info: 'SolidCore.Spec.UniswapV2.PairSpec.nonVacuous' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms SolidCore.Spec.UniswapV2.PairSpec.nonVacuous
++
++/-- info: 'SolidCore.Spec.UniswapV2.PairSpec.Negative.bound' does not depend on any axioms -/
++#guard_msgs (whitespace := lax) in
++#print axioms SolidCore.Spec.UniswapV2.PairSpec.Negative.bound
++
++/-- info: 'SolidCore.Spec.UniswapV2.PairSpec.Negative.alterJump_changes' depends on axioms: [propext] -/
++#guard_msgs (whitespace := lax) in
++#print axioms SolidCore.Spec.UniswapV2.PairSpec.Negative.alterJump_changes
++
++/-- info: 'SolidCore.Spec.UniswapV2.PairSpec.Negative.altered_not_bound' depends on axioms: [propext] -/
++#guard_msgs (whitespace := lax) in
++#print axioms SolidCore.Spec.UniswapV2.PairSpec.Negative.altered_not_bound
++
++/-- info: 'SolidCore.Spec.UniswapV2.PairSpec.Negative.swapCall_valid' depends on axioms: [propext, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms SolidCore.Spec.UniswapV2.PairSpec.Negative.swapCall_valid
++
++/-- info: 'SolidCore.Spec.UniswapV2.PairSpec.Negative.pre_swap' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms SolidCore.Spec.UniswapV2.PairSpec.Negative.pre_swap
++
++/-- info: 'SolidCore.Spec.UniswapV2.PairSpec.Negative.pre_swapWrongK' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms SolidCore.Spec.UniswapV2.PairSpec.Negative.pre_swapWrongK
++
++/-- info: 'SolidCore.Spec.UniswapV2.PairSpec.Negative.noUpdate_refused' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms SolidCore.Spec.UniswapV2.PairSpec.Negative.noUpdate_refused
++
++/-- info: 'SolidCore.Spec.UniswapV2.PairSpec.Negative.wrongK_refused' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms SolidCore.Spec.UniswapV2.PairSpec.Negative.wrongK_refused
++
++/-- info: 'SolidCore.Spec.UniswapV2.PairSpec.Negative.k_accepts' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms SolidCore.Spec.UniswapV2.PairSpec.Negative.k_accepts
++
++/-- info: 'SolidCore.Spec.UniswapV2.PairSpec.Negative.zeroBalance_ge' depends on axioms: [propext] -/
++#guard_msgs (whitespace := lax) in
++#print axioms SolidCore.Spec.UniswapV2.PairSpec.Negative.zeroBalance_ge
++
++/-- info: 'SolidCore.Spec.UniswapV2.PairSpec.Negative.PairAllowanceApart.satisfiable' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms SolidCore.Spec.UniswapV2.PairSpec.Negative.PairAllowanceApart.satisfiable
++
++/-- info: 'SolidCore.Refinement.Shapes.OpenFunctional.bytecode_any' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms SolidCore.Refinement.Shapes.OpenFunctional.bytecode_any
++
++/-- info: 'SolidCore.Refinement.Shapes.OpenFunctional.of_parts' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms SolidCore.Refinement.Shapes.OpenFunctional.of_parts
+diff --git a/Contracts/UniswapV2/PairSpec/Inputs.lean b/Contracts/UniswapV2/PairSpec/Inputs.lean
+index c196cd1..52a43a3 100644
+--- a/Contracts/UniswapV2/PairSpec/Inputs.lean
++++ b/Contracts/UniswapV2/PairSpec/Inputs.lean
+@@ -81,26 +81,21 @@ def PairFramed (W : World) : Prop :=
+ /-- The admitted source worlds: the wide ones without reentrant state change. -/
+ def Admit (W : World) : Prop := Wide W ∧ PairFramed W
+ 
+-/-- The storage word of `balanceOf[address(0)]` (slot 1), as the specification computes it. -/
+-def zeroBalanceSlot : Nat :=
+-  SolidCore.Spec.keccakWord (SolidCore.Spec.wordBytes 0 ++ SolidCore.Spec.wordBytes 1)
+-
+ /-- The storage word of `allowance[address(0)][s]` (slot 2), as the specification computes it. -/
+ def zeroAllowanceSlot (s : Nat) : Nat :=
+   SolidCore.Spec.keccakWord (SolidCore.Spec.wordBytes s ++
+     SolidCore.Spec.wordBytes (SolidCore.Spec.keccakWord (SolidCore.Spec.wordBytes 0 ++ SolidCore.Spec.wordBytes 2)))
+ 
+-/-- **The named premise, scoped to the hashes the statement reads.** swap, skim and sync write
+-only the pair's fixed slots (below 13: reserves 8, price accumulators 9 and 10, the lock 12), and
+-the specification reads through keccak only the ERC20 invariants' words `balanceOf[address(0)]`
+-and `allowance[address(0)][s]`. The premise says none of those words is a fixed slot. It is not an
+-injectivity assumption: no two hashes need differ, so the counting argument that refutes
+-`NestedSlotsSeparated` (2^320 preimages into 2^256 words) does not apply; it asks 2^160 + 1
+-keccak outputs to avoid 13 values. Not proved (it is a fact about keccak256 the kernel cannot
+-compute for every address); a premise of the statement, never an axiom. Placeholder for the
+-hash-scope lane's scoped premise, whose name is not published yet. -/
+-def HashScope : Prop :=
+-  13 ≤ zeroBalanceSlot % 2 ^ 256 ∧ ∀ s, s < 2 ^ 160 → 13 ≤ zeroAllowanceSlot s % 2 ^ 256
++/-- **The named premise**: the words `allowance[address(0)][s]` (the ERC20 invariant
++`forall s :: allowance[address(0)][s] == 0` reads them for every address `s`) are none of the
++pair's 13 fixed slots, the only slots swap, skim and sync write (8, 9, 10, 12). It asks
++`2 ^ 160` keccak256 images to avoid 13 values: avoidance, not injectivity, so no counting
++argument refutes it, and a hash model meets it (`PairAllowanceApart.satisfiable`, Refusal.lean).
++It is not footprint-scoped (the invariant's family is every address), a computational assumption
++of the statement, never an axiom. The other keccak word the specification reads,
++`balanceOf[address(0)]`, needs no premise: the kernel computes it (`zeroBalance_ge`). -/
++def PairAllowanceApart : Prop :=
++  ∀ s, s < 2 ^ 160 → 13 ≤ zeroAllowanceSlot s % 2 ^ 256
+ 
+ /-! ## Allowed statuses and the specification -/
+ 
+diff --git a/Contracts/UniswapV2/PairSpec/Published.lean b/Contracts/UniswapV2/PairSpec/Published.lean
+index e0cf858..bffa53a 100644
+--- a/Contracts/UniswapV2/PairSpec/Published.lean
++++ b/Contracts/UniswapV2/PairSpec/Published.lean
+@@ -45,7 +45,7 @@ exact bytecode on a valid call, at any gas below `2 ^ 256`, is allowed and meets
+ specification (for some admitted world), or changes nothing, or is explained only by a world
+ with a reentrant state change. -/
+ theorem bytecode_of_statement {c0 : SolidCore.Solidity.TypeCheck.CheckedContract}
+-    (hc0 : SolidCore.Verify.VC.UniswapV2Pair.contract? = .ok c0) (h : Statement) (hk : HashScope) (env : TargetEnv) (he : EnvOk env)
++    (hc0 : SolidCore.Verify.VC.UniswapV2Pair.contract? = .ok c0) (h : Statement) (hk : PairAllowanceApart) (env : TargetEnv) (he : EnvOk env)
+     (gas : Nat) (hg : gas < 2 ^ 256) (call : Call) (hv : Valid call) (obs : Observable)
+     (hrun : Target.runWithIn env gas code call = some obs) :
+     (∃ W, Admit W ∧ Allowed W call obs ∧ Post W call obs) ∨ Inert call obs ∨
+diff --git a/Contracts/UniswapV2/PairSpec/Refusal.lean b/Contracts/UniswapV2/PairSpec/Refusal.lean
+index 8378dcf..0b59134 100644
+--- a/Contracts/UniswapV2/PairSpec/Refusal.lean
++++ b/Contracts/UniswapV2/PairSpec/Refusal.lean
+@@ -10,7 +10,7 @@ specification refuses **every** observable that succeeds and leaves the reserves
+ (what the pair without `_update` does), the wrong-K specification refuses every observable that
+ succeeds with reserves 11000/9094 (what the pair does), and the published fee-adjusted clause
+ accepts those reserves. The pre-state meets the specification's precondition under the
+-statement's premise `HashScope` (the ERC20 invariants read `allowance[address(0)][s]`, which must
++statement's premise `PairAllowanceApart` (the ERC20 invariants read `allowance[address(0)][s]`, which must
+ not be one of the pair's fixed slots).
+ -/
+ 
+@@ -43,10 +43,9 @@ theorem slotValue_σ_big {x : Nat} (hx : 13 ≤ x % 2 ^ 256) : slotValue σ x =
+ def swapArgs : List Int := [0, 906, 0x3000, 0x80]
+ 
+ set_option maxRecDepth 100000 in
+-theorem pre_swap (hk : HashScope) :
++theorem pre_swap (hk : PairAllowanceApart) :
+     Pre SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair
+       (SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair.spec.specs[8]'(by decide)) (ctxOf swapCall) preSt swapCall swapArgs := by
+-  obtain ⟨hk0, hk1⟩ := hk
+   refine ⟨⟨by decide +kernel, by decide +kernel, by decide +kernel⟩, rfl, by decide, ?_, ?_⟩
+   · simp [Bundle.satAll, SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair]
+   · simp [Bundle.satAll, Bundle.sat, SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair, eval,
+@@ -57,7 +56,7 @@ theorem pre_swap (hk : HashScope) :
+         = v.toNat := by rw [Int.emod_eq_of_lt hv0 (by omega)]
+     have h2 : 2 % wordMod = 2 := by decide
+     rw [hs, h2]
+-    have := slotValue_σ_big (hk1 v.toNat (by omega))
++    have := slotValue_σ_big (hk v.toNat (by omega))
+     simp only [zeroAllowanceSlot] at this
+     rw [this]
+     rfl
+@@ -73,7 +72,7 @@ abbrev PostWrongK : Call → Observable → Prop :=
+ set_option maxRecDepth 100000 in
+ /-- **Missing reserve update, refused**: the published specification refuses every observable of
+ the swap that succeeds with the reserves left at 10000/10000. -/
+-theorem noUpdate_refused (hk : HashScope) (W : World) (obs : Observable) (hs : obs.success = true)
++theorem noUpdate_refused (hk : PairAllowanceApart) (W : World) (obs : Observable) (hs : obs.success = true)
+     (h0 : obs.storage 8 % 2 ^ 112 = 10000) (h1 : obs.storage 8 / 2 ^ 112 % 2 ^ 112 = 10000) :
+     ¬ Post W swapCall obs := by
+   intro h
+@@ -89,10 +88,9 @@ theorem noUpdate_refused (hk : HashScope) (W : World) (obs : Observable) (hs : o
+     Env.cur, slotOf, Ty.ofBits, toWord, idStep, preSt, swapArgs, wordMod, slotValue, σ, h0i, h1i] at hK
+ 
+ set_option maxRecDepth 100000 in
+-theorem pre_swapWrongK (hk : HashScope) :
++theorem pre_swapWrongK (hk : PairAllowanceApart) :
+     Pre SolidCore.Spec.Export.UniswapV2PairWrongK.UniswapV2Pair
+       (SolidCore.Spec.Export.UniswapV2PairWrongK.UniswapV2Pair.spec.specs[8]'(by decide)) (ctxOf swapCall) preSt swapCall swapArgs := by
+-  obtain ⟨hk0, hk1⟩ := hk
+   refine ⟨⟨by decide +kernel, by decide +kernel, by decide +kernel⟩, rfl, by decide, ?_, ?_⟩
+   · simp [Bundle.satAll, SolidCore.Spec.Export.UniswapV2PairWrongK.UniswapV2Pair]
+   · simp [Bundle.satAll, Bundle.sat, SolidCore.Spec.Export.UniswapV2PairWrongK.UniswapV2Pair, eval,
+@@ -103,7 +101,7 @@ theorem pre_swapWrongK (hk : HashScope) :
+         = v.toNat := by rw [Int.emod_eq_of_lt hv0 (by omega)]
+     have h2 : 2 % wordMod = 2 := by decide
+     rw [hs, h2]
+-    have := slotValue_σ_big (hk1 v.toNat (by omega))
++    have := slotValue_σ_big (hk v.toNat (by omega))
+     simp only [zeroAllowanceSlot] at this
+     rw [this]
+     rfl
+@@ -111,7 +109,7 @@ theorem pre_swapWrongK (hk : HashScope) :
+ set_option maxRecDepth 100000 in
+ /-- **Wrong K, refused**: the wrong-K specification (fee 4/1000) refuses every observable of the
+ swap that succeeds with reserves 11000/9094, what the pair's bytes and source do. -/
+-theorem wrongK_refused (hk : HashScope) (obs : Observable) (hs : obs.success = true)
++theorem wrongK_refused (hk : PairAllowanceApart) (obs : Observable) (hs : obs.success = true)
+     (h0 : obs.storage 8 % 2 ^ 112 = 11000) (h1 : obs.storage 8 / 2 ^ 112 % 2 ^ 112 = 9094) :
+     ¬ PostWrongK swapCall obs := by
+   intro h
+@@ -154,4 +152,27 @@ theorem k_accepts (obs : Observable) (h0 : obs.storage 8 % 2 ^ 112 = 11000)
+ #guard_msgs (whitespace := lax) in
+ #print axioms k_accepts
+ 
++/-- `balanceOf[address(0)]`'s word is no fixed slot, by the kernel's evaluation of keccak256
++(`TrustedBase.image3`): no premise needed for it. -/
++theorem zeroBalance_ge : 13 ≤ SolidCore.Spec.keccakWord (SolidCore.Spec.wordBytes 0 ++ SolidCore.Spec.wordBytes 1) % 2 ^ 256 := by
++  have h := SolidCore.Spec.TrustedBase.image3
++  simp only [SolidCore.Spec.TrustedBase.mappingPreimage] at h
++  rw [h]; decide
++
++/-- **The premise is satisfiable**: with the hash replaced by any function whose images are at
++least 13 (here the constant `2 ^ 128`), it holds. The premise is about keccak256 itself and stays a
++premise; this shows it is not `False` in disguise. -/
++theorem PairAllowanceApart.satisfiable : ∃ h : List Nat → Nat,
++    ∀ s, s < 2 ^ 160 → 13 ≤ h (SolidCore.Spec.wordBytes s ++
++      SolidCore.Spec.wordBytes (h (SolidCore.Spec.wordBytes 0 ++ SolidCore.Spec.wordBytes 2))) % 2 ^ 256 :=
++  ⟨fun _ => 2 ^ 128, fun _ _ => by norm_num⟩
++
++/-- info: 'SolidCore.Spec.UniswapV2.PairSpec.Negative.zeroBalance_ge' depends on axioms: [propext] -/
++#guard_msgs (whitespace := lax) in
++#print axioms zeroBalance_ge
++
++/-- info: 'SolidCore.Spec.UniswapV2.PairSpec.Negative.pre_swap' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms pre_swap
++
+ end SolidCore.Spec.UniswapV2.PairSpec.Negative
+diff --git a/Contracts/UniswapV2/PairSpec/Stages.lean b/Contracts/UniswapV2/PairSpec/Stages.lean
+index 6e08ee3..6c51bd9 100644
+--- a/Contracts/UniswapV2/PairSpec/Stages.lean
++++ b/Contracts/UniswapV2/PairSpec/Stages.lean
+@@ -39,7 +39,7 @@ def TermOn (c : SolidCore.Solidity.TypeCheck.CheckedContract) (V : Call → Prop
+ /-- The specification on the calls `V` of one function, in every admitted world, under the named
+ premise. -/
+ def MeetsOn (c : SolidCore.Solidity.TypeCheck.CheckedContract) (V : Call → Prop) : Prop :=
+-  HashScope → ∀ W, Admit W → Meets (solidCoreIn W SolidCore.Verify.VC.UniswapV2Pair.fuel) c V (Post W)
++  PairAllowanceApart → ∀ W, Admit W → Meets (solidCoreIn W SolidCore.Verify.VC.UniswapV2Pair.fuel) c V (Post W)
+ 
+ def EquivSwap (c : SolidCore.Solidity.TypeCheck.CheckedContract) : Prop := EquivOn c ValidSwap
+ def EquivSkim (c : SolidCore.Solidity.TypeCheck.CheckedContract) : Prop := EquivOn c ValidSkim
+diff --git a/Contracts/UniswapV2/PairSpec/Statement.lean b/Contracts/UniswapV2/PairSpec/Statement.lean
+index 5df1c63..a4f5f37 100644
+--- a/Contracts/UniswapV2/PairSpec/Statement.lean
++++ b/Contracts/UniswapV2/PairSpec/Statement.lean
+@@ -31,10 +31,9 @@ The statement is fixed here, from reviewed inputs only (never from a proof modul
+   step: swap, skim and sync update no ghost, and the inherited ERC20 invariants
+   (`totalSupply == sumBalances`, `allowance[0][s] == 0`, `balanceOf[0] >= zeroMinted`) are
+   assumed before the call and required after it;
+-* one named premise, `HashScope`: the keccak words the specification reads
+-  (`balanceOf[address(0)]`, `allowance[address(0)][s]`) are none of the pair's 13 fixed slots,
+-  the ones swap, skim and sync write (Inputs.lean; a premise, never an axiom; no global hash
+-  separation, which is unsatisfiable).
++* one named premise, `PairAllowanceApart`: the words `allowance[address(0)][s]` the ERC20
++  invariant reads avoid the pair's 13 fixed slots (Inputs.lean; satisfiable, never an axiom;
++  no global hash separation, which is unsatisfiable).
+ 
+ Not in the statement: mint and burn (their exported ensures read statement-level ghosts,
+ `mintAmount0 = amount0` and the like, whose values depend on the tokens' answers: the ghost step
+@@ -67,7 +66,7 @@ def Post (_W : World) : Call → Observable → Prop :=
+ termination and the exported specification of swap, skim and sync on the exact bytes, in every
+ admitted environment. -/
+ def Statement : Prop :=
+-  Bound ∧ (HashScope →
++  Bound ∧ (PairAllowanceApart →
+     ∃ c, SolidCore.Verify.VC.UniswapV2Pair.contract? = .ok c ∧
+       OpenFunctional SolidCore.Verify.VC.UniswapV2Pair.fuel c code EnvOk Wide Admit Valid Allowed Post)
+ 
+diff --git a/lakefile.lean b/lakefile.lean
+index cb2ed92..9eeed38 100644
+--- a/lakefile.lean
++++ b/lakefile.lean
+@@ -516,5 +516,5 @@ lean_lib «arraymax» where
+ -- generates its inputs (Spec, SpecWrongK, Bytecode, Runtime; derived from the GPL-3.0 port, so not
+ -- committed) after scripts/verify/uniswap_v2_gen.sh.
+ lean_lib ContractsUniswapV2PairSpec where
+-  roots := #[`Contracts.UniswapV2.PairSpec.Published, `Contracts.UniswapV2.PairSpec.Negative]
++  roots := #[`Contracts.UniswapV2.PairSpec.Published, `Contracts.UniswapV2.PairSpec.Negative, `Contracts.UniswapV2.PairSpec.Axioms]
+   globs := #[.submodules `Contracts.UniswapV2.PairSpec]
+-- 
+2.43.0
+
+
+From 1a855e0c8456d39b7495f17f5cde88311900a3bf Mon Sep 17 00:00:00 2001
+From: pair-spec lane <pair-spec@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 14:14:00 +0000
+Subject: [PATCH 3/3] feat(uniswap-v2): skim negative control by execution
+
+Run skim(0x3000) with token balances 11000/10500 over reserves
+10000/10000 on the exact bytes and the checked source (reserves kept),
+and on a mutant that forces the reserves to the balances first, as
+solar's compile and SolidCore's translation of the mutant source
+(reserves 11000/10500). The published spec refuses every successful
+skim observable with reserve0 moved (skimUpdate_refused, kernel).
+---
+ Contracts/UniswapV2/.gitignore             |  2 +
+ Contracts/UniswapV2/PairSpec/Axioms.lean   | 12 ++++++
+ Contracts/UniswapV2/PairSpec/Negative.lean | 23 +++++++++++
+ Contracts/UniswapV2/PairSpec/Refusal.lean  | 44 ++++++++++++++++++++++
+ scripts/verify/uniswap_v2_pair_spec.sh     | 42 ++++++++++++++++++++-
+ 5 files changed, 121 insertions(+), 2 deletions(-)
+
+diff --git a/Contracts/UniswapV2/.gitignore b/Contracts/UniswapV2/.gitignore
+index 51637b9..c7a49cf 100644
+--- a/Contracts/UniswapV2/.gitignore
++++ b/Contracts/UniswapV2/.gitignore
+@@ -18,3 +18,5 @@ ERC20/VC/
+ */Runtime.lean
+ */SourceNoUpdate.lean
+ */RuntimeNoUpdate.lean
++*/SourceSkimUpdate.lean
++*/RuntimeSkimUpdate.lean
+diff --git a/Contracts/UniswapV2/PairSpec/Axioms.lean b/Contracts/UniswapV2/PairSpec/Axioms.lean
+index bac590a..94e0e98 100644
+--- a/Contracts/UniswapV2/PairSpec/Axioms.lean
++++ b/Contracts/UniswapV2/PairSpec/Axioms.lean
+@@ -77,3 +77,15 @@ evaluated runs of Negative.lean (`#guard`) are not theorems and are not listed.
+ /-- info: 'SolidCore.Refinement.Shapes.OpenFunctional.of_parts' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+ #guard_msgs (whitespace := lax) in
+ #print axioms SolidCore.Refinement.Shapes.OpenFunctional.of_parts
++
++/-- info: 'SolidCore.Spec.UniswapV2.PairSpec.Negative.skimCall_valid' depends on axioms: [propext] -/
++#guard_msgs (whitespace := lax) in
++#print axioms SolidCore.Spec.UniswapV2.PairSpec.Negative.skimCall_valid
++
++/-- info: 'SolidCore.Spec.UniswapV2.PairSpec.Negative.pre_skim' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms SolidCore.Spec.UniswapV2.PairSpec.Negative.pre_skim
++
++/-- info: 'SolidCore.Spec.UniswapV2.PairSpec.Negative.skimUpdate_refused' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms SolidCore.Spec.UniswapV2.PairSpec.Negative.skimUpdate_refused
+diff --git a/Contracts/UniswapV2/PairSpec/Negative.lean b/Contracts/UniswapV2/PairSpec/Negative.lean
+index e28db26..644a73a 100644
+--- a/Contracts/UniswapV2/PairSpec/Negative.lean
++++ b/Contracts/UniswapV2/PairSpec/Negative.lean
+@@ -1,6 +1,8 @@
+ import Contracts.UniswapV2.PairSpec.Refusal
+ import Contracts.UniswapV2.PairSpec.SourceNoUpdate
+ import Contracts.UniswapV2.PairSpec.RuntimeNoUpdate
++import Contracts.UniswapV2.PairSpec.SourceSkimUpdate
++import Contracts.UniswapV2.PairSpec.RuntimeSkimUpdate
+ 
+ /-!
+ # UniswapV2Pair: the binding and the negative controls, by execution
+@@ -12,6 +14,7 @@ checked source in the matching world (`Source.runIn`, answers the same), then on
+ | control | what runs | what refuses it |
+ |---|---|---|
+ | altered jump | the bytes with the first `PUSH2 t; JUMPI` target moved by one | the binding (`altered_not_bound`, kernel); the altered bytes revert on the swap the real bytes perform (evaluated) |
++| skim that moves the reserves | skim with sync's `_update` first: solar's compile and SolidCore's translation of it | the published specification refuses every successful skim observable with reserve0 moved (`skimUpdate_refused`, kernel) |
+ | missing reserve update | swap without `_update`: solar's compile of the mutant source, and SolidCore's translation of it | the published specification refuses every observable with the executed features (`noUpdate_refused`, kernel) |
+ | wrong K | the real bytes and source | the mutated specification (fee 4/1000, SpecWrongK) refuses every observable with the executed features (`wrongK_refused`, kernel); the published clause accepts them (`k_accepts`, kernel) |
+ | mismatched environment | the real bytes among tokens answering 11000/9094, the source in a world answering 11000/9000 | the observables differ (evaluated): no equivalence claim relates them |
+@@ -94,6 +97,14 @@ def contractNoUpdate? : Except TypeCheck.TypeError TypeCheck.CheckedContract :=
+   TypeCheck.CheckedInput.contract SolidCore.Verify.VC.Source.UniswapV2PairNoUpdate.importedSourceUnit
+     "UniswapV2Pair"
+ 
++/-- The mutant bytes of skim forcing the reserves to the balances. -/
++def codeSkimUpdate : ByteArray := ⟨(runtimeSkimUpdate.map UInt8.ofNat).toArray⟩
++
++/-- SolidCore's checked skim mutant. -/
++def contractSkimUpdate? : Except TypeCheck.TypeError TypeCheck.CheckedContract :=
++  TypeCheck.CheckedInput.contract SolidCore.Verify.VC.Source.UniswapV2PairSkimUpdate.importedSourceUnit
++    "UniswapV2Pair"
++
+ /-- The features of a run the controls check: success, reserve0, reserve1, the lock word. -/
+ def feat : Option Observable → Option (Bool × Nat × Nat × Nat)
+   | some o => some (o.success, o.storage 8 % 2 ^ 112, o.storage 8 / 2 ^ 112 % 2 ^ 112, o.storage 12)
+@@ -125,4 +136,16 @@ def srcRun (c? : Except TypeCheck.TypeError TypeCheck.CheckedContract) (w : Worl
+ -- Closed world: without token accounts the swap reverts.
+ #guard ((Target.runWithIn [] 10000000 code swapCall).map (·.success)) = some false
+ 
++/-! ## skim (evaluated): token balances 11000/10500 over reserves 10000/10000 -/
++
++-- The exact bytes: skim succeeds and keeps the reserves at 10000/10000.
++#guard feat (Target.runWithIn (env 11000 10500) 10000000 code skimCall) = some (true, 10000, 10000, 1)
++-- The checked source in the matching world: the same features.
++#guard feat (srcRun SolidCore.Verify.VC.UniswapV2Pair.contract? (W 11000 10500) skimCall) =
++  some (true, 10000, 10000, 1)
++-- Mutant bytes (skim forcing the reserves to the balances): reserves 11000/10500.
++#guard feat (Target.runWithIn (env 11000 10500) 10000000 codeSkimUpdate skimCall) = some (true, 11000, 10500, 1)
++-- Mutant source: the same.
++#guard feat (srcRun contractSkimUpdate? (W 11000 10500) skimCall) = some (true, 11000, 10500, 1)
++
+ end SolidCore.Spec.UniswapV2.PairSpec.Negative
+diff --git a/Contracts/UniswapV2/PairSpec/Refusal.lean b/Contracts/UniswapV2/PairSpec/Refusal.lean
+index 0b59134..44a14c2 100644
+--- a/Contracts/UniswapV2/PairSpec/Refusal.lean
++++ b/Contracts/UniswapV2/PairSpec/Refusal.lean
+@@ -175,4 +175,48 @@ theorem PairAllowanceApart.satisfiable : ∃ h : List Nat → Nat,
+ #guard_msgs (whitespace := lax) in
+ #print axioms pre_swap
+ 
++/-- `skim(0x3000)` from the same storage (the runs: token balances 11000/10500 over reserves 10000/10000). -/
++def skimCall : Call := mkCall ((EthLib.Base.natToBytes 4 skimSel).map (·.toNat) ++ word 0x3000) σ
++
++theorem skimCall_valid : Valid skimCall := Or.inr (Or.inl ⟨σ, 0x3000, by decide, rfl⟩)
++
++set_option maxRecDepth 100000 in
++theorem pre_skim (hk : PairAllowanceApart) :
++    Pre SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair
++      (SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair.spec.specs[9]'(by decide)) (ctxOf skimCall) preSt skimCall [0x3000] := by
++  refine ⟨⟨by decide +kernel, by decide +kernel, by decide +kernel⟩, rfl, by decide, ?_, ?_⟩
++  · simp [Bundle.satAll, SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair]
++  · simp [Bundle.satAll, Bundle.sat, SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair, eval,
++      BinOp.apply, mkEnv, Env.cur, slotOf, preSt, Ty.ofBits, toWord, Ghost.zero, Env.bind]
++    refine ⟨by decide, fun v hv => ?_, Int.emod_nonneg _ (by decide)⟩
++    obtain ⟨hv0, hv1⟩ := hv
++    have hs : (v % 115792089237316195423570985008687907853269984665640564039457584007913129639936).toNat
++        = v.toNat := by rw [Int.emod_eq_of_lt hv0 (by omega)]
++    have h2 : 2 % wordMod = 2 := by decide
++    rw [hs, h2]
++    have := slotValue_σ_big (hk v.toNat (by omega))
++    simp only [zeroAllowanceSlot] at this
++    rw [this]
++    rfl
++
++set_option maxRecDepth 100000 in
++/-- **Skim that moves the reserves, refused**: the published specification refuses every observable
++of `skim(0x3000)` that succeeds with reserve0 moved off 10000 (the mutant's 11000). -/
++theorem skimUpdate_refused (hk : PairAllowanceApart) (W : World) (obs : Observable) (hs : obs.success = true)
++    (h0 : obs.storage 8 % 2 ^ 112 ≠ 10000) : ¬ Post W skimCall obs := by
++  intro h
++  have hmem : (SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair.spec.specs[9]'(by decide)) ∈
++      SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair.spec.specs := List.getElem_mem _
++  obtain ⟨rets, -, hens, -⟩ := (h _ hmem [0x3000] preSt (pre_skim hk)).1 hs
++  have hK := hens _ (List.getElem_mem (by decide : 0 < (SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair.spec.specs[9]'(by decide)).ensures.length))
++  simp only [Nat.reducePow] at h0
++  have h0i : ((obs.storage 8 : Nat) : Int) % 5192296858534827628530496329220096 ≠ 10000 := by omega
++  simp [Bundle.sat, SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair, eval, BinOp.apply, mkEnv,
++    Env.cur, slotOf, Ty.ofBits, toWord, idStep, preSt, wordMod, slotValue, σ] at hK
++  omega
++
++/-- info: 'SolidCore.Spec.UniswapV2.PairSpec.Negative.skimUpdate_refused' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms skimUpdate_refused
++
+ end SolidCore.Spec.UniswapV2.PairSpec.Negative
+diff --git a/scripts/verify/uniswap_v2_pair_spec.sh b/scripts/verify/uniswap_v2_pair_spec.sh
+index 4ca94a2..a2d8364 100755
+--- a/scripts/verify/uniswap_v2_pair_spec.sh
++++ b/scripts/verify/uniswap_v2_pair_spec.sh
+@@ -18,9 +18,10 @@
+ #   Bytecode.lean   solar -Zemit-lean-stages's Bytecode.lean for UniswapV2Pair (the export);
+ #   Runtime.lean    the runtime bytecode of solar's plain compile (--emit=bin-runtime), as numbers,
+ #                   the bytes the statement binds the export to;
+-#   SourceNoUpdate.lean, RuntimeNoUpdate.lean  swap without its _update (the negative control
++#   SourceNoUpdate.lean, RuntimeNoUpdate.lean, SourceSkimUpdate.lean, RuntimeSkimUpdate.lean
++#                   swap without its _update and skim that updates the reserves (negative controls
+ #                   Negative.lean runs): SolidCore's translation and solar's compile of the mutant
+-#                   (scripts/verify/uniswap-v2/UniswapV2PairNoUpdate.sol).
++#                   (scripts/verify/uniswap-v2/UniswapV2PairNoUpdate.sol, UniswapV2PairSkimUpdate.sol).
+ # Fails (exit 1) if any step fails; nothing is written as passing that does not check.
+ set -euo pipefail
+ cd "$(dirname "${BASH_SOURCE[0]}")/../.."
+@@ -118,3 +119,40 @@ print()
+ print("end SolidCore.Spec.UniswapV2.PairSpec")
+ PY
+ echo "wrote $out/SourceNoUpdate.lean $out/RuntimeNoUpdate.lean (${#hexmut} hex digits)"
++
++# Second mutant: skim that first forces the reserves to the balances (sync's _update at its start).
++python3 - "$sol" "$tmp/src/UniswapV2PairSkimUpdate.sol" <<'PY'
++import sys
++src = open(sys.argv[1]).read()
++head = "function skim(address to) external lock {\n"
++i = src.index(head) + len(head)
++assert src.count(head) == 1, "skim's body not found once"
++upd = "        _update(IERC20(token0).balanceOf(address(this)), IERC20(token1).balanceOf(address(this)), reserve0, reserve1);\n"
++open(sys.argv[2], "w").write(src[:i] + upd + src[i:])
++PY
++mut2=scripts/verify/uniswap-v2/UniswapV2PairSkimUpdate.sol
++cp "$tmp/src/UniswapV2PairSkimUpdate.sol" "$mut2"
++{ echo "-- Generated by scripts/verify/uniswap_v2_pair_spec.sh: skim that updates the reserves. Do not edit."
++  echo; echo "import SolidCore.Solidity.Checked"; echo; echo "open SolidCore.Solidity"
++  python3 scripts/solc_ast_to_lean_source.py --solc "$solc" --contract UniswapV2Pair \
++    --namespace SolidCore.Verify.VC.Source.UniswapV2PairSkimUpdate "$mut2" \
++    | tail -n +3; } > "$out/SourceSkimUpdate.lean"
++grep -q 'importedSourceUnit' "$out/SourceSkimUpdate.lean" || { echo "error: no skim mutant source" >&2; exit 1; }
++hexmut2=$(cd "$tmp/src" && "$SOLAR" UniswapV2PairSkimUpdate.sol "${opts[@]}" --emit=bin-runtime 2>/dev/null \
++  | python3 -c 'import json,sys; print(json.load(sys.stdin)["contracts"]["UniswapV2PairSkimUpdate.sol:UniswapV2Pair"]["bin-runtime"])')
++[[ $hexmut2 =~ ^[0-9a-f]+$ && $hexmut2 != "$hex" ]] || { echo "error: no distinct skim mutant bytecode" >&2; exit 1; }
++python3 - "$hexmut2" > "$out/RuntimeSkimUpdate.lean" <<'PY'
++import sys
++b = bytes.fromhex(sys.argv[1])
++rows = [", ".join(hex(x) for x in b[i:i + 16]) for i in range(0, len(b), 16)]
++print("-- Generated by scripts/verify/uniswap_v2_pair_spec.sh: solar's compile of skim that updates the reserves. Do not edit.")
++print()
++print("namespace SolidCore.Spec.UniswapV2.PairSpec")
++print()
++print("/-- The runtime bytecode of the mutant (skim forcing the reserves to the balances), as numbers. -/")
++print("def runtimeSkimUpdate : List Nat :=")
++print("  [" + ",\n   ".join(rows) + "]")
++print()
++print("end SolidCore.Spec.UniswapV2.PairSpec")
++PY
++echo "wrote $out/SourceSkimUpdate.lean $out/RuntimeSkimUpdate.lean (${#hexmut2} hex digits)"
 -- 
 2.43.0
 
