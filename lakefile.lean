@@ -524,11 +524,14 @@ lean_lib ContractsUniswapV2PairSpec where
 -- port, with the stage0 mutants of uniswap_v2_erc20_mutants.py; scripts/verify/uniswap_v2_erc20_stages.sh,
 -- after scripts/verify/uniswap_v2_gen.sh), the certificate of the checker with contexts and gas
 -- (CtxGas.lean, scripts/verify/uniswap_v2_gas.sh with solar's tools/certify/gen_ctxgas.py) and the
--- transfer slice's gas bound (Gas.lean, GasGuard.lean). The generated files come from the GPL-3.0
--- v2-core port, so none is committed.
+-- transfer slice's gas bound (Gas.lean, GasGuard.lean), and the backend stages' proofs for transfer's
+-- calls (ProofsT/) with the bytes certificates (Ctx.lean, CtxNeg.lean), all written by
+-- scripts/verify/uniswap_v2_stages.sh. The generated files come from the GPL-3.0 v2-core port, so
+-- none is committed. Every module is checked within 6 GB.
 lean_lib «uv2_erc20» where
   srcDir := "Certified"
-  roots := #[`uv2_erc20.Gas, `uv2_erc20.gen.UniswapV2ERC20.Stage0]
+  roots := #[`uv2_erc20.Gas, `uv2_erc20.gen.UniswapV2ERC20.Stage0, `uv2_erc20.ProofsT.Stages,
+    `uv2_erc20.ProofsT.Assembly, `uv2_erc20.Ctx, `uv2_erc20.CtxNeg]
   globs := #[.submodules `uv2_erc20]
   leanOptions := solarTVOptions
 
