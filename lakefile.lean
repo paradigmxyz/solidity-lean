@@ -418,6 +418,15 @@ lean_lib ContractsUniswapV2TransferSlice where
   roots := #[`Contracts.UniswapV2.ERC20.Slice.All]
   globs := #[.submodules `Contracts.UniswapV2.ERC20.Slice, .one `Contracts.UniswapV2.ERC20.SpecTreeKeccak]
 
+-- The function specifications of the Uniswap V2 port (Contracts/UniswapV2/Specs,
+-- docs/specs/UNISWAPV2_SPECS.md): statements only, every external function of UniswapV2ERC20,
+-- UniswapV2Pair and UniswapV2Factory as a sequential model and a target postcondition with its
+-- premises. Written from the port's behaviour, not generated from it, so committed and built with
+-- no generated source: lake build ContractsUniswapV2Specs.
+lean_lib ContractsUniswapV2Specs where
+  roots := #[`Contracts.UniswapV2.Specs.All]
+  globs := #[.submodules `Contracts.UniswapV2.Specs]
+
 -- UniswapV2ERC20's exact runtime bytes against AssembleNoCall's call-free check (NoCall*: refused at
 -- the counters NoCallAt lists; NoCallControl: the bytes with those instructions scrubbed pass; NoCallNeg:
 -- scrubbing all but the STATICCALL fails). One kernel evaluation per module, each under 6 GB: build the
