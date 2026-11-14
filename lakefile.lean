@@ -328,7 +328,7 @@ lean_lib VerifySpec where
   roots := #[`Verify.Spec.Syntax, `Verify.Spec.Semantics, `Verify.Spec.Contract,
     `Verify.Spec.Ghost, `Verify.Spec.GhostFree, `Verify.Spec.TrustedBase,
     `Verify.Spec.TrustedBase.Hypotheses, `Verify.Spec.TrustedBase.Interface,
-    `Verify.Spec.TreeMapNested]
+    `Verify.Spec.TreeMapNested, `Verify.Spec.HashScopeCheck]
 
 -- The trusted base discharged for c4 and Counter on their checked-in source ASTs, and its axiom
 -- audit. Separate from VerifySpec because the ASTs import the type checker.
