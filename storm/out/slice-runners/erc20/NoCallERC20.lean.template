@@ -1,0 +1,35 @@
+import SolidCore.Refinement.Solar.AssembleNoCall
+import uv2_erc20.Ctx
+
+/-!
+# UniswapV2ERC20's exact runtime bytes and the call-free check (build-time instantiation)
+
+Template: not built in this delivery, because the generated module uv2_erc20.Ctx (the exact runtime
+bytes, SolarTV.Export.UniswapV2ERC20.Ctx.code) is produced at build time and is not in the tree or
+in any lean_lib. Build it after the generator that writes uv2_erc20/Ctx.lean, e.g. as a root of a
+lean_lib over that generated directory.
+
+The same checks were kernel-evaluated (decide +kernel) on the runtime bytes solar 38b5232 emits for the
+port with -Ogas --evm-version osaka (1183 bytes): callFree = false, noFaByte = false, with call opcodes at
+pc 903 (STATICCALL, permit's ecrecover), 1158 (RETURNDATASIZE), 1161 (RETURNDATACOPY), 1162 (RETURNDATASIZE).
+-/
+
+namespace SolidCore.Spec.UniswapV2.ERC20.NoCall
+
+open SolidCore.Refinement.Solar.AssembleNoCall
+
+/-- The runtime bytes fail the call-free check: permit's STATICCALL to ECRECOVER and the return data
+reads after it. So the call-free route (holds_of_checkCB_callFree,
+assembly_of_checkXB_norm_callFree) does not apply to UniswapV2ERC20's runtime. -/
+theorem not_callFree : callFree SolarTV.Export.UniswapV2ERC20.Ctx.code = false := by decide +kernel
+
+/-- And they have a 0xfa byte, so calleesRun_of_noFaByte does not apply either. -/
+theorem not_noFaByte : noFaByte SolarTV.Export.UniswapV2ERC20.Ctx.code = false := by decide +kernel
+
+/-- Every ERC20 theorem that assumes ∀ gas, StaticRunner gas (EndToEnd.published,
+EndToEndAll.published, functional_tf, compiled_tf, EndToEndTFSpec) holds vacuously. -/
+theorem staticRunner_premise_false : ¬ ∀ gas, SolidCore.Refinement.Solar.AssembleCallSeg.StaticRunner gas :=
+  not_forall_staticRunner
+
+end SolidCore.Spec.UniswapV2.ERC20.NoCall
+
