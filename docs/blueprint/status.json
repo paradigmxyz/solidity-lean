@@ -1,0 +1,4193 @@
+{
+ "allowed_axioms": [
+  "Classical.choice",
+  "Quot.sound",
+  "propext"
+ ],
+ "counts": {
+  "external": 1,
+  "missing": 520,
+  "proved": 9,
+  "statement-only": 8,
+  "trusted": 2
+ },
+ "nodes": {
+  "counter.certified": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "counter.final": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "counter.get.E2": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "counter.get.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "counter.get.E3.caller_0x2000": {
+   "status": "proved",
+   "axioms": [
+    "Classical.choice",
+    "Quot.sound",
+    "propext"
+   ],
+   "deps_satisfied": false
+  },
+  "counter.get.E4": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "counter.get.E5": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "counter.get.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "counter.get.E7": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "counter.get.E8": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "counter.get.post": {
+   "status": "statement-only",
+   "reason": "a statement, not a proof",
+   "axioms": [
+    "propext"
+   ],
+   "deps_satisfied": true
+  },
+  "counter.get.valid": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "counter.inc.E2": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "counter.inc.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "counter.inc.E3.caller_0x2000": {
+   "status": "proved",
+   "axioms": [
+    "Classical.choice",
+    "Quot.sound",
+    "propext"
+   ],
+   "deps_satisfied": false
+  },
+  "counter.inc.E4": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "counter.inc.E5": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "counter.inc.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "counter.inc.E7": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "counter.inc.E8": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "counter.inc.post": {
+   "status": "statement-only",
+   "reason": "a statement, not a proof",
+   "axioms": [
+    "propext"
+   ],
+   "deps_satisfied": true
+  },
+  "counter.inc.valid": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "counter.statement": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "counter.translated": {
+   "status": "proved",
+   "axioms": [
+    "Classical.choice",
+    "Quot.sound",
+    "propext"
+   ],
+   "deps_satisfied": true
+  },
+  "erc20.DOMAIN_SEPARATOR.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.DOMAIN_SEPARATOR.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.DOMAIN_SEPARATOR.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.DOMAIN_SEPARATOR.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.DOMAIN_SEPARATOR.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.DOMAIN_SEPARATOR.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.DOMAIN_SEPARATOR.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.DOMAIN_SEPARATOR.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.DOMAIN_SEPARATOR.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.PERMIT_TYPEHASH.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.PERMIT_TYPEHASH.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.PERMIT_TYPEHASH.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.PERMIT_TYPEHASH.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.PERMIT_TYPEHASH.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.PERMIT_TYPEHASH.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.PERMIT_TYPEHASH.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.PERMIT_TYPEHASH.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.PERMIT_TYPEHASH.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.allowance.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.allowance.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.allowance.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.allowance.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.allowance.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.allowance.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.allowance.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.allowance.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.allowance.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.approve.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.approve.E2.caller_0x2000": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "erc20.approve.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.approve.E3.caller_0x2000": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "erc20.approve.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.approve.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.approve.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.approve.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.approve.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.approve.keys": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "erc20.approve.meets_source": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "erc20.approve.post": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "erc20.approve.premise": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.approve.spec_export": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.approve.valid": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "erc20.approve.vc": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.balanceOf.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.balanceOf.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.balanceOf.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.balanceOf.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.balanceOf.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.balanceOf.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.balanceOf.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.balanceOf.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.balanceOf.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.certified": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.decimals.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.decimals.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.decimals.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.decimals.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.decimals.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.decimals.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.decimals.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.decimals.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.decimals.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.name.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.name.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.name.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.name.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.name.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.name.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.name.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.name.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.name.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.nonces.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.nonces.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.nonces.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.nonces.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.nonces.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.nonces.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.nonces.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.nonces.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.nonces.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.permit.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.permit.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.permit.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.permit.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.permit.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.permit.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.permit.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.permit.no_call": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "erc20.permit.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.permit.static_runner_discharged": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.permit.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.reclassified.end_to_end_all": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "erc20.symbol.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.symbol.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.symbol.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.symbol.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.symbol.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.symbol.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.symbol.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.symbol.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.symbol.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.totalSupply.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.totalSupply.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.totalSupply.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.totalSupply.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.totalSupply.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.totalSupply.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.totalSupply.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.totalSupply.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.totalSupply.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.transfer.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.transfer.E2.caller_0x2000": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "erc20.transfer.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.transfer.E3.caller_0x2000": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "erc20.transfer.E4": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "erc20.transfer.E4.any_caller": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "erc20.transfer.E4E5.any_caller": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "erc20.transfer.E5": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "erc20.transfer.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.transfer.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.transfer.E7.caller_0x2000": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "erc20.transfer.E8": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "erc20.transfer.bytes_mutant_jump": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "erc20.transfer.case_self_max": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "erc20.transfer.case_self_short": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "erc20.transfer.certified_0x2000": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "erc20.transfer.meets_source": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "erc20.transfer.mutant_debit": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "erc20.transfer.mutant_log": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "erc20.transfer.mutant_ret": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "erc20.transfer.nonvacuous": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "erc20.transfer.post": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "erc20.transfer.premise": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "erc20.transfer.valid": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "erc20.transfer.valid_inhabited": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "erc20.transfer.vc": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "erc20.transferFrom.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.transferFrom.E2.caller_0x2000": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "erc20.transferFrom.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.transferFrom.E3.caller_0x2000": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "erc20.transferFrom.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.transferFrom.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.transferFrom.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.transferFrom.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.transferFrom.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.transferFrom.keys": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "erc20.transferFrom.meets_source": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "erc20.transferFrom.post": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "erc20.transferFrom.premise": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.transferFrom.spec_export": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "erc20.transferFrom.valid": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "erc20.transferFrom.vc": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "erc20.translated": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "factory.allPairs.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.allPairs.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.allPairs.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "factory.allPairs.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "factory.allPairs.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.allPairs.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.allPairs.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.allPairs.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "factory.allPairs.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "factory.allPairsLength.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.allPairsLength.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.allPairsLength.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "factory.allPairsLength.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "factory.allPairsLength.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.allPairsLength.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.allPairsLength.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.allPairsLength.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "factory.allPairsLength.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "factory.certified": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.create2.address": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "factory.create2.keccak_model": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "factory.create2.pair_inj": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "factory.createPair.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.createPair.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.createPair.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "factory.createPair.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "factory.createPair.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.createPair.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.createPair.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.createPair.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "factory.createPair.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "factory.create_node": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "factory.create_node.mir": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.feeTo.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.feeTo.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.feeTo.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "factory.feeTo.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "factory.feeTo.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.feeTo.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.feeTo.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.feeTo.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "factory.feeTo.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "factory.feeToSetter.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.feeToSetter.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.feeToSetter.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "factory.feeToSetter.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "factory.feeToSetter.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.feeToSetter.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.feeToSetter.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.feeToSetter.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "factory.feeToSetter.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "factory.getPair.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.getPair.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.getPair.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "factory.getPair.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "factory.getPair.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.getPair.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.getPair.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.getPair.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "factory.getPair.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "factory.setFeeTo.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.setFeeTo.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.setFeeTo.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "factory.setFeeTo.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "factory.setFeeTo.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.setFeeTo.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.setFeeTo.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.setFeeTo.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "factory.setFeeTo.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "factory.setFeeToSetter.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.setFeeToSetter.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.setFeeToSetter.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "factory.setFeeToSetter.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "factory.setFeeToSetter.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.setFeeToSetter.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.setFeeToSetter.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "factory.setFeeToSetter.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "factory.setFeeToSetter.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "factory.translated": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "lemma.nested_scoped.refutes_collision": {
+   "status": "proved",
+   "axioms": [
+    "propext"
+   ],
+   "deps_satisfied": true
+  },
+  "lemma.nested_scoped.witness": {
+   "status": "proved",
+   "axioms": [
+    "Quot.sound",
+    "propext"
+   ],
+   "deps_satisfied": true
+  },
+  "lemma.nested_slots_refuted": {
+   "status": "proved",
+   "axioms": [
+    "Classical.choice",
+    "Quot.sound",
+    "propext"
+   ],
+   "deps_satisfied": true
+  },
+  "lemma.scoped_sep.decidable": {
+   "status": "proved",
+   "axioms": [
+    "Quot.sound",
+    "propext"
+   ],
+   "deps_satisfied": true
+  },
+  "lemma.scoped_sep.satisfiable": {
+   "status": "proved",
+   "axioms": [
+    "Classical.choice",
+    "Quot.sound",
+    "propext"
+   ],
+   "deps_satisfied": true
+  },
+  "lemma.scoped_sep.transfer_instance": {
+   "status": "proved",
+   "axioms": [
+    "propext"
+   ],
+   "deps_satisfied": true
+  },
+  "pair.DOMAIN_SEPARATOR.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.DOMAIN_SEPARATOR.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.DOMAIN_SEPARATOR.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.DOMAIN_SEPARATOR.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.DOMAIN_SEPARATOR.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.DOMAIN_SEPARATOR.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.DOMAIN_SEPARATOR.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.DOMAIN_SEPARATOR.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.DOMAIN_SEPARATOR.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.MINIMUM_LIQUIDITY.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.MINIMUM_LIQUIDITY.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.MINIMUM_LIQUIDITY.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.MINIMUM_LIQUIDITY.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.MINIMUM_LIQUIDITY.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.MINIMUM_LIQUIDITY.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.MINIMUM_LIQUIDITY.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.MINIMUM_LIQUIDITY.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.MINIMUM_LIQUIDITY.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.PERMIT_TYPEHASH.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.PERMIT_TYPEHASH.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.PERMIT_TYPEHASH.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.PERMIT_TYPEHASH.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.PERMIT_TYPEHASH.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.PERMIT_TYPEHASH.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.PERMIT_TYPEHASH.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.PERMIT_TYPEHASH.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.PERMIT_TYPEHASH.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.allowance.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.allowance.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.allowance.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.allowance.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.allowance.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.allowance.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.allowance.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.allowance.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.allowance.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.approve.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.approve.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.approve.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.approve.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.approve.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.approve.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.approve.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.approve.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.approve.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.balanceOf.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.balanceOf.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.balanceOf.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.balanceOf.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.balanceOf.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.balanceOf.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.balanceOf.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.balanceOf.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.balanceOf.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.burn.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.burn.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.burn.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.burn.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.burn.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.burn.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.burn.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.burn.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.burn.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.certified": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.decimals.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.decimals.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.decimals.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.decimals.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.decimals.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.decimals.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.decimals.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.decimals.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.decimals.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.factory.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.factory.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.factory.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.factory.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.factory.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.factory.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.factory.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.factory.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.factory.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.getReserves.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.getReserves.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.getReserves.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.getReserves.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.getReserves.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.getReserves.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.getReserves.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.getReserves.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.getReserves.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.initialize.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.initialize.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.initialize.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.initialize.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.initialize.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.initialize.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.initialize.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.initialize.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.initialize.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.kLast.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.kLast.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.kLast.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.kLast.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.kLast.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.kLast.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.kLast.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.kLast.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.kLast.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.mint.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.mint.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.mint.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.mint.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.mint.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.mint.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.mint.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.mint.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.mint.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.name.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.name.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.name.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.name.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.name.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.name.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.name.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.name.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.name.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.nonces.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.nonces.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.nonces.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.nonces.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.nonces.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.nonces.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.nonces.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.nonces.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.nonces.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.nonvacuous": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "pair.permit.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.permit.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.permit.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.permit.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.permit.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.permit.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.permit.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.permit.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.permit.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.premise.allowance_apart": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "pair.premise.allowance_apart.satisfiable": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "pair.price0CumulativeLast.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.price0CumulativeLast.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.price0CumulativeLast.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.price0CumulativeLast.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.price0CumulativeLast.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.price0CumulativeLast.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.price0CumulativeLast.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.price0CumulativeLast.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.price0CumulativeLast.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.price1CumulativeLast.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.price1CumulativeLast.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.price1CumulativeLast.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.price1CumulativeLast.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.price1CumulativeLast.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.price1CumulativeLast.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.price1CumulativeLast.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.price1CumulativeLast.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.price1CumulativeLast.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.reclassified.published_of_stages": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "pair.skim.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.skim.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.skim.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.skim.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.skim.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.skim.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.skim.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.skim.equiv_statement": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "pair.skim.meets_statement": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "pair.skim.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.skim.refuse_update": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "pair.skim.term_statement": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "pair.skim.valid": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "pair.statement": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "pair.swap.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.swap.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.swap.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.swap.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.swap.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.swap.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.swap.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.swap.equiv_statement": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "pair.swap.meets_statement": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "pair.swap.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.swap.refuse_no_update": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "pair.swap.refuse_wrong_k": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": false
+  },
+  "pair.swap.term_statement": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "pair.swap.valid": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "pair.symbol.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.symbol.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.symbol.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.symbol.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.symbol.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.symbol.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.symbol.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.symbol.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.symbol.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.sync.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.sync.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.sync.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.sync.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.sync.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.sync.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.sync.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.sync.equiv_statement": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "pair.sync.meets_statement": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "pair.sync.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.sync.term_statement": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "pair.sync.valid": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "pair.token0.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.token0.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.token0.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.token0.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.token0.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.token0.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.token0.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.token0.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.token0.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.token1.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.token1.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.token1.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.token1.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.token1.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.token1.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.token1.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.token1.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.token1.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.totalSupply.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.totalSupply.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.totalSupply.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.totalSupply.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.totalSupply.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.totalSupply.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.totalSupply.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.totalSupply.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.totalSupply.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.transfer.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.transfer.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.transfer.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.transfer.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.transfer.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.transfer.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.transfer.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.transfer.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.transfer.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.transferFrom.E2": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.transferFrom.E3": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.transferFrom.E4": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.transferFrom.E5": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.transferFrom.E6": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.transferFrom.E7": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.transferFrom.E8": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": false
+  },
+  "pair.transferFrom.post": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.transferFrom.valid": {
+   "status": "missing",
+   "reason": "no decl yet",
+   "deps_satisfied": true
+  },
+  "pair.translated": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "premise.callees_run": {
+   "status": "statement-only",
+   "reason": "a statement, not a proof",
+   "axioms": [
+    "Classical.choice",
+    "Quot.sound",
+    "propext"
+   ],
+   "deps_satisfied": true
+  },
+  "premise.hash_scope": {
+   "status": "statement-only",
+   "reason": "a statement, not a proof",
+   "axioms": [
+    "propext"
+   ],
+   "deps_satisfied": true
+  },
+  "premise.nested_scoped": {
+   "status": "statement-only",
+   "reason": "a statement, not a proof",
+   "axioms": [
+    "propext"
+   ],
+   "deps_satisfied": true
+  },
+  "premise.scoped_sep": {
+   "status": "statement-only",
+   "reason": "a statement, not a proof",
+   "axioms": [
+    "propext"
+   ],
+   "deps_satisfied": true
+  },
+  "premise.static_runner": {
+   "status": "statement-only",
+   "reason": "a statement, not a proof",
+   "axioms": [
+    "Classical.choice",
+    "Quot.sound",
+    "propext"
+   ],
+   "deps_satisfied": true
+  },
+  "shape.certified": {
+   "status": "statement-only",
+   "reason": "a statement, not a proof",
+   "axioms": [
+    "Classical.choice",
+    "Quot.sound",
+    "propext"
+   ],
+   "deps_satisfied": true
+  },
+  "small.bank.certified": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "small.c4.certified": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "small.events.certified": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "small.mulx.certified": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "small.token.certified": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "small.verify_counter.published": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "small.w4.certified": {
+   "status": "missing",
+   "reason": "module not audited in this run",
+   "deps_satisfied": true
+  },
+  "solar.driver.fresh_bytes": {
+   "status": "external",
+   "reason": "evidence outside Lean, not checked here",
+   "deps_satisfied": true
+  },
+  "trust.E0.port": {
+   "status": "trusted",
+   "reason": "a stated trust boundary",
+   "deps_satisfied": true
+  },
+  "trust.E1.frontend": {
+   "status": "trusted",
+   "reason": "a stated trust boundary",
+   "deps_satisfied": true
+  }
+ },
+ "ready": [
+  {
+   "id": "pair.translated",
+   "unblocks": 136,
+   "lane": "e2-semantics",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.translated",
+   "unblocks": 76,
+   "lane": "e2-semantics",
+   "status": "missing"
+  },
+  {
+   "id": "factory.translated",
+   "unblocks": 41,
+   "lane": "e2-semantics",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.transfer.premise",
+   "unblocks": 17,
+   "lane": "premises",
+   "status": "missing"
+  },
+  {
+   "id": "pair.premise.allowance_apart",
+   "unblocks": 14,
+   "lane": "premises",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.approve.valid",
+   "unblocks": 10,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.transfer.bytes_mutant_jump",
+   "unblocks": 10,
+   "lane": "e7-spec",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.transfer.post",
+   "unblocks": 10,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.transferFrom.valid",
+   "unblocks": 10,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "counter.get.valid",
+   "unblocks": 8,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "counter.inc.valid",
+   "unblocks": 8,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.transfer.E4",
+   "unblocks": 8,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "counter.get.E4",
+   "unblocks": 6,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "counter.get.E5",
+   "unblocks": 6,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "counter.inc.E4",
+   "unblocks": 6,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "counter.inc.E5",
+   "unblocks": 6,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.DOMAIN_SEPARATOR.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.PERMIT_TYPEHASH.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.allowance.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.balanceOf.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.decimals.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.name.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.nonces.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.permit.no_call",
+   "unblocks": 6,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.permit.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.symbol.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.totalSupply.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "factory.allPairs.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "factory.allPairsLength.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "factory.create2.address",
+   "unblocks": 6,
+   "lane": "e3-source-mir",
+   "status": "missing"
+  },
+  {
+   "id": "factory.createPair.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "factory.create_node",
+   "unblocks": 6,
+   "lane": "e3-source-mir",
+   "status": "missing"
+  },
+  {
+   "id": "factory.feeTo.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "factory.feeToSetter.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "factory.getPair.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "factory.setFeeTo.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "factory.setFeeToSetter.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.DOMAIN_SEPARATOR.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.MINIMUM_LIQUIDITY.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.PERMIT_TYPEHASH.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.allowance.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.approve.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.balanceOf.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.burn.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.decimals.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.factory.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.getReserves.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.initialize.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.kLast.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.mint.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.name.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.nonces.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.permit.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.price0CumulativeLast.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.price1CumulativeLast.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.skim.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.swap.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.symbol.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.sync.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.token0.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.token1.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.totalSupply.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.transfer.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.transferFrom.valid",
+   "unblocks": 6,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.approve.post",
+   "unblocks": 5,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.approve.premise",
+   "unblocks": 5,
+   "lane": "premises",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.transferFrom.post",
+   "unblocks": 5,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.transferFrom.premise",
+   "unblocks": 5,
+   "lane": "premises",
+   "status": "missing"
+  },
+  {
+   "id": "counter.statement",
+   "unblocks": 4,
+   "lane": "integrator",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.DOMAIN_SEPARATOR.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.DOMAIN_SEPARATOR.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.PERMIT_TYPEHASH.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.PERMIT_TYPEHASH.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.allowance.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.allowance.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.approve.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.approve.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.approve.spec_export",
+   "unblocks": 4,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.balanceOf.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.balanceOf.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.decimals.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.decimals.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.name.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.name.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.nonces.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.nonces.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.permit.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.symbol.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.symbol.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.totalSupply.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.totalSupply.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.transferFrom.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.transferFrom.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.transferFrom.spec_export",
+   "unblocks": 4,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "factory.allPairs.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "factory.allPairs.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "factory.allPairsLength.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "factory.allPairsLength.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "factory.create2.keccak_model",
+   "unblocks": 4,
+   "lane": "premises",
+   "status": "missing"
+  },
+  {
+   "id": "factory.createPair.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "factory.createPair.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "factory.feeTo.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "factory.feeTo.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "factory.feeToSetter.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "factory.feeToSetter.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "factory.getPair.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "factory.getPair.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "factory.setFeeTo.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "factory.setFeeTo.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "factory.setFeeToSetter.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "factory.setFeeToSetter.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "pair.DOMAIN_SEPARATOR.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "pair.DOMAIN_SEPARATOR.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "pair.MINIMUM_LIQUIDITY.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "pair.MINIMUM_LIQUIDITY.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "pair.PERMIT_TYPEHASH.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "pair.PERMIT_TYPEHASH.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "pair.allowance.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "pair.allowance.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "pair.approve.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "pair.approve.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "pair.balanceOf.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "pair.balanceOf.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "pair.burn.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "pair.burn.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "pair.decimals.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "pair.decimals.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "pair.factory.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "pair.factory.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "pair.getReserves.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "pair.getReserves.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "pair.initialize.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "pair.initialize.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "pair.kLast.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "pair.kLast.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "pair.mint.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "pair.mint.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "pair.name.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "pair.name.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "pair.nonces.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "pair.nonces.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "pair.permit.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "pair.permit.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "pair.price0CumulativeLast.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "pair.price0CumulativeLast.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "pair.price1CumulativeLast.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "pair.price1CumulativeLast.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "pair.skim.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "pair.skim.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "pair.swap.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "pair.swap.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "pair.symbol.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "pair.symbol.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "pair.sync.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "pair.sync.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "pair.token0.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "pair.token0.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "pair.token1.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "pair.token1.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "pair.totalSupply.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "pair.totalSupply.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "pair.transfer.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "pair.transfer.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "pair.transferFrom.E4",
+   "unblocks": 4,
+   "lane": "e4-backend",
+   "status": "missing"
+  },
+  {
+   "id": "pair.transferFrom.E5",
+   "unblocks": 4,
+   "lane": "e5-bytes",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.DOMAIN_SEPARATOR.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.PERMIT_TYPEHASH.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.allowance.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.balanceOf.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.decimals.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.name.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.nonces.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.permit.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.symbol.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.totalSupply.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "factory.allPairs.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "factory.allPairsLength.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "factory.createPair.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "factory.feeTo.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "factory.feeToSetter.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "factory.getPair.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "factory.setFeeTo.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "factory.setFeeToSetter.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.DOMAIN_SEPARATOR.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.MINIMUM_LIQUIDITY.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.PERMIT_TYPEHASH.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.allowance.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.approve.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.balanceOf.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.burn.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.decimals.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.factory.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.getReserves.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.initialize.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.kLast.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.mint.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.name.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.nonces.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.permit.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.price0CumulativeLast.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.price1CumulativeLast.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.skim.meets_statement",
+   "unblocks": 3,
+   "lane": "integrator",
+   "status": "missing"
+  },
+  {
+   "id": "pair.skim.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.skim.term_statement",
+   "unblocks": 3,
+   "lane": "integrator",
+   "status": "missing"
+  },
+  {
+   "id": "pair.swap.meets_statement",
+   "unblocks": 3,
+   "lane": "integrator",
+   "status": "missing"
+  },
+  {
+   "id": "pair.swap.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.swap.term_statement",
+   "unblocks": 3,
+   "lane": "integrator",
+   "status": "missing"
+  },
+  {
+   "id": "pair.symbol.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.sync.meets_statement",
+   "unblocks": 3,
+   "lane": "integrator",
+   "status": "missing"
+  },
+  {
+   "id": "pair.sync.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.sync.term_statement",
+   "unblocks": 3,
+   "lane": "integrator",
+   "status": "missing"
+  },
+  {
+   "id": "pair.token0.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.token1.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.totalSupply.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.transfer.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.transferFrom.post",
+   "unblocks": 3,
+   "lane": "specs",
+   "status": "missing"
+  },
+  {
+   "id": "pair.skim.equiv_statement",
+   "unblocks": 2,
+   "lane": "integrator",
+   "status": "missing"
+  },
+  {
+   "id": "pair.swap.equiv_statement",
+   "unblocks": 2,
+   "lane": "integrator",
+   "status": "missing"
+  },
+  {
+   "id": "pair.sync.equiv_statement",
+   "unblocks": 2,
+   "lane": "integrator",
+   "status": "missing"
+  },
+  {
+   "id": "erc20.reclassified.end_to_end_all",
+   "unblocks": 0,
+   "lane": "integrator",
+   "status": "missing"
+  },
+  {
+   "id": "small.bank.certified",
+   "unblocks": 0,
+   "lane": "integrator",
+   "status": "missing"
+  },
+  {
+   "id": "small.c4.certified",
+   "unblocks": 0,
+   "lane": "integrator",
+   "status": "missing"
+  },
+  {
+   "id": "small.events.certified",
+   "unblocks": 0,
+   "lane": "integrator",
+   "status": "missing"
+  },
+  {
+   "id": "small.mulx.certified",
+   "unblocks": 0,
+   "lane": "integrator",
+   "status": "missing"
+  },
+  {
+   "id": "small.token.certified",
+   "unblocks": 0,
+   "lane": "integrator",
+   "status": "missing"
+  },
+  {
+   "id": "small.verify_counter.published",
+   "unblocks": 0,
+   "lane": "integrator",
+   "status": "missing"
+  },
+  {
+   "id": "small.w4.certified",
+   "unblocks": 0,
+   "lane": "integrator",
+   "status": "missing"
+  }
+ ],
+ "modules": {
+  "audited": [
+   "SolidCore.Refinement.Solar.AssembleCallSeg",
+   "SolidCore.Refinement.Solar.Counter.Every",
+   "SolidCore.Refinement.Solar.Counter.Spec",
+   "Verify.Shapes",
+   "Verify.Spec.HashScope",
+   "Verify.Spec.HashScopeCheck",
+   "Verify.Spec.HashScopeNested"
+  ],
+  "not_audited": {
+   "Contracts.Counter.Execution": "module not audited in this run",
+   "Contracts.Counter.Shape": "module not audited in this run",
+   "Contracts.Counter.ShapeSpec": "module not audited in this run",
+   "Contracts.Token.EndToEnd": "module not audited in this run",
+   "Contracts.UniswapV2.ERC20.Certified.Transfer": "module not audited in this run",
+   "Contracts.UniswapV2.ERC20.Core": "module not audited in this run",
+   "Contracts.UniswapV2.ERC20.EndToEndAll": "module not audited in this run",
+   "Contracts.UniswapV2.ERC20.Nested.Approve": "module not audited in this run",
+   "Contracts.UniswapV2.ERC20.Nested.LoweringApprove": "module not audited in this run",
+   "Contracts.UniswapV2.ERC20.Nested.LoweringTransferFrom": "module not audited in this run",
+   "Contracts.UniswapV2.ERC20.Nested.TransferFrom": "module not audited in this run",
+   "Contracts.UniswapV2.ERC20.NoCallOnly": "module not audited in this run",
+   "Contracts.UniswapV2.ERC20.Slice.Bytes": "module not audited in this run",
+   "Contracts.UniswapV2.ERC20.Slice.Mutants": "module not audited in this run",
+   "Contracts.UniswapV2.ERC20.Slice.MutantsDebit": "module not audited in this run",
+   "Contracts.UniswapV2.ERC20.Slice.Post": "module not audited in this run",
+   "Contracts.UniswapV2.ERC20.Slice.Statement": "module not audited in this run",
+   "Contracts.UniswapV2.ERC20.Slice.Vc": "module not audited in this run",
+   "Contracts.UniswapV2.ERC20.SourceMir": "module not audited in this run",
+   "Contracts.UniswapV2.Factory.Contract": "module not audited in this run",
+   "Contracts.UniswapV2.Factory.Create2": "module not audited in this run",
+   "Contracts.UniswapV2.Pair.Contract": "module not audited in this run",
+   "Contracts.UniswapV2.PairSpec.Inputs": "module not audited in this run",
+   "Contracts.UniswapV2.PairSpec.NonVacuous": "module not audited in this run",
+   "Contracts.UniswapV2.PairSpec.Published": "module not audited in this run",
+   "Contracts.UniswapV2.PairSpec.Refusal": "module not audited in this run",
+   "Contracts.UniswapV2.PairSpec.Stages": "module not audited in this run",
+   "Contracts.UniswapV2.PairSpec.Statement": "module not audited in this run",
+   "Contracts.VerifyCounter.ShapeSource": "module not audited in this run",
+   "SolidCore.Refinement.Generic.CreateNode": "module not audited in this run",
+   "SolidCore.Refinement.Solar.Bank.Certified": "module not audited in this run",
+   "SolidCore.Refinement.Solar.C4.Certified": "module not audited in this run",
+   "SolidCore.Refinement.Solar.Events.Certified": "module not audited in this run",
+   "SolidCore.Refinement.Solar.MulX.Certified": "module not audited in this run",
+   "SolidCore.Refinement.Solar.W4.Milestone": "module not audited in this run",
+   "counter.Final": "module not audited in this run",
+   "counter.Proofs.Stages": "module not audited in this run",
+   "uv2_erc20.AnyCaller": "module not audited in this run",
+   "uv2_erc20.Gas": "module not audited in this run",
+   "uv2_erc20.ProofsT.Stages": "module not audited in this run"
+  }
+ }
+}

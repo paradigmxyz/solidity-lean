@@ -1,0 +1,34 @@
+name: blueprint
+
+# The certification blueprint's graph (docs/blueprint/obligations.toml) without Lean: ids, deps,
+# edges, acyclicity, the human_review rule, and that no node proved in the committed status.json
+# was dropped from the graph. The Lean audit runs in the refinement workflow, after its builds.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - docs/blueprint/**
+      - scripts/blueprint/**
+      - .github/workflows/blueprint.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  graph:
+    name: Blueprint graph
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Test the checker
+        run: python3 scripts/blueprint/test_check.py
+
+      - name: Check the graph
+        run: python3 scripts/blueprint/check.py --no-lean --baseline docs/blueprint/status.json

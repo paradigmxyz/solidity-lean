@@ -150,6 +150,24 @@ jobs:
           AXIOM_MEMORY: "6000"
         run: scripts/refinement/axiom-audit.sh
 
+      # The certification blueprint (docs/blueprint): every node's declaration elaborated against the
+      # builds above, its axioms audited, and a failure if a node proved in the committed
+      # docs/blueprint/status.json is not proved now. The fresh status is uploaded, so that nodes it
+      # newly proves can be committed to the baseline.
+      - name: Check the certification blueprint
+        env:
+          LEAN_NUM_THREADS: "2"
+          BLUEPRINT_MEMORY: "6000"
+        run: python3 scripts/blueprint/check.py --baseline docs/blueprint/status.json --out .lake/blueprint/status.json
+
+      - name: Upload the blueprint status
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: blueprint-status
+          path: .lake/blueprint/
+          if-no-files-found: ignore
+
       - name: Check the refinement proofs and analysis facts
         env:
           # Each Z3 process may use up to 8 GB; the runner has 16 GB.
