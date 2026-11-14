@@ -1,0 +1,213 @@
+From b5cf9baafcacd8d0a4a8078564a9b9f5b55f5e08 Mon Sep 17 00:00:00 2001
+From: pyramid <pyramid@tempo.xyz>
+Date: Sat, 14 Nov 2026 14:09:31 +0000
+Subject: [PATCH 2/2] wip(slice2-nested): approve spec and E3 for approve,
+ transferFrom
+
+---
+ Contracts/UniswapV2/ERC20/Nested/All.lean     |  6 +++++
+ Contracts/UniswapV2/ERC20/Nested/Approve.lean | 23 ++++++++++++-------
+ .../ERC20/Nested/LoweringApprove.lean         |  2 +-
+ .../ERC20/Nested/LoweringTransferFrom.lean    |  4 ++--
+ .../ERC20/Nested/TransferFromSpec.lean        |  2 +-
+ Verify/Spec/HashScopeNested.lean              | 22 +++++++++---------
+ 6 files changed, 36 insertions(+), 23 deletions(-)
+ create mode 100644 Contracts/UniswapV2/ERC20/Nested/All.lean
+
+diff --git a/Contracts/UniswapV2/ERC20/Nested/All.lean b/Contracts/UniswapV2/ERC20/Nested/All.lean
+new file mode 100644
+index 0000000..f47dc3a
+--- /dev/null
++++ b/Contracts/UniswapV2/ERC20/Nested/All.lean
+@@ -0,0 +1,6 @@
++import Contracts.UniswapV2.ERC20.Nested.Approve
++import Contracts.UniswapV2.ERC20.Nested.LoweringApprove
++import Contracts.UniswapV2.ERC20.Nested.LoweringTransferFrom
++import Contracts.UniswapV2.ERC20.Nested.TransferFromSpec
++
++/-! # slice2-nested: UniswapV2ERC20's approve and transferFrom (see RESULT.md for the edges proved). -/
+diff --git a/Contracts/UniswapV2/ERC20/Nested/Approve.lean b/Contracts/UniswapV2/ERC20/Nested/Approve.lean
+index 5e8c494..a3cad04 100644
+--- a/Contracts/UniswapV2/ERC20/Nested/Approve.lean
++++ b/Contracts/UniswapV2/ERC20/Nested/Approve.lean
+@@ -17,7 +17,7 @@ of slots, never of "all other keys" (which would ask keccak256 to be injective e
+ generic stage's calls: any argument words, no value, any storage covering the deployed one), by
+ `source_run`.
+ 
+-`approve_keys` is the key-level reading, under `HashScope.Scoped (approveFootprint caller spender)`
++`approve_keys` is the key-level reading, under `HashScopeNested.Scoped (approveFootprint caller spender)`
+ (keccak256 separated on the two preimages this call hashes): the written slot is no small constant
+ slot, so `totalSupply` (slot 0) and `DOMAIN_SEPARATOR` (slot 3) are unchanged.
+ 
+@@ -80,14 +80,16 @@ theorem approve_tree_eval (spender value : Nat) (st : Nat → Nat) (hs : spender
+     refine ⟨by simp [word32, List.range_succ], by simp [word32, List.range_succ, caller, approvalTopic], ?_⟩
+     funext n
+     simp [upd, caller, allowanceSlot]
+-  · have hn : 1461501637330902918203684832716283019655932542975 % 2 ^ 256 < spender := by omega
+-    simp [hn, h]
++  · have hn : 1461501637330902918203684832716283019655932542975 < spender := by omega
++    have h' : ¬ spender < 1461501637330902918203684832716283019655932542976 := h
++    simp [hn, h']
+ 
+ /-- **approve's frame is its one slot**: on success, every slot but `allowance[caller][spender]`'s
+ keeps its value. Said of slots: no premise on keccak256. -/
+ theorem approve_frame (st : Nat → Nat) (spender value n : Nat)
+     (hn : n % 2 ^ 256 ≠ allowanceSlot caller spender) :
+     (approveResult st spender value).storage n = st n := by
++  simp only [Nat.reducePow] at hn
+   unfold approveResult
+   split <;> simp [upd, Ne.symm hn]
+ 
+@@ -115,6 +117,8 @@ theorem approve_meets {c : SolidCore.Solidity.TypeCheck.CheckedContract}
+   rintro _ ⟨σ, hcov, fn, hfn, args, hl, hargs, rfl⟩ obs hrun
+   simp only [List.mem_singleton] at hfn
+   subst hfn
++  change Source.run SolidCore.Verify.VC.UniswapV2ERC20.fuel c
++    { calldata := SolidCore.Refinement.Abi.calldata 157198259 args, callvalue := 0, storage := σ } = some obs at hrun
+   have hrun' := source_run hdd hcov (by decide) hf hT args (by simpa [fn_approve] using hl.trans hlen.symm) hargs
+   rw [hrun'] at hrun
+   cases hrun
+@@ -130,22 +134,25 @@ theorem approve_meets {c : SolidCore.Solidity.TypeCheck.CheckedContract}
+ `allowance[caller][spender]`'s slot, a clean call succeeds, `allowance[caller][spender]` is `value`,
+ and every small constant slot (`totalSupply` at 0, `DOMAIN_SEPARATOR` at 3) is unchanged. -/
+ theorem approve_keys (st : Nat → Nat) (spender value : Nat) (hsp : spender < 2 ^ 160)
+-    (h : HashScope.Scoped (HashScope.approveFootprint caller spender)) :
++    (h : HashScopeNested.Scoped (HashScopeNested.approveFootprint caller spender)) :
+     (approveResult st spender value).success = true ∧
+       (approveResult st spender value).storage (allowanceSlot caller spender) = value ∧
+       ∀ k < 2 ^ 128, (approveResult st spender value).storage k = st k := by
+-  have hge := HashScope.approve_slot h
++  have hge := HashScopeNested.approve_slot h
+   have hlt := solHash_lt spender (solHash caller 2)
+   unfold Generic.wordSize at hlt
+-  refine ⟨by simp [approveResult, hsp], by simp [approveResult, hsp, upd, Nat.mod_eq_of_lt hlt], ?_⟩
++  have hsp' : spender < 1461501637330902918203684832716283019655932542976 := hsp
++  have hlt' : allowanceSlot caller spender < 115792089237316195423570985008687907853269984665640564039457584007913129639936 := hlt
++  refine ⟨by simp [approveResult, hsp'], by simp [approveResult, hsp', upd, Nat.mod_eq_of_lt hlt'], ?_⟩
+   intro k hk
+-  exact approve_frame st spender value k (by rw [Nat.mod_eq_of_lt (by omega)]; omega)
++  have hk' : k % 2 ^ 256 = k := Nat.mod_eq_of_lt (by omega)
++  exact approve_frame st spender value k (by rw [hk']; intro e; simp only [allowanceSlot] at e; omega)
+ 
+ /-- info: 'SolidCore.Spec.UniswapV2.ERC20.Nested.approve_meets' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+ #guard_msgs in
+ #print axioms approve_meets
+ 
+-/-- info: 'SolidCore.Spec.UniswapV2.ERC20.Nested.approve_keys' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++/-- info: 'SolidCore.Spec.UniswapV2.ERC20.Nested.approve_keys' depends on axioms: [propext, Quot.sound] -/
+ #guard_msgs in
+ #print axioms approve_keys
+ 
+diff --git a/Contracts/UniswapV2/ERC20/Nested/LoweringApprove.lean b/Contracts/UniswapV2/ERC20/Nested/LoweringApprove.lean
+index b687e55..40db9d4 100644
+--- a/Contracts/UniswapV2/ERC20/Nested/LoweringApprove.lean
++++ b/Contracts/UniswapV2/ERC20/Nested/LoweringApprove.lean
+@@ -43,7 +43,7 @@ theorem check_approve_ok {c : SolidCore.Solidity.TypeCheck.CheckedContract}
+ theorem approve_source_to_mir (o : SolarTV.Machine.Oracle) (ho : Generic.SourceEnvOk o)
+     {c : SolidCore.Solidity.TypeCheck.CheckedContract}
+     (hc : SolidCore.Verify.VC.UniswapV2ERC20.contract? = .ok c) :
+-    SolarTV.Stage (solidCore SolidCore.Verify.VC.UniswapV2ERC20.fuel) (moduleSem o) c
++    SolarTV.Stage (solidCore SolidCore.Verify.VC.UniswapV2ERC20.fuel) (SolarTV.MIR.Lowered.moduleSem o) c
+       SolarTV.Export.UniswapV2ERC20.stage0
+       (fun call => ∃ σ, Covers deployed σ ∧ SolidCore.Refinement.Abi.fullScope [fn_approve] σ call) := by
+   have hdep := deploy_eq
+diff --git a/Contracts/UniswapV2/ERC20/Nested/LoweringTransferFrom.lean b/Contracts/UniswapV2/ERC20/Nested/LoweringTransferFrom.lean
+index 81d79dd..81e69c5 100644
+--- a/Contracts/UniswapV2/ERC20/Nested/LoweringTransferFrom.lean
++++ b/Contracts/UniswapV2/ERC20/Nested/LoweringTransferFrom.lean
+@@ -41,7 +41,7 @@ theorem check_transferFrom_ok {c : SolidCore.Solidity.TypeCheck.CheckedContract}
+ theorem transferFrom_source_to_mir (o : SolarTV.Machine.Oracle) (ho : Generic.SourceEnvOk o)
+     {c : SolidCore.Solidity.TypeCheck.CheckedContract}
+     (hc : SolidCore.Verify.VC.UniswapV2ERC20.contract? = .ok c) :
+-    SolarTV.Stage (solidCore SolidCore.Verify.VC.UniswapV2ERC20.fuel) (moduleSem o) c
++    SolarTV.Stage (solidCore SolidCore.Verify.VC.UniswapV2ERC20.fuel) (SolarTV.MIR.Lowered.moduleSem o) c
+       SolarTV.Export.UniswapV2ERC20.stage0
+       (fun call => ∃ σ, Covers deployed σ ∧ SolidCore.Refinement.Abi.fullScope [fn_transferFrom] σ call) := by
+   have hdep := deploy_eq
+@@ -60,7 +60,7 @@ theorem transferFrom_defined {c : SolidCore.Solidity.TypeCheck.CheckedContract}
+   exact definedAt hdd (check_transferFrom_ok hc)
+ 
+ /-- info: 'SolidCore.Spec.UniswapV2.ERC20.Nested.transferFrom_source_to_mir' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+-#guard_msgs in
++#guard_msgs (whitespace := lax) in
+ #print axioms transferFrom_source_to_mir
+ 
+ end SolidCore.Spec.UniswapV2.ERC20.Nested
+diff --git a/Contracts/UniswapV2/ERC20/Nested/TransferFromSpec.lean b/Contracts/UniswapV2/ERC20/Nested/TransferFromSpec.lean
+index 5da5a04..3dc7a21 100644
+--- a/Contracts/UniswapV2/ERC20/Nested/TransferFromSpec.lean
++++ b/Contracts/UniswapV2/ERC20/Nested/TransferFromSpec.lean
+@@ -18,7 +18,7 @@ before it (so any aliasing of the slots is the source's, not assumed away):
+ A revert changes no storage and logs nothing. `transferFrom_tree_eval` proves the generic stage's tree
+ gives exactly this on every argument word and every storage of words, with no hash premise;
+ `transferFrom_meets` carries it to SolidCore's checked contract on every valid call.
+-`transferFrom_keys` reads it key by key under `HashScope.Scoped (transferFromFootprint caller frm dst)`:
++`transferFrom_keys` reads it key by key under `HashScopeNested.Scoped (transferFromFootprint caller frm dst)`:
+ the three slots are apart, so for `frm ≠ dst` success is `value ≤ a` (or `a` infinite), `value ≤ b` and
+ `d + value < 2 ^ 256` on the storage before the call, and for `frm = to` the balance is unchanged with
+ no overflow condition.
+diff --git a/Verify/Spec/HashScopeNested.lean b/Verify/Spec/HashScopeNested.lean
+index a1a182d..9bd5209 100644
+--- a/Verify/Spec/HashScopeNested.lean
++++ b/Verify/Spec/HashScopeNested.lean
+@@ -1,4 +1,4 @@
+-import Verify.Spec.TreeMapNested
++import Verify.Spec.HashScope
+ import Verify.Spec.TrustedBase.Hypotheses
+ 
+ /-!
+@@ -22,18 +22,18 @@ footprint, as hevm does (pairwise injectivity over the hash applications that oc
+   distinct keys, four preimages), by the kernel's evaluation of keccak256 on each, so it is
+   satisfiable, unlike `NestedSlotsSeparated`.
+ 
+-Lane note: the single-level premise for `transfer` over `{caller, to}` belongs to Verify/Spec/HashScope.lean
+-(hash-scope lane). `Scoped` is the same statement (`KeccakSeparated` of a finite list); if that
+-module names it differently, this one becomes an abbreviation of it.
++`Scoped` is hash-scope's `ScopedSep` (Verify/Spec/HashScope.lean), the one footprint premise for
++single-level and nested mappings alike: this module adds only the nested footprints and their slot
++facts.
+ -/
+ 
+-namespace SolidCore.Spec.HashScope
++namespace SolidCore.Spec.HashScopeNested
+ 
+ open SolidCore.Refinement SolidCore.Refinement.Generic
+ 
+ /-- **keccak256 separated on a call's footprint** `L`: injective on the finitely many preimages in
+ `L`, and every image at least `2 ^ 128` (so no small constant slot). -/
+-def Scoped (L : List (List Nat)) : Prop := TrustedBase.KeccakSeparated (· ∈ L)
++abbrev Scoped (L : List (List Nat)) : Prop := ScopedSep L
+ 
+ /-- The preimage of the slot of `m[a]` for a mapping at slot `m`. -/
+ abbrev pre (a m : Nat) : List Nat := TrustedBase.mappingPreimage a m
+@@ -97,9 +97,9 @@ theorem approve_slot {caller spender : Nat} (h : Scoped (approveFootprint caller
+     2 ^ 128 ≤ solHash spender (solHash caller 2) :=
+   slot_ge h (by simp [approveFootprint, nestedFootprint])
+ 
+-end SolidCore.Spec.HashScope
++end SolidCore.Spec.HashScopeNested
+ 
+-namespace SolidCore.Spec.HashScope
++namespace SolidCore.Spec.HashScopeNested
+ 
+ open SolidCore.Refinement SolidCore.Refinement.Generic
+ 
+@@ -148,12 +148,12 @@ theorem not_scoped_collision : ¬ Scoped [[0], [256]] := by
+   have := h.1 [0] [256] (by simp) (by simp) (by decide +kernel)
+   simp at this
+ 
+-/-- info: 'SolidCore.Spec.HashScope.transferFrom_scoped_witness' depends on axioms: [propext, Quot.sound] -/
++/-- info: 'SolidCore.Spec.HashScopeNested.transferFrom_scoped_witness' depends on axioms: [propext, Quot.sound] -/
+ #guard_msgs in
+ #print axioms transferFrom_scoped_witness
+ 
+-/-- info: 'SolidCore.Spec.HashScope.transferFrom_slots' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++/-- info: 'SolidCore.Spec.HashScopeNested.transferFrom_slots' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+ #guard_msgs in
+ #print axioms transferFrom_slots
+ 
+-end SolidCore.Spec.HashScope
++end SolidCore.Spec.HashScopeNested
+-- 
+2.43.0
+

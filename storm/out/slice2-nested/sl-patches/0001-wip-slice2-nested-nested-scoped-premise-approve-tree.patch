@@ -1,0 +1,782 @@
+From 6f6d390971ac4e4007a8e0faebc13ec43daa2eec Mon Sep 17 00:00:00 2001
+From: pyramid <pyramid@tempo.xyz>
+Date: Sat, 14 Nov 2026 14:02:07 +0000
+Subject: [PATCH 1/2] wip(slice2-nested): nested scoped premise, approve tree
+ and spec
+
+---
+ .gitignore                                    |   2 +
+ Contracts/UniswapV2/ERC20/Nested/Approve.lean | 152 +++++++++++++++++
+ .../ERC20/Nested/LoweringApprove.lean         |  68 ++++++++
+ .../ERC20/Nested/LoweringTransferFrom.lean    |  66 ++++++++
+ .../ERC20/Nested/TransferFromSpec.lean        |  70 ++++++++
+ Verify/Spec/HashScopeNested.lean              | 159 ++++++++++++++++++
+ lakefile.lean                                 |  16 ++
+ scripts/verify/uniswap_v2_stage0.sh           |  32 ++++
+ scripts/verify/uniswap_v2_trees.py            | 128 ++++++++++++++
+ 9 files changed, 693 insertions(+)
+ create mode 100644 Contracts/UniswapV2/ERC20/Nested/Approve.lean
+ create mode 100644 Contracts/UniswapV2/ERC20/Nested/LoweringApprove.lean
+ create mode 100644 Contracts/UniswapV2/ERC20/Nested/LoweringTransferFrom.lean
+ create mode 100644 Contracts/UniswapV2/ERC20/Nested/TransferFromSpec.lean
+ create mode 100644 Verify/Spec/HashScopeNested.lean
+ create mode 100755 scripts/verify/uniswap_v2_stage0.sh
+ create mode 100755 scripts/verify/uniswap_v2_trees.py
+
+diff --git a/.gitignore b/.gitignore
+index d800f98..a92526b 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -15,3 +15,5 @@ __pycache__/
+ tests/forge-harness/*/out/
+ tests/forge-harness/*/cache/
+ /.cache/
++/Contracts/UniswapV2/ERC20/Nested/Trees.lean
++/Certified/uv2_erc20/
+diff --git a/Contracts/UniswapV2/ERC20/Nested/Approve.lean b/Contracts/UniswapV2/ERC20/Nested/Approve.lean
+new file mode 100644
+index 0000000..5e8c494
+--- /dev/null
++++ b/Contracts/UniswapV2/ERC20/Nested/Approve.lean
+@@ -0,0 +1,152 @@
++import Contracts.UniswapV2.ERC20.Nested.Trees
++import Verify.Spec.HashScopeNested
++import Verify.Spec.Tree
++import Verify.Shapes
++
++/-!
++# UniswapV2ERC20.approve: its exact result, sequentially, and the source's runs meet it
++
++The slot-level statement needs no hash premise: `approveResult st spender value` is the source's
++effect in source order (one write `allowance[caller][spender] = value` at the slot SolidCore computes,
++`solHash spender (solHash caller 2)`, then the `Approval` log and `true`), and `approve_tree_eval` proves
++the generic source stage's tree gives exactly it on every argument word and every storage. The frame
++is over that one slot (`approve_frame`): every slot other than the written one keeps its value, said
++of slots, never of "all other keys" (which would ask keccak256 to be injective everywhere).
++
++`approve_meets` carries it to SolidCore's checked contract on every valid call of approve (the
++generic stage's calls: any argument words, no value, any storage covering the deployed one), by
++`source_run`.
++
++`approve_keys` is the key-level reading, under `HashScope.Scoped (approveFootprint caller spender)`
++(keccak256 separated on the two preimages this call hashes): the written slot is no small constant
++slot, so `totalSupply` (slot 0) and `DOMAIN_SEPARATOR` (slot 3) are unchanged.
++
++Scope: the caller is the stage's (`0x2000`, SolidCore's `msg.sender` on these runs); `SolarTV.Call` has
++no caller field, so any-caller is a gap of the shared statement, named in RESULT.md.
++-/
++
++namespace SolidCore.Spec.UniswapV2.ERC20.Nested
++
++open SolarTV SolidCore.Refinement SolidCore.Refinement.Generic SolidCore.Refinement.Shapes
++
++/-- The stage's caller: `msg.sender` of SolidCore's runs of the generic stage. -/
++abbrev caller : Nat := 0x2000
++
++/-- `st` with slot `k` set to `v`; slots are words, so slot `n` is slot `n % 2 ^ 256`. -/
++def upd (st : Nat → Nat) (k v : Nat) : Nat → Nat := fun n => if k = n % 2 ^ 256 then v else st n
++
++/-- A word as its 32 big-endian bytes. -/
++def word32 (v : Nat) : List Nat := (List.range 32).map fun i => v / 256 ^ (31 - i) % 256
++
++/-- The slot of `allowance[o][s]` (allowance at slot 2), as SolidCore computes it. -/
++abbrev allowanceSlot (o s : Nat) : Nat := solHash s (solHash o 2)
++
++/-- The slot of `balanceOf[a]` (balanceOf at slot 1). -/
++abbrev balanceSlot (a : Nat) : Nat := solHash a 1
++
++/-- `keccak256("Approval(address,address,uint256)")`. -/
++abbrev approvalTopic : Nat := 63486140976153616755203102783360879283472101686154884697241723088393386309925
++
++/-- The argument words of a call: its calldata's words after the selector. -/
++def callArgs (call : Call) : List Nat := words ((call.calldata.data.toList.map (·.toNat)).drop 4)
++
++/-- **approve(spender, value) from the caller on storage `st`**: a dirty address reverts with no data
++and no change; otherwise `allowance[caller][spender] = value`, `Approval(caller, spender, value)`,
++returns `true`. -/
++def approveResult (st : Nat → Nat) (spender value : Nat) : Observable :=
++  if spender < 2 ^ 160 then
++    { success := true, output := word32 1,
++      logs := [([approvalTopic, caller, spender], word32 value)],
++      storage := upd st (allowanceSlot caller spender) value }
++  else { success := false, output := [], logs := [], storage := st }
++
++/-- **The generic source stage's tree of approve gives exactly `approveResult`**, on every argument
++word and every storage. -/
++theorem approve_tree_eval (spender value : Nat) (st : Nat → Nat) (hs : spender < 2 ^ 256)
++    (hv : value < 2 ^ 256) :
++    (approve_tree.eval ⟨[spender, value], st, solHash⟩).obs = approveResult st spender value := by
++  have hl := solHash_lt
++  simp only [Generic.wordSize] at hl
++  have hsN : spender % 2 ^ 256 = spender := Nat.mod_eq_of_lt hs
++  have hvN : value % 2 ^ 256 = value := Nat.mod_eq_of_lt hv
++  have hH : ∀ a b, solHash a b % 2 ^ 256 = solHash a b := fun a b => Nat.mod_eq_of_lt (hl a b)
++  simp only [approve_tree, approveResult, Tree.eval, WExpr.eval, BinOp.eval, Res.obs, Generic.wordSize,
++    List.getD_cons_zero, List.getD_cons_succ, Writes.store, Log.eval, List.map_cons, List.map_nil,
++    OByte.eval, hsN, hvN, hH]
++  by_cases h : spender < 2 ^ 160
++  · have hn : ¬ (1461501637330902918203684832716283019655932542975 % 2 ^ 256 < spender) := by omega
++    simp only [hn, h, if_false, if_true, Nat.zero_mod]
++    simp only [Observable.mk.injEq, true_and]
++    refine ⟨by simp [word32, List.range_succ], by simp [word32, List.range_succ, caller, approvalTopic], ?_⟩
++    funext n
++    simp [upd, caller, allowanceSlot]
++  · have hn : 1461501637330902918203684832716283019655932542975 % 2 ^ 256 < spender := by omega
++    simp [hn, h]
++
++/-- **approve's frame is its one slot**: on success, every slot but `allowance[caller][spender]`'s
++keeps its value. Said of slots: no premise on keccak256. -/
++theorem approve_frame (st : Nat → Nat) (spender value n : Nat)
++    (hn : n % 2 ^ 256 ≠ allowanceSlot caller spender) :
++    (approveResult st spender value).storage n = st n := by
++  unfold approveResult
++  split <;> simp [upd, Ne.symm hn]
++
++/-- The postcondition of every source result on a valid call of approve: exactly `approveResult` of
++the call's storage and argument words. -/
++def ApprovePost (call : Call) (obs : Observable) : Prop :=
++  obs = approveResult (slotValue call.storage) ((callArgs call).getD 0 0) ((callArgs call).getD 1 0)
++
++/-- The valid calls of approve: the generic stage's (any argument words, no value, any storage
++covering the deployed one). -/
++abbrev ApproveValid (call : Call) : Prop :=
++  ∃ σ, Covers deployed σ ∧ SolidCore.Refinement.Abi.fullScope [fn_approve] σ call
++
++/-- **approve's exact result holds of every SolidCore run of the checked UniswapV2ERC20** on its
++valid calls. No hash premise. -/
++theorem approve_meets {c : SolidCore.Solidity.TypeCheck.CheckedContract}
++    (hc : SolidCore.Verify.VC.UniswapV2ERC20.contract? = .ok c) :
++    Meets (solidCore SolidCore.Verify.VC.UniswapV2ERC20.fuel) c ApproveValid ApprovePost := by
++  have hdep := deploy_eq
++  simp only [deploy?, hc] at hdep
++  obtain ⟨dd, hdd⟩ := Wide.deployedAt_of hdep
++  have hmap := approve_erase_eq
++  simp only [approve_erase?, hc, Option.map_eq_some_iff, Prod.mk.injEq] at hmap
++  obtain ⟨f, hf, hlen, hT⟩ := hmap
++  rintro _ ⟨σ, hcov, fn, hfn, args, hl, hargs, rfl⟩ obs hrun
++  simp only [List.mem_singleton] at hfn
++  subst hfn
++  have hrun' := source_run hdd hcov (by decide) hf hT args (by simpa [fn_approve] using hl.trans hlen.symm) hargs
++  rw [hrun'] at hrun
++  cases hrun
++  match args, hl, hargs with
++  | [spender, value], _, hargs =>
++    have h0 := hargs spender (by simp)
++    have h1 := hargs value (by simp)
++    unfold ApprovePost callArgs
++    rw [words_calldata _ hargs]
++    exact approve_tree_eval spender value _ h0 h1
++
++/-- **approve, key by key, on its footprint**: under keccak256's separation on the two preimages of
++`allowance[caller][spender]`'s slot, a clean call succeeds, `allowance[caller][spender]` is `value`,
++and every small constant slot (`totalSupply` at 0, `DOMAIN_SEPARATOR` at 3) is unchanged. -/
++theorem approve_keys (st : Nat → Nat) (spender value : Nat) (hsp : spender < 2 ^ 160)
++    (h : HashScope.Scoped (HashScope.approveFootprint caller spender)) :
++    (approveResult st spender value).success = true ∧
++      (approveResult st spender value).storage (allowanceSlot caller spender) = value ∧
++      ∀ k < 2 ^ 128, (approveResult st spender value).storage k = st k := by
++  have hge := HashScope.approve_slot h
++  have hlt := solHash_lt spender (solHash caller 2)
++  unfold Generic.wordSize at hlt
++  refine ⟨by simp [approveResult, hsp], by simp [approveResult, hsp, upd, Nat.mod_eq_of_lt hlt], ?_⟩
++  intro k hk
++  exact approve_frame st spender value k (by rw [Nat.mod_eq_of_lt (by omega)]; omega)
++
++/-- info: 'SolidCore.Spec.UniswapV2.ERC20.Nested.approve_meets' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs in
++#print axioms approve_meets
++
++/-- info: 'SolidCore.Spec.UniswapV2.ERC20.Nested.approve_keys' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs in
++#print axioms approve_keys
++
++end SolidCore.Spec.UniswapV2.ERC20.Nested
+diff --git a/Contracts/UniswapV2/ERC20/Nested/LoweringApprove.lean b/Contracts/UniswapV2/ERC20/Nested/LoweringApprove.lean
+new file mode 100644
+index 0000000..b687e55
+--- /dev/null
++++ b/Contracts/UniswapV2/ERC20/Nested/LoweringApprove.lean
+@@ -0,0 +1,68 @@
++import Contracts.UniswapV2.ERC20.Nested.Trees
++import SolidCore.Refinement.Generic.Stage
++import SolidCore.Refinement.Generic.Total
++import uv2_erc20.gen.UniswapV2ERC20.Stage0
++
++/-!
++# UniswapV2ERC20.approve: SolidCore's source to solar's first lowered MIR (edge E3)
++
++`check_approve_ok`: the generic source check (`Generic.check`, every environment flag) accepts
++`SolarTV.Export.UniswapV2ERC20.stage0`, solar's first lowered MIR of the same pinned source
++(scripts/verify/uniswap_v2_stage0.sh, `-Ogas --evm-version osaka`), for `approve` alone, against
++SolidCore's checked contract, evaluated by the kernel from the source text up (`kernel_rfl`).
++`approve_source_to_mir` is the stage it gives: under every oracle whose caller and two-word Keccak-256
++are SolidCore's (`Generic.SourceEnvOk`), every SolidCore result on a valid call of approve (any argument
++words, no value, any storage covering the deployed one) is stage0's; `approve_defined`: SolidCore has a
++result on each (termination within the fuel, by the checker, not by a fuel premise).
++-/
++
++namespace SolidCore.Spec.UniswapV2.ERC20.Nested
++
++open SolidCore.Refinement SolidCore.Refinement.Generic
++
++/-- The steps along each path of the symbolic run of stage0. -/
++def mirFuel : Nat := 200
++
++def checkapprove? : Bool :=
++  match SolidCore.Verify.VC.UniswapV2ERC20.contract? with
++  | .ok c => Generic.check SolidCore.Verify.VC.UniswapV2ERC20.fuel mirFuel c.core
++      SolarTV.Export.UniswapV2ERC20.stage0 [fn_approve] .all
++  | .error _ => false
++
++kernel_rfl checkapprove_eq checkapprove? true using SolidCore.Verify.VC.UniswapV2ERC20.selector_eq SolidCore.Verify.VC.mkIdx_eq SolidCore.Verify.VC.UniswapV2ERC20.digest_eq SolidCore.Spec.UniswapV2.ERC20.Keccak.keccakWord_eq
++
++theorem check_approve_ok {c : SolidCore.Solidity.TypeCheck.CheckedContract}
++    (hc : SolidCore.Verify.VC.UniswapV2ERC20.contract? = .ok c) :
++    Generic.check SolidCore.Verify.VC.UniswapV2ERC20.fuel mirFuel c.core
++      SolarTV.Export.UniswapV2ERC20.stage0 [fn_approve] .all = true := by
++  have h := checkapprove_eq
++  simp only [checkapprove?, hc] at h
++  exact h
++
++/-- **E3 for approve**: SolidCore's checked source to solar's stage0, on approve's valid calls. -/
++theorem approve_source_to_mir (o : SolarTV.Machine.Oracle) (ho : Generic.SourceEnvOk o)
++    {c : SolidCore.Solidity.TypeCheck.CheckedContract}
++    (hc : SolidCore.Verify.VC.UniswapV2ERC20.contract? = .ok c) :
++    SolarTV.Stage (solidCore SolidCore.Verify.VC.UniswapV2ERC20.fuel) (moduleSem o) c
++      SolarTV.Export.UniswapV2ERC20.stage0
++      (fun call => ∃ σ, Covers deployed σ ∧ SolidCore.Refinement.Abi.fullScope [fn_approve] σ call) := by
++  have hdep := deploy_eq
++  simp only [deploy?, hc] at hdep
++  obtain ⟨dd, hdd⟩ := Wide.deployedAt_of hdep
++  exact stageAtWith o hdd ho.ask (check_approve_ok hc)
++
++/-- SolidCore has a result on every valid call of approve. -/
++theorem approve_defined {c : SolidCore.Solidity.TypeCheck.CheckedContract}
++    (hc : SolidCore.Verify.VC.UniswapV2ERC20.contract? = .ok c) :
++    Defined (solidCore SolidCore.Verify.VC.UniswapV2ERC20.fuel) c
++      (fun call => ∃ σ, Covers deployed σ ∧ SolidCore.Refinement.Abi.fullScope [fn_approve] σ call) := by
++  have hdep := deploy_eq
++  simp only [deploy?, hc] at hdep
++  obtain ⟨dd, hdd⟩ := Wide.deployedAt_of hdep
++  exact definedAt hdd (check_approve_ok hc)
++
++/-- info: 'SolidCore.Spec.UniswapV2.ERC20.Nested.approve_source_to_mir' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs in
++#print axioms approve_source_to_mir
++
++end SolidCore.Spec.UniswapV2.ERC20.Nested
+diff --git a/Contracts/UniswapV2/ERC20/Nested/LoweringTransferFrom.lean b/Contracts/UniswapV2/ERC20/Nested/LoweringTransferFrom.lean
+new file mode 100644
+index 0000000..81d79dd
+--- /dev/null
++++ b/Contracts/UniswapV2/ERC20/Nested/LoweringTransferFrom.lean
+@@ -0,0 +1,66 @@
++import Contracts.UniswapV2.ERC20.Nested.Trees
++import SolidCore.Refinement.Generic.Stage
++import SolidCore.Refinement.Generic.Total
++import uv2_erc20.gen.UniswapV2ERC20.Stage0
++import Contracts.UniswapV2.ERC20.Nested.LoweringApprove
++
++/-!
++# UniswapV2ERC20.transferFrom: SolidCore's source to solar's first lowered MIR (edge E3)
++
++`check_transferFrom_ok`: the generic source check (`Generic.check`, every environment flag) accepts
++`SolarTV.Export.UniswapV2ERC20.stage0`, solar's first lowered MIR of the same pinned source
++(scripts/verify/uniswap_v2_stage0.sh, `-Ogas --evm-version osaka`), for `transferFrom` alone, against
++SolidCore's checked contract, evaluated by the kernel from the source text up (`kernel_rfl`).
++`transferFrom_source_to_mir` is the stage it gives: under every oracle whose caller and two-word Keccak-256
++are SolidCore's (`Generic.SourceEnvOk`), every SolidCore result on a valid call of transferFrom (any argument
++words, no value, any storage covering the deployed one) is stage0's; `transferFrom_defined`: SolidCore has a
++result on each (termination within the fuel, by the checker, not by a fuel premise).
++-/
++
++namespace SolidCore.Spec.UniswapV2.ERC20.Nested
++
++open SolidCore.Refinement SolidCore.Refinement.Generic
++
++def checktransferFrom? : Bool :=
++  match SolidCore.Verify.VC.UniswapV2ERC20.contract? with
++  | .ok c => Generic.check SolidCore.Verify.VC.UniswapV2ERC20.fuel mirFuel c.core
++      SolarTV.Export.UniswapV2ERC20.stage0 [fn_transferFrom] .all
++  | .error _ => false
++
++kernel_rfl checktransferFrom_eq checktransferFrom? true using SolidCore.Verify.VC.UniswapV2ERC20.selector_eq SolidCore.Verify.VC.mkIdx_eq SolidCore.Verify.VC.UniswapV2ERC20.digest_eq SolidCore.Spec.UniswapV2.ERC20.Keccak.keccakWord_eq
++
++theorem check_transferFrom_ok {c : SolidCore.Solidity.TypeCheck.CheckedContract}
++    (hc : SolidCore.Verify.VC.UniswapV2ERC20.contract? = .ok c) :
++    Generic.check SolidCore.Verify.VC.UniswapV2ERC20.fuel mirFuel c.core
++      SolarTV.Export.UniswapV2ERC20.stage0 [fn_transferFrom] .all = true := by
++  have h := checktransferFrom_eq
++  simp only [checktransferFrom?, hc] at h
++  exact h
++
++/-- **E3 for transferFrom**: SolidCore's checked source to solar's stage0, on transferFrom's valid calls. -/
++theorem transferFrom_source_to_mir (o : SolarTV.Machine.Oracle) (ho : Generic.SourceEnvOk o)
++    {c : SolidCore.Solidity.TypeCheck.CheckedContract}
++    (hc : SolidCore.Verify.VC.UniswapV2ERC20.contract? = .ok c) :
++    SolarTV.Stage (solidCore SolidCore.Verify.VC.UniswapV2ERC20.fuel) (moduleSem o) c
++      SolarTV.Export.UniswapV2ERC20.stage0
++      (fun call => ∃ σ, Covers deployed σ ∧ SolidCore.Refinement.Abi.fullScope [fn_transferFrom] σ call) := by
++  have hdep := deploy_eq
++  simp only [deploy?, hc] at hdep
++  obtain ⟨dd, hdd⟩ := Wide.deployedAt_of hdep
++  exact stageAtWith o hdd ho.ask (check_transferFrom_ok hc)
++
++/-- SolidCore has a result on every valid call of transferFrom. -/
++theorem transferFrom_defined {c : SolidCore.Solidity.TypeCheck.CheckedContract}
++    (hc : SolidCore.Verify.VC.UniswapV2ERC20.contract? = .ok c) :
++    Defined (solidCore SolidCore.Verify.VC.UniswapV2ERC20.fuel) c
++      (fun call => ∃ σ, Covers deployed σ ∧ SolidCore.Refinement.Abi.fullScope [fn_transferFrom] σ call) := by
++  have hdep := deploy_eq
++  simp only [deploy?, hc] at hdep
++  obtain ⟨dd, hdd⟩ := Wide.deployedAt_of hdep
++  exact definedAt hdd (check_transferFrom_ok hc)
++
++/-- info: 'SolidCore.Spec.UniswapV2.ERC20.Nested.transferFrom_source_to_mir' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs in
++#print axioms transferFrom_source_to_mir
++
++end SolidCore.Spec.UniswapV2.ERC20.Nested
+diff --git a/Contracts/UniswapV2/ERC20/Nested/TransferFromSpec.lean b/Contracts/UniswapV2/ERC20/Nested/TransferFromSpec.lean
+new file mode 100644
+index 0000000..5da5a04
+--- /dev/null
++++ b/Contracts/UniswapV2/ERC20/Nested/TransferFromSpec.lean
+@@ -0,0 +1,70 @@
++import Contracts.UniswapV2.ERC20.Nested.Approve
++
++/-!
++# UniswapV2ERC20.transferFrom: its exact result, as sequential storage updates in source order
++
++`transferFromResult st frm dst value` is the source's effect step by step, each read seeing the writes
++before it (so any aliasing of the slots is the source's, not assumed away):
++
++1. a dirty address (`frm` or `to` at least `2 ^ 160`) reverts with no data;
++2. `a := allowance[frm][caller]`; unless `a` is `type(uint256).max`, `a < value` reverts with SafeMath's
++   `ds-math-sub-underflow`, else `allowance[frm][caller] = a - value`;
++3. `b := balanceOf[frm]` (reading step 2's storage); `b < value` reverts (`ds-math-sub-underflow`), else
++   `balanceOf[frm] = b - value`;
++4. `d := balanceOf[to]` (reading step 3's storage); `d + value >= 2 ^ 256` reverts
++   (`ds-math-add-overflow`), else `balanceOf[to] = d + value`;
++5. `Transfer(frm, to, value)`, returns `true`.
++
++A revert changes no storage and logs nothing. `transferFrom_tree_eval` proves the generic stage's tree
++gives exactly this on every argument word and every storage of words, with no hash premise;
++`transferFrom_meets` carries it to SolidCore's checked contract on every valid call.
++`transferFrom_keys` reads it key by key under `HashScope.Scoped (transferFromFootprint caller frm dst)`:
++the three slots are apart, so for `frm ≠ dst` success is `value ≤ a` (or `a` infinite), `value ≤ b` and
++`d + value < 2 ^ 256` on the storage before the call, and for `frm = to` the balance is unchanged with
++no overflow condition.
++-/
++
++namespace SolidCore.Spec.UniswapV2.ERC20.Nested
++
++open SolarTV SolidCore.Refinement SolidCore.Refinement.Generic SolidCore.Refinement.Shapes
++
++/-- `keccak256("Transfer(address,address,uint256)")`. -/
++abbrev transferTopic : Nat := 100389287136786176327247604509743168900146139575972864366142685224231313322991
++
++/-- `type(uint256).max`. -/
++abbrev umax : Nat := 2 ^ 256 - 1
++
++/-- The revert data of `Error(string)` for a message of at most 32 bytes. -/
++def errorData (msg : List Nat) : List Nat :=
++  [8, 195, 121, 160] ++ word32 32 ++ word32 msg.length ++ msg ++ List.replicate (32 - msg.length) 0
++
++/-- SafeMath's `ds-math-sub-underflow` revert data. -/
++def subUnderflow : List Nat := errorData ("ds-math-sub-underflow".toUTF8.toList.map (·.toNat))
++
++/-- SafeMath's `ds-math-add-overflow` revert data. -/
++def addOverflow : List Nat := errorData ("ds-math-add-overflow".toUTF8.toList.map (·.toNat))
++
++/-- A revert with data `d`: no change, no log. -/
++def revertWith (st : Nat → Nat) (d : List Nat) : Observable :=
++  { success := false, output := d, logs := [], storage := st }
++
++/-- Steps 3 to 5 of transferFrom on the storage `s1` after the allowance step. -/
++def transferSteps (st s1 : Nat → Nat) (frm dst value : Nat) : Observable :=
++  if value ≤ s1 (balanceSlot frm) then
++    let s2 := upd s1 (balanceSlot frm) (s1 (balanceSlot frm) - value)
++    if s2 (balanceSlot dst) + value < 2 ^ 256 then
++      { success := true, output := word32 1, logs := [([transferTopic, frm, dst], word32 value)],
++        storage := upd s2 (balanceSlot dst) (s2 (balanceSlot dst) + value) }
++    else revertWith st addOverflow
++  else revertWith st subUnderflow
++
++/-- **transferFrom(frm, to, value) from the caller on storage `st`**: see the module comment. -/
++def transferFromResult (st : Nat → Nat) (frm dst value : Nat) : Observable :=
++  if frm < 2 ^ 160 ∧ dst < 2 ^ 160 then
++    if st (allowanceSlot frm caller) = umax then transferSteps st st frm dst value
++    else if value ≤ st (allowanceSlot frm caller) then
++      transferSteps st (upd st (allowanceSlot frm caller) (st (allowanceSlot frm caller) - value)) frm dst value
++    else revertWith st subUnderflow
++  else revertWith st []
++
++end SolidCore.Spec.UniswapV2.ERC20.Nested
+diff --git a/Verify/Spec/HashScopeNested.lean b/Verify/Spec/HashScopeNested.lean
+new file mode 100644
+index 0000000..a1a182d
+--- /dev/null
++++ b/Verify/Spec/HashScopeNested.lean
+@@ -0,0 +1,159 @@
++import Verify.Spec.TreeMapNested
++import Verify.Spec.TrustedBase.Hypotheses
++
++/-!
++# keccak256 separation scoped to a call's footprint, for mappings of mappings
++
++`NestedSlotsSeparated ms ns` (TreeMapNested.lean) asks keccak256 to be injective on the slots
++`n[b][a]` for **all** addresses `a`, `b`: `2 ^ 320` preimages into `2 ^ 256` words, so it is false of
++keccak256 and every theorem assuming it is vacuous for the real EVM. This module states the
++separation a call needs instead: keccak256 separated (`TrustedBase.KeccakSeparated`: injective,
++every image at least `2 ^ 128`) on the **finite list** of preimages the call hashes, its
++footprint, as hevm does (pairwise injectivity over the hash applications that occur).
++
++* `Scoped L`: the premise, for a footprint `L` (a list, so finite by construction).
++* `nestedFootprint n o s`: the two preimages of `n[o][s]`'s slot, the inner `o . n` and the outer
++  `s . keccak(o . n)`; `approveFootprint` and `transferFromFootprint` are UniswapV2ERC20's (allowance
++  at slot 2, balanceOf at slot 1).
++* The slot facts a spec needs, each from `Scoped L` and membership in `L` only: two slots of
++  the footprint are equal only for equal keys and mapping slots (`slot_ne`), a nested slot is no
++  first-level slot of a small mapping slot (`nested_ne_flat`) and no small constant slot (`slot_ge`).
++* `transferFrom_scoped_witness`: the premise holds of a concrete nontrivial footprint (three
++  distinct keys, four preimages), by the kernel's evaluation of keccak256 on each, so it is
++  satisfiable, unlike `NestedSlotsSeparated`.
++
++Lane note: the single-level premise for `transfer` over `{caller, to}` belongs to Verify/Spec/HashScope.lean
++(hash-scope lane). `Scoped` is the same statement (`KeccakSeparated` of a finite list); if that
++module names it differently, this one becomes an abbreviation of it.
++-/
++
++namespace SolidCore.Spec.HashScope
++
++open SolidCore.Refinement SolidCore.Refinement.Generic
++
++/-- **keccak256 separated on a call's footprint** `L`: injective on the finitely many preimages in
++`L`, and every image at least `2 ^ 128` (so no small constant slot). -/
++def Scoped (L : List (List Nat)) : Prop := TrustedBase.KeccakSeparated (· ∈ L)
++
++/-- The preimage of the slot of `m[a]` for a mapping at slot `m`. -/
++abbrev pre (a m : Nat) : List Nat := TrustedBase.mappingPreimage a m
++
++/-- The footprint of `n[o][s]`: the inner preimage `o . n` and the outer `s . keccak(o . n)`. -/
++def nestedFootprint (n o s : Nat) : List (List Nat) := [pre o n, pre s (solHash o n)]
++
++/-- `approve(spender, value)` from `caller` writes `allowance[caller][spender]` (allowance at slot 2). -/
++def approveFootprint (caller spender : Nat) : List (List Nat) := nestedFootprint 2 caller spender
++
++/-- `transferFrom(frm, to, value)` from `caller` reads and writes `allowance[frm][caller]`,
++`balanceOf[frm]` and `balanceOf[to]` (balanceOf at slot 1). -/
++def transferFromFootprint (caller frm dst : Nat) : List (List Nat) :=
++  nestedFootprint 2 frm caller ++ [pre frm 1, pre dst 1]
++
++theorem Scoped.mono {L L' : List (List Nat)} (h : Scoped L') (hs : ∀ x ∈ L, x ∈ L') : Scoped L :=
++  TrustedBase.KeccakSeparated.mono h hs
++
++/-- A footprint slot is no small constant slot. -/
++theorem slot_ge {L : List (List Nat)} (h : Scoped L) {a m : Nat} (hx : pre a m ∈ L) :
++    2 ^ 128 ≤ solHash a m := by
++  rw [solHash_eq]
++  exact h.2 _ hx
++
++/-- Two footprint slots are equal only for equal keys and mapping slots. -/
++theorem slot_ne {L : List (List Nat)} (h : Scoped L) {a b m n : Nat} (h1 : pre a m ∈ L)
++    (h2 : pre b n ∈ L) (ha : a < 2 ^ 256) (hb : b < 2 ^ 256) (hm : m < 2 ^ 256) (hn : n < 2 ^ 256)
++    (hne : ¬(a = b ∧ m = n)) : solHash a m ≠ solHash b n := by
++  intro he
++  rw [solHash_eq, solHash_eq] at he
++  exact hne (mappingPreimage_inj ha hb hm hn (h.1 _ _ h1 h2 he))
++
++/-- A nested footprint slot `n[o][s]` is no first-level slot `m[b]` of a small mapping slot. -/
++theorem nested_ne_flat {L : List (List Nat)} (h : Scoped L) {o s n b m : Nat}
++    (hi : pre o n ∈ L) (ho : pre s (solHash o n) ∈ L) (hf : pre b m ∈ L)
++    (hs : s < 2 ^ 256) (hb : b < 2 ^ 256) (hm : m < 2 ^ 128) :
++    solHash s (solHash o n) ≠ solHash b m := by
++  have hge := slot_ge h hi
++  have hlt := solHash_lt o n
++  unfold Generic.wordSize at hlt
++  exact slot_ne h ho hf hs hb hlt (by omega) (fun ⟨_, e⟩ => by omega)
++
++/-- **transferFrom's slots are apart on its footprint**: `allowance[frm][caller]` is neither balance
++slot, the two balance slots differ for different keys, and none is a small constant slot. -/
++theorem transferFrom_slots {caller frm dst : Nat} (h : Scoped (transferFromFootprint caller frm dst))
++    (hc : caller < 2 ^ 256) (hf : frm < 2 ^ 256) (ht : dst < 2 ^ 256) :
++    solHash caller (solHash frm 2) ≠ solHash frm 1 ∧ solHash caller (solHash frm 2) ≠ solHash dst 1 ∧
++      (frm ≠ dst → solHash frm 1 ≠ solHash dst 1) ∧ 2 ^ 128 ≤ solHash caller (solHash frm 2) ∧
++      2 ^ 128 ≤ solHash frm 1 ∧ 2 ^ 128 ≤ solHash dst 1 := by
++  simp only [transferFromFootprint, nestedFootprint] at h
++  have m0 : pre frm 2 ∈ [pre frm 2, pre caller (solHash frm 2)] ++ [pre frm 1, pre dst 1] := by simp
++  have m1 : pre caller (solHash frm 2) ∈ [pre frm 2, pre caller (solHash frm 2)] ++ [pre frm 1, pre dst 1] := by simp
++  have m2 : pre frm 1 ∈ [pre frm 2, pre caller (solHash frm 2)] ++ [pre frm 1, pre dst 1] := by simp
++  have m3 : pre dst 1 ∈ [pre frm 2, pre caller (solHash frm 2)] ++ [pre frm 1, pre dst 1] := by simp
++  exact ⟨nested_ne_flat h m0 m1 m2 hc hf (by norm_num), nested_ne_flat h m0 m1 m3 hc ht (by norm_num),
++    fun hne => slot_ne h m2 m3 hf ht (by norm_num) (by norm_num) (fun ⟨e, _⟩ => hne e),
++    slot_ge h m1, slot_ge h m2, slot_ge h m3⟩
++
++/-- **approve's slot is no small constant slot** on its footprint. -/
++theorem approve_slot {caller spender : Nat} (h : Scoped (approveFootprint caller spender)) :
++    2 ^ 128 ≤ solHash spender (solHash caller 2) :=
++  slot_ge h (by simp [approveFootprint, nestedFootprint])
++
++end SolidCore.Spec.HashScope
++
++namespace SolidCore.Spec.HashScope
++
++open SolidCore.Refinement SolidCore.Refinement.Generic
++
++/-! ## The premise is satisfiable and not trivial
++
++`transferFrom_scoped_witness`: on the footprint of `transferFrom(1, 2, _)` from `0x2000` (the stage's
++caller) the premise holds, from the four images by the kernel's evaluation of keccak256 (one per
++declaration). `not_scoped_collision`: it is not `True` either, since a footprint with two byte lists
++of one image (`[0]` and `[256]`, the same bytes) refutes it. -/
++
++/-- keccak256 of `1 . 2` (the slot of `allowance[1]`'s inner mapping). -/
++abbrev kInner : Nat := 0xe90b7bceb6e7df5418fb78d8ee546e97c83a08bbccc01a0644d599ccd2a7c2e0
++
++set_option maxRecDepth 100000 in
++theorem image_inner : keccakWord (TrustedBase.mappingPreimage 1 2) = kInner := by decide +kernel
++
++set_option maxRecDepth 100000 in
++theorem image_outer : keccakWord (TrustedBase.mappingPreimage 0x2000 kInner) =
++    0x2e4aafeb9f8b1b374b0f80165f823ef45fa5ed8d99f592ae99f791121a39e502 := by decide +kernel
++
++set_option maxRecDepth 100000 in
++theorem image_from : keccakWord (TrustedBase.mappingPreimage 1 1) =
++    0xcc69885fda6bcc1a4ace058b4a62bf5e179ea78fd58a1ccd71c22cc9b688792f := by decide +kernel
++
++set_option maxRecDepth 100000 in
++theorem image_to : keccakWord (TrustedBase.mappingPreimage 2 1) =
++    0xd9d16d34ffb15ba3a3d852f0d403e2ce1d691fb54de27ac87cd2f993f3ec330f := by decide +kernel
++
++/-- **The scoped premise holds of a concrete nontrivial footprint**: `transferFrom(1, 2, _)` from
++`0x2000`, four preimages over three distinct keys and both mapping levels. -/
++theorem transferFrom_scoped_witness : Scoped (transferFromFootprint 0x2000 1 2) := by
++  have hi : solHash 1 2 = kInner := by rw [solHash_eq]; exact image_inner
++  unfold Scoped transferFromFootprint nestedFootprint pre
++  rw [hi]
++  exact TrustedBase.keccakSeparated_of_images (H := [kInner,
++      0x2e4aafeb9f8b1b374b0f80165f823ef45fa5ed8d99f592ae99f791121a39e502,
++      0xcc69885fda6bcc1a4ace058b4a62bf5e179ea78fd58a1ccd71c22cc9b688792f,
++      0xd9d16d34ffb15ba3a3d852f0d403e2ce1d691fb54de27ac87cd2f993f3ec330f])
++    (by simp only [List.cons_append, List.nil_append, List.map_cons, List.map_nil, image_inner,
++      image_outer, image_from, image_to]) (by decide) (by decide)
++
++set_option maxRecDepth 100000 in
++/-- **The scoped premise is not trivial**: it fails on a footprint with a collision. -/
++theorem not_scoped_collision : ¬ Scoped [[0], [256]] := by
++  intro h
++  have := h.1 [0] [256] (by simp) (by simp) (by decide +kernel)
++  simp at this
++
++/-- info: 'SolidCore.Spec.HashScope.transferFrom_scoped_witness' depends on axioms: [propext, Quot.sound] -/
++#guard_msgs in
++#print axioms transferFrom_scoped_witness
++
++/-- info: 'SolidCore.Spec.HashScope.transferFrom_slots' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs in
++#print axioms transferFrom_slots
++
++end SolidCore.Spec.HashScope
+diff --git a/lakefile.lean b/lakefile.lean
+index cb2ed92..26bace6 100644
+--- a/lakefile.lean
++++ b/lakefile.lean
+@@ -381,6 +381,22 @@ lean_lib ContractsUniswapV2ERC20Spec where
+     .one `Contracts.UniswapV2.ERC20.Connect, .one `Contracts.UniswapV2.ERC20.SpecTreeKeccak,
+     .one `Contracts.UniswapV2.ERC20.Meets, .one `Contracts.UniswapV2.ERC20.SpecTree]
+ 
++-- UniswapV2ERC20's approve and transferFrom (Contracts/UniswapV2/ERC20/Nested): the generic source
++-- stage's trees and check against solar's stage0, slot-level sequential posts, and key-level
++-- corollaries under keccak256 separation scoped to each call's footprint
++-- (Verify/Spec/HashScopeNested.lean). Generated first, not committed (GPL-3.0 port):
++--   scripts/verify/uniswap_v2_gen.sh && SOLAR=... scripts/verify/uniswap_v2_stage0.sh &&
++--   lake build Contracts.UniswapV2.ERC20.Core Contracts.UniswapV2.ERC20.SpecTreeKeccak &&
++--   scripts/verify/uniswap_v2_trees.py && lake build -KleanMemory=6000 ContractsUniswapV2ERC20Nested
++lean_lib uv2_erc20_stage0 where
++  srcDir := "Certified"
++  globs := #[.one `uv2_erc20.gen.UniswapV2ERC20.Stage0]
++  leanOptions := solarTVOptions
++
++lean_lib ContractsUniswapV2ERC20Nested where
++  roots := #[`Contracts.UniswapV2.ERC20.Nested.All]
++  globs := #[.submodules `Contracts.UniswapV2.ERC20.Nested, .one `Verify.Spec.HashScopeNested]
++
+ -- UniswapV2Pair's translation is checked in stages, one module each, each within 6 GB:
+ -- Pair/Contract.lean composes contract_ok from Check, Ctx, Clones, one Fn module per run of
+ -- functions (mint and swap in three each: Fn/<fn>_pre, Fn/<fn>_lower, Fn/<fn>), Groups and Asm.
+diff --git a/scripts/verify/uniswap_v2_stage0.sh b/scripts/verify/uniswap_v2_stage0.sh
+new file mode 100755
+index 0000000..c5eb5ca
+--- /dev/null
++++ b/scripts/verify/uniswap_v2_stage0.sh
+@@ -0,0 +1,32 @@
++#!/usr/bin/env bash
++# Export solar's first lowered MIR (stage0) of UniswapV2ERC20 for the generic source stage's check of
++# approve and transferFrom (Contracts/UniswapV2/ERC20/Nested/Lowering*.lean). Not committed: it is
++# derived from the GPL-3.0 v2-core port, as Source.lean and Core.lean are.
++#
++#   SOLAR=path/to/solar scripts/verify/uniswap_v2_stage0.sh
++#
++# Needs scripts/verify/uniswap_v2_gen.sh's scripts/verify/uniswap-v2/UniswapV2ERC20.sol. Compiles it
++# with the pinned options (-Ogas --evm-version osaka) twice, with and without -Zemit-lean-stages, fails
++# if the flag changes the runtime bytecode, and writes
++#   Certified/uv2_erc20/gen/UniswapV2ERC20/Stage0.lean   (module uv2_erc20.gen.UniswapV2ERC20.Stage0)
++#   Certified/uv2_erc20/gen/UniswapV2ERC20/runtime.hex   (the runtime bytecode of the same run)
++# and prints solar's version, the source's and the bytecode's sha256.
++set -euo pipefail
++cd "$(dirname "${BASH_SOURCE[0]}")/../.."
++: "${SOLAR:?set SOLAR to a solar binary}"
++sol=scripts/verify/uniswap-v2/UniswapV2ERC20.sol
++[[ -s $sol ]] || { echo "error: $sol missing; run scripts/verify/uniswap_v2_gen.sh" >&2; exit 1; }
++opts=(-Ogas --evm-version osaka)
++tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
++cp "$sol" "$tmp/UniswapV2ERC20.sol"
++rt() { python3 -c 'import json,sys; print(json.load(sys.stdin)["contracts"]["UniswapV2ERC20.sol:UniswapV2ERC20"]["bin-runtime"])'; }
++plain=$(cd "$tmp" && "$SOLAR" UniswapV2ERC20.sol "${opts[@]}" --emit=bin-runtime 2>/dev/null | rt)
++exported=$(cd "$tmp" && "$SOLAR" UniswapV2ERC20.sol "${opts[@]}" --emit=bin-runtime -Zemit-lean-stages="$tmp/gen" 2>/dev/null | rt)
++[[ -n $plain && $plain == "$exported" ]] || { echo "error: -Zemit-lean-stages changed the bytecode" >&2; exit 1; }
++out=Certified/uv2_erc20/gen/UniswapV2ERC20
++mkdir -p "$out"
++cp "$tmp/gen/UniswapV2ERC20/Stage0.lean" "$out/Stage0.lean"
++echo "$plain" > "$out/runtime.hex"
++echo "solar: $("$SOLAR" --version | head -1)"
++echo "source sha256: $(sha256sum "$sol" | cut -d' ' -f1)"
++echo "runtime bytes: $(( ${#plain} / 2 )), sha256: $(python3 -c 'import hashlib,sys; print(hashlib.sha256(bytes.fromhex(sys.argv[1])).hexdigest())' "$plain")"
+diff --git a/scripts/verify/uniswap_v2_trees.py b/scripts/verify/uniswap_v2_trees.py
+new file mode 100755
+index 0000000..0b8d249
+--- /dev/null
++++ b/scripts/verify/uniswap_v2_trees.py
+@@ -0,0 +1,128 @@
++#!/usr/bin/env python3
++"""Writes Contracts/UniswapV2/ERC20/Nested/Trees.lean: the generic source stage's erased trees of
++UniswapV2ERC20's approve and transferFrom, checked by the kernel against SolidCore's checked contract.
++
++    scripts/verify/uniswap_v2_trees.py [--lean 'lake env lean']
++
++Needs scripts/verify/uniswap_v2_gen.sh's outputs and the build of Contracts.UniswapV2.ERC20.Core and
++Contracts.UniswapV2.ERC20.SpecTreeKeccak. The module is not committed (the trees are derived from the
++GPL-3.0 v2-core port, as Source.lean and Core.lean are). Lean prints each tree by evaluation; the
++module then states it by kernel_rfl, so nothing printed here is trusted: a wrong tree fails the build.
++Exit 1 when the probe fails or a function is outside the generic source stage.
++"""
++
++import argparse
++import pathlib
++import shlex
++import subprocess
++import sys
++import tempfile
++
++NS = "SolidCore.Verify.VC.UniswapV2ERC20"
++FNS = [("approve", 157198259), ("transferFrom", 599290589)]
++USINGS = " ".join([
++    f"{NS}.selector_eq", "SolidCore.Verify.VC.mkIdx_eq", f"{NS}.digest_eq",
++    "SolidCore.Spec.UniswapV2.ERC20.Keccak.keccakWord_eq",
++])
++BT = chr(96)
++
++PROBE = """import Contracts.UniswapV2.ERC20.Core
++import Verify.VC.Model
++
++open SolidCore.Refinement SolidCore.Refinement.Generic SolidCore.Solidity
++
++#eval show IO Unit from do
++  match {ns}.contract? with
++  | .error _ => IO.println "TREES error the contract does not type check"
++  | .ok c =>
++    let dep := match TypeCheck.CheckedContract.constructWithContext? {ns}.fuel c (Wide.ctxOf c)
++        Source.State.empty SolidCore.Refinement.selfAddress 0 [] with
++      | some (Source.CallResult.returned d _) =>
++        if d.events.isEmpty then some d.storage.toList else none
++      | _ => none
++    IO.println s!"TREES deployed {{repr dep}}"
++    for sel in {sels} do
++      match (c.core.findFunctionBySelector? sel).map fun f => (f.params.length, eraseFn (envOf c.core) {ns}.fuel f) with
++      | none => IO.println s!"TREES fn {{sel}} none"
++      | some (n, none) => IO.println s!"TREES fn {{sel}} {{n}} noerase"
++      | some (n, some t) => IO.println s!"TREES fn {{sel}} {{n}} TREE {{(repr t).pretty 100000}}"
++"""
++
++
++def main():
++    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
++    ap.add_argument("--lean", default="lake env lean")
++    ap.add_argument("--out", type=pathlib.Path, default=pathlib.Path("Contracts/UniswapV2/ERC20/Nested/Trees.lean"))
++    args = ap.parse_args()
++    probe = PROBE.format(ns=NS, sels="[" + ", ".join(str(s) for _, s in FNS) + "]")
++    with tempfile.NamedTemporaryFile("w", suffix=".lean", dir=".", delete=False) as f:
++        f.write(probe)
++        path = pathlib.Path(f.name)
++    try:
++        res = subprocess.run(shlex.split(args.lean) + [str(path)], capture_output=True, text=True, check=False)
++    finally:
++        path.unlink()
++    lines = [l[len("TREES "):] for l in res.stdout.splitlines() if l.startswith("TREES ")]
++    if res.returncode != 0 or not lines or lines[0].startswith("error"):
++        sys.exit(f"uniswap_v2_trees: the probe failed:\n{res.stdout}\n{res.stderr}")
++    if not lines[0].startswith("deployed some "):
++        sys.exit(f"uniswap_v2_trees: the constructor does not deploy without logs: {lines[0]}")
++    deployed = lines[0][len("deployed some "):]
++    out = [
++        "-- Generated by scripts/verify/uniswap_v2_trees.py. Do not edit.",
++        "import Contracts.UniswapV2.ERC20.Core",
++        "import Contracts.UniswapV2.ERC20.SpecTreeKeccak",
++        "import Verify.VC.Model",
++        "import Verify.VC.KernelIdx",
++        "import SolidCore.Refinement.KernelRfl",
++        "",
++        "/-!",
++        "# UniswapV2ERC20's approve and transferFrom as the generic source stage erases them",
++        "",
++        f"{BT}deploy_eq{BT}: the constructor deploys with {BT}deployed{BT} and no logs. {BT}F_erase_eq{BT}: SolidCore's",
++        f"checked contract dispatches F's selector to a function the generic source stage erases to {BT}F_tree{BT}.",
++        f"Both by {BT}kernel_rfl{BT} from the source text up.",
++        "-/",
++        "",
++        "namespace SolidCore.Spec.UniswapV2.ERC20.Nested",
++        "",
++        "open SolidCore.Refinement SolidCore.Refinement.Generic",
++        "",
++        f"def deployed : List (Nat × Nat) := {deployed}",
++        "",
++        "def deploy? : Bool :=",
++        f"  match {NS}.contract? with",
++        f"  | .ok c => Wide.deployedAt {NS}.fuel c deployed",
++        "  | .error _ => false",
++        "",
++        f"kernel_rfl deploy_eq deploy? true using {USINGS}",
++        "",
++    ]
++    for (name, sel), line in zip(FNS, lines[1:]):
++        parts = line.split(" ", 4)
++        if parts[1] != str(sel) or parts[2] == "none" or parts[3] == "noerase":
++            sys.exit(f"uniswap_v2_trees: {name} is not erased: {line[:200]}")
++        n, tree = int(parts[2]), parts[4].removeprefix("TREE ")
++        out += [
++            f"/-- {BT}{name}{BT} as the stage's ABI sees it. -/",
++            f"def fn_{name} : SolidCore.Refinement.Abi.Fn := ⟨{sel}, List.replicate {n} (.uint 256)⟩",
++            "",
++            f"def {name}_tree : Tree :=",
++            f"  {tree}",
++            "",
++            f"def {name}_erase? : Option (Nat × Option Tree) :=",
++            f"  match {NS}.contract? with",
++            f"  | .ok c => (c.core.findFunctionBySelector? {sel}).map fun f => (f.params.length, eraseFn (envOf c.core) {NS}.fuel f)",
++            "  | .error _ => none",
++            "",
++            f"kernel_rfl {name}_erase_eq {name}_erase? (some ({n}, some {name}_tree)) using {USINGS}",
++            "",
++        ]
++    out += ["end SolidCore.Spec.UniswapV2.ERC20.Nested", ""]
++    args.out.parent.mkdir(parents=True, exist_ok=True)
++    args.out.write_text("\n".join(out))
++    print(f"wrote {args.out}")
++
++
++if __name__ == "__main__":
++    main()
+-- 
+2.43.0
+
