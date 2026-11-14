@@ -40,9 +40,19 @@ cardinality obstruction but are still a named computational assumption, printed 
 
 ## First slice: UniswapV2ERC20.transfer (scope named; never advertised as Uniswap)
 Valid: selector transfer(address,uint256), well-formed calldata, callvalue 0, ANY caller, any to and value, any storage.
-Post: success iff balanceOf[caller] >= value and no overflow at to; then balanceOf debited/credited (caller = to handled),
-Transfer(caller, to, value) logged, returns true, every other slot unchanged; otherwise revert with the source's revert data.
-Premise: single-level slot separation for balanceOf scoped to {caller, to}. No external calls: StaticRunner/CalleesRun discharged.
+Post, as sequential storage updates in source order (debit the caller, then credit the recipient reading the debited state):
+- caller != to: success iff balanceOf[caller] >= value and balanceOf[to] + value < 2^256; then balanceOf[caller] -= value,
+  balanceOf[to] += value.
+- caller == to: success iff balanceOf[caller] >= value (the credit reads the debited slot, so it cannot overflow);
+  balanceOf is unchanged. No recipient-overflow condition applies.
+- on success: Transfer(caller, to, value) logged, returns true, every slot outside the call's footprint unchanged;
+  otherwise revert with the source's revert data and no state change.
+Required concrete cases: balance = 2^256-1, value = 1, caller == to succeeds with balance unchanged and Transfer emitted;
+self-transfer with balance < value reverts.
+Premise: balanceOf slot separation scoped to the call's footprint {caller, to}: the exact premise is printed in the statement,
+with a satisfiable instance exhibited in Lean. The frame is stated over the footprint and the slots the source writes; it must
+not quantify over "all other slots" in a way that reintroduces collision-freedom for every key. No external calls:
+StaticRunner/CalleesRun discharged.
 Negative controls by execution: altered bytecode/jump, missing debit, wrong post, mismatched environment.
 
 ## Reclassified (kept as lemmas until connected)
