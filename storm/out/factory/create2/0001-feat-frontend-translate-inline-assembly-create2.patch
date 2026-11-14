@@ -1,0 +1,1203 @@
+From e7f1d69ac795fe0ada01464d1ac5412ed303029e Mon Sep 17 00:00:00 2001
+From: storm-factory <storm-factory@localhost>
+Date: Sat, 14 Nov 2026 05:19:19 +0000
+Subject: [PATCH 1/3] feat(frontend): translate inline assembly create2
+
+The frontend translates the one inline assembly block
+`target := create2(value, add(code, 32), mload(code), salt)` over
+Solidity locals to the new statement `Stmt.assemblyCreate2`, which the
+type checker accepts for an address target, a bytes memory init code,
+and a literal or uint256 value and a literal, uint256 or bytes32 salt,
+outside view and pure functions. It lowers to the core expression
+`create2Bytes`, one open-world CREATE2 request whose init code is the
+bytes of `code`: the address it answers, 0 on failure, without a
+revert. Every other inline assembly block stays out of the fragment.
+
+UniswapV2Factory is now translated whole, createPair included, and its
+contract_ok holds. Contracts/Create2 tests the translation and the run
+on a small contract, with frontend and type check negatives, and
+Contracts/UniswapV2/Factory/Create2Run.lean runs createPair.
+---
+ Contracts/Create2/Deployer.sol                |  19 +++
+ Contracts/Create2/Run.lean                    | 102 +++++++++++
+ Contracts/Create2/Source.lean                 |  56 ++++++
+ Contracts/Create2/SourceView.lean             |  56 ++++++
+ Contracts/UniswapV2/Factory/Create2Run.lean   | 132 ++++++++++++++
+ SolidCore/Solidity/Ast.lean                   |   7 +
+ SolidCore/Solidity/Interface/Contracts.lean   |   1 +
+ SolidCore/Solidity/Interface/Expressions.lean |  16 ++
+ SolidCore/Solidity/Interface/Foundation.lean  |  12 ++
+ SolidCore/Solidity/Interface/Statements.lean  |  21 +++
+ SolidCore/Solidity/Interpreter.lean           |  55 ++++++
+ SolidCore/Solidity/TypeCheck.lean             |  43 +++++
+ lakefile.lean                                 |  12 +-
+ scripts/solc_ast_to_lean_source.py            | 161 +++++++++++++++++-
+ scripts/verify/create2_sources.py             | 120 +++++++++++++
+ scripts/verify/uniswap_v2_sources.py          |  16 +-
+ 16 files changed, 818 insertions(+), 11 deletions(-)
+ create mode 100644 Contracts/Create2/Deployer.sol
+ create mode 100644 Contracts/Create2/Run.lean
+ create mode 100644 Contracts/Create2/Source.lean
+ create mode 100644 Contracts/Create2/SourceView.lean
+ create mode 100644 Contracts/UniswapV2/Factory/Create2Run.lean
+ create mode 100755 scripts/verify/create2_sources.py
+
+diff --git a/Contracts/Create2/Deployer.sol b/Contracts/Create2/Deployer.sol
+new file mode 100644
+index 0000000..79aa4bc
+--- /dev/null
++++ b/Contracts/Create2/Deployer.sol
+@@ -0,0 +1,19 @@
++// SPDX-License-Identifier: MIT
++pragma solidity ^0.8.0;
++
++// The inline assembly create2 assignment SolidCore's frontend translates (Stmt.assemblyCreate2):
++// a literal value and a bytes32 salt, and every operand a local.
++contract Deployer {
++    function deploy(bytes32 salt) external returns (address a) {
++        bytes memory code = hex"6001600c60003960016000f300";
++        assembly {
++            a := create2(0, add(code, 32), mload(code), salt)
++        }
++    }
++
++    function deployWith(uint256 v, uint256 salt, bytes memory code) external payable returns (address a) {
++        assembly {
++            a := create2(v, add(code, 32), mload(code), salt)
++        }
++    }
++}
+diff --git a/Contracts/Create2/Run.lean b/Contracts/Create2/Run.lean
+new file mode 100644
+index 0000000..3b06e4c
+--- /dev/null
++++ b/Contracts/Create2/Run.lean
+@@ -0,0 +1,102 @@
++import Contracts.Create2.Source
++import Contracts.Create2.SourceView
++
++/-!
++# Inline assembly create2 in SolidCore's semantics: execution tests
++
++`Contracts/Create2/Deployer.sol` assigns `create2(value, add(code, 32), mload(code), salt)` to a
++local in inline assembly, which the frontend translates to `Stmt.assemblyCreate2` and SolidCore
++runs as one open-world creation request (`emitCreate2Bytes`). Each `#guard` runs the checked
++contract's function and answers its requests:
++
++* the request is CREATE2 from the contract, with the bytes of `code` as init code, the salt and
++  the value of the call, and the function returns the answered address;
++* a failed creation (address 0) returns 0 and does not revert, as the EVM's CREATE2;
++* the same function declared `view` is rejected by SolidCore's checker (negative control), as solc
++  rejects it.
++-/
++
++namespace SolidCore.Verify.Create2.Run
++open SolidCore.Solidity SolidCore.Solidity.Source EvmCompiler.Simulation
++
++def fuel : Nat := 256
++def self : Nat := 0xde91
++def code : List Nat := [0x60, 0x01, 0x60, 0x0c, 0x60, 0x00, 0x39, 0x60, 0x01, 0x60, 0x00, 0xf3, 0x00]
++
++def contract? : Except TypeCheck.TypeError TypeCheck.CheckedContract :=
++  TypeCheck.CheckedInput.contract SolidCore.Verify.Create2.Source.importedSourceUnit "Deployer"
++
++def viewContract? : Except TypeCheck.TypeError TypeCheck.CheckedContract :=
++  TypeCheck.CheckedInput.contract SolidCore.Verify.Create2.SourceView.importedSourceUnit "Deployer"
++
++def context (c : TypeCheck.CheckedContract) (value : Nat) : Context :=
++  { c.core.context with
++    self := self
++    sender := 0x5e
++    value := value }
++
++/-- The creation requests of a run, answering each with `address` (and calls with success). -/
++structure Seen where
++  kind : CreateKind
++  creator : Nat
++  value : Nat
++  initCode : List Nat
++  salt : Option Nat
++  deriving DecidableEq, Repr
++
++def answered (w : OpenWorld) (a : Nat) : CreateResponse :=
++  { address := EvmYul.UInt256.ofNat a
++    returnData := default
++    postWorld := w
++    returnedGas := EvmYul.UInt256.ofNat 0 }
++
++/-- The creation requests and the returned words (`none` on a revert or a stuck run). -/
++def run (a : Nat) : Nat → SolI CallResult → List Seen × Option (List Nat)
++  | 0, _ => ([], none)
++  | _, .done (.ok (.returned _ vs)) => ([], vs.mapM (fun v => v.expectWord.toOption))
++  | _, .done _ => ([], none)
++  | n + 1, .request q k =>
++    match q, k with
++    | .external w (.create r), k =>
++      let (rs, out) := run a n (k (answered w a))
++      ({ kind := r.kind, creator := addressToWord r.creator, value := u256ToWord r.value,
++         initCode := r.initCode.toList.map UInt8.toNat, salt := r.salt.map u256ToWord } :: rs, out)
++    | _, _ => ([], none)
++
++def call (name : String) (value : Nat) (args : List Value) (a : Nat) : List Seen × Option (List Nat) :=
++  match contract? with
++  | .ok c =>
++    match TypeCheck.CheckedContract.callFunctionWithContextTree fuel c name (context c value)
++        State.empty args with
++    | some tree => run a 8 tree
++    | none => ([], none)
++  | .error _ => ([], none)
++
++#guard contract?.isOk
++
++-- `deploy(salt)`: CREATE2 of the local's bytes with value 0; it returns the new address.
++#guard call "deploy" 0 [Value.fixedBytes 32 0x1234] 0xbeef ==
++  ([{ kind := .create2, creator := self, value := 0, initCode := code, salt := some 0x1234 }],
++    some [0xbeef])
++
++-- A failed creation returns 0: CREATE2 never reverts the caller.
++#guard call "deploy" 0 [Value.fixedBytes 32 0x1234] 0 ==
++  ([{ kind := .create2, creator := self, value := 0, initCode := code, salt := some 0x1234 }],
++    some [0])
++
++-- `deployWith(v, salt, code)`: the value, the uint256 salt and the init code are the arguments.
++#guard call "deployWith" 5 [Value.word 5, Value.word 7, Value.bytes [1, 2, 3]] 0xcafe ==
++  ([{ kind := .create2, creator := self, value := 5, initCode := [1, 2, 3], salt := some 7 }],
++    some [0xcafe])
++
++-- Negative control: the request is the operands' and nothing else (another salt, another request).
++#guard call "deploy" 0 [Value.fixedBytes 32 0x1235] 0xbeef !=
++  ([{ kind := .create2, creator := self, value := 0, initCode := code, salt := some 0x1234 }],
++    some [0xbeef])
++
++-- Negative control: `deploy` declared `view` creates an account, which SolidCore's checker rejects.
++#guard match viewContract? with
++  | .error (.mutabilityViolation _) => true
++  | _ => false
++
++end SolidCore.Verify.Create2.Run
+diff --git a/Contracts/Create2/Source.lean b/Contracts/Create2/Source.lean
+new file mode 100644
+index 0000000..b4f40a3
+--- /dev/null
++++ b/Contracts/Create2/Source.lean
+@@ -0,0 +1,56 @@
++-- Generated from Contracts/Create2/Deployer.sol with solc 0.8.35 by scripts/verify/create2_sources.py. Do not edit.
++
++import SolidCore.Solidity.Checked
++
++open SolidCore.Solidity
++
++namespace SolidCore
++namespace Verify
++namespace Create2
++namespace Source
++
++def importedSourceName : String := "Contracts/Create2/Deployer.sol"
++
++def importedContractDecl0 : ContractDecl :=
++{ kind := ContractKind.contract
++  name := "Deployer"
++  abstract := false
++  bases := []
++  items := [(ContractItem.function
++  { kind := FunctionKind.function,
++    name := some "deploy",
++    visibility := some Visibility.external_,
++    mutability := StateMutability.nonpayable,
++    params := [{ name := some "salt", ty := Ty.bytesN 32, location := none }],
++    returns := [{ name := some "a", ty := Ty.address false, location := none }],
++    virtual := false,
++    override? := none,
++    modifiers := [],
++    body := some (Stmt.block [Stmt.varDecl [{ name := some "code", ty := Ty.bytes, location := some DataLocation.memory }] (some (Expr.literal (Literal.hexString "6001600c60003960016000f300"))), Stmt.assemblyCreate2 (Expr.ident "a") (Expr.literal (Literal.number "0")) (Expr.ident "code") (Expr.ident "salt")]) }), (ContractItem.function
++  { kind := FunctionKind.function,
++    name := some "deployWith",
++    visibility := some Visibility.external_,
++    mutability := StateMutability.payable,
++    params := [{ name := some "v", ty := Ty.uint 256, location := none }, { name := some "salt", ty := Ty.uint 256, location := none }, { name := some "code", ty := Ty.bytes, location := some DataLocation.memory }],
++    returns := [{ name := some "a", ty := Ty.address false, location := none }],
++    virtual := false,
++    override? := none,
++    modifiers := [],
++    body := some (Stmt.block [Stmt.assemblyCreate2 (Expr.ident "a") (Expr.ident "v") (Expr.ident "code") (Expr.ident "salt")]) })] }
++
++def importedContract : ContractDecl :=
++  importedContractDecl0
++
++def importedContracts : List ContractDecl :=
++  [importedContractDecl0]
++
++def importedSourceUnit : SourceUnit :=
++  { items := [SourceItem.pragma "solidity" "^0.8.0", SourceItem.contract importedContractDecl0] }
++
++def importedContractAccepted : Bool :=
++  TypeCheck.Result.isOk (TypeCheck.TypecheckedInput.checkedSourceUnit importedSourceUnit)
++
++end Source
++end Create2
++end Verify
++end SolidCore
+diff --git a/Contracts/Create2/SourceView.lean b/Contracts/Create2/SourceView.lean
+new file mode 100644
+index 0000000..934686d
+--- /dev/null
++++ b/Contracts/Create2/SourceView.lean
+@@ -0,0 +1,56 @@
++-- Generated from Contracts/Create2/Deployer.sol with solc 0.8.35 by scripts/verify/create2_sources.py. Do not edit.
++
++import SolidCore.Solidity.Checked
++
++open SolidCore.Solidity
++
++namespace SolidCore
++namespace Verify
++namespace Create2
++namespace SourceView
++
++def importedSourceName : String := "Contracts/Create2/Deployer.sol"
++
++def importedContractDecl0 : ContractDecl :=
++{ kind := ContractKind.contract
++  name := "Deployer"
++  abstract := false
++  bases := []
++  items := [(ContractItem.function
++  { kind := FunctionKind.function,
++    name := some "deploy",
++    visibility := some Visibility.external_,
++    mutability := StateMutability.view,
++    params := [{ name := some "salt", ty := Ty.bytesN 32, location := none }],
++    returns := [{ name := some "a", ty := Ty.address false, location := none }],
++    virtual := false,
++    override? := none,
++    modifiers := [],
++    body := some (Stmt.block [Stmt.varDecl [{ name := some "code", ty := Ty.bytes, location := some DataLocation.memory }] (some (Expr.literal (Literal.hexString "6001600c60003960016000f300"))), Stmt.assemblyCreate2 (Expr.ident "a") (Expr.literal (Literal.number "0")) (Expr.ident "code") (Expr.ident "salt")]) }), (ContractItem.function
++  { kind := FunctionKind.function,
++    name := some "deployWith",
++    visibility := some Visibility.external_,
++    mutability := StateMutability.payable,
++    params := [{ name := some "v", ty := Ty.uint 256, location := none }, { name := some "salt", ty := Ty.uint 256, location := none }, { name := some "code", ty := Ty.bytes, location := some DataLocation.memory }],
++    returns := [{ name := some "a", ty := Ty.address false, location := none }],
++    virtual := false,
++    override? := none,
++    modifiers := [],
++    body := some (Stmt.block [Stmt.assemblyCreate2 (Expr.ident "a") (Expr.ident "v") (Expr.ident "code") (Expr.ident "salt")]) })] }
++
++def importedContract : ContractDecl :=
++  importedContractDecl0
++
++def importedContracts : List ContractDecl :=
++  [importedContractDecl0]
++
++def importedSourceUnit : SourceUnit :=
++  { items := [SourceItem.pragma "solidity" "^0.8.0", SourceItem.contract importedContractDecl0] }
++
++def importedContractAccepted : Bool :=
++  TypeCheck.Result.isOk (TypeCheck.TypecheckedInput.checkedSourceUnit importedSourceUnit)
++
++end SourceView
++end Create2
++end Verify
++end SolidCore
+diff --git a/Contracts/UniswapV2/Factory/Create2Run.lean b/Contracts/UniswapV2/Factory/Create2Run.lean
+new file mode 100644
+index 0000000..94cbcc2
+--- /dev/null
++++ b/Contracts/UniswapV2/Factory/Create2Run.lean
+@@ -0,0 +1,132 @@
++import Contracts.UniswapV2.Factory.Core
++
++/-!
++# UniswapV2Factory.createPair in SolidCore's semantics: execution tests
++
++The frontend translates createPair's inline assembly
++`pair := create2(0, add(bytecode, 32), mload(bytecode), salt)` to `Stmt.assemblyCreate2`, so
++SolidCore's checked Factory (`contract_ok`, Core.lean) has createPair. Its run is one open-world
++creation request, then the call of the new pair's `initialize`. Each `#guard` runs the checked
++contract's `createPair(tokenA, tokenB)` with the context's Pair creation code (`initCode`, any
++bytes: the semantics takes `type(UniswapV2Pair).creationCode` from the context, which a
++certificate binds to the compiler's) and answers its requests:
++
++* the creation is CREATE2 from the factory, with the creation code as init code, value 0 and the
++  salt `keccak256(abi.encodePacked(token0, token1))` of the sorted tokens (`saltWord`, by
++  `cast keccak` of `0x…a1…b2`); the call is `initialize(token0, token1)` (selector `0x485cc955`)
++  to the new address;
++* on success: both getPair entries and `allPairs[0]` hold the pair, `allPairs.length` is 1, one
++  `PairCreated(token0, token1, pair, 1)` is logged and the pair is returned;
++* a failed creation (address 0) reverts with empty data: the call of `initialize` on an address
++  without code fails solc's code check (negative control: the run depends on the answer);
++* identical tokens revert before any request (negative control).
++-/
++
++namespace SolidCore.Verify.VC.UniswapV2Factory.Create2Run
++open SolidCore.Solidity SolidCore.Solidity.Source EvmCompiler.Simulation
++
++def initCode : List Nat := [0x60, 0x0a, 0x60, 0x0c, 0x60, 0x00, 0x39]
++def factory : Nat := 0xfac
++def tokenA : Nat := 0xb2
++def tokenB : Nat := 0xa1
++/-- `keccak256(abi.encodePacked(address(0xa1), address(0xb2)))`. -/
++def saltWord : Nat := 0x40574bd1d889509cb66f9e509f7097df8329f8630487c71851b8902c58e02ee9
++/-- `getPair[0xa1][0xb2]`, `getPair[0xb2][0xa1]` and `allPairs[0]` (slots 2 and 3). -/
++def slot01 : Nat := 108652669453705631790926710226022211974085131167983690354478284877256485211757
++def slot10 : Nat := 57201578420072540254588938014418563046356737943153306285054012880760464517709
++def slotAll0 : Nat := 87903029871075914254377627908054574944891091886930582284385770809450030037083
++/-- `PairCreated(address,address,address,uint256)`'s topic. -/
++def pairCreated : Nat := 5975978795871356409810236859912046109003452147125615103110369160851519754473
++
++def context (c : TypeCheck.CheckedContract) : Context :=
++  { c.core.context with
++    self := factory
++    sender := 0x5e
++    contractCreationCodes := [("UniswapV2Pair", initCode)] }
++
++def newAccount : OpenAccount :=
++  { nonce := EvmYul.UInt256.ofNat 1
++    balance := EvmYul.UInt256.ofNat 0
++    storage := default
++    transientStorage := default
++    codeBytes := ⟨#[0]⟩ }
++
++/-- The answer to a creation: `a`, with an account with code there unless `a = 0`. -/
++def created (w : OpenWorld) (a : Nat) : CreateResponse :=
++  { address := EvmYul.UInt256.ofNat a
++    returnData := default
++    postWorld := if a = 0 then w else { w with accounts := w.accounts.insert (wordToAddress a) newAccount }
++    returnedGas := EvmYul.UInt256.ofNat 0 }
++
++def called (w : OpenWorld) : CallResponse :=
++  { success := true
++    returnData := default
++    postWorld := w
++    returnedGas := EvmYul.UInt256.ofNat 0 }
++
++/-- A request of a run. -/
++inductive Seen where
++  | create (kind : CreateKind) (creator value : Nat) (initCode : List Nat) (salt : Option Nat)
++  | call (target : Nat) (calldata : List Nat)
++  | other
++  deriving DecidableEq, Repr
++
++/-- The end of a run: the returned words, the values of the storage slots `probe` and the number
++of slots written, and the events' topics and data words; or whether a revert's data is empty. -/
++inductive End where
++  | returned (words : List Nat) (slots : List (Option Nat)) (size : Nat)
++      (events : List (List Nat × List Nat))
++  | reverted (empty : Bool)
++  | stuck
++  deriving DecidableEq, Repr
++
++def words (vs : List Value) : List Nat := vs.filterMap (fun v => v.expectWord.toOption)
++
++/-- The slots the tests read: getPair both ways, allPairs' length and first element, feeTo and
++feeToSetter. -/
++def probe : List Nat := [slot01, slot10, 3, slotAll0, 0, 1]
++
++def run (a : Nat) : Nat → SolI CallResult → List Seen × End
++  | 0, _ => ([], .stuck)
++  | _, .done (.ok (.returned st vs)) =>
++    ([], .returned (words vs) (probe.map st.storage.lookup?) st.storage.size
++      (st.events.map (fun e => (e.topics, words e.data))))
++  | _, .done (.ok (.reverted _ d)) => ([], .reverted (match d with | .empty => true | _ => false))
++  | _, .done (.error _) => ([], .stuck)
++  | n + 1, .request q k =>
++    match q, k with
++    | .external w (.create r), k =>
++      let (rs, e) := run a n (k (created w a))
++      (.create r.kind (addressToWord r.creator) (u256ToWord r.value) (r.initCode.toList.map UInt8.toNat)
++        (r.salt.map u256ToWord) :: rs, e)
++    | .external w (.call r), k =>
++      let (rs, e) := run a n (k (called w))
++      (.call (addressToWord r.codeAddress) (r.calldata.toList.map UInt8.toNat) :: rs, e)
++    | _, _ => ([.other], .stuck)
++
++def createPair (t0 t1 a : Nat) : List Seen × End :=
++  match contract? with
++  | .ok c =>
++    match TypeCheck.CheckedContract.callFunctionWithContextTree fuel c "createPair" (context c)
++        State.empty [Value.word t0, Value.word t1] with
++    | some tree => run a 8 tree
++    | none => ([], .stuck)
++  | .error _ => ([], .stuck)
++
++def word (n : Nat) : List Nat := (List.range 32).reverse.map (fun i => n / 256 ^ i % 256)
++
++def creation : Seen := .create .create2 factory 0 initCode (some saltWord)
++
++#guard createPair tokenA tokenB 0xbeef ==
++  ([creation, .call 0xbeef ([0x48, 0x5c, 0xc9, 0x55] ++ word 0xa1 ++ word 0xb2)],
++    .returned [0xbeef] [some 0xbeef, some 0xbeef, some 1, some 0xbeef, none, none] 4
++      [([pairCreated, 0xa1, 0xb2], [0xbeef, 1])])
++
++-- The salt is of the sorted tokens: createPair(B, A) asks the same creation.
++#guard (createPair tokenB tokenA 0xbeef).1.head? == some creation
++
++#guard createPair tokenA tokenB 0 == ([creation], .reverted true)
++
++#guard (createPair tokenA tokenA 0xbeef).1 == []
++
++end SolidCore.Verify.VC.UniswapV2Factory.Create2Run
+diff --git a/SolidCore/Solidity/Ast.lean b/SolidCore/Solidity/Ast.lean
+index bd81ba9..e72f2a1 100644
+--- a/SolidCore/Solidity/Ast.lean
++++ b/SolidCore/Solidity/Ast.lean
+@@ -435,6 +435,13 @@ inductive Stmt where
+   | continue
+   | unchecked : Stmt -> Stmt
+   | inlineAssembly : String -> Stmt
++  /-- An inline assembly block of exactly one Yul assignment
++      `target := create2(value, add(code, 32), mload(code), salt)`, where `target` and `code` are
++      Solidity locals (`code` a `bytes memory`) and `value`, `salt` are Yul literals or
++      Solidity locals: CREATE2 of the bytes of `code` as init code, endowed with `value`, salted
++      with `salt`, assigning the new account's address, or 0 when the creation fails (EVM's
++      CREATE2, which never reverts the caller). Fields: target, value, code, salt. -/
++  | assemblyCreate2 : Expr -> Expr -> Expr -> Expr -> Stmt
+   | modifierPlaceholder
+   deriving Repr
+ 
+diff --git a/SolidCore/Solidity/Interface/Contracts.lean b/SolidCore/Solidity/Interface/Contracts.lean
+index f5dfc30..796c472 100644
+--- a/SolidCore/Solidity/Interface/Contracts.lean
++++ b/SolidCore/Solidity/Interface/Contracts.lean
+@@ -1122,6 +1122,7 @@ def Stmt.mentionedNamesFuel : Nat -> Stmt -> List Name
+       | Stmt.continue => []
+       | Stmt.unchecked body => go body
+       | Stmt.inlineAssembly _ => []
++      | Stmt.assemblyCreate2 t v c s => goExpr t ++ goExpr v ++ goExpr c ++ goExpr s
+       | Stmt.modifierPlaceholder => []
+ 
+ def Ty.mentionedNames (ty : Ty) : List Name :=
+diff --git a/SolidCore/Solidity/Interface/Expressions.lean b/SolidCore/Solidity/Interface/Expressions.lean
+index 327ae1c..97ddda7 100644
+--- a/SolidCore/Solidity/Interface/Expressions.lean
++++ b/SolidCore/Solidity/Interface/Expressions.lean
+@@ -2563,6 +2563,8 @@ def Stmt.annotateAbiInSeqFuel :
+       | Stmt.continue => (Stmt.continue, env)
+       | Stmt.unchecked body => (Stmt.unchecked (annotateStmt body), env)
+       | Stmt.inlineAssembly code => (Stmt.inlineAssembly code, env)
++      | Stmt.assemblyCreate2 t v c s =>
++          (Stmt.assemblyCreate2 (annotateExpr t) (annotateExpr v) (annotateExpr c) (annotateExpr s), env)
+       | Stmt.modifierPlaceholder => (Stmt.modifierPlaceholder, env)
+ 
+ def Stmt.annotateAbiFuel (fuel : Nat) (env : TypeEnv) (stmt : Stmt) :
+@@ -3391,6 +3393,8 @@ def Stmt.resolveInterfaceIdsFuel : Nat -> InterfaceIdEnv -> Stmt -> Stmt
+       | Stmt.continue => Stmt.continue
+       | Stmt.unchecked body => Stmt.unchecked (resolveStmt body)
+       | Stmt.inlineAssembly code => Stmt.inlineAssembly code
++      | Stmt.assemblyCreate2 t v c s =>
++          Stmt.assemblyCreate2 (resolveExpr t) (resolveExpr v) (resolveExpr c) (resolveExpr s)
+       | Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
+ 
+ def CatchClause.resolveInterfaceIdsFuel :
+@@ -3677,6 +3681,8 @@ def Stmt.resolveSelectorsFuel :
+       | Stmt.continue => Stmt.continue
+       | Stmt.unchecked body => Stmt.unchecked (resolveStmt body)
+       | Stmt.inlineAssembly code => Stmt.inlineAssembly code
++      | Stmt.assemblyCreate2 t v c s =>
++          Stmt.assemblyCreate2 (resolveExpr t) (resolveExpr v) (resolveExpr c) (resolveExpr s)
+       | Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
+ 
+ def CatchClause.resolveSelectorsFuel :
+@@ -3970,6 +3976,8 @@ def Stmt.resolveEventSelectorsFuel :
+       | Stmt.continue => Stmt.continue
+       | Stmt.unchecked body => Stmt.unchecked (resolveStmt body)
+       | Stmt.inlineAssembly code => Stmt.inlineAssembly code
++      | Stmt.assemblyCreate2 t v c s =>
++          Stmt.assemblyCreate2 (resolveExpr t) (resolveExpr v) (resolveExpr c) (resolveExpr s)
+       | Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
+ 
+ def CatchClause.resolveEventSelectorsFuel :
+@@ -4154,6 +4162,8 @@ def Stmt.resolveFunctionAddressesFuel :
+       | Stmt.continue => Stmt.continue
+       | Stmt.unchecked body => Stmt.unchecked (resolveStmt body)
+       | Stmt.inlineAssembly code => Stmt.inlineAssembly code
++      | Stmt.assemblyCreate2 t v c s =>
++          Stmt.assemblyCreate2 (resolveExpr t) (resolveExpr v) (resolveExpr c) (resolveExpr s)
+       | Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
+ 
+ def CatchClause.resolveFunctionAddressesFuel :
+@@ -4330,6 +4340,8 @@ def Stmt.resolveNamedEventErrorArgsFuel :
+       | Stmt.continue => Stmt.continue
+       | Stmt.unchecked body => Stmt.unchecked (resolveStmt body)
+       | Stmt.inlineAssembly code => Stmt.inlineAssembly code
++      | Stmt.assemblyCreate2 t v c s =>
++          Stmt.assemblyCreate2 t v c s
+       | Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
+ 
+ def CatchClause.resolveNamedEventErrorArgsFuel :
+@@ -4628,6 +4640,8 @@ def Stmt.renameIdentsFuel : Nat -> NameAliasEnv -> Stmt -> Stmt
+   | fuel + 1, env, Stmt.unchecked body =>
+       Stmt.unchecked (Stmt.renameIdentsFuel fuel env body)
+   | _ + 1, _, Stmt.inlineAssembly code => Stmt.inlineAssembly code
++  | fuel + 1, env, Stmt.assemblyCreate2 t v c s =>
++      Stmt.assemblyCreate2 (Expr.renameIdentsFuel fuel env t) (Expr.renameIdentsFuel fuel env v) (Expr.renameIdentsFuel fuel env c) (Expr.renameIdentsFuel fuel env s)
+   | _ + 1, _, Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
+ termination_by fuel _ _ => fuel
+ 
+@@ -6528,6 +6542,8 @@ def Stmt.inlineInternalFunctionAliasesFuel
+         (Stmt.inlineInternalFunctionAliasesFuel
+           functions freeFunctions fuel aliasEnv body)
+   | _ + 1, _, Stmt.inlineAssembly code => Stmt.inlineAssembly code
++  | fuel + 1, aliasEnv, Stmt.assemblyCreate2 t v c s =>
++      Stmt.assemblyCreate2 (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv t) (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv v) (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv c) (Expr.inlineInternalFunctionAliasesFuel fuel aliasEnv s)
+   | _ + 1, _, Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
+ termination_by fuel _ _ => fuel
+ 
+diff --git a/SolidCore/Solidity/Interface/Foundation.lean b/SolidCore/Solidity/Interface/Foundation.lean
+index 932cbf0..1a5af39 100644
+--- a/SolidCore/Solidity/Interface/Foundation.lean
++++ b/SolidCore/Solidity/Interface/Foundation.lean
+@@ -346,6 +346,8 @@ def Stmt.inlineConstantsFuel : Nat -> ConstantEnv -> Stmt -> Stmt
+       | Stmt.continue => Stmt.continue
+       | Stmt.unchecked body => Stmt.unchecked (inlineStmt body)
+       | Stmt.inlineAssembly code => Stmt.inlineAssembly code
++      | Stmt.assemblyCreate2 t v c s =>
++          Stmt.assemblyCreate2 (inlineExpr t) (inlineExpr v) (inlineExpr c) (inlineExpr s)
+       | Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
+ 
+ /-- Rewrite a statement list in source order. A local declaration shadows a
+@@ -533,6 +535,8 @@ def Stmt.rewriteSuperCallsFuel (contractName : Name) : Nat -> Stmt -> Stmt
+       | Stmt.continue => Stmt.continue
+       | Stmt.unchecked body => Stmt.unchecked (rewriteStmt body)
+       | Stmt.inlineAssembly code => Stmt.inlineAssembly code
++      | Stmt.assemblyCreate2 t v c s =>
++          Stmt.assemblyCreate2 (rewriteExpr t) (rewriteExpr v) (rewriteExpr c) (rewriteExpr s)
+       | Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
+ 
+ def CatchClause.rewriteSuperCallsFuel (contractName : Name) :
+@@ -740,6 +744,8 @@ def Stmt.rewriteBaseCallsFuel (baseNames stateNames : List Name) :
+       | Stmt.continue => Stmt.continue
+       | Stmt.unchecked body => Stmt.unchecked (rewriteStmt body)
+       | Stmt.inlineAssembly code => Stmt.inlineAssembly code
++      | Stmt.assemblyCreate2 t v c s =>
++          Stmt.assemblyCreate2 (rewriteExpr t) (rewriteExpr v) (rewriteExpr c) (rewriteExpr s)
+       | Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
+ 
+ def CatchClause.rewriteBaseCallsFuel (baseNames stateNames : List Name) :
+@@ -1228,6 +1234,8 @@ def Stmt.resolveUserTypesFuel : Nat -> UserTypeEnv -> Stmt -> Stmt
+       | Stmt.continue => Stmt.continue
+       | Stmt.unchecked body => Stmt.unchecked (resolveStmt body)
+       | Stmt.inlineAssembly code => Stmt.inlineAssembly code
++      | Stmt.assemblyCreate2 t v c s =>
++          Stmt.assemblyCreate2 (resolveExpr t) (resolveExpr v) (resolveExpr c) (resolveExpr s)
+       | Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
+ 
+ def CatchClause.resolveUserTypesFuel :
+@@ -1565,6 +1573,8 @@ def Stmt.resolveEnumsFuel : Nat -> EnumEnv -> Stmt -> Stmt
+       | Stmt.continue => Stmt.continue
+       | Stmt.unchecked body => Stmt.unchecked (resolveStmt body)
+       | Stmt.inlineAssembly code => Stmt.inlineAssembly code
++      | Stmt.assemblyCreate2 t v c s =>
++          Stmt.assemblyCreate2 (resolveExpr t) (resolveExpr v) (resolveExpr c) (resolveExpr s)
+       | Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
+ 
+ def CatchClause.resolveEnumsFuel :
+@@ -2207,6 +2217,8 @@ def Stmt.resolveStructsInSeqFuel :
+       | Stmt.continue => (Stmt.continue, typeEnv)
+       | Stmt.unchecked body => (Stmt.unchecked (resolveStmt body), typeEnv)
+       | Stmt.inlineAssembly code => (Stmt.inlineAssembly code, typeEnv)
++      | Stmt.assemblyCreate2 t v c s =>
++          (Stmt.assemblyCreate2 (resolveExpr t) (resolveExpr v) (resolveExpr c) (resolveExpr s), typeEnv)
+       | Stmt.modifierPlaceholder => (Stmt.modifierPlaceholder, typeEnv)
+ 
+ end
+diff --git a/SolidCore/Solidity/Interface/Statements.lean b/SolidCore/Solidity/Interface/Statements.lean
+index 1ca557e..8a768d2 100644
+--- a/SolidCore/Solidity/Interface/Statements.lean
++++ b/SolidCore/Solidity/Interface/Statements.lean
+@@ -3636,6 +3636,14 @@ def storageTernaryBranchAliasPieces? (internalFuel : Nat)
+     [ SolidCore.Solidity.Source.Stmt.storageAlias localName ""
+     , SolidCore.Solidity.Source.Stmt.ifElse condCore thenCore elseCore ]
+ 
++/-- A Yul operand of `Stmt.assemblyCreate2`: a number literal, or a local read as its word. -/
++def Expr.assemblyWordCore? : Expr -> Option CoreExpr
++  | Expr.ident name => some (SolidCore.Solidity.Source.Expr.var name)
++  | Expr.literal (Literal.number text) => do
++      let value ← parseNumberNat? text
++      if value < 2 ^ 256 then some (SolidCore.Solidity.Source.Expr.word value) else none
++  | _ => none
++
+ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
+     (storageNames : List Name) (stmt : Stmt) : Option CoreStmt :=
+   -- ITEM-2 (§3c collapse, phase 1): statements whose lowering is IDENTICAL
+@@ -3653,6 +3661,14 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
+   match stmt with
+   | Stmt.empty => some SolidCore.Solidity.Source.Stmt.skip
+   | Stmt.inlineAssembly "" => some SolidCore.Solidity.Source.Stmt.skip
++  -- Inline assembly `target := create2(value, add(code, 32), mload(code), salt)` over locals
++  -- (checked by `checkAssemblyCreate2`): a Yul assignment writes the local's word as it is.
++  | Stmt.assemblyCreate2 (Expr.ident target) value (Expr.ident code) salt => do
++      let valueCore ← Expr.assemblyWordCore? value
++      let saltCore ← Expr.assemblyWordCore? salt
++      some (SolidCore.Solidity.Source.Stmt.assign (SolidCore.Solidity.Source.LValue.var target)
++        (SolidCore.Solidity.Source.Expr.create2Bytes valueCore
++          (SolidCore.Solidity.Source.Expr.var code) saltCore))
+   -- Solidity accepts the special base-dispatch namespace as a bare
+   -- expression statement (`super;`). Merely evaluating that namespace has
+   -- no runtime effect; only a member call such as `super.f()` dispatches.
+@@ -11576,6 +11592,8 @@ def Stmt.expandUsingInSeqFuel :
+       | Stmt.continue => (Stmt.continue, env)
+       | Stmt.unchecked body => (Stmt.unchecked (expandStmt body), env)
+       | Stmt.inlineAssembly code => (Stmt.inlineAssembly code, env)
++      | Stmt.assemblyCreate2 t v c s =>
++          (Stmt.assemblyCreate2 (expandExpr t) (expandExpr v) (expandExpr c) (expandExpr s), env)
+       | Stmt.modifierPlaceholder => (Stmt.modifierPlaceholder, env)
+ 
+ def Stmt.expandUsing (contracts : List ContractDecl)
+@@ -11868,6 +11886,9 @@ def Stmt.rewriteLibraryInternalCallsFuel (libraryName : Name)
+         (Stmt.rewriteLibraryInternalCallsFuel
+           libraryName libraryFunctions env fuel body)
+   | _ + 1, Stmt.inlineAssembly code => Stmt.inlineAssembly code
++  | fuel + 1, Stmt.assemblyCreate2 t v c s =>
++      let go := Expr.rewriteLibraryInternalCallsFuel libraryName libraryFunctions env fuel
++      Stmt.assemblyCreate2 (go t) (go v) (go c) (go s)
+   | _ + 1, Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
+ termination_by fuel _ => fuel
+ 
+diff --git a/SolidCore/Solidity/Interpreter.lean b/SolidCore/Solidity/Interpreter.lean
+index c844a67..90710f9 100644
+--- a/SolidCore/Solidity/Interpreter.lean
++++ b/SolidCore/Solidity/Interpreter.lean
+@@ -2820,6 +2820,28 @@ def emitContractCreation (context : Context) (state : State)
+         ( decodeCreateResponse response name args value salt?
+         , adoptWorld response.postWorld context state )))
+ 
++/-- Emit inline assembly's CREATE2 of the init code `code` as a `Query.external` creation
++    of the sent world, and resume on its `CreateResponse`: the new account's address (0 when
++    the creation failed, the EVM convention) and the adopted world. The request's init code is
++    `code` itself, so an environment that runs it (EIP-1014's address of the creator, salt and
++    `keccak256(code)`, the init code's execution as a callee) answers what the EVM does. -/
++def create2BytesRequest (context : Context) (code : List Byte) (value salt : Word) :
++    EvmCompiler.Simulation.CreateRequest :=
++  { kind := EvmCompiler.Simulation.CreateKind.create2
++    creator := wordToAddress context.self
++    value := wordToU256 value
++    initCode := bytesToByteArray code
++    salt := some (wordToU256 salt)
++    permission := true }
++
++def emitCreate2Bytes (context : Context) (state : State) (code : List Byte)
++    (value salt : Word) : SolI (Word × State) :=
++  .request
++    (EvmCompiler.Simulation.Query.external (snapshotWorld context state)
++      (EvmCompiler.Simulation.ExternalRequest.create (create2BytesRequest context code value salt)))
++    (fun response =>
++      .done (.ok (u256ToWord response.address, adoptWorld response.postWorld context state)))
++
+ /-- The stage-3 context answerer: external queries get `Query.defaultAnswer` (the
+     context no longer carries oracle rows; see `SolI.runFromContext`), and the
+     reserved `resource .gas` arm (A3) is answered ambiently with the context's
+@@ -6405,6 +6427,11 @@ inductive Expr where
+   -- `Bool` records whether the `{value, salt}` options were written value-before-
+   -- salt in source (solc evaluates the options in source order — DIV-CREATE-2).
+   | contractCreate : String -> Expr -> Expr -> Option Expr -> Bool -> Expr
++  /-- `create2Bytes value code salt`: EVM CREATE2 with the bytes of `code` as init code,
++      endowed with `value` and salted with `salt` (inline assembly
++      `create2(value, add(code, 32), mload(code), salt)`): the new account's address, or 0 when
++      the creation fails. It never reverts the caller, unlike `contractCreate`. -/
++  | create2Bytes : Expr -> Expr -> Expr -> Expr
+   | newBytes : Expr -> Expr
+   | newDynamicArray : Ty -> Expr -> Expr
+   | externalHash : ExternalHashKind -> Expr -> Expr
+@@ -7331,6 +7358,8 @@ def Expr.orderFuel : Expr -> Nat
+         (match salt? with
+         | some salt => Expr.orderFuel salt
+         | none => 0) + 1
++  | Expr.create2Bytes value code salt =>
++      Expr.orderFuel value + Expr.orderFuel code + Expr.orderFuel salt + 1
+   | Expr.newBytes expr => Expr.orderFuel expr + 1
+   | Expr.newDynamicArray _ expr => Expr.orderFuel expr + 1
+   | Expr.externalHash _ expr => Expr.orderFuel expr + 1
+@@ -7982,6 +8011,26 @@ def Expr.evalFuel (fuel : Nat)
+                       (ExternalInteraction.contractCreation result) )
+               else
+                 throw <| SolidityFailure.revert (RevertData.fromRawBytes result.output)
++          | Expr.create2Bytes valueExpr codeExpr saltExpr => do
++              -- Yul evaluates a builtin's arguments right to left: the salt, then the init
++              -- code (`mload(code)` before `add(code, 32)`), then the value. Each operand is
++              -- a literal or a local, so the order has no effect beyond the runtime threading.
++              let (saltValue, runtimeSalt) ←
++                Expr.evalFuel fuel context runtime saltExpr
++              let salt ← saltValue.expectWord
++              let (codeValue, runtimeCode) ←
++                Expr.evalFuel fuel context runtimeSalt codeExpr
++              let codeValue ← SolI.ofExcept (runtimeCode.derefMemoryValue codeValue)
++              let code ←
++                match codeValue.asBytes? with
++                | some bytes => pure bytes
++                | none => throw <| SolidityFailure.revert RevertData.typeMismatch
++              let (valueValue, runtime') ←
++                Expr.evalFuel fuel context runtimeCode valueExpr
++              let value ← valueValue.expectWord
++              let (address, adoptedState) ←
++                emitCreate2Bytes context runtime'.state code value salt
++              pure (Value.word address, { runtime' with state := adoptedState })
+           | Expr.newBytes lengthExpr => do
+               let (lengthValue, runtime') ←
+                 Expr.evalFuel fuel context runtime
+@@ -9031,6 +9080,12 @@ def Expr.normalizeStorageValueUses (pos : StoragePosition) : Expr -> Expr
+         (Expr.normalizeStorageValueUses StoragePosition.pointerUse value)
+         (Expr.normalizeStorageValueUsesOpt StoragePosition.pointerUse salt?)
+         valueBeforeSalt
++  | Expr.create2Bytes value code salt =>
++      -- The init code is consumed as bytes contents; value and salt are scalar words.
++      Expr.create2Bytes
++        (Expr.normalizeStorageValueUses StoragePosition.pointerUse value)
++        (Expr.normalizeStorageValueUses StoragePosition.valueUse code)
++        (Expr.normalizeStorageValueUses StoragePosition.pointerUse salt)
+   | Expr.newBytes expr =>
+       -- The length operand is a scalar word; value-use per the boundary
+       -- family it belongs to (inert for scalars).
+diff --git a/SolidCore/Solidity/TypeCheck.lean b/SolidCore/Solidity/TypeCheck.lean
+index da3c475..fe4c12a 100644
+--- a/SolidCore/Solidity/TypeCheck.lean
++++ b/SolidCore/Solidity/TypeCheck.lean
+@@ -2200,6 +2200,40 @@ def requireLogOrCreateAllowed (env : CheckEnv) (what : String) :
+   require (mutabilityAllowsLogOrCreate env.currentMutability)
+     (TypeError.mutabilityViolation what)
+ 
++/-- The operands of `Stmt.assemblyCreate2 target value code salt` (inline assembly
++    `target := create2(value, add(code, 32), mload(code), salt)`): `target` a local
++    `address`, `code` a local `bytes memory`, `value` a number literal below `2^256` or a
++    local `uint256`, and `salt` the same or a local `bytes32` (a full word, which Yul reads
++    as it is). Locals exclude state variables, constants and storage references. -/
++def checkAssemblyCreate2 (env : CheckEnv) (target value code salt : Solidity.Expr) :
++    Except TypeError Unit := do
++  let isLocal (e : Solidity.Expr) (ok : Ty -> Bool) : Bool :=
++    match e with
++    | .ident name =>
++        env.isLocalName name && !env.isLocalStorageRef name &&
++          (match env.lookupConstantBinding? name with | some true => false | _ => true) &&
++          (match env.lookupVar? name with | some ty => ok ty | none => false)
++    | _ => false
++  let isWord (e : Solidity.Expr) (ok : Ty -> Bool) : Bool :=
++    isLocal e ok ||
++      (match e with
++      | .literal (.number text) =>
++          match Solidity.Executable.parseNumberNat? text with
++          | some n => decide (n < 2 ^ 256)
++          | none => false
++      | _ => false)
++  require (isLocal target (fun ty => ty == Ty.address false || ty == Ty.address true))
++    (TypeError.unsupported "create2 target other than a local address")
++  require (isLocal code (fun ty => ty == Ty.bytes) &&
++      (match code with
++      | .ident name => env.lookupLocalDataLocation? name == some Solidity.DataLocation.memory
++      | _ => false))
++    (TypeError.unsupported "create2 init code other than a local bytes memory")
++  require (isWord value (fun ty => ty == Ty.uint 256))
++    (TypeError.unsupported "create2 value other than a literal or a local uint256")
++  require (isWord salt (fun ty => ty == Ty.uint 256 || ty == Ty.bytesN 32))
++    (TypeError.unsupported "create2 salt other than a literal or a local uint256 or bytes32")
++
+ def requireCallMutabilityAllowed (env : CheckEnv)
+     (callee : Solidity.StateMutability) :
+     Except TypeError Unit :=
+@@ -11258,6 +11292,10 @@ def checkStmt (env : CheckEnv) :
+       Except.ok { source := stmt }
+   | Solidity.Stmt.inlineAssembly _ =>
+       Except.error (TypeError.unsupported "inline assembly")
++  | stmt@(Solidity.Stmt.assemblyCreate2 target value code salt) => do
++      requireLogOrCreateAllowed env "create2 in view or pure function"
++      checkAssemblyCreate2 env target value code salt
++      Except.ok { source := stmt }
+   | stmt@Solidity.Stmt.modifierPlaceholder => do
+       require env.inModifier TypeError.modifierPlaceholderOutsideModifier
+       require (!env.inUnchecked) (TypeError.unsupported
+@@ -13584,6 +13622,9 @@ def Stmt.pointerReturnFlowFuel :
+       Stmt.pointerReturnFlowFuel fuel env requirements placeholder assigned body
+   | _ + 1, _, _, _, _, Solidity.Stmt.inlineAssembly _ =>
+       { unsafeReturn := true }
++  -- It writes an address local and only reads its other operands: no pointer flow.
++  | _ + 1, _, _, _, assigned, Solidity.Stmt.assemblyCreate2 _ _ _ _ =>
++      { normal? := some assigned }
+   | fuel + 1, env, requirements, placeholder, assigned,
+       Solidity.Stmt.modifierPlaceholder =>
+       match placeholder with
+@@ -14028,6 +14069,8 @@ def Stmt.pointerLocalFlowFuel :
+       Stmt.pointerLocalFlowFuel fuel name assigned body
+   | _ + 1, _, _, Solidity.Stmt.inlineAssembly _ =>
+       { unsafeReturn := true }
++  | _ + 1, _, assigned, Solidity.Stmt.assemblyCreate2 _ _ _ _ =>
++      { normal? := some assigned }
+   | _ + 1, _, assigned, Solidity.Stmt.modifierPlaceholder =>
+       { normal? := some assigned }
+ 
+diff --git a/lakefile.lean b/lakefile.lean
+index cb2ed92..973e245 100644
+--- a/lakefile.lean
++++ b/lakefile.lean
+@@ -365,11 +365,19 @@ lean_lib ContractsVC where
+ -- GPL-3.0), so run it first: scripts/verify/uniswap_v2_gen.sh && lake build ContractsUniswapV2.
+ -- Each Core is the kernel's type check and translation of its contract (contract_ok).
+ lean_lib ContractsUniswapV2 where
+-  roots := #[`Contracts.UniswapV2.ERC20.Core, `Contracts.UniswapV2.Factory.Core]
++  roots := #[`Contracts.UniswapV2.ERC20.Core, `Contracts.UniswapV2.Factory.Core,
++    `Contracts.UniswapV2.Factory.Create2Run]
+   -- The generated sources the roots import belong to this library too, or Lake looks for their
+   -- object files elsewhere instead of building them.
+   globs := #[.one `Contracts.UniswapV2.ERC20.Source, .one `Contracts.UniswapV2.ERC20.Core,
+-    .one `Contracts.UniswapV2.Factory.Source, .one `Contracts.UniswapV2.Factory.Core]
++    .one `Contracts.UniswapV2.Factory.Source, .one `Contracts.UniswapV2.Factory.Core,
++    .one `Contracts.UniswapV2.Factory.Create2Run]
++
++-- Inline assembly create2 (Stmt.assemblyCreate2): Contracts/Create2/Deployer.sol's translation
++-- (scripts/verify/create2_sources.py) and its execution tests, with the view negative control.
++lean_lib ContractsCreate2 where
++  roots := #[`Contracts.Create2.Run]
++  globs := #[.submodules `Contracts.Create2]
+ 
+ -- solar-verify's ERC20 specs connected to SolidCore's checked UniswapV2ERC20 (Meets: approve and
+ -- transfer meet their exported specs and the mutated spec is refused; SpecTree: the specs hold in
+diff --git a/scripts/solc_ast_to_lean_source.py b/scripts/solc_ast_to_lean_source.py
+index 355d404..83c3215 100755
+--- a/scripts/solc_ast_to_lean_source.py
++++ b/scripts/solc_ast_to_lean_source.py
+@@ -1388,6 +1388,158 @@ def expr_from_node(node: dict[str, Any]) -> str:
+     fail(f"unsupported expression node {node_type!r}")
+ 
+ 
++
++# Inline assembly is out of SolidCore's fragment except for one exact block (solc's AST of
++# the source text: one Yul assignment, no Yul locals, every identifier a Solidity local):
++#
++#     target := create2(value, add(code, 32), mload(code), salt)
++#
++# with target an address local, code a bytes memory local, and value, salt each a Yul number
++# literal or a uint256 (salt also bytes32) local. It is CREATE2 of exactly the bytes of code
++# (add(code, 32) is their first byte and mload(code) their length), so it translates to
++# Stmt.assemblyCreate2, whose semantics is that opcode's: the new account's address, or 0.
++DECLARATION_BY_ID: dict[int, dict[str, Any]] = {}
++
++
++def collect_declarations_by_id(ast: dict[str, Any]) -> dict[int, dict[str, Any]]:
++    found: dict[int, dict[str, Any]] = {}
++
++    def visit(node: Any) -> None:
++        if isinstance(node, dict):
++            node_id = node.get("id")
++            if node.get("nodeType") == "VariableDeclaration" and isinstance(node_id, int):
++                found[node_id] = node
++            for value in node.values():
++                visit(value)
++        elif isinstance(node, list):
++            for value in node:
++                visit(value)
++
++    visit(ast)
++    return found
++
++
++def yul_create2_assignment(node: dict[str, Any]) -> tuple[str, str, str, str] | None:
++    """The Lean expressions (target, value, code, salt) of an inline assembly block of the one
++    create2 shape the fragment covers, or None for any other block."""
++    if node.get("nodeType") != "InlineAssembly":
++        return None
++    if set(node) - {"AST", "evmVersion", "externalReferences", "id", "nodeType", "src", "flags", "documentation"}:
++        return None
++    if node.get("flags"):
++        return None
++    block = node.get("AST")
++    if not isinstance(block, dict) or block.get("nodeType") != "YulBlock":
++        return None
++    statements = block.get("statements")
++    if not isinstance(statements, list) or len(statements) != 1:
++        return None
++    assignment = statements[0]
++    if not isinstance(assignment, dict) or assignment.get("nodeType") != "YulAssignment":
++        return None
++    targets = assignment.get("variableNames")
++    if not isinstance(targets, list) or len(targets) != 1:
++        return None
++    references = node.get("externalReferences")
++    if not isinstance(references, list):
++        return None
++    by_src: dict[str, dict[str, Any]] = {}
++    for reference in references:
++        if not isinstance(reference, dict) or set(reference) - {"declaration", "isOffset", "isSlot", "src", "valueSize", "suffix"}:
++            return None
++        if reference.get("isOffset") or reference.get("isSlot") or reference.get("suffix") or reference.get("valueSize") != 1:
++            return None
++        by_src[reference.get("src")] = reference
++
++    def call(item: Any, name: str, arity: int) -> list[Any] | None:
++        if not isinstance(item, dict) or item.get("nodeType") != "YulFunctionCall":
++            return None
++        function_name = item.get("functionName")
++        if not isinstance(function_name, dict) or function_name.get("name") != name:
++            return None
++        arguments = item.get("arguments")
++        if not isinstance(arguments, list) or len(arguments) != arity:
++            return None
++        return arguments
++
++    def local(item: Any, types: set[str]) -> str | None:
++        # A Yul identifier naming a Solidity local (not a state, constant or storage variable)
++        # of one of the given types (solc type identifiers).
++        if not isinstance(item, dict) or item.get("nodeType") != "YulIdentifier":
++            return None
++        name = item.get("name")
++        reference = by_src.get(item.get("src"))
++        if not isinstance(name, str) or reference is None:
++            return None
++        declaration = DECLARATION_BY_ID.get(reference.get("declaration"))
++        if declaration is None or declaration.get("name") != name:
++            return None
++        if declaration.get("stateVariable") or declaration.get("constant"):
++            return None
++        type_identifier = (declaration.get("typeDescriptions") or {}).get("typeIdentifier")
++        if type_identifier not in types:
++            return None
++        return name
++
++    def number(item: Any) -> str | None:
++        if not isinstance(item, dict) or item.get("nodeType") != "YulLiteral" or item.get("kind") != "number":
++            return None
++        if item.get("type", "") != "":
++            return None
++        value = item.get("value")
++        if not isinstance(value, str):
++            return None
++        try:
++            int(value, 0)
++        except ValueError:
++            return None
++        return value
++
++    def word(item: Any, types: set[str]) -> str | None:
++        name = local(item, types)
++        if name is not None:
++            return f"Expr.ident {lean_string(name)}"
++        value = number(item)
++        if value is not None:
++            return f"Expr.literal (Literal.number {lean_string(str(int(value, 0)))})"
++        return None
++
++    target = local(targets[0], {"t_address", "t_address_payable"})
++    arguments = call(assignment.get("value"), "create2", 4)
++    if target is None or arguments is None:
++        return None
++    value = word(arguments[0], {"t_uint256"})
++    start = call(arguments[1], "add", 2)
++    length = call(arguments[2], "mload", 1)
++    salt = word(arguments[3], {"t_uint256", "t_bytes32"})
++    if value is None or start is None or length is None or salt is None:
++        return None
++    code = local(start[0], {"t_bytes_memory_ptr"})
++    if code is None or number(start[1]) is None or int(number(start[1]), 0) != 32:
++        return None
++    if local(length[0], {"t_bytes_memory_ptr"}) != code:
++        return None
++    # Every external reference is one of the identifiers read above.
++    used = {targets[0].get("src"), arguments[1]["arguments"][0].get("src"), arguments[2]["arguments"][0].get("src")}
++    for item in (arguments[0], arguments[3]):
++        if item.get("nodeType") == "YulIdentifier":
++            used.add(item.get("src"))
++    if set(by_src) != used or len(by_src) != len(references):
++        return None
++    return (f"Expr.ident {lean_string(target)}", value, f"Expr.ident {lean_string(code)}", salt)
++
++
++def without_create2_assembly(value: Any) -> Any:
++    """The AST with every inline assembly block of the covered create2 shape left out, so the
++    node guard rejects every other block."""
++    if isinstance(value, dict):
++        return {key: without_create2_assembly(child) for key, child in value.items()}
++    if isinstance(value, list):
++        return [without_create2_assembly(child) for child in value
++                if not (isinstance(child, dict) and yul_create2_assignment(child) is not None)]
++    return value
++
++
+ def stmt_from_node(node: dict[str, Any]) -> str:
+     node_type = node.get("nodeType")
+     if node_type == "Block":
+@@ -1531,6 +1683,11 @@ def stmt_from_node(node: dict[str, Any]) -> str:
+         return "Stmt.continue"
+     if node_type == "PlaceholderStatement":
+         return "Stmt.modifierPlaceholder"
++    if node_type == "InlineAssembly":
++        create2 = yul_create2_assignment(node)
++        if create2 is None:
++            fail("inline assembly other than one create2 assignment is out of scope")
++        return "Stmt.assemblyCreate2 " + " ".join(f"({part})" for part in create2)
+     fail(f"unsupported statement node {node_type!r}")
+ 
+ 
+@@ -2155,7 +2312,9 @@ def render_module(ast: dict[str, Any], source_name: str, contract_name: str, nam
+     global FUNCTION_NAME_BY_ID
+     FUNCTION_PARAM_COUNT_BY_ID = collect_function_param_counts(ast)
+     FUNCTION_NAME_BY_ID = collect_function_names_by_id(ast)
+-    guard_no_unsupported_nodes(ast)
++    DECLARATION_BY_ID.clear()
++    DECLARATION_BY_ID.update(collect_declarations_by_id(ast))
++    guard_no_unsupported_nodes(without_create2_assembly(ast))
+     contract = find_contract(ast, contract_name)
+     contracts = contract_definitions(ast)
+     segments = namespace_segments(namespace)
+diff --git a/scripts/verify/create2_sources.py b/scripts/verify/create2_sources.py
+new file mode 100755
+index 0000000..e54cb62
+--- /dev/null
++++ b/scripts/verify/create2_sources.py
+@@ -0,0 +1,120 @@
++#!/usr/bin/env python3
++"""Writes and tests the frontend's translation of inline assembly create2 (Contracts/Create2).
++
++    scripts/verify/create2_sources.py [--solc SOLC] [--check]
++
++Writes Contracts/Create2/Source.lean, the frontend's translation of Contracts/Create2/Deployer.sol,
++and Contracts/Create2/SourceView.lean, the same with `deploy` declared `view` (which solc rejects
++before it writes an AST, so the mutation is made on the translation): SolidCore's checker must
++reject it (Contracts/Create2/Run.lean). Then checks that the frontend rejects every other inline
++assembly block of the negative cases below. With --check, compares instead of writing and exits 1
++on a difference or on a case the frontend does not decide as expected.
++"""
++
++import argparse
++import pathlib
++import subprocess
++import sys
++import tempfile
++
++ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
++FRONTEND = ROOT / "scripts" / "solc_ast_to_lean_source.py"
++DIR = ROOT / "Contracts" / "Create2"
++NAMESPACE = "SolidCore.Verify.Create2.Source"
++VIEW_NAMESPACE = "SolidCore.Verify.Create2.SourceView"
++
++# (name, function body): each block is outside the one create2 shape, so the frontend fails.
++NEGATIVE = [
++    ("offset 64", "assembly { a := create2(0, add(code, 64), mload(code), salt) }"),
++    ("create", "assembly { a := create(0, add(code, 32), mload(code)) }"),
++    ("length of another local", "bytes memory other = code; assembly { a := create2(0, add(code, 32), mload(other), salt) }"),
++    ("two statements", "assembly { a := create2(0, add(code, 32), mload(code), salt) a := 0 }"),
++    ("Yul local", "assembly { let s := salt a := create2(0, add(code, 32), mload(code), s) }"),
++    ("bytes16 salt", "bytes16 s = bytes16(salt); assembly { a := create2(0, add(code, 32), mload(code), s) }"),
++    ("uint8 value", "uint8 v = 0; assembly { a := create2(v, add(code, 32), mload(code), salt) }"),
++    ("value expression", "assembly { a := create2(callvalue(), add(code, 32), mload(code), salt) }"),
++    ("memory target", "bytes memory b; assembly { b := create2(0, add(code, 32), mload(code), salt) }"),
++    ("uint256 target", "uint256 w; assembly { w := create2(0, add(code, 32), mload(code), salt) }"),
++]
++NEGATIVE_SOURCE = """// SPDX-License-Identifier: MIT
++pragma solidity ^0.8.0;
++
++contract Negative {
++    function f(bytes32 salt) external returns (address a) {
++        bytes memory code = hex"00";
++        BODY
++    }
++}
++"""
++
++
++HEAD = "import SolidCore.Solidity.Checked\nimport SolidCore.Witness.Checked\n"
++
++
++def translate(solc: str, sol: pathlib.Path, contract: str, namespace: str) -> subprocess.CompletedProcess:
++    out = subprocess.run(
++        [sys.executable, str(FRONTEND), "--solc", solc, "--contract", contract, "--namespace", namespace,
++         str(sol)], cwd=ROOT, capture_output=True, text=True)
++    if out.returncode == 0:
++        # As scripts/verify/uniswap_v2_sources.py: the checker's import only, the frontend's
++        # opens, and the source's path relative to the repository.
++        if not out.stdout.startswith(HEAD):
++            sys.exit("error: unexpected frontend header")
++        out.stdout = ("import SolidCore.Solidity.Checked\n\nopen SolidCore.Solidity\n"
++                      + out.stdout[len(HEAD):].replace(str(ROOT) + "/", ""))
++    return out
++
++
++def main() -> int:
++    ap = argparse.ArgumentParser()
++    ap.add_argument("--solc", default="solc")
++    ap.add_argument("--check", action="store_true")
++    a = ap.parse_args()
++    status = 0
++    sol = (DIR / "Deployer.sol").relative_to(ROOT)
++    out = translate(a.solc, sol, "Deployer", NAMESPACE)
++    if out.returncode != 0:
++        print(out.stderr, file=sys.stderr)
++        return 1
++    source = out.stdout
++    out = translate(a.solc, sol, "Deployer", VIEW_NAMESPACE)
++    if out.returncode != 0:
++        print(out.stderr, file=sys.stderr)
++        return 1
++    view = out.stdout
++    deploy = 'name := some "deploy",'
++    old, new = "mutability := StateMutability.nonpayable", "mutability := StateMutability.view"
++    if view.count(deploy) != 1:
++        sys.exit("error: expected one deploy function")
++    j = view.index(old, view.index(deploy))
++    view = view[:j] + new + view[j + len(old):]
++    header = ("-- Generated from Contracts/Create2/Deployer.sol with solc 0.8.35 by "
++              "scripts/verify/create2_sources.py. Do not edit.\n\n")
++    for name, text in (("Source.lean", header + source), ("SourceView.lean", header + view)):
++        path = DIR / name
++        if a.check:
++            if not path.exists() or path.read_text() != text:
++                print(f"error: {path.relative_to(ROOT)} is out of date", file=sys.stderr)
++                status = 1
++        else:
++            path.write_text(text)
++    with tempfile.TemporaryDirectory() as tmp:
++        for name, body in NEGATIVE:
++            neg = pathlib.Path(tmp) / "Negative.sol"
++            neg.write_text(NEGATIVE_SOURCE.replace("BODY", body))
++            compiled = subprocess.run([a.solc, "--ast-compact-json", str(neg)], capture_output=True, text=True)
++            if compiled.returncode != 0:
++                print(f"error: negative case {name!r} does not compile:\n{compiled.stderr}", file=sys.stderr)
++                status = 1
++                continue
++            res = translate(a.solc, neg, "Negative", "X")
++            if res.returncode == 0 or "assembly" not in res.stderr.lower():
++                print(f"error: the frontend accepted negative case {name!r}", file=sys.stderr)
++                status = 1
++            else:
++                print(f"rejected {name}: {res.stderr.strip().splitlines()[-1]}")
++    return status
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+diff --git a/scripts/verify/uniswap_v2_sources.py b/scripts/verify/uniswap_v2_sources.py
+index ab06b78..8b2eb50 100755
+--- a/scripts/verify/uniswap_v2_sources.py
++++ b/scripts/verify/uniswap_v2_sources.py
+@@ -4,9 +4,10 @@
+     scripts/verify/uniswap_v2_sources.py --port DIR [--solc SOLC] [--check]
+ 
+ SolidCore's frontend (scripts/solc_ast_to_lean_source.py) reads one file with no imports and no
+-inline assembly, so for each certified contract this writes one file (scripts/verify/uniswap-v2/
+-NAME.sol): the contract's file and every file it imports, in import order, each without its
+-`import` and `pragma solidity` lines, under one `pragma solidity ^0.8.0;`. One edit changes
++inline assembly but one create2 assignment, so for each certified contract this writes one file
++(scripts/verify/uniswap-v2/NAME.sol): the contract's file and every file it imports, in import
++order, each without its `import` and `pragma solidity` lines, under one
++`pragma solidity ^0.8.0;`. One edit changes
+ code: `UniswapV2ERC20`'s constructor reads the chain ID as `block.chainid` instead of with
+ inline assembly `chainid()`, the same value (solc documents `block.chainid` as the `CHAINID`
+ opcode). Every edit must apply exactly once. solar's certified backend compiles the same file.
+@@ -29,14 +30,13 @@ OUT_SOL = ROOT / "scripts" / "verify" / "uniswap-v2"
+ FRONTEND = ROOT / "scripts" / "solc_ast_to_lean_source.py"
+ # (contract, its file in the port, the Lean directory under Contracts/UniswapV2, the functions
+ # the translation leaves out). `UniswapV2Factory.createPair` deploys the pair with inline
+-# assembly `create2` of `type(UniswapV2Pair).creationCode`, outside SolidCore's fragment, so
+-# SolidCore's Factory has no `createPair` (nor its interface, which would make the Factory
+-# abstract), and nothing proved of it covers that function.
++# assembly `pair := create2(0, add(bytecode, 32), mload(bytecode), salt)` of
++# `type(UniswapV2Pair).creationCode`, the one assembly block the frontend translates
++# (`Stmt.assemblyCreate2`), so every function is translated.
+ CONTRACTS = [
+     ("UniswapV2ERC20", "UniswapV2ERC20.sol", "ERC20", []),
+     ("UniswapV2Pair", "UniswapV2Pair.sol", "Pair", []),
+-    ("UniswapV2Factory", "UniswapV2Factory.sol", "Factory",
+-     ["UniswapV2Factory.createPair", "IUniswapV2Factory.createPair"]),
++    ("UniswapV2Factory", "UniswapV2Factory.sol", "Factory", []),
+ ]
+ CHAINID_OLD = """        assembly {
+             chainId := chainid()
+-- 
+2.43.0
+

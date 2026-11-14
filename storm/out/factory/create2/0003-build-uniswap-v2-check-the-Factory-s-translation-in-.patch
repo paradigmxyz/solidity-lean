@@ -1,0 +1,103 @@
+From 429b8127ccdf3ff2a3789b47b08399d902060c69 Mon Sep 17 00:00:00 2001
+From: storm-factory <storm-factory@localhost>
+Date: Sat, 14 Nov 2026 14:21:22 +0000
+Subject: [PATCH 3/3] build(uniswap-v2): check the Factory's translation in
+ stages
+
+With createPair translated, UniswapV2Factory's translation checked in
+one declaration peaks at the 6 GB cap (6002 MB under lean -M 6000,
+kernel memory error). The core generator now checks it in stages as it
+does the Pair's (context, functions, groups, assembly, contract_ok),
+each its own module: lake build -KleanMemory=6000
+ContractsUniswapV2Factory peaks at 5489 MB.
+---
+ .github/workflows/refinement.yml  |  1 +
+ lakefile.lean                     | 15 ++++++++++-----
+ scripts/verify/uniswap_v2_core.py |  5 +++--
+ scripts/verify/uniswap_v2_gen.sh  | 10 ++++++----
+ 4 files changed, 20 insertions(+), 11 deletions(-)
+
+diff --git a/.github/workflows/refinement.yml b/.github/workflows/refinement.yml
+index 91ba352..d240db5 100644
+--- a/.github/workflows/refinement.yml
++++ b/.github/workflows/refinement.yml
+@@ -81,6 +81,7 @@ jobs:
+           # UniswapV2Pair's source acceptance in 22 generated stage modules; the largest (swap's
+           # lowering) peaks at 5.98 GB under -M 6000, so this step has little memory margin.
+           lake build -KleanMemory=6000 ContractsUniswapV2Pair
++          lake build -KleanMemory=6000 ContractsUniswapV2Factory
+ 
+       # The ERC20 specs' connection needs solar-verify and solar's spec tooling
+       # (crates/verify/uniswap-v2, tools/certify/spec_connect.py) at the commit pinned in
+diff --git a/lakefile.lean b/lakefile.lean
+index 0a2ce72..59358b3 100644
+--- a/lakefile.lean
++++ b/lakefile.lean
+@@ -365,13 +365,18 @@ lean_lib ContractsVC where
+ -- GPL-3.0), so run it first: scripts/verify/uniswap_v2_gen.sh && lake build ContractsUniswapV2.
+ -- Each Core is the kernel's type check and translation of its contract (contract_ok).
+ lean_lib ContractsUniswapV2 where
+-  roots := #[`Contracts.UniswapV2.ERC20.Core, `Contracts.UniswapV2.Factory.Core,
+-    `Contracts.UniswapV2.Factory.Create2Run]
++  roots := #[`Contracts.UniswapV2.ERC20.Core]
+   -- The generated sources the roots import belong to this library too, or Lake looks for their
+   -- object files elsewhere instead of building them.
+-  globs := #[.one `Contracts.UniswapV2.ERC20.Source, .one `Contracts.UniswapV2.ERC20.Core,
+-    .one `Contracts.UniswapV2.Factory.Source, .one `Contracts.UniswapV2.Factory.Core,
+-    .one `Contracts.UniswapV2.Factory.Create2Run]
++  globs := #[.one `Contracts.UniswapV2.ERC20.Source, .one `Contracts.UniswapV2.ERC20.Core]
++
++-- UniswapV2Factory's translation, createPair included, is checked in stages as the Pair's is (one
++-- module each, each within 6 GB; checked in one declaration it peaks at the 6 GB cap), with the
++-- CREATE2 address lemmas (Create2) and createPair's execution tests (Create2Run).
++lean_lib ContractsUniswapV2Factory where
++  roots := #[`Contracts.UniswapV2.Factory.Contract, `Contracts.UniswapV2.Factory.Create2,
++    `Contracts.UniswapV2.Factory.Create2Run]
++  globs := #[.submodules `Contracts.UniswapV2.Factory]
+ 
+ -- Inline assembly create2 (Stmt.assemblyCreate2): Contracts/Create2/Deployer.sol's translation
+ -- (scripts/verify/create2_sources.py) and its execution tests, with the view negative control,
+diff --git a/scripts/verify/uniswap_v2_core.py b/scripts/verify/uniswap_v2_core.py
+index 7b7f940..36fb80f 100755
+--- a/scripts/verify/uniswap_v2_core.py
++++ b/scripts/verify/uniswap_v2_core.py
+@@ -149,14 +149,15 @@ def render(contract: str, d: str, sigs: list[tuple[str, int]], topics: list[tupl
+ 
+ # --- Staged translation check -------------------------------------------------------------
+ #
+-# A contract whose translation does not kernel-check in one declaration (UniswapV2Pair) is
++# A contract whose translation does not kernel-check in one declaration within 6 GB
++# (UniswapV2Pair, and UniswapV2Factory with createPair) is
+ # checked in stages, each module its own process: Ctx.lean (the translation context, field by
+ # field), Fn/<Contract>_<function>.lean (one function's translation each), Groups.lean (the
+ # function groups from them), Asm.lean (the assembly) and Contract.lean (contract_ok from all).
+ # Every stage's value is printed by kernel_some from a fresh evaluation and checked by the kernel;
+ # the generator only decides how to split, so a wrong split fails a kernel check.
+ 
+-STAGED = {"UniswapV2Pair"}
++STAGED = {"UniswapV2Pair", "UniswapV2Factory"}
+ USING = "selector_eq digest_eq SolidCore.Verify.VC.mkIdx_eq"
+ FAST = (" Executable.TypeEnv.shadowedStateNames_eq_K Executable.stringDecEq_eq_K"
+         " Executable.toByteArray_eq_K")
+diff --git a/scripts/verify/uniswap_v2_gen.sh b/scripts/verify/uniswap_v2_gen.sh
+index c70bf15..efa7cc4 100755
+--- a/scripts/verify/uniswap_v2_gen.sh
++++ b/scripts/verify/uniswap_v2_gen.sh
+@@ -53,8 +53,10 @@ for d in ERC20 Pair Factory; do
+     fi
+   done
+ done
+-if [[ ! -s "Contracts/UniswapV2/Pair/Contract.lean" ]]; then
+-  echo "error: Contracts/UniswapV2/Pair/Contract.lean was not generated" >&2
+-  status=1
+-fi
++for d in Pair Factory; do
++  if [[ ! -s "Contracts/UniswapV2/$d/Contract.lean" ]]; then
++    echo "error: Contracts/UniswapV2/$d/Contract.lean was not generated" >&2
++    status=1
++  fi
++done
+ exit "$status"
+-- 
+2.43.0
+

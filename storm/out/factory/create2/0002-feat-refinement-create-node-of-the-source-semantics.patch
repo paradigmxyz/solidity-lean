@@ -1,0 +1,203 @@
+From 4fdfb1444cda6089d0dd854027e78a822f930d93 Mon Sep 17 00:00:00 2001
+From: storm-factory <storm-factory@localhost>
+Date: Sat, 14 Nov 2026 14:01:46 +0000
+Subject: [PATCH 2/3] feat(refinement): create node of the source semantics
+
+---
+ SolidCore/Refinement/Generic/CreateNode.lean | 113 +++++++++++++++++++
+ Verify/Spec/TrustedBase/Hypotheses.lean      |   1 +
+ docs/CERTIFICATION_TARGET.md                 |   2 +-
+ docs/DECISIONS.md                            |  16 +++
+ lakefile.lean                                |   5 +-
+ 5 files changed, 134 insertions(+), 3 deletions(-)
+ create mode 100644 SolidCore/Refinement/Generic/CreateNode.lean
+
+diff --git a/SolidCore/Refinement/Generic/CreateNode.lean b/SolidCore/Refinement/Generic/CreateNode.lean
+new file mode 100644
+index 0000000..14242e9
+--- /dev/null
++++ b/SolidCore/Refinement/Generic/CreateNode.lean
+@@ -0,0 +1,113 @@
++import SolidCore.Solidity.Interpreter
++import EthLib.Execution.Evm.Call.ContractAddress
++
++/-!
++# The create node of SolidCore's source semantics
++
++`eval_create2Bytes`: inline assembly's `create2(value, add(code, 32), mload(code), salt)`
++(`Expr.create2Bytes`), whose operands evaluate without a request, evaluates to one request node:
++the CREATE2 of the sent world (`snapshotWorld`) from the contract, with the bytes of `code` as
++init code (`create2BytesRequest`), continued by the answered address as a word and the adopted
++world. It is the source-side piece a source-to-MIR check of a function with CREATE2 (as
++UniswapV2Factory.createPair) composes, as `CallNode.eval_tryCall` is for calls.
++
++What the environment answers is the open world's: `EvmCreate2 req resp` says the answer is the
++EVM's, the address 0 (a failed creation) or EIP-1014's address of the request's creator, salt and
++init code (`create2Word`, by EthLib's `create2Address` and its Keccak-256), so `answer_word`
++gives the address `create2Bytes` returns under such an environment. The premise is about the
++environment, never about the hash: it names no collision freedom.
++-/
++
++namespace SolidCore.Refinement.CreateNode
++
++open SolidCore.Solidity.Source EvmCompiler.Simulation
++
++theorem ibind_pure {ε α β : Type} (a : α) (f : α → Interaction ε β) :
++    (Interaction.pure a).bind f = f a := rfl
++
++theorem ibind_done {ε α β : Type} (a : α) (f : α → Interaction ε β) :
++    (Interaction.done (Except.ok a)).bind f = f a := rfl
++
++/-- **The create node**: CREATE2 of the evaluated init code asks one creation of the sent world
++and returns the answered address as a word, with the adopted world. Yul evaluates the salt,
++then the init code, then the value. -/
++theorem eval_create2Bytes (n : Nat) (context : Context) (rt : Runtime) (v c s : Expr)
++    {sv cv cv' vv : Value} {rt1 rt2 rt3 : Runtime} {salt value : Word} {code : List Byte}
++    (hs : Expr.evalFuel n context rt s = .pure (sv, rt1)) (hsw : sv.expectWord = .ok salt)
++    (hc : Expr.evalFuel n context rt1 c = .pure (cv, rt2))
++    (hd : rt2.derefMemoryValue cv = .ok cv') (hcb : cv'.asBytes? = some code)
++    (hv : Expr.evalFuel n context rt2 v = .pure (vv, rt3)) (hvw : vv.expectWord = .ok value) :
++    Expr.evalFuel (n + 1) context rt (.create2Bytes v c s) =
++      .request (.external (snapshotWorld context rt3.state)
++          (.create (create2BytesRequest context code value salt)))
++        (fun resp => .pure (Value.word (u256ToWord resp.address),
++          { rt3 with state := adoptWorld resp.postWorld context rt3.state })) := by
++  rw [Expr.evalFuel]
++  simp only [hs, hsw, hc, hd, hv, hvw, ibind_pure, bind, pure, liftM, monadLift,
++    MonadLift.monadLift, SolI.ofExcept, emitCreate2Bytes]
++  simp only [ibind_done, hcb]
++  rfl
++
++/-- The request asks CREATE2. -/
++theorem request_kind (context : Context) (code : List Byte) (value salt : Word) :
++    (create2BytesRequest context code value salt).kind = .create2 := rfl
++
++/-- The request's creator is the contract. -/
++theorem request_creator (context : Context) (code : List Byte) (value salt : Word) :
++    (create2BytesRequest context code value salt).creator = wordToAddress context.self := rfl
++
++/-- The request's init code is the bytes of `code`. -/
++theorem request_initCode (context : Context) (code : List Byte) (value salt : Word) :
++    (create2BytesRequest context code value salt).initCode = bytesToByteArray code := rfl
++
++/-- The request's salt is the salt word. -/
++theorem request_salt (context : Context) (code : List Byte) (value salt : Word) :
++    (create2BytesRequest context code value salt).salt = some (wordToU256 salt) := rfl
++
++/-! ## The EVM's answer -/
++
++/-- The 20-byte address of the low 160 bits of a word, big-endian. -/
++def addressOfWord (w : Nat) : EthLib.Base.Address :=
++  Vector.ofFn (fun i : Fin 20 => UInt8.ofNat (w / 256 ^ (19 - i.val)))
++
++/-- EIP-1014's address of the creator, salt and init code, as a word: EthLib's
++`create2Address` (the last 20 bytes of Keccak-256 of `0xff ++ creator ++ salt ++
++keccak256(initCode)`). -/
++def create2Word (creator salt : Nat) (initCode : ByteArray) : Nat :=
++  EthLib.Base.bytesToNat (EthLib.Execution.Evm.create2Address (addressOfWord creator)
++    (BitVec.ofNat 256 salt) initCode).toList
++
++/-- **The environment answers a CREATE2 as the EVM does**: with the address 0 (the creation
++failed: the init code reverted or ran out of gas, the address had code or a nonce, the value
++exceeded the balance, the depth limit) or with EIP-1014's address. A premise about the open
++world's answer, not about the hash. -/
++def EvmCreate2 (req : CreateRequest) (resp : CreateResponse) : Prop :=
++  req.kind = .create2 →
++    u256ToWord resp.address = 0 ∨
++      u256ToWord resp.address = create2Word (addressToWord req.creator)
++        ((req.salt.map u256ToWord).getD 0) req.initCode
++
++/-- Under an EVM answer, `create2Bytes` returns 0 or EIP-1014's address of the contract, the salt
++and the bytes of the init code. -/
++theorem answer_word (context : Context) (code : List Byte) (value salt : Word) (resp : CreateResponse)
++    (h : EvmCreate2 (create2BytesRequest context code value salt) resp) :
++    u256ToWord resp.address = 0 ∨
++      u256ToWord resp.address = create2Word (addressToWord (wordToAddress context.self))
++        (u256ToWord (wordToU256 salt)) (bytesToByteArray code) := by
++  have h := h (request_kind context code value salt)
++  rwa [request_initCode, request_salt, Option.map_some, Option.getD_some, request_creator] at h
++
++/-- Not vacuous: the failed creation (the open world's default answer) is an EVM answer. -/
++theorem evmCreate2_failed (req : CreateRequest) (w : OpenWorld) :
++    EvmCreate2 req (Query.defaultAnswer (.external w (.create req))) :=
++  fun _ => Or.inl rfl
++
++/-- info: 'SolidCore.Refinement.CreateNode.eval_create2Bytes' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms eval_create2Bytes
++
++/-- info: 'SolidCore.Refinement.CreateNode.answer_word' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms answer_word
++
++end SolidCore.Refinement.CreateNode
+diff --git a/Verify/Spec/TrustedBase/Hypotheses.lean b/Verify/Spec/TrustedBase/Hypotheses.lean
+index bdb7055..5a558e8 100644
+--- a/Verify/Spec/TrustedBase/Hypotheses.lean
++++ b/Verify/Spec/TrustedBase/Hypotheses.lean
+@@ -456,6 +456,7 @@ mutual
+ /-- The statement contains inline assembly. -/
+ def stmtHasAsm : Solidity.Stmt → Bool
+   | .inlineAssembly _ => true
++  | .assemblyCreate2 _ _ _ _ => true
+   | .block ss => stmtsHaveAsm ss
+   | .ifElse _ s none => stmtHasAsm s
+   | .ifElse _ s (some t) => stmtHasAsm s || stmtHasAsm t
+diff --git a/docs/CERTIFICATION_TARGET.md b/docs/CERTIFICATION_TARGET.md
+index 24abbb1..47b7531 100644
+--- a/docs/CERTIFICATION_TARGET.md
++++ b/docs/CERTIFICATION_TARGET.md
+@@ -58,5 +58,5 @@ Negative controls by execution: altered bytecode/jump, missing debit, wrong post
+ ## Reclassified (kept as lemmas until connected)
+ - Contracts/UniswapV2/PairSpec/Published.lean published_of_stages: composition interface taking every stage as a hypothesis. Not a Pair proof.
+ - PairSpec Negative.lean: formula checks on example states, not mutated program executions.
+-- Factory/Create2 lemmas: createPair is OMITTED from the Factory source (create2 of creationCode is outside the frontend fragment). Blocked on E1.
++- Factory/Create2 lemmas and CreateNode (eval_create2Bytes, EvmCreate2): createPair is translated since the frontend covers its one assembly block (Stmt.assemblyCreate2, CREATE2 of the init code's bytes as an open-world request), and the whole Factory passes contract_ok. Lemmas until createPair's E3 (source -> MIR with a creation node) is proved.
+ - ERC20 EndToEndAll.published: vacuous (NestedSlotsSeparated), StaticRunner/CalleesRun assumed, its generated stage modules are not in the CI build.
+diff --git a/docs/DECISIONS.md b/docs/DECISIONS.md
+index 4e14254..b44403c 100644
+--- a/docs/DECISIONS.md
++++ b/docs/DECISIONS.md
+@@ -5,6 +5,22 @@ The run is fully autonomous; where the phases and implementation notes leave a
+ choice open, the most conservative behavior-preserving option was taken and
+ recorded here.
+ 
++## 2026-11-14 — Inline assembly create2 as an open-world creation of the init code's bytes
++
++The frontend translates exactly one inline assembly block,
++`target := create2(value, add(code, 32), mload(code), salt)` over Solidity locals (an
++address target, a `bytes memory` init code, a literal or `uint256` value, a literal,
++`uint256` or `bytes32` salt), to `Stmt.assemblyCreate2`; every other block stays rejected.
++`add(code, 32)` and `mload(code)` are the first byte and the length of `code`'s bytes, so the
++statement means CREATE2 of exactly those bytes. It lowers to the core `Expr.create2Bytes`,
++which emits one `Query.external` creation whose init code is the bytes themselves (not the
++name encoding `creationInitCode` that `new C{salt: s}()` uses), and returns the answered
++address, 0 on failure, with no revert of the caller, as the EVM's CREATE2. The salt, the code
++and the value evaluate right to left as Yul's builtin arguments; they are literals or locals,
++so the order has no other effect. `type(C).creationCode` stays the context's
++`contractCreationCodes` entry, which a certificate binds to the compiler's bytes. This puts
++`UniswapV2Factory.createPair` in the fragment (Contracts/UniswapV2/Factory/Create2Run.lean).
++
+ ## 2026-07-09 — NEW-OOM investigation: scaled `finalize_allocation` guard is via-IR-ONLY (NON-divergence under legacy ground truth)
+ 
+ Investigated a proposed "MISSING-PANIC" gap: inline `new T[](n)` for `n` in the
+diff --git a/lakefile.lean b/lakefile.lean
+index 973e245..0a2ce72 100644
+--- a/lakefile.lean
++++ b/lakefile.lean
+@@ -374,9 +374,10 @@ lean_lib ContractsUniswapV2 where
+     .one `Contracts.UniswapV2.Factory.Create2Run]
+ 
+ -- Inline assembly create2 (Stmt.assemblyCreate2): Contracts/Create2/Deployer.sol's translation
+--- (scripts/verify/create2_sources.py) and its execution tests, with the view negative control.
++-- (scripts/verify/create2_sources.py) and its execution tests, with the view negative control,
++-- and the create node of the source semantics (SolidCore/Refinement/Generic/CreateNode.lean).
+ lean_lib ContractsCreate2 where
+-  roots := #[`Contracts.Create2.Run]
++  roots := #[`Contracts.Create2.Run, `SolidCore.Refinement.Generic.CreateNode]
+   globs := #[.submodules `Contracts.Create2]
+ 
+ -- solar-verify's ERC20 specs connected to SolidCore's checked UniswapV2ERC20 (Meets: approve and
+-- 
+2.43.0
+
