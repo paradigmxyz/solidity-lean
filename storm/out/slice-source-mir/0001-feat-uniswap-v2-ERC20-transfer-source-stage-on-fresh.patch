@@ -1,0 +1,435 @@
+From aca4f0e794a188a79fd185c7426f39313fdb4b01 Mon Sep 17 00:00:00 2001
+From: solidity-lean slice-source-mir <noreply@paradigm.xyz>
+Date: Sat, 14 Nov 2026 14:50:50 +0000
+Subject: [PATCH] feat(uniswap-v2): ERC20 transfer source stage on fresh MIR
+
+Check solar's freshly exported stage0 of UniswapV2ERC20 against the
+checked source for transfer (with _transfer and SafeMath inlined) with
+the generic source checker, give the stage under every oracle with
+SolidCore's caller and Keccak-256, and refuse eight MIR mutants by the
+kernel's evaluation of the same check.
+---
+ Certified/uv2_erc20/.gitignore                |  2 +
+ Certified/uv2_erc20/options                   |  3 +
+ Contracts/UniswapV2/ERC20/SourceMir.lean      | 86 +++++++++++++++++++
+ Contracts/UniswapV2/ERC20/SourceMirCheck.lean | 20 +++++
+ Contracts/UniswapV2/ERC20/SourceMirDefs.lean  | 41 +++++++++
+ .../UniswapV2/ERC20/SourceMirDeploy.lean      | 13 +++
+ Contracts/UniswapV2/ERC20/SourceMirNeg.lean   | 67 +++++++++++++++
+ lakefile.lean                                 | 16 ++++
+ scripts/verify/uniswap_v2_erc20_mutants.py    | 61 +++++++++++++
+ scripts/verify/uniswap_v2_erc20_stages.sh     | 29 +++++++
+ 10 files changed, 338 insertions(+)
+ create mode 100644 Certified/uv2_erc20/.gitignore
+ create mode 100644 Certified/uv2_erc20/options
+ create mode 100644 Contracts/UniswapV2/ERC20/SourceMir.lean
+ create mode 100644 Contracts/UniswapV2/ERC20/SourceMirCheck.lean
+ create mode 100644 Contracts/UniswapV2/ERC20/SourceMirDefs.lean
+ create mode 100644 Contracts/UniswapV2/ERC20/SourceMirDeploy.lean
+ create mode 100644 Contracts/UniswapV2/ERC20/SourceMirNeg.lean
+ create mode 100755 scripts/verify/uniswap_v2_erc20_mutants.py
+ create mode 100755 scripts/verify/uniswap_v2_erc20_stages.sh
+
+diff --git a/Certified/uv2_erc20/.gitignore b/Certified/uv2_erc20/.gitignore
+new file mode 100644
+index 0000000..4a021da
+--- /dev/null
++++ b/Certified/uv2_erc20/.gitignore
+@@ -0,0 +1,2 @@
++# Exported by scripts/verify/uniswap_v2_erc20_stages.sh from the GPL-3.0 v2-core port; not committed.
++gen/
+diff --git a/Certified/uv2_erc20/options b/Certified/uv2_erc20/options
+new file mode 100644
+index 0000000..da38913
+--- /dev/null
++++ b/Certified/uv2_erc20/options
+@@ -0,0 +1,3 @@
++-Ogas
++--evm-version
++osaka
+diff --git a/Contracts/UniswapV2/ERC20/SourceMir.lean b/Contracts/UniswapV2/ERC20/SourceMir.lean
+new file mode 100644
+index 0000000..142cf9d
+--- /dev/null
++++ b/Contracts/UniswapV2/ERC20/SourceMir.lean
+@@ -0,0 +1,86 @@
++import Contracts.UniswapV2.ERC20.SourceMirCheck
++import Contracts.UniswapV2.ERC20.SourceMirDeploy
++import Verify.ShapeCtx
++
++/-!
++# UniswapV2ERC20.transfer: SolidCore's checked source to solar's first lowered MIR (E3)
++
++The source-to-MIR edge (E3) of the first slice of docs/CERTIFICATION_TARGET.md, for
++`transfer(address,uint256)` and the private `_transfer` it calls (SafeMath's checked `sub` and
++`add` in `unchecked` blocks, the two `balanceOf` writes, sequential, and the `Transfer` event),
++proved by the generic source checker alone: no per-contract glue and no hand-written model.
++
++* The source is SolidCore's checked `UniswapV2ERC20` (`SolidCore.Verify.VC.UniswapV2ERC20.contract?`,
++  the kernel's type check of the generated `Contracts/UniswapV2/ERC20/Source.lean`). The frontend
++  that generated that file from the port is TRUSTED (edge E1).
++* The MIR is `SolarTV.Export.UniswapV2ERC20.stage0`: solar's first lowered MIR of the same port
++  (`-Ogas --evm-version osaka`), exported fresh at build time by
++  `scripts/verify/uniswap_v2_erc20_stages.sh` (`-Zemit-lean-stages`, bytecode unchanged by the flag).
++* `check_eq` (`kernel_rfl`): the kernel evaluates `Generic.check` of stage0 for `[fn_transfer]`,
++  with the caller and two-word Keccak-256 flags, to `true`, from the source text up, with the
++  selector, event-topic and Keccak-256 tables each entry of which the kernel checks once.
++* `deploy_eq` (`kernel_rfl`): the constructor leaves exactly `deployed` (slot 3,
++  `DOMAIN_SEPARATOR`) and no logs.
++* `transfer_stage`: `Stage (solidCore fuel) (moduleSem o) c stage0 (genericValid0 fns deployed)`
++  under every oracle `o` with `SourceEnvOk o`, from `Generic.stageAtEnv`.
++
++`SourceEnvOk o` is the only premise. It asks that the oracle's caller be SolidCore's caller
++`callerWord` (0x2000, the caller of every run of `solidCore`) and that its Keccak-256 of the 64
++bytes of two words be SolidCore's slot hash of the same bytes, which is Keccak-256 itself. It is
++not a hash-separation premise: both sides compute the same mapping slots, so no injectivity is
++assumed. It is satisfiable: EthLib's own oracle meets it (`sourceEnvOk_inhabited`), so the
++stage is not vacuous, and `valid_inhabited` gives a valid call.
++
++Valid calls (`genericValid0 fns deployed`): `transfer(to, value)` on any argument words below
++`2 ^ 256` (a `to` word above `2 ^ 160` reverts on both sides), no value, from any storage, given as
++a list of entries, that lists the `DOMAIN_SEPARATOR` slot. The caller is `callerWord`: SolidCore's
++semantics and `SolarTV.Call` fix it, so "any caller" is not stated here (see RESULT.md).
++-/
++
++namespace SolidCore.Spec.UniswapV2.ERC20.SourceMir
++
++open SolidCore.Refinement SolidCore.Refinement.Generic SolidCore.Refinement.Shapes
++
++/-- **E3 for transfer**: on every valid call, solar's first lowered MIR shows what SolidCore's
++checked source shows (status, return data, revert data, storage and logs), under every oracle
++with SolidCore's caller and Keccak-256. -/
++theorem transfer_stage (o : SolarTV.Machine.Oracle) (henv : SourceEnvOk o)
++    {c : SolidCore.Solidity.TypeCheck.CheckedContract}
++    (hc : SolidCore.Verify.VC.UniswapV2ERC20.contract? = .ok c) :
++    SolarTV.Stage (solidCore SolidCore.Verify.VC.UniswapV2ERC20.fuel) (SolarTV.MIR.Lowered.moduleSem o) c
++      SolarTV.Export.UniswapV2ERC20.stage0 (genericValid0 fns deployed) := by
++  have hdep := SolidCore.Spec.UniswapV2.ERC20.SourceMirDeploy.deploy_eq
++  simp only [deploy?, hc] at hdep
++  obtain ⟨_, hdd⟩ := Wide.deployedAt_of hdep
++  exact stageAtEnv o henv hdd (check_ok hc)
++
++/-- The premise is satisfiable: EthLib's oracle has SolidCore's caller and Keccak-256. -/
++theorem sourceEnvOk_inhabited : ∃ o, SourceEnvOk o :=
++  ⟨Solar.Assemble.ethOracle ⟨fun _ _ _ => 0, fun _ => 0, fun _ _ => 0, fun _ _ => 0, fun _ => 0, 0⟩,
++    sourceEnvOk_of (Solar.Assemble.ethOracle_ok _)⟩
++
++/-- The valid calls are inhabited. -/
++theorem valid_inhabited : ∃ call, genericValid0 fns deployed call :=
++  genericValid0_inhabited fn_transfer [] deployed
++
++/-- **The edge, closed**: the checked contract exists and E3 holds of it, the premise is
++satisfiable and the valid calls are inhabited. -/
++theorem transfer_source_mir :
++    (∃ c, SolidCore.Verify.VC.UniswapV2ERC20.contract? = .ok c ∧
++      ∀ o, SourceEnvOk o →
++        SolarTV.Stage (solidCore SolidCore.Verify.VC.UniswapV2ERC20.fuel) (SolarTV.MIR.Lowered.moduleSem o) c
++          SolarTV.Export.UniswapV2ERC20.stage0 (genericValid0 fns deployed)) ∧
++    (∃ o, SourceEnvOk o) ∧ (∃ call, genericValid0 fns deployed call) := by
++  obtain ⟨c, hc⟩ := SolidCore.Verify.VC.UniswapV2ERC20.contract_ok
++  exact ⟨⟨c, hc, fun o h => transfer_stage o h hc⟩, sourceEnvOk_inhabited, valid_inhabited⟩
++
++/-- info: 'SolidCore.Spec.UniswapV2.ERC20.SourceMir.transfer_source_mir' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms transfer_source_mir
++
++/-- info: 'SolidCore.Spec.UniswapV2.ERC20.SourceMir.transfer_stage' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms transfer_stage
++
++end SolidCore.Spec.UniswapV2.ERC20.SourceMir
++
+diff --git a/Contracts/UniswapV2/ERC20/SourceMirCheck.lean b/Contracts/UniswapV2/ERC20/SourceMirCheck.lean
+new file mode 100644
+index 0000000..e99e25b
+--- /dev/null
++++ b/Contracts/UniswapV2/ERC20/SourceMirCheck.lean
+@@ -0,0 +1,20 @@
++import Contracts.UniswapV2.ERC20.SourceMirDefs
++
++/-! The kernel's evaluation of the generic check of stage0 for transfer (see SourceMir.lean). -/
++
++namespace SolidCore.Spec.UniswapV2.ERC20.SourceMir
++
++open SolidCore.Refinement SolidCore.Refinement.Generic
++
++kernel_rfl check_eq check? true using SolidCore.Verify.VC.UniswapV2ERC20.selector_eq SolidCore.Verify.VC.mkIdx_eq SolidCore.Verify.VC.UniswapV2ERC20.digest_eq SolidCore.Spec.UniswapV2.ERC20.Keccak.keccakWord_eq
++
++
++theorem check_ok {c : SolidCore.Solidity.TypeCheck.CheckedContract}
++    (hc : SolidCore.Verify.VC.UniswapV2ERC20.contract? = .ok c) :
++    Generic.check SolidCore.Verify.VC.UniswapV2ERC20.fuel mirFuel c.core
++      SolarTV.Export.UniswapV2ERC20.stage0 fns .all = true := by
++  have h := check_eq
++  simp only [check?, checkOf, hc] at h
++  exact h
++
++end SolidCore.Spec.UniswapV2.ERC20.SourceMir
+diff --git a/Contracts/UniswapV2/ERC20/SourceMirDefs.lean b/Contracts/UniswapV2/ERC20/SourceMirDefs.lean
+new file mode 100644
+index 0000000..43cc02f
+--- /dev/null
++++ b/Contracts/UniswapV2/ERC20/SourceMirDefs.lean
+@@ -0,0 +1,41 @@
++import Contracts.UniswapV2.ERC20.Core
++import Contracts.UniswapV2.ERC20.SpecTreeKeccak
++import SolidCore.Refinement.Generic.Stage
++import uv2_erc20.gen.UniswapV2ERC20.Stage0
++
++/-! The definitions of E3 for UniswapV2ERC20.transfer (SourceMir.lean): the functions, the deployed
++storage and the checks the kernel evaluates in SourceMirCheck and SourceMirDeploy, one module each
++so that each Lean process stays within 6 GB. -/
++
++namespace SolidCore.Spec.UniswapV2.ERC20.SourceMir
++
++open SolidCore.Refinement SolidCore.Refinement.Generic
++
++/-- The steps along each path of the symbolic run of the module. -/
++def mirFuel : Nat := 200
++
++/-- `transfer(address,uint256)` as the stage's ABI sees it: its selector and two words. -/
++def fn_transfer : Abi.Fn := ⟨2835717307, List.replicate 2 (.uint 256)⟩
++
++/-- The functions of the stage. -/
++def fns : List Abi.Fn := [fn_transfer]
++
++/-- The storage the constructor leaves: `DOMAIN_SEPARATOR` (slot 3), the EIP-712 domain hash. -/
++def deployed : List (Nat × Nat) := [(3, SolidCore.Spec.UniswapV2.ERC20.Keccak.kDomain)]
++
++/-- Whether the generic check accepts `m` for `fns`, with the caller and Keccak-256 flags. -/
++def checkOf (m : SolarTV.MIR.Lowered.Module) : Bool :=
++  match SolidCore.Verify.VC.UniswapV2ERC20.contract? with
++  | .ok c => Generic.check SolidCore.Verify.VC.UniswapV2ERC20.fuel mirFuel c.core m fns .all
++  | .error _ => false
++
++/-- Whether the generic check accepts stage0. -/
++def check? : Bool := checkOf SolarTV.Export.UniswapV2ERC20.stage0
++
++/-- Whether the contract deploys with `deployed` and no logs. -/
++def deploy? : Bool :=
++  match SolidCore.Verify.VC.UniswapV2ERC20.contract? with
++  | .ok c => Wide.deployedAt SolidCore.Verify.VC.UniswapV2ERC20.fuel c deployed
++  | .error _ => false
++
++end SolidCore.Spec.UniswapV2.ERC20.SourceMir
+diff --git a/Contracts/UniswapV2/ERC20/SourceMirDeploy.lean b/Contracts/UniswapV2/ERC20/SourceMirDeploy.lean
+new file mode 100644
+index 0000000..6b7a61e
+--- /dev/null
++++ b/Contracts/UniswapV2/ERC20/SourceMirDeploy.lean
+@@ -0,0 +1,13 @@
++import Contracts.UniswapV2.ERC20.SourceMirDefs
++
++/-! The kernel's evaluation of UniswapV2ERC20's deployment: the constructor leaves exactly
++`deployed` and no logs (see SourceMir.lean). -/
++
++namespace SolidCore.Spec.UniswapV2.ERC20.SourceMirDeploy
++
++open SolidCore.Refinement SolidCore.Refinement.Generic SolidCore.Spec.UniswapV2.ERC20.SourceMir
++
++kernel_rfl deploy_eq deploy? true using SolidCore.Verify.VC.UniswapV2ERC20.selector_eq SolidCore.Verify.VC.mkIdx_eq SolidCore.Verify.VC.UniswapV2ERC20.digest_eq SolidCore.Spec.UniswapV2.ERC20.Keccak.keccakWord_eq
++
++
++end SolidCore.Spec.UniswapV2.ERC20.SourceMirDeploy
+diff --git a/Contracts/UniswapV2/ERC20/SourceMirNeg.lean b/Contracts/UniswapV2/ERC20/SourceMirNeg.lean
+new file mode 100644
+index 0000000..fa118ac
+--- /dev/null
++++ b/Contracts/UniswapV2/ERC20/SourceMirNeg.lean
+@@ -0,0 +1,67 @@
++import Contracts.UniswapV2.ERC20.SourceMirDefs
++import uv2_erc20.gen.UniswapV2ERC20Mut.NoDebit
++import uv2_erc20.gen.UniswapV2ERC20Mut.WrongSlot
++import uv2_erc20.gen.UniswapV2ERC20Mut.NoOverflowCheck
++import uv2_erc20.gen.UniswapV2ERC20Mut.NoUnderflowCheck
++import uv2_erc20.gen.UniswapV2ERC20Mut.WrongTopic
++import uv2_erc20.gen.UniswapV2ERC20Mut.WrongReturn
++import uv2_erc20.gen.UniswapV2ERC20Mut.WrongRevertData
++import uv2_erc20.gen.UniswapV2ERC20Mut.SwappedLogArgs
++
++/-!
++# Negative controls of E3 for transfer: mutated MIR refused by the kernel's evaluation
++
++Each mutant is solar's exported stage0 with one instruction of `transfer`, `_transfer` or SafeMath's
++`sub` edited (scripts/verify/uniswap_v2_erc20_mutants.py, which fails if an edit does not apply),
++and the kernel evaluates the same generic check of it, against the same checked source, to `false`:
++the check that accepts stage0 (`SourceMir.check_eq`) does not accept a debit dropped, a wrong
++mapping slot, either overflow test reversed, a wrong event topic, swapped topic arguments, a wrong
++return value or wrong revert data.
++-/
++
++namespace SolidCore.Spec.UniswapV2.ERC20.SourceMirNeg
++
++open SolidCore.Spec.UniswapV2.ERC20.SourceMir
++
++/-- The check refuses the mutant `NoDebit`. -/
++def NoDebit? : Bool := checkOf SolarTV.Export.UniswapV2ERC20Mut.NoDebit.stage0
++
++kernel_rfl refuses_NoDebit NoDebit? false using SolidCore.Verify.VC.UniswapV2ERC20.selector_eq SolidCore.Verify.VC.mkIdx_eq SolidCore.Verify.VC.UniswapV2ERC20.digest_eq SolidCore.Spec.UniswapV2.ERC20.Keccak.keccakWord_eq
++
++/-- The check refuses the mutant `WrongSlot`. -/
++def WrongSlot? : Bool := checkOf SolarTV.Export.UniswapV2ERC20Mut.WrongSlot.stage0
++
++kernel_rfl refuses_WrongSlot WrongSlot? false using SolidCore.Verify.VC.UniswapV2ERC20.selector_eq SolidCore.Verify.VC.mkIdx_eq SolidCore.Verify.VC.UniswapV2ERC20.digest_eq SolidCore.Spec.UniswapV2.ERC20.Keccak.keccakWord_eq
++
++/-- The check refuses the mutant `NoOverflowCheck`. -/
++def NoOverflowCheck? : Bool := checkOf SolarTV.Export.UniswapV2ERC20Mut.NoOverflowCheck.stage0
++
++kernel_rfl refuses_NoOverflowCheck NoOverflowCheck? false using SolidCore.Verify.VC.UniswapV2ERC20.selector_eq SolidCore.Verify.VC.mkIdx_eq SolidCore.Verify.VC.UniswapV2ERC20.digest_eq SolidCore.Spec.UniswapV2.ERC20.Keccak.keccakWord_eq
++
++/-- The check refuses the mutant `NoUnderflowCheck`. -/
++def NoUnderflowCheck? : Bool := checkOf SolarTV.Export.UniswapV2ERC20Mut.NoUnderflowCheck.stage0
++
++kernel_rfl refuses_NoUnderflowCheck NoUnderflowCheck? false using SolidCore.Verify.VC.UniswapV2ERC20.selector_eq SolidCore.Verify.VC.mkIdx_eq SolidCore.Verify.VC.UniswapV2ERC20.digest_eq SolidCore.Spec.UniswapV2.ERC20.Keccak.keccakWord_eq
++
++/-- The check refuses the mutant `WrongTopic`. -/
++def WrongTopic? : Bool := checkOf SolarTV.Export.UniswapV2ERC20Mut.WrongTopic.stage0
++
++kernel_rfl refuses_WrongTopic WrongTopic? false using SolidCore.Verify.VC.UniswapV2ERC20.selector_eq SolidCore.Verify.VC.mkIdx_eq SolidCore.Verify.VC.UniswapV2ERC20.digest_eq SolidCore.Spec.UniswapV2.ERC20.Keccak.keccakWord_eq
++
++/-- The check refuses the mutant `WrongReturn`. -/
++def WrongReturn? : Bool := checkOf SolarTV.Export.UniswapV2ERC20Mut.WrongReturn.stage0
++
++kernel_rfl refuses_WrongReturn WrongReturn? false using SolidCore.Verify.VC.UniswapV2ERC20.selector_eq SolidCore.Verify.VC.mkIdx_eq SolidCore.Verify.VC.UniswapV2ERC20.digest_eq SolidCore.Spec.UniswapV2.ERC20.Keccak.keccakWord_eq
++
++/-- The check refuses the mutant `WrongRevertData`. -/
++def WrongRevertData? : Bool := checkOf SolarTV.Export.UniswapV2ERC20Mut.WrongRevertData.stage0
++
++kernel_rfl refuses_WrongRevertData WrongRevertData? false using SolidCore.Verify.VC.UniswapV2ERC20.selector_eq SolidCore.Verify.VC.mkIdx_eq SolidCore.Verify.VC.UniswapV2ERC20.digest_eq SolidCore.Spec.UniswapV2.ERC20.Keccak.keccakWord_eq
++
++/-- The check refuses the mutant `SwappedLogArgs`. -/
++def SwappedLogArgs? : Bool := checkOf SolarTV.Export.UniswapV2ERC20Mut.SwappedLogArgs.stage0
++
++kernel_rfl refuses_SwappedLogArgs SwappedLogArgs? false using SolidCore.Verify.VC.UniswapV2ERC20.selector_eq SolidCore.Verify.VC.mkIdx_eq SolidCore.Verify.VC.UniswapV2ERC20.digest_eq SolidCore.Spec.UniswapV2.ERC20.Keccak.keccakWord_eq
++
++end SolidCore.Spec.UniswapV2.ERC20.SourceMirNeg
++
+diff --git a/lakefile.lean b/lakefile.lean
+index cb2ed92..de1adcd 100644
+--- a/lakefile.lean
++++ b/lakefile.lean
+@@ -518,3 +518,19 @@ lean_lib «arraymax» where
+ lean_lib ContractsUniswapV2PairSpec where
+   roots := #[`Contracts.UniswapV2.PairSpec.Published, `Contracts.UniswapV2.PairSpec.Negative]
+   globs := #[.submodules `Contracts.UniswapV2.PairSpec]
++
++-- UniswapV2ERC20's first lowered MIR (stage0), exported by solar -Zemit-lean-stages from the Uniswap V2
++-- port (scripts/verify/uniswap_v2_erc20_stages.sh, after scripts/verify/uniswap_v2_gen.sh; compiled
++-- from the GPL-3.0 port, so not committed), and the generic source stage of transfer against it
++-- (Contracts/UniswapV2/ERC20/SourceMir.lean): E3 of docs/CERTIFICATION_TARGET.md's first slice.
++lean_lib uv2_erc20 where
++  srcDir := "Certified"
++  roots := #[`uv2_erc20.gen.UniswapV2ERC20.Stage0]
++  globs := #[.submodules `uv2_erc20.gen]
++  leanOptions := solarTVOptions
++
++lean_lib ContractsUniswapV2ERC20SourceMir where
++  roots := #[`Contracts.UniswapV2.ERC20.SourceMir, `Contracts.UniswapV2.ERC20.SourceMirNeg]
++  globs := #[.one `Contracts.UniswapV2.ERC20.SourceMirDefs, .one `Contracts.UniswapV2.ERC20.SourceMirCheck,
++    .one `Contracts.UniswapV2.ERC20.SourceMirDeploy, .one `Contracts.UniswapV2.ERC20.SourceMir,
++    .one `Contracts.UniswapV2.ERC20.SourceMirNeg]
+diff --git a/scripts/verify/uniswap_v2_erc20_mutants.py b/scripts/verify/uniswap_v2_erc20_mutants.py
+new file mode 100755
+index 0000000..094b961
+--- /dev/null
++++ b/scripts/verify/uniswap_v2_erc20_mutants.py
+@@ -0,0 +1,61 @@
++#!/usr/bin/env python3
++"""Write mutants of solar's exported stage0 of UniswapV2ERC20 for the negative controls of
++Contracts/UniswapV2/ERC20/SourceMirNeg.lean: each edits one instruction of transfer, _transfer or
++SafeMath's sub and must change the file (else this fails), under its own namespace
++SolarTV.Export.UniswapV2ERC20Mut.<name>. Derived from the GPL-3.0 port, so not committed.
++
++  python3 scripts/verify/uniswap_v2_erc20_mutants.py Certified/uv2_erc20/gen
++"""
++import re, sys, pathlib
++
++gen = pathlib.Path(sys.argv[1])
++src = (gen / "UniswapV2ERC20" / "Stage0.lean").read_text()
++
++def block(text, name):
++    """The span of function @name's entry in the exported module."""
++    start = text.index(f"    -- @{name}\n")
++    nxt = text.find("    -- @", start + 1)
++    return start, (nxt if nxt != -1 else len(text))
++
++def edit(fn, old, new, count=1):
++    def f(text):
++        a, b = block(text, fn)
++        body = text[a:b]
++        if body.count(old) < count:
++            raise SystemExit(f"mutant: {old!r} not found {count}x in @{fn}")
++        return text[:a] + body.replace(old, new, count) + text[b:]
++    return f
++
++# name -> (edit, what it breaks)
++MUTANTS = {
++    "NoDebit": (edit("_transfer", ".effect none .sstore [.value 36, .value 7],\n", ""),
++                "the debit of balanceOf[from] dropped"),
++    "WrongSlot": (edit("_transfer", ".effect none .mstore [.const 32, .const 1],", ".effect none .mstore [.const 32, .const 2],"),
++                  "balanceOf's slot 1 read as slot 2"),
++    "NoOverflowCheck": (edit("_transfer", ".pure 26 .lt [.value 25, .value 14]", ".pure 26 .gt [.value 25, .value 14]"),
++                        "the add overflow test reversed"),
++    "NoUnderflowCheck": (edit("sub", ".pure 3 .lt [.value 0, .value 2]", ".pure 3 .gt [.value 0, .value 2]"),
++                         "SafeMath sub's underflow test reversed"),
++    "WrongTopic": (edit("_transfer", "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef", "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ee"),
++                   "the Transfer topic changed"),
++    "WrongReturn": (edit("transfer", ".effect none .mstore [.const 0, .const 1]", ".effect none .mstore [.const 0, .const 0]"),
++                    "returns false"),
++    "WrongRevertData": (edit("_transfer", "0x64732d6d6174682d6164642d6f766572666c6f77", "0x64732d6d6174682d6164642d6f766572666c6f78"),
++                        "the add overflow revert reason changed"),
++    "SwappedLogArgs": (edit("_transfer", ".value 0, .value 1]]", ".value 1, .value 0]]"),
++                       "from and to swapped in the Transfer topics"),
++}
++
++out = gen / "UniswapV2ERC20Mut"
++out.mkdir(parents=True, exist_ok=True)
++for name, (f, _) in MUTANTS.items():
++    text = f(src)
++    if text == src:
++        raise SystemExit(f"mutant {name} did not change stage0")
++    text = text.replace("namespace SolarTV.Export.UniswapV2ERC20\n", f"namespace SolarTV.Export.UniswapV2ERC20Mut.{name}\n", 1)
++    text = text.replace("end SolarTV.Export.UniswapV2ERC20\n", f"end SolarTV.Export.UniswapV2ERC20Mut.{name}\n", 1)
++    if f"namespace SolarTV.Export.UniswapV2ERC20Mut.{name}" not in text or f"end SolarTV.Export.UniswapV2ERC20Mut.{name}" not in text:
++        raise SystemExit(f"mutant {name}: namespace not rewritten")
++    (out / f"{name}.lean").write_text(text)
++print(" ".join(MUTANTS))
++
+diff --git a/scripts/verify/uniswap_v2_erc20_stages.sh b/scripts/verify/uniswap_v2_erc20_stages.sh
+new file mode 100755
+index 0000000..c39be20
+--- /dev/null
++++ b/scripts/verify/uniswap_v2_erc20_stages.sh
+@@ -0,0 +1,29 @@
++#!/usr/bin/env bash
++# Export solar's stages of the Uniswap V2 port's UniswapV2ERC20 into Certified/uv2_erc20/gen, before
++# the build of the uv2_erc20 library (Contracts/UniswapV2/ERC20/SourceMir.lean imports its Stage0).
++# They are not committed: they are compiled from the GPL-3.0 v2-core port, as Source.lean is.
++#
++#   SOLAR=path/to/solar scripts/verify/uniswap_v2_erc20_stages.sh
++#
++# Needs scripts/verify/uniswap_v2_gen.sh's port (.cache/uniswap-v2/src). SOLAR is a solar binary
++# built from the solar commit under test (default: solar on PATH). Compiles with the slice's options
++# (Certified/uv2_erc20/options: -Ogas --evm-version osaka) and -Zemit-lean-stages, checks that the
++# flag does not change the runtime bytecode, and fails if Stage0.lean is missing afterwards.
++set -euo pipefail
++cd "$(dirname "${BASH_SOURCE[0]}")/../.."
++SOLAR="${SOLAR:-solar}"
++src=.cache/uniswap-v2/src
++[[ -s $src/UniswapV2ERC20.sol ]] || { echo "error: $src/UniswapV2ERC20.sol missing; run scripts/verify/uniswap_v2_gen.sh" >&2; exit 1; }
++mapfile -t opts < Certified/uv2_erc20/options
++out="$(pwd)/Certified/uv2_erc20/gen"
++tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
++rm -rf "$out"
++(cd "$src" && "$SOLAR" "${opts[@]}" --emit bin-runtime UniswapV2ERC20.sol) > "$tmp/plain.json"
++(cd "$src" && "$SOLAR" "${opts[@]}" -Zemit-lean-stages="$tmp/stages" --emit bin-runtime UniswapV2ERC20.sol) > "$tmp/staged.json"
++cmp -s "$tmp/plain.json" "$tmp/staged.json" \
++  || { echo "error: -Zemit-lean-stages changed the runtime bytecode" >&2; exit 1; }
++mkdir -p "$out"
++cp -r "$tmp/stages/UniswapV2ERC20" "$out/"
++[[ -s $out/UniswapV2ERC20/Stage0.lean ]] || { echo "error: no Stage0.lean exported" >&2; exit 1; }
++python3 scripts/verify/uniswap_v2_erc20_mutants.py "$out" >/dev/null
++echo "wrote $out/UniswapV2ERC20 ($("$SOLAR" --version | sed -n 's/^Commit SHA: //p'))"
+-- 
+2.43.0
+
