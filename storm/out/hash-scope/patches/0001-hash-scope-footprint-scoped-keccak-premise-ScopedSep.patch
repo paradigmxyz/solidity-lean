@@ -1,0 +1,640 @@
+From 1b7574919cde72f0388b692ef79db4c2adebfe0b Mon Sep 17 00:00:00 2001
+From: pyramid <pyramid@tempo.xyz>
+Date: Sat, 14 Nov 2026 05:10:36 +0000
+Subject: [PATCH] hash-scope: footprint-scoped keccak premise (ScopedSep),
+ satisfiable instances, nested separation impossible
+
+---
+ Contracts/Token/HashScope.lean             | 101 ++++++
+ Contracts/Token/Spec/ExportCollide.lean    |  71 +++++
+ Verify/Spec/HashScope.lean                 | 355 +++++++++++++++++++++
+ lakefile.lean                              |   4 +-
+ scripts/verify/keccak/TokenSpecCollide.sol |  50 +++
+ 5 files changed, 580 insertions(+), 1 deletion(-)
+ create mode 100644 Contracts/Token/HashScope.lean
+ create mode 100644 Contracts/Token/Spec/ExportCollide.lean
+ create mode 100644 Verify/Spec/HashScope.lean
+ create mode 100644 scripts/verify/keccak/TokenSpecCollide.sol
+
+diff --git a/Contracts/Token/HashScope.lean b/Contracts/Token/HashScope.lean
+new file mode 100644
+index 0000000..f41dc47
+--- /dev/null
++++ b/Contracts/Token/HashScope.lean
+@@ -0,0 +1,101 @@
++import Verify.Spec.HashScope
++import Contracts.Token.TransferMeets
++import Contracts.Token.Spec.ExportCollide
++
++/-!
++# Token's `transfer` under keccak256 separation scoped to the call's footprint
++
++The single-level instance of Verify/Spec/HashScope.lean: `transfer(to, amount)` touches `balanceOf`
++(slot 0) at the caller and at `to`, so its premise is `ScopedSep (transferFootprint 0 caller to)`:
++keccak256 injective and at least `2 ^ 128` on those two preimages, nothing about any other key.
++
++* `collide_not_meets_scoped` (negative control): the collision spec of
++  scripts/verify/keccak/TokenSpecCollide.sol (`balanceOf[to] == old(balanceOf[msg.sender]) + amount`,
++  true only if the two slots coincide) fails on `transfer(1, 0)` under that call's premise.
++* `transferFP_real`: that premise holds of the real keccak256 (kernel evaluation), so
++  `collide_refuted` refutes the collision spec with no hypothesis left.
++
++The legacy exported spec of Token's `transfer` (Spec/Export.lean) frames `balanceOf` at every other
++address, which needs separation from every key; CERTIFICATION_TARGET.md (a1c3143) rules that frame
++out, so it is not proved here under the scoped premise.
++-/
++
++namespace SolidCore.Spec.TreeDemo.Token
++
++open SolidCore.Spec SolidCore.Refinement SolidCore.Refinement.Generic SolidCore.Verify.VC.Token
++
++/-- The call's premise: keccak256 separated on `transfer`'s footprint, `balanceOf` (slot 0) of the
++caller (`ctx`'s sender, `0x2000`) and of `to` (argument 0). Nothing about any other key. -/
++abbrev TransferFP (args : List Nat) : Prop :=
++  ScopedSep (transferFootprint 0 8192 (args.getD 0 0 % 2 ^ 160))
++
++/-- The collision spec of `transfer`. -/
++def collideSpec : FnSpec := SolidCore.Spec.Export.TokenSpecCollide.Token.spec.specs[1]'(by decide)
++
++/-- The witness storage: the caller's balance is 5, every other slot 0. -/
++def collideStore : Storage := fun k => if k = solHash 8192 0 then 5 else 0
++
++set_option linter.unusedSimpArgs false in
++/-- **A spec that needs a collision is refuted under the scoped premise**: with the premise of
++`transfer(1, 0)`, that call from `collideStore` succeeds with `balanceOf[1]` still 0, and the
++collision spec asks for the caller's old balance, 5. -/
++theorem collide_not_meets_scoped (hP : TransferFP [1, 0]) :
++    ¬ TreeMeetsFixedOn (fun ρ => TransferFP ρ.args) SolidCore.Spec.Export.TokenSpecCollide.Token
++      collideSpec ctx 2 transferTree := by
++  intro h
++  have hP' : ScopedSep (transferFootprint 0 8192 1) := by simpa [TransferFP] using hP
++  obtain ⟨hne', hge0, -⟩ := transfer_slots hP' (by decide) (by decide) (by decide)
++  have hne : solHash 1 0 ≠ solHash 8192 0 := fun he => hne' (by decide) he.symm
++  have hs : ∀ k, collideStore k < 2 ^ 256 := fun k => by unfold collideStore; split <;> omega
++  have h1 : (1 : Nat) ≠ solHash 8192 0 := by omega
++  have hp := h [1, 0] collideStore [1, 0] ⟨collideStore, Ghost.zero, 0⟩ rfl (by simp) hs
++    (by simp [collideSpec, SolidCore.Spec.Export.TokenSpecCollide.Token, decodeWords, Ty.ofWord]) rfl
++    (by simp [ctx]) (by simp [Bundle.satAll, collideSpec, SolidCore.Spec.Export.TokenSpecCollide.Token])
++    (by simp [Bundle.satAll, Bundle.sat, SolidCore.Spec.Export.TokenSpecCollide.Token, eval, slotOf, mkEnv,
++      Env.cur, Ghost.zero, BinOp.apply, Ty.ofBits, collideStore, h1])
++    (by simpa [TransferFP] using hP)
++  have hlt := solHash_lt'
++  have hkec := keccak_solHash
++  unfold collideStore at hp
++  generalize solHash = H at hp hlt hkec hge0 hne
++  simp only [transferTree, Tree.eval, WExpr.eval, BinOp.eval, UnOp.eval, Generic.wordSize, Res.obs,
++    Writes.store, List.getD_cons_zero, List.getD_cons_succ, Nat.reducePow, Nat.reduceMod, Nat.zero_mod,
++    Nat.reduceLT, ite_mod_nat, ite_true, ite_false, Nat.lt_irrefl, Nat.not_lt_zero, decide_false,
++    Nat.reduceAdd, Nat.reduceSub, Nat.zero_add, Nat.add_zero, ite_self, Nat.one_ne_zero, ite_false,
++    Nat.reduceEqDiff, reduceIte, hne, if_true, if_false] at hp
++  obtain ⟨rets, -, hens, -⟩ := hp.1 (by simp_all)
++  simp only [Bundle.satAll, Bundle.sat, collideSpec, SolidCore.Spec.Export.TokenSpecCollide.Token,
++    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false,
++    forall_eq_or_imp, forall_eq, eval, evalList, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits,
++    toWord, ctx, List.getD_cons_zero, List.getD_cons_succ, hkec, ofProp_ne_zero, ite_true, ite_false,
++    Nat.zero_div, Nat.zero_mod, Int.reduceMod, Int.reduceToNat] at hens
++  have hm1 := Nat.mod_eq_of_lt (hlt 1 0)
++  have hm2 := Nat.mod_eq_of_lt (hlt 8192 0)
++  simp_all
++
++/-- **The premise of `transfer(1, ·)` from `ctx`'s caller holds of the real keccak256**: the
++caller's and address 1's `balanceOf` slots hash apart, both at least `2 ^ 128` (kernel evaluation of
++the sponge, TrustedBase.image1 and image2). So `collide_not_meets_scoped`'s hypothesis is satisfiable. -/
++theorem transferFP_real : TransferFP [1, 0] := by
++  have e1 := TrustedBase.image1
++  have e2 := TrustedBase.image2
++  refine ⟨fun x y hx hy he => ?_, fun x hx => ?_⟩
++  · simp only [transferFootprint, List.getD_cons_zero, List.mem_cons, List.not_mem_nil, or_false,
++      show (8192 : Nat) = 0x2000 from rfl, show (1 % 2 ^ 160 : Nat) = 1 from rfl] at hx hy
++    rcases hx with rfl | rfl <;> rcases hy with rfl | rfl <;>
++      first | rfl | (rw [e1, e2] at he; exact absurd he (by decide)) | (rw [e2, e1] at he; exact absurd he (by decide))
++  · simp only [transferFootprint, List.getD_cons_zero, List.mem_cons, List.not_mem_nil, or_false,
++      show (8192 : Nat) = 0x2000 from rfl, show (1 % 2 ^ 160 : Nat) = 1 from rfl] at hx
++    rcases hx with rfl | rfl
++    · rw [e2]; decide
++    · rw [e1]; decide
++
++theorem collide_refuted : ¬ TreeMeetsFixedOn (fun ρ => TransferFP ρ.args)
++    SolidCore.Spec.Export.TokenSpecCollide.Token collideSpec ctx 2 transferTree :=
++  collide_not_meets_scoped transferFP_real
++
++/-- info: 'SolidCore.Spec.TreeDemo.Token.collide_refuted' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs in
++#print axioms collide_refuted
++
++end SolidCore.Spec.TreeDemo.Token
+diff --git a/Contracts/Token/Spec/ExportCollide.lean b/Contracts/Token/Spec/ExportCollide.lean
+new file mode 100644
+index 0000000..52a30ff
+--- /dev/null
++++ b/Contracts/Token/Spec/ExportCollide.lean
+@@ -0,0 +1,71 @@
++import Verify.Spec.Contract
++
++/-!
++Specs of `scripts/verify/keccak/TokenSpecCollide.sol`, exported by solar-verify 0.3.0 with `--emit-lean-spec`.
++Generated: do not edit.
++-/
++
++namespace SolidCore.Spec.Export.TokenSpecCollide
++
++open SolidCore.Spec
++
++/-- What the specs were exported from and are about. -/
++def manifest : Manifest :=
++  { source := "scripts/verify/keccak/TokenSpecCollide.sol",
++    sourceSha256 := "ca9f9157c21b7e8648a21a62dc7c848c2a32482d7bdac6a794f649028cd1a1a9",
++    compiler := "",
++    options := [],
++    bytecodeSha256 := "" }
++
++/-- The specs of `Token`. -/
++def Token : Bundle where
++  fuel := 0
++  spec :=
++  { name := "Token",
++    fns := [
++    ],
++    invariants := [
++    (.bin .eq (.load (.slot 1) (.lit 0) 32 (.uint 256)) (.ghost "sumBalances" []))],
++    ghosts := ["sumBalances"],
++    specs := [
++    { name := "Token.mint",
++      selector := 0x40c10f19,
++      params := [.address, (.uint 256)],
++      rets := [],
++      payable := false,
++      requires := [],
++      ensures := [
++        (.bin .eq (.load (.entry (.slot 0) (.arg 0)) (.lit 0) 32 (.uint 256)) (.bin .add (.old (.load (.entry (.slot 0) (.arg 0)) (.lit 0) 32 (.uint 256))) (.arg 1))),
++        (.bin .eq (.load (.slot 1) (.lit 0) 32 (.uint 256)) (.bin .add (.old (.load (.slot 1) (.lit 0) 32 (.uint 256))) (.arg 1))),
++        (.all "a" .address (.bin .implies (.bin .ne (.var "a") (.arg 0)) (.bin .eq (.load (.entry (.slot 0) (.var "a")) (.lit 0) 32 (.uint 256)) (.old (.load (.entry (.slot 0) (.var "a")) (.lit 0) 32 (.uint 256))))))],
++      succeedsIf := [] },
++    { name := "Token.transfer",
++      selector := 0xa9059cbb,
++      params := [.address, (.uint 256)],
++      rets := [.bool],
++      payable := false,
++      requires := [],
++      ensures := [
++        (.bin .implies (.bin .ne (.env .sender) (.arg 0)) (.bin .eq (.load (.entry (.slot 0) (.env .sender)) (.lit 0) 32 (.uint 256)) (.bin .sub (.old (.load (.entry (.slot 0) (.env .sender)) (.lit 0) 32 (.uint 256))) (.arg 1)))),
++        (.bin .implies (.bin .ne (.env .sender) (.arg 0)) (.bin .eq (.load (.entry (.slot 0) (.arg 0)) (.lit 0) 32 (.uint 256)) (.bin .add (.old (.load (.entry (.slot 0) (.env .sender)) (.lit 0) 32 (.uint 256))) (.arg 1)))),
++        (.all "a" .address (.bin .implies (.bin .and (.bin .ne (.var "a") (.env .sender)) (.bin .ne (.var "a") (.arg 0))) (.bin .eq (.load (.entry (.slot 0) (.var "a")) (.lit 0) 32 (.uint 256)) (.old (.load (.entry (.slot 0) (.var "a")) (.lit 0) 32 (.uint 256)))))),
++        (.bin .eq (.load (.slot 1) (.lit 0) 32 (.uint 256)) (.old (.load (.slot 1) (.lit 0) 32 (.uint 256))))],
++      succeedsIf := [] },
++    { name := "Token.burn",
++      selector := 0x42966c68,
++      params := [(.uint 256)],
++      rets := [],
++      payable := false,
++      requires := [],
++      ensures := [
++        (.bin .eq (.load (.entry (.slot 0) (.env .sender)) (.lit 0) 32 (.uint 256)) (.bin .sub (.old (.load (.entry (.slot 0) (.env .sender)) (.lit 0) 32 (.uint 256))) (.arg 0)))],
++      succeedsIf := [] }] }
++
++/-- Every spec function call resolves and nests within the fuel. -/
++theorem Token_wf : Token.WF = true := by decide +kernel
++
++/-- Trusted-base items these specs' proofs rely on beyond the verdict
++(`SolidCore.Spec.Assumptions`). -/
++def trusted : List String := []
++
++end SolidCore.Spec.Export.TokenSpecCollide
+diff --git a/Verify/Spec/HashScope.lean b/Verify/Spec/HashScope.lean
+new file mode 100644
+index 0000000..e2f4e5c
+--- /dev/null
++++ b/Verify/Spec/HashScope.lean
+@@ -0,0 +1,355 @@
++import Verify.Spec.TreeSplit
++import Mathlib.Data.Fintype.Prod
++
++/-!
++# keccak256 separation scoped to the preimages a call hashes
++
++A Solidity mapping stores `m[k]` at `keccak256(k . m)`, so a proof about a function that reads and
++writes mappings needs to know which of its slots are equal. Keccak-256 is not injective, so this
++is assumed, and the assumption must be satisfiable and stated.
++
++**The global premise is refuted.** `NestedSlotsSeparated ms ns` (TreeMapNested.lean) asks keccak256
++to be injective on the nested slots `n[b][a]` of all pairs of addresses: `2 ^ 320` preimages into
++words below `2 ^ 256`. `not_nestedSlotsSeparated` derives `False` from it by counting for any
++`ns ≠ []`, so every theorem with it as a premise is vacuous.
++
++**The scoped premise.** As hevm does (pairwise injectivity of the keccak256 applications that occur
++in a query, never a universal axiom), `HashScope L F` speaks of the finite list `L` of preimages a
++call hashes: their images are pairwise distinct (`inj`), above the small slots (`reserved`), and
++none is the image of another preimage of the frame family `F` (`apart`), the slots a frame clause
++such as `forall a :: a != msg.sender && a != to ==> balanceOf[a] == old(balanceOf[a])` quantifies
++over. Nothing is asked of two preimages of `F`. A call's premise is `MapScope sender idx ms args`:
++`L` the slots `m[k]` for `m ∈ ms` and the keys `k` the call touches (the caller `sender` and the
++address arguments at the positions `idx`), `F` every slot `m[a]`.
++
++For `transfer(to, value)` of a balance mapping at slot `m` this is keccak256 on
++`{caller . m, to . m}`: distinct when `caller ≠ to`, at least `2 ^ 128`, and the image of no other
++address's balance slot. For a given call the real keccak256 fails this only with probability about
++`2 ^ -94` (its two images hitting one of `2 ^ 160` other slots or a small slot); it is a named
++computational assumption of the call, in the statement, not provable and not refutable.
++
++**Using it.** `TreeMeetsFixedOn (fun ρ => MapScope sender idx ms ρ.args)` is a function's spec of
++its erased tree on the calls whose premise holds; `tree_meets_scoped` proves it (the scoped
++`map_inj` and `map_ge`, `scope_inj` and `scope_ge`, instantiated with each key condition shown by
++`simp`), and `holdsFnUnder_of_tree_fixed` lifts it to SolidCore's contract as `HoldsFnUnder`: the
++spec on every stage call of the function whose argument words satisfy the premise.
++-/
++
++namespace SolidCore.Spec
++
++open SolidCore.Refinement SolidCore.Refinement.Generic TrustedBase
++
++/-! ## The global nested premise is false -/
++
++/-- **`NestedSlotsSeparated ms ns` is false whenever `ns` has a mapping slot**: it makes
++`(a, c) ↦ solHash a (solHash c n)` injective on the `2 ^ 320` pairs of addresses, into words below
++`2 ^ 256`. -/
++theorem not_nestedSlotsSeparated {ms ns : List Nat} {n : Nat} (hn : n ∈ ns) (hnw : n < 2 ^ 256) :
++    ¬ NestedSlotsSeparated ms ns := by
++  intro h
++  let g : Fin (2 ^ 160) × Fin (2 ^ 160) → Fin (2 ^ 256) :=
++    fun p => ⟨solHash p.1 (solHash p.2 n), solHash_lt _ _⟩
++  have hg : Function.Injective g := by
++    rintro ⟨a, c⟩ ⟨b, d⟩ he
++    have he' : solHash a (solHash c n) = solHash b (solHash d n) := congrArg Fin.val he
++    obtain ⟨e1, e2, -⟩ := nmap_inj_nn h n n hn hn hnw hnw a b c d a.isLt b.isLt c.isLt d.isLt he'
++    exact Prod.ext (Fin.ext e1) (Fin.ext e2)
++  have := Fintype.card_le_of_injective g hg
++  simp only [Fintype.card_prod, Fintype.card_fin] at this
++  exact absurd this (by decide)
++
++/-- UniswapV2ERC20's earlier premise, `NestedSlotsSeparated [1, 4] [2]`, is false. -/
++theorem not_nestedSlotsSeparated_erc20 : ¬ NestedSlotsSeparated [1, 4] [2] :=
++  not_nestedSlotsSeparated (n := 2) (by decide) (by decide)
++
++/-! ## The scoped premise -/
++
++/-- **keccak256 separated on the preimages `L` a call hashes, apart from the frame family `F`**:
++`L`'s images pairwise distinct and at least `2 ^ 128`, and the image of no other preimage of `F`. -/
++structure HashScope (L : List (List Nat)) (F : Preimages) : Prop where
++  reserved : ∀ x ∈ L, 2 ^ 128 ≤ keccakWord x
++  inj : ∀ x ∈ L, ∀ y ∈ L, keccakWord x = keccakWord y → x = y
++  apart : ∀ x ∈ L, ∀ y, F y → keccakWord x = keccakWord y → x = y
++
++/-- Nothing hashed, nothing assumed. -/
++theorem hashScope_nil (F : Preimages) : HashScope [] F :=
++  ⟨fun _ h => by simp at h, fun _ h => by simp at h, fun _ h => by simp at h⟩
++
++/-- Every slot `m[a]` of the mappings at `ms`: the frame family of a single-level map. -/
++def mapFamily (ms : List Nat) : Preimages :=
++  fun x => ∃ a < 2 ^ 160, ∃ m ∈ ms, x = mappingPreimage a m
++
++/-- The slots `m[k]` for the keys `K` and the mapping slots `ms`. -/
++def mapScope (K ms : List Nat) : List (List Nat) :=
++  K.flatMap fun k => ms.map fun m => mappingPreimage k m
++
++/-- The keys a call touches: the caller and the address arguments at the positions `idx`. -/
++def callKeys (sender : Nat) (idx args : List Nat) : List Nat :=
++  sender :: idx.map fun i => args.getD i 0 % 2 ^ 160
++
++/-- **A call's scoped premise** for single-level mappings at `ms`. -/
++def MapScope (sender : Nat) (idx ms args : List Nat) : Prop :=
++  HashScope (mapScope (callKeys sender idx args) ms) (mapFamily ms)
++
++theorem mem_mapScope {K ms : List Nat} {k m : Nat} (hk : k ∈ K) (hm : m ∈ ms) :
++    mappingPreimage k m ∈ mapScope K ms :=
++  List.mem_flatMap.2 ⟨k, hk, List.mem_map.2 ⟨m, hm, rfl⟩⟩
++
++/-- Slots of a key in scope and of any address are equal only for the same key and mapping. -/
++theorem scope_inj {K ms : List Nat} (h : HashScope (mapScope K ms) (mapFamily ms)) (m n : Nat)
++    (hm : m ∈ ms) (hn : n ∈ ms) (hmw : m < 2 ^ 256) (hnw : n < 2 ^ 256) (a b : Nat)
++    (hK : a ∈ K ∨ b ∈ K) :
++    a < 2 ^ 160 → b < 2 ^ 160 → solHash a m = solHash b n → a = b ∧ m = n := by
++  intro ha hb he
++  rw [solHash_eq, solHash_eq] at he
++  have hp : mappingPreimage a m = mappingPreimage b n := by
++    rcases hK with hK | hK
++    · exact h.apart _ (mem_mapScope hK hm) _ ⟨b, hb, n, hn, rfl⟩ he
++    · exact (h.apart _ (mem_mapScope hK hn) _ ⟨a, ha, m, hm, rfl⟩ he.symm).symm
++  exact mappingPreimage_inj (by omega) (by omega) hmw hnw hp
++
++/-- A slot of a key in scope is at least `2 ^ 128`. -/
++theorem scope_ge {K ms : List Nat} (h : HashScope (mapScope K ms) (mapFamily ms)) (m : Nat)
++    (hm : m ∈ ms) (a : Nat) (hK : a ∈ K) : 2 ^ 128 ≤ solHash a m := by
++  rw [solHash_eq]
++  exact h.reserved _ (mem_mapScope hK hm)
++
++/-- **A specification that needs a collision is refuted under the premise**: a slot of a key in
++scope is no other address's slot. -/
++theorem scope_no_collision {K ms : List Nat} (h : HashScope (mapScope K ms) (mapFamily ms))
++    {m : Nat} (hm : m ∈ ms) (hmw : m < 2 ^ 256) {a b : Nat} (hK : a ∈ K) (ha : a < 2 ^ 160)
++    (hb : b < 2 ^ 160) (hne : a ≠ b) : solHash a m ≠ solHash b m :=
++  fun he => hne (scope_inj h m m hm hm hmw hmw a b (.inl hK) ha hb he).1
++
++/-! ## The footprint premise
++
++`ScopedSep L` is keccak256 separated (injective, images at least `2 ^ 128`) on the finite list `L` of
++preimages a call hashes and nothing else: no frame family, no other key. It is
++`TrustedBase.KeccakSeparated (· ∈ L)`, the shape slice2-nested's `HashScope.Scoped` uses. For a
++concrete call the kernel can check it (`scopedSep_transfer_example`); for every finite list some
++hash function satisfies it (`exists_separatedBy`), so it is never `False` in disguise. -/
++
++/-- **The scoped premise**: keccak256 injective, with images at least `2 ^ 128`, on the finite
++footprint `L`. -/
++def ScopedSep (L : List (List Nat)) : Prop := TrustedBase.KeccakSeparated (· ∈ L)
++
++/-- The footprint of `transfer(to, value)` of a balance mapping at slot `m`: the slots of the caller
++and of `to`. -/
++def transferFootprint (m caller recipient : Nat) : List (List Nat) :=
++  [mappingPreimage caller m, mappingPreimage recipient m]
++
++/-- The premise for any hash function `h` (a model), of which `ScopedSep` is the case `keccakWord`. -/
++def SeparatedBy (h : List Nat → Nat) (L : List (List Nat)) : Prop :=
++  (∀ x ∈ L, ∀ y ∈ L, h x = h y → x = y) ∧ ∀ x ∈ L, 2 ^ 128 ≤ h x
++
++theorem scopedSep_iff (L : List (List Nat)) : ScopedSep L ↔ SeparatedBy keccakWord L :=
++  ⟨fun h => ⟨fun x hx y hy => h.1 x y hx hy, h.2⟩, fun h => ⟨fun x y hx hy => h.1 x hx y hy, h.2⟩⟩
++
++/-- **Satisfiable for every footprint**: the hash `x ↦ 2 ^ 128 + (position of x in L)` meets it. -/
++theorem exists_separatedBy (L : List (List Nat)) : ∃ h, SeparatedBy h L := by
++  refine ⟨fun x => 2 ^ 128 + L.idxOf x, fun x hx y hy he => ?_, fun _ _ => Nat.le_add_right _ _⟩
++  have he' : L.idxOf x = L.idxOf y := by simpa using he
++  rw [← List.getElem_idxOf (List.idxOf_lt_length_of_mem hx),
++    ← List.getElem_idxOf (List.idxOf_lt_length_of_mem hy)]
++  simp only [he']
++
++/-- **The real keccak256 meets a nontrivial transfer footprint**: caller `0x2000` sending to
++address 1, `balanceOf` at slot 1 (UniswapV2ERC20's layout), by the kernel's evaluation of the sponge
++(`TrustedBase.image4`, `image5`). -/
++theorem scopedSep_transfer_example : ScopedSep (transferFootprint 1 0x2000 1) := by
++  have e4 := TrustedBase.image4
++  have e5 := TrustedBase.image5
++  refine ⟨fun x y hx hy he => ?_, fun x hx => ?_⟩
++  · simp only [transferFootprint, List.mem_cons, List.not_mem_nil, or_false] at hx hy
++    rcases hx with rfl | rfl <;> rcases hy with rfl | rfl <;> first | rfl | (rw [e4, e5] at he; exact absurd he (by decide)) | (rw [e5, e4] at he; exact absurd he (by decide))
++  · simp only [transferFootprint, List.mem_cons, List.not_mem_nil, or_false] at hx
++    rcases hx with rfl | rfl
++    · rw [e5]; decide
++    · rw [e4]; decide
++
++/-- Two slots of the footprint are equal only for the same key and mapping. -/
++theorem scoped_inj {L : List (List Nat)} (h : ScopedSep L) {a b m n : Nat}
++    (ha : a < 2 ^ 256) (hb : b < 2 ^ 256) (hmw : m < 2 ^ 256) (hnw : n < 2 ^ 256)
++    (hx : mappingPreimage a m ∈ L) (hy : mappingPreimage b n ∈ L)
++    (he : solHash a m = solHash b n) : a = b ∧ m = n := by
++  rw [solHash_eq, solHash_eq] at he
++  exact mappingPreimage_inj ha hb hmw hnw (h.1 _ _ hx hy he)
++
++/-- A slot of the footprint is at least `2 ^ 128`: no small constant slot. -/
++theorem scoped_ge {L : List (List Nat)} (h : ScopedSep L) {a m : Nat}
++    (hx : mappingPreimage a m ∈ L) : 2 ^ 128 ≤ solHash a m := by
++  rw [solHash_eq]; exact h.2 _ hx
++
++/-- **transfer's key-level fact**: under its footprint premise, the caller's and the recipient's
++balance slots are distinct when they are distinct addresses, and neither is a small slot. -/
++theorem transfer_slots {m c t : Nat} (h : ScopedSep (transferFootprint m c t)) (hm : m < 2 ^ 256)
++    (hc : c < 2 ^ 256) (ht : t < 2 ^ 256) :
++    (c ≠ t → solHash c m ≠ solHash t m) ∧ 2 ^ 128 ≤ solHash c m ∧ 2 ^ 128 ≤ solHash t m :=
++  ⟨fun hne he => hne (scoped_inj h hc ht hm hm (by simp [transferFootprint]) (by simp [transferFootprint]) he).1,
++    scoped_ge h (by simp [transferFootprint]), scoped_ge h (by simp [transferFootprint])⟩
++
++/-- info: 'SolidCore.Spec.scopedSep_transfer_example' depends on axioms: [propext] -/
++#guard_msgs in
++#print axioms scopedSep_transfer_example
++
++/-! ## Instances in a tactic -/
++
++open Lean Meta Elab Tactic in
++/-- `hash_facts_scoped H s hinj hge hlt hs`: `hash_facts` for the scoped lemmas. For every slot term
++`H x y` of the goal and the hypotheses, `hlt x y` and, when `x` is in scope (shown by `simp`),
++`hge y _ x _`; for every pair, `hinj y y' _ _ _ _ x x' _` when one of the keys is in scope. An
++instance whose side conditions do not hold is left out. -/
++elab "hash_facts_scoped " H:ident s:ident hinj:ident hge:ident hlt:ident hs:ident : tactic => do
++  let (ts, ss) ← withMainContext do
++    let He ← getFVarFromUserName H.getId
++    let se ← getFVarFromUserName s.getId
++    let mut es := #[← instantiateMVars (← getMainTarget)]
++    for d in (← getLCtx) do
++      if d.isImplementationDetail then continue
++      es := es.push (← instantiateMVars d.type)
++    let tr ← IO.mkRef (#[] : Array Expr)
++    let sr ← IO.mkRef (#[] : Array Expr)
++    for e in es do
++      e.forEachWhere (fun t => t.getAppFn == He && t.getAppNumArgs == 2 && !t.hasLooseBVars)
++        fun t => tr.modify fun a => if a.contains t then a else a.push t
++      e.forEachWhere (fun t => t.isApp && t.appFn! == se && !t.hasLooseBVars)
++        fun t => sr.modify fun a => if a.contains t.appArg! then a else a.push t.appArg!
++    pure (← tr.get, ← sr.get)
++  for t in ts do
++    withMainContext do
++      let x ← Term.exprToSyntax t.appFn!.appArg!
++      let y ← Term.exprToSyntax t.appArg!
++      evalTactic (← `(tactic| have := $hlt $x $y))
++      evalTactic (← `(tactic| try (have := $hge $y (by decide) $x ?_; rotate_left; simp; done)))
++  for x in ss do
++    withMainContext do
++      let x ← Term.exprToSyntax x
++      evalTactic (← `(tactic| try have := $hs $x))
++  for i in [0:ts.size] do
++    for j in [i+1:ts.size] do
++      withMainContext do
++        let x1 ← Term.exprToSyntax ts[i]!.appFn!.appArg!
++        let y1 ← Term.exprToSyntax ts[i]!.appArg!
++        let x2 ← Term.exprToSyntax ts[j]!.appFn!.appArg!
++        let y2 ← Term.exprToSyntax ts[j]!.appArg!
++        evalTactic (← `(tactic| try (have := $hinj $y1 $y2 (by decide) (by decide) (by decide) (by decide) $x1 $x2 ?_; rotate_left; simp; done)))
++
++/-- `tree_meets_scoped [defs]` proves `TreeMeetsFixedOn (fun ρ => MapScope sender idx ms ρ.args) b fs
++ctx n T` for a function of at most eight parameters that reads and writes single-level mappings at
++the slots `ms`: `tree_meets_map` with the call's scoped premise in place of a global one. It
++decodes the argument words, reads the keys the call touches from the premise, takes the scoped
++`scope_inj` and `scope_ge`, generalizes `solHash` to a variable `H` (no step evaluates keccak256)
++and closes each case by `omega` with `hash_facts_scoped`'s instances. A case it cannot close stays an
++error: it never leaves a `sorry`. -/
++macro "tree_meets_scoped" "[" ds:Lean.Parser.Tactic.simpLemma,* "]" : tactic => `(tactic| (
++  intro args s iargs pre hl hargs hs hdec hst ht hreq hinv hP
++  simp only [Nat.reducePow] at hs
++  rcases args with _ | ⟨a0, _ | ⟨a1, _ | ⟨a2, _ | ⟨a3, _ | ⟨a4, _ | ⟨a5, _ | ⟨a6, _ | ⟨a7, _ | ⟨_, _⟩⟩⟩⟩⟩⟩⟩⟩⟩ <;>
++    simp only [List.length_cons, List.length_nil] at hl <;> (try omega) <;>
++    simp only [List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp, forall_eq,
++      IsEmpty.forall_iff, implies_true, and_true, Nat.reducePow] at hargs <;>
++    simp only [$ds,*, List.head, List.getElem_cons_zero, List.getElem_cons_succ, decodeWords, Ty.ofWord,
++      bind, pure, Option.bind, Nat.reducePow] at hdec <;>
++    split_ifs at hdec <;> simp only [Option.some.injEq, reduceCtorEq] at hdec <;>
++    subst hdec <;>
++    simp only [MapScope, callKeys, List.map_cons, List.map_nil, List.getD_cons_zero,
++      List.getD_cons_succ, Nat.reducePow] at hP <;>
++    simp (disch := omega) only [Nat.mod_eq_of_lt] at hP <;>
++    have hinj := scope_inj hP <;> have hge := scope_ge hP <;> have hlt := solHash_lt' <;>
++    have hkec := keccak_solHash <;>
++    generalize solHash = H at hinj hge hlt hkec ⊢ <;>
++    refine ⟨fun hsucc => ?_, fun hne => ?_⟩
++  all_goals try (simp [$ds,*] at hne; done)
++  all_goals simp only [$ds,*, Tree.eval, WExpr.eval, BinOp.eval, UnOp.eval, Generic.wordSize, Res.obs,
++    Writes.store, List.getD_cons_zero, List.getD_cons_succ, Nat.reducePow] at hsucc ⊢
++  all_goals simp (disch := simp only [hargs, hs, hlt, Nat.reduceLT]) only [Nat.mod_eq_of_lt, ite_mod_nat,
++    Nat.reduceMod, Nat.zero_mod, ite10_eq_zero_iff, Decidable.not_not] at hsucc ⊢
++  all_goals split_ifs at hsucc ⊢
++  all_goals simp only [Bool.false_eq_true, Bool.true_eq_false, imp_false, not_true_eq_false,
++    IsEmpty.forall_iff] at hsucc
++  all_goals simp only [$ds,*, OByte.eval, WExpr.eval, Generic.wordSize, words, bytesWord, decodeWords, Ty.ofWord,
++    List.map_cons, List.map_nil, List.length_cons, List.length_nil, List.range_succ, List.range_zero,
++    List.nil_append, List.cons_append, List.drop_zero, List.take_succ_cons, List.take_zero, List.foldl_cons,
++    List.foldl_nil, Nat.reduceDiv, Nat.reducePow, Nat.reduceMod, Nat.reduceSub, Nat.reduceMul, Nat.reduceAdd,
++    Nat.reduceLT, ite_true, ite_false, List.getElem_cons_succ, List.getElem_cons_zero, Option.some.injEq,
++    exists_eq_left', bind, pure, Option.bind, Ty.InRange, Nat.cast_ofNat, Nat.zero_add,
++    Nat.reduceLeDiff] at hsucc ⊢
++  all_goals try clear hsucc
++  all_goals try refine ⟨?_, ?_⟩
++  all_goals simp only [Bundle.satAll, Bundle.sat, $ds,*, List.getElem_cons_succ, List.getElem_cons_zero,
++    List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp, forall_eq, eval, evalList, slotOf, mkEnv,
++    Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero, List.getD_cons_succ,
++    List.lookup, hkec, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
++    beq_self_eq_true, Ty.InRange, Option.getD_some, forall_int_range, Nat.cast_ofNat] at hinv ⊢
++  all_goals simp only [wordMod, Nat.reducePow] at hinv ⊢
++  all_goals simp (disch := first | exact hlt _ _ | exact hs _ | omega) only [Nat.mod_eq_of_lt,
++    toNat_natCast_emod] at hinv ⊢
++  all_goals simp (disch := first | exact hlt _ _ | exact hs _ | omega) only [Nat.cast_ofNat,
++    Int.reduceMod, Int.reduceToNat, Nat.mod_eq_of_lt, toNat_natCast_emod, toNat_ofNat_emod,
++    toNat_zero_emod, toNat_one_emod, wordMod, Nat.reducePow, Nat.reduceMul, Nat.reduceMod, Nat.div_one,
++    Nat.reduceDiv, Int.reducePow] at hinv ⊢
++  all_goals (repeat' (first | (apply And.intro) | intro))
++  all_goals (hash_facts_scoped H s hinj hge hlt hs; split_ifs <;> omega)))
++
++/-! ## From the tree to SolidCore's contract, under a per-call premise -/
++
++open SolarTV SolidCore.Refinement.Abi SolidCore.Solidity
++
++/-- The argument words of a call: its call data after the selector. -/
++def callArgs (call : Call) : List Nat := words ((call.calldata.data.toList.map (·.toNat)).drop 4)
++
++/-- `HoldsFn` on the calls that meet `Q`: the premise is part of the statement, call by call. -/
++def HoldsFnUnder (Q : Call → Prop) (S : Sem) (p : S.Prog) (scope : Call → Prop) (b : Bundle)
++    (ctxOf : Call → Ctx) (step : GhostStep) (fs : FnSpec) : Prop :=
++  ∀ call, scope call → Q call → ∀ (args : List Int) (pre : State), Pre b fs (ctxOf call) pre call args →
++    ∃ obs, S.run p call = some obs ∧ Post b fs (ctxOf call) pre (step call pre.ghost) obs args
++
++/-- With the trivial premise it is `HoldsFn`. -/
++theorem HoldsFnUnder.holdsFn {S : Sem} {p : S.Prog} {scope : Call → Prop} {b : Bundle}
++    {ctxOf : Call → Ctx} {step : GhostStep} {fs : FnSpec}
++    (h : HoldsFnUnder (fun _ => True) S p scope b ctxOf step fs) : HoldsFn S p scope b ctxOf step fs :=
++  fun call hs => h call hs trivial
++
++/-- A refinement carries it from source to target, as `HoldsFn.of_stage`. -/
++theorem HoldsFnUnder.of_stage {S T : Sem} {p : S.Prog} {q : T.Prog} {scope : Call → Prop}
++    {b : Bundle} {ctxOf : Call → Ctx} {step : GhostStep} {fs : FnSpec} {Q : Call → Prop}
++    (h : HoldsFnUnder Q S p scope b ctxOf step fs) (st : SolarTV.Stage S T p q scope) :
++    HoldsFnUnder Q T q scope b ctxOf step fs := by
++  intro call hs hq args pre hpre
++  obtain ⟨obs, hrun, hpost⟩ := h call hs hq args pre hpre
++  exact ⟨obs, st call hs obs hrun, hpost⟩
++
++/-- **`holdsFn_of_tree_fixed` under a per-call premise**: the spec of the erased tree on the argument
++words meeting `P` is the spec of SolidCore's contract on the stage's calls whose argument words
++meet `P`. -/
++theorem holdsFnUnder_of_tree_fixed {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.State}
++    {s : List (Nat × Nat)} (hd : Wide.DeployedAt fuel c d s) {fn : Fn} {f : Source.FunctionDef}
++    (hsel : fn.sel < 2 ^ 32) (hfind : c.core.findFunctionBySelector? fn.sel = some f)
++    (hlen : f.params.length = fn.params.length) {T : Tree}
++    (hT : eraseFn (envOf c.core) fuel f = some T) {b : Bundle} {fs : FnSpec}
++    {ctxOf : Call → Ctx} {step : GhostStep} {ctx : Ctx} {P : List Nat → Prop}
++    (hctx : ∀ call : Call, call.callvalue = 0 → ctxOf call = ctx)
++    (hstep : ∀ call, SolidCore.Verify.VC.stageScope fn s call → ∀ g, step call g = g)
++    (hm : TreeMeetsFixedOn (fun ρ => P ρ.args) b fs ctx fn.params.length T) :
++    HoldsFnUnder (fun call => P (callArgs call)) (solidCore fuel) c
++      (SolidCore.Verify.VC.stageScope fn s) b ctxOf step fs := by
++  intro call hcall hq iargs pre hpre
++  have hg := hstep call hcall pre.ghost
++  obtain ⟨σ, hcov, fn', hfn', args, hl, hargs, rfl⟩ := hcall
++  simp only [List.mem_singleton] at hfn'
++  subst hfn'
++  have hrun := source_run hd hcov hsel hfind hT args (hl.trans hlen.symm) hargs
++  obtain ⟨⟨-, -, hdec⟩, hst, ht, hreq, hinv⟩ := hpre
++  rw [hctx _ rfl] at ht hreq hinv ⊢
++  rw [words_calldata _ hargs] at hdec
++  simp only [callArgs] at hq
++  rw [words_calldata _ hargs] at hq
++  rw [hg]
++  exact ⟨_, hrun, hm args (slotValue σ) iargs pre hl hargs (fun k => Generic.slotValue_lt σ k)
++    hdec hst ht hreq hinv hq⟩
++
++/-- info: 'SolidCore.Spec.not_nestedSlotsSeparated_erc20' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs in
++#print axioms not_nestedSlotsSeparated_erc20
++
++end SolidCore.Spec
+diff --git a/lakefile.lean b/lakefile.lean
+index fe4d93c..569e6d2 100644
+--- a/lakefile.lean
++++ b/lakefile.lean
+@@ -433,10 +433,12 @@ lean_lib ContractsShapes where
+ lean_lib ContractsToken where
+   roots := #[`Contracts.Token.Lowering, `Contracts.Token.Assembly, `Contracts.Token.Discharge,
+     `Contracts.Token.EndToEnd, `Contracts.Token.Exports, `Contracts.Token.LoweringIn,
+-    `Contracts.Token.TransferMeets, `Contracts.Token.SpecTree, `Contracts.Token.WorldSpec]
++    `Contracts.Token.TransferMeets, `Contracts.Token.SpecTree, `Contracts.Token.WorldSpec,
++    `Contracts.Token.HashScope]
+   globs := #[.one `Contracts.Token.Lowering, .one `Contracts.Token.LoweringIn, .one `Contracts.Token.WorldSpec, .one `Contracts.Token.Assembly,
+     .one `Contracts.Token.Discharge, .one `Contracts.Token.EndToEnd,
+     .one `Contracts.Token.Exports, .one `Contracts.Token.TransferMeets, .one `Contracts.Token.SpecTree,
++    .one `Contracts.Token.HashScope,
+     .submodules `Contracts.Token.Spec]
+ 
+ /-! solar-verify's verification conditions and their kernel-checked discharge (formerly solar's
+diff --git a/scripts/verify/keccak/TokenSpecCollide.sol b/scripts/verify/keccak/TokenSpecCollide.sol
+new file mode 100644
+index 0000000..1c5dc6a
+--- /dev/null
++++ b/scripts/verify/keccak/TokenSpecCollide.sol
+@@ -0,0 +1,50 @@
++// SPDX-License-Identifier: MIT
++pragma solidity ^0.8.20;
++
++/// A minimal token. The invariant ties the ghost sum of balances to totalSupply, with
++/// Certora-style ghost updates written next to every balance write.
++/// @custom:ghost uint256 sumBalances
++/// @custom:invariant totalSupply == sumBalances
++contract Token {
++    mapping(address => uint256) public balanceOf;
++    uint256 public totalSupply;
++    address public owner;
++
++    modifier onlyOwner() {
++        require(msg.sender == owner, "not owner");
++        _;
++    }
++
++    /// @custom:ensures owner == msg.sender
++    constructor() {
++        owner = msg.sender;
++    }
++
++    /// @custom:ensures balanceOf[to] == old(balanceOf[to]) + amount
++    /// @custom:ensures totalSupply == old(totalSupply) + amount
++    /// @custom:ensures forall address a :: a != to ==> balanceOf[a] == old(balanceOf[a])
++    function mint(address to, uint256 amount) external onlyOwner {
++        totalSupply += amount;
++        /// @custom:ghost sumBalances = sumBalances + amount
++        balanceOf[to] += amount;
++    }
++
++    /// @custom:ensures msg.sender != to ==> balanceOf[msg.sender] == old(balanceOf[msg.sender]) - amount
++    /// @custom:ensures msg.sender != to ==> balanceOf[to] == old(balanceOf[msg.sender]) + amount
++    /// @custom:ensures forall address a :: a != msg.sender && a != to ==> balanceOf[a] == old(balanceOf[a])
++    /// @custom:ensures totalSupply == old(totalSupply)
++    function transfer(address to, uint256 amount) external returns (bool) {
++        uint256 bal = balanceOf[msg.sender];
++        require(bal >= amount, "insufficient");
++        balanceOf[msg.sender] = bal - amount;
++        balanceOf[to] += amount;
++        return true;
++    }
++
++    /// @custom:ensures balanceOf[msg.sender] == old(balanceOf[msg.sender]) - amount
++    function burn(uint256 amount) external {
++        balanceOf[msg.sender] -= amount;
++        /// @custom:ghost sumBalances = sumBalances - amount
++        totalSupply -= amount;
++    }
++}
+-- 
+2.43.0
+
