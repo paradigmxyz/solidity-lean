@@ -1,0 +1,1475 @@
+From 27347975ab828c39a4ec5259cb1924812396b169 Mon Sep 17 00:00:00 2001
+From: Troy Sargent <0xalpharush@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 14:02:00 +0000
+Subject: [PATCH] feat(refinement): transfer gas bound from any caller
+
+Proves a gas bound G = 8199112 for UniswapV2ERC20.transfer on its
+exact runtime bytes, from every caller below 2^160 but the contract.
+The checker with contexts and gas (checkXL) accepts the bytes against
+the final EVM IR evm11 with every block outside transfer's slice left
+unchecked; a symbolic guard stage shows no transfer call enters those
+blocks. The forward theorem is generalized to any CALLER
+(runWithFrom, forward_of_checkXLFrom) and composed into
+Shapes.ResourcesFrom, which gives Shapes.Resources at callerAddress.
+Generated inputs (stages, certificate) come from
+scripts/verify/uniswap_v2_gas.sh and are not committed.
+---
+ .gitignore                                    |   5 +
+ Certified/uv2_erc20/Gas.lean                  | 110 +++++
+ Certified/uv2_erc20/GasGuard.lean             |  68 +++
+ .../Refinement/Solar/AssembleCtxGas.lean      | 453 ++++++++++++++++++
+ .../Refinement/Solar/AssembleCtxGasFrom.lean  | 333 +++++++++++++
+ SolidCore/Refinement/Solar/AssembleLoop.lean  |  18 +-
+ .../Refinement/Solar/AssembleLoopRun.lean     |   2 +-
+ .../Refinement/Solar/AssembleLoopSim.lean     |  22 +-
+ .../Refinement/Solar/AssembleRunLoop.lean     |   2 +-
+ Verify/ShapeCtxGas.lean                       | 117 +++++
+ Verify/ShapeCtxGasFrom.lean                   | 100 ++++
+ lakefile.lean                                 |  16 +-
+ scripts/verify/uniswap_v2_gas.sh              |  42 ++
+ 13 files changed, 1275 insertions(+), 13 deletions(-)
+ create mode 100644 Certified/uv2_erc20/Gas.lean
+ create mode 100644 Certified/uv2_erc20/GasGuard.lean
+ create mode 100644 SolidCore/Refinement/Solar/AssembleCtxGas.lean
+ create mode 100644 SolidCore/Refinement/Solar/AssembleCtxGasFrom.lean
+ create mode 100644 Verify/ShapeCtxGas.lean
+ create mode 100644 Verify/ShapeCtxGasFrom.lean
+ create mode 100755 scripts/verify/uniswap_v2_gas.sh
+
+diff --git a/.gitignore b/.gitignore
+index d800f98f..6097de4d 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -15,3 +15,8 @@ __pycache__/
+ tests/forge-harness/*/out/
+ tests/forge-harness/*/cache/
+ /.cache/
++
++# UniswapV2ERC20 gas slice: generated from the GPL-3.0 port (scripts/verify/uniswap_v2_gas.sh)
++/Certified/uv2_erc20/gen/
++/Certified/uv2_erc20/uv2_erc20.sol
++/Certified/uv2_erc20/CtxGas.lean
+diff --git a/Certified/uv2_erc20/Gas.lean b/Certified/uv2_erc20/Gas.lean
+new file mode 100644
+index 00000000..5b30ecf5
+--- /dev/null
++++ b/Certified/uv2_erc20/Gas.lean
+@@ -0,0 +1,110 @@
++import Verify.ShapeCtxGasFrom
++import uv2_erc20.GasGuard
++
++-- Untrusted proof script: the kernel checks it. The certificate and the guarded program are
++-- generated data (CtxGas.lean); the theorems below state what they give.
++
++/-!
++# UniswapV2ERC20.transfer: a proved gas bound on the exact runtime bytes (E8)
++
++`G` = `gasBoundL cx.base N` = 22100 · (7 · 53) + 12 = 8199112: seven blocks (the most a call of
++`transfer` runs, `GasGuard.N`), each of at most 53 items of the lowered program (the dispatcher's,
++the largest block such a call runs), each charged 22100 gas, plus the memory up to 128 bytes.
++22100 is at least the price of every instruction the checker admits under EIP-2929 and EIP-2200,
++whatever the call finds warm or cold: an SSTORE that sets a zero slot it reads cold (20000 + 2100),
++a cold SLOAD (2100), a KECCAK256 of 64 bytes, a LOG3 of 32 bytes. EthLib's interpreter meters the
++accesses the run actually makes (its access sets start with the caller, the contract and the
++precompiles warm, per EIP-2929), so the theorem holds of the real warm and cold slots, not of a
++model of them.
++
++* `gas_edge`: from every caller `a` (below `2 ^ 160`, not the contract itself), on every call of
++  `transfer`'s selector, under every oracle whose CALLER is `a` and whose Keccak-256 is EthLib's,
++  at every gas from `G` on, EthLib runs the exact bytes to exactly the final EVM IR's result
++  (success, return data, revert data, logs, storage). Its only inputs are the kernel's checks of
++  generated programs: `check_ok` (the checker with contexts and gas on the exact bytes against
++  `evm11`) and the guard stage (`guard_ends`, `guard_run`). No premise mentions gas.
++* `resources`: `Shapes.ResourcesFrom` for any valid-call predicate inside `transfer`'s selector and
++  any source semantics per caller, from the functional stage from that source to `evm11` (E3∘E4:
++  the hypothesis `stage`) and its totality (`total`). At `callerAddress` it is `Shapes.Resources`
++  (`resources_at`).
++* Negative controls: the checker refuses the bytes with the dispatcher's first jump target moved
++  and with transfer's debit SSTORE dropped.
++-/
++
++namespace SolarTV.Export.UniswapV2ERC20.CtxGas
++
++open SolarTV SolidCore.Refinement SolidCore.Refinement.Shapes SolidCore.Refinement.Solar
++
++/-- **The proved gas bound** of a call of `transfer`. -/
++def G : Nat := AssembleLoop.gasBoundL cx.base N
++
++theorem G_eq : G = 8199112 := by decide +kernel
++
++theorem G_lt : G < 2 ^ 64 := by rw [G_eq]; decide
++
++theorem reads_false : cx.base.reads = false := rfl
++
++/-- **The gas edge of UniswapV2ERC20.transfer on its exact runtime bytes, from any caller.** -/
++theorem gas_edge : ∀ a, a < 2 ^ 160 → a ≠ selfAddress → ∀ o, AssembleLoop.OracleOkAt a o →
++    ∀ call, TransferCall call → ∀ gas, G ≤ gas →
++      ∃ obs, (evmirSem o).run prog call = some obs ∧
++        Final.Target.runWithFrom a gas code call = some obs := by
++  intro a ha hne o ho call hc gas hg
++  obtain ⟨obs, hq, hb⟩ := gasEdge_ofXL check_ok reads_false (fun o call h => guard_ends o call h)
++    (fun o call h => guard_run o call h) a ha hne o ho call hc gas hg
++  exact ⟨obs, (AssembleCtx.sem_norm o prog call).symm.trans hq, hb⟩
++
++/-- **Resources of UniswapV2ERC20.transfer from any caller**, from the functional stage. -/
++theorem resources {Valid : Call → Prop} {run : Nat → Call → Option Observable}
++    (hv : ∀ call, Valid call → TransferCall call)
++    (total : ∀ a, a < 2 ^ 160 → a ≠ selfAddress → ∀ call, Valid call → ∃ obs, run a call = some obs)
++    (stage : ∀ a, a < 2 ^ 160 → a ≠ selfAddress → ∀ call, Valid call → ∀ obs, run a call = some obs →
++      (evmirSem (oracleFrom a)).run prog call = some obs) :
++    ResourcesFrom run code Valid (fun _ => G) :=
++  resourcesFrom_ofXL total
++    (fun a ha hne call hc obs h => (AssembleCtx.sem_norm _ prog call).trans (stage a ha hne call hc obs h))
++    check_ok reads_false
++    (fun o call h => guard_ends o call (hv call h)) (fun o call h => guard_run o call (hv call h)) G_lt
++
++/-- At `callerAddress`: `Shapes.Resources` of a source semantics. -/
++theorem resources_at {S : Sem} {p : S.Prog} {Valid : Call → Prop}
++    {run : Nat → Call → Option Observable} (hrun : run callerAddress = S.run p)
++    (hv : ∀ call, Valid call → TransferCall call)
++    (total : ∀ a, a < 2 ^ 160 → a ≠ selfAddress → ∀ call, Valid call → ∃ obs, run a call = some obs)
++    (stage : ∀ a, a < 2 ^ 160 → a ≠ selfAddress → ∀ call, Valid call → ∀ obs, run a call = some obs →
++      (evmirSem (oracleFrom a)).run prog call = some obs) :
++    Resources S p code Valid (fun _ => G) :=
++  (resources hv total stage).resources hrun
++
++/-- The bytes with byte `i` replaced by `b`. -/
++def mutant (i b : Nat) : ByteArray := ⟨((bytes.set i b).map UInt8.ofNat).toArray⟩
++
++/-- A checker run whose walk of the bytes against the program fails refuses the bytes. -/
++theorem refuses_of_walk {code' : ByteArray}
++    (h : Assemble.walkS cx.base.offset (Assemble.bytesOf code') 0
++      (Assemble.lower (AssembleCtx.norm prog) cx.base) = false) :
++    AssembleCtxGas.checkXL F (AssembleCtx.norm prog) code' cx = false := by
++  have hw := Assemble.walkS_drop (Assemble.bytesOf code') cx.base.offset
++    (Assemble.lower (AssembleCtx.norm prog) cx.base) 0 (Nat.zero_le _)
++  rw [List.drop_zero, h] at hw
++  simp only [AssembleCtxGas.checkXL, ← hw, Bool.false_and]
++
++set_option maxRecDepth 100000 in
++/-- The checker refuses the bytes with the dispatcher's first jump target moved (byte 7). -/
++theorem rejects_jump : AssembleCtxGas.checkXL F (AssembleCtx.norm prog) (mutant 7 0x64) cx = false :=
++  refuses_of_walk (by decide +kernel)
++
++set_option maxRecDepth 100000 in
++/-- The checker refuses the bytes with transfer's debit SSTORE dropped, as POP (byte 0x427). -/
++theorem rejects_sstore : AssembleCtxGas.checkXL F (AssembleCtx.norm prog) (mutant 0x427 0x50) cx = false :=
++  refuses_of_walk (by decide +kernel)
++
++/-- info: 'SolarTV.Export.UniswapV2ERC20.CtxGas.gas_edge' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms gas_edge
++
++/-- info: 'SolarTV.Export.UniswapV2ERC20.CtxGas.resources' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms resources
++
++end SolarTV.Export.UniswapV2ERC20.CtxGas
+diff --git a/Certified/uv2_erc20/GasGuard.lean b/Certified/uv2_erc20/GasGuard.lean
+new file mode 100644
+index 00000000..00d3ee02
+--- /dev/null
++++ b/Certified/uv2_erc20/GasGuard.lean
+@@ -0,0 +1,68 @@
++import W1Proofs.Tactic
++import W1Proofs.Axioms
++import uv2_erc20.CtxGas
++
++-- Untrusted proof script: the kernel checks it. The statement speaks only of the generated
++-- program and its guarded copy.
++
++/-!
++# UniswapV2ERC20.transfer: the guard stage
++
++On every call whose selector is `transfer(address,uint256)`'s, under every oracle, the final EVM
++IR `evm11` and `CtxGas.guarded` (each block of `CtxGas.F`, the blocks of the other functions, a
++jump to itself) end within `N` blocks in the same result: no such call enters a block the checker
++with contexts and gas leaves unchecked. Symbolic execution (`sym_exec`) over a symbolic call and
++oracle: the calldata, the storage and the oracle stay opaque.
++-/
++
++namespace SolarTV.Export.UniswapV2ERC20.CtxGas
++
++open SolarTV SolarTV.Machine SolarTV.Milestone.W1
++
++/-- The blocks a call of transfer runs, at most: dispatch, entry, the balance read, the checked
++subtraction, the credit, and the return or the revert. -/
++def N : Nat := 7
++
++/-- A call of transfer: its first calldata word's top four bytes are the selector `0xa9059cbb`. -/
++def TransferCall (call : Call) : Prop :=
++  EvmRules.Evm.shr 224 (calldataWord call 0) = 0xa9059cbb
++
++set_option maxHeartbeats 8000000 in
++theorem guarded_run7 (o : Oracle) (call : Call)
++    (hsel : EvmRules.Evm.shr 224 (calldataWord call 0) = 0xa9059cbb) :
++    EVM.Program.run o SolarTV.Export.UniswapV2ERC20.evm11 call 7 = EVM.Program.run o guarded call 7 := by
++  sym_exec
++
++set_option maxHeartbeats 8000000 in
++theorem guarded_ends7 (o : Oracle) (call : Call)
++    (hsel : EvmRules.Evm.shr 224 (calldataWord call 0) = 0xa9059cbb) :
++    (EVM.Program.run o guarded call 7).isSome = true := by
++  sym_exec
++
++/-- The run of the final EVM IR (with RETURNDATASIZE in effect form, the same runs) is the guarded
++program's on a call of transfer. -/
++theorem guard_run (o : Oracle) (call : Call) (h : TransferCall call) :
++    EVM.Program.run o (SolidCore.Refinement.Solar.AssembleCtx.norm prog) call N =
++      EVM.Program.run o
++        (SolidCore.Refinement.Solar.AssembleCtxGas.guard F (SolidCore.Refinement.Solar.AssembleCtx.norm prog))
++        call N := by
++  rw [guarded_eq, SolidCore.Refinement.Solar.AssembleCtx.run_norm]
++  exact guarded_run7 o call h
++
++/-- The guarded program ends within `N` blocks on a call of transfer. -/
++theorem guard_ends (o : Oracle) (call : Call) (h : TransferCall call) :
++    (EVM.Program.run o
++      (SolidCore.Refinement.Solar.AssembleCtxGas.guard F (SolidCore.Refinement.Solar.AssembleCtx.norm prog))
++      call N).isSome = true := by
++  rw [guarded_eq]
++  exact guarded_ends7 o call h
++
++/-- info: 'SolarTV.Export.UniswapV2ERC20.CtxGas.guard_ends' depends on axioms within [propext, Classical.choice, Quot.sound] -/
++#guard_msgs in
++#axioms_within guard_ends
++
++/-- info: 'SolarTV.Export.UniswapV2ERC20.CtxGas.guard_run' depends on axioms within [propext, Classical.choice, Quot.sound] -/
++#guard_msgs in
++#axioms_within guard_run
++
++end SolarTV.Export.UniswapV2ERC20.CtxGas
+diff --git a/SolidCore/Refinement/Solar/AssembleCtxGas.lean b/SolidCore/Refinement/Solar/AssembleCtxGas.lean
+new file mode 100644
+index 00000000..332270a3
+--- /dev/null
++++ b/SolidCore/Refinement/Solar/AssembleCtxGas.lean
+@@ -0,0 +1,453 @@
++import SolidCore.Refinement.Solar.AssembleCtx
++import SolidCore.Refinement.Solar.AssembleGasLoop
++import SolidCore.Refinement.Solar.AssembleLoopWithin
++
++/-!
++# EVM IR to bytecode from a gas bound on, for internal functions called in several contexts
++
++The checker with contexts (`AssembleCtx.checkX`, `checkXB`) reads each run back from a frame that
++succeeds, at the run's own gas: it proves no gas bound. Here is the forward direction with gas, for
++the loop checker's fragment (memory at known offsets, no GAS, no call): `checkXL` checks each block
++once per context with `AssembleLoop.blockOkL` under the context's certificate, except the blocks of
++a set `F` that it leaves unchecked (a contract's functions outside a statement: the permit path's
++STATICCALL and GAS, say). `guard F p` is the program with each block of `F` replaced by a jump to
++itself, so a run of it that ends never enters `F`. `forward_of_checkXL`: when SolarTV's run of
++`guard F p` ends within `n` blocks, then at every gas from `gasBoundL cx.base n` on, EthLib runs
++the exact bytecode to exactly that result, reverts and their data included. That a valid call's
++run of `guard F p` ends is a stage like any other (the run of `p` ends and never enters `F`),
++which the stage generator proves by symbolic execution; nothing here assumes it.
++-/
++
++namespace SolidCore.Refinement.Solar.AssembleCtxGas
++
++open SolarTV SolarTV.Machine SolidCore.Refinement SolidCore.Refinement.Final
++open SolidCore.Refinement.Solar.Assemble SolidCore.Refinement.Solar.AssembleLoop
++open SolidCore.Refinement.Solar.AssembleCtx
++open SolarTV.Assembly
++open EthLib.Base EthLib.Execution EthLib.Execution.Evm EthLib.Execution.Evm.Logic GasCosts
++open SolidCore.Refinement.Evm.Wide
++
++/-! ## The guarded program -/
++
++/-- `p` with each block of `F` a jump to itself. -/
++def guard (F : List Nat) (p : Assemble.Program) : Assemble.Program :=
++  ⟨p.blocks.mapIdx fun b instrs => if F.contains b then [.jump b] else instrs⟩
++
++theorem guard_length (F : List Nat) (p : Assemble.Program) :
++    (guard F p).blocks.length = p.blocks.length := by
++  simp [guard]
++
++theorem guard_get? (F : List Nat) (p : Assemble.Program) (b : Nat) :
++    (guard F p).blocks[b]? = p.blocks[b]?.map fun instrs => if F.contains b then [.jump b] else instrs := by
++  simp [guard, List.getElem?_mapIdx]
++
++theorem block_guard_out {F : List Nat} {p : Assemble.Program} {o : Oracle} {call : Call} {b : Nat}
++    (hb : b < p.blocks.length) (hF : F.contains b = false) (S : List Word) (s : State) :
++    SolarTV.EVM.Program.block o call (guard F p) (b, S, s) =
++      some (SolarTV.EVM.Program.exec o call b p.blocks[b] S s) := by
++  simp only [SolarTV.EVM.Program.block, guard_get?, List.getElem?_eq_getElem hb, Option.map_some,
++    hF, Bool.false_eq_true, ite_false]
++
++theorem block_guard_end {F : List Nat} {p : Assemble.Program} {o : Oracle} {call : Call}
++    (S : List Word) (s : State) :
++    SolarTV.EVM.Program.block o call (guard F p) (p.blocks.length, S, s) = some (.inl (.stop, s)) := by
++  have h : (guard F p).blocks[p.blocks.length]? = none := by
++    rw [guard_get?, List.getElem?_eq_none (by omega)]; rfl
++  simp only [SolarTV.EVM.Program.block, h, guard_length, ite_true]
++
++/-- A run of `guard F p` that enters a block of `F` with fewer than 1024 words never ends. -/
++theorem iterate_guard_in {F : List Nat} {p : Assemble.Program} {o : Oracle} {call : Call} {b : Nat}
++    (hb : b < p.blocks.length) (hF : F.contains b = true) (S : List Word) (hS : S.length < 1024)
++    (s : State) : ∀ n, iterate (SolarTV.EVM.Program.block o call (guard F p)) n (b, S, s) = none
++  | 0 => rfl
++  | n + 1 => by
++    have hblk : SolarTV.EVM.Program.block o call (guard F p) (b, S, s) = some (.inr (b, S, s)) := by
++      simp only [SolarTV.EVM.Program.block, guard_get?, List.getElem?_eq_getElem hb, Option.map_some,
++        hF, ite_true, SolarTV.EVM.Program.exec]
++      rw [if_neg (by omega)]
++    simp only [iterate, hblk]
++    exact iterate_guard_in hb hF S hS s n
++
++/-! ## The checker -/
++
++/-- Block `b` under a certificate, as `AssembleLoop.blocksOkL` checks it. -/
++def blockCtxOkL (p : Assemble.Program) (c : Cert) (mx : List Nat) (b : Nat)
++    (instrs : List Assemble.Instr) : Bool :=
++  decide (labelItems p c b ≤ budget c b) && decide (c.need b ≤ maxH mx b) &&
++    decide (maxH mx b + budget c b ≤ 1000) &&
++    blockOkL p c mx b (c.need b) [] (c.entry b) (budget c b - labelItems p c b) instrs
++
++/-- Block `b` in context `j`, on the loop checker's fragment. -/
++def ctxOkL (p : Assemble.Program) (cx : CtxCert) (b j : Nat) (instrs : List Assemble.Instr) : Bool :=
++  blockCtxOkL p (certAt cx (p.blocks.length + 1) b j) (maxsAt cx (p.blocks.length + 1) b j) b instrs &&
++    exitsOk p.blocks.length cx b j (exits b (cx.at b j).labs instrs) &&
++    labsCover (cx.at b j).types (cx.at b j).labs (cx.at b j).rets
++
++/-- Every block outside `F` in each of its contexts; a block of `F` is entered with at most 1000
++words in every context. -/
++def blocksXL (F : List Nat) (p : Assemble.Program) (cx : CtxCert) :
++    Nat → List (List Assemble.Instr) → Bool
++  | _, [] => true
++  | b, instrs :: rest =>
++    (List.range (cx.count b)).all (fun j =>
++      if F.contains b then decide ((cx.at b j).max ≤ 1000) else ctxOkL p cx b j instrs) &&
++      blocksXL F p cx (b + 1) rest
++
++/-- **The checker with contexts and gas**: the layout of `AssembleLoop.checkL`, the first
++block's first context at height zero, and every block outside `F` in each of its contexts. -/
++def checkXL (F : List Nat) (p : Assemble.Program) (code : ByteArray) (cx : CtxCert) : Bool :=
++  (walk (bytesOf code) cx.base.offset 0 (lower p cx.base)).isSome && labelsValid p cx.base code &&
++    decide (cx.base.top % 32 = 0) && decide (cx.base.top ≤ 2 ^ 32) && decide (code.size < 2 ^ 32) &&
++    decide (0 < cx.count 0) && decide ((cx.at 0 0).need = 0) && !F.contains 0 &&
++    blocksXL F p cx 0 p.blocks
++
++theorem blocksXL_get {F : List Nat} {p : Assemble.Program} {cx : CtxCert} :
++    ∀ (l : List (List Assemble.Instr)) (b : Nat), blocksXL F p cx b l = true →
++      ∀ k (hk : k < l.length) j, j < cx.count (b + k) →
++        (if F.contains (b + k) then decide ((cx.at (b + k) j).max ≤ 1000)
++          else ctxOkL p cx (b + k) j l[k]) = true
++  | [], _, _, _, hk, _, _ => absurd hk (by simp)
++  | x :: l, b, h, 0, _, j, hj => by
++    simp only [blocksXL, Bool.and_eq_true, List.all_eq_true, List.mem_range] at h
++    simpa using h.1 j (by simpa using hj)
++  | x :: l, b, h, k + 1, hk, j, hj => by
++    simp only [blocksXL, Bool.and_eq_true] at h
++    have := blocksXL_get l (b + 1) h.2 k (by simp at hk; omega) j
++      (by rw [show b + 1 + k = b + (k + 1) by omega]; exact hj)
++    rw [show b + (k + 1) = b + 1 + k by omega]
++    simpa using this
++
++/-- The facts of the checker. -/
++structure GlobXL (F : List Nat) (p : Assemble.Program) (cx : CtxCert) (code : ByteArray) : Prop where
++  glob : GlobLT p cx.base code
++  block : ∀ b (hb : b < p.blocks.length), F.contains b = false → ∀ j, j < cx.count b →
++    ctxOkL p cx b j p.blocks[b] = true
++  guarded : ∀ b, b < p.blocks.length → F.contains b = true → ∀ j, j < cx.count b → (cx.at b j).max ≤ 1000
++
++theorem globXL_of_checkXL {F : List Nat} {p : Assemble.Program} {code : ByteArray} {cx : CtxCert}
++    (h : checkXL F p code cx = true) :
++    GlobXL F p cx code ∧ Seg (bytesOf code) cx.base.offset 0 (lower p cx.base) code.size ∧
++      0 < cx.count 0 ∧ (cx.at 0 0).need = 0 ∧ F.contains 0 = false := by
++  simp only [checkXL, Bool.and_eq_true, decide_eq_true_eq, Bool.not_eq_true'] at h
++  obtain ⟨⟨⟨⟨⟨⟨⟨⟨hw, hlabels⟩, hmod⟩, htop⟩, hsize⟩, hcount⟩, hneed⟩, hF0⟩, hblocks⟩ := h
++  obtain ⟨stream, hw⟩ := Option.isSome_iff_exists.1 hw
++  have hseg : Seg (bytesOf code) cx.base.offset 0 (lower p cx.base) code.size := by
++    have := seg_of_walk (walk_sound hw)
++    rwa [length_bytesOf] at this
++  refine ⟨⟨⟨hmod, htop, hsize, fun t ht htgt => ?_⟩, fun b hb hF j hj => ?_, fun b hb hF j hj => ?_⟩,
++    hseg, hcount, hneed, hF0⟩
++  · have hv : isValidJumpDest (validJumpDestinations code) (cx.base.offset t) = true := by
++      simp only [labelsValid, List.all_eq_true, List.mem_range] at hlabels
++      have := hlabels t ht
++      simpa [htgt] using this
++    obtain ⟨pc', hs, hpc⟩ := seg_lowerFrom p cx.base t p.blocks 0 0 hseg ht
++    simp only [Nat.zero_add] at hs hpc
++    rw [← hpc htgt] at hs
++    refine ⟨hv, ?_, hs⟩
++    have hs' := hs
++    rw [lowerFrom_drop p cx.base ht] at hs'
++    simp only [lowerBlock, htgt, ite_true, List.cons_append] at hs'
++    cases hs' with
++    | cons d _ _ =>
++      have := decode_lt d
++      rwa [length_bytesOf] at this
++  · have := blocksXL_get p.blocks 0 hblocks b hb j (by simpa using hj)
++    simp only [Nat.zero_add, hF] at this
++    simpa using this
++  · have := blocksXL_get p.blocks 0 hblocks b hb j (by simpa using hj)
++    simp only [Nat.zero_add, hF] at this
++    simpa using this
++
++theorem globLT_congr {p : Assemble.Program} {code : ByteArray} {c1 c2 : Cert} (h : Same c1 c2)
++    (G : GlobLT p c1 code) : GlobLT p c2 code where
++  top_mod := h.2.2 ▸ G.top_mod
++  top_le := h.2.2 ▸ G.top_le
++  size_lt := G.size_lt
++  target := fun t ht htg => by
++    rw [← isTarget_congr h.2.1] at htg
++    rw [← h.offset, ← lowerFrom_congr h.2.1]
++    exact G.target t ht htg
++
++theorem entryL_congr {c1 c2 : Cert} (h : Same c1 c2) {p : Assemble.Program} {code : ByteArray}
++    {call : Call} {b R pc : Nat} {s : State} {M : ByteArray} {g : Nat}
++    (E : EntryL c1 code call (lowerFrom p c1 b (p.blocks.drop b)) R pc s M g) :
++    EntryL c2 code call (lowerFrom p c2 b (p.blocks.drop b)) R pc s M g := by
++  obtain ⟨hseg, hg, htop, hmem⟩ := E
++  refine ⟨?_, h.2.2 ▸ hg, h.2.2 ▸ htop, hmem⟩
++  rw [← h.offset, ← lowerFrom_congr h.2.1]
++  exact hseg
++
++/-! ## The forward simulation -/
++
++/-- The relation at a block entry, with gas for `R` more items: `AssembleLoop.run_simL`'s, under a
++certificate of the layout, at the height range and types of one of the block's contexts when the
++block is outside `F`. -/
++def EntL (F : List Nat) (p : Assemble.Program) (cx : CtxCert) (code : ByteArray) (call : Call)
++    (R : Nat) (x : Nat × List Word × State) (pc : Nat) (T : List Word) (M : ByteArray) (g : Nat) :
++    Prop :=
++  ∃ (c : Cert) (mx : List Nat), Same c cx.base ∧ x.1 ≤ p.blocks.length ∧
++    (x.1 < p.blocks.length → c.need x.1 ≤ x.2.1.length ∧ x.2.1.length ≤ maxH mx x.1) ∧
++    SR c (c.entry x.1) x.2.1 T ∧ EntryL c code call (lowerFrom p c x.1 (p.blocks.drop x.1)) R pc x.2.2 M g ∧
++    (x.1 < p.blocks.length → ∃ j, j < cx.count x.1 ∧ c.need x.1 = (cx.at x.1 j).need ∧
++      maxH mx x.1 = (cx.at x.1 j).max ∧ c.entry x.1 = (cx.at x.1 j).types ∧
++      LabOk (cx.at x.1 j).labs x.2.1)
++
++theorem bmax_certAt (cx : CtxCert) (n b j : Nat) : bmax (certAt cx n b j) = bmax cx.base := rfl
++
++open SolarTV.EVM.Program in
++/-- **EthLib runs the bytecode as SolarTV runs `guard F p`**, from a block whose relation holds,
++with gas for `fuel` blocks: to SolarTV's result when its run ends within them. -/
++theorem run_simXL {F : List Nat} {p : Assemble.Program} {cx : CtxCert} {code : ByteArray}
++    (G : GlobXL F p cx code)
++    {o : SolarTV.Machine.Oracle} {call : SolarTV.Call} {msg : Message .fusaka} {ss0 : Substate}
++    (hdata : msg.data = call.calldata) (hvalue : msg.value = BitVec.ofNat 256 call.callvalue)
++    (hstatic : msg.isStatic = false) (hself : msg.currentTarget = Target.address selfAddress)
++    {a : Nat} (hcaller : msg.caller = Target.address a) (ho : cx.base.env = true → OracleOkAt a o)
++    (hbenv : msg.blockEnv = Target.blockEnv) (htx : cx.base.reads = true → msg.txEnv = Target.txEnv)
++    (he : cx.base.reads = true → EnvOk o) :
++    ∀ (fuel b : Nat) (S T : List Word) (s : SolarTV.Machine.State) (pc : Nat) (M : ByteArray)
++      (g : Nat) (st : State.TransactionState) (ss : Substate),
++      EntL F p cx code call (fuel * bmax cx.base) (b, S, s) pc T M g → Rel msg ss0 st ss s →
++      ∀ r, SolarTV.Machine.iterate (block o call (guard F p)) fuel (b, S, s) = some r →
++        SpecG .fusaka (At code msg pc T M g st ss .empty) (PostL call msg.currentTarget ss0 r.2 r.1)
++  | 0, b, S, T, s, pc, M, g, st, ss, _, _, r, hr => by simp [SolarTV.Machine.iterate] at hr
++  | fuel + 1, b, S, T, s, pc, M, g, st, ss, hE, R, r, hr => by
++    obtain ⟨c0, mx0, hsame0, hle, hneed0, hR0, E0, hctx⟩ := hE
++    dsimp only at hle hneed0 hR0 E0 hctx
++    by_cases hb : b < p.blocks.length
++    · obtain ⟨j, hj, hn0, hm0, he0, hlab⟩ := hctx hb
++      cases hF : F.contains b with
++      | true =>
++        have hS : S.length < 1024 := by
++          have := G.guarded b hb hF j hj
++          have := (hneed0 hb).2
++          omega
++        rw [iterate_guard_in hb hF S hS s] at hr
++        cases hr
++      | false =>
++      have hbn : b < p.blocks.length + 1 := by omega
++      obtain ⟨c, hc⟩ : ∃ c, c = certAt cx (p.blocks.length + 1) b j := ⟨_, rfl⟩
++      obtain ⟨mx, hmx⟩ : ∃ mx, mx = maxsAt cx (p.blocks.length + 1) b j := ⟨_, rfl⟩
++      have hsame : Same c cx.base := hc ▸ certAt_same cx _ b j
++      have hsame' : Same c0 c := ⟨hsame0.1.trans hsame.1.symm, hsame0.2.1.trans hsame.2.1.symm,
++        hsame0.2.2.trans hsame.2.2.symm⟩
++      have hcb : c.need b = (cx.at b j).need := by
++        rw [hc, certAt_need hbn, pick_of_exit (exitCtx_self cx b j)]
++      have hmb : maxH mx b = (cx.at b j).max := by
++        rw [hmx, maxsAt_max hbn, pick_of_exit (exitCtx_self cx b j)]
++      have heb : c.entry b = (cx.at b j).types := by
++        rw [hc, certAt_entry hbn, pick_of_exit (exitCtx_self cx b j)]
++      have hcr : c.rets = (cx.at b j).rets := by rw [hc]; rfl
++      have hbc : bmax c = bmax cx.base := by rw [hc]; rfl
++      have hck := G.block b hb hF j hj
++      simp only [ctxOkL, Bool.and_eq_true] at hck
++      obtain ⟨⟨hblk0, hexOk⟩, hcov⟩ := hck
++      have hR : SR c (c.entry b) S T := by
++        rw [heb, ← he0]
++        exact SR_congr hsame' hR0 (by rw [he0, hcr]; exact labsCover_mem hcov hlab)
++      have E : EntryL c code call (lowerFrom p c b (p.blocks.drop b)) ((fuel + 1) * bmax c) pc s M g := by
++        rw [hbc]; exact entryL_congr hsame' E0
++      have hn : c.need b ≤ S.length := by rw [hcb, ← hn0]; exact (hneed0 hb).1
++      have hm : S.length ≤ maxH mx b := by rw [hmb, ← hm0]; exact (hneed0 hb).2
++      have hGc : GlobLT p c code := globLT_congr ⟨hsame.1.symm, hsame.2.1.symm, hsame.2.2.symm⟩ G.glob
++      rw [← hc, ← hmx] at hblk0
++      simp only [blockCtxOkL, Bool.and_eq_true, decide_eq_true_eq] at hblk0
++      obtain ⟨⟨⟨hL, hnm⟩, hstk⟩, hblock⟩ := hblk0
++      have hbm := budget_le_bmax c b
++      have hfm : (fuel + 1) * bmax c = fuel * bmax c + bmax c := Nat.succ_mul _ _
++      obtain ⟨pc1, g1, hlabel, hg1, I1⟩ : ∃ pc1 g1, HoareG .fusaka (At code msg pc T M g st ss .empty)
++          (At code msg pc1 T M g1 st ss .empty) ∧ g1 + (if isTarget p c b then 1 else 0) ≤ g ∧
++          InvL c code call (lowerInstrs p c b p.blocks[b] ++
++            lowerFrom p c (b + 1) (p.blocks.drop (b + 1))) (budget c b - labelItems p c b)
++            (fuel * bmax c) pc1 S s M g1 := by
++        have E' := E
++        rw [lowerFrom_drop p c hb, lowerBlock, List.append_assoc] at E'
++        have hG := E'.gas
++        rw [hfm] at hG
++        by_cases ht : isTarget p c b = true
++        · have hl : labelItems p c b = 1 := by simp [labelItems, ht]
++          rw [hl] at hL ⊢
++          simp only [ht, ite_true, List.singleton_append] at E'
++          obtain ⟨next, hd, hseg⟩ := E'.seg.head
++          simp only [Item.expected] at hd
++          obtain ⟨hlt, hcode, rfl⟩ := op_item hd
++          exact ⟨pc + 1, g - 1, Logic.jumpdestG hlt hcode (by omega), by simp only [ht, ite_true]; omega,
++            ⟨hseg, by omega, by omega, E'.le_top, E'.mem⟩⟩
++        · have hl : labelItems p c b = 0 := by simp [labelItems, ht]
++          rw [hl, Nat.sub_zero]
++          simp only [ht, Bool.false_eq_true, ite_false, List.nil_append] at E'
++          exact ⟨pc, g, Triple.of_imp fun _ h => h, by simp only [ht, Bool.false_eq_true, ite_false]; omega,
++            ⟨E'.seg, by omega, by omega, E'.le_top, E'.mem⟩⟩
++      have hsim := exec_simL (o := o) hGc hdata hvalue hstatic hself hcaller (by rw [hc]; exact ho)
++        hbenv (by rw [hc]; exact htx) (by rw [hc]; exact he) b hb (fuel * bmax c)
++        p.blocks[b] (c.need b) [] (c.entry b) S T _ s pc1 M g1 st ss hblock hn (by omega)
++        (List.nil_prefix) hR I1 R
++      cases hexE : exits b (cx.at b j).labs p.blocks[b] with
++      | none => rw [hexE] at hexOk; simp [exitsOk] at hexOk
++      | some Ex =>
++      rw [hexE] at hexOk
++      simp only [SolarTV.Machine.iterate, block_guard_out hb hF] at hr
++      generalize hx : exec o call b p.blocks[b] S s = x at hsim hr
++      rcases x with ⟨halt, s'⟩ | ⟨t, S', s'⟩
++      · simp only [Option.some.injEq] at hr
++        subst hr
++        exact SpecG.seq hlabel hsim
++      · obtain ⟨⟨htle, hneedt, hj⟩, pc', T', M', g', st', ss', hh, hR', E', R'⟩ := hsim
++        obtain ⟨L', hmemE, hL'⟩ := exits_sound o call b p.blocks[b] _ S s Ex _ hlab hexE hx
++        have IH := run_simXL G hdata hvalue hstatic hself hcaller ho hbenv htx he fuel t S' T' s' pc'
++          M' g' st' ss' ⟨c, mx, hsame, htle, hneedt, hR', by rw [← hbc]; exact E', fun ht => ?_⟩ R' r hr
++        · exact SpecG.seq (Triple.seq hlabel hh) IH
++        · obtain ⟨j', hx', hj'c, hlabs⟩ := exitsOk_mem hexOk hmemE ht
++          have htn : t < p.blocks.length + 1 := by omega
++          have hpk := pick_of_exit hx'
++          refine ⟨j', hj'c, ?_, ?_, ?_, hL'.le hlabs⟩
++          · rw [hc, certAt_need htn, hpk]
++          · rw [hmx, maxsAt_max htn, hpk]
++          · rw [hc, certAt_entry htn, hpk]
++    · obtain rfl : b = p.blocks.length := by omega
++      simp only [SolarTV.Machine.iterate, block_guard_end, Option.some.injEq] at hr
++      subst hr
++      have hseg := E0.seg
++      rw [lowerFrom_nil p c0 (by omega)] at hseg
++      have hpc := hseg.nil_end
++      exact SpecG.consequence (stop_of_size_leG (by omega))
++        (fun _ h => h) fun evm h => postL_stop R hself evm h
++
++/-- **The forward assembly theorem for code with contexts.** When SolarTV's run of `guard F p`
++ends within `n` blocks, from `gasBoundL cx.base n` gas on EthLib runs the exact bytecode to
++exactly its result. -/
++theorem forward_of_checkXL {F : List Nat} {p : Assemble.Program} {code : ByteArray} {cx : CtxCert}
++    (hc : checkXL F p code cx = true) (o : SolarTV.Machine.Oracle) (ho : cx.base.env = true → OracleOk o)
++    (he : cx.base.reads = true → EnvOk o) (call : SolarTV.Call) (n : Nat)
++    (r : SolarTV.Machine.Halt × SolarTV.Machine.State)
++    (hit : SolarTV.Machine.iterate (SolarTV.EVM.Program.block o call (guard F p)) n
++      (0, [], SolarTV.Machine.State.initial call) = some r)
++    {gas : Nat} (hg : gasBoundL cx.base n ≤ gas) :
++    Final.Target.runWith gas code call = some (SolarTV.Machine.observe call r.2 r.1) := by
++  obtain ⟨G, hseg, hcount, hneed0, hF0⟩ := globXL_of_checkXL hc
++  have hm0 : memoryGasCost (ByteArray.empty).size = 0 := by decide
++  refine Assemble.run_of_rel_with code call r.2 r.1 gas fun st R => ?_
++  have h0n : 0 < p.blocks.length + 1 := by omega
++  have hsame := certAt_same cx (p.blocks.length + 1) 0 0
++  have hn0 : (certAt cx (p.blocks.length + 1) 0 0).need 0 = (cx.at 0 0).need := by
++    rw [certAt_need h0n, pick_of_exit (exitCtx_self cx 0 0)]
++  refine SpecG.toSpec (run_simXL G rfl (by simp [Final.Target.messageWith, Target.message]) rfl rfl rfl ho rfl (fun _ => rfl) he
++    n 0 [] [] _ 0 .empty gas st Substate.empty
++    ⟨certAt cx (p.blocks.length + 1) 0 0, maxsAt cx (p.blocks.length + 1) 0 0, hsame, Nat.zero_le _,
++      fun _ => ⟨by simp [hn0, hneed0], by simp⟩, SR.nil _ _, ⟨?_, ?_, by simp, memRel_initial⟩,
++      fun _ => ⟨0, hcount, hn0, by rw [maxsAt_max h0n, pick_of_exit (exitCtx_self cx 0 0)],
++        by rw [certAt_entry h0n, pick_of_exit (exitCtx_self cx 0 0)], LabOk.empty _⟩⟩ R r hit)
++  · rw [hsame.offset, lowerFrom_congr hsame.2.1, List.drop_zero]
++    exact hseg
++  · rw [hm0, hsame.2.2]
++    unfold gasBoundL at hg
++    exact Nat.le_trans (Nat.add_le_add_left (Nat.sub_le _ _) _) hg
++
++/-- info: 'SolidCore.Refinement.Solar.AssembleCtxGas.forward_of_checkXL' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms forward_of_checkXL
++
++open SolidCore.Refinement.Evm.Symex in
++/-- **EVM IR to bytecode at every gas, without hypotheses on the runner of messages.** When
++SolarTV's run of `guard F p` ends within `n` blocks, every result EthLib gives for the exact
++bytecode at any gas is that run's result, or a failure that changes nothing: a run that succeeds at
++gas `g` is the run with `gasBoundL cx.base n` more gas, which `run_simXL` follows to the end. No
++block of `F` (the only ones with STATICCALL or GAS) is reached, so the runner of messages is never
++consulted. -/
++theorem within_of_checkXL {F : List Nat} {p : Assemble.Program} {code : ByteArray} {cx : CtxCert}
++    (hc : checkXL F p code cx = true) (o : SolarTV.Machine.Oracle) (ho : cx.base.env = true → OracleOk o)
++    (he : cx.base.reads = true → EnvOk o) (call : SolarTV.Call) (n : Nat)
++    (r : SolarTV.Machine.Halt × SolarTV.Machine.State)
++    (hit : SolarTV.Machine.iterate (SolarTV.EVM.Program.block o call (guard F p)) n
++      (0, [], SolarTV.Machine.State.initial call) = some r) (gas : Nat) (obs : Observable)
++    (hrun : Final.Target.runWith gas code call = some obs) :
++    obs = SolarTV.Machine.observe call r.2 r.1 ∨
++      (obs.success = false ∧ obs.storage = slotValue call.storage ∧ obs.logs = []) := by
++  obtain ⟨G, hseg, hcount, hneed0, hF0⟩ := globXL_of_checkXL hc
++  cases hs : obs.success
++  · exact Or.inr ⟨rfl, Target.runWith_failure hrun hs⟩
++  left
++  unfold Target.runWith Target.runMsg at hrun
++  split at hrun
++  · cases hrun
++  rename_i evm hev hpm
++  simp only [Option.some.injEq] at hrun
++  subst hrun
++  have hok : evm.error = none := by simpa using hs
++  obtain ⟨st', ss', runChild, within, hcases, hmove, hrf⟩ :=
++    processMessage_ok (message := Final.Target.messageWith gas code call) (evm := ⟨evm, hev⟩)
++      (precompileAddress_message code call) hpm hok
++  simp only at hrf
++  set msg := Final.Target.messageWith gas code call with hmsg
++  have hcode : msg.code = code := rfl
++  have R := rel_start code call gas ss' (fun h => (hcases h).1) (fun h => (hmove h).1)
++  have hm0 : memoryGasCost (ByteArray.empty).size = 0 := by decide
++  have h0n : 0 < p.blocks.length + 1 := by omega
++  have hsame := certAt_same cx (p.blocks.length + 1) 0 0
++  have hn0 : (certAt cx (p.blocks.length + 1) 0 0).need 0 = (cx.at 0 0).need := by
++    rw [certAt_need h0n, pick_of_exit (exitCtx_self cx 0 0)]
++  have hsim := run_simXL (msg := msg) (ss0 := ss') G rfl (by simp [msg, Final.Target.messageWith,
++    Target.message]) rfl rfl rfl ho rfl (fun _ => rfl) he n 0 [] [] _ 0 .empty (gas + gasBoundL cx.base n) st' ss'
++    ⟨certAt cx (p.blocks.length + 1) 0 0, maxsAt cx (p.blocks.length + 1) 0 0, hsame, Nat.zero_le _,
++      fun _ => ⟨by simp [hn0, hneed0], by simp⟩, SR.nil _ _,
++      ⟨by rw [hsame.offset, lowerFrom_congr hsame.2.1, List.drop_zero]; exact hseg,
++        by
++          rw [hm0]
++          show 22100 * (n * bmax cx.base) + (memoryGasCost (certAt cx (p.blocks.length + 1) 0 0).top - 0) ≤ _
++          have : memoryGasCost (certAt cx (p.blocks.length + 1) 0 0).top - 0 ≤ memoryGasCost cx.base.top := by
++            rw [hsame.2.2]; exact Nat.sub_le _ _
++          unfold gasBoundL; omega,
++        by simp, memRel_initial⟩,
++      fun _ => ⟨0, hcount, hn0, by rw [maxsAt_max h0n, pick_of_exit (exitCtx_self cx 0 0)],
++        by rw [certAt_entry h0n, pick_of_exit (exitCtx_self cx 0 0)], LabOk.empty _⟩⟩ R r hit
++  have hl : At code msg 0 [] .empty gas st' ss' .empty (startFrame msg st' ss' msg.gas) :=
++    ⟨by simp [startFrame, hcode], by simp [startFrame, hcode], rfl, rfl, rfl, rfl, rfl, rfl, rfl,
++      rfl, rfl, rfl, rfl⟩
++  have hp := hl.addGas (gasBoundL cx.base n)
++  rcases r with ⟨halt, sF⟩
++  obtain ⟨ssF, ⟨herr, hout, hlogsF, hst⟩, L, hL1, hL2⟩ := SpecG.low hsim hp within hrf hok
++  have hss' : ss'.logs.toList = [] := by
++    by_cases htr : msg.shouldTransferValue = true ∧ msg.value ≠ 0
++    · rw [(hmove htr).2]
++      simp [pushTransferLog, show ¬ (Fork.fusaka ≥ Fork.glamsterdam) by decide, Substate.empty]
++    · rw [(hcases htr).2]
++      simp [Substate.empty]
++  have hlogs := logs_of_match hL2
++  have hL1' : ssF.logs.toList = L := by rw [hL1, hss', List.nil_append]
++  have herr' : evm.error = errorOf (SolarTV.Machine.observe call sF halt) := herr
++  have hout' : evm.output.toList.map (·.toNat) = (SolarTV.Machine.observe call sF halt).output := hout
++  have hst' : (SolarTV.Machine.observe call sF halt).success = true →
++      evm.substate.logs = ssF.logs ∧ ∀ slot,
++        (evm.state.getStorage (Target.address selfAddress) (Target.storageKey slot)).toNat =
++          (SolarTV.Machine.observe call sF halt).storage slot :=
++    fun h => ⟨hlogsF, hst h⟩
++  have hok2 : (SolarTV.Machine.observe call sF halt).success = true →
++      (SolarTV.Machine.observe call sF halt).logs = SolarTV.Machine.logs sF := by
++    cases halt <;> simp [SolarTV.Machine.observe]
++  clear herr hout hst hsim hit
++  generalize SolarTV.Machine.observe call sF halt = X at *
++  have hsucc : evm.error.isNone = X.success := by
++    rw [herr']; cases hX : X.success <;> simp [errorOf, hX]
++  cases X with
++  | mk success output logs storage =>
++    simp only at hsucc hout' hok2 hst' ⊢
++    rw [SolarTV.Observable.mk.injEq]
++    refine ⟨hsucc, hout', ?_, ?_⟩
++    · rw [hsucc]
++      cases hs : success
++      · simp [hok, hs] at hsucc
++      · simp only [ite_true]
++        rw [(hst' hs).1, hL1', hlogs, hok2 hs]
++        rfl
++    · funext slot
++      rw [hsucc]
++      cases hs : success
++      · simp [hok, hs] at hsucc
++      · simp only [ite_true]
++        exact (hst' hs).2 slot
++
++/-- info: 'SolidCore.Refinement.Solar.AssembleCtxGas.within_of_checkXL' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms within_of_checkXL
++
++end SolidCore.Refinement.Solar.AssembleCtxGas
+diff --git a/SolidCore/Refinement/Solar/AssembleCtxGasFrom.lean b/SolidCore/Refinement/Solar/AssembleCtxGasFrom.lean
+new file mode 100644
+index 00000000..c625af7a
+--- /dev/null
++++ b/SolidCore/Refinement/Solar/AssembleCtxGasFrom.lean
+@@ -0,0 +1,333 @@
++import SolidCore.Refinement.Solar.AssembleCtxGas
++
++/-!
++# The forward assembly theorem with gas, from any caller
++
++`Final.Target.runWith gas` runs one message from the fixed account `callerAddress`. Here
++`Final.Target.runWithFrom a gas` runs the same message from the account `a` (its sender and the
++transaction's origin, holding exactly the call's value), any account below `2 ^ 160` but the
++contract's own, at `gas` gas; at `callerAddress` it is `runWith` (`runWithFrom_callerAddress`).
++
++`forward_of_checkXLFrom` is `AssembleCtxGas.forward_of_checkXL` for it: when SolarTV's run of
++`guard F p`, under an oracle whose CALLER is `a` and whose Keccak-256 is EthLib's, ends within
++`n` blocks, then at every gas from `gasBoundL cx.base n` on EthLib runs the exact bytecode from
++`a` to exactly that result. The bound is the same for every caller: it charges every item of the
++lowered program 22100 gas, at least the price of any instruction of the loop checker's fragment
++under EIP-2929 (an SSTORE to a cold slot that sets a zero slot: 20000 + 2100; a cold SLOAD: 2100),
++whatever slots and accounts the call finds warm or cold; EthLib's interpreter meters the actual
++accesses, so the theorem holds of the access sets the run builds, not of a model of them.
++
++The lemmas on `preStateFrom` follow `AssembleSim`'s on `preState`.
++-/
++
++namespace SolidCore.Refinement.Target
++
++open EthLib.Base EthLib.Execution EthLib.Execution.Evm EthLib.Execution.State
++
++/-- The transaction of a call from the account `caller`, its origin. -/
++def txEnvFrom (caller : Nat) : TransactionEnvironment .fusaka :=
++  { origin := address caller, gasPrice := 0, blobVersionedHashes := fun _ => [] }
++
++/-- The state before a call from the account `caller`: `code` at `selfAddress` with the call's
++storage, and `caller` holding exactly the call value. -/
++def preStateFrom (caller : Nat) (code : ByteArray) (call : Call) : TransactionState :=
++  let hash := EthLib.Cryptography.Hash.Keccak.keccak256 code
++  let storage : Std.ExtTreeMap Bytes32 U256 :=
++    call.storage.foldl (fun m kv => m.insert (storageKey kv.1) (BitVec.ofNat 256 kv.2)) ∅
++  let pre : State :=
++    { accounts := ((∅ : Std.ExtTreeMap Address Account).insert (address selfAddress)
++          { nonce := 1, balance := 0, codeHash := hash }).insert (address caller)
++          { nonce := 0, balance := BitVec.ofNat 256 call.callvalue,
++            codeHash := EthLib.Cryptography.Hash.Keccak.keccak256 .empty },
++      storage := (∅ : Std.ExtTreeMap Address (Std.ExtTreeMap Bytes32 U256)).insert
++        (address selfAddress) storage,
++      code := (∅ : Std.ExtTreeMap Hash32 ByteArray).insert hash code }
++  TransactionState.ofBlock
++    { preState := pre, accountWrites := ∅, storageWrites := ∅, codeWrites := ∅,
++      storageClears := ∅ }
++
++/-- The message of a call from the account `caller` with `gas` gas to `selfAddress`. -/
++def messageFromWith (caller gas : Nat) (code : ByteArray) (call : Call) : Message .fusaka :=
++  { blockEnv, txEnv := txEnvFrom caller, caller := address caller,
++    target := some (address selfAddress),
++    currentTarget := address selfAddress, gas, value := call.callvalue,
++    data := call.calldata, codeAddress := some (address selfAddress),
++    code, depth := 0, shouldTransferValue := true, isStatic := false,
++    disablePrecompiles := false }
++
++theorem txEnvFrom_callerAddress : txEnvFrom callerAddress = txEnv := rfl
++
++theorem preStateFrom_callerAddress : preStateFrom callerAddress = preState := rfl
++
++end SolidCore.Refinement.Target
++
++namespace SolidCore.Refinement.Final.Target
++
++open EthLib.Base EthLib.Execution EthLib.Execution.Evm
++
++/-- **EthLib's run of `call` from the account `caller` with `gas` gas.** -/
++def runWithFrom (caller gas : Nat) (code : ByteArray) (call : Call) : Option Observable :=
++  match processMessage (Meter := Nat) .fusaka (Refinement.Target.messageFromWith caller gas code call)
++      (Refinement.Target.preStateFrom caller code call) Substate.empty with
++  | .error _ => none
++  | .ok ⟨evm, _⟩ =>
++    let success := evm.error.isNone
++    some
++      { success
++        output := evm.output.toList.map (·.toNat)
++        logs :=
++          if success then
++            evm.substate.logs.toList.map fun log =>
++              (log.topics.map fun topic => bytesToNat topic.toList,
++                log.data.toList.map (·.toNat))
++          else []
++        storage := fun slot =>
++          if success then
++            (evm.state.getStorage (Refinement.Target.address selfAddress)
++              (Refinement.Target.storageKey slot)).toNat
++          else slotValue call.storage slot }
++
++/-- From `callerAddress` it is `runWith`. -/
++theorem messageFromWith_callerAddress (gas : Nat) (code : ByteArray) (call : Call) :
++    Refinement.Target.messageFromWith callerAddress gas code call = messageWith gas code call := rfl
++
++theorem runWithFrom_callerAddress : runWithFrom callerAddress = runWith := by
++  funext gas code call
++  simp only [runWithFrom, runWith, runMsg, messageFromWith_callerAddress,
++    Refinement.Target.preStateFrom_callerAddress]
++  split <;> rename_i h <;> rw [h]
++
++end SolidCore.Refinement.Final.Target
++
++namespace SolidCore.Refinement.Solar.Assemble
++
++open EthLib.Base EthLib.Execution EthLib.Execution.Evm EthLib.Execution.Evm.Logic GasCosts
++open EthLib.Execution.State
++open SolidCore.Refinement.Evm.Wide SolidCore.Refinement.Evm.Symex
++
++/-- The word of the address of a number below `2 ^ 160` is the number. -/
++theorem address_toNat {n : Nat} (h : n < 2 ^ 160) : (Target.address n).toU256.toNat = n := by
++  have h20 : n < 256 ^ 20 := by simpa using h
++  simp only [Address.toU256, Target.address, BitVec.toNat_ofNat]
++  rw [show (⟨(natToBytes 20 n).toArray, _⟩ : Address).toList = natToBytes 20 n from rfl,
++    bytesToNat_natToBytes_of_lt h20]
++  exact Nat.mod_eq_of_lt (Nat.lt_trans h (by decide))
++
++/-- The address of an account below `2 ^ 160` other than `selfAddress` is not the contract's. -/
++theorem address_ne_self {a : Nat} (ha : a < 2 ^ 160) (hne : a ≠ selfAddress) :
++    Target.address selfAddress ≠ Target.address a := fun h => by
++  apply hne
++  have : (Target.address selfAddress).toU256.toNat = (Target.address a).toU256.toNat :=
++    congrArg (fun x : Address => x.toU256.toNat) h
++  rw [address_toNat ha, address_toNat (show selfAddress < 2 ^ 160 by decide)] at this
++  exact this.symm
++
++theorem precompileAddress_messageFromWith (a gas : Nat) (code : ByteArray) (call : SolarTV.Call) :
++    precompileAddress .fusaka (Target.messageFromWith a gas code call) = none := by
++  have h := precompileAddress_message code call
++  unfold precompileAddress at h ⊢
++  exact h
++
++theorem getStorage_preStateFrom (a : Nat) (code : ByteArray) (call : SolarTV.Call) (k : Nat) :
++    ((Target.preStateFrom a code call).getStorage (Target.address selfAddress)
++      (Target.storageKey k)).toNat = slotValue call.storage k := by
++  simp only [Target.preStateFrom, TransactionState.getStorage, TransactionState.ofBlock,
++    StorageMap.slot, State.getStorage]
++  simp
++  exact getD_foldl_insert _ _ _ _ (by simp)
++
++theorem getAccount_preStateFrom_self (a : Nat) (hAB : Target.address selfAddress ≠ Target.address a)
++    (code : ByteArray) (call : SolarTV.Call) :
++    (Target.preStateFrom a code call).getAccount (Target.address selfAddress) =
++      { nonce := 1, balance := 0, codeHash := EthLib.Cryptography.Hash.Keccak.keccak256 code } := by
++  simp only [Target.preStateFrom, TransactionState.getAccount, TransactionState.getAccountOptional,
++    TransactionState.ofBlock, State.getAccountOptional]
++  rw [Std.ExtTreeMap.getElem?_insert, ite_eq_right (fun h => absurd (Std.LawfulEqCmp.eq_of_compare h).symm hAB),
++    Std.ExtTreeMap.getElem?_insert, ite_eq_left (Std.ReflCmp.compare_self)]
++  simp
++
++theorem account_preStateFrom (a : Nat) (hAB : Target.address selfAddress ≠ Target.address a)
++    (code : ByteArray) (call : SolarTV.Call) :
++    (Target.preStateFrom a code call).getAccountOptional (Target.address selfAddress) ≠ none := by
++  simp only [Target.preStateFrom, TransactionState.getAccountOptional, TransactionState.ofBlock,
++    State.getAccountOptional]
++  rw [Std.ExtTreeMap.getElem?_insert, ite_eq_right (fun h => absurd (Std.LawfulEqCmp.eq_of_compare h).symm hAB),
++    Std.ExtTreeMap.getElem?_insert, ite_eq_left (Std.ReflCmp.compare_self)]
++  simp
++
++theorem getAccount_preStateFrom_caller (a : Nat) (code : ByteArray) (call : SolarTV.Call) :
++    ((Target.preStateFrom a code call).getAccount (Target.address a)).balance =
++      BitVec.ofNat 256 call.callvalue := by
++  simp only [Target.preStateFrom, TransactionState.getAccount, TransactionState.getAccountOptional,
++    TransactionState.ofBlock, State.getAccountOptional]
++  simp
++
++/-- `rel_initial` from the account `a`, at any gas. -/
++theorem rel_initialFrom (a gas : Nat) (hAB : Target.address selfAddress ≠ Target.address a)
++    (code : ByteArray) (call : SolarTV.Call) :
++    Rel (Target.messageFromWith a gas code call) Substate.empty (Target.preStateFrom a code call)
++      Substate.empty (SolarTV.Machine.State.initial call) := by
++  have htgt : (Target.messageFromWith a gas code call).currentTarget = Target.address selfAddress := rfl
++  refine ⟨fun k => ?_, ?_, ⟨[], by simp, .nil⟩⟩
++  · apply BitVec.eq_of_toNat_eq
++    have hkey : U256.toBeBytes k = Target.storageKey k.toNat :=
++      ((storageKey_eq_toBeBytes k.toNat k).2 (Nat.mod_eq_of_lt k.isLt)).symm
++    rw [htgt, hkey, getStorage_preStateFrom a code call k.toNat]
++    simp only [SolarTV.Machine.State.initial, BitVec.toNat_ofNat]
++    exact (Nat.mod_eq_of_lt (slotValue_lt _ _)).symm
++  · rw [htgt]
++    exact Option.isSome_iff_ne_none.2 (account_preStateFrom a hAB code call)
++
++/-- `moveEther_preState_any` from the account `a`. -/
++theorem moveEther_preStateFrom_any (a : Nat) (hAB : Target.address selfAddress ≠ Target.address a)
++    (code : ByteArray) (call : SolarTV.Call) :
++    ∃ st', (Target.preStateFrom a code call).moveEther .fusaka (Target.address a)
++      (Target.address selfAddress) (BitVec.ofNat 256 call.callvalue) = .ok st' := by
++  have hd : Account.debit (Target.address a) (BitVec.ofNat 256 call.callvalue)
++      ((Target.preStateFrom a code call).getAccount (Target.address a)) =
++      .ok { (Target.preStateFrom a code call).getAccount (Target.address a) with
++        balance := 0 } := by
++    simp [Account.debit, getAccount_preStateFrom_caller]
++  obtain ⟨t1, h1⟩ := modifyState_exists (fork := .fusaka) hd
++  have ha1 := (modifyState_ne h1 hAB (Target.storageKey 0)).2
++  have hc : Account.credit (Target.address selfAddress) (BitVec.ofNat 256 call.callvalue)
++      (t1.getAccount (Target.address selfAddress)) =
++      .ok { t1.getAccount (Target.address selfAddress) with
++        balance := 0 + BitVec.ofNat 256 call.callvalue } := by
++    have : t1.getAccount (Target.address selfAddress) =
++        (Target.preStateFrom a code call).getAccount (Target.address selfAddress) := by
++      simp only [TransactionState.getAccount, ha1]
++    rw [this, getAccount_preStateFrom_self a hAB]
++    unfold Account.credit
++    rw [ite_eq_left_iff.mpr (fun h => absurd ?_ h)]
++    dsimp only
++    have h1 := (BitVec.ofNat 256 call.callvalue).isLt
++    have h0 : (0 : U256).toNat = 0 := rfl
++    omega
++  obtain ⟨t2, h2⟩ := modifyState_exists (fork := .fusaka) hc
++  exact ⟨t2, by simp [TransactionState.moveEther, bind, Except.bind, h1, h2]⟩
++
++/-- `run_of_rel_with` from the account `a`: `runWithFrom a gas` of any call, with or without value. -/
++theorem run_of_rel_withFrom (a gas : Nat) (hAB : Target.address selfAddress ≠ Target.address a)
++    (code : ByteArray) (call : SolarTV.Call) (s : SolarTV.Machine.State)
++    (halt : SolarTV.Machine.Halt)
++    (h : ∀ st, Rel (Target.messageFromWith a gas code call) Substate.empty st Substate.empty
++        (SolarTV.Machine.State.initial call) →
++      Spec .fusaka (At code (Target.messageFromWith a gas code call) 0 [] .empty gas st Substate.empty
++        .empty) (PostL call (Target.address selfAddress) Substate.empty s halt)) :
++    Final.Target.runWithFrom a gas code call = some (SolarTV.Machine.observe call s halt) := by
++  have key : ∃ evm, processMessage (Meter := Nat) .fusaka (Target.messageFromWith a gas code call)
++      (Target.preStateFrom a code call) Substate.empty = .ok evm ∧
++      MsgOut (SolarTV.Machine.observe call s halt) (Target.address selfAddress) Substate.empty
++        s.world evm.1 := by
++    by_cases hv : (Target.messageFromWith a gas code call).value = 0
++    · exact processMessage_postL _ rfl hv (precompileAddress_messageFromWith a gas code call) _ _ _ _ _
++        (h _ (rel_initialFrom a gas hAB code call))
++    · obtain ⟨st', hmove⟩ := moveEther_preStateFrom_any a hAB code call
++      have hn : ((Target.preStateFrom a code call).getAccount
++          (Target.address selfAddress)).nonce ≠ 0 := by
++        rw [getAccount_preStateFrom_self a hAB]; simp
++      have R0 := rel_initialFrom a gas hAB code call
++      have R : Rel (Target.messageFromWith a gas code call) Substate.empty st' Substate.empty
++          (SolarTV.Machine.State.initial call) :=
++        ⟨fun k => ((moveEther_recipient hmove hAB hn _).1).trans (R0.storage k),
++          (moveEther_recipient hmove hAB hn (Target.storageKey 0)).2, R0.logs⟩
++      exact processMessage_postL_move _ rfl rfl hv (precompileAddress_messageFromWith a gas code call)
++        _ _ _ _ st' _ hmove (h st' R)
++  obtain ⟨evm, hr, ssF, ⟨L, hL1, hL2⟩, herr, hout, hst⟩ := key
++  have hlogs := logs_of_match hL2
++  have hL1' : ssF.logs.toList = L := by simpa [Substate.empty] using hL1
++  have hfail : (SolarTV.Machine.observe call s halt).success = false →
++      (SolarTV.Machine.observe call s halt).logs = [] ∧
++      (SolarTV.Machine.observe call s halt).storage = slotValue call.storage := by
++    cases halt <;> simp [SolarTV.Machine.observe]
++  have hok : (SolarTV.Machine.observe call s halt).success = true →
++      (SolarTV.Machine.observe call s halt).logs = SolarTV.Machine.logs s := by
++    cases halt <;> simp [SolarTV.Machine.observe]
++  simp only [Final.Target.runWithFrom, hr]
++  generalize SolarTV.Machine.observe call s halt = X at *
++  have hsucc : evm.1.error.isNone = X.success := by
++    rw [herr]; cases hX : X.success <;> simp [errorOf, hX]
++  congr 1
++  cases X with
++  | mk success output logs storage =>
++    simp only at hsucc hout hfail hok hst ⊢
++    rw [SolarTV.Observable.mk.injEq]
++    refine ⟨hsucc, hout, ?_, ?_⟩
++    · rw [hsucc]
++      cases hs : success
++      · simp [(hfail hs).1]
++      · simp only [ite_true]
++        rw [(hst hs).1, hL1', hlogs, hok hs]
++        rfl
++    · funext slot
++      rw [hsucc]
++      cases hs : success
++      · simp [(hfail hs).2]
++      · simp only [ite_true]
++        exact (hst hs).2 slot
++
++end SolidCore.Refinement.Solar.Assemble
++
++namespace SolidCore.Refinement.Solar.AssembleCtxGas
++
++open SolarTV SolarTV.Machine SolidCore.Refinement SolidCore.Refinement.Final
++open SolidCore.Refinement.Solar.Assemble SolidCore.Refinement.Solar.AssembleLoop
++open SolidCore.Refinement.Solar.AssembleCtx
++open SolarTV.Assembly
++open EthLib.Base EthLib.Execution EthLib.Execution.Evm EthLib.Execution.Evm.Logic GasCosts
++open SolidCore.Refinement.Evm.Wide
++
++/-- **The forward assembly theorem with gas, from any caller.** For every account `a` but the
++contract's: when SolarTV's run of `guard F p` under an oracle whose CALLER is `a` ends within
++`n` blocks, then at every gas from `gasBoundL cx.base n` on, EthLib runs the exact bytecode from
++`a` to exactly that result, a revert with its data included. A program that reads the
++transaction's environment (`cx.base.reads`) is covered only where that environment is
++`Target.txEnv`'s. -/
++theorem forward_of_checkXLFrom {F : List Nat} {p : Assemble.Program} {code : ByteArray}
++    {cx : CtxCert} (hc : checkXL F p code cx = true) (a : Nat)
++    (hAB : Target.address selfAddress ≠ Target.address a) (o : SolarTV.Machine.Oracle)
++    (ho : cx.base.env = true → OracleOkAt a o)
++    (he : cx.base.reads = true → EnvOk o ∧ Target.txEnvFrom a = Target.txEnv)
++    (call : SolarTV.Call) (n : Nat) (r : SolarTV.Machine.Halt × SolarTV.Machine.State)
++    (hit : SolarTV.Machine.iterate (SolarTV.EVM.Program.block o call (guard F p)) n
++      (0, [], SolarTV.Machine.State.initial call) = some r)
++    {gas : Nat} (hg : gasBoundL cx.base n ≤ gas) :
++    Final.Target.runWithFrom a gas code call = some (SolarTV.Machine.observe call r.2 r.1) := by
++  obtain ⟨G, hseg, hcount, hneed0, hF0⟩ := globXL_of_checkXL hc
++  have hm0 : memoryGasCost (ByteArray.empty).size = 0 := by decide
++  refine Assemble.run_of_rel_withFrom a gas hAB code call r.2 r.1 fun st R => ?_
++  have h0n : 0 < p.blocks.length + 1 := by omega
++  have hsame := certAt_same cx (p.blocks.length + 1) 0 0
++  have hn0 : (certAt cx (p.blocks.length + 1) 0 0).need 0 = (cx.at 0 0).need := by
++    rw [certAt_need h0n, pick_of_exit (exitCtx_self cx 0 0)]
++  refine SpecG.toSpec (run_simXL (a := a) G rfl (by simp [Target.messageFromWith]) rfl rfl rfl ho rfl
++    (fun h => (he h).2) (fun h => (he h).1)
++    n 0 [] [] _ 0 .empty gas st Substate.empty
++    ⟨certAt cx (p.blocks.length + 1) 0 0, maxsAt cx (p.blocks.length + 1) 0 0, hsame, Nat.zero_le _,
++      fun _ => ⟨by simp [hn0, hneed0], by simp⟩, SR.nil _ _, ⟨?_, ?_, by simp, memRel_initial⟩,
++      fun _ => ⟨0, hcount, hn0, by rw [maxsAt_max h0n, pick_of_exit (exitCtx_self cx 0 0)],
++        by rw [certAt_entry h0n, pick_of_exit (exitCtx_self cx 0 0)], LabOk.empty _⟩⟩ R r hit)
++  · rw [hsame.offset, lowerFrom_congr hsame.2.1, List.drop_zero]
++    exact hseg
++  · rw [hm0, hsame.2.2]
++    unfold gasBoundL at hg
++    exact Nat.le_trans (Nat.add_le_add_left (Nat.sub_le _ _) _) hg
++
++/-- info: 'SolidCore.Refinement.Solar.AssembleCtxGas.forward_of_checkXLFrom' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms forward_of_checkXLFrom
++
++/-- At `callerAddress` it is `forward_of_checkXL`'s statement. -/
++theorem forward_of_checkXL' {F : List Nat} {p : Assemble.Program} {code : ByteArray} {cx : CtxCert}
++    (hc : checkXL F p code cx = true) (o : SolarTV.Machine.Oracle)
++    (ho : cx.base.env = true → OracleOk o) (he : cx.base.reads = true → EnvOk o)
++    (call : SolarTV.Call) (n : Nat) (r : SolarTV.Machine.Halt × SolarTV.Machine.State)
++    (hit : SolarTV.Machine.iterate (SolarTV.EVM.Program.block o call (guard F p)) n
++      (0, [], SolarTV.Machine.State.initial call) = some r)
++    {gas : Nat} (hg : gasBoundL cx.base n ≤ gas) :
++    Final.Target.runWith gas code call = some (SolarTV.Machine.observe call r.2 r.1) := by
++  rw [← Final.Target.runWithFrom_callerAddress]
++  exact forward_of_checkXLFrom hc callerAddress (by decide) o ho (fun h => ⟨he h, rfl⟩) call n r hit hg
++
++end SolidCore.Refinement.Solar.AssembleCtxGas
+diff --git a/SolidCore/Refinement/Solar/AssembleLoop.lean b/SolidCore/Refinement/Solar/AssembleLoop.lean
+index 3a12495b..2c991b61 100644
+--- a/SolidCore/Refinement/Solar/AssembleLoop.lean
++++ b/SolidCore/Refinement/Solar/AssembleLoop.lean
+@@ -201,6 +201,20 @@ structure GlobL (p : Program) (c : Cert) (mx : List Nat) (code : ByteArray) : Pr
+     c.need t ≤ maxH mx t ∧ maxH mx t + budget c t ≤ 1000 ∧
+     blockOkL p c mx t (c.need t) [] (c.entry t) (budget c t - labelItems p c t) p.blocks[t] = true
+ 
++/-- The facts of the check the simulation of one block uses: `GlobL`'s but the blocks' checks,
++so that one block may be simulated under a certificate of its own (one of its contexts). -/
++structure GlobLT (p : Program) (c : Cert) (code : ByteArray) : Prop where
++  top_mod : c.top % 32 = 0
++  top_le : c.top ≤ 2 ^ 32
++  size_lt : code.size < 2 ^ 32
++  target : ∀ t, t < p.blocks.length → isTarget p c t = true →
++    isValidJumpDest (validJumpDestinations code) (c.offset t) = true ∧ c.offset t < code.size ∧
++    Seg (bytesOf code) c.offset (c.offset t) (lowerFrom p c t (p.blocks.drop t)) code.size
++
++theorem GlobL.toT {p : Program} {c : Cert} {mx : List Nat} {code : ByteArray} (G : GlobL p c mx code) :
++    GlobLT p c code :=
++  ⟨G.top_mod, G.top_le, G.size_lt, G.target⟩
++
+ theorem globL_of_checkL {p : Program} {code : ByteArray} {c : Cert} {mx : List Nat}
+     (h : checkL p code c mx = true) :
+     GlobL p c mx code ∧ Seg (bytesOf code) c.offset 0 (lower p c) code.size ∧ c.need 0 = 0 := by
+@@ -282,8 +296,8 @@ theorem InvL.entry {c : Cert} {code : ByteArray} {call : SolarTV.Call} {items :
+   mem := I.mem
+ 
+ /-- A jump's target block, at its offset, from the invariant before the `m` items of the jump. -/
+-theorem InvL.target {p : Program} {c : Cert} {mx : List Nat} {code : ByteArray}
+-    (G : GlobL p c mx code) {call : SolarTV.Call} {t m : Nat} {items : List Item} {k R pc : Nat}
++theorem InvL.target {p : Program} {c : Cert} {code : ByteArray}
++    (G : GlobLT p c code) {call : SolarTV.Call} {t m : Nat} {items : List Item} {k R pc : Nat}
+     {S : List Word} {s : SolarTV.Machine.State} {M : ByteArray} {g g' : Nat}
+     (I : InvL c code call items k R pc S s M g) (htn : t < p.blocks.length)
+     (htgt : isTarget p c t = true) (hm : m ≤ k) (hg : g ≤ g' + 22100 * m) :
+diff --git a/SolidCore/Refinement/Solar/AssembleLoopRun.lean b/SolidCore/Refinement/Solar/AssembleLoopRun.lean
+index e38d4079..9ea2c27b 100644
+--- a/SolidCore/Refinement/Solar/AssembleLoopRun.lean
++++ b/SolidCore/Refinement/Solar/AssembleLoopRun.lean
+@@ -111,7 +111,7 @@ theorem run_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteA
+           simp only [ht, Bool.false_eq_true, ite_false, List.nil_append] at E'
+           exact ⟨pc, g, Triple.of_imp fun _ h => h, by simp only [ht, Bool.false_eq_true, ite_false]; omega,
+             ⟨E'.seg, by omega, by omega, E'.le_top, E'.mem⟩⟩
+-      have hsim := exec_simL (o := o) G hdata hvalue hstatic hself hcaller ho hbenv htx he b hb (fuel * bmax c)
++      have hsim := exec_simL (o := o) G.toT hdata hvalue hstatic hself hcaller ho hbenv (fun _ => htx) he b hb (fuel * bmax c)
+         p.blocks[b] (c.need b) [] (c.entry b) S T _ s pc1 M g1 st ss hblock hn (by omega)
+         (List.nil_prefix) hR I1 R
+       simp only [SolarTV.Machine.iterate, block, hblk]
+diff --git a/SolidCore/Refinement/Solar/AssembleLoopSim.lean b/SolidCore/Refinement/Solar/AssembleLoopSim.lean
+index 70cffb4e..fd57bb5f 100644
+--- a/SolidCore/Refinement/Solar/AssembleLoopSim.lean
++++ b/SolidCore/Refinement/Solar/AssembleLoopSim.lean
+@@ -308,15 +308,25 @@ theorem stack_simL {p : Program} {c : Cert} {mx : List Nat} {bb : Nat} {ok : Nat
+   · cases hok
+ 
+ 
++/-- An oracle whose CALLER is the account `a` and whose hash is EthLib's: the oracle of a call from
++`a`. `OracleOk` is the case of `callerAddress` (`OracleOk.at`). -/
++def OracleOkAt (a : Nat) (o : SolarTV.Machine.Oracle) : Prop :=
++  o.caller.setWidth 256 = (Target.address a).toU256 ∧
++    ∀ bytes, o.keccak bytes = keccak ⟨(bytes.map UInt8.ofBitVec).toArray⟩
++
++theorem OracleOk.at {o : SolarTV.Machine.Oracle} (h : OracleOk o) : OracleOkAt callerAddress o := h
++
+ open SolarTV.EVM.Program in
+ /-- EthLib runs the code of a block's instructions from the offset of the next one as SolarTV
+-runs them, over steps monotone in gas, with gas for the reserve `R` beyond the block. -/
+-theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray} (G : GlobL p c mx code)
++runs them, over steps monotone in gas, with gas for the reserve `R` beyond the block, for a
++message from any account `a` (CALLER is `a`; the transaction's environment is `Target.txEnv`'s
++only when the block reads it). -/
++theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray} (G : GlobLT p c code)
+     {o : SolarTV.Machine.Oracle} {call : SolarTV.Call} {msg : Message .fusaka} {ss0 : Substate}
+     (hdata : msg.data = call.calldata) (hvalue : msg.value = BitVec.ofNat 256 call.callvalue)
+     (hstatic : msg.isStatic = false) (hself : msg.currentTarget = Target.address selfAddress)
+-    (hcaller : msg.caller = Target.address callerAddress) (ho : c.env = true → OracleOk o)
+-    (hbenv : msg.blockEnv = Target.blockEnv) (htx : msg.txEnv = Target.txEnv)
++    {a : Nat} (hcaller : msg.caller = Target.address a) (ho : c.env = true → OracleOkAt a o)
++    (hbenv : msg.blockEnv = Target.blockEnv) (htx : c.reads = true → msg.txEnv = Target.txEnv)
+     (he : c.reads = true → EnvOk o)
+     (b : Nat) (hb : b < p.blocks.length) (Rv : Nat) :
+     ∀ (is : List Assemble.Instr) (h : Nat) (known : List Word) (ty : List Ty) (S T : List Word) (k : Nat)
+@@ -420,7 +430,7 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
+           lowerFrom p c (b + 1) (p.blocks.drop (b + 1)))) k Rv pc S s M g := by
+         simpa only [lowerInstrs, hT, hD', Bool.false_eq_true, ite_false, List.append_assoc] using I
+       clear hok hD hD' hT
+-      have IH := exec_simL (o := o) (ss0 := ss0) G hdata hvalue hstatic hself hcaller ho hbenv htx he b hb Rv rest
++      have IH := exec_simL (mx := mx) (o := o) (ss0 := ss0) G hdata hvalue hstatic hself hcaller ho hbenv htx he b hb Rv rest
+       rcases i with mop | ⟨e, ar⟩ | t | t | t | _ | _ | _ | _ | _ | _ | _
+       · rcases mop with sop | _ | _ | _ | _ | _ | _
+         · by_cases hpush : ∃ v, sop = .push v
+@@ -826,7 +836,7 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
+           rw [exec_effect0 (w := BitVec.ofNat 256 w)
+             (by simp [SolarTV.Machine.Effect.apply, he hreads name byte w hread]) (by omega)]
+           have hrule := env_readG (msg := msg) (M := M) (st := st) (ss := ss) (rd := .empty) (gas := g)
+-            (stack := T) hread hlt hcode hbenv htx (by omega) (by unfold STACK_LIMIT; omega)
++            (stack := T) hread hlt hcode hbenv (htx hreads) (by omega) (by unfold STACK_LIMIT; omega)
+           exact SimOutL.pre hrule (IH (h + 1) [] _ _ _ (k - 1) s (pc + 1) M (g - 2) st ss hok
+             (by simp; omega) (by hu_tac) (List.nil_prefix) (SR.cons (τ := some false) rfl hR) (I'.next hk1 hseg (by simp) (by omega)) R)
+       · -- JUMP.
+diff --git a/SolidCore/Refinement/Solar/AssembleRunLoop.lean b/SolidCore/Refinement/Solar/AssembleRunLoop.lean
+index c917dc61..9e09c372 100644
+--- a/SolidCore/Refinement/Solar/AssembleRunLoop.lean
++++ b/SolidCore/Refinement/Solar/AssembleRunLoop.lean
+@@ -96,7 +96,7 @@ theorem advances_checkL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code
+         simp only [ht, Bool.false_eq_true, ite_false, List.nil_append] at E'
+         exact ⟨pc, g + K, Triple.of_imp fun _ h => h, by simp only [ht, Bool.false_eq_true, ite_false]; omega,
+           ⟨E'.seg, by omega, by omega, E'.le_top, E'.mem⟩⟩
+-    have hsim := exec_simL (o := o) G hdata hvalue hstatic hself hcaller ho hbenv htx he b hb 0
++    have hsim := exec_simL (o := o) G.toT hdata hvalue hstatic hself hcaller ho hbenv (fun _ => htx) he b hb 0
+       p.blocks[b] (c.need b) [] (c.entry b) S Tw _ s pc1 M g1 st ss hblock hn (by omega)
+       (List.nil_prefix) hR I1 R
+     have hbl : block o call p (b, S, s) = some (exec o call b p.blocks[b] S s) := by
+diff --git a/Verify/ShapeCtxGas.lean b/Verify/ShapeCtxGas.lean
+new file mode 100644
+index 00000000..c88a835c
+--- /dev/null
++++ b/Verify/ShapeCtxGas.lean
+@@ -0,0 +1,117 @@
++import Verify.ShapeCtx
++import SolidCore.Refinement.Solar.AssembleCtxGas
++
++/-!
++# The certified shape through the checker with contexts and gas
++
++For contracts whose final EVM IR the loop checker rejects only because of blocks no valid call
++reaches (a permit path's STATICCALL and GAS, say), and whose internal functions are called in
++several contexts. Inputs, all generated by the certify driver:
++
++* the source stage and its definedness (from `Generic.check`);
++* `backend`: solar-tv's stages from the module to the final EVM IR `q`;
++* `ends` / `guard_run`: on each valid call, the run of `guard F q` (each block of `F` replaced by
++  a jump to itself) ends within `N` blocks and equals `q`'s run at that fuel: so no valid call
++  enters `F`;
++* `asm`: `AssembleCtxGas.checkXL F q code cx`.
++
++`compiled_ofXL` proves `Compiled` at the one oracle `oracle`, with the gas bound
++`gasBoundL cx.base N`. Unlike `functional_ctx` it has no hypothesis on the runner of messages
++(no `StaticRunner`, no `CalleesRun`): EthLib's run of the bytes never reaches a STATICCALL or a GAS
++on a valid call, which `within_of_checkXL` and `forward_of_checkXL` prove from the same block bound.
++-/
++
++namespace SolidCore.Refinement.Shapes
++
++open SolarTV SolidCore.Refinement SolidCore.Refinement.Final SolidCore.Refinement.Abi
++open SolidCore.Refinement.Solar SolidCore.Solidity
++
++theorem evmir_run_of_iterate {o : Machine.Oracle} {q : Assemble.Program} {call : Call} {N : Nat}
++    {r : Machine.Halt × Machine.State}
++    (h : EVM.Program.run o q call N = some r) :
++    (evmirSem o).run q call = some (Machine.observe call r.2 r.1) := by
++  change (SolarTV.EVM.Program.layer.result o q call).map _ = _
++  rw [SolarTV.EVM.Program.layer.result_of_ends ⟨N, h⟩]
++  rfl
++
++/-- **The shape from a total source stage, the backend stages and the checker with contexts and
++gas.** -/
++theorem compiled_ofXL {S : Sem} {p : S.Prog} {m : MIR.Lowered.moduleLayer.Prog}
++    {q : Assemble.Program} {code : ByteArray} {Valid scope : Call → Prop} {F : List Nat}
++    {cx : AssembleCtx.CtxCert} {N : Nat}
++    (inhabited : ∃ call, Valid call)
++    (src : Stage S (mirSem oracle) p m Valid) (defined : Defined S p Valid)
++    (backend : Stage (mirSem oracle) (evmirSem oracle) m q scope)
++    (hscope : ∀ call, Valid call → scope call)
++    (ends : ∀ call, Valid call →
++      (EVM.Program.run oracle (AssembleCtxGas.guard F q) call N).isSome = true)
++    (guard_run : ∀ call, Valid call →
++      EVM.Program.run oracle q call N = EVM.Program.run oracle (AssembleCtxGas.guard F q) call N)
++    (asm : AssembleCtxGas.checkXL F q code cx = true)
++    (hG : AssembleLoop.gasBoundL cx.base N < 2 ^ 64) :
++    Compiled S p code Valid (fun _ => AssembleLoop.gasBoundL cx.base N) := by
++  have total : ∀ call, Valid call → ∃ obs, S.run p call = some obs := fun call hc =>
++    Option.isSome_iff_exists.mp (defined call hc)
++  have stage : Stage S (evmirSem oracle) p q Valid :=
++    src.trans (backend.mono hscope)
++  -- On a valid call: the guarded run's result, and the source's result is its observable.
++  have key : ∀ call, Valid call → ∃ r,
++      Machine.iterate (EVM.Program.block oracle call (AssembleCtxGas.guard F q)) N
++        (0, [], Machine.State.initial call) = some r ∧
++      S.run p call = some (Machine.observe call r.2 r.1) ∧
++      (evmirSem oracle).run q call = some (Machine.observe call r.2 r.1) := by
++    intro call hc
++    obtain ⟨r, hr⟩ := Option.isSome_iff_exists.mp (ends call hc)
++    have hq : (evmirSem oracle).run q call = some (Machine.observe call r.2 r.1) :=
++      evmir_run_of_iterate ((guard_run call hc).trans hr)
++    obtain ⟨obs0, h0⟩ := total call hc
++    have := stage call hc obs0 h0
++    rw [hq] at this
++    cases this
++    exact ⟨r, hr, h0, hq⟩
++  have hequiv : Equiv S p code Valid := by
++    intro gas _ call hc obs hrun
++    obtain ⟨r, hit, hs, -⟩ := key call hc
++    rcases AssembleCtxGas.within_of_checkXL asm oracle (fun _ => oracle_ok.1) (fun _ => oracle_ok.2)
++      call N r hit gas obs hrun with e | e
++    · exact Or.inl (e ▸ hs)
++    · exact Or.inr e
++  have hres : Resources S p code Valid (fun _ => AssembleLoop.gasBoundL cx.base N) :=
++    resources_of_forward (B := evmirSem oracle) (q := q) total stage fun call hc =>
++      ⟨hG, fun _ h1 _ obs hrun => by
++        obtain ⟨r, hit, -, hq⟩ := key call hc
++        rw [hq] at hrun
++        cases hrun
++        exact AssembleCtxGas.forward_of_checkXL asm oracle (fun _ => oracle_ok.1)
++          (fun _ => oracle_ok.2) call N r hit h1⟩
++  exact ⟨inhabited, equivG_of hequiv hres, fun call hc => by
++    obtain ⟨obs, hs⟩ := total call hc
++    exact ⟨obs, hs, trivial⟩, hres⟩
++
++/-- **The shape of a generic-stage contract on calls without a value, through the checker with
++contexts and gas.** -/
++theorem compiled0XL {fuel mirFuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.State}
++    {s : List (Nat × Nat)} (hd : Wide.DeployedAt fuel c d s) {m : MIR.Lowered.Module}
++    {fns : List Fn} {env : Generic.EnvFlags}
++    (hchk : Generic.check fuel mirFuel c.core m fns env = true)
++    {q : Assemble.Program} {code : ByteArray} {scope : Call → Prop} {F : List Nat}
++    {cx : AssembleCtx.CtxCert} {N : Nat}
++    (inhabited : ∃ call, genericValid0 fns s call)
++    (backend : Stage (mirSem oracle) (evmirSem oracle) m q scope)
++    (hscope : ∀ call, genericValid0 fns s call → scope call)
++    (ends : ∀ call, genericValid0 fns s call →
++      (EVM.Program.run oracle (AssembleCtxGas.guard F q) call N).isSome = true)
++    (guard_run : ∀ call, genericValid0 fns s call →
++      EVM.Program.run oracle q call N = EVM.Program.run oracle (AssembleCtxGas.guard F q) call N)
++    (asm : AssembleCtxGas.checkXL F q code cx = true)
++    (hG : AssembleLoop.gasBoundL cx.base N < 2 ^ 64) :
++    Compiled (solidCore fuel) c code (genericValid0 fns s)
++      (fun _ => AssembleLoop.gasBoundL cx.base N) :=
++  compiled_ofXL inhabited (Generic.stageAtWith oracle hd oracle_sourceEnvOk.ask hchk)
++    (Generic.definedAt hd hchk) backend hscope ends guard_run asm hG
++
++/-- info: 'SolidCore.Refinement.Shapes.compiled0XL' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms compiled0XL
++
++end SolidCore.Refinement.Shapes
+diff --git a/Verify/ShapeCtxGasFrom.lean b/Verify/ShapeCtxGasFrom.lean
+new file mode 100644
+index 00000000..30fcc778
+--- /dev/null
++++ b/Verify/ShapeCtxGasFrom.lean
+@@ -0,0 +1,100 @@
++import Verify.ShapeCtxGas
++import SolidCore.Refinement.Solar.AssembleCtxGasFrom
++
++/-!
++# Resources from any caller, through the checker with contexts and gas
++
++`Shapes.Resources` speaks of `Final.Target.runWith`, one message from the fixed account
++`callerAddress`. `ResourcesFrom` asks the same of every caller: for every account `a` below
++`2 ^ 160` but the contract's own, every valid call and every gas from the bound `G call` on (below
++`2 ^ 256`), EthLib's run of the exact bytecode from `a` (`Final.Target.runWithFrom a`) is the source's
++run of the call from `a`. At `callerAddress` it gives `Resources` (`ResourcesFrom.resources`).
++
++* `gasEdge_ofXL` is the gas edge on its own (E8): from the checker with contexts and gas on the
++  exact bytecode, and the guard stage (no valid call enters a block the checker leaves unchecked),
++  for every caller and every oracle whose CALLER is that caller and whose Keccak-256 is EthLib's,
++  at every gas from `gasBoundL cx.base N` on the bytecode's result is the final EVM IR's result.
++  Its premises are about programs only (the checker's verdict and two symbolic runs of the EVM
++  IR); none of them mentions gas or EthLib's result, so the bound is not assumed.
++* `resourcesFrom_ofXL` composes it with a source stage per caller (the functional edges E3 and E4,
++  proved elsewhere and taken here as the named hypothesis `stage`) into `ResourcesFrom`.
++-/
++
++namespace SolidCore.Refinement.Shapes
++
++open SolarTV SolidCore.Refinement SolidCore.Refinement.Final SolidCore.Refinement.Solar
++
++/-- The oracle of a call from the account `a`: `oracle` with CALLER `a`. -/
++def oracleFrom (a : Nat) : Machine.Oracle := { oracle with caller := BitVec.ofNat 160 a }
++
++theorem oracleFrom_ok {a : Nat} (ha : a < 2 ^ 160) : AssembleLoop.OracleOkAt a (oracleFrom a) := by
++  refine ⟨?_, oracle_ok.1.2⟩
++  apply BitVec.eq_of_toNat_eq
++  rw [Assemble.address_toNat ha]
++  show ((BitVec.ofNat 160 a).setWidth 256).toNat = a
++  rw [BitVec.toNat_setWidth, BitVec.toNat_ofNat, Nat.mod_eq_of_lt ha, Nat.mod_eq_of_lt (by omega)]
++
++/-- At `callerAddress` it is `oracle`'s caller. -/
++theorem oracleFrom_callerAddress_ok : AssembleLoop.OracleOkAt callerAddress (oracleFrom callerAddress) :=
++  oracleFrom_ok (by decide)
++
++/-- **Resources from any caller.** -/
++def ResourcesFrom (run : Nat → Call → Option Observable) (code : ByteArray) (Valid : Call → Prop)
++    (G : Call → Nat) : Prop :=
++  ∀ a, a < 2 ^ 160 → a ≠ selfAddress → ∀ call, Valid call → G call < 2 ^ 64 ∧
++    ∀ gas, G call ≤ gas → gas < 2 ^ 256 → Final.Target.runWithFrom a gas code call = run a call
++
++/-- At `callerAddress`, `ResourcesFrom` is `Resources`. -/
++theorem ResourcesFrom.resources {S : Sem} {p : S.Prog} {code : ByteArray} {Valid : Call → Prop}
++    {G : Call → Nat} {run : Nat → Call → Option Observable} (h : ResourcesFrom run code Valid G)
++    (hrun : run callerAddress = S.run p) : Resources S p code Valid G := fun call hc => by
++  obtain ⟨hG, hr⟩ := h callerAddress (by decide) (by decide) call hc
++  refine ⟨hG, fun gas h1 h2 => ?_⟩
++  rw [← hrun, ← Final.Target.runWithFrom_callerAddress]
++  exact hr gas h1 h2
++
++/-- **The gas edge from any caller.** -/
++theorem gasEdge_ofXL {q : Assemble.Program} {F : List Nat} {code : ByteArray}
++    {cx : AssembleCtx.CtxCert} {N : Nat} {Valid : Call → Prop}
++    (asm : AssembleCtxGas.checkXL F q code cx = true) (hreads : cx.base.reads = false)
++    (ends : ∀ o call, Valid call →
++      (EVM.Program.run o (AssembleCtxGas.guard F q) call N).isSome = true)
++    (guard_run : ∀ o call, Valid call →
++      EVM.Program.run o q call N = EVM.Program.run o (AssembleCtxGas.guard F q) call N) :
++    ∀ a, a < 2 ^ 160 → a ≠ selfAddress → ∀ o, AssembleLoop.OracleOkAt a o → ∀ call, Valid call →
++      ∀ gas, AssembleLoop.gasBoundL cx.base N ≤ gas →
++        ∃ obs, (evmirSem o).run q call = some obs ∧ Final.Target.runWithFrom a gas code call = some obs := by
++  intro a ha hne o ho call hc gas hg
++  obtain ⟨r, hr⟩ := Option.isSome_iff_exists.mp (ends o call hc)
++  refine ⟨_, evmir_run_of_iterate ((guard_run o call hc).trans hr), ?_⟩
++  exact AssembleCtxGas.forward_of_checkXLFrom asm a (Assemble.address_ne_self ha hne) o (fun _ => ho)
++    (fun h => absurd h (by simp [hreads])) call N r hr hg
++
++/-- **Resources from any caller, from a source stage per caller and the gas edge.** -/
++theorem resourcesFrom_ofXL {q : Assemble.Program} {F : List Nat} {code : ByteArray}
++    {cx : AssembleCtx.CtxCert} {N : Nat} {Valid : Call → Prop} {run : Nat → Call → Option Observable}
++    (total : ∀ a, a < 2 ^ 160 → a ≠ selfAddress → ∀ call, Valid call → ∃ obs, run a call = some obs)
++    (stage : ∀ a, a < 2 ^ 160 → a ≠ selfAddress → ∀ call, Valid call → ∀ obs, run a call = some obs →
++      (evmirSem (oracleFrom a)).run q call = some obs)
++    (asm : AssembleCtxGas.checkXL F q code cx = true) (hreads : cx.base.reads = false)
++    (ends : ∀ o call, Valid call →
++      (EVM.Program.run o (AssembleCtxGas.guard F q) call N).isSome = true)
++    (guard_run : ∀ o call, Valid call →
++      EVM.Program.run o q call N = EVM.Program.run o (AssembleCtxGas.guard F q) call N)
++    (hG : AssembleLoop.gasBoundL cx.base N < 2 ^ 64) :
++    ResourcesFrom run code Valid (fun _ => AssembleLoop.gasBoundL cx.base N) := by
++  intro a ha hne call hc
++  refine ⟨hG, fun gas h1 _ => ?_⟩
++  obtain ⟨obs, hq, hb⟩ := gasEdge_ofXL asm hreads ends guard_run a ha hne (oracleFrom a)
++    (oracleFrom_ok ha) call hc gas h1
++  obtain ⟨obs0, h0⟩ := total a ha hne call hc
++  have := stage a ha hne call hc obs0 h0
++  rw [hq] at this
++  cases this
++  rw [hb, h0]
++
++/-- info: 'SolidCore.Refinement.Shapes.resourcesFrom_ofXL' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms resourcesFrom_ofXL
++
++end SolidCore.Refinement.Shapes
+diff --git a/lakefile.lean b/lakefile.lean
+index cb2ed927..7f8dd2e8 100644
+--- a/lakefile.lean
++++ b/lakefile.lean
+@@ -182,7 +182,8 @@ lean_lib SolidCoreSolarRunOracle where
+     `SolidCore.Refinement.Solar.AssembleCallStaticRunner, `SolidCore.Refinement.Solar.AssembleCtxTrack,
+     `SolidCore.Refinement.Solar.AssembleCtx, `SolidCore.Refinement.Solar.AssembleCtxExample,
+     `SolidCore.Refinement.Solar.AssembleCtxCall,
+-    `SolidCore.Refinement.Solar.AssembleNoCall, `SolidCore.Refinement.Solar.AssembleNoCallExample]
++    `SolidCore.Refinement.Solar.AssembleNoCall, `SolidCore.Refinement.Solar.AssembleNoCallExample,
++    `SolidCore.Refinement.Solar.AssembleCtxGas, `SolidCore.Refinement.Solar.AssembleCtxGasFrom]
+ 
+ -- Runs that revert: no step of EthLib throws a revert and only REVERT ends a frame with it
+ -- (Solar/EthLibErr.lean), so a run with less gas that reverts follows the run with more
+@@ -421,12 +422,12 @@ lean_lib ContractsShapes where
+   roots := #[`Verify.Shapes, `Verify.ShapeGeneric, `SolidCore.Refinement.Solar.AssembleGas,
+     `SolidCore.Refinement.Solar.AssembleGasLoop, `Contracts.Counter.Execution, `Contracts.Counter.ShapeSpec,
+     `Contracts.Counter.Shape, `Contracts.Counter.ShapeNeg, `Verify.ShapeBundle,
+-    `Contracts.Counter.ShapeExport, `Verify.ShapeCtx]
++    `Contracts.Counter.ShapeExport, `Verify.ShapeCtx, `Verify.ShapeCtxGas]
+   globs := #[.one `Verify.Shapes, .one `Verify.ShapeGeneric, .one `SolidCore.Refinement.Solar.AssembleGas,
+     .one `SolidCore.Refinement.Solar.AssembleGasLoop,
+     .one `Contracts.Counter.Execution, .one `Contracts.Counter.ShapeSpec,
+     .one `Contracts.Counter.Shape, .one `Contracts.Counter.ShapeNeg, .one `Verify.ShapeBundle,
+-    .one `Contracts.Counter.ShapeExport, .one `Verify.ShapeCtx]
++    .one `Contracts.Counter.ShapeExport, .one `Verify.ShapeCtx, .one `Verify.ShapeCtxGas]
+ 
+ -- solar-verify's Token end to end: the generic source stage from SolidCore's checked Token to
+ -- Certified/verify_token's stage0, the assembly stage of its evm12, and solar-verify's Token
+@@ -518,3 +519,12 @@ lean_lib «arraymax» where
+ lean_lib ContractsUniswapV2PairSpec where
+   roots := #[`Contracts.UniswapV2.PairSpec.Published, `Contracts.UniswapV2.PairSpec.Negative]
+   globs := #[.submodules `Contracts.UniswapV2.PairSpec]
++
++-- uv2_erc20: UniswapV2ERC20's exported stages (Certified/uv2_erc20/gen, written by solar's
++-- -Zemit-lean-stages from the GPL-3.0 v2-core port before the build, so not committed), the
++-- certificate of the checker with contexts and gas (CtxGas.lean, solar's tools/certify/gen_ctxgas.py,
++-- also generated) and the transfer slice's gas bound (Gas.lean, GasGuard.lean).
++lean_lib «uv2_erc20» where
++  srcDir := "Certified"
++  roots := #[`uv2_erc20.Gas]
++  globs := #[.submodules `uv2_erc20]
+diff --git a/scripts/verify/uniswap_v2_gas.sh b/scripts/verify/uniswap_v2_gas.sh
+new file mode 100755
+index 00000000..899ec247
+--- /dev/null
++++ b/scripts/verify/uniswap_v2_gas.sh
+@@ -0,0 +1,42 @@
++#!/usr/bin/env bash
++# Generate UniswapV2ERC20's exported stages and the transfer slice's gas certificate before the
++# build of the uv2_erc20 library (Certified/uv2_erc20/Gas.lean). Nothing generated is committed:
++# it is derived from the GPL-3.0 v2-core port.
++#
++#   SOLAR_DIR=... SOLAR=... scripts/verify/uniswap_v2_gas.sh
++#
++# Needs scripts/verify/uniswap_v2_gen.sh's scripts/verify/uniswap-v2/UniswapV2ERC20.sol, and:
++#   SOLAR_DIR  a solar checkout with tools/certify/{asm_cert,asm_ctx,gen_ctxgas}.py;
++#   SOLAR      its solar binary (default $SOLAR_DIR/target/release/solar).
++# Writes, under Certified/uv2_erc20/ (ignored by git):
++#   uv2_erc20.sol             the flattened port the binary compiles;
++#   gen/                      solar -Ogas --evm-version osaka -Zemit-lean-stages of it;
++#   CtxGas.lean               gen_ctxgas.py's certificate: the checker with contexts and gas on
++#                             the exact bytes against the final EVM IR, every block outside
++#                             transfer's slice (the dispatcher's jump on 0xa9059cbb) unchecked.
++# Fails if any step fails, if the export changes the bytecode, or if the final stage is not evm11.
++set -euo pipefail
++cd "$(dirname "${BASH_SOURCE[0]}")/../.."
++: "${SOLAR_DIR:?set SOLAR_DIR to a solar checkout}"
++SOLAR_DIR="$(realpath "$SOLAR_DIR")"
++SOLAR="$(realpath "${SOLAR:-$SOLAR_DIR/target/release/solar}")"
++src=scripts/verify/uniswap-v2/UniswapV2ERC20.sol
++[[ -s $src ]] || { echo "error: $src missing; run scripts/verify/uniswap_v2_gen.sh" >&2; exit 1; }
++out=Certified/uv2_erc20
++mkdir -p "$out"
++outabs="$(realpath "$out")"
++cp "$src" "$out/uv2_erc20.sol"
++rm -rf "$out/gen"
++tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
++cp "$out/uv2_erc20.sol" "$tmp/UniswapV2ERC20.sol"
++bin() { python3 -c 'import json,sys; d=json.load(sys.stdin)["contracts"]; print([v["bin-runtime"] for k,v in d.items() if k.endswith(":UniswapV2ERC20")][0])'; }
++plain=$(cd "$tmp" && "$SOLAR" UniswapV2ERC20.sol -Ogas --evm-version osaka --emit=bin-runtime | bin)
++exported=$(cd "$tmp" && "$SOLAR" UniswapV2ERC20.sol -Ogas --evm-version osaka --emit=bin-runtime \
++  "-Zemit-lean-stages=$outabs/gen" | bin)
++[[ "$plain" == "$exported" ]] || { echo "error: -Zemit-lean-stages changed the bytecode" >&2; exit 1; }
++gen="$out/gen/UniswapV2ERC20"
++final=$(python3 -c 'import json,sys; s=json.load(open(sys.argv[1]))["stages"]; print([x["definition"] for x in s if x["kind"]=="evm"][-1])' "$gen/manifest.json")
++[[ "$final" == evm11 ]] || { echo "error: the final EVM IR is $final, the proofs name evm11" >&2; exit 1; }
++python3 "$SOLAR_DIR/tools/certify/gen_ctxgas.py" "$gen" --module-prefix uv2_erc20.gen.UniswapV2ERC20 \
++  --contract UniswapV2ERC20 --final "$final" --selector 0xa9059cbb --out "$out/CtxGas.lean"
++echo "wrote $out/gen $out/CtxGas.lean ($(( ${#plain} / 2 )) bytes)"
+-- 
+2.43.0
+
