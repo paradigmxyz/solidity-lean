@@ -1,0 +1,271 @@
+== 1. the pinned solidity-lean checkout
+solidity-lean f962c2abbee427aaf97e6c80daa54840da04ee6f at /home/hand/w/sl
+== 2. solar
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.30s
+solar 9aea52293a7b53ce980c99da99c7486983ed6ae9
+Build completed successfully (1156 jobs).
+solar sha256 1be596739d9ee82b9e95af293375aa928bcc850c2a955cb75aa4e17379dc50a7
+== 3. compile Certified/verify_counter/verify_counter.sol and export its stages (-Ogas --evm-version osaka)
+stages: stage0 (lower-evm-shaped), mir1 (lower-assumes), sched (stack-schedule), evm1 (peephole-early), evm2 (cfg-simplify-early), evm3 (compact-pushes), evm4 (block-layout), evm5 (terminal-dedup), evm6 (cfg-simplify-early), evm7 (tail-merge), evm8 (block-cse), evm9 (stack-normalize), evm10 (block-layout), evm11 (loop-layout), bytecode (assemble)
+bytecode: 34603c575f3560e01c806306661abd1460525780636d5433e6146101af578063a4d66daf14605b578063b20eb4c4146073578063d09de08a146065575b5f5ffd5b6011602052634e487b715f526024601cfd5b5f545f5260205ff35b6001545f5260205ff35b5f5460010180156040575f55005b60243610603c576004355f54818101818110604057600154106101d25780816080525f60a0528082820361019a575f5f91925060db565b506080516001840180158583036101675760405780608052600160a05260018301925f191480610182575093505060015b8482105f54808503610111575060aa5760a051815f10828203610152571561010f5750505050608051815f5581810361013e575b005b90506d011100000004000000010000000f939091935b60205260405260605263ed572b275b5f526064601cfd5b6d012100000004000000050000000e610127565b506d012100000004000000040000000c610127565b505090506d0121000000040000000300000008929192610127565b5f6d0102000000040000000a00000012919091610127565b506d010300000004000000070000000b610127565b60443610603c576004356024358082106101cb57505f5260205ff35b5f5260205ff35b636f76657260e01b6004602080526040526060526308c379a061013656 sha256 d74a847b897f855f93daf2805937efe40aec636c2ec3ca0c2d4ca6d21f214cc1
+== 4. write the proofs
+{"final": "SolarTV.Milestone.VerifyCounter.verify_counter_mir_to_evmir", "executes": "SolarTV.Milestone.VerifyCounter.verify_counter_bytecode", "executes_run": "SolarTV.Milestone.VerifyCounter.verify_counter_bytecode_run", "last": "evm11", "first": "stage0", "stages": ["stage0", "mir1", "sched", "evm1", "evm2", "evm3", "evm4", "evm5", "evm6", "evm7", "evm8", "evm9", "evm10", "evm11"]}
+== 5. build and audit the proofs
+verify_counter.gen.Counter.Bytecode: Build completed successfully (2 jobs).
+verify_counter.gen.Counter.Evm1: Build completed successfully (12 jobs).
+verify_counter.gen.Counter.Evm10: Build completed successfully (12 jobs).
+verify_counter.gen.Counter.Evm11: Build completed successfully (12 jobs).
+verify_counter.gen.Counter.Evm2: Build completed successfully (12 jobs).
+verify_counter.gen.Counter.Evm3: Build completed successfully (12 jobs).
+verify_counter.gen.Counter.Evm4: Build completed successfully (12 jobs).
+verify_counter.gen.Counter.Evm5: Build completed successfully (12 jobs).
+verify_counter.gen.Counter.Evm6: Build completed successfully (12 jobs).
+verify_counter.gen.Counter.Evm7: Build completed successfully (12 jobs).
+verify_counter.gen.Counter.Evm8: Build completed successfully (12 jobs).
+verify_counter.gen.Counter.Evm9: Build completed successfully (12 jobs).
+verify_counter.gen.Counter.Manifest: Build completed successfully (2 jobs).
+verify_counter.gen.Counter.Mir1: Build completed successfully (11 jobs).
+verify_counter.gen.Counter.Sched: Build completed successfully (12 jobs).
+verify_counter.gen.Counter.Stage0: Build completed successfully (11 jobs).
+verify_counter.Proofs.Runs.Evm1: Build completed successfully (26 jobs).
+verify_counter.Proofs.Runs.Evm10: Build completed successfully (26 jobs).
+verify_counter.Proofs.Runs.Evm11: Build completed successfully (26 jobs).
+verify_counter.Proofs.Runs.Evm2: Build completed successfully (26 jobs).
+verify_counter.Proofs.Runs.Evm3: Build completed successfully (26 jobs).
+verify_counter.Proofs.Runs.Evm4: Build completed successfully (26 jobs).
+verify_counter.Proofs.Runs.Evm5: Build completed successfully (26 jobs).
+verify_counter.Proofs.Runs.Evm6: Build completed successfully (26 jobs).
+verify_counter.Proofs.Runs.Evm7: Build completed successfully (26 jobs).
+verify_counter.Proofs.Runs.Evm8: Build completed successfully (26 jobs).
+verify_counter.Proofs.Runs.Evm9: Build completed successfully (26 jobs).
+verify_counter.Proofs.Runs.Mir1: Build completed successfully (26 jobs).
+verify_counter.Proofs.Runs.Sched: Build completed successfully (26 jobs).
+verify_counter.Proofs.Stages: Build completed successfully (52 jobs).
+verify_counter.Proofs.Assembly: Build completed successfully (17 jobs).
+verify_counter.Proofs.Execution: Build completed successfully (2605 jobs).
+verify_counter.Proofs: Build completed successfully (2608 jobs).
+'SolarTV.Milestone.VerifyCounter.assembly' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.blocks_ok' depends on axioms: [propext]
+'SolarTV.Milestone.VerifyCounter.check_ok' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.checked' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.decodes' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm10_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm10_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm10_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm10_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm10_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm10_mk1' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm10_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm10_seg1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm10_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm11_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm11_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm11_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm11_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm11_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm11_mk1' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm11_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm11_seg1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm11_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm1_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm1_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm1_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm1_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm1_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm1_mk1' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm1_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm1_seg1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm1_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm2_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm2_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm2_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm2_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm2_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm2_mk1' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm2_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm2_seg1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm2_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm3_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm3_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm3_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm3_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm3_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm3_mk1' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm3_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm3_seg1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm3_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm4_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm4_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm4_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm4_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm4_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm4_mk1' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm4_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm4_seg1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm4_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm5_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm5_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm5_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm5_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm5_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm5_mk1' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm5_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm5_seg1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm5_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm6_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm6_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm6_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm6_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm6_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm6_mk1' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm6_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm6_seg1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm6_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm7_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm7_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm7_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm7_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm7_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm7_mk1' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm7_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm7_seg1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm7_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm8_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm8_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm8_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm8_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm8_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm8_mk1' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm8_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm8_seg1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm8_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm9_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm9_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm9_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm9_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm9_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm9_mk1' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm9_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm9_seg1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm9_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.items_eq' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.labels_ok' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.mir1_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.mir1_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.mir1_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.mir1_cutA_enter' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.mir1_cutA_resume' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.mir1_cutB_enter' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.mir1_cutB_resume' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.mir1_mk1' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.mir1_mk2' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.mir1_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.mir1_seg1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.mir1_seg2' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.mir1_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.sched_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.sched_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.sched_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.sched_cutA_enter' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.sched_cutA_resume' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.sched_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.sched_mk1' depends on axioms: [propext]
+'SolarTV.Milestone.VerifyCounter.sched_mk2' depends on axioms: [propext]
+'SolarTV.Milestone.VerifyCounter.sched_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.sched_seg1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.sched_seg2' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.sched_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.size_ok' depends on axioms: [propext]
+'SolarTV.Milestone.VerifyCounter.verify_counter_bytecode' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.verify_counter_bytecode_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.verify_counter_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.verify_counter_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.verify_counter_mir_to_evmir' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.walk_eq' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.walk_ok' depends on axioms: [propext, Quot.sound]
+audited 139 theorems
+== 6. the spec (solar-verify) and the headline theorems
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.13s
+REFUSED (unproved) Counter.bump: command outside the Lean fragment: (set-option :timeout 0)
+spec: exported to .lake/certify/verify_counter/VC.lean
+Contracts.VerifyCounter.Bytecode: Build completed successfully (2627 jobs).
+'SolidCore.Refinement.Solar.VerifyCounter.spec_holds_of_bytecode' depends on axioms: [propext, Classical.choice, Quot.sound]
+== 6b. the published statement
+source: Contracts/VerifyCounter/SourceAst.lean is the front end's AST of Counter in Certified/verify_counter/verify_counter.sol (solc 0.8.35)
+verify_counter.Statement: Build completed successfully (2767 jobs).
+verify_counter.Final: Build completed successfully (2769 jobs).
+STATEMENT Certified.verify_counter.Final.Statement := And (Eq.{1} (List.{0} Nat) (List.map.{0, 0} UInt8 Nat (fun (x._@.verify_counter.Statement.1005636212._hygCtx._hyg.12 : UInt8) => UInt8.toNat x._@.verify_counter.Statement.1005636212._hygCtx._hyg.12) (Array.toList.{0} UInt8 (ByteArray.data Certified.verify_counter.Final.code))) Certified.verify_counter.Final.runtimeBytes) (And Certified.verify_counter.Final.NonVacuous (Exists.{1} SolidCore.Solidity.TypeCheck.CheckedContract (fun (c : SolidCore.Solidity.TypeCheck.CheckedContract) => And (Eq.{1} (Except.{0, 0} SolidCore.Solidity.TypeCheck.TypeError SolidCore.Solidity.TypeCheck.CheckedContract) Contracts.VerifyCounter.Source.contract? (Except.ok.{0, 0} SolidCore.Solidity.TypeCheck.TypeError SolidCore.Solidity.TypeCheck.CheckedContract c)) (SolidCore.Refinement.Shapes.Certified (SolidCore.Refinement.Generic.Loop.solidCoreRuntime Contracts.VerifyCounter.Source.fuel) c Certified.verify_counter.Final.code Contracts.VerifyCounter.ShapeSource.ValidS Contracts.VerifyCounter.ShapeSource.Allowed (SolidCore.Refinement.Shapes.bundlePost Certified.verify_counter.gen.Counter.Spec.Counter SolidCore.Refinement.Shapes.ctxOfCall SolidCore.Refinement.Shapes.idStep) SolarTV.Milestone.VerifyCounter.Bump.gasBound))))
+check_final: Certified.verify_counter.Final.final : Certified.verify_counter.Final.Statement (module verify_counter.Statement, which does not import Contracts.VerifyCounter.ShapeExport); axioms [propext, Classical.choice, Quot.sound]
+kernel replay of 472 modules (0 replayed by an earlier run): ok
+'Certified.verify_counter.Final.final' depends on axioms: [propext, Classical.choice, Quot.sound]
+published: Certified.verify_counter.Final.final
+== 7. negative tests
+ok   bytecode-control: Certified/verify_counter/Proofs/Assembly.lean accepts the unedited Bytecode
+  bytecode offset 106: 0x01 as 0x03
+ok   bytecode-opcode: Certified/verify_counter/Proofs/Assembly.lean rejects it: Tactic `decide` proved that the proposition walk bytecode offset 0 items = some stream is false
+  bytecode offset 119: 0x10 as 0x11
+ok   bytecode-lt: Certified/verify_counter/Proofs/Assembly.lean rejects it: Tactic `decide` proved that the proposition walk bytecode offset 0 items = some stream is false
+skip bytecode-jump-table: no such code in Bytecode
+ok   Evm11-control: Certified/verify_counter/Proofs/Runs/Evm11.lean accepts the unedited Evm11
+ok   Evm11-add-sub: Certified/verify_counter/Proofs/Runs/Evm11.lean rejects it: sym_seg: the segments end differently on this path
+  sstore key 0 as 1
+ok   Evm11-sstore-key: Certified/verify_counter/Proofs/Runs/Evm11.lean rejects it: sym_seg: the segments end differently on this path
+ok   Evm11-no-callvalue-check: Certified/verify_counter/Proofs/Runs/Evm11.lean rejects it: sym_seg: the segments end differently on this path
+ok   Evm11-no-overflow-check: Certified/verify_counter/Proofs/Runs/Evm11.lean rejects it: sym_seg: the segments end differently on this path
+skip Evm11-no-log: no such code in Evm11
+skip Evm11-no-keccak: no such code in Evm11
+skip Evm11-log-topic: no such code in Evm11
+skip Evm11-log-offset: no such code in Evm11
+skip Evm11-mapping-key: no such code in Evm11
+skip Evm11-mapping-slot: no such code in Evm11
+skip Evm11-nested-mapping-key: no such code in Evm11
+skip Evm11-log-swap-topics: no such code in Evm11
+skip Evm11-no-storage-check: no such code in Evm11
+skip Evm11-no-all-ones-branch: no such code in Evm11
+skip Evm11-mul-add: no such code in Evm11
+skip Evm11-no-narrow-check: no such code in Evm11
+skip Evm11-call-kind: no such code in Evm11
+skip Evm11-no-call-check: no such code in Evm11
+skip Evm11-jump-table: no such code in Evm11
+ok   sched-add-sub: Certified/verify_counter/Proofs/Runs/Sched.lean rejects it: sym_seg: the segments end differently on this path
+ok   Mir1-control: Certified/verify_counter/Proofs/Runs/Mir1.lean accepts the unedited Mir1
+  line 61: .branch (.value 67) 14 15 as .branch (.value 67) 15 14
+ok   Mir1-wrote: Certified/verify_counter/Proofs/Runs/Mir1.lean rejects it: sym_seg: the segments end differently on this path
+  line 113: .word 77 (.value 33) as .word 77 (.const 1)
+ok   Mir1-wrote-cast: Certified/verify_counter/Proofs/Runs/Mir1.lean rejects it: sym_seg: the segments end differently on this path
+  line 57: (13, [(23, .const 0), (25, .value 20)]) as (13, [(23, .value 20), (25, .const 0)])
+ok   Mir1-wrote-phi: Certified/verify_counter/Proofs/Runs/Mir1.lean rejects it: sym_seg: the segments end differently on this path
+skip Mir1-wrote-op: no such code in Mir1
+  bb27: .op (.stack .add) as .op (.stack .sub)
+ok   Evm11-loop-add-sub: Certified/verify_counter/Proofs/Runs/Evm11.lean rejects it: sym_seg: the segments end differently on this path
+  bb27: .jumpi  as .op (.stack .iszero),
+     .jumpi 
+ok   Evm11-loop-exit: Certified/verify_counter/Proofs/Runs/Evm11.lean rejects it: sym_seg: the segments end differently on this path
+verify_counter negative tests: all 15 passed
+stale-byte: refused by the kernel, statement (/home/hand/w/sl/.lake/certify-final-neg-verify_counter/stale-byte/Statement.lean:79:53: error: Tactic `decide` proved that the proposition)
+substituted-artifact: refused by the kernel, statement (/home/hand/w/sl/.lake/certify-final-neg-verify_counter/substituted-artifact/Statement.lean:88:53: error: Tactic `decide` proved that the proposition)
+wrong-gas-bound: refused by the kernel (/home/hand/w/sl/.lake/certify-final-neg-verify_counter/wrong-gas-bound/Final.lean:9:96: error: Application type mismatch: The argument)
+wrong-post: refused by the kernel (/home/hand/w/sl/.lake/certify-final-neg-verify_counter/wrong-post/Final.lean:9:48: error: Application type mismatch: The argument)
+no-allowed-status: refused by the kernel (/home/hand/w/sl/.lake/certify-final-neg-verify_counter/no-allowed-status/Final.lean:9:48: error: Application type mismatch: The argument)
+vacuous-spec: refused by final.py (final.py: shape.json: allowed is trivially true ('fun _ _ => True'): it must reject something, or vacuity must say why it does not)
+vacuous-spec-sorry-witness: refused by the kernel (/home/hand/w/sl/.lake/certify-final-neg-verify_counter/vacuous-spec-sorry-witness/Final.lean:9:65: error: Application type mismatch: The argument)
+vacuous-spec-real-witness: refused by the kernel (/home/hand/w/sl/.lake/certify-final-neg-verify_counter/vacuous-spec-real-witness/Final.lean:9:48: error: Application type mismatch: The argument)
+vacuous-spec-below-strongest: checks, recorded below the strongest status (as it must be)
+vacuous-proof-no-witness: refused by final.py (final.py: shape.json: kind certified needs nonvacuous (a proof that the specification and the allowed statuses reject something) or vacuity (why that is not sho)
+vacuous-proof-sorry-witness: refused by the checker (check_final: Certified.verify_counter.Final.final depends on axioms beyond propext, Classical.choice and Quot.sound: [sorryAx])
+hijack-names: refused by the kernel (/home/hand/w/sl/.lake/certify-final-neg-verify_counter/hijack-names/Final.lean:9:96: error: Application type mismatch: The argument)
+hijack-alias: refused by the kernel (/home/hand/w/sl/.lake/certify-final-neg-verify_counter/hijack-alias/Final.lean:9:96: error: Application type mismatch: The argument)
+hijack-macro: refused by the checker (check_final: the type of Certified.verify_counter.Final.final is not exactly Certified.verify_counter.Final.Statement: True)
+hijack-skip-kernel: refused by the kernel replay ((kernel) declaration type mismatch, 'NegProof.fake' has type)
+sorry-proof: refused by the checker (check_final: Certified.verify_counter.Final.final depends on axioms beyond propext, Classical.choice and Quot.sound: [sorryAx])
+final_neg: every variant refused
+record: /home/hand/w/sl/.lake/certify-verify_counter.json and Certified/verify_counter/record.json
+mir_to_evmir: proved: SolarTV.Milestone.VerifyCounter.verify_counter_mir_to_evmir
+assembly: executed: inside the published statement Certified.verify_counter.Final.final (Shapes.Equiv and Resources over Target.runWith of the exact bytes); Proofs/: executed: SolarTV.Milestone.VerifyCounter.verify_counter_bytecode
+vc: exported to .lake/certify/verify_counter/VC.lean
+end_to_end: proved (contract-specific): SolidCore.Refinement.Solar.VerifyCounter.spec_holds_of_bytecode
+caveats: 1 spec function(s) refused, unproved
+statuses: equivalence proved (published statement, Shapes.Equiv): at every gas below 2^256 every result of the exact bytecode on a valid call is the source's, or a failure that changes nothing (out of gas or a revert, whatever its data); such a failure only below the gas bound, and from the bound on exactly the source's, revert data included (Shapes.EquivG, Shapes.Certified.equivG), termination proved (published statement, Shapes.Terminates): the source ends on every valid call with an allowed status; the bytecode too, at gas from the bound on, spec proved (published statement, Shapes.Meets of Shapes.bundlePost of the specification solar-verify exported in this run, NonVacuous in the statement): the specification of every source result on a valid call, hence of every bytecode result that is not an inert failure, resources proved (published statement, Shapes.Resources): from the gas bound on, below 2^64, the bytecode gives the source's result, vacuity proved non-vacuous (NonVacuous in the statement), source Contracts/VerifyCounter/SourceAst.lean is the front end's AST of Counter in Certified/verify_counter/verify_counter.sol (solc 0.8.35), strongest True
+CERTIFIED verify_counter (Counter): equivalence, termination, spec and resources by Certified.verify_counter.Final.final; bytecode 34603c575f3560e01c806306661abd1460525780636d5433e6146101af578063a4d66daf14605b578063b20eb4c4146073578063d09de08a146065575b5f5ffd5b6011602052634e487b715f526024601cfd5b5f545f5260205ff35b6001545f5260205ff35b5f5460010180156040575f55005b60243610603c576004355f54818101818110604057600154106101d25780816080525f60a0528082820361019a575f5f91925060db565b506080516001840180158583036101675760405780608052600160a05260018301925f191480610182575093505060015b8482105f54808503610111575060aa5760a051815f10828203610152571561010f5750505050608051815f5581810361013e575b005b90506d011100000004000000010000000f939091935b60205260405260605263ed572b275b5f526064601cfd5b6d012100000004000000050000000e610127565b506d012100000004000000040000000c610127565b505090506d0121000000040000000300000008929192610127565b5f6d0102000000040000000a00000012919091610127565b506d010300000004000000070000000b610127565b60443610603c576004356024358082106101cb57505f5260205ff35b5f5260205ff35b636f76657260e01b6004602080526040526060526308c379a061013656
+max_child_rss_mb 10094
+exit 0 secs 3284

@@ -3,7 +3,7 @@
 Lane bundles against the PR heads: solidity-lean `9fb89ee` (alpharush/certified-translation) and
 solar `38b5232ad` (alpharush/certified). Apply with `git fetch <bundle> lane/sc2`.
 
-- `solidity-lean.bundle`: `9fb89ee..f962c2a` (`solidity-lean.commits`)
+- `solidity-lean.bundle`: `9fb89ee..b6d8550 (pin f962c2a; b6d8550 adds the clean run record)` (`solidity-lean.commits`)
 - `solar.bundle`: `38b5232ad..280c89c` (`solar.commits`); `tools/certify/solidity-lean.rev` pins f962c2a
 - `certify-verify_counter.run1.log`, `certify-events.run1.log`: full driver logs, every `#print axioms`
 
@@ -18,11 +18,22 @@ Each module builds with lean -M 3000 (driver default); the driver builds solar a
 
 | contract | driver | E3 | E4 | E5 | E6 | E7 | E8 | CERTIFIED |
 |---|---|---|---|---|---|---|---|---|
-| verify_counter | CHECKED, exit 0, 2375 s, peak child RSS 11405 MB | proved | proved | proved | proved | proved (export-bound) | proved | only provenance missing (non-clean build); clean-build run in progress |
+| verify_counter | CHECKED, exit 0, 2375 s, peak child RSS 11405 MB | proved | proved | proved | proved | proved (export-bound) | proved | **CERTIFIED** (clean run, exit 0, 3284 s, 10094 MB) |
 | events | CHECKED, exit 0, 1621 s, peak 10894 MB (run at a1c3143 + lane, before the rebase) | proved | proved | proved | proved | proved (export-bound) | proved | only provenance missing (prebuilt solar, non-clean build, uncommitted manifests then); rerun pending |
 | mulx | not run | proved (generic) | proved | driver | driver | **missing**: spec_connect tactics fail on uint8/uint16 decode and packed products | driver | no |
 | bank | not run | proved (generic) | proved | driver | driver | **missing**: deposit's spec needs a mapping-slot premise; only the global `MapSlotsSeparated [0]` is wired, not a footprint-scoped one | driver | no |
 | verify_token | not run | proved (generic) | proved | driver | driver | **missing**: (a) any sender: `SolarTV.Call` has no caller and `Target.preState` fixes 0x2000, so no statement quantifies the sender; (b) scoped premise: `HashScope`/`MapScope` (27a02d4) needs `apart` over all addresses, which no concrete call can show, so it cannot sit in Valid (inhabited); `ScopedSep` fits only once the spec's frame is over the footprint | driver | no |
+
+### verify_counter: CERTIFIED (clean build)
+
+`certify-verify_counter.clean.log`: `CERTIFY_CLEAN_BUILD=1 LEAN_MEMORY=6000`, 2 lake jobs, solar and solar-verify
+built by the run, every package module rebuilt from source. Exit 0, 3284 s, peak child RSS 10094 MB. Result line:
+`CERTIFIED verify_counter (Counter): equivalence, termination, spec and resources by
+Certified.verify_counter.Final.final`. check_final axioms [propext, Classical.choice, Quot.sound]; kernel
+replay of 472 modules ok; backend negative tests 15/15; final_neg: every variant refused. Remaining caveat
+(not provenance): solar-verify's SMT VC for bump is refused (outside the Lean fragment).
+With the default LEAN_MEMORY=3000 a clean build fails in an upstream module
+(SolidCore/Solidity/Interface/Statements.lean: kernel excessive memory), so clean runs need 6000.
 
 ### verify_counter (source-sourced shape)
 

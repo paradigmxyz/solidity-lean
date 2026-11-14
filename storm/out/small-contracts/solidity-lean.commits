@@ -1,3 +1,4 @@
+b6d8550 chore(certified): verify_counter record from the clean run
 f962c2a chore(certified): verify_counter statement from the driver
 3906fdf chore(certified): regenerate the events manifest
 bba9e30 chore(verify-counter): source AST in the front end's layout
