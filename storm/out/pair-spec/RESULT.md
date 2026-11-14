@@ -1,12 +1,12 @@
 # pair-spec lane: UniswapV2Pair swap/skim/sync statement, negative controls by execution
 
 Base: solidity-lean `alpharush/certified-translation` **9fb89ee**. Deliverable: `sl-pair-spec.patch` /
-`sl-pair-spec.bundle`, three commits on 9fb89ee (e84e2de, 2cb7cd6, 1a855e0). No solar change.
+`sl-pair-spec.bundle`, four commits on 9fb89ee (e84e2de, 2cb7cd6, 1a855e0, 1e66ca0). No solar change.
 Earlier rounds: `wip/`.
 
 **Status: NOT CERTIFIED. No edge E3, E4, E5, E7, termination or E8 is proved for the pair.**
 `published_of_stages` is still an interface. pair-stages-a and pair-stages-b have only `wip/` bundles
-under storm/out (no RESULT.md, no theorem names) as of 14:30 UTC Nov 14, so no stage hypothesis was
+under storm/out (no RESULT.md, no theorem names) as of 15:00 UTC Nov 14, so no stage hypothesis was
 replaced. This round: the premise is repaired, and the negative controls are mutated programs run.
 
 ## Edges (swap, skim, sync)
@@ -50,6 +50,7 @@ and translated by the same frontend (not committed: GPL-derived).
 | wrong K spec (fee 4/1000) | real runs | `wrongK_refused`: every successful obs with reserves 11000/9094 |
 | real skim `skim(0x3000)`, balances 11000/10500 | bytes and source: success, reserves 10000/10000 | — |
 | skim with `_update` first | mutant bytes and mutant source: success, reserves 11000/10500 | `skimUpdate_refused`: every successful skim obs with reserve0 ≠ 10000 |
+| real sync, balances 11000/9094 | bytes and source: success, reserves 11000/9094 | **not refutable**: `syncNoop_accepted` (kernel) proves the published spec accepts a sync that leaves the reserves at 10000/10000 |
 | altered jump (first PUSH2 t JUMPI, t+1) | altered bytes: swap fails | `altered_not_bound` (binding) |
 | mismatched environment | source in world 11000/9000 ≠ bytes among tokens 11000/9094 | evaluated inequality |
 | closed world | bytes with no token accounts: swap reverts | evaluated |
@@ -59,16 +60,13 @@ kernel. EthLib's `processMessage` is well-founded recursion that `decide +kernel
 refusals are kernel theorems that quantify over every observable with the evaluated features, so
 only the step "the run has these features" rests on the evaluator.
 
-Not refutable with this spec: a sync that skips `_update`. sync's exported ensures are only
-SUPPLY_KEPT and !LOCKED; the reserve postcondition sits on the private `_update`, which is not in the
-exported function specs. This is from reading `Spec.lean` and is not proved here. It is a spec gap
-for the spec lane.
+**Spec gap, proved:** a sync that skips `_update` is accepted (`syncNoop_accepted`). sync's exported ensures are only SUPPLY_KEPT and !LOCKED. The reserve postcondition sits on the private `_update`, which is not among the exported function specs. This needs a fix in the spec (uniswap-v2.spec: give sync ensures on reserve0/reserve1 against the balances).
 
 ## Axioms (Axioms.lean, `#guard_msgs`; the build fails on any change)
 
 | theorem | axioms |
 |---|---|
-| `published_of_stages`, `bytecode_of_statement`, `nonVacuous`, `Negative.pre_swap`, `pre_swapWrongK`, `pre_skim`, `noUpdate_refused`, `wrongK_refused`, `k_accepts`, `skimUpdate_refused`, `PairAllowanceApart.satisfiable`, `Shapes.OpenFunctional.bytecode_any`, `of_parts` | propext, Classical.choice, Quot.sound |
+| `published_of_stages`, `bytecode_of_statement`, `nonVacuous`, `Negative.pre_swap`, `pre_swapWrongK`, `pre_skim`, `noUpdate_refused`, `wrongK_refused`, `k_accepts`, `skimUpdate_refused`, `syncNoop_accepted`, `PairAllowanceApart.satisfiable`, `Shapes.OpenFunctional.bytecode_any`, `of_parts` | propext, Classical.choice, Quot.sound |
 | `inhabited`, `alterJump_changes`, `altered_not_bound`, `swapCall_valid`, `skimCall_valid`, `zeroBalance_ge` | propext |
 | `Negative.bound` | none |
 
@@ -81,13 +79,19 @@ scripts/verify/uniswap_v2_gen.sh                                     exit 0
 SOLAR_DIR=solar@38b5232ad SOLAR=… SOLAR_VERIFY=… \
   scripts/verify/uniswap_v2_pair_spec.sh                             exit 0  (runtime 8892, mutants 8884 / 9076 hex digits)
 rm -rf .lake/build/{lib/lean,ir}/Contracts/UniswapV2/PairSpec
-lake build -KleanMemory=6000 ContractsUniswapV2PairSpec              exit 0  wall 136 s  peak RSS 2949 MB
+lake build -KleanMemory=6000 ContractsUniswapV2PairSpec              exit 0  wall 151 s  peak RSS 2956 MB
 ```
-Negative.lean: 102 s for the evaluated runs. Peak RSS is the largest child process (python rusage).
+Negative.lean takes about 2 min for the evaluated runs. Peak RSS is the largest child process (python rusage).
 
-## solar-verify on the mutants
+## solar-verify on the mutants (z3 4.13.4, `--only UniswapV2Pair.swap --timeout 240000`, each capped at 20 min)
 
-The 60 s run of the earlier round refused both mutants only by solver timeout, not by counterexample. A 240 s rerun is in progress (`--only UniswapV2Pair.swap --timeout 240000`, z3 4.13.4). So far the real source with the published spec is verified (29 obligations, exit 0). The next push records the wrong-K and missing-update results.
+| source + spec | exit | result |
+|---|---|---|
+| real + published | 0 | verified, 29 obligations |
+| real + wrong-K | 124 | killed at 20 min, no verdict |
+| swap without `_update` + published | 124 | killed at 20 min, no verdict |
+
+The 60 s run of the earlier round reported both mutants as failing, but by solver timeout on the K clause (`unknown`), not by counterexample. solar-verify therefore does **not** refute either mutant. The refusals above are the Lean kernel theorems over executed observables.
 
 ## Still hypothetical or missing
 

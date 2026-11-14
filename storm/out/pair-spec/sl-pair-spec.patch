@@ -1,7 +1,7 @@
 From e84e2de826d054ec62ecad47d174d9dab9c9c315 Mon Sep 17 00:00:00 2001
 From: pair-spec lane <pair-spec@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 05:21:22 +0000
-Subject: [PATCH 1/3] feat(uniswap-v2): pair negative controls by execution
+Subject: [PATCH 1/4] feat(uniswap-v2): pair negative controls by execution
 
 Run swap on the exact bytes in EthLib among two token accounts and on
 the checked source in the matching world, then on swap without its
@@ -560,7 +560,7 @@ index 7a91921..4ca94a2 100755
 From 2cb7cd68da8c8b98c03b2f7598d6e0538605b6e9 Mon Sep 17 00:00:00 2001
 From: pair-spec lane <pair-spec@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 14:08:00 +0000
-Subject: [PATCH 2/3] fix(uniswap-v2): pair premise without hash injectivity
+Subject: [PATCH 2/4] fix(uniswap-v2): pair premise without hash injectivity
 
 Name the pair statement's premise PairAllowanceApart: the words
 allowance[address(0)][s] that the ERC20 invariant reads avoid the
@@ -879,7 +879,7 @@ index cb2ed92..9eeed38 100644
 From 1a855e0c8456d39b7495f17f5cde88311900a3bf Mon Sep 17 00:00:00 2001
 From: pair-spec lane <pair-spec@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 14:14:00 +0000
-Subject: [PATCH 3/3] feat(uniswap-v2): skim negative control by execution
+Subject: [PATCH 3/4] feat(uniswap-v2): skim negative control by execution
 
 Run skim(0x3000) with token balances 11000/10500 over reserves
 10000/10000 on the exact bytes and the checked source (reserves kept),
@@ -1089,6 +1089,101 @@ index 4ca94a2..a2d8364 100755
 +print("end SolidCore.Spec.UniswapV2.PairSpec")
 +PY
 +echo "wrote $out/SourceSkimUpdate.lean $out/RuntimeSkimUpdate.lean (${#hexmut2} hex digits)"
+-- 
+2.43.0
+
+
+From 1e66ca06f4f0914c8bdeea131b08d067cc3dcc0f Mon Sep 17 00:00:00 2001
+From: pair-spec lane <pair-spec@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 14:21:31 +0000
+Subject: [PATCH 4/4] test(uniswap-v2): prove the sync spec accepts a no-op
+
+Run sync on the exact bytes and the checked source (reserves move to
+the balances 11000/9094) and prove the published spec accepts a sync
+that leaves them at 10000/10000 (syncNoop_accepted): sync's exported
+ensures keep only the supply and the lock, and _update's reserve
+postcondition is not among the exported function specs. A sync
+without _update cannot be refused by this spec.
+---
+ Contracts/UniswapV2/PairSpec/Axioms.lean   |  4 +++
+ Contracts/UniswapV2/PairSpec/Negative.lean | 10 +++++++
+ Contracts/UniswapV2/PairSpec/Refusal.lean  | 34 ++++++++++++++++++++++
+ 3 files changed, 48 insertions(+)
+
+diff --git a/Contracts/UniswapV2/PairSpec/Axioms.lean b/Contracts/UniswapV2/PairSpec/Axioms.lean
+index 94e0e98..282cee5 100644
+--- a/Contracts/UniswapV2/PairSpec/Axioms.lean
++++ b/Contracts/UniswapV2/PairSpec/Axioms.lean
+@@ -89,3 +89,7 @@ evaluated runs of Negative.lean (`#guard`) are not theorems and are not listed.
+ /-- info: 'SolidCore.Spec.UniswapV2.PairSpec.Negative.skimUpdate_refused' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+ #guard_msgs (whitespace := lax) in
+ #print axioms SolidCore.Spec.UniswapV2.PairSpec.Negative.skimUpdate_refused
++
++/-- info: 'SolidCore.Spec.UniswapV2.PairSpec.Negative.syncNoop_accepted' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms SolidCore.Spec.UniswapV2.PairSpec.Negative.syncNoop_accepted
+diff --git a/Contracts/UniswapV2/PairSpec/Negative.lean b/Contracts/UniswapV2/PairSpec/Negative.lean
+index 644a73a..00986e7 100644
+--- a/Contracts/UniswapV2/PairSpec/Negative.lean
++++ b/Contracts/UniswapV2/PairSpec/Negative.lean
+@@ -148,4 +148,14 @@ def srcRun (c? : Except TypeCheck.TypeError TypeCheck.CheckedContract) (w : Worl
+ -- Mutant source: the same.
+ #guard feat (srcRun contractSkimUpdate? (W 11000 10500) skimCall) = some (true, 11000, 10500, 1)
+ 
++/-! ## sync (evaluated): the real code moves the reserves, which the spec does not require -/
++
++-- The exact bytes: sync sets the reserves to the balances 11000/9094.
++#guard feat (Target.runWithIn (env 11000 9094) 10000000 code syncCallσ) = some (true, 11000, 9094, 1)
++-- The checked source: the same.
++#guard feat (srcRun SolidCore.Verify.VC.UniswapV2Pair.contract? (W 11000 9094) syncCallσ) =
++  some (true, 11000, 9094, 1)
++-- The observable syncNoop_accepted proves the spec accepts differs: reserves 10000/10000.
++#guard feat (some syncNoop) = some (true, 10000, 10000, 1)
++
+ end SolidCore.Spec.UniswapV2.PairSpec.Negative
+diff --git a/Contracts/UniswapV2/PairSpec/Refusal.lean b/Contracts/UniswapV2/PairSpec/Refusal.lean
+index 44a14c2..c03ef41 100644
+--- a/Contracts/UniswapV2/PairSpec/Refusal.lean
++++ b/Contracts/UniswapV2/PairSpec/Refusal.lean
+@@ -219,4 +219,38 @@ theorem skimUpdate_refused (hk : PairAllowanceApart) (W : World) (obs : Observab
+ #guard_msgs (whitespace := lax) in
+ #print axioms skimUpdate_refused
+ 
++/-- `sync()` from the storage `σ`. -/
++def syncCallσ : Call := mkCall ((EthLib.Base.natToBytes 4 syncSel).map (·.toNat)) σ
++
++/-- A sync that changes nothing: success, no output, the storage as it was (reserves 10000/10000
++while the tokens hold other balances). -/
++def syncNoop : Observable := { success := true, output := [], logs := [], storage := slotValue σ }
++
++set_option maxRecDepth 100000 in
++/-- **A spec gap, proved**: the published specification accepts a sync that does not update the
++reserves. sync's exported ensures are only that the supply and the lock are kept; the reserve
++postcondition is `_update`'s, which is private and not among the exported function specs. So a
++mutant sync without `_update` cannot be refused by this specification. -/
++theorem syncNoop_accepted (W : World) : Post W syncCallσ syncNoop := by
++  intro fs hfs args pre hpre
++  obtain ⟨⟨_, hsel, _⟩, hst, -, -, hinv⟩ := hpre
++  simp only [SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair, List.mem_cons, List.not_mem_nil,
++    or_false] at hfs
++  rcases hfs with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
++  all_goals try exact absurd hsel (by decide +kernel)
++  obtain ⟨st, gh, tm⟩ := pre
++  simp only at hst
++  subst hst
++  have hσ : syncCallσ.storage = σ := rfl
++  rw [hσ] at hinv ⊢
++  refine ⟨fun _ => ⟨[], by decide, ?_, ?_⟩, fun h => absurd rfl h⟩
++  · simp [Bundle.satAll, Bundle.sat, SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair, eval,
++      BinOp.apply, mkEnv, Env.cur, slotOf, Ty.ofBits, toWord, syncNoop, idStep, wordMod, slotValue, σ]
++  · simpa [Bundle.satAll, Bundle.sat, SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair, eval,
++      BinOp.apply, mkEnv, Env.cur, slotOf, Ty.ofBits, toWord, syncNoop, idStep, Env.bind, evalList] using hinv
++
++/-- info: 'SolidCore.Spec.UniswapV2.PairSpec.Negative.syncNoop_accepted' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms syncNoop_accepted
++
+ end SolidCore.Spec.UniswapV2.PairSpec.Negative
 -- 
 2.43.0
 
