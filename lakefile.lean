@@ -382,6 +382,16 @@ lean_lib ContractsUniswapV2ERC20Spec where
     .one `Contracts.UniswapV2.ERC20.Connect, .one `Contracts.UniswapV2.ERC20.SpecTreeKeccak,
     .one `Contracts.UniswapV2.ERC20.Meets, .one `Contracts.UniswapV2.ERC20.SpecTree]
 
+-- UniswapV2ERC20.transfer's certified slice, E7 (docs/CERTIFICATION_TARGET.md): solar-verify's
+-- transfer-slice.spec exported, its VC discharged over SolidCore's runs with no global hash premise,
+-- the observable's postcondition, non-vacuity, the required concrete runs, the source mutants refused
+-- by execution and the transfer of Meets to the bytes through Equiv (Contracts/UniswapV2/ERC20/Slice).
+-- scripts/verify/uniswap_v2_transfer_slice.sh generates Slice/Gen (derived from the GPL-3.0 port, so
+-- not committed) after scripts/verify/uniswap_v2_gen.sh.
+lean_lib ContractsUniswapV2TransferSlice where
+  roots := #[`Contracts.UniswapV2.ERC20.Slice.All]
+  globs := #[.submodules `Contracts.UniswapV2.ERC20.Slice, .one `Contracts.UniswapV2.ERC20.SpecTreeKeccak]
+
 -- UniswapV2Pair's translation is checked in stages, one module each, each within 6 GB:
 -- Pair/Contract.lean composes contract_ok from Check, Ctx, Clones, one Fn module per run of
 -- functions (mint and swap in three each: Fn/<fn>_pre, Fn/<fn>_lower, Fn/<fn>), Groups and Asm.
