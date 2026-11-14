@@ -308,15 +308,25 @@ theorem stack_simL {p : Program} {c : Cert} {mx : List Nat} {bb : Nat} {ok : Nat
   · cases hok
 
 
+/-- An oracle whose CALLER is the account `a` and whose hash is EthLib's: the oracle of a call from
+`a`. `OracleOk` is the case of `callerAddress` (`OracleOk.at`). -/
+def OracleOkAt (a : Nat) (o : SolarTV.Machine.Oracle) : Prop :=
+  o.caller.setWidth 256 = (Target.address a).toU256 ∧
+    ∀ bytes, o.keccak bytes = keccak ⟨(bytes.map UInt8.ofBitVec).toArray⟩
+
+theorem OracleOk.at {o : SolarTV.Machine.Oracle} (h : OracleOk o) : OracleOkAt callerAddress o := h
+
 open SolarTV.EVM.Program in
 /-- EthLib runs the code of a block's instructions from the offset of the next one as SolarTV
-runs them, over steps monotone in gas, with gas for the reserve `R` beyond the block. -/
-theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray} (G : GlobL p c mx code)
+runs them, over steps monotone in gas, with gas for the reserve `R` beyond the block, for a
+message from any account `a` (CALLER is `a`; the transaction's environment is `Target.txEnv`'s
+only when the block reads it). -/
+theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray} (G : GlobLT p c code)
     {o : SolarTV.Machine.Oracle} {call : SolarTV.Call} {msg : Message .fusaka} {ss0 : Substate}
     (hdata : msg.data = call.calldata) (hvalue : msg.value = BitVec.ofNat 256 call.callvalue)
     (hstatic : msg.isStatic = false) (hself : msg.currentTarget = Target.address selfAddress)
-    (hcaller : msg.caller = Target.address callerAddress) (ho : c.env = true → OracleOk o)
-    (hbenv : msg.blockEnv = Target.blockEnv) (htx : msg.txEnv = Target.txEnv)
+    {a : Nat} (hcaller : msg.caller = Target.address a) (ho : c.env = true → OracleOkAt a o)
+    (hbenv : msg.blockEnv = Target.blockEnv) (htx : c.reads = true → msg.txEnv = Target.txEnv)
     (he : c.reads = true → EnvOk o)
     (b : Nat) (hb : b < p.blocks.length) (Rv : Nat) :
     ∀ (is : List Assemble.Instr) (h : Nat) (known : List Word) (ty : List Ty) (S T : List Word) (k : Nat)
@@ -420,7 +430,7 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
           lowerFrom p c (b + 1) (p.blocks.drop (b + 1)))) k Rv pc S s M g := by
         simpa only [lowerInstrs, hT, hD', Bool.false_eq_true, ite_false, List.append_assoc] using I
       clear hok hD hD' hT
-      have IH := exec_simL (o := o) (ss0 := ss0) G hdata hvalue hstatic hself hcaller ho hbenv htx he b hb Rv rest
+      have IH := exec_simL (mx := mx) (o := o) (ss0 := ss0) G hdata hvalue hstatic hself hcaller ho hbenv htx he b hb Rv rest
       rcases i with mop | ⟨e, ar⟩ | t | t | t | _ | _ | _ | _ | _ | _ | _
       · rcases mop with sop | _ | _ | _ | _ | _ | _
         · by_cases hpush : ∃ v, sop = .push v
@@ -826,7 +836,7 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
           rw [exec_effect0 (w := BitVec.ofNat 256 w)
             (by simp [SolarTV.Machine.Effect.apply, he hreads name byte w hread]) (by omega)]
           have hrule := env_readG (msg := msg) (M := M) (st := st) (ss := ss) (rd := .empty) (gas := g)
-            (stack := T) hread hlt hcode hbenv htx (by omega) (by unfold STACK_LIMIT; omega)
+            (stack := T) hread hlt hcode hbenv (htx hreads) (by omega) (by unfold STACK_LIMIT; omega)
           exact SimOutL.pre hrule (IH (h + 1) [] _ _ _ (k - 1) s (pc + 1) M (g - 2) st ss hok
             (by simp; omega) (by hu_tac) (List.nil_prefix) (SR.cons (τ := some false) rfl hR) (I'.next hk1 hseg (by simp) (by omega)) R)
       · -- JUMP.

@@ -15,3 +15,8 @@ __pycache__/
 tests/forge-harness/*/out/
 tests/forge-harness/*/cache/
 /.cache/
+
+# UniswapV2ERC20 gas slice: generated from the GPL-3.0 port (scripts/verify/uniswap_v2_gas.sh)
+/Certified/uv2_erc20/gen/
+/Certified/uv2_erc20/uv2_erc20.sol
+/Certified/uv2_erc20/CtxGas.lean

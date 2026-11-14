@@ -201,6 +201,20 @@ structure GlobL (p : Program) (c : Cert) (mx : List Nat) (code : ByteArray) : Pr
     c.need t ≤ maxH mx t ∧ maxH mx t + budget c t ≤ 1000 ∧
     blockOkL p c mx t (c.need t) [] (c.entry t) (budget c t - labelItems p c t) p.blocks[t] = true
 
+/-- The facts of the check the simulation of one block uses: `GlobL`'s but the blocks' checks,
+so that one block may be simulated under a certificate of its own (one of its contexts). -/
+structure GlobLT (p : Program) (c : Cert) (code : ByteArray) : Prop where
+  top_mod : c.top % 32 = 0
+  top_le : c.top ≤ 2 ^ 32
+  size_lt : code.size < 2 ^ 32
+  target : ∀ t, t < p.blocks.length → isTarget p c t = true →
+    isValidJumpDest (validJumpDestinations code) (c.offset t) = true ∧ c.offset t < code.size ∧
+    Seg (bytesOf code) c.offset (c.offset t) (lowerFrom p c t (p.blocks.drop t)) code.size
+
+theorem GlobL.toT {p : Program} {c : Cert} {mx : List Nat} {code : ByteArray} (G : GlobL p c mx code) :
+    GlobLT p c code :=
+  ⟨G.top_mod, G.top_le, G.size_lt, G.target⟩
+
 theorem globL_of_checkL {p : Program} {code : ByteArray} {c : Cert} {mx : List Nat}
     (h : checkL p code c mx = true) :
     GlobL p c mx code ∧ Seg (bytesOf code) c.offset 0 (lower p c) code.size ∧ c.need 0 = 0 := by
@@ -282,8 +296,8 @@ theorem InvL.entry {c : Cert} {code : ByteArray} {call : SolarTV.Call} {items : 
   mem := I.mem
 
 /-- A jump's target block, at its offset, from the invariant before the `m` items of the jump. -/
-theorem InvL.target {p : Program} {c : Cert} {mx : List Nat} {code : ByteArray}
-    (G : GlobL p c mx code) {call : SolarTV.Call} {t m : Nat} {items : List Item} {k R pc : Nat}
+theorem InvL.target {p : Program} {c : Cert} {code : ByteArray}
+    (G : GlobLT p c code) {call : SolarTV.Call} {t m : Nat} {items : List Item} {k R pc : Nat}
     {S : List Word} {s : SolarTV.Machine.State} {M : ByteArray} {g g' : Nat}
     (I : InvL c code call items k R pc S s M g) (htn : t < p.blocks.length)
     (htgt : isTarget p c t = true) (hm : m ≤ k) (hg : g ≤ g' + 22100 * m) :

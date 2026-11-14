@@ -182,7 +182,8 @@ lean_lib SolidCoreSolarRunOracle where
     `SolidCore.Refinement.Solar.AssembleCallStaticRunner, `SolidCore.Refinement.Solar.AssembleCtxTrack,
     `SolidCore.Refinement.Solar.AssembleCtx, `SolidCore.Refinement.Solar.AssembleCtxExample,
     `SolidCore.Refinement.Solar.AssembleCtxCall,
-    `SolidCore.Refinement.Solar.AssembleNoCall, `SolidCore.Refinement.Solar.AssembleNoCallExample]
+    `SolidCore.Refinement.Solar.AssembleNoCall, `SolidCore.Refinement.Solar.AssembleNoCallExample,
+    `SolidCore.Refinement.Solar.AssembleCtxGas, `SolidCore.Refinement.Solar.AssembleCtxGasFrom]
 
 -- Runs that revert: no step of EthLib throws a revert and only REVERT ends a frame with it
 -- (Solar/EthLibErr.lean), so a run with less gas that reverts follows the run with more
@@ -421,12 +422,12 @@ lean_lib ContractsShapes where
   roots := #[`Verify.Shapes, `Verify.ShapeGeneric, `SolidCore.Refinement.Solar.AssembleGas,
     `SolidCore.Refinement.Solar.AssembleGasLoop, `Contracts.Counter.Execution, `Contracts.Counter.ShapeSpec,
     `Contracts.Counter.Shape, `Contracts.Counter.ShapeNeg, `Verify.ShapeBundle,
-    `Contracts.Counter.ShapeExport, `Verify.ShapeCtx]
+    `Contracts.Counter.ShapeExport, `Verify.ShapeCtx, `Verify.ShapeCtxGas]
   globs := #[.one `Verify.Shapes, .one `Verify.ShapeGeneric, .one `SolidCore.Refinement.Solar.AssembleGas,
     .one `SolidCore.Refinement.Solar.AssembleGasLoop,
     .one `Contracts.Counter.Execution, .one `Contracts.Counter.ShapeSpec,
     .one `Contracts.Counter.Shape, .one `Contracts.Counter.ShapeNeg, .one `Verify.ShapeBundle,
-    .one `Contracts.Counter.ShapeExport, .one `Verify.ShapeCtx]
+    .one `Contracts.Counter.ShapeExport, .one `Verify.ShapeCtx, .one `Verify.ShapeCtxGas]
 
 -- solar-verify's Token end to end: the generic source stage from SolidCore's checked Token to
 -- Certified/verify_token's stage0, the assembly stage of its evm12, and solar-verify's Token
@@ -518,3 +519,12 @@ lean_lib «arraymax» where
 lean_lib ContractsUniswapV2PairSpec where
   roots := #[`Contracts.UniswapV2.PairSpec.Published, `Contracts.UniswapV2.PairSpec.Negative]
   globs := #[.submodules `Contracts.UniswapV2.PairSpec]
+
+-- uv2_erc20: UniswapV2ERC20's exported stages (Certified/uv2_erc20/gen, written by solar's
+-- -Zemit-lean-stages from the GPL-3.0 v2-core port before the build, so not committed), the
+-- certificate of the checker with contexts and gas (CtxGas.lean, solar's tools/certify/gen_ctxgas.py,
+-- also generated) and the transfer slice's gas bound (Gas.lean, GasGuard.lean).
+lean_lib «uv2_erc20» where
+  srcDir := "Certified"
+  roots := #[`uv2_erc20.Gas]
+  globs := #[.submodules `uv2_erc20]

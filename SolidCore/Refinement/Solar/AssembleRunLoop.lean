@@ -96,7 +96,7 @@ theorem advances_checkL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code 
         simp only [ht, Bool.false_eq_true, ite_false, List.nil_append] at E'
         exact ⟨pc, g + K, Triple.of_imp fun _ h => h, by simp only [ht, Bool.false_eq_true, ite_false]; omega,
           ⟨E'.seg, by omega, by omega, E'.le_top, E'.mem⟩⟩
-    have hsim := exec_simL (o := o) G hdata hvalue hstatic hself hcaller ho hbenv htx he b hb 0
+    have hsim := exec_simL (o := o) G.toT hdata hvalue hstatic hself hcaller ho hbenv (fun _ => htx) he b hb 0
       p.blocks[b] (c.need b) [] (c.entry b) S Tw _ s pc1 M g1 st ss hblock hn (by omega)
       (List.nil_prefix) hR I1 R
     have hbl : block o call p (b, S, s) = some (exec o call b p.blocks[b] S s) := by
