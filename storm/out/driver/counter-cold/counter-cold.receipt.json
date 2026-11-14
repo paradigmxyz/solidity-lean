@@ -1,0 +1,15 @@
+{
+  "command": [
+    "scripts/certify",
+    "/home/hand/wt/target/certify/solidity-lean/Certified/counter/counter.sol",
+    "--require-headline",
+    "--require-final"
+  ],
+  "exit_code": 0,
+  "wall_seconds": 10703.1,
+  "max_rss_one_process_mib": 7840,
+  "peak_tree_rss_mib": 8630,
+  "peak_system_used_mib": 8636,
+  "mem_total_mib": 14531,
+  "started_utc": "2026-11-14T16:58:15Z"
+}
