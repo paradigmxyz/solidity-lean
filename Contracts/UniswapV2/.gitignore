@@ -16,3 +16,5 @@ ERC20/VC/
 */SpecWrongK.lean
 */Bytecode.lean
 */Runtime.lean
+*/SourceNoUpdate.lean
+*/RuntimeNoUpdate.lean

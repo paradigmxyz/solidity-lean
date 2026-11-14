@@ -39,7 +39,7 @@ def TermOn (c : SolidCore.Solidity.TypeCheck.CheckedContract) (V : Call → Prop
 /-- The specification on the calls `V` of one function, in every admitted world, under the named
 premise. -/
 def MeetsOn (c : SolidCore.Solidity.TypeCheck.CheckedContract) (V : Call → Prop) : Prop :=
-  KeccakModel → ∀ W, Admit W → Meets (solidCoreIn W SolidCore.Verify.VC.UniswapV2Pair.fuel) c V (Post W)
+  HashScope → ∀ W, Admit W → Meets (solidCoreIn W SolidCore.Verify.VC.UniswapV2Pair.fuel) c V (Post W)
 
 def EquivSwap (c : SolidCore.Solidity.TypeCheck.CheckedContract) : Prop := EquivOn c ValidSwap
 def EquivSkim (c : SolidCore.Solidity.TypeCheck.CheckedContract) : Prop := EquivOn c ValidSkim

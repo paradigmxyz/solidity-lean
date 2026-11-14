@@ -81,10 +81,26 @@ def PairFramed (W : World) : Prop :=
 /-- The admitted source worlds: the wide ones without reentrant state change. -/
 def Admit (W : World) : Prop := Wide W ∧ PairFramed W
 
-/-- **The named premise**: keccak256 is injective with images of at least `2 ^ 128` on the
-mapping slots the specification and the code read (`balanceOf` at slot 1, `nonces` at 4,
-`allowance` at 2). The keccak-model lane's `KeccakModel` replaces this definition when it lands. -/
-def KeccakModel : Prop := SolidCore.Spec.NestedSlotsSeparated [1, 4] [2]
+/-- The storage word of `balanceOf[address(0)]` (slot 1), as the specification computes it. -/
+def zeroBalanceSlot : Nat :=
+  SolidCore.Spec.keccakWord (SolidCore.Spec.wordBytes 0 ++ SolidCore.Spec.wordBytes 1)
+
+/-- The storage word of `allowance[address(0)][s]` (slot 2), as the specification computes it. -/
+def zeroAllowanceSlot (s : Nat) : Nat :=
+  SolidCore.Spec.keccakWord (SolidCore.Spec.wordBytes s ++
+    SolidCore.Spec.wordBytes (SolidCore.Spec.keccakWord (SolidCore.Spec.wordBytes 0 ++ SolidCore.Spec.wordBytes 2)))
+
+/-- **The named premise, scoped to the hashes the statement reads.** swap, skim and sync write
+only the pair's fixed slots (below 13: reserves 8, price accumulators 9 and 10, the lock 12), and
+the specification reads through keccak only the ERC20 invariants' words `balanceOf[address(0)]`
+and `allowance[address(0)][s]`. The premise says none of those words is a fixed slot. It is not an
+injectivity assumption: no two hashes need differ, so the counting argument that refutes
+`NestedSlotsSeparated` (2^320 preimages into 2^256 words) does not apply; it asks 2^160 + 1
+keccak outputs to avoid 13 values. Not proved (it is a fact about keccak256 the kernel cannot
+compute for every address); a premise of the statement, never an axiom. To be replaced by the
+footprint-scoped premise of Verify/Spec/HashScope.lean (`ScopedSep`). -/
+def HashScope : Prop :=
+  13 ≤ zeroBalanceSlot % 2 ^ 256 ∧ ∀ s, s < 2 ^ 160 → 13 ≤ zeroAllowanceSlot s % 2 ^ 256
 
 /-! ## Allowed statuses and the specification -/
 

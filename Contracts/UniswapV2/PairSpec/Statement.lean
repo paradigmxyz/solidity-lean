@@ -31,9 +31,10 @@ The statement is fixed here, from reviewed inputs only (never from a proof modul
   step: swap, skim and sync update no ghost, and the inherited ERC20 invariants
   (`totalSupply == sumBalances`, `allowance[0][s] == 0`, `balanceOf[0] >= zeroMinted`) are
   assumed before the call and required after it;
-* one named premise, `KeccakModel`: keccak256 injective with large images on the mapping slots
-  of `balanceOf`, `nonces` and `allowance` (currently `SolidCore.Spec.NestedSlotsSeparated`,
-  until the keccak-model lane's definition lands; it is a premise, never an axiom).
+* one named premise, `HashScope`: the keccak words the specification reads
+  (`balanceOf[address(0)]`, `allowance[address(0)][s]`) are none of the pair's 13 fixed slots,
+  the ones swap, skim and sync write (Inputs.lean; a premise, never an axiom; no global hash
+  separation, which is unsatisfiable).
 
 Not in the statement: mint and burn (their exported ensures read statement-level ghosts,
 `mintAmount0 = amount0` and the like, whose values depend on the tokens' answers: the ghost step
@@ -66,7 +67,7 @@ def Post (_W : World) : Call → Observable → Prop :=
 termination and the exported specification of swap, skim and sync on the exact bytes, in every
 admitted environment. -/
 def Statement : Prop :=
-  Bound ∧ (KeccakModel →
+  Bound ∧ (HashScope →
     ∃ c, SolidCore.Verify.VC.UniswapV2Pair.contract? = .ok c ∧
       OpenFunctional SolidCore.Verify.VC.UniswapV2Pair.fuel c code EnvOk Wide Admit Valid Allowed Post)
 
