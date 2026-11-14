@@ -1,0 +1,7 @@
+280c89c80 chore(certify): pin solidity-lean
+f6876f296 chore(certify): pin solidity-lean
+122ba1f24 chore(certify): pin solidity-lean
+99a97dd23 chore(certify): pin solidity-lean
+9aea52293 fix(certify): heartbeat option before the docstring
+52e2060e6 chore(certify): pin solidity-lean
+ec93342a1 feat(certify): connect succeeds-if specs and bind allowed to the export

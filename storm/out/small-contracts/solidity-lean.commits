@@ -1,0 +1,8 @@
+f962c2a chore(certified): verify_counter statement from the driver
+3906fdf chore(certified): regenerate the events manifest
+bba9e30 chore(verify-counter): source AST in the front end's layout
+22af832 chore(certified): regenerate manifests of the annotated sources
+1235e11 feat(verify-counter): source-sourced shape against the spec export
+648abad chore(solar): pin the annotated sources' hashes
+8254ea3 feat(certified): spec-connect small contracts to their exported specs
+97f06a1 feat(verify): prove succeeds-if conditions and bind allowed to the spec export
