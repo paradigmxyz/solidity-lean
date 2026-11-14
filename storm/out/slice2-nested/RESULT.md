@@ -1,158 +1,123 @@
-# slice2-nested: UniswapV2ERC20 approve and transferFrom (checkpoint 2)
+# slice2-nested: UniswapV2ERC20 approve and transferFrom (checkpoint 3: certified)
 
-Base: solidity-lean 9fb89ee (alpharush/certified-translation). Lane commits 6f6d390..aca1a6b on top
-(bundle sl-slice2-nested.bundle, range 9fb89ee..work/slice2-nested; same as sl-patches/0001-0004).
-solar used for stage0: 38b5232ad (alpharush/certified), `-Ogas --evm-version osaka`.
-Pinned source: scripts/verify/uniswap-v2/UniswapV2ERC20.sol as uniswap_v2_gen.sh writes it,
-sha256 14da00cdeaf2ab3709d2d9838be2c2a144502b32b874b55394d7a8792deac80b. Runtime of that run: 1183
-bytes, sha256 ca4c19254b2852f3b0642e24002c616a048c6f343671324c7ae81a4cad971a0b (-Zemit-lean-stages
-checked not to change them).
+Base: solidity-lean PR #166 head f8a4a74 (transfer certified at 0x2000, any-caller backend), which
+already contains this lane's earlier work as d0ab5d6 (approve and transferFrom: E3, the exact source
+specs, the key-level corollaries, the E3 negative controls). This checkpoint is one commit on top:
+a2fa4bb "feat(uniswap-v2): certified approve, transferFrom" (sl-patches/0001, bundle
+sl-slice2-nested-e4.bundle, range f8a4a74..a2fa4bb). The checkpoint 1 and 2 patches and bundle that
+were here are superseded (merged as d0ab5d6) and removed from this folder; they stay in this
+branch's history.
 
-No GPL-derived file is in the patches: the erased trees (Nested/Trees.lean), stage0 and its mutants
-(Certified/uv2_erc20/) are generated at build and gitignored.
+solar: PR #2637 head 902cccc2 built; it differs from the pinned stages rev 697fc68
+(scripts/verify/uniswap_v2_stages-solar-rev) only in certify tooling it does not use here
+(certify.py, gen_ctxgas.py, asm_ctx.py identical), so the scripts ran against a 697fc68 checkout
+with that binary. Pinned source sha256 14da00cd...ac80b; runtime 1183 bytes, sha256
+ca4c1925...0a0b, the same bytes as transfer's (`CtxGasA.code_eq`, `CtxGasTF.code_eq`: `rfl`).
+
+No GPL-derived file is in the patch: the stages, certificates and proofs generated from the port
+(CtxGasA/TF.lean, ProofsA/, ProofsTF/, gen/, Nested/Trees.lean) are generated at build and
+gitignored.
+
+## Statements
+
+```lean
+-- Contracts/UniswapV2/ERC20/Certified/Approve.lean
+theorem Approve.certified : ∃ c, contract? = .ok c ∧
+    Certified (solidCore fuel) c code ApproveValid Allowed ApprovePost (fun _ => 5856506)
+-- Allowed := success ∨ output = []   (a spender word ≥ 2^160 reverts with no data)
+
+-- Contracts/UniswapV2/ERC20/Certified/TransferFrom.lean
+theorem TransferFrom.certified : ∃ c, contract? = .ok c ∧
+    Certified (solidCore fuel) c code TransferFromValid Allowed TransferFromPost (fun _ => 15558412)
+-- Allowed := success ∨ output = [] ∨ output = subUnderflow ∨ output = addOverflow
+```
+
+Same shape as `Certified.Transfer.certified`: inhabited, equivalence at every gas, termination
+with the allowed statuses, the postcondition of every source run, resources (from G gas on the
+bytes give exactly the source's result). Caller 0x2000, as for transfer.
+
+**No hash premise** in either: `ApproveValid` / `TransferFromValid` are the generic stage's valid calls
+(any argument words, no value, any storage listing the deployed DOMAIN_SEPARATOR slot), and
+`ApprovePost` / `TransferFromPost` say the result is exactly `approveResult` / `transferFromResult`
+of the call's storage and words (sequential slot updates in source order). The scoped premise
+(`HashScopeNested.Scoped` on the call's footprint) enters only the key-level corollaries on the bytes.
+
+On the bytes (from the gas bound on, `Final.Target.runWith`):
+- `Approve.approve_bytes`: exactly `approveResult (slotValue σ) spender value`.
+- `Approve.approve_keys_bytes` (scoped premise): a clean call succeeds, sets allowance[caller][spender], leaves every slot below 2^128 unchanged.
+- `TransferFrom.transferFrom_bytes`: exactly `transferFromResult (slotValue σ) frm dst value`.
+- `TransferFrom.self_max_bytes` (required case, scoped premise): balance 2^256-1, infinite allowance, `transferFrom(frm, frm, 1)` succeeds and the balance stays 2^256-1.
+- `TransferFrom.self_short_bytes` (required case, scoped premise): a self-transfer above the balance reverts.
 
 ## Edge status
 
 | Edge | approve | transferFrom |
 |---|---|---|
-| E1 frontend | TRUSTED (stated; shared with transfer) | same |
-| E3 source -> MIR stage0 | **PROVED** `approve_source_to_mir`, `approve_defined` | **PROVED** `transferFrom_source_to_mir`, `transferFrom_defined` |
-| E3 negative controls | **PROVED** `rejects_approve_no_write`, `rejects_approve_wrong_slot` | **PROVED** `rejects_transferFrom_no_spend` |
-| Spec, source level | **PROVED** `approve_meets` (exact sequential result, no premise); `approve_keys` (scoped premise) | **PROVED** `transferFrom_meets` (exact sequential result, no premise); `transferFrom_keys`, `transferFrom_self`, `transferFrom_self_max`, `transferFrom_self_short` (scoped premise) |
-| E4 stage0 -> EVM IR | MISSING: no stage certificates for this solar build (the earlier uv2_erc20 milestone was for an older 2187-byte build and is not in the tree) | same |
-| E5 bytes | MISSING. 9fb89ee's AssembleNoCall (call-free runner premises) does not apply as is: the runtime has a STATICCALL (permit's ecrecover, offset 0x387), so StaticRunner/CalleesRun must be discharged for a runtime with a STATICCALL that approve and transferFrom never reach | same |
-| E6, E7, E8 | MISSING (need E4, E5) | same |
+| E1 frontend | TRUSTED (shared with transfer) | same |
+| E3 source -> stage0 | PROVED (d0ab5d6) `check_approve_ok` | PROVED (d0ab5d6) `check_transferFrom_ok` |
+| E4 stage0 -> evm11 | **PROVED** `SolarTV.Milestone.Uv2Erc20A.uv2_erc20_approve_mir_to_evmir`, 16 stages, every oracle | **PROVED** `SolarTV.Milestone.Uv2Erc20TF.uv2_erc20_transferFrom_mir_to_evmir`, 16 stages, every oracle |
+| E4 any caller | **PROVED** `AnyCaller.Approve.stages_from`, `backend_any_caller`, `resources_any_caller` | **PROVED** `AnyCaller.TransferFrom.*` |
+| E5 + E8 bytes, gas | **PROVED** `CtxGasA.gas_edge`, G = 22100·(5·53)+6 = 5856506 | **PROVED** `CtxGasTF.gas_edge`, G = 22100·(11·64)+12 = 15558412 |
+| E5 negative controls | **PROVED** `CtxGasA.rejects_jump`, `rejects_sstore` (allowance SSTORE at 0x1e0 as POP) | **PROVED** `CtxGasTF.rejects_jump`, `rejects_sstore` (allowance SSTORE at 0x2b1 as POP) |
+| E7 spec | PROVED `approve_meets` (d0ab5d6), carried to the bytes here | PROVED `transferFrom_meets` (d0ab5d6), carried to the bytes here |
+| Composition | **PROVED** `Approve.certified` | **PROVED** `TransferFrom.certified` |
 
-Status: NOT CERTIFIED. Blocking edges: E4, E5, E6, E7 (spec carried to bytes), E8.
-Shared gap with transfer: the caller is the stage's (0x2000): SolarTV.Call has no caller field.
+Status: CERTIFIED at the caller 0x2000, same scope and trust base as transfer (E1 trusted; the
+source side fixes the caller; the backend and gas edges hold from any caller).
 
-## Theorems (namespace SolidCore.Spec.UniswapV2.ERC20.Nested unless noted)
-
-Specs are the source's effect as sequential storage updates in source order
-(`upd st k v n := if k = n % 2^256 then v else st n`), at the slots SolidCore computes
-(`allowanceSlot o s := solHash s (solHash o 2)`, `balanceSlot a := solHash a 1`). They need no hash
-premise: aliasing of slots is the source's own. The premise enters only key-level corollaries.
-
-approve (Nested/Approve.lean):
-- `approveResult st spender value`: spender >= 2^160 reverts (no data, no change); else success, output
-  word 1, log `([approvalTopic, caller, spender], word32 value)`, storage `upd st (allowanceSlot caller spender) value`.
-- `approve_tree_eval`: the erased tree gives exactly `approveResult` for every argument word and storage.
-- `approve_frame`: every slot n with `n % 2^256 ≠ allowanceSlot caller spender` unchanged (slots, no premise).
-- `approve_meets (hc : contract? = .ok c) : Meets (solidCore fuel) c ApproveValid ApprovePost`.
-- `approve_keys (hsp : spender < 2^160) (h : HashScopeNested.Scoped (approveFootprint caller spender))`:
-  success, the allowance slot holds value, every slot below 2^128 (totalSupply, DOMAIN_SEPARATOR) unchanged.
-
-transferFrom (Nested/TransferFromSpec.lean, Nested/TransferFrom.lean):
-- `transferFromResult st frm dst value`: dirty frm or dst reverts with no data; `a := st (allowanceSlot frm caller)`;
-  unless `a = 2^256-1`, `value > a` reverts with SafeMath's `ds-math-sub-underflow` data, else writes `a - value`;
-  then debit `balanceOf[frm]` reading that storage (`ds-math-sub-underflow`), then credit `balanceOf[dst]` reading
-  the debited storage (`ds-math-add-overflow` when it reaches 2^256); log Transfer(frm, dst, value); return true.
-  Reverts change nothing and log nothing.
-- `transferFrom_tree_eq : transferFrom_tree = tfTree` (decide +kernel; tfTree names the tree's words).
-- `transferFrom_tree_eval (hst : ∀ k, st k < 2^256)`: the erased tree gives exactly `transferFromResult`.
-- `transferFrom_meets hc : Meets (solidCore fuel) c TransferFromValid TransferFromPost`.
-- `transferFrom_keys` (frm ≠ dst, clean addresses, `Scoped (transferFromFootprint caller frm dst)`): success iff
-  (allowance infinite or ≥ value) ∧ value ≤ balanceOf[frm] ∧ balanceOf[dst] + value < 2^256, all on the storage
-  before the call; on success the allowance is `2^256-1` if it was, else `a - value`, the balances debited and credited.
-- `transferFrom_self` (frm = dst, `Scoped (transferFromFootprint caller frm frm)`): success iff (allowance
-  infinite or ≥ value) ∧ value ≤ balance, no overflow condition; balance unchanged.
-- `transferFrom_self_max`: balance 2^256-1, infinite allowance, value 1, self: succeeds, balance stays 2^256-1.
-- `transferFrom_self_short`: self-transfer with balance < value reverts.
-
-E3 (Nested/LoweringApprove.lean, Nested/LoweringTransferFrom.lean, Nested/NegE3.lean):
-- `check_approve_ok`, `check_transferFrom_ok`: `Generic.check fuel 200 c.core stage0 [fn] .all = true` (kernel_rfl).
-- `approve_source_to_mir o (ho : Generic.SourceEnvOk o) hc : Stage (solidCore fuel) (moduleSem o) c stage0
-  (fun call => ∃ σ, Covers deployed σ ∧ fullScope [fn_approve] σ call)`; likewise transferFrom.
-- `approve_defined`, `transferFrom_defined`: SolidCore has a result on every valid call (by the checker).
-- `rejects_approve_no_write`, `rejects_approve_wrong_slot`, `rejects_transferFrom_no_spend`: the same check
-  evaluates to false on stage0 with _approve's SSTORE dropped, with _approve hashing into slot 3, and with
-  transferFrom's allowance SSTORE dropped (scripts/verify/uniswap_v2_stage0_mutants.py).
-
-## Exact premises
-
-Verify/Spec/HashScopeNested.lean (namespace SolidCore.Spec.HashScopeNested):
-
-```lean
-abbrev Scoped (L : List (List Nat)) : Prop := ScopedSep L
--- hash-scope's Verify/Spec/HashScope.lean (27a02d4, in the base):
--- def ScopedSep (L : List (List Nat)) : Prop := TrustedBase.KeccakSeparated (· ∈ L)
--- def KeccakSeparated (S : Preimages) : Prop :=
---   (∀ x y, S x → S y → keccakWord x = keccakWord y → x = y) ∧ ∀ x, S x → 2 ^ 128 ≤ keccakWord x
-abbrev pre (a m : Nat) : List Nat := TrustedBase.mappingPreimage a m   -- wordBytes a ++ wordBytes m
-def nestedFootprint (n o s : Nat) : List (List Nat) := [pre o n, pre s (solHash o n)]
-def approveFootprint (caller spender : Nat) : List (List Nat) := nestedFootprint 2 caller spender
-def transferFromFootprint (caller frm dst : Nat) : List (List Nat) :=
-  nestedFootprint 2 frm caller ++ [pre frm 1, pre dst 1]
-```
-
-Coordinated with hash-scope: `Scoped` is their `ScopedSep`, one premise for single-level and nested
-maps; this module only adds the nested footprints and slot lemmas (`slot_ge`, `slot_ne`, `nested_ne_flat`,
-`transferFrom_slots`, `approve_slot`). Satisfiable with the real keccak256 on a concrete nontrivial
-footprint (`transferFrom_scoped_witness : Scoped (transferFromFootprint 0x2000 1 2)`, four images by
-decide +kernel), and not trivial (`not_scoped_collision : ¬ Scoped [[0], [256]]`). E3 takes only
-`Generic.SourceEnvOk o` (the oracle's caller and two-word keccak agree with SolidCore's).
-
-## Build receipts (LEAN_NUM_THREADS=1, 14 GB Hand, Lean 4.35.0)
+## How it was generated
 
 ```
-scripts/verify/uniswap_v2_gen.sh                                       exit 0
-SOLAR=solar(38b5232ad) scripts/verify/uniswap_v2_stage0.sh             exit 0
-python3 scripts/verify/uniswap_v2_stage0_mutants.py                    exit 0
-lake build Contracts.UniswapV2.ERC20.Core Contracts.UniswapV2.ERC20.SpecTreeKeccak   exit 0
-python3 scripts/verify/uniswap_v2_trees.py                             exit 0
-lake build -KleanMemory=6000 ContractsUniswapV2ERC20Nested   (clean, 9 modules + HashScopeNested)
-                                                   exit 0, peak RSS 5891 MB, 275 s
-  Trees 77 s · LoweringApprove 20 s (5133 MB alone) · LoweringTransferFrom 24 s (5609 MB alone)
-  NegE3 57 s (5430 MB alone) · HashScopeNested 14 s (3318 MB) · TransferFromSpec 71 s (2935 MB)
-  Approve 3 s · TransferFrom 3 s
+scripts/verify/uniswap_v2_gen.sh
+SOLAR_DIR=<solar at 697fc68, built> scripts/verify/uniswap_v2_stages.sh
+python3 scripts/verify/uniswap_v2_stage0_mutants.py      # for Nested/NegE3
+scripts/verify/uniswap_v2_stages_nested.sh               # new
+lake build -KleanMemory=6000 uv2_erc20 ContractsUniswapV2ERC20Nested ContractsUniswapV2ERC20Certified
 ```
 
-#print axioms (lake env lean on a file importing Nested.All, exit 0):
+Three things differ from transfer's recipe, all in the new script:
+1. `gen_ctxgas.py --selector` keeps only blocks 0 and 1 of the dispatcher checked. Selectors below
+   0x3644e515 are compared in a second dispatcher block (index 3), which the guard proof then enters
+   as unchecked and fails. The script checks every block that compares the function's selector
+   (regenerates with `--skip` = the slice's skip list minus those).
+2. `certify.py --segment 16` (transfer: 8). With 8, the inline-returns stage (evm10) is cut at the
+   second dispatcher block; its cut relation keeps the selector as an unknown word, so the segment
+   walks the excluded functions and the proof fails (seen for both). The script refuses any proof
+   that cuts there.
+3. transferFrom only: `--heartbeats 8000000`; its evm2 first segment timed out at 2000000.
 
-```
-'SolidCore.Spec.UniswapV2.ERC20.Nested.approve_tree_eval' depends on axioms: [propext, Quot.sound]
-'SolidCore.Spec.UniswapV2.ERC20.Nested.approve_frame' depends on axioms: [propext]
-'SolidCore.Spec.UniswapV2.ERC20.Nested.approve_meets' depends on axioms: [propext, Classical.choice, Quot.sound]
-'SolidCore.Spec.UniswapV2.ERC20.Nested.approve_keys' depends on axioms: [propext, Quot.sound]
-'SolidCore.Spec.UniswapV2.ERC20.Nested.approve_source_to_mir' depends on axioms: [propext, Classical.choice, Quot.sound]
-'SolidCore.Spec.UniswapV2.ERC20.Nested.approve_defined' depends on axioms: [propext, Classical.choice, Quot.sound]
-'SolidCore.Spec.UniswapV2.ERC20.Nested.transferFrom_tree_eq' depends on axioms: [propext]
-'SolidCore.Spec.UniswapV2.ERC20.Nested.transferFrom_tree_eval' depends on axioms: [propext,
- Classical.choice,
- Quot.sound]
-'SolidCore.Spec.UniswapV2.ERC20.Nested.transferFrom_meets' depends on axioms: [propext, Classical.choice, Quot.sound]
-'SolidCore.Spec.UniswapV2.ERC20.Nested.transferFrom_keys' depends on axioms: [propext, Classical.choice, Quot.sound]
-'SolidCore.Spec.UniswapV2.ERC20.Nested.transferFrom_self' depends on axioms: [propext, Classical.choice, Quot.sound]
-'SolidCore.Spec.UniswapV2.ERC20.Nested.transferFrom_self_max' depends on axioms: [propext, Classical.choice, Quot.sound]
-'SolidCore.Spec.UniswapV2.ERC20.Nested.transferFrom_self_short' depends on axioms: [propext,
- Classical.choice,
- Quot.sound]
-'SolidCore.Spec.UniswapV2.ERC20.Nested.transferFrom_source_to_mir' depends on axioms: [propext,
- Classical.choice,
- Quot.sound]
-'SolidCore.Spec.UniswapV2.ERC20.Nested.transferFrom_defined' depends on axioms: [propext, Classical.choice, Quot.sound]
-'SolidCore.Spec.UniswapV2.ERC20.Nested.rejects_approve_no_write' depends on axioms: [propext,
- Classical.choice,
- Quot.sound]
-'SolidCore.Spec.UniswapV2.ERC20.Nested.rejects_approve_wrong_slot' depends on axioms: [propext,
- Classical.choice,
- Quot.sound]
-'SolidCore.Spec.UniswapV2.ERC20.Nested.rejects_transferFrom_no_spend' depends on axioms: [propext,
- Classical.choice,
- Quot.sound]
-'SolidCore.Spec.HashScopeNested.transferFrom_scoped_witness' depends on axioms: [propext, Quot.sound]
-'SolidCore.Spec.HashScopeNested.not_scoped_collision' depends on axioms: [propext]
-'SolidCore.Spec.HashScopeNested.transferFrom_slots' depends on axioms: [propext, Classical.choice, Quot.sound]
-'SolidCore.Spec.HashScopeNested.approve_slot' depends on axioms: [propext, Quot.sound]
-MAXRSS_MB 2476 WALL_S 3 EXIT 0
-```
+Worth fixing upstream in solar's certify tooling: (1) and (2) are general for any function
+dispatched past the first dispatcher block.
 
-No sorry, native_decide, bv_decide, ofReduceBool, axiom or extern in the lane's files (grep).
+## Build receipts (hosted Hand, 5 cores, 14 GB, LEAN_NUM_THREADS=1, -KleanMemory=6000)
 
-## Next (blocking CERTIFIED)
+Each stage module built in its own `lake build` call; peak RSS of the process tree, wall time, exit code:
 
-E4: stage certificates stage0 -> sched -> evm_n for this solar build (certify.py), scoped to the
-approve and transferFrom selectors. E5: the context checker on the 1183-byte runtime, with
-StaticRunner/CalleesRun discharged for calls that never reach the STATICCALL (generalizing 9fb89ee's
-AssembleNoCall). Then E7 composes `approve_meets`/`transferFrom_meets` with them through
-`Shapes.functional_ctx`, and E8 needs a gas bound. Both are shared with the transfer slice's lanes.
+| Target | Modules | Peak RSS | Wall (sum) | Exit |
+|---|---|---|---|---|
+| uv2_erc20.ProofsA (Runs + Stages) | 17 | 1972 MB | 554 s | all 0 |
+| uv2_erc20.ProofsTF (Runs + Stages) | 17 | 2559 MB (evm2) | 1206 s | all 0 |
+| uv2_erc20.GasGuardA (guard N=5, sym_exec) + GasA | 2 | see next row | 21 s + 3 s | 0 |
+| uv2_erc20.GasGuardTF + GasTF (guard N=11) | 2 | 3505 MB | 102 s | 0 |
+| uv2_erc20.AnyCallerNested | 1 | 2822 MB | 493 s (with transfer's stages) | 0 |
+| ContractsUniswapV2ERC20Nested with GasGuardA (one lake call) | all | 5900 MB | 440 s | 0 |
+| Certified.Approve, Certified.TransferFrom | 2 | 2683 MB | 2.3 s, 2.6 s | 0 |
+
+Final incremental build of all of the above: "Build completed successfully (2873 jobs)", exit 0.
+
+`#print axioms` (also pinned by `#guard_msgs` in the modules): `Approve.certified`, `approve_bytes`,
+`approve_keys_bytes`, `TransferFrom.certified`, `transferFrom_bytes`, `self_max_bytes`, `self_short_bytes`,
+`CtxGasA.gas_edge`, `CtxGasTF.gas_edge`, `AnyCaller.Approve.backend_any_caller`,
+`AnyCaller.TransferFrom.backend_any_caller`, `uv2_erc20_approve_mir_to_evmir`,
+`uv2_erc20_transferFrom_mir_to_evmir`: [propext, Classical.choice, Quot.sound].
+`rejects_sstore` (both): [propext, Quot.sound]. No sorry, admit or native_decide in the new or
+generated files.
+
+## Not done
+
+- The source side (E3, E7) still fixes the caller at 0x2000, as for transfer.
+- No concrete-storage self-transfer run on the bytes by `decide` (transfer has σmax/σshort): the
+  transferFrom cases are stated for every storage under the scoped premise, which
+  `HashScopeNested.transferFrom_scoped_witness` shows satisfiable.
+- CI: the new modules need `uniswap_v2_stages_nested.sh` in the workflow that runs
+  `uniswap_v2_stages.sh`; not added here.

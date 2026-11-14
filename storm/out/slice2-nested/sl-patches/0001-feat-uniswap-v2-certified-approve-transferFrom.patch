@@ -1,0 +1,1087 @@
+From a2fa4bb487942e689759c48c796fe4d972c38209 Mon Sep 17 00:00:00 2001
+From: pyramid <pyramid@tempo.xyz>
+Date: Sat, 14 Nov 2026 23:45:20 +0000
+Subject: [PATCH] feat(uniswap-v2): certified approve, transferFrom
+
+Compose E3, E4, E5 + E8 and E7 for approve and transferFrom of the
+pinned UniswapV2ERC20 port into one Shapes.Certified statement each, on
+the same exact runtime bytes as transfer, at the caller 0x2000:
+gas bounds 5856506 (approve, 5 blocks) and 15558412 (transferFrom, 11
+blocks), no hash premise in either statement (the postconditions are
+exact over the slot function), and the self-transfer cases of
+transferFrom on the bytes under the scoped premise.
+
+scripts/verify/uniswap_v2_stages_nested.sh generates, after
+uniswap_v2_stages.sh, each function's gas certificate and backend stage
+proofs. gen_ctxgas.py --selector checks only blocks 0 and 1 of the
+dispatcher, but both functions are dispatched from its second block, so
+the script checks every block that compares the selector. certify.py
+runs with segments of 16: with 8, the inline-returns stage is cut at
+the second dispatcher block, where the selector is an unknown word and
+the proof fails. transferFrom's evm2 segment needs 8000000 heartbeats.
+
+The backend stages and gas edges hold from any caller
+(AnyCallerNested.lean), as transfer's do.
+---
+ .gitignore                                    |   6 +
+ Certified/uv2_erc20/AnyCallerNested.lean      | 126 ++++++++++++
+ Certified/uv2_erc20/GasA.lean                 | 112 +++++++++++
+ Certified/uv2_erc20/GasGuardA.lean            |  68 +++++++
+ Certified/uv2_erc20/GasGuardTF.lean           |  72 +++++++
+ Certified/uv2_erc20/GasTF.lean                | 113 +++++++++++
+ .../UniswapV2/ERC20/Certified/Approve.lean    | 167 ++++++++++++++++
+ .../ERC20/Certified/TransferFrom.lean         | 184 ++++++++++++++++++
+ lakefile.lean                                 |  18 +-
+ scripts/verify/uniswap_v2_stages_nested.sh    |  92 +++++++++
+ 10 files changed, 953 insertions(+), 5 deletions(-)
+ create mode 100644 Certified/uv2_erc20/AnyCallerNested.lean
+ create mode 100644 Certified/uv2_erc20/GasA.lean
+ create mode 100644 Certified/uv2_erc20/GasGuardA.lean
+ create mode 100644 Certified/uv2_erc20/GasGuardTF.lean
+ create mode 100644 Certified/uv2_erc20/GasTF.lean
+ create mode 100644 Contracts/UniswapV2/ERC20/Certified/Approve.lean
+ create mode 100644 Contracts/UniswapV2/ERC20/Certified/TransferFrom.lean
+ create mode 100755 scripts/verify/uniswap_v2_stages_nested.sh
+
+diff --git a/.gitignore b/.gitignore
+index 1988fc4..7073ef2 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -24,6 +24,12 @@ tests/forge-harness/*/cache/
+ /Certified/uv2_erc20/ProofsT.lean
+ /Certified/uv2_erc20/Ctx.lean
+ /Certified/uv2_erc20/CtxNeg.lean
++/Certified/uv2_erc20/CtxGasA.lean
++/Certified/uv2_erc20/CtxGasTF.lean
++/Certified/uv2_erc20/ProofsA/
++/Certified/uv2_erc20/ProofsA.lean
++/Certified/uv2_erc20/ProofsTF/
++/Certified/uv2_erc20/ProofsTF.lean
+ 
+ /Contracts/UniswapV2/ERC20/Runtime.lean
+ /Contracts/UniswapV2/ERC20/Nested/Trees.lean
+diff --git a/Certified/uv2_erc20/AnyCallerNested.lean b/Certified/uv2_erc20/AnyCallerNested.lean
+new file mode 100644
+index 0000000..c1a46e3
+--- /dev/null
++++ b/Certified/uv2_erc20/AnyCallerNested.lean
+@@ -0,0 +1,126 @@
++import uv2_erc20.AnyCaller
++import uv2_erc20.GasA
++import uv2_erc20.GasTF
++import uv2_erc20.ProofsA.Stages
++import uv2_erc20.ProofsTF.Stages
++
++-- Untrusted proof script: the kernel checks it.
++
++/-!
++# UniswapV2ERC20.approve and transferFrom: backend stages from any caller (E4, E4∘E5)
++
++The same route as transfer's (`AnyCaller.lean`): the backend stages
++(`uv2_erc20_approve_mir_to_evmir`, `uv2_erc20_transferFrom_mir_to_evmir`, E4) hold under every
++oracle, and the machine reads CALLER from the oracle, so their proofs execute `CALLER` as an
++unknown 160-bit word. For each function:
++
++* `stages_from`: E4 under the oracle of a call from any account `a` (`oracleFrom a`).
++* `backend_any_caller`: from every caller `a` (below `2 ^ 160`, not the contract), under every
++  oracle whose CALLER is `a` and whose Keccak-256 is EthLib's, every result the first lowered MIR
++  `stage0` gives on a call of the function is EthLib's result on the exact runtime bytes, at every
++  gas from its `G` on (approve 5856506, transferFrom 15558412).
++* `resources_any_caller`: `Shapes.ResourcesFrom` for any source semantics per caller, from a source
++  stage per caller into `stage0` and its totality.
++
++`AnyCaller.any_caller_inhabited` gives a caller other than `0x2000` meeting the premises.
++-/
++
++namespace SolarTV.Export.UniswapV2ERC20.AnyCaller
++
++open SolarTV SolarTV.Machine SolidCore.Refinement SolidCore.Refinement.Shapes SolidCore.Refinement.Solar
++
++namespace Approve
++
++open SolarTV.Milestone.Uv2Erc20A (scope uv2_erc20_approve_mir_to_evmir)
++open SolarTV.Export.UniswapV2ERC20.CtxGasA (G code prog ApproveCall gas_edge resources)
++
++/-- A call of `approve` is in the stages' scope: its selector is none of the excluded ones. -/
++theorem approve_scope {call : Call} (h : ApproveCall call) : scope call := by
++  unfold ApproveCall at h
++  simp only [scope, h]
++  decide
++
++/-- **E4 from any caller**: the backend stages under the oracle of a call from `a`. -/
++theorem stages_from (a : Nat) :
++    Stage (mirSem (oracleFrom a)) (evmirSem (oracleFrom a)) stage0 evm11 scope :=
++  uv2_erc20_approve_mir_to_evmir (oracleFrom a)
++
++/-- **E4∘E5 from any caller** for approve. -/
++theorem backend_any_caller : ∀ a, a < 2 ^ 160 → a ≠ selfAddress → ∀ o, AssembleLoop.OracleOkAt a o →
++    ∀ call, ApproveCall call → ∀ obs, (mirSem o).run stage0 call = some obs →
++      ∀ gas, G ≤ gas → Final.Target.runWithFrom a gas code call = some obs := by
++  intro a ha hne o ho call hc obs hrun gas hg
++  have h4 := uv2_erc20_approve_mir_to_evmir o call (approve_scope hc) obs hrun
++  obtain ⟨obs', hq, hb⟩ := gas_edge a ha hne o ho call hc gas hg
++  rw [show (evmirSem o).run prog call = (evmirSem o).run evm11 call from rfl, h4] at hq
++  cases hq
++  exact hb
++
++/-- **Resources from any caller** for approve, from a source stage per caller into `stage0`. -/
++theorem resources_any_caller {Valid : Call → Prop} {run : Nat → Call → Option Observable}
++    (hv : ∀ call, Valid call → ApproveCall call)
++    (total : ∀ a, a < 2 ^ 160 → a ≠ selfAddress → ∀ call, Valid call → ∃ obs, run a call = some obs)
++    (source : ∀ a, a < 2 ^ 160 → a ≠ selfAddress → ∀ call, Valid call → ∀ obs, run a call = some obs →
++      (mirSem (oracleFrom a)).run stage0 call = some obs) :
++    ResourcesFrom run code Valid (fun _ => G) :=
++  resources hv total fun a _ _ call hc obs h =>
++    stages_from a call (approve_scope (hv call hc)) obs (source a ‹_› ‹_› call hc obs h)
++
++/-- info: 'SolarTV.Export.UniswapV2ERC20.AnyCaller.Approve.backend_any_caller' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms backend_any_caller
++
++/-- info: 'SolarTV.Export.UniswapV2ERC20.AnyCaller.Approve.resources_any_caller' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms resources_any_caller
++
++end Approve
++
++namespace TransferFrom
++
++open SolarTV.Milestone.Uv2Erc20TF (scope uv2_erc20_transferFrom_mir_to_evmir)
++open SolarTV.Export.UniswapV2ERC20.CtxGasTF (G code prog TransferFromCall gas_edge resources)
++
++/-- A call of `transferFrom` is in the stages' scope. -/
++theorem transferFrom_scope {call : Call} (h : TransferFromCall call) : scope call := by
++  unfold TransferFromCall at h
++  simp only [scope, h]
++  decide
++
++/-- **E4 from any caller**: the backend stages under the oracle of a call from `a`. -/
++theorem stages_from (a : Nat) :
++    Stage (mirSem (oracleFrom a)) (evmirSem (oracleFrom a)) stage0 evm11 scope :=
++  uv2_erc20_transferFrom_mir_to_evmir (oracleFrom a)
++
++/-- **E4∘E5 from any caller** for transferFrom. -/
++theorem backend_any_caller : ∀ a, a < 2 ^ 160 → a ≠ selfAddress → ∀ o, AssembleLoop.OracleOkAt a o →
++    ∀ call, TransferFromCall call → ∀ obs, (mirSem o).run stage0 call = some obs →
++      ∀ gas, G ≤ gas → Final.Target.runWithFrom a gas code call = some obs := by
++  intro a ha hne o ho call hc obs hrun gas hg
++  have h4 := uv2_erc20_transferFrom_mir_to_evmir o call (transferFrom_scope hc) obs hrun
++  obtain ⟨obs', hq, hb⟩ := gas_edge a ha hne o ho call hc gas hg
++  rw [show (evmirSem o).run prog call = (evmirSem o).run evm11 call from rfl, h4] at hq
++  cases hq
++  exact hb
++
++/-- **Resources from any caller** for transferFrom, from a source stage per caller into `stage0`. -/
++theorem resources_any_caller {Valid : Call → Prop} {run : Nat → Call → Option Observable}
++    (hv : ∀ call, Valid call → TransferFromCall call)
++    (total : ∀ a, a < 2 ^ 160 → a ≠ selfAddress → ∀ call, Valid call → ∃ obs, run a call = some obs)
++    (source : ∀ a, a < 2 ^ 160 → a ≠ selfAddress → ∀ call, Valid call → ∀ obs, run a call = some obs →
++      (mirSem (oracleFrom a)).run stage0 call = some obs) :
++    ResourcesFrom run code Valid (fun _ => G) :=
++  resources hv total fun a _ _ call hc obs h =>
++    stages_from a call (transferFrom_scope (hv call hc)) obs (source a ‹_› ‹_› call hc obs h)
++
++/-- info: 'SolarTV.Export.UniswapV2ERC20.AnyCaller.TransferFrom.backend_any_caller' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms backend_any_caller
++
++/-- info: 'SolarTV.Export.UniswapV2ERC20.AnyCaller.TransferFrom.resources_any_caller' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms resources_any_caller
++
++end TransferFrom
++
++end SolarTV.Export.UniswapV2ERC20.AnyCaller
+diff --git a/Certified/uv2_erc20/GasA.lean b/Certified/uv2_erc20/GasA.lean
+new file mode 100644
+index 0000000..2c35dc4
+--- /dev/null
++++ b/Certified/uv2_erc20/GasA.lean
+@@ -0,0 +1,112 @@
++import Verify.ShapeCtxGasFrom
++import uv2_erc20.GasGuardA
++import uv2_erc20.CtxGas
++
++-- Untrusted proof script: the kernel checks it. The certificate and the guarded program are
++-- generated data (CtxGasA.lean); the theorems below state what they give.
++
++/-!
++# UniswapV2ERC20.approve: a proved gas bound on the exact runtime bytes (E8)
++
++`G` = `gasBoundL cx.base N` = 22100 · (5 · 53) + 6 = 5856506: 5 blocks (the most a call of
++`approve` runs, `GasGuardA.N`), each of at most 53 items of the lowered program (the largest
++block such a call runs), each charged 22100 gas, plus the memory up to 64 bytes. As for
++transfer (`Gas.lean`), 22100 is at least the price of every instruction the checker admits
++under EIP-2929 and EIP-2200, and EthLib meters the accesses the run actually makes.
++
++* `gas_edge`: from every caller `a` (below `2 ^ 160`, not the contract itself), on every call of
++  `approve(address,uint256)`'s selector, under every oracle whose CALLER is `a` and whose
++  Keccak-256 is EthLib's, at every gas from `G` on, EthLib runs the exact bytes to exactly the
++  final EVM IR's result (success, return data, revert data, logs, storage). Its only inputs are the
++  kernel's checks of generated programs: `check_ok` (the checker with contexts and gas on the exact
++  bytes against `evm11`) and the guard stage (`guard_ends`, `guard_run`). No premise mentions gas.
++* `resources`: `Shapes.ResourcesFrom` for any valid-call predicate inside `approve`'s selector and
++  any source semantics per caller, from the functional stage from that source to `evm11` (E3∘E4:
++  the hypothesis `stage`) and its totality (`total`). At `callerAddress` it is
++  `Shapes.Resources` (`resources_at`).
++* Negative controls: the checker refuses the bytes with the dispatcher's first jump target moved
++  and with approve's allowance SSTORE dropped.
++-/
++
++namespace SolarTV.Export.UniswapV2ERC20.CtxGasA
++
++open SolarTV SolidCore.Refinement SolidCore.Refinement.Shapes SolidCore.Refinement.Solar
++
++/-- **The proved gas bound** of a call of `approve`. -/
++def G : Nat := AssembleLoop.gasBoundL cx.base N
++
++theorem G_eq : G = 5856506 := by decide +kernel
++
++theorem G_lt : G < 2 ^ 64 := by rw [G_eq]; decide
++
++theorem reads_false : cx.base.reads = false := rfl
++
++/-- The same exact runtime bytes as the transfer slice's. -/
++theorem code_eq : code = SolarTV.Export.UniswapV2ERC20.CtxGas.code := rfl
++
++/-- **The gas edge of UniswapV2ERC20.approve on its exact runtime bytes, from any caller.** -/
++theorem gas_edge : ∀ a, a < 2 ^ 160 → a ≠ selfAddress → ∀ o, AssembleLoop.OracleOkAt a o →
++    ∀ call, ApproveCall call → ∀ gas, G ≤ gas →
++      ∃ obs, (evmirSem o).run prog call = some obs ∧
++        Final.Target.runWithFrom a gas code call = some obs := by
++  intro a ha hne o ho call hc gas hg
++  obtain ⟨obs, hq, hb⟩ := gasEdge_ofXL check_ok reads_false (fun o call h => guard_ends o call h)
++    (fun o call h => guard_run o call h) a ha hne o ho call hc gas hg
++  exact ⟨obs, (AssembleCtx.sem_norm o prog call).symm.trans hq, hb⟩
++
++/-- **Resources of UniswapV2ERC20.approve from any caller**, from the functional stage. -/
++theorem resources {Valid : Call → Prop} {run : Nat → Call → Option Observable}
++    (hv : ∀ call, Valid call → ApproveCall call)
++    (total : ∀ a, a < 2 ^ 160 → a ≠ selfAddress → ∀ call, Valid call → ∃ obs, run a call = some obs)
++    (stage : ∀ a, a < 2 ^ 160 → a ≠ selfAddress → ∀ call, Valid call → ∀ obs, run a call = some obs →
++      (evmirSem (oracleFrom a)).run prog call = some obs) :
++    ResourcesFrom run code Valid (fun _ => G) :=
++  resourcesFrom_ofXL total
++    (fun a ha hne call hc obs h => (AssembleCtx.sem_norm _ prog call).trans (stage a ha hne call hc obs h))
++    check_ok reads_false
++    (fun o call h => guard_ends o call (hv call h)) (fun o call h => guard_run o call (hv call h)) G_lt
++
++/-- At `callerAddress`: `Shapes.Resources` of a source semantics. -/
++theorem resources_at {S : Sem} {p : S.Prog} {Valid : Call → Prop}
++    {run : Nat → Call → Option Observable} (hrun : run callerAddress = S.run p)
++    (hv : ∀ call, Valid call → ApproveCall call)
++    (total : ∀ a, a < 2 ^ 160 → a ≠ selfAddress → ∀ call, Valid call → ∃ obs, run a call = some obs)
++    (stage : ∀ a, a < 2 ^ 160 → a ≠ selfAddress → ∀ call, Valid call → ∀ obs, run a call = some obs →
++      (evmirSem (oracleFrom a)).run prog call = some obs) :
++    Resources S p code Valid (fun _ => G) :=
++  (resources hv total stage).resources hrun
++
++/-- The bytes with byte `i` replaced by `b`. -/
++def mutant (i b : Nat) : ByteArray := ⟨((bytes.set i b).map UInt8.ofNat).toArray⟩
++
++/-- A checker run whose walk of the bytes against the program fails refuses the bytes. -/
++theorem refuses_of_walk {code' : ByteArray}
++    (h : Assemble.walkS cx.base.offset (Assemble.bytesOf code') 0
++      (Assemble.lower (AssembleCtx.norm prog) cx.base) = false) :
++    AssembleCtxGas.checkXL F (AssembleCtx.norm prog) code' cx = false := by
++  have hw := Assemble.walkS_drop (Assemble.bytesOf code') cx.base.offset
++    (Assemble.lower (AssembleCtx.norm prog) cx.base) 0 (Nat.zero_le _)
++  rw [List.drop_zero, h] at hw
++  simp only [AssembleCtxGas.checkXL, ← hw, Bool.false_and]
++
++set_option maxRecDepth 100000 in
++/-- The checker refuses the bytes with the dispatcher's first jump target moved (byte 7). -/
++theorem rejects_jump : AssembleCtxGas.checkXL F (AssembleCtx.norm prog) (mutant 7 0x64) cx = false :=
++  refuses_of_walk (by decide +kernel)
++
++set_option maxRecDepth 100000 in
++/-- The checker refuses the bytes with approve's allowance SSTORE dropped, as POP (byte 0x1e0). -/
++theorem rejects_sstore : AssembleCtxGas.checkXL F (AssembleCtx.norm prog) (mutant 0x1e0 0x50) cx = false :=
++  refuses_of_walk (by decide +kernel)
++
++/-- info: 'SolarTV.Export.UniswapV2ERC20.CtxGasA.gas_edge' depends on axioms: [propext,
++Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms gas_edge
++
++/-- info: 'SolarTV.Export.UniswapV2ERC20.CtxGasA.resources' depends on axioms: [propext,
++Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms resources
++
++end SolarTV.Export.UniswapV2ERC20.CtxGasA
+diff --git a/Certified/uv2_erc20/GasGuardA.lean b/Certified/uv2_erc20/GasGuardA.lean
+new file mode 100644
+index 0000000..89c0dad
+--- /dev/null
++++ b/Certified/uv2_erc20/GasGuardA.lean
+@@ -0,0 +1,68 @@
++import W1Proofs.Tactic
++import W1Proofs.Axioms
++import uv2_erc20.CtxGasA
++
++-- Untrusted proof script: the kernel checks it. The statement speaks only of the generated
++-- program and its guarded copy.
++
++/-!
++# UniswapV2ERC20.approve: the guard stage
++
++On every call whose selector is `approve(address,uint256)`'s, under every oracle, the final EVM
++IR `evm11` and `CtxGasA.guarded` (each block of `CtxGasA.F`, the blocks of the other functions, a
++jump to itself) end within `N` blocks in the same result: no such call enters a block the checker
++with contexts and gas leaves unchecked. Symbolic execution (`sym_exec`) over a symbolic call and
++oracle: the calldata, the storage and the oracle stay opaque.
++-/
++
++namespace SolarTV.Export.UniswapV2ERC20.CtxGasA
++
++open SolarTV SolarTV.Machine SolarTV.Milestone.W1
++
++/-- The blocks a call of approve runs, at most: the two dispatcher blocks, the entry, the store
++with the log, and the return; or the revert. -/
++def N : Nat := 5
++
++/-- A call of approve: its first calldata word's top four bytes are the selector `0x095ea7b3`. -/
++def ApproveCall (call : Call) : Prop :=
++  EvmRules.Evm.shr 224 (calldataWord call 0) = 0x095ea7b3
++
++set_option maxHeartbeats 16000000 in
++theorem guarded_run5 (o : Oracle) (call : Call)
++    (hsel : EvmRules.Evm.shr 224 (calldataWord call 0) = 0x095ea7b3) :
++    EVM.Program.run o SolarTV.Export.UniswapV2ERC20.evm11 call 5 = EVM.Program.run o guarded call 5 := by
++  sym_exec
++
++set_option maxHeartbeats 16000000 in
++theorem guarded_ends5 (o : Oracle) (call : Call)
++    (hsel : EvmRules.Evm.shr 224 (calldataWord call 0) = 0x095ea7b3) :
++    (EVM.Program.run o guarded call 5).isSome = true := by
++  sym_exec
++
++/-- The run of the final EVM IR (with RETURNDATASIZE in effect form, the same runs) is the guarded
++program's on a call of approve. -/
++theorem guard_run (o : Oracle) (call : Call) (h : ApproveCall call) :
++    EVM.Program.run o (SolidCore.Refinement.Solar.AssembleCtx.norm prog) call N =
++      EVM.Program.run o
++        (SolidCore.Refinement.Solar.AssembleCtxGas.guard F (SolidCore.Refinement.Solar.AssembleCtx.norm prog))
++        call N := by
++  rw [guarded_eq, SolidCore.Refinement.Solar.AssembleCtx.run_norm]
++  exact guarded_run5 o call h
++
++/-- The guarded program ends within `N` blocks on a call of approve. -/
++theorem guard_ends (o : Oracle) (call : Call) (h : ApproveCall call) :
++    (EVM.Program.run o
++      (SolidCore.Refinement.Solar.AssembleCtxGas.guard F (SolidCore.Refinement.Solar.AssembleCtx.norm prog))
++      call N).isSome = true := by
++  rw [guarded_eq]
++  exact guarded_ends5 o call h
++
++/-- info: 'SolarTV.Export.UniswapV2ERC20.CtxGasA.guard_ends' depends on axioms within [propext, Classical.choice, Quot.sound] -/
++#guard_msgs in
++#axioms_within guard_ends
++
++/-- info: 'SolarTV.Export.UniswapV2ERC20.CtxGasA.guard_run' depends on axioms within [propext, Classical.choice, Quot.sound] -/
++#guard_msgs in
++#axioms_within guard_run
++
++end SolarTV.Export.UniswapV2ERC20.CtxGasA
+diff --git a/Certified/uv2_erc20/GasGuardTF.lean b/Certified/uv2_erc20/GasGuardTF.lean
+new file mode 100644
+index 0000000..2bd61b1
+--- /dev/null
++++ b/Certified/uv2_erc20/GasGuardTF.lean
+@@ -0,0 +1,72 @@
++import W1Proofs.Tactic
++import W1Proofs.Axioms
++import uv2_erc20.CtxGasTF
++
++-- Untrusted proof script: the kernel checks it. The statement speaks only of the generated
++-- program and its guarded copy.
++
++/-!
++# UniswapV2ERC20.transferFrom: the guard stage
++
++On every call whose selector is `transferFrom(address,address,uint256)`'s, under every oracle, the
++final EVM
++IR `evm11` and `CtxGasTF.guarded` (each block of `CtxGasTF.F`, the blocks of the other functions, a
++jump to itself) end within `N` blocks in the same result: no such call enters a block the checker
++with contexts and gas leaves unchecked. Symbolic execution (`sym_exec`) over a symbolic call and
++oracle: the calldata, the storage and the oracle stay opaque.
++-/
++
++namespace SolarTV.Export.UniswapV2ERC20.CtxGasTF
++
++open SolarTV SolarTV.Machine SolarTV.Milestone.W1
++
++/-- The blocks a call of transferFrom runs, at most: the two dispatcher blocks, the entry, the
++allowance step, the debit, the credit, the log and the return; or a revert. -/
++def N : Nat := 11
++
++/-- A call of transferFrom: its first calldata word's top four bytes are the selector `0x23b872dd`.
++-/
++def TransferFromCall (call : Call) : Prop :=
++  EvmRules.Evm.shr 224 (calldataWord call 0) = 0x23b872dd
++
++set_option maxHeartbeats 16000000 in
++theorem guarded_run11 (o : Oracle) (call : Call)
++    (hsel : EvmRules.Evm.shr 224 (calldataWord call 0) = 0x23b872dd) :
++    EVM.Program.run o SolarTV.Export.UniswapV2ERC20.evm11 call 11 = EVM.Program.run o guarded call 11 := by
++  sym_exec
++
++set_option maxHeartbeats 16000000 in
++theorem guarded_ends11 (o : Oracle) (call : Call)
++    (hsel : EvmRules.Evm.shr 224 (calldataWord call 0) = 0x23b872dd) :
++    (EVM.Program.run o guarded call 11).isSome = true := by
++  sym_exec
++
++/-- The run of the final EVM IR (with RETURNDATASIZE in effect form, the same runs) is the guarded
++program's on a call of transferFrom. -/
++theorem guard_run (o : Oracle) (call : Call) (h : TransferFromCall call) :
++    EVM.Program.run o (SolidCore.Refinement.Solar.AssembleCtx.norm prog) call N =
++      EVM.Program.run o
++        (SolidCore.Refinement.Solar.AssembleCtxGas.guard F (SolidCore.Refinement.Solar.AssembleCtx.norm prog))
++        call N := by
++  rw [guarded_eq, SolidCore.Refinement.Solar.AssembleCtx.run_norm]
++  exact guarded_run11 o call h
++
++/-- The guarded program ends within `N` blocks on a call of transferFrom. -/
++theorem guard_ends (o : Oracle) (call : Call) (h : TransferFromCall call) :
++    (EVM.Program.run o
++      (SolidCore.Refinement.Solar.AssembleCtxGas.guard F (SolidCore.Refinement.Solar.AssembleCtx.norm prog))
++      call N).isSome = true := by
++  rw [guarded_eq]
++  exact guarded_ends11 o call h
++
++/-- info: 'SolarTV.Export.UniswapV2ERC20.CtxGasTF.guard_ends' depends on axioms within [propext,
++Classical.choice, Quot.sound] -/
++#guard_msgs in
++#axioms_within guard_ends
++
++/-- info: 'SolarTV.Export.UniswapV2ERC20.CtxGasTF.guard_run' depends on axioms within [propext,
++Classical.choice, Quot.sound] -/
++#guard_msgs in
++#axioms_within guard_run
++
++end SolarTV.Export.UniswapV2ERC20.CtxGasTF
+diff --git a/Certified/uv2_erc20/GasTF.lean b/Certified/uv2_erc20/GasTF.lean
+new file mode 100644
+index 0000000..dda9b8b
+--- /dev/null
++++ b/Certified/uv2_erc20/GasTF.lean
+@@ -0,0 +1,113 @@
++import Verify.ShapeCtxGasFrom
++import uv2_erc20.GasGuardTF
++import uv2_erc20.CtxGas
++
++-- Untrusted proof script: the kernel checks it. The certificate and the guarded program are
++-- generated data (CtxGasTF.lean); the theorems below state what they give.
++
++/-!
++# UniswapV2ERC20.transferFrom: a proved gas bound on the exact runtime bytes (E8)
++
++`G` = `gasBoundL cx.base N` = 22100 · (11 · 64) + 12 = 15558412: 11 blocks (the most a call of
++`transferFrom` runs, `GasGuardTF.N`), each of at most 64 items of the lowered program (the largest
++block such a call runs), each charged 22100 gas, plus the memory up to 128 bytes. As for
++transfer (`Gas.lean`), 22100 is at least the price of every instruction the checker admits
++under EIP-2929 and EIP-2200, and EthLib meters the accesses the run actually makes.
++
++* `gas_edge`: from every caller `a` (below `2 ^ 160`, not the contract itself), on every call of
++  `transferFrom(address,address,uint256)`'s selector, under every oracle whose CALLER is `a` and whose
++  Keccak-256 is EthLib's, at every gas from `G` on, EthLib runs the exact bytes to exactly the
++  final EVM IR's result (success, return data, revert data, logs, storage). Its only inputs are the
++  kernel's checks of generated programs: `check_ok` (the checker with contexts and gas on the exact
++  bytes against `evm11`) and the guard stage (`guard_ends`, `guard_run`). No premise mentions gas.
++* `resources`: `Shapes.ResourcesFrom` for any valid-call predicate inside `transferFrom`'s selector and
++  any source semantics per caller, from the functional stage from that source to `evm11` (E3∘E4:
++  the hypothesis `stage`) and its totality (`total`). At `callerAddress` it is
++  `Shapes.Resources` (`resources_at`).
++* Negative controls: the checker refuses the bytes with the dispatcher's first jump target moved
++  and with transferFrom's allowance SSTORE dropped.
++-/
++
++namespace SolarTV.Export.UniswapV2ERC20.CtxGasTF
++
++open SolarTV SolidCore.Refinement SolidCore.Refinement.Shapes SolidCore.Refinement.Solar
++
++/-- **The proved gas bound** of a call of `transferFrom`. -/
++def G : Nat := AssembleLoop.gasBoundL cx.base N
++
++theorem G_eq : G = 15558412 := by decide +kernel
++
++theorem G_lt : G < 2 ^ 64 := by rw [G_eq]; decide
++
++theorem reads_false : cx.base.reads = false := rfl
++
++/-- The same exact runtime bytes as the transfer slice's. -/
++theorem code_eq : code = SolarTV.Export.UniswapV2ERC20.CtxGas.code := rfl
++
++/-- **The gas edge of UniswapV2ERC20.transferFrom on its exact runtime bytes, from any caller.** -/
++theorem gas_edge : ∀ a, a < 2 ^ 160 → a ≠ selfAddress → ∀ o, AssembleLoop.OracleOkAt a o →
++    ∀ call, TransferFromCall call → ∀ gas, G ≤ gas →
++      ∃ obs, (evmirSem o).run prog call = some obs ∧
++        Final.Target.runWithFrom a gas code call = some obs := by
++  intro a ha hne o ho call hc gas hg
++  obtain ⟨obs, hq, hb⟩ := gasEdge_ofXL check_ok reads_false (fun o call h => guard_ends o call h)
++    (fun o call h => guard_run o call h) a ha hne o ho call hc gas hg
++  exact ⟨obs, (AssembleCtx.sem_norm o prog call).symm.trans hq, hb⟩
++
++/-- **Resources of UniswapV2ERC20.transferFrom from any caller**, from the functional stage. -/
++theorem resources {Valid : Call → Prop} {run : Nat → Call → Option Observable}
++    (hv : ∀ call, Valid call → TransferFromCall call)
++    (total : ∀ a, a < 2 ^ 160 → a ≠ selfAddress → ∀ call, Valid call → ∃ obs, run a call = some obs)
++    (stage : ∀ a, a < 2 ^ 160 → a ≠ selfAddress → ∀ call, Valid call → ∀ obs, run a call = some obs →
++      (evmirSem (oracleFrom a)).run prog call = some obs) :
++    ResourcesFrom run code Valid (fun _ => G) :=
++  resourcesFrom_ofXL total
++    (fun a ha hne call hc obs h => (AssembleCtx.sem_norm _ prog call).trans (stage a ha hne call hc obs h))
++    check_ok reads_false
++    (fun o call h => guard_ends o call (hv call h)) (fun o call h => guard_run o call (hv call h)) G_lt
++
++/-- At `callerAddress`: `Shapes.Resources` of a source semantics. -/
++theorem resources_at {S : Sem} {p : S.Prog} {Valid : Call → Prop}
++    {run : Nat → Call → Option Observable} (hrun : run callerAddress = S.run p)
++    (hv : ∀ call, Valid call → TransferFromCall call)
++    (total : ∀ a, a < 2 ^ 160 → a ≠ selfAddress → ∀ call, Valid call → ∃ obs, run a call = some obs)
++    (stage : ∀ a, a < 2 ^ 160 → a ≠ selfAddress → ∀ call, Valid call → ∀ obs, run a call = some obs →
++      (evmirSem (oracleFrom a)).run prog call = some obs) :
++    Resources S p code Valid (fun _ => G) :=
++  (resources hv total stage).resources hrun
++
++/-- The bytes with byte `i` replaced by `b`. -/
++def mutant (i b : Nat) : ByteArray := ⟨((bytes.set i b).map UInt8.ofNat).toArray⟩
++
++/-- A checker run whose walk of the bytes against the program fails refuses the bytes. -/
++theorem refuses_of_walk {code' : ByteArray}
++    (h : Assemble.walkS cx.base.offset (Assemble.bytesOf code') 0
++      (Assemble.lower (AssembleCtx.norm prog) cx.base) = false) :
++    AssembleCtxGas.checkXL F (AssembleCtx.norm prog) code' cx = false := by
++  have hw := Assemble.walkS_drop (Assemble.bytesOf code') cx.base.offset
++    (Assemble.lower (AssembleCtx.norm prog) cx.base) 0 (Nat.zero_le _)
++  rw [List.drop_zero, h] at hw
++  simp only [AssembleCtxGas.checkXL, ← hw, Bool.false_and]
++
++set_option maxRecDepth 100000 in
++/-- The checker refuses the bytes with the dispatcher's first jump target moved (byte 7). -/
++theorem rejects_jump : AssembleCtxGas.checkXL F (AssembleCtx.norm prog) (mutant 7 0x64) cx = false :=
++  refuses_of_walk (by decide +kernel)
++
++set_option maxRecDepth 100000 in
++/-- The checker refuses the bytes with transferFrom's allowance SSTORE dropped, as POP (byte 0x2b1).
++-/
++theorem rejects_sstore : AssembleCtxGas.checkXL F (AssembleCtx.norm prog) (mutant 0x2b1 0x50) cx = false :=
++  refuses_of_walk (by decide +kernel)
++
++/-- info: 'SolarTV.Export.UniswapV2ERC20.CtxGasTF.gas_edge' depends on axioms: [propext,
++Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms gas_edge
++
++/-- info: 'SolarTV.Export.UniswapV2ERC20.CtxGasTF.resources' depends on axioms: [propext,
++Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms resources
++
++end SolarTV.Export.UniswapV2ERC20.CtxGasTF
+diff --git a/Contracts/UniswapV2/ERC20/Certified/Approve.lean b/Contracts/UniswapV2/ERC20/Certified/Approve.lean
+new file mode 100644
+index 0000000..16a205c
+--- /dev/null
++++ b/Contracts/UniswapV2/ERC20/Certified/Approve.lean
+@@ -0,0 +1,167 @@
++import Contracts.UniswapV2.ERC20.Nested.All
++import uv2_erc20.GasA
++import uv2_erc20.ProofsA.Stages
++
++/-!
++# UniswapV2ERC20.approve: certified, at the caller 0x2000
++
++The same composition as transfer's (`Certified/Transfer.lean`), for `approve(address,uint256)` on
++the exact runtime bytes `CtxGasA.code` (`CtxGasA.code_eq`: transfer's bytes):
++
++* E3 `Nested.check_approve_ok`: SolidCore's checked source to solar's first lowered MIR `stage0`
++  (through `compiled0XL`);
++* E4 `SolarTV.Milestone.Uv2Erc20A.uv2_erc20_approve_mir_to_evmir`: `stage0` to the final EVM IR
++  `evm11` on the calls of approve's selector, under every oracle;
++* E5 + E8 `CtxGasA.check_ok` with the guard stage (`GasGuardA`): the checker with contexts and gas
++  accepts the exact bytes against `evm11`, which gives the equivalence at every gas and the gas
++  bound `G = 5856506` (`CtxGasA.G_eq`);
++* E7 `Nested.approve_meets`: every SolidCore run of a valid call gives exactly `approveResult` of
++  the call's storage and argument words.
++
++**Caller.** As for transfer, SolidCore's semantics fix the caller to `0x2000`; the backend holds
++from any caller (`AnyCaller.Approve.backend_any_caller`).
++
++**No premise.** The valid calls are `Nested.ApproveValid` (= `genericValid0 [fn_approve] deployed`):
++any argument words, no value, any storage listing the deployed `DOMAIN_SEPARATOR` slot. The
++postcondition is exact over the slot function, so it needs no hash premise; the key-level reading
++(`approve_keys_bytes`) takes the scoped premise `Scoped (approveFootprint caller spender)` at the
++call it is about.
++
++* `certified`: `∃ c, contract? = .ok c ∧ Certified (solidCore fuel) c code ApproveValid Allowed
++  ApprovePost (fun _ => 5856506)`, with `Allowed` = success or a revert with no data (a spender
++  word above `2 ^ 160`).
++* `approve_bytes`: from the gas bound on, the bytes give exactly `approveResult`.
++* `approve_keys_bytes`: on the bytes, a clean call succeeds, sets `allowance[caller][spender]`
++  and leaves every slot below `2 ^ 128` unchanged.
++-/
++
++namespace SolidCore.Spec.UniswapV2.ERC20.Certified.Approve
++
++open SolarTV SolidCore.Refinement SolidCore.Refinement.Generic SolidCore.Refinement.Shapes
++open SolidCore.Spec.UniswapV2.ERC20.Nested
++open SolarTV.Export.UniswapV2ERC20.CtxGasA (G G_eq G_lt check_ok guard_ends guard_run ApproveCall prog)
++
++/-- The exact runtime bytes. -/
++abbrev code : ByteArray := SolarTV.Export.UniswapV2ERC20.CtxGasA.code
++
++/-- The allowed statuses: success, or a revert with no data (a dirty spender word). -/
++def Allowed (_call : Call) (obs : Observable) : Prop :=
++  obs.success = true ∨ obs.output = []
++
++/-- A valid call of approve has approve's selector. -/
++theorem selector_of : ∀ call, ApproveValid call → ApproveCall call := by
++  rintro _ ⟨σ, -, f, hf, args, -, hargs, rfl⟩
++  simp only [List.mem_singleton] at hf
++  subst hf
++  exact (SolidCore.Refinement.Generic.callFacts fn_approve.sel (by decide) args hargs σ).selector
++
++set_option maxRecDepth 200000 in
++theorem hscope : ∀ call, ApproveValid call → SolarTV.Milestone.Uv2Erc20A.scope call := by
++  intro call h
++  simp only [SolarTV.Milestone.Uv2Erc20A.scope]
++  have hs := selector_of call h
++  simp only [ApproveCall] at hs
++  rw [hs]
++  decide
++
++/-- E4 onto the final EVM IR's effect form (the same runs, `sem_norm`). -/
++theorem backend : Stage (mirSem oracle) (evmirSem oracle) SolarTV.Export.UniswapV2ERC20.stage0
++    (SolidCore.Refinement.Solar.AssembleCtx.norm prog) SolarTV.Milestone.Uv2Erc20A.scope :=
++  fun call h obs hr => (SolidCore.Refinement.Solar.AssembleCtx.sem_norm oracle prog call).trans
++    (SolarTV.Milestone.Uv2Erc20A.uv2_erc20_approve_mir_to_evmir oracle call h obs hr)
++
++set_option maxRecDepth 200000 in
++/-- **E3, E4, E5 and E8 composed** for approve. -/
++theorem compiled {c : SolidCore.Solidity.TypeCheck.CheckedContract}
++    (hc : SolidCore.Verify.VC.UniswapV2ERC20.contract? = .ok c) :
++    Compiled (solidCore SolidCore.Verify.VC.UniswapV2ERC20.fuel) c code ApproveValid (fun _ => G) := by
++  have hdep := deploy_eq
++  simp only [deploy?, hc] at hdep
++  obtain ⟨_, hdd⟩ := Wide.deployedAt_of hdep
++  exact compiled0XL hdd (check_approve_ok hc) (genericValid0_inhabited fn_approve [] deployed) backend
++    hscope (fun call h => guard_ends oracle call (selector_of call h))
++    (fun call h => guard_run oracle call (selector_of call h)) check_ok G_lt
++
++/-- Every SolidCore result of a valid call has an allowed status. -/
++theorem allowed {c : SolidCore.Solidity.TypeCheck.CheckedContract}
++    (hc : SolidCore.Verify.VC.UniswapV2ERC20.contract? = .ok c) :
++    ∀ call, ApproveValid call → ∀ obs,
++      (solidCore SolidCore.Verify.VC.UniswapV2ERC20.fuel).run c call = some obs → Allowed call obs := by
++  intro call hv obs hrun
++  have h := approve_meets hc call hv obs hrun
++  unfold ApprovePost approveResult at h
++  subst h
++  unfold Allowed
++  split <;> simp
++
++/-- **UniswapV2ERC20.approve is certified at the caller 0x2000**: on every call of
++`approve(spender, value)` from 0x2000 with any argument words, no value and any storage listing the
++deployed slot, the exact runtime bytes behave as SolidCore's checked source (at every gas, and
++exactly from 5856506 gas on), which ends with an allowed status and gives exactly `approveResult`.
++-/
++theorem certified : ∃ c, SolidCore.Verify.VC.UniswapV2ERC20.contract? = .ok c ∧
++    Certified (solidCore SolidCore.Verify.VC.UniswapV2ERC20.fuel) c code ApproveValid Allowed ApprovePost
++      (fun _ => 5856506) := by
++  obtain ⟨c, hc⟩ := SolidCore.Verify.VC.UniswapV2ERC20.contract_ok
++  have h := (compiled hc).certified (allowed hc) (approve_meets hc)
++  rw [show (fun _ : Call => G) = fun _ => 5856506 from funext fun _ => G_eq] at h
++  exact ⟨c, hc, h⟩
++
++/-! ## On the bytes -/
++
++/-- From the gas bound on, the bytes give SolidCore's result on a valid call. -/
++theorem bytes_eq_source {c : SolidCore.Solidity.TypeCheck.CheckedContract}
++    (hc : SolidCore.Verify.VC.UniswapV2ERC20.contract? = .ok c) {call : Call} (hv : ApproveValid call)
++    {gas : Nat} (h1 : 5856506 ≤ gas) (h2 : gas < 2 ^ 256) :
++    Final.Target.runWith gas code call = (solidCore SolidCore.Verify.VC.UniswapV2ERC20.fuel).run c call :=
++  ((compiled hc).resources call hv).2 gas (by rw [G_eq]; exact h1) h2
++
++/-- The call `approve(spender, value)` on the storage `σ`. -/
++def approveCall (σ : List (Nat × Nat)) (spender value : Nat) : Call :=
++  { calldata := SolidCore.Refinement.Abi.calldata fn_approve.sel [spender, value], callvalue := 0,
++    storage := σ }
++
++/-- **approve on the bytes**: from the gas bound on, exactly `approveResult`. -/
++theorem approve_bytes (σ : List (Nat × Nat)) (hcov : Covers deployed σ) (spender value : Nat)
++    (hs : spender < 2 ^ 256) (hv : value < 2 ^ 256) (gas : Nat) (h1 : 5856506 ≤ gas)
++    (h2 : gas < 2 ^ 256) :
++    Final.Target.runWith gas code (approveCall σ spender value) =
++      some (approveResult (slotValue σ) spender value) := by
++  obtain ⟨c, hc⟩ := SolidCore.Verify.VC.UniswapV2ERC20.contract_ok
++  have hargs : ∀ a ∈ [spender, value], a < 2 ^ 256 := by
++    intro a ha; simp only [List.mem_cons, List.not_mem_nil, or_false] at ha; rcases ha with rfl | rfl <;> assumption
++  have hval : ApproveValid (approveCall σ spender value) :=
++    ⟨σ, hcov, fn_approve, List.mem_singleton_self _, [spender, value], rfl, hargs, rfl⟩
++  obtain ⟨obs, hrun, -⟩ := (compiled hc).terminates _ hval
++  rw [bytes_eq_source hc hval h1 h2, hrun, approve_meets hc _ hval obs hrun]
++  simp [approveCall, SolidCore.Spec.UniswapV2.ERC20.Nested.callArgs, words_calldata _ hargs]
++
++/-- **approve, key by key, on the bytes**: under keccak256's separation on the preimages of
++`allowance[caller][spender]`'s slot, a clean call succeeds, sets that slot to `value` and leaves
++every slot below `2 ^ 128` unchanged. -/
++theorem approve_keys_bytes (σ : List (Nat × Nat)) (hcov : Covers deployed σ) (spender value : Nat)
++    (hs : spender < 2 ^ 160) (hv : value < 2 ^ 256)
++    (h : HashScopeNested.Scoped (HashScopeNested.approveFootprint caller spender))
++    (gas : Nat) (h1 : 5856506 ≤ gas) (h2 : gas < 2 ^ 256) :
++    ∃ obs, Final.Target.runWith gas code (approveCall σ spender value) = some obs ∧
++      obs.success = true ∧ obs.storage (allowanceSlot caller spender) = value ∧
++      ∀ k < 2 ^ 128, obs.storage k = slotValue σ k :=
++  ⟨_, approve_bytes σ hcov spender value (by omega) hv gas h1 h2,
++    approve_keys (slotValue σ) spender value hs h⟩
++
++/-- info: 'SolidCore.Spec.UniswapV2.ERC20.Certified.Approve.certified' depends on axioms: [propext,
++Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms certified
++
++/-- info: 'SolidCore.Spec.UniswapV2.ERC20.Certified.Approve.approve_bytes' depends on axioms:
++[propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms approve_bytes
++
++/-- info: 'SolidCore.Spec.UniswapV2.ERC20.Certified.Approve.approve_keys_bytes' depends on axioms:
++[propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms approve_keys_bytes
++
++end SolidCore.Spec.UniswapV2.ERC20.Certified.Approve
+diff --git a/Contracts/UniswapV2/ERC20/Certified/TransferFrom.lean b/Contracts/UniswapV2/ERC20/Certified/TransferFrom.lean
+new file mode 100644
+index 0000000..6144a6c
+--- /dev/null
++++ b/Contracts/UniswapV2/ERC20/Certified/TransferFrom.lean
+@@ -0,0 +1,184 @@
++import Contracts.UniswapV2.ERC20.Nested.All
++import uv2_erc20.GasTF
++import uv2_erc20.ProofsTF.Stages
++
++/-!
++# UniswapV2ERC20.transferFrom: certified, at the caller 0x2000
++
++The same composition as transfer's (`Certified/Transfer.lean`), for
++`transferFrom(address,address,uint256)` on the exact runtime bytes `CtxGasTF.code`
++(`CtxGasTF.code_eq`: transfer's bytes):
++
++* E3 `Nested.check_transferFrom_ok`: SolidCore's checked source to solar's first lowered MIR
++  `stage0` (through `compiled0XL`);
++* E4 `SolarTV.Milestone.Uv2Erc20TF.uv2_erc20_transferFrom_mir_to_evmir`: `stage0` to the final EVM
++  IR `evm11` on the calls of transferFrom's selector, under every oracle;
++* E5 + E8 `CtxGasTF.check_ok` with the guard stage (`GasGuardTF`): the equivalence at every gas and
++  the gas bound `G = 15558412` (`CtxGasTF.G_eq`);
++* E7 `Nested.transferFrom_meets`: every SolidCore run of a valid call gives exactly
++  `transferFromResult` (the allowance step, the checked debit and credit, in the source's order)
++  of the call's storage and argument words.
++
++**Caller.** As for transfer, SolidCore's semantics fix the caller to `0x2000`; the backend holds
++from any caller (`AnyCaller.TransferFrom.backend_any_caller`).
++
++**No premise** in `certified`: the valid calls are `Nested.TransferFromValid`
++(= `genericValid0 [fn_transferFrom] deployed`), and the postcondition is exact over the slot
++function. The key-level readings take the scoped premise
++`Scoped (transferFromFootprint caller frm dst)` at the call they are about.
++
++* `certified`: `∃ c, contract? = .ok c ∧ Certified (solidCore fuel) c code TransferFromValid Allowed
++  TransferFromPost (fun _ => 15558412)`, with `Allowed` = success, or a revert with no data (a
++  dirty address word), `Error("ds-math-sub-underflow")` or `Error("ds-math-add-overflow")`.
++* `transferFrom_bytes`: from the gas bound on, the bytes give exactly `transferFromResult`.
++* `self_max_bytes`, `self_short_bytes`: the required self-transfer cases on the bytes: from a
++  balance of `2 ^ 256 - 1` with an infinite allowance, `transferFrom(frm, frm, 1)` succeeds with
++  the balance unchanged; above the balance it reverts.
++-/
++
++namespace SolidCore.Spec.UniswapV2.ERC20.Certified.TransferFrom
++
++open SolarTV SolidCore.Refinement SolidCore.Refinement.Generic SolidCore.Refinement.Shapes
++open SolidCore.Spec.UniswapV2.ERC20.Nested
++open SolarTV.Export.UniswapV2ERC20.CtxGasTF (G G_eq G_lt check_ok guard_ends guard_run TransferFromCall prog)
++
++/-- The exact runtime bytes. -/
++abbrev code : ByteArray := SolarTV.Export.UniswapV2ERC20.CtxGasTF.code
++
++/-- The allowed statuses: success, or a revert with no data or ds-math's messages. -/
++def Allowed (_call : Call) (obs : Observable) : Prop :=
++  obs.success = true ∨ obs.output = [] ∨ obs.output = subUnderflow ∨ obs.output = addOverflow
++
++/-- A valid call of transferFrom has transferFrom's selector. -/
++theorem selector_of : ∀ call, TransferFromValid call → TransferFromCall call := by
++  rintro _ ⟨σ, -, f, hf, args, -, hargs, rfl⟩
++  simp only [List.mem_singleton] at hf
++  subst hf
++  exact (SolidCore.Refinement.Generic.callFacts fn_transferFrom.sel (by decide) args hargs σ).selector
++
++set_option maxRecDepth 200000 in
++theorem hscope : ∀ call, TransferFromValid call → SolarTV.Milestone.Uv2Erc20TF.scope call := by
++  intro call h
++  simp only [SolarTV.Milestone.Uv2Erc20TF.scope]
++  have hs := selector_of call h
++  simp only [TransferFromCall] at hs
++  rw [hs]
++  decide
++
++/-- E4 onto the final EVM IR's effect form (the same runs, `sem_norm`). -/
++theorem backend : Stage (mirSem oracle) (evmirSem oracle) SolarTV.Export.UniswapV2ERC20.stage0
++    (SolidCore.Refinement.Solar.AssembleCtx.norm prog) SolarTV.Milestone.Uv2Erc20TF.scope :=
++  fun call h obs hr => (SolidCore.Refinement.Solar.AssembleCtx.sem_norm oracle prog call).trans
++    (SolarTV.Milestone.Uv2Erc20TF.uv2_erc20_transferFrom_mir_to_evmir oracle call h obs hr)
++
++set_option maxRecDepth 200000 in
++/-- **E3, E4, E5 and E8 composed** for transferFrom. -/
++theorem compiled {c : SolidCore.Solidity.TypeCheck.CheckedContract}
++    (hc : SolidCore.Verify.VC.UniswapV2ERC20.contract? = .ok c) :
++    Compiled (solidCore SolidCore.Verify.VC.UniswapV2ERC20.fuel) c code TransferFromValid (fun _ => G) := by
++  have hdep := deploy_eq
++  simp only [deploy?, hc] at hdep
++  obtain ⟨_, hdd⟩ := Wide.deployedAt_of hdep
++  exact compiled0XL hdd (check_transferFrom_ok hc) (genericValid0_inhabited fn_transferFrom [] deployed)
++    backend hscope (fun call h => guard_ends oracle call (selector_of call h))
++    (fun call h => guard_run oracle call (selector_of call h)) check_ok G_lt
++
++/-- Every result `transferFromResult` gives has an allowed status. -/
++theorem allowed_result (call : Call) (st : Nat → Nat) (frm dst value : Nat) :
++    Allowed call (transferFromResult st frm dst value) := by
++  unfold Allowed
++  dsimp only [transferFromResult, transferSteps, revertWith]
++  split_ifs <;> simp
++
++/-- Every SolidCore result of a valid call has an allowed status. -/
++theorem allowed {c : SolidCore.Solidity.TypeCheck.CheckedContract}
++    (hc : SolidCore.Verify.VC.UniswapV2ERC20.contract? = .ok c) :
++    ∀ call, TransferFromValid call → ∀ obs,
++      (solidCore SolidCore.Verify.VC.UniswapV2ERC20.fuel).run c call = some obs → Allowed call obs := by
++  intro call hv obs hrun
++  rw [transferFrom_meets hc call hv obs hrun]
++  exact allowed_result _ _ _ _ _
++
++/-- **UniswapV2ERC20.transferFrom is certified at the caller 0x2000**: on every call of
++`transferFrom(frm, dst, value)` from 0x2000 with any argument words, no value and any storage
++listing the deployed slot, the exact runtime bytes behave as SolidCore's checked source (at every
++gas, and exactly from 15558412 gas on), which ends with an allowed status and gives exactly
++`transferFromResult`. -/
++theorem certified : ∃ c, SolidCore.Verify.VC.UniswapV2ERC20.contract? = .ok c ∧
++    Certified (solidCore SolidCore.Verify.VC.UniswapV2ERC20.fuel) c code TransferFromValid Allowed
++      TransferFromPost (fun _ => 15558412) := by
++  obtain ⟨c, hc⟩ := SolidCore.Verify.VC.UniswapV2ERC20.contract_ok
++  have h := (compiled hc).certified (allowed hc) (transferFrom_meets hc)
++  rw [show (fun _ : Call => G) = fun _ => 15558412 from funext fun _ => G_eq] at h
++  exact ⟨c, hc, h⟩
++
++/-! ## On the bytes -/
++
++/-- From the gas bound on, the bytes give SolidCore's result on a valid call. -/
++theorem bytes_eq_source {c : SolidCore.Solidity.TypeCheck.CheckedContract}
++    (hc : SolidCore.Verify.VC.UniswapV2ERC20.contract? = .ok c) {call : Call} (hv : TransferFromValid call)
++    {gas : Nat} (h1 : 15558412 ≤ gas) (h2 : gas < 2 ^ 256) :
++    Final.Target.runWith gas code call = (solidCore SolidCore.Verify.VC.UniswapV2ERC20.fuel).run c call :=
++  ((compiled hc).resources call hv).2 gas (by rw [G_eq]; exact h1) h2
++
++/-- The call `transferFrom(frm, dst, value)` on the storage `σ`. -/
++def transferFromCall (σ : List (Nat × Nat)) (frm dst value : Nat) : Call :=
++  { calldata := SolidCore.Refinement.Abi.calldata fn_transferFrom.sel [frm, dst, value], callvalue := 0,
++    storage := σ }
++
++/-- **transferFrom on the bytes**: from the gas bound on, exactly `transferFromResult`. -/
++theorem transferFrom_bytes (σ : List (Nat × Nat)) (hcov : Covers deployed σ) (frm dst value : Nat)
++    (hf : frm < 2 ^ 256) (hd : dst < 2 ^ 256) (hv : value < 2 ^ 256) (gas : Nat)
++    (h1 : 15558412 ≤ gas) (h2 : gas < 2 ^ 256) :
++    Final.Target.runWith gas code (transferFromCall σ frm dst value) =
++      some (transferFromResult (slotValue σ) frm dst value) := by
++  obtain ⟨c, hc⟩ := SolidCore.Verify.VC.UniswapV2ERC20.contract_ok
++  have hargs : ∀ a ∈ [frm, dst, value], a < 2 ^ 256 := by
++    intro a ha; simp only [List.mem_cons, List.not_mem_nil, or_false] at ha
++    rcases ha with rfl | rfl | rfl <;> assumption
++  have hval : TransferFromValid (transferFromCall σ frm dst value) :=
++    ⟨σ, hcov, fn_transferFrom, List.mem_singleton_self _, [frm, dst, value], rfl, hargs, rfl⟩
++  obtain ⟨obs, hrun, -⟩ := (compiled hc).terminates _ hval
++  rw [bytes_eq_source hc hval h1 h2, hrun, transferFrom_meets hc _ hval obs hrun]
++  simp [transferFromCall, SolidCore.Spec.UniswapV2.ERC20.Nested.callArgs, words_calldata _ hargs]
++
++/-- **Required case, on the bytes**: from a balance of `2 ^ 256 - 1` with an infinite allowance,
++`transferFrom(frm, frm, 1)` succeeds and the balance stays `2 ^ 256 - 1`. -/
++theorem self_max_bytes (σ : List (Nat × Nat)) (hcov : Covers deployed σ) (frm : Nat)
++    (hfa : frm < 2 ^ 160)
++    (h : HashScopeNested.Scoped (HashScopeNested.transferFromFootprint caller frm frm))
++    (hb : slotValue σ (balanceSlot frm) = 2 ^ 256 - 1) (ha : slotValue σ (allowanceSlot frm caller) = umax)
++    (gas : Nat) (h1 : 15558412 ≤ gas) (h2 : gas < 2 ^ 256) :
++    ∃ obs, Final.Target.runWith gas code (transferFromCall σ frm frm 1) = some obs ∧
++      obs.success = true ∧ obs.storage (balanceSlot frm) = 2 ^ 256 - 1 :=
++  ⟨_, transferFrom_bytes σ hcov frm frm 1 (by omega) (by omega) (by decide) gas h1 h2,
++    transferFrom_self_max (slotValue σ) (fun k => slotValue_lt σ k) frm hfa h hb ha⟩
++
++/-- **Required case, on the bytes**: a self-transfer above the balance reverts. -/
++theorem self_short_bytes (σ : List (Nat × Nat)) (hcov : Covers deployed σ) (frm value : Nat)
++    (hfa : frm < 2 ^ 160) (hv : value < 2 ^ 256)
++    (h : HashScopeNested.Scoped (HashScopeNested.transferFromFootprint caller frm frm))
++    (hlt : slotValue σ (balanceSlot frm) < value)
++    (gas : Nat) (h1 : 15558412 ≤ gas) (h2 : gas < 2 ^ 256) :
++    ∃ obs, Final.Target.runWith gas code (transferFromCall σ frm frm value) = some obs ∧
++      obs.success = false :=
++  ⟨_, transferFrom_bytes σ hcov frm frm value (by omega) (by omega) hv gas h1 h2,
++    transferFrom_self_short (slotValue σ) (fun k => slotValue_lt σ k) frm value hfa h hlt⟩
++
++/-- info: 'SolidCore.Spec.UniswapV2.ERC20.Certified.TransferFrom.certified' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms certified
++
++/-- info: 'SolidCore.Spec.UniswapV2.ERC20.Certified.TransferFrom.transferFrom_bytes' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms transferFrom_bytes
++
++/-- info: 'SolidCore.Spec.UniswapV2.ERC20.Certified.TransferFrom.self_max_bytes' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms self_max_bytes
++
++/-- info: 'SolidCore.Spec.UniswapV2.ERC20.Certified.TransferFrom.self_short_bytes' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms self_short_bytes
++
++end SolidCore.Spec.UniswapV2.ERC20.Certified.TransferFrom
+diff --git a/lakefile.lean b/lakefile.lean
+index cf551c3..eb11aaf 100644
+--- a/lakefile.lean
++++ b/lakefile.lean
+@@ -571,12 +571,17 @@ lean_lib ContractsUniswapV2PairSpec where
+ -- (CtxGas.lean, scripts/verify/uniswap_v2_gas.sh with solar's tools/certify/gen_ctxgas.py) and the
+ -- transfer slice's gas bound (Gas.lean, GasGuard.lean), and the backend stages' proofs for transfer's
+ -- calls (ProofsT/) with the bytes certificates (Ctx.lean, CtxNeg.lean), all written by
+--- scripts/verify/uniswap_v2_stages.sh. The generated files come from the GPL-3.0 v2-core port, so
+--- none is committed. Every module is checked within 6 GB.
++-- scripts/verify/uniswap_v2_stages.sh; the same for approve and transferFrom (CtxGasA.lean,
++-- CtxGasTF.lean, ProofsA/, ProofsTF/, by scripts/verify/uniswap_v2_stages_nested.sh after it), with
++-- their guard and gas modules (GasGuardA, GasA, GasGuardTF, GasTF) and AnyCallerNested.lean. The
++-- generated files come from the GPL-3.0 v2-core port, so none is committed. Every module is checked
++-- within 6 GB.
+ lean_lib «uv2_erc20» where
+   srcDir := "Certified"
+   roots := #[`uv2_erc20.Gas, `uv2_erc20.AnyCaller, `uv2_erc20.gen.UniswapV2ERC20.Stage0, `uv2_erc20.ProofsT.Stages,
+-    `uv2_erc20.ProofsT.Assembly, `uv2_erc20.Ctx, `uv2_erc20.CtxNeg]
++    `uv2_erc20.ProofsT.Assembly, `uv2_erc20.Ctx, `uv2_erc20.CtxNeg, `uv2_erc20.GasA, `uv2_erc20.GasTF,
++    `uv2_erc20.ProofsA.Stages, `uv2_erc20.ProofsA.Assembly, `uv2_erc20.ProofsTF.Stages,
++    `uv2_erc20.ProofsTF.Assembly, `uv2_erc20.AnyCallerNested]
+   globs := #[.submodules `uv2_erc20]
+   leanOptions := solarTVOptions
+ 
+@@ -602,9 +607,12 @@ lean_lib «abi_hash» where
+   roots := #[`abi_hash.Proofs]
+   globs := #[.submodules `abi_hash]
+ 
+--- UniswapV2ERC20.transfer certified at the caller 0x2000 (Contracts/UniswapV2/ERC20/Certified): E3, E4,
++-- UniswapV2ERC20.transfer, approve and transferFrom certified at the caller 0x2000
++-- (Contracts/UniswapV2/ERC20/Certified; approve and transferFrom also need ContractsUniswapV2ERC20Nested
++-- and scripts/verify/uniswap_v2_stages_nested.sh's modules): E3, E4,
+ -- E5 + E8 and E7 composed into one Shapes.Certified statement, with the two self-transfer cases on the
+ -- exact bytes. Needs the generated modules of uv2_erc20, ContractsUniswapV2ERC20SourceMir and
+ -- ContractsUniswapV2TransferSlice (scripts/verify/uniswap_v2_stages.sh, uniswap_v2_transfer_slice.sh).
+ lean_lib ContractsUniswapV2ERC20Certified where
+-  roots := #[`Contracts.UniswapV2.ERC20.Certified.Transfer]
++  roots := #[`Contracts.UniswapV2.ERC20.Certified.Transfer, `Contracts.UniswapV2.ERC20.Certified.Approve,
++    `Contracts.UniswapV2.ERC20.Certified.TransferFrom]
+diff --git a/scripts/verify/uniswap_v2_stages_nested.sh b/scripts/verify/uniswap_v2_stages_nested.sh
+new file mode 100755
+index 0000000..47f80b5
+--- /dev/null
++++ b/scripts/verify/uniswap_v2_stages_nested.sh
+@@ -0,0 +1,92 @@
++#!/usr/bin/env bash
++# Generate the approve and transferFrom slices of UniswapV2ERC20 before the build of the uv2_erc20
++# library, after scripts/verify/uniswap_v2_stages.sh (which exports the stages into
++# Certified/uv2_erc20/gen and builds or checks the pinned solar). None is committed: each is
++# compiled from the GPL-3.0 v2-core port.
++#
++#   scripts/verify/uniswap_v2_gen.sh
++#   scripts/verify/uniswap_v2_stages.sh
++#   scripts/verify/uniswap_v2_stages_nested.sh
++#   lake build -KleanMemory=6000 uv2_erc20 ContractsUniswapV2ERC20Certified
++#
++# Writes, under Certified/uv2_erc20/ (ignored by git), for approve(address,uint256) (A, selector
++# 0x095ea7b3) and transferFrom(address,address,uint256) (TF, selector 0x23b872dd):
++#   CtxGasA.lean, CtxGasTF.lean  gen_ctxgas.py's certificate on the exact bytes against the final
++#                                EVM IR, every block outside the function's slice unchecked, in the
++#                                namespaces SolarTV.Export.UniswapV2ERC20.CtxGasA / CtxGasTF;
++#   ProofsA/, ProofsTF/          certify.py: each backend stage's refinement for the calls of that
++#                                function (every other selector excluded), and their composition
++#                                (Stages.lean), namespaces SolarTV.Milestone.Uv2Erc20A / Uv2Erc20TF.
++# Uses SOLAR_DIR as uniswap_v2_stages.sh does (default .cache/solar-stages).
++set -euo pipefail
++cd "$(dirname "${BASH_SOURCE[0]}")/../.."
++
++SOLAR_DIR="$(realpath "${SOLAR_DIR:-.cache/solar-stages}")"
++rev="$(tr -d '[:space:]' < scripts/verify/uniswap_v2_stages-solar-rev)"
++[[ "$(git -C "$SOLAR_DIR" rev-parse HEAD)" == "$rev" ]] || {
++  echo "error: $SOLAR_DIR is not at $rev; run scripts/verify/uniswap_v2_stages.sh first" >&2; exit 1; }
++out=Certified/uv2_erc20
++gen="$out/gen/UniswapV2ERC20"
++[[ -s "$gen/manifest.json" ]] || { echo "error: $gen missing; run scripts/verify/uniswap_v2_stages.sh" >&2; exit 1; }
++
++all=(
++  '06fdde03=name()'
++  '95d89b41=symbol()'
++  '313ce567=decimals()'
++  '18160ddd=totalSupply()'
++  '70a08231=balanceOf(address)'
++  'dd62ed3e=allowance(address,address)'
++  '3644e515=DOMAIN_SEPARATOR()'
++  '30adf81f=PERMIT_TYPEHASH()'
++  '7ecebe00=nonces(address)'
++  'd505accf=permit(address,address,uint256,uint256,uint8,bytes32,bytes32)'
++  'a9059cbb=transfer(address,uint256)'
++  '095ea7b3=approve(address,uint256)'
++  '23b872dd=transferFrom(address,address,uint256)'
++)
++
++slice() { # suffix selector label [certify.py options]
++  local suf=$1 sel=$2 label=$3 args=()
++  shift 3
++  for e in "${all[@]}"; do [[ "${e%%=*}" == "$sel" ]] || args+=(--exclude "$e"); done
++  python3 "$SOLAR_DIR/tools/certify/gen_ctxgas.py" "$gen" --module-prefix uv2_erc20.gen.UniswapV2ERC20 \
++    --contract UniswapV2ERC20 --final evm11 --selector "0x$sel" --out "$out/CtxGas$suf.lean"
++  # --selector keeps blocks 0 and 1 as the dispatcher; the selectors below 0x3644e515 are compared
++  # in a second dispatcher block, which the calls of approve and transferFrom run. Check every
++  # block that compares the selector too: regenerate with the slice's skipped blocks less those.
++  local skip
++  skip=$(python3 - "$out/CtxGas$suf.lean" "$gen/Evm11.lean" "$sel" <<'PY'
++import re, sys
++ctx, evm, sel = open(sys.argv[1]).read(), open(sys.argv[2]).read(), int(sys.argv[3], 16)
++F = [int(x) for x in re.search(r"^def F : List Nat := \[([0-9, ]*)\]", ctx, re.M).group(1).split(",") if x.strip()]
++blocks = re.split(r"\n\s*-- bb\d+\n", evm.split("blocks := [", 1)[1])[1:]
++push = re.compile(r"\.push (0x[0-9a-fA-F]+|\d+)\)")
++cmp = {i for i, b in enumerate(blocks) if any(int(m, 0) == sel for m in push.findall(b))}
++if not cmp:
++    sys.exit("error: no block compares the selector")
++print(",".join(str(b) for b in F if b not in cmp))
++PY
++)
++  python3 "$SOLAR_DIR/tools/certify/gen_ctxgas.py" "$gen" --module-prefix uv2_erc20.gen.UniswapV2ERC20 \
++    --contract UniswapV2ERC20 --final evm11 --skip "$skip" --out "$out/CtxGas$suf.lean"
++  sed -i "s/SolarTV\.Export\.UniswapV2ERC20\.CtxGas\b/SolarTV.Export.UniswapV2ERC20.CtxGas$suf/g" "$out/CtxGas$suf.lean"
++  grep -q "^namespace SolarTV.Export.UniswapV2ERC20.CtxGas$suf$" "$out/CtxGas$suf.lean" || {
++    echo "error: CtxGas$suf.lean has no namespace CtxGas$suf" >&2; exit 1; }
++  rm -rf "$out/Proofs$suf" "$out/Proofs$suf.lean"
++  python3 "$SOLAR_DIR/tools/certify/certify.py" "$gen" --gen-module uv2_erc20.gen.UniswapV2ERC20 \
++    --proof-dir "$out/Proofs$suf" --proof-module "uv2_erc20.Proofs$suf" \
++    --namespace "SolarTV.Milestone.Uv2Erc20$suf" --label "$label" \
++    --cut --joins --no-mir-joins --segment 16 "$@" "${args[@]}"
++  [[ -s "$out/Proofs$suf/Stages.lean" ]] || { echo "error: $out/Proofs$suf/Stages.lean missing" >&2; exit 1; }
++  # Segments of 16 configurations (transfer's use 8): with 8, the inline-returns stage (evm10) is
++  # cut at the second dispatcher block, whose relation keeps the selector as an unknown word, so
++  # the segment from there walks the excluded functions too and its proof fails.
++  if grep -l '(3, \[w0\]' "$out/Proofs$suf"/Runs/*.lean; then
++    echo "error: Proofs$suf cuts at the second dispatcher block" >&2; exit 1
++  fi
++}
++
++slice A 095ea7b3 uv2_erc20_approve
++# transferFrom's first segment of evm2 runs past the default 2000000 heartbeats.
++slice TF 23b872dd uv2_erc20_transferFrom --heartbeats 8000000
++echo "wrote $out/CtxGasA.lean $out/CtxGasTF.lean $out/ProofsA $out/ProofsTF"
+-- 
+2.43.0
+
