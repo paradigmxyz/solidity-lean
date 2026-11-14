@@ -1,1222 +1,558 @@
-From 641f9597107ce25e0e8fb91eaea300c7a6d2a124 Mon Sep 17 00:00:00 2001
-From: storm pair-spec <pair-spec@users.noreply.github.com>
-Date: Sat, 14 Nov 2026 03:28:44 +0000
-Subject: [PATCH 1/3] feat(uniswap-v2): open-world published statement of the
- pair's swap, skim and sync
+From e206d84f13de1c27f016e96c385db9f5364b584d Mon Sep 17 00:00:00 2001
+From: pair-spec lane <pair-spec@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 05:21:22 +0000
+Subject: [PATCH] feat(uniswap-v2): pair negative controls by execution
 
-Verify/ShapeOpen.lean states equivalence, termination and the specification with the
-bytecode run among any admitted accounts and the source in every admitted open world
-(OpenFunctional, bytecode_any). Contracts/UniswapV2/PairSpec fixes the pair's statement
-from solar-verify's exported spec (generated, not committed), composes it from the stage
-theorems as named Props (published_of_stages), proves it non-vacuous, binds the export to
-the plain compile, and checks the negative controls: an altered jump target, a wrong K
-clause and a swap that leaves the reserves unchanged.
+Run swap on the exact bytes in EthLib among two token accounts and on
+the checked source in the matching world, then on swap without its
+reserve update (solar's compile of the mutant source and SolidCore's
+translation of it), the bytes with a jump target moved, a mismatched
+world and a closed world. The runs are evaluated (#guard): EthLib's
+processMessage is well-founded recursion the kernel does not reduce.
+Each refusal is a kernel theorem over every observable with the
+executed features: the published spec refuses the mutant's reserves,
+the wrong-K spec refuses the pair's, the published clause accepts them.
+
+Replace the pair statement's premise NestedSlotsSeparated, which is
+unsatisfiable, with HashScope: the keccak words the spec reads
+(balanceOf[0], allowance[0][s]) avoid the pair's 13 fixed slots.
 ---
- Contracts/UniswapV2/.gitignore               |   3 +
- Contracts/UniswapV2/PairSpec/Negative.lean   | 122 ++++++++++++++
- Contracts/UniswapV2/PairSpec/NonVacuous.lean |  36 +++++
- Contracts/UniswapV2/PairSpec/Published.lean  |  54 +++++++
- Contracts/UniswapV2/PairSpec/Stages.lean     |  76 +++++++++
- Contracts/UniswapV2/PairSpec/Statement.lean  | 147 +++++++++++++++++
- Verify/ShapeOpen.lean                        | 157 +++++++++++++++++++
- lakefile.lean                                |   9 ++
- scripts/verify/uniswap_v2_pair_spec.sh       |  77 +++++++++
- 9 files changed, 681 insertions(+)
- create mode 100644 Contracts/UniswapV2/PairSpec/Negative.lean
- create mode 100644 Contracts/UniswapV2/PairSpec/NonVacuous.lean
- create mode 100644 Contracts/UniswapV2/PairSpec/Published.lean
- create mode 100644 Contracts/UniswapV2/PairSpec/Stages.lean
- create mode 100644 Contracts/UniswapV2/PairSpec/Statement.lean
- create mode 100644 Verify/ShapeOpen.lean
- create mode 100755 scripts/verify/uniswap_v2_pair_spec.sh
+ Contracts/UniswapV2/.gitignore              |   2 +
+ Contracts/UniswapV2/PairSpec/Inputs.lean    |  24 ++-
+ Contracts/UniswapV2/PairSpec/Negative.lean  | 184 ++++++++++----------
+ Contracts/UniswapV2/PairSpec/Published.lean |   2 +-
+ Contracts/UniswapV2/PairSpec/Refusal.lean   | 157 +++++++++++++++++
+ Contracts/UniswapV2/PairSpec/Stages.lean    |   2 +-
+ Contracts/UniswapV2/PairSpec/Statement.lean |   9 +-
+ scripts/verify/uniswap_v2_pair_spec.sh      |  45 ++++-
+ 8 files changed, 325 insertions(+), 100 deletions(-)
+ create mode 100644 Contracts/UniswapV2/PairSpec/Refusal.lean
 
 diff --git a/Contracts/UniswapV2/.gitignore b/Contracts/UniswapV2/.gitignore
-index 9bf754e..caadbb4 100644
+index caadbb4..51637b9 100644
 --- a/Contracts/UniswapV2/.gitignore
 +++ b/Contracts/UniswapV2/.gitignore
-@@ -13,3 +13,6 @@ ERC20/VC/
- */Check.lean
- */Clones.lean
- */ClonesStaged.lean
-+*/SpecWrongK.lean
-+*/Bytecode.lean
-+*/Runtime.lean
-diff --git a/Contracts/UniswapV2/PairSpec/Negative.lean b/Contracts/UniswapV2/PairSpec/Negative.lean
-new file mode 100644
-index 0000000..ea385e0
---- /dev/null
-+++ b/Contracts/UniswapV2/PairSpec/Negative.lean
-@@ -0,0 +1,122 @@
-+import Contracts.UniswapV2.PairSpec.Published
-+import Contracts.UniswapV2.PairSpec.SpecWrongK
-+
-+/-!
-+# UniswapV2Pair: the binding and the negative controls
-+
-+* `bound`: the export is the bytes of solar's plain compile, decided by the kernel.
-+* **Altered jump** (`altered_not_bound`): the bytes with the first `PUSH2 t; JUMP`/`JUMPI`
-+  target moved by one are not the export, so a statement over them fails at its binding, by
-+  mismatch (the kernel decides the inequality), never by a timeout.
-+* **Wrong K** (`wrongK_rejects`): the specification with swap's fee-adjusted constant-product
-+  clause at a fee of 4/1000 instead of 3/1000 (SpecWrongK.lean, the same export with one
-+  constant mutated) rejects the observable of a swap the pair performs (reserves 10000/10000,
-+  1000 of token0 in, 906 of token1 out: `swap(0, 906, to, "")`), which the published
-+  specification accepts (`swap_k_holds`).
-+* **Missing reserve update** (`noUpdate_rejected`): the published specification rejects the
-+  observable of a swap that pays 906 of token1 out but leaves the reserves as they were.
-+
-+The last two are about the specification's formulas on concrete states (the one clause each
-+control changes or breaks); that the pair's bytecode produces the first observable, and a pair
-+without `_update` the second, is not proved here (the stage theorems would say so of every run).
-+The driver's own controls (tools/certify/final_neg.sh: a proof of the published statement does
-+not check against a statement with a wrong postcondition, a substituted bytecode or a dropped
-+premise) apply to this statement unchanged.
-+-/
-+
-+namespace SolidCore.Spec.UniswapV2.PairSpec.Negative
-+
-+open SolarTV SolidCore.Refinement SolidCore.Spec SolidCore.Spec.UniswapV2.PairSpec
-+
-+/-! ## The binding and an altered jump -/
-+
-+set_option maxRecDepth 100000 in
-+/-- The export is the bytes of the plain compile. -/
-+theorem bound : Bound :=
-+  @of_decide_eq_true _ (instDecidableEqList _ _) (by decide +kernel)
-+
-+/-- The bytes with the first `PUSH2 t; JUMP` or `PUSH2 t; JUMPI` target moved by one. -/
-+def alterJump : List Nat → List Nat
-+  | 0x61 :: hi :: lo :: 0x56 :: rest => 0x61 :: hi :: ((lo + 1) % 256) :: 0x56 :: rest
-+  | 0x61 :: hi :: lo :: 0x57 :: rest => 0x61 :: hi :: ((lo + 1) % 256) :: 0x57 :: rest
-+  | b :: rest => b :: alterJump rest
-+  | [] => []
-+
-+set_option maxRecDepth 100000 in
-+/-- The alteration changes the bytes. -/
-+theorem alterJump_changes : alterJump runtimeBytes ≠ runtimeBytes := by decide +kernel
-+
-+set_option maxRecDepth 100000 in
-+/-- **Altered jump**: the export is not the altered bytes. -/
-+theorem altered_not_bound : ¬ (code.data.toList.map (·.toNat) = alterJump runtimeBytes) := by
-+  rw [bound]
-+  exact alterJump_changes.symm
-+
-+/-! ## Wrong K and a missing reserve update -/
-+
-+/-- swap's spec in a bundle. -/
-+def swapSpec (b : Bundle) : FnSpec :=
-+  (b.spec.specs.find? fun fs => fs.name == "UniswapV2Pair.swap").getD default
-+
-+/-- Its first ensures clause: the fee-adjusted constant product. -/
-+def kClause (b : Bundle) : Term := (swapSpec b).ensures.headD (.lit 0)
-+
-+/-- The reserves word of slot 8: `reserve0` in the low 14 bytes, `reserve1` in the next 14. -/
-+def reserves (r0 r1 : Nat) : Nat := r0 + r1 * 2 ^ 112
-+
-+/-- A state with reserves `r0`, `r1` and nothing else in storage. -/
-+def st (r0 r1 : Nat) : State :=
-+  { storage := fun s => if s = 8 then reserves r0 r1 else 0, ghost := Ghost.zero, time := 0 }
-+
-+/-- The environment of `swap(0, out1, 0x3000, "")` from reserves 10000/10000 to `post`. -/
-+def envOf (out1 : Nat) (post : State) : Env :=
-+  mkEnv { sender := 0x2000, value := 0, timestamp := 1, self := 0x1000 } [0, out1, 0x3000, 0x80] []
-+    (st 10000 10000) post
-+
-+/-- **The published K clause holds of the swap the pair performs**: 1000 of token0 in, 906 of
-+token1 out, from reserves 10000/10000 to 11000/9094. -/
-+theorem swap_k_holds :
-+    SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair.sat
-+      (kClause SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair) (envOf 906 (st 11000 9094)) := by
-+  have hk : kClause SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair = (SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair.spec.specs[8]'(by decide)).ensures[0]'(by decide) := rfl
-+  rw [hk]
-+  simp [Bundle.sat, SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair, eval, BinOp.apply, envOf, st, mkEnv, Env.cur, slotOf, reserves,
-+    Ty.ofBits, toWord]
-+
-+/-- **Wrong K**: the mutant clause (fee 4/1000) rejects that swap. -/
-+theorem wrongK_rejects :
-+    ¬ SolidCore.Spec.Export.UniswapV2PairWrongK.UniswapV2Pair.sat
-+      (kClause SolidCore.Spec.Export.UniswapV2PairWrongK.UniswapV2Pair) (envOf 906 (st 11000 9094)) := by
-+  have hk : kClause SolidCore.Spec.Export.UniswapV2PairWrongK.UniswapV2Pair = (SolidCore.Spec.Export.UniswapV2PairWrongK.UniswapV2Pair.spec.specs[8]'(by decide)).ensures[0]'(by decide) := rfl
-+  rw [hk]
-+  simp [Bundle.sat, SolidCore.Spec.Export.UniswapV2PairWrongK.UniswapV2Pair, eval, BinOp.apply, envOf, st, mkEnv, Env.cur, slotOf, reserves,
-+    Ty.ofBits, toWord]
-+
-+/-- **Missing reserve update**: the published K clause rejects a swap that pays 906 of token1 out
-+and leaves the reserves at 10000/10000. -/
-+theorem noUpdate_rejected :
-+    ¬ SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair.sat
-+      (kClause SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair) (envOf 906 (st 10000 10000)) := by
-+  have hk : kClause SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair = (SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair.spec.specs[8]'(by decide)).ensures[0]'(by decide) := rfl
-+  rw [hk]
-+  simp [Bundle.sat, SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair, eval, BinOp.apply, envOf, st, mkEnv, Env.cur, slotOf, reserves,
-+    Ty.ofBits, toWord]
-+
-+/-- info: 'SolidCore.Spec.UniswapV2.PairSpec.Negative.altered_not_bound' depends on axioms: [propext] -/
-+#guard_msgs (whitespace := lax) in
-+#print axioms altered_not_bound
-+
-+/-- info: 'SolidCore.Spec.UniswapV2.PairSpec.Negative.swap_k_holds' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-+#guard_msgs (whitespace := lax) in
-+#print axioms swap_k_holds
-+
-+/-- info: 'SolidCore.Spec.UniswapV2.PairSpec.Negative.wrongK_rejects' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-+#guard_msgs (whitespace := lax) in
-+#print axioms wrongK_rejects
-+
-+/-- info: 'SolidCore.Spec.UniswapV2.PairSpec.Negative.noUpdate_rejected' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-+#guard_msgs (whitespace := lax) in
-+#print axioms noUpdate_rejected
-+
-+end SolidCore.Spec.UniswapV2.PairSpec.Negative
-+
-diff --git a/Contracts/UniswapV2/PairSpec/NonVacuous.lean b/Contracts/UniswapV2/PairSpec/NonVacuous.lean
-new file mode 100644
-index 0000000..d2127a9
---- /dev/null
-+++ b/Contracts/UniswapV2/PairSpec/NonVacuous.lean
-@@ -0,0 +1,36 @@
-+import Contracts.UniswapV2.PairSpec.Published
-+
-+namespace SolidCore.Spec.UniswapV2.PairSpec
-+
-+open SolarTV SolidCore.Refinement SolidCore.Spec
-+
-+/-- sync() from the empty storage. -/
-+def syncCall : Call := mkCall ((EthLib.Base.natToBytes 4 syncSel).map (·.toNat)) []
-+
-+/-- A success that changes the total supply (slot 0) from 0 to 1. -/
-+def badObs : Observable :=
-+  { success := true, output := [], logs := [], storage := fun s => if s = 0 then 1 else 0 }
-+
-+theorem nonVacuous : NonVacuous := by
-+  refine ⟨syncCall, badObs, Or.inr (Or.inr ⟨[], rfl⟩), fun W h => ?_⟩
-+  have hmem : (SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair.spec.specs[10]'(by decide)) ∈
-+      SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair.spec.specs := List.getElem_mem _
-+  have hpre : SolidCore.Spec.Pre SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair
-+      (SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair.spec.specs[10]'(by decide)) (ctxOf syncCall)
-+      { storage := slotValue [], ghost := Ghost.zero, time := 0 } syncCall [] := by
-+    refine ⟨⟨by decide, by decide, by decide⟩, rfl, by decide, ?_, ?_⟩
-+    · simp [Bundle.satAll, SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair]
-+    · simp [Bundle.satAll, Bundle.sat, SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair, eval,
-+        BinOp.apply, mkEnv, Env.cur, slotOf, slotValue, Ty.ofBits, toWord, Ghost.zero, Env.bind]
-+  have hp := (h _ hmem [] _ hpre).1 rfl
-+  obtain ⟨rets, -, hens, -⟩ := hp
-+  have h0 := hens _ (List.getElem_mem (by decide : 0 < (SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair.spec.specs[10]'(by decide)).ensures.length))
-+  simp [Bundle.sat, SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair, eval, BinOp.apply, mkEnv,
-+    Env.cur, slotOf, slotValue, Ty.ofBits, toWord, badObs, idStep] at h0
-+
-+/-- info: 'SolidCore.Spec.UniswapV2.PairSpec.nonVacuous' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-+#guard_msgs (whitespace := lax) in
-+#print axioms nonVacuous
-+
-+end SolidCore.Spec.UniswapV2.PairSpec
-+
-diff --git a/Contracts/UniswapV2/PairSpec/Published.lean b/Contracts/UniswapV2/PairSpec/Published.lean
-new file mode 100644
-index 0000000..82c9345
---- /dev/null
-+++ b/Contracts/UniswapV2/PairSpec/Published.lean
-@@ -0,0 +1,54 @@
-+import Contracts.UniswapV2.PairSpec.Stages
-+
-+/-!
-+# UniswapV2Pair: the composition wrapper
-+
-+`published_of_stages` proves the published `Statement` from the binding, the checked source and
-+the nine stage theorems (Stages.lean), by `OpenFunctional.of_parts` alone. Every input is a named
-+hypothesis of the theorem: nothing is assumed, and the theorem says exactly what is still owed.
-+When the lanes' theorems land, `published := published_of_stages bound contract_ok ...` is the
-+published theorem, checked against `Statement` by the driver (tools/certify/check_final.lean).
-+-/
-+
-+namespace SolidCore.Spec.UniswapV2.PairSpec
-+
-+open SolarTV SolidCore.Refinement SolidCore.Refinement.Shapes SolidCore.Spec.UniswapV2.PairSpec.Stages
-+
-+/-- A valid call exists: `sync()` from the empty storage. -/
-+theorem inhabited : ∃ call, Valid call :=
-+  ⟨_, Or.inr (Or.inr ⟨[], rfl⟩)⟩
-+
-+/-- **The composition**: the statement from the binding, the checked source and the stages. -/
-+theorem published_of_stages (hbound : Bound)
-+    (hc : ∃ c, SolidCore.Verify.VC.UniswapV2Pair.contract? = .ok c)
-+    (heq : ∀ c, SolidCore.Verify.VC.UniswapV2Pair.contract? = .ok c →
-+      EquivSwap c ∧ EquivSkim c ∧ EquivSync c)
-+    (hterm : ∀ c, SolidCore.Verify.VC.UniswapV2Pair.contract? = .ok c →
-+      TermSwap c ∧ TermSkim c ∧ TermSync c)
-+    (hmeets : ∀ c, SolidCore.Verify.VC.UniswapV2Pair.contract? = .ok c →
-+      MeetsSwap c ∧ MeetsSkim c ∧ MeetsSync c) :
-+    Statement := by
-+  refine ⟨hbound, fun hk => ?_⟩
-+  obtain ⟨c, hc⟩ := hc
-+  obtain ⟨e1, e2, e3⟩ := heq c hc
-+  obtain ⟨t1, t2, t3⟩ := hterm c hc
-+  obtain ⟨m1, m2, m3⟩ := hmeets c hc
-+  refine ⟨c, hc, OpenFunctional.of_parts inhabited (e1.or (e2.or e3)) (t1.or (t2.or t3)) ?_⟩
-+  exact fun W hW => (m1.or (m2.or m3)) hk W hW
-+
-+/-- info: 'SolidCore.Spec.UniswapV2.PairSpec.published_of_stages' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-+#guard_msgs (whitespace := lax) in
-+#print axioms published_of_stages
-+
-+/-- **What the statement gives of the bytes**: in every admitted environment, every result of the
-+exact bytecode on a valid call, at any gas below `2 ^ 256`, is allowed and meets the exported
-+specification (for some admitted world), or changes nothing. -/
-+theorem bytecode_of_statement (h : Statement) (hk : KeccakModel) (env : TargetEnv) (he : EnvOk env)
-+    (gas : Nat) (hg : gas < 2 ^ 256) (call : Call) (hv : Valid call) (obs : Observable)
-+    (hrun : Target.runWithIn env gas code call = some obs) :
-+    (∃ W, Admit W ∧ Allowed W call obs ∧ Post W call obs) ∨ Inert call obs := by
-+  obtain ⟨c, -, hf⟩ := h.2 hk
-+  exact hf.bytecode_any env he gas hg call hv obs hrun
-+
-+end SolidCore.Spec.UniswapV2.PairSpec
-+
-diff --git a/Contracts/UniswapV2/PairSpec/Stages.lean b/Contracts/UniswapV2/PairSpec/Stages.lean
-new file mode 100644
-index 0000000..a6d218e
---- /dev/null
-+++ b/Contracts/UniswapV2/PairSpec/Stages.lean
-@@ -0,0 +1,76 @@
-+import Contracts.UniswapV2.PairSpec.Statement
-+
-+/-!
-+# UniswapV2Pair: the stage theorems the published statement composes
-+
-+These are the statements of the theorems the backend lanes produce, as `Prop`s, so that the
-+composition (Published.lean) is kernel-checked now and becomes the published theorem by applying
-+it to the lanes' theorems once they land. None is assumed anywhere: each is a hypothesis of
-+`published_of_stages`, visible in its statement. Names (RESULT.md lists them):
-+
-+| Prop | the theorem that will prove it | lane |
-+|---|---|---|
-+| `EquivSwap`, `EquivSkim`, `EquivSync` | `SolarTV.Export.UniswapV2Pair.Ctx.equiv_swap` / `_skim` / `_sync` | pair-stages-b |
-+| `TermSwap`, `TermSkim`, `TermSync` | `SolidCore.Spec.UniswapV2.Pair.terminates_swap` / `_skim` / `_sync` | pair-stages-b |
-+| `MeetsSwap`, `MeetsSkim`, `MeetsSync` | `SolidCore.Spec.UniswapV2.Pair.swap_holds` / `skim_holds` / `sync_holds` | pair-spec (spec connection) |
-+
-+pair-stages-a's mint and burn enter the same way (`EquivMint`, ...) once their ghost step is
-+written; the statement does not cover them yet.
-+-/
-+
-+namespace SolidCore.Spec.UniswapV2.PairSpec.Stages
-+
-+open SolarTV SolidCore.Refinement SolidCore.Refinement.Shapes SolidCore.Spec.UniswapV2.PairSpec
-+
-+/-- Equivalence on the calls `V` of one function: every result of the exact bytes in every admitted
-+environment, at every gas below `2 ^ 256`, is the checked source's in some admitted world, or an
-+inert failure. -/
-+def EquivOn (c : SolidCore.Solidity.TypeCheck.CheckedContract) (V : Call → Prop) : Prop :=
-+  ∀ env, EnvOk env → ∀ gas, gas < 2 ^ 256 → ∀ call, V call → ∀ obs,
-+    Target.runWithIn env gas code call = some obs →
-+      (∃ W, Admit W ∧ Source.runIn W SolidCore.Verify.VC.UniswapV2Pair.fuel c call = some obs) ∨
-+        Inert call obs
-+
-+/-- Termination on the calls `V` of one function, with an allowed status, in every admitted world. -/
-+def TermOn (c : SolidCore.Solidity.TypeCheck.CheckedContract) (V : Call → Prop) : Prop :=
-+  ∀ W, Admit W → ∀ call, V call →
-+    ∃ obs, Source.runIn W SolidCore.Verify.VC.UniswapV2Pair.fuel c call = some obs ∧ Allowed W call obs
-+
-+/-- The specification on the calls `V` of one function, in every admitted world, under the named
-+premise. -/
-+def MeetsOn (c : SolidCore.Solidity.TypeCheck.CheckedContract) (V : Call → Prop) : Prop :=
-+  KeccakModel → ∀ W, Admit W → Meets (solidCoreIn W SolidCore.Verify.VC.UniswapV2Pair.fuel) c V (Post W)
-+
-+def EquivSwap (c : SolidCore.Solidity.TypeCheck.CheckedContract) : Prop := EquivOn c ValidSwap
-+def EquivSkim (c : SolidCore.Solidity.TypeCheck.CheckedContract) : Prop := EquivOn c ValidSkim
-+def EquivSync (c : SolidCore.Solidity.TypeCheck.CheckedContract) : Prop := EquivOn c ValidSync
-+def TermSwap (c : SolidCore.Solidity.TypeCheck.CheckedContract) : Prop := TermOn c ValidSwap
-+def TermSkim (c : SolidCore.Solidity.TypeCheck.CheckedContract) : Prop := TermOn c ValidSkim
-+def TermSync (c : SolidCore.Solidity.TypeCheck.CheckedContract) : Prop := TermOn c ValidSync
-+def MeetsSwap (c : SolidCore.Solidity.TypeCheck.CheckedContract) : Prop := MeetsOn c ValidSwap
-+def MeetsSkim (c : SolidCore.Solidity.TypeCheck.CheckedContract) : Prop := MeetsOn c ValidSkim
-+def MeetsSync (c : SolidCore.Solidity.TypeCheck.CheckedContract) : Prop := MeetsOn c ValidSync
-+
-+theorem EquivOn.or {c : SolidCore.Solidity.TypeCheck.CheckedContract} {V V' : Call → Prop}
-+    (h : EquivOn c V) (h' : EquivOn c V') : EquivOn c (fun call => V call ∨ V' call) := by
-+  intro env he gas hg call hc obs hr
-+  rcases hc with hc | hc
-+  · exact h env he gas hg call hc obs hr
-+  · exact h' env he gas hg call hc obs hr
-+
-+theorem TermOn.or {c : SolidCore.Solidity.TypeCheck.CheckedContract} {V V' : Call → Prop}
-+    (h : TermOn c V) (h' : TermOn c V') : TermOn c (fun call => V call ∨ V' call) := by
-+  intro W hW call hc
-+  rcases hc with hc | hc
-+  · exact h W hW call hc
-+  · exact h' W hW call hc
-+
-+theorem MeetsOn.or {c : SolidCore.Solidity.TypeCheck.CheckedContract} {V V' : Call → Prop}
-+    (h : MeetsOn c V) (h' : MeetsOn c V') : MeetsOn c (fun call => V call ∨ V' call) := by
-+  intro hk W hW call hc obs hr
-+  rcases hc with hc | hc
-+  · exact h hk W hW call hc obs hr
-+  · exact h' hk W hW call hc obs hr
-+
-+end SolidCore.Spec.UniswapV2.PairSpec.Stages
-+
-diff --git a/Contracts/UniswapV2/PairSpec/Statement.lean b/Contracts/UniswapV2/PairSpec/Statement.lean
-new file mode 100644
-index 0000000..6cf74fe
---- /dev/null
-+++ b/Contracts/UniswapV2/PairSpec/Statement.lean
-@@ -0,0 +1,147 @@
-+import Verify.ShapeOpen
-+import Verify.ShapeBundle
-+import Verify.Spec.TreeMapNested
-+import Contracts.UniswapV2.Pair.Core
-+import Contracts.UniswapV2.PairSpec.Spec
-+import Contracts.UniswapV2.PairSpec.Bytecode
-+import Contracts.UniswapV2.PairSpec.Runtime
-+
-+/-!
-+# UniswapV2Pair: the published statement of swap, skim and sync
-+
-+The statement is fixed here, from reviewed inputs only (never from a proof module):
-+
-+* the source: SolidCore's checked `UniswapV2Pair` (`SolidCore.Verify.VC.UniswapV2Pair.contract?`,
-+  scripts/verify/uniswap_v2_core.py; not committed, the port is GPL-3.0);
-+* the bytes: `SolarTV.Export.UniswapV2Pair.bytecode`, the runtime bytecode solar emitted
-+  (`-Ogas --evm-version osaka`), bound to `runtimeBytes` by exact equality (`Bound`);
-+* the valid calls (`Valid`): `swap(amount0Out, amount1Out, to, data)` with its `bytes` argument
-+  ABI-encoded at offset `0x80` (any data below `2 ^ 32` bytes), `skim(to)` and `sync()`, clean
-+  argument words, no value, from any storage;
-+* the environment: every list of other accounts (`TargetEnv.WF`: the tokens, the factory, a
-+  callee, with any code and storage) on the bytecode side, and every admitted open world on the
-+  source side (`Admit`: answers every call; return data below `2 ^ 64` bytes; account code at
-+  addresses below `2 ^ 160`);
-+* the allowed statuses (`Allowed`): every status, since a callee's revert data is bubbled
-+  verbatim (declared vacuity of the allowed statuses; the specification constrains successes);
-+* the specification (`Post`): solar-verify's export of crates/verify/uniswap-v2/uniswap-v2.spec
-+  for `UniswapV2Pair` (`SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair`, generated by
-+  scripts/verify/uniswap_v2_pair_spec.sh), read by `Shapes.bundlePost` with the identity ghost
-+  step: swap, skim and sync update no ghost, and the inherited ERC20 invariants
-+  (`totalSupply == sumBalances`, `allowance[0][s] == 0`, `balanceOf[0] >= zeroMinted`) are
-+  assumed before the call and required after it;
-+* one named premise, `KeccakModel`: keccak256 injective with large images on the mapping slots
-+  of `balanceOf`, `nonces` and `allowance` (currently `SolidCore.Spec.NestedSlotsSeparated`,
-+  until the keccak-model lane's definition lands; it is a premise, never an axiom).
-+
-+Not in the statement: mint and burn (their exported ensures read statement-level ghosts,
-+`mintAmount0 = amount0` and the like, whose values depend on the tokens' answers: the ghost step
-+that computes them from the world is not written, see RESULT.md), the ERC20 functions, permit,
-+initialize, the getters, the constructor (the statement starts from any storage), resources (no
-+gas bound: callees spend gas), the source model (SolidCore's checked contract is the meaning of
-+the source: frontend trust boundary).
-+-/
-+
-+namespace SolidCore.Spec.UniswapV2.PairSpec
-+
-+open SolarTV SolidCore.Refinement SolidCore.Refinement.Shapes
-+
-+/-! ## The bytes -/
-+
-+/-- The runtime bytecode the statement speaks of: the fresh export. -/
-+def code : ByteArray := ⟨(SolarTV.Export.UniswapV2Pair.bytecode.map UInt8.ofNat).toArray⟩
-+
-+/-- The binding of the export to the bytes this run compiled (`runtimeBytes`, generated beside
-+the export from solar's own output). -/
-+def Bound : Prop := code.data.toList.map (·.toNat) = runtimeBytes
-+
-+/-! ## The calls -/
-+
-+/-- `swap(uint256,uint256,address,bytes)`. -/
-+abbrev swapSel : Nat := 0x022c0d9f
-+/-- `skim(address)`. -/
-+abbrev skimSel : Nat := 0xbc25cf77
-+/-- `sync()`. -/
-+abbrev syncSel : Nat := 0xfff6cae9
-+
-+/-- `n` as a 32-byte big-endian word. -/
-+def word (n : Nat) : List Nat := (EthLib.Base.natToBytes 32 n).map (·.toNat)
-+
-+/-- The call data of `swap(a0, a1, to, data)` as solc's encoder writes it: the head, the offset
-+`0x80`, the length and the data padded to whole words. -/
-+def swapData (a0 a1 dst : Nat) (data : List Nat) : List Nat :=
-+  (EthLib.Base.natToBytes 4 swapSel).map (·.toNat) ++ word a0 ++ word a1 ++ word dst ++ word 0x80 ++
-+    word data.length ++ data ++ List.replicate ((32 - data.length % 32) % 32) 0
-+
-+/-- A call with call data `d` from the storage `σ`, without value. -/
-+def mkCall (d : List Nat) (σ : List (Nat × Nat)) : Call :=
-+  { calldata := ⟨(d.map UInt8.ofNat).toArray⟩, callvalue := 0, storage := σ }
-+
-+/-- The valid calls of `swap`. -/
-+def ValidSwap (call : Call) : Prop :=
-+  ∃ σ a0 a1 dst data, a0 < 2 ^ 256 ∧ a1 < 2 ^ 256 ∧ dst < 2 ^ 160 ∧ data.length < 2 ^ 32 ∧
-+    (∀ b ∈ data, b < 256) ∧ call = mkCall (swapData a0 a1 dst data) σ
-+
-+/-- The valid calls of `skim`. -/
-+def ValidSkim (call : Call) : Prop :=
-+  ∃ σ dst, dst < 2 ^ 160 ∧ call = mkCall ((EthLib.Base.natToBytes 4 skimSel).map (·.toNat) ++ word dst) σ
-+
-+/-- The valid calls of `sync`. -/
-+def ValidSync (call : Call) : Prop :=
-+  ∃ σ, call = mkCall ((EthLib.Base.natToBytes 4 syncSel).map (·.toNat)) σ
-+
-+/-- The statement's valid calls. -/
-+def Valid (call : Call) : Prop := ValidSwap call ∨ ValidSkim call ∨ ValidSync call
-+
-+/-! ## The environment -/
-+
-+/-- The admitted bytecode environments. -/
-+def EnvOk (env : TargetEnv) : Prop := env.WF
-+
-+/-- The admitted source worlds. -/
-+def Admit (W : World) : Prop :=
-+  W.Open ∧ (∀ p ∈ W.codes.getD [], p.1 < 2 ^ 160) ∧
-+    (∀ h world request a, W.ans h (.external world (.call request)) = some a →
-+      a.returnData.size < 2 ^ 64)
-+
-+/-- **The named premise**: keccak256 is injective with images of at least `2 ^ 128` on the
-+mapping slots the specification and the code read (`balanceOf` at slot 1, `nonces` at 4,
-+`allowance` at 2). The keccak-model lane's `KeccakModel` replaces this definition when it lands. -/
-+def KeccakModel : Prop := SolidCore.Spec.NestedSlotsSeparated [1, 4] [2]
-+
-+/-! ## Allowed statuses and the specification -/
-+
-+/-- **The allowed statuses: every status.** swap, skim and sync bubble a callee's revert data
-+verbatim (the tokens' `balanceOf` and the `uniswapV2Call` callback are high-level calls), and an
-+admitted world may revert with any data, so no revert data can be excluded: termination is stated
-+with any status, and an arbitrary revert is not counted as functional success (`Post` constrains
-+successes only). Recorded as the statement's declared vacuity of the allowed statuses. -/
-+def Allowed (_W : World) (_call : Call) (_obs : Observable) : Prop := True
-+
-+/-- The call context of the specification: the statement's caller and contract, its block. -/
-+def ctxOf (call : Call) : SolidCore.Spec.Ctx :=
-+  { sender := callerAddress, value := call.callvalue, timestamp := 1, self := selfAddress }
-+
-+/-- swap, skim and sync update no ghost. -/
-+def idStep : SolidCore.Spec.GhostStep := fun _ g => g
-+
-+/-- **The specification**: solar-verify's export, as a postcondition of one call. -/
-+def Post (_W : World) : Call → Observable → Prop :=
-+  bundlePost SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair ctxOf idStep
-+
-+/-! ## The statement -/
-+
-+/-- **The published statement**: the binding, and, under the named premise, equivalence,
-+termination and the exported specification of swap, skim and sync on the exact bytes, in every
-+admitted environment. -/
-+def Statement : Prop :=
-+  Bound ∧ (KeccakModel →
-+    ∃ c, SolidCore.Verify.VC.UniswapV2Pair.contract? = .ok c ∧
-+      OpenFunctional SolidCore.Verify.VC.UniswapV2Pair.fuel c code EnvOk Admit Valid Allowed Post)
-+
-+/-- The specification rejects something: a valid call with a result the specification rejects in
-+every world. (The allowed statuses reject nothing; see `Allowed`.) -/
-+def NonVacuous : Prop := ∃ call obs, Valid call ∧ ∀ W, ¬ Post W call obs
-+
-+end SolidCore.Spec.UniswapV2.PairSpec
-+
-diff --git a/Verify/ShapeOpen.lean b/Verify/ShapeOpen.lean
-new file mode 100644
-index 0000000..3cf4cbb
---- /dev/null
-+++ b/Verify/ShapeOpen.lean
-@@ -0,0 +1,157 @@
-+import Verify.Shapes
-+import SolidCore.Refinement.SourceOracle
-+
-+/-!
-+# The shape of a certified compilation in an open world
-+
-+`Shapes.Functional` runs the bytecode in EthLib's state with only the contract and its caller
-+(`Target.preState`), so every external call reaches an account without code. For a contract
-+whose functions call other contracts (a pair reading its tokens' balances and paying them), that
-+closed world makes every such function revert, and a specification of their successes holds
-+vacuously. This file states the same three obligations with the environment quantified, as
-+requirement E asks:
-+
-+* `TargetEnv`: the other accounts of the target's state (address, code, storage, balance), any
-+  list the statement admits (`EnvOk`); `Target.runWithIn env gas code call` is
-+  `Final.Target.runWith` with those accounts added, observing the contract's own logs only.
-+* `OpenFunctional`: equivalence (every result of the exact bytecode in every admitted environment,
-+  at every gas below `2 ^ 256`, is SolidCore's result in some admitted open world `W`, or an
-+  inert failure), termination with an allowed status in **every** admitted world (never by choosing
-+  a terminating oracle), and the specification of every source result in every admitted world.
-+  The allowed statuses and the specification may read the world (a ghost step that depends on the
-+  answers of the calls).
-+
-+`OpenFunctional.bytecode_any` is what it says of the bytes: every result in every admitted
-+environment is allowed and meets the specification for some admitted world, or changes nothing.
-+No resources obligation: a gas bound for code whose callees spend gas is not stated here.
-+
-+The world the equivalence picks is existential per run: the statement does not say it is the one
-+the environment's code computes (causal consistency is the stage's business; the specification
-+holds in every admitted world, so the conclusion does not depend on which).
-+-/
-+
-+namespace SolidCore.Refinement.Shapes
-+
-+open SolarTV SolidCore.Refinement SolidCore.Refinement.Final
-+open EthLib.Base EthLib.Execution EthLib.Execution.Evm EthLib.Execution.State
-+
-+/-- One other account of the target's state. -/
-+structure EnvAccount where
-+  addr : Nat
-+  code : ByteArray
-+  storage : List (Nat × Nat)
-+  balance : Nat
-+  nonce : Nat
-+
-+/-- The other accounts of the target's state. -/
-+abbrev TargetEnv := List EnvAccount
-+
-+/-- The environment's accounts are distinct addresses below `2 ^ 160`, neither the contract nor
-+its caller. -/
-+def TargetEnv.WF (env : TargetEnv) : Prop :=
-+  (env.map (·.addr)).Nodup ∧ ∀ a ∈ env, a.addr < 2 ^ 160 ∧ a.addr ≠ selfAddress ∧ a.addr ≠ callerAddress
-+
-+namespace Target
-+
-+/-- `Target.preState` with the environment's accounts, storage and code added. -/
-+def preStateIn (env : TargetEnv) (code : ByteArray) (call : Call) : TransactionState :=
-+  let hash := EthLib.Cryptography.Hash.Keccak.keccak256 code
-+  let storage : Std.ExtTreeMap Bytes32 U256 :=
-+    call.storage.foldl (fun m kv => m.insert (Refinement.Target.storageKey kv.1) (BitVec.ofNat 256 kv.2)) ∅
-+  let accounts0 : Std.ExtTreeMap Address Account :=
-+    ((∅ : Std.ExtTreeMap Address Account).insert (Refinement.Target.address selfAddress)
-+        { nonce := 1, balance := 0, codeHash := hash }).insert (Refinement.Target.address callerAddress)
-+        { nonce := 0, balance := BitVec.ofNat 256 call.callvalue,
-+          codeHash := EthLib.Cryptography.Hash.Keccak.keccak256 .empty }
-+  let storage0 : Std.ExtTreeMap Address (Std.ExtTreeMap Bytes32 U256) :=
-+    (∅ : Std.ExtTreeMap Address (Std.ExtTreeMap Bytes32 U256)).insert
-+      (Refinement.Target.address selfAddress) storage
-+  let code0 : Std.ExtTreeMap Hash32 ByteArray := (∅ : Std.ExtTreeMap Hash32 ByteArray).insert hash code
-+  let pre : State := env.foldl (fun (s : State) a =>
-+      let h := EthLib.Cryptography.Hash.Keccak.keccak256 a.code
-+      { accounts := s.accounts.insert (Refinement.Target.address a.addr)
-+          { nonce := a.nonce, balance := BitVec.ofNat 256 a.balance, codeHash := h },
-+        storage := s.storage.insert (Refinement.Target.address a.addr)
-+          (a.storage.foldl (fun m kv =>
-+            m.insert (Refinement.Target.storageKey kv.1) (BitVec.ofNat 256 kv.2)) ∅),
-+        code := s.code.insert h a.code })
-+    { accounts := accounts0, storage := storage0, code := code0 }
-+  TransactionState.ofBlock
-+    { preState := pre, accountWrites := ∅, storageWrites := ∅, codeWrites := ∅,
-+      storageClears := ∅ }
-+
-+/-- `Final.Target.runWith` in the environment `env`: the contract's own logs, storage and
-+output. -/
-+def runWithIn (env : TargetEnv) (gas : Nat) (code : ByteArray) (call : Call) : Option Observable :=
-+  match processMessage (Meter := Nat) .fusaka (Final.Target.messageWith gas code call)
-+      (preStateIn env code call) Substate.empty with
-+  | .error _ => none
-+  | .ok ⟨evm, _⟩ =>
-+    let success := evm.error.isNone
-+    some
-+      { success
-+        output := evm.output.toList.map (·.toNat)
-+        logs :=
-+          if success then
-+            (evm.substate.logs.toList.filter fun log =>
-+                log.address == Refinement.Target.address selfAddress).map fun log =>
-+              (log.topics.map fun topic => bytesToNat topic.toList,
-+                log.data.toList.map (·.toNat))
-+          else []
-+        storage := fun slot =>
-+          if success then
-+            (evm.state.getStorage (Refinement.Target.address selfAddress)
-+              (Refinement.Target.storageKey slot)).toNat
-+          else slotValue call.storage slot }
-+
-+end Target
-+
-+/-- **Equivalence, termination and the specification in an open world.** -/
-+structure OpenFunctional (fuel : Nat) (c : SolidCore.Solidity.TypeCheck.CheckedContract)
-+    (code : ByteArray) (EnvOk : TargetEnv → Prop) (Admit : World → Prop) (Valid : Call → Prop)
-+    (Allowed Post : World → Call → Observable → Prop) : Prop where
-+  inhabited : ∃ call, Valid call
-+  equiv : ∀ env, EnvOk env → ∀ gas, gas < 2 ^ 256 → ∀ call, Valid call → ∀ obs,
-+    Target.runWithIn env gas code call = some obs →
-+      (∃ W, Admit W ∧ Source.runIn W fuel c call = some obs) ∨ Inert call obs
-+  terminates : ∀ W, Admit W → ∀ call, Valid call →
-+    ∃ obs, Source.runIn W fuel c call = some obs ∧ Allowed W call obs
-+  meets : ∀ W, Admit W → ∀ call, Valid call → ∀ obs,
-+    Source.runIn W fuel c call = some obs → Post W call obs
-+
-+/-- **What the bytecode does in every admitted environment**: every result, at any gas below
-+`2 ^ 256`, is allowed and meets the specification in some admitted world, or changes nothing. -/
-+theorem OpenFunctional.bytecode_any {fuel : Nat} {c : SolidCore.Solidity.TypeCheck.CheckedContract}
-+    {code : ByteArray} {EnvOk : TargetEnv → Prop} {Admit : World → Prop} {Valid : Call → Prop}
-+    {Allowed Post : World → Call → Observable → Prop}
-+    (h : OpenFunctional fuel c code EnvOk Admit Valid Allowed Post) (env : TargetEnv)
-+    (he : EnvOk env) (gas : Nat) (hg : gas < 2 ^ 256) (call : Call) (hc : Valid call)
-+    (obs : Observable) (hrun : Target.runWithIn env gas code call = some obs) :
-+    (∃ W, Admit W ∧ Allowed W call obs ∧ Post W call obs) ∨ Inert call obs := by
-+  rcases h.equiv env he gas hg call hc obs hrun with ⟨W, hW, hs⟩ | e
-+  · obtain ⟨obs', hs', ha⟩ := h.terminates W hW call hc
-+    obtain rfl : obs' = obs := Option.some.inj (hs'.symm.trans hs)
-+    exact Or.inl ⟨W, hW, ha, h.meets W hW call hc obs' hs'⟩
-+  · exact Or.inr e
-+
-+/-- The obligations compose from their parts: a source total in every admitted world, its
-+specification in every admitted world, and the per-run equivalence of the bytecode. -/
-+theorem OpenFunctional.of_parts {fuel : Nat} {c : SolidCore.Solidity.TypeCheck.CheckedContract}
-+    {code : ByteArray} {EnvOk : TargetEnv → Prop} {Admit : World → Prop} {Valid : Call → Prop}
-+    {Allowed Post : World → Call → Observable → Prop}
-+    (hin : ∃ call, Valid call)
-+    (heq : ∀ env, EnvOk env → ∀ gas, gas < 2 ^ 256 → ∀ call, Valid call → ∀ obs,
-+      Target.runWithIn env gas code call = some obs →
-+        (∃ W, Admit W ∧ Source.runIn W fuel c call = some obs) ∨ Inert call obs)
-+    (hterm : ∀ W, Admit W → ∀ call, Valid call →
-+      ∃ obs, Source.runIn W fuel c call = some obs ∧ Allowed W call obs)
-+    (hspec : ∀ W, Admit W → Meets (solidCoreIn W fuel) c Valid (Post W)) :
-+    OpenFunctional fuel c code EnvOk Admit Valid Allowed Post :=
-+  ⟨hin, heq, hterm, fun W hW => hspec W hW⟩
-+
-+/-- info: 'SolidCore.Refinement.Shapes.OpenFunctional.bytecode_any' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-+#guard_msgs (whitespace := lax) in
-+#print axioms OpenFunctional.bytecode_any
-+
-+end SolidCore.Refinement.Shapes
-+
-diff --git a/lakefile.lean b/lakefile.lean
-index 46071a1..fe4d93c 100644
---- a/lakefile.lean
-+++ b/lakefile.lean
-@@ -506,3 +506,12 @@ lean_lib «arraymax» where
-   srcDir := "Certified"
-   roots := #[`arraymax.Proofs.Runs.Evm1, `arraymax.Proofs.Runs.Evm2, `arraymax.Proofs.Runs.Evm3, `arraymax.Proofs.Runs.Evm4, `arraymax.Proofs.Runs.Evm5, `arraymax.Proofs.Runs.Evm6, `arraymax.Proofs.Runs.Evm7, `arraymax.Proofs.Runs.Evm8, `arraymax.Proofs.Runs.Evm9, `arraymax.Proofs.Runs.Evm10, `arraymax.Proofs.Runs.Evm11, `arraymax.Proofs.Runs.Evm12, `arraymax.Proofs.Runs.Evm13, `arraymax.Proofs.Runs.Evm14, `arraymax.Proofs.Runs.Evm15]
-   globs := #[.submodules `arraymax.gen]
-+
-+-- UniswapV2Pair's published statement of swap, skim and sync (Contracts/UniswapV2/PairSpec): the
-+-- statement over an open world (Verify/ShapeOpen.lean), the stage theorems it composes as named
-+-- Props, the composition wrapper and the negative controls. scripts/verify/uniswap_v2_pair_spec.sh
-+-- generates its inputs (Spec, SpecWrongK, Bytecode, Runtime; derived from the GPL-3.0 port, so not
-+-- committed) after scripts/verify/uniswap_v2_gen.sh.
-+lean_lib ContractsUniswapV2PairSpec where
-+  roots := #[`Contracts.UniswapV2.PairSpec.Published, `Contracts.UniswapV2.PairSpec.Negative]
-+  globs := #[.submodules `Contracts.UniswapV2.PairSpec]
-diff --git a/scripts/verify/uniswap_v2_pair_spec.sh b/scripts/verify/uniswap_v2_pair_spec.sh
-new file mode 100755
-index 0000000..7a91921
---- /dev/null
-+++ b/scripts/verify/uniswap_v2_pair_spec.sh
-@@ -0,0 +1,77 @@
-+#!/usr/bin/env bash
-+# Generate the inputs of UniswapV2Pair's published statement (Contracts/UniswapV2/PairSpec), before
-+# its build. None is committed: each is derived from the GPL-3.0 v2-core port.
-+#
-+#   scripts/verify/uniswap_v2_pair_spec.sh
-+#
-+# Needs scripts/verify/uniswap_v2_gen.sh's outputs (scripts/verify/uniswap-v2/UniswapV2Pair.sol and
-+# Contracts/UniswapV2/Pair/{Source,Core}.lean), and:
-+#   SOLAR_DIR     a solar checkout with crates/verify/uniswap-v2/{apply_specs.py,uniswap-v2.spec};
-+#   SOLAR         its solar binary (the bytecode and its stage export);
-+#   SOLAR_VERIFY  its solar-verify binary (--emit-lean-spec, with dynamic parameters exported as
-+#                 their head word: solar's spec_lean.rs with the pair-spec lane's patch).
-+# Writes, under Contracts/UniswapV2/PairSpec/:
-+#   Spec.lean       solar-verify's --emit-lean-spec export of the ERC20 and Pair sections of
-+#                   uniswap-v2.spec, applied to the flattened UniswapV2Pair.sol;
-+#   SpecWrongK.lean the same with swap's fee-adjusted constant-product clause mutated (fee 4/1000
-+#                   instead of 3/1000, stronger than the code meets): a negative control;
-+#   Bytecode.lean   solar -Zemit-lean-stages's Bytecode.lean for UniswapV2Pair (the export);
-+#   Runtime.lean    the runtime bytecode of solar's plain compile (--emit=bin-runtime), as numbers,
-+#                   the bytes the statement binds the export to.
-+# Fails (exit 1) if any step fails; nothing is written as passing that does not check.
-+set -euo pipefail
-+cd "$(dirname "${BASH_SOURCE[0]}")/../.."
-+: "${SOLAR_DIR:?set SOLAR_DIR to a solar checkout}"
-+: "${SOLAR:?set SOLAR to a solar binary}"
-+: "${SOLAR_VERIFY:?set SOLAR_VERIFY to a solar-verify binary}"
-+sol=scripts/verify/uniswap-v2/UniswapV2Pair.sol
-+out=Contracts/UniswapV2/PairSpec
-+[[ -s $sol ]] || { echo "error: $sol missing; run scripts/verify/uniswap_v2_gen.sh" >&2; exit 1; }
-+opts=(-Ogas --evm-version osaka)
-+tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
-+mkdir -p "$tmp/src"; cp "$sol" "$tmp/src/"
-+# The ERC20 and Pair sections (the flattened file holds both contracts; Math and Factory are not in it).
-+awk '/^# -+ Factory/ {exit} /^# -+ Math/ {skip=1} /^# -+ Pair/ {skip=0} !skip' \
-+  "$SOLAR_DIR/crates/verify/uniswap-v2/uniswap-v2.spec" > "$tmp/pair.spec"
-+grep -q '^== contract UniswapV2Pair' "$tmp/pair.spec"
-+grep -q '^== function UniswapV2Pair.swap' "$tmp/pair.spec"
-+# The wrong-K mutant: swap's fee-adjusted clause with 4 instead of 3 (stronger than the code meets).
-+sed 's/^\(@custom:ensures (reserve0 \* 1000 - IN(reserve0, amount0Out) \* \)3\() \* (reserve1 \* 1000 - IN(reserve1, amount1Out) \* \)3/\14\24/' \
-+  "$tmp/pair.spec" > "$tmp/pair-wrongk.spec"
-+! cmp -s "$tmp/pair.spec" "$tmp/pair-wrongk.spec" || { echo "error: the wrong-K mutation did not apply" >&2; exit 1; }
-+for v in plain wrongk; do
-+  s="$tmp/pair.spec"; [[ $v == wrongk ]] && s="$tmp/pair-wrongk.spec"
-+  python3 "$SOLAR_DIR/crates/verify/uniswap-v2/apply_specs.py" --src "$tmp/src" --out "$tmp/$v" --spec "$s" >/dev/null
-+done
-+(cd "$tmp/plain" && "$SOLAR_VERIFY" UniswapV2Pair.sol --emit-lean-spec "$tmp/Spec.lean" \
-+  --lean-spec-module SolidCore.Spec.Export.UniswapV2Pair)
-+(cd "$tmp/wrongk" && "$SOLAR_VERIFY" UniswapV2Pair.sol --emit-lean-spec "$tmp/SpecWrongK.lean" \
-+  --lean-spec-module SolidCore.Spec.Export.UniswapV2PairWrongK)
-+for m in Spec SpecWrongK; do
-+  { echo "-- Generated by scripts/verify/uniswap_v2_pair_spec.sh. Do not edit."; cat "$tmp/$m.lean"; } > "$out/$m.lean"
-+done
-+# The bytecode: the stage export and the plain compile, from the same solar.
-+(cd "$tmp/src" && "$SOLAR" UniswapV2Pair.sol "${opts[@]}" --emit=bin-runtime -Zemit-lean-stages="$tmp/gen" >/dev/null 2>"$tmp/gen.log") \
-+  || { cat "$tmp/gen.log" >&2; exit 1; }
-+[[ -s "$tmp/gen/UniswapV2Pair/Bytecode.lean" ]] || { echo "error: no Bytecode.lean in the export" >&2; exit 1; }
-+{ echo "-- Generated by scripts/verify/uniswap_v2_pair_spec.sh from solar -Zemit-lean-stages. Do not edit."
-+  cat "$tmp/gen/UniswapV2Pair/Bytecode.lean"; } > "$out/Bytecode.lean"
-+hex=$(cd "$tmp/src" && "$SOLAR" UniswapV2Pair.sol "${opts[@]}" --emit=bin-runtime 2>/dev/null \
-+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["contracts"]["UniswapV2Pair.sol:UniswapV2Pair"]["bin-runtime"])')
-+[[ $hex =~ ^[0-9a-f]+$ ]] || { echo "error: no runtime bytecode for UniswapV2Pair" >&2; exit 1; }
-+python3 - "$hex" > "$out/Runtime.lean" <<'PY'
-+import sys
-+b = bytes.fromhex(sys.argv[1])
-+rows = [", ".join(hex(x) for x in b[i:i + 16]) for i in range(0, len(b), 16)]
-+print("-- Generated by scripts/verify/uniswap_v2_pair_spec.sh from solar --emit=bin-runtime. Do not edit.")
-+print()
-+print("namespace SolidCore.Spec.UniswapV2.PairSpec")
-+print()
-+print("/-- The runtime bytecode of UniswapV2Pair, from solar's plain compile, as numbers. -/")
-+print("def runtimeBytes : List Nat :=")
-+print("  [" + ",\n   ".join(rows) + "]")
-+print()
-+print("end SolidCore.Spec.UniswapV2.PairSpec")
-+PY
-+echo "wrote $out/Spec.lean $out/SpecWrongK.lean $out/Bytecode.lean $out/Runtime.lean (${#hex} hex digits)"
-+
--- 
-2.43.0
-
-
-From 19376af5e1d158b01dd79cbf4e9610319ef933c8 Mon Sep 17 00:00:00 2001
-From: storm pair-spec <pair-spec@users.noreply.github.com>
-Date: Sat, 14 Nov 2026 03:37:06 +0000
-Subject: [PATCH 2/3] fix(uniswap-v2): admit only worlds without reentrant
- state change to the pair
-
-An open world may answer an external call with any post-world, and SolidCore adopts the
-pair storage it carries, so the specification cannot hold in every open world. Admit now
-requires that answers keep the pair storage (PairFramed); a result of the bytes that only
-a wider world explains is reported as Unadmitted, never as meeting the specification.
----
- Contracts/UniswapV2/PairSpec/Published.lean | 12 ++++--
- Contracts/UniswapV2/PairSpec/Stages.lean    |  4 +-
- Contracts/UniswapV2/PairSpec/Statement.lean | 28 ++++++++++++--
- Verify/ShapeOpen.lean                       | 42 ++++++++++++++-------
- 4 files changed, 63 insertions(+), 23 deletions(-)
-
-diff --git a/Contracts/UniswapV2/PairSpec/Published.lean b/Contracts/UniswapV2/PairSpec/Published.lean
-index 82c9345..89657cf 100644
---- a/Contracts/UniswapV2/PairSpec/Published.lean
-+++ b/Contracts/UniswapV2/PairSpec/Published.lean
-@@ -42,12 +42,16 @@ theorem published_of_stages (hbound : Bound)
- 
- /-- **What the statement gives of the bytes**: in every admitted environment, every result of the
- exact bytecode on a valid call, at any gas below `2 ^ 256`, is allowed and meets the exported
--specification (for some admitted world), or changes nothing. -/
--theorem bytecode_of_statement (h : Statement) (hk : KeccakModel) (env : TargetEnv) (he : EnvOk env)
-+specification (for some admitted world), or changes nothing, or is explained only by a world
-+with a reentrant state change. -/
-+theorem bytecode_of_statement {c0 : SolidCore.Solidity.TypeCheck.CheckedContract}
-+    (hc0 : SolidCore.Verify.VC.UniswapV2Pair.contract? = .ok c0) (h : Statement) (hk : KeccakModel) (env : TargetEnv) (he : EnvOk env)
-     (gas : Nat) (hg : gas < 2 ^ 256) (call : Call) (hv : Valid call) (obs : Observable)
-     (hrun : Target.runWithIn env gas code call = some obs) :
--    (∃ W, Admit W ∧ Allowed W call obs ∧ Post W call obs) ∨ Inert call obs := by
--  obtain ⟨c, -, hf⟩ := h.2 hk
-+    (∃ W, Admit W ∧ Allowed W call obs ∧ Post W call obs) ∨ Inert call obs ∨
-+      Unadmitted SolidCore.Verify.VC.UniswapV2Pair.fuel c0 Wide Admit call obs := by
-+  obtain ⟨c, hc, hf⟩ := h.2 hk
-+  obtain rfl : c = c0 := Except.ok.inj (hc.symm.trans hc0)
-   exact hf.bytecode_any env he gas hg call hv obs hrun
- 
- end SolidCore.Spec.UniswapV2.PairSpec
-diff --git a/Contracts/UniswapV2/PairSpec/Stages.lean b/Contracts/UniswapV2/PairSpec/Stages.lean
-index a6d218e..361428b 100644
---- a/Contracts/UniswapV2/PairSpec/Stages.lean
-+++ b/Contracts/UniswapV2/PairSpec/Stages.lean
-@@ -24,12 +24,12 @@ open SolarTV SolidCore.Refinement SolidCore.Refinement.Shapes SolidCore.Spec.Uni
- 
- /-- Equivalence on the calls `V` of one function: every result of the exact bytes in every admitted
- environment, at every gas below `2 ^ 256`, is the checked source's in some admitted world, or an
--inert failure. -/
-+inert failure, or explained only by a wide world that is not admitted (`Unadmitted`). -/
- def EquivOn (c : SolidCore.Solidity.TypeCheck.CheckedContract) (V : Call → Prop) : Prop :=
-   ∀ env, EnvOk env → ∀ gas, gas < 2 ^ 256 → ∀ call, V call → ∀ obs,
-     Target.runWithIn env gas code call = some obs →
-       (∃ W, Admit W ∧ Source.runIn W SolidCore.Verify.VC.UniswapV2Pair.fuel c call = some obs) ∨
--        Inert call obs
-+        Inert call obs ∨ Unadmitted SolidCore.Verify.VC.UniswapV2Pair.fuel c Wide Admit call obs
- 
- /-- Termination on the calls `V` of one function, with an allowed status, in every admitted world. -/
- def TermOn (c : SolidCore.Solidity.TypeCheck.CheckedContract) (V : Call → Prop) : Prop :=
-diff --git a/Contracts/UniswapV2/PairSpec/Statement.lean b/Contracts/UniswapV2/PairSpec/Statement.lean
-index 6cf74fe..968557c 100644
---- a/Contracts/UniswapV2/PairSpec/Statement.lean
-+++ b/Contracts/UniswapV2/PairSpec/Statement.lean
-@@ -21,7 +21,9 @@ The statement is fixed here, from reviewed inputs only (never from a proof modul
- * the environment: every list of other accounts (`TargetEnv.WF`: the tokens, the factory, a
-   callee, with any code and storage) on the bytecode side, and every admitted open world on the
-   source side (`Admit`: answers every call; return data below `2 ^ 64` bytes; account code at
--  addresses below `2 ^ 160`);
-+  addresses below `2 ^ 160`; no answer changes the pair's storage, `PairFramed`). A result of
-+  the bytes that only a world with a reentrant state change explains is `Unadmitted`: reported,
-+  outside the specification's guarantee;
- * the allowed statuses (`Allowed`): every status, since a callee's revert data is bubbled
-   verbatim (declared vacuity of the allowed statuses; the specification constrains successes);
- * the specification (`Post`): solar-verify's export of crates/verify/uniswap-v2/uniswap-v2.spec
-@@ -98,12 +100,30 @@ def Valid (call : Call) : Prop := ValidSwap call ∨ ValidSkim call ∨ ValidSyn
- /-- The admitted bytecode environments. -/
- def EnvOk (env : TargetEnv) : Prop := env.WF
- 
--/-- The admitted source worlds. -/
--def Admit (W : World) : Prop :=
-+/-- The source worlds a result of the bytes may be explained by: open worlds (every call
-+answered), return data below `2 ^ 64` bytes, account code at addresses below `2 ^ 160`. -/
-+def Wide (W : World) : Prop :=
-   W.Open ∧ (∀ p ∈ W.codes.getD [], p.1 < 2 ^ 160) ∧
-     (∀ h world request a, W.ans h (.external world (.call request)) = some a →
-       a.returnData.size < 2 ^ 64)
- 
-+open SolidCore.Solidity.Source in
-+/-- The pair's storage in an open world, as SolidCore adopts it after a call (`adoptWorld`). -/
-+def selfStorage (w : SolidCore.Solidity.Shared.OpenWorld) : List (Nat × Nat) :=
-+  ((w.accounts.find? (wordToAddress selfAddress)).getD default).storage.toList.map
-+    fun kv => (u256ToWord kv.1, u256ToWord kv.2)
-+
-+/-- **No reentrant state change**: every answer to an external call leaves the pair's storage as
-+it was sent. A token or callee that calls back into the pair's unlocked ERC20 functions and
-+changes its storage during swap, skim or sync is outside the admitted worlds; such a result of the
-+bytes is reported as `Unadmitted`, not as meeting the specification. -/
-+def PairFramed (W : World) : Prop :=
-+  ∀ h world request a, W.ans h (.external world (.call request)) = some a →
-+    slotValue (selfStorage a.postWorld) = slotValue (selfStorage world)
-+
-+/-- The admitted source worlds: the wide ones without reentrant state change. -/
-+def Admit (W : World) : Prop := Wide W ∧ PairFramed W
-+
- /-- **The named premise**: keccak256 is injective with images of at least `2 ^ 128` on the
- mapping slots the specification and the code read (`balanceOf` at slot 1, `nonces` at 4,
- `allowance` at 2). The keccak-model lane's `KeccakModel` replaces this definition when it lands. -/
-@@ -137,7 +157,7 @@ admitted environment. -/
- def Statement : Prop :=
-   Bound ∧ (KeccakModel →
-     ∃ c, SolidCore.Verify.VC.UniswapV2Pair.contract? = .ok c ∧
--      OpenFunctional SolidCore.Verify.VC.UniswapV2Pair.fuel c code EnvOk Admit Valid Allowed Post)
-+      OpenFunctional SolidCore.Verify.VC.UniswapV2Pair.fuel c code EnvOk Wide Admit Valid Allowed Post)
- 
- /-- The specification rejects something: a valid call with a result the specification rejects in
- every world. (The allowed statuses reject nothing; see `Allowed`.) -/
-diff --git a/Verify/ShapeOpen.lean b/Verify/ShapeOpen.lean
-index 3cf4cbb..8302c9d 100644
---- a/Verify/ShapeOpen.lean
-+++ b/Verify/ShapeOpen.lean
-@@ -16,7 +16,8 @@ requirement E asks:
-   `Final.Target.runWith` with those accounts added, observing the contract's own logs only.
- * `OpenFunctional`: equivalence (every result of the exact bytecode in every admitted environment,
-   at every gas below `2 ^ 256`, is SolidCore's result in some admitted open world `W`, or an
--  inert failure), termination with an allowed status in **every** admitted world (never by choosing
-+  inert failure, or a result that only a world outside the admitted ones explains: `Unadmitted`,
-+  reported as such), termination with an allowed status in **every** admitted world (never by choosing
-   a terminating oracle), and the specification of every source result in every admitted world.
-   The allowed statuses and the specification may read the world (a ghost step that depends on the
-   answers of the calls).
-@@ -106,47 +107,62 @@ def runWithIn (env : TargetEnv) (gas : Nat) (code : ByteArray) (call : Call) : O
- 
- end Target
- 
--/-- **Equivalence, termination and the specification in an open world.** -/
-+/-- A result outside what the admitted worlds explain: some world of the wide class `Wide` gives it,
-+and no admitted world does (such as a run that only a world changing the contract's storage
-+during one of its external calls explains). -/
-+def Unadmitted (fuel : Nat) (c : SolidCore.Solidity.TypeCheck.CheckedContract)
-+    (Wide Admit : World → Prop) (call : Call) (obs : Observable) : Prop :=
-+  (∃ W, Wide W ∧ Source.runIn W fuel c call = some obs) ∧
-+    ∀ W, Admit W → Source.runIn W fuel c call ≠ some obs
-+
-+/-- **Equivalence, termination and the specification in an open world.** `Admit` are the worlds
-+the specification and termination speak of; a result of the bytes that only a world of the wider
-+class `Wide` explains is reported as `Unadmitted`, never as meeting the specification. -/
- structure OpenFunctional (fuel : Nat) (c : SolidCore.Solidity.TypeCheck.CheckedContract)
--    (code : ByteArray) (EnvOk : TargetEnv → Prop) (Admit : World → Prop) (Valid : Call → Prop)
-+    (code : ByteArray) (EnvOk : TargetEnv → Prop) (Wide Admit : World → Prop) (Valid : Call → Prop)
-     (Allowed Post : World → Call → Observable → Prop) : Prop where
-   inhabited : ∃ call, Valid call
-   equiv : ∀ env, EnvOk env → ∀ gas, gas < 2 ^ 256 → ∀ call, Valid call → ∀ obs,
-     Target.runWithIn env gas code call = some obs →
--      (∃ W, Admit W ∧ Source.runIn W fuel c call = some obs) ∨ Inert call obs
-+      (∃ W, Admit W ∧ Source.runIn W fuel c call = some obs) ∨ Inert call obs ∨
-+        Unadmitted fuel c Wide Admit call obs
-   terminates : ∀ W, Admit W → ∀ call, Valid call →
-     ∃ obs, Source.runIn W fuel c call = some obs ∧ Allowed W call obs
-   meets : ∀ W, Admit W → ∀ call, Valid call → ∀ obs,
-     Source.runIn W fuel c call = some obs → Post W call obs
- 
- /-- **What the bytecode does in every admitted environment**: every result, at any gas below
--`2 ^ 256`, is allowed and meets the specification in some admitted world, or changes nothing. -/
-+`2 ^ 256`, is allowed and meets the specification in some admitted world, or changes nothing, or
-+is explained by no admitted world. -/
- theorem OpenFunctional.bytecode_any {fuel : Nat} {c : SolidCore.Solidity.TypeCheck.CheckedContract}
--    {code : ByteArray} {EnvOk : TargetEnv → Prop} {Admit : World → Prop} {Valid : Call → Prop}
-+    {code : ByteArray} {EnvOk : TargetEnv → Prop} {Wide Admit : World → Prop} {Valid : Call → Prop}
-     {Allowed Post : World → Call → Observable → Prop}
--    (h : OpenFunctional fuel c code EnvOk Admit Valid Allowed Post) (env : TargetEnv)
-+    (h : OpenFunctional fuel c code EnvOk Wide Admit Valid Allowed Post) (env : TargetEnv)
-     (he : EnvOk env) (gas : Nat) (hg : gas < 2 ^ 256) (call : Call) (hc : Valid call)
-     (obs : Observable) (hrun : Target.runWithIn env gas code call = some obs) :
--    (∃ W, Admit W ∧ Allowed W call obs ∧ Post W call obs) ∨ Inert call obs := by
--  rcases h.equiv env he gas hg call hc obs hrun with ⟨W, hW, hs⟩ | e
-+    (∃ W, Admit W ∧ Allowed W call obs ∧ Post W call obs) ∨ Inert call obs ∨
-+      Unadmitted fuel c Wide Admit call obs := by
-+  rcases h.equiv env he gas hg call hc obs hrun with ⟨W, hW, hs⟩ | e | e
-   · obtain ⟨obs', hs', ha⟩ := h.terminates W hW call hc
-     obtain rfl : obs' = obs := Option.some.inj (hs'.symm.trans hs)
-     exact Or.inl ⟨W, hW, ha, h.meets W hW call hc obs' hs'⟩
--  · exact Or.inr e
-+  · exact Or.inr (Or.inl e)
-+  · exact Or.inr (Or.inr e)
- 
- /-- The obligations compose from their parts: a source total in every admitted world, its
- specification in every admitted world, and the per-run equivalence of the bytecode. -/
- theorem OpenFunctional.of_parts {fuel : Nat} {c : SolidCore.Solidity.TypeCheck.CheckedContract}
--    {code : ByteArray} {EnvOk : TargetEnv → Prop} {Admit : World → Prop} {Valid : Call → Prop}
-+    {code : ByteArray} {EnvOk : TargetEnv → Prop} {Wide Admit : World → Prop} {Valid : Call → Prop}
-     {Allowed Post : World → Call → Observable → Prop}
-     (hin : ∃ call, Valid call)
-     (heq : ∀ env, EnvOk env → ∀ gas, gas < 2 ^ 256 → ∀ call, Valid call → ∀ obs,
-       Target.runWithIn env gas code call = some obs →
--        (∃ W, Admit W ∧ Source.runIn W fuel c call = some obs) ∨ Inert call obs)
-+        (∃ W, Admit W ∧ Source.runIn W fuel c call = some obs) ∨ Inert call obs ∨
-+          Unadmitted fuel c Wide Admit call obs)
-     (hterm : ∀ W, Admit W → ∀ call, Valid call →
-       ∃ obs, Source.runIn W fuel c call = some obs ∧ Allowed W call obs)
-     (hspec : ∀ W, Admit W → Meets (solidCoreIn W fuel) c Valid (Post W)) :
--    OpenFunctional fuel c code EnvOk Admit Valid Allowed Post :=
-+    OpenFunctional fuel c code EnvOk Wide Admit Valid Allowed Post :=
-   ⟨hin, heq, hterm, fun W hW => hspec W hW⟩
- 
- /-- info: 'SolidCore.Refinement.Shapes.OpenFunctional.bytecode_any' depends on axioms: [propext, Classical.choice, Quot.sound] -/
--- 
-2.43.0
-
-
-From 362b13a837fd34419726be1f5cc9eef302734523 Mon Sep 17 00:00:00 2001
-From: storm pair-spec <pair-spec@users.noreply.github.com>
-Date: Sat, 14 Nov 2026 03:40:53 +0000
-Subject: [PATCH 3/3] refactor(uniswap-v2): move the pair statement inputs to
- their own module
-
-Inputs.lean holds the valid calls, environments, worlds, premise, allowed statuses, context and
-ghost step, and imports neither the export nor any proof, so a driver-written statement
-(tools/certify/final.py, kind open_functional) can read them as spec modules.
----
- Contracts/UniswapV2/PairSpec/Inputs.lean    | 105 ++++++++++++++++++++
- Contracts/UniswapV2/PairSpec/Statement.lean |  91 +----------------
- 2 files changed, 106 insertions(+), 90 deletions(-)
- create mode 100644 Contracts/UniswapV2/PairSpec/Inputs.lean
-
+@@ -16,3 +16,5 @@ ERC20/VC/
+ */SpecWrongK.lean
+ */Bytecode.lean
+ */Runtime.lean
++*/SourceNoUpdate.lean
++*/RuntimeNoUpdate.lean
 diff --git a/Contracts/UniswapV2/PairSpec/Inputs.lean b/Contracts/UniswapV2/PairSpec/Inputs.lean
-new file mode 100644
-index 0000000..38bf98d
---- /dev/null
+index 38bf98d..c196cd1 100644
+--- a/Contracts/UniswapV2/PairSpec/Inputs.lean
 +++ b/Contracts/UniswapV2/PairSpec/Inputs.lean
-@@ -0,0 +1,105 @@
-+import Verify.ShapeOpen
-+import Verify.Spec.TreeMapNested
-+
-+/-!
-+# UniswapV2Pair: the reviewed inputs of the published statement
-+
-+The valid calls, the admitted environments and worlds, the named premise, the allowed statuses
-+and the specification's call context and ghost step (Statement.lean says what each means). This
-+module imports neither the export nor any proof, so a driver-written statement can import it as a
-+spec module (tools/certify/final.py, kind open_functional).
-+-/
-+
-+namespace SolidCore.Spec.UniswapV2.PairSpec
-+
-+open SolarTV SolidCore.Refinement SolidCore.Refinement.Shapes
-+
-+/-! ## The calls -/
-+
-+/-- `swap(uint256,uint256,address,bytes)`. -/
-+abbrev swapSel : Nat := 0x022c0d9f
-+/-- `skim(address)`. -/
-+abbrev skimSel : Nat := 0xbc25cf77
-+/-- `sync()`. -/
-+abbrev syncSel : Nat := 0xfff6cae9
-+
-+/-- `n` as a 32-byte big-endian word. -/
-+def word (n : Nat) : List Nat := (EthLib.Base.natToBytes 32 n).map (·.toNat)
-+
-+/-- The call data of `swap(a0, a1, to, data)` as solc's encoder writes it: the head, the offset
-+`0x80`, the length and the data padded to whole words. -/
-+def swapData (a0 a1 dst : Nat) (data : List Nat) : List Nat :=
-+  (EthLib.Base.natToBytes 4 swapSel).map (·.toNat) ++ word a0 ++ word a1 ++ word dst ++ word 0x80 ++
-+    word data.length ++ data ++ List.replicate ((32 - data.length % 32) % 32) 0
-+
-+/-- A call with call data `d` from the storage `σ`, without value. -/
-+def mkCall (d : List Nat) (σ : List (Nat × Nat)) : Call :=
-+  { calldata := ⟨(d.map UInt8.ofNat).toArray⟩, callvalue := 0, storage := σ }
-+
-+/-- The valid calls of `swap`. -/
-+def ValidSwap (call : Call) : Prop :=
-+  ∃ σ a0 a1 dst data, a0 < 2 ^ 256 ∧ a1 < 2 ^ 256 ∧ dst < 2 ^ 160 ∧ data.length < 2 ^ 32 ∧
-+    (∀ b ∈ data, b < 256) ∧ call = mkCall (swapData a0 a1 dst data) σ
-+
-+/-- The valid calls of `skim`. -/
-+def ValidSkim (call : Call) : Prop :=
-+  ∃ σ dst, dst < 2 ^ 160 ∧ call = mkCall ((EthLib.Base.natToBytes 4 skimSel).map (·.toNat) ++ word dst) σ
-+
-+/-- The valid calls of `sync`. -/
-+def ValidSync (call : Call) : Prop :=
-+  ∃ σ, call = mkCall ((EthLib.Base.natToBytes 4 syncSel).map (·.toNat)) σ
-+
-+/-- The statement's valid calls. -/
-+def Valid (call : Call) : Prop := ValidSwap call ∨ ValidSkim call ∨ ValidSync call
-+
-+/-! ## The environment -/
-+
-+/-- The admitted bytecode environments. -/
-+def EnvOk (env : TargetEnv) : Prop := env.WF
-+
-+/-- The source worlds a result of the bytes may be explained by: open worlds (every call
-+answered), return data below `2 ^ 64` bytes, account code at addresses below `2 ^ 160`. -/
-+def Wide (W : World) : Prop :=
-+  W.Open ∧ (∀ p ∈ W.codes.getD [], p.1 < 2 ^ 160) ∧
-+    (∀ h world request a, W.ans h (.external world (.call request)) = some a →
-+      a.returnData.size < 2 ^ 64)
-+
-+open SolidCore.Solidity.Source in
-+/-- The pair's storage in an open world, as SolidCore adopts it after a call (`adoptWorld`). -/
-+def selfStorage (w : SolidCore.Solidity.Shared.OpenWorld) : List (Nat × Nat) :=
-+  ((w.accounts.find? (wordToAddress selfAddress)).getD default).storage.toList.map
-+    fun kv => (u256ToWord kv.1, u256ToWord kv.2)
-+
-+/-- **No reentrant state change**: every answer to an external call leaves the pair's storage as
-+it was sent. A token or callee that calls back into the pair's unlocked ERC20 functions and
-+changes its storage during swap, skim or sync is outside the admitted worlds; such a result of the
-+bytes is reported as `Unadmitted`, not as meeting the specification. -/
-+def PairFramed (W : World) : Prop :=
-+  ∀ h world request a, W.ans h (.external world (.call request)) = some a →
-+    slotValue (selfStorage a.postWorld) = slotValue (selfStorage world)
-+
-+/-- The admitted source worlds: the wide ones without reentrant state change. -/
-+def Admit (W : World) : Prop := Wide W ∧ PairFramed W
-+
-+/-- **The named premise**: keccak256 is injective with images of at least `2 ^ 128` on the
-+mapping slots the specification and the code read (`balanceOf` at slot 1, `nonces` at 4,
-+`allowance` at 2). The keccak-model lane's `KeccakModel` replaces this definition when it lands. -/
-+def KeccakModel : Prop := SolidCore.Spec.NestedSlotsSeparated [1, 4] [2]
-+
-+/-! ## Allowed statuses and the specification -/
-+
-+/-- **The allowed statuses: every status.** swap, skim and sync bubble a callee's revert data
-+verbatim (the tokens' `balanceOf` and the `uniswapV2Call` callback are high-level calls), and an
-+admitted world may revert with any data, so no revert data can be excluded: termination is stated
-+with any status, and an arbitrary revert is not counted as functional success (`Post` constrains
-+successes only). Recorded as the statement's declared vacuity of the allowed statuses. -/
-+def Allowed (_W : World) (_call : Call) (_obs : Observable) : Prop := True
-+
-+/-- The call context of the specification: the statement's caller and contract, its block. -/
-+def ctxOf (call : Call) : SolidCore.Spec.Ctx :=
-+  { sender := callerAddress, value := call.callvalue, timestamp := 1, self := selfAddress }
-+
-+/-- swap, skim and sync update no ghost. -/
-+def idStep : SolidCore.Spec.GhostStep := fun _ g => g
-+
-+end SolidCore.Spec.UniswapV2.PairSpec
-diff --git a/Contracts/UniswapV2/PairSpec/Statement.lean b/Contracts/UniswapV2/PairSpec/Statement.lean
-index 968557c..4149a06 100644
---- a/Contracts/UniswapV2/PairSpec/Statement.lean
-+++ b/Contracts/UniswapV2/PairSpec/Statement.lean
-@@ -1,6 +1,5 @@
--import Verify.ShapeOpen
-+import Contracts.UniswapV2.PairSpec.Inputs
- import Verify.ShapeBundle
--import Verify.Spec.TreeMapNested
- import Contracts.UniswapV2.Pair.Core
- import Contracts.UniswapV2.PairSpec.Spec
- import Contracts.UniswapV2.PairSpec.Bytecode
-@@ -57,94 +56,6 @@ def code : ByteArray := ⟨(SolarTV.Export.UniswapV2Pair.bytecode.map UInt8.ofNa
- the export from solar's own output). -/
- def Bound : Prop := code.data.toList.map (·.toNat) = runtimeBytes
+@@ -81,10 +81,26 @@ def PairFramed (W : World) : Prop :=
+ /-- The admitted source worlds: the wide ones without reentrant state change. -/
+ def Admit (W : World) : Prop := Wide W ∧ PairFramed W
  
--/-! ## The calls -/
--
--/-- `swap(uint256,uint256,address,bytes)`. -/
--abbrev swapSel : Nat := 0x022c0d9f
--/-- `skim(address)`. -/
--abbrev skimSel : Nat := 0xbc25cf77
--/-- `sync()`. -/
--abbrev syncSel : Nat := 0xfff6cae9
--
--/-- `n` as a 32-byte big-endian word. -/
--def word (n : Nat) : List Nat := (EthLib.Base.natToBytes 32 n).map (·.toNat)
--
--/-- The call data of `swap(a0, a1, to, data)` as solc's encoder writes it: the head, the offset
--`0x80`, the length and the data padded to whole words. -/
--def swapData (a0 a1 dst : Nat) (data : List Nat) : List Nat :=
--  (EthLib.Base.natToBytes 4 swapSel).map (·.toNat) ++ word a0 ++ word a1 ++ word dst ++ word 0x80 ++
--    word data.length ++ data ++ List.replicate ((32 - data.length % 32) % 32) 0
--
--/-- A call with call data `d` from the storage `σ`, without value. -/
--def mkCall (d : List Nat) (σ : List (Nat × Nat)) : Call :=
--  { calldata := ⟨(d.map UInt8.ofNat).toArray⟩, callvalue := 0, storage := σ }
--
--/-- The valid calls of `swap`. -/
--def ValidSwap (call : Call) : Prop :=
--  ∃ σ a0 a1 dst data, a0 < 2 ^ 256 ∧ a1 < 2 ^ 256 ∧ dst < 2 ^ 160 ∧ data.length < 2 ^ 32 ∧
--    (∀ b ∈ data, b < 256) ∧ call = mkCall (swapData a0 a1 dst data) σ
--
--/-- The valid calls of `skim`. -/
--def ValidSkim (call : Call) : Prop :=
--  ∃ σ dst, dst < 2 ^ 160 ∧ call = mkCall ((EthLib.Base.natToBytes 4 skimSel).map (·.toNat) ++ word dst) σ
--
--/-- The valid calls of `sync`. -/
--def ValidSync (call : Call) : Prop :=
--  ∃ σ, call = mkCall ((EthLib.Base.natToBytes 4 syncSel).map (·.toNat)) σ
--
--/-- The statement's valid calls. -/
--def Valid (call : Call) : Prop := ValidSwap call ∨ ValidSkim call ∨ ValidSync call
--
--/-! ## The environment -/
--
--/-- The admitted bytecode environments. -/
--def EnvOk (env : TargetEnv) : Prop := env.WF
--
--/-- The source worlds a result of the bytes may be explained by: open worlds (every call
--answered), return data below `2 ^ 64` bytes, account code at addresses below `2 ^ 160`. -/
--def Wide (W : World) : Prop :=
--  W.Open ∧ (∀ p ∈ W.codes.getD [], p.1 < 2 ^ 160) ∧
--    (∀ h world request a, W.ans h (.external world (.call request)) = some a →
--      a.returnData.size < 2 ^ 64)
--
--open SolidCore.Solidity.Source in
--/-- The pair's storage in an open world, as SolidCore adopts it after a call (`adoptWorld`). -/
--def selfStorage (w : SolidCore.Solidity.Shared.OpenWorld) : List (Nat × Nat) :=
--  ((w.accounts.find? (wordToAddress selfAddress)).getD default).storage.toList.map
--    fun kv => (u256ToWord kv.1, u256ToWord kv.2)
--
--/-- **No reentrant state change**: every answer to an external call leaves the pair's storage as
--it was sent. A token or callee that calls back into the pair's unlocked ERC20 functions and
--changes its storage during swap, skim or sync is outside the admitted worlds; such a result of the
--bytes is reported as `Unadmitted`, not as meeting the specification. -/
--def PairFramed (W : World) : Prop :=
--  ∀ h world request a, W.ans h (.external world (.call request)) = some a →
--    slotValue (selfStorage a.postWorld) = slotValue (selfStorage world)
--
--/-- The admitted source worlds: the wide ones without reentrant state change. -/
--def Admit (W : World) : Prop := Wide W ∧ PairFramed W
--
 -/-- **The named premise**: keccak256 is injective with images of at least `2 ^ 128` on the
 -mapping slots the specification and the code read (`balanceOf` at slot 1, `nonces` at 4,
 -`allowance` at 2). The keccak-model lane's `KeccakModel` replaces this definition when it lands. -/
 -def KeccakModel : Prop := SolidCore.Spec.NestedSlotsSeparated [1, 4] [2]
++/-- The storage word of `balanceOf[address(0)]` (slot 1), as the specification computes it. -/
++def zeroBalanceSlot : Nat :=
++  SolidCore.Spec.keccakWord (SolidCore.Spec.wordBytes 0 ++ SolidCore.Spec.wordBytes 1)
++
++/-- The storage word of `allowance[address(0)][s]` (slot 2), as the specification computes it. -/
++def zeroAllowanceSlot (s : Nat) : Nat :=
++  SolidCore.Spec.keccakWord (SolidCore.Spec.wordBytes s ++
++    SolidCore.Spec.wordBytes (SolidCore.Spec.keccakWord (SolidCore.Spec.wordBytes 0 ++ SolidCore.Spec.wordBytes 2)))
++
++/-- **The named premise, scoped to the hashes the statement reads.** swap, skim and sync write
++only the pair's fixed slots (below 13: reserves 8, price accumulators 9 and 10, the lock 12), and
++the specification reads through keccak only the ERC20 invariants' words `balanceOf[address(0)]`
++and `allowance[address(0)][s]`. The premise says none of those words is a fixed slot. It is not an
++injectivity assumption: no two hashes need differ, so the counting argument that refutes
++`NestedSlotsSeparated` (2^320 preimages into 2^256 words) does not apply; it asks 2^160 + 1
++keccak outputs to avoid 13 values. Not proved (it is a fact about keccak256 the kernel cannot
++compute for every address); a premise of the statement, never an axiom. Placeholder for the
++hash-scope lane's scoped premise, whose name is not published yet. -/
++def HashScope : Prop :=
++  13 ≤ zeroBalanceSlot % 2 ^ 256 ∧ ∀ s, s < 2 ^ 160 → 13 ≤ zeroAllowanceSlot s % 2 ^ 256
+ 
+ /-! ## Allowed statuses and the specification -/
+ 
+diff --git a/Contracts/UniswapV2/PairSpec/Negative.lean b/Contracts/UniswapV2/PairSpec/Negative.lean
+index ea385e0..e28db26 100644
+--- a/Contracts/UniswapV2/PairSpec/Negative.lean
++++ b/Contracts/UniswapV2/PairSpec/Negative.lean
+@@ -1,32 +1,35 @@
+-import Contracts.UniswapV2.PairSpec.Published
+-import Contracts.UniswapV2.PairSpec.SpecWrongK
++import Contracts.UniswapV2.PairSpec.Refusal
++import Contracts.UniswapV2.PairSpec.SourceNoUpdate
++import Contracts.UniswapV2.PairSpec.RuntimeNoUpdate
+ 
+ /-!
+-# UniswapV2Pair: the binding and the negative controls
 -
--/-! ## Allowed statuses and the specification -/
+-* `bound`: the export is the bytes of solar's plain compile, decided by the kernel.
+-* **Altered jump** (`altered_not_bound`): the bytes with the first `PUSH2 t; JUMP`/`JUMPI`
+-  target moved by one are not the export, so a statement over them fails at its binding, by
+-  mismatch (the kernel decides the inequality), never by a timeout.
+-* **Wrong K** (`wrongK_rejects`): the specification with swap's fee-adjusted constant-product
+-  clause at a fee of 4/1000 instead of 3/1000 (SpecWrongK.lean, the same export with one
+-  constant mutated) rejects the observable of a swap the pair performs (reserves 10000/10000,
+-  1000 of token0 in, 906 of token1 out: `swap(0, 906, to, "")`), which the published
+-  specification accepts (`swap_k_holds`).
+-* **Missing reserve update** (`noUpdate_rejected`): the published specification rejects the
+-  observable of a swap that pays 906 of token1 out but leaves the reserves as they were.
 -
--/-- **The allowed statuses: every status.** swap, skim and sync bubble a callee's revert data
--verbatim (the tokens' `balanceOf` and the `uniswapV2Call` callback are high-level calls), and an
--admitted world may revert with any data, so no revert data can be excluded: termination is stated
--with any status, and an arbitrary revert is not counted as functional success (`Post` constrains
--successes only). Recorded as the statement's declared vacuity of the allowed statuses. -/
--def Allowed (_W : World) (_call : Call) (_obs : Observable) : Prop := True
+-The last two are about the specification's formulas on concrete states (the one clause each
+-control changes or breaks); that the pair's bytecode produces the first observable, and a pair
+-without `_update` the second, is not proved here (the stage theorems would say so of every run).
+-The driver's own controls (tools/certify/final_neg.sh: a proof of the published statement does
+-not check against a statement with a wrong postcondition, a substituted bytecode or a dropped
+-premise) apply to this statement unchanged.
++# UniswapV2Pair: the binding and the negative controls, by execution
++
++One swap is run on the exact bytes in EthLib (`Target.runWithIn`, with two token accounts whose
++code answers `balanceOf` with a fixed balance and `transfer` with `true`) and on SolidCore's
++checked source in the matching world (`Source.runIn`, answers the same), then on the mutants:
++
++| control | what runs | what refuses it |
++|---|---|---|
++| altered jump | the bytes with the first `PUSH2 t; JUMPI` target moved by one | the binding (`altered_not_bound`, kernel); the altered bytes revert on the swap the real bytes perform (evaluated) |
++| missing reserve update | swap without `_update`: solar's compile of the mutant source, and SolidCore's translation of it | the published specification refuses every observable with the executed features (`noUpdate_refused`, kernel) |
++| wrong K | the real bytes and source | the mutated specification (fee 4/1000, SpecWrongK) refuses every observable with the executed features (`wrongK_refused`, kernel); the published clause accepts them (`k_accepts`, kernel) |
++| mismatched environment | the real bytes among tokens answering 11000/9094, the source in a world answering 11000/9000 | the observables differ (evaluated): no equivalence claim relates them |
++| closed world | the real bytes with no token accounts | swap reverts (evaluated): a closed-world statement would hold vacuously |
++
++**What is kernel-checked and what is evaluated.** The runs are evaluated by Lean's compiled
++evaluator (`#guard`), not by the kernel: EthLib's `processMessage` is well-founded recursion that
++the kernel does not reduce, and the source run needs the checked contract, which only the 22
++staged modules (ContractsUniswapV2Pair) produce in the kernel. Each refusal is a kernel theorem
++over **every** observable with the features the evaluation checks (success, the reserves word),
++so a refusal does not depend on the evaluator beyond those features. The mutants are generated by
++scripts/verify/uniswap_v2_pair_spec.sh (not committed: derived from the GPL-3.0 port).
+ -/
+ 
+ namespace SolidCore.Spec.UniswapV2.PairSpec.Negative
+ 
+-open SolarTV SolidCore.Refinement SolidCore.Spec SolidCore.Spec.UniswapV2.PairSpec
++open SolarTV SolidCore.Refinement SolidCore.Refinement.Shapes SolidCore.Spec
++open SolidCore.Spec.UniswapV2.PairSpec EvmCompiler.Simulation SolidCore.Solidity
+ 
+ /-! ## The binding and an altered jump -/
+ 
+@@ -52,71 +55,74 @@ theorem altered_not_bound : ¬ (code.data.toList.map (·.toNat) = alterJump runt
+   rw [bound]
+   exact alterJump_changes.symm
+ 
+-/-! ## Wrong K and a missing reserve update -/
 -
--/-- The call context of the specification: the statement's caller and contract, its block. -/
--def ctxOf (call : Call) : SolidCore.Spec.Ctx :=
--  { sender := callerAddress, value := call.callvalue, timestamp := 1, self := selfAddress }
+-/-- swap's spec in a bundle. -/
+-def swapSpec (b : Bundle) : FnSpec :=
+-  (b.spec.specs.find? fun fs => fs.name == "UniswapV2Pair.swap").getD default
 -
--/-- swap, skim and sync update no ghost. -/
--def idStep : SolidCore.Spec.GhostStep := fun _ g => g
+-/-- Its first ensures clause: the fee-adjusted constant product. -/
+-def kClause (b : Bundle) : Term := (swapSpec b).ensures.headD (.lit 0)
 -
- /-- **The specification**: solar-verify's export, as a postcondition of one call. -/
- def Post (_W : World) : Call → Observable → Prop :=
-   bundlePost SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair ctxOf idStep
+-/-- The reserves word of slot 8: `reserve0` in the low 14 bytes, `reserve1` in the next 14. -/
+-def reserves (r0 r1 : Nat) : Nat := r0 + r1 * 2 ^ 112
+-
+-/-- A state with reserves `r0`, `r1` and nothing else in storage. -/
+-def st (r0 r1 : Nat) : State :=
+-  { storage := fun s => if s = 8 then reserves r0 r1 else 0, ghost := Ghost.zero, time := 0 }
+-
+-/-- The environment of `swap(0, out1, 0x3000, "")` from reserves 10000/10000 to `post`. -/
+-def envOf (out1 : Nat) (post : State) : Env :=
+-  mkEnv { sender := 0x2000, value := 0, timestamp := 1, self := 0x1000 } [0, out1, 0x3000, 0x80] []
+-    (st 10000 10000) post
+-
+-/-- **The published K clause holds of the swap the pair performs**: 1000 of token0 in, 906 of
+-token1 out, from reserves 10000/10000 to 11000/9094. -/
+-theorem swap_k_holds :
+-    SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair.sat
+-      (kClause SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair) (envOf 906 (st 11000 9094)) := by
+-  have hk : kClause SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair = (SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair.spec.specs[8]'(by decide)).ensures[0]'(by decide) := rfl
+-  rw [hk]
+-  simp [Bundle.sat, SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair, eval, BinOp.apply, envOf, st, mkEnv, Env.cur, slotOf, reserves,
+-    Ty.ofBits, toWord]
+-
+-/-- **Wrong K**: the mutant clause (fee 4/1000) rejects that swap. -/
+-theorem wrongK_rejects :
+-    ¬ SolidCore.Spec.Export.UniswapV2PairWrongK.UniswapV2Pair.sat
+-      (kClause SolidCore.Spec.Export.UniswapV2PairWrongK.UniswapV2Pair) (envOf 906 (st 11000 9094)) := by
+-  have hk : kClause SolidCore.Spec.Export.UniswapV2PairWrongK.UniswapV2Pair = (SolidCore.Spec.Export.UniswapV2PairWrongK.UniswapV2Pair.spec.specs[8]'(by decide)).ensures[0]'(by decide) := rfl
+-  rw [hk]
+-  simp [Bundle.sat, SolidCore.Spec.Export.UniswapV2PairWrongK.UniswapV2Pair, eval, BinOp.apply, envOf, st, mkEnv, Env.cur, slotOf, reserves,
+-    Ty.ofBits, toWord]
+-
+-/-- **Missing reserve update**: the published K clause rejects a swap that pays 906 of token1 out
+-and leaves the reserves at 10000/10000. -/
+-theorem noUpdate_rejected :
+-    ¬ SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair.sat
+-      (kClause SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair) (envOf 906 (st 10000 10000)) := by
+-  have hk : kClause SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair = (SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair.spec.specs[8]'(by decide)).ensures[0]'(by decide) := rfl
+-  rw [hk]
+-  simp [Bundle.sat, SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair, eval, BinOp.apply, envOf, st, mkEnv, Env.cur, slotOf, reserves,
+-    Ty.ofBits, toWord]
+-
+-/-- info: 'SolidCore.Spec.UniswapV2.PairSpec.Negative.altered_not_bound' depends on axioms: [propext] -/
+-#guard_msgs (whitespace := lax) in
+-#print axioms altered_not_bound
+-
+-/-- info: 'SolidCore.Spec.UniswapV2.PairSpec.Negative.swap_k_holds' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+-#guard_msgs (whitespace := lax) in
+-#print axioms swap_k_holds
+-
+-/-- info: 'SolidCore.Spec.UniswapV2.PairSpec.Negative.wrongK_rejects' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+-#guard_msgs (whitespace := lax) in
+-#print axioms wrongK_rejects
+-
+-/-- info: 'SolidCore.Spec.UniswapV2.PairSpec.Negative.noUpdate_rejected' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+-#guard_msgs (whitespace := lax) in
+-#print axioms noUpdate_rejected
++/-! ## The environment of the runs -/
++
++/-- Token code: `transfer(...)` returns `true`, every other call the word `bal` (`bal < 2^16`). -/
++def tokenCode (bal : Nat) : ByteArray :=
++  ⟨(([0x60, 0, 0x35, 0x60, 0xe0, 0x1c, 0x63, 0xa9, 0x05, 0x9c, 0xbb, 0x14, 0x60, 0x1a, 0x57,
++      0x61, bal / 256, bal % 256, 0x60, 0, 0x52, 0x60, 0x20, 0x60, 0, 0xf3,
++      0x5b, 0x60, 1, 0x60, 0, 0x52, 0x60, 0x20, 0x60, 0, 0xf3] : List Nat).map UInt8.ofNat).toArray⟩
++
++/-- token0 at `0x4000` holding `b0` for the pair, token1 at `0x5000` holding `b1`. -/
++def env (b0 b1 : Nat) : TargetEnv :=
++  [{ addr := 0x4000, code := tokenCode b0, storage := [], balance := 0, nonce := 1 },
++   { addr := 0x5000, code := tokenCode b1, storage := [], balance := 0, nonce := 1 }]
++
++/-- A word as return data. -/
++def wordBA (n : Nat) : ByteArray := ⟨((word n).map UInt8.ofNat).toArray⟩
++
++/-- The same answers on the source side: `transfer` answers `true`, every other call the balance
++of the token called; no answer changes the pair's storage. -/
++def ans (b0 b1 : Nat) : Ans := fun _ q =>
++  match q with
++  | .resource r => some (Query.defaultAnswer (.resource r))
++  | .external w0 (.call req) =>
++    let v := if (req.calldata.data.toList.take 4).map (·.toNat) = [0xa9, 0x05, 0x9c, 0xbb] then 1
++      else if req.recipient.val = 0x4000 then b0 else b1
++    some (CallResponse.mk true (wordBA v) w0 (EvmYul.UInt256.ofNat 0))
++  | .external w0 (.create r) => some (Query.defaultAnswer (.external w0 (.create r)))
++
++/-- The source world of the runs: the tokens' answers and code at both addresses. -/
++def W (b0 b1 : Nat) : World := { ans := ans b0 b1, codes := some [(0x4000, [0x60]), (0x5000, [0x60])] }
++
++/-- The mutant bytes (swap without `_update`) and the altered bytes. -/
++def codeNoUpdate : ByteArray := ⟨(runtimeNoUpdate.map UInt8.ofNat).toArray⟩
++def codeAltered : ByteArray := ⟨((alterJump runtimeBytes).map UInt8.ofNat).toArray⟩
++
++/-- SolidCore's checked mutant. -/
++def contractNoUpdate? : Except TypeCheck.TypeError TypeCheck.CheckedContract :=
++  TypeCheck.CheckedInput.contract SolidCore.Verify.VC.Source.UniswapV2PairNoUpdate.importedSourceUnit
++    "UniswapV2Pair"
++
++/-- The features of a run the controls check: success, reserve0, reserve1, the lock word. -/
++def feat : Option Observable → Option (Bool × Nat × Nat × Nat)
++  | some o => some (o.success, o.storage 8 % 2 ^ 112, o.storage 8 / 2 ^ 112 % 2 ^ 112, o.storage 12)
++  | none => none
++
++def srcRun (c? : Except TypeCheck.TypeError TypeCheck.CheckedContract) (w : World) (call : Call) :
++    Option Observable :=
++  match c? with
++  | .ok c => Source.runIn w SolidCore.Verify.VC.UniswapV2Pair.fuel c call
++  | .error _ => none
++
++/-! ## The runs (evaluated) -/
++
++-- The exact bytes: the swap succeeds, reserves 11000/9094, unlocked.
++#guard feat (Target.runWithIn (env 11000 9094) 10000000 code swapCall) = some (true, 11000, 9094, 1)
++-- The checked source in the matching world: the same features.
++#guard feat (srcRun SolidCore.Verify.VC.UniswapV2Pair.contract? (W 11000 9094) swapCall) =
++  some (true, 11000, 9094, 1)
++-- Mutant bytes: the swap succeeds and leaves the reserves at 10000/10000.
++#guard feat (Target.runWithIn (env 11000 9094) 10000000 codeNoUpdate swapCall) = some (true, 10000, 10000, 1)
++-- Mutant source: the same.
++#guard feat (srcRun contractNoUpdate? (W 11000 9094) swapCall) = some (true, 10000, 10000, 1)
++-- Altered bytes: the swap the real bytes perform fails.
++#guard ((Target.runWithIn (env 11000 9094) 10000000 codeAltered swapCall).map (·.success)) = some false
++-- Mismatched environment: the source in a world answering 11000/9000 does not show the bytes'
++-- observable among tokens answering 11000/9094.
++#guard feat (srcRun SolidCore.Verify.VC.UniswapV2Pair.contract? (W 11000 9000) swapCall) ≠
++  feat (Target.runWithIn (env 11000 9094) 10000000 code swapCall)
++-- Closed world: without token accounts the swap reverts.
++#guard ((Target.runWithIn [] 10000000 code swapCall).map (·.success)) = some false
+ 
+ end SolidCore.Spec.UniswapV2.PairSpec.Negative
+-
+diff --git a/Contracts/UniswapV2/PairSpec/Published.lean b/Contracts/UniswapV2/PairSpec/Published.lean
+index 89657cf..e0cf858 100644
+--- a/Contracts/UniswapV2/PairSpec/Published.lean
++++ b/Contracts/UniswapV2/PairSpec/Published.lean
+@@ -45,7 +45,7 @@ exact bytecode on a valid call, at any gas below `2 ^ 256`, is allowed and meets
+ specification (for some admitted world), or changes nothing, or is explained only by a world
+ with a reentrant state change. -/
+ theorem bytecode_of_statement {c0 : SolidCore.Solidity.TypeCheck.CheckedContract}
+-    (hc0 : SolidCore.Verify.VC.UniswapV2Pair.contract? = .ok c0) (h : Statement) (hk : KeccakModel) (env : TargetEnv) (he : EnvOk env)
++    (hc0 : SolidCore.Verify.VC.UniswapV2Pair.contract? = .ok c0) (h : Statement) (hk : HashScope) (env : TargetEnv) (he : EnvOk env)
+     (gas : Nat) (hg : gas < 2 ^ 256) (call : Call) (hv : Valid call) (obs : Observable)
+     (hrun : Target.runWithIn env gas code call = some obs) :
+     (∃ W, Admit W ∧ Allowed W call obs ∧ Post W call obs) ∨ Inert call obs ∨
+diff --git a/Contracts/UniswapV2/PairSpec/Refusal.lean b/Contracts/UniswapV2/PairSpec/Refusal.lean
+new file mode 100644
+index 0000000..8378dcf
+--- /dev/null
++++ b/Contracts/UniswapV2/PairSpec/Refusal.lean
+@@ -0,0 +1,157 @@
++import Contracts.UniswapV2.PairSpec.Published
++import Contracts.UniswapV2.PairSpec.SpecWrongK
++
++/-!
++# UniswapV2Pair: refusals of the executed observables
++
++The kernel half of the negative controls (Negative.lean runs the programs): for the swap
++`swap(0, 906, 0x3000, "")` from reserves 10000/10000 with 1000 of token0 in, the published
++specification refuses **every** observable that succeeds and leaves the reserves at 10000/10000
++(what the pair without `_update` does), the wrong-K specification refuses every observable that
++succeeds with reserves 11000/9094 (what the pair does), and the published fee-adjusted clause
++accepts those reserves. The pre-state meets the specification's precondition under the
++statement's premise `HashScope` (the ERC20 invariants read `allowance[address(0)][s]`, which must
++not be one of the pair's fixed slots).
++-/
++
++namespace SolidCore.Spec.UniswapV2.PairSpec.Negative
++
++open SolarTV SolidCore.Refinement SolidCore.Refinement.Shapes SolidCore.Spec
++open SolidCore.Spec.UniswapV2.PairSpec
++
++/-- The pair's storage: token0, token1, reserves 10000/10000, unlocked. -/
++def σ : List (Nat × Nat) := [(6, 0x4000), (7, 0x5000), (8, 10000 + 10000 * 2 ^ 112), (12, 1)]
++
++/-- `swap(0, 906, 0x3000, "")` after 1000 of token0 arrived (token0 balance 11000). -/
++def swapCall : Call := mkCall (swapData 0 906 0x3000 []) σ
++
++theorem swapCall_valid : Valid swapCall :=
++  Or.inl ⟨σ, 0, 906, 0x3000, [], by decide, by decide, by decide, by decide, by simp, rfl⟩
++
++
++/-- swap's spec in a bundle (the ninth). -/
++abbrev swapFs (b : Bundle) (h : 8 < b.spec.specs.length) : FnSpec := b.spec.specs[8]
++
++/-- The pre-state of the swap. -/
++def preSt : State := { storage := slotValue σ, ghost := Ghost.zero, time := 0 }
++
++theorem slotValue_σ_big {x : Nat} (hx : 13 ≤ x % 2 ^ 256) : slotValue σ x = 0 := by
++  simp only [slotValue, σ, List.foldl]
++  split_ifs <;> omega
++
++/-- The swap's arguments as the spec decodes them. -/
++def swapArgs : List Int := [0, 906, 0x3000, 0x80]
++
++set_option maxRecDepth 100000 in
++theorem pre_swap (hk : HashScope) :
++    Pre SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair
++      (SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair.spec.specs[8]'(by decide)) (ctxOf swapCall) preSt swapCall swapArgs := by
++  obtain ⟨hk0, hk1⟩ := hk
++  refine ⟨⟨by decide +kernel, by decide +kernel, by decide +kernel⟩, rfl, by decide, ?_, ?_⟩
++  · simp [Bundle.satAll, SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair]
++  · simp [Bundle.satAll, Bundle.sat, SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair, eval,
++      BinOp.apply, mkEnv, Env.cur, slotOf, preSt, Ty.ofBits, toWord, Ghost.zero, Env.bind]
++    refine ⟨by decide, fun v hv => ?_, Int.emod_nonneg _ (by decide)⟩
++    obtain ⟨hv0, hv1⟩ := hv
++    have hs : (v % 115792089237316195423570985008687907853269984665640564039457584007913129639936).toNat
++        = v.toNat := by rw [Int.emod_eq_of_lt hv0 (by omega)]
++    have h2 : 2 % wordMod = 2 := by decide
++    rw [hs, h2]
++    have := slotValue_σ_big (hk1 v.toNat (by omega))
++    simp only [zeroAllowanceSlot] at this
++    rw [this]
++    rfl
++
++/-- The published specification as a postcondition (the statement's `Post`, any world). -/
++abbrev PostPub : Call → Observable → Prop :=
++  bundlePost SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair ctxOf idStep
++
++/-- The wrong-K specification as a postcondition. -/
++abbrev PostWrongK : Call → Observable → Prop :=
++  bundlePost SolidCore.Spec.Export.UniswapV2PairWrongK.UniswapV2Pair ctxOf idStep
++
++set_option maxRecDepth 100000 in
++/-- **Missing reserve update, refused**: the published specification refuses every observable of
++the swap that succeeds with the reserves left at 10000/10000. -/
++theorem noUpdate_refused (hk : HashScope) (W : World) (obs : Observable) (hs : obs.success = true)
++    (h0 : obs.storage 8 % 2 ^ 112 = 10000) (h1 : obs.storage 8 / 2 ^ 112 % 2 ^ 112 = 10000) :
++    ¬ Post W swapCall obs := by
++  intro h
++  have hmem : (SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair.spec.specs[8]'(by decide)) ∈
++      SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair.spec.specs := List.getElem_mem _
++  obtain ⟨rets, -, hens, -⟩ := (h _ hmem swapArgs preSt (pre_swap hk)).1 hs
++  have hK := hens _ (List.getElem_mem (by decide : 0 < (SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair.spec.specs[8]'(by decide)).ensures.length))
++  simp only [Nat.reducePow] at h0 h1
++  have h0i : ((obs.storage 8 : Nat) : Int) % 5192296858534827628530496329220096 = 10000 := by omega
++  have h1i : ((obs.storage 8 : Nat) : Int) / 5192296858534827628530496329220096 %
++      5192296858534827628530496329220096 = 10000 := by omega
++  simp [Bundle.sat, SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair, eval, BinOp.apply, mkEnv,
++    Env.cur, slotOf, Ty.ofBits, toWord, idStep, preSt, swapArgs, wordMod, slotValue, σ, h0i, h1i] at hK
++
++set_option maxRecDepth 100000 in
++theorem pre_swapWrongK (hk : HashScope) :
++    Pre SolidCore.Spec.Export.UniswapV2PairWrongK.UniswapV2Pair
++      (SolidCore.Spec.Export.UniswapV2PairWrongK.UniswapV2Pair.spec.specs[8]'(by decide)) (ctxOf swapCall) preSt swapCall swapArgs := by
++  obtain ⟨hk0, hk1⟩ := hk
++  refine ⟨⟨by decide +kernel, by decide +kernel, by decide +kernel⟩, rfl, by decide, ?_, ?_⟩
++  · simp [Bundle.satAll, SolidCore.Spec.Export.UniswapV2PairWrongK.UniswapV2Pair]
++  · simp [Bundle.satAll, Bundle.sat, SolidCore.Spec.Export.UniswapV2PairWrongK.UniswapV2Pair, eval,
++      BinOp.apply, mkEnv, Env.cur, slotOf, preSt, Ty.ofBits, toWord, Ghost.zero, Env.bind]
++    refine ⟨by decide, fun v hv => ?_, Int.emod_nonneg _ (by decide)⟩
++    obtain ⟨hv0, hv1⟩ := hv
++    have hs : (v % 115792089237316195423570985008687907853269984665640564039457584007913129639936).toNat
++        = v.toNat := by rw [Int.emod_eq_of_lt hv0 (by omega)]
++    have h2 : 2 % wordMod = 2 := by decide
++    rw [hs, h2]
++    have := slotValue_σ_big (hk1 v.toNat (by omega))
++    simp only [zeroAllowanceSlot] at this
++    rw [this]
++    rfl
++
++set_option maxRecDepth 100000 in
++/-- **Wrong K, refused**: the wrong-K specification (fee 4/1000) refuses every observable of the
++swap that succeeds with reserves 11000/9094, what the pair's bytes and source do. -/
++theorem wrongK_refused (hk : HashScope) (obs : Observable) (hs : obs.success = true)
++    (h0 : obs.storage 8 % 2 ^ 112 = 11000) (h1 : obs.storage 8 / 2 ^ 112 % 2 ^ 112 = 9094) :
++    ¬ PostWrongK swapCall obs := by
++  intro h
++  have hmem : (SolidCore.Spec.Export.UniswapV2PairWrongK.UniswapV2Pair.spec.specs[8]'(by decide)) ∈
++      SolidCore.Spec.Export.UniswapV2PairWrongK.UniswapV2Pair.spec.specs := List.getElem_mem _
++  obtain ⟨rets, -, hens, -⟩ := (h _ hmem swapArgs preSt (pre_swapWrongK hk)).1 hs
++  have hK := hens _ (List.getElem_mem (by decide : 0 < (SolidCore.Spec.Export.UniswapV2PairWrongK.UniswapV2Pair.spec.specs[8]'(by decide)).ensures.length))
++  simp only [Nat.reducePow] at h0 h1
++  have h0i : ((obs.storage 8 : Nat) : Int) % 5192296858534827628530496329220096 = 11000 := by omega
++  have h1i : ((obs.storage 8 : Nat) : Int) / 5192296858534827628530496329220096 %
++      5192296858534827628530496329220096 = 9094 := by omega
++  simp [Bundle.sat, SolidCore.Spec.Export.UniswapV2PairWrongK.UniswapV2Pair, eval, BinOp.apply, mkEnv,
++    Env.cur, slotOf, Ty.ofBits, toWord, idStep, preSt, swapArgs, wordMod, slotValue, σ, h0i, h1i] at hK
++
++set_option maxRecDepth 100000 in
++/-- **The published clause accepts the pair's swap**: the fee-adjusted constant product holds of
++every post-state with reserves 11000/9094 after the swap from 10000/10000. -/
++theorem k_accepts (obs : Observable) (h0 : obs.storage 8 % 2 ^ 112 = 11000)
++    (h1 : obs.storage 8 / 2 ^ 112 % 2 ^ 112 = 9094) (rets : List Int) :
++    SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair.sat
++      ((SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair.spec.specs[8]'(by decide)).ensures[0]'(by decide))
++      (mkEnv (ctxOf swapCall) swapArgs rets preSt
++        { storage := obs.storage, ghost := idStep swapCall preSt.ghost, time := (ctxOf swapCall).timestamp }) := by
++  simp only [Nat.reducePow] at h0 h1
++  have h0i : ((obs.storage 8 : Nat) : Int) % 5192296858534827628530496329220096 = 11000 := by omega
++  have h1i : ((obs.storage 8 : Nat) : Int) / 5192296858534827628530496329220096 %
++      5192296858534827628530496329220096 = 9094 := by omega
++  simp [Bundle.sat, SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair, eval, BinOp.apply, mkEnv,
++    Env.cur, slotOf, Ty.ofBits, toWord, idStep, preSt, swapArgs, wordMod, slotValue, σ, h0i, h1i]
++
++/-- info: 'SolidCore.Spec.UniswapV2.PairSpec.Negative.noUpdate_refused' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms noUpdate_refused
++
++/-- info: 'SolidCore.Spec.UniswapV2.PairSpec.Negative.wrongK_refused' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms wrongK_refused
++
++/-- info: 'SolidCore.Spec.UniswapV2.PairSpec.Negative.k_accepts' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms k_accepts
++
++end SolidCore.Spec.UniswapV2.PairSpec.Negative
+diff --git a/Contracts/UniswapV2/PairSpec/Stages.lean b/Contracts/UniswapV2/PairSpec/Stages.lean
+index 361428b..6e08ee3 100644
+--- a/Contracts/UniswapV2/PairSpec/Stages.lean
++++ b/Contracts/UniswapV2/PairSpec/Stages.lean
+@@ -39,7 +39,7 @@ def TermOn (c : SolidCore.Solidity.TypeCheck.CheckedContract) (V : Call → Prop
+ /-- The specification on the calls `V` of one function, in every admitted world, under the named
+ premise. -/
+ def MeetsOn (c : SolidCore.Solidity.TypeCheck.CheckedContract) (V : Call → Prop) : Prop :=
+-  KeccakModel → ∀ W, Admit W → Meets (solidCoreIn W SolidCore.Verify.VC.UniswapV2Pair.fuel) c V (Post W)
++  HashScope → ∀ W, Admit W → Meets (solidCoreIn W SolidCore.Verify.VC.UniswapV2Pair.fuel) c V (Post W)
+ 
+ def EquivSwap (c : SolidCore.Solidity.TypeCheck.CheckedContract) : Prop := EquivOn c ValidSwap
+ def EquivSkim (c : SolidCore.Solidity.TypeCheck.CheckedContract) : Prop := EquivOn c ValidSkim
+diff --git a/Contracts/UniswapV2/PairSpec/Statement.lean b/Contracts/UniswapV2/PairSpec/Statement.lean
+index 4149a06..5df1c63 100644
+--- a/Contracts/UniswapV2/PairSpec/Statement.lean
++++ b/Contracts/UniswapV2/PairSpec/Statement.lean
+@@ -31,9 +31,10 @@ The statement is fixed here, from reviewed inputs only (never from a proof modul
+   step: swap, skim and sync update no ghost, and the inherited ERC20 invariants
+   (`totalSupply == sumBalances`, `allowance[0][s] == 0`, `balanceOf[0] >= zeroMinted`) are
+   assumed before the call and required after it;
+-* one named premise, `KeccakModel`: keccak256 injective with large images on the mapping slots
+-  of `balanceOf`, `nonces` and `allowance` (currently `SolidCore.Spec.NestedSlotsSeparated`,
+-  until the keccak-model lane's definition lands; it is a premise, never an axiom).
++* one named premise, `HashScope`: the keccak words the specification reads
++  (`balanceOf[address(0)]`, `allowance[address(0)][s]`) are none of the pair's 13 fixed slots,
++  the ones swap, skim and sync write (Inputs.lean; a premise, never an axiom; no global hash
++  separation, which is unsatisfiable).
+ 
+ Not in the statement: mint and burn (their exported ensures read statement-level ghosts,
+ `mintAmount0 = amount0` and the like, whose values depend on the tokens' answers: the ghost step
+@@ -66,7 +67,7 @@ def Post (_W : World) : Call → Observable → Prop :=
+ termination and the exported specification of swap, skim and sync on the exact bytes, in every
+ admitted environment. -/
+ def Statement : Prop :=
+-  Bound ∧ (KeccakModel →
++  Bound ∧ (HashScope →
+     ∃ c, SolidCore.Verify.VC.UniswapV2Pair.contract? = .ok c ∧
+       OpenFunctional SolidCore.Verify.VC.UniswapV2Pair.fuel c code EnvOk Wide Admit Valid Allowed Post)
+ 
+diff --git a/scripts/verify/uniswap_v2_pair_spec.sh b/scripts/verify/uniswap_v2_pair_spec.sh
+index 7a91921..4ca94a2 100755
+--- a/scripts/verify/uniswap_v2_pair_spec.sh
++++ b/scripts/verify/uniswap_v2_pair_spec.sh
+@@ -17,7 +17,10 @@
+ #                   instead of 3/1000, stronger than the code meets): a negative control;
+ #   Bytecode.lean   solar -Zemit-lean-stages's Bytecode.lean for UniswapV2Pair (the export);
+ #   Runtime.lean    the runtime bytecode of solar's plain compile (--emit=bin-runtime), as numbers,
+-#                   the bytes the statement binds the export to.
++#                   the bytes the statement binds the export to;
++#   SourceNoUpdate.lean, RuntimeNoUpdate.lean  swap without its _update (the negative control
++#                   Negative.lean runs): SolidCore's translation and solar's compile of the mutant
++#                   (scripts/verify/uniswap-v2/UniswapV2PairNoUpdate.sol).
+ # Fails (exit 1) if any step fails; nothing is written as passing that does not check.
+ set -euo pipefail
+ cd "$(dirname "${BASH_SOURCE[0]}")/../.."
+@@ -75,3 +78,43 @@ print("end SolidCore.Spec.UniswapV2.PairSpec")
+ PY
+ echo "wrote $out/Spec.lean $out/SpecWrongK.lean $out/Bytecode.lean $out/Runtime.lean (${#hex} hex digits)"
+ 
++
++# Negative controls by execution: swap without its reserve update (the mutant source, its SolidCore
++# translation and solar's compile of it).
++python3 - "$sol" "$tmp/src/UniswapV2PairNoUpdate.sol" <<'PY'
++import sys
++src = open(sys.argv[1]).read()
++at = src.index("external lock {", src.index("function swap(uint amount0Out, uint amount1Out, address to, bytes calldata data) external lock"))
++line = "        _update(balance0, balance1, _reserve0, _reserve1);\n"
++i = src.index(line, at)
++nxt = src.find("function ", at + 1)
++assert nxt == -1 or i < nxt, "swap's _update not found in swap"
++open(sys.argv[2], "w").write(src[:i] + src[i + len(line):])
++PY
++mut=scripts/verify/uniswap-v2/UniswapV2PairNoUpdate.sol
++cp "$tmp/src/UniswapV2PairNoUpdate.sol" "$mut"
++solc="${SOLC:-.cache/solc-0.8.35}"
++{ echo "-- Generated by scripts/verify/uniswap_v2_pair_spec.sh: swap without its _update. Do not edit."
++  echo; echo "import SolidCore.Solidity.Checked"; echo; echo "open SolidCore.Solidity"
++  python3 scripts/solc_ast_to_lean_source.py --solc "$solc" --contract UniswapV2Pair \
++    --namespace SolidCore.Verify.VC.Source.UniswapV2PairNoUpdate "$mut" \
++    | tail -n +3; } > "$out/SourceNoUpdate.lean"
++grep -q 'importedSourceUnit' "$out/SourceNoUpdate.lean" || { echo "error: no mutant source" >&2; exit 1; }
++hexmut=$(cd "$tmp/src" && "$SOLAR" UniswapV2PairNoUpdate.sol "${opts[@]}" --emit=bin-runtime 2>/dev/null \
++  | python3 -c 'import json,sys; print(json.load(sys.stdin)["contracts"]["UniswapV2PairNoUpdate.sol:UniswapV2Pair"]["bin-runtime"])')
++[[ $hexmut =~ ^[0-9a-f]+$ && $hexmut != "$hex" ]] || { echo "error: no distinct mutant bytecode" >&2; exit 1; }
++python3 - "$hexmut" > "$out/RuntimeNoUpdate.lean" <<'PY'
++import sys
++b = bytes.fromhex(sys.argv[1])
++rows = [", ".join(hex(x) for x in b[i:i + 16]) for i in range(0, len(b), 16)]
++print("-- Generated by scripts/verify/uniswap_v2_pair_spec.sh: solar's compile of swap without its _update. Do not edit.")
++print()
++print("namespace SolidCore.Spec.UniswapV2.PairSpec")
++print()
++print("/-- The runtime bytecode of the mutant (swap without its reserve update), as numbers. -/")
++print("def runtimeNoUpdate : List Nat :=")
++print("  [" + ",\n   ".join(rows) + "]")
++print()
++print("end SolidCore.Spec.UniswapV2.PairSpec")
++PY
++echo "wrote $out/SourceNoUpdate.lean $out/RuntimeNoUpdate.lean (${#hexmut} hex digits)"
 -- 
 2.43.0
 
