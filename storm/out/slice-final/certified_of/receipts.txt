@@ -1,0 +1,12 @@
+error: Contracts/UniswapV2/ERC20/Certified/Transfer.lean:64:26: Function expected at
+error: Contracts/UniswapV2/ERC20/Certified/Transfer.lean:68:8: maximum recursion depth has been reached
+error: Contracts/UniswapV2/ERC20/Certified/Transfer.lean:92:43: maximum recursion depth has been reached
+error: Contracts/UniswapV2/ERC20/Certified/Transfer.lean:157:0: ❌️ Docstring on `#guard_msgs` does not match generated message:
+error: Contracts/UniswapV2/ERC20/Certified/Transfer.lean:161:0: ❌️ Docstring on `#guard_msgs` does not match generated message:
+error: Contracts/UniswapV2/ERC20/Certified/Transfer.lean:165:0: ❌️ Docstring on `#guard_msgs` does not match generated message:
+error: build failed
+RECEIPT exit=1 wall_s=1453 peak_rss_mb=5922
+---
+✔ [2827/2828] Built Contracts.UniswapV2.ERC20.Certified.Transfer (3.1s)
+Build completed successfully (2828 jobs).
+RECEIPT exit=0 wall_s=20 peak_rss_mb=2692

@@ -1,3 +1,5 @@
+> Superseded by certified_of/RESULT.md (base #166, Slice.certified_of). This file is the earlier base.
+
 # slice-final: UniswapV2ERC20.transfer
 
 **Status: proved in Lean as `Shapes.Certified` (equivalence, termination with allowed statuses,

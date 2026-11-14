@@ -1,0 +1,14 @@
+No files changed, compilation skipped
+
+Ran 8 tests for test/TransferSlice.t.sol:TransferSlice
+[PASS] testFuzz_post(address,address,uint256,uint256,uint256,bool) (runs: 2000, μ: 48216, ~: 44924)
+[PASS] test_distinct() (gas: 141848)
+[PASS] test_envValueRejected() (gas: 43159)
+[PASS] test_neg_alteredJump() (gas: 47267)
+[PASS] test_neg_missingDebit() (gas: 53669)
+[PASS] test_neg_wrongPost() (gas: 38793)
+[PASS] test_selfTransferInsufficient() (gas: 41574)
+[PASS] test_selfTransferMaxBalance() (gas: 46935)
+Suite result: ok. 8 passed; 0 failed; 0 skipped; finished in 99.20ms (101.49ms CPU time)
+
+Ran 1 test suite in 100.68ms (99.20ms CPU time): 8 tests passed, 0 failed, 0 skipped (8 total tests)

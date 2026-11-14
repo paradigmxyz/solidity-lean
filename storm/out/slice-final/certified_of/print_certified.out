@@ -1,0 +1,49 @@
+Certified.certified : ∃ c,
+  SolidCore.Verify.VC.UniswapV2ERC20.contract? = Except.ok c ∧
+    SolidCore.Refinement.Shapes.Certified (SolidCore.Refinement.solidCore Slice.fuel) c Certified.code Slice.ValidIn
+      Slice.Allowed Slice.TargetPost fun x => 8199112
+def SolidCore.Spec.UniswapV2.ERC20.Slice.ValidIn : SolarTV.Call → Prop :=
+fun call =>
+  SolidCore.Spec.UniswapV2.ERC20.Slice.Valid SolidCore.Spec.UniswapV2.ERC20.Slice.Gen.deployed call ∧
+    SolidCore.Spec.UniswapV2.ERC20.Slice.Scope call
+def SolidCore.Spec.UniswapV2.ERC20.Slice.Scope : SolarTV.Call → Prop :=
+fun call =>
+  ∀ (σ : List (ℕ × ℕ)) (dst v : ℕ),
+    call = SolidCore.Spec.UniswapV2.ERC20.Slice.transferCall σ dst v →
+      dst < 2 ^ 160 →
+        v < 2 ^ 256 →
+          SolidCore.Spec.ScopedSep
+            (SolidCore.Spec.transferFootprint SolidCore.Spec.UniswapV2.ERC20.Slice.balanceSlot
+              SolidCore.Spec.UniswapV2.ERC20.Slice.caller dst)
+def SolidCore.Spec.ScopedSep : List (List ℕ) → Prop :=
+fun L => SolidCore.Spec.TrustedBase.KeccakSeparated fun x => x ∈ L
+SolidCore.Spec.UniswapV2.ERC20.Certified.self_max_bytes : ∀ (gas : ℕ),
+  8199112 ≤ gas →
+    gas < 2 ^ 256 →
+      SolarTV.slotValue SolidCore.Spec.UniswapV2.ERC20.Slice.σmax
+            (SolidCore.Spec.UniswapV2.ERC20.Slice.balKey SolidCore.Spec.UniswapV2.ERC20.Slice.caller) =
+          2 ^ 256 - 1 ∧
+        SolidCore.Refinement.Final.Target.runWith gas SolidCore.Spec.UniswapV2.ERC20.Certified.code
+            (SolidCore.Spec.UniswapV2.ERC20.Slice.transferCall SolidCore.Spec.UniswapV2.ERC20.Slice.σmax
+              SolidCore.Spec.UniswapV2.ERC20.Slice.caller 1) =
+          some
+            { success := true, output := SolidCore.Spec.UniswapV2.ERC20.Slice.be32 1,
+              logs :=
+                [SolidCore.Spec.UniswapV2.ERC20.Slice.transferLog SolidCore.Spec.UniswapV2.ERC20.Slice.caller
+                    SolidCore.Spec.UniswapV2.ERC20.Slice.caller 1],
+              storage := SolarTV.slotValue SolidCore.Spec.UniswapV2.ERC20.Slice.σmax }
+SolidCore.Spec.UniswapV2.ERC20.Certified.self_short_bytes : ∀ (gas : ℕ),
+  8199112 ≤ gas →
+    gas < 2 ^ 256 →
+      SolidCore.Refinement.Final.Target.runWith gas SolidCore.Spec.UniswapV2.ERC20.Certified.code
+          (SolidCore.Spec.UniswapV2.ERC20.Slice.transferCall SolidCore.Spec.UniswapV2.ERC20.Slice.σshort
+            SolidCore.Spec.UniswapV2.ERC20.Slice.caller 6) =
+        some
+          { success := false,
+            output := SolidCore.Spec.UniswapV2.ERC20.Slice.errorData SolidCore.Spec.UniswapV2.ERC20.Slice.subMsg,
+            logs := [], storage := SolarTV.slotValue SolidCore.Spec.UniswapV2.ERC20.Slice.σshort }
+'SolidCore.Spec.UniswapV2.ERC20.Certified.certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolidCore.Spec.UniswapV2.ERC20.Certified.self_max_bytes' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolidCore.Spec.UniswapV2.ERC20.Certified.self_short_bytes' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolidCore.Spec.UniswapV2.ERC20.Certified.compiled' depends on axioms: [propext, Classical.choice, Quot.sound]
+RECEIPT exit=0 wall_s=5 peak_rss_mb=2643
