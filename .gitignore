@@ -24,3 +24,5 @@ tests/forge-harness/*/cache/
 /Certified/uv2_erc20/ProofsT.lean
 /Certified/uv2_erc20/Ctx.lean
 /Certified/uv2_erc20/CtxNeg.lean
+
+/Contracts/UniswapV2/ERC20/Runtime.lean

@@ -392,6 +392,15 @@ lean_lib ContractsUniswapV2TransferSlice where
   roots := #[`Contracts.UniswapV2.ERC20.Slice.All]
   globs := #[.submodules `Contracts.UniswapV2.ERC20.Slice, .one `Contracts.UniswapV2.ERC20.SpecTreeKeccak]
 
+-- UniswapV2ERC20's exact runtime bytes against AssembleNoCall's call-free check (NoCall*: refused at
+-- the counters NoCallAt lists; NoCallControl: the bytes with those instructions scrubbed pass; NoCallNeg:
+-- scrubbing all but the STATICCALL fails). One kernel evaluation per module, each under 6 GB: build the
+-- modules one at a time (each needs up to 5.8 GB). scripts/verify/uniswap_v2_runtime.sh writes
+-- Runtime.lean from solar's output (derived from the GPL-3.0 port, so not committed) before the build.
+lean_lib ContractsUniswapV2ERC20NoCall where
+  roots := #[`Contracts.UniswapV2.ERC20.NoCallFa, `Contracts.UniswapV2.ERC20.NoCallDecode, `Contracts.UniswapV2.ERC20.NoCallOnly, `Contracts.UniswapV2.ERC20.NoCallAt, `Contracts.UniswapV2.ERC20.NoCallControl, `Contracts.UniswapV2.ERC20.NoCallNeg]
+  globs := #[.one `Contracts.UniswapV2.ERC20.Runtime, .one `Contracts.UniswapV2.ERC20.NoCall, .one `Contracts.UniswapV2.ERC20.NoCallFa, .one `Contracts.UniswapV2.ERC20.NoCallDecode, .one `Contracts.UniswapV2.ERC20.NoCallOnly, .one `Contracts.UniswapV2.ERC20.NoCallAt, .one `Contracts.UniswapV2.ERC20.NoCallControl, .one `Contracts.UniswapV2.ERC20.NoCallNeg]
+
 -- UniswapV2Pair's translation is checked in stages, one module each, each within 6 GB:
 -- Pair/Contract.lean composes contract_ok from Check, Ctx, Clones, one Fn module per run of
 -- functions (mint and swap in three each: Fn/<fn>_pre, Fn/<fn>_lower, Fn/<fn>), Groups and Asm.
