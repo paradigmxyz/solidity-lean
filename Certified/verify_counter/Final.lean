@@ -1,7 +1,8 @@
 import Verify.Shapes
 import verify_counter.gen.Counter.Bytecode
 import Contracts.VerifyCounter.Holds
-import Contracts.VerifyCounter.Bump
+import Contracts.VerifyCounter.Gas
+import Contracts.VerifyCounter.ShapeSpec
 import Verify.ShapeGeneric
 import Contracts.VerifyCounter.Shape
 
@@ -13,7 +14,7 @@ import Contracts.VerifyCounter.Shape
 # Counter: the published statement
 
 `Statement` binds the exact runtime bytecode (`runtimeHex`, from the driver's own compile) and
-states Shapes.Functional of it against the checked source on the declared valid calls.
+states Shapes.Certified of it against the checked source on the declared valid calls.
 -/
 
 namespace Certified.verify_counter.Final
@@ -64,8 +65,8 @@ def code : ByteArray := ⟨(SolarTV.Export.Counter.bytecode.map UInt8.ofNat).toA
 /-- **The published statement.** -/
 def Statement : Prop :=
   code.data.toList.map (·.toNat) = runtimeBytes ∧
-    (Shapes.Functional (SolarTV.mirSem SolidCore.Refinement.Shapes.oracle) (SolarTV.Export.Counter.stage0) code
-        (SolarTV.Milestone.VerifyCounter.Bump.IsBump) (fun _ _ => True) (SolidCore.Refinement.Shapes.specPost SolidCore.Refinement.Solar.VerifyCounter.spec))
+    (Shapes.Certified (SolarTV.mirSem SolidCore.Refinement.Shapes.oracle) (SolarTV.Export.Counter.stage0) code
+        (Contracts.VerifyCounter.ShapeSpec.ValidB) (fun _ _ => True) (SolidCore.Refinement.Shapes.specPost SolidCore.Refinement.Solar.VerifyCounter.spec) (SolarTV.Milestone.VerifyCounter.Bump.gasBound))
 
 set_option maxRecDepth 100000 in
 theorem bound : code.data.toList.map (·.toNat) = runtimeBytes :=

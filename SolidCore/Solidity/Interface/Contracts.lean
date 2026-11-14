@@ -952,17 +952,50 @@ def ContractDecl.resolveStructsInHierarchy (env : StructEnv)
 def FunctionDecl.names (functions : List FunctionDecl) : List Name :=
   functions.filterMap (fun function => function.name)
 
+/-- The entries of `later` that no entry of `earlier` overrides: one with the same
+function name and parameter types. In a dispatch order (most derived first), a
+contract's function or public getter overrides a base's declaration of the same
+external signature, such as a getter implementing an interface function, so the
+base's entry is never the one a lookup finds. -/
+def ExternalCallKindEntries.notOverridden (earlier later : List ExternalCallKindEntry) :
+    List ExternalCallKindEntry :=
+  later.filter fun e =>
+    !earlier.any fun d => d.functionName == e.functionName && Ty.beqList d.paramTys e.paramTys
+
+/-- With no entry of `later` overridden, `notOverridden` keeps all of them. -/
+theorem ExternalCallKindEntries.notOverridden_eq_self (earlier later : List ExternalCallKindEntry)
+    (h : ∀ e ∈ later, ∀ d ∈ earlier,
+      (d.functionName == e.functionName && Ty.beqList d.paramTys e.paramTys) = false) :
+    ExternalCallKindEntries.notOverridden earlier later = later := by
+  unfold ExternalCallKindEntries.notOverridden
+  rw [List.filter_eq_self]
+  intro e he
+  simp only [Bool.not_eq_true', List.any_eq_false]
+  intro d hd
+  simpa using h e he d hd
+
+/-- Every entry `notOverridden` keeps is one of `later`'s. -/
+theorem ExternalCallKindEntries.mem_notOverridden {earlier later : List ExternalCallKindEntry}
+    {e : ExternalCallKindEntry} (h : e ∈ ExternalCallKindEntries.notOverridden earlier later) :
+    e ∈ later :=
+  (List.mem_filter.mp h).1
+
 def ContractDecl.externalCallKindEntries? (contracts : List ContractDecl)
     (decl : ContractDecl) : Option (List ExternalCallKindEntry) :=
   -- BUG#6: the same struct env `directCoreFunctions?` renders the callee-side
   -- library dispatch selectors with — caller payload and callee dispatch must
   -- hash the SAME library-qualified signature.
   let structEnv := ContractDecl.structEnvFromContracts contracts
+  -- Along the dispatch order (most derived first), a base's entry that an
+  -- earlier contract overrides is left out: it duplicated the overriding entry's
+  -- key, which no lookup reaches, and every duplicate multiplied the work of the
+  -- translation (an interface's functions implemented by getters).
   let entriesFrom (decls : List ContractDecl) :=
-    concatMapList
-      (fun d =>
-        ContractDecl.directExternalCallKindEntriesAs decl.name d structEnv)
-      decls
+    decls.foldl
+      (fun acc d =>
+        acc ++ ExternalCallKindEntries.notOverridden acc
+          (ContractDecl.directExternalCallKindEntriesAs decl.name d structEnv))
+      []
   match ContractDecl.dispatchOrder? contracts decl with
   | some dispatchOrder => some (entriesFrom dispatchOrder)
   | none =>
@@ -976,6 +1009,596 @@ def ExternalCallKindEnv.fromContracts? (contracts : List ContractDecl) :
   let constructors ←
     mapOption ContractDecl.constructorCallKindEntry? contracts
   some (concatLists groups ++ constructors)
+
+/-! ### The contracts a translation can call
+
+The external call kind environment needs entries only for the contracts the
+translated code can name: a call's callee contract is the type of its target
+(a variable's declared type, a conversion `C(x)`, `this`, a base), and a type
+names its contract. `ContractDecl.mentionedNames` collects every name the
+declarations write (identifiers, member names, type path segments, base and
+modifier paths, `using` paths); `ContractDecls.externalCallKindScope` closes the
+target's linearization, every library and the file-level functions, `using`
+declarations and constants under it. The traversals take fuel, and exhausted
+fuel answers `mentionWildcard`, which keeps every contract. -/
+
+/-- The name an exhausted traversal answers: it keeps every contract in scope. -/
+def mentionWildcard : Name := "*"
+
+/-- The fuel of the name traversals: the nesting depth they follow. -/
+def mentionFuel : Nat := 1024
+
+def Ty.mentionedNamesFuel : Nat -> Ty -> List Name
+  | 0, _ => [mentionWildcard]
+  | fuel + 1, ty =>
+      let go := Ty.mentionedNamesFuel fuel
+      match ty with
+      | Ty.array element _ => go element
+      | Ty.mapping key value => go key ++ go value
+      | Ty.tuple tys => concatMapList go tys
+      | Ty.struct path tys => path.segments ++ concatMapList go tys
+      | Ty.user path => path.segments
+      | Ty.enum path _ => path.segments
+      | Ty.functionWithLocations params _ returns _ _ _ =>
+          concatMapList go params ++ concatMapList go returns
+      | _ => []
+
+def Expr.mentionedNamesFuel : Nat -> Expr -> List Name
+  | 0, _ => [mentionWildcard]
+  | fuel + 1, expr =>
+      let go := Expr.mentionedNamesFuel fuel
+      let goTy := Ty.mentionedNamesFuel fuel
+      let goOpt : Option Expr -> List Name
+        | some value => go value
+        | none => []
+      let goArg : Arg -> List Name
+        | Arg.positional value => go value
+        | Arg.named name value => name :: go value
+      let goOption : CallOption -> List Name
+        | CallOption.named name value => name :: go value
+      let goItem : TupleItem -> List Name
+        | TupleItem.hole => []
+        | TupleItem.value value => go value
+      match expr with
+      | Expr.literal _ => []
+      | Expr.ident name => [name]
+      | Expr.typeName ty => goTy ty
+      | Expr.member target name => name :: go target
+      | Expr.index base index => go base ++ go index
+      | Expr.slice base start stop => go base ++ goOpt start ++ goOpt stop
+      | Expr.call callee args => go callee ++ concatMapList goArg args
+      | Expr.callWithOptions callee options args =>
+          go callee ++ concatMapList goOption options ++ concatMapList goArg args
+      | Expr.newExpr ty args => goTy ty ++ concatMapList goArg args
+      | Expr.tuple items => concatMapList goItem items
+      | Expr.array values => concatMapList go values
+      | Expr.enumFromUInt _ value => go value
+      | Expr.unary _ value => go value
+      | Expr.binary _ lhs rhs => go lhs ++ go rhs
+      | Expr.ternary cond thenValue elseValue =>
+          go cond ++ go thenValue ++ go elseValue
+      | Expr.assign lhs _ rhs => go lhs ++ go rhs
+      | Expr.payableConversion value => go value
+
+def Stmt.mentionedNamesFuel : Nat -> Stmt -> List Name
+  | 0, _ => [mentionWildcard]
+  | fuel + 1, stmt =>
+      let go := Stmt.mentionedNamesFuel fuel
+      let goExpr := Expr.mentionedNamesFuel fuel
+      let goTy := Ty.mentionedNamesFuel fuel
+      let goOptExpr : Option Expr -> List Name
+        | some value => goExpr value
+        | none => []
+      let goOptStmt : Option Stmt -> List Name
+        | some body => go body
+        | none => []
+      let goParams : List Parameter -> List Name :=
+        concatMapList (fun param => goTy param.ty)
+      let goBinding : VarBinding -> List Name := fun binding =>
+        match binding.ty with
+        | some ty => goTy ty
+        | none => []
+      let goClause : CatchClause -> List Name
+        | CatchClause.clause _ params body => goParams params ++ go body
+      match stmt with
+      | Stmt.empty => []
+      | Stmt.block stmts => concatMapList go stmts
+      | Stmt.varDecl bindings init =>
+          concatMapList goBinding bindings ++ goOptExpr init
+      | Stmt.expr value => goExpr value
+      | Stmt.ifElse cond thenBranch elseBranch =>
+          goExpr cond ++ go thenBranch ++ goOptStmt elseBranch
+      | Stmt.whileLoop cond body => goExpr cond ++ go body
+      | Stmt.doWhile body cond => go body ++ goExpr cond
+      | Stmt.forLoop init cond step body =>
+          goOptStmt init ++ goOptExpr cond ++ goOptExpr step ++ go body
+      | Stmt.tryCatch call clauses => goExpr call ++ concatMapList goClause clauses
+      | Stmt.tryCatchReturns call returns body clauses =>
+          goExpr call ++ goParams returns ++ go body ++ concatMapList goClause clauses
+      | Stmt.emitEvent value => goExpr value
+      | Stmt.revertCall value => goExpr value
+      | Stmt.returnValues value => goOptExpr value
+      | Stmt.break => []
+      | Stmt.continue => []
+      | Stmt.unchecked body => go body
+      | Stmt.inlineAssembly _ => []
+      | Stmt.modifierPlaceholder => []
+
+def Ty.mentionedNames (ty : Ty) : List Name :=
+  Ty.mentionedNamesFuel mentionFuel ty
+
+def Expr.mentionedNames (expr : Expr) : List Name :=
+  Expr.mentionedNamesFuel mentionFuel expr
+
+def Stmt.mentionedNames (stmt : Stmt) : List Name :=
+  Stmt.mentionedNamesFuel mentionFuel stmt
+
+def Option.mentionedNamesWith {α : Type} (f : α -> List Name) : Option α -> List Name
+  | some value => f value
+  | none => []
+
+def Parameters.mentionedNames (params : List Parameter) : List Name :=
+  concatMapList (fun param => Ty.mentionedNames param.ty) params
+
+def Args.mentionedNames (args : List Arg) : List Name :=
+  Expr.mentionedNames (Expr.call (Expr.literal (Literal.bool true)) args)
+
+def OverrideSpecifier.mentionedNames (spec : OverrideSpecifier) : List Name :=
+  concatMapList Path.segments spec.bases
+
+def StateVarDecl.mentionedNames (decl : StateVarDecl) : List Name :=
+  Ty.mentionedNames decl.ty ++
+    Option.mentionedNamesWith OverrideSpecifier.mentionedNames decl.override? ++
+    Option.mentionedNamesWith Expr.mentionedNames decl.init
+
+def FunctionDecl.mentionedNames (decl : FunctionDecl) : List Name :=
+  Parameters.mentionedNames decl.params ++ Parameters.mentionedNames decl.returns ++
+    Option.mentionedNamesWith OverrideSpecifier.mentionedNames decl.override? ++
+    concatMapList
+      (fun invocation => invocation.target.segments ++ Args.mentionedNames invocation.args)
+      decl.modifiers ++
+    Option.mentionedNamesWith Stmt.mentionedNames decl.body
+
+def ModifierDecl.mentionedNames (decl : ModifierDecl) : List Name :=
+  Parameters.mentionedNames decl.params ++
+    Option.mentionedNamesWith OverrideSpecifier.mentionedNames decl.override? ++
+    Option.mentionedNamesWith Stmt.mentionedNames decl.body
+
+def UsingDecl.mentionedNames (decl : UsingDecl) : List Name :=
+  decl.library.segments ++
+    concatMapList (fun fn => fn.function.segments) decl.functions ++
+    Option.mentionedNamesWith Ty.mentionedNames decl.target
+
+def ContractItem.mentionedNames : ContractItem -> List Name
+  | ContractItem.stateVar decl => StateVarDecl.mentionedNames decl
+  | ContractItem.function decl => FunctionDecl.mentionedNames decl
+  | ContractItem.modifierDecl decl => ModifierDecl.mentionedNames decl
+  | ContractItem.eventDecl decl =>
+      concatMapList (fun param => Ty.mentionedNames param.ty) decl.params
+  | ContractItem.errorDecl decl => Parameters.mentionedNames decl.params
+  | ContractItem.structDecl decl =>
+      concatMapList (fun field => Ty.mentionedNames field.ty) decl.fields
+  | ContractItem.enumDecl _ => []
+  | ContractItem.userValueTypeDecl decl => Ty.mentionedNames decl.underlying
+  | ContractItem.usingDecl decl => UsingDecl.mentionedNames decl
+
+/-- Every name `decl` writes: its bases and their arguments, and every name in
+its items (types, expressions, statements, modifier and `using` paths). -/
+def ContractDecl.mentionedNames (decl : ContractDecl) : List Name :=
+  Option.mentionedNamesWith Expr.mentionedNames decl.layoutBase ++
+    concatMapList (fun base => base.base.segments ++ Args.mentionedNames base.args)
+      decl.bases ++
+    concatMapList ContractItem.mentionedNames decl.items
+
+/-- The names of the contracts of `all` reachable from `kept` through
+`mentioned`: each round keeps the contracts `mentioned` names and adds the names
+they mention. Out of fuel, or on `mentionWildcard`, every contract. -/
+def ContractDecls.closeMentions (all : List ContractDecl) :
+    Nat -> List Name -> List Name -> List Name
+  | 0, _, _ => all.map ContractDecl.name
+  | fuel + 1, kept, mentioned =>
+      if mentioned.contains mentionWildcard then
+        all.map ContractDecl.name
+      else
+        let new := all.filter fun decl =>
+          !kept.contains decl.name && mentioned.contains decl.name
+        match new with
+        | [] => kept
+        | _ =>
+            ContractDecls.closeMentions all fuel
+              (kept ++ new.map ContractDecl.name)
+              (concatMapList ContractDecl.mentionedNames new)
+
+/-- The contracts whose external call kinds the translation of `dispatchOrder`
+(the target's linearization) can look up: those it, every library, and the
+file-level functions, `using` declarations and constants name, closed under the
+names those contracts write. -/
+def ContractDecls.externalCallKindScope (allContracts dispatchOrder : List ContractDecl)
+    (sourceFunctions : List FunctionDecl) (sourceUsingDecls : List UsingDecl)
+    (sourceConstants : List StateVarDecl) : List Name :=
+  let libraries := allContracts.filter fun decl => decl.kind == ContractKind.library
+  let seeds := dispatchOrder ++ libraries
+  ContractDecls.closeMentions allContracts (allContracts.length + 1)
+    (seeds.map ContractDecl.name)
+    (concatMapList ContractDecl.mentionedNames seeds ++
+      concatMapList FunctionDecl.mentionedNames sourceFunctions ++
+      concatMapList UsingDecl.mentionedNames sourceUsingDecls ++
+      concatMapList StateVarDecl.mentionedNames sourceConstants)
+
+/-- `ExternalCallKindEnv.fromContracts?` for the contracts of `contracts` named in
+`scope`, each entry still computed against all of `contracts` (its bases). -/
+def ExternalCallKindEnv.fromContractsFor? (contracts : List ContractDecl)
+    (scope : List Name) : Option ExternalCallKindEnv := do
+  let inScope := contracts.filter fun decl => scope.contains decl.name
+  let groups ←
+    mapOption (ContractDecl.externalCallKindEntries? contracts) inScope
+  let constructors ←
+    mapOption ContractDecl.constructorCallKindEntry? inScope
+  some (concatLists groups ++ constructors)
+
+/-- With every contract in scope, `fromContractsFor?` is `fromContracts?`. -/
+theorem ExternalCallKindEnv.fromContractsFor?_all (contracts : List ContractDecl) :
+    ExternalCallKindEnv.fromContractsFor? contracts (contracts.map ContractDecl.name) =
+      ExternalCallKindEnv.fromContracts? contracts := by
+  have h : (contracts.filter fun decl => (contracts.map ContractDecl.name).contains decl.name) =
+      contracts := by
+    rw [List.filter_eq_self]
+    intro decl hdecl
+    simp only [List.contains_iff_mem, List.mem_map]
+    exact ⟨decl, hdecl, rfl⟩
+  unfold ExternalCallKindEnv.fromContractsFor? ExternalCallKindEnv.fromContracts?
+  simp only [h]
+
+/-! The restricted environment is the whole one's entries for the contracts in
+scope (`fromContractsFor?_eq_filter`), and every lookup about a contract in scope
+answers as in the whole environment (`lookup?_filter`,
+`lookupConstructorEntry?_filter`, `lookupAbiCall?_filter`). -/
+
+theorem FunctionDecl.externalCallKindEntry?_contractName {c : Name} {fn : FunctionDecl}
+    {e : ExternalCallKindEntry} (h : FunctionDecl.externalCallKindEntry? c fn = some e) :
+    e.contractName = c := by
+  unfold FunctionDecl.externalCallKindEntry? at h
+  split at h <;> (try cases h) <;> (try rfl)
+
+theorem StateVarDecl.externalCallKindEntry?_contractName {c : Name} {decl : StateVarDecl}
+    {e : ExternalCallKindEntry} (h : StateVarDecl.externalCallKindEntry? c decl = some e) :
+    e.contractName = c := by
+  unfold StateVarDecl.externalCallKindEntry? at h
+  simp only [bind, Option.bind] at h
+  split at h
+  · cases h
+  · split at h
+    · cases h
+    · cases h; rfl
+
+theorem ContractDecl.directExternalCallKindEntriesAs_contractName {t : Name}
+    {decl : ContractDecl} {structEnv : StructEnv} {e : ExternalCallKindEntry}
+    (h : e ∈ ContractDecl.directExternalCallKindEntriesAs t decl structEnv) :
+    e.contractName = t := by
+  unfold ContractDecl.directExternalCallKindEntriesAs at h
+  simp only [List.mem_append, List.mem_filterMap] at h
+  rcases h with ⟨fn, _, hfn⟩ | ⟨sv, _, hsv⟩
+  · cases hentry : FunctionDecl.externalCallKindEntry? t fn with
+    | none => simp [hentry] at hfn
+    | some entry =>
+        have hc := FunctionDecl.externalCallKindEntry?_contractName hentry
+        simp only [hentry, bind, Option.bind] at hfn
+        split at hfn <;> cases hfn <;> exact hc
+  · exact StateVarDecl.externalCallKindEntry?_contractName hsv
+
+theorem ContractDecl.externalCallKindEntries?_contractName {contracts : List ContractDecl}
+    {decl : ContractDecl} {es : List ExternalCallKindEntry}
+    (h : ContractDecl.externalCallKindEntries? contracts decl = some es) :
+    ∀ e ∈ es, e.contractName = decl.name := by
+  unfold ContractDecl.externalCallKindEntries? at h
+  split at h
+  · cases h
+    have key : ∀ (order : List ContractDecl) (acc : List ExternalCallKindEntry),
+        (∀ e ∈ acc, e.contractName = decl.name) →
+        ∀ e ∈ order.foldl (fun acc d => acc ++ ExternalCallKindEntries.notOverridden acc
+            (ContractDecl.directExternalCallKindEntriesAs decl.name d
+              (ContractDecl.structEnvFromContracts contracts))) acc,
+          e.contractName = decl.name := by
+      intro order
+      induction order with
+      | nil => intro acc hacc e he; exact hacc e he
+      | cons d rest ih =>
+          intro acc hacc e he
+          refine ih _ ?_ e he
+          intro e' he'
+          rcases List.mem_append.mp he' with h1 | h1
+          · exact hacc e' h1
+          · exact ContractDecl.directExternalCallKindEntriesAs_contractName
+              (ExternalCallKindEntries.mem_notOverridden h1)
+    exact key _ [] (by simp)
+  · cases h
+    intro e he
+    exact ContractDecl.directExternalCallKindEntriesAs_contractName he
+
+theorem ContractDecl.constructorCallKindEntry?_contractName {decl : ContractDecl}
+    {e : ExternalCallKindEntry} (h : ContractDecl.constructorCallKindEntry? decl = some e) :
+    e.contractName = decl.name := by
+  unfold ContractDecl.constructorCallKindEntry? at h
+  simp only [bind, Option.bind] at h
+  split at h
+  · cases h
+  · dsimp only at h
+    split at h
+    · unfold FunctionDecl.constructorCallKindEntry? at h
+      split at h
+      · cases h; rfl
+      · cases h
+    · cases h; rfl
+
+theorem mapOption_filter_concat {α γ : Type} (f : α -> Option (List γ)) (p : α -> Bool)
+    (q : γ -> Bool) (hpq : ∀ x zs, f x = some zs -> ∀ z ∈ zs, q z = p x) :
+    ∀ (l : List α) (ys : List (List γ)), mapOption f l = some ys ->
+      ∃ ys', mapOption f (l.filter p) = some ys' ∧
+        concatLists ys' = (concatLists ys).filter q := by
+  intro l
+  induction l with
+  | nil => intro ys h; cases h; exact ⟨[], rfl, rfl⟩
+  | cons x rest ih =>
+      intro ys h
+      unfold mapOption at h
+      cases hx : f x with
+      | none => simp [hx] at h
+      | some zs =>
+          cases hr : mapOption f rest with
+          | none => simp [hx, hr] at h
+          | some yr =>
+              simp only [hx, hr, bind, Option.bind] at h
+              cases h
+              obtain ⟨ys', h1, h2⟩ := ih yr hr
+              have hz := hpq x zs hx
+              cases hp : p x with
+              | true =>
+                  refine ⟨zs :: ys', ?_, ?_⟩
+                  · simp only [List.filter_cons, hp, ↓reduceIte]
+                    unfold mapOption
+                    simp [hx, h1]
+                  · simp only [concatLists, List.filter_append, h2]
+                    congr 1
+                    refine (List.filter_eq_self.mpr ?_).symm
+                    intro z hzm
+                    rw [hz z hzm, hp]
+              | false =>
+                  refine ⟨ys', ?_, ?_⟩
+                  · simp only [List.filter_cons, hp, Bool.false_eq_true, ↓reduceIte]
+                    exact h1
+                  · simp only [concatLists, List.filter_append, h2]
+                    have : zs.filter q = [] := by
+                      rw [List.filter_eq_nil_iff]
+                      intro z hzm
+                      rw [hz z hzm, hp]
+                      simp
+                    rw [this, List.nil_append]
+
+theorem mapOption_filter_single {α γ : Type} (f : α -> Option γ) (p : α -> Bool)
+    (q : γ -> Bool) (hpq : ∀ x z, f x = some z -> q z = p x) :
+    ∀ (l : List α) (ys : List γ), mapOption f l = some ys ->
+      mapOption f (l.filter p) = some (ys.filter q) := by
+  intro l
+  induction l with
+  | nil => intro ys h; cases h; rfl
+  | cons x rest ih =>
+      intro ys h
+      unfold mapOption at h
+      cases hx : f x with
+      | none => simp [hx] at h
+      | some z =>
+          cases hr : mapOption f rest with
+          | none => simp [hx, hr] at h
+          | some yr =>
+              simp only [hx, hr, bind, Option.bind] at h
+              cases h
+              have h1 := ih yr hr
+              have hz := hpq x z hx
+              cases hp : p x with
+              | true =>
+                  simp only [List.filter_cons, hp, ↓reduceIte, hz]
+                  unfold mapOption
+                  simp [hx, h1]
+              | false =>
+                  simp only [List.filter_cons, hp, hz, Bool.false_eq_true, ↓reduceIte]
+                  exact h1
+
+/-- Whenever the whole source unit's external call kind environment exists, the
+environment of the contracts in `scope` is exactly its entries for those contracts. -/
+theorem ExternalCallKindEnv.fromContractsFor?_eq_filter {contracts : List ContractDecl}
+    {scope : List Name} {full : ExternalCallKindEnv}
+    (h : ExternalCallKindEnv.fromContracts? contracts = some full) :
+    ExternalCallKindEnv.fromContractsFor? contracts scope =
+      some (full.filter fun e => scope.contains e.contractName) := by
+  unfold ExternalCallKindEnv.fromContracts? at h
+  cases hg : mapOption (ContractDecl.externalCallKindEntries? contracts) contracts with
+  | none => simp [hg] at h
+  | some groups =>
+      cases hc : mapOption ContractDecl.constructorCallKindEntry? contracts with
+      | none => simp [hg, hc] at h
+      | some ctors =>
+          simp only [hg, hc, bind, Option.bind] at h
+          cases h
+          obtain ⟨groups', hg', hcat⟩ := mapOption_filter_concat
+            (ContractDecl.externalCallKindEntries? contracts)
+            (fun decl => scope.contains decl.name) (fun e => scope.contains e.contractName)
+            (fun x zs hx z hz => by
+              rw [ContractDecl.externalCallKindEntries?_contractName hx z hz])
+            contracts groups hg
+          have hc' := mapOption_filter_single ContractDecl.constructorCallKindEntry?
+            (fun decl => scope.contains decl.name) (fun e => scope.contains e.contractName)
+            (fun x z hx => by rw [ContractDecl.constructorCallKindEntry?_contractName hx])
+            contracts ctors hc
+          unfold ExternalCallKindEnv.fromContractsFor?
+          simp only [hg', hc', bind, Option.bind, hcat, List.filter_append]
+
+theorem ExternalCallKindEnv.lookup?_filter (keep : Name -> Bool) {c : Name}
+    (hc : keep c = true) (functionName : Name) (paramTys : List Ty) :
+    ∀ env : ExternalCallKindEnv,
+      ExternalCallKindEnv.lookup? (env.filter fun e => keep e.contractName) c functionName paramTys =
+        ExternalCallKindEnv.lookup? env c functionName paramTys := by
+  intro env
+  induction env with
+  | nil => rfl
+  | cons e rest ih =>
+      cases hk : keep e.contractName with
+      | true =>
+          simp only [List.filter_cons, hk, ↓reduceIte]
+          unfold ExternalCallKindEnv.lookup?
+          rw [ih]
+      | false =>
+          simp only [List.filter_cons, hk, Bool.false_eq_true, ↓reduceIte]
+          rw [ih]
+          conv => rhs; unfold ExternalCallKindEnv.lookup?
+          have hne : (e.contractName == c) = false := by
+            cases heq : e.contractName == c
+            · rfl
+            · have := beq_iff_eq.mp heq; rw [this, hc] at hk; cases hk
+          simp [hne]
+
+theorem ExternalCallKindEnv.lookupConstructorEntry?_filter (keep : Name -> Bool) {c : Name}
+    (hc : keep c = true) :
+    ∀ env : ExternalCallKindEnv,
+      ExternalCallKindEnv.lookupConstructorEntry? (env.filter fun e => keep e.contractName) c =
+        ExternalCallKindEnv.lookupConstructorEntry? env c := by
+  intro env
+  induction env with
+  | nil => rfl
+  | cons e rest ih =>
+      cases hk : keep e.contractName with
+      | true =>
+          simp only [List.filter_cons, hk, ↓reduceIte]
+          unfold ExternalCallKindEnv.lookupConstructorEntry?
+          rw [ih]
+      | false =>
+          simp only [List.filter_cons, hk, Bool.false_eq_true, ↓reduceIte]
+          rw [ih]
+          conv => rhs; unfold ExternalCallKindEnv.lookupConstructorEntry?
+          have hne : (e.contractName == c) = false := by
+            cases heq : e.contractName == c
+            · rfl
+            · have := beq_iff_eq.mp heq; rw [this, hc] at hk; cases hk
+          simp [hne]
+
+theorem ExternalCallKindEnv.lookupAbiCall?_filter (keep : Name -> Bool) {c : Name}
+    (hc : keep c = true) (storageNames : List Name) (functionName : Name) (args : List Arg) :
+    ∀ env : ExternalCallKindEnv,
+      ExternalCallKindEnv.lookupAbiCall? storageNames
+          (env.filter fun e => keep e.contractName) c functionName args =
+        ExternalCallKindEnv.lookupAbiCall? storageNames env c functionName args := by
+  intro env
+  induction env with
+  | nil => rfl
+  | cons e rest ih =>
+      cases hk : keep e.contractName with
+      | true =>
+          simp only [List.filter_cons, hk, ↓reduceIte]
+          unfold ExternalCallKindEnv.lookupAbiCall?
+          rw [ih]
+      | false =>
+          simp only [List.filter_cons, hk, Bool.false_eq_true, ↓reduceIte]
+          rw [ih]
+          conv => rhs; unfold ExternalCallKindEnv.lookupAbiCall?
+          have hne : (e.contractName == c) = false := by
+            cases heq : e.contractName == c
+            · rfl
+            · have := beq_iff_eq.mp heq; rw [this, hc] at hk; cases hk
+          simp [hne]
+
+/-- Dropping entries of an external call kind environment keeps the type environment
+it makes: a lookup of a key that only kept entries carry answers as before. -/
+theorem ExternalCallKindEnv.toTypeEnv?_filter (p : ExternalCallKindEntry -> Bool) :
+    ∀ (env : ExternalCallKindEnv) (typeEnv : TypeEnv),
+      ExternalCallKindEnv.toTypeEnv? env = some typeEnv ->
+      ∃ typeEnv', ExternalCallKindEnv.toTypeEnv? (env.filter p) = some typeEnv' ∧
+        ∀ key : Name,
+          (∀ e ∈ env, ∀ ty, e.toTypeEnvEntry? = some (some (key, ty)) -> p e = true) ->
+          TypeEnv.lookup? typeEnv' key = TypeEnv.lookup? typeEnv key := by
+  intro env
+  induction env with
+  | nil =>
+      intro typeEnv h
+      cases h
+      exact ⟨[], rfl, fun _ _ => rfl⟩
+  | cons e rest ih =>
+      intro typeEnv h
+      unfold ExternalCallKindEnv.toTypeEnv? filterMapOption at h
+      cases he : e.toTypeEnvEntry? with
+      | none => simp [he] at h
+      | some hd =>
+          cases hr : filterMapOption ExternalCallKindEntry.toTypeEnvEntry? rest with
+          | none => simp [he, hr] at h
+          | some tail =>
+              simp only [he, hr, bind, Option.bind] at h
+              obtain ⟨tail', h1, h2⟩ := ih tail hr
+              have hrest : ∀ key : Name,
+                  (∀ e' ∈ e :: rest, ∀ ty, e'.toTypeEnvEntry? = some (some (key, ty)) ->
+                    p e' = true) ->
+                  (∀ e' ∈ rest, ∀ ty, e'.toTypeEnvEntry? = some (some (key, ty)) ->
+                    p e' = true) :=
+                fun key hk e' he' => hk e' (List.mem_cons_of_mem _ he')
+              cases hp : p e with
+              | true =>
+                  cases hd with
+                  | none =>
+                      simp only at h
+                      cases h
+                      refine ⟨tail', ?_, fun key hk => h2 key (hrest key hk)⟩
+                      simp only [List.filter_cons, hp, ↓reduceIte]
+                      unfold ExternalCallKindEnv.toTypeEnv? filterMapOption
+                      unfold ExternalCallKindEnv.toTypeEnv? at h1
+                      simp [he, h1]
+                  | some entry =>
+                      simp only at h
+                      cases h
+                      refine ⟨entry :: tail', ?_, ?_⟩
+                      · simp only [List.filter_cons, hp, ↓reduceIte]
+                        unfold ExternalCallKindEnv.toTypeEnv? filterMapOption
+                        unfold ExternalCallKindEnv.toTypeEnv? at h1
+                        simp [he, h1]
+                      · intro key hk
+                        obtain ⟨k0, ty0⟩ := entry
+                        unfold TypeEnv.lookup?
+                        rw [h2 key (hrest key hk)]
+              | false =>
+                  have h1' : ExternalCallKindEnv.toTypeEnv? ((e :: rest).filter p) = some tail' := by
+                    simp only [List.filter_cons, hp, Bool.false_eq_true, ↓reduceIte]
+                    exact h1
+                  refine ⟨tail', h1', ?_⟩
+                  intro key hk
+                  rw [h2 key (hrest key hk)]
+                  cases hd with
+                  | none => simp only at h; cases h; rfl
+                  | some entry =>
+                      simp only at h
+                      cases h
+                      obtain ⟨k0, ty0⟩ := entry
+                      have hne : (k0 == key) = false := by
+                        cases heq : k0 == key
+                        · rfl
+                        · have hk0 := beq_iff_eq.mp heq
+                          subst hk0
+                          have := hk e (List.mem_cons_self) ty0 he
+                          rw [hp] at this
+                          cases this
+                      conv => rhs; unfold TypeEnv.lookup?
+                      simp [hne]
+
+/-- The type environment of the restricted call kind environment answers every key
+that only entries of contracts in scope carry as the whole one's does. -/
+theorem ExternalCallKindEnv.fromContractsFor?_typeEnv {contracts : List ContractDecl}
+    {scope : List Name} {full : ExternalCallKindEnv} {typeEnv : TypeEnv}
+    (hfull : ExternalCallKindEnv.fromContracts? contracts = some full)
+    (htype : ExternalCallKindEnv.toTypeEnv? full = some typeEnv) :
+    ∃ env typeEnv', ExternalCallKindEnv.fromContractsFor? contracts scope = some env ∧
+      ExternalCallKindEnv.toTypeEnv? env = some typeEnv' ∧
+      ∀ key : Name,
+        (∀ e ∈ full, ∀ ty, e.toTypeEnvEntry? = some (some (key, ty)) ->
+          scope.contains e.contractName = true) ->
+        TypeEnv.lookup? typeEnv' key = TypeEnv.lookup? typeEnv key := by
+  obtain ⟨typeEnv', h1, h2⟩ :=
+    ExternalCallKindEnv.toTypeEnv?_filter (fun e => scope.contains e.contractName) full typeEnv htype
+  exact ⟨_, typeEnv', ExternalCallKindEnv.fromContractsFor?_eq_filter hfull, h1, h2⟩
 
 structure StoragePackingCursor where
   slot : Nat
@@ -1744,6 +2367,47 @@ def CoreFunctionDefs.dedupInternalByName
           if fn.selector?.isNone then fn.name :: seen else seen))
     ([], [])).1
 
+/-- The core function of one direct function of a contract, with the function: what
+    `ContractDecl.directCoreFunctions?` elaborates per function. -/
+def ContractDecl.directCoreFunctionPair? (storageNames : List Name)
+    (constants : ConstantEnv)
+    (extraEnv : TypeEnv) (externalCallKindEnv : ExternalCallKindEnv)
+    (contracts : List ContractDecl)
+    (dispatchOrder : List ContractDecl)
+    (usingDecls : List UsingDecl)
+    (modifiers : List SourceModifierDecl) (functions : List FunctionDecl)
+    (freeFunctions : List FunctionDecl)
+    (eventArgEnv errorArgEnv : NamedArgParamEnv)
+    (internalFnIds : List (Name × Nat))
+    (eventIndexedEnv : EventIndexedEnv)
+    (overloadEvents : List EventDecl)
+    (decl : ContractDecl) (fn : FunctionDecl) :
+    Option (FunctionDecl × CoreFunctionDef) := do
+  let supers ← ContractDecls.afterName? dispatchOrder decl.name
+  let fd ←
+    FunctionDecl.toCore?
+      storageNames constants extraEnv contracts usingDecls modifiers
+      functions freeFunctions fn
+      (concatMapList ContractDecl.directOrdinaryFunctions supers)
+      (some decl.name) (dispatchOrder.map ContractDecl.name)
+      externalCallKindEnv eventArgEnv errorArgEnv internalFnIds
+      (structEnv := ContractDecl.structEnvFromContracts contracts)
+      (eventIndexedEnv := eventIndexedEnv)
+      (overloadEvents := overloadEvents)
+  -- BUG#6: a LIBRARY's dispatch entrypoints answer to the
+  -- library-qualified selector (what solc's delegatecall dispatch
+  -- hashes), keeping callee dispatch symmetric with the caller-side
+  -- payload. Contract entrypoints keep the external-ABI selector.
+  let fd :=
+    if decl.kind == ContractKind.library then
+      { fd with
+        selector? :=
+          FunctionDecl.libraryAbiSelector?
+            (ContractDecl.structEnvFromContracts contracts) fn }
+    else
+      fd
+  some (fn, fd)
+
 def ContractDecl.directCoreFunctions? (storageNames : List Name)
     (constants : ConstantEnv)
     (extraEnv : TypeEnv) (externalCallKindEnv : ExternalCallKindEnv)
@@ -1772,31 +2436,10 @@ def ContractDecl.directCoreFunctions? (storageNames : List Name)
   -- whole-contract elaboration cost on entrypoint-heavy lanes.)
   let functionPairs ←
     mapOption
-      (fun fn => do
-        let supers ← ContractDecls.afterName? dispatchOrder decl.name
-        let fd ←
-          FunctionDecl.toCore?
-            storageNames constants extraEnv contracts usingDecls modifiers
-            functions freeFunctions fn
-            (concatMapList ContractDecl.directOrdinaryFunctions supers)
-            (some decl.name) (dispatchOrder.map ContractDecl.name)
-            externalCallKindEnv eventArgEnv errorArgEnv internalFnIds
-            (structEnv := ContractDecl.structEnvFromContracts contracts)
-            (eventIndexedEnv := eventIndexedEnv)
-            (overloadEvents := overloadEvents)
-        -- BUG#6: a LIBRARY's dispatch entrypoints answer to the
-        -- library-qualified selector (what solc's delegatecall dispatch
-        -- hashes), keeping callee dispatch symmetric with the caller-side
-        -- payload. Contract entrypoints keep the external-ABI selector.
-        let fd :=
-          if decl.kind == ContractKind.library then
-            { fd with
-              selector? :=
-                FunctionDecl.libraryAbiSelector?
-                  (ContractDecl.structEnvFromContracts contracts) fn }
-          else
-            fd
-        some (fn, fd))
+      (ContractDecl.directCoreFunctionPair?
+        storageNames constants extraEnv externalCallKindEnv contracts dispatchOrder
+        usingDecls modifiers functions freeFunctions eventArgEnv errorArgEnv
+        internalFnIds eventIndexedEnv overloadEvents decl)
       ((ContractDecl.directOrdinaryFunctions decl).filter
         (fun fn =>
           (FunctionDecl.isCoreEntrypoint fn ||
@@ -2005,7 +2648,48 @@ def ContractDecl.constructorBodyForDeployment?
         some (params, initStmts, baseArgCore, [bodyCore])
   | _ => none
 
-def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
+/-! ### Staged translation
+
+The translation of a contract in three stages, so that a check of one contract's translation can
+take them one at a time, each in a declaration of its own: the context every function body is
+translated in (`ContractDecl.fromOrdersCtx?`: the resolved declarations and environments), the
+function groups, one per contract of the dispatch order (`FromOrdersCtx.group?`), and their
+assembly with the context into the core contract (`FromOrdersCtx.assemble?`).
+`ContractDecl.toCoreFromOrders?` is their composition by definition. -/
+
+/-- The context `ContractDecl.toCoreFromOrders?` translates function bodies in. -/
+structure FromOrdersCtx where
+  allContracts : List ContractDecl
+  sourceUsingDecls : List UsingDecl
+  sourceFunctions : List FunctionDecl
+  dispatchOrder : List ContractDecl
+  structEnv : StructEnv
+  stateVars : List StateVarDecl
+  constants : ConstantEnv
+  storageStateVars : List StateVarDecl
+  transientStateVars : List StateVarDecl
+  storageNames : List Name
+  layoutBaseSlot : Word
+  externalCallKindEnv : ExternalCallKindEnv
+  externalCallKindTypeEnv : TypeEnv
+  stateEnv : TypeEnv
+  sharedConstantTail : ConstantEnv
+  modifiers : List SourceModifierDecl
+  libraryHelpers : List FunctionDecl
+  baseHelpers : List FunctionDecl
+  superHelpers : List FunctionDecl
+  availableFunctions : List FunctionDecl
+  internalFnIds : List (Name × Nat)
+  contractEvents : List EventDecl
+  visibleSourceEvents : List EventDecl
+  contractErrors : List ErrorDecl
+  visibleSourceErrors : List ErrorDecl
+  eventArgEnv : NamedArgParamEnv
+  eventIndexedEnv : EventIndexedEnv
+  errorArgEnv : NamedArgParamEnv
+
+/-- The context of `ContractDecl.toCoreFromOrders?`: its code up to the function groups. -/
+def ContractDecl.fromOrdersCtx? (allContracts : List ContractDecl)
     (sourceUsingDecls : List UsingDecl)
     (sourceFunctions : List FunctionDecl) (sourceEvents : List EventDecl)
     (sourceErrors : List ErrorDecl)
@@ -2013,7 +2697,7 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
     (sourceUserValueTypes : List UserValueTypeDecl)
     (sourceEnums : List EnumDecl) (sourceStructs : List StructDecl)
     (storageOrder dispatchOrder : List ContractDecl) :
-    Option CoreContract := do
+    Option FromOrdersCtx := do
   let allContracts :=
     appendUniqueContracts allContracts
       (appendUniqueContracts storageOrder dispatchOrder)
@@ -2348,7 +3032,12 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
     none
   else
     some ()
-  let externalCallKindEnv ← ExternalCallKindEnv.fromContracts? allContracts
+  -- Only the contracts the translated code can name: the others' entries are
+  -- never looked up, and each one adds to every lookup's work.
+  let externalCallKindEnv ←
+    ExternalCallKindEnv.fromContractsFor? allContracts
+      (ContractDecls.externalCallKindScope allContracts dispatchOrder
+        sourceFunctions sourceUsingDecls sourceConstants)
   let externalCallKindTypeEnv ← ExternalCallKindEnv.toTypeEnv? externalCallKindEnv
   let stateEnv := StateVars.extendTypeEnv externalCallKindTypeEnv stateVars
   -- Per-contract constant scope: each contract's own/inherited constants (C3,
@@ -2426,17 +3115,78 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
   -- storage/immutable variable that shadows a same-name file-level constant is
   -- read from storage instead of being constant-folded (and a derived
   -- contract's constant does not leak into a base entrypoint body).
-  let functionGroups ←
-    mapOption
-      (fun decl =>
-        ContractDecl.directCoreFunctions?
-          storageNames
-          (ContractDecl.scopedConstantEnv dispatchOrder sharedConstantTail decl)
-          stateEnv externalCallKindEnv allContracts
-          dispatchOrder sourceUsingDecls modifiers availableFunctions
-          sourceFunctions eventArgEnv errorArgEnv internalFnIds eventIndexedEnv
-          (contractEvents ++ visibleSourceEvents) decl)
-      dispatchOrder
+  some
+    { allContracts := allContracts,
+      sourceUsingDecls := sourceUsingDecls,
+      sourceFunctions := sourceFunctions,
+      dispatchOrder := dispatchOrder,
+      structEnv := structEnv,
+      stateVars := stateVars,
+      constants := constants,
+      storageStateVars := storageStateVars,
+      transientStateVars := transientStateVars,
+      storageNames := storageNames,
+      layoutBaseSlot := layoutBaseSlot,
+      externalCallKindEnv := externalCallKindEnv,
+      externalCallKindTypeEnv := externalCallKindTypeEnv,
+      stateEnv := stateEnv,
+      sharedConstantTail := sharedConstantTail,
+      modifiers := modifiers,
+      libraryHelpers := libraryHelpers,
+      baseHelpers := baseHelpers,
+      superHelpers := superHelpers,
+      availableFunctions := availableFunctions,
+      internalFnIds := internalFnIds,
+      contractEvents := contractEvents,
+      visibleSourceEvents := visibleSourceEvents,
+      contractErrors := contractErrors,
+      visibleSourceErrors := visibleSourceErrors,
+      eventArgEnv := eventArgEnv,
+      eventIndexedEnv := eventIndexedEnv,
+      errorArgEnv := errorArgEnv }
+
+/-- The function group of one contract of the dispatch order. -/
+def FromOrdersCtx.group? (c : FromOrdersCtx) (decl : ContractDecl) :
+    Option (List CoreFunctionDef) :=
+  ContractDecl.directCoreFunctions?
+    c.storageNames
+    (ContractDecl.scopedConstantEnv c.dispatchOrder c.sharedConstantTail decl)
+    c.stateEnv c.externalCallKindEnv c.allContracts
+    c.dispatchOrder c.sourceUsingDecls c.modifiers c.availableFunctions
+    c.sourceFunctions c.eventArgEnv c.errorArgEnv c.internalFnIds c.eventIndexedEnv
+    (c.contractEvents ++ c.visibleSourceEvents) decl
+
+/-- The core contract of the context and the function groups: the rest of `ContractDecl.toCoreFromOrders?`. -/
+def FromOrdersCtx.assemble? (c : FromOrdersCtx) (functionGroups : List (List CoreFunctionDef)) :
+    Option CoreContract := do
+  let allContracts := c.allContracts
+  let sourceUsingDecls := c.sourceUsingDecls
+  let sourceFunctions := c.sourceFunctions
+  let dispatchOrder := c.dispatchOrder
+  let structEnv := c.structEnv
+  let stateVars := c.stateVars
+  let constants := c.constants
+  let storageStateVars := c.storageStateVars
+  let transientStateVars := c.transientStateVars
+  let storageNames := c.storageNames
+  let layoutBaseSlot := c.layoutBaseSlot
+  let externalCallKindEnv := c.externalCallKindEnv
+  let externalCallKindTypeEnv := c.externalCallKindTypeEnv
+  let stateEnv := c.stateEnv
+  let sharedConstantTail := c.sharedConstantTail
+  let modifiers := c.modifiers
+  let libraryHelpers := c.libraryHelpers
+  let baseHelpers := c.baseHelpers
+  let superHelpers := c.superHelpers
+  let availableFunctions := c.availableFunctions
+  let internalFnIds := c.internalFnIds
+  let contractEvents := c.contractEvents
+  let visibleSourceEvents := c.visibleSourceEvents
+  let contractErrors := c.contractErrors
+  let visibleSourceErrors := c.visibleSourceErrors
+  let eventArgEnv := c.eventArgEnv
+  let eventIndexedEnv := c.eventIndexedEnv
+  let errorArgEnv := c.errorArgEnv
   -- Function-boundary refactor stage 3: value-boundary synthetic helpers
   -- (library `__library_*`, super/base helpers) get selector-less table entries
   -- under the same `internalTableKey?` the call-site emits. Elaborated once via
@@ -2619,6 +3369,23 @@ def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
       eventDecls := eventDecls
       errorDecls := errorDecls
       functions := functions }
+
+/-- The core contract of a contract: its context, function groups and their assembly. -/
+def ContractDecl.toCoreFromOrders? (allContracts : List ContractDecl)
+    (sourceUsingDecls : List UsingDecl)
+    (sourceFunctions : List FunctionDecl) (sourceEvents : List EventDecl)
+    (sourceErrors : List ErrorDecl)
+    (sourceConstants : List StateVarDecl)
+    (sourceUserValueTypes : List UserValueTypeDecl)
+    (sourceEnums : List EnumDecl) (sourceStructs : List StructDecl)
+    (storageOrder dispatchOrder : List ContractDecl) :
+    Option CoreContract :=
+  (do
+    let c ← ContractDecl.fromOrdersCtx? allContracts sourceUsingDecls sourceFunctions
+      sourceEvents sourceErrors sourceConstants sourceUserValueTypes sourceEnums
+      sourceStructs storageOrder dispatchOrder
+    let functionGroups ← mapOption c.group? c.dispatchOrder
+    c.assemble? functionGroups)
 
 /-- Assemble the constructor-body statements from the per-contract pieces in
     DESCENT order (most-derived first), reproducing solc's legacy control flow
@@ -2978,7 +3745,12 @@ def ContractDecl.constructorFunctionFromOrders?
   let storageNames :=
     storageAliases ++
       stateNamesFrom (storageStateVars ++ transientStateVars) immutableStateVars
-  let externalCallKindEnv ← ExternalCallKindEnv.fromContracts? allContracts
+  -- Only the contracts the translated code can name: the others' entries are
+  -- never looked up, and each one adds to every lookup's work.
+  let externalCallKindEnv ←
+    ExternalCallKindEnv.fromContractsFor? allContracts
+      (ContractDecls.externalCallKindScope allContracts dispatchOrder
+        sourceFunctions (sourceUsingDecls ++ constructorUsingDecls) sourceConstants)
   let externalCallKindTypeEnv ← ExternalCallKindEnv.toTypeEnv? externalCallKindEnv
   let stateEnv := StateVars.extendTypeEnv externalCallKindTypeEnv stateVars
   -- Per-contract constant scope: each contract's own/inherited constants (C3,

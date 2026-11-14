@@ -429,11 +429,11 @@ def balArr (s : Storage) : Int → Int := fun k => s (solHash k.toNat 0)
 /-- The assignment of solar-verify's names that a call of `transfer` binds: `to = t`, `amount = a`,
 `msg.sender` the stage's caller, `totalSupply` slot 1, `balanceOf` its layout in the storage `s`,
 the ghost `sumBalances` set to `totalSupply`, and every other name 0. -/
-def trEnv (t a : Nat) (s : Storage) : Env :=
-  ⟨fun x => if x = "amount" then a else if x = "to" then t else if x = "msg.sender" then callerWord
-      else if x = "totalSupply" then s 1 else if x = "sumBalances" then s 1 else 0,
-    fun _ => False,
-    fun x => if x = "balanceOf" then balArr s else fun _ => 0⟩
+def trEnv (t a : Nat) (s : Storage) : Env where
+  i := fun x => if x = "amount" then a else if x = "to" then t else if x = "msg.sender" then callerWord
+      else if x = "totalSupply" then s 1 else if x = "sumBalances" then s 1 else 0
+  b := fun _ => False
+  a := fun x => if x = "balanceOf" then balArr s else fun _ => 0
 
 /-- The recipient's balance after the debit: the sender's own when they are one address. -/
 def midTo (t a : Nat) (s : Storage) : Nat := if t = callerWord then s senderSlot - a else s (solHash t 0)
@@ -443,7 +443,7 @@ theorem S2_eval (t a : Nat) (s : Storage) (j : Int) :
       if j = t then (if t = callerWord then balArr s callerWord - a else balArr s t) + a
       else if j = callerWord then balArr s callerWord - a else balArr s j := by
   simp [Ob.S2, Ob.S1, Ob.sto, Ob.sel, Ob.add, Ob.B, Ob.rcpt, Ob.sub, Ob.bal, Ob.amt, Ob.ms,
-    Tm.eval, Tm.evalList, applyOp, Value.toArr, Value.toInt, trEnv, callerWord]
+    Tm.eval, Tm.evalList, applyOp, Value.select, Value.store, Value.toArr, Value.toInt, trEnv, callerWord]
   by_cases h1 : j = t <;> by_cases h2 : t = 8192 <;> by_cases h3 : j = 8192 <;>
     simp [h1, h2, h3] <;> omega
 
@@ -529,13 +529,13 @@ variable (t a : Nat) (s : Storage) (n : Int)
 
 /-- solar-verify's array term does not read the frame's bound address. -/
 theorem S2_setI : Ob.S2.eval ((trEnv t a s).setI "a" n) = Ob.S2.eval (trEnv t a s) := by
-  apply Tm.eval_congr
+  apply Tm.eval_congr _ rfl
   intro y hy
   have hna : y ≠ "a" := by
     rintro rfl
     revert hy
     decide
-  exact ⟨by simp [Env.setI, hna], rfl, rfl⟩
+  exact ⟨by simp [Env.setI, hna], rfl, rfl, rfl⟩
 end
 
 /-- The binding: after a successful `transfer`, every address's `balanceOf` slot in SolidCore's
@@ -579,7 +579,7 @@ theorem trHyps_hold (s : Storage) (hs : ∀ k, s k < 2 ^ 256) (t a : Nat) (hta :
   simp only [trHyps, List.mem_cons, List.mem_nil_iff, or_false]
   rintro x (rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
     rfl | rfl | rfl | rfl | rfl | rfl) <;>
-  simp [Tm.Holds, Tm.eval, Tm.evalList, applyOp, Value.toProp, Value.toInt, Value.toArr, Value.eq,
+  simp [Tm.Holds, Tm.eval, Tm.evalList, applyOp, Value.select, Value.store, Value.toProp, Value.toInt, Value.toArr, Value.eq,
     trEnv, Ob.amt, Ob.ms, Ob.ts, Ob.sum, Ob.mv, Ob.bal, Ob.le0, Ob.leW, Ob.sub, Ob.eq, Ob.add,
     Ob.leA, Ob.sel, Ob.sto, Ob.S1, Ob.B, Ob.rcpt, arrFact, Env.setI, hc, h8, balArr_nat] <;>
   first
@@ -646,9 +646,11 @@ theorem transfer_triple (hv : Valid Export.Token.script) (inj : HashInj)
     have gFrom := hob trGoalFrom (by simp [trObs])
     have gTo := hob trGoalTo (by simp [trObs])
     have gFrame := hob trGoalFrame (by simp [trObs])
-    simp only [trGoalFrom, trGoalTo, trGoalFrame, Tm.Holds, Tm.eval, Tm.evalList, applyOp,
+    obtain ⟨f2, hf2⟩ : ∃ f, Ob.S2.eval (trEnv t a s) = .arr f :=
+      ⟨_, Value.sortOf_arr (Tm.eval_sortOf _ _ (by decide))⟩
+    simp only [trGoalFrom, trGoalTo, trGoalFrame, Tm.Holds, Tm.eval, Tm.evalList, applyOp, Value.select, Value.store,
       Value.toProp, Value.toInt, Value.toArr, Value.eq, Ob.eq, Ob.sel, Ob.sub, Ob.add, Ob.le0,
-      Ob.leA, Ob.bal, Ob.B, Ob.ms, Ob.amt, Ob.rcpt, S2_setI] at gFrom gTo gFrame
+      Ob.leA, Ob.bal, Ob.B, Ob.ms, Ob.amt, Ob.rcpt, S2_setI, hf2] at gFrom gTo gFrame
     simp only [observe, hw, List.getD_cons_zero, List.getD_cons_succ]
     rw [← hs_def]
     have hsl : solHash callerWord 0 = senderSlot := hash_eq
@@ -658,13 +660,13 @@ theorem transfer_triple (hv : Valid Export.Token.script) (inj : HashInj)
         have := hb callerWord (by decide); rwa [hsl] at this
       have g := gFrom (by simp; omega)
       simp [h8] at g
-      simp only [Value.toArr] at e g
+      simp only [hf2, Value.toArr] at e g
       rw [hsl]
       omega
     · have e := hb t hta
       have g := gTo (by simp; omega)
       simp [balArr_nat] at g
-      simp only [Value.toArr] at e g
+      simp only [hf2, Value.toArr] at e g
       omega
     · have e := hb x hx
       have hx8' : ¬ (x : Int) = 8192 := by intro h; apply hx8; exact_mod_cast h
@@ -672,7 +674,7 @@ theorem transfer_triple (hv : Valid Export.Token.script) (inj : HashInj)
       have hxA : (x : Int) ≤ 1461501637330902918203684832716283019655932542975 := by omega
       have g := gFrame x
       simp [balArr_nat, hx8', hxt', hxA, S2_setI] at g
-      simp only [Value.toArr] at e g
+      simp only [hf2, Value.toArr] at e g
       omega
   · intro h; simp_all [observe]
 

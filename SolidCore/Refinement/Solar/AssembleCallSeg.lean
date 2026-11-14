@@ -422,7 +422,7 @@ set_option maxRecDepth 8000 in
 /-- **`AssembleCut.seg` with STATICCALLs**: the rest of a block from an instruction, read back from
 a run that succeeds, under the oracle of the run's table of GAS reads and static calls. -/
 theorem segS {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray}
-    (G : GlobT p c code) (codes : SolidCore.Solidity.Shared.Account.BytesMap) {call : Call} {msg : Message .fusaka} {ss0 : Substate}
+    (G : GlobT p c code) (codes : SolidCore.Solidity.Shared.Account.BytesMap) (hcr : c.creates = false) {call : Call} {msg : Message .fusaka} {ss0 : Substate}
     (hdata : msg.data = call.calldata) (hvalue : msg.value = BitVec.ofNat 256 call.callvalue)
     (hstatic : msg.isStatic = false) (hself : msg.currentTarget = Target.address selfAddress)
     (hcaller : msg.caller = Target.address callerAddress)
@@ -523,9 +523,10 @@ theorem segS {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
       have hmB : MemBudget G0 M' m.gas := by unfold MemBudget at *; omega
       have hci' : isGasI i = true ∨ isLoadI i = true ∨ isStoreI i = true ∨ isRetI i = true ∨
           isRevI i = true ∨ isKecI i = true ∨ isLogI i = true ∨ isCdcI i = true ∨ isScI i = true ∨
-          isRdsI i = true ∨ isRdcI i = true := by
+          isRdsI i = true ∨ isRdcI i = true ∨ isCallI i = true ∨ isC2I i = true ∨ isCcI i = true := by
         simpa [isCutI, isMemCutI, or_assoc] using hci
-      rcases hci' with hgi | hli | hsi | hri | hvi | hki | hlgi | hcdi | hsci | hrdi | hrdci
+      rcases hci' with hgi | hli | hsi | hri | hvi | hki | hlgi | hcdi | hsci | hrdi | hrdci | hcalli |
+        hc2i | hcci
       · obtain rfl := isGasI_eq hgi
         obtain ⟨hk1, hok3⟩ := blockOkC_gas hok2
         have hs := I'.seg
@@ -543,7 +544,7 @@ theorem segS {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
           intro T'' hle
           rw [getD_of_prefix hle.2.2.2.2 (by simp [T1]; omega)]
           simp [T1, List.getD_eq_getElem?_getD, hc1.1, ← hTg]
-        obtain ⟨T2, r, hle2, hex2, hpost, hnext⟩ := segS (G0 := G0) G codes hdata hvalue hstatic hself hcaller hbenv
+        obtain ⟨T2, r, hle2, hex2, hpost, hnext⟩ := segS (G0 := G0) G codes (hcr := hcr) hdata hvalue hstatic hself hcaller hbenv
           htx hb hok hG0 hdepth meets hPok hcal n rest (h' + 1) [] (some false :: ty') (k' - 1)
           (BitVec.ofNat 256 (m.gas - 2) :: S') (BitVec.ofNat 256 (m.gas - 2) :: T')
           { s' with world := s'.world ++ [.read "gas"] } (pc' + 1) M' (m.gas - 2) st' ss' rd T1 m2
@@ -582,7 +583,7 @@ theorem segS {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
           have hmod : M2.size % 32 = 0 := by rw [hmem2.1]; omega
           have := size_le_of_cost (B := G0) (by unfold MemBudget at hb2; omega) hG0 hmod
           omega
-        obtain ⟨T2, r, hle2, hex2, hpost, hnext⟩ := segS (G0 := G0) G codes hdata hvalue hstatic hself
+        obtain ⟨T2, r, hle2, hex2, hpost, hnext⟩ := segS (G0 := G0) G codes (hcr := hcr) hdata hvalue hstatic hself
           hcaller hbenv htx hb hok hG0 hdepth meets hPok hcal n rest h' [] (some false :: ty'.drop 1) (k' - 1)
           (s'.memory.load x.toNat :: S'') (s'.memory.load x.toNat :: Tr)
           { s' with memory := s'.memory.expand x.toNat 32 } (pc' + 1) M2 g2 st' ss' rd T m2
@@ -623,7 +624,7 @@ theorem segS {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
           have hmod : M2.size % 32 = 0 := by rw [hmem2.1]; omega
           have := size_le_of_cost (B := G0) (by unfold MemBudget at hb2; omega) hG0 hmod
           omega
-        obtain ⟨T2, r, hle2, hex2, hpost, hnext⟩ := segS (G0 := G0) G codes hdata hvalue hstatic hself
+        obtain ⟨T2, r, hle2, hex2, hpost, hnext⟩ := segS (G0 := G0) G codes (hcr := hcr) hdata hvalue hstatic hself
           hcaller hbenv htx hb hok hG0 hdepth meets hPok hcal n rest (h' - 2) [] (ty'.drop 2) (k' - 1) S'' Tr
           { s' with memory := s'.memory.store x.toNat y } (pc' + 1) M2 g2 st' ss' rd T m2
           within2 (by omega) hok3 (by omega) (by omega)
@@ -710,7 +711,7 @@ theorem segS {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
             rw [hmem2.1]; omega
           have := size_le_of_cost (B := G0) (by unfold MemBudget at hb2; omega) hG0 hmod
           omega
-        obtain ⟨T2, r, hle2, hex2, hpost, hnext⟩ := segS (G0 := G0) G codes hdata hvalue hstatic hself
+        obtain ⟨T2, r, hle2, hex2, hpost, hnext⟩ := segS (G0 := G0) G codes (hcr := hcr) hdata hvalue hstatic hself
           hcaller hbenv htx hb hok hG0 hdepth meets hPok hcal n rest (h' - 1) [] (some false :: ty'.drop 2) (k' - 1)
           ((OS codes T).keccak ((s'.memory.expand x.toNat y.toNat).read x.toNat y.toNat) :: S'')
           ((OS codes T).keccak ((s'.memory.expand x.toNat y.toNat).read x.toNat y.toNat) :: Tr)
@@ -764,7 +765,7 @@ theorem segS {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
           have := size_le_of_cost (B := G0) (by unfold MemBudget at hb2; omega) hG0 hmod
           omega
         obtain ⟨L, hL1, hL2⟩ := R'.logs
-        obtain ⟨T2', r, hle2, hex2, hpost, hnext⟩ := segS (G0 := G0) (ss0 := ss0) G codes hdata hvalue hstatic hself
+        obtain ⟨T2', r, hle2, hex2, hpost, hnext⟩ := segS (G0 := G0) (ss0 := ss0) G codes (hcr := hcr) hdata hvalue hstatic hself
           hcaller hbenv htx hb hok hG0 hdepth meets hPok hcal n rest (h' - (tops.length + 2)) [] (ty'.drop (tops.length + 2))
           (k' - 1) S2 T2
           ⟨s'.memory.expand x.toNat y.toNat, s'.storage, s'.transient,
@@ -816,7 +817,7 @@ theorem segS {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
           have hmod : M2.size % 32 = 0 := by rw [hmem2.1]; omega
           have := size_le_of_cost (B := G0) (by unfold MemBudget at hb2; omega) hG0 hmod
           omega
-        obtain ⟨T2, r, hle2, hex2, hpost, hnext⟩ := segS (G0 := G0) (ss0 := ss0) G codes hdata hvalue
+        obtain ⟨T2, r, hle2, hex2, hpost, hnext⟩ := segS (G0 := G0) (ss0 := ss0) G codes (hcr := hcr) hdata hvalue
           hstatic hself hcaller hbenv htx hb hok hG0 hdepth meets hPok hcal n rest (h' - 3) [] (ty'.drop 3) (k' - 1) S'' Tr
           { s' with
             memory := s'.memory.write x.toNat z.toNat
@@ -872,7 +873,7 @@ theorem segS {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
         have hTg1 : T1.gases.length = gasReads s2.world := by
           rw [hw, gasReads_append, hev2, hc1.1]
           simpa [T1] using hTg
-        obtain ⟨T2, r, hle2, hex2, hpost, hnext⟩ := segS (G0 := G0) G codes hdata hvalue hstatic
+        obtain ⟨T2, r, hle2, hex2, hpost, hnext⟩ := segS (G0 := G0) G codes (hcr := hcr) hdata hvalue hstatic
           hself hcaller hbenv htx hb hok hG0 hdepth meets hPok hcal n rest (h' - 5) []
           (some false :: ty'.drop 6) (k' - 1) ((if ok then 1 else 0) :: S'')
           ((if ok then 1 else 0) :: Tr) s2 (pc' + 1) M2 g2 st2 ss2 out T1 m2 within2 (by omega) hok3
@@ -906,7 +907,7 @@ theorem segS {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
           have hlt' : rd.size < 2 ^ 256 := by rw [← h1]; exact BitVec.isLt _
           apply BitVec.eq_of_toNat_eq
           rw [BitVec.toNat_ofNat, h1, Nat.mod_eq_of_lt hlt']
-        obtain ⟨T2, r, hle2, hex2, hpost, hnext⟩ := segS (G0 := G0) G codes hdata hvalue hstatic
+        obtain ⟨T2, r, hle2, hex2, hpost, hnext⟩ := segS (G0 := G0) G codes (hcr := hcr) hdata hvalue hstatic
           hself hcaller hbenv htx hb hok hG0 hdepth meets hPok hcal n rest (h' + 1) [] (some false :: ty')
           (k' - 1) (BitVec.ofNat 256 rd.size :: S') (BitVec.ofNat 256 rd.size :: T') s' (pc' + 1) M'
           (m.gas - 2) st' ss' rd T m2 within2 (by omega) hok3 (by simp; omega) (by simp; omega)
@@ -956,7 +957,7 @@ theorem segS {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
           simp only [returndataByte]
           rw [OS_env_ext codes hle (by rw [hmc, hs0.2.1]) (by rw [hmc, hs0.2.1, hs0.2.2])
             (by rw [hc1.1]; omega) (by decide)]
-        obtain ⟨T2, r, hle2, hex2, hpost, hnext⟩ := segS (G0 := G0) G codes hdata hvalue
+        obtain ⟨T2, r, hle2, hex2, hpost, hnext⟩ := segS (G0 := G0) G codes (hcr := hcr) hdata hvalue
           hstatic hself hcaller hbenv htx hb hok hG0 hdepth meets hPok hcal n rest (h' - 3) [] (ty'.drop 3)
           (k' - 1) S'' Tr
           { s' with
@@ -973,6 +974,14 @@ theorem segS {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
           exact hex2 T3 hle
         · obtain ⟨hy1, after, within', hE, hT, hsn, hrdy, hga, hbud, hra⟩ := hnext y hy
           exact ⟨hy1, after, within', hE, hT, hsn, hrdy, by omega, hbud, hra⟩
+      · -- CALL, CREATE2 and CODECOPY: only a certificate that says the program creates lets the
+        -- checker cut there.
+        obtain rfl := isCallI_eq hcalli
+        exact absurd (blockOkC_call hok2).2.1 (by simp [hcr])
+      · obtain rfl := isC2I_eq hc2i
+        exact absurd (blockOkC_c2 hok2).2.1 (by simp [hcr])
+      · obtain rfl := isCcI_eq hcci
+        exact absurd (blockOkC_cc hok2).2.1 (by simp [hcr])
 
 /-- info: 'SolidCore.Refinement.Solar.AssembleCallSeg.segS' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs (whitespace := lax) in
@@ -1168,7 +1177,7 @@ def EntS (codes : SolidCore.Solidity.Shared.Account.BytesMap) (p : Assemble.Prog
 
 /-- **A block of code with loops, GAS and STATICCALLs, read back from a run that succeeds.** -/
 theorem advances_checkCS {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray}
-    (G : GlobC p c mx code) (codes : SolidCore.Solidity.Shared.Account.BytesMap) {call : Call} {msg : Message .fusaka} {ss0 : Substate}
+    (G : GlobC p c mx code) (codes : SolidCore.Solidity.Shared.Account.BytesMap) (hcr : c.creates = false) {call : Call} {msg : Message .fusaka} {ss0 : Substate}
     (hdata : msg.data = call.calldata) (hvalue : msg.value = BitVec.ofNat 256 call.callvalue)
     (hstatic : msg.isStatic = false) (hself : msg.currentTarget = Target.address selfAddress)
     (hcaller : msg.caller = Target.address callerAddress)
@@ -1212,7 +1221,7 @@ theorem advances_checkCS {p : Assemble.Program} {c : Cert} {mx : List Nat} {code
       · simp only [ht, Bool.false_eq_true, ite_false, List.nil_append] at hseg
         exact ⟨pc, evm, within, hat, hseg, by simp only [ht, Bool.false_eq_true, ite_false]; omega,
           hrun⟩
-    obtain ⟨T', r, hle', hex, hpost, hnext⟩ := segS (G0 := msg.gas) G.toGlobT codes hdata hvalue hstatic hself hcaller
+    obtain ⟨T', r, hle', hex, hpost, hnext⟩ := segS (G0 := msg.gas) G.toGlobT codes (hcr := hcr) hdata hvalue hstatic hself hcaller
       hbenv htx hb hok hgas hdepth meets (fun _ _ _ h => h.1) hcal (p.blocks[b].length + 1) p.blocks[b] (c.need b) [] (c.entry b)
       (budget c b - labelItems p c b) S Tw s pc1 M m1.gas st ss rd T0 m1 within1 (Nat.lt_succ_self _)
       hblock hn (by omega) List.nil_prefix hR hseg1 (by omega) htop hmem R hat1 hTg hs0
@@ -1281,7 +1290,7 @@ theorem runs_of_checkCB {p : Assemble.Program} {code : ByteArray} {c : Cert} {mx
     (CalleesOk code (Final.Target.messageWith gas code call) StaticOkE)
     (fun ss0 => EntS codes p c mx code (Final.Target.messageWith gas code call) ss0)
     (fun y e => AssembleLoop.meas p c e.gas y.1) (staticOkE_of gas hP) hQ (fun st' ss' R => ?_)
-    (fun ss0 T x evm hE => advances_checkCS G codes rfl
+    (fun ss0 T x evm hE => advances_checkCS G codes (hcr := checkCB_creates hc) rfl
       (by simp [Final.Target.messageWith, SolidCore.Refinement.Target.message]) rfl rfl rfl rfl rfl
       hgas (by show 0 + 1 ≤ 1024; decide) T x evm hE)
   refine ⟨⟨[], 0, .empty, st', ss', .empty, Nat.zero_le _, fun _ => ⟨by simp [hneed0], by simp⟩,

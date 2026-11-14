@@ -2,6 +2,7 @@ import SolidCore.Refinement.Axioms.Audit
 import Contracts.Counter.Headline
 import Contracts.Counter.EndToEnd
 import Contracts.Counter.Final
+import Contracts.Counter.ShapeExport
 import Contracts.Counter.Verdict
 import Contracts.Counter.VC.Inc
 import Contracts.Counter.VC.Get
@@ -30,6 +31,8 @@ Classical.choice, Quot.sound], and the sweep must report no violation. Run with
 #print axioms SolidCore.Refinement.Solar.Counter.EndToEnd.get_spec_bytecode
 #print axioms SolidCore.Refinement.Solar.Counter.Final.certified
 #print axioms SolidCore.Refinement.Solar.Counter.Final.certified_trace
+#print axioms SolidCore.Refinement.Solar.Counter.ShapeExport.published
+#print axioms SolidCore.Refinement.Solar.Counter.ShapeExport.nonvacuous
 #print axioms SolidCore.Refinement.Solar.Counter.Verdict.bytecode_spec_of_verdict
 #print axioms SolidCore.Refinement.Solar.Counter.Verdict.bytecode_of_triple
 

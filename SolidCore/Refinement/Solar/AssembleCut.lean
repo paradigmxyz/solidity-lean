@@ -500,7 +500,7 @@ theorem blockOkC_sc {p : Assemble.Program} {c : Cert} {mx : List Nat} {b h : Nat
   simp only [blockOkC, turnedElse, dropped, isGasI, isLoadI, isStoreI, isRetI, isRevI, isKecI,
     isLogI, isCdcI, isScI, Bool.or_false, Bool.and_eq_true, decide_eq_true_eq, Bool.false_eq_true,
     ite_false, ite_true] at hok
-  exact ⟨hok.1.1.1.1.1, hok.1.1.1.1.2, hok.1.1.1.2, hok.1.1.2, hok.1.2, hok.2⟩
+  exact ⟨hok.1.1.1.1.1.1, hok.1.1.1.1.2, hok.1.1.1.2, hok.1.1.2, hok.1.2, hok.2⟩
 
 theorem isRdsI_eq {i : Assemble.Instr} (h : isRdsI i = true) : i = .effect .returndatasize 0 := by
   unfold isRdsI at h
@@ -516,7 +516,7 @@ theorem blockOkC_rds {p : Assemble.Program} {c : Cert} {mx : List Nat} {b h : Na
   simp only [blockOkC, turnedElse, dropped, isGasI, isLoadI, isStoreI, isRetI, isRevI, isKecI,
     isLogI, isCdcI, isScI, isRdsI, Bool.or_false, Bool.and_eq_true, decide_eq_true_eq,
     Bool.false_eq_true, ite_false, ite_true] at hok
-  exact ⟨hok.1.1, hok.1.2, hok.2⟩
+  exact ⟨hok.1.1.1, hok.1.2, hok.2⟩
 
 theorem isRdcI_eq {i : Assemble.Instr} (h : isRdcI i = true) : i = .effect .returndatacopy 3 := by
   unfold isRdcI at h
@@ -533,7 +533,87 @@ theorem blockOkC_rdc {p : Assemble.Program} {c : Cert} {mx : List Nat} {b h : Na
   simp only [blockOkC, turnedElse, dropped, isGasI, isLoadI, isStoreI, isRetI, isRevI, isKecI,
     isLogI, isCdcI, isScI, isRdsI, isRdcI, Bool.or_false, Bool.and_eq_true, decide_eq_true_eq,
     Bool.false_eq_true, ite_false, ite_true] at hok
-  exact ⟨hok.1.1.1.1.1, hok.1.1.1.1.2, hok.1.1.1.2, hok.1.1.2, hok.1.2, hok.2⟩
+  exact ⟨hok.1.1.1.1.1.1, hok.1.1.1.1.2, hok.1.1.1.2, hok.1.1.2, hok.1.2, hok.2⟩
+
+/-- A program that creates makes no STATICCALL, RETURNDATASIZE or RETURNDATACOPY the checker
+accepts: the checker of runs with creations reads no return data. -/
+theorem blockOkC_noRd_creates {p : Assemble.Program} {c : Cert} {mx : List Nat} {b h : Nat}
+    {known : List Word} {ty : List Ty} {k : Nat} {i : Assemble.Instr} {rest : List Assemble.Instr}
+    (hi : isScI i = true ∨ isRdsI i = true ∨ isRdcI i = true)
+    (hok : blockOkC p c mx b h known ty k (i :: rest) = true) : c.creates = false := by
+  rcases hi with hi | hi | hi
+  · obtain rfl := isScI_eq hi
+    simp only [blockOkC, turnedElse, dropped, isGasI, isLoadI, isStoreI, isRetI, isRevI, isKecI,
+      isLogI, isCdcI, isScI, Bool.or_false, Bool.and_eq_true, decide_eq_true_eq, Bool.false_eq_true,
+      ite_false, ite_true] at hok
+    simpa using hok.1.1.1.1.1.2
+  · obtain rfl := isRdsI_eq hi
+    simp only [blockOkC, turnedElse, dropped, isGasI, isLoadI, isStoreI, isRetI, isRevI, isKecI,
+      isLogI, isCdcI, isScI, isRdsI, Bool.or_false, Bool.and_eq_true, decide_eq_true_eq,
+      Bool.false_eq_true, ite_false, ite_true] at hok
+    simpa using hok.1.1.2
+  · obtain rfl := isRdcI_eq hi
+    simp only [blockOkC, turnedElse, dropped, isGasI, isLoadI, isStoreI, isRetI, isRevI, isKecI,
+      isLogI, isCdcI, isScI, isRdsI, isRdcI, Bool.or_false, Bool.and_eq_true, decide_eq_true_eq,
+      Bool.false_eq_true, ite_false, ite_true] at hok
+    simpa using hok.1.1.1.1.1.2
+
+theorem isCallI_eq {i : Assemble.Instr} (h : isCallI i = true) : i = .effect (.call .call) 7 := by
+  unfold isCallI at h
+  split at h
+  · rfl
+  · cases h
+
+theorem isC2I_eq {i : Assemble.Instr} (h : isC2I i = true) : i = .effect .create2 4 := by
+  unfold isC2I at h
+  split at h
+  · rfl
+  · cases h
+
+theorem isCcI_eq {i : Assemble.Instr} (h : isCcI i = true) : i = .effect .codecopy 3 := by
+  unfold isCcI at h
+  split at h
+  · rfl
+  · cases h
+
+/-- The checker cuts at a CALL only in a program whose certificate says it makes calls and
+creates. -/
+theorem blockOkC_call {p : Assemble.Program} {c : Cert} {mx : List Nat} {b h : Nat}
+    {known : List Word} {ty : List Ty} {k : Nat} {rest : List Assemble.Instr}
+    (hok : blockOkC p c mx b h known ty k (.effect (.call .call) 7 :: rest) = true) :
+    c.calls = true ∧ c.creates = true ∧ 1 ≤ k ∧ 7 ≤ h ∧ isData ty 7 = true ∧ 2 ^ 140 ≤ c.top ∧
+      blockOkC p c mx b (h - 6) [] (some false :: ty.drop 7) (k - 1) rest = true := by
+  simp only [blockOkC, turnedElse, dropped, isGasI, isLoadI, isStoreI, isRetI, isRevI, isKecI,
+    isLogI, isCdcI, isScI, isRdsI, isRdcI, isCallI, Bool.or_false, Bool.and_eq_true,
+    decide_eq_true_eq, Bool.false_eq_true, ite_false, ite_true] at hok
+  exact ⟨hok.1.1.1.1.1.1, hok.1.1.1.1.1.2, hok.1.1.1.1.2, hok.1.1.1.2, hok.1.1.2, hok.1.2, hok.2⟩
+
+/-- The checker cuts at a CREATE2 only in a program whose certificate says it makes calls and
+creates. -/
+theorem blockOkC_c2 {p : Assemble.Program} {c : Cert} {mx : List Nat} {b h : Nat}
+    {known : List Word} {ty : List Ty} {k : Nat} {rest : List Assemble.Instr}
+    (hok : blockOkC p c mx b h known ty k (.effect .create2 4 :: rest) = true) :
+    c.calls = true ∧ c.creates = true ∧ 1 ≤ k ∧ 4 ≤ h ∧ isData ty 4 = true ∧ 2 ^ 140 ≤ c.top ∧
+      blockOkC p c mx b (h - 3) [] (some false :: ty.drop 4) (k - 1) rest = true := by
+  simp only [blockOkC, turnedElse, dropped, isGasI, isLoadI, isStoreI, isRetI, isRevI, isKecI,
+    isLogI, isCdcI, isScI, isRdsI, isRdcI, isCallI, isC2I, Bool.or_false, Bool.and_eq_true,
+    decide_eq_true_eq, Bool.false_eq_true, ite_false, ite_true] at hok
+  exact ⟨hok.1.1.1.1.1.1, hok.1.1.1.1.1.2, hok.1.1.1.1.2, hok.1.1.1.2, hok.1.1.2, hok.1.2, hok.2⟩
+
+/-- The checker cuts at a CODECOPY only in a program whose certificate says it makes calls and
+creates, and only with its code offset known, below 2 ^ 32. -/
+theorem blockOkC_cc {p : Assemble.Program} {c : Cert} {mx : List Nat} {b h : Nat}
+    {known : List Word} {ty : List Ty} {k : Nat} {rest : List Assemble.Instr}
+    (hok : blockOkC p c mx b h known ty k (.effect .codecopy 3 :: rest) = true) :
+    c.calls = true ∧ c.creates = true ∧ (∃ x off t, known = x :: off :: t ∧ off.toNat < 2 ^ 32) ∧
+      1 ≤ k ∧ 3 ≤ h ∧ isData ty 3 = true ∧ 2 ^ 140 ≤ c.top ∧
+      blockOkC p c mx b (h - 3) [] (ty.drop 3) (k - 1) rest = true := by
+  rcases known with _ | ⟨x, _ | ⟨off, t⟩⟩ <;>
+    simp only [blockOkC, turnedElse, dropped, isGasI, isLoadI, isStoreI, isRetI, isRevI, isKecI,
+      isLogI, isCdcI, isScI, isRdsI, isRdcI, isCallI, isC2I, isCcI, Bool.or_false, Bool.and_eq_true,
+      decide_eq_true_eq, Bool.false_eq_true, ite_false, ite_true] at hok
+  exact ⟨hok.1.1.1.1.1.1.1, hok.1.1.1.1.1.1.2, ⟨x, off, t, rfl, hok.1.1.1.1.1.2⟩, hok.1.1.1.1.2,
+    hok.1.1.1.2, hok.1.1.2, hok.1.2, hok.2⟩
 
 /-! ## A block, segment by segment -/
 
@@ -655,9 +735,10 @@ theorem seg {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray}
       have hmB : MemBudget G0 M' m.gas := by unfold MemBudget at *; omega
       have hci' : isGasI i = true ∨ isLoadI i = true ∨ isStoreI i = true ∨ isRetI i = true ∨
           isRevI i = true ∨ isKecI i = true ∨ isLogI i = true ∨ isCdcI i = true ∨ isScI i = true ∨
-          isRdsI i = true ∨ isRdcI i = true := by
+          isRdsI i = true ∨ isRdcI i = true ∨ isCallI i = true ∨ isC2I i = true ∨ isCcI i = true := by
         simpa [isCutI, isMemCutI, or_assoc] using hci
-      rcases hci' with hgi | hli | hsi | hri | hvi | hki | hlgi | hcdi | hsci | hrdi | hrdci
+      rcases hci' with hgi | hli | hsi | hri | hvi | hki | hlgi | hcdi | hsci | hrdi | hrdci | hcalli |
+        hc2i | hcci
       · obtain rfl := isGasI_eq hgi
         obtain ⟨hk1, hok3⟩ := blockOkC_gas hok2
         have hs := I'.seg
@@ -969,6 +1050,14 @@ theorem seg {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray}
         exact absurd (blockOkC_rds hok2).1 (by simp [hnc])
       · obtain rfl := isRdcI_eq hrdci
         exact absurd (blockOkC_rdc hok2).1 (by simp [hnc])
+      · -- CALL, CREATE2 and CODECOPY: only a certificate that says the program creates lets the
+        -- checker cut there.
+        obtain rfl := isCallI_eq hcalli
+        exact absurd (blockOkC_call hok2).1 (by simp [hnc])
+      · obtain rfl := isC2I_eq hc2i
+        exact absurd (blockOkC_c2 hok2).1 (by simp [hnc])
+      · obtain rfl := isCcI_eq hcci
+        exact absurd (blockOkC_cc hok2).1 (by simp [hnc])
 
 /-! ## The checker with GAS -/
 
@@ -986,6 +1075,14 @@ def blocksOkC (p : Assemble.Program) (c : Cert) (mx : List Nat) :
 def checkCB (p : Assemble.Program) (code : ByteArray) (c : Cert) (mx : List Nat) : Bool :=
   (walk (bytesOf code) c.offset 0 (lower p c)).isSome && blocksOkC p c mx 0 p.blocks &&
     labelsValid p c code && decide (c.need 0 = 0) && decide (c.top % 32 = 0) &&
+    decide (c.top ≤ 2 ^ 200) && decide (code.size < 2 ^ 32) && !c.creates
+
+/-- **The checker of code with calls and creations**: `checkCB` without its gate on creations,
+for a certificate that says the program makes CALLs, CREATE2s and CODECOPYs (`Cert.creates`, with
+`Cert.calls`). No theorem over runs covers it yet: programs it accepts are checked, not proved. -/
+def checkCF (p : Assemble.Program) (code : ByteArray) (c : Cert) (mx : List Nat) : Bool :=
+  (walk (bytesOf code) c.offset 0 (lower p c)).isSome && blocksOkC p c mx 0 p.blocks &&
+    labelsValid p c code && decide (c.need 0 = 0) && decide (c.top % 32 = 0) &&
     decide (c.top ≤ 2 ^ 200) && decide (code.size < 2 ^ 32)
 
 /-- **The checker of code with loops and GAS** for a program that makes no call: `checkCB` and a
@@ -993,12 +1090,18 @@ certificate that says so. (`AssembleCutCall` checks programs with STATICCALLs.) 
 def checkC (p : Assemble.Program) (code : ByteArray) (c : Cert) (mx : List Nat) : Bool :=
   (walk (bytesOf code) c.offset 0 (lower p c)).isSome && blocksOkC p c mx 0 p.blocks &&
     labelsValid p c code && decide (c.need 0 = 0) && decide (c.top % 32 = 0) &&
-    decide (c.top ≤ 2 ^ 200) && decide (code.size < 2 ^ 32) && !c.calls
+    decide (c.top ≤ 2 ^ 200) && decide (code.size < 2 ^ 32) && !c.calls && !c.creates
 
 theorem checkC_base {p : Assemble.Program} {code : ByteArray} {c : Cert} {mx : List Nat}
     (h : checkC p code c mx = true) : checkCB p code c mx = true ∧ c.calls = false := by
   simp only [checkC, checkCB, Bool.and_eq_true, Bool.not_eq_true'] at h ⊢
-  exact ⟨h.1, h.2⟩
+  exact ⟨⟨h.1.1, h.2⟩, h.1.2⟩
+
+/-- The checker of code with GAS and STATICCALLs refuses a certificate that says the program creates. -/
+theorem checkCB_creates {p : Assemble.Program} {code : ByteArray} {c : Cert} {mx : List Nat}
+    (h : checkCB p code c mx = true) : c.creates = false := by
+  simp only [checkCB, Bool.and_eq_true, Bool.not_eq_true'] at h
+  exact h.2
 
 theorem blocksOkC_get {p : Assemble.Program} {c : Cert} {mx : List Nat} :
     ∀ (l : List (List Assemble.Instr)) (b : Nat),
@@ -1028,7 +1131,7 @@ theorem globC_of_checkC {p : Assemble.Program} {code : ByteArray} {c : Cert} {mx
     (h : checkCB p code c mx = true) :
     GlobC p c mx code ∧ Seg (bytesOf code) c.offset 0 (lower p c) code.size ∧ c.need 0 = 0 := by
   simp only [checkCB, Bool.and_eq_true, decide_eq_true_eq] at h
-  obtain ⟨⟨⟨⟨⟨⟨hw, hblocks⟩, hlabels⟩, hneed⟩, hmod⟩, htop⟩, hsize⟩ := h
+  obtain ⟨⟨⟨⟨⟨⟨⟨hw, hblocks⟩, hlabels⟩, hneed⟩, hmod⟩, htop⟩, hsize⟩, -⟩ := h
   obtain ⟨stream, hw⟩ := Option.isSome_iff_exists.1 hw
   have hseg : Seg (bytesOf code) c.offset 0 (lower p c) code.size := by
     have := seg_of_walk (walk_sound hw)

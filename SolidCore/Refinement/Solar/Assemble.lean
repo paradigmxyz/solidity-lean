@@ -102,6 +102,10 @@ structure Cert where
   and only the checker of runs with calls (`AssembleCutCall`) accepts, under a runner of messages
   meeting `AssembleCallCut.StaticOk`. -/
   calls : Bool := false
+  /-- Whether the program makes CALLs, CREATE2s and CODECOPYs, which the checker cuts at
+  (`AssembleCutSim.blockOkC`, with `calls`) and only the checker of runs with creations
+  accepts. -/
+  creates : Bool := false
   deriving Repr
 
 def Cert.offset (c : Cert) (b : Nat) : Nat := c.offsets.getD b 0
@@ -162,6 +166,9 @@ def lowerInstr : Instr → List Item
   | .effect .returndatasize _ => [.op 0x3d]
   | .effect .returndatacopy _ => [.op 0x3e]
   | .effect (.call .staticcall) _ => [.op 0xfa]
+  | .effect .codecopy _ => [.op 0x39]
+  | .effect (.call .call) _ => [.op 0xf1]
+  | .effect .create2 _ => [.op 0xf5]
   | .effect _ _ => [.op 0xfe]
   | .jump t => [.pushLabel t, .op 0x56]
   | .jumpi t => [.pushLabel t, .op 0x57]

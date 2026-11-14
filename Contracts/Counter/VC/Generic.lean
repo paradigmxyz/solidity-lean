@@ -28,7 +28,7 @@ theorem inc_obs_valid : ObsValid [(incHyps, incGoal)] := by
   intro o ho σ _
   simp only [List.mem_singleton] at ho
   subst ho
-  simp [incGoal, incEff, Ob.add, Ob.eq, Ob.x, Ob.d, Tm.Holds, Tm.eval, Tm.evalList, applyOp,
+  simp [incGoal, incEff, Ob.add, Ob.eq, Ob.x, Ob.d, Tm.Holds, Tm.eval, Tm.evalList, applyOp, Value.select, Value.store,
     Value.toProp, Value.eq]
 
 /-- The binding of `inc`'s erased tree to solar-verify's obligation. -/

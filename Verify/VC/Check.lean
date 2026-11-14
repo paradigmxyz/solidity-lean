@@ -31,7 +31,7 @@ mutual
 /-- Every name a term mentions, free or bound, of any sort. -/
 def Tm.vars : Tm → List String
   | .num _ | .tt | .ff => []
-  | .ivar x | .bvar x | .avar x => [x]
+  | .ivar x | .bvar x | .avar x | .a2var x => [x]
   | .app _ args => Tm.varsList args
   | .all x body => x :: Tm.vars body
 def Tm.varsList : List Tm → List String
@@ -40,37 +40,40 @@ def Tm.varsList : List Tm → List String
 end
 
 /-- Two assignments agree on a name, in every sort. -/
-def Env.Agree (σ τ : Env) (x : String) : Prop := σ.i x = τ.i x ∧ σ.b x = τ.b x ∧ σ.a x = τ.a x
+def Env.Agree (σ τ : Env) (x : String) : Prop :=
+  σ.i x = τ.i x ∧ σ.b x = τ.b x ∧ σ.a x = τ.a x ∧ σ.a2 x = τ.a2 x
 
 theorem Env.Agree.setI {σ τ : Env} {x : String} (h : σ.Agree τ x) (y : String) (n : Int) :
     (σ.setI y n).Agree (τ.setI y n) x := by
-  obtain ⟨h1, h2, h3⟩ := h
-  refine ⟨?_, h2, h3⟩
+  obtain ⟨h1, h2, h3, h4⟩ := h
+  refine ⟨?_, h2, h3, h4⟩
   by_cases hx : x = y <;> simp [Env.setI, hx, h1]
 
 mutual
-theorem Tm.eval_congr : ∀ (t : Tm) {σ τ : Env}, (∀ x ∈ t.vars, σ.Agree τ x) → t.eval σ = t.eval τ
-  | .num _, _, _, _ => rfl
-  | .tt, _, _, _ => rfl
-  | .ff, _, _, _ => rfl
-  | .ivar x, _, _, h => by simp [Tm.eval, (h x (by simp [Tm.vars])).1]
-  | .bvar x, _, _, h => by simp [Tm.eval, (h x (by simp [Tm.vars])).2.1]
-  | .avar x, _, _, h => by simp [Tm.eval, (h x (by simp [Tm.vars])).2.2]
-  | .app f args, σ, τ, h => by
+theorem Tm.eval_congr : ∀ (t : Tm) {σ τ : Env}, σ.u = τ.u → (∀ x ∈ t.vars, σ.Agree τ x) →
+    t.eval σ = t.eval τ
+  | .num _, _, _, _, _ => rfl
+  | .tt, _, _, _, _ => rfl
+  | .ff, _, _, _, _ => rfl
+  | .ivar x, _, _, _, h => by simp [Tm.eval, (h x (by simp [Tm.vars])).1]
+  | .bvar x, _, _, _, h => by simp [Tm.eval, (h x (by simp [Tm.vars])).2.1]
+  | .avar x, _, _, _, h => by simp [Tm.eval, (h x (by simp [Tm.vars])).2.2.1]
+  | .a2var x, _, _, _, h => by simp [Tm.eval, (h x (by simp [Tm.vars])).2.2.2]
+  | .app f args, σ, τ, hu, h => by
     simp only [Tm.eval]
-    rw [Tm.evalList_congr args (by simpa [Tm.vars] using h)]
-  | .all x body, σ, τ, h => by
+    rw [Tm.evalList_congr args hu (by simpa [Tm.vars] using h), hu]
+  | .all x body, σ, τ, hu, h => by
     simp only [Tm.eval]
     have : ∀ n : Int, Tm.eval (σ.setI x n) body = Tm.eval (τ.setI x n) body := fun n =>
-      Tm.eval_congr body fun y hy => Env.Agree.setI (h y (by simp [Tm.vars, hy])) x n
+      Tm.eval_congr body hu fun y hy => Env.Agree.setI (h y (by simp [Tm.vars, hy])) x n
     simp only [this]
-theorem Tm.evalList_congr : ∀ (ts : List Tm) {σ τ : Env}, (∀ x ∈ Tm.varsList ts, σ.Agree τ x) →
-    Tm.evalList σ ts = Tm.evalList τ ts
-  | [], _, _, _ => rfl
-  | t :: ts, σ, τ, h => by
+theorem Tm.evalList_congr : ∀ (ts : List Tm) {σ τ : Env}, σ.u = τ.u →
+    (∀ x ∈ Tm.varsList ts, σ.Agree τ x) → Tm.evalList σ ts = Tm.evalList τ ts
+  | [], _, _, _, _ => rfl
+  | t :: ts, σ, τ, hu, h => by
     simp only [Tm.evalList]
-    rw [Tm.eval_congr t (fun x hx => h x (by simp [Tm.varsList, hx])),
-      Tm.evalList_congr ts (fun x hx => h x (by simp [Tm.varsList, hx]))]
+    rw [Tm.eval_congr t hu (fun x hx => h x (by simp [Tm.varsList, hx])),
+      Tm.evalList_congr ts hu (fun x hx => h x (by simp [Tm.varsList, hx]))]
 end
 
 /-! ## Sorts of values -/
@@ -80,6 +83,7 @@ def Value.sortOf : Value → Srt
   | .int _ => .int
   | .prop _ => .bool
   | .arr _ => .arr
+  | .arr2 _ => .arr2
 
 /-- Values whose sorts are the ones the list gives, where it gives one. -/
 def SortsAgree : List (Option Srt) → List Value → Prop
@@ -87,15 +91,35 @@ def SortsAgree : List (Option Srt) → List Value → Prop
   | o :: os, v :: vs => (∀ s, o = some s → v.sortOf = s) ∧ SortsAgree os vs
   | _, _ => False
 
-theorem applyOp_sortOf (f : String) : ∀ (os : List (Option Srt)) (vs : List Value),
-    SortsAgree os vs → ∀ {s : Srt}, sortOp f os = some s → (applyOp f vs).sortOf = s := by
+/-- An uninterpreted function's application is an integer. -/
+theorem applyOp_not_op (u : String → List Int → Int) {f : String} (hf : isOpName f = false)
+    (vs : List Value) : applyOp u f vs = .int (u f (vs.map Value.toInt)) := by
+  unfold applyOp
+  split <;> simp_all [isOpName, isOpName.constName, isOpName.const2Name]
+
+theorem sortOp_not_op {f : String} (hf : isOpName f = false) (os : List (Option Srt)) :
+    sortOp f os = if isOpName f = false ∧ os ≠ [] then some .int else none := by
+  unfold sortOp
+  split <;> simp_all [isOpName, isOpName.constName, isOpName.const2Name]
+
+theorem applyOp_sortOf (u : String → List Int → Int) (f : String) :
+    ∀ (os : List (Option Srt)) (vs : List Value),
+    SortsAgree os vs → ∀ {s : Srt}, sortOp f os = some s → (applyOp u f vs).sortOf = s := by
   intro os vs h s hs
+  by_cases hf : isOpName f = false
+  · rw [sortOp_not_op hf] at hs
+    rw [applyOp_not_op u hf]
+    split at hs <;> simp_all [Value.sortOf]
   unfold sortOp at hs
   split at hs
   all_goals first
     | (simp at hs; done)
+    | (simp [hf] at hs; done)
     | (rcases vs with _ | ⟨v1, _ | ⟨v2, _ | ⟨v3, _ | ⟨v4, vs⟩⟩⟩⟩ <;>
         simp_all [SortsAgree, applyOp, Value.sortOf] <;> done)
+    | (simp only [Option.some.injEq] at hs; subst hs
+       rcases vs with _ | ⟨v1, _ | ⟨v2, _ | ⟨v3, _ | ⟨v4, vs⟩⟩⟩⟩ <;> (try cases v1) <;>
+        simp_all [SortsAgree, applyOp, Value.sortOf, Value.store, Value.select] <;> done)
     | skip
   all_goals
     split at hs <;> simp at hs
@@ -112,6 +136,7 @@ theorem Tm.eval_sortOf : ∀ (t : Tm) (σ : Env) {s : Srt}, t.sort? = some s →
   | .ivar _, _, s, h => by simp_all [Tm.sort?, Tm.eval, Value.sortOf]
   | .bvar _, _, s, h => by simp_all [Tm.sort?, Tm.eval, Value.sortOf]
   | .avar _, _, s, h => by simp_all [Tm.sort?, Tm.eval, Value.sortOf]
+  | .a2var _, _, s, h => by simp_all [Tm.sort?, Tm.eval, Value.sortOf]
   | .all _ _, _, s, h => by
     simp only [Tm.sort?] at h
     split at h <;> simp at h
@@ -119,7 +144,7 @@ theorem Tm.eval_sortOf : ∀ (t : Tm) (σ : Env) {s : Srt}, t.sort? = some s →
   | .app f args, σ, s, h => by
     simp only [Tm.sort?] at h
     simp only [Tm.eval]
-    exact applyOp_sortOf f _ _ (Tm.evalList_sortOf args σ) h
+    exact applyOp_sortOf σ.u f _ _ (Tm.evalList_sortOf args σ) h
 theorem Tm.evalList_sortOf : ∀ (ts : List Tm) (σ : Env), SortsAgree (Tm.sortList ts) (Tm.evalList σ ts)
   | [], _ => trivial
   | t :: ts, σ => ⟨fun _ h => Tm.eval_sortOf t σ h, Tm.evalList_sortOf ts σ⟩
@@ -143,6 +168,7 @@ def Tm.isVar : Tm → Srt → String → Bool
   | .ivar y, .int, x => y == x
   | .bvar y, .bool, x => y == x
   | .avar y, .arr, x => y == x
+  | .a2var y, .arr2, x => y == x
   | _, _, _ => false
 
 mutual
@@ -155,6 +181,7 @@ def Tm.subst : Tm → Srt → String → Tm → Tm
   | .ivar y, s, x, u => if (Tm.ivar y).isVar s x then u else .ivar y
   | .bvar y, s, x, u => if (Tm.bvar y).isVar s x then u else .bvar y
   | .avar y, s, x, u => if (Tm.avar y).isVar s x then u else .avar y
+  | .a2var y, s, x, u => if (Tm.a2var y).isVar s x then u else .a2var y
   | .app f args, s, x, u => .app f (Tm.substList args s x u)
   | .all y body, s, x, u => if s = .int ∧ y = x then .all y body else .all y (Tm.subst body s x u)
 def Tm.substList : List Tm → Srt → String → Tm → List Tm
@@ -167,6 +194,10 @@ def Env.set (σ : Env) : Srt → String → Value → Env
   | .int, x, v => σ.setI x v.toInt
   | .bool, x, v => σ.setB x v.toProp
   | .arr, x, v => σ.setA x v.toArr
+  | .arr2, x, v => σ.setA2 x v.toArr2
+
+theorem Env.set_u (σ : Env) (s : Srt) (x : String) (v : Value) : (σ.set s x v).u = σ.u := by
+  cases s <;> rfl
 
 theorem Env.setI_setI (σ : Env) (x : String) (m n : Int) : (σ.setI x m).setI x n = σ.setI x n := by
   cases σ; simp only [Env.setI, Env.mk.injEq, and_true]; funext y; split <;> rfl
@@ -174,7 +205,7 @@ theorem Env.setI_setI (σ : Env) (x : String) (m n : Int) : (σ.setI x m).setI x
 theorem Env.set_setI_comm (σ : Env) (s : Srt) (x y : String) (v : Value) (n : Int)
     (h : ¬ (s = .int ∧ y = x)) : (σ.setI y n).set s x v = (σ.set s x v).setI y n := by
   cases σ
-  cases s <;> simp only [Env.set, Env.setI, Env.setB, Env.setA, Env.mk.injEq, and_true]
+  cases s <;> simp only [Env.set, Env.setI, Env.setB, Env.setA, Env.setA2, Env.mk.injEq, and_true]
   funext z
   have : y ≠ x := fun e => h ⟨rfl, e⟩
   by_cases hz : z = x
@@ -185,6 +216,7 @@ theorem Value.eq_refl : ∀ v : Value, v.eq v
   | .int _ => rfl
   | .prop _ => Iff.rfl
   | .arr _ => rfl
+  | .arr2 _ => rfl
 
 theorem Value.sortOf_int {v : Value} (h : v.sortOf = .int) : v = .int v.toInt := by
   cases v <;> simp_all [Value.sortOf, Value.toInt]
@@ -192,22 +224,25 @@ theorem Value.sortOf_bool {v : Value} (h : v.sortOf = .bool) : v = .prop v.toPro
   cases v <;> simp_all [Value.sortOf, Value.toProp]
 theorem Value.sortOf_arr {v : Value} (h : v.sortOf = .arr) : v = .arr v.toArr := by
   cases v <;> simp_all [Value.sortOf, Value.toArr]
+theorem Value.sortOf_arr2 {v : Value} (h : v.sortOf = .arr2) : v = .arr2 v.toArr2 := by
+  cases v <;> simp_all [Value.sortOf, Value.toArr2]
 
 /-- The constant of sort `s` named `x` reads the value of sort `s` set at it. -/
 theorem Env.set_var (σ : Env) (s : Srt) (x : String) (v : Value) (hv : v.sortOf = s) (y : Tm)
     (hy : y.isVar s x = true) : y.eval (σ.set s x v) = v := by
   cases y <;> cases s <;> simp [Tm.isVar] at hy <;> subst hy <;>
-    simp [Tm.eval, Env.set, Env.setI, Env.setB, Env.setA]
+    simp [Tm.eval, Env.set, Env.setI, Env.setB, Env.setA, Env.setA2]
   · exact (Value.sortOf_int hv).symm
   · exact (Value.sortOf_bool hv).symm
   · exact (Value.sortOf_arr hv).symm
+  · exact (Value.sortOf_arr2 hv).symm
 
 theorem Env.set_other (σ : Env) (s : Srt) (x : String) (v : Value) :
-    ∀ y : Tm, (y matches .ivar _ | .bvar _ | .avar _) → y.isVar s x = false →
+    ∀ y : Tm, (y matches .ivar _ | .bvar _ | .avar _ | .a2var _) → y.isVar s x = false →
       y.eval (σ.set s x v) = y.eval σ := by
   intro y hy hn
   cases y <;> simp at hy <;> cases s <;>
-    simp_all [Tm.isVar, Tm.eval, Env.set, Env.setI, Env.setB, Env.setA]
+    simp_all [Tm.isVar, Tm.eval, Env.set, Env.setI, Env.setB, Env.setA, Env.setA2]
 
 mutual
 theorem Tm.eval_subst (s : Srt) (x : String) (u : Tm) (hu : u.sort? = some s) :
@@ -231,9 +266,14 @@ theorem Tm.eval_subst (s : Srt) (x : String) (u : Tm) (hu : u.sort? = some s) :
     split
     · rename_i h; exact (Env.set_var σ s x _ (Tm.eval_sortOf u σ hu) _ h).symm
     · rename_i h; exact (Env.set_other σ s x _ _ rfl (by simpa using h)).symm
+  | .a2var y, σ, _ => by
+    simp only [Tm.subst]
+    split
+    · rename_i h; exact (Env.set_var σ s x _ (Tm.eval_sortOf u σ hu) _ h).symm
+    · rename_i h; exact (Env.set_other σ s x _ _ rfl (by simpa using h)).symm
   | .app f args, σ, hb => by
     simp only [Tm.subst, Tm.eval]
-    rw [Tm.evalList_subst s x u hu args σ (by simpa [Tm.binders] using hb)]
+    rw [Tm.evalList_subst s x u hu args σ (by simpa [Tm.binders] using hb), Env.set_u]
   | .all y body, σ, hb => by
     simp only [Tm.subst]
     split
@@ -247,9 +287,9 @@ theorem Tm.eval_subst (s : Srt) (x : String) (u : Tm) (hu : u.sort? = some s) :
           body.eval ((σ.set s x (u.eval σ)).setI y n) := by
         intro n
         rw [Tm.eval_subst s x u hu body (σ.setI y n) (fun z hz => hb z (by simp [Tm.binders, hz]))]
-        have : u.eval (σ.setI y n) = u.eval σ := Tm.eval_congr u fun z hz => by
+        have : u.eval (σ.setI y n) = u.eval σ := Tm.eval_congr u rfl fun z hz => by
           have : z ≠ y := fun e => hy (e ▸ hz)
-          exact ⟨by simp [Env.setI, this], rfl, rfl⟩
+          exact ⟨by simp [Env.setI, this], rfl, rfl, rfl⟩
         rw [this, Env.set_setI_comm σ s x y _ n h]
       simp only [key]
 theorem Tm.evalList_subst (s : Srt) (x : String) (u : Tm) (hu : u.sort? = some s) :
@@ -269,6 +309,7 @@ def defOf? : Tm → Option (Srt × String × Tm)
   | .app "=" [.ivar x, u] => if u.sort? = some .int ∧ x ∉ u.vars then some (.int, x, u) else none
   | .app "=" [.bvar x, u] => if u.sort? = some .bool ∧ x ∉ u.vars then some (.bool, x, u) else none
   | .app "=" [.avar x, u] => if u.sort? = some .arr ∧ x ∉ u.vars then some (.arr, x, u) else none
+  | .app "=" [.a2var x, u] => if u.sort? = some .arr2 ∧ x ∉ u.vars then some (.arr2, x, u) else none
   | _ => none
 
 /-- The definition's variable, as a term. -/
@@ -276,6 +317,7 @@ def varOf : Srt → String → Tm
   | .int, x => .ivar x
   | .bool, x => .bvar x
   | .arr, x => .avar x
+  | .arr2, x => .a2var x
 
 theorem defOf?_spec {t : Tm} {s : Srt} {x : String} {u : Tm} (h : defOf? t = some (s, x, u)) :
     u.sort? = some s ∧ x ∉ u.vars ∧ ∀ σ, t.eval σ = .prop (((varOf s x).eval σ).eq (u.eval σ)) := by
@@ -295,9 +337,9 @@ def Sat (σ : Env) (fs : List Tm) : Prop := ∀ t ∈ fs, t.Holds σ
 theorem def_holds {t : Tm} {s : Srt} {x : String} {u : Tm} (h : defOf? t = some (s, x, u))
     (σ : Env) : t.Holds (σ.set s x (u.eval σ)) := by
   obtain ⟨hu, hx, he⟩ := defOf?_spec h
-  have hv : u.eval (σ.set s x (u.eval σ)) = u.eval σ := Tm.eval_congr u fun z hz => by
+  have hv : u.eval (σ.set s x (u.eval σ)) = u.eval σ := Tm.eval_congr u (Env.set_u σ s x _) fun z hz => by
     have : z ≠ x := fun e => hx (e ▸ hz)
-    cases s <;> refine ⟨?_, ?_, ?_⟩ <;> simp [Env.set, Env.setI, Env.setB, Env.setA, this]
+    cases s <;> refine ⟨?_, ?_, ?_, ?_⟩ <;> simp [Env.set, Env.setI, Env.setB, Env.setA, Env.setA2, this]
   have hvar : (varOf s x).eval (σ.set s x (u.eval σ)) = u.eval σ :=
     Env.set_var σ s x (u.eval σ) (Tm.eval_sortOf u σ hu) (varOf s x) (varOf_isVar s x)
   simp only [Tm.Holds, he, hvar, hv, Value.toProp]
@@ -377,6 +419,7 @@ def Tm.rename : Tm → Tm
   | .ivar x => .ivar (strip x)
   | .bvar x => .bvar (strip x)
   | .avar x => .avar (strip x)
+  | .a2var x => .a2var (strip x)
   | .app f args => .app f (Tm.renameList args)
   | .all x body => .all (strip x) (Tm.rename body)
 def Tm.renameList : List Tm → List Tm
@@ -397,54 +440,57 @@ end
 
 /-- `σ` reads each name as `τ` reads its renaming. -/
 def Env.Renamed (σ τ : Env) (y : String) : Prop :=
-  σ.i y = τ.i (strip y) ∧ σ.b y = τ.b (strip y) ∧ σ.a y = τ.a (strip y)
+  σ.i y = τ.i (strip y) ∧ σ.b y = τ.b (strip y) ∧ σ.a y = τ.a (strip y) ∧ σ.a2 y = τ.a2 (strip y)
 
 mutual
-theorem Tm.eval_rename : ∀ (t : Tm) {σ τ : Env}, t.renameOk = true →
+theorem Tm.eval_rename : ∀ (t : Tm) {σ τ : Env}, σ.u = τ.u → t.renameOk = true →
     (∀ y ∈ t.vars, σ.Renamed τ y) → t.eval σ = t.rename.eval τ
-  | .num _, _, _, _, _ => rfl
-  | .tt, _, _, _, _ => rfl
-  | .ff, _, _, _, _ => rfl
-  | .ivar x, _, _, _, h => by simp [Tm.rename, Tm.eval, (h x (by simp [Tm.vars])).1]
-  | .bvar x, _, _, _, h => by simp [Tm.rename, Tm.eval, (h x (by simp [Tm.vars])).2.1]
-  | .avar x, _, _, _, h => by simp [Tm.rename, Tm.eval, (h x (by simp [Tm.vars])).2.2]
-  | .app f args, σ, τ, ho, h => by
+  | .num _, _, _, _, _, _ => rfl
+  | .tt, _, _, _, _, _ => rfl
+  | .ff, _, _, _, _, _ => rfl
+  | .ivar x, _, _, _, _, h => by simp [Tm.rename, Tm.eval, (h x (by simp [Tm.vars])).1]
+  | .bvar x, _, _, _, _, h => by simp [Tm.rename, Tm.eval, (h x (by simp [Tm.vars])).2.1]
+  | .avar x, _, _, _, _, h => by simp [Tm.rename, Tm.eval, (h x (by simp [Tm.vars])).2.2.1]
+  | .a2var x, _, _, _, _, h => by simp [Tm.rename, Tm.eval, (h x (by simp [Tm.vars])).2.2.2]
+  | .app f args, σ, τ, hu, ho, h => by
     simp only [Tm.rename, Tm.eval]
-    rw [Tm.evalList_rename args (by simpa [Tm.renameOk] using ho) (by simpa [Tm.vars] using h)]
-  | .all x body, σ, τ, ho, h => by
+    rw [Tm.evalList_rename args hu (by simpa [Tm.renameOk] using ho) (by simpa [Tm.vars] using h), hu]
+  | .all x body, σ, τ, hu, ho, h => by
     simp only [Tm.renameOk, Bool.and_eq_true, List.all_eq_true] at ho
     simp only [Tm.rename, Tm.eval]
     have key : ∀ n : Int, body.eval (σ.setI x n) = body.rename.eval (τ.setI (strip x) n) := by
       intro n
-      apply Tm.eval_rename body ho.2
+      apply Tm.eval_rename body (σ := σ.setI x n) (τ := τ.setI (strip x) n) hu ho.2
       intro y hy
-      obtain ⟨h1, h2, h3⟩ := h y (by simp [Tm.vars, hy])
-      refine ⟨?_, h2, h3⟩
+      obtain ⟨h1, h2, h3, h4⟩ := h y (by simp [Tm.vars, hy])
+      refine ⟨?_, h2, h3, h4⟩
       by_cases hyx : y = x
       · subst hyx; simp [Env.setI]
       · have := ho.1 y hy
         have hs : strip y ≠ strip x := by simpa [hyx] using this
         simp [Env.setI, hyx, hs, h1]
     simp only [key]
-theorem Tm.evalList_rename : ∀ (ts : List Tm) {σ τ : Env}, Tm.renameOkList ts = true →
+theorem Tm.evalList_rename : ∀ (ts : List Tm) {σ τ : Env}, σ.u = τ.u → Tm.renameOkList ts = true →
     (∀ y ∈ Tm.varsList ts, σ.Renamed τ y) → Tm.evalList σ ts = Tm.evalList τ (Tm.renameList ts)
-  | [], _, _, _, _ => rfl
-  | t :: ts, σ, τ, ho, h => by
+  | [], _, _, _, _, _ => rfl
+  | t :: ts, σ, τ, hu, ho, h => by
     simp only [Tm.renameOkList, Bool.and_eq_true] at ho
     simp only [Tm.renameList, Tm.evalList]
-    rw [Tm.eval_rename t ho.1 (fun y hy => h y (by simp [Tm.varsList, hy])),
-      Tm.evalList_rename ts ho.2 (fun y hy => h y (by simp [Tm.varsList, hy]))]
+    rw [Tm.eval_rename t hu ho.1 (fun y hy => h y (by simp [Tm.varsList, hy])),
+      Tm.evalList_rename ts hu ho.2 (fun y hy => h y (by simp [Tm.varsList, hy]))]
 end
 
 theorem rename_sound {fs : List Tm} (hok : fs.all Tm.renameOk = true) (h : ∀ σ, ¬ Sat σ fs) :
     ∀ τ, ¬ Sat τ (fs.map Tm.rename) := by
   intro τ hτ
-  let σ : Env := ⟨fun y => τ.i (strip y), fun y => τ.b (strip y), fun y => τ.a (strip y)⟩
+  let σ : Env := ⟨fun y => τ.i (strip y), fun y => τ.b (strip y), fun y => τ.a (strip y),
+    fun y => τ.a2 (strip y), τ.u⟩
   apply h σ
   intro t ht
   have := hτ t.rename (List.mem_map.mpr ⟨t, ht, rfl⟩)
   simp only [Tm.Holds] at this ⊢
-  rwa [Tm.eval_rename t (List.all_eq_true.mp hok t ht) (fun y _ => ⟨rfl, rfl, rfl⟩)]
+  rwa [Tm.eval_rename t (σ := σ) (τ := τ) rfl (List.all_eq_true.mp hok t ht)
+    (fun y _ => ⟨rfl, rfl, rfl, rfl⟩)]
 
 /-! ## Flattening conjunctions -/
 
@@ -478,6 +524,7 @@ theorem flatten_holds : ∀ (t : Tm) (σ : Env), (∀ c ∈ flatten t, c.Holds �
   | .ivar x, _, h => h _ (by simp [flatten])
   | .bvar x, _, h => h _ (by simp [flatten])
   | .avar x, _, h => h _ (by simp [flatten])
+  | .a2var x, _, h => h _ (by simp [flatten])
   | .all x b, _, h => h _ (by simp [flatten])
 theorem flattenList_holds : ∀ (ts : List Tm) (σ : Env), (∀ c ∈ flattenList ts, c.Holds σ) →
     ∀ t ∈ ts, t.Holds σ
@@ -557,15 +604,23 @@ theorem holds_le (σ : Env) (a b : Tm) :
   simp [Tm.Holds, Tm.eval, Tm.evalList, applyOp, Value.toProp]
 
 theorem eval_select (σ : Env) (a j : Tm) :
-    (Tm.app "select" [a, j]).eval σ = .int ((a.eval σ).toArr (j.eval σ).toInt) := by
-  simp [Tm.eval, Tm.evalList, applyOp]
+    ((Tm.app "select" [a, j]).eval σ).toInt = (a.eval σ).toArr (j.eval σ).toInt := by
+  simp only [Tm.eval, Tm.evalList, applyOp]
+  cases a.eval σ <;> rfl
 
+/-- Read over write, of the integer a term takes: the case of a mapping of mappings (an array
+value) takes none. -/
 theorem eval_store_select (σ : Env) (a i v j : Tm) :
     ((Tm.app "select" [.app "store" [a, i, v], j]).eval σ).toInt =
-      if (j.eval σ).toInt = (i.eval σ).toInt then (v.eval σ).toInt
-      else ((Tm.app "select" [a, j]).eval σ).toInt := by
-  simp only [Tm.eval, Tm.evalList, applyOp, Value.toInt]
-  rfl
+      (if (j.eval σ).toInt = (i.eval σ).toInt then (v.eval σ).toInt
+      else ((Tm.app "select" [a, j]).eval σ).toInt) ∨
+    ((Tm.app "select" [.app "store" [a, i, v], j]).eval σ).toInt = 0 := by
+  simp only [Tm.eval, Tm.evalList, applyOp]
+  cases a.eval σ with
+  | arr2 f => exact Or.inr rfl
+  | arr f => left; simp only [Value.store, Value.select, Value.toInt]; first | rfl | (by_cases hc : (Tm.eval σ j).toInt = (Tm.eval σ i).toInt <;> simp_all [Value.toInt])
+  | int n => left; simp only [Value.store, Value.select, Value.toInt]; first | rfl | (by_cases hc : (Tm.eval σ j).toInt = (Tm.eval σ i).toInt <;> simp_all [Value.toInt])
+  | prop p => left; simp only [Value.store, Value.select, Value.toInt]; first | rfl | (by_cases hc : (Tm.eval σ j).toInt = (Tm.eval σ i).toInt <;> simp_all [Value.toInt])
 
 open Classical in
 theorem eval_ite_int (σ : Env) (c a b : Tm) :
@@ -580,7 +635,8 @@ theorem ite_toInt (σ : Env) (c a b : Tm) :
   cases a.eval σ <;> cases b.eval σ
   all_goals first
     | (simp [applyOp, Value.toInt]; done)
-    | (simp only [applyOp, Value.toInt]; split <;> simp)
+    | (right; right; rfl)
+    | (simp only [applyOp, Value.toInt]; split <;> simp; done)
 
 theorem lowerOk_sound (hs : List Tm) {σ : Env} (hh : ∀ x ∈ hs, x.Holds σ) :
     ∀ n t, lowerOk hs n t = true → 0 ≤ (t.eval σ).toInt := by
@@ -607,10 +663,11 @@ theorem lowerOk_sound (hs : List Tm) {σ : Env} (hh : ∀ x ∈ hs, x.Holds σ) 
         · exact Int.le_refl 0
       · rename_i a i v j
         simp only [Bool.and_eq_true] at h
-        rw [eval_store_select]
-        split
-        · exact ih v h.1
-        · exact ih _ h.2
+        rcases eval_store_select σ a i v j with e | e <;> rw [e]
+        · split
+          · exact ih v h.1
+          · exact ih _ h.2
+        · exact Int.le_refl 0
       · rename_i m j
         obtain ⟨f, hf, hm⟩ := List.any_eq_true.mp h
         split at hm
@@ -620,7 +677,7 @@ theorem lowerOk_sound (hs : List Tm) {σ : Env} (hh : ∀ x ∈ hs, x.Holds σ) 
           have := hh _ hf
           simp only [Tm.Holds, Tm.eval, Value.toProp] at this
           have := this (j.eval σ).toInt
-          simp [Tm.eval, Tm.evalList, applyOp, Value.toProp, Value.toInt, Value.toArr, Env.setI] at this
+          simp [Tm.eval, Tm.evalList, applyOp, Value.toProp, Value.toInt, Value.select, Env.setI] at this
           rw [eval_select]
           simpa [Value.toInt, Tm.eval, Value.toArr] using this.1
         · simp at hm
@@ -658,10 +715,11 @@ theorem upperOk_sound (hs : List Tm) (M : Nat) {σ : Env} (hh : ∀ x ∈ hs, x.
         · exact Int.natCast_nonneg M
       · rename_i a i v j
         simp only [Bool.and_eq_true] at h
-        rw [eval_store_select]
-        split
-        · exact ih v h.1
-        · exact ih _ h.2
+        rcases eval_store_select σ a i v j with e | e <;> rw [e]
+        · split
+          · exact ih v h.1
+          · exact ih _ h.2
+        · exact Int.natCast_nonneg M
       · rename_i m j
         rw [eval_select]
         exact (arrBound_sound h hh _).2
@@ -696,7 +754,8 @@ def checkOb (e hs : List Tm) (φ : Tm) : Bool :=
 /-- The assignment that reads as `σ` the names of `V`, and every other name as 0. -/
 def Env.restrict (σ : Env) (V : List String) : Env :=
   ⟨fun x => if x ∈ V then σ.i x else 0, fun x => if x ∈ V then σ.b x else False,
-    fun x => if x ∈ V then σ.a x else fun _ => 0⟩
+    fun x => if x ∈ V then σ.a x else fun _ => 0, fun x => if x ∈ V then σ.a2 x else fun _ _ => 0,
+    σ.u⟩
 
 theorem Env.restrict_agree (σ : Env) {V : List String} {x : String} (h : x ∈ V) :
     (σ.restrict V).Agree σ x := by
@@ -710,7 +769,7 @@ theorem mem_varsList {t : Tm} : ∀ {ts : List Tm}, t ∈ ts → ∀ x ∈ t.var
 theorem holds_restrict {σ : Env} {V : List String} {t : Tm} (h : ∀ x ∈ t.vars, x ∈ V) :
     t.Holds (σ.restrict V) ↔ t.Holds σ := by
   simp only [Tm.Holds]
-  rw [Tm.eval_congr t fun x hx => Env.restrict_agree σ (h x hx)]
+  rw [Tm.eval_congr t (σ := σ.restrict V) (τ := σ) rfl fun x hx => Env.restrict_agree σ (h x hx)]
 
 theorem hypOk_sound {hs : List Tm} {φ : Tm} {σ : Env} (hh : ∀ x ∈ hs, x.Holds σ) {h : Tm}
     (ok : hypOk hs (leanVars hs φ) h = true) : h.Holds (σ.restrict (leanVars hs φ)) := by

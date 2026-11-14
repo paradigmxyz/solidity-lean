@@ -33,7 +33,7 @@ inductive CRes where
 /-- The effects whose result is not monotone in gas or is the oracle's answer to a message. -/
 def cutEffect : SolarTV.Machine.Effect → Bool
   | .gas | .call _ | .create | .create2 | .keccak256 | .log _ | .calldatacopy | .returndatasize
-  | .returndatacopy =>
+  | .returndatacopy | .codecopy =>
     true
   | _ => false
 
@@ -314,24 +314,43 @@ def isRdcI : Assemble.Instr → Bool
   | .effect .returndatacopy 3 => true
   | _ => false
 
-/-- MLOAD, MSTORE, RETURN, REVERT, KECCAK256, LOGn, CALLDATACOPY, STATICCALL, RETURNDATASIZE and
-RETURNDATACOPY: memory at ranges
-only the gas of the run bounds. -/
+/-- CALL, with its seven operands. -/
+def isCallI : Assemble.Instr → Bool
+  | .effect (.call .call) 7 => true
+  | _ => false
+
+/-- CREATE2, with its four operands. -/
+def isC2I : Assemble.Instr → Bool
+  | .effect .create2 4 => true
+  | _ => false
+
+/-- CODECOPY, with its three operands. -/
+def isCcI : Assemble.Instr → Bool
+  | .effect .codecopy 3 => true
+  | _ => false
+
+/-- A DUP right before a CODECOPY: the DUP of the copy's destination, over its code offset. -/
+def isCcDup : Assemble.Instr → List Assemble.Instr → Bool
+  | .op (.stack (.dup _)), .effect .codecopy 3 :: _ => true
+  | _, _ => false
+
+/-- MLOAD, MSTORE, RETURN, REVERT, KECCAK256, LOGn, CALLDATACOPY, STATICCALL, RETURNDATASIZE,
+RETURNDATACOPY, CALL, CREATE2 and CODECOPY: memory at ranges only the gas of the run bounds. -/
 def isMemCutI (i : Assemble.Instr) : Bool :=
   isLoadI i || isStoreI i || isRetI i || isRevI i || isKecI i || isLogI i || isCdcI i || isScI i ||
-    isRdsI i || isRdcI i
+    isRdsI i || isRdcI i || isCallI i || isC2I i || isCcI i
 
 theorem execC_cut {o : SolarTV.Machine.Oracle} {call : SolarTV.Call} {b : Nat}
     {i : Assemble.Instr} {rest : List Assemble.Instr} {S : List Word} {s : SolarTV.Machine.State}
     (h : isMemCutI i = true) : execC o call b (i :: rest) S s = .cut i rest S s := by
   cases i with
-  | op op => cases op <;> simp_all [isMemCutI, isLoadI, isStoreI, isRetI, isRevI, isKecI, isLogI, isCdcI, isScI, isRdsI, isRdcI, execC, cutOp]
+  | op op => cases op <;> simp_all [isMemCutI, isLoadI, isStoreI, isRetI, isRevI, isKecI, isLogI, isCdcI, isScI, isRdsI, isRdcI, isCallI, isC2I, isCcI, execC, cutOp]
   | ret => rfl
   | revert => rfl
   | effect e a =>
-    cases e <;> simp_all [isMemCutI, isLoadI, isStoreI, isRetI, isRevI, isKecI, isLogI, isCdcI, isScI, isRdsI, isRdcI] <;>
+    cases e <;> simp_all [isMemCutI, isLoadI, isStoreI, isRetI, isRevI, isKecI, isLogI, isCdcI, isScI, isRdsI, isRdcI, isCallI, isC2I, isCcI] <;>
       simp [execC, cutEffect]
-  | _ => simp_all [isMemCutI, isLoadI, isStoreI, isRetI, isRevI, isKecI, isLogI, isCdcI, isScI, isRdsI, isRdcI]
+  | _ => simp_all [isMemCutI, isLoadI, isStoreI, isRetI, isRevI, isKecI, isLogI, isCdcI, isScI, isRdsI, isRdcI, isCallI, isC2I, isCcI]
 
 /-- The instructions a block's segment stops at. -/
 def isCutI (i : Assemble.Instr) : Bool := isGasI i || isMemCutI i
@@ -372,13 +391,30 @@ def blockOkC (p : Assemble.Program) (c : Cert) (mx : List Nat) (b : Nat) :
         decide (1 ≤ k) && decide (3 ≤ h) && isData ty 3 && decide (2 ^ 140 ≤ c.top) &&
           blockOkC p c mx b (h - 3) [] (ty.drop 3) (k - 1) rest
       else if isScI i then
-        c.calls && decide (1 ≤ k) && decide (6 ≤ h) && isData ty 6 && decide (2 ^ 140 ≤ c.top) &&
+        c.calls && !c.creates && decide (1 ≤ k) && decide (6 ≤ h) && isData ty 6 && decide (2 ^ 140 ≤ c.top) &&
           blockOkC p c mx b (h - 5) [] (some false :: ty.drop 6) (k - 1) rest
       else if isRdsI i then
-        c.calls && decide (1 ≤ k) && blockOkC p c mx b (h + 1) [] (some false :: ty) (k - 1) rest
+        c.calls && !c.creates && decide (1 ≤ k) && blockOkC p c mx b (h + 1) [] (some false :: ty) (k - 1) rest
       else if isRdcI i then
-        c.calls && decide (1 ≤ k) && decide (3 ≤ h) && isData ty 3 && decide (2 ^ 140 ≤ c.top) &&
+        c.calls && !c.creates && decide (1 ≤ k) && decide (3 ≤ h) && isData ty 3 && decide (2 ^ 140 ≤ c.top) &&
           blockOkC p c mx b (h - 3) [] (ty.drop 3) (k - 1) rest
+      else if isCallI i then
+        c.calls && c.creates && decide (1 ≤ k) && decide (7 ≤ h) && isData ty 7 &&
+          decide (2 ^ 140 ≤ c.top) && blockOkC p c mx b (h - 6) [] (some false :: ty.drop 7) (k - 1) rest
+      else if isC2I i then
+        c.calls && c.creates && decide (1 ≤ k) && decide (4 ≤ h) && isData ty 4 &&
+          decide (2 ^ 140 ≤ c.top) && blockOkC p c mx b (h - 3) [] (some false :: ty.drop 4) (k - 1) rest
+      else if isCcI i then
+        match known with
+        | _ :: off :: _ =>
+          c.calls && c.creates && decide (off.toNat < 2 ^ 32) && decide (1 ≤ k) && decide (3 ≤ h) &&
+            isData ty 3 && decide (2 ^ 140 ≤ c.top) && blockOkC p c mx b (h - 3) [] (ty.drop 3) (k - 1) rest
+        | _ => false
+      else if isCcDup i rest then
+        match known with
+        | off :: _ => c.calls && c.creates &&
+          blockStepL p c mx b (fun h _ ty k => blockOkC p c mx b h [0, off] ty k rest) h known ty k i
+        | [] => false
       else blockStepL p c mx b (fun h known ty k => blockOkC p c mx b h known ty k rest) h known ty k i
 
 /-! ## The budget of memory and gas -/
@@ -476,6 +512,24 @@ theorem SimOutC.pre {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : By
   | .done _, h1 => exact SimOutB.pre h h1
   | .cut _ _ _ _, ⟨hi, hc, known, ty, k, pc', T', M', g', st', ss', hh, rest'⟩ =>
     exact ⟨hi, hc, known, ty, k, pc', T', M', g', st', ss', Triple.seq h hh, rest'⟩
+
+/-- The check of a CODECOPY reads only the code offset of what it knows of the stack. -/
+theorem blockOkC_cc_known {p : Assemble.Program} {c : Cert} {mx : List Nat} {b h : Nat} {ty : List Ty}
+    {k : Nat} {rest : List Assemble.Instr} (x y off : Word) :
+    blockOkC p c mx b h [x, off] ty k (.effect .codecopy 3 :: rest) =
+      blockOkC p c mx b h [y, off] ty k (.effect .codecopy 3 :: rest) := by
+  simp only [blockOkC, turnedElse, dropped, isGasI, isLoadI, isStoreI, isRetI, isRevI, isKecI,
+    isLogI, isCdcI, isScI, isRdsI, isRdcI, isCallI, isC2I, isCcI, Bool.false_eq_true, ite_false,
+    ite_true]
+
+/-- After a DUP over a known word, that word is second on the stack. -/
+theorem ccDup_prefix {ctx : SolarTV.EVM.Context} {j : Fin 256} {S S' : List Word} {off : Word}
+    {known0 : List Word} (hk : off :: known0 <+: S)
+    (h : SolarTV.EVM.step ctx (.dup j) S = some S') : ∃ x, [x, off] <+: S' := by
+  obtain ⟨t, rfl⟩ := hk
+  simp only [SolarTV.EVM.step, Option.map_eq_some_iff] at h
+  obtain ⟨v, -, rfl⟩ := h
+  exact ⟨v, known0 ++ t, by simp⟩
 
 set_option hygiene false in
 /-- The budget after an instruction that leaves memory as it was. -/
@@ -609,10 +663,57 @@ theorem exec_simC {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
           hok, hh, hu, hk, hR, I, R, Hb⟩
       have hMc' : isMemCutI i = false := by simpa using hMc
       simp only [isMemCutI, Bool.or_eq_false_iff] at hMc'
-      obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨hnl, hns⟩, hnr⟩, hnv⟩, hnk⟩, hnlog⟩, hncd⟩, hnsc⟩, hnrds⟩, hnrdc⟩ := hMc'
+      obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨hnl, hns⟩, hnr⟩, hnv⟩, hnk⟩, hnlog⟩, hncd⟩, hnsc⟩, hnrds⟩, hnrdc⟩, hncall⟩, hnc2⟩,
+        hncc⟩ := hMc'
+      by_cases hDup : isCcDup i rest = true
+      · -- The DUP of a CODECOPY's destination over the code offset the check knows: the block stops at
+        -- the CODECOPY, with that offset second on the stack.
+        obtain ⟨j, rest', rfl, rfl⟩ : ∃ j rest', i = .op (.stack (.dup j)) ∧
+            rest = .effect .codecopy 3 :: rest' := by
+          unfold isCcDup at hDup
+          split at hDup
+          · exact ⟨_, _, rfl, rfl⟩
+          · cases hDup
+        rcases known with _ | ⟨off, known0⟩
+        · simp [blockOkC, hT, hD', hG', hnl, hns, hnr, hnv, hnk, hnlog, hncd, hnsc, hnrds, hnrdc, hncall,
+            hnc2, hncc, isCcDup] at hok
+        have e : blockOkC p c mx b h (off :: known0) ty k
+            (.op (.stack (.dup j)) :: .effect .codecopy 3 :: rest') = (c.calls && c.creates &&
+              blockStepL p c mx b (fun h _ ty k => blockOkC p c mx b h [0, off] ty k
+                (.effect .codecopy 3 :: rest')) h (off :: known0) ty k (.op (.stack (.dup j)))) := by
+          simp only [blockOkC, hT, hD', hG', hnl, hns, hnr, hnv, hnk, hnlog, hncd, hnsc, hnrds, hnrdc,
+            hncall, hnc2, hncc, isCcDup, Bool.or_false, Bool.false_eq_true, ite_false, ite_true]
+        rw [e] at hok
+        have hokd := ((Bool.and_eq_true _ _).mp hok).2
+        have I' : InvL c code call (lowerInstr (.op (.stack (.dup j))) ++
+            (lowerInstrs p c b (.effect .codecopy 3 :: rest') ++
+            lowerFrom p c (b + 1) (p.blocks.drop (b + 1)))) k Rv pc S s M g := by
+          simpa only [lowerInstrs, hT, hD', Bool.false_eq_true, ite_false, List.append_assoc] using I
+        have hne : ∀ v, SolarTV.EVM.Op.dup j ≠ .push v := fun v h => by cases h
+        obtain ⟨hk1, byte, hbyte, h', ty', S', T', hstep, hstepT, hR', hh', hlen', hlock, known', hkn,
+          hokn⟩ := stack_simL (ctx := context o call s) hne hokd hh hk hR
+        rw [lowerInstr_stack hne, hbyte] at I'
+        simp only [Option.getD_some, List.singleton_append] at I'
+        obtain ⟨next, hd, hseg⟩ := I'.seg.head
+        simp only [Item.expected] at hd
+        obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+        rw [← hctx] at hstepT
+        have hS := I'.stack; have hG := I'.gas
+        obtain ⟨g1, hg1, hrule⟩ := stack_ruleG (M := M) (st := st) (ss := ss) (rd := rd) (gas := g)
+          (stack := T) hbyte hlt hcode hstepT (by omega) (by omega)
+        have hg1u := gas_le_of_hoareG hrule
+          (by first | omega | (simp only [List.length_cons] at *; omega) | simp_all)
+        rw [execC_stack hstep (by omega) (by omega), execC_cut (show isMemCutI (.effect .codecopy 3) = true by rfl)]
+        refine SimOutC.pre hrule ?_
+        obtain ⟨x, hx⟩ := ccDup_prefix hk hstep
+        exact ⟨rfl, h', [x, off], ty', k - 1, _, T', M, g1, st, ss, Triple.of_imp fun _ h => h,
+          by rw [blockOkC_cc_known x 0 off]; exact hokn, hh', by omega, hx, hR',
+          I'.next hk1 hseg (by omega) (by omega), R, by bud_tac⟩
+      have hDup' : isCcDup i rest = false := by simpa using hDup
       have hok' : blockStepL p c mx b (fun h known ty k => blockOkC p c mx b h known ty k rest) h known ty k i =
           true := by
-        simpa only [blockOkC, hT, hD', hG', hnl, hns, hnr, hnv, hnk, hnlog, hncd, hnsc, hnrds, hnrdc, Bool.or_false, Bool.false_eq_true, ite_false] using hok
+        simpa only [blockOkC, hT, hD', hG', hnl, hns, hnr, hnv, hnk, hnlog, hncd, hnsc, hnrds, hnrdc,
+          hncall, hnc2, hncc, hDup', Bool.and_false, Bool.or_false, Bool.false_eq_true, ite_false] using hok
       have I' : InvL c code call (lowerInstr i ++ (lowerInstrs p c b rest ++
           lowerFrom p c (b + 1) (p.blocks.drop (b + 1)))) k Rv pc S s M g := by
         simpa only [lowerInstrs, hT, hD', Bool.false_eq_true, ite_false, List.append_assoc] using I

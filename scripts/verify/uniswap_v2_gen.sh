@@ -53,4 +53,8 @@ for d in ERC20 Pair Factory; do
     fi
   done
 done
+if [[ ! -s "Contracts/UniswapV2/Pair/Contract.lean" ]]; then
+  echo "error: Contracts/UniswapV2/Pair/Contract.lean was not generated" >&2
+  status=1
+fi
 exit "$status"

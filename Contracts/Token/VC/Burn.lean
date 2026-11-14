@@ -222,11 +222,11 @@ theorem burn_check : checkScript Export.Token.script [(burnHyps, burnGoal)] = tr
 /-- The assignment of solar-verify's names that a call of `burn` on `amount` gives, from the
 balance `b` of the caller and the total supply `t`; the ghost `sumBalances` is chosen equal to
 `totalSupply`, which the invariant assumes. -/
-def burnEnv (a b t : Nat) : Env :=
-  ⟨fun x => if x = "amount" then a else if x = "msg.sender" then callerWord
-      else if x = "totalSupply" then t else if x = "sumBalances" then t else 0,
-    fun _ => False,
-    fun x => if x = "balanceOf" then fun k => if k = callerWord then b else 0 else fun _ => 0⟩
+def burnEnv (a b t : Nat) : Env where
+  i := fun x => if x = "amount" then a else if x = "msg.sender" then callerWord
+      else if x = "totalSupply" then t else if x = "sumBalances" then t else 0
+  b := fun _ => False
+  a := fun x => if x = "balanceOf" then fun k => if k = callerWord then b else 0 else fun _ => 0
 
 theorem burnHyps_hold {a b t : Nat} (ha : a ≤ b) (ht : a ≤ t) (hb : b < 2 ^ 256) (htt : t < 2 ^ 256) :
     ∀ x ∈ burnHyps, x.Holds (burnEnv a b t) := by
@@ -234,7 +234,7 @@ theorem burnHyps_hold {a b t : Nat} (ha : a ≤ b) (ht : a ≤ t) (hb : b < 2 ^ 
   simp only [burnHyps, List.mem_cons, List.mem_nil_iff, or_false]
   rintro x (rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
     rfl | rfl | rfl | rfl) <;>
-  simp [Tm.Holds, Tm.eval, Tm.evalList, applyOp, Value.toProp, Value.toInt, Value.toArr, Value.eq,
+  simp [Tm.Holds, Tm.eval, Tm.evalList, applyOp, Value.select, Value.store, Value.toProp, Value.toInt, Value.toArr, Value.eq,
     burnEnv, Ob.amt, Ob.ms, Ob.ts, Ob.sum, Ob.mv, Ob.bal, Ob.le0, Ob.leW, Ob.sub, Ob.eq, hca] <;>
   omega
 
@@ -243,7 +243,7 @@ the amount. -/
 theorem burnStore_eval (a b t : Nat) :
     (burnStore.eval (burnEnv a b t)).toInt = (b : Int) - a := by
   have hca : callerWord = 8192 := rfl
-  simp [burnStore, Tm.eval, Tm.evalList, applyOp, Value.toInt, Value.toArr, burnEnv, Ob.amt, Ob.ms,
+  simp [burnStore, Tm.eval, Tm.evalList, applyOp, Value.select, Value.store, Value.toInt, Value.toArr, burnEnv, Ob.amt, Ob.ms,
     Ob.bal, Ob.sub, hca]
 
 /-- `burn`'s postcondition: on success, the caller's balance and the total supply drop by the

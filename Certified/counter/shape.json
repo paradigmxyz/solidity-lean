@@ -4,13 +4,20 @@
   "fuel": "SolidCore.Refinement.Solar.Counter.fuel",
   "valid": "SolidCore.Refinement.Solar.Counter.ShapeSpec.cspec.Calls",
   "allowed": "SolidCore.Refinement.Solar.Counter.ShapeSpec.allowed",
-  "post": "SolidCore.Refinement.Shapes.specPost SolidCore.Refinement.Solar.Counter.ShapeSpec.cspec",
+  "spec_export": {
+    "ctx": "SolidCore.Refinement.Solar.Counter.Headline.ctxOf",
+    "step": "SolidCore.Refinement.Solar.Counter.Headline.step"
+  },
+  "nonvacuous": "SolidCore.Refinement.Solar.Counter.ShapeExport.nonvacuous",
+  "gas": "SolidCore.Refinement.Solar.Counter.ShapeSpec.gasBound",
   "env": [],
+  "spec": "solar-verify's export of counter.sol in this run: inc(d) ensures x == old(x) + d (no succeeds-if, so no claim that it succeeds); get() has no spec",
   "spec_modules": [
-    "Contracts.Counter.ShapeSpec"
+    "Contracts.Counter.ShapeSpec",
+    "Contracts.Counter.Headline"
   ],
-  "proof_module": "Contracts.Counter.Shape",
-  "proof": "SolidCore.Refinement.Solar.Counter.Shape.published",
+  "proof_module": "Contracts.Counter.ShapeExport",
+  "proof": "SolidCore.Refinement.Solar.Counter.ShapeExport.published",
   "excluded": [
     "gas: the bound is 1,281,806 for every valid call (the straight-line checker's bound, 22100 per item plus memory), coarse; below it the bytecode may run out of gas, which equivalence admits as a failure that changes nothing",
     "deployment: the init code is not covered by this statement (Contracts.Counter.Deploy.initcode_runs proves it separately)",
@@ -18,5 +25,9 @@
     "calls: one frame, caller 0x2000, contract at 0x1000, the block and transaction of Target.message; valid calls are inc(uint256) and get() ABI-encoded with clean arguments, any value below 2^256, any storage; other call data is outside the statement",
     "below the gas bound, equivalence admits any failure that changes nothing (out of gas or a revert, whatever its data)"
   ],
-  "gas": "SolidCore.Refinement.Solar.Counter.ShapeSpec.gasBound"
+  "source_ast": {
+    "file": "SolidCore/Refinement/Solar/Counter/Source.lean",
+    "namespace": "SolidCore.Refinement.Source.Counter",
+    "contract": "Counter"
+  }
 }

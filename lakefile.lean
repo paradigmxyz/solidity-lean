@@ -62,7 +62,7 @@ lean_lib SolidCoreSolarC4 where
 -- (scripts/refinement/mulx/mul.sol; solar-tv/milestone/mulx, solar's export at a8179dfc),
 -- composed with solar-tv's backend stages and the assembly stage into one theorem from
 -- SolidCore to the bytecode (Solar/MulX/Certified.lean), outside the default root for the same
--- reason. Lowering.lean and Certified.lean need -KleanMemory=7000 (peaks of 5.4 and 4.3 GB).
+-- reason. Lowering.lean and Certified.lean need -KleanMemory=6000 (peaks of 5.4 and 4.3 GB).
 lean_lib SolidCoreSolarMulX where
   roots := #[`SolidCore.Refinement.Solar.MulX.Lowering, `SolidCore.Refinement.Solar.MulX.Certified]
 
@@ -167,7 +167,8 @@ lean_lib SolidCoreSolarAssemblyEnv where
 -- instruction at a time, under the oracle of a run (Solar/AssembleEffects.lean), and the
 -- refinement at the gas a run has from a block simulation under the runner of messages
 -- (Solar/AssembleRun.lean), met by every program the loop checker accepts
--- (Solar/AssembleRunLoop.lean).
+-- (Solar/AssembleRunLoop.lean), and by every program the checker with contexts accepts, which
+-- types an internal function once per call site (Solar/AssembleCtx.lean).
 lean_lib SolidCoreSolarRunOracle where
   roots := #[`SolidCore.Refinement.Solar.RunOracle, `SolidCore.Refinement.Solar.AssembleEffects,
     `SolidCore.Refinement.Solar.AssembleRun, `SolidCore.Refinement.Solar.AssembleRunLoop,
@@ -177,7 +178,35 @@ lean_lib SolidCoreSolarRunOracle where
     `SolidCore.Refinement.Solar.AssembleDynExample, `SolidCore.Refinement.Solar.AssembleCall,
     `SolidCore.Refinement.Solar.AssembleCallWorld, `SolidCore.Refinement.Solar.AssembleCallCut,
     `SolidCore.Refinement.Solar.AssembleCallSeg, `SolidCore.Refinement.Solar.AssembleCallExample,
-    `SolidCore.Refinement.Solar.AssembleCallPre]
+    `SolidCore.Refinement.Solar.AssembleCallPre, `SolidCore.Refinement.Solar.AssembleCallStatic,
+    `SolidCore.Refinement.Solar.AssembleCallStaticRunner, `SolidCore.Refinement.Solar.AssembleCtxTrack,
+    `SolidCore.Refinement.Solar.AssembleCtx, `SolidCore.Refinement.Solar.AssembleCtxExample,
+    `SolidCore.Refinement.Solar.AssembleCtxCall]
+
+-- Runs that revert: no step of EthLib throws a revert and only REVERT ends a frame with it
+-- (Solar/EthLibErr.lean), so a run with less gas that reverts follows the run with more
+-- (Solar/EthLibErrLow.lean), and the loop checker's theorem relates revert data
+-- (Solar/AssembleRevert.lean), and so does the checker with GAS and memory at any offset
+-- (Solar/AssembleRevertCut.lean), each with an example and mutants (Solar/AssembleRevert*Example.lean).
+lean_lib SolidCoreSolarRevert where
+  roots := #[`SolidCore.Refinement.Solar.EthLibErr, `SolidCore.Refinement.Solar.EthLibErrLow,
+    `SolidCore.Refinement.Solar.AssembleRevert, `SolidCore.Refinement.Solar.AssembleRevertExample,
+    `SolidCore.Refinement.Solar.AssembleRevertCut, `SolidCore.Refinement.Solar.AssembleRevertCutExample,
+    `SolidCore.Refinement.Solar.AssembleRevertCall]
+
+-- CODECOPY, CALL with value and CREATE2 at the frame's own gas, from a run that succeeds, and what
+-- they do in SolarTV (Solar/AssembleCodeCopy.lean, Solar/AssembleCallValue.lean,
+-- Solar/AssembleCreate.lean).
+lean_lib SolidCoreSolarCreate where
+  roots := #[`SolidCore.Refinement.Solar.AssembleCodeCopy, `SolidCore.Refinement.Solar.AssembleCreate,
+    `SolidCore.Refinement.Solar.AssembleCallValue, `SolidCore.Refinement.Solar.AssembleCreateBack,
+    `SolidCore.Refinement.Solar.AssembleCallValueEffect, `SolidCore.Refinement.Solar.AssembleCallValueZero,
+    `SolidCore.Refinement.Solar.AssembleCreateSeg, `SolidCore.Refinement.Solar.AssembleCallValueSeg,
+    `SolidCore.Refinement.Solar.AssembleCallValueZeroSeg,
+    `SolidCore.Refinement.Solar.AssembleCreateSegOracle, `SolidCore.Refinement.Solar.AssembleCreateExample,
+    `SolidCore.Refinement.Solar.AssembleCreateCut,
+    `SolidCore.Refinement.Solar.AssembleCreateRun, `SolidCore.Refinement.Solar.AssembleCreateCutQ,
+    `SolidCore.Refinement.Solar.AssembleCreateSegF, `SolidCore.Refinement.Solar.AssembleCreateRunF]
 
 /-! solar's translation validation (formerly solar's `solar-tv` Lean package, moved here so that
 every Lean source of the certified translation lives in this repository; solar keeps only the
@@ -287,7 +316,8 @@ lean_lib verify_token where
   roots := #[`verify_token.Proofs]
   globs := #[.submodules `verify_token]
   leanOptions := solarTVOptions
-  moreLeanArgs := #["-M", "3000"]
+  -- Shape.lean peaks at 2.9 GB with LEAN_NUM_THREADS=2 (CI's setting), above a 3000 MB cap.
+  moreLeanArgs := #["-M", "4500"]
 
 -- solar-verify's spec language: its meaning over SolidCore's and EthLib's calls and observables,
 -- ghost erasure, the trusted base as named hypotheses, and the specs solar-verify exports
@@ -295,7 +325,8 @@ lean_lib verify_token where
 lean_lib VerifySpec where
   roots := #[`Verify.Spec.Syntax, `Verify.Spec.Semantics, `Verify.Spec.Contract,
     `Verify.Spec.Ghost, `Verify.Spec.GhostFree, `Verify.Spec.TrustedBase,
-    `Verify.Spec.TrustedBase.Hypotheses, `Verify.Spec.TrustedBase.Interface]
+    `Verify.Spec.TrustedBase.Hypotheses, `Verify.Spec.TrustedBase.Interface,
+    `Verify.Spec.TreeMapNested]
 
 -- The trusted base discharged for c4 and Counter on their checked-in source ASTs, and its axiom
 -- audit. Separate from VerifySpec because the ASTs import the type checker.
@@ -315,7 +346,7 @@ lean_lib ContractsC4Spec where
 -- root: it builds on the generic source stage.
 lean_lib VerifyVC where
   roots := #[`Verify.VC, `Verify.FuelStable, `Verify.Spec.Tree, `Verify.Spec.Hash, `Verify.Spec.TreeMap,
-    `Verify.Spec.TreeIn]
+    `Verify.Spec.TreeIn, `Verify.Spec.TreeSplit]
 
 -- solar-verify's transcripts of scripts/verify/{Counter,Token}.sol (scripts/verify/check.sh) bound
 -- to their scripts, Token.burn and Token.transfer proved from the checked VCs, and the mutants.
@@ -327,6 +358,35 @@ lean_lib ContractsVC where
     `Contracts.Counter.VC.MilestoneDischarged, `Contracts.Counter.VC.ScriptEndToEnd]
   -- The exports, sources and mutants the roots import are under the same directories.
   globs := #[.submodules `Contracts.Counter.VC, .submodules `Contracts.Token.VC]
+
+-- SolidCore's checked Uniswap V2 port: Contracts/UniswapV2/<contract>/{Source,Core}.lean, which
+-- scripts/verify/uniswap_v2_gen.sh generates before the build (they are not committed: v2-core is
+-- GPL-3.0), so run it first: scripts/verify/uniswap_v2_gen.sh && lake build ContractsUniswapV2.
+-- Each Core is the kernel's type check and translation of its contract (contract_ok).
+lean_lib ContractsUniswapV2 where
+  roots := #[`Contracts.UniswapV2.ERC20.Core, `Contracts.UniswapV2.Factory.Core]
+  -- The generated sources the roots import belong to this library too, or Lake looks for their
+  -- object files elsewhere instead of building them.
+  globs := #[.one `Contracts.UniswapV2.ERC20.Source, .one `Contracts.UniswapV2.ERC20.Core,
+    .one `Contracts.UniswapV2.Factory.Source, .one `Contracts.UniswapV2.Factory.Core]
+
+-- solar-verify's ERC20 specs connected to SolidCore's checked UniswapV2ERC20 (Meets: approve and
+-- transfer meet their exported specs and the mutated spec is refused; SpecTree: the specs hold in
+-- every world). scripts/verify/uniswap_v2_spec.sh generates Spec, SpecMut and Connect (derived from
+-- the GPL-3.0 port, so not committed) after scripts/verify/uniswap_v2_gen.sh.
+lean_lib ContractsUniswapV2ERC20Spec where
+  roots := #[`Contracts.UniswapV2.ERC20.Meets, `Contracts.UniswapV2.ERC20.SpecTree]
+  globs := #[.one `Contracts.UniswapV2.ERC20.Spec, .one `Contracts.UniswapV2.ERC20.SpecMut,
+    .one `Contracts.UniswapV2.ERC20.Connect, .one `Contracts.UniswapV2.ERC20.SpecTreeKeccak,
+    .one `Contracts.UniswapV2.ERC20.Meets, .one `Contracts.UniswapV2.ERC20.SpecTree]
+
+-- UniswapV2Pair's translation is checked in stages, one module each, each within 6 GB:
+-- Pair/Contract.lean composes contract_ok from Check, Ctx, Clones, one Fn module per run of
+-- functions (mint and swap in three each: Fn/<fn>_pre, Fn/<fn>_lower, Fn/<fn>), Groups and Asm.
+-- Not in CI yet: 22 modules, the largest (swap's lowering) at 5.98 GB under -M 6000.
+lean_lib ContractsUniswapV2Pair where
+  roots := #[`Contracts.UniswapV2.Pair.Contract]
+  globs := #[.submodules `Contracts.UniswapV2.Pair]
 
 -- Loom's axiom audit and the check that the certified Loom path stays off Loom's unported
 -- layers (Verify/LoomAxioms.lean, Verify/LoomImports.lean).
@@ -354,15 +414,18 @@ lean_lib ContractsCounter where
 -- instance: its bytecode run by the checker with GAS
 -- (Contracts/Counter/Execution.lean), the statement's inputs (ShapeSpec), the proof (Shape) and the
 -- negative controls (ShapeNeg). Certified/counter/Final.lean, which solar's certify driver writes,
--- states the published theorem over them.
+-- states the published theorem over them. Verify/ShapeCtx.lean: the same shape, without resources,
+-- through the context checker (AssembleCtxCall).
 lean_lib ContractsShapes where
   roots := #[`Verify.Shapes, `Verify.ShapeGeneric, `SolidCore.Refinement.Solar.AssembleGas,
     `SolidCore.Refinement.Solar.AssembleGasLoop, `Contracts.Counter.Execution, `Contracts.Counter.ShapeSpec,
-    `Contracts.Counter.Shape, `Contracts.Counter.ShapeNeg]
+    `Contracts.Counter.Shape, `Contracts.Counter.ShapeNeg, `Verify.ShapeBundle,
+    `Contracts.Counter.ShapeExport, `Verify.ShapeCtx]
   globs := #[.one `Verify.Shapes, .one `Verify.ShapeGeneric, .one `SolidCore.Refinement.Solar.AssembleGas,
     .one `SolidCore.Refinement.Solar.AssembleGasLoop,
     .one `Contracts.Counter.Execution, .one `Contracts.Counter.ShapeSpec,
-    .one `Contracts.Counter.Shape, .one `Contracts.Counter.ShapeNeg]
+    .one `Contracts.Counter.Shape, .one `Contracts.Counter.ShapeNeg, .one `Verify.ShapeBundle,
+    .one `Contracts.Counter.ShapeExport, .one `Verify.ShapeCtx]
 
 -- solar-verify's Token end to end: the generic source stage from SolidCore's checked Token to
 -- Certified/verify_token's stage0, the assembly stage of its evm12, and solar-verify's Token

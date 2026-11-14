@@ -23,15 +23,15 @@ theorem trObs_valid : ObsValid trObs := by
   simp only [trObs, List.mem_cons, List.mem_nil_iff, or_false] at ho
   rcases ho with rfl | rfl | rfl
   · simp only [trGoalFrom]
-    simp [Tm.Holds, Tm.eval, Tm.evalList, applyOp, Value.toProp, Value.toInt, Value.toArr, Value.eq, Ob.eq, Ob.sel, Ob.sub, Ob.add, Ob.S2, Ob.S1, Ob.sto, Ob.ms, Ob.rcpt, Ob.B, Ob.bal, Ob.amt]
+    simp [Tm.Holds, Tm.eval, Tm.evalList, applyOp, Value.select, Value.store, Value.toProp, Value.toInt, Value.toArr, Value.eq, Ob.eq, Ob.sel, Ob.sub, Ob.add, Ob.S2, Ob.S1, Ob.sto, Ob.ms, Ob.rcpt, Ob.B, Ob.bal, Ob.amt]
     intro h1 h2
     exact absurd h2 h1
   · simp only [trGoalTo]
-    simp [Tm.Holds, Tm.eval, Tm.evalList, applyOp, Value.toProp, Value.toInt, Value.toArr, Value.eq, Ob.eq, Ob.sel, Ob.sub, Ob.add, Ob.S2, Ob.S1, Ob.sto, Ob.ms, Ob.rcpt, Ob.B, Ob.bal, Ob.amt]
+    simp [Tm.Holds, Tm.eval, Tm.evalList, applyOp, Value.select, Value.store, Value.toProp, Value.toInt, Value.toArr, Value.eq, Ob.eq, Ob.sel, Ob.sub, Ob.add, Ob.S2, Ob.S1, Ob.sto, Ob.ms, Ob.rcpt, Ob.B, Ob.bal, Ob.amt]
     intro h
     exact ite_cond_eq_false _ _ (eq_false (Ne.symm h))
   · simp only [trGoalFrame]
-    simp [Tm.Holds, Tm.eval, Tm.evalList, applyOp, Value.toProp, Value.toInt, Value.toArr, Value.eq, Ob.eq, Ob.sel, Ob.sub, Ob.add, Ob.S2, Ob.S1, Ob.sto, Ob.ms, Ob.rcpt, Ob.B, Ob.bal, Ob.amt]
+    simp [Tm.Holds, Tm.eval, Tm.evalList, applyOp, Value.select, Value.store, Value.toProp, Value.toInt, Value.toArr, Value.eq, Ob.eq, Ob.sel, Ob.sub, Ob.add, Ob.S2, Ob.S1, Ob.sto, Ob.ms, Ob.rcpt, Ob.B, Ob.bal, Ob.amt]
     intro n _ _ h1 h2
     simp only [Env.setI] at *
     simp_all
@@ -82,9 +82,11 @@ theorem transfer_triple_discharged (inj : HashInj)
     have gFrom := hob trGoalFrom (by simp [trObs])
     have gTo := hob trGoalTo (by simp [trObs])
     have gFrame := hob trGoalFrame (by simp [trObs])
-    simp only [trGoalFrom, trGoalTo, trGoalFrame, Tm.Holds, Tm.eval, Tm.evalList, applyOp,
+    obtain ⟨f2, hf2⟩ : ∃ f, Ob.S2.eval (trEnv t a s) = .arr f :=
+      ⟨_, Value.sortOf_arr (Tm.eval_sortOf _ _ (by decide))⟩
+    simp only [trGoalFrom, trGoalTo, trGoalFrame, Tm.Holds, Tm.eval, Tm.evalList, applyOp, Value.select, Value.store,
       Value.toProp, Value.toInt, Value.toArr, Value.eq, Ob.eq, Ob.sel, Ob.sub, Ob.add, Ob.le0,
-      Ob.leA, Ob.bal, Ob.B, Ob.ms, Ob.amt, Ob.rcpt, S2_setI] at gFrom gTo gFrame
+      Ob.leA, Ob.bal, Ob.B, Ob.ms, Ob.amt, Ob.rcpt, S2_setI, hf2] at gFrom gTo gFrame
     simp only [observe, hw, List.getD_cons_zero, List.getD_cons_succ]
     rw [← hs_def]
     have hsl : solHash callerWord 0 = senderSlot := hash_eq
@@ -94,13 +96,13 @@ theorem transfer_triple_discharged (inj : HashInj)
         have := hb callerWord (by decide); rwa [hsl] at this
       have g := gFrom (by simp; omega)
       simp [h8] at g
-      simp only [Value.toArr] at e g
+      simp only [hf2, Value.toArr] at e g
       rw [hsl]
       omega
     · have e := hb t hta
       have g := gTo (by simp; omega)
       simp [balArr_nat] at g
-      simp only [Value.toArr] at e g
+      simp only [hf2, Value.toArr] at e g
       omega
     · have e := hb x hx
       have hx8' : ¬ (x : Int) = 8192 := by intro h; apply hx8; exact_mod_cast h
@@ -108,7 +110,7 @@ theorem transfer_triple_discharged (inj : HashInj)
       have hxA : (x : Int) ≤ 1461501637330902918203684832716283019655932542975 := by omega
       have g := gFrame x
       simp [balArr_nat, hx8', hxt', hxA, S2_setI] at g
-      simp only [Value.toArr] at e g
+      simp only [hf2, Value.toArr] at e g
       omega
   · intro h; simp_all [observe]
 

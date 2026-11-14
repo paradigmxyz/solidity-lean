@@ -369,4 +369,88 @@ theorem codeIn_snapshot (ctx : Context) (st : State) (henv : st.envWorld? = none
       obtain ⟨a, -, rfl⟩ := he
       rfl
 
+/-! ## The expression-level call node: a low-level CALL
+
+eval_lowLevelCall: (bool ok, bytes ret) = target.call(data) of a target other than the contract
+itself, with no gas option and outside construction, evaluates to one request node of the sent
+world (snapshotWorld), continued by the pair of the decoded success flag and return bytes and the
+adopted world with the interaction recorded (lowLevelTail). The expression-level counterpart of
+eval_tryCall, for _safeTransfer-style transfers. -/
+
+/-- The value and runtime a low-level call continues with once it answered. -/
+def lowLevelTail (context : Context) (rt : Runtime) (t : Word) (cd : List Byte) (v : Word)
+    (resp : CallResponse) : Value × Runtime :=
+  ( Value.tuple [ Value.word (boolWord (decodeCallResponse resp .call t cd v none).success)
+      , Value.bytes (decodeCallResponse resp .call t cd v none).output ]
+  , { rt with state := adoptWorld resp.postWorld context rt.state }.recordExternalInteraction
+      (ExternalInteraction.lowLevelCall (decodeCallResponse resp .call t cd v none)) )
+
+theorem idone_bind {α β : Type} (a : α) (f : α → SolI β) :
+    (Interaction.done (Except.ok a) >>= f : SolI β) = f a := rfl
+
+theorem eval_lowLevelCall (n : Nat) (context : Context) (rt : Runtime)
+    (tgt cdE valE : Expr) (gasFirst : Bool)
+    {tv vv cdv : Value} {rt1 rt2 rt3 : Runtime} {t v : Word} {cd : List Byte}
+    (ht : Expr.evalFuel n context rt tgt = pure (tv, rt1)) (htw : tv.expectWord = .ok t)
+    (hv : Expr.evalFuel n context rt1 valE = pure (vv, rt2)) (hvw : vv.expectWord = .ok v)
+    (hc : Expr.evalFuel n context rt2 cdE = pure (cdv, rt3)) (hcb : cdv.asBytes? = some cd)
+    (hcons : context.construction = false) (hself : wordEq t context.self = false) :
+    Expr.evalFuel (n + 1) context rt (.lowLevelCall .call tgt cdE valE none gasFirst) =
+      .request (.external (snapshotWorld context rt3.state)
+          (.call (buildCallRequest context .call t cd v none)))
+        (fun resp => pure (lowLevelTail context rt3 t cd v resp)) := by
+  rw [Expr.evalFuel]
+  simp only [ht, htw, hv, hvw, hcons, Bool.false_or, sbind_pure]
+  simp only [liftM, monadLift, MonadLift.monadLift, SolI.ofExcept, ipure_bind, sbind_pure, hc, hcb]
+  simp only [idone_bind, sbind_pure, hc, hcb]
+  simp only [selfDispatchCall, selfDispatchKindOk, hself, Bool.and_false, Bool.false_eq_true, ite_false,
+    emitLowLevelCall, bind_request, beq_self_eq_true, Bool.not_true, idone_bind]
+  rfl
+
+/-- info: 'SolidCore.Refinement.CallNode.eval_lowLevelCall' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs (whitespace := lax) in
+#print axioms eval_lowLevelCall
+
+/-! ## The internal call node
+
+eval_internalCall: a statement-position internal call whose arguments evaluate (by reference) to
+argValues and whose callee the table holds runs the callee's body, checked, in a fresh frame of
+its parameters, and finishes with internalCallFinish (no query of its own: the callee's queries
+are the call's). eval_captureReturn_nil: a capture with no names passes a callee's result on, a
+return as a normal end. finish_normal_nil: a callee with no returns that ends normally gives the
+caller back its locals with the callee's state. -/
+
+theorem eval_internalCall (n : Nat) (tbl : FunctionTable) (ctx : Context) (rt : Runtime)
+    (targets : List String) (name : String) (args : List Expr) (fn : InternalFunction)
+    (argValues : List Value) (rt' : Runtime) (frame : Frame)
+    (hargs : Expr.evalRefArgList ctx rt args = EvmCompiler.Simulation.Interaction.done (.ok (argValues, rt')))
+    (hfn : tbl.lookup? name = some fn) (hframe : fn.initialFrame? argValues = some frame) :
+    Stmt.eval (n + 1) tbl ctx rt (.internalCall targets name args) =
+      (Stmt.eval n tbl { ctx with checked := true } { rt' with locals := [frame] } fn.body >>=
+        internalCallFinish fn targets rt'.locals) := by
+  rw [Stmt.eval]; dsimp only
+  rw [hargs, show SolI.caught (EvmCompiler.Simulation.Interaction.done (.ok (argValues, rt')) :
+      SolI (List Value × Runtime)) = EvmCompiler.Simulation.Interaction.done (.ok (.ok (argValues, rt'))) from rfl,
+    idone_bind]
+  simp only [internalCallEnter?, hframe, hfn]
+
+theorem eval_captureReturn_nil (n : Nat) (tbl : FunctionTable) (ctx : Context) (rt : Runtime) (s : Stmt) :
+    Stmt.eval (n + 1) tbl ctx rt (.captureReturn [] s) =
+      (Stmt.eval n tbl ctx rt s >>= fun r =>
+        match r with
+        | Result.returned rt' _ => pure (Result.normal rt')
+        | r => pure r) := by
+  rw [Stmt.eval]; dsimp only
+  congr 1
+  funext r
+  cases r <;> simp
+
+theorem finish_normal_nil (fn : InternalFunction) (hret : fn.returns = []) (saved : LocalEnv) (r : Runtime) :
+    internalCallFinish fn [] saved (Result.normal r) = pure (Result.normal { r with locals := saved }) := by
+  simp [internalCallFinish, hret, collectReturnBindingsRef, collectReturnBindingsRef.collect, internalCallAssign]
+
+theorem finish_reverted (fn : InternalFunction) (targets : List String) (saved : LocalEnv) (r : Runtime)
+    (e : RevertData) :
+    internalCallFinish fn targets saved (Result.reverted r e) = pure (Result.reverted r e) := rfl
+
 end SolidCore.Refinement.CallNode

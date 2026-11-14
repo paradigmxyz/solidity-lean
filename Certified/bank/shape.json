@@ -28,5 +28,10 @@
     "gas: the bound is the loop checker's (22100 per item times the final EVM IR's block fuel, plus memory), coarse; below it the bytecode may fail without effects, which equivalence admits",
     "valid calls: deposit(uint256), depositFor(address,uint256) and balanceOf(address) ABI-encoded with clean argument words, any value below 2^256 (no function is payable: the value reverts on both sides), any storage; other call data is outside the statement",
     "spec: none (solar-verify has no specification of bank): equivalence, termination and resources only"
-  ]
+  ],
+  "source_ast": {
+    "file": "SolidCore/Refinement/Source/Bank.lean",
+    "namespace": "SolidCore.Refinement.Source.Bank",
+    "contract": "Bank"
+  }
 }

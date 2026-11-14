@@ -35,7 +35,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .cache
-          key: refinement-tools-${{ hashFiles('scripts/refinement/solar-rev', 'scripts/refinement/gen.sh', 'scripts/refinement/prove-rev', 'scripts/refinement/facts.sh') }}
+          key: refinement-tools-${{ hashFiles('scripts/refinement/solar-rev', 'scripts/verify/uniswap_v2_spec-solar-rev', 'scripts/refinement/gen.sh', 'scripts/refinement/prove-rev', 'scripts/refinement/facts.sh') }}
 
       # Restored here and saved after the builds even when one fails or the runner stops, so a
       # later run resumes where this one got to (the native objects of Mathlib and EthLib, which
@@ -70,11 +70,43 @@ jobs:
         run: |
           lake build -KleanMemory=6000 Loom Verify VerifySpec VerifySpecTrustedBase VerifyLoom VerifyDischarge VerifyVC ContractsVC ContractsCounter ContractsArrayMaxVault ContractsVerifyCounter ContractsCallSqrt ContractsToken ContractsCallFamilies ContractsShapes ContractsCallSqrt
 
+      # The Uniswap V2 port's sources and checked cores are generated from the pinned port, not
+      # committed (v2-core is GPL-3.0), so they are generated here before their build.
+      - name: Generate and check the Uniswap V2 port
+        env:
+          LEAN_NUM_THREADS: "2"
+        run: |
+          scripts/verify/uniswap_v2_gen.sh
+          lake build -KleanMemory=6000 ContractsUniswapV2
+          # UniswapV2Pair's source acceptance in 22 generated stage modules; the largest (swap's
+          # lowering) peaks at 5.98 GB under -M 6000, so this step has little memory margin.
+          lake build -KleanMemory=6000 ContractsUniswapV2Pair
+
+      # The ERC20 specs' connection needs solar-verify and solar's spec tooling
+      # (crates/verify/uniswap-v2, tools/certify/spec_connect.py) at the commit pinned in
+      # scripts/verify/uniswap_v2_spec-solar-rev. Its modules are generated, not committed, so
+      # they are generated here and then checked.
+      - name: Connect and check the Uniswap V2 ERC20 specs
+        env:
+          LEAN_NUM_THREADS: "2"
+        run: |
+          rev="$(tr -d '[:space:]' < scripts/verify/uniswap_v2_spec-solar-rev)"
+          dir=.cache/solar-spec
+          if [[ ! -x "$dir/target/release/solar-verify" || "$(git -C "$dir" rev-parse HEAD 2>/dev/null)" != "$rev" ]]; then
+            rm -rf "$dir"; git init -q "$dir"
+            git -C "$dir" remote add origin https://github.com/paradigmxyz/solar.git
+            git -C "$dir" fetch -q --depth 1 origin "$rev"
+            git -C "$dir" checkout -q --detach "$rev"
+            cargo build --release --locked --manifest-path "$dir/Cargo.toml" --bin solar-verify
+          fi
+          SOLAR_DIR="$dir" SOLAR_VERIFY="$dir/target/release/solar-verify" scripts/verify/uniswap_v2_spec.sh
+          lake build -KleanMemory=6000 ContractsUniswapV2ERC20Spec
+
       - name: Build SolidCore's refinement milestones
         env:
           LEAN_NUM_THREADS: "2"
         run: |
-          lake build -KleanMemory=7000 SolidCore SolidCoreSolarW4 SolidCoreSolarC4 SolidCoreSolarMulX SolidCoreSolarBank SolidCoreSolarBankSource SolidCoreSolarTotality SolidCoreSolarAssemblyEnv SolidCoreSolarRunOracle ContractsC4Spec SolidCore.Refinement.Axioms.Audit SolidCore.Refinement.Axioms.Main SolidCore.Refinement.Axioms.C4 SolidCore.Refinement.Axioms.MulX SolidCore.Refinement.Axioms.W4 SolidCore.Refinement.Axioms.CounterGeneric SolidCore.Refinement.Axioms.Contracts SolidCore.Refinement.Axioms.Token SolidCore.Refinement.Axioms.VerifyCounter
+          lake build -KleanMemory=7000 SolidCore SolidCoreSolarW4 SolidCoreSolarC4 SolidCoreSolarMulX SolidCoreSolarBank SolidCoreSolarBankSource SolidCoreSolarTotality SolidCoreSolarAssemblyEnv SolidCoreSolarRunOracle SolidCoreSolarRevert SolidCoreSolarCreate ContractsC4Spec SolidCore.Refinement.Axioms.Audit SolidCore.Refinement.Axioms.Main SolidCore.Refinement.Axioms.C4 SolidCore.Refinement.Axioms.MulX SolidCore.Refinement.Axioms.W4 SolidCore.Refinement.Axioms.CounterGeneric SolidCore.Refinement.Axioms.Contracts SolidCore.Refinement.Axioms.Token SolidCore.Refinement.Axioms.VerifyCounter SolidCore.Refinement.Axioms.Lanes
 
       - name: Save the Lake build
         if: always()

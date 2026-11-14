@@ -64,5 +64,11 @@
     "valid calls: transfer, burn, mint, totalSupply and owner ABI-encoded with clean argument words, no value, from any storage that writes slot 2 (owner); balanceOf (a public mapping getter outside the generic stage's fragment) and calls with value are outside the statement",
     "spec: transfer's three ensures clauses on distinct addresses (trPost) and burn's (burnPost), on success only; mint, totalSupply and owner have none; the spec declares no revert condition, so every status is allowed (Allowed is True): a revert meets the statement",
     "assumption HashInj: keccak256 of (address, 0) is injective on addresses (the mapping's slots), a premise of the statement, not proved"
-  ]
+  ],
+  "vacuity": "Allowed is True: solar-verify's Token spec declares no revert condition, so every status is allowed and a revert meets the statement; the postcondition is a Lean restatement (trPost, burnPost) on success only",
+  "source_ast": {
+    "file": "Contracts/Token/VC/Source.lean",
+    "namespace": "SolidCore.Verify.VC.Source.Token",
+    "contract": "Token"
+  }
 }

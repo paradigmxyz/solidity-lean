@@ -138,9 +138,10 @@ theorem inc_check : checkScript Export.CounterMilestone.script [(incHyps, incGoa
 /-! ## The binding -/
 
 /-- The assignment of solar-verify's names that a call of `inc` on `d` from storage `s` binds. -/
-def incEnv (d : Nat) (s : Storage) : Env :=
-  ⟨fun y => if y = "x" then s 0 else if y = "d" then d else if y = "msg.sender" then callerWord else 0,
-    fun _ => False, fun _ => fun _ => 0⟩
+def incEnv (d : Nat) (s : Storage) : Env where
+  i := fun y => if y = "x" then s 0 else if y = "d" then d else if y = "msg.sender" then callerWord else 0
+  b := fun _ => False
+  a := fun _ => fun _ => 0
 
 section
 variable (d : Nat) (s : Storage)
@@ -151,12 +152,12 @@ variable (d : Nat) (s : Storage)
 end
 
 theorem incEff_eval (d : Nat) (s : Storage) : (incEff.eval (incEnv d s)).toInt = (s 0 : Int) + d := by
-  simp [incEff, Ob.add, Ob.x, Ob.d, Tm.eval, Tm.evalList, applyOp, Value.toInt]
+  simp [incEff, Ob.add, Ob.x, Ob.d, Tm.eval, Tm.evalList, applyOp, Value.select, Value.store, Value.toInt]
 
 theorem incHyps_iff (d : Nat) (s : Storage) (hd : d < 2 ^ 256) (hs : s 0 < 2 ^ 256) :
     (∀ t ∈ incHyps, t.Holds (incEnv d s)) ↔ s 0 + d < 2 ^ 256 := by
   simp only [incHyps, List.mem_cons, List.mem_nil_iff, or_false, forall_eq_or_imp, forall_eq]
-  simp [Tm.Holds, Tm.eval, Tm.evalList, applyOp, Value.toProp, Value.toInt, Value.eq, incEff, Ob.add,
+  simp [Tm.Holds, Tm.eval, Tm.evalList, applyOp, Value.select, Value.store, Value.toProp, Value.toInt, Value.eq, incEff, Ob.add,
     Ob.x, Ob.d, Ob.mv, Ob.ms, Ob.le0, Ob.leW, Ob.eq]
   omega
 
