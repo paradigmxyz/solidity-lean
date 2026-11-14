@@ -1,0 +1,390 @@
+From 4808f3ed2fbd168e8e2d1ab57b0200c6382b87d0 Mon Sep 17 00:00:00 2001
+From: pyramid <pyramid@tempo.xyz>
+Date: Sat, 14 Nov 2026 14:11:51 +0000
+Subject: [PATCH] feat(spec): kernel check and nested footprints for the scoped
+ keccak premise
+
+---
+ Verify/Spec/HashScopeCheck.lean          | 281 +++++++++++++++++++++++
+ lakefile.lean                            |   2 +-
+ scripts/verify/keccak/footprint_check.sh |  67 ++++++
+ 3 files changed, 349 insertions(+), 1 deletion(-)
+ create mode 100644 Verify/Spec/HashScopeCheck.lean
+ create mode 100755 scripts/verify/keccak/footprint_check.sh
+
+diff --git a/Verify/Spec/HashScopeCheck.lean b/Verify/Spec/HashScopeCheck.lean
+new file mode 100644
+index 0000000..325ec6c
+--- /dev/null
++++ b/Verify/Spec/HashScopeCheck.lean
+@@ -0,0 +1,281 @@
++import Verify.Spec.HashScope
++
++/-!
++# Footprint premises: the kernel check, nested footprints, and what is not claimed
++
++Verify/Spec/HashScope.lean states the per-call premise `ScopedSep L` (keccak256 injective, images at
++least `2 ^ 128`, on the finite list `L` of preimages the call hashes). This file keeps three kinds of
++statement apart:
++
++1. **Abstract model** (`SeparatedBy h L` for a hash function `h` that is not keccak256): every footprint,
++   including the nested ones whose inner key is the hash's own output, has a word-valued model
++   (`approve_model`, `transferFrom_model`). This says the premise is consistent; it says nothing about
++   keccak256.
++2. **Real witness** (`ScopedSep L`, the real keccak256): decidable. `scopedSep_iff_check` makes it the
++   Boolean `sepCheckBy keccakWord L = true`, which the kernel evaluates for any concrete footprint
++   (`decide +kernel`): `scopedSep_of_check` turns one evaluation into the premise of one call. The
++   instances below are concrete calls, each a kernel evaluation of the sponge.
++3. **Universal claims** (the premise for every pair of addresses): not proved and not assumed.
++   `universalTransferSep_iff` shows `∀ caller to, ScopedSep (transferFootprint m caller to)` is exactly
++   keccak256 separation on all `2 ^ 160` balance preimages, a global computational claim; statements
++   take the premise of their own call instead.
++
++Nested (allowance) footprints: `allowance[owner][spender]` at mapping slot `a` is stored at
++`keccak256(spender . keccak256(owner . a))`, so the footprint lists the outer preimage `owner . a` and the
++inner one `spender . keccak256(owner . a)`, the inner key computed by the same hash
++(`approveFootprintBy h`, `transferFromFootprintBy h`). Pigeonhole refutes the global nested premise
++(`not_nestedSlotsSeparated`), not these: each call names at most four preimages.
++-/
++
++namespace SolidCore.Spec
++
++open SolidCore.Refinement SolidCore.Refinement.Generic TrustedBase
++
++/-! ## The check -/
++
++/-- The Boolean form of `SeparatedBy h L`: each image at least `2 ^ 128`, and equal images only for
++equal preimages. -/
++def sepCheckBy (h : List Nat → Nat) (L : List (List Nat)) : Bool :=
++  let P := L.map fun x => (x, h x)
++  P.all (fun p => decide (2 ^ 128 ≤ p.2)) && P.all fun p => P.all fun q => decide (p.2 = q.2 → p.1 = q.1)
++
++theorem separatedBy_iff_check (h : List Nat → Nat) (L : List (List Nat)) :
++    SeparatedBy h L ↔ sepCheckBy h L = true := by
++  simp only [sepCheckBy, SeparatedBy, Bool.and_eq_true, List.all_eq_true, List.mem_map,
++    decide_eq_true_eq, forall_exists_index, and_imp]
++  constructor
++  · rintro ⟨hi, hg⟩
++    refine ⟨?_, ?_⟩
++    · rintro _ x hx rfl; exact hg x hx
++    · rintro _ x hx rfl _ y hy rfl he; exact hi x hx y hy he
++  · rintro ⟨hg, hi⟩
++    exact ⟨fun x hx y hy he => hi _ x hx rfl _ y hy rfl he, fun x hx => hg _ x hx rfl⟩
++
++/-- **The real premise is the check at keccak256.** -/
++theorem scopedSep_iff_check (L : List (List Nat)) : ScopedSep L ↔ sepCheckBy keccakWord L = true :=
++  (scopedSep_iff L).trans (separatedBy_iff_check _ _)
++
++instance (L : List (List Nat)) : Decidable (ScopedSep L) :=
++  decidable_of_iff _ (scopedSep_iff_check L).symm
++
++/-- One kernel evaluation of the check is one call's premise: `scopedSep_of_check (by decide +kernel)`. -/
++theorem scopedSep_of_check {L : List (List Nat)} (h : sepCheckBy keccakWord L = true) : ScopedSep L :=
++  (scopedSep_iff_check L).2 h
++
++theorem SeparatedBy.mono {h : List Nat → Nat} {L M : List (List Nat)} (hL : SeparatedBy h L)
++    (hM : ∀ x ∈ M, x ∈ L) : SeparatedBy h M :=
++  ⟨fun x hx y hy he => hL.1 x (hM x hx) y (hM y hy) he, fun x hx => hL.2 x (hM x hx)⟩
++
++/-! ## Nested footprints -/
++
++/-- The footprint of `approve(spender, value)` of an allowance mapping at slot `a`, for the hash `h`: the
++outer preimage `caller . a` and the inner `spender . h(caller . a)`. -/
++def approveFootprintBy (h : List Nat → Nat) (a caller spender : Nat) : List (List Nat) :=
++  [mappingPreimage caller a, mappingPreimage spender (h (mappingPreimage caller a))]
++
++/-- The footprint of `transferFrom(src, dst, value)` with balances at slot `b` and allowances at slot
++`a`: `balanceOf[src]`, `balanceOf[dst]`, and `allowance[src][caller]` (outer and inner preimage). -/
++def transferFromFootprintBy (h : List Nat → Nat) (b a src dst caller : Nat) : List (List Nat) :=
++  [mappingPreimage src b, mappingPreimage dst b, mappingPreimage src a,
++    mappingPreimage caller (h (mappingPreimage src a))]
++
++/-- `approve`'s footprint at the real keccak256. -/
++abbrev approveFootprint (a caller spender : Nat) : List (List Nat) :=
++  approveFootprintBy keccakWord a caller spender
++
++/-- `transferFrom`'s footprint at the real keccak256. -/
++abbrev transferFromFootprint (b a src dst caller : Nat) : List (List Nat) :=
++  transferFromFootprintBy keccakWord b a src dst caller
++
++/-- The nested slot `m[k1][k2]` as SolidCore computes it is the inner preimage's image. -/
++theorem nested_slot_eq (k1 k2 a : Nat) :
++    solHash k2 (solHash k1 a) = keccakWord (mappingPreimage k2 (keccakWord (mappingPreimage k1 a))) := by
++  rw [solHash_eq, solHash_eq]; rfl
++
++/-- **approve's slot fact**: `allowance[caller][spender]` and its outer slot are at least `2 ^ 128`, so
++neither is a small fixed slot. -/
++theorem approve_slots {a c s : Nat} (h : ScopedSep (approveFootprint a c s)) :
++    2 ^ 128 ≤ solHash c a ∧ 2 ^ 128 ≤ solHash s (solHash c a) := by
++  refine ⟨scoped_ge h (by simp [approveFootprintBy]), scoped_ge h ?_⟩
++  have e : solHash c a = keccakWord (mappingPreimage c a) := solHash_eq c a
++  rw [e]; simp [approveFootprintBy]
++
++/-- **transferFrom's slot facts**: the two balance slots differ when `src ≠ dst`; the allowance slot
++`allowance[src][caller]` differs from both balance slots whatever the addresses (its inner key is a
++hash, at least `2 ^ 128`, while `b` is a small slot); all three are at least `2 ^ 128`. -/
++theorem transferFrom_slots {b a f t c : Nat} (h : ScopedSep (transferFromFootprint b a f t c))
++    (hb : b < 2 ^ 128) (ha : a < 2 ^ 256) (hf : f < 2 ^ 256) (ht : t < 2 ^ 256) (hc : c < 2 ^ 256) :
++    (f ≠ t → solHash f b ≠ solHash t b) ∧ solHash c (solHash f a) ≠ solHash f b ∧
++      solHash c (solHash f a) ≠ solHash t b ∧ 2 ^ 128 ≤ solHash f b ∧ 2 ^ 128 ≤ solHash t b ∧
++      2 ^ 128 ≤ solHash c (solHash f a) := by
++  have hbw : b < 2 ^ 256 := lt_trans hb (by decide)
++  have mf : mappingPreimage f b ∈ transferFromFootprint b a f t c := by simp [transferFromFootprintBy]
++  have mt : mappingPreimage t b ∈ transferFromFootprint b a f t c := by simp [transferFromFootprintBy]
++  have mo : mappingPreimage f a ∈ transferFromFootprint b a f t c := by simp [transferFromFootprintBy]
++  have mi : mappingPreimage c (solHash f a) ∈ transferFromFootprint b a f t c := by
++    have e : solHash f a = keccakWord (mappingPreimage f a) := solHash_eq f a
++    rw [e]; simp [transferFromFootprintBy]
++  have hge := scoped_ge h mo
++  have hlt : solHash f a < 2 ^ 256 := solHash_lt f a
++  have hne : ∀ x, x < 2 ^ 256 → mappingPreimage x b ∈ transferFromFootprint b a f t c →
++      solHash c (solHash f a) ≠ solHash x b := fun x hx mx he => by
++    have := (scoped_inj h hc hx hlt hbw mi mx he).2
++    omega
++  exact ⟨fun hft he => hft (scoped_inj h hf ht hbw hbw mf mt he).1, hne f hf mf, hne t ht mt,
++    scoped_ge h mf, scoped_ge h mt, scoped_ge h mi⟩
++
++/-! ## 1. Abstract model: every footprint is consistent -/
++
++/-- The position hash `x ↦ 2 ^ 128 + (position of x in L)` separates `L`. -/
++theorem separatedBy_idxOf (L : List (List Nat)) : SeparatedBy (fun x => 2 ^ 128 + L.idxOf x) L := by
++  refine ⟨fun x hx y hy he => ?_, fun _ _ => Nat.le_add_right _ _⟩
++  have he' : L.idxOf x = L.idxOf y := by simpa using he
++  rw [← List.getElem_idxOf (List.idxOf_lt_length_of_mem hx),
++    ← List.getElem_idxOf (List.idxOf_lt_length_of_mem hy)]
++  simp only [he']
++
++/-- **approve's footprint has a word-valued model**, its inner key computed by the model itself. -/
++theorem approve_model (a c s : Nat) :
++    ∃ h : List Nat → Nat, (∀ x, h x < 2 ^ 256) ∧ SeparatedBy h (approveFootprintBy h a c s) := by
++  let L := [mappingPreimage c a, mappingPreimage s (2 ^ 128)]
++  refine ⟨fun x => 2 ^ 128 + L.idxOf x, fun x => ?_, ?_⟩
++  · show 2 ^ 128 + L.idxOf x < 2 ^ 256
++    exact Nat.lt_of_le_of_lt (Nat.add_le_add_left List.idxOf_le_length _) (by simp [L])
++  · refine (separatedBy_idxOf L).mono fun x hx => ?_
++    simp [approveFootprintBy, L] at hx ⊢
++    rcases hx with rfl | rfl <;> simp
++
++/-- **transferFrom's footprint has a word-valued model**, its inner key computed by the model. -/
++theorem transferFrom_model (b a f t c : Nat) :
++    ∃ h : List Nat → Nat, (∀ x, h x < 2 ^ 256) ∧ SeparatedBy h (transferFromFootprintBy h b a f t c) := by
++  let L := [mappingPreimage f a, mappingPreimage c (2 ^ 128), mappingPreimage f b, mappingPreimage t b]
++  refine ⟨fun x => 2 ^ 128 + L.idxOf x, fun x => ?_, ?_⟩
++  · show 2 ^ 128 + L.idxOf x < 2 ^ 256
++    exact Nat.lt_of_le_of_lt (Nat.add_le_add_left List.idxOf_le_length _) (by simp [L])
++  · refine (separatedBy_idxOf L).mono fun x hx => ?_
++    simp [transferFromFootprintBy, L] at hx ⊢
++    rcases hx with rfl | rfl | rfl | rfl <;> simp
++
++/-! ## 2. Real witnesses: kernel evaluations of the check on concrete calls
++
++Addresses are arbitrary 160-bit values. UniswapV2ERC20's layout: `balanceOf` at slot 1, `allowance`
++at slot 2. -/
++
++/-- A caller. -/
++abbrev addrA : Nat := 0x5B38Da6a701c568545dCfcB03FcB875f56beddC4
++/-- A recipient or spender. -/
++abbrev addrB : Nat := 0xAb8483F64d9C6d1EcF9b849Ae677dD3315835cb2
++/-- A third address. -/
++abbrev addrC : Nat := 0x4B20993Bc481177ec7E8f571ceCaE8A9e22C02db
++
++set_option maxRecDepth 100000 in
++theorem real_transfer_AB : ScopedSep (transferFootprint 1 addrA addrB) :=
++  scopedSep_of_check (by decide +kernel)
++
++set_option maxRecDepth 100000 in
++/-- Self-transfer: the footprint names one preimage twice; the check holds. -/
++theorem real_transfer_AA : ScopedSep (transferFootprint 1 addrA addrA) :=
++  scopedSep_of_check (by decide +kernel)
++
++set_option maxRecDepth 100000 in
++theorem real_approve_AB : ScopedSep (approveFootprint 2 addrA addrB) :=
++  scopedSep_of_check (by decide +kernel)
++
++set_option maxRecDepth 100000 in
++theorem real_transferFrom_ABC : ScopedSep (transferFromFootprint 1 2 addrA addrB addrC) :=
++  scopedSep_of_check (by decide +kernel)
++
++/-! Negative controls, by evaluation: the check refuses hashes that collide on the footprint or map
++into the small slots. -/
++
++theorem check_refuses_constant :
++    sepCheckBy (fun _ => 2 ^ 128) (transferFootprint 1 addrA addrB) = false := by decide +kernel
++
++set_option maxRecDepth 100000 in
++theorem check_refuses_truncated :
++    sepCheckBy (fun x => keccakWord x % 2 ^ 128) (transferFootprint 1 addrA addrB) = false := by
++  decide +kernel
++
++theorem check_refuses_length_hash :
++    sepCheckBy (fun x => 2 ^ 128 + x.length)
++      (transferFromFootprintBy (fun _ => 0) 1 2 addrA addrB addrC) = false := by
++  decide +kernel
++
++/-! ## 3. Universal claims: named, not proved, not assumed -/
++
++/-- The transfer premise for every pair of addresses. **Not proved**; no statement assumes it. -/
++def UniversalTransferSep (m : Nat) : Prop :=
++  ∀ c t, c < 2 ^ 160 → t < 2 ^ 160 → ScopedSep (transferFootprint m c t)
++
++/-- It is exactly keccak256 separation on all `2 ^ 160` balance preimages: a global claim about the
++hash, which is why statements take the premise of their own call instead. -/
++theorem universalTransferSep_iff (m : Nat) :
++    UniversalTransferSep m ↔ KeccakSeparated (fun x => ∃ k < 2 ^ 160, x = mappingPreimage k m) := by
++  constructor
++  · intro hu
++    refine ⟨fun x y ⟨k, hk, hx⟩ ⟨k', hk', hy⟩ he => ?_, fun x ⟨k, hk, hx⟩ => ?_⟩
++    · subst hx hy
++      exact (hu k k' hk hk').1 _ _ (by simp [transferFootprint]) (by simp [transferFootprint]) he
++    · subst hx; exact (hu k k hk hk).2 _ (by simp [transferFootprint])
++  · intro hs c t hc ht
++    refine hs.mono fun x hx => ?_
++    simp only [transferFootprint, List.mem_cons, List.not_mem_nil, or_false] at hx
++    rcases hx with rfl | rfl
++    · exact ⟨c, hc, rfl⟩
++    · exact ⟨t, ht, rfl⟩
++
++/-! ## Axiom checks -/
++
++/-- info: 'SolidCore.Spec.scopedSep_iff_check' depends on axioms: [propext, Quot.sound] -/
++#guard_msgs in
++#print axioms scopedSep_iff_check
++
++/-- info: 'SolidCore.Spec.approve_slots' depends on axioms: [propext, Quot.sound] -/
++#guard_msgs in
++#print axioms approve_slots
++
++/-- info: 'SolidCore.Spec.transferFrom_slots' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs in
++#print axioms transferFrom_slots
++
++/-- info: 'SolidCore.Spec.approve_model' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs in
++#print axioms approve_model
++
++/-- info: 'SolidCore.Spec.transferFrom_model' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs in
++#print axioms transferFrom_model
++
++/-- info: 'SolidCore.Spec.real_transfer_AB' depends on axioms: [propext, Quot.sound] -/
++#guard_msgs in
++#print axioms real_transfer_AB
++
++/-- info: 'SolidCore.Spec.real_transfer_AA' depends on axioms: [propext, Quot.sound] -/
++#guard_msgs in
++#print axioms real_transfer_AA
++
++/-- info: 'SolidCore.Spec.real_approve_AB' depends on axioms: [propext, Quot.sound] -/
++#guard_msgs in
++#print axioms real_approve_AB
++
++/-- info: 'SolidCore.Spec.real_transferFrom_ABC' depends on axioms: [propext, Quot.sound] -/
++#guard_msgs in
++#print axioms real_transferFrom_ABC
++
++/-- info: 'SolidCore.Spec.check_refuses_constant' depends on axioms: [propext] -/
++#guard_msgs in
++#print axioms check_refuses_constant
++
++/-- info: 'SolidCore.Spec.check_refuses_truncated' depends on axioms: [propext] -/
++#guard_msgs in
++#print axioms check_refuses_truncated
++
++/-- info: 'SolidCore.Spec.check_refuses_length_hash' depends on axioms: [propext] -/
++#guard_msgs in
++#print axioms check_refuses_length_hash
++
++/-- info: 'SolidCore.Spec.universalTransferSep_iff' depends on axioms: [propext] -/
++#guard_msgs in
++#print axioms universalTransferSep_iff
++
++end SolidCore.Spec
+diff --git a/lakefile.lean b/lakefile.lean
+index cb2ed92..47654af 100644
+--- a/lakefile.lean
++++ b/lakefile.lean
+@@ -327,7 +327,7 @@ lean_lib VerifySpec where
+   roots := #[`Verify.Spec.Syntax, `Verify.Spec.Semantics, `Verify.Spec.Contract,
+     `Verify.Spec.Ghost, `Verify.Spec.GhostFree, `Verify.Spec.TrustedBase,
+     `Verify.Spec.TrustedBase.Hypotheses, `Verify.Spec.TrustedBase.Interface,
+-    `Verify.Spec.TreeMapNested]
++    `Verify.Spec.TreeMapNested, `Verify.Spec.HashScopeCheck]
+ 
+ -- The trusted base discharged for c4 and Counter on their checked-in source ASTs, and its axiom
+ -- audit. Separate from VerifySpec because the ASTs import the type checker.
+diff --git a/scripts/verify/keccak/footprint_check.sh b/scripts/verify/keccak/footprint_check.sh
+new file mode 100755
+index 0000000..0519329
+--- /dev/null
++++ b/scripts/verify/keccak/footprint_check.sh
+@@ -0,0 +1,67 @@
++#!/usr/bin/env bash
++# Kernel check of one call's footprint premise for the real keccak256.
++#
++#   footprint_check.sh transfer     <balSlot> <caller> <to>
++#   footprint_check.sh approve      <allowSlot> <caller> <spender>
++#   footprint_check.sh transferFrom <balSlot> <allowSlot> <src> <dst> <caller>
++#
++# Slots are below 2^128, addresses below 2^160 (decimal or 0x hex). Writes a one-theorem Lean file,
++# proves ScopedSep of the call's footprint by 'scopedSep_of_check (by decide +kernel)'
++# (Verify/Spec/HashScopeCheck.lean), and checks its axioms. Prints the premise and exits 0 when the
++# kernel accepts it; exits 1 when the check or the axiom audit fails, 2 on malformed input. Run from
++# the repository root after 'lake build Verify.Spec.HashScopeCheck'.
++set -euo pipefail
++
++die() { echo "REFUSED $*" >&2; exit 2; }
++
++num() { # num <value> <bits>: canonical decimal of a value below 2^bits, or refuse.
++  python3 - "$1" "$2" <<'EOF' || exit 2
++import sys
++s, bits = sys.argv[1], int(sys.argv[2])
++try:
++    v = int(s, 16) if s.lower().startswith("0x") else int(s, 10)
++except ValueError:
++    sys.stderr.write(f"REFUSED not a number: {s}\n"); sys.exit(2)
++if not (0 <= v < 2 ** bits):
++    sys.stderr.write(f"REFUSED out of range (2^{bits}): {s}\n"); sys.exit(2)
++print(v)
++EOF
++}
++
++kind="${1:-}"; shift || true
++case "$kind" in
++  transfer)
++    [ $# -eq 3 ] || die "transfer takes <balSlot> <caller> <to>"
++    a=$(num "$1" 128); b=$(num "$2" 160); c=$(num "$3" 160)
++    fp="transferFootprint $a $b $c" ;;
++  approve)
++    [ $# -eq 3 ] || die "approve takes <allowSlot> <caller> <spender>"
++    a=$(num "$1" 128); b=$(num "$2" 160); c=$(num "$3" 160)
++    fp="approveFootprint $a $b $c" ;;
++  transferFrom)
++    [ $# -eq 5 ] || die "transferFrom takes <balSlot> <allowSlot> <src> <dst> <caller>"
++    a=$(num "$1" 128); b=$(num "$2" 128); c=$(num "$3" 160); d=$(num "$4" 160); e=$(num "$5" 160)
++    fp="transferFromFootprint $a $b $c $d $e" ;;
++  *) die "unknown call kind: '$kind'" ;;
++esac
++
++dir=$(mktemp -d); trap 'rm -rf "$dir"' EXIT
++cat > "$dir/Check.lean" <<EOF
++import Verify.Spec.HashScopeCheck
++open SolidCore.Spec
++set_option maxRecDepth 100000 in
++theorem footprint_premise : ScopedSep ($fp) := scopedSep_of_check (by decide +kernel)
++#print axioms footprint_premise
++EOF
++
++echo "PREMISE ScopedSep ($fp)"
++if ! out=$(lake env lean "$dir/Check.lean" 2>&1); then
++  echo "$out" >&2; echo "CHECK failed"; exit 1
++fi
++echo "$out"
++ax=$(echo "$out" | sed -n "s/.*depends on axioms: \[\(.*\)\]/\1/p")
++[ -n "$ax" ] || { echo "CHECK no axiom report"; exit 1; }
++for x in $(echo "$ax" | tr ',' ' '); do
++  case "$x" in propext|Classical.choice|Quot.sound) ;; *) echo "CHECK axiom refused: $x"; exit 1 ;; esac
++done
++echo "CHECK kernel accepted"
+-- 
+2.43.0
+
