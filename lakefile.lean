@@ -517,7 +517,7 @@ lean_lib «arraymax» where
 -- generates its inputs (Spec, SpecWrongK, Bytecode, Runtime; derived from the GPL-3.0 port, so not
 -- committed) after scripts/verify/uniswap_v2_gen.sh.
 lean_lib ContractsUniswapV2PairSpec where
-  roots := #[`Contracts.UniswapV2.PairSpec.Published, `Contracts.UniswapV2.PairSpec.Negative]
+  roots := #[`Contracts.UniswapV2.PairSpec.Published, `Contracts.UniswapV2.PairSpec.Negative, `Contracts.UniswapV2.PairSpec.Axioms]
   globs := #[.submodules `Contracts.UniswapV2.PairSpec]
 
 -- uv2_erc20: UniswapV2ERC20's exported stages (Certified/uv2_erc20/gen, written by solar's

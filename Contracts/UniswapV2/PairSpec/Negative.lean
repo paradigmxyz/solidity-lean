@@ -1,6 +1,8 @@
 import Contracts.UniswapV2.PairSpec.Refusal
 import Contracts.UniswapV2.PairSpec.SourceNoUpdate
 import Contracts.UniswapV2.PairSpec.RuntimeNoUpdate
+import Contracts.UniswapV2.PairSpec.SourceSkimUpdate
+import Contracts.UniswapV2.PairSpec.RuntimeSkimUpdate
 
 /-!
 # UniswapV2Pair: the binding and the negative controls, by execution
@@ -12,6 +14,7 @@ checked source in the matching world (`Source.runIn`, answers the same), then on
 | control | what runs | what refuses it |
 |---|---|---|
 | altered jump | the bytes with the first `PUSH2 t; JUMPI` target moved by one | the binding (`altered_not_bound`, kernel); the altered bytes revert on the swap the real bytes perform (evaluated) |
+| skim that moves the reserves | skim with sync's `_update` first: solar's compile and SolidCore's translation of it | the published specification refuses every successful skim observable with reserve0 moved (`skimUpdate_refused`, kernel) |
 | missing reserve update | swap without `_update`: solar's compile of the mutant source, and SolidCore's translation of it | the published specification refuses every observable with the executed features (`noUpdate_refused`, kernel) |
 | wrong K | the real bytes and source | the mutated specification (fee 4/1000, SpecWrongK) refuses every observable with the executed features (`wrongK_refused`, kernel); the published clause accepts them (`k_accepts`, kernel) |
 | mismatched environment | the real bytes among tokens answering 11000/9094, the source in a world answering 11000/9000 | the observables differ (evaluated): no equivalence claim relates them |
@@ -94,6 +97,14 @@ def contractNoUpdate? : Except TypeCheck.TypeError TypeCheck.CheckedContract :=
   TypeCheck.CheckedInput.contract SolidCore.Verify.VC.Source.UniswapV2PairNoUpdate.importedSourceUnit
     "UniswapV2Pair"
 
+/-- The mutant bytes of skim forcing the reserves to the balances. -/
+def codeSkimUpdate : ByteArray := ⟨(runtimeSkimUpdate.map UInt8.ofNat).toArray⟩
+
+/-- SolidCore's checked skim mutant. -/
+def contractSkimUpdate? : Except TypeCheck.TypeError TypeCheck.CheckedContract :=
+  TypeCheck.CheckedInput.contract SolidCore.Verify.VC.Source.UniswapV2PairSkimUpdate.importedSourceUnit
+    "UniswapV2Pair"
+
 /-- The features of a run the controls check: success, reserve0, reserve1, the lock word. -/
 def feat : Option Observable → Option (Bool × Nat × Nat × Nat)
   | some o => some (o.success, o.storage 8 % 2 ^ 112, o.storage 8 / 2 ^ 112 % 2 ^ 112, o.storage 12)
@@ -124,5 +135,17 @@ def srcRun (c? : Except TypeCheck.TypeError TypeCheck.CheckedContract) (w : Worl
   feat (Target.runWithIn (env 11000 9094) 10000000 code swapCall)
 -- Closed world: without token accounts the swap reverts.
 #guard ((Target.runWithIn [] 10000000 code swapCall).map (·.success)) = some false
+
+/-! ## skim (evaluated): token balances 11000/10500 over reserves 10000/10000 -/
+
+-- The exact bytes: skim succeeds and keeps the reserves at 10000/10000.
+#guard feat (Target.runWithIn (env 11000 10500) 10000000 code skimCall) = some (true, 10000, 10000, 1)
+-- The checked source in the matching world: the same features.
+#guard feat (srcRun SolidCore.Verify.VC.UniswapV2Pair.contract? (W 11000 10500) skimCall) =
+  some (true, 10000, 10000, 1)
+-- Mutant bytes (skim forcing the reserves to the balances): reserves 11000/10500.
+#guard feat (Target.runWithIn (env 11000 10500) 10000000 codeSkimUpdate skimCall) = some (true, 11000, 10500, 1)
+-- Mutant source: the same.
+#guard feat (srcRun contractSkimUpdate? (W 11000 10500) skimCall) = some (true, 11000, 10500, 1)
 
 end SolidCore.Spec.UniswapV2.PairSpec.Negative

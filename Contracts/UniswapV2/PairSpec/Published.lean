@@ -45,7 +45,7 @@ exact bytecode on a valid call, at any gas below `2 ^ 256`, is allowed and meets
 specification (for some admitted world), or changes nothing, or is explained only by a world
 with a reentrant state change. -/
 theorem bytecode_of_statement {c0 : SolidCore.Solidity.TypeCheck.CheckedContract}
-    (hc0 : SolidCore.Verify.VC.UniswapV2Pair.contract? = .ok c0) (h : Statement) (hk : HashScope) (env : TargetEnv) (he : EnvOk env)
+    (hc0 : SolidCore.Verify.VC.UniswapV2Pair.contract? = .ok c0) (h : Statement) (hk : PairAllowanceApart) (env : TargetEnv) (he : EnvOk env)
     (gas : Nat) (hg : gas < 2 ^ 256) (call : Call) (hv : Valid call) (obs : Observable)
     (hrun : Target.runWithIn env gas code call = some obs) :
     (∃ W, Admit W ∧ Allowed W call obs ∧ Post W call obs) ∨ Inert call obs ∨

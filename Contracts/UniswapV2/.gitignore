@@ -18,3 +18,5 @@ ERC20/VC/
 */Runtime.lean
 */SourceNoUpdate.lean
 */RuntimeNoUpdate.lean
+*/SourceSkimUpdate.lean
+*/RuntimeSkimUpdate.lean

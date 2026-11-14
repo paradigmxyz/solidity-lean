@@ -81,26 +81,21 @@ def PairFramed (W : World) : Prop :=
 /-- The admitted source worlds: the wide ones without reentrant state change. -/
 def Admit (W : World) : Prop := Wide W ∧ PairFramed W
 
-/-- The storage word of `balanceOf[address(0)]` (slot 1), as the specification computes it. -/
-def zeroBalanceSlot : Nat :=
-  SolidCore.Spec.keccakWord (SolidCore.Spec.wordBytes 0 ++ SolidCore.Spec.wordBytes 1)
-
 /-- The storage word of `allowance[address(0)][s]` (slot 2), as the specification computes it. -/
 def zeroAllowanceSlot (s : Nat) : Nat :=
   SolidCore.Spec.keccakWord (SolidCore.Spec.wordBytes s ++
     SolidCore.Spec.wordBytes (SolidCore.Spec.keccakWord (SolidCore.Spec.wordBytes 0 ++ SolidCore.Spec.wordBytes 2)))
 
-/-- **The named premise, scoped to the hashes the statement reads.** swap, skim and sync write
-only the pair's fixed slots (below 13: reserves 8, price accumulators 9 and 10, the lock 12), and
-the specification reads through keccak only the ERC20 invariants' words `balanceOf[address(0)]`
-and `allowance[address(0)][s]`. The premise says none of those words is a fixed slot. It is not an
-injectivity assumption: no two hashes need differ, so the counting argument that refutes
-`NestedSlotsSeparated` (2^320 preimages into 2^256 words) does not apply; it asks 2^160 + 1
-keccak outputs to avoid 13 values. Not proved (it is a fact about keccak256 the kernel cannot
-compute for every address); a premise of the statement, never an axiom. To be replaced by the
-footprint-scoped premise of Verify/Spec/HashScope.lean (`ScopedSep`). -/
-def HashScope : Prop :=
-  13 ≤ zeroBalanceSlot % 2 ^ 256 ∧ ∀ s, s < 2 ^ 160 → 13 ≤ zeroAllowanceSlot s % 2 ^ 256
+/-- **The named premise**: the words `allowance[address(0)][s]` (the ERC20 invariant
+`forall s :: allowance[address(0)][s] == 0` reads them for every address `s`) are none of the
+pair's 13 fixed slots, the only slots swap, skim and sync write (8, 9, 10, 12). It asks
+`2 ^ 160` keccak256 images to avoid 13 values: avoidance, not injectivity, so no counting
+argument refutes it, and a hash model meets it (`PairAllowanceApart.satisfiable`, Refusal.lean).
+It is not footprint-scoped (the invariant's family is every address), a computational assumption
+of the statement, never an axiom. The other keccak word the specification reads,
+`balanceOf[address(0)]`, needs no premise: the kernel computes it (`zeroBalance_ge`). -/
+def PairAllowanceApart : Prop :=
+  ∀ s, s < 2 ^ 160 → 13 ≤ zeroAllowanceSlot s % 2 ^ 256
 
 /-! ## Allowed statuses and the specification -/
 
