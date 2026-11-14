@@ -1,0 +1,1610 @@
+From df5c3cccf981628e4de73d928d09548dffbf6afc Mon Sep 17 00:00:00 2001
+From: solidity-lean slice-source-mir <noreply@paradigm.xyz>
+Date: Sat, 14 Nov 2026 21:14:03 +0000
+Subject: [PATCH] feat(uniswap-v2): transfer E3 for every caller
+
+Add a symbolic caller to the generic source checker: WExpr.caller,
+valued by the new Val.caller, which msg.sender erases to and CALLER
+reads under EnvFlags.allSym. Generic.checkSym checks a function once
+for that word, and Generic.stageFrom turns its acceptance into the
+stage from Source.runFrom a (a call sent by a, deployed by
+callerAddress) to the lowered MIR, for every a < 2^160 and every
+oracle whose caller is a and whose two-word Keccak-256 is SolidCore's.
+The fixed-caller checker and its stages are unchanged: SymState.caller
+defaults to the literal callerWord.
+
+SourceMirFrom proves UniswapV2ERC20.transfer's stage for every caller
+from one kernel evaluation (checkFrom_eq). A new mutant, PinnedCaller,
+replaces CALLER with the constant 0x2000: the fixed-caller check
+accepts it (SourceMirPinned) and the symbolic check refuses it, with
+the 8 existing mutants (SourceMirFromNeg).
+---
+ Contracts/CallFamilies/FeeOnSource.lean       |  10 +-
+ Contracts/CallFamilies/SkimSource.lean        |   6 +-
+ Contracts/CallFamilies/SyncSource.lean        |   8 +-
+ Contracts/UniswapV2/ERC20/Nested/Approve.lean |   2 +-
+ .../ERC20/Nested/TransferFromSpec.lean        |   2 +-
+ Contracts/UniswapV2/ERC20/Slice/Mutants.lean  |  12 +-
+ .../UniswapV2/ERC20/Slice/MutantsDebit.lean   |   8 +-
+ Contracts/UniswapV2/ERC20/Slice/Run.lean      |   2 +-
+ Contracts/UniswapV2/ERC20/SourceMirFrom.lean  |  87 ++++
+ .../UniswapV2/ERC20/SourceMirFromCheck.lean   |  20 +
+ .../UniswapV2/ERC20/SourceMirFromDefs.lean    |  20 +
+ .../UniswapV2/ERC20/SourceMirFromNeg.lean     |  73 ++++
+ .../UniswapV2/ERC20/SourceMirPinned.lean      |  17 +
+ Contracts/VerifyCounter/Source.lean           |   4 +-
+ Contracts/VerifyCounter/SourceLoop.lean       |   2 +-
+ Contracts/VerifyCounter/StageSource.lean      |   6 +-
+ SolidCore/Refinement/Generic/LoopErr.lean     |   4 +-
+ SolidCore/Refinement/Generic/LoopRun.lean     |   4 +-
+ SolidCore/Refinement/Generic/LoopStmt.lean    |   7 +-
+ SolidCore/Refinement/Generic/Mir.lean         |  16 +-
+ SolidCore/Refinement/Generic/MirRun.lean      |  11 +-
+ SolidCore/Refinement/Generic/Simp.lean        |   4 +
+ SolidCore/Refinement/Generic/Source.lean      |  16 +-
+ SolidCore/Refinement/Generic/SourceRun.lean   |  10 +-
+ SolidCore/Refinement/Generic/SourceStmt.lean  |  12 +-
+ SolidCore/Refinement/Generic/Stage.lean       |  13 +-
+ SolidCore/Refinement/Generic/StageFrom.lean   | 409 ++++++++++++++++++
+ SolidCore/Refinement/Generic/StageIn.lean     |   8 +-
+ SolidCore/Refinement/Generic/Tree.lean        |   9 +-
+ SolidCore/Refinement/Generic/Value.lean       |   2 +-
+ Verify/Spec/Tree.lean                         |   4 +-
+ Verify/Spec/TreeSplit.lean                    |   4 +-
+ Verify/Spec/TreeSucceeds.lean                 |   2 +-
+ Verify/VC/Model.lean                          |   2 +-
+ lakefile.lean                                 |   8 +-
+ scripts/verify/uniswap_v2_erc20_mutants.py    |   2 +
+ 36 files changed, 742 insertions(+), 84 deletions(-)
+ create mode 100644 Contracts/UniswapV2/ERC20/SourceMirFrom.lean
+ create mode 100644 Contracts/UniswapV2/ERC20/SourceMirFromCheck.lean
+ create mode 100644 Contracts/UniswapV2/ERC20/SourceMirFromDefs.lean
+ create mode 100644 Contracts/UniswapV2/ERC20/SourceMirFromNeg.lean
+ create mode 100644 Contracts/UniswapV2/ERC20/SourceMirPinned.lean
+ create mode 100644 SolidCore/Refinement/Generic/StageFrom.lean
+
+diff --git a/Contracts/CallFamilies/FeeOnSource.lean b/Contracts/CallFamilies/FeeOnSource.lean
+index 34caa43..1a61c81 100644
+--- a/Contracts/CallFamilies/FeeOnSource.lean
++++ b/Contracts/CallFamilies/FeeOnSource.lean
+@@ -328,9 +328,9 @@ theorem feeOn_source (k : Nat) (V : World) {c : SolidCore.Solidity.TypeCheck.Che
+             simp only [show AbiCleanups.acceptOrUnspecified [AbiCleanup.none] [Value.word w] = true by
+                 simp [AbiCleanups.acceptOrUnspecified, AbiCleanups.accept, AbiCleanup.accepts],
+               hbind, ↓reduceIte] at hrun
+-            let ρ : Val := ⟨[], slotValue σ, solHash⟩
++            let ρ : Val := ⟨[], slotValue σ, solHash, SolidCore.Refinement.Generic.callerWord⟩
+             let E : EraseEnv := { fields := callsFields, events := ctx.eventDecls, tbl := c.core.table }
+-            let S1 : SymState := ⟨[[("__ext0", .lit w)], [("_sol_hoist_0", .lit 0), ("_sol_hoist_1", .lit 0)], [], [("on", .lit 0)]], [], []⟩
++            let S1 : SymState := ⟨[[("__ext0", .lit w)], [("_sol_hoist_0", .lit 0), ("_sol_hoist_1", .lit 0)], [], [("on", .lit 0)]], [], [], .lit SolidCore.Refinement.Generic.callerWord⟩
+             have hrel1 : StmtRel ρ E ctx (((({ state := adoptWorld a.postWorld ctx ((rt0.pushScope.pushScope.declareLocal "_sol_hoist_1" (Value.word 0)).declareLocal "_sol_hoist_0" Ty.address.defaultValue).state, locals := ((rt0.pushScope.pushScope.declareLocal "_sol_hoist_1" (Value.word 0)).declareLocal "_sol_hoist_0" Ty.address.defaultValue).locals, memory := ((rt0.pushScope.pushScope.declareLocal "_sol_hoist_1" (Value.word 0)).declareLocal "_sol_hoist_0" Ty.address.defaultValue).memory, nextMemory := ((rt0.pushScope.pushScope.declareLocal "_sol_hoist_1" (Value.word 0)).declareLocal "_sol_hoist_0" Ty.address.defaultValue).nextMemory, nextMemoryByte := ((rt0.pushScope.pushScope.declareLocal "_sol_hoist_1" (Value.word 0)).declareLocal "_sol_hoist_0" Ty.address.defaultValue).nextMemoryByte } : Runtime).recordExternalInteraction (ExternalInteraction.lowLevelCall { kind := Solidity.Shared.Call.ExternalCallKind.staticcall, target := Solidity.Shared.norm (fieldValue (slotValue σ 0) factoryField.packedOffset 20), calldata := [normByte 1, normByte 126, normByte 126, normByte 88], value := Solidity.Shared.norm 0, success := true, output := byteArrayToBytes a.returnData })).withFrame [("__ext0", Value.word w)])) S1 :=
+               { fields := hctxf
+                 events := rfl
+@@ -361,7 +361,7 @@ theorem feeOn_source (k : Nat) (V : World) {c : SolidCore.Solidity.TypeCheck.Che
+             obtain ⟨r1, hr1, hl1⟩ := eval_stmt ρ E ctx (k + 2) (Stmt.assign (LValue.var "_sol_hoist_0")
+               (Expr.var "__ext0")) S1 _ rfl _ hrel1
+             rw [hr1] at hrun
+-            let S1' : SymState := ⟨[[("__ext0", .lit w)], [("_sol_hoist_0", .lit w), ("_sol_hoist_1", .lit 0)], [], [("on", .lit 0)]], [], []⟩
++            let S1' : SymState := ⟨[[("__ext0", .lit w)], [("_sol_hoist_0", .lit w), ("_sol_hoist_1", .lit 0)], [], [("on", .lit 0)]], [], [], .lit SolidCore.Refinement.Generic.callerWord⟩
+             have hl1' : LeafRel ρ E ctx r1 (.normal S1') := hl1
+             cases r1 with
+             | normal rt1 =>
+@@ -371,7 +371,7 @@ theorem feeOn_source (k : Nat) (V : World) {c : SolidCore.Solidity.TypeCheck.Che
+               simp only [done_bind', Result.mapRuntime, sbind_pure] at hrun
+               rw [hr2] at hrun
+               let ON : WExpr := .un .iszero (.bin .eq (.lit w) (.lit 0))
+-              let S3 : SymState := ⟨[[("_sol_hoist_0", .lit w), ("_sol_hoist_1", .lit 0)], [], [("on", ON)]], [], []⟩
++              let S3 : SymState := ⟨[[("_sol_hoist_0", .lit w), ("_sol_hoist_1", .lit 0)], [], [("on", ON)]], [], [], .lit SolidCore.Refinement.Generic.callerWord⟩
+               have hl2' : LeafRel ρ E ctx r2 (.normal S3) := hl2
+               cases r2 with
+               | normal rt2 =>
+@@ -379,7 +379,7 @@ theorem feeOn_source (k : Nat) (V : World) {c : SolidCore.Solidity.TypeCheck.Che
+                   (Stmt.assign (LValue.storage "kLast") (Expr.word 1)) Stmt.skip) S3 _ rfl _ hl2'
+                 simp only [done_bind', sbind_pure] at hrun
+                 rw [hr3] at hrun
+-                let S4 : SymState := ⟨S3.scopes, [(.lit 3, writeField (.init 3) (.lit 1) 0 32)], []⟩
++                let S4 : SymState := ⟨S3.scopes, [(.lit 3, writeField (.init 3) (.lit 1) 0 32)], [], .lit SolidCore.Refinement.Generic.callerWord⟩
+                 have hl3' : LeafRel ρ E ctx r3 (if ON.eval ρ = 0 then .normal S3 else .normal S4) := hl3
+                 have hON : ON.eval ρ = if w = 0 then 0 else 1 := by
+                   have hwlt' : w < 115792089237316195423570985008687907853269984665640564039457584007913129639936 := hwlt
+diff --git a/Contracts/CallFamilies/SkimSource.lean b/Contracts/CallFamilies/SkimSource.lean
+index 0f25fc1..6c07a26 100644
+--- a/Contracts/CallFamilies/SkimSource.lean
++++ b/Contracts/CallFamilies/SkimSource.lean
+@@ -474,8 +474,8 @@ theorem skim_source (k : Nat) (V : World) {c : SolidCore.Solidity.TypeCheck.Chec
+         refine ⟨fun _ => ?_, fun h => absurd hE h⟩
+         simp only [hlw, ↓reduceIte, caught_revert, bind_done_ok] at hrun
+         simp only [sbind_pure, Result.mapRuntime, map_pure', foldAns_pure, FunctionDef.callBodyResult] at hrun
+-        have hpd : (panicBytes 17).map (OByte.eval ⟨[], fun _ => 0, solHash⟩) = Skim.panicData := by rfl
+-        simp only [RevertData.overflow, RevertData.untagFixedBytes, encode_panic ⟨[], fun _ => 0, solHash⟩, hpd, Option.bind_some,
++        have hpd : (panicBytes 17).map (OByte.eval ⟨[], fun _ => 0, solHash, SolidCore.Refinement.Generic.callerWord⟩) = Skim.panicData := by rfl
++        simp only [RevertData.overflow, RevertData.untagFixedBytes, encode_panic ⟨[], fun _ => 0, solHash, SolidCore.Refinement.Generic.callerWord⟩, hpd, Option.bind_some,
+           Option.map_some, Option.some.injEq] at hrun
+         simp only [bind, Option.bind, Option.map, Option.some.injEq] at hrun
+         subst hrun
+@@ -587,7 +587,7 @@ theorem skim_source (k : Nat) (V : World) {c : SolidCore.Solidity.TypeCheck.Chec
+         have hemp : ABI.Contract.encodeRevertData? c.core RevertData.empty = some [] := by
+           simp [ABI.Contract.encodeRevertData?]
+         have he : ABI.Contract.encodeRevertData? c.core (RevertData.error "TRANSFER_FAILED") = some Skim.errData := by
+-          rw [encode_error ⟨[], fun _ => 0, solHash⟩ c.core errB_eq', List.map_map]
++          rw [encode_error ⟨[], fun _ => 0, solHash, SolidCore.Refinement.Generic.callerWord⟩ c.core errB_eq', List.map_map]
+           decide
+         simp only [payRes, hl2] at hrun
+         split_ifs at hrun with h1 h2 h3 h4 h5
+diff --git a/Contracts/CallFamilies/SyncSource.lean b/Contracts/CallFamilies/SyncSource.lean
+index 0c8e8c8..5474e70 100644
+--- a/Contracts/CallFamilies/SyncSource.lean
++++ b/Contracts/CallFamilies/SyncSource.lean
+@@ -340,9 +340,9 @@ theorem sync_source (k : Nat) (V : World) {c : SolidCore.Solidity.TypeCheck.Chec
+             simp [BindingDecl.bindArgs?, BindingDecl.bindArg?, Ty.coerceValue?, SolidCore.Solidity.Shared.norm,
+               Nat.mod_eq_of_lt hwlt]
+           simp only [hacc, hbind, Bool.or_true, ↓reduceIte] at hrun
+-          let ρ : Val := ⟨[], slotValue σ, solHash⟩
++          let ρ : Val := ⟨[], slotValue σ, solHash, SolidCore.Refinement.Generic.callerWord⟩
+           let E : EraseEnv := { fields := callsFields, events := ctx.eventDecls, tbl := c.core.table }
+-          let S1 : SymState := ⟨[[("__ext0", .lit w)], [("_sol_hoist_0", .lit 0)], [], []], [], []⟩
++          let S1 : SymState := ⟨[[("__ext0", .lit w)], [("_sol_hoist_0", .lit 0)], [], []], [], [], .lit SolidCore.Refinement.Generic.callerWord⟩
+           have hrel1 : StmtRel ρ E ctx ((({ state := adoptWorld a.postWorld ctx (rt0.pushScope.pushScope.declareLocal "_sol_hoist_0" Ty.uint256.defaultValue).state, locals := (rt0.pushScope.pushScope.declareLocal "_sol_hoist_0" Ty.uint256.defaultValue).locals, memory := (rt0.pushScope.pushScope.declareLocal "_sol_hoist_0" Ty.uint256.defaultValue).memory, nextMemory := (rt0.pushScope.pushScope.declareLocal "_sol_hoist_0" Ty.uint256.defaultValue).nextMemory, nextMemoryByte := (rt0.pushScope.pushScope.declareLocal "_sol_hoist_0" Ty.uint256.defaultValue).nextMemoryByte } : Runtime).recordExternalInteraction (ExternalInteraction.lowLevelCall { kind := Solidity.Shared.Call.ExternalCallKind.staticcall, target := Solidity.Shared.norm (fieldValue (slotValue σ 1) tokenField.packedOffset 20), calldata := List.map normByte encSync, value := Solidity.Shared.norm 0, success := true, output := byteArrayToBytes a.returnData })).withFrame [("__ext0", Value.word w)]) S1 :=
+             { fields := hctxf
+               events := rfl
+@@ -373,7 +373,7 @@ theorem sync_source (k : Nat) (V : World) {c : SolidCore.Solidity.TypeCheck.Chec
+           obtain ⟨r1, hr1, hl1⟩ := eval_stmt ρ E ctx (k + 2) (Stmt.assign (LValue.var "_sol_hoist_0")
+             (Expr.castOp CastKind.uintCleanup 256 (Expr.var "__ext0"))) S1 _ rfl _ hrel1
+           rw [hr1] at hrun
+-          let S1' : SymState := ⟨[[("__ext0", .lit w)], [("_sol_hoist_0", .lit w)], [], []], [], []⟩
++          let S1' : SymState := ⟨[[("__ext0", .lit w)], [("_sol_hoist_0", .lit w)], [], []], [], [], .lit SolidCore.Refinement.Generic.callerWord⟩
+           have hl1' : LeafRel ρ E ctx r1 (.normal S1') := hl1
+           cases r1 with
+           | normal rt1 =>
+@@ -383,7 +383,7 @@ theorem sync_source (k : Nat) (V : World) {c : SolidCore.Solidity.TypeCheck.Chec
+             simp only [done_bind', Result.mapRuntime, sbind_pure] at hrun
+             rw [hr2] at hrun
+             let S3 : SymState := ⟨[[("_sol_hoist_0", .lit w)], [], []],
+-              [(.lit 2, writeField (.init 2) (.lit w) 0 32)], []⟩
++              [(.lit 2, writeField (.init 2) (.lit w) 0 32)], [], .lit SolidCore.Refinement.Generic.callerWord⟩
+             have hl2' : LeafRel ρ E ctx r2 (.normal S3) := hl2
+             cases r2 with
+             | normal rt2 =>
+diff --git a/Contracts/UniswapV2/ERC20/Nested/Approve.lean b/Contracts/UniswapV2/ERC20/Nested/Approve.lean
+index a3cad04..7009e0e 100644
+--- a/Contracts/UniswapV2/ERC20/Nested/Approve.lean
++++ b/Contracts/UniswapV2/ERC20/Nested/Approve.lean
+@@ -64,7 +64,7 @@ def approveResult (st : Nat → Nat) (spender value : Nat) : Observable :=
+ word and every storage. -/
+ theorem approve_tree_eval (spender value : Nat) (st : Nat → Nat) (hs : spender < 2 ^ 256)
+     (hv : value < 2 ^ 256) :
+-    (approve_tree.eval ⟨[spender, value], st, solHash⟩).obs = approveResult st spender value := by
++    (approve_tree.eval ⟨[spender, value], st, solHash, SolidCore.Refinement.Generic.callerWord⟩).obs = approveResult st spender value := by
+   have hl := solHash_lt
+   simp only [Generic.wordSize] at hl
+   have hsN : spender % 2 ^ 256 = spender := Nat.mod_eq_of_lt hs
+diff --git a/Contracts/UniswapV2/ERC20/Nested/TransferFromSpec.lean b/Contracts/UniswapV2/ERC20/Nested/TransferFromSpec.lean
+index 75a0dda..b7dcdf9 100644
+--- a/Contracts/UniswapV2/ERC20/Nested/TransferFromSpec.lean
++++ b/Contracts/UniswapV2/ERC20/Nested/TransferFromSpec.lean
+@@ -157,7 +157,7 @@ argument word and every storage of words, with no hash premise: the tree's selec
+ are the source's own aliasing, which `upd` reproduces. -/
+ theorem transferFrom_tree_eval (frm dst value : Nat) (st : Nat → Nat) (hf : frm < 2 ^ 256)
+     (ht : dst < 2 ^ 256) (hv : value < 2 ^ 256) (hst : ∀ k, st k < 2 ^ 256) :
+-    (transferFrom_tree.eval ⟨[frm, dst, value], st, solHash⟩).obs = transferFromResult st frm dst value := by
++    (transferFrom_tree.eval ⟨[frm, dst, value], st, solHash, SolidCore.Refinement.Generic.callerWord⟩).obs = transferFromResult st frm dst value := by
+   have hl := solHash_lt
+   simp only [Generic.wordSize] at hl
+   have hH : ∀ a b, solHash a b % 2 ^ 256 = solHash a b := fun a b => Nat.mod_eq_of_lt (hl a b)
+diff --git a/Contracts/UniswapV2/ERC20/Slice/Mutants.lean b/Contracts/UniswapV2/ERC20/Slice/Mutants.lean
+index a32647e..2cc848c 100644
+--- a/Contracts/UniswapV2/ERC20/Slice/Mutants.lean
++++ b/Contracts/UniswapV2/ERC20/Slice/Mutants.lean
+@@ -50,7 +50,7 @@ open SolidCore.Spec.UniswapV2.ERC20.Slice.Gen.MutLog in
+ /-- SolidCore's run of `call0` on the mutant is its erased tree's result. -/
+ theorem runLog {c : SolidCore.Solidity.TypeCheck.CheckedContract}
+     (hc : SolidCore.Verify.VC.UniswapV2ERC20MutLog.contract? = .ok c) :
+-    (solidCore fuel).run c call0 = some (transfer_tree.eval ⟨[1, 0], slotValue σ0, solHash⟩).obs := by
++    (solidCore fuel).run c call0 = some (transfer_tree.eval ⟨[1, 0], slotValue σ0, solHash, SolidCore.Refinement.Generic.callerWord⟩).obs := by
+   have hdep := deploy_eq
+   simp only [deploy?, hc] at hdep
+   obtain ⟨d, hd⟩ := Wide.deployedAt_of hdep
+@@ -67,7 +67,7 @@ open SolidCore.Spec.UniswapV2.ERC20.Slice.Gen.MutRet in
+ /-- SolidCore's run of `call0` on the mutant is its erased tree's result. -/
+ theorem runRet {c : SolidCore.Solidity.TypeCheck.CheckedContract}
+     (hc : SolidCore.Verify.VC.UniswapV2ERC20MutRet.contract? = .ok c) :
+-    (solidCore fuel).run c call0 = some (transfer_tree.eval ⟨[1, 0], slotValue σ0, solHash⟩).obs := by
++    (solidCore fuel).run c call0 = some (transfer_tree.eval ⟨[1, 0], slotValue σ0, solHash, SolidCore.Refinement.Generic.callerWord⟩).obs := by
+   have hdep := deploy_eq
+   simp only [deploy?, hc] at hdep
+   obtain ⟨d, hd⟩ := Wide.deployedAt_of hdep
+@@ -79,8 +79,8 @@ end Ret
+ 
+ /-- The log mutant's result on `call0`: success, with `Transfer(1, caller, 0)`. -/
+ theorem log_result :
+-    (Gen.MutLog.transfer_tree.eval ⟨[1, 0], slotValue σ0, solHash⟩).obs.success = true ∧
+-      (Gen.MutLog.transfer_tree.eval ⟨[1, 0], slotValue σ0, solHash⟩).obs.logs ≠ [transferLog caller 1 0] := by
++    (Gen.MutLog.transfer_tree.eval ⟨[1, 0], slotValue σ0, solHash, SolidCore.Refinement.Generic.callerWord⟩).obs.success = true ∧
++      (Gen.MutLog.transfer_tree.eval ⟨[1, 0], slotValue σ0, solHash, SolidCore.Refinement.Generic.callerWord⟩).obs.logs ≠ [transferLog caller 1 0] := by
+   simp only [Res.obs, slotValue_σ0]
+   generalize solHash = H
+   simp [Gen.MutLog.transfer_tree, Tree.eval, WExpr.eval, BinOp.eval, UnOp.eval, Log.eval, transferLog,
+@@ -88,8 +88,8 @@ theorem log_result :
+ 
+ /-- The return mutant's result on `call0`: success, returning `false`. -/
+ theorem ret_result :
+-    (Gen.MutRet.transfer_tree.eval ⟨[1, 0], slotValue σ0, solHash⟩).obs.success = true ∧
+-      (Gen.MutRet.transfer_tree.eval ⟨[1, 0], slotValue σ0, solHash⟩).obs.output = be32 0 := by
++    (Gen.MutRet.transfer_tree.eval ⟨[1, 0], slotValue σ0, solHash, SolidCore.Refinement.Generic.callerWord⟩).obs.success = true ∧
++      (Gen.MutRet.transfer_tree.eval ⟨[1, 0], slotValue σ0, solHash, SolidCore.Refinement.Generic.callerWord⟩).obs.output = be32 0 := by
+   simp only [Res.obs, slotValue_σ0]
+   generalize solHash = H
+   simp [Gen.MutRet.transfer_tree, Tree.eval, WExpr.eval, BinOp.eval, UnOp.eval, OByte.eval, be32,
+diff --git a/Contracts/UniswapV2/ERC20/Slice/MutantsDebit.lean b/Contracts/UniswapV2/ERC20/Slice/MutantsDebit.lean
+index ba5030c..ed5d26a 100644
+--- a/Contracts/UniswapV2/ERC20/Slice/MutantsDebit.lean
++++ b/Contracts/UniswapV2/ERC20/Slice/MutantsDebit.lean
+@@ -23,7 +23,7 @@ theorem runDebit {c : SolidCore.Solidity.TypeCheck.CheckedContract}
+     (hc : SolidCore.Verify.VC.UniswapV2ERC20MutDebit.contract? = .ok c) {σ : List (Nat × Nat)} {dst v : Nat}
+     (hcov : Generic.Covers deployed σ) (hto : dst < 2 ^ 160) (hv : v < 2 ^ 256) :
+     (solidCore fuel).run c (transferCall σ dst v) =
+-      some (transfer_tree.eval ⟨[dst, v], slotValue σ, solHash⟩).obs := by
++      some (transfer_tree.eval ⟨[dst, v], slotValue σ, solHash, SolidCore.Refinement.Generic.callerWord⟩).obs := by
+   have hdep := deploy_eq
+   simp only [deploy?, hc] at hdep
+   obtain ⟨d, hd⟩ := Wide.deployedAt_of hdep
+@@ -119,8 +119,8 @@ set_option simprocs false in
+ /-- The debit mutant's result on `transfer(1, 2)` from `σd`: success, with the caller's balance
+ still 5. -/
+ theorem debit_result :
+-    (Gen.MutDebit.transfer_tree.eval ⟨[1, 2], slotValue σd, solHash⟩).obs.success = true ∧
+-      (Gen.MutDebit.transfer_tree.eval ⟨[1, 2], slotValue σd, solHash⟩).obs.storage (balKey caller) = 5 := by
++    (Gen.MutDebit.transfer_tree.eval ⟨[1, 2], slotValue σd, solHash, SolidCore.Refinement.Generic.callerWord⟩).obs.success = true ∧
++      (Gen.MutDebit.transfer_tree.eval ⟨[1, 2], slotValue σd, solHash, SolidCore.Refinement.Generic.callerWord⟩).obs.storage (balKey caller) = 5 := by
+   have hs : ∀ k, slotValue σd k < 2 ^ 256 := fun k => Generic.slotValue_lt σd k
+   have hne : balKey 1 ≠ balKey caller := by
+     rw [show balKey caller = solHash 8192 1 by simp only [balKey, caller, Generic.callerWord]]
+@@ -132,7 +132,7 @@ theorem debit_result :
+     simp only [slotValue, σd, List.foldl_cons, List.foldl_nil, if_neg h, Nat.zero_mod, ite_self]
+   have h := debit_eval (s := slotValue σd) (dst := 1) (v := 2) hs (by norm_num) (by norm_num)
+     (by rw [ha]; norm_num) hne (by rw [hb]; norm_num)
+-  have e1 : (⟨[1, 2], slotValue σd, solHash⟩ : Val) = val (slotValue σd) 1 2 := rfl
++  have e1 : (⟨[1, 2], slotValue σd, solHash, SolidCore.Refinement.Generic.callerWord⟩ : Val) = val (slotValue σd) 1 2 := rfl
+   rw [← e1] at h
+   exact ⟨obs_success _ h.1, obs_storage _ _ (h.2.trans ha)⟩
+ 
+diff --git a/Contracts/UniswapV2/ERC20/Slice/Run.lean b/Contracts/UniswapV2/ERC20/Slice/Run.lean
+index 20e44c4..9c0c290 100644
+--- a/Contracts/UniswapV2/ERC20/Slice/Run.lean
++++ b/Contracts/UniswapV2/ERC20/Slice/Run.lean
+@@ -63,7 +63,7 @@ kernel_rfl tree_eq transfer_tree
+ /-! ## Evaluating the parts -/
+ 
+ /-- The words `transfer(to, v)` reads from the storage `s`. -/
+-abbrev val (s : Nat → Nat) (dst v : Nat) : Val := ⟨[dst, v], s, solHash⟩
++abbrev val (s : Nat → Nat) (dst v : Nat) : Val := ⟨[dst, v], s, solHash, SolidCore.Refinement.Generic.callerWord⟩
+ 
+ /-- The tree's result on `transfer(to, v)` from the storage `s`. -/
+ abbrev res (s : Nat → Nat) (dst v : Nat) : Res := transfer_tree.eval (val s dst v)
+diff --git a/Contracts/UniswapV2/ERC20/SourceMirFrom.lean b/Contracts/UniswapV2/ERC20/SourceMirFrom.lean
+new file mode 100644
+index 0000000..3612283
+--- /dev/null
++++ b/Contracts/UniswapV2/ERC20/SourceMirFrom.lean
+@@ -0,0 +1,87 @@
++import Contracts.UniswapV2.ERC20.SourceMirFromCheck
++import Contracts.UniswapV2.ERC20.SourceMirDeploy
++import Verify.ShapeCtx
++
++/-!
++# UniswapV2ERC20.transfer from every caller: SolidCore's checked source to solar's first lowered MIR (E3)
++
++`SourceMir.transfer_stage` fixes the caller (SolidCore's `callerAddress`, 0x2000). This module states
++E3 for **every caller** `a < 2 ^ 160`, proved once by the generic checker with the caller a symbolic
++word (`Generic.checkSym`, `Generic.stageFrom`), not per address:
++
++* `checkFrom_eq` (`kernel_rfl`): the kernel evaluates `Generic.checkSym` of stage0 for `[fn_transfer]`
++  to `true`. The source side erases `msg.sender` to `WExpr.caller`, knowing only that it fits in 160
++  bits; the MIR side reads `CALLER` as the same word (`EnvFlags.allSym`).
++* `transfer_stage_from`: for every `a < 2 ^ 160` and every oracle `o` with `FromOk a o` (its caller is `a`
++  and its Keccak-256 of two words is SolidCore's slot hash, i.e. Keccak-256), the stage
++  `Stage (solidCoreFrom a fuel) (moduleSem o) c stage0 (genericValid0 fns deployed)`: on every valid call,
++  sent by `a`, solar's first lowered MIR shows what SolidCore's checked source shows (status, return
++  data, revert data, storage, logs).
++* `fromOk_inhabited`: for every `a < 2 ^ 160` an oracle meets `FromOk a` (EthLib's Keccak-256 with caller
++  `a`), so no case of the statement is vacuous.
++* `transfer_source_mir_any_caller`: the closed statement. `transfer_stage_callerAddress`: its instance at
++  `callerAddress` is the fixed-caller stage of `SourceMir` (`solidCoreFrom callerAddress = solidCore`).
++
++`Source.runFrom a` is SolidCore's run of a call sent by `a` to the contract as `callerAddress` deployed
++it (the constructor's caller is unchanged; transfer's constructor storage is `deployed`). No hash
++separation premise: both sides compute the same mapping slots, so none is assumed.
++-/
++
++namespace SolidCore.Spec.UniswapV2.ERC20.SourceMirFrom
++
++open SolidCore.Refinement SolidCore.Refinement.Generic SolidCore.Refinement.Shapes
++open SolidCore.Spec.UniswapV2.ERC20.SourceMir
++
++/-- **E3 for transfer, from every caller.** -/
++theorem transfer_stage_from (a : Nat) (ha : a < 2 ^ 160) (o : SolarTV.Machine.Oracle) (ho : FromOk a o)
++    {c : SolidCore.Solidity.TypeCheck.CheckedContract}
++    (hc : SolidCore.Verify.VC.UniswapV2ERC20.contract? = .ok c) :
++    SolarTV.Stage (solidCoreFrom a SolidCore.Verify.VC.UniswapV2ERC20.fuel) (SolarTV.MIR.Lowered.moduleSem o) c
++      SolarTV.Export.UniswapV2ERC20.stage0 (genericValid0 fns deployed) := by
++  have hdep := SolidCore.Spec.UniswapV2.ERC20.SourceMirDeploy.deploy_eq
++  simp only [deploy?, hc] at hdep
++  obtain ⟨_, hdd⟩ := Wide.deployedAt_of hdep
++  exact stageFrom a ha o ho hdd (checkFrom_ok hc)
++
++/-- The oracle of caller `a`: EthLib's Keccak-256, and `a` as `CALLER`. -/
++def oracleFrom (a : Nat) : SolarTV.Machine.Oracle :=
++  { Solar.Assemble.ethOracle ⟨fun _ _ _ => 0, fun _ => 0, fun _ _ => 0, fun _ _ => 0, fun _ => 0, 0⟩ with
++    caller := BitVec.ofNat 160 a }
++
++/-- For every caller the premise is satisfiable. -/
++theorem fromOk_inhabited (a : Nat) (ha : a < 2 ^ 160) : FromOk a (oracleFrom a) :=
++  ⟨by
++    have : a < 1461501637330902918203684832716283019655932542976 := ha
++    simp [oracleFrom]; omega,
++   fun x y _ _ => SolidCore.Refinement.Keccak.ethKeccak_twoWords x y⟩
++
++/-- **The edge, closed, for every caller**: the checked contract exists and E3 holds of it from every
++caller `a < 2 ^ 160` under every oracle with `FromOk a`; for every such caller the premise is met, and
++the valid calls are inhabited. -/
++theorem transfer_source_mir_any_caller :
++    (∃ c, SolidCore.Verify.VC.UniswapV2ERC20.contract? = .ok c ∧
++      ∀ a, a < 2 ^ 160 → ∀ o, FromOk a o →
++        SolarTV.Stage (solidCoreFrom a SolidCore.Verify.VC.UniswapV2ERC20.fuel) (SolarTV.MIR.Lowered.moduleSem o) c
++          SolarTV.Export.UniswapV2ERC20.stage0 (genericValid0 fns deployed)) ∧
++    (∀ a, a < 2 ^ 160 → ∃ o, FromOk a o) ∧ (∃ call, genericValid0 fns deployed call) := by
++  obtain ⟨c, hc⟩ := SolidCore.Verify.VC.UniswapV2ERC20.contract_ok
++  exact ⟨⟨c, hc, fun a ha o h => transfer_stage_from a ha o h hc⟩,
++    fun a ha => ⟨oracleFrom a, fromOk_inhabited a ha⟩, genericValid0_inhabited fn_transfer [] deployed⟩
++
++/-- At `callerAddress` the statement is the fixed-caller stage (on the oracles with that caller). -/
++theorem transfer_stage_callerAddress (o : SolarTV.Machine.Oracle) (ho : FromOk callerAddress o)
++    {c : SolidCore.Solidity.TypeCheck.CheckedContract}
++    (hc : SolidCore.Verify.VC.UniswapV2ERC20.contract? = .ok c) :
++    SolarTV.Stage (solidCore SolidCore.Verify.VC.UniswapV2ERC20.fuel) (SolarTV.MIR.Lowered.moduleSem o) c
++      SolarTV.Export.UniswapV2ERC20.stage0 (genericValid0 fns deployed) := by
++  exact transfer_stage_from callerAddress (by decide) o ho hc
++
++/-- info: 'SolidCore.Spec.UniswapV2.ERC20.SourceMirFrom.transfer_source_mir_any_caller' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms transfer_source_mir_any_caller
++
++/-- info: 'SolidCore.Spec.UniswapV2.ERC20.SourceMirFrom.transfer_stage_from' depends on axioms: [propext, Classical.choice, Quot.sound] -/
++#guard_msgs (whitespace := lax) in
++#print axioms transfer_stage_from
++
++end SolidCore.Spec.UniswapV2.ERC20.SourceMirFrom
+diff --git a/Contracts/UniswapV2/ERC20/SourceMirFromCheck.lean b/Contracts/UniswapV2/ERC20/SourceMirFromCheck.lean
+new file mode 100644
+index 0000000..ebf3c83
+--- /dev/null
++++ b/Contracts/UniswapV2/ERC20/SourceMirFromCheck.lean
+@@ -0,0 +1,20 @@
++import Contracts.UniswapV2.ERC20.SourceMirFromDefs
++
++/-! The kernel's evaluation of the generic check of stage0 for transfer with the symbolic caller
++(see SourceMirFrom.lean). -/
++
++namespace SolidCore.Spec.UniswapV2.ERC20.SourceMirFrom
++
++open SolidCore.Refinement SolidCore.Refinement.Generic SolidCore.Spec.UniswapV2.ERC20.SourceMir
++
++kernel_rfl checkFrom_eq checkFrom? true using SolidCore.Verify.VC.UniswapV2ERC20.selector_eq SolidCore.Verify.VC.mkIdx_eq SolidCore.Verify.VC.UniswapV2ERC20.digest_eq SolidCore.Spec.UniswapV2.ERC20.Keccak.keccakWord_eq
++
++theorem checkFrom_ok {c : SolidCore.Solidity.TypeCheck.CheckedContract}
++    (hc : SolidCore.Verify.VC.UniswapV2ERC20.contract? = .ok c) :
++    Generic.checkSym SolidCore.Verify.VC.UniswapV2ERC20.fuel mirFuel c.core
++      SolarTV.Export.UniswapV2ERC20.stage0 fns = true := by
++  have h := checkFrom_eq
++  simp only [checkFrom?, checkFromOf, hc] at h
++  exact h
++
++end SolidCore.Spec.UniswapV2.ERC20.SourceMirFrom
+diff --git a/Contracts/UniswapV2/ERC20/SourceMirFromDefs.lean b/Contracts/UniswapV2/ERC20/SourceMirFromDefs.lean
+new file mode 100644
+index 0000000..979a934
+--- /dev/null
++++ b/Contracts/UniswapV2/ERC20/SourceMirFromDefs.lean
+@@ -0,0 +1,20 @@
++import Contracts.UniswapV2.ERC20.SourceMirDefs
++import SolidCore.Refinement.Generic.StageFrom
++
++/-! The definitions of E3 for UniswapV2ERC20.transfer from every caller (SourceMirFrom.lean): the
++check with the symbolic caller, which SourceMirFromCheck evaluates in the kernel. -/
++
++namespace SolidCore.Spec.UniswapV2.ERC20.SourceMirFrom
++
++open SolidCore.Refinement SolidCore.Refinement.Generic SolidCore.Spec.UniswapV2.ERC20.SourceMir
++
++/-- Whether the generic check with the symbolic caller accepts `m` for transfer. -/
++def checkFromOf (m : SolarTV.MIR.Lowered.Module) : Bool :=
++  match SolidCore.Verify.VC.UniswapV2ERC20.contract? with
++  | .ok c => Generic.checkSym SolidCore.Verify.VC.UniswapV2ERC20.fuel mirFuel c.core m fns
++  | .error _ => false
++
++/-- Whether it accepts stage0. -/
++def checkFrom? : Bool := checkFromOf SolarTV.Export.UniswapV2ERC20.stage0
++
++end SolidCore.Spec.UniswapV2.ERC20.SourceMirFrom
+diff --git a/Contracts/UniswapV2/ERC20/SourceMirFromNeg.lean b/Contracts/UniswapV2/ERC20/SourceMirFromNeg.lean
+new file mode 100644
+index 0000000..80b8a8b
+--- /dev/null
++++ b/Contracts/UniswapV2/ERC20/SourceMirFromNeg.lean
+@@ -0,0 +1,73 @@
++import Contracts.UniswapV2.ERC20.SourceMirFromDefs
++import uv2_erc20.gen.UniswapV2ERC20Mut.NoDebit
++import uv2_erc20.gen.UniswapV2ERC20Mut.WrongSlot
++import uv2_erc20.gen.UniswapV2ERC20Mut.NoOverflowCheck
++import uv2_erc20.gen.UniswapV2ERC20Mut.NoUnderflowCheck
++import uv2_erc20.gen.UniswapV2ERC20Mut.WrongTopic
++import uv2_erc20.gen.UniswapV2ERC20Mut.WrongReturn
++import uv2_erc20.gen.UniswapV2ERC20Mut.WrongRevertData
++import uv2_erc20.gen.UniswapV2ERC20Mut.SwappedLogArgs
++import uv2_erc20.gen.UniswapV2ERC20Mut.PinnedCaller
++
++/-!
++# Negative controls of E3 for transfer from every caller
++
++The kernel evaluates `Generic.checkSym` (the check with the symbolic caller) of each stage0 mutant of
++scripts/verify/uniswap_v2_erc20_mutants.py, against the same checked source, to `false`.
++
++`PinnedCaller` replaces transfer's `CALLER` with the constant `0x2000` (`callerAddress`): code that is
++right only when the caller is `callerAddress`. The fixed-caller check (`SourceMir.checkOf`, which
++erases `msg.sender` to that same constant) **accepts** it (`pinned_fixed_accepts`), and the check for
++every caller refuses it (`refuses_PinnedCaller`): the generalisation is not vacuous.
++-/
++
++namespace SolidCore.Spec.UniswapV2.ERC20.SourceMirFromNeg
++
++open SolidCore.Spec.UniswapV2.ERC20.SourceMirFrom
++
++/-- The check for every caller refuses the mutant `NoDebit`. -/
++def NoDebit? : Bool := checkFromOf SolarTV.Export.UniswapV2ERC20Mut.NoDebit.stage0
++
++kernel_rfl refuses_NoDebit NoDebit? false using SolidCore.Verify.VC.UniswapV2ERC20.selector_eq SolidCore.Verify.VC.mkIdx_eq SolidCore.Verify.VC.UniswapV2ERC20.digest_eq SolidCore.Spec.UniswapV2.ERC20.Keccak.keccakWord_eq
++
++/-- The check for every caller refuses the mutant `WrongSlot`. -/
++def WrongSlot? : Bool := checkFromOf SolarTV.Export.UniswapV2ERC20Mut.WrongSlot.stage0
++
++kernel_rfl refuses_WrongSlot WrongSlot? false using SolidCore.Verify.VC.UniswapV2ERC20.selector_eq SolidCore.Verify.VC.mkIdx_eq SolidCore.Verify.VC.UniswapV2ERC20.digest_eq SolidCore.Spec.UniswapV2.ERC20.Keccak.keccakWord_eq
++
++/-- The check for every caller refuses the mutant `NoOverflowCheck`. -/
++def NoOverflowCheck? : Bool := checkFromOf SolarTV.Export.UniswapV2ERC20Mut.NoOverflowCheck.stage0
++
++kernel_rfl refuses_NoOverflowCheck NoOverflowCheck? false using SolidCore.Verify.VC.UniswapV2ERC20.selector_eq SolidCore.Verify.VC.mkIdx_eq SolidCore.Verify.VC.UniswapV2ERC20.digest_eq SolidCore.Spec.UniswapV2.ERC20.Keccak.keccakWord_eq
++
++/-- The check for every caller refuses the mutant `NoUnderflowCheck`. -/
++def NoUnderflowCheck? : Bool := checkFromOf SolarTV.Export.UniswapV2ERC20Mut.NoUnderflowCheck.stage0
++
++kernel_rfl refuses_NoUnderflowCheck NoUnderflowCheck? false using SolidCore.Verify.VC.UniswapV2ERC20.selector_eq SolidCore.Verify.VC.mkIdx_eq SolidCore.Verify.VC.UniswapV2ERC20.digest_eq SolidCore.Spec.UniswapV2.ERC20.Keccak.keccakWord_eq
++
++/-- The check for every caller refuses the mutant `WrongTopic`. -/
++def WrongTopic? : Bool := checkFromOf SolarTV.Export.UniswapV2ERC20Mut.WrongTopic.stage0
++
++kernel_rfl refuses_WrongTopic WrongTopic? false using SolidCore.Verify.VC.UniswapV2ERC20.selector_eq SolidCore.Verify.VC.mkIdx_eq SolidCore.Verify.VC.UniswapV2ERC20.digest_eq SolidCore.Spec.UniswapV2.ERC20.Keccak.keccakWord_eq
++
++/-- The check for every caller refuses the mutant `WrongReturn`. -/
++def WrongReturn? : Bool := checkFromOf SolarTV.Export.UniswapV2ERC20Mut.WrongReturn.stage0
++
++kernel_rfl refuses_WrongReturn WrongReturn? false using SolidCore.Verify.VC.UniswapV2ERC20.selector_eq SolidCore.Verify.VC.mkIdx_eq SolidCore.Verify.VC.UniswapV2ERC20.digest_eq SolidCore.Spec.UniswapV2.ERC20.Keccak.keccakWord_eq
++
++/-- The check for every caller refuses the mutant `WrongRevertData`. -/
++def WrongRevertData? : Bool := checkFromOf SolarTV.Export.UniswapV2ERC20Mut.WrongRevertData.stage0
++
++kernel_rfl refuses_WrongRevertData WrongRevertData? false using SolidCore.Verify.VC.UniswapV2ERC20.selector_eq SolidCore.Verify.VC.mkIdx_eq SolidCore.Verify.VC.UniswapV2ERC20.digest_eq SolidCore.Spec.UniswapV2.ERC20.Keccak.keccakWord_eq
++
++/-- The check for every caller refuses the mutant `SwappedLogArgs`. -/
++def SwappedLogArgs? : Bool := checkFromOf SolarTV.Export.UniswapV2ERC20Mut.SwappedLogArgs.stage0
++
++kernel_rfl refuses_SwappedLogArgs SwappedLogArgs? false using SolidCore.Verify.VC.UniswapV2ERC20.selector_eq SolidCore.Verify.VC.mkIdx_eq SolidCore.Verify.VC.UniswapV2ERC20.digest_eq SolidCore.Spec.UniswapV2.ERC20.Keccak.keccakWord_eq
++
++/-- The check for every caller refuses the mutant `PinnedCaller`. -/
++def PinnedCaller? : Bool := checkFromOf SolarTV.Export.UniswapV2ERC20Mut.PinnedCaller.stage0
++
++kernel_rfl refuses_PinnedCaller PinnedCaller? false using SolidCore.Verify.VC.UniswapV2ERC20.selector_eq SolidCore.Verify.VC.mkIdx_eq SolidCore.Verify.VC.UniswapV2ERC20.digest_eq SolidCore.Spec.UniswapV2.ERC20.Keccak.keccakWord_eq
++
++end SolidCore.Spec.UniswapV2.ERC20.SourceMirFromNeg
+diff --git a/Contracts/UniswapV2/ERC20/SourceMirPinned.lean b/Contracts/UniswapV2/ERC20/SourceMirPinned.lean
+new file mode 100644
+index 0000000..d35772d
+--- /dev/null
++++ b/Contracts/UniswapV2/ERC20/SourceMirPinned.lean
+@@ -0,0 +1,17 @@
++import Contracts.UniswapV2.ERC20.SourceMirDefs
++import uv2_erc20.gen.UniswapV2ERC20Mut.PinnedCaller
++
++/-! The fixed-caller check accepts `PinnedCaller` (stage0 with `CALLER` replaced by `0x2000`): a stage
++for one caller does not tell such code apart; `SourceMirFromNeg.refuses_PinnedCaller` shows the check
++for every caller does. -/
++
++namespace SolidCore.Spec.UniswapV2.ERC20.SourceMirPinned
++
++open SolidCore.Spec.UniswapV2.ERC20.SourceMir
++
++/-- The fixed-caller check of `PinnedCaller`. -/
++def pinnedFixed? : Bool := checkOf SolarTV.Export.UniswapV2ERC20Mut.PinnedCaller.stage0
++
++kernel_rfl pinned_fixed_accepts pinnedFixed? true using SolidCore.Verify.VC.UniswapV2ERC20.selector_eq SolidCore.Verify.VC.mkIdx_eq SolidCore.Verify.VC.UniswapV2ERC20.digest_eq SolidCore.Spec.UniswapV2.ERC20.Keccak.keccakWord_eq
++
++end SolidCore.Spec.UniswapV2.ERC20.SourceMirPinned
+diff --git a/Contracts/VerifyCounter/Source.lean b/Contracts/VerifyCounter/Source.lean
+index c8071fe..6419fe6 100644
+--- a/Contracts/VerifyCounter/Source.lean
++++ b/Contracts/VerifyCounter/Source.lean
+@@ -127,7 +127,7 @@ theorem runs {c : SolidCore.Solidity.TypeCheck.CheckedContract} (hc : contract?
+     (hT : brTree bumpFn (argFacts [256] 0) bumpBr = some T) (σ : List (Nat × Nat)) (a : Nat)
+     (ha : a < 2 ^ 256) :
+     runtimeRun fuel c { calldata := Abi.calldata bumpSel [a], callvalue := 0, storage := σ } =
+-      some (T.eval ⟨[a], slotValue σ, solHash⟩).obs := by
++      some (T.eval ⟨[a], slotValue σ, solHash, SolidCore.Refinement.Generic.callerWord⟩).obs := by
+   obtain ⟨hf, hev, hfind⟩ := shape_of hc
+   have hw : widthsOf bumpFn.params bumpFn.paramAbiCleanups = some [256] := rfl
+   have hargs : ∀ x ∈ [a], x < 2 ^ 256 := by simpa using ha
+@@ -168,7 +168,7 @@ theorem success_spec {c : SolidCore.Solidity.TypeCheck.CheckedContract} (hc : co
+       ∀ k, k % Generic.wordSize ≠ 0 → obs.storage k = slotValue σ k := by
+   rw [runs hc hT σ a ha] at h
+   obtain rfl := Option.some.inj h
+-  set ρ : Val := ⟨[a], slotValue σ, solHash⟩ with hρ
++  set ρ : Val := ⟨[a], slotValue σ, solHash, SolidCore.Refinement.Generic.callerWord⟩ with hρ
+   have hok : ρ.Ok := slotValue_store σ
+   obtain ⟨T', hT', hTe⟩ := brTree_eval bumpFn (argFacts [256] 0) ρ bumpBr T hT
+   simp only [Res.obs] at hs ⊢
+diff --git a/Contracts/VerifyCounter/SourceLoop.lean b/Contracts/VerifyCounter/SourceLoop.lean
+index 3367265..506bb60 100644
+--- a/Contracts/VerifyCounter/SourceLoop.lean
++++ b/Contracts/VerifyCounter/SourceLoop.lean
+@@ -43,7 +43,7 @@ def exitS : SymState :=
+     writes := [(.lit 0, .bin .add (.init 0) (.arg 0))], logs := [] }
+ 
+ /-- The words of the header: the call's `n`, and `i` and `count`. -/
+-def hval (ρ : Val) (i c : Nat) : Val := ⟨[ρ.args.getD 0 0, i, c], ρ.store, ρ.hash⟩
++def hval (ρ : Val) (i c : Nat) : Val := ⟨[ρ.args.getD 0 0, i, c], ρ.store, ρ.hash, ρ.caller⟩
+ 
+ /-- The call's `n`. -/
+ def nOf (ρ : Val) : Nat := (WExpr.arg 0).eval ρ
+diff --git a/Contracts/VerifyCounter/StageSource.lean b/Contracts/VerifyCounter/StageSource.lean
+index 99dbdb6..f0e6275 100644
+--- a/Contracts/VerifyCounter/StageSource.lean
++++ b/Contracts/VerifyCounter/StageSource.lean
+@@ -68,7 +68,7 @@ theorem toNat_ofNat_lt {w n : Nat} (h : n < 2 ^ w) : (BitVec.ofNat w n).toNat =
+ theorem bumpCall_facts (σ : List (Nat × Nat)) (a : Nat) (ha : a < 2 ^ 256) :
+     SolarTV.Milestone.VerifyCounter.Bump.IsBump (bumpCall σ a) ∧
+       calldataWord (bumpCall σ a) 4 = BitVec.ofNat 256 a := by
+-  have hf : CallFacts bumpSel 1 ⟨[a], slotValue σ, solHash⟩ (bumpCall σ a) :=
++  have hf : CallFacts bumpSel 1 ⟨[a], slotValue σ, solHash, SolidCore.Refinement.Generic.callerWord⟩ (bumpCall σ a) :=
+     callFacts bumpSel (by decide) [a] (by simpa using ha) σ
+   refine ⟨?_, ?_⟩
+   · unfold SolarTV.Milestone.VerifyCounter.Bump.IsBump
+@@ -94,7 +94,7 @@ theorem mir_end (o : Oracle) (σ : List (Nat × Nat)) (a : Nat) (ha : a < 2 ^ 25
+         r.1 = .stop ∧ r.2.storage 0 = BitVec.ofNat 256 (slotValue σ 0) + BitVec.ofNat 256 a ∧
+           ∀ k, k ≠ 0 → r.2.storage k = (Machine.State.initial (bumpCall σ a)).storage k) := by
+   obtain ⟨hsel, hn⟩ := bumpCall_facts σ a ha
+-  have hf : CallFacts bumpSel 1 ⟨[a], slotValue σ, solHash⟩ (bumpCall σ a) :=
++  have hf : CallFacts bumpSel 1 ⟨[a], slotValue σ, solHash, SolidCore.Refinement.Generic.callerWord⟩ (bumpCall σ a) :=
+     callFacts bumpSel (by decide) [a] (by simpa using ha) σ
+   obtain ⟨r, e, hpost⟩ := SolarTV.Milestone.VerifyCounter.Bump.xstage0_ends o _ hsel
+   have hsz : ¬ BitVec.ofNat 256 (bumpCall σ a).calldata.size < 36 := by
+@@ -134,7 +134,7 @@ theorem mir_eq (o : Oracle) {c : SolidCore.Solidity.TypeCheck.CheckedContract} (
+       slotValue σ 1 < (slotValue σ 0 + a) % 2 ^ 256 := by
+     rw [BitVec.lt_def, BitVec.toNat_add, toNat_ofNat_lt h0lt, toNat_ofNat_lt ha, toNat_ofNat_lt h1lt]
+   -- the tree's leaf
+-  set ρ : Val := ⟨[a], slotValue σ, solHash⟩ with hρ
++  set ρ : Val := ⟨[a], slotValue σ, solHash, SolidCore.Refinement.Generic.callerWord⟩ with hρ
+   obtain ⟨T', hT', hTe⟩ := brTree_eval bumpFn (argFacts [256] 0) ρ bumpBr T hT
+   rw [← hTe]
+   have hna : nOf ρ = a := by
+diff --git a/SolidCore/Refinement/Generic/LoopErr.lean b/SolidCore/Refinement/Generic/LoopErr.lean
+index 6a5205c..64fe7cc 100644
+--- a/SolidCore/Refinement/Generic/LoopErr.lean
++++ b/SolidCore/Refinement/Generic/LoopErr.lean
+@@ -103,7 +103,7 @@ theorem runtime_run_err {fuel : Nat} {c : TypeCheck.CheckedContract} {σ : List
+     (hlen : args.length = fn.params.length) (hargs : ∀ a ∈ args, a < 2 ^ 256)
+     (hclean : argsClean ws args = true)
+     (hdec : ABI.decodeFunctionArgs? fn (Dirty.argBytes args) = .ok (args.map .word))
+-    (hb : ∀ ctx rt, StmtRel ⟨args, slotValue σ, solHash⟩ { envOf c.core with facts := argFacts ws 0 } ctx rt
++    (hb : ∀ ctx rt, StmtRel ⟨args, slotValue σ, solHash, callerWord⟩ { envOf c.core with facts := argFacts ws 0 } ctx rt
+       (initState fn) → ∃ e, Stmt.eval fuel c.core.table ctx rt fn.body = .done (.error e)) :
+     runtimeRun fuel c { calldata := Abi.calldata sel args, callvalue := 0, storage := σ } = none := by
+   unfold runtimeRun runtimeResult?
+@@ -127,7 +127,7 @@ theorem runtime_run_err {fuel : Nat} {c : TypeCheck.CheckedContract} {σ : List
+     simp [FunctionDef.acceptsValue, wordEq]
+   have hctxv : ctx.value = 0 := by
+     subst hctx; simp [ABI.Contract.callContextAtWithBase, SolidCore.Solidity.Shared.norm]
+-  set ρ : Val := ⟨args, slotValue σ, solHash⟩ with hρ
++  set ρ : Val := ⟨args, slotValue σ, solHash, callerWord⟩ with hρ
+   have hρok : ρ.Ok := slotValue_store σ
+   set K := argFacts ws 0 with hK
+   have hKρ : K.Hold ρ := argFacts_hold ρ hargs ws 0 (by simpa [hρ] using hclean)
+diff --git a/SolidCore/Refinement/Generic/LoopRun.lean b/SolidCore/Refinement/Generic/LoopRun.lean
+index e437328..d65de2a 100644
+--- a/SolidCore/Refinement/Generic/LoopRun.lean
++++ b/SolidCore/Refinement/Generic/LoopRun.lean
+@@ -72,7 +72,7 @@ theorem runtime_run_clean {fuel : Nat} {c : TypeCheck.CheckedContract} {σ : Lis
+     (hclean : argsClean ws args = true)
+     (hdec : ABI.decodeFunctionArgs? fn (Dirty.argBytes args) = .ok (args.map .word)) :
+     runtimeRun fuel c { calldata := Abi.calldata sel args, callvalue := 0, storage := σ } =
+-      some (T.eval ⟨args, slotValue σ, solHash⟩).obs := by
++      some (T.eval ⟨args, slotValue σ, solHash, callerWord⟩).obs := by
+   unfold runtimeRun runtimeResult?
+   simp only [Dirty.bytes_calldata]
+   rw [show ({ c.core.context with sender := callerAddress, self := selfAddress, value := 0 } :
+@@ -94,7 +94,7 @@ theorem runtime_run_clean {fuel : Nat} {c : TypeCheck.CheckedContract} {σ : Lis
+     simp [FunctionDef.acceptsValue, wordEq]
+   have hctxv : ctx.value = 0 := by
+     subst hctx; simp [ABI.Contract.callContextAtWithBase, SolidCore.Solidity.Shared.norm]
+-  set ρ : Val := ⟨args, slotValue σ, solHash⟩ with hρ
++  set ρ : Val := ⟨args, slotValue σ, solHash, callerWord⟩ with hρ
+   have hρok : ρ.Ok := slotValue_store σ
+   set K := argFacts ws 0 with hK
+   have hKρ : K.Hold ρ := argFacts_hold ρ hargs ws 0 (by simpa [hρ] using hclean)
+diff --git a/SolidCore/Refinement/Generic/LoopStmt.lean b/SolidCore/Refinement/Generic/LoopStmt.lean
+index 1260ca7..253e1be 100644
+--- a/SolidCore/Refinement/Generic/LoopStmt.lean
++++ b/SolidCore/Refinement/Generic/LoopStmt.lean
+@@ -9,7 +9,7 @@ import SolidCore.Refinement.Generic.Loop
+ when the old word is `2 ^ 256 - 1`, else the old word plus one written back.
+ 
+ `StmtRel.congr` moves `StmtRel` to another valuation and symbolic state that show the same
+-locals, storage and logs: what a loop's invariant needs to name the state at its header with
++locals, storage, logs and caller: what a loop's invariant needs to name the state at its header with
+ fresh words for the values the loop changes.
+ -/
+ 
+@@ -21,12 +21,13 @@ theorem StmtRel.congr {ρ ρ' : Val} {E : EraseEnv} {ctx : Context} {rt : Runtim
+     (h : StmtRel ρ E ctx rt S) (hash : ρ'.hash = solHash) (ok : ρ'.Ok) (facts : E.facts.Hold ρ')
+     (frames : S.scopes.map (frameOf ρ) = S'.scopes.map (frameOf ρ'))
+     (store : ∀ k, k < wordSize → Writes.store ρ S.writes k = Writes.store ρ' S'.writes k)
+-    (logs : S.logs.map (Log.eval ρ) = S'.logs.map (Log.eval ρ')) :
++    (logs : S.logs.map (Log.eval ρ) = S'.logs.map (Log.eval ρ'))
++    (caller : S.caller.eval ρ = S'.caller.eval ρ' := by rfl) :
+     StmtRel ρ' E ctx rt S' :=
+   { fields := h.fields
+     events := h.events
+     checked := h.checked
+-    sender := h.sender
++    sender := h.sender.trans caller
+     hash := hash
+     ok := ok
+     frames := h.frames.trans frames
+diff --git a/SolidCore/Refinement/Generic/Mir.lean b/SolidCore/Refinement/Generic/Mir.lean
+index e8dc285..aaa0f27 100644
+--- a/SolidCore/Refinement/Generic/Mir.lean
++++ b/SolidCore/Refinement/Generic/Mir.lean
+@@ -140,16 +140,24 @@ def outBytes (mem : Nat → OByte) (off size : Nat) : List OByte :=
+ structure EnvFlags where
+   caller : Bool
+   hash : Bool
++  /-- Whether `caller` reads the symbolic caller `WExpr.caller` rather than `callerWord`. -/
++  sym : Bool := false
+   deriving DecidableEq, Repr
+ 
+ /-- No environment read. -/
+-def EnvFlags.off : EnvFlags := ⟨false, false⟩
++def EnvFlags.off : EnvFlags := { caller := false, hash := false }
+ 
+ /-- The caller and the hash of two words. -/
+-def EnvFlags.all : EnvFlags := ⟨true, true⟩
++def EnvFlags.all : EnvFlags := { caller := true, hash := true }
+ 
+ /-- The caller only. -/
+-def EnvFlags.callerOnly : EnvFlags := ⟨true, false⟩
++def EnvFlags.callerOnly : EnvFlags := { caller := true, hash := false }
++
++/-- The symbolic caller and the hash of two words: the flags of a check for every caller. -/
++def EnvFlags.allSym : EnvFlags := { caller := true, hash := true, sym := true }
++
++/-- The word `caller` reads under the flags: the symbolic caller, or `callerWord`. -/
++def EnvFlags.callerExpr (ev : EnvFlags) : WExpr := if ev.sym then .caller else .lit callerWord
+ 
+ /-- An effect on symbolic operands: its result and the state after it. `ev` says which
+ environment reads `caller` and `keccak256` may take. -/
+@@ -165,7 +173,7 @@ def symEffect (ev : EnvFlags) (cv : SV) (n : Nat) : Effect → List SV → SStat
+     match memWord st.mem (off % wordSize) with
+     | some e => some (some (.w e), st)
+     | none => none
+-  | .caller, [], st => if ev.caller = true then some (some (.w (.lit callerWord)), st) else none
++  | .caller, [], st => if ev.caller = true then some (some (.w ev.callerExpr), st) else none
+   | .keccak256, [.w (.lit off), .w (.lit size)], st =>
+     if ev.hash = true ∧ size % wordSize = 64 then
+       match memWord st.mem (off % wordSize), memWord st.mem (off % wordSize + 32) with
+diff --git a/SolidCore/Refinement/Generic/MirRun.lean b/SolidCore/Refinement/Generic/MirRun.lean
+index a732ed1..ecc2006 100644
+--- a/SolidCore/Refinement/Generic/MirRun.lean
++++ b/SolidCore/Refinement/Generic/MirRun.lean
+@@ -48,13 +48,14 @@ structure EnvOk (o : Oracle) (ρ : Val) : Prop where
+ /-- What the flags `ev` ask of the oracle: its caller when they read the caller, its hash of two
+ words when they hash. -/
+ structure EnvAsk (ev : EnvFlags) (o : Oracle) (ρ : Val) : Prop where
+-  caller : ev.caller = true → (o.caller.setWidth 256).toNat = callerWord
++  caller : ev.caller = true → (o.caller.setWidth 256).toNat = ev.callerExpr.eval ρ
+   hash : ev.hash = true → ∀ a b, a < wordSize → b < wordSize →
+     (o.keccak (wordBytes a ++ wordBytes b)).toNat = ρ.hash a b % wordSize
+ 
+ /-- An oracle `EnvOk` describes gives every flag what it asks. -/
+-theorem EnvOk.ask {o : Oracle} {ρ : Val} (h : EnvOk o ρ) (ev : EnvFlags) : EnvAsk ev o ρ :=
+-  ⟨fun _ => h.caller, fun _ => h.hash⟩
++theorem EnvOk.ask {o : Oracle} {ρ : Val} (h : EnvOk o ρ) (hρ : ρ.caller = callerWord) (ev : EnvFlags) :
++    EnvAsk ev o ρ :=
++  ⟨fun _ => by unfold EnvFlags.callerExpr; split <;> simp [WExpr.eval, hρ, h.caller, callerWord] <;> rfl, fun _ => h.hash⟩
+ 
+ /-- The flags off ask nothing. -/
+ theorem EnvAsk.off (o : Oracle) (ρ : Val) : EnvAsk .off o ρ :=
+@@ -581,8 +582,8 @@ theorem symEffect_sound {ev : EnvFlags} {cv : SV} {sel n : Nat} {ρ : Val} {call
+       match args, hr with
+       | [], _ =>
+         refine ⟨_, _, rfl, ?_, hs⟩
+-        simp only [OptRel, SV.Rel, WExpr.eval, henv.caller hev]
+-        exact (Nat.mod_eq_of_lt callerWord_lt).symm
++        simp only [OptRel, SV.Rel]
++        exact henv.caller hev
+     · simp at h
+   · -- keccak256
+     rename_i off size
+diff --git a/SolidCore/Refinement/Generic/Simp.lean b/SolidCore/Refinement/Generic/Simp.lean
+index a78bfd5..4d1ae36 100644
+--- a/SolidCore/Refinement/Generic/Simp.lean
++++ b/SolidCore/Refinement/Generic/Simp.lean
+@@ -210,6 +210,7 @@ def bound (K : Facts) : WExpr → Nat
+   | .sinit k => K.bound (.sinit k)
+   | .sel _ a b => max (bound K a) (bound K b)
+   | .hash a b => K.bound (.hash a b)
++  | .caller => K.bound .caller
+ 
+ theorem orBound_sound {a b x y : Nat} (ha : a ≤ x) (hb : b ≤ y) {f : Nat → Nat → Nat}
+     (hf : ∀ n, a < 2 ^ n → b < 2 ^ n → f a b < 2 ^ n) (v : Nat) (hv : v < wordSize)
+@@ -304,6 +305,7 @@ theorem bound_sound {ρ : Val} {K : Facts} (h : K.Hold ρ) : ∀ e : WExpr, e.ev
+       binBound_sound h op a b _ _ (bound_sound h a) (bound_sound h b)⟩
+   | .sinit k => Facts.bound_sound h _
+   | .hash a b => Facts.bound_sound h _
++  | .caller => Facts.bound_sound h _
+   | .sel c a b => by
+     simp only [bound, WExpr.eval]
+     have := bound_sound h a
+@@ -392,6 +394,7 @@ def WExpr.simp (K : Facts) : WExpr → WExpr
+       | some false => b.simp K
+       | none => .sel (c.simp K) (a.simp K) (b.simp K)
+   | .hash a b => .hash (a.simp K) (b.simp K)
++  | .caller => .caller
+ 
+ theorem eval_sAndLit {ρ : Val} {K : Facts} (h : K.Hold ρ) (a : WExpr) {m : Nat}
+     (hm : m < wordSize) : (sAndLit K a m).eval ρ = (WExpr.bin .and a (.lit m)).eval ρ := by
+@@ -568,6 +571,7 @@ theorem WExpr.eval_simp {ρ : Val} {K : Facts} (h : K.Hold ρ) : ∀ e : WExpr,
+     simp only [WExpr.eval, WExpr.eval_simp h a, WExpr.eval_simp h b]
+   | .sinit k => by simp only [WExpr.simp, WExpr.eval, WExpr.eval_simp h k]
+   | .hash a b => by simp only [WExpr.simp, WExpr.eval, WExpr.eval_simp h a, WExpr.eval_simp h b]
++  | .caller => rfl
+   | .sel c a b => by
+     have hc := WExpr.eval_simp h c
+     simp only [WExpr.simp]
+diff --git a/SolidCore/Refinement/Generic/Source.lean b/SolidCore/Refinement/Generic/Source.lean
+index 85ad701..cd6af2f 100644
+--- a/SolidCore/Refinement/Generic/Source.lean
++++ b/SolidCore/Refinement/Generic/Source.lean
+@@ -147,6 +147,8 @@ structure SymState where
+   scopes : Scopes
+   writes : Writes
+   logs : List Log
++  /-- The word `msg.sender` erases to: `callerWord`, or the symbolic `WExpr.caller`. -/
++  caller : WExpr := .lit callerWord
+   deriving DecidableEq, Repr
+ 
+ /-- SolidCore's slot of a mapping's entry: Keccak-256 of the key's word and the mapping's slot,
+@@ -187,7 +189,7 @@ def negOf : BinaryOp → Option BinOp
+ def eraseAtom (S : SymState) : Expr → Option WExpr
+   | .word n => some (.lit n)
+   | .var x => Scopes.get? S.scopes x
+-  | .caller => some (.lit callerWord)
++  | .caller => some S.caller
+   | _ => none
+ 
+ /-- `uint256(keccak256(abi.encode(x, y)))` of two `uint256` atoms: the hash of their two words,
+@@ -208,7 +210,7 @@ reverting with `Panic(0x11)` when not zero, and its word. -/
+ def eraseExpr (fields : List StorageField) (S : SymState) : Expr → Option (List WExpr × WExpr)
+   | .word n => some ([], .lit n)
+   | .var x => (Scopes.get? S.scopes x).map fun e => ([], e)
+-  | .caller => some ([], .lit callerWord)
++  | .caller => some ([], S.caller)
+   | .castOp .uintCleanup b e => do
+     let (gs, v) ← eraseExpr fields S e
+     if b = 256 then some (gs, v)
+@@ -523,7 +525,7 @@ structure ExprRel (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
+     (S : SymState) : Prop where
+   fields : ctx.storageFields = fields
+   checked : ctx.checked = true
+-  sender : ctx.sender = callerWord
++  sender : ctx.sender = S.caller.eval ρ
+   hash : ρ.hash = solHash
+   ok : ρ.Ok
+   locals : ∀ x e, Scopes.get? S.scopes x = some e → rt.lookupLocal? x = some (.word (e.eval ρ))
+@@ -994,8 +996,8 @@ theorem eval_atom {ρ : Val} {fields : List StorageField} {ctx : Context} {rt :
+   | caller =>
+     simp only [eraseAtom, Option.some.injEq] at h
+     subst h
+-    simp only [Expr.evalFuel, exprResult, List.any_nil, Bool.false_eq_true, ↓reduceIte, WExpr.eval,
+-      hrel.sender, callerWord]
++    simp only [Expr.evalFuel, exprResult, List.any_nil, Bool.false_eq_true, ↓reduceIte,
++      hrel.sender]
+     rfl
+   | _ => simp [eraseAtom] at h
+ 
+@@ -1196,8 +1198,8 @@ theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
+   | caller =>
+     simp only [eraseExpr, Option.some.injEq, Prod.mk.injEq] at h
+     obtain ⟨rfl, rfl⟩ := h
+-    simp only [Expr.evalFuel, exprResult, List.any_nil, Bool.false_eq_true, ↓reduceIte, WExpr.eval,
+-      hrel.sender, callerWord]
++    simp only [Expr.evalFuel, exprResult, List.any_nil, Bool.false_eq_true, ↓reduceIte,
++      hrel.sender]
+     rfl
+   | storageRead m x idx =>
+     cases m
+diff --git a/SolidCore/Refinement/Generic/SourceRun.lean b/SolidCore/Refinement/Generic/SourceRun.lean
+index 1525865..2c3f714 100644
+--- a/SolidCore/Refinement/Generic/SourceRun.lean
++++ b/SolidCore/Refinement/Generic/SourceRun.lean
+@@ -9,7 +9,7 @@ import SolidCore.Refinement.Dirty.Source
+ selector `sel` (call data `Abi.calldata sel args`, any argument words below `2 ^ 256`, no value,
+ initial storage `σ`) to a contract whose constructor leaves the storage entries `s` and no logs,
+ when `σ` writes every slot `s` does (`Covers s σ`), SolidCore's `Source.run` shows
+-`(T.eval ⟨args, slotValue σ, solHash⟩).obs`, where `T` is the erasure `eraseFn` of `fn` in the
++`(T.eval ⟨args, slotValue σ, solHash, callerWord⟩).obs`, where `T` is the erasure `eraseFn` of `fn` in the
+ contract's `EraseEnv` (`envOf`: its storage fields, events and function table): the call's
+ argument words, its storage, and SolidCore's slot hash `solHash`.
+ 
+@@ -760,7 +760,7 @@ theorem source_run_clean {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Sourc
+     (hclean : argsClean ws args = true)
+     (hdec : ABI.decodeFunctionArgs? fn (Dirty.argBytes args) = .ok (args.map .word)) :
+     Source.run fuel c { calldata := Abi.calldata sel args, callvalue := 0, storage := σ } =
+-      some (T.eval ⟨args, slotValue σ, solHash⟩).obs := by
++      some (T.eval ⟨args, slotValue σ, solHash, callerWord⟩).obs := by
+   rw [SolidCore.Refinement.Wide.callAt_of_args sel args hargs σ,
+     SolidCore.Refinement.Wide.run_eq_at hd, SolidCore.Refinement.Wide.map_ofNat_toNat args hargs]
+   have hdrop : ((EthLib.Base.natToBytes 4 sel).map (·.toNat) ++ Dirty.argBytes args).drop
+@@ -779,7 +779,7 @@ theorem source_run_clean {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Sourc
+     simp [FunctionDef.acceptsValue, wordEq]
+   have hctxv : ctx.value = 0 := by
+     subst hctx; simp [ABI.Contract.callContextAtWithBase, SolidCore.Solidity.Shared.norm]
+-  set ρ : Val := ⟨args, slotValue σ, solHash⟩ with hρ
++  set ρ : Val := ⟨args, slotValue σ, solHash, callerWord⟩ with hρ
+   have hρok : ρ.Ok := slotValue_store σ
+   set K := argFacts ws 0 with hK
+   have hKρ : K.Hold ρ := argFacts_hold ρ hargs ws 0 (by simpa [hρ] using hclean)
+@@ -914,7 +914,7 @@ theorem source_run {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.Stat
+     (hT : eraseFn (envOf c.core) fuel fn = some T) (args : List Nat)
+     (hlen : args.length = fn.params.length) (hargs : ∀ a ∈ args, a < 2 ^ 256) :
+     Source.run fuel c { calldata := Abi.calldata sel args, callvalue := 0, storage := σ } =
+-      some (T.eval ⟨args, slotValue σ, solHash⟩).obs := by
++      some (T.eval ⟨args, slotValue σ, solHash, callerWord⟩).obs := by
+   unfold eraseFn at hT
+   split at hT
+   · simp at hT
+@@ -924,7 +924,7 @@ theorem source_run {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.Stat
+   rename_i hret
+   simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at hT
+   obtain ⟨b, hb, t, ht, rfl⟩ := hT
+-  rw [paramGuards_eval ⟨args, slotValue σ, solHash⟩ t hargs ws 0, List.drop_zero]
++  rw [paramGuards_eval ⟨args, slotValue σ, solHash, callerWord⟩ t hargs ws 0, List.drop_zero]
+   have hdec := decode_args hw args hlen hargs
+   by_cases hclean : argsClean ws args = true
+   · rw [if_pos hclean]
+diff --git a/SolidCore/Refinement/Generic/SourceStmt.lean b/SolidCore/Refinement/Generic/SourceStmt.lean
+index 0a6e272..e3d32e2 100644
+--- a/SolidCore/Refinement/Generic/SourceStmt.lean
++++ b/SolidCore/Refinement/Generic/SourceStmt.lean
+@@ -205,7 +205,7 @@ def callAssign (targets : List String) (S S1 : SymState) (ws : List WExpr) : Opt
+   if targets = [] then some (.leaf (.normal { S with writes := S1.writes, logs := S1.logs }))
+   else do
+     let sc ← Scopes.setMany S.scopes targets ws
+-    some (.leaf (.normal { scopes := sc, writes := S1.writes, logs := S1.logs }))
++    some (.leaf (.normal { scopes := sc, writes := S1.writes, logs := S1.logs, caller := S.caller }))
+ 
+ /-- The end of an internal call from the end of its callee's body: its named returns or its
+ returned words assigned to the targets, or the callee's revert. -/
+@@ -400,7 +400,7 @@ def eraseStmt (E : EraseEnv) : Nat → Stmt → SymState → Option Br
+       let fn ← E.tbl.lookup? callee
+       if fn.params.all wordDecl && fn.returns.all wordDecl && args.length = fn.params.length then
+         let (gs, vs) ← eraseExprs E.fields S args
+-        let b ← eraseStmt E n fn.body { scopes := [callFrame fn vs], writes := S.writes, logs := S.logs }
++        let b ← eraseStmt E n fn.body { scopes := [callFrame fn vs], writes := S.writes, logs := S.logs, caller := S.caller }
+         let b' ← b.bindLeaf (callLeaf fn targets S)
+         some (guards gs b')
+       else none
+@@ -439,7 +439,7 @@ structure StmtRel (ρ : Val) (E : EraseEnv) (ctx : Context) (rt : Runtime) (S :
+   fields : ctx.storageFields = E.fields
+   events : ctx.eventDecls = E.events
+   checked : ctx.checked = true
+-  sender : ctx.sender = callerWord
++  sender : ctx.sender = S.caller.eval ρ
+   hash : ρ.hash = solHash
+   ok : ρ.Ok
+   frames : rt.locals = S.scopes.map (frameOf ρ)
+@@ -1245,7 +1245,7 @@ theorem callAssign_ok {ρ : Val} {E : EraseEnv} {ctx : Context} {rt rt1 : Runtim
+     subst ht
+     simp only [Option.some.injEq] at h
+     subst h
+-    exact ⟨_, rfl, { hrel1 with frames := hrel.frames }⟩
++    exact ⟨_, rfl, { hrel1 with frames := hrel.frames, sender := hrel.sender }⟩
+   · rename_i ht
+     simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
+     obtain ⟨sc, hsc, rfl⟩ := h
+@@ -1253,7 +1253,7 @@ theorem callAssign_ok {ρ : Val} {E : EraseEnv} {ctx : Context} {rt rt1 : Runtim
+     have hne : targets.isEmpty = false := by cases targets <;> simp_all
+     refine ⟨.normal { rt1 with locals := sc.map (frameOf ρ) }, ?_,
+       (show StmtRel ρ E ctx { rt1 with locals := sc.map (frameOf ρ) }
+-        { scopes := sc, writes := S1.writes, logs := S1.logs } from { hrel1 with frames := rfl })⟩
++        { scopes := sc, writes := S1.writes, logs := S1.logs, caller := S.caller } from { hrel1 with frames := rfl, sender := hrel.sender })⟩
+     simp only [internalCallAssign, hne, Bool.false_eq_true, ↓reduceIte, this]
+     rfl
+ 
+@@ -1671,7 +1671,7 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
+         have hctx : ({ ctx with checked := true } : Context) = ctx := by
+           rw [show true = ctx.checked from hrel.checked.symm]
+         have hrel0 : StmtRel ρ E ctx { rt with locals := [frameOf ρ (callFrame fn vs)] }
+-            { scopes := [callFrame fn vs], writes := S.writes, logs := S.logs } :=
++            { scopes := [callFrame fn vs], writes := S.writes, logs := S.logs, caller := S.caller } :=
+           { hrel with frames := rfl }
+         obtain ⟨r0, hr0, hl0⟩ := ih fn.body _ b0 hb0 _ hrel0
+         rw [hctx, hr0, bind_done_ok]
+diff --git a/SolidCore/Refinement/Generic/Stage.lean b/SolidCore/Refinement/Generic/Stage.lean
+index 8a975f8..6fc119f 100644
+--- a/SolidCore/Refinement/Generic/Stage.lean
++++ b/SolidCore/Refinement/Generic/Stage.lean
+@@ -97,10 +97,10 @@ theorem calldataWord_eq (call : Call) (off : BitVec 256) :
+ 
+ /-- The call of selector `sel` on the argument words `args` from the storage `σ` gives the
+ symbolic run its facts, with the argument words, the storage and SolidCore's slot hash
+-`⟨args, slotValue σ, solHash⟩`. -/
++`⟨args, slotValue σ, solHash, callerWord⟩`. -/
+ theorem callFacts (sel : Nat) (hsel : sel < 2 ^ 32) (args : List Nat)
+     (hargs : ∀ a ∈ args, a < 2 ^ 256) (σ : List (Nat × Nat)) :
+-    CallFacts sel args.length ⟨args, slotValue σ, solHash⟩
++    CallFacts sel args.length ⟨args, slotValue σ, solHash, callerWord⟩
+       { calldata := Abi.calldata sel args, callvalue := 0, storage := σ } := by
+   have hcd := calldata_eq_cdOf sel args hargs
+   refine ⟨rfl, ?_, ?_, ?_, rfl, slotValue_store σ⟩
+@@ -141,7 +141,7 @@ structure SourceEnvOk (o : Oracle) : Prop where
+ /-- An oracle `SourceEnvOk` describes is one the symbolic run with the environment flag takes, for
+ every call whose hash is `solHash`. -/
+ theorem SourceEnvOk.envOk {o : Oracle} (h : SourceEnvOk o) (args : List Nat) (store : Nat → Nat) :
+-    EnvOk o ⟨args, store, solHash⟩ :=
++    EnvOk o ⟨args, store, solHash, callerWord⟩ :=
+   ⟨h.caller, h.hash⟩
+ 
+ /-- What the flags `env` ask of the oracle: SolidCore's caller when they read the caller, and
+@@ -164,8 +164,11 @@ theorem CallerOk.ask {o : Oracle} (h : CallerOk o) : SourceAsk .callerOnly o :=
+ 
+ /-- What the flags ask of the oracle, for the symbolic run on a call whose hash is `solHash`. -/
+ theorem SourceAsk.envAsk {env : EnvFlags} {o : Oracle} (h : SourceAsk env o) (args : List Nat)
+-    (store : Nat → Nat) : EnvAsk env o ⟨args, store, solHash⟩ :=
+-  ⟨h.caller, h.hash⟩
++    (store : Nat → Nat) : EnvAsk env o ⟨args, store, solHash, callerWord⟩ :=
++  ⟨fun hc => by
++    have := h.caller hc
++    unfold CallerOk at this
++    unfold EnvFlags.callerExpr; split <;> simp [WExpr.eval, this, callerWord] <;> rfl, h.hash⟩
+ 
+ /-! ## The check and the stage -/
+ 
+diff --git a/SolidCore/Refinement/Generic/StageFrom.lean b/SolidCore/Refinement/Generic/StageFrom.lean
+new file mode 100644
+index 0000000..1b724b1
+--- /dev/null
++++ b/SolidCore/Refinement/Generic/StageFrom.lean
+@@ -0,0 +1,409 @@
++import SolidCore.Refinement.Generic.Stage
++
++/-!
++# The generic source stage for every caller
++
++`Stage.lean`'s stages fix the caller: SolidCore's `Source.run` calls from `callerAddress` and the check
++erases `msg.sender` to the constant `callerWord`. This module proves the stage once for every caller,
++with the caller a symbolic word on both sides:
++
++* `Source.runFrom a` is SolidCore's run of a call sent by the account `a` (the contract deployed, as in
++  `Source.run`, by `callerAddress`); `Source.runFrom callerAddress` is `Source.run` (`runFrom_callerAddress`).
++  `solidCoreFrom a` is its `Sem`.
++* `eraseFnSym` erases a function with `msg.sender` as the symbolic word `WExpr.caller` (whose value is
++  `Val.caller`), knowing that it fits in 160 bits (`callerFact`); the MIR side reads `caller` as the same
++  word under `EnvFlags.allSym`.
++* `checkSym` compares the two trees, once, for the symbolic caller; `stageFrom` gives, for every
++  address `a < 2 ^ 160` and every oracle whose caller is `a` and whose Keccak-256 of two words is
++  SolidCore's (`FromOk a o`), the stage from `solidCoreFrom a` to the module.
++-/
++
++namespace SolidCore.Refinement
++
++namespace Source
++
++open SolidCore.Solidity SolidCore.Solidity.Source
++
++/-- SolidCore's result for `call` sent by `caller`: the contract constructed by `callerAddress` as in
++`result?`, its storage replaced with the call's, and called through the ABI dispatcher from `caller`. -/
++def resultFrom? (caller : Nat) (fuel : Nat) (contract : TypeCheck.CheckedContract) (call : Call) :
++    Option TypeCheck.CoreAbiCallResult :=
++  let base := contract.core.context
++  let context :=
++    { base with sender := callerAddress, self := selfAddress, value := call.callvalue }
++  match TypeCheck.CheckedContract.constructWithContext? fuel contract context
++      State.empty selfAddress 0 [] with
++  | some (CallResult.returned deployed _) =>
++    let storage := call.storage.foldl
++      (fun acc kv => StorageMap.insertLoop acc kv.1 kv.2) deployed.storage
++    TypeCheck.CheckedContract.callCalldataAtFromWithContext? fuel contract context
++      { deployed with storage := storage } selfAddress caller call.callvalue
++      (call.calldata.data.toList.map (·.toNat))
++  | _ => none
++
++/-- Run `call`, sent by `caller`, against `contract` in SolidCore with `fuel`. -/
++def runFrom (caller : Nat) (fuel : Nat) (contract : TypeCheck.CheckedContract) (call : Call) :
++    Option Observable :=
++  (resultFrom? caller fuel contract call).map (observe call)
++
++/-- From `callerAddress`, `runFrom` is `run`. -/
++theorem runFrom_callerAddress (fuel : Nat) (contract : TypeCheck.CheckedContract) (call : Call) :
++    runFrom callerAddress fuel contract call = run fuel contract call := rfl
++
++end Source
++
++/-- SolidCore with fixed fuel, on calls sent by `caller`. -/
++def solidCoreFrom (caller fuel : Nat) : Sem :=
++  { Prog := SolidCore.Solidity.TypeCheck.CheckedContract, run := Source.runFrom caller fuel }
++
++/-- From `callerAddress`, `solidCoreFrom` is `solidCore`. -/
++theorem solidCoreFrom_callerAddress (fuel : Nat) : solidCoreFrom callerAddress fuel = solidCore fuel := rfl
++
++namespace Generic
++
++open EthLib.Base EthLib.Execution EthLib.Execution.Evm
++open SolarTV SolarTV.Machine SolarTV.MIR.Lowered SolidCore.Solidity SolidCore.Solidity.Source
++open SolidCore.Refinement SolidCore.Refinement.Abi SolidCore.Refinement.Evm
++
++/-! ## The erasure with a symbolic caller -/
++
++/-- What the erasure knows of the symbolic caller: it fits in 160 bits. -/
++def callerFact : WExpr × Bool := (.bin .gt .caller (.lit (2 ^ 160 - 1)), false)
++
++theorem callerFact_eval (ρ : Val) (h : ρ.caller < 2 ^ 160) :
++    (callerFact.1.eval ρ = 0 ↔ callerFact.2 = false) := by
++  have h1 : ρ.caller < wordSize := Nat.lt_of_lt_of_le h (by decide)
++  have h2 : (2 ^ 160 - 1 : Nat) < wordSize := by decide
++  simp only [callerFact, WExpr.eval, BinOp.eval, Nat.mod_eq_of_lt h1, Nat.mod_eq_of_lt h2, iff_true]
++  rw [if_neg (by omega)]
++  rfl
++
++/-- The state a call of `fn` starts in, with `msg.sender` the symbolic caller. -/
++def initFrom (fn : FunctionDef) : SymState := { initState fn with caller := .caller }
++
++/-- `eraseFn` with `msg.sender` the symbolic caller `WExpr.caller`, which the facts bound by
++`2 ^ 160 - 1`. -/
++def eraseFnSym (E : EraseEnv) (fuel : Nat) (fn : FunctionDef) : Option Tree :=
++  match widthsOf fn.params fn.paramAbiCleanups with
++  | none => none
++  | some ws =>
++    if fn.returns.all wordBinding then do
++      let b ← eraseStmt { E with facts := callerFact :: argFacts ws 0 } fuel fn.body (initFrom fn)
++      let t ← brTree fn (callerFact :: argFacts ws 0) b
++      some (paramGuards ws 0 t)
++    else none
++
++/-! ## SolidCore's run from any caller as the erased tree -/
++
++theorem run_eq_at_from (a : Nat) {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.State}
++    {s : List (Nat × Nat)} (hd : Wide.DeployedAt fuel c d s) (sel : Nat) (ws : List U256)
++    (σ : List (Nat × Nat)) :
++    Source.runFrom a fuel c (SolidCore.Refinement.Evm.Wide.callAt sel ws σ) =
++      Option.map (Source.observe (SolidCore.Refinement.Evm.Wide.callAt sel ws σ))
++        (ABI.Contract.callCalldataAtFromWithContext? fuel c.core (Wide.ctxOf c)
++          { d with storage := σ.foldl (fun acc kv => StorageMap.insertLoop acc kv.1 kv.2) d.storage }
++          selfAddress a 0
++          ((natToBytes 4 sel).map (·.toNat) ++ Dirty.argBytes (ws.map (·.toNat)))) := by
++  obtain ⟨vs, hc⟩ := hd.cons
++  simp only [Source.runFrom, Source.resultFrom?, show (SolidCore.Refinement.Evm.Wide.callAt sel ws σ).callvalue = 0 from rfl,
++    show (SolidCore.Refinement.Evm.Wide.callAt sel ws σ).storage = σ from rfl,
++    show (SolidCore.Refinement.Evm.Wide.callAt sel ws σ).calldata = Abi.calldata sel (ws.map (·.toNat)) from rfl]
++  rw [show ({ c.core.context with sender := callerAddress, self := selfAddress, value := 0 } :
++    Source.Context) = Wide.ctxOf c from rfl, hc]
++  simp only [TypeCheck.CheckedContract.callCalldataAtFromWithContext?, Dirty.bytes_calldata]
++
++
++theorem run_rejected_from (a : Nat) {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.State}
++    {s : List (Nat × Nat)} (hd : Wide.DeployedAt fuel c d s) {sel : Nat} (hsel : sel < 2 ^ 32)
++    {fn : FunctionDef} (hfind : c.core.findFunctionBySelector? sel = some fn) (args : List Nat)
++    (hdec : ABI.decodeFunctionArgs? fn (Dirty.argBytes args) = .error .empty)
++    (σ : List (Nat × Nat)) :
++    Source.runFrom a fuel c { calldata := Abi.calldata sel args, callvalue := 0, storage := σ } =
++      some (Abi.rejected σ) := by
++  obtain ⟨s0, hdep⟩ := deployedStorage_of hd
++  unfold Abi.deployedStorage at hdep
++  dsimp only at hdep
++  split at hdep
++  case h_2 => simp at hdep
++  rename_i deployed st hcons
++  simp only [Source.runFrom, Source.resultFrom?, hcons,
++    TypeCheck.CheckedContract.callCalldataAtFromWithContext?,
++    ABI.Contract.callCalldataAtFromWithContext?, Dirty.bytes_calldata,
++    Dirty.readSelector_calldata _ hsel, hfind]
++  rw [show ((EthLib.Base.natToBytes 4 sel).map (·.toNat) ++ Dirty.argBytes args).drop
++      ABI.selectorBytes = Dirty.argBytes args by
++    simp [ABI.selectorBytes, EthLib.Base.natToBytes_length], hdec]
++  simp only [ABI.Contract.revertedCall?, ABI.Contract.encodeRevertData?, bind, Option.bind,
++    Option.map_some, Source.observe, Abi.rejected]
++  simp
++
++
++theorem source_run_clean_from (a : Nat) (ha : a < 2 ^ 160) {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.State}
++    {s : List (Nat × Nat)} (hd : Wide.DeployedAt fuel c d s) {σ : List (Nat × Nat)}
++    (hcov : Covers s σ) {sel : Nat} (hsel : sel < 2 ^ 32) {fn : FunctionDef}
++    (hfind : c.core.findFunctionBySelector? sel = some fn) {ws : List Nat}
++    (hw : widthsOf fn.params fn.paramAbiCleanups = some ws)
++    (hret : fn.returns.all wordBinding = true) {b : Br}
++    (hb : eraseStmt { envOf c.core with facts := callerFact :: argFacts ws 0 } fuel fn.body (initFrom fn) = some b)
++    {T : Tree} (hT : brTree fn (callerFact :: argFacts ws 0) b = some T) (args : List Nat)
++    (hlen : args.length = fn.params.length) (hargs : ∀ a ∈ args, a < 2 ^ 256)
++    (hclean : argsClean ws args = true)
++    (hdec : ABI.decodeFunctionArgs? fn (Dirty.argBytes args) = .ok (args.map .word)) :
++    Source.runFrom a fuel c { calldata := Abi.calldata sel args, callvalue := 0, storage := σ } =
++      some (T.eval ⟨args, slotValue σ, solHash, a⟩).obs := by
++  rw [SolidCore.Refinement.Wide.callAt_of_args sel args hargs σ,
++    run_eq_at_from a hd, SolidCore.Refinement.Wide.map_ofNat_toNat args hargs]
++  have hdrop : ((EthLib.Base.natToBytes 4 sel).map (·.toNat) ++ Dirty.argBytes args).drop
++      ABI.selectorBytes = Dirty.argBytes args := by
++    simp [ABI.selectorBytes, EthLib.Base.natToBytes_length]
++  simp only [ABI.Contract.callCalldataAtFromWithContext?, Dirty.readSelector_calldata _ hsel, hfind,
++    hdrop, hdec]
++  have hp := (widthsOf_spec hw).2.2.1
++  have hr : ∀ r ∈ fn.returns, RetTy r.ty ∧ r.isStorageRef = false :=
++    fun r hr => wordBinding_ty (List.all_eq_true.mp hret r hr)
++  generalize hctx : ABI.Contract.callContextAtWithBase c.core (Wide.ctxOf c) selfAddress a 0
++    ((EthLib.Base.natToBytes 4 sel).map (·.toNat) ++ Dirty.argBytes args) = ctx
++  generalize hst : ({ d with storage := σ.foldl (fun acc kv => acc.insertLoop kv.1 kv.2) d.storage } :
++    Source.State) = st0
++  have hacc : fn.acceptsValue 0 = true := by
++    simp [FunctionDef.acceptsValue, wordEq]
++  have hctxv : ctx.value = 0 := by
++    subst hctx; simp [ABI.Contract.callContextAtWithBase, SolidCore.Solidity.Shared.norm]
++  set ρ : Val := ⟨args, slotValue σ, solHash, a⟩ with hρ
++  have hρok : ρ.Ok := slotValue_store σ
++  set K : Facts := callerFact :: argFacts ws 0 with hK
++  have hKρ : K.Hold ρ := (argFacts_hold ρ hargs ws 0 (by simpa [hρ] using hclean)).cons (callerFact_eval ρ ha)
++  set E : EraseEnv := { envOf c.core with facts := K } with hE
++  have hframe : fn.initialFrame? (args.map .word) =
++      some (frameOf ρ (paramLocals fn.params 0 ++ fn.returns.map fun r => (r.name, .lit 0))) := by
++    have h0 : BindingDecl.bindArgs? fn.params (args.map .word) =
++        some (frameOf ρ (paramLocals fn.params 0)) :=
++      bindArgs_words ρ hargs fn.params 0 hp (by simp [hρ, hlen])
++    simp only [FunctionDef.initialFrame?, h0, FunctionDef.returnDefaultBindings,
++      defaults_words ρ fn.returns hr, frameOf, List.map_append]
++  have hrel : StmtRel ρ E ctx
++      { state := { st0 with
++          selfBalance := SolidCore.Solidity.Shared.addWord
++            (SolidCore.Solidity.Shared.Account.balanceAt ctx.accountBalances ctx.self) ctx.value
++          worldMutatedSinceAdoption := true },
++        locals := [frameOf ρ (paramLocals fn.params 0 ++ fn.returns.map fun r => (r.name, .lit 0))] }
++      (initFrom fn) :=
++    { fields := by subst hctx; rfl
++      events := by subst hctx; rfl
++      checked := by subst hctx; rfl
++      sender := by subst hctx; rfl
++      hash := rfl
++      ok := hρok
++      frames := rfl
++      store := by
++        intro k hk
++        have := getD_storage_cover hd hcov k
++        subst hst
++        simp only [State.loadSlot, StorageMap.lookup?, initFrom, initState, Writes.store, hρ]
++        rw [← this]
++        simp only [SolidCore.Solidity.Shared.norm, modulus_eq, Std.HashMap.get?_eq_getElem?]
++        cases (List.foldl (fun acc kv => acc.insertLoop kv.1 kv.2) d.storage σ)[k % wordSize]? <;> rfl
++      logs := by subst hst; simp [hd.events, initFrom, initState]
++      facts := hKρ }
++  obtain ⟨r, hrun, hleaf⟩ := eval_stmt ρ E ctx fuel fn.body (initFrom fn) b hb _ hrel
++  have hcall : fn.call? fuel c.core.table ctx st0 (args.map .word) =
++      some (fn.callBodyResult st0 r) := by
++    have hacc' : fn.acceptsValue ctx.value = true := hctxv ▸ hacc
++    simp only [FunctionDef.call?, FunctionDef.call, FunctionDef.evalBodyEntry, hacc', hframe,
++      if_true, Option.map_some, Option.bind_some]
++    rw [show c.core.table = E.tbl from rfl, hrun]
++    rfl
++  obtain ⟨T', hT', hTe⟩ := brTree_eval fn K ρ b T hT
++  rw [hacc, if_pos rfl, hcall, ← hTe]
++  generalize b.eval ρ = l at hT' hleaf
++  cases l with
++  | normal S =>
++    cases r <;> simp only [LeafRel] at hleaf
++    rename_i rt
++    simp only [leafTree, Option.bind_eq_bind, Option.bind_eq_some_iff] at hT'
++    obtain ⟨ws, hws, hT'⟩ := hT'
++    split at hT'
++    case isFalse => simp at hT'
++    rename_i hok
++    simp only [Option.some.injEq] at hT'
++    subst hT'
++    simp only [FunctionDef.callBodyResult, FunctionDef.collectReturns, collectReturnBindings,
++      collect_words ρ rt S hKρ hleaf.expr.locals fn.returns ws hok hws, untag_words,
++      encode_words ρ hKρ fn.returns ws hok, bind, Option.bind, Option.map_some]
++    simp only [Source.observe, Tree.eval, Res.obs, if_true, ↓reduceIte, logEntries_map,
++      hleaf.logs, Option.some.injEq, Observable.mk.injEq, true_and]
++    funext slot
++    exact loadSlot_eq _ S.writes ρ hρok hleaf.store slot
++  | returned S vs =>
++    cases r <;> simp only [LeafRel] at hleaf
++    rename_i rt vals
++    obtain ⟨hst', rfl⟩ := hleaf
++    by_cases hv : vs = []
++    · subst hv
++      simp only [leafTree, if_true, Option.bind_eq_bind, Option.bind_eq_some_iff] at hT'
++      obtain ⟨ws, hws, hT'⟩ := hT'
++      split at hT'
++      case isFalse => simp at hT'
++      rename_i hok
++      simp only [Option.some.injEq] at hT'
++      subst hT'
++      simp only [FunctionDef.callBodyResult, List.map_nil, List.isEmpty_nil, if_true,
++        FunctionDef.collectReturns, collectReturnBindings,
++        collect_words ρ rt S hKρ hst'.expr.locals fn.returns ws hok hws, untag_words,
++        encode_words ρ hKρ fn.returns ws hok, bind, Option.bind, Option.map_some]
++      simp only [Source.observe, Tree.eval, Res.obs, if_true, ↓reduceIte, logEntries_map,
++        hst'.logs, Option.some.injEq, Observable.mk.injEq, true_and]
++      funext slot
++      exact loadSlot_eq _ S.writes ρ hρok hst'.store slot
++    · simp only [leafTree, hv, if_false] at hT'
++      split at hT'
++      case isFalse => simp at hT'
++      rename_i hok
++      simp only [Option.some.injEq] at hT'
++      subst hT'
++      have hne : (vs.map fun e => Value.word (e.eval ρ)).isEmpty = false := by
++        cases vs with
++        | nil => exact absurd rfl hv
++        | cons _ _ => rfl
++      simp only [FunctionDef.callBodyResult, hne, Bool.false_eq_true, if_false,
++        FunctionDef.coerceReturnValues, coerceReturnBindings,
++        coerce_words ρ rt hKρ fn.returns vs hok, untag_words,
++        encode_words ρ hKρ fn.returns vs hok, bind, Option.bind, Option.map_some]
++      simp only [Source.observe, Tree.eval, Res.obs, if_true, ↓reduceIte, logEntries_map,
++        hst'.logs, Option.some.injEq, Observable.mk.injEq, true_and]
++      funext slot
++      exact loadSlot_eq _ S.writes ρ hρok hst'.store slot
++  | reverted p =>
++    cases r <;> simp only [LeafRel] at hleaf
++    subst hleaf
++    cases p with
++    | empty =>
++      simp only [leafTree, Option.some.injEq] at hT'
++      subst hT'
++      simp [FunctionDef.callBodyResult, RevertData.untagFixedBytes, Fail.data,
++        ABI.Contract.encodeRevertData?, Source.observe, Tree.eval, Res.obs, hρ,
++        SolidCore.Refinement.Evm.Wide.callAt]
++    | panic c =>
++      simp only [leafTree, Option.some.injEq] at hT'
++      subst hT'
++      simp [FunctionDef.callBodyResult, RevertData.untagFixedBytes, Fail.data, encode_panic ρ,
++        Source.observe, Tree.eval, Res.obs, hρ, SolidCore.Refinement.Evm.Wide.callAt]
++    | error m =>
++      simp only [leafTree, Option.map_eq_some_iff] at hT'
++      obtain ⟨bs, hbs, rfl⟩ := hT'
++      simp [FunctionDef.callBodyResult, RevertData.untagFixedBytes, Fail.data, encode_error ρ _ hbs,
++        Source.observe, Tree.eval, Res.obs, hρ, SolidCore.Refinement.Evm.Wide.callAt]
++
++
++theorem source_run_from (a : Nat) (ha : a < 2 ^ 160) {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.State}
++    {s : List (Nat × Nat)} (hd : Wide.DeployedAt fuel c d s) {σ : List (Nat × Nat)}
++    (hcov : Covers s σ) {sel : Nat} (hsel : sel < 2 ^ 32) {fn : FunctionDef}
++    (hfind : c.core.findFunctionBySelector? sel = some fn) {T : Tree}
++    (hT : eraseFnSym (envOf c.core) fuel fn = some T) (args : List Nat)
++    (hlen : args.length = fn.params.length) (hargs : ∀ a ∈ args, a < 2 ^ 256) :
++    Source.runFrom a fuel c { calldata := Abi.calldata sel args, callvalue := 0, storage := σ } =
++      some (T.eval ⟨args, slotValue σ, solHash, a⟩).obs := by
++  unfold eraseFnSym at hT
++  split at hT
++  · simp at hT
++  rename_i ws hw
++  split at hT
++  case isFalse => simp at hT
++  rename_i hret
++  simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at hT
++  obtain ⟨b, hb, t, ht, rfl⟩ := hT
++  rw [paramGuards_eval ⟨args, slotValue σ, solHash, a⟩ t hargs ws 0, List.drop_zero]
++  have hdec := decode_args hw args hlen hargs
++  by_cases hclean : argsClean ws args = true
++  · rw [if_pos hclean]
++    rw [if_pos hclean] at hdec
++    exact source_run_clean_from a ha hd hcov hsel hfind hw hret hb ht args hlen hargs hclean hdec
++  · rw [if_neg hclean]
++    rw [if_neg hclean] at hdec
++    rw [run_rejected_from a hd hsel hfind args hdec σ]
++    rfl
++
++
++/-! ## The check and the stage for every caller -/
++
++/-- `checkFn` with the symbolic caller on both sides. -/
++def checkFnSym (fuel mirFuel : Nat) (core : Contract) (m : Module) (f : Fn) : Bool :=
++  decide (f.sel < 2 ^ 32) &&
++    match core.findFunctionBySelector? f.sel with
++    | none => false
++    | some fn =>
++      decide (fn.params.length = f.params.length) &&
++        match eraseFnSym (envOf core) fuel fn, symTree m f.sel f.params.length mirFuel .allSym with
++        | some t1, some t2 => t1.canon.beq t2.canon
++        | _, _ => false
++
++/-- Whether every function of `fns` lowers to `m` for the symbolic caller. -/
++def checkSym (fuel mirFuel : Nat) (core : Contract) (m : Module) (fns : List Fn) : Bool :=
++  fns.all (checkFnSym fuel mirFuel core m)
++
++/-- What the stage for the caller `a` asks of the oracle: its caller is `a` and its Keccak-256 of two
++words is SolidCore's slot hash (`HashOk`). -/
++structure FromOk (a : Nat) (o : Oracle) : Prop where
++  caller : (o.caller.setWidth 256).toNat = a
++  hash : HashOk o
++
++theorem FromOk.envAsk {a : Nat} {o : Oracle} (h : FromOk a o) (ha : a < 2 ^ 160) (args : List Nat)
++    (store : Nat → Nat) : EnvAsk .allSym o ⟨args, store, solHash, a⟩ :=
++  ⟨fun _ => by
++    have : a < wordSize := Nat.lt_of_lt_of_le ha (by decide)
++    simp [EnvFlags.callerExpr, EnvFlags.allSym, WExpr.eval, h.caller, Nat.mod_eq_of_lt this],
++   fun _ => h.hash⟩
++
++/-- The call facts do not read the caller. -/
++theorem callFactsFrom (sel : Nat) (hsel : sel < 2 ^ 32) (args : List Nat)
++    (hargs : ∀ a ∈ args, a < 2 ^ 256) (σ : List (Nat × Nat)) (a : Nat) :
++    CallFacts sel args.length ⟨args, slotValue σ, solHash, a⟩
++      { calldata := Abi.calldata sel args, callvalue := 0, storage := σ } :=
++  have h := callFacts sel hsel args hargs σ
++  ⟨h.value, h.size, h.args, h.selector, h.store, h.ok⟩
++
++/-- **The generic source stage for every caller**: a checked contract whose constructor leaves the
++storage entries `s` and no logs and a lowered MIR module that `checkSym` accepts give, for every
++address `a < 2 ^ 160` and every oracle whose caller is `a` and whose Keccak-256 of two words is
++SolidCore's, the stage from SolidCore's run sent by `a` to the module's lowered MIR semantics, on
++every call of a function of `fns` on any argument words below `2 ^ 256`, with no value, from any
++storage that writes every slot of `s`. -/
++theorem stageFrom (a : Nat) (ha : a < 2 ^ 160) (o : Oracle) (ho : FromOk a o) {fuel mirFuel : Nat}
++    {c : TypeCheck.CheckedContract} {d : Source.State} {s : List (Nat × Nat)}
++    (hd : SolidCore.Refinement.Wide.DeployedAt fuel c d s) {m : Module} {fns : List Fn}
++    (hchk : checkSym fuel mirFuel c.core m fns = true) :
++    Stage (solidCoreFrom a fuel) (moduleSem o) c m (fun call => ∃ σ, Covers s σ ∧ fullScope fns σ call) := by
++  rintro _ ⟨σ, hcov, f, hf, args, hlen, hargs, rfl⟩ obs hrun
++  have hcf := List.all_eq_true.mp hchk f hf
++  unfold checkFnSym at hcf
++  cases hfind : c.core.findFunctionBySelector? f.sel with
++  | none => simp [hfind] at hcf
++  | some fn =>
++  cases ht1 : eraseFnSym (envOf c.core) fuel fn with
++  | none => simp [hfind, ht1] at hcf
++  | some t1 =>
++  cases ht2 : symTree m f.sel f.params.length mirFuel .allSym with
++  | none => simp [hfind, ht1, ht2] at hcf
++  | some t2 =>
++  simp only [hfind, ht1, ht2, Bool.and_eq_true, decide_eq_true_eq] at hcf
++  obtain ⟨hsel, hpl, hcf⟩ := hcf
++  have hcf := Tree.eq_of_beq hcf
++  have hsrc := source_run_from a ha hd hcov hsel hfind ht1 args (by rw [hlen, hpl]) hargs
++  change Source.runFrom a fuel c _ = some obs at hrun
++  rw [hsrc] at hrun
++  cases hrun
++  rw [← hlen] at ht2
++  rw [symTree_sound (callFactsFrom f.sel hsel args hargs σ a) o m (ho.envAsk ha _ _) ht2,
++    ← Tree.eval_canon, ← hcf, Tree.eval_canon]
++
++/-- `stageFrom` from the deployed storage `s`. -/
++theorem stageDeployedFrom (a : Nat) (ha : a < 2 ^ 160) (o : Oracle) (ho : FromOk a o) {fuel mirFuel : Nat}
++    {c : TypeCheck.CheckedContract} {d : Source.State} {s : List (Nat × Nat)}
++    (hd : SolidCore.Refinement.Wide.DeployedAt fuel c d s) {m : Module} {fns : List Fn}
++    (hchk : checkSym fuel mirFuel c.core m fns = true) :
++    Stage (solidCoreFrom a fuel) (moduleSem o) c m (fullScope fns s) :=
++  SolarTV.Stage.mono (stageFrom a ha o ho hd hchk) fun _ h => ⟨s, fun kv hkv => ⟨kv, hkv, rfl⟩, h⟩
++
++end Generic
++
++end SolidCore.Refinement
+diff --git a/SolidCore/Refinement/Generic/StageIn.lean b/SolidCore/Refinement/Generic/StageIn.lean
+index d496231..833e532 100644
+--- a/SolidCore/Refinement/Generic/StageIn.lean
++++ b/SolidCore/Refinement/Generic/StageIn.lean
+@@ -82,7 +82,7 @@ theorem source_runIn_clean (W : World) {fuel : Nat} {c : TypeCheck.CheckedContra
+     (hclean : argsClean ws args = true)
+     (hdec : ABI.decodeFunctionArgs? fn (Dirty.argBytes args) = .ok (args.map .word)) :
+     Source.runIn W fuel c { calldata := Abi.calldata sel args, callvalue := 0, storage := σ } =
+-      some (T.eval ⟨args, slotValue σ, solHash⟩).obs := by
++      some (T.eval ⟨args, slotValue σ, solHash, callerWord⟩).obs := by
+   rw [SolidCore.Refinement.Wide.callAt_of_args sel args hargs σ,
+     runIn_eq_at W hd, SolidCore.Refinement.Wide.map_ofNat_toNat args hargs]
+   have hdrop : ((EthLib.Base.natToBytes 4 sel).map (·.toNat) ++ Dirty.argBytes args).drop
+@@ -101,7 +101,7 @@ theorem source_runIn_clean (W : World) {fuel : Nat} {c : TypeCheck.CheckedContra
+     simp [FunctionDef.acceptsValue, wordEq]
+   have hctxv : ctx.value = 0 := by
+     subst hctx; simp [ABI.Contract.callContextAtWithBase, SolidCore.Solidity.Shared.norm]
+-  set ρ : Val := ⟨args, slotValue σ, solHash⟩ with hρ
++  set ρ : Val := ⟨args, slotValue σ, solHash, callerWord⟩ with hρ
+   have hρok : ρ.Ok := slotValue_store σ
+   set K := argFacts ws 0 with hK
+   have hKρ : K.Hold ρ := argFacts_hold ρ hargs ws 0 (by simpa [hρ] using hclean)
+@@ -237,7 +237,7 @@ theorem source_runIn (W : World) {fuel : Nat} {c : TypeCheck.CheckedContract} {d
+     (hT : eraseFn (envOf c.core) fuel fn = some T) (args : List Nat)
+     (hlen : args.length = fn.params.length) (hargs : ∀ a ∈ args, a < 2 ^ 256) :
+     Source.runIn W fuel c { calldata := Abi.calldata sel args, callvalue := 0, storage := σ } =
+-      some (T.eval ⟨args, slotValue σ, solHash⟩).obs := by
++      some (T.eval ⟨args, slotValue σ, solHash, callerWord⟩).obs := by
+   unfold eraseFn at hT
+   split at hT
+   · simp at hT
+@@ -247,7 +247,7 @@ theorem source_runIn (W : World) {fuel : Nat} {c : TypeCheck.CheckedContract} {d
+   rename_i hret
+   simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at hT
+   obtain ⟨b, hb, t, ht, rfl⟩ := hT
+-  rw [paramGuards_eval ⟨args, slotValue σ, solHash⟩ t hargs ws 0, List.drop_zero]
++  rw [paramGuards_eval ⟨args, slotValue σ, solHash, callerWord⟩ t hargs ws 0, List.drop_zero]
+   have hdec := decode_args hw args hlen hargs
+   by_cases hclean : argsClean ws args = true
+   · rw [if_pos hclean]
+diff --git a/SolidCore/Refinement/Generic/Tree.lean b/SolidCore/Refinement/Generic/Tree.lean
+index 9eea4d5..7f36751 100644
+--- a/SolidCore/Refinement/Generic/Tree.lean
++++ b/SolidCore/Refinement/Generic/Tree.lean
+@@ -89,6 +89,8 @@ inductive WExpr where
+   | sel (c a b : WExpr)
+   /-- The hash of the 64 bytes of the two words, big-endian (`Val.hash`). -/
+   | hash (a b : WExpr)
++  /-- The account that sent the call (`msg.sender`), symbolic: `Val.caller`. -/
++  | caller
+   deriving DecidableEq, Repr
+ 
+ /-- What a call reads: its argument words, the callee's storage before it, and the hash of two
+@@ -98,6 +100,8 @@ structure Val where
+   args : List Nat
+   store : Nat → Nat
+   hash : Nat → Nat → Nat
++  /-- The caller's address, the value of `WExpr.caller`. -/
++  caller : Nat
+ 
+ /-- The value of a word of the call, below `2 ^ 256`. -/
+ def WExpr.eval (ρ : Val) : WExpr → Nat
+@@ -109,6 +113,7 @@ def WExpr.eval (ρ : Val) : WExpr → Nat
+   | .sinit k => ρ.store (k.eval ρ) % wordSize
+   | .sel c a b => if c.eval ρ = 0 then b.eval ρ else a.eval ρ
+   | .hash a b => ρ.hash (a.eval ρ) (b.eval ρ) % wordSize
++  | .caller => ρ.caller % wordSize
+ 
+ theorem WExpr.eval_lt (ρ : Val) : ∀ e : WExpr, e.eval ρ < wordSize
+   | .sel c a b => by
+@@ -116,7 +121,7 @@ theorem WExpr.eval_lt (ρ : Val) : ∀ e : WExpr, e.eval ρ < wordSize
+     split
+     · exact WExpr.eval_lt ρ b
+     · exact WExpr.eval_lt ρ a
+-  | .lit _ | .arg _ | .init _ | .un _ _ | .bin _ _ _ | .sinit _ | .hash _ _ =>
++  | .lit _ | .arg _ | .init _ | .un _ _ | .bin _ _ _ | .sinit _ | .hash _ _ | .caller =>
+     Nat.mod_lt _ (by decide)
+ 
+ theorem eval_bin (ρ : Val) (op : BinOp) (a b : WExpr) :
+@@ -405,6 +410,7 @@ def WExpr.norm : WExpr → WExpr
+   | .sinit k => .sinit k.norm
+   | .sel c a b => mkSel c.norm a.norm b.norm
+   | .hash a b => .hash a.norm b.norm
++  | .caller => .caller
+ 
+ theorem WExpr.eval_norm (ρ : Val) : ∀ e : WExpr, e.norm.eval ρ = e.eval ρ
+   | .lit n => by simp [WExpr.norm, WExpr.eval, Nat.mod_mod]
+@@ -418,6 +424,7 @@ theorem WExpr.eval_norm (ρ : Val) : ∀ e : WExpr, e.norm.eval ρ = e.eval ρ
+     rw [WExpr.norm, eval_mkSel]
+     simp only [WExpr.eval, WExpr.eval_norm ρ c, WExpr.eval_norm ρ a, WExpr.eval_norm ρ b]
+   | .hash a b => by simp only [WExpr.norm, WExpr.eval, WExpr.eval_norm ρ a, WExpr.eval_norm ρ b]
++  | .caller => rfl
+ 
+ /-- A byte of output, a literal when its word is a constant. -/
+ def OByte.norm : OByte → OByte
+diff --git a/SolidCore/Refinement/Generic/Value.lean b/SolidCore/Refinement/Generic/Value.lean
+index 406553a..e162ea1 100644
+--- a/SolidCore/Refinement/Generic/Value.lean
++++ b/SolidCore/Refinement/Generic/Value.lean
+@@ -185,7 +185,7 @@ theorem stageAtValueWith (o : Oracle) {fuel mirFuel : Nat} {c : TypeCheck.Checke
+   rw [hsrc] at hrun
+   cases hrun
+   have hc0 := callFacts f.sel hsel args hargs σ
+-  have hcfv : CallFactsAt .paid f.sel args.length ⟨args, slotValue σ, solHash⟩
++  have hcfv : CallFactsAt .paid f.sel args.length ⟨args, slotValue σ, solHash, callerWord⟩
+       { calldata := Abi.calldata f.sel args, callvalue := v, storage := σ } :=
+     { value := by
+         show BitVec.ofNat 256 v ≠ 0
+diff --git a/Verify/Spec/Tree.lean b/Verify/Spec/Tree.lean
+index 00713b4..d1e9e7a 100644
+--- a/Verify/Spec/Tree.lean
++++ b/Verify/Spec/Tree.lean
+@@ -69,7 +69,7 @@ def TreeMeets (b : Bundle) (fs : FnSpec) (ctx : Ctx) (n : Nat) (T : Tree) : Prop
+     decodeWords fs.params args = some iargs → pre.storage = s → pre.time ≤ ctx.timestamp →
+     b.satAll fs.requires (mkEnv ctx iargs [] pre pre) →
+     b.satAll b.spec.invariants (mkEnv ctx iargs [] pre pre) →
+-    Post b fs ctx pre ghost' (T.eval ⟨args, s, solHash⟩).obs iargs
++    Post b fs ctx pre ghost' (T.eval ⟨args, s, solHash, SolidCore.Refinement.Generic.callerWord⟩).obs iargs
+ 
+ /-- **A function's spec holds of SolidCore's contract when it holds of the erased tree**, on
+ the stage's calls of the function (any argument words, no value, any storage covering the
+@@ -103,7 +103,7 @@ def TreeMeetsFixed (b : Bundle) (fs : FnSpec) (ctx : Ctx) (n : Nat) (T : Tree) :
+     decodeWords fs.params args = some iargs → pre.storage = s → pre.time ≤ ctx.timestamp →
+     b.satAll fs.requires (mkEnv ctx iargs [] pre pre) →
+     b.satAll b.spec.invariants (mkEnv ctx iargs [] pre pre) →
+-    Post b fs ctx pre pre.ghost (T.eval ⟨args, s, solHash⟩).obs iargs
++    Post b fs ctx pre pre.ghost (T.eval ⟨args, s, solHash, SolidCore.Refinement.Generic.callerWord⟩).obs iargs
+ 
+ /-- **`holdsFn_of_tree` for a function that leaves the ghost state alone**: the ghost step is the
+ identity on the stage's calls of the function. -/
+diff --git a/Verify/Spec/TreeSplit.lean b/Verify/Spec/TreeSplit.lean
+index 721cf79..7a1585a 100644
+--- a/Verify/Spec/TreeSplit.lean
++++ b/Verify/Spec/TreeSplit.lean
+@@ -22,8 +22,8 @@ def TreeMeetsFixedOn (P : Val → Prop) (b : Bundle) (fs : FnSpec) (ctx : Ctx) (
+     decodeWords fs.params args = some iargs → pre.storage = s → pre.time ≤ ctx.timestamp →
+     b.satAll fs.requires (mkEnv ctx iargs [] pre pre) →
+     b.satAll b.spec.invariants (mkEnv ctx iargs [] pre pre) →
+-    P ⟨args, s, solHash⟩ →
+-    Post b fs ctx pre pre.ghost (T.eval ⟨args, s, solHash⟩).obs iargs
++    P ⟨args, s, solHash, SolidCore.Refinement.Generic.callerWord⟩ →
++    Post b fs ctx pre pre.ghost (T.eval ⟨args, s, solHash, SolidCore.Refinement.Generic.callerWord⟩).obs iargs
+ 
+ theorem TreeMeetsFixedOn.fixed {b : Bundle} {fs : FnSpec} {ctx : Ctx} {n : Nat} {T : Tree}
+     (h : TreeMeetsFixedOn (fun _ => True) b fs ctx n T) : TreeMeetsFixed b fs ctx n T :=
+diff --git a/Verify/Spec/TreeSucceeds.lean b/Verify/Spec/TreeSucceeds.lean
+index cbc0cec..1055292 100644
+--- a/Verify/Spec/TreeSucceeds.lean
++++ b/Verify/Spec/TreeSucceeds.lean
+@@ -30,7 +30,7 @@ def TreeSucceeds (b : Bundle) (fs : FnSpec) (ctx : Ctx) (n : Nat) (T : Tree) : P
+     b.satAll fs.requires (mkEnv ctx iargs [] pre pre) →
+     b.satAll b.spec.invariants (mkEnv ctx iargs [] pre pre) →
+     b.satAll fs.succeedsIf (mkEnv ctx iargs [] pre pre) →
+-    (T.eval ⟨args, s, solHash⟩).obs.success = true
++    (T.eval ⟨args, s, solHash, SolidCore.Refinement.Generic.callerWord⟩).obs.success = true
+ 
+ /-- No mapping slots: nothing to separate. -/
+ theorem mapSlotsSeparated_nil : MapSlotsSeparated [] :=
+diff --git a/Verify/VC/Model.lean b/Verify/VC/Model.lean
+index 6a347bf..68ff271 100644
+--- a/Verify/VC/Model.lean
++++ b/Verify/VC/Model.lean
+@@ -40,7 +40,7 @@ def setStore (s' : Storage) : SolM Unit := fun _ => .ok ((), s')
+ 
+ /-- The words of a call on the argument words `args` from the storage `s`, with SolidCore's slot
+ hash. -/
+-def valOf (args : List Nat) (s : Storage) : Val := ⟨args, s, solHash⟩
++def valOf (args : List Nat) (s : Storage) : Val := ⟨args, s, solHash, SolidCore.Refinement.Generic.callerWord⟩
+ 
+ /-- A tree that emits no log. -/
+ def noLogs : Tree → Bool
+diff --git a/lakefile.lean b/lakefile.lean
+index 54d33fd..d276cf0 100644
+--- a/lakefile.lean
++++ b/lakefile.lean
+@@ -569,10 +569,14 @@ lean_lib «uv2_erc20» where
+ -- E3 of docs/CERTIFICATION_TARGET.md's first slice: the generic source stage of UniswapV2ERC20.transfer
+ -- against the exported stage0 (Contracts/UniswapV2/ERC20/SourceMir.lean) and its refused mutants.
+ lean_lib ContractsUniswapV2ERC20SourceMir where
+-  roots := #[`Contracts.UniswapV2.ERC20.SourceMir, `Contracts.UniswapV2.ERC20.SourceMirNeg]
++  roots := #[`Contracts.UniswapV2.ERC20.SourceMir, `Contracts.UniswapV2.ERC20.SourceMirNeg,
++    `Contracts.UniswapV2.ERC20.SourceMirFrom, `Contracts.UniswapV2.ERC20.SourceMirFromNeg, `Contracts.UniswapV2.ERC20.SourceMirPinned]
+   globs := #[.one `Contracts.UniswapV2.ERC20.SourceMirDefs, .one `Contracts.UniswapV2.ERC20.SourceMirCheck,
+     .one `Contracts.UniswapV2.ERC20.SourceMirDeploy, .one `Contracts.UniswapV2.ERC20.SourceMir,
+-    .one `Contracts.UniswapV2.ERC20.SourceMirNeg]
++    .one `Contracts.UniswapV2.ERC20.SourceMirNeg,
++    .one `Contracts.UniswapV2.ERC20.SourceMirFromDefs, .one `Contracts.UniswapV2.ERC20.SourceMirFromCheck,
++    .one `Contracts.UniswapV2.ERC20.SourceMirFrom, .one `Contracts.UniswapV2.ERC20.SourceMirFromNeg,
++    .one `Contracts.UniswapV2.ERC20.SourceMirPinned]
+ 
+ -- event_words: the stages of Certified/event_words/event_words.sol's EventWords and their kernel proofs, which
+ -- solar's scripts/certify writes.
+diff --git a/scripts/verify/uniswap_v2_erc20_mutants.py b/scripts/verify/uniswap_v2_erc20_mutants.py
+index 094b961..f4d1d7e 100755
+--- a/scripts/verify/uniswap_v2_erc20_mutants.py
++++ b/scripts/verify/uniswap_v2_erc20_mutants.py
+@@ -44,6 +44,8 @@ MUTANTS = {
+                         "the add overflow revert reason changed"),
+     "SwappedLogArgs": (edit("_transfer", ".value 0, .value 1]]", ".value 1, .value 0]]"),
+                        "from and to swapped in the Transfer topics"),
++    "PinnedCaller": (edit("transfer", ".effect (some 2) .caller [],", ".pure 2 .add [.const 0x2000, .const 0],"),
++                     "CALLER replaced by the constant 0x2000: right only for that caller"),
+ }
+ 
+ out = gen / "UniswapV2ERC20Mut"
+-- 
+2.43.0
+

@@ -1,0 +1,13 @@
+SolidCore.Refinement.Generic.StageFrom EXIT 0 PEAK_LEAN_RSS_MB 2493 
+Contracts.UniswapV2.ERC20.SourceMirDefs EXIT 0 PEAK_LEAN_RSS_MB 2456 
+Contracts.UniswapV2.ERC20.SourceMirCheck EXIT 0 PEAK_LEAN_RSS_MB 5369 
+Contracts.UniswapV2.ERC20.SourceMirDeploy EXIT 0 PEAK_LEAN_RSS_MB 5892 
+Contracts.UniswapV2.ERC20.SourceMir EXIT 0 PEAK_LEAN_RSS_MB 4200 
+Contracts.UniswapV2.ERC20.SourceMirNeg EXIT 0 PEAK_LEAN_RSS_MB 5299 
+Contracts.UniswapV2.ERC20.SourceMirFromDefs EXIT 0 PEAK_LEAN_RSS_MB 1470 
+Contracts.UniswapV2.ERC20.SourceMirFromCheck EXIT 0 PEAK_LEAN_RSS_MB 5371 
+Contracts.UniswapV2.ERC20.SourceMirFrom EXIT 1 PEAK_LEAN_RSS_MB 2579 
+Contracts.UniswapV2.ERC20.SourceMirFromNeg EXIT 0 PEAK_LEAN_RSS_MB 5298 
+Contracts.UniswapV2.ERC20.SourceMirPinned EXIT 0 PEAK_LEAN_RSS_MB 5376 
+DONE
+Contracts.UniswapV2.ERC20.SourceMirFrom (rebuilt after fix) EXIT 0 PEAK_LEAN_RSS_MB 5258 

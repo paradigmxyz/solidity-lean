@@ -1,0 +1,32 @@
+'SolidCore.Refinement.Generic.stageFrom' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolidCore.Refinement.Generic.stageDeployedFrom' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolidCore.Refinement.Generic.source_run_from' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolidCore.Refinement.solidCoreFrom_callerAddress' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolidCore.Spec.UniswapV2.ERC20.SourceMirFrom.checkFrom_eq' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolidCore.Spec.UniswapV2.ERC20.SourceMirFrom.checkFrom_ok' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolidCore.Spec.UniswapV2.ERC20.SourceMirFrom.transfer_stage_from' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+'SolidCore.Spec.UniswapV2.ERC20.SourceMirFrom.fromOk_inhabited' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+'SolidCore.Spec.UniswapV2.ERC20.SourceMirFrom.transfer_source_mir_any_caller' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+'SolidCore.Spec.UniswapV2.ERC20.SourceMirFrom.transfer_stage_callerAddress' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+'SolidCore.Spec.UniswapV2.ERC20.SourceMirFromNeg.refuses_PinnedCaller' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+'SolidCore.Spec.UniswapV2.ERC20.SourceMirFromNeg.refuses_NoDebit' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+'SolidCore.Spec.UniswapV2.ERC20.SourceMirPinned.pinned_fixed_accepts' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+'SolidCore.Spec.UniswapV2.ERC20.SourceMir.transfer_source_mir' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+EXIT 0
+PEAK_LEAN_RSS_MB 2610
