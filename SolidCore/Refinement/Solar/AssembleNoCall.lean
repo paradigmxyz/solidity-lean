@@ -1,0 +1,526 @@
+import SolidCore.Refinement.Solar.AssembleCallStaticRunner
+import SolidCore.Refinement.Solar.AssembleCtxCall
+
+/-!
+# The runner premises for code that makes no call (slice-runners)
+
+The checker with STATICCALLs (`AssembleCut.checkCB`, `AssembleCtx.checkXB`) gives its per-run theorem
+under two named hypotheses (`AssembleCallSeg.StaticRunner`, `AssembleCallSeg.CalleesRun`). This file
+settles both for code whose exact bytes make no call:
+
+* **`StaticRunner` is refuted**, not discharged: EthLib's IDENTITY precompile returns its call data,
+  so a message to address 4 with `2 ^ 256` bytes of data and the gas to pay for them ends with an
+  output of `2 ^ 256` bytes, against `AssembleCallCut.OutputFits` (`not_outputRunner`,
+  `not_staticRunner`, at a gas of `2 ^ 255`, below the `2 ^ 256` the final theorems use). So
+  `∀ gas, StaticRunner gas` and `∀ gas, AssembleCallStaticRunner.OutputRunner gas` are false
+  (`not_forall_staticRunner`, `not_forall_outputRunner`), and every theorem that assumes either
+  holds vacuously.
+* **For call-free code neither hypothesis is needed** (`holds_of_checkCB_callFree`,
+  `runs_shape_of_checkCB_callFree`, `assembly_of_checkXB_callFree`): `callFree` is a syntactic
+  check over the exact bytes, decoded linearly from 0 as the walk reads them (PUSH immediates
+  skipped), that no instruction is CREATE, CALL, CALLCODE, DELEGATECALL, CREATE2, STATICCALL,
+  RETURNDATASIZE or RETURNDATACOPY. A program the checker with STATICCALLs accepts on such bytes has
+  no STATICCALL, RETURNDATASIZE or RETURNDATACOPY instruction (`noCallI_of_callFree`), so the same
+  certificate with its call flag cleared passes the no-call checker (`checkC_of_checkCB_callFree`,
+  `checkX_of_checkXB_callFree`), whose theorem (`AssembleCut.assembly_of_checkC`,
+  `AssembleCtx.assembly_of_checkX`) has no hypothesis on the runner.
+* **`CalleesRun` is discharged outright** for bytes with no `0xfa` byte at all
+  (`calleesRun_of_noFaByte`). It quantifies over every frame at any counter whose byte is `0xfa`,
+  not only over the instructions a run reaches, so a scan that skips PUSH immediates cannot
+  discharge it as stated; `callFree` code does not need it (above).
+-/
+
+namespace SolidCore.Refinement.Solar.AssembleNoCall
+
+open SolarTV SolarTV.Machine SolidCore.Refinement SolidCore.Refinement.Witness SolidCore.Refinement.Final
+open SolidCore.Refinement.Solar.Assemble SolidCore.Refinement.Solar.RunOracle
+open SolidCore.Refinement.Solar.AssembleCut SolidCore.Refinement.Solar.AssembleLoop
+open SolidCore.Refinement.Solar.AssembleCallCut SolidCore.Refinement.Solar.AssembleCallSeg
+open SolidCore.Refinement.Solar.AssembleCallStaticRunner
+open SolarTV.Assembly
+open EthLib.Base EthLib.Execution EthLib.Execution.Evm EthLib.Execution.Evm.Logic
+
+/-! ## 1. `StaticRunner` is false: IDENTITY returns its call data -/
+
+/-- A message that IDENTITY (address 4) runs: no value moved, precompiles enabled. -/
+theorem identity_output (state : State.TransactionState) (substate : Substate) (m : Message .fusaka)
+    (htv : m.shouldTransferValue = false) (hpa : precompileAddress .fusaka m = some 4)
+    (hdis : m.disablePrecompiles = false)
+    (hgas : Precompiles.Identity.gasCost m.data.size ≤ m.gas) :
+    ∃ ended, processMessage (Meter := Nat) .fusaka m state substate = .ok ended ∧
+      ended.val.output = m.data := by
+  have hrun : Precompiles.run .fusaka 4 m.data m.gas = some (.ok m.data) := by
+    simp only [Precompiles.run, Precompiles.Identity.identity, Except.mapError]
+    simp [Precompiles.isPrecompile, Precompiles.addedAt, Nat.not_lt.2 hgas]
+    decide
+  have hpr : Precompiles.price .fusaka 4 m.data = some (Precompiles.Identity.gasCost m.data.size) := by
+    simp [Precompiles.price, Precompiles.isPrecompile, Precompiles.addedAt]
+    decide
+  have hrp : ∀ st ss, runPrecompile .fusaka 4 (startFrame m st ss (GasMeter.start (Meter := Nat) m.gas m.reservoir)) =
+      some { startFrame m st ss (GasMeter.start (Meter := Nat) m.gas m.reservoir) with
+        gas := m.gas - Precompiles.Identity.gasCost m.data.size, output := m.data, running := false } := by
+    intro st ss
+    simp only [runPrecompile, startFrame, GasMeter.gasLeft, GasMeter.start, hrun, hpr,
+      Option.getD_some, GasMeter.charge, Nat.not_lt.2 hgas, ite_false]
+  rw [processMessage]
+  simp only [htv, hpa, hdis, Bool.false_eq_true, false_and, ite_false, pure_bind]
+  split
+  · rename_i after h
+    rw [hrp] at h
+    cases h
+    exact ⟨_, rfl, by simp [rollbackOnError, startFrame]⟩
+  · rename_i h
+    rw [hrp] at h
+    cases h
+
+/-- `2 ^ 256` zero bytes. -/
+def bigData : ByteArray := ⟨Array.replicate (2 ^ 256) 0⟩
+
+theorem bigData_size : bigData.size = 2 ^ 256 := by
+  simp [bigData, ByteArray.size]
+
+/-- The gas IDENTITY charges for `bigData`. -/
+abbrev bigGas : Nat := Precompiles.Identity.gasCost (2 ^ 256)
+
+theorem bigGas_lt : bigGas < 2 ^ 255 := by
+  simp only [bigGas, Precompiles.Identity.gasCost, Precompiles.Identity.GAS_BASE,
+    Precompiles.Identity.GAS_PER_WORD, wordCount]
+  decide
+
+/-- A static message to IDENTITY with `bigData` and the gas to pay for it. -/
+def idMessage (blockEnv : BlockEnvironment .fusaka) (txEnv : TransactionEnvironment .fusaka) :
+    Message .fusaka where
+  blockEnv := blockEnv
+  txEnv := txEnv
+  caller := Target.address 0
+  target := some (Target.address 4)
+  currentTarget := Target.address 4
+  gas := bigGas
+  value := 0
+  data := bigData
+  codeAddress := some (Target.address 4)
+  code := .empty
+  depth := 0
+  shouldTransferValue := false
+  isStatic := true
+  disablePrecompiles := false
+
+/-- **`OutputRunner` fails at every gas above IDENTITY's price for `2 ^ 256` bytes**: the runner of
+messages ends `idMessage` with an output of `2 ^ 256` bytes, from any caller. -/
+theorem not_outputRunner_of_lt {gas : Nat} (hg : bigGas < gas) (caller : Evm .fusaka Nat) :
+    ¬ OutputRunner gas := by
+  intro h
+  let m := idMessage caller.message.blockEnv caller.message.txEnv
+  have hpa : precompileAddress .fusaka m = some 4 := by
+    simp only [precompileAddress, m, idMessage]
+    decide
+  obtain ⟨ended, hrun, hout⟩ := identity_output caller.state caller.substate.child m rfl hpa rfl
+    (by rw [show m.data = bigData from rfl, bigData_size]; exact le_refl _)
+  have hfit := h.ok caller m hg ended (by simpa [processRunner, m, idMessage] using hrun)
+  simp only [OutputFits, hout, m, idMessage, bigData_size] at hfit
+  exact Nat.lt_irrefl _ hfit
+
+/-- The caller frame of the counterexample: any frame will do. -/
+def someCaller : Evm .fusaka Nat :=
+  startFrame (idMessage Target.blockEnv Target.txEnv) (Target.preState .empty default) Substate.empty 0
+
+theorem not_outputRunner : ¬ OutputRunner (2 ^ 255) :=
+  not_outputRunner_of_lt bigGas_lt someCaller
+
+/-- **`StaticRunner` fails at gas `2 ^ 255`**: its `OutputFits` half is `not_outputRunner`. -/
+theorem not_staticRunner : ¬ StaticRunner (2 ^ 255) := fun h =>
+  not_outputRunner ⟨fun a b c d e => (h.ok a b c d e).2, h.aborts⟩
+
+theorem not_forall_staticRunner : ¬ ∀ gas, StaticRunner gas := fun h => not_staticRunner (h _)
+
+theorem not_forall_outputRunner : ¬ ∀ gas, OutputRunner gas := fun h => not_outputRunner (h _)
+
+/-- Even below `2 ^ 256` gas, where the final theorems use it. -/
+theorem not_forall_lt_staticRunner : ¬ ∀ gas, gas < 2 ^ 256 → StaticRunner gas := fun h =>
+  not_staticRunner (h _ (by decide))
+
+/-! ## 2. The syntactic check over the exact bytes -/
+
+/-- The opcodes that send a message or read the return data of one: CREATE, CALL, CALLCODE,
+DELEGATECALL, CREATE2, STATICCALL, RETURNDATASIZE, RETURNDATACOPY. -/
+def callOps : List Nat := [0xf0, 0xf1, 0xf2, 0xf4, 0xf5, 0xfa, 0x3d, 0x3e]
+
+/-- An instruction that is none of `callOps`. -/
+def instrFree : SolarTV.Assembly.Instr → Bool
+  | .op b => !callOps.contains b
+  | _ => true
+
+/-- **The syntactic no-call check over the exact bytes**: the instructions of `code`, decoded
+linearly from 0 (`SolarTV.Assembly.decodeFrom`, PUSH immediates skipped), are none of `callOps`. -/
+def callFree (code : ByteArray) : Bool :=
+  (decodeFrom (bytesOf code) code.size 0).all fun x => instrFree x.2
+
+theorem decode_next_gt {code : List Nat} {pc next : Nat} {i : SolarTV.Assembly.Instr}
+    (h : decode code pc = some (i, next)) : pc < next := by
+  unfold decode at h
+  split at h
+  · cases h
+  · split at h
+    · cases h; omega
+    · split at h
+      · split at h
+        · cases h; omega
+        · cases h
+      · split at h
+        · split at h
+          · split at h
+            · cases h; omega
+            · cases h
+          · cases h
+        · cases h; omega
+
+theorem seg_length_le {code : List Nat} {off : Nat → Nat} {pc pc' : Nat} {items : List Item}
+    (h : Seg code off pc items pc') : pc + items.length ≤ pc' := by
+  induction h with
+  | nil => simp
+  | cons d _ _ ih =>
+    have := decode_next_gt d
+    simp only [List.length_cons]
+    omega
+
+theorem seg_mem_decodeFrom {code : List Nat} {off : Nat → Nat} {pc pc' : Nat} {items : List Item}
+    (h : Seg code off pc items pc') :
+    ∀ fuel, items.length ≤ fuel → ∀ item ∈ items, ∃ q, (q, item.expected off) ∈ decodeFrom code fuel pc := by
+  induction h with
+  | nil => intro _ _ item hm; cases hm
+  | @cons pc next pc' item items d _ _ ih =>
+    intro fuel hf it hm
+    obtain ⟨f, rfl⟩ : ∃ f, fuel = f + 1 := ⟨fuel - 1, by simp only [List.length_cons] at hf; omega⟩
+    simp only [decodeFrom, d]
+    rcases List.mem_cons.1 hm with rfl | hm
+    · exact ⟨pc, List.mem_cons_self⟩
+    · obtain ⟨q, hq⟩ := ih f (by simp only [List.length_cons] at hf; omega) it hm
+      exact ⟨q, List.mem_cons_of_mem _ hq⟩
+
+/-- An EVM IR instruction the checker gates on the certificate's call flag. -/
+def NoCallI (i : Assemble.Instr) : Prop := isScI i = false ∧ isRdsI i = false ∧ isRdcI i = false
+
+theorem lowerInstr_of_callI {i : Assemble.Instr} (h : ¬ NoCallI i) :
+    ∃ byte ∈ callOps, lowerInstr i = [.op byte] ∧ (∀ t, i ≠ .jumpi t) ∧ (∀ t, i ≠ .jump t) ∧
+      i ≠ .stop := by
+  simp only [NoCallI, not_and_or, Bool.not_eq_false] at h
+  rcases h with h | h | h
+  · unfold isScI at h; split at h <;> simp_all [lowerInstr, callOps]
+  · unfold isRdsI at h; split at h <;> simp_all [lowerInstr, callOps]
+  · unfold isRdcI at h; split at h <;> simp_all [lowerInstr, callOps]
+
+theorem turnedElse_rest {c : Cert} {b e : Nat} {j : Assemble.Instr} {rest : List Assemble.Instr}
+    (h : turnedElse c b j rest = some e) : ∃ e', rest = [.jump e'] := by
+  unfold turnedElse at h
+  split at h
+  · exact ⟨_, rfl⟩
+  · cases h
+
+theorem dropped_rest {p : Assemble.Program} {b : Nat} {j : Assemble.Instr} {rest : List Assemble.Instr}
+    (h : dropped p b j rest = true) : rest = [] := by
+  unfold dropped at h
+  split at h <;> first | rfl | cases h
+
+theorem mem_lowerInstrs {p : Assemble.Program} {c : Cert} {b : Nat} {i : Assemble.Instr}
+    (hi : ¬ NoCallI i) : ∀ {instrs : List Assemble.Instr}, i ∈ instrs →
+      ∃ byte ∈ callOps, Item.op byte ∈ lowerInstrs p c b instrs
+  | [], h => absurd h List.not_mem_nil
+  | j :: rest, h => by
+    obtain ⟨byte, hb, hlow, hji, hjj, hjs⟩ := lowerInstr_of_callI hi
+    unfold lowerInstrs
+    rcases List.mem_cons.1 h with rfl | h
+    · have ht : turnedElse c b i rest = none := by
+        unfold turnedElse; split
+        · exact absurd rfl (hji _)
+        · rfl
+      have hd : dropped p b i rest = false := by
+        unfold dropped; split
+        · exact absurd rfl (hjj _)
+        · exact absurd rfl hjs
+        · rfl
+      rw [ht]
+      simp only [hd, Bool.false_eq_true, ite_false, hlow, List.singleton_append]
+      exact ⟨byte, hb, List.mem_cons_self⟩
+    · cases hte : turnedElse c b j rest with
+      | some e =>
+        exfalso
+        obtain ⟨e', rfl⟩ := turnedElse_rest hte
+        simp only [List.mem_singleton] at h
+        exact hjj e' h
+      | none =>
+        simp only
+        by_cases hd : dropped p b j rest = true
+        · exfalso
+          rw [dropped_rest hd] at h
+          exact List.not_mem_nil h
+        · simp only [hd, Bool.false_eq_true, ite_false, List.mem_append]
+          obtain ⟨byte', hb', hm⟩ := mem_lowerInstrs hi h
+          exact ⟨byte', hb', Or.inr hm⟩
+
+theorem mem_lowerFrom {p : Assemble.Program} {c : Cert} {item : Item} :
+    ∀ (blocks : List (List Assemble.Instr)) (b0 k : Nat) (hk : k < blocks.length),
+      item ∈ lowerInstrs p c (b0 + k) blocks[k] → item ∈ lowerFrom p c b0 blocks
+  | [], _, _, hk, _ => absurd hk (by simp)
+  | x :: l, b0, 0, _, h => by
+    simp only [lowerFrom, lowerBlock, List.mem_append]
+    exact Or.inl (Or.inr (by simpa using h))
+  | x :: l, b0, k + 1, hk, h => by
+    simp only [lowerFrom, List.mem_append]
+    refine Or.inr (mem_lowerFrom l (b0 + 1) k (by simp at hk; omega) ?_)
+    rw [show b0 + 1 + k = b0 + (k + 1) by omega]
+    simpa using h
+
+/-- **The bytes' check reaches the program**: when the walk reads the lowered program off bytes
+that pass `callFree`, no instruction of the program is a STATICCALL, RETURNDATASIZE or
+RETURNDATACOPY. -/
+theorem noCallI_of_callFree {p : Assemble.Program} {code : ByteArray} {c : Cert}
+    (hseg : Seg (bytesOf code) c.offset 0 (lower p c) code.size) (hfree : callFree code = true) :
+    ∀ b (hb : b < p.blocks.length), ∀ i ∈ p.blocks[b], NoCallI i := by
+  intro b hb i hi
+  by_contra hn
+  obtain ⟨byte, hbyte, hm⟩ := mem_lowerInstrs (p := p) (c := c) (b := 0 + b) hn hi
+  have hl : Item.op byte ∈ lower p c := mem_lowerFrom p.blocks 0 b hb hm
+  have hlen := seg_length_le hseg
+  obtain ⟨q, hq⟩ := seg_mem_decodeFrom hseg code.size (by omega) _ hl
+  have := List.all_eq_true.1 hfree _ hq
+  simp only [Item.expected, instrFree, Bool.not_eq_true', List.contains_eq_mem,
+    decide_eq_false_iff_not] at this
+  exact this hbyte
+
+/-! ## 3. The certificate with its call flag cleared -/
+
+/-- The certificate that says the program makes no call. -/
+def noCallCert (c : Cert) : Cert := { c with calls := false }
+
+theorem isTarget_flip (p : Assemble.Program) (c : Cert) (t : Nat) :
+    isTarget p (noCallCert c) t = isTarget p c t :=
+  @SolidCore.Refinement.Solar.AssembleCtx.isTarget_congr (noCallCert c) c rfl p t
+
+theorem fallOkL_flip (p : Assemble.Program) (c : Cert) (mx : List Nat) (b h : Nat) (ty : List Ty) :
+    fallOkL p (noCallCert c) mx b h ty = fallOkL p c mx b h ty := rfl
+
+theorem jumpOkL_flip (p : Assemble.Program) (c : Cert) (mx : List Nat) (b t h : Nat) (ty : List Ty) :
+    jumpOkL p (noCallCert c) mx b t h ty = jumpOkL p c mx b t h ty := by
+  simp only [jumpOkL, isTarget_flip]; rfl
+
+theorem blockStepL_flip (p : Assemble.Program) (c : Cert) (mx : List Nat) (b : Nat)
+    (ok : Nat → List Word → List Ty → Nat → Bool) :
+    blockStepL p (noCallCert c) mx b ok = blockStepL p c mx b ok := by
+  funext h known ty k i
+  cases i <;> (try simp only [blockStepL, jumpOkL_flip]) <;> rfl
+
+theorem turnedElse_flip (c : Cert) : turnedElse (noCallCert c) = turnedElse c := by
+  funext b i rest
+  exact @SolidCore.Refinement.Solar.AssembleCtx.turnedElse_congr (noCallCert c) c rfl b i rest
+
+theorem blockOkC_flip {p : Assemble.Program} {c : Cert} {mx : List Nat} {b : Nat}
+    (hcr : c.creates = false) : ∀ (instrs : List Assemble.Instr), (∀ i ∈ instrs, NoCallI i) →
+      ∀ h known ty k, blockOkC p (noCallCert c) mx b h known ty k instrs =
+        blockOkC p c mx b h known ty k instrs := by
+  intro instrs
+  induction instrs with
+  | nil => intro _ h known ty k; simp only [blockOkC, fallOkL_flip]
+  | cons i rest ih =>
+    intro hno h known ty k
+    have ih' := ih (fun j hj => hno j (List.mem_cons_of_mem _ hj))
+    obtain ⟨hsc, hrds, hrdc⟩ := hno i List.mem_cons_self
+    have hc' : (noCallCert c).calls = false := rfl
+    have hcr' : (noCallCert c).creates = false := hcr
+    have he : (noCallCert c).env = c.env := rfl
+    have ht : (noCallCert c).top = c.top := rfl
+    simp only [blockOkC, turnedElse_flip, fallOkL_flip, jumpOkL_flip, blockStepL_flip, ih', hsc,
+      hrds, hrdc, hc', hcr', hcr, he, ht, Bool.false_and, Bool.and_false, Bool.false_eq_true,
+      ite_false]
+
+theorem blocksOkC_flip {p : Assemble.Program} {c : Cert} {mx : List Nat} (hcr : c.creates = false) :
+    ∀ (blocks : List (List Assemble.Instr)) (b : Nat), (∀ k (hk : k < blocks.length), ∀ i ∈ blocks[k], NoCallI i) →
+      blocksOkC p (noCallCert c) mx b blocks = blocksOkC p c mx b blocks
+  | [], _, _ => rfl
+  | x :: l, b, h => by
+    have h0 := h 0 (by simp)
+    have hl : ∀ k (hk : k < l.length), ∀ i ∈ l[k], NoCallI i := fun k hk => h (k + 1) (by simp; omega)
+    simp only [blocksOkC, labelItems, isTarget_flip, blockOkC_flip hcr x (by simpa using h0),
+      blocksOkC_flip hcr l (b + 1) hl]
+    rfl
+
+theorem lower_flip (p : Assemble.Program) (c : Cert) : lower p (noCallCert c) = lower p c :=
+  @SolidCore.Refinement.Solar.AssembleCtx.lowerFrom_congr (noCallCert c) c rfl p 0 p.blocks
+
+theorem labelsValid_flip (p : Assemble.Program) (c : Cert) (code : ByteArray) :
+    labelsValid p (noCallCert c) code = labelsValid p c code := by
+  simp only [labelsValid, isTarget_flip]; rfl
+
+/-- **The checker with STATICCALLs on call-free bytes is the no-call checker**: the same program,
+bytes and certificate, with the call flag cleared. -/
+theorem checkC_of_checkCB_callFree {p : Assemble.Program} {code : ByteArray} {c : Cert}
+    {mx : List Nat} (hc : checkCB p code c mx = true) (hfree : callFree code = true) :
+    checkC p code (noCallCert c) mx = true := by
+  obtain ⟨-, hseg, -⟩ := globC_of_checkC hc
+  have hno := noCallI_of_callFree hseg hfree
+  have hcr := checkCB_creates hc
+  have hb := blocksOkC_flip (p := p) (mx := mx) hcr p.blocks 0 hno
+  simp only [checkCB, Bool.and_eq_true] at hc
+  simp only [checkC, Bool.and_eq_true, lower_flip, labelsValid_flip, hb]
+  obtain ⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩, h8⟩ := hc
+  exact ⟨⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩, rfl⟩, h8⟩
+
+/-! ## 4. The final theorems with no runner hypothesis -/
+
+/-- **EVM IR to the exact bytecode for call-free code, with no hypothesis on the runner**: every
+program the checker with STATICCALLs accepts on bytes that pass `callFree`. -/
+theorem assembly_of_checkCB_callFree {p : Assemble.Program} {code : ByteArray} {c : Cert}
+    {mx : List Nat} (hc : checkCB p code c mx = true) (hfree : callFree code = true)
+    (scope : Call → Prop) :
+    ∀ gas, gas < 2 ^ 256 → ∀ call, scope call → ∃ (o : Oracle) (W : World), W.Open ∧
+      CallsAgree o W ∧ Within (evmirSem o) (ethLibWith gas) p code (· = call) :=
+  assembly_of_checkC (checkC_of_checkCB_callFree hc hfree) scope
+
+/-- `AssembleCallSeg.runs_shape_of_checkCB` without `StaticRunner` and `CalleesRun`, for call-free
+bytes. -/
+theorem runs_shape_of_checkCB_callFree {p : Assemble.Program} {code : ByteArray} {c : Cert}
+    {mx : List Nat} (hc : checkCB p code c mx = true) (hfree : callFree code = true)
+    (Valid : Call → Prop) :
+    ∀ gas, gas < 2 ^ 256 → ∀ call, Valid call → ∃ o : Oracle,
+      (CertOk c o ∧ ∃ W : World, W.Open ∧ CallsAgree o W) ∧
+      Within (evmirSem o) (ethLibWith gas) p code (· = call) := by
+  intro gas hgas call _
+  obtain ⟨T, hT⟩ := runs_of_checkC (checkC_of_checkCB_callFree hc hfree) gas hgas call
+  obtain ⟨W, hW, hA⟩ := O_agree T
+  exact ⟨O T, ⟨O_ok c T, W, hW, hA⟩, hT⟩
+
+/-- **`AssembleCallSeg.holds_of_checkCB` for call-free bytes, with no runner hypothesis**: the
+source's specification at every open world, its totality, the stages to EVM IR and the checker
+with STATICCALLs on bytes that pass `callFree` give the specification of the exact bytecode at
+every gas below `2 ^ 256`. -/
+theorem holds_of_checkCB_callFree {St : Type} {fuel : Nat}
+    {mirSem : SolarTV.Machine.Oracle → Sem} {c : SolidCore.Solidity.TypeCheck.CheckedContract}
+    {mir : ∀ o, (mirSem o).Prog} {p : Assemble.Program} {code : ByteArray} {cert : Cert}
+    {mx : List Nat} {spec : Final.ContractSpec St}
+    (source : ∀ W : World, W.Open → Final.Holds (solidCoreIn W fuel) c spec)
+    (fin : ∀ W : World, W.Open → ∀ call, spec.Calls call → (Source.runIn W fuel c call).isSome)
+    (lowering : ∀ o W, CallsAgree o W → Stage (solidCoreIn W fuel) (mirSem o) c (mir o) spec.Calls)
+    (backend : ∀ o, Stage (mirSem o) (evmirSem o) (mir o) p spec.Calls)
+    (hc : checkCB p code cert mx = true) (hfree : callFree code = true)
+    (gas : Nat) (hgas : gas < 2 ^ 256) : Final.Holds (Final.ethLibWith gas) code spec :=
+  holds_of_runs_lt (evmirSem := evmirSem) (evmir := fun _ => p) source fin lowering backend
+    (assembly_of_checkCB_callFree hc hfree spec.Calls) gas hgas
+
+/-! ## 5. `CalleesRun` for bytes with no 0xfa byte -/
+
+/-- No byte of `code` is `0xfa` (STATICCALL), PUSH immediates included. -/
+def noFaByte (code : ByteArray) : Bool := code.data.all (· != 0xfa)
+
+theorem ne_fa_of_noFaByte {code : ByteArray} (h : noFaByte code = true) :
+    ∀ i (hi : i < code.size), code[i] ≠ 0xfa := by
+  intro i hi heq
+  have := (Array.all_eq_true.1 h) i hi
+  simp only [bne_iff_ne, ne_eq] at this
+  exact this heq
+
+/-- **`CalleesRun` discharged for bytes with no `0xfa` byte**, at every gas and call: no frame of
+the code is at a STATICCALL. -/
+theorem calleesRun_of_noFaByte {code : ByteArray} (h : noFaByte code = true) (gas : Nat)
+    (call : Call) : CalleesRun gas code call := by
+  intro r _ _ e within pc asked addr inOff inSize outOff outSize S M g st ss rd _ hlt hb _
+  exact absurd hb (ne_fa_of_noFaByte h pc hlt)
+
+theorem calleesRunR_of_noFaByte {code : ByteArray} (h : noFaByte code = true) (gas : Nat)
+    (call : Call) : CalleesRunR gas code call := by
+  intro r _ _ e within pc asked addr inOff inSize outOff outSize S M g st ss rd _ hlt hb _
+  exact absurd hb (ne_fa_of_noFaByte h pc hlt)
+
+/-! ## Axioms -/
+
+/-- info: 'SolidCore.Refinement.Solar.AssembleNoCall.not_forall_staticRunner' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs (whitespace := lax) in
+#print axioms not_forall_staticRunner
+
+/-- info: 'SolidCore.Refinement.Solar.AssembleNoCall.not_forall_lt_staticRunner' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs (whitespace := lax) in
+#print axioms not_forall_lt_staticRunner
+
+/-- info: 'SolidCore.Refinement.Solar.AssembleNoCall.not_forall_outputRunner' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs (whitespace := lax) in
+#print axioms not_forall_outputRunner
+
+/-- info: 'SolidCore.Refinement.Solar.AssembleNoCall.holds_of_checkCB_callFree' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs (whitespace := lax) in
+#print axioms holds_of_checkCB_callFree
+
+/-- info: 'SolidCore.Refinement.Solar.AssembleNoCall.runs_shape_of_checkCB_callFree' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs (whitespace := lax) in
+#print axioms runs_shape_of_checkCB_callFree
+
+/-- info: 'SolidCore.Refinement.Solar.AssembleNoCall.calleesRun_of_noFaByte' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs (whitespace := lax) in
+#print axioms calleesRun_of_noFaByte
+
+
+/-! ## 6. The checker with contexts -/
+
+open SolidCore.Refinement.Solar.AssembleCtx in
+/-- The context certificate whose base says the program makes no call. -/
+def noCallCtx (cx : SolidCore.Refinement.Solar.AssembleCtx.CtxCert) :
+    SolidCore.Refinement.Solar.AssembleCtx.CtxCert := { cx with base := noCallCert cx.base }
+
+open SolidCore.Refinement.Solar.AssembleCtx in
+theorem ctxOk_flip {p : Assemble.Program} {cx : CtxCert} {b j : Nat} {instrs : List Assemble.Instr}
+    (hcr : cx.base.creates = false) (hno : ∀ i ∈ instrs, NoCallI i) :
+    ctxOk p (noCallCtx cx) b j instrs = ctxOk p cx b j instrs := by
+  have hc : certAt (noCallCtx cx) (p.blocks.length + 1) b j =
+      noCallCert (certAt cx (p.blocks.length + 1) b j) := rfl
+  have hm : maxsAt (noCallCtx cx) (p.blocks.length + 1) b j = maxsAt cx (p.blocks.length + 1) b j := rfl
+  have hb := blockOkC_flip (p := p) (c := certAt cx (p.blocks.length + 1) b j)
+    (mx := maxsAt cx (p.blocks.length + 1) b j) (b := b) hcr instrs hno
+  simp only [ctxOk, hc, hm, blockCtxOk, labelItems, isTarget_flip, hb]
+  rfl
+
+open SolidCore.Refinement.Solar.AssembleCtx in
+theorem blocksX_flip {p : Assemble.Program} {cx : CtxCert} (hcr : cx.base.creates = false) :
+    ∀ (blocks : List (List Assemble.Instr)) (b : Nat),
+      (∀ k (hk : k < blocks.length), ∀ i ∈ blocks[k], NoCallI i) →
+      blocksX p (noCallCtx cx) b blocks = blocksX p cx b blocks
+  | [], _, _ => rfl
+  | x :: l, b, h => by
+    have h0 := h 0 (by simp)
+    have hl : ∀ k (hk : k < l.length), ∀ i ∈ l[k], NoCallI i := fun k hk => h (k + 1) (by simp; omega)
+    have hx : ∀ j, ctxOk p (noCallCtx cx) b j x = ctxOk p cx b j x :=
+      fun j => ctxOk_flip hcr (by simpa using h0)
+    simp only [blocksX, hx, blocksX_flip hcr l (b + 1) hl]
+    rfl
+
+open SolidCore.Refinement.Solar.AssembleCtx in
+/-- **The checker with contexts and STATICCALLs on call-free bytes is the no-call checker with
+contexts**, with the base certificate's call flag cleared. -/
+theorem checkX_of_checkXB_callFree {p : Assemble.Program} {code : ByteArray} {cx : CtxCert}
+    (hc : checkXB p code cx = true) (hfree : callFree code = true) :
+    checkX p code (noCallCtx cx) = true := by
+  obtain ⟨G, hseg, -, -⟩ := globXB_of_checkXB hc
+  have hno := noCallI_of_callFree hseg hfree
+  have hb := blocksX_flip (p := p) G.creates p.blocks 0 hno
+  have hl : lower p (noCallCtx cx).base = lower p cx.base := lower_flip p cx.base
+  have hv : labelsValid p (noCallCtx cx).base code = labelsValid p cx.base code :=
+    labelsValid_flip p cx.base code
+  simp only [checkXB, Bool.and_eq_true] at hc
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩, h8⟩, h9⟩ := hc
+  simp only [checkX, Bool.and_eq_true, hl, hv, hb]
+  exact ⟨⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, rfl⟩, h6⟩, h7⟩, h9⟩
+
+open SolidCore.Refinement.Solar.AssembleCtx in
+/-- **`AssembleCtx.assembly_of_checkXB_norm` for call-free bytes, with no runner hypothesis**: the
+shape an exported contract's `Ctx.bytecode` theorem has, without `StaticRunner` and
+`CalleesRun`. -/
+theorem assembly_of_checkXB_norm_callFree {p : Assemble.Program} {code : ByteArray} {cx : CtxCert}
+    (hc : checkXB (norm p) code cx = true) (hfree : callFree code = true) (scope : Call → Prop) :
+    ∀ gas, gas < 2 ^ 256 → ∀ call, scope call → ∃ (o : Oracle) (W : World), W.Open ∧
+      CallsAgree o W ∧ CertOk cx.base o ∧ Within (evmirSem o) (ethLibWith gas) p code (· = call) := by
+  intro gas hgas call _
+  obtain ⟨T, hT⟩ := runs_of_checkX (checkX_of_checkXB_callFree hc hfree) gas hgas call
+  obtain ⟨W, hW, hA⟩ := O_agree T
+  exact ⟨O T, W, hW, hA, O_ok cx.base T, within_norm hT⟩
+
+/-- info: 'SolidCore.Refinement.Solar.AssembleNoCall.assembly_of_checkXB_norm_callFree' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs (whitespace := lax) in
+#print axioms assembly_of_checkXB_norm_callFree
+
+end SolidCore.Refinement.Solar.AssembleNoCall

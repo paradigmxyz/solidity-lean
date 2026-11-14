@@ -181,7 +181,8 @@ lean_lib SolidCoreSolarRunOracle where
     `SolidCore.Refinement.Solar.AssembleCallPre, `SolidCore.Refinement.Solar.AssembleCallStatic,
     `SolidCore.Refinement.Solar.AssembleCallStaticRunner, `SolidCore.Refinement.Solar.AssembleCtxTrack,
     `SolidCore.Refinement.Solar.AssembleCtx, `SolidCore.Refinement.Solar.AssembleCtxExample,
-    `SolidCore.Refinement.Solar.AssembleCtxCall]
+    `SolidCore.Refinement.Solar.AssembleCtxCall,
+    `SolidCore.Refinement.Solar.AssembleNoCall, `SolidCore.Refinement.Solar.AssembleNoCallExample]
 
 -- Runs that revert: no step of EthLib throws a revert and only REVERT ends a frame with it
 -- (Solar/EthLibErr.lean), so a run with less gas that reverts follows the run with more
