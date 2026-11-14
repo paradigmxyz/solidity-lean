@@ -221,28 +221,28 @@ theorem SimOutL.pre {p : Program} {c : Cert} {mx : List Nat} {code : ByteArray} 
   | .inr (_, _, _), ⟨hneed, pc', T', M', g', st', ss', hh, hR, hinv, hrel⟩ =>
     exact ⟨hneed, pc', T', M', g', st', ss', Triple.seq h hh, hR, hinv, hrel⟩
 
-theorem blockStepL_stack {p : Program} {c : Cert} {mx : List Nat} {bb : Nat} {ok : Nat → List Word → List Ty → Nat → Bool}
-    {h k : Nat} {known : List Word} {ty : List Ty} {op : SolarTV.EVM.Op} (hne : ∀ v, op ≠ .push v)
+theorem blockStepL_stack {p : Program} {c : Cert} {mx : List Nat} {bb : Nat} {ok : Nat → Known → List Ty → Nat → Bool}
+    {h k : Nat} {known : Known} {ty : List Ty} {op : SolarTV.EVM.Op} (hne : ∀ v, op ≠ .push v)
     (hd : ∀ i, op ≠ .dup i) (hs : ∀ i, op ≠ .swap i) (hp : op ≠ .pop) :
     blockStepL p c mx bb ok h known ty k (.op (.stack op)) =
       match stackNeed op with
       | some (need, d) => decide (1 ≤ k) && decide (need ≤ h) && isData ty need &&
-          ok (h + d).toNat [] (some false :: ty.drop need) (k - 1)
+          ok (h + d).toNat (none :: known.drop need) (some false :: ty.drop need) (k - 1)
       | none => false := by
   cases op <;> first | rfl | exact absurd rfl (hne _) | exact absurd rfl (hd _) |
     exact absurd rfl (hs _) | exact absurd rfl hp
 
 
 /-- `stack_sim` for `blockStepL`, with the heights of the check and the stack in lockstep. -/
-theorem stack_simL {p : Program} {c : Cert} {mx : List Nat} {bb : Nat} {ok : Nat → List Word → List Ty → Nat → Bool}
-    {h k : Nat} {known : List Word} {ty : List Ty} {op : SolarTV.EVM.Op} (hne : ∀ v, op ≠ .push v)
+theorem stack_simL {p : Program} {c : Cert} {mx : List Nat} {bb : Nat} {ok : Nat → Known → List Ty → Nat → Bool}
+    {h k : Nat} {known : Known} {ty : List Ty} {op : SolarTV.EVM.Op} (hne : ∀ v, op ≠ .push v)
     {ctx : SolarTV.EVM.Context} {S T : List Word}
     (hok : blockStepL p c mx bb ok h known ty k (.op (.stack op)) = true) (hh : h ≤ S.length)
-    (hk : known <+: S) (hR : SR c ty S T) :
+    (hk : KR known S) (hR : SR c ty S T) :
     1 ≤ k ∧ ∃ byte, opByte op = some byte ∧ ∃ h' ty' S' T',
       SolarTV.EVM.step ctx op S = some S' ∧ SolarTV.EVM.step ctx op T = some T' ∧
       SR c ty' S' T' ∧ h' ≤ S'.length ∧ S'.length ≤ S.length + 1 ∧ S'.length + h = h' + S.length ∧
-      ∃ known', known' <+: S' ∧ ok h' known' ty' (k - 1) = true := by
+      ∃ known', KR known' S' ∧ ok h' known' ty' (k - 1) = true := by
   have hL := hR.length
   by_cases hd : ∃ i, op = .dup i
   · obtain ⟨i, rfl⟩ := hd
@@ -251,7 +251,7 @@ theorem stack_simL {p : Program} {c : Cert} {mx : List Nat} {bb : Nat} {ok : Nat
     have hiS : i.val < S.length := by omega
     have hiT : i.val < T.length := by omega
     refine ⟨hk1, 0x80 + i.val, by simp [opByte, h16], h + 1, _, _, _, ?_, ?_, SR.dup hR hiS hiT, by simp; omega, by simp, by simp; omega, _,
-      dupKnown_prefix hk hiS, hok⟩
+      hk.dup hiS, hok⟩
     · simp [SolarTV.EVM.step, List.getElem?_eq_getElem hiS]
     · simp [SolarTV.EVM.step, List.getElem?_eq_getElem hiT]
   by_cases hs : ∃ i, op = .swap i
@@ -266,7 +266,7 @@ theorem stack_simL {p : Program} {c : Cert} {mx : List Nat} {bb : Nat} {ok : Nat
     have hiS : i.val < S.length := by omega
     have hiT : i.val < T.length := by omega
     refine ⟨hk1, 0x90 + i.val, by simp [opByte, h16], h, _, _, _, ?_, ?_, SR.swap hR hiS hiT, by simp; omega, by simp, by simp; omega, [],
-      List.nil_prefix, hok⟩
+      KR.nil _, hok⟩
     · simp [SolarTV.EVM.step, List.getElem?_eq_getElem hiS]
     · simp [SolarTV.EVM.step, List.getElem?_eq_getElem hiT]
   by_cases hp : op = .pop
@@ -278,7 +278,7 @@ theorem stack_simL {p : Program} {c : Cert} {mx : List Nat} {bb : Nat} {ok : Nat
     rcases T with _ | ⟨b, T⟩
     · simp at hL
     refine ⟨hk1, _, rfl, h - 1, _, _, _, rfl, rfl, (SR.uncons.1 hR).2, by simp at hh; omega,
-      by simp only [List.length_cons]; omega, by simp at hh ⊢; omega, [], List.nil_prefix, hok⟩
+      by simp only [List.length_cons]; omega, by simp at hh ⊢; omega, [], KR.nil _, hok⟩
   have hd' : ∀ i, op ≠ .dup i := fun i e => hd ⟨i, e⟩
   have hs' : ∀ i, op ≠ .swap i := fun i e => hs ⟨i, e⟩
   rw [blockStepL_stack hne hd' hs' hp] at hok
@@ -301,7 +301,7 @@ theorem stack_simL {p : Program} {c : Cert} {mx : List Nat} {bb : Nat} {ok : Nat
       cases op <;> simp [stackNeed] at hn <;>
         first | omega | exact absurd rfl (hd' _) | exact absurd rfl (hs' _) | exact absurd rfl hp
     refine ⟨hk1, byte, hbyte, (h + d).toNat, _, _, _, hstep, hstepT,
-      SR.cons (τ := some false) rfl (SR.drop need hR), ?_, ?_, ?_, [], List.nil_prefix, hok⟩
+      SR.cons (τ := some false) rfl (SR.drop need hR), ?_, ?_, ?_, _, (hk.drop need).cons_none _, hok⟩
     · simp only [List.length_cons, List.length_drop]; omega
     · simp only [List.length_cons, List.length_drop]; omega
     · simp only [List.length_cons, List.length_drop]; omega
@@ -329,11 +329,11 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
     (hbenv : msg.blockEnv = Target.blockEnv) (htx : c.reads = true → msg.txEnv = Target.txEnv)
     (he : c.reads = true → EnvOk o)
     (b : Nat) (hb : b < p.blocks.length) (Rv : Nat) :
-    ∀ (is : List Assemble.Instr) (h : Nat) (known : List Word) (ty : List Ty) (S T : List Word) (k : Nat)
+    ∀ (is : List Assemble.Instr) (h : Nat) (known : Known) (ty : List Ty) (S T : List Word) (k : Nat)
       (s : SolarTV.Machine.State) (pc : Nat) (M : ByteArray) (g : Nat)
       (st : State.TransactionState) (ss : Substate),
       blockOkL p c mx b h known ty k is = true → h ≤ S.length →
-      S.length + c.need b ≤ h + maxH mx b → known <+: S → SR c ty S T →
+      S.length + c.need b ≤ h + maxH mx b → KR known S → SR c ty S T →
       InvL c code call (lowerInstrs p c b is ++ lowerFrom p c (b + 1) (p.blocks.drop (b + 1))) k Rv
         pc S s M g → Rel msg ss0 st ss s →
       SimOutL p c mx code call msg ss0 st ss b Rv pc T M g (exec o call b is S s)
@@ -445,9 +445,9 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
             have hv : BitVec.ofNat 256 v.toNat = v := by simp
             rw [hv] at hpush
             rw [exec_stack (next := v :: S) rfl (by omega) (by simp; omega)]
-            exact SimOutL.pre hpush (IH (h + 1) (v :: known.take 1) _ (v :: S) (v :: T) (k - 1) s next M g1
+            exact SimOutL.pre hpush (IH (h + 1) (some v :: known) _ (v :: S) (v :: T) (k - 1) s next M g1
               st ss hok'.2 (by simp; omega) (by hu_tac)
-              ((List.prefix_cons_inj v).2 ((List.take_prefix 1 known).trans hk))
+              (hk.cons_some v)
               (SR.cons (τ := some false) rfl hR) (I'.next hok'.1 hseg (by simp) (by omega)) R)
           · have hne : ∀ v, sop ≠ .push v := fun v he => hpush ⟨v, he⟩
             obtain ⟨hk1, byte, hbyte, h', ty', S', T', hstep, hstepT, hR', hh', hlen', hlock, known', hkn,
@@ -465,7 +465,9 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
             exact SimOutL.pre hrule (IH h' known' ty' S' T' (k - 1) s (pc + 1) M g1 st ss hok (by omega) (by hu_tac)
               hkn hR' (I'.next hk1 hseg (by omega) (by omega)) R)
         · -- MLOAD.
-          rcases known with _ | ⟨ow, known'⟩
+          obtain _ | ⟨o, known'⟩ := known
+          · simp [blockStepL] at hok'
+          obtain _ | ow := o
           · simp [blockStepL] at hok'
           simp only [blockStepL, Bool.and_eq_true, decide_eq_true_eq] at hok'
           obtain ⟨⟨⟨⟨hk1, h1⟩, hin⟩, hdat⟩, hok'⟩ := hok'
@@ -475,7 +477,7 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
           · simp at hL
           obtain rfl := (SR.head hR hdat).symm
           have hR' := (SR.uncons.1 hR).2
-          obtain ⟨rfl, -⟩ := List.cons_prefix_cons.1 hk
+          obtain ⟨rfl, -⟩ := KR.head hk
           simp only [lowerInstr, List.singleton_append] at I'
           obtain ⟨next, hd, hseg⟩ := I'.seg.head
           simp only [Item.expected] at hd
@@ -493,12 +495,14 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
           rw [exec_load (by omega)]
           have hM' := size_memoryExtend M (extendMemory M.size [(ow, 32)]).expandBy
           refine SimOutL.pre hrule (IH h [] _ _ _ (k - 1) _ (pc + 1) _ _ st ss hok' (by simp; omega)
-            (by hu_tac) (List.nil_prefix) (SR.cons (τ := some false) rfl (by simpa using hR'))
+            (by hu_tac) (KR.nil _) (SR.cons (τ := some false) rfl (by simpa using hR'))
             ⟨hseg, by simp; omega, ?_, by rw [hM']; omega, memRel_expand I'.mem hbound⟩
             ⟨R.storage, R.account, R.logs⟩)
           rw [hM']; omega
         · -- MSTORE.
-          rcases known with _ | ⟨ow, known'⟩
+          obtain _ | ⟨o, known'⟩ := known
+          · simp [blockStepL] at hok'
+          obtain _ | ow := o
           · simp [blockStepL] at hok'
           simp only [blockStepL, Bool.and_eq_true, decide_eq_true_eq] at hok'
           obtain ⟨⟨⟨⟨hk1, h2⟩, hin⟩, hdat⟩, hok'⟩ := hok'
@@ -512,7 +516,7 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
           simp only [List.take_succ_cons, List.take_zero, List.cons.injEq] at htake
           obtain ⟨rfl, rfl, -⟩ := htake
           have hR' : SR c (ty.drop 2) S' T' := by simpa using SR.drop 2 hR
-          obtain ⟨rfl, -⟩ := List.cons_prefix_cons.1 hk
+          obtain ⟨rfl, -⟩ := KR.head hk
           simp only [lowerInstr, List.singleton_append] at I'
           obtain ⟨next, hd, hseg⟩ := I'.seg.head
           simp only [Item.expected] at hd
@@ -533,8 +537,8 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
             rw [hsize, hext]
           rw [exec_store (by omega)]
           refine SimOutL.pre (Logic.mstoreG (start := ow) (value := v) (rest := T') (memory := M)
-            (gas := g) hlt hcode (by omega)) (IH (h - 2) [] _ S' T' (k - 1) _ (pc + 1) _ _ st ss hok'
-            (by omega) (by hu_tac) (List.nil_prefix) hR' ⟨hseg, by omega, ?_, by rw [hM']; omega, hmem'⟩
+            (gas := g) hlt hcode (by omega)) (IH (h - 2) _ _ S' T' (k - 1) _ (pc + 1) _ _ st ss hok'
+            (by omega) (by hu_tac) (hk.drop 2) hR' ⟨hseg, by omega, ?_, by rw [hM']; omega, hmem'⟩
             ⟨R.storage, R.account, R.logs⟩)
           rw [hM']; omega
         · simp [blockStepL] at hok'
@@ -570,7 +574,7 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
           refine SimOutL.pre hrule ?_
           have hreads := fun k : Word => State.TransactionState.recordStorageRead_reads st
             msg.currentTarget msg.currentTarget (U256.toBeBytes x) (U256.toBeBytes k) default
-          refine IH h [] _ _ _ (k - 1) s (pc + 1) M _ _ _ hok (by simp; omega) (by hu_tac) (List.nil_prefix)
+          refine IH h [] _ _ _ (k - 1) s (pc + 1) M _ _ _ hok (by simp; omega) (by hu_tac) (KR.nil _)
             (SR.cons (τ := some false) rfl (by simpa using hR')) (I'.next hk1 hseg (by simp) (by split <;> omega))
             ⟨fun k => ?_, ?_, R.logs⟩
           · rw [(hreads k).2.1]
@@ -611,7 +615,7 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
             (key := x) (new := v) (rest := T') (gas := g) (by decide) (by decide) hlt hcode hstatic
             rfl (by simp only [CALL_STIPEND]; omega) (by omega) R.account
           refine SimOutL.pre hrule ?_
-          refine IH (h - 2) [] _ S' T' (k - 1) _ (pc + 1) M _ _ _ hok (by omega) (by hu_tac) (List.nil_prefix)
+          refine IH (h - 2) [] _ S' T' (k - 1) _ (pc + 1) M _ _ _ hok (by omega) (by hu_tac) (KR.nil _)
             hR' ?_ ⟨fun k => ?_, by rw [hacc]; exact R.account, R.logs⟩
           · exact ⟨hseg, by omega, by omega, I'.le_top, I'.mem⟩
           by_cases hk : k = x
@@ -644,8 +648,8 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
             (substate := ss) (returnData := .empty) (start := x) (rest := T') (gas := g) hlt hcode
             (by omega)
           rw [hdata, ← calldataWord_eq] at hrule
-          exact SimOutL.pre hrule (IH h [] _ _ _ (k - 1) s (pc + 1) M (g - 3) st ss hok (by simp; omega) (by hu_tac)
-            (List.nil_prefix) (SR.cons (τ := some false) rfl (by simpa using hR')) (I'.next hk1 hseg (by simp) (by omega)) R)
+          exact SimOutL.pre hrule (IH h _ _ _ _ (k - 1) s (pc + 1) M (g - 3) st ss hok (by simp; omega) (by hu_tac)
+            ((hk.drop 1).cons_none _) (SR.cons (τ := some false) rfl (by simpa using hR')) (I'.next hk1 hseg (by simp) (by omega)) R)
         · -- CALLDATASIZE.
           rcases ar with _ | ar
           rotate_left
@@ -663,7 +667,7 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
             (by unfold STACK_LIMIT; omega)
           rw [hdata] at hrule
           exact SimOutL.pre hrule (IH (h + 1) [] _ _ _ (k - 1) s (pc + 1) M (g - 2) st ss hok
-            (by simp; omega) (by hu_tac) (List.nil_prefix) (SR.cons (τ := some false) rfl hR) (I'.next hk1 hseg (by simp) (by omega)) R)
+            (by simp; omega) (by hu_tac) (KR.nil _) (SR.cons (τ := some false) rfl hR) (I'.next hk1 hseg (by simp) (by omega)) R)
         · -- CALLVALUE.
           rcases ar with _ | ar
           rotate_left
@@ -681,7 +685,7 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
             (by unfold STACK_LIMIT; omega)
           rw [hvalue] at hrule
           exact SimOutL.pre hrule (IH (h + 1) [] _ _ _ (k - 1) s (pc + 1) M (g - 2) st ss hok
-            (by simp; omega) (by hu_tac) (List.nil_prefix) (SR.cons (τ := some false) rfl hR) (I'.next hk1 hseg (by simp) (by omega)) R)
+            (by simp; omega) (by hu_tac) (KR.nil _) (SR.cons (τ := some false) rfl hR) (I'.next hk1 hseg (by simp) (by omega)) R)
         · -- CALLER.
           rcases ar with _ | ar
           rotate_left
@@ -699,8 +703,8 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
             (substate := ss) (returnData := .empty) (stack := T) (gas := g) hlt hcode (by omega)
             (by unfold STACK_LIMIT; omega)
           rw [hcaller, ← hoc] at hrule
-          exact SimOutL.pre hrule (IH (h + 1) [] _ _ _ (k - 1) s (pc + 1) M (g - 2) st ss hok
-            (by simp; omega) (by hu_tac) (List.nil_prefix) (SR.cons (τ := some false) rfl hR) (I'.next hk1 hseg (by simp) (by omega)) R)
+          exact SimOutL.pre hrule (IH (h + 1) _ _ _ _ (k - 1) s (pc + 1) M (g - 2) st ss hok
+            (by simp; omega) (by hu_tac) (hk.cons_none _) (SR.cons (τ := some false) rfl hR) (I'.next hk1 hseg (by simp) (by omega)) R)
         · -- ADDRESS.
           rcases ar with _ | ar
           rotate_left
@@ -718,18 +722,23 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
             (by unfold STACK_LIMIT; omega)
           rw [hself, address_word] at hrule
           exact SimOutL.pre hrule (IH (h + 1) [] _ _ _ (k - 1) s (pc + 1) M (g - 2) st ss hok
-            (by simp; omega) (by hu_tac) (List.nil_prefix) (SR.cons (τ := some false) rfl hR) (I'.next hk1 hseg (by simp) (by omega)) R)
+            (by simp; omega) (by hu_tac) (KR.nil _) (SR.cons (τ := some false) rfl hR) (I'.next hk1 hseg (by simp) (by omega)) R)
         · -- LOGn.
-          rcases known with _ | ⟨ow, _ | ⟨sw, known'⟩⟩
+          obtain _ | ⟨o, known'⟩ := known
           · simp [blockStepL] at hok'
+          obtain _ | ow := o
+          · simp [blockStepL] at hok'
+          obtain _ | ⟨o2, known'⟩ := known'
+          · simp [blockStepL] at hok'
+          obtain _ | sw := o2
           · simp [blockStepL] at hok'
           simp only [blockStepL, rangeOk, Bool.and_eq_true, Bool.or_eq_true, decide_eq_true_eq] at hok'
           obtain ⟨⟨⟨⟨⟨⟨⟨hn4, rfl⟩, hk1⟩, hnh⟩, hdat⟩, hin⟩, hlc⟩, hok⟩ := hok'
           rcases S with _ | ⟨x, _ | ⟨y, S1⟩⟩
-          · simp at hk
-          · simp at hk
-          obtain ⟨rfl, hk'⟩ := List.cons_prefix_cons.1 hk
-          obtain ⟨rfl, -⟩ := List.cons_prefix_cons.1 hk'
+          · exact hk.not_nil.elim
+          · exact hk.not_one.elim
+          obtain ⟨rfl, hk'⟩ := KR.head hk
+          obtain ⟨rfl, -⟩ := KR.head hk'
           rcases T with _ | ⟨x', _ | ⟨y', T1⟩⟩
           · simp at hL
           · simp at hL
@@ -766,7 +775,7 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
           have hM' := size_memoryExtend M (extendMemory M.size [(ow, sw)]).expandBy
           obtain ⟨L, hL1, hL2⟩ := R.logs
           refine SimOutL.pre hrule (IH (h - (tops.length + 2)) [] _ S2 T2 (k - 1) _ (pc + 1) _ _ st _
-            hok (by omega) (by hu_tac) (List.nil_prefix) hR' ⟨hseg, by omega, ?_, by rw [hM']; omega,
+            hok (by omega) (by hu_tac) (KR.nil _) hR' ⟨hseg, by omega, ?_, by rw [hM']; omega,
             memRel_expand I'.mem hbound⟩ ⟨R.storage, R.account, ?_⟩)
           · rw [hM']; omega
           · refine ⟨L ++ [⟨msg.currentTarget, tops.map U256.toBeBytes,
@@ -780,16 +789,21 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
           · simp [blockStepL] at hok'
           rotate_left
           · simp [blockStepL] at hok'
-          rcases known with _ | ⟨ow, _ | ⟨sw, known'⟩⟩
+          obtain _ | ⟨o, known'⟩ := known
           · simp [blockStepL] at hok'
+          obtain _ | ow := o
+          · simp [blockStepL] at hok'
+          obtain _ | ⟨o2, known'⟩ := known'
+          · simp [blockStepL] at hok'
+          obtain _ | sw := o2
           · simp [blockStepL] at hok'
           simp only [blockStepL, rangeOk, Bool.and_eq_true, Bool.or_eq_true, decide_eq_true_eq] at hok'
           obtain ⟨⟨⟨⟨⟨⟨henv, hk1⟩, h2⟩, hdat⟩, hin⟩, hkc⟩, hok⟩ := hok'
           rcases S with _ | ⟨x, _ | ⟨y, S'⟩⟩
-          · simp at hk
-          · simp at hk
-          obtain ⟨rfl, hk'⟩ := List.cons_prefix_cons.1 hk
-          obtain ⟨rfl, -⟩ := List.cons_prefix_cons.1 hk'
+          · exact hk.not_nil.elim
+          · exact hk.not_one.elim
+          obtain ⟨rfl, hk'⟩ := KR.head hk
+          obtain ⟨rfl, -⟩ := KR.head hk'
           rcases T with _ | ⟨x', _ | ⟨y', T'⟩⟩
           · simp at hL
           · simp at hL
@@ -817,7 +831,7 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
           rw [exec_keccak (by omega)]
           have hM' := size_memoryExtend M (extendMemory M.size [(ow, sw)]).expandBy
           refine SimOutL.pre hrule (IH (h - 1) [] _ _ _ (k - 1) _ (pc + 1) _ _ st ss hok
-            (by simp; omega) (by hu_tac) (List.nil_prefix) (SR.cons (τ := some false) rfl hR') ⟨hseg, by simp; omega, ?_,
+            (by simp; omega) (by hu_tac) (KR.nil _) (SR.cons (τ := some false) rfl hR') ⟨hseg, by simp; omega, ?_,
             by rw [hM']; omega, memRel_expand I'.mem hbound⟩ ⟨R.storage, R.account, R.logs⟩)
           rw [hM']; omega
         · -- An environment read of the block or the transaction.
@@ -838,7 +852,7 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
           have hrule := env_readG (msg := msg) (M := M) (st := st) (ss := ss) (rd := .empty) (gas := g)
             (stack := T) hread hlt hcode hbenv (htx hreads) (by omega) (by unfold STACK_LIMIT; omega)
           exact SimOutL.pre hrule (IH (h + 1) [] _ _ _ (k - 1) s (pc + 1) M (g - 2) st ss hok
-            (by simp; omega) (by hu_tac) (List.nil_prefix) (SR.cons (τ := some false) rfl hR) (I'.next hk1 hseg (by simp) (by omega)) R)
+            (by simp; omega) (by hu_tac) (KR.nil _) (SR.cons (τ := some false) rfl hR) (I'.next hk1 hseg (by simp) (by omega)) R)
       · -- JUMP.
         simp only [blockStepL, jumpOkL, Bool.and_eq_true, decide_eq_true_eq] at hok'
         obtain ⟨hk2, ⟨⟨⟨⟨htn, htgt⟩, hneed⟩, hty⟩, hcost⟩⟩ := hok'
@@ -886,7 +900,7 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
           simp only [exec, List.length_cons, show ¬ S'.length + 1 + 1 > 1024 by omega, ite_false,
             ite_true]
           exact SimOutL.pre (Triple.seq hpush hj) (IH (h - 1) [] _ S' T' (k - 2) s (n1 + 1) M
-            (g1 - 10) st ss hok' (by omega) (by hu_tac) (List.nil_prefix) hR'
+            (g1 - 10) st ss hok' (by omega) (by hu_tac) (KR.nil _) hR'
             (I'.next2 hk2 hseg (by simp only [List.length_cons]; omega) (by omega)) R)
         · have hj := Logic.jumpi_takenG (message := msg) (memory := M) (state := st)
             (substate := ss) (returnData := .empty) (destination := BitVec.ofNat 256 (c.offset t))
@@ -912,7 +926,7 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
           rw [BitVec.toNat_ofNat]; exact Nat.mod_eq_of_lt (by omega)
         simp only [exec, show ¬ S.length + 1 > 1024 by omega, ite_false]
         exact SimOutL.pre hpush (IH (h + 1) [] _ _ _ (k - 1) s next M g1 st ss hok (by simp; omega) (by hu_tac)
-          (List.nil_prefix) (SR.cons ⟨by rw [htn]; exact hmem', by rw [htn]⟩ hR)
+          (KR.nil _) (SR.cons ⟨by rw [htn]; exact hmem', by rw [htn]⟩ hR)
           (I'.next hk1 hseg (by simp) (by omega)) R)
       · -- A dynamic jump to a return label: a JUMP to the label's offset.
         simp only [blockStepL, Bool.and_eq_true, decide_eq_true_eq, beq_iff_eq,
@@ -954,16 +968,21 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
         exact SpecG.consequence (Logic.stopG hlt hcode) (fun _ h => h)
           fun evm h => postL_stop R hself evm h
       · -- RETURN.
-        rcases known with _ | ⟨ow, _ | ⟨sw, known'⟩⟩
+        obtain _ | ⟨o, known'⟩ := known
         · simp [blockStepL] at hok'
+        obtain _ | ow := o
+        · simp [blockStepL] at hok'
+        obtain _ | ⟨o2, known'⟩ := known'
+        · simp [blockStepL] at hok'
+        obtain _ | sw := o2
         · simp [blockStepL] at hok'
         simp only [blockStepL, rangeOk, Bool.and_eq_true, Bool.or_eq_true, decide_eq_true_eq] at hok'
         obtain ⟨hdat, hin⟩ := hok'
         rcases S with _ | ⟨x, _ | ⟨y, S'⟩⟩
-        · simp at hk
-        · simp at hk
-        obtain ⟨rfl, hk'⟩ := List.cons_prefix_cons.1 hk
-        obtain ⟨rfl, -⟩ := List.cons_prefix_cons.1 hk'
+        · exact hk.not_nil.elim
+        · exact hk.not_one.elim
+        obtain ⟨rfl, hk'⟩ := KR.head hk
+        obtain ⟨rfl, -⟩ := KR.head hk'
         rcases T with _ | ⟨x', _ | ⟨y', T'⟩⟩
         · simp at hL
         · simp at hL
@@ -983,16 +1002,21 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
           (by rw [read_eq I'.mem]; rfl) rfl (R.slot hself)) (fun _ h => h)
           (fun _ h => ⟨ss, h, R.logs⟩)
       · -- REVERT.
-        rcases known with _ | ⟨ow, _ | ⟨sw, known'⟩⟩
+        obtain _ | ⟨o, known'⟩ := known
         · simp [blockStepL] at hok'
+        obtain _ | ow := o
+        · simp [blockStepL] at hok'
+        obtain _ | ⟨o2, known'⟩ := known'
+        · simp [blockStepL] at hok'
+        obtain _ | sw := o2
         · simp [blockStepL] at hok'
         simp only [blockStepL, rangeOk, Bool.and_eq_true, Bool.or_eq_true, decide_eq_true_eq] at hok'
         obtain ⟨hdat, hin⟩ := hok'
         rcases S with _ | ⟨x, _ | ⟨y, S'⟩⟩
-        · simp at hk
-        · simp at hk
-        obtain ⟨rfl, hk'⟩ := List.cons_prefix_cons.1 hk
-        obtain ⟨rfl, -⟩ := List.cons_prefix_cons.1 hk'
+        · exact hk.not_nil.elim
+        · exact hk.not_one.elim
+        obtain ⟨rfl, hk'⟩ := KR.head hk
+        obtain ⟨rfl, -⟩ := KR.head hk'
         rcases T with _ | ⟨x', _ | ⟨y', T'⟩⟩
         · simp at hL
         · simp at hL

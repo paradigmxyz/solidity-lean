@@ -113,7 +113,7 @@ theorem run_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteA
             ⟨E'.seg, by omega, by omega, E'.le_top, E'.mem⟩⟩
       have hsim := exec_simL (o := o) G.toT hdata hvalue hstatic hself hcaller ho hbenv (fun _ => htx) he b hb (fuel * bmax c)
         p.blocks[b] (c.need b) [] (c.entry b) S T _ s pc1 M g1 st ss hblock hn (by omega)
-        (List.nil_prefix) hR I1 R
+        (KR.nil _) hR I1 R
       simp only [SolarTV.Machine.iterate, block, hblk]
       generalize exec o call b p.blocks[b] S s = x at hsim
       rcases x with ⟨halt, s'⟩ | ⟨t, S', s'⟩

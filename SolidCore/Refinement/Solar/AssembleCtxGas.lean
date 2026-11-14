@@ -281,7 +281,7 @@ theorem run_simXL {F : List Nat} {p : Assemble.Program} {cx : CtxCert} {code : B
       have hsim := exec_simL (o := o) hGc hdata hvalue hstatic hself hcaller (by rw [hc]; exact ho)
         hbenv (by rw [hc]; exact htx) (by rw [hc]; exact he) b hb (fuel * bmax c)
         p.blocks[b] (c.need b) [] (c.entry b) S T _ s pc1 M g1 st ss hblock hn (by omega)
-        (List.nil_prefix) hR I1 R
+        (KR.nil _) hR I1 R
       cases hexE : exits b (cx.at b j).labs p.blocks[b] with
       | none => rw [hexE] at hexOk; simp [exitsOk] at hexOk
       | some Ex =>

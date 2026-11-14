@@ -264,12 +264,12 @@ theorem segF {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
     (hdepth : msg.depth + 1 ≤ STACK_DEPTH_LIMIT)
     {P : Evm .fusaka Nat → Message .fusaka → Evm .fusaka Nat → Prop} (meets : Meets P runChild)
     (hsites : SitesOk code msg P bound runChild fin) :
-    ∀ (n : Nat) (is : List Assemble.Instr) (h : Nat) (known : List Word) (ty : List Ty) (k : Nat)
+    ∀ (n : Nat) (is : List Assemble.Instr) (h : Nat) (known : Known) (ty : List Ty) (k : Nat)
       (S Tw : List Word) (s : State) (pc : Nat) (M : ByteArray) (g : Nat)
       (st : State.TransactionState) (ss : Substate) (rd : ByteArray) (T : RunTable)
       (A : CreateTable) (evm : Evm .fusaka Nat) (within : GasMeter.gasHeld evm.gas ≤ bound),
       is.length < n → blockOkC p c mx b h known ty k is = true → h ≤ S.length →
-      S.length + c.need b ≤ h + maxH mx b → known <+: S → SR c ty S Tw →
+      S.length + c.need b ≤ h + maxH mx b → KR known S → SR c ty S Tw →
       Seg (bytesOf code) c.offset pc
         (lowerInstrs p c b is ++ lowerFrom p c (b + 1) (p.blocks.drop (b + 1))) code.size →
       S.length + k ≤ 1000 → M.size ≤ c.top → MemRel s.memory M → Rel msg ss0 st ss s →
@@ -383,7 +383,7 @@ theorem segF {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
           (BitVec.ofNat 256 (m.gas - 2) :: S') (BitVec.ofNat 256 (m.gas - 2) :: T')
           { s' with world := s'.world ++ [.read "gas"] } (pc' + 1) M' (m.gas - 2) st' ss' rd T1 A m2
           within2 (by omega) hok3 (by simp; omega) (by simp; omega)
-          List.nil_prefix (SR.cons (τ := some false) rfl hR') hseg' (by simp; omega) I'.le_top
+          (KR.nil _) (SR.cons (τ := some false) rfl hR') hseg' (by simp; omega) I'.le_top
           I'.mem ⟨R'.storage, R'.account, logsRel_read _ R'.logs⟩ hat2
           (TabF.gas hs1 (m.gas - 2)) (RdF.append rfl rfl (RdF.mono hle1 (CreateTable.Le.refl A) hrd1))
           (by unfold MemBudget at *; omega) hrun2
@@ -421,7 +421,7 @@ theorem segF {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
           (s'.memory.load x.toNat :: S'') (s'.memory.load x.toNat :: Tr)
           { s' with memory := s'.memory.expand x.toNat 32 } (pc' + 1) M2 g2 st' ss' rd T A m2
           within2 (by omega) hok3 (by simp; omega) (by simp; omega)
-          List.nil_prefix (SR.cons (τ := some false) rfl (by simpa using hR'')) hseg'
+          (KR.nil _) (SR.cons (τ := some false) rfl (by simpa using hR'')) hseg'
           (by simp; omega) hsz hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2
           hs1 hrd1 hb2 hrun2
         refine ⟨T2, A2, r, hle2, hA2, fun T3 A3 hle hleA => ?_, hpost, fun y hy => ?_⟩
@@ -460,7 +460,7 @@ theorem segF {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
           hcaller hbenv htx hb hok hG0 hdepth meets hsites n rest (h' - 2) [] (ty'.drop 2) (k' - 1) S'' Tr
           { s' with memory := s'.memory.store x.toNat y } (pc' + 1) M2 g2 st' ss' rd T A m2
           within2 (by omega) hok3 (by omega) (by omega)
-          List.nil_prefix hR'' hseg' (by omega) hsz hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2
+          (KR.nil _) hR'' hseg' (by omega) hsz hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2
           hs1 hrd1 hb2 hrun2
         refine ⟨T2, A2, r, hle2, hA2, fun T3 A3 hle hleA => ?_, hpost, fun y hy => ?_⟩
         · rw [hex T3 A3 (hle2.trans hle) (hA2.trans hleA)]
@@ -548,7 +548,7 @@ theorem segF {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
           ((FO code T A).keccak ((s'.memory.expand x.toNat y.toNat).read x.toNat y.toNat) :: Tr)
           { s' with memory := s'.memory.expand x.toNat y.toNat } (pc' + 1) _ _ st' ss' rd T A m2
           within2 (by omega) hok3 (by simp; omega) (by simp; omega)
-          List.nil_prefix (SR.cons (τ := some false) rfl (by simpa using hR'')) hseg'
+          (KR.nil _) (SR.cons (τ := some false) rfl (by simpa using hR'')) hseg'
           (by simp; omega) hsz hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2
           hs1 hrd1 hb2 hrun2
         refine ⟨T2, A2, r, hle2, hA2, fun T3 A3 hle hleA => ?_, hpost, fun y hy => ?_⟩
@@ -603,7 +603,7 @@ theorem segF {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
           (pc' + 1) _ _ st' { ss' with logs := ss'.logs.push ⟨msg.currentTarget,
             tops.map U256.toBeBytes, memoryReadBytes (memoryExtend M' (extendMemory M'.size
               [(x, y)]).expandBy) x.toNat y.toNat⟩ } rd T A m2 within2 (by omega) hok3 (by omega) (by omega)
-          List.nil_prefix hR'' hseg' (by omega) hsz hmem2
+          (KR.nil _) hR'' hseg' (by omega) hsz hmem2
           ⟨R'.storage, R'.account, ⟨L ++ [⟨msg.currentTarget, tops.map U256.toBeBytes,
               memoryReadBytes (memoryExtend M' (extendMemory M'.size [(x, y)]).expandBy)
                 x.toNat y.toNat⟩], by simp [Array.toList_push, hL1],
@@ -651,7 +651,7 @@ theorem segF {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
             memory := s'.memory.write x.toNat z.toNat
               (fun i => SolarTV.Machine.calldataByte call (y.toNat + i)) } (pc' + 1) M2 g2 st' ss' rd T A m2
           within2 (by omega) hok3 (by omega) (by omega)
-          List.nil_prefix hR'' hseg' (by omega) hsz hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2
+          (KR.nil _) hR'' hseg' (by omega) hsz hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2
           hs1 hrd1 hb2 hrun2
         refine ⟨T2, A2, r, hle2, hA2, fun T3 A3 hle hleA => ?_, hpost, fun y hy => ?_⟩
         · rw [hex T3 A3 (hle2.trans hle) (hA2.trans hleA)]
@@ -684,7 +684,7 @@ theorem segF {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
           hstatic hself hcaller hbenv htx hb hok hG0 hdepth meets hsites n rest (h' + 1) []
           (some false :: ty') (k' - 1) (BitVec.ofNat 256 rd.size :: S')
           (BitVec.ofNat 256 rd.size :: T') s' (pc' + 1) M' (m.gas - 2) st' ss' rd T A m2 within2
-          (by omega) hok3 (by simp; omega) (by simp; omega) List.nil_prefix
+          (by omega) hok3 (by simp; omega) (by simp; omega) (KR.nil _)
           (SR.cons (τ := some false) rfl hR') hseg' (by simp; omega) I'.le_top I'.mem R' hat2 hs1
           hrd1 (by unfold MemBudget at *; omega) hrun2
         refine ⟨T2, A2, r, hle2, hA2, fun T3 A3 hle hleA => ?_, hpost, fun y hy => ?_⟩
@@ -736,7 +736,7 @@ theorem segF {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
             memory := s'.memory.write x.toNat z.toNat
               (fun i => returndataByte (FO code T A) s'.world (y.toNat + i)) } (pc' + 1) M2 g2 st' ss' rd
           T A m2 within2 (by omega) hok3 (by omega) (by omega)
-          List.nil_prefix hR'' hseg' (by omega) hsz hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2
+          (KR.nil _) hR'' hseg' (by omega) hsz hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2
           hs1 hrd1 hb2 hrun2
         refine ⟨T2, A2, r, hle2, hA2, fun T3 A3 hle hleA => ?_, hpost, fun y hy => ?_⟩
         · rw [hex T3 A3 (hle2.trans hle) (hA2.trans hleA)]
@@ -808,7 +808,7 @@ theorem segF {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
           hstatic hself hcaller hbenv htx hb hok hG0 hdepth meets hsites n rest (h' - 6) []
           (some false :: ty'.drop 7) (k' - 1) ((if ok then 1 else 0) :: S'')
           ((if ok then 1 else 0) :: Tr) s2 (pc' + 1) M2 g2 st2 ss2 out _ A m2 within2 (by omega)
-          hok3 (by simp; omega) (by simp; omega) List.nil_prefix (SR.cons (τ := some false) rfl hR'')
+          hok3 (by simp; omega) (by simp; omega) (KR.nil _) (SR.cons (τ := some false) rfl hR'')
           hseg' (by simp; omega) hsz hmem2 R2 hat2 hT1 hRd1 hb2 hrun2
         refine ⟨T2, A2, r, hle1.trans hle2, hA2, fun T3 A3 hle hleA => ?_, hpost, fun y hy => ?_⟩
         · rw [hex T3 A3 (hle1.trans (hle2.trans hle)) (hA2.trans hleA)]
@@ -866,7 +866,7 @@ theorem segF {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
         obtain ⟨T2, A2, r, hle2, hA2, hex2, hpost, hnext⟩ := segF (G0 := G0) G hcr hdata hvalue
           hstatic hself hcaller hbenv htx hb hok hG0 hdepth meets hsites n rest (h' - 3) []
           (some false :: ty'.drop 4) (k' - 1) (r0 :: S'') (r0 :: Tr) _ (pc' + 1) M2 g2 st2 ss2 out _
-          _ m2 within2 (by omega) hok3 (by simp; omega) (by simp; omega) List.nil_prefix
+          _ m2 within2 (by omega) hok3 (by simp; omega) (by simp; omega) (KR.nil _)
           (SR.cons (τ := some false) rfl hR'') hseg' (by simp; omega) hsz hmem2 R2 hat2 hT1 hRd1 hb2 hrun2
         refine ⟨T2, A2, r, hle1.trans hle2, hleA1.trans hA2, fun T3 A3 hle hleA => ?_, hpost,
           fun y hy => ?_⟩
@@ -900,9 +900,8 @@ theorem segF {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
         all_goals (first | (simp at hh2; omega) | skip)
         rcases T' with _ | ⟨x', _ | ⟨y', _ | ⟨z', Tr⟩⟩⟩
         all_goals (first | (simp at hL; done) | skip)
-        obtain ⟨u, hu⟩ := hk2
-        simp only [List.cons_append, List.cons.injEq] at hu
-        obtain ⟨rfl, rfl, -⟩ := hu
+        have hu : off0 = y := by simpa [kAt] using (hk2 1 off0 (by simp [kAt])).symm
+        obtain rfl := hu
         have htake := hR'.data hdat
         simp only [List.take_succ_cons, List.take_zero, List.cons.injEq] at htake
         obtain ⟨rfl, rfl, rfl, -⟩ := htake
@@ -918,7 +917,7 @@ theorem segF {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
         obtain ⟨T2, A2, r, hle2, hA2, hex2, hpost, hnext⟩ := segF (G0 := G0) G hcr hdata hvalue
           hstatic hself hcaller hbenv htx hb hok hG0 hdepth meets hsites n rest (h' - 3) []
           (ty'.drop 3) (k' - 1) S'' Tr _ (pc' + 1) M2 g2 st'
-          ss' rd T A m2 within2 (by omega) hok3 (by omega) (by omega) List.nil_prefix hR'' hseg'
+          ss' rd T A m2 within2 (by omega) hok3 (by omega) (by omega) (KR.nil _) hR'' hseg'
           (by omega) hsz hmem2 R2 hat2 hs1 hrd1 hb2 hrun2
         refine ⟨T2, A2, r, hle2, hA2, fun T3 A3 hle hleA => ?_, hpost, fun y hy => ?_⟩
         · rw [hex T3 A3 (hle2.trans hle) (hA2.trans hleA)]

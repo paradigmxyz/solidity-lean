@@ -561,3 +561,17 @@ lean_lib ContractsUniswapV2ERC20SourceMir where
   globs := #[.one `Contracts.UniswapV2.ERC20.SourceMirDefs, .one `Contracts.UniswapV2.ERC20.SourceMirCheck,
     .one `Contracts.UniswapV2.ERC20.SourceMirDeploy, .one `Contracts.UniswapV2.ERC20.SourceMir,
     .one `Contracts.UniswapV2.ERC20.SourceMirNeg]
+
+-- event_words: the stages of Certified/event_words/event_words.sol's EventWords and their kernel proofs, which
+-- solar's scripts/certify writes.
+lean_lib «event_words» where
+  srcDir := "Certified"
+  roots := #[`event_words.Proofs]
+  globs := #[.submodules `event_words]
+
+-- abi_hash: the stages of Certified/abi_hash/abi_hash.sol's AbiHash and their kernel proofs, which
+-- solar's scripts/certify writes.
+lean_lib «abi_hash» where
+  srcDir := "Certified"
+  roots := #[`abi_hash.Proofs]
+  globs := #[.submodules `abi_hash]

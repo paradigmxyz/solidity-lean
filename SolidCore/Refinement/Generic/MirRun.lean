@@ -447,6 +447,45 @@ theorem StRel.expand {ρ : Val} {s : State} {st : SState} (hs : StRel ρ s st) (
   store := hs.store
   world := hs.world
 
+/-- A byte of a word below \`2 ^ 256\`, as \`wordBytes\` writes it, is the machine's byte of it. -/
+theorem ofNat_byte (v i : Nat) (hv : v < wordSize) :
+    BitVec.ofNat 8 (v / 256 ^ (31 - i)) = Memory.byte (BitVec.ofNat 256 v) i := by
+  apply BitVec.eq_of_toNat_eq
+  simp only [Memory.byte, BitVec.toNat_setWidth, BitVec.toNat_ushiftRight, BitVec.toNat_ofNat,
+    Nat.mod_eq_of_lt hv, Nat.shiftRight_eq_div_pow]
+  rw [show (256 : Nat) = 2 ^ 8 from rfl, ← Nat.pow_mul]
+
+/-- A load of 32 bytes that are a word's, in order, reads the word. -/
+theorem load_of_bytes (m : Mem) (off : Nat) (w : Word)
+    (h : ∀ i, i < 32 → m.bytes (off + i) = Memory.byte w i) : m.load off = w := by
+  have e : m.load off = (m.store off w).load off := by
+    unfold Mem.load Mem.read
+    congr 1
+    apply List.map_congr_left
+    intro i hi
+    simp only [List.mem_range] at hi
+    rw [h i hi]
+    simp only [Mem.store, bytes_expand]
+    have c : off ≤ off + i ∧ off + i < off + 32 := by omega
+    simp [c]
+  rw [e, Mem.load_store_same]
+
+/-- Entering a function stores its entry heap on both sides. -/
+theorem StRel.start {ρ : Val} {s : State} {st : SState} (hs : StRel ρ s st) (g : Function) :
+    StRel ρ (g.start s) (symStart g st) := by
+  unfold Function.start symStart
+  cases hg : g.entryHeap with
+  | none => exact hs
+  | some heap =>
+    exact { store := hs.store, world := hs.world
+            mem := fun i => by
+              simp only [Mem.store, bytes_expand, storeBytes]
+              by_cases hi : 64 ≤ i ∧ i < 64 + 32
+              · simp only [hi, and_self, ite_true, OByte.eval, byte_toNat, WExpr.eval,
+                  Nat.mod_eq_of_lt heap.isLt]
+              · simp only [hi, ite_false]
+                exact hs.mem i }
+
 theorem symEffect_sound {ev : EnvFlags} {cv : SV} {sel n : Nat} {ρ : Val} {call : Call}
     (hc : CallFactsAt cv sel n ρ call) {o : Oracle} (henv : EnvAsk ev o ρ)
     {eff : Effect} {args : List Word} {sargs : List SV} {s : State} {st st' : SState}
@@ -518,6 +557,22 @@ theorem symEffect_sound {ev : EnvFlags} {cv : SV} {sel n : Nat} {ρ : Val} {call
                   rw [hv]
                 · simp only [hi, ite_false]
                   exact hs.mem i }
+  · -- mload
+    rename_i off
+    split at h
+    · rename_i e he
+      simp only [Option.some.injEq, Prod.mk.injEq] at h
+      obtain ⟨rfl, rfl⟩ := h
+      match args, hr with
+      | [ow], ⟨ho, _⟩ =>
+        refine ⟨_, _, rfl, ?_, hs.expand _ _⟩
+        have hon := toNat_of_rel ho
+        have hl : s.memory.load ow.toNat = BitVec.ofNat 256 (e.eval ρ) := by
+          rw [hon]
+          exact load_of_bytes s.memory _ _ fun i hi => by
+            rw [memWord_bytes hs.mem he i hi, ofNat_byte _ _ (e.eval_lt ρ)]
+        simp only [OptRel, SV.Rel, hl, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (e.eval_lt ρ)]
+    · simp at h
   · -- caller
     split at h
     · rename_i hev
@@ -709,10 +764,16 @@ theorem symInsts_sound {ev : EnvFlags} {cv : SV} {sel n : Nat} {ρ : Val} {call 
         symInsts_sound hc henv hK rest _ _ _ _ h _ s (he.set ha dst) hs
       exact ⟨env', s', by simp only [execInsts]; exact h1, h2, h3⟩
     · simp at h
+  | .heapFloor dst floor :: rest, senv, senv', st, st', h, env, s, he, hs => by
+    simp only [symInsts] at h
+    have hv : SV.Rel ρ call floor (.w (.lit floor.toNat)) := by
+      simp only [SV.Rel, WExpr.eval, Nat.mod_eq_of_lt floor.isLt]
+    obtain ⟨env', s', h1, h2, h3⟩ :=
+      symInsts_sound hc henv hK rest _ _ _ _ h _ s (he.set hv dst) hs
+    exact ⟨env', s', by simp only [execInsts]; exact h1, h2, h3⟩
   | .low .. :: _, _, _, _, _, h, _, _, _, _ => by simp [symInsts] at h
   | .select .. :: _, _, _, _, _, h, _, _, _, _ => by simp [symInsts] at h
   | .call .. :: _, _, _, _, _, h, _, _, _, _ => by simp [symInsts] at h
-  | .heapFloor .. :: _, _, _, _, _, h, _, _, _, _ => by simp [symInsts] at h
   | .alloc .. :: _, _, _, _, _, h, _, _, _, _ => by simp [symInsts] at h
 
 theorem symPhis_sound {ρ : Val} {call : Call} {envI : Env} {senvI : SEnv}
@@ -821,33 +882,15 @@ theorem rel_zero_iff {ρ : Val} {call : Call} {v : Word} {e : WExpr} (h : SV.Rel
   · intro h0; exact BitVec.eq_of_toNat_eq (by rw [h, h0]; rfl)
 
 theorem symCallee_some {m : Module} {callee : Nat} {g : Function} (h : symCallee m callee = some g) :
-    m.functions[callee]? = some g ∧ ∀ s, g.start s = s := by
-  unfold symCallee at h
-  split at h
-  · rename_i g' hg
-    split at h
-    · rename_i hn
-      simp only [Option.some.injEq] at h
-      subst h
-      refine ⟨hg, fun s => ?_⟩
-      unfold Function.start
-      cases he : g'.entryHeap with
-      | none => rfl
-      | some _ => simp [he] at hn
-    · simp at h
-  · simp at h
+    m.functions[callee]? = some g := h
 
-theorem entryFree_start {m : Module} (h : entryFree m = true) (s : State) : m.startState s = s := by
-  unfold entryFree at h
-  unfold Module.startState
-  split
-  · rename_i f hf
-    simp only [hf] at h
-    unfold Function.start
-    cases he : f.entryHeap with
-    | none => rfl
-    | some _ => simp [he] at h
-  · rfl
+/-- The module's entry function stores its entry heap on both sides. -/
+theorem StRel.entryStart {ρ : Val} {s : State} {st : SState} (hs : StRel ρ s st) (m : Module) :
+    StRel ρ (m.startState s) (symEntryStart m st) := by
+  unfold Module.startState symEntryStart
+  cases hf : m.functions[m.entry]? with
+  | some f => exact hs.start f
+  | none => exact hs
 
 /-- What a machine step gives, held by what a symbolic step gives: the same end, or the next
 frame related, or for a branch on a word the side the call's words take. -/
@@ -928,7 +971,7 @@ theorem symTerm_sound {cv : SV} {sel n : Nat} {ρ : Val} {call : Call}
     | none => simp [hg] at h
     | some g =>
       simp only [hg] at h
-      obtain ⟨hg', hstart⟩ := symCallee_some hg
+      have hg' := symCallee_some hg
       cases hbp : symBindParams g.params (args.map (SV.ofOperand senv)) (fun _ => .w (.lit 0)) with
       | none => simp [hbp] at h
       | some senv3 =>
@@ -937,8 +980,8 @@ theorem symTerm_sound {cv : SV} {sel n : Nat} {ρ : Val} {call : Call}
         have hz : EnvRel ρ call (fun _ => 0) (fun _ => .w (.lit 0)) := fun _ => by
           simp [SV.Rel, WExpr.eval]
         obtain ⟨env3, hbp', he3⟩ := symBindParams_sound g.params _ _ _ _ _ hbp (rel_args he args) hz
-        exact ⟨ms, env3, s, by simp only [segment, splitCall, execInsts, hg', hbp', hstart], hst, he3,
-          hs⟩
+        exact ⟨ms, env3, g.start s, by simp only [segment, splitCall, execInsts, hg', hbp'], hst, he3,
+          hs.start g⟩
   | leave values =>
     simp only [symTerm] at h
     cases stack with
@@ -1037,7 +1080,7 @@ theorem symSegment_sound {ev : EnvFlags} {cv : SV} {sel n : Nat} {ρ : Val} {cal
       | none => simp [hg] at h
       | some g =>
         simp only [hg] at h
-        obtain ⟨hg', hstart⟩ := symCallee_some hg
+        have hg' := symCallee_some hg
         cases hbp : symBindParams g.params (args.map (SV.ofOperand senv2)) (fun _ => .w (.lit 0)) with
         | none => simp [hbp] at h
         | some inner =>
@@ -1047,9 +1090,9 @@ theorem symSegment_sound {ev : EnvFlags} {cv : SV} {sel n : Nat} {ρ : Val} {cal
             simp [SV.Rel, WExpr.eval]
           obtain ⟨env3, hbp', he3⟩ :=
             symBindParams_sound g.params _ _ _ _ _ hbp (rel_args he2 args) hz
-          exact ⟨⟨fn, b, dst, rest, term, env2, [], none⟩ :: ms, env3, s2,
-            by simp only [segment, hsp, hexec, hg', hbp', hstart],
-            ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, he2, hst⟩, he3, hs2⟩
+          exact ⟨⟨fn, b, dst, rest, term, env2, [], none⟩ :: ms, env3, g.start s2,
+            by simp only [segment, hsp, hexec, hg', hbp'],
+            ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, he2, hst⟩, he3, hs2.start g⟩
   | none =>
     simp only at h
     cases hi : symInsts ev cv sel n K before senv st with
@@ -1157,15 +1200,14 @@ theorem StRel.initial {ρ : Val} (call : Call) (h : ρ.store = slotValue call.st
 `CallFactsAt` says. -/
 theorem symRun_entry_sound {ev : EnvFlags} {cv : SV} {sel n : Nat} {ρ : Val} {call : Call}
     (hc : CallFactsAt cv sel n ρ call) (o : Oracle) (henv : EnvAsk ev o ρ) (m : Module)
-    {fuel : Nat} {T : Tree} (hfree : entryFree m = true)
-    (h : symRun ev cv m sel n fuel [] (.enter m.entry 0 0) (fun _ => .w (.lit 0)) SState.initial [] =
-      some T) :
+    {fuel : Nat} {T : Tree}
+    (h : symRun ev cv m sel n fuel [] (.enter m.entry 0 0) (fun _ => .w (.lit 0))
+      (symEntryStart m SState.initial) [] = some T) :
     (moduleSem o).run m call = some (T.eval ρ).obs := by
   have hz : EnvRel ρ call (fun _ => 0) (fun _ => .w (.lit 0)) := fun _ => by
     simp [SV.Rel, WExpr.eval]
   obtain ⟨k, r, hk, hr⟩ := symRun_sound hc o henv m fuel _ _ _ _ _ T h [] _ _ trivial hz
-    (StRel.initial call hc.store hc.ok) (fun _ hp => absurd hp List.not_mem_nil)
-  rw [← entryFree_start hfree (State.initial call)] at hk
+    ((StRel.initial call hc.store hc.ok).entryStart m) (fun _ hp => absurd hp List.not_mem_nil)
   have e : moduleLayer.result o m call = some r := moduleLayer.result_of_ends ⟨k, hk⟩
   show (moduleLayer.result o m call).map _ = _
   rw [e, ← hr]
@@ -1179,9 +1221,7 @@ theorem symTree_sound {sel n : Nat} {ρ : Val} {call : Call} (hc : CallFacts sel
     (h : symTree m sel n fuel env = some T) :
     (moduleSem o).run m call = some (T.eval ρ).obs := by
   unfold symTree at h
-  split at h
-  · exact symRun_entry_sound hc.at o henv m ‹_› h
-  · simp at h
+  exact symRun_entry_sound hc.at o henv m h
 
 /-- **SolarTV's lowered MIR runs a module as its symbolic tree with a value**: on a call with a
 value other than 0 that gives the symbolic run the rest of what `CallFacts` says, under every
@@ -1192,9 +1232,7 @@ theorem symTreeValue_sound {sel n : Nat} {ρ : Val} {call : Call}
     (henv : EnvAsk env o ρ) {T : Tree} (h : symTreeValue m sel n fuel env = some T) :
     (moduleSem o).run m call = some (T.eval ρ).obs := by
   unfold symTreeValue at h
-  split at h
-  · exact symRun_entry_sound hc o henv m ‹_› h
-  · simp at h
+  exact symRun_entry_sound hc o henv m h
 
 end SolidCore.Refinement.Generic
 

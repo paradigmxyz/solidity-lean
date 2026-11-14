@@ -440,7 +440,7 @@ theorem advances_checkX {p : Assemble.Program} {cx : CtxCert} {code : ByteArray}
     obtain ⟨T', r, hle', hex, hpost, hnext⟩ := seg (G0 := msg.gas) hGc hnc hdata hvalue hstatic hself
       hcaller hbenv htx hb hok hgas (p.blocks[b].length + 1) p.blocks[b] (c.need b) [] (c.entry b)
       (budget c b - labelItems p c b) S Tw s pc1 M m1.gas st ss T0 m1 within1 (Nat.lt_succ_self _)
-      hblock hn (by omega) List.nil_prefix hR hseg1 (by omega) htop hmem R hat1 hTg hs0
+      hblock hn (by omega) (KR.nil _) hR hseg1 (by omega) htop hmem R hat1 hTg hs0
       (by unfold MemBudget; rw [← hat.2.2.2.2.2.1]; omega) hrun1
     refine ⟨T', r, hle', fun T'' h => ?_, fun res hres => hpost res hres, fun y hy => ?_⟩
     · simp only [SolarTV.EVM.Program.block, hblk]

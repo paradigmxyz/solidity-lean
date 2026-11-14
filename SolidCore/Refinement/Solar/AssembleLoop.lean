@@ -61,56 +61,114 @@ def fallOkL (p : Program) (c : Cert) (mx : List Nat) (b h : Nat) (ty : List Ty) 
   (decide (p.blocks.length ≤ b + 1) || decide (c.need (b + 1) ≤ h)) && tyLe ty (c.entry (b + 1)) &&
     decide (h + maxH mx b ≤ maxH mx (b + 1) + c.need b)
 
+/-- The constants the check knows on the stack: `some v` at depth `i` when the word there is
+`v`, `none` when it is unknown; the words past the list are unknown. -/
+abbrev Known := List (Option Word)
+
+/-- The constant the check knows at depth `i`. -/
+def kAt (known : Known) (i : Nat) : Option Word := (known[i]?).join
+
+/-- What the known constants claim of a stack: each known word is the stack's word there. -/
+def KR (known : Known) (S : List Word) : Prop := ∀ i v, kAt known i = some v → S[i]? = some v
+
+theorem KR.nil (S : List Word) : KR [] S := fun i v h => by simp [kAt] at h
+
+theorem KR.cons_none {known : Known} {S : List Word} (h : KR known S) (a : Word) :
+    KR (none :: known) (a :: S) := by
+  intro i v hv
+  cases i with
+  | zero => simp [kAt] at hv
+  | succ i => exact h i v (by simpa [kAt] using hv)
+
+theorem KR.cons_some {known : Known} {S : List Word} (h : KR known S) (a : Word) :
+    KR (some a :: known) (a :: S) := by
+  intro i v hv
+  cases i with
+  | zero => simp [kAt] at hv; simp [hv]
+  | succ i => exact h i v (by simpa [kAt] using hv)
+
+theorem KR.tail {j : Option Word} {known : Known} {a : Word} {S : List Word}
+    (h : KR (j :: known) (a :: S)) : KR known S := fun i v hv => by
+  simpa using h (i + 1) v (by simpa [kAt] using hv)
+
+theorem KR.head {o : Word} {known : Known} {a : Word} {S : List Word}
+    (h : KR (some o :: known) (a :: S)) : o = a ∧ KR known S :=
+  ⟨by simpa [kAt, eq_comm] using h 0 o (by simp [kAt]), h.tail⟩
+
+theorem KR.drop {known : Known} {S : List Word} (h : KR known S) (n : Nat) :
+    KR (known.drop n) (S.drop n) := fun i v hv => by
+  rw [List.getElem?_drop]
+  exact h (n + i) v (by simpa [kAt, List.getElem?_drop] using hv)
+
+theorem KR.not_nil {o : Word} {known : Known} (h : KR (some o :: known) []) : False := by
+  simpa using h 0 o (by simp [kAt])
+
+theorem KR.not_one {j : Option Word} {o x : Word} {known : Known} (h : KR (j :: some o :: known) [x]) :
+    False := by
+  simpa using h 1 o (by simp [kAt])
+
+/-- DUP of the word at depth `i` pushes what the check knows of it. -/
+theorem KR.dup {known : Known} {S : List Word} (h : KR known S) {i : Nat} (hi : i < S.length) :
+    KR (kAt known i :: known) (S[i] :: S) := by
+  intro j v hv
+  cases j with
+  | zero =>
+    have := h i v (by simpa [kAt] using hv)
+    simp only [List.getElem?_cons_zero]
+    rw [List.getElem?_eq_getElem hi] at this
+    exact this
+  | succ j => exact h j v (by simpa [kAt] using hv)
+
 /-- `Assemble.blockStep` for block `b` of code with loops: the same check of each instruction,
 with `jumpOkL` for its jumps, which put no bound on the target's budget, and MLOAD at a constant
 offset below the certificate's bound. -/
 def blockStepL (p : Program) (c : Cert) (mx : List Nat) (b : Nat)
-    (ok : Nat → List Word → List Ty → Nat → Bool) :
-    Nat → List Word → List Ty → Nat → Assemble.Instr → Bool
+    (ok : Nat → Known → List Ty → Nat → Bool) :
+    Nat → Known → List Ty → Nat → Assemble.Instr → Bool
   | h, known, ty, k, .op (.stack op) =>
     match op with
-    | .push v => decide (1 ≤ k) && ok (h + 1) (v :: known.take 1) (some false :: ty) (k - 1)
+    | .push v => decide (1 ≤ k) && ok (h + 1) (some v :: known) (some false :: ty) (k - 1)
     | .dup i => decide (1 ≤ k) && decide (i.val < 16) && decide (i.val + 1 ≤ h) &&
-      ok (h + 1) (dupKnown known i.val) (tyAt ty i.val :: ty) (k - 1)
+      ok (h + 1) (kAt known i.val :: known) (tyAt ty i.val :: ty) (k - 1)
     | .swap i => decide (1 ≤ k) && decide (i.val < 16) && decide (i.val + 2 ≤ h) &&
       ok h [] (tySwap ty i.val) (k - 1)
     | .pop => decide (1 ≤ k) && decide (1 ≤ h) && ok (h - 1) [] ty.tail (k - 1)
     | op =>
       match stackNeed op with
       | some (need, d) => decide (1 ≤ k) && decide (need ≤ h) && isData ty need &&
-          ok (h + d).toNat [] (some false :: ty.drop need) (k - 1)
+          ok (h + d).toNat (none :: known.drop need) (some false :: ty.drop need) (k - 1)
       | none => false
   | h, known, ty, k, .op .store =>
     match known with
-    | o :: _ => decide (1 ≤ k) && decide (2 ≤ h) && decide (o.toNat + 32 ≤ c.top) && isData ty 2 &&
-      ok (h - 2) [] (ty.drop 2) (k - 1)
-    | [] => false
+    | some o :: _ => decide (1 ≤ k) && decide (2 ≤ h) && decide (o.toNat + 32 ≤ c.top) && isData ty 2 &&
+      ok (h - 2) (known.drop 2) (ty.drop 2) (k - 1)
+    | _ => false
   | h, known, ty, k, .op .load =>
     match known with
-    | o :: _ => decide (1 ≤ k) && decide (1 ≤ h) && decide (o.toNat + 32 ≤ c.top) && isData ty 1 &&
+    | some o :: _ => decide (1 ≤ k) && decide (1 ≤ h) && decide (o.toNat + 32 ≤ c.top) && isData ty 1 &&
       ok h [] (some false :: ty.drop 1) (k - 1)
-    | [] => false
+    | _ => false
   | h, _, ty, k, .effect .callvalue 0 => decide (1 ≤ k) && ok (h + 1) [] (some false :: ty) (k - 1)
   | h, _, ty, k, .effect .calldatasize 0 => decide (1 ≤ k) && ok (h + 1) [] (some false :: ty) (k - 1)
-  | h, _, ty, k, .effect .caller 0 =>
-    c.env && decide (1 ≤ k) && ok (h + 1) [] (some false :: ty) (k - 1)
+  | h, known, ty, k, .effect .caller 0 =>
+    c.env && decide (1 ≤ k) && ok (h + 1) (none :: known) (some false :: ty) (k - 1)
   | h, _, ty, k, .effect .address 0 => decide (1 ≤ k) && ok (h + 1) [] (some false :: ty) (k - 1)
   | h, _, ty, k, .effect (.env name) 0 =>
     c.reads && (envRead name).isSome && decide (1 ≤ k) && ok (h + 1) [] (some false :: ty) (k - 1)
-  | h, _, ty, k, .effect .calldataload 1 => decide (1 ≤ k) && decide (1 ≤ h) && isData ty 1 &&
-    ok h [] (some false :: ty.drop 1) (k - 1)
+  | h, known, ty, k, .effect .calldataload 1 => decide (1 ≤ k) && decide (1 ≤ h) && isData ty 1 &&
+    ok h (none :: known.drop 1) (some false :: ty.drop 1) (k - 1)
   | h, _, ty, k, .effect .sload 1 => decide (1 ≤ k) && decide (1 ≤ h) && isData ty 1 &&
     ok h [] (some false :: ty.drop 1) (k - 1)
   | h, _, ty, k, .effect .sstore 2 => decide (1 ≤ k) && decide (2 ≤ h) && isData ty 2 &&
     ok (h - 2) [] (ty.drop 2) (k - 1)
   | h, known, ty, k, .effect .keccak256 2 =>
     match known with
-    | o :: s :: _ => c.env && decide (1 ≤ k) && decide (2 ≤ h) && isData ty 2 && rangeOk c o s &&
+    | some o :: some s :: _ => c.env && decide (1 ≤ k) && decide (2 ≤ h) && isData ty 2 && rangeOk c o s &&
       decide (keccak256Cost s ≤ 22100) && ok (h - 1) [] (some false :: ty.drop 2) (k - 1)
     | _ => false
   | h, known, ty, k, .effect (.log n) a =>
     match known with
-    | o :: s :: _ => decide (n ≤ 4) && decide (a = n + 2) && decide (1 ≤ k) && decide (n + 2 ≤ h) &&
+    | some o :: some s :: _ => decide (n ≤ 4) && decide (a = n + 2) && decide (1 ≤ k) && decide (n + 2 ≤ h) &&
       isData ty (n + 2) && rangeOk c o s && decide (logCost n s ≤ 22100) &&
       ok (h - (n + 2)) [] (ty.drop (n + 2)) (k - 1)
     | _ => false
@@ -126,13 +184,13 @@ def blockStepL (p : Program) (c : Cert) (mx : List Nat) (b : Nat)
   | _, _, _, _, .stop => true
   | _, known, ty, _, .ret | _, known, ty, _, .revert =>
     match known with
-    | o :: s :: _ => isData ty 2 && rangeOk c o s
+    | some o :: some s :: _ => isData ty 2 && rangeOk c o s
     | _ => false
   | _, _, _, _, _ => false
 
 /-- `Assemble.blockOk` for code with loops. -/
 def blockOkL (p : Program) (c : Cert) (mx : List Nat) (b : Nat) :
-    Nat → List Word → List Ty → Nat → List Assemble.Instr → Bool
+    Nat → Known → List Ty → Nat → List Assemble.Instr → Bool
   | h, _, ty, _, [] => fallOkL p c mx b h ty
   | h, known, ty, k, i :: rest =>
     match turnedElse c b i rest with

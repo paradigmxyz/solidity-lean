@@ -36,9 +36,11 @@ the position (SolarTV's `Pos`), the symbolic values, the symbolic state and the 
 * an internal call runs the instructions before it, pushes its return and enters the callee's
   block 0 with its parameters bound; a `leave` pops the innermost return and binds the call's
   result (`symBindResult`), as SolarTV's `bindResult` does; a tail call enters the callee and
-  keeps the returns; a call that binds or publishes further results (a callee returning several
-  words), a callee or an entry function that stores an entry heap (`Function.entryHeap`), and
-  `heap_floor` and `alloc` are outside the fragment;
+  keeps the returns; entering a function stores its entry heap (`Function.entryHeap`, a constant
+  word codegen placed) at `0x40` (`symStart`), a `heap_floor` is its constant word, and an
+  `mload` at a constant offset whose memory holds one word (`memWord`) reads it; a call that
+  binds or publishes further results (a callee returning several words) and `alloc` are outside
+  the fragment;
 * a branch on a constant takes its side, a branch on `SV.paid` its nonzero side, a branch on any
   other word becomes a `Tree.ite` whose sides run with the word as one more fact (`Facts.add`),
   a switch needs a constant key and constant cases;
@@ -159,6 +161,10 @@ def symEffect (ev : EnvFlags) (cv : SV) (n : Nat) : Effect → List SV → SStat
   | .sstore, [.w k, .w e], st => some (none, { st with writes := st.writes.set k e })
   | .mstore, [.w (.lit off), .w e], st =>
     some (none, { st with mem := storeBytes st.mem (off % wordSize) e })
+  | .mload, [.w (.lit off)], st =>
+    match memWord st.mem (off % wordSize) with
+    | some e => some (some (.w e), st)
+    | none => none
   | .caller, [], st => if ev.caller = true then some (some (.w (.lit callerWord)), st) else none
   | .keccak256, [.w (.lit off), .w (.lit size)], st =>
     if ev.hash = true ∧ size % wordSize = 64 then
@@ -248,7 +254,10 @@ def symInsts (ev : EnvFlags) (cv : SV) (sel n : Nat) (K : Facts) :
     match SV.ofOperand env a with
     | .w e => symInsts ev cv sel n K rest (env.set dst (.w e)) st
     | _ => none
-  -- Outside the fragment (a low-bits mask, a select, a heap floor, an allocation) or an
+  -- The heap floor codegen placed: a constant word.
+  | .heapFloor dst floor :: rest, env, st =>
+    symInsts ev cv sel n K rest (env.set dst (.w (.lit floor.toNat))) st
+  -- Outside the fragment (a low-bits mask, a select, an allocation) or an
   -- internal call, which
   -- `symSegment` splits off first: no run.
   | _ :: _, _, _ => none
@@ -290,20 +299,23 @@ structure SReturn where
   term : Terminator
   env : SEnv
 
-/-- The callee of an internal or tail call, when the module has it and it stores no entry heap
-on entering it (`Function.entryHeap`, outside the fragment): then entering it keeps the state
-(`Function.start`). -/
-def symCallee (m : Module) (callee : Nat) : Option Function :=
-  match m.functions[callee]? with
-  | some g => if g.entryHeap.isNone then some g else none
-  | none => none
+/-- The state a function starts in, as SolarTV's `Function.start`: its entry heap, a constant
+word codegen placed, stored in the free memory pointer's slot `0x40`. -/
+def symStart (g : Function) (st : SState) : SState :=
+  match g.entryHeap with
+  | none => st
+  | some heap => { st with mem := storeBytes st.mem 64 (.lit heap.toNat) }
 
-/-- Whether the module's entry function stores no entry heap when the run starts
-(`Module.startState`), so that the run starts in the call's initial state. -/
-def entryFree (m : Module) : Bool :=
+/-- The callee of an internal or tail call, when the module has it; entering it stores its entry
+heap (`symStart`). -/
+def symCallee (m : Module) (callee : Nat) : Option Function :=
+  m.functions[callee]?
+
+/-- The state the module's entry function starts the run in (`Module.startState`). -/
+def symEntryStart (m : Module) (st : SState) : SState :=
   match m.functions[m.entry]? with
-  | some f => f.entryHeap.isNone
-  | none => true
+  | some f => symStart f st
+  | none => st
 
 /-- What one step of the symbolic run gives: an end, the next frame, or a branch on a word to
 block `yes` or `no` of function `fn` from block `b`. -/
@@ -337,7 +349,7 @@ def symTerm (m : Module) (stack : List SReturn) (fn b : Nat) (env : SEnv) (st : 
     | some g =>
       match symBindParams g.params (args.map (SV.ofOperand env)) (fun _ => .w (.lit 0)) with
       | none => none
-      | some env' => some (.go stack (.enter callee 0 0) env' st)
+      | some env' => some (.go stack (.enter callee 0 0) env' (symStart g st))
   | .leave values =>
     match stack with
     | [] => none
@@ -372,7 +384,8 @@ def symSegment (ev : EnvFlags) (cv : SV) (m : Module) (sel n : Nat) (K : Facts) 
       | some g =>
         match symBindParams g.params (args.map (SV.ofOperand env)) (fun _ => .w (.lit 0)) with
         | none => none
-        | some inner => some (.go (⟨fn, b, dst, rest, term, env⟩ :: stack) (.enter callee 0 0) inner st)
+        | some inner =>
+          some (.go (⟨fn, b, dst, rest, term, env⟩ :: stack) (.enter callee 0 0) inner (symStart g st))
   -- A call that binds or publishes further results (a callee returning several words):
   -- outside the fragment.
   | (_, some _) => none
@@ -414,15 +427,13 @@ def symRun (ev : EnvFlags) (cv : SV) (m : Module) (sel n : Nat) :
 
 /-- The tree of a call of selector `sel` on `n` argument words, from the module's entry. -/
 def symTree (m : Module) (sel n fuel : Nat) (env : EnvFlags := .off) : Option Tree :=
-  if entryFree m then
-    symRun env (.w (.lit 0)) m sel n fuel [] (.enter m.entry 0 0) (fun _ => .w (.lit 0)) SState.initial []
-  else none
+  symRun env (.w (.lit 0)) m sel n fuel [] (.enter m.entry 0 0) (fun _ => .w (.lit 0))
+    (symEntryStart m SState.initial) []
 
 /-- The tree of a call of selector `sel` on `n` argument words with a value other than 0, from
 the module's entry. -/
 def symTreeValue (m : Module) (sel n fuel : Nat) (env : EnvFlags := .off) : Option Tree :=
-  if entryFree m then
-    symRun env .paid m sel n fuel [] (.enter m.entry 0 0) (fun _ => .w (.lit 0)) SState.initial []
-  else none
+  symRun env .paid m sel n fuel [] (.enter m.entry 0 0) (fun _ => .w (.lit 0))
+    (symEntryStart m SState.initial) []
 
 end SolidCore.Refinement.Generic

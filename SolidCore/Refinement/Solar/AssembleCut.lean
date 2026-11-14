@@ -338,7 +338,7 @@ theorem lowerInstrs_gas (p : Assemble.Program) (c : Cert) (b : Nat) (rest : List
   simp [lowerInstrs, turnedElse, dropped, lowerInstr]
 
 theorem blockOkC_gas {p : Assemble.Program} {c : Cert} {mx : List Nat} {b h : Nat}
-    {known : List Word} {ty : List Ty} {k : Nat} {rest : List Assemble.Instr}
+    {known : Known} {ty : List Ty} {k : Nat} {rest : List Assemble.Instr}
     (hok : blockOkC p c mx b h known ty k (.effect .gas 0 :: rest) = true) :
     1 ≤ k ∧ blockOkC p c mx b (h + 1) [] (some false :: ty) (k - 1) rest = true := by
   simpa [blockOkC, turnedElse, dropped, isGasI] using hok
@@ -364,7 +364,7 @@ theorem lowerInstrs_store (p : Assemble.Program) (c : Cert) (b : Nat) (rest : Li
   simp [lowerInstrs, turnedElse, dropped, lowerInstr]
 
 theorem blockOkC_load {p : Assemble.Program} {c : Cert} {mx : List Nat} {b h : Nat}
-    {known : List Word} {ty : List Ty} {k : Nat} {rest : List Assemble.Instr}
+    {known : Known} {ty : List Ty} {k : Nat} {rest : List Assemble.Instr}
     (hok : blockOkC p c mx b h known ty k (.op .load :: rest) = true) :
     1 ≤ k ∧ 1 ≤ h ∧ isData ty 1 = true ∧ 2 ^ 140 ≤ c.top ∧
       blockOkC p c mx b h [] (some false :: ty.drop 1) (k - 1) rest = true := by
@@ -373,7 +373,7 @@ theorem blockOkC_load {p : Assemble.Program} {c : Cert} {mx : List Nat} {b h : N
   exact ⟨hok.1.1.1.1, hok.1.1.1.2, hok.1.1.2, hok.1.2, hok.2⟩
 
 theorem blockOkC_store {p : Assemble.Program} {c : Cert} {mx : List Nat} {b h : Nat}
-    {known : List Word} {ty : List Ty} {k : Nat} {rest : List Assemble.Instr}
+    {known : Known} {ty : List Ty} {k : Nat} {rest : List Assemble.Instr}
     (hok : blockOkC p c mx b h known ty k (.op .store :: rest) = true) :
     1 ≤ k ∧ 2 ≤ h ∧ isData ty 2 = true ∧ 2 ^ 140 ≤ c.top ∧
       blockOkC p c mx b (h - 2) [] (ty.drop 2) (k - 1) rest = true := by
@@ -402,12 +402,12 @@ theorem lowerInstrs_revert (p : Assemble.Program) (c : Cert) (b : Nat) (rest : L
   simp [lowerInstrs, turnedElse, dropped, lowerInstr]
 
 theorem blockOkC_ret {p : Assemble.Program} {c : Cert} {mx : List Nat} {b h : Nat}
-    {known : List Word} {ty : List Ty} {k : Nat} {rest : List Assemble.Instr}
+    {known : Known} {ty : List Ty} {k : Nat} {rest : List Assemble.Instr}
     (hok : blockOkC p c mx b h known ty k (.ret :: rest) = true) : 2 ≤ h ∧ isData ty 2 = true := by
   simpa [blockOkC, turnedElse, dropped, isGasI, isLoadI, isStoreI, isRetI] using hok
 
 theorem blockOkC_revert {p : Assemble.Program} {c : Cert} {mx : List Nat} {b h : Nat}
-    {known : List Word} {ty : List Ty} {k : Nat} {rest : List Assemble.Instr}
+    {known : Known} {ty : List Ty} {k : Nat} {rest : List Assemble.Instr}
     (hok : blockOkC p c mx b h known ty k (.revert :: rest) = true) :
     2 ≤ h ∧ isData ty 2 = true := by
   simpa [blockOkC, turnedElse, dropped, isGasI, isLoadI, isStoreI, isRetI, isRevI] using hok
@@ -423,7 +423,7 @@ theorem lowerInstrs_kec (p : Assemble.Program) (c : Cert) (b : Nat) (rest : List
   simp [lowerInstrs, turnedElse, dropped, lowerInstr]
 
 theorem blockOkC_kec {p : Assemble.Program} {c : Cert} {mx : List Nat} {b h : Nat}
-    {known : List Word} {ty : List Ty} {k : Nat} {rest : List Assemble.Instr}
+    {known : Known} {ty : List Ty} {k : Nat} {rest : List Assemble.Instr}
     (hok : blockOkC p c mx b h known ty k (.effect .keccak256 2 :: rest) = true) :
     c.env = true ∧ 1 ≤ k ∧ 2 ≤ h ∧ isData ty 2 = true ∧ 2 ^ 140 ≤ c.top ∧
       blockOkC p c mx b (h - 1) [] (some false :: ty.drop 2) (k - 1) rest = true := by
@@ -448,7 +448,7 @@ theorem lowerInstrs_log (p : Assemble.Program) (c : Cert) (b : Nat) {n : Nat} (h
   simp [lowerInstrs, turnedElse, dropped, lowerInstr, hn]
 
 theorem blockOkC_log {p : Assemble.Program} {c : Cert} {mx : List Nat} {b h n : Nat} (hn : n ≤ 4)
-    {known : List Word} {ty : List Ty} {k : Nat} {rest : List Assemble.Instr}
+    {known : Known} {ty : List Ty} {k : Nat} {rest : List Assemble.Instr}
     (hok : blockOkC p c mx b h known ty k (.effect (.log n) (n + 2) :: rest) = true) :
     1 ≤ k ∧ n + 2 ≤ h ∧ isData ty (n + 2) = true ∧ 2 ^ 140 ≤ c.top ∧
       blockOkC p c mx b (h - (n + 2)) [] (ty.drop (n + 2)) (k - 1) rest = true := by
@@ -476,7 +476,7 @@ theorem lowerInstrs_cdc (p : Assemble.Program) (c : Cert) (b : Nat) (rest : List
   simp [lowerInstrs, turnedElse, dropped, lowerInstr]
 
 theorem blockOkC_cdc {p : Assemble.Program} {c : Cert} {mx : List Nat} {b h : Nat}
-    {known : List Word} {ty : List Ty} {k : Nat} {rest : List Assemble.Instr}
+    {known : Known} {ty : List Ty} {k : Nat} {rest : List Assemble.Instr}
     (hok : blockOkC p c mx b h known ty k (.effect .calldatacopy 3 :: rest) = true) :
     1 ≤ k ∧ 3 ≤ h ∧ isData ty 3 = true ∧ 2 ^ 140 ≤ c.top ∧
       blockOkC p c mx b (h - 3) [] (ty.drop 3) (k - 1) rest = true := by
@@ -493,7 +493,7 @@ theorem isScI_eq {i : Assemble.Instr} (h : isScI i = true) : i = .effect (.call 
 
 /-- The checker cuts at a STATICCALL only in a program whose certificate says it makes calls. -/
 theorem blockOkC_sc {p : Assemble.Program} {c : Cert} {mx : List Nat} {b h : Nat}
-    {known : List Word} {ty : List Ty} {k : Nat} {rest : List Assemble.Instr}
+    {known : Known} {ty : List Ty} {k : Nat} {rest : List Assemble.Instr}
     (hok : blockOkC p c mx b h known ty k (.effect (.call .staticcall) 6 :: rest) = true) :
     c.calls = true ∧ 1 ≤ k ∧ 6 ≤ h ∧ isData ty 6 = true ∧ 2 ^ 140 ≤ c.top ∧
       blockOkC p c mx b (h - 5) [] (some false :: ty.drop 6) (k - 1) rest = true := by
@@ -510,7 +510,7 @@ theorem isRdsI_eq {i : Assemble.Instr} (h : isRdsI i = true) : i = .effect .retu
 
 /-- The checker cuts at a RETURNDATASIZE only in a program whose certificate says it makes calls. -/
 theorem blockOkC_rds {p : Assemble.Program} {c : Cert} {mx : List Nat} {b h : Nat}
-    {known : List Word} {ty : List Ty} {k : Nat} {rest : List Assemble.Instr}
+    {known : Known} {ty : List Ty} {k : Nat} {rest : List Assemble.Instr}
     (hok : blockOkC p c mx b h known ty k (.effect .returndatasize 0 :: rest) = true) :
     c.calls = true ∧ 1 ≤ k ∧ blockOkC p c mx b (h + 1) [] (some false :: ty) (k - 1) rest = true := by
   simp only [blockOkC, turnedElse, dropped, isGasI, isLoadI, isStoreI, isRetI, isRevI, isKecI,
@@ -526,7 +526,7 @@ theorem isRdcI_eq {i : Assemble.Instr} (h : isRdcI i = true) : i = .effect .retu
 
 /-- The checker cuts at a RETURNDATACOPY only in a program whose certificate says it makes calls. -/
 theorem blockOkC_rdc {p : Assemble.Program} {c : Cert} {mx : List Nat} {b h : Nat}
-    {known : List Word} {ty : List Ty} {k : Nat} {rest : List Assemble.Instr}
+    {known : Known} {ty : List Ty} {k : Nat} {rest : List Assemble.Instr}
     (hok : blockOkC p c mx b h known ty k (.effect .returndatacopy 3 :: rest) = true) :
     c.calls = true ∧ 1 ≤ k ∧ 3 ≤ h ∧ isData ty 3 = true ∧ 2 ^ 140 ≤ c.top ∧
       blockOkC p c mx b (h - 3) [] (ty.drop 3) (k - 1) rest = true := by
@@ -539,7 +539,7 @@ theorem blockOkC_rdc {p : Assemble.Program} {c : Cert} {mx : List Nat} {b h : Na
 its CALLs and CREATE2s: RETURNDATASIZE and RETURNDATACOPY, which `AssembleCreateSegF.segF` reads
 back from the run's tables.) -/
 theorem blockOkC_noSc_creates {p : Assemble.Program} {c : Cert} {mx : List Nat} {b h : Nat}
-    {known : List Word} {ty : List Ty} {k : Nat} {i : Assemble.Instr} {rest : List Assemble.Instr}
+    {known : Known} {ty : List Ty} {k : Nat} {i : Assemble.Instr} {rest : List Assemble.Instr}
     (hi : isScI i = true)
     (hok : blockOkC p c mx b h known ty k (i :: rest) = true) : c.creates = false := by
   obtain rfl := isScI_eq hi
@@ -569,7 +569,7 @@ theorem isCcI_eq {i : Assemble.Instr} (h : isCcI i = true) : i = .effect .codeco
 /-- The checker cuts at a CALL only in a program whose certificate says it makes calls and
 creates. -/
 theorem blockOkC_call {p : Assemble.Program} {c : Cert} {mx : List Nat} {b h : Nat}
-    {known : List Word} {ty : List Ty} {k : Nat} {rest : List Assemble.Instr}
+    {known : Known} {ty : List Ty} {k : Nat} {rest : List Assemble.Instr}
     (hok : blockOkC p c mx b h known ty k (.effect (.call .call) 7 :: rest) = true) :
     c.calls = true ∧ c.creates = true ∧ 1 ≤ k ∧ 7 ≤ h ∧ isData ty 7 = true ∧ 2 ^ 140 ≤ c.top ∧
       blockOkC p c mx b (h - 6) [] (some false :: ty.drop 7) (k - 1) rest = true := by
@@ -581,7 +581,7 @@ theorem blockOkC_call {p : Assemble.Program} {c : Cert} {mx : List Nat} {b h : N
 /-- The checker cuts at a CREATE2 only in a program whose certificate says it makes calls and
 creates. -/
 theorem blockOkC_c2 {p : Assemble.Program} {c : Cert} {mx : List Nat} {b h : Nat}
-    {known : List Word} {ty : List Ty} {k : Nat} {rest : List Assemble.Instr}
+    {known : Known} {ty : List Ty} {k : Nat} {rest : List Assemble.Instr}
     (hok : blockOkC p c mx b h known ty k (.effect .create2 4 :: rest) = true) :
     c.calls = true ∧ c.creates = true ∧ 1 ≤ k ∧ 4 ≤ h ∧ isData ty 4 = true ∧ 2 ^ 140 ≤ c.top ∧
       blockOkC p c mx b (h - 3) [] (some false :: ty.drop 4) (k - 1) rest = true := by
@@ -593,12 +593,12 @@ theorem blockOkC_c2 {p : Assemble.Program} {c : Cert} {mx : List Nat} {b h : Nat
 /-- The checker cuts at a CODECOPY only in a program whose certificate says it makes calls and
 creates, and only with its code offset known, below 2 ^ 32. -/
 theorem blockOkC_cc {p : Assemble.Program} {c : Cert} {mx : List Nat} {b h : Nat}
-    {known : List Word} {ty : List Ty} {k : Nat} {rest : List Assemble.Instr}
+    {known : Known} {ty : List Ty} {k : Nat} {rest : List Assemble.Instr}
     (hok : blockOkC p c mx b h known ty k (.effect .codecopy 3 :: rest) = true) :
-    c.calls = true ∧ c.creates = true ∧ (∃ x off t, known = x :: off :: t ∧ off.toNat < 2 ^ 32) ∧
+    c.calls = true ∧ c.creates = true ∧ (∃ x off t, known = x :: some off :: t ∧ off.toNat < 2 ^ 32) ∧
       1 ≤ k ∧ 3 ≤ h ∧ isData ty 3 = true ∧ 2 ^ 140 ≤ c.top ∧
       blockOkC p c mx b (h - 3) [] (ty.drop 3) (k - 1) rest = true := by
-  rcases known with _ | ⟨x, _ | ⟨off, t⟩⟩ <;>
+  rcases known with _ | ⟨x, _ | ⟨_ | off, t⟩⟩ <;>
     simp only [blockOkC, turnedElse, dropped, isGasI, isLoadI, isStoreI, isRetI, isRevI, isKecI,
       isLogI, isCdcI, isScI, isRdsI, isRdcI, isCallI, isC2I, isCcI, Bool.or_false, Bool.and_eq_true,
       decide_eq_true_eq, Bool.false_eq_true, ite_false, ite_true] at hok
@@ -641,12 +641,12 @@ theorem seg {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray}
     {b : Nat} (hb : b < p.blocks.length) {bound : Nat} {runChild : MessageRunner .fusaka Nat bound}
     {fin : Evm .fusaka Nat} (hok : fin.error = none) {G0 : Nat} (hG0 : G0 < 2 ^ 256)
     {rd : ByteArray} :
-    ∀ (n : Nat) (is : List Assemble.Instr) (h : Nat) (known : List Word) (ty : List Ty) (k : Nat)
+    ∀ (n : Nat) (is : List Assemble.Instr) (h : Nat) (known : Known) (ty : List Ty) (k : Nat)
       (S Tw : List Word) (s : State) (pc : Nat) (M : ByteArray) (g : Nat)
       (st : State.TransactionState) (ss : Substate) (T : RunTable) (evm : Evm .fusaka Nat)
       (within : GasMeter.gasHeld evm.gas ≤ bound),
       is.length < n → blockOkC p c mx b h known ty k is = true → h ≤ S.length →
-      S.length + c.need b ≤ h + maxH mx b → known <+: S → SR c ty S Tw →
+      S.length + c.need b ≤ h + maxH mx b → KR known S → SR c ty S Tw →
       Seg (bytesOf code) c.offset pc
         (lowerInstrs p c b is ++ lowerFrom p c (b + 1) (p.blocks.drop (b + 1))) code.size →
       S.length + k ≤ 1000 → M.size ≤ c.top → MemRel s.memory M → Rel msg ss0 st ss s →
@@ -751,7 +751,7 @@ theorem seg {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray}
           (BitVec.ofNat 256 (m.gas - 2) :: S') (BitVec.ofNat 256 (m.gas - 2) :: T')
           { s' with world := s'.world ++ [.read "gas"] } (pc' + 1) M' (m.gas - 2) st' ss' T1 m2
           within2 (by omega) hok3 (by simp; omega) (by simp; omega)
-          List.nil_prefix (SR.cons (τ := some false) rfl hR') hseg' (by simp; omega) I'.le_top
+          (KR.nil _) (SR.cons (τ := some false) rfl hR') hseg' (by simp; omega) I'.le_top
           I'.mem ⟨R'.storage, R'.account, logsRel_read _ R'.logs⟩ hat2
           (by simp [T1]; omega) (by simp [hc1.2, hs0])
           (by unfold MemBudget at *; omega) hrun2
@@ -789,7 +789,7 @@ theorem seg {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray}
           (s'.memory.load x.toNat :: S'') (s'.memory.load x.toNat :: Tr)
           { s' with memory := s'.memory.expand x.toNat 32 } (pc' + 1) M2 g2 st' ss' T m2
           within2 (by omega) hok3 (by simp; omega) (by simp; omega)
-          List.nil_prefix (SR.cons (τ := some false) rfl (by simpa using hR'')) hseg'
+          (KR.nil _) (SR.cons (τ := some false) rfl (by simpa using hR'')) hseg'
           (by simp; omega) hsz hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2
           (by show T.gases.length = gasReads s'.world; rw [hc1.1]; exact hTg)
           (by show sent s'.world = 0; rw [hc1.2]; exact hs0) hb2 hrun2
@@ -829,7 +829,7 @@ theorem seg {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray}
           hcaller hbenv htx hb hok hG0 n rest (h' - 2) [] (ty'.drop 2) (k' - 1) S'' Tr
           { s' with memory := s'.memory.store x.toNat y } (pc' + 1) M2 g2 st' ss' T m2
           within2 (by omega) hok3 (by omega) (by omega)
-          List.nil_prefix hR'' hseg' (by omega) hsz hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2
+          (KR.nil _) hR'' hseg' (by omega) hsz hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2
           (by show T.gases.length = gasReads s'.world; rw [hc1.1]; exact hTg)
           (by show sent s'.world = 0; rw [hc1.2]; exact hs0) hb2 hrun2
         refine ⟨T2, r, hle2, fun T3 hle => ?_, hpost, fun y hy => ?_⟩
@@ -918,7 +918,7 @@ theorem seg {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray}
           ((O T).keccak ((s'.memory.expand x.toNat y.toNat).read x.toNat y.toNat) :: Tr)
           { s' with memory := s'.memory.expand x.toNat y.toNat } (pc' + 1) _ _ st' ss' T m2
           within2 (by omega) hok3 (by simp; omega) (by simp; omega)
-          List.nil_prefix (SR.cons (τ := some false) rfl (by simpa using hR'')) hseg'
+          (KR.nil _) (SR.cons (τ := some false) rfl (by simpa using hR'')) hseg'
           (by simp; omega) hsz hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2
           (by show T.gases.length = gasReads s'.world; rw [hc1.1]; exact hTg)
           (by show sent s'.world = 0; rw [hc1.2]; exact hs0) hb2 hrun2
@@ -974,7 +974,7 @@ theorem seg {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray}
           (pc' + 1) _ _ st' { ss' with logs := ss'.logs.push ⟨msg.currentTarget,
             tops.map U256.toBeBytes, memoryReadBytes (memoryExtend M' (extendMemory M'.size
               [(x, y)]).expandBy) x.toNat y.toNat⟩ } T m2 within2 (by omega) hok3 (by omega) (by omega)
-          List.nil_prefix hR'' hseg' (by omega) hsz hmem2
+          (KR.nil _) hR'' hseg' (by omega) hsz hmem2
           ⟨R'.storage, R'.account, ⟨L ++ [⟨msg.currentTarget, tops.map U256.toBeBytes,
               memoryReadBytes (memoryExtend M' (extendMemory M'.size [(x, y)]).expandBy)
                 x.toNat y.toNat⟩], by simp [Array.toList_push, hL1],
@@ -1023,7 +1023,7 @@ theorem seg {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray}
             memory := s'.memory.write x.toNat z.toNat
               (fun i => SolarTV.Machine.calldataByte call (y.toNat + i)) } (pc' + 1) M2 g2 st' ss' T m2
           within2 (by omega) hok3 (by omega) (by omega)
-          List.nil_prefix hR'' hseg' (by omega) hsz hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2
+          (KR.nil _) hR'' hseg' (by omega) hsz hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2
           (by show T.gases.length = gasReads s'.world; rw [hc1.1]; exact hTg)
           (by show sent s'.world = 0; rw [hc1.2]; exact hs0) hb2 hrun2
         refine ⟨T2, r, hle2, fun T3 hle => ?_, hpost, fun y hy => ?_⟩
@@ -1201,7 +1201,7 @@ theorem advances_checkC {p : Assemble.Program} {c : Cert} {mx : List Nat} {code 
     obtain ⟨T', r, hle', hex, hpost, hnext⟩ := seg (G0 := msg.gas) G.toGlobT hnc hdata hvalue hstatic hself hcaller
       hbenv htx hb hok hgas (p.blocks[b].length + 1) p.blocks[b] (c.need b) [] (c.entry b)
       (budget c b - labelItems p c b) S Tw s pc1 M m1.gas st ss T0 m1 within1 (Nat.lt_succ_self _)
-      hblock hn (by omega) List.nil_prefix hR hseg1 (by omega) htop hmem R hat1 hTg hs0
+      hblock hn (by omega) (KR.nil _) hR hseg1 (by omega) htop hmem R hat1 hTg hs0
       (by unfold MemBudget; rw [← hat.2.2.2.2.2.1]; omega) hrun1
     refine ⟨T', r, hle', fun T'' h => ?_, fun res hres => hpost res hres, fun y hy => ?_⟩
     · simp only [SolarTV.EVM.Program.block, hblk]

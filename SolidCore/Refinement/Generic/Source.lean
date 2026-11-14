@@ -183,6 +183,26 @@ def negOf : BinaryOp → Option BinOp
   | .ne => some .eq
   | _ => none
 
+/-- An atom of the fragment: a word literal, a local or `msg.sender`, erased to its word. -/
+def eraseAtom (S : SymState) : Expr → Option WExpr
+  | .word n => some (.lit n)
+  | .var x => Scopes.get? S.scopes x
+  | .caller => some (.lit callerWord)
+  | _ => none
+
+/-- `uint256(keccak256(abi.encode(x, y)))` of two `uint256` atoms: the hash of their two words,
+`WExpr.hash`, which SolidCore computes as its slot hash `solHash` (Keccak-256 of the 64 bytes of
+the two words) and the module as the oracle's Keccak-256 of the same 64 bytes of memory. -/
+def hashPair? (S : SymState) (b : Nat) (e : Expr) : Option WExpr :=
+  if b = 256 then
+    match e with
+    | .keccak256 (.encode .plain none [] [.uint256, .uint256] [x, y]) =>
+      match eraseAtom S x, eraseAtom S y with
+      | some vx, some vy => some (.hash vx vy)
+      | _, _ => none
+    | _ => none
+  else none
+
 /-- The erasure of an expression of the fragment: the overflow conditions it checks, each
 reverting with `Panic(0x11)` when not zero, and its word. -/
 def eraseExpr (fields : List StorageField) (S : SymState) : Expr → Option (List WExpr × WExpr)
@@ -194,11 +214,14 @@ def eraseExpr (fields : List StorageField) (S : SymState) : Expr → Option (Lis
     if b = 256 then some (gs, v)
     else if 0 < b ∧ b < 256 then some (gs ++ [.bin .gt v (.lit (2 ^ b - 1))], v)
     else none
-  | .castOp .uintCast b e => do
-    let (gs, v) ← eraseExpr fields S e
-    if b = 256 then some (gs, v)
-    else if 0 < b ∧ b < 256 then some (gs, .bin .and v (.lit (2 ^ b - 1)))
-    else none
+  | .castOp .uintCast b e =>
+    match hashPair? S b e with
+    | some v => some ([], v)
+    | none => do
+      let (gs, v) ← eraseExpr fields S e
+      if b = 256 then some (gs, v)
+      else if 0 < b ∧ b < 256 then some (gs, .bin .and v (.lit (2 ^ b - 1)))
+      else none
   | .binary op l r =>
     match binOf op with
     | some o => do
@@ -883,6 +906,116 @@ theorem loadHeader_addrField {ctx : Context} {rt : Runtime} {x : String} {f : St
   exact load_addrField hf hw
 
 
+/-! ## The hash of two words -/
+
+theorem uintCast_fixed (sz w : Nat) : uintCast? 256 (.fixedBytes sz w) = .ok (.word (w % wordSize)) := by
+  simp [uintCast?, Value.forceAbiLazy, Value.asStorageWord?, SolidCore.Solidity.Shared.norm, bind,
+    Except.bind, SolidCore.Solidity.Shared.wordModulus]
+  rw [size_eq]
+  show w % wordSize % wordSize = _
+  rw [Nat.mod_mod]
+
+theorem materialize_word (ctx : Context) (rt : Runtime) (a : Nat) :
+    rt.materializeForValueUse ctx (.word a) = .ok (.word a) := by
+  simp [Runtime.materializeForValueUse, Runtime.materializeForValueUseFuel]
+
+theorem materialize_bytes (ctx : Context) (rt : Runtime) (bs : List Byte) :
+    rt.materializeForValueUse ctx (.bytes bs) = .ok (.bytes bs) := by
+  simp [Runtime.materializeForValueUse, Runtime.materializeForValueUseFuel]
+
+/-- The ABI encoding of two `uint256` words is their 64 bytes, as the slot hash hashes them. -/
+theorem encode2_words (a b : Nat) :
+    abiEncodeValues? [.uint256, .uint256] [.word a, .word b] =
+      some (storageWordBytes a ++ storageWordBytes b) := by
+  simp [abiEncodeValues?, Ty.listAbiHeadWords?, Ty.abiHeadWords?, abiEncodeValuesAux?, Ty.isDynamicAbi,
+    Ty.staticAbiHeadWords?, abiEncodeStaticValue?, abiStaticBytes?, storageWordBytes]
+
+theorem normByte_wordToBytesBE : ∀ (k a : Nat), (wordToBytesBE k a).map normByte = wordToBytesBE k a
+  | 0, _ => rfl
+  | k + 1, a => by
+    simp only [wordToBytesBE, List.map_append, normByte_wordToBytesBE k, List.map_cons, List.map_nil]
+    simp [normByte, SolidCore.Solidity.Shared.Account.byte]
+
+/-- SolidCore evaluates `uint256(keccak256(abi.encode(x, y)))` of two `uint256` words to the hash
+of their words: `Panic(0x11)` when an overflow condition of either holds, else `solHash` of them. -/
+theorem eval_hash_pair (ρ : Val) (hash : ρ.hash = solHash) (n m k : Nat) (hn : n = m + 1)
+    (hm : m = k + 1) (ctx : Context) (rt : Runtime) (x y : Expr) (gx gy : List WExpr) (vx vy : WExpr)
+    (ihx : Expr.evalFuel n ctx rt x = exprResult ρ gx vx rt)
+    (ihy : Expr.evalFuel m ctx rt y = exprResult ρ gy vy rt) :
+    Expr.evalFuel (n + 4) ctx rt
+        (.castOp .uintCast 256 (.keccak256 (.encode .plain none [] [.uint256, .uint256] [x, y]))) =
+      exprResult ρ (gx ++ gy) (.hash vx vy) rt := by
+  simp only [Expr.evalFuel, Expr.evalListFuel]
+  rw [ihx, bind_exprResult]
+  by_cases hgx : (gx.any fun g => WExpr.eval ρ g != 0) = true
+  · simp only [hgx, ite_true]
+    unfold exprResult
+    simp only [any_append, hgx, Bool.true_or, ite_true]
+    rfl
+  · simp only [hgx, Bool.false_eq_true, ite_false]
+    rw [Expr.evalListFuel.eq_def]
+    subst hn
+    simp only
+    rw [ihy, bind_exprResult]
+    by_cases hgy : (gy.any fun g => WExpr.eval ρ g != 0) = true
+    · simp only [hgy, ite_true]
+      unfold exprResult
+      simp only [any_append, hgy, Bool.or_true, ite_true]
+      rfl
+    · simp only [hgy, Bool.false_eq_true, ite_false]
+      rw [Expr.evalListFuel.eq_def]
+      unfold exprResult
+      simp only [any_append, hgx, hgy, Bool.false_or, Bool.false_eq_true, ite_false]
+      simp only [pure, EvmCompiler.Simulation.Interaction.pure, bind,
+        EvmCompiler.Simulation.Interaction.bind, liftM, monadLift, MonadLift.monadLift,
+        materialize_bytes, encode2_words, Value.asBytes?, uintCast_fixed, SolI.ofExcept, Except.bind]
+      subst hm
+      simp only [EvmCompiler.Simulation.Interaction.bind, Runtime.materializeForValueUseList,
+        materialize_word, materialize_bytes, encode2_words, uintCast_fixed, Except.bind]
+      simp [EvmCompiler.Simulation.Interaction.bind, Runtime.materializeForValueUseList,
+        materialize_word, materialize_bytes, encode2_words, uintCast_fixed, bind, Except.bind, pure,
+        Except.pure, WExpr.eval, hash, solHash, storageWordBytes, normByte_wordToBytesBE]
+
+/-- An atom evaluates to its word at any fuel. -/
+theorem eval_atom {ρ : Val} {fields : List StorageField} {ctx : Context} {rt : Runtime} {S : SymState}
+    (hrel : ExprRel ρ fields ctx rt S) {x : Expr} {v : WExpr} (h : eraseAtom S x = some v) (k : Nat) :
+    Expr.evalFuel (k + 1) ctx rt x = exprResult ρ [] v rt := by
+  cases x with
+  | word w =>
+    simp only [eraseAtom, Option.some.injEq] at h
+    subst h
+    simp [Expr.evalFuel, exprResult, WExpr.eval, normWord, SolidCore.Solidity.Shared.norm, modulus_eq]
+    rfl
+  | var x =>
+    simp only [eraseAtom] at h
+    have hl := hrel.locals x v h
+    simp [Expr.evalFuel, exprResult, Runtime.lookupStorageBase?, hl, Runtime.derefMemoryValue]
+    rfl
+  | caller =>
+    simp only [eraseAtom, Option.some.injEq] at h
+    subst h
+    simp only [Expr.evalFuel, exprResult, List.any_nil, Bool.false_eq_true, ↓reduceIte, WExpr.eval,
+      hrel.sender, callerWord]
+    rfl
+  | _ => simp [eraseAtom] at h
+
+theorem hashPair?_spec {S : SymState} {b : Nat} {e : Expr} {v : WExpr} (h : hashPair? S b e = some v) :
+    b = 256 ∧ ∃ x y vx vy, e = .keccak256 (.encode .plain none [] [.uint256, .uint256] [x, y]) ∧
+      eraseAtom S x = some vx ∧ eraseAtom S y = some vy ∧ v = .hash vx vy := by
+  unfold hashPair? at h
+  split at h
+  · rename_i hb
+    refine ⟨hb, ?_⟩
+    split at h
+    · rename_i x y
+      split at h
+      · rename_i vx vy hx hy
+        simp only [Option.some.injEq] at h
+        exact ⟨x, y, vx, vy, rfl, hx, hy, h.symm⟩
+      · simp at h
+    · simp at h
+  · simp at h
+
 theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt : Runtime)
     (S : SymState) (hrel : ExprRel ρ fields ctx rt S) (e : Expr) :
     ∀ (gs : List WExpr) (v : WExpr) (fuel : Nat), eraseExpr fields S e = some (gs, v) →
@@ -949,8 +1082,19 @@ theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
               try rfl
         · simp [eraseExpr, he, hb, hb2] at h
     case uintCast =>
+      cases hh : hashPair? S b e with
+      | some v' =>
+        obtain ⟨rfl, x, y, vx, vy, rfl, hx, hy, rfl⟩ := hashPair?_spec hh
+        simp only [eraseExpr, hh, Option.some.injEq, Prod.mk.injEq] at h
+        obtain ⟨rfl, rfl⟩ := h
+        have hn : 5 ≤ n := by simp [Expr.orderFuel, Expr.listEvalFuel] at hf; omega
+        obtain ⟨k, rfl⟩ : ∃ k, n = k + 5 := ⟨n - 5, by omega⟩
+        have := eval_hash_pair ρ hrel.hash (k + 2) (k + 1) k rfl rfl ctx rt x y [] [] vx vy
+          (eval_atom hrel hx (k + 1)) (eval_atom hrel hy k)
+        simpa using this
+      | none =>
       cases he : eraseExpr fields S e with
-      | none => simp [eraseExpr, he] at h
+      | none => simp [eraseExpr, hh, he] at h
       | some p =>
       obtain ⟨gs0, v0⟩ := p
       have ih := eval_erase ρ fields ctx rt S hrel e gs0 v0 n he
@@ -958,7 +1102,7 @@ theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
       have hv0 := v0.eval_lt ρ
       by_cases hb : b = 256
       · subst hb
-        simp only [eraseExpr, he, Option.bind_eq_bind, Option.bind_some, ↓reduceIte,
+        simp only [eraseExpr, hh, he, Option.bind_eq_bind, Option.bind_some, ↓reduceIte,
           Option.some.injEq, Prod.mk.injEq] at h
         obtain ⟨rfl, rfl⟩ := h
         simp only [Expr.evalFuel, ih]
@@ -970,7 +1114,7 @@ theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
             Nat.mod_eq_of_lt hv0, SolI.ofExcept]
           rfl
       · by_cases hb2 : 0 < b ∧ b < 256
-        · simp only [eraseExpr, he, Option.bind_eq_bind, Option.bind_some, hb, hb2, and_self,
+        · simp only [eraseExpr, hh, he, Option.bind_eq_bind, Option.bind_some, hb, hb2, and_self,
             ↓reduceIte, Option.some.injEq, Prod.mk.injEq] at h
           obtain ⟨rfl, rfl⟩ := h
           simp only [Expr.evalFuel, ih]
@@ -981,7 +1125,7 @@ theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
               MonadLift.monadLift, uintCast_word _ _ hv0 hb2.1 (by omega), SolI.ofExcept,
               eval_and_pow ρ v0 (show b ≤ 256 by omega)]
             rfl
-        · simp [eraseExpr, he, hb, hb2] at h
+        · simp [eraseExpr, hh, he, hb, hb2] at h
     all_goals simp [eraseExpr] at h
   | binary op l r =>
     cases hl : eraseExpr fields S l with

@@ -600,12 +600,12 @@ theorem segR {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
     {b : Nat} (hb : b < p.blocks.length) {bound : Nat} {runChild : MessageRunner .fusaka Nat bound}
     {fin : Evm .fusaka Nat} (hok : OkR fin) {G0 : Nat} (hG0 : G0 < 2 ^ 256)
     {rd : ByteArray} :
-    ∀ (n : Nat) (is : List Assemble.Instr) (h : Nat) (known : List Word) (ty : List Ty) (k : Nat)
+    ∀ (n : Nat) (is : List Assemble.Instr) (h : Nat) (known : Known) (ty : List Ty) (k : Nat)
       (S Tw : List Word) (s : State) (pc : Nat) (M : ByteArray) (g : Nat)
       (st : State.TransactionState) (ss : Substate) (T : RunTable) (evm : Evm .fusaka Nat)
       (within : GasMeter.gasHeld evm.gas ≤ bound),
       is.length < n → blockOkC p c mx b h known ty k is = true → h ≤ S.length →
-      S.length + c.need b ≤ h + maxH mx b → known <+: S → SR c ty S Tw →
+      S.length + c.need b ≤ h + maxH mx b → KR known S → SR c ty S Tw →
       Seg (bytesOf code) c.offset pc
         (lowerInstrs p c b is ++ lowerFrom p c (b + 1) (p.blocks.drop (b + 1))) code.size →
       S.length + k ≤ 1000 → M.size ≤ c.top → MemRel s.memory M → Rel msg ss0 st ss s →
@@ -710,7 +710,7 @@ theorem segR {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
           (BitVec.ofNat 256 (m.gas - 2) :: S') (BitVec.ofNat 256 (m.gas - 2) :: T')
           { s' with world := s'.world ++ [.read "gas"] } (pc' + 1) M' (m.gas - 2) st' ss' T1 m2
           within2 (by omega) hok3 (by simp; omega) (by simp; omega)
-          List.nil_prefix (SR.cons (τ := some false) rfl hR') hseg' (by simp; omega) I'.le_top
+          (KR.nil _) (SR.cons (τ := some false) rfl hR') hseg' (by simp; omega) I'.le_top
           I'.mem ⟨R'.storage, R'.account, logsRel_read _ R'.logs⟩ hat2
           (by simp [T1]; omega) (by simp [hc1.2, hs0])
           (by unfold MemBudget at *; omega) hrun2
@@ -748,7 +748,7 @@ theorem segR {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
           (s'.memory.load x.toNat :: S'') (s'.memory.load x.toNat :: Tr)
           { s' with memory := s'.memory.expand x.toNat 32 } (pc' + 1) M2 g2 st' ss' T m2
           within2 (by omega) hok3 (by simp; omega) (by simp; omega)
-          List.nil_prefix (SR.cons (τ := some false) rfl (by simpa using hR'')) hseg'
+          (KR.nil _) (SR.cons (τ := some false) rfl (by simpa using hR'')) hseg'
           (by simp; omega) hsz hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2
           (by show T.gases.length = gasReads s'.world; rw [hc1.1]; exact hTg)
           (by show sent s'.world = 0; rw [hc1.2]; exact hs0) hb2 hrun2
@@ -788,7 +788,7 @@ theorem segR {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
           hcaller hbenv htx hb hok hG0 n rest (h' - 2) [] (ty'.drop 2) (k' - 1) S'' Tr
           { s' with memory := s'.memory.store x.toNat y } (pc' + 1) M2 g2 st' ss' T m2
           within2 (by omega) hok3 (by omega) (by omega)
-          List.nil_prefix hR'' hseg' (by omega) hsz hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2
+          (KR.nil _) hR'' hseg' (by omega) hsz hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2
           (by show T.gases.length = gasReads s'.world; rw [hc1.1]; exact hTg)
           (by show sent s'.world = 0; rw [hc1.2]; exact hs0) hb2 hrun2
         refine ⟨T2, r, hle2, fun T3 hle => ?_, hpost, fun y hy => ?_⟩
@@ -890,7 +890,7 @@ theorem segR {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
           ((O T).keccak ((s'.memory.expand x.toNat y.toNat).read x.toNat y.toNat) :: Tr)
           { s' with memory := s'.memory.expand x.toNat y.toNat } (pc' + 1) _ _ st' ss' T m2
           within2 (by omega) hok3 (by simp; omega) (by simp; omega)
-          List.nil_prefix (SR.cons (τ := some false) rfl (by simpa using hR'')) hseg'
+          (KR.nil _) (SR.cons (τ := some false) rfl (by simpa using hR'')) hseg'
           (by simp; omega) hsz hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2
           (by show T.gases.length = gasReads s'.world; rw [hc1.1]; exact hTg)
           (by show sent s'.world = 0; rw [hc1.2]; exact hs0) hb2 hrun2
@@ -946,7 +946,7 @@ theorem segR {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
           (pc' + 1) _ _ st' { ss' with logs := ss'.logs.push ⟨msg.currentTarget,
             tops.map U256.toBeBytes, memoryReadBytes (memoryExtend M' (extendMemory M'.size
               [(x, y)]).expandBy) x.toNat y.toNat⟩ } T m2 within2 (by omega) hok3 (by omega) (by omega)
-          List.nil_prefix hR'' hseg' (by omega) hsz hmem2
+          (KR.nil _) hR'' hseg' (by omega) hsz hmem2
           ⟨R'.storage, R'.account, ⟨L ++ [⟨msg.currentTarget, tops.map U256.toBeBytes,
               memoryReadBytes (memoryExtend M' (extendMemory M'.size [(x, y)]).expandBy)
                 x.toNat y.toNat⟩], by simp [Array.toList_push, hL1],
@@ -995,7 +995,7 @@ theorem segR {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
             memory := s'.memory.write x.toNat z.toNat
               (fun i => SolarTV.Machine.calldataByte call (y.toNat + i)) } (pc' + 1) M2 g2 st' ss' T m2
           within2 (by omega) hok3 (by omega) (by omega)
-          List.nil_prefix hR'' hseg' (by omega) hsz hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2
+          (KR.nil _) hR'' hseg' (by omega) hsz hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2
           (by show T.gases.length = gasReads s'.world; rw [hc1.1]; exact hTg)
           (by show sent s'.world = 0; rw [hc1.2]; exact hs0) hb2 hrun2
         refine ⟨T2, r, hle2, fun T3 hle => ?_, hpost, fun y hy => ?_⟩
@@ -1118,7 +1118,7 @@ theorem advances_checkCR {p : Assemble.Program} {c : Cert} {mx : List Nat} {code
     obtain ⟨T', r, hle', hex, hpost, hnext⟩ := segR (G0 := msg.gas) G.toGlobT hnc hdata hvalue hstatic hself hcaller
       hbenv htx hb hok hgas (p.blocks[b].length + 1) p.blocks[b] (c.need b) [] (c.entry b)
       (budget c b - labelItems p c b) S Tw s pc1 M m1.gas st ss T0 m1 within1 (Nat.lt_succ_self _)
-      hblock hn (by omega) List.nil_prefix hR hseg1 (by omega) htop hmem R hat1 hTg hs0
+      hblock hn (by omega) (KR.nil _) hR hseg1 (by omega) htop hmem R hat1 hTg hs0
       (by unfold MemBudget; rw [← hat.2.2.2.2.2.1]; omega) hrun1
     refine ⟨T', r, hle', fun T'' h => ?_, fun res hres => hpost res hres, fun y hy => ?_⟩
     · simp only [SolarTV.EVM.Program.block, hblk]

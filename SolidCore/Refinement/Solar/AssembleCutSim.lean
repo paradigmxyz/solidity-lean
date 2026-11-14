@@ -357,7 +357,7 @@ def isCutI (i : Assemble.Instr) : Bool := isGasI i || isMemCutI i
 
 /-- `blockOkL` with GAS: it pushes a data word, for one item of the budget. -/
 def blockOkC (p : Assemble.Program) (c : Cert) (mx : List Nat) (b : Nat) :
-    Nat → List Word → List Ty → Nat → List Assemble.Instr → Bool
+    Nat → Known → List Ty → Nat → List Assemble.Instr → Bool
   | h, _, ty, _, [] => fallOkL p c mx b h ty
   | h, known, ty, k, i :: rest =>
     match turnedElse c b i rest with
@@ -406,15 +406,15 @@ def blockOkC (p : Assemble.Program) (c : Cert) (mx : List Nat) (b : Nat) :
           decide (2 ^ 140 ≤ c.top) && blockOkC p c mx b (h - 3) [] (some false :: ty.drop 4) (k - 1) rest
       else if isCcI i then
         match known with
-        | _ :: off :: _ =>
+        | _ :: some off :: _ =>
           c.calls && c.creates && decide (off.toNat < 2 ^ 32) && decide (1 ≤ k) && decide (3 ≤ h) &&
             isData ty 3 && decide (2 ^ 140 ≤ c.top) && blockOkC p c mx b (h - 3) [] (ty.drop 3) (k - 1) rest
         | _ => false
       else if isCcDup i rest then
         match known with
-        | off :: _ => c.calls && c.creates &&
-          blockStepL p c mx b (fun h _ ty k => blockOkC p c mx b h [0, off] ty k rest) h known ty k i
-        | [] => false
+        | some off :: _ => c.calls && c.creates &&
+          blockStepL p c mx b (fun h _ ty k => blockOkC p c mx b h [some 0, some off] ty k rest) h known ty k i
+        | _ => false
       else blockStepL p c mx b (fun h known ty k => blockOkC p c mx b h known ty k rest) h known ty k i
 
 /-! ## The budget of memory and gas -/
@@ -491,11 +491,11 @@ def SimOutC (p : Assemble.Program) (c : Cert) (mx : List Nat) (code : ByteArray)
     (g Gs : Nat) : CRes → Prop
   | .done r => SimOutB p c mx code call msg ss0 rd st ss b R pc T M g Gs r
   | .cut i rest S' s' => isCutI i = true ∧
-    ∃ (h : Nat) (known : List Word) (ty : List Ty) (k pc' : Nat) (T' : List Word) (M' : ByteArray)
+    ∃ (h : Nat) (known : Known) (ty : List Ty) (k pc' : Nat) (T' : List Word) (M' : ByteArray)
       (g' : Nat) (st' : State.TransactionState) (ss' : Substate),
       HoareG .fusaka (At code msg pc T M g st ss rd) (At code msg pc' T' M' g' st' ss' rd) ∧
       blockOkC p c mx b h known ty k (i :: rest) = true ∧ h ≤ S'.length ∧
-      S'.length + c.need b ≤ h + maxH mx b ∧ known <+: S' ∧ SR c ty S' T' ∧
+      S'.length + c.need b ≤ h + maxH mx b ∧ KR known S' ∧ SR c ty S' T' ∧
       InvL c code call (lowerInstrs p c b (i :: rest) ++
         lowerFrom p c (b + 1) (p.blocks.drop (b + 1))) k R pc' S' s' M' g' ∧
       Rel msg ss0 st' ss' s' ∧ MemBudget Gs M' g'
@@ -516,20 +516,25 @@ theorem SimOutC.pre {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : By
 /-- The check of a CODECOPY reads only the code offset of what it knows of the stack. -/
 theorem blockOkC_cc_known {p : Assemble.Program} {c : Cert} {mx : List Nat} {b h : Nat} {ty : List Ty}
     {k : Nat} {rest : List Assemble.Instr} (x y off : Word) :
-    blockOkC p c mx b h [x, off] ty k (.effect .codecopy 3 :: rest) =
-      blockOkC p c mx b h [y, off] ty k (.effect .codecopy 3 :: rest) := by
+    blockOkC p c mx b h [some x, some off] ty k (.effect .codecopy 3 :: rest) =
+      blockOkC p c mx b h [some y, some off] ty k (.effect .codecopy 3 :: rest) := by
   simp only [blockOkC, turnedElse, dropped, isGasI, isLoadI, isStoreI, isRetI, isRevI, isKecI,
     isLogI, isCdcI, isScI, isRdsI, isRdcI, isCallI, isC2I, isCcI, Bool.false_eq_true, ite_false,
     ite_true]
 
 /-- After a DUP over a known word, that word is second on the stack. -/
 theorem ccDup_prefix {ctx : SolarTV.EVM.Context} {j : Fin 256} {S S' : List Word} {off : Word}
-    {known0 : List Word} (hk : off :: known0 <+: S)
-    (h : SolarTV.EVM.step ctx (.dup j) S = some S') : ∃ x, [x, off] <+: S' := by
-  obtain ⟨t, rfl⟩ := hk
+    {known0 : Known} (hk : KR (some off :: known0) S)
+    (h : SolarTV.EVM.step ctx (.dup j) S = some S') : ∃ x, KR [some x, some off] S' := by
   simp only [SolarTV.EVM.step, Option.map_eq_some_iff] at h
   obtain ⟨v, -, rfl⟩ := h
-  exact ⟨v, known0 ++ t, by simp⟩
+  refine ⟨v, fun i w hw => ?_⟩
+  match i, hw with
+  | 0, hw => simp [kAt] at hw; simp [hw]
+  | 1, hw =>
+    simp [kAt] at hw; subst hw
+    simpa using hk 0 off (by simp [kAt])
+  | i + 2, hw => simp [kAt] at hw
 
 set_option hygiene false in
 /-- The budget after an instruction that leaves memory as it was. -/
@@ -554,11 +559,11 @@ theorem exec_simC {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
     (hbenv : msg.blockEnv = Target.blockEnv) (htx : msg.txEnv = Target.txEnv)
     (he : c.reads = true → EnvOk o)
     (b : Nat) (hb : b < p.blocks.length) (Rv Gs : Nat) (rd : ByteArray) :
-    ∀ (is : List Assemble.Instr) (h : Nat) (known : List Word) (ty : List Ty) (S T : List Word) (k : Nat)
+    ∀ (is : List Assemble.Instr) (h : Nat) (known : Known) (ty : List Ty) (S T : List Word) (k : Nat)
       (s : SolarTV.Machine.State) (pc : Nat) (M : ByteArray) (g : Nat)
       (st : State.TransactionState) (ss : Substate),
       blockOkC p c mx b h known ty k is = true → h ≤ S.length →
-      S.length + c.need b ≤ h + maxH mx b → known <+: S → SR c ty S T →
+      S.length + c.need b ≤ h + maxH mx b → KR known S → SR c ty S T →
       InvL c code call (lowerInstrs p c b is ++ lowerFrom p c (b + 1) (p.blocks.drop (b + 1))) k Rv
         pc S s M g → Rel msg ss0 st ss s → MemBudget Gs M g →
       SimOutC p c mx code call msg ss0 rd st ss b Rv pc T M g Gs (execC o call b is S s)
@@ -674,13 +679,16 @@ theorem exec_simC {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
           split at hDup
           · exact ⟨_, _, rfl, rfl⟩
           · cases hDup
-        rcases known with _ | ⟨off, known0⟩
+        obtain _ | ⟨o, known0⟩ := known
         · simp [blockOkC, hT, hD', hG', hnl, hns, hnr, hnv, hnk, hnlog, hncd, hnsc, hnrds, hnrdc, hncall,
             hnc2, hncc, isCcDup] at hok
-        have e : blockOkC p c mx b h (off :: known0) ty k
+        obtain _ | off := o
+        · simp [blockOkC, hT, hD', hG', hnl, hns, hnr, hnv, hnk, hnlog, hncd, hnsc, hnrds, hnrdc, hncall,
+            hnc2, hncc, isCcDup] at hok
+        have e : blockOkC p c mx b h (some off :: known0) ty k
             (.op (.stack (.dup j)) :: .effect .codecopy 3 :: rest') = (c.calls && c.creates &&
-              blockStepL p c mx b (fun h _ ty k => blockOkC p c mx b h [0, off] ty k
-                (.effect .codecopy 3 :: rest')) h (off :: known0) ty k (.op (.stack (.dup j)))) := by
+              blockStepL p c mx b (fun h _ ty k => blockOkC p c mx b h [some 0, some off] ty k
+                (.effect .codecopy 3 :: rest')) h (some off :: known0) ty k (.op (.stack (.dup j)))) := by
           simp only [blockOkC, hT, hD', hG', hnl, hns, hnr, hnv, hnk, hnlog, hncd, hnsc, hnrds, hnrdc,
             hncall, hnc2, hncc, isCcDup, Bool.or_false, Bool.false_eq_true, ite_false, ite_true]
         rw [e] at hok
@@ -706,7 +714,7 @@ theorem exec_simC {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
         rw [execC_stack hstep (by omega) (by omega), execC_cut (show isMemCutI (.effect .codecopy 3) = true by rfl)]
         refine SimOutC.pre hrule ?_
         obtain ⟨x, hx⟩ := ccDup_prefix hk hstep
-        exact ⟨rfl, h', [x, off], ty', k - 1, _, T', M, g1, st, ss, Triple.of_imp fun _ h => h,
+        exact ⟨rfl, h', [some x, some off], ty', k - 1, _, T', M, g1, st, ss, Triple.of_imp fun _ h => h,
           by rw [blockOkC_cc_known x 0 off]; exact hokn, hh', by omega, hx, hR',
           I'.next hk1 hseg (by omega) (by omega), R, by bud_tac⟩
       have hDup' : isCcDup i rest = false := by simpa using hDup
@@ -734,9 +742,9 @@ theorem exec_simC {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
             have hv : BitVec.ofNat 256 v.toNat = v := by simp
             rw [hv] at hpush
             rw [execC_stack (next := v :: S) rfl (by omega) (by simp; omega)]
-            exact SimOutC.pre hpush (IH (h + 1) (v :: known.take 1) _ (v :: S) (v :: T) (k - 1) s next M g1
+            exact SimOutC.pre hpush (IH (h + 1) (some v :: known) _ (v :: S) (v :: T) (k - 1) s next M g1
               st ss hok'.2 (by simp; omega) (by hu_tac)
-              ((List.prefix_cons_inj v).2 ((List.take_prefix 1 known).trans hk))
+              (hk.cons_some v)
               (SR.cons (τ := some false) rfl hR) (I'.next hok'.1 hseg (by simp) (by omega)) R (by bud_tac))
           · have hne : ∀ v, sop ≠ .push v := fun v he => hpush ⟨v, he⟩
             obtain ⟨hk1, byte, hbyte, h', ty', S', T', hstep, hstepT, hR', hh', hlen', hlock, known', hkn,
@@ -791,7 +799,7 @@ theorem exec_simC {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
           refine SimOutC.pre hrule ?_
           have hreads := fun k : Word => State.TransactionState.recordStorageRead_reads st
             msg.currentTarget msg.currentTarget (U256.toBeBytes x) (U256.toBeBytes k) default
-          refine IH h [] _ _ _ (k - 1) s (pc + 1) M _ _ _ hok (by simp; omega) (by hu_tac) (List.nil_prefix)
+          refine IH h [] _ _ _ (k - 1) s (pc + 1) M _ _ _ hok (by simp; omega) (by hu_tac) ((KR.nil _))
             (SR.cons (τ := some false) rfl (by simpa using hR')) (I'.next hk1 hseg (by simp) (by split <;> omega))
             ⟨fun k => ?_, ?_, R.logs⟩ (by bud_tac)
           · rw [(hreads k).2.1]
@@ -832,7 +840,7 @@ theorem exec_simC {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
             (key := x) (new := v) (rest := T') (gas := g) (by decide) (by decide) hlt hcode hstatic
             rfl (by simp only [CALL_STIPEND]; omega) (by omega) R.account
           refine SimOutC.pre hrule ?_
-          refine IH (h - 2) [] _ S' T' (k - 1) _ (pc + 1) M _ _ _ hok (by omega) (by hu_tac) (List.nil_prefix)
+          refine IH (h - 2) [] _ S' T' (k - 1) _ (pc + 1) M _ _ _ hok (by omega) (by hu_tac) ((KR.nil _))
             hR' ?_ ⟨fun k => ?_, by rw [hacc]; exact R.account, R.logs⟩ (by bud_tac)
           · exact ⟨hseg, by omega, by omega, I'.le_top, I'.mem⟩
           by_cases hk : k = x
@@ -865,8 +873,8 @@ theorem exec_simC {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
             (substate := ss) (returnData := rd) (start := x) (rest := T') (gas := g) hlt hcode
             (by omega)
           rw [hdata, ← calldataWord_eq] at hrule
-          exact SimOutC.pre hrule (IH h [] _ _ _ (k - 1) s (pc + 1) M (g - 3) st ss hok (by simp; omega) (by hu_tac)
-            (List.nil_prefix) (SR.cons (τ := some false) rfl (by simpa using hR')) (I'.next hk1 hseg (by simp) (by omega)) R (by bud_tac))
+          exact SimOutC.pre hrule (IH h _ _ _ _ (k - 1) s (pc + 1) M (g - 3) st ss hok (by simp; omega) (by hu_tac)
+            ((hk.drop 1).cons_none _) (SR.cons (τ := some false) rfl (by simpa using hR')) (I'.next hk1 hseg (by simp) (by omega)) R (by bud_tac))
         · -- CALLDATASIZE.
           rcases ar with _ | ar
           rotate_left
@@ -884,7 +892,7 @@ theorem exec_simC {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
             (by unfold STACK_LIMIT; omega)
           rw [hdata] at hrule
           exact SimOutC.pre hrule (IH (h + 1) [] _ _ _ (k - 1) s (pc + 1) M (g - 2) st ss hok
-            (by simp; omega) (by hu_tac) (List.nil_prefix) (SR.cons (τ := some false) rfl hR) (I'.next hk1 hseg (by simp) (by omega)) R (by bud_tac))
+            (by simp; omega) (by hu_tac) ((KR.nil _)) (SR.cons (τ := some false) rfl hR) (I'.next hk1 hseg (by simp) (by omega)) R (by bud_tac))
         · -- CALLVALUE.
           rcases ar with _ | ar
           rotate_left
@@ -902,7 +910,7 @@ theorem exec_simC {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
             (by unfold STACK_LIMIT; omega)
           rw [hvalue] at hrule
           exact SimOutC.pre hrule (IH (h + 1) [] _ _ _ (k - 1) s (pc + 1) M (g - 2) st ss hok
-            (by simp; omega) (by hu_tac) (List.nil_prefix) (SR.cons (τ := some false) rfl hR) (I'.next hk1 hseg (by simp) (by omega)) R (by bud_tac))
+            (by simp; omega) (by hu_tac) ((KR.nil _)) (SR.cons (τ := some false) rfl hR) (I'.next hk1 hseg (by simp) (by omega)) R (by bud_tac))
         · -- CALLER.
           rcases ar with _ | ar
           rotate_left
@@ -920,8 +928,8 @@ theorem exec_simC {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
             (substate := ss) (returnData := rd) (stack := T) (gas := g) hlt hcode (by omega)
             (by unfold STACK_LIMIT; omega)
           rw [hcaller, ← hoc] at hrule
-          exact SimOutC.pre hrule (IH (h + 1) [] _ _ _ (k - 1) s (pc + 1) M (g - 2) st ss hok
-            (by simp; omega) (by hu_tac) (List.nil_prefix) (SR.cons (τ := some false) rfl hR) (I'.next hk1 hseg (by simp) (by omega)) R (by bud_tac))
+          exact SimOutC.pre hrule (IH (h + 1) _ _ _ _ (k - 1) s (pc + 1) M (g - 2) st ss hok
+            (by simp; omega) (by hu_tac) (hk.cons_none _) (SR.cons (τ := some false) rfl hR) (I'.next hk1 hseg (by simp) (by omega)) R (by bud_tac))
         · -- ADDRESS.
           rcases ar with _ | ar
           rotate_left
@@ -939,10 +947,15 @@ theorem exec_simC {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
             (by unfold STACK_LIMIT; omega)
           rw [hself, address_word] at hrule
           exact SimOutC.pre hrule (IH (h + 1) [] _ _ _ (k - 1) s (pc + 1) M (g - 2) st ss hok
-            (by simp; omega) (by hu_tac) (List.nil_prefix) (SR.cons (τ := some false) rfl hR) (I'.next hk1 hseg (by simp) (by omega)) R (by bud_tac))
+            (by simp; omega) (by hu_tac) ((KR.nil _)) (SR.cons (τ := some false) rfl hR) (I'.next hk1 hseg (by simp) (by omega)) R (by bud_tac))
         · -- LOGn.
-          rcases known with _ | ⟨ow, _ | ⟨sw, known'⟩⟩
+          obtain _ | ⟨o, known'⟩ := known
           · simp [blockStepL] at hok'
+          obtain _ | ow := o
+          · simp [blockStepL] at hok'
+          obtain _ | ⟨o2, known'⟩ := known'
+          · simp [blockStepL] at hok'
+          obtain _ | sw := o2
           · simp [blockStepL] at hok'
           simp only [blockStepL, rangeOk, Bool.and_eq_true, Bool.or_eq_true, decide_eq_true_eq] at hok'
           obtain ⟨⟨⟨⟨⟨⟨⟨hn4, rfl⟩, hk1⟩, hnh⟩, hdat⟩, hin⟩, hlc⟩, hok⟩ := hok'
@@ -972,7 +985,7 @@ theorem exec_simC {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
           have hrule := env_readG (msg := msg) (M := M) (st := st) (ss := ss) (rd := rd) (gas := g)
             (stack := T) hread hlt hcode hbenv htx (by omega) (by unfold STACK_LIMIT; omega)
           exact SimOutC.pre hrule (IH (h + 1) [] _ _ _ (k - 1) s (pc + 1) M (g - 2) st ss hok
-            (by simp; omega) (by hu_tac) (List.nil_prefix) (SR.cons (τ := some false) rfl hR) (I'.next hk1 hseg (by simp) (by omega)) R (by bud_tac))
+            (by simp; omega) (by hu_tac) ((KR.nil _)) (SR.cons (τ := some false) rfl hR) (I'.next hk1 hseg (by simp) (by omega)) R (by bud_tac))
       · -- JUMP.
         simp only [blockStepL, jumpOkL, Bool.and_eq_true, decide_eq_true_eq] at hok'
         obtain ⟨hk2, ⟨⟨⟨⟨htn, htgt⟩, hneed⟩, hty⟩, hcost⟩⟩ := hok'
@@ -1022,7 +1035,7 @@ theorem exec_simC {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
           simp only [execC, List.length_cons, show ¬ S'.length + 1 + 1 > 1024 by omega, ite_false,
             ite_true]
           exact SimOutC.pre (Triple.seq hpush hj) (IH (h - 1) [] _ S' T' (k - 2) s (n1 + 1) M
-            (g1 - 10) st ss hok' (by omega) (by hu_tac) (List.nil_prefix) hR'
+            (g1 - 10) st ss hok' (by omega) (by hu_tac) ((KR.nil _)) hR'
             (I'.next2 hk2 hseg (by simp only [List.length_cons]; omega) (by omega)) R (by bud_tac))
         · have hj := Logic.jumpi_takenG (message := msg) (memory := M) (state := st)
             (substate := ss) (returnData := rd) (destination := BitVec.ofNat 256 (c.offset t))
@@ -1049,7 +1062,7 @@ theorem exec_simC {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
           rw [BitVec.toNat_ofNat]; exact Nat.mod_eq_of_lt (by omega)
         simp only [execC, show ¬ S.length + 1 > 1024 by omega, ite_false]
         exact SimOutC.pre hpush (IH (h + 1) [] _ _ _ (k - 1) s next M g1 st ss hok (by simp; omega) (by hu_tac)
-          (List.nil_prefix) (SR.cons ⟨by rw [htn]; exact hmem', by rw [htn]⟩ hR)
+          ((KR.nil _)) (SR.cons ⟨by rw [htn]; exact hmem', by rw [htn]⟩ hR)
           (I'.next hk1 hseg (by simp) (by omega)) R (by bud_tac))
       · -- A dynamic jump to a return label: a JUMP to the label's offset.
         simp only [blockStepL, Bool.and_eq_true, decide_eq_true_eq, beq_iff_eq,

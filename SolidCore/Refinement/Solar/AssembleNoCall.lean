@@ -304,7 +304,7 @@ theorem jumpOkL_flip (p : Assemble.Program) (c : Cert) (mx : List Nat) (b t h : 
   simp only [jumpOkL, isTarget_flip]; rfl
 
 theorem blockStepL_flip (p : Assemble.Program) (c : Cert) (mx : List Nat) (b : Nat)
-    (ok : Nat → List Word → List Ty → Nat → Bool) :
+    (ok : Nat → Known → List Ty → Nat → Bool) :
     blockStepL p (noCallCert c) mx b ok = blockStepL p c mx b ok := by
   funext h known ty k i
   cases i <;> (try simp only [blockStepL, jumpOkL_flip]) <;> rfl

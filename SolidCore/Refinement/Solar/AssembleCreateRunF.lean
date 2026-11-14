@@ -326,7 +326,7 @@ theorem advances_checkCF {p : Assemble.Program} {c : Cert} {mx : List Nat} {code
       hvalue hstatic hself hcaller hbenv htx hb hok hgas hdepth meets hsites
       (p.blocks[b].length + 1) p.blocks[b] (c.need b) [] (c.entry b)
       (budget c b - labelItems p c b) S Tw s pc1 M m1.gas st ss rd T0.run T0.cre m1 within1
-      (Nat.lt_succ_self _) hblock hn (by omega) List.nil_prefix hR hseg1 (by omega) htop hmem R hat1
+      (Nat.lt_succ_self _) hblock hn (by omega) (KR.nil _) hR hseg1 (by omega) htop hmem R hat1
       hTab hRd' (by unfold MemBudget; rw [← hat.2.2.2.2.2.1]; omega) hrun1
     refine ⟨⟨T', A'⟩, r, ⟨hle', hA'⟩, fun T'' h => ?_, fun res hres => hpost res hres, fun y hy => ?_⟩
     · simp only [SolarTV.EVM.Program.block, hblk]

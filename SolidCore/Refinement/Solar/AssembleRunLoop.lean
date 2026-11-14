@@ -98,7 +98,7 @@ theorem advances_checkL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code 
           ⟨E'.seg, by omega, by omega, E'.le_top, E'.mem⟩⟩
     have hsim := exec_simL (o := o) G.toT hdata hvalue hstatic hself hcaller ho hbenv (fun _ => htx) he b hb 0
       p.blocks[b] (c.need b) [] (c.entry b) S Tw _ s pc1 M g1 st ss hblock hn (by omega)
-      (List.nil_prefix) hR I1 R
+      (KR.nil _) hR I1 R
     have hbl : block o call p (b, S, s) = some (exec o call b p.blocks[b] S s) := by
       simp only [block, hblk]
     refine ⟨T0, exec o call b p.blocks[b] S s, RunTable.Le.refl T0, fun _ _ => hbl, ?_, ?_⟩
