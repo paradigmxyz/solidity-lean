@@ -1,0 +1,35 @@
+{
+  "kind": "open_functional",
+  "contract": "SolidCore.Verify.VC.UniswapV2Pair.contract?",
+  "fuel": "SolidCore.Verify.VC.UniswapV2Pair.fuel",
+  "valid": "SolidCore.Spec.UniswapV2.PairSpec.Valid",
+  "env_ok": "SolidCore.Spec.UniswapV2.PairSpec.EnvOk",
+  "wide": "SolidCore.Spec.UniswapV2.PairSpec.Wide",
+  "admit": "SolidCore.Spec.UniswapV2.PairSpec.Admit",
+  "allowed": "fun _ _ _ => True",
+  "allowed_vacuity": "swap, skim and sync bubble a callee's revert data verbatim (the tokens' balanceOf and the uniswapV2Call callback are high-level calls), so no revert data can be excluded",
+  "spec_export": {
+    "ctx": "SolidCore.Spec.UniswapV2.PairSpec.ctxOf",
+    "step": "SolidCore.Spec.UniswapV2.PairSpec.idStep"
+  },
+  "nonvacuous": "Certified.uniswap_v2_pair.Proofs.nonVacuous",
+  "spec": "solar-verify's UniswapV2Pair spec (crates/verify/uniswap-v2/uniswap-v2.spec, ERC20 and Pair sections, exported with --emit-lean-spec): swap's fee-adjusted constant product, k non-decreasing, some input, outputs below the reserves, supply kept, lock released; skim keeps reserves and supply; sync keeps supply; the inherited ERC20 invariants",
+  "env": [
+    "SolidCore.Spec.UniswapV2.PairSpec.KeccakModel"
+  ],
+  "spec_modules": [
+    "Contracts.UniswapV2.Pair.Core",
+    "Contracts.UniswapV2.PairSpec.Inputs"
+  ],
+  "proof_module": "uniswap_v2_pair.Proofs",
+  "proof": "Certified.uniswap_v2_pair.Proofs.published",
+  "excluded": [
+    "mint and burn: their exported ensures read statement-level ghosts (mintAmount0 = amount0 and the like) whose values depend on the tokens' answers; no world-dependent ghost step is written",
+    "ERC20 functions, permit, initialize, getters: not in the valid calls",
+    "deployment: the init code is not covered; any storage",
+    "reentrancy: a result only a world that changes the pair's storage during an external call explains is Shapes.Unadmitted, outside the specification's guarantee",
+    "resources: no gas bound (callees spend gas)",
+    "source model trusted: SolidCore's checked contract is the meaning of the source (frontend trust boundary)",
+    "calls: caller 0x2000, contract at 0x1000, the block and transaction of Target.message"
+  ]
+}

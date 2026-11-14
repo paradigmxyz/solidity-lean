@@ -1,7 +1,7 @@
 From 641f9597107ce25e0e8fb91eaea300c7a6d2a124 Mon Sep 17 00:00:00 2001
 From: storm pair-spec <pair-spec@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 03:28:44 +0000
-Subject: [PATCH] feat(uniswap-v2): open-world published statement of the
+Subject: [PATCH 1/3] feat(uniswap-v2): open-world published statement of the
  pair's swap, skim and sync
 
 Verify/ShapeOpen.lean states equivalence, termination and the specification with the
@@ -769,6 +769,454 @@ index 0000000..7a91921
 +PY
 +echo "wrote $out/Spec.lean $out/SpecWrongK.lean $out/Bytecode.lean $out/Runtime.lean (${#hex} hex digits)"
 +
+-- 
+2.43.0
+
+
+From 19376af5e1d158b01dd79cbf4e9610319ef933c8 Mon Sep 17 00:00:00 2001
+From: storm pair-spec <pair-spec@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 03:37:06 +0000
+Subject: [PATCH 2/3] fix(uniswap-v2): admit only worlds without reentrant
+ state change to the pair
+
+An open world may answer an external call with any post-world, and SolidCore adopts the
+pair storage it carries, so the specification cannot hold in every open world. Admit now
+requires that answers keep the pair storage (PairFramed); a result of the bytes that only
+a wider world explains is reported as Unadmitted, never as meeting the specification.
+---
+ Contracts/UniswapV2/PairSpec/Published.lean | 12 ++++--
+ Contracts/UniswapV2/PairSpec/Stages.lean    |  4 +-
+ Contracts/UniswapV2/PairSpec/Statement.lean | 28 ++++++++++++--
+ Verify/ShapeOpen.lean                       | 42 ++++++++++++++-------
+ 4 files changed, 63 insertions(+), 23 deletions(-)
+
+diff --git a/Contracts/UniswapV2/PairSpec/Published.lean b/Contracts/UniswapV2/PairSpec/Published.lean
+index 82c9345..89657cf 100644
+--- a/Contracts/UniswapV2/PairSpec/Published.lean
++++ b/Contracts/UniswapV2/PairSpec/Published.lean
+@@ -42,12 +42,16 @@ theorem published_of_stages (hbound : Bound)
+ 
+ /-- **What the statement gives of the bytes**: in every admitted environment, every result of the
+ exact bytecode on a valid call, at any gas below `2 ^ 256`, is allowed and meets the exported
+-specification (for some admitted world), or changes nothing. -/
+-theorem bytecode_of_statement (h : Statement) (hk : KeccakModel) (env : TargetEnv) (he : EnvOk env)
++specification (for some admitted world), or changes nothing, or is explained only by a world
++with a reentrant state change. -/
++theorem bytecode_of_statement {c0 : SolidCore.Solidity.TypeCheck.CheckedContract}
++    (hc0 : SolidCore.Verify.VC.UniswapV2Pair.contract? = .ok c0) (h : Statement) (hk : KeccakModel) (env : TargetEnv) (he : EnvOk env)
+     (gas : Nat) (hg : gas < 2 ^ 256) (call : Call) (hv : Valid call) (obs : Observable)
+     (hrun : Target.runWithIn env gas code call = some obs) :
+-    (∃ W, Admit W ∧ Allowed W call obs ∧ Post W call obs) ∨ Inert call obs := by
+-  obtain ⟨c, -, hf⟩ := h.2 hk
++    (∃ W, Admit W ∧ Allowed W call obs ∧ Post W call obs) ∨ Inert call obs ∨
++      Unadmitted SolidCore.Verify.VC.UniswapV2Pair.fuel c0 Wide Admit call obs := by
++  obtain ⟨c, hc, hf⟩ := h.2 hk
++  obtain rfl : c = c0 := Except.ok.inj (hc.symm.trans hc0)
+   exact hf.bytecode_any env he gas hg call hv obs hrun
+ 
+ end SolidCore.Spec.UniswapV2.PairSpec
+diff --git a/Contracts/UniswapV2/PairSpec/Stages.lean b/Contracts/UniswapV2/PairSpec/Stages.lean
+index a6d218e..361428b 100644
+--- a/Contracts/UniswapV2/PairSpec/Stages.lean
++++ b/Contracts/UniswapV2/PairSpec/Stages.lean
+@@ -24,12 +24,12 @@ open SolarTV SolidCore.Refinement SolidCore.Refinement.Shapes SolidCore.Spec.Uni
+ 
+ /-- Equivalence on the calls `V` of one function: every result of the exact bytes in every admitted
+ environment, at every gas below `2 ^ 256`, is the checked source's in some admitted world, or an
+-inert failure. -/
++inert failure, or explained only by a wide world that is not admitted (`Unadmitted`). -/
+ def EquivOn (c : SolidCore.Solidity.TypeCheck.CheckedContract) (V : Call → Prop) : Prop :=
+   ∀ env, EnvOk env → ∀ gas, gas < 2 ^ 256 → ∀ call, V call → ∀ obs,
+     Target.runWithIn env gas code call = some obs →
+       (∃ W, Admit W ∧ Source.runIn W SolidCore.Verify.VC.UniswapV2Pair.fuel c call = some obs) ∨
+-        Inert call obs
++        Inert call obs ∨ Unadmitted SolidCore.Verify.VC.UniswapV2Pair.fuel c Wide Admit call obs
+ 
+ /-- Termination on the calls `V` of one function, with an allowed status, in every admitted world. -/
+ def TermOn (c : SolidCore.Solidity.TypeCheck.CheckedContract) (V : Call → Prop) : Prop :=
+diff --git a/Contracts/UniswapV2/PairSpec/Statement.lean b/Contracts/UniswapV2/PairSpec/Statement.lean
+index 6cf74fe..968557c 100644
+--- a/Contracts/UniswapV2/PairSpec/Statement.lean
++++ b/Contracts/UniswapV2/PairSpec/Statement.lean
+@@ -21,7 +21,9 @@ The statement is fixed here, from reviewed inputs only (never from a proof modul
+ * the environment: every list of other accounts (`TargetEnv.WF`: the tokens, the factory, a
+   callee, with any code and storage) on the bytecode side, and every admitted open world on the
+   source side (`Admit`: answers every call; return data below `2 ^ 64` bytes; account code at
+-  addresses below `2 ^ 160`);
++  addresses below `2 ^ 160`; no answer changes the pair's storage, `PairFramed`). A result of
++  the bytes that only a world with a reentrant state change explains is `Unadmitted`: reported,
++  outside the specification's guarantee;
+ * the allowed statuses (`Allowed`): every status, since a callee's revert data is bubbled
+   verbatim (declared vacuity of the allowed statuses; the specification constrains successes);
+ * the specification (`Post`): solar-verify's export of crates/verify/uniswap-v2/uniswap-v2.spec
+@@ -98,12 +100,30 @@ def Valid (call : Call) : Prop := ValidSwap call ∨ ValidSkim call ∨ ValidSyn
+ /-- The admitted bytecode environments. -/
+ def EnvOk (env : TargetEnv) : Prop := env.WF
+ 
+-/-- The admitted source worlds. -/
+-def Admit (W : World) : Prop :=
++/-- The source worlds a result of the bytes may be explained by: open worlds (every call
++answered), return data below `2 ^ 64` bytes, account code at addresses below `2 ^ 160`. -/
++def Wide (W : World) : Prop :=
+   W.Open ∧ (∀ p ∈ W.codes.getD [], p.1 < 2 ^ 160) ∧
+     (∀ h world request a, W.ans h (.external world (.call request)) = some a →
+       a.returnData.size < 2 ^ 64)
+ 
++open SolidCore.Solidity.Source in
++/-- The pair's storage in an open world, as SolidCore adopts it after a call (`adoptWorld`). -/
++def selfStorage (w : SolidCore.Solidity.Shared.OpenWorld) : List (Nat × Nat) :=
++  ((w.accounts.find? (wordToAddress selfAddress)).getD default).storage.toList.map
++    fun kv => (u256ToWord kv.1, u256ToWord kv.2)
++
++/-- **No reentrant state change**: every answer to an external call leaves the pair's storage as
++it was sent. A token or callee that calls back into the pair's unlocked ERC20 functions and
++changes its storage during swap, skim or sync is outside the admitted worlds; such a result of the
++bytes is reported as `Unadmitted`, not as meeting the specification. -/
++def PairFramed (W : World) : Prop :=
++  ∀ h world request a, W.ans h (.external world (.call request)) = some a →
++    slotValue (selfStorage a.postWorld) = slotValue (selfStorage world)
++
++/-- The admitted source worlds: the wide ones without reentrant state change. -/
++def Admit (W : World) : Prop := Wide W ∧ PairFramed W
++
+ /-- **The named premise**: keccak256 is injective with images of at least `2 ^ 128` on the
+ mapping slots the specification and the code read (`balanceOf` at slot 1, `nonces` at 4,
+ `allowance` at 2). The keccak-model lane's `KeccakModel` replaces this definition when it lands. -/
+@@ -137,7 +157,7 @@ admitted environment. -/
+ def Statement : Prop :=
+   Bound ∧ (KeccakModel →
+     ∃ c, SolidCore.Verify.VC.UniswapV2Pair.contract? = .ok c ∧
+-      OpenFunctional SolidCore.Verify.VC.UniswapV2Pair.fuel c code EnvOk Admit Valid Allowed Post)
++      OpenFunctional SolidCore.Verify.VC.UniswapV2Pair.fuel c code EnvOk Wide Admit Valid Allowed Post)
+ 
+ /-- The specification rejects something: a valid call with a result the specification rejects in
+ every world. (The allowed statuses reject nothing; see `Allowed`.) -/
+diff --git a/Verify/ShapeOpen.lean b/Verify/ShapeOpen.lean
+index 3cf4cbb..8302c9d 100644
+--- a/Verify/ShapeOpen.lean
++++ b/Verify/ShapeOpen.lean
+@@ -16,7 +16,8 @@ requirement E asks:
+   `Final.Target.runWith` with those accounts added, observing the contract's own logs only.
+ * `OpenFunctional`: equivalence (every result of the exact bytecode in every admitted environment,
+   at every gas below `2 ^ 256`, is SolidCore's result in some admitted open world `W`, or an
+-  inert failure), termination with an allowed status in **every** admitted world (never by choosing
++  inert failure, or a result that only a world outside the admitted ones explains: `Unadmitted`,
++  reported as such), termination with an allowed status in **every** admitted world (never by choosing
+   a terminating oracle), and the specification of every source result in every admitted world.
+   The allowed statuses and the specification may read the world (a ghost step that depends on the
+   answers of the calls).
+@@ -106,47 +107,62 @@ def runWithIn (env : TargetEnv) (gas : Nat) (code : ByteArray) (call : Call) : O
+ 
+ end Target
+ 
+-/-- **Equivalence, termination and the specification in an open world.** -/
++/-- A result outside what the admitted worlds explain: some world of the wide class `Wide` gives it,
++and no admitted world does (such as a run that only a world changing the contract's storage
++during one of its external calls explains). -/
++def Unadmitted (fuel : Nat) (c : SolidCore.Solidity.TypeCheck.CheckedContract)
++    (Wide Admit : World → Prop) (call : Call) (obs : Observable) : Prop :=
++  (∃ W, Wide W ∧ Source.runIn W fuel c call = some obs) ∧
++    ∀ W, Admit W → Source.runIn W fuel c call ≠ some obs
++
++/-- **Equivalence, termination and the specification in an open world.** `Admit` are the worlds
++the specification and termination speak of; a result of the bytes that only a world of the wider
++class `Wide` explains is reported as `Unadmitted`, never as meeting the specification. -/
+ structure OpenFunctional (fuel : Nat) (c : SolidCore.Solidity.TypeCheck.CheckedContract)
+-    (code : ByteArray) (EnvOk : TargetEnv → Prop) (Admit : World → Prop) (Valid : Call → Prop)
++    (code : ByteArray) (EnvOk : TargetEnv → Prop) (Wide Admit : World → Prop) (Valid : Call → Prop)
+     (Allowed Post : World → Call → Observable → Prop) : Prop where
+   inhabited : ∃ call, Valid call
+   equiv : ∀ env, EnvOk env → ∀ gas, gas < 2 ^ 256 → ∀ call, Valid call → ∀ obs,
+     Target.runWithIn env gas code call = some obs →
+-      (∃ W, Admit W ∧ Source.runIn W fuel c call = some obs) ∨ Inert call obs
++      (∃ W, Admit W ∧ Source.runIn W fuel c call = some obs) ∨ Inert call obs ∨
++        Unadmitted fuel c Wide Admit call obs
+   terminates : ∀ W, Admit W → ∀ call, Valid call →
+     ∃ obs, Source.runIn W fuel c call = some obs ∧ Allowed W call obs
+   meets : ∀ W, Admit W → ∀ call, Valid call → ∀ obs,
+     Source.runIn W fuel c call = some obs → Post W call obs
+ 
+ /-- **What the bytecode does in every admitted environment**: every result, at any gas below
+-`2 ^ 256`, is allowed and meets the specification in some admitted world, or changes nothing. -/
++`2 ^ 256`, is allowed and meets the specification in some admitted world, or changes nothing, or
++is explained by no admitted world. -/
+ theorem OpenFunctional.bytecode_any {fuel : Nat} {c : SolidCore.Solidity.TypeCheck.CheckedContract}
+-    {code : ByteArray} {EnvOk : TargetEnv → Prop} {Admit : World → Prop} {Valid : Call → Prop}
++    {code : ByteArray} {EnvOk : TargetEnv → Prop} {Wide Admit : World → Prop} {Valid : Call → Prop}
+     {Allowed Post : World → Call → Observable → Prop}
+-    (h : OpenFunctional fuel c code EnvOk Admit Valid Allowed Post) (env : TargetEnv)
++    (h : OpenFunctional fuel c code EnvOk Wide Admit Valid Allowed Post) (env : TargetEnv)
+     (he : EnvOk env) (gas : Nat) (hg : gas < 2 ^ 256) (call : Call) (hc : Valid call)
+     (obs : Observable) (hrun : Target.runWithIn env gas code call = some obs) :
+-    (∃ W, Admit W ∧ Allowed W call obs ∧ Post W call obs) ∨ Inert call obs := by
+-  rcases h.equiv env he gas hg call hc obs hrun with ⟨W, hW, hs⟩ | e
++    (∃ W, Admit W ∧ Allowed W call obs ∧ Post W call obs) ∨ Inert call obs ∨
++      Unadmitted fuel c Wide Admit call obs := by
++  rcases h.equiv env he gas hg call hc obs hrun with ⟨W, hW, hs⟩ | e | e
+   · obtain ⟨obs', hs', ha⟩ := h.terminates W hW call hc
+     obtain rfl : obs' = obs := Option.some.inj (hs'.symm.trans hs)
+     exact Or.inl ⟨W, hW, ha, h.meets W hW call hc obs' hs'⟩
+-  · exact Or.inr e
++  · exact Or.inr (Or.inl e)
++  · exact Or.inr (Or.inr e)
+ 
+ /-- The obligations compose from their parts: a source total in every admitted world, its
+ specification in every admitted world, and the per-run equivalence of the bytecode. -/
+ theorem OpenFunctional.of_parts {fuel : Nat} {c : SolidCore.Solidity.TypeCheck.CheckedContract}
+-    {code : ByteArray} {EnvOk : TargetEnv → Prop} {Admit : World → Prop} {Valid : Call → Prop}
++    {code : ByteArray} {EnvOk : TargetEnv → Prop} {Wide Admit : World → Prop} {Valid : Call → Prop}
+     {Allowed Post : World → Call → Observable → Prop}
+     (hin : ∃ call, Valid call)
+     (heq : ∀ env, EnvOk env → ∀ gas, gas < 2 ^ 256 → ∀ call, Valid call → ∀ obs,
+       Target.runWithIn env gas code call = some obs →
+-        (∃ W, Admit W ∧ Source.runIn W fuel c call = some obs) ∨ Inert call obs)
++        (∃ W, Admit W ∧ Source.runIn W fuel c call = some obs) ∨ Inert call obs ∨
++          Unadmitted fuel c Wide Admit call obs)
+     (hterm : ∀ W, Admit W → ∀ call, Valid call →
+       ∃ obs, Source.runIn W fuel c call = some obs ∧ Allowed W call obs)
+     (hspec : ∀ W, Admit W → Meets (solidCoreIn W fuel) c Valid (Post W)) :
+-    OpenFunctional fuel c code EnvOk Admit Valid Allowed Post :=
++    OpenFunctional fuel c code EnvOk Wide Admit Valid Allowed Post :=
+   ⟨hin, heq, hterm, fun W hW => hspec W hW⟩
+ 
+ /-- info: 'SolidCore.Refinement.Shapes.OpenFunctional.bytecode_any' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+-- 
+2.43.0
+
+
+From 362b13a837fd34419726be1f5cc9eef302734523 Mon Sep 17 00:00:00 2001
+From: storm pair-spec <pair-spec@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 03:40:53 +0000
+Subject: [PATCH 3/3] refactor(uniswap-v2): move the pair statement inputs to
+ their own module
+
+Inputs.lean holds the valid calls, environments, worlds, premise, allowed statuses, context and
+ghost step, and imports neither the export nor any proof, so a driver-written statement
+(tools/certify/final.py, kind open_functional) can read them as spec modules.
+---
+ Contracts/UniswapV2/PairSpec/Inputs.lean    | 105 ++++++++++++++++++++
+ Contracts/UniswapV2/PairSpec/Statement.lean |  91 +----------------
+ 2 files changed, 106 insertions(+), 90 deletions(-)
+ create mode 100644 Contracts/UniswapV2/PairSpec/Inputs.lean
+
+diff --git a/Contracts/UniswapV2/PairSpec/Inputs.lean b/Contracts/UniswapV2/PairSpec/Inputs.lean
+new file mode 100644
+index 0000000..38bf98d
+--- /dev/null
++++ b/Contracts/UniswapV2/PairSpec/Inputs.lean
+@@ -0,0 +1,105 @@
++import Verify.ShapeOpen
++import Verify.Spec.TreeMapNested
++
++/-!
++# UniswapV2Pair: the reviewed inputs of the published statement
++
++The valid calls, the admitted environments and worlds, the named premise, the allowed statuses
++and the specification's call context and ghost step (Statement.lean says what each means). This
++module imports neither the export nor any proof, so a driver-written statement can import it as a
++spec module (tools/certify/final.py, kind open_functional).
++-/
++
++namespace SolidCore.Spec.UniswapV2.PairSpec
++
++open SolarTV SolidCore.Refinement SolidCore.Refinement.Shapes
++
++/-! ## The calls -/
++
++/-- `swap(uint256,uint256,address,bytes)`. -/
++abbrev swapSel : Nat := 0x022c0d9f
++/-- `skim(address)`. -/
++abbrev skimSel : Nat := 0xbc25cf77
++/-- `sync()`. -/
++abbrev syncSel : Nat := 0xfff6cae9
++
++/-- `n` as a 32-byte big-endian word. -/
++def word (n : Nat) : List Nat := (EthLib.Base.natToBytes 32 n).map (·.toNat)
++
++/-- The call data of `swap(a0, a1, to, data)` as solc's encoder writes it: the head, the offset
++`0x80`, the length and the data padded to whole words. -/
++def swapData (a0 a1 dst : Nat) (data : List Nat) : List Nat :=
++  (EthLib.Base.natToBytes 4 swapSel).map (·.toNat) ++ word a0 ++ word a1 ++ word dst ++ word 0x80 ++
++    word data.length ++ data ++ List.replicate ((32 - data.length % 32) % 32) 0
++
++/-- A call with call data `d` from the storage `σ`, without value. -/
++def mkCall (d : List Nat) (σ : List (Nat × Nat)) : Call :=
++  { calldata := ⟨(d.map UInt8.ofNat).toArray⟩, callvalue := 0, storage := σ }
++
++/-- The valid calls of `swap`. -/
++def ValidSwap (call : Call) : Prop :=
++  ∃ σ a0 a1 dst data, a0 < 2 ^ 256 ∧ a1 < 2 ^ 256 ∧ dst < 2 ^ 160 ∧ data.length < 2 ^ 32 ∧
++    (∀ b ∈ data, b < 256) ∧ call = mkCall (swapData a0 a1 dst data) σ
++
++/-- The valid calls of `skim`. -/
++def ValidSkim (call : Call) : Prop :=
++  ∃ σ dst, dst < 2 ^ 160 ∧ call = mkCall ((EthLib.Base.natToBytes 4 skimSel).map (·.toNat) ++ word dst) σ
++
++/-- The valid calls of `sync`. -/
++def ValidSync (call : Call) : Prop :=
++  ∃ σ, call = mkCall ((EthLib.Base.natToBytes 4 syncSel).map (·.toNat)) σ
++
++/-- The statement's valid calls. -/
++def Valid (call : Call) : Prop := ValidSwap call ∨ ValidSkim call ∨ ValidSync call
++
++/-! ## The environment -/
++
++/-- The admitted bytecode environments. -/
++def EnvOk (env : TargetEnv) : Prop := env.WF
++
++/-- The source worlds a result of the bytes may be explained by: open worlds (every call
++answered), return data below `2 ^ 64` bytes, account code at addresses below `2 ^ 160`. -/
++def Wide (W : World) : Prop :=
++  W.Open ∧ (∀ p ∈ W.codes.getD [], p.1 < 2 ^ 160) ∧
++    (∀ h world request a, W.ans h (.external world (.call request)) = some a →
++      a.returnData.size < 2 ^ 64)
++
++open SolidCore.Solidity.Source in
++/-- The pair's storage in an open world, as SolidCore adopts it after a call (`adoptWorld`). -/
++def selfStorage (w : SolidCore.Solidity.Shared.OpenWorld) : List (Nat × Nat) :=
++  ((w.accounts.find? (wordToAddress selfAddress)).getD default).storage.toList.map
++    fun kv => (u256ToWord kv.1, u256ToWord kv.2)
++
++/-- **No reentrant state change**: every answer to an external call leaves the pair's storage as
++it was sent. A token or callee that calls back into the pair's unlocked ERC20 functions and
++changes its storage during swap, skim or sync is outside the admitted worlds; such a result of the
++bytes is reported as `Unadmitted`, not as meeting the specification. -/
++def PairFramed (W : World) : Prop :=
++  ∀ h world request a, W.ans h (.external world (.call request)) = some a →
++    slotValue (selfStorage a.postWorld) = slotValue (selfStorage world)
++
++/-- The admitted source worlds: the wide ones without reentrant state change. -/
++def Admit (W : World) : Prop := Wide W ∧ PairFramed W
++
++/-- **The named premise**: keccak256 is injective with images of at least `2 ^ 128` on the
++mapping slots the specification and the code read (`balanceOf` at slot 1, `nonces` at 4,
++`allowance` at 2). The keccak-model lane's `KeccakModel` replaces this definition when it lands. -/
++def KeccakModel : Prop := SolidCore.Spec.NestedSlotsSeparated [1, 4] [2]
++
++/-! ## Allowed statuses and the specification -/
++
++/-- **The allowed statuses: every status.** swap, skim and sync bubble a callee's revert data
++verbatim (the tokens' `balanceOf` and the `uniswapV2Call` callback are high-level calls), and an
++admitted world may revert with any data, so no revert data can be excluded: termination is stated
++with any status, and an arbitrary revert is not counted as functional success (`Post` constrains
++successes only). Recorded as the statement's declared vacuity of the allowed statuses. -/
++def Allowed (_W : World) (_call : Call) (_obs : Observable) : Prop := True
++
++/-- The call context of the specification: the statement's caller and contract, its block. -/
++def ctxOf (call : Call) : SolidCore.Spec.Ctx :=
++  { sender := callerAddress, value := call.callvalue, timestamp := 1, self := selfAddress }
++
++/-- swap, skim and sync update no ghost. -/
++def idStep : SolidCore.Spec.GhostStep := fun _ g => g
++
++end SolidCore.Spec.UniswapV2.PairSpec
+diff --git a/Contracts/UniswapV2/PairSpec/Statement.lean b/Contracts/UniswapV2/PairSpec/Statement.lean
+index 968557c..4149a06 100644
+--- a/Contracts/UniswapV2/PairSpec/Statement.lean
++++ b/Contracts/UniswapV2/PairSpec/Statement.lean
+@@ -1,6 +1,5 @@
+-import Verify.ShapeOpen
++import Contracts.UniswapV2.PairSpec.Inputs
+ import Verify.ShapeBundle
+-import Verify.Spec.TreeMapNested
+ import Contracts.UniswapV2.Pair.Core
+ import Contracts.UniswapV2.PairSpec.Spec
+ import Contracts.UniswapV2.PairSpec.Bytecode
+@@ -57,94 +56,6 @@ def code : ByteArray := ⟨(SolarTV.Export.UniswapV2Pair.bytecode.map UInt8.ofNa
+ the export from solar's own output). -/
+ def Bound : Prop := code.data.toList.map (·.toNat) = runtimeBytes
+ 
+-/-! ## The calls -/
+-
+-/-- `swap(uint256,uint256,address,bytes)`. -/
+-abbrev swapSel : Nat := 0x022c0d9f
+-/-- `skim(address)`. -/
+-abbrev skimSel : Nat := 0xbc25cf77
+-/-- `sync()`. -/
+-abbrev syncSel : Nat := 0xfff6cae9
+-
+-/-- `n` as a 32-byte big-endian word. -/
+-def word (n : Nat) : List Nat := (EthLib.Base.natToBytes 32 n).map (·.toNat)
+-
+-/-- The call data of `swap(a0, a1, to, data)` as solc's encoder writes it: the head, the offset
+-`0x80`, the length and the data padded to whole words. -/
+-def swapData (a0 a1 dst : Nat) (data : List Nat) : List Nat :=
+-  (EthLib.Base.natToBytes 4 swapSel).map (·.toNat) ++ word a0 ++ word a1 ++ word dst ++ word 0x80 ++
+-    word data.length ++ data ++ List.replicate ((32 - data.length % 32) % 32) 0
+-
+-/-- A call with call data `d` from the storage `σ`, without value. -/
+-def mkCall (d : List Nat) (σ : List (Nat × Nat)) : Call :=
+-  { calldata := ⟨(d.map UInt8.ofNat).toArray⟩, callvalue := 0, storage := σ }
+-
+-/-- The valid calls of `swap`. -/
+-def ValidSwap (call : Call) : Prop :=
+-  ∃ σ a0 a1 dst data, a0 < 2 ^ 256 ∧ a1 < 2 ^ 256 ∧ dst < 2 ^ 160 ∧ data.length < 2 ^ 32 ∧
+-    (∀ b ∈ data, b < 256) ∧ call = mkCall (swapData a0 a1 dst data) σ
+-
+-/-- The valid calls of `skim`. -/
+-def ValidSkim (call : Call) : Prop :=
+-  ∃ σ dst, dst < 2 ^ 160 ∧ call = mkCall ((EthLib.Base.natToBytes 4 skimSel).map (·.toNat) ++ word dst) σ
+-
+-/-- The valid calls of `sync`. -/
+-def ValidSync (call : Call) : Prop :=
+-  ∃ σ, call = mkCall ((EthLib.Base.natToBytes 4 syncSel).map (·.toNat)) σ
+-
+-/-- The statement's valid calls. -/
+-def Valid (call : Call) : Prop := ValidSwap call ∨ ValidSkim call ∨ ValidSync call
+-
+-/-! ## The environment -/
+-
+-/-- The admitted bytecode environments. -/
+-def EnvOk (env : TargetEnv) : Prop := env.WF
+-
+-/-- The source worlds a result of the bytes may be explained by: open worlds (every call
+-answered), return data below `2 ^ 64` bytes, account code at addresses below `2 ^ 160`. -/
+-def Wide (W : World) : Prop :=
+-  W.Open ∧ (∀ p ∈ W.codes.getD [], p.1 < 2 ^ 160) ∧
+-    (∀ h world request a, W.ans h (.external world (.call request)) = some a →
+-      a.returnData.size < 2 ^ 64)
+-
+-open SolidCore.Solidity.Source in
+-/-- The pair's storage in an open world, as SolidCore adopts it after a call (`adoptWorld`). -/
+-def selfStorage (w : SolidCore.Solidity.Shared.OpenWorld) : List (Nat × Nat) :=
+-  ((w.accounts.find? (wordToAddress selfAddress)).getD default).storage.toList.map
+-    fun kv => (u256ToWord kv.1, u256ToWord kv.2)
+-
+-/-- **No reentrant state change**: every answer to an external call leaves the pair's storage as
+-it was sent. A token or callee that calls back into the pair's unlocked ERC20 functions and
+-changes its storage during swap, skim or sync is outside the admitted worlds; such a result of the
+-bytes is reported as `Unadmitted`, not as meeting the specification. -/
+-def PairFramed (W : World) : Prop :=
+-  ∀ h world request a, W.ans h (.external world (.call request)) = some a →
+-    slotValue (selfStorage a.postWorld) = slotValue (selfStorage world)
+-
+-/-- The admitted source worlds: the wide ones without reentrant state change. -/
+-def Admit (W : World) : Prop := Wide W ∧ PairFramed W
+-
+-/-- **The named premise**: keccak256 is injective with images of at least `2 ^ 128` on the
+-mapping slots the specification and the code read (`balanceOf` at slot 1, `nonces` at 4,
+-`allowance` at 2). The keccak-model lane's `KeccakModel` replaces this definition when it lands. -/
+-def KeccakModel : Prop := SolidCore.Spec.NestedSlotsSeparated [1, 4] [2]
+-
+-/-! ## Allowed statuses and the specification -/
+-
+-/-- **The allowed statuses: every status.** swap, skim and sync bubble a callee's revert data
+-verbatim (the tokens' `balanceOf` and the `uniswapV2Call` callback are high-level calls), and an
+-admitted world may revert with any data, so no revert data can be excluded: termination is stated
+-with any status, and an arbitrary revert is not counted as functional success (`Post` constrains
+-successes only). Recorded as the statement's declared vacuity of the allowed statuses. -/
+-def Allowed (_W : World) (_call : Call) (_obs : Observable) : Prop := True
+-
+-/-- The call context of the specification: the statement's caller and contract, its block. -/
+-def ctxOf (call : Call) : SolidCore.Spec.Ctx :=
+-  { sender := callerAddress, value := call.callvalue, timestamp := 1, self := selfAddress }
+-
+-/-- swap, skim and sync update no ghost. -/
+-def idStep : SolidCore.Spec.GhostStep := fun _ g => g
+-
+ /-- **The specification**: solar-verify's export, as a postcondition of one call. -/
+ def Post (_W : World) : Call → Observable → Prop :=
+   bundlePost SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair ctxOf idStep
 -- 
 2.43.0
 

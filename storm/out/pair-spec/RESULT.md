@@ -8,8 +8,10 @@ native_decide, bv_decide or ofReduceBool.
 
 ## Files
 
-- `sl-pair-spec.patch`: git am onto solidity-lean storm/base (d54dabf). One commit.
-- `solar-pair-spec.patch`: git am onto solar storm/solar-sq (237518e9e). One commit.
+- `sl-pair-spec.patch`: git am onto solidity-lean storm/base (d54dabf). Three commits (641f959 statement, 19376af reentrancy admission, 362b13a inputs module).
+- `solar-pair-spec.patch`: git am onto solar storm/solar-sq (237518e9e). Two commits (62b2e8681 dynamic params in --emit-lean-spec, b6459dce9 final.py kind `open_functional`).
+- `driver/shape.json`, `driver/Proofs.lean`: certify driver input for the pair (kind `open_functional`); `final.py` renders `Statement.lean` from it and `Proofs.lean` proves the driver's NonVacuous from `PairSpec.nonVacuous` (builds). `proof` names `published`, which does not exist until the stage theorems land, so check_final is not run.
+- `evidence/PairRun.t.sol`: forge test on the compiled runtime (untrusted evidence, not part of any proof). Reads `pair.hex` / `pair-noupdate.hex` (not committed: compile output of the GPL sources).
 
 ## What is proved (solidity-lean, `lake build ContractsUniswapV2PairSpec`)
 
@@ -31,6 +33,7 @@ OpenFunctional fuel c code EnvOk Admit Valid Allowed Post)`
 
 - bytes: `code` = the `-Zemit-lean-stages` export, bound by exact equality to the plain compile's bytes (`-Ogas --evm-version osaka`).
 - valid calls: `swap(a0, a1, dst, data)` with data ABI-encoded at offset 0x80 (any data < 2^32 bytes, so the callback path is in scope), `skim(dst)`, `sync()`; clean words, no value, any storage.
+- admission: `Admit W := Wide W ∧ PairFramed W` `PairFramed` excludes worlds whose answers change the pair's own storage (SolidCore's `adoptWorld` would otherwise let a callee rewrite reserves); runs only explainable by such a reentrant world fall to `Unadmitted` and are reported, not hidden. The framework fixes the caller at 0x2000, so full reentrancy (a token calling back into the pair's ERC20 functions) is not modeled yet.
 - environment (requirement E): bytecode runs among any well-formed list of other accounts with any code/storage (`Target.runWithIn`, own logs only); source runs in every admitted open world (`World.Open`, return data < 2^64, codes < 2^160). Termination and spec are ∀ admitted worlds; equivalence picks a world per run (∃) — causal consistency of that world with the environment's code is not stated.
 - allowed statuses: every status (declared vacuity): swap/skim/sync bubble callee revert data verbatim, so no revert data can be excluded; the spec constrains successes only.
 - spec: `Shapes.bundlePost` of solar-verify's export (`SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair`) with identity ghost step; ERC20 invariants assumed before, required after.
@@ -77,6 +80,17 @@ LEAN_NUM_THREADS=1 lake build -KleanMemory=5000 ContractsUniswapV2PairSpec
 
 1. Spec connection `swap_holds`/`skim_holds`/`sync_holds` in the open world.
 2. World-dependent ghost step for mint/burn, then add them to `Valid`.
-3. final.py/check_final support for an open-world kind (statement here is already a standalone module that imports no proof module).
-4. Bytecode-level evidence that the mutants' observables arise (negatives are formula-level).
+3. check_final for kind `open_functional` (final.py renders it; check_final not extended).
+4. Lean-level evidence that the mutants' observables arise from bytes (negatives are formula-level; forge evidence below).
+
+## Evidence (forge, untrusted)
+
+`evidence/PairRun.t.sol`, runtime etched at a fixed address with two minimal ERC20 tokens, all 4 tests pass:
+- real bytes: swap(0, 906) from reserves 10000/10000 after 1000 token0 in succeeds, reserves 11000/9094; swap(0, 907) reverts (K).
+- mutant without swap's _update (`pair-noupdate.hex`): swap(0, 906) succeeds with reserves left at 10000/10000, the observable `noUpdate_rejected` rejects.
+- closed world (token addresses without code): swap, skim and sync all revert, which is why a closed-world statement is vacuous.
+
+## Kernel VC discharge of solar-verify's model (separate from the statement)
+
+`Contracts/UniswapV2/VC/discharge.sh <solar> <solar-verify> <out> Pair` with `DISCHARGE_BACKENDS='smt=vc_smt;vc_valid=vc_valid@90'`: in progress at this push (exported so far: initialize 5, _update 4, mint 14 obligations). These discharge solar-verify's VCs of its own model of the source, not the source-to-bytes or spec connection.
 
