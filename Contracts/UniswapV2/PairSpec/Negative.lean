@@ -148,4 +148,14 @@ def srcRun (c? : Except TypeCheck.TypeError TypeCheck.CheckedContract) (w : Worl
 -- Mutant source: the same.
 #guard feat (srcRun contractSkimUpdate? (W 11000 10500) skimCall) = some (true, 11000, 10500, 1)
 
+/-! ## sync (evaluated): the real code moves the reserves, which the spec does not require -/
+
+-- The exact bytes: sync sets the reserves to the balances 11000/9094.
+#guard feat (Target.runWithIn (env 11000 9094) 10000000 code syncCallσ) = some (true, 11000, 9094, 1)
+-- The checked source: the same.
+#guard feat (srcRun SolidCore.Verify.VC.UniswapV2Pair.contract? (W 11000 9094) syncCallσ) =
+  some (true, 11000, 9094, 1)
+-- The observable syncNoop_accepted proves the spec accepts differs: reserves 10000/10000.
+#guard feat (some syncNoop) = some (true, 10000, 10000, 1)
+
 end SolidCore.Spec.UniswapV2.PairSpec.Negative

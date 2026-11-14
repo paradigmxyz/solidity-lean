@@ -219,4 +219,38 @@ theorem skimUpdate_refused (hk : PairAllowanceApart) (W : World) (obs : Observab
 #guard_msgs (whitespace := lax) in
 #print axioms skimUpdate_refused
 
+/-- `sync()` from the storage `σ`. -/
+def syncCallσ : Call := mkCall ((EthLib.Base.natToBytes 4 syncSel).map (·.toNat)) σ
+
+/-- A sync that changes nothing: success, no output, the storage as it was (reserves 10000/10000
+while the tokens hold other balances). -/
+def syncNoop : Observable := { success := true, output := [], logs := [], storage := slotValue σ }
+
+set_option maxRecDepth 100000 in
+/-- **A spec gap, proved**: the published specification accepts a sync that does not update the
+reserves. sync's exported ensures are only that the supply and the lock are kept; the reserve
+postcondition is `_update`'s, which is private and not among the exported function specs. So a
+mutant sync without `_update` cannot be refused by this specification. -/
+theorem syncNoop_accepted (W : World) : Post W syncCallσ syncNoop := by
+  intro fs hfs args pre hpre
+  obtain ⟨⟨_, hsel, _⟩, hst, -, -, hinv⟩ := hpre
+  simp only [SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair, List.mem_cons, List.not_mem_nil,
+    or_false] at hfs
+  rcases hfs with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+  all_goals try exact absurd hsel (by decide +kernel)
+  obtain ⟨st, gh, tm⟩ := pre
+  simp only at hst
+  subst hst
+  have hσ : syncCallσ.storage = σ := rfl
+  rw [hσ] at hinv ⊢
+  refine ⟨fun _ => ⟨[], by decide, ?_, ?_⟩, fun h => absurd rfl h⟩
+  · simp [Bundle.satAll, Bundle.sat, SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair, eval,
+      BinOp.apply, mkEnv, Env.cur, slotOf, Ty.ofBits, toWord, syncNoop, idStep, wordMod, slotValue, σ]
+  · simpa [Bundle.satAll, Bundle.sat, SolidCore.Spec.Export.UniswapV2Pair.UniswapV2Pair, eval,
+      BinOp.apply, mkEnv, Env.cur, slotOf, Ty.ofBits, toWord, syncNoop, idStep, Env.bind, evalList] using hinv
+
+/-- info: 'SolidCore.Spec.UniswapV2.PairSpec.Negative.syncNoop_accepted' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs (whitespace := lax) in
+#print axioms syncNoop_accepted
+
 end SolidCore.Spec.UniswapV2.PairSpec.Negative

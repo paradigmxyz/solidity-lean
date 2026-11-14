@@ -89,3 +89,7 @@ evaluated runs of Negative.lean (`#guard`) are not theorems and are not listed.
 /-- info: 'SolidCore.Spec.UniswapV2.PairSpec.Negative.skimUpdate_refused' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs (whitespace := lax) in
 #print axioms SolidCore.Spec.UniswapV2.PairSpec.Negative.skimUpdate_refused
+
+/-- info: 'SolidCore.Spec.UniswapV2.PairSpec.Negative.syncNoop_accepted' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs (whitespace := lax) in
+#print axioms SolidCore.Spec.UniswapV2.PairSpec.Negative.syncNoop_accepted
