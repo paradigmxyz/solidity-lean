@@ -1,0 +1,92 @@
+ok   unpinned-checkout: is at 3a2204f5fd8fca659a74888ededb2792e623f51a, not the pinned 9fb89ee6c4fe68623f033aa9b702714c19e38506
+ok   ci-unpinned: CERTIFY_ALLOW_UNPINNED is refused in CI
+ok   ci-foreign-solar: CERTIFY_ALLOW_FOREIGN_SOLAR is refused in CI
+ok   bad-name: is not lowercase letters
+ok   no-source: no such file
+skip foreign-solar: /home/hand/wt697/target/debug/solar is built from this checkout
+ok   two-contracts: no single contract with runtime code
+ok   no-such-contract: has no contract Nope
+ok   bytecode-pin: the bytecode is not the pinned Examples/counter/bytecode.hex
+ok   not-compiling: solar does not compile
+ok   options-empty-line: is not one word of visible characters
+ok   options-trailing-space: 'osaka\ ' is not one word of visible characters
+ok   options-crlf: is not one word of visible characters
+ok   options-empty-file: no solar options
+ok   options-driver-flag: emit=asm is set by the driver
+ok   options-second-source: extra.sol names a file
+ok   options-stray-value: osaka is neither a flag nor the value of one
+ok   options-empty-word: '' is not one word
+ok   loops-malformed: Examples/counter/loops is not a number
+ok   bytecode-pin-empty: the pinned Examples/counter/bytecode.hex is empty
+ok   solar-nonzero-after-output: solar does not compile Examples/counter/counter.sol (exit 1)
+ok   solar-truncated-json: cannot read solar's output for Examples/counter/counter.sol as its JSON
+ok   bytecode-missing: has no runtime bytecode (bin-runtime) for
+ok   bytecode-null: has no runtime bytecode (bin-runtime) for
+ok   bytecode-empty: the runtime bytecode solar emits for Counter is empty
+ok   bytecode-odd-length: is not hex bytes: '608'
+ok   bytecode-0x-prefix: is not hex bytes: '0x6080'
+ok   exporter-nonzero-after-output: the exporter rejects Counter (exit 3
+ok   exporter-bytecode-missing: the export of Counter has no runtime bytecode
+ok   legacy-mapfile-hides-status: mapfile < <(producer) read 2 lines of a producer that exits 3 and went on
+ok   capture-nonzero-after-output: the producer fails (exit 3)
+ok   capture-set-e-inside: the producer fails (exit 1)
+ok   capture-pipe-inside: the producer fails (exit 1)
+ok   capture-killed: the producer fails (exit 137)
+ok   capture-nonempty-empty: the producer prints nothing
+ok   capture-ok: captured 2 lines: a b
+ok   entries-unreadable: the entries fails (exit 2)
+ok   tree-diff-crash: clean_tree fails (exit 2)
+ok   tree-diff-silent-exit-1: exit 1 with no difference listed
+ok   clean-tree-not-a-checkout: clean_tree.py on a directory that is not a checkout fails (exit 2)
+ok   final-record-whole: record accepted
+ok   final-record-missing: no record
+ok   final-record-empty: final-empty.json is empty
+ok   final-record-truncated: final-cut.json is not JSON
+ok   final-record-incomplete: lacks theorem, strongest
+ok   final-record-no-status: has no status resources
+ok   run-record-missing: the run's record /tmp/tmp.DdCFp4hPVh/no-record.json is missing or malformed
+ok   verify-nonzero-after-output: solar-verify fails on /tmp/tmp.DdCFp4hPVh/counter.sol (exit 3)
+ok   verify-no-summary: solar-verify exits 1 without its summary line
+ok   verify-status-contradicts: solar-verify exits 1 but reports 0 errors
+ok   vc-export-truncated: does not end with a newline: it is truncated
+ok   vc-export-cut-at-a-line: does not end with 'end T.Counter' (its last line is 'def transcript : String := "(check-sat)\\n"'): it is truncated
+ok   vc-export-whole: is whole (17 lines, ends with end T.Counter)
+ok   replay-accounted: kernel replay: 3 of 3 modules of the closure outside the trusted directories replayed by leanchecker in this run; 2 trusted by directory (package:/tmp/tmp.DdCFp4hPVh/replay/mathlib: 1, toolchain: 1); 0 unaccounted; closure 5 = 3 + 2
+ok   replay-include-trusted: kernel replay: 5 of 5 modules of the closure outside the trusted directories replayed by leanchecker in this run; 0 trusted by directory (none); 0 unaccounted; closure 5 = 5 + 0
+ok   replay-module-missing: 1 of 3 modules of the closure were not replayed by leanchecker in this run: counter.Shape
+ok   replay-checker-silent: 3 of 3 modules of the closure were not replayed
+ok   replay-checker-nonzero-after-output: leanchecker exits 1: the kernel replay of the closure fails
+ok   replay-trusted-outside-roots: unaccounted for: counter.Shape (/tmp/tmp.DdCFp4hPVh/replay/pkg/.lake/build/lib/lean/counter/Shape.olean) is marked trusted but is under no trusted directory
+ok   replay-root-not-the-packages: unaccounted for: Evil.X
+ok   replay-malformed-line: malformed closure line
+ok   replay-duplicate-module: module counter.Shape is listed twice
+ok   replay-empty-closure: lists no module of the closure
+ok   replay-final-missing: the closure has no module counter.Final
+ok   replay-olean-missing: the olean of counter.Shape at /tmp/tmp.DdCFp4hPVh/replay/pkg/.lake/build/lib/lean/counter/Gone.olean does not exist
+ok   replay-toolchain-checker: kernel replay: 3 of 3
+ok   replay-planted-checker: the replay ran /tmp/tmp.DdCFp4hPVh/replay/pkg/.lake/build/bin/leanchecker (... not the toolchain's leanchecker
+ok   replay-olean-changed: oleans of the closure changed since they were planned: counter.Shape
+ok   audit-axiom: axioms beyond propext, Classical.choice and Quot.sound: certify_bad
+ok   audit-native-decide: axioms beyond propext, Classical.choice and Quot.sound: uses_native._native.native_decide.ax_1_1
+ok   audit-sorry: axioms beyond propext, Classical.choice and Quot.sound: sorryAx
+ok   audit-missing: does not check
+ok   audit-clean: clean and good pass
+ok   scan-bad: the axiom, native_decide and sorry lines are flagged
+ok   scan-good: Good.lean passes the scan
+ok   lean-replay-accounted: closure: 654 modules, 654 to replay, 0 trusted by directory; kernel replay: 654 of 654 modules of the closure outside the trusted directories replayed by leanchecker in this run; 0 trusted by directory (none); 0 unaccounted; closure 654 = 654 + 0
+ok   lean-replay-other-module: 654 of 654 modules of the closure were not replayed
+ok   spec-counter: exported, nothing refused
+ok   spec-nested-supported: exported, C.f translated, nothing refused (is whole (132 lines, ends with end T.Nested))
+ok   spec-refused-function: C.f: undeclared symbol: |m@21|
+ok   spec-refused-whole: /tmp/tmp.DdCFp4hPVh/structmap.sol (every function): command outside the Lean fragment: (declare-datatypes ((|S.S| 0)) ((
+ok   vc-export-real: whole passes, half of it fails: does not end with a newline: it is truncated
+ok   spec-export-whole: export: /tmp/tmp.DdCFp4hPVh/Spec.lean is whole (48 lines, ends with end T.Counter.Spec)
+ok   spec-export-truncated: it is truncated
+ok   spec-export-no-end: does not end with 'end T.Counter.Spec'
+ok   spec-export-empty: Spec-empty.lean is empty
+ok   spec-export-missing: the spec export is missing
+ok   spec-export-stale-source: is of a source with SHA-256 2b94af37f654079986183efe0e172cab71445bc30b88f7f1e38a0100490ea427, not
+ok   spec-export-other-contract: has no Bundle Token
+certify driver tests: all passed
+RECEIPT {"command": ["nice", "tools/certify/test.sh"], "exit_code": 0, "wall_seconds": 197.1, "max_rss_one_process_mib": 1941, "peak_tree_rss_mib": 1595, "peak_system_used_mib": 3352, "mem_total_mib": 14531, "started_utc": "2026-11-14T18:39:22Z"}
+EXIT 0

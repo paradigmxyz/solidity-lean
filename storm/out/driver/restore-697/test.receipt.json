@@ -1,0 +1,13 @@
+{
+  "command": [
+    "nice",
+    "tools/certify/test.sh"
+  ],
+  "exit_code": 0,
+  "wall_seconds": 197.1,
+  "max_rss_one_process_mib": 1941,
+  "peak_tree_rss_mib": 1595,
+  "peak_system_used_mib": 3352,
+  "mem_total_mib": 14531,
+  "started_utc": "2026-11-14T18:39:22Z"
+}
