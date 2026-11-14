@@ -35,7 +35,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .cache
-          key: refinement-tools-${{ hashFiles('scripts/refinement/solar-rev', 'scripts/verify/uniswap_v2_spec-solar-rev', 'scripts/refinement/gen.sh', 'scripts/refinement/prove-rev', 'scripts/refinement/facts.sh') }}
+          key: refinement-tools-${{ hashFiles('scripts/refinement/solar-rev', 'scripts/verify/uniswap_v2_spec-solar-rev', 'scripts/verify/uniswap_v2_stages-solar-rev', 'scripts/refinement/gen.sh', 'scripts/refinement/prove-rev', 'scripts/refinement/facts.sh') }}
 
       # Restored here and saved after the builds even when one fails or the runner stops, so a
       # later run resumes where this one got to (the native objects of Mathlib and EthLib, which
@@ -101,6 +101,18 @@ jobs:
           fi
           SOLAR_DIR="$dir" SOLAR_VERIFY="$dir/target/release/solar-verify" scripts/verify/uniswap_v2_spec.sh
           lake build -KleanMemory=6000 ContractsUniswapV2ERC20Spec
+
+      # UniswapV2ERC20.transfer's slice (docs/CERTIFICATION_TARGET.md): the source stage (E3), the
+      # backend stages for transfer's calls (E4), the bytes and gas certificates (E5, E8). The stages
+      # and certificates are compiled from the port by solar at the commit pinned in
+      # scripts/verify/uniswap_v2_stages-solar-rev, with its tools/certify, and checked here; they are
+      # not committed (the port is GPL-3.0). Every module is checked within 6 GB.
+      - name: Generate and check UniswapV2ERC20.transfer's slice
+        env:
+          LEAN_NUM_THREADS: "2"
+        run: |
+          scripts/verify/uniswap_v2_stages.sh
+          lake build -KleanMemory=6000 uv2_erc20 ContractsUniswapV2ERC20SourceMir
 
       - name: Build SolidCore's refinement milestones
         env:
