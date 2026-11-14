@@ -1,0 +1,16 @@
+/home/hand/w/logs/a_all2.run2.log:error: Certified/uv2_pair_m/Proofs/Runs/Mir1/Seg1.lean:88:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (8000000) has been reached
+/home/hand/w/logs/a_all2.run2.log:error: Certified/uv2_pair_m/Proofs/Runs/Mir1/Seg1.lean:158:8: (kernel) unknown constant 'SolarTV.Milestone.Uv2PairM.mir1_seg24'
+/home/hand/w/logs/evm.log:✔ [28/35] Built uv2_pair_m.Proofs.Runs.Evm1.Seg3 (44s)
+/home/hand/w/logs/evm.log:✔ [29/35] Built uv2_pair_m.Proofs.Runs.Evm1.Seg4 (97s)
+/home/hand/w/logs/evm.log:✔ [30/35] Built uv2_pair_m.Proofs.Runs.Evm1.Seg1 (260s)
+/home/hand/w/logs/evm.log:✔ [31/35] Built uv2_pair_m.Proofs.Runs.Evm1.Seg2 (457s)
+/home/hand/w/logs/evm.log:✔ [32/39] Built uv2_pair_m.Proofs.Runs.Evm1.Seg5 (43s)
+/home/hand/w/logs/evm.log:⚠ [34/43] Built uv2_pair_m.Proofs.Runs.Evm2.Defs (4.4s)
+/home/hand/w/logs/evm.log:error: Certified/uv2_pair_m/Proofs/Runs/Evm1/Seg0.lean:53:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (8000000) has been reached
+/home/hand/w/logs/evm.log:error: Certified/uv2_pair_m/Proofs/Runs/Evm1/Seg0.lean:186:8: (kernel) unknown constant 'SolarTV.Milestone.Uv2PairM.evm1_seg1'
+/home/hand/w/logs/evm.log:✔ [36/43] Built uv2_pair_m.Proofs.Runs.Evm2.Seg2 (681s)
+/home/hand/w/logs/evm.log:✔ [37/43] Built uv2_pair_m.Proofs.Runs.Evm2.Seg1 (319s)
+/home/hand/w/logs/evm.log:✔ [39/43] Built uv2_pair_m.Proofs.Runs.Evm2.Seg3 (45s)
+/home/hand/w/logs/evm.log:✔ [40/47] Built uv2_pair_m.Proofs.Runs.Evm2.Seg0 (149s)
+/home/hand/w/logs/evm.log:⚠ [42/49] Built uv2_pair_m.Proofs.Runs.Evm3.Defs (3.8s)
+/home/hand/w/logs/evm.log:✔ [43/51] Built uv2_pair_m.Proofs.Runs.Evm2.Seg4 (184s)
