@@ -1,0 +1,82 @@
+From 96c96bd75781d7edc0b10f7916a5eda768428156 Mon Sep 17 00:00:00 2001
+From: Troy Sargent <0xalpharush@protonmail.com>
+Date: Sat, 14 Nov 2026 14:02:35 +0000
+Subject: [PATCH 2/3] fix(tv): only left-literal boolean dsimprocs in sym_seg
+
+boolLit and boolAndLit claimed a || false = a and a && true = a as
+definitional, which hold only by cases on a: the kernel rejected the
+segment proofs whose cut tests reduced that way. They now reduce only
+a literal left operand, and seg_cut_test rewrites the rest with the
+Bool lemmas.
+---
+ lakefile.lean            |  3 +++
+ tv/W1Proofs/Segment.lean | 27 ++++++++++++++-------------
+ 2 files changed, 17 insertions(+), 13 deletions(-)
+
+diff --git a/lakefile.lean b/lakefile.lean
+index c9a5083..afb3f8a 100644
+--- a/lakefile.lean
++++ b/lakefile.lean
+@@ -530,5 +530,8 @@ lean_lib «cs_scope» where
+ -- committed: v2-core is GPL-3.0).
+ lean_lib «uv2_pair_mb» where
+   srcDir := "Certified"
++  -- One elaboration thread per Lean process, so that a parallel build's processes stay within
++  -- memory (LEAN_NUM_THREADS also limits lake's own job count).
++  weakLeanArgs := #["--threads=1"]
+   roots := #[`uv2_pair_mb.Proofs]
+   globs := #[.submodules `uv2_pair_mb]
+diff --git a/tv/W1Proofs/Segment.lean b/tv/W1Proofs/Segment.lean
+index 27be861..11ec23b 100644
+--- a/tv/W1Proofs/Segment.lean
++++ b/tv/W1Proofs/Segment.lean
+@@ -60,24 +60,25 @@ dsimproc_decl finValLit (Fin.val _) := fun e => do
+   return .done (toExpr (k % n))
+ 
+ open Lean Meta Simp in
+-/-- `||` and `&&` of a literal, as a cut test of a known block leaves them. -/
++/-- `||` of a literal on the left, as a cut test of a known block leaves it. Only the left
++operand: `||` matches on it, so `true || b` is `true` and `false || b` is `b` by evaluation,
++while `a || false = a` holds only by cases on `a`, which `dsimp` must not claim (the kernel
++rejects the term); `seg_cut_test` rewrites those with `Bool.or_false` and `Bool.or_true`. -/
+ dsimproc_decl boolLit (_ || _) := fun e => do
+   let_expr or a b := e | return .continue
+-  match a.constName?, b.constName? with
+-  | some ``true, _ | _, some ``true => return .done (mkConst ``true)
+-  | some ``false, _ => return .done b
+-  | _, some ``false => return .done a
+-  | _, _ => return .continue
++  match a.constName? with
++  | some ``true => return .done (mkConst ``true)
++  | some ``false => return .done b
++  | _ => return .continue
+ 
+ open Lean Meta Simp in
+-/-- `&&` of a literal. -/
++/-- `&&` of a literal on the left, for the same reason as `boolLit`. -/
+ dsimproc_decl boolAndLit (_ && _) := fun e => do
+   let_expr and a b := e | return .continue
+-  match a.constName?, b.constName? with
+-  | some ``false, _ | _, some ``false => return .done (mkConst ``false)
+-  | some ``true, _ => return .done b
+-  | _, some ``true => return .done a
+-  | _, _ => return .continue
++  match a.constName? with
++  | some ``false => return .done (mkConst ``false)
++  | some ``true => return .done b
++  | _ => return .continue
+ 
+ open Lean Meta Simp in
+ /-- A conditional on two numerals being equal, as a MIR value lookup leaves it (`Env.set`
+@@ -129,7 +130,7 @@ macro "seg_cut_test" : tactic => `(tactic|
+   simp only [ite_beq, Nat.reduceBEq, BitVec.reduceEq, BitVec.reduceNe, ite_self, Bool.false_eq_true,
+     evm_lt_zero_left, state_initial_eta,
+     ↓reduceIte, Mem.load_store_of_disjoint, Mem.load_store_same, Mem.load_expand, Nat.reduceAdd,
+-    Nat.reduceLeDiff, true_or, or_true])
++    Nat.reduceLeDiff, true_or, or_true, Bool.or_false, Bool.or_true, Bool.and_true, Bool.and_false])
+ 
+ syntax "seg_norm" "[" Lean.Parser.Tactic.simpLemma,* "]" : tactic
+ macro_rules
+-- 
+2.43.0
+

@@ -1,0 +1,261 @@
+From bbe87baeef01bd8151b3a875f36000a08bd358b4 Mon Sep 17 00:00:00 2001
+From: Troy Sargent <0xalpharush@protonmail.com>
+Date: Sat, 14 Nov 2026 05:23:02 +0000
+Subject: [PATCH 2/3] feat(certify): prune scoped cut points to kept code
+
+With external functions excluded, join points are cut only in the
+functions the kept calls reach, and the EVM IR configuration graph
+does not enter blocks only excluded functions run. Join relations pair
+the edges a pass keeps (or the new block a split predecessor reaches)
+instead of every predecessor pair, values a pass rematerializes from
+calldata are related through the word they read, and segment proofs
+let dsimp rewrite instances so the kernel accepts their terms.
+---
+ solar-tv/milestone/cutpoints.py | 160 +++++++++++++++++++++++++++++++-
+ tools/certify/certify.py        |   8 ++
+ 2 files changed, 164 insertions(+), 4 deletions(-)
+
+diff --git a/solar-tv/milestone/cutpoints.py b/solar-tv/milestone/cutpoints.py
+index 1bac83431..9a1756905 100644
+--- a/solar-tv/milestone/cutpoints.py
++++ b/solar-tv/milestone/cutpoints.py
+@@ -413,7 +413,7 @@ def evm_states(pass_name, blocks, limit=50000):
+             stack = [None] * push + stack
+         if not end:
+             out.append((idx + 1, tuple(stack)))
+-        out = [s for s in out if s[0] < len(blocks)]
++        out = [s for s in out if s[0] < len(blocks) and blocks[s[0]][0] not in EXCLUDED_BLOCKS]
+         edges[state] = out
+         for s in out:
+             if s not in edges:
+@@ -426,6 +426,52 @@ def evm_states(pass_name, blocks, limit=50000):
+     return edges
+ 
+ 
++def excluded_evm_blocks(funcs, sched_blocks, schedule):
++    """The scheduled EVM IR blocks (compiler numbers) that only external functions EXCLUDED_NAMES
++    leaves out reach: those reachable from their entries but from no other function's, where a
++    block reaches its jumps' targets, the next block and the labels it pushes (the places its
++    calls return to). A later pass keeps a block's number, so the set carries over; a block a
++    pass creates is never in it."""
++    if not EXCLUDED_NAMES:
++        return set()
++    ids = [i for i, _ in sched_blocks]
++    pos = {i: n for n, i in enumerate(ids)}
++    succ = {}
++    for n, (_, instrs) in enumerate(sched_blocks):
++        out, end = [], False
++        for ins in instrs:
++            m = re.fullmatch(r"\.pushLabel (\d+)", ins)
++            if m:
++                out.append(int(m[1]))
++                continue
++            _, _, kind, targets = effect(ins)
++            out += targets
++            if kind in ("jump", "dyn", "table", "end"):
++                end = True
++                break
++        if not end:
++            out.append(n + 1)
++        succ[n] = {t for t in out if t < len(sched_blocks)}
++
++    def closure(starts):
++        seen, work = set(starts), list(starts)
++        while work:
++            for t in succ[work.pop()]:
++                if t not in seen:
++                    seen.add(t)
++                    work.append(t)
++        return seen
++
++    entries = {fm["function"]: fm["entry"] for fm in schedule["functions"] if fm.get("entry") is not None}
++    out_f = [pos[e] for f, e in entries.items() if funcs[f]["name"] in EXCLUDED_NAMES and e in pos]
++    in_f = [
++        pos[e]
++        for f, e in entries.items()
++        if funcs[f]["name"] not in EXCLUDED_NAMES and funcs[f]["name"] != "entry" and e in pos
++    ]
++    return {ids[n] for n in closure(out_f) - closure(in_f)}
++
++
+ def evm_call_cuts(pass_name, a_blocks, b_blocks):
+     """Cut points of two EVM IR programs with internal calls, by call string: the cut blocks are
+     chosen as in evm_cuts, on the graph of configurations evm_states reaches, so that every cycle
+@@ -893,6 +939,12 @@ JOINS = False
+ # opens it into the selector hypotheses `hselN` (and their symmetric forms) that prune the
+ # excluded functions' paths.
+ SCOPE = None
++# The names of the external functions SCOPE leaves out: join points are cut only in the functions
++# the kept calls reach (kept_functions), since no configuration of a kept call stands in the others.
++EXCLUDED_NAMES = set()
++# The EVM IR blocks (compiler numbers) only the excluded functions run (excluded_evm_blocks): the
++# configuration graph of a program with calls does not enter them.
++EXCLUDED_BLOCKS = set()
+ 
+ # Relations per list, and segment proofs per module, under JOINS.
+ CHUNK = 16
+@@ -937,6 +989,28 @@ def bound_segments(side, chosen, same_shapes, common):
+             size[n] = s
+ 
+ 
++def kept_functions(funcs):
++    """The functions a kept call can run: from the runtime entry, through internal calls, never
++    into an external function EXCLUDED_NAMES leaves out (the entry dispatches to it only on a
++    selector the scope rules out). All of them when nothing is excluded."""
++    if not EXCLUDED_NAMES:
++        return set(range(len(funcs)))
++    entry = next(i for i, f in enumerate(funcs) if f["name"] == "entry")
++    seen, todo = set(), [entry]
++    while todo:
++        f = todo.pop()
++        if f in seen or funcs[f]["name"] in EXCLUDED_NAMES:
++            continue
++        seen.add(f)
++        todo += [c for _, _, c, _ in mir_calls(funcs[f])]
++        todo += [
++            int(m[1])
++            for _, _, term in funcs[f]["blocks"].values()
++            if (m := re.match(r"\.tailCall (\d+)", term))
++        ]
++    return seen
++
++
+ def mir_join_cuts(a_funcs, b_funcs, cuts):
+     """Join points of two MIR modules, cut besides their loop headers: a block of a function
+     that more than one of its blocks jumps to, in both modules, with the same phis. Cutting them
+@@ -946,8 +1020,11 @@ def mir_join_cuts(a_funcs, b_funcs, cuts):
+     if not JOINS:
+         return []
+     have = {(f, h) for f, h, _, _ in cuts}
++    keep = kept_functions(a_funcs) & kept_functions(b_funcs)
+     out = []
+     for f, (fa, fb) in enumerate(zip(a_funcs, b_funcs)):
++        if f not in keep:
++            continue
+         _, _, sa = mir_headers(fa)
+         _, _, sb = mir_headers(fb)
+ 
+@@ -1309,6 +1386,9 @@ def pair_module(a, b, cuts_a, cuts_b, rels, fuel_a, fuel_b, heartbeats, entry_re
+         hyps = " ".join(f"(h{i} : {c})" for i, c in enumerate(r["conds"]))
+         args = " ".join(x for x in [binder_text(vs), hyps] if x)
+         out.append(
++            # dsimp rewrites the cut test of a block a branch picks inside its Decidable instance
++            # too, so that the kernel sees the instance at the term it was built for.
++            "set_option backward.dsimp.instances true in\n"
+             f"set_option maxHeartbeats {heartbeats} in\n"
+             + (f"set_option maxRecDepth {recdepth} in\n" if recdepth else "")
+             + f"theorem {name} (o : Oracle) (call : Call) {args} :\n"
+@@ -1488,6 +1568,66 @@ def header_facts(func, h, pred, live, env):
+     return facts
+ 
+ 
++def read_facts(func, values, env):
++    """For each of values that the function defines by reading calldata at a constant offset,
++    the equation of its word in env with that calldata word: calldata never changes during a
++    call, so the fact holds wherever the value is live."""
++    facts = []
++    for _, insts, _ in func["blocks"].values():
++        for ins in insts:
++            m = re.fullmatch(r"\.effect \(some (\d+)\) \.calldataload \[\.const ([0-9a-fx]+)\]", ins)
++            if m and int(m[1]) in values:
++                facts.append(f"{env} {m[1]} = calldataWord call {int(m[2], 0)}")
++    return facts
++
++
++def split_edges(fb, h, preds_a, preds_b):
++    """The pairs of predecessors of header h along which two programs can enter it together,
++    when a pass split blocks (lower-assumes ends a block at a check and continues in a new one):
++    a predecessor both keep is paired with itself, and one the pass split with the one new
++    predecessor its own block still reaches in the new program without passing h; any other
++    predecessor with every predecessor of the new program."""
++    _, _, succ = mir_headers(fb)
++    common = set(preds_a) & set(preds_b)
++    fresh = [q for q in preds_b if q not in common]
++
++    def reaches(a):
++        seen, work = {a}, [a]
++        while work:
++            for t in succ.get(work.pop(), []):
++                if t != h and t not in seen:
++                    seen.add(t)
++                    work.append(t)
++        return seen
++
++    cands = {
++        pa: {q for q in fresh if q in reaches(pa)} if pa in fb["blocks"] else set()
++        for pa in preds_a
++        if pa not in common
++    }
++    # Pair the predecessors that reach one new block, then drop it from the others', until none
++    # is left to pair.
++    paired = {}
++    while True:
++        one = next((pa for pa, c in cands.items() if pa not in paired and len(c) == 1), None)
++        if one is None:
++            break
++        (q,) = cands[one]
++        paired[one] = q
++        for pa, c in cands.items():
++            if pa not in paired:
++                c.discard(q)
++    edges = []
++    for pa in preds_a:
++        if pa in common:
++            edges.append((pa, pa))
++        elif pa in paired:
++            edges.append((pa, paired[pa]))
++        else:
++            edges += [(pa, pb) for pb in preds_b]
++    return edges
++
++
+ def mir_mir_rels(pass_name, fa_list, fb_list, cuts, ctx_a=None, ctx_b=None, joins=()):
+     """Relations between two MIR modules at their headers: the same state, the phis' inputs
+     and every value live into the header the same words; for a header under calls, one relation
+@@ -1503,9 +1643,21 @@ def mir_mir_rels(pass_name, fa_list, fb_list, cuts, ctx_a=None, ctx_b=None, join
+         live_b, _ = mir_liveness(fb)
+         dsts = sorted(d for d, _ in fa["blocks"][h][0])
+         live = sorted((live_a[h] | live_b[h]) - set(dsts))
+-        for pa in preds_a:
+-            for pb in preds_b:
+-                conds = [f"env' {v} = env {v}" for v in live]
++        # A value live on one side only is related through what it reads instead: a pass that
++        # places reads (place-reads) gives the same calldata word a new number.
++        reads = read_facts(fa, live_a[h] - live_b[h], "env") + read_facts(
++            fb, live_b[h] - live_a[h], "env'"
++        )
++        live = sorted((live_a[h] & live_b[h]) - set(dsts)) if reads else live
++        # A pass that keeps the header's predecessors keeps its edges: the two programs enter it
++        # along the same edge, so only those pairs are related. Otherwise every pair.
++        if sorted(preds_a) == sorted(preds_b):
++            edges = [(p, p) for p in preds_a]
++        else:
++            edges = split_edges(fb, h, preds_a, preds_b)
++        for pa, pb in edges:
++            if True:
++                conds = [f"env' {v} = env {v}" for v in live] + reads
+                 feasible = True
+                 for d in dsts:
+                     ia, ib = phi_input(fa, h, pa, d), phi_input(fb, h, pb, d)
+diff --git a/tools/certify/certify.py b/tools/certify/certify.py
+index 034e569bb..8f9d6fb3d 100755
+--- a/tools/certify/certify.py
++++ b/tools/certify/certify.py
+@@ -463,6 +463,14 @@ def main():
+         # Cut points on the calls of the functions left in: the entry relation of every stage
+         # carries `scope call` (Runs/Scope.lean), the rest relate configurations on any call.
+         cutpoints.SCOPE = len(excluded) if excluded else None
++        cutpoints.EXCLUDED_NAMES = {sig.split("(", 1)[0] for _, sig in excluded}
++        if excluded:
++            sched_stage = next(s for s in stages if s["kind"] == "sched")
++            cutpoints.EXCLUDED_BLOCKS = cutpoints.excluded_evm_blocks(
++                cutpoints.parse_mir((args.gen / f"{stages[0]['module']}.lean").read_text()),
++                cutpoints.parse_evm((args.gen / f"{sched_stage['module']}.lean").read_text()),
++                json.loads((args.gen / "Schedule.json").read_text()),
++            )
+         if excluded:
+             write_scope(out, pm, ns, opens, excluded, f"{gm}.{stages[0]['module']}")
+         final = write_cut_points(args, manifest, stages, ns, opens, label, every)
+-- 
+2.43.0
+

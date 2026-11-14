@@ -1,0 +1,42 @@
+From 0d1f1765e2b3158cee8397ac617d8fdcd0d70879 Mon Sep 17 00:00:00 2001
+From: Troy Sargent <0xalpharush@protonmail.com>
+Date: Sat, 14 Nov 2026 15:26:12 +0000
+Subject: [PATCH 3/3] wip(tv): skip excluded call strings; relate one-sided
+ live reads
+
+---
+ solar-tv/milestone/cutpoints.py | 11 +++++++++--
+ 1 file changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/solar-tv/milestone/cutpoints.py b/solar-tv/milestone/cutpoints.py
+index 9a1756905..4220cf376 100644
+--- a/solar-tv/milestone/cutpoints.py
++++ b/solar-tv/milestone/cutpoints.py
+@@ -1086,6 +1086,9 @@ def mir_contexts(pass_name, funcs, entry):
+         f, c = work.pop()
+         if f >= len(funcs):
+             continue
++        # A kept call never runs an excluded external function, so no stack passes through one.
++        if EXCLUDED_NAMES and funcs[f]["name"] in EXCLUDED_NAMES:
++            continue
+         nexts = [(callee, ((f, b, k),) + c) for b, k, callee, _ in mir_calls(funcs[f])]
+         for _, _, term in funcs[f]["blocks"].values():
+             m = re.match(r"\.tailCall (\d+)", term)
+@@ -1157,8 +1160,12 @@ def frame_rel(fa_list, fb_list, ctx):
+         sv.append((c, "MIR.Lowered.Env"))
+         tv.append((c2, "MIR.Lowered.Env"))
+         f = site[0]
+-        live = live_after_call(fa_list[f], site) | live_after_call(fb_list[f], site)
+-        conds += [f"{c2} {v} = {c} {v}" for v in sorted(live)]
++        la, lb = live_after_call(fa_list[f], site), live_after_call(fb_list[f], site)
++        # As at a header (mir_mir_rels): a value live on one side only is related through the
++        # calldata word it reads.
++        reads = read_facts(fa_list[f], la - lb, c) + read_facts(fb_list[f], lb - la, c2)
++        live = (la & lb) if reads else (la | lb)
++        conds += [f"{c2} {v} = {c} {v}" for v in sorted(live)] + reads
+     return "[" + ", ".join(src) + "]", "[" + ", ".join(tgt) + "]", sv, tv, conds
+ 
+ 
+-- 
+2.43.0
+
