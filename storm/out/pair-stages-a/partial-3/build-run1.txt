@@ -1,0 +1,9 @@
+error: Certified/uv2_pair_m/Proofs/Runs/Mir1/Seg7.lean:70:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (8000000) has been reached
+error: Certified/uv2_pair_m/Proofs/Runs/Mir1/Seg7.lean:95:8: (kernel) unknown constant 'SolarTV.Milestone.Uv2PairM.mir1_seg118'
+error: Certified/uv2_pair_m/Proofs/Runs/Mir1/Seg6.lean:43:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (8000000) has been reached
+error: Certified/uv2_pair_m/Proofs/Runs/Mir1/Seg6.lean:158:8: (kernel) unknown constant 'SolarTV.Milestone.Uv2PairM.mir1_seg99'
+✔ [29/36] Built uv2_pair_m.Proofs.Runs.Mir1.Seg4 (93s)
+error: Certified/uv2_pair_m/Proofs/Runs/Mir1/Seg3.lean:52:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (8000000) has been reached
+error: Certified/uv2_pair_m/Proofs/Runs/Mir1/Seg3.lean:79:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (8000000) has been reached
+error: Certified/uv2_pair_m/Proofs/Runs/Mir1/Seg3.lean:158:8: (kernel) unknown constant 'SolarTV.Milestone.Uv2PairM.mir1_seg52'
+✔ [31/36] Built uv2_pair_m.Proofs.Runs.Mir1.Seg2 (207s)
