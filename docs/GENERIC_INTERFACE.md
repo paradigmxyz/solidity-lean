@@ -134,7 +134,7 @@ so. A contract the gate passes is Certified only when the kernel checks `Expecte
 | Contract | Module | Coverage | Tier |
 |---|---|---|---|
 | Counter (`inc`, `get`) | `Verify/Generic/Instances/Counter.lean`, lib `VerifyGeneric` | default context; entries `inc`, `get` | unconditional, runtime |
-| UniswapV2ERC20.transfer | `Verify/Generic/Instances/Transfer.lean`, lib `VerifyGenericTransfer` (needs the generated port; lands after its build) | default context; entry `transfer(address,uint256)`; scoped Keccak-256 separation in `Valid` | unconditional with a per-call premise, runtime |
+| UniswapV2ERC20.transfer | `Verify/Generic/Instances/Transfer.lean`, lib `VerifyGenericTransfer` (needs the generated port: `scripts/verify/uniswap_v2_gen.sh`, `uniswap_v2_stages.sh`, `uniswap_v2_transfer_slice.sh`) | default context; entry `transfer(address,uint256)`; scoped Keccak-256 separation in `Valid` | unconditional with a per-call premise, runtime |
 
 Both are proved from the existing theorems (`Contracts.Counter.ShapeExport.published`,
 `SolidCore.Spec.UniswapV2.ERC20.Certified.certified`) through `certifiedAt_default`; neither adds
