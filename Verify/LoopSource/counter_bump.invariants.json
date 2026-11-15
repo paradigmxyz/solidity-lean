@@ -1,0 +1,2 @@
+{"format": "certify-invariants", "version": 1,
+ "loops": [{"function": "Counter.bump", "line": 26, "invariants": ["i <= n", "count == old(count) + i"], "decreases": "n - i"}]}
