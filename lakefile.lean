@@ -620,7 +620,8 @@ lean_lib «abi_hash» where
 -- exact bytes. Needs the generated modules of uv2_erc20, ContractsUniswapV2ERC20SourceMir and
 -- ContractsUniswapV2TransferSlice (scripts/verify/uniswap_v2_stages.sh, uniswap_v2_transfer_slice.sh).
 lean_lib ContractsUniswapV2ERC20Certified where
-  roots := #[`Contracts.UniswapV2.ERC20.Certified.Transfer, `Contracts.UniswapV2.ERC20.Certified.TransferFrom]
+  roots := #[`Contracts.UniswapV2.ERC20.Certified.Transfer, `Contracts.UniswapV2.ERC20.Certified.TransferFrom,
+    `Contracts.UniswapV2.ERC20.Certified.TransferExpected]
 
 -- UniswapV2Pair's backend stages on the calls of one external function, from solar's first lowered
 -- MIR to the final EVM IR, and the decoding of the exact runtime bytecode (not its execution).
