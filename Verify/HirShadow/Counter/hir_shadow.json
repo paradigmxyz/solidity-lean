@@ -1,0 +1,104 @@
+{
+  "format": "solar-hir-shadow",
+  "version": 1,
+  "solar": {
+    "commit": "902cccc2cb1213219789780a39caf3c1d4d9f35e",
+    "binary_sha256": "4f96cf26138bf6b2679df60faf405ab8cb28cceeb5f7d20727b8246dc34f0b2f"
+  },
+  "source": {
+    "path": "Certified/verify_counter/verify_counter.sol",
+    "sha256": "f1c87a334b8db31fc8f80541febeaf8617318d20b685634f44e26c74146ad326"
+  },
+  "contract": "Counter",
+  "state_variables": [
+    {
+      "name": "count",
+      "type": "uint256",
+      "slot": 0,
+      "offset": 0,
+      "bytes": 32
+    },
+    {
+      "name": "limit",
+      "type": "uint256",
+      "slot": 1,
+      "offset": 0,
+      "bytes": 32
+    }
+  ],
+  "functions": [
+    {
+      "kind": "getter",
+      "name": "count",
+      "signature": "count()",
+      "selector": 107354813,
+      "visibility": "external",
+      "mutability": "view",
+      "inputs": [],
+      "outputs": [
+        "uint256"
+      ]
+    },
+    {
+      "kind": "getter",
+      "name": "limit",
+      "signature": "limit()",
+      "selector": 2765516207,
+      "visibility": "external",
+      "mutability": "view",
+      "inputs": [],
+      "outputs": [
+        "uint256"
+      ]
+    },
+    {
+      "kind": "constructor",
+      "name": "constructor",
+      "signature": "constructor(uint256)",
+      "selector": null,
+      "visibility": "public",
+      "mutability": "nonpayable",
+      "inputs": [
+        "uint256"
+      ],
+      "outputs": []
+    },
+    {
+      "kind": "function",
+      "name": "increment",
+      "signature": "increment()",
+      "selector": 3500007562,
+      "visibility": "external",
+      "mutability": "nonpayable",
+      "inputs": [],
+      "outputs": []
+    },
+    {
+      "kind": "function",
+      "name": "bump",
+      "signature": "bump(uint256)",
+      "selector": 2987308228,
+      "visibility": "external",
+      "mutability": "nonpayable",
+      "inputs": [
+        "uint256"
+      ],
+      "outputs": []
+    },
+    {
+      "kind": "function",
+      "name": "max",
+      "signature": "max(uint256,uint256)",
+      "selector": 1834234854,
+      "visibility": "public",
+      "mutability": "pure",
+      "inputs": [
+        "uint256",
+        "uint256"
+      ],
+      "outputs": [
+        "uint256"
+      ]
+    }
+  ]
+}
