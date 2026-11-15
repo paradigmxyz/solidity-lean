@@ -7,6 +7,7 @@ pragma solidity ^0.8.20;
 contract SiblingFnsFlat {
     uint256 public y;
 
+    /// @custom:succeeds-if msg.value == 0
     /// @custom:ensures x > 5 ==> y == 1
     function hi(uint256 x) external {
         if (x > 5) {

@@ -7,6 +7,7 @@ pragma solidity ^0.8.20;
 contract InitBrokenFlat {
     uint256 public x;
 
+    /// @custom:succeeds-if msg.value == 0
     /// @custom:ensures x == 1
     function one() external {
         x = 1;

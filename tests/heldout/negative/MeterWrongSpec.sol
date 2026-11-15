@@ -7,6 +7,7 @@ contract MeterWrongSpec {
     uint256 public total;
     uint256 public peak;
 
+    /// @custom:succeeds-if msg.value == 0
     /// @custom:ensures total == old(total) + v + 1
     function record(uint256 v) external {
         total = total + v;

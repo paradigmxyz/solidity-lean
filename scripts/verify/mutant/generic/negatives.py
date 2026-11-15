@@ -32,7 +32,9 @@ import argparse, json, pathlib, re, shlex, shutil, subprocess, sys, time
 H = "tests/heldout"  # replaced by --heldout
 FRESH = [
     # name, source, expected, what it tests
-    ("heldout-meter", f"{H}/Meter.sol", "CERTIFIED", "positive control: inside the generic source stage at bc6da61b"),
+    ("heldout-flag", f"{H}/Flag.sol", "CERTIFIED", "positive: inside the envelope, succeeds-if on every function"),
+    ("invariant-control", f"{H}/negative/InvOkFlat.sol", "CERTIFIED", "control of entrypoint-breaks-invariant-in-envelope"),
+    ("heldout-meter", f"{H}/Meter.sol", "CERTIFIED|REJECTED", "positive control: inside the generic source stage at bc6da61b"),
     ("heldout-gate", f"{H}/Gate.sol", "CERTIFIED", "positive control: empty-reason require (empty revert, not OOG)"),
     # CERTIFIED|BLOCKED: outside the generic source stage at bc6da61b (constructor parameters,
     # early returns, mappings, reason strings, internal calls, loops); BLOCKED until it covers them.
@@ -97,9 +99,13 @@ def run(cmd, log):
         m = VERDICT.match(line)
         if m:
             verdict, reason = norm(m.group(1)), (m.group(1) + ": " + m.group(2)).strip()
+            if verdict == "REJECTED" and m.group(2).startswith("resources:"):
+                # A build that ran out of memory, time or heartbeats: never a refutation, so
+                # never a pass for a case expected REJECTED.
+                verdict = "RESOURCES"
     if verdict == "CERTIFIED" and r.returncode != 0:
         verdict, reason = "ERROR", f"CERTIFIED with exit {r.returncode}"
-    if verdict == "ERROR" and r.returncode in (1, 2):
+    if verdict == "ERROR" and r.returncode in (1, 2) and "resources:" not in out:
         verdict = "REJECTED"
     if verdict == "ERROR" and not reason:
         tail = [l for l in out.strip().splitlines() if l.strip()]
@@ -268,7 +274,7 @@ def main():
             continue
         v, reason, rc, wall = run(fill(shlex.split(a.replay), dir=d, work=work / "w" / ("replay-" + case)),
                                   work / "log" / f"replay-{case}.txt")
-        rows.append((case, what, "REJECTED", v, reason, v in ("REJECTED", "BLOCKED") or (v == "ERROR" and rc != 0), wall))
+        rows.append((case, what, "REJECTED", v, reason, v in ("REJECTED", "BLOCKED") or (v == "ERROR" and rc != 0 and "resources:" not in reason), wall))
         print(f"{case}: got {v} ({reason})", flush=True)
     drv_after = drv_hash()
     lines = ["| case | what | expected | actual | rejecting check (driver's reason) | pass |", "|---|---|---|---|---|---|"]

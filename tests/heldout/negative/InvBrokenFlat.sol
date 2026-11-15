@@ -11,6 +11,7 @@ contract InvBrokenFlat {
         x = 1;
     }
 
+    /// @custom:succeeds-if msg.value == 0
     /// @custom:ensures x == 1
     function one() external {
         x = 1;

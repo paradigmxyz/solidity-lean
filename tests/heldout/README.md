@@ -9,6 +9,7 @@ bytes. The specs are solar-verify NatSpec annotations (`@custom:requires`, `@cus
 
 | contract | what it exercises | expected |
 |---|---|---|
+| [Flag.sol](Flag.sol) | inside the envelope, with `@custom:succeeds-if` on every function (the Expected statement's non-vacuity needs one); no arithmetic | Certified |
 | [Meter.sol](Meter.sol) | inside the generic source stage at bc6da61b: no constructor, no loop, no mapping, no reason string, no internal call; checked addition, one branch | Certified |
 | [Gate.sol](Gate.sol) | the same envelope; `require` without a reason (empty revert) | Certified |
 | [Clamp.sol](Clamp.sol) | branches, pure functions, checked comparisons, one guarded storage write, a contract invariant; no mapping, no hash, no loop | Certified |
@@ -48,6 +49,7 @@ runs these through the driver; none may come out Certified.
 | [negative/FalseEnvFixed.sol](negative/FalseEnvFixed.sol) | REJECTED | `requires block.chainid == 424242`: satisfiable, but false in the statement's fixed environment, where the false postcondition then holds vacuously |
 | [negative/VacuousSecond.sol](negative/VacuousSecond.sol) | REJECTED | the first function (a non-vacuity witness) is correct; the second has a contradictory premise and a false postcondition (solar-verify proves it, vacuously) |
 | [negative/VacuousSecondFlat.sol](negative/VacuousSecondFlat.sol) | REJECTED | VacuousSecond with two() storing a constant, so it stays inside the source stage and reaches the per-function precondition check |
+| [negative/InvOkFlat.sol](negative/InvOkFlat.sol) | Certified | the control of InvBrokenFlat: the same contract without reset() |
 | [negative/SiblingFns.sol](negative/SiblingFns.sol) | REJECTED | lo()'s false postcondition, provable only if hi()'s premise or proof state reaches it |
 | [negative/FalseEnv.sol](negative/FalseEnv.sol) | REJECTED | contradictory environment premise: the postcondition holds only vacuously |
 | [negative/InitBroken.sol](negative/InitBroken.sol) | REJECTED | the constructor does not establish the invariant |
