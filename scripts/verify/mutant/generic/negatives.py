@@ -6,6 +6,7 @@ negatives.py --certify CMD [--replay CMD] [--work DIR] [--table OUT.md]
 CMD is the driver's command line (split by the shell), with the placeholders {src}, {out} and
 {work} filled per case, as for solar's tools/certify/certify:
     --certify 'tools/certify/certify {src} natspec --solidity-lean SL --base SHA --work {work} --record-dir {out}'
+    --replay 'tools/certify/certify --replay {dir} --solidity-lean SL --work {work}'
 (without placeholders it runs CMD <source.sol> --out <dir>), from the directory the driver needs;
 give the sources' directory with --heldout when that is not this checkout. The driver's verdict is the first word of the last line of its output
 that starts with CERTIFIED, BLOCKED or REJECTED (any case), with the reason after it; no such line,
@@ -56,17 +57,18 @@ FRESH = [
 ]
 REPLAY = ["stale-bytes", "flipped-byte", "changed-solar-options", "stale-spec-hash", "stale-source", "stale-import",
           "omitted-selector", "false-env-pin", "oog-as-revert"]
-# The driver's verdict lines (tools/certify/certify): TIER <T>: exit 0; CHECKED <reached>: exit 2;
-# BLOCKED: exit 3; ERROR: exit 1. Plain CERTIFIED / REJECTED lines are read too.
-VERDICT = re.compile(r"^\s*(TIER\s+CERTIFIED|TIER\s+\w+|CHECKED\b[^:]*|CERTIFIED|BLOCKED|REJECTED|ERROR)\b[:\s]*(.*)$")
+# The driver's verdict lines (solar tools/certify/certify): CERTIFIED|FUNCTIONAL|COMPILED: exit 0
+# (the requested tier holds); REJECTED: <check>: exit 1, or exit 2 when the run proved less than the
+# requested tier; BLOCKED: <feature> (...) exit 3. Older TIER <T> / CHECKED / ERROR lines are read too.
+VERDICT = re.compile(r"^\s*(TIER\s+\w+|CHECKED\b[^:]*|CERTIFIED|FUNCTIONAL|COMPILED|BLOCKED|REJECTED|ERROR)\b[:\s]*(.*)$")
 
 
 def norm(word):
     w = word.upper()
-    if w.startswith("TIER CERTIFIED") or w == "CERTIFIED":
+    if w in ("CERTIFIED", "TIER CERTIFIED"):
         return "CERTIFIED"
-    if w.startswith("TIER"):
-        return "CHECKED"  # a lower tier than certified was requested and met
+    if w in ("FUNCTIONAL", "COMPILED") or w.startswith("TIER"):
+        return "LOWER-TIER"  # a lower tier than certified was requested and met
     if w.startswith("CHECKED") or w in ("ERROR", "REJECTED"):
         return "REJECTED"
     return w
