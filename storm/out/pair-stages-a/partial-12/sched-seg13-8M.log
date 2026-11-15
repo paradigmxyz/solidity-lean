@@ -1,0 +1,5 @@
+/home/hand/w/scratch/z/s13.lean:132:8: error: (kernel) excessive memory consumption detected
+'SolarTV.Milestone.Uv2PairM.sched_seg210' depends on axioms: [propext,
+ Quot.sound,
+ SolarTV.Milestone.Uv2PairM.sched_seg210]
+rc=1 324s peak=5948MB
