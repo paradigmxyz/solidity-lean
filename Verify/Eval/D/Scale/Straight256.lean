@@ -1,0 +1,293 @@
+import Verify.Eval.D.Bridge
+import Verify.Eval.Common.Measure
+
+/-! Lane D on lane A's fixture Straight256: the definitions of Verify/Eval/A/Fixtures/Straight256.lean copied
+verbatim by scripts/eval/gen_d_scale.py (sha256 prefix beba59d7646162bc), stmt proved with vcgen. -/
+
+set_option maxHeartbeats 0
+set_option maxRecDepth 100000
+set_option experimental.vcgen true
+set_option grind.warning false
+set_option Elab.async false
+
+namespace Verify.Eval.D.Scale.Straight256
+
+open SolidCore.Verify SolidCore.Verify.Eval.D
+open scoped Std.WP
+
+open SolidCore.Verify
+
+def model : SolM Unit := do
+  let v0 ← sload 0
+  sstore 1 (v0 + 1)
+  let v1 ← sload 1
+  sstore 2 (v1 + 1)
+  let v2 ← sload 2
+  sstore 3 (v2 + 1)
+  let v3 ← sload 3
+  sstore 4 (v3 + 1)
+  let v4 ← sload 4
+  sstore 5 (v4 + 1)
+  let v5 ← sload 5
+  sstore 6 (v5 + 1)
+  let v6 ← sload 6
+  sstore 7 (v6 + 1)
+  let v7 ← sload 7
+  sstore 8 (v7 + 1)
+  let v8 ← sload 8
+  sstore 9 (v8 + 1)
+  let v9 ← sload 9
+  sstore 10 (v9 + 1)
+  let v10 ← sload 10
+  sstore 11 (v10 + 1)
+  let v11 ← sload 11
+  sstore 12 (v11 + 1)
+  let v12 ← sload 12
+  sstore 13 (v12 + 1)
+  let v13 ← sload 13
+  sstore 14 (v13 + 1)
+  let v14 ← sload 14
+  sstore 15 (v14 + 1)
+  let v15 ← sload 15
+  sstore 16 (v15 + 1)
+  let v16 ← sload 16
+  sstore 17 (v16 + 1)
+  let v17 ← sload 17
+  sstore 18 (v17 + 1)
+  let v18 ← sload 18
+  sstore 19 (v18 + 1)
+  let v19 ← sload 19
+  sstore 20 (v19 + 1)
+  let v20 ← sload 20
+  sstore 21 (v20 + 1)
+  let v21 ← sload 21
+  sstore 22 (v21 + 1)
+  let v22 ← sload 22
+  sstore 23 (v22 + 1)
+  let v23 ← sload 23
+  sstore 24 (v23 + 1)
+  let v24 ← sload 24
+  sstore 25 (v24 + 1)
+  let v25 ← sload 25
+  sstore 26 (v25 + 1)
+  let v26 ← sload 26
+  sstore 27 (v26 + 1)
+  let v27 ← sload 27
+  sstore 28 (v27 + 1)
+  let v28 ← sload 28
+  sstore 29 (v28 + 1)
+  let v29 ← sload 29
+  sstore 30 (v29 + 1)
+  let v30 ← sload 30
+  sstore 31 (v30 + 1)
+  let v31 ← sload 31
+  sstore 32 (v31 + 1)
+  let v32 ← sload 32
+  sstore 33 (v32 + 1)
+  let v33 ← sload 33
+  sstore 34 (v33 + 1)
+  let v34 ← sload 34
+  sstore 35 (v34 + 1)
+  let v35 ← sload 35
+  sstore 36 (v35 + 1)
+  let v36 ← sload 36
+  sstore 37 (v36 + 1)
+  let v37 ← sload 37
+  sstore 38 (v37 + 1)
+  let v38 ← sload 38
+  sstore 39 (v38 + 1)
+  let v39 ← sload 39
+  sstore 40 (v39 + 1)
+  let v40 ← sload 40
+  sstore 41 (v40 + 1)
+  let v41 ← sload 41
+  sstore 42 (v41 + 1)
+  let v42 ← sload 42
+  sstore 43 (v42 + 1)
+  let v43 ← sload 43
+  sstore 44 (v43 + 1)
+  let v44 ← sload 44
+  sstore 45 (v44 + 1)
+  let v45 ← sload 45
+  sstore 46 (v45 + 1)
+  let v46 ← sload 46
+  sstore 47 (v46 + 1)
+  let v47 ← sload 47
+  sstore 48 (v47 + 1)
+  let v48 ← sload 48
+  sstore 49 (v48 + 1)
+  let v49 ← sload 49
+  sstore 50 (v49 + 1)
+  let v50 ← sload 50
+  sstore 51 (v50 + 1)
+  let v51 ← sload 51
+  sstore 52 (v51 + 1)
+  let v52 ← sload 52
+  sstore 53 (v52 + 1)
+  let v53 ← sload 53
+  sstore 54 (v53 + 1)
+  let v54 ← sload 54
+  sstore 55 (v54 + 1)
+  let v55 ← sload 55
+  sstore 56 (v55 + 1)
+  let v56 ← sload 56
+  sstore 57 (v56 + 1)
+  let v57 ← sload 57
+  sstore 58 (v57 + 1)
+  let v58 ← sload 58
+  sstore 59 (v58 + 1)
+  let v59 ← sload 59
+  sstore 60 (v59 + 1)
+  let v60 ← sload 60
+  sstore 61 (v60 + 1)
+  let v61 ← sload 61
+  sstore 62 (v61 + 1)
+  let v62 ← sload 62
+  sstore 63 (v62 + 1)
+  let v63 ← sload 63
+  sstore 64 (v63 + 1)
+  let v64 ← sload 64
+  sstore 65 (v64 + 1)
+  let v65 ← sload 65
+  sstore 66 (v65 + 1)
+  let v66 ← sload 66
+  sstore 67 (v66 + 1)
+  let v67 ← sload 67
+  sstore 68 (v67 + 1)
+  let v68 ← sload 68
+  sstore 69 (v68 + 1)
+  let v69 ← sload 69
+  sstore 70 (v69 + 1)
+  let v70 ← sload 70
+  sstore 71 (v70 + 1)
+  let v71 ← sload 71
+  sstore 72 (v71 + 1)
+  let v72 ← sload 72
+  sstore 73 (v72 + 1)
+  let v73 ← sload 73
+  sstore 74 (v73 + 1)
+  let v74 ← sload 74
+  sstore 75 (v74 + 1)
+  let v75 ← sload 75
+  sstore 76 (v75 + 1)
+  let v76 ← sload 76
+  sstore 77 (v76 + 1)
+  let v77 ← sload 77
+  sstore 78 (v77 + 1)
+  let v78 ← sload 78
+  sstore 79 (v78 + 1)
+  let v79 ← sload 79
+  sstore 80 (v79 + 1)
+  let v80 ← sload 80
+  sstore 81 (v80 + 1)
+  let v81 ← sload 81
+  sstore 82 (v81 + 1)
+  let v82 ← sload 82
+  sstore 83 (v82 + 1)
+  let v83 ← sload 83
+  sstore 84 (v83 + 1)
+  let v84 ← sload 84
+  sstore 85 (v84 + 1)
+  let v85 ← sload 85
+  sstore 86 (v85 + 1)
+  let v86 ← sload 86
+  sstore 87 (v86 + 1)
+  let v87 ← sload 87
+  sstore 88 (v87 + 1)
+  let v88 ← sload 88
+  sstore 89 (v88 + 1)
+  let v89 ← sload 89
+  sstore 90 (v89 + 1)
+  let v90 ← sload 90
+  sstore 91 (v90 + 1)
+  let v91 ← sload 91
+  sstore 92 (v91 + 1)
+  let v92 ← sload 92
+  sstore 93 (v92 + 1)
+  let v93 ← sload 93
+  sstore 94 (v93 + 1)
+  let v94 ← sload 94
+  sstore 95 (v94 + 1)
+  let v95 ← sload 95
+  sstore 96 (v95 + 1)
+  let v96 ← sload 96
+  sstore 97 (v96 + 1)
+  let v97 ← sload 97
+  sstore 98 (v97 + 1)
+  let v98 ← sload 98
+  sstore 99 (v98 + 1)
+  let v99 ← sload 99
+  sstore 100 (v99 + 1)
+  let v100 ← sload 100
+  sstore 101 (v100 + 1)
+  let v101 ← sload 101
+  sstore 102 (v101 + 1)
+  let v102 ← sload 102
+  sstore 103 (v102 + 1)
+  let v103 ← sload 103
+  sstore 104 (v103 + 1)
+  let v104 ← sload 104
+  sstore 105 (v104 + 1)
+  let v105 ← sload 105
+  sstore 106 (v105 + 1)
+  let v106 ← sload 106
+  sstore 107 (v106 + 1)
+  let v107 ← sload 107
+  sstore 108 (v107 + 1)
+  let v108 ← sload 108
+  sstore 109 (v108 + 1)
+  let v109 ← sload 109
+  sstore 110 (v109 + 1)
+  let v110 ← sload 110
+  sstore 111 (v110 + 1)
+  let v111 ← sload 111
+  sstore 112 (v111 + 1)
+  let v112 ← sload 112
+  sstore 113 (v112 + 1)
+  let v113 ← sload 113
+  sstore 114 (v113 + 1)
+  let v114 ← sload 114
+  sstore 115 (v114 + 1)
+  let v115 ← sload 115
+  sstore 116 (v115 + 1)
+  let v116 ← sload 116
+  sstore 117 (v116 + 1)
+  let v117 ← sload 117
+  sstore 118 (v117 + 1)
+  let v118 ← sload 118
+  sstore 119 (v118 + 1)
+  let v119 ← sload 119
+  sstore 120 (v119 + 1)
+  let v120 ← sload 120
+  sstore 121 (v120 + 1)
+  let v121 ← sload 121
+  sstore 122 (v121 + 1)
+  let v122 ← sload 122
+  sstore 123 (v122 + 1)
+  let v123 ← sload 123
+  sstore 124 (v123 + 1)
+  let v124 ← sload 124
+  sstore 125 (v124 + 1)
+  let v125 ← sload 125
+  sstore 126 (v125 + 1)
+  let v126 ← sload 126
+  sstore 127 (v126 + 1)
+  let v127 ← sload 127
+  sstore 128 (v127 + 1)
+
+def stmt : Prop :=
+  ∀ (s : Storage) (herr : Revert → Prop), s 0 < 2 ^ 128 →
+    wp model (fun _ _ s' => s' 128 = s 0 + 128) herr s
+
+#timed theorem vcgen_new : stmt := by
+  unfold stmt
+  intro s herr
+  intros
+  refine loom_wp_of_triple_pt ?_
+  vcgen [model] with finish
+
+end Verify.Eval.D.Scale.Straight256
+
+#print axioms Verify.Eval.D.Scale.Straight256.vcgen_new
+#proof_stats Verify.Eval.D.Scale.Straight256.vcgen_new
+#kernel_recheck Verify.Eval.D.Scale.Straight256.vcgen_new

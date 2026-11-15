@@ -1,0 +1,20 @@
+e_module_stats Contracts.VerifyCounter.Inferred: theorems=0 aux=0 kernel_ms=0.000000 dag_sum=0 tree_sum=0 slowest: 
+e_module_stats Contracts.VerifyCounter.Bump: theorems=97 aux=75 kernel_ms=1148.623190 dag_sum=102827 tree_sum=54666230 slowest: SolarTV.Milestone.VerifyCounter.Bump.tseg0 218.468965ms dag=18490 tree=5854959, SolarTV.Milestone.VerifyCounter.Bump.tseg10 180.556363ms dag=16323 tree=3302802, SolarTV.Milestone.VerifyCounter.Bump.tseg7 168.020984ms dag=15362 tree=2884364, SolarTV.Milestone.VerifyCounter.Bump.tseg10._proof_1_34 56.598024ms dag=3853 tree=10000000, SolarTV.Milestone.VerifyCounter.Bump.tseg10._proof_1_28 55.071033ms dag=3900 tree=5992557
+e_module_stats Contracts.VerifyCounter.BumpTotal: theorems=83 aux=76 kernel_ms=1233.744717 dag_sum=100545 tree_sum=54696953 slowest: SolarTV.Milestone.VerifyCounter.Bump.wseg0 248.607546ms dag=18499 tree=5854865, SolarTV.Milestone.VerifyCounter.Bump.wseg10 173.807790ms dag=16315 tree=3302584, SolarTV.Milestone.VerifyCounter.Bump.wseg7 132.438889ms dag=15354 tree=2884146, SolarTV.Milestone.VerifyCounter.Bump.wseg10._proof_1_26 82.739013ms dag=3853 tree=10000000, SolarTV.Milestone.VerifyCounter.Bump.wseg10._proof_1_24 54.137106ms dag=3033 tree=4619189
+e_module_stats verify_counter.gen.Counter.Stage0: theorems=0 aux=0 kernel_ms=0.000000 dag_sum=0 tree_sum=0 slowest: 
+e_module_stats W1Proofs.Segment: theorems=10 aux=1 kernel_ms=8.367482 dag_sum=2303 tree_sum=24131 slowest: SolarTV.Milestone.W1.evm_lt_zero_left._proof_1_1 4.974867ms dag=528 tree=9739, SolarTV.Milestone.W1.evm_lt_zero_left 0.986296ms dag=505 tree=7593, SolarTV.Milestone.W1.seg_mk 0.920308ms dag=594 tree=4108, SolarTV.Milestone.W1.ite_beq 0.327898ms dag=165 tree=889, SolarTV.Milestone.W1.ite_or_ite_not 0.301659ms dag=150 tree=669
+Contracts.VerifyCounter.Inferred 59536
+Contracts.VerifyCounter.Bump 4405160
+Contracts.VerifyCounter.BumpTotal 3417352
+Contracts.VerifyCounter.BumpWrongRank MISSING
+verify_counter.gen.Counter.Stage0 579936
+verify_counter.Proofs.Stages MISSING
+verify_counter.Proofs.Execution MISSING
+verify_counter.Proofs.Assembly MISSING
+verify_counter.Proofs.Runs.Evm1 MISSING
+verify_counter.Proofs.Runs.Mir1 MISSING
+verify_counter.gen.Counter.Evm1 MISSING
+W1Proofs.Segment 1139832
+Contracts.Counter.VC.Export MISSING
+Verify.VC.Obligations MISSING
+Verify.VC.EndToEnd MISSING

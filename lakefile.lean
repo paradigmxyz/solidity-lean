@@ -129,6 +129,11 @@ builds the root's closure; the libraries below hold the heavier, generated-input
 lean_lib Verify where
   roots := #[`Verify]
 
+/-- The proof-engine evaluation (docs/eval/LANES.md): experiment modules under Verify/Eval/<Lane>/,
+each checked on its own; nothing in the default build or the trust gate imports them. -/
+lean_lib VerifyEval where
+  globs := #[.andSubmodules `Verify.Eval]
+
 -- bank's and events' assembly stages against solar's exports (solar-tv/milestone/bank and
 -- solar-tv/milestone/events at 0a455fda): the generic assembler check with mapping hashes,
 -- CALLER, LOG2 and LOG3 and internal calls through pushed return labels, under an oracle whose

@@ -1,0 +1,198 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "Verify/Eval/A/schema.json",
+  "title": "Proof-engine evaluation measurement row",
+  "description": "One row per (lane, fixture, statement, variant) measurement. Rows are JSON Lines. scripts/eval/fixtures/summarize.py turns check.sh receipts (~/eval-receipts.jsonl) plus their logs and Replay output into rows of this shape, and reads lane-provided rows of this shape as they are. Times are milliseconds of the Lean profiler's cumulative categories for the whole file, measured with LEAN_NUM_THREADS=1 under check.sh; a file should hold one fixture so per-file times are per-statement (a file with a baseline and a new proof side by side shares elab/tactic/kernel profile times between both rows; its proof_stats, kernel_recheck and replay numbers stay per theorem).",
+  "type": "object",
+  "required": [
+    "lane",
+    "fixture",
+    "variant",
+    "statement",
+    "status",
+    "toolchain",
+    "machine",
+    "commit",
+    "log"
+  ],
+  "properties": {
+    "lane": {
+      "type": "string",
+      "description": "Lane letter (A..H)."
+    },
+    "fixture": {
+      "type": "string",
+      "description": "Fixture file stem, e.g. Straight64."
+    },
+    "family": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Fixture family: Straight, Shared, Branch, Memory, LoopBody, or a lane's own."
+    },
+    "n": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "Size in ops (16, 32, 64, 128, 256)."
+    },
+    "variant": {
+      "type": "string",
+      "description": "baseline (today's engine) or new (the lane's engine); free text after 'new:' allowed, e.g. new:vcgen."
+    },
+    "statement": {
+      "type": "string",
+      "description": "Fully qualified theorem name that was measured."
+    },
+    "statement_hash": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Replay.lean's Expr.hash of the theorem's type, mixed with the body of the definition the type names (a fixture's stmt). Equal hashes = same statement."
+    },
+    "status": {
+      "type": "string",
+      "description": "ok: exit 0; timeout: Lean ran longer than limit_s; oom: hit the -M cap (lean::memory_exception); error[:reason]: Lean error, e.g. error:simp-maxSteps.",
+      "pattern": "^(ok|timeout|oom|error(:[A-Za-z0-9_-]+)?)$"
+    },
+    "wall_s": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "description": "Wall time of the whole lean process (includes import and the Measure commands)."
+    },
+    "elab_ms": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "description": "Front-end time: sum of profiler categories except import, initialization, interpretation, type checking, blocked (unaccounted), .olean serialization, compilation and linting."
+    },
+    "tactic_ms": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "description": "Profiler simp + dsimp + tactic execution + omega/grind/decide categories."
+    },
+    "interp_ms": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "description": "Profiler 'interpretation' (interpreted tactic code such as sc_bounds, and the #proof_stats walk)."
+    },
+    "kernel_ms": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "description": "Profiler 'type checking' for the whole file."
+    },
+    "kernel_recheck_ms": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "description": "#kernel_recheck of the statement's theorem (main declaration only, in-file)."
+    },
+    "kernel_replay_ms": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "description": "Replay.lean kernel-only time from the .olean: the theorem plus its auxiliary _proof_/_aux declarations."
+    },
+    "dag_nodes": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "#proof_stats dag (+ aux_dag)."
+    },
+    "tree_nodes": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "#proof_stats tree (Measure caps the walk; 10,000,000 = capped)."
+    },
+    "aux_decls": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "olean_bytes": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "Size of the fixture's .olean (check.sh ... -o <path>)."
+    },
+    "peak_rss_kb": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "heartbeats": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "Elaboration heartbeats (x1000) when the lane measured them (e.g. Mathlib #count_heartbeats in); null otherwise."
+    },
+    "axioms_ok": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "description": "Replay.lean: the theorem's axioms are within propext, Classical.choice, Quot.sound."
+    },
+    "axioms": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "toolchain": {
+      "type": "string",
+      "description": "lean-toolchain contents."
+    },
+    "machine": {
+      "type": "string",
+      "description": "hostname/nproc/memory, plus LEAN_NUM_THREADS and -M cap."
+    },
+    "commit": {
+      "type": "string",
+      "description": "git HEAD of the repository (with +dirty when the tree had changes)."
+    },
+    "log": {
+      "type": "string",
+      "description": "Path of the full lean output (~/eval-logs/...)."
+    },
+    "limit_s": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "description": "Wall limit applied when status is timeout."
+    },
+    "generated": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "description": "true for rows measured on generated end-to-end artefacts (Contracts/VerifyCounter, Certified/verify_counter, Verify/VC...), false/absent for handwritten fixtures."
+    }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,5 @@
+# path<TAB>pattern<TAB>reason. A listed hit is reported but does not fail the scan.
+Verify/Eval/Common/Measure.lean	implemented_by	dagSize is a measurement (proof DAG size), never used in a statement or proof
+Verify/Eval/Common/Measure.lean	unsafe	dagSizeImpl, the implementation of the measurement above
+Verify/Eval/E/Stats.lean	implemented_by	dagSizeMany is a measurement (lane E), never used in a statement or proof
+Verify/Eval/E/Stats.lean	unsafe	dagSizeManyImpl, the implementation of the measurement above
