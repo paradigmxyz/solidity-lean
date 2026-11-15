@@ -5,6 +5,20 @@ Routing map for agents working in this repository. What the repository claims is
 trust rule per edge are in [docs/CERTIFICATION_TARGET.md](docs/CERTIFICATION_TARGET.md). Read
 the scoped `AGENTS.md` of a directory before editing under it.
 
+## Goal and source of truth
+
+- The goal is generic certification of any supported contract: one generic driver and one fixed
+  theorem statement (`Certified`, docs/CERTIFICATION_TARGET.md) for every contract, not
+  per-contract proofs. A contract or feature outside `docs/SUPPORTED_ENVELOPE.md` is reported
+  BLOCKED with the reason; never special-case it into a pass.
+- Source truth is the independent solc-AST semantics: pinned solc AST -> SolidCore
+  (`SolidCore/Solidity/`). The generic fragment's foundation is `Generic.Stage`
+  ([Stage.lean](SolidCore/Refinement/Generic/Stage.lean): `check`, `stageAt`, source vs
+  solar's lowered MIR); widen its fragment (`eraseFn`, `symTree`) rather than adding
+  contract-specific stages.
+- solar's HIR is never source truth: at most optional, untrusted matching hints or certificates
+  that a kernel check validates against the solc-AST side. No result may depend on HIR being right.
+
 ## Setup and narrow checks
 
 - Toolchain: `lean-toolchain` pins `leanprover/lean4:v4.35.0`, Mathlib is `v4.35.0`
@@ -38,6 +52,7 @@ the scoped `AGENTS.md` of a directory before editing under it.
 |---|---|---|
 | `SolidCore/Solidity/` | the semantics (definition of a source run) | — |
 | `SolidCore/Refinement/` | source -> MIR -> EVM IR -> bytes refinement; `Axioms/` audit files | — |
+| `SolidCore/Refinement/Generic/` | the generic source stage (`Stage.lean`) and its fragment | — |
 | `SolidCore/Refinement/Evm/` | bytecode symbolic execution on EthLib (`dirty_symex`, wide paths) | [AGENTS.md](SolidCore/Refinement/Evm/AGENTS.md) |
 | `SolidCore/Refinement/Wide/` | source-side symbolic evaluator (`src_eval`, `src_symex`) | [AGENTS.md](SolidCore/Refinement/Wide/AGENTS.md) |
 | `Verify/VC/`, `Verify/Obligation/` | solar-verify's VC encoding checked in Lean | [AGENTS.md](Verify/VC/AGENTS.md) |
