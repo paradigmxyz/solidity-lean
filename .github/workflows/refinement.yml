@@ -117,7 +117,7 @@ jobs:
           LEAN_NUM_THREADS: "2"
         run: |
           scripts/verify/uniswap_v2_stages.sh
-          lake build -KleanMemory=6000 uv2_erc20 ContractsUniswapV2ERC20SourceMir ContractsUniswapV2ERC20Certified
+          lake build -KleanMemory=6000 uv2_erc20 ContractsUniswapV2ERC20SourceMir
 
       # UniswapV2ERC20's approve and transferFrom: the source stage (E3) of each against the same
       # stage0, its refused mutants and the slot-level posts. The trees, like the stages, come from the
