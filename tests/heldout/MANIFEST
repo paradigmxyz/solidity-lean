@@ -1,0 +1,4 @@
+# SHA-256 of the held-out sources (tests/heldout/README.md).
+71d27ca984961a6226436d63a848084f9b7ec0f80224e73fb9e9e6c66f605489  Clamp.sol
+816907d9d407c19fb06f345c0843b39b27ecafb83480a1b137a263779ec99714  StepSum.sol
+bdc548291a23b5d38ebda9717b5c921fcd939344583f1be6aa6e208c957fcd68  Registry.sol
