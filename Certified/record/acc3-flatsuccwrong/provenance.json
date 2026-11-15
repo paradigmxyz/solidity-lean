@@ -1,0 +1,94 @@
+{
+  "driver_scripts": {
+    "commit": "5a9e6bc0e846e5f4426cff6d22476f31f638d561",
+    "tree": "419977aedc6fe60b92b523284185f2b3b7956475"
+  },
+  "solar_binary": {
+    "sha256": "91d3945708fd2e11a2ee4eb8fa170502d0361bef14c792ecc13bb7ab7a4cb697",
+    "built_from_commit": "5a9e6bc0e846e5f4426cff6d22476f31f638d561",
+    "built_from_tree": "419977aedc6fe60b92b523284185f2b3b7956475",
+    "version": [
+      "solar 0.3.0-dev+commit.5a9e6bc0",
+      "Solidity Version: 0.8.38",
+      "Solc-Compatible Version: 0.8.38+commit.5a9e6bc0.solar.0.3.0-dev",
+      "Commit SHA: 5a9e6bc0e846e5f4426cff6d22476f31f638d561",
+      "Build Timestamp: 2026-11-15T13:01:35.525353549Z",
+      "Build Features: mimalloc,tracing",
+      "Build Profile: debug"
+    ],
+    "rust_sources_equal_to_driver_commit": true,
+    "note": "built at the driver commit"
+  },
+  "solidity_lean_executed": {
+    "head": "3c0a8663950a58f676b76facbaaf1ad12a6c3cc6",
+    "base_parent": "44572c150176365fa5e0d56ae6c59a7a443f8122",
+    "head_subject": "certify: generated inputs for flatsuccwrong_4bba9054"
+  },
+  "base_argument": "44572c150176365fa5e0d56ae6c59a7a443f8122",
+  "host": {
+    "peak_system_used_mib": 4004,
+    "peak_tree_rss_mib": 6968,
+    "max_rss_one_process_mib": 5275,
+    "mem_total_mib": 14531,
+    "wall_seconds": 724.9,
+    "note": "peak_system_used_mib is machine-wide used memory (all processes), sampled each second"
+  },
+  "generated_files": {
+    "Certified/flatsuccwrong_4bba9054/Lowering.lean": "05dfe3a3f7096af1fc222012374b6af99914faf09232d0c94d208e0a652c94c6",
+    "Certified/flatsuccwrong_4bba9054/Proofs/Assembly.lean": "95444f103aa7a87ddf82245e849b49b27c3cdc4e85e37d9057db471a210d29fd",
+    "Certified/flatsuccwrong_4bba9054/Proofs/Runs/Evm1.lean": "d80251bd00e89b44f0f88e9ad470c8cad81cf40df585e9b5abea76d80770a735",
+    "Certified/flatsuccwrong_4bba9054/Proofs/Runs/Evm2.lean": "4c6ec66e08d7f9006823e5d6337cbc160e7ca419696c6f636acc1e1a953713e2",
+    "Certified/flatsuccwrong_4bba9054/Proofs/Runs/Evm3.lean": "08511f7835b15620b7322c134ef5892b91b1b5abc2a663433c14c065e9d56d3f",
+    "Certified/flatsuccwrong_4bba9054/Proofs/Runs/Evm4.lean": "3059898602e084b91c78c5862aa1444ee18554e2e58fd7f7117ac4c55a604cac",
+    "Certified/flatsuccwrong_4bba9054/Proofs/Runs/Sched.lean": "8937608b92e3ded985eeda65f8547c9b79efcaf88e560cd717b8b3611de03720",
+    "Certified/flatsuccwrong_4bba9054/Proofs/Runs/Stage0.lean": "1498e65103f683035c391a182c8433dba18c971f6322419b811981d634a0c881",
+    "Certified/flatsuccwrong_4bba9054/Proofs/Stages.lean": "63b7f8534e9a1c8382351eb8454ec92f8835cd1e748c404bfd57d1662979986d",
+    "Certified/flatsuccwrong_4bba9054/Proofs.lean": "4b9ffbbcf5c93d7bb439fb2d9408ac41246ed7f3872f2a91ebf99c588f8ef1d9",
+    "Certified/flatsuccwrong_4bba9054/Shape.lean": "d12a2df8105969e94ed74f688bcf41083677e6ff14148230bf9d8f6b40a0efcb",
+    "Certified/flatsuccwrong_4bba9054/Source.lean": "728e8d2cecf04f853a6bb77c058a7b716824ec5c47093d5b7e505d2165cfcf9b",
+    "Certified/flatsuccwrong_4bba9054/SpecConnect.lean": "9e0b84ac5424e103c47f317c3ab36d244bc37b731c3435aa96c5ca46f3e928c2",
+    "Certified/flatsuccwrong_4bba9054/bytecode.hex": "1a39c81b7399defb3de3bd97a314357e433cb0d1314373256ba04f8878cca058",
+    "Certified/flatsuccwrong_4bba9054/flatsuccwrong_4bba9054.sol": "4bba9054d55323c22a293e4082d625f48c0cba2a0791193d4a0105562aacb02a",
+    "Certified/flatsuccwrong_4bba9054/gen/FlatSuccWrong/Bytecode.lean": "b6a5dcd0f290e015800f3b1ebad5528c344d0fe99d86944a6a9d535aa278c82a",
+    "Certified/flatsuccwrong_4bba9054/gen/FlatSuccWrong/Evm1.lean": "7fbf64d4c4f3d214fb888e96d12ca4b7981d45f3b4951b51a41660a016c8aaa0",
+    "Certified/flatsuccwrong_4bba9054/gen/FlatSuccWrong/Evm2.lean": "9409515bdff8d987457d16e5174d84051cfdac256fe97d00a9ffd36a4348f0ab",
+    "Certified/flatsuccwrong_4bba9054/gen/FlatSuccWrong/Evm3.lean": "4668b80c45f2824b0ebd6c9241f529a9dc384eca5c09a0c49965230ba68d9c22",
+    "Certified/flatsuccwrong_4bba9054/gen/FlatSuccWrong/Evm4.lean": "8d92344abed72d5f8a35e393b3263664f85017e3d92d4be5d5dc8e36de20210b",
+    "Certified/flatsuccwrong_4bba9054/gen/FlatSuccWrong/Manifest.lean": "b58ec46eea333604ceb71ec44170ae809deeb5bd13ee306aecf56eea71e10354",
+    "Certified/flatsuccwrong_4bba9054/gen/FlatSuccWrong/Sched.lean": "52965f846b6b0c2b27cf8964a23a14616c8dc4b0dc4b68e39f78d03323b9b19a",
+    "Certified/flatsuccwrong_4bba9054/gen/FlatSuccWrong/Schedule.json": "b7b4c975d8a6c39a5087b4718ba14ba092ef442793643188469795f070c80c69",
+    "Certified/flatsuccwrong_4bba9054/gen/FlatSuccWrong/Spec.lean": "b39c994b216c3202a9ec4c79dfce5e21656b90923ce5b3a691e8fa4bc4b8feac",
+    "Certified/flatsuccwrong_4bba9054/gen/FlatSuccWrong/Stage0.lean": "6e9195d3739949feb1e1a86ac2e3e25e2851371cb52ed09b309428c48621307a",
+    "Certified/flatsuccwrong_4bba9054/gen/FlatSuccWrong/manifest.json": "800472d9ed6f17ba024a7c7615815c5c698b420c7f6fe84e0e21012380e9e064",
+    "Certified/flatsuccwrong_4bba9054/options": "e8dcb59d1d2c9325d924f23afb16523ebcef2750f7fa447cf67b494f81a9038c",
+    "Certified/flatsuccwrong_4bba9054/shape.json": "2c330d1fcc0fbb6f9a3c8dc67a5616f5f60dc42a4148c6360f64133c13ab785e"
+  },
+  "replay_dir_check": {
+    "extra": [],
+    "missing": [],
+    "mismatched": []
+  },
+  "ir_hashes": {
+    "Certified/flatsuccwrong_4bba9054/bytecode.hex": "1a39c81b7399defb3de3bd97a314357e433cb0d1314373256ba04f8878cca058",
+    "Certified/flatsuccwrong_4bba9054/gen/FlatSuccWrong/Bytecode.lean": "b6a5dcd0f290e015800f3b1ebad5528c344d0fe99d86944a6a9d535aa278c82a",
+    "Certified/flatsuccwrong_4bba9054/gen/FlatSuccWrong/Evm1.lean": "7fbf64d4c4f3d214fb888e96d12ca4b7981d45f3b4951b51a41660a016c8aaa0",
+    "Certified/flatsuccwrong_4bba9054/gen/FlatSuccWrong/Evm2.lean": "9409515bdff8d987457d16e5174d84051cfdac256fe97d00a9ffd36a4348f0ab",
+    "Certified/flatsuccwrong_4bba9054/gen/FlatSuccWrong/Evm3.lean": "4668b80c45f2824b0ebd6c9241f529a9dc384eca5c09a0c49965230ba68d9c22",
+    "Certified/flatsuccwrong_4bba9054/gen/FlatSuccWrong/Evm4.lean": "8d92344abed72d5f8a35e393b3263664f85017e3d92d4be5d5dc8e36de20210b",
+    "Certified/flatsuccwrong_4bba9054/gen/FlatSuccWrong/Schedule.json": "b7b4c975d8a6c39a5087b4718ba14ba092ef442793643188469795f070c80c69",
+    "Certified/flatsuccwrong_4bba9054/gen/FlatSuccWrong/Stage0.lean": "6e9195d3739949feb1e1a86ac2e3e25e2851371cb52ed09b309428c48621307a",
+    "Certified/flatsuccwrong_4bba9054/gen/FlatSuccWrong/manifest.json": "800472d9ed6f17ba024a7c7615815c5c698b420c7f6fe84e0e21012380e9e064"
+  },
+  "ir_hashes_note": "gen/<C>/Stage0.lean is the exported MIR (the generic stage's input), Evm1..N.lean the EVM IR stages, Bytecode.lean and bytecode.hex the runtime bytes",
+  "extraction": "replay/ is the driver's --record-dir byte for byte (minus the queue's DONE marker); every other file here is the archival envelope",
+  "resource_admission": {
+    "rule": "max(system_used_mib) <= mem_total_mib - 1024 and not killed for memory",
+    "samples": 362,
+    "max_system_used_mib": 4004,
+    "mem_total_mib": 14531,
+    "killed_for_memory": false,
+    "decision": "admitted",
+    "trace": "receipt.trace.tsv",
+    "trace_sha256": "460a5b0692f615d1e5c6e6a23ccf589eff133c6616ac9c65748d512efcdfe1cd"
+  }
+}

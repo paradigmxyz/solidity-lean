@@ -1,0 +1,140 @@
+== generic: /home/hand/cdev/FlatSuccWrong.sol (4bba9054d55323c22a293e4082d625f48c0cba2a0791193d4a0105562aacb02a) as flatsuccwrong_4bba9054, requested tier certified
+envelope (source): inside; functions halt(), total()
+== generic: build solar
+envelope (bytecode): no call, creation, gas or return-data opcode
+gas bound (the loop checker's, from this export): 795603
+== generic: probe SolidCore's evaluation and the generic check (separate clone)
+PROBE typecheck: ok
+PROBE core: <1314 chars>
+PROBE constructor: returns
+PROBE storage: []
+PROBE fn halt(): agree
+PROBE fn total(): agree
+== generic: solidity-lean 44572c150176365fa5e0d56ae6c59a7a443f8122 + inputs 3c0a8663950a58f676b76facbaaf1ad12a6c3cc6; scripts/certify
+== 1. the pinned solidity-lean checkout
+certify: warning: solidity-lean at 3c0a8663950a58f676b76facbaaf1ad12a6c3cc6, not the pinned d0ab5d63a401ae615a4755742f3ab500a2a9d0b1
+solidity-lean 3c0a8663950a58f676b76facbaaf1ad12a6c3cc6 at /home/hand/runs/acc3-flatsuccwrong-work/solidity-lean
+== 2. solar
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.68s
+solar 5a9e6bc0e846e5f4426cff6d22476f31f638d561
+Build completed successfully (1156 jobs).
+solar sha256 91d3945708fd2e11a2ee4eb8fa170502d0361bef14c792ecc13bb7ab7a4cb697
+== 3. compile Certified/flatsuccwrong_4bba9054/flatsuccwrong_4bba9054.sol and export its stages (-Ogas --evm-version osaka)
+stages: stage0 (lower-evm-shaped), sched (stack-schedule), evm1 (cfg-simplify-early), evm2 (dce), evm3 (share-reverts), evm4 (cfg-simplify-early), bytecode (assemble)
+bytecode: 34601b575f3560e01c80632ddbd13a03601b575f545f5260205ff35b5f5ffd sha256 c04c48ac22765acb5ab7e0ae6f9e815fa15813174930336332c894afe03a0c8e
+== 4. write the proofs
+assembly: decoded only; the loop-free stages have no backward composition to run the bytecode with
+{"final": "SolarTV.Milestone.Flatsuccwrong4bba9054.flatsuccwrong_4bba9054_mir_to_evmir", "last": "evm4", "first": "stage0", "stages": ["stage0", "sched", "evm1", "evm2", "evm3", "evm4"]}
+== 5. build and audit the proofs
+flatsuccwrong_4bba9054.gen.FlatSuccWrong.Bytecode: Build completed successfully (2 jobs).
+flatsuccwrong_4bba9054.gen.FlatSuccWrong.Evm1: Build completed successfully (12 jobs).
+flatsuccwrong_4bba9054.gen.FlatSuccWrong.Evm2: Build completed successfully (12 jobs).
+flatsuccwrong_4bba9054.gen.FlatSuccWrong.Evm3: Build completed successfully (12 jobs).
+flatsuccwrong_4bba9054.gen.FlatSuccWrong.Evm4: Build completed successfully (12 jobs).
+flatsuccwrong_4bba9054.gen.FlatSuccWrong.Manifest: Build completed successfully (2 jobs).
+flatsuccwrong_4bba9054.gen.FlatSuccWrong.Sched: Build completed successfully (12 jobs).
+flatsuccwrong_4bba9054.gen.FlatSuccWrong.Stage0: Build completed successfully (11 jobs).
+flatsuccwrong_4bba9054.Proofs.Runs.Evm1: Build completed successfully (21 jobs).
+flatsuccwrong_4bba9054.Proofs.Runs.Evm2: Build completed successfully (21 jobs).
+flatsuccwrong_4bba9054.Proofs.Runs.Evm3: Build completed successfully (21 jobs).
+flatsuccwrong_4bba9054.Proofs.Runs.Evm4: Build completed successfully (21 jobs).
+flatsuccwrong_4bba9054.Proofs.Runs.Sched: Build completed successfully (21 jobs).
+flatsuccwrong_4bba9054.Proofs.Runs.Stage0: Build completed successfully (20 jobs).
+flatsuccwrong_4bba9054.Proofs.Stages: Build completed successfully (33 jobs).
+flatsuccwrong_4bba9054.Proofs.Assembly: Build completed successfully (17 jobs).
+flatsuccwrong_4bba9054.Proofs: Build completed successfully (39 jobs).
+'SolarTV.Milestone.Flatsuccwrong4bba9054.checked' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Flatsuccwrong4bba9054.decodes' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Flatsuccwrong4bba9054.evm1_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flatsuccwrong4bba9054.evm1_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flatsuccwrong4bba9054.evm2_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flatsuccwrong4bba9054.evm2_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flatsuccwrong4bba9054.evm3_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flatsuccwrong4bba9054.evm3_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flatsuccwrong4bba9054.evm4_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flatsuccwrong4bba9054.flatsuccwrong_4bba9054_mir_to_evmir' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flatsuccwrong4bba9054.items_eq' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Flatsuccwrong4bba9054.sched_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flatsuccwrong4bba9054.sched_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flatsuccwrong4bba9054.stage0_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flatsuccwrong4bba9054.stage_evm1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flatsuccwrong4bba9054.stage_evm2' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flatsuccwrong4bba9054.stage_evm3' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flatsuccwrong4bba9054.stage_evm4' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flatsuccwrong4bba9054.stage_sched' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flatsuccwrong4bba9054.walk_eq' depends on axioms: [propext, Quot.sound]
+audited 20 theorems
+== 6. the spec (solar-verify) and the headline theorems
+lake packages (20 modules imported): Build completed successfully (2492 jobs).
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.20s
+export: /home/hand/runs/acc3-flatsuccwrong-work/solidity-lean/.lake/certify/flatsuccwrong_4bba9054/VC.lean is whole (112 lines, ends with end Certified.Flatsuccwrong4bba9054.VC)
+spec: exported to .lake/certify/flatsuccwrong_4bba9054/VC.lean
+no Certified/flatsuccwrong_4bba9054/headline: no end-to-end theorem
+== 6b. the published statement
+export: Certified/flatsuccwrong_4bba9054/gen/FlatSuccWrong/Spec.lean is whole (49 lines, ends with end Certified.flatsuccwrong_4bba9054.gen.FlatSuccWrong.Spec)
+flatsuccwrong_4bba9054.Lowering: Build completed successfully (2566 jobs).
+flatsuccwrong_4bba9054.gen.FlatSuccWrong.Spec: Build completed successfully (8 jobs).
+Verify.VC.Model: Build completed successfully (2549 jobs).
+Verify.Spec.Tree: Build completed successfully (2553 jobs).
+Verify.Spec.TreeMap: Build completed successfully (2558 jobs).
+Verify.Spec.TreeMapNested: Build completed successfully (2559 jobs).
+Verify.Spec.TreeIn: Build completed successfully (2567 jobs).
+Verify.Spec.TreeSucceeds: Build completed successfully (2559 jobs).
+Verify.VC.KernelIdx: Build completed successfully (2 jobs).
+SolidCore.Refinement.KernelRfl: Build completed successfully (3 jobs).
+ord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
+    beq_self_eq_true, Ty.InRange, forall_int_range, Nat.cast_ofNat, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/flatsuccwrong_4bba9054/SpecConnect.lean:93:52: warning: This simp argument is unused:
+  forall_int_range
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, halt_tree, halt_spec, flatsuccwrong_4bba9054.SpecConnect.spec,
+    Certified.flatsuccwrong_4bba9054.gen.FlatSuccWrong.Spec.FlatSuccWrong, flatsuccwrong_4bba9054.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, evalList, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
+    beq_self_eq_true, Ty.InRange, Option.getD_some, Nat.cast_ofNat, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/flatsuccwrong_4bba9054/SpecConnect.lean:93:70: warning: This simp argument is unused:
+  Nat.cast_ofNat
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, halt_tree, halt_spec, flatsuccwrong_4bba9054.SpecConnect.spec,
+    Certified.flatsuccwrong_4bba9054.gen.FlatSuccWrong.Spec.FlatSuccWrong, flatsuccwrong_4bba9054.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, evalList, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
+    beq_self_eq_true, Ty.InRange, Option.getD_some, forall_int_range, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/flatsuccwrong_4bba9054/SpecConnect.lean:93:86: warning: This simp argument is unused:
+  Int.reducePow
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, halt_tree, halt_spec, flatsuccwrong_4bba9054.SpecConnect.spec,
+    Certified.flatsuccwrong_4bba9054.gen.FlatSuccWrong.Spec.FlatSuccWrong, flatsuccwrong_4bba9054.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, evalList, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
+    beq_self_eq_true, Ty.InRange, Option.getD_some, forall_int_range, Nat.cast_ofNat] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+'flatsuccwrong_4bba9054.SpecConnect.halt_holds_in' depends on axioms: [propext, sorryAx, Classical.choice, Quot.sound]
+Certified/flatsuccwrong_4bba9054/SpecConnect.lean:133:0: error: ❌️ Docstring on `#guard_msgs` does not match generated message:
+
+- info: 'flatsuccwrong_4bba9054.SpecConnect.halt_holds_in' depends on axioms: [propext, Classical.choice, Quot.sound]
++ info: 'flatsuccwrong_4bba9054.SpecConnect.halt_holds_in' depends on axioms: [propext, sorryAx, Classical.choice, Quot.sound]
+'flatsuccwrong_4bba9054.SpecConnect.halt_holds' depends on axioms: [propext, sorryAx, Classical.choice, Quot.sound]
+Certified/flatsuccwrong_4bba9054/SpecConnect.lean:137:0: error: ❌️ Docstring on `#guard_msgs` does not match generated message:
+
+- info: 'flatsuccwrong_4bba9054.SpecConnect.halt_holds' depends on axioms: [propext, Classical.choice, Quot.sound]
++ info: 'flatsuccwrong_4bba9054.SpecConnect.halt_holds' depends on axioms: [propext, sorryAx, Classical.choice, Quot.sound]
+spec_connect: REJECTED: spec: halt_succeeds does not check: omega could not prove the goal: (SpecConnect.lean:99)
+certify: error: spec_connect.py refuses functions of FlatSuccWrong (above): their spec is not proved
+REJECTED: spec: halt_succeeds does not check: omega could not prove the goal: (SpecConnect.lean:99)
+RECEIPT {"command": ["tools/certify/certify", "/home/hand/cdev/FlatSuccWrong.sol", "natspec", "--solidity-lean", "/home/hand/sl445", "--base", "44572c15", "--work", "/home/hand/runs/acc3-flatsuccwrong-work", "--record-dir", "/home/hand/runs/acc3-flatsuccwrong", "--packages-from", "/home/hand/sl445", "--probe-cache", "/home/hand/sl445"], "exit_code": 1, "wall_seconds": 724.9, "max_rss_one_process_mib": 5275, "peak_tree_rss_mib": 6968, "peak_system_used_mib": 4004, "mem_total_mib": 14531, "samples": 362, "sample_interval_s": 2, "trace": "acc3-flatsuccwrong.receipt.trace.tsv", "memory_definitions": {"system_used_mib": "machine-wide MemTotal - MemAvailable (/proc/meminfo), all processes", "tree_rss_mib": "sum of VmRSS over the command's live process tree; shared pages count per process", "max_rss_one_process_mib": "getrusage(RUSAGE_CHILDREN).ru_maxrss: largest peak RSS of one reaped descendant"}, "started_utc": "2026-11-15T18:27:02Z"}
+driver exit 1

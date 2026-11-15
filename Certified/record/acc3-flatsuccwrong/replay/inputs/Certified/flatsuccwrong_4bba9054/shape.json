@@ -1,0 +1,68 @@
+{
+  "kind": "certified",
+  "contract": "Certified.flatsuccwrong_4bba9054.Lowering.contract?",
+  "fuel": "Certified.flatsuccwrong_4bba9054.Lowering.fuel",
+  "valid": "SolidCore.Refinement.Shapes.genericValid (Certified.flatsuccwrong_4bba9054.Lowering.fns) (Certified.flatsuccwrong_4bba9054.Lowering.storageLit)",
+  "gas": "fun _ => 795603",
+  "env": [],
+  "spec": "solar-verify's export of the source's NatSpec in this run, read by the published statement (bundlePost, bundleAllowed)",
+  "spec_modules": [
+    "flatsuccwrong_4bba9054.Lowering",
+    "Verify.ShapeGeneric",
+    "Verify.Spec.TreeMap",
+    "Verify.ShapeSpecExport"
+  ],
+  "proof_module": "flatsuccwrong_4bba9054.Shape",
+  "proof": "Certified.flatsuccwrong_4bba9054.Shape.published",
+  "generic": {
+    "lowering": "flatsuccwrong_4bba9054.Lowering",
+    "ns": "Certified.flatsuccwrong_4bba9054.Lowering",
+    "style": "core",
+    "check": "check_stage0",
+    "check_value": "checkValue_stage0",
+    "fns": "Certified.flatsuccwrong_4bba9054.Lowering.fns",
+    "storage": "Certified.flatsuccwrong_4bba9054.Lowering.storageLit",
+    "spec_connect": {
+      "witness": "halt",
+      "ghost_fixed": true,
+      "using": []
+    }
+  },
+  "excluded": [
+    "deployment: the init code is not covered; the statement is about the runtime bytecode from any storage that holds the slots the constructor writes, as SolidCore's constructor run with no arguments leaves them",
+    "source model trusted: SolidCore's checked contract (the solc AST through scripts/solc_ast_to_lean_source.py and the type checker) is the meaning of the source (frontend trust boundary)",
+    "calls: one frame, caller 0x2000, contract at 0x1000, the block and transaction of Target.message; no external calls, GAS reads or return data in the code (the loop checker's fragment)",
+    "gas: the bound is the loop checker's (22100 per item times the final EVM IR's block fuel, plus memory), coarse; below it the bytecode may fail without effects, which equivalence admits",
+    "valid calls: halt(), total() ABI-encoded with clean argument words, any value below 2^256 (no function is payable: the value reverts on both sides), any storage covering the constructor's slots; other call data is outside the statement",
+    "spec: solar-verify's export of the source's NatSpec, with its succeeds-if conditions; events are covered by equivalence"
+  ],
+  "source_ast": {
+    "file": "Certified/flatsuccwrong_4bba9054/Source.lean",
+    "namespace": "Certified.flatsuccwrong_4bba9054.Src",
+    "contract": "FlatSuccWrong"
+  },
+  "allowed_export": true,
+  "spec_export": {
+    "ctx": "SolidCore.Refinement.Shapes.ctxOfCall",
+    "step": "SolidCore.Refinement.Shapes.idStep"
+  },
+  "nonvacuous": "Certified.flatsuccwrong_4bba9054.Shape.nonvacuous",
+  "statement": "expected",
+  "source_unit": "Certified.flatsuccwrong_4bba9054.Src.importedSourceUnit",
+  "source_contract": "FlatSuccWrong",
+  "storage": "Certified.flatsuccwrong_4bba9054.Lowering.storageLit",
+  "entries": [
+    {
+      "signature": "halt()",
+      "fn": "Certified.flatsuccwrong_4bba9054.Lowering.fn0",
+      "sel": 1591200347,
+      "arity": 0
+    },
+    {
+      "signature": "total()",
+      "fn": "Certified.flatsuccwrong_4bba9054.Lowering.fn1",
+      "sel": 769380666,
+      "arity": 0
+    }
+  ]
+}
