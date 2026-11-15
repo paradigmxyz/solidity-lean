@@ -1,0 +1,14 @@
+Runs/Evm12/Seg6.lean:114:2: sym_seg
+Runs/Evm12/Seg6.lean:80:2: sym_seg
+Runs/Evm13/Seg6.lean:49:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (2000000) has been reached
+Runs/Evm13/Seg6.lean:83:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (2000000) has been reached
+Runs/Evm14/Seg6.lean:49:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (2000000) has been reached
+Runs/Evm14/Seg6.lean:83:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (2000000) has been reached
+Runs/Evm15/Seg6.lean:49:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (2000000) has been reached
+Runs/Evm15/Seg6.lean:83:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (2000000) has been reached
+Runs/Evm16/Seg6.lean:49:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (2000000) has been reached
+Runs/Evm16/Seg6.lean:83:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (2000000) has been reached
+Runs/Evm17/Seg6.lean:49:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (2000000) has been reached
+Runs/Evm17/Seg6.lean:83:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (2000000) has been reached
+Runs/Evm18/Seg6.lean:49:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (2000000) has been reached
+Runs/Evm18/Seg6.lean:83:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (2000000) has been reached

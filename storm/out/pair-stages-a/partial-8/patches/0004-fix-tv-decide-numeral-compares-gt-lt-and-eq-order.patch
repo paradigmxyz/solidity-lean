@@ -1,0 +1,96 @@
+From e4216d92359ee888718e760a02e05eb3878cef68 Mon Sep 17 00:00:00 2001
+From: Troy Sargent <0xalpharush@protonmail.com>
+Date: Sun, 15 Nov 2026 07:29:07 +0000
+Subject: [PATCH 4/4] fix(tv): decide numeral compares; gt/lt and eq order
+
+Stack-depth checks leave if n > 1024 with the decision instance
+still naming the unevaluated height, so simp cannot reduce them and
+sym_cond splits on each. iteNatCmp rewrites such a conditional with
+ite_cond_eq_true/false and a decide proof. seg_word_eq also relates
+gt to lt with swapped operands and either operand order of eq.
+---
+ tv/W1Proofs/Segment.lean | 47 +++++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 46 insertions(+), 1 deletion(-)
+
+diff --git a/tv/W1Proofs/Segment.lean b/tv/W1Proofs/Segment.lean
+index a1f3075..90514e5 100644
+--- a/tv/W1Proofs/Segment.lean
++++ b/tv/W1Proofs/Segment.lean
+@@ -92,6 +92,41 @@ dsimproc_decl iteNatLit (ite _ _ _) := fun e => do
+   let some n ← Nat.fromExpr? y | return .continue
+   return .done (if m == n then a else b)
+ 
++open Lean Meta in
++/-- A comparison of two numerals, decided. -/
++def natLitCmp? (t x y : Expr) (f : Nat → Nat → Bool) : Simp.SimpM (Option Bool) := do
++  unless t.isConstOf ``Nat do return none
++  let some m ← Nat.fromExpr? x | return none
++  let some n ← Nat.fromExpr? y | return none
++  return some (f m n)
++
++open Lean Meta Simp in
++/-- A conditional on a comparison of numerals, as the stack-depth checks leave it once the height
++is known: the branch the comparison picks, by `ite_cond_eq_true`/`ite_cond_eq_false` with the
++comparison decided. A proof rather than a `dsimp` step, since the decision instance may still
++name the unevaluated height (`Nat.decLt 1024 l.length`) after the condition was evaluated. -/
++simproc_decl iteNatCmp (ite _ _ _) := fun e => do
++  let_expr ite _ c _ _ _ := e | return .continue
++  let r? ← match_expr c with
++    | LT.lt t _ x y => natLitCmp? t x y (fun m n => decide (m < n))
++    | LE.le t _ x y => natLitCmp? t x y (fun m n => decide (m ≤ n))
++    | GT.gt t _ x y => natLitCmp? t x y (fun m n => decide (m > n))
++    | GE.ge t _ x y => natLitCmp? t x y (fun m n => decide (m ≥ n))
++    | _ => pure none
++  let some r := r? | return .continue
++  let args := e.getAppArgs
++  let lvls := e.getAppFn.constLevels!
++  if r then
++    let h ← mkDecideProof c
++    let heq ← mkAppM ``eq_true #[h]
++    let pf := mkAppN (mkConst ``ite_cond_eq_true lvls) #[args[0]!, args[1]!, args[2]!, args[3]!, args[4]!, heq]
++    return .done { expr := args[3]!, proof? := some pf }
++  else
++    let h ← mkDecideProof (mkNot c)
++    let heq ← mkAppM ``eq_false #[h]
++    let pf := mkAppN (mkConst ``ite_cond_eq_false lvls) #[args[0]!, args[1]!, args[2]!, args[3]!, args[4]!, heq]
++    return .done { expr := args[4]!, proof? := some pf }
++
+ /-- Unfold a segment's step and its cut test. -/
+ syntax "seg_eval" "[" Lean.Parser.Tactic.simpLemma,* "]" : tactic
+ macro_rules
+@@ -141,7 +176,7 @@ macro "seg_cut_test" : tactic => `(tactic|
+   simp only [ite_beq, Nat.reduceBEq, BitVec.reduceEq, BitVec.reduceNe, ite_self, Bool.false_eq_true,
+     evm_lt_zero_left, state_initial_eta, Bool.or_true, Bool.or_false, Bool.and_true, Bool.and_false,
+     ↓reduceIte, Mem.load_store_of_disjoint, Mem.load_store_same, Mem.load_expand, Nat.reduceAdd,
+-    Nat.reduceLeDiff, true_or, or_true, ite_or_ite_not, ite_not_or_ite])
++    Nat.reduceLeDiff, true_or, or_true, ite_or_ite_not, ite_not_or_ite, iteNatCmp])
+ 
+ syntax "seg_norm" "[" Lean.Parser.Tactic.simpLemma,* "]" : tactic
+ macro_rules
+@@ -151,6 +186,15 @@ macro_rules
+ /-- `ISZERO` is a test against zero: the scheduler may emit either for one MIR `eq v, 0`. -/
+ theorem evm_iszero_eq (a : EvmRules.Word) : EvmRules.Evm.iszero a = EvmRules.Evm.eq a 0 := rfl
+ 
++/-- `GT` is `LT` with its operands swapped: the scheduler may emit either for one MIR compare. -/
++theorem evm_gt_lt (a b : EvmRules.Word) : EvmRules.Evm.gt a b = EvmRules.Evm.lt b a := rfl
++
++/-- `EQ` is commutative: the scheduler may push its operands in either order. As a simp lemma it
++is a permutation, which simp applies only toward its term order, so both ends meet. -/
++theorem evm_eq_comm (a b : EvmRules.Word) : EvmRules.Evm.eq a b = EvmRules.Evm.eq b a := by
++  unfold EvmRules.Evm.eq
++  rw [Bool.beq_comm]
++
+ /-- The equation of two words, configurations or results, by evaluation and `sym_exec`'s leaf
+ procedures. -/
+ macro "seg_word_eq" : tactic => `(tactic| (
+@@ -159,6 +203,7 @@ macro "seg_word_eq" : tactic => `(tactic| (
+     | (simp only [evm_iszero_eq]; with_reducible rfl)
+     | ((try seg_cut_test); sym_norm; first
+         | with_reducible rfl
++        | (simp only [evm_iszero_eq, evm_gt_lt, evm_eq_comm]; with_reducible rfl)
+         | (exfalso; bv_omega)
+         | (exfalso; sym_omega)
+         | (exfalso; sym_comm_contra)
+-- 
+2.43.0
+

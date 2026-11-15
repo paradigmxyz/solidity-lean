@@ -1,0 +1,27 @@
+From 051dd8a41f1bce1954faab0fdf633c04dc781aa1 Mon Sep 17 00:00:00 2001
+From: Troy Sargent <0xalpharush@protonmail.com>
+Date: Sat, 14 Nov 2026 23:20:34 +0000
+Subject: [PATCH 2/4] fix(tv): seg_case_contra reduces cut tests of numeral
+ blocks
+
+---
+ tv/W1Proofs/Segment.lean | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/tv/W1Proofs/Segment.lean b/tv/W1Proofs/Segment.lean
+index 59e91d8..0963f85 100644
+--- a/tv/W1Proofs/Segment.lean
++++ b/tv/W1Proofs/Segment.lean
+@@ -207,7 +207,8 @@ elab "seg_case_contra" : tactic => withMainContext do
+         let gs ← Term.exprToSyntax g.toExpr
+         evalTactic (← `(tactic| have $hs:ident := $hx))
+         evalTactic (← `(tactic| simp only [$gs:term, ite_not, ↓reduceIte, Bool.false_eq_true,
+-          Bool.true_eq_false, not_true_eq_false, not_false_eq_true, ne_eq, Decidable.not_not, and_true, true_and, and_self, and_false, false_and, not_and, imp_false] at $hs:ident))
++          Bool.true_eq_false, not_true_eq_false, not_false_eq_true, ne_eq, Decidable.not_not, and_true, true_and, and_self, and_false, false_and, not_and, imp_false,
++          Nat.reduceBEq, Bool.or_false, Bool.false_or, Bool.or_true, Bool.true_or] at $hs:ident))
+         if (← getGoals).isEmpty then return
+         saved.restore
+       catch _ => saved.restore
+-- 
+2.43.0
+
