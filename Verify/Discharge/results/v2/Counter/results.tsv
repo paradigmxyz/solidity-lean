@@ -1,0 +1,15 @@
+id	role	answer	backend	status	seconds	peak_mb	axioms
+Counter.constructor#1	obligation	unsat	smt	proved	2.5	1783	propext Classical.choice Quot.sound
+Counter.constructor#2	obligation	unsat	smt	proved	2.6	1783	propext Classical.choice Quot.sound
+Counter.increment#1	obligation	unsat	smt	proved	2.5	1791	propext Classical.choice Quot.sound
+Counter.increment#2	obligation	unsat	smt	proved	2.7	1794	propext Classical.choice Quot.sound
+Counter.bump#0	obligation	unsat	smt	proved	2.4	1799	propext Classical.choice Quot.sound
+Counter.bump#1	obligation	unsat	smt	proved	2.6	1799	propext Classical.choice Quot.sound
+Counter.bump#2	obligation	unsat	smt	proved	3.2	1819	propext Classical.choice Quot.sound
+Counter.bump#3	obligation	unsat	smt	proved	3.1	1820	propext Classical.choice Quot.sound
+Counter.bump#4	obligation	unsat	smt	proved	3.3	1821	propext Classical.choice Quot.sound
+Counter.bump#6	obligation	unsat	smt	proved	3.1	1826	propext Classical.choice Quot.sound
+Counter.bump#7	obligation	unsat	smt	proved	3.0	1828	propext Classical.choice Quot.sound
+Counter.max#1	obligation	unsat	smt	proved	3.0	1806	propext Classical.choice Quot.sound
+Counter.max#2	obligation	unsat	smt	proved	2.7	1809	propext Classical.choice Quot.sound
+Counter.max#3	obligation	settled	smt	proved	2.5	1800	propext Classical.choice Quot.sound

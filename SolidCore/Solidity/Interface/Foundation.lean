@@ -346,6 +346,8 @@ def Stmt.inlineConstantsFuel : Nat -> ConstantEnv -> Stmt -> Stmt
       | Stmt.continue => Stmt.continue
       | Stmt.unchecked body => Stmt.unchecked (inlineStmt body)
       | Stmt.inlineAssembly code => Stmt.inlineAssembly code
+      | Stmt.assemblyCreate2 t v c s =>
+          Stmt.assemblyCreate2 (inlineExpr t) (inlineExpr v) (inlineExpr c) (inlineExpr s)
       | Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
 
 /-- Rewrite a statement list in source order. A local declaration shadows a
@@ -533,6 +535,8 @@ def Stmt.rewriteSuperCallsFuel (contractName : Name) : Nat -> Stmt -> Stmt
       | Stmt.continue => Stmt.continue
       | Stmt.unchecked body => Stmt.unchecked (rewriteStmt body)
       | Stmt.inlineAssembly code => Stmt.inlineAssembly code
+      | Stmt.assemblyCreate2 t v c s =>
+          Stmt.assemblyCreate2 (rewriteExpr t) (rewriteExpr v) (rewriteExpr c) (rewriteExpr s)
       | Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
 
 def CatchClause.rewriteSuperCallsFuel (contractName : Name) :
@@ -740,6 +744,8 @@ def Stmt.rewriteBaseCallsFuel (baseNames stateNames : List Name) :
       | Stmt.continue => Stmt.continue
       | Stmt.unchecked body => Stmt.unchecked (rewriteStmt body)
       | Stmt.inlineAssembly code => Stmt.inlineAssembly code
+      | Stmt.assemblyCreate2 t v c s =>
+          Stmt.assemblyCreate2 (rewriteExpr t) (rewriteExpr v) (rewriteExpr c) (rewriteExpr s)
       | Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
 
 def CatchClause.rewriteBaseCallsFuel (baseNames stateNames : List Name) :
@@ -1228,6 +1234,8 @@ def Stmt.resolveUserTypesFuel : Nat -> UserTypeEnv -> Stmt -> Stmt
       | Stmt.continue => Stmt.continue
       | Stmt.unchecked body => Stmt.unchecked (resolveStmt body)
       | Stmt.inlineAssembly code => Stmt.inlineAssembly code
+      | Stmt.assemblyCreate2 t v c s =>
+          Stmt.assemblyCreate2 (resolveExpr t) (resolveExpr v) (resolveExpr c) (resolveExpr s)
       | Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
 
 def CatchClause.resolveUserTypesFuel :
@@ -1565,6 +1573,8 @@ def Stmt.resolveEnumsFuel : Nat -> EnumEnv -> Stmt -> Stmt
       | Stmt.continue => Stmt.continue
       | Stmt.unchecked body => Stmt.unchecked (resolveStmt body)
       | Stmt.inlineAssembly code => Stmt.inlineAssembly code
+      | Stmt.assemblyCreate2 t v c s =>
+          Stmt.assemblyCreate2 (resolveExpr t) (resolveExpr v) (resolveExpr c) (resolveExpr s)
       | Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
 
 def CatchClause.resolveEnumsFuel :
@@ -2207,6 +2217,8 @@ def Stmt.resolveStructsInSeqFuel :
       | Stmt.continue => (Stmt.continue, typeEnv)
       | Stmt.unchecked body => (Stmt.unchecked (resolveStmt body), typeEnv)
       | Stmt.inlineAssembly code => (Stmt.inlineAssembly code, typeEnv)
+      | Stmt.assemblyCreate2 t v c s =>
+          (Stmt.assemblyCreate2 (resolveExpr t) (resolveExpr v) (resolveExpr c) (resolveExpr s), typeEnv)
       | Stmt.modifierPlaceholder => (Stmt.modifierPlaceholder, typeEnv)
 
 end
@@ -4631,10 +4643,11 @@ def externalCallKindTypeEnvName? (contractName functionName : Name)
   -- identity of the resolved parameter types (derived `repr`, which carries
   -- the canonical enum path and struct path) — computed identically at entry
   -- build and lookup, so the key stays symmetric. Repr-identity only: the
-  -- key never reaches an ABI boundary.
+  -- key never reaches an ABI boundary. `Ty.reprListString` is the flat print,
+  -- which the kernel evaluates (the derived print when short).
   some
     (externalCallKindTypeEnvPrefix ++ contractName ++ ":" ++ signature ++
-      "#" ++ toString (repr paramTys))
+      "#" ++ Ty.reprListString paramTys)
 
 def ExternalCallKindEntry.toTypeEnvEntry?
     (entry : ExternalCallKindEntry) : Option (Option (Name × Ty)) := do
@@ -7930,7 +7943,21 @@ def Expr.toCoreFixedBytesBitOp? (storageNames : List Name) (env : TypeEnv)
   | Expr.call (Expr.typeName (Ty.bytesN castSize)) [Arg.positional inner]
   | Expr.call (Expr.typeName (Ty.fixedBytes castSize)) [Arg.positional inner] =>
       if castSize == size then
-        Expr.toCoreFixedBytesBitOp? storageNames env size inner
+        -- A conversion to `bytesN size` of a narrower (or wider) shift/bitwise
+        -- operand: the operator runs at the OPERAND's width, then the result
+        -- is converted. Walking the operand at `size` would widen the leaves
+        -- first, so `bytes32(bytes2(x) >> c)` kept the bits shifted below the
+        -- 2-byte lane instead of discarding them.
+        match (Expr.abiTyWithEnv? env inner).bind Ty.fixedBytesSize? with
+        | some innerSize =>
+            if innerSize != size && Expr.isFixedBytesBitOpShape inner then do
+              let innerCore ←
+                Expr.toCoreFixedBytesBitOp? storageNames env innerSize inner
+              some (SolidCore.Solidity.Source.Expr.fixedBytesCast
+                size innerSize innerCore)
+            else
+              Expr.toCoreFixedBytesBitOp? storageNames env size inner
+        | none => Expr.toCoreFixedBytesBitOp? storageNames env size inner
       else
         Expr.toCoreAsWithEnvDirect?
           storageNames env (Ty.bytesN size)

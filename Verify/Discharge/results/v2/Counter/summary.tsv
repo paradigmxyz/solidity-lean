@@ -1,0 +1,15 @@
+id	role	answer	status	backends	vacuous
+Counter.constructor#1	obligation	unsat	proved	smt	no
+Counter.constructor#2	obligation	unsat	proved	smt	no
+Counter.increment#1	obligation	unsat	proved	smt	no
+Counter.increment#2	obligation	unsat	proved	smt	no
+Counter.bump#0	obligation	unsat	proved	smt	no
+Counter.bump#1	obligation	unsat	proved	smt	no
+Counter.bump#2	obligation	unsat	proved	smt	no
+Counter.bump#3	obligation	unsat	proved	smt	no
+Counter.bump#4	obligation	unsat	proved	smt	no
+Counter.bump#6	obligation	unsat	proved	smt	no
+Counter.bump#7	obligation	unsat	proved	smt	no
+Counter.max#1	obligation	unsat	proved	smt	no
+Counter.max#2	obligation	unsat	proved	smt	no
+Counter.max#3	obligation	settled	proved	smt	no

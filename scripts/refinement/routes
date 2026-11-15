@@ -1,0 +1,3 @@
+# Proof route of each corpus contract whose parameters are all small, read by
+# gen_proof.py: symbolic where the symbolic proof builds in reasonable time.
+c1 symbolic

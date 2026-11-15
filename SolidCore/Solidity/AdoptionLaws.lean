@@ -194,7 +194,7 @@ theorem find?_storage_foldl (L : List (Word × Word)) (init : EvmYul.Storage)
               rw [compare_wordToU256_eq_iff, wordEq_iff_norm]
               exact ((wordEq_iff_norm _ _).1 hb).symm
             simp only [hb, Option.elim]
-            rw [Batteries.RBMap.find?_insert_of_eq _ hc]
+            rw [RBTree.RBMap.find?_insert_of_eq _ hc]
           · have hbf : wordEq kv.1 k = false := by
               cases hh : wordEq kv.1 k
               · rfl
@@ -206,7 +206,7 @@ theorem find?_storage_foldl (L : List (Word × Word)) (init : EvmYul.Storage)
                 rw [wordEq_iff_norm] at hkk ⊢; exact hkk.symm
               exact hb hsym
             simp only [hbf, Option.elim]
-            rw [Batteries.RBMap.find?_insert_of_ne _ hc]
+            rw [RBTree.RBMap.find?_insert_of_ne _ hc]
 
 /-- First-match `find?` is determined by membership + uniqueness. -/
 theorem list_find?_eq_some_of_unique {α : Type} {l : List α} {p : α → Bool}
@@ -238,7 +238,7 @@ theorem toList_find?_eq_findEntry? (T : EvmYul.Storage) (u : EvmYul.UInt256) :
       T.findEntry? u := by
   cases hFind : T.findEntry? u with
   | some y =>
-      have hMem := (Batteries.RBMap.findEntry?_some.1 hFind)
+      have hMem := (RBTree.RBMap.findEntry?_some.1 hFind)
       apply list_find?_eq_some_of_unique hMem.1
       · simp [hMem.2]
       · intro z hz hpz
@@ -256,17 +256,17 @@ theorem toList_find?_eq_findEntry? (T : EvmYul.Storage) (u : EvmYul.UInt256) :
           have h₂ := Std.TransCmp.congr_left (cmp := compare) h₁ (c := y.1)
           rw [h₂]
           exact hMem.2
-        exact Batteries.RBSet.mem_toList_unique hz hMem.1 hyz
+        exact RBTree.RBSet.mem_toList_unique hz hMem.1 hyz
   | none =>
       apply List.find?_eq_none.2
       intro z hz
       by_contra hpz
       have hzEq : compare u z.1 = Ordering.eq := by
         cases hc : compare u z.1 <;> simp_all
-      have hMemP : Batteries.RBSet.MemP (fun kv => compare u kv.1) T := by
-        exact Batteries.RBNode.memP_def.2
-          ⟨z, Batteries.RBSet.mem_toList.1 hz, hzEq⟩
-      have := (Batteries.RBSet.memP_iff_findP?.1 hMemP)
+      have hMemP : RBTree.RBSet.MemP (fun kv => compare u kv.1) T := by
+        exact RBTree.RBNode.memP_def.2
+          ⟨z, RBTree.RBSet.mem_toList.1 hz, hzEq⟩
+      have := (RBTree.RBSet.memP_iff_findP?.1 hMemP)
       rcases this with ⟨y, hy⟩
       rw [show T.findEntry? u = T.findP? (fun kv => compare u kv.1) from rfl]
         at hFind
@@ -340,7 +340,7 @@ theorem lookup?_storageToWordMap (T : EvmYul.Storage) (k : Word) :
         rw [hs, hxe]; rfl
       have h₂ := Std.TransCmp.congr_left (cmp := compare) h₁ (c := y.1)
       rw [h₂]; exact hye
-    exact Batteries.RBSet.mem_toList_unique hx hy hxy)]
+    exact RBTree.RBSet.mem_toList_unique hx hy hxy)]
   rw [toList_find?_eq_findEntry?]
   show (T.findEntry? (wordToU256 k)).elim none (fun kv => some (u256ToWord kv.2)) =
     ((T.findEntry? (wordToU256 k)).map (·.2)).map u256ToWord
@@ -438,14 +438,14 @@ theorem snapshotWorld_find_self (context : Context) (s : State)
   cases hw : s.envWorld? with
   | none =>
       simp [snapshotWorld, hw, snapshotWorldSeed,
-        Batteries.RBMap.find?_insert_of_eq _ hEq]
+        RBTree.RBMap.find?_insert_of_eq _ hEq]
   | some w =>
       have hm : s.worldMutatedSinceAdoption = true := by
         rcases h with h | h
         · rw [hw] at h; cases h
         · exact h
       simp [snapshotWorld, hw, hm,
-        Batteries.RBMap.find?_insert_of_eq _ hEq]
+        RBTree.RBMap.find?_insert_of_eq _ hEq]
 
 /-- Echo adoption is a no-op on every interpreter-observable state component
     (the rebuild branches; adopted-clean states are covered exactly by

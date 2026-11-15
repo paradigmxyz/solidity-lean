@@ -47,7 +47,9 @@ SOURCE_CHILD_FIELDS: set[tuple[str, str]] = {('ArrayTypeName', 'baseType'), ('Ar
 METADATA_CHILD_FIELDS: set[tuple[str, str]] = {('ContractDefinition', 'documentation'), ('EnumDefinition', 'documentation'), ('ErrorDefinition', 'documentation'), ('EventDefinition', 'documentation'), ('FunctionDefinition', 'documentation'), ('ModifierDefinition', 'documentation'), ('StructDefinition', 'documentation'), ('VariableDeclaration', 'documentation')}
 SOURCE_SCALAR_FIELDS: set[tuple[str, str]] = {('Assignment', 'operator'), ('BinaryOperation', 'operator'), ('ContractDefinition', 'abstract'), ('ContractDefinition', 'contractKind'), ('ContractDefinition', 'name'), ('ElementaryTypeName', 'name'), ('ElementaryTypeName', 'stateMutability'), ('EnumDefinition', 'name'), ('EnumValue', 'name'), ('ErrorDefinition', 'name'), ('EventDefinition', 'anonymous'), ('EventDefinition', 'name'), ('FunctionCall', 'names'), ('FunctionCallOptions', 'names'), ('FunctionDefinition', 'kind'), ('FunctionDefinition', 'name'), ('FunctionDefinition', 'stateMutability'), ('FunctionDefinition', 'virtual'), ('FunctionDefinition', 'visibility'), ('FunctionTypeName', 'stateMutability'), ('FunctionTypeName', 'visibility'), ('Identifier', 'name'), ('IdentifierPath', 'name'), ('Literal', 'hexValue'), ('Literal', 'kind'), ('Literal', 'subdenomination'), ('Literal', 'value'), ('MemberAccess', 'memberName'), ('ModifierDefinition', 'name'), ('ModifierDefinition', 'virtual'), ('PragmaDirective', 'literals'), ('StructDefinition', 'name'), ('TryCatchClause', 'errorName'), ('TupleExpression', 'components'), ('TupleExpression', 'isInlineArray'), ('UnaryOperation', 'operator'), ('UnaryOperation', 'prefix'), ('UserDefinedValueTypeDefinition', 'name'), ('UsingForDirective', 'functionList.operator'), ('UsingForDirective', 'global'), ('VariableDeclaration', 'constant'), ('VariableDeclaration', 'indexed'), ('VariableDeclaration', 'mutability'), ('VariableDeclaration', 'name'), ('VariableDeclaration', 'stateVariable'), ('VariableDeclaration', 'storageLocation'), ('VariableDeclaration', 'visibility'), ('VariableDeclarationStatement', 'declarations')}
 ANALYSIS_SCALAR_FIELDS: set[tuple[str, str]] = {('ArrayTypeName', 'typeDescriptions.typeIdentifier'), ('ArrayTypeName', 'typeDescriptions.typeString'), ('Assignment', 'isConstant'), ('Assignment', 'isLValue'), ('Assignment', 'isPure'), ('Assignment', 'lValueRequested'), ('Assignment', 'typeDescriptions.typeIdentifier'), ('Assignment', 'typeDescriptions.typeString'), ('BinaryOperation', 'commonType.typeIdentifier'), ('BinaryOperation', 'commonType.typeString'), ('BinaryOperation', 'isConstant'), ('BinaryOperation', 'isLValue'), ('BinaryOperation', 'isPure'), ('BinaryOperation', 'lValueRequested'), ('BinaryOperation', 'function'), ('BinaryOperation', 'typeDescriptions.typeIdentifier'), ('BinaryOperation', 'typeDescriptions.typeString'), ('Conditional', 'isConstant'), ('Conditional', 'isLValue'), ('Conditional', 'isPure'), ('Conditional', 'lValueRequested'), ('Conditional', 'typeDescriptions.typeIdentifier'), ('Conditional', 'typeDescriptions.typeString'), ('ContractDefinition', 'fullyImplemented'), ('ElementaryTypeName', 'typeDescriptions.typeIdentifier'), ('ElementaryTypeName', 'typeDescriptions.typeString'), ('ElementaryTypeNameExpression', 'argumentTypes.typeIdentifier'), ('ElementaryTypeNameExpression', 'argumentTypes.typeString'), ('ElementaryTypeNameExpression', 'isConstant'), ('ElementaryTypeNameExpression', 'isLValue'), ('ElementaryTypeNameExpression', 'isPure'), ('ElementaryTypeNameExpression', 'lValueRequested'), ('ElementaryTypeNameExpression', 'typeDescriptions.typeIdentifier'), ('ElementaryTypeNameExpression', 'typeDescriptions.typeString'), ('ForStatement', 'isSimpleCounterLoop'), ('FunctionCall', 'argumentTypes.typeIdentifier'), ('FunctionCall', 'argumentTypes.typeString'), ('FunctionCall', 'isConstant'), ('FunctionCall', 'isLValue'), ('FunctionCall', 'isPure'), ('FunctionCall', 'kind'), ('FunctionCall', 'lValueRequested'), ('FunctionCall', 'tryCall'), ('FunctionCall', 'typeDescriptions.typeIdentifier'), ('FunctionCall', 'typeDescriptions.typeString'), ('FunctionCallOptions', 'argumentTypes.typeIdentifier'), ('FunctionCallOptions', 'argumentTypes.typeString'), ('FunctionCallOptions', 'isConstant'), ('FunctionCallOptions', 'isLValue'), ('FunctionCallOptions', 'isPure'), ('FunctionCallOptions', 'lValueRequested'), ('FunctionCallOptions', 'typeDescriptions.typeIdentifier'), ('FunctionCallOptions', 'typeDescriptions.typeString'), ('FunctionDefinition', 'implemented'), ('FunctionTypeName', 'typeDescriptions.typeIdentifier'), ('FunctionTypeName', 'typeDescriptions.typeString'), ('Identifier', 'argumentTypes.typeIdentifier'), ('Identifier', 'argumentTypes.typeString'), ('Identifier', 'typeDescriptions.typeIdentifier'), ('Identifier', 'typeDescriptions.typeString'), ('IndexAccess', 'argumentTypes.typeIdentifier'), ('IndexAccess', 'argumentTypes.typeString'), ('IndexAccess', 'isConstant'), ('IndexAccess', 'isLValue'), ('IndexAccess', 'isPure'), ('IndexAccess', 'lValueRequested'), ('IndexAccess', 'typeDescriptions.typeIdentifier'), ('IndexAccess', 'typeDescriptions.typeString'), ('IndexRangeAccess', 'isConstant'), ('IndexRangeAccess', 'isLValue'), ('IndexRangeAccess', 'isPure'), ('IndexRangeAccess', 'lValueRequested'), ('IndexRangeAccess', 'typeDescriptions.typeIdentifier'), ('IndexRangeAccess', 'typeDescriptions.typeString'), ('Literal', 'isConstant'), ('Literal', 'isLValue'), ('Literal', 'isPure'), ('Literal', 'lValueRequested'), ('Literal', 'typeDescriptions.typeIdentifier'), ('Literal', 'typeDescriptions.typeString'), ('Mapping', 'typeDescriptions.typeIdentifier'), ('Mapping', 'typeDescriptions.typeString'), ('MemberAccess', 'argumentTypes.typeIdentifier'), ('MemberAccess', 'argumentTypes.typeString'), ('MemberAccess', 'isConstant'), ('MemberAccess', 'isLValue'), ('MemberAccess', 'isPure'), ('MemberAccess', 'lValueRequested'), ('MemberAccess', 'typeDescriptions.typeIdentifier'), ('MemberAccess', 'typeDescriptions.typeString'), ('ModifierInvocation', 'kind'), ('NewExpression', 'argumentTypes.typeIdentifier'), ('NewExpression', 'argumentTypes.typeString'), ('NewExpression', 'isConstant'), ('NewExpression', 'isLValue'), ('NewExpression', 'isPure'), ('NewExpression', 'lValueRequested'), ('NewExpression', 'typeDescriptions.typeIdentifier'), ('NewExpression', 'typeDescriptions.typeString'), ('TupleExpression', 'argumentTypes.typeIdentifier'), ('TupleExpression', 'argumentTypes.typeString'), ('TupleExpression', 'isConstant'), ('TupleExpression', 'isLValue'), ('TupleExpression', 'isPure'), ('TupleExpression', 'lValueRequested'), ('TupleExpression', 'typeDescriptions.typeIdentifier'), ('TupleExpression', 'typeDescriptions.typeString'), ('UnaryOperation', 'function'), ('UnaryOperation', 'isConstant'), ('UnaryOperation', 'isLValue'), ('UnaryOperation', 'isPure'), ('UnaryOperation', 'lValueRequested'), ('UnaryOperation', 'typeDescriptions.typeIdentifier'), ('UnaryOperation', 'typeDescriptions.typeString'), ('UserDefinedTypeName', 'typeDescriptions.typeIdentifier'), ('UserDefinedTypeName', 'typeDescriptions.typeString'), ('VariableDeclaration', 'typeDescriptions.typeIdentifier'), ('VariableDeclaration', 'typeDescriptions.typeString')}
-METADATA_SCALAR_FIELDS: set[tuple[str, str]] = {('Mapping', 'keyName'), ('Mapping', 'keyNameLocation'), ('Mapping', 'valueName'), ('Mapping', 'valueNameLocation'), ('ModifierDefinition', 'baseModifiers'), ('ModifierDefinition', 'visibility'), ('SourceUnit', 'absolutePath'), ('SourceUnit', 'license'), ('StructDefinition', 'visibility'), ('StructuredDocumentation', 'text'), ('VariableDeclarationStatement', 'assignments')}
+# Statement-level NatSpec (solar-verify's @custom: specs) is a comment: it does not change
+# the program, so it is metadata like declaration-level documentation.
+METADATA_SCALAR_FIELDS: set[tuple[str, str]] = {('Block', 'documentation'), ('Break', 'documentation'), ('Continue', 'documentation'), ('DoWhileStatement', 'documentation'), ('EmitStatement', 'documentation'), ('ExpressionStatement', 'documentation'), ('ForStatement', 'documentation'), ('IfStatement', 'documentation'), ('PlaceholderStatement', 'documentation'), ('Return', 'documentation'), ('RevertStatement', 'documentation'), ('TryStatement', 'documentation'), ('UncheckedBlock', 'documentation'), ('VariableDeclarationStatement', 'documentation'), ('WhileStatement', 'documentation'), ('Mapping', 'keyName'), ('Mapping', 'keyNameLocation'), ('Mapping', 'valueName'), ('Mapping', 'valueNameLocation'), ('ModifierDefinition', 'baseModifiers'), ('ModifierDefinition', 'visibility'), ('SourceUnit', 'absolutePath'), ('SourceUnit', 'license'), ('StructDefinition', 'visibility'), ('StructuredDocumentation', 'text'), ('VariableDeclarationStatement', 'assignments')}
 METADATA_SCALAR_FIELD_SUFFIXES: set[str] = {'baseFunctions', 'canonicalName', 'contractDependencies', 'errorSelector', 'eventSelector', 'functionReturnParameters', 'functionSelector', 'id', 'linearizedBaseContracts', 'memberLocation', 'nameLocation', 'nameLocations', 'overloadedDeclarations', 'referencedDeclaration', 'scope', 'src', 'usedErrors', 'usedEvents'}
 SOURCE_SCALAR_VALUE_DOMAINS: dict[tuple[str, str], set[Any]] = {
     ('Assignment', 'operator'): {'=', '+=', '-=', '*=', '/=', '%=', '&=', '|=', '^=', '<<=', '>>='},
@@ -1386,6 +1388,158 @@ def expr_from_node(node: dict[str, Any]) -> str:
     fail(f"unsupported expression node {node_type!r}")
 
 
+
+# Inline assembly is out of SolidCore's fragment except for one exact block (solc's AST of
+# the source text: one Yul assignment, no Yul locals, every identifier a Solidity local):
+#
+#     target := create2(value, add(code, 32), mload(code), salt)
+#
+# with target an address local, code a bytes memory local, and value, salt each a Yul number
+# literal or a uint256 (salt also bytes32) local. It is CREATE2 of exactly the bytes of code
+# (add(code, 32) is their first byte and mload(code) their length), so it translates to
+# Stmt.assemblyCreate2, whose semantics is that opcode's: the new account's address, or 0.
+DECLARATION_BY_ID: dict[int, dict[str, Any]] = {}
+
+
+def collect_declarations_by_id(ast: dict[str, Any]) -> dict[int, dict[str, Any]]:
+    found: dict[int, dict[str, Any]] = {}
+
+    def visit(node: Any) -> None:
+        if isinstance(node, dict):
+            node_id = node.get("id")
+            if node.get("nodeType") == "VariableDeclaration" and isinstance(node_id, int):
+                found[node_id] = node
+            for value in node.values():
+                visit(value)
+        elif isinstance(node, list):
+            for value in node:
+                visit(value)
+
+    visit(ast)
+    return found
+
+
+def yul_create2_assignment(node: dict[str, Any]) -> tuple[str, str, str, str] | None:
+    """The Lean expressions (target, value, code, salt) of an inline assembly block of the one
+    create2 shape the fragment covers, or None for any other block."""
+    if node.get("nodeType") != "InlineAssembly":
+        return None
+    if set(node) - {"AST", "evmVersion", "externalReferences", "id", "nodeType", "src", "flags", "documentation"}:
+        return None
+    if node.get("flags"):
+        return None
+    block = node.get("AST")
+    if not isinstance(block, dict) or block.get("nodeType") != "YulBlock":
+        return None
+    statements = block.get("statements")
+    if not isinstance(statements, list) or len(statements) != 1:
+        return None
+    assignment = statements[0]
+    if not isinstance(assignment, dict) or assignment.get("nodeType") != "YulAssignment":
+        return None
+    targets = assignment.get("variableNames")
+    if not isinstance(targets, list) or len(targets) != 1:
+        return None
+    references = node.get("externalReferences")
+    if not isinstance(references, list):
+        return None
+    by_src: dict[str, dict[str, Any]] = {}
+    for reference in references:
+        if not isinstance(reference, dict) or set(reference) - {"declaration", "isOffset", "isSlot", "src", "valueSize", "suffix"}:
+            return None
+        if reference.get("isOffset") or reference.get("isSlot") or reference.get("suffix") or reference.get("valueSize") != 1:
+            return None
+        by_src[reference.get("src")] = reference
+
+    def call(item: Any, name: str, arity: int) -> list[Any] | None:
+        if not isinstance(item, dict) or item.get("nodeType") != "YulFunctionCall":
+            return None
+        function_name = item.get("functionName")
+        if not isinstance(function_name, dict) or function_name.get("name") != name:
+            return None
+        arguments = item.get("arguments")
+        if not isinstance(arguments, list) or len(arguments) != arity:
+            return None
+        return arguments
+
+    def local(item: Any, types: set[str]) -> str | None:
+        # A Yul identifier naming a Solidity local (not a state, constant or storage variable)
+        # of one of the given types (solc type identifiers).
+        if not isinstance(item, dict) or item.get("nodeType") != "YulIdentifier":
+            return None
+        name = item.get("name")
+        reference = by_src.get(item.get("src"))
+        if not isinstance(name, str) or reference is None:
+            return None
+        declaration = DECLARATION_BY_ID.get(reference.get("declaration"))
+        if declaration is None or declaration.get("name") != name:
+            return None
+        if declaration.get("stateVariable") or declaration.get("constant"):
+            return None
+        type_identifier = (declaration.get("typeDescriptions") or {}).get("typeIdentifier")
+        if type_identifier not in types:
+            return None
+        return name
+
+    def number(item: Any) -> str | None:
+        if not isinstance(item, dict) or item.get("nodeType") != "YulLiteral" or item.get("kind") != "number":
+            return None
+        if item.get("type", "") != "":
+            return None
+        value = item.get("value")
+        if not isinstance(value, str):
+            return None
+        try:
+            int(value, 0)
+        except ValueError:
+            return None
+        return value
+
+    def word(item: Any, types: set[str]) -> str | None:
+        name = local(item, types)
+        if name is not None:
+            return f"Expr.ident {lean_string(name)}"
+        value = number(item)
+        if value is not None:
+            return f"Expr.literal (Literal.number {lean_string(str(int(value, 0)))})"
+        return None
+
+    target = local(targets[0], {"t_address", "t_address_payable"})
+    arguments = call(assignment.get("value"), "create2", 4)
+    if target is None or arguments is None:
+        return None
+    value = word(arguments[0], {"t_uint256"})
+    start = call(arguments[1], "add", 2)
+    length = call(arguments[2], "mload", 1)
+    salt = word(arguments[3], {"t_uint256", "t_bytes32"})
+    if value is None or start is None or length is None or salt is None:
+        return None
+    code = local(start[0], {"t_bytes_memory_ptr"})
+    if code is None or number(start[1]) is None or int(number(start[1]), 0) != 32:
+        return None
+    if local(length[0], {"t_bytes_memory_ptr"}) != code:
+        return None
+    # Every external reference is one of the identifiers read above.
+    used = {targets[0].get("src"), arguments[1]["arguments"][0].get("src"), arguments[2]["arguments"][0].get("src")}
+    for item in (arguments[0], arguments[3]):
+        if item.get("nodeType") == "YulIdentifier":
+            used.add(item.get("src"))
+    if set(by_src) != used or len(by_src) != len(references):
+        return None
+    return (f"Expr.ident {lean_string(target)}", value, f"Expr.ident {lean_string(code)}", salt)
+
+
+def without_create2_assembly(value: Any) -> Any:
+    """The AST with every inline assembly block of the covered create2 shape left out, so the
+    node guard rejects every other block."""
+    if isinstance(value, dict):
+        return {key: without_create2_assembly(child) for key, child in value.items()}
+    if isinstance(value, list):
+        return [without_create2_assembly(child) for child in value
+                if not (isinstance(child, dict) and yul_create2_assignment(child) is not None)]
+    return value
+
+
 def stmt_from_node(node: dict[str, Any]) -> str:
     node_type = node.get("nodeType")
     if node_type == "Block":
@@ -1529,6 +1683,11 @@ def stmt_from_node(node: dict[str, Any]) -> str:
         return "Stmt.continue"
     if node_type == "PlaceholderStatement":
         return "Stmt.modifierPlaceholder"
+    if node_type == "InlineAssembly":
+        create2 = yul_create2_assignment(node)
+        if create2 is None:
+            fail("inline assembly other than one create2 assignment is out of scope")
+        return "Stmt.assemblyCreate2 " + " ".join(f"({part})" for part in create2)
     fail(f"unsupported statement node {node_type!r}")
 
 
@@ -2153,7 +2312,9 @@ def render_module(ast: dict[str, Any], source_name: str, contract_name: str, nam
     global FUNCTION_NAME_BY_ID
     FUNCTION_PARAM_COUNT_BY_ID = collect_function_param_counts(ast)
     FUNCTION_NAME_BY_ID = collect_function_names_by_id(ast)
-    guard_no_unsupported_nodes(ast)
+    DECLARATION_BY_ID.clear()
+    DECLARATION_BY_ID.update(collect_declarations_by_id(ast))
+    guard_no_unsupported_nodes(without_create2_assembly(ast))
     contract = find_contract(ast, contract_name)
     contracts = contract_definitions(ast)
     segments = namespace_segments(namespace)
@@ -2211,6 +2372,29 @@ def render_module(ast: dict[str, Any], source_name: str, contract_name: str, nam
     return "\n".join(lines)
 
 
+def omit_functions(ast: dict[str, Any], names: Sequence[str]) -> dict[str, Any]:
+    """The AST with each named function definition removed; each name must match at least once."""
+    wanted: dict[tuple[str, str], int] = {}
+    for name in names:
+        contract, sep, function = name.partition(".")
+        if not sep or not contract or not function:
+            fail(f"--omit-function {name!r} is not CONTRACT.FUNCTION")
+        wanted[(contract, function)] = 0
+    for node in contract_definitions(ast):
+        kept = []
+        for item in node.get("nodes", []):
+            key = (node.get("name"), item.get("name"))
+            if item.get("nodeType") == "FunctionDefinition" and key in wanted:
+                wanted[key] += 1
+            else:
+                kept.append(item)
+        node["nodes"] = kept
+    missing = [f"{c}.{f}" for (c, f), n in wanted.items() if n == 0]
+    if missing:
+        fail("--omit-function matched no function: " + ", ".join(missing))
+    return ast
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path)
@@ -2221,6 +2405,14 @@ def build_parser() -> argparse.ArgumentParser:
         default="SolidCore.Solidity.SolcAstImport.Generated",
     )
     parser.add_argument("--body-only", action="store_true")
+    parser.add_argument(
+        "--omit-function",
+        action="append",
+        default=[],
+        metavar="CONTRACT.FUNCTION",
+        help="leave the named function out of the translation (every overload of it); the result "
+        "is a contract without it, so nothing proved of the result covers that function",
+    )
     parser.add_argument(
         "--audit-coverage",
         action="store_true",
@@ -2244,6 +2436,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         solc = resolve_executable(args.solc)
         source = args.source.resolve()
         source_name, ast = run_solc_ast(solc, source)
+        if args.omit_function:
+            ast = omit_functions(ast, args.omit_function)
         if args.audit_coverage:
             print(json.dumps(frontend_coverage(ast), indent=2, sort_keys=True))
             return 0

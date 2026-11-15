@@ -2327,7 +2327,7 @@ def evmLogEntryToShared (e : EvmYul.LogEntry) :
     data := byteArrayToBytes e.data }
 
 def addressSetOfWords (words : List Word) :
-    Batteries.RBSet EvmCompiler.Simulation.OpenAddress compare :=
+    RBTree.RBSet EvmCompiler.Simulation.OpenAddress compare :=
   words.foldl (fun acc w => acc.insert (wordToAddress w)) default
 
 /-- Canonical log series: the adopted prefix (whatever the last answered
@@ -2819,6 +2819,28 @@ def emitContractCreation (context : Context) (state : State)
       .done (.ok
         ( decodeCreateResponse response name args value salt?
         , adoptWorld response.postWorld context state )))
+
+/-- Emit inline assembly's CREATE2 of the init code `code` as a `Query.external` creation
+    of the sent world, and resume on its `CreateResponse`: the new account's address (0 when
+    the creation failed, the EVM convention) and the adopted world. The request's init code is
+    `code` itself, so an environment that runs it (EIP-1014's address of the creator, salt and
+    `keccak256(code)`, the init code's execution as a callee) answers what the EVM does. -/
+def create2BytesRequest (context : Context) (code : List Byte) (value salt : Word) :
+    EvmCompiler.Simulation.CreateRequest :=
+  { kind := EvmCompiler.Simulation.CreateKind.create2
+    creator := wordToAddress context.self
+    value := wordToU256 value
+    initCode := bytesToByteArray code
+    salt := some (wordToU256 salt)
+    permission := true }
+
+def emitCreate2Bytes (context : Context) (state : State) (code : List Byte)
+    (value salt : Word) : SolI (Word × State) :=
+  .request
+    (EvmCompiler.Simulation.Query.external (snapshotWorld context state)
+      (EvmCompiler.Simulation.ExternalRequest.create (create2BytesRequest context code value salt)))
+    (fun response =>
+      .done (.ok (u256ToWord response.address, adoptWorld response.postWorld context state)))
 
 /-- The stage-3 context answerer: external queries get `Query.defaultAnswer` (the
     context no longer carries oracle rows; see `SolI.runFromContext`), and the
@@ -6405,6 +6427,11 @@ inductive Expr where
   -- `Bool` records whether the `{value, salt}` options were written value-before-
   -- salt in source (solc evaluates the options in source order — DIV-CREATE-2).
   | contractCreate : String -> Expr -> Expr -> Option Expr -> Bool -> Expr
+  /-- `create2Bytes value code salt`: EVM CREATE2 with the bytes of `code` as init code,
+      endowed with `value` and salted with `salt` (inline assembly
+      `create2(value, add(code, 32), mload(code), salt)`): the new account's address, or 0 when
+      the creation fails. It never reverts the caller, unlike `contractCreate`. -/
+  | create2Bytes : Expr -> Expr -> Expr -> Expr
   | newBytes : Expr -> Expr
   | newDynamicArray : Ty -> Expr -> Expr
   | externalHash : ExternalHashKind -> Expr -> Expr
@@ -7331,6 +7358,8 @@ def Expr.orderFuel : Expr -> Nat
         (match salt? with
         | some salt => Expr.orderFuel salt
         | none => 0) + 1
+  | Expr.create2Bytes value code salt =>
+      Expr.orderFuel value + Expr.orderFuel code + Expr.orderFuel salt + 1
   | Expr.newBytes expr => Expr.orderFuel expr + 1
   | Expr.newDynamicArray _ expr => Expr.orderFuel expr + 1
   | Expr.externalHash _ expr => Expr.orderFuel expr + 1
@@ -7654,9 +7683,12 @@ def Expr.evalFuel (fuel : Nat)
               let value ← BinaryOp.apply context.checked op lhsValue rhsValue
               pure (value, runtime'')
           | Expr.addMod lhs rhs modulus => do
-              -- Legacy codegen evaluates builtin arguments right-to-left.
+              -- Legacy codegen evaluates builtin arguments right-to-left and
+              -- checks the modulus for zero before evaluating the operands
+              -- (solc ExpressionCompiler.cpp, Kind::AddMod/MulMod).
               let (modulusValue, runtime') ←
                 Expr.evalFuel fuel context runtime modulus
+              let _ ← checkedAddMod 0 0 (← modulusValue.expectWord)
               let (rhsValue, runtime'') ←
                 Expr.evalFuel fuel context runtime' rhs
               let (lhsValue, runtime''') ←
@@ -7669,6 +7701,7 @@ def Expr.evalFuel (fuel : Nat)
           | Expr.mulMod lhs rhs modulus => do
               let (modulusValue, runtime') ←
                 Expr.evalFuel fuel context runtime modulus
+              let _ ← checkedMulMod 0 0 (← modulusValue.expectWord)
               let (rhsValue, runtime'') ←
                 Expr.evalFuel fuel context runtime' rhs
               let (lhsValue, runtime''') ←
@@ -7978,6 +8011,26 @@ def Expr.evalFuel (fuel : Nat)
                       (ExternalInteraction.contractCreation result) )
               else
                 throw <| SolidityFailure.revert (RevertData.fromRawBytes result.output)
+          | Expr.create2Bytes valueExpr codeExpr saltExpr => do
+              -- Yul evaluates a builtin's arguments right to left: the salt, then the init
+              -- code (`mload(code)` before `add(code, 32)`), then the value. Each operand is
+              -- a literal or a local, so the order has no effect beyond the runtime threading.
+              let (saltValue, runtimeSalt) ←
+                Expr.evalFuel fuel context runtime saltExpr
+              let salt ← saltValue.expectWord
+              let (codeValue, runtimeCode) ←
+                Expr.evalFuel fuel context runtimeSalt codeExpr
+              let codeValue ← SolI.ofExcept (runtimeCode.derefMemoryValue codeValue)
+              let code ←
+                match codeValue.asBytes? with
+                | some bytes => pure bytes
+                | none => throw <| SolidityFailure.revert RevertData.typeMismatch
+              let (valueValue, runtime') ←
+                Expr.evalFuel fuel context runtimeCode valueExpr
+              let value ← valueValue.expectWord
+              let (address, adoptedState) ←
+                emitCreate2Bytes context runtime'.state code value salt
+              pure (Value.word address, { runtime' with state := adoptedState })
           | Expr.newBytes lengthExpr => do
               let (lengthValue, runtime') ←
                 Expr.evalFuel fuel context runtime
@@ -9027,6 +9080,12 @@ def Expr.normalizeStorageValueUses (pos : StoragePosition) : Expr -> Expr
         (Expr.normalizeStorageValueUses StoragePosition.pointerUse value)
         (Expr.normalizeStorageValueUsesOpt StoragePosition.pointerUse salt?)
         valueBeforeSalt
+  | Expr.create2Bytes value code salt =>
+      -- The init code is consumed as bytes contents; value and salt are scalar words.
+      Expr.create2Bytes
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse value)
+        (Expr.normalizeStorageValueUses StoragePosition.valueUse code)
+        (Expr.normalizeStorageValueUses StoragePosition.pointerUse salt)
   | Expr.newBytes expr =>
       -- The length operand is a scalar word; value-use per the boundary
       -- family it belongs to (inert for scalars).

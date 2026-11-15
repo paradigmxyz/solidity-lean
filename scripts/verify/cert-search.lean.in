@@ -1,0 +1,221 @@
+/-
+Certificate search for Verify/VC/Cert.lean (not trusted: the kernel checks what it finds).
+Instantiated by scripts/verify/cert-search.sh, which substitutes the export module and script.
+For each obligation in OBS it tries fact masks (tight, then by shared atoms at depth 1, 2, 3,
+then all facts; or MASK), runs the tableau with case splits deferred behind the other facts,
+and closes each branch by Fourier-Motzkin on growing subsets of its constraints, tracking the
+multipliers; it writes OUT/certs/ob<i>.txt ("<d> <certificate>") once refuteObC accepts it.
+-/
+import @IMPORT@
+import Verify.VC.Cert
+open SolidCore.Verify.VC
+def scr := @SCRIPT@
+def trimZ (w : List Nat) : List Nat := (w.reverse.dropWhile (· == 0)).reverse
+partial def SolidCore.Verify.VC.Cert.toLean : Cert → String
+  | .leaf w => s!"(.leaf {trimZ w})"
+  | .later c => s!"(.later {c.toLean})"
+  | .keep m c => s!"(.keep {m} {c.toLean})"
+  | .br hs => "(.br [" ++ ", ".intercalate (hs.map Cert.toLean) ++ "])"
+
+def fmW2 (cap : Nat) : Nat → List (Lin × List Nat) → Option (List Nat)
+  | 0, _ => none
+  | n + 1, cs =>
+    let cs := cs.filter fun l => !(l.1.cs.isEmpty && decide (l.1.k ≤ 0))
+    match cs.find? (fun l => l.1.cs.isEmpty && decide (0 < l.1.k)) with
+    | some l => some l.2
+    | none =>
+      let ls := cs.map (·.1)
+      match pickVar ls with
+      | none => none
+      | some x => if elimCost ls x ≤ cap ∧ cs.length ≤ 4 * cap then fmW2 cap n (elimW x cs) else none
+
+def atomsOf (l : Lin) : List Tm := l.cs.map (·.1)
+def memT (x : Tm) (xs : List Tm) : Bool := xs.any fun y => Tm.beq x y
+
+def grow (ics : List (Lin × Nat)) (seed : List Tm) : Nat → List Tm
+  | 0 => seed
+  | n + 1 =>
+    let s := ics.filter fun (l, _) => (atomsOf l).any fun a => memT a seed
+    grow ics (seed ++ (s.flatMap fun (l, _) => (atomsOf l).filter fun a => !memT a seed)) n
+
+def fmSub (cap : Nat) (m : Nat) (sub : List (Lin × Nat)) : Option (List Nat) :=
+  if (fmW2 cap 1000 (sub.map fun (l, _) => (l, []))).isNone then none else
+  fmW2 cap 1000 (sub.map fun (l, i) => (l, (List.range m).map fun j => if i = j then 1 else 0))
+
+def linBeq (a b : Lin) : Bool :=
+  a.k == b.k && a.cs.length == b.cs.length && (a.cs.zip b.cs).all fun (p, q) => p.2 == q.2 && Tm.beq p.1 q.1
+
+def fmCert2 (cap : Nat) (cs : List Lin) : Option Cert := Id.run do
+  let m := cs.length
+  let mut acc : Array (Lin × Nat) := #[]
+  for (l, i) in cs.zipIdx do
+    if !(l.cs.isEmpty && decide (l.k ≤ 0)) && !(acc.any fun (l', _) => linBeq l l') then
+      acc := acc.push (l, i)
+  let ics := acc.toList
+  if let some w := fmSub cap m ics then return some (.leaf w)
+  for (l0, _) in ics do
+    for d in [0, 1, 2] do
+      let seed := grow ics (atomsOf l0) d
+      let sub := ics.filter fun (l, _) => (atomsOf l).all fun a => memT a seed
+      if let some w := fmSub cap m sub then return some (.leaf w)
+  match fmSub cap m ics with
+  | some w => return some (.leaf w)
+  | none => return none
+
+def isBranch : Step → Bool
+  | .split _ => true
+  | .ite _ _ _ => true
+  | _ => false
+
+def deferrable : Step → Bool
+  | .split _ => true
+  | .ite c _ _ => (iteEqs c).isEmpty
+  | _ => false
+
+def refuteG3 (cap : Nat) (ks : List String) : Nat → List Tm → List Lin → StateM (Nat × List (List Lin)) (Option Cert)
+  | 0, _, _ => pure none
+  | _ + 1, [], cs => do
+    let b := (← get).1
+    if b = 0 then return none
+    modify fun s => (b - 1, s.2)
+    let r := fmCert2 cap cs
+    if r.isNone then modify fun s => (s.1, cs :: s.2)
+    return r
+  | n + 1, t :: rest, cs => do
+    let st := step ks t
+    if deferrable st && rest.any (fun u => !isBranch (step ks u)) then
+      return (← refuteG3 cap ks n (rest ++ [t]) cs).map .later
+    match st with
+    | .drop => refuteG3 cap ks n rest cs
+    | .closed => return some (.leaf [])
+    | .facts ts => refuteG3 cap ks n (ts ++ rest) cs
+    | .cons ls => refuteG3 cap ks n rest (ls ++ cs)
+    | .split bs =>
+      let b := (← get).1
+      if b = 0 then return none
+      modify fun s => (b - 1, s.2)
+      match fmCert2 cap cs with
+      | some c => return some c
+      | none =>
+        let mut hs := #[]
+        for ts in bs do
+          match ← refuteG3 cap ks n (ts ++ rest) cs with
+          | some h => hs := hs.push h
+          | none => return none
+        return some (.br hs.toList)
+    | .ite c t1 t2 =>
+      let b := (← get).1
+      if b = 0 then return none
+      modify fun s => (b - 1, s.2)
+      match fmCert2 cap cs with
+      | some w => return some w
+      | none =>
+        let some h1 ← refuteG3 cap ks n
+          (c :: ((t1 :: rest).map (resolve c true resolveFuel)).map (substN (iteEqs c) substFuel)) (cs.map (Lin.substE (iteEqs c))) | return none
+        let some h2 ← refuteG3 cap ks n (neg c :: (t2 :: rest).map (resolve c false resolveFuel)) cs | return none
+        return some (.br [h1, h2])
+    | .skolem x t =>
+      if fresh x rest cs then refuteG3 cap ks n (t :: rest) cs
+      else if fresh (x ++ "'") (t :: rest) cs then
+        refuteG3 cap ks n (t.subst .int x (.ivar (x ++ "'")) :: rest) cs
+      else refuteG3 cap ks n rest cs
+
+partial def atomsT : Tm → List Tm
+  | t@(.app f args) =>
+    if f = "select" then [t]
+    else if f = "mod" || f = "div" then t :: args.flatMap atomsT
+    else args.flatMap atomsT
+  | .all _ b => atomsT b
+  | _ => []
+
+partial def hasIte : Tm → Bool
+  | .app f args => f = "ite" || args.any hasIte
+  | .all _ b => hasIte b
+  | _ => false
+
+def selAtoms (t : Tm) : List Tm := (atomsT t).filter fun a => match a with
+  | .app "select" _ => true
+  | _ => false
+
+def maskTight (ts : List Tm) (guard : Nat) : List Bool :=
+  let g := selAtoms (ts.headD .tt)
+  ts.zipIdx.map fun (t, i) => i == 0 || i == guard ||
+    ((i > guard || !hasIte t) && (selAtoms t).all (fun a => memT a g)) && !(isBranch (step [] t) && (atomsT t).isEmpty)
+
+/-- Every fact but the range facts of terms with an ite before the path guard, and the scalar
+facts that split. -/
+def maskNoIte (ts : List Tm) (guard : Nat) : List Bool :=
+  ts.zipIdx.map fun (t, i) => i == 0 || i >= guard ||
+    (!hasIte t && !(isBranch (step [] t) && (atomsT t).isEmpty))
+
+def maskFor (ts : List Tm) (d : Nat) : List Bool := Id.run do
+  let as := ts.map atomsT
+  let mut front : List Tm := as.headD []
+  let mut keep : Array Bool := (List.replicate ts.length false).toArray
+  keep := keep.set! 0 true
+  for _ in List.range d do
+    let mut add : List Tm := []
+    for (a, i) in as.zipIdx do
+      if !keep[i]! && a.any (fun x => memT x front) then
+        keep := keep.set! i true
+        add := add ++ a
+    front := front ++ add
+  return (keep.toList.zip ts).map fun (b, t) => b || (atomsT t).isEmpty
+
+def prepOb (fs : List Tm) (d : Bool) : List String × List Tm :=
+  let eqs := fs.filterMap eqOf?
+  let gs := (fs.filter fun t => (eqOf? t).isNone).map fun t => rowN rowFuel (substN eqs substFuel t)
+  let rs := relevant gs
+  (goalBinders rs, if d then goalFirst rs ++ divFacts rs else goalFirst rs)
+
+#eval show IO Unit from do
+  let args := (← IO.getEnv "OBS").getD ""
+  let cap := ((← IO.getEnv "CAP").getD "256").toNat!
+  let budget := ((← IO.getEnv "BUDGET").getD "3000").toNat!
+  let obs := (args.splitOn ",").filterMap String.toNat?
+  let err ← IO.getStderr
+  let outDir := (← IO.getEnv "OUT").getD "."
+  for i in obs do
+    let fs := (obligations scr).getD i []
+    let (ks, ts) := prepOb fs true
+    let mut found := false
+    if (← IO.getEnv "OLDFIRST").isSome then
+      if (obligations scr).getD i [] |> isProbe then
+        IO.FS.writeFile s!"{outDir}/certs/ob{i}.txt" "false (.leaf [])"
+        found := true
+      else if let some (d, c) := certAt scr i then
+        IO.FS.writeFile s!"{outDir}/certs/ob{i}.txt" s!"{d} {c.toLean}"
+        found := true
+    let maskEnv := (← IO.getEnv "MASK").map fun e => ((e.splitOn ",").filterMap String.toNat?)
+    let nfs := (let eqs := fs.filterMap eqOf?
+      let gs := (fs.filter fun t => (eqOf? t).isNone).map fun t => rowN rowFuel (substN eqs substFuel t)
+      (relevant gs).length)
+    for d in (if found then [] else if maskEnv.isSome then [0] else [7, 8, 1, 2, 3, 100]) do
+      if found then break
+      let m := match maskEnv with
+        | some ix => (List.range ts.length).map fun j => ix.contains j
+        | none => if d = 7 then maskTight ts (nfs - 1) else if d = 8 then maskNoIte ts (nfs - 1) else maskFor ts d
+      let t0 ← IO.monoMsNow
+      let (r, (left, fails)) := (refuteG3 cap ks stepFuel (keepMask m ts) []).run (budget, [])
+      if let some cs := fails.getLast? then
+        IO.FS.writeFile s!"{outDir}/leaf{i}-{d}.txt" (String.intercalate "\n" (cs.map fun l => s!"{l.k} + {repr l.cs}"))
+      match r with
+      | some c =>
+        let direct := refuteC ks stepFuel (keepMask m ts) [] c
+        let c := Cert.keep m c
+        let ok := refuteObC fs true c
+        err.putStrLn s!"direct={direct}"
+        IO.FS.writeFile s!"{outDir}/dbg{i}.txt" s!"direct={direct} ok={ok} cert={c.toLean}"
+
+        err.putStrLn s!"OB {i} d={d} kept={(m.filter id).length}/{m.length} FOUND ok={ok} left={left} {(← IO.monoMsNow) - t0}ms"
+        if ok then
+          found := true
+          IO.FS.writeFile s!"{outDir}/certs/ob{i}.txt" s!"true {c.toLean}"
+      | none => err.putStrLn s!"OB {i} d={d} kept={(m.filter id).length}/{m.length} NONE left={left} {(← IO.monoMsNow) - t0}ms"
+      IO.FS.writeFile s!"{outDir}/g3-{i}-{d}.log" s!"{r.isSome} left={left} fails={fails.length}"
+    if !found then
+      if (obligations scr).getD i [] |> isProbe then
+        IO.FS.writeFile s!"{outDir}/certs/ob{i}.txt" "false (.leaf [])"
+      else match certAt scr i with
+        | some (d, c) => IO.FS.writeFile s!"{outDir}/certs/ob{i}.txt" s!"{d} {c.toLean}"
+        | none => err.putStrLn s!"OB {i} NONE"

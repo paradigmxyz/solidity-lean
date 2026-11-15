@@ -1,0 +1,8 @@
+# UniswapV2ERC20.transfer's source mutants (scripts/verify/uniswap_v2_transfer_slice.sh): a name, the
+# port's text and its replacement, tab-separated, with \n for a line break. Each edit must apply once
+# and keep transfer inside the generic source stage (a bare expression statement such as
+# balanceOf[from].sub(value); is outside it): Debit undoes the debit, Log swaps the log's
+# addresses, Ret returns false.
+Debit	balanceOf[from] = balanceOf[from].sub(value);\n        balanceOf[to] = balanceOf[to].add(value);	balanceOf[from] = balanceOf[from].sub(value).add(value);\n        balanceOf[to] = balanceOf[to].add(value);
+Log	        emit Transfer(from, to, value);	        emit Transfer(to, from, value);
+Ret	_transfer(msg.sender, to, value);\n        return true;	_transfer(msg.sender, to, value);\n        return false;

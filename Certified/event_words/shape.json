@@ -1,0 +1,38 @@
+{
+  "kind": "compiled",
+  "contract": "SolidCore.Refinement.Solar.EventWords.contract?",
+  "fuel": "SolidCore.Refinement.Solar.EventWords.fuel",
+  "valid": "SolidCore.Refinement.Shapes.genericValid (SolidCore.Refinement.Solar.EventWords.fns) ([])",
+  "gas": "fun _ => 10210224",
+  "env": [],
+  "spec": "none: solar-verify has no specification of event_words",
+  "spec_modules": [
+    "SolidCore.Refinement.Solar.EventWords.Lowering",
+    "Verify.ShapeGeneric"
+  ],
+  "proof_module": "event_words.Shape",
+  "proof": "Certified.event_words.Shape.published",
+  "generic": {
+    "lowering": "SolidCore.Refinement.Solar.EventWords.Lowering",
+    "ns": "SolidCore.Refinement.Solar.EventWords",
+    "style": "core",
+    "check": "check_stage0",
+    "check_value": "checkValue_stage0",
+    "fns": "SolidCore.Refinement.Solar.EventWords.fns",
+    "storage": "[]"
+  },
+  "excluded": [
+    "deployment: the init code is not covered; the statement is about the runtime bytecode from any storage that writes the slots the constructor writes",
+    "source model trusted: SolidCore's checked contract (the solc AST through scripts/solc_ast_to_lean_source.py and the type checker) is the meaning of the source (frontend trust boundary)",
+    "calls: one frame, caller 0x2000, contract at 0x1000, the block and transaction of Target.message; no external calls, GAS reads or return data in the code (the loop checker's fragment)",
+    "memory: the entry heap and heap floor are the constant words codegen placed (0x80); the event data is ABI-encoded at the free memory pointer",
+    "gas: the bound is the loop checker's (22100 per item times the final EVM IR's block fuel, plus memory), coarse; below it the bytecode may fail without effects, which equivalence admits",
+    "valid calls: the function of EventWords.fns ABI-encoded with clean argument words (the address below 2^160), any value below 2^256, any storage; other call data is outside the statement",
+    "spec: none (solar-verify has no specification of event_words): equivalence, termination and resources only"
+  ],
+  "source_ast": {
+    "file": "SolidCore/Refinement/Source/EventWords.lean",
+    "namespace": "SolidCore.Refinement.Source.EventWords",
+    "contract": "EventWords"
+  }
+}

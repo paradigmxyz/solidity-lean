@@ -1,0 +1,36 @@
+{
+  "contract": "Masks",
+  "name": "masks",
+  "source": "Certified/masks/masks.sol",
+  "bytecode": "34603e575f3560e01c806341fa8d2d14604b5780636d4ce63c146042578063812600df03603e5760243610603e575f5460043581019081106071575f55005b5f5ffd5b5f545f5260205ff35b6024361060ff6004351117603e5760043560ff8116600f82165f5281810360835760205ff35b6011602052634e487b715f526024601cfd5b6d010200000002000000020000000760205260405260605263ed572b275f526064601cfd",
+  "solar": "cb5053ab39adfd59820913b336d346389ce1b8d9",
+  "solidity_lean": "696df0a81602fc416fabec7b892073e15e8920de",
+  "mir_to_evmir": "proved: SolarTV.Milestone.Masks.masks_mir_to_evmir",
+  "assembly": "decoded only: masks.Proofs.Assembly (the bytecode decodes to the final EVM IR's instructions; no execution theorem)",
+  "vc": "exported to .lake/certify/masks/VC.lean",
+  "end_to_end": "not proved",
+  "end_to_end_statement": {},
+  "hypotheses": {},
+  "refused": [
+    {
+      "function": "Masks.low",
+      "reason": "undeclared symbol: |a@20#bv8|",
+      "status": "refused (unproved)"
+    }
+  ],
+  "vacuous": "not checked",
+  "assembly_statement": null,
+  "assembly_hypotheses": null,
+  "negative_tests": false,
+  "caveats": [
+    "solidity-lean at 696df0a81602fc416fabec7b892073e15e8920de, not the pinned 813949dc3556d3c3f1c129e8254a4eead78bac87",
+    "solar cb5053ab39adfd59820913b336d346389ce1b8d9, not built from this checkout's compiler sources",
+    "assembly decoded, not executed",
+    "1 spec function(s) refused, unproved",
+    "not end to end: solidity-lean states no source or spec theorem for masks",
+    "negative tests skipped"
+  ],
+  "backend": {
+    "theorem": "SolarTV.Milestone.Masks.masks_mir_to_evmir"
+  }
+}

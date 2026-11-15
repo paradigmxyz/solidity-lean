@@ -1,0 +1,12 @@
+# z3 for cti.py and test.sh (the corpus is pinned to this version's answers).
+#    uv pip compile --generate-hashes --python-version 3.12 --python-platform x86_64-manylinux_2_28
+z3-solver==5.4.1.0 \
+    --hash=sha256:4e32027ebc2077d1bb518113e370a1798746c1e7e2719144712ddd39c4e87ea6 \
+    --hash=sha256:87cdfa6a6c3605431720c533985a60c6914c973f52efcaa590ceed089550d624 \
+    --hash=sha256:9518a4cb03f49a38d4b1895b80910a12e0b0d144300472b95562426657396e01 \
+    --hash=sha256:c9f20b69171ea0cf0d693b91bf6a13ec595a3aed107dd9d8c55e8e08b7125ebc \
+    --hash=sha256:cfa234d71f3166840790143aae77bb9ffeabff6791e3fb2a0aeeb25ae5b97cf4 \
+    --hash=sha256:e680ce083683abca5d07c3e55c2f620ff9a29cb91c548eeeea27ae29e8060522 \
+    --hash=sha256:e7598a770d67f416c8d69de4c2e2f2898e849a2252c99fc8117598eb7370efff \
+    --hash=sha256:f056cb9714bb7c56ad7d25d86786b5a42c8a3c80e68b11f39af5f469b5366395 \
+    --hash=sha256:f2c745d1623128400c208d875fba741ccd88f061cb89b5661a9f2169eb24b110

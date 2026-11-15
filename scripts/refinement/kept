@@ -1,0 +1,8 @@
+# Corpus contracts whose generated refinement proofs are committed: the ones
+# SolidCore.Refinement.Headline imports. gen.sh writes Bytecode and Source for every corpus
+# contract but a proof only for these. Every name in scripts/refinement/certified is here.
+c1
+c4
+w1
+w4
+w5

@@ -1,0 +1,111 @@
+{
+  "contract": "AbiHash",
+  "name": "abi_hash",
+  "source": "Certified/abi_hash/abi_hash.sol",
+  "bytecode": "34602f575f3560e01c806366d82b2b03602f5760443610602f576004355f5260243560205260405f205f5260205ff35b5f5ffd",
+  "solar": "38b5232add998cd34a311c8cecf5737d38f9cce6",
+  "solidity_lean": "5d51a4c04354aa2e44f65d475a376aac693fc12c",
+  "mir_to_evmir": "proved: SolarTV.Milestone.AbiHash.abi_hash_mir_to_evmir",
+  "assembly": "executed: inside the published statement Certified.abi_hash.Final.final (Shapes.Equiv and Resources over Target.runWith of the exact bytes); Proofs/: decoded only: abi_hash.Proofs.Assembly (the bytecode decodes to the final EVM IR's instructions; no execution theorem)",
+  "vc": "exported to .lake/certify/abi_hash/VC.lean",
+  "end_to_end": "not proved",
+  "statuses": {
+    "equivalence": "proved (published statement, Shapes.Equiv): at every gas below 2^256 every result of the exact bytecode on a valid call is the source's, or a failure that changes nothing (out of gas or a revert, whatever its data); such a failure only below the gas bound, and from the bound on exactly the source's, revert data included (Shapes.EquivG, a field of Shapes.Compiled)",
+    "termination": "proved (published statement, Shapes.Terminates): the source ends on every valid call with any status (no specification declares the allowed ones); the bytecode too, at gas from the bound on",
+    "spec": "none: solar-verify has no specification of abi_hash",
+    "resources": "proved (published statement, Shapes.Resources): from the gas bound on, below 2^64, the bytecode gives the source's result",
+    "vacuity": "not applicable (no specification)",
+    "assumptions": "none beyond the statement's scope",
+    "excluded": [
+      "deployment: the init code is not covered; the statement is about the runtime bytecode from any storage",
+      "source model trusted: SolidCore's checked contract (the solc AST through scripts/solc_ast_to_lean_source.py and the type checker) is the meaning of the source (frontend trust boundary)",
+      "calls: one frame, caller 0x2000, contract at 0x1000, the block and transaction of Target.message; no external calls, GAS reads or return data in the code (the loop checker's fragment)",
+      "hash: the bytecode's KECCAK256 is EthLib's Keccak-256 (the statement's oracle), the same function SolidCore applies to the ABI encoding; no injectivity or separation is assumed",
+      "gas: the bound is the loop checker's (22100 per item times the final EVM IR's block fuel, plus memory), coarse; below it the bytecode may fail without effects, which equivalence admits",
+      "valid calls: hashPair(uint256,uint256) ABI-encoded with clean argument words, any value below 2^256 (not payable: the value reverts on both sides), any storage; other call data is outside the statement",
+      "spec: none (solar-verify has no specification of abi_hash): equivalence, termination and resources only"
+    ],
+    "environment": "fixed, not quantified: one frame, caller 0x2000, the contract at 0x1000, the block and transaction of Target.message",
+    "provenance": "the solidity-lean checkout is not its commit: changed: lakefile.lean;untracked or ignored: .cache/solc-0.8.35;untracked or ignored: Certified/abi_hash/Proofs.lean;untracked or ignored: Certified/abi_hash/abi_hash.sol;untracked or ignored: Certified/abi_hash/bytecode.hex;; the starting build directory is trusted, not rebuilt from source (CERTIFY_CLEAN_BUILD=1)",
+    "strongest": false,
+    "source": "SolidCore/Refinement/Source/AbiHash.lean is the front end's AST of AbiHash in Certified/abi_hash/abi_hash.sol (solc 0.8.35)"
+  },
+  "final": {
+    "module": "abi_hash.Final",
+    "statement_module": "abi_hash.Statement",
+    "theorem": "Certified.abi_hash.Final.final",
+    "kind": "compiled",
+    "statement": "_root_.Certified.abi_hash.Final.code.data.toList.map (·.toNat) = _root_.Certified.abi_hash.Final.runtimeBytes ∧ (∃ c, SolidCore.Refinement.Solar.AbiHash.contract? = .ok c ∧ _root_.SolidCore.Refinement.Shapes.Compiled (_root_.SolidCore.Refinement.solidCore (SolidCore.Refinement.Solar.AbiHash.fuel)) c _root_.Certified.abi_hash.Final.code (SolidCore.Refinement.Shapes.genericValid (SolidCore.Refinement.Solar.AbiHash.fns) ([])) (fun _ => 10000000))",
+    "nonvacuous": null,
+    "vacuity": null,
+    "allowed_vacuity": null,
+    "spec_bound_to_export": null,
+    "assumptions": [],
+    "excluded": [
+      "deployment: the init code is not covered; the statement is about the runtime bytecode from any storage",
+      "source model trusted: SolidCore's checked contract (the solc AST through scripts/solc_ast_to_lean_source.py and the type checker) is the meaning of the source (frontend trust boundary)",
+      "calls: one frame, caller 0x2000, contract at 0x1000, the block and transaction of Target.message; no external calls, GAS reads or return data in the code (the loop checker's fragment)",
+      "hash: the bytecode's KECCAK256 is EthLib's Keccak-256 (the statement's oracle), the same function SolidCore applies to the ABI encoding; no injectivity or separation is assumed",
+      "gas: the bound is the loop checker's (22100 per item times the final EVM IR's block fuel, plus memory), coarse; below it the bytecode may fail without effects, which equivalence admits",
+      "valid calls: hashPair(uint256,uint256) ABI-encoded with clean argument words, any value below 2^256 (not payable: the value reverts on both sides), any storage; other call data is outside the statement",
+      "spec: none (solar-verify has no specification of abi_hash): equivalence, termination and resources only"
+    ],
+    "spec": "none: solar-verify has no specification of abi_hash",
+    "statuses": {
+      "equivalence": "proved (published statement, Shapes.Equiv): at every gas below 2^256 every result of the exact bytecode on a valid call is the source's, or a failure that changes nothing (out of gas or a revert, whatever its data); such a failure only below the gas bound, and from the bound on exactly the source's, revert data included (Shapes.EquivG, a field of Shapes.Compiled)",
+      "termination": "proved (published statement, Shapes.Terminates): the source ends on every valid call with any status (no specification declares the allowed ones); the bytecode too, at gas from the bound on",
+      "spec": "none: solar-verify has no specification of abi_hash",
+      "resources": "proved (published statement, Shapes.Resources): from the gas bound on, below 2^64, the bytecode gives the source's result",
+      "vacuity": "not applicable (no specification)"
+    },
+    "strongest": false
+  },
+  "end_to_end_statement": {},
+  "binding": {},
+  "hypotheses": {},
+  "refused": [],
+  "vacuous": "not applicable (no specification)",
+  "vc_vacuous": "not checked",
+  "source_ast": "SolidCore/Refinement/Source/AbiHash.lean is the front end's AST of AbiHash in Certified/abi_hash/abi_hash.sol (solc 0.8.35)",
+  "assembly_statement": null,
+  "assembly_hypotheses": null,
+  "negative_tests": true,
+  "caveats": [
+    "solidity-lean at 5d51a4c04354aa2e44f65d475a376aac693fc12c, not the pinned 7aedd6330678291a0d13a465ddd398a7990de3a3",
+    "provenance: the solidity-lean checkout is not its commit: changed: lakefile.lean;untracked or ignored: .cache/solc-0.8.35;untracked or ignored: Certified/abi_hash/Proofs.lean;untracked or ignored: Certified/abi_hash/abi_hash.sol;untracked or ignored: Certified/abi_hash/bytecode.hex;",
+    "provenance: the starting build directory is trusted, not rebuilt from source (CERTIFY_CLEAN_BUILD=1)",
+    "not end to end: solidity-lean states no source or spec theorem for abi_hash"
+  ],
+  "backend": {
+    "theorem": {
+      "module": "abi_hash.Final",
+      "statement_module": "abi_hash.Statement",
+      "theorem": "Certified.abi_hash.Final.final",
+      "kind": "compiled",
+      "statement": "_root_.Certified.abi_hash.Final.code.data.toList.map (·.toNat) = _root_.Certified.abi_hash.Final.runtimeBytes ∧ (∃ c, SolidCore.Refinement.Solar.AbiHash.contract? = .ok c ∧ _root_.SolidCore.Refinement.Shapes.Compiled (_root_.SolidCore.Refinement.solidCore (SolidCore.Refinement.Solar.AbiHash.fuel)) c _root_.Certified.abi_hash.Final.code (SolidCore.Refinement.Shapes.genericValid (SolidCore.Refinement.Solar.AbiHash.fns) ([])) (fun _ => 10000000))",
+      "nonvacuous": null,
+      "vacuity": null,
+      "allowed_vacuity": null,
+      "spec_bound_to_export": null,
+      "assumptions": [],
+      "excluded": [
+        "deployment: the init code is not covered; the statement is about the runtime bytecode from any storage",
+        "source model trusted: SolidCore's checked contract (the solc AST through scripts/solc_ast_to_lean_source.py and the type checker) is the meaning of the source (frontend trust boundary)",
+        "calls: one frame, caller 0x2000, contract at 0x1000, the block and transaction of Target.message; no external calls, GAS reads or return data in the code (the loop checker's fragment)",
+        "hash: the bytecode's KECCAK256 is EthLib's Keccak-256 (the statement's oracle), the same function SolidCore applies to the ABI encoding; no injectivity or separation is assumed",
+        "gas: the bound is the loop checker's (22100 per item times the final EVM IR's block fuel, plus memory), coarse; below it the bytecode may fail without effects, which equivalence admits",
+        "valid calls: hashPair(uint256,uint256) ABI-encoded with clean argument words, any value below 2^256 (not payable: the value reverts on both sides), any storage; other call data is outside the statement",
+        "spec: none (solar-verify has no specification of abi_hash): equivalence, termination and resources only"
+      ],
+      "spec": "none: solar-verify has no specification of abi_hash",
+      "statuses": {
+        "equivalence": "proved (published statement, Shapes.Equiv): at every gas below 2^256 every result of the exact bytecode on a valid call is the source's, or a failure that changes nothing (out of gas or a revert, whatever its data); such a failure only below the gas bound, and from the bound on exactly the source's, revert data included (Shapes.EquivG, a field of Shapes.Compiled)",
+        "termination": "proved (published statement, Shapes.Terminates): the source ends on every valid call with any status (no specification declares the allowed ones); the bytecode too, at gas from the bound on",
+        "spec": "none: solar-verify has no specification of abi_hash",
+        "resources": "proved (published statement, Shapes.Resources): from the gas bound on, below 2^64, the bytecode gives the source's result",
+        "vacuity": "not applicable (no specification)"
+      },
+      "strongest": false
+    }
+  }
+}
