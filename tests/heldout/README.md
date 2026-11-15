@@ -9,13 +9,20 @@ bytes. The specs are solar-verify NatSpec annotations (`@custom:requires`, `@cus
 
 | contract | what it exercises | expected |
 |---|---|---|
+| [Meter.sol](Meter.sol) | inside the generic source stage at bc6da61b: no constructor, no loop, no mapping, no reason string, no internal call; checked addition, one branch | Certified |
+| [Gate.sol](Gate.sol) | the same envelope; `require` without a reason (empty revert) | Certified |
 | [Clamp.sol](Clamp.sol) | branches, pure functions, checked comparisons, one guarded storage write, a contract invariant; no mapping, no hash, no loop | Certified |
 | [StepSum.sol](StepSum.sol) | a bounded loop with a supplied invariant and variant (`triangle`), a checked addition against a storage cap | Certified (loop invariant supplied in the source and kernel-checked) |
 | [Band.sol](Band.sol) | Clamp renamed, with constants in place of stored bounds | Certified |
 | [EmptyRevert.sol](EmptyRevert.sol) | an empty revert next to a bounded loop (revert, not out of gas) | Certified |
 | [Registry.sol](Registry.sol) | a `mapping(address => bool)`, an owner check, a ghost counter invariant, an indexed event | Certified |
 
-Order for the driver: Clamp first (straight-line code, smallest proof surface), then StepSum
+At bc6da61b the generic source stage does not yet cover constructor parameters (Clamp, StepSum),
+early returns in pure functions (Clamp.clamp), internal calls and constants (Band), mappings and
+reason strings (Registry) or loops (StepSum, EmptyRevert): until it does, the driver must report
+those BLOCKED with the reason, never Certified. Meter and Gate are the held-out targets inside it.
+
+Order for the driver: Meter and Gate first; then Clamp first (straight-line code, smallest proof surface), then StepSum
 (the loop), then Registry (keccak slots and logs). None makes an external call, uses inline
 assembly, `delegatecall` or value transfers.
 

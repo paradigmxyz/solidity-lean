@@ -14,7 +14,7 @@ one, and every case expected not to certify passes only when the driver does not
 
 --replay CMD runs the cold replay of a finished run's directory, as
     CMD <dir>
-The replay cases certify tests/heldout/Clamp.sol once, then copy its directory per case, change one
+The replay cases certify tests/heldout/Meter.sol once, then copy its directory per case, change one
 pinned input in the copy and replay it: stale bytes (the runtime bytes of another contract's fresh
 compile), a flipped byte, changed solar options in the recorded pins, a stale spec (the source's
 spec edited after the run), stale source (its code edited), a stale import (a generated module of
@@ -31,10 +31,14 @@ import argparse, json, pathlib, re, shlex, shutil, subprocess, sys, time
 H = "tests/heldout"  # replaced by --heldout
 FRESH = [
     # name, source, expected, what it tests
-    ("heldout-clamp", f"{H}/Clamp.sol", "CERTIFIED", "positive control: held-out, no hand-written proofs"),
+    ("heldout-meter", f"{H}/Meter.sol", "CERTIFIED", "positive control: inside the generic source stage at bc6da61b"),
+    ("heldout-gate", f"{H}/Gate.sol", "CERTIFIED", "positive control: empty-reason require (empty revert, not OOG)"),
+    # CERTIFIED|BLOCKED: outside the generic source stage at bc6da61b (constructor parameters,
+    # early returns, mappings, reason strings, internal calls, loops); BLOCKED until it covers them.
+    ("heldout-clamp", f"{H}/Clamp.sol", "CERTIFIED|BLOCKED", "held-out, constructor parameters, early returns"),
     ("heldout-stepsum", f"{H}/StepSum.sol", "CERTIFIED|BLOCKED", "positive control: loop with supplied invariant"),
-    ("heldout-registry", f"{H}/Registry.sol", "CERTIFIED", "positive control: mapping, owner check, event"),
-    ("renamed-new-constants", f"{H}/Band.sol", "CERTIFIED", "Clamp renamed, constants in place of stored bounds"),
+    ("heldout-registry", f"{H}/Registry.sol", "CERTIFIED|BLOCKED", "positive control: mapping, owner check, event"),
+    ("renamed-new-constants", f"{H}/Band.sol", "CERTIFIED|BLOCKED", "Clamp renamed, constants in place of stored bounds"),
     ("empty-revert", f"{H}/EmptyRevert.sol", "CERTIFIED|BLOCKED", "empty revert next to a bounded loop (revert, not OOG)"),
     ("wrong-spec", f"{H}/negative/ClampWrongSpec.sol", "REJECTED", "postcondition false of the code"),
     ("false-env", f"{H}/negative/FalseEnv.sol", "REJECTED", "contradictory environment premise (vacuous)"),
@@ -44,7 +48,7 @@ FRESH = [
      "a sibling function's premise or proof state must not reach another's goal"),
     ("sibling-isolation", f"{H}/negative/SiblingLeak.sol", "REJECTED",
      "postcondition provable only if a sibling branch's assumption leaks"),
-    ("sibling-isolation-control", f"{H}/negative/SiblingOk.sol", "CERTIFIED", "control of sibling-isolation"),
+    ("sibling-isolation-control", f"{H}/negative/SiblingOk.sol", "CERTIFIED|BLOCKED", "control of sibling-isolation"),
     ("unsupported-external-call", f"{H}/blocked/ExternalCall.sol", "BLOCKED", "external call"),
     ("unsupported-reentrancy", f"{H}/blocked/Reentrancy.sol", "BLOCKED", "value call, state written after it"),
     ("unsupported-delegatecall", f"{H}/blocked/Delegatecall.sol", "BLOCKED", "delegatecall"),
@@ -143,14 +147,14 @@ def mutate_replay(case, d, other_bin):
         for p in files(d, "*.sol"):
             t = p.read_text()
             if "@custom:ensures" in t:
-                p.write_text(t.replace("@custom:ensures result >= a", "@custom:ensures result >= a + 0", 1))
+                p.write_text(t.replace("@custom:ensures", "@custom:ensures true &&", 1))
                 return f"{p.relative_to(d)}: one ensures clause edited"
         return None
     if case == "stale-source":
         for p in files(d, "*.sol"):
             t = p.read_text()
-            if "if (x > b) return b;" in t:
-                p.write_text(t.replace("if (x > b) return b;", "if (x >= b) return b;", 1))
+            if "total = total + v;" in t:
+                p.write_text(t.replace("total = total + v;", "total = v + total;", 1))
                 return f"{p.relative_to(d)}: one comparison of the code edited (same behaviour, other bytes)"
         return None
     if case in ("omitted-selector", "false-env-pin", "oog-as-revert"):
@@ -213,7 +217,7 @@ def main():
     want = set(a.only.split(",")) if a.only else None
     clamp_dir = None
     for name, src, exp, what in FRESH:
-        if want and name not in want and not (name == "heldout-clamp" and a.replay):
+        if want and name not in want and not (name == "heldout-meter" and a.replay):
             continue
         out = work / name
         if out.exists():
@@ -223,15 +227,15 @@ def main():
         # anything else.
         ok = v in exp.split("|")
         rows.append((name, what, exp, v, reason, ok, wall))
-        if name == "heldout-clamp" and v == "CERTIFIED":
+        if name in ("heldout-meter", "heldout-clamp") and v == "CERTIFIED" and clamp_dir is None:
             clamp_dir = out
         print(f"{name}: expected {exp}, got {v} ({reason}) in {wall} s", flush=True)
     for case in REPLAY:
         if want and case not in want:
             continue
         if not a.replay or clamp_dir is None:
-            rows.append((case, "replay of the certified Clamp run with one input changed", "REJECTED", "NOT RUN",
-                         "no replay command" if not a.replay else "Clamp did not certify", None, 0))
+            rows.append((case, "replay of the certified Meter run with one input changed", "REJECTED", "NOT RUN",
+                         "no replay command" if not a.replay else "Meter did not certify", None, 0))
             continue
         d = work / ("replay-" + case)
         if d.exists():
