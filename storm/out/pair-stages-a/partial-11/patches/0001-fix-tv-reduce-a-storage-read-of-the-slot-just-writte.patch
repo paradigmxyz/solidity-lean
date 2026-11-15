@@ -1,0 +1,41 @@
+From 7f918c46c118365a93afef6ecdcc3b7d9c543255 Mon Sep 17 00:00:00 2001
+From: Troy Sargent <0xalpharush@protonmail.com>
+Date: Sun, 15 Nov 2026 13:11:51 +0000
+Subject: [PATCH] fix(tv): reduce a storage read of the slot just written
+
+The packed reserve writes in mint read slot 8 back after storing it.
+update m k v k stayed unreduced, so the two ends of a segment did not
+match. seg_cut_test now rewrites it to v.
+---
+ tv/W1Proofs/Segment.lean | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/tv/W1Proofs/Segment.lean b/tv/W1Proofs/Segment.lean
+index 90514e5..f3743ea 100644
+--- a/tv/W1Proofs/Segment.lean
++++ b/tv/W1Proofs/Segment.lean
+@@ -168,6 +168,12 @@ theorem ite_not_or_ite (c : Prop) [Decidable c] :
+     ((if c then false else true) || (if c then true else false)) = true := by
+   by_cases h : c <;> simp [h]
+ 
++/-- A storage read of the slot just written: the packed reserve writes read a slot back after
++storing it, and the two ends agree only once the read is the stored word. -/
++theorem update_read_same (m : EvmRules.Word → EvmRules.Word) (k v : EvmRules.Word) :
++    update m k v k = v := by
++  simp [update]
++
+ /-- A cut test of a block a branch picks (`(if c then 15 else 14) == 1`) evaluates on both
+ branches, so a test that holds on neither is `false` before any case split. Splitting on it
+ first instead leaves leaves whose contradiction only the branch condition shows, and the case
+@@ -176,7 +182,7 @@ macro "seg_cut_test" : tactic => `(tactic|
+   simp only [ite_beq, Nat.reduceBEq, BitVec.reduceEq, BitVec.reduceNe, ite_self, Bool.false_eq_true,
+     evm_lt_zero_left, state_initial_eta, Bool.or_true, Bool.or_false, Bool.and_true, Bool.and_false,
+     ↓reduceIte, Mem.load_store_of_disjoint, Mem.load_store_same, Mem.load_expand, Nat.reduceAdd,
+-    Nat.reduceLeDiff, true_or, or_true, ite_or_ite_not, ite_not_or_ite, iteNatCmp])
++    Nat.reduceLeDiff, true_or, or_true, ite_or_ite_not, ite_not_or_ite, iteNatCmp, update_read_same])
+ 
+ syntax "seg_norm" "[" Lean.Parser.Tactic.simpLemma,* "]" : tactic
+ macro_rules
+-- 
+2.43.0
+

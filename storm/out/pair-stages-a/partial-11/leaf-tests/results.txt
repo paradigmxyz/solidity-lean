@@ -1,0 +1,2 @@
+e20s6 rc=0 121s peak=2422MB axioms: [propext, Quot.sound]
+e20s5 rc=0 123s peak=2309MB axioms: [propext, Quot.sound]
