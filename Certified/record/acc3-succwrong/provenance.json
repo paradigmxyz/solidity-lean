@@ -1,0 +1,105 @@
+{
+  "driver_scripts": {
+    "commit": "5a9e6bc0e846e5f4426cff6d22476f31f638d561",
+    "tree": "419977aedc6fe60b92b523284185f2b3b7956475"
+  },
+  "solar_binary": {
+    "sha256": "91d3945708fd2e11a2ee4eb8fa170502d0361bef14c792ecc13bb7ab7a4cb697",
+    "built_from_commit": "5a9e6bc0e846e5f4426cff6d22476f31f638d561",
+    "built_from_tree": "419977aedc6fe60b92b523284185f2b3b7956475",
+    "version": [
+      "solar 0.3.0-dev+commit.5a9e6bc0",
+      "Solidity Version: 0.8.38",
+      "Solc-Compatible Version: 0.8.38+commit.5a9e6bc0.solar.0.3.0-dev",
+      "Commit SHA: 5a9e6bc0e846e5f4426cff6d22476f31f638d561",
+      "Build Timestamp: 2026-11-15T13:01:35.525353549Z",
+      "Build Features: mimalloc,tracing",
+      "Build Profile: debug"
+    ],
+    "rust_sources_equal_to_driver_commit": true,
+    "note": "built at the driver commit"
+  },
+  "solidity_lean_executed": {
+    "head": "0e8c8e49d1448942f73ae2e3803466957f962378",
+    "base_parent": "44572c150176365fa5e0d56ae6c59a7a443f8122",
+    "head_subject": "certify: generated inputs for succwrong_35a6234e"
+  },
+  "base_argument": "44572c150176365fa5e0d56ae6c59a7a443f8122",
+  "host": {
+    "peak_system_used_mib": 4003,
+    "peak_tree_rss_mib": 7405,
+    "max_rss_one_process_mib": 5275,
+    "mem_total_mib": 14531,
+    "wall_seconds": 823.0,
+    "note": "peak_system_used_mib is machine-wide used memory (all processes), sampled each second"
+  },
+  "generated_files": {
+    "Certified/succwrong_35a6234e/Lowering.lean": "accb7b52c8086816fb9ff98fb8ed66c31ebbe2eb84fc173637b42998f25e8994",
+    "Certified/succwrong_35a6234e/Proofs/Assembly.lean": "d6186bbf1e3ad56c5555a0153e51a88d529f2042c03700d3e23cd6bb12bfd83a",
+    "Certified/succwrong_35a6234e/Proofs/Runs/Evm1.lean": "0865c4bffe5b4c2c7798bdf59c764211b1cdb56fdbbdcc84f4e1530f2e311596",
+    "Certified/succwrong_35a6234e/Proofs/Runs/Evm2.lean": "90bc478dce490423f57261b0a27a760d2469944a9fe1b9893e358bc80523e3e8",
+    "Certified/succwrong_35a6234e/Proofs/Runs/Evm3.lean": "088293f37888fc7467a182bd262dc202313b11475f75fb21805b11b95b50c571",
+    "Certified/succwrong_35a6234e/Proofs/Runs/Evm4.lean": "2ea01efc7161db4e17045657fd22b5891de0f9c7519e9eb59f5aa853a1f74305",
+    "Certified/succwrong_35a6234e/Proofs/Runs/Evm5.lean": "76f3ba8526fdd7dc815d7147c8b7e8f47e012f5c3456697214c7623b2da48fe4",
+    "Certified/succwrong_35a6234e/Proofs/Runs/Evm6.lean": "1e636c18482bb580addf702700eaf9d5da9dba6f13c2d2181d90bc7cbc9f1b0c",
+    "Certified/succwrong_35a6234e/Proofs/Runs/Evm7.lean": "c8e35fe3d4bd55ad20367ae6ccdee171551a1aab656ead3d9f60421247a132d7",
+    "Certified/succwrong_35a6234e/Proofs/Runs/Mir1.lean": "3fb175c3d8c998f67670060a06f013bd0fdefaddc57287809f87b09ef2d86664",
+    "Certified/succwrong_35a6234e/Proofs/Runs/Sched.lean": "dbddeb5305ae92ae21cf430dddee28f2893f054da7ce1dd256373a42b06faadf",
+    "Certified/succwrong_35a6234e/Proofs/Runs/Stage0.lean": "54a3ebd16c7c384ec772cb179ab5e3c322516dfecf7290f356bc3db1e703307c",
+    "Certified/succwrong_35a6234e/Proofs/Stages.lean": "934af4f503b5789986596f87ed6e07070808e942a8a62ce42b3bcff2ba4845f5",
+    "Certified/succwrong_35a6234e/Proofs.lean": "7870be7e9ca319797228a88a5c752234f58c4cb0db08e6ef1fba4daae814dd6b",
+    "Certified/succwrong_35a6234e/Shape.lean": "7a5fd9ec96333f7c6e763dd67e656c52938d83e87a1edf67b2c30e6d5529346b",
+    "Certified/succwrong_35a6234e/Source.lean": "dcffb9460db7074566edd7183e2f4b5f9b3d317c62fcacf8d1695d828987227e",
+    "Certified/succwrong_35a6234e/SpecConnect.lean": "b8156b3303c74150252dea0b7f486b141425d3b59fd5b4a0a86c0f71a1555740",
+    "Certified/succwrong_35a6234e/bytecode.hex": "7f7db32c1d088b986f7f94f41f2969e375ef330cb07d5c8c9747eced8fab8e3c",
+    "Certified/succwrong_35a6234e/gen/SuccWrong/Bytecode.lean": "bc199e310719aa7d75b83035e3b7f0f25a96cdcb6766b2ebe474dad94e1c7378",
+    "Certified/succwrong_35a6234e/gen/SuccWrong/Evm1.lean": "d5780064374fc938622449f9dbed61e23604f3f2c0bf1379bc0dab466e33c140",
+    "Certified/succwrong_35a6234e/gen/SuccWrong/Evm2.lean": "f1335669f643c9cce6c7f284933d9d1d19ca10290732db8d0d620af3cc504f3a",
+    "Certified/succwrong_35a6234e/gen/SuccWrong/Evm3.lean": "9ecc9bb4c766997b9a3a51b59b6a6167e3e27a5ffe3d771d106ddaa938b890f8",
+    "Certified/succwrong_35a6234e/gen/SuccWrong/Evm4.lean": "972e558a6351df53f1b54c51209b864bf109d077e43437706f5a94a882299ca1",
+    "Certified/succwrong_35a6234e/gen/SuccWrong/Evm5.lean": "84d1412a62fce9f5d98353cc5ff74dfff6aa7388f34952b0520fd3d3a6836d65",
+    "Certified/succwrong_35a6234e/gen/SuccWrong/Evm6.lean": "f75eae10baa30c99c2e9afdd5e37cd46a07e630de7bbe12a15f06750e03fca34",
+    "Certified/succwrong_35a6234e/gen/SuccWrong/Evm7.lean": "bf61fb69770c44f288945c515a4f411258011468ae49d839ca9d9f98c7e9a555",
+    "Certified/succwrong_35a6234e/gen/SuccWrong/Manifest.lean": "0606312bbfc679cb185cf44dcc9b832de8d7c58216c98df0cf79bb08d73c9184",
+    "Certified/succwrong_35a6234e/gen/SuccWrong/Mir1.lean": "5f26e4c0beffa40e00f7a680fc46267c0fe3533c89d8da157a990b0805fa0d2a",
+    "Certified/succwrong_35a6234e/gen/SuccWrong/Sched.lean": "81f9c2e40082e73b052cbee27ca6aebfbe152128c7ed0bcf3f4e2b1f4a82b4a9",
+    "Certified/succwrong_35a6234e/gen/SuccWrong/Schedule.json": "bd34e24f63004893503ce3f475577af81e3876fc1a0d69590338626a021012d3",
+    "Certified/succwrong_35a6234e/gen/SuccWrong/Spec.lean": "5886f415fa4bce602306f11a875d70a0d39fb9c446cb533a62ca645b2f76f0f5",
+    "Certified/succwrong_35a6234e/gen/SuccWrong/Stage0.lean": "9088515c6bb66ade8c669bffebefbe1941eefd9b325a1760c9cb2956bc53e2c3",
+    "Certified/succwrong_35a6234e/gen/SuccWrong/manifest.json": "e31f5cb737a41b9dd89578a9788f0ee7c404f15c2dc7e7e3c4d826d432feb7e1",
+    "Certified/succwrong_35a6234e/options": "e8dcb59d1d2c9325d924f23afb16523ebcef2750f7fa447cf67b494f81a9038c",
+    "Certified/succwrong_35a6234e/shape.json": "b36fc45b0061a5cef2671a31b16e98200b3642a4aba195afe11e7ebda3fc8704",
+    "Certified/succwrong_35a6234e/succwrong_35a6234e.sol": "35a6234e6469f28c29c08fce8b92d8b59decd8b760e5ce51a55a5e2c48e1ce13"
+  },
+  "replay_dir_check": {
+    "extra": [],
+    "missing": [],
+    "mismatched": []
+  },
+  "ir_hashes": {
+    "Certified/succwrong_35a6234e/bytecode.hex": "7f7db32c1d088b986f7f94f41f2969e375ef330cb07d5c8c9747eced8fab8e3c",
+    "Certified/succwrong_35a6234e/gen/SuccWrong/Bytecode.lean": "bc199e310719aa7d75b83035e3b7f0f25a96cdcb6766b2ebe474dad94e1c7378",
+    "Certified/succwrong_35a6234e/gen/SuccWrong/Evm1.lean": "d5780064374fc938622449f9dbed61e23604f3f2c0bf1379bc0dab466e33c140",
+    "Certified/succwrong_35a6234e/gen/SuccWrong/Evm2.lean": "f1335669f643c9cce6c7f284933d9d1d19ca10290732db8d0d620af3cc504f3a",
+    "Certified/succwrong_35a6234e/gen/SuccWrong/Evm3.lean": "9ecc9bb4c766997b9a3a51b59b6a6167e3e27a5ffe3d771d106ddaa938b890f8",
+    "Certified/succwrong_35a6234e/gen/SuccWrong/Evm4.lean": "972e558a6351df53f1b54c51209b864bf109d077e43437706f5a94a882299ca1",
+    "Certified/succwrong_35a6234e/gen/SuccWrong/Evm5.lean": "84d1412a62fce9f5d98353cc5ff74dfff6aa7388f34952b0520fd3d3a6836d65",
+    "Certified/succwrong_35a6234e/gen/SuccWrong/Evm6.lean": "f75eae10baa30c99c2e9afdd5e37cd46a07e630de7bbe12a15f06750e03fca34",
+    "Certified/succwrong_35a6234e/gen/SuccWrong/Evm7.lean": "bf61fb69770c44f288945c515a4f411258011468ae49d839ca9d9f98c7e9a555",
+    "Certified/succwrong_35a6234e/gen/SuccWrong/Schedule.json": "bd34e24f63004893503ce3f475577af81e3876fc1a0d69590338626a021012d3",
+    "Certified/succwrong_35a6234e/gen/SuccWrong/Stage0.lean": "9088515c6bb66ade8c669bffebefbe1941eefd9b325a1760c9cb2956bc53e2c3",
+    "Certified/succwrong_35a6234e/gen/SuccWrong/manifest.json": "e31f5cb737a41b9dd89578a9788f0ee7c404f15c2dc7e7e3c4d826d432feb7e1"
+  },
+  "ir_hashes_note": "gen/<C>/Stage0.lean is the exported MIR (the generic stage's input), Evm1..N.lean the EVM IR stages, Bytecode.lean and bytecode.hex the runtime bytes",
+  "extraction": "replay/ is the driver's --record-dir byte for byte (minus the queue's DONE marker); every other file here is the archival envelope",
+  "resource_admission": {
+    "rule": "max(system_used_mib) <= mem_total_mib - 1024 and not killed for memory",
+    "samples": 411,
+    "max_system_used_mib": 4003,
+    "mem_total_mib": 14531,
+    "killed_for_memory": false,
+    "decision": "admitted",
+    "trace": "receipt.trace.tsv",
+    "trace_sha256": "c23a8b7463a01218e04811a077dd9906d23010df4a191347127f61eb651a88af"
+  }
+}

@@ -1,0 +1,140 @@
+{
+  "schema": "solar-certify-generic/1",
+  "name": "succwrong_35a6234e",
+  "started": "2026-11-15T18:01:40+00:00",
+  "command": [
+    "/home/hand/wacc3/tools/certify/certify",
+    "/home/hand/cdev/SuccWrong.sol",
+    "natspec",
+    "--solidity-lean",
+    "/home/hand/sl445",
+    "--base",
+    "44572c15",
+    "--work",
+    "/home/hand/runs/acc3-succwrong-work",
+    "--record-dir",
+    "/home/hand/runs/acc3-succwrong",
+    "--packages-from",
+    "/home/hand/sl445",
+    "--probe-cache",
+    "/home/hand/sl445"
+  ],
+  "requested_tier": "certified",
+  "source": {
+    "file": "/home/hand/cdev/SuccWrong.sol",
+    "sha256": "35a6234e6469f28c29c08fce8b92d8b59decd8b760e5ce51a55a5e2c48e1ce13"
+  },
+  "spec": {
+    "kind": "natspec",
+    "sha256": "35a6234e6469f28c29c08fce8b92d8b59decd8b760e5ce51a55a5e2c48e1ce13"
+  },
+  "invariants": {
+    "file": null,
+    "sha256": null
+  },
+  "options": [
+    "-Ogas",
+    "--evm-version",
+    "osaka"
+  ],
+  "solar": {
+    "commit": "5a9e6bc0e846e5f4426cff6d22476f31f638d561",
+    "dirty": false,
+    "binary_sha256": "91d3945708fd2e11a2ee4eb8fa170502d0361bef14c792ecc13bb7ab7a4cb697",
+    "version": "solar 0.3.0-dev+commit.5a9e6bc0",
+    "binary_commit": "5a9e6bc0e846e5f4426cff6d22476f31f638d561"
+  },
+  "solc": {
+    "version": "0.8.35",
+    "path": "/home/hand/.cache/solc/solc-0.8.35",
+    "sha256": "fa8ac9a32d301ad023a36ee5a29f8e291fe3200c60244e43c142539e82a617f4"
+  },
+  "lean_toolchain": {
+    "recorded_digest": "953aa1e72283c07686567bb71eeb3fca202baafe2958a7e57987d3b8c4434c25",
+    "lean-toolchain": "leanprover/lean4:v4.35.0"
+  },
+  "contract": "SuccWrong",
+  "functions": [
+    {
+      "signature": "level()",
+      "selector": "0x6fd5ae15",
+      "params": []
+    },
+    {
+      "signature": "set(uint256)",
+      "selector": "0x60fe47b1",
+      "params": [
+        ".uint 256"
+      ]
+    }
+  ],
+  "environment": "one frame, caller 0x2000, contract at 0x1000, the block and transaction of Target.message (fixed, not quantified)",
+  "bytecode_sha256": "3a2b7aa0e1e640206ff04ff7ada168ccdcc77dff3f4805d049086dfde12c6363",
+  "gas_bound": 2033203,
+  "probe": [
+    "PROBE typecheck: ok",
+    "PROBE core: <3814 chars>",
+    "PROBE constructor: returns",
+    "PROBE storage: []",
+    "PROBE fn level(): agree",
+    "PROBE fn set(uint256): agree"
+  ],
+  "solidity_lean_source": "/home/hand/sl445",
+  "solidity_lean": {
+    "base": "44572c150176365fa5e0d56ae6c59a7a443f8122",
+    "inputs_commit": "0e8c8e49d1448942f73ae2e3803466957f962378",
+    "inputs": [
+      "Certified/succwrong_35a6234e/Lowering.lean",
+      "Certified/succwrong_35a6234e/Shape.lean",
+      "Certified/succwrong_35a6234e/Source.lean",
+      "Certified/succwrong_35a6234e/options",
+      "Certified/succwrong_35a6234e/shape.json",
+      "Certified/succwrong_35a6234e/succwrong_35a6234e.sol",
+      "lakefile.lean"
+    ],
+    "inputs_sha256": {
+      "Certified/succwrong_35a6234e/Lowering.lean": "accb7b52c8086816fb9ff98fb8ed66c31ebbe2eb84fc173637b42998f25e8994",
+      "Certified/succwrong_35a6234e/Shape.lean": "7a5fd9ec96333f7c6e763dd67e656c52938d83e87a1edf67b2c30e6d5529346b",
+      "Certified/succwrong_35a6234e/Source.lean": "dcffb9460db7074566edd7183e2f4b5f9b3d317c62fcacf8d1695d828987227e",
+      "Certified/succwrong_35a6234e/options": "e8dcb59d1d2c9325d924f23afb16523ebcef2750f7fa447cf67b494f81a9038c",
+      "Certified/succwrong_35a6234e/shape.json": "b36fc45b0061a5cef2671a31b16e98200b3642a4aba195afe11e7ebda3fc8704",
+      "Certified/succwrong_35a6234e/succwrong_35a6234e.sol": "35a6234e6469f28c29c08fce8b92d8b59decd8b760e5ce51a55a5e2c48e1ce13",
+      "lakefile.lean": "9fa1e9c3429ee2f04a982ca34ce133786a3c372d0dc3816b44d627412cf568b7"
+    }
+  },
+  "run_files": {
+    "SuccWrong.sol": "35a6234e6469f28c29c08fce8b92d8b59decd8b760e5ce51a55a5e2c48e1ce13",
+    "inputs/Certified/succwrong_35a6234e/Lowering.lean": "accb7b52c8086816fb9ff98fb8ed66c31ebbe2eb84fc173637b42998f25e8994",
+    "inputs/Certified/succwrong_35a6234e/Shape.lean": "7a5fd9ec96333f7c6e763dd67e656c52938d83e87a1edf67b2c30e6d5529346b",
+    "inputs/Certified/succwrong_35a6234e/Source.lean": "dcffb9460db7074566edd7183e2f4b5f9b3d317c62fcacf8d1695d828987227e",
+    "inputs/Certified/succwrong_35a6234e/options": "e8dcb59d1d2c9325d924f23afb16523ebcef2750f7fa447cf67b494f81a9038c",
+    "inputs/Certified/succwrong_35a6234e/shape.json": "b36fc45b0061a5cef2671a31b16e98200b3642a4aba195afe11e7ebda3fc8704",
+    "inputs/Certified/succwrong_35a6234e/succwrong_35a6234e.sol": "35a6234e6469f28c29c08fce8b92d8b59decd8b760e5ce51a55a5e2c48e1ce13",
+    "inputs/lakefile.lean": "9fa1e9c3429ee2f04a982ca34ce133786a3c372d0dc3816b44d627412cf568b7",
+    "certify.log": "55d180bd42d855dd605369d77f971dd45e14c81d05db7d510f86b4ddb895aac7"
+  },
+  "packages_from": "/home/hand/sl445/.lake/packages",
+  "scripts_certify": {
+    "command": [
+      "bash",
+      "/home/hand/wacc3/scripts/certify",
+      "/home/hand/runs/acc3-succwrong-work/solidity-lean/Certified/succwrong_35a6234e/succwrong_35a6234e.sol",
+      "--name",
+      "succwrong_35a6234e",
+      "--contract",
+      "SuccWrong",
+      "--require-final"
+    ],
+    "env": {
+      "SOLIDITY_LEAN_DIR": "/home/hand/runs/acc3-succwrong-work/solidity-lean",
+      "CERTIFY_ALLOW_UNPINNED": "1",
+      "CERTIFY_CLEAN_BUILD": "1",
+      "SOLC": "/home/hand/.cache/solc/solc-0.8.35",
+      "CERTIFY_SOLAR_SHA256": "91d3945708fd2e11a2ee4eb8fa170502d0361bef14c792ecc13bb7ab7a4cb697",
+      "LEAN_MEMORY": "6000"
+    },
+    "exit": 1
+  },
+  "status": "REJECTED",
+  "finished": "2026-11-15T18:15:21+00:00"
+}

@@ -1,0 +1,161 @@
+== generic: /home/hand/cdev/SuccWrong.sol (35a6234e6469f28c29c08fce8b92d8b59decd8b760e5ce51a55a5e2c48e1ce13) as succwrong_35a6234e, requested tier certified
+envelope (source): inside; functions level(), set(uint256)
+== generic: build solar
+envelope (bytecode): no call, creation, gas or return-data opcode
+gas bound (the loop checker's, from this export): 2033203
+== generic: probe SolidCore's evaluation and the generic check (separate clone)
+PROBE typecheck: ok
+PROBE core: <3814 chars>
+PROBE constructor: returns
+PROBE storage: []
+PROBE fn level(): agree
+PROBE fn set(uint256): agree
+== generic: solidity-lean 44572c150176365fa5e0d56ae6c59a7a443f8122 + inputs 0e8c8e49d1448942f73ae2e3803466957f962378; scripts/certify
+== 1. the pinned solidity-lean checkout
+certify: warning: solidity-lean at 0e8c8e49d1448942f73ae2e3803466957f962378, not the pinned d0ab5d63a401ae615a4755742f3ab500a2a9d0b1
+solidity-lean 0e8c8e49d1448942f73ae2e3803466957f962378 at /home/hand/runs/acc3-succwrong-work/solidity-lean
+== 2. solar
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.63s
+solar 5a9e6bc0e846e5f4426cff6d22476f31f638d561
+Build completed successfully (1156 jobs).
+solar sha256 91d3945708fd2e11a2ee4eb8fa170502d0361bef14c792ecc13bb7ab7a4cb697
+== 3. compile Certified/succwrong_35a6234e/succwrong_35a6234e.sol and export its stages (-Ogas --evm-version osaka)
+stages: stage0 (lower-evm-shaped), mir1 (place-reads), sched (stack-schedule), evm1 (cfg-simplify-early), evm2 (block-layout), evm3 (share-reverts), evm4 (terminal-dedup), evm5 (cfg-simplify-early), evm6 (inline-returns), evm7 (cfg-simplify), bytecode (assemble)
+bytecode: 346025575f3560e01c806360fe47b11460295780636fd5ae15036025575f545f5260205ff35b5f5ffd5b602436106064600435111760255760056004351160465760025f55005b60015f55 sha256 3a2b7aa0e1e640206ff04ff7ada168ccdcc77dff3f4805d049086dfde12c6363
+== 4. write the proofs
+assembly: decoded only; the loop-free stages have no backward composition to run the bytecode with
+{"final": "SolarTV.Milestone.Succwrong35a6234e.succwrong_35a6234e_mir_to_evmir", "last": "evm7", "first": "stage0", "stages": ["stage0", "mir1", "sched", "evm1", "evm2", "evm3", "evm4", "evm5", "evm6", "evm7"]}
+== 5. build and audit the proofs
+succwrong_35a6234e.gen.SuccWrong.Bytecode: Build completed successfully (2 jobs).
+succwrong_35a6234e.gen.SuccWrong.Evm1: Build completed successfully (12 jobs).
+succwrong_35a6234e.gen.SuccWrong.Evm2: Build completed successfully (12 jobs).
+succwrong_35a6234e.gen.SuccWrong.Evm3: Build completed successfully (12 jobs).
+succwrong_35a6234e.gen.SuccWrong.Evm4: Build completed successfully (12 jobs).
+succwrong_35a6234e.gen.SuccWrong.Evm5: Build completed successfully (12 jobs).
+succwrong_35a6234e.gen.SuccWrong.Evm6: Build completed successfully (12 jobs).
+succwrong_35a6234e.gen.SuccWrong.Evm7: Build completed successfully (12 jobs).
+succwrong_35a6234e.gen.SuccWrong.Manifest: Build completed successfully (2 jobs).
+succwrong_35a6234e.gen.SuccWrong.Mir1: Build completed successfully (11 jobs).
+succwrong_35a6234e.gen.SuccWrong.Sched: Build completed successfully (12 jobs).
+succwrong_35a6234e.gen.SuccWrong.Stage0: Build completed successfully (11 jobs).
+succwrong_35a6234e.Proofs.Runs.Evm1: Build completed successfully (21 jobs).
+succwrong_35a6234e.Proofs.Runs.Evm2: Build completed successfully (21 jobs).
+succwrong_35a6234e.Proofs.Runs.Evm3: Build completed successfully (21 jobs).
+succwrong_35a6234e.Proofs.Runs.Evm4: Build completed successfully (21 jobs).
+succwrong_35a6234e.Proofs.Runs.Evm5: Build completed successfully (21 jobs).
+succwrong_35a6234e.Proofs.Runs.Evm6: Build completed successfully (21 jobs).
+succwrong_35a6234e.Proofs.Runs.Evm7: Build completed successfully (21 jobs).
+succwrong_35a6234e.Proofs.Runs.Mir1: Build completed successfully (21 jobs).
+succwrong_35a6234e.Proofs.Runs.Sched: Build completed successfully (21 jobs).
+succwrong_35a6234e.Proofs.Runs.Stage0: Build completed successfully (20 jobs).
+succwrong_35a6234e.Proofs.Stages: Build completed successfully (41 jobs).
+succwrong_35a6234e.Proofs.Assembly: Build completed successfully (17 jobs).
+succwrong_35a6234e.Proofs: Build completed successfully (47 jobs).
+'SolarTV.Milestone.Succwrong35a6234e.checked' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Succwrong35a6234e.decodes' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Succwrong35a6234e.evm1_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Succwrong35a6234e.evm1_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Succwrong35a6234e.evm2_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Succwrong35a6234e.evm2_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Succwrong35a6234e.evm3_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Succwrong35a6234e.evm3_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Succwrong35a6234e.evm4_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Succwrong35a6234e.evm4_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Succwrong35a6234e.evm5_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Succwrong35a6234e.evm5_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Succwrong35a6234e.evm6_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Succwrong35a6234e.evm6_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Succwrong35a6234e.evm7_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Succwrong35a6234e.items_eq' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Succwrong35a6234e.mir1_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Succwrong35a6234e.mir1_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Succwrong35a6234e.sched_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Succwrong35a6234e.sched_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Succwrong35a6234e.stage0_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Succwrong35a6234e.stage_evm1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Succwrong35a6234e.stage_evm2' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Succwrong35a6234e.stage_evm3' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Succwrong35a6234e.stage_evm4' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Succwrong35a6234e.stage_evm5' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Succwrong35a6234e.stage_evm6' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Succwrong35a6234e.stage_evm7' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Succwrong35a6234e.stage_mir1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Succwrong35a6234e.stage_sched' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Succwrong35a6234e.succwrong_35a6234e_mir_to_evmir' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Succwrong35a6234e.walk_eq' depends on axioms: [propext, Quot.sound]
+audited 32 theorems
+== 6. the spec (solar-verify) and the headline theorems
+lake packages (20 modules imported): Build completed successfully (2492 jobs).
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.21s
+export: /home/hand/runs/acc3-succwrong-work/solidity-lean/.lake/certify/succwrong_35a6234e/VC.lean is whole (134 lines, ends with end Certified.Succwrong35a6234e.VC)
+spec: exported to .lake/certify/succwrong_35a6234e/VC.lean
+no Certified/succwrong_35a6234e/headline: no end-to-end theorem
+== 6b. the published statement
+export: Certified/succwrong_35a6234e/gen/SuccWrong/Spec.lean is whole (49 lines, ends with end Certified.succwrong_35a6234e.gen.SuccWrong.Spec)
+succwrong_35a6234e.Lowering: Build completed successfully (2566 jobs).
+succwrong_35a6234e.gen.SuccWrong.Spec: Build completed successfully (8 jobs).
+Verify.VC.Model: Build completed successfully (2549 jobs).
+Verify.Spec.Tree: Build completed successfully (2553 jobs).
+Verify.Spec.TreeMap: Build completed successfully (2558 jobs).
+Verify.Spec.TreeMapNested: Build completed successfully (2559 jobs).
+Verify.Spec.TreeIn: Build completed successfully (2567 jobs).
+Verify.Spec.TreeSucceeds: Build completed successfully (2559 jobs).
+Verify.VC.KernelIdx: Build completed successfully (2 jobs).
+SolidCore.Refinement.KernelRfl: Build completed successfully (3 jobs).
+alse, forall_eq_or_imp,
+    forall_eq, eval, evalList, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
+    beq_self_eq_true, Ty.InRange, forall_int_range, Nat.cast_ofNat, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/succwrong_35a6234e/SpecConnect.lean:93:52: warning: This simp argument is unused:
+  forall_int_range
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, set_tree, set_spec, succwrong_35a6234e.SpecConnect.spec,
+    Certified.succwrong_35a6234e.gen.SuccWrong.Spec.SuccWrong, succwrong_35a6234e.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, evalList, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
+    beq_self_eq_true, Ty.InRange, Option.getD_some, Nat.cast_ofNat, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/succwrong_35a6234e/SpecConnect.lean:93:70: warning: This simp argument is unused:
+  Nat.cast_ofNat
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, set_tree, set_spec, succwrong_35a6234e.SpecConnect.spec,
+    Certified.succwrong_35a6234e.gen.SuccWrong.Spec.SuccWrong, succwrong_35a6234e.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, evalList, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
+    beq_self_eq_true, Ty.InRange, Option.getD_some, forall_int_range, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/succwrong_35a6234e/SpecConnect.lean:93:86: warning: This simp argument is unused:
+  Int.reducePow
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, set_tree, set_spec, succwrong_35a6234e.SpecConnect.spec,
+    Certified.succwrong_35a6234e.gen.SuccWrong.Spec.SuccWrong, succwrong_35a6234e.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, evalList, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
+    beq_self_eq_true, Ty.InRange, Option.getD_some, forall_int_range, Nat.cast_ofNat] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+'succwrong_35a6234e.SpecConnect.set_holds_in' depends on axioms: [propext, sorryAx, Classical.choice, Quot.sound]
+Certified/succwrong_35a6234e/SpecConnect.lean:133:0: error: ❌️ Docstring on `#guard_msgs` does not match generated message:
+
+- info: 'succwrong_35a6234e.SpecConnect.set_holds_in' depends on axioms: [propext, Classical.choice, Quot.sound]
++ info: 'succwrong_35a6234e.SpecConnect.set_holds_in' depends on axioms: [propext, sorryAx, Classical.choice, Quot.sound]
+'succwrong_35a6234e.SpecConnect.set_holds' depends on axioms: [propext, sorryAx, Classical.choice, Quot.sound]
+Certified/succwrong_35a6234e/SpecConnect.lean:137:0: error: ❌️ Docstring on `#guard_msgs` does not match generated message:
+
+- info: 'succwrong_35a6234e.SpecConnect.set_holds' depends on axioms: [propext, Classical.choice, Quot.sound]
++ info: 'succwrong_35a6234e.SpecConnect.set_holds' depends on axioms: [propext, sorryAx, Classical.choice, Quot.sound]
+spec_connect: REJECTED: spec: set_succeeds does not check: omega could not prove the goal: (SpecConnect.lean:99)
+certify: error: spec_connect.py refuses functions of SuccWrong (above): their spec is not proved
+REJECTED: spec: set_succeeds does not check: omega could not prove the goal: (SpecConnect.lean:99)
+RECEIPT {"command": ["tools/certify/certify", "/home/hand/cdev/SuccWrong.sol", "natspec", "--solidity-lean", "/home/hand/sl445", "--base", "44572c15", "--work", "/home/hand/runs/acc3-succwrong-work", "--record-dir", "/home/hand/runs/acc3-succwrong", "--packages-from", "/home/hand/sl445", "--probe-cache", "/home/hand/sl445"], "exit_code": 1, "wall_seconds": 823.0, "max_rss_one_process_mib": 5275, "peak_tree_rss_mib": 7405, "peak_system_used_mib": 4003, "mem_total_mib": 14531, "samples": 411, "sample_interval_s": 2, "trace": "acc3-succwrong.receipt.trace.tsv", "memory_definitions": {"system_used_mib": "machine-wide MemTotal - MemAvailable (/proc/meminfo), all processes", "tree_rss_mib": "sum of VmRSS over the command's live process tree; shared pages count per process", "max_rss_one_process_mib": "getrusage(RUSAGE_CHILDREN).ru_maxrss: largest peak RSS of one reaped descendant"}, "started_utc": "2026-11-15T18:01:40Z"}
+driver exit 1
