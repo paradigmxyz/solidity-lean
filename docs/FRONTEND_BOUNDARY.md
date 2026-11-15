@@ -2,6 +2,8 @@
 
 Design note and Counter prototype. Bases: this repository at `bc6da61b`, solar at `902cccc2`. The
 solc-AST importer, E1's TRUSTED status (`docs/CERTIFICATION_TARGET.md`) and every proof stay as they are.
+The prototype's code (`Verify/HirShadow`, solar's `tools/hir-shadow`) lives only on the branches
+`alpharush/hir-shadow` of both repositories (solidity-lean `29eb2ad3`, solar `796368ac`), not in this tree.
 
 ## Why the importer reads solc's AST
 
@@ -100,19 +102,23 @@ counted:
 | solar-verify examples (ArrayMax, Bugs, Counter, Token, Vault, struct_slot) | 3 to 10 | 0 | 0 | 0 |
 
 Every callee is reached by index, so callee and dispatch hints would remove no matching step. The
-remaining gaps are semantic, not matching: loops (`ArrayMax`, `Counter.bump`) need invariants on the
-MIR's loops, and the HIR has already desugared its loops, so it cannot supply them. The interface
+remaining gaps are semantic, not matching: loops (`ArrayMax`, `Counter.bump`) need invariants and a
+bridge between source and MIR loops. The HIR's desugaring does not rule out loop, cutpoint or
+source-location hints; the measured limit is that this prototype supplies no invariant or bridge
+evidence, so it does not close that gap. Hints of that kind would stay untrusted and be checked
+against the independent source semantics, which remains the source of truth. The interface
 facts give one real benefit: diagnostics. A wrong slot or selector fails `Generic.Stage` as an
 unequal tree, while `Verify.HirShadow.check` names the fact (`storage differs at 1 (limit)`).
 
-Decision: NO-GO on expanding the architecture around HIR. Keep the Counter prototype as an optional
-agreement check outside CI and the trusted base, and revisit only if a contract fails
-`Generic.Stage` for a reason that a matched fact would resolve.
+Decision: NO-GO on expanding the architecture around HIR for the current direct checker
+(`Generic.Stage`). Keep the Counter prototype as an optional agreement check on its branch, outside
+CI and the trusted base. Revisit if a contract fails `Generic.Stage` for a reason that a matched fact
+would resolve, or if loop or cutpoint hints come with invariant or bridge evidence the kernel checks.
 
 ## Cost (measured on the hosted Hand, 5 CPUs)
 
 - Code: `tools/hir-shadow/hir_shadow.py` in solar (245 lines, no Rust change; one `exclude` entry in
-  the workspace `Cargo.toml`), `Verify/HirShadow` here (275 lines, plus 70 generated per contract).
+  the workspace `Cargo.toml`), `Verify/HirShadow` on the branch (275 lines, plus 70 generated per contract).
 - Run: the export is one Standard JSON compilation (under a second for Counter). The Lean check
   needs `Contracts.VerifyCounter.SourceAst`'s closure (336 s cold, Mathlib from cache); the three
   HirShadow modules then build in 5 s, one kernel Keccak evaluation per selector.
