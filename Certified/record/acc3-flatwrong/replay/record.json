@@ -1,0 +1,138 @@
+{
+  "schema": "solar-certify-generic/1",
+  "name": "flatwrong_853494c2",
+  "started": "2026-11-15T18:15:23+00:00",
+  "command": [
+    "/home/hand/wacc3/tools/certify/certify",
+    "/home/hand/cdev/FlatWrong.sol",
+    "natspec",
+    "--solidity-lean",
+    "/home/hand/sl445",
+    "--base",
+    "44572c15",
+    "--work",
+    "/home/hand/runs/acc3-flatwrong-work",
+    "--record-dir",
+    "/home/hand/runs/acc3-flatwrong",
+    "--packages-from",
+    "/home/hand/sl445",
+    "--probe-cache",
+    "/home/hand/sl445"
+  ],
+  "requested_tier": "certified",
+  "source": {
+    "file": "/home/hand/cdev/FlatWrong.sol",
+    "sha256": "853494c293c5dafce262aba9938695ad55f17354bdb76389f6a093dbabf3337c"
+  },
+  "spec": {
+    "kind": "natspec",
+    "sha256": "853494c293c5dafce262aba9938695ad55f17354bdb76389f6a093dbabf3337c"
+  },
+  "invariants": {
+    "file": null,
+    "sha256": null
+  },
+  "options": [
+    "-Ogas",
+    "--evm-version",
+    "osaka"
+  ],
+  "solar": {
+    "commit": "5a9e6bc0e846e5f4426cff6d22476f31f638d561",
+    "dirty": false,
+    "binary_sha256": "91d3945708fd2e11a2ee4eb8fa170502d0361bef14c792ecc13bb7ab7a4cb697",
+    "version": "solar 0.3.0-dev+commit.5a9e6bc0",
+    "binary_commit": "5a9e6bc0e846e5f4426cff6d22476f31f638d561"
+  },
+  "solc": {
+    "version": "0.8.35",
+    "path": "/home/hand/.cache/solc/solc-0.8.35",
+    "sha256": "fa8ac9a32d301ad023a36ee5a29f8e291fe3200c60244e43c142539e82a617f4"
+  },
+  "lean_toolchain": {
+    "recorded_digest": "953aa1e72283c07686567bb71eeb3fca202baafe2958a7e57987d3b8c4434c25",
+    "lean-toolchain": "leanprover/lean4:v4.35.0"
+  },
+  "contract": "FlatWrong",
+  "functions": [
+    {
+      "signature": "clear()",
+      "selector": "0x52efea6e",
+      "params": []
+    },
+    {
+      "signature": "total()",
+      "selector": "0x2ddbd13a",
+      "params": []
+    }
+  ],
+  "environment": "one frame, caller 0x2000, contract at 0x1000, the block and transaction of Target.message (fixed, not quantified)",
+  "bytecode_sha256": "cbc40a27d79f0a76003b63dbf3271c4f174325b296bb9f665f04a550538e3445",
+  "gas_bound": 1502803,
+  "probe": [
+    "PROBE typecheck: ok",
+    "PROBE core: <1478 chars>",
+    "PROBE constructor: returns",
+    "PROBE storage: []",
+    "PROBE fn clear(): agree",
+    "PROBE fn total(): agree"
+  ],
+  "solidity_lean_source": "/home/hand/sl445",
+  "solidity_lean": {
+    "base": "44572c150176365fa5e0d56ae6c59a7a443f8122",
+    "inputs_commit": "788e31f0da0e999bbf84f987ae681d694a065291",
+    "inputs": [
+      "Certified/flatwrong_853494c2/Lowering.lean",
+      "Certified/flatwrong_853494c2/Shape.lean",
+      "Certified/flatwrong_853494c2/Source.lean",
+      "Certified/flatwrong_853494c2/flatwrong_853494c2.sol",
+      "Certified/flatwrong_853494c2/options",
+      "Certified/flatwrong_853494c2/shape.json",
+      "lakefile.lean"
+    ],
+    "inputs_sha256": {
+      "Certified/flatwrong_853494c2/Lowering.lean": "eb7049e9824618ac70fa977ea25c7534935ece33540b519a3980fd719fafc360",
+      "Certified/flatwrong_853494c2/Shape.lean": "8a051b6e22771a852b4e6a70b925d189d073b74c3066aa1c4a64d84567fe5751",
+      "Certified/flatwrong_853494c2/Source.lean": "4064c5a9f24bb9c42e58e4b325ebae84d0def332aba5ba64211016c7bb0225d7",
+      "Certified/flatwrong_853494c2/flatwrong_853494c2.sol": "853494c293c5dafce262aba9938695ad55f17354bdb76389f6a093dbabf3337c",
+      "Certified/flatwrong_853494c2/options": "e8dcb59d1d2c9325d924f23afb16523ebcef2750f7fa447cf67b494f81a9038c",
+      "Certified/flatwrong_853494c2/shape.json": "8238e2901c3e09fa9970357eb72da9db97271b2a529a72ed74e8954ce05dc6a3",
+      "lakefile.lean": "f3c141e1776f208e36fa2f12c29a108dc100c00f648be638975dff49836b82fb"
+    }
+  },
+  "run_files": {
+    "FlatWrong.sol": "853494c293c5dafce262aba9938695ad55f17354bdb76389f6a093dbabf3337c",
+    "inputs/Certified/flatwrong_853494c2/Lowering.lean": "eb7049e9824618ac70fa977ea25c7534935ece33540b519a3980fd719fafc360",
+    "inputs/Certified/flatwrong_853494c2/Shape.lean": "8a051b6e22771a852b4e6a70b925d189d073b74c3066aa1c4a64d84567fe5751",
+    "inputs/Certified/flatwrong_853494c2/Source.lean": "4064c5a9f24bb9c42e58e4b325ebae84d0def332aba5ba64211016c7bb0225d7",
+    "inputs/Certified/flatwrong_853494c2/flatwrong_853494c2.sol": "853494c293c5dafce262aba9938695ad55f17354bdb76389f6a093dbabf3337c",
+    "inputs/Certified/flatwrong_853494c2/options": "e8dcb59d1d2c9325d924f23afb16523ebcef2750f7fa447cf67b494f81a9038c",
+    "inputs/Certified/flatwrong_853494c2/shape.json": "8238e2901c3e09fa9970357eb72da9db97271b2a529a72ed74e8954ce05dc6a3",
+    "inputs/lakefile.lean": "f3c141e1776f208e36fa2f12c29a108dc100c00f648be638975dff49836b82fb",
+    "certify.log": "5aa19878032320401db86391aac915b9c0956ada4397693dd6fb51d24fa98025"
+  },
+  "packages_from": "/home/hand/sl445/.lake/packages",
+  "scripts_certify": {
+    "command": [
+      "bash",
+      "/home/hand/wacc3/scripts/certify",
+      "/home/hand/runs/acc3-flatwrong-work/solidity-lean/Certified/flatwrong_853494c2/flatwrong_853494c2.sol",
+      "--name",
+      "flatwrong_853494c2",
+      "--contract",
+      "FlatWrong",
+      "--require-final"
+    ],
+    "env": {
+      "SOLIDITY_LEAN_DIR": "/home/hand/runs/acc3-flatwrong-work/solidity-lean",
+      "CERTIFY_ALLOW_UNPINNED": "1",
+      "CERTIFY_CLEAN_BUILD": "1",
+      "SOLC": "/home/hand/.cache/solc/solc-0.8.35",
+      "CERTIFY_SOLAR_SHA256": "91d3945708fd2e11a2ee4eb8fa170502d0361bef14c792ecc13bb7ab7a4cb697",
+      "LEAN_MEMORY": "6000"
+    },
+    "exit": 1
+  },
+  "status": "REJECTED",
+  "finished": "2026-11-15T18:27:02+00:00"
+}

@@ -1,0 +1,85 @@
+{
+  "driver_scripts": {
+    "commit": "5a9e6bc0e846e5f4426cff6d22476f31f638d561",
+    "tree": "419977aedc6fe60b92b523284185f2b3b7956475"
+  },
+  "solar_binary": {
+    "sha256": "91d3945708fd2e11a2ee4eb8fa170502d0361bef14c792ecc13bb7ab7a4cb697",
+    "built_from_commit": "5a9e6bc0e846e5f4426cff6d22476f31f638d561",
+    "built_from_tree": "419977aedc6fe60b92b523284185f2b3b7956475",
+    "version": [
+      "solar 0.3.0-dev+commit.5a9e6bc0",
+      "Solidity Version: 0.8.38",
+      "Solc-Compatible Version: 0.8.38+commit.5a9e6bc0.solar.0.3.0-dev",
+      "Commit SHA: 5a9e6bc0e846e5f4426cff6d22476f31f638d561",
+      "Build Timestamp: 2026-11-15T13:01:35.525353549Z",
+      "Build Features: mimalloc,tracing",
+      "Build Profile: debug"
+    ],
+    "rust_sources_equal_to_driver_commit": true,
+    "note": "built at the driver commit"
+  },
+  "solidity_lean_executed": {
+    "head": "788e31f0da0e999bbf84f987ae681d694a065291",
+    "base_parent": "44572c150176365fa5e0d56ae6c59a7a443f8122",
+    "head_subject": "certify: generated inputs for flatwrong_853494c2"
+  },
+  "base_argument": "44572c150176365fa5e0d56ae6c59a7a443f8122",
+  "host": {
+    "peak_system_used_mib": 4022,
+    "peak_tree_rss_mib": 7248,
+    "max_rss_one_process_mib": 5283,
+    "mem_total_mib": 14531,
+    "wall_seconds": 698.9,
+    "note": "peak_system_used_mib is machine-wide used memory (all processes), sampled each second"
+  },
+  "generated_files": {
+    "Certified/flatwrong_853494c2/Lowering.lean": "eb7049e9824618ac70fa977ea25c7534935ece33540b519a3980fd719fafc360",
+    "Certified/flatwrong_853494c2/Proofs/Assembly.lean": "bb7a7c0956e3d0f7268fc49b205e28bdea53fa076847c7fcb86ba91cd852ef70",
+    "Certified/flatwrong_853494c2/Proofs/Runs/Evm1.lean": "05f8d5a1b709ed58ef1de7ca39353c5f4b076f1b0b3f282fd5e9e7088f494c3d",
+    "Certified/flatwrong_853494c2/Proofs/Runs/Sched.lean": "513bce9c3ac00bf91d13bf9f75386c18ceb70d1e303a8b3fab0158ad0834b921",
+    "Certified/flatwrong_853494c2/Proofs/Runs/Stage0.lean": "b5bf795a4a6184730aa5b9a3e20889d06bb7692517dc441867ecb31ae2bac8d0",
+    "Certified/flatwrong_853494c2/Proofs/Stages.lean": "ded12d59c9312de8b3876ec366e2f8ff7c64230f2cff2dee737d81f0b09b75a0",
+    "Certified/flatwrong_853494c2/Proofs.lean": "95adb66099257f8c034adb6909491877fe77f79a60c4cd8a047a0caef0067548",
+    "Certified/flatwrong_853494c2/Shape.lean": "8a051b6e22771a852b4e6a70b925d189d073b74c3066aa1c4a64d84567fe5751",
+    "Certified/flatwrong_853494c2/Source.lean": "4064c5a9f24bb9c42e58e4b325ebae84d0def332aba5ba64211016c7bb0225d7",
+    "Certified/flatwrong_853494c2/SpecConnect.lean": "47617d603bcaffb06f94d8448b60e463493e5611b1ceb54102d1fa2637349fa9",
+    "Certified/flatwrong_853494c2/bytecode.hex": "5dc0dfb7f8ee8ed11c5b86d8ef666cc0912c92ac9d885d50ab69e8744487878d",
+    "Certified/flatwrong_853494c2/flatwrong_853494c2.sol": "853494c293c5dafce262aba9938695ad55f17354bdb76389f6a093dbabf3337c",
+    "Certified/flatwrong_853494c2/gen/FlatWrong/Bytecode.lean": "02f5f898e9470e9458eab3be6e290f6783b271e2715ac8438bc291d3b55ccd39",
+    "Certified/flatwrong_853494c2/gen/FlatWrong/Evm1.lean": "b0677d6e198dcccf2bbfbbe4f9919b23dc96766f2057e3cd17311bdfbc5bf5b1",
+    "Certified/flatwrong_853494c2/gen/FlatWrong/Manifest.lean": "a90cd069b5b850565cf9d6108f0cede952ad2811e3f573e01ef30251e4f34580",
+    "Certified/flatwrong_853494c2/gen/FlatWrong/Sched.lean": "66d71fca9092ac51c26dccfa9b8f023bb1108b51e5abc9f04df32cb7ed8790d0",
+    "Certified/flatwrong_853494c2/gen/FlatWrong/Schedule.json": "b7b4c975d8a6c39a5087b4718ba14ba092ef442793643188469795f070c80c69",
+    "Certified/flatwrong_853494c2/gen/FlatWrong/Spec.lean": "d3fd8c9b34530dff0d147734616bfefad2fbe92032bdce25543d7c850bdb26f4",
+    "Certified/flatwrong_853494c2/gen/FlatWrong/Stage0.lean": "eeaa871399a787add8ee6aeb9d72410b455a9663f63ccbb847e6ad1255be6b69",
+    "Certified/flatwrong_853494c2/gen/FlatWrong/manifest.json": "77e8dfa7f6009f31ef95e52eed4b5c701adfe1ff73c5b6349c92d1979d03eb9d",
+    "Certified/flatwrong_853494c2/options": "e8dcb59d1d2c9325d924f23afb16523ebcef2750f7fa447cf67b494f81a9038c",
+    "Certified/flatwrong_853494c2/shape.json": "8238e2901c3e09fa9970357eb72da9db97271b2a529a72ed74e8954ce05dc6a3"
+  },
+  "replay_dir_check": {
+    "extra": [],
+    "missing": [],
+    "mismatched": []
+  },
+  "ir_hashes": {
+    "Certified/flatwrong_853494c2/bytecode.hex": "5dc0dfb7f8ee8ed11c5b86d8ef666cc0912c92ac9d885d50ab69e8744487878d",
+    "Certified/flatwrong_853494c2/gen/FlatWrong/Bytecode.lean": "02f5f898e9470e9458eab3be6e290f6783b271e2715ac8438bc291d3b55ccd39",
+    "Certified/flatwrong_853494c2/gen/FlatWrong/Evm1.lean": "b0677d6e198dcccf2bbfbbe4f9919b23dc96766f2057e3cd17311bdfbc5bf5b1",
+    "Certified/flatwrong_853494c2/gen/FlatWrong/Schedule.json": "b7b4c975d8a6c39a5087b4718ba14ba092ef442793643188469795f070c80c69",
+    "Certified/flatwrong_853494c2/gen/FlatWrong/Stage0.lean": "eeaa871399a787add8ee6aeb9d72410b455a9663f63ccbb847e6ad1255be6b69",
+    "Certified/flatwrong_853494c2/gen/FlatWrong/manifest.json": "77e8dfa7f6009f31ef95e52eed4b5c701adfe1ff73c5b6349c92d1979d03eb9d"
+  },
+  "ir_hashes_note": "gen/<C>/Stage0.lean is the exported MIR (the generic stage's input), Evm1..N.lean the EVM IR stages, Bytecode.lean and bytecode.hex the runtime bytes",
+  "extraction": "replay/ is the driver's --record-dir byte for byte (minus the queue's DONE marker); every other file here is the archival envelope",
+  "resource_admission": {
+    "rule": "max(system_used_mib) <= mem_total_mib - 1024 and not killed for memory",
+    "samples": 349,
+    "max_system_used_mib": 4022,
+    "mem_total_mib": 14531,
+    "killed_for_memory": false,
+    "decision": "admitted",
+    "trace": "receipt.trace.tsv",
+    "trace_sha256": "5b5e99f5d907aa17375dc2c387ed7275719a722ca337d9c13263e49fa1209bbc"
+  }
+}

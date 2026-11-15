@@ -1,0 +1,120 @@
+== 1. the pinned solidity-lean checkout
+certify: warning: solidity-lean at 788e31f0da0e999bbf84f987ae681d694a065291, not the pinned d0ab5d63a401ae615a4755742f3ab500a2a9d0b1
+solidity-lean 788e31f0da0e999bbf84f987ae681d694a065291 at /home/hand/runs/acc3-flatwrong-work/solidity-lean
+== 2. solar
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.81s
+solar 5a9e6bc0e846e5f4426cff6d22476f31f638d561
+Build completed successfully (1156 jobs).
+solar sha256 91d3945708fd2e11a2ee4eb8fa170502d0361bef14c792ecc13bb7ab7a4cb697
+== 3. compile Certified/flatwrong_853494c2/flatwrong_853494c2.sol and export its stages (-Ogas --evm-version osaka)
+stages: stage0 (lower-evm-shaped), sched (stack-schedule), evm1 (cfg-simplify-early), bytecode (assemble)
+bytecode: 34601d575f3560e01c80632ddbd13a14602157806352efea6e14602a575b5f5ffd5b5f545f5260205ff35b5f5f55 sha256 cbc40a27d79f0a76003b63dbf3271c4f174325b296bb9f665f04a550538e3445
+== 4. write the proofs
+assembly: decoded only; the loop-free stages have no backward composition to run the bytecode with
+{"final": "SolarTV.Milestone.Flatwrong853494c2.flatwrong_853494c2_mir_to_evmir", "last": "evm1", "first": "stage0", "stages": ["stage0", "sched", "evm1"]}
+== 5. build and audit the proofs
+flatwrong_853494c2.gen.FlatWrong.Bytecode: Build completed successfully (2 jobs).
+flatwrong_853494c2.gen.FlatWrong.Evm1: Build completed successfully (12 jobs).
+flatwrong_853494c2.gen.FlatWrong.Manifest: Build completed successfully (2 jobs).
+flatwrong_853494c2.gen.FlatWrong.Sched: Build completed successfully (12 jobs).
+flatwrong_853494c2.gen.FlatWrong.Stage0: Build completed successfully (11 jobs).
+flatwrong_853494c2.Proofs.Runs.Evm1: Build completed successfully (21 jobs).
+flatwrong_853494c2.Proofs.Runs.Sched: Build completed successfully (21 jobs).
+flatwrong_853494c2.Proofs.Runs.Stage0: Build completed successfully (20 jobs).
+flatwrong_853494c2.Proofs.Stages: Build completed successfully (27 jobs).
+flatwrong_853494c2.Proofs.Assembly: Build completed successfully (17 jobs).
+flatwrong_853494c2.Proofs: Build completed successfully (33 jobs).
+'SolarTV.Milestone.Flatwrong853494c2.checked' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Flatwrong853494c2.decodes' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Flatwrong853494c2.evm1_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flatwrong853494c2.flatwrong_853494c2_mir_to_evmir' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flatwrong853494c2.items_eq' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Flatwrong853494c2.sched_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flatwrong853494c2.sched_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flatwrong853494c2.stage0_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flatwrong853494c2.stage_evm1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flatwrong853494c2.stage_sched' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flatwrong853494c2.walk_eq' depends on axioms: [propext, Quot.sound]
+audited 11 theorems
+== 6. the spec (solar-verify) and the headline theorems
+lake packages (20 modules imported): Build completed successfully (2492 jobs).
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.19s
+export: /home/hand/runs/acc3-flatwrong-work/solidity-lean/.lake/certify/flatwrong_853494c2/VC.lean is whole (122 lines, ends with end Certified.Flatwrong853494c2.VC)
+spec: exported to .lake/certify/flatwrong_853494c2/VC.lean
+no Certified/flatwrong_853494c2/headline: no end-to-end theorem
+== 6b. the published statement
+export: Certified/flatwrong_853494c2/gen/FlatWrong/Spec.lean is whole (49 lines, ends with end Certified.flatwrong_853494c2.gen.FlatWrong.Spec)
+flatwrong_853494c2.Lowering: Build completed successfully (2566 jobs).
+flatwrong_853494c2.gen.FlatWrong.Spec: Build completed successfully (8 jobs).
+Verify.VC.Model: Build completed successfully (2549 jobs).
+Verify.Spec.Tree: Build completed successfully (2553 jobs).
+Verify.Spec.TreeMap: Build completed successfully (2558 jobs).
+Verify.Spec.TreeMapNested: Build completed successfully (2559 jobs).
+Verify.Spec.TreeIn: Build completed successfully (2567 jobs).
+Verify.Spec.TreeSucceeds: Build completed successfully (2559 jobs).
+Verify.VC.KernelIdx: Build completed successfully (2 jobs).
+SolidCore.Refinement.KernelRfl: Build completed successfully (3 jobs).
+ecConnect.spec, flatwrong_853494c2.SpecConnect.ctx, *,
+    Tree.eval, WExpr.eval, BinOp.eval, UnOp.eval, Generic.wordSize, Res.obs, Writes.store, List.getD_cons_zero,
+    List.getD_cons_succ, Nat.reducePow]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/flatwrong_853494c2/SpecConnect.lean:85:147: warning: This simp argument is unused:
+  flatwrong_853494c2.SpecConnect.ctx
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [clear_tree, clear_spec, flatwrong_853494c2.SpecConnect.spec,
+    Certified.flatwrong_853494c2.gen.FlatWrong.Spec.FlatWrong, *, Tree.eval, WExpr.eval, BinOp.eval, UnOp.eval,
+    Generic.wordSize, Res.obs, Writes.store, List.getD_cons_zero, List.getD_cons_succ, Nat.reducePow]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/flatwrong_853494c2/SpecConnect.lean:85:209: warning: This simp argument is unused:
+  BinOp.eval
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [clear_tree, clear_spec, flatwrong_853494c2.SpecConnect.spec,
+    Certified.flatwrong_853494c2.gen.FlatWrong.Spec.FlatWrong, flatwrong_853494c2.SpecConnect.ctx, *, Tree.eval,
+    WExpr.eval, UnOp.eval, Generic.wordSize, Res.obs, Writes.store, List.getD_cons_zero, List.getD_cons_succ,
+    Nat.reducePow]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/flatwrong_853494c2/SpecConnect.lean:85:221: warning: This simp argument is unused:
+  UnOp.eval
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [clear_tree, clear_spec, flatwrong_853494c2.SpecConnect.spec,
+    Certified.flatwrong_853494c2.gen.FlatWrong.Spec.FlatWrong, flatwrong_853494c2.SpecConnect.ctx, *, Tree.eval,
+    WExpr.eval, BinOp.eval, Generic.wordSize, Res.obs, Writes.store, List.getD_cons_zero, List.getD_cons_succ,
+    Nat.reducePow]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/flatwrong_853494c2/SpecConnect.lean:86:18: warning: This simp argument is unused:
+  List.getD_cons_zero
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [clear_tree, clear_spec, flatwrong_853494c2.SpecConnect.spec,
+    Certified.flatwrong_853494c2.gen.FlatWrong.Spec.FlatWrong, flatwrong_853494c2.SpecConnect.ctx, *, Tree.eval,
+    WExpr.eval, BinOp.eval, UnOp.eval, Generic.wordSize, Res.obs, Writes.store, List.getD_cons_succ, Nat.reducePow]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/flatwrong_853494c2/SpecConnect.lean:86:39: warning: This simp argument is unused:
+  List.getD_cons_succ
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [clear_tree, clear_spec, flatwrong_853494c2.SpecConnect.spec,
+    Certified.flatwrong_853494c2.gen.FlatWrong.Spec.FlatWrong, flatwrong_853494c2.SpecConnect.ctx, *, Tree.eval,
+    WExpr.eval, BinOp.eval, UnOp.eval, Generic.wordSize, Res.obs, Writes.store, List.getD_cons_zero, Nat.reducePow]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+'flatwrong_853494c2.SpecConnect.clear_holds_in' depends on axioms: [propext, sorryAx, Classical.choice, Quot.sound]
+Certified/flatwrong_853494c2/SpecConnect.lean:133:0: error: ❌️ Docstring on `#guard_msgs` does not match generated message:
+
+- info: 'flatwrong_853494c2.SpecConnect.clear_holds_in' depends on axioms: [propext, Classical.choice, Quot.sound]
++ info: 'flatwrong_853494c2.SpecConnect.clear_holds_in' depends on axioms: [propext, sorryAx, Classical.choice, Quot.sound]
+'flatwrong_853494c2.SpecConnect.clear_holds' depends on axioms: [propext, sorryAx, Classical.choice, Quot.sound]
+Certified/flatwrong_853494c2/SpecConnect.lean:137:0: error: ❌️ Docstring on `#guard_msgs` does not match generated message:
+
+- info: 'flatwrong_853494c2.SpecConnect.clear_holds' depends on axioms: [propext, Classical.choice, Quot.sound]
++ info: 'flatwrong_853494c2.SpecConnect.clear_holds' depends on axioms: [propext, sorryAx, Classical.choice, Quot.sound]
+spec_connect: REJECTED: spec: clear_meets0 does not check: omega could not prove the goal: (SpecConnect.lean:67)
+certify: error: spec_connect.py refuses functions of FlatWrong (above): their spec is not proved
