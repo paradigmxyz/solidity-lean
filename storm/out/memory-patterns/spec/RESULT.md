@@ -31,4 +31,18 @@ abi_hash was not used: solar-verify rejects `ensures result == uint256(keccak256
 - Driver: `SOLIDITY_LEAN_DIR=<solidity-lean> CERTIFY_ALLOW_UNPINNED=1 LEAN_MEMORY=9000 scripts/certify event_words.sol`. Memory: 9000 MB per Lean process. At 5000 and 7000, `SolidCore/Solidity/Interface/Statements.lean` hit the kernel's "excessive memory consumption" cap when built from cold.
 - Regression for the tactic change: `lake -R -KleanMemory=6000 build events.SpecConnect Contracts.Counter.SpecTree Verify.Spec.TreeSucceeds Verify.ShapeSpecExport Contracts.Token.Lowering` gave EXIT 0, 2803 jobs ([log](logs/build-spec-tactics.log)).
 
-STATUS: REPLAY_PENDING
+## Driver outcome (EXIT 0)
+
+```
+check_final: Certified.event_words.Final.final : Certified.event_words.Final.Statement; axioms [propext, Classical.choice, Quot.sound]
+replay: all 3942 modules of the published closure replayed by leanchecker in this run; 0 unaccounted
+statuses: equivalence proved, termination proved, spec proved (Shapes.Meets of bundlePost of this run's export, NonVacuous), resources proved
+negative statements (stale byte, substituted artifact, wrong gas, wrong post, no allowed status, vacuous spec, hijacked names): all refused by the kernel
+CHECKED event_words (EventWords), published Certified.event_words.Final.final; not certified: not proved: none
+```
+
+Full log: [logs/certify-event_words.log](logs/certify-event_words.log). Record: [logs/record-event_words.json](logs/record-event_words.json).
+
+The run says CHECKED rather than CERTIFIED only because of provenance. It started with these edits uncommitted (they are now the bundle's commits), from a trusted build directory without `CERTIFY_CLEAN_BUILD=1`, and with solc at an untracked `.cache/solc-0.8.35`. A rerun from the committed trees with `CERTIFY_CLEAN_BUILD=1` and `SOLC` outside the checkout should report CERTIFIED. I have not run that; it means a cold rebuild plus a replay of about 2 h.
+
+The record's separate `end_to_end` field stays "not proved" because it counts only a `headline` file, whose modules the driver builds in step 6, before step 6b writes Final.lean. The spec-to-bytecode theorem is the published `Final.final` above.
