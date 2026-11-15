@@ -286,10 +286,20 @@ def controlStep : Simproc := fun e => do
   let .const c _ := e.getAppFn | return .rfl
   if c == ``ite || c == ``dite || c == ``cond then
     simpControl e
-  else if (← getMatcherInfo? c).isSome then
-    match ← Tactic.Cbv.tryMatcher e with
-    | .rfl _ cd => return .rfl true cd
-    | r => return r
+  else if let some info ← getMatcherInfo? c then
+    -- Discriminants, then the matcher's equation theorems (syntactic, on constructor
+    -- discriminants). Not `Cbv.tryMatcher`'s `reduceRecMatcher` fallback: it runs `whnf` at
+    -- default transparency on the discriminants, which on run_f evaluated a symbolic byte list
+    -- until the heartbeat cap.
+    let start := info.numParams + 1
+    let r ← simpAppArgRange e start (start + info.numDiscrs)
+    match r with
+    | .step .. => return r
+    | .rfl _ cd =>
+      let thms ← Tactic.Cbv.getMatchTheorems c
+      match ← Simproc.tryCatch (thms.rewrite (d := dischargeNone)) e with
+      | .rfl _ cd' => return .rfl true (cd || cd')
+      | r => return r
   else return .rfl
 
 def mkMethods (env : Env) (hyps : Theorems) : Methods :=
@@ -403,8 +413,12 @@ def symEvalGoal (env : Env) (g : MVarId) : MetaM (Option MVarId) := do
     bump env fun c => { c with symRounds := c.symRounds + 1 }
     let s ← env.session.get
     let g0 := g
+    -- A heartbeat cap per Sym.simp call (`checkSystem` runs every 1000 steps), so a run that
+    -- does not converge falls back to the Meta loop instead of hanging (symHeartbeats).
+    let hb ← IO.getNumHeartbeats
     let r ← tryCatchRuntimeEx
-        (some <$> runSym env (g0.withContext do
+        (withTheReader Core.Context (fun ctx => { ctx with maxHeartbeats := 400000 * 1000, initHeartbeats := hb }) <|
+         some <$> runSym env (g0.withContext do
           let (r, st) ← Sym.Simp.SimpM.run (Sym.Simp.simp (← g0.getType)) methods
             { maxSteps := env.maxSteps, maxDischargeDepth := 4 } s.simpState
           let gr ← r.toSimpGoalResult g0

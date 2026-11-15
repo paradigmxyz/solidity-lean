@@ -69,6 +69,7 @@ for t in "${targets[@]}"; do
     printf 'import Verify.Eval.H.Audit\nimport %s\n#audit_axioms_module %s\n' "$t" "$t" > "$f"
     label="$t"; scan=""
   else
+    case "$t" in *Verify/Eval/H/Audit.lean) summary+=("skip $t (the audit command itself; audited through the cold replay)"); continue ;; esac
     f="$tmp/$(echo "$t" | tr '/.' '__').lean"
     python3 "$here/inject.py" "$t" "$f" || { status=1; summary+=("FAIL $t (inject)"); continue; }
     label="$t"; scan="$t"

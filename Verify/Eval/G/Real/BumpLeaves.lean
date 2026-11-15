@@ -160,6 +160,70 @@ theorem leaf0_shared (o : SolarTV.Machine.Oracle) (call : SolarTV.Call) (env : S
 #print axioms leaf0_shared
 
 -- Leaf 1: total_leaf closed it at capture in 399.6 ms.
+def stmt1 : Prop :=
+  ∀ (o : SolarTV.Machine.Oracle) (call : SolarTV.Call) (env : SolarTV.MIR.Lowered.Env) (s : SolarTV.Machine.State) (left : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) ≤ env (2 : Nat)) (left_1 : (0 : EvmRules.Word) ≤ env (2 : Nat)) (left_2 : (0 : EvmRules.Word) ≤ env (2 : Nat)) (left_3 : (0 : EvmRules.Word) ≤ (0 : EvmRules.Word)) (left_4 : (0 : EvmRules.Word) ≤ env (2 : Nat)) (left_5 : (0 : EvmRules.Word) ≤ SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_6 : env (2 : Nat) = (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)) (left_7 : env (2 : Nat) ≤ (SolarTV.Machine.State.initial call).storage (1 : EvmRules.Word)) (left_8 : env (2 : Nat) = (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)) (left_9 : s.storage = (SolarTV.Machine.State.initial call).storage) (left_10 : env (30 : Nat) = (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)) (left_11 : env (62 : Nat) = SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_12 : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) ≤
+  (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) +
+    SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_13 : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) +
+    SolarTV.Machine.calldataWord call (4 : EvmRules.Word) ≤
+  (SolarTV.Machine.State.initial call).storage (1 : EvmRules.Word)) (left_14 : s.memory.load (128 : Nat) = env (2 : Nat)) (h : s.memory.load (160 : Nat) = (0 : EvmRules.Word)) (cd : EvmRules.Word → EvmRules.Word) (hcd : cd = SolarTV.Machine.calldataWord call) (hc_1 : ¬¬(0 : EvmRules.Word) < SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (hcs_1 : ¬¬(0 : EvmRules.Word) < SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (hc : ¬(0 : EvmRules.Word) =
+    EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)) (1 : EvmRules.Word)) (hcs : ¬(0 : EvmRules.Word) =
+    EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)) (1 : EvmRules.Word)),
+        SolarTV.Milestone.VerifyCounter.Inferred.Inv call
+    ([], SolarTV.MIR.Lowered.Pos.enter (4 : Nat) (10 : Nat) (1 : Nat),
+      (((((((((env.set (13 : Nat) (0 : EvmRules.Word)).set (55 : Nat)
+                                        ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))).set
+                                    (56 : Nat) (0 : EvmRules.Word)).set
+                                (14 : Nat)
+                                (EvmRules.Evm.lt (0 : EvmRules.Word)
+                                  (SolarTV.Machine.calldataWord call (4 : EvmRules.Word)))).set
+                            (31 : Nat) ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))).set
+                        (16 : Nat) ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))).set
+                    (43 : Nat)
+                    (EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))
+                      (1 : EvmRules.Word))).set
+                (44 : Nat)
+                (EvmRules.Evm.eq
+                  (EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))
+                    (1 : EvmRules.Word))
+                  (0 : EvmRules.Word))).set
+            (20 : Nat) (1 : EvmRules.Word)).set
+        (33 : Nat) (0 : EvmRules.Word),
+      {
+        memory :=
+          ((s.memory.expand (128 : Nat) (32 : Nat)).store (128 : Nat)
+                (EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))
+                  (1 : EvmRules.Word))).store
+            (160 : Nat) (1 : EvmRules.Word),
+        storage := (SolarTV.Machine.State.initial call).storage, transient := s.transient, world := s.world }) ∧
+  SolarTV.Milestone.VerifyCounter.Inferred.rank call
+      ([], SolarTV.MIR.Lowered.Pos.enter (4 : Nat) (10 : Nat) (1 : Nat),
+        (((((((((env.set (13 : Nat) (0 : EvmRules.Word)).set (55 : Nat)
+                                          ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))).set
+                                      (56 : Nat) (0 : EvmRules.Word)).set
+                                  (14 : Nat)
+                                  (EvmRules.Evm.lt (0 : EvmRules.Word)
+                                    (SolarTV.Machine.calldataWord call (4 : EvmRules.Word)))).set
+                              (31 : Nat) ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))).set
+                          (16 : Nat) ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))).set
+                      (43 : Nat)
+                      (EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))
+                        (1 : EvmRules.Word))).set
+                  (44 : Nat)
+                  (EvmRules.Evm.eq
+                    (EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))
+                      (1 : EvmRules.Word))
+                    (0 : EvmRules.Word))).set
+              (20 : Nat) (1 : EvmRules.Word)).set
+          (33 : Nat) (0 : EvmRules.Word),
+        {
+          memory :=
+            ((s.memory.expand (128 : Nat) (32 : Nat)).store (128 : Nat)
+                  (EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))
+                    (1 : EvmRules.Word))).store
+              (160 : Nat) (1 : EvmRules.Word),
+          storage := (SolarTV.Machine.State.initial call).storage, transient := s.transient, world := s.world }) <
+    SolarTV.Milestone.VerifyCounter.Inferred.rank call
+      ([], SolarTV.MIR.Lowered.Pos.enter (4 : Nat) (7 : Nat) (1 : Nat), env, s)
 g_time "leaf1 old" in
 theorem leaf1_old (o : SolarTV.Machine.Oracle) (call : SolarTV.Call) (env : SolarTV.MIR.Lowered.Env) (s : SolarTV.Machine.State) (left : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) ≤ env (2 : Nat)) (left_1 : (0 : EvmRules.Word) ≤ env (2 : Nat)) (left_2 : (0 : EvmRules.Word) ≤ env (2 : Nat)) (left_3 : (0 : EvmRules.Word) ≤ (0 : EvmRules.Word)) (left_4 : (0 : EvmRules.Word) ≤ env (2 : Nat)) (left_5 : (0 : EvmRules.Word) ≤ SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_6 : env (2 : Nat) = (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)) (left_7 : env (2 : Nat) ≤ (SolarTV.Machine.State.initial call).storage (1 : EvmRules.Word)) (left_8 : env (2 : Nat) = (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)) (left_9 : s.storage = (SolarTV.Machine.State.initial call).storage) (left_10 : env (30 : Nat) = (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)) (left_11 : env (62 : Nat) = SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_12 : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) ≤
   (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) +
@@ -228,142 +292,20 @@ theorem leaf1_old (o : SolarTV.Machine.Oracle) (call : SolarTV.Call) (env : Sola
 #kernel_recheck_all leaf1_old
 #proof_stats leaf1_old
 #print axioms leaf1_old
-g_time "leaf1 grind" in
-theorem leaf1_grind (o : SolarTV.Machine.Oracle) (call : SolarTV.Call) (env : SolarTV.MIR.Lowered.Env) (s : SolarTV.Machine.State) (left : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) ≤ env (2 : Nat)) (left_1 : (0 : EvmRules.Word) ≤ env (2 : Nat)) (left_2 : (0 : EvmRules.Word) ≤ env (2 : Nat)) (left_3 : (0 : EvmRules.Word) ≤ (0 : EvmRules.Word)) (left_4 : (0 : EvmRules.Word) ≤ env (2 : Nat)) (left_5 : (0 : EvmRules.Word) ≤ SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_6 : env (2 : Nat) = (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)) (left_7 : env (2 : Nat) ≤ (SolarTV.Machine.State.initial call).storage (1 : EvmRules.Word)) (left_8 : env (2 : Nat) = (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)) (left_9 : s.storage = (SolarTV.Machine.State.initial call).storage) (left_10 : env (30 : Nat) = (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)) (left_11 : env (62 : Nat) = SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_12 : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) ≤
-  (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) +
-    SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_13 : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) +
-    SolarTV.Machine.calldataWord call (4 : EvmRules.Word) ≤
-  (SolarTV.Machine.State.initial call).storage (1 : EvmRules.Word)) (left_14 : s.memory.load (128 : Nat) = env (2 : Nat)) (h : s.memory.load (160 : Nat) = (0 : EvmRules.Word)) (cd : EvmRules.Word → EvmRules.Word) (hcd : cd = SolarTV.Machine.calldataWord call) (hc_1 : ¬¬(0 : EvmRules.Word) < SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (hcs_1 : ¬¬(0 : EvmRules.Word) < SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (hc : ¬(0 : EvmRules.Word) =
-    EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)) (1 : EvmRules.Word)) (hcs : ¬(0 : EvmRules.Word) =
-    EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)) (1 : EvmRules.Word)) :
-        SolarTV.Milestone.VerifyCounter.Inferred.Inv call
-    ([], SolarTV.MIR.Lowered.Pos.enter (4 : Nat) (10 : Nat) (1 : Nat),
-      (((((((((env.set (13 : Nat) (0 : EvmRules.Word)).set (55 : Nat)
-                                        ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))).set
-                                    (56 : Nat) (0 : EvmRules.Word)).set
-                                (14 : Nat)
-                                (EvmRules.Evm.lt (0 : EvmRules.Word)
-                                  (SolarTV.Machine.calldataWord call (4 : EvmRules.Word)))).set
-                            (31 : Nat) ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))).set
-                        (16 : Nat) ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))).set
-                    (43 : Nat)
-                    (EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))
-                      (1 : EvmRules.Word))).set
-                (44 : Nat)
-                (EvmRules.Evm.eq
-                  (EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))
-                    (1 : EvmRules.Word))
-                  (0 : EvmRules.Word))).set
-            (20 : Nat) (1 : EvmRules.Word)).set
-        (33 : Nat) (0 : EvmRules.Word),
-      {
-        memory :=
-          ((s.memory.expand (128 : Nat) (32 : Nat)).store (128 : Nat)
-                (EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))
-                  (1 : EvmRules.Word))).store
-            (160 : Nat) (1 : EvmRules.Word),
-        storage := (SolarTV.Machine.State.initial call).storage, transient := s.transient, world := s.world }) ∧
-  SolarTV.Milestone.VerifyCounter.Inferred.rank call
-      ([], SolarTV.MIR.Lowered.Pos.enter (4 : Nat) (10 : Nat) (1 : Nat),
-        (((((((((env.set (13 : Nat) (0 : EvmRules.Word)).set (55 : Nat)
-                                          ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))).set
-                                      (56 : Nat) (0 : EvmRules.Word)).set
-                                  (14 : Nat)
-                                  (EvmRules.Evm.lt (0 : EvmRules.Word)
-                                    (SolarTV.Machine.calldataWord call (4 : EvmRules.Word)))).set
-                              (31 : Nat) ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))).set
-                          (16 : Nat) ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))).set
-                      (43 : Nat)
-                      (EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))
-                        (1 : EvmRules.Word))).set
-                  (44 : Nat)
-                  (EvmRules.Evm.eq
-                    (EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))
-                      (1 : EvmRules.Word))
-                    (0 : EvmRules.Word))).set
-              (20 : Nat) (1 : EvmRules.Word)).set
-          (33 : Nat) (0 : EvmRules.Word),
-        {
-          memory :=
-            ((s.memory.expand (128 : Nat) (32 : Nat)).store (128 : Nat)
-                  (EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))
-                    (1 : EvmRules.Word))).store
-              (160 : Nat) (1 : EvmRules.Word),
-          storage := (SolarTV.Machine.State.initial call).storage, transient := s.transient, world := s.world }) <
-    SolarTV.Milestone.VerifyCounter.Inferred.rank call
-      ([], SolarTV.MIR.Lowered.Pos.enter (4 : Nat) (7 : Nat) (1 : Nat), env, s) := by
-  total_leaf_g
-#kernel_recheck_all leaf1_grind
-#proof_stats leaf1_grind
-#print axioms leaf1_grind
-g_time "leaf1 shared" in
-theorem leaf1_shared (o : SolarTV.Machine.Oracle) (call : SolarTV.Call) (env : SolarTV.MIR.Lowered.Env) (s : SolarTV.Machine.State) (left : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) ≤ env (2 : Nat)) (left_1 : (0 : EvmRules.Word) ≤ env (2 : Nat)) (left_2 : (0 : EvmRules.Word) ≤ env (2 : Nat)) (left_3 : (0 : EvmRules.Word) ≤ (0 : EvmRules.Word)) (left_4 : (0 : EvmRules.Word) ≤ env (2 : Nat)) (left_5 : (0 : EvmRules.Word) ≤ SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_6 : env (2 : Nat) = (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)) (left_7 : env (2 : Nat) ≤ (SolarTV.Machine.State.initial call).storage (1 : EvmRules.Word)) (left_8 : env (2 : Nat) = (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)) (left_9 : s.storage = (SolarTV.Machine.State.initial call).storage) (left_10 : env (30 : Nat) = (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)) (left_11 : env (62 : Nat) = SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_12 : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) ≤
-  (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) +
-    SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_13 : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) +
-    SolarTV.Machine.calldataWord call (4 : EvmRules.Word) ≤
-  (SolarTV.Machine.State.initial call).storage (1 : EvmRules.Word)) (left_14 : s.memory.load (128 : Nat) = env (2 : Nat)) (h : s.memory.load (160 : Nat) = (0 : EvmRules.Word)) (cd : EvmRules.Word → EvmRules.Word) (hcd : cd = SolarTV.Machine.calldataWord call) (hc_1 : ¬¬(0 : EvmRules.Word) < SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (hcs_1 : ¬¬(0 : EvmRules.Word) < SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (hc : ¬(0 : EvmRules.Word) =
-    EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)) (1 : EvmRules.Word)) (hcs : ¬(0 : EvmRules.Word) =
-    EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)) (1 : EvmRules.Word)) :
-        SolarTV.Milestone.VerifyCounter.Inferred.Inv call
-    ([], SolarTV.MIR.Lowered.Pos.enter (4 : Nat) (10 : Nat) (1 : Nat),
-      (((((((((env.set (13 : Nat) (0 : EvmRules.Word)).set (55 : Nat)
-                                        ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))).set
-                                    (56 : Nat) (0 : EvmRules.Word)).set
-                                (14 : Nat)
-                                (EvmRules.Evm.lt (0 : EvmRules.Word)
-                                  (SolarTV.Machine.calldataWord call (4 : EvmRules.Word)))).set
-                            (31 : Nat) ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))).set
-                        (16 : Nat) ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))).set
-                    (43 : Nat)
-                    (EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))
-                      (1 : EvmRules.Word))).set
-                (44 : Nat)
-                (EvmRules.Evm.eq
-                  (EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))
-                    (1 : EvmRules.Word))
-                  (0 : EvmRules.Word))).set
-            (20 : Nat) (1 : EvmRules.Word)).set
-        (33 : Nat) (0 : EvmRules.Word),
-      {
-        memory :=
-          ((s.memory.expand (128 : Nat) (32 : Nat)).store (128 : Nat)
-                (EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))
-                  (1 : EvmRules.Word))).store
-            (160 : Nat) (1 : EvmRules.Word),
-        storage := (SolarTV.Machine.State.initial call).storage, transient := s.transient, world := s.world }) ∧
-  SolarTV.Milestone.VerifyCounter.Inferred.rank call
-      ([], SolarTV.MIR.Lowered.Pos.enter (4 : Nat) (10 : Nat) (1 : Nat),
-        (((((((((env.set (13 : Nat) (0 : EvmRules.Word)).set (55 : Nat)
-                                          ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))).set
-                                      (56 : Nat) (0 : EvmRules.Word)).set
-                                  (14 : Nat)
-                                  (EvmRules.Evm.lt (0 : EvmRules.Word)
-                                    (SolarTV.Machine.calldataWord call (4 : EvmRules.Word)))).set
-                              (31 : Nat) ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))).set
-                          (16 : Nat) ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))).set
-                      (43 : Nat)
-                      (EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))
-                        (1 : EvmRules.Word))).set
-                  (44 : Nat)
-                  (EvmRules.Evm.eq
-                    (EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))
-                      (1 : EvmRules.Word))
-                    (0 : EvmRules.Word))).set
-              (20 : Nat) (1 : EvmRules.Word)).set
-          (33 : Nat) (0 : EvmRules.Word),
-        {
-          memory :=
-            ((s.memory.expand (128 : Nat) (32 : Nat)).store (128 : Nat)
-                  (EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))
-                    (1 : EvmRules.Word))).store
-              (160 : Nat) (1 : EvmRules.Word),
-          storage := (SolarTV.Machine.State.initial call).storage, transient := s.transient, world := s.world }) <
-    SolarTV.Milestone.VerifyCounter.Inferred.rank call
-      ([], SolarTV.MIR.Lowered.Pos.enter (4 : Nat) (7 : Nat) (1 : Nat), env, s) := by
-  total_leaf_s
-#kernel_recheck_all leaf1_shared
-#proof_stats leaf1_shared
-#print axioms leaf1_shared
+-- grind does not close leaf 1 (coverage gap, checked):
+example : True := by
+  fail_if_success
+    have : stmt1 := by
+      unfold stmt1; intros
+      total_leaf_g
+  trivial
+-- shared does not close leaf 1 (coverage gap, checked):
+example : True := by
+  fail_if_success
+    have : stmt1 := by
+      unfold stmt1; intros
+      total_leaf_s
+  trivial
 
 -- Leaf 2: total_leaf closed it at capture in 2.8 ms.
 g_time "leaf2 old" in
@@ -440,6 +382,19 @@ theorem leaf2_shared (o : SolarTV.Machine.Oracle) (call : SolarTV.Call) (env : S
 #print axioms leaf2_shared
 
 -- Leaf 3: total_leaf closed it at capture in 93.4 ms.
+def stmt3 : Prop :=
+  ∀ (o : SolarTV.Machine.Oracle) (call : SolarTV.Call) (env : SolarTV.MIR.Lowered.Env) (s : SolarTV.Machine.State) (left : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) ≤ env (43 : Nat)) (left_1 : (0 : EvmRules.Word) ≤ env (43 : Nat)) (left_2 : env (20 : Nat) ≤ env (43 : Nat)) (left_3 : (0 : EvmRules.Word) ≤ env (20 : Nat)) (left_4 : env (20 : Nat) ≤ env (43 : Nat)) (left_5 : env (20 : Nat) ≤ SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_6 : env (43 : Nat) = (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat)) (left_7 : env (43 : Nat) ≤ (SolarTV.Machine.State.initial call).storage (1 : EvmRules.Word)) (left_8 : s.storage = (SolarTV.Machine.State.initial call).storage) (left_9 : env (30 : Nat) = (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)) (left_10 : env (62 : Nat) = SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_11 : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) ≤
+  (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) +
+    SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_12 : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) +
+    SolarTV.Machine.calldataWord call (4 : EvmRules.Word) ≤
+  (SolarTV.Machine.State.initial call).storage (1 : EvmRules.Word)) (left_13 : s.memory.load (128 : Nat) = env (43 : Nat)) (h : s.memory.load (160 : Nat) = (1 : EvmRules.Word)) (cd : EvmRules.Word → EvmRules.Word) (hcd : cd = SolarTV.Machine.calldataWord call) (hc : ¬env (20 : Nat) < SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (hcs : ¬env (20 : Nat) < SolarTV.Machine.calldataWord call (4 : EvmRules.Word)),
+        SolarTV.Milestone.VerifyCounter.Bump.Post call
+  (SolarTV.Machine.Halt.stop,
+    { memory := (s.memory.expand (160 : Nat) (32 : Nat)).expand (128 : Nat) (32 : Nat),
+      storage :=
+        SolarTV.Machine.update (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)
+          ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat)),
+      transient := s.transient, world := s.world })
 g_time "leaf3 old" in
 theorem leaf3_old (o : SolarTV.Machine.Oracle) (call : SolarTV.Call) (env : SolarTV.MIR.Lowered.Env) (s : SolarTV.Machine.State) (left : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) ≤ env (43 : Nat)) (left_1 : (0 : EvmRules.Word) ≤ env (43 : Nat)) (left_2 : env (20 : Nat) ≤ env (43 : Nat)) (left_3 : (0 : EvmRules.Word) ≤ env (20 : Nat)) (left_4 : env (20 : Nat) ≤ env (43 : Nat)) (left_5 : env (20 : Nat) ≤ SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_6 : env (43 : Nat) = (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat)) (left_7 : env (43 : Nat) ≤ (SolarTV.Machine.State.initial call).storage (1 : EvmRules.Word)) (left_8 : s.storage = (SolarTV.Machine.State.initial call).storage) (left_9 : env (30 : Nat) = (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)) (left_10 : env (62 : Nat) = SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_11 : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) ≤
   (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) +
@@ -457,40 +412,20 @@ theorem leaf3_old (o : SolarTV.Machine.Oracle) (call : SolarTV.Call) (env : Sola
 #kernel_recheck_all leaf3_old
 #proof_stats leaf3_old
 #print axioms leaf3_old
-g_time "leaf3 grind" in
-theorem leaf3_grind (o : SolarTV.Machine.Oracle) (call : SolarTV.Call) (env : SolarTV.MIR.Lowered.Env) (s : SolarTV.Machine.State) (left : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) ≤ env (43 : Nat)) (left_1 : (0 : EvmRules.Word) ≤ env (43 : Nat)) (left_2 : env (20 : Nat) ≤ env (43 : Nat)) (left_3 : (0 : EvmRules.Word) ≤ env (20 : Nat)) (left_4 : env (20 : Nat) ≤ env (43 : Nat)) (left_5 : env (20 : Nat) ≤ SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_6 : env (43 : Nat) = (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat)) (left_7 : env (43 : Nat) ≤ (SolarTV.Machine.State.initial call).storage (1 : EvmRules.Word)) (left_8 : s.storage = (SolarTV.Machine.State.initial call).storage) (left_9 : env (30 : Nat) = (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)) (left_10 : env (62 : Nat) = SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_11 : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) ≤
-  (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) +
-    SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_12 : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) +
-    SolarTV.Machine.calldataWord call (4 : EvmRules.Word) ≤
-  (SolarTV.Machine.State.initial call).storage (1 : EvmRules.Word)) (left_13 : s.memory.load (128 : Nat) = env (43 : Nat)) (h : s.memory.load (160 : Nat) = (1 : EvmRules.Word)) (cd : EvmRules.Word → EvmRules.Word) (hcd : cd = SolarTV.Machine.calldataWord call) (hc : ¬env (20 : Nat) < SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (hcs : ¬env (20 : Nat) < SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) :
-        SolarTV.Milestone.VerifyCounter.Bump.Post call
-  (SolarTV.Machine.Halt.stop,
-    { memory := (s.memory.expand (160 : Nat) (32 : Nat)).expand (128 : Nat) (32 : Nat),
-      storage :=
-        SolarTV.Machine.update (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)
-          ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat)),
-      transient := s.transient, world := s.world }) := by
-  total_leaf_g
-#kernel_recheck_all leaf3_grind
-#proof_stats leaf3_grind
-#print axioms leaf3_grind
-g_time "leaf3 shared" in
-theorem leaf3_shared (o : SolarTV.Machine.Oracle) (call : SolarTV.Call) (env : SolarTV.MIR.Lowered.Env) (s : SolarTV.Machine.State) (left : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) ≤ env (43 : Nat)) (left_1 : (0 : EvmRules.Word) ≤ env (43 : Nat)) (left_2 : env (20 : Nat) ≤ env (43 : Nat)) (left_3 : (0 : EvmRules.Word) ≤ env (20 : Nat)) (left_4 : env (20 : Nat) ≤ env (43 : Nat)) (left_5 : env (20 : Nat) ≤ SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_6 : env (43 : Nat) = (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat)) (left_7 : env (43 : Nat) ≤ (SolarTV.Machine.State.initial call).storage (1 : EvmRules.Word)) (left_8 : s.storage = (SolarTV.Machine.State.initial call).storage) (left_9 : env (30 : Nat) = (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)) (left_10 : env (62 : Nat) = SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_11 : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) ≤
-  (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) +
-    SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_12 : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) +
-    SolarTV.Machine.calldataWord call (4 : EvmRules.Word) ≤
-  (SolarTV.Machine.State.initial call).storage (1 : EvmRules.Word)) (left_13 : s.memory.load (128 : Nat) = env (43 : Nat)) (h : s.memory.load (160 : Nat) = (1 : EvmRules.Word)) (cd : EvmRules.Word → EvmRules.Word) (hcd : cd = SolarTV.Machine.calldataWord call) (hc : ¬env (20 : Nat) < SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (hcs : ¬env (20 : Nat) < SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) :
-        SolarTV.Milestone.VerifyCounter.Bump.Post call
-  (SolarTV.Machine.Halt.stop,
-    { memory := (s.memory.expand (160 : Nat) (32 : Nat)).expand (128 : Nat) (32 : Nat),
-      storage :=
-        SolarTV.Machine.update (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)
-          ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat)),
-      transient := s.transient, world := s.world }) := by
-  total_leaf_s
-#kernel_recheck_all leaf3_shared
-#proof_stats leaf3_shared
-#print axioms leaf3_shared
+-- grind does not close leaf 3 (coverage gap, checked):
+example : True := by
+  fail_if_success
+    have : stmt3 := by
+      unfold stmt3; intros
+      total_leaf_g
+  trivial
+-- shared does not close leaf 3 (coverage gap, checked):
+example : True := by
+  fail_if_success
+    have : stmt3 := by
+      unfold stmt3; intros
+      total_leaf_s
+  trivial
 
 -- Leaf 4: total_leaf closed it at capture in 34.0 ms.
 g_time "leaf4 old" in
@@ -540,6 +475,20 @@ theorem leaf4_shared (o : SolarTV.Machine.Oracle) (call : SolarTV.Call) (env : S
 #print axioms leaf4_shared
 
 -- Leaf 5: total_leaf closed it at capture in 73.3 ms.
+def stmt5 : Prop :=
+  ∀ (o : SolarTV.Machine.Oracle) (call : SolarTV.Call) (env : SolarTV.MIR.Lowered.Env) (s : SolarTV.Machine.State) (hr : ∀ (x : SolarTV.MIR.Lowered.Frame),
+  SolarTV.Milestone.VerifyCounter.Bump.growing_g x = BitVec.toNat (x.snd.snd.fst (20 : Nat))) (left : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) ≤ env (43 : Nat)) (left_1 : (0 : EvmRules.Word) ≤ env (43 : Nat)) (left_2 : env (20 : Nat) ≤ env (43 : Nat)) (left_3 : (0 : EvmRules.Word) ≤ env (20 : Nat)) (left_4 : env (20 : Nat) ≤ env (43 : Nat)) (left_5 : env (20 : Nat) ≤ SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_6 : env (43 : Nat) = (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat)) (left_7 : env (43 : Nat) ≤ (SolarTV.Machine.State.initial call).storage (1 : EvmRules.Word)) (left_8 : s.storage = (SolarTV.Machine.State.initial call).storage) (left_9 : env (30 : Nat) = (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)) (left_10 : env (62 : Nat) = SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_11 : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) ≤
+  (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) +
+    SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_12 : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) +
+    SolarTV.Machine.calldataWord call (4 : EvmRules.Word) ≤
+  (SolarTV.Machine.State.initial call).storage (1 : EvmRules.Word)) (left_13 : s.memory.load (128 : Nat) = env (43 : Nat)) (h : s.memory.load (160 : Nat) = (1 : EvmRules.Word)) (cd : EvmRules.Word → EvmRules.Word) (hcd : cd = SolarTV.Machine.calldataWord call) (hc : ¬env (20 : Nat) < SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (hcs : ¬env (20 : Nat) < SolarTV.Machine.calldataWord call (4 : EvmRules.Word)),
+        SolarTV.Milestone.VerifyCounter.Bump.Post call
+  (SolarTV.Machine.Halt.stop,
+    { memory := (s.memory.expand (160 : Nat) (32 : Nat)).expand (128 : Nat) (32 : Nat),
+      storage :=
+        SolarTV.Machine.update (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)
+          ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat)),
+      transient := s.transient, world := s.world })
 g_time "leaf5 old" in
 theorem leaf5_old (o : SolarTV.Machine.Oracle) (call : SolarTV.Call) (env : SolarTV.MIR.Lowered.Env) (s : SolarTV.Machine.State) (hr : ∀ (x : SolarTV.MIR.Lowered.Frame),
   SolarTV.Milestone.VerifyCounter.Bump.growing_g x = BitVec.toNat (x.snd.snd.fst (20 : Nat))) (left : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) ≤ env (43 : Nat)) (left_1 : (0 : EvmRules.Word) ≤ env (43 : Nat)) (left_2 : env (20 : Nat) ≤ env (43 : Nat)) (left_3 : (0 : EvmRules.Word) ≤ env (20 : Nat)) (left_4 : env (20 : Nat) ≤ env (43 : Nat)) (left_5 : env (20 : Nat) ≤ SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_6 : env (43 : Nat) = (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat)) (left_7 : env (43 : Nat) ≤ (SolarTV.Machine.State.initial call).storage (1 : EvmRules.Word)) (left_8 : s.storage = (SolarTV.Machine.State.initial call).storage) (left_9 : env (30 : Nat) = (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)) (left_10 : env (62 : Nat) = SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_11 : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) ≤
@@ -558,42 +507,20 @@ theorem leaf5_old (o : SolarTV.Machine.Oracle) (call : SolarTV.Call) (env : Sola
 #kernel_recheck_all leaf5_old
 #proof_stats leaf5_old
 #print axioms leaf5_old
-g_time "leaf5 grind" in
-theorem leaf5_grind (o : SolarTV.Machine.Oracle) (call : SolarTV.Call) (env : SolarTV.MIR.Lowered.Env) (s : SolarTV.Machine.State) (hr : ∀ (x : SolarTV.MIR.Lowered.Frame),
-  SolarTV.Milestone.VerifyCounter.Bump.growing_g x = BitVec.toNat (x.snd.snd.fst (20 : Nat))) (left : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) ≤ env (43 : Nat)) (left_1 : (0 : EvmRules.Word) ≤ env (43 : Nat)) (left_2 : env (20 : Nat) ≤ env (43 : Nat)) (left_3 : (0 : EvmRules.Word) ≤ env (20 : Nat)) (left_4 : env (20 : Nat) ≤ env (43 : Nat)) (left_5 : env (20 : Nat) ≤ SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_6 : env (43 : Nat) = (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat)) (left_7 : env (43 : Nat) ≤ (SolarTV.Machine.State.initial call).storage (1 : EvmRules.Word)) (left_8 : s.storage = (SolarTV.Machine.State.initial call).storage) (left_9 : env (30 : Nat) = (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)) (left_10 : env (62 : Nat) = SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_11 : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) ≤
-  (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) +
-    SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_12 : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) +
-    SolarTV.Machine.calldataWord call (4 : EvmRules.Word) ≤
-  (SolarTV.Machine.State.initial call).storage (1 : EvmRules.Word)) (left_13 : s.memory.load (128 : Nat) = env (43 : Nat)) (h : s.memory.load (160 : Nat) = (1 : EvmRules.Word)) (cd : EvmRules.Word → EvmRules.Word) (hcd : cd = SolarTV.Machine.calldataWord call) (hc : ¬env (20 : Nat) < SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (hcs : ¬env (20 : Nat) < SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) :
-        SolarTV.Milestone.VerifyCounter.Bump.Post call
-  (SolarTV.Machine.Halt.stop,
-    { memory := (s.memory.expand (160 : Nat) (32 : Nat)).expand (128 : Nat) (32 : Nat),
-      storage :=
-        SolarTV.Machine.update (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)
-          ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat)),
-      transient := s.transient, world := s.world }) := by
-  total_leaf_g
-#kernel_recheck_all leaf5_grind
-#proof_stats leaf5_grind
-#print axioms leaf5_grind
-g_time "leaf5 shared" in
-theorem leaf5_shared (o : SolarTV.Machine.Oracle) (call : SolarTV.Call) (env : SolarTV.MIR.Lowered.Env) (s : SolarTV.Machine.State) (hr : ∀ (x : SolarTV.MIR.Lowered.Frame),
-  SolarTV.Milestone.VerifyCounter.Bump.growing_g x = BitVec.toNat (x.snd.snd.fst (20 : Nat))) (left : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) ≤ env (43 : Nat)) (left_1 : (0 : EvmRules.Word) ≤ env (43 : Nat)) (left_2 : env (20 : Nat) ≤ env (43 : Nat)) (left_3 : (0 : EvmRules.Word) ≤ env (20 : Nat)) (left_4 : env (20 : Nat) ≤ env (43 : Nat)) (left_5 : env (20 : Nat) ≤ SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_6 : env (43 : Nat) = (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat)) (left_7 : env (43 : Nat) ≤ (SolarTV.Machine.State.initial call).storage (1 : EvmRules.Word)) (left_8 : s.storage = (SolarTV.Machine.State.initial call).storage) (left_9 : env (30 : Nat) = (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)) (left_10 : env (62 : Nat) = SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_11 : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) ≤
-  (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) +
-    SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_12 : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) +
-    SolarTV.Machine.calldataWord call (4 : EvmRules.Word) ≤
-  (SolarTV.Machine.State.initial call).storage (1 : EvmRules.Word)) (left_13 : s.memory.load (128 : Nat) = env (43 : Nat)) (h : s.memory.load (160 : Nat) = (1 : EvmRules.Word)) (cd : EvmRules.Word → EvmRules.Word) (hcd : cd = SolarTV.Machine.calldataWord call) (hc : ¬env (20 : Nat) < SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (hcs : ¬env (20 : Nat) < SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) :
-        SolarTV.Milestone.VerifyCounter.Bump.Post call
-  (SolarTV.Machine.Halt.stop,
-    { memory := (s.memory.expand (160 : Nat) (32 : Nat)).expand (128 : Nat) (32 : Nat),
-      storage :=
-        SolarTV.Machine.update (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)
-          ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat)),
-      transient := s.transient, world := s.world }) := by
-  total_leaf_s
-#kernel_recheck_all leaf5_shared
-#proof_stats leaf5_shared
-#print axioms leaf5_shared
+-- grind does not close leaf 5 (coverage gap, checked):
+example : True := by
+  fail_if_success
+    have : stmt5 := by
+      unfold stmt5; intros
+      total_leaf_g
+  trivial
+-- shared does not close leaf 5 (coverage gap, checked):
+example : True := by
+  fail_if_success
+    have : stmt5 := by
+      unfold stmt5; intros
+      total_leaf_s
+  trivial
 
 -- Leaf 6: total_leaf closed it at capture in 27.5 ms.
 g_time "leaf6 old" in
@@ -646,6 +573,80 @@ theorem leaf6_shared (o : SolarTV.Machine.Oracle) (call : SolarTV.Call) (env : S
 #print axioms leaf6_shared
 
 -- Leaf 7: total_leaf closed it at capture in 511.1 ms.
+def stmt7 : Prop :=
+  ∀ (o : SolarTV.Machine.Oracle) (call : SolarTV.Call) (env : SolarTV.MIR.Lowered.Env) (s : SolarTV.Machine.State) (left : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) ≤ env (43 : Nat)) (left_1 : (0 : EvmRules.Word) ≤ env (43 : Nat)) (left_2 : env (20 : Nat) ≤ env (43 : Nat)) (left_3 : (0 : EvmRules.Word) ≤ env (20 : Nat)) (left_4 : env (20 : Nat) ≤ env (43 : Nat)) (left_5 : env (20 : Nat) ≤ SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_6 : env (43 : Nat) = (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat)) (left_7 : env (43 : Nat) ≤ (SolarTV.Machine.State.initial call).storage (1 : EvmRules.Word)) (left_8 : s.storage = (SolarTV.Machine.State.initial call).storage) (left_9 : env (30 : Nat) = (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)) (left_10 : env (62 : Nat) = SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_11 : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) ≤
+  (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) +
+    SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_12 : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) +
+    SolarTV.Machine.calldataWord call (4 : EvmRules.Word) ≤
+  (SolarTV.Machine.State.initial call).storage (1 : EvmRules.Word)) (left_13 : s.memory.load (128 : Nat) = env (43 : Nat)) (h : s.memory.load (160 : Nat) = (1 : EvmRules.Word)) (cd : EvmRules.Word → EvmRules.Word) (hcd : cd = SolarTV.Machine.calldataWord call) (hc_1 : ¬¬env (20 : Nat) < SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (hcs_1 : ¬¬env (20 : Nat) < SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (hc_2 : ¬(0 : EvmRules.Word) =
+    EvmRules.Evm.add (1 : EvmRules.Word)
+      ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat))) (hcs_2 : ¬(0 : EvmRules.Word) =
+    EvmRules.Evm.add (1 : EvmRules.Word)
+      ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat))) (hc : ¬(115792089237316195423570985008687907853269984665640564039457584007913129639935 : EvmRules.Word) = env (20 : Nat)) (hcs : env (20 : Nat) ≠ (115792089237316195423570985008687907853269984665640564039457584007913129639935 : EvmRules.Word)),
+        SolarTV.Milestone.VerifyCounter.Inferred.Inv call
+    ([], SolarTV.MIR.Lowered.Pos.enter (4 : Nat) (10 : Nat) (1 : Nat),
+      (((((((((env.set (13 : Nat) (env (20 : Nat))).set (55 : Nat)
+                                        ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) +
+                                          env (20 : Nat))).set
+                                    (56 : Nat) (1 : EvmRules.Word)).set
+                                (14 : Nat)
+                                (EvmRules.Evm.lt (env (20 : Nat))
+                                  (SolarTV.Machine.calldataWord call (4 : EvmRules.Word)))).set
+                            (31 : Nat) ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))).set
+                        (16 : Nat)
+                        ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat))).set
+                    (43 : Nat)
+                    (EvmRules.Evm.add (1 : EvmRules.Word)
+                      ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat)))).set
+                (44 : Nat)
+                (EvmRules.Evm.eq
+                  (EvmRules.Evm.add (1 : EvmRules.Word)
+                    ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat)))
+                  (0 : EvmRules.Word))).set
+            (20 : Nat) (EvmRules.Evm.add (env (20 : Nat)) (1 : EvmRules.Word))).set
+        (33 : Nat)
+        (EvmRules.Evm.eq (env (20 : Nat))
+          (115792089237316195423570985008687907853269984665640564039457584007913129639935 : EvmRules.Word)),
+      {
+        memory :=
+          ((s.memory.expand (128 : Nat) (32 : Nat)).store (128 : Nat)
+                (EvmRules.Evm.add (1 : EvmRules.Word)
+                  ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat)))).store
+            (160 : Nat) (1 : EvmRules.Word),
+        storage := (SolarTV.Machine.State.initial call).storage, transient := s.transient, world := s.world }) ∧
+  SolarTV.Milestone.VerifyCounter.Inferred.rank call
+      ([], SolarTV.MIR.Lowered.Pos.enter (4 : Nat) (10 : Nat) (1 : Nat),
+        (((((((((env.set (13 : Nat) (env (20 : Nat))).set (55 : Nat)
+                                          ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) +
+                                            env (20 : Nat))).set
+                                      (56 : Nat) (1 : EvmRules.Word)).set
+                                  (14 : Nat)
+                                  (EvmRules.Evm.lt (env (20 : Nat))
+                                    (SolarTV.Machine.calldataWord call (4 : EvmRules.Word)))).set
+                              (31 : Nat) ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))).set
+                          (16 : Nat)
+                          ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat))).set
+                      (43 : Nat)
+                      (EvmRules.Evm.add (1 : EvmRules.Word)
+                        ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat)))).set
+                  (44 : Nat)
+                  (EvmRules.Evm.eq
+                    (EvmRules.Evm.add (1 : EvmRules.Word)
+                      ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat)))
+                    (0 : EvmRules.Word))).set
+              (20 : Nat) (EvmRules.Evm.add (env (20 : Nat)) (1 : EvmRules.Word))).set
+          (33 : Nat)
+          (EvmRules.Evm.eq (env (20 : Nat))
+            (115792089237316195423570985008687907853269984665640564039457584007913129639935 : EvmRules.Word)),
+        {
+          memory :=
+            ((s.memory.expand (128 : Nat) (32 : Nat)).store (128 : Nat)
+                  (EvmRules.Evm.add (1 : EvmRules.Word)
+                    ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat)))).store
+              (160 : Nat) (1 : EvmRules.Word),
+          storage := (SolarTV.Machine.State.initial call).storage, transient := s.transient, world := s.world }) <
+    SolarTV.Milestone.VerifyCounter.Inferred.rank call
+      ([], SolarTV.MIR.Lowered.Pos.enter (4 : Nat) (10 : Nat) (1 : Nat), env, s)
 g_time "leaf7 old" in
 theorem leaf7_old (o : SolarTV.Machine.Oracle) (call : SolarTV.Call) (env : SolarTV.MIR.Lowered.Env) (s : SolarTV.Machine.State) (left : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) ≤ env (43 : Nat)) (left_1 : (0 : EvmRules.Word) ≤ env (43 : Nat)) (left_2 : env (20 : Nat) ≤ env (43 : Nat)) (left_3 : (0 : EvmRules.Word) ≤ env (20 : Nat)) (left_4 : env (20 : Nat) ≤ env (43 : Nat)) (left_5 : env (20 : Nat) ≤ SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_6 : env (43 : Nat) = (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat)) (left_7 : env (43 : Nat) ≤ (SolarTV.Machine.State.initial call).storage (1 : EvmRules.Word)) (left_8 : s.storage = (SolarTV.Machine.State.initial call).storage) (left_9 : env (30 : Nat) = (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)) (left_10 : env (62 : Nat) = SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_11 : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) ≤
   (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) +
@@ -724,162 +725,20 @@ theorem leaf7_old (o : SolarTV.Machine.Oracle) (call : SolarTV.Call) (env : Sola
 #kernel_recheck_all leaf7_old
 #proof_stats leaf7_old
 #print axioms leaf7_old
-g_time "leaf7 grind" in
-theorem leaf7_grind (o : SolarTV.Machine.Oracle) (call : SolarTV.Call) (env : SolarTV.MIR.Lowered.Env) (s : SolarTV.Machine.State) (left : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) ≤ env (43 : Nat)) (left_1 : (0 : EvmRules.Word) ≤ env (43 : Nat)) (left_2 : env (20 : Nat) ≤ env (43 : Nat)) (left_3 : (0 : EvmRules.Word) ≤ env (20 : Nat)) (left_4 : env (20 : Nat) ≤ env (43 : Nat)) (left_5 : env (20 : Nat) ≤ SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_6 : env (43 : Nat) = (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat)) (left_7 : env (43 : Nat) ≤ (SolarTV.Machine.State.initial call).storage (1 : EvmRules.Word)) (left_8 : s.storage = (SolarTV.Machine.State.initial call).storage) (left_9 : env (30 : Nat) = (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)) (left_10 : env (62 : Nat) = SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_11 : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) ≤
-  (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) +
-    SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_12 : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) +
-    SolarTV.Machine.calldataWord call (4 : EvmRules.Word) ≤
-  (SolarTV.Machine.State.initial call).storage (1 : EvmRules.Word)) (left_13 : s.memory.load (128 : Nat) = env (43 : Nat)) (h : s.memory.load (160 : Nat) = (1 : EvmRules.Word)) (cd : EvmRules.Word → EvmRules.Word) (hcd : cd = SolarTV.Machine.calldataWord call) (hc_1 : ¬¬env (20 : Nat) < SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (hcs_1 : ¬¬env (20 : Nat) < SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (hc_2 : ¬(0 : EvmRules.Word) =
-    EvmRules.Evm.add (1 : EvmRules.Word)
-      ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat))) (hcs_2 : ¬(0 : EvmRules.Word) =
-    EvmRules.Evm.add (1 : EvmRules.Word)
-      ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat))) (hc : ¬(115792089237316195423570985008687907853269984665640564039457584007913129639935 : EvmRules.Word) = env (20 : Nat)) (hcs : env (20 : Nat) ≠ (115792089237316195423570985008687907853269984665640564039457584007913129639935 : EvmRules.Word)) :
-        SolarTV.Milestone.VerifyCounter.Inferred.Inv call
-    ([], SolarTV.MIR.Lowered.Pos.enter (4 : Nat) (10 : Nat) (1 : Nat),
-      (((((((((env.set (13 : Nat) (env (20 : Nat))).set (55 : Nat)
-                                        ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) +
-                                          env (20 : Nat))).set
-                                    (56 : Nat) (1 : EvmRules.Word)).set
-                                (14 : Nat)
-                                (EvmRules.Evm.lt (env (20 : Nat))
-                                  (SolarTV.Machine.calldataWord call (4 : EvmRules.Word)))).set
-                            (31 : Nat) ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))).set
-                        (16 : Nat)
-                        ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat))).set
-                    (43 : Nat)
-                    (EvmRules.Evm.add (1 : EvmRules.Word)
-                      ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat)))).set
-                (44 : Nat)
-                (EvmRules.Evm.eq
-                  (EvmRules.Evm.add (1 : EvmRules.Word)
-                    ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat)))
-                  (0 : EvmRules.Word))).set
-            (20 : Nat) (EvmRules.Evm.add (env (20 : Nat)) (1 : EvmRules.Word))).set
-        (33 : Nat)
-        (EvmRules.Evm.eq (env (20 : Nat))
-          (115792089237316195423570985008687907853269984665640564039457584007913129639935 : EvmRules.Word)),
-      {
-        memory :=
-          ((s.memory.expand (128 : Nat) (32 : Nat)).store (128 : Nat)
-                (EvmRules.Evm.add (1 : EvmRules.Word)
-                  ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat)))).store
-            (160 : Nat) (1 : EvmRules.Word),
-        storage := (SolarTV.Machine.State.initial call).storage, transient := s.transient, world := s.world }) ∧
-  SolarTV.Milestone.VerifyCounter.Inferred.rank call
-      ([], SolarTV.MIR.Lowered.Pos.enter (4 : Nat) (10 : Nat) (1 : Nat),
-        (((((((((env.set (13 : Nat) (env (20 : Nat))).set (55 : Nat)
-                                          ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) +
-                                            env (20 : Nat))).set
-                                      (56 : Nat) (1 : EvmRules.Word)).set
-                                  (14 : Nat)
-                                  (EvmRules.Evm.lt (env (20 : Nat))
-                                    (SolarTV.Machine.calldataWord call (4 : EvmRules.Word)))).set
-                              (31 : Nat) ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))).set
-                          (16 : Nat)
-                          ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat))).set
-                      (43 : Nat)
-                      (EvmRules.Evm.add (1 : EvmRules.Word)
-                        ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat)))).set
-                  (44 : Nat)
-                  (EvmRules.Evm.eq
-                    (EvmRules.Evm.add (1 : EvmRules.Word)
-                      ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat)))
-                    (0 : EvmRules.Word))).set
-              (20 : Nat) (EvmRules.Evm.add (env (20 : Nat)) (1 : EvmRules.Word))).set
-          (33 : Nat)
-          (EvmRules.Evm.eq (env (20 : Nat))
-            (115792089237316195423570985008687907853269984665640564039457584007913129639935 : EvmRules.Word)),
-        {
-          memory :=
-            ((s.memory.expand (128 : Nat) (32 : Nat)).store (128 : Nat)
-                  (EvmRules.Evm.add (1 : EvmRules.Word)
-                    ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat)))).store
-              (160 : Nat) (1 : EvmRules.Word),
-          storage := (SolarTV.Machine.State.initial call).storage, transient := s.transient, world := s.world }) <
-    SolarTV.Milestone.VerifyCounter.Inferred.rank call
-      ([], SolarTV.MIR.Lowered.Pos.enter (4 : Nat) (10 : Nat) (1 : Nat), env, s) := by
-  total_leaf_g
-#kernel_recheck_all leaf7_grind
-#proof_stats leaf7_grind
-#print axioms leaf7_grind
-g_time "leaf7 shared" in
-theorem leaf7_shared (o : SolarTV.Machine.Oracle) (call : SolarTV.Call) (env : SolarTV.MIR.Lowered.Env) (s : SolarTV.Machine.State) (left : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) ≤ env (43 : Nat)) (left_1 : (0 : EvmRules.Word) ≤ env (43 : Nat)) (left_2 : env (20 : Nat) ≤ env (43 : Nat)) (left_3 : (0 : EvmRules.Word) ≤ env (20 : Nat)) (left_4 : env (20 : Nat) ≤ env (43 : Nat)) (left_5 : env (20 : Nat) ≤ SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_6 : env (43 : Nat) = (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat)) (left_7 : env (43 : Nat) ≤ (SolarTV.Machine.State.initial call).storage (1 : EvmRules.Word)) (left_8 : s.storage = (SolarTV.Machine.State.initial call).storage) (left_9 : env (30 : Nat) = (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)) (left_10 : env (62 : Nat) = SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_11 : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) ≤
-  (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) +
-    SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (left_12 : (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) +
-    SolarTV.Machine.calldataWord call (4 : EvmRules.Word) ≤
-  (SolarTV.Machine.State.initial call).storage (1 : EvmRules.Word)) (left_13 : s.memory.load (128 : Nat) = env (43 : Nat)) (h : s.memory.load (160 : Nat) = (1 : EvmRules.Word)) (cd : EvmRules.Word → EvmRules.Word) (hcd : cd = SolarTV.Machine.calldataWord call) (hc_1 : ¬¬env (20 : Nat) < SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (hcs_1 : ¬¬env (20 : Nat) < SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) (hc_2 : ¬(0 : EvmRules.Word) =
-    EvmRules.Evm.add (1 : EvmRules.Word)
-      ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat))) (hcs_2 : ¬(0 : EvmRules.Word) =
-    EvmRules.Evm.add (1 : EvmRules.Word)
-      ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat))) (hc : ¬(115792089237316195423570985008687907853269984665640564039457584007913129639935 : EvmRules.Word) = env (20 : Nat)) (hcs : env (20 : Nat) ≠ (115792089237316195423570985008687907853269984665640564039457584007913129639935 : EvmRules.Word)) :
-        SolarTV.Milestone.VerifyCounter.Inferred.Inv call
-    ([], SolarTV.MIR.Lowered.Pos.enter (4 : Nat) (10 : Nat) (1 : Nat),
-      (((((((((env.set (13 : Nat) (env (20 : Nat))).set (55 : Nat)
-                                        ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) +
-                                          env (20 : Nat))).set
-                                    (56 : Nat) (1 : EvmRules.Word)).set
-                                (14 : Nat)
-                                (EvmRules.Evm.lt (env (20 : Nat))
-                                  (SolarTV.Machine.calldataWord call (4 : EvmRules.Word)))).set
-                            (31 : Nat) ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))).set
-                        (16 : Nat)
-                        ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat))).set
-                    (43 : Nat)
-                    (EvmRules.Evm.add (1 : EvmRules.Word)
-                      ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat)))).set
-                (44 : Nat)
-                (EvmRules.Evm.eq
-                  (EvmRules.Evm.add (1 : EvmRules.Word)
-                    ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat)))
-                  (0 : EvmRules.Word))).set
-            (20 : Nat) (EvmRules.Evm.add (env (20 : Nat)) (1 : EvmRules.Word))).set
-        (33 : Nat)
-        (EvmRules.Evm.eq (env (20 : Nat))
-          (115792089237316195423570985008687907853269984665640564039457584007913129639935 : EvmRules.Word)),
-      {
-        memory :=
-          ((s.memory.expand (128 : Nat) (32 : Nat)).store (128 : Nat)
-                (EvmRules.Evm.add (1 : EvmRules.Word)
-                  ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat)))).store
-            (160 : Nat) (1 : EvmRules.Word),
-        storage := (SolarTV.Machine.State.initial call).storage, transient := s.transient, world := s.world }) ∧
-  SolarTV.Milestone.VerifyCounter.Inferred.rank call
-      ([], SolarTV.MIR.Lowered.Pos.enter (4 : Nat) (10 : Nat) (1 : Nat),
-        (((((((((env.set (13 : Nat) (env (20 : Nat))).set (55 : Nat)
-                                          ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) +
-                                            env (20 : Nat))).set
-                                      (56 : Nat) (1 : EvmRules.Word)).set
-                                  (14 : Nat)
-                                  (EvmRules.Evm.lt (env (20 : Nat))
-                                    (SolarTV.Machine.calldataWord call (4 : EvmRules.Word)))).set
-                              (31 : Nat) ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))).set
-                          (16 : Nat)
-                          ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat))).set
-                      (43 : Nat)
-                      (EvmRules.Evm.add (1 : EvmRules.Word)
-                        ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat)))).set
-                  (44 : Nat)
-                  (EvmRules.Evm.eq
-                    (EvmRules.Evm.add (1 : EvmRules.Word)
-                      ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat)))
-                    (0 : EvmRules.Word))).set
-              (20 : Nat) (EvmRules.Evm.add (env (20 : Nat)) (1 : EvmRules.Word))).set
-          (33 : Nat)
-          (EvmRules.Evm.eq (env (20 : Nat))
-            (115792089237316195423570985008687907853269984665640564039457584007913129639935 : EvmRules.Word)),
-        {
-          memory :=
-            ((s.memory.expand (128 : Nat) (32 : Nat)).store (128 : Nat)
-                  (EvmRules.Evm.add (1 : EvmRules.Word)
-                    ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word) + env (20 : Nat)))).store
-              (160 : Nat) (1 : EvmRules.Word),
-          storage := (SolarTV.Machine.State.initial call).storage, transient := s.transient, world := s.world }) <
-    SolarTV.Milestone.VerifyCounter.Inferred.rank call
-      ([], SolarTV.MIR.Lowered.Pos.enter (4 : Nat) (10 : Nat) (1 : Nat), env, s) := by
-  total_leaf_s
-#kernel_recheck_all leaf7_shared
-#proof_stats leaf7_shared
-#print axioms leaf7_shared
+-- grind does not close leaf 7 (coverage gap, checked):
+example : True := by
+  fail_if_success
+    have : stmt7 := by
+      unfold stmt7; intros
+      total_leaf_g
+  trivial
+-- shared does not close leaf 7 (coverage gap, checked):
+example : True := by
+  fail_if_success
+    have : stmt7 := by
+      unfold stmt7; intros
+      total_leaf_s
+  trivial
 
 -- Leaf 8: total_leaf closed it at capture in 3.1 ms.
 g_time "leaf8 old" in
@@ -1025,6 +884,49 @@ example : True := by
   trivial
 
 -- Leaf 10: total_leaf closed it at capture in 216.3 ms.
+def stmt10 : Prop :=
+  ∀ (o : SolarTV.Machine.Oracle) (call : SolarTV.Call) (hsel : EvmRules.Evm.shr (224 : EvmRules.Word) (SolarTV.Machine.calldataWord call (0 : EvmRules.Word)) =
+  (2987308228 : EvmRules.Word)) (cd : EvmRules.Word → EvmRules.Word) (hcd : cd = SolarTV.Machine.calldataWord call) (hc_1 : BitVec.ofNat (256 : Nat) call.callvalue = (0 : EvmRules.Word)) (hcs_1 : BitVec.ofNat (256 : Nat) call.callvalue = (0 : EvmRules.Word)) (hc_2 : ¬BitVec.ofNat (256 : Nat) call.calldata.size < (36 : EvmRules.Word)) (hcs_2 : ¬BitVec.ofNat (256 : Nat) call.calldata.size < (36 : EvmRules.Word)) (hc_3 : ¬EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))
+      (SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) <
+    (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)) (hcs_3 : ¬EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))
+      (SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) <
+    (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)) (hc : ¬(SolarTV.Machine.State.initial call).storage (1 : EvmRules.Word) <
+    EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))
+      (SolarTV.Machine.calldataWord call (4 : EvmRules.Word))) (hcs : ¬(SolarTV.Machine.State.initial call).storage (1 : EvmRules.Word) <
+    EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))
+      (SolarTV.Machine.calldataWord call (4 : EvmRules.Word))),
+        SolarTV.Milestone.VerifyCounter.Inferred.Inv call
+  ([], SolarTV.MIR.Lowered.Pos.enter (4 : Nat) (7 : Nat) (1 : Nat),
+    (((((((((SolarTV.MIR.Lowered.Env.set (fun (x : Nat) => (0 : EvmRules.Word)) (58 : Nat)
+                                          (BitVec.ofNat (256 : Nat) call.calldata.size)).set
+                                      (60 : Nat)
+                                      (EvmRules.Evm.lt (BitVec.ofNat (256 : Nat) call.calldata.size)
+                                        (36 : EvmRules.Word))).set
+                                  (62 : Nat) (SolarTV.Machine.calldataWord call (4 : EvmRules.Word))).set
+                              (2 : Nat) ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))).set
+                          (35 : Nat)
+                          (EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))
+                            (SolarTV.Machine.calldataWord call (4 : EvmRules.Word)))).set
+                      (36 : Nat)
+                      (EvmRules.Evm.lt
+                        (EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))
+                          (SolarTV.Machine.calldataWord call (4 : EvmRules.Word)))
+                        ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)))).set
+                  (5 : Nat) ((SolarTV.Machine.State.initial call).storage (1 : EvmRules.Word))).set
+              (6 : Nat)
+              (EvmRules.Evm.lt ((SolarTV.Machine.State.initial call).storage (1 : EvmRules.Word))
+                (EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))
+                  (SolarTV.Machine.calldataWord call (4 : EvmRules.Word))))).set
+          (24 : Nat) ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))).set
+      (30 : Nat) ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)),
+    {
+      memory :=
+        (SolarTV.Machine.Mem.initial.store (128 : Nat)
+              ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))).store
+          (160 : Nat) (0 : EvmRules.Word),
+      storage := (SolarTV.Machine.State.initial call).storage,
+      transient := (SolarTV.Machine.State.initial call).transient,
+      world := (SolarTV.Machine.State.initial call).world })
 g_time "leaf10 old" in
 theorem leaf10_old (o : SolarTV.Machine.Oracle) (call : SolarTV.Call) (hsel : EvmRules.Evm.shr (224 : EvmRules.Word) (SolarTV.Machine.calldataWord call (0 : EvmRules.Word)) =
   (2987308228 : EvmRules.Word)) (cd : EvmRules.Word → EvmRules.Word) (hcd : cd = SolarTV.Machine.calldataWord call) (hc_1 : BitVec.ofNat (256 : Nat) call.callvalue = (0 : EvmRules.Word)) (hcs_1 : BitVec.ofNat (256 : Nat) call.callvalue = (0 : EvmRules.Word)) (hc_2 : ¬BitVec.ofNat (256 : Nat) call.calldata.size < (36 : EvmRules.Word)) (hcs_2 : ¬BitVec.ofNat (256 : Nat) call.calldata.size < (36 : EvmRules.Word)) (hc_3 : ¬EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))
@@ -1072,100 +974,20 @@ theorem leaf10_old (o : SolarTV.Machine.Oracle) (call : SolarTV.Call) (hsel : Ev
 #kernel_recheck_all leaf10_old
 #proof_stats leaf10_old
 #print axioms leaf10_old
-g_time "leaf10 grind" in
-theorem leaf10_grind (o : SolarTV.Machine.Oracle) (call : SolarTV.Call) (hsel : EvmRules.Evm.shr (224 : EvmRules.Word) (SolarTV.Machine.calldataWord call (0 : EvmRules.Word)) =
-  (2987308228 : EvmRules.Word)) (cd : EvmRules.Word → EvmRules.Word) (hcd : cd = SolarTV.Machine.calldataWord call) (hc_1 : BitVec.ofNat (256 : Nat) call.callvalue = (0 : EvmRules.Word)) (hcs_1 : BitVec.ofNat (256 : Nat) call.callvalue = (0 : EvmRules.Word)) (hc_2 : ¬BitVec.ofNat (256 : Nat) call.calldata.size < (36 : EvmRules.Word)) (hcs_2 : ¬BitVec.ofNat (256 : Nat) call.calldata.size < (36 : EvmRules.Word)) (hc_3 : ¬EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))
-      (SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) <
-    (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)) (hcs_3 : ¬EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))
-      (SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) <
-    (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)) (hc : ¬(SolarTV.Machine.State.initial call).storage (1 : EvmRules.Word) <
-    EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))
-      (SolarTV.Machine.calldataWord call (4 : EvmRules.Word))) (hcs : ¬(SolarTV.Machine.State.initial call).storage (1 : EvmRules.Word) <
-    EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))
-      (SolarTV.Machine.calldataWord call (4 : EvmRules.Word))) :
-        SolarTV.Milestone.VerifyCounter.Inferred.Inv call
-  ([], SolarTV.MIR.Lowered.Pos.enter (4 : Nat) (7 : Nat) (1 : Nat),
-    (((((((((SolarTV.MIR.Lowered.Env.set (fun (x : Nat) => (0 : EvmRules.Word)) (58 : Nat)
-                                          (BitVec.ofNat (256 : Nat) call.calldata.size)).set
-                                      (60 : Nat)
-                                      (EvmRules.Evm.lt (BitVec.ofNat (256 : Nat) call.calldata.size)
-                                        (36 : EvmRules.Word))).set
-                                  (62 : Nat) (SolarTV.Machine.calldataWord call (4 : EvmRules.Word))).set
-                              (2 : Nat) ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))).set
-                          (35 : Nat)
-                          (EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))
-                            (SolarTV.Machine.calldataWord call (4 : EvmRules.Word)))).set
-                      (36 : Nat)
-                      (EvmRules.Evm.lt
-                        (EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))
-                          (SolarTV.Machine.calldataWord call (4 : EvmRules.Word)))
-                        ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)))).set
-                  (5 : Nat) ((SolarTV.Machine.State.initial call).storage (1 : EvmRules.Word))).set
-              (6 : Nat)
-              (EvmRules.Evm.lt ((SolarTV.Machine.State.initial call).storage (1 : EvmRules.Word))
-                (EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))
-                  (SolarTV.Machine.calldataWord call (4 : EvmRules.Word))))).set
-          (24 : Nat) ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))).set
-      (30 : Nat) ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)),
-    {
-      memory :=
-        (SolarTV.Machine.Mem.initial.store (128 : Nat)
-              ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))).store
-          (160 : Nat) (0 : EvmRules.Word),
-      storage := (SolarTV.Machine.State.initial call).storage,
-      transient := (SolarTV.Machine.State.initial call).transient,
-      world := (SolarTV.Machine.State.initial call).world }) := by
-  total_leaf_g
-#kernel_recheck_all leaf10_grind
-#proof_stats leaf10_grind
-#print axioms leaf10_grind
-g_time "leaf10 shared" in
-theorem leaf10_shared (o : SolarTV.Machine.Oracle) (call : SolarTV.Call) (hsel : EvmRules.Evm.shr (224 : EvmRules.Word) (SolarTV.Machine.calldataWord call (0 : EvmRules.Word)) =
-  (2987308228 : EvmRules.Word)) (cd : EvmRules.Word → EvmRules.Word) (hcd : cd = SolarTV.Machine.calldataWord call) (hc_1 : BitVec.ofNat (256 : Nat) call.callvalue = (0 : EvmRules.Word)) (hcs_1 : BitVec.ofNat (256 : Nat) call.callvalue = (0 : EvmRules.Word)) (hc_2 : ¬BitVec.ofNat (256 : Nat) call.calldata.size < (36 : EvmRules.Word)) (hcs_2 : ¬BitVec.ofNat (256 : Nat) call.calldata.size < (36 : EvmRules.Word)) (hc_3 : ¬EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))
-      (SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) <
-    (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)) (hcs_3 : ¬EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))
-      (SolarTV.Machine.calldataWord call (4 : EvmRules.Word)) <
-    (SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)) (hc : ¬(SolarTV.Machine.State.initial call).storage (1 : EvmRules.Word) <
-    EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))
-      (SolarTV.Machine.calldataWord call (4 : EvmRules.Word))) (hcs : ¬(SolarTV.Machine.State.initial call).storage (1 : EvmRules.Word) <
-    EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))
-      (SolarTV.Machine.calldataWord call (4 : EvmRules.Word))) :
-        SolarTV.Milestone.VerifyCounter.Inferred.Inv call
-  ([], SolarTV.MIR.Lowered.Pos.enter (4 : Nat) (7 : Nat) (1 : Nat),
-    (((((((((SolarTV.MIR.Lowered.Env.set (fun (x : Nat) => (0 : EvmRules.Word)) (58 : Nat)
-                                          (BitVec.ofNat (256 : Nat) call.calldata.size)).set
-                                      (60 : Nat)
-                                      (EvmRules.Evm.lt (BitVec.ofNat (256 : Nat) call.calldata.size)
-                                        (36 : EvmRules.Word))).set
-                                  (62 : Nat) (SolarTV.Machine.calldataWord call (4 : EvmRules.Word))).set
-                              (2 : Nat) ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))).set
-                          (35 : Nat)
-                          (EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))
-                            (SolarTV.Machine.calldataWord call (4 : EvmRules.Word)))).set
-                      (36 : Nat)
-                      (EvmRules.Evm.lt
-                        (EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))
-                          (SolarTV.Machine.calldataWord call (4 : EvmRules.Word)))
-                        ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)))).set
-                  (5 : Nat) ((SolarTV.Machine.State.initial call).storage (1 : EvmRules.Word))).set
-              (6 : Nat)
-              (EvmRules.Evm.lt ((SolarTV.Machine.State.initial call).storage (1 : EvmRules.Word))
-                (EvmRules.Evm.add ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))
-                  (SolarTV.Machine.calldataWord call (4 : EvmRules.Word))))).set
-          (24 : Nat) ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))).set
-      (30 : Nat) ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word)),
-    {
-      memory :=
-        (SolarTV.Machine.Mem.initial.store (128 : Nat)
-              ((SolarTV.Machine.State.initial call).storage (0 : EvmRules.Word))).store
-          (160 : Nat) (0 : EvmRules.Word),
-      storage := (SolarTV.Machine.State.initial call).storage,
-      transient := (SolarTV.Machine.State.initial call).transient,
-      world := (SolarTV.Machine.State.initial call).world }) := by
-  total_leaf_s
-#kernel_recheck_all leaf10_shared
-#proof_stats leaf10_shared
-#print axioms leaf10_shared
+-- grind does not close leaf 10 (coverage gap, checked):
+example : True := by
+  fail_if_success
+    have : stmt10 := by
+      unfold stmt10; intros
+      total_leaf_g
+  trivial
+-- shared does not close leaf 10 (coverage gap, checked):
+example : True := by
+  fail_if_success
+    have : stmt10 := by
+      unfold stmt10; intros
+      total_leaf_s
+  trivial
 
 -- Leaf 11: total_leaf closed it at capture in 3.9 ms.
 g_time "leaf11 old" in

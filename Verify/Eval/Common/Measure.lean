@@ -104,8 +104,11 @@ syntax (name := kernelRecheck) "#kernel_recheck " ident : command
   let some ci := env.find? n | throwError "unknown {n}"
   let some v := ci.value? (allowOpaque := true) | throwError "{n} has no value"
   let decl := Declaration.thmDecl (mkTheoremValEx (Name.str n "recheck") ci.levelParams ci.type v [])
+  -- Build the kernel environment before the timer: toKernelEnv waits for earlier async
+  -- theorem checks, which must not be counted as this declaration's kernel time.
+  let kenv ← IO.lazyPure fun _ => env.toKernelEnv
   let t0 ← IO.monoNanosNow
-  match env.toKernelEnv.addDeclCore 0 100000 decl none with
+  match kenv.addDeclCore 0 100000 decl none with
   | .ok _ =>
     let t1 ← IO.monoNanosNow
     logInfo m!"kernel_recheck {n}: ok in {(t1 - t0).toFloat / 1000000.0} ms"

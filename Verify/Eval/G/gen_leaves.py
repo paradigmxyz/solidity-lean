@@ -13,7 +13,7 @@ statement:
 The leaf total_leaf could not close at capture (the growing rank of BumpWrongRank.lean) is the
 negative: every variant must fail on it (fail_if_success).
 
-usage: gen_leaves.py CAPTURE.txt OUT.lean
+usage: gen_leaves.py CAPTURE.txt OUT.lean [EXPECT_FAIL as comma-separated leaf indices]
 """
 import re, sys
 
@@ -139,6 +139,11 @@ macro "total_leaf_s" : tactic => `(tactic| (
     | (exfalso; (try simp only [EvmRules.Evm.add] at *); g_close_all)))
 '''
 
+# Leaves (by index) on which grind and shared do not close the leaf (measured: check-Real_BumpLeaves.out);
+# they are emitted as fail_if_success checks, so the file carries no sorry and the coverage gap
+# stays an executable fact: if grind starts closing one, its check fails and the list must change.
+EXPECT_FAIL = {int(x) for x in (sys.argv[3].split(",") if len(sys.argv) > 3 and sys.argv[3] else [])}
+
 with open(out, "w") as f:
     f.write(HEADER)
     neg = 0
@@ -148,7 +153,13 @@ with open(out, "w") as f:
         variants = [("old", "total_leaf"), ("grind", "total_leaf_g"), ("shared", "total_leaf_s")]
         if ok == "true":
             f.write(f"\n-- Leaf {k}: total_leaf closed it at capture in {float(ms):.1f} ms.\n")
+            if k in EXPECT_FAIL:
+                f.write(f"def stmt{k} : Prop :=\n  ∀ {binders},\n    {goal}\n")
             for v, tac in variants:
+                if k in EXPECT_FAIL and v != "old":
+                    f.write(f"-- {v} does not close leaf {k} (coverage gap, checked):\n")
+                    f.write(f"example : True := by\n  fail_if_success\n    have : stmt{k} := by\n      unfold stmt{k}; intros\n      {tac}\n  trivial\n")
+                    continue
                 f.write(f'g_time "leaf{k} {v}" in\ntheorem leaf{k}_{v} {binders} :\n    {goal} := by\n  {tac}\n')
                 f.write(f"#kernel_recheck_all leaf{k}_{v}\n#proof_stats leaf{k}_{v}\n#print axioms leaf{k}_{v}\n")
         else:
@@ -158,4 +169,4 @@ with open(out, "w") as f:
             for v, tac in variants:
                 f.write(f"example : True := by\n  fail_if_success\n    have : neg{k} := by\n      unfold neg{k}; intros\n      {tac}\n  trivial\n")
     f.write("\nend Verify.Eval.G.BumpLeaves\n")
-print(len(leaves), "leaves,", neg, "negative")
+print(len(leaves), "leaves,", neg, "negative,", len(EXPECT_FAIL), "expected grind/shared gaps")

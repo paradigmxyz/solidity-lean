@@ -27,6 +27,10 @@ def vcgrind():
         for d in dirs:
             f = f"{H}/{d}/results.tsv"
             if os.path.exists(f): rows += list(csv.DictReader(open(f), delimiter="\t"))
+        # A row measured twice (an interrupted run, then the rest): the later measurement counts.
+        last = {}
+        for r in rows: last[(r["id"], r["backend"])] = r
+        rows = list(last.values())
         ids = sorted(set(r["id"] for r in rows))
         out.append(f"\n{C}: {len(ids)} required rows measured.\n")
         out.append("| backend | proved | median elab+kernel (ms) | median kernel (ms) | median proof DAG | max RSS (MB) | axioms of proved rows |")

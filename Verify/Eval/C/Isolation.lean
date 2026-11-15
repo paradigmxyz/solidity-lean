@@ -1,4 +1,5 @@
 import Verify.Eval.C.Stepper
+import Verify.Eval.C.Fix.BranchNeg64Stmt
 
 /-!
 # Lane C: sibling isolation (negative test)
@@ -62,5 +63,38 @@ example : negStmt := by unfold negStmt; evm_sym [codeNat, codeSize]
 set_option verify.eval.c.fresh true in
 set_option verify.eval.c.condRewrite true in
 example : negStmt := by unfold negStmt; evm_sym [codeNat, codeSize]
+
+/-! ## Sibling isolation on a scaling fixture
+
+§BranchNeg64§ (64 opcodes, 5 genuine splits on call-data words, 10 JUMPIs decided by
+§msg.value = 0§) ends its all-fall-through path in STOP, so its statement (every path reverts) is
+false on exactly that path, which carries the five §word = 0§ path conditions; each taken sibling
+carries §word ≠ 0§. If any taken sibling's fact reached the fall-through path, the stepper would
+refute it and the proof would go through. The one open path must remain, threaded or fresh. -/
+
+/-- error: evm_sym: 1 open path(s): [no rule applies for opcode 0 at pc 98] -/
+#guard_msgs in
+example : Verify.Eval.C.Fix.BranchNeg64.stmt := by
+  unfold Verify.Eval.C.Fix.BranchNeg64.stmt
+  evm_sym [Verify.Eval.C.Fix.BranchNeg64.codeNat, Verify.Eval.C.Fix.BranchNeg64.codeSize]
+
+/-- error: evm_sym: 1 open path(s): [no rule applies for opcode 0 at pc 98] -/
+#guard_msgs in
+set_option verify.eval.c.eager true in
+example : Verify.Eval.C.Fix.BranchNeg64.stmt := by
+  unfold Verify.Eval.C.Fix.BranchNeg64.stmt
+  evm_sym [Verify.Eval.C.Fix.BranchNeg64.codeNat, Verify.Eval.C.Fix.BranchNeg64.codeSize]
+
+/-- error: evm_sym: 1 open path(s): [no rule applies for opcode 0 at pc 98] -/
+#guard_msgs in
+set_option verify.eval.c.fresh true in
+set_option verify.eval.c.eager true in
+example : Verify.Eval.C.Fix.BranchNeg64.stmt := by
+  unfold Verify.Eval.C.Fix.BranchNeg64.stmt
+  evm_sym [Verify.Eval.C.Fix.BranchNeg64.codeNat, Verify.Eval.C.Fix.BranchNeg64.codeSize]
+
+#print axioms pos_threaded
+#print axioms pos_threaded_cond
+#print axioms pos_fresh
 
 end Verify.Eval.C.Isolation

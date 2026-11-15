@@ -197,7 +197,8 @@ def refute (g : Grind.Goal) : M Bool := g.mvarId.withContext do
   let m ← g.mvarId.withContext do
     mkFreshExprSyntheticOpaqueMVar (mkConst ``False)
   let g' ← internalize { g with mvarId := m.mvarId! }
-  unless ← m.mvarId!.isAssigned do
+  -- (in fresh mode `internalize` replaces the goal's metavariable: test the one it returns)
+  unless ← g'.mvarId.isAssigned do
     unless ← runGrind g' do return false
   g.mvarId.withContext do
     let ty ← g.mvarId.getType
@@ -217,7 +218,11 @@ def simpGoal (g : Grind.Goal) : M Grind.SimpGoalResult := do
       | some thms =>
         -- the discharger runs grind on a copy of this goal's own (internalized) state: facts of
         -- sibling branches are not in it
-        let dg ← if ctx.fresh then Grind.mkGoal g.mvarId >>= (·.internalizeAll) else pure g
+        -- fresh mode: a fresh goal over a copy of the target, so `g`'s own metavariable stays open
+        let dg ← if ctx.fresh then do
+            let m ← mkFreshExprSyntheticOpaqueMVar (← g.mvarId.getType)
+            Grind.mkGoal m.mvarId! >>= (·.internalizeAll)
+          else pure g
         let d ← dg.mkSymSimpDischarger
         pure { ctx.methods with post := ctx.methods.post >> thms.rewrite d }
     let (r, st') ← Sym.Simp.SimpM.run (Sym.Simp.simp (← g.mvarId.getType)) methods {} st

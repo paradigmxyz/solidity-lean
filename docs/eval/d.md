@@ -6,7 +6,7 @@ Lead's own lane. Files: `Verify/Eval/D/{Bridge,Source,Loop,Robust,SpacerInv}.lea
 14 GB, `LEAN_NUM_THREADS=1`), toolchain v4.35.0, through `scripts/eval/check.sh`; `#timed` is
 one declaration's elaboration including its kernel check, kernel is `#kernel_recheck` (the
 kernel alone, re-adding the saved term), DAG is distinct subterms after `ShareCommon` (aux
-declarations listed separately), tree is capped at 10,000,000. Peak RSS is per file and is
+declarations listed separately), tree is capped at 10,000,000. After lane G found that #kernel_recheck timed the construction of the kernel environment (which waits for earlier async checks), the timer was fixed and Loop.lean rerun: kernel 6.8 / 2.7 / 41.1 / 77.0 ms, the same as the table, so the numbers here stand. Peak RSS is per file and is
 dominated by the imports (2.5 to 2.6 GB for every file here unless noted).
 
 ## What exists in 4.35 (and what changed from 4.34.1)
@@ -82,6 +82,11 @@ numbers are lane A's (docs/eval/a.md).
 
 | Family | n=16 | 32 | 64 | 128 | 256 |
 | --- | --- | --- | --- | --- | --- |
+| Straight, baseline sc_vcgen/sc_close (lane A) s | 12.1 wall (tactic 6.0) | timeout >600 | not run | not run | not run |
+| Branch, baseline s | 8.4 (tactic 3.8) | 86.1 (tactic 7.1) | timeout | | |
+| Memory, baseline s | 66.4 (tactic 50.2) | 10.4 (tactic 5.5) | 30.8 (tactic 20.4) | simp maxSteps | |
+| Shared, baseline s | 40.1 (tactic 35.0) | 152.2 (tactic 141.3) | simp maxSteps | | |
+| LoopBody, baseline s | 57.8 (tactic 50.7) | out of memory (5 GB) | | | |
 | Straight (nested `% 2^256` chain) elab+kernel ms | 308 | 2,262 | 446,968 | >600 s (timeout) | not run |
 | Straight, vcgen alone (VCs left open) ms / DAG | 32 / 1,675 | 47 / 3,063 | 49 / 7,375 | 132 / 22,159 | |
 | Branch ms (kernel) | 131 (41) | 185 (61) | fails: grind incomplete | fails | fails |
@@ -89,7 +94,7 @@ numbers are lane A's (docs/eval/a.md).
 | Shared ms (kernel) | 106 (17) | 181 (32) | 664 (215) | 1,991 (709) | 10,346 (2,892) |
 | LoopBody | not closed: Loom ⊓/⌜⌝ residuals after vcgen, grind fails | | | | |
 
-Reading: VC generation itself is cheap and close to linear in program size (Straight: 32 to
+Reading: against the baseline, vcgen + finish proves Straight32/64 and Shared64/128/256, where sc_vcgen/sc_close fails, and where both finish its elaboration+kernel time is 19x to 780x below the baseline's tactic time alone (Straight16 0.31 vs 6.0 s, Branch32 0.19 vs 7.1 s, Memory16 0.11 vs 50.2 s, Shared32 0.18 vs 141 s). Both fail Branch64 and LoopBody; at Memory128 the baseline hits simp maxSteps and vcgen crashes. One run per cell on a shared machine. VC generation itself is cheap and close to linear in program size (Straight: 32 to
 132 ms from 16 to 128 ops); the cost and the failures are in the residual VCs (grind on nested
 modular arithmetic; grind's case-split budget on 64+ guards) and in a vcgen bug on long
 `if`-chains of storage reads ("unexpected let-declaration term during structural definitional

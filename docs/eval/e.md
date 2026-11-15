@@ -290,11 +290,11 @@ the same effect as section 1: repeated sub-terms cost the kernel and .olean once
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | inline | 16 | 7890 | 2197 | 2086.3 | 82.9 | 87.7 | 87.21 | 65359 | 65374 | 10000018 | 3 | 2251216 | 2527452 | - | - | - |
 | inline | 32 | 54070 | 28170 | 26612.3 | 1160.0 | 1151.23 | 1150.04 | 621327 | 621342 | 10000018 | 3 | 20325272 | 2678324 | 13.13 | 12.82 | 9.51 |
-| inline | 64 | FAILED: /home/hand/evalE/gen/SolM64_inline.lean:83:14: error: Tactic `simp` failed with  |
-| inline | 128 | FAILED: /home/hand/evalE/gen/SolM128_inline.lean:147:14: error: Tactic `simp` failed wit |
-| inline | 256 | FAILED: /home/hand/evalE/gen/SolM256_inline.lean:275:14: error: Tactic `simp` failed wit |
+| inline | 64 | FAILED: ~/evalE/gen/SolM64_inline.lean:83:14: error: Tactic `simp` failed with  |
+| inline | 128 | FAILED: ~/evalE/gen/SolM128_inline.lean:147:14: error: Tactic `simp` failed wit |
+| inline | 256 | FAILED: ~/evalE/gen/SolM256_inline.lean:275:14: error: Tactic `simp` failed wit |
 | shared | 16 | 4630 | 1076 | 1045.2 | 54.5 | 82.63 | 79.26 | 46650 | 46853 | 10018509 | 4 | 1646816 | 2516152 | - | - | - |
 | shared | 32 | 25260 | 12633 | 11903.3 | 807.0 | 949.65 | 943.12 | 505450 | 505653 | 10018509 | 4 | 16587304 | 2419072 | 11.49 | 11.74 | 10.83 |
-| shared | 64 | FAILED: /home/hand/evalE/gen/SolM64_shared.lean:83:2: error: Tactic `simp` failed with a |
-| shared | 128 | FAILED: /home/hand/evalE/gen/SolM128_shared.lean:147:2: error: Tactic `simp` failed with |
-| shared | 256 | FAILED: /home/hand/evalE/gen/SolM256_shared.lean:275:2: error: Tactic `simp` failed with |
+| shared | 64 | FAILED: ~/evalE/gen/SolM64_shared.lean:83:2: error: Tactic `simp` failed with a |
+| shared | 128 | FAILED: ~/evalE/gen/SolM128_shared.lean:147:2: error: Tactic `simp` failed with |
+| shared | 256 | FAILED: ~/evalE/gen/SolM256_shared.lean:275:2: error: Tactic `simp` failed with |

@@ -18,6 +18,7 @@ namespace Verify.Eval.C.GenC1
 open SolidCore.Refinement SolidCore.Refinement.Abi SolidCore.Refinement.Evm.Symex
 open SolidCore.Refinement.Corpus.C1
 open EthLib.Base EthLib.Execution EthLib.Execution.Evm
+open SolidCore.Refinement.Evm
 
 /-- The selector of the call data, as the stepper's normalized SHR leaves it. -/
 theorem shr224_cdOf (s : Nat) (args : List U256) (hs : s < 2 ^ 32) :

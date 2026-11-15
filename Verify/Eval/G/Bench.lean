@@ -10,6 +10,7 @@ g_compare [p1, ..., pn] base tac using [t1, ...] runs, in the current goal's con
 - shared: ONE Grind.Goal for the context, internalized once (Goal.internalizeAll), with the
   trigger lemmas t_i as the only E-matching theorems, then Goal.mkSymSimpDischarger on each p_i;
 - ground: p_i without free variables decided by decide (kernel evaluation of its Decidable
+  instance, no context); every candidate decide does not prove goes to the shared discharger.
   instance, no context), else the shared discharger.
 
 It logs per variant the attempts, the number proved, the elaboration time, and the kernel time of
@@ -108,6 +109,9 @@ def sharedRun (params : Grind.Params) (props : Array Expr) : MetaM (Array (Optio
           if v.isConstOf (Name.mkStr2 "Bool" "true") then pure (some (← mkDecideProof p)) else pure none
         catch _ => pure none
       groundRes := groundRes.push pf?
+      -- A closed candidate that does not evaluate to true may still follow from a contradictory
+      -- path context: it goes to the shared discharger too.
+      if pf?.isNone then rest := rest.push (i, p)
   if !rest.isEmpty then
     let r ← sharedRun params (rest.map (·.2))
     for ((i, _), pf) in rest.zip r do groundRes := groundRes.set! i pf

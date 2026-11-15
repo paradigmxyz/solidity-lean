@@ -31,8 +31,8 @@ Each "new" file holds the bridge proofs *and* the fixture, so its cost includes 
 - Axioms: `[propext, Classical.choice, Quot.sound]`.
 - Fixtures: `checkedExp c 1 e = .ok 1` for a symbolic `e`; `b**2` for `b < 2^128`; overflow of `3**e` for every `e ≥ 256`
   (proved by monotonicity, without evaluating anything). New file: wall 2.24 s, exit 0.
-  Old (`CheckedExpOld.lean`, expected to fail): unfolding into `expBySquaring` hits the 200000-heartbeat limit after
-  12.2 s of simp (wall 14.4 s). Concrete exponents already worked before (structural fuel, `decide` with a raised
+  Old (`CheckedExpOld.lean`): unfolding into `expBySquaring` hits the 200000-heartbeat limit after
+  11.4 s of simp (wall 13.5 s). The file checks this with `#guard_msgs` on an `example`, so it exits 0 and adds no `sorryAx`. Concrete exponents already worked before (structural fuel, `decide` with a raised
   recDepth in about 30 ms), so the win is in symbolic proofs.
 
 ## 2. Storage writes. `Verify/Eval/F/Storage.lean`
@@ -57,8 +57,8 @@ Each "new" file holds the bridge proofs *and* the fixture, so its cost includes 
 - Axioms: `[propext, Quot.sound]`.
 - Fixtures: `clzWord_le` and `fixture_clz_top` (top bit set gives 0) use core's `clz_le` / `clz_eq_zero_iff`.
   New file: wall 2.07 s, simp 69 ms.
-  Old (`ClzOld.lean`, expected to fail): unfolding the 256-step scan for `clzWord v ≤ 256` makes `simp` exceed
-  maxSteps after 6.3 s. A concrete `clzWord (2^200+7) = 55` works by `decide` both ways.
+  Old (`ClzOld.lean`): unfolding the 256-step scan for `clzWord v ≤ 256` makes `split_ifs`/`simp` exceed
+  maxSteps (simp 3.4 s, wall 5.7 s). The file asserts this with `fail_if_success` in an `example`, so it exits 0 and adds no `sorryAx`. A concrete `clzWord (2^200+7) = 55` works by `decide` both ways.
 
 ## Where the bridges could be used (files not edited)
 - tv/SolarTV/EVMIR/Ops.lean:39 and tv/W1Proofs/Tactic.lean:433 (`EVM.step .exp` = `Word.power`); tv/SolarTV/Word.lean:32 (`binary .exp`).
