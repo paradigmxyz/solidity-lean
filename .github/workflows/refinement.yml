@@ -155,3 +155,22 @@ jobs:
           # Each Z3 process may use up to 8 GB; the runner has 16 GB.
           FACTS_JOBS: 1
         run: scripts/refinement/check.sh
+
+  # Loop-invariant CTIs (Verify/Infer/CTI.md): regenerate the corpus byte for byte, re-check every
+  # record from its inputs, and require corrupted records to be refused. No Lean, a few seconds.
+  cti:
+    name: Loop-invariant CTI corpus
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install z3
+        run: |
+          python3 -m venv "$RUNNER_TEMP/cti"
+          "$RUNNER_TEMP/cti/bin/pip" install --require-hashes -r Verify/Infer/cti/requirements.txt
+
+      - name: Check the CTI corpus
+        run: PYTHON="$RUNNER_TEMP/cti/bin/python" Verify/Infer/cti/test.sh
