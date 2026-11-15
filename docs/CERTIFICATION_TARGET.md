@@ -55,6 +55,25 @@ not quantify over "all other slots" in a way that reintroduces collision-freedom
 StaticRunner/CalleesRun discharged.
 Negative controls by execution: altered bytecode/jump, missing debit, wrong post, mismatched environment.
 
+## Status (2026-11-15)
+UniswapV2ERC20.transfer (`Contracts/UniswapV2/ERC20/Certified/Transfer.lean`), stated literally:
+- `certified_any_caller` = `certified` (`Certified` at the fixed caller 0x2000) and `ResourcesFrom` for every caller
+  `a < 2^160` other than the contract. It claims nothing else.
+- `TargetPost` and `Allowed` are stated for calls from the fixed caller 0x2000 only.
+- `Valid` needs the call's storage to cover the constructor's slot.
+- E6 (fresh emission of `code` by the solar run, its binding, and the cold leanchecker replay) is pending: the statements are
+  about `CtxGas.code` as exported at the pinned solar commit.
+- The Counter / loop driver rerun is a separate regression gate, not part of this statement.
+- The loop obligations of Counter.bump (7/7 annotated, 9/9 Spacer, discharged on the loop-VC lane branch) and the CI-library
+  builds are sub-edges: they are not a completed loop edge and not an end-to-end receipt.
+
+| Missing edge | Owner |
+|---|---|
+| E6: fresh binding, cold replay, hashes | driver lane |
+| `TargetPost` / `Allowed` from any caller | erc20-certified lane |
+| Mutation controls (negatives by execution) | refuter lane |
+| Frontend: solc AST vs solar HIR study | AST vs HIR study |
+
 ## Reclassified (kept as lemmas until connected)
 - Contracts/UniswapV2/PairSpec/Published.lean published_of_stages: composition interface taking every stage as a hypothesis. Not a Pair proof.
 - PairSpec Negative.lean: formula checks on example states, not mutated program executions.
