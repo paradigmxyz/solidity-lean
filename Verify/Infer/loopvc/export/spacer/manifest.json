@@ -1,0 +1,718 @@
+{
+  "format": "solar-verify-lean",
+  "generator": {
+    "interface": {
+      "format": "solar-verify-loopvc-stub",
+      "version": 0
+    },
+    "name": "Verify/Infer/smt2lean_inv.py loopvc"
+  },
+  "lean": {
+    "smt_sha256": "2c92f3bcd927369da89250662bd5a6174d3c06d0c3c38f5021509fe8810036e3",
+    "toolchain": "leanprover/lean4:v4.35.0",
+    "vc_sha256": "648d461056fe1649754b1ec259c2d1c48e8db8a4c11e5af281e73796399bc96a"
+  },
+  "sources": [
+    {
+      "path": "Verify/Infer/loopvc/stub/Counter.bump.loop0.json",
+      "sha256": "8df859819d62941dcd393cb6972a09fbc24ab4cc507fa17a4f20388d08d32a2b"
+    },
+    {
+      "path": "Verify/Infer/loopvc/stub/Counter.bump.loop0.horn.smt2",
+      "sha256": "98fe809e286d1cdc837b45ac2f1799169a551f327c3ca08854c5e9bb687d546d"
+    },
+    {
+      "path": "Verify/Infer/loopvc/stub/Counter.bump.loop0.spacer.out",
+      "sha256": "75c0838b514927dd240dd036bea09f63b486a71863d0e01e427d4005536d9b06"
+    },
+    {
+      "path": "Certified/verify_counter/verify_counter.sol",
+      "sha256": "f1c87a334b8db31fc8f80541febeaf8617318d20b685634f44e26c74146ad326"
+    }
+  ],
+  "units": [
+    {
+      "candidate": {
+        "Inv": {
+          "clauses": [
+            {
+              "smt": "(not (>= (+ |count| (* (- 1) |i|) (* (- 1) |old.count|)) 1))",
+              "span": null,
+              "text": "(not (>= (+ |count| (* (- 1) |i|) (* (- 1) |old.count|)) 1))"
+            },
+            {
+              "smt": "(not (<= (+ |count| (* (- 1) |i|) (* (- 1) |old.count|)) (- 1)))",
+              "span": null,
+              "text": "(not (<= (+ |count| (* (- 1) |i|) (* (- 1) |old.count|)) (- 1)))"
+            },
+            {
+              "smt": "(not (<= (+ |n| (* (- 1) |count|) |old.count|) (- 1)))",
+              "span": null,
+              "text": "(not (<= (+ |n| (* (- 1) |count|) |old.count|) (- 1)))"
+            }
+          ],
+          "cutpoint": "Inv",
+          "id": "spacer-75c0838b5149",
+          "origin": "spacer"
+        }
+      },
+      "module": "LoopVc/Counter/bump_loop0.lean",
+      "name": "Counter.bump loop0 [spacer-75c0838b5149]",
+      "namespace": "SolarVerifyVc.LoopVc.Counter.bump_loop0",
+      "obligations": [
+        {
+          "answer": "not-run",
+          "candidate": "spacer-75c0838b5149",
+          "check": null,
+          "cutpoint": "Inv",
+          "edge": "entry",
+          "edge_kind": "entry",
+          "id": "Counter.bump@loop0#entry.initiation.c0",
+          "kind": "initiation",
+          "lean": "SolarVerifyVc.LoopVc.Counter.bump_loop0.ob0",
+          "outcome": "normal",
+          "post": {
+            "count": "|count@17|",
+            "i": "0",
+            "n": "|n@21|",
+            "old.__code_epoch": "|__code_epoch@20|",
+            "old.block.basefee": "|block.basefee@11|",
+            "old.block.blobbasefee": "|block.blobbasefee@12|",
+            "old.block.chainid": "|block.chainid@6|",
+            "old.block.coinbase": "|block.coinbase@13|",
+            "old.block.difficulty": "|block.difficulty@15|",
+            "old.block.gaslimit": "|block.gaslimit@16|",
+            "old.block.number": "|block.number@5|",
+            "old.block.prevrandao": "|block.prevrandao@14|",
+            "old.block.timestamp": "|block.timestamp@4|",
+            "old.count": "|count@17|",
+            "old.limit": "|limit@18|",
+            "old.msg.data": "|msg.data@10|",
+            "old.msg.sender": "|msg.sender@2|",
+            "old.msg.sig": "|msg.sig@9|",
+            "old.msg.value": "|msg.value@3|",
+            "old.this": "|this@1|",
+            "old.tx.gasprice": "|tx.gasprice@8|",
+            "old.tx.origin": "|tx.origin@7|"
+          },
+          "pre": {},
+          "required": true,
+          "role": "obligation",
+          "site": {
+            "column": 9,
+            "file": "Certified/verify_counter/verify_counter.sol",
+            "line": 26
+          },
+          "smt": "LoopVc/Counter/bump_loop0.ob0.smt2",
+          "smt_sha256": "30bab4ea8c656e8c94949f62b1776f9f015b1c8d71fee26820a8b8c7a14a1030",
+          "spec": {
+            "span": null,
+            "text": "(not (>= (+ |count| (* (- 1) |i|) (* (- 1) |old.count|)) 1))"
+          }
+        },
+        {
+          "answer": "not-run",
+          "candidate": "spacer-75c0838b5149",
+          "check": null,
+          "cutpoint": "Inv",
+          "edge": "entry",
+          "edge_kind": "entry",
+          "id": "Counter.bump@loop0#entry.initiation.c1",
+          "kind": "initiation",
+          "lean": "SolarVerifyVc.LoopVc.Counter.bump_loop0.ob1",
+          "outcome": "normal",
+          "post": {
+            "count": "|count@17|",
+            "i": "0",
+            "n": "|n@21|",
+            "old.__code_epoch": "|__code_epoch@20|",
+            "old.block.basefee": "|block.basefee@11|",
+            "old.block.blobbasefee": "|block.blobbasefee@12|",
+            "old.block.chainid": "|block.chainid@6|",
+            "old.block.coinbase": "|block.coinbase@13|",
+            "old.block.difficulty": "|block.difficulty@15|",
+            "old.block.gaslimit": "|block.gaslimit@16|",
+            "old.block.number": "|block.number@5|",
+            "old.block.prevrandao": "|block.prevrandao@14|",
+            "old.block.timestamp": "|block.timestamp@4|",
+            "old.count": "|count@17|",
+            "old.limit": "|limit@18|",
+            "old.msg.data": "|msg.data@10|",
+            "old.msg.sender": "|msg.sender@2|",
+            "old.msg.sig": "|msg.sig@9|",
+            "old.msg.value": "|msg.value@3|",
+            "old.this": "|this@1|",
+            "old.tx.gasprice": "|tx.gasprice@8|",
+            "old.tx.origin": "|tx.origin@7|"
+          },
+          "pre": {},
+          "required": true,
+          "role": "obligation",
+          "site": {
+            "column": 9,
+            "file": "Certified/verify_counter/verify_counter.sol",
+            "line": 26
+          },
+          "smt": "LoopVc/Counter/bump_loop0.ob1.smt2",
+          "smt_sha256": "f9811e9466a88bb39f1e8ef2024b5a517476c72249c27cd76324fa7be1f70873",
+          "spec": {
+            "span": null,
+            "text": "(not (<= (+ |count| (* (- 1) |i|) (* (- 1) |old.count|)) (- 1)))"
+          }
+        },
+        {
+          "answer": "not-run",
+          "candidate": "spacer-75c0838b5149",
+          "check": null,
+          "cutpoint": "Inv",
+          "edge": "entry",
+          "edge_kind": "entry",
+          "id": "Counter.bump@loop0#entry.initiation.c2",
+          "kind": "initiation",
+          "lean": "SolarVerifyVc.LoopVc.Counter.bump_loop0.ob2",
+          "outcome": "normal",
+          "post": {
+            "count": "|count@17|",
+            "i": "0",
+            "n": "|n@21|",
+            "old.__code_epoch": "|__code_epoch@20|",
+            "old.block.basefee": "|block.basefee@11|",
+            "old.block.blobbasefee": "|block.blobbasefee@12|",
+            "old.block.chainid": "|block.chainid@6|",
+            "old.block.coinbase": "|block.coinbase@13|",
+            "old.block.difficulty": "|block.difficulty@15|",
+            "old.block.gaslimit": "|block.gaslimit@16|",
+            "old.block.number": "|block.number@5|",
+            "old.block.prevrandao": "|block.prevrandao@14|",
+            "old.block.timestamp": "|block.timestamp@4|",
+            "old.count": "|count@17|",
+            "old.limit": "|limit@18|",
+            "old.msg.data": "|msg.data@10|",
+            "old.msg.sender": "|msg.sender@2|",
+            "old.msg.sig": "|msg.sig@9|",
+            "old.msg.value": "|msg.value@3|",
+            "old.this": "|this@1|",
+            "old.tx.gasprice": "|tx.gasprice@8|",
+            "old.tx.origin": "|tx.origin@7|"
+          },
+          "pre": {},
+          "required": true,
+          "role": "obligation",
+          "site": {
+            "column": 9,
+            "file": "Certified/verify_counter/verify_counter.sol",
+            "line": 26
+          },
+          "smt": "LoopVc/Counter/bump_loop0.ob2.smt2",
+          "smt_sha256": "8a9a1c96ac271ff2084783e29fc73355dad42c49f16b9eb455f005be57bb5f31",
+          "spec": {
+            "span": null,
+            "text": "(not (<= (+ |n| (* (- 1) |count|) |old.count|) (- 1)))"
+          }
+        },
+        {
+          "answer": "not-run",
+          "candidate": "spacer-75c0838b5149",
+          "check": null,
+          "cutpoint": "Inv",
+          "edge": "back.0",
+          "edge_kind": "back",
+          "id": "Counter.bump@loop0#back.0.preservation.c0",
+          "kind": "preservation",
+          "lean": "SolarVerifyVc.LoopVc.Counter.bump_loop0.ob3",
+          "outcome": "normal",
+          "post": {
+            "count": "|arith@30|",
+            "i": "|arith@32|",
+            "n": "|n@21|",
+            "old.__code_epoch": "|__code_epoch@20|",
+            "old.block.basefee": "|block.basefee@11|",
+            "old.block.blobbasefee": "|block.blobbasefee@12|",
+            "old.block.chainid": "|block.chainid@6|",
+            "old.block.coinbase": "|block.coinbase@13|",
+            "old.block.difficulty": "|block.difficulty@15|",
+            "old.block.gaslimit": "|block.gaslimit@16|",
+            "old.block.number": "|block.number@5|",
+            "old.block.prevrandao": "|block.prevrandao@14|",
+            "old.block.timestamp": "|block.timestamp@4|",
+            "old.count": "|count@17|",
+            "old.limit": "|limit@18|",
+            "old.msg.data": "|msg.data@10|",
+            "old.msg.sender": "|msg.sender@2|",
+            "old.msg.sig": "|msg.sig@9|",
+            "old.msg.value": "|msg.value@3|",
+            "old.this": "|this@1|",
+            "old.tx.gasprice": "|tx.gasprice@8|",
+            "old.tx.origin": "|tx.origin@7|"
+          },
+          "pre": {
+            "Inv": {
+              "count": "|count@27|",
+              "i": "|i@28|",
+              "n": "|n@21|",
+              "old.__code_epoch": "|__code_epoch@20|",
+              "old.block.basefee": "|block.basefee@11|",
+              "old.block.blobbasefee": "|block.blobbasefee@12|",
+              "old.block.chainid": "|block.chainid@6|",
+              "old.block.coinbase": "|block.coinbase@13|",
+              "old.block.difficulty": "|block.difficulty@15|",
+              "old.block.gaslimit": "|block.gaslimit@16|",
+              "old.block.number": "|block.number@5|",
+              "old.block.prevrandao": "|block.prevrandao@14|",
+              "old.block.timestamp": "|block.timestamp@4|",
+              "old.count": "|count@17|",
+              "old.limit": "|limit@18|",
+              "old.msg.data": "|msg.data@10|",
+              "old.msg.sender": "|msg.sender@2|",
+              "old.msg.sig": "|msg.sig@9|",
+              "old.msg.value": "|msg.value@3|",
+              "old.this": "|this@1|",
+              "old.tx.gasprice": "|tx.gasprice@8|",
+              "old.tx.origin": "|tx.origin@7|"
+            }
+          },
+          "required": true,
+          "role": "obligation",
+          "site": {
+            "column": 9,
+            "file": "Certified/verify_counter/verify_counter.sol",
+            "line": 26
+          },
+          "smt": "LoopVc/Counter/bump_loop0.ob3.smt2",
+          "smt_sha256": "cc7632a84ec6b70d98f971e4509f5dbafcc69b2bbbc7384c5e4d29b41837f292",
+          "spec": {
+            "span": null,
+            "text": "(not (>= (+ |count| (* (- 1) |i|) (* (- 1) |old.count|)) 1))"
+          }
+        },
+        {
+          "answer": "not-run",
+          "candidate": "spacer-75c0838b5149",
+          "check": null,
+          "cutpoint": "Inv",
+          "edge": "back.0",
+          "edge_kind": "back",
+          "id": "Counter.bump@loop0#back.0.preservation.c1",
+          "kind": "preservation",
+          "lean": "SolarVerifyVc.LoopVc.Counter.bump_loop0.ob4",
+          "outcome": "normal",
+          "post": {
+            "count": "|arith@30|",
+            "i": "|arith@32|",
+            "n": "|n@21|",
+            "old.__code_epoch": "|__code_epoch@20|",
+            "old.block.basefee": "|block.basefee@11|",
+            "old.block.blobbasefee": "|block.blobbasefee@12|",
+            "old.block.chainid": "|block.chainid@6|",
+            "old.block.coinbase": "|block.coinbase@13|",
+            "old.block.difficulty": "|block.difficulty@15|",
+            "old.block.gaslimit": "|block.gaslimit@16|",
+            "old.block.number": "|block.number@5|",
+            "old.block.prevrandao": "|block.prevrandao@14|",
+            "old.block.timestamp": "|block.timestamp@4|",
+            "old.count": "|count@17|",
+            "old.limit": "|limit@18|",
+            "old.msg.data": "|msg.data@10|",
+            "old.msg.sender": "|msg.sender@2|",
+            "old.msg.sig": "|msg.sig@9|",
+            "old.msg.value": "|msg.value@3|",
+            "old.this": "|this@1|",
+            "old.tx.gasprice": "|tx.gasprice@8|",
+            "old.tx.origin": "|tx.origin@7|"
+          },
+          "pre": {
+            "Inv": {
+              "count": "|count@27|",
+              "i": "|i@28|",
+              "n": "|n@21|",
+              "old.__code_epoch": "|__code_epoch@20|",
+              "old.block.basefee": "|block.basefee@11|",
+              "old.block.blobbasefee": "|block.blobbasefee@12|",
+              "old.block.chainid": "|block.chainid@6|",
+              "old.block.coinbase": "|block.coinbase@13|",
+              "old.block.difficulty": "|block.difficulty@15|",
+              "old.block.gaslimit": "|block.gaslimit@16|",
+              "old.block.number": "|block.number@5|",
+              "old.block.prevrandao": "|block.prevrandao@14|",
+              "old.block.timestamp": "|block.timestamp@4|",
+              "old.count": "|count@17|",
+              "old.limit": "|limit@18|",
+              "old.msg.data": "|msg.data@10|",
+              "old.msg.sender": "|msg.sender@2|",
+              "old.msg.sig": "|msg.sig@9|",
+              "old.msg.value": "|msg.value@3|",
+              "old.this": "|this@1|",
+              "old.tx.gasprice": "|tx.gasprice@8|",
+              "old.tx.origin": "|tx.origin@7|"
+            }
+          },
+          "required": true,
+          "role": "obligation",
+          "site": {
+            "column": 9,
+            "file": "Certified/verify_counter/verify_counter.sol",
+            "line": 26
+          },
+          "smt": "LoopVc/Counter/bump_loop0.ob4.smt2",
+          "smt_sha256": "b51f614406c8bac39fd35a8c602d16009df985ec22bfc9754f3f13630d1d37bd",
+          "spec": {
+            "span": null,
+            "text": "(not (<= (+ |count| (* (- 1) |i|) (* (- 1) |old.count|)) (- 1)))"
+          }
+        },
+        {
+          "answer": "not-run",
+          "candidate": "spacer-75c0838b5149",
+          "check": null,
+          "cutpoint": "Inv",
+          "edge": "back.0",
+          "edge_kind": "back",
+          "id": "Counter.bump@loop0#back.0.preservation.c2",
+          "kind": "preservation",
+          "lean": "SolarVerifyVc.LoopVc.Counter.bump_loop0.ob5",
+          "outcome": "normal",
+          "post": {
+            "count": "|arith@30|",
+            "i": "|arith@32|",
+            "n": "|n@21|",
+            "old.__code_epoch": "|__code_epoch@20|",
+            "old.block.basefee": "|block.basefee@11|",
+            "old.block.blobbasefee": "|block.blobbasefee@12|",
+            "old.block.chainid": "|block.chainid@6|",
+            "old.block.coinbase": "|block.coinbase@13|",
+            "old.block.difficulty": "|block.difficulty@15|",
+            "old.block.gaslimit": "|block.gaslimit@16|",
+            "old.block.number": "|block.number@5|",
+            "old.block.prevrandao": "|block.prevrandao@14|",
+            "old.block.timestamp": "|block.timestamp@4|",
+            "old.count": "|count@17|",
+            "old.limit": "|limit@18|",
+            "old.msg.data": "|msg.data@10|",
+            "old.msg.sender": "|msg.sender@2|",
+            "old.msg.sig": "|msg.sig@9|",
+            "old.msg.value": "|msg.value@3|",
+            "old.this": "|this@1|",
+            "old.tx.gasprice": "|tx.gasprice@8|",
+            "old.tx.origin": "|tx.origin@7|"
+          },
+          "pre": {
+            "Inv": {
+              "count": "|count@27|",
+              "i": "|i@28|",
+              "n": "|n@21|",
+              "old.__code_epoch": "|__code_epoch@20|",
+              "old.block.basefee": "|block.basefee@11|",
+              "old.block.blobbasefee": "|block.blobbasefee@12|",
+              "old.block.chainid": "|block.chainid@6|",
+              "old.block.coinbase": "|block.coinbase@13|",
+              "old.block.difficulty": "|block.difficulty@15|",
+              "old.block.gaslimit": "|block.gaslimit@16|",
+              "old.block.number": "|block.number@5|",
+              "old.block.prevrandao": "|block.prevrandao@14|",
+              "old.block.timestamp": "|block.timestamp@4|",
+              "old.count": "|count@17|",
+              "old.limit": "|limit@18|",
+              "old.msg.data": "|msg.data@10|",
+              "old.msg.sender": "|msg.sender@2|",
+              "old.msg.sig": "|msg.sig@9|",
+              "old.msg.value": "|msg.value@3|",
+              "old.this": "|this@1|",
+              "old.tx.gasprice": "|tx.gasprice@8|",
+              "old.tx.origin": "|tx.origin@7|"
+            }
+          },
+          "required": true,
+          "role": "obligation",
+          "site": {
+            "column": 9,
+            "file": "Certified/verify_counter/verify_counter.sol",
+            "line": 26
+          },
+          "smt": "LoopVc/Counter/bump_loop0.ob5.smt2",
+          "smt_sha256": "df2b6bfb8aedeffbcc75b4d6abef47032dd7455a1ed6849027bc9f6d466293d0",
+          "spec": {
+            "span": null,
+            "text": "(not (<= (+ |n| (* (- 1) |count|) |old.count|) (- 1)))"
+          }
+        },
+        {
+          "answer": "not-run",
+          "candidate": "spacer-75c0838b5149",
+          "check": null,
+          "cutpoint": "Inv",
+          "edge": "back.0",
+          "edge_kind": "back",
+          "id": "Counter.bump@loop0#back.0.termination",
+          "kind": "termination",
+          "lean": "SolarVerifyVc.LoopVc.Counter.bump_loop0.ob6",
+          "outcome": "normal",
+          "post": {
+            "count": "|arith@30|",
+            "i": "|arith@32|",
+            "n": "|n@21|",
+            "old.__code_epoch": "|__code_epoch@20|",
+            "old.block.basefee": "|block.basefee@11|",
+            "old.block.blobbasefee": "|block.blobbasefee@12|",
+            "old.block.chainid": "|block.chainid@6|",
+            "old.block.coinbase": "|block.coinbase@13|",
+            "old.block.difficulty": "|block.difficulty@15|",
+            "old.block.gaslimit": "|block.gaslimit@16|",
+            "old.block.number": "|block.number@5|",
+            "old.block.prevrandao": "|block.prevrandao@14|",
+            "old.block.timestamp": "|block.timestamp@4|",
+            "old.count": "|count@17|",
+            "old.limit": "|limit@18|",
+            "old.msg.data": "|msg.data@10|",
+            "old.msg.sender": "|msg.sender@2|",
+            "old.msg.sig": "|msg.sig@9|",
+            "old.msg.value": "|msg.value@3|",
+            "old.this": "|this@1|",
+            "old.tx.gasprice": "|tx.gasprice@8|",
+            "old.tx.origin": "|tx.origin@7|"
+          },
+          "pre": {
+            "Inv": {
+              "count": "|count@27|",
+              "i": "|i@28|",
+              "n": "|n@21|",
+              "old.__code_epoch": "|__code_epoch@20|",
+              "old.block.basefee": "|block.basefee@11|",
+              "old.block.blobbasefee": "|block.blobbasefee@12|",
+              "old.block.chainid": "|block.chainid@6|",
+              "old.block.coinbase": "|block.coinbase@13|",
+              "old.block.difficulty": "|block.difficulty@15|",
+              "old.block.gaslimit": "|block.gaslimit@16|",
+              "old.block.number": "|block.number@5|",
+              "old.block.prevrandao": "|block.prevrandao@14|",
+              "old.block.timestamp": "|block.timestamp@4|",
+              "old.count": "|count@17|",
+              "old.limit": "|limit@18|",
+              "old.msg.data": "|msg.data@10|",
+              "old.msg.sender": "|msg.sender@2|",
+              "old.msg.sig": "|msg.sig@9|",
+              "old.msg.value": "|msg.value@3|",
+              "old.this": "|this@1|",
+              "old.tx.gasprice": "|tx.gasprice@8|",
+              "old.tx.origin": "|tx.origin@7|"
+            }
+          },
+          "required": true,
+          "role": "obligation",
+          "site": {
+            "column": 9,
+            "file": "Certified/verify_counter/verify_counter.sol",
+            "line": 26
+          },
+          "smt": "LoopVc/Counter/bump_loop0.ob6.smt2",
+          "smt_sha256": "2f8b51d6f4f224330505ebfec22587b74615df9a743652f121a7387cf9c41168",
+          "spec": {
+            "span": {
+              "column": 14,
+              "file": "Certified/verify_counter/verify_counter.sol",
+              "line": 25
+            },
+            "text": "n - i"
+          }
+        },
+        {
+          "answer": "not-run",
+          "candidate": "spacer-75c0838b5149",
+          "check": null,
+          "cutpoint": null,
+          "edge": "revert.0",
+          "edge_kind": "revert",
+          "id": "Counter.bump@loop0#revert.0.outcome-revert",
+          "kind": "outcome-revert",
+          "lean": "SolarVerifyVc.LoopVc.Counter.bump_loop0.ob7",
+          "outcome": "revert",
+          "post": {},
+          "pre": {
+            "Inv": {
+              "count": "|count@27|",
+              "i": "|i@28|",
+              "n": "|n@21|",
+              "old.__code_epoch": "|__code_epoch@20|",
+              "old.block.basefee": "|block.basefee@11|",
+              "old.block.blobbasefee": "|block.blobbasefee@12|",
+              "old.block.chainid": "|block.chainid@6|",
+              "old.block.coinbase": "|block.coinbase@13|",
+              "old.block.difficulty": "|block.difficulty@15|",
+              "old.block.gaslimit": "|block.gaslimit@16|",
+              "old.block.number": "|block.number@5|",
+              "old.block.prevrandao": "|block.prevrandao@14|",
+              "old.block.timestamp": "|block.timestamp@4|",
+              "old.count": "|count@17|",
+              "old.limit": "|limit@18|",
+              "old.msg.data": "|msg.data@10|",
+              "old.msg.sender": "|msg.sender@2|",
+              "old.msg.sig": "|msg.sig@9|",
+              "old.msg.value": "|msg.value@3|",
+              "old.this": "|this@1|",
+              "old.tx.gasprice": "|tx.gasprice@8|",
+              "old.tx.origin": "|tx.origin@7|"
+            }
+          },
+          "required": true,
+          "role": "obligation",
+          "site": {
+            "column": 9,
+            "file": "Certified/verify_counter/verify_counter.sol",
+            "line": 26
+          },
+          "smt": "LoopVc/Counter/bump_loop0.ob7.smt2",
+          "smt_sha256": "a695ad62d6e446dd487042fd80dd69ee2147eafc48f69155149aed72dd74d4bc",
+          "spec": null
+        },
+        {
+          "answer": "not-run",
+          "candidate": "spacer-75c0838b5149",
+          "check": null,
+          "cutpoint": null,
+          "edge": "revert.1",
+          "edge_kind": "revert",
+          "id": "Counter.bump@loop0#revert.1.outcome-revert",
+          "kind": "outcome-revert",
+          "lean": "SolarVerifyVc.LoopVc.Counter.bump_loop0.ob8",
+          "outcome": "revert",
+          "post": {},
+          "pre": {
+            "Inv": {
+              "count": "|count@27|",
+              "i": "|i@28|",
+              "n": "|n@21|",
+              "old.__code_epoch": "|__code_epoch@20|",
+              "old.block.basefee": "|block.basefee@11|",
+              "old.block.blobbasefee": "|block.blobbasefee@12|",
+              "old.block.chainid": "|block.chainid@6|",
+              "old.block.coinbase": "|block.coinbase@13|",
+              "old.block.difficulty": "|block.difficulty@15|",
+              "old.block.gaslimit": "|block.gaslimit@16|",
+              "old.block.number": "|block.number@5|",
+              "old.block.prevrandao": "|block.prevrandao@14|",
+              "old.block.timestamp": "|block.timestamp@4|",
+              "old.count": "|count@17|",
+              "old.limit": "|limit@18|",
+              "old.msg.data": "|msg.data@10|",
+              "old.msg.sender": "|msg.sender@2|",
+              "old.msg.sig": "|msg.sig@9|",
+              "old.msg.value": "|msg.value@3|",
+              "old.this": "|this@1|",
+              "old.tx.gasprice": "|tx.gasprice@8|",
+              "old.tx.origin": "|tx.origin@7|"
+            }
+          },
+          "required": true,
+          "role": "obligation",
+          "site": {
+            "column": 9,
+            "file": "Certified/verify_counter/verify_counter.sol",
+            "line": 26
+          },
+          "smt": "LoopVc/Counter/bump_loop0.ob8.smt2",
+          "smt_sha256": "91acff88bda1787f467ab5182c5e609de0b975614d0db3e2b5b65f8ea275030b",
+          "spec": null
+        },
+        {
+          "answer": "not-run",
+          "candidate": "spacer-75c0838b5149",
+          "check": "postcondition not satisfied",
+          "cutpoint": null,
+          "edge": "exit.0",
+          "edge_kind": "exit",
+          "id": "Counter.bump@loop0#exit.0.exit",
+          "kind": "exit",
+          "lean": "SolarVerifyVc.LoopVc.Counter.bump_loop0.ob9",
+          "outcome": "normal",
+          "post": {},
+          "pre": {
+            "Inv": {
+              "count": "|count@27|",
+              "i": "|i@28|",
+              "n": "|n@21|",
+              "old.__code_epoch": "|__code_epoch@20|",
+              "old.block.basefee": "|block.basefee@11|",
+              "old.block.blobbasefee": "|block.blobbasefee@12|",
+              "old.block.chainid": "|block.chainid@6|",
+              "old.block.coinbase": "|block.coinbase@13|",
+              "old.block.difficulty": "|block.difficulty@15|",
+              "old.block.gaslimit": "|block.gaslimit@16|",
+              "old.block.number": "|block.number@5|",
+              "old.block.prevrandao": "|block.prevrandao@14|",
+              "old.block.timestamp": "|block.timestamp@4|",
+              "old.count": "|count@17|",
+              "old.limit": "|limit@18|",
+              "old.msg.data": "|msg.data@10|",
+              "old.msg.sender": "|msg.sender@2|",
+              "old.msg.sig": "|msg.sig@9|",
+              "old.msg.value": "|msg.value@3|",
+              "old.this": "|this@1|",
+              "old.tx.gasprice": "|tx.gasprice@8|",
+              "old.tx.origin": "|tx.origin@7|"
+            }
+          },
+          "required": true,
+          "role": "obligation",
+          "site": {
+            "column": 10,
+            "file": "Certified/verify_counter/verify_counter.sol",
+            "line": 20
+          },
+          "smt": "LoopVc/Counter/bump_loop0.ob9.smt2",
+          "smt_sha256": "a579e7bbf54b6fc99927938350e74736d0c1a8f937174400ea78160054388bb3",
+          "spec": null
+        },
+        {
+          "answer": "not-run",
+          "candidate": "spacer-75c0838b5149",
+          "check": "contract invariant not preserved",
+          "cutpoint": null,
+          "edge": "exit.1",
+          "edge_kind": "exit",
+          "id": "Counter.bump@loop0#exit.1.exit",
+          "kind": "exit",
+          "lean": "SolarVerifyVc.LoopVc.Counter.bump_loop0.ob10",
+          "outcome": "normal",
+          "post": {},
+          "pre": {
+            "Inv": {
+              "count": "|count@27|",
+              "i": "|i@28|",
+              "n": "|n@21|",
+              "old.__code_epoch": "|__code_epoch@20|",
+              "old.block.basefee": "|block.basefee@11|",
+              "old.block.blobbasefee": "|block.blobbasefee@12|",
+              "old.block.chainid": "|block.chainid@6|",
+              "old.block.coinbase": "|block.coinbase@13|",
+              "old.block.difficulty": "|block.difficulty@15|",
+              "old.block.gaslimit": "|block.gaslimit@16|",
+              "old.block.number": "|block.number@5|",
+              "old.block.prevrandao": "|block.prevrandao@14|",
+              "old.block.timestamp": "|block.timestamp@4|",
+              "old.count": "|count@17|",
+              "old.limit": "|limit@18|",
+              "old.msg.data": "|msg.data@10|",
+              "old.msg.sender": "|msg.sender@2|",
+              "old.msg.sig": "|msg.sig@9|",
+              "old.msg.value": "|msg.value@3|",
+              "old.this": "|this@1|",
+              "old.tx.gasprice": "|tx.gasprice@8|",
+              "old.tx.origin": "|tx.origin@7|"
+            }
+          },
+          "required": true,
+          "role": "obligation",
+          "site": {
+            "column": 5,
+            "file": "Certified/verify_counter/verify_counter.sol",
+            "line": 21
+          },
+          "smt": "LoopVc/Counter/bump_loop0.ob10.smt2",
+          "smt_sha256": "69ce37d2ec07748ebe80ab1f77b33bb1a743accbd7540c392aa667bc56feba22",
+          "spec": null
+        }
+      ],
+      "status": "generated"
+    }
+  ],
+  "version": 2
+}

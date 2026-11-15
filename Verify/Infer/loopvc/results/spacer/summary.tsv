@@ -1,0 +1,12 @@
+id	role	answer	status	backends	vacuous
+Counter.bump@loop0#entry.initiation.c0	obligation	not-run	proved	smt	no
+Counter.bump@loop0#entry.initiation.c1	obligation	not-run	proved	smt	no
+Counter.bump@loop0#entry.initiation.c2	obligation	not-run	proved	smt	no
+Counter.bump@loop0#back.0.preservation.c0	obligation	not-run	proved	smt	no
+Counter.bump@loop0#back.0.preservation.c1	obligation	not-run	proved	smt	no
+Counter.bump@loop0#back.0.preservation.c2	obligation	not-run	proved	smt	no
+Counter.bump@loop0#back.0.termination	obligation	not-run	proved	smt	no
+Counter.bump@loop0#revert.0.outcome-revert	obligation	not-run	proved	smt	no
+Counter.bump@loop0#revert.1.outcome-revert	obligation	not-run	proved	smt	no
+Counter.bump@loop0#exit.0.exit	obligation	not-run	proved	smt	no
+Counter.bump@loop0#exit.1.exit	obligation	not-run	proved	smt	no

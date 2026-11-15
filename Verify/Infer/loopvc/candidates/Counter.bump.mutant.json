@@ -1,0 +1,25 @@
+{
+  "id": "annotated-mutant",
+  "origin": "mutant",
+  "cutpoint": "Inv",
+  "clauses": [
+    {
+      "text": "i <= n",
+      "smt": "(<= |i| |n|)",
+      "span": {
+        "file": "Certified/verify_counter/verify_counter.sol",
+        "line": 23,
+        "column": 14
+      }
+    },
+    {
+      "text": "count == old(count) + i + 1 (mutated from count == old(count) + i)",
+      "smt": "(= |count| (+ |old.count| |i| 1))",
+      "span": {
+        "file": "Certified/verify_counter/verify_counter.sol",
+        "line": 24,
+        "column": 14
+      }
+    }
+  ]
+}
