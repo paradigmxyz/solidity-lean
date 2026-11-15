@@ -1,0 +1,34 @@
+{
+  "command": [
+    "tools/certify/certify",
+    "/home/hand/acc-src/Flag.sol",
+    "natspec",
+    "--solidity-lean",
+    "/home/hand/sl445",
+    "--base",
+    "44572c15",
+    "--work",
+    "/home/hand/runs/acc2-flag-work",
+    "--record-dir",
+    "/home/hand/runs/acc2-flag",
+    "--packages-from",
+    "/home/hand/sl445",
+    "--probe-cache",
+    "/home/hand/sl445"
+  ],
+  "exit_code": 2,
+  "wall_seconds": 7269.7,
+  "max_rss_one_process_mib": 10569,
+  "peak_tree_rss_mib": 11170,
+  "peak_system_used_mib": 9326,
+  "mem_total_mib": 14531,
+  "samples": 3631,
+  "sample_interval_s": 2,
+  "trace": "acc2-flag.receipt.trace.tsv",
+  "memory_definitions": {
+    "system_used_mib": "machine-wide MemTotal - MemAvailable (/proc/meminfo), all processes",
+    "tree_rss_mib": "sum of VmRSS over the command's live process tree; shared pages count per process",
+    "max_rss_one_process_mib": "getrusage(RUSAGE_CHILDREN).ru_maxrss: largest peak RSS of one reaped descendant"
+  },
+  "started_utc": "2026-11-15T11:33:24Z"
+}
