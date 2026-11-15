@@ -1,0 +1,11 @@
+id	role	answer	backend	status	seconds	peak_mb	axioms
+Counter.bump@L0#t0.c0	obligation	not-run	smt	proved	2.2	1827	propext Classical.choice Quot.sound
+Counter.bump@L0#t0.c1	obligation	not-run	smt	failed: Counter_bump_L0_t0_c1_smt.lean:4:78: error: unable to prove goal, either it is false or you need to provide more facts. Try adding '+model' config option to display a potential counter-example (experim	1.8	1822	propext sorryAx Classical.choice Quot.sound
+Counter.bump@L0#t0.c1	obligation	not-run	vc_valid	failed: Counter_bump_L0_t0_c1_vc_valid.lean:4:78: error: omega could not prove the goal: a possible counterexample may satisfy the constraints   0 ≤ r ≤ 1157920892373161954235709850086879078532699846656405	2.4	1619	propext sorryAx Classical.choice Quot.sound
+Counter.bump@L0#t1.c0	obligation	not-run	smt	proved	2.4	1846	propext Classical.choice Quot.sound
+Counter.bump@L0#t1.c1	obligation	not-run	smt	proved	2.3	1847	propext Classical.choice Quot.sound
+Counter.bump@L0#t2	obligation	not-run	smt	proved	2.2	1850	propext Classical.choice Quot.sound
+Counter.bump@L0#t3	obligation	not-run	smt	failed: Counter_bump_L0_t3_smt.lean:4:78: error: unable to prove goal, either it is false or you need to provide more facts. Try adding '+model' config option to display a potential counter-example (experiment	2.1	1839	propext sorryAx Classical.choice Quot.sound
+Counter.bump@L0#t3	obligation	not-run	vc_valid	failed: Counter_bump_L0_t3_vc_valid.lean:4:78: error: omega could not prove the goal: a possible counterexample may satisfy the constraints   0 ≤ r ≤ 1157920892373161954235709850086879078532699846656405640	2.9	1641	propext sorryAx Classical.choice Quot.sound
+Counter.bump@L0#t4	obligation	not-run	smt	failed: Counter_bump_L0_t4_smt.lean:4:78: error: unable to prove goal, either it is false or you need to provide more facts. Try adding '+model' config option to display a potential counter-example (experiment	2.2	1841	propext sorryAx Classical.choice Quot.sound
+Counter.bump@L0#t4	obligation	not-run	vc_valid	failed: Counter_bump_L0_t4_vc_valid.lean:4:78: error: omega could not prove the goal: a possible counterexample may satisfy the constraints   0 ≤ q ≤ 1157920892373161954235709850086879078532699846656405640	2.9	1641	propext sorryAx Classical.choice Quot.sound

@@ -1,0 +1,393 @@
+{
+  "format": "solar-verify-lean",
+  "generator": {
+    "interface": {
+      "format": "solar-verify-loopvc",
+      "formulas_sha256": "f8b5887986ea82259e3bc90c12abea85773dc969a7d8788af39535ec590e2de2",
+      "version": 1
+    },
+    "name": "Verify/Infer/smt2lean_inv.py loopvc"
+  },
+  "lean": {
+    "smt_sha256": "2c92f3bcd927369da89250662bd5a6174d3c06d0c3c38f5021509fe8810036e3",
+    "toolchain": "leanprover/lean4:v4.35.0",
+    "vc_sha256": "648d461056fe1649754b1ec259c2d1c48e8db8a4c11e5af281e73796399bc96a"
+  },
+  "sources": [
+    {
+      "path": "Verify/Infer/loopvc/solar/Counter/bump.loopvc.json",
+      "sha256": "524779d300a8349448949e7e9da8a2552a955d413eb443ee6e1d6348dfb442f8"
+    },
+    {
+      "path": "Verify/Infer/loopvc/solar/Counter/bump.horn.smt2",
+      "sha256": "88f69aaad5735250f8e4c8f3fd2d6c1dd94603c9cec4c92ff797ef62d8c3fe54"
+    },
+    {
+      "path": "Verify/Infer/loopvc/solar/LoopVc.lean",
+      "sha256": "8b5f650e16a217b5b843f8ca623a22f6c0dc6c0afc44e07251fac2559d4b2e82"
+    },
+    {
+      "path": "Verify/Infer/loopvc/solar/Counter/bump.lean",
+      "sha256": "e954bfd845f141aa6c87166c42f430eb1b188e0e1615629688fed955278fcf94"
+    },
+    {
+      "path": "Verify/Infer/loopvc/solar/Counter/bump_loopvc.lean",
+      "sha256": "ba357e2ed64efdd84a9d28afc5faf54497a9353b63429c7d0b655ace57d5d221"
+    },
+    {
+      "path": "Verify/Infer/loopvc/solar/Counter/bump.script0.smt2",
+      "sha256": "b596fcfdf4d8d9d5ad138db6403d355309821c6629be9de9fb72636b1b9f0236"
+    },
+    {
+      "path": "Certified/verify_counter/verify_counter.sol",
+      "sha256": "f1c87a334b8db31fc8f80541febeaf8617318d20b685634f44e26c74146ad326"
+    }
+  ],
+  "units": [
+    {
+      "bridge": "bridge/LoopVc/Counter/bump_annotated_bridge.lean",
+      "candidate": {
+        "conjuncts": [
+          {
+            "origin": "annotation",
+            "site": {
+              "column": 14,
+              "file": "Certified/verify_counter/verify_counter.sol",
+              "line": 23
+            },
+            "term": "(<= |i@28| |n@21|)",
+            "text": "i <= n"
+          },
+          {
+            "origin": "annotation",
+            "site": {
+              "column": 14,
+              "file": "Certified/verify_counter/verify_counter.sol",
+              "line": 24
+            },
+            "term": "(= |count@27| (+ |count@17| |i@28|))",
+            "text": "count == old(count) + i"
+          }
+        ],
+        "head_assumption": "(assert (= |g@29| (and |g@26| (and (<= |i@28| |n@21|) (= |count@27| (+ |count@17| |i@28|))))))",
+        "id": "annotated",
+        "rank": {
+          "origin": "annotation",
+          "site": {
+            "column": 14,
+            "file": "Certified/verify_counter/verify_counter.sol",
+            "line": 25
+          },
+          "term": "(- |n@21| |i@28|)",
+          "text": "n - i"
+        }
+      },
+      "module": "LoopVc/Counter/bump_annotated.lean",
+      "name": "Counter.bump L0 [annotated]",
+      "namespace": "SolarVerifyVc.LoopVc.Counter.bump_annotated",
+      "obligations": [
+        {
+          "answer": "not-run",
+          "candidate": "annotated",
+          "cutpoint": "L0",
+          "edge": "entry",
+          "id": "Counter.bump@L0#t0.c0",
+          "kind": "initiation",
+          "lean": "SolarVerifyVc.LoopVc.Counter.bump_annotated.ob0",
+          "post": {
+            "count": "|count@17|",
+            "i": "0",
+            "n": "|n@21|",
+            "old(count)": "|count@17|"
+          },
+          "pre": {},
+          "required": true,
+          "role": "obligation",
+          "site": {
+            "column": 14,
+            "file": "Certified/verify_counter/verify_counter.sol",
+            "line": 23
+          },
+          "smt": "LoopVc/Counter/bump_annotated.ob0.smt2",
+          "smt_sha256": "3c4658c39034e79e52d9ab5c9c910953d40fec7d6d515bddf8f60e3c6ddb4b1f",
+          "spec": {
+            "span": {
+              "column": 14,
+              "file": "Certified/verify_counter/verify_counter.sol",
+              "line": 23
+            },
+            "text": "i <= n"
+          },
+          "template": "t0",
+          "template_role": "invariant"
+        },
+        {
+          "answer": "not-run",
+          "candidate": "annotated",
+          "cutpoint": "L0",
+          "edge": "entry",
+          "id": "Counter.bump@L0#t0.c1",
+          "kind": "initiation",
+          "lean": "SolarVerifyVc.LoopVc.Counter.bump_annotated.ob1",
+          "post": {
+            "count": "|count@17|",
+            "i": "0",
+            "n": "|n@21|",
+            "old(count)": "|count@17|"
+          },
+          "pre": {},
+          "required": true,
+          "role": "obligation",
+          "site": {
+            "column": 14,
+            "file": "Certified/verify_counter/verify_counter.sol",
+            "line": 24
+          },
+          "smt": "LoopVc/Counter/bump_annotated.ob1.smt2",
+          "smt_sha256": "f1ad733f8bda39adab5ac523b1676ed59540783912a7a15d6bd2a4f3e6dc7394",
+          "spec": {
+            "span": {
+              "column": 14,
+              "file": "Certified/verify_counter/verify_counter.sol",
+              "line": 24
+            },
+            "text": "count == old(count) + i"
+          },
+          "template": "t0",
+          "template_role": "invariant"
+        },
+        {
+          "answer": "not-run",
+          "candidate": "annotated",
+          "cutpoint": "L0",
+          "edge": "back",
+          "id": "Counter.bump@L0#t1.c0",
+          "kind": "preservation",
+          "lean": "SolarVerifyVc.LoopVc.Counter.bump_annotated.ob2",
+          "post": {
+            "count": "|arith@31|",
+            "i": "|arith@33|",
+            "n": "|n@21|",
+            "old(count)": "|count@17|"
+          },
+          "pre": {
+            "L0": {
+              "count": "|count@27|",
+              "i": "|i@28|",
+              "n": "|n@21|",
+              "old(count)": "|count@17|"
+            }
+          },
+          "required": true,
+          "role": "obligation",
+          "site": {
+            "column": 14,
+            "file": "Certified/verify_counter/verify_counter.sol",
+            "line": 23
+          },
+          "smt": "LoopVc/Counter/bump_annotated.ob2.smt2",
+          "smt_sha256": "8e9a52da00bfe779eb3268295c3c9ad31b6882ce4449b1b3fb288f9d145ea485",
+          "spec": {
+            "span": {
+              "column": 14,
+              "file": "Certified/verify_counter/verify_counter.sol",
+              "line": 23
+            },
+            "text": "i <= n"
+          },
+          "template": "t1",
+          "template_role": "invariant"
+        },
+        {
+          "answer": "not-run",
+          "candidate": "annotated",
+          "cutpoint": "L0",
+          "edge": "back",
+          "id": "Counter.bump@L0#t1.c1",
+          "kind": "preservation",
+          "lean": "SolarVerifyVc.LoopVc.Counter.bump_annotated.ob3",
+          "post": {
+            "count": "|arith@31|",
+            "i": "|arith@33|",
+            "n": "|n@21|",
+            "old(count)": "|count@17|"
+          },
+          "pre": {
+            "L0": {
+              "count": "|count@27|",
+              "i": "|i@28|",
+              "n": "|n@21|",
+              "old(count)": "|count@17|"
+            }
+          },
+          "required": true,
+          "role": "obligation",
+          "site": {
+            "column": 14,
+            "file": "Certified/verify_counter/verify_counter.sol",
+            "line": 24
+          },
+          "smt": "LoopVc/Counter/bump_annotated.ob3.smt2",
+          "smt_sha256": "42d79032109a0be83e48f557762682cd48c24a3f277c07ea028506b83b9c8d66",
+          "spec": {
+            "span": {
+              "column": 14,
+              "file": "Certified/verify_counter/verify_counter.sol",
+              "line": 24
+            },
+            "text": "count == old(count) + i"
+          },
+          "template": "t1",
+          "template_role": "invariant"
+        },
+        {
+          "answer": "not-run",
+          "candidate": "annotated",
+          "cutpoint": "L0",
+          "edge": "back",
+          "id": "Counter.bump@L0#t2",
+          "kind": "termination",
+          "lean": "SolarVerifyVc.LoopVc.Counter.bump_annotated.ob4",
+          "post": {},
+          "pre": {
+            "L0": {
+              "count": "|count@27|",
+              "i": "|i@28|",
+              "n": "|n@21|",
+              "old(count)": "|count@17|"
+            }
+          },
+          "required": true,
+          "role": "obligation",
+          "site": {
+            "column": 14,
+            "file": "Certified/verify_counter/verify_counter.sol",
+            "line": 25
+          },
+          "smt": "LoopVc/Counter/bump_annotated.ob4.smt2",
+          "smt_sha256": "bf922edda138cff9c0e93ff23a0fa9548c1fb15933877aa14aed7ee86a841a22",
+          "spec": {
+            "span": {
+              "column": 14,
+              "file": "Certified/verify_counter/verify_counter.sol",
+              "line": 25
+            },
+            "text": "n - i"
+          },
+          "template": "t2",
+          "template_role": "rank"
+        },
+        {
+          "answer": "not-run",
+          "candidate": "annotated",
+          "cutpoint": "L0",
+          "edge": "exit",
+          "id": "Counter.bump@L0#t3",
+          "kind": "exit",
+          "lean": "SolarVerifyVc.LoopVc.Counter.bump_annotated.ob5",
+          "post": {},
+          "pre": {
+            "L0": {
+              "count": "|count@27|",
+              "i": "|i@28|",
+              "n": "|n@21|",
+              "old(count)": "|count@17|"
+            }
+          },
+          "required": true,
+          "role": "obligation",
+          "site": {
+            "column": 10,
+            "file": "Certified/verify_counter/verify_counter.sol",
+            "line": 20
+          },
+          "smt": "LoopVc/Counter/bump_annotated.ob5.smt2",
+          "smt_sha256": "d3090ea2aee8171933ea7a198c851eb5630cabe3c1028dff48aa0700b20b52c8",
+          "spec": {
+            "span": {
+              "column": 10,
+              "file": "Certified/verify_counter/verify_counter.sol",
+              "line": 20
+            },
+            "text": "postcondition not satisfied"
+          },
+          "template": "t3",
+          "template_role": "path"
+        },
+        {
+          "answer": "not-run",
+          "candidate": "annotated",
+          "cutpoint": "L0",
+          "edge": "exit",
+          "id": "Counter.bump@L0#t4",
+          "kind": "exit",
+          "lean": "SolarVerifyVc.LoopVc.Counter.bump_annotated.ob6",
+          "post": {},
+          "pre": {
+            "L0": {
+              "count": "|count@27|",
+              "i": "|i@28|",
+              "n": "|n@21|",
+              "old(count)": "|count@17|"
+            }
+          },
+          "required": true,
+          "role": "obligation",
+          "site": {
+            "column": 5,
+            "file": "Certified/verify_counter/verify_counter.sol",
+            "line": 21
+          },
+          "smt": "LoopVc/Counter/bump_annotated.ob6.smt2",
+          "smt_sha256": "24b1bd91593f695ecbdd42782926cf4dfaea3c00e39cf77489b687147ac71531",
+          "spec": {
+            "span": {
+              "column": 5,
+              "file": "Certified/verify_counter/verify_counter.sol",
+              "line": 21
+            },
+            "text": "contract invariant not preserved"
+          },
+          "template": "t4",
+          "template_role": "path"
+        }
+      ],
+      "reverts": [
+        {
+          "asserts": 24,
+          "commands": 48,
+          "from": "entry",
+          "guard": "(and |g@23| (not (and (<= 0 |arith@24|) (<= |arith@24| 115792089237316195423570985008687907853269984665640564039457584007913129639935))))",
+          "id": "r0",
+          "script": 0
+        },
+        {
+          "asserts": 25,
+          "commands": 50,
+          "from": "entry",
+          "guard": "(and |g@25| (not (<= |arith@24| |limit@18|)))",
+          "id": "r1",
+          "script": 0
+        },
+        {
+          "asserts": 31,
+          "commands": 62,
+          "from": "body",
+          "guard": "(and |g@30| (not (and (<= 0 |arith@31|) (<= |arith@31| 115792089237316195423570985008687907853269984665640564039457584007913129639935))))",
+          "id": "r2",
+          "script": 0
+        },
+        {
+          "asserts": 33,
+          "commands": 66,
+          "from": "body",
+          "guard": "(and |g@32| (not (and (<= 0 |arith@33|) (<= |arith@33| 115792089237316195423570985008687907853269984665640564039457584007913129639935))))",
+          "id": "r3",
+          "script": 0
+        }
+      ],
+      "status": "generated"
+    }
+  ],
+  "version": 2
+}

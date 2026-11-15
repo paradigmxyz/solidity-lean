@@ -1,0 +1,10 @@
+id	role	answer	status	backends	vacuous
+Counter.bump@L0#t0.c0	obligation	not-run	proved	smt	no
+Counter.bump@L0#t0.c1	obligation	not-run	proved	smt	no
+Counter.bump@L0#t0.c2	obligation	not-run	proved	smt	no
+Counter.bump@L0#t1.c0	obligation	not-run	proved	smt	no
+Counter.bump@L0#t1.c1	obligation	not-run	proved	smt	no
+Counter.bump@L0#t1.c2	obligation	not-run	proved	smt	no
+Counter.bump@L0#t2	obligation	not-run	proved	smt	no
+Counter.bump@L0#t3	obligation	not-run	proved	smt	no
+Counter.bump@L0#t4	obligation	not-run	proved	smt	no

@@ -1,86 +1,99 @@
-# Loop certificates from solar-verify's loop-cut export
+# Generated loop obligations: Counter.bump
 
-This directory checks, in the Lean kernel, the loop obligations of any function with one loop
-that `solar-verify --emit-loopvc` exports (format 1, docs/loopvc-interface.md in solar): the
-invariant holds on entry (initiation), the loop body keeps it (every back edge) and lowers the
-ranking function (termination), and the exit paths meet what follows the loop (exit and outcome).
-The same checker runs on every such function; nothing is specific to one contract.
+This directory turns solar-verify's loop-cut interface for one loop and a candidate invariant into
+the exact obligations of initiation, preservation (every back edge), termination and exit, and
+discharges them with the existing runner, [`Verify/Discharge/discharge.sh`](../../Discharge/discharge.sh).
+Unlike [`../chc`](../chc) (Horn clauses written by hand), nothing here is written by hand except
+the mutated candidate of the negative test.
 
-    solar-verify --no-infer --dry-run --emit-loopvc EXPORT FILE.sol     # from the repository root
-    Verify/Infer/loopvc/run.sh EXPORT OUT [TIMEOUT_SECONDS]              # exit 0 proved, 3 blocked, 1 failed
+The loop is `Counter.bump` of [`Certified/verify_counter/verify_counter.sol`](../../../Certified/verify_counter/verify_counter.sol):
+`for (uint256 i = 0; i < n; i++) count++;` after `require(count + n <= limit)`, annotated with
+`i <= n`, `count == old(count) + i` and `decreases n - i`.
 
-`run.sh` plans every unit with a loop (`loopcert.py plan`), writes a certificate
-`LoopCert.<C>.<f>` per required unit (`loopcert.py gen`), compiles the exported interface library,
-the unit's obligation module and its loop-cut module, compiles the certificate with lean-smt's
-cvc5 reconstruction (`Verify/Discharge/Reconstruct`), reads the axioms of its theorem `certified`,
-runs `Verify/Discharge/discharge.sh` on the whole export as an independent per-obligation audit
-(axioms and vacuity), and writes `OUT/receipt.json` (`loopcert.py receipt`).
+## Input
 
-## What a certificate proves
+- `solar/`: the loop-cut interface solar-verify writes (`--emit-loopvc`, format 1, solar's
+  `docs/loopvc-interface.md`), at the solar commit in `solar/REV`, run from this repository's root:
 
-For each template `tK` on the cut's entry, back and exit edges, the generated file proves every
-instance obligation by `vc_smt` and `tK.Valid cut cand` through the exporter's `tK_valid` (whose
-`tK_exact` is `rfl`: the template instantiated at the run's candidate is exactly the unit's
-obligations). `certified` is the conjunction over every template; `obligations_valid` is the same
-as one list of `Obligation.Valid` facts. A unit is **proved** only when the certificate builds,
-`certified` depends on no axiom beyond `propext`, `Classical.choice` and `Quot.sound`, and the
-discharge audit proves each instance with none vacuous. Anything else (an obligation that does not
-hold, a timeout, a module the kernel rejects, a missing axiom report) is **failed**, never proved.
+      solar-verify --no-infer --only Counter.bump --emit-loopvc DIR Certified/verify_counter/verify_counter.sol
 
-## How it connects to the code
+  `Counter/bump.loopvc.json` (cut, parameters, edges, templates, revert paths, the run's
+  candidate), `Counter/bump.horn.smt2` (the Horn view), `Counter/bump.script0.smt2` (the run's
+  script), `Counter/bump.lean` (the run's obligations, `--emit-lean`), `Counter/bump_loopvc.lean`
+  (the templates, with the run's candidate abstracted, and `tK_exact`: their instances at the run's
+  candidate are the run's obligations, by `rfl`) and `LoopVc.lean` (`Template.instances`).
+- `spacer/Counter.bump.spacer.out`: z3 4.13.4's Spacer answer for the Horn view, unedited.
+- `candidates/Counter.bump.mutant.json`: the annotated candidate with `count == old(count) + i`
+  changed to `+ i + 1`.
 
-`Bridge.lean` states the connection to SolidCore's loop rule (`ForCert` / `WhileCert` of
-`SolidCore/Refinement/Generic/Loop.lean`): a per-loop binding `ForBinds` / `WhileBinds` (valid
-obligations make the candidate a ranking certificate of the SolidCore loop), and
-`forLoop_of_cut` / `whileLoop_of_cut`, which give the loop's end in SolidCore's interpreter from a
-binding and `obligations_valid`. The binding is the loop analogue of `Binds`
-(`Verify/VC/Obligations.lean`): one proof per function. **It is not generated yet**: today a loop
-certificate is a kernel-checked fact about solar-verify's encoding of the function, and the
-source-to-bytecode theorem of a function with a loop still needs its binding (verify_counter's
-`bump` has a hand-written one, `Contracts/VerifyCounter/SourceLoop.lean`). The generic
-`EndToEnd` path (`bytecode_of_checked`) covers loop-free functions only: `eraseFn` erases to a
-`Tree` of `halt` and `ite`.
+## Obligations
 
-## Invariants
+`smt2lean_inv.py loopvc --export solar --unit Counter.bump [--candidate F | --spacer F]` writes the
+candidate's obligations as a `solar-verify-lean` version-2 export (`export/<candidate>/`):
 
-Invariants and ranking functions come from the source's annotations or from a certify-invariants
-file; nothing is inferred (the exporter runs with `--no-infer`). A supplied candidate is checked
-exactly like an annotated one: it is an input to the proof, not trusted.
+- The candidate (the interface's own, a candidate file in its shape, or Spacer's model of the cut
+  predicate with the interface's ranking function) is translated into the embedding, numbered as
+  the run's script declares its symbols; a term naming anything but the cut's parameters is refused.
+- Lean computes the obligations: `Template.instances` of every template at the candidate, printed as
+  terms, one `obK` per instance. Nothing re-implements the instantiation.
+- `bridge/.../*_bridge.lean` proves, by `rfl`, that each template's instances at the candidate are
+  exactly those `obK` (and, for the annotated candidate, that it is the run's candidate, so its
+  obligations are the run's own through the interface's `tK_exact`). The generator checks it and
+  its axioms before it writes the manifest.
 
-    {"format": "certify-invariants", "version": 1,
-     "loops": [{"function": "C.f", "line": L, "invariants": ["i <= n", "..."], "decreases": "n - i"}]}
+| Template | Edge | Obligations (manifest `kind`) |
+| --- | --- | --- |
+| `invariant` | entry | one per conjunct (`initiation`) |
+| `invariant` | back | one per conjunct, each assuming the whole invariant at the head (`preservation`) |
+| `rank` | back | `0 <= r` and `r` decreases, under the invariant (`termination`) |
+| `path` | exit | postcondition, contract invariant (`exit`) |
 
-`loopcert.py annotate SOURCE INVARIANTS OUT` writes OUT with each entry's lines inserted as
-`/// @custom:invariant` and `/// @custom:decreases` comments right above line L, and checks that
-deleting the inserted lines gives SOURCE byte for byte; comments do not change the compiled code
-(`tests/test.sh` compares the runtime bytecode of both).
+Revert paths owe nothing without `succeeds-if` (the interface's contract): the manifest lists them,
+with their conditions, and they have no row. Out of gas is not in solar-verify's encoding.
 
-## Supported and blocked
+`discharge.sh` applies its own checks unchanged: semantics hashes, required manifest, locked
+inputs, per-row axioms, vacuity. Nothing is proved by a solver's answer: `vc_smt` rebuilds cvc5's
+proof in the kernel. A failed, unknown or timed-out row is not proved.
 
-Required (certified): a function with exactly one `for` or `while` loop, at least one invariant,
-exactly one `decreases`, no call inside the loop, an exit edge to a normal return, and every
-required obligation of the function an instance of exactly one template. Internal calls outside
-the loop are part of solar-verify's encoding of the function (their requirements become path
-obligations like any other) and need nothing here.
+`smt2lean_inv.py cti DIR`, after a discharge, asks z3 for a model of each open obligation's query
+(the template's SMT-LIB with the candidate put back, `LoopVc/.../*.obK.smt2`) and writes
+`discharge/cti.json` (candidate, template, edge, source location, the cut's parameters before and
+after the edge) and `discharge/residual/<id>.lean`, the exact goal left open. A model is a
+counterexample to induction: it rejects the candidate on that edge, and says nothing about whether
+the state is reachable.
 
-**Blocked** (status `blocked`, exit 3, with the reason; the driver must not report such a function
-as certified):
+## Results
 
-* a call inside the loop: no call summaries in format 1 (the exporter reports the call edge);
-* two or more loops in a function, nested or in sequence;
-* no `decreases` (termination has no proof) or more than one;
-* no invariant;
-* an export whose files do not match the hashes the cut names (`LoopVc.lean`, the Horn view), or
-  a run that reports errors (a source outside the run's directory);
-* required queries that are not instances of the cut's templates.
+`check.sh` is the acceptance check; [`results/`](results) holds its run (z3 4.13.4, cvc5 through
+lean-smt `6b26285`, Lean 4.35.0):
 
-## Tests
+| Candidate | Obligations | Proved | Vacuous | Axioms |
+| --- | --- | --- | --- | --- |
+| annotated (`i <= n`, `count == old(count) + i`, `decreases n - i`) | 7 | 7 (`vc_smt`) | none | propext, Classical.choice, Quot.sound |
+| Spacer's, with the annotated ranking function | 9 | 9 (`vc_smt`) | none | propext, Classical.choice, Quot.sound |
+| mutant (`count == old(count) + i + 1`) | 7 | 4 | none | rejected: 3 rows with a counterexample |
 
-    SOLAR_VERIFY=.../solar-verify SOLC=.../solc Verify/Infer/loopvc/tests/test.sh WORKDIR
+The mutant's counterexamples: on the entry edge (`t0`), `count = i = n = old(count) = 0` after
+it, where the mutant needs `count = 1`; on the exit edge, the postcondition (`t3`) and the
+contract invariant (`t4`) from the head state `count = 1, i = n = old(count) = 0`.
 
-Ten cases: verify_counter's `bump` (a `for` loop with annotations) and the held-out
-`tests/heldout/Drain.sol` (a `while` loop counting down with a local accumulator and a named
-return, written for these tests, with its invariants supplied in `Drain.invariants.json`) proved;
-the annotated copy's bytecode equal to the source's; a supplied invariant that is not preserved
-failed; no `decreases` blocked; a call in the loop and two loops blocked; a candidate edited in the
-exported template module failed (the kernel rejects `tK_exact`); an edited Horn view blocked.
+    bash Verify/Infer/loopvc/check.sh [WORKDIR]
+
+needs the library build of `Verify/Discharge/Reconstruct` (`Verify/Discharge/README.md`) and z3 on
+`PATH`. With `SOLAR_VERIFY` set to a solar-verify built at `solar/REV`, it first checks that
+solar-verify writes the committed interface files. It then regenerates both exports and compares
+them byte for byte with `export/` (the bridge checks in that step), discharges each against its lock
+(`export/<candidate>.sha256`), requires every row proved, non-vacuous and with the three axioms, and
+requires the mutant to fail with a counterexample on the entry edge. CI runs it (`.github/workflows/loopvc.yml`).
+
+## Not covered
+
+- Not composed by `Verify/VC/EndToEnd`: the obligations are not yet part of a script that
+  `checkScript` binds to the function's erased tree (`Binds`), so no bytecode theorem uses them.
+- Out of gas: solar-verify has no gas model. Revert paths carry no obligation (no `succeeds-if`).
+- The interface's limits (format 1): one loop per function, no call in the loop, Int and Bool cut
+  parameters, inference off.
+- CI does not rebuild solar to recheck the interface files (`SOLAR_VERIFY` unset there); the
+  committed files' hashes are pinned in the locks.
+- No bounded replay of a counterexample, and no strengthening from it. `vc_valid` proves none of the
+  rows within its 30 s; `vc_smt` proves them all.
