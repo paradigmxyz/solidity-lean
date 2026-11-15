@@ -1,0 +1,15 @@
+id	role	answer	backend	status	seconds	peak_mb	axioms
+Counter.constructor#1	obligation	not-run	smt	proved	1.7	1813	propext Classical.choice Quot.sound
+Counter.constructor#2	obligation	not-run	smt	proved	1.8	1813	propext Classical.choice Quot.sound
+Counter.increment#1	obligation	not-run	smt	proved	2.0	1820	propext Classical.choice Quot.sound
+Counter.increment#2	obligation	not-run	smt	proved	1.9	1823	propext Classical.choice Quot.sound
+Counter.bump#0	obligation	not-run	smt	proved	2.2	1827	propext Classical.choice Quot.sound
+Counter.bump#1	obligation	not-run	smt	proved	2.2	1828	propext Classical.choice Quot.sound
+Counter.bump#39	obligation	not-run	smt	proved	2.6	1849	propext Classical.choice Quot.sound
+Counter.bump#40	obligation	not-run	smt	proved	2.7	1849	propext Classical.choice Quot.sound
+Counter.bump#41	obligation	not-run	smt	proved	2.8	1850	propext Classical.choice Quot.sound
+Counter.bump#43	obligation	not-run	smt	proved	2.6	1857	propext Classical.choice Quot.sound
+Counter.bump#44	obligation	not-run	smt	proved	2.6	1857	propext Classical.choice Quot.sound
+Counter.max#1	obligation	not-run	smt	proved	2.5	1833	propext Classical.choice Quot.sound
+Counter.max#2	obligation	not-run	smt	proved	2.6	1838	propext Classical.choice Quot.sound
+Counter.max#3	obligation	settled	smt	proved	2.3	1828	propext Classical.choice Quot.sound

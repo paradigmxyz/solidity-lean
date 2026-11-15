@@ -1,0 +1,15 @@
+id	role	answer	status	backends	vacuous
+Counter.constructor#1	obligation	not-run	proved	smt	no
+Counter.constructor#2	obligation	not-run	proved	smt	no
+Counter.increment#1	obligation	not-run	proved	smt	no
+Counter.increment#2	obligation	not-run	proved	smt	no
+Counter.bump#0	obligation	not-run	proved	smt	no
+Counter.bump#1	obligation	not-run	proved	smt	no
+Counter.bump#39	obligation	not-run	proved	smt	no
+Counter.bump#40	obligation	not-run	proved	smt	no
+Counter.bump#41	obligation	not-run	proved	smt	no
+Counter.bump#43	obligation	not-run	proved	smt	no
+Counter.bump#44	obligation	not-run	proved	smt	no
+Counter.max#1	obligation	not-run	proved	smt	no
+Counter.max#2	obligation	not-run	proved	smt	no
+Counter.max#3	obligation	settled	proved	smt	no

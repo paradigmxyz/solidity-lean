@@ -1,0 +1,1205 @@
+From 78a5ef880282649d4feafffd539e352980d949d8 Mon Sep 17 00:00:00 2001
+From: Troy Sargent <troy@paradigm.xyz>
+Date: Sun, 15 Nov 2026 02:01:57 +0000
+Subject: [PATCH] feat(certify): require and discharge the loop obligations of
+ a registry
+
+solar-verify --emit-lean names, for every obligation past a loop head, the
+cutpoint edge it is on (entry, back, exit), what it is for there
+(initiation, preservation, termination, body, call, exit) and its outcome,
+and lists each unit's loop heads with their clauses and edges.
+
+tools/certify/loopvc.py derives the registry of a function's loop
+obligations from that export and checks a committed one against it: the
+driver exports the source in step 3b, fails unless the export has exactly
+the registry's obligations for the pinned bytecode, and discharges them in
+step 6 with solidity-lean's Verify/Discharge, failing on any that is not
+proved with clean axioms. test.sh covers each failure, and the driver
+failing on an export that lacks one loop obligation. The solidity-lean pin
+moves to the commit that adds verify_counter's registry.
+---
+ crates/verify/LEAN.md           |  18 +-
+ crates/verify/src/lean.rs       | 107 ++++++++++-
+ crates/verify/src/smt.rs        |   7 +
+ crates/verify/src/vc.rs         |   6 +
+ crates/verify/src/vc/infer.rs   |  29 ++-
+ crates/verify/tests/cases.rs    |  87 +++++++++
+ scripts/certify                 | 106 ++++++++++-
+ tools/certify/README.md         |  15 ++
+ tools/certify/loopvc.py         | 327 ++++++++++++++++++++++++++++++++
+ tools/certify/solidity-lean.rev |   2 +-
+ tools/certify/test.sh           | 173 +++++++++++++++++
+ 11 files changed, 863 insertions(+), 14 deletions(-)
+ create mode 100755 tools/certify/loopvc.py
+
+diff --git a/crates/verify/LEAN.md b/crates/verify/LEAN.md
+index a430e9816..890512c44 100644
+--- a/crates/verify/LEAN.md
++++ b/crates/verify/LEAN.md
+@@ -120,7 +120,11 @@ that the symbol equals its body at every argument.
+ - `units`: per unit its `name`, `status` (`verified`, `failed`, `unknown`, `unsupported`,
+   `lemma` for a broadcast lemma, or `not-exported` with an `error`), `module`, `namespace`,
+   `scripts` (the Lean name, the SMT-LIB file, the command count and the declared symbols in
+-  order) and `obligations`.
++  order), `obligations` and `cutpoints`: the loop heads the encoder cut the function at, in
++  source order, each with its `id` (`L<line>:<column>` of the loop statement), location, the
++  hand-written `invariants` and `decreases` clauses, the `inferred` invariants and `measure` the
++  run kept (none without a solver), and how many `back_edges` (the end of the body and each
++  `continue`) and `exits` (the guard failing and each `break`) it has.
+ - `errors`: the units that could not be exported, and sources outside the run's directory.
+ 
+ The manifest holds nothing that differs between two checkouts of the same sources, so the same
+@@ -140,7 +144,17 @@ Each obligation has:
+ - `role`:
+   - `obligation`: a spec obligation, with `kind` (the message a failure prints), `site`
+     (file, line, column of the code it is checked at) and `spec` (the clause it discharges, its
+-    text and location, or `null` for a built-in check such as an assertion or overflow).
++    text and location, or `null` for a built-in check such as an assertion or overflow),
++    `outcome` (`revert` for a kind about whether the call reverts, else `normal`; no obligation
++    is about running out of gas) and `cut`: `null` on a path from the function's entry that
++    passed no loop head, else the cutpoint edge the obligation is on: `loop` (a `cutpoints` id),
++    `edge` (`entry`, `back` or `exit`), `class` (`initiation` of an invariant on the entry edge;
++    `preservation` of an invariant, `termination` of a measure or `body`, met in the body, on the
++    back edge; `exit`, met past the exit, such as a postcondition; `call`, a callee's
++    precondition met in the body or past the exit) and `merged` (a `return` inside the body
++    also reaches the obligation, so the exit edge is not its only path). The cut is the loop head
++    the path last passed in program order: an obligation past two sequential loops names the
++    second.
+   - `side`: a query whose `unsat` answer the encoding relies on, such as whether a reentrancy
+     lock is held, or a bound the interval analysis claims.
+   - `split`: one case of a case split of obligation `parent`.
+diff --git a/crates/verify/src/lean.rs b/crates/verify/src/lean.rs
+index 6dac314cc..cd2a599ce 100644
+--- a/crates/verify/src/lean.rs
++++ b/crates/verify/src/lean.rs
+@@ -70,11 +70,61 @@ pub(crate) fn finish(mut r: Box<Recorder>) {
+     }
+ }
+ 
++/// An edge of a loop's cutpoint: entering the loop at its head, going around the body back to it,
++/// or leaving it.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub(crate) enum Edge {
++    Entry,
++    Back,
++    Exit,
++}
++
++impl Edge {
++    fn name(self) -> &'static str {
++        match self {
++            Self::Entry => "entry",
++            Self::Back => "back",
++            Self::Exit => "exit",
++        }
++    }
++}
++
++/// Where an obligation sits in its function's cutpoint graph: the loop head (by the loop
++/// statement's span) whose edge the checked path is on, what the obligation is for on that edge
++/// (`initiation` of an invariant on entry; `preservation` of an invariant, `termination` of a
++/// measure or `body`, met in the body, on the back edge; `exit`, met past the exit, such as the
++/// postconditions; `call`, a callee's precondition met on any of them), and whether a `return`
++/// inside the loop's body joins the exit path (`merged`), so that the exit is not the only way
++/// the path reaches its obligation.
++#[derive(Clone, Debug)]
++pub(crate) struct Cut {
++    pub span: Span,
++    pub edge: Edge,
++    pub class: &'static str,
++    pub merged: bool,
++}
++
++/// A loop head the encoder cut at, with the clauses it was cut with and its edges.
++#[derive(Clone, Debug)]
++pub(crate) struct CutPoint {
++    pub span: Span,
++    pub invariants: Vec<String>,
++    pub decreases: Vec<String>,
++    /// Inferred invariants and measure kept by the real run (none without a solver).
++    pub inferred: Vec<String>,
++    pub measure: Option<String>,
++    /// Paths back to the head: the end of the body and each `continue`.
++    pub back_edges: usize,
++    /// Paths out: the guard failing and each `break`.
++    pub exits: usize,
++}
++
+ /// What a query is for.
+ #[derive(Clone, Debug)]
+ pub(crate) enum Role {
+-    /// A spec obligation: its kind, where it is checked and the spec clause it discharges.
+-    Obligation { kind: String, span: Span, spec: Option<(String, Span)> },
++    /// A spec obligation: its kind, where it is checked, the spec clause it discharges and, past
++    /// a loop head, the cutpoint edge it is on.
++    Obligation { kind: String, span: Span, spec: Option<(String, Span)>, cut: Option<Cut> },
+     /// One case of a case split of obligation `parent` (an index into the unit's queries).
+     Split { parent: usize },
+     /// A query whose `unsat` the encoding relies on, such as whether a reentrancy lock is held.
+@@ -137,6 +187,8 @@ pub(crate) struct Recorder {
+     /// Whether a query reads the current script.
+     used: bool,
+     queries: Vec<Query>,
++    /// The loop heads the unit's real run cut at, in the order it finished them.
++    cutpoints: Vec<CutPoint>,
+     /// Text that did not parse, which makes the unit's export an error.
+     error: Option<String>,
+ }
+@@ -214,6 +266,11 @@ impl Recorder {
+             q.answer = Answer::Split;
+         }
+     }
++
++    /// Records a loop head the real run cut at.
++    pub(crate) fn cutpoint(&mut self, c: CutPoint) {
++        self.cutpoints.push(c);
++    }
+ }
+ 
+ // Translation.
+@@ -887,7 +944,7 @@ fn unit(sess: &Session, dir: &Path, u: &Recorder, module: &str) -> R<serde_json:
+             _ => {}
+         }
+         let required = match &q.role {
+-            Role::Obligation { kind, span, spec } => {
++            Role::Obligation { kind, span, spec, cut } => {
+                 json["role"] = "obligation".into();
+                 json["kind"] = kind.clone().into();
+                 json["site"] = location(sess, *span);
+@@ -896,6 +953,18 @@ fn unit(sess: &Session, dir: &Path, u: &Recorder, module: &str) -> R<serde_json:
+                     l["text"] = text.clone().into();
+                     l
+                 });
++                json["outcome"] = outcome(kind).into();
++                json["cut"] = cut.as_ref().map_or(serde_json::Value::Null, |c| {
++                    serde_json::json!({
++                        "loop": loop_id(sess, c.span),
++                        "edge": c.edge.name(),
++                        "class": match c.class {
++                            "body" | "exit" if kind.starts_with("precondition") => "call",
++                            class => class,
++                        },
++                        "merged": c.merged,
++                    })
++                });
+                 true
+             }
+             Role::Split { parent } => {
+@@ -918,15 +987,47 @@ fn unit(sess: &Session, dir: &Path, u: &Recorder, module: &str) -> R<serde_json:
+     }
+     let _ = writeln!(lean, "end {ns}");
+     std::fs::write(&file, lean).map_err(|e| e.to_string())?;
++    // The loop heads, in source order, each with its edges: the obligations naming it as their
++    // cut are the ones on its edges.
++    let mut cps: Vec<&CutPoint> = u.cutpoints.iter().collect();
++    cps.sort_by_key(|c| (c.span.lo(), c.span.hi()));
++    cps.dedup_by_key(|c| (c.span.lo(), c.span.hi()));
++    let cutpoints: Vec<_> = cps
++        .iter()
++        .map(|c| {
++            let mut l = location(sess, c.span);
++            l["id"] = loop_id(sess, c.span).into();
++            l["invariants"] = c.invariants.clone().into();
++            l["decreases"] = c.decreases.clone().into();
++            l["inferred"] = c.inferred.clone().into();
++            l["measure"] = c.measure.clone().into();
++            l["back_edges"] = c.back_edges.into();
++            l["exits"] = c.exits.into();
++            l
++        })
++        .collect();
+     Ok(serde_json::json!({
+         "name": u.unit,
+         "module": format!("{path}.lean"),
+         "namespace": ns,
+         "scripts": scripts,
+         "obligations": obligations,
++        "cutpoints": cutpoints,
+     }))
+ }
+ 
++/// A loop head's name within its unit: `L<line>:<column>` of the loop statement.
++fn loop_id(sess: &Session, sp: Span) -> String {
++    let l = location(sess, sp);
++    format!("L{}:{}", l["line"], l["column"])
++}
++
++/// The outcome an obligation is about: `revert` for the kinds that say whether a call reverts,
++/// else `normal` (a call that returns). No obligation is about running out of gas.
++fn outcome(kind: &str) -> &'static str {
++    if kind.contains("revert") { "revert" } else { "normal" }
++}
++
+ fn sexp_of(text: &str) -> R<Sexp> {
+     sexp::parse(text).next().ok_or("empty term")?.map_err(|e| e.to_string())
+ }
+diff --git a/crates/verify/src/smt.rs b/crates/verify/src/smt.rs
+index f66b5a4aa..dba4940ef 100644
+--- a/crates/verify/src/smt.rs
++++ b/crates/verify/src/smt.rs
+@@ -244,6 +244,13 @@ impl Smt {
+         self.record.as_ref().map_or(0, |r| r.len())
+     }
+ 
++    /// Records a loop head the real run cut at, for `--emit-lean`.
++    pub(crate) fn cutpoint(&mut self, c: crate::lean::CutPoint) {
++        if let Some(r) = &mut self.record {
++            r.cutpoint(c);
++        }
++    }
++
+     /// Marks recorded query `i` as proved by its case split.
+     pub(crate) fn split(&mut self, i: usize) {
+         if let Some(r) = &mut self.record {
+diff --git a/crates/verify/src/vc.rs b/crates/verify/src/vc.rs
+index 3c201f2f3..c24ef1b25 100644
+--- a/crates/verify/src/vc.rs
++++ b/crates/verify/src/vc.rs
+@@ -89,6 +89,8 @@ pub(crate) struct Vc<'p, 'a> {
+     old: Option<Env>,
+     frames: Vec<Frame>,
+     loops: Vec<LoopCtx>,
++    /// The cutpoint edge the path being encoded is on, for `--emit-lean` (None before any loop).
++    cut: Option<crate::lean::Cut>,
+     ph: Vec<(&'p Func<'a>, usize, Env)>,
+     unchecked: bool,
+     spec: bool,
+@@ -239,6 +241,7 @@ impl<'p, 'a> Vc<'p, 'a> {
+             old: None,
+             frames: vec![],
+             loops: vec![],
++            cut: None,
+             ph: vec![],
+             unchecked: false,
+             spec: false,
+@@ -783,6 +786,7 @@ impl<'p, 'a> Vc<'p, 'a> {
+             kind: kind.into(),
+             span,
+             spec: spec.map(|s| (s.text.clone(), s.span)),
++            cut: self.cut.clone(),
+         };
+         if self.guard == "false" || phi == "true" {
+             let why = if phi == "true" { "the goal is true" } else { "the guard is false" };
+@@ -864,6 +868,7 @@ impl<'p, 'a> Vc<'p, 'a> {
+                 kind: kind.into(),
+                 span,
+                 spec: Some((inv.text.clone(), inv.span)),
++                cut: self.cut.clone(),
+             };
+             let guard = self.guard.clone();
+             self.smt.settled(&guard, t, role, "assumed at entry, over unchanged state");
+@@ -1418,6 +1423,7 @@ impl<'p, 'a> Vc<'p, 'a> {
+     // ---------------------------------------------------------------- function driver
+     pub(crate) fn verify_fn(&mut self, f: &'p Func<'a>) -> FnReport {
+         self.horn_hints.clear();
++        self.cut = None;
+         let at = self.begin_fn(f);
+         let mut r = self.verify_fn_inner(f);
+         // Spacer's proposals become candidates of one more run, checked like every other.
+diff --git a/crates/verify/src/vc/infer.rs b/crates/verify/src/vc/infer.rs
+index 7730619cb..69cdb375e 100644
+--- a/crates/verify/src/vc/infer.rs
++++ b/crates/verify/src/vc/infer.rs
+@@ -26,7 +26,12 @@
+ //! obligations were proved.
+ 
+ use super::{Env, Frame, LoopCtx, R, Var, Vc};
+-use crate::{prog::Spec, ty::Ty, walk};
++use crate::{
++    lean::{Cut, CutPoint, Edge},
++    prog::Spec,
++    ty::Ty,
++    walk,
++};
+ use solar_parse::{
+     ast::{BinOpKind, Expr, ExprKind, IndexKind, LitKind, Stmt, StmtKind, UnOpKind},
+     interface::{
+@@ -151,6 +156,8 @@ impl<'p, 'a> Vc<'p, 'a> {
+     ) -> R<()> {
+         let invs = self.stmt_specs(s, "invariant");
+         let decs = self.stmt_specs(s, "decreases");
++        let cut = |edge, class, merged| Some(Cut { span: s.span, edge, class, merged });
++        self.cut = cut(Edge::Entry, "initiation", false);
+         for inv in &invs {
+             let v = self.eval_spec(inv.expr)?;
+             self.check(&v.t, "loop invariant not satisfied on entry", inv.span, Some(inv));
+@@ -211,6 +218,7 @@ impl<'p, 'a> Vc<'p, 'a> {
+             }
+         }
+         // The real run: every survivor and the measure are ordinary obligations from here on.
++        self.cut = cut(Edge::Entry, "initiation", false);
+         if !cands.is_empty() {
+             self.guard = entry_guard.clone();
+             self.env = entry_env.clone();
+@@ -257,9 +265,14 @@ impl<'p, 'a> Vc<'p, 'a> {
+             self.reverts_if("true");
+         }
+         let rec_at = self.loop_recs.len();
++        // A return inside the body joins the paths that reach the function's end past the loop.
++        let rets = self.frames.last().map_or(0, |f| f.exits.len());
++        self.cut = cut(Edge::Back, "body", false);
+         self.loops.push(LoopCtx { breaks: vec![], conts: vec![] });
+         self.exec_stmt(body)?;
+         let ctx = self.loops.pop().unwrap();
++        let merged = self.frames.last().map_or(0, |f| f.exits.len()) > rets;
++        let (back_edges, exits) = (ctx.conts.len() + 1, ctx.breaks.len() + 1);
+         let mut st = ctx.conts;
+         st.push((self.guard.clone(), self.env.clone()));
+         let (g, e) = self.merge(st);
+@@ -273,6 +286,7 @@ impl<'p, 'a> Vc<'p, 'a> {
+             let rec = self.loop_rec(s.span, &env_head, &entry_guard, &entry_env, &keep);
+             self.loop_recs.insert(rec_at, rec);
+         }
++        self.cut = cut(Edge::Back, "preservation", false);
+         for inv in &invs {
+             let v = self.eval_spec(inv.expr)?;
+             self.check(&v.t, "loop invariant not preserved by the loop body", inv.span, Some(inv));
+@@ -288,6 +302,7 @@ impl<'p, 'a> Vc<'p, 'a> {
+                 );
+             }
+         }
++        self.cut = cut(Edge::Back, "termination", false);
+         for (d, t0) in decs.iter().zip(&d0) {
+             let v = self.eval_spec(d.expr)?;
+             self.check(
+@@ -308,6 +323,17 @@ impl<'p, 'a> Vc<'p, 'a> {
+                 None => measure = None,
+             }
+         }
++        if self.trial == 0 {
++            self.smt.cutpoint(CutPoint {
++                span: s.span,
++                invariants: invs.iter().map(|i| i.text.clone()).collect(),
++                decreases: decs.iter().map(|d| d.text.clone()).collect(),
++                inferred: cands.iter().map(|c| c.text.clone()).collect(),
++                measure: measure.as_ref().map(|m| m.text.clone()),
++                back_edges,
++                exits,
++            });
++        }
+         if infer && self.trial == 0 {
+             self.inferred.push(Inferred {
+                 span: s.span,
+@@ -317,6 +343,7 @@ impl<'p, 'a> Vc<'p, 'a> {
+             });
+         }
+         // exit
++        self.cut = cut(Edge::Exit, "exit", merged);
+         self.guard = g_head;
+         self.env = env_head;
+         self.assume(&format!("(not {c})"));
+diff --git a/crates/verify/tests/cases.rs b/crates/verify/tests/cases.rs
+index 8039414e5..6c1f968ef 100644
+--- a/crates/verify/tests/cases.rs
++++ b/crates/verify/tests/cases.rs
+@@ -604,6 +604,93 @@ fn emit_lean_examples() {
+     let _ = std::fs::remove_dir_all(&dir);
+ }
+ 
++/// `--emit-lean` names each loop head the encoder cut at and, for every obligation past one, the
++/// cutpoint edge it is on: the invariants' initiation on the entry edge, their preservation and
++/// the measure's decrease on the back edge, and the postcondition on the exit edge; obligations
++/// met before any loop name none.
++#[test]
++fn emit_lean_cutpoints() {
++    let dir = scratch("emit-lean-cutpoints");
++    std::fs::create_dir_all(&dir).unwrap();
++    let src = dir.join("Loops.sol");
++    std::fs::write(
++        &src,
++        "contract Loops {
++    uint256 public count;
++
++    /// @custom:ensures count == old(count) + 1
++    function inc() external { count += 1; }
++
++    /// @custom:ensures count == old(count) + n
++    function bump(uint256 n) external {
++        /// @custom:invariant i <= n
++        /// @custom:invariant count == old(count) + i
++        /// @custom:decreases n - i
++        for (uint256 i = 0; i < n; i++) {
++            count++;
++        }
++    }
++}
++",
++    )
++    .unwrap();
++    let out = dir.join("out");
++    // Sources are named relative to the run's directory: run it in the scratch directory.
++    let run = Command::new(env!("CARGO_BIN_EXE_solar-verify"))
++        .args(["--dry-run", "--emit-lean", "out", "Loops.sol"])
++        .current_dir(&dir)
++        .env("NO_COLOR", "1")
++        .output()
++        .expect("run solar-verify");
++    let stderr = String::from_utf8_lossy(&run.stderr);
++    assert!(!stderr.contains("--emit-lean"), "{stderr}");
++    let manifest = read_manifest(&out);
++    let unit = |name: &str| {
++        manifest["units"].as_array().unwrap().iter().find(|u| u["name"] == name).unwrap().clone()
++    };
++    let bump = unit("Loops.bump");
++    let cps = bump["cutpoints"].as_array().unwrap();
++    assert_eq!(cps.len(), 1, "{cps:?}");
++    let cp = &cps[0];
++    assert_eq!(cp["id"], format!("L{}:{}", cp["line"], cp["column"]));
++    assert_eq!(cp["invariants"], serde_json::json!(["i <= n", "count == old(count) + i"]));
++    assert_eq!(cp["decreases"], serde_json::json!(["n - i"]));
++    assert_eq!((cp["back_edges"].as_u64(), cp["exits"].as_u64()), (Some(1), Some(1)));
++    let edges: Vec<_> = bump["obligations"]
++        .as_array()
++        .unwrap()
++        .iter()
++        .filter(|o| o["role"] == "obligation")
++        .map(|o| {
++            assert_eq!(o["cut"]["loop"], cp["id"], "{o}");
++            assert_eq!(o["cut"]["merged"], false, "{o}");
++            assert_eq!(o["outcome"], "normal", "{o}");
++            (
++                o["cut"]["class"].as_str().unwrap(),
++                o["cut"]["edge"].as_str().unwrap(),
++                o["spec"]["text"].as_str().unwrap(),
++            )
++        })
++        .collect();
++    assert_eq!(
++        edges,
++        [
++            ("initiation", "entry", "i <= n"),
++            ("initiation", "entry", "count == old(count) + i"),
++            ("preservation", "back", "i <= n"),
++            ("preservation", "back", "count == old(count) + i"),
++            ("termination", "back", "n - i"),
++            ("exit", "exit", "count == old(count) + n"),
++        ]
++    );
++    let inc = unit("Loops.inc");
++    assert_eq!(inc["cutpoints"], serde_json::json!([]));
++    for o in inc["obligations"].as_array().unwrap().iter().filter(|o| o["role"] == "obligation") {
++        assert!(o["cut"].is_null(), "{o}");
++    }
++    let _ = std::fs::remove_dir_all(&dir);
++}
++
+ fn read_manifest(dir: &std::path::Path) -> serde_json::Value {
+     serde_json::from_str(&std::fs::read_to_string(dir.join("manifest.json")).unwrap()).unwrap()
+ }
+diff --git a/scripts/certify b/scripts/certify
+index 4dbde9786..4b2af0a94 100755
+--- a/scripts/certify
++++ b/scripts/certify
+@@ -25,6 +25,13 @@
+ # 3. Compiles CERTIFIED/NAME/NAME.sol with -Zemit-lean-stages, checks that the flag leaves the
+ #    runtime bytecode as it is, that it is CERTIFIED/NAME/bytecode.hex when that pin exists, and
+ #    the manifest's hashes.
++# 3b. When CERTIFIED/NAME/loopvc.json exists (the loop obligations solidity-lean requires of the
++#    contract: per loop head, the initiation, preservation, termination and exit obligations of
++#    its cutpoint edges), solar-verify --dry-run --emit-lean exports this run's source and
++#    tools/certify/loopvc.py checks, before any Lean runs, that the export has exactly those
++#    obligations, each required and with the query the registry pins, for this run's bytecode
++#    (and the committed record's). A loop obligation missing, added, no longer required or
++#    changed fails the run. Step 6 discharges them in the kernel.
+ # 4. tools/certify/certify.py writes CERTIFIED/NAME/Proofs: per pair of consecutive stages a
+ #    sym_exec proof, their composition from the first lowered MIR to the final EVM IR, and the
+ #    assembly walk of the bytecode against the final EVM IR.
+@@ -37,6 +44,12 @@
+ #    (unproved), never as passing; --require-spec fails on any. When CERTIFIED/NAME/headline exists (lines "MODULE THEOREM": the source-to-bytecode or
+ #    spec-to-bytecode theorems solidity-lean states for the contract), builds each MODULE and
+ #    audits each THEOREM the same way. --require-headline fails when there is none.
++#    With CERTIFIED/NAME/loopvc.json, solidity-lean's Verify/Discharge/discharge.sh proves step
++#    3b's export in the kernel (lean-smt's reconstruction of cvc5's proof, else vc_valid, each
++#    proof's axioms audited, with its vacuity diagnostic), sandboxed; every registry obligation
++#    must be proved with no axiom but propext, Classical.choice and Quot.sound and must not hold
++#    vacuously: a failed, timed-out, skipped or missing one is inconclusive and fails the run.
++#    The record's loops field is the receipt.
+ # 6b. When CERTIFIED/NAME/shape.json exists, tools/certify/final.py writes CERTIFIED/NAME/Final.lean:
+ #    the published statement, fixed by the driver from shape.json and the bytecode this run
+ #    compiled (exact byte equality with the fresh export, then Shapes.Certified,
+@@ -333,6 +346,23 @@ else
+ fi
+ echo "solar sha256 $solar_sha"
+ 
++# find_verify: sets verify to solar-verify (SOLAR_VERIFY, else built from crates/verify when this
++# checkout has it), once; empty when there is none.
++verify_found=0
++verify=
++find_verify() {
++    [[ $verify_found -eq 0 ]] || return 0
++    verify_found=1
++    verify="${SOLAR_VERIFY:-}"
++    if [[ -z "$verify" && -d "$root/crates/verify" ]]; then
++        if [[ -z "${CERTIFY_SKIP_BUILD:-}" ]]; then
++            (cd "$root" && run cargo build --locked -j "$CARGO_BUILD_JOBS" -p solar-verify --bin solar-verify 2>&1 | tail -n 1)
++        fi
++        verify="${CARGO_TARGET_DIR:-$root/target}/debug/solar-verify"
++    fi
++    [[ -z "$verify" || -x "$verify" ]] || die "no solar-verify binary at $verify"
++}
++
+ echo "== 3. compile $source and export its stages (${options[*]})"
+ compile() { "$solar" "$source" "${options[@]}" --emit=bin-runtime "$@"; }
+ # solar's status is checked on its own, never through a pipe: output it printed before failing
+@@ -412,6 +442,34 @@ print("stages:", ", ".join(f"{s['definition']} ({s['pass']})" for s in manifest[
+ print("bytecode:", bytecode, "sha256", manifest["bytecode_sha256"])
+ EOF
+ 
++# 3b. The loop obligations the registry requires: exported from this run's source and bound to the
++# registry and the bytecode before any Lean runs.
++loop_dir=
++loop_status="not checked: no $dir/loopvc.json"
++if [[ -e "$dir/loopvc.json" ]]; then
++    echo "== 3b. the required loop obligations ($dir/loopvc.json)"
++    [[ -f "$dir/loopvc.json" ]] || die "$dir/loopvc.json is not a file"
++    find_verify
++    [[ -n "$verify" ]] || die "$dir/loopvc.json requires loop obligations, and there is no solar-verify to export them"
++    loop_dir="$lean_dir/.lake/certify/$name/loopvc"
++    rm -rf "$loop_dir"
++    mkdir -p "$(dirname "$loop_dir")"
++    loop_log="$lean_dir/.lake/certify-loopvc-$name.log"
++    status=0
++    "$verify" --dry-run --emit-lean "$loop_dir" "$source" > "$loop_log" 2>&1 || status=$?
++    # A dry run proves nothing, so solar-verify exits 1 for the obligations it did not discharge;
++    # it then still ends with its summary line, which a run cut short does not print.
++    errors="$(sed -n -E 's/^verification results:: [0-9]+ verified, ([0-9]+) errors$/\1/p' "$loop_log")"
++    [[ $status -le 1 && "$errors" =~ ^[0-9]+$ ]] ||
++        { tail -n 20 "$loop_log" >&2; die "solar-verify --emit-lean fails on $source (exit $status)"; }
++    [[ -f "$loop_dir/manifest.json" ]] || die "solar-verify wrote no $loop_dir/manifest.json"
++    record_arg=()
++    [[ ! -f "$dir/record.json" ]] || record_arg=(--record "$dir/record.json")
++    python3 "$here/loopvc.py" check "$dir/loopvc.json" "$loop_dir" --bytecode "$plain" "${record_arg[@]}" ||
++        die "the loop obligations of $contract are not the ones $dir/loopvc.json requires (above)"
++    loop_status="bound to the registry, not discharged"
++fi
++
+ echo "== 4. write the proofs"
+ rm -rf "$dir/Proofs" "$dir/Proofs.lean"
+ info="$(python3 "$here/certify.py" "$gen" --gen-module "$name.gen.$contract" \
+@@ -551,13 +609,7 @@ fi
+ # the fragment solidity-lean's checks model is refused, recorded as unproved and never passes.
+ spec_status="not checked: no solar-verify"
+ refused=()
+-verify="${SOLAR_VERIFY:-}"
+-if [[ -z "$verify" && -d "$root/crates/verify" ]]; then
+-    if [[ -z "${CERTIFY_SKIP_BUILD:-}" ]]; then
+-        (cd "$root" && run cargo build --locked -j "$CARGO_BUILD_JOBS" -p solar-verify --bin solar-verify 2>&1 | tail -n 1)
+-    fi
+-    verify="${CARGO_TARGET_DIR:-$root/target}/debug/solar-verify"
+-fi
++find_verify
+ if [[ -n "$verify" ]]; then
+     [[ -x "$verify" ]] || die "no solar-verify binary at $verify"
+     spec_dir="$lean_dir/.lake/certify/$name"
+@@ -644,6 +696,32 @@ elif [[ $require_spec -eq 1 ]]; then
+ fi
+ [[ ${#refused[@]} -eq 0 ]] || caveats+=("${#refused[@]} spec function(s) refused, unproved")
+ echo "spec: $spec_status"
++# The loop obligations step 3b bound, proved in the kernel by solidity-lean's Verify/Discharge on
++# exactly that export: the discharge package builds from the pinned checkout outside the sandbox,
++# like the lake packages, and the discharge runs in it, writing only the export's directory.
++loop_receipt=
++if [[ -n "$loop_dir" ]]; then
++    [[ -f Verify/Discharge/discharge.sh && -d Verify/Discharge/Reconstruct ]] ||
++        die "$dir/loopvc.json: the pinned solidity-lean has no Verify/Discharge to discharge loop obligations with"
++    resolve_toolchain
++    dlog="$lean_dir/.lake/certify-loopvc-discharge-$name.log"
++    (cd Verify/Discharge/Reconstruct && run env PATH="$toolchain/bin:$PATH" lake "-KleanMemory=$memory" build -q) > "$dlog" 2>&1 ||
++        { tail -n 30 "$dlog" >&2; die "cannot build Verify/Discharge/Reconstruct"; }
++    status=0
++    run env PATH="$toolchain/bin:$PATH" DISCHARGE_SOURCE_ROOT="$lean_dir" bash "$here/sandbox.sh" "$loop_dir" \
++        bash Verify/Discharge/discharge.sh "$loop_dir" "${CERTIFY_LOOPVC_TIMEOUT:-300}" >> "$dlog" 2>&1 || status=$?
++    [[ -f "$loop_dir/discharge/summary.tsv" ]] || { tail -n 30 "$dlog" >&2; die "Verify/Discharge wrote no summary for the loop obligations of $name"; }
++    loop_receipt="$lean_dir/.lake/certify-loopvc-$name.json"
++    rm -f "$loop_receipt"
++    grep -E '^[a-z_]+: (proved|failed)' "$dlog" | sed 's/^/  /' || true
++    python3 "$here/loopvc.py" check "$dir/loopvc.json" "$loop_dir" --bytecode "$plain" "${record_arg[@]}" \
++        --summary "$loop_dir/discharge" --receipt "$loop_receipt" ||
++        { tail -n 5 "$dlog" >&2; die "the loop obligations of $name are not all proved in the kernel (above; $dlog)"; }
++    loop_status="$(python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); c=", ".join(k+" "+str(v) for k,v in r["by_class"].items() if v); print("proved in the kernel: %d required obligations of %s at %s (%s) by Verify/Discharge, each proof audited to propext, Classical.choice and Quot.sound, none vacuous" % (len(r["discharged"]), r["unit"], ", ".join(r["cutpoints"]), c))' "$loop_receipt")" ||
++        die "cannot read $loop_receipt"
++    [[ $status -eq 0 ]] || caveats+=("obligations of $contract outside its loops are not all proved by Verify/Discharge ($loop_dir/discharge/summary.tsv)")
++fi
++echo "loops: $loop_status"
+ if [[ -f "$dir/headline" || ( $require_spec -eq 1 && -f "$dir/spec" ) ]]; then
+     hfiles=()
+     [[ ! -f "$dir/headline" ]] || hfiles+=("$dir/headline")
+@@ -1189,11 +1267,25 @@ for path in (out, committed):
+         f.write("\n")
+ EOF
+ rm -f "$record.refused" "$record.caveats" "$record.headline" "$record.binding"
++# The loop obligations' status and receipt (step 3b and 6), in both copies of the record.
++python3 - "$record" "$dir/record.json" "$loop_status" "$loop_receipt" <<'EOF' || die "cannot add the loop obligations to the record"
++import json, sys
++status, receipt = sys.argv[3], sys.argv[4]
++for path in sys.argv[1:3]:
++    with open(path) as f:
++        d = json.load(f)
++    d["statuses"]["loops"] = status
++    d["loops"] = json.load(open(receipt)) if receipt else None
++    with open(path, "w") as f:
++        json.dump(d, f, indent=2, ensure_ascii=False)
++        f.write("\n")
++EOF
+ check_run_record "$record"
+ echo "record: $record and $dir/record.json"
+ echo "mir_to_evmir: $mir_status"
+ python3 -c 'import json,sys; print("assembly: " + json.load(open(sys.argv[1]))["assembly"])' "$record"
+ echo "vc: $spec_status"
++echo "loops: $loop_status"
+ if [[ ${#e2e_thms[@]} -gt 0 ]]; then echo "end_to_end: proved ($e2e_kind): ${e2e_thms[*]}"; else echo "end_to_end: not proved"; fi
+ python3 -c 'import json,sys; c=json.load(open(sys.argv[1]))["caveats"]; c and print("caveats: " + "; ".join(c))' "$record"
+ python3 -c 'import json,sys; s=json.load(open(sys.argv[1]))["statuses"]; print("statuses: " + ", ".join(k + " " + str(s[k]) for k in ("equivalence", "termination", "spec", "resources", "vacuity", "source", "strongest") if k in s))' "$record"
+diff --git a/tools/certify/README.md b/tools/certify/README.md
+index 63300ee01..97b38a460 100644
+--- a/tools/certify/README.md
++++ b/tools/certify/README.md
+@@ -46,6 +46,21 @@ What a run does:
+    When solidity-lean has `Certified/NAME/headline` (lines `MODULE THEOREM`, the theorems
+    that state the source or spec of NAME against its bytecode), builds and audits those too.
+    `--require-headline` fails without one.
++6c. When solidity-lean has `Certified/NAME/loopvc.json` (the loop obligations it requires of the
++   contract), solar-verify's `--emit-lean` export of this run's source is checked against it
++   before any Lean runs, by [loopvc.py](loopvc.py): per loop head (cutpoint), one initiation
++   obligation per invariant on the entry edge, one preservation obligation per invariant and one
++   termination obligation per `decreases` clause on the back edge, and the postconditions on the
++   exit edge, each required by the export and with the exact query the registry pins, for the
++   pinned bytecode and exported module. A loop obligation missing, added, no longer required or
++   changed fails the run, as do a loop without a ranking, a `break` or `continue` (one obligation
++   would cover several edges) and a `return` inside the body. In step 6 solidity-lean's
++   `Verify/Discharge/discharge.sh` proves the export in the kernel, sandboxed, and every registry
++   obligation must be proved with no axiom but `propext`, `Classical.choice` and `Quot.sound`
++   and must not hold vacuously: a failed, timed-out or missing one is inconclusive and fails the
++   run. The record's `loops` is the receipt (each obligation's class, edge, backend and axioms) and
++   `statuses.loops` its summary. Outcomes stay apart: the registry's obligations are about calls
++   that return (normal); a revert or running out of gas changes nothing and has none.
+ 7. [negative.sh](negative.sh) edits the exported artifacts where they have the code (an opcode
+    of the bytecode, a constant, a branch, a check, a log, a hash key...) and requires each
+    generated proof to fail with its mismatch, not a timeout, with unedited controls passing.
+diff --git a/tools/certify/loopvc.py b/tools/certify/loopvc.py
+new file mode 100755
+index 000000000..dc7c5d346
+--- /dev/null
++++ b/tools/certify/loopvc.py
+@@ -0,0 +1,327 @@
++#!/usr/bin/env python3
++"""The required loop obligations of a certified contract: derived from solar-verify's export, pinned
++in solidity-lean as Certified/NAME/loopvc.json, and checked in every run.
++
++    loopvc.py derive EXPORT --unit UNIT --bytecode HEX
++        From solar-verify's `--emit-lean` export EXPORT (EXPORT/manifest.json), the registry of
++        UNIT's loop obligations, as JSON on stdout: every loop head (cutpoint) the encoder cut the
++        function at and, per cutpoint edge, the obligations on it, each with its exported query's
++        hash. HEX is the runtime bytecode the registry is bound to.
++    loopvc.py check REGISTRY EXPORT --bytecode HEX [--record RECORD]
++                    [--summary DIR/discharge] [--receipt OUT.json]
++        REGISTRY (a committed loopvc.json) must be exactly what derive gives for this run's export
++        and bytecode: a loop obligation missing from the export, one the registry does not list,
++        one no longer required, or one whose query changed fails. RECORD (the committed
++        record.json) must name the same bytecode. With --summary (Verify/Discharge/discharge.sh's
++        output for EXPORT), every registry obligation must be proved in the kernel by a backend,
++        with no axiom but propext, Classical.choice and Quot.sound, on exactly this export's
++        inputs, and must not hold vacuously; anything else (failed, timeout, error, skipped,
++        missing, another axiom) is inconclusive and fails. --receipt writes what was checked.
++
++What derive requires of each cutpoint, from its own clauses and edges rather than from the labels
++alone: one initiation obligation per invariant on the entry edge; per back edge one preservation
++obligation per invariant and one termination obligation per decreases clause or inferred measure (a
++loop without one has no ranking, and fails); at least one obligation on the exit edge with a normal
++outcome; one back edge and one exit (a continue or break would put several edges under one merged
++obligation); no return in the body joining the exit path. Outcomes stay apart: normal (the
++obligations past the exit), revert (a kind about whether the call reverts) and out of gas (none: an
++inert failure). Exit 0 checked, 1 not; errors name what is wrong.
++"""
++import csv
++import hashlib
++import json
++import os
++import sys
++
++FORMAT = "certify-loopvc"
++VERSION = 1
++ALLOWED = {"propext", "Classical.choice", "Quot.sound"}
++CLASSES = ("initiation", "preservation", "termination", "body", "call", "exit")
++
++
++def fail(msg):
++    print(f"certify: error: loopvc: {msg}", file=sys.stderr)
++    sys.exit(1)
++
++
++def load(path, what):
++    try:
++        with open(path, "rb") as f:
++            return json.loads(f.read().decode("utf-8"))
++    except OSError as e:
++        fail(f"cannot read {what} {path}: {e}")
++    except (UnicodeDecodeError, ValueError) as e:
++        fail(f"{what} {path} is not JSON: {e}")
++
++
++def hexbytes(text, what):
++    h = text.strip()
++    if not h or len(h) % 2 or any(c not in "0123456789abcdef" for c in h):
++        fail(f"{what} is not lowercase hex bytes")
++    return h
++
++
++def sha_file(path, what):
++    try:
++        with open(path, "rb") as f:
++            return hashlib.sha256(f.read()).hexdigest()
++    except OSError as e:
++        fail(f"cannot read {what} {path}: {e}")
++
++
++def derive(export, unit_name, bytecode):
++    manifest = load(os.path.join(export, "manifest.json"), "the export's manifest")
++    if manifest.get("format") != "solar-verify-lean" or manifest.get("version") != 2:
++        fail("the export is not a solar-verify-lean version 2 manifest")
++    if manifest.get("errors"):
++        fail(f"the export has errors: {manifest['errors']}")
++    units = [u for u in manifest.get("units", []) if u.get("name") == unit_name]
++    if len(units) != 1:
++        fail(f"the export has {len(units)} units named {unit_name}, not one")
++    unit = units[0]
++    if not unit.get("module"):
++        fail(f"{unit_name} was not exported ({unit.get('status')}: {unit.get('error')})")
++    mod = unit["module"]
++    if mod.startswith("/") or ".." in mod.split("/") or not mod.endswith(".lean"):
++        fail(f"{unit_name}'s module {mod!r} is not named relative to the export")
++    if "cutpoints" not in unit:
++        fail(f"{unit_name} lists no cutpoints: the exporter predates loop cutpoints")
++    cps = unit["cutpoints"]
++    if not cps:
++        fail(f"{unit_name} has no loop: nothing to register")
++    ids = [c["id"] for c in cps]
++    if len(set(ids)) != len(ids):
++        fail(f"{unit_name} names a cutpoint twice: {ids}")
++    obs = unit.get("obligations", [])
++    seen = [o["id"] for o in obs]
++    if len(set(seen)) != len(seen):
++        fail(f"{unit_name} lists an obligation id twice")
++    required = []
++    for o in obs:
++        if o.get("role") != "obligation" or o.get("cut") is None:
++            continue
++        cut = o["cut"]
++        if cut.get("loop") not in ids:
++            fail(f"{o['id']} names cutpoint {cut.get('loop')}, which {unit_name} does not list")
++        if cut.get("class") not in CLASSES or cut.get("edge") not in ("entry", "back", "exit"):
++            fail(f"{o['id']} has an unknown cut {cut}")
++        if o.get("required") is not True:
++            fail(f"{o['id']} is a loop obligation the export does not require")
++        if o.get("outcome") not in ("normal", "revert"):
++            fail(f"{o['id']} has an unknown outcome {o.get('outcome')!r}")
++        required.append({
++            "id": o["id"],
++            "lean": o["lean"],
++            "loop": cut["loop"],
++            "edge": cut["edge"],
++            "class": cut["class"],
++            "outcome": o["outcome"],
++            "merged": bool(cut.get("merged")),
++            "kind": o.get("kind"),
++            "spec": (o.get("spec") or {}).get("text"),
++            "smt_sha256": o["smt_sha256"],
++        })
++    for c in cps:
++        mine = [r for r in required if r["loop"] == c["id"]]
++        where = f"{unit_name} cutpoint {c['id']}"
++
++        def count(edge, cls, spec=None):
++            return sum(1 for r in mine if r["edge"] == edge and r["class"] == cls
++                       and (spec is None or r["spec"] == spec))
++
++        invs = c.get("invariants") or []
++        inferred = c.get("inferred") or []
++        if c.get("back_edges") != 1:
++            fail(f"{where}: {c.get('back_edges')} back edges: one preservation obligation would cover several")
++        if c.get("exits") != 1:
++            fail(f"{where}: {c.get('exits')} exits: one exit obligation would cover several")
++        for inv in invs:
++            if count("entry", "initiation", inv) != 1:
++                fail(f"{where}: invariant `{inv}` has {count('entry', 'initiation', inv)} initiation "
++                     "obligations on the entry edge, not one")
++            if count("back", "preservation", inv) != 1:
++                fail(f"{where}: invariant `{inv}` has {count('back', 'preservation', inv)} preservation "
++                     "obligations on the back edge, not one")
++        if count("entry", "initiation") != len(invs) + len(inferred):
++            fail(f"{where}: {count('entry', 'initiation')} initiation obligations for "
++                 f"{len(invs)} invariants and {len(inferred)} inferred ones")
++        if count("back", "preservation") != len(invs) + len(inferred):
++            fail(f"{where}: {count('back', 'preservation')} preservation obligations for "
++                 f"{len(invs)} invariants and {len(inferred)} inferred ones")
++        decs = c.get("decreases") or []
++        measures = len(decs) + (1 if c.get("measure") else 0)
++        if measures == 0:
++            fail(f"{where}: no decreases clause or inferred measure: termination has no ranking")
++        for d in decs:
++            if count("back", "termination", d) != 1:
++                fail(f"{where}: decreases `{d}` has {count('back', 'termination', d)} termination "
++                     "obligations on the back edge, not one")
++        if count("back", "termination") != measures:
++            fail(f"{where}: {count('back', 'termination')} termination obligations for {measures} measures")
++        if not any(r["edge"] == "exit" and r["outcome"] == "normal" for r in mine):
++            fail(f"{where}: no obligation on the exit edge with a normal outcome")
++        merged = [r["id"] for r in mine if r["merged"]]
++        if merged:
++            fail(f"{where}: a return in the body joins the exit path of {', '.join(merged)}")
++    return {
++        "format": FORMAT,
++        "version": VERSION,
++        "unit": unit_name,
++        "module": unit["module"],
++        # The exported Lean module of the unit, byte for byte: every obligation's statement.
++        "module_sha256": sha_file(os.path.join(export, unit["module"]), "the exported module"),
++        "sources": [{"path": s["path"], "sha256": s["sha256"]} for s in manifest.get("sources") or []],
++        "lean": {k: manifest.get("lean", {}).get(k) for k in ("smt_sha256", "vc_sha256")},
++        "bytecode_sha256": hashlib.sha256(bytes.fromhex(bytecode)).hexdigest(),
++        "cutpoints": [
++            {k: c.get(k) for k in ("id", "line", "column", "invariants", "decreases", "inferred",
++                                   "measure", "back_edges", "exits")}
++            for c in cps
++        ],
++        "outcomes": {
++            "normal": [r["id"] for r in required if r["outcome"] == "normal"],
++            "revert": [r["id"] for r in required if r["outcome"] == "revert"],
++            "out_of_gas": [],
++        },
++        "required": required,
++    }
++
++
++def diff(want, have):
++    """The differences between the committed registry and the derived one, entry by entry."""
++    out = []
++    w = {r.get("id"): r for r in want.get("required") or []}
++    h = {r["id"]: r for r in have["required"]}
++    for i, r in w.items():
++        if i not in h:
++            out.append(f"required loop obligation {i} ({r.get('class')} on the {r.get('edge')} edge of "
++                       f"{r.get('loop')}) is missing from this run's export")
++        elif r != h[i]:
++            keys = sorted(k for k in set(r) | set(h[i]) if r.get(k) != h[i].get(k))
++            out.append(f"loop obligation {i} differs from the registry in {', '.join(keys)}")
++    for i, r in h.items():
++        if i not in w:
++            out.append(f"the export has loop obligation {i} ({r['class']} on the {r['edge']} edge of "
++                       f"{r['loop']}), which the registry does not require")
++    for k in sorted(set(want) | set(have)):
++        if k != "required" and want.get(k) != have.get(k):
++            out.append(f"the registry's {k} is not this run's: {json.dumps(want.get(k))[:160]} "
++                       f"vs {json.dumps(have.get(k))[:160]}")
++    return out
++
++
++def tsv(path, what):
++    try:
++        with open(path, newline="") as f:
++            return list(csv.DictReader(f, delimiter="\t"))
++    except OSError as e:
++        fail(f"cannot read {what} {path}: {e}")
++
++
++def check_discharge(reg, export, out):
++    summary = {}
++    for row in tsv(os.path.join(out, "summary.tsv"), "the discharge summary"):
++        if row.get("id") in summary:
++            fail(f"the discharge summary lists {row.get('id')} twice")
++        summary[row.get("id")] = row
++    results = tsv(os.path.join(out, "results.tsv"), "the discharge results")
++    # The discharge ran on exactly this export: its inputs record the manifest's and module's hashes.
++    try:
++        with open(os.path.join(out, "inputs.sha256")) as f:
++            inputs = f.read().split("\n")
++    except OSError as e:
++        fail(f"the discharge has no record of its inputs: {e}")
++    for name in ("manifest.json", reg["module"]):
++        if f"{sha_file(os.path.join(export, name), 'the export')}  {name}" not in inputs:
++            fail(f"the discharge's inputs.sha256 is not of this export's {name}")
++    proved = []
++    for r in reg["required"]:
++        i = r["id"]
++        row = summary.get(i)
++        if row is None:
++            fail(f"inconclusive: loop obligation {i} has no row in the discharge summary")
++        if row.get("status") != "proved" or row.get("backends") in (None, "", "-"):
++            fail(f"inconclusive: loop obligation {i} ({r['class']}, {r['edge']} edge) is not proved: "
++                 f"{row.get('status')}")
++        backends = row["backends"].split(",")
++        rows = [x for x in results if x.get("id") == i and x.get("status") == "proved" and x.get("backend") in backends]
++        if len(rows) != len(backends):
++            fail(f"inconclusive: loop obligation {i}'s proved backends {backends} have {len(rows)} proved rows")
++        for x in rows:
++            axioms = set((x.get("axioms") or "").split())
++            if not axioms or not axioms <= ALLOWED:
++                fail(f"loop obligation {i}'s proof by {x['backend']} uses axioms "
++                     f"{sorted(axioms - ALLOWED) or 'none reported'}")
++        if row.get("vacuous") == "yes":
++            fail(f"loop obligation {i} holds vacuously: its hypotheses are contradictory")
++        proved.append({"id": i, "class": r["class"], "edge": r["edge"], "loop": r["loop"],
++                       "backends": backends, "axioms": sorted(set(rows[0]["axioms"].split())),
++                       "vacuous": row.get("vacuous")})
++    return proved
++
++
++def main():
++    a = sys.argv[1:]
++    if not a or a[0] not in ("derive", "check"):
++        fail("usage: loopvc.py derive EXPORT --unit UNIT --bytecode HEX | check REGISTRY EXPORT --bytecode HEX ...")
++    cmd, opts, pos, i = a[0], {}, [], 1
++    while i < len(a):
++        if a[i].startswith("--"):
++            if i + 1 >= len(a):
++                fail(f"{a[i]} needs a value")
++            opts[a[i]] = a[i + 1]
++            i += 2
++        else:
++            pos.append(a[i])
++            i += 1
++    if "--bytecode" not in opts:
++        fail("--bytecode is required")
++    bytecode = hexbytes(opts["--bytecode"], "--bytecode")
++    if cmd == "derive":
++        if len(pos) != 1 or "--unit" not in opts:
++            fail("usage: loopvc.py derive EXPORT --unit UNIT --bytecode HEX")
++        json.dump(derive(pos[0], opts["--unit"], bytecode), sys.stdout, indent=2, ensure_ascii=False)
++        sys.stdout.write("\n")
++        return
++    if len(pos) != 2:
++        fail("usage: loopvc.py check REGISTRY EXPORT --bytecode HEX [--record R] [--summary D] [--receipt OUT]")
++    registry, export = pos
++    reg = load(registry, "the loop registry")
++    if not isinstance(reg, dict) or reg.get("format") != FORMAT or reg.get("version") != VERSION:
++        fail(f"{registry} is not a {FORMAT} version {VERSION} registry")
++    if not reg.get("required"):
++        fail(f"{registry} requires no loop obligation")
++    if reg.get("bytecode_sha256") != hashlib.sha256(bytes.fromhex(bytecode)).hexdigest():
++        fail(f"{registry} is bound to the bytecode with SHA-256 {reg.get('bytecode_sha256')}, not this run's")
++    if "--record" in opts:
++        rec = load(opts["--record"], "the committed record")
++        if not isinstance(rec, dict) or rec.get("bytecode") != bytecode:
++            fail(f"{opts['--record']} names another bytecode than this run's")
++    have = derive(export, reg.get("unit"), bytecode)
++    problems = diff(reg, have)
++    if problems:
++        fail("the export does not match the registry:\n  " + "\n  ".join(problems))
++    receipt = {
++        "registry_sha256": sha_file(registry, "the loop registry"),
++        "unit": reg["unit"],
++        "bytecode_sha256": reg["bytecode_sha256"],
++        "cutpoints": [c["id"] for c in reg["cutpoints"]],
++        "required": len(reg["required"]),
++        "by_class": {k: sum(1 for r in reg["required"] if r["class"] == k) for k in CLASSES},
++        "outcomes": {k: len(v) for k, v in reg["outcomes"].items()},
++        "discharged": None,
++    }
++    if "--summary" in opts:
++        receipt["discharged"] = check_discharge(reg, export, opts["--summary"])
++    if "--receipt" in opts:
++        with open(opts["--receipt"], "w") as f:
++            json.dump(receipt, f, indent=2, ensure_ascii=False)
++            f.write("\n")
++    edges = ", ".join(f"{k} {v}" for k, v in receipt["by_class"].items() if v)
++    state = (f"all {len(receipt['discharged'])} proved in the kernel" if receipt["discharged"] is not None
++             else "bound to the export and the bytecode")
++    print(f"loopvc: {reg['unit']}: {receipt['required']} required loop obligations at "
++          f"{', '.join(receipt['cutpoints'])} ({edges}): {state}")
++
++
++main()
+diff --git a/tools/certify/solidity-lean.rev b/tools/certify/solidity-lean.rev
+index 60e8258e2..803655d8c 100644
+--- a/tools/certify/solidity-lean.rev
++++ b/tools/certify/solidity-lean.rev
+@@ -1 +1 @@
+-d0ab5d63a401ae615a4755742f3ab500a2a9d0b1
++d6e066f5c223fb25e35e83a8671b74a74160a384
+diff --git a/tools/certify/test.sh b/tools/certify/test.sh
+index 29498905e..620459ba7 100755
+--- a/tools/certify/test.sh
++++ b/tools/certify/test.sh
+@@ -591,6 +591,179 @@ else
+     echo "skip spec: SOLAR_VERIFY is not set"
+ fi
+ 
++# The loop obligations solidity-lean requires (tools/certify/loopvc.py, step 3b and 6 of the driver)
++# on solar-verify's real export of a loop with two invariants and a decreases clause: the derived
++# registry checks, and a loop obligation dropped, added, no longer required or changed, a stale
++# registry, another bytecode, and a discharge that leaves one inconclusive each fail. Then the
++# driver itself: with a registry in the checkout it binds the export before any Lean runs, and a
++# solar-verify whose export lacks one loop obligation fails the run.
++lv_verify="${SOLAR_VERIFY:-}"
++if [[ -z "$lv_verify" ]]; then
++    (cd "$root" && cargo build --locked -p solar-verify --bin solar-verify 2>&1 | tail -n 1)
++    lv_verify="${CARGO_TARGET_DIR:-$root/target}/debug/solar-verify"
++fi
++lv="$tmp/loopvc"
++mkdir -p "$lv"
++loop_source() { # loop_source FILE BODY_EXTRA DECREASES: the bump loop, with an edit
++    cat > "$1" <<EOF
++contract Loops {
++    uint256 public count;
++
++    /// @custom:ensures count == old(count) + n
++    function bump(uint256 n) external {
++        /// @custom:invariant i <= n
++        /// @custom:invariant count == old(count) + i
++        $3
++        for (uint256 i = 0; i < n; i++) {
++            $2
++            count++;
++        }
++    }
++}
++EOF
++}
++loop_source "$lv/Loops.sol" "" "/// @custom:decreases n - i"
++loop_source "$lv/NoRank.sol" "" ""
++loop_source "$lv/Break.sol" "if (count > 7) break;" "/// @custom:decreases n - i"
++loop_source "$lv/Ret.sol" "if (count > 7) return;" "/// @custom:decreases n - i"
++for f in Loops NoRank Break Ret; do
++    (cd "$lv" && "$lv_verify" --dry-run --emit-lean "out-$f" "$f.sol" > "$f.log" 2>&1) || true
++done
++lvb=6080604052
++lvcheck() { python3 "$root/tools/certify/loopvc.py" check "$@"; }
++# expect_lv CASE PATTERN CMD...: CMD must exit non-zero with PATTERN in its output.
++expect_lv() {
++    local case=$1 pattern=$2 status=0
++    shift 2
++    "$@" > "$tmp/out" 2>&1 || status=$?
++    if [[ $status -ne 0 ]] && grep -Eq -- "$pattern" "$tmp/out"; then
++        echo "ok   $case: $(grep -Eo -- "$pattern" "$tmp/out" | head -1)"
++    else
++        echo "FAIL $case (exit $status, expected /$pattern/):"; sed 's/^/  /' "$tmp/out" | tail -10
++        failures=$((failures + 1))
++    fi
++}
++# lv_edit NAME JQ: a copy of the export whose manifest is JQ of the original.
++lv_edit() {
++    rm -rf "$lv/$1"; cp -r "$lv/out-Loops" "$lv/$1"
++    jq "$2" "$lv/out-Loops/manifest.json" > "$lv/$1/manifest.json"
++}
++if python3 "$root/tools/certify/loopvc.py" derive "$lv/out-Loops" --unit Loops.bump --bytecode "$lvb" > "$lv/reg.json" 2> "$tmp/out" &&
++    lvcheck "$lv/reg.json" "$lv/out-Loops" --bytecode "$lvb" > "$tmp/out" 2>&1 &&
++    grep -q '6 required loop obligations at L[0-9]*:[0-9]* (initiation 2, preservation 2, termination 1, exit 1)' "$tmp/out"; then
++    echo "ok   loopvc-registry: $(cat "$tmp/out")"
++else
++    echo "FAIL loopvc-registry:"; sed 's/^/  /' "$tmp/out" | tail -10; failures=$((failures + 1))
++fi
++sel='.units[] | select(.name == "Loops.bump") | .obligations[] | select(.cut != null)'
++lv_edit drop-preservation "del($sel | select(.cut.class == \"preservation\" and .spec.text == \"i <= n\"))"
++expect_lv loopvc-dropped-preservation "invariant .i <= n. has 0 preservation obligations on the back edge" \
++    lvcheck "$lv/reg.json" "$lv/drop-preservation" --bytecode "$lvb"
++lv_edit drop-exit "del($sel | select(.cut.class == \"exit\"))"
++expect_lv loopvc-dropped-exit "no obligation on the exit edge with a normal outcome" \
++    lvcheck "$lv/reg.json" "$lv/drop-exit" --bytecode "$lvb"
++lv_edit drop-termination "del($sel | select(.cut.class == \"termination\"))"
++expect_lv loopvc-dropped-termination "0 termination obligations on the back edge, not one" \
++    lvcheck "$lv/reg.json" "$lv/drop-termination" --bytecode "$lvb"
++lv_edit not-required "($sel | select(.cut.class == \"termination\") | .required) = false"
++expect_lv loopvc-not-required "is a loop obligation the export does not require" \
++    lvcheck "$lv/reg.json" "$lv/not-required" --bytecode "$lvb"
++lv_edit changed-query "($sel | select(.cut.class == \"exit\") | .smt_sha256) = \"$(printf '0%.0s' {1..64})\""
++expect_lv loopvc-changed-query "differs from the registry in smt_sha256" \
++    lvcheck "$lv/reg.json" "$lv/changed-query" --bytecode "$lvb"
++lv_edit changed-module "."
++echo "-- edited" >> "$lv/changed-module/$(jq -r .module "$lv/reg.json")"
++expect_lv loopvc-changed-module "the registry's module_sha256 is not this run's" \
++    lvcheck "$lv/reg.json" "$lv/changed-module" --bytecode "$lvb"
++jq 'del(.required[] | select(.class == "preservation" and .spec == "i <= n"))' "$lv/reg.json" > "$lv/reg-short.json"
++expect_lv loopvc-registry-lacks-one "which the registry does not require" \
++    lvcheck "$lv/reg-short.json" "$lv/out-Loops" --bytecode "$lvb"
++expect_lv loopvc-other-bytecode "is bound to the bytecode with SHA-256 [0-9a-f]{64}, not this run's" \
++    lvcheck "$lv/reg.json" "$lv/out-Loops" --bytecode 6080
++echo '{"bytecode": "6080", "statuses": {"strongest": false}}' > "$lv/record.json"
++expect_lv loopvc-record-other-bytecode "names another bytecode than this run's" \
++    lvcheck "$lv/reg.json" "$lv/out-Loops" --bytecode "$lvb" --record "$lv/record.json"
++expect_lv loopvc-no-ranking "no decreases clause or inferred measure: termination has no ranking" \
++    python3 "$root/tools/certify/loopvc.py" derive "$lv/out-NoRank" --unit Loops.bump --bytecode "$lvb"
++expect_lv loopvc-break "2 exits: one exit obligation would cover several" \
++    python3 "$root/tools/certify/loopvc.py" derive "$lv/out-Break" --unit Loops.bump --bytecode "$lvb"
++expect_lv loopvc-return-in-body "a return in the body joins the exit path" \
++    python3 "$root/tools/certify/loopvc.py" derive "$lv/out-Ret" --unit Loops.bump --bytecode "$lvb"
++# A discharge of the export (as Verify/Discharge/discharge.sh writes it): every loop obligation
++# proved with clean axioms passes; one failed, timed out, missing, with another axiom, vacuous,
++# or of another export is inconclusive.
++lv_discharge() { # lv_discharge DIR [AWK]: summary, results and inputs, every row proved, then AWK
++    local d="$lv/$1/discharge" id
++    rm -rf "$lv/$1"; cp -r "$lv/out-Loops" "$lv/$1"; mkdir -p "$d"
++    (cd "$lv/$1" && sha256sum manifest.json "$(jq -r .module "$lv/reg.json")") > "$d/inputs.sha256"
++    printf 'id\trole\tanswer\tstatus\tbackends\tvacuous\n' > "$d/summary.tsv"
++    printf 'id\trole\tanswer\tbackend\tstatus\tseconds\tpeak_mb\taxioms\n' > "$d/results.tsv"
++    for id in $(jq -r '.required[].id' "$lv/reg.json"); do
++        printf '%s\tobligation\tnot-run\tproved\tsmt\tno\n' "$id" >> "$d/summary.tsv"
++        printf '%s\tobligation\tnot-run\tsmt\tproved\t2.0\t1800\tpropext Classical.choice Quot.sound\n' "$id" >> "$d/results.tsv"
++    done
++    if [[ -n "${2:-}" ]]; then
++        for f in summary results; do awk -F'\t' -v OFS='\t' "$2" "$d/$f.tsv" > "$d/$f.tmp" && mv "$d/$f.tmp" "$d/$f.tsv"; done
++    fi
++}
++first="$(jq -r '.required[] | select(.class == "termination") | .id' "$lv/reg.json")"
++lv_discharge dis-ok
++if lvcheck "$lv/reg.json" "$lv/dis-ok" --bytecode "$lvb" --summary "$lv/dis-ok/discharge" --receipt "$lv/receipt.json" > "$tmp/out" 2>&1 &&
++    grep -q 'all 6 proved in the kernel' "$tmp/out" && [[ "$(jq '.discharged | length' "$lv/receipt.json")" == 6 ]]; then
++    echo "ok   loopvc-discharged: $(cat "$tmp/out")"
++else
++    echo "FAIL loopvc-discharged:"; sed 's/^/  /' "$tmp/out" | tail -10; failures=$((failures + 1))
++fi
++lv_discharge dis-timeout "\$1 == \"$first\" && FILENAME ~ /summary/ { \$4 = \"failed: timeout after 300s\"; \$5 = \"-\" } { print }"
++expect_lv loopvc-discharge-timeout "inconclusive: loop obligation .* is not proved: failed: timeout after 300s" \
++    lvcheck "$lv/reg.json" "$lv/dis-timeout" --bytecode "$lvb" --summary "$lv/dis-timeout/discharge"
++lv_discharge dis-missing "\$1 != \"$first\" { print }"
++expect_lv loopvc-discharge-missing "inconclusive: loop obligation .* has no row in the discharge summary" \
++    lvcheck "$lv/reg.json" "$lv/dis-missing" --bytecode "$lvb" --summary "$lv/dis-missing/discharge"
++lv_discharge dis-axiom "\$1 == \"$first\" && FILENAME ~ /results/ { \$8 = \$8 \" sorryAx\" } { print }"
++expect_lv loopvc-discharge-axiom "uses axioms \['sorryAx'\]" \
++    lvcheck "$lv/reg.json" "$lv/dis-axiom" --bytecode "$lvb" --summary "$lv/dis-axiom/discharge"
++lv_discharge dis-vacuous "\$1 == \"$first\" && FILENAME ~ /summary/ { \$6 = \"yes\" } { print }"
++expect_lv loopvc-discharge-vacuous "holds vacuously" \
++    lvcheck "$lv/reg.json" "$lv/dis-vacuous" --bytecode "$lvb" --summary "$lv/dis-vacuous/discharge"
++lv_discharge dis-other-export
++echo '{}' > "$lv/dis-other-export/discharge/inputs.sha256"
++expect_lv loopvc-discharge-other-export "inputs.sha256 is not of this export's manifest.json" \
++    lvcheck "$lv/reg.json" "$lv/dis-other-export" --bytecode "$lvb" --summary "$lv/dis-other-export/discharge"
++
++# The driver with a registry in the checkout: the export binds before any Lean runs (the scratch
++# package then fails later, at its proofs), and a solar-verify whose export lacks one loop
++# obligation stops the run at step 3b.
++mkdir -p "$lean/Examples/loops"
++cp "$lv/Loops.sol" "$lean/Examples/loops/loops.sol"
++lvjson="$("$solar" "$lean/Examples/loops/loops.sol" -Ogas --evm-version osaka --emit=bin-runtime)"
++lvplain="$(python3 -c 'import json,sys; print(next(iter(json.loads(sys.argv[1])["contracts"].values()))["bin-runtime"])' "$lvjson")"
++(cd "$lean" && "$lv_verify" --dry-run --emit-lean "$lv/driver-export" Examples/loops/loops.sol > /dev/null 2>&1) || true
++python3 "$root/tools/certify/loopvc.py" derive "$lv/driver-export" --unit Loops.bump --bytecode "$lvplain" > "$lean/Examples/loops/loopvc.json"
++cat > "$lv/drop-verify" <<EOF
++#!/usr/bin/env bash
++# solar-verify, then its --emit-lean export without the first preservation obligation of the loop.
++status=0
++"$lv_verify" "\$@" || status=\$?
++out=\$3
++jq 'del(.units[].obligations[] | select(.cut != null and .cut.class == "preservation") | select(.spec.text == "i <= n"))' \
++    "\$out/manifest.json" > "\$out/manifest.edited" && mv "\$out/manifest.edited" "\$out/manifest.json"
++exit \$status
++EOF
++chmod +x "$lv/drop-verify"
++status=0
++env -u CI -u GITHUB_ACTIONS SOLAR="$solar" SOLAR_VERIFY="$lv_verify" "${allow[@]}" CERTIFY_ALLOW_FOREIGN_SOLAR=1 \
++    "$root/scripts/certify" "$lean/Examples/loops/loops.sol" > "$tmp/out" 2>&1 || status=$?
++if grep -q '^loopvc: Loops.bump: 6 required loop obligations at .*: bound to the export and the bytecode' "$tmp/out" &&
++    ! grep -q '^CERTIFIED' "$tmp/out"; then
++    echo "ok   driver-loopvc-bound: $(grep '^loopvc:' "$tmp/out")"
++else
++    echo "FAIL driver-loopvc-bound (exit $status):"; sed 's/^/  /' "$tmp/out" | tail -20; failures=$((failures + 1))
++fi
++expect driver-loopvc-dropped "the loop obligations of Loops are not the ones Examples/loops/loopvc.json requires" \
++    "${allow[@]}" CERTIFY_ALLOW_FOREIGN_SOLAR=1 SOLAR_VERIFY="$lv/drop-verify" -- "$lean/Examples/loops/loops.sol"
++rm -rf "$lean/Examples/loops"
++
+ if [[ $failures -ne 0 ]]; then
+     echo "certify driver tests: $failures failed" >&2
+     exit 1
+-- 
+2.43.0
+

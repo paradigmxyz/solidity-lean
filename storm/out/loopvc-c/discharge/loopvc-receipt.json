@@ -1,0 +1,129 @@
+{
+  "registry_sha256": "82cfe545e6b40f983727edc54ed2328296bd73089b4f9690b54d26ba9b912ce8",
+  "unit": "Counter.bump",
+  "bytecode_sha256": "d74a847b897f855f93daf2805937efe40aec636c2ec3ca0c2d4ca6d21f214cc1",
+  "cutpoints": [
+    "L26:9"
+  ],
+  "required": 7,
+  "by_class": {
+    "initiation": 2,
+    "preservation": 2,
+    "termination": 1,
+    "body": 0,
+    "call": 0,
+    "exit": 2
+  },
+  "outcomes": {
+    "normal": 7,
+    "revert": 0,
+    "out_of_gas": 0
+  },
+  "discharged": [
+    {
+      "id": "Counter.bump#0",
+      "class": "initiation",
+      "edge": "entry",
+      "loop": "L26:9",
+      "backends": [
+        "smt"
+      ],
+      "axioms": [
+        "Classical.choice",
+        "Quot.sound",
+        "propext"
+      ],
+      "vacuous": "no"
+    },
+    {
+      "id": "Counter.bump#1",
+      "class": "initiation",
+      "edge": "entry",
+      "loop": "L26:9",
+      "backends": [
+        "smt"
+      ],
+      "axioms": [
+        "Classical.choice",
+        "Quot.sound",
+        "propext"
+      ],
+      "vacuous": "no"
+    },
+    {
+      "id": "Counter.bump#39",
+      "class": "preservation",
+      "edge": "back",
+      "loop": "L26:9",
+      "backends": [
+        "smt"
+      ],
+      "axioms": [
+        "Classical.choice",
+        "Quot.sound",
+        "propext"
+      ],
+      "vacuous": "no"
+    },
+    {
+      "id": "Counter.bump#40",
+      "class": "preservation",
+      "edge": "back",
+      "loop": "L26:9",
+      "backends": [
+        "smt"
+      ],
+      "axioms": [
+        "Classical.choice",
+        "Quot.sound",
+        "propext"
+      ],
+      "vacuous": "no"
+    },
+    {
+      "id": "Counter.bump#41",
+      "class": "termination",
+      "edge": "back",
+      "loop": "L26:9",
+      "backends": [
+        "smt"
+      ],
+      "axioms": [
+        "Classical.choice",
+        "Quot.sound",
+        "propext"
+      ],
+      "vacuous": "no"
+    },
+    {
+      "id": "Counter.bump#43",
+      "class": "exit",
+      "edge": "exit",
+      "loop": "L26:9",
+      "backends": [
+        "smt"
+      ],
+      "axioms": [
+        "Classical.choice",
+        "Quot.sound",
+        "propext"
+      ],
+      "vacuous": "no"
+    },
+    {
+      "id": "Counter.bump#44",
+      "class": "exit",
+      "edge": "exit",
+      "loop": "L26:9",
+      "backends": [
+        "smt"
+      ],
+      "axioms": [
+        "Classical.choice",
+        "Quot.sound",
+        "propext"
+      ],
+      "vacuous": "no"
+    }
+  ]
+}

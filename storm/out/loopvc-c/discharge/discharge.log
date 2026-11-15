@@ -1,0 +1,42 @@
+discharge: 4 modules, 14 required of 55 obligations, 0 units not exported; backends smt=vc_smt vc_valid=vc_valid@30
+⚠ [14/322] Replayed Verify.Discharge.Nonlinear
+warning: ../../../Verify/Discharge/Nonlinear.lean:177:9: `if_neg` has been deprecated: Use `ite_eq_right` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵n̵e̵g̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲
+warning: ../../../Verify/Discharge/Nonlinear.lean:181:44: `if_neg` has been deprecated: Use `ite_eq_right` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵n̵e̵g̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲
+smt: proved  Counter.constructor#1  (1.7s, 1813 MB)
+vacuity: no  Counter.constructor#1
+smt: proved  Counter.constructor#2  (1.8s, 1813 MB)
+vacuity: no  Counter.constructor#2
+smt: proved  Counter.increment#1  (2.0s, 1820 MB)
+vacuity: no  Counter.increment#1
+smt: proved  Counter.increment#2  (1.9s, 1823 MB)
+vacuity: no  Counter.increment#2
+smt: proved  Counter.bump#0  (2.2s, 1827 MB)
+vacuity: no  Counter.bump#0
+smt: proved  Counter.bump#1  (2.2s, 1828 MB)
+vacuity: no  Counter.bump#1
+smt: proved  Counter.bump#39  (2.6s, 1849 MB)
+vacuity: no  Counter.bump#39
+smt: proved  Counter.bump#40  (2.7s, 1849 MB)
+vacuity: no  Counter.bump#40
+smt: proved  Counter.bump#41  (2.8s, 1850 MB)
+vacuity: no  Counter.bump#41
+smt: proved  Counter.bump#43  (2.6s, 1857 MB)
+vacuity: no  Counter.bump#43
+smt: proved  Counter.bump#44  (2.6s, 1857 MB)
+vacuity: no  Counter.bump#44
+smt: proved  Counter.max#1  (2.5s, 1833 MB)
+vacuity: no  Counter.max#1
+smt: proved  Counter.max#2  (2.6s, 1838 MB)
+vacuity: no  Counter.max#2
+smt: proved  Counter.max#3  (2.3s, 1828 MB)
+vacuity: no  Counter.max#3
+discharge: backend smt proved 14
+discharge: backend vc_valid proved 0
+discharge: 0 rows hold vacuously (summary.tsv, column vacuous)
+discharge: 14 of 14 required obligations proved, 0 not (/tmp/vcx/discharge/summary.tsv)
