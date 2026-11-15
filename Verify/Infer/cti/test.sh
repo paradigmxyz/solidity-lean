@@ -7,6 +7,8 @@ here=$(cd "$(dirname "$0")" && pwd)
 py=${PYTHON:-python3}
 cd "$here"
 "$py" -c 'import z3, sys; v = z3.get_version_string(); sys.exit(0 if v == "5.4.1" else f"want z3 5.4.1, have {v}")'
+# Python 3.14 gets other models from the same z3, so regeneration differs; 3.12 and 3.13 match.
+"$py" -c 'import sys; sys.exit(0 if sys.version_info[:2] in ((3, 12), (3, 13)) else f"want Python 3.12 or 3.13, have {sys.version.split()[0]}")'
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 

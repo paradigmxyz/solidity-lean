@@ -167,6 +167,11 @@ jobs:
         with:
           persist-credentials: false
 
+      # The corpus holds z3's models as generated under Python 3.12; under 3.14 z3 returns other models.
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+
       - name: Install z3
         run: |
           python3 -m venv "$RUNNER_TEMP/cti"
