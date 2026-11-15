@@ -1,7 +1,7 @@
 From c15517ecdec464634d55acd77d88211e49a56932 Mon Sep 17 00:00:00 2001
 From: solar-tv <solar-tv@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 23:00:18 +0000
-Subject: [PATCH] fix(certify): no join cuts in a scoped dispatcher
+Subject: [PATCH 1/4] fix(certify): no join cuts in a scoped dispatcher
 
 A segment that starts at a cut configuration starts from an arbitrary
 stack, so where the selector word is still on the stack, before the

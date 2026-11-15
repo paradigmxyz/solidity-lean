@@ -1,0 +1,37 @@
+From c03a4d0ac58e83f61ac3bfc7daed86e8f3f16e2f Mon Sep 17 00:00:00 2001
+From: solar-tv <solar-tv@users.noreply.github.com>
+Date: Sun, 15 Nov 2026 07:42:20 +0000
+Subject: [PATCH 4/4] fix(certify): no schedule block cuts in a scoped
+ dispatcher
+
+Under --exclude, MIR-to-schedule block cuts are no longer placed in the
+entry function. Its dispatcher blocks run before a function's start
+sets the heap: lowered MIR initializes the free memory pointer there,
+while the scheduled code does it in its first block, or not at all
+where nothing reads it (UniswapV2Pair.sync). The same-state relation at
+a dispatcher cut is then false, and sync's stack scheduling segment from
+dispatcher block 28 ended with memory word 64 set on one side only.
+---
+ solar-tv/milestone/cutpoints.py | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/solar-tv/milestone/cutpoints.py b/solar-tv/milestone/cutpoints.py
+index 6caf9834..cffda9b5 100644
+--- a/solar-tv/milestone/cutpoints.py
++++ b/solar-tv/milestone/cutpoints.py
+@@ -2004,6 +2004,12 @@ def stage_body(gen, a, b, heartbeats=2000000, recdepth=None):
+             # their callers' segments.
+             if ctxs.get(f, {()}) != {()}:
+                 return False
++            # Nor, under a scope, in the entry function: the dispatcher's blocks run before a
++            # function's start sets its heap (MIR initializes the free memory pointer there, the
++            # scheduled code at its first block, or not at all where nothing reads it), so the
++            # two states differ at a dispatcher block and the same-state relation is false.
++            if EXCLUDED_SELECTORS and f == mir_entry(ta):
++                return False
+             bm = next((x for x in fmaps.get(f, {}).get("blocks", []) if x["block"] == h), None)
+             if bm is None:
+                 return False
+-- 
+2.43.0
+

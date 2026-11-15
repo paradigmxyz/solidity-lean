@@ -1,6 +1,30 @@
---- a/solar-tv/milestone/cutpoints.py	2026-11-15 05:00:30.609852549 +0000
-+++ b/solar-tv/milestone/cutpoints.py	2026-11-15 05:16:48.796347628 +0000
-@@ -1241,6 +1241,29 @@
+From d7f7cd26b8a62fb5fa2ec12951a37fcf29851edf Mon Sep 17 00:00:00 2001
+From: solar-tv <solar-tv@users.noreply.github.com>
+Date: Sun, 15 Nov 2026 05:57:43 +0000
+Subject: [PATCH 3/4] feat(certify): call-constant values at schedule cuts
+
+A value read by ADDRESS, CALLDATASIZE or CALLVALUE is the same word on
+every read of a call, and the stack scheduler recomputes it where it is
+used instead of keeping it on the stack. A MIR-to-schedule cut point
+where such a value is live but not held now relates it by a condition,
+env v = its word (and c_n v for a caller's frame), so the block can be
+cut. UniswapV2Pair.skim reads ADDRESS once and uses it after both
+balance calls: its blocks were never cut and the stack scheduling stage
+ran as one segment past 9 GB.
+
+Block cuts are also kept out of functions an internal call enters: with
+a cut inside a callee the MIR segment runs past the callee's cut block
+while the scheduled one stops there. Why is not yet understood; until
+then callees stay inside their callers' segments.
+---
+ solar-tv/milestone/cutpoints.py | 47 ++++++++++++++++++++++++++++++++-
+ 1 file changed, 46 insertions(+), 1 deletion(-)
+
+diff --git a/solar-tv/milestone/cutpoints.py b/solar-tv/milestone/cutpoints.py
+index b18ac57a..6caf9834 100644
+--- a/solar-tv/milestone/cutpoints.py
++++ b/solar-tv/milestone/cutpoints.py
+@@ -1241,6 +1241,29 @@ def live_after_call(func, site):
      return out
  
  
@@ -30,7 +54,7 @@
  def frame_rel(fa_list, fb_list, ctx):
      """The stacks of returns of a call string in both modules, the caller values' variables and
      the conditions that relate them: every value the caller reads after the call the same."""
-@@ -1848,13 +1871,27 @@
+@@ -1848,13 +1871,27 @@ def mir_evm_rels(pass_name, funcs, sched_blocks, schedule, cuts, ctxs=None):
              for _ in range(below):
                  junk.append(f"j{len(junk)}")
                  words.append(junk[-1])
@@ -59,7 +83,17 @@
                  }
              )
      if tests_b and dynamic:
-@@ -1965,6 +2002,7 @@
+@@ -1961,10 +1998,17 @@ def stage_body(gen, a, b, heartbeats=2000000, recdepth=None):
+             # scheduler recomputes there instead (a CALLER read, a constant) is related by
+             # nothing at the cut, so the block stays inside its segments.
+             f, h = j[0], j[1]
++            # Only in a function no internal call enters: with a cut inside a callee, the MIR
++            # segment runs on past the callee's cut block where the scheduled one stops there.
++            # NOTE: why the two part is not understood yet; until it is, callees stay inside
++            # their callers' segments.
++            if ctxs.get(f, {()}) != {()}:
++                return False
+             bm = next((x for x in fmaps.get(f, {}).get("blocks", []) if x["block"] == h), None)
              if bm is None:
                  return False
              held = {int(x[1:]) for x in bm["layout"] if x.startswith("v")}
@@ -67,7 +101,7 @@
              live, _ = mir_liveness(fa[f])
              dsts = {d for d, _ in fa[f]["blocks"][h][0]}
              if not (live[h] | dsts) <= held:
-@@ -1979,6 +2017,7 @@
+@@ -1979,6 +2023,7 @@ def stage_body(gen, a, b, heartbeats=2000000, recdepth=None):
                      except Unsupported:
                          return False
                      kept = {int(x[1:]) for x in below if x.startswith("v")}
@@ -75,3 +109,6 @@
                      if not live_after_call(fa[site[0]], site) <= kept:
                          return False
              return True
+-- 
+2.43.0
+

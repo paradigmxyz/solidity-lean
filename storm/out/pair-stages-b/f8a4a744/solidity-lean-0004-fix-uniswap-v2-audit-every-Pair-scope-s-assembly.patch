@@ -1,7 +1,7 @@
 From 833c46c1aa72d8555cd129f313d06d8f9e1f65a3 Mon Sep 17 00:00:00 2001
 From: solar-tv <solar-tv@users.noreply.github.com>
 Date: Sun, 15 Nov 2026 02:33:38 +0000
-Subject: [PATCH 4/4] fix(uniswap-v2): audit every Pair scope's assembly
+Subject: [PATCH 4/5] fix(uniswap-v2): audit every Pair scope's assembly
 
 Every scope builds and audits its Assembly module, not only the first,
 and a mutant refused by a cut-point segment (sym_seg's mismatch) counts

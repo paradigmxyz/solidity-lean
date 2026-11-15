@@ -1,7 +1,7 @@
 From 96c7825795aeb7d250fc71ca85dc473c1db0d0ee Mon Sep 17 00:00:00 2001
 From: solar-tv <solar-tv@users.noreply.github.com>
 Date: Sun, 15 Nov 2026 00:09:49 +0000
-Subject: [PATCH 2/4] feat(uniswap-v2): Pair stages scoped by exclusion
+Subject: [PATCH 2/5] feat(uniswap-v2): Pair stages scoped by exclusion
 
 The Pair stage script now uses tools/certify/certify.py's --exclude
 scope (every other external function of UniswapV2Pair excluded, read

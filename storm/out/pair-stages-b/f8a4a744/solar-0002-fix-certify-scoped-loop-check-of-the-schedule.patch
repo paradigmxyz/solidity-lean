@@ -1,7 +1,7 @@
-From 67f19df80860d61d229a93c621091df110e9744f Mon Sep 17 00:00:00 2001
+From 23d76529df41b1f2f58b44f741d5f6034f5ad9c0 Mon Sep 17 00:00:00 2001
 From: solar-tv <solar-tv@users.noreply.github.com>
 Date: Sun, 15 Nov 2026 00:28:19 +0000
-Subject: [PATCH] fix(certify): scoped loop check of the schedule
+Subject: [PATCH 2/4] fix(certify): scoped loop check of the schedule
 
 Under --exclude, the check that every loop of the scheduled EVM IR
 passes a cut point now looks only at the configurations a call in scope

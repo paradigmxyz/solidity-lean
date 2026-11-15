@@ -1,0 +1,42 @@
+runtime bytecode 4446 bytes, sha256 b8ec7c545bbd4edec1c493cba1975a95b2607573b9563240928938d8dfadbcbc, 28 stages, compiler 0.8.38+commit.902cccc2.solar.0.3.0-dev
+2026-11-15T07:17:30Z | lake build -KleanMemory=3000 uv2_gr.gen.UniswapV2Pair.Bytecode uv2_gr.gen.UniswapV2Pair.Evm1 uv2_gr.gen.UniswapV2Pair.Evm10 uv2_gr.gen.UniswapV2Pair.Evm11 uv2_gr.gen.UniswapV2Pair.Evm12 uv2_gr.gen.UniswapV2Pair.Evm13 uv2_gr.gen.UniswapV2Pair.Evm14 uv2_gr.gen.UniswapV2Pair.Evm15 uv2_gr.gen.UniswapV2Pair.Evm16 uv2_gr.gen.UniswapV2Pair.Evm17 uv2_gr.gen.UniswapV2Pair.Evm18 uv2_gr.gen.UniswapV2Pair.Evm19 uv2_gr.gen.UniswapV2Pair.Evm2 uv2_gr.gen.UniswapV2Pair.Evm20 uv2_gr.gen.UniswapV2Pair.Evm21 uv2_gr.gen.UniswapV2Pair.Evm3 uv2_gr.gen.UniswapV2Pair.Evm4 uv2_gr.gen.UniswapV2Pair.Evm5 uv2_gr.gen.UniswapV2Pair.Evm6 uv2_gr.gen.UniswapV2Pair.Evm7 uv2_gr.gen.UniswapV2Pair.Evm8 uv2_gr.gen.UniswapV2Pair.Evm9 uv2_gr.gen.UniswapV2Pair.Manifest uv2_gr.gen.UniswapV2Pair.Mir1 uv2_gr.gen.UniswapV2Pair.Mir2 uv2_gr.gen.UniswapV2Pair.Mir3 uv2_gr.gen.UniswapV2Pair.Mir4 uv2_gr.gen.UniswapV2Pair.Sched uv2_gr.gen.UniswapV2Pair.Stage0 | exit 0 | 14 s | peak 788 MB
+2026-11-15T07:17:33Z | lake build -KleanMemory=8000 uv2_gr.Proofs.Runs.Mir1 | exit 0 | 2 s | peak 794 MB
+2026-11-15T07:17:35Z | lake build -KleanMemory=8000 uv2_gr.Proofs.Runs.Mir2 | exit 0 | 2 s | peak 794 MB
+2026-11-15T07:17:37Z | lake build -KleanMemory=8000 uv2_gr.Proofs.Runs.Mir3 | exit 0 | 2 s | peak 795 MB
+2026-11-15T07:17:39Z | lake build -KleanMemory=8000 uv2_gr.Proofs.Runs.Mir4 | exit 0 | 2 s | peak 793 MB
+2026-11-15T07:17:41Z | lake build -KleanMemory=8000 uv2_gr.Proofs.Runs.Sched | exit 0 | 2 s | peak 794 MB
+2026-11-15T07:17:43Z | lake build -KleanMemory=8000 uv2_gr.Proofs.Runs.Evm1 | exit 0 | 2 s | peak 793 MB
+2026-11-15T07:17:45Z | lake build -KleanMemory=8000 uv2_gr.Proofs.Runs.Evm2 | exit 0 | 2 s | peak 793 MB
+2026-11-15T07:17:47Z | lake build -KleanMemory=8000 uv2_gr.Proofs.Runs.Evm3 | exit 0 | 2 s | peak 793 MB
+2026-11-15T07:17:49Z | lake build -KleanMemory=8000 uv2_gr.Proofs.Runs.Evm4 | exit 0 | 2 s | peak 793 MB
+2026-11-15T07:17:51Z | lake build -KleanMemory=8000 uv2_gr.Proofs.Runs.Evm5 | exit 0 | 2 s | peak 793 MB
+2026-11-15T07:17:53Z | lake build -KleanMemory=8000 uv2_gr.Proofs.Runs.Evm6 | exit 0 | 2 s | peak 793 MB
+2026-11-15T07:17:55Z | lake build -KleanMemory=8000 uv2_gr.Proofs.Runs.Evm7 | exit 0 | 2 s | peak 795 MB
+2026-11-15T07:17:57Z | lake build -KleanMemory=8000 uv2_gr.Proofs.Runs.Evm8 | exit 0 | 2 s | peak 794 MB
+2026-11-15T07:17:59Z | lake build -KleanMemory=8000 uv2_gr.Proofs.Runs.Evm9 | exit 0 | 2 s | peak 793 MB
+2026-11-15T07:18:01Z | lake build -KleanMemory=8000 uv2_gr.Proofs.Runs.Evm10 | exit 0 | 2 s | peak 793 MB
+2026-11-15T07:18:04Z | lake build -KleanMemory=8000 uv2_gr.Proofs.Runs.Evm11 | exit 0 | 2 s | peak 793 MB
+2026-11-15T07:18:06Z | lake build -KleanMemory=8000 uv2_gr.Proofs.Runs.Evm12 | exit 0 | 2 s | peak 792 MB
+2026-11-15T07:19:38Z | lake build -KleanMemory=8000 uv2_gr.Proofs.Runs.Evm13 | exit 0 | 92 s | peak 2007 MB
+2026-11-15T07:20:41Z | lake build -KleanMemory=8000 uv2_gr.Proofs.Runs.Evm14 | exit 0 | 63 s | peak 1968 MB
+2026-11-15T07:21:45Z | lake build -KleanMemory=8000 uv2_gr.Proofs.Runs.Evm15 | exit 0 | 64 s | peak 1967 MB
+2026-11-15T07:22:48Z | lake build -KleanMemory=8000 uv2_gr.Proofs.Runs.Evm16 | exit 0 | 63 s | peak 1962 MB
+2026-11-15T07:24:06Z | lake build -KleanMemory=8000 uv2_gr.Proofs.Runs.Evm17 | exit 0 | 78 s | peak 1974 MB
+2026-11-15T07:25:08Z | lake build -KleanMemory=8000 uv2_gr.Proofs.Runs.Evm18 | exit 0 | 62 s | peak 1955 MB
+2026-11-15T07:26:34Z | lake build -KleanMemory=8000 uv2_gr.Proofs.Runs.Evm19 | exit 0 | 86 s | peak 1997 MB
+2026-11-15T07:27:39Z | lake build -KleanMemory=8000 uv2_gr.Proofs.Runs.Evm20 | exit 0 | 65 s | peak 1953 MB
+2026-11-15T07:28:43Z | lake build -KleanMemory=8000 uv2_gr.Proofs.Runs.Evm21 | exit 0 | 64 s | peak 1966 MB
+2026-11-15T07:28:46Z | lake build -KleanMemory=8000 uv2_gr.Proofs.Stages | exit 0 | 3 s | peak 1599 MB
+2026-11-15T07:28:56Z | lake build -KleanMemory=8000 uv2_gr.Proofs.Assembly | exit 0 | 9 s | peak 1373 MB
+uv2_gr: 287 theorems audited, axioms within propext, Classical.choice, Quot.sound
+assembly: decoded only; the final EVM IR is outside the executed fragment: block 2: ('stack', 'returndatasize')
+2026-11-15T07:29:35Z | lake build -KleanMemory=8000 uv2_sy.Proofs.Runs.Mir1 | exit 0 | 34 s | peak 2409 MB
+2026-11-15T07:30:12Z | lake build -KleanMemory=8000 uv2_sy.Proofs.Runs.Mir2 | exit 0 | 37 s | peak 2427 MB
+2026-11-15T07:30:46Z | lake build -KleanMemory=8000 uv2_sy.Proofs.Runs.Mir3 | exit 0 | 34 s | peak 2459 MB
+2026-11-15T07:31:21Z | lake build -KleanMemory=8000 uv2_sy.Proofs.Runs.Mir4 | exit 0 | 35 s | peak 2452 MB
+2026-11-15T07:31:24Z | lake build -KleanMemory=8000 uv2_sy.Proofs.Runs.Sched.Defs | exit 0 | 3 s | peak 1556 MB
+2026-11-15T07:31:49Z | lake build -KleanMemory=8000 uv2_sy.Proofs.Runs.Sched.Seg0 | exit 0 | 26 s | peak 2185 MB
+2026-11-15T07:34:56Z | lake build -KleanMemory=8000 uv2_sy.Proofs.Runs.Sched.Seg1 | exit 1 | 186 s | peak 4249 MB
+    error: Certified/uv2_sy/Proofs/Runs/Sched/Seg1.lean:148:2: sym_seg: the segments end differently on this path, or the procedure cannot tell
+    error: build failed
+SCRIPT_EXIT 1

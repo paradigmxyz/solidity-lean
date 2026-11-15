@@ -1,0 +1,97 @@
+From 912b23cbafbd440eaa6100db1800221bf19bafd2 Mon Sep 17 00:00:00 2001
+From: solar-tv <solar-tv@users.noreply.github.com>
+Date: Sun, 15 Nov 2026 05:57:43 +0000
+Subject: [PATCH 5/5] feat(tv): signed tests and the uint112 mask for skim
+
+The ABI decoder checks a return data size with slt(size, 32) and the
+scheduled code may test it as sgt(32, size): cond_slt and cond_sgt (and
+their zero-first forms) read both as the one proposition
+size.slt 32, so a path taking both is refuted. late-word spells the
+uint112 mask as shr(144, shl(144, x)): shr_shl144 reads it as the mask,
+as shr_shl96 does for addresses. Adds the uv2_sk library for
+skim(address)'s stage proofs.
+---
+ lakefile.lean           |  7 +++++++
+ tv/W1Proofs/Tactic.lean | 35 +++++++++++++++++++++++++++++++++--
+ 2 files changed, 40 insertions(+), 2 deletions(-)
+
+diff --git a/lakefile.lean b/lakefile.lean
+index 97181b3..39c3b95 100644
+--- a/lakefile.lean
++++ b/lakefile.lean
+@@ -641,3 +641,10 @@ lean_lib «uv2_sy» where
+   roots := #[`uv2_sy.Proofs.Stages, `uv2_sy.Proofs.Assembly]
+   globs := #[.submodules `uv2_sy]
+   leanOptions := solarTVOptions
++
++-- uv2_sk: the same stages on skim(address)'s calls (scripts/verify/uniswap_v2_pair_stages.sh uv2_sk=skim(address)).
++lean_lib «uv2_sk» where
++  srcDir := "Certified"
++  roots := #[`uv2_sk.Proofs.Stages, `uv2_sk.Proofs.Assembly]
++  globs := #[.submodules `uv2_sk]
++  leanOptions := solarTVOptions
+diff --git a/tv/W1Proofs/Tactic.lean b/tv/W1Proofs/Tactic.lean
+index da68f78..caa0a68 100644
+--- a/tv/W1Proofs/Tactic.lean
++++ b/tv/W1Proofs/Tactic.lean
+@@ -115,6 +115,22 @@ theorem cond_and_lt (a b c d : Word) :
+ theorem zero_eq_or (a b : Word) : ((0 : Word) = Evm.or a b) = (a = 0 ∧ b = 0) := by
+   rw [← cond_or]; exact propext ⟨Eq.symm, Eq.symm⟩
+ 
++/-- Signed comparisons, as the ABI decoder bounds a return data size with `slt` and the scheduled
++code may test it with `sgt` the other way round: both read as one proposition. -/
++theorem cond_slt (a b : Word) : (Evm.slt a b = 0) = ¬(a.slt b = true) := by
++  unfold Evm.slt
++  cases h : a.slt b <;> simp
++
++theorem cond_sgt (a b : Word) : (Evm.sgt a b = 0) = ¬(b.slt a = true) := by
++  unfold Evm.sgt
++  cases h : b.slt a <;> simp
++
++theorem cond_zero_slt (a b : Word) : ((0 : Word) = Evm.slt a b) = ¬(a.slt b = true) := by
++  rw [← cond_slt]; exact propext ⟨Eq.symm, Eq.symm⟩
++
++theorem cond_zero_sgt (a b : Word) : ((0 : Word) = Evm.sgt a b) = ¬(b.slt a = true) := by
++  rw [← cond_sgt]; exact propext ⟨Eq.symm, Eq.symm⟩
++
+ /-! An address is a word of at most 160 bits, the mask's own: masking it keeps it, so a test
+ that a word equals its masked self holds once a test that it fits passed. The caller is the
+ oracle's, any address, which fits. -/
+@@ -210,6 +226,21 @@ theorem shr_shl96 (x : Word) :
+     show 2 ^ 256 = 2 ^ 96 * 2 ^ 160 by rw [← Nat.pow_add], Nat.mod_mul_right_div_self,
+     Nat.mul_div_cancel _ (Nat.two_pow_pos 96)]
+ 
++/-- The uint112 mask as `late-word` spells it, `shr(144, shl(144, x))`, as the mask, as
++`shr_shl96` does for addresses. -/
++theorem shr_shl144 (x : Word) :
++    Evm.shr 144 (Evm.shl 144 x) = Evm.and x 5192296858534827628530496329220095 := by
++  unfold Evm.shr Evm.shl Evm.and
++  rw [show (144 : Word).ult 256 = true from rfl, Bool.cond_true, Bool.cond_true,
++    BitVec.ushiftRight_eq', BitVec.shiftLeft_eq']
++  apply BitVec.eq_of_toNat_eq
++  have hm : (5192296858534827628530496329220095 : Word).toNat = 2 ^ 112 - 1 := rfl
++  have h144 : (144 : Word).toNat = 144 := rfl
++  rw [BitVec.toNat_ushiftRight, BitVec.toNat_shiftLeft, BitVec.toNat_and, hm, h144,
++    Nat.and_two_pow_sub_one_eq_mod, Nat.shiftLeft_eq, Nat.shiftRight_eq_div_pow,
++    show 2 ^ 256 = 2 ^ 144 * 2 ^ 112 by rw [← Nat.pow_add], Nat.mod_mul_right_div_self,
++    Nat.mul_div_cancel _ (Nat.two_pow_pos 144)]
++
+ /-! Tests the cases decide, as the words they leave, and the arithmetic a select becomes:
+ `if-convert` turns a branch on a test `c` between `t` and `f` into `f + c * (t - f)`. -/
+ 
+@@ -1082,10 +1113,10 @@ macro "sym_cond" : tactic => `(tactic|
+   simp only [*, apply_calldataload _ _ _ hcd, Mem.load_expand, Mem.load_write_of_disjoint,
+     Mem.expand_store, Mem.load_store_same, Mem.load_store_of_disjoint, Mem.load_initial,
+     State.initial_memory, BitVec.reduceEq,
+-    cond_ne, cond_eq, cond_sub, cond_lt, cond_gt, cond_iszero, cond_or, cond_and_lt, zero_eq_or,
++    cond_ne, cond_eq, cond_sub, cond_lt, cond_gt, cond_iszero, cond_or, cond_and_lt, zero_eq_or, cond_slt, cond_sgt, cond_zero_slt, cond_zero_sgt,
+     cond_zero_lt, cond_zero_gt, cond_zero_eq, cond_zero_ne, cond_zero_iszero,
+     wordAddComm, wordMulComm, wordAndComm, wordOrComm, wordXorComm, and_mask,
+-    mask_and, caller_le_mask, immutable20_le_mask, shr160_eq_zero, zero_eq_shr160, shr112_eq_zero, zero_eq_shr112, shr_shl96,
++    mask_and, caller_le_mask, immutable20_le_mask, shr160_eq_zero, zero_eq_shr160, shr112_eq_zero, zero_eq_shr112, shr_shl96, shr_shl144,
+     and_self, and_true, true_and, and_false, false_and,
+     ite_true, ite_false,
+     not_false_eq_true, not_true_eq_false, Classical.not_not, ↓reduceIte, Nat.reduceGT, Nat.reduceLT,
+-- 
+2.43.0
+

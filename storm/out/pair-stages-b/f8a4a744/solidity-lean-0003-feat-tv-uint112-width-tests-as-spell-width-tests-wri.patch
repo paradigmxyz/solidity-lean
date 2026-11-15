@@ -1,7 +1,7 @@
 From 1d19f419d971f019e5926e4d13f0a34804fd4989 Mon Sep 17 00:00:00 2001
 From: solar-tv <solar-tv@users.noreply.github.com>
 Date: Sun, 15 Nov 2026 00:28:19 +0000
-Subject: [PATCH 3/4] feat(tv): uint112 width tests as spell-width-tests writes
+Subject: [PATCH 3/5] feat(tv): uint112 width tests as spell-width-tests writes
  them
 
 spell-width-tests respells UniswapV2Pair._update's range check
