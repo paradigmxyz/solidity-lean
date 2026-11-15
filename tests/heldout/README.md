@@ -43,6 +43,8 @@ runs these through the driver; none may come out Certified.
 | [negative/ClampWrongSpec.sol](negative/ClampWrongSpec.sol) | REJECTED | `ensures result > a` is false at x <= a |
 | [negative/SiblingLeak.sol](negative/SiblingLeak.sol) | REJECTED | provable only if the then-branch's `x > 5` leaks into the else-branch |
 | [negative/SiblingOk.sol](negative/SiblingOk.sol) | Certified | the control: the same code with the true postcondition |
+| [negative/MeterWrongSpec.sol](negative/MeterWrongSpec.sol) | REJECTED | Meter with `+ 1` too many; inside the driver's envelope at bc6da61b |
+| [negative/FalseEnvFlat.sol](negative/FalseEnvFlat.sol), [InitBrokenFlat](negative/InitBrokenFlat.sol), [InvBrokenFlat](negative/InvBrokenFlat.sol), [SiblingFnsFlat](negative/SiblingFnsFlat.sol) | REJECTED | the same faults as FalseEnv, InitBroken, InvBroken and SiblingFns, written inside the envelope (no checked arithmetic, reason strings or early returns) |
 | [negative/SiblingFns.sol](negative/SiblingFns.sol) | REJECTED | lo()'s false postcondition, provable only if hi()'s premise or proof state reaches it |
 | [negative/FalseEnv.sol](negative/FalseEnv.sol) | REJECTED | contradictory environment premise: the postcondition holds only vacuously |
 | [negative/InitBroken.sol](negative/InitBroken.sol) | REJECTED | the constructor does not establish the invariant |
