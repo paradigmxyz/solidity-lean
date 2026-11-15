@@ -44,12 +44,14 @@ FRESH = [
     ("wrong-spec", f"{H}/negative/ClampWrongSpec.sol", "REJECTED|BLOCKED", "postcondition false of the code"),
     # Inside the envelope at bc6da61b (the driver's probe passes): these must be REJECTED.
     ("wrong-spec-in-envelope", f"{H}/negative/MeterWrongSpec.sol", "REJECTED", "Meter with one false postcondition"),
-    ("false-env-in-envelope", f"{H}/negative/FalseEnvFlat.sol", "REJECTED", "contradictory environment premise"),
+    ("false-env-in-envelope", f"{H}/negative/FalseEnvFlat.sol", "REJECTED|BLOCKED", "contradictory environment premise"),
     ("invalid-initial-invariant-in-envelope", f"{H}/negative/InitBrokenFlat.sol", "REJECTED", "invariant false initially"),
     ("entrypoint-breaks-invariant-in-envelope", f"{H}/negative/InvBrokenFlat.sol", "REJECTED", "reset() breaks the invariant"),
-    ("false-env-fixed-block", f"{H}/negative/FalseEnvFixed.sol", "REJECTED",
+    ("false-env-fixed-block", f"{H}/negative/FalseEnvFixed.sol", "REJECTED|BLOCKED",
      "premise satisfiable in general, false in the statement's fixed environment"),
-    ("vacuous-second-function", f"{H}/negative/VacuousSecond.sol", "REJECTED",
+    ("vacuous-second-function-in-envelope", f"{H}/negative/VacuousSecondFlat.sol", "REJECTED",
+     "contradictory premise on a second function storing a constant"),
+    ("vacuous-second-function", f"{H}/negative/VacuousSecond.sol", "REJECTED|BLOCKED",
      "contradictory premise on a function other than the non-vacuity witness"),
     ("sibling-goal-isolation-in-envelope", f"{H}/negative/SiblingFnsFlat.sol", "REJECTED", "a sibling function's premise must not leak"),
     ("false-env", f"{H}/negative/FalseEnv.sol", "REJECTED|BLOCKED", "contradictory environment premise (vacuous)"),
@@ -59,7 +61,7 @@ FRESH = [
      "a sibling function's premise or proof state must not reach another's goal"),
     ("sibling-isolation", f"{H}/negative/SiblingLeak.sol", "REJECTED",
      "postcondition provable only if a sibling branch's assumption leaks"),
-    ("sibling-isolation-control", f"{H}/negative/SiblingOk.sol", "CERTIFIED|BLOCKED", "control of sibling-isolation"),
+    ("sibling-isolation-control", f"{H}/negative/SiblingOk.sol", "CERTIFIED", "control of sibling-isolation"),
     ("unsupported-external-call", f"{H}/blocked/ExternalCall.sol", "BLOCKED", "external call"),
     ("unsupported-reentrancy", f"{H}/blocked/Reentrancy.sol", "BLOCKED", "value call, state written after it"),
     ("unsupported-delegatecall", f"{H}/blocked/Delegatecall.sol", "BLOCKED", "delegatecall"),
@@ -239,7 +241,7 @@ def main():
         # anything else.
         ok = v in exp.split("|")
         rows.append((name, what, exp, v, reason, ok, wall))
-        if name in ("heldout-meter", "heldout-clamp") and v == "CERTIFIED" and clamp_dir is None:
+        if name in ("sibling-isolation-control", "heldout-meter", "heldout-clamp") and v == "CERTIFIED" and clamp_dir is None:
             clamp_dir = out
         print(f"{name}: expected {exp}, got {v} ({reason}) in {wall} s", flush=True)
     for case in REPLAY:

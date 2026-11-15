@@ -8,6 +8,7 @@ pragma solidity ^0.8.20;
 contract SiblingLeak {
     uint256 public level;
 
+    /// @custom:succeeds-if msg.value == 0
     /// @custom:ensures x <= 5 ==> level == 1
     function set(uint256 x) external {
         if (x > 5) {

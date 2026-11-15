@@ -42,11 +42,12 @@ runs these through the driver; none may come out Certified.
 |---|---|---|
 | [negative/ClampWrongSpec.sol](negative/ClampWrongSpec.sol) | REJECTED | `ensures result > a` is false at x <= a |
 | [negative/SiblingLeak.sol](negative/SiblingLeak.sol) | REJECTED | provable only if the then-branch's `x > 5` leaks into the else-branch |
-| [negative/SiblingOk.sol](negative/SiblingOk.sol) | Certified | the control: the same code with the true postcondition |
+| [negative/SiblingOk.sol](negative/SiblingOk.sol) | Certified | the control: the same code with the true postcondition (both carry `succeeds-if msg.value == 0`, which the certified statement's non-vacuity needs) |
 | [negative/MeterWrongSpec.sol](negative/MeterWrongSpec.sol) | REJECTED | Meter with `+ 1` too many; inside the driver's envelope at bc6da61b |
 | [negative/FalseEnvFlat.sol](negative/FalseEnvFlat.sol), [InitBrokenFlat](negative/InitBrokenFlat.sol), [InvBrokenFlat](negative/InvBrokenFlat.sol), [SiblingFnsFlat](negative/SiblingFnsFlat.sol) | REJECTED | the same faults as FalseEnv, InitBroken, InvBroken and SiblingFns, written inside the envelope (no checked arithmetic, reason strings or early returns) |
 | [negative/FalseEnvFixed.sol](negative/FalseEnvFixed.sol) | REJECTED | `requires block.chainid == 424242`: satisfiable, but false in the statement's fixed environment, where the false postcondition then holds vacuously |
 | [negative/VacuousSecond.sol](negative/VacuousSecond.sol) | REJECTED | the first function (a non-vacuity witness) is correct; the second has a contradictory premise and a false postcondition (solar-verify proves it, vacuously) |
+| [negative/VacuousSecondFlat.sol](negative/VacuousSecondFlat.sol) | REJECTED | VacuousSecond with two() storing a constant, so it stays inside the source stage and reaches the per-function precondition check |
 | [negative/SiblingFns.sol](negative/SiblingFns.sol) | REJECTED | lo()'s false postcondition, provable only if hi()'s premise or proof state reaches it |
 | [negative/FalseEnv.sol](negative/FalseEnv.sol) | REJECTED | contradictory environment premise: the postcondition holds only vacuously |
 | [negative/InitBroken.sol](negative/InitBroken.sol) | REJECTED | the constructor does not establish the invariant |
