@@ -89,6 +89,21 @@ Notes on the SiblingLeak run:
   unsetting the last element of an empty array after spec_connect.py exits non-zero. It is harmless
   to the verdict, but it is a shell error on the rejection path.
 
+Driver owner's cold queue, records on solidity-lean alpharush/t1-generic-records @ 216e558e
+(Certified/record/):
+
+| case | expected | actual | rejecting check | driver / base |
+|---|---|---|---|---|
+| Flag (independent held-out positive) | CERTIFIED | REJECTED, exit 1 | published statement's proof: Shape.lean:128 unsolved goals (past-the-end case of `holds_of_getElem` with two connected functions); SpecConnect for raise and lower checked | 20a27f39 / 44572c15 |
+| UniswapV2Pair | BLOCKED | BLOCKED, exit 3 | envelope: external call (15x), imports (7x), inheritance (1x), ABI types (6x) | 20a27f39 / 44572c15 |
+
+Flag's rejection is a gap in the driver's proof generator (shape_gen.py), not in Flag or its spec.
+It is fixed in solar c167421c, and Flag, SiblingOk and InvOkFlat are queued cold on that commit.
+A positive that fails is not a pass: until one certifies, no negative in this table is shown to be
+caught by its own fault rather than by the generator. SiblingLeak ran on 20a27f39. If SiblingOk
+certifies only on c167421c, the pair is on different pins, and SiblingLeak needs one serial rerun on
+c167421c once the queue finishes.
+
 The positive twin, SiblingOk, and the independent held-out positive, Flag, run in the driver
 owner's cold queue. The nine replay mutations run only after that queue finishes, against a
 certified record, with no other heavy build running. A negative counts as caught by its own fault only when its positive twin
