@@ -89,26 +89,32 @@ Notes on the SiblingLeak run:
   unsetting the last element of an empty array after spec_connect.py exits non-zero. It is harmless
   to the verdict, but it is a shell error on the rejection path.
 
-Driver owner's cold queue, records on solidity-lean alpharush/t1-generic-records @ 216e558e
+Driver owner's cold queue, records on solidity-lean alpharush/t1-generic-records @ 039ef8bd
 (Certified/record/):
 
 | case | expected | actual | rejecting check | driver / base |
 |---|---|---|---|---|
-| Flag (independent held-out positive) | CERTIFIED | REJECTED, exit 1 | published statement's proof: Shape.lean:128 unsolved goals (past-the-end case of `holds_of_getElem` with two connected functions); SpecConnect for raise and lower checked | 20a27f39 / 44572c15 |
+| Flag, acc-flag (independent held-out positive) | CERTIFIED | REJECTED, exit 1 | published statement's proof: Shape.lean:128 unsolved goals (past-the-end case of `holds_of_getElem` with two connected functions); SpecConnect for raise and lower checked | 20a27f39 / 44572c15 |
+| Flag, acc2-flag | CERTIFIED | REJECTED, exit 2: `strict tier: flag_4ce5cf9a reached functional, below the requested tier certified (false: provenance_clean, strongest)` | strict tier: provenance (the driver let scripts/certify build solar) and the top-level strongest classification | c167421c / 44572c15 |
+| Flag, acc3-flag | CERTIFIED | **CERTIFIED, strict exit 0** | none: every strict component true (published_statement, equivalence, termination, resources, spec, source_bound, provenance_clean, replay_full, strongest); replay closure 3966/3966, trusted 0, unaccounted none; axioms propext, Classical.choice, Quot.sound | 5a9e6bc0 / 44572c15 |
 | UniswapV2Pair | BLOCKED | BLOCKED, exit 3 | envelope: external call (15x), imports (7x), inheritance (1x), ABI types (6x) | 20a27f39 / 44572c15 |
 
-Flag's rejection is a gap in the driver's proof generator (shape_gen.py), not in Flag or its spec.
-It is fixed in solar c167421c, and Flag, SiblingOk and InvOkFlat are queued cold on that commit.
-A positive that fails is not a pass: until one certifies, no negative in this table is shown to be
-caught by its own fault rather than by the generator. SiblingLeak ran on 20a27f39. If SiblingOk
-certifies only on c167421c, the pair is on different pins, and SiblingLeak needs one serial rerun on
-c167421c once the queue finishes.
+acc3-flag's pins: source and spec sha256 4ce5cf9a…, solar binary 91d39457… built at 5a9e6bc0,
+options `-Ogas --evm-version osaka`, runtime bytecode sha256 f689833e… (record.json
+bytecode_sha256), gas bound 3580203, statement `Certified.flag_4ce5cf9a.Final.final` of shape
+`SolidCore.Verify.Generic.Expected` in the fixed environment (caller 0x2000); any-caller is not
+covered. The driver owner's fresh-clone `--replay` of this record started at 09:36 CST and is the
+last check on it.
 
-The positive twin, SiblingOk, and the independent held-out positive, Flag, run in the driver
-owner's cold queue. The nine replay mutations run only after that queue finishes, against a
-certified record, with no other heavy build running. A negative counts as caught by its own fault only when its positive twin
-reaches the requested tier, so SiblingLeak's row is final only once SiblingOk certifies on the
-same pins.
+Flag's first rejection was a gap in the driver's proof generator (shape_gen.py, fixed in
+c167421c); the second was the driver's own provenance (fixed in 5a9e6bc0). Neither was a fault in
+Flag or its spec.
+
+**SiblingOk has not certified on any pin yet.** It has not run on 5a9e6bc0, and SiblingLeak ran on
+20a27f39, so the pair is not on the same pins. SiblingLeak's row stays provisional until SiblingOk
+certifies on 5a9e6bc0 / 44572c15 and SiblingLeak reruns once, serially, on the same pins. Flag
+certifying on 5a9e6bc0 shows that a positive inside the envelope reaches the certified tier on that
+driver. It does not stand in for SiblingLeak's own twin.
 
 ## Replay cases
 
@@ -117,3 +123,45 @@ extra file is present. It then reruns cold and compares every pin. negatives.py'
 (stale bytes, flipped byte, changed solar options, stale spec, stale source, stale import, omitted
 selector, false environment pin, out of gas passed off as a revert) edit a copy of a certified
 record directory. They run once a held-out contract certifies.
+
+They run against acc3-flag's `replay/` (records branch @ 039ef8bd), with
+`negatives.py --replay-from DIR` and the driver at 5a9e6bc0
+(`tools/certify/certify --replay {dir} --solidity-lean <checkout> --work {work}`). Every case
+runs in two layers:
+
+* **file**: one run file of the copy is edited and the manifest (record.json `run_files`) is left
+  alone. The driver must refuse the copy before any build.
+* **pin**: the run files stay untouched and one pin of record.json is changed. The manifest does
+  not hash record.json, so this layer passes the manifest. Only the fresh cold run's comparison of
+  `REPLAY_KEYS` can refuse it.
+
+A control (the unedited copy) passes the manifest and starts the fresh cold run. It was stopped at
+that point, at the `== replay:` line. Layer file, and the pin cases refused before the fresh run,
+ran on 2026-11-15 at 15:41 to 15:42 UTC with no build (each 0 s, no lake or lean process).
+Receipts and logs are in
+[tests/heldout/runs/replay-acc3-flag](../tests/heldout/runs/replay-acc3-flag/README.md).
+
+| case | layer | change | verdict line | exit | stage |
+|---|---|---|---|---|---|
+| stale-bytes | file | certify-record.json bytecode replaced by StepSum's fresh runtime bytes | `REJECTED: replay: certify-record.json differs from the record (stale or edited run file)` | 1 | manifest |
+| flipped-byte | file | certify-record.json bytecode, middle byte XOR 1 | `REJECTED: replay: certify-record.json differs from the record (stale or edited run file)` | 1 | manifest |
+| changed-solar-options | file | inputs/…/options `-Ogas` to `-Osize` | `REJECTED: replay: inputs/Certified/flag_4ce5cf9a/options differs from the record (stale or edited run file)` | 1 | manifest |
+| stale-spec-hash | file | Flag.sol: `@custom:ensures true && …` | `REJECTED: replay: Flag.sol differs from the record (stale or edited run file)` | 1 | manifest |
+| stale-source | file | Flag.sol: `value = v;` to `value = (v);` | `REJECTED: replay: Flag.sol differs from the record (stale or edited run file)` | 1 | manifest |
+| stale-import | file | inputs/…/Source.lean, comment appended | `REJECTED: replay: inputs/Certified/flag_4ce5cf9a/Source.lean differs from the record (stale or edited run file)` | 1 | manifest |
+| omitted-selector | file | inputs/…/shape.json, first entry dropped | `REJECTED: replay: inputs/Certified/flag_4ce5cf9a/shape.json differs from the record (stale or edited run file)` | 1 | manifest |
+| false-env-pin | file | inputs/…/shape.json env `[]` to a caller premise | `REJECTED: replay: inputs/Certified/flag_4ce5cf9a/shape.json differs from the record (stale or edited run file)` | 1 | manifest |
+| oog-as-revert | file | inputs/…/shape.json gas 3580203 to 1790101 | `REJECTED: replay: inputs/Certified/flag_4ce5cf9a/shape.json differs from the record (stale or edited run file)` | 1 | manifest |
+| stale-source | pin | record.json source.sha256, first byte XOR 1 | `REJECTED: replay: the record's source digest is not its source file's` | 1 | source digest, before the fresh run |
+| stale-bytes | pin | record.json bytecode_sha256 := sha256 of StepSum's runtime bytes | pending | | fresh run, pin comparison |
+| flipped-byte | pin | record.json bytecode_sha256 := sha256 of the flipped bytes | pending | | fresh run, pin comparison |
+| changed-solar-options | pin | record.json options `-Ogas` to `-Osize` | pending | | fresh run, pin comparison |
+| stale-spec-hash | pin | record.json spec.sha256, first byte XOR 1 | pending | | fresh run, pin comparison |
+| stale-import | pin | record.json solidity_lean.inputs_sha256, first byte XOR 1 | pending | | fresh run, pin comparison |
+| omitted-selector | pin | record.json functions, first dropped | pending | | fresh run, pin comparison |
+| false-env-pin | pin | record.json environment, caller 0x2000 to 0x0 | pending | | fresh run, pin comparison |
+| oog-as-revert | pin | record.json gas_bound halved | pending | | fresh run, pin comparison |
+
+The eight pending pin cases each pass the manifest and need the driver's full fresh cold run, which
+is heavy. They run serially, one at a time, after the driver owner's fresh-clone replay of the same
+record reports.

@@ -25,6 +25,13 @@ Every case runs the same driver command on the same tree: the table records the 
 driver's hash before and after, and the suite fails if they differ.
 Each must be refused. Without --replay those cases are reported as not run.
 
+--replay-from DIR runs only the replay cases, each from a copy of DIR (a finished run's directory,
+such as a published record's replay/), in two layers: file (one run file edited, the manifest
+left alone: refused before any build) and pin (one pin of record.json changed, the run files
+untouched: refused only by the fresh cold run's pin comparison). --no-fresh-run stops a case
+when the driver starts its fresh run, for the file layer while no heavy build may run; --slot
+prefixes each replay command (a host-wide build slot). Receipts go to WORK/receipts.json.
+
 Exits 0 iff every case that ran passed.
 """
 import argparse, json, pathlib, re, shlex, shutil, subprocess, sys, time
@@ -214,21 +221,210 @@ def mutate_replay(case, d, other_bin):
         return None
 
 
+# --replay-from DIR: the replay cases start from an existing finished run's directory (such as a
+# published record's replay/), not from a fresh certified run of Meter. Each case runs in two
+# layers. file: one run file of the copy is edited and the record's manifest is left alone, so
+# the driver must refuse it before any build. pin: the run files stay untouched and one pin of
+# record.json (which the manifest does not hash) is changed, so the manifest passes and only the
+# fresh cold run's pin comparison can refuse it.
+LAYERS = ("file", "pin")
+
+
+def _sub1(p, old, new):
+    t = p.read_text()
+    if old not in t:
+        return False
+    p.write_text(t.replace(old, new, 1))
+    return True
+
+
+def mutate_from(case, layer, d, other_bin):
+    """Change one input of the copy d of a finished run's directory; return what changed."""
+    rec_p = d / "record.json"
+    rec = json.loads(rec_p.read_text())
+    srcs = [r for r in rec.get("run_files", {}) if r.endswith(".sol") and "/" not in r]
+    top = d / srcs[0] if srcs else None
+    inputs = sorted((d / "inputs").rglob("*")) if (d / "inputs").is_dir() else []
+    pick = lambda name: next((p for p in inputs if p.name == name), None)
+    if layer == "pin":
+        def setk(path, val):
+            o = rec
+            for k in path[:-1]:
+                o = o[k]
+            old = o.get(path[-1])
+            o[path[-1]] = val(old)
+            rec_p.write_text(json.dumps(rec, indent=2) + "\n")
+            return f"record.json {'.'.join(path)}: {str(old)[:40]} -> {str(o[path[-1]])[:40]}"
+        import hashlib
+        if case == "stale-bytes":
+            return setk(("bytecode_sha256",), lambda _: hashlib.sha256(bytes.fromhex(other_bin)).hexdigest())
+        if case == "flipped-byte":
+            cr = json.loads((d / "certify-record.json").read_text())
+            return setk(("bytecode_sha256",), lambda _: hashlib.sha256(bytes.fromhex(flip_hex(cr["bytecode"]))).hexdigest())
+        if case == "changed-solar-options":
+            return setk(("options",), lambda o: ["-Osize" if x == "-Ogas" else x for x in o])
+        if case == "stale-spec-hash":
+            return setk(("spec", "sha256"), lambda s: flip_hex(s, 0))
+        if case == "stale-source":
+            return setk(("source", "sha256"), lambda s: flip_hex(s, 0))
+        if case == "stale-import":
+            return setk(("solidity_lean", "inputs_sha256"), lambda s: flip_hex(s, 0) if isinstance(s, str) else "0" * 64)
+        if case == "omitted-selector":
+            return setk(("functions",), lambda f: f[1:])
+        if case == "false-env-pin":
+            return setk(("environment",), lambda e: e.replace("caller 0x2000", "caller 0x0"))
+        if case == "oog-as-revert":
+            return setk(("gas_bound",), lambda g: g // 2)
+        return None
+    if case in ("stale-bytes", "flipped-byte"):
+        p = d / "certify-record.json"
+        j = json.loads(p.read_text())
+        j["bytecode"] = other_bin if case == "stale-bytes" else flip_hex(j["bytecode"])
+        p.write_text(json.dumps(j, indent=2) + "\n")
+        return "certify-record.json bytecode: " + ("another contract's fresh compile" if case == "stale-bytes" else "middle byte XOR 1")
+    if case == "changed-solar-options":
+        p = pick("options")
+        return p and _sub1(p, "-Ogas", "-Osize") and f"{p.relative_to(d)}: -Ogas -> -Osize"
+    if case == "stale-spec-hash":
+        return top and _sub1(top, "@custom:ensures ", "@custom:ensures true && ") and f"{srcs[0]}: one ensures clause edited"
+    if case == "stale-source":
+        t = top.read_text() if top else ""
+        m = re.search(r"(\b\w+ = )([^;]+);", t)
+        if not m:
+            return None
+        top.write_text(t[:m.start()] + m.group(1) + "(" + m.group(2) + ");" + t[m.end():])
+        return f"{srcs[0]}: '{m.group(0)}' parenthesised (same behaviour, other source bytes)"
+    if case == "stale-import":
+        p = pick("Source.lean")
+        if not p:
+            return None
+        p.write_text(p.read_text() + "\n-- edited after the run\n")
+        return f"{p.relative_to(d)}: comment appended"
+    if case == "omitted-selector":
+        p = pick("shape.json")
+        j = json.loads(p.read_text())
+        j["entries"] = j["entries"][1:]
+        p.write_text(json.dumps(j, indent=2) + "\n")
+        return f"{p.relative_to(d)}: first entry dropped"
+    if case == "false-env-pin":
+        p = pick("shape.json")
+        j = json.loads(p.read_text())
+        j["env"] = "[fun s => s.caller = 0]"
+        p.write_text(json.dumps(j, indent=2) + "\n")
+        return f"{p.relative_to(d)}: env [] -> a caller premise"
+    if case == "oog-as-revert":
+        p = pick("shape.json")
+        j = json.loads(p.read_text())
+        g = int(re.search(r"\d+", j["gas"]).group())
+        j["gas"] = j["gas"].replace(str(g), str(g // 2))
+        p.write_text(json.dumps(j, indent=2) + "\n")
+        return f"{p.relative_to(d)}: gas bound {g} -> {g // 2}"
+    return None
+
+
+def run_watch(cmd, log, stop_at=None):
+    """run(), but kill the driver's process group when a line matches stop_at (the fresh cold run
+    starting), and keep a receipt: start, end, exit, peak RSS of the tree is left to the slot."""
+    import os, signal, datetime
+    t = time.time()
+    start = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+    log.parent.mkdir(parents=True, exist_ok=True)
+    stopped = False
+    with open(log, "w") as f:
+        f.write(shlex.join(cmd) + "\n")
+        f.flush()
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True)
+        out = []
+        for line in p.stdout:
+            out.append(line)
+            f.write(line)
+            f.flush()
+            if stop_at and stop_at in line:
+                os.killpg(p.pid, signal.SIGTERM)
+                stopped = True
+                break
+        rc = p.wait()
+    out = "".join(out)
+    end = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+    if stopped:
+        return "FRESH-RUN", "the manifest passed and the fresh cold run started (stopped: --no-fresh-run)", rc, round(time.time() - t), start, end
+    verdict, reason = "ERROR", ""
+    for line in out.splitlines():
+        m = VERDICT.match(line)
+        if m:
+            verdict, reason = norm(m.group(1)), (m.group(1) + ": " + m.group(2)).strip()
+            if verdict == "REJECTED" and m.group(2).startswith("resources:"):
+                verdict = "RESOURCES"
+    if verdict == "CERTIFIED" and rc != 0:
+        verdict, reason = "ERROR", f"CERTIFIED with exit {rc}"
+    if verdict == "ERROR" and not reason:
+        tail = [l for l in out.strip().splitlines() if l.strip()]
+        reason = f"exit {rc}: " + (tail[-1][:140] if tail else "no output")
+    return verdict, reason, rc, round(time.time() - t), start, end
+
+
+def replay_from(a, work, other):
+    """The nine replay cases against a.replay_from, by layer; returns table rows."""
+    import hashlib
+    src = pathlib.Path(a.replay_from).resolve()
+    rows, receipts = [], []
+    layers = LAYERS if a.layer == "both" else (a.layer,)
+    want = set(a.only.split(",")) if a.only else None
+    for layer in layers:
+        for case in REPLAY:
+            name = f"{case}@{layer}"
+            if want and case not in want and name not in want:
+                continue
+            d = work / ("from-" + case + "-" + layer) / src.name
+            if d.parent.exists():
+                shutil.rmtree(d.parent)
+            shutil.copytree(src, d, symlinks=True)
+            what = mutate_from(case, layer, d, other)
+            if not what:
+                rows.append((name, "no such input in the directory", "REJECTED", "NOT RUN", "nothing to change", None, 0))
+                continue
+            cmd = fill(shlex.split(a.replay), dir=d, work=work / "w" / name)
+            if a.slot:
+                cmd = shlex.split(a.slot) + cmd
+            v, reason, rc, wall, t0, t1 = run_watch(cmd, work / "log" / f"{name}.txt",
+                                                    "== replay:" if a.no_fresh_run else None)
+            # FRESH-RUN: the manifest passed and the case awaits its fresh cold run (not run yet).
+            ok = None if v == "FRESH-RUN" else (v in ("REJECTED", "BLOCKED") and rc != 0)
+            rows.append((name, what, "REJECTED", v, f"{reason} (exit {rc})", ok, wall))
+            receipts.append({"case": name, "changed": what, "command": cmd, "exit": rc, "verdict": v, "line": reason,
+                             "start": t0, "end": t1, "wall_s": wall,
+                             "log_sha256": hashlib.sha256((work / "log" / f"{name}.txt").read_bytes()).hexdigest()})
+            print(f"{name}: got {v} ({reason}) exit {rc} in {wall} s", flush=True)
+    (work / "receipts.json").write_text(json.dumps(receipts, indent=2) + "\n")
+    return rows
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--certify", required=True)
+    ap.add_argument("--certify", default=None)
     ap.add_argument("--replay", default=None)
     ap.add_argument("--work", default=".lake/negatives")
     ap.add_argument("--table", default=None)
     ap.add_argument("--only", default=None)
     ap.add_argument("--heldout", default=None, help="tests/heldout of this checkout (absolute) when the driver runs elsewhere")
     ap.add_argument("--solar", default=None, help="solar for the stale-bytes compile (default: the driver's)")
+    ap.add_argument("--replay-from", default=None, metavar="DIR",
+                    help="run only the replay cases, each from a copy of this finished run's directory")
+    ap.add_argument("--layer", choices=["file", "pin", "both"], default="both")
+    ap.add_argument("--no-fresh-run", action="store_true",
+                    help="stop a case when the driver starts its fresh cold run (light cases only)")
+    ap.add_argument("--slot", default=None, help="prefix every replay command with this (a host-wide build slot)")
+    ap.add_argument("--other-bin", default=None, help="hex runtime bytes of another contract, for stale-bytes")
     a = ap.parse_args()
+    if not (a.certify or a.replay_from):
+        ap.error("--certify or --replay-from is required")
+    if a.replay_from and not a.replay:
+        ap.error("--replay-from needs --replay")
     global H
     if a.heldout:
         H = str(pathlib.Path(a.heldout).resolve())
     work = pathlib.Path(a.work).resolve()
-    certify = shlex.split(a.certify)
+    certify = shlex.split(a.certify or a.replay)
     drv = pathlib.Path(certify[0])
     drv_hash = lambda: subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip() + ":" + \
         (__import__("hashlib").sha256(drv.read_bytes()).hexdigest() if drv.is_file() else "")
@@ -236,7 +432,15 @@ def main():
     rows = []
     want = set(a.only.split(",")) if a.only else None
     clamp_dir = None
-    for name, src, exp, what in FRESH:
+    if a.replay_from:
+        other = a.other_bin or ""
+        if not other:
+            r = subprocess.run([a.solar or "solar", "--emit=bin-runtime", f"{H}/StepSum.sol"], capture_output=True, text=True)
+            m = re.search(r'"bin-runtime"\s*:\s*"([0-9a-f]+)"', r.stdout)
+            other = m.group(1) if m else ""
+        work.mkdir(parents=True, exist_ok=True)
+        rows = replay_from(a, work, other)
+    for name, src, exp, what in ([] if a.replay_from else FRESH):
         if want and name not in want and not (name == "heldout-meter" and a.replay):
             continue
         out = work / name
@@ -250,7 +454,7 @@ def main():
         if name in ("sibling-isolation-control", "heldout-meter", "heldout-clamp") and v == "CERTIFIED" and clamp_dir is None:
             clamp_dir = out
         print(f"{name}: expected {exp}, got {v} ({reason}) in {wall} s", flush=True)
-    for case in REPLAY:
+    for case in ([] if a.replay_from else REPLAY):
         if want and case not in want:
             continue
         if not a.replay or clamp_dir is None:
