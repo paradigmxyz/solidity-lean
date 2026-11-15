@@ -205,7 +205,7 @@ def callAssign (targets : List String) (S S1 : SymState) (ws : List WExpr) : Opt
   if targets = [] then some (.leaf (.normal { S with writes := S1.writes, logs := S1.logs }))
   else do
     let sc ← Scopes.setMany S.scopes targets ws
-    some (.leaf (.normal { scopes := sc, writes := S1.writes, logs := S1.logs }))
+    some (.leaf (.normal { scopes := sc, writes := S1.writes, logs := S1.logs, caller := S.caller }))
 
 /-- The end of an internal call from the end of its callee's body: its named returns or its
 returned words assigned to the targets, or the callee's revert. -/
@@ -400,7 +400,7 @@ def eraseStmt (E : EraseEnv) : Nat → Stmt → SymState → Option Br
       let fn ← E.tbl.lookup? callee
       if fn.params.all wordDecl && fn.returns.all wordDecl && args.length = fn.params.length then
         let (gs, vs) ← eraseExprs E.fields S args
-        let b ← eraseStmt E n fn.body { scopes := [callFrame fn vs], writes := S.writes, logs := S.logs }
+        let b ← eraseStmt E n fn.body { scopes := [callFrame fn vs], writes := S.writes, logs := S.logs, caller := S.caller }
         let b' ← b.bindLeaf (callLeaf fn targets S)
         some (guards gs b')
       else none
@@ -439,7 +439,7 @@ structure StmtRel (ρ : Val) (E : EraseEnv) (ctx : Context) (rt : Runtime) (S : 
   fields : ctx.storageFields = E.fields
   events : ctx.eventDecls = E.events
   checked : ctx.checked = true
-  sender : ctx.sender = callerWord
+  sender : ctx.sender = S.caller.eval ρ
   hash : ρ.hash = solHash
   ok : ρ.Ok
   frames : rt.locals = S.scopes.map (frameOf ρ)
@@ -1245,7 +1245,7 @@ theorem callAssign_ok {ρ : Val} {E : EraseEnv} {ctx : Context} {rt rt1 : Runtim
     subst ht
     simp only [Option.some.injEq] at h
     subst h
-    exact ⟨_, rfl, { hrel1 with frames := hrel.frames }⟩
+    exact ⟨_, rfl, { hrel1 with frames := hrel.frames, sender := hrel.sender }⟩
   · rename_i ht
     simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
     obtain ⟨sc, hsc, rfl⟩ := h
@@ -1253,7 +1253,7 @@ theorem callAssign_ok {ρ : Val} {E : EraseEnv} {ctx : Context} {rt rt1 : Runtim
     have hne : targets.isEmpty = false := by cases targets <;> simp_all
     refine ⟨.normal { rt1 with locals := sc.map (frameOf ρ) }, ?_,
       (show StmtRel ρ E ctx { rt1 with locals := sc.map (frameOf ρ) }
-        { scopes := sc, writes := S1.writes, logs := S1.logs } from { hrel1 with frames := rfl })⟩
+        { scopes := sc, writes := S1.writes, logs := S1.logs, caller := S.caller } from { hrel1 with frames := rfl, sender := hrel.sender })⟩
     simp only [internalCallAssign, hne, Bool.false_eq_true, ↓reduceIte, this]
     rfl
 
@@ -1671,7 +1671,7 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
         have hctx : ({ ctx with checked := true } : Context) = ctx := by
           rw [show true = ctx.checked from hrel.checked.symm]
         have hrel0 : StmtRel ρ E ctx { rt with locals := [frameOf ρ (callFrame fn vs)] }
-            { scopes := [callFrame fn vs], writes := S.writes, logs := S.logs } :=
+            { scopes := [callFrame fn vs], writes := S.writes, logs := S.logs, caller := S.caller } :=
           { hrel with frames := rfl }
         obtain ⟨r0, hr0, hl0⟩ := ih fn.body _ b0 hb0 _ hrel0
         rw [hctx, hr0, bind_done_ok]

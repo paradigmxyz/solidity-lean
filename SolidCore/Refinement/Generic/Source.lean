@@ -147,6 +147,8 @@ structure SymState where
   scopes : Scopes
   writes : Writes
   logs : List Log
+  /-- The word `msg.sender` erases to: `callerWord`, or the symbolic `WExpr.caller`. -/
+  caller : WExpr := .lit callerWord
   deriving DecidableEq, Repr
 
 /-- SolidCore's slot of a mapping's entry: Keccak-256 of the key's word and the mapping's slot,
@@ -187,7 +189,7 @@ def negOf : BinaryOp → Option BinOp
 def eraseAtom (S : SymState) : Expr → Option WExpr
   | .word n => some (.lit n)
   | .var x => Scopes.get? S.scopes x
-  | .caller => some (.lit callerWord)
+  | .caller => some S.caller
   | _ => none
 
 /-- `uint256(keccak256(abi.encode(x, y)))` of two `uint256` atoms: the hash of their two words,
@@ -208,7 +210,7 @@ reverting with `Panic(0x11)` when not zero, and its word. -/
 def eraseExpr (fields : List StorageField) (S : SymState) : Expr → Option (List WExpr × WExpr)
   | .word n => some ([], .lit n)
   | .var x => (Scopes.get? S.scopes x).map fun e => ([], e)
-  | .caller => some ([], .lit callerWord)
+  | .caller => some ([], S.caller)
   | .castOp .uintCleanup b e => do
     let (gs, v) ← eraseExpr fields S e
     if b = 256 then some (gs, v)
@@ -523,7 +525,7 @@ structure ExprRel (ρ : Val) (fields : List StorageField) (ctx : Context) (rt : 
     (S : SymState) : Prop where
   fields : ctx.storageFields = fields
   checked : ctx.checked = true
-  sender : ctx.sender = callerWord
+  sender : ctx.sender = S.caller.eval ρ
   hash : ρ.hash = solHash
   ok : ρ.Ok
   locals : ∀ x e, Scopes.get? S.scopes x = some e → rt.lookupLocal? x = some (.word (e.eval ρ))
@@ -994,8 +996,8 @@ theorem eval_atom {ρ : Val} {fields : List StorageField} {ctx : Context} {rt : 
   | caller =>
     simp only [eraseAtom, Option.some.injEq] at h
     subst h
-    simp only [Expr.evalFuel, exprResult, List.any_nil, Bool.false_eq_true, ↓reduceIte, WExpr.eval,
-      hrel.sender, callerWord]
+    simp only [Expr.evalFuel, exprResult, List.any_nil, Bool.false_eq_true, ↓reduceIte,
+      hrel.sender]
     rfl
   | _ => simp [eraseAtom] at h
 
@@ -1196,8 +1198,8 @@ theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
   | caller =>
     simp only [eraseExpr, Option.some.injEq, Prod.mk.injEq] at h
     obtain ⟨rfl, rfl⟩ := h
-    simp only [Expr.evalFuel, exprResult, List.any_nil, Bool.false_eq_true, ↓reduceIte, WExpr.eval,
-      hrel.sender, callerWord]
+    simp only [Expr.evalFuel, exprResult, List.any_nil, Bool.false_eq_true, ↓reduceIte,
+      hrel.sender]
     rfl
   | storageRead m x idx =>
     cases m

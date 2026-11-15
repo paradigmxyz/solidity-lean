@@ -9,7 +9,7 @@ import SolidCore.Refinement.Dirty.Source
 selector `sel` (call data `Abi.calldata sel args`, any argument words below `2 ^ 256`, no value,
 initial storage `σ`) to a contract whose constructor leaves the storage entries `s` and no logs,
 when `σ` writes every slot `s` does (`Covers s σ`), SolidCore's `Source.run` shows
-`(T.eval ⟨args, slotValue σ, solHash⟩).obs`, where `T` is the erasure `eraseFn` of `fn` in the
+`(T.eval ⟨args, slotValue σ, solHash, callerWord⟩).obs`, where `T` is the erasure `eraseFn` of `fn` in the
 contract's `EraseEnv` (`envOf`: its storage fields, events and function table): the call's
 argument words, its storage, and SolidCore's slot hash `solHash`.
 
@@ -760,7 +760,7 @@ theorem source_run_clean {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Sourc
     (hclean : argsClean ws args = true)
     (hdec : ABI.decodeFunctionArgs? fn (Dirty.argBytes args) = .ok (args.map .word)) :
     Source.run fuel c { calldata := Abi.calldata sel args, callvalue := 0, storage := σ } =
-      some (T.eval ⟨args, slotValue σ, solHash⟩).obs := by
+      some (T.eval ⟨args, slotValue σ, solHash, callerWord⟩).obs := by
   rw [SolidCore.Refinement.Wide.callAt_of_args sel args hargs σ,
     SolidCore.Refinement.Wide.run_eq_at hd, SolidCore.Refinement.Wide.map_ofNat_toNat args hargs]
   have hdrop : ((EthLib.Base.natToBytes 4 sel).map (·.toNat) ++ Dirty.argBytes args).drop
@@ -779,7 +779,7 @@ theorem source_run_clean {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Sourc
     simp [FunctionDef.acceptsValue, wordEq]
   have hctxv : ctx.value = 0 := by
     subst hctx; simp [ABI.Contract.callContextAtWithBase, SolidCore.Solidity.Shared.norm]
-  set ρ : Val := ⟨args, slotValue σ, solHash⟩ with hρ
+  set ρ : Val := ⟨args, slotValue σ, solHash, callerWord⟩ with hρ
   have hρok : ρ.Ok := slotValue_store σ
   set K := argFacts ws 0 with hK
   have hKρ : K.Hold ρ := argFacts_hold ρ hargs ws 0 (by simpa [hρ] using hclean)
@@ -914,7 +914,7 @@ theorem source_run {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.Stat
     (hT : eraseFn (envOf c.core) fuel fn = some T) (args : List Nat)
     (hlen : args.length = fn.params.length) (hargs : ∀ a ∈ args, a < 2 ^ 256) :
     Source.run fuel c { calldata := Abi.calldata sel args, callvalue := 0, storage := σ } =
-      some (T.eval ⟨args, slotValue σ, solHash⟩).obs := by
+      some (T.eval ⟨args, slotValue σ, solHash, callerWord⟩).obs := by
   unfold eraseFn at hT
   split at hT
   · simp at hT
@@ -924,7 +924,7 @@ theorem source_run {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.Stat
   rename_i hret
   simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at hT
   obtain ⟨b, hb, t, ht, rfl⟩ := hT
-  rw [paramGuards_eval ⟨args, slotValue σ, solHash⟩ t hargs ws 0, List.drop_zero]
+  rw [paramGuards_eval ⟨args, slotValue σ, solHash, callerWord⟩ t hargs ws 0, List.drop_zero]
   have hdec := decode_args hw args hlen hargs
   by_cases hclean : argsClean ws args = true
   · rw [if_pos hclean]

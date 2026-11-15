@@ -11,7 +11,9 @@ Each node gets a status:
   sorry           a proof that depends on sorryAx
   axioms          a proof that depends on any other axiom (ofReduceBool from native_decide, ...)
   statement-only  the decl is a statement (a Prop or a predicate), not a proof
-  missing         no decl yet, the decl is not in the module, or the module is not built
+  missing         no decl yet, or the decl is not in its module
+  unbuilt         the decl's module is not built in this run, so nothing is known of it; an unbuilt
+                  node is never ready (a build step for its module comes first)
   trusted         a stated trust boundary (E0, E1); never proved, never a proof obligation
   external        evidence outside Lean (the solar driver's byte binding); never proved here
 
@@ -25,7 +27,7 @@ satisfied whose deps are all satisfied, ordered by how many unsatisfied nodes th
   python3 scripts/blueprint/check.py --no-lean            # graph checks only (no Lean)
 
 Build the modules first (the refinement workflow's builds); a module that is not built reports
-its nodes as missing with that reason, never as proved.
+its nodes as unbuilt, never as proved.
 """
 
 from __future__ import annotations
@@ -48,14 +50,17 @@ OUT_MD = ROOT / "docs/blueprint/status.md"
 
 ALLOWED_AXIOMS = {"propext", "Classical.choice", "Quot.sound"}
 EDGES = {"E0", "E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8"}
-KINDS = {"obligation", "lemma", "premise", "spec", "statement", "trusted", "external", "goal"}
+KINDS = {"obligation", "lemma", "premise", "spec", "statement", "trusted", "external", "goal", "deliverable"}
+# Kinds that are not Lean declarations: their receipt (in obligations.toml, once delivered) is the
+# evidence, and they are never "proved".
+RECEIPT_KINDS = {"deliverable", "goal", "external"}
 # human_review is for what a person must read and agree with: statements, premises, specs.
 REVIEWABLE = {"premise", "spec", "statement", "trusted"}
 # A dep on one of these kinds is satisfied by its statement existing: it is a hypothesis or a
 # definition the obligation speaks of, not something to prove.
 STATEMENT_KINDS = {"premise", "spec", "statement"}
 FIELDS = {"id", "kind", "contract", "function", "edge", "statement", "decl", "module", "deps",
-          "lane", "human_review", "note"}
+          "lane", "owner", "branch", "acceptance", "receipt", "priority", "human_review", "note"}
 
 MARK = "BLUEPRINT\t"
 
@@ -116,6 +121,20 @@ def validate(data: dict) -> tuple[list[dict], list[str]]:
             errors.append(f"{nid}: statement must be one line")
         if not n.get("lane"):
             errors.append(f"{nid}: no owner lane")
+        if not n.get("owner"):
+            errors.append(f"{nid}: no owner (the lane's thread id, or unassigned)")
+        if "branch" not in n:
+            errors.append(f"{nid}: no branch (empty until one is assigned)")
+        if not n.get("acceptance"):
+            errors.append(f"{nid}: no acceptance criterion")
+        if n.get("priority", "P2") not in {"P0", "P1", "P2", "P3"}:
+            errors.append(f"{nid}: priority is one of P0..P3")
+        rc = n.get("receipt")
+        if rc is not None:
+            if kind not in RECEIPT_KINDS:
+                errors.append(f"{nid}: a {kind} gets its receipt from the checker, not from obligations.toml")
+            elif not (isinstance(rc, dict) and rc.get("sha") and rc.get("check")):
+                errors.append(f"{nid}: a receipt is {{sha = ..., check = <run url or local log>}}")
         if not isinstance(n.get("human_review"), bool):
             errors.append(f"{nid}: human_review must be true or false")
         elif n["human_review"] and kind not in REVIEWABLE:
@@ -202,11 +221,17 @@ def classify(n: dict, info: dict | None, failure: str) -> tuple[str, str]:
     kind = n["kind"]
     if kind == "trusted":
         return "trusted", "a stated trust boundary"
-    if kind == "external":
-        return "external", "evidence outside Lean, not checked here"
+    if kind in RECEIPT_KINDS and not n.get("decl"):
+        if n.get("receipt"):
+            return "delivered", f"receipt {n['receipt']['sha'][:12]} {n['receipt']['check']}"
+        if kind == "external":
+            return "external", "evidence outside Lean, not checked here"
+        return "missing", "not delivered: no receipt yet"
     if not n.get("decl"):
         return "missing", "no decl yet"
     if failure:
+        if failure.startswith(("module not built", "module not audited")):
+            return "unbuilt", failure
         return "missing", failure
     if info is None or not info.get("found"):
         return "missing", f"{n['decl']} not found in {n['module']}"
@@ -230,11 +255,11 @@ def classify(n: dict, info: dict | None, failure: str) -> tuple[str, str]:
 def satisfied(n: dict, status: str) -> bool:
     """Whether a node, as a dep, lets the nodes on it go ahead: proved, a stated premise, spec or
     statement, or a boundary the target states (trusted, external). Only proved is ever evidence."""
-    return (status == "proved" or status in {"trusted", "external"}
+    return (status in {"proved", "delivered", "trusted", "external"}
             or (n["kind"] in STATEMENT_KINDS and status == "statement-only"))
 
 
-def compute(nodes: list[dict], results: dict, failures: dict) -> dict:
+def compute(nodes: list[dict], results: dict, failures: dict, receipt: dict | None = None) -> dict:
     by_id = {n["id"]: n for n in nodes}
     status: dict[str, dict] = {}
     for n in nodes:
@@ -244,6 +269,13 @@ def compute(nodes: list[dict], results: dict, failures: dict) -> dict:
         entry: dict = {"status": st}
         if why:
             entry["reason"] = why
+        for k in ("owner", "branch", "acceptance"):
+            if n.get(k):
+                entry[k] = n[k]
+        if st == "proved" and receipt:
+            entry["receipt"] = receipt
+        elif n.get("receipt"):
+            entry["receipt"] = n["receipt"]
         if info and info.get("found"):
             entry["axioms"] = info["axioms"]
             if info["declared_in"] != n["module"]:
@@ -268,13 +300,14 @@ def compute(nodes: list[dict], results: dict, failures: dict) -> dict:
     ready = []
     for n in nodes:
         i = n["id"]
-        if ok[i]:
+        if ok[i] or status[i]["status"] == "unbuilt":
             continue
         if all(ok[d] for d in n.get("deps", [])):
             unblocks = sum(1 for j in downstream(i) if not ok[j])
-            ready.append({"id": i, "unblocks": unblocks, "lane": n["lane"],
-                          "status": status[i]["status"]})
-    ready.sort(key=lambda r: (-r["unblocks"], r["id"]))
+            ready.append({"id": i, "priority": n.get("priority", "P2"), "unblocks": unblocks,
+                          "lane": n["lane"], "owner": n.get("owner", ""), "status": status[i]["status"]})
+    # Priority first (P0 before P3), then how many unsatisfied nodes depend on it, directly or not.
+    ready.sort(key=lambda r: (r["priority"], -r["unblocks"], r["id"]))
     for i in status:
         status[i]["deps_satisfied"] = all(ok[d] for d in by_id[i].get("deps", []))
     counts: dict[str, int] = defaultdict(int)
@@ -282,6 +315,19 @@ def compute(nodes: list[dict], results: dict, failures: dict) -> dict:
         counts[e["status"]] += 1
     return {"allowed_axioms": sorted(ALLOWED_AXIOMS), "counts": dict(sorted(counts.items())),
             "nodes": dict(sorted(status.items())), "ready": ready}
+
+
+def run_receipt(log: str | None) -> dict:
+    """Where this run's verdicts come from: the commit, and the CI run or the local log."""
+    sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
+    dirty = subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"], cwd=ROOT,
+                           capture_output=True, text=True).stdout.strip()
+    if os.environ.get("GITHUB_RUN_ID"):
+        check = (f"{os.environ.get('GITHUB_SERVER_URL', 'https://github.com')}/"
+                 f"{os.environ.get('GITHUB_REPOSITORY', '')}/actions/runs/{os.environ['GITHUB_RUN_ID']}")
+    else:
+        check = f"local:{log or 'check.py stdout'}"
+    return {"sha": sha + ("+uncommitted" if dirty else ""), "check": check}
 
 
 def regressions(base: dict, report: dict) -> list[str]:
@@ -311,20 +357,23 @@ def markdown(nodes: list[dict], report: dict) -> str:
              f"{len(report.get('modules', {}).get('audited', [])) + len(report.get('modules', {}).get('not_audited', {}))}; "
              "a node whose module was not elaborated is missing, with the reason.", "",
              "## Ready", "",
-             "Not satisfied, every dep satisfied, ordered by how many unsatisfied nodes each unblocks.", "",
-             "| # | Node | Status | Unblocks | Lane |", "|---|---|---|---|---|"]
+             "Not satisfied, every dep satisfied, ordered by priority, then by how many unsatisfied nodes each "
+             "unblocks.", "",
+             "| # | Node | Priority | Status | Unblocks | Lane | Owner |", "|---|---|---|---|---|---|---|"]
     for k, r in enumerate(report["ready"], 1):
-        lines.append(f"| {k} | `{r['id']}` | {r['status']} | {r['unblocks']} | {r['lane']} |")
+        lines.append(f"| {k} | `{r['id']}` | {r['priority']} | {r['status']} | {r['unblocks']} | {r['lane']} | {r['owner']} |")
     lines += ["", "## Nodes", "",
-              "| Node | Edge | Status | Decl | Deps | Lane | Review | Statement |",
-              "|---|---|---|---|---|---|---|---|"]
+              "| Node | Edge | Status | Decl | Deps | Lane | Owner | Branch | Review | Statement | Acceptance |",
+              "|---|---|---|---|---|---|---|---|---|---|---|"]
     for n in nodes:
         e = st[n["id"]]
         status = e["status"] + (f" ({e['reason']})" if e.get("reason") else "")
         decl = f"`{n['decl']}`" if n.get("decl") else ""
         deps = ", ".join(f"`{d}`" for d in n.get("deps", []))
-        cells = [f"`{n['id']}`", n.get("edge", ""), status, decl, deps, n["lane"],
-                 "yes" if n["human_review"] else "", n["statement"]]
+        if e.get("receipt"):
+            status += f" [{e['receipt']['sha'][:12]}, {e['receipt']['check']}]"
+        cells = [f"`{n['id']}`", n.get("edge", ""), status, decl, deps, n["lane"], n.get("owner", ""),
+                 n.get("branch", ""), "yes" if n["human_review"] else "", n["statement"], n.get("acceptance", "")]
         lines.append("| " + " | ".join(c.replace("|", "\\|") for c in cells) + " |")
     return "\n".join(lines) + "\n"
 
@@ -339,6 +388,9 @@ def main() -> int:
     ap.add_argument("--memory", type=int, default=int(os.environ.get("BLUEPRINT_MEMORY", "6000")))
     ap.add_argument("--timeout", type=int, default=1800, help="seconds per Lean process")
     ap.add_argument("--batch", type=int, default=8, help="modules per Lean process")
+    ap.add_argument("--log", help="the local log this run writes, named in the receipts")
+    ap.add_argument("--no-fresh-check", action="store_true",
+                    help="audit oleans without asking lake whether they are up to date")
     ap.add_argument("--only-module", action="append", default=[], help="audit only these modules")
     args = ap.parse_args()
 
@@ -373,6 +425,18 @@ def main() -> int:
     # Modules are imported a batch at a time (their closures share most oleans). A batch that does
     # not elaborate (a module not built, two modules declaring one name) is redone one module at a
     # time, so that each failure is the module's own.
+    # A module whose olean is missing or older than its sources or imports is not audited: its old
+    # olean would answer for code that is no longer there.
+    if not args.no_fresh_check:
+        fresh = []
+        for mod in mods:
+            p = subprocess.run(["lake", "build", "--no-build", mod], cwd=ROOT, capture_output=True, text=True)
+            if p.returncode == 0:
+                fresh.append(mod)
+            else:
+                failures[mod] = "module not built (or out of date) in this run"
+                print(f"{mod}: not built or out of date", flush=True)
+        mods = fresh
     for k in range(0, len(mods), max(args.batch, 1)):
         batch = mods[k:k + max(args.batch, 1)]
         decls = [d for m in batch for d in by_mod[m]]
@@ -387,7 +451,7 @@ def main() -> int:
             results.update(res)
             if fail:
                 failures[mod] = fail
-    report = compute(nodes, results, failures)
+    report = compute(nodes, results, failures, run_receipt(args.log))
     report["modules"] = {"audited": sorted(m for m in by_mod if m not in failures),
                          "not_audited": dict(sorted(failures.items()))}
     print("status: " + ", ".join(f"{k} {v}" for k, v in report["counts"].items()))

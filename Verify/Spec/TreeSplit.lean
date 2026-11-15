@@ -22,8 +22,8 @@ def TreeMeetsFixedOn (P : Val → Prop) (b : Bundle) (fs : FnSpec) (ctx : Ctx) (
     decodeWords fs.params args = some iargs → pre.storage = s → pre.time ≤ ctx.timestamp →
     b.satAll fs.requires (mkEnv ctx iargs [] pre pre) →
     b.satAll b.spec.invariants (mkEnv ctx iargs [] pre pre) →
-    P ⟨args, s, solHash⟩ →
-    Post b fs ctx pre pre.ghost (T.eval ⟨args, s, solHash⟩).obs iargs
+    P ⟨args, s, solHash, SolidCore.Refinement.Generic.callerWord⟩ →
+    Post b fs ctx pre pre.ghost (T.eval ⟨args, s, solHash, SolidCore.Refinement.Generic.callerWord⟩).obs iargs
 
 theorem TreeMeetsFixedOn.fixed {b : Bundle} {fs : FnSpec} {ctx : Ctx} {n : Nat} {T : Tree}
     (h : TreeMeetsFixedOn (fun _ => True) b fs ctx n T) : TreeMeetsFixed b fs ctx n T :=

@@ -63,7 +63,7 @@ kernel_rfl tree_eq transfer_tree
 /-! ## Evaluating the parts -/
 
 /-- The words `transfer(to, v)` reads from the storage `s`. -/
-abbrev val (s : Nat → Nat) (dst v : Nat) : Val := ⟨[dst, v], s, solHash⟩
+abbrev val (s : Nat → Nat) (dst v : Nat) : Val := ⟨[dst, v], s, solHash, SolidCore.Refinement.Generic.callerWord⟩
 
 /-- The tree's result on `transfer(to, v)` from the storage `s`. -/
 abbrev res (s : Nat → Nat) (dst v : Nat) : Res := transfer_tree.eval (val s dst v)

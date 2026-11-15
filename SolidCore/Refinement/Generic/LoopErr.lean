@@ -103,7 +103,7 @@ theorem runtime_run_err {fuel : Nat} {c : TypeCheck.CheckedContract} {σ : List 
     (hlen : args.length = fn.params.length) (hargs : ∀ a ∈ args, a < 2 ^ 256)
     (hclean : argsClean ws args = true)
     (hdec : ABI.decodeFunctionArgs? fn (Dirty.argBytes args) = .ok (args.map .word))
-    (hb : ∀ ctx rt, StmtRel ⟨args, slotValue σ, solHash⟩ { envOf c.core with facts := argFacts ws 0 } ctx rt
+    (hb : ∀ ctx rt, StmtRel ⟨args, slotValue σ, solHash, callerWord⟩ { envOf c.core with facts := argFacts ws 0 } ctx rt
       (initState fn) → ∃ e, Stmt.eval fuel c.core.table ctx rt fn.body = .done (.error e)) :
     runtimeRun fuel c { calldata := Abi.calldata sel args, callvalue := 0, storage := σ } = none := by
   unfold runtimeRun runtimeResult?
@@ -127,7 +127,7 @@ theorem runtime_run_err {fuel : Nat} {c : TypeCheck.CheckedContract} {σ : List 
     simp [FunctionDef.acceptsValue, wordEq]
   have hctxv : ctx.value = 0 := by
     subst hctx; simp [ABI.Contract.callContextAtWithBase, SolidCore.Solidity.Shared.norm]
-  set ρ : Val := ⟨args, slotValue σ, solHash⟩ with hρ
+  set ρ : Val := ⟨args, slotValue σ, solHash, callerWord⟩ with hρ
   have hρok : ρ.Ok := slotValue_store σ
   set K := argFacts ws 0 with hK
   have hKρ : K.Hold ρ := argFacts_hold ρ hargs ws 0 (by simpa [hρ] using hclean)

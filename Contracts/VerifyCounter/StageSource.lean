@@ -68,7 +68,7 @@ theorem toNat_ofNat_lt {w n : Nat} (h : n < 2 ^ w) : (BitVec.ofNat w n).toNat = 
 theorem bumpCall_facts (σ : List (Nat × Nat)) (a : Nat) (ha : a < 2 ^ 256) :
     SolarTV.Milestone.VerifyCounter.Bump.IsBump (bumpCall σ a) ∧
       calldataWord (bumpCall σ a) 4 = BitVec.ofNat 256 a := by
-  have hf : CallFacts bumpSel 1 ⟨[a], slotValue σ, solHash⟩ (bumpCall σ a) :=
+  have hf : CallFacts bumpSel 1 ⟨[a], slotValue σ, solHash, SolidCore.Refinement.Generic.callerWord⟩ (bumpCall σ a) :=
     callFacts bumpSel (by decide) [a] (by simpa using ha) σ
   refine ⟨?_, ?_⟩
   · unfold SolarTV.Milestone.VerifyCounter.Bump.IsBump
@@ -94,7 +94,7 @@ theorem mir_end (o : Oracle) (σ : List (Nat × Nat)) (a : Nat) (ha : a < 2 ^ 25
         r.1 = .stop ∧ r.2.storage 0 = BitVec.ofNat 256 (slotValue σ 0) + BitVec.ofNat 256 a ∧
           ∀ k, k ≠ 0 → r.2.storage k = (Machine.State.initial (bumpCall σ a)).storage k) := by
   obtain ⟨hsel, hn⟩ := bumpCall_facts σ a ha
-  have hf : CallFacts bumpSel 1 ⟨[a], slotValue σ, solHash⟩ (bumpCall σ a) :=
+  have hf : CallFacts bumpSel 1 ⟨[a], slotValue σ, solHash, SolidCore.Refinement.Generic.callerWord⟩ (bumpCall σ a) :=
     callFacts bumpSel (by decide) [a] (by simpa using ha) σ
   obtain ⟨r, e, hpost⟩ := SolarTV.Milestone.VerifyCounter.Bump.xstage0_ends o _ hsel
   have hsz : ¬ BitVec.ofNat 256 (bumpCall σ a).calldata.size < 36 := by
@@ -134,7 +134,7 @@ theorem mir_eq (o : Oracle) {c : SolidCore.Solidity.TypeCheck.CheckedContract} (
       slotValue σ 1 < (slotValue σ 0 + a) % 2 ^ 256 := by
     rw [BitVec.lt_def, BitVec.toNat_add, toNat_ofNat_lt h0lt, toNat_ofNat_lt ha, toNat_ofNat_lt h1lt]
   -- the tree's leaf
-  set ρ : Val := ⟨[a], slotValue σ, solHash⟩ with hρ
+  set ρ : Val := ⟨[a], slotValue σ, solHash, SolidCore.Refinement.Generic.callerWord⟩ with hρ
   obtain ⟨T', hT', hTe⟩ := brTree_eval bumpFn (argFacts [256] 0) ρ bumpBr T hT
   rw [← hTe]
   have hna : nOf ρ = a := by

@@ -1,0 +1,27 @@
+graph: 595 nodes, acyclic, deps resolve
+Contracts.Counter.Execution, Contracts.Counter.Shape, Contracts.Counter.ShapeSpec, Contracts.Token.EndToEnd: 5 decls audited
+Contracts.UniswapV2.ERC20.Certified.Transfer, Contracts.UniswapV2.ERC20.Core, Contracts.UniswapV2.ERC20.Nested.Approve, Contracts.UniswapV2.ERC20.Nested.LoweringApprove: 12 decls audited
+Contracts.UniswapV2.ERC20.Nested.LoweringTransferFrom, Contracts.UniswapV2.ERC20.Nested.TransferFrom, Contracts.UniswapV2.ERC20.NoCallOnly, Contracts.UniswapV2.ERC20.Slice.Bytes: 9 decls audited
+Contracts.UniswapV2.ERC20.Slice.Mutants, Contracts.UniswapV2.ERC20.Slice.MutantsDebit, Contracts.UniswapV2.ERC20.Slice.Post, Contracts.UniswapV2.ERC20.Slice.Statement: 9 decls audited
+Contracts.UniswapV2.ERC20.Slice.Vc, Contracts.UniswapV2.ERC20.SourceMir, Contracts.UniswapV2.ERC20.SourceMirFrom, Contracts.UniswapV2.Factory.Contract: 4 decls audited
+Contracts.UniswapV2.Factory.Create2, Contracts.UniswapV2.Factory.Ctx, Contracts.UniswapV2.Factory.Fn.UniswapV2Factory_allPairsLength, Contracts.UniswapV2.Pair.Contract: 9 decls audited
+Contracts.UniswapV2.Pair.Ctx, Contracts.UniswapV2.Pair.Fn.UniswapV2ERC20__mint, Contracts.UniswapV2.Pair.Fn.UniswapV2ERC20_permit, Contracts.UniswapV2.Pair.Fn.UniswapV2Pair_burn: 7 decls audited
+Contracts.UniswapV2.Pair.Fn.UniswapV2Pair_getReserves, Contracts.UniswapV2.Pair.Fn.UniswapV2Pair_mint, Contracts.UniswapV2.Pair.Fn.UniswapV2Pair_skim, Contracts.UniswapV2.Pair.Fn.UniswapV2Pair_swap: 6 decls audited
+Contracts.UniswapV2.PairSpec.Inputs, Contracts.UniswapV2.PairSpec.NonVacuous, Contracts.UniswapV2.PairSpec.Published, Contracts.UniswapV2.PairSpec.Refusal: 10 decls audited
+Contracts.UniswapV2.PairSpec.Stages, Contracts.UniswapV2.PairSpec.Statement, Contracts.VerifyCounter.ShapeSource, SolidCore.Refinement.Generic.CreateNode: 12 decls audited
+SolidCore.Refinement.Solar.AssembleCallSeg: 2 decls audited
+SolidCore.Refinement.Solar.Bank.Certified: 1 decls audited
+SolidCore.Refinement.Solar.C4.Certified: 1 decls audited
+SolidCore.Refinement.Solar.Counter.Every: 1 decls audited
+SolidCore.Refinement.Solar.Counter.Spec: 1 decls audited
+SolidCore.Refinement.Solar.Events.Certified: 1 decls audited
+SolidCore.Refinement.Solar.MulX.Certified: 1 decls audited
+SolidCore.Refinement.Solar.W4.Milestone: 1 decls audited
+Verify.Shapes, Verify.Spec.HashScope, Verify.Spec.HashScopeCheck, Verify.Spec.HashScopeNested: 11 decls audited
+counter.Final: 2 decls audited
+counter.Proofs.Stages: 1 decls audited
+uv2_erc20.AnyCaller: 2 decls audited
+uv2_erc20.Gas: 2 decls audited
+uv2_erc20.ProofsT.Stages: 1 decls audited
+status: external 1, missing 440, proved 119, statement-only 33, trusted 2
+ready (top 10): loopvc.export (2), loopvc.cti (1), loopvc.driver (1), erc20.permit.valid (6), erc20.permit.static_runner_discharged (5), erc20.approve.E3 (4), erc20.approve.E4 (4), erc20.approve.E5 (4), erc20.approve.premise (4), erc20.approve.spec_export (4)

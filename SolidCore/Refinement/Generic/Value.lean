@@ -185,7 +185,7 @@ theorem stageAtValueWith (o : Oracle) {fuel mirFuel : Nat} {c : TypeCheck.Checke
   rw [hsrc] at hrun
   cases hrun
   have hc0 := callFacts f.sel hsel args hargs σ
-  have hcfv : CallFactsAt .paid f.sel args.length ⟨args, slotValue σ, solHash⟩
+  have hcfv : CallFactsAt .paid f.sel args.length ⟨args, slotValue σ, solHash, callerWord⟩
       { calldata := Abi.calldata f.sel args, callvalue := v, storage := σ } :=
     { value := by
         show BitVec.ofNat 256 v ≠ 0

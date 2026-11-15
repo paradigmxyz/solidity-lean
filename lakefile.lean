@@ -583,10 +583,14 @@ lean_lib «uv2_erc20» where
 -- E3 of docs/CERTIFICATION_TARGET.md's first slice: the generic source stage of UniswapV2ERC20.transfer
 -- against the exported stage0 (Contracts/UniswapV2/ERC20/SourceMir.lean) and its refused mutants.
 lean_lib ContractsUniswapV2ERC20SourceMir where
-  roots := #[`Contracts.UniswapV2.ERC20.SourceMir, `Contracts.UniswapV2.ERC20.SourceMirNeg]
+  roots := #[`Contracts.UniswapV2.ERC20.SourceMir, `Contracts.UniswapV2.ERC20.SourceMirNeg,
+    `Contracts.UniswapV2.ERC20.SourceMirFrom, `Contracts.UniswapV2.ERC20.SourceMirFromNeg, `Contracts.UniswapV2.ERC20.SourceMirPinned]
   globs := #[.one `Contracts.UniswapV2.ERC20.SourceMirDefs, .one `Contracts.UniswapV2.ERC20.SourceMirCheck,
     .one `Contracts.UniswapV2.ERC20.SourceMirDeploy, .one `Contracts.UniswapV2.ERC20.SourceMir,
-    .one `Contracts.UniswapV2.ERC20.SourceMirNeg]
+    .one `Contracts.UniswapV2.ERC20.SourceMirNeg,
+    .one `Contracts.UniswapV2.ERC20.SourceMirFromDefs, .one `Contracts.UniswapV2.ERC20.SourceMirFromCheck,
+    .one `Contracts.UniswapV2.ERC20.SourceMirFrom, .one `Contracts.UniswapV2.ERC20.SourceMirFromNeg,
+    .one `Contracts.UniswapV2.ERC20.SourceMirPinned]
 
 -- event_words: the stages of Certified/event_words/event_words.sol's EventWords and their kernel proofs, which
 -- solar's scripts/certify writes.

@@ -48,13 +48,14 @@ structure EnvOk (o : Oracle) (ρ : Val) : Prop where
 /-- What the flags `ev` ask of the oracle: its caller when they read the caller, its hash of two
 words when they hash. -/
 structure EnvAsk (ev : EnvFlags) (o : Oracle) (ρ : Val) : Prop where
-  caller : ev.caller = true → (o.caller.setWidth 256).toNat = callerWord
+  caller : ev.caller = true → (o.caller.setWidth 256).toNat = ev.callerExpr.eval ρ
   hash : ev.hash = true → ∀ a b, a < wordSize → b < wordSize →
     (o.keccak (wordBytes a ++ wordBytes b)).toNat = ρ.hash a b % wordSize
 
 /-- An oracle `EnvOk` describes gives every flag what it asks. -/
-theorem EnvOk.ask {o : Oracle} {ρ : Val} (h : EnvOk o ρ) (ev : EnvFlags) : EnvAsk ev o ρ :=
-  ⟨fun _ => h.caller, fun _ => h.hash⟩
+theorem EnvOk.ask {o : Oracle} {ρ : Val} (h : EnvOk o ρ) (hρ : ρ.caller = callerWord) (ev : EnvFlags) :
+    EnvAsk ev o ρ :=
+  ⟨fun _ => by unfold EnvFlags.callerExpr; split <;> simp [WExpr.eval, hρ, h.caller, callerWord] <;> rfl, fun _ => h.hash⟩
 
 /-- The flags off ask nothing. -/
 theorem EnvAsk.off (o : Oracle) (ρ : Val) : EnvAsk .off o ρ :=
@@ -581,8 +582,8 @@ theorem symEffect_sound {ev : EnvFlags} {cv : SV} {sel n : Nat} {ρ : Val} {call
       match args, hr with
       | [], _ =>
         refine ⟨_, _, rfl, ?_, hs⟩
-        simp only [OptRel, SV.Rel, WExpr.eval, henv.caller hev]
-        exact (Nat.mod_eq_of_lt callerWord_lt).symm
+        simp only [OptRel, SV.Rel]
+        exact henv.caller hev
     · simp at h
   · -- keccak256
     rename_i off size

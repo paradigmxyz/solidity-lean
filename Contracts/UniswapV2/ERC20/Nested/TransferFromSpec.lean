@@ -157,7 +157,7 @@ argument word and every storage of words, with no hash premise: the tree's selec
 are the source's own aliasing, which `upd` reproduces. -/
 theorem transferFrom_tree_eval (frm dst value : Nat) (st : Nat → Nat) (hf : frm < 2 ^ 256)
     (ht : dst < 2 ^ 256) (hv : value < 2 ^ 256) (hst : ∀ k, st k < 2 ^ 256) :
-    (transferFrom_tree.eval ⟨[frm, dst, value], st, solHash⟩).obs = transferFromResult st frm dst value := by
+    (transferFrom_tree.eval ⟨[frm, dst, value], st, solHash, SolidCore.Refinement.Generic.callerWord⟩).obs = transferFromResult st frm dst value := by
   have hl := solHash_lt
   simp only [Generic.wordSize] at hl
   have hH : ∀ a b, solHash a b % 2 ^ 256 = solHash a b := fun a b => Nat.mod_eq_of_lt (hl a b)

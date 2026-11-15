@@ -130,6 +130,23 @@ jobs:
           python3 scripts/verify/uniswap_v2_trees.py
           lake build -KleanMemory=6000 uv2_erc20 ContractsUniswapV2ERC20Nested
 
+      # The modules the blueprint (docs/blueprint) audits beyond the steps above: transfer's slice and
+      # its certified statement, the Pair's published statement, the ERC20 call-free check and the
+      # create2 node. Their inputs come from the GPL-3.0 port and solar at the stages commit, so they are
+      # generated here, not committed.
+      - name: Generate and build the blueprint's other modules
+        env:
+          LEAN_NUM_THREADS: "2"
+        run: |
+          S="$PWD/.cache/solar-stages"
+          cargo build --release --locked --manifest-path "$S/Cargo.toml" --bin solar-verify
+          SOLAR_DIR="$S" SOLAR_VERIFY="$S/target/release/solar-verify" scripts/verify/uniswap_v2_transfer_slice.sh
+          SOLAR_DIR="$S" SOLAR="$S/target/release/solar" SOLAR_VERIFY="$S/target/release/solar-verify" scripts/verify/uniswap_v2_pair_spec.sh
+          SOLAR_DIR="$S" SOLAR="$S/target/release/solar" scripts/verify/uniswap_v2_runtime.sh
+          python3 scripts/verify/create2_sources.py --solc .cache/solc-0.8.35
+          lake build -KleanMemory=6000 ContractsUniswapV2TransferSlice ContractsUniswapV2ERC20Certified ContractsUniswapV2PairSpec ContractsCreate2
+          lake build -KleanMemory=6000 Contracts.UniswapV2.ERC20.NoCallOnly
+
       - name: Build SolidCore's refinement milestones
         env:
           LEAN_NUM_THREADS: "2"

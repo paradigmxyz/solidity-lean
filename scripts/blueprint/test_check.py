@@ -16,7 +16,7 @@ import check  # noqa: E402
 
 def node(i, kind="lemma", deps=(), decl=None, review=False, **kw):
     n = {"id": i, "kind": kind, "statement": f"{i} holds", "deps": list(deps), "lane": "l",
-         "human_review": review, **kw}
+         "owner": "unassigned", "branch": "", "acceptance": "check.py proves it", "human_review": review, **kw}
     if decl:
         n["decl"], n["module"] = decl, "M"
     return n
@@ -71,7 +71,8 @@ class Status(unittest.TestCase):
         self.assertEqual(self.st(n, proof(["Lean.ofReduceBool"])), "axioms")
         self.assertEqual(self.st(n, proof(["x._native.native_decide.ax_1_1"])), "axioms")
         self.assertEqual(self.st(n, {"found": False}), "missing")
-        self.assertEqual(self.st(n, None, "module not built: ..."), "missing")
+        self.assertEqual(self.st(n, None, "module not built: ..."), "unbuilt")
+        self.assertEqual(self.st(n, None, "lean failed: ..."), "missing")
         self.assertEqual(self.st(node("a"), None), "missing")
         pred = {"found": True, "kind": "def", "proof": False, "predicate": True, "declared_in": "M", "axioms": []}
         self.assertEqual(self.st(n, pred), "statement-only")
@@ -90,6 +91,39 @@ class Status(unittest.TestCase):
         self.assertEqual(rep["nodes"]["a"]["status"], "proved")
         self.assertEqual([r["id"] for r in rep["ready"]], ["b", "e"])
         self.assertEqual(rep["ready"][0]["unblocks"], 2)
+        nodes[-1]["priority"] = "P0"
+        rep = check.compute(nodes, res, {})
+        self.assertEqual([r["id"] for r in rep["ready"]], ["e", "b"])
+
+
+class Receipts(unittest.TestCase):
+    def test_deliverable(self):
+        d = node("d", kind="deliverable")
+        self.assertEqual(check.classify(d, None, "")[0], "missing")
+        d["receipt"] = {"sha": "abc", "check": "https://ci/1"}
+        self.assertEqual(check.classify(d, None, "")[0], "delivered")
+        self.assertTrue(check.satisfied(d, "delivered"))
+
+    def test_receipt_rules(self):
+        errs = check.validate({"node": [node("a", decl="A", receipt={"sha": "x", "check": "y"})]})[1]
+        self.assertTrue(any("from the checker" in e for e in errs))
+        errs = check.validate({"node": [node("d", kind="deliverable", receipt={"sha": "x"})]})[1]
+        self.assertTrue(any("receipt is" in e for e in errs))
+        n = node("a")
+        del n["acceptance"]
+        self.assertTrue(check.validate({"node": [n]})[1])
+
+    def test_proved_gets_run_receipt(self):
+        rep = check.compute([node("a", decl="A")], {"A": proof([])}, {}, {"sha": "s", "check": "c"})
+        self.assertEqual(rep["nodes"]["a"]["receipt"], {"sha": "s", "check": "c"})
+
+
+class Unbuilt(unittest.TestCase):
+    def test_unbuilt_never_ready(self):
+        nodes = [node("a", decl="A"), node("b", deps=["a"])]
+        rep = check.compute(nodes, {}, {"M": "module not built: x"})
+        self.assertEqual(rep["nodes"]["a"]["status"], "unbuilt")
+        self.assertEqual(rep["ready"], [])
 
 
 class Regression(unittest.TestCase):
