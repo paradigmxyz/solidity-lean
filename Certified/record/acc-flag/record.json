@@ -1,0 +1,151 @@
+{
+  "schema": "solar-certify-generic/1",
+  "name": "flag_4ce5cf9a",
+  "started": "2026-11-15T09:16:41+00:00",
+  "command": [
+    "/home/hand/wacc/tools/certify/certify",
+    "/home/hand/acc-src/Flag.sol",
+    "natspec",
+    "--solidity-lean",
+    "/home/hand/sl445",
+    "--base",
+    "44572c15",
+    "--work",
+    "/home/hand/runs/acc-flag-work",
+    "--record-dir",
+    "/home/hand/runs/acc-flag",
+    "--packages-from",
+    "/home/hand/sl445",
+    "--probe-cache",
+    "/home/hand/sl445"
+  ],
+  "requested_tier": "certified",
+  "source": {
+    "file": "/home/hand/acc-src/Flag.sol",
+    "sha256": "4ce5cf9a87520dc956a1e7366d5f646a07739832e44a3d8dec2eb656deb6388d"
+  },
+  "spec": {
+    "kind": "natspec",
+    "sha256": "4ce5cf9a87520dc956a1e7366d5f646a07739832e44a3d8dec2eb656deb6388d"
+  },
+  "invariants": {
+    "file": null,
+    "sha256": null
+  },
+  "options": [
+    "-Ogas",
+    "--evm-version",
+    "osaka"
+  ],
+  "solar": {
+    "commit": "20a27f39685284bea5a0fe40a7fed0437cfcf694",
+    "dirty": false,
+    "binary_sha256": "8243e8dc99444c0840a436f1825d75374d891a779a956f6eeb82125e80bbb5d9",
+    "version": "solar 0.3.0-dev+commit.abe16b2e"
+  },
+  "solc": {
+    "version": "0.8.35",
+    "path": "/home/hand/.cache/solc/solc-0.8.35",
+    "sha256": "fa8ac9a32d301ad023a36ee5a29f8e291fe3200c60244e43c142539e82a617f4"
+  },
+  "lean_toolchain": {
+    "recorded_digest": "953aa1e72283c07686567bb71eeb3fca202baafe2958a7e57987d3b8c4434c25",
+    "lean-toolchain": "leanprover/lean4:v4.35.0"
+  },
+  "contract": "Flag",
+  "functions": [
+    {
+      "signature": "lower()",
+      "selector": "0xb951486d",
+      "params": []
+    },
+    {
+      "signature": "raise(uint256)",
+      "selector": "0x004f4803",
+      "params": [
+        ".uint 256"
+      ]
+    },
+    {
+      "signature": "raised()",
+      "selector": "0xf0ea4bfc",
+      "params": []
+    },
+    {
+      "signature": "value()",
+      "selector": "0x3fa4f245",
+      "params": []
+    }
+  ],
+  "environment": "one frame, caller 0x2000, contract at 0x1000, the block and transaction of Target.message (fixed, not quantified)",
+  "bytecode_sha256": "f689833eb749e7509b4fb038bd8a4e251e77daa10aed088b2b12fa70ab76f69f",
+  "gas_bound": 3580203,
+  "probe": [
+    "PROBE typecheck: ok",
+    "PROBE core: <4038 chars>",
+    "PROBE constructor: returns",
+    "PROBE storage: []",
+    "PROBE fn lower(): agree",
+    "PROBE fn raise(uint256): agree",
+    "PROBE fn raised(): agree",
+    "PROBE fn value(): agree"
+  ],
+  "solidity_lean_source": "/home/hand/sl445",
+  "solidity_lean": {
+    "base": "44572c150176365fa5e0d56ae6c59a7a443f8122",
+    "inputs_commit": "3927e703b2a79c66d6803f21c201d3dcd9b5f255",
+    "inputs": [
+      "Certified/flag_4ce5cf9a/Lowering.lean",
+      "Certified/flag_4ce5cf9a/Shape.lean",
+      "Certified/flag_4ce5cf9a/Source.lean",
+      "Certified/flag_4ce5cf9a/flag_4ce5cf9a.sol",
+      "Certified/flag_4ce5cf9a/options",
+      "Certified/flag_4ce5cf9a/shape.json",
+      "lakefile.lean"
+    ],
+    "inputs_sha256": {
+      "Certified/flag_4ce5cf9a/Lowering.lean": "031b934c7d4a41f0d6c49ee1d035d5469f014b3a7851f8ad3da3f7ded82620a7",
+      "Certified/flag_4ce5cf9a/Shape.lean": "bfe9592d4187d94fb6808eb4a38297789d3c50ea56c5e1d9fd059607e7a91990",
+      "Certified/flag_4ce5cf9a/Source.lean": "ae211fe928b32edaadcc3337bbc957ef14b7f742cacf01243ce5a66b5e4433da",
+      "Certified/flag_4ce5cf9a/flag_4ce5cf9a.sol": "4ce5cf9a87520dc956a1e7366d5f646a07739832e44a3d8dec2eb656deb6388d",
+      "Certified/flag_4ce5cf9a/options": "e8dcb59d1d2c9325d924f23afb16523ebcef2750f7fa447cf67b494f81a9038c",
+      "Certified/flag_4ce5cf9a/shape.json": "d0b84043bc2d80f0cfdaf26702e0a7cfa2c8518174210996b4b06b7d781d4524",
+      "lakefile.lean": "aca9325b5dc742551ef1b74f2dcfa5c63aa3f2ae1488578fc78ecaa3b5d875f8"
+    }
+  },
+  "run_files": {
+    "Flag.sol": "4ce5cf9a87520dc956a1e7366d5f646a07739832e44a3d8dec2eb656deb6388d",
+    "inputs/Certified/flag_4ce5cf9a/Lowering.lean": "031b934c7d4a41f0d6c49ee1d035d5469f014b3a7851f8ad3da3f7ded82620a7",
+    "inputs/Certified/flag_4ce5cf9a/Shape.lean": "bfe9592d4187d94fb6808eb4a38297789d3c50ea56c5e1d9fd059607e7a91990",
+    "inputs/Certified/flag_4ce5cf9a/Source.lean": "ae211fe928b32edaadcc3337bbc957ef14b7f742cacf01243ce5a66b5e4433da",
+    "inputs/Certified/flag_4ce5cf9a/flag_4ce5cf9a.sol": "4ce5cf9a87520dc956a1e7366d5f646a07739832e44a3d8dec2eb656deb6388d",
+    "inputs/Certified/flag_4ce5cf9a/options": "e8dcb59d1d2c9325d924f23afb16523ebcef2750f7fa447cf67b494f81a9038c",
+    "inputs/Certified/flag_4ce5cf9a/shape.json": "d0b84043bc2d80f0cfdaf26702e0a7cfa2c8518174210996b4b06b7d781d4524",
+    "inputs/lakefile.lean": "aca9325b5dc742551ef1b74f2dcfa5c63aa3f2ae1488578fc78ecaa3b5d875f8",
+    "certify.log": "23f96c8e42bbcb42e69cf4763a9f636d6ef9e86c800dfcb5e1eeca638718d386"
+  },
+  "packages_from": "/home/hand/sl445/.lake/packages",
+  "scripts_certify": {
+    "command": [
+      "bash",
+      "/home/hand/wacc/scripts/certify",
+      "/home/hand/runs/acc-flag-work/solidity-lean/Certified/flag_4ce5cf9a/flag_4ce5cf9a.sol",
+      "--name",
+      "flag_4ce5cf9a",
+      "--contract",
+      "Flag",
+      "--require-final"
+    ],
+    "env": {
+      "SOLIDITY_LEAN_DIR": "/home/hand/runs/acc-flag-work/solidity-lean",
+      "CERTIFY_ALLOW_UNPINNED": "1",
+      "CERTIFY_CLEAN_BUILD": "1",
+      "SOLC": "/home/hand/.cache/solc/solc-0.8.35",
+      "SOLAR": "/home/hand/wacc/target/debug/solar",
+      "LEAN_MEMORY": "6000"
+    },
+    "exit": 1
+  },
+  "status": "REJECTED",
+  "finished": "2026-11-15T09:41:17+00:00"
+}

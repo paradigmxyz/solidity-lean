@@ -1,0 +1,26 @@
+{
+  "command": [
+    "tools/certify/certify",
+    "/home/hand/acc-src/Flag.sol",
+    "natspec",
+    "--solidity-lean",
+    "/home/hand/sl445",
+    "--base",
+    "44572c15",
+    "--work",
+    "/home/hand/runs/acc-flag-work",
+    "--record-dir",
+    "/home/hand/runs/acc-flag",
+    "--packages-from",
+    "/home/hand/sl445",
+    "--probe-cache",
+    "/home/hand/sl445"
+  ],
+  "exit_code": 1,
+  "wall_seconds": 1476.5,
+  "max_rss_one_process_mib": 5286,
+  "peak_tree_rss_mib": 8789,
+  "peak_system_used_mib": 3990,
+  "mem_total_mib": 14531,
+  "started_utc": "2026-11-15T09:16:41Z"
+}

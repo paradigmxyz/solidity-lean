@@ -1,0 +1,201 @@
+{
+  "schema": "solar-certify-generic/1",
+  "name": "uniswapv2pair_444b8d56",
+  "started": "2026-11-15T09:41:17+00:00",
+  "command": [
+    "/home/hand/wacc/tools/certify/certify",
+    "/home/hand/cdev/v2-core/contracts/UniswapV2Pair.sol",
+    "natspec",
+    "--solidity-lean",
+    "/home/hand/sl445",
+    "--base",
+    "44572c15",
+    "--work",
+    "/home/hand/runs/acc-pair-work",
+    "--record-dir",
+    "/home/hand/runs/acc-pair",
+    "--packages-from",
+    "/home/hand/sl445",
+    "--probe-cache",
+    "/home/hand/sl445"
+  ],
+  "requested_tier": "certified",
+  "source": {
+    "file": "/home/hand/cdev/v2-core/contracts/UniswapV2Pair.sol",
+    "sha256": "444b8d56a805942d021dceb13f7d66393a8e6d61ea49ed75a67f498b1886a09b"
+  },
+  "spec": {
+    "kind": "natspec",
+    "sha256": "444b8d56a805942d021dceb13f7d66393a8e6d61ea49ed75a67f498b1886a09b"
+  },
+  "invariants": {
+    "file": null,
+    "sha256": null
+  },
+  "options": [
+    "-Ogas",
+    "--evm-version",
+    "osaka"
+  ],
+  "solar": {
+    "commit": "20a27f39685284bea5a0fe40a7fed0437cfcf694",
+    "dirty": false
+  },
+  "solc": {
+    "version": "0.8.35",
+    "path": "/home/hand/.cache/solc/solc-0.8.35",
+    "sha256": "fa8ac9a32d301ad023a36ee5a29f8e291fe3200c60244e43c142539e82a617f4"
+  },
+  "lean_toolchain": {
+    "recorded_digest": "953aa1e72283c07686567bb71eeb3fca202baafe2958a7e57987d3b8c4434c25"
+  },
+  "blocked": [
+    {
+      "feature": "imports",
+      "where": "line 3",
+      "detail": "the source imports other files; the driver takes one self-contained file and never flattens (a frozen import closure is not supported yet)"
+    },
+    {
+      "feature": "imports",
+      "where": "line 4",
+      "detail": "the source imports other files; the driver takes one self-contained file and never flattens (a frozen import closure is not supported yet)"
+    },
+    {
+      "feature": "imports",
+      "where": "line 5",
+      "detail": "the source imports other files; the driver takes one self-contained file and never flattens (a frozen import closure is not supported yet)"
+    },
+    {
+      "feature": "imports",
+      "where": "line 6",
+      "detail": "the source imports other files; the driver takes one self-contained file and never flattens (a frozen import closure is not supported yet)"
+    },
+    {
+      "feature": "imports",
+      "where": "line 7",
+      "detail": "the source imports other files; the driver takes one self-contained file and never flattens (a frozen import closure is not supported yet)"
+    },
+    {
+      "feature": "imports",
+      "where": "line 8",
+      "detail": "the source imports other files; the driver takes one self-contained file and never flattens (a frozen import closure is not supported yet)"
+    },
+    {
+      "feature": "imports",
+      "where": "line 9",
+      "detail": "the source imports other files; the driver takes one self-contained file and never flattens (a frozen import closure is not supported yet)"
+    },
+    {
+      "feature": "inheritance",
+      "where": "line 11",
+      "detail": "UniswapV2Pair inherits; only one contract with no bases"
+    },
+    {
+      "feature": "external call",
+      "where": "line 45",
+      "detail": ".call on an address"
+    },
+    {
+      "feature": "external call",
+      "where": "line 95",
+      "detail": "a call of an external function (function () view external returns (address))"
+    },
+    {
+      "feature": "external call",
+      "where": "line 117",
+      "detail": "a call of an external function (function (address) view external returns (uint256))"
+    },
+    {
+      "feature": "external call",
+      "where": "line 118",
+      "detail": "a call of an external function (function (address) view external returns (uint256))"
+    },
+    {
+      "feature": "external call",
+      "where": "line 143",
+      "detail": "a call of an external function (function (address) view external returns (uint256))"
+    },
+    {
+      "feature": "external call",
+      "where": "line 144",
+      "detail": "a call of an external function (function (address) view external returns (uint256))"
+    },
+    {
+      "feature": "external call",
+      "where": "line 155",
+      "detail": "a call of an external function (function (address) view external returns (uint256))"
+    },
+    {
+      "feature": "external call",
+      "where": "line 156",
+      "detail": "a call of an external function (function (address) view external returns (uint256))"
+    },
+    {
+      "feature": "external call",
+      "where": "line 177",
+      "detail": "a call of an external function (function (address,uint256,uint256,bytes memory) external)"
+    },
+    {
+      "feature": "external call",
+      "where": "line 178",
+      "detail": "a call of an external function (function (address) view external returns (uint256))"
+    },
+    {
+      "feature": "external call",
+      "where": "line 179",
+      "detail": "a call of an external function (function (address) view external returns (uint256))"
+    },
+    {
+      "feature": "external call",
+      "where": "line 198",
+      "detail": "a call of an external function (function (address) view external returns (uint256))"
+    },
+    {
+      "feature": "external call",
+      "where": "line 199",
+      "detail": "a call of an external function (function (address) view external returns (uint256))"
+    },
+    {
+      "feature": "external call",
+      "where": "line 204",
+      "detail": "a call of an external function (function (address) view external returns (uint256))"
+    },
+    {
+      "feature": "external call",
+      "where": "line 204",
+      "detail": "a call of an external function (function (address) view external returns (uint256))"
+    },
+    {
+      "feature": "ABI types",
+      "where": "",
+      "detail": "DOMAIN_SEPARATOR(): only uintN, intN, bool, address and enum parameters and results"
+    },
+    {
+      "feature": "ABI types",
+      "where": "",
+      "detail": "PERMIT_TYPEHASH(): only uintN, intN, bool, address and enum parameters and results"
+    },
+    {
+      "feature": "ABI types",
+      "where": "",
+      "detail": "name(): only uintN, intN, bool, address and enum parameters and results"
+    },
+    {
+      "feature": "ABI types",
+      "where": "",
+      "detail": "permit(address,address,uint256,uint256,uint8,bytes32,bytes32): only uintN, intN, bool, address and enum parameters and results"
+    },
+    {
+      "feature": "ABI types",
+      "where": "",
+      "detail": "swap(uint256,uint256,address,bytes): only uintN, intN, bool, address and enum parameters and results"
+    },
+    {
+      "feature": "ABI types",
+      "where": "",
+      "detail": "symbol(): only uintN, intN, bool, address and enum parameters and results"
+    }
+  ],
+  "status": "BLOCKED",
+  "finished": "2026-11-15T09:41:17+00:00"
+}
