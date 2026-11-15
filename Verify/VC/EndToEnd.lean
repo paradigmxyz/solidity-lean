@@ -65,5 +65,18 @@ theorem bytecode_of_checked {fuel : Nat} {c : TypeCheck.CheckedContract} {d : So
     ∀ call, stageScope fn s call → ∃ o, Target.run code call = some o ∧ treePost fn P call o :=
   bytecode_of_triple stage (triple_of_checked hd hsel hfind hlen hT hcheck hv hbind)
 
-end SolidCore.Verify.VC
+/-- **solar-verify's script, discharged by the kernel, holds of SolidCore** on the function's
+scope: the triple before any stage, which the generic certificate's specification composes
+(Verify/Generic/VC.lean). -/
+theorem triple_of_discharged {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.State}
+    {s : List (Nat × Nat)} (hd : Wide.DeployedAt fuel c d s) {fn : Fn} {f : Source.FunctionDef}
+    (hsel : fn.sel < 2 ^ 32) (hfind : c.core.findFunctionBySelector? fn.sel = some f)
+    (hlen : f.params.length = fn.params.length) {T : Tree}
+    (hT : eraseFn (envOf c.core) fuel f = some T) {cs : List Cmd} {obs : List (List Tm × Tm)}
+    {env : List Nat → Storage → Env} {P : List Nat → Storage → Observable → Prop}
+    (hdis : dischargeScript cs = true) (hcheck : checkScript cs obs = true)
+    (hbind : Binds fn T obs env P) :
+    Triple fuel c (stageScope fn s) (fun _ => True) (treePost fn P) :=
+  triple_of_checked hd hsel hfind hlen hT hcheck (dischargeScript_sound cs hdis) hbind
 
+end SolidCore.Verify.VC

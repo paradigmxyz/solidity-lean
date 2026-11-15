@@ -654,3 +654,19 @@ lean_lib «uv2_sy» where
   roots := #[`uv2_sy.Proofs.Stages]
   globs := #[.submodules `uv2_sy]
   leanOptions := solarTVOptions
+
+-- The one expected theorem of a certified contract (Verify/Generic: Expected, the certificate a
+-- contract's proof supplies, the specification from discharged VCs) and Counter restated as its
+-- instance. docs/GENERIC_INTERFACE.md, docs/SUPPORTED_ENVELOPE.md.
+lean_lib VerifyGeneric where
+  roots := #[`Verify.Generic.Expected, `Verify.Generic.Certificate, `Verify.Generic.Compose, `Verify.Generic.VC,
+    `Verify.Generic.Instances.Counter]
+  globs := #[.one `Verify.Generic.Expected, .one `Verify.Generic.Certificate, .one `Verify.Generic.Compose, .one `Verify.Generic.VC,
+    .one `Verify.Generic.Instances.Counter]
+
+
+-- UniswapV2ERC20.transfer restated as an instance of the generic expected theorem. Needs the
+-- generated modules of ContractsUniswapV2ERC20Certified (scripts/verify/uniswap_v2_stages.sh,
+-- uniswap_v2_transfer_slice.sh).
+lean_lib VerifyGenericTransfer where
+  roots := #[`Verify.Generic.Instances.Transfer]
