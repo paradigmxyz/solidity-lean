@@ -15,7 +15,11 @@ one, and every case expected not to certify passes only when the driver does not
 The replay cases certify tests/heldout/Clamp.sol once, then copy its directory per case, change one
 pinned input in the copy and replay it: stale bytes (the runtime bytes of another contract's fresh
 compile), a flipped byte, changed solar options in the recorded pins, a stale spec (the source's
-spec edited after the run) and a stale import (a generated module of the run edited after it).
+spec edited after the run), stale source (its code edited), a stale import (a generated module of
+the run edited after it), an omitted selector (one dropped from the recorded entrypoints), a false
+environment pin, and a lowered gas bound (out of gas passed off as a revert).
+Every case runs the same driver command on the same tree: the table records the commit and the
+driver's hash before and after, and the suite fails if they differ.
 Each must be refused. Without --replay those cases are reported as not run.
 
 Exits 0 iff every case that ran passed.
@@ -28,7 +32,14 @@ FRESH = [
     ("heldout-clamp", f"{H}/Clamp.sol", "CERTIFIED", "positive control: held-out, no hand-written proofs"),
     ("heldout-stepsum", f"{H}/StepSum.sol", "CERTIFIED", "positive control: loop with supplied invariant"),
     ("heldout-registry", f"{H}/Registry.sol", "CERTIFIED", "positive control: mapping, owner check, event"),
+    ("renamed-new-constants", f"{H}/Band.sol", "CERTIFIED", "Clamp renamed, constants in place of stored bounds"),
+    ("empty-revert", f"{H}/EmptyRevert.sol", "CERTIFIED", "empty revert next to a bounded loop (revert, not OOG)"),
     ("wrong-spec", f"{H}/negative/ClampWrongSpec.sol", "REJECTED", "postcondition false of the code"),
+    ("false-env", f"{H}/negative/FalseEnv.sol", "REJECTED", "contradictory environment premise (vacuous)"),
+    ("invalid-initial-invariant", f"{H}/negative/InitBroken.sol", "REJECTED", "constructor does not establish the invariant"),
+    ("entrypoint-breaks-invariant", f"{H}/negative/InvBroken.sol", "REJECTED", "a second entrypoint breaks the invariant"),
+    ("sibling-goal-isolation", f"{H}/negative/SiblingFns.sol", "REJECTED",
+     "a sibling function's premise or proof state must not reach another's goal"),
     ("sibling-isolation", f"{H}/negative/SiblingLeak.sol", "REJECTED",
      "postcondition provable only if a sibling branch's assumption leaks"),
     ("sibling-isolation-control", f"{H}/negative/SiblingOk.sol", "CERTIFIED", "control of sibling-isolation"),
@@ -37,7 +48,8 @@ FRESH = [
     ("unsupported-delegatecall", f"{H}/blocked/Delegatecall.sol", "BLOCKED", "delegatecall"),
     ("unsupported-assembly", f"{H}/blocked/Assembly.sol", "BLOCKED", "inline assembly"),
 ]
-REPLAY = ["stale-bytes", "flipped-byte", "changed-solar-options", "stale-spec-hash", "stale-import"]
+REPLAY = ["stale-bytes", "flipped-byte", "changed-solar-options", "stale-spec-hash", "stale-source", "stale-import",
+          "omitted-selector", "false-env-pin", "oog-as-revert"]
 VERDICT = re.compile(r"^\s*(CERTIFIED|BLOCKED|REJECTED)\b[:\s]*(.*)$", re.I)
 
 
@@ -109,6 +121,41 @@ def mutate_replay(case, d, other_bin):
                 p.write_text(t.replace("@custom:ensures result >= a", "@custom:ensures result >= a + 0", 1))
                 return f"{p.relative_to(d)}: one ensures clause edited"
         return None
+    if case == "stale-source":
+        for p in files(d, "*.sol"):
+            t = p.read_text()
+            if "if (x > b) return b;" in t:
+                p.write_text(t.replace("if (x > b) return b;", "if (x >= b) return b;", 1))
+                return f"{p.relative_to(d)}: one comparison of the code edited (same behaviour, other bytes)"
+        return None
+    if case in ("omitted-selector", "false-env-pin", "oog-as-revert"):
+        keys = {"omitted-selector": ("selectors", "functions", "entrypoints"),
+                "false-env-pin": ("env", "environment", "evm_version", "chain_id"),
+                "oog-as-revert": ("gas", "gas_bound", "gasBound")}[case]
+        for p in files(d, "*.json"):
+            try:
+                j = json.loads(p.read_text())
+            except ValueError:
+                continue
+            for k in keys:
+                if k not in j:
+                    continue
+                v = j[k]
+                if case == "omitted-selector" and isinstance(v, (list, dict)) and len(v) > 1:
+                    if isinstance(v, list):
+                        j[k] = v[1:]
+                    else:
+                        j[k] = dict(list(v.items())[1:])
+                elif case == "false-env-pin":
+                    j[k] = ({**v, "chain_id": 0, "caller": 0} if isinstance(v, dict) else
+                            ("london" if v != "london" else "cancun") if isinstance(v, str) else (v or 0) + 1)
+                elif case == "oog-as-revert" and isinstance(v, int) and v > 0:
+                    j[k] = v // 2
+                else:
+                    continue
+                p.write_text(json.dumps(j, indent=2))
+                return f"{p.relative_to(d)}: {k} changed"
+        return None
     if case == "stale-import":
         for p in files(d, "*.lean"):
             t = p.read_text()
@@ -129,6 +176,10 @@ def main():
     a = ap.parse_args()
     work = pathlib.Path(a.work).resolve()
     certify = shlex.split(a.certify)
+    drv = pathlib.Path(certify[0])
+    drv_hash = lambda: subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip() + ":" + \
+        (__import__("hashlib").sha256(drv.read_bytes()).hexdigest() if drv.is_file() else "")
+    drv_before = drv_hash()
     rows = []
     want = set(a.only.split(",")) if a.only else None
     clamp_dir = None
@@ -169,16 +220,19 @@ def main():
         v, reason, rc, wall = run(shlex.split(a.replay) + [str(d)], work / "log" / f"replay-{case}.txt")
         rows.append((case, what, "REJECTED", v, reason, v in ("REJECTED", "BLOCKED") or (v == "ERROR" and rc != 0), wall))
         print(f"{case}: got {v} ({reason})", flush=True)
+    drv_after = drv_hash()
     lines = ["| case | what | expected | actual | rejecting check (driver's reason) | pass |", "|---|---|---|---|---|---|"]
     for name, what, exp, v, reason, ok, wall in rows:
         r = reason.replace("|", "\\|")
         lines.append(f"| {name} | {what} | {exp} | {v} | {r} | {'yes' if ok else ('not run' if ok is None else '**NO**')} |")
+    lines.append("")
+    lines.append(f"driver and tree unchanged across the cases: {drv_before == drv_after} ({drv_before})")
     table = "\n".join(lines)
     print("\n" + table)
     if a.table:
         pathlib.Path(a.table).write_text(table + "\n")
     ran = [r for r in rows if r[5] is not None]
-    ok = all(r[5] for r in ran) and bool(ran)
+    ok = all(r[5] for r in ran) and bool(ran) and drv_before == drv_after
     print("\nNEGATIVE-SUITE " + ("PASS" if ok else "FAIL") + f" ({sum(1 for r in ran if r[5])}/{len(ran)} ran and passed, "
           f"{len(rows) - len(ran)} not run)")
     sys.exit(0 if ok else 1)
