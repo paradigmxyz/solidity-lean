@@ -43,3 +43,6 @@ obligations are generated and discharged by Verify/Discharge, see [loopvc/](loop
 - `chc/`: the Horn problems in SMT-LIB and Spacer's answers (z3 5.4.1).
 
 Checksums are in `SHA256SUMS`.
+
+Counterexamples to induction for these loops and for solar-verify's own Horn problems of
+`Counter.bump`'s mutants, labelled as ICE samples and replayed, are in `cti/` (see `CTI.md`).
