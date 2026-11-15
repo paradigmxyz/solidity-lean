@@ -418,6 +418,15 @@ lean_lib ContractsUniswapV2TransferSlice where
   roots := #[`Contracts.UniswapV2.ERC20.Slice.All]
   globs := #[.submodules `Contracts.UniswapV2.ERC20.Slice, .one `Contracts.UniswapV2.ERC20.SpecTreeKeccak]
 
+-- The function specifications of the Uniswap V2 port (Contracts/UniswapV2/Specs,
+-- docs/specs/UNISWAPV2_SPECS.md): statements only, every external function of UniswapV2ERC20,
+-- UniswapV2Pair and UniswapV2Factory as a sequential model and a target postcondition with its
+-- premises. Written from the port's behaviour, not generated from it, so committed and built with
+-- no generated source: lake build ContractsUniswapV2Specs.
+lean_lib ContractsUniswapV2Specs where
+  roots := #[`Contracts.UniswapV2.Specs.All]
+  globs := #[.submodules `Contracts.UniswapV2.Specs]
+
 -- UniswapV2ERC20's exact runtime bytes against AssembleNoCall's call-free check (NoCall*: refused at
 -- the counters NoCallAt lists; NoCallControl: the bytes with those instructions scrubbed pass; NoCallNeg:
 -- scrubbing all but the STATICCALL fails). One kernel evaluation per module, each under 6 GB: build the
@@ -612,3 +621,36 @@ lean_lib «abi_hash» where
 -- ContractsUniswapV2TransferSlice (scripts/verify/uniswap_v2_stages.sh, uniswap_v2_transfer_slice.sh).
 lean_lib ContractsUniswapV2ERC20Certified where
   roots := #[`Contracts.UniswapV2.ERC20.Certified.Transfer]
+
+-- UniswapV2Pair's backend stages on the calls of one external function, from solar's first lowered
+-- MIR to the final EVM IR, and the decoding of the exact runtime bytecode (not its execution).
+-- scripts/verify/uniswap_v2_pair_stages.sh generates Certified/uv2_*/ from the GPL-3.0 port (not
+-- committed) and builds them one module at a time; uv2_gr is getReserves(). Its peak is 2.5 GB.
+lean_lib «uv2_gr» where
+  srcDir := "Certified"
+  roots := #[`uv2_gr.Proofs.Stages, `uv2_gr.Proofs.Assembly]
+  globs := #[.submodules `uv2_gr]
+  leanOptions := solarTVOptions
+
+-- Negative controls of uv2_gr that the same script writes (scripts/verify/uniswap_v2_pair_mutants.py):
+-- getReserves' timestamp mask altered in mir1 and evm26 (uv2_grneg), and in the bytecode's PUSH4
+-- (uv2_grnegb). Each mutated proof must fail with a mismatch; never part of a passing build.
+lean_lib «uv2_grneg» where
+  srcDir := "Certified"
+  roots := #[`uv2_grneg.Proofs.Stages]
+  globs := #[.submodules `uv2_grneg]
+  leanOptions := solarTVOptions
+
+lean_lib «uv2_grnegb» where
+  srcDir := "Certified"
+  roots := #[`uv2_grnegb.Proofs.Assembly]
+  globs := #[.submodules `uv2_grnegb]
+  leanOptions := solarTVOptions
+
+-- uv2_sy: the same stages on sync()'s calls (scripts/verify/uniswap_v2_pair_stages.sh uv2_gr=getReserves()
+-- uv2_sy=sync()), over uv2_gr's generated stages.
+lean_lib «uv2_sy» where
+  srcDir := "Certified"
+  roots := #[`uv2_sy.Proofs.Stages]
+  globs := #[.submodules `uv2_sy]
+  leanOptions := solarTVOptions
