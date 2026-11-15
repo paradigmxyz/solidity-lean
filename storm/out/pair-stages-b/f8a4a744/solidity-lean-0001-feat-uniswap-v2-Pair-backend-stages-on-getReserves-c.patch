@@ -1,7 +1,7 @@
 From 23635ee73fa9c1e3cb4ea6a03cda6d5d893a78f3 Mon Sep 17 00:00:00 2001
 From: solar-tv <solar-tv@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 14:59:11 +0000
-Subject: [PATCH 1/2] feat(uniswap-v2): Pair backend stages on getReserves
+Subject: [PATCH 1/4] feat(uniswap-v2): Pair backend stages on getReserves
  calls
 
 scripts/verify/uniswap_v2_pair_stages.sh generates UniswapV2Pair's

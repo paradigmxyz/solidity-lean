@@ -1,0 +1,23 @@
+2026-11-15T02:29:58Z | lake build -KleanMemory=8000 uv2_sy.Proofs.Assembly | exit 0 | 2 s | peak 796 MB
+uv2_sy: 495 theorems audited, axioms within propext, Classical.choice, Quot.sound
+mutants: uv2_grneg (mir1, evm21), uv2_grnegb (bytecode byte 639)
+assembly: decoded only; the final EVM IR is outside the executed fragment: block 2: ('stack', 'returndatasize')
+2026-11-15T02:30:58Z | lake build -KleanMemory=3000 uv2_grneg.gen.UniswapV2Pair.Bytecode uv2_grneg.gen.UniswapV2Pair.Evm1 uv2_grneg.gen.UniswapV2Pair.Evm10 uv2_grneg.gen.UniswapV2Pair.Evm11 uv2_grneg.gen.UniswapV2Pair.Evm12 uv2_grneg.gen.UniswapV2Pair.Evm13 uv2_grneg.gen.UniswapV2Pair.Evm14 uv2_grneg.gen.UniswapV2Pair.Evm15 uv2_grneg.gen.UniswapV2Pair.Evm16 uv2_grneg.gen.UniswapV2Pair.Evm17 uv2_grneg.gen.UniswapV2Pair.Evm18 uv2_grneg.gen.UniswapV2Pair.Evm19 uv2_grneg.gen.UniswapV2Pair.Evm2 uv2_grneg.gen.UniswapV2Pair.Evm20 uv2_grneg.gen.UniswapV2Pair.Evm21 uv2_grneg.gen.UniswapV2Pair.Evm3 uv2_grneg.gen.UniswapV2Pair.Evm4 uv2_grneg.gen.UniswapV2Pair.Evm5 uv2_grneg.gen.UniswapV2Pair.Evm6 uv2_grneg.gen.UniswapV2Pair.Evm7 uv2_grneg.gen.UniswapV2Pair.Evm8 uv2_grneg.gen.UniswapV2Pair.Evm9 uv2_grneg.gen.UniswapV2Pair.Manifest uv2_grneg.gen.UniswapV2Pair.Mir1 uv2_grneg.gen.UniswapV2Pair.Mir2 uv2_grneg.gen.UniswapV2Pair.Mir3 uv2_grneg.gen.UniswapV2Pair.Mir4 uv2_grneg.gen.UniswapV2Pair.Sched uv2_grneg.gen.UniswapV2Pair.Stage0 | exit 0 | 55 s | peak 816 MB
+assembly: decoded only; the final EVM IR is outside the executed fragment: block 2: ('stack', 'returndatasize')
+2026-11-15T02:31:54Z | lake build -KleanMemory=3000 uv2_grnegb.gen.UniswapV2Pair.Bytecode uv2_grnegb.gen.UniswapV2Pair.Evm1 uv2_grnegb.gen.UniswapV2Pair.Evm10 uv2_grnegb.gen.UniswapV2Pair.Evm11 uv2_grnegb.gen.UniswapV2Pair.Evm12 uv2_grnegb.gen.UniswapV2Pair.Evm13 uv2_grnegb.gen.UniswapV2Pair.Evm14 uv2_grnegb.gen.UniswapV2Pair.Evm15 uv2_grnegb.gen.UniswapV2Pair.Evm16 uv2_grnegb.gen.UniswapV2Pair.Evm17 uv2_grnegb.gen.UniswapV2Pair.Evm18 uv2_grnegb.gen.UniswapV2Pair.Evm19 uv2_grnegb.gen.UniswapV2Pair.Evm2 uv2_grnegb.gen.UniswapV2Pair.Evm20 uv2_grnegb.gen.UniswapV2Pair.Evm21 uv2_grnegb.gen.UniswapV2Pair.Evm3 uv2_grnegb.gen.UniswapV2Pair.Evm4 uv2_grnegb.gen.UniswapV2Pair.Evm5 uv2_grnegb.gen.UniswapV2Pair.Evm6 uv2_grnegb.gen.UniswapV2Pair.Evm7 uv2_grnegb.gen.UniswapV2Pair.Evm8 uv2_grnegb.gen.UniswapV2Pair.Evm9 uv2_grnegb.gen.UniswapV2Pair.Manifest uv2_grnegb.gen.UniswapV2Pair.Mir1 uv2_grnegb.gen.UniswapV2Pair.Mir2 uv2_grnegb.gen.UniswapV2Pair.Mir3 uv2_grnegb.gen.UniswapV2Pair.Mir4 uv2_grnegb.gen.UniswapV2Pair.Sched uv2_grnegb.gen.UniswapV2Pair.Stage0 | exit 0 | 54 s | peak 824 MB
+2026-11-15T02:32:11Z | lake build -KleanMemory=8000 uv2_grneg.Proofs.Runs.Mir1 | exit 1 | 16 s | peak 2225 MB
+    error: Certified/uv2_grneg/Proofs/Runs/Mir1.lean:77:2: sym_seg: the segments end differently on this path, or the procedure cannot tell
+    error: Certified/uv2_grneg/Proofs/Runs/Mir1.lean:127:0: 'SolarTV.Milestone.Uv2Grneg.mir1_certified' depends on axioms outside [propext, Classical.choice, Quot.sound]: [sorryAx]
+    error: Certified/uv2_grneg/Proofs/Runs/Mir1.lean:126:0: ❌️ Docstring on `#guard_msgs` does not match generated message:
+uv2_grneg.Proofs.Runs.Mir1: refused by mismatch
+2026-11-15T02:33:19Z | lake build -KleanMemory=8000 uv2_grneg.Proofs.Runs.Evm21 | exit 1 | 68 s | peak 1983 MB
+    error: Certified/uv2_grneg/Proofs/Runs/Evm21.lean:77:2: sym_seg: the segments end differently on this path, or the procedure cannot tell
+    error: Certified/uv2_grneg/Proofs/Runs/Evm21.lean:199:0: 'SolarTV.Milestone.Uv2Grneg.evm21_certified' depends on axioms outside [propext, Classical.choice, Quot.sound]: [sorryAx]
+    error: Certified/uv2_grneg/Proofs/Runs/Evm21.lean:198:0: ❌️ Docstring on `#guard_msgs` does not match generated message:
+uv2_grneg.Proofs.Runs.Evm21: refused by mismatch
+2026-11-15T02:33:27Z | lake build -KleanMemory=8000 uv2_grnegb.Proofs.Assembly | exit 1 | 8 s | peak 1071 MB
+    error: Certified/uv2_grnegb/Proofs/Assembly.lean:29:2: Tactic `decide` proved that the proposition
+    error: Certified/uv2_grnegb/Proofs/Assembly.lean:42:0: ❌️ Docstring on `#guard_msgs` does not match generated message:
+    error: Certified/uv2_grnegb/Proofs/Assembly.lean:46:0: ❌️ Docstring on `#guard_msgs` does not match generated message:
+uv2_grnegb.Proofs.Assembly: refused by mismatch
+SCRIPT_EXIT 0

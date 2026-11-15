@@ -1,0 +1,33 @@
+From 67f19df80860d61d229a93c621091df110e9744f Mon Sep 17 00:00:00 2001
+From: solar-tv <solar-tv@users.noreply.github.com>
+Date: Sun, 15 Nov 2026 00:28:19 +0000
+Subject: [PATCH] fix(certify): scoped loop check of the schedule
+
+Under --exclude, the check that every loop of the scheduled EVM IR
+passes a cut point now looks only at the configurations a call in scope
+reaches. UniswapV2Pair's sqrt loop, reached only from mint(), made every
+block cut of the stack scheduling stage unsupported for sync(), so the
+stage was one segment that ran out of heartbeats; it is now cut block by
+block.
+---
+ solar-tv/milestone/cutpoints.py | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/solar-tv/milestone/cutpoints.py b/solar-tv/milestone/cutpoints.py
+index 079b95c4..b18ac57a 100644
+--- a/solar-tv/milestone/cutpoints.py
++++ b/solar-tv/milestone/cutpoints.py
+@@ -1858,7 +1858,9 @@ def mir_evm_rels(pass_name, funcs, sched_blocks, schedule, cuts, ctxs=None):
+                 }
+             )
+     if tests_b and dynamic:
+-        edges = evm_states(pass_name, sched_blocks)
++        # Only the loops a call in scope reaches need a cut: the excluded functions' loops (a
++        # square root's) are pruned from the segments as their dispatcher cases are.
++        edges = scoped_states(sched_blocks, evm_states(pass_name, sched_blocks))
+         nodes = sorted(edges, key=lambda s: (s[0], len(s[1]), str(s[1])))
+         ix = {s: n for n, s in enumerate(nodes)}
+         succ = {ix[s]: sorted({ix[t] for t in edges[s]}) for s in nodes}
+-- 
+2.43.0
+

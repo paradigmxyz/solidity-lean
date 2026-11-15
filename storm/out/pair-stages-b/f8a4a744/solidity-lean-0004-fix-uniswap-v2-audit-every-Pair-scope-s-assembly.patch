@@ -1,0 +1,53 @@
+From 833c46c1aa72d8555cd129f313d06d8f9e1f65a3 Mon Sep 17 00:00:00 2001
+From: solar-tv <solar-tv@users.noreply.github.com>
+Date: Sun, 15 Nov 2026 02:33:38 +0000
+Subject: [PATCH 4/4] fix(uniswap-v2): audit every Pair scope's assembly
+
+Every scope builds and audits its Assembly module, not only the first,
+and a mutant refused by a cut-point segment (sym_seg's mismatch) counts
+as refused by a mismatch.
+---
+ lakefile.lean                            | 2 +-
+ scripts/verify/uniswap_v2_pair_stages.sh | 6 +++---
+ 2 files changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/lakefile.lean b/lakefile.lean
+index e309778..97181b3 100644
+--- a/lakefile.lean
++++ b/lakefile.lean
+@@ -638,6 +638,6 @@ lean_lib «uv2_grnegb» where
+ -- uv2_sy=sync()), over uv2_gr's generated stages.
+ lean_lib «uv2_sy» where
+   srcDir := "Certified"
+-  roots := #[`uv2_sy.Proofs.Stages]
++  roots := #[`uv2_sy.Proofs.Stages, `uv2_sy.Proofs.Assembly]
+   globs := #[.submodules `uv2_sy]
+   leanOptions := solarTVOptions
+diff --git a/scripts/verify/uniswap_v2_pair_stages.sh b/scripts/verify/uniswap_v2_pair_stages.sh
+index 73e94e9..6292d1d 100755
+--- a/scripts/verify/uniswap_v2_pair_stages.sh
++++ b/scripts/verify/uniswap_v2_pair_stages.sh
+@@ -116,9 +116,9 @@ for spec in "${scopes[@]}"; do
+     receipt lake build -KleanMemory="$leanmem" "$m"
+   done
+   receipt lake build -KleanMemory="$leanmem" "$name.Proofs.Stages"
+-  [[ "$name" != "$first" ]] || receipt lake build -KleanMemory="$leanmem" "$name.Proofs.Assembly"
++  receipt lake build -KleanMemory="$leanmem" "$name.Proofs.Assembly"
+   audit="Certified/$name/Audit.lean"
+-  { echo "import $name.Proofs.Stages"; [[ "$name" != "$first" ]] || echo "import $name.Proofs.Assembly"
++  { echo "import $name.Proofs.Stages"; echo "import $name.Proofs.Assembly"
+     grep -rhoE '^theorem [A-Za-z0-9_]+' "Certified/$name/Proofs" | awk '{print $2}' | sort -u | sed "s/^/#print axioms $ns./"
+     echo "#check @$ns.${name}_mir_to_evmir"; } > "$audit"
+   report="$(lake env lean -M "$leanmem" "$audit" 2>&1)"
+@@ -144,7 +144,7 @@ if [[ -n "${NEGATIVES:-}" ]]; then
+   last="$(stages | awk '{print $NF}')"
+   for m in "${name}neg.Proofs.Runs.Mir1" "${name}neg.Proofs.Runs.$last" "${name}negb.Proofs.Assembly"; do
+     if receipt lake build -KleanMemory="$leanmem" "$m"; then echo "error: the mutant $m checks" >&2; exit 1; fi
+-    tail -c 20000 "$rec.out" | grep -q -E "runs end in different results|Tactic .decide. proved that the proposition" ||
++    tail -c 20000 "$rec.out" | grep -q -E "runs end in different results|segments end differently|Tactic .decide. proved that the proposition" ||
+       { echo "error: $m failed without a mismatch" >&2; exit 1; }
+     echo "$m: refused by mismatch"
+   done
+-- 
+2.43.0
+

@@ -1,4 +1,0 @@
-2026-11-14T23:47:49Z | lake env lean -M 6000 Certified/uv2_sy/Proofs/Runs/Mir3.lean | exit 1 | 371 s | peak 1850 MB
-2026-11-15T00:00:49Z | lake env lean -M 6000 Certified/uv2_sy/Proofs/Runs/Sched.lean | exit 1 | 780 s | peak 4038 MB
-2026-11-15T00:05:29Z | lake env lean -M 6000 Certified/uv2_sy/Proofs/Runs/Evm2.lean | exit 0 | 280 s | peak 3083 MB
-DONE
