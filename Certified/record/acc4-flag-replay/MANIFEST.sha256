@@ -1,0 +1,16 @@
+a0fecbd27689a4404cc9a6e656dfbb25c26048e5e870b10f43eb013e7e8a5368  ./README.md
+4ce5cf9a87520dc956a1e7366d5f646a07739832e44a3d8dec2eb656deb6388d  ./fresh-run/Flag.sol
+0c415ae46ab0965208a0ab4ddcc97457d41038363bb2aa46fe34e84422a39f08  ./fresh-run/certify-record.json
+e5bd989f131eab0015e82b1c35c58b451ef343acbf309f6ab864ed6b27996be2  ./fresh-run/certify.log
+031b934c7d4a41f0d6c49ee1d035d5469f014b3a7851f8ad3da3f7ded82620a7  ./fresh-run/inputs/Certified/flag_4ce5cf9a/Lowering.lean
+bfe9592d4187d94fb6808eb4a38297789d3c50ea56c5e1d9fd059607e7a91990  ./fresh-run/inputs/Certified/flag_4ce5cf9a/Shape.lean
+77b320129797c47d068e070e18b6abe7913f87c4735666de9c5ea23692ac6e59  ./fresh-run/inputs/Certified/flag_4ce5cf9a/Source.lean
+4ce5cf9a87520dc956a1e7366d5f646a07739832e44a3d8dec2eb656deb6388d  ./fresh-run/inputs/Certified/flag_4ce5cf9a/flag_4ce5cf9a.sol
+e8dcb59d1d2c9325d924f23afb16523ebcef2750f7fa447cf67b494f81a9038c  ./fresh-run/inputs/Certified/flag_4ce5cf9a/options
+d0b84043bc2d80f0cfdaf26702e0a7cfa2c8518174210996b4b06b7d781d4524  ./fresh-run/inputs/Certified/flag_4ce5cf9a/shape.json
+aca9325b5dc742551ef1b74f2dcfa5c63aa3f2ae1488578fc78ecaa3b5d875f8  ./fresh-run/inputs/lakefile.lean
+c49a95fd0423623c49ce94e32e4d80474aa127b69eadca083aff4639d4efe6d3  ./fresh-run/record.json
+35778f66c9a0eb840b1570065a95b51a9ebbe504cffc75b95b08e1860518097e  ./rep4-flag.driver.log
+1b0ace43608449e873fb56037fc939aad4793d28af4f647b90bd7d499a549859  ./rep4-flag.receipt.json
+87446b218447b73163f96986081b00a4126cce937290f887179c9a3d1d25ad41  ./rep4-flag.receipt.trace.tsv
+08def07814d1b1566a997eb4f373f99fee81e604cba8fc0fb6f5d04b83864ca6  ./replay-keys.txt
