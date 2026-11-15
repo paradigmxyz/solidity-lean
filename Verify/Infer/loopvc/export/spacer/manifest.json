@@ -1,0 +1,447 @@
+{
+  "format": "solar-verify-lean",
+  "generator": {
+    "interface": {
+      "format": "solar-verify-loopvc",
+      "formulas_sha256": "f8b5887986ea82259e3bc90c12abea85773dc969a7d8788af39535ec590e2de2",
+      "version": 1
+    },
+    "name": "Verify/Infer/smt2lean_inv.py loopvc"
+  },
+  "lean": {
+    "smt_sha256": "2c92f3bcd927369da89250662bd5a6174d3c06d0c3c38f5021509fe8810036e3",
+    "toolchain": "leanprover/lean4:v4.35.0",
+    "vc_sha256": "648d461056fe1649754b1ec259c2d1c48e8db8a4c11e5af281e73796399bc96a"
+  },
+  "sources": [
+    {
+      "path": "Verify/Infer/loopvc/solar/Counter/bump.loopvc.json",
+      "sha256": "524779d300a8349448949e7e9da8a2552a955d413eb443ee6e1d6348dfb442f8"
+    },
+    {
+      "path": "Verify/Infer/loopvc/solar/Counter/bump.horn.smt2",
+      "sha256": "88f69aaad5735250f8e4c8f3fd2d6c1dd94603c9cec4c92ff797ef62d8c3fe54"
+    },
+    {
+      "path": "Verify/Infer/loopvc/solar/LoopVc.lean",
+      "sha256": "8b5f650e16a217b5b843f8ca623a22f6c0dc6c0afc44e07251fac2559d4b2e82"
+    },
+    {
+      "path": "Verify/Infer/loopvc/solar/Counter/bump.lean",
+      "sha256": "e954bfd845f141aa6c87166c42f430eb1b188e0e1615629688fed955278fcf94"
+    },
+    {
+      "path": "Verify/Infer/loopvc/solar/Counter/bump_loopvc.lean",
+      "sha256": "ba357e2ed64efdd84a9d28afc5faf54497a9353b63429c7d0b655ace57d5d221"
+    },
+    {
+      "path": "Verify/Infer/loopvc/spacer/Counter.bump.spacer.out",
+      "sha256": "a7c6e0d6ea1ecd73de493f7d3ab09728e7caa5a1054cbb5e786ee4e3a52d6dc7"
+    },
+    {
+      "path": "Verify/Infer/loopvc/solar/Counter/bump.script0.smt2",
+      "sha256": "b596fcfdf4d8d9d5ad138db6403d355309821c6629be9de9fb72636b1b9f0236"
+    },
+    {
+      "path": "Certified/verify_counter/verify_counter.sol",
+      "sha256": "f1c87a334b8db31fc8f80541febeaf8617318d20b685634f44e26c74146ad326"
+    }
+  ],
+  "units": [
+    {
+      "bridge": "bridge/LoopVc/Counter/bump_spacer_a7c6e0d6ea1e_bridge.lean",
+      "candidate": {
+        "conjuncts": [
+          {
+            "origin": "spacer",
+            "site": null,
+            "term": "(not (<= (+ |count@17| (* (- 1) |count@27|) |i@28|) (- 1)))",
+            "text": "(not (<= (+ |count@17| (* (- 1) |count@27|) |i@28|) (- 1)))"
+          },
+          {
+            "origin": "spacer",
+            "site": null,
+            "term": "(not (>= (+ |count@17| (* (- 1) |count@27|) |i@28|) 1))",
+            "text": "(not (>= (+ |count@17| (* (- 1) |count@27|) |i@28|) 1))"
+          },
+          {
+            "origin": "spacer",
+            "site": null,
+            "term": "(not (<= (+ |count@17| (* (- 1) |count@27|) |n@21|) (- 1)))",
+            "text": "(not (<= (+ |count@17| (* (- 1) |count@27|) |n@21|) (- 1)))"
+          }
+        ],
+        "id": "spacer-a7c6e0d6ea1e",
+        "rank": {
+          "origin": "annotation",
+          "site": {
+            "column": 14,
+            "file": "Certified/verify_counter/verify_counter.sol",
+            "line": 25
+          },
+          "term": "(- |n@21| |i@28|)",
+          "text": "n - i"
+        }
+      },
+      "module": "LoopVc/Counter/bump_spacer_a7c6e0d6ea1e.lean",
+      "name": "Counter.bump L0 [spacer-a7c6e0d6ea1e]",
+      "namespace": "SolarVerifyVc.LoopVc.Counter.bump_spacer_a7c6e0d6ea1e",
+      "obligations": [
+        {
+          "answer": "not-run",
+          "candidate": "spacer-a7c6e0d6ea1e",
+          "cutpoint": "L0",
+          "edge": "entry",
+          "id": "Counter.bump@L0#t0.c0",
+          "kind": "initiation",
+          "lean": "SolarVerifyVc.LoopVc.Counter.bump_spacer_a7c6e0d6ea1e.ob0",
+          "post": {
+            "count": "|count@17|",
+            "i": "0",
+            "n": "|n@21|",
+            "old(count)": "|count@17|"
+          },
+          "pre": {},
+          "required": true,
+          "role": "obligation",
+          "site": {
+            "column": 14,
+            "file": "Certified/verify_counter/verify_counter.sol",
+            "line": 23
+          },
+          "smt": "LoopVc/Counter/bump_spacer_a7c6e0d6ea1e.ob0.smt2",
+          "smt_sha256": "27e021711178e732bc1a857fc79dcdfc0c229b1df42ff5a7b2eb23c3b0761526",
+          "spec": {
+            "span": null,
+            "text": "(not (<= (+ |count@17| (* (- 1) |count@27|) |i@28|) (- 1)))"
+          },
+          "template": "t0",
+          "template_role": "invariant"
+        },
+        {
+          "answer": "not-run",
+          "candidate": "spacer-a7c6e0d6ea1e",
+          "cutpoint": "L0",
+          "edge": "entry",
+          "id": "Counter.bump@L0#t0.c1",
+          "kind": "initiation",
+          "lean": "SolarVerifyVc.LoopVc.Counter.bump_spacer_a7c6e0d6ea1e.ob1",
+          "post": {
+            "count": "|count@17|",
+            "i": "0",
+            "n": "|n@21|",
+            "old(count)": "|count@17|"
+          },
+          "pre": {},
+          "required": true,
+          "role": "obligation",
+          "site": {
+            "column": 14,
+            "file": "Certified/verify_counter/verify_counter.sol",
+            "line": 23
+          },
+          "smt": "LoopVc/Counter/bump_spacer_a7c6e0d6ea1e.ob1.smt2",
+          "smt_sha256": "c31ae0c00b709ff35cd98dc81b4b3822017c0691af282ab47946fafd368f161d",
+          "spec": {
+            "span": null,
+            "text": "(not (>= (+ |count@17| (* (- 1) |count@27|) |i@28|) 1))"
+          },
+          "template": "t0",
+          "template_role": "invariant"
+        },
+        {
+          "answer": "not-run",
+          "candidate": "spacer-a7c6e0d6ea1e",
+          "cutpoint": "L0",
+          "edge": "entry",
+          "id": "Counter.bump@L0#t0.c2",
+          "kind": "initiation",
+          "lean": "SolarVerifyVc.LoopVc.Counter.bump_spacer_a7c6e0d6ea1e.ob2",
+          "post": {
+            "count": "|count@17|",
+            "i": "0",
+            "n": "|n@21|",
+            "old(count)": "|count@17|"
+          },
+          "pre": {},
+          "required": true,
+          "role": "obligation",
+          "site": {
+            "column": 14,
+            "file": "Certified/verify_counter/verify_counter.sol",
+            "line": 23
+          },
+          "smt": "LoopVc/Counter/bump_spacer_a7c6e0d6ea1e.ob2.smt2",
+          "smt_sha256": "b1e0986bb495183c4d8b1bedaa46e6ee649aa981a80f51fa5a441b56c87e990c",
+          "spec": {
+            "span": null,
+            "text": "(not (<= (+ |count@17| (* (- 1) |count@27|) |n@21|) (- 1)))"
+          },
+          "template": "t0",
+          "template_role": "invariant"
+        },
+        {
+          "answer": "not-run",
+          "candidate": "spacer-a7c6e0d6ea1e",
+          "cutpoint": "L0",
+          "edge": "back",
+          "id": "Counter.bump@L0#t1.c0",
+          "kind": "preservation",
+          "lean": "SolarVerifyVc.LoopVc.Counter.bump_spacer_a7c6e0d6ea1e.ob3",
+          "post": {
+            "count": "|arith@31|",
+            "i": "|arith@33|",
+            "n": "|n@21|",
+            "old(count)": "|count@17|"
+          },
+          "pre": {
+            "L0": {
+              "count": "|count@27|",
+              "i": "|i@28|",
+              "n": "|n@21|",
+              "old(count)": "|count@17|"
+            }
+          },
+          "required": true,
+          "role": "obligation",
+          "site": {
+            "column": 14,
+            "file": "Certified/verify_counter/verify_counter.sol",
+            "line": 23
+          },
+          "smt": "LoopVc/Counter/bump_spacer_a7c6e0d6ea1e.ob3.smt2",
+          "smt_sha256": "d2b9ba5b5031f10f0acd9f948794fd00dac15473080f97feb420c7340272e3d7",
+          "spec": {
+            "span": null,
+            "text": "(not (<= (+ |count@17| (* (- 1) |count@27|) |i@28|) (- 1)))"
+          },
+          "template": "t1",
+          "template_role": "invariant"
+        },
+        {
+          "answer": "not-run",
+          "candidate": "spacer-a7c6e0d6ea1e",
+          "cutpoint": "L0",
+          "edge": "back",
+          "id": "Counter.bump@L0#t1.c1",
+          "kind": "preservation",
+          "lean": "SolarVerifyVc.LoopVc.Counter.bump_spacer_a7c6e0d6ea1e.ob4",
+          "post": {
+            "count": "|arith@31|",
+            "i": "|arith@33|",
+            "n": "|n@21|",
+            "old(count)": "|count@17|"
+          },
+          "pre": {
+            "L0": {
+              "count": "|count@27|",
+              "i": "|i@28|",
+              "n": "|n@21|",
+              "old(count)": "|count@17|"
+            }
+          },
+          "required": true,
+          "role": "obligation",
+          "site": {
+            "column": 14,
+            "file": "Certified/verify_counter/verify_counter.sol",
+            "line": 23
+          },
+          "smt": "LoopVc/Counter/bump_spacer_a7c6e0d6ea1e.ob4.smt2",
+          "smt_sha256": "0517eda9cb26faf5cbea2d332d7d256b09c670a9a6639b61082512d03405093d",
+          "spec": {
+            "span": null,
+            "text": "(not (>= (+ |count@17| (* (- 1) |count@27|) |i@28|) 1))"
+          },
+          "template": "t1",
+          "template_role": "invariant"
+        },
+        {
+          "answer": "not-run",
+          "candidate": "spacer-a7c6e0d6ea1e",
+          "cutpoint": "L0",
+          "edge": "back",
+          "id": "Counter.bump@L0#t1.c2",
+          "kind": "preservation",
+          "lean": "SolarVerifyVc.LoopVc.Counter.bump_spacer_a7c6e0d6ea1e.ob5",
+          "post": {
+            "count": "|arith@31|",
+            "i": "|arith@33|",
+            "n": "|n@21|",
+            "old(count)": "|count@17|"
+          },
+          "pre": {
+            "L0": {
+              "count": "|count@27|",
+              "i": "|i@28|",
+              "n": "|n@21|",
+              "old(count)": "|count@17|"
+            }
+          },
+          "required": true,
+          "role": "obligation",
+          "site": {
+            "column": 14,
+            "file": "Certified/verify_counter/verify_counter.sol",
+            "line": 23
+          },
+          "smt": "LoopVc/Counter/bump_spacer_a7c6e0d6ea1e.ob5.smt2",
+          "smt_sha256": "671fff4a1e0f9461bd05d44ae44f1b2594aa170890a75d1f6dffe82d4cba312a",
+          "spec": {
+            "span": null,
+            "text": "(not (<= (+ |count@17| (* (- 1) |count@27|) |n@21|) (- 1)))"
+          },
+          "template": "t1",
+          "template_role": "invariant"
+        },
+        {
+          "answer": "not-run",
+          "candidate": "spacer-a7c6e0d6ea1e",
+          "cutpoint": "L0",
+          "edge": "back",
+          "id": "Counter.bump@L0#t2",
+          "kind": "termination",
+          "lean": "SolarVerifyVc.LoopVc.Counter.bump_spacer_a7c6e0d6ea1e.ob6",
+          "post": {},
+          "pre": {
+            "L0": {
+              "count": "|count@27|",
+              "i": "|i@28|",
+              "n": "|n@21|",
+              "old(count)": "|count@17|"
+            }
+          },
+          "required": true,
+          "role": "obligation",
+          "site": {
+            "column": 14,
+            "file": "Certified/verify_counter/verify_counter.sol",
+            "line": 25
+          },
+          "smt": "LoopVc/Counter/bump_spacer_a7c6e0d6ea1e.ob6.smt2",
+          "smt_sha256": "e343e8dd3c73a4f06dbaf0454fa2820502394134a7433751c4d234e59e03ccc5",
+          "spec": {
+            "span": {
+              "column": 14,
+              "file": "Certified/verify_counter/verify_counter.sol",
+              "line": 25
+            },
+            "text": "n - i"
+          },
+          "template": "t2",
+          "template_role": "rank"
+        },
+        {
+          "answer": "not-run",
+          "candidate": "spacer-a7c6e0d6ea1e",
+          "cutpoint": "L0",
+          "edge": "exit",
+          "id": "Counter.bump@L0#t3",
+          "kind": "exit",
+          "lean": "SolarVerifyVc.LoopVc.Counter.bump_spacer_a7c6e0d6ea1e.ob7",
+          "post": {},
+          "pre": {
+            "L0": {
+              "count": "|count@27|",
+              "i": "|i@28|",
+              "n": "|n@21|",
+              "old(count)": "|count@17|"
+            }
+          },
+          "required": true,
+          "role": "obligation",
+          "site": {
+            "column": 10,
+            "file": "Certified/verify_counter/verify_counter.sol",
+            "line": 20
+          },
+          "smt": "LoopVc/Counter/bump_spacer_a7c6e0d6ea1e.ob7.smt2",
+          "smt_sha256": "94a0a602a8b81d7802672dde384c54b739d72cff9d7c784f02102a49a77a7a55",
+          "spec": {
+            "span": {
+              "column": 10,
+              "file": "Certified/verify_counter/verify_counter.sol",
+              "line": 20
+            },
+            "text": "postcondition not satisfied"
+          },
+          "template": "t3",
+          "template_role": "path"
+        },
+        {
+          "answer": "not-run",
+          "candidate": "spacer-a7c6e0d6ea1e",
+          "cutpoint": "L0",
+          "edge": "exit",
+          "id": "Counter.bump@L0#t4",
+          "kind": "exit",
+          "lean": "SolarVerifyVc.LoopVc.Counter.bump_spacer_a7c6e0d6ea1e.ob8",
+          "post": {},
+          "pre": {
+            "L0": {
+              "count": "|count@27|",
+              "i": "|i@28|",
+              "n": "|n@21|",
+              "old(count)": "|count@17|"
+            }
+          },
+          "required": true,
+          "role": "obligation",
+          "site": {
+            "column": 5,
+            "file": "Certified/verify_counter/verify_counter.sol",
+            "line": 21
+          },
+          "smt": "LoopVc/Counter/bump_spacer_a7c6e0d6ea1e.ob8.smt2",
+          "smt_sha256": "3a8a04d9d2c4895f0367a4cfc7df12833eec19c4bf3f5d0a7d4becc1b2a4fa84",
+          "spec": {
+            "span": {
+              "column": 5,
+              "file": "Certified/verify_counter/verify_counter.sol",
+              "line": 21
+            },
+            "text": "contract invariant not preserved"
+          },
+          "template": "t4",
+          "template_role": "path"
+        }
+      ],
+      "reverts": [
+        {
+          "asserts": 24,
+          "commands": 48,
+          "from": "entry",
+          "guard": "(and |g@23| (not (and (<= 0 |arith@24|) (<= |arith@24| 115792089237316195423570985008687907853269984665640564039457584007913129639935))))",
+          "id": "r0",
+          "script": 0
+        },
+        {
+          "asserts": 25,
+          "commands": 50,
+          "from": "entry",
+          "guard": "(and |g@25| (not (<= |arith@24| |limit@18|)))",
+          "id": "r1",
+          "script": 0
+        },
+        {
+          "asserts": 31,
+          "commands": 62,
+          "from": "body",
+          "guard": "(and |g@30| (not (and (<= 0 |arith@31|) (<= |arith@31| 115792089237316195423570985008687907853269984665640564039457584007913129639935))))",
+          "id": "r2",
+          "script": 0
+        },
+        {
+          "asserts": 33,
+          "commands": 66,
+          "from": "body",
+          "guard": "(and |g@32| (not (and (<= 0 |arith@33|) (<= |arith@33| 115792089237316195423570985008687907853269984665640564039457584007913129639935))))",
+          "id": "r3",
+          "script": 0
+        }
+      ],
+      "status": "generated"
+    }
+  ],
+  "version": 2
+}

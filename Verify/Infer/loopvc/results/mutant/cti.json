@@ -1,0 +1,86 @@
+[
+  {
+    "candidate": "mutant",
+    "edge": "entry",
+    "id": "Counter.bump@L0#t0.c1",
+    "kind": "initiation",
+    "post": {
+      "count": "0",
+      "i": "0",
+      "n": "0",
+      "old(count)": "0"
+    },
+    "site": {
+      "column": 14,
+      "file": "Certified/verify_counter/verify_counter.sol",
+      "line": 24
+    },
+    "solver": "Z3 version 4.13.4 - 64 bit",
+    "spec": {
+      "span": {
+        "column": 14,
+        "file": "Certified/verify_counter/verify_counter.sol",
+        "line": 24
+      },
+      "text": "count == old(count) + i + 1 (mutated from count == old(count) + i)"
+    },
+    "status": "failed",
+    "verdict": "cti"
+  },
+  {
+    "candidate": "mutant",
+    "edge": "exit",
+    "id": "Counter.bump@L0#t3",
+    "kind": "exit",
+    "pre": {
+      "count": "1",
+      "i": "0",
+      "n": "0",
+      "old(count)": "0"
+    },
+    "site": {
+      "column": 10,
+      "file": "Certified/verify_counter/verify_counter.sol",
+      "line": 20
+    },
+    "solver": "Z3 version 4.13.4 - 64 bit",
+    "spec": {
+      "span": {
+        "column": 10,
+        "file": "Certified/verify_counter/verify_counter.sol",
+        "line": 20
+      },
+      "text": "postcondition not satisfied"
+    },
+    "status": "failed",
+    "verdict": "cti"
+  },
+  {
+    "candidate": "mutant",
+    "edge": "exit",
+    "id": "Counter.bump@L0#t4",
+    "kind": "exit",
+    "pre": {
+      "count": "1",
+      "i": "0",
+      "n": "0",
+      "old(count)": "0"
+    },
+    "site": {
+      "column": 5,
+      "file": "Certified/verify_counter/verify_counter.sol",
+      "line": 21
+    },
+    "solver": "Z3 version 4.13.4 - 64 bit",
+    "spec": {
+      "span": {
+        "column": 5,
+        "file": "Certified/verify_counter/verify_counter.sol",
+        "line": 21
+      },
+      "text": "contract invariant not preserved"
+    },
+    "status": "failed",
+    "verdict": "cti"
+  }
+]
