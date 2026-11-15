@@ -24,5 +24,24 @@ Pre-checks run on these sources (the driver re-runs them; they are not proofs):
 * solar-verify at the same commit with z3 4.x proves every obligation: Clamp 3/3 functions
   (8 obligations), StepSum 3/3 (31), Registry 3/3 (8).
 
+## Negative inputs
+
+The generic negative suite ([scripts/verify/mutant/generic/negatives.py](../../scripts/verify/mutant/generic/negatives.py))
+runs these through the driver; none may come out Certified.
+
+| source | expected | why |
+|---|---|---|
+| [negative/ClampWrongSpec.sol](negative/ClampWrongSpec.sol) | REJECTED | `ensures result > a` is false at x <= a |
+| [negative/SiblingLeak.sol](negative/SiblingLeak.sol) | REJECTED | provable only if the then-branch's `x > 5` leaks into the else-branch |
+| [negative/SiblingOk.sol](negative/SiblingOk.sol) | Certified | the control: the same code with the true postcondition |
+| [blocked/ExternalCall.sol](blocked/ExternalCall.sol) | BLOCKED | external call |
+| [blocked/Reentrancy.sol](blocked/Reentrancy.sol) | BLOCKED | value call with the state written after it |
+| [blocked/Delegatecall.sol](blocked/Delegatecall.sol) | BLOCKED | delegatecall |
+| [blocked/Assembly.sol](blocked/Assembly.sol) | BLOCKED | inline assembly |
+
+solar-verify alone (same commit, z3) refutes ClampWrongSpec and SiblingLeak and proves SiblingOk,
+but it also reports ExternalCall, Reentrancy and Assembly as verified: the envelope check has to
+come from the driver, not from solar-verify's verdict.
+
 [MANIFEST](MANIFEST) pins the sources by SHA-256; the driver should refuse a run whose source
 hash differs.
