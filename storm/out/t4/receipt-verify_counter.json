@@ -1,0 +1,50 @@
+{
+  "manifest_sha256": "a178c0449e207191e230b3cc397c584d8f840240d7e147296ede3497f1b7a471",
+  "units": [
+    {
+      "unit": "Counter.bump",
+      "status": "proved",
+      "reasons": [],
+      "theorem": "LoopCert.Counter.bump.certified",
+      "axioms": [
+        "Classical.choice",
+        "Quot.sound",
+        "propext"
+      ],
+      "edges": {
+        "entry": [
+          "t0:invariant"
+        ],
+        "back": [
+          "t1:invariant",
+          "t2:rank"
+        ],
+        "exit": [
+          "t3:path",
+          "t4:path"
+        ]
+      },
+      "candidate": {
+        "invariants": [
+          "i <= n",
+          "count == old(count) + i"
+        ],
+        "rank": "n - i",
+        "origins": [
+          "annotation"
+        ]
+      },
+      "formulas_sha256": "f8b5887986ea82259e3bc90c12abea85773dc969a7d8788af39535ec590e2de2",
+      "cut_sha256": "524779d300a8349448949e7e9da8a2552a955d413eb443ee6e1d6348dfb442f8",
+      "vacuity": {
+        "Counter.bump#0": "no",
+        "Counter.bump#1": "no",
+        "Counter.bump#2": "no",
+        "Counter.bump#3": "no",
+        "Counter.bump#4": "no",
+        "Counter.bump#6": "no",
+        "Counter.bump#7": "no"
+      }
+    }
+  ]
+}

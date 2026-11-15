@@ -1,0 +1,11 @@
+ok   counter: Counter.bump proved (exit 0)
+ok   drain: annotated, deleting the inserted lines restores the source
+ok   drain: runtime bytecode of the annotated copy equals the source's (1036 hex chars)
+ok   drain: Drain.drain proved (exit 0)
+ok   wrong: Drain.drain failed (exit 1): the certificate does not check (exit 1); Drain.drain#3 not proved by Verify/Discharge (failed); Drain.drain#6 not proved by Verify/Discharge (failed); Drain.drain#7 not proved by Verify/Discharge (failed)
+ok   norank: Drain.drain blocked (exit 3): no ranking function: termination has no proof (supply decreases)
+ok   shapes: Shapes.callInLoop blocked (exit 3): loop cut not exported: the loop makes a call: call edges are not exported yet
+ok   shapes: Shapes.twoLoops blocked (exit 3): loop cut not exported: 2 loops: format 1 exports functions with one loop
+ok   tcand: Drain.drain failed (exit 1): the certificate does not check (exit 1)
+ok   thorn: Drain.drain blocked (exit 3): the Horn view is not the one the cut names
+loopvc tests: 0 failed

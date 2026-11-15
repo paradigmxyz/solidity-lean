@@ -1,0 +1,661 @@
+== 1. the pinned solidity-lean checkout
+certify: warning: solidity-lean at a86139b8a130d0cb5722a6eac62a9cfaef75a8ec, not the pinned d0ab5d63a401ae615a4755742f3ab500a2a9d0b1
+solidity-lean a86139b8a130d0cb5722a6eac62a9cfaef75a8ec at /home/hand/solarb/target/certify/solidity-lean
+== 2. solar
+solar 68903b85f92017a1850125afec1abadc053087fc
+solar sha256 cad1beb1419b86cd47d26c71c2fec328f7e964163d9d2089fec7753c776c4e44
+== 3. compile Certified/verify_counter/verify_counter.sol and export its stages (-Ogas --evm-version osaka)
+stages: stage0 (lower-evm-shaped), mir1 (lower-assumes), sched (stack-schedule), evm1 (peephole-early), evm2 (cfg-simplify-early), evm3 (compact-pushes), evm4 (block-layout), evm5 (terminal-dedup), evm6 (cfg-simplify-early), evm7 (tail-merge), evm8 (block-cse), evm9 (stack-normalize), evm10 (block-layout), evm11 (loop-layout), bytecode (assemble)
+bytecode: 34603c575f3560e01c806306661abd1460525780636d5433e6146101af578063a4d66daf14605b578063b20eb4c4146073578063d09de08a146065575b5f5ffd5b6011602052634e487b715f526024601cfd5b5f545f5260205ff35b6001545f5260205ff35b5f5460010180156040575f55005b60243610603c576004355f54818101818110604057600154106101d25780816080525f60a0528082820361019a575f5f91925060db565b506080516001840180158583036101675760405780608052600160a05260018301925f191480610182575093505060015b8482105f54808503610111575060aa5760a051815f10828203610152571561010f5750505050608051815f5581810361013e575b005b90506d011100000004000000010000000f939091935b60205260405260605263ed572b275b5f526064601cfd5b6d012100000004000000050000000e610127565b506d012100000004000000040000000c610127565b505090506d0121000000040000000300000008929192610127565b5f6d0102000000040000000a00000012919091610127565b506d010300000004000000070000000b610127565b60443610603c576004356024358082106101cb57505f5260205ff35b5f5260205ff35b636f76657260e01b6004602080526040526060526308c379a061013656 sha256 d74a847b897f855f93daf2805937efe40aec636c2ec3ca0c2d4ca6d21f214cc1
+== 3b. the loops (solar-verify --emit-loopvc, Verify/Infer/loopvc)
+  Counter.bump required
+== 4. write the proofs
+{"final": "SolarTV.Milestone.VerifyCounter.verify_counter_mir_to_evmir", "executes": "SolarTV.Milestone.VerifyCounter.verify_counter_bytecode", "executes_run": "SolarTV.Milestone.VerifyCounter.verify_counter_bytecode_run", "last": "evm11", "first": "stage0", "stages": ["stage0", "mir1", "sched", "evm1", "evm2", "evm3", "evm4", "evm5", "evm6", "evm7", "evm8", "evm9", "evm10", "evm11"]}
+== 5. build and audit the proofs
+'SolarTV.Milestone.VerifyCounter.assembly' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.blocks_ok' depends on axioms: [propext]
+'SolarTV.Milestone.VerifyCounter.check_ok' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.checked' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.decodes' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm10_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm10_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm10_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm10_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm10_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm10_mk1' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm10_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm10_seg1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm10_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm11_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm11_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm11_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm11_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm11_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm11_mk1' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm11_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm11_seg1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm11_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm1_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm1_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm1_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm1_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm1_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm1_mk1' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm1_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm1_seg1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm1_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm2_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm2_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm2_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm2_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm2_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm2_mk1' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm2_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm2_seg1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm2_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm3_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm3_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm3_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm3_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm3_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm3_mk1' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm3_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm3_seg1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm3_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm4_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm4_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm4_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm4_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm4_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm4_mk1' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm4_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm4_seg1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm4_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm5_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm5_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm5_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm5_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm5_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm5_mk1' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm5_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm5_seg1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm5_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm6_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm6_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm6_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm6_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm6_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm6_mk1' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm6_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm6_seg1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm6_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm7_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm7_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm7_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm7_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm7_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm7_mk1' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm7_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm7_seg1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm7_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm8_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm8_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm8_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm8_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm8_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm8_mk1' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm8_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm8_seg1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm8_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm9_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm9_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm9_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm9_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm9_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm9_mk1' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.evm9_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm9_seg1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.evm9_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.items_eq' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.labels_ok' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.mir1_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.mir1_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.mir1_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.mir1_cutA_enter' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.mir1_cutA_resume' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.mir1_cutB_enter' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.mir1_cutB_resume' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.mir1_mk1' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.mir1_mk2' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.mir1_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.mir1_seg1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.mir1_seg2' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.mir1_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.sched_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.sched_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.sched_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.sched_cutA_enter' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.sched_cutA_resume' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.sched_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.VerifyCounter.sched_mk1' depends on axioms: [propext]
+'SolarTV.Milestone.VerifyCounter.sched_mk2' depends on axioms: [propext]
+'SolarTV.Milestone.VerifyCounter.sched_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.sched_seg1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.sched_seg2' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.sched_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.size_ok' depends on axioms: [propext]
+'SolarTV.Milestone.VerifyCounter.verify_counter_bytecode' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.verify_counter_bytecode_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.verify_counter_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.verify_counter_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.verify_counter_mir_to_evmir' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.walk_eq' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.VerifyCounter.walk_ok' depends on axioms: [propext, Quot.sound]
+audited 139 theorems
+== 6. the spec (solar-verify) and the headline theorems
+export: Certified/verify_counter/gen/Counter/Spec.lean is whole (68 lines, ends with end Certified.verify_counter.gen.Counter.Spec)
+lake packages (20 modules imported): Build completed successfully (2492 jobs).
+export: /home/hand/solarb/target/certify/solidity-lean/.lake/certify/verify_counter/VC.lean is whole (610 lines, ends with end Certified.VerifyCounter.VC)
+REFUSED (unproved) Counter.bump: command outside the Lean fragment: (set-option :timeout 0)
+spec: exported to .lake/certify/verify_counter/VC.lean
+  plan: Counter.bump required
+  certificate: Counter.bump exit 0 AXIOMS: propext Classical.choice Quot.sound
+  discharge: 14 of 14 required obligations proved, 0 not (/home/hand/solarb/target/certify/solidity-lean/.lake/certify/verify_counter/loops/vc/discharge/summary.tsv)
+  loop: Counter.bump proved
+loops: proved in the kernel: Counter.bump (5 templates, theorem LoopCert.Counter.bump.certified); every required obligation of each by vc_smt, audited to propext, Classical.choice and Quot.sound by Verify/Discharge, none vacuous
+Contracts.VerifyCounter.Bytecode: Build completed successfully (2627 jobs).
+'SolidCore.Refinement.Solar.VerifyCounter.spec_holds_of_bytecode' depends on axioms: [propext, Classical.choice, Quot.sound]
+== 6b. the published statement
+source: Contracts/VerifyCounter/SourceAst.lean is the front end's AST of Counter in Certified/verify_counter/verify_counter.sol (solc 0.8.35)
+verify_counter.Statement: Build completed successfully (2767 jobs).
+verify_counter.Final: Build completed successfully (2769 jobs).
+STATEMENT Certified.verify_counter.Final.Statement := And (Eq.{1} (List.{0} Nat) (List.map.{0, 0} UInt8 Nat (fun (x._@.verify_counter.Statement.1005636212._hygCtx._hyg.12 : UInt8) => UInt8.toNat x._@.verify_counter.Statement.1005636212._hygCtx._hyg.12) (Array.toList.{0} UInt8 (ByteArray.data Certified.verify_counter.Final.code))) Certified.verify_counter.Final.runtimeBytes) (And Certified.verify_counter.Final.NonVacuous (Exists.{1} SolidCore.Solidity.TypeCheck.CheckedContract (fun (c : SolidCore.Solidity.TypeCheck.CheckedContract) => And (Eq.{1} (Except.{0, 0} SolidCore.Solidity.TypeCheck.TypeError SolidCore.Solidity.TypeCheck.CheckedContract) Contracts.VerifyCounter.Source.contract? (Except.ok.{0, 0} SolidCore.Solidity.TypeCheck.TypeError SolidCore.Solidity.TypeCheck.CheckedContract c)) (SolidCore.Refinement.Shapes.Certified (SolidCore.Refinement.Generic.Loop.solidCoreRuntime Contracts.VerifyCounter.Source.fuel) c Certified.verify_counter.Final.code Contracts.VerifyCounter.ShapeSource.ValidS Contracts.VerifyCounter.ShapeSource.Allowed (SolidCore.Refinement.Shapes.bundlePost Certified.verify_counter.gen.Counter.Spec.Counter SolidCore.Refinement.Shapes.ctxOfCall SolidCore.Refinement.Shapes.idStep) SolarTV.Milestone.VerifyCounter.Bump.gasBound))))
+check_final: Certified.verify_counter.Final.final : Certified.verify_counter.Final.Statement (module verify_counter.Statement, which does not import Contracts.VerifyCounter.ShapeExport); axioms [propext, Classical.choice, Quot.sound]
+closure: 3955 modules, 472 to replay, 3483 trusted by directory
+kernel replay: 472 of 472 modules of the closure outside the trusted directories replayed by leanchecker in this run; 3483 trusted by directory (package:/home/hand/solarb/target/certify/solidity-lean/.lake/packages/LeanSearchClient: 4, package:/home/hand/solarb/target/certify/solidity-lean/.lake/packages/Qq: 14, package:/home/hand/solarb/target/certify/solidity-lean/.lake/packages/aesop: 132, package:/home/hand/solarb/target/certify/solidity-lean/.lake/packages/batteries: 195, package:/home/hand/solarb/target/certify/solidity-lean/.lake/packages/importGraph: 35, package:/home/hand/solarb/target/certify/solidity-lean/.lake/packages/mathlib: 701, package:/home/hand/solarb/target/certify/solidity-lean/.lake/packages/plausible: 13, package:/home/hand/solarb/target/certify/solidity-lean/.lake/packages/proofwidgets: 10, toolchain: 2379); 0 unaccounted; closure 3955 = 472 + 3483
+replayed EvmYul.UInt256 886ba0383da35e8b0ba4f51f0da1094b31b5238e4dbe1fb7910a5301624bbfcf
+replayed SolidCore.Solidity.Shared.Word 4fd7fd84b3f3c2782692ad7f5777e8d017cdcf2d6571ec76771cfdcc165f02bf
+replayed SolidCore.Solidity.Shared.Block 0f01baa48ce073cafc09eeeb63d571df6b4c55a1ccf913dd790b228da3df6ba2
+replayed SolidCore.Solidity.Shared.Account fd5e1f6be1c6f45c1d9843144d0f2a2bbd7c961aeb831c82f8dda936f67b6bc5
+replayed SolidCore.Solidity.Shared.External e4819d16300aeae39cc4a170558e9c7d3374c4eeb4973f988028f876a6434af5
+replayed SolidCore.Solidity.Shared.Call e6eefd0402d6f0777248d88d11c6e023b4e2911b0e14af8953ba6a02a6bce3f9
+replayed SolidCore.Solidity.Shared.Log 38259d7ff7fee28734b65fc5696f71a887f34d30436f97346518b1f2d3b5e49f
+replayed EvmYul.SpongeHash.Keccak256 a9588e41b44be36723096d252a24e8e35c0e5f141672103fd4174056e1fd84c8
+replayed SolidCore.Solidity.Shared.PrecompileCrypto f8933e6c6d8ace6c41bd2f9f6365032e1f8e2640d79967e52ff1706a0caa733a
+replayed SolidCore.Solidity.Shared.PrecompilePairing 73701de55c8fb143fabd4dd083cbacf9ca4e892c9896ad48de03557ccbc0c587
+replayed SolidCore.Solidity.Shared.Precompile 66046581a492a9681f51c90bb06b486ed7e79aacefba9b39977632539ddd9846
+replayed SolidCore.Solidity.Keccak ece7ff0e1df4e32d46ccc577068ed4fff85867214bf6cea1c0afdb9376209bad
+replayed EvmYul.FFI.ffi 67074078d82043bdaa4bb7bf46f8fb1f0a51d0fd7a74f34219398079e61f3069
+replayed EvmYul.Wheels 8739b034e7dda91d2680d1c0c6404a80acb7fab38935bee1ec60834d9715886a
+replayed EvmYul.State.BlockHeader 1148068e4f99e7bb6e55cb9e2b59cc175f15102b2ead35b053538ed76a0b08e2
+replayed EvmYul.Maps.ByteMap f4700f93373ac398e5385a841bedcc05840014844b281e635398fc15b580e657
+replayed EvmYul.MachineState 0f55331fcca635b91aa1e0f05e15b5a4c61384be1dbfd90ac1447691760cdc9a
+replayed EvmYul.Operations 8b1f137af43b395f508fa7fa717103022d52fdfdc978d0b8719f601766414afa
+replayed EvmYul.Yul.Ast 698aa4f6405ceb39af1988eca71099fe2b83bdc92e8ac578549089164be08c90
+replayed EvmYul.State.ExecutionEnv 679125a552658bc21d982eb73440fd58b5fa33ba4094d92bfb8834238b6d8f4f
+replayed EvmYul.PerformIO 7d3bdea8eb9a11497d107b90f385602612cdd3accfaf6bfa279400c064e28658
+replayed EvmYul.State.TrieRoot 71954393f9119c08cd8c448569d23d6b8b173b9d37ec1d0adf0e46717d7e549b
+replayed EvmYul.Maps.StorageMap 88b698e4f9cddf78a10c0c12f23ecd6c9b797b4a6fbaf470843ddc9b24cc04c0
+replayed EvmYul.State.Account 89f4f12213e0487ad2af07a9d4424d19eecff26034c041a199c546c479bc0110
+replayed EvmYul.State.Substate 5a5548097db93fba67d0dfd6baadab9ef6a17c007aab80b3c4811ff544ee67c5
+replayed Conform.Wheels 748c80e5ff35685f454d13234c0b21cd5f77b4956e9f58dcd49ed0ca40f54691
+replayed EvmYul.State.Transaction 381e17c5ad6e066bdde5d66c3777448d5f3a8e68d9c141a1568fbf6fd1c14cf2
+replayed EvmYul.Pretty 584c46d20469c4c5735bee1cfe34b73d77514588498fb56326dd3be738bc0095
+replayed EvmYul.State.AccountOps e7dcfd9c49ab3491e9aad541fd8f003e43022ebcc08159c40c0c114860f6cdb0
+replayed EvmYul.Maps.AccountMap b1c8a42522662f490ba4d322eb81db5eea02587661437caa65c005c385adf39b
+replayed EvmYul.EVM.Exception 255a2a7c61258209e346094a8bd4385eb8a98dc95b2f3a3d7386f2683834664a
+replayed EvmYul.State.Withdrawal e0e633b8895da1e39db01e70051c9a1f1edc5dd0da7bdbd6178eb92ec75966e1
+replayed EvmYul.State.Block 7c98dda07f54feb983ce25d9378eb895d3dc9774ce6e046729fdb00df543d0b2
+replayed EvmYul.State e232ceb615896cff243d29d597555ab9673a10ddbc35950851ce9836138ac045
+replayed EvmYul.SharedState f8d7604699e58eb3d2dd37e139876d2e8300ad385a01989eae7c442e3698bc05
+replayed EvmYul.State.SubstateOps b09a40b94fab98329370dbb2d3b594748e8ff962fc30fe79eb3940e485933e29
+replayed EvmYul.EVM.GasConstants 7048a380f4a1720a14891047ffb63c5236e2ad4f44dd54e5403d6ed7fe4743ac
+replayed EvmYul.StateOps 66c3c6a8b5dbe1e203f466a14a8870647dbcf331aedba96c409e034fc9663608
+replayed EvmInteraction.Simulation.OpenWorld 078cc0f3399c3dbe97e2a086c0ef6dff4a0537413a22c2ece34e52d9b84aca76
+replayed EvmYul.Data.Stack 17335a06b90a9f037bae66cbcb93ca0fcc7ad7a6f650cc455f1f201f67bad13e
+replayed EvmYul.MachineStateOps 9afd335e4b058d0e07421f7bf5728193fd8e4da67c8cedb04e60137aba795e2a
+replayed EvmInteraction.Simulation.Interaction 376b90f854cb96d18e6f739062ce1d7e0e74b10f73d90a0b16de62d5fc983efb
+replayed EvmInteraction.Simulation.Outcome ceffe606677946ae8885dfd9833eacce92a59eccd81ed20ce5de30d35328cd55
+replayed SolidCore.Solidity.Interaction 1f7134264a54a304c01d86a8bbda2a2d490db4b890b9a433dded9f9c9f94d1ac
+replayed SolidCore.Solidity.Interpreter 4aafb75742b2c15a338523fa75bd5ddf9e6c5583105801c73650fd3bebe4fb2a
+replayed SolidCore.Solidity.ABI 651e86cdce141d42bc605b474c9161d0e12df440e1e3a7ce721888d97738b76d
+replayed SolidCore.Solidity.Ast b80238f1764b32fc6b1bdb54e3333a14e60c92716e80d91b35c66039dc51abf6
+replayed SolidCore.Solidity.Interface.Foundation 5b8dfbeba48e53ac310e29a4ca5da0072543b45d5352a0c4a9d7f569157d45a1
+replayed SolidCore.Solidity.Interface.ContractMetadata f4cb4fc931eea0ff9ff8a65c10563a12038397e7c12be1a3012b99163f736805
+replayed SolidCore.Solidity.TypeCheck 1ee3a89814115d2ee23192d2e3fdd50a81a2ab89ef7d0115df87a9611d17ca9d
+replayed SolidCore.Solidity.Interface.Expressions 1a65830c6ce6a11f1d80899e513097b015a6ed3be52b8bcdf3850a11af0f2320
+replayed SolidCore.Solidity.Interface.Statements e21d39cf217a0b8ffefac2e7bfb88ca0f29edd4deb0af4850d0b874fd08850a1
+replayed SolidCore.Solidity.Interface.Contracts eb135812b64414256575038c5cb4e138ec9072acf6d3d0412fd05c6ef607a33c
+replayed SolidCore.Solidity.Interface 0515b3497ed61dcda45e7b4cf401e6e8ad6615e2e728b4e82b58b76ae5de56ba
+replayed SolidCore.Solidity.Checked 1bde3dfcf81296dc8fd303340ae4719fd0cad23c500726711e49adf4838b6ba7
+replayed EthLib.Base.BigEndian 08dff9cfe5c1ab3da33cefffddb85008931c238927502a55f4e740ef009c31f4
+replayed EthLib.Base.Bytes 54ed1cb569146385a306cd590ac1558b6a1d6ad30d37ec70165008df152a0890
+replayed EthLib.Base.U256 ae1af887ef15465bdd3b226cec893be4f2d2c541b2e553dc60ccc4397e894703
+replayed EthLib.Base.Address 9f55d21550ab47b12effc786a8e80ab2d6e1bb7a92512f253e290b542656e618
+replayed EthLib.Base.Hash32 5c6dbcb1ef89fa1a9e1bb8d0d8ee0658a5f98502f52e8d6bd30bffe39d1ce08a
+replayed EthLib.Base.Fork f58d63fdd22113b114e3c8a11c930b46d26306cb5e97d56a02b68e87137023b3
+replayed EthLib.Serialization.Rlp.Item 2b1264ed2256e1dafed4b151b7d01bceb15c9d7dd96e4897618b05d52c74c0e0
+replayed EthLib.Serialization.Rlp.Encode 58dc7185b946bda3672be5fd32fa502b76d1bf8bfbedb48d95ec47e34b32b8f8
+replayed EthLib.Serialization.Rlp.Decode 077bfd53f005102bbcfc2215e680ba6d783832ccbecc910a809b9653d1585bf7
+replayed EthLib.Serialization.Rlp.Scalar b9ca634b314680ca7c79c86258be83d6888cbce324b95c88f08463f49e318584
+replayed EthLib.Serialization.Rlp.Codec c4ebbf3bd5eaf7181bc07da42e88acbf8f9cf5051eb416af6bee14619a54c050
+replayed EthLib.Execution.Blocks.Log f93b55284c395039dfe61d69e6036a46bccfcac92c12991443fda9969d30b0c1
+replayed EthLib.Base.BlobSchedule d6836c60a9f178aaf8c46730f80f9599862d55d98750f26267210b6e9df77a22
+replayed EthLib.Base.ChainConfig 4905a0ad80f525506dc9bc282d931ad07f1356ffb2f69ff7e25007fafd65520e
+replayed EthLib.Execution.Fees.BlobBaseFee ede16d4d8d8b15a01f4d885c2b1236e08d90fb8d3db1584ec223155738692f84
+replayed EthLib.Execution.Evm.Environment 90664660a77dc950323c0218f19c3be653b25674e9ec25fdb21c460a788394b0
+replayed EthLib.Cryptography.Hash.Keccak 7a8d9c9fa5efb7a63411b512c37b317a3dfa661636bff3272b1abb992bf50133
+replayed EthLib.Execution.State.Account 44e2de056160845c6abd0dade81c27bc4b4f877ee6f8c547c74999ecbded4ad1
+replayed EthLib.Execution.Trie.HexPrefix b86182237969d3ac175f8921162e992f8029e87b7b2a0f080689f54c28c0ebb4
+replayed EthLib.Execution.Trie.Root a62950b7804dd2e7b709ef824c8386e912d15aa40ae1381257c42a3ef57db8b2
+replayed EthLib.Execution.State.Root b03c6504b24d58e501512f93e933765caeba6850d744d7fcbc039b111941b673
+replayed EthLib.Execution.State.Tracker 347526a38ce88e1d297391edce412bce52b62caca1347d58e1fdf28a11bf1de4
+replayed EthLib.Execution.Evm.Machine.Errors 9e4cee7090a86914b9697a652e5537fbd792e276799269c9e1a729d1653ad4e7
+replayed EthLib.Execution.Evm.Machine.Stack 7993d898e5b04b123e838da8df2ee816c8834c856393bafc92998b6ece3af935
+replayed EthLib.Execution.Evm.Gas.StateGas 40c3d97422afd2a23994d6b43fb362bf655bf763ab83a9233243890712616c25
+replayed EthLib.Execution.Evm.Machine.Frame a211d58a5551d7beb76effd4eb21d67ba565cef56dd687ccc93187cfa7b91713
+replayed EthLib.Execution.Evm.Call.Child edadd623ff896a0228e00ff0d7ab60617aaec51a5dbb8d61b13a2e7d3370d728
+replayed EthLib.Execution.Evm.Words 8fcb9d84de356159b06acdda9dec45761a288b6090f8e68675783c454703fd22
+replayed EthLib.Execution.Evm.Gas.Prices b8f7f1a023e5677748135e4c7ee1f772527283815a77c6292ed67e9682ae590e
+replayed EthLib.Execution.Evm.Gas.CallGas 890cfb3ba19a5f784b600b184d15675c4b03064edcd917e2d9af2625e90ef103
+replayed EthLib.Execution.Evm.Call.Delegation b1d362cd2c259dca63b228d757c2bf4f19b40d99b38af671b49d10e4eca7ceef
+replayed EthLib.Execution.Evm.Op bc5c2447c5776fd47bb7d6986b6063edadf6e784105ca403ee4c558c48899fab
+replayed EthLib.Base.Except 1b51c87623afb0dda2dd45bab96cd9e9fcb06c17ee109f48ddb9b3ed474bd6e3
+replayed EthLib.Execution.Evm.Gas.Memory 37cdf33255f1b5754d3f060cc762aece34f67bc20c952c01208c8227e4bd0c05
+replayed EthLib.Execution.Evm.Machine.Memory d5145127631eb982990511c5164ef58406662a465c272bd9c6f703870e2473c6
+replayed EthLib.Execution.Evm.Step 0295b32bd0e3179d019e401155bb8c8fc40b1c657a4eeb297103ca2de350fd95
+replayed EthLib.Execution.Evm.Instructions.AccountData 4dbcf794d95becfa947db2de63061e79e2029d2ba9d297bee6f7ec9b89f5e26a
+replayed EthLib.Execution.Evm.Machine.JumpDest a0a23ff5b9b4e639a8676d234aed30799203b766745a383613e4d65e4bd39fab
+replayed EthLib.Execution.Evm.Instructions.ControlFlow cd37f58b1cd2799b57dd7e0710f908bfee6924685a91912e420c667e30435dbc
+replayed EthLib.Execution.Evm.Instructions.EnvironmentData 46d1ab366589915475dc0043d412c0326bb685e794fc78a975fd9d41791cc60a
+replayed EthLib.Execution.Evm.Instructions.LogData 2c59644d1ef4e12447b0b738a559366eae353797e55b56aa7ca418557df2de39
+replayed EthLib.Execution.Evm.Instructions.MemoryData 0698ec0169863a3e44ea8adfb7c26528e06c716aff9b329c6f4666c4177bf401
+replayed EthLib.Execution.Evm.Instructions.Return e2e4f85d3f7cf1d6584a579b7a5257a74b929d59df44c59183e9bebef17c20ac
+replayed EthLib.Execution.Evm.PowMod fc2f694b8a3b1da38edecd8e49007c9d3921205d934bd4beb4beeb99b08e1272
+replayed EthLib.Execution.Evm.Instructions.Arithmetic 15605cef65d755f8aefb4c1454e31d78ca02ecd6a1346d34f788acaafdce685c
+replayed EthLib.Execution.Evm.Instructions.Bitwise 2418c78b83cd799f999d9c2be287fe1ba150fb76b8fd577c8317a6eca28e62bb
+replayed EthLib.Execution.Evm.Instructions.Comparison 2106dd8958f92d14e229ce0699380c4779585679e72decd47ea443f9b28973f5
+replayed EthLib.Execution.Evm.Instructions.Keccak 2dd5e94a79729ec06eb1efab1a5a82432d8828e603830518bc015ab8cb972070
+replayed EthLib.Execution.Evm.Instructions.StackN e19d5f0d3e039ce7c056d7efbbb74971bd0c5e09bec143b686cfc254b6e2a716
+replayed EthLib.Execution.Evm.Instructions.StackOnly 02a5a122bf9d6fba3329ebfaba0091cd3c2fa82428a766a98f327d95bf254166
+replayed EthLib.Execution.Evm.Instructions.Storage 8303922f400a9454ac65e1cfb3500f3f1e1eb3aa7e0453981422c72e6002a018
+replayed EthLib.Execution.Evm.Instructions.TransientStorage 70f6c61cabeb7e270b5a8814d8f35a0d49a5d8b2cbbcd6e0b2b26df04a6d6f85
+replayed EthLib.Execution.Evm.Measure bf5911e21207044249181e5c5b705b586ed12b0bf60eedbfadc0885a6afbe330
+replayed EthLib.Execution.Evm.Call.Instructions fec5196f814f6df7e6716514287d57c0e61dfcf2ca174ffa21c637b052784b6d
+replayed EthLib.Execution.Evm.Call.ContractAddress bda82db2846186c9638611bb7c53b69596e719a43d55eb77f211d3b6d8e11604
+replayed EthLib.Execution.Evm.Call.Create 2ad117c7080b71949ea13f009e0c93fabd09683ab0667f1ed4ba3de145c78999
+replayed EthLib.Execution.Evm.Call.TransferLog a60bc55270dbc0f18f8a7d4fb5cb4e2b9ac2149c7363f47308a78feec61add93
+replayed EthLib.Execution.Evm.Instructions.SelfDestruct 5a1becba2d3320f058c99940c61912b70c028c98306bda2203256db36c418ec7
+replayed EthLib.Execution.Evm.Interpreter 4819f079ea6872f0b227bbfdc2a49252cee96e262bb75d543d34dfd7da91acfc
+replayed EthLib.Cryptography.Inverse e9f77daf1f20f6755c59b81e85ab3faccd1c9f2d9da7592c8a08255d5bcf10e2
+replayed EthLib.Cryptography.Secp256k1.Field cde1985a420b83996eca11bd809be5f90513bd8586de3ae9a78a2dae5ae79ee8
+replayed EthLib.Cryptography.Jacobian cb0e94236b25aa7e22f6186ae48162f195bc998524bd90d53eae194df3768823
+replayed EthLib.Cryptography.AltBn128.Curve e9e43ba565f8b3eba35f403895833660817cdbb4389a783309a725aafa821d3f
+replayed EthLib.Cryptography.AltBn128.Pairing 9c323c19e4eae7cb71b6ecf9ae52d3f6eaf3042d95815495fe8fe32f2937d117
+replayed EthLib.Execution.Evm.Precompiles.AltBn128 b7824e687c64631dab810f8576c8bf7bbade7073565b19c558907c8a4a50737b
+replayed EthLib.Cryptography.Hash.Blake2b 0a4ab9564c79614da76fdd335df7dfa0218bb994d3e87532924b12e5ef27cbe3
+replayed EthLib.Execution.Evm.Precompiles.Blake2f 8c650a3c19cd852d0722bae003fde90f1c302d0d2095e3270501f6dca580ea24
+replayed EthLib.Cryptography.Bls.Errors 7fbd0d57320cab4d71d917911ae6097617ddbd9f889257a0aa24e2b164c573d1
+replayed EthLib.Cryptography.BaseField cc1cdfc1292b28ab8cfc28936530dc20e0b09147953f389111bc5077bcdeb58b
+replayed EthLib.Cryptography.Montgomery 0c16fcd947c8b57b9be42714cb4eece7d631cdc32f5da7be6aa55afd528e3b8b
+replayed EthLib.Cryptography.Bls.Fp 2680a67a62cdbabf998bc46aa656d4bf92983ce5f42435599aedd43fe9b5fb02
+replayed EthLib.Cryptography.Hash.Sha256 7b5eca0bb25c50ade86f9ac61a2a6243bb0cf0de39a7268bc4a0a3a62a0f79a8
+replayed EthLib.Cryptography.Bls.Fr 8caeb0973a061f19819656aba2bc770b614deca50bfe8878dcdf57fa62398894
+replayed EthLib.Cryptography.Bls.G1 13def0b127882ad4822367cc39d3ee4478887c0728ad336b1c7db66d2ef8d4d6
+replayed EthLib.Cryptography.Bls.Fp2 28618a80c45c2be4c087b131fdcf274253014e8d0c4d20601d6c5f997d518e3d
+replayed EthLib.Cryptography.Bls.G2 1f934700926125ff8ebabe5f6582fbf09deee59909fbf52065cd03098f1ecbdc
+replayed EthLib.Cryptography.Bls.Compress 2dc3ddb4d12b8f18056826afafdf4b970762f0aaa87314421af107174775a88e
+replayed EthLib.Execution.Evm.Precompiles.Bls12381.Errors f2c18622d3d6cf5b8ca4a5d3c7e0a7e9544e05c28c327c56ba67640698f43583
+replayed EthLib.Execution.Evm.Precompiles.Bls12381.Encoding 32d4b7be52f37f39289a74c5bdcad31414d87dbeadbadc7c8a4f8cf2e63306b2
+replayed EthLib.Cryptography.Bls.HashToCurve e0eb67df80f1466d1d4d981add068a354cc3cc8831995d8914435a4c88e84776
+replayed EthLib.Cryptography.Bls.MapToCurve e4f626bc4b4e6766f3ac29bd336edccbd443a20d03e840d7e473d4e31cefb65c
+replayed EthLib.Execution.Evm.Precompiles.Bls12381.G1 fbe71a72d5f7290028f9a63ffae0e099ab255ceabf8a8e0bd401ab044e314d83
+replayed EthLib.Execution.Evm.Precompiles.Bls12381.G2 3b46bf497d71056a0663ada1634533172c7ab7beb1fecaea212665b68ca3f90b
+replayed EthLib.Cryptography.Bls.Fp6 b6bbc89e03c009c9ce116693e4383256b9f076b390a864db11cdb2c2be953ac3
+replayed EthLib.Cryptography.Bls.Fp12 e8af76c3731619ea5331af0b8fe9b19df30078c7c41efbea8a83b279498edbd8
+replayed EthLib.Cryptography.Bls.Pairing 5c172cba4d02d89449b1215f71ca8df35f3e9f6ba7c0366072034a3089dade03
+replayed EthLib.Execution.Evm.Precompiles.Bls12381.Pairing 938ee05c90e04eb4d17e2ade22f184ec018faf09b9404b8c1f7733cd6cd510b9
+replayed EthLib.Execution.Evm.Precompiles.Bls12381 6104d265b30ac577d5897ce08b668e6765b31fd656f08116f4037f6ad3a4684d
+replayed EthLib.Cryptography.Secp256k1.Curve ecad99c5b372e716773418fe852b3708b90049129ee34e477e76cd555c057f76
+replayed EthLib.Cryptography.Secp256k1.Errors 1390e5e897e709ba9216a05d0feeecaabcf133350491f70ee449e66d334cc71c
+replayed EthLib.Cryptography.Secp256k1.Encoding 37ae18a0f6438735fc31768fb3bc6a53c5fbdd1e9647a453ec9aa25f412d4ab6
+replayed EthLib.Cryptography.Secp256k1.Ecdsa ccb582638ec0c61d9376b3294149a6234158c6f47bbf9157ea0e9e5ae6907f8f
+replayed EthLib.Cryptography.Secp256k1.Recovery eccdfd04cda7e0bf15ada2c0916fef792eff2b115e2e8311483dc5cd491edffa
+replayed EthLib.Cryptography.Secp256k1.Address 32226aff39988bf795b84994f961ab2fd5d9434ef04997db998153242bca74d9
+replayed EthLib.Execution.Evm.Precompiles.Ecrecover 14f2c65eaa2209ad4b3c6bff82a64f962a3fd399eaf3ce97fedd8c63863035c4
+replayed EthLib.Execution.Evm.Precompiles.Identity 3c4eaa48a349a9513e09d7fc477f89a4ab7395974be9757295a6373d32d758a4
+replayed EthLib.Execution.Evm.Precompiles.Modexp.Constants c51426b4bc6236fae5f429656feef18b2c31993222938956aa5cfb4c6cbd6073
+replayed EthLib.Execution.Evm.Precompiles.Modexp.Encoding d5017af9b0b312d6cdd038fe805eade728e707de887ccf8f3fc2a03859cd4e65
+replayed EthLib.Execution.Evm.Precompiles.Modexp.Gas 1c7db79b3b607fbc4318ff026fc5b3a66a7f2a80a24e4fe9cd00cbecb95d98f2
+replayed EthLib.Execution.Evm.Precompiles.Modexp.Errors 597e1012de1fd2e5e92e1d4fcaf4d377fca7a8104df2bea30c681ead60a2f6af
+replayed EthLib.Execution.Evm.Precompiles.Modexp.Core 38e457df7adbea3bdebfc7379e6c63ad875972fdfd7d591a43155627127d1cef
+replayed EthLib.Execution.Evm.Precompiles.Modexp 12bcaca495b1e6ea99cfb724d4c6e7661dcfee06f522a2d8ba5cce73764101cd
+replayed EthLib.Cryptography.Secp256r1.Curve 987339c93a78a9b771cca9b003c4a8c38f21de09fa0b207b7b4e725b1508cd34
+replayed EthLib.Execution.Evm.Precompiles.P256Verify 754b0f7a3ef944260479bf3fbbbe611148600427b4230fdff3fa203d0f7d9866
+replayed EthLib.Cryptography.Bls.Constants 898f77ea207e2471e43c22b2dff9864080dc1975338121c4ea5c7e814db6e024
+replayed EthLib.Cryptography.Bls.Signatures 54f4a4cca288af497a9de9aefed95a6c27b19b8f2d1b61eaefa3a7581e67816f
+replayed EthLib.Cryptography.Hash.Hmac d17eb223eadc8fce2d19f3fab6377f2f33d45c46c0d5d8237b3b145327c73ee3
+replayed EthLib.Cryptography.Hash.Hkdf 1939b74ad7938b9e599b917815e088746592aac5817adb6564c0ea872552e0d9
+replayed EthLib.Cryptography.Bls.KeyGen 9cf64f5d52253009af188d7efc457a801fcf358fe0c2e2b25f40057a44726374
+replayed EthLib.Cryptography.Bls.KeyDerivation 7ebc15bbacb45aacbfe6203e16f91af0d4deedb902bbd9e270ecb1ee84efb306
+replayed EthLib.Cryptography.Bls.KeyPath acd4d99730887e7501cc51253170b005e8d96235e5a8b3fd8b0e0f23afb7ca8d
+replayed EthLib.Cryptography.Bls bf8c39d1a5d9a681211bb8060af2aa0628966ec06ed2662d64346144e6130c1b
+replayed EthLib.Cryptography.Kzg.Constants 4100f65625af46fa2506fa61f70f8771b60cbc62381a8eb5dd28a0ca8307509e
+replayed EthLib.Cryptography.Kzg.BitReversal bdbd7a4e7dc31d58cd99f6b76e658c66eb849f0c04a743a633de1b104349838a
+replayed EthLib.Cryptography.Kzg.Errors 21a1eec37bb7daa378016f43d6693bb51d1fb3199980500943095c35372efce7
+replayed EthLib.Cryptography.Kzg.Fft 188e0a01ebb94427d6699de5eae40ba3bb786b994bd54f59557691d4273d85f1
+replayed EthLib.Cryptography.Kzg.Polynomials d31ba86f25d1179d5816b04374cbd385d2d3be9f1d26e819522a1d3bcdb64070
+replayed EthLib.Cryptography.Kzg.TrustedSetupData 2ca4a830d5b5b3c4049e763e64356c007bf77bb20a26333c1bfa3b193a44e1ef
+replayed EthLib.Cryptography.Kzg.TrustedSetup a90b07585864716f9d52c03120217262775b0dc600e335077724d3eff47a29f8
+replayed EthLib.Cryptography.Kzg.Core 01a1a5f6afa04708313e1fb7b21f18094739665329a73a690f141f7a6638a5a1
+replayed EthLib.Cryptography.Kzg.VersionedHash 801dff2006ea418a8f24e2685d4c02cb34e817e023c22da1ecf884462fb4617e
+replayed EthLib.Execution.Evm.Precompiles.PointEvaluation b659d31fa48d1174b003d9d52a37cc5cb5a9a5fdca6a369821f7afd826f60460
+replayed EthLib.Cryptography.Hash.Ripemd160 5ae5b48271f1515a2916a4949f69a840f85dd33857d11388aa96d90ebcc83dea
+replayed EthLib.Execution.Evm.Precompiles.Ripemd160 62355e90e816b292d2efe8fdb1787d743e676098653e7d80583d949a9dfeafaa
+replayed EthLib.Execution.Evm.Precompiles.Sha256 a81a8c06a003622612f012bb5a510b7fadb9fd96ec21ff7f039ad89b55d71b76
+replayed EthLib.Execution.Evm.Precompiles.Table e7ca85bd9ae1e059157c4c4185be1651f4580bf439d1cb252d42af072d4e32ae
+replayed EthLib.Execution.Evm.Call.MessageCall 58b4650c8a4bebcce283928ee3686c14a480c0edd3075f40a55049492c81945c
+replayed SolarTV.Sem a79f461a47046b7ab1e167f0efd28d6beb8e894e2b08d59d8cb348c57566e467
+replayed SolidCore.Refinement.Statement 143f009fd64c4d64d4347c40f6e44a2dab20f742a18b91dc577e629239d5ca09
+replayed SolidCore.Refinement.Compose 83d9dbc34c0da2cba10b611264f612c20048f63f6048b203bc0a1471b731374e
+replayed SolidCore.Refinement.Spec 7e05da731fec8200a9b3778062b5cc045ca239ec8b6bb34578bd50a93707b67c
+replayed SolidCore.Refinement.Sequence 636f8de6f950695cd6a4f219a2e3a32578b0da0fff8fbb940da457c38f9ec7d9
+replayed SolidCore.Refinement.ComposeSeq 5092b6c1e1805a731acbd82dc174ae733dcd6d590fe0e2b9566c762b4289e7a8
+replayed EthLib.Base.Proofs.BigEndian c8f428ba4d85a923e940c43c5e92afd8fdd09f6a77201ed5a0c9f7cda25d7346
+replayed SolidCore.Refinement.Check 85cd22a53391c5adf2cb02b7065d34e3c208602d06bcbbed14204124e720a60a
+replayed EthLib.Execution.Proofs.Evm.Op 01deac0cb6fc33d8fe814dd1e85b26743c7b0cfaa2241cf8bde7ed57952f17ba
+replayed EthLib.Execution.Proofs.Evm.Machine.JumpDest 3a78d92281052b99653c14b5578443432aa3d00787aaca04319970b9ea814991
+replayed EthLib.Execution.Proofs.Evm.Logic.NatCode 0ec48908e898008a0de9d7fa609effd91e9c39be96a8440ee8b461823eb93747
+replayed SolidCore.Refinement.Abi e4f444be024ade57a2f1775b47f12a3313db3f383dbac8cb90e7da559c403a1b
+replayed Loom.MonadUtil 1d4998f6b96b17e1660ef3bf5c38d12ebfc445b35049c0dce0e1a0f504e27c14
+replayed Loom.SpecMonad 5ee82490d5d2d2237661d9b2f2696a1ddf2898637fff578c3e49ffbc11b9d89e
+replayed Loom.MonadAlgebras.Defs 3637b311ab0150f70ac3338c973b83d4d7fbb25d072f4773268d48c315a4a736
+replayed Loom.MonadAlgebras.Instances.Basic 41ddb5da15169763b0b54f15b401d0f203117bceff6cd7345220f4963de561eb
+replayed Loom.MonadAlgebras.Instances.ExceptT 24814de5bb384751b88a75964f7f9da2f438929b9cc4f97850fa86d7878e8048
+replayed Loom.MonadAlgebras.Instances.StateT d9a654d970a7ac7fe227e36d480829aa91ffee155cc2df28bd5647210ca0f3d5
+replayed Loom.MonadAlgebras.Instances.ReaderT 8804bb35b4279b9f4c8bd2a55006b90877eab6bfc8061d3298e5143c6acf1382
+replayed Loom.MonadAlgebras.Instances.Gen b57de8831d23d963746530092945e8a0e0599448b8f18c08b3dda02112ef5f57
+replayed Loom.MonadAlgebras.WP.Basic dba70651106fbf9342d39bb5e859e1cb07c7b5967822004d946d7a463306e0a3
+replayed Loom.MonadAlgebras.WP.Variant de3fe8cb2d95ca45df47e94d25b70c885c54f4efea4a5d1b6672df3db74dfb27
+replayed Loom.MonadAlgebras.Instances.ExceptTErr 4cded1b9e9cf9ea7e685a51005393320fd3bf0a4d924daf5e94a4061d0ac4db8
+replayed Verify.Basic 3375dc55c2d0f605b7074d21a3da69e6de8a42cecf8a6567d73955c88d70a689
+replayed Verify.Final b2fb1bdefe737faaa64e4d6bf43c01c8339fe4d3815ce021cb97c946621a26fb
+replayed Verify.Shapes 2dd5536511237377606f91adcecd5c226df7349084e3c1425e5b86ad1512f5c7
+replayed Verify.Spec.Syntax 09859dca5517f4dfe5a26441323c005237c636fc2063bfc3a79a387eabf091d0
+replayed Verify.Spec.Semantics 9f6699ec430aa748f92da808ecf79a12467927b06d85af6f869b9b8237455dac
+replayed Verify.Spec.Contract 8bbb344b0d39a21f17ae41545c51a57dd92c74996a7460cb2a25d57cecfa808e
+replayed Verify.ShapeBundle 8cbd6ee7301b445e59c450be68d57213ef88461e77412a77456dc3b79f3a1dee
+replayed verify_counter.gen.Counter.Spec 1f7d9b01d00231a409130812b3f30172c9e7955b706ef7ca07ec7825d3e54a1d
+replayed verify_counter.gen.Counter.Bytecode f91447adb17e52bcfdd5d55fa713b4792aeea36ed1bcbb0d45182dbfe31e255e
+replayed SolidCore.Refinement.Generic.Tree 79ad7a011f2ede626ea0d8871fd4fededf1127998531388760cc025442be14bd
+replayed SolidCore.Refinement.Generic.Packed bb582a0a5c6c67eb26db03a1820d1c1c3aedd94e17531b424195c6425c1373ba
+replayed SolidCore.Refinement.Generic.Source dcdb63d782b1c50d0ec680d88f9a0dfa2dbed050e55967fa0113ca6daf2f28fe
+replayed SolidCore.Refinement.Generic.Simp 87217879621d47a83ee2b84de47d99b78f6768c474c9c5d9dfaec5a9a01d5141
+replayed SolidCore.Refinement.Generic.Event cf939fde817bd32870a6ca1fe351cd3c93d52df3ba463317281b05652776042b
+replayed SolidCore.Refinement.Generic.SourceStmt f18e99ea0b9a1fa67ff4d28b49dd03b928f187c486e124e05b493efc2f8078f3
+replayed SolidCore.Refinement.Generic.SourceCall 14251b5550808fbe0b9519308cdd7b43f1bd0eb75b06c5dc13ae74c5d1e67531
+replayed SolidCore.Refinement.Wide.Tactic 92afe43c00066b11edb56829d069ba5a39e0ddac0fb635c5ea88110fc6c84f45
+replayed EthLib.Execution.Proofs.Evm.Interpreter d49b3b3813ca993df48f7c2064007414a43530c2d5155d117b02512869d0b98f
+replayed EthLib.Execution.Proofs.Evm.Logic.Reach 00e789c0afa659a9ecb888a1c0d28fc77c727674a72c6395129835b0d934e108
+replayed EthLib.Execution.Proofs.Evm.Logic.Triple a7da0d5a6a1d989d6d3999499d54de4a3a0f15f06835317bb4af22769634cd20
+replayed EthLib.Base.Proofs.Fork c52797760f45ebe385e5728a260bf04f97e0b3f57d7f2f506950c2c9171ddf0c
+replayed EthLib.Base.Proofs.Bytes 1b232a7f6cfa7146548bf6e1e87b2bec9e2f1680c11234c3a6a32c26180ba6ae
+replayed EthLib.Execution.Proofs.Evm.Words 96e4785248dc0c74719bf8f1b2171f0c77e3b8c89a2ce8f25bef4e6a0aefb214
+replayed EthLib.Execution.Proofs.Evm.Gas.Memory 60a6ce5040752f78115c8b7a3e177cd71485d41f3f165f877a7ab36a2e244f55
+replayed EthLib.Execution.Proofs.Evm.Machine.Memory 5729b3a74ebc9822c686352fcae715d5fa7b3256e9f24cf5008c901025550bcd
+replayed EthLib.Execution.Proofs.Evm.Machine.Frame e07081113165579ee63e23f98f68b0b82fbc036a7c682b163f8171bfe14c91d4
+replayed EthLib.Execution.Proofs.Evm.Machine.Stack 89d0f8daa477b3e7ce46e9e01c69cd48507ecaccb7c4d32847e5e4d967d1689e
+replayed EthLib.Execution.Proofs.Evm.Step acffff0248514defe566cf3e4881ff28701753272aa0292241611fda3fd64bc4
+replayed EthLib.Execution.Proofs.Evm.Instructions.StackN 23f82efffe2387e11d9fa2adea5b3d4e4227bdbd97b71555803b9845b95aecb4
+replayed EthLib.Execution.Proofs.Evm.Instructions.StackOnly 2d47299b7cde33d96f104a9d1ff06f713e292d1786abe908904120453b8c45ad
+replayed EthLib.Execution.Proofs.Evm.Logic.Symbolic fb51f1515017c72a02232e8cba46c3a88f7b933133a89ed4e01369b2ee2e29bb
+replayed EthLib.Execution.Proofs.Evm.Logic.GasMono 05fc2f744378af9e9330eee830e0251c0933478a8888b3ce0a8335e04d830456
+replayed EthLib.Base.Proofs.U256 ae698fb251486abcb3f5c8be734f7f4bee04501824096c545f0fd281177e4cee
+replayed EthLib.Execution.Proofs.Evm.Instructions.MemoryData cc6194edbe61cf3d9337263cc234b73ee6276764aae3d387fe9a1706185ebc92
+replayed EthLib.Execution.Proofs.Evm.Instructions.EnvironmentData ab4bf86252f92c29e1553fd4c2480633a0ca5116e791c04fc06ef55203296646
+replayed EthLib.Execution.Proofs.Evm.Instructions.ControlFlow 59e194fc49f0d8ae8a6989b159a2e4d73586df5dd6327f0516ee707c0e64a9b3
+replayed EthLib.Execution.Proofs.Evm.Instructions.Storage 73e0edb68810fbbbf6872efc0ca72de94da81a334594e901679ca9aeee9154b5
+replayed EthLib.Execution.Proofs.Evm.Instructions.Return ed604cf334a1f8b04d1f8e14fa1e992b1f603996f6a1965d0a56c9d3c2566f4d
+replayed EthLib.Execution.Proofs.Evm.Instructions.LogData 8beb4970ba37123d2be560ac0e9b513aaeb1641b2fbeb0a0c67d23ebb2e24e3b
+replayed EthLib.Execution.Proofs.Evm.Logic.RunMono 2f035fbf8b038a08433deffef6dbada3f15e90c8ba7bb2579c6ec40e2553a240
+replayed EthLib.Execution.Proofs.Evm.Logic.NoAbort 2b19e4340249d6601d7bae85baa34d70411e4869ac3c453dbeb0e44f67335f44
+replayed EthLib.Execution.Proofs.State.Tracker 5eb4035fe65d5f4241335182d7555b2cc8bf31395b839288543da108424f1bc2
+replayed EthLib.Execution.Proofs.Evm.Instructions.AccountData d9d0c274592a7eb7be2aac583685256920bcaf17d12870a6bae0ae754fa2c0db
+replayed EthLib.Execution.Proofs.Evm.Logic.Rules 1e4d4f401d9129853e6688ae57ac2f31c78a0c10f621e0c791eeb5f89f64b181
+replayed EthLib.Execution.Proofs.Evm.Logic.Stack 8fcd1240154272f10c59e9ceb8ec62a9fb88a0f2259512ed94e7560604dfe757
+replayed EthLib.Execution.Proofs.Evm.Logic.Steps d10149b9848b31e8224a0171db4b32cd61c6a86bba28e2d2809484575365308a
+replayed SolidCore.Refinement.Evm.Lemmas 8521c968a908ef88831a1147445542c4fa1f6597d7c6f7fb3ea9d1f99d7aff52
+replayed SolidCore.Refinement.Evm.Calldata 6b371c2d0aac5c0ee8d8e9980f7f7e81fee3cbfaaabf7fc007e7bd11e6696fc6
+replayed SolidCore.Refinement.Dirty.Source 1d3a65a0ce2e8ba1a2eb8be3f830e64cd0f89a9ea4c5e6bccfeeed88e06ae8f8
+replayed SolidCore.Refinement.Wide.Source 3a75b7ac8b4cbd23ec86f6e8c21d705ce08d2ae9772d9e7abeed9ef74d92f4a2
+replayed SolidCore.Refinement.Evm.Symex 989db4dd7cffa8678b187c3334b78662a7c26ffcca3987ddc0be21fc8d262beb
+replayed SolidCore.Refinement.Evm.Wide c76f0264b475480375d7dbe1aa95a663e4d86bd93477350b822adaaa2ff8b673
+replayed SolidCore.Refinement.Evm.WideStorage da5a6a60586b5b7451bdc7626d3f9653bb49d54039085b8c055c564ed3645f53
+replayed SolidCore.Refinement.Wide.Refines 7a5a5c357eda2ae802dcfc9a25f4b55529e03ac4a490f659dbc24e7d618e6364
+replayed Verify.Abi 3cde176971d5224b717d8e215b48161bdd53f8b506e0f031ce3e799e5c84525a
+replayed Verify.Run 6c4c920b1380667b8672e51be5537f86750f0124f832cd64a80f4081f4236979
+replayed SolidCore.Refinement.Generic.SourceRun 18d658d88eda5156fcffd4b4497cfbeddab6c1168ed7784c943600e2e8455973
+replayed SolarTV.Outcome 1a1e81b8801b7e6d69dd5ff048090c8c9dee5c338c0f78bdb02240937a7fbd28
+replayed EvmRules.Word 89bf07b34af7a6717acd21d7b0e5344c503cea4baa692a808bbfe63e9bc52b45
+replayed SolarTV.Keccak cb7e4f6bf3f98536a7cc2135791a1a4d2d85e3bc05812747e39e11ef17055048
+replayed SolarTV.Memory 79863961abd8bfcf312dd4944800afcb61a8c4e3c3904b192f0195281ab50f06
+replayed SolarTV.Machine 507555dde75802cdaaceebace1a86c48680a52585ce8f98e02f215cc89e5d757
+replayed SolarTV.Word 0bac95c9c2b4273dea27aa0849028df2cc38d65a6de724ec7a0523ec016f446b
+replayed SolarTV.EVMIR.Ops fca41f320e1e0dc0fa899d4af128390ffa23d15db0f98844101adf1abb7fa53c
+replayed SolarTV.MIR.Program a18d6925655448ee5d559eb832264c41d1e053d4b5672697e8f3ca9320b25000
+replayed SolidCore.Refinement.Generic.Mir bc4f82809a2ff4d6fc1ed1d81b708609af3febc923263a4de1a059eb1f214c8d
+replayed SolidCore.Refinement.Generic.MirRun a0a834507cc207bf8483bdce11ce227211718c00558ba3733d9ba8d8cbae5718
+replayed SolidCore.Refinement.Generic.Stage 9a4696e8e9c2550a58c6d1b57b2ce308df692824e2b6a80ecf6caac04de9a8d5
+replayed SolidCore.Refinement.Behaviours b8b89cc6d806f05fb9012161046d1c4936e7e953b913c1faf9c5ba5b966fb51a
+replayed SolidCore.Refinement.Generic.Total a9fac71e2273381fb9fa8f2a8944a08ba00bd0f8898981781ded85755b9f50ce
+replayed SolidCore.Refinement.Generic.Value 43d437668f66d4896e239137fb304fdb59dc97d0c9d79c5a0a92b1043324cef8
+replayed SolidCore.Refinement.Keccak.Agree 8b6e013a3aee82de559fc2287eaf6a8daa501a30b97584aa4a942c1c883e2378
+replayed SolidCore.Refinement.Keccak.TwoWords 00889c650d393b138305f6e95720d39ab266c2d82ece95a52023b3342e8b86ed
+replayed SolidCore.Refinement.Kernel 12940716cc664e540cc7c4b95810281707cdcd1f67e005dfccd1c8f1de0dacc9
+replayed SolidCore.Refinement.KernelCopies 04d2e0155c6bdf1373839278c48709ba44054b47753e4bf6855e7e7a3ad514bc
+replayed SolidCore.Refinement.KernelRfl f1211e0081d3edc6d52eebdb09afa02afc2a289e505c6fad630da1d8faba3c52
+replayed SolidCore.Refinement.Source.Bank 0a125cf6ffc2321c823099fa9f4e1c5252197e96f0ac4859859104cf643a9fd3
+replayed bank.gen.Bank.Stage0 6ee2b7ac428d51ce10a85682f39490ec32dc0f5ec9ac299e474dca742c87026a
+replayed SolidCore.Refinement.Solar.Bank.Lowering 856969442f8fcdca58e446fdeec27193583af01b73a2aca263cfa889a16a07fe
+replayed SolidCore.Refinement.Source.Events 5a7945904c50f6eebee65a83b045c5f6f8a74d39652cc0d5051f98dbf426badf
+replayed events.gen.Events.Stage0 83aaeec457793aea71bf6adba2a01aa097be4da0c6f312bc15bae63e1d3882ae
+replayed SolidCore.Refinement.Solar.Events.Lowering 356a762ef5de3e9a2f996c70ca186a9389bad08e605cf30428005f34c9365130
+replayed SolidCore.Refinement.Solar.Total 57111b62fcbf8ff1fc18d2df5b187e3c72f7532d0679573f11894b58b438789f
+replayed EthLib.Execution.Proofs.Evm.Logic.Log 67e090571cff13be48adb3bc8cef3dabb17ee5c4690c9d172855f5b059f27f98
+replayed SolarTV.EVMIR.Memory c4da855e0013c74c5183fa0dddb67629f1f2fa33fc678485f6b19f0b88bfd9cb
+replayed SolarTV.EVMIR.Program 65b759c2bb0ecb5a75068664e34d1c25f7dc987e1edfa50d3b0c482e302d584b
+replayed SolarTV.Composition 0eb0e8cf7fb2a70bd13784c547426f1021ec6f5ac46ae9b3c00033252b002357
+replayed SolarTV.Stages.Assembly 8c660cd8ace4d806c3c4619b04ae80fd7484c82ba572adbe1f828da64a57f0b3
+replayed SolarTV.Stages.AssemblyCheck 82df706bc02b830110c359ac65eb31860074065536634197f639b84d93587b09
+replayed SolidCore.Refinement.Solar.AssembleStackN a6567efabecc5ad7e948299e3e9e69444d51e906741819192e2cc085d2cce831
+replayed SolidCore.Refinement.Solar.Assemble 1d31e98659343004257b0db55b7dc122d533908c5d89fc35143f25bd11a50e4f
+replayed SolidCore.Refinement.Solar.AssembleSim 8fde525f18340c66759c3de24ec1a517029b1dc0c53b14fb251c6863176eff37
+replayed SolidCore.Refinement.Solar.AssembleFast dee4cad25a7e9705724aa4e214d59485d67c94cf709db53dab85f5510bd5fbbd
+replayed bank.gen.Bank.Evm11 a1c49dc71a175e89d5aaec5c807c35e56fac8451d93d845486994183b2a7c674
+replayed bank.gen.Bank.Bytecode cd9e7329bcdece26aa2729d492f588a3b34c277bc0587ff38bbf8a2bd5b8c5c2
+replayed EvmRules.Arith 0ff42aa83cffb3457e441e374648d691d71d71274b22cb021626dbc6d446e839
+replayed EvmRules.Bitblast 36b878e31324ebd19f06eb13dab5278225bb9631f1b39c2b02075ef1bf1ec688
+replayed EvmRules.Bits ec13196b79fa7e5d9544f4094c957dbeb612531daee0fab3523a268551e68a12
+replayed SolarTV.MemorySymbolic c340439fa6454e283104cda3f0b69e00a1c399c763a90690f19c9ba10a7e04fa
+replayed W1Proofs.Tactic 0489edaba1c2a4078823d23908e0cc680dfe6a12b900febc712b09b98b054c57
+replayed W1Proofs.Axioms 68245272a16088f88d69bcb1dd8704e3327eb5a58bbdd29e73061e881e22cb26
+replayed bank.Proofs.Runs.Stage0 bd56c5be09fd3c256a886a93353c824cccefacbf2d8d79139a22220fa2b67678
+replayed bank.gen.Bank.Mir1 992b3c50fff90f02032c5dfc1a109bbf08b5316b74845d1144cd8e1ac5b1706a
+replayed bank.Proofs.Runs.Mir1 89a927c91c089497ae15d644c3b43017857532960e832838f9844262dc2fb666
+replayed bank.gen.Bank.Mir2 69abd89055dccf80e838ed41168b95707d3540a8cadf8cb534824e92ace3ae02
+replayed bank.Proofs.Runs.Mir2 cf0d0944ed095421527f53bf4f49e4c87d684405f43ab13b9c92749af88f8482
+replayed bank.gen.Bank.Mir3 4d520ce318aefebcb12acc56e3877485b50757e5b39e84cd7613c299ffb23f84
+replayed bank.Proofs.Runs.Mir3 01bb5e71d653b61989c8ce9f8808a794e2de3227b878ca14426c5bd408660e02
+replayed bank.gen.Bank.Mir4 c5bb51d8074f6c29de89ff13cb7b69bc4af3585f1bf17a014acdb16a1d64aa12
+replayed bank.Proofs.Runs.Mir4 ef8c7a304fec52852ec8559a87094f939b775e61208da31c94fd0472aacd3f4c
+replayed bank.gen.Bank.Sched 64fc389551452b7f83ec850fda2bce3231f80e7ff674dcd7b6623aed1ed74738
+replayed bank.Proofs.Runs.Sched bde82579634a85fa6b9b549de00e593e4c8c13af03ab8d0abb1e848bb2e51e53
+replayed bank.gen.Bank.Evm1 5a7fcf226e0a32988338a554e6c5f0aeaca2fbf1a13282db1f2e0f06a9dd7da1
+replayed bank.Proofs.Runs.Evm1 579519771a22f1110f077deea2ec33fdc016b2b4c2ea1d0195a1a9949919c0b5
+replayed bank.gen.Bank.Evm2 5e2d26a472d671aabfff12ff36ec4af01decf24e2a1c61b8afce4ff615e05119
+replayed bank.Proofs.Runs.Evm2 d7c4cb3f2c46bb0a4afbe52562f0ee2eb3519595547ac0fe7fb78210343911e4
+replayed bank.gen.Bank.Evm3 141a89b9489f6fa4fb45d37dce0b3b94f6412008e0775fe5bab3fc33bca8a878
+replayed bank.Proofs.Runs.Evm3 7010060450e9a19a4d313b5b48c9c136c8c9097cc404e4db5e7e29478d4fee00
+replayed bank.gen.Bank.Evm4 c9c9a190092531fc0e6bf1e5bda664c8fe84a57ff715ef88a1e5184f3cc31e37
+replayed bank.Proofs.Runs.Evm4 a31fe400c47e203ae4864fb17770a6bed1a219626c3af9999b899c26456b1910
+replayed bank.gen.Bank.Evm5 9ff66300719647b1ce710aaea8d7b12f2e42160aae2eb635a32b45b2be8aa408
+replayed bank.Proofs.Runs.Evm5 31619ee71c6e739befd06681fe4bf18b042273a2354af7ebbcbf9e658020287c
+replayed bank.gen.Bank.Evm6 eb512f9964f3841196b86f76cabca5c036f8cebb0616caf710a4ad6c7e8bd06d
+replayed bank.Proofs.Runs.Evm6 b558dfcaf940d6f5cef0d84919c4c217dc9cd0934842f958cf4151f5edfc6cbf
+replayed bank.gen.Bank.Evm7 05592eeec7769cb7a9643eee1008f17a92afbd76cccdaf33d4b5c374207a0e8d
+replayed bank.Proofs.Runs.Evm7 0fe18d945d872e7033c4c583283772b5a4aedbaaf4f3baae13a8bd8cb600e814
+replayed bank.gen.Bank.Evm8 2a9a2505421a9aaa2e1785c89542e1e1aa368f15c7500809e1c90236ea7cf8a1
+replayed bank.Proofs.Runs.Evm8 e868275bffd0b274181be312e8a52dbcdae0f588d4dfe2036acfe481288ecd6d
+replayed bank.gen.Bank.Evm9 6bd3ba7ec5a10e9bc49476d6993fa9065c084efd51e349438adf12596cf6a443
+replayed bank.Proofs.Runs.Evm9 0609de83005a3c645bcee60eab5919a8b70de6d88aa36711317dad892c862ebf
+replayed bank.gen.Bank.Evm10 3f7bc1af86393297c4cd0c5255c00fec2093676d037ec272cc32c39eb7939d44
+replayed bank.Proofs.Runs.Evm10 24e0c33ba944823560d4edd29291261c016fa39e4e36a71e0d451417aecfc640
+replayed bank.Proofs.Runs.Evm11 db99f174acac06486f7dcaa924ed4c8417a80b6f96bbdfe720829d62dbb3005d
+replayed W1Proofs.Stage 44958bd83001866fbd5e92bd668d639a0855002d7fb4603bff279461399dd38d
+replayed bank.Proofs.Stages 009eae7ef7e61bc1f6288ff0c66cb3bb2051aa95626f1fb964c52f64e29259d1
+replayed SolidCore.Refinement.Solar.Bank.Assembly 97c5f7bd9adb8c94378c906afda589558d9926e487e3efd61b1f008c27ea5a02
+replayed SolidCore.Refinement.Solar.Hex e2eef54fc538044303c56723497d88396d0a1e94de6f7ec826c3030844269059
+replayed bank.gen.Bank.Manifest 43915502dcd6822b6c845dbd648bf82afd3ea3dabbfdce5564f0d15080ec0e8b
+replayed SolidCore.Refinement.Solar.Bank.Certified c70a18f7e41f353cfdd9dbcd5fe36e16104f791e377a9b2c5c939ce5cfa01e19
+replayed events.gen.Events.Evm5 4930fd0216ea01a94f72c718884fa88d420d3f60764a1ef4da03fba708bc0cfe
+replayed events.gen.Events.Bytecode 6e0b4178e2d92225ede42047ef71de8f2d8ba8ff29da063817e2851c2313deec
+replayed events.Proofs.Runs.Stage0 195f74d0fc5d358637a29708d7b97b8506a6e1e026eebc5554c2a711ed370a2d
+replayed events.gen.Events.Mir1 452e11363b2f374c0410c6913bc6154ced2a18dc8ffa0676b5bd14035eaa7a50
+replayed events.Proofs.Runs.Mir1 9fcdb2529fdaf7cc610da16605c5f233e54d24a551e539e722e30d01bccb31a9
+replayed events.gen.Events.Sched ca5dc1b3f5ee6e268db33bbe25b8c93edc68ef15c88861bac79b79a085f8ba7f
+replayed events.Proofs.Runs.Sched 89f3503ffa84c39be07867b0fa4fb9b18ddf2f44267a3c68b3cf996a51a278ec
+replayed events.gen.Events.Evm1 02b65ee1b9bb6876e3bb2b2066cb61e1a62fc7beb808d257d16a468358c75fbd
+replayed events.Proofs.Runs.Evm1 93d095bc767c18e476a900d84c369d316d299e088aa994e0f7fb4616b224620d
+replayed events.gen.Events.Evm2 27cb2c0c643b4846de103038cc77e867d892393019da0d08dfff9dfca9057d87
+replayed events.Proofs.Runs.Evm2 68e72229ec3b67e6dc186f87d6177a45d698edf34dd92bcc459f4f8194ce810e
+replayed events.gen.Events.Evm3 d9629256894af4b81ed8a3e8e97296803f8fb8d565656da4ff81ddc21dfe4d85
+replayed events.Proofs.Runs.Evm3 d8fd5f0b248b616de750f4759c2964f62cce95795d01e9156e6fc83b233db893
+replayed events.gen.Events.Evm4 6c5910fbdb60e49ee59859b872276098b45eb01864cb5a4226b592c9a302703b
+replayed events.Proofs.Runs.Evm4 a3c61e187181eb86a6f5eaa38c09fdedfaf08af40910fa3ff5dbbab5409231a6
+replayed events.Proofs.Runs.Evm5 9bb01c26e6db0d85c9397515f760bdb11ccb27f36e1b3baa8f4b716ade179260
+replayed events.Proofs.Stages a4fc81b0bad4bd8f6e56b06ba1c218b5f2223acef2a594af388750bbf7dca6a7
+replayed SolidCore.Refinement.Solar.Events.Assembly 7a346527fef57a32dc290fd2318d36f6e793b1c541d749a5f724e2f97781814f
+replayed events.gen.Events.Manifest ad4ab98541895db4a79eb521737042ed6e6af3531d25f211913b50e0f3078f1c
+replayed SolidCore.Refinement.Solar.Events.Certified 8f118800133b87b8be6ab7bc164075c4ef52685404fd21fe16e6783a97ffd194
+replayed SolidCore.Refinement.Source.MulX 65a99a7a0abca11a162f2989a4df1f1396e51605cc7bef07bbe21c26d233548d
+replayed mulx.gen.Main.Stage0 27be6b4f9fdfaefe7311d21f04a0073f77fcfce55280b19ccf2ba35ec54e12e3
+replayed SolidCore.Refinement.Solar.MulX.Lowering 8df1d7ce89c71ab5795a125e59c9c1c8bdc9e5c81544edf288232de8b573186d
+replayed mulx.gen.Main.Evm8 77caf2528cf1f2d876abb3aea71892cc5dfb9130c5470d978c8b372c95cb5a56
+replayed mulx.gen.Main.Bytecode 698eddb3f4bd249fb7625a37a44784fdfec6f6c8bb3c3c27ae640fd4dd6969e1
+replayed SolidCore.Refinement.Solar.MulX.Assembly 43f8b224aaed32dc01a35759b35000ca644d98259ae84ca156580e3e15d3ee7e
+replayed mulx.Proofs.Runs.Stage0 97b110ff62e90b959535949023f9e4ada916ef184910e69bacf0fa26e1957cdd
+replayed mulx.gen.Main.Mir1 db70b16df167608c444983e4d13078a571e6e9656f8da17e31327ad601e83299
+replayed mulx.Proofs.Runs.Mir1 673262c3bee0ccf0a3d7ec301aa544cf6bfdd24b194817ecef77d119a97ac898
+replayed mulx.gen.Main.Mir2 dbfbba5e5dd614e90916145341f13592f89ab31d1a6c8c9cd2700be243f298e8
+replayed mulx.Proofs.Runs.Mir2 9288f85763cf61cd3ad9a6b492d0f6becc5bfbb017f095e15c551da0bcadfafd
+replayed mulx.gen.Main.Mir3 3711d186bc564946f8fb0ec2071dd1b01bf614e5444912fa778e447bad0ed2eb
+replayed mulx.Proofs.Runs.Mir3 e636211803e2c78036602fe83276f09a66c817bea576d56e4ba0d5fc4a956e6c
+replayed mulx.gen.Main.Sched 634597634cbe3cca611dc2a0de47f670ee53ea81ca7715c8478b1e26090959f5
+replayed mulx.Proofs.Runs.Sched 06e718454e423fbc5c506e903e38be7fb6e064b66f69369491caaa883369c871
+replayed mulx.gen.Main.Evm1 123826e981a520bf690ef712670549a4f3f41815d957c5bbeb26cc6971ae435f
+replayed mulx.Proofs.Runs.Evm1 e8d507a949f9b95463d2a7824376aa183c9662f4cff462f8107200bff2fa1e5b
+replayed mulx.gen.Main.Evm2 557e3e74b7cdfa840b77acb73172b6e85ba3360e07c5e0db70ad1d04760d1409
+replayed mulx.Proofs.Runs.Evm2 313bff9a318ffc1d75e034780a2fe1d8cbae9a30d046d129aad942e5d3c2e593
+replayed mulx.gen.Main.Evm3 8f5766f038f3599a9870f2351b4adba5be120a270813ae16b3914b3a71565620
+replayed mulx.Proofs.Runs.Evm3 494ba93cab886ce2cccaf10363cb146721ae69df554c558fc7427ffe9167c98a
+replayed mulx.gen.Main.Evm4 113388ff8cb1f3fa09fd823088293d75e74ee64bd7becc6d1be6383375d344bc
+replayed mulx.Proofs.Runs.Evm4 acbb37b6f8b06a9bc989a89d44509e2bd7de7143d875e68865eff2d0bf7df355
+replayed mulx.gen.Main.Evm5 4ca718274f651a0c39ee58f76bd55784a2258b20a759077efdf78346a0c447ba
+replayed mulx.Proofs.Runs.Evm5 4105738bc0b0154041325193cd894a5ac0cc114739d95c574f5272b7e949d712
+replayed mulx.gen.Main.Evm6 380d014e1fef05d56d80d10851b78249aee26be2c8da90d308d46edd144c2797
+replayed mulx.Proofs.Runs.Evm6 a12cb8056fbc1b13d66dac6bdca8f103c5fac056cec0dcd5eb9575b7f701fa04
+replayed mulx.gen.Main.Evm7 d2f4fb0ff882f189447f18a49d639af4380f3b938362b0f01bcdc1f3a62a9b8a
+replayed mulx.Proofs.Runs.Evm7 876c47bb67e8a0dee1e6d5f4302428444268d3b119a8f5bb9b290a66498c1305
+replayed mulx.Proofs.Runs.Evm8 fe8f2e94a93e7b5e3825e8f257b197542d8456a44bfea797dc16d2cba49f2f27
+replayed mulx.Proofs.Stages 7c872203275d710f9e649103095c4c8995b080c16e4c25dacedf7e67b4c7a255
+replayed mulx.gen.Main.Manifest 5cc2144586d042f01625a810f1aa315616b1fa3a52d691e477151924af5bae4a
+replayed SolidCore.Refinement.Solar.MulX.Certified 74445a38fe3f15fadbc4a33a3a0934c1d2a9e8c8d97de4729e821247ceb11349
+replayed SolidCore.Refinement.Solar.Totality 4290e427590950d08663c686214b1138c264dba220461c7c8ef81197b1bb6f58
+replayed EthLib.Execution.Proofs.Evm.Logic.Fault f84e0b27fafc4f4ed6f80b8aeb4060031359b180ecea58697473d2a5caae1da1
+replayed EthLib.Execution.Proofs.Evm.Logic.LessGas c693ae809a6dfbdd96ef9a8514206e6aa3305094b67f7976ef71cd44ff7fa058
+replayed SolidCore.Refinement.Solar.AssembleLoop a711fb87885a86038f22d554db01750efc0f6af2548fc2701e37bd688728f6ef
+replayed SolidCore.Refinement.Solar.AssembleLoopSim e5cb3629206cf8f70a48d63ce5838890a2c5a09a78bd9c548c41c46d69076b99
+replayed SolidCore.Refinement.Solar.AssembleLoopRun 0bc2e8c9796b5706a43a7d849e11fa082a878c721d6f8a8abbd41da7dc15fe81
+replayed SolidCore.Refinement.Solar.AssembleGas 910f302e7fecb469edefc531daa23b449c14a55c855f297aba00e21bccb54cc4
+replayed SolidCore.Refinement.Solar.AssembleGasLoop 9a0c738ee8110773154377adb565c718047cb482e6072c48527b0066c742ecc1
+replayed SolidCore.Refinement.Solar.AssembleLoopWithin 4b85f158a11a4dde30c8c93aef9f475329c3c585692a77c6826863a7e2c09bbe
+replayed SolidCore.Refinement.Solar.RunOracle 5d0ed43ef8d4622233e7157456e1d1fd93acbe7f8b554a144daa1b9f7a3fe977
+replayed Verify.ShapeGeneric 1b395664200f3be5f680e4fbb957a8c25770453f12cc68702f7676e2e00dd89f
+replayed SolarTV.CutPoint 4fe2b7e9b1b0199816cf8eb172cd6a8a0b239871968eefcf1e8f191d475cd867
+replayed SolarTV.CutPointHoare 829dbd0d9da4eb240f8c6537d6ccbe107c06f85e5ae8149f1d0c916f5e73f03e
+replayed SolarTV.Termination 5abd638439ceb2626db625b1df248e82d668b508bc0171a0709ad02f58e289fb
+replayed W1Proofs.Segment 4f3f75c7bfe4923c487c22e51e50ec5a474932b8eaf2803176f28097d8ee3972
+replayed verify_counter.gen.Counter.Stage0 e8889b11fdf568d9648d97a3e4bc6191e7a73d822aca0ae4b0e480c69becbf35
+replayed Contracts.VerifyCounter.Inferred a0f0567d95f1fd7c646d29f49ae9a126a0110ce06095daf8cd613e3a76f5c113
+replayed Contracts.VerifyCounter.Bump 107990c4e20825e67f38d1f222ffc4953215f20869752560c2fda4969a2e9f1f
+replayed Contracts.VerifyCounter.BumpTotal 9a789623b27cc6ee46c1fcbed146bb940988e415d81043ffff577ae44cddb075
+replayed verify_counter.gen.Counter.Mir1 d34c666e0a4154e43f310aaf80b6a4c34ffa9777222d2e734f958001a6032a2f
+replayed verify_counter.Proofs.Runs.Mir1 7a23e163eb317493a301a46729b33e5173ae736b377502663ca8f39be7edde95
+replayed verify_counter.gen.Counter.Sched df256ae6def3569f5a12ef55223aee17f3f53a81b588d34635026a686692b6cc
+replayed verify_counter.Proofs.Runs.Sched ce38afa5a61125798bbb518078fe5c30518cd72ee0711800fe4b6a22efd8db57
+replayed verify_counter.gen.Counter.Evm1 569ca44ff67c1e29027ea1cd502fbce7efa9960433a864d8679bf24eb9b17434
+replayed verify_counter.Proofs.Runs.Evm1 b3df9ebaf611731b44caff3ab0d312d232227c8a95f0cf5479fc4149c0325d3a
+replayed verify_counter.gen.Counter.Evm2 cbd70d3d6c52d1cd2d7026a42ed769443d3ab81c7b62f8fbe351759963791c57
+replayed verify_counter.Proofs.Runs.Evm2 e81695b21a98cccaac779ca3dc4feeb6d3555580196960e36c6dbfd04e4d3b21
+replayed verify_counter.gen.Counter.Evm3 bf1fd6321084340ae1df95373ac393ade84c4fa33e812efb429403f780a8ea17
+replayed verify_counter.Proofs.Runs.Evm3 599a1e82f93b5fd60b097fcaec258931eb227f1a326d659d5968c2ffcb5ea727
+replayed verify_counter.gen.Counter.Evm4 c09fc65cc7ed0829e3df0f4a940c0512af65ac5c6611e0e788fb3cc8ba365f26
+replayed verify_counter.Proofs.Runs.Evm4 91a064a6ca79e3280fa063a313a0b7d12db8c1cb45819bfd356e70ba8005ea3d
+replayed verify_counter.gen.Counter.Evm5 c73dd8ef37a4abaae5e1aa089e8dbfb530a13c7ff669e0c889859d818c030cb9
+replayed verify_counter.Proofs.Runs.Evm5 8b7e299bee029df4832fc561f3466a6baa45eb3a51c9814d1ed5563778fdab55
+replayed verify_counter.gen.Counter.Evm6 5fee80fe3c46213b731b8d6be5234f70461439a2dd7fa4186770f6c66176ab70
+replayed verify_counter.Proofs.Runs.Evm6 710321e73af9d3bd71eefab5d9ddffd73921097e5c6bdaafe6c632ed3c3ad961
+replayed verify_counter.gen.Counter.Evm7 d3aa73ba4f9ba502ccd92a4d09b0f9f4a824abeeb96a787dd9ead4807c059c0e
+replayed verify_counter.Proofs.Runs.Evm7 e11a0995543bf837b885e236900f79a96c1f30c4c0a2cc23355c6f03431cd323
+replayed verify_counter.gen.Counter.Evm8 0cb0f1e2f7ed30a23d4ef6f068c3cf0d0369042cc4c59023404ee12ce2536f2d
+replayed verify_counter.Proofs.Runs.Evm8 ee33624094cbff1419ae6e7ea3eb18e2cf5d4450c1b1c06a190aac317e5e4d33
+replayed verify_counter.gen.Counter.Evm9 558ce6d29cb43afc7b6a650c8d05469439a27b3d7ccc77dee5ba03e1f5abd66a
+replayed verify_counter.Proofs.Runs.Evm9 5c0d7c0cbb162cc6fefc9b4b813ef0767270ebc16710fd231c0262b007bc8022
+replayed verify_counter.gen.Counter.Evm10 9d0bbc51f94174a38056a1d2a40b0b606d1f06f6503411f342d5a535cb62bc5a
+replayed verify_counter.Proofs.Runs.Evm10 36fba2d13d897578e1f948a9b1e4cc790496db45d90b0da7f07f58ef4367987f
+replayed verify_counter.gen.Counter.Evm11 6d8b4399de17b29a0fd0f741251335741306d09d63c7fbbc4c91244f9d3b27a0
+replayed verify_counter.Proofs.Runs.Evm11 c5c08f8349bf92a89442e4b94d8446c820fa185b6d6932d85d20b94dcaec5fc6
+replayed verify_counter.Proofs.Stages 0d09c45a4aed55901a2c19a373bad443fe0f41742ab1d217a7fce2e142692c90
+replayed Contracts.VerifyCounter.EvmBound b705a4674966905c448247bb694cbf4f1359c9d6bffa9611b86d3a58a438e9b6
+replayed SolidCore.Refinement.Solar.EndToEnd e0abf946e4441107aff51b2c5f252ab8c8b95cfbd4f0f03f5047656fcbaf44d6
+replayed verify_counter.Proofs.Execution 4a4b2d7a922ee4317537a45c3549e461102e20f6bfc311257457df21840703ea
+replayed Contracts.VerifyCounter.Total d1e0f96c0639d043a871b8af9ab4249dd7cde145ffb38233c29a9629baa2b66d
+replayed Contracts.VerifyCounter.Gas 036fe475417815e027ef4cc4eca91fb1ad560bdd356ad31a548d9f2f53322a1a
+replayed Contracts.VerifyCounter.Mir 55f68d6037d54253c04a5c38eaf1b3e2fa9c2e534a93e0ca8f98e76e6797525c
+replayed Contracts.Counter.Verify 009d8df0bc68ab958d8ecd4493116672082a2c494f1aa02e91d06031505500d3
+replayed Contracts.VerifyCounter.Holds 95102a3397f43a3c0d875444e79350e2f30391be973ad1cc82a8d4990fc4a1f5
+replayed Contracts.VerifyCounter.ShapeSpec 6485807345b73752ef239170cb659367d0f17e69d57be8cd567a2ce5ee68850e
+replayed Contracts.VerifyCounter.Shape bd6465fff39dc3cc952c40ba690ec7e6f2a593967656601833c21dad863dcf83
+replayed Contracts.VerifyCounter.SourceAst 4210c6960cbe330444aea4da3accdb67d2793b6e5ef5723526fc50661e7c77d1
+replayed SolidCore.Solidity.FuelMonotonicity d65dc374fbc6027e40ba4b0f4b3b319f2b54ad4b2ee44549460d7809bd2cdf8d
+replayed SolidCore.Refinement.Generic.Loop 99d33058c53b1d3abf4960636769c9d9a6f2356f637b967ab301d8afbb130213
+replayed SolidCore.Refinement.Generic.LoopStmt ba4a9d44a7d992e1b4c342424a67a9415f15768d14d7dfb7cf0160840f2ed44f
+replayed SolidCore.Refinement.Generic.LoopSeq ac08ac59cd4884fd1893f78d05138786339abf374191a22714723aebf0a4fc26
+replayed Contracts.VerifyCounter.SourceLoop 660f9b1f2d39de41f368bb4bc88d393354d1cda65b899b28244e133d84a8e986
+replayed SolidCore.Refinement.Generic.LoopRun 6588502158603fe52459b31b4f027e97005f309a0adec1ca5062ecc4c86a2030
+replayed Contracts.VerifyCounter.SourceBump 060fdc8799994d713bb0045ea6e58eb19b8b494e75c2b417367738ca0460b6b5
+replayed Contracts.VerifyCounter.Source 571bbff5bf1e2c887db1fce03866faaed825fea9549e503cdbf9e958558d3480
+replayed Contracts.VerifyCounter.StageMir a34882cbf71e2cb928ecf790bd3a036b79817b83ad63be30e31a4901421631b4
+replayed SolidCore.Refinement.Generic.MirNoLog 71b7bd60c961a747555d2212270f0e3ad38969b8381784d27cfdb188ce9f2575
+replayed Contracts.VerifyCounter.StageSource 7c16eb84cab216b14e7e6d081105c2a88f738bf0baa9647b1c04033fd2c40595
+replayed Contracts.VerifyCounter.ShapeSource 8811dd81dd0d428e86e72ebb6f04d7d95594086fd6a1106fb1dc595c65ba1f8e
+replayed Verify.VC.Model 22e28df95746794a40e273596a886e2d66dd482596337918a72532cd2131bd93
+replayed Verify.Spec.Tree 8de11cc61ecdb097ae2555b1e9909ebab20ba9eb7e4014f63bfb8bf3538a44c4
+replayed Verify.ShapeSpecExport 0e0a53bb97add2a2daeb22ba5e5a03b131a0afa0a0d21a558a668bcb4a92e14e
+replayed verify_counter.Statement bc268183915ba6bf7e782090cb012a6075d44a24b67b18572b9ed0b67a29ff02
+replayed Contracts.VerifyCounter.ShapeExport 3d1ca4727eea9d511186feba1b5fba4b72b9dc2ec7f8b4b97130f4fd2d032071
+replayed verify_counter.Final cb3bef6dbff9ce09d0e18c481a61429b3528f9292a2b36656e1190023687e74a
+'Certified.verify_counter.Final.final' depends on axioms: [propext, Classical.choice, Quot.sound]
+published: Certified.verify_counter.Final.final
+== 7. negative tests
+skipped (--no-negatives)
+record: /home/hand/solarb/target/certify/solidity-lean/.lake/certify-verify_counter.json and Certified/verify_counter/record.json
+mir_to_evmir: proved: SolarTV.Milestone.VerifyCounter.verify_counter_mir_to_evmir
+assembly: executed: inside the published statement Certified.verify_counter.Final.final (Shapes.Equiv and Resources over Target.runWith of the exact bytes); Proofs/: executed: SolarTV.Milestone.VerifyCounter.verify_counter_bytecode
+vc: exported to .lake/certify/verify_counter/VC.lean
+loops: proved in the kernel: Counter.bump (5 templates, theorem LoopCert.Counter.bump.certified); every required obligation of each by vc_smt, audited to propext, Classical.choice and Quot.sound by Verify/Discharge, none vacuous
+end_to_end: proved (contract-specific): SolidCore.Refinement.Solar.VerifyCounter.spec_holds_of_bytecode
+caveats: solidity-lean at a86139b8a130d0cb5722a6eac62a9cfaef75a8ec, not the pinned d0ab5d63a401ae615a4755742f3ab500a2a9d0b1; solar 68903b85f92017a1850125afec1abadc053087fc, not built from this checkout's compiler sources; provenance: the solar checkout (driver or compiler sources) is not its commit 902cccc2cb1213219789780a39caf3c1d4d9f35e: changed: scripts/certify;; provenance: solar was not built by this run and its digest cad1beb1419b86cd47d26c71c2fec328f7e964163d9d2089fec7753c776c4e44 is not the recorded CERTIFY_SOLAR_SHA256; provenance: the starting build directory is trusted, not rebuilt from source (CERTIFY_CLEAN_BUILD=1); 1 spec function(s) refused, unproved; provenance: 3483 modules of the published closure trusted by directory, not replayed in this run (CERTIFY_REPLAY_TRUST_UPSTREAM=1); negative tests skipped
+statuses: equivalence proved (published statement, Shapes.Equiv): at every gas below 2^256 every result of the exact bytecode on a valid call is the source's, or a failure that changes nothing (out of gas or a revert, whatever its data); such a failure only below the gas bound, and from the bound on exactly the source's, revert data included (Shapes.EquivG, Shapes.Certified.equivG), termination proved (published statement, Shapes.Terminates): the source ends on every valid call with an allowed status; the bytecode too, at gas from the bound on, spec proved (published statement, Shapes.Meets of Shapes.bundlePost of the specification solar-verify exported in this run, NonVacuous in the statement): the specification of every source result on a valid call, hence of every bytecode result that is not an inert failure, resources proved (published statement, Shapes.Resources): from the gas bound on, below 2^64, the bytecode gives the source's result, vacuity proved non-vacuous (NonVacuous in the statement), source Contracts/VerifyCounter/SourceAst.lean is the front end's AST of Counter in Certified/verify_counter/verify_counter.sol (solc 0.8.35), strongest False
+CHECKED verify_counter (Counter), published Certified.verify_counter.Final.final; not certified: not proved: none; bytecode 34603c575f3560e01c806306661abd1460525780636d5433e6146101af578063a4d66daf14605b578063b20eb4c4146073578063d09de08a146065575b5f5ffd5b6011602052634e487b715f526024601cfd5b5f545f5260205ff35b6001545f5260205ff35b5f5460010180156040575f55005b60243610603c576004355f54818101818110604057600154106101d25780816080525f60a0528082820361019a575f5f91925060db565b506080516001840180158583036101675760405780608052600160a05260018301925f191480610182575093505060015b8482105f54808503610111575060aa5760a051815f10828203610152571561010f5750505050608051815f5581810361013e575b005b90506d011100000004000000010000000f939091935b60205260405260605263ed572b275b5f526064601cfd5b6d012100000004000000050000000e610127565b506d012100000004000000040000000c610127565b505090506d0121000000040000000300000008929192610127565b5f6d0102000000040000000a00000012919091610127565b506d010300000004000000070000000b610127565b60443610603c576004356024358082106101cb57505f5260205ff35b5f5260205ff35b636f76657260e01b6004602080526040526060526308c379a061013656
+exit 0

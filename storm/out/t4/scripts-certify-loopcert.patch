@@ -1,0 +1,262 @@
+diff --git a/scripts/certify b/scripts/certify
+index 4dbde9786..fa58a8d07 100755
+--- a/scripts/certify
++++ b/scripts/certify
+@@ -25,6 +25,12 @@
+ # 3. Compiles CERTIFIED/NAME/NAME.sol with -Zemit-lean-stages, checks that the flag leaves the
+ #    runtime bytecode as it is, that it is CERTIFIED/NAME/bytecode.hex when that pin exists, and
+ #    the manifest's hashes.
++# 3b. Every function with a loop: solar-verify --dry-run --no-infer --emit-loopvc exports this
++#    run's source (with --invariants FILE, a copy with FILE's invariants and ranking functions
++#    inserted as annotation comments by solidity-lean's Verify/Infer/loopvc/loopcert.py annotate,
++#    whose runtime bytecode must equal the source's), and loopcert.py plan finds each function
++#    with a loop required or blocked (a call in the loop, several loops, no invariant, no
++#    decreases, an export that does not match its hashes). A blocked loop fails the run.
+ # 4. tools/certify/certify.py writes CERTIFIED/NAME/Proofs: per pair of consecutive stages a
+ #    sym_exec proof, their composition from the first lowered MIR to the final EVM IR, and the
+ #    assembly walk of the bytecode against the final EVM IR.
+@@ -37,6 +43,12 @@
+ #    (unproved), never as passing; --require-spec fails on any. When CERTIFIED/NAME/headline exists (lines "MODULE THEOREM": the source-to-bytecode or
+ #    spec-to-bytecode theorems solidity-lean states for the contract), builds each MODULE and
+ #    audits each THEOREM the same way. --require-headline fails when there is none.
++#    Step 3b's loops are proved by solidity-lean's Verify/Infer/loopvc/run.sh on that export:
++#    per function, a certificate whose theorem certified (every template on the entry, back and
++#    exit edges at the candidate: initiation, preservation, the rank's fall, exit) builds with no
++#    axiom but propext, Classical.choice and Quot.sound, and Verify/Discharge's audit of each
++#    instance, none vacuous. Failed or inconclusive fails the run; the record's loops field is
++#    the receipt.
+ # 6b. When CERTIFIED/NAME/shape.json exists, tools/certify/final.py writes CERTIFIED/NAME/Final.lean:
+ #    the published statement, fixed by the driver from shape.json and the bytecode this run
+ #    compiled (exact byte equality with the fresh export, then Shapes.Certified,
+@@ -173,7 +185,7 @@ audit() {
+     python3 "$here/guard_build.py" check "$lean_dir/.lake/build/lib/lean" "$snap" "$lean_dir/.lake/certify-guard.allow" ||
+         die "the axiom audit changed the package build (removed, rebuilt from source next run)"
+ }
+-usage="usage: scripts/certify FILE.sol [--contract C] [--name NAME] [--loops N] [--no-negatives] [--require-headline] [--require-spec] [--require-final] [-- SOLAR_OPTIONS...]"
++usage="usage: scripts/certify FILE.sol [--contract C] [--name NAME] [--loops N] [--no-negatives] [--require-headline] [--require-spec] [--require-final] [--invariants FILE] [-- SOLAR_OPTIONS...]"
+ [[ $# -ge 1 ]] || die "$usage"
+ [[ "$1" != -h && "$1" != --help ]] || { sed -n '2,/^set -euo/p' "${BASH_SOURCE[0]}" | sed '$d; s/^# \{0,1\}//'; exit 0; }
+ [[ -f "$1" ]] || die "no such file $1"
+@@ -186,6 +198,7 @@ negatives=1
+ require_headline=0
+ require_spec=0
+ require_final=0
++invariants=
+ options=()
+ while [[ $# -gt 0 ]]; do
+     case "$1" in
+@@ -196,6 +209,7 @@ while [[ $# -gt 0 ]]; do
+         --require-headline) require_headline=1; shift ;;
+         --require-spec) require_spec=1; shift ;;
+         --require-final) require_final=1; shift ;;
++        --invariants) invariants=$(realpath "$2") || die "no such file $2"; shift 2 ;;
+         --) shift; options=("$@"); break ;;
+         *) die "unknown argument $1; $usage" ;;
+     esac
+@@ -333,6 +347,23 @@ else
+ fi
+ echo "solar sha256 $solar_sha"
+ 
++# find_verify: sets verify to solar-verify (SOLAR_VERIFY, else built from crates/verify when this
++# checkout has it), once; empty when there is none.
++verify_found=0
++verify=
++find_verify() {
++    [[ $verify_found -eq 0 ]] || return 0
++    verify_found=1
++    verify="${SOLAR_VERIFY:-}"
++    if [[ -z "$verify" && -d "$root/crates/verify" ]]; then
++        if [[ -z "${CERTIFY_SKIP_BUILD:-}" ]]; then
++            (cd "$root" && run cargo build --locked -j "$CARGO_BUILD_JOBS" -p solar-verify --bin solar-verify 2>&1 | tail -n 1)
++        fi
++        verify="${CARGO_TARGET_DIR:-$root/target}/debug/solar-verify"
++    fi
++    [[ -z "$verify" || -x "$verify" ]] || die "no solar-verify binary at $verify"
++}
++
+ echo "== 3. compile $source and export its stages (${options[*]})"
+ compile() { "$solar" "$source" "${options[@]}" --emit=bin-runtime "$@"; }
+ # solar's status is checked on its own, never through a pipe: output it printed before failing
+@@ -412,6 +443,55 @@ print("stages:", ", ".join(f"{s['definition']} ({s['pass']})" for s in manifest[
+ print("bytecode:", bytecode, "sha256", manifest["bytecode_sha256"])
+ EOF
+ 
++# 3b. Every function with a loop, exported from this run's source (with --invariants, from a copy
++# annotated with them) and planned before any Lean runs: required, or blocked, which fails the run.
++loop_dir=
++loop_status="none: no function with a loop"
++loop_lib="$lean_dir/Verify/Infer/loopvc"
++find_verify
++if [[ -n "$verify" && -f "$loop_lib/loopcert.py" ]]; then
++    echo "== 3b. the loops (solar-verify --emit-loopvc, Verify/Infer/loopvc)"
++    loop_work="$lean_dir/.lake/certify/$name/loops"
++    rm -rf "$loop_work"
++    mkdir -p "$loop_work"
++    loop_src="$source"
++    if [[ -n "$invariants" ]]; then
++        # Inside the run's directory, so the export names it relative to the root like the source.
++        loop_src="$dir/.loopvc/$name.sol"
++        rm -rf "$dir/.loopvc"; mkdir -p "$dir/.loopvc"
++        python3 "$loop_lib/loopcert.py" annotate "$source" "$invariants" "$loop_src" > "$loop_work/annotate.json" ||
++            die "cannot insert the invariants of $invariants into $source"
++        # Comments only: the annotated copy must compile to the bytecode this run certifies.
++        status=0
++        "$solar" "$loop_src" "${options[@]}" --emit=bin-runtime > "$loop_work/annotated.bin" 2> "$loop_work/annotated.log" || status=$?
++        [[ $status -eq 0 ]] || { cat "$loop_work/annotated.log" >&2; die "solar cannot compile the annotated $loop_src"; }
++        annotated="$(source="$loop_src" bin_runtime "solar's output for $loop_src" < "$loop_work/annotated.bin")" ||
++            die "$loop_src has no contract $contract with runtime bytecode (above)"
++        [[ "$annotated" == "$plain" ]] || die "the annotated copy of $source does not compile to the same bytecode"
++        echo "invariants: $invariants inserted into $loop_src, runtime bytecode unchanged"
++    fi
++    loop_dir="$loop_work/vc"
++    status=0
++    "$verify" --dry-run --no-infer --emit-loopvc "$loop_dir" "$loop_src" > "$loop_work/export.log" 2>&1 || status=$?
++    # A dry run proves nothing, so solar-verify exits 1 for what it did not discharge; it still
++    # ends with its summary line, which a run cut short does not print.
++    [[ $status -le 1 ]] && grep -q '^verification results::' "$loop_work/export.log" ||
++        { tail -n 20 "$loop_work/export.log" >&2; die "solar-verify --emit-loopvc fails on $loop_src (exit $status)"; }
++    [[ -f "$loop_dir/manifest.json" ]] || die "solar-verify wrote no $loop_dir/manifest.json"
++    status=0
++    python3 "$loop_lib/loopcert.py" plan "$loop_dir" > "$loop_work/plan.json" || status=$?
++    [[ $status -eq 0 || $status -eq 3 ]] || die "cannot plan the loops of $loop_src"
++    jq -r '.units[] | select(.status != "no-loop") | "  \(.unit) \(.status)\(if .reason then ": " + .reason else "" end)"' "$loop_work/plan.json"
++    [[ $status -eq 0 ]] || die "a loop of $contract is blocked (above): no certificate covers it, so it cannot be certified"
++    if [[ -z "$(jq -r '.units[] | select(.status == "required") | .unit' "$loop_work/plan.json")" ]]; then
++        loop_dir=
++    else
++        loop_status="planned, not proved"
++    fi
++elif [[ $loops -gt 0 ]]; then
++    die "$dir/loops says $contract has loops, and there is no solar-verify or $loop_lib to certify them"
++fi
++
+ echo "== 4. write the proofs"
+ rm -rf "$dir/Proofs" "$dir/Proofs.lean"
+ info="$(python3 "$here/certify.py" "$gen" --gen-module "$name.gen.$contract" \
+@@ -528,6 +608,27 @@ prebuild_packages() {
+     tail -n 1 "$lean_dir/.lake/certify-packages-$name.log"
+ }
+ 
++# spec_export_fresh: when shape.json takes its specification from solar-verify's export, writes it
++# fresh from the source in this run, as NAME.gen.CONTRACT.Spec (the bundle the statement's
++# postcondition reads, Shapes.bundlePost), once. Step 3 removed the exported directory, and the
++# modules shape.json names import it, so it is written before anything builds them.
++spec_exported=0
++spec_export_fresh() {
++    [[ $spec_exported -eq 0 && -f "$dir/shape.json" ]] || return 0
++    spec_exported=1
++    if python3 -c 'import json,sys; sys.exit(0 if "spec_export" in json.load(open(sys.argv[1])) else 1)' "$dir/shape.json"; then
++        find_verify
++        [[ -n "$verify" && -x "$verify" ]] || die "shape.json takes its specification from solar-verify's export, and there is no solar-verify"
++        rm -f "$dir/gen/$contract/Spec.lean"
++        "$verify" --emit-lean-spec "$dir/gen/$contract/Spec.lean" --lean-spec-module "Certified.$name.gen.$contract.Spec" \
++            "$source" > "$log" 2>&1 || { cat "$log" >&2; die "solar-verify cannot export the specification of $source"; }
++        [[ -s "$dir/gen/$contract/Spec.lean" ]] || die "solar-verify wrote no specification for $source"
++        # The whole module, of this run's source: truncated or stale fails here, before Lean reads it.
++        python3 "$here/export_check.py" spec "$dir/gen/$contract/Spec.lean" "Certified.$name.gen.$contract.Spec" \
++            --source "$source" --contract "$contract" || die "the exported specification of $source is not whole"
++        bash "$here/audit.sh" scan "$dir/gen/$contract/Spec.lean" || die "the exported specification fails the scan"
++    fi
++}
+ echo "== 6. the spec (solar-verify) and the headline theorems"
+ # What the headline and the published statement import from the lake packages, built first.
+ pre_targets=()
+@@ -541,6 +642,7 @@ if [[ -f "$dir/shape.json" ]]; then
+     pre_targets+=("${pre_shape[@]}")
+ fi
+ [[ $require_spec -eq 0 ]] || pre_targets+=(Verify.VC.Discharge)
++spec_export_fresh
+ if [[ ${#pre_targets[@]} -gt 0 ]]; then
+     if grep -q '"mathlib"' "$lean_dir/lake-manifest.json" 2>/dev/null && [[ ! -d "$lean_dir/.lake/packages/mathlib/.lake/build/lib" ]]; then
+         (cd "$lean_dir" && run lake exe cache get) || die "cannot fetch Mathlib's build cache"
+@@ -551,13 +653,7 @@ fi
+ # the fragment solidity-lean's checks model is refused, recorded as unproved and never passes.
+ spec_status="not checked: no solar-verify"
+ refused=()
+-verify="${SOLAR_VERIFY:-}"
+-if [[ -z "$verify" && -d "$root/crates/verify" ]]; then
+-    if [[ -z "${CERTIFY_SKIP_BUILD:-}" ]]; then
+-        (cd "$root" && run cargo build --locked -j "$CARGO_BUILD_JOBS" -p solar-verify --bin solar-verify 2>&1 | tail -n 1)
+-    fi
+-    verify="${CARGO_TARGET_DIR:-$root/target}/debug/solar-verify"
+-fi
++find_verify
+ if [[ -n "$verify" ]]; then
+     [[ -x "$verify" ]] || die "no solar-verify binary at $verify"
+     spec_dir="$lean_dir/.lake/certify/$name"
+@@ -644,6 +740,26 @@ elif [[ $require_spec -eq 1 ]]; then
+ fi
+ [[ ${#refused[@]} -eq 0 ]] || caveats+=("${#refused[@]} spec function(s) refused, unproved")
+ echo "spec: $spec_status"
++# Step 3b's loops, proved in the kernel by Verify/Infer/loopvc/run.sh on exactly that export,
++# sandboxed: it builds Verify/Discharge/Reconstruct from the pinned checkout and writes only the
++# loop directory. Anything but every loop proved fails the run.
++loop_receipt=
++if [[ -n "$loop_dir" ]]; then
++    resolve_toolchain
++    dlog="$lean_dir/.lake/certify-loops-$name.log"
++    (cd Verify/Discharge/Reconstruct && run env PATH="$toolchain/bin:$PATH" lake "-KleanMemory=$memory" build -q) > "$dlog" 2>&1 ||
++        { tail -n 30 "$dlog" >&2; die "cannot build Verify/Discharge/Reconstruct"; }
++    status=0
++    run env PATH="$toolchain/bin:$PATH" DISCHARGE_SOURCE_ROOT="$lean_dir" bash "$here/sandbox.sh" "$loop_work"         bash "$loop_lib/run.sh" "$loop_dir" "$loop_work/out" "${CERTIFY_LOOPVC_TIMEOUT:-600}" >> "$dlog" 2>&1 || status=$?
++    grep -E '^(plan|certificate|discharge|loop): ' "$dlog" | sed 's/^/  /' || true
++    [[ -f "$loop_work/out/receipt.json" ]] || { tail -n 30 "$dlog" >&2; die "Verify/Infer/loopvc wrote no receipt for the loops of $name"; }
++    [[ $status -eq 0 ]] || die "the loops of $contract are not all proved in the kernel (exit $status; $dlog)"
++    loop_receipt="$lean_dir/.lake/certify-loops-$name.json"
++    cp "$loop_work/out/receipt.json" "$loop_receipt"
++    loop_status="$(jq -r '[.units[] | select(.status == "proved") | "\(.unit) (\([.edges[][]] | length) templates, theorem \(.theorem))"] | "proved in the kernel: " + join(", ") + "; every required obligation of each by vc_smt, audited to propext, Classical.choice and Quot.sound by Verify/Discharge, none vacuous"' "$loop_receipt")" ||
++        die "cannot read $loop_receipt"
++fi
++echo "loops: $loop_status"
+ if [[ -f "$dir/headline" || ( $require_spec -eq 1 && -f "$dir/spec" ) ]]; then
+     hfiles=()
+     [[ ! -f "$dir/headline" ]] || hfiles+=("$dir/headline")
+@@ -721,19 +837,9 @@ replay_receipt="$lean_dir/.lake/certify-$name.json.replay"
+ rm -f "$final_record" "$replay_receipt"
+ final_thm=
+ if [[ -f "$dir/shape.json" ]]; then
+-    # A specification from solar-verify's export: written fresh from the source in this run, as
+-    # NAME.gen.CONTRACT.Spec, the bundle the statement's postcondition reads (Shapes.bundlePost).
+-    if python3 -c 'import json,sys; sys.exit(0 if "spec_export" in json.load(open(sys.argv[1])) else 1)' "$dir/shape.json"; then
+-        [[ -n "$verify" && -x "$verify" ]] || die "shape.json takes its specification from solar-verify's export, and there is no solar-verify"
+-        rm -f "$dir/gen/$contract/Spec.lean"
+-        "$verify" --emit-lean-spec "$dir/gen/$contract/Spec.lean" --lean-spec-module "Certified.$name.gen.$contract.Spec" \
+-            "$source" > "$log" 2>&1 || { cat "$log" >&2; die "solar-verify cannot export the specification of $source"; }
+-        [[ -s "$dir/gen/$contract/Spec.lean" ]] || die "solar-verify wrote no specification for $source"
+-        # The whole module, of this run's source: truncated or stale fails here, before Lean reads it.
+-        python3 "$here/export_check.py" spec "$dir/gen/$contract/Spec.lean" "Certified.$name.gen.$contract.Spec" \
+-            --source "$source" --contract "$contract" || die "the exported specification of $source is not whole"
+-        bash "$here/audit.sh" scan "$dir/gen/$contract/Spec.lean" || die "the exported specification fails the scan"
+-    fi
++    # A specification from solar-verify's export (spec_export_fresh, written in step 6 before the
++    # lake packages its modules import are built).
++    spec_export_fresh
+     # The source-level connection of that specification, generically: when shape.json's generic
+     # block has spec_connect, tools/certify/spec_connect.py proves every function spec of the fresh
+     # export of SolidCore's contract from the generic stage's erased trees (NAME.SpecConnect, each
+@@ -1189,11 +1295,25 @@ for path in (out, committed):
+         f.write("\n")
+ EOF
+ rm -f "$record.refused" "$record.caveats" "$record.headline" "$record.binding"
++# The loop obligations' status and receipt (step 3b and 6), in both copies of the record.
++python3 - "$record" "$dir/record.json" "$loop_status" "$loop_receipt" <<'EOF' || die "cannot add the loop obligations to the record"
++import json, sys
++status, receipt = sys.argv[3], sys.argv[4]
++for path in sys.argv[1:3]:
++    with open(path) as f:
++        d = json.load(f)
++    d["statuses"]["loops"] = status
++    d["loops"] = json.load(open(receipt)) if receipt else None
++    with open(path, "w") as f:
++        json.dump(d, f, indent=2, ensure_ascii=False)
++        f.write("\n")
++EOF
+ check_run_record "$record"
+ echo "record: $record and $dir/record.json"
+ echo "mir_to_evmir: $mir_status"
+ python3 -c 'import json,sys; print("assembly: " + json.load(open(sys.argv[1]))["assembly"])' "$record"
+ echo "vc: $spec_status"
++echo "loops: $loop_status"
+ if [[ ${#e2e_thms[@]} -gt 0 ]]; then echo "end_to_end: proved ($e2e_kind): ${e2e_thms[*]}"; else echo "end_to_end: not proved"; fi
+ python3 -c 'import json,sys; c=json.load(open(sys.argv[1]))["caveats"]; c and print("caveats: " + "; ".join(c))' "$record"
+ python3 -c 'import json,sys; s=json.load(open(sys.argv[1]))["statuses"]; print("statuses: " + ", ".join(k + " " + str(s[k]) for k in ("equivalence", "termination", "spec", "resources", "vacuity", "source", "strongest") if k in s))' "$record"

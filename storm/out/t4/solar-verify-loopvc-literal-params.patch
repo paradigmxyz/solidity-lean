@@ -1,0 +1,36 @@
+diff --git a/crates/verify/src/vc/infer.rs b/crates/verify/src/vc/infer.rs
+index a9bd9ce06..143855049 100644
+--- a/crates/verify/src/vc/infer.rs
++++ b/crates/verify/src/vc/infer.rs
+@@ -502,7 +502,7 @@ impl<'p, 'a> Vc<'p, 'a> {
+         for n in &names {
+             let v = &head[*n];
+             let sort = v.ty.sort();
+-            if (sort != "Int" && sort != "Bool") || !super::is_atom(&v.t) {
++            if (sort != "Int" && sort != "Bool") || !is_symbol(&v.t) {
+                 continue;
+             }
+             let Some(e) = entry.get(*n) else { continue };
+@@ -520,7 +520,7 @@ impl<'p, 'a> Vc<'p, 'a> {
+                 let Some(o) = old.get(*n) else { continue };
+                 let sort = o.ty.sort();
+                 if (sort != "Int" && sort != "Bool")
+-                    || !super::is_atom(&o.t)
++                    || !is_symbol(&o.t)
+                     || out.iter().any(|p| p.symbol == o.t)
+                 {
+                     continue;
+@@ -1206,3 +1206,13 @@ pub(crate) fn expr_text(e: &Expr<'_>) -> String {
+         _ => "<expr>".into(),
+     }
+ }
++
++/// A cut parameter is a declared constant: an atom that is not a literal. A value fixed to a
++/// literal (a named return's 0 at function entry, a local set to a constant and only read in the
++/// loop) is that literal in every formula, so it is no parameter of the cut.
++fn is_symbol(t: &str) -> bool {
++    super::is_atom(t)
++        && t != "true"
++        && t != "false"
++        && !t.starts_with(|c: char| c.is_ascii_digit() || c == '-' || c == '#')
++}
