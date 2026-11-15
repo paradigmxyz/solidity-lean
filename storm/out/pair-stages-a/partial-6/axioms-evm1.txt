@@ -1,0 +1,67 @@
+'SolarTV.Milestone.Uv2PairM.evm1_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2PairM.evm1_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+SolarTV.Milestone.Uv2PairM.evm1_certified : ∀ (o : SolarTV.Machine.Oracle),
+  SolarTV.Machine.Certified SolarTV.EVM.Program.layer SolarTV.EVM.Program.layer o SolarTV.Export.UniswapV2Pair.sched
+    SolarTV.Export.UniswapV2Pair.evm1 fun call =>
+    EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 910484757 ∧
+      EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 3130686038 ∧
+        EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 816707615 ∧
+          EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 3714247998 ∧
+            EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 157198259 ∧
+              EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 1889567281 ∧
+                EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 826074471 ∧
+                  EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 3294232917 ∧
+                    EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 151187884 ∧
+                      EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 1214040405 ∧
+                        EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 1952775229 ∧
+                          EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 117300739 ∧
+                            EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 2127478272 ∧
+                              EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 3573918927 ∧
+                                EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 1493811413 ∧
+                                  EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 1513968787 ∧
+                                    EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 3156594551 ∧
+                                      EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 36441503 ∧
+                                        EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 2514000705 ∧
+                                          EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 4294363881 ∧
+                                            EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 234755713 ∧
+                                              EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 3524403367 ∧
+                                                EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 404098525 ∧
+                                                  EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠
+                                                      2835717307 ∧
+                                                    EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠
+                                                        599290589 ∧
+                                                      EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠
+                                                        2309999428
+SolarTV.Milestone.Uv2PairM.evm1_certified_back : ∀ (o : SolarTV.Machine.Oracle),
+  SolarTV.Machine.Certified SolarTV.EVM.Program.layer SolarTV.EVM.Program.layer o SolarTV.Export.UniswapV2Pair.evm1
+    SolarTV.Export.UniswapV2Pair.sched fun call =>
+    EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 910484757 ∧
+      EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 3130686038 ∧
+        EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 816707615 ∧
+          EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 3714247998 ∧
+            EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 157198259 ∧
+              EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 1889567281 ∧
+                EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 826074471 ∧
+                  EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 3294232917 ∧
+                    EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 151187884 ∧
+                      EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 1214040405 ∧
+                        EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 1952775229 ∧
+                          EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 117300739 ∧
+                            EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 2127478272 ∧
+                              EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 3573918927 ∧
+                                EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 1493811413 ∧
+                                  EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 1513968787 ∧
+                                    EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 3156594551 ∧
+                                      EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 36441503 ∧
+                                        EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 2514000705 ∧
+                                          EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 4294363881 ∧
+                                            EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 234755713 ∧
+                                              EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 3524403367 ∧
+                                                EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠ 404098525 ∧
+                                                  EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠
+                                                      2835717307 ∧
+                                                    EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠
+                                                        599290589 ∧
+                                                      EvmRules.Evm.shr 224 (SolarTV.Machine.calldataWord call 0) ≠
+                                                        2309999428
+/home/hand/w/scratch/ax_e1.lean:6:7: error(lean.unknownIdentifier): Unknown constant `SolarTV.Milestone.Uv2PairM.scope`
