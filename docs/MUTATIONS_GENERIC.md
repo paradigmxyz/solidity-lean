@@ -66,18 +66,30 @@ verdict for the environment premise or for the envelope.
 
 ## Proof runs
 
-The proof run on MeterWrongSpec, started on driver 9869393, was stopped before its verdict: that
-driver does not connect the spec. From driver 133a1bb6 the spec is connected: SpecConnect proves
-solar-verify's export of the NatSpec, and the published statement includes non-vacuity from one
-witness call. In the driver owner's warm run, SpecConnect cannot yet prove Meter's checked-add
-postcondition, so Meter and MeterWrongSpec are both refused at SpecConnect. The discriminating
-pairs today are those without checked arithmetic: SiblingOk against SiblingLeak and
-SiblingFnsFlat, and the flat invariant and environment negatives.
+Cold runs (`CERTIFY_CLEAN_BUILD`, `LEAN_MEMORY=6000`, `LEAN_NUM_THREADS=1`), one at a time.
 
-Each proof run is a cold build of the whole closure, so this suite runs one per acceptance run.
-Next: SiblingOk, the positive twin, on 133a1bb6. Its record directory also feeds the replay cases.
-A negative counts as caught by its own fault only when its positive twin reaches the requested
-tier.
+| case | expected | actual | rejecting check | driver / base | receipt |
+|---|---|---|---|---|---|
+| SiblingLeak (false ensures `x <= 5 ==> level == 1`; succeeds-if `msg.value == 0`) | REJECTED by its spec | `REJECTED: spec: set_meets0 does not check: omega could not prove the goal: (SpecConnect.lean:67)`, exit 1 | SpecConnect `set_meets0` (the tree of `set` against its exported spec): the fault's own check | solar 20a27f39 / solidity-lean 44572c15 | exit 1, peak 5271 MB, 679 s; record.json status REJECTED, bytecode sha256 707f63a7…, gas bound 2033203 |
+
+Notes on the SiblingLeak run:
+
+* No statement module was built: the run stopped at SpecConnect, before Shape, Final and Statement.
+  So no theorem exists to audit with `#print axioms`, and nothing depends on `sorryAx`.
+* Earlier attempts gave no verdict. Two were killed by Hand restarts, one on driver 26cbbc78. On
+  26cbbc78 the driver printed "spec connected generically" before the kernel had checked
+  SpecConnect. A direct `lake env lean` of that generated file failed at `set_meets0` (omega),
+  leaving `set_holds` dependent on `sorryAx`. That check is not a control and is not counted.
+  Driver 20a27f39 elaborates SpecConnect before naming any theorem, and the verdict above is its
+  own.
+* The log also shows `scripts/certify: line 775: holds: bad array subscript`. It comes from
+  unsetting the last element of an empty array after spec_connect.py exits non-zero. It is harmless
+  to the verdict, but it is a shell error on the rejection path.
+
+The positive twin, SiblingOk, and the independent held-out positive, Flag, run in the driver
+owner's cold queue. A negative counts as caught by its own fault only when its positive twin
+reaches the requested tier, so SiblingLeak's row is final only once SiblingOk certifies on the
+same pins.
 
 ## Replay cases
 
