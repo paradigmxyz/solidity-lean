@@ -1,0 +1,77 @@
+--- a/solar-tv/milestone/cutpoints.py	2026-11-15 05:00:30.609852549 +0000
++++ b/solar-tv/milestone/cutpoints.py	2026-11-15 05:16:48.796347628 +0000
+@@ -1241,6 +1241,29 @@
+     return out
+ 
+ 
++# Effects whose word is the same on every read of a call: the frame's own address, and the
++# calldata's size and value. The scheduler recomputes them where they are used rather than keep
++# them on the stack, so a cut point relates them by an equation to that word instead of a stack
++# word. (CALLER and constant calldata loads read the oracle or need the call's operand, kept
++# out: the relations see only the call.)
++CALL_CONSTANTS = {
++    "address": "BitVec.ofNat 256 SolarTV.environment.callee",
++    "calldatasize": "BitVec.ofNat 256 call.calldata.size",
++    "callvalue": "BitVec.ofNat 256 call.callvalue",
++}
++
++
++def call_constants(func):
++    """A function's values defined by a call-constant effect, with the word each holds."""
++    out = {}
++    for _, insts, _ in func["blocks"].values():
++        for ins in insts:
++            m = re.fullmatch(r"\.effect \(some (\d+)\) \.(\w+) \[\]", ins)
++            if m and m[2] in CALL_CONSTANTS:
++                out[int(m[1])] = CALL_CONSTANTS[m[2]]
++    return out
++
++
+ def frame_rel(fa_list, fb_list, ctx):
+     """The stacks of returns of a call string in both modules, the caller values' variables and
+     the conditions that relate them: every value the caller reads after the call the same."""
+@@ -1848,13 +1871,27 @@
+             for _ in range(below):
+                 junk.append(f"j{len(junk)}")
+                 words.append(junk[-1])
++            # A call-constant value live at the cut that the stack does not hold, here and in each
++            # caller's frame, as the word every read of it gives.
++            conds = []
++            held = {int(x[1:]) for x in layout if x.startswith("v")}
++            live_f, _ = mir_liveness(funcs[f])
++            for v, w in sorted(call_constants(funcs[f]).items()):
++                if v in live_f[h] and v not in held and v not in dsts:
++                    conds.append(f"env {v} = {w}")
++            for n, (site, below_n) in enumerate(zip(ctx, belows)):
++                kept = {int(x[1:]) for x in below_n if x.startswith("v")}
++                after = live_after_call(funcs[site[0]], site)
++                for v, w in sorted(call_constants(funcs[site[0]]).items()):
++                    if v in after and v not in kept:
++                        conds.append(f"c{n} {v} = {w}")
+             rels.append(
+                 {
+                     "src_vars": [("env", "MIR.Lowered.Env")] + fvars + [("s", "State")],
+                     "tgt_vars": [(j, "EvmRules.Word") for j in junk],
+                     "src": f"({frames}, MIR.Lowered.Pos.enter {f} {pa} {h}, env, s)",
+                     "tgt": f"({e}, [{', '.join(words)}], s)",
+-                    "conds": [],
++                    "conds": conds,
+                 }
+             )
+     if tests_b and dynamic:
+@@ -1965,6 +2002,7 @@
+             if bm is None:
+                 return False
+             held = {int(x[1:]) for x in bm["layout"] if x.startswith("v")}
++            held |= set(call_constants(fa[f]))
+             live, _ = mir_liveness(fa[f])
+             dsts = {d for d, _ in fa[f]["blocks"][h][0]}
+             if not (live[h] | dsts) <= held:
+@@ -1979,6 +2017,7 @@
+                     except Unsupported:
+                         return False
+                     kept = {int(x[1:]) for x in below if x.startswith("v")}
++                    kept |= set(call_constants(fa[site[0]]))
+                     if not live_after_call(fa[site[0]], site) <= kept:
+                         return False
+             return True
