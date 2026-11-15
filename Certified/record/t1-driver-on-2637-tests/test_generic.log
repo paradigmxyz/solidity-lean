@@ -1,0 +1,26 @@
+test_refused (__main__.ExpectedStatement.test_refused) ... ok
+test_writes_expected (__main__.ExpectedStatement.test_writes_expected) ... ok
+test_same_body_from_two_paths (__main__.FrontendLocation.test_same_body_from_two_paths) ... skipped 'needs SOLIDITY_LEAN_DIR and solc'
+test_clean_passes_the_checks (__main__.ReplayManifest.test_clean_passes_the_checks) ... ok
+test_modified_outside_inputs (__main__.ReplayManifest.test_modified_outside_inputs) ... ok
+test_modified_source (__main__.ReplayManifest.test_modified_source) ... ok
+test_stray_nested (__main__.ReplayManifest.test_stray_nested) ... ok
+test_stray_outside_inputs (__main__.ReplayManifest.test_stray_outside_inputs) ... ok
+test_kernel_memory (__main__.ResourceFailures.test_kernel_memory) ... ok
+test_proof_failure_is_not_resources (__main__.ResourceFailures.test_proof_failure_is_not_resources) ... ok
+test_bound (__main__.SourceBound.test_bound) ... ok
+test_refused (__main__.SourceBound.test_refused) ... ok
+test_failing_theorem_named (__main__.SpecConnectCheck.test_failing_theorem_named) ... ok
+test_tolerant_succeeds_proof (__main__.SpecConnectEmission.test_tolerant_succeeds_proof) ... ok
+test_environment_clause_blocked (__main__.SpecGates.test_environment_clause_blocked) ... ok
+test_msg_value_clause_allowed (__main__.SpecGates.test_msg_value_clause_allowed) ... ok
+test_no_succeeds_if_refused (__main__.SpecGates.test_no_succeeds_if_refused) ... ok
+test_spec_none_needs_no_succeeds_if (__main__.SpecGates.test_spec_none_needs_no_succeeds_if) ... ok
+test_guard_on_empty_capture (__main__.SpecRejectionPath.test_guard_on_empty_capture) ... ok
+test_rejected_line_is_the_verdict (__main__.SpecRejectionPath.test_rejected_line_is_the_verdict) ... ok
+
+----------------------------------------------------------------------
+Ran 20 tests in 151.158s
+
+OK (skipped=1)
+RECEIPT {"command": ["python3", "tools/certify/test_generic.py"], "exit_code": 0, "wall_seconds": 152.2, "max_rss_one_process_mib": 1340, "peak_tree_rss_mib": 1877, "peak_system_used_mib": 2928, "mem_total_mib": 14531, "samples": 76, "sample_interval_s": 2, "trace": "test_generic.receipt.trace.tsv", "memory_definitions": {"system_used_mib": "machine-wide MemTotal - MemAvailable (/proc/meminfo), all processes", "tree_rss_mib": "sum of VmRSS over the command's live process tree; shared pages count per process", "max_rss_one_process_mib": "getrusage(RUSAGE_CHILDREN).ru_maxrss: largest peak RSS of one reaped descendant"}, "started_utc": "2026-11-15T23:35:31Z"}

@@ -1,0 +1,21 @@
+{
+  "command": [
+    "python3",
+    "tools/certify/test_generic.py"
+  ],
+  "exit_code": 0,
+  "wall_seconds": 152.2,
+  "max_rss_one_process_mib": 1340,
+  "peak_tree_rss_mib": 1877,
+  "peak_system_used_mib": 2928,
+  "mem_total_mib": 14531,
+  "samples": 76,
+  "sample_interval_s": 2,
+  "trace": "test_generic.receipt.trace.tsv",
+  "memory_definitions": {
+    "system_used_mib": "machine-wide MemTotal - MemAvailable (/proc/meminfo), all processes",
+    "tree_rss_mib": "sum of VmRSS over the command's live process tree; shared pages count per process",
+    "max_rss_one_process_mib": "getrusage(RUSAGE_CHILDREN).ru_maxrss: largest peak RSS of one reaped descendant"
+  },
+  "started_utc": "2026-11-15T23:35:31Z"
+}
