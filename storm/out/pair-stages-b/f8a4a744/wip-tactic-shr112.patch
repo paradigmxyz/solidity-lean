@@ -1,0 +1,41 @@
+diff --git a/tv/W1Proofs/Tactic.lean b/tv/W1Proofs/Tactic.lean
+index 23fb12a..fa813e8 100644
+--- a/tv/W1Proofs/Tactic.lean
++++ b/tv/W1Proofs/Tactic.lean
+@@ -164,6 +164,27 @@ theorem zero_eq_shr160 (x : Word) :
+   rw [← shr160_eq_zero]
+   exact propext eq_comm
+ 
++/-- The 112-bit width test as solar spells it (`shr(112, x) == 0`), as the bound test
++`x < 2^112` that a `uint112` range check reads before `spell-width-tests`. -/
++theorem shr112_eq_zero (x : Word) :
++    (Evm.shr 112 x = 0) = ((x : Word) < 5192296858534827628530496329220096) := by
++  have hm : (5192296858534827628530496329220096 : Word).toNat = 2 ^ 112 := rfl
++  have hs : Evm.shr 112 x = x >>> 112 := by
++    unfold Evm.shr
++    rw [show (112 : Word).ult 256 = true from rfl, Bool.cond_true, BitVec.ushiftRight_eq']
++    rfl
++  rw [hs, BitVec.lt_def, hm]
++  apply propext
++  rw [BitVec.toNat_eq, BitVec.toNat_ushiftRight, Nat.shiftRight_eq_div_pow]
++  show x.toNat / 2 ^ 112 = 0 ↔ x.toNat < 2 ^ 112
++  rw [Nat.div_eq_zero_iff]
++  omega
++
++theorem zero_eq_shr112 (x : Word) :
++    (0 = Evm.shr 112 x) = ((x : Word) < 5192296858534827628530496329220096) := by
++  rw [← shr112_eq_zero]
++  exact propext eq_comm
++
+ /-- The address mask as `late-word` spells it, shifting the high 96 bits out and back
+ (`shr(96, shl(96, x))`), as the mask: so a test on a masked word reads the same in both programs. -/
+ theorem shr_shl96 (x : Word) :
+@@ -1054,7 +1075,7 @@ macro "sym_cond" : tactic => `(tactic|
+     cond_ne, cond_eq, cond_sub, cond_lt, cond_gt, cond_iszero, cond_or,
+     cond_zero_lt, cond_zero_gt, cond_zero_eq, cond_zero_ne, cond_zero_iszero,
+     wordAddComm, wordMulComm, wordAndComm, wordOrComm, wordXorComm, and_mask,
+-    mask_and, caller_le_mask, immutable20_le_mask, shr160_eq_zero, zero_eq_shr160, shr_shl96,
++    mask_and, caller_le_mask, immutable20_le_mask, shr160_eq_zero, zero_eq_shr160, shr112_eq_zero, zero_eq_shr112, shr_shl96,
+     and_self, and_true, true_and, and_false, false_and,
+     ite_true, ite_false,
+     not_false_eq_true, not_true_eq_false, Classical.not_not, ↓reduceIte, Nat.reduceGT, Nat.reduceLT,

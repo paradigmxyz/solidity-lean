@@ -1,6 +1,6 @@
 # pair-stages-b: UniswapV2Pair backend stages on getReserves()
 
-Status: delivered against the bases below; rebase onto solidity-lean #166 (f8a4a744) and solar #2637 (902cccc2) pending.
+Superseded by `f8a4a744/RESULT.md` (current base). Status here: delivered against the bases below; rebase onto solidity-lean #166 (f8a4a744) and solar #2637 (902cccc2) pending.
 
 Base: solidity-lean `alpharush/certified-translation` 9fb89ee, solar `alpharush/certified` 38b5232a.
 Patches (apply with `git am`):

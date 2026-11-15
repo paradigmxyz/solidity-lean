@@ -1,0 +1,276 @@
+'SolarTV.Milestone.Uv2Gr.checked' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.decodes' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm10_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm10_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm10_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm10_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm10_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm10_mk1' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm10_mk2' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm10_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm10_seg1' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm10_seg2' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm10_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm11_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm11_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm11_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm11_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm11_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm11_mk1' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm11_mk2' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm11_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm11_seg1' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm11_seg2' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm11_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm12_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm12_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm12_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm12_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm12_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm12_mk1' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm12_mk2' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm12_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm12_seg1' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm12_seg2' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm12_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm13_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm13_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm13_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm13_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm13_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm13_mk1' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm13_mk2' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm13_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm13_seg1' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm13_seg2' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm13_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm14_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm14_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm14_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm14_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm14_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm14_mk1' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm14_mk2' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm14_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm14_seg1' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm14_seg2' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm14_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm15_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm15_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm15_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm15_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm15_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm15_mk1' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm15_mk2' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm15_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm15_seg1' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm15_seg2' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm15_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm16_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm16_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm16_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm16_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm16_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm16_mk1' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm16_mk2' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm16_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm16_seg1' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm16_seg2' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm16_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm17_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm17_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm17_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm17_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm17_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm17_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm17_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm18_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm18_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm18_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm18_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm18_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm18_mk1' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm18_mk2' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm18_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm18_seg1' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm18_seg2' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm18_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm19_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm19_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm19_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm19_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm19_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm19_mk1' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm19_mk2' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm19_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm19_seg1' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm19_seg2' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm19_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm1_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm1_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm1_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm1_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm1_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm1_mk1' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm1_mk2' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm1_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm1_seg1' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm1_seg2' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm1_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm20_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm20_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm20_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm20_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm20_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm20_mk1' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm20_mk2' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm20_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm20_seg1' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm20_seg2' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm20_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm21_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm21_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm21_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm21_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm21_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm21_mk1' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm21_mk2' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm21_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm21_seg1' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm21_seg2' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm21_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm2_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm2_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm2_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm2_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm2_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm2_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm2_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm3_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm3_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm3_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm3_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm3_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm3_mk1' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm3_mk2' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm3_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm3_seg1' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm3_seg2' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm3_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm4_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm4_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm4_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm4_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm4_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm4_mk1' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm4_mk2' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm4_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm4_seg1' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm4_seg2' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm4_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm5_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm5_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm5_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm5_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm5_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm5_mk1' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm5_mk2' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm5_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm5_seg1' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm5_seg2' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm5_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm6_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm6_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm6_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm6_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm6_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm6_mk1' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm6_mk2' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm6_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm6_seg1' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm6_seg2' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm6_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm7_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm7_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm7_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm7_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm7_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm7_mk1' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm7_mk2' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm7_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm7_seg1' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm7_seg2' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm7_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm8_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm8_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm8_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm8_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm8_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm8_mk1' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm8_mk2' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm8_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm8_seg1' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm8_seg2' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm8_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm9_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm9_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm9_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm9_cutA_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm9_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm9_mk1' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm9_mk2' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.evm9_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm9_seg1' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm9_seg2' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.evm9_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.items_eq' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.mir1_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.mir1_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.mir1_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.mir1_cutA_enter' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.mir1_cutA_resume' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.mir1_cutB_enter' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.mir1_cutB_resume' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.mir1_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.mir1_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.mir2_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.mir2_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.mir2_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.mir2_cutA_enter' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.mir2_cutA_resume' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.mir2_cutB_enter' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.mir2_cutB_resume' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.mir2_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.mir2_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.mir3_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.mir3_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.mir3_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.mir3_cutA_enter' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.mir3_cutA_resume' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.mir3_cutB_enter' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.mir3_cutB_resume' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.mir3_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.mir3_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.mir4_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.mir4_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.mir4_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.mir4_cutA_enter' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.mir4_cutA_resume' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.mir4_cutB_enter' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.mir4_cutB_resume' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.mir4_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.mir4_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.sched_bounded' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.sched_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.sched_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.sched_cutA_enter' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.sched_cutA_resume' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.sched_cutB_mk' does not depend on any axioms
+'SolarTV.Milestone.Uv2Gr.sched_seg0' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.sched_segments' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.uv2_gr_certified' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.uv2_gr_certified_back' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.uv2_gr_mir_to_evmir' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.walkAt_eq' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Uv2Gr.walk_eq' depends on axioms: [propext, Quot.sound]
+SolarTV.Milestone.Uv2Gr.uv2_gr_mir_to_evmir : ∀ (o : SolarTV.Machine.Oracle),  SolarTV.Stage (SolarTV.mirSem o) (SolarTV.evmirSem o) SolarTV.Export.UniswapV2Pair.stage0    SolarTV.Export.UniswapV2Pair.evm21 SolarTV.Milestone.Uv2Gr.scope

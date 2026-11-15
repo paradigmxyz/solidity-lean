@@ -1,0 +1,91 @@
+From c15517ecdec464634d55acd77d88211e49a56932 Mon Sep 17 00:00:00 2001
+From: solar-tv <solar-tv@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 23:00:18 +0000
+Subject: [PATCH] fix(certify): no join cuts in a scoped dispatcher
+
+A segment that starts at a cut configuration starts from an arbitrary
+stack, so where the selector word is still on the stack, before the
+dispatcher's last excluded case, the scope's hypotheses on the call's
+selector no longer prune the excluded functions: the segment evaluates
+their bodies and fails or runs out of heartbeats. Under --exclude, the
+blocks from which an excluded case is reachable are no longer join or
+bound_segments cut points (loops still cut them). For UniswapV2Pair's
+getReserves() this keeps inline-returns' dispatcher in one segment,
+which then checks in 80 s.
+---
+ solar-tv/milestone/cutpoints.py | 36 +++++++++++++++++++++++++++++++--
+ 1 file changed, 34 insertions(+), 2 deletions(-)
+
+diff --git a/solar-tv/milestone/cutpoints.py b/solar-tv/milestone/cutpoints.py
+index bb430eeb..079b95c4 100644
+--- a/solar-tv/milestone/cutpoints.py
++++ b/solar-tv/milestone/cutpoints.py
+@@ -437,8 +437,12 @@ def evm_call_cuts(pass_name, a_blocks, b_blocks):
+     b_ids = [i for i, _ in b_blocks]
+     common = {i for i in a_ids if a_ids.count(i) == 1 and b_ids.count(i) == 1}
+     sides = []
++    # Blocks of either program at or before the dispatcher's excluded cases: never join or
++    # bound cuts (dispatch_closure).
++    dispatch = set()
+     for blocks, ids in ((a_blocks, a_ids), (b_blocks, b_ids)):
+         edges = scoped_states(blocks, evm_states(pass_name, blocks))
++        dispatch |= {ids[i] for i in dispatch_closure(blocks, edges)}
+         nodes = sorted(edges, key=lambda s: (s[0], len(s[1]), str(s[1])))
+         ix = {s: n for n, s in enumerate(nodes)}
+         succ = {ix[s]: sorted({ix[t] for t in edges[s]}) for s in nodes}
+@@ -507,7 +511,7 @@ def evm_call_cuts(pass_name, a_blocks, b_blocks):
+                 preds[t] = preds.get(t, 0) + 1
+         for n, k in preds.items():
+             ident = node_ids[n]
+-            if k >= 2 and ident in common and ident not in chosen:
++            if k >= 2 and ident in common and ident not in chosen and ident not in dispatch:
+                 if same_entry(ident):
+                     chosen.add(ident)
+     a_nodes, a_succ_n, a_node_ids, _ = sides[0]
+@@ -530,7 +534,7 @@ def evm_call_cuts(pass_name, a_blocks, b_blocks):
+         return found
+ 
+     if JOINS:
+-        bound_segments(sides[0], chosen, same_entry, common)
++        bound_segments(sides[0], chosen, same_entry, common - dispatch)
+     rels, tests_a, tests_b = [], [], []
+     for ident in sorted(chosen):
+         ia, ib = a_ids.index(ident), b_ids.index(ident)
+@@ -931,6 +935,34 @@ def scoped_states(blocks, edges):
+             for st in edges if st in seen}
+ 
+ 
++def dispatch_closure(blocks, edges):
++    """The block indices of the configurations in edges (scoped_states') from which a dispatcher
++    compare against an excluded selector (push SEL; eq; jumpi T) is reachable. A segment that
++    starts at such a configuration starts with an arbitrary stack, where the selector word is no
++    longer the call's, so the scope's hypotheses cannot prune the excluded cases: these blocks are
++    never cut by joins or by bound_segments, only by loops."""
++    if not EXCLUDED_SELECTORS:
++        return set()
++    hits = set()
++    for idx, (_, instrs) in enumerate(blocks):
++        for k in range(len(instrs) - 2):
++            m = re.fullmatch(r"\.op \(\.stack \(\.push (0x[0-9a-f]+|\d+)\)\)", instrs[k])
++            if m and int(m[1], 0) in EXCLUDED_SELECTORS and instrs[k + 1] == ".op (.stack .eq)":
++                hits.add(idx)
++    preds = {}
++    for st, ts in edges.items():
++        for t in ts:
++            preds.setdefault(t, set()).add(st)
++    work = [st for st in edges if st[0] in hits]
++    seen = set(work)
++    while work:
++        for p in preds.get(work.pop(), ()):
++            if p not in seen:
++                seen.add(p)
++                work.append(p)
++    return {st[0] for st in seen}
++
++
+ def scope_parts():
+     if SCOPE is None:
+         return "", "", "", (lambda h: ""), "anyCall"
+-- 
+2.43.0
+
