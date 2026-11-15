@@ -61,4 +61,4 @@ jobs:
       - name: Check the generated loop obligations
         env:
           LEAN_NUM_THREADS: "1"
-        run: Verify/Infer/loopvc/check.sh "$RUNNER_TEMP/loopvc"
+        run: bash Verify/Infer/loopvc/check.sh "$RUNNER_TEMP/loopvc"

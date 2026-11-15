@@ -1,25 +1,35 @@
 {
-  "id": "annotated-mutant",
-  "origin": "mutant",
-  "cutpoint": "Inv",
-  "clauses": [
+  "id": "mutant",
+  "conjuncts": [
     {
+      "term": "(<= |i@28| |n@21|)",
       "text": "i <= n",
-      "smt": "(<= |i| |n|)",
-      "span": {
+      "origin": "annotation",
+      "site": {
         "file": "Certified/verify_counter/verify_counter.sol",
         "line": 23,
         "column": 14
       }
     },
     {
+      "term": "(= |count@27| (+ |count@17| |i@28| 1))",
       "text": "count == old(count) + i + 1 (mutated from count == old(count) + i)",
-      "smt": "(= |count| (+ |old.count| |i| 1))",
-      "span": {
+      "origin": "mutant",
+      "site": {
         "file": "Certified/verify_counter/verify_counter.sol",
         "line": 24,
         "column": 14
       }
     }
-  ]
+  ],
+  "rank": {
+    "term": "(- |n@21| |i@28|)",
+    "text": "n - i",
+    "origin": "annotation",
+    "site": {
+      "file": "Certified/verify_counter/verify_counter.sol",
+      "line": 25,
+      "column": 14
+    }
+  }
 }

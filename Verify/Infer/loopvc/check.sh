@@ -1,29 +1,43 @@
 #!/usr/bin/env bash
 # Acceptance check of the generated loop obligations of Counter.bump (README.md):
 #
-#   1. smt2lean_inv.py loopvc regenerates, from the exported Horn view and its metadata, exactly
-#      the pinned export of each candidate (export/<candidate>/, byte for byte);
+#   0. with SOLAR_VERIFY set (a solar-verify built at solar/REV), solar-verify --emit-loopvc
+#      writes exactly the committed interface files in solar/;
+#   1. smt2lean_inv.py loopvc regenerates, from that interface, exactly the pinned export of each
+#      candidate (export/<candidate>/, byte for byte), and its bridge module checks: each
+#      template's Template.instances at the candidate equals the generated obligations (rfl);
 #   2. Verify/Discharge/discharge.sh proves every required obligation of each, against the
 #      pinned inputs (export/<candidate>.sha256), with only propext, Classical.choice and
 #      Quot.sound, and finds every row's hypotheses satisfiable (vacuous = no);
 #   3. a wrong invariant (candidates/Counter.bump.mutant.json) is rejected, and smt2lean_inv.py
 #      cti reports a counterexample to induction for it on the entry edge.
 #
-#   Verify/Infer/loopvc/check.sh [WORKDIR]
+#   bash Verify/Infer/loopvc/check.sh [WORKDIR]
 #
-# Needs the library build of Verify/Discharge/Reconstruct (discharge.sh's README) and z3 on PATH
-# (or SOLAR_VERIFY_Z3) for step 3.
+# Needs the library build of Verify/Discharge/Reconstruct (Verify/Discharge/README.md) and z3 on
+# PATH (or SOLAR_VERIFY_Z3) for step 3.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../../.." && pwd)
 work=${1:-$(mktemp -d)}
 mkdir -p "$work"
-gen=(python3 "$root/Verify/Infer/smt2lean_inv.py" loopvc --interface "$here/stub/Counter.bump.loop0.json" --root "$root")
 fail() { echo "loopvc check: FAIL: $*" >&2; exit 1; }
 
+if [[ -n ${SOLAR_VERIFY:-} ]]; then
+  rm -rf "$work/solar"
+  (cd "$root" && "$SOLAR_VERIFY" --no-infer --only Counter.bump --emit-loopvc "$work/solar" \
+    Certified/verify_counter/verify_counter.sol >&2)
+  for f in LoopVc.lean Counter/bump.lean Counter/bump.loopvc.json Counter/bump.horn.smt2 \
+      Counter/bump.script0.smt2 Counter/bump_loopvc.lean; do
+    cmp "$here/solar/$f" "$work/solar/$f" || fail "solar-verify does not write the committed $f"
+  done
+  echo "loopvc check: the interface files are solar-verify's" >&2
+fi
+
+gen=(python3 "$root/Verify/Infer/smt2lean_inv.py" loopvc --export "$here/solar" --unit Counter.bump --root "$root")
 for c in annotated spacer; do
   args=()
-  [[ $c == spacer ]] && args=(--spacer "$here/stub/Counter.bump.loop0.spacer.out")
+  [[ $c == spacer ]] && args=(--spacer "$here/spacer/Counter.bump.spacer.out")
   rm -rf "$work/$c"
   "${gen[@]}" --out "$work/$c" "${args[@]}"
   diff -r "$here/export/$c" "$work/$c" >&2 || fail "the generated $c export is not the pinned one"
@@ -33,6 +47,7 @@ for c in annotated spacer; do
     "$work/$c/discharge/summary.tsv" >&2 || fail "$c: a row is not proved, or its hypotheses are not shown satisfiable"
   awk -F'\t' 'NR > 1 && $5 == "proved" && $8 != "propext Classical.choice Quot.sound" { print; bad = 1 } END { exit bad }' \
     "$work/$c/discharge/results.tsv" >&2 || fail "$c: a proof uses another axiom"
+  ! grep -rnE '\b(sorry|admit|native_decide)\b' "$work/$c" --include='*.lean' >&2 || fail "$c: an unchecked construct"
   echo "loopvc check: $c: $(($(wc -l <"$work/$c/discharge/summary.tsv") - 1)) obligations proved, none vacuous" >&2
 done
 

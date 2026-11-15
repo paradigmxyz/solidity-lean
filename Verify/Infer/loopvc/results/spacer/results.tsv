@@ -1,12 +1,10 @@
 id	role	answer	backend	status	seconds	peak_mb	axioms
-Counter.bump@loop0#entry.initiation.c0	obligation	not-run	smt	proved	2.2	1825	propext Classical.choice Quot.sound
-Counter.bump@loop0#entry.initiation.c1	obligation	not-run	smt	proved	2.2	1824	propext Classical.choice Quot.sound
-Counter.bump@loop0#entry.initiation.c2	obligation	not-run	smt	proved	2.1	1824	propext Classical.choice Quot.sound
-Counter.bump@loop0#back.0.preservation.c0	obligation	not-run	smt	proved	2.5	1844	propext Classical.choice Quot.sound
-Counter.bump@loop0#back.0.preservation.c1	obligation	not-run	smt	proved	2.5	1842	propext Classical.choice Quot.sound
-Counter.bump@loop0#back.0.preservation.c2	obligation	not-run	smt	proved	2.7	1848	propext Classical.choice Quot.sound
-Counter.bump@loop0#back.0.termination	obligation	not-run	smt	proved	2.6	1845	propext Classical.choice Quot.sound
-Counter.bump@loop0#revert.0.outcome-revert	obligation	not-run	smt	proved	2.5	1844	propext Classical.choice Quot.sound
-Counter.bump@loop0#revert.1.outcome-revert	obligation	not-run	smt	proved	2.5	1846	propext Classical.choice Quot.sound
-Counter.bump@loop0#exit.0.exit	obligation	not-run	smt	proved	2.4	1840	propext Classical.choice Quot.sound
-Counter.bump@loop0#exit.1.exit	obligation	not-run	smt	proved	2.3	1838	propext Classical.choice Quot.sound
+Counter.bump@L0#t0.c0	obligation	not-run	smt	proved	2.0	1830	propext Classical.choice Quot.sound
+Counter.bump@L0#t0.c1	obligation	not-run	smt	proved	1.9	1829	propext Classical.choice Quot.sound
+Counter.bump@L0#t0.c2	obligation	not-run	smt	proved	1.9	1829	propext Classical.choice Quot.sound
+Counter.bump@L0#t1.c0	obligation	not-run	smt	proved	2.4	1850	propext Classical.choice Quot.sound
+Counter.bump@L0#t1.c1	obligation	not-run	smt	proved	2.4	1850	propext Classical.choice Quot.sound
+Counter.bump@L0#t1.c2	obligation	not-run	smt	proved	2.2	1853	propext Classical.choice Quot.sound
+Counter.bump@L0#t2	obligation	not-run	smt	proved	2.5	1852	propext Classical.choice Quot.sound
+Counter.bump@L0#t3	obligation	not-run	smt	proved	2.4	1854	propext Classical.choice Quot.sound
+Counter.bump@L0#t4	obligation	not-run	smt	proved	2.5	1854	propext Classical.choice Quot.sound

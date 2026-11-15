@@ -21,9 +21,9 @@ Loops: `counter` (`for (i = 0; i < n; i++) count++` under `require(count + n <= 
 `count == old(count) + n && count <= limit`), `okwhile` (`i = 0; while (i < n) i++`, ensures
 `i == n`), `drain` (`a = n; b = 0; while (a > 0) { a--; b++; }`, ensures `b == n`).
 
-For a loop whose Horn clauses solar-verify exports rather than a person writes, and whose
+For a loop whose cut solar-verify exports (--emit-loopvc) rather than a person writes, and whose
 obligations are generated and discharged by Verify/Discharge, see [loopvc/](loopvc/README.md)
-(Counter.bump: initiation, preservation, termination, exit and outcome rows, kernel-checked).
+(Counter.bump: initiation, preservation, termination and exit rows, kernel-checked).
 
 ## Files
 

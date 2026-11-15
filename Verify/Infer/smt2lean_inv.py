@@ -238,6 +238,10 @@ class Scope:
         raise Unsupported("unsupported command '%s'" % op)
 
 # ------------------------------------------------------------------------------ loop VCs
+# Reads solar-verify's loop-cut interface (--emit-loopvc, format 1: crates/verify's
+# docs/loopvc-interface.md) and a candidate, and writes the candidate's obligations. Lean computes
+# them: the obligations are what the interface's own Template.instances gives at the candidate,
+# printed as terms, and a bridge module proves each template's instances equal to them by rfl.
 
 def atoms(t):
     if isinstance(t, str):
@@ -247,26 +251,12 @@ def atoms(t):
         out |= atoms(x)
     return out
 
-def binders_of(t):
-    if isinstance(t, str):
-        return []
-    out = []
-    if t and t[0] in ('forall', 'exists'):
-        out += [v[0] for v in t[1]]
-    for x in t:
-        out += binders_of(x)
-    return out
-
 def subst(t, m, bound=()):
     """Substitution of free symbols by terms: SMT-LIB's meaning of a define-fun application."""
     if isinstance(t, str):
         return m[t] if t in m and t not in bound else t
     if t and t[0] in ('forall', 'exists'):
-        names = tuple(v[0] for v in t[1])
-        clash = set(names) & set(a for v in m.values() for a in atoms(v))
-        if clash:
-            raise Unsupported('a quantifier of the candidate binds a symbol of the edge: %s' % sorted(clash))
-        return [t[0], t[1], subst(t[2], m, bound + names)]
+        return [t[0], t[1], subst(t[2], m, bound + tuple(v[0] for v in t[1]))]
     if t and t[0] == 'let':
         raise Unsupported("unsupported 'let'")
     return [subst(x, m, bound) for x in t]
@@ -291,32 +281,25 @@ def conjuncts(t):
         return [c for x in t[1:] for c in conjuncts(x)]
     return [t]
 
-def split_clause(c):
-    """(binders, body conjuncts, head) of an asserted Horn clause."""
-    if isinstance(c, list) and c and c[0] == '!':
-        c = c[1]
-    binders = []
-    if isinstance(c, list) and c and c[0] == 'forall':
-        binders, c = c[1], c[2]
-    if isinstance(c, list) and c and c[0] == '=>' and len(c) == 3:
-        body = c[1]
-        return binders, (body[1:] if isinstance(body, list) and body and body[0] == 'and' else [body]), c[2]
-    return binders, [], c
+LITERAL = re.compile(r'-?\d+|#x[0-9a-fA-F]+|#b[01]+|true|false')
 
-def load_spacer(path, cut):
+def spacer_candidate(path, iface):
+    """Spacer's model of the cut's predicate, over the cut's parameters, as a candidate; the
+    ranking function stays the interface's (a Horn solver gives none)."""
     answer = parse_all(open(path).read())
     if not answer or answer[0] != 'sat' or len(answer) < 2:
         raise SystemExit('%s is not a sat answer with a model' % path)
+    cut = iface['cut']
     for d in answer[1]:
         if isinstance(d, list) and d and d[0] == 'define-fun' and d[1].strip('|') == cut['predicate'].strip('|'):
             params = [p[0] for p in d[2]]
-            names = ['|%s|' % p['name'] for p in cut['params']]
-            if len(params) != len(names):
-                raise SystemExit('the model of %s has %d parameters, the cutpoint %d' % (d[1], len(params), len(names)))
-            body = subst(expand_lets(d[4]), dict(zip(params, names)))
+            if len(params) != len(cut['params']):
+                raise SystemExit('the model has %d parameters, the cut %d' % (len(params), len(cut['params'])))
+            body = subst(expand_lets(d[4]), dict(zip(params, [p['symbol'] for p in cut['params']])))
             return {
-                'id': 'spacer-' + sha256_file(path)[:12], 'origin': 'spacer', 'cutpoint': cut['id'],
-                'clauses': [{'text': show(c), 'smt': show(c), 'span': None} for c in conjuncts(body)],
+                'id': 'spacer-' + sha256_file(path)[:12],
+                'conjuncts': [{'term': show(c), 'text': show(c), 'origin': 'spacer', 'site': None} for c in conjuncts(body)],
+                'rank': iface['candidate'].get('rank'),
             }
     raise SystemExit('no model of %s in %s' % (cut['predicate'], path))
 
@@ -326,214 +309,262 @@ def rel(path, root):
         raise SystemExit('%s is outside the root %s' % (path, root))
     return r.replace(os.sep, '/')
 
-def loc(span):
-    return '%s:%s:%s' % (span['file'], span['line'], span['column']) if span else '-'
+def lean_env(here):
+    """lean and the LEAN_PATH of the discharge library (Verify/Discharge/Reconstruct), which
+    builds Verify.Obligation."""
+    pkg = os.path.normpath(os.path.join(here, '..', 'Discharge', 'Reconstruct'))
+    lp = subprocess.run(['lake', 'env', 'printenv', 'LEAN_PATH'], cwd=pkg, capture_output=True, text=True, check=True).stdout.strip()
+    root = os.path.normpath(os.path.join(here, '..', '..'))
+    r = subprocess.run(['elan', 'which', 'lean'], cwd=root, capture_output=True, text=True)
+    return (r.stdout.strip() if r.returncode == 0 else 'lean'), lp
 
-LITERAL = re.compile(r'\d+|#x[0-9a-fA-F]+|#b[01]+|true|false')
+def run_lean(leanbin, lp, args, cwd):
+    r = subprocess.run([leanbin, '-DmaxHeartbeats=0', '-DmaxRecDepth=100000'] + args, cwd=cwd,
+                       env=dict(os.environ, LEAN_PATH=lp), capture_output=True, text=True)
+    if r.returncode != 0 or re.search(r'(^|\n)[^\n]*error', r.stdout + r.stderr):
+        raise SystemExit('lean %s failed:\n%s%s' % (' '.join(args), r.stdout[-4000:], r.stderr[-2000:]))
+    return r.stdout
+
+KIND = {('invariant', 'entry'): 'initiation', ('invariant', 'back'): 'preservation',
+        ('rank', 'back'): 'termination', ('path', 'exit'): 'exit'}
 
 def loopvc_main(argv):
-    import argparse
+    import argparse, shutil, tempfile
     ap = argparse.ArgumentParser(prog='smt2lean_inv.py loopvc')
-    ap.add_argument('--interface', required=True)
-    ap.add_argument('--candidate')
-    ap.add_argument('--spacer')
+    ap.add_argument('--export', required=True, help='a solar-verify --emit-loopvc directory')
+    ap.add_argument('--unit', required=True, help='Contract.function')
+    ap.add_argument('--candidate', help='a candidate as the interface writes one: {conjuncts, rank}')
+    ap.add_argument('--spacer', help="z3 Spacer's answer for the unit's Horn view")
     ap.add_argument('--root', required=True)
     ap.add_argument('--out', required=True)
     a = ap.parse_args(argv)
-    root = a.root
+    a.export, a.out = os.path.abspath(a.export), os.path.abspath(a.out)
     here = os.path.dirname(os.path.abspath(__file__))
     lib = os.path.normpath(os.path.join(here, '..', 'Obligation'))
-    meta = json.load(open(a.interface))
-    horn_path = os.path.join(os.path.dirname(a.interface), meta['horn'])
-    horn = parse_all(open(horn_path).read())
-    cuts = {c['predicate']: c for c in meta['cutpoints']}
-    preds = {'|%s|' % p for p in cuts} | set(cuts)
-    macros = [c for c in horn if isinstance(c, list) and c and c[0] == 'define-fun']
-    clauses = [c[1] for c in horn if isinstance(c, list) and c and c[0] == 'assert']
-    supported = [e for e in meta['edges'] if e.get('supported', True)]
-    if len(clauses) != len(supported):
-        raise SystemExit('the Horn view has %d clauses, the interface %d supported edges' % (len(clauses), len(supported)))
-
-    # The candidate: per cutpoint, clauses over the cutpoint's parameters.
-    sources = [a.interface, horn_path]
+    contract, fn = a.unit.split('.', 1)
+    mod = '%s/%s' % (contract, fn)
+    jpath = os.path.join(a.export, mod + '.loopvc.json')
+    iface = json.load(open(jpath))
+    if (iface.get('format'), iface.get('version')) != ('solar-verify-loopvc', 1):
+        raise SystemExit('%s is not solar-verify-loopvc format 1' % jpath)
+    cut = iface['cut']
+    horn = iface['horn']['file']
+    horn = os.path.join(a.export, horn if '/' in horn else os.path.join(contract, horn))
+    sources = [jpath, horn, os.path.join(a.export, 'LoopVc.lean'), os.path.join(a.export, mod + '.lean'),
+               os.path.join(a.export, mod + '_loopvc.lean')]
+    if iface['horn'].get('sha256') and sha256_file(horn) != iface['horn']['sha256']:
+        raise SystemExit('the Horn view is not the one the interface names')
+    if iface['lean'].get('library_sha256') and sha256_file(sources[2]) != iface['lean']['library_sha256']:
+        raise SystemExit('LoopVc.lean is not the one the interface names')
     if a.spacer:
-        if len(cuts) != 1:
-            raise SystemExit('--spacer reads one cutpoint')
-        cands = [load_spacer(a.spacer, next(iter(cuts.values())))]
+        cand = spacer_candidate(a.spacer, iface)
         sources.append(a.spacer)
     elif a.candidate:
-        cj = json.load(open(a.candidate))
-        cands = cj if isinstance(cj, list) else [cj]
+        cand = dict(json.load(open(a.candidate)))
+        cand.setdefault('id', os.path.basename(a.candidate).split('.json')[0])
         sources.append(a.candidate)
     else:
-        cands = meta['candidates']
-    cand_of = {}
-    for c in cands:
-        if c['cutpoint'] in cand_of:
-            raise SystemExit('two candidates for cutpoint %s' % c['cutpoint'])
-        cand_of[c['cutpoint']] = c
-    cand_id = '+'.join(cand_of[k]['id'] for k in sorted(cand_of))
-    rankings = {r['cutpoint']: r for r in meta.get('rankings', [])}
-    for s in meta['edges']:
-        if s.get('span'):
-            src = os.path.join(root, s['span']['file'])
-            if os.path.exists(src) and src not in sources:
-                sources.append(src)
+        cand = dict(iface['candidate'], id='annotated')
+    cid = re.sub(r'\W', '_', cand['id'])
 
-    unit = meta['unit']
-    contract, fn = unit.split('.', 1)
-    modpath = 'LoopVc/%s/%s_loop%d' % (re.sub(r'\W', '_', contract), re.sub(r'\W', '_', fn), meta['loop'])
-    # Under SolarVerifyVc, the root whose definitions vc_valid_prep unfolds (Valid.lean).
-    ns = 'SolarVerifyVc.' + modpath.replace('/', '.')
-    unsupported = []
+    # The candidate in the embedding, numbered as the unit's script declares its symbols.
+    script_file = os.path.join(a.export, '%s.script%d.smt2' % (mod, cut['head']['script']))
+    sources.append(script_file)
+    cmds = [l for l in open(script_file).read().split('\n') if l.strip()]
+    sc = Scope()
+    for c in cmds:
+        x = parse_all(c)[0]
+        if x[0] in ('declare-const', 'declare-fun', 'define-fun'):
+            sc.command(x)
+    params = [p['symbol'] for p in cut['params']]
+    for p in cut['params']:
+        if sc.by_name.get(p['symbol']) != p['lean_symbol']:
+            raise SystemExit('parameter %s is not symbol %s of the script' % (p['symbol'], p['lean_symbol']))
+    defined = {x[1] for x in (parse_all(c)[0] for c in cmds) if x[0] == 'define-fun'}
+    def cand_term(t, what):
+        e = parse_all(t)[0]
+        free = {x for x in atoms(e) - set(params) - set(OPS) if not LITERAL.fullmatch(x)} - defined
+        free -= {'forall', 'exists', '_', '!'} | {v[0] for v in _bound(e)}
+        if free:
+            raise SystemExit("the candidate's %s '%s' names %s, not only the cut's parameters" % (what, t, sorted(free)))
+        return e, sc.term(e, [])
+    conj = [cand_term(c['term'], 'conjunct') for c in cand['conjuncts']]
+    rank = cand_term(cand['rank']['term'], 'ranking function') if cand.get('rank') else None
+    if not conj:
+        raise SystemExit('the candidate has no conjunct')
 
-    def params(cut):
-        return ['|%s|' % p['name'] for p in cuts[cut]['params']]
+    # Lean: build the interface's modules, and print every template's instances at the candidate.
+    leanbin, lp = lean_env(here)
+    tmp = tempfile.mkdtemp(prefix='loopvc-')
+    try:
+        for m in ['LoopVc', mod, mod + '_loopvc']:
+            os.makedirs(os.path.join(tmp, os.path.dirname(m)), exist_ok=True)
+            run_lean(leanbin, lp + ':' + tmp, ['-o', os.path.join(tmp, m + '.olean'), os.path.join(a.export, m + '.lean')], a.export)
+        tns = 'SolarVerifyLoopVc.%s.%s' % (contract, fn)
+        cand_lean = '{ conj := [%s], rank := %s }' % (', '.join(t for _e, t in conj), 'some (%s)' % rank[1] if rank else 'none')
+        temps = iface['templates']
+        pr = ['import %s' % (mod + '_loopvc').replace('/', '.'), 'open SolarVerify.Smt SolarVerify.Vc SolarVerify.LoopVc',
+              "def cand' : Cand := %s" % cand_lean]
+        for t in temps:
+            k = t['id'][1:]
+            pr.append('#eval do')
+            pr.append("  for o in (%s.t%s.instances %s.cut cand') do" % (tns, k, tns))
+            for f in ('script', 'upto', 'guard', 'goal'):
+                pr.append('    IO.println "@@%s %s"' % (t['id'], f))
+                pr.append('    IO.println (Std.Format.pretty (repr o.%s) 100000)' % f)
+        with open(os.path.join(tmp, 'Print.lean'), 'w') as f:
+            f.write('\n'.join(pr) + '\n')
+        out = run_lean(leanbin, lp + ':' + tmp, [os.path.join(tmp, 'Print.lean')], tmp)
+        parts = re.split(r'^@@(t\d+) (script|upto|guard|goal)\n', out, flags=re.M)[1:]
+        insts = []
+        for i in range(0, len(parts), 3):
+            tid, field, val = parts[i], parts[i + 1], parts[i + 2].strip()
+            if field == 'script':
+                insts.append({'template': tid})
+            insts[-1][field] = val
+        scripts = []
+        for o in insts:
+            if o['script'] not in scripts:
+                scripts.append(o['script'])
 
-    def instance(app):
-        """The candidate at a predicate application: its cutpoint, (clause, formula) per clause
-        at the arguments, and the arguments by parameter."""
-        name = app if isinstance(app, str) else app[0]
-        args = [] if isinstance(app, str) else app[1:]
-        cut = name.strip('|')
-        ps = params(cut)
-        if len(ps) != len(args):
-            raise Unsupported('%s applied to %d arguments, it has %d' % (cut, len(args), len(ps)))
-        if cut not in cand_of:
-            raise Unsupported('no candidate for cutpoint %s' % cut)
-        out = []
-        for cl in cand_of[cut]['clauses']:
-            if cl.get('smt') is None:
-                raise Unsupported("candidate clause '%s' is not over the cutpoint's parameters" % cl['text'])
-            phi = parse_all(cl['smt'])[0]
-            free = {x for x in atoms(phi) - set(ps) - set(OPS) - set(binders_of(phi)) if not LITERAL.fullmatch(x)}
-            free -= {'forall', 'exists', '_', '!', 'ite'}
-            if free:
-                raise Unsupported("candidate clause '%s' names %s" % (cl['text'], sorted(free)))
-            out.append((cl, subst(phi, dict(zip(ps, args)))))
-        return cut, out, dict(zip([p.strip('|') for p in ps], args))
+        ns = 'SolarVerifyVc.LoopVc.%s.%s_%s' % (contract, fn, cid)
+        modpath = 'LoopVc/%s/%s_%s' % (contract, fn, cid)
+        os.makedirs(os.path.join(a.out, os.path.dirname(modpath)), exist_ok=True)
+        L = ['-- Generated by Verify/Infer/smt2lean_inv.py loopvc; do not edit.',
+             "-- The instances of %s's loop-cut templates (%s) at candidate %s." % (a.unit, rel(jpath, a.root), cand['id']),
+             'import Verify.Obligation', '', 'set_option maxRecDepth 100000', '',
+             'namespace %s' % ns, 'open SolarVerify.Smt SolarVerify.Vc', '']
+        for s, text_ in enumerate(scripts):
+            L.append("/-- The function's script with the candidate at the loop head. -/")
+            L.append('def script%d : Script :=\n  %s\n' % (s, text_))
+        def inst_smt(e):
+            """The candidate put back in an SMT-LIB term, as Template.instances does on terms."""
+            if isinstance(e, list) and e and e[0] == cut['predicate']:
+                m = dict(zip(params, [inst_smt(x) for x in e[1:]]))
+                cs = [subst(c, m) for c, _t in conj]
+                return cs[0] if len(cs) == 1 else ['and'] + cs
+            if isinstance(e, list) and e and e[0] == cut['rank'] and rank:
+                return subst(rank[0], dict(zip(params, [inst_smt(x) for x in e[1:]])))
+            if isinstance(e, list):
+                return [inst_smt(x) for x in e]
+            return e
+        rows, k = [], 0
+        bridge = ['import Lean', 'import %s' % (mod + '_loopvc').replace('/', '.'), 'import %s' % modpath.replace('/', '.'), '',
+                  'open SolarVerify.Smt SolarVerify.Vc SolarVerify.LoopVc', '',
+                  'namespace %s.Bridge' % ns, '',
+                  "/-- The candidate, in the interface's terms. -/",
+                  'def cand : Cand := %s' % cand_lean, '']
+        if not a.candidate and not a.spacer:
+            bridge += ['/-- It is the candidate of the run. -/',
+                       'theorem cand_eq : cand = %s.cand := rfl' % tns, '']
+        head_cmd = parse_all(cut['head']['template'])[0]
+        for t in temps:
+            mine = [o for o in insts if o['template'] == t['id']]
+            names = []
+            for j, o in enumerate(mine):
+                kind = KIND.get((t['role'], t['edge']), '%s-%s' % (t['edge'], t['role']))
+                c = cand['conjuncts'][j] if t['role'] == 'invariant' else None
+                oid = '%s@%s#%s%s' % (a.unit, cut['id'], t['id'], '.c%d' % j if t['role'] == 'invariant' else '')
+                L.append('/-- %s: %s of edge %s (template %s, %s)%s, candidate %s. -/' % (
+                    oid, kind, t['edge'], t['id'], t['role'],
+                    (', conjunct "%s"' % c['text']) if c else '', cand['id']))
+                L.append('def ob%d : Obligation where\n  script := script%d\n  upto := %s\n  guard := %s\n  goal := %s\n' % (
+                    k, scripts.index(o['script']), o['upto'], o['guard'], o['goal']))
+                names.append('%s.ob%d' % (ns, k))
+                cs = [parse_all(x)[0] for x in cmds[:t['commands']]]
+                hc = cut['head']['command']
+                if hc < len(cs):
+                    cs[hc] = head_cmd
+                goal = parse_all(t['goal'])[0]
+                post = {}
+                if t['role'] == 'invariant':
+                    args = [inst_smt(x) for x in goal[1:]]
+                    post = {p['name']: show(x) for p, x in zip(cut['params'], args)}
+                    goal = subst(conj[j][0], dict(zip(params, args)))
+                else:
+                    goal = inst_smt(goal)
+                smt = ''.join(show(inst_smt(x)) + '\n' for x in cs)
+                smt += '(assert %s)\n(assert (not %s))\n(check-sat)\n' % (show(inst_smt(parse_all(t['guard'])[0])), show(goal))
+                smt_file = '%s.ob%d.smt2' % (modpath, k)
+                with open(os.path.join(a.out, smt_file), 'w') as f:
+                    f.write(smt)
+                pre = {} if t['edge'] == 'entry' else {cut['id']: {p['name']: p['symbol'] for p in cut['params']}}
+                inst0 = (t.get('instances') or [{}])[0]
+                rows.append({
+                    'id': oid, 'lean': '%s.ob%d' % (ns, k), 'role': 'obligation', 'kind': kind,
+                    'edge': t['edge'], 'template': t['id'], 'template_role': t['role'], 'cutpoint': cut['id'],
+                    'site': (c or {}).get('site') or inst0.get('site') or cut.get('site'), 'candidate': cand['id'],
+                    'spec': ({'text': c['text'], 'span': c.get('site')} if c else
+                             {'text': cand['rank']['text'], 'span': cand['rank'].get('site')} if t['role'] == 'rank' else
+                             {'text': inst0.get('kind', t['role']), 'span': inst0.get('site')}),
+                    'pre': pre, 'post': post, 'smt': smt_file, 'smt_sha256': sha256_bytes(smt.encode()),
+                    'answer': 'not-run', 'required': True,
+                })
+                k += 1
+            bridge.append('theorem %s_exact : %s.%s.instances %s.cut cand = [%s] := rfl' % (
+                t['id'], tns, t['id'], tns, ', '.join(names)))
+            bridge.append('')
+        L.append('end %s' % ns)
+        with open(os.path.join(a.out, modpath + '.lean'), 'w') as f:
+            f.write('\n'.join(L) + '\n')
+        bridge += ['end %s.Bridge' % ns, '', 'open Lean Elab Command in',
+                   '#eval show CommandElabM Unit from do',
+                   '  for n in [%s] do' % ', '.join('`%s.Bridge.%s_exact' % (ns, t['id']) for t in temps),
+                   '    let axs ← Lean.collectAxioms n',
+                   '    IO.println s!"AXIOMS {n}: {String.intercalate \" \" (axs.toList.map toString)}"']
+        bpath = os.path.join(a.out, 'bridge', modpath + '_bridge.lean')
+        os.makedirs(os.path.dirname(bpath), exist_ok=True)
+        with open(bpath, 'w') as f:
+            f.write('\n'.join(bridge) + '\n')
+        # The bridge must check now: each template's instances are exactly the obligations written.
+        os.makedirs(os.path.join(tmp, os.path.dirname(modpath)), exist_ok=True)
+        run_lean(leanbin, lp + ':' + tmp, ['-o', os.path.join(tmp, modpath + '.olean'), os.path.join(a.out, modpath + '.lean')], a.out)
+        bout = run_lean(leanbin, lp + ':' + tmp, [bpath], tmp)
+        checked = [l for l in bout.splitlines() if l.startswith('AXIOMS')]
+        if len(checked) != len(temps):
+            raise SystemExit('the bridge reported %d of %d templates' % (len(checked), len(temps)))
+        for line in checked:
+            if set(line.split(': ', 1)[1].split()) - {'propext', 'Classical.choice', 'Quot.sound'}:
+                raise SystemExit('the bridge uses another axiom: ' + line)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
-    def is_pred(t):
-        h = t if isinstance(t, str) else (t[0] if t else None)
-        return isinstance(h, str) and h in preds
-
-    obligations = []
-    for edge, cl in zip(supported, clauses):
-        try:
-            binders, body, head = split_clause(cl)
-            pre = [instance(t) for t in body if is_pred(t)]
-            facts = [t for t in body if not is_pred(t)]
-            decls = [['declare-const', b[0], b[1]] for b in binders]
-            guard = [phi for _cut, inst, _args in pre for _cl, phi in inst]
-            g = ['and'] + guard if guard else 'true'
-            base = dict(edge=edge, decls=decls, facts=facts, guard=g, pre={c: args for c, _i, args in pre})
-            if is_pred(head):
-                cut, inst, post = instance(head)
-                kind = {'entry': 'initiation', 'back': 'preservation', 'call': 'call'}.get(edge['kind'], edge['kind'])
-                for k, (c, phi) in enumerate(inst):
-                    obligations.append(dict(base, kind=kind, goal=phi, clause=c, cutpoint=cut, post=post, tag='%s.c%d' % (kind, k)))
-                if edge['kind'] == 'back' and cut in rankings and len(pre) == 1 and pre[0][0] == cut:
-                    r = rankings[cut]
-                    rt = parse_all(r['smt'])[0]
-                    names = [p.strip('|') for p in params(cut)]
-                    before = subst(rt, dict(zip(params(cut), [pre[0][2][p] for p in names])))
-                    after = subst(rt, dict(zip(params(cut), [post[p] for p in names])))
-                    goal = ['and', ['<=', '0', before], ['<', after, before]]
-                    obligations.append(dict(base, kind='termination', goal=goal, clause=r, cutpoint=cut, post=post, tag='termination'))
-            else:
-                kind = {'exit': 'exit', 'revert': 'outcome-revert', 'oog': 'outcome-oog'}.get(edge['kind'], edge['kind'])
-                obligations.append(dict(base, kind=kind, goal=head, clause=None, cutpoint=None, post={}, tag=kind))
-        except Unsupported as e:
-            unsupported.append((edge, str(e)))
-    for e in meta['edges']:
-        if not e.get('supported', True):
-            unsupported.append((e, 'the exporter could not write this edge in the Horn fragment'))
-
-    # The module: one script and one obligation per row, as solar-verify --emit-lean writes them.
-    os.makedirs(os.path.join(a.out, os.path.dirname(modpath)), exist_ok=True)
-    L = ['-- Generated by Verify/Infer/smt2lean_inv.py loopvc; do not edit.',
-         'import Verify.Obligation', '', 'set_option maxRecDepth 100000', '',
-         'namespace %s' % ns, 'open SolarVerify.Smt SolarVerify.Vc', '']
-    rows = []
-    for k, ob in enumerate(obligations):
-        sc = Scope()
-        asserts = []
-        cmds = [show(m) for m in macros] + [show(d) for d in ob['decls']] + ['(assert %s)' % show(f) for f in ob['facts']]
-        for m in macros + ob['decls']:
-            r = sc.command(m)
-            if r is not None:
-                asserts.append(r)
-        for f in ob['facts']:
-            asserts.append(sc.command(['assert', f]))
-        guard = sc.term(ob['guard'], [])
-        goal = sc.term(ob['goal'], [])
-        e = ob['edge']
-        oid = '%s@loop%d#%s.%s' % (unit, meta['loop'], e['id'], ob['tag'])
-        cl = ob['clause']
-        what = cl['text'] if cl else (e.get('check') or e['kind'])
-        L.append('/-- %s: %s of edge %s (%s) at %s, %s "%s" of candidate %s. -/' % (
-            oid, ob['kind'], e['id'], e['kind'], loc(e.get('span')),
-            'clause' if cl else 'goal', what, cand_id))
-        L.append('def script%d : Script where' % k)
-        L.append('  decls := [')
-        for j, (n, args, ret) in enumerate(sc.decls):
-            L.append('    ⟨%s, [%s], %s⟩%s' % (lean_string(n), ', '.join(args), ret, ',' if j + 1 < len(sc.decls) else ''))
-        L.append('  ]')
-        L.append('  asserts := [')
-        for j, x in enumerate(asserts):
-            L.append('    %s%s' % (x, ',' if j + 1 < len(asserts) else ''))
-        L.append('  ]')
-        L.append('')
-        L.append('def ob%d : Obligation where\n  script := script%d\n  upto := %d\n  guard := %s\n  goal := %s\n' % (k, k, len(asserts), guard, goal))
-        smt = ''.join(c + '\n' for c in cmds) + '(assert %s)\n(assert (not %s))\n(check-sat)\n' % (show(ob['guard']), show(ob['goal']))
-        smt_file = '%s.ob%d.smt2' % (modpath, k)
-        with open(os.path.join(a.out, smt_file), 'w') as f:
-            f.write(smt)
-        rows.append({
-            'id': oid, 'lean': '%s.ob%d' % (ns, k), 'role': 'obligation', 'kind': ob['kind'],
-            'edge': e['id'], 'edge_kind': e['kind'], 'outcome': e.get('outcome', 'normal'),
-            'site': e.get('span'), 'check': e.get('check'), 'cutpoint': ob['cutpoint'],
-            'candidate': cand_id,
-            'spec': ({'text': cl['text'], 'span': cl.get('span')} if cl else None),
-            'pre': {c: {p: show(t) for p, t in args.items()} for c, args in ob['pre'].items()},
-            'post': {p: show(t) for p, t in ob['post'].items()},
-            'smt': smt_file, 'smt_sha256': sha256_bytes(smt.encode()),
-            'answer': 'not-run', 'required': True,
-        })
-    L.append('end %s' % ns)
-    with open(os.path.join(a.out, modpath + '.lean'), 'w') as f:
-        f.write('\n'.join(L) + '\n')
-
-    units = [{
-        'name': '%s loop%d [%s]' % (unit, meta['loop'], cand_id), 'status': 'generated',
-        'module': modpath + '.lean', 'namespace': ns,
-        'candidate': {k: v for k, v in sorted(cand_of.items())},
-        'obligations': rows,
-    }]
-    # An edge or clause that could not be written stays required and has no module: discharge.sh
-    # fails it as not exported, so it is inconclusive, never proved.
-    for e, why in unsupported:
-        units.append({
-            'name': '%s loop%d edge %s' % (unit, meta['loop'], e['id']), 'status': 'unsupported',
-            'reason': why, 'module': None,
-            'obligations': [{'id': '%s@loop%d#%s' % (unit, meta['loop'], e['id']), 'required': True,
-                             'role': 'obligation', 'answer': 'unsupported', 'reason': why}],
-        })
+    if cut.get('site'):
+        p = os.path.join(a.root, cut['site']['file'])
+        if p not in sources:
+            sources.append(p)
     manifest = {
         'format': 'solar-verify-lean', 'version': 2,
         'generator': {'name': 'Verify/Infer/smt2lean_inv.py loopvc', 'interface': {
-            'format': meta.get('format'), 'version': meta.get('version')}},
-        'sources': [{'path': rel(p, root), 'sha256': sha256_file(p)} for p in sources],
+            'format': iface['format'], 'version': iface['version'], 'formulas_sha256': iface['sha256']['formulas']}},
+        'sources': [{'path': rel(p, a.root), 'sha256': sha256_file(p)} for p in sources],
         'lean': {'toolchain': open(os.path.join(here, '..', '..', 'lean-toolchain')).read().strip(),
                  'smt_sha256': sha256_file(os.path.join(lib, 'Smt.lean')),
                  'vc_sha256': sha256_file(os.path.join(lib, 'Vc.lean'))},
-        'units': units,
+        'units': [{
+            'name': '%s %s [%s]' % (a.unit, cut['id'], cand['id']), 'status': 'generated',
+            'module': modpath + '.lean', 'namespace': ns, 'bridge': rel(bpath, a.out),
+            'candidate': cand,
+            # A revert path owes nothing without succeeds-if (the interface's contract): listed, no row.
+            'reverts': iface.get('reverts', []),
+            'obligations': rows,
+        }],
     }
     with open(os.path.join(a.out, 'manifest.json'), 'w') as f:
         f.write(json.dumps(manifest, indent=2, sort_keys=True) + '\n')
-    print('loopvc: %d obligations for %s (candidate %s), %d edges unsupported' % (
-        len(rows), unit, cand_id, len(unsupported)), file=sys.stderr)
+    print('loopvc: %d obligations for %s at %s (candidate %s); bridge checked' % (
+        len(rows), a.unit, cut['id'], cand['id']), file=sys.stderr)
     return 0
+
+def _bound(t):
+    if isinstance(t, str):
+        return []
+    out = []
+    if t and t[0] in ('forall', 'exists'):
+        out += list(t[1])
+    for x in t:
+        out += _bound(x)
+    return out
 
 # ----------------------------------------------------------------------- CTIs and residuals
 

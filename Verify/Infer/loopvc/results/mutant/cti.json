@@ -1,37 +1,19 @@
 [
   {
-    "candidate": "annotated-mutant",
+    "candidate": "mutant",
     "edge": "entry",
-    "id": "Counter.bump@loop0#entry.initiation.c1",
+    "id": "Counter.bump@L0#t0.c1",
     "kind": "initiation",
     "post": {
       "count": "0",
       "i": "0",
       "n": "0",
-      "old.__code_epoch": "0",
-      "old.block.basefee": "0",
-      "old.block.blobbasefee": "0",
-      "old.block.chainid": "0",
-      "old.block.coinbase": "0",
-      "old.block.difficulty": "0",
-      "old.block.gaslimit": "0",
-      "old.block.number": "0",
-      "old.block.prevrandao": "0",
-      "old.block.timestamp": "0",
-      "old.count": "0",
-      "old.limit": "0",
-      "old.msg.data": "0",
-      "old.msg.sender": "1",
-      "old.msg.sig": "0",
-      "old.msg.value": "0",
-      "old.this": "1",
-      "old.tx.gasprice": "0",
-      "old.tx.origin": "0"
+      "old(count)": "0"
     },
     "site": {
-      "column": 9,
+      "column": 14,
       "file": "Certified/verify_counter/verify_counter.sol",
-      "line": 26
+      "line": 24
     },
     "solver": "Z3 version 4.13.4 - 64 bit",
     "spec": {
@@ -46,72 +28,15 @@
     "verdict": "cti"
   },
   {
-    "candidate": "annotated-mutant",
-    "edge": "revert.0",
-    "id": "Counter.bump@loop0#revert.0.outcome-revert",
-    "kind": "outcome-revert",
-    "pre": {
-      "count": "115792089237316195423570985008687907853269984665640564039457584007913129639935",
-      "i": "0",
-      "n": "1",
-      "old.__code_epoch": "0",
-      "old.block.basefee": "0",
-      "old.block.blobbasefee": "0",
-      "old.block.chainid": "0",
-      "old.block.coinbase": "0",
-      "old.block.difficulty": "0",
-      "old.block.gaslimit": "0",
-      "old.block.number": "0",
-      "old.block.prevrandao": "0",
-      "old.block.timestamp": "0",
-      "old.count": "115792089237316195423570985008687907853269984665640564039457584007913129639934",
-      "old.limit": "115792089237316195423570985008687907853269984665640564039457584007913129639935",
-      "old.msg.data": "0",
-      "old.msg.sender": "1",
-      "old.msg.sig": "0",
-      "old.msg.value": "0",
-      "old.this": "1",
-      "old.tx.gasprice": "0",
-      "old.tx.origin": "0"
-    },
-    "site": {
-      "column": 9,
-      "file": "Certified/verify_counter/verify_counter.sol",
-      "line": 26
-    },
-    "solver": "Z3 version 4.13.4 - 64 bit",
-    "spec": null,
-    "status": "failed",
-    "verdict": "cti"
-  },
-  {
-    "candidate": "annotated-mutant",
-    "edge": "exit.0",
-    "id": "Counter.bump@loop0#exit.0.exit",
+    "candidate": "mutant",
+    "edge": "exit",
+    "id": "Counter.bump@L0#t3",
     "kind": "exit",
     "pre": {
       "count": "1",
       "i": "0",
       "n": "0",
-      "old.__code_epoch": "0",
-      "old.block.basefee": "0",
-      "old.block.blobbasefee": "0",
-      "old.block.chainid": "0",
-      "old.block.coinbase": "0",
-      "old.block.difficulty": "0",
-      "old.block.gaslimit": "0",
-      "old.block.number": "0",
-      "old.block.prevrandao": "0",
-      "old.block.timestamp": "0",
-      "old.count": "0",
-      "old.limit": "0",
-      "old.msg.data": "0",
-      "old.msg.sender": "1",
-      "old.msg.sig": "0",
-      "old.msg.value": "0",
-      "old.this": "1",
-      "old.tx.gasprice": "0",
-      "old.tx.origin": "0"
+      "old(count)": "0"
     },
     "site": {
       "column": 10,
@@ -119,38 +44,27 @@
       "line": 20
     },
     "solver": "Z3 version 4.13.4 - 64 bit",
-    "spec": null,
+    "spec": {
+      "span": {
+        "column": 10,
+        "file": "Certified/verify_counter/verify_counter.sol",
+        "line": 20
+      },
+      "text": "postcondition not satisfied"
+    },
     "status": "failed",
     "verdict": "cti"
   },
   {
-    "candidate": "annotated-mutant",
-    "edge": "exit.1",
-    "id": "Counter.bump@loop0#exit.1.exit",
+    "candidate": "mutant",
+    "edge": "exit",
+    "id": "Counter.bump@L0#t4",
     "kind": "exit",
     "pre": {
       "count": "1",
       "i": "0",
       "n": "0",
-      "old.__code_epoch": "0",
-      "old.block.basefee": "0",
-      "old.block.blobbasefee": "0",
-      "old.block.chainid": "0",
-      "old.block.coinbase": "0",
-      "old.block.difficulty": "0",
-      "old.block.gaslimit": "0",
-      "old.block.number": "0",
-      "old.block.prevrandao": "0",
-      "old.block.timestamp": "0",
-      "old.count": "0",
-      "old.limit": "0",
-      "old.msg.data": "0",
-      "old.msg.sender": "1",
-      "old.msg.sig": "0",
-      "old.msg.value": "0",
-      "old.this": "1",
-      "old.tx.gasprice": "0",
-      "old.tx.origin": "0"
+      "old(count)": "0"
     },
     "site": {
       "column": 5,
@@ -158,7 +72,14 @@
       "line": 21
     },
     "solver": "Z3 version 4.13.4 - 64 bit",
-    "spec": null,
+    "spec": {
+      "span": {
+        "column": 5,
+        "file": "Certified/verify_counter/verify_counter.sol",
+        "line": 21
+      },
+      "text": "contract invariant not preserved"
+    },
     "status": "failed",
     "verdict": "cti"
   }
