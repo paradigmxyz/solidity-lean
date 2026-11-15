@@ -1,0 +1,26 @@
+{
+  "command": [
+    "tools/certify/certify",
+    "tools/certify/examples/counter.sol",
+    "none",
+    "--solidity-lean",
+    "/home/hand/sl445",
+    "--base",
+    "44572c15",
+    "--work",
+    "/home/hand/runs/acc-counter-work",
+    "--record-dir",
+    "/home/hand/runs/acc-counter",
+    "--packages-from",
+    "/home/hand/sl445",
+    "--probe-cache",
+    "/home/hand/sl445"
+  ],
+  "exit_code": 2,
+  "wall_seconds": 6644.8,
+  "max_rss_one_process_mib": 11960,
+  "peak_tree_rss_mib": 12635,
+  "peak_system_used_mib": 10305,
+  "mem_total_mib": 14531,
+  "started_utc": "2026-11-15T09:41:18Z"
+}

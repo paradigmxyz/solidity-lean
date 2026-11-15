@@ -1,0 +1,75 @@
+{
+  "driver_scripts": {
+    "commit": "20a27f39685284bea5a0fe40a7fed0437cfcf694",
+    "tree": "4904ff637c346c81e0bd2f6d858411c264c0aca3"
+  },
+  "solar_binary": {
+    "sha256": "8243e8dc99444c0840a436f1825d75374d891a779a956f6eeb82125e80bbb5d9",
+    "built_from_commit": "abe16b2ea8648505fda4d2f40416c748bd21a931",
+    "built_from_tree": "defe9f13eeefd078ddfa18e12b0211eec0edd5f6",
+    "version": [
+      "solar 0.3.0-dev+commit.abe16b2e",
+      "Solidity Version: 0.8.38",
+      "Solc-Compatible Version: 0.8.38+commit.abe16b2e.solar.0.3.0-dev",
+      "Commit SHA: abe16b2ea8648505fda4d2f40416c748bd21a931",
+      "Build Timestamp: 2026-11-15T06:58:21.181296976Z",
+      "Build Features: mimalloc,tracing",
+      "Build Profile: debug"
+    ],
+    "rust_sources_equal_to_driver_commit": true,
+    "note": "cargo reused a binary built at built_from_commit; outside tools/ and scripts/ the two commits are identical, so it is the binary a build at the driver commit gives up to the embedded commit string"
+  },
+  "solidity_lean_executed": {
+    "head": "0deaf51f5ca426fdc9ac6a7cb602c5538e3e839d",
+    "base_parent": "44572c150176365fa5e0d56ae6c59a7a443f8122",
+    "head_subject": "certify: generated inputs for counter_28af3c6b"
+  },
+  "base_argument": "44572c150176365fa5e0d56ae6c59a7a443f8122",
+  "host": {
+    "peak_system_used_mib": 10305,
+    "peak_tree_rss_mib": 12635,
+    "max_rss_one_process_mib": 11960,
+    "mem_total_mib": 14531,
+    "wall_seconds": 6644.8,
+    "note": "peak_system_used_mib is machine-wide used memory (all processes), sampled each second"
+  },
+  "generated_files": {
+    "Certified/counter_28af3c6b/Final.lean": "fc2aa8656f1526a76116c59a79fd738828321fd09e235a7fdf50d464fcc6809d",
+    "Certified/counter_28af3c6b/Lowering.lean": "2dd7714ed1599b24b18e01d1fe289efd7049541968e39555406dbd9b01df697e",
+    "Certified/counter_28af3c6b/Proofs/Assembly.lean": "2d65c739ea2b99698b18372b140641b6f9979c45a18929ceda8e8b9ea1192652",
+    "Certified/counter_28af3c6b/Proofs/Runs/Evm1.lean": "759afc5f61e5ed364839f582c55245184e970b5245a43d83be7f13690fe01e89",
+    "Certified/counter_28af3c6b/Proofs/Runs/Evm2.lean": "ce6977060b4af87e2aaf10a6939c912beef4150825a8c56042d424f9617e05ab",
+    "Certified/counter_28af3c6b/Proofs/Runs/Evm3.lean": "79f8a976050f2913a399d8fdca86d4d71f53be27d0eebcb27569eadc5a3b71d0",
+    "Certified/counter_28af3c6b/Proofs/Runs/Evm4.lean": "44bb02e32767ca3db1a54c3e9d59629894ed945c6753834164b37f69a127ef1e",
+    "Certified/counter_28af3c6b/Proofs/Runs/Evm5.lean": "f2e5604cf9d19193e271e333c6b35bea376d06cf4564f1b93f7ad3d8f8d09ec7",
+    "Certified/counter_28af3c6b/Proofs/Runs/Sched.lean": "14f35a7501d0f322f4b4414556f211f5c376a62a4768f27bf05ce97654bc665d",
+    "Certified/counter_28af3c6b/Proofs/Runs/Stage0.lean": "7a99feef907e73547733e16a29d04c9774d6801a3dd33dc972cde3847d9302fd",
+    "Certified/counter_28af3c6b/Proofs/Stages.lean": "9b24fb18bf3c4914c43db24486feea0c625b89a5a9d9d4bf40ef001fdb997e2d",
+    "Certified/counter_28af3c6b/Proofs.lean": "d27ac934db0fb610acf2c13362038efa6d6b28ced02cd65dc0c78d112a6b874f",
+    "Certified/counter_28af3c6b/Shape.lean": "d3b10377f4509c1b64fddf508925127a3ca4e4745b3336ae2158d492645da312",
+    "Certified/counter_28af3c6b/Source.lean": "633d8deff1cb4144c217c721610b0b152c85a537fbad5ccecc55927fc8496444",
+    "Certified/counter_28af3c6b/Statement.lean": "6759be0a15252055da8e6472dab06742b0687973824f36e74a70a638d780651f",
+    "Certified/counter_28af3c6b/bytecode.hex": "340481827b3aebb298e43363e69940dcc4b0d92f913359129b007a5e963b6f2c",
+    "Certified/counter_28af3c6b/counter_28af3c6b.sol": "28af3c6bf35e4bde0636e2861c1f3eb6a5791d6f944a96af70b00fa46df54ad5",
+    "Certified/counter_28af3c6b/gen/Counter/Bytecode.lean": "5e1da0f07568e12e2177a30c1ed98662ce5e731e153644472bdfcfa38203b0e5",
+    "Certified/counter_28af3c6b/gen/Counter/Evm1.lean": "31c90cb533b38c43aca3259f29283b635ecb2fd484be8e383b0dfe97a2a3f475",
+    "Certified/counter_28af3c6b/gen/Counter/Evm2.lean": "8d28ef5f0d949d948a1a0f5f1dfd859c0fecbea894cf62a009a9345ff37fd5af",
+    "Certified/counter_28af3c6b/gen/Counter/Evm3.lean": "8171f571ac99ad077dc819ff7bd8fd5c4b1c08b0b3bf77e97a8e3a61924542d1",
+    "Certified/counter_28af3c6b/gen/Counter/Evm4.lean": "f840c77ead93175f074b51c9a550a287db6e86ed2cbb2218afeae7331d4badfa",
+    "Certified/counter_28af3c6b/gen/Counter/Evm5.lean": "8bf84a55156ac80e2af70c987aecdb04f40b38fd962516c466b2d601c3e89f09",
+    "Certified/counter_28af3c6b/gen/Counter/Manifest.lean": "5dcf2a26d4aaf3d5de638b16d7670752767f11e3413464c4dbad40290316e6ea",
+    "Certified/counter_28af3c6b/gen/Counter/Sched.lean": "18e30c45562a1863be5c810b37b374c8376cb5f093ab3ee3d2663947f1346011",
+    "Certified/counter_28af3c6b/gen/Counter/Schedule.json": "9d5f40c4ac559c7f387aeaae5ba89f853cf5eab5be83d18c8aadebc61ecd625b",
+    "Certified/counter_28af3c6b/gen/Counter/Stage0.lean": "455c5c9bc1edc79a8525008cafaa56bfbed84a0af77282cb1d60aacf04d52045",
+    "Certified/counter_28af3c6b/gen/Counter/manifest.json": "208b803c4baff09bc21058f6452938b91a4b1b78255c632d617102da7aef6349",
+    "Certified/counter_28af3c6b/options": "e8dcb59d1d2c9325d924f23afb16523ebcef2750f7fa447cf67b494f81a9038c",
+    "Certified/counter_28af3c6b/record.json": "663eb47bcc27114381b12868138affd7571f88d30b123f84befb962dce01b440",
+    "Certified/counter_28af3c6b/shape.json": "6ee0ddda7e7d544e2becd826a45c77d6f23b6f462374aa89c1be178f0e2c9bde"
+  },
+  "replay_dir_check": {
+    "extra": [],
+    "missing": [],
+    "mismatched": []
+  },
+  "extraction": "replay/ is the driver's --record-dir byte for byte (minus the queue's DONE marker); every other file here is the archival envelope"
+}
