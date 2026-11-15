@@ -1,0 +1,2 @@
+{"format": "certify-invariants", "version": 1,
+ "loops": [{"function": "Drain.drain", "line": 15, "invariants": ["k <= n", "moved == 2 * (n - k)"], "decreases": "k"}]}
