@@ -47,6 +47,8 @@ the solc-AST front end and the probe of SolidCore's generic source check against
 | InitBrokenFlat | not Certified | PREPARED | (proof run) |
 | InvBrokenFlat | not Certified | PREPARED | (proof run) |
 | SiblingFnsFlat | not Certified | PREPARED | (proof run) |
+| FalseEnvFixed | not Certified | (added after the sweep) | |
+| VacuousSecond | not Certified | (added after the sweep) | |
 | ExternalCall | BLOCKED | BLOCKED | external call (line 14); several contracts (the interface) |
 | Reentrancy | BLOCKED | BLOCKED | external call (`.call`, line 12) |
 | Delegatecall | BLOCKED | BLOCKED | external call (`.delegatecall`, line 10); ABI types (`bytes`) |
@@ -64,18 +66,18 @@ verdict for the environment premise or for the envelope.
 
 ## Proof runs
 
-Pending. Each needs a cold build of the whole closure, so this suite runs one proof run per
-acceptance run:
+The proof run on MeterWrongSpec, started on driver 9869393, was stopped before its verdict: that
+driver does not connect the spec. From driver 133a1bb6 the spec is connected: SpecConnect proves
+solar-verify's export of the NatSpec, and the published statement includes non-vacuity from one
+witness call. In the driver owner's warm run, SpecConnect cannot yet prove Meter's checked-add
+postcondition, so Meter and MeterWrongSpec are both refused at SpecConnect. The discriminating
+pairs today are those without checked arithmetic: SiblingOk against SiblingLeak and
+SiblingFnsFlat, and the flat invariant and environment negatives.
 
-* MeterWrongSpec (this lane), the negative twin of Meter;
-* Meter, by the driver's owner.
-
-At 9869393 the driver calls scripts/certify without `--require-spec`, and its spec status reads
-"not connected to the published statement by this driver yet". A false spec is therefore expected
-to come out `REJECTED: strict tier ... (false: spec, strongest)`. That rejection is real, but it is
-not specific to the false spec while Meter is refused the same way. A negative counts as caught by
-its fault only when its positive twin (Meter for MeterWrongSpec, SiblingOk for SiblingLeak) reaches
-the requested tier.
+Each proof run is a cold build of the whole closure, so this suite runs one per acceptance run.
+Next: SiblingOk, the positive twin, on 133a1bb6. Its record directory also feeds the replay cases.
+A negative counts as caught by its own fault only when its positive twin reaches the requested
+tier.
 
 ## Replay cases
 
