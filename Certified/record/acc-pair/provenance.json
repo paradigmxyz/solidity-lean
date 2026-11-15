@@ -33,6 +33,12 @@
     "note": "peak_system_used_mib is machine-wide used memory (all processes), sampled each second"
   },
   "generated_files": {},
+  "replay_dir_check": {
+    "extra": [],
+    "missing": [],
+    "mismatched": []
+  },
+  "extraction": "replay/ is the driver's --record-dir byte for byte (minus the queue's DONE marker); every other file here is the archival envelope",
   "source_tree": {
     "upstream_commit": "6a9e7c97860676e0992f22a49665760444c1cdf5",
     "port_patch": "uniswap-v2-port.patch",

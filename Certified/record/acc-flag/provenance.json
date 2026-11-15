@@ -66,5 +66,11 @@
     "Certified/flag_4ce5cf9a/gen/Flag/manifest.json": "5a40b0aff7a5e439a9a7ca91e059447172bc9e9fc462fcefbd303f5af097c93e",
     "Certified/flag_4ce5cf9a/options": "e8dcb59d1d2c9325d924f23afb16523ebcef2750f7fa447cf67b494f81a9038c",
     "Certified/flag_4ce5cf9a/shape.json": "d0b84043bc2d80f0cfdaf26702e0a7cfa2c8518174210996b4b06b7d781d4524"
-  }
+  },
+  "replay_dir_check": {
+    "extra": [],
+    "missing": [],
+    "mismatched": []
+  },
+  "extraction": "replay/ is the driver's --record-dir byte for byte (minus the queue's DONE marker); every other file here is the archival envelope"
 }

@@ -1,4 +1,4 @@
-# acc-pair: UniswapV2Pair (v2-core 6a9e7c9 plus the solar port patch), outside the envelope
+# acc-pair: UniswapV2Pair (v2-core 6a9e7c9 plus the solar port patch), outside the envelope; classifier result only
 
 Verdict: BLOCKED: external call (15x, first line 45: .call on an address); imports (7x, first line 3: the source imports other files; the driver takes one self-contained file and never flattens (a frozen import closure is not supported yet)); inheritance (1x, first line 11: UniswapV2Pair inherits; only one contract with no bases); ABI types (6x, first DOMAIN_SEPARATOR(): only uintN, intN, bool, address and enum parameters and results)
 Driver exit (strict tier exit): 3 (not certified)
@@ -33,6 +33,10 @@ Final check: (not reached)
 
 Closure: (not reached)
 
-Files: record.json (its run_files lists the driver's own files), certify.log, inputs/ (what the driver
-committed before the proof run), generated/ (every file of the run's Certified/<name>/ as the build saw it),
-provenance.json, receipt.json, driver.log, and MANIFEST.sha256, the sha256 of every file here but itself.
+Replay directory check (replay/ against record.json run_files): {"extra": [], "missing": [], "mismatched": []}
+
+Files: replay/ is the driver's record directory exactly, for tools/certify/certify --replay <path>/replay:
+record.json, whose run_files lists every other file in it (certify.log, inputs/, the source).
+Beside it, the archival envelope: generated/ (every file of the run's Certified/<name>/ as the build saw it),
+provenance.json, receipt.json with receipt.trace.tsv (every memory sample; definitions in the receipt),
+driver.log, and MANIFEST.sha256, the sha256 of every file here but itself.
