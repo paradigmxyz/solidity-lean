@@ -1,0 +1,66 @@
+{
+  "driver_scripts": {
+    "commit": "20a27f39685284bea5a0fe40a7fed0437cfcf694",
+    "tree": "4904ff637c346c81e0bd2f6d858411c264c0aca3"
+  },
+  "solar_binary": {
+    "sha256": null,
+    "built_from_commit": "abe16b2ea8648505fda4d2f40416c748bd21a931",
+    "built_from_tree": "defe9f13eeefd078ddfa18e12b0211eec0edd5f6",
+    "version": [
+      "solar 0.3.0-dev+commit.abe16b2e",
+      "Solidity Version: 0.8.38",
+      "Solc-Compatible Version: 0.8.38+commit.abe16b2e.solar.0.3.0-dev",
+      "Commit SHA: abe16b2ea8648505fda4d2f40416c748bd21a931",
+      "Build Timestamp: 2026-11-15T06:58:21.181296976Z",
+      "Build Features: mimalloc,tracing",
+      "Build Profile: debug"
+    ],
+    "rust_sources_equal_to_driver_commit": true,
+    "note": "cargo reused a binary built at built_from_commit; outside tools/ and scripts/ the two commits are identical, so it is the binary a build at the driver commit gives up to the embedded commit string"
+  },
+  "solidity_lean_executed": {
+    "head": null,
+    "note": "no Lean step ran (refused before the solidity-lean checkout)"
+  },
+  "base_argument": null,
+  "host": {
+    "peak_system_used_mib": 603,
+    "peak_tree_rss_mib": 1,
+    "max_rss_one_process_mib": 32,
+    "mem_total_mib": 14531,
+    "wall_seconds": 0.3,
+    "note": "peak_system_used_mib is machine-wide used memory (all processes), sampled each second"
+  },
+  "generated_files": {},
+  "source_tree": {
+    "upstream_commit": "6a9e7c97860676e0992f22a49665760444c1cdf5",
+    "port_patch": "uniswap-v2-port.patch",
+    "port_patch_sha256": "0eb12e1ea89d9564598e00d58d37c98d92f5958e59797525c5f23c256b73bdd9",
+    "working_diff_sha256": "ba388dc7350104794a58ffe5c2dc09e82c35daf3f4e428f1456bc0d6dcdb0e9b",
+    "files": {
+      "contracts/UniswapV2ERC20.sol": "b5e20ee2be2f7b23cf72567f81712cd5dbbdbfb885fb75d3d6d8993c56912ad3",
+      "contracts/UniswapV2Factory.sol": "e6452c1b0c5bbea45ccb18b199433f1828e03bdd38b8c1ddf6eefd4ac097d7e2",
+      "contracts/UniswapV2Pair.sol": "444b8d56a805942d021dceb13f7d66393a8e6d61ea49ed75a67f498b1886a09b",
+      "contracts/interfaces/IERC20.sol": "be7efb51cea3a97fa274a5ea103714306cff42930cddccbf99c354a5af637078",
+      "contracts/interfaces/IUniswapV2Callee.sol": "033deced058721c5905d23ac5ee60719f0b932d90751d5d99806312d53cfed35",
+      "contracts/interfaces/IUniswapV2ERC20.sol": "4360b8bd89db3ab4255c073cd6db6e0f0e6c2cfe2b8dbf6f7ceade3d5cf461d5",
+      "contracts/interfaces/IUniswapV2Factory.sol": "0aeeacdee506c0ea7e0f13b30c9f27d4395617806b6c9cb87680d00318f0799a",
+      "contracts/interfaces/IUniswapV2Pair.sol": "a2212d03f905c46e9a99a8f5f5c8ea28724bf9c83dd0d051eb1f96210a7171b3",
+      "contracts/libraries/Math.sol": "d50a974f588546d54752af13d2e0190aa2055dcb5a8fb6c1819506ded9a1821f",
+      "contracts/libraries/SafeMath.sol": "b966e3bfeb84de5bb308a664c7ac55becc9f1c0f1237840d72cfdf3f35a3a964",
+      "contracts/libraries/UQ112x112.sol": "0b363e9b9ad412f1ebb32078e20932b453f1bc97d7140c2eeb6ad1385c6c80db",
+      "contracts/test/ERC20.sol": "49984d1cd9bb1172b4c8a2a738640f35f8f70e8c9acdfe553c664fcac37df051"
+    },
+    "upstream_plus_patch_equals_tree": true,
+    "imports_of_UniswapV2Pair": [
+      "import './interfaces/IUniswapV2Pair.sol';",
+      "import './UniswapV2ERC20.sol';",
+      "import './libraries/Math.sol';",
+      "import './libraries/UQ112x112.sol';",
+      "import './interfaces/IERC20.sol';",
+      "import './interfaces/IUniswapV2Factory.sol';",
+      "import './interfaces/IUniswapV2Callee.sol';"
+    ]
+  }
+}
