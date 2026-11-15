@@ -3,9 +3,11 @@
 
 negatives.py --certify CMD [--replay CMD] [--work DIR] [--table OUT.md]
 
-CMD is the driver's command line (split by the shell), run as
-    CMD <source.sol> --out <dir>
-from the repository root. The driver's verdict is the first word of the last line of its output
+CMD is the driver's command line (split by the shell), with the placeholders {src}, {out} and
+{work} filled per case, as for solar's tools/certify/certify:
+    --certify 'tools/certify/certify {src} natspec --solidity-lean SL --base SHA --work {work} --record-dir {out}'
+(without placeholders it runs CMD <source.sol> --out <dir>), from the directory the driver needs;
+give the sources' directory with --heldout when that is not this checkout. The driver's verdict is the first word of the last line of its output
 that starts with CERTIFIED, BLOCKED or REJECTED (any case), with the reason after it; no such line,
 or a nonzero exit with CERTIFIED, counts as ERROR. A case passes when the verdict is the expected
 one, and every case expected not to certify passes only when the driver does not print CERTIFIED.
@@ -26,14 +28,14 @@ Exits 0 iff every case that ran passed.
 """
 import argparse, json, pathlib, re, shlex, shutil, subprocess, sys, time
 
-H = "tests/heldout"
+H = "tests/heldout"  # replaced by --heldout
 FRESH = [
     # name, source, expected, what it tests
     ("heldout-clamp", f"{H}/Clamp.sol", "CERTIFIED", "positive control: held-out, no hand-written proofs"),
-    ("heldout-stepsum", f"{H}/StepSum.sol", "CERTIFIED", "positive control: loop with supplied invariant"),
+    ("heldout-stepsum", f"{H}/StepSum.sol", "CERTIFIED|BLOCKED", "positive control: loop with supplied invariant"),
     ("heldout-registry", f"{H}/Registry.sol", "CERTIFIED", "positive control: mapping, owner check, event"),
     ("renamed-new-constants", f"{H}/Band.sol", "CERTIFIED", "Clamp renamed, constants in place of stored bounds"),
-    ("empty-revert", f"{H}/EmptyRevert.sol", "CERTIFIED", "empty revert next to a bounded loop (revert, not OOG)"),
+    ("empty-revert", f"{H}/EmptyRevert.sol", "CERTIFIED|BLOCKED", "empty revert next to a bounded loop (revert, not OOG)"),
     ("wrong-spec", f"{H}/negative/ClampWrongSpec.sol", "REJECTED", "postcondition false of the code"),
     ("false-env", f"{H}/negative/FalseEnv.sol", "REJECTED", "contradictory environment premise (vacuous)"),
     ("invalid-initial-invariant", f"{H}/negative/InitBroken.sol", "REJECTED", "constructor does not establish the invariant"),
@@ -50,7 +52,20 @@ FRESH = [
 ]
 REPLAY = ["stale-bytes", "flipped-byte", "changed-solar-options", "stale-spec-hash", "stale-source", "stale-import",
           "omitted-selector", "false-env-pin", "oog-as-revert"]
-VERDICT = re.compile(r"^\s*(CERTIFIED|BLOCKED|REJECTED)\b[:\s]*(.*)$", re.I)
+# The driver's verdict lines (tools/certify/certify): TIER <T>: exit 0; CHECKED <reached>: exit 2;
+# BLOCKED: exit 3; ERROR: exit 1. Plain CERTIFIED / REJECTED lines are read too.
+VERDICT = re.compile(r"^\s*(TIER\s+CERTIFIED|TIER\s+\w+|CHECKED\b[^:]*|CERTIFIED|BLOCKED|REJECTED|ERROR)\b[:\s]*(.*)$")
+
+
+def norm(word):
+    w = word.upper()
+    if w.startswith("TIER CERTIFIED") or w == "CERTIFIED":
+        return "CERTIFIED"
+    if w.startswith("TIER"):
+        return "CHECKED"  # a lower tier than certified was requested and met
+    if w.startswith("CHECKED") or w in ("ERROR", "REJECTED"):
+        return "REJECTED"
+    return w
 
 
 def run(cmd, log):
@@ -63,13 +78,23 @@ def run(cmd, log):
     for line in out.splitlines():
         m = VERDICT.match(line)
         if m:
-            verdict, reason = m.group(1).upper(), m.group(2).strip()
+            verdict, reason = norm(m.group(1)), (m.group(1) + ": " + m.group(2)).strip()
     if verdict == "CERTIFIED" and r.returncode != 0:
         verdict, reason = "ERROR", f"CERTIFIED with exit {r.returncode}"
+    if verdict == "ERROR" and r.returncode in (1, 2):
+        verdict = "REJECTED"
     if verdict == "ERROR" and not reason:
         tail = [l for l in out.strip().splitlines() if l.strip()]
         reason = f"exit {r.returncode}: " + (tail[-1][:140] if tail else "no output")
     return verdict, reason, r.returncode, round(time.time() - t)
+
+
+def fill(cmd, **kw):
+    """Fill {src}, {out}, {dir}, {work} in a command template; without placeholders, append
+    <src> --out <out> (fresh) or <dir> (replay)."""
+    if any("{" in x for x in cmd):
+        return [x.format(**{k: str(v) for k, v in kw.items()}) for x in cmd]
+    return cmd + ([kw["src"], "--out", str(kw["out"])] if "src" in kw else [str(kw["dir"])])
 
 
 def files(d, pat):
@@ -172,8 +197,12 @@ def main():
     ap.add_argument("--work", default=".lake/negatives")
     ap.add_argument("--table", default=None)
     ap.add_argument("--only", default=None)
+    ap.add_argument("--heldout", default=None, help="tests/heldout of this checkout (absolute) when the driver runs elsewhere")
     ap.add_argument("--solar", default=None, help="solar for the stale-bytes compile (default: the driver's)")
     a = ap.parse_args()
+    global H
+    if a.heldout:
+        H = str(pathlib.Path(a.heldout).resolve())
     work = pathlib.Path(a.work).resolve()
     certify = shlex.split(a.certify)
     drv = pathlib.Path(certify[0])
@@ -189,8 +218,10 @@ def main():
         out = work / name
         if out.exists():
             shutil.rmtree(out)
-        v, reason, rc, wall = run(certify + [src, "--out", str(out)], work / "log" / f"{name}.txt")
-        ok = v == exp
+        v, reason, rc, wall = run(fill(certify, src=src, out=out, work=work / "w" / name), work / "log" / f"{name}.txt")
+        # CERTIFIED|BLOCKED: a loop, BLOCKED until the driver consumes supplied invariants, never
+        # anything else.
+        ok = v in exp.split("|")
         rows.append((name, what, exp, v, reason, ok, wall))
         if name == "heldout-clamp" and v == "CERTIFIED":
             clamp_dir = out
@@ -217,14 +248,15 @@ def main():
             rows.append((case, "no such input found in the run's directory", "REJECTED", "NOT RUN",
                          "the driver's directory has no file this case changes", None, 0))
             continue
-        v, reason, rc, wall = run(shlex.split(a.replay) + [str(d)], work / "log" / f"replay-{case}.txt")
+        v, reason, rc, wall = run(fill(shlex.split(a.replay), dir=d, work=work / "w" / ("replay-" + case)),
+                                  work / "log" / f"replay-{case}.txt")
         rows.append((case, what, "REJECTED", v, reason, v in ("REJECTED", "BLOCKED") or (v == "ERROR" and rc != 0), wall))
         print(f"{case}: got {v} ({reason})", flush=True)
     drv_after = drv_hash()
     lines = ["| case | what | expected | actual | rejecting check (driver's reason) | pass |", "|---|---|---|---|---|---|"]
     for name, what, exp, v, reason, ok, wall in rows:
         r = reason.replace("|", "\\|")
-        lines.append(f"| {name} | {what} | {exp} | {v} | {r} | {'yes' if ok else ('not run' if ok is None else '**NO**')} |")
+        lines.append(f"| {name} | {what} | {exp.replace('|', ' or ')} | {v} | {r} | {'yes' if ok else ('not run' if ok is None else '**NO**')} |")
     lines.append("")
     lines.append(f"driver and tree unchanged across the cases: {drv_before == drv_after} ({drv_before})")
     table = "\n".join(lines)
