@@ -1,0 +1,32 @@
+From de9d352267afc60579cb994b83409bac6bc1e7ad Mon Sep 17 00:00:00 2001
+From: Troy Sargent <0xalpharush@protonmail.com>
+Date: Sun, 15 Nov 2026 00:05:06 +0000
+Subject: [PATCH 3/3] fix(tv): seg_word_eq relates iszero to eq against zero
+
+---
+ tv/W1Proofs/Segment.lean | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/tv/W1Proofs/Segment.lean b/tv/W1Proofs/Segment.lean
+index 0963f85..a1f3075 100644
+--- a/tv/W1Proofs/Segment.lean
++++ b/tv/W1Proofs/Segment.lean
+@@ -148,11 +148,15 @@ macro_rules
+   | `(tactic| seg_norm [$ids,*]) =>
+     `(tactic| repeat (first | sym_eval | seg_eval [$ids,*] | seg_cut_test | sym_cond))
+ 
++/-- `ISZERO` is a test against zero: the scheduler may emit either for one MIR `eq v, 0`. -/
++theorem evm_iszero_eq (a : EvmRules.Word) : EvmRules.Evm.iszero a = EvmRules.Evm.eq a 0 := rfl
++
+ /-- The equation of two words, configurations or results, by evaluation and `sym_exec`'s leaf
+ procedures. -/
+ macro "seg_word_eq" : tactic => `(tactic| (
+   first
+     | with_reducible rfl
++    | (simp only [evm_iszero_eq]; with_reducible rfl)
+     | ((try seg_cut_test); sym_norm; first
+         | with_reducible rfl
+         | (exfalso; bv_omega)
+-- 
+2.43.0
+

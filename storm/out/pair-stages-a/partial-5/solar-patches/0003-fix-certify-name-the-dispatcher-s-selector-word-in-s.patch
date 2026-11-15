@@ -1,0 +1,128 @@
+From db20123de64395438d5c8b77ad73367539b61f50 Mon Sep 17 00:00:00 2001
+From: Troy Sargent <0xalpharush@protonmail.com>
+Date: Sat, 14 Nov 2026 23:33:32 +0000
+Subject: [PATCH 3/3] fix(certify): name the dispatcher's selector word in
+ scoped EVM IR relations
+
+Under --exclude, a cut between a dispatcher's selector tests left the selector as a free word, so the segment could not use the scope's selector hypotheses to rule out an excluded function's branch. evm_states, in selector mode, tracks the word push 0; calldataload; push 224; shr computes, and the EVM IR relations name it shr 224 (calldataWord call 0). Kept immediates are written as typed numerals, as the other relations write constants.
+---
+ solar-tv/milestone/cutpoints.py | 49 +++++++++++++++++++++++----------
+ 1 file changed, 34 insertions(+), 15 deletions(-)
+
+diff --git a/solar-tv/milestone/cutpoints.py b/solar-tv/milestone/cutpoints.py
+index 2c9fd17a8..84980bf81 100644
+--- a/solar-tv/milestone/cutpoints.py
++++ b/solar-tv/milestone/cutpoints.py
+@@ -352,12 +352,19 @@ def evm_cuts(pass_name, a_blocks, b_blocks):
+     return cuts
+ 
+ 
+-def evm_states(pass_name, blocks, limit=50000):
++# The selector word of evm_states' configurations (its selector mode).
++SEL = "sel"
++
++
++def evm_states(pass_name, blocks, limit=50000, selector=False):
+     """The configurations a program reaches, abstractly, and the edges between them: (block
+     index, stack) with the stack top first, each word the block a pushLabel pushed or None for
+     any other word. A return is a dynamic jump to the label on top, so a callee's blocks are
+     reached once per call string; a dynamic jump to any other word, or a call string that keeps
+-    growing (recursion), fails closed."""
++    growing (recursion), fails closed. With selector, the word a dispatcher computes as the
++    call's selector (push 0; calldataload; push 224; shr) is SEL instead of None, so that a
++    relation names it by its value and a segment that starts inside the dispatcher keeps what
++    the scope's selector hypotheses say about it."""
+     start = (0, ())
+     edges, work = {start: []}, [start]
+     while work:
+@@ -365,7 +372,8 @@ def evm_states(pass_name, blocks, limit=50000):
+         idx, stack = state
+         stack = list(stack)
+         out, end = [], False
+-        for ins in blocks[idx][1]:
++        instrs = blocks[idx][1]
++        for k, ins in enumerate(instrs):
+             m = re.fullmatch(
+                 r"\.op \(\.stack \((\.dup|\.swap|\.exchange) ([0-9 ]+)\)\)", ins
+             )
+@@ -411,6 +419,15 @@ def evm_states(pass_name, blocks, limit=50000):
+                 end = True
+                 break
+             stack = [None] * push + stack
++            if (
++                selector
++                and ins == ".op (.stack .shr)"
++                and k >= 3
++                and instrs[k - 3] == ".op (.stack (.push 0))"
++                and re.fullmatch(r"\.effect \.calldataload \d+", instrs[k - 2])
++                and instrs[k - 1] == ".op (.stack (.push 224))"
++            ):
++                stack[0] = SEL
+         if not end:
+             out.append((idx + 1, tuple(stack)))
+         out = [s for s in out if s[0] < len(blocks)]
+@@ -438,7 +455,9 @@ def evm_call_cuts(pass_name, a_blocks, b_blocks):
+     common = {i for i in a_ids if a_ids.count(i) == 1 and b_ids.count(i) == 1}
+     sides = []
+     for blocks, ids in ((a_blocks, a_ids), (b_blocks, b_ids)):
+-        edges = scoped_states(blocks, evm_states(pass_name, blocks))
++        edges = scoped_states(
++            blocks, evm_states(pass_name, blocks, selector=bool(EXCLUDED_SELECTORS))
++        )
+         nodes = sorted(edges, key=lambda s: (s[0], len(s[1]), str(s[1])))
+         ix = {s: n for n, s in enumerate(nodes)}
+         succ = {ix[s]: sorted({ix[t] for t in edges[s]}) for s in nodes}
+@@ -477,7 +496,7 @@ def evm_call_cuts(pass_name, a_blocks, b_blocks):
+             shape = {}
+             for idx, stack in nodes:
+                 if idx == at:
+-                    key = tuple(None if w is None else ids[w] for w in stack)
++                    key = tuple(w if w is None or w == SEL else ids[w] for w in stack)
+                     shape[key] = stack
+             shapes.append(shape)
+         return shapes
+@@ -546,15 +565,15 @@ def evm_call_cuts(pass_name, a_blocks, b_blocks):
+             sa, sb = shapes[0][key], shapes[1][key]
+             ws = [(f"w{k}", "EvmRules.Word") for k, w in enumerate(sa) if w is None]
+ 
++            def word(k, w):
++                if w is None:
++                    return f"w{k}"
++                if w == SEL:
++                    return "(EvmRules.Evm.shr 224 (calldataWord call 0))"
++                return f"(BitVec.ofNat 256 {w})"
++
+             def term(stack):
+-                return (
+-                    "["
+-                    + ", ".join(
+-                        f"w{k}" if w is None else f"(BitVec.ofNat 256 {w})"
+-                        for k, w in enumerate(stack)
+-                    )
+-                    + "]"
+-                )
++                return "[" + ", ".join(word(k, w) for k, w in enumerate(stack)) + "]"
+ 
+             rels.append(
+                 {
+@@ -1776,7 +1795,7 @@ def mir_evm_rels(pass_name, funcs, sched_blocks, schedule, cuts, ctxs=None):
+                     words.append(f"(BitVec.ofNat 256 {labels[0]})")
+                 elif loc.startswith("c"):
+                     # An immediate the scheduler keeps on the stack: its word.
+-                    words.append(f"(BitVec.ofNat 256 {int(loc[1:], 16)})")
++                    words.append(f"({loc[1:]} : EvmRules.Word)")
+                 else:
+                     v = int(loc[1:])
+                     words.append(
+@@ -1801,7 +1820,7 @@ def mir_evm_rels(pass_name, funcs, sched_blocks, schedule, cuts, ctxs=None):
+                         words.append(f"(BitVec.ofNat 256 {labels[n + 1]})")
+                         shape.append(labels[n + 1])
+                     elif loc.startswith("c"):
+-                        words.append(f"(BitVec.ofNat 256 {int(loc[1:], 16)})")
++                        words.append(f"({loc[1:]} : EvmRules.Word)")
+                         shape.append(None)
+                     else:
+                         words.append(f"c{n} {int(loc[1:])}")
+-- 
+2.43.0
+

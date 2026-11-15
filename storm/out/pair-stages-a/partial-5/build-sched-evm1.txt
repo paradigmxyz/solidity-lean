@@ -1,0 +1,18 @@
+Built uv2_pair_m.Proofs.Runs.Evm1.Defs (7.1s)
+Built uv2_pair_m.Proofs.Runs.Evm1.Seg0 (190s)
+Built uv2_pair_m.Proofs.Runs.Evm1.Seg1 (92s)
+Built uv2_pair_m.Proofs.Runs.Evm1.Seg2 (187s)
+Built uv2_pair_m.Proofs.Runs.Evm1.Seg3 (129s)
+Built uv2_pair_m.Proofs.Runs.Sched.Defs (9.7s)
+Built uv2_pair_m.Proofs.Runs.Sched.Seg10 (97s)
+Built uv2_pair_m.Proofs.Runs.Sched.Seg11 (197s)
+Built uv2_pair_m.Proofs.Runs.Sched.Seg12 (171s)
+Built uv2_pair_m.Proofs.Runs.Sched.Seg14 (311s)
+Built uv2_pair_m.Proofs.Runs.Sched.Seg7 (63s)
+error: Certified/uv2_pair_m/Proofs/Runs/Sched/Seg13.lean:83:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (2000000) has been reac
+error: Certified/uv2_pair_m/Proofs/Runs/Sched/Seg8.lean:284:2: sym_seg: the segments end differently on this path, or the procedure cannot tell
+error: Certified/uv2_pair_m/Proofs/Runs/Sched/Seg8.lean:318:2: sym_seg: the segments end differently on this path, or the procedure cannot tell
+error: Certified/uv2_pair_m/Proofs/Runs/Sched/Seg8.lean:352:2: sym_seg: the segments end differently on this path, or the procedure cannot tell
+error: Certified/uv2_pair_m/Proofs/Runs/Sched/Seg8.lean:386:2: sym_seg: the segments end differently on this path, or the procedure cannot tell
+error: Certified/uv2_pair_m/Proofs/Runs/Sched/Seg8.lean:420:2: sym_seg: the segments end differently on this path, or the procedure cannot tell
+error: Certified/uv2_pair_m/Proofs/Runs/Sched/Seg8.lean:454:2: sym_seg: the segments end differently on this path, or the procedure cannot tell

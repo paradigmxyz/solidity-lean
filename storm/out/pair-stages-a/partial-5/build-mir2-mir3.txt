@@ -1,0 +1,38 @@
+error: Certified/uv2_pair_m/Proofs/Runs/Mir3.lean:130:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (2000000) has been reached
+error: Certified/uv2_pair_m/Proofs/Runs/Mir3.lean:164:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (2000000) has been reached
+error: Certified/uv2_pair_m/Proofs/Runs/Mir3.lean:198:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (2000000) has been reached
+error: Certified/uv2_pair_m/Proofs/Runs/Mir3.lean:232:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (2000000) has been reached
+error: Certified/uv2_pair_m/Proofs/Runs/Mir3.lean:266:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (2000000) has been reached
+error: Certified/uv2_pair_m/Proofs/Runs/Mir3.lean:300:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (2000000) has been reached
+error: Certified/uv2_pair_m/Proofs/Runs/Mir3.lean:334:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (2000000) has been reached
+error: Certified/uv2_pair_m/Proofs/Runs/Mir3.lean:368:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (2000000) has been reached
+error: Certified/uv2_pair_m/Proofs/Runs/Mir3.lean:402:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (2000000) has been reached
+error: Certified/uv2_pair_m/Proofs/Runs/Mir3.lean:436:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (2000000) has been reached
+error: Certified/uv2_pair_m/Proofs/Runs/Mir3.lean:470:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (2000000) has been reached
+error: Certified/uv2_pair_m/Proofs/Runs/Mir3.lean:504:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (2000000) has been reached
+error: Certified/uv2_pair_m/Proofs/Runs/Mir3.lean:538:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (2000000) has been reached
+error: Certified/uv2_pair_m/Proofs/Runs/Mir3.lean:643:0: 'SolarTV.Milestone.Uv2PairM.mir3_certified' depends on axioms outside [propext, Classical.choice, Quot.sound]: [SolarTV.Milestone.Uv2PairM.mir3
+error: Certified/uv2_pair_m/Proofs/Runs/Mir3.lean:642:0: ❌️ Docstring on `#guard_msgs` does not match generated message:
++ error: 'SolarTV.Milestone.Uv2PairM.mir3_certified' depends on axioms outside [propext, Classical.choice, Quot.sound]: [SolarTV.Milestone.Uv2PairM.mir3_segments]
+error: Certified/uv2_pair_m/Proofs/Runs/Mir3.lean:647:0: 'SolarTV.Milestone.Uv2PairM.mir3_certified_back' depends on axioms outside [propext, Classical.choice, Quot.sound]: [SolarTV.Milestone.Uv2PairM
+error: Certified/uv2_pair_m/Proofs/Runs/Mir3.lean:646:0: ❌️ Docstring on `#guard_msgs` does not match generated message:
++ error: 'SolarTV.Milestone.Uv2PairM.mir3_certified_back' depends on axioms outside [propext, Classical.choice, Quot.sound]: [SolarTV.Milestone.Uv2PairM.mir3_segments]
+error: Certified/uv2_pair_m/Proofs/Runs/Mir2.lean:130:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (2000000) has been reached
+error: Certified/uv2_pair_m/Proofs/Runs/Mir2.lean:164:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (2000000) has been reached
+error: Certified/uv2_pair_m/Proofs/Runs/Mir2.lean:198:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (2000000) has been reached
+error: Certified/uv2_pair_m/Proofs/Runs/Mir2.lean:232:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (2000000) has been reached
+error: Certified/uv2_pair_m/Proofs/Runs/Mir2.lean:266:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (2000000) has been reached
+error: Certified/uv2_pair_m/Proofs/Runs/Mir2.lean:300:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (2000000) has been reached
+error: Certified/uv2_pair_m/Proofs/Runs/Mir2.lean:334:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (2000000) has been reached
+error: Certified/uv2_pair_m/Proofs/Runs/Mir2.lean:368:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (2000000) has been reached
+error: Certified/uv2_pair_m/Proofs/Runs/Mir2.lean:402:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (2000000) has been reached
+error: Certified/uv2_pair_m/Proofs/Runs/Mir2.lean:436:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (2000000) has been reached
+error: Certified/uv2_pair_m/Proofs/Runs/Mir2.lean:470:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (2000000) has been reached
+error: Certified/uv2_pair_m/Proofs/Runs/Mir2.lean:504:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (2000000) has been reached
+error: Certified/uv2_pair_m/Proofs/Runs/Mir2.lean:538:0: (deterministic) timeout at `whnf`, maximum number of heartbeats (2000000) has been reached
+error: Certified/uv2_pair_m/Proofs/Runs/Mir2.lean:643:0: 'SolarTV.Milestone.Uv2PairM.mir2_certified' depends on axioms outside [propext, Classical.choice, Quot.sound]: [SolarTV.Milestone.Uv2PairM.mir2
+error: Certified/uv2_pair_m/Proofs/Runs/Mir2.lean:642:0: ❌️ Docstring on `#guard_msgs` does not match generated message:
++ error: 'SolarTV.Milestone.Uv2PairM.mir2_certified' depends on axioms outside [propext, Classical.choice, Quot.sound]: [SolarTV.Milestone.Uv2PairM.mir2_segments]
+error: Certified/uv2_pair_m/Proofs/Runs/Mir2.lean:647:0: 'SolarTV.Milestone.Uv2PairM.mir2_certified_back' depends on axioms outside [propext, Classical.choice, Quot.sound]: [SolarTV.Milestone.Uv2PairM
+error: Certified/uv2_pair_m/Proofs/Runs/Mir2.lean:646:0: ❌️ Docstring on `#guard_msgs` does not match generated message:
++ error: 'SolarTV.Milestone.Uv2PairM.mir2_certified_back' depends on axioms outside [propext, Classical.choice, Quot.sound]: [SolarTV.Milestone.Uv2PairM.mir2_segments]

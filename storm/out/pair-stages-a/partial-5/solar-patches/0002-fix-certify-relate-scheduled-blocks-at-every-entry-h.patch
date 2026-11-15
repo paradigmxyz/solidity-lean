@@ -1,0 +1,37 @@
+From ed5705c1989645a63f108434a28903b22152dfca Mon Sep 17 00:00:00 2001
+From: Troy Sargent <0xalpharush@protonmail.com>
+Date: Sat, 14 Nov 2026 23:20:34 +0000
+Subject: [PATCH 2/3] fix(certify): relate scheduled blocks at every entry
+ height
+
+The static height walk does not follow returns from internal calls, so a block it gives one height (a shared revert) may also be entered at others after a call returns. Under dynamic jumps, relate the block at each height the configuration graph enters it at.
+---
+ solar-tv/milestone/cutpoints.py | 12 +++++++-----
+ 1 file changed, 7 insertions(+), 5 deletions(-)
+
+diff --git a/solar-tv/milestone/cutpoints.py b/solar-tv/milestone/cutpoints.py
+index 2ad4929b0..2c9fd17a8 100644
+--- a/solar-tv/milestone/cutpoints.py
++++ b/solar-tv/milestone/cutpoints.py
+@@ -1724,11 +1724,13 @@ def mir_evm_rels(pass_name, funcs, sched_blocks, schedule, cuts, ctxs=None):
+         if (ctxs or {}).get(f, {()}) != {()}:
+             height = len(layout)
+         hlist = [height]
+-        if height is None and dynamic and (ctxs or {}).get(f, {()}) == {()}:
+-            # Under dynamic jumps the CFG has no static heights: the block is related at each
+-            # height a configuration of the scheduled program enters it at, with the words
+-            # under its layout free (paths that join there may leave different junk below).
+-            hlist = sorted({len(st) for (i, st) in sched_states if i == e}) or [None]
++        if dynamic and (ctxs or {}).get(f, {()}) == {()}:
++            # Under dynamic jumps the static walk does not follow returns, so a block it gives a
++            # height may also be entered at others after a call returns (a shared revert): the
++            # block is related at each height a configuration of the scheduled program enters it
++            # at, with the words under its layout free (paths that join there may leave
++            # different junk below).
++            hlist = sorted({len(st) for (i, st) in sched_states if i == e}) or [height]
+         if any(x is None or x < len(layout) for x in hlist):
+             raise Unsupported(
+                 f"{pass_name}: scheduled block bb{bm['start'][0]} has no static "
+-- 
+2.43.0
+
