@@ -72,6 +72,9 @@ Cold runs (`CERTIFY_CLEAN_BUILD`, `LEAN_MEMORY=6000`, `LEAN_NUM_THREADS=1`), one
 |---|---|---|---|---|---|
 | SiblingLeak (false ensures `x <= 5 ==> level == 1`; succeeds-if `msg.value == 0`) | REJECTED by its spec | `REJECTED: spec: set_meets0 does not check: omega could not prove the goal: (SpecConnect.lean:67)`, exit 1 | SpecConnect `set_meets0` (the tree of `set` against its exported spec): the fault's own check | solar 20a27f39 / solidity-lean 44572c15 | exit 1, peak 5271 MB, 679 s; record.json status REJECTED, bytecode sha256 707f63a7…, gas bound 2033203 |
 
+The full bundle (record, driver log, pins, digests) is in
+[tests/heldout/runs/siblingleak-20a27f39](../tests/heldout/runs/siblingleak-20a27f39/README.md).
+
 Notes on the SiblingLeak run:
 
 * No statement module was built: the run stopped at SpecConnect, before Shape, Final and Statement.
@@ -87,7 +90,8 @@ Notes on the SiblingLeak run:
   to the verdict, but it is a shell error on the rejection path.
 
 The positive twin, SiblingOk, and the independent held-out positive, Flag, run in the driver
-owner's cold queue. A negative counts as caught by its own fault only when its positive twin
+owner's cold queue. The nine replay mutations run only after that queue finishes, against a
+certified record, with no other heavy build running. A negative counts as caught by its own fault only when its positive twin
 reaches the requested tier, so SiblingLeak's row is final only once SiblingOk certifies on the
 same pins.
 

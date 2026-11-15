@@ -1,0 +1,68 @@
+{
+  "kind": "certified",
+  "contract": "Certified.siblingleak_7e2f4c33.Lowering.contract?",
+  "fuel": "Certified.siblingleak_7e2f4c33.Lowering.fuel",
+  "valid": "SolidCore.Refinement.Shapes.genericValid (Certified.siblingleak_7e2f4c33.Lowering.fns) (Certified.siblingleak_7e2f4c33.Lowering.storageLit)",
+  "gas": "fun _ => 2033203",
+  "env": [],
+  "spec": "solar-verify's export of the source's NatSpec in this run, read by the published statement (bundlePost, bundleAllowed)",
+  "spec_modules": [
+    "siblingleak_7e2f4c33.Lowering",
+    "Verify.ShapeGeneric",
+    "Verify.Spec.TreeMap",
+    "Verify.ShapeSpecExport"
+  ],
+  "proof_module": "siblingleak_7e2f4c33.Shape",
+  "proof": "Certified.siblingleak_7e2f4c33.Shape.published",
+  "generic": {
+    "lowering": "siblingleak_7e2f4c33.Lowering",
+    "ns": "Certified.siblingleak_7e2f4c33.Lowering",
+    "style": "core",
+    "check": "check_stage0",
+    "check_value": "checkValue_stage0",
+    "fns": "Certified.siblingleak_7e2f4c33.Lowering.fns",
+    "storage": "Certified.siblingleak_7e2f4c33.Lowering.storageLit",
+    "spec_connect": {
+      "witness": "set",
+      "ghost_fixed": true,
+      "using": []
+    }
+  },
+  "excluded": [
+    "deployment: the init code is not covered; the statement is about the runtime bytecode from any storage that holds the slots the constructor writes, as SolidCore's constructor run with no arguments leaves them",
+    "source model trusted: SolidCore's checked contract (the solc AST through scripts/solc_ast_to_lean_source.py and the type checker) is the meaning of the source (frontend trust boundary)",
+    "calls: one frame, caller 0x2000, contract at 0x1000, the block and transaction of Target.message; no external calls, GAS reads or return data in the code (the loop checker's fragment)",
+    "gas: the bound is the loop checker's (22100 per item times the final EVM IR's block fuel, plus memory), coarse; below it the bytecode may fail without effects, which equivalence admits",
+    "valid calls: level(), set(uint256) ABI-encoded with clean argument words, any value below 2^256 (no function is payable: the value reverts on both sides), any storage covering the constructor's slots; other call data is outside the statement",
+    "spec: solar-verify's export of the source's NatSpec, with its succeeds-if conditions; events are covered by equivalence"
+  ],
+  "source_ast": {
+    "file": "Certified/siblingleak_7e2f4c33/Source.lean",
+    "namespace": "Certified.siblingleak_7e2f4c33.Src",
+    "contract": "SiblingLeak"
+  },
+  "allowed_export": true,
+  "spec_export": {
+    "ctx": "SolidCore.Refinement.Shapes.ctxOfCall",
+    "step": "SolidCore.Refinement.Shapes.idStep"
+  },
+  "nonvacuous": "Certified.siblingleak_7e2f4c33.Shape.nonvacuous",
+  "statement": "expected",
+  "source_unit": "Certified.siblingleak_7e2f4c33.Src.importedSourceUnit",
+  "source_contract": "SiblingLeak",
+  "storage": "Certified.siblingleak_7e2f4c33.Lowering.storageLit",
+  "entries": [
+    {
+      "signature": "level()",
+      "fn": "Certified.siblingleak_7e2f4c33.Lowering.fn0",
+      "sel": 1876274709,
+      "arity": 0
+    },
+    {
+      "signature": "set(uint256)",
+      "fn": "Certified.siblingleak_7e2f4c33.Lowering.fn1",
+      "sel": 1627277233,
+      "arity": 1
+    }
+  ]
+}

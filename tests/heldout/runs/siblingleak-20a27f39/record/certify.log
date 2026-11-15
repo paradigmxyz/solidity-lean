@@ -1,0 +1,138 @@
+== 1. the pinned solidity-lean checkout
+certify: warning: solidity-lean at c20894629523c5a1c749daa3d5f6a7bf541435d7, not the pinned d0ab5d63a401ae615a4755742f3ab500a2a9d0b1
+solidity-lean c20894629523c5a1c749daa3d5f6a7bf541435d7 at /home/hand/w/drv/full/negative-SiblingLeak/work/solidity-lean
+== 2. solar
+solar 9869393976cd5529ff651968273d6b6eb170f244
+Build completed successfully (1156 jobs).
+solar sha256 030139549f0be4279e49d45c9a000a9d79976ed97facfcac1e9719d617fb833d
+== 3. compile Certified/siblingleak_7e2f4c33/siblingleak_7e2f4c33.sol and export its stages (-Ogas --evm-version osaka)
+stages: stage0 (lower-evm-shaped), sched (stack-schedule), evm1 (cfg-simplify-early), evm2 (block-layout), evm3 (share-reverts), evm4 (terminal-dedup), evm5 (cfg-simplify-early), evm6 (inline-returns), evm7 (cfg-simplify), bytecode (assemble)
+bytecode: 346025575f3560e01c806360fe47b11460295780636fd5ae15036025575f545f5260205ff35b5f5ffd5b60243610602557600560043511603f5760025f55005b60015f55 sha256 707f63a7b096952969a5361289b6a3750ca33ebf6bc955b77d10276506baa0de
+== 4. write the proofs
+assembly: decoded only; the loop-free stages have no backward composition to run the bytecode with
+{"final": "SolarTV.Milestone.Siblingleak7e2f4c33.siblingleak_7e2f4c33_mir_to_evmir", "last": "evm7", "first": "stage0", "stages": ["stage0", "sched", "evm1", "evm2", "evm3", "evm4", "evm5", "evm6", "evm7"]}
+== 5. build and audit the proofs
+siblingleak_7e2f4c33.gen.SiblingLeak.Bytecode: Build completed successfully (2 jobs).
+siblingleak_7e2f4c33.gen.SiblingLeak.Evm1: Build completed successfully (12 jobs).
+siblingleak_7e2f4c33.gen.SiblingLeak.Evm2: Build completed successfully (12 jobs).
+siblingleak_7e2f4c33.gen.SiblingLeak.Evm3: Build completed successfully (12 jobs).
+siblingleak_7e2f4c33.gen.SiblingLeak.Evm4: Build completed successfully (12 jobs).
+siblingleak_7e2f4c33.gen.SiblingLeak.Evm5: Build completed successfully (12 jobs).
+siblingleak_7e2f4c33.gen.SiblingLeak.Evm6: Build completed successfully (12 jobs).
+siblingleak_7e2f4c33.gen.SiblingLeak.Evm7: Build completed successfully (12 jobs).
+siblingleak_7e2f4c33.gen.SiblingLeak.Manifest: Build completed successfully (2 jobs).
+siblingleak_7e2f4c33.gen.SiblingLeak.Sched: Build completed successfully (12 jobs).
+siblingleak_7e2f4c33.gen.SiblingLeak.Stage0: Build completed successfully (11 jobs).
+siblingleak_7e2f4c33.Proofs.Runs.Evm1: Build completed successfully (21 jobs).
+siblingleak_7e2f4c33.Proofs.Runs.Evm2: Build completed successfully (21 jobs).
+siblingleak_7e2f4c33.Proofs.Runs.Evm3: Build completed successfully (21 jobs).
+siblingleak_7e2f4c33.Proofs.Runs.Evm4: Build completed successfully (21 jobs).
+siblingleak_7e2f4c33.Proofs.Runs.Evm5: Build completed successfully (21 jobs).
+siblingleak_7e2f4c33.Proofs.Runs.Evm6: Build completed successfully (21 jobs).
+siblingleak_7e2f4c33.Proofs.Runs.Evm7: Build completed successfully (21 jobs).
+siblingleak_7e2f4c33.Proofs.Runs.Sched: Build completed successfully (21 jobs).
+siblingleak_7e2f4c33.Proofs.Runs.Stage0: Build completed successfully (20 jobs).
+siblingleak_7e2f4c33.Proofs.Stages: Build completed successfully (39 jobs).
+siblingleak_7e2f4c33.Proofs.Assembly: Build completed successfully (17 jobs).
+siblingleak_7e2f4c33.Proofs: Build completed successfully (45 jobs).
+'SolarTV.Milestone.Siblingleak7e2f4c33.checked' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Siblingleak7e2f4c33.decodes' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Siblingleak7e2f4c33.evm1_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Siblingleak7e2f4c33.evm1_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Siblingleak7e2f4c33.evm2_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Siblingleak7e2f4c33.evm2_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Siblingleak7e2f4c33.evm3_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Siblingleak7e2f4c33.evm3_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Siblingleak7e2f4c33.evm4_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Siblingleak7e2f4c33.evm4_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Siblingleak7e2f4c33.evm5_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Siblingleak7e2f4c33.evm5_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Siblingleak7e2f4c33.evm6_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Siblingleak7e2f4c33.evm6_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Siblingleak7e2f4c33.evm7_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Siblingleak7e2f4c33.items_eq' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Siblingleak7e2f4c33.sched_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Siblingleak7e2f4c33.sched_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Siblingleak7e2f4c33.siblingleak_7e2f4c33_mir_to_evmir' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Siblingleak7e2f4c33.stage0_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Siblingleak7e2f4c33.stage_evm1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Siblingleak7e2f4c33.stage_evm2' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Siblingleak7e2f4c33.stage_evm3' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Siblingleak7e2f4c33.stage_evm4' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Siblingleak7e2f4c33.stage_evm5' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Siblingleak7e2f4c33.stage_evm6' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Siblingleak7e2f4c33.stage_evm7' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Siblingleak7e2f4c33.stage_sched' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Siblingleak7e2f4c33.walk_eq' depends on axioms: [propext, Quot.sound]
+audited 29 theorems
+== 6. the spec (solar-verify) and the headline theorems
+lake packages (20 modules imported): Build completed successfully (2492 jobs).
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.31s
+export: /home/hand/w/drv/full/negative-SiblingLeak/work/solidity-lean/.lake/certify/siblingleak_7e2f4c33/VC.lean is whole (132 lines, ends with end Certified.Siblingleak7e2f4c33.VC)
+spec: exported to .lake/certify/siblingleak_7e2f4c33/VC.lean
+no Certified/siblingleak_7e2f4c33/headline: no end-to-end theorem
+== 6b. the published statement
+export: Certified/siblingleak_7e2f4c33/gen/SiblingLeak/Spec.lean is whole (49 lines, ends with end Certified.siblingleak_7e2f4c33.gen.SiblingLeak.Spec)
+siblingleak_7e2f4c33.Lowering: Build completed successfully (2566 jobs).
+siblingleak_7e2f4c33.gen.SiblingLeak.Spec: Build completed successfully (8 jobs).
+Verify.VC.Model: Build completed successfully (2549 jobs).
+Verify.Spec.Tree: Build completed successfully (2553 jobs).
+Verify.Spec.TreeMap: Build completed successfully (2558 jobs).
+Verify.Spec.TreeMapNested: Build completed successfully (2559 jobs).
+Verify.Spec.TreeIn: Build completed successfully (2567 jobs).
+Verify.Spec.TreeSucceeds: Build completed successfully (2559 jobs).
+Verify.VC.KernelIdx: Build completed successfully (2 jobs).
+SolidCore.Refinement.KernelRfl: Build completed successfully (3 jobs).
+t, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
+    beq_self_eq_true, Ty.InRange, forall_int_range, Nat.cast_ofNat, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/siblingleak_7e2f4c33/SpecConnect.lean:93:52: warning: This simp argument is unused:
+  forall_int_range
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, set_tree, set_spec, siblingleak_7e2f4c33.SpecConnect.spec,
+    Certified.siblingleak_7e2f4c33.gen.SiblingLeak.Spec.SiblingLeak, siblingleak_7e2f4c33.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, evalList, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
+    beq_self_eq_true, Ty.InRange, Option.getD_some, Nat.cast_ofNat, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/siblingleak_7e2f4c33/SpecConnect.lean:93:70: warning: This simp argument is unused:
+  Nat.cast_ofNat
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, set_tree, set_spec, siblingleak_7e2f4c33.SpecConnect.spec,
+    Certified.siblingleak_7e2f4c33.gen.SiblingLeak.Spec.SiblingLeak, siblingleak_7e2f4c33.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, evalList, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
+    beq_self_eq_true, Ty.InRange, Option.getD_some, forall_int_range, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/siblingleak_7e2f4c33/SpecConnect.lean:93:86: warning: This simp argument is unused:
+  Int.reducePow
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, set_tree, set_spec, siblingleak_7e2f4c33.SpecConnect.spec,
+    Certified.siblingleak_7e2f4c33.gen.SiblingLeak.Spec.SiblingLeak, siblingleak_7e2f4c33.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, evalList, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
+    beq_self_eq_true, Ty.InRange, Option.getD_some, forall_int_range, Nat.cast_ofNat] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+'siblingleak_7e2f4c33.SpecConnect.set_holds_in' depends on axioms: [propext, sorryAx, Classical.choice, Quot.sound]
+Certified/siblingleak_7e2f4c33/SpecConnect.lean:133:0: error: ❌️ Docstring on `#guard_msgs` does not match generated message:
+
+- info: 'siblingleak_7e2f4c33.SpecConnect.set_holds_in' depends on axioms: [propext, Classical.choice, Quot.sound]
++ info: 'siblingleak_7e2f4c33.SpecConnect.set_holds_in' depends on axioms: [propext, sorryAx, Classical.choice, Quot.sound]
+'siblingleak_7e2f4c33.SpecConnect.set_holds' depends on axioms: [propext, sorryAx, Classical.choice, Quot.sound]
+Certified/siblingleak_7e2f4c33/SpecConnect.lean:137:0: error: ❌️ Docstring on `#guard_msgs` does not match generated message:
+
+- info: 'siblingleak_7e2f4c33.SpecConnect.set_holds' depends on axioms: [propext, Classical.choice, Quot.sound]
++ info: 'siblingleak_7e2f4c33.SpecConnect.set_holds' depends on axioms: [propext, sorryAx, Classical.choice, Quot.sound]
+spec_connect: REJECTED: spec: set_meets0 does not check: omega could not prove the goal: (SpecConnect.lean:67)
+/home/hand/w/t1drv/scripts/certify: line 775: holds: bad array subscript
