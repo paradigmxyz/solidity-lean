@@ -12,3 +12,13 @@ counter, masks, c4, mulx, bank, events, reader, verify_token, verify_counter and
 (Uniswap v2-core's Math.sqrt loop entered through internal calls from two functions; its record
 is MIR to EVM IR proved and the bytecode decoded, not end to end). Regenerate one with solar's certify
 driver against this commit (solar's pin file names it); it rewrites the directory in place.
+
+`<name>/loopvc.json`, where present, is an input the driver does not rewrite: the loop obligations
+the contract must discharge, one entry per obligation on an edge of a loop head (initiation on the
+entry edge, preservation and termination on the back edge, the postconditions on the exit edge),
+each with the hash of the query solar-verify exports for it, bound to `bytecode.hex` and the
+exported module. The driver exports the source again, fails unless the export has exactly these
+obligations, and discharges them with `Verify/Discharge/discharge.sh`; an obligation missing,
+added, changed or not proved fails the run. Write one with solar's
+`tools/certify/loopvc.py derive` on an export of this directory's source run from the repository
+root. verify_counter has one, for `bump`'s loop.

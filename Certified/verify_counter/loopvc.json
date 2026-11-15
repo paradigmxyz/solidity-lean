@@ -1,0 +1,135 @@
+{
+  "format": "certify-loopvc",
+  "version": 1,
+  "unit": "Counter.bump",
+  "module": "Counter/bump.lean",
+  "module_sha256": "06519c0b75e4b5014fbb1988c17259d8237ddfca59c2e799cb95f64edad6210f",
+  "sources": [
+    {
+      "path": "Certified/verify_counter/verify_counter.sol",
+      "sha256": "f1c87a334b8db31fc8f80541febeaf8617318d20b685634f44e26c74146ad326"
+    }
+  ],
+  "lean": {
+    "smt_sha256": "2c92f3bcd927369da89250662bd5a6174d3c06d0c3c38f5021509fe8810036e3",
+    "vc_sha256": "648d461056fe1649754b1ec259c2d1c48e8db8a4c11e5af281e73796399bc96a"
+  },
+  "bytecode_sha256": "d74a847b897f855f93daf2805937efe40aec636c2ec3ca0c2d4ca6d21f214cc1",
+  "cutpoints": [
+    {
+      "id": "L26:9",
+      "line": 26,
+      "column": 9,
+      "invariants": [
+        "i <= n",
+        "count == old(count) + i"
+      ],
+      "decreases": [
+        "n - i"
+      ],
+      "inferred": [],
+      "measure": null,
+      "back_edges": 1,
+      "exits": 1
+    }
+  ],
+  "outcomes": {
+    "normal": [
+      "Counter.bump#0",
+      "Counter.bump#1",
+      "Counter.bump#39",
+      "Counter.bump#40",
+      "Counter.bump#41",
+      "Counter.bump#43",
+      "Counter.bump#44"
+    ],
+    "revert": [],
+    "out_of_gas": []
+  },
+  "required": [
+    {
+      "id": "Counter.bump#0",
+      "lean": "SolarVerifyVc.Counter.bump.ob0",
+      "loop": "L26:9",
+      "edge": "entry",
+      "class": "initiation",
+      "outcome": "normal",
+      "merged": false,
+      "kind": "loop invariant not satisfied on entry",
+      "spec": "i <= n",
+      "smt_sha256": "3c4658c39034e79e52d9ab5c9c910953d40fec7d6d515bddf8f60e3c6ddb4b1f"
+    },
+    {
+      "id": "Counter.bump#1",
+      "lean": "SolarVerifyVc.Counter.bump.ob1",
+      "loop": "L26:9",
+      "edge": "entry",
+      "class": "initiation",
+      "outcome": "normal",
+      "merged": false,
+      "kind": "loop invariant not satisfied on entry",
+      "spec": "count == old(count) + i",
+      "smt_sha256": "f1ad733f8bda39adab5ac523b1676ed59540783912a7a15d6bd2a4f3e6dc7394"
+    },
+    {
+      "id": "Counter.bump#39",
+      "lean": "SolarVerifyVc.Counter.bump.ob39",
+      "loop": "L26:9",
+      "edge": "back",
+      "class": "preservation",
+      "outcome": "normal",
+      "merged": false,
+      "kind": "loop invariant not preserved by the loop body",
+      "spec": "i <= n",
+      "smt_sha256": "efb419ae8c8b394e023117564e0493b1de99dbbeea1abf420d50001eb8c5f843"
+    },
+    {
+      "id": "Counter.bump#40",
+      "lean": "SolarVerifyVc.Counter.bump.ob40",
+      "loop": "L26:9",
+      "edge": "back",
+      "class": "preservation",
+      "outcome": "normal",
+      "merged": false,
+      "kind": "loop invariant not preserved by the loop body",
+      "spec": "count == old(count) + i",
+      "smt_sha256": "35240babe71907ac5e4a34e19cc949d2dae488c756f4a1266860e7ea88dbea7a"
+    },
+    {
+      "id": "Counter.bump#41",
+      "lean": "SolarVerifyVc.Counter.bump.ob41",
+      "loop": "L26:9",
+      "edge": "back",
+      "class": "termination",
+      "outcome": "normal",
+      "merged": false,
+      "kind": "loop does not terminate: decreases clause not decreased",
+      "spec": "n - i",
+      "smt_sha256": "e272d57b32f41db66bf4515e6c7d28fa7b516f9cc36a0e15425454e74f4da7a1"
+    },
+    {
+      "id": "Counter.bump#43",
+      "lean": "SolarVerifyVc.Counter.bump.ob43",
+      "loop": "L26:9",
+      "edge": "exit",
+      "class": "exit",
+      "outcome": "normal",
+      "merged": false,
+      "kind": "postcondition not satisfied",
+      "spec": "count == old(count) + n",
+      "smt_sha256": "d3cf2177fc4c71994bf0f34f18888dfeb58c220a80cb94b72b9131f25df05748"
+    },
+    {
+      "id": "Counter.bump#44",
+      "lean": "SolarVerifyVc.Counter.bump.ob44",
+      "loop": "L26:9",
+      "edge": "exit",
+      "class": "exit",
+      "outcome": "normal",
+      "merged": false,
+      "kind": "contract invariant not preserved",
+      "spec": "count <= limit",
+      "smt_sha256": "ca05e87ae64bfeb8fcbbac612855da6f12ebadf4218e2104a2f549519ed7cf44"
+    }
+  ]
+}
