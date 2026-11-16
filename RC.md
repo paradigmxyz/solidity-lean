@@ -112,9 +112,15 @@ The claims are kept separate:
   Classical.choice, Quot.sound`, `lake -R build VerifyGenericAnyCaller` exit 0 as reported by T2).
   The reviewer checked that its diff from b0196e92 is `Verify/Generic/{CheckLFrom,AnyCaller}.lean`,
   `Instances/FlagAnyCaller.lean`, `BOUNDARY.md`, `lakefile.lean` (+13) and a mode-only change to
-  `envelope_check.py`, and adds no `sorry`, `admit` or `axiom`; the build was not rerun here. Not
-  wired into the generic driver.
-- OPEN: E6 any-caller fresh-byte binding.
+  `envelope_check.py` (100644 to 100755), and adds no `sorry`, `admit` or `axiom` in Lean source
+  (the only matches in the commit are negative-test lines in carried-in record logs); the build was
+  not rerun here. Not wired into the generic driver. **Cited by sha only, not merged**: a388f261's
+  parent is bd7651009cae5f57c8706556a06ee156412812a8 (two commits on 44572c15), not 44572c15, and the
+  commit carries the `envelope_check.py` mode flip.
+- OPEN: E6 any-caller fresh-byte binding. a388f261 proves the archived Flag record for any caller
+  with no-value calls, but `Transfer.expected` is still default-context, and
+  `Certified.certified_any_caller` has arbitrary-caller resources but a fixed-caller
+  `TargetPost`. Nothing binds a fresh run's bytes at 800d78a9 for any caller.
 - OPEN: acc5 fresh replay.
 - OPEN (one gap): Counter loop-head consumer. Reviewed: T4 `alpharush/t4-loopvc-rc` @
   d365320e3010ab60166e3ebc2dec618c2d89fe9c, clean replay receipt 19112ca845cd05981f66550d90d321aa3c35110f
@@ -136,9 +142,11 @@ The claims are kept separate:
   (`alpharush/t1-loop-heads`), not the RC driver 800d78a9, and it is a source-semantics claim only.
 - OPEN: MIR / bytes / gas binding of any loop result.
 - Loops: certified bytes BLOCKED at the pin. The loop gate (below) is an SMT-level source check
-  only. Lean-checked: none, for either loop contract (T4, solidity-lean 3b4f52e5). `Gcd.gcd`'s Lean
-  binding is OPEN, and it has no source-loop binding (its body branches). Gas and resource certification for loops is BLOCKED (no gas obligation or
-  fuel-bound interface).
+  only. Lean-checked: none accepted yet (T4, solidity-lean 3b4f52e5). The Counter source-consumer edge
+  (d365320e, replay 19112ca8) is **pending its headline type check** (see the Counter item above);
+  `Gcd.gcd`'s Lean binding is OPEN; MIR, bytes and gas are OPEN. `Gcd.gcd` also has no source-loop binding (its body
+  branches). Gas and resource certification for loops is BLOCKED (no gas obligation or fuel-bound
+  interface).
 - **Nonvacuity is a separate required check.** solar-verify alone accepts a spec with a
   contradictory precondition unless the separate nonvacuity witness is required. Any loop or spec
   claim in this RC must carry its nonvacuity witness as its own check; a proof without it is not
