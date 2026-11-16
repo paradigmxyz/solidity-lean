@@ -1,7 +1,7 @@
 # Release candidate 2 (2026-11-16)
 
 Status: **OPEN: 3 of 4 held-out verdicts in, 0 certified.** H2 REJECTED (resource), H3 BLOCKED, H4 REJECTED (the second
-draw stays 0/1); H1's first run ABORTED-env (not a verdict), rerun pending on 0479b90a. Publisher: the acceptance reviewer (Lane 6), the only publisher of
+draw stays 0/1); H1's first run ABORTED-env (not a verdict), rerun running on 0479b90a since [01:10:47 CST](time:2026-11-16T07:10:47Z). Publisher: the acceptance reviewer (Lane 6), the only publisher of
 RC artifacts; one commit per update on `alpharush/rc-2026-11-16`. The first candidate, at driver
 800d78a9, stays frozen in `RC.md` as a negative report (0/3 original held-out, 0/1 second draw) and is
 history here: nothing in RC2 changes its verdicts.
@@ -30,7 +30,7 @@ history here: nothing in RC2 changes its verdicts.
 
 | Draw | Case | Runner | Verdict | Tier | Wall / peak RSS | Record | Replay (exact-pin) |
 |---|---|---|---|---|---|---|---|
-| original (denominator 3) | H1 SimpleStorage | T6 | pending: rerun on 0479b90a. First run **ABORTED-env**, not an H1 verdict (driver exit 1 at 6b, missing package cache; see below) | none | 4309.7 s / 5277 MB largest process, 6180 MB tree | [`Certified/record/rc2-h1-aborted-env/`](https://github.com/paradigmxyz/solidity-lean/tree/a8cb3d29913eb8864ada79f8eda3eab850bf60ce/Certified/record/rc2-h1-simplestorage) | n/a: nothing certified; `--replay` exits 1 |
+| original (denominator 3) | H1 SimpleStorage | T6 | pending: rerun running on 0479b90a (record dir `rc2-H1r`). First run **ABORTED-env**, not an H1 verdict (driver exit 1 at 6b, missing package cache; see below) | none | 4309.7 s / 5277 MB largest process, 6180 MB tree | [`Certified/record/rc2-h1-aborted-env/`](https://github.com/paradigmxyz/solidity-lean/tree/a8cb3d29913eb8864ada79f8eda3eab850bf60ce/Certified/record/rc2-h1-simplestorage) | n/a: nothing certified; `--replay` exits 1 |
 | original | H2 ViewAndPure | T7 | **REJECTED** (resource, exit 1): stage 6b, Lean exceeded `LEAN_MEMORY=6000` checking `SpecConnect.lean` and segfaulted (exit 139); `add`, `addToX` not connected; not a proof failure. Binary-pin caveat below | none | 2544.2 s / 14.36 GB tree (2 s trace), 13.70 GB largest process | [`Certified/record/rc2-h2/`](https://github.com/paradigmxyz/solidity-lean/tree/315d258e919028fa0cbade40fe6f3beb6a1a2abe/Certified/record/rc2-h2) | n/a: nothing certified; `--replay` exits 1 |
 | original | H3 Mapping | T8 | **BLOCKED** (exit 3): generic source check, `myMap(address)` and `remove(address)`: source tree undefined (erasure) | none | 238.5 s / 2.93 GB tree RSS | [`Certified/record/rc2-h3/`](https://github.com/paradigmxyz/solidity-lean/tree/96bd11a1a6dfeb2337c3e50227b6af4f368c6bba/Certified/record/rc2-h3) | n/a: `--replay` exits 1 (BLOCKED, nothing to replay) |
 | second (denominator 1, closed) | H4 FunctionModifier | T8 | **REJECTED** (exit 1): no cut points for stage0 to mir1, a recursive call into `@decrement.body` | none | 2.1 s / below the 2 s sampler | [`Certified/record/rc2-h4/`](https://github.com/paradigmxyz/solidity-lean/tree/96bd11a1a6dfeb2337c3e50227b6af4f368c6bba/Certified/record/rc2-h4) | n/a: `--replay` exits 1 (no run files) |
@@ -56,6 +56,12 @@ works in the driver). `bytecode_sha256` 6e95f821… equals the 800d78a9 run's.
   `tools/certify/`, so the compiler source is the same and the bytecode matches, but the binary-pin
   check fails. The rerun is accepted only with `binary_commit` 0479b90a.
 
+**H1 rerun (in progress, no verdict).** Started [01:10:47 CST](time:2026-11-16T07:10:47Z) on solar
+0479b90a (tree e87de259, clean), base 49d1d7f5, into a fresh record dir `rc2-H1r`. The binary was
+rebuilt after `cargo clean -p solar-config`: `solar --version` names commit 0479b90a, `binary_sha256`
+d472fb30…b2be. Package cache: 24 oleans added, 9519 unchanged (the runner's `CACHE-ADDED.sha256`).
+As reported by the coordinator; the reviewer checks these against the record when it lands.
+
 **H2 binary pin (R4).** H2's `record.json` has `solar.commit` 0479b90a, `dirty: false`, but
 `binary_commit` 800d78a9 (`binary_sha256` a2e82043…, the RC1 H2 binary; `Finished` in 1.11 s).
 `crates/`, `Cargo.toml` and `Cargo.lock` are identical at 800d78a9 and 0479b90a (and at c09510a3),
@@ -64,7 +70,7 @@ Lean memory failure: the reviewer counts H2 as a REJECTED (resource) verdict on 
 with the binary-pin check recorded as failed. A certified record would still need `binary_commit`
 0479b90a.
 
- `Certified/record/rc2-h3/PINS.json:base.commit` and
+**Base pin receipt (H3, H4).** `Certified/record/rc2-h3/PINS.json:base.commit` and
 `Certified/record/rc2-h4/PINS.json:base.commit` = 49d1d7f5d9b74165486bd9f634202bee1a3633eb, at T8's
 96bd11a1 and byte-identical here; each `PINS.json` is covered by its record's `MANIFEST.sha256` and
 by `RC2.MANIFEST.sha256`. `record.json` itself still names no solidity-lean commit.
@@ -94,7 +100,8 @@ H1 and H2 records are checked for the same key.
   leaves out the transitive source model; not hermetic, no aggregate resource admission, no
   end-to-end claim; compiler solar fd53f637, not the RC2 driver. Aggregate RSS (whole process tree)
   and the transitive manifest stay OPEN; it is a linked-package replay, not a full `leanchecker`
-  replay.
+  replay. A later InvOkFlat rerun on the same branch, @ a56262ce871f07e86c02644e32bc820517dfb18b, is
+  recorded ABORTED-env and parked; it changes nothing above.
 - **E6 any-caller over fresh bytes:** T2 `alpharush/t2-e6-transfer-any-caller` @
   52152f589b310142f8c807c429545ddfc5f37c64 (parent b0196e92), "transfer from every caller over fresh
   bytes". **Pending until T2's closure replay lands**; not reviewed here yet, and not part of any RC2 verdict.
