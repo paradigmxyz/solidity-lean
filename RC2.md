@@ -114,9 +114,15 @@ H1 and H2 records are checked for the same key.
 - Package cache (driver side): a run's outcome depends on what the `--packages-from` cache holds,
   since a dependency olean missing from the read-only mount surfaces as `Statement does not check`
   (exit 1) instead of an environment error (H1's first run). OPEN.
-- Binary pin (driver side): `generic.py` at 0479b90a records `solar.binary_commit` beside
-  `solar.commit` but never compares them, and `REPLAY_KEYS` hold `binary_sha256`, not the commit;
-  cargo reused stale binaries for H1 (c09510a3) and H2 (800d78a9). OPEN.
+- Binary pin (driver side): the `solar.binary_commit` field is unreliable while solar's
+  [`crates/config/build.rs`](https://github.com/paradigmxyz/solar/blob/0479b90a422245bf77facc51ea17b960ed5c5851/crates/config/build.rs#L29)
+  does not track git HEAD for the build the driver makes. The driver runs `cargo build --locked --bin
+  solar` (debug profile); build.rs tracks HEAD only when `PROFILE` is not `debug`, and its other rerun
+  trigger is `testdata/solidity/CMakeLists.txt` (line 168), so `--version` keeps the commit of the
+  build script's first run. `generic.py` at 0479b90a also never compares `binary_commit` with
+  `solar.commit`, and `REPLAY_KEYS` hold `binary_sha256`, not the commit. Cargo reused stale binaries
+  for H1 (c09510a3) and H2 (800d78a9). T6's H1 rerun forces the pin outside the driver: it runs
+  `cargo clean -p solar-config` and exits 94 unless `solar --version` names 0479b90a. OPEN.
 - Source digest binding: `generic.py` at 0479b90a computes `source.sha256` from
   `read_text().encode()` (decoded text, re-encoded), while downstream tools reread the path, so the
   source digest is not a raw-byte snapshot binding. OPEN unless a lane shows raw digest identity
@@ -156,7 +162,11 @@ Filled in as verdicts land, each with its record commit and a link.
   928cc159… equals `SimpleStorage.sol` at e0564a28; the `not the pinned 49d1d7f5` warning names the
   driver's own inputs commit 27d5c3c1 on the base, as in the RC1 records. Rerun on a 0479b90a
   checkout: `--replay` exits 1 and `--tier lifecycle` exits 2. Wall time and peak RSS come from
-  `slot-receipt.json` (`LEAN_NUM_THREADS=1`).
+  `slot-receipt.json` (`LEAN_NUM_THREADS=1`). T6 labels this run ABORTED-env at
+  [e4b493ee](https://github.com/paradigmxyz/solidity-lean/commit/e4b493eef7642b58f4a157611e0f748fa37d6a99)
+  on the same branch: `Certified/record/rc2-h1-simplestorage/STATUS.json` has `"label":
+  "ABORTED-env"`, `"is_h1_verdict": false`, `"superseded_by": "pending"`. That file is not copied
+  here, so `rc2-h1-aborted-env/` stays byte-identical to a8cb3d29.
 
 - **R4, H2 (T7), REJECTED (resource).** Runner commit [315d258e](https://github.com/paradigmxyz/solidity-lean/commit/315d258e919028fa0cbade40fe6f3beb6a1a2abe) on
   `alpharush/heldout-h2-records` (parent e5392be4); `Certified/record/rc2-h2/` is copied here byte
