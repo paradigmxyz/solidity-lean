@@ -129,7 +129,7 @@ Labels: **one-full-run** = the exit comes from its own complete driver run;
 | Record | Driver | Verdict | Replay | Accepted at RC pin |
 |---|---|---|---|---|
 | acc4-flag (`Certified/record/acc4-flag/`, from records d66e60bf) | 6d0f2621 | CERTIFIED, tier certified, strict holds, exit 0 (one-full-run) | exact-pin fresh-clone replay at 6d0f2621, 18/18 pins SAME, exit 0 (`Certified/record/acc4-flag-replay/`, from 4df9c420) | **No**: 6d0f2621 is not an ancestor of 800d78a9 and differs from it in 17 driver files and 27 compiler files. Exact-pin at 6d0f2621 only. |
-| H1 SimpleStorage (held-out runner T6) | 800d78a9, or 1844041e if started before the pin moved (then not an RC-pin record) | pending | pending | pending |
+| H1 SimpleStorage (held-out runner T6) | 800d78a9 (a 1844041e attempt was stopped in its probe build and wrote no record) | pending | pending | pending |
 | H2 ViewAndPure (runner T7) | 800d78a9 | pending | pending | pending |
 | H3 Mapping (runner T8) | 800d78a9 | pending | pending | pending |
 
