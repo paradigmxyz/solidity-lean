@@ -1,0 +1,161 @@
+{
+  "schema": "solar-certify-generic/1",
+  "name": "viewandpure_8c016856",
+  "started": "2026-11-16T05:20:18+00:00",
+  "command": [
+    "/home/hand/h2/solar/tools/certify/certify",
+    "/home/hand/h2/sl/tests/heldout/rc-2026-11-15/ViewAndPure/ViewAndPure.sol",
+    "natspec",
+    "--contract",
+    "ViewAndPure",
+    "--solidity-lean",
+    "/home/hand/h2/sl",
+    "--base",
+    "49d1d7f5d9b74165486bd9f634202bee1a3633eb",
+    "--work",
+    "/home/hand/h2/work-rc2",
+    "--record-dir",
+    "/home/hand/h2/rc2/record",
+    "--solc",
+    "/home/hand/.cache/solc/solc-0.8.35",
+    "--packages-from",
+    "/home/hand/h2/cache",
+    "--probe-cache",
+    "/home/hand/h2/cache"
+  ],
+  "requested_tier": "certified",
+  "source": {
+    "file": "/home/hand/h2/sl/tests/heldout/rc-2026-11-15/ViewAndPure/ViewAndPure.sol",
+    "sha256": "8c016856778b1851326d97c92b79610936cdbf59f64e85df8f7f64e21278d9e5"
+  },
+  "spec": {
+    "kind": "natspec",
+    "sha256": "8c016856778b1851326d97c92b79610936cdbf59f64e85df8f7f64e21278d9e5"
+  },
+  "invariants": {
+    "file": null,
+    "sha256": null
+  },
+  "options": [
+    "-Ogas",
+    "--evm-version",
+    "osaka"
+  ],
+  "solar": {
+    "commit": "0479b90a422245bf77facc51ea17b960ed5c5851",
+    "dirty": false,
+    "binary_sha256": "a2e8204380a2b380ba1b01209a0178729a5b52ece083831eef6a22186b648fb5",
+    "version": "solar 0.3.0-dev+commit.800d78a9",
+    "binary_commit": "800d78a98b9e64612c742d5038e7e2ec35dd52b4"
+  },
+  "solc": {
+    "version": "0.8.35",
+    "path": "/home/hand/.cache/solc/solc-0.8.35",
+    "sha256": "fa8ac9a32d301ad023a36ee5a29f8e291fe3200c60244e43c142539e82a617f4"
+  },
+  "lean_toolchain": {
+    "recorded_digest": "953aa1e72283c07686567bb71eeb3fca202baafe2958a7e57987d3b8c4434c25",
+    "lean-toolchain": "leanprover/lean4:v4.35.0"
+  },
+  "contract": "ViewAndPure",
+  "functions": [
+    {
+      "signature": "add(uint256,uint256)",
+      "selector": "0x771602f7",
+      "params": [
+        ".uint 256",
+        ".uint 256"
+      ]
+    },
+    {
+      "signature": "addToX(uint256)",
+      "selector": "0x5965da77",
+      "params": [
+        ".uint 256"
+      ]
+    },
+    {
+      "signature": "x()",
+      "selector": "0x0c55699c",
+      "params": []
+    }
+  ],
+  "environment": "one frame, caller 0x2000, contract at 0x1000, the block and transaction of Target.message (fixed, not quantified)",
+  "bytecode_sha256": "9ee97f8f5038e82775861806b3b7b820e5b43eeb6eecbba0c27c9c02472a8c97",
+  "gas_bound": 2917206,
+  "probe": [
+    "PROBE typecheck: ok",
+    "PROBE core: <6777 chars>",
+    "PROBE constructor: returns",
+    "PROBE storage: [(0, 1)]",
+    "PROBE fn add(uint256,uint256): agree",
+    "PROBE fn addToX(uint256): agree",
+    "PROBE fn x(): agree"
+  ],
+  "solidity_lean_source": "/home/hand/h2/sl",
+  "solidity_lean": {
+    "base": "49d1d7f5d9b74165486bd9f634202bee1a3633eb",
+    "inputs_commit": "e4706449e7f8da48f3a4a2ade9d2d9377dd345e5",
+    "inputs": [
+      "Certified/viewandpure_8c016856/Lowering.lean",
+      "Certified/viewandpure_8c016856/Shape.lean",
+      "Certified/viewandpure_8c016856/Source.lean",
+      "Certified/viewandpure_8c016856/options",
+      "Certified/viewandpure_8c016856/shape.json",
+      "Certified/viewandpure_8c016856/viewandpure_8c016856.sol",
+      "lakefile.lean"
+    ],
+    "inputs_sha256": {
+      "Certified/viewandpure_8c016856/Lowering.lean": "17fe8f0b210c9993e8f5c563b87c42e57de509d74c1b16e3a095d3a74d530e33",
+      "Certified/viewandpure_8c016856/Shape.lean": "30a665f0747ca24fd20f1dfde12ffa178dc6372e95ff1f7a0ed11067279b9821",
+      "Certified/viewandpure_8c016856/Source.lean": "c0dc4ccf146a11c2d4b2f92073e7720c02b13b8500282728f13cba0b2d0904e7",
+      "Certified/viewandpure_8c016856/options": "e8dcb59d1d2c9325d924f23afb16523ebcef2750f7fa447cf67b494f81a9038c",
+      "Certified/viewandpure_8c016856/shape.json": "def95742c1b32f7d4d11c38169d94237c62044c3886224d4251cc23ec2a6c068",
+      "Certified/viewandpure_8c016856/viewandpure_8c016856.sol": "8c016856778b1851326d97c92b79610936cdbf59f64e85df8f7f64e21278d9e5",
+      "lakefile.lean": "f17e9331531abb58349c2699bd52da0bdb00986f0a07164875d2786473d9274b"
+    }
+  },
+  "run_files": {
+    "ViewAndPure.sol": "8c016856778b1851326d97c92b79610936cdbf59f64e85df8f7f64e21278d9e5",
+    "inputs/Certified/viewandpure_8c016856/Lowering.lean": "17fe8f0b210c9993e8f5c563b87c42e57de509d74c1b16e3a095d3a74d530e33",
+    "inputs/Certified/viewandpure_8c016856/Shape.lean": "30a665f0747ca24fd20f1dfde12ffa178dc6372e95ff1f7a0ed11067279b9821",
+    "inputs/Certified/viewandpure_8c016856/Source.lean": "c0dc4ccf146a11c2d4b2f92073e7720c02b13b8500282728f13cba0b2d0904e7",
+    "inputs/Certified/viewandpure_8c016856/options": "e8dcb59d1d2c9325d924f23afb16523ebcef2750f7fa447cf67b494f81a9038c",
+    "inputs/Certified/viewandpure_8c016856/shape.json": "def95742c1b32f7d4d11c38169d94237c62044c3886224d4251cc23ec2a6c068",
+    "inputs/Certified/viewandpure_8c016856/viewandpure_8c016856.sol": "8c016856778b1851326d97c92b79610936cdbf59f64e85df8f7f64e21278d9e5",
+    "inputs/lakefile.lean": "f17e9331531abb58349c2699bd52da0bdb00986f0a07164875d2786473d9274b",
+    "certify.log": "f2b5f3c9dd9964e31dd8708b1418404f903115dce5452174cd83f258c365a37a"
+  },
+  "packages_from": "/home/hand/h2/cache/.lake/packages",
+  "scripts_certify": {
+    "command": [
+      "bash",
+      "/home/hand/h2/solar/scripts/certify",
+      "/home/hand/h2/work-rc2/solidity-lean/Certified/viewandpure_8c016856/viewandpure_8c016856.sol",
+      "--name",
+      "viewandpure_8c016856",
+      "--contract",
+      "ViewAndPure",
+      "--require-final"
+    ],
+    "env": {
+      "SOLIDITY_LEAN_DIR": "/home/hand/h2/work-rc2/solidity-lean",
+      "CERTIFY_ALLOW_UNPINNED": "1",
+      "CERTIFY_CLEAN_BUILD": "1",
+      "SOLC": "/home/hand/.cache/solc/solc-0.8.35",
+      "CERTIFY_SOLAR_SHA256": "a2e8204380a2b380ba1b01209a0178729a5b52ece083831eef6a22186b648fb5",
+      "LEAN_MEMORY": "6000"
+    },
+    "exit": 1
+  },
+  "resources_exhausted": {
+    "count": 1,
+    "first": [
+      "libc++abi: terminating due to uncaught exception of type lean::memory_exception: excessive memory consumption detected at 'interpreter' (potential solution: increase memory consumption threshold)"
+    ],
+    "exit": 1,
+    "lean_memory": "6000"
+  },
+  "status": "REJECTED",
+  "finished": "2026-11-16T06:02:41+00:00"
+}
