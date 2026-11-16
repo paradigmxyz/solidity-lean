@@ -1,0 +1,872 @@
+{
+ "seed": "4758becf4ea3dc5ccb0ed92b8d3e17aa2573bcbb810ec04acbd19d6741adc96e",
+ "candidates": 152,
+ "eligible": 11,
+ "ranked": [
+  "contracts/src/function-modifier/FunctionModifier.sol",
+  "contracts/src/error/Account.sol",
+  "contracts/src/ether-units/EtherUnits.sol",
+  "contracts/src/primitives/Primitives.sol",
+  "contracts/src/bitwise/MostSignificantBitFunction.sol",
+  "contracts/src/enum/Enum.sol",
+  "contracts/src/array/ArrayReplaceFromEnd.sol",
+  "contracts/src/if-else/IfElse.sol",
+  "contracts/src/constants/Constants.sol",
+  "contracts/src/unchecked-math/UncheckedMath.sol",
+  "contracts/src/events/Events.sol"
+ ],
+ "H4": "contracts/src/function-modifier/FunctionModifier.sol",
+ "H5": "contracts/src/error/Account.sol",
+ "rows": [
+  {
+   "path": "contracts/src/abi-decode/AbiDecode.sol",
+   "sha256": "5ccacac3cbe32aa890cee1f447de78ad757d495b8da8562c73079dadef0d9ae4",
+   "verdict": "outside: ABI types (2x, first decode(bytes): only uintN, intN, bool, address and enum parameters and results)"
+  },
+  {
+   "path": "contracts/src/abi-encode/AbiEncode.sol",
+   "sha256": "d8bc0a5133629e6cd4900e80a8d9b473a1c5e12e74962afec021285a4ee1cd43",
+   "verdict": "outside: several contracts (2x, first line 4: interface IERC20: only one concrete contract per file)"
+  },
+  {
+   "path": "contracts/src/app/airdrop/Airdrop.sol",
+   "sha256": "ce2f53be1dda6a61689994e8dc211fc98c35a4f48f7fc4112ba4f18e3473bd26",
+   "verdict": "outside: external call (1x, first line 40: a call of an external function (function (address,uint256) external)); imports (1x, first line 4: the source imports other files; the driver takes one self-contained "
+  },
+  {
+   "path": "contracts/src/app/airdrop/Hashes.sol",
+   "sha256": "6188b4d2d75bc736c53c833508596c4011b8fa1ca5dfef4dab8029db411c0a5c",
+   "verdict": "outside: several contracts (2x, first line 6: library Hashes: only one concrete contract per file)"
+  },
+  {
+   "path": "contracts/src/app/airdrop/MerkleProof.sol",
+   "sha256": "1a3df014d88500c9567462bec631e441d8f94dfc1afe42a3a9ae44d369b27d16",
+   "verdict": "outside: imports (1x, first line 6: the source imports other files; the driver takes one self-contained file and never flattens (a frozen import closure is not supported yet)); several contracts (2x, first lin"
+  },
+  {
+   "path": "contracts/src/app/airdrop/Token.sol",
+   "sha256": "323b60dab48c1d7888c3570cbbfe591e59b97d6d7c9fd3e08b891163274d0bae",
+   "verdict": "outside: constructor parameters (1x, first line 19: the generic stage runs the constructor with no arguments (Wide.DeployedAt), so its storage is unknown); ABI types (2x, first name(): only uintN, intN, bool, "
+  },
+  {
+   "path": "contracts/src/app/assembly-bin-exp/AssemblyBinExp.sol",
+   "sha256": "1df02e7ee0fb683e8350fcccb14244b749021473473e5b6d6ad4b75fdc9e040e",
+   "verdict": "outside: inline assembly (1x, first line 11: assembly blocks have no SolidCore source semantics here)"
+  },
+  {
+   "path": "contracts/src/app/bi-directional-payment-channel/BiDirectionalPaymentChannel.sol",
+   "sha256": "4a368caca9a473bbae37aebf861f5af8c9d1ad5f1e5b6b3149c49dc4efe0593a",
+   "verdict": "outside: external call (1x, first line 158: .call on an address); value transfer (1x, first line 56: constructor  is payable); loop (4x, first line 65: loops need a kernel-checked invariant certificate; the ge"
+  },
+  {
+   "path": "contracts/src/app/bi-directional-payment-channel/ECDSA.sol",
+   "sha256": "108273617f5d4241f39b1dedac29371827bc8cdd2ad465f20fef2cef4a5bd5d8",
+   "verdict": "outside: several contracts (2x, first line 6: library ECDSA: only one concrete contract per file)"
+  },
+  {
+   "path": "contracts/src/app/create2/Create2.sol",
+   "sha256": "296cc69e8b7f7f94a72ca893032d6310830b43243d3943500191f9c1c7d76e0a",
+   "verdict": "outside: several contracts (1x, first 3 concrete contracts; name one with --contract)"
+  },
+  {
+   "path": "contracts/src/app/crowd-fund/CrowdFund.sol",
+   "sha256": "4ab1e27517d9a0634b430a5473993a8d729ddd012f6cdcf4f074bb8de46dd454",
+   "verdict": "outside: external call (7x, first line 85: a call of an external function (function (address,address,uint256) external returns (bool))); several contracts (1x, first line 4: interface IERC20: only one concrete"
+  },
+  {
+   "path": "contracts/src/app/deploy-any-contract/Proxy.sol",
+   "sha256": "531807ebae4ee0a65637e1598e7090d02718c9733de07dcf0a99e0c0d08a2d25",
+   "verdict": "outside: several contracts (1x, first 4 concrete contracts; name one with --contract)"
+  },
+  {
+   "path": "contracts/src/app/dutch-auction/DutchAuction.sol",
+   "sha256": "1c52b3044bb1153217b9f1c546bbac7882256ee4024d650b74017f89a1c86410",
+   "verdict": "outside: external call (2x, first line 53: a call of an external function (function (address,address,uint256) external)); value transfer (1x, first line 47: function buy is payable); several contracts (1x, fir"
+  },
+  {
+   "path": "contracts/src/app/english-auction/EnglishAuction.sol",
+   "sha256": "b957fadc5dff47508fa029a34f782fe8a4f635a4fa42280ed0a8a32481b96dbf",
+   "verdict": "outside: external call (5x, first line 40: a call of an external function (function (address,address,uint256) external)); value transfer (1x, first line 47: function bid is payable); several contracts (1x, fir"
+  },
+  {
+   "path": "contracts/src/app/erc1155/ERC1155.sol",
+   "sha256": "5085b4328f91c35a2481e6366e6eb49db82b73827b1763dbd272534ca4ff3276",
+   "verdict": "outside: several contracts (3x, first line 4: interface IERC1155: only one concrete contract per file); inheritance (2x, first line 52: ERC1155 inherits; only one contract with no bases)"
+  },
+  {
+   "path": "contracts/src/app/erc20/ERC20.sol",
+   "sha256": "3b0f8849f6f9bdcde75a070b4df1202cb0219b5285da5cd2e10cf48d2e3790e0",
+   "verdict": "excluded: name matches the fixed exclusion list"
+  },
+  {
+   "path": "contracts/src/app/erc20/IERC20.sol",
+   "sha256": "27a57507da6f412acef5ee9130c12e5ca4a15bec80bf3be78cbe45ba0bcdc33e",
+   "verdict": "excluded: name matches the fixed exclusion list"
+  },
+  {
+   "path": "contracts/src/app/erc20/MyToken.sol",
+   "sha256": "86a778b4b61cb0cf83f238d1f532e5c5bdd77809e4dd2442eb470124529bf891",
+   "verdict": "excluded: name matches the fixed exclusion list"
+  },
+  {
+   "path": "contracts/src/app/erc20/TokenSwap.sol",
+   "sha256": "97ad948b898d08c8498d54414ab9a5c6943a903937ecccd97401ce76f8dd899b",
+   "verdict": "excluded: name matches the fixed exclusion list"
+  },
+  {
+   "path": "contracts/src/app/erc721/ERC721.sol",
+   "sha256": "2dacc56e0abb5692b175e0cca99df02d0d7f79a2a34bbbdeff79e46b1da91e17",
+   "verdict": "outside: several contracts (4x, first line 4: interface IERC165: only one concrete contract per file); inheritance (3x, first line 11: IERC721 inherits; only one contract with no bases)"
+  },
+  {
+   "path": "contracts/src/app/ether-wallet/EtherWallet.sol",
+   "sha256": "c673aa5918929e99f30ab9a41790ed020ccf17f81cfe4639cfb7e84ec351baba",
+   "verdict": "outside: external call (1x, first line 15: .transfer on an address); value transfer (1x, first line 11: receive  is payable); fallback (1x, first line 11: receive function: calls outside the ABI's functions); "
+  },
+  {
+   "path": "contracts/src/app/gasless-token-transfer/ERC20Permit.sol",
+   "sha256": "17f94b7c4ac46730c67fd3963b63d01fd1fab43086b61b7a4bc1e8ee4e8677c0",
+   "verdict": "excluded: name matches the fixed exclusion list"
+  },
+  {
+   "path": "contracts/src/app/gasless-token-transfer/GaslessTokenTransfer.sol",
+   "sha256": "531da06b4193355ba6be2f89329e3f485293a45a4e8b755f1e8172c9528dab21",
+   "verdict": "outside: external call (3x, first line 43: a call of an external function (function (address,address,uint256,uint256,uint8,bytes32,bytes32) external)); several contracts (1x, first line 4: interface IERC20Perm"
+  },
+  {
+   "path": "contracts/src/app/iterable-mapping/IterableMapping.sol",
+   "sha256": "6daa519a6b8ca7b56292a22574749ac519f1c1b388f23f773b9b9d80a99ec857",
+   "verdict": "outside: several contracts (1x, first line 4: library IterableMapping: only one concrete contract per file)"
+  },
+  {
+   "path": "contracts/src/app/merkle-tree/MerkleTree.sol",
+   "sha256": "833e47d33000085854005fa1da94f64ad86ae8d33380495f52b24cc1ffa684d4",
+   "verdict": "outside: inheritance (1x, first line 29: TestMerkleProof inherits; only one contract with no bases); several contracts (1x, first 2 concrete contracts; name one with --contract)"
+  },
+  {
+   "path": "contracts/src/app/minimal-proxy/MinimalProxy.sol",
+   "sha256": "fe35b4ec827391a167535d5ca0445c1fe03eae041f711553047efc99a696f552",
+   "verdict": "outside: inline assembly (1x, first line 23: assembly blocks have no SolidCore source semantics here)"
+  },
+  {
+   "path": "contracts/src/app/multi-call/MultiCall.sol",
+   "sha256": "346a28065babd815e06db493d7eae8535c18479d0efe79513f2fde7ff852c974",
+   "verdict": "outside: external call (1x, first line 15: .staticcall on an address); contract creation (1x, first line 12: new creates a contract (CREATE)); loop (1x, first line 14: loops need a kernel-checked invariant cer"
+  },
+  {
+   "path": "contracts/src/app/multi-call/TestMultiCall.sol",
+   "sha256": "67ebeff538e13d2d92d1ae03f58d18b28875b758a6049f3ac9c1ffcebecce071",
+   "verdict": "outside: ABI types (1x, first getData(uint256): only uintN, intN, bool, address and enum parameters and results)"
+  },
+  {
+   "path": "contracts/src/app/multi-delegatecall/MultiDelegatecall.sol",
+   "sha256": "197b9a005f026ea7677e45c67c3bd35391bc4f7259b009ecce4e7e9ebfa064fd",
+   "verdict": "outside: inheritance (1x, first line 27: TestMultiDelegatecall inherits; only one contract with no bases); several contracts (1x, first 3 concrete contracts; name one with --contract)"
+  },
+  {
+   "path": "contracts/src/app/multi-sig-wallet/MultiSigWallet.sol",
+   "sha256": "06884875630de30a4cc00f3f7eb7fbd81533189685b7bf8739012864d11c7473",
+   "verdict": "outside: external call (1x, first line 128: .call on an address); value transfer (1x, first line 75: receive  is payable); loop (1x, first line 62: loops need a kernel-checked invariant certificate; the generi"
+  },
+  {
+   "path": "contracts/src/app/multi-sig-wallet/TestContract.sol",
+   "sha256": "d0c7275a89f36ced5cd8be1241ccc4b7e69d5d213180b3e1db4d04cf19b38097",
+   "verdict": "outside: ABI types (1x, first getData(): only uintN, intN, bool, address and enum parameters and results)"
+  },
+  {
+   "path": "contracts/src/app/simple-bytecode-contract/Factory.sol",
+   "sha256": "f7114abf4b3f52e9164102b1b40031b0f21ad6dd9575bf1f990f0c0b82065e5d",
+   "verdict": "outside: inline assembly (1x, first line 11: assembly blocks have no SolidCore source semantics here); several contracts (1x, first line 21: interface IContract: only one concrete contract per file)"
+  },
+  {
+   "path": "contracts/src/app/time-lock/TimeLock.sol",
+   "sha256": "4f2a7b98fdb7cb418eac5dcd9a8ec8949fe52675e4aea9b0b957b8eb89d78f4b",
+   "verdict": "outside: external call (1x, first line 129: .call on an address); value transfer (2x, first line 50: receive  is payable); fallback (1x, first line 50: receive function: calls outside the ABI's functions); ABI"
+  },
+  {
+   "path": "contracts/src/app/uni-directional-payment-channel/ECDSA.sol",
+   "sha256": "108273617f5d4241f39b1dedac29371827bc8cdd2ad465f20fef2cef4a5bd5d8",
+   "verdict": "outside: several contracts (2x, first line 6: library ECDSA: only one concrete contract per file)"
+  },
+  {
+   "path": "contracts/src/app/uni-directional-payment-channel/UniDirectionalPaymentChannel.sol",
+   "sha256": "42b3b96388190f5792a4bb83c5245dadf5cc1c47e8e637a8d9d2dffc68fdcd64",
+   "verdict": "outside: imports (1x, first line 4: the source imports other files; the driver takes one self-contained file and never flattens (a frozen import closure is not supported yet)); inheritance (1x, first line 17: "
+  },
+  {
+   "path": "contracts/src/app/upgradeable-proxy/UpgradeableProxy.sol",
+   "sha256": "a67a9f3019afd05cf9b1d36d6879e615ba150d9d972b844e8b5720ce7b21748a",
+   "verdict": "outside: several contracts (2x, first line 225: library StorageSlot: only one concrete contract per file)"
+  },
+  {
+   "path": "contracts/src/app/write-to-any-slot/Slot.sol",
+   "sha256": "9be1398e9b53e1b9b9523fccd5cc41723d4275df180c11401a0e8823a6eceae5",
+   "verdict": "outside: several contracts (1x, first line 4: library StorageSlot: only one concrete contract per file); ABI types (1x, first TEST_SLOT(): only uintN, intN, bool, address and enum parameters and results)"
+  },
+  {
+   "path": "contracts/src/array/Array.sol",
+   "sha256": "308928119e25ce903480bd8a6493883bed98ff89567321f2ed703db259ead779",
+   "verdict": "outside: contract creation (3x, first line 47: new creates a contract (CREATE)); loop (1x, first line 52: loops need a kernel-checked invariant certificate; the generic source stage at this base is loop-free ("
+  },
+  {
+   "path": "contracts/src/array/ArrayRemoveByShifting.sol",
+   "sha256": "fba0b050e7113dfe18f7fd8f6463ccf798e55c5ed4b0842177d87a2e46c1e2f5",
+   "verdict": "outside: loop (1x, first line 15: loops need a kernel-checked invariant certificate; the generic source stage at this base is loop-free (no --invariants given))"
+  },
+  {
+   "path": "contracts/src/array/ArrayReplaceFromEnd.sol",
+   "sha256": "6bb80fa3464ffb667999b188c29115bf35754febc7f8b83fee44b49bfbed5a0a",
+   "verdict": "eligible",
+   "contract": "ArrayReplaceFromEnd",
+   "functions": [
+    "arr(uint256)",
+    "remove(uint256)",
+    "test()"
+   ],
+   "rank_key": "c17206243e050a8d8502ca3f12532a2f6f5fa872b4f2f47355a76f0dccdcb922"
+  },
+  {
+   "path": "contracts/src/assembly-error/AssemblyError.sol",
+   "sha256": "f6e528d21ca3ab4a3e4ee01c7dc85014ea89d30c1dce2af789d1db889efeac5d",
+   "verdict": "outside: inline assembly (1x, first line 6: assembly blocks have no SolidCore source semantics here)"
+  },
+  {
+   "path": "contracts/src/assembly-if/AssemblyIf.sol",
+   "sha256": "866fc3be0d99229ee0864cf9d71cbdb9dd40489d1392a615250eedc5bc9571c6",
+   "verdict": "outside: inline assembly (2x, first line 6: assembly blocks have no SolidCore source semantics here)"
+  },
+  {
+   "path": "contracts/src/assembly-loop/AssemblyLoop.sol",
+   "sha256": "c8fea0139b2647a977570c1bfe9df2a6f5e143a5563234fa5c400fabe638e885",
+   "verdict": "outside: inline assembly (2x, first line 6: assembly blocks have no SolidCore source semantics here)"
+  },
+  {
+   "path": "contracts/src/assembly-math/AssemblyMath.sol",
+   "sha256": "3537e299b5f9fedabafb9ffd6fdb80ab5685bde9b1657ae1cfb11d5eeb61834c",
+   "verdict": "outside: inline assembly (3x, first line 6: assembly blocks have no SolidCore source semantics here)"
+  },
+  {
+   "path": "contracts/src/assembly-variable/AssemblyVariable.sol",
+   "sha256": "a43058150687ca4360dc07703c070da3ba023e31d22a759fe5db94b2b138042d",
+   "verdict": "outside: inline assembly (1x, first line 6: assembly blocks have no SolidCore source semantics here)"
+  },
+  {
+   "path": "contracts/src/bitwise/Bitwise.sol",
+   "sha256": "a9fab36fb852a67ec8bfea65138013137329d62253fea2ac7602e2047aadae41",
+   "verdict": "outside: loop (1x, first line 87: loops need a kernel-checked invariant certificate; the generic source stage at this base is loop-free (no --invariants given))"
+  },
+  {
+   "path": "contracts/src/bitwise/MostSignificantBitAssembly.sol",
+   "sha256": "986657916102d4b76288155f754d895c5934c3c767b760b0d35eb6aeafe8f151",
+   "verdict": "outside: inline assembly (8x, first line 10: assembly blocks have no SolidCore source semantics here)"
+  },
+  {
+   "path": "contracts/src/bitwise/MostSignificantBitFunction.sol",
+   "sha256": "a03607d6d8e992e1335db174a9097a3f5cdb450aca981e32fe0ddb3a053aedf0",
+   "verdict": "eligible",
+   "contract": "MostSignificantBitFunction",
+   "functions": [
+    "mostSignificantBit(uint256)"
+   ],
+   "rank_key": "b6ea5cc0733ae23ae5ccfa462e30272dff8a48b75e27572d444750a0011c8caa"
+  },
+  {
+   "path": "contracts/src/call/Call.sol",
+   "sha256": "cd78ff12cff5741c5abbf915389c8014c8b9bba931989656346dc4b8e8b0c129",
+   "verdict": "outside: several contracts (1x, first 2 concrete contracts; name one with --contract)"
+  },
+  {
+   "path": "contracts/src/calling-contract/CallingContract.sol",
+   "sha256": "31ca95cf753abe50b594939b22ab10899c554289be46a88ebca5d129f43184fa",
+   "verdict": "outside: several contracts (1x, first 2 concrete contracts; name one with --contract)"
+  },
+  {
+   "path": "contracts/src/constants/Constants.sol",
+   "sha256": "e9a8c463fc35dd702f1cc6fe9e32822f8138b64929846a03af3de591ad9bedea",
+   "verdict": "eligible",
+   "contract": "Constants",
+   "functions": [
+    "MY_ADDRESS()",
+    "MY_UINT()"
+   ],
+   "rank_key": "e74fe469c4e7eb1215a1c250dd648bf6a73f729a262251c6343c458f380b36fa"
+  },
+  {
+   "path": "contracts/src/constructor/Constructor.sol",
+   "sha256": "5b6a3be43da45f07134ee2fbc48e28de257b178e4531cd8b67405ec9ae4359eb",
+   "verdict": "outside: inheritance (4x, first line 25: B inherits; only one contract with no bases); several contracts (1x, first 6 concrete contracts; name one with --contract)"
+  },
+  {
+   "path": "contracts/src/data-locations/DataLocations.sol",
+   "sha256": "c56dc8f08a22b03d6cc6109818cae3e0643de874c59e0e8296923ba3d2884b21",
+   "verdict": "outside: ABI types (2x, first g(uint256[]): only uintN, intN, bool, address and enum parameters and results)"
+  },
+  {
+   "path": "contracts/src/defi/chainlink-price-oracle/Chainlink.sol",
+   "sha256": "54f326f1179b424b8d2c0dcba1b2b7aa89d0803431a61e4517b7b2c50ad0abcd",
+   "verdict": "outside: external call (1x, first line 20: a call of an external function (function () view external returns (uint80,int256,uint256,uint256,uint80))); several contracts (1x, first line 26: interface Aggregator"
+  },
+  {
+   "path": "contracts/src/defi/chronicle-price-oracle/chroniclePriceOracle.sol",
+   "sha256": "e9fd58eeeb51e71d50489ab757c59f97b7cd989e8ed370e6f355d441494da7cd",
+   "verdict": "outside: external call (2x, first line 33: a call of an external function (function (address) external)); several contracts (2x, first line 47: interface IChronicle: only one concrete contract per file)"
+  },
+  {
+   "path": "contracts/src/defi/constant-product-amm/CPAMM.sol",
+   "sha256": "2ad78f47d2d6189cd09cb1a12bf27d31bda8610d781a85ef977cd83c284bad7d",
+   "verdict": "outside: external call (15x, first line 50: a call of an external function (function (address,address,uint256) external returns (bool))); loop (1x, first line 227: loops need a kernel-checked invariant certifi"
+  },
+  {
+   "path": "contracts/src/defi/constant-sum-amm/CSAMM.sol",
+   "sha256": "42a4d64608bc6b2271f5e8f8e3bdbdecd6fdf68833b43f9ea0a8051514145433",
+   "verdict": "outside: external call (12x, first line 52: a call of an external function (function (address,address,uint256) external returns (bool))); several contracts (1x, first line 132: interface IERC20: only one concr"
+  },
+  {
+   "path": "contracts/src/defi/dai-proxy/DaiProxy.sol",
+   "sha256": "1737b722c576b0ffe499b004345a6428fd6b5022b9265ce39b2d3ea33be39441",
+   "verdict": "outside: external call (9x, first line 21: a call of an external function (function () external returns (address))); value transfer (2x, first line 29: receive  is payable); several contracts (4x, first line 8"
+  },
+  {
+   "path": "contracts/src/defi/discrete-staking-rewards/DiscreteStakingRewards.sol",
+   "sha256": "c310b4f19575e2be97acd1a41f79280cec2e106f53f5a4056e375d7798407413",
+   "verdict": "outside: external call (6x, first line 22: a call of an external function (function (address,address,uint256) external returns (bool))); several contracts (1x, first line 79: interface IERC20: only one concret"
+  },
+  {
+   "path": "contracts/src/defi/stable-swap-amm/StableSwap.sol",
+   "sha256": "b04f0b82796ff77a8882c5f57436ca2d0633f3f5e5e877433123ba57436e030d",
+   "verdict": "outside: external call (8x, first line 262: a call of an external function (function (address,address,uint256) external returns (bool))); loop (13x, first line 75: loops need a kernel-checked invariant certifi"
+  },
+  {
+   "path": "contracts/src/defi/staking-rewards/StakingRewards.sol",
+   "sha256": "f6e6e389186f0f77147b1531be39399f931e489a68b96d91c1049032690b1842",
+   "verdict": "outside: external call (6x, first line 69: a call of an external function (function (address,address,uint256) external returns (bool))); several contracts (1x, first line 130: interface IERC20: only one concre"
+  },
+  {
+   "path": "contracts/src/defi/token-lock/IERC20.sol",
+   "sha256": "27a57507da6f412acef5ee9130c12e5ca4a15bec80bf3be78cbe45ba0bcdc33e",
+   "verdict": "excluded: name matches the fixed exclusion list"
+  },
+  {
+   "path": "contracts/src/defi/token-lock/TokenLock.sol",
+   "sha256": "eb2be1cdd92acf87f25de72fc67d70613fe997fab5bca66dcec3e9c92272138a",
+   "verdict": "outside: solc rejects the source: ParserError: Source file requires different compiler version (current compiler is 0.8.35+commit.47b9dedd.Linux.g++) - note that nightly builds are considered to be strictly le"
+  },
+  {
+   "path": "contracts/src/defi/uniswap-v2/UniswapV2SwapExamples.sol",
+   "sha256": "0f108db32ea564f25a9d42ed6692bc83b5e53d50c9bda463dc566fe78d61593c",
+   "verdict": "excluded: name matches the fixed exclusion list"
+  },
+  {
+   "path": "contracts/src/defi/uniswap-v2-add-remove-liquidity/UniswapV2Liquidity.sol",
+   "sha256": "84151a76ac4b1bb799dbc02b85ec4d93cf51894d261061760a92dbc8d1aad30c",
+   "verdict": "excluded: name matches the fixed exclusion list"
+  },
+  {
+   "path": "contracts/src/defi/uniswap-v2-flash-swap/UniswapV2FlashSwap.sol",
+   "sha256": "f2fe90e0353983c2b1b504a1333764e01c520e792c47da80762877645ad4eb4e",
+   "verdict": "excluded: name matches the fixed exclusion list"
+  },
+  {
+   "path": "contracts/src/defi/uniswap-v2-optimal-one-sided-supply/Optimal.sol",
+   "sha256": "90c792c6add8847092f41b23d31fc6cfa275e874bc8bd3691bb001788f60e125",
+   "verdict": "excluded: name matches the fixed exclusion list"
+  },
+  {
+   "path": "contracts/src/defi/uniswap-v3-flash/UniswapV3Flash.sol",
+   "sha256": "6d4783ee19fae806108fbb44729ebbbbd7cfa42445a3bbf99d5930135c61cce5",
+   "verdict": "excluded: name matches the fixed exclusion list"
+  },
+  {
+   "path": "contracts/src/defi/uniswap-v3-flash-swap/UniswapV3FlashSwap.sol",
+   "sha256": "9663c6562066d842e391598e90ff7c89c650f764cf4ca952eaf8ae92128b17a1",
+   "verdict": "excluded: name matches the fixed exclusion list"
+  },
+  {
+   "path": "contracts/src/defi/uniswap-v3-liquidity/UniswapV3Liquidity.sol",
+   "sha256": "1aaa9654d8f2e5c42bfc798e2a742e4446fbb6157661200af3d1a8455c2d1d17",
+   "verdict": "excluded: name matches the fixed exclusion list"
+  },
+  {
+   "path": "contracts/src/defi/uniswap-v3-swap/UniswapV3MultiHopSwap.sol",
+   "sha256": "a43358f18db5a9aff0ceffd346107a785fbd707c70ecf8edbb7e05cdb17e4d77",
+   "verdict": "excluded: name matches the fixed exclusion list"
+  },
+  {
+   "path": "contracts/src/defi/uniswap-v3-swap/UniswapV3SingleHopSwap.sol",
+   "sha256": "b6cf65bd6329caa2172c17a8b5f170caf05c8f4f85989b1d2862981c68f54838",
+   "verdict": "excluded: name matches the fixed exclusion list"
+  },
+  {
+   "path": "contracts/src/defi/vault/Vault.sol",
+   "sha256": "aba13d61338ca2e71364df9feb3c9f3dcbe455c78e31d63903073176de2b3f15",
+   "verdict": "outside: external call (5x, first line 39: a call of an external function (function (address) view external returns (uint256))); several contracts (1x, first line 64: interface IERC20: only one concrete contra"
+  },
+  {
+   "path": "contracts/src/delegatecall/Delegatecall.sol",
+   "sha256": "ef54ad2fabf2a2c6e40f5a98a96cc03c6124e70a393461205e7a15a1ea0280e0",
+   "verdict": "outside: several contracts (1x, first 2 concrete contracts; name one with --contract)"
+  },
+  {
+   "path": "contracts/src/enum/Enum.sol",
+   "sha256": "4c8b8a668101a16d571f67af828dfde67bab223383742f050da2b0ab54dabbf8",
+   "verdict": "eligible",
+   "contract": "Enum",
+   "functions": [
+    "cancel()",
+    "get()",
+    "reset()",
+    "set(uint8)",
+    "status()"
+   ],
+   "rank_key": "baea6f168fe5f271b3f87c3adfc431a4e713fc06a13ebc4e0446fd5cc8fd6f1c"
+  },
+  {
+   "path": "contracts/src/enum/EnumDeclaration.sol",
+   "sha256": "aaa231f64cbc79533c8eef642c40085cc244c78e981efc8f48536fa41b4ce65f",
+   "verdict": "error: KeyError: 'contracts'"
+  },
+  {
+   "path": "contracts/src/enum/EnumImport.sol",
+   "sha256": "8f3b8efa047014604f20b280dd892896795b6515ca28ff638af37d1491504db6",
+   "verdict": "outside: imports (1x, first line 4: the source imports other files; the driver takes one self-contained file and never flattens (a frozen import closure is not supported yet)); ABI types (1x, first status(): o"
+  },
+  {
+   "path": "contracts/src/error/Account.sol",
+   "sha256": "30d9b06969fa523851f9c6c536d5ee91c38ef19d14503e7cd8d908830714ca6c",
+   "verdict": "eligible",
+   "contract": "Account",
+   "functions": [
+    "MAX_UINT()",
+    "balance()",
+    "deposit(uint256)",
+    "withdraw(uint256)"
+   ],
+   "rank_key": "3eec79be870ab80976418fcf230a354f7253a42c4c23344a13613052a9666e9a"
+  },
+  {
+   "path": "contracts/src/error/Error.sol",
+   "sha256": "e0fd9961518d812c54c6c705efb8aac60dab1c63447220feffa26e3fe2458031",
+   "verdict": "outside: account read (1x, first line 36: .balance on an address)"
+  },
+  {
+   "path": "contracts/src/ether-units/EtherUnits.sol",
+   "sha256": "026b632d70dc9fb5d355645dafcc62059d8d8ef2d88aaf41b23977eb23bad832",
+   "verdict": "eligible",
+   "contract": "EtherUnits",
+   "functions": [
+    "isOneEther()",
+    "isOneGwei()",
+    "isOneWei()",
+    "oneEther()",
+    "oneGwei()",
+    "oneWei()"
+   ],
+   "rank_key": "4d3cfc93e5759aca8441081885575880ea2475008591c492a3c42df18dc8493d"
+  },
+  {
+   "path": "contracts/src/events/Events.sol",
+   "sha256": "074c2d5f93f27dfa66e17296fbfa746e86bdc9bf99c0fae4353fed8ba47b6680",
+   "verdict": "eligible",
+   "contract": "Event",
+   "functions": [
+    "test()"
+   ],
+   "rank_key": "fb0c5fb7877dedad9244ffda1052b0b30716d479452a2acb70901cb4b3f3c443"
+  },
+  {
+   "path": "contracts/src/events-advanced/EventsAdvanced.sol",
+   "sha256": "eb1e8bf495c88d39c065f9a3e38e29e58882786981b312c484aa3168ba1483f8",
+   "verdict": "outside: several contracts (2x, first line 31: interface IEventSubscriber: only one concrete contract per file)"
+  },
+  {
+   "path": "contracts/src/evm/memory/YulMem.sol",
+   "sha256": "4ffaed36e88464f30018190db3777af72697b6f6ccf28540b7c459663895803e",
+   "verdict": "outside: solc rejects the source: ParserError: Source file requires different compiler version (current compiler is 0.8.35+commit.47b9dedd.Linux.g++) - note that nightly builds are considered to be strictly le"
+  },
+  {
+   "path": "contracts/src/evm/storage/EVMStorage.sol",
+   "sha256": "3c0ee311a560a8a64ddb0a0bbe7a47e13bbc2916af246628b2e87cdde76d2550",
+   "verdict": "outside: several contracts (1x, first 13 concrete contracts; name one with --contract)"
+  },
+  {
+   "path": "contracts/src/fallback/Fallback.sol",
+   "sha256": "48c18fa4f2aa116567260116b7a864425efac56bf70bc0c3ba07afdedd6028af",
+   "verdict": "outside: several contracts (1x, first 2 concrete contracts; name one with --contract)"
+  },
+  {
+   "path": "contracts/src/fallback/FallbackInputOutput.sol",
+   "sha256": "d717e486c43a88058179c2650ac3430e823682243642b37e2d56b36ca5fff50f",
+   "verdict": "outside: several contracts (1x, first 3 concrete contracts; name one with --contract)"
+  },
+  {
+   "path": "contracts/src/first-app/Counter.sol",
+   "sha256": "5cdf5e6d41d35ac104c30978234c35d5eab82fafd309cce38851b25a8bc0cb06",
+   "verdict": "excluded: name matches the fixed exclusion list"
+  },
+  {
+   "path": "contracts/src/function/Function.sol",
+   "sha256": "ecd88d89f2c4c67a661ba0102790c1bd3d79474892d1a3041171936c1eede0b1",
+   "verdict": "outside: several contracts (1x, first 2 concrete contracts; name one with --contract)"
+  },
+  {
+   "path": "contracts/src/function-modifier/FunctionModifier.sol",
+   "sha256": "fd17609e0c901009e4e1a5ea644098a76762c9ef35394c89ad85297b6f50cc8d",
+   "verdict": "eligible",
+   "contract": "FunctionModifier",
+   "functions": [
+    "changeOwner(address)",
+    "decrement(uint256)",
+    "locked()",
+    "owner()",
+    "x()"
+   ],
+   "rank_key": "31461db79d183618d0cc969371ad061dfaa2743f2f5a7d7b648eeb0258ee8efe"
+  },
+  {
+   "path": "contracts/src/function-selector/FunctionSelector.sol",
+   "sha256": "8299c3064a03fdbd7439875e34b7f77e9ff2905221ab04021a5d93f053c0b7c3",
+   "verdict": "outside: ABI types (1x, first getSelector(string): only uintN, intN, bool, address and enum parameters and results)"
+  },
+  {
+   "path": "contracts/src/gas/Gas.sol",
+   "sha256": "3fb918f6c053521b22e3949378e51e669c77bdb6b3269847445e59c82dd3ed17",
+   "verdict": "outside: loop (1x, first line 13: loops need a kernel-checked invariant certificate; the generic source stage at this base is loop-free (no --invariants given))"
+  },
+  {
+   "path": "contracts/src/gas-golf/GasGolf.sol",
+   "sha256": "064de1afba5a2e5f3b2c43afe939402c3710e703bf61a426f1a756cf4e6912e7",
+   "verdict": "outside: loop (1x, first line 34: loops need a kernel-checked invariant certificate; the generic source stage at this base is loop-free (no --invariants given)); ABI types (1x, first sumIfEvenAndLessThan99(uin"
+  },
+  {
+   "path": "contracts/src/hacks/63-64-gas-rule/Gas.sol",
+   "sha256": "5d163f0c058cbd77ed67e37cc16070c309a0942bb8ed1cbe446b1e3caf07d857",
+   "verdict": "outside: several contracts (1x, first 2 concrete contracts; name one with --contract)"
+  },
+  {
+   "path": "contracts/src/hacks/accessing-private-data/Vault.sol",
+   "sha256": "f7ac6bccd3198fbf2d378034b68e4ddf0d3bb2b8df1951a10e4f853aa8c16715",
+   "verdict": "outside: constructor parameters (1x, first line 53: the generic stage runs the constructor with no arguments (Wide.DeployedAt), so its storage is unknown); ABI types (2x, first addUser(bytes32): only uintN, in"
+  },
+  {
+   "path": "contracts/src/hacks/block-timestamp-manipulation/BlockTimestamp.sol",
+   "sha256": "982aed3ab95c1f326c725669b1ae97293ba18f6f0908435a15220b575e57a748",
+   "verdict": "outside: external call (1x, first line 31: .call on an address); value transfer (2x, first line 22: constructor  is payable); account read (1x, first line 31: .balance on an address)"
+  },
+  {
+   "path": "contracts/src/hacks/contract-size/ContractSize.sol",
+   "sha256": "695ae0d5277094175877b139296c97aa20ecb8705cb3ebecde44633348c79ac0",
+   "verdict": "outside: several contracts (1x, first 3 concrete contracts; name one with --contract)"
+  },
+  {
+   "path": "contracts/src/hacks/delegatecall/Delegatecall_1.sol",
+   "sha256": "dfe6e5b7209e403c02cc5bb7ba05da4dbf51e39ff710819a95d59b1cbd8d6825",
+   "verdict": "outside: several contracts (1x, first 3 concrete contracts; name one with --contract)"
+  },
+  {
+   "path": "contracts/src/hacks/delegatecall/Delegatecall_2.sol",
+   "sha256": "eff4991d562104e84e9366c755fe50a483f7451f9c26cce2da7cd4979d440af3",
+   "verdict": "outside: several contracts (1x, first 3 concrete contracts; name one with --contract)"
+  },
+  {
+   "path": "contracts/src/hacks/denial-of-service/DenialOfService.sol",
+   "sha256": "1f33c71619a12c87ec51590472868c49991a9a46edee5f57aef5eb933a0af51c",
+   "verdict": "outside: several contracts (1x, first 2 concrete contracts; name one with --contract)"
+  },
+  {
+   "path": "contracts/src/hacks/denial-of-service/PreventDenialOfService.sol",
+   "sha256": "aca17d8cadc56d584a09bbebff384f974cb5f82c35549bbc2de274603c3e2c43",
+   "verdict": "outside: external call (1x, first line 24: .call on an address); value transfer (1x, first line 9: function claimThrone is payable)"
+  },
+  {
+   "path": "contracts/src/hacks/deploy-different-contracts-same-address/TornadoHack.sol",
+   "sha256": "9099d70dfc8fa5b35193189a483eba5ccf97bb0debb12270a3aaea6a5344dd16",
+   "verdict": "outside: several contracts (1x, first 5 concrete contracts; name one with --contract)"
+  },
+  {
+   "path": "contracts/src/hacks/front-running/FrontRunning.sol",
+   "sha256": "43055e1ff6d8a356af82c3d6f1debdd6bf5783815410f4378f591e17d4d8b9ae",
+   "verdict": "outside: external call (1x, first line 40: .call on an address); value transfer (1x, first line 33: constructor  is payable); ABI types (2x, first hash(): only uintN, intN, bool, address and enum parameters an"
+  },
+  {
+   "path": "contracts/src/hacks/front-running/PreventFrontRunning.sol",
+   "sha256": "69ea11a788b65c82640ccb04fb4dd88113c1dabf542e4ee1c3935be54699a872",
+   "verdict": "outside: external call (1x, first line 124: .call on an address); value transfer (1x, first line 62: constructor  is payable); ABI types (4x, first commitSolution(bytes32): only uintN, intN, bool, address and "
+  },
+  {
+   "path": "contracts/src/hacks/hiding-malicious-code-with-external-contract/ExternalContract.sol",
+   "sha256": "fa8fa4e62e9ebb95286162df7af6ffe8857a7b63af085985cee48323ca182836",
+   "verdict": "outside: several contracts (1x, first 3 concrete contracts; name one with --contract)"
+  },
+  {
+   "path": "contracts/src/hacks/honeypot/HoneyPot.sol",
+   "sha256": "f9afb2aea59e444690b74883cf1aef0409107cdb17ed37caf8dc09995bca7d4f",
+   "verdict": "outside: several contracts (1x, first 4 concrete contracts; name one with --contract)"
+  },
+  {
+   "path": "contracts/src/hacks/overflow/Overflow.sol",
+   "sha256": "953ae036d9f4f2171a8e898e4c0ee48e6e6c180ee3ac3aafca875899ef0c0cbb",
+   "verdict": "outside: solc rejects the source: ParserError: Source file requires different compiler version (current compiler is 0.8.35+commit.47b9dedd.Linux.g++) - note that nightly builds are considered to be strictly le"
+  },
+  {
+   "path": "contracts/src/hacks/phishing-with-tx-origin/TxOrigin.sol",
+   "sha256": "6a6a011bd6dc18323a6f51afcf57137993124a5a7cbdb3598c5f411eaad86935",
+   "verdict": "outside: several contracts (1x, first 2 concrete contracts; name one with --contract)"
+  },
+  {
+   "path": "contracts/src/hacks/randomness/Randomness.sol",
+   "sha256": "294b3f2f89d95a9cb869f249efcd3d43c94e82a315db746c671fb4202d640935",
+   "verdict": "outside: several contracts (1x, first 2 concrete contracts; name one with --contract)"
+  },
+  {
+   "path": "contracts/src/hacks/re-entrancy/ReEntrancy.sol",
+   "sha256": "0614c248d449346ce6503bf1bb87bb21e5183e88b7b085cb73da2804ae331f01",
+   "verdict": "outside: several contracts (1x, first 2 concrete contracts; name one with --contract)"
+  },
+  {
+   "path": "contracts/src/hacks/re-entrancy/ReEntrancyGuard.sol",
+   "sha256": "37a133628731afbf1a3813679dfd230a82e027230afa70a712438bd16cfff377",
+   "verdict": "outside: no functions (1x, first the contract has no external functions)"
+  },
+  {
+   "path": "contracts/src/hacks/self-destruct/ForceEther.sol",
+   "sha256": "841c337c4ed069cd49f5062c485400e0da4e62fbfedab55e50ab35ff1a82559e",
+   "verdict": "outside: several contracts (1x, first 2 concrete contracts; name one with --contract)"
+  },
+  {
+   "path": "contracts/src/hacks/self-destruct/PreventForceEther.sol",
+   "sha256": "5e31603c309bdc690623ffe27f0869c739c0b64074fe930ed9b1cf397c8a927d",
+   "verdict": "outside: external call (1x, first line 24: .call on an address); value transfer (1x, first line 9: function deposit is payable)"
+  },
+  {
+   "path": "contracts/src/hacks/signature-replay/ECDSA.sol",
+   "sha256": "0a9fa937a04229d55c7ff00b912e57f74485bcfad05df67ba10ff79969944d3c",
+   "verdict": "outside: several contracts (2x, first line 6: library ECDSA: only one concrete contract per file)"
+  },
+  {
+   "path": "contracts/src/hacks/signature-replay/PreventSigReplay.sol",
+   "sha256": "a19964cfe031f384f68e92d301f7e4f701c1eebdf0ea054193bd55b2d2de7985",
+   "verdict": "outside: external call (1x, first line 30: .call on an address); value transfer (2x, first line 12: constructor  is payable); loop (1x, first line 49: loops need a kernel-checked invariant certificate; the gen"
+  },
+  {
+   "path": "contracts/src/hacks/signature-replay/SigReplay.sol",
+   "sha256": "08af756240571167e2ca7f089c1eb7264a7226f3586a9a34cd7a463624a2ab47",
+   "verdict": "outside: external call (1x, first line 23: .call on an address); value transfer (2x, first line 11: constructor  is payable); loop (1x, first line 42: loops need a kernel-checked invariant certificate; the gen"
+  },
+  {
+   "path": "contracts/src/hacks/vault-inflation/VaultInflation.sol",
+   "sha256": "5a7f51ccc4b9f530f5842dec9d9ace6e1e037b694bba9a3886e246c557b69aee",
+   "verdict": "outside: several contracts (2x, first line 6: interface IERC20: only one concrete contract per file); inheritance (1x, first line 27: Token inherits; only one contract with no bases)"
+  },
+  {
+   "path": "contracts/src/hacks/weth-permit/ERC20.sol",
+   "sha256": "310adf4dfce16dbb6ce5a8902cb16a7d53adad3544c2a63e15179daf5cb1d15f",
+   "verdict": "excluded: name matches the fixed exclusion list"
+  },
+  {
+   "path": "contracts/src/hacks/weth-permit/ERC20Bank.sol",
+   "sha256": "7b9a3d71979407d823ccb818dce06771ab05cc59f1b4c6abe272df34d456f2fc",
+   "verdict": "excluded: name matches the fixed exclusion list"
+  },
+  {
+   "path": "contracts/src/hacks/weth-permit/IERC20.sol",
+   "sha256": "8e5e57a01b23864ffd13d0c21a9578d4fcafd798fd91131bb4d93c942a764545",
+   "verdict": "excluded: name matches the fixed exclusion list"
+  },
+  {
+   "path": "contracts/src/hacks/weth-permit/IERC20Permit.sol",
+   "sha256": "30b04235f8c0e7665221a99fc12a8a4d7246874adf48ba1f7ea46fb7fa32a5b5",
+   "verdict": "excluded: name matches the fixed exclusion list"
+  },
+  {
+   "path": "contracts/src/hacks/weth-permit/WETH.sol",
+   "sha256": "c3fe57ba5dac86450edeefedc2dbcc8c0013bea8ef4bceb3add90911b73bcf69",
+   "verdict": "outside: external call (1x, first line 23: .transfer on an address); value transfer (2x, first line 12: fallback  is payable); imports (1x, first line 4: the source imports other files; the driver takes one se"
+  },
+  {
+   "path": "contracts/src/hashing/Keccak256.sol",
+   "sha256": "6b803b1099dfdb5f53f8ec7cc4b51644c6f6b4d03629afeda4f36871303d97a7",
+   "verdict": "outside: several contracts (1x, first 2 concrete contracts; name one with --contract)"
+  },
+  {
+   "path": "contracts/src/hello-world/HelloWorld.sol",
+   "sha256": "30fefdc96adb4de0cfba42c7fda3197ec709346f12f385759ed448285f5157f8",
+   "verdict": "outside: ABI types (1x, first greet(): only uintN, intN, bool, address and enum parameters and results)"
+  },
+  {
+   "path": "contracts/src/if-else/IfElse.sol",
+   "sha256": "5259adaedb80e0af8b3789d45d05cdf99a0e018db660b61be3efcc279e3f3cea",
+   "verdict": "eligible",
+   "contract": "IfElse",
+   "functions": [
+    "foo(uint256)",
+    "ternary(uint256)"
+   ],
+   "rank_key": "e4b469b34d96f0acb43ed3c6108887a8bc131e2a2885a4193a1828af47496eac"
+  },
+  {
+   "path": "contracts/src/immutable/Immutable.sol",
+   "sha256": "85a909b6898149de96a3e3475eea5cdc95d3b7cd87ee629814f39b09b57ed78d",
+   "verdict": "outside: constructor parameters (1x, first line 8: the generic stage runs the constructor with no arguments (Wide.DeployedAt), so its storage is unknown)"
+  },
+  {
+   "path": "contracts/src/import/Foo.sol",
+   "sha256": "3f077d3c3ef5647415f1a8cb11abb1f4ea97ca4aa2fb82ef25cbd9d0a599bbc6",
+   "verdict": "outside: ABI types (1x, first name(): only uintN, intN, bool, address and enum parameters and results)"
+  },
+  {
+   "path": "contracts/src/import/Import.sol",
+   "sha256": "8497faa52fc053b7fa47f87cb7339b6d55e4323e20a27b983ece3e460878e272",
+   "verdict": "outside: external call (1x, first line 16: a call of an external function (function () view external returns (string memory))); contract creation (1x, first line 12: new creates a contract (CREATE)); imports ("
+  },
+  {
+   "path": "contracts/src/inheritance/Inheritance.sol",
+   "sha256": "3248e9eed60db2d9a96d0ff7b0b75075075f40a653edf4744358fd47c65cd0d3",
+   "verdict": "outside: inheritance (5x, first line 20: B inherits; only one contract with no bases); several contracts (1x, first 6 concrete contracts; name one with --contract)"
+  },
+  {
+   "path": "contracts/src/interface/Interface.sol",
+   "sha256": "6fa0920a8370dee61688b99c6249714bdef3ce98fdceb2080d71c3763a7830c0",
+   "verdict": "outside: several contracts (4x, first line 12: interface ICounter: only one concrete contract per file)"
+  },
+  {
+   "path": "contracts/src/library/Library.sol",
+   "sha256": "6028b6d82373c3277f9c4c18ec0b5e95031eb8bf6e92a1f804d9d81ff6a78b31",
+   "verdict": "outside: several contracts (3x, first line 4: library Math: only one concrete contract per file)"
+  },
+  {
+   "path": "contracts/src/loop/Loop.sol",
+   "sha256": "e8aa1634e42ffe0cad6584ae535618a2b59b2792a086e07f337788d2844da90d",
+   "verdict": "outside: loop (2x, first line 7: loops need a kernel-checked invariant certificate; the generic source stage at this base is loop-free (no --invariants given))"
+  },
+  {
+   "path": "contracts/src/mapping/Mapping.sol",
+   "sha256": "ebf30def8e578505df713ff54081103c2df4c8c9ac57341f2be8383c6ba4b50d",
+   "verdict": "excluded: in the first set"
+  },
+  {
+   "path": "contracts/src/new-contract/NewContract.sol",
+   "sha256": "425314aacb0fce0f381a248304eb23660c567935dfd19c10d5f0af3fe4bacd0a",
+   "verdict": "outside: several contracts (1x, first 2 concrete contracts; name one with --contract)"
+  },
+  {
+   "path": "contracts/src/payable/Payable.sol",
+   "sha256": "484ac8674f5a3c93a1bc5fab91d8e49154ae626d4930d595470bb40510d97cec",
+   "verdict": "outside: external call (2x, first line 28: .call on an address); value transfer (2x, first line 9: constructor  is payable); account read (1x, first line 25: .balance on an address)"
+  },
+  {
+   "path": "contracts/src/primitives/Primitives.sol",
+   "sha256": "0230ce14356f4a1e10b33af79bf89c7b3fbf0c817d8027c7235ab105d2107939",
+   "verdict": "eligible",
+   "contract": "Primitives",
+   "functions": [
+    "addr()",
+    "boo()",
+    "defaultAddr()",
+    "defaultBoo()",
+    "defaultInt()",
+    "defaultUint()",
+    "i()",
+    "i256()",
+    "i8()",
+    "maxInt()",
+    "minInt()",
+    "u()",
+    "u256()",
+    "u8()"
+   ],
+   "rank_key": "ad47bce5f33f6d4b827fa310eb6ce64fb8139015d2d3100776d84b0e9aa103d0"
+  },
+  {
+   "path": "contracts/src/sending-ether/SendingEther.sol",
+   "sha256": "32c5a15b7adb4365073b208ab5a0d26255ff400c7d24440c011b6b0b3c7b312b",
+   "verdict": "outside: several contracts (1x, first 2 concrete contracts; name one with --contract)"
+  },
+  {
+   "path": "contracts/src/shadowing-inherited-state-variables/Shadow.sol",
+   "sha256": "ade466f74ffb25a43246399e70252799c679a5e6cfa2e66728f8f1503d44241a",
+   "verdict": "outside: inheritance (1x, first line 18: C inherits; only one contract with no bases); several contracts (1x, first 2 concrete contracts; name one with --contract)"
+  },
+  {
+   "path": "contracts/src/signature/Signature.sol",
+   "sha256": "814b4af9de1494694ff96493b1c9d76ace4a3cd8b5015adff6afee527fc94840",
+   "verdict": "outside: inline assembly (1x, first line 106: assembly blocks have no SolidCore source semantics here); ABI types (5x, first getEthSignedMessageHash(bytes32): only uintN, intN, bool, address and enum parameter"
+  },
+  {
+   "path": "contracts/src/state-variables/SimpleStorage.sol",
+   "sha256": "564e79247b036821570b165ca527c186aff0ea9395802e087b3f8f47918cc4a0",
+   "verdict": "excluded: in the first set"
+  },
+  {
+   "path": "contracts/src/structs/StructDeclaration.sol",
+   "sha256": "01f5be4f9301b111ca3048d5e835edf8ad0d9c3154b4eb5b0795ad96ce7a17d7",
+   "verdict": "error: KeyError: 'contracts'"
+  },
+  {
+   "path": "contracts/src/structs/StructImport.sol",
+   "sha256": "431d1612718e5bc533471c195c28ffd4218c9264315fe98940a23c76f37acb20",
+   "verdict": "outside: imports (1x, first line 4: the source imports other files; the driver takes one self-contained file and never flattens (a frozen import closure is not supported yet)); ABI types (1x, first todos(uint2"
+  },
+  {
+   "path": "contracts/src/structs/Structs.sol",
+   "sha256": "d042aaf4a9e553f6d83609ca9c0b647058a9e7cbea54e0bde4d33f6250298f70",
+   "verdict": "outside: ABI types (4x, first create(string): only uintN, intN, bool, address and enum parameters and results)"
+  },
+  {
+   "path": "contracts/src/super/Super.sol",
+   "sha256": "26b7e7832f9e584eeba3f9b39bdd22d3086328fff54888801210290dd3abd890",
+   "verdict": "outside: inheritance (3x, first line 27: B inherits; only one contract with no bases); several contracts (1x, first 4 concrete contracts; name one with --contract)"
+  },
+  {
+   "path": "contracts/src/tests/echidna/EchidnaTestTimeAndCaller.sol",
+   "sha256": "eff73c1615acfcea023e92bc6a86ece3e63e4b94a5dac3854f77208afd82847f",
+   "verdict": "outside: loop (1x, first line 47: loops need a kernel-checked invariant certificate; the generic source stage at this base is loop-free (no --invariants given))"
+  },
+  {
+   "path": "contracts/src/tests/echidna/TestEchidna.sol",
+   "sha256": "cb0d9f7397351625cf1e9b85f635382906732749f092c8ef35fca04591bc93ef",
+   "verdict": "outside: inheritance (1x, first line 19: TestCounter inherits; only one contract with no bases); several contracts (1x, first 3 concrete contracts; name one with --contract)"
+  },
+  {
+   "path": "contracts/src/transient-storage/TransientStorage.sol",
+   "sha256": "9b74f3bcaddcd2677cfdf15ec10865a3a7cee083d664b95289a94f343b022c16",
+   "verdict": "outside: several contracts (2x, first line 10: interface ITest: only one concrete contract per file)"
+  },
+  {
+   "path": "contracts/src/try-catch/TryCatch.sol",
+   "sha256": "004208406c1debb5a9848d52afc5c8152f466e35b5118500563400b9d4957d6f",
+   "verdict": "outside: several contracts (1x, first 2 concrete contracts; name one with --contract)"
+  },
+  {
+   "path": "contracts/src/unchecked-math/UncheckedMath.sol",
+   "sha256": "f6d3650165df5e6e04c87f66820f0c27bd57d8f5e23b62aafca38829f6114631",
+   "verdict": "eligible",
+   "contract": "UncheckedMath",
+   "functions": [
+    "add(uint256,uint256)",
+    "sub(uint256,uint256)",
+    "sumOfCubes(uint256,uint256)"
+   ],
+   "rank_key": "f106f102a9e0e8bf0d666d2943ab24c1b61c5aea17ae5f460242f40d73be11b8"
+  },
+  {
+   "path": "contracts/src/user-defined-value-types/UserDefinedValueTypes.sol",
+   "sha256": "2ea4b5c65199d1ae1a898a711a8de2f20efe848515b1c61054cddbcc3f8a4fdb",
+   "verdict": "outside: several contracts (2x, first line 13: library LibClock: only one concrete contract per file)"
+  },
+  {
+   "path": "contracts/src/variables/Variables.sol",
+   "sha256": "724862961f0d88301328092889352d74926bd7877b8ddf98b61a48df920a4fa6",
+   "verdict": "outside: ABI types (1x, first text(): only uintN, intN, bool, address and enum parameters and results)"
+  },
+  {
+   "path": "contracts/src/view-and-pure-functions/ViewAndPureFunctions.sol",
+   "sha256": "6c6997479ce1da29f1a2b7f438d280e66d442b3ab96f13dfb8e1e007ddfde7d4",
+   "verdict": "excluded: in the first set"
+  },
+  {
+   "path": "contracts/src/visibility/Visibility.sol",
+   "sha256": "12c407ed36aa7202054622d2c6ef89e408af20acf164c76c11c125e703870014",
+   "verdict": "outside: inheritance (1x, first line 55: Child inherits; only one contract with no bases); several contracts (1x, first 2 concrete contracts; name one with --contract)"
+  }
+ ]
+}
