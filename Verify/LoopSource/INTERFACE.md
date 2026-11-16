@@ -107,3 +107,88 @@ The subset these signatures cover:
 
 Counter's `bump` is the only test instance (`MirLink/`). Nothing in `Generic/` names a
 contract, a selector, a file or a hash.
+
+## Loop bytecode equivalence (`Verify/LoopSource/Equiv/`)
+
+The producer of `Shapes.Equiv` for a loop-carrying function. It never takes `Equiv`, or a stage
+from the source to anything, as a premise. Its premises are:
+
+- the source loop's `BodyRuns`, from the loop route;
+- a cut-point certificate `C` whose check the kernel runs on the lowered MIR (`C.check … = some (le, li)`);
+- obligations `Obl` on that check's leaves, stated over the source's `LoopRecord`;
+- the MIR-to-EVM-IR `Stage` and the assembler's `checkL`. The driver proves these for every
+  program, loop-free or not, as `ShapeGeneric.compiled_of` takes them.
+
+```lean
+namespace Verify.LoopSource.Equiv
+
+structure Cut where
+  fn : Nat                      -- the loop's function
+  head : Nat                    -- its header block
+  ids : List (Nat × Slot)       -- the template's values
+  mem : List (Nat × Slot)       -- the template's memory words, at their offsets
+  writes : List (WExpr × Slot)  -- the template's storage writes, newest first
+  nhw : Nat                     -- the number of header words
+  cases : List Facts            -- the facts each iteration run is under
+  fuel : Nat
+
+inductive Slot where | hw (k : Nat) | fixed (e : WExpr)
+inductive Out where | exit (T : Tree) | back (hs : List WExpr)
+
+def Cut.check (C : Cut) (ev : EnvFlags) (m : Module) (sel n : Nat) :
+    Option (List (Facts × Out) × List (Facts × Out))
+
+def nextVal (n : Nat) (σ : Val) (hs : List WExpr) : Val :=
+  { σ with args := σ.args.take n ++ hs.map (·.eval σ) }
+def trunc (n : Nat) (σ : Val) : Val := { σ with args := σ.args.take n }
+
+structure Obl (L : Val → LoopRecord) (toSrc : Val → Val) (X : Val → Prop) (A : Val → Prop) (n : Nat)
+    (cases : List Facts) (T : Tree) (le li : List (Facts × Out)) : Prop where
+  entry : ∀ ρ : Val, ρ.args.length = n → ρ.Ok → A ρ → ∀ p ∈ le, p.1.Hold ρ →
+    match p.2 with
+    | .exit T' => (T'.eval ρ).obs = (T.eval ρ).obs
+    | .back hs => (L ρ).P (toSrc (nextVal n ρ hs)) ∧ X (nextVal n ρ hs)
+  iter : ∀ σ : Val, n ≤ σ.args.length → σ.Ok → A (trunc n σ) → (L (trunc n σ)).P (toSrc σ) → X σ →
+    ∀ p ∈ li, p.1.Hold σ →
+    match p.2 with
+    | .exit T' => (T'.eval σ).obs = (T.eval (trunc n σ)).obs
+    | .back hs => (L (trunc n σ)).Step (toSrc σ) (toSrc (nextVal n σ hs)) ∧ X (nextVal n σ hs)
+  facts : ∀ σ : Val, n ≤ σ.args.length → σ.Ok → A (trunc n σ) → (L (trunc n σ)).P (toSrc σ) → X σ →
+    ∃ F ∈ cases, F.Hold σ
+
+theorem loop_mir_runs {C : Cut} {ev : EnvFlags} {m : Module} {sel n : Nat} {le li : List (Facts × Out)}
+    (hchk : C.check ev m sel n = some (le, li)) {L : Val → LoopRecord} {toSrc : Val → Val}
+    {X A : Val → Prop} {T : Tree} (hobl : Obl L toSrc X A n C.cases T le li) {ρ : Val} {call : Call}
+    (hc : CallFactsAt (.w (.lit 0)) sel n ρ call) (hlen : ρ.args.length = n) (hA : A ρ) (o : Oracle)
+    (henv : EnvAsk ev o ρ) :
+    (moduleSem o).run m call = some (T.eval ρ).obs
+
+theorem loop_stage {fuel : Nat} {c : CheckedContract} {sel : Nat} {fn : FunctionDef} {ws : List Nat}
+    {b : Br} {T : Tree} (hsel : sel < 2 ^ 32) (hfind : c.core.findFunctionBySelector? sel = some fn)
+    (hw : widthsOf fn.params fn.paramAbiCleanups = some ws) (hret : fn.returns.all wordBinding = true)
+    (hb : BodyRuns { envOf c.core with facts := argFacts ws 0 } fuel fn b)
+    (hT : brTree fn (argFacts ws 0) b = some T)
+    {C : Cut} {ev : EnvFlags} {m : Module} {le li : List (Facts × Out)}
+    (hchk : C.check ev m sel fn.params.length = some (le, li))
+    {L : Val → LoopRecord} {toSrc : Val → Val} {X A : Val → Prop}
+    (hobl : Obl L toSrc X A fn.params.length C.cases T le li)
+    (hA : ∀ σ args, ArgsOk fn ws args → A ⟨args, slotValue σ, solHash, callerWord⟩)
+    (o : Oracle) (ho : SourceAsk ev o) :
+    Stage (solidCoreRuntime fuel) (mirSem o) c m (SelCall sel fn ws)
+
+theorem loop_equiv … (the premises of loop_stage, then)
+    {q : Assemble.Program} {code : ByteArray} {scope : Call → Prop} {cert : Assemble.Cert} {mx : List Nat}
+    (backend : Stage (mirSem Shapes.oracle) (evmirSem Shapes.oracle) m q scope)
+    (hscope : ∀ call, SelCall sel fn ws call → scope call)
+    (asm : AssembleLoop.checkL q code cert mx = true) :
+    Shapes.Equiv (solidCoreRuntime fuel) c code (SelCall sel fn ws)
+end Verify.LoopSource.Equiv
+```
+
+`Cut.check` runs the module symbolically twice. The entry run goes from the module's entry; each
+iteration run goes from the template after the header's phis, under one case. Both stop at every end
+or arrival at the header. An arrival must hold the template: every fixed word is its word, header
+words are read off, and nothing outside the template is written. A branch the case decides follows
+its one side. `tools/certify/loop_equiv.py` in solar emits `C` from solar-verify's loop-head
+manifest and solar's exported lowered MIR. The emitted `C` is a claim only: the kernel's check
+rejects a wrong one.
