@@ -17,8 +17,6 @@ bytecode.
   in: a generic transport conditional on `Expected`, which it takes as a premise; Flag's instance
   discharges it with the record's proved `Final.final`); `bytecode_meets` (row P on the exact
   runtime bytes).
-* `Run.lean`: `runTree`, one kernel-evaluable computation of a reading's call for every contract, and
-  `run_eq_runTree`: its result is SolidCore's `Source.run`, by the generic `Generic.source_run`.
 * `Instances/Flag.lean`: Flag (rc2-acc5-flag), with its certificate proved by the record's
   modules. Those come from the immutable record (DEPENDENCIES.md): `flag_record.sh` assembles them
   into `Certified/flag_4ce5cf9a` and checks all 33 files against `FLAG_RECORD.sha256`.
@@ -65,19 +63,17 @@ even within v0.
 | parsed | G0 reads the bytes to some reading, or to `none` | kernel (`kernel_rfl`) | nothing |
 | digest binding | the bytes' sha256 is the recorded digest | kernel (`decide +kernel`) | nothing |
 | reading agreement | G0's reading equals the importer's AST, the spec exporter's bundle and solc's ABI of the same bytes | kernel | nothing (the upstream outputs are frozen data, not trusted) |
-| denotation (run) | a mutation's run, SolidCore's `Source.run`, differs from the original's | kernel (`runTree`, `run_eq_runTree`) | nothing |
+| denotation (run) | a mutation's run, SolidCore's `Source.run`, differs from the original's | kernel (`Source.run` with `mkIdx_eq`) | nothing |
 | property (row P) | the exact runtime bytes meet the spec for every valid call | `Expected`, proved | the record's certificate (proved, not assumed) |
 
 Binding to the original bytes is not correctness of parsing: a matching digest or a reading that
 agrees with upstream does not show that G0's parse and desugaring are Solidity's meaning. **G0 is
 the trusted reference frontend** for statements made through it.
 
-Each run is checked by two kernel routes. `runTree` evaluates the call's erased branch tree, and
-the existing `Generic.source_run` proves that this is `Source.run`'s result. `Direct` evaluates
-`Source.run` itself, rewriting the hash map's `USize` index with the existing `Verify.VC.mkIdx_eq`.
-Without that rewrite the index does not reduce well, an implementation limit rather than a
-limit of the kernel. Neither route adds an interpreter, a storage model of its own or an axiom. It covers contracts
-whose constructor leaves empty storage, and functions `eraseFn` erases.
+Each run is `Source.run` itself, evaluated by the kernel with the existing `Verify.VC.mkIdx_eq`,
+which rewrites the hash map's `USize` index through `Nat`. Without that rewrite the index does not
+reduce well, an implementation limit rather than a limit of the kernel. No second interpreter,
+no storage model of its own, no extra axiom.
 
 **Axiom policy.** `Audit.lean` walks every constant of every `Verify.SourceText` module it imports
 (and `AuditFlag.lean` with Flag's instance) through `Lean.collectAxioms` and fails on anything
@@ -146,7 +142,9 @@ closed only in the form "the importer and the spec export agree with G0 on Flag'
 
     Verify/SourceText/check.sh SOLC SOLAR_VERIFY [--flag]
 
-It checks the pinned upstream tools, regenerates the cases and compares them with `CASES.sha256`,
+It has 19 rows with `--flag` (16 without): two tool pins, cases, build, audit, three
+unaltered controls, five tampered expectations, three tampered audits, and with `--flag` the
+record assembly, the Flag build and its audit. It checks the pinned upstream tools, regenerates the cases and compares them with `CASES.sha256`,
 builds `VerifySourceText`, audits the production closure's axioms, checks unaltered copies (must
 pass), tampered expectations and tampered audits (must fail). With `--flag` it also assembles the
 Flag record (`flag_record.sh`), builds `VerifySourceTextFlag` and audits it. It exits 0 when every row
