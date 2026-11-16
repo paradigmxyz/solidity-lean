@@ -1,0 +1,24 @@
+{
+ "driver": {
+  "repository": "paradigmxyz/solar",
+  "branch": "alpharush/t6-getter-fix",
+  "commit": "0479b90a422245bf77facc51ea17b960ed5c5851",
+  "tree": "e87de2594c4500a8cc5cd11a0a6703cf460d8da3"
+ },
+ "base": {
+  "repository": "paradigmxyz/solidity-lean",
+  "commit": "49d1d7f5d9b74165486bd9f634202bee1a3633eb"
+ },
+ "heldout_set": {
+  "repository": "paradigmxyz/solidity-lean",
+  "commit": "e0564a28100931a9986af9a848a57bc2bd835c67",
+  "case": "tests/heldout/rc-2026-11-15/SimpleStorage/SimpleStorage.sol",
+  "contract": "SimpleStorage",
+  "source_sha256": "928cc1594907cb4d56183be7565db8b60bee77c2ffc9fc731083bf31dc1bc082"
+ },
+ "solc": {
+  "version": "0.8.35",
+  "sha256": "fa8ac9a32d301ad023a36ee5a29f8e291fe3200c60244e43c142539e82a617f4"
+ },
+ "lean": "leanprover/lean4:v4.35.0"
+}

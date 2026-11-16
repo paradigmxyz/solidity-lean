@@ -1,0 +1,11 @@
+driver 0479b90a422245bf77facc51ea17b960ed5c5851
+usage: generic.py [-h] [--replay DIR] [--invariants INVARIANTS]
+                  [--contract CONTRACT]
+                  [--tier {compiled,functional,certified}]
+                  [--solidity-lean SOLIDITY_LEAN] [--base BASE] [--work WORK]
+                  [--record-dir RECORD_DIR] [--packages-from PACKAGES_FROM]
+                  [--solc SOLC] [--no-negatives] [--probe-cache PROBE_CACHE]
+                  [--prepare-only]
+                  [source] [spec]
+generic.py: error: argument --tier: invalid choice: 'lifecycle' (choose from 'compiled', 'functional', 'certified')
+H1 lifecycle exit 2

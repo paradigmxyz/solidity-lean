@@ -1,0 +1,14 @@
+{
+ "cmd": [
+  "/home/hand/t6/run_case2.sh",
+  "rc2-H1",
+  "tests/heldout/rc-2026-11-15/SimpleStorage/SimpleStorage.sol",
+  "SimpleStorage"
+ ],
+ "exit": 1,
+ "wall_s": 4309.7,
+ "started_utc": "2026-11-16T04:48:34Z",
+ "peak_tree_rss_mb": 6180,
+ "peak_proc_rss_mb_sampled": 5277,
+ "ru_maxrss_mb": 5277
+}
