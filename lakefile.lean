@@ -681,8 +681,8 @@ lean_lib «flag_4ce5cf9a» where
 -- G0, the source-text bridge (Verify/SourceText/README.md): the reference reader of a source
 -- file's bytes, the bridge to the generic expected theorem, and its tests.
 lean_lib VerifySourceText where
-  roots := #[`Verify.SourceText.Grammar, `Verify.SourceText.Bridge, `Verify.SourceText.Tests,
-    `Verify.SourceText.Runs]
+  roots := #[`Verify.SourceText.Grammar, `Verify.SourceText.Bridge, `Verify.SourceText.Run,
+    `Verify.SourceText.Tests, `Verify.SourceText.TestRuns]
 
 -- Flag (rc2-acc5-flag) through G0. Needs the record's generated flag_4ce5cf9a modules.
 lean_lib VerifySourceTextFlag where

@@ -22,7 +22,9 @@ and the expected theorem holds of their reading at the runtime bytes `rt`.
 
 `statement_of_agree` is the only way in. It takes a certified `Expected src spec rt`, proved
 elsewhere, and a reading equal to that certificate's `src` and `spec`, and it only transports
-the theorem. It never assumes `Expected`. `bytecode_meets` is the property this gives on the
+the theorem: a generic transport conditional on `Expected`, which it takes as a premise and
+does not prove. Each instance discharges that premise with a proved certificate; Flag's instance
+does so with the record's `Final.final`. No LedgerRelay instance exists. `bytecode_meets` is the property this gives on the
 exact bytes, for every valid call: from the gas bound up, the run ends, a call whose
 succeeds-if conditions hold succeeds, and the result meets every ensures condition (row P).
 
