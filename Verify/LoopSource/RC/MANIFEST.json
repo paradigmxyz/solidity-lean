@@ -1,0 +1,121 @@
+{
+ "format": "t4 loop route manifest 1",
+ "base": {
+  "solidity-lean": "44572c150176365fa5e0d56ae6c59a7a443f8122",
+  "bridge": "0e88f235a43a86fa94d9be13bd6f0ac6b2a3d6a2"
+ },
+ "compiler": {
+  "solar": "fd53f637ef69065f897a1760726c254ccd7f9aa2",
+  "branch": "alpharush/t1-loop-heads",
+  "string": "0.8.38+commit.fd53f637.solar.0.3.0-dev",
+  "solar_verify_sha256_this_build": "58d4913d49701708f91d3779e89f0606aeef71fdc9704f96e01ab3cecec6ee15",
+  "z3": "Z3 version 5.4.1 - 64 bit",
+  "lean": "leanprover/lean4:v4.35.0"
+ },
+ "map": {
+  "path": "Verify/LoopSource/RC/Counter/Counter.loop-heads.json",
+  "from": "solidity-lean ee66e071dc134850f067e50f85a62d4a6f2b7a06 Certified/record/loop-heads-counter/Counter.loop-heads.json",
+  "sha256": "f4cc0bcfe06953ec5f17efd19830c87b81e858e0b550c458eb99c3a31d707e9f"
+ },
+ "files": {
+  "inputs/Counter.sol": "f1c87a334b8db31fc8f80541febeaf8617318d20b685634f44e26c74146ad326",
+  "inputs/Gcd.sol": "94f6c0346bfb199811f863ee0c47234d57c390e26b60a5a604ece3e66da74969",
+  "Counter/Counter.loop-heads.json": "f4cc0bcfe06953ec5f17efd19830c87b81e858e0b550c458eb99c3a31d707e9f"
+ },
+ "spec": {
+  "Counter.sol": "e285303d4d4ba8706f75c48218e151f4b2a1d1690fd9a10e365f06c4e15a0e7f",
+  "Gcd.sol": "7a95a691986b4e17d50f655f6c5f1bce0f8cb313708c84f7d5921dfb1280d1c7"
+ },
+ "vc": {
+  "counter": {
+   "compiler": "0.8.38+commit.fd53f637.solar.0.3.0-dev",
+   "options": {
+    "dry_run": false,
+    "only": "Counter.bump",
+    "strict": false,
+    "timeout_ms": 10000
+   },
+   "sources": [
+    {
+     "path": "Counter.sol",
+     "sha256": "f1c87a334b8db31fc8f80541febeaf8617318d20b685634f44e26c74146ad326"
+    }
+   ],
+   "smt_sha256": "2c92f3bcd927369da89250662bd5a6174d3c06d0c3c38f5021509fe8810036e3",
+   "vc_sha256": "648d461056fe1649754b1ec259c2d1c48e8db8a4c11e5af281e73796399bc96a",
+   "answers": {
+    "Counter.bump#0": "unsat",
+    "Counter.bump#1": "unsat",
+    "Counter.bump#2": "unsat",
+    "Counter.bump#3": "unsat",
+    "Counter.bump#4": "unsat",
+    "Counter.bump#5": "sat",
+    "Counter.bump#6": "unsat",
+    "Counter.bump#7": "unsat"
+   },
+   "solver": "Z3 version 5.4.1 - 64 bit"
+  },
+  "gcd": {
+   "compiler": "0.8.38+commit.fd53f637.solar.0.3.0-dev",
+   "options": {
+    "dry_run": false,
+    "only": "Gcd.gcd",
+    "strict": false,
+    "timeout_ms": 10000
+   },
+   "sources": [
+    {
+     "path": "Gcd.sol",
+     "sha256": "94f6c0346bfb199811f863ee0c47234d57c390e26b60a5a604ece3e66da74969"
+    }
+   ],
+   "smt_sha256": "2c92f3bcd927369da89250662bd5a6174d3c06d0c3c38f5021509fe8810036e3",
+   "vc_sha256": "648d461056fe1649754b1ec259c2d1c48e8db8a4c11e5af281e73796399bc96a",
+   "answers": {
+    "Gcd.gcd#0": "unsat",
+    "Gcd.gcd#1": "unsat",
+    "Gcd.gcd#2": "unsat",
+    "Gcd.gcd#3": "sat",
+    "Gcd.gcd#4": "unsat"
+   },
+   "solver": "Z3 version 5.4.1 - 64 bit"
+  }
+ },
+ "modules": {
+  "Verify/LoopSource/CheckRaw.lean": "b6b6abedfb7c8cede0fbea4691fd6e46dec770ded43a8b51990319314a270a26",
+  "Verify/LoopSource/LoopMap.lean": "84e6965edc72e173e5f0dfd854579a58999c985810d69140d2b4752ba989adc0",
+  "Verify/LoopSource/RC/Counter/Script.lean": "b5a81d4b0136b0e4e2c8c360a456f3d9a7d8f665e35c6fb2d7993db8e7db1e4e",
+  "Verify/LoopSource/RC/Counter/Obligations.lean": "840b98bcfa6405be1ee5834c1e6c6edf4857466f84d41b1b215e2276b54b915f",
+  "Verify/LoopSource/RC/Counter/Map.lean": "a529fbc2073e91f9d9444926a485693737e4f4ed5988c974d5c1a6e2e5a1d5a3",
+  "Verify/LoopSource/RC/Gcd/Script.lean": "bda0f16a7574d972b569ed75cc9be113937b7f5ddbcccf0904b51e0f66c339f0",
+  "Verify/LoopSource/RC/Gcd/Obligations.lean": "671de382af18d3b10c5aea17ee8ac06f18b2d3140f5971059cb3bc01c37619b3",
+  "Verify/LoopSource/RC/Receipt.lean": "16d229cfae2a56710d547ef0dc38c33680ac1440eb36da799a18de1c43be466c",
+  "Contracts/VerifyCounter/LoopVC.lean": "d8cdeb726d72b3cb8ca1930298bd68011892c4379c7c36f5f86a83d409c61c0d",
+  "Contracts/VerifyCounter/LoopBinding.lean": "9e20c7eee48e4858d9f36b784ceffa4bcfe31aafbda1718ce0bb0ba50da53121",
+  "SolidCore/Refinement/Generic/LoopErased.lean": "8cd8a29dd840714ce56b7b246b9bb34a71b19a76613197e311ea4dc3c0cd2d64",
+  "Verify/LoopSource/gen_loopvc.py": "0d095d7d3311f383ac019162be589f610564469164f1f40f4314602602d9c26f",
+  "Verify/LoopSource/gen_loopmap.py": "ee84a7c0db12d7cf1a275958a28b7f824036a2b4cfcc3935c4271ecc944f8931",
+  "Verify/LoopSource/loopgate.py": "a77abcbc0d3f2048dd43a8cfd52358546ab633056cbf8c131334279e930a3c8a",
+  "Verify/LoopSource/witness.py": "0f016be59efcdcdea86b11c25c160ab0f255ab8de3ac3f8da1941d9e126abd5a"
+ },
+ "theorem": {
+  "name": "Contracts.VerifyCounter.LoopVC.body_runs_vc",
+  "type": "\u2200 ev tbl fn, fn.body = bumpBody \u2192 initState fn = S0 \u2192 \u2200 fuel, 2 ^ 256 + 8 \u2264 fuel \u2192 Loop.BodyRuns (env ev tbl) fuel fn bumpBr",
+  "axioms": [
+   "propext",
+   "Classical.choice",
+   "Quot.sound"
+  ],
+  "rests_on": [
+   "Verify.LoopSource.RC.Counter.obs_valid",
+   "Verify.LoopSource.RC.Counter.M",
+   "Verify.LoopSource.RC.Counter.script"
+  ]
+ },
+ "open": [
+  "Gcd.gcd source binding (body branches; LoopErased has straight-line StmtRuns only)",
+  "MIR loop cut point",
+  "bytecode",
+  "gas/fuel bound for loops"
+ ]
+}

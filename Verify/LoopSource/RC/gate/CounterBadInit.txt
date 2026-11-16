@@ -1,7 +1,0 @@
-Counter.bump: REJECT: obligation failed (exit 1)
-  initiation: exit 1
-  consecution: exit 0
-  termination: exit 0
-  exit: exit 0
-  contract_invariant: exit 0
-  nonvacuity: exit 0

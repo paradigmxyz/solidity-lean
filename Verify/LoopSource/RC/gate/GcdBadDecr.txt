@@ -1,7 +1,0 @@
-Gcd.gcd: REJECT: obligation failed (exit 1)
-  initiation: exit 0
-  consecution: exit 0
-  termination: exit 1
-  exit: exit 0
-  contract_invariant: exit 3
-  nonvacuity: exit 0

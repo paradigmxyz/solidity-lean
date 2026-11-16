@@ -1,5 +1,5 @@
 {
-  "compiler": "0.8.38+commit.c09510a3.solar.0.3.0-dev",
+  "compiler": "0.8.38+commit.fd53f637.solar.0.3.0-dev",
   "errors": [],
   "format": "solar-verify-lean",
   "lean": {
