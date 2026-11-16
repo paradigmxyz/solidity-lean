@@ -1,0 +1,30 @@
+{
+  "command": [
+    "nice",
+    "-n",
+    "15",
+    "cargo",
+    "test",
+    "-j",
+    "1",
+    "-p",
+    "solar-verify",
+    "--",
+    "--test-threads=2"
+  ],
+  "exit_code": 0,
+  "wall_seconds": 96.1,
+  "max_rss_one_process_mib": 544,
+  "peak_tree_rss_mib": 600,
+  "peak_system_used_mib": 2029,
+  "mem_total_mib": 14531,
+  "samples": 48,
+  "sample_interval_s": 2,
+  "trace": "verify-tests.receipt.trace.tsv",
+  "memory_definitions": {
+    "system_used_mib": "machine-wide MemTotal - MemAvailable (/proc/meminfo), all processes",
+    "tree_rss_mib": "sum of VmRSS over the command's live process tree; shared pages count per process",
+    "max_rss_one_process_mib": "getrusage(RUSAGE_CHILDREN).ru_maxrss: largest peak RSS of one reaped descendant"
+  },
+  "started_utc": "2026-11-16T01:16:14Z"
+}

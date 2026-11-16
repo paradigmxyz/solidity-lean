@@ -1,0 +1,6 @@
+$ solar-verify --no-infer --check-loop-heads Counter.loop-heads.json Counter.sol  # exit 0
+loop-head manifest matches
+$ solar-verify --no-infer --check-loop-heads stale-source.json Counter.sol  # exit 1
+error: stale loop-head manifest: source.sha256 is "0000000000000000000000000000000000000000000000000000000000000000" in the manifest, "f1c87a334b8db31fc8f80541febeaf8617318d20b685634f44e26c74146ad326" for this source and compiler
+$ solar-verify --no-infer --check-loop-heads wrong-slot.json Counter.sol  # exit 1
+error: stale loop-head manifest: functions[2].loops[0].vars[0].slot is "1" in the manifest, "0" for this source and compiler

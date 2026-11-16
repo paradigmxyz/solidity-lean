@@ -1,0 +1,95 @@
+   Compiling solar-verify v0.3.0 (/home/hand/wlh/crates/verify)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.77s
+     Running unittests src/main.rs (target/debug/build/solar-verify/031a5aadd982a5af/out/solar_verify-031a5aadd982a5af)
+
+running 22 tests
+test absint::octagon::tests::closure_and_entailment ... ok
+test absint::octagon::tests::assignment_relations ... ok
+test absint::octagon::tests::integer_tightening ... ok
+test absint::octagon::tests::widening_with_thresholds ... ok
+test bvlower::tests::drops_unbounded ... ok
+test interval::tests::bitvector_round_trips ... ok
+test bvlower::tests::lowers_commutativity ... ok
+test interval::tests::intervals ... ok
+test lean::tests::fails_closed ... ok
+test sexp::tests::delimiters_inside_atoms ... ok
+test sexp::tests::errors ... ok
+test sexp::tests::multiline_get_value ... ok
+test lean::tests::translates_the_fragment ... ok
+test sexp::tests::reader_frames_lines ... ok
+test spec_lean::tests::selectors ... ok
+test spec::tests::rewrites ... ok
+test transcript::tests::converts_nested_arrays_functions_and_quantifiers ... ok
+test transcript::tests::converts_the_fragment ... ok
+test transcript::tests::keeps_information_queries_raw_inside_a_section ... ok
+test transcript::tests::keeps_unused_constants_outside_the_fragment_raw ... ok
+test transcript::tests::leaves_a_section_outside_the_fragment_raw ... ok
+test transcript::tests::rejects_what_lean_does_not_model ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cases.rs (target/debug/build/solar-verify/d5d2505b903d24ac/out/cases-d5d2505b903d24ac)
+
+running 58 tests
+test absint_candidates ... ok
+test arith ... ok
+test absint ... ok
+test asm_memory_paths ... ok
+test boolkeys ... ok
+test asm ... ok
+test control ... ok
+test broadcast ... ok
+test emit_lean ... ok
+test emit_lean_examples ... ok
+test emit_lean_inferred_loop ... ok
+test emit_lean_library_pins ... ok
+test emit_lean_manifest_checkout_independent ... ok
+test emit_lean_round_trip ... ok
+test emit_lean_source_outside_cwd ... ok
+test emit_lean_spec ... ok
+test emit_lean_spec_unsupported ... ok
+test eth ... ok
+test examples ... ok
+test features ... ok
+test fixedarrays ... ok
+test fixedbytes ... ok
+test fnptr ... ok
+test ghost ... ok
+test ghost_errors ... ok
+test created ... ok
+test horn ... ok
+test import_errors ... ok
+test imports ... ok
+test imports_scope ... ok
+test infer_newton ... ok
+test inferred ... ok
+test instrument ... ok
+test instrument_imported_check ... ok
+test liveness ... ok
+test lockinternal ... ok
+test loop_heads ... ok
+test mem_call_loop ... ok
+test memalias ... ok
+test memalias_calls ... ok
+test memory_alias ... ok
+test mutate_counter ... ok
+test mutate_list ... ok
+test rawstorage ... ok
+test reentrancy ... ok
+test hashing ... ok
+test several_files_in_one_run ... ok
+test slots ... ok
+test smt_obligations ... ok
+test rewrites ... ok
+test spec_errors ... ok
+test speclang ... ok
+test storage ... ok
+test storageptr ... ok
+test spec_check ... ok
+test structs ... ok
+test vox ... ok
+test struct_invariant ... ok
+
+test result: ok. 58 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 89.63s
+
+RECEIPT {"command": ["nice", "-n", "15", "cargo", "test", "-j", "1", "-p", "solar-verify", "--", "--test-threads=2"], "exit_code": 0, "wall_seconds": 96.1, "max_rss_one_process_mib": 544, "peak_tree_rss_mib": 600, "peak_system_used_mib": 2029, "mem_total_mib": 14531, "samples": 48, "sample_interval_s": 2, "trace": "verify-tests.receipt.trace.tsv", "memory_definitions": {"system_used_mib": "machine-wide MemTotal - MemAvailable (/proc/meminfo), all processes", "tree_rss_mib": "sum of VmRSS over the command's live process tree; shared pages count per process", "max_rss_one_process_mib": "getrusage(RUSAGE_CHILDREN).ru_maxrss: largest peak RSS of one reaped descendant"}, "started_utc": "2026-11-16T01:16:14Z"}
