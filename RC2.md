@@ -40,6 +40,14 @@ RC1 verdicts at 800d78a9, for comparison only: H1 REJECTED (spec step, `get_meet
 (recursion). RC2's base targets H1's returned-word gap; the others are not expected to change unless a
 fix for them is in the pin.
 
+**Base pin not in the H3 and H4 records.** Neither `record.json` names a solidity-lean commit: base
+49d1d7f5 is runner-reported (each record's README and the runner commit's parent), not
+self-contained in the record (its `command` passes `--solidity-lean` a path, not a commit; the driver's
+`tools/certify/solidity-lean.rev` at 0479b90a names 49d1d7f5, but the record does not show the
+checkout used). The records are kept byte-identical to bf8b8a6e, so the gap is stated
+here rather than patched; it stays OPEN until a record carries the base pin itself. H1 and H2 records
+are checked for the same field, and the same gap is stated for any record that lacks it.
+
 ## Other records
 
 | Record | Runner | Driver | Verdict | Replay | Accepted |
@@ -48,16 +56,18 @@ fix for them is in the pin.
 
 ## Addenda carried over (not RC2 verdicts)
 
-- **Counter source-consumer edge** (from RC1 addendum A1): T4 `alpharush/t4-loopvc-rc` @
+- **Counter source-consumer edge** (from RC1 addendum A1), **source-only, OPEN, not closed**: T4 `alpharush/t4-loopvc-rc` @
   e13cda49ed806cd3d35937ae8d9f26cfe357a800 (replayed 675964cc), receipt 34/34, exit 0: the
   expected-type edge for **source semantics only**. Caveats: `replay.sh` builds `Receipt` with
   linked packages (not a full `leanchecker` closure replay); the resource wrapper reads
   `RUSAGE_CHILDREN.ru_maxrss` (largest child, not the whole process tree); the module manifest
   leaves out the transitive source model; not hermetic, no aggregate resource admission, no
-  end-to-end claim; compiler solar fd53f637, not the RC2 driver.
+  end-to-end claim; compiler solar fd53f637, not the RC2 driver. Aggregate RSS (whole process tree)
+  and the transitive manifest stay OPEN; it is a linked-package replay, not a full `leanchecker`
+  replay.
 - **E6 any-caller over fresh bytes:** T2 `alpharush/t2-e6-transfer-any-caller` @
   52152f589b310142f8c807c429545ddfc5f37c64 (parent b0196e92), "transfer from every caller over fresh
-  bytes". **Pending its closure replay**; not reviewed here yet, and not part of any RC2 verdict.
+  bytes". **Pending until T2's closure replay lands**; not reviewed here yet, and not part of any RC2 verdict.
 
 ## Open gaps
 
@@ -68,6 +78,10 @@ fix for them is in the pin.
 - Constructor / deployment / lifecycle: no tier offered.
 - Any caller beyond the fixed one (0x2000) in the generic driver; E6 above is pending.
 - Loops at MIR, bytes and gas (source-level Counter edge only).
+- Counter (e13cda49): source-only; full `leanchecker` replay, aggregate RSS and the transitive
+  manifest OPEN.
+- Base pin in records: H3 and H4 `record.json` omit the solidity-lean commit; base 49d1d7f5 is
+  runner-reported.
 - Pair: BLOCKED.
 
 ## Receipts
