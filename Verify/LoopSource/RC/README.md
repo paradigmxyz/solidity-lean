@@ -1,7 +1,7 @@
 # Loop obligations from solar-verify, bound to the source loop bridge
 
-Two loops, each verified from the obligations solar-verify itself emitted (`--emit-lean`,
-`--dump-lean`), not from handwritten models:
+Two loops, each checked from the obligations solar-verify itself emitted (`--emit-lean`), not
+from handwritten models:
 
 - `inputs/Counter.sol`, `Counter.bump`: a `for` loop over a storage counter (the existing
   certification target).
@@ -55,11 +55,15 @@ ACCEPT, 1 an obligation failed, 2 solar-verify error, 3 a loop kind missing, 4 V
 with only a warning; the gate rejects it with exit 4, also without `--assume`
 (`gate/GcdVacuous-noassume`).
 
-## Lean side (next commit, after its build)
+## What is checked where (this commit)
 
-`Verify/LoopSource/gen_loopvc.py` writes each emitted obligation as a Lean obligation over
-solar-verify's names (`name@N`, kept apart, unlike `checkOb`'s renaming) with a kernel-decided
-verdict. The modules that consume it are written but not yet built, so they are not in this commit.
+- **SMT-checked only (z3 5.4.1, through solar-verify):** every row of the table above: each
+  obligation's answer, the probe, the witnesses and the negatives. Nothing in this commit is
+  checked by Lean: no `.lean` module is added (the emitted modules are kept as `.lean.txt`), and
+  `gen_loopvc.py` is a generator whose output has not been built.
+- **Lean-checked: none yet, for either contract.** The Lean modules (the kernel-decided verdict of
+  each script, and Counter's binding to the source loop bridge) come in a later commit, only once
+  they build. `Gcd.gcd` is SMT-checked only, and its Lean binding, MIR, bytecode and gas stay open.
 
 ## Outcomes per loop (matrix.json; exit 0 holds, 1 fails, 3 none emitted)
 
@@ -81,6 +85,6 @@ points), so it stops with "no EVM IR stage chain to the final EVM IR" for both c
 - The binding is generated per contract: `LoopVC.lean` is written for `bump`; a generic
   `ForObl` from `ObsValid` needs a map from a loop header's `SymState` words to solar-verify's
   SSA names (which the manifest does not carry) and a general `WExpr` ↔ `Tm` evaluation lemma.
-- `Gcd.gcd` has its obligations checked in Lean (`RC/Gcd/Obligations.lean`) but no source loop
-  binding: its body branches, and `LoopErased` has the straight-line `StmtRuns` forms only.
+- `Gcd.gcd`: no Lean check and no source loop binding: its body branches, and `LoopErased` has
+  only the straight-line `StmtRuns` forms.
 - The MIR loop cut point and the bytecode side are out of scope here.
