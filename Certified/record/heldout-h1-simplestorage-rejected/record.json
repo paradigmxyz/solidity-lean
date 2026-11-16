@@ -1,0 +1,148 @@
+{
+  "schema": "solar-certify-generic/1",
+  "name": "simplestorage_928cc159",
+  "started": "2026-11-16T00:25:20+00:00",
+  "command": [
+    "/home/hand/t6/solar/tools/certify/certify",
+    "/home/hand/t6/heldout/tests/heldout/rc-2026-11-15/SimpleStorage/SimpleStorage.sol",
+    "natspec",
+    "--contract",
+    "SimpleStorage",
+    "--solidity-lean",
+    "/home/hand/t6/solidity-lean",
+    "--base",
+    "44572c150176365fa5e0d56ae6c59a7a443f8122",
+    "--work",
+    "/home/hand/t6/runs/H1-work",
+    "--record-dir",
+    "/home/hand/t6/runs/H1",
+    "--packages-from",
+    "/home/hand/t6/solidity-lean",
+    "--probe-cache",
+    "/home/hand/t6/solidity-lean"
+  ],
+  "requested_tier": "certified",
+  "source": {
+    "file": "/home/hand/t6/heldout/tests/heldout/rc-2026-11-15/SimpleStorage/SimpleStorage.sol",
+    "sha256": "928cc1594907cb4d56183be7565db8b60bee77c2ffc9fc731083bf31dc1bc082"
+  },
+  "spec": {
+    "kind": "natspec",
+    "sha256": "928cc1594907cb4d56183be7565db8b60bee77c2ffc9fc731083bf31dc1bc082"
+  },
+  "invariants": {
+    "file": null,
+    "sha256": null
+  },
+  "options": [
+    "-Ogas",
+    "--evm-version",
+    "osaka"
+  ],
+  "solar": {
+    "commit": "800d78a98b9e64612c742d5038e7e2ec35dd52b4",
+    "dirty": false,
+    "binary_sha256": "2df44d25ae2acc49933b2a73d1f49ecb12f35d095983b4d98d36a04b26b99e4a",
+    "version": "solar 0.3.0-dev+commit.c09510a3",
+    "binary_commit": "c09510a39b5c9940845d2c19928c742f676b8675"
+  },
+  "solc": {
+    "version": "0.8.35",
+    "path": "/home/hand/.cache/solc/solc-0.8.35",
+    "sha256": "fa8ac9a32d301ad023a36ee5a29f8e291fe3200c60244e43c142539e82a617f4"
+  },
+  "lean_toolchain": {
+    "recorded_digest": "953aa1e72283c07686567bb71eeb3fca202baafe2958a7e57987d3b8c4434c25",
+    "lean-toolchain": "leanprover/lean4:v4.35.0"
+  },
+  "contract": "SimpleStorage",
+  "functions": [
+    {
+      "signature": "get()",
+      "selector": "0x6d4ce63c",
+      "params": []
+    },
+    {
+      "signature": "num()",
+      "selector": "0x4e70b1dc",
+      "params": []
+    },
+    {
+      "signature": "set(uint256)",
+      "selector": "0x60fe47b1",
+      "params": [
+        ".uint 256"
+      ]
+    }
+  ],
+  "environment": "one frame, caller 0x2000, contract at 0x1000, the block and transaction of Target.message (fixed, not quantified)",
+  "bytecode_sha256": "6e95f821ecc2c71682bb59cd089429e0ab967f2cb33da8a32ffbce7135e9d402",
+  "gas_bound": 1944803,
+  "probe": [
+    "PROBE typecheck: ok",
+    "PROBE core: <3585 chars>",
+    "PROBE constructor: returns",
+    "PROBE storage: []",
+    "PROBE fn get(): agree",
+    "PROBE fn num(): agree",
+    "PROBE fn set(uint256): agree"
+  ],
+  "solidity_lean_source": "/home/hand/t6/solidity-lean",
+  "solidity_lean": {
+    "base": "44572c150176365fa5e0d56ae6c59a7a443f8122",
+    "inputs_commit": "f838519e29f2f99ec1241f67a48ecc2c9fc92135",
+    "inputs": [
+      "Certified/simplestorage_928cc159/Lowering.lean",
+      "Certified/simplestorage_928cc159/Shape.lean",
+      "Certified/simplestorage_928cc159/Source.lean",
+      "Certified/simplestorage_928cc159/options",
+      "Certified/simplestorage_928cc159/shape.json",
+      "Certified/simplestorage_928cc159/simplestorage_928cc159.sol",
+      "lakefile.lean"
+    ],
+    "inputs_sha256": {
+      "Certified/simplestorage_928cc159/Lowering.lean": "e959549d4e38329ed6a35ed3b9f70c70cde8cb3ad2cf2b552efe227d4b8eeae0",
+      "Certified/simplestorage_928cc159/Shape.lean": "32416f6f150da1cda04fce77eb40a20946699afcca15ee77552ca156fd84a229",
+      "Certified/simplestorage_928cc159/Source.lean": "c64f1f3448890a2496a3920869038dc8a3bf3059a3435ce62219db79f7837e6e",
+      "Certified/simplestorage_928cc159/options": "e8dcb59d1d2c9325d924f23afb16523ebcef2750f7fa447cf67b494f81a9038c",
+      "Certified/simplestorage_928cc159/shape.json": "ae4d41b5e12e4afd0b373b7717bc96b7afe6f0843e2cf8e2cb394fc8474502a2",
+      "Certified/simplestorage_928cc159/simplestorage_928cc159.sol": "928cc1594907cb4d56183be7565db8b60bee77c2ffc9fc731083bf31dc1bc082",
+      "lakefile.lean": "fc63d53fae77744be7b1f7f148486689902832084e320c2d0fc7fd98c3433194"
+    }
+  },
+  "run_files": {
+    "SimpleStorage.sol": "928cc1594907cb4d56183be7565db8b60bee77c2ffc9fc731083bf31dc1bc082",
+    "inputs/Certified/simplestorage_928cc159/Lowering.lean": "e959549d4e38329ed6a35ed3b9f70c70cde8cb3ad2cf2b552efe227d4b8eeae0",
+    "inputs/Certified/simplestorage_928cc159/Shape.lean": "32416f6f150da1cda04fce77eb40a20946699afcca15ee77552ca156fd84a229",
+    "inputs/Certified/simplestorage_928cc159/Source.lean": "c64f1f3448890a2496a3920869038dc8a3bf3059a3435ce62219db79f7837e6e",
+    "inputs/Certified/simplestorage_928cc159/options": "e8dcb59d1d2c9325d924f23afb16523ebcef2750f7fa447cf67b494f81a9038c",
+    "inputs/Certified/simplestorage_928cc159/shape.json": "ae4d41b5e12e4afd0b373b7717bc96b7afe6f0843e2cf8e2cb394fc8474502a2",
+    "inputs/Certified/simplestorage_928cc159/simplestorage_928cc159.sol": "928cc1594907cb4d56183be7565db8b60bee77c2ffc9fc731083bf31dc1bc082",
+    "inputs/lakefile.lean": "fc63d53fae77744be7b1f7f148486689902832084e320c2d0fc7fd98c3433194",
+    "certify.log": "4377663786df9f55c8c907fbcab42f328750e8ca2ccff07770ad785c927c1f52"
+  },
+  "packages_from": "/home/hand/t6/solidity-lean/.lake/packages",
+  "scripts_certify": {
+    "command": [
+      "bash",
+      "/home/hand/t6/solar/scripts/certify",
+      "/home/hand/t6/runs/H1-work/solidity-lean/Certified/simplestorage_928cc159/simplestorage_928cc159.sol",
+      "--name",
+      "simplestorage_928cc159",
+      "--contract",
+      "SimpleStorage",
+      "--require-final"
+    ],
+    "env": {
+      "SOLIDITY_LEAN_DIR": "/home/hand/t6/runs/H1-work/solidity-lean",
+      "CERTIFY_ALLOW_UNPINNED": "1",
+      "CERTIFY_CLEAN_BUILD": "1",
+      "SOLC": "/home/hand/.cache/solc/solc-0.8.35",
+      "CERTIFY_SOLAR_SHA256": "2df44d25ae2acc49933b2a73d1f49ecb12f35d095983b4d98d36a04b26b99e4a",
+      "LEAN_MEMORY": "6000"
+    },
+    "exit": 1
+  },
+  "status": "REJECTED",
+  "finished": "2026-11-16T01:26:08+00:00"
+}
