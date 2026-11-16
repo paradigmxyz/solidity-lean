@@ -1,0 +1,12 @@
+# Original-byte manifest for rc2-siblingleak (driver solar 0479b90a, base solidity-lean 49d1d7f5).
+# Columns: path in this directory, sha256 of the bytes as first written on the run host, sha256 of
+# the committed file, who wrote it, transform applied before commit.
+# Transform "home" = the publish step replaced every "/home/hand/" with "~/". The original files
+# contain no "~/", so "sed 's#~/#/home/hand/#g'" on the committed file gives the original bytes
+# exactly; check-manifest.sh checks every row that way.
+path	original_sha256	committed_sha256	writer	transform
+record/certify.log	a5df9454f1b5cccbf188a359257d013da909c3c606c9dc223fd1e2c29f972d9d	168208610fea423cc07294f49a4f8876428e13950547d4b3c518a9d04fa2756f	driver (generic.py stream)	home
+record/record.json	4d434f8240742d26c381b1922f1fd2241d58fe1311affbe9eb1c715d5020842f	b1ae22213fa0f33fcb9210810648d4d4e669edfd04fa1473403f151a8c1d20ce	driver (generic.py finish)	home
+certify.log	805f7dc8baec2be40800800670227ca2c17d60350cacc4e07f43ba41daad1927	cd413d7b8da3bed68d581b1a3e904329868665cb375d37032942cb361dbf0c89	driver stdout/stderr via leak.sh	home
+receipt.json	0a73923a84224b5bcb063ebe8ae5668ff95b5e4533ebd7eeeb97e0123619e533	aa22ef3029a9aeef4f97d233d2490a9b93d22bc5096960ad760e11a06fe0e5b4	receipt.py (harness)	home
+receipt.trace.tsv	c41eb0cda9749f8aed4727d84cc61e5e8950f44e878be987bbc9fdaf5ab872fe	c41eb0cda9749f8aed4727d84cc61e5e8950f44e878be987bbc9fdaf5ab872fe	receipt.py (harness)	none
