@@ -1,0 +1,18 @@
+SAME source.sha256 "4ce5cf9a87520dc956a1e7366d5f646a07739832e44a3d8dec2eb656deb6388d"
+SAME spec {"kind": "natspec", "sha256": "4ce5cf9a87520dc956a1e7366d5f646a07739832e44a3d8dec2eb656deb6388d"}
+SAME options ["-Ogas", "--evm-version", "osaka"]
+SAME functions [{"params": [], "selector": "0xb951486d", "signature": "lower()"}, {"params": [".uint 256"], "selector": "0x004f4803", "signature": "raise(uint256)"}, {"params": [], "selector": "0xf0ea4bfc", "signature": "raised()"}, {"params": [], "selector": "0x3fa4f245", "signature": "value()"}]
+SAME environment "one frame, caller 0x2000, contract at 0x1000, the block and transaction of Target.message (fixed, not quantified)"
+SAME bytecode_sha256 "f689833eb749e7509b4fb038bd8a4e251e77daa10aed088b2b12fa70ab76f69f"
+SAME gas_bound 3580203
+SAME requested_tier "certified"
+SAME solidity_lean.base "44572c150176365fa5e0d56ae6c59a7a443f8122"
+SAME solidity_lean.inputs_sha256 {"Certified/flag_4ce5cf9a/Lowering.lean": "031b934c7d4a41f0d6c49ee1d035d5469f014b3a7851f8ad3da3f7ded82620a7", "Certified/flag_4ce5cf9a/Shape.lean": "bfe9592d4187d94fb6808eb4a38297789d3c50ea56c5e1d9fd059607e7a91990", "Certified/flag_4ce5cf9a/Source.lean": "77b320129797c47d068e070e18b6abe7913f87c4735666de9c5ea23692ac6e59", "Certified/flag_4ce5cf9a/flag_4ce5cf9a.sol": "4ce5cf9a87520dc956a1e7366d5f646a07739832e44a3d8dec2eb656deb6388d", "Certified/flag_4ce5cf9a/options": "e8dcb59d1d2c9325d924f23afb16523ebcef2750f7fa447cf67b494f81a9038c", "Certified/flag_4ce5cf9a/shape.json": "d0b84043bc2d80f0cfdaf26702e0a7cfa2c8518174210996b4b06b7d781d4524", "lakefile.lean": "aca9325b5dc742551ef1b74f2dcfa5c63aa3f2ae1488578fc78ecaa3b5d875f8"}
+SAME solar.commit "6d0f2621693c2c4939eaf6241406a1674b22419c"
+SAME solar.binary_sha256 "62c9d6edaecd117a8f2fb98dbf6b59800f75ee1e055e99957cc85adbebf5870f"
+SAME solc.sha256 "fa8ac9a32d301ad023a36ee5a29f8e291fe3200c60244e43c142539e82a617f4"
+SAME lean_toolchain.recorded_digest "953aa1e72283c07686567bb71eeb3fca202baafe2958a7e57987d3b8c4434c25"
+SAME published_statement {}
+SAME status "CERTIFIED"
+SAME strict {"components": {"equivalence": true, "provenance_clean": true, "published_statement": true, "replay_full": true, "resources": true, "source_bound": true, "spec": true, "strongest": true, "termination": true}, "holds": true, "tier": "certified"}
+SAME tier_reached "certified"
