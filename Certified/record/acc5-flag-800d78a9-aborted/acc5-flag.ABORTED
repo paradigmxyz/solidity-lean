@@ -1,0 +1,4 @@
+acc5-flag attempt 3 on solar 800d78a98b9e64612c742d5038e7e2ec35dd52b4 (base 44572c15), started 2026-11-16T03:20:39Z,
+stopped 2026-11-16T04:48:54Z by request: superseded by the RC driver pin move to 0479b90a422245bf77facc51ea17b960ed5c5851.
+State when stopped: kernel closure replay of 3966 modules (0 trusted by directory) after check_final passed. No verdict.
+Logs: runs/aborted/acc5-flag-attempt3/

@@ -1,0 +1,84 @@
+== 1. the pinned solidity-lean checkout
+certify: warning: solidity-lean at 5ccac20895628a7dfb824f00af370084ea7960f1, not the pinned 44572c150176365fa5e0d56ae6c59a7a443f8122
+solidity-lean 5ccac20895628a7dfb824f00af370084ea7960f1 at /home/hand/runs/acc5-flag-work/solidity-lean
+== 2. solar
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.72s
+solar 159cb4e313923d68c28d59f197fbe929288330e1
+Build completed successfully (1156 jobs).
+solar sha256 2a88ac3522d615a30c47984405e4cecd1299e9f5b589c2a90c448546cca16830
+== 3. compile Certified/flag_4ce5cf9a/flag_4ce5cf9a.sol and export its stages (-Ogas --evm-version osaka)
+stages: stage0 (lower-evm-shaped), sched (stack-schedule), evm1 (cfg-simplify-early), evm2 (block-layout), evm3 (terminal-dedup), evm4 (cfg-simplify-early), evm5 (block-cse), bytecode (assemble)
+bytecode: 346030575f3560e01c80624f48031460475780633fa4f245146034578063b951486d146059578063f0ea4bfc14603d575b5f5ffd5b5f545f5260205ff35b6001545f5260205ff35b602436106030576004355f5560018055005b5f600155 sha256 f689833eb749e7509b4fb038bd8a4e251e77daa10aed088b2b12fa70ab76f69f
+== 4. write the proofs
+assembly: decoded only; the loop-free stages have no backward composition to run the bytecode with
+{"final": "SolarTV.Milestone.Flag4ce5cf9a.flag_4ce5cf9a_mir_to_evmir", "last": "evm5", "first": "stage0", "stages": ["stage0", "sched", "evm1", "evm2", "evm3", "evm4", "evm5"]}
+== 5. build and audit the proofs
+flag_4ce5cf9a.gen.Flag.Bytecode: Build completed successfully (2 jobs).
+flag_4ce5cf9a.gen.Flag.Evm1: Build completed successfully (12 jobs).
+flag_4ce5cf9a.gen.Flag.Evm2: Build completed successfully (12 jobs).
+flag_4ce5cf9a.gen.Flag.Evm3: Build completed successfully (12 jobs).
+flag_4ce5cf9a.gen.Flag.Evm4: Build completed successfully (12 jobs).
+flag_4ce5cf9a.gen.Flag.Evm5: Build completed successfully (12 jobs).
+flag_4ce5cf9a.gen.Flag.Manifest: Build completed successfully (2 jobs).
+flag_4ce5cf9a.gen.Flag.Sched: Build completed successfully (12 jobs).
+flag_4ce5cf9a.gen.Flag.Stage0: Build completed successfully (11 jobs).
+flag_4ce5cf9a.Proofs.Runs.Evm1: Build completed successfully (21 jobs).
+flag_4ce5cf9a.Proofs.Runs.Evm2: Build completed successfully (21 jobs).
+flag_4ce5cf9a.Proofs.Runs.Evm3: Build completed successfully (21 jobs).
+flag_4ce5cf9a.Proofs.Runs.Evm4: Build completed successfully (21 jobs).
+flag_4ce5cf9a.Proofs.Runs.Evm5: Build completed successfully (21 jobs).
+flag_4ce5cf9a.Proofs.Runs.Sched: Build completed successfully (21 jobs).
+flag_4ce5cf9a.Proofs.Runs.Stage0: Build completed successfully (20 jobs).
+flag_4ce5cf9a.Proofs.Stages: Build completed successfully (35 jobs).
+flag_4ce5cf9a.Proofs.Assembly: Build completed successfully (17 jobs).
+flag_4ce5cf9a.Proofs: Build completed successfully (41 jobs).
+'SolarTV.Milestone.Flag4ce5cf9a.checked' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Flag4ce5cf9a.decodes' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Flag4ce5cf9a.evm1_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flag4ce5cf9a.evm1_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flag4ce5cf9a.evm2_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flag4ce5cf9a.evm2_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flag4ce5cf9a.evm3_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flag4ce5cf9a.evm3_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flag4ce5cf9a.evm4_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flag4ce5cf9a.evm4_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flag4ce5cf9a.evm5_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flag4ce5cf9a.flag_4ce5cf9a_mir_to_evmir' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flag4ce5cf9a.items_eq' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Flag4ce5cf9a.sched_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flag4ce5cf9a.sched_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flag4ce5cf9a.stage0_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flag4ce5cf9a.stage_evm1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flag4ce5cf9a.stage_evm2' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flag4ce5cf9a.stage_evm3' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flag4ce5cf9a.stage_evm4' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flag4ce5cf9a.stage_evm5' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flag4ce5cf9a.stage_sched' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Flag4ce5cf9a.walk_eq' depends on axioms: [propext, Quot.sound]
+audited 23 theorems
+== 6. the spec (solar-verify) and the headline theorems
+lake packages (20 modules imported): Build completed successfully (2492 jobs).
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.23s
+export: /home/hand/runs/acc5-flag-work/solidity-lean/.lake/certify/flag_4ce5cf9a/VC.lean is whole (187 lines, ends with end Certified.Flag4ce5cf9a.VC)
+spec: exported to .lake/certify/flag_4ce5cf9a/VC.lean
+no Certified/flag_4ce5cf9a/headline: no end-to-end theorem
+== 6b. the published statement
+export: Certified/flag_4ce5cf9a/gen/Flag/Spec.lean is whole (59 lines, ends with end Certified.flag_4ce5cf9a.gen.Flag.Spec)
+flag_4ce5cf9a.Lowering: Build completed successfully (2566 jobs).
+flag_4ce5cf9a.gen.Flag.Spec: Build completed successfully (8 jobs).
+Verify.VC.Model: Build completed successfully (2549 jobs).
+Verify.Spec.Tree: Build completed successfully (2553 jobs).
+Verify.Spec.TreeMap: Build completed successfully (2558 jobs).
+Verify.Spec.TreeMapNested: Build completed successfully (2559 jobs).
+Verify.Spec.TreeIn: Build completed successfully (2567 jobs).
+Verify.Spec.TreeSucceeds: Build completed successfully (2559 jobs).
+Verify.VC.KernelIdx: Build completed successfully (2 jobs).
+SolidCore.Refinement.KernelRfl: Build completed successfully (3 jobs).
+spec connected generically: flag_4ce5cf9a.SpecConnect.raise_holds flag_4ce5cf9a.SpecConnect.lower_holds
+{"proof": "Certified.flag_4ce5cf9a.Shape.published", "gas_needed": 3580203, "blocks": 6}
+source: Certified/flag_4ce5cf9a/Source.lean is the front end's AST of Flag in Certified/flag_4ce5cf9a/flag_4ce5cf9a.sol (solc 0.8.35)
+flag_4ce5cf9a.Statement: Build completed successfully (2758 jobs).
+flag_4ce5cf9a.Final: Build completed successfully (2780 jobs).
+STATEMENT Certified.flag_4ce5cf9a.Final.Statement := And (Eq.{1} (List.{0} Nat) (List.map.{0, 0} UInt8 Nat (fun (x._@.flag_4ce5cf9a.Statement.1005636212._hygCtx._hyg.12 : UInt8) => UInt8.toNat x._@.flag_4ce5cf9a.Statement.1005636212._hygCtx._hyg.12) (Array.toList.{0} UInt8 (ByteArray.data Certified.flag_4ce5cf9a.Final.code))) Certified.flag_4ce5cf9a.Final.runtimeBytes) (SolidCore.Verify.Generic.Expected Certified.flag_4ce5cf9a.Final.src Certified.flag_4ce5cf9a.Final.spec Certified.flag_4ce5cf9a.Final.runtimeBytes)
+check_final: Certified.flag_4ce5cf9a.Final.final : Certified.flag_4ce5cf9a.Final.Statement (module flag_4ce5cf9a.Statement, which does not import flag_4ce5cf9a.Shape); axioms [propext, Classical.choice, Quot.sound]
+closure: 3966 modules, 3966 to replay, 0 trusted by directory

@@ -1,0 +1,15 @@
+== generic: /home/hand/acc-src/Flag.sol (4ce5cf9a87520dc956a1e7366d5f646a07739832e44a3d8dec2eb656deb6388d) as flag_4ce5cf9a, requested tier certified
+envelope (source): inside; functions lower(), raise(uint256), raised(), value()
+== generic: build solar
+envelope (bytecode): no call, creation, gas or return-data opcode
+gas bound (the loop checker's, from this export): 3580203
+== generic: probe SolidCore's evaluation and the generic check (separate clone)
+PROBE typecheck: ok
+PROBE core: <4038 chars>
+PROBE constructor: returns
+PROBE storage: []
+PROBE fn lower(): agree
+PROBE fn raise(uint256): agree
+PROBE fn raised(): agree
+PROBE fn value(): agree
+== generic: solidity-lean 44572c150176365fa5e0d56ae6c59a7a443f8122 + inputs 6d41870d553282a79437386b7ac812930ae2888b; scripts/certify
