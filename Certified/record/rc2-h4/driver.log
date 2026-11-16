@@ -1,0 +1,6 @@
+== generic: /home/hand/h3/sl/tests/heldout/rc-2026-11-15/draw2/H4-FunctionModifier/FunctionModifier.sol (3be4c2f15b9f262ff34956f9ef38e579777e00cd93423f64f3488c8716a8f4f4) as functionmodifier_3be4c2f1, requested tier certified
+envelope (source): inside; functions changeOwner(address), decrement(uint256), locked(), owner(), x()
+== generic: build solar
+envelope (bytecode): no call, creation, gas or return-data opcode
+REJECTED: certify.py cannot write the stage proofs: error: no cut points for stage0 to mir1: place-reads: a recursive call into @decrement.body
+receipt: exit 1

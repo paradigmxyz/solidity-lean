@@ -1,0 +1,114 @@
+{
+  "schema": "solar-certify-generic/1",
+  "name": "mapping_b39ab391",
+  "started": "2026-11-16T04:48:55+00:00",
+  "command": [
+    "/home/hand/rc2/solar/tools/certify/certify",
+    "/home/hand/h3/sl/tests/heldout/rc-2026-11-15/Mapping/Mapping.sol",
+    "natspec",
+    "--contract",
+    "Mapping",
+    "--solidity-lean",
+    "/home/hand/h3/sl",
+    "--work",
+    "/home/hand/rc2/h3/work",
+    "--record-dir",
+    "/home/hand/rc2/h3/record",
+    "--packages-from",
+    "/home/hand/h3/cache/sl",
+    "--probe-cache",
+    "/home/hand/h3/cache/sl"
+  ],
+  "requested_tier": "certified",
+  "source": {
+    "file": "/home/hand/h3/sl/tests/heldout/rc-2026-11-15/Mapping/Mapping.sol",
+    "sha256": "b39ab3912781a9b1a8cf897cf6fbb6ee7fcc98d973eb4b749195e2d773d23ccd"
+  },
+  "spec": {
+    "kind": "natspec",
+    "sha256": "b39ab3912781a9b1a8cf897cf6fbb6ee7fcc98d973eb4b749195e2d773d23ccd"
+  },
+  "invariants": {
+    "file": null,
+    "sha256": null
+  },
+  "options": [
+    "-Ogas",
+    "--evm-version",
+    "osaka"
+  ],
+  "solar": {
+    "commit": "0479b90a422245bf77facc51ea17b960ed5c5851",
+    "dirty": false,
+    "binary_sha256": "85415992e30deeb74a57c1c5f6aee753ffdb470c1658fa15748f89d9fd831d82",
+    "version": "solar 0.3.0-dev+commit.0479b90a",
+    "binary_commit": "0479b90a422245bf77facc51ea17b960ed5c5851"
+  },
+  "solc": {
+    "version": "0.8.35",
+    "path": "/home/hand/.cache/solc/solc-0.8.35",
+    "sha256": "fa8ac9a32d301ad023a36ee5a29f8e291fe3200c60244e43c142539e82a617f4"
+  },
+  "lean_toolchain": {
+    "recorded_digest": "953aa1e72283c07686567bb71eeb3fca202baafe2958a7e57987d3b8c4434c25"
+  },
+  "contract": "Mapping",
+  "functions": [
+    {
+      "signature": "get(address)",
+      "selector": "0xc2bc2efc",
+      "params": [
+        ".uint 160"
+      ]
+    },
+    {
+      "signature": "myMap(address)",
+      "selector": "0x27cbd529",
+      "params": [
+        ".uint 160"
+      ]
+    },
+    {
+      "signature": "remove(address)",
+      "selector": "0x29092d0e",
+      "params": [
+        ".uint 160"
+      ]
+    },
+    {
+      "signature": "set(address,uint256)",
+      "selector": "0x3825d828",
+      "params": [
+        ".uint 160",
+        ".uint 256"
+      ]
+    }
+  ],
+  "environment": "one frame, caller 0x2000, contract at 0x1000, the block and transaction of Target.message (fixed, not quantified)",
+  "bytecode_sha256": "9071475602f625d442ffcbba8fcfac971109482af02166d1892f846615cefda6",
+  "gas_bound": 9237812,
+  "probe": [
+    "PROBE typecheck: ok",
+    "PROBE core: <5865 chars>",
+    "PROBE constructor: returns",
+    "PROBE storage: []",
+    "PROBE fn get(address): agree",
+    "PROBE fn myMap(address): source tree undefined (erasure)",
+    "PROBE fn remove(address): source tree undefined (erasure)",
+    "PROBE fn set(address,uint256): agree"
+  ],
+  "blocked": [
+    {
+      "feature": "generic source check",
+      "where": "myMap(address)",
+      "detail": "myMap(address): source tree undefined (erasure)"
+    },
+    {
+      "feature": "generic source check",
+      "where": "remove(address)",
+      "detail": "remove(address): source tree undefined (erasure)"
+    }
+  ],
+  "status": "BLOCKED",
+  "finished": "2026-11-16T04:52:53+00:00"
+}
