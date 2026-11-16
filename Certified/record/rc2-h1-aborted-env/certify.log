@@ -1,0 +1,145 @@
+== 1. the pinned solidity-lean checkout
+certify: warning: solidity-lean at 27d5c3c131c26f0adecf59ce00ebe597c9f667ec, not the pinned 49d1d7f5d9b74165486bd9f634202bee1a3633eb
+solidity-lean 27d5c3c131c26f0adecf59ce00ebe597c9f667ec at /home/hand/t6/runs/rc2-H1-work/solidity-lean
+== 2. solar
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.04s
+solar c09510a39b5c9940845d2c19928c742f676b8675
+Build completed successfully (1156 jobs).
+solar sha256 2df44d25ae2acc49933b2a73d1f49ecb12f35d095983b4d98d36a04b26b99e4a
+== 3. compile Certified/simplestorage_928cc159/simplestorage_928cc159.sol and export its stages (-Ogas --evm-version osaka)
+stages: stage0 (lower-evm-shaped), sched (stack-schedule), evm1 (cfg-simplify-early), evm2 (block-layout), evm3 (terminal-dedup), evm4 (cfg-simplify-early), evm5 (share-reverts), evm6 (block-layout), bytecode (assemble)
+bytecode: 346030575f3560e01c80634e70b1dc14602757806360fe47b11460345780636d4ce63c036030575b5f545f5260205ff35b5f5ffd5b602436106030576004355f55 sha256 6e95f821ecc2c71682bb59cd089429e0ab967f2cb33da8a32ffbce7135e9d402
+== 4. write the proofs
+assembly: decoded only; the loop-free stages have no backward composition to run the bytecode with
+{"final": "SolarTV.Milestone.Simplestorage928cc159.simplestorage_928cc159_mir_to_evmir", "last": "evm6", "first": "stage0", "stages": ["stage0", "sched", "evm1", "evm2", "evm3", "evm4", "evm5", "evm6"]}
+== 5. build and audit the proofs
+simplestorage_928cc159.gen.SimpleStorage.Bytecode: Build completed successfully (2 jobs).
+simplestorage_928cc159.gen.SimpleStorage.Evm1: Build completed successfully (12 jobs).
+simplestorage_928cc159.gen.SimpleStorage.Evm2: Build completed successfully (12 jobs).
+simplestorage_928cc159.gen.SimpleStorage.Evm3: Build completed successfully (12 jobs).
+simplestorage_928cc159.gen.SimpleStorage.Evm4: Build completed successfully (12 jobs).
+simplestorage_928cc159.gen.SimpleStorage.Evm5: Build completed successfully (12 jobs).
+simplestorage_928cc159.gen.SimpleStorage.Evm6: Build completed successfully (12 jobs).
+simplestorage_928cc159.gen.SimpleStorage.Manifest: Build completed successfully (2 jobs).
+simplestorage_928cc159.gen.SimpleStorage.Sched: Build completed successfully (12 jobs).
+simplestorage_928cc159.gen.SimpleStorage.Stage0: Build completed successfully (11 jobs).
+simplestorage_928cc159.Proofs.Runs.Evm1: Build completed successfully (21 jobs).
+simplestorage_928cc159.Proofs.Runs.Evm2: Build completed successfully (21 jobs).
+simplestorage_928cc159.Proofs.Runs.Evm3: Build completed successfully (21 jobs).
+simplestorage_928cc159.Proofs.Runs.Evm4: Build completed successfully (21 jobs).
+simplestorage_928cc159.Proofs.Runs.Evm5: Build completed successfully (21 jobs).
+simplestorage_928cc159.Proofs.Runs.Evm6: Build completed successfully (21 jobs).
+simplestorage_928cc159.Proofs.Runs.Sched: Build completed successfully (21 jobs).
+simplestorage_928cc159.Proofs.Runs.Stage0: Build completed successfully (20 jobs).
+simplestorage_928cc159.Proofs.Stages: Build completed successfully (37 jobs).
+simplestorage_928cc159.Proofs.Assembly: Build completed successfully (17 jobs).
+simplestorage_928cc159.Proofs: Build completed successfully (43 jobs).
+'SolarTV.Milestone.Simplestorage928cc159.checked' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Simplestorage928cc159.decodes' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Simplestorage928cc159.evm1_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Simplestorage928cc159.evm1_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Simplestorage928cc159.evm2_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Simplestorage928cc159.evm2_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Simplestorage928cc159.evm3_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Simplestorage928cc159.evm3_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Simplestorage928cc159.evm4_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Simplestorage928cc159.evm4_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Simplestorage928cc159.evm5_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Simplestorage928cc159.evm5_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Simplestorage928cc159.evm6_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Simplestorage928cc159.items_eq' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Simplestorage928cc159.sched_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Simplestorage928cc159.sched_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Simplestorage928cc159.simplestorage_928cc159_mir_to_evmir' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Simplestorage928cc159.stage0_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Simplestorage928cc159.stage_evm1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Simplestorage928cc159.stage_evm2' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Simplestorage928cc159.stage_evm3' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Simplestorage928cc159.stage_evm4' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Simplestorage928cc159.stage_evm5' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Simplestorage928cc159.stage_evm6' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Simplestorage928cc159.stage_sched' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Simplestorage928cc159.walk_eq' depends on axioms: [propext, Quot.sound]
+audited 26 theorems
+== 6. the spec (solar-verify) and the headline theorems
+lake packages (20 modules imported): Build completed successfully (2492 jobs).
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.29s
+export: /home/hand/t6/runs/rc2-H1-work/solidity-lean/.lake/certify/simplestorage_928cc159/VC.lean is whole (183 lines, ends with end Certified.Simplestorage928cc159.VC)
+spec: exported to .lake/certify/simplestorage_928cc159/VC.lean
+no Certified/simplestorage_928cc159/headline: no end-to-end theorem
+== 6b. the published statement
+export: Certified/simplestorage_928cc159/gen/SimpleStorage/Spec.lean is whole (59 lines, ends with end Certified.simplestorage_928cc159.gen.SimpleStorage.Spec)
+simplestorage_928cc159.Lowering: Build completed successfully (2566 jobs).
+simplestorage_928cc159.gen.SimpleStorage.Spec: Build completed successfully (8 jobs).
+Verify.VC.Model: Build completed successfully (2549 jobs).
+Verify.Spec.Tree: Build completed successfully (2553 jobs).
+Verify.Spec.TreeMap: Build completed successfully (2558 jobs).
+Verify.Spec.TreeMapNested: Build completed successfully (2559 jobs).
+Verify.Spec.TreeIn: Build completed successfully (2567 jobs).
+Verify.Spec.TreeSucceeds: Build completed successfully (2559 jobs).
+Verify.VC.KernelIdx: Build completed successfully (2 jobs).
+SolidCore.Refinement.KernelRfl: Build completed successfully (3 jobs).
+spec connected generically: simplestorage_928cc159.SpecConnect.set_holds simplestorage_928cc159.SpecConnect.get_holds
+{"proof": "Certified.simplestorage_928cc159.Shape.published", "gas_needed": 1944803, "blocks": 4}
+source: Certified/simplestorage_928cc159/Source.lean is the front end's AST of SimpleStorage in Certified/simplestorage_928cc159/simplestorage_928cc159.sol (solc 0.8.35)
+simplestorage_928cc159.Statement: error: read-only file system (error code: 30)
+  file: /home/hand/t6/runs/rc2-H1-work/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean/EthLib/Execution/Proofs/Evm/Call
+✔ [2531/2589] Built SolidCore.Refinement.Sequence (3.2s)
+⚠ [2533/2589] Replayed Verify.Basic
+warning: Verify/Basic.lean:79:44: This simp argument is unused:
+  h
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [Assn.ofOutcome, bind, Except.bind, pure, Except.pure]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+✔ [2536/2589] Built SolidCore.Refinement.Spec (2.8s)
+⚠ [2537/2589] Replayed SolidCore.Refinement.Abi
+--
+error: failed to remove output artifacts: read-only file system (error code: 30)
+  file: /home/hand/t6/runs/rc2-H1-work/solidity-lean/.lake/packages/EthLib/.lake/build/ir/EthLib/Execution/Proofs/Evm/Logic/Loop.ltar
+✖ [2540/2589] Building EthLib.Base.Proofs.MapM (1ms)
+error: failed to remove output artifacts: read-only file system (error code: 30)
+  file: /home/hand/t6/runs/rc2-H1-work/solidity-lean/.lake/packages/EthLib/.lake/build/ir/EthLib/Base/Proofs/MapM.ltar
+✔ [2542/2589] Built SolidCore.Refinement.ComposeSeq (3.2s)
+⚠ [2550/2589] Built Verify.Final (3.4s)
+warning: Verify/Final.lean:300:6: `dif_pos` has been deprecated: Use `dite_eq_left` instead
+
+Hint: Replace the deprecated name:
+  d̵i̵f̵_̵p̵o̵s̵d̲i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲
+✔ [2553/2592] Built Verify.Shapes (3.0s)
+✖ [2559/2592] Building EthLib.Execution.Proofs.Evm.Logic.Copy (5ms)
+error: failed to remove output artifacts: read-only file system (error code: 30)
+  file: /home/hand/t6/runs/rc2-H1-work/solidity-lean/.lake/packages/EthLib/.lake/build/ir/EthLib/Execution/Proofs/Evm/Logic/Copy.ltar
+⚠ [2561/2592] Built SolidCore.Refinement.Solar.AssembleStackN (3.6s)
+warning: SolidCore/Refinement/Solar/AssembleStackN.lean: imports `EthLib.Execution.Evm.Instructions.StackOnly` from package `EthLib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: SolidCore/Refinement/Solar/AssembleStackN.lean: imports `EthLib.Execution.Proofs.Evm.Logic.Rules` from package `EthLib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [2564/2606] Replayed SolidCore.Refinement.Evm.Lemmas
+warning: SolidCore/Refinement/Evm/Lemmas.lean: imports `EthLib.Execution.Proofs.Evm.Logic.Steps` from package `EthLib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: SolidCore/Refinement/Evm/Lemmas.lean: imports `EthLib.Execution.Proofs.Evm.Logic.Symbolic` from package `EthLib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [2566/2606] Replayed SolidCore.Refinement.Dirty.Source
+warning: SolidCore/Refinement/Dirty/Source.lean:193:38: This simp argument is unused:
+  pure
+
+Hint: Omit it from the simp argument list.
+--
+error: failed to remove output artifacts: read-only file system (error code: 30)
+  file: /home/hand/t6/runs/rc2-H1-work/solidity-lean/.lake/packages/EthLib/.lake/build/ir/EthLib/Execution/Proofs/Evm/Gas/StateGas.ltar
+✖ [2575/2606] Building EthLib.Execution.Proofs.Evm.Instructions.SelfDestruct (1ms)
+error: failed to remove output artifacts: read-only file system (error code: 30)
+  file: /home/hand/t6/runs/rc2-H1-work/solidity-lean/.lake/packages/EthLib/.lake/build/ir/EthLib/Execution/Proofs/Evm/Instructions/SelfDestruct.ltar
+✖ [2576/2606] Building EthLib.Execution.Proofs.Evm.Instructions.TransientStorage (1ms)
+error: failed to remove output artifacts: read-only file system (error code: 30)
+  file: /home/hand/t6/runs/rc2-H1-work/solidity-lean/.lake/packages/EthLib/.lake/build/ir/EthLib/Execution/Proofs/Evm/Instructions/TransientStorage.ltar
+✖ [2577/2606] Building EthLib.Execution.Proofs.State.Frame
+error: failed to remove output artifacts: read-only file system (error code: 30)
+  file: /home/hand/t6/runs/rc2-H1-work/solidity-lean/.lake/packages/EthLib/.lake/build/ir/EthLib/Execution/Proofs/State/Frame.ltar
+⚠ [2583/2606] Built SolidCore.Refinement.Solar.Assemble (7.2s)
+warning: SolidCore/Refinement/Solar/Assemble.lean:444:10: `if_pos` has been deprecated: Use `ite_eq_left` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵p̵o̵s̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲
+warning: SolidCore/Refinement/Solar/Assemble.lean:448:12: `if_neg` has been deprecated: Use `ite_eq_right` instead
+
+Hint: Replace the deprecated name:
+certify: error: simplestorage_928cc159.Statement does not check
