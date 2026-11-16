@@ -33,8 +33,8 @@ Every check here is the kernel's (`kernel_rfl`, with the selectors by the checke
 * **Rejection by reading** (`spec_rejects`, `name_rejects`): the spec and name mutations parse, and
   their reading is not the frozen original's: the ensures' literals differ (spec), the ABI
   signatures differ (name). Never by the bytes' hash.
-* **Rejection by run** (body, swap): in `Runs.lean`, by compiled evaluation, since SolidCore's
-  storage (`Std.HashMap`, indexed through `USize`) does not reduce in the kernel.
+* **Rejection by run** (body, swap): in `TestRuns.lean`, by the kernel: each run is SolidCore's
+  `Source.run` through `run_eq_runTree` (Run.lean), with Lean's three axioms.
 * **Not here**: no check that a mutation's run breaks the original's ensures (`¬ HoldsFn`).
   A spec property on the exact bytecode exists only where a proved certificate does: Flag's,
   through `statement_of_agree` (Instances/Flag.lean). For LedgerRelay it is NOT RUN, since no
