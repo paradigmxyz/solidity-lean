@@ -88,24 +88,30 @@ H1 and H2 records are checked for the same key.
 
 | Record | Runner | Driver | Verdict | Replay | Accepted |
 |---|---|---|---|---|---|
-| acc5 (`flag_4ce5cf9a`) | T1 | 0479b90a | **GENERIC CONDITIONAL COMPOSITION** (default context; not a held-out verdict) | pending: exact fresh-clone replay on 0479b90a, all 18 `REPLAY_KEYS` SAME | pending |
+| acc5-flag (`flag_4ce5cf9a`) | T1 | 0479b90a | **CERTIFIED** (certify exit 0): generic conditional composition, expected-type final theorem (default context; not a held-out verdict) | exact fresh-clone replay exit 0 **CERTIFIED**, `binary_commit` 0479b90a, 18/18 `REPLAY_KEYS` SAME | **ACCEPTED** (exact-pin rule) |
 
 acc5 record: T1 `alpharush/t1-generic-records` @ abcd096127559797224a4fdf330dd3476c65b79c,
-`Certified/record/rc2-acc5-flag/`. Pending until the exact fresh-clone replay above.
+[`Certified/record/rc2-acc5-flag/`](https://github.com/paradigmxyz/solidity-lean/tree/abcd096127559797224a4fdf330dd3476c65b79c/Certified/record/rc2-acc5-flag).
+Replay record: same branch @ 002124dae3724e1b7f601056c616ef1f12fe290b (parent abcd0961),
+[`Certified/record/rc2-acc5-flag-replay/`](https://github.com/paradigmxyz/solidity-lean/tree/002124dae3724e1b7f601056c616ef1f12fe290b/Certified/record/rc2-acc5-flag-replay):
+`--replay` exit 0, CERTIFIED; closure 3966, replayed 3966, trusted 0, unaccounted 0, `leanchecker`
+exit 0; wall 10738.9 s, max one-process RSS 7991 MiB, peak tree RSS 8811 MiB.
 
 - Final theorem: `Certified.flag_4ce5cf9a.Final.final : Certified.flag_4ce5cf9a.Final.Statement`, the
   expected-type statement (the exact runtime bytes ∧ `Generic.Expected src spec runtimeBytes`);
   assumptions none; axioms `propext`, `Classical.choice`, `Quot.sound`; closure 3966 modules, 0
   trusted; strict tier exit 0. Base pin 49d1d7f5; the run executed solidity-lean 97c1a837 (record
   caveat).
-- Scope: a default-context generic conditional composition: one frame, caller 0x2000, contract at
-  0x1000, the block and transaction of `Target.message`; runtime bytecode only; valid ABI calls.
-  It lacks a Solidity-text/frontend correspondence, so it is **not** universal source-text end to
-  end.
+- Scope: generic conditional composition with an expected-type final theorem, in the default
+  context: one frame, caller 0x2000, contract at 0x1000, the block and transaction of
+  `Target.message`; runtime bytecode only; valid ABI calls. **Not** source-text end to end:
+  solidity-lean states no source or spec theorem for `flag_4ce5cf9a`.
 - TCB: "source model trusted: SolidCore's checked contract (the solc AST through
   `scripts/solc_ast_to_lean_source.py` and the type checker) is the meaning of the source (frontend
   trust boundary)".
-- Not yet run by the reviewer: fresh replay, `--tier lifecycle`, vacuity negatives, tampered replay.
+- Caveat: the replay's work checkout is solidity-lean a861b0d7, not the pinned 49d1d7f5 (only the
+  inputs hash, normalized by the driver); `solidity_lean.base` 49d1d7f5 is SAME. The
+  `--packages-from` cache dependency stays OPEN.
 
 ## Addenda carried over (not RC2 verdicts)
 
