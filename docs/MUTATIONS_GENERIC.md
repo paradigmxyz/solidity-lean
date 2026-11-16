@@ -96,7 +96,8 @@ Driver owner's cold queue, records on solidity-lean alpharush/t1-generic-records
 |---|---|---|---|---|
 | Flag, acc-flag (independent held-out positive) | CERTIFIED | REJECTED, exit 1 | published statement's proof: Shape.lean:128 unsolved goals (past-the-end case of `holds_of_getElem` with two connected functions); SpecConnect for raise and lower checked | 20a27f39 / 44572c15 |
 | Flag, acc2-flag | CERTIFIED | REJECTED, exit 2: `strict tier: flag_4ce5cf9a reached functional, below the requested tier certified (false: provenance_clean, strongest)` | strict tier: provenance (the driver let scripts/certify build solar) and the top-level strongest classification | c167421c / 44572c15 |
-| Flag, acc3-flag | CERTIFIED | **CERTIFIED, strict exit 0** | none: every strict component true (published_statement, equivalence, termination, resources, spec, source_bound, provenance_clean, replay_full, strongest); replay closure 3966/3966, trusted 0, unaccounted none; axioms propext, Classical.choice, Quot.sound | 5a9e6bc0 / 44572c15 |
+| Flag, acc3-flag (superseded: failed its fresh-clone replay, `inputs_sha256` embedded an absolute source path) | CERTIFIED | CERTIFIED, strict exit 0; replay exit 1 | none: every strict component true (published_statement, equivalence, termination, resources, spec, source_bound, provenance_clean, replay_full, strongest); replay closure 3966/3966, trusted 0, unaccounted none; axioms propext, Classical.choice, Quot.sound | 5a9e6bc0 / 44572c15 |
+| Flag, acc4-flag (accepted matching positive) | CERTIFIED | **CERTIFIED, strict exit 0; fresh-clone `--replay` exit 0, all 18 REPLAY_KEYS the same** | none: every strict component true; closure 3966/3966, trusted 0, unaccounted none; axioms propext, Classical.choice, Quot.sound; records d66e60bf, replay receipt 4df9c420 | 6d0f2621 / 44572c15 |
 | UniswapV2Pair | BLOCKED | BLOCKED, exit 3 | envelope: external call (15x), imports (7x), inheritance (1x), ABI types (6x) | 20a27f39 / 44572c15 |
 
 acc3-flag's pins: source and spec sha256 4ce5cf9a…, solar binary 91d39457… built at 5a9e6bc0,
@@ -117,6 +118,8 @@ certifying on 5a9e6bc0 shows that a positive inside the envelope reaches the cer
 driver. It does not stand in for SiblingLeak's own twin.
 
 ## Replay cases
+
+**Superseded.** The acc3-flag results below are kept as history only. acc3-flag is not an accepted positive. The current results are against acc4-flag, in the next section.
 
 `certify --replay DIR` refuses a record directory when any run file differs from the record or an
 extra file is present. It then reruns cold and compares every pin. negatives.py's replay cases
@@ -165,3 +168,30 @@ Receipts and logs are in
 The eight pending pin cases each pass the manifest and need the driver's full fresh cold run, which
 is heavy. They run serially, one at a time, after the driver owner's fresh-clone replay of the same
 record reports.
+
+## Replay cases against acc4-flag (current)
+
+The positive is acc4-flag (records d66e60bf, under `Certified/record/acc4-flag/replay`), on driver 6d0f2621
+with base 44572c15. Driver 1844041e and 800d78a9 rows are marked. Full tables, logs and receipts are in
+[tests/heldout/runs/replay-acc4-flag](../tests/heldout/runs/replay-acc4-flag/README.md).
+
+* **file layer**: all 9 cases REJECTED, exit 1, at the manifest.
+* **stale-source@pin**: REJECTED, exit 1, at the source digest, before the fresh run.
+* **stale-bytes@pin, one full run** (13808 s): exit 1,
+  `REJECTED: replay: bytecode_sha256 differs between the record and the fresh run`. This is not a clean
+  pass: the fresh certify inside the run did not reach CERTIFIED. It stopped at final negatives with
+  `REJECTED: driver: UnicodeDecodeError`, because `final_neg.sh`'s `cut -c1-160` split a 3-byte `✝`, and
+  the work path's length decides where the cut falls. The bytecode was compared anyway.
+* **The other 7 pin cases**: driver comparison reused on one fresh run. `reuse.py` calls the driver's own
+  `replay_main`, with T1's published CERTIFIED fresh run of acc4-flag (4df9c420) in place of the fresh
+  run. Each case REJECTS with exit 1, naming the key: flipped-byte bytecode_sha256, changed-solar-options
+  options, stale-spec-hash spec, stale-import solidity_lean.inputs_sha256, omitted-selector functions,
+  false-env-pin environment, oog-as-revert gas_bound. On 800d78a9 the rows are the same, except
+  stale-import, which is caught earlier by the inputs set check. The unedited control exits 0 CERTIFIED
+  on both drivers.
+* **Claim, input and sibling tampers**: the 5 record-claim cases (theorem, statement, closure, replayed
+  list, excluded) were CERTIFIED on 6d0f2621 and c09510a3, and are REJECTED on 1844041e and 800d78a9,
+  naming the field. input-rehashed, shape-rehashed, caveats-forged-consistent and sibling-swap-input were
+  CERTIFIED on 1844041e and are REJECTED on 800d78a9. sibling-swap-pin is REJECTED on both, by functions.
+* **Unsupported contracts**: 8 contracts in `tests/heldout/blocked/`, each exit 3 BLOCKED on 800d78a9.
+

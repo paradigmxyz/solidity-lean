@@ -1,0 +1,2 @@
+== generic: ~/w/t5/tests/heldout/blocked/StringArg.sol (91320c38c8c8024189954b7a2d1db62ba80cf5256c30e6ca442793c436a7ee82) as stringarg_91320c38, requested tier certified
+BLOCKED: ABI types (1x, first set(string): only uintN, intN, bool, address and enum parameters and results)

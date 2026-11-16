@@ -1,0 +1,2 @@
+== generic: ~/w/t5/tests/heldout/blocked/Assembly.sol (40e915a0a4e01bd93a4bef74a08184c4bcc05c1c73d6b06b1dae066faf93e7a2) as assembly_40e915a0, requested tier certified
+BLOCKED: inline assembly (1x, first line 10: assembly blocks have no SolidCore source semantics here)

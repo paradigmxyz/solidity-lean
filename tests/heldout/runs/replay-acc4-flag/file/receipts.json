@@ -1,0 +1,182 @@
+[
+  {
+    "case": "stale-bytes@file",
+    "changed": "certify-record.json bytecode: another contract's fresh compile",
+    "command": [
+      "tools/certify/certify",
+      "--replay",
+      "~/w/acc4/neg-file/from-stale-bytes-file/replay",
+      "--solidity-lean",
+      "~/w/sl",
+      "--work",
+      "~/w/acc4/neg-file/w/stale-bytes@file"
+    ],
+    "exit": 1,
+    "verdict": "REJECTED",
+    "line": "REJECTED: replay: certify-record.json differs from the record (stale or edited run file)",
+    "start": "2026-11-15T23:25:07+00:00",
+    "end": "2026-11-15T23:25:07+00:00",
+    "wall_s": 0,
+    "log_sha256": "7159986ae2bd90cd2fd11866cfad9b7a5d7b785c61a413cd519ab4ffd8fbcd3a"
+  },
+  {
+    "case": "flipped-byte@file",
+    "changed": "certify-record.json bytecode: middle byte XOR 1",
+    "command": [
+      "tools/certify/certify",
+      "--replay",
+      "~/w/acc4/neg-file/from-flipped-byte-file/replay",
+      "--solidity-lean",
+      "~/w/sl",
+      "--work",
+      "~/w/acc4/neg-file/w/flipped-byte@file"
+    ],
+    "exit": 1,
+    "verdict": "REJECTED",
+    "line": "REJECTED: replay: certify-record.json differs from the record (stale or edited run file)",
+    "start": "2026-11-15T23:25:07+00:00",
+    "end": "2026-11-15T23:25:07+00:00",
+    "wall_s": 0,
+    "log_sha256": "9bf12d13fe0f58f5cda1436168801e021b91404f4341be4a71835eb256637e2c"
+  },
+  {
+    "case": "changed-solar-options@file",
+    "changed": "inputs/Certified/flag_4ce5cf9a/options: -Ogas -> -Osize",
+    "command": [
+      "tools/certify/certify",
+      "--replay",
+      "~/w/acc4/neg-file/from-changed-solar-options-file/replay",
+      "--solidity-lean",
+      "~/w/sl",
+      "--work",
+      "~/w/acc4/neg-file/w/changed-solar-options@file"
+    ],
+    "exit": 1,
+    "verdict": "REJECTED",
+    "line": "REJECTED: replay: inputs/Certified/flag_4ce5cf9a/options differs from the record (stale or edited run file)",
+    "start": "2026-11-15T23:25:07+00:00",
+    "end": "2026-11-15T23:25:07+00:00",
+    "wall_s": 0,
+    "log_sha256": "13519301793940695821ee6b0d9492297e67a030250dd7bfdaf2d00f58762e95"
+  },
+  {
+    "case": "stale-spec-hash@file",
+    "changed": "Flag.sol: one ensures clause edited",
+    "command": [
+      "tools/certify/certify",
+      "--replay",
+      "~/w/acc4/neg-file/from-stale-spec-hash-file/replay",
+      "--solidity-lean",
+      "~/w/sl",
+      "--work",
+      "~/w/acc4/neg-file/w/stale-spec-hash@file"
+    ],
+    "exit": 1,
+    "verdict": "REJECTED",
+    "line": "REJECTED: replay: Flag.sol differs from the record (stale or edited run file)",
+    "start": "2026-11-15T23:25:07+00:00",
+    "end": "2026-11-15T23:25:07+00:00",
+    "wall_s": 0,
+    "log_sha256": "a3ccf5b204682b277a898af33d46dcb7207d8a7c61a2b019d483ea89587e015f"
+  },
+  {
+    "case": "stale-source@file",
+    "changed": "Flag.sol: 'value = v;' parenthesised (same behaviour, other source bytes)",
+    "command": [
+      "tools/certify/certify",
+      "--replay",
+      "~/w/acc4/neg-file/from-stale-source-file/replay",
+      "--solidity-lean",
+      "~/w/sl",
+      "--work",
+      "~/w/acc4/neg-file/w/stale-source@file"
+    ],
+    "exit": 1,
+    "verdict": "REJECTED",
+    "line": "REJECTED: replay: Flag.sol differs from the record (stale or edited run file)",
+    "start": "2026-11-15T23:25:07+00:00",
+    "end": "2026-11-15T23:25:07+00:00",
+    "wall_s": 0,
+    "log_sha256": "c5105408b93582b00a8abe377772a39fcf30705f9f7797deb48fb52b976f25c9"
+  },
+  {
+    "case": "stale-import@file",
+    "changed": "inputs/Certified/flag_4ce5cf9a/Source.lean: comment appended",
+    "command": [
+      "tools/certify/certify",
+      "--replay",
+      "~/w/acc4/neg-file/from-stale-import-file/replay",
+      "--solidity-lean",
+      "~/w/sl",
+      "--work",
+      "~/w/acc4/neg-file/w/stale-import@file"
+    ],
+    "exit": 1,
+    "verdict": "REJECTED",
+    "line": "REJECTED: replay: inputs/Certified/flag_4ce5cf9a/Source.lean differs from the record (stale or edited run file)",
+    "start": "2026-11-15T23:25:07+00:00",
+    "end": "2026-11-15T23:25:08+00:00",
+    "wall_s": 0,
+    "log_sha256": "e1d965cd41a28bfe434ef1f4cd131ea70a2e768eed285ab70c0acfae475a4ebd"
+  },
+  {
+    "case": "omitted-selector@file",
+    "changed": "inputs/Certified/flag_4ce5cf9a/shape.json: first entry dropped",
+    "command": [
+      "tools/certify/certify",
+      "--replay",
+      "~/w/acc4/neg-file/from-omitted-selector-file/replay",
+      "--solidity-lean",
+      "~/w/sl",
+      "--work",
+      "~/w/acc4/neg-file/w/omitted-selector@file"
+    ],
+    "exit": 1,
+    "verdict": "REJECTED",
+    "line": "REJECTED: replay: inputs/Certified/flag_4ce5cf9a/shape.json differs from the record (stale or edited run file)",
+    "start": "2026-11-15T23:25:08+00:00",
+    "end": "2026-11-15T23:25:08+00:00",
+    "wall_s": 0,
+    "log_sha256": "4ebf0d1da232c0d92631521c134a43bc6f02eebc09acf099d950b5da6237d88b"
+  },
+  {
+    "case": "false-env-pin@file",
+    "changed": "inputs/Certified/flag_4ce5cf9a/shape.json: env [] -> a caller premise",
+    "command": [
+      "tools/certify/certify",
+      "--replay",
+      "~/w/acc4/neg-file/from-false-env-pin-file/replay",
+      "--solidity-lean",
+      "~/w/sl",
+      "--work",
+      "~/w/acc4/neg-file/w/false-env-pin@file"
+    ],
+    "exit": 1,
+    "verdict": "REJECTED",
+    "line": "REJECTED: replay: inputs/Certified/flag_4ce5cf9a/shape.json differs from the record (stale or edited run file)",
+    "start": "2026-11-15T23:25:08+00:00",
+    "end": "2026-11-15T23:25:08+00:00",
+    "wall_s": 0,
+    "log_sha256": "82f3b227f1e9cc955d13b2f827133672ddf22a918267c867207883d05ed294d5"
+  },
+  {
+    "case": "oog-as-revert@file",
+    "changed": "inputs/Certified/flag_4ce5cf9a/shape.json: gas bound 3580203 -> 1790101",
+    "command": [
+      "tools/certify/certify",
+      "--replay",
+      "~/w/acc4/neg-file/from-oog-as-revert-file/replay",
+      "--solidity-lean",
+      "~/w/sl",
+      "--work",
+      "~/w/acc4/neg-file/w/oog-as-revert@file"
+    ],
+    "exit": 1,
+    "verdict": "REJECTED",
+    "line": "REJECTED: replay: inputs/Certified/flag_4ce5cf9a/shape.json differs from the record (stale or edited run file)",
+    "start": "2026-11-15T23:25:08+00:00",
+    "end": "2026-11-15T23:25:08+00:00",
+    "wall_s": 0,
+    "log_sha256": "b8853c1c16b5731ce6a7767d8a862e9f6b8b96684a9c9cbf95b0787b684da64a"
+  }
+]

@@ -1,0 +1,2 @@
+tools/certify/certify --replay ~/w/acc4/neg-file/from-stale-bytes-file/replay --solidity-lean ~/w/sl --work ~/w/acc4/neg-file/w/stale-bytes@file
+REJECTED: replay: certify-record.json differs from the record (stale or edited run file)
