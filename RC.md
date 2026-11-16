@@ -40,9 +40,10 @@ Source of truth: `envelope()` in `tools/certify/generic.py` and `docs/SUPPORTED_
 | `mapping(K => V)` of value types | supported with premise (Keccak-256 separation over each call's footprint) | none yet (H3 pending) |
 | state-variable initializers / constructor without parameters | runtime tier only: the storage is any storage that lists every slot the constructor writes (`Generic.Covers`: those slots, any values); the constructor's run is not part of the claim | none yet (H2 pending) |
 | constructor with parameters | BLOCKED (envelope) | - |
-| deployment / init code / lifecycle | BLOCKED: no lifecycle or constructor tier at the pin (`--tier` offers compiled, functional, certified) | - |
+| deployment / init code / lifecycle | BLOCKED (not offered): the pin has no lifecycle or constructor tier, and `--tier lifecycle` exits 2 "tier not offered". This is a scope limit, not a failure of the certified runtime claim | - |
 | caller other than 0x2000 (any-caller) | OPEN: `Context.default` only | - |
-| loops (for/while/do) | BLOCKED at the pin in the generic driver; the loop lane's results are not part of this RC until accepted here | - |
+| loops (for/while/do), certified bytes | BLOCKED: the generic driver at the pin does not take loops | - |
+| loops, source-level obligations | gate only, SMT level: solar-verify's initiation, consecution, termination and exit obligations all unsat (z3), plus a required nonvacuity witness. Not kernel-certified; no MIR or bytecode binding; source-loop binding for `Counter.bump` only | `Counter.bump`, `Gcd.gcd` (gate ACCEPT, solidity-lean ca0d05b6) |
 | gas / resource certification of loops | BLOCKED: no gas obligation or fuel-bound interface for loops | - |
 | external calls, try/catch, `new`, inline assembly, payable, inheritance, imports, several contracts | BLOCKED (envelope) | - |
 | Pair | BLOCKED | - |
@@ -97,7 +98,9 @@ The claims are kept separate:
 - Pair: BLOCKED.
 - Constructor / deployment / lifecycle: BLOCKED (no tier at the pin).
 - Any-caller: OPEN (fixed caller only).
-- Loops: OPEN at the pin. Gas and resource certification for loops is BLOCKED (no gas obligation or
+- Loops: certified bytes BLOCKED at the pin. The loop gate (below) is an SMT-level source check:
+  `Gcd.gcd` has its obligations checked in Lean but no source-loop binding (its body branches),
+  and the Lean modules that consume the obligations are not yet built. Gas and resource certification for loops is BLOCKED (no gas obligation or
   fuel-bound interface).
 - **Nonvacuity is a separate required check.** solar-verify alone accepts a spec with a
   contradictory precondition unless the separate nonvacuity witness is required. Any loop or spec
@@ -141,6 +144,33 @@ f689833eb749e7509b4fb038bd8a4e251e77daa10aed088b2b12fa70ab76f69f, compiled in th
 both its `replay/` and the replay's `fresh-run/`, `record.json`'s `final`, `replay`, `statuses`
 and `caveats` equal the hashed `certify-record.json`'s, and both `MANIFEST.sha256` files check.
 
+### Loop gate (source-level, SMT; not a certify record)
+
+solidity-lean `alpharush/t4-loopvc-rc` @ ca0d05b6daa048b3765c3088c150b1f47e95a19c (two commits
+on 44572c15), `Verify/LoopSource/RC/`; `RECEIPTS.json` sha256 1599b68940f527cdf1beedb633fc08742d13b26169ab68849bd33ab5a5e91505. Gate
+`Verify/LoopSource/loopgate.py`: solar-verify (built from solar c09510a3, whose `crates/verify` is
+unchanged at 800d78a9; binary sha256 102e482a…) with z3 5.4.1 (sha256 ae76a37c…). Exit 0 ACCEPT,
+1 an obligation failed, 2 solar-verify error, 3 a loop kind missing, 4 VACUOUS. TCB for these
+rows adds solar-verify's obligation generation and z3; no Lean kernel check is claimed here.
+`Gcd.gcd` was chosen as held-out by the loop lane, not by the acceptance reviewer. Each row is
+one-full-run (its own gate run); the reviewer read every `gate/<case>/gate.json` cited.
+
+| Case | Gate exit | Note |
+|---|---|---|
+| Counter (`Counter.bump`, `for` over storage) | 0 ACCEPT | nonvacuity witness n=3, count=5, limit=8 |
+| Gcd (`Gcd.gcd`, `while` with a branching body) | 0 ACCEPT | nonvacuity witness a=12, b=18 |
+| CounterBadInit, CounterBadPres, CounterBadDecr, CounterBadExit | 1 each | each fails exactly its obligation kind |
+| GcdBadInit, GcdBadPres, GcdBadDecr, GcdBadExit | 1 each | each fails exactly its obligation kind |
+| GcdVacuous (contradictory `a > 0 && a < 1`) | 4 VACUOUS | solar-verify alone exits 0 with a warning; the gate rejects it, with and without `--assume` |
+
+### Benchmark (informational, not a certification receipt)
+
+solidity-lean `alpharush/eval-symm` @ 1928268bd23bf0f6d34bc939b04d3cd5b4413cae (`docs/eval/acc4.md`;
+the branch is not based on 44572c15, but the measurement ran in a 44572c15 worktree):
+acc4-flag's 26 generated modules re-elaborated, and 3,167 declarations (1,378 theorems)
+re-added to the kernel alone: 0 rejected. Single thread, 26 modules in 105.9 s wall, peak RSS
+2.93 GB. One run per cell.
+
 ### Negative exits
 
 | Case | Driver | Exit | Kind |
@@ -150,7 +180,7 @@ and `caveats` equal the hashed `certify-record.json`'s, and both `MANIFEST.sha25
 | archived input edited + run_files rehashed | 1844041e | **exit 0 CERTIFIED: failure**, fixed in 800d78a9 (receipt pending here) | comparison-reuse |
 | input-rehashed, shape-rehashed, caveats-forged; unedited control | 800d78a9 | reported REJECTED ×3, control CERTIFIED; receipts pending here | comparison-reuse |
 | replay of each held-out record with an edited claim | 800d78a9 | pending | comparison-reuse |
-| `--tier lifecycle` on each held-out case | 800d78a9 | pending; expected usage error (tier not offered, exit 2), recorded as such, not as BLOCKED | one-full-run |
+| `--tier lifecycle` | 800d78a9 | exit 2 "tier not offered" (reported to the coordinator); per-case receipts for H1–H3 pending. Lifecycle is BLOCKED (not offered), not a failure of the runtime claim | one-full-run per case |
 
 ## Files
 
