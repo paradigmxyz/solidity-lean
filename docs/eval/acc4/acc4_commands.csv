@@ -1,0 +1,152 @@
+module,line,command,decls,elab_ms,kernel_ms,recheck_ms,dag_nodes,tree_nodes,rejected,top_tactics,module_wall,module_peak_rss_mib,recheck_peak_rss_mib,waits_on_proof
+flag_4ce5cf9a.Source,13,def importedContractDecl0 : ContractDecl :=,0,7.8,0.0,0,0,0,0,,0:02.12,2034,3863,0
+flag_4ce5cf9a.Lowering,24,/-- The interpreter fuel of SolidCore's runs. -/,0,1.0,0.0,0,0,0,0,,0:17.72,2932,4961,1
+flag_4ce5cf9a.Lowering,49,/-- `raise(uint256)` and its parameters. -/,0,1.4,0.0,0,0,0,0,,0:17.72,2932,4961,1
+flag_4ce5cf9a.Lowering,58,"/-- The external functions of `Flag`, from its ABI. -/",0,1.3,0.0,0,0,0,0,,0:17.72,2932,4961,1
+flag_4ce5cf9a.Lowering,61,/--,0,16.4,0.0,0,0,0,0,,0:17.72,2932,4961,1
+flag_4ce5cf9a.Lowering,73,kernel_rfl selSig0_eq selSig0 sel0,1,1680.1,1668.0,1606.17,5,5,0,,0:17.72,2932,4961,0
+flag_4ce5cf9a.Lowering,78,kernel_rfl selSig1_eq selSig1 sel1,1,1650.5,1639.2,1614.35,5,5,0,,0:17.72,2932,4961,0
+flag_4ce5cf9a.Lowering,83,kernel_rfl selSig2_eq selSig2 sel2,1,1620.3,1609.5,1772.07,5,5,0,,0:17.72,2932,4961,0
+flag_4ce5cf9a.Lowering,88,kernel_rfl selSig3_eq selSig3 sel3,1,1638.4,1627.5,1609.33,5,5,0,,0:17.72,2932,4961,0
+flag_4ce5cf9a.Lowering,90,"/-- `ABI.selectorFromSignature`, with the contract's signatures by table. -/",0,3.5,0.0,0,0,0,0,,0:17.72,2932,4961,1
+flag_4ce5cf9a.Lowering,98,Certified.flag_4ce5cf9a.Lowering.selector_eq,0,24.4,0.0,0,0,0,0,?=24,0:17.72,2932,4961,0
+flag_4ce5cf9a.Lowering,111,/--,0,3.3,0.0,0,0,0,0,,0:17.72,2932,4961,1
+flag_4ce5cf9a.Lowering,117,"kernel_rfl shape_eq shape? (some (coreLit, true)) using selector_eq",2,8664.1,844.6,872.21,1608,5517,0,,0:17.72,2932,4961,0
+flag_4ce5cf9a.Lowering,119,set_option maxRecDepth 100000 in,0,1.2,0.0,0,0,0,0,,0:17.72,2932,4961,0
+flag_4ce5cf9a.Lowering,120,Certified.flag_4ce5cf9a.Lowering.check_stage0,1,62.7,61.3,60.34,37,93,0,decide=62,0:17.72,2932,4961,0
+flag_4ce5cf9a.Lowering,126,Certified.flag_4ce5cf9a.Lowering.checkValue_stage0,1,66.7,65.7,4.39,35,85,0,decide=66,0:17.72,2932,4961,0
+flag_4ce5cf9a.Lowering,131,theorem deployed_of {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) :,0,5.9,0.0,0,0,0,0,?=4,0:17.72,2932,4961,0
+flag_4ce5cf9a.Statement,26,"/-- The same bytes, as numbers: what the statement binds. -/",0,19.7,0.0,0,0,0,0,,0:02.44,2617,4644,1
+flag_4ce5cf9a.Statement,35,/-- The freshly exported bytecode. -/,0,1.6,0.0,0,0,0,0,,0:02.44,2617,4644,1
+flag_4ce5cf9a.Statement,38,"/-- The source: solc's AST of the source unit, the contract and SolidCore's fuel. -/",0,1.2,0.0,0,0,0,0,,0:02.44,2617,4644,1
+flag_4ce5cf9a.Statement,41,/--,0,4.1,0.0,0,0,0,0,,0:02.44,2617,4644,1
+flag_4ce5cf9a.Statement,58,Certified.flag_4ce5cf9a.Final.bound,1,15.8,13.7,6.65,55,269,0,decide=14;expected=1,0:02.44,2617,4644,0
+flag_4ce5cf9a.Shape,25,/-- The exported runtime bytecode. -/,0,1.3,0.0,0,0,0,0,,0:02.80,2651,4662,1
+flag_4ce5cf9a.Shape,28,/-- The loop checker's certificate (tools/certify/asm_cert.py). -/,0,7.5,0.0,0,0,0,0,,0:02.80,2651,4662,1
+flag_4ce5cf9a.Shape,45,/-- The highest stack each block is entered with. -/,0,1.3,0.0,0,0,0,0,,0:02.80,2651,4662,1
+flag_4ce5cf9a.Shape,49,Certified.flag_4ce5cf9a.Shape.walk_ok,1,45.5,42.4,32.14,48,143,0,?=45,0:02.80,2651,4662,0
+flag_4ce5cf9a.Shape,58,Certified.flag_4ce5cf9a.Shape.blocks_ok,1,83.0,82.2,37.8,43,125,0,decide=83,0:02.80,2651,4662,0
+flag_4ce5cf9a.Shape,64,theorem size_ok : code.size < 2 ^ 32 := by decide +kernel,1,85.9,82.8,3.01,61,225,0,decide=83,0:02.80,2651,4662,0
+flag_4ce5cf9a.Shape,66,Certified.flag_4ce5cf9a.Shape.check_ok,0,12.0,0.0,0,0,0,0,?=12,0:02.80,2651,4662,0
+flag_4ce5cf9a.Shape,72,Certified.flag_4ce5cf9a.Shape.ends,1,46.7,0.0,0.13,39,55,0,expected=37,0:02.80,2651,4662,0
+flag_4ce5cf9a.Shape,78,/-- The bytecode with byte `i` replaced by `b`. -/,0,1.2,0.0,0,0,0,0,,0:02.80,2651,4662,1
+flag_4ce5cf9a.Shape,82,Certified.flag_4ce5cf9a.Shape.rejects_jump,1,98.0,97.2,16.57,48,157,0,decide=98,0:02.80,2651,4662,0
+flag_4ce5cf9a.Shape,87,Certified.flag_4ce5cf9a.Shape.rejects_sstore,1,214.0,208.3,107.53,48,157,0,decide=212,0:02.80,2651,4662,0
+flag_4ce5cf9a.Shape,91,set_option maxRecDepth 100000 in,0,1.0,0.0,0,0,0,0,,0:02.80,2651,4662,0
+flag_4ce5cf9a.Shape,92,Certified.flag_4ce5cf9a.Shape.rejects_opcode,1,319.1,318.0,109.77,48,157,0,decide=319,0:02.80,2651,4662,0
+flag_4ce5cf9a.Shape,96,theorem gas_lt : SolidCore.Refinement.Solar.AssembleLoop.gasBoundL cert 6 < 2 ^ 64 := by,1,320.1,316.6,0.66,66,265,0,decide=317,0:02.80,2651,4662,0
+flag_4ce5cf9a.Shape,98,Certified.flag_4ce5cf9a.Shape.gas_le,2,320.0,315.3,0.4,45,130,0,decide=317,0:02.80,2651,4662,0
+flag_4ce5cf9a.Shape,100,Certified.flag_4ce5cf9a.Shape.contract_ok,0,3.6,0.0,0,0,0,0,?=3,0:02.80,2651,4662,0
+flag_4ce5cf9a.Shape,109,/-- **What the published statement asks of this module.** -/,0,57.9,0.0,0,0,0,0,?=54,0:02.80,2651,4662,1
+flag_4ce5cf9a.Shape,135,#print axioms published,0,327.3,0.0,0,0,0,0,,0:02.80,2651,4662,1
+flag_4ce5cf9a.Shape,133,/--,0,328.4,0.0,0,0,0,0,,0:02.80,2651,4662,1
+flag_4ce5cf9a.Shape,137,/--,0,59.5,0.0,0,0,0,0,?=56,0:02.80,2651,4662,1
+flag_4ce5cf9a.Shape,158,#print axioms nonvacuous,0,60.5,0.0,0,0,0,0,,0:02.80,2651,4662,1
+flag_4ce5cf9a.Shape,156,/--,0,62.4,0.0,0,0,0,0,,0:02.80,2651,4662,1
+flag_4ce5cf9a.Shape,160,/--,0,28.9,0.0,0,0,0,0,?=23,0:02.80,2651,4662,1
+flag_4ce5cf9a.Shape,175,#print axioms pre_sat_raise,0,29.7,0.0,0,0,0,0,,0:02.80,2651,4662,1
+flag_4ce5cf9a.Shape,173,/--,0,31.2,0.0,0,0,0,0,,0:02.80,2651,4662,1
+flag_4ce5cf9a.Shape,177,/--,0,26.9,0.0,0,0,0,0,?=22,0:02.80,2651,4662,1
+flag_4ce5cf9a.Shape,192,#print axioms pre_sat_lower,0,25.1,0.0,0,0,0,0,,0:02.80,2651,4662,1
+flag_4ce5cf9a.Shape,190,/--,0,28.2,0.0,0,0,0,0,,0:02.80,2651,4662,1
+flag_4ce5cf9a.SpecConnect,27,"/-- The call context of the stage's calls (no value), as SolidCore's runs see it. -/",0,1.8,0.0,0,0,0,0,,0:19.58,2799,4762,1
+flag_4ce5cf9a.SpecConnect,30,/-- The call context of every call: `ctx` with the call's value. -/,0,2.4,0.0,0,0,0,0,,0:19.58,2799,4762,1
+flag_4ce5cf9a.SpecConnect,36,/-- Whether the contract deploys with that storage and no logs. -/,0,2.3,0.0,0,0,0,0,,0:19.58,2799,4762,1
+flag_4ce5cf9a.SpecConnect,42,kernel_rfl deploy_eq deploy? true using Certified.flag_4ce5cf9a.Lowering.selector_eq,2,8696.6,795.8,773.88,20,22,0,,0:19.58,2799,4762,0
+flag_4ce5cf9a.SpecConnect,44,/-- `Flag.raise` as the stage's ABI sees it (only the number of its parameters matters). -,0,1.6,0.0,0,0,0,0,,0:19.58,2799,4762,1
+flag_4ce5cf9a.SpecConnect,47,/-- The generic source stage's erasure of `Flag.raise`. -/,0,5.3,0.0,0,0,0,0,,0:19.58,2799,4762,1
+flag_4ce5cf9a.SpecConnect,51,/-- How SolidCore dispatches and the stage erases `Flag.raise`. -/,0,6.4,0.0,0,0,0,0,,0:19.58,2799,4762,1
+flag_4ce5cf9a.SpecConnect,57,"kernel_rfl raise_erase_eq raise_erase? (some (1, some raise_tree)) using",2,2126.5,747.9,735.03,110,206,0,,0:19.58,2799,4762,0
+flag_4ce5cf9a.SpecConnect,59,/-- `Flag.raise`'s exported spec. -/,0,2.8,0.0,0,0,0,0,,0:19.58,2799,4762,1
+flag_4ce5cf9a.SpecConnect,63,flag_4ce5cf9a.SpecConnect.raise_meets0,1,737.7,0.0,6.9,4164,548396,0,first=731,0:19.58,2799,4762,0
+flag_4ce5cf9a.SpecConnect,73,flag_4ce5cf9a.SpecConnect.raise_succeeds,0,71.0,0.0,0,0,0,0,?=69,0:19.58,2799,4762,0
+flag_4ce5cf9a.SpecConnect,105,/--,0,51.6,0.0,0,0,0,0,?=49,0:19.58,2799,4762,1
+flag_4ce5cf9a.SpecConnect,118,/-- **`Flag.raise`'s spec holds of SolidCore's checked contract in every world `W`** on th,0,49.7,0.0,0,0,0,0,?=47,0:19.58,2799,4762,1
+flag_4ce5cf9a.SpecConnect,134,#print axioms raise_holds_in,0,844.2,0.0,0,0,0,0,,0:19.58,2799,4762,1
+flag_4ce5cf9a.SpecConnect,132,/--,0,846.1,0.0,0,0,0,0,,0:19.58,2799,4762,1
+flag_4ce5cf9a.SpecConnect,138,#print axioms raise_holds,0,63.1,0.0,0,0,0,0,,0:19.58,2799,4762,1
+flag_4ce5cf9a.SpecConnect,136,/--,0,65.1,0.0,0,0,0,0,,0:19.58,2799,4762,1
+flag_4ce5cf9a.SpecConnect,140,/-- `Flag.lower` as the stage's ABI sees it (only the number of its parameters matters). -,0,1.3,0.0,0,0,0,0,,0:19.58,2799,4762,1
+flag_4ce5cf9a.SpecConnect,143,/-- The generic source stage's erasure of `Flag.lower`. -/,0,4.2,0.0,0,0,0,0,,0:19.58,2799,4762,1
+flag_4ce5cf9a.SpecConnect,147,/-- How SolidCore dispatches and the stage erases `Flag.lower`. -/,0,5.3,0.0,0,0,0,0,,0:19.58,2799,4762,1
+flag_4ce5cf9a.SpecConnect,153,"kernel_rfl lower_erase_eq lower_erase? (some (0, some lower_tree)) using",2,2107.9,743.6,743.07,110,206,0,,0:19.58,2799,4762,0
+flag_4ce5cf9a.SpecConnect,155,/-- `Flag.lower`'s exported spec. -/,0,3.4,0.0,0,0,0,0,,0:19.58,2799,4762,1
+flag_4ce5cf9a.SpecConnect,158,set_option maxHeartbeats 4000000 in,0,1.1,0.0,0,0,0,0,,0:19.58,2799,4762,0
+flag_4ce5cf9a.SpecConnect,159,flag_4ce5cf9a.SpecConnect.lower_meets0,2,220.2,0.0,7.91,3756,320271,0,first=215,0:19.58,2799,4762,0
+flag_4ce5cf9a.SpecConnect,168,set_option linter.unnecessarySeqFocus false in,0,1.0,0.0,0,0,0,0,,0:19.58,2799,4762,0
+flag_4ce5cf9a.SpecConnect,167,set_option linter.unreachableTactic false in,0,1.1,0.0,0,0,0,0,,0:19.58,2799,4762,0
+flag_4ce5cf9a.SpecConnect,166,set_option linter.unusedTactic false in,0,1.2,0.0,0,0,0,0,,0:19.58,2799,4762,0
+flag_4ce5cf9a.SpecConnect,165,set_option maxHeartbeats 4000000 in,0,1.4,0.0,0,0,0,0,,0:19.58,2799,4762,0
+flag_4ce5cf9a.SpecConnect,169,flag_4ce5cf9a.SpecConnect.lower_succeeds,1,64.2,0.0,0.84,174,1587,0,?=62,0:19.58,2799,4762,0
+flag_4ce5cf9a.SpecConnect,201,/--,0,53.8,0.0,0,0,0,0,?=51,0:19.58,2799,4762,1
+flag_4ce5cf9a.SpecConnect,214,/-- **`Flag.lower`'s spec holds of SolidCore's checked contract in every world `W`** on th,0,52.3,0.0,0,0,0,0,?=50,0:19.58,2799,4762,1
+flag_4ce5cf9a.SpecConnect,230,#print axioms lower_holds_in,0,330.7,0.0,0,0,0,0,,0:19.58,2799,4762,1
+flag_4ce5cf9a.SpecConnect,228,/--,0,333.0,0.0,0,0,0,0,,0:19.58,2799,4762,1
+flag_4ce5cf9a.SpecConnect,234,#print axioms lower_holds,0,66.6,0.0,0,0,0,0,,0:19.58,2799,4762,1
+flag_4ce5cf9a.SpecConnect,232,/--,0,70.1,0.0,0,0,0,0,,0:19.58,2799,4762,1
+flag_4ce5cf9a.Final,9,Certified.flag_4ce5cf9a.Final.final,0,23.8,0.0,0,0,0,0,?=22,0:02.38,2621,4655,0
+flag_4ce5cf9a.Final,34,#print axioms Certified.flag_4ce5cf9a.Final.final,0,26.4,0.0,0,0,0,0,,0:02.38,2621,4655,1
+flag_4ce5cf9a.Proofs.Assembly,14,/-- The items of the final EVM IR. -/,0,1.3,0.0,0,0,0,0,,0:12.01,808,2235,1
+flag_4ce5cf9a.Proofs.Assembly,17,SolarTV.Milestone.Flag4ce5cf9a.items_eq,0,32.5,0.0,0,0,0,0,decide=31,0:12.01,808,2235,0
+flag_4ce5cf9a.Proofs.Assembly,19,/--,0,3.3,0.0,0,0,0,0,,0:12.01,808,2235,1
+flag_4ce5cf9a.Proofs.Assembly,25,SolarTV.Milestone.Flag4ce5cf9a.walk_eq,1,186.0,184.2,137.7,75,289,0,decide=186,0:12.01,808,2235,0
+flag_4ce5cf9a.Proofs.Assembly,30,/-- The bytecode's linear decoding is the final EVM IR's instructions at the layout. -/,0,4.2,0.0,0,0,0,0,have=2,0:12.01,808,2235,1
+flag_4ce5cf9a.Proofs.Assembly,36,#print axioms walk_eq,0,188.0,0.0,0,0,0,0,,0:12.01,808,2235,1
+flag_4ce5cf9a.Proofs.Assembly,34,/--,0,188.6,0.0,0,0,0,0,,0:12.01,808,2235,1
+flag_4ce5cf9a.Proofs.Stages,18,/-- `stack-schedule`: stage0 to sched. -/,0,137.8,0.0,0,0,0,0,expected=136,0:11.20,1597,3568,1
+flag_4ce5cf9a.Proofs.Stages,23,theorem sched_ends (o : Oracle) :,0,140.8,0.0,0,0,0,0,expected=137,0:11.20,1597,3568,0
+flag_4ce5cf9a.Proofs.Stages,29,SolarTV.Milestone.Flag4ce5cf9a.stage_evm1,0,30.8,0.0,0,0,0,0,expected=30,0:11.20,1597,3568,0
+flag_4ce5cf9a.Proofs.Stages,34,SolarTV.Milestone.Flag4ce5cf9a.evm1_ends,0,44.3,0.0,0,0,0,0,expected=40,0:11.20,1597,3568,0
+flag_4ce5cf9a.Proofs.Stages,40,SolarTV.Milestone.Flag4ce5cf9a.stage_evm2,0,23.7,0.0,0,0,0,0,expected=23,0:11.20,1597,3568,0
+flag_4ce5cf9a.Proofs.Stages,45,SolarTV.Milestone.Flag4ce5cf9a.evm2_ends,0,41.3,0.0,0,0,0,0,expected=38,0:11.20,1597,3568,0
+flag_4ce5cf9a.Proofs.Stages,51,SolarTV.Milestone.Flag4ce5cf9a.stage_evm3,0,21.8,0.0,0,0,0,0,expected=21,0:11.20,1597,3568,0
+flag_4ce5cf9a.Proofs.Stages,56,SolarTV.Milestone.Flag4ce5cf9a.evm3_ends,0,30.6,0.0,0,0,0,0,expected=28,0:11.20,1597,3568,0
+flag_4ce5cf9a.Proofs.Stages,62,SolarTV.Milestone.Flag4ce5cf9a.stage_evm4,0,22.9,0.0,0,0,0,0,expected=22,0:11.20,1597,3568,0
+flag_4ce5cf9a.Proofs.Stages,67,SolarTV.Milestone.Flag4ce5cf9a.evm4_ends,0,28.6,0.0,0,0,0,0,expected=26,0:11.20,1597,3568,0
+flag_4ce5cf9a.Proofs.Stages,73,SolarTV.Milestone.Flag4ce5cf9a.stage_evm5,0,21.3,0.0,0,0,0,0,expected=21,0:11.20,1597,3568,0
+flag_4ce5cf9a.Proofs.Stages,78,/-- The compilation from the first lowered MIR to the final EVM IR. -/,0,1.6,0.0,0,0,0,0,,0:11.20,1597,3568,1
+flag_4ce5cf9a.Proofs.Stages,82,SolarTV.Milestone.Flag4ce5cf9a.flag_4ce5cf9a_mir_to_evmir,0,4.0,0.0,0,0,0,0,expected=3,0:11.20,1597,3568,0
+flag_4ce5cf9a.Proofs.Stages,89,#print axioms stage_sched,0,134.9,0.0,0,0,0,0,,0:11.20,1597,3568,1
+flag_4ce5cf9a.Proofs.Stages,87,/--,0,135.5,0.0,0,0,0,0,,0:11.20,1597,3568,1
+flag_4ce5cf9a.Proofs.Runs.Sched,14,theorem sched_run (o : Oracle) (call : Call) :,1,6557.1,0.0,221.83,39630,9041412,0,sym_exec=6388,0:10.06,1708,3613,0
+flag_4ce5cf9a.Proofs.Runs.Sched,13,set_option maxHeartbeats 2000000 in,0,1.5,0.0,0,0,0,0,,0:10.06,1708,3613,0
+flag_4ce5cf9a.Proofs.Runs.Sched,20,#axioms_within sched_run,0,6755.7,0.0,0,0,0,0,,0:10.06,1708,3613,1
+flag_4ce5cf9a.Proofs.Runs.Sched,18,/--,0,6756.2,0.0,0,0,0,0,,0:10.06,1708,3613,1
+flag_4ce5cf9a.Proofs.Runs.Evm3,14,theorem evm3_run (o : Oracle) (call : Call) :,1,3706.5,0.0,82.51,27611,10000000,0,sym_exec=3596,0:06.44,1651,3585,0
+flag_4ce5cf9a.Proofs.Runs.Evm3,13,set_option maxHeartbeats 2000000 in,0,1.4,0.0,0,0,0,0,,0:06.44,1651,3585,0
+flag_4ce5cf9a.Proofs.Runs.Evm3,20,#axioms_within evm3_run,0,3796.1,0.0,0,0,0,0,,0:06.44,1651,3585,1
+flag_4ce5cf9a.Proofs.Runs.Evm3,18,/--,0,3800.3,0.0,0,0,0,0,,0:06.44,1651,3585,1
+flag_4ce5cf9a.Proofs.Runs.Evm2,14,theorem evm2_run (o : Oracle) (call : Call) :,1,4131.9,0.0,104.64,31641,10000000,0,sym_exec=3994,0:10.37,1671,3589,0
+flag_4ce5cf9a.Proofs.Runs.Evm2,13,set_option maxHeartbeats 2000000 in,0,1.5,0.0,0,0,0,0,,0:10.37,1671,3589,0
+flag_4ce5cf9a.Proofs.Runs.Evm2,20,#axioms_within evm2_run,0,4245.4,0.0,0,0,0,0,,0:10.37,1671,3589,1
+flag_4ce5cf9a.Proofs.Runs.Evm2,18,/--,0,4246.0,0.0,0,0,0,0,,0:10.37,1671,3589,1
+flag_4ce5cf9a.Proofs.Runs.Evm5,14,theorem evm5_run (o : Oracle) (call : Call) :,1,3873.7,0.0,101.8,28643,10000000,0,sym_exec=3745,0:06.61,1649,3587,0
+flag_4ce5cf9a.Proofs.Runs.Evm5,13,set_option maxHeartbeats 2000000 in,0,1.5,0.0,0,0,0,0,,0:06.61,1649,3587,0
+flag_4ce5cf9a.Proofs.Runs.Evm5,20,#axioms_within evm5_run,0,3965.8,0.0,0,0,0,0,,0:06.61,1649,3587,1
+flag_4ce5cf9a.Proofs.Runs.Evm5,18,/--,0,3966.4,0.0,0,0,0,0,,0:06.61,1649,3587,1
+flag_4ce5cf9a.Proofs.Runs.Evm1,14,theorem evm1_run (o : Oracle) (call : Call) :,1,6297.9,0.0,157.47,37991,9693849,0,sym_exec=6053,0:09.61,1700,3603,0
+flag_4ce5cf9a.Proofs.Runs.Evm1,13,set_option maxHeartbeats 2000000 in,0,1.5,0.0,0,0,0,0,,0:09.61,1700,3603,0
+flag_4ce5cf9a.Proofs.Runs.Evm1,20,#axioms_within evm1_run,0,6464.6,0.0,0,0,0,0,,0:09.61,1700,3603,1
+flag_4ce5cf9a.Proofs.Runs.Evm1,18,/--,0,6466.3,0.0,0,0,0,0,,0:09.61,1700,3603,1
+flag_4ce5cf9a.Proofs.Runs.Evm4,14,theorem evm4_run (o : Oracle) (call : Call) :,1,3803.8,0.0,102.45,28016,10000000,0,sym_exec=3688,0:06.55,1652,3585,0
+flag_4ce5cf9a.Proofs.Runs.Evm4,13,set_option maxHeartbeats 2000000 in,0,1.5,0.0,0,0,0,0,,0:06.55,1652,3585,0
+flag_4ce5cf9a.Proofs.Runs.Evm4,20,#axioms_within evm4_run,0,3890.5,0.0,0,0,0,0,,0:06.55,1652,3585,1
+flag_4ce5cf9a.Proofs.Runs.Evm4,18,/--,0,3890.9,0.0,0,0,0,0,,0:06.55,1652,3585,1
+flag_4ce5cf9a.Proofs.Runs.Stage0,13,theorem stage0_ends (o : Oracle) (call : Call) :,1,2998.0,0.0,150.44,14686,4150053,0,sym_exec=2937,0:06.20,1643,3604,0
+flag_4ce5cf9a.Proofs.Runs.Stage0,12,set_option maxHeartbeats 2000000 in,0,1.5,0.0,0,0,0,0,,0:06.20,1643,3604,0
+flag_4ce5cf9a.Proofs.Runs.Stage0,19,#axioms_within stage0_ends,0,3138.4,0.0,0,0,0,0,,0:06.20,1643,3604,1
+flag_4ce5cf9a.Proofs.Runs.Stage0,17,/--,0,3138.9,0.0,0,0,0,0,,0:06.20,1643,3604,1
+flag_4ce5cf9a.gen.Flag.Sched,8,/-- The runtime EVM IR as stack scheduling emits it. -/,0,14.8,0.0,0,0,0,0,,0:01.68,807,2183,1
+flag_4ce5cf9a.gen.Flag.Evm3,8,/-- The runtime EVM IR after `terminal-dedup`. -/,0,14.4,0.0,0,0,0,0,,0:01.58,808,2182,1
+flag_4ce5cf9a.gen.Flag.Evm2,8,/-- The runtime EVM IR after `block-layout`. -/,0,12.4,0.0,0,0,0,0,,0:01.54,807,2182,1
+flag_4ce5cf9a.gen.Flag.Bytecode,6,"/-- The runtime bytecode, byte by byte. -/",0,22.7,0.0,0,0,0,0,,0:01.32,808,1951,1
+flag_4ce5cf9a.gen.Flag.Evm5,8,/-- The runtime EVM IR after `block-cse`. -/,0,11.8,0.0,0,0,0,0,,0:01.53,808,2182,1
+flag_4ce5cf9a.gen.Flag.Evm1,8,/-- The runtime EVM IR after `cfg-simplify-early`. -/,0,13.7,0.0,0,0,0,0,,0:01.53,808,2182,1
+flag_4ce5cf9a.gen.Flag.Manifest,10,def sources : List (String × String) :=,0,1.4,0.0,0,0,0,0,,0:01.38,808,1950,0
+flag_4ce5cf9a.gen.Flag.Manifest,15,def arguments : List String :=,0,1.1,0.0,0,0,0,0,,0:01.38,808,1950,0
+flag_4ce5cf9a.gen.Flag.Manifest,27,def stages : List (String × String × String × String) :=,0,3.8,0.0,0,0,0,0,,0:01.38,808,1950,0
+flag_4ce5cf9a.gen.Flag.Spec,12,/-- What the specs were exported from and are about. -/,0,1.3,0.0,0,0,0,0,,0:01.37,807,1954,1
+flag_4ce5cf9a.gen.Flag.Spec,20,/-- The specs of `Flag`. -/,0,6.0,0.0,0,0,0,0,,0:01.37,807,1954,1
+flag_4ce5cf9a.gen.Flag.Spec,52,Certified.flag_4ce5cf9a.gen.Flag.Spec.Flag_wf,1,7.3,6.5,1.55,27,53,0,decide=7,0:01.37,807,1954,0
+flag_4ce5cf9a.gen.Flag.Evm4,8,/-- The runtime EVM IR after `cfg-simplify-early`. -/,0,12.7,0.0,0,0,0,0,,0:01.53,808,2182,1
+flag_4ce5cf9a.gen.Flag.Stage0,8,"/-- The first lowered MIR module, after `lower-evm-shaped` advanced the phase. -/",0,20.4,0.0,0,0,0,0,,0:01.73,808,2182,1
