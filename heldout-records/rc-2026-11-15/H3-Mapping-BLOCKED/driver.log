@@ -1,0 +1,16 @@
+== generic: /home/hand/h3/sl/tests/heldout/rc-2026-11-15/Mapping/Mapping.sol (b39ab3912781a9b1a8cf897cf6fbb6ee7fcc98d973eb4b749195e2d773d23ccd) as mapping_b39ab391, requested tier certified
+envelope (source): inside; functions get(address), myMap(address), remove(address), set(address,uint256)
+== generic: build solar
+envelope (bytecode): no call, creation, gas or return-data opcode
+gas bound (the loop checker's, from this export): 9237812
+== generic: probe SolidCore's evaluation and the generic check (separate clone)
+PROBE typecheck: ok
+PROBE core: <5865 chars>
+PROBE constructor: returns
+PROBE storage: []
+PROBE fn get(address): agree
+PROBE fn myMap(address): source tree undefined (erasure)
+PROBE fn remove(address): source tree undefined (erasure)
+PROBE fn set(address,uint256): agree
+BLOCKED: generic source check (2x, first myMap(address): myMap(address): source tree undefined (erasure))
+receipt: exit 3
