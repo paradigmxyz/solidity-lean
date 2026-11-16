@@ -160,14 +160,24 @@ Record: T2 `alpharush/t2-e6-transfer-any-caller` @ 109c6132ce68b559124c26bf0bac8
     spec exporter; exit 1 for runtime bytes, stage, import and spec; exit 0 for the unaltered-copy
     positive control. `verify_binding_negatives.sh` exits 0.
   - No rebuild or replay: it reuses the closure receipt above.
+- Binding seal: **ACCEPTED (binding scope)**. Record: T2 @ dcfb07911a0f06d0045135cd3e2c32bcb49bab72
+  (parent 7ca76b0b, 4 paths); receipt `Certified/uv2_transfer_e6/binding-seal.txt` (sha256
+  9940ca98a53cb69c8f43bd552cf2e9f9874c4dad6a900fe40f1ee89b1fea0580).
+  - A new stage before any comparison (exit 3) checks, read-only, `GENERATED.sha256` (06df7c28…,
+    anchored at 109c6132, 79 files) and `binding.json` (085c2b64…, anchored at 7ca76b0b).
+  - Real checkout exit 0; unaltered copy exit 0. All 10 pin controls exit 2; the 8 frozen controls,
+    coordinated drift among them, exit 3. No control reaches the comparison.
+  - No replay or build was run.
 - Not a universal source-text end-to-end claim. TCB unchanged: the solc AST, the importer, the
   port/flattener and the spec export.
 - OPEN: aggregate process-tree RSS admission. The summed `leanchecker` RSS peak was measured at
   5.6 GiB; the wrappers were not sampled, so the `leanchecker`-only peak does not close it.
-- OPEN: reproducibility of the emitter binary from 697fc686 (one build, one hash).
-- OPEN: `importedSourceName` embeds an absolute checkout path; the binding normalizes that one
-  string.
-- OPEN: the generated GPL files are recorded as hashes only.
+- OPEN: reproducibility of the emitter binary built from source at 697fc686 (one build, one hash).
+- OPEN: `importedSourceName` correspondence: it embeds an absolute checkout path, which the binding
+  normalizes for that one string.
+- OPEN: generated-file availability: the generated GPL files are recorded as hashes only.
+- OPEN: frontend correspondence (Solidity text to the solc AST and the importer); no universal
+  source-text claim.
 - Run history: in the counted run, one task was killed at 00:35 CST during batch 2400 (cause
   unknown). One resume on the same artifacts reran batch 2400 onward. Earlier attempts gave no
   verdict and are not counted.
