@@ -1,0 +1,9 @@
+679a680,687
+> 
+> /-- The kernel copy machinery (`kernel_clone`, `kernel_rfl ... using`) as native code: every
+> module that imports it loads its shared library, so the elaborator runs these commands
+> compiled instead of interpreted. It produces the same declarations and the kernel still
+> checks every copy. Declared after `SolidCore` so that Lake assigns these two modules here. -/
+> lean_lib SolidCoreKernelNative where
+>   roots := #[`SolidCore.Refinement.Kernel, `SolidCore.Refinement.KernelRfl]
+>   precompileModules := true
