@@ -1,6 +1,6 @@
 # Held-out H1 (SimpleStorage), RC2 pin: ABORTED-env (driver exit 1)
 
-Label: ABORTED-env (STATUS.json). Cache preparation: the --packages-from cache was missing the oleans of SolidCore.Refinement.Statement's closure, and the driver mounts packages read-only. This is not an H1 verdict. superseded_by: pending (a full rerun on the same driver and base after the cache is completed outside the driver). Exit 1 and every log below are kept as the driver wrote them.
+Label: ABORTED-env (STATUS.json). Cache preparation: the --packages-from cache was missing the oleans of SolidCore.Refinement.Statement's closure, and the driver mounts packages read-only. This is not an H1 verdict. superseded_by: ../rc2-h1-simplestorage-r. Exit 1 and every log below are kept as the driver wrote them.
 
 - Case: tests/heldout/rc-2026-11-15/SimpleStorage/SimpleStorage.sol --contract SimpleStorage, held-out set e0564a28 (source sha256 928cc1594907cb4d56183be7565db8b60bee77c2ffc9fc731083bf31dc1bc082). One full run, no reuse.
 - Driver: solar 0479b90a422245bf77facc51ea17b960ed5c5851 (tree e87de2594c4500a8cc5cd11a0a6703cf460d8da3, clean), solidity-lean base 49d1d7f5d9b74165486bd9f634202bee1a3633eb, solc 0.8.35, Lean v4.35.0. See PINS.json.

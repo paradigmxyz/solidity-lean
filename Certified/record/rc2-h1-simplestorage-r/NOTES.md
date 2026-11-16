@@ -1,0 +1,10 @@
+# Held-out H1 (SimpleStorage), RC2 pin: CERTIFIED, exit 0
+
+- One full run, no reuse: fresh work and record directories. Supersedes ../rc2-h1-simplestorage (ABORTED-env).
+- Driver: solar 0479b90a422245bf77facc51ea17b960ed5c5851 (tree e87de259, clean). The binary was rebuilt at that commit before the run with 'cargo clean -p solar-config; cargo build --locked --bin solar' and no source edit: record.json solar.binary_commit 0479b90a, binary_sha256 d472fb30fe49c639a36522eaf66912dc2be63e16097c1b3c36220b0d1d4ab2be.
+- Base: solidity-lean 49d1d7f5d9b74165486bd9f634202bee1a3633eb. Held-out set e0564a28, source sha256 928cc159...c082. solc 0.8.35, Lean v4.35.0. See PINS.json.
+- Verdict: CERTIFIED, exit 0. requested_tier certified, tier_reached certified, strict.holds true (every strict component true). bytecode_sha256 6e95f821ecc2c71682bb59cd089429e0ab967f2cb33da8a32ffbce7135e9d402. Final theorem Certified.simplestorage_928cc159.Final.final, axioms propext, Classical.choice, Quot.sound. spec connected generically: set_holds, get_holds.
+- Wall time: 24508 s (driver 07:10:27Z to 13:58:55Z, 2026-11-16). Peak RSS: not measured for this run (the slot's sampler process ended before writing its receipt); the two earlier runs of this case peaked at about 5.3 GB for the largest process and 6.2 GB for the process tree.
+- Package cache: before the run, the --packages-from checkout (solidity-lean 49d1d7f5, clean) had the closure of SolidCore.Refinement.Statement built outside the driver (no driver or base edit). That added the 24 oleans in CACHE-ADDED.sha256 (path, sha256) and changed or removed none of the 9519 package oleans already there.
+- Lifecycle tier: not offered by this driver ('--tier lifecycle' is a usage error, exit 2, as in ../rc2-h1-simplestorage/lifecycle-tier.log).
+- run/ is the driver's record directory exactly as written (record.json, certify-record.json, certify.log, inputs/, the source); --replay takes it as is. driver.log is the driver's stdout and stderr. MANIFEST.sha256 covers every file here.
