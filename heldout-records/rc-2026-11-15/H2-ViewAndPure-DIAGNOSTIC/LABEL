@@ -1,0 +1,13 @@
+DIAGNOSTIC: not an RC verdict. H2's RC verdict is REJECTED (resource), exit 1, in ../H2-ViewAndPure and is unchanged.
+
+driver-run/: one rerun of the same command on driver solar 800d78a98b9e64612c742d5038e7e2ec35dd52b4 with LEAN_MEMORY=12000 in the
+environment (free -m before: 14163 MB available, 8191 MB swap). The driver ignores it: tools/certify/generic.py:45 fixes
+LEAN_MEMORY = "6000". So this was an exact repeat of the RC run. Exit 1, REJECTED (resource), at the same stage and file
+(6b, SpecConnect.lean: Lean memory_exception at 'interpreter', then segfault 139). Wall 2696.1 s, peak RSS 14429216 kB (group) /
+13748684 kB (single). Inputs commit e1f19208 (the RC run's was 5eaae9e1).
+
+specconnect-12000/: the same run's generated SpecConnect.lean, checked by hand in that run's work tree with
+lake env lean -M 12000 (LEAN_NUM_THREADS=1), outside the driver's sandbox. Exit 1 in 10:26, max RSS 13796892 kB. No memory
+exception. Errors: addToX_meets0 (line 64) and add_meets0 (line 160) each hit a deterministic timeout at whnf at
+maxHeartbeats 4000000. The kernel errors that follow (unknown constants *_meets0) and the #guard_msgs mismatches are
+consequences of those two. x() has no spec theorem in the file.

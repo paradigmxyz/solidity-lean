@@ -1,0 +1,99 @@
+== generic: /home/hand/h2/sl/tests/heldout/rc-2026-11-15/ViewAndPure/ViewAndPure.sol (8c016856778b1851326d97c92b79610936cdbf59f64e85df8f7f64e21278d9e5) as viewandpure_8c016856, requested tier certified
+envelope (source): inside; functions add(uint256,uint256), addToX(uint256), x()
+== generic: build solar
+envelope (bytecode): no call, creation, gas or return-data opcode
+gas bound (the loop checker's, from this export): 2917206
+== generic: probe SolidCore's evaluation and the generic check (separate clone)
+PROBE typecheck: ok
+PROBE core: <6777 chars>
+PROBE constructor: returns
+PROBE storage: [(0, 1)]
+PROBE fn add(uint256,uint256): agree
+PROBE fn addToX(uint256): agree
+PROBE fn x(): agree
+== generic: solidity-lean 44572c150176365fa5e0d56ae6c59a7a443f8122 + inputs e1f192081eb48757cd3eacf70eda1019dfc9b388; scripts/certify
+== 1. the pinned solidity-lean checkout
+certify: warning: solidity-lean at e1f192081eb48757cd3eacf70eda1019dfc9b388, not the pinned 44572c150176365fa5e0d56ae6c59a7a443f8122
+solidity-lean e1f192081eb48757cd3eacf70eda1019dfc9b388 at /home/hand/h2/work-diag/solidity-lean
+== 2. solar
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.13s
+solar 800d78a98b9e64612c742d5038e7e2ec35dd52b4
+Build completed successfully (1156 jobs).
+solar sha256 a2e8204380a2b380ba1b01209a0178729a5b52ece083831eef6a22186b648fb5
+== 3. compile Certified/viewandpure_8c016856/viewandpure_8c016856.sol and export its stages (-Ogas --evm-version osaka)
+stages: stage0 (lower-evm-shaped), sched (stack-schedule), evm1 (cfg-simplify-early), evm2 (block-layout), evm3 (terminal-dedup), evm4 (cfg-simplify-early), evm5 (block-layout), bytecode (assemble)
+bytecode: 346027575f3560e01c80630c55699c14603d5780635965da77146046578063771602f7146061575b5f5ffd5b6011602052634e487b715f526024601cfd5b5f545f5260205ff35b602436106027575f546004358101908110602b575f5260205ff35b604436106027576004356024358101908110602b575f5260205ff3 sha256 9ee97f8f5038e82775861806b3b7b820e5b43eeb6eecbba0c27c9c02472a8c97
+== 4. write the proofs
+assembly: decoded only; the loop-free stages have no backward composition to run the bytecode with
+{"final": "SolarTV.Milestone.Viewandpure8c016856.viewandpure_8c016856_mir_to_evmir", "last": "evm5", "first": "stage0", "stages": ["stage0", "sched", "evm1", "evm2", "evm3", "evm4", "evm5"]}
+== 5. build and audit the proofs
+viewandpure_8c016856.gen.ViewAndPure.Bytecode: Build completed successfully (2 jobs).
+viewandpure_8c016856.gen.ViewAndPure.Evm1: Build completed successfully (12 jobs).
+viewandpure_8c016856.gen.ViewAndPure.Evm2: Build completed successfully (12 jobs).
+viewandpure_8c016856.gen.ViewAndPure.Evm3: Build completed successfully (12 jobs).
+viewandpure_8c016856.gen.ViewAndPure.Evm4: Build completed successfully (12 jobs).
+viewandpure_8c016856.gen.ViewAndPure.Evm5: Build completed successfully (12 jobs).
+viewandpure_8c016856.gen.ViewAndPure.Manifest: Build completed successfully (2 jobs).
+viewandpure_8c016856.gen.ViewAndPure.Sched: Build completed successfully (12 jobs).
+viewandpure_8c016856.gen.ViewAndPure.Stage0: Build completed successfully (11 jobs).
+viewandpure_8c016856.Proofs.Runs.Evm1: Build completed successfully (21 jobs).
+viewandpure_8c016856.Proofs.Runs.Evm2: Build completed successfully (21 jobs).
+viewandpure_8c016856.Proofs.Runs.Evm3: Build completed successfully (21 jobs).
+viewandpure_8c016856.Proofs.Runs.Evm4: Build completed successfully (21 jobs).
+viewandpure_8c016856.Proofs.Runs.Evm5: Build completed successfully (21 jobs).
+viewandpure_8c016856.Proofs.Runs.Sched: Build completed successfully (21 jobs).
+viewandpure_8c016856.Proofs.Runs.Stage0: Build completed successfully (20 jobs).
+viewandpure_8c016856.Proofs.Stages: Build completed successfully (35 jobs).
+viewandpure_8c016856.Proofs.Assembly: Build completed successfully (17 jobs).
+viewandpure_8c016856.Proofs: Build completed successfully (41 jobs).
+'SolarTV.Milestone.Viewandpure8c016856.checked' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Viewandpure8c016856.decodes' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Viewandpure8c016856.evm1_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Viewandpure8c016856.evm1_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Viewandpure8c016856.evm2_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Viewandpure8c016856.evm2_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Viewandpure8c016856.evm3_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Viewandpure8c016856.evm3_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Viewandpure8c016856.evm4_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Viewandpure8c016856.evm4_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Viewandpure8c016856.evm5_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Viewandpure8c016856.items_eq' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.Viewandpure8c016856.sched_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Viewandpure8c016856.sched_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Viewandpure8c016856.stage0_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Viewandpure8c016856.stage_evm1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Viewandpure8c016856.stage_evm2' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Viewandpure8c016856.stage_evm3' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Viewandpure8c016856.stage_evm4' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Viewandpure8c016856.stage_evm5' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Viewandpure8c016856.stage_sched' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Viewandpure8c016856.viewandpure_8c016856_mir_to_evmir' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.Viewandpure8c016856.walk_eq' depends on axioms: [propext, Quot.sound]
+audited 23 theorems
+== 6. the spec (solar-verify) and the headline theorems
+lake packages (20 modules imported): Build completed successfully (2492 jobs).
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.34s
+export: /home/hand/h2/work-diag/solidity-lean/.lake/certify/viewandpure_8c016856/VC.lean is whole (195 lines, ends with end Certified.Viewandpure8c016856.VC)
+spec: exported to .lake/certify/viewandpure_8c016856/VC.lean
+no Certified/viewandpure_8c016856/headline: no end-to-end theorem
+== 6b. the published statement
+export: Certified/viewandpure_8c016856/gen/ViewAndPure/Spec.lean is whole (59 lines, ends with end Certified.viewandpure_8c016856.gen.ViewAndPure.Spec)
+viewandpure_8c016856.Lowering: Build completed successfully (2566 jobs).
+viewandpure_8c016856.gen.ViewAndPure.Spec: Build completed successfully (8 jobs).
+Verify.VC.Model: Build completed successfully (2549 jobs).
+Verify.Spec.Tree: Build completed successfully (2553 jobs).
+Verify.Spec.TreeMap: Build completed successfully (2558 jobs).
+Verify.Spec.TreeMapNested: Build completed successfully (2559 jobs).
+Verify.Spec.TreeIn: Build completed successfully (2567 jobs).
+Verify.Spec.TreeSucceeds: Build completed successfully (2559 jobs).
+Verify.VC.KernelIdx: Build completed successfully (2 jobs).
+SolidCore.Refinement.KernelRfl: Build completed successfully (3 jobs).
+libc++abi: terminating due to uncaught exception of type lean::memory_exception: excessive memory consumption detected at 'interpreter' (potential solution: increase memory consumption threshold)
+/home/hand/h2/work-diag/solidity-lean/.lake/certify-sysroot/bin/lean_iso.sh: line 37: 116687 Segmentation fault      unshare -r -m -p -f --kill-child --mount-proc bash -c 'set -e; ro=$1 rw=$2; shift 2
+    mount --bind "$ro" "$ro"; mount -o remount,bind,ro,nosuid,nodev "$ro"
+    mount --bind "$rw" "$rw"; mount -o remount,bind,rw,nosuid,nodev "$rw"
+    for t in /tmp /dev/shm /var/tmp /run/user; do if [[ -d "$t" ]]; then mount -t tmpfs tmpfs "$t"; fi; done
+    exec "$@"' _ "${CERTIFY_ISO_RO:?}" "$scratch" "$real" ${args[@]+"${args[@]}"}
+spec_connect: REJECTED: spec: SpecConnect.lean does not check (exit 139)
+certify: error: spec_connect.py refuses functions of ViewAndPure (above): their spec is not proved
+REJECTED: resources: 1 resource failure(s) in the build, not a proof failure (LEAN_MEMORY=6000): libc++abi: terminating due to uncaught exception of type lean::memory_exception: excessive memory consumption detected at 'interpreter' (potential solution: increase memory consumption threshold)

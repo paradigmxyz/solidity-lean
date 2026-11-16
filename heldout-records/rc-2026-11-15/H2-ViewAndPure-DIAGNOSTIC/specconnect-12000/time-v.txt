@@ -1,0 +1,24 @@
+Command exited with non-zero status 1
+	Command being timed: "lake env lean -M 12000 Certified/viewandpure_8c016856/SpecConnect.lean"
+	User time (seconds): 393.53
+	System time (seconds): 43.33
+	Percent of CPU this job got: 69%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 10:26.18
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 13796892
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 1174049
+	Minor (reclaiming a frame) page faults: 12328944
+	Voluntary context switches: 1205191
+	Involuntary context switches: 21004
+	Swaps: 0
+	File system inputs: 29450352
+	File system outputs: 112
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 1

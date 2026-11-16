@@ -1,0 +1,842 @@
+Certified/viewandpure_8c016856/SpecConnect.lean:63:0: error: (deterministic) timeout at `whnf`, maximum number of heartbeats (4000000) has been reached
+
+Note: Use `set_option maxHeartbeats <num>` to set the limit.
+
+Hint: Additional diagnostic information may be available using the `set_option diagnostics true` command.
+Certified/viewandpure_8c016856/SpecConnect.lean:79:63: warning: This simp argument is unused:
+  forall_eq_or_imp
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [List.mem_cons, List.not_mem_nil, or_false, forall_eq, IsEmpty.forall_iff, implies_true, and_true,
+    Nat.reducePow] at hargs
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:80:6: warning: This simp argument is unused:
+  IsEmpty.forall_iff
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp, forall_eq, implies_true, and_true,
+    Nat.reducePow] at hargs
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:80:26: warning: This simp argument is unused:
+  implies_true
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp, forall_eq, IsEmpty.forall_iff,
+    and_true, Nat.reducePow] at hargs
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:80:40: warning: This simp argument is unused:
+  and_true
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp, forall_eq, IsEmpty.forall_iff,
+    implies_true, Nat.reducePow] at hargs
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:81:20: warning: This simp argument is unused:
+  addToX_tree
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [addToX_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *, List.head,
+    List.getElem_cons_zero, List.getElem_cons_succ, decodeWords, Ty.ofWord, bind, pure, Option.bind,
+    Nat.reducePow] at hdec
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:81:150: warning: This simp argument is unused:
+  viewandpure_8c016856.SpecConnect.ctx
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [addToX_tree, addToX_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, *, List.head, List.getElem_cons_zero,
+    List.getElem_cons_succ, decodeWords, Ty.ofWord, bind, pure, Option.bind, Nat.reducePow] at hdec
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:81:191: warning: This simp argument is unused:
+  List.head
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [addToX_tree, addToX_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *,
+    List.getElem_cons_zero, List.getElem_cons_succ, decodeWords, Ty.ofWord, bind, pure, Option.bind,
+    Nat.reducePow] at hdec
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:81:226: warning: This simp argument is unused:
+  List.getElem_cons_succ
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [addToX_tree, addToX_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *, List.head,
+    List.getElem_cons_zero, decodeWords, Ty.ofWord, bind, pure, Option.bind, Nat.reducePow] at hdec
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:83:67: warning: This simp argument is unused:
+  reduceCtorEq
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Option.some.injEq] at hdec
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:85:40: warning: This simp argument is unused:
+  addToX_spec
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [addToX_tree, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *, Tree.eval,
+    WExpr.eval, BinOp.eval, UnOp.eval, Generic.wordSize, Res.obs, Writes.store, List.getD_cons_zero,
+    List.getD_cons_succ, Nat.reducePow]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:85:53: warning: This simp argument is unused:
+  viewandpure_8c016856.SpecConnect.spec
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [addToX_tree, addToX_spec, Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure,
+    viewandpure_8c016856.SpecConnect.ctx, *, Tree.eval, WExpr.eval, BinOp.eval, UnOp.eval, Generic.wordSize, Res.obs,
+    Writes.store, List.getD_cons_zero, List.getD_cons_succ, Nat.reducePow]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:85:92: warning: This simp argument is unused:
+  Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [addToX_tree, addToX_spec, viewandpure_8c016856.SpecConnect.spec,
+    viewandpure_8c016856.SpecConnect.ctx, *, Tree.eval, WExpr.eval, BinOp.eval, UnOp.eval, Generic.wordSize, Res.obs,
+    Writes.store, List.getD_cons_zero, List.getD_cons_succ, Nat.reducePow]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:85:157: warning: This simp argument is unused:
+  viewandpure_8c016856.SpecConnect.ctx
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [addToX_tree, addToX_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, *, Tree.eval, WExpr.eval, BinOp.eval, UnOp.eval,
+    Generic.wordSize, Res.obs, Writes.store, List.getD_cons_zero, List.getD_cons_succ, Nat.reducePow]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:85:233: warning: This simp argument is unused:
+  UnOp.eval
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [addToX_tree, addToX_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *, Tree.eval,
+    WExpr.eval, BinOp.eval, Generic.wordSize, Res.obs, Writes.store, List.getD_cons_zero, List.getD_cons_succ,
+    Nat.reducePow]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:86:39: warning: This simp argument is unused:
+  List.getD_cons_succ
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [addToX_tree, addToX_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *, Tree.eval,
+    WExpr.eval, BinOp.eval, UnOp.eval, Generic.wordSize, Res.obs, Writes.store, List.getD_cons_zero, Nat.reducePow]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:88:4: warning: This simp argument is unused:
+  Nat.reduceMod
+
+Hint: Omit it from the simp argument list.
+  [apply] simp (disch := simp only [hargs, hs, Nat.reduceLT]) only [Nat.mod_eq_of_lt, ite_mod_nat, Nat.zero_mod,
+    ite10_eq_zero_iff, Decidable.not_not]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:88:19: warning: This simp argument is unused:
+  Nat.zero_mod
+
+Hint: Omit it from the simp argument list.
+  [apply] simp (disch := simp only [hargs, hs, Nat.reduceLT]) only [Nat.mod_eq_of_lt, ite_mod_nat, Nat.reduceMod,
+    ite10_eq_zero_iff, Decidable.not_not]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:88:52: warning: This simp argument is unused:
+  Decidable.not_not
+
+Hint: Omit it from the simp argument list.
+  [apply] simp (disch := simp only [hargs, hs, Nat.reduceLT]) only [Nat.mod_eq_of_lt, ite_mod_nat, Nat.reduceMod,
+    Nat.zero_mod, ite10_eq_zero_iff]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:89:54: warning: This simp argument is unused:
+  addToX_tree
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, addToX_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, evalList, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
+    beq_self_eq_true, Ty.InRange, Option.getD_some, forall_int_range, Nat.cast_ofNat, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:89:225: warning: This simp argument is unused:
+  List.getElem_cons_succ
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, addToX_tree, addToX_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *,
+    List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp, forall_eq, eval, evalList,
+    slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero, List.getD_cons_succ,
+    List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst, beq_self_eq_true,
+    Ty.InRange, Option.getD_some, forall_int_range, Nat.cast_ofNat, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:90:47: warning: This simp argument is unused:
+  forall_eq_or_imp
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, addToX_tree, addToX_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq, eval,
+    evalList, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
+    beq_self_eq_true, Ty.InRange, Option.getD_some, forall_int_range, Nat.cast_ofNat, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:90:82: warning: This simp argument is unused:
+  evalList
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, addToX_tree, addToX_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
+    beq_self_eq_true, Ty.InRange, Option.getD_some, forall_int_range, Nat.cast_ofNat, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:91:13: warning: This simp argument is unused:
+  Env.bind
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, addToX_tree, addToX_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, evalList, slotOf, mkEnv, Env.cur, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
+    beq_self_eq_true, Ty.InRange, Option.getD_some, forall_int_range, Nat.cast_ofNat, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:91:76: warning: This simp argument is unused:
+  List.getD_cons_succ
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, addToX_tree, addToX_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, evalList, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst, beq_self_eq_true,
+    Ty.InRange, Option.getD_some, forall_int_range, Nat.cast_ofNat, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:92:4: warning: This simp argument is unused:
+  List.lookup
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, addToX_tree, addToX_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, evalList, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst, beq_self_eq_true,
+    Ty.InRange, Option.getD_some, forall_int_range, Nat.cast_ofNat, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:92:33: warning: This simp argument is unused:
+  ite_true
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, addToX_tree, addToX_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, evalList, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
+    beq_self_eq_true, Ty.InRange, Option.getD_some, forall_int_range, Nat.cast_ofNat, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:92:88: warning: This simp argument is unused:
+  hst
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, addToX_tree, addToX_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, evalList, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod,
+    beq_self_eq_true, Ty.InRange, Option.getD_some, forall_int_range, Nat.cast_ofNat, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:93:4: warning: This simp argument is unused:
+  beq_self_eq_true
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, addToX_tree, addToX_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, evalList, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
+    Ty.InRange, Option.getD_some, forall_int_range, Nat.cast_ofNat, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:93:22: warning: This simp argument is unused:
+  Ty.InRange
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, addToX_tree, addToX_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, evalList, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
+    beq_self_eq_true, Option.getD_some, forall_int_range, Nat.cast_ofNat, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:93:34: warning: This simp argument is unused:
+  Option.getD_some
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, addToX_tree, addToX_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, evalList, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
+    beq_self_eq_true, Ty.InRange, forall_int_range, Nat.cast_ofNat, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:93:52: warning: This simp argument is unused:
+  forall_int_range
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, addToX_tree, addToX_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, evalList, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
+    beq_self_eq_true, Ty.InRange, Option.getD_some, Nat.cast_ofNat, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:93:70: warning: This simp argument is unused:
+  Nat.cast_ofNat
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, addToX_tree, addToX_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, evalList, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
+    beq_self_eq_true, Ty.InRange, Option.getD_some, forall_int_range, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:93:86: warning: This simp argument is unused:
+  Int.reducePow
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, addToX_tree, addToX_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, evalList, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
+    beq_self_eq_true, Ty.InRange, Option.getD_some, forall_int_range, Nat.cast_ofNat] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:96:54: warning: This simp argument is unused:
+  toNat_natCast_emod
+
+Hint: Omit it from the simp argument list.
+  [apply] simp (disch :=
+    first
+    | exact hs _
+    | omega) only [Nat.cast_ofNat,
+    Int.reduceMod, Int.reduceToNat, Nat.mod_eq_of_lt, toNat_ofNat_emod, toNat_zero_emod, toNat_one_emod, wordMod,
+    Nat.reducePow, Nat.reduceMul, Nat.reduceMod, Nat.div_one, Nat.reduceDiv, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:96:74: warning: This simp argument is unused:
+  toNat_ofNat_emod
+
+Hint: Omit it from the simp argument list.
+  [apply] simp (disch :=
+    first
+    | exact hs _
+    | omega) only [Nat.cast_ofNat,
+    Int.reduceMod, Int.reduceToNat, Nat.mod_eq_of_lt, toNat_natCast_emod, toNat_zero_emod, toNat_one_emod, wordMod,
+    Nat.reducePow, Nat.reduceMul, Nat.reduceMod, Nat.div_one, Nat.reduceDiv, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:97:4: warning: This simp argument is unused:
+  toNat_zero_emod
+
+Hint: Omit it from the simp argument list.
+  [apply] simp (disch :=
+    first
+    | exact hs _
+    | omega) only [Nat.cast_ofNat,
+    Int.reduceMod, Int.reduceToNat, Nat.mod_eq_of_lt, toNat_natCast_emod, toNat_ofNat_emod, toNat_one_emod, wordMod,
+    Nat.reducePow, Nat.reduceMul, Nat.reduceMod, Nat.div_one, Nat.reduceDiv, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:97:21: warning: This simp argument is unused:
+  toNat_one_emod
+
+Hint: Omit it from the simp argument list.
+  [apply] simp (disch :=
+    first
+    | exact hs _
+    | omega) only [Nat.cast_ofNat,
+    Int.reduceMod, Int.reduceToNat, Nat.mod_eq_of_lt, toNat_natCast_emod, toNat_ofNat_emod, toNat_zero_emod, wordMod,
+    Nat.reducePow, Nat.reduceMul, Nat.reduceMod, Nat.div_one, Nat.reduceDiv, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:97:37: warning: This simp argument is unused:
+  wordMod
+
+Hint: Omit it from the simp argument list.
+  [apply] simp (disch :=
+    first
+    | exact hs _
+    | omega) only [Nat.cast_ofNat,
+    Int.reduceMod, Int.reduceToNat, Nat.mod_eq_of_lt, toNat_natCast_emod, toNat_ofNat_emod, toNat_zero_emod,
+    toNat_one_emod, Nat.reducePow, Nat.reduceMul, Nat.reduceMod, Nat.div_one, Nat.reduceDiv, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:97:76: warning: This simp argument is unused:
+  Nat.reduceMod
+
+Hint: Omit it from the simp argument list.
+  [apply] simp (disch :=
+    first
+    | exact hs _
+    | omega) only [Nat.cast_ofNat,
+    Int.reduceMod, Int.reduceToNat, Nat.mod_eq_of_lt, toNat_natCast_emod, toNat_ofNat_emod, toNat_zero_emod,
+    toNat_one_emod, wordMod, Nat.reducePow, Nat.reduceMul, Nat.div_one, Nat.reduceDiv, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:98:4: warning: This simp argument is unused:
+  Nat.reduceDiv
+
+Hint: Omit it from the simp argument list.
+  [apply] simp (disch :=
+    first
+    | exact hs _
+    | omega) only [Nat.cast_ofNat,
+    Int.reduceMod, Int.reduceToNat, Nat.mod_eq_of_lt, toNat_natCast_emod, toNat_ofNat_emod, toNat_zero_emod,
+    toNat_one_emod, wordMod, Nat.reducePow, Nat.reduceMul, Nat.reduceMod, Nat.div_one, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:98:19: warning: This simp argument is unused:
+  Int.reducePow
+
+Hint: Omit it from the simp argument list.
+  [apply] simp (disch :=
+    first
+    | exact hs _
+    | omega) only [Nat.cast_ofNat,
+    Int.reduceMod, Int.reduceToNat, Nat.mod_eq_of_lt, toNat_natCast_emod, toNat_ofNat_emod, toNat_zero_emod,
+    toNat_one_emod, wordMod, Nat.reducePow, Nat.reduceMul, Nat.reduceMod, Nat.div_one, Nat.reduceDiv] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:102:8: error: (kernel) unknown constant 'viewandpure_8c016856.SpecConnect.addToX_meets0'
+'viewandpure_8c016856.SpecConnect.addToX_holds_in' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound,
+ addToX_meets]
+Certified/viewandpure_8c016856/SpecConnect.lean:133:0: error: ❌️ Docstring on `#guard_msgs` does not match generated message:
+
+- info: 'viewandpure_8c016856.SpecConnect.addToX_holds_in' depends on axioms: [propext, Classical.choice, Quot.sound]
++ info: 'viewandpure_8c016856.SpecConnect.addToX_holds_in' depends on axioms: [propext,
++  Classical.choice,
++  Quot.sound,
++  addToX_meets]
+'viewandpure_8c016856.SpecConnect.addToX_holds' depends on axioms: [propext, Classical.choice, Quot.sound, addToX_meets]
+Certified/viewandpure_8c016856/SpecConnect.lean:137:0: error: ❌️ Docstring on `#guard_msgs` does not match generated message:
+
+- info: 'viewandpure_8c016856.SpecConnect.addToX_holds' depends on axioms: [propext, Classical.choice, Quot.sound]
++ info: 'viewandpure_8c016856.SpecConnect.addToX_holds' depends on axioms: [propext, Classical.choice, Quot.sound, addToX_meets]
+Certified/viewandpure_8c016856/SpecConnect.lean:159:0: error: (deterministic) timeout at `whnf`, maximum number of heartbeats (4000000) has been reached
+
+Note: Use `set_option maxHeartbeats <num>` to set the limit.
+
+Hint: Additional diagnostic information may be available using the `set_option diagnostics true` command.
+Certified/viewandpure_8c016856/SpecConnect.lean:176:6: warning: This simp argument is unused:
+  IsEmpty.forall_iff
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp, forall_eq, implies_true, and_true,
+    Nat.reducePow] at hargs
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:176:26: warning: This simp argument is unused:
+  implies_true
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp, forall_eq, IsEmpty.forall_iff,
+    and_true, Nat.reducePow] at hargs
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:176:40: warning: This simp argument is unused:
+  and_true
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp, forall_eq, IsEmpty.forall_iff,
+    implies_true, Nat.reducePow] at hargs
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:177:20: warning: This simp argument is unused:
+  add_tree
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [add_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *, List.head,
+    List.getElem_cons_zero, List.getElem_cons_succ, decodeWords, Ty.ofWord, bind, pure, Option.bind,
+    Nat.reducePow] at hdec
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:177:144: warning: This simp argument is unused:
+  viewandpure_8c016856.SpecConnect.ctx
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [add_tree, add_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, *, List.head, List.getElem_cons_zero,
+    List.getElem_cons_succ, decodeWords, Ty.ofWord, bind, pure, Option.bind, Nat.reducePow] at hdec
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:177:185: warning: This simp argument is unused:
+  List.head
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [add_tree, add_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *,
+    List.getElem_cons_zero, List.getElem_cons_succ, decodeWords, Ty.ofWord, bind, pure, Option.bind,
+    Nat.reducePow] at hdec
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:179:67: warning: This simp argument is unused:
+  reduceCtorEq
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Option.some.injEq] at hdec
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:181:37: warning: This simp argument is unused:
+  add_spec
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [add_tree, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *, Tree.eval,
+    WExpr.eval, BinOp.eval, UnOp.eval, Generic.wordSize, Res.obs, Writes.store, List.getD_cons_zero,
+    List.getD_cons_succ, Nat.reducePow]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:181:47: warning: This simp argument is unused:
+  viewandpure_8c016856.SpecConnect.spec
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [add_tree, add_spec, Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure,
+    viewandpure_8c016856.SpecConnect.ctx, *, Tree.eval, WExpr.eval, BinOp.eval, UnOp.eval, Generic.wordSize, Res.obs,
+    Writes.store, List.getD_cons_zero, List.getD_cons_succ, Nat.reducePow]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:181:86: warning: This simp argument is unused:
+  Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [add_tree, add_spec, viewandpure_8c016856.SpecConnect.spec, viewandpure_8c016856.SpecConnect.ctx, *,
+    Tree.eval, WExpr.eval, BinOp.eval, UnOp.eval, Generic.wordSize, Res.obs, Writes.store, List.getD_cons_zero,
+    List.getD_cons_succ, Nat.reducePow]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:181:151: warning: This simp argument is unused:
+  viewandpure_8c016856.SpecConnect.ctx
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [add_tree, add_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, *, Tree.eval, WExpr.eval, BinOp.eval, UnOp.eval,
+    Generic.wordSize, Res.obs, Writes.store, List.getD_cons_zero, List.getD_cons_succ, Nat.reducePow]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:181:227: warning: This simp argument is unused:
+  UnOp.eval
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [add_tree, add_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *, Tree.eval,
+    WExpr.eval, BinOp.eval, Generic.wordSize, Res.obs, Writes.store, List.getD_cons_zero, List.getD_cons_succ,
+    Nat.reducePow]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:184:4: warning: This simp argument is unused:
+  Nat.reduceMod
+
+Hint: Omit it from the simp argument list.
+  [apply] simp (disch := simp only [hargs, hs, Nat.reduceLT]) only [Nat.mod_eq_of_lt, ite_mod_nat, Nat.zero_mod,
+    ite10_eq_zero_iff, Decidable.not_not]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:184:19: warning: This simp argument is unused:
+  Nat.zero_mod
+
+Hint: Omit it from the simp argument list.
+  [apply] simp (disch := simp only [hargs, hs, Nat.reduceLT]) only [Nat.mod_eq_of_lt, ite_mod_nat, Nat.reduceMod,
+    ite10_eq_zero_iff, Decidable.not_not]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:184:52: warning: This simp argument is unused:
+  Decidable.not_not
+
+Hint: Omit it from the simp argument list.
+  [apply] simp (disch := simp only [hargs, hs, Nat.reduceLT]) only [Nat.mod_eq_of_lt, ite_mod_nat, Nat.reduceMod,
+    Nat.zero_mod, ite10_eq_zero_iff]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:185:54: warning: This simp argument is unused:
+  add_tree
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, add_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, evalList, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
+    beq_self_eq_true, Ty.InRange, Option.getD_some, forall_int_range, Nat.cast_ofNat, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:186:47: warning: This simp argument is unused:
+  forall_eq_or_imp
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, add_tree, add_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq, eval,
+    evalList, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
+    beq_self_eq_true, Ty.InRange, Option.getD_some, forall_int_range, Nat.cast_ofNat, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:186:82: warning: This simp argument is unused:
+  evalList
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, add_tree, add_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
+    beq_self_eq_true, Ty.InRange, Option.getD_some, forall_int_range, Nat.cast_ofNat, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:186:92: warning: This simp argument is unused:
+  slotOf
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, add_tree, add_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, evalList, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
+    beq_self_eq_true, Ty.InRange, Option.getD_some, forall_int_range, Nat.cast_ofNat, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:187:4: warning: This simp argument is unused:
+  Env.cur
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, add_tree, add_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, evalList, slotOf, mkEnv, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
+    beq_self_eq_true, Ty.InRange, Option.getD_some, forall_int_range, Nat.cast_ofNat, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:187:13: warning: This simp argument is unused:
+  Env.bind
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, add_tree, add_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, evalList, slotOf, mkEnv, Env.cur, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
+    beq_self_eq_true, Ty.InRange, Option.getD_some, forall_int_range, Nat.cast_ofNat, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:187:36: warning: This simp argument is unused:
+  Ty.ofBits
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, add_tree, add_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, evalList, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
+    beq_self_eq_true, Ty.InRange, Option.getD_some, forall_int_range, Nat.cast_ofNat, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:187:47: warning: This simp argument is unused:
+  toWord
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, add_tree, add_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, evalList, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
+    beq_self_eq_true, Ty.InRange, Option.getD_some, forall_int_range, Nat.cast_ofNat, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:188:4: warning: This simp argument is unused:
+  List.lookup
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, add_tree, add_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, evalList, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst, beq_self_eq_true,
+    Ty.InRange, Option.getD_some, forall_int_range, Nat.cast_ofNat, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:188:33: warning: This simp argument is unused:
+  ite_true
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, add_tree, add_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, evalList, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
+    beq_self_eq_true, Ty.InRange, Option.getD_some, forall_int_range, Nat.cast_ofNat, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:188:43: warning: This simp argument is unused:
+  ite_false
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, add_tree, add_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, evalList, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, Bool.false_eq_true, Nat.zero_mod, hst, beq_self_eq_true,
+    Ty.InRange, Option.getD_some, forall_int_range, Nat.cast_ofNat, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:188:54: warning: This simp argument is unused:
+  Bool.false_eq_true
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, add_tree, add_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, evalList, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, ite_false, Nat.zero_mod, hst, beq_self_eq_true,
+    Ty.InRange, Option.getD_some, forall_int_range, Nat.cast_ofNat, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:188:74: warning: This simp argument is unused:
+  Nat.zero_mod
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, add_tree, add_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, evalList, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, hst, beq_self_eq_true,
+    Ty.InRange, Option.getD_some, forall_int_range, Nat.cast_ofNat, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:188:88: warning: This simp argument is unused:
+  hst
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, add_tree, add_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, evalList, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod,
+    beq_self_eq_true, Ty.InRange, Option.getD_some, forall_int_range, Nat.cast_ofNat, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:189:4: warning: This simp argument is unused:
+  beq_self_eq_true
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, add_tree, add_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, evalList, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
+    Ty.InRange, Option.getD_some, forall_int_range, Nat.cast_ofNat, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:189:22: warning: This simp argument is unused:
+  Ty.InRange
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, add_tree, add_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, evalList, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
+    beq_self_eq_true, Option.getD_some, forall_int_range, Nat.cast_ofNat, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:189:34: warning: This simp argument is unused:
+  Option.getD_some
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, add_tree, add_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, evalList, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
+    beq_self_eq_true, Ty.InRange, forall_int_range, Nat.cast_ofNat, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:189:52: warning: This simp argument is unused:
+  forall_int_range
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, add_tree, add_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, evalList, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
+    beq_self_eq_true, Ty.InRange, Option.getD_some, Nat.cast_ofNat, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:189:70: warning: This simp argument is unused:
+  Nat.cast_ofNat
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, add_tree, add_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, evalList, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
+    beq_self_eq_true, Ty.InRange, Option.getD_some, forall_int_range, Int.reducePow] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:189:86: warning: This simp argument is unused:
+  Int.reducePow
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Bundle.satAll, Bundle.sat, add_tree, add_spec, viewandpure_8c016856.SpecConnect.spec,
+    Certified.viewandpure_8c016856.gen.ViewAndPure.Spec.ViewAndPure, viewandpure_8c016856.SpecConnect.ctx, *,
+    List.getElem_cons_succ, List.getElem_cons_zero, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    forall_eq, eval, evalList, slotOf, mkEnv, Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero,
+    List.getD_cons_succ, List.lookup, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
+    beq_self_eq_true, Ty.InRange, Option.getD_some, forall_int_range, Nat.cast_ofNat] at hsi
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+Certified/viewandpure_8c016856/SpecConnect.lean:198:8: error: (kernel) unknown constant 'viewandpure_8c016856.SpecConnect.add_meets0'
+'viewandpure_8c016856.SpecConnect.add_holds_in' depends on axioms: [propext, Classical.choice, Quot.sound, add_meets]
+Certified/viewandpure_8c016856/SpecConnect.lean:229:0: error: ❌️ Docstring on `#guard_msgs` does not match generated message:
+
+- info: 'viewandpure_8c016856.SpecConnect.add_holds_in' depends on axioms: [propext, Classical.choice, Quot.sound]
++ info: 'viewandpure_8c016856.SpecConnect.add_holds_in' depends on axioms: [propext, Classical.choice, Quot.sound, add_meets]
+'viewandpure_8c016856.SpecConnect.add_holds' depends on axioms: [propext, Classical.choice, Quot.sound, add_meets]
+Certified/viewandpure_8c016856/SpecConnect.lean:233:0: error: ❌️ Docstring on `#guard_msgs` does not match generated message:
+
+- info: 'viewandpure_8c016856.SpecConnect.add_holds' depends on axioms: [propext, Classical.choice, Quot.sound]
++ info: 'viewandpure_8c016856.SpecConnect.add_holds' depends on axioms: [propext, Classical.choice, Quot.sound, add_meets]
