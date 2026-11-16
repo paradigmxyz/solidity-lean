@@ -43,8 +43,16 @@ fix for them is in the pin.
 **Base pin receipt (H3, H4).** `Certified/record/rc2-h3/PINS.json:base.commit` and
 `Certified/record/rc2-h4/PINS.json:base.commit` = 49d1d7f5d9b74165486bd9f634202bee1a3633eb, at T8's
 96bd11a1 and byte-identical here; each `PINS.json` is covered by its record's `MANIFEST.sha256` and
-by `RC2.MANIFEST.sha256`. `record.json` itself still names no solidity-lean commit; `PINS.json` is
-the record's base pin. H1 and H2 records are checked for the same key.
+by `RC2.MANIFEST.sha256`. `record.json` itself still names no solidity-lean commit.
+- **H4:** `rc2-h4/PINS.json` says the run stopped at the gas bound before it cloned the Lean base, so
+  `base.commit` 49d1d7f5 attests the driver's declared dependency (`tools/certify/solidity-lean.rev`
+  at 0479b90a), not execution on that base.
+- **H3:** the run did clone the base: it reached the solidity-lean front end (its BLOCKED source
+  check), which `generic.py` at 0479b90a runs only after checking out the base in its work clone, and
+  `rc2-h3/PINS.json` cites that clone's HEAD and tree. The run's own log does not print the
+  checked-out commit, so that HEAD is the runner's reading of the clone.
+
+H1 and H2 records are checked for the same key.
 
 ## Other records
 
@@ -79,6 +87,10 @@ the record's base pin. H1 and H2 records are checked for the same key.
 - Counter (e13cda49): source-only; full `leanchecker` replay, aggregate RSS and the transitive
   manifest OPEN.
 - Pair: BLOCKED.
+- Source digest binding: `generic.py` at 0479b90a computes `source.sha256` from
+  `read_text().encode()` (decoded text, re-encoded), while downstream tools reread the path, so the
+  source digest is not a raw-byte snapshot binding. OPEN unless a lane shows raw digest identity
+  across receipts.
 
 ## Receipts
 
