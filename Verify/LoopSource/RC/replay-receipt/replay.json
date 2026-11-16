@@ -1,0 +1,15 @@
+{
+ "replayed_commit": "d365320e3010ab60166e3ebc2dec618c2d89fe9c",
+ "checkout": "fresh git worktree of that commit; .lake/packages linked from the base's package set",
+ "command": "LEAN_NUM_THREADS=1 bash Verify/LoopSource/RC/replay.sh <solar-verify fd53f637> <z3 5.4.1> <out>",
+ "exit": 0,
+ "fails": 0,
+ "checks": 32,
+ "trace": {
+  "exit": 0,
+  "wall_s": 469.6,
+  "user_s": 557.376934,
+  "sys_s": 35.462511,
+  "max_rss_kb": 5376644
+ }
+}

@@ -1,0 +1,32 @@
+PASS sha256 inputs/Counter.sol
+PASS sha256 inputs/Gcd.sol
+PASS sha256 Counter/Counter.loop-heads.json
+PASS spec lines of Counter.sol
+PASS emit Counter.bump
+PASS emit Gcd.gcd
+PASS manifest counter: compiler, options, sources, VC hashes
+PASS manifest gcd: compiler, options, sources, VC hashes
+PASS loop heads: committed map current
+PASS loop heads: re-emitted map identical
+PASS dump Counter Script.lean identical
+PASS gen_loopvc Counter Obligations.lean identical
+PASS dump Gcd Script.lean identical
+PASS gen_loopvc Gcd Obligations.lean identical
+PASS gen_loopmap Map.lean identical
+PASS lake build Verify.LoopSource.RC.Receipt
+PASS negative stale_compiler rejected by gen_loopmap (exit 3)
+PASS negative stale_source rejected by gen_loopmap (exit 3)
+PASS negative stale source rejected by --check-loop-heads (exit 1)
+PASS negative wrong_slot rejected by the kernel (exit 1)
+PASS negative swapped_var rejected by the kernel (exit 1)
+PASS gate Counter (exit 0)
+PASS gate CounterBadInit (exit 1)
+PASS gate CounterBadPres (exit 1)
+PASS gate CounterBadDecr (exit 1)
+PASS gate CounterBadExit (exit 1)
+PASS gate Gcd (exit 0)
+PASS gate GcdBadInit (exit 1)
+PASS gate GcdBadPres (exit 1)
+PASS gate GcdBadDecr (exit 1)
+PASS gate GcdBadExit (exit 1)
+PASS gate GcdVacuous (exit 4)
