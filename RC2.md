@@ -32,21 +32,22 @@ history here: nothing in RC2 changes its verdicts.
 |---|---|---|---|---|---|---|---|
 | original (denominator 3) | H1 SimpleStorage | T6 | pending | | | | |
 | original | H2 ViewAndPure | T7 | pending | | | | |
-| original | H3 Mapping | T8 | **BLOCKED** (exit 3): generic source check, `myMap(address)` and `remove(address)`: source tree undefined (erasure) | none | 238.5 s / 2.93 GB tree RSS | [`Certified/record/rc2-h3/`](https://github.com/paradigmxyz/solidity-lean/tree/bf8b8a6ed41837f9a1b881262ccbcbeb443d1350/Certified/record/rc2-h3) | n/a: `--replay` exits 1 (BLOCKED, nothing to replay) |
-| second (denominator 1, closed) | H4 FunctionModifier | T8 | **REJECTED** (exit 1): no cut points for stage0 to mir1, a recursive call into `@decrement.body` | none | 2.1 s / below the 2 s sampler | [`Certified/record/rc2-h4/`](https://github.com/paradigmxyz/solidity-lean/tree/bf8b8a6ed41837f9a1b881262ccbcbeb443d1350/Certified/record/rc2-h4) | n/a: `--replay` exits 1 (no run files) |
+| original | H3 Mapping | T8 | **BLOCKED** (exit 3): generic source check, `myMap(address)` and `remove(address)`: source tree undefined (erasure) | none | 238.5 s / 2.93 GB tree RSS | [`Certified/record/rc2-h3/`](https://github.com/paradigmxyz/solidity-lean/tree/96bd11a1a6dfeb2337c3e50227b6af4f368c6bba/Certified/record/rc2-h3) | n/a: `--replay` exits 1 (BLOCKED, nothing to replay) |
+| second (denominator 1, closed) | H4 FunctionModifier | T8 | **REJECTED** (exit 1): no cut points for stage0 to mir1, a recursive call into `@decrement.body` | none | 2.1 s / below the 2 s sampler | [`Certified/record/rc2-h4/`](https://github.com/paradigmxyz/solidity-lean/tree/96bd11a1a6dfeb2337c3e50227b6af4f368c6bba/Certified/record/rc2-h4) | n/a: `--replay` exits 1 (no run files) |
 
 RC1 verdicts at 800d78a9, for comparison only: H1 REJECTED (spec step, `get_meets0`), H2 REJECTED
 (resource; spec step times out), H3 BLOCKED (mapping getter and `delete` erasure), H4 REJECTED
 (recursion). RC2's base targets H1's returned-word gap; the others are not expected to change unless a
 fix for them is in the pin.
 
-**Base pin not in the H3 and H4 records.** Neither `record.json` names a solidity-lean commit: base
-49d1d7f5 is runner-reported (each record's README and the runner commit's parent), not
-self-contained in the record (its `command` passes `--solidity-lean` a path, not a commit; the driver's
-`tools/certify/solidity-lean.rev` at 0479b90a names 49d1d7f5, but the record does not show the
-checkout used). The records are kept byte-identical to bf8b8a6e, so the gap is stated
-here rather than patched; it stays OPEN until a record carries the base pin itself. H1 and H2 records
-are checked for the same field, and the same gap is stated for any record that lacks it.
+**Base pin in the H3 and H4 records.** `record.json` still names no solidity-lean commit (its
+`command` passes `--solidity-lean` a path). T8 added `PINS.json` beside it in both records at
+96bd11a1 (R2): driver 0479b90a (tree e87de259…, clean, `solidity-lean.rev` 49d1d7f5) and base
+49d1d7f5 (tree 69c84f61…). `PINS.json` was written after the run and is the runner's attestation,
+not run output: for H3 it cites the run's own base clone at that commit; for H4 only the driver's
+`solidity-lean.rev`, since the run stopped before cloning the base. So the base stays
+runner-attested, not self-contained in `record.json`. H1 and H2 records are checked for the same
+field, and the same gap is stated for any record that lacks it.
 
 ## Other records
 
@@ -81,7 +82,7 @@ are checked for the same field, and the same gap is stated for any record that l
 - Counter (e13cda49): source-only; full `leanchecker` replay, aggregate RSS and the transitive
   manifest OPEN.
 - Base pin in records: H3 and H4 `record.json` omit the solidity-lean commit; base 49d1d7f5 is
-  runner-reported.
+  runner-attested in `PINS.json` (H4: driver `solidity-lean.rev` only).
 - Pair: BLOCKED.
 
 ## Receipts
@@ -101,9 +102,17 @@ Filled in as verdicts land, each with its record commit and a link.
   `MANIFEST.sha256` leaves out its README, which `RC2.MANIFEST.sha256` covers. The pin does not
   change either RC1 verdict: H3's mapping getter and `delete` gap and H4's recursion gap stay open.
 
+- **R2, H3 and H4 pins (T8).** Runner commit [96bd11a1](https://github.com/paradigmxyz/solidity-lean/commit/96bd11a1a6dfeb2337c3e50227b6af4f368c6bba) on top of bf8b8a6e adds only
+  `PINS.json` to each record and its line to `MANIFEST.sha256` (4 files, 52 lines). Checked by the
+  reviewer: both manifests pass (72bdf35a… and 1e3ad7bc…; `PINS.json` e0dd7747… and 6522b958…);
+  `record.json` and every run file are unchanged from R1; the pinned trees equal `git rev-parse` of
+  0479b90a (e87de259…) and 49d1d7f5 (69c84f61…), and `solidity-lean.rev` at 0479b90a is 49d1d7f5;
+  case sha256 and held-out commits match R1. Verdicts unchanged. R1's caveat that each record's
+  manifest leaves out its README still holds.
+
 ## Files
 
 - `RC.md`: the frozen RC1 report (800d78a9), unchanged from b83d7526.
 - `RC2.md`: this file. `RC2.MANIFEST.sha256` covers this file and every file under
   `Certified/record/rc2-*`.
-- `Certified/record/rc2-h3/`, `Certified/record/rc2-h4/`: T8's records, byte-identical to bf8b8a6e.
+- `Certified/record/rc2-h3/`, `Certified/record/rc2-h4/`: T8's records, byte-identical to 96bd11a1.

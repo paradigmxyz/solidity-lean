@@ -1,0 +1,25 @@
+{
+  "schema": "rc2-record-pins/1",
+  "note": "Added after the run; record.json and the run files are unchanged. These pins were read from the run's checkouts on the runner Hand.",
+  "case": {
+    "id": "H4",
+    "source": "tests/heldout/rc-2026-11-15/draw2/H4-FunctionModifier/FunctionModifier.sol",
+    "contract": "FunctionModifier",
+    "sha256": "3be4c2f15b9f262ff34956f9ef38e579777e00cd93423f64f3488c8716a8f4f4",
+    "heldout_commit": "aa9191531b28e5cd44095f8bd680f789a61729c9"
+  },
+  "driver": {
+    "repository": "paradigmxyz/solar",
+    "commit": "0479b90a422245bf77facc51ea17b960ed5c5851",
+    "tree": "e87de2594c4500a8cc5cd11a0a6703cf460d8da3",
+    "dirty": false,
+    "binary_commit": "0479b90a422245bf77facc51ea17b960ed5c5851",
+    "tools/certify/solidity-lean.rev": "49d1d7f5d9b74165486bd9f634202bee1a3633eb"
+  },
+  "base": {
+    "repository": "paradigmxyz/solidity-lean",
+    "commit": "49d1d7f5d9b74165486bd9f634202bee1a3633eb",
+    "tree": "69c84f611794132687353172325c886723fd8a4f",
+    "attested_by": "the driver's solidity-lean.rev only: the run stopped at the gas bound before it cloned the base"
+  }
+}
