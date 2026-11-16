@@ -5,10 +5,12 @@
 #    2 and names the pin.
 # 2. The source's bytes are read once, into one private copy: the fresh emit, the stage export, the
 #    AST import and the spec export all read that copy, whose sha256 is re-checked at the end.
-# 3. The runtime bytes must equal Statement.lean's runtimeBytes, and the stage modules, the imported
+# 3. The runtime bytes (and the emit's hashes in the frozen binding.json) must equal Statement.lean's runtimeBytes, and the stage modules, the imported
 #    source and the spec export must equal the committed generated files byte for byte; a difference
 #    exits 1 and names the artifact.
-# On success writes binding.json (every hash it checked) to $OUT (default: a temporary directory).
+# Before comparing, the frozen replay manifest and binding receipt must match (exit 3; see 1b).
+# On success writes a new receipt to $OUT/binding.json (default: a temporary directory); the committed
+# binding.json is only read.
 #
 # Inputs, overridable to run the negative controls (the pins are not): SRC SOLC SOLAR OPTIONS
 # (default: this checkout's), SOLAR_DIR (a solar checkout at the spec exporter's commit),
@@ -43,6 +45,45 @@ while read -r name want; do
   [[ $got == "$want" ]] || fail "pin $name: sha256 $got, pinned $want ($p)" 2
 done < "$here/PINS"
 echo "pins: all ${#path[@]} match"
+
+# 1b. Frozen identities, before any comparison: the committed replay manifest (GENERATED.sha256,
+# recorded with the closure replay) and binding receipt (binding.json) are read, never written, and
+# must have their recorded sha256; every file they name must still have its recorded sha256. A
+# mismatch exits 3. Fresh outputs are compared only against files that pass this stage.
+FROZEN_GENERATED=06df7c2898d18ab69c9b13567c2a67ebd395c4cdf24a3ebe9200de39e9c605db
+FROZEN_BINDING=085c2b64de4ea2451291bc8b4a91731f0925a8f29fa6d22b38792d32ba082467
+frozen() { echo "BINDING FAILED: frozen $1" >&2; exit 3; }
+[[ -f $here/GENERATED.sha256 ]] || frozen "GENERATED.sha256 missing"
+[[ -f $here/binding.json ]] || frozen "binding.json missing"
+got=$(sha "$here/GENERATED.sha256")
+[[ $got == "$FROZEN_GENERATED" ]] || frozen "GENERATED.sha256: sha256 $got, recorded $FROZEN_GENERATED"
+got=$(sha "$here/binding.json")
+[[ $got == "$FROZEN_BINDING" ]] || frozen "binding.json: sha256 $got, recorded $FROZEN_BINDING"
+while read -r want rel; do
+  [[ -f $root/$rel ]] || frozen "generated file $rel missing"
+  got=$(sha "$root/$rel")
+  [[ $got == "$want" ]] || frozen "generated file $rel: sha256 $got, recorded $want"
+done < "$here/GENERATED.sha256"
+python3 -I - "$here/binding.json" "$root" "$here/PINS" <<'EOF' || exit 3
+import hashlib, json, pathlib, sys
+b = json.load(open(sys.argv[1])); root = pathlib.Path(sys.argv[2])
+h = lambda p: hashlib.sha256((root / p).read_bytes()).hexdigest()
+def bad(what):
+    print(f"BINDING FAILED: frozen binding.json {what}", file=sys.stderr); sys.exit(3)
+pins = dict(l.split() for l in open(sys.argv[3]) if l.strip() and not l.startswith("#"))
+if b["pins"] != pins: bad("pins differ from PINS")
+if b["source_sha256"] != pins["source"]: bad("source differs from the source pin")
+gen = "Certified/uv2_erc20/gen/UniswapV2ERC20"
+have = {p.name for p in (root / gen).glob("*.lean") if p.name != "Manifest.lean"}
+if set(b["stages"]) != have: bad("stage module set differs")
+for name, want in b["stages"].items():
+    if h(f"{gen}/{name}") != want: bad(f"stage {name}")
+for key, rel in [("imported_source_sha256", "Contracts/UniswapV2/ERC20/Source.lean"),
+                 ("spec_sha256", "Contracts/UniswapV2/ERC20/Slice/Gen/Spec.lean"),
+                 ("statement_sha256", "Certified/uv2_transfer_e6/Statement.lean")]:
+    if h(rel) != b[key]: bad(f"{key} ({rel})")
+print("frozen: GENERATED.sha256, binding.json and every file they name match")
+EOF
 
 # 2. One private copy of the source.
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
@@ -128,6 +169,14 @@ cmp -s "$tmp/Spec.lean" "$root/Contracts/UniswapV2/ERC20/Slice/Gen/Spec.lean" ||
 echo "spec: equal True"
 
 [[ $(sha "$tmp/src/UniswapV2ERC20.sol") == "$src_sha" ]] || fail "source copy changed during the run" 1
+python3 -I - "$here/binding.json" "$tmp" <<'EOF' || fail "fresh emit differs from the frozen binding.json" 1
+import hashlib, json, sys
+b = json.load(open(sys.argv[1])); tmp = sys.argv[2]
+h = lambda p: hashlib.sha256(open(p, "rb").read()).hexdigest()
+ok = h(f"{tmp}/runtime.hex") == b["runtime_hex_sha256"] and h(f"{tmp}/emit.json") == b["emit_json_sha256"]
+print(f"fresh emit: runtime hex and emit JSON equal the frozen receipt {ok}")
+sys.exit(0 if ok else 1)
+EOF
 python3 -I - "$OUT/binding.json" "$src_sha" "$tmp" "$gen" "$root" "$here/PINS" <<'EOF'
 import hashlib, json, pathlib, sys
 out, src, tmp, gen, root, pins = sys.argv[1:]

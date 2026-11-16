@@ -78,19 +78,80 @@ pin before anything runs. The copy controls run the script on a copy of the inpu
 1 with the stage named; the unaltered copy binds with exit 0. That shows each copy control fails
 only because of its alteration.
 
+## Seal to the frozen manifests
+
+`verify_binding.sh` now compares nothing until three stages pass, and it never writes the committed
+manifests:
+1. the ten pins (exit 2);
+2. the frozen identities (exit 3);
+3. then the fresh comparisons (exit 1).
+
+Its new receipt goes only to `$OUT`. The frozen identities are:
+* `GENERATED.sha256` (recorded with the closure replay at 109c6132) must have sha256
+  06df7c2898d18ab69c9b13567c2a67ebd395c4cdf24a3ebe9200de39e9c605db, and every one of its 79 files
+  must have its recorded sha256.
+* `binding.json` (the binding receipt at 7ca76b0b) must have sha256
+  085c2b64de4ea2451291bc8b4a91731f0925a8f29fa6d22b38792d32ba082467. Its pins must equal `PINS`,
+  its source the source pin, and its 18 stage modules, imported `Source.lean`, spec export and
+  `Statement.lean` the checkout's files.
+
+After the fresh run, the runtime hex and the emit JSON must also equal the frozen `binding.json`'s
+hashes. Rewriting the comparison files and both manifests together therefore fails: the manifests'
+own hashes are fixed in the script (control `frozen-coordinated-drift`).
+
+Controls (`verify_binding_negatives.sh`). Each runs on a private copy of every input the script
+reads, and each nonzero control must stop before the first comparison line:
+
+```
+pass unaltered-copy exit 0: BOUND: source 14da00cdeaf2ab3709d2d9838be2c2a144502b32b874b55394d7a8792deac80b
+pass pin-source exit 2: BINDING FAILED: pin source
+pass pin-options exit 2: BINDING FAILED: pin options
+pass pin-solc exit 2: BINDING FAILED: pin solc
+pass pin-emitter exit 2: BINDING FAILED: pin emitter
+pass pin-spec-exporter exit 2: BINDING FAILED: pin spec-exporter
+pass pin-spec exit 2: BINDING FAILED: pin spec
+pass pin-spec-applier exit 2: BINDING FAILED: pin spec-applier
+pass pin-importer exit 2: BINDING FAILED: pin importer
+pass pin-importer-cache exit 2: BINDING FAILED: pin importer-cache
+pass pin-import-driver exit 2: BINDING FAILED: pin import-driver
+pass frozen-manifest exit 3: BINDING FAILED: frozen GENERATED.sha256
+pass frozen-binding exit 3: BINDING FAILED: frozen binding.json
+pass frozen-generated-missing exit 3: BINDING FAILED: frozen generated file Certified/uv2_erc20/gen/UniswapV2ERC20Mut/NoDebit.lean missing
+pass frozen-stage exit 3: BINDING FAILED: frozen generated file Certified/uv2_erc20/gen/UniswapV2ERC20/Mir2.lean
+pass frozen-import exit 3: BINDING FAILED: frozen generated file Contracts/UniswapV2/ERC20/Source.lean
+pass frozen-spec exit 3: BINDING FAILED: frozen generated file Contracts/UniswapV2/ERC20/Slice/Gen/Spec.lean
+pass frozen-statement exit 3: BINDING FAILED: frozen binding.json statement_sha256 (Certified/uv2_transfer_e6/Statement.lean)
+pass frozen-coordinated-drift exit 3: BINDING FAILED: frozen GENERATED.sha256
+NEGATIVES EXIT 0
+```
+
+That is all ten pins (2), seven frozen-identity cases (3) and the unaltered copy (0). Run output:
+`binding-seal.txt`.
+
+**Normalization, explicitly.** Before comparing the imported `Source.lean`, two strings in the fresh
+import are rewritten:
+* the private copy's file name `.binding-UniswapV2ERC20.sol` becomes `UniswapV2ERC20.sol`, at
+  exactly 2 occurrences, checked;
+* the checkout prefix in the one `importedSourceName` line becomes `/home/hand/wt/e6`, the
+  checkout where the frozen `Source.lean` was generated.
+
+Nothing else is normalized. The frozen check of `Source.lean` itself (exit 3) is on its raw bytes.
+`importedSourceName` therefore records one machine's absolute path; **its correspondence stays
+OPEN**.
+
 ## Scope and what stays OPEN
 
 * This binds one exact source file to the bytes, stages, import and spec the proof uses. It is not
   a universal source-text end-to-end result. The flattened file is the port's text, not v2-core's,
   and the port, the flattener and the spec text stay in the TCB along with solc's AST, the importer
   and the spec export.
-* **Path normalization.** `importedSourceName` in `Source.lean` is solc's absolute path of the file
-  in the checkout where it was generated (`/home/hand/wt/e6`). `verify_binding.sh` rewrites that one
-  string to the recorded checkout before comparing. It also maps the private copy's file name back
-  to `UniswapV2ERC20.sol` (2 occurrences, checked).
-* **Generated files are not committed** (GPL-3.0 port); the script compares against the checkout's
-  generated files. Their hashes are in `GENERATED.sha256` and `binding.json`.
-* **Toolchain identities, OPEN:** the toolchain is pinned by hash, but the emitter binary's
-  reproducibility from solar 697fc686 is not shown (one build, one hash).
+* **Path normalization**: see "Seal to the frozen manifests"; `importedSourceName` correspondence is OPEN.
+* **Generated-file availability: OPEN.** The generated files (GPL-3.0 port) are not committed; the
+  check needs a checkout that regenerated them. Their identities are frozen in `GENERATED.sha256` and
+  `binding.json`.
+* **Frontend correspondence: OPEN.** That solc's AST and the importer read the source's meaning
+  correctly is trusted, not checked.
+* **Binary source-build reproducibility: OPEN.** The emitter, solc and solar-verify are pinned by
+  hash; that rebuilding them from source gives those hashes is not shown.
 * **Process-tree RSS admission: OPEN.** The 5.6 GiB peak covers `leanchecker` only.
 * The closure replay (4027 of 4027, 0 trusted, 0 unaccounted) is reused from MANIFEST.md, not rerun.

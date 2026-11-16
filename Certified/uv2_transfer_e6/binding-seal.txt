@@ -1,0 +1,32 @@
+# verify_binding.sh and verify_binding_negatives.sh, run in this checkout (solidity-lean 7ca76b0b + the seal)
+## verify_binding.sh
+pins: all 10 match
+frozen: GENERATED.sha256, binding.json and every file they name match
+runtime: fresh 1183 bytes, statement 1183 bytes, equal True
+stages: 18 modules equal the fresh export
+import: equal True
+spec: equal True
+fresh emit: runtime hex and emit JSON equal the frozen receipt True
+BOUND: source 14da00cdeaf2ab3709d2d9838be2c2a144502b32b874b55394d7a8792deac80b; receipt <OUT>/binding.json
+exit 0
+## verify_binding_negatives.sh
+pass unaltered-copy exit 0: BOUND: source 14da00cdeaf2ab3709d2d9838be2c2a144502b32b874b55394d7a8792deac80b
+pass pin-source exit 2: BINDING FAILED: pin source: sha256 aafd324609d6fcb24f33bf696ba70ddff466c298e1c60672bf2966c0cf9bbdad, pinned 14da00cdeaf2ab3709d2d9838be2c2a144502b32b874b55394d7a8792deac80b (<copy>)
+pass pin-options exit 2: BINDING FAILED: pin options: sha256 a6067e088d93b14a07e32d6ea1fce1e6edc289fcbed96dd33efaff3f213e8f80, pinned e8dcb59d1d2c9325d924f23afb16523ebcef2750f7fa447cf67b494f81a9038c (<copy>)
+pass pin-solc exit 2: BINDING FAILED: pin solc: sha256 fb8930c984830db9642ccb405a2a39ff8240633899b6d750345e097ae29442c0, pinned fa8ac9a32d301ad023a36ee5a29f8e291fe3200c60244e43c142539e82a617f4 (<copy>)
+pass pin-emitter exit 2: BINDING FAILED: pin emitter: sha256 37efd9c5586349a2f15fc85983f7411bf2a065deda1e8689500b4d0c1d2f821c, pinned dca17546509f702c38639487a73c101b72d97718f0e13d51c307d1b971b92851 (<copy>)
+pass pin-spec-exporter exit 2: BINDING FAILED: pin spec-exporter: sha256 2544a8ea516d4e0f4ac7efccfbd90ab9ba162ff6efdf42ef7fbd53badc8c101b, pinned 4468c71522c1e26e15e20808b87f5d4e0e81070602fce1ed2eea02c262cbd464 (<copy>)
+pass pin-spec exit 2: BINDING FAILED: pin spec: sha256 579f8c2cb9f7e6e1af1278edbe6efbea6c14d59d7419f8384d472a74982ff1ae, pinned df8e094e5ab682001e87ee14eca9d20e7d56ba8db4bdadb348523f70c0d2199c (<copy>)
+pass pin-spec-applier exit 2: BINDING FAILED: pin spec-applier: sha256 c3afd9faa6d91a89dc671b8cc7b40cfbb096ce2ae3ad89301f9ef8d4f3afd6e5, pinned dd85461ff04414986d21a52d768aa9895cdda5bb89681d29bacf355c5ba6e59e (<copy>)
+pass pin-importer exit 2: BINDING FAILED: pin importer: sha256 0f0d29ca3b7164157e0d540d555116a712eec0fae7d7c62c2b9fb504a749fc81, pinned 5b35afb636bdda997b0b7a51a492d134dadabf7e04eb97f9625c0d1f21e12e3b (<copy>)
+pass pin-importer-cache exit 2: BINDING FAILED: pin importer-cache: sha256 a3df9ac5e29ce82e8a51709a39428395ab7a9de80d7bef24f32bbf430e0e8085, pinned baf2965207de14bce9c029e3969d6c580be7a03ae44b2b2f445398651188d18a (<copy>)
+pass pin-import-driver exit 2: BINDING FAILED: pin import-driver: sha256 bb60dff76ff292a9d1bc36c681313f611917749147fbf07e950241e3ab780e28, pinned 9b9a3f658e077dc35c13799eafd39127ef3630759f57323e2798835d6e13b03e (<copy>)
+pass frozen-manifest exit 3: BINDING FAILED: frozen GENERATED.sha256: sha256 2fce3d73603472ff4f1fba6e81721c58015eeadd06f1041c0ffed3e4f7ebaf04, recorded 06df7c2898d18ab69c9b13567c2a67ebd395c4cdf24a3ebe9200de39e9c605db
+pass frozen-binding exit 3: BINDING FAILED: frozen binding.json: sha256 63d189706a2d28b33e35d3a95354cf004462e463de7f8c4cfef2aa35ec216ff9, recorded 085c2b64de4ea2451291bc8b4a91731f0925a8f29fa6d22b38792d32ba082467
+pass frozen-generated-missing exit 3: BINDING FAILED: frozen generated file Certified/uv2_erc20/gen/UniswapV2ERC20Mut/NoDebit.lean missing
+pass frozen-stage exit 3: BINDING FAILED: frozen generated file Certified/uv2_erc20/gen/UniswapV2ERC20/Mir2.lean: sha256 118a9e103a0166710ac285d661889cd0ddd65451800f0fc3238ccb2527f0e00e, recorded 5e0249c20652d51d7f56f42eb39e467b57d66799c0eb5ae48d3820b929b668df
+pass frozen-import exit 3: BINDING FAILED: frozen generated file Contracts/UniswapV2/ERC20/Source.lean: sha256 291db13f7ba80980b16a1f82405fede130471391cdb2c1ffcae932505ab1c50c, recorded e7f4cd9c7fcf69d59d92f8e8e3d466d6eeaf4ccf0a215a97137ed094bf94cfbc
+pass frozen-spec exit 3: BINDING FAILED: frozen generated file Contracts/UniswapV2/ERC20/Slice/Gen/Spec.lean: sha256 e1bb2027b664676755097ebc1c9ebca994577ab660a876336c0bdd7f5781ad54, recorded 52b44937f5f85d6c022d448258d5ad5d5a1720c4aa6545323e44426efa60360a
+pass frozen-statement exit 3: BINDING FAILED: frozen binding.json statement_sha256 (Certified/uv2_transfer_e6/Statement.lean)
+pass frozen-coordinated-drift exit 3: BINDING FAILED: frozen GENERATED.sha256: sha256 7fbdea222bccf29d587bcb3a6a943c8745bc2aad7a7594cf2658a5b25c26ffa2, recorded 06df7c2898d18ab69c9b13567c2a67ebd395c4cdf24a3ebe9200de39e9c605db
+NEGATIVES EXIT 0
