@@ -100,6 +100,10 @@ The claims are kept separate:
 ## Known blockers and open items
 
 - Pair: BLOCKED.
+- **Verdict can depend on work-path length:** `final_neg.sh:84-104` `cut -c1-160` counts bytes and
+  can split a multibyte character; `generic.py:1036` `Popen(text=True)` then raises. Fails closed,
+  but a positive could be refused depending on its path. Present at the RC pin 800d78a9; the fix
+  changes the driver sha (pin decision pending). Seen in T5's stale-bytes full run.
 - **Resources:** H2's `SpecConnect.lean` check needs more than Lean's default 6000 MB on a 14 GB
   Hand (peak 14.25 GB process tree); the generic stage's memory use is a blocker for contracts
   of that size.
@@ -156,8 +160,9 @@ The claims are kept separate:
 - **Archive integrity**: an edit to an archived `inputs/*` file with its `run_files` entry rehashed
   replayed CERTIFIED (exit 0) at 1844041e. 800d78a9 binds archived inputs to `inputs_sha256` and
   compares caveats with the fresh run; the producing lane reports the input-rehashed,
-  shape-rehashed and caveats-forged cases REJECTED with an unedited control CERTIFIED. **OPEN in
-  this RC until those receipts are published and checked here.**
+  shape-rehashed, caveats-forged and sibling-swap-input cases REJECTED (exit 1) with unedited
+  controls CERTIFIED (exit 0); receipts at T5 a2e0cb34, read by the reviewer. **Closed at 800d78a9
+  by comparison-reuse receipts only** (no full Lean run backs those rows).
 - Caveats: compared with the fresh run from 800d78a9 on (`inputs_commit` masked); records from
   earlier drivers carry caveats that replay did not reproduce.
 - Olean reproducibility is **not** claimed: 28 of 3966 oleans differed bitwise between acc4-flag
@@ -254,9 +259,16 @@ re-added to the kernel alone: 0 rejected. Single thread, 26 modules in 105.9 s w
 |---|---|---|---|
 | acc4-flag in-run negatives: opcode edit, stale bytes, substituted artifact, wrong gas bound, wrong postcondition, no allowed status, vacuity variants, name hijack/alias/macro, skipped kernel, sorry proof | 6d0f2621 | every variant refused (`driver.log`: "final_neg: every variant refused") | one-full-run (inside the acc4-flag run) |
 | replay with edited claims (final.theorem, final.statement, replay counts, a dropped module, emptied exclusions) | c09510a3 | **exit 0 CERTIFIED: failure**, fixed in 1844041e | comparison-reuse |
-| archived input edited + run_files rehashed | 1844041e | **exit 0 CERTIFIED: failure**, fixed in 800d78a9 (receipt pending here) | comparison-reuse |
-| input-rehashed, shape-rehashed, caveats-forged; unedited control | 800d78a9 | reported REJECTED ×3, control CERTIFIED; receipts pending here | comparison-reuse |
+| file layer: 9 cases (`file/table.md`) | 6d0f2621 | 9/9 exit 1 (REJECTED at the manifest) | manifest (no Lean run) |
+| stale-source | 6d0f2621 | exit 1: the record's source digest is not its source file's | manifest |
+| 7 pin cases: flipped byte, changed solar options, stale spec hash, stale import, omitted selector, false environment pin, out-of-gas as revert | 6d0f2621 and 800d78a9 | exit 1 each, naming its key: `bytecode_sha256`, `options`, `spec`, `inputs_sha256`, `functions`, `environment`, `gas_bound`; unedited control exit 0 on both | comparison-reuse (driver's own `replay_main` over T1's fresh run 4df9c420) |
+| stale-bytes, full run | 6d0f2621 | replay exit 1 on `bytecode_sha256` as expected, but **not a clean pass**: the fresh certify inside it ended "REJECTED: driver: UnicodeDecodeError" at the final-negatives stage (see blockers); 13808 s wall, peak 8799 MiB | one-full-run |
+| claim tampers: theorem renamed, statement edited, closure altered, unaccounted hidden, assumptions dropped, caveats dropped, strict forged, forged-consistent, sibling swap of selectors | 800d78a9 | exit 1 each, naming the edited field | comparison-reuse, then manifest |
+| input/sibling tampers: input-rehashed, shape-rehashed, caveats-forged-consistent, sibling-swap-input | 1844041e → 800d78a9 | **exit 0 CERTIFIED on 1844041e (failure)**; exit 1 on 800d78a9 ("is not the generated input" / caveats vs fresh); controls exit 0 on both | comparison-reuse |
+| 8 unsupported contracts: Assembly, Delegatecall, ExternalCall, Payable, Reentrancy, Selfdestruct, StringArg, TryCatch | 800d78a9 | BLOCKED exit 3 each, before any proof work | one-full-run each (static gate) |
+| SiblingOk / SiblingLeak pair | 800d78a9 | **pending** on acc5-siblingok | - |
 | replay of each held-out record with an edited claim | 800d78a9 | pending | comparison-reuse |
+| Receipts for the rows above from file layer through unsupported contracts: T5, solidity-lean `t5/heldout-negatives` @ a2e0cb344d3da82c250096bd8ac55a6f792fd0b7, https://github.com/paradigmxyz/solidity-lean/tree/a2e0cb344d3da82c250096bd8ac55a6f792fd0b7/tests/heldout/runs/replay-acc4-flag (`README.md`) and `docs/MUTATIONS_GENERIC.md` | | | |
 | `--tier lifecycle` | 800d78a9 | exit 2 "tier not offered": H1 (`lifecycle-tier.log` in its record dir), H2 (one-full-run) and H3 (argparse invalid choice, no record; comparison-reuse). Lifecycle is BLOCKED (not offered), not a failure of the runtime claim | one-full-run per case |
 
 ## Files
