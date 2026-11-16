@@ -135,7 +135,7 @@ Labels: **one-full-run** = the exit comes from its own complete driver run;
 | acc4-flag (`Certified/record/acc4-flag/`, from records d66e60bf) | 6d0f2621 | CERTIFIED, tier certified, strict holds, exit 0 (one-full-run) | exact-pin fresh-clone replay at 6d0f2621, 18/18 pins SAME, exit 0 (`Certified/record/acc4-flag-replay/`, from 4df9c420) | **No**: 6d0f2621 is not an ancestor of 800d78a9 and differs from it in 17 driver files and 27 compiler files. Exact-pin at 6d0f2621 only. |
 | H1 SimpleStorage (held-out runner T6) | 800d78a9 (a 1844041e attempt was stopped in its probe build and wrote no record) | pending | pending | pending |
 | H2 ViewAndPure (runner T7) | 800d78a9 | pending | pending | pending |
-| H3 Mapping (runner T8) | 800d78a9 (binary dc65961e…b845) | **BLOCKED, exit 3** (one-full-run): "generic source check (2x, first myMap(address): source tree undefined (erasure))"; the second is `remove` (`delete myMap[_addr]`). tier_reached none; bytecode sha256 9071475602f625d442ffcbba8fcfac971109482af02166d1892f846615cefda6, gas bound 9237812; record.json sha256 7df52bde…0f99 (record dir not yet published) | not applicable: `--replay` of the BLOCKED record exits 1 "the record is BLOCKED: nothing to replay" | **No: BLOCKED.** Not a spec defect; case not edited or re-run. Counts as a held-out negative result |
+| H3 Mapping (runner T8) | 800d78a9 (binary dc65961e…b845) | **BLOCKED, exit 3** (one-full-run): "generic source check (2x, first myMap(address): source tree undefined (erasure))"; the second is `remove` (`delete myMap[_addr]`). tier_reached none; bytecode sha256 9071475602f625d442ffcbba8fcfac971109482af02166d1892f846615cefda6, gas bound 9237812; record.json sha256 7df52bde…0f99 (record dir `Certified/record/heldout-h3-mapping-blocked/`, byte-identical to `alpharush/heldout-h3-blocked` @ 4032285f; its record.json has no solidity_lean field because the run stopped before the base was used, so the base rests on the driver default: no `--base` was given, and `tools/certify/solidity-lean.rev` at 800d78a9 is 44572c15) | not applicable: `--replay` of the BLOCKED record exits 1 "the record is BLOCKED: nothing to replay" | **No: BLOCKED.** Not a spec defect; case not edited or re-run. Counts as a held-out negative result |
 
 acc4-flag, as checked by the reviewer: theorem `Certified.flag_4ce5cf9a.Final.final`, shape
 `Generic.Expected`, `assumptions := []`; axioms `propext, Classical.choice, Quot.sound`; closure
@@ -188,6 +188,9 @@ re-added to the kernel alone: 0 rejected. Single thread, 26 modules in 105.9 s w
 - `Certified/record/acc4-flag/`: byte-identical to records d66e60bf (and 4df9c420);
   `sha256sum -c MANIFEST.sha256` inside it.
 - `Certified/record/acc4-flag-replay/`: byte-identical to 4df9c420; same check.
+- `Certified/record/heldout-h3-mapping-blocked/`: H3's BLOCKED record, byte-identical to
+  `heldout-records/rc-2026-11-15/H3-Mapping-BLOCKED/` at 4032285f; `sha256sum -c MANIFEST.sha256`
+  inside it (its README.md is covered only by RC.MANIFEST.sha256).
 - `tests/heldout/rc-2026-11-15/`: byte-identical to e0564a28; `sha256sum -c SHA256SUMS`.
 - `RC.MANIFEST.sha256`: sha256 of every file above, from the repository root
   (`sha256sum -c RC.MANIFEST.sha256`).
