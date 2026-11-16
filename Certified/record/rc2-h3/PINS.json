@@ -1,0 +1,25 @@
+{
+  "schema": "rc2-record-pins/1",
+  "note": "Added after the run; record.json and the run files are unchanged. These pins were read from the run's checkouts on the runner Hand.",
+  "case": {
+    "id": "H3",
+    "source": "tests/heldout/rc-2026-11-15/Mapping/Mapping.sol",
+    "contract": "Mapping",
+    "sha256": "b39ab3912781a9b1a8cf897cf6fbb6ee7fcc98d973eb4b749195e2d773d23ccd",
+    "heldout_commit": "e0564a28100931a9986af9a848a57bc2bd835c67"
+  },
+  "driver": {
+    "repository": "paradigmxyz/solar",
+    "commit": "0479b90a422245bf77facc51ea17b960ed5c5851",
+    "tree": "e87de2594c4500a8cc5cd11a0a6703cf460d8da3",
+    "dirty": false,
+    "binary_commit": "0479b90a422245bf77facc51ea17b960ed5c5851",
+    "tools/certify/solidity-lean.rev": "49d1d7f5d9b74165486bd9f634202bee1a3633eb"
+  },
+  "base": {
+    "repository": "paradigmxyz/solidity-lean",
+    "commit": "49d1d7f5d9b74165486bd9f634202bee1a3633eb",
+    "tree": "69c84f611794132687353172325c886723fd8a4f",
+    "attested_by": "the driver's solidity-lean.rev, and the run's base clone (work/solidity-lean) whose HEAD was this commit and tree"
+  }
+}
