@@ -1,0 +1,62 @@
+{
+  "record": "InvOkFlat natspec certify rerun r2",
+  "verdict": "ABORTED-env",
+  "reason": "Host machine restarted during the package prebuild; the process tree was gone. No cargo build and no certify step ran, so there is no verdict.",
+  "input": {
+    "file": "InvOkFlat.sol",
+    "sha256": "c08ca5935242da25656021a2c929169994bce0653c4bcffcbd576c2e27d85fc2"
+  },
+  "driver": {
+    "repository": "paradigmxyz/solar",
+    "commit": "800d78a98b9e64612c742d5038e7e2ec35dd52b4"
+  },
+  "solidity_lean": {
+    "base": "44572c15",
+    "package_set": "writable copy, 14 package revisions matching the manifest"
+  },
+  "command": "lake -R build EthLib.Proofs <9 EthLib proof modules>; cargo build --locked --bin solar; tools/certify/certify InvOkFlat.sol natspec --base 44572c15 --packages-from <package set> --probe-cache <package set>",
+  "env": {
+    "LEAN_NUM_THREADS": 1,
+    "lean": "4.35.0"
+  },
+  "timeline_utc": {
+    "started": "2026-11-16T05:50:04Z",
+    "last_log_write": "2026-11-16T06:09:02Z",
+    "found_dead": "2026-11-16T06:39:19Z (host uptime 0 min)"
+  },
+  "last_log_line": "[6170/6180] Built EthLib.Cryptography.Proofs.Sphincs.Unforgeability.Bridge.Fors (2.1s)",
+  "prebuild_log_sha256": "5f0b4cf4b17113958bd920520774329b4598acf7c2b4d5c79fe5beebe21bb0f0",
+  "stages": {
+    "package_prebuild": "killed at 6170/6180",
+    "cargo_build": "not run",
+    "certify": "not run"
+  },
+  "receipts": "none written",
+  "certify_exit": null,
+  "trusted_count": null,
+  "record_json_sha256": null,
+  "axioms": null,
+  "history": [
+    {
+      "run": "r1 (driver c09510a3)",
+      "result": "killed by host pause"
+    },
+    {
+      "run": "r1 (driver 800d78a9), two attempts",
+      "result": "killed/stopped"
+    },
+    {
+      "run": "r1 (driver 800d78a9)",
+      "result": "ABORTED-env: exit 1, read-only package set during proof rebuild"
+    },
+    {
+      "run": "r2 first try",
+      "result": "killed by host restart at prebuild 5638/5647 (last log 2026-11-16T05:01:25Z)"
+    },
+    {
+      "run": "r2 restart (the one allowed restart)",
+      "result": "ABORTED-env, this record"
+    }
+  ],
+  "status": "parked; a later attempt needs a new decision and must run under a tracked keepalive"
+}
