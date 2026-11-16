@@ -671,3 +671,10 @@ lean_lib VerifyGeneric where
 -- uniswap_v2_transfer_slice.sh).
 lean_lib VerifyGenericTransfer where
   roots := #[`Verify.Generic.Instances.Transfer]
+
+-- UniswapV2ERC20.transfer from every caller over the bytes solar emitted in this run
+-- (Certified/uv2_transfer_e6/MANIFEST.md). Needs ContractsUniswapV2ERC20Certified's generated modules.
+lean_lib «uv2_transfer_e6» where
+  srcDir := "Certified"
+  roots := #[`uv2_transfer_e6.Statement, `uv2_transfer_e6.Final]
+  globs := #[.submodules `uv2_transfer_e6]
