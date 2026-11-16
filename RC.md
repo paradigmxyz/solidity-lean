@@ -1,8 +1,9 @@
 # Release candidate 2026-11-15 (solidity-lean)
 
-Status: **ASSEMBLING, not yet a release candidate. Held-out positives: 0 of 3** in the original
-draw (H1 REJECTED, H2 REJECTED on a resource limit, H3 BLOCKED), and there is no exact-pin positive
-at the RC driver pin (see Receipts). The acceptance reviewer, the only publisher of RC artifacts,
+Status: **not a passing release candidate. Held-out positives: 0 of 3** in the original draw (H1
+REJECTED, H2 REJECTED on a resource limit, H3 BLOCKED), and **0 of 1** in the separate second draw
+(H4 REJECTED; closed at H4). There is no exact-pin positive at the RC driver pin. This file is
+complete as a report of those results; acc5 is not needed for it. The acceptance reviewer, the only publisher of RC artifacts,
 updates this file in place, one commit per update on `alpharush/rc-2026-11-15`.
 
 What this candidate claims, if accepted: for contracts inside the supported subset below, the
@@ -109,7 +110,9 @@ The claims are kept separate:
 - Any-caller: OPEN (fixed caller only).
 - OPEN: E6 any-caller fresh-byte binding.
 - OPEN: acc5 fresh replay.
-- OPEN: Counter loop-head consumer (the Lean module that consumes `Counter.bump`'s loop obligations).
+- OPEN: Counter loop-head consumer (the Lean module that consumes `Counter.bump`'s loop obligations;
+  T4 `alpharush/t4-loopvc-rc` @ d365320e3010ab60166e3ebc2dec618c2d89fe9c, replay running, not
+  reviewed here).
 - OPEN: MIR / bytes / gas binding of any loop result.
 - Loops: certified bytes BLOCKED at the pin. The loop gate (below) is an SMT-level source check
   only. Lean-checked: none, for either loop contract (T4, solidity-lean 3b4f52e5). `Gcd.gcd`'s Lean
@@ -140,13 +143,27 @@ Labels: **one-full-run** = the exit comes from its own complete driver run;
 **comparison-reuse** = an edited copy of an existing record or run checked against it;
 **exact-pin** / **compatibility-check** for replays, as defined under Pins.
 
+### Held-out verdicts and their receipts
+
+| Draw | Case | Verdict | Receipt (record dir in this branch; source commit) |
+|---|---|---|---|
+| original (denominator 3) | H1 SimpleStorage | REJECTED, exit 1 | `Certified/record/heldout-h1-simplestorage-rejected/`; https://github.com/paradigmxyz/solidity-lean/tree/fe49ed41c1604e877df706525b640e17758c76cf/Certified/record/rc-heldout-h1-simplestorage |
+| original | H2 ViewAndPure | REJECTED, exit 1 (resource) | runner's report; record dir not yet published (runner T7) |
+| original | H3 Mapping | BLOCKED, exit 3 | `Certified/record/heldout-h3-mapping-blocked/`; https://github.com/paradigmxyz/solidity-lean/tree/4032285f1f264772d613982e63e06478b1d53af2/heldout-records/rc-2026-11-15/H3-Mapping-BLOCKED |
+| second (denominator 1, closed) | H4 FunctionModifier | REJECTED, exit 1 | `Certified/record/heldout-h4-functionmodifier-rejected/`; https://github.com/paradigmxyz/solidity-lean/tree/20da86ba5336207f822b6c43181aca696f2c4f82/heldout-records/rc-2026-11-15/H4-FunctionModifier-REJECTED |
+| second | H5 Account | not run | - |
+
+Cases and specs: https://github.com/paradigmxyz/solidity-lean/tree/e0564a28100931a9986af9a848a57bc2bd835c67/tests/heldout/rc-2026-11-15
+(original) and https://github.com/paradigmxyz/solidity-lean/tree/aa9191531b28e5cd44095f8bd680f789a61729c9/tests/heldout/rc-2026-11-15/draw2
+(second). Every receipt above is one-full-run; `--tier lifecycle` exits 2 on every run case.
+
 ### Positives
 
 | Record | Driver | Verdict | Replay | Accepted at RC pin |
 |---|---|---|---|---|
 | acc4-flag (`Certified/record/acc4-flag/`, from records d66e60bf) | 6d0f2621 | CERTIFIED, tier certified, strict holds, exit 0 (one-full-run) | exact-pin fresh-clone replay at 6d0f2621, 18/18 pins SAME, exit 0 (`Certified/record/acc4-flag-replay/`, from 4df9c420) | **No**: 6d0f2621 is not an ancestor of 800d78a9 and differs from it in 17 driver files and 27 compiler files. Exact-pin at 6d0f2621 only. |
 | H1 SimpleStorage (held-out runner T6) | 800d78a9 (clean; its solar binary reports `binary_commit` c09510a3, which differs from 800d78a9 only in `tools/certify/generic.py` and `test_generic.py`, so the compiler source is the same. A 1844041e attempt was stopped in its probe build and wrote no record) | **REJECTED, exit 1** (one-full-run): "spec: get_meets0 does not check: omega could not prove the goal (SpecConnect.lean:163)"; `get_holds` and `get_holds_in` depend on `sorryAx`, so `spec_connect` refused the functions and `scripts/certify --require-final` exited 1. Only partial result: `set(uint256)`'s spec theorems checked. tier_reached none; bytecode sha256 6e95f821ecc2c71682bb59cd089429e0ab967f2cb33da8a32ffbce7135e9d402, gas bound 1944803; record.json sha256 4758becf…c96e. Record dir `Certified/record/heldout-h1-simplestorage-rejected/`, byte-identical to `alpharush/t6-heldout-records` @ fe49ed41 | not applicable (nothing certified) | **No: REJECTED.** The spec is unchanged and states only `result == num`; a re-elaboration outside the driver shows omega's possible counterexample over `pre.time`, which the spec never mentions. The runner reads it as a gap in the generic stage's proof of a returned value, not a spec defect. Case not edited or re-run. Held-out negative result; the failure fails closed |
-| H2 ViewAndPure (runner T7) | 800d78a9 (clean), inputs commit 5eaae9e1 | **REJECTED, exit 1** (one-full-run, wall 45:53): Lean went over `LEAN_MEMORY=6000` while checking `SpecConnect.lean` and segfaulted (exit 139), so `spec_connect` refused the functions. Probe: `PROBE constructor: returns`, storage `[(0, 1)]`, all 3 functions agree. tier_reached none; bytecode sha256 9ee97f8f…a8c97; peak RSS 14.25 GB (process tree) on a 14 GB Hand. 23 earlier theorems on `propext, Classical.choice, Quot.sound` only (as reported). Record dir not yet published | not applicable (nothing certified; no `statuses.equivalence` to edit) | **No: REJECTED (resource).** Not a failed proof and not a spec defect; case not edited or re-run. Any later run with more memory is reported separately and never replaces this verdict |
+| H2 ViewAndPure (runner T7) | 800d78a9 (clean), inputs commit 5eaae9e1 | **REJECTED, exit 1** (one-full-run, wall 45:53): Lean went over `LEAN_MEMORY=6000` while checking `SpecConnect.lean` and segfaulted (exit 139), so `spec_connect` refused the functions. Probe: `PROBE constructor: returns`, storage `[(0, 1)]`, all 3 functions agree. tier_reached none; bytecode sha256 9ee97f8f…a8c97; peak RSS 14.25 GB (process tree) on a 14 GB Hand. 23 earlier theorems on `propext, Classical.choice, Quot.sound` only (as reported). Record dir not yet published | not applicable (nothing certified; no `statuses.equivalence` to edit) | **No: REJECTED (resource).** Not a failed proof and not a spec defect; case not edited or re-run. The coordinator authorised one higher-memory **diagnostic** rerun; it is reported separately, if made, and never replaces this verdict |
 | H3 Mapping (runner T8) | 800d78a9 (binary dc65961e…b845) | **BLOCKED, exit 3** (one-full-run): "generic source check (2x, first myMap(address): source tree undefined (erasure))"; the second is `remove` (`delete myMap[_addr]`). tier_reached none; bytecode sha256 9071475602f625d442ffcbba8fcfac971109482af02166d1892f846615cefda6, gas bound 9237812; record.json sha256 7df52bde…0f99 (record dir `Certified/record/heldout-h3-mapping-blocked/`, byte-identical to `alpharush/heldout-h3-blocked` @ 4032285f; its record.json has no solidity_lean field because the run stopped before the base was used, so the base rests on the driver default: no `--base` was given, and `tools/certify/solidity-lean.rev` at 800d78a9 is 44572c15) | not applicable: `--replay` of the BLOCKED record exits 1 "the record is BLOCKED: nothing to replay" | **No: BLOCKED.** Not a spec defect; case not edited or re-run. Counts as a held-out negative result |
 
 **Original held-out draw (H1-H3, e0564a28), denominator fixed at 3: 0 certified.** H1 REJECTED
@@ -159,12 +176,13 @@ The original selection protocol (`SELECTION.md` at e0564a28) defines no second d
 was made at the coordinator's request after H1 was REJECTED and H3 BLOCKED, by a rule written then
 (`draw2/PROCEDURE.md`, frozen at 7f7230f7f0d67ac650d5771e4d7248839409ff2f before the draw; draw and
 specs at aa9191531b28e5cd44095f8bd680f789a61729c9). Its results are reported here with their own
-denominator of 2 and never count toward, replace or dilute the original draw's.
+denominator and never count toward, replace or dilute the original draw's. **The coordinator closed
+this draw at H4: result 0 of 1. H5 was not run.**
 
 | Case | Driver | Verdict | Replay | Accepted at RC pin |
 |---|---|---|---|---|
 | H4 FunctionModifier (runner T8) | 800d78a9 (clean; `binary_commit` 800d78a9, binary dc65961e…b845) | **REJECTED, exit 1** (one-full-run, wall 4.1 s): "certify.py cannot write the stage proofs: error: no cut points for stage0 to mir1: place-reads: a recursive call into @decrement.body". Both envelope checks passed first (source inside; bytecode has no call, creation, gas or return-data opcode); it failed in the gas-need step, before the probe. tier_reached none; bytecode sha256 fe2739e8895b66eef5e4b71d9b5637901751962b4ed19ce7701ac9a96f19e0c3; no gas bound, probe or Final theorem. Record dir `Certified/record/heldout-h4-functionmodifier-rejected/`, byte-identical to `alpharush/heldout-h4-rejected` @ 20da86ba | not applicable: `--replay` exits 1 "the record lists no run files" | **No: REJECTED.** Case not edited or re-run. The recursion is not an envelope reason, so the driver reports REJECTED rather than BLOCKED; it still fails closed |
-| H5 Account | 800d78a9 | not dispatched (held pending the coordinator's decision on the second draw) | - | - |
+| H5 Account | - | **not run**: the draw was closed at H4 (coordinator, 20:28 CST) | - | - |
 
 acc4-flag, as checked by the reviewer: theorem `Certified.flag_4ce5cf9a.Final.final`, shape
 `Generic.Expected`, `assumptions := []`; axioms `propext, Classical.choice, Quot.sound`; closure
