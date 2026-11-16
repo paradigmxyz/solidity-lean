@@ -104,6 +104,11 @@ The claims are kept separate:
   can split a multibyte character; `generic.py:1036` `Popen(text=True)` then raises. Fails closed,
   but a positive could be refused depending on its path. Present at the RC pin 800d78a9; the fix
   changes the driver sha (pin decision pending). Seen in T5's stale-bytes full run.
+- **H2's spec step times out:** with memory raised by hand (12000 MB), `addToX_meets0` and `add_meets0`
+  hit a deterministic heartbeat timeout with no counterexample, so a higher memory cap would not
+  certify H2 on this driver; and the driver ignores `LEAN_MEMORY` from the environment
+  (`generic.py:45`). Same theorem slot as H1's `get_meets0` (the spec without `succeeds-if`), but a
+  different gap (H1: omega counterexample over `pre.time`).
 - **Resources:** H2's `SpecConnect.lean` check needs more than Lean's default 6000 MB on a 14 GB
   Hand (peak 14.25 GB process tree); the generic stage's memory use is a blocker for contracts
   of that size.
@@ -183,6 +188,7 @@ Labels: **one-full-run** = the exit comes from its own complete driver run;
 |---|---|---|---|
 | original (denominator 3) | H1 SimpleStorage | REJECTED, exit 1 | `Certified/record/heldout-h1-simplestorage-rejected/`; https://github.com/paradigmxyz/solidity-lean/tree/fe49ed41c1604e877df706525b640e17758c76cf/Certified/record/rc-heldout-h1-simplestorage |
 | original | H2 ViewAndPure | REJECTED, exit 1 (resource) | `Certified/record/heldout-h2-viewandpure-rejected/`; https://github.com/paradigmxyz/solidity-lean/tree/85b1dad91a7d04b809d2d1ec3e4e48e95d524b52/heldout-records/rc-2026-11-15/H2-ViewAndPure |
+| original (diagnostic) | H2 diagnostic rerun (not a verdict; does not replace H2) | (a) driver rerun with `LEAN_MEMORY=12000` in the env: ignored (`generic.py:45` fixes `LEAN_MEMORY = "6000"`), so an exact repeat: exit 1, REJECTED (resource), tier none, same stage; (b) the run's `SpecConnect.lean` by hand with `lean -M 12000`: exit 1, no memory exception, `addToX_meets0` and `add_meets0` hit a deterministic whnf heartbeat timeout (`maxHeartbeats 4000000`) | https://github.com/paradigmxyz/solidity-lean/tree/e5392be44054c127bf14f6b4b716aa0f8c225586/heldout-records/rc-2026-11-15/H2-ViewAndPure-DIAGNOSTIC (`MANIFEST.sha256` checked by the reviewer); not copied into this RC |
 | original | H3 Mapping | BLOCKED, exit 3 | `Certified/record/heldout-h3-mapping-blocked/`; https://github.com/paradigmxyz/solidity-lean/tree/4032285f1f264772d613982e63e06478b1d53af2/heldout-records/rc-2026-11-15/H3-Mapping-BLOCKED |
 | second (denominator 1, closed) | H4 FunctionModifier | REJECTED, exit 1 | `Certified/record/heldout-h4-functionmodifier-rejected/`; https://github.com/paradigmxyz/solidity-lean/tree/20da86ba5336207f822b6c43181aca696f2c4f82/heldout-records/rc-2026-11-15/H4-FunctionModifier-REJECTED |
 | second | H5 Account | not run | - |
