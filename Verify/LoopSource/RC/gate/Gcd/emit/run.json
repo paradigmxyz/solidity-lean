@@ -1,0 +1,12 @@
+{
+  "arguments": [
+    "--no-infer",
+    "--only",
+    "Gcd.gcd",
+    "--emit-lean",
+    "~/t4out/rc/gate/Gcd/emit",
+    "Gcd.sol"
+  ],
+  "cwd": "~/t4src/Verify/LoopSource/RC/inputs",
+  "output": "~/t4out/rc/gate/Gcd/emit"
+}

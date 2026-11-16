@@ -1,0 +1,202 @@
+{
+  "compiler": "0.8.38+commit.c09510a3.solar.0.3.0-dev",
+  "errors": [],
+  "format": "solar-verify-lean",
+  "lean": {
+    "library": "Verify.Obligation",
+    "smt_sha256": "2c92f3bcd927369da89250662bd5a6174d3c06d0c3c38f5021509fe8810036e3",
+    "toolchain": "leanprover/lean4:v4.35.0",
+    "vc_sha256": "648d461056fe1649754b1ec259c2d1c48e8db8a4c11e5af281e73796399bc96a"
+  },
+  "options": {
+    "dry_run": false,
+    "only": "Gcd.gcd",
+    "strict": false,
+    "timeout_ms": 10000
+  },
+  "solvers": {
+    "bitwuzla": null,
+    "cvc5": null,
+    "z3": "Z3 version 5.4.1 - 64 bit"
+  },
+  "sources": [
+    {
+      "path": "GcdBadPres.sol",
+      "sha256": "3cd8abe0e3d00212b43a0180c1dbcdd2018867762c62837728703cb02e2b24f9"
+    }
+  ],
+  "units": [
+    {
+      "module": "Gcd/gcd.lean",
+      "name": "Gcd.gcd",
+      "namespace": "SolarVerifyVc.Gcd.gcd",
+      "obligations": [
+        {
+          "answer": "unsat",
+          "asserts": 22,
+          "commands": 44,
+          "goal": "(and (and (and (and (> |a@19| 0) (> |b@20| 0)) (<= |a@19| |a@19|)) (<= |b@20| |b@20|)) (= |a@19| |a@19|))",
+          "guard": "|g@22|",
+          "id": "Gcd.gcd#0",
+          "kind": "loop invariant not satisfied on entry",
+          "lean": "SolarVerifyVc.Gcd.gcd.ob0",
+          "required": true,
+          "role": "obligation",
+          "script": 0,
+          "site": {
+            "column": 14,
+            "file": "GcdBadPres.sol",
+            "line": 13
+          },
+          "smt_sha256": "f650bff008e251872671bb581f41c6fd5286d623dc59399e7813c80637680ce2",
+          "solver": "z3",
+          "spec": {
+            "column": 14,
+            "file": "GcdBadPres.sol",
+            "line": 13,
+            "text": "x > 0 && y > 0 && x <= a && y <= b && x == a"
+          }
+        },
+        {
+          "answer": "sat",
+          "asserts": 35,
+          "commands": 70,
+          "goal": "(and (and (and (and (> |x@34| 0) (> |y@35| 0)) (<= |x@34| |a@19|)) (<= |y@35| |b@20|)) (= |x@34| |a@19|))",
+          "guard": "|g@33|",
+          "id": "Gcd.gcd#1",
+          "kind": "loop invariant not preserved by the loop body",
+          "lean": "SolarVerifyVc.Gcd.gcd.ob1",
+          "required": true,
+          "role": "obligation",
+          "script": 0,
+          "site": {
+            "column": 14,
+            "file": "GcdBadPres.sol",
+            "line": 13
+          },
+          "smt_sha256": "249b54c8ae59d16383fd68225774f924de555cf038fc7824b118ecc61a01fadb",
+          "solver": "z3",
+          "spec": {
+            "column": 14,
+            "file": "GcdBadPres.sol",
+            "line": 13,
+            "text": "x > 0 && y > 0 && x <= a && y <= b && x == a"
+          }
+        },
+        {
+          "answer": "unsat",
+          "asserts": 35,
+          "commands": 70,
+          "goal": "(and (<= 0 (+ |x@23| |y@24|)) (< (+ |x@34| |y@35|) (+ |x@23| |y@24|)))",
+          "guard": "|g@33|",
+          "id": "Gcd.gcd#2",
+          "kind": "loop does not terminate: decreases clause not decreased",
+          "lean": "SolarVerifyVc.Gcd.gcd.ob2",
+          "required": true,
+          "role": "obligation",
+          "script": 0,
+          "site": {
+            "column": 14,
+            "file": "GcdBadPres.sol",
+            "line": 14
+          },
+          "smt_sha256": "92a5806ce07fcce6c03efaa85aa2dcfdad5e2c39531c04611c6ef3a5d7f5cd2b",
+          "solver": "z3",
+          "spec": {
+            "column": 14,
+            "file": "GcdBadPres.sol",
+            "line": 14,
+            "text": "x + y"
+          }
+        },
+        {
+          "answer": "sat",
+          "asserts": 36,
+          "commands": 72,
+          "goal": "false",
+          "guard": "|g@36|",
+          "id": "Gcd.gcd#3",
+          "lean": "SolarVerifyVc.Gcd.gcd.ob3",
+          "required": false,
+          "role": "advisory",
+          "script": 0,
+          "smt_sha256": "89ca1dd7945840407b447e2e8a2d4a29937de6c9fa324b7b464cd024cab5a38c",
+          "solver": "z3"
+        },
+        {
+          "answer": "unsat",
+          "asserts": 36,
+          "commands": 72,
+          "goal": "(and (and (> |x@23| 0) (<= |x@23| |a@19|)) (<= |x@23| |b@20|))",
+          "guard": "|g@36|",
+          "id": "Gcd.gcd#4",
+          "kind": "postcondition not satisfied",
+          "lean": "SolarVerifyVc.Gcd.gcd.ob4",
+          "required": true,
+          "role": "obligation",
+          "script": 0,
+          "site": {
+            "column": 10,
+            "file": "GcdBadPres.sol",
+            "line": 9
+          },
+          "smt_sha256": "6861a4d86cb5ab9ff993dcd5d506f6bb0be2226b15d873422a798948623c425c",
+          "solver": "z3",
+          "spec": {
+            "column": 10,
+            "file": "GcdBadPres.sol",
+            "line": 9,
+            "text": "r > 0 && r <= a && r <= b"
+          }
+        }
+      ],
+      "scripts": [
+        {
+          "commands": 72,
+          "decls": [
+            "|this@1|",
+            "|msg.sender@2|",
+            "|msg.value@3|",
+            "|block.timestamp@4|",
+            "|block.number@5|",
+            "|block.chainid@6|",
+            "|tx.origin@7|",
+            "|tx.gasprice@8|",
+            "|msg.sig@9|",
+            "|msg.data@10|",
+            "|block.basefee@11|",
+            "|block.blobbasefee@12|",
+            "|block.coinbase@13|",
+            "|block.prevrandao@14|",
+            "|block.difficulty@15|",
+            "|block.gaslimit@16|",
+            "|__balance@17|",
+            "|__code_epoch@18|",
+            "|a@19|",
+            "|b@20|",
+            "|g@21|",
+            "|g@22|",
+            "|x@23|",
+            "|y@24|",
+            "|g@25|",
+            "|g@26|",
+            "|g@27|",
+            "|arith@28|",
+            "|g@29|",
+            "|g@30|",
+            "|arith@31|",
+            "|g@32|",
+            "|g@33|",
+            "|x@34|",
+            "|y@35|",
+            "|g@36|"
+          ],
+          "lean": "SolarVerifyVc.Gcd.gcd.script0",
+          "smt": "Gcd/gcd.script0.smt2"
+        }
+      ],
+      "status": "failed"
+    }
+  ],
+  "version": 2
+}

@@ -1,0 +1,7 @@
+Counter.bump: ACCEPT (exit 0)
+  initiation: exit 0
+  consecution: exit 0
+  termination: exit 0
+  exit: exit 0
+  contract_invariant: exit 0
+  nonvacuity: exit 0

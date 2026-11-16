@@ -1,0 +1,12 @@
+✘ Gcd.gcd (1 of 4 obligations failed)
+verification results:: 0 verified, 1 errors
+error: postcondition not satisfied
+  ╭▸ GcdBadExit.sol:9:10
+  │
+9 │     /// @custom:ensures r > 0 && r <= a && r <= b && r < a
+  │          ━━━━━━━━━━━━━━
+  │
+  ├ note: in Gcd.gcd
+  ├ note: failing spec: r > 0 && r <= a && r <= b && r < a
+  ╰ note: counterexample (pre-state): msg.sender = 1, a = 1, b = 1
+

@@ -1,0 +1,4 @@
+✔ Gcd.gcd (4 obligations)
+verification results:: 1 verified, 0 errors
+warning: Gcd.gcd: no execution of this function can return normally (contradictory requires/invariants, or it always reverts); its postconditions hold vacuously
+

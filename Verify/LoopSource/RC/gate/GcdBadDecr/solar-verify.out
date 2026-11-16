@@ -1,0 +1,12 @@
+✘ Gcd.gcd (1 of 4 obligations failed)
+verification results:: 0 verified, 1 errors
+error: loop does not terminate: decreases clause not decreased
+   ╭▸ GcdBadDecr.sol:14:14
+   │
+14 │         /// @custom:decreases x
+   │              ━━━━━━━━━━━━━━━━
+   │
+   ├ note: in Gcd.gcd
+   ├ note: failing spec: x
+   ╰ note: counterexample (pre-state): msg.sender = 1, a = 1, b = 115792089237316195423570985008687907853269984665640564039457584007913129625255
+

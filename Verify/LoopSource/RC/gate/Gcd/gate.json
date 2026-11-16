@@ -1,0 +1,63 @@
+{
+ "source": "~/t4src/Verify/LoopSource/RC/inputs/Gcd.sol",
+ "function": "Gcd.gcd",
+ "solar_verify_exit": 0,
+ "outcomes": {
+  "initiation": {
+   "ids": [
+    [
+     "Gcd.gcd#0",
+     "unsat"
+    ]
+   ],
+   "exit": 0
+  },
+  "consecution": {
+   "ids": [
+    [
+     "Gcd.gcd#1",
+     "unsat"
+    ]
+   ],
+   "exit": 0
+  },
+  "termination": {
+   "ids": [
+    [
+     "Gcd.gcd#2",
+     "unsat"
+    ]
+   ],
+   "exit": 0
+  },
+  "exit": {
+   "ids": [
+    [
+     "Gcd.gcd#4",
+     "unsat"
+    ]
+   ],
+   "exit": 0
+  },
+  "contract_invariant": {
+   "ids": [],
+   "exit": 3
+  },
+  "nonvacuity": {
+   "probes": [
+    [
+     "Gcd.gcd#3",
+     "sat"
+    ]
+   ],
+   "witness": "sat\n((|a@19| 12)\n (|b@20| 18))",
+   "assume": [
+    "(= |a@19| 12)",
+    "(= |b@20| 18)"
+   ],
+   "exit": 0
+  }
+ },
+ "exit": 0,
+ "verdict": "ACCEPT"
+}
