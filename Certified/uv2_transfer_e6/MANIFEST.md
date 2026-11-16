@@ -23,7 +23,7 @@ and reentrancy are out. The contract's address, block and transaction are `Targe
 
 | Item | Pin |
 |---|---|
-| solidity-lean base | 4332b47d3495790581a8d0d4f18f690bd8f3d5a6 (= 44572c15 + the transfer lane's `TransferExpected.lean`) |
+| solidity-lean base | 4332b47d3495790581a8d0d4f18f690bd8f3d5a6 (= 44572c15 + the transfer lane's `TransferExpected.lean`); published on b0196e92 (#166 head = 4332b47d + an unrelated certificate record) |
 | Lean | `leanprover/lean4:v4.35.0`; `lean` sha256 bf8d54e4714cc4b03d3f6bb34c83b7202b87e49c8bfcbff6895c085bb90ceb38, `leanchecker` sha256 12c38901cdbfab178f1bf6145dd30012e9a3b2c11ca695292a5884fa3cbaddb6 |
 | Compiler (stages and fresh bytes) | paradigmxyz/solar 697fc6864620d2fdb0b9b3ff66882ae4ad56b41e (`scripts/verify/uniswap_v2_stages-solar-rev`), release binary sha256 dca17546509f702c38639487a73c101b72d97718f0e13d51c307d1b971b92851 (this build) |
 | Options | `-Ogas --evm-version osaka` (`Certified/uv2_erc20/options`, sha256 e8dcb59d…038c) |
@@ -37,6 +37,11 @@ Trusted computing base: Lean's kernel (`leanchecker` replay), solc's frontend an
 (the source is SolidCore's reading of solc's AST), the port (the flattened file is what is
 certified, not v2-core as written), the specification's text in Statement.lean, and EthLib's EVM
 model.
+
+Scope:
+* `specAny` covers every `Context.Ok` caller. The source's sequenced updates (`SeqPostAt`) hold unconditionally; `TargetPostAt` holds where the call's finite footprint is separated (`ScopeAt`).
+* `specScoped` adds the caller's self-footprint separation to its contexts, and `Spec.Covered` witnesses that it is satisfiable.
+* Gas 8199112 is an observed-equality bound (from it on, the bytes give the source's observable), not a guarantee against running out of gas.
 
 ## Files
 
@@ -72,8 +77,52 @@ lake env lean --run check_final.lean uv2_transfer_e6 uv2_transfer_e6.Proof      
 (`decide +kernel`: the exported code's bytes are `runtimeBytes`), and `verify_bytes.sh` checks that
 `runtimeBytes` is what the pinned solar emits.
 
-Closure replay: `replay.py plan --include-trusted` gives 4027 modules, 4027 to replay, 0 trusted;
-`leanchecker --verbose` over all of them, then `replay.py account`. Result: REPLAY_RESULT.
+### Closure replay (kernel)
+
+`replay.py plan --include-trusted` over `check_final`'s module list: 4027 modules in the closure, 4027 to replay, 0 trusted by directory (`replay/plan`). `lake env leanchecker --verbose` (Lean v4.35.0 `leanchecker` sha256 12c38901…ddb6) ran over the plan in 11 batches of 400. `e6resume.sh` ran them one at a time in the Hand's single heavy slot (flock, `LEAN_NUM_THREADS=1`), each batch with its own output and exit:
+
+| Batch (first module index) | 0 | 400 | 800 | 1200 | 1600 | 2000 | 2400 | 2800 | 3200 | 3600 | 4000 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| leanchecker exit | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| seconds | 794 | 841 | 817 | 817 | 833 | 885 | 932 | 930 | 886 | 1340 | 103 |
+
+`replay.py account replay/plan replay.full.out 0 receipt.json --checker <leanchecker> --toolchain <v4.35.0>` exits 0 and prints: "kernel replay: 4027 of 4027 modules of the closure outside the trusted directories replayed by leanchecker in this run; 0 trusted by directory (none); 0 unaccounted; closure 4027 = 4027 + 0". The receipt also lists 38 modules that leanchecker replayed beyond the plan (`replayed_beyond_plan`); they are extra checks, not gaps. Files: `replay/receipt.json` (sha256 5ff89a2c0d22174d5d39e1184e4929b5bceb3ba9fac605e2b6d9b507c4bf0ab6), `replay/plan` (sha256 d54edb0df41bafedbf51f213be8935c4e1653eaf2950c1691a0949ae192cb368); the concatenated checker output was sha256 b5e4e0d6…4976, and `check_final`'s log sha256 97d8bf10…97ef5.
+
+**Frozen artifacts.** sha256 of the sorted `sha256sum` list of every `.olean` under `.lake` (9906 files): 7ddcac8716ddfc508c77c9f3bc875a1c4330e41fa5496a50d79ce5f7cccbc818 before the replay, 7ddcac8716ddfc508c77c9f3bc875a1c4330e41fa5496a50d79ce5f7cccbc818 after. The lists are byte-identical. Nothing was rebuilt between `lake -R build uv2_transfer_e6` and the replay.
+
+**Run history.** Two earlier attempts produced no verdict, and neither is counted:
+1. The first run (`lake env leanchecker`, batches of 400) died at 23:01 CST on Nov 15 when the Hand restarted (its uptime reset). Its output is kept apart.
+2. A rerun without `lake env` failed in batch 1200 ("Could not find any oleans for Batteries.CodeAction.Deprecated"; the Lean path was missing). It was discarded, and every batch was rerun under `lake env`.
+
+In the counted run, batches 0–2000 exited 0. The tracked task was then killed at 00:35:39 CST during batch 2400, before its 2-hour limit (which falls at 01:08 CST). The Hand did not restart (uptime 1 h 47 min at 00:49 CST), the task wrote no exit line, and the last memory sample is 00:35:39. **The cause is unknown.** One planned resume on the same artifacts skipped batches 0–2000 and reran batch 2400 from scratch; batches 2400–4000 exited 0.
+
+**Resources.** A sampler took one reading every 2 s during each batch (`replay/batches/*.mem`):
+* the summed RSS of the `leanchecker` processes peaked at 5,871,900 KiB (5.6 GiB);
+* machine-wide used memory (`free -m`) peaked at 4,002 MiB, of 14,531 MiB total.
+
+The `lake env` wrapper's own RSS was not sampled, and `lake -R build` was not sampled. **Aggregate process-tree resource admission: OPEN.**
+
+## Axioms
+
+`check_final` (solar c09510a3) exits 0 and reports `Certified.uv2_transfer_e6.Final.final : Certified.uv2_transfer_e6.Final.Statement`, with `Statement` in `uv2_transfer_e6.Statement`, which does not import `uv2_transfer_e6.Proof`. Its transitive axioms are `[propext, Classical.choice, Quot.sound]`, and every module those axioms come through is in the replayed closure above.
+
+## Identities of the fresh emit, source and stages
+
+| Item | Identity |
+|---|---|
+| Emitter | solar 697fc6864620d2fdb0b9b3ff66882ae4ad56b41e ("solar 0.3.0-dev+commit.697fc686"), the release binary built in this run, sha256 dca17546509f702c38639487a73c101b72d97718f0e13d51c307d1b971b92851. This is E6's solar; it is distinct from RC2's solar 0479b90a. |
+| Options | `-Ogas --evm-version osaka`, read from `Certified/uv2_erc20/options` (raw bytes sha256 e8dcb59d1d2c9325d924f23afb16523ebcef2750f7fa447cf67b494f81a9038c) |
+| Fresh emit, flattened source | `--emit bin-runtime` of `scripts/verify/uniswap-v2/UniswapV2ERC20.sol` (raw bytes sha256 14da00cdeaf2ab3709d2d9838be2c2a144502b32b874b55394d7a8792deac80b); JSON output sha256 14f97c90…53de; runtime hex sha256 0bba75d501e65bc87829d7dfbee57711df84c91d2cf44d19907b1a26b043e12c, 1183 bytes, equal to `runtimeBytes` |
+| Stage emit, unflattened port | `scripts/verify/uniswap_v2_erc20_stages.sh` runs `-Zemit-lean-stages` on `.cache/uniswap-v2/src/UniswapV2ERC20.sol` (raw bytes sha256 762294af01e1257b4332c1808776df55ee39c2a837febd2cd4100568a7e15d4c) and checks that the flag does not change the bytecode. `--emit bin-runtime` of this file gives the same runtime hex, sha256 0bba75d5…e12c (JSON output sha256 1529579e…53cc) |
+| Imported source | `Contracts/UniswapV2/ERC20/Source.lean` (sha256 e7f4cd9c7fcf69d59d92f8e8e3d466d6eeaf4ccf0a215a97137ed094bf94cfbc), from solc 0.8.35's AST of the flattened file; `Certified/uv2_erc20/uv2_erc20.sol` holds the same bytes (sha256 14da00cd…c80b) |
+| Generated stages and sources | every file in `GENERATED.sha256` (79 files: `Source.lean`, `Core.lean`, `Slice/Gen/**`, `Certified/uv2_erc20/gen/UniswapV2ERC20/**` (Stage0, Mir1–4, Evm1–11, Sched, Bytecode, manifests), `Ctx*.lean`, `ProofsT*`, the flattened and unflattened sources) |
+
+**Source identity.**
+* The import and the fresh emit read the same raw bytes (14da00cd…c80b).
+* The stage export read the unflattened port (762294af…5d4c), a different file. The flattener (`uniswap_v2_sources.py`) joins the imports and rewrites the inline-assembly `chainid()` to `block.chainid`.
+* The binding between the two is that both emit identical runtime bytes, and that the stages' `Bytecode` is the code `Proof.bound` checks against `runtimeBytes`.
+* That the two source texts have the same meaning rests on the port and flattener, which are in the TCB. **Raw-byte source identity across emit, import and stages: OPEN** (it holds for emit and import; the stage export used the unflattened file).
+* `verify_bytes.sh` compares bytes only. It accepts a `SOLAR` override and checks no executable, source or options hash; the identities above are this run's recorded values.
 
 ## Negatives (each exits nonzero)
 
