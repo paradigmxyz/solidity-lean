@@ -117,12 +117,7 @@ The `lake env` wrapper's own RSS was not sampled, and `lake -R build` was not sa
 | Imported source | `Contracts/UniswapV2/ERC20/Source.lean` (sha256 e7f4cd9c7fcf69d59d92f8e8e3d466d6eeaf4ccf0a215a97137ed094bf94cfbc), from solc 0.8.35's AST of the flattened file; `Certified/uv2_erc20/uv2_erc20.sol` holds the same bytes (sha256 14da00cd…c80b) |
 | Generated stages and sources | every file in `GENERATED.sha256` (79 files: `Source.lean`, `Core.lean`, `Slice/Gen/**`, `Certified/uv2_erc20/gen/UniswapV2ERC20/**` (Stage0, Mir1–4, Evm1–11, Sched, Bytecode, manifests), `Ctx*.lean`, `ProofsT*`, the flattened and unflattened sources) |
 
-**Source identity.**
-* The import and the fresh emit read the same raw bytes (14da00cd…c80b).
-* The stage export read the unflattened port (762294af…5d4c), a different file. The flattener (`uniswap_v2_sources.py`) joins the imports and rewrites the inline-assembly `chainid()` to `block.chainid`.
-* The binding between the two is that both emit identical runtime bytes, and that the stages' `Bytecode` is the code `Proof.bound` checks against `runtimeBytes`.
-* That the two source texts have the same meaning rests on the port and flattener, which are in the TCB. **Raw-byte source identity across emit, import and stages: OPEN** (it holds for emit and import; the stage export used the unflattened file).
-* `verify_bytes.sh` compares bytes only. It accepts a `SOLAR` override and checks no executable, source or options hash; the identities above are this run's recorded values.
+**Source identity** (superseded by BINDING.md). One raw-byte identity, 14da00cd…c80b, is shared by the fresh emit, the stage export, the AST import and the spec export. `verify_binding.sh` reruns all four from one private copy of those bytes after checking 10 pinned input hashes, and fails closed; its 9 negative controls exit nonzero, each naming its pin or stage. The earlier stage export read the unflattened port (762294af…5d4c); exporting from 14da00cd gives the same 18 stage modules byte for byte, and only the unimported `Manifest.lean` differs. `verify_bytes.sh` is kept, and still compares bytes only.
 
 ## Negatives (each exits nonzero)
 
