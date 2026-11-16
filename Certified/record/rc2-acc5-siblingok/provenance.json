@@ -1,0 +1,106 @@
+{
+  "driver_scripts": {
+    "commit": "0479b90a422245bf77facc51ea17b960ed5c5851",
+    "tree": "e87de2594c4500a8cc5cd11a0a6703cf460d8da3"
+  },
+  "solar_binary": {
+    "sha256": "1aca58558403403bf5e3e36be83b409be7d4fc45dabf8e807c0a3335781e47c4",
+    "built_from_commit": "0479b90a422245bf77facc51ea17b960ed5c5851",
+    "built_from_tree": "e87de2594c4500a8cc5cd11a0a6703cf460d8da3",
+    "version": [
+      "solar 0.3.0-dev+commit.0479b90a",
+      "Solidity Version: 0.8.38",
+      "Solc-Compatible Version: 0.8.38+commit.0479b90a.solar.0.3.0-dev",
+      "Commit SHA: 0479b90a422245bf77facc51ea17b960ed5c5851",
+      "Build Timestamp: 2026-11-16T04:49:54.564309716Z",
+      "Build Features: mimalloc,tracing",
+      "Build Profile: debug"
+    ],
+    "rust_sources_equal_to_driver_commit": true,
+    "note": "built at the driver commit"
+  },
+  "solidity_lean_executed": {
+    "head": "483b0604488c9364951613a958d68fdfd8549ff4",
+    "base_parent": "49d1d7f5d9b74165486bd9f634202bee1a3633eb",
+    "head_subject": "certify: generated inputs for siblingok_e3749c22"
+  },
+  "base_argument": "49d1d7f5d9b74165486bd9f634202bee1a3633eb",
+  "host": {
+    "peak_system_used_mib": 6209,
+    "peak_tree_rss_mib": 8796,
+    "max_rss_one_process_mib": 7988,
+    "mem_total_mib": 14531,
+    "wall_seconds": 9317.4,
+    "note": "peak_system_used_mib is machine-wide used memory (all processes), sampled each second"
+  },
+  "generated_files": {
+    "Certified/siblingok_e3749c22/Final.lean": "b5e382b27931fffc514e8ad9b6bd04841d19be40387ebc32bc488b5d21ef91e3",
+    "Certified/siblingok_e3749c22/Lowering.lean": "c682556e8830bfdc1e795711a1b88255b45a73a5548b8e1b4bea21c50ad6fcca",
+    "Certified/siblingok_e3749c22/Proofs/Assembly.lean": "cdabb415dd4f8f2dd08f762d32c4cfe60bef59e8dfddd2fd3efeb0089a4fbcf5",
+    "Certified/siblingok_e3749c22/Proofs/Runs/Evm1.lean": "caec9ab33e629c02875f6cb972756864878724d2f92ab66a6656124fad3ca372",
+    "Certified/siblingok_e3749c22/Proofs/Runs/Evm2.lean": "38c96a8b2405efde72f15957970c700ff51c0acff1529a7e282db0de347ffcad",
+    "Certified/siblingok_e3749c22/Proofs/Runs/Evm3.lean": "4b33d7639145c9559c44b9ddf85223cd39647cc23434847239686fb635ea364a",
+    "Certified/siblingok_e3749c22/Proofs/Runs/Evm4.lean": "b50b652b1be50e4e5906b2cf433d81250bd7dc5176bac4775d736f8be4dfd064",
+    "Certified/siblingok_e3749c22/Proofs/Runs/Evm5.lean": "06a065dea7754a27029aaa99cb12b7f2a1df2154824778b559a11c78d6e21c9b",
+    "Certified/siblingok_e3749c22/Proofs/Runs/Evm6.lean": "16d2d00af4b53e7632243c4e48a8818be0ceab325c65dfadd7a1aa9319f952e6",
+    "Certified/siblingok_e3749c22/Proofs/Runs/Evm7.lean": "f708fb52a8cf3d9d9e94c193f0658dbda2769e99d4466205f5f0a83e74e2231d",
+    "Certified/siblingok_e3749c22/Proofs/Runs/Sched.lean": "26b816ff25a813ecf76f13a334866f8574c4d13b52b2ac214742f6fffa8a11f7",
+    "Certified/siblingok_e3749c22/Proofs/Runs/Stage0.lean": "3ccf855d3f9a49e48d9bd1e52ecf1cfb884d9ac1922c6f014010150404c88d6c",
+    "Certified/siblingok_e3749c22/Proofs/Stages.lean": "7315cab60e6793527cbfd41abbfbc7afe09e51596ad212125989ecb8e14edab0",
+    "Certified/siblingok_e3749c22/Proofs.lean": "a18cca4c5a34f293324e9ce003fd6776e5a78bbe76771d41e6f4bc39b6ac5fe4",
+    "Certified/siblingok_e3749c22/Shape.lean": "60a4f847f317d5751eb5bf4872b3e75ebf4fdb28475cfa249a9dca82bbd4914a",
+    "Certified/siblingok_e3749c22/Source.lean": "f56cd63ea6f59930f65545c8b273ef64ca8832e20f6648c1a7e4bbc0494a7b13",
+    "Certified/siblingok_e3749c22/SpecConnect.lean": "07f65477623ff6efafff783348ea6cddcfede5e74be415179a4033c87ffca913",
+    "Certified/siblingok_e3749c22/Statement.lean": "77889a14cd2533ac862d8c2802b08bba565a13ba1d5d7166353123544c936c7b",
+    "Certified/siblingok_e3749c22/bytecode.hex": "5942649317359f33535b135f6d79036676d0f7640ae124982318e3ab5d4848e6",
+    "Certified/siblingok_e3749c22/gen/SiblingOk/Bytecode.lean": "d5a284d8c790dcc209691cb47b0bdb42e4800c53edded5d2bc56b6fa099f0d23",
+    "Certified/siblingok_e3749c22/gen/SiblingOk/Evm1.lean": "b001e9aebb9fb1306f7e742733d354ae2f139a6b9e714539996bfb2c69a7926e",
+    "Certified/siblingok_e3749c22/gen/SiblingOk/Evm2.lean": "7e2a4669344eec4f053d0d9d751e05112bbd2780f1c6b273b6a35162813ef020",
+    "Certified/siblingok_e3749c22/gen/SiblingOk/Evm3.lean": "37d88bbd57c4a884260018a37df6c5144f84432bafc52810c0025f2c5438a67f",
+    "Certified/siblingok_e3749c22/gen/SiblingOk/Evm4.lean": "869ef9fbad6a5aa66e9f664fd5443fc2ed90ff3d7de0fbfdda5a546012ff7559",
+    "Certified/siblingok_e3749c22/gen/SiblingOk/Evm5.lean": "95ea52dab3c8938dcb7c634c0cc791d1d25861ae0abb24b9c95dd3d15cabe171",
+    "Certified/siblingok_e3749c22/gen/SiblingOk/Evm6.lean": "0335fef0bfdc8fbf18876552a06f7834cb2568539dfc9db0718be338aa45206f",
+    "Certified/siblingok_e3749c22/gen/SiblingOk/Evm7.lean": "0bbd6d1fe44635b7accf52772917cf04b66f9415a0f5782c5d1e10c39114f2c8",
+    "Certified/siblingok_e3749c22/gen/SiblingOk/Manifest.lean": "f0c67d53f76406ba2dfe57d982f090b44dcbffece08da98808185f240eccc6d3",
+    "Certified/siblingok_e3749c22/gen/SiblingOk/Sched.lean": "9ce848aaceb64cbcda6baf3222b8baedc019dc39c5676d3b5ab019912241eeca",
+    "Certified/siblingok_e3749c22/gen/SiblingOk/Schedule.json": "bd34e24f63004893503ce3f475577af81e3876fc1a0d69590338626a021012d3",
+    "Certified/siblingok_e3749c22/gen/SiblingOk/Spec.lean": "359d8db121c5926373e74404f4c46b1eb81e4c5f6a5f59ea86170a41dc555e8c",
+    "Certified/siblingok_e3749c22/gen/SiblingOk/Stage0.lean": "f90b7433f735bbd365113fbba8e219aefac4eaceb27009ced2412b735c9dabff",
+    "Certified/siblingok_e3749c22/gen/SiblingOk/manifest.json": "346a2ca61703daa6202a232c766acc49c57416a4dc81a1774ade6d0af1b043e3",
+    "Certified/siblingok_e3749c22/options": "e8dcb59d1d2c9325d924f23afb16523ebcef2750f7fa447cf67b494f81a9038c",
+    "Certified/siblingok_e3749c22/record.json": "df24ce85b4a733cf8ee408cbad8ca6ef9f15ac2f552414d907c0483aa33ec2c7",
+    "Certified/siblingok_e3749c22/shape.json": "e34244b2f968fcc10efaf12fab9a87842f454ee731a60f0d45ca4046aa655497",
+    "Certified/siblingok_e3749c22/siblingok_e3749c22.sol": "e3749c22494d07461b2074268882227824a84765f8afc21de6bf4da56a61ca47"
+  },
+  "replay_dir_check": {
+    "extra": [],
+    "missing": [],
+    "mismatched": []
+  },
+  "ir_hashes": {
+    "Certified/siblingok_e3749c22/bytecode.hex": "5942649317359f33535b135f6d79036676d0f7640ae124982318e3ab5d4848e6",
+    "Certified/siblingok_e3749c22/gen/SiblingOk/Bytecode.lean": "d5a284d8c790dcc209691cb47b0bdb42e4800c53edded5d2bc56b6fa099f0d23",
+    "Certified/siblingok_e3749c22/gen/SiblingOk/Evm1.lean": "b001e9aebb9fb1306f7e742733d354ae2f139a6b9e714539996bfb2c69a7926e",
+    "Certified/siblingok_e3749c22/gen/SiblingOk/Evm2.lean": "7e2a4669344eec4f053d0d9d751e05112bbd2780f1c6b273b6a35162813ef020",
+    "Certified/siblingok_e3749c22/gen/SiblingOk/Evm3.lean": "37d88bbd57c4a884260018a37df6c5144f84432bafc52810c0025f2c5438a67f",
+    "Certified/siblingok_e3749c22/gen/SiblingOk/Evm4.lean": "869ef9fbad6a5aa66e9f664fd5443fc2ed90ff3d7de0fbfdda5a546012ff7559",
+    "Certified/siblingok_e3749c22/gen/SiblingOk/Evm5.lean": "95ea52dab3c8938dcb7c634c0cc791d1d25861ae0abb24b9c95dd3d15cabe171",
+    "Certified/siblingok_e3749c22/gen/SiblingOk/Evm6.lean": "0335fef0bfdc8fbf18876552a06f7834cb2568539dfc9db0718be338aa45206f",
+    "Certified/siblingok_e3749c22/gen/SiblingOk/Evm7.lean": "0bbd6d1fe44635b7accf52772917cf04b66f9415a0f5782c5d1e10c39114f2c8",
+    "Certified/siblingok_e3749c22/gen/SiblingOk/Schedule.json": "bd34e24f63004893503ce3f475577af81e3876fc1a0d69590338626a021012d3",
+    "Certified/siblingok_e3749c22/gen/SiblingOk/Stage0.lean": "f90b7433f735bbd365113fbba8e219aefac4eaceb27009ced2412b735c9dabff",
+    "Certified/siblingok_e3749c22/gen/SiblingOk/manifest.json": "346a2ca61703daa6202a232c766acc49c57416a4dc81a1774ade6d0af1b043e3"
+  },
+  "ir_hashes_note": "gen/<C>/Stage0.lean is the exported MIR (the generic stage's input), Evm1..N.lean the EVM IR stages, Bytecode.lean and bytecode.hex the runtime bytes",
+  "extraction": "replay/ is the driver's --record-dir byte for byte (minus the queue's DONE marker); every other file here is the archival envelope",
+  "resource_admission": {
+    "rule": "max(system_used_mib) <= mem_total_mib - 1024 and not killed for memory",
+    "samples": 4654,
+    "max_system_used_mib": 6209,
+    "mem_total_mib": 14531,
+    "killed_for_memory": false,
+    "decision": "admitted",
+    "trace": "receipt.trace.tsv",
+    "trace_sha256": "5f3d9c6071232df2ecdb5a3c8a9acd5e2aa8300bb0f978f6ea6919efb9f5bb91"
+  }
+}
