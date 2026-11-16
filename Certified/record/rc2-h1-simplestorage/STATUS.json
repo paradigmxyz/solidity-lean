@@ -1,0 +1,8 @@
+{
+ "label": "ABORTED-env",
+ "is_h1_verdict": false,
+ "driver_exit": 1,
+ "driver_status_in_record_json": "REJECTED",
+ "reason": "cache preparation: the --packages-from cache lacked the oleans of SolidCore.Refinement.Statement's EthLib closure (9 modules), and the driver mounts packages read-only, so stage 6b could not build them",
+ "superseded_by": "pending"
+}
