@@ -1,0 +1,9 @@
+case: H2 (tests/heldout/rc-2026-11-15/ViewAndPure/ViewAndPure.sol, contract ViewAndPure, sha256 8c016856778b1851326d97c92b79610936cdbf59f64e85df8f7f64e21278d9e5)
+heldout inputs: solidity-lean alpharush/rc-heldout e0564a28100931a9986af9a848a57bc2bd835c67 (sha256sum -c SHA256SUMS: 9/9 OK)
+driver: solar 800d78a98b9e64612c742d5038e7e2ec35dd52b4, base 44572c150176365fa5e0d56ae6c59a7a443f8122, inputs commit 5eaae9e17117b4cd1d59e9f183d7a2d95f87c2b5
+verdict: REJECTED (resource), exit 1, tier reached: none, requested: certified
+cause: Lean interpreter exceeded LEAN_MEMORY=6000 MB checking SpecConnect.lean, then segfault (exit 139); spec_connect refused the functions; not a proof failure
+run: one-full-run, LEAN_NUM_THREADS=1, --packages-from/--probe-cache a prebuilt cache of the base's dependencies; started 2026-11-16T01:14:15Z, wall 2754.2 s
+peak RSS: 14253960 kB process group (2 s trace, memtrace.tsv), 13587068 kB single process (time -v); host 14 GB RAM, 5 CPUs
+earlier attempt: stopped by the operator during the dependency build (no verdict)
+replay: not run (no tier reached)
