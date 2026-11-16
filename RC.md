@@ -41,6 +41,7 @@ Source of truth: `envelope()` in `tools/certify/generic.py` and `docs/SUPPORTED_
 | public mapping (its compiler-generated getter), `delete` of a mapping element | BLOCKED: the generic source check has no erasure for either ("source tree undefined (erasure)"). `envelope()` and `docs/SUPPORTED_ENVELOPE.md` admit both, so this is caught only at the source check, which fails closed (exit 3). Any contract with a `public` mapping is outside the subset at the pin | - |
 | state-variable initializers / constructor without parameters | runtime tier only: the storage is any storage that lists every slot the constructor writes (`Generic.Covers`: those slots, any values); the constructor's run is not part of the claim | none yet (H2 pending) |
 | constructor with parameters | BLOCKED (envelope) | - |
+| recursion (a function calling itself) | admitted by `envelope()`, refused later at the gas-need step ("no cut points … a recursive call"); outside the subset at the pin, reported as REJECTED, not BLOCKED (H4) | - |
 | deployment / init code / lifecycle | BLOCKED (not offered): the pin has no lifecycle or constructor tier, and `--tier lifecycle` exits 2 "tier not offered". This is a scope limit, not a failure of the certified runtime claim | - |
 | caller other than 0x2000 (any-caller) | OPEN: `Context.default` only | - |
 | loops (for/while/do), certified bytes | BLOCKED: the generic driver at the pin does not take loops | - |
@@ -158,8 +159,8 @@ denominator of 2 and never count toward, replace or dilute the original draw's.
 
 | Case | Driver | Verdict | Replay | Accepted at RC pin |
 |---|---|---|---|---|
-| H4 FunctionModifier (runner T8) | 800d78a9 | pending (dispatched) | pending | pending |
-| H5 Account | 800d78a9 | not dispatched | pending | pending |
+| H4 FunctionModifier (runner T8) | 800d78a9 (clean; `binary_commit` 800d78a9, binary dc65961e…b845) | **REJECTED, exit 1** (one-full-run, wall 4.1 s): "certify.py cannot write the stage proofs: error: no cut points for stage0 to mir1: place-reads: a recursive call into @decrement.body". Both envelope checks passed first (source inside; bytecode has no call, creation, gas or return-data opcode); it failed in the gas-need step, before the probe. tier_reached none; bytecode sha256 fe2739e8895b66eef5e4b71d9b5637901751962b4ed19ce7701ac9a96f19e0c3; no gas bound, probe or Final theorem. Record dir `Certified/record/heldout-h4-functionmodifier-rejected/`, byte-identical to `alpharush/heldout-h4-rejected` @ 20da86ba | not applicable: `--replay` exits 1 "the record lists no run files" | **No: REJECTED.** Case not edited or re-run. The recursion is not an envelope reason, so the driver reports REJECTED rather than BLOCKED; it still fails closed |
+| H5 Account | 800d78a9 | not dispatched (held pending the coordinator's decision on the second draw) | - | - |
 
 acc4-flag, as checked by the reviewer: theorem `Certified.flag_4ce5cf9a.Final.final`, shape
 `Generic.Expected`, `assumptions := []`; axioms `propext, Classical.choice, Quot.sound`; closure
@@ -214,6 +215,9 @@ re-added to the kernel alone: 0 rejected. Single thread, 26 modules in 105.9 s w
 - `Certified/record/acc4-flag-replay/`: byte-identical to 4df9c420; same check.
 - `Certified/record/heldout-h1-simplestorage-rejected/`: H1's REJECTED record, byte-identical to
   `Certified/record/rc-heldout-h1-simplestorage/` at fe49ed41; `sha256sum -c MANIFEST.sha256` inside it.
+- `Certified/record/heldout-h4-functionmodifier-rejected/`: H4's REJECTED record (second draw),
+  byte-identical to `heldout-records/rc-2026-11-15/H4-FunctionModifier-REJECTED/` at 20da86ba;
+  `sha256sum -c MANIFEST.sha256` inside it.
 - `Certified/record/heldout-h3-mapping-blocked/`: H3's BLOCKED record, byte-identical to
   `heldout-records/rc-2026-11-15/H3-Mapping-BLOCKED/` at 4032285f; `sha256sum -c MANIFEST.sha256`
   inside it (its README.md is covered only by RC.MANIFEST.sha256).
