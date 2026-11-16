@@ -195,3 +195,7 @@ with base 44572c15. Driver 1844041e and 800d78a9 rows are marked. Full tables, l
   CERTIFIED on 1844041e and are REJECTED on 800d78a9. sibling-swap-pin is REJECTED on both, by functions.
 * **Unsupported contracts**: 8 contracts in `tests/heldout/blocked/`, each exit 3 BLOCKED on 800d78a9.
 
+
+## SiblingLeak paired with SiblingOk (driver 0479b90a, base 49d1d7f5)
+
+SiblingOk is CERTIFIED with strict exit 0 on these pins. SiblingLeak, on the same pins, in one full run: exit 1, `REJECTED: spec: set_meets0 does not check` (the false else-branch postcondition does not prove; its theorems depend on `sorryAx`), 868 s, peak tree RSS 6159 MiB. See [tests/heldout/runs/rc2-siblingleak](../tests/heldout/runs/rc2-siblingleak/README.md).
