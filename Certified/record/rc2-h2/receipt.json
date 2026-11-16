@@ -1,0 +1,35 @@
+{
+  "command": [
+    "tools/certify/certify",
+    "/home/hand/h2/sl/tests/heldout/rc-2026-11-15/ViewAndPure/ViewAndPure.sol",
+    "natspec",
+    "--contract",
+    "ViewAndPure",
+    "--solidity-lean",
+    "/home/hand/h2/sl",
+    "--base",
+    "49d1d7f5d9b74165486bd9f634202bee1a3633eb",
+    "--work",
+    "/home/hand/h2/work-rc2",
+    "--record-dir",
+    "/home/hand/h2/rc2/record",
+    "--solc",
+    "/home/hand/.cache/solc/solc-0.8.35",
+    "--packages-from",
+    "/home/hand/h2/cache",
+    "--probe-cache",
+    "/home/hand/h2/cache"
+  ],
+  "started_utc": "2026-11-16T05:20:18Z",
+  "wall_seconds": 2544.2,
+  "exit": 1,
+  "peak_group_rss_kb_2s_trace": 14356636,
+  "max_single_process_rss_kb_time_v": 13703800,
+  "env": {
+    "LEAN_NUM_THREADS": "1"
+  },
+  "trace": "memtrace.tsv (2 s interval)",
+  "host": "pyrh-pool-80fa42594a204bf6-0",
+  "nproc": 5,
+  "mem_total_kb": 14880764
+}

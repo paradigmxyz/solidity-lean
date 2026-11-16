@@ -1,0 +1,24 @@
+Command exited with non-zero status 1
+	Command being timed: "tools/certify/certify /home/hand/h2/sl/tests/heldout/rc-2026-11-15/ViewAndPure/ViewAndPure.sol natspec --contract ViewAndPure --solidity-lean /home/hand/h2/sl --base 49d1d7f5d9b74165486bd9f634202bee1a3633eb --work /home/hand/h2/work-rc2 --record-dir /home/hand/h2/rc2/record --solc /home/hand/.cache/solc/solc-0.8.35 --packages-from /home/hand/h2/cache --probe-cache /home/hand/h2/cache"
+	User time (seconds): 2452.04
+	System time (seconds): 271.62
+	Percent of CPU this job got: 107%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 42:23.02
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 13703800
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 1009928
+	Minor (reclaiming a frame) page faults: 41547563
+	Voluntary context switches: 3719670
+	Involuntary context switches: 781725
+	Swaps: 0
+	File system inputs: 55112208
+	File system outputs: 36593840
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 1

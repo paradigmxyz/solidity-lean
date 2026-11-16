@@ -1,0 +1,11 @@
+case: H2 (tests/heldout/rc-2026-11-15/ViewAndPure/ViewAndPure.sol, contract ViewAndPure, sha256 8c016856778b1851326d97c92b79610936cdbf59f64e85df8f7f64e21278d9e5)
+heldout inputs: solidity-lean e0564a28100931a9986af9a848a57bc2bd835c67 (sha256sum -c SHA256SUMS: 9/9 OK)
+driver: solar 0479b90a422245bf77facc51ea17b960ed5c5851 (RC2, clean), base 49d1d7f5d9b74165486bd9f634202bee1a3633eb, inputs commit e4706449e7f8da48f3a4a2ade9d2d9377dd345e5
+verdict: REJECTED (resource), exit 1, tier reached: none, requested: certified, bytecode_sha256 9ee97f8f5038e82775861806b3b7b820e5b43eeb6eecbba0c27c9c02472a8c97
+cause: stage 6b, Lean interpreter exceeded LEAN_MEMORY=6000 MB checking SpecConnect.lean, then segfault (exit 139); spec_connect refused the functions of ViewAndPure (add, addToX not connected); not a proof failure
+not the read-only package-cache failure: driver.log has no read-only or error code 30 line
+run: one full run, LEAN_NUM_THREADS=1, --packages-from/--probe-cache a prebuilt cache of the base's dependencies; started 2026-11-16T05:20:31Z, wall 2544.2 s
+peak RSS: 14356636 kB process group (2 s trace, memtrace.tsv), 13703800 kB single process (time -v); host 14 GB RAM, 5 CPUs
+probe: PROBE constructor: returns; PROBE storage: [(0, 1)]; add, addToX, x agree
+earlier launch 2026-11-16T04:49Z: wrapper could not execute /usr/bin/time (exit 127), certify never started; not a run
+replay: not run (no tier reached)
