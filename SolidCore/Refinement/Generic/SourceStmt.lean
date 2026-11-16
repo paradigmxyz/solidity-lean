@@ -418,6 +418,22 @@ def eraseStmt (E : EraseEnv) : Nat → Stmt → SymState → Option Br
           [⟨.lit t :: evTopics decl.fields ws, (evData decl.fields ws).flatMap wordOBytes⟩] })))
       else none
     | .unchecked body => if 2 ≤ n then eraseUnchecked S body else none
+    | .deleteValue (.storageIndex x i) => do
+      -- `delete m[i]` clears the entry's slot word, for a mapping to a word or to `bool`.
+      let (gi, key) ← eraseExpr E.fields S i
+      match mapOf? E.fields x with
+      | some k =>
+        some (guards gi (.leaf (.normal { S with writes := S.writes.set (.hash key (.lit k)) (.lit 0) })))
+      | none => do
+        let k ← boolMapOf? E.fields x
+        some (guards gi (.leaf (.normal { S with writes := S.writes.set (.hash key (.lit k)) (.lit 0) })))
+    | .deleteValue (.index (.storageIndex x i1) i2) => do
+      -- `delete m[i1][i2]` clears a nested mapping's entry.
+      let k ← map2Of? E.fields x
+      let (g1, k1) ← eraseExpr E.fields S i1
+      let (g2, k2) ← eraseExpr E.fields S i2
+      some (guards (g1 ++ g2)
+        (.leaf (.normal { S with writes := S.writes.set (.hash k2 (.hash k1 (.lit k))) (.lit 0) })))
     | _ => none
 
 
@@ -957,6 +973,48 @@ theorem storePath_map2 {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} 
   simp [State.storeStorageLayoutAtWithDeepClear, State.storeStorageLayoutAtWithDeepClearFuelMode,
     State.storeStorageLayoutAt, coerceStorageWordAs, Value.forceAbiLazy, Ty.coerceValue?,
     Value.asStorageWord?, norm_lt hv, StorageLayout.clearDepth, bind, Except.bind, pure, Except.pure]
+
+/-- SolidCore's `delete` of a mapping's entry at a key word clears the slot `solHash key slot`. -/
+theorem deleteIndex_map {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {S : SymState}
+    (hrel : StmtRel ρ E ctx rt S) {x : String} {k : Nat}
+    (hk : mapOf? E.fields x = some k) {w : Nat} (hw : w < wordSize) :
+    rt.deleteStorageIndex ctx x (.word w) =
+      .ok { rt with state := rt.state.storeSlot (solHash w k) 0 } := by
+  obtain ⟨f, hf, rfl⟩ := mapOf?_spec hrel.fields hk
+  rcases hf.layout with hl | hl <;>
+  simp [Runtime.deleteStorageIndex, hf.find, hl, mappingStorageSlotForKey, coerceMappingKeyWordAs,
+    Value.forceAbiLazy, Ty.coerceValue?, Value.asStorageWord?, norm_lt hw, bind, Except.bind,
+    State.clearStorageLayoutAtDeep, StorageLayout.clearDepth, State.clearStorageLayoutAtFuel,
+    coerceStorageWordAs, Ty.defaultValue, mappingStorageSlot_eq, pure, Except.pure, wordEq,
+    SolidCore.Solidity.Shared.norm, modulus_eq, Nat.mod_eq_of_lt hw]
+
+/-- SolidCore's `delete` of a `bool` mapping's entry at a key word clears its slot. -/
+theorem deleteIndex_boolMap {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {S : SymState}
+    (hrel : StmtRel ρ E ctx rt S) {x : String} {k : Nat}
+    (hk : boolMapOf? E.fields x = some k) {w : Nat} (hw : w < wordSize) :
+    rt.deleteStorageIndex ctx x (.word w) =
+      .ok { rt with state := rt.state.storeSlot (solHash w k) 0 } := by
+  obtain ⟨f, hf, rfl⟩ := boolMapOf?_spec hrel.fields hk
+  rcases hf.layout with hl | hl <;>
+  simp [Runtime.deleteStorageIndex, hf.find, hl, mappingStorageSlotForKey, coerceMappingKeyWordAs,
+    Value.forceAbiLazy, Ty.coerceValue?, Value.asStorageWord?, norm_lt hw, bind, Except.bind,
+    State.clearStorageLayoutAtDeep, StorageLayout.clearDepth, State.clearStorageLayoutAtFuel,
+    coerceStorageWordAs, Ty.defaultValue, mappingStorageSlot_eq, pure, Except.pure, wordEq,
+    SolidCore.Solidity.Shared.norm, modulus_eq, Nat.mod_eq_of_lt hw]
+
+/-- SolidCore's `delete` of a nested mapping's entry at two key words clears its slot. -/
+theorem deletePath_map2 {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {S : SymState}
+    (hrel : StmtRel ρ E ctx rt S) {x : String} {k : Nat}
+    (hk : map2Of? E.fields x = some k) {w1 w2 : Nat} (h1 : w1 < wordSize) (h2 : w2 < wordSize) :
+    rt.deleteStoragePath ctx x [.word w1, .word w2] =
+      .ok { rt with state := rt.state.storeSlot (solHash w2 (solHash w1 k)) 0 } := by
+  obtain ⟨f, hf, rfl⟩ := map2Of?_spec hrel.fields hk
+  rw [Runtime.deleteStoragePath, Runtime.deleteStorageBasePath]
+  simp only [bind, Except.bind]
+  rw [resolve_map2 hf h1 h2]
+  simp [State.clearStorageLayoutAtDeep, StorageLayout.clearDepth, State.clearStorageLayoutAtFuel,
+    coerceStorageWordAs, Ty.defaultValue, Value.forceAbiLazy, Ty.coerceValue?, Value.asStorageWord?,
+    bind, Except.bind, pure, Except.pure, SolidCore.Solidity.Shared.norm, modulus_eq]
 
 /-- SolidCore resolves the target `m[i]` to the entry at `i`'s word, after `i`'s overflow
 checks. -/
@@ -1975,6 +2033,63 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
                 · simp only [hc, decide_false, Bool.not_false, ↓reduceIte]
                   exact ⟨.reverted rt (.panic 0x11), rfl, rfl⟩
         all_goals simp [eraseStmt] at h
+        all_goals simp [eraseStmt] at h
+      all_goals simp [eraseStmt] at h
+    case deleteValue target =>
+      cases target
+      case storageIndex x i =>
+        simp only [eraseStmt, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+        obtain ⟨⟨gi, key⟩, hi, h⟩ := h
+        obtain ⟨k, hkl, hdel, rfl⟩ : ∃ k, k < wordSize ∧
+            rt.deleteStorageIndex ctx x (.word (key.eval ρ)) =
+              .ok { rt with state := rt.state.storeSlot (solHash (key.eval ρ) k) 0 } ∧
+            b = guards gi (.leaf (.normal { S with writes := S.writes.set (.hash key (.lit k)) (.lit 0) })) := by
+          split at h
+          · rename_i k hk
+            simp only [Option.some.injEq] at h
+            obtain ⟨f, hf, rfl⟩ := mapOf?_spec hrel.fields hk
+            exact ⟨f.slot, hf.slot, deleteIndex_map hrel hk (key.eval_lt ρ), h.symm⟩
+          · simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
+            obtain ⟨k, hk, h⟩ := h
+            obtain ⟨f, hf, rfl⟩ := boolMapOf?_spec hrel.fields hk
+            exact ⟨f.slot, hf.slot, deleteIndex_boolMap hrel hk (key.eval_lt ρ), h.symm⟩
+        have hres := resolve_storageIndex ρ E.fields ctx rt S hrel.expr x hi
+        have hsl : (WExpr.hash key (.lit k)).eval ρ = solHash (key.eval ρ) k % wordSize := by
+          simp only [WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hkl]
+        have h0 : (WExpr.lit 0).eval ρ = 0 := by simp [WExpr.eval]
+        have hw := hrel.write (.hash key (.lit k)) (.lit 0)
+        rw [hsl, h0, storeSlot_mod] at hw
+        rw [Stmt.eval]
+        simp only [hres, bind_done_ok]
+        rw [guards_eval]
+        by_cases hgi : gi.any (fun g => g.eval ρ != 0) = true
+        · simp only [hgi, ↓reduceIte]
+          exact ⟨.reverted rt (.panic 0x11), rfl, rfl⟩
+        · simp only [hgi, Bool.false_eq_true, ↓reduceIte, ResolvedLValue.delete, hdel]
+          exact ⟨_, rfl, hw⟩
+      case index base i2 =>
+        cases base
+        case storageIndex x i1 =>
+          simp only [eraseStmt, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
+          obtain ⟨k, hk, ⟨g1, k1⟩, h1, ⟨g2, k2⟩, h2, rfl⟩ := h
+          obtain ⟨f, hf, rfl⟩ := map2Of?_spec hrel.fields hk
+          have hres := resolve_index2 ρ E.fields ctx rt S hrel.expr x h1 h2
+          have hsl : (WExpr.hash k2 (.hash k1 (.lit f.slot))).eval ρ =
+              solHash (k2.eval ρ) (solHash (k1.eval ρ) f.slot) % wordSize := by
+            simp only [WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf.slot,
+              Nat.mod_eq_of_lt (solHash_lt _ _)]
+          have h0 : (WExpr.lit 0).eval ρ = 0 := by simp [WExpr.eval]
+          have hw := hrel.write (.hash k2 (.hash k1 (.lit f.slot))) (.lit 0)
+          rw [hsl, h0, storeSlot_mod] at hw
+          have hdel := deletePath_map2 hrel hk (k1.eval_lt ρ) (k2.eval_lt ρ)
+          rw [Stmt.eval]
+          simp only [hres, bind_done_ok]
+          rw [guards_eval]
+          by_cases hg : (g1 ++ g2).any (fun g => g.eval ρ != 0) = true
+          · simp only [hg, ↓reduceIte]
+            exact ⟨.reverted rt (.panic 0x11), rfl, rfl⟩
+          · simp only [hg, Bool.false_eq_true, ↓reduceIte, ResolvedLValue.delete, hdel]
+            exact ⟨_, rfl, hw⟩
         all_goals simp [eraseStmt] at h
       all_goals simp [eraseStmt] at h
     case unchecked body =>
