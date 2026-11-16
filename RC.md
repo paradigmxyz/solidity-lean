@@ -42,7 +42,8 @@ Source of truth: `envelope()` in `tools/certify/generic.py` and `docs/SUPPORTED_
 | constructor with parameters | BLOCKED (envelope) | - |
 | deployment / init code / lifecycle | BLOCKED: no lifecycle or constructor tier at the pin (`--tier` offers compiled, functional, certified) | - |
 | caller other than 0x2000 (any-caller) | OPEN: `Context.default` only | - |
-| loops (for/while/do) | BLOCKED at the pin | - |
+| loops (for/while/do) | BLOCKED at the pin in the generic driver; the loop lane's results are not part of this RC until accepted here | - |
+| gas / resource certification of loops | BLOCKED: no gas obligation or fuel-bound interface for loops | - |
 | external calls, try/catch, `new`, inline assembly, payable, inheritance, imports, several contracts | BLOCKED (envelope) | - |
 | Pair | BLOCKED | - |
 
@@ -96,7 +97,14 @@ The claims are kept separate:
 - Pair: BLOCKED.
 - Constructor / deployment / lifecycle: BLOCKED (no tier at the pin).
 - Any-caller: OPEN (fixed caller only).
-- Loops: OPEN at the pin.
+- Loops: OPEN at the pin. Gas and resource certification for loops is BLOCKED (no gas obligation or
+  fuel-bound interface).
+- **Nonvacuity is a separate required check.** solar-verify alone accepts a spec with a
+  contradictory precondition unless the separate nonvacuity witness is required. Any loop or spec
+  claim in this RC must carry its nonvacuity witness as its own check; a proof without it is not
+  accepted. For generic-driver records the witness is `spec.Covered` inside `Generic.Expected`
+  (some covered context, and the postcondition and allowed statuses each reject something), and
+  the record's in-run vacuity negatives must be refused.
 - **Archive integrity**: an edit to an archived `inputs/*` file with its `run_files` entry rehashed
   replayed CERTIFIED (exit 0) at 1844041e. 800d78a9 binds archived inputs to `inputs_sha256` and
   compares caveats with the fresh run; the producing lane reports the input-rehashed,
@@ -121,9 +129,9 @@ Labels: **one-full-run** = the exit comes from its own complete driver run;
 | Record | Driver | Verdict | Replay | Accepted at RC pin |
 |---|---|---|---|---|
 | acc4-flag (`Certified/record/acc4-flag/`, from records d66e60bf) | 6d0f2621 | CERTIFIED, tier certified, strict holds, exit 0 (one-full-run) | exact-pin fresh-clone replay at 6d0f2621, 18/18 pins SAME, exit 0 (`Certified/record/acc4-flag-replay/`, from 4df9c420) | **No**: 6d0f2621 is not an ancestor of 800d78a9 and differs from it in 17 driver files and 27 compiler files. Exact-pin at 6d0f2621 only. |
-| H1 SimpleStorage | 800d78a9 | pending | pending | pending |
-| H2 ViewAndPure | 800d78a9 | pending | pending | pending |
-| H3 Mapping | 800d78a9 | pending | pending | pending |
+| H1 SimpleStorage (held-out runner T6) | 800d78a9, or 1844041e if started before the pin moved (then not an RC-pin record) | pending | pending | pending |
+| H2 ViewAndPure (runner T7) | 800d78a9 | pending | pending | pending |
+| H3 Mapping (runner T8) | 800d78a9 | pending | pending | pending |
 
 acc4-flag, as checked by the reviewer: theorem `Certified.flag_4ce5cf9a.Final.final`, shape
 `Generic.Expected`, `assumptions := []`; axioms `propext, Classical.choice, Quot.sound`; closure
