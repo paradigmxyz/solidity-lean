@@ -332,3 +332,18 @@ Caveats:
 Reviewer check: the two commits' parentage (19112ca8 → 675964cc → e13cda49), `Headline.lean`'s
 statement and import guards, `HeadlineCheck.lean`'s `example`, `Receipt.lean`'s import and the
 receipt's counts were read at e13cda49; nothing was rebuilt here.
+
+### A2 (2026-11-16 00:30 CST): `binary_commit` in the RC1 records
+
+Caveat only; no verdict above changes. In the RC1 records, `solar.binary_commit` may not match the
+driver commit. H1's `Certified/record/heldout-h1-simplestorage-rejected/record.json` has
+`solar.commit` 800d78a9 but `binary_commit` c09510a3 (`binary_sha256` 2df44d25…9e4a); the H2, H3 and
+H4 records have `binary_commit` 800d78a9.
+
+Cause: the driver builds solar with `cargo build --locked --bin solar` (debug profile), and solar's
+[`crates/config/build.rs`](https://github.com/paradigmxyz/solar/blob/800d78a98b9e64612c742d5038e7e2ec35dd52b4/crates/config/build.rs#L29)
+tracks git HEAD only for non-debug profiles; its other rerun trigger is
+`testdata/solidity/CMakeLists.txt` (line 168). A reused debug build keeps the commit of the build
+script's first run in `solar --version`. c09510a3..800d78a9 changes only `tools/certify/generic.py`
+and `tools/certify/test_generic.py`, so no compiler source differs between the two. In these records
+`binary_commit` is not evidence of the binary's source commit.
