@@ -670,3 +670,20 @@ lean_lib VerifyGeneric where
 -- uniswap_v2_transfer_slice.sh).
 lean_lib VerifyGenericTransfer where
   roots := #[`Verify.Generic.Instances.Transfer]
+
+-- flag_4ce5cf9a: the stages of Certified/flag_4ce5cf9a/flag_4ce5cf9a.sol's Flag and their kernel proofs, which
+-- solar's scripts/certify writes.
+lean_lib «flag_4ce5cf9a» where
+  srcDir := "Certified"
+  roots := #[`flag_4ce5cf9a.Proofs]
+  globs := #[.submodules `flag_4ce5cf9a]
+
+-- G0, the source-text bridge (Verify/SourceText/README.md): the reference reader of a source
+-- file's bytes, the bridge to the generic expected theorem, and its tests.
+lean_lib VerifySourceText where
+  roots := #[`Verify.SourceText.Grammar, `Verify.SourceText.Bridge, `Verify.SourceText.Tests,
+    `Verify.SourceText.Runs]
+
+-- Flag (rc2-acc5-flag) through G0. Needs the record's generated flag_4ce5cf9a modules.
+lean_lib VerifySourceTextFlag where
+  roots := #[`Verify.SourceText.Instances.Flag]
