@@ -18,7 +18,7 @@ callers other than the fixed one.
 | solidity-lean base | 44572c150176365fa5e0d56ae6c59a7a443f8122 (`tools/certify/solidity-lean.rev` at the driver pin names it) |
 | Lean toolchain | `leanprover/lean4:v4.35.0` (recorded digest 953aa1e7…4c25 in acc4-flag) |
 | solc (AST front end) | sha256 fa8ac9a3…17f4 (as recorded in acc4-flag) |
-| Held-out set | `alpharush/rc-heldout` @ e0564a28100931a9986af9a848a57bc2bd835c67, copied here under `tests/heldout/rc-2026-11-15/` |
+| Held-out set | first set H1-H3 (reviewer judgment): `alpharush/rc-heldout` @ e0564a28100931a9986af9a848a57bc2bd835c67. Second draw H4-H5 (mechanical, seeded; made after H1 REJECTED and H3 BLOCKED): procedure frozen at 7f7230f7f0d67ac650d5771e4d7248839409ff2f, draw and specs at aa9191531b28e5cd44095f8bd680f789a61729c9. Both copied here under `tests/heldout/rc-2026-11-15/` |
 
 A record certifies at the RC pin only when its run **and** its fresh-clone replay used the RC
 driver sha, with all 18 replay pins equal (**exact-pin**). A replay of a record made on another
@@ -138,6 +138,8 @@ Labels: **one-full-run** = the exit comes from its own complete driver run;
 | acc4-flag (`Certified/record/acc4-flag/`, from records d66e60bf) | 6d0f2621 | CERTIFIED, tier certified, strict holds, exit 0 (one-full-run) | exact-pin fresh-clone replay at 6d0f2621, 18/18 pins SAME, exit 0 (`Certified/record/acc4-flag-replay/`, from 4df9c420) | **No**: 6d0f2621 is not an ancestor of 800d78a9 and differs from it in 17 driver files and 27 compiler files. Exact-pin at 6d0f2621 only. |
 | H1 SimpleStorage (held-out runner T6) | 800d78a9 (clean; its solar binary reports `binary_commit` c09510a3, which differs from 800d78a9 only in `tools/certify/generic.py` and `test_generic.py`, so the compiler source is the same. A 1844041e attempt was stopped in its probe build and wrote no record) | **REJECTED, exit 1** (one-full-run): "spec: get_meets0 does not check: omega could not prove the goal (SpecConnect.lean:163)"; `get_holds` and `get_holds_in` depend on `sorryAx`, so `spec_connect` refused the functions and `scripts/certify --require-final` exited 1. Only partial result: `set(uint256)`'s spec theorems checked. tier_reached none; bytecode sha256 6e95f821ecc2c71682bb59cd089429e0ab967f2cb33da8a32ffbce7135e9d402, gas bound 1944803; record.json sha256 4758becf…c96e. Record dir `Certified/record/heldout-h1-simplestorage-rejected/`, byte-identical to `alpharush/t6-heldout-records` @ fe49ed41 | not applicable (nothing certified) | **No: REJECTED.** The spec is unchanged and states only `result == num`; a re-elaboration outside the driver shows omega's possible counterexample over `pre.time`, which the spec never mentions. The runner reads it as a gap in the generic stage's proof of a returned value, not a spec defect. Case not edited or re-run. Held-out negative result; the failure fails closed |
 | H2 ViewAndPure (runner T7) | 800d78a9 | pending | pending | pending |
+| H4 FunctionModifier (second draw; runner T8) | 800d78a9 | pending (dispatched) | pending | pending |
+| H5 Account (second draw) | 800d78a9 | held until a runner is free | pending | pending |
 | H3 Mapping (runner T8) | 800d78a9 (binary dc65961e…b845) | **BLOCKED, exit 3** (one-full-run): "generic source check (2x, first myMap(address): source tree undefined (erasure))"; the second is `remove` (`delete myMap[_addr]`). tier_reached none; bytecode sha256 9071475602f625d442ffcbba8fcfac971109482af02166d1892f846615cefda6, gas bound 9237812; record.json sha256 7df52bde…0f99 (record dir `Certified/record/heldout-h3-mapping-blocked/`, byte-identical to `alpharush/heldout-h3-blocked` @ 4032285f; its record.json has no solidity_lean field because the run stopped before the base was used, so the base rests on the driver default: no `--base` was given, and `tools/certify/solidity-lean.rev` at 800d78a9 is 44572c15) | not applicable: `--replay` of the BLOCKED record exits 1 "the record is BLOCKED: nothing to replay" | **No: BLOCKED.** Not a spec defect; case not edited or re-run. Counts as a held-out negative result |
 
 acc4-flag, as checked by the reviewer: theorem `Certified.flag_4ce5cf9a.Final.final`, shape
@@ -196,6 +198,8 @@ re-added to the kernel alone: 0 rejected. Single thread, 26 modules in 105.9 s w
 - `Certified/record/heldout-h3-mapping-blocked/`: H3's BLOCKED record, byte-identical to
   `heldout-records/rc-2026-11-15/H3-Mapping-BLOCKED/` at 4032285f; `sha256sum -c MANIFEST.sha256`
   inside it (its README.md is covered only by RC.MANIFEST.sha256).
-- `tests/heldout/rc-2026-11-15/`: byte-identical to e0564a28; `sha256sum -c SHA256SUMS`.
+- `tests/heldout/rc-2026-11-15/`: byte-identical to aa919153 (the first set as at e0564a28, plus `draw2/`);
+  `sha256sum -c SHA256SUMS` there and in `draw2/`. `draw2/PROCEDURE.md` is the second draw's frozen
+  rule; its seed is H1's `record.json` sha256, and every drawn case is reported whatever its verdict.
 - `RC.MANIFEST.sha256`: sha256 of every file above, from the repository root
   (`sha256sum -c RC.MANIFEST.sha256`).
