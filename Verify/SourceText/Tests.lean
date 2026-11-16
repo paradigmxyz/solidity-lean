@@ -34,7 +34,7 @@ Every check here is the kernel's (`kernel_rfl`, with the selectors by the checke
   their reading is not the frozen original's: the ensures' literals differ (spec), the ABI
   signatures differ (name). Never by the bytes' hash.
 * **Rejection by run** (body, swap): in `TestRuns.lean`, by the kernel: each run is SolidCore's
-  `Source.run` through `run_eq_runTree` (Run.lean), with Lean's three axioms.
+  `Source.run`, evaluated with `Verify.VC.mkIdx_eq`, with Lean's three axioms.
 * **Not here**: no check that a mutation's run breaks the original's ensures (`¬ HoldsFn`).
   A spec property on the exact bytecode exists only where a proved certificate does: Flag's,
   through `statement_of_agree` (Instances/Flag.lean). For LedgerRelay it is NOT RUN, since no
