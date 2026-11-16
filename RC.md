@@ -37,7 +37,8 @@ Source of truth: `envelope()` in `tools/certify/generic.py` and `docs/SUPPORTED_
 | value-type storage scalars (uint/int/bool/address) | supported | acc4-flag (6d0f2621 only) |
 | return values, view/pure functions | supported | none yet (held-out H1, H2 pending) |
 | checked arithmetic (Panic 0x11) | supported | none yet (H2 pending) |
-| `mapping(K => V)` of value types | supported with premise (Keccak-256 separation over each call's footprint) | none yet (H3 pending) |
+| `mapping(K => V)` of value types: read and write in a declared function | supported with premise (Keccak-256 separation over each call's footprint); H3's probe agrees on `get` and `set`, but H3 as a whole is BLOCKED | none |
+| public mapping (its compiler-generated getter), `delete` of a mapping element | BLOCKED: the generic source check has no erasure for either ("source tree undefined (erasure)"). `envelope()` and `docs/SUPPORTED_ENVELOPE.md` admit both, so this is caught only at the source check, which fails closed (exit 3). Any contract with a `public` mapping is outside the subset at the pin | - |
 | state-variable initializers / constructor without parameters | runtime tier only: the storage is any storage that lists every slot the constructor writes (`Generic.Covers`: those slots, any values); the constructor's run is not part of the claim | none yet (H2 pending) |
 | constructor with parameters | BLOCKED (envelope) | - |
 | deployment / init code / lifecycle | BLOCKED (not offered): the pin has no lifecycle or constructor tier, and `--tier lifecycle` exits 2 "tier not offered". This is a scope limit, not a failure of the certified runtime claim | - |
@@ -134,7 +135,7 @@ Labels: **one-full-run** = the exit comes from its own complete driver run;
 | acc4-flag (`Certified/record/acc4-flag/`, from records d66e60bf) | 6d0f2621 | CERTIFIED, tier certified, strict holds, exit 0 (one-full-run) | exact-pin fresh-clone replay at 6d0f2621, 18/18 pins SAME, exit 0 (`Certified/record/acc4-flag-replay/`, from 4df9c420) | **No**: 6d0f2621 is not an ancestor of 800d78a9 and differs from it in 17 driver files and 27 compiler files. Exact-pin at 6d0f2621 only. |
 | H1 SimpleStorage (held-out runner T6) | 800d78a9 (a 1844041e attempt was stopped in its probe build and wrote no record) | pending | pending | pending |
 | H2 ViewAndPure (runner T7) | 800d78a9 | pending | pending | pending |
-| H3 Mapping (runner T8) | 800d78a9 | pending | pending | pending |
+| H3 Mapping (runner T8) | 800d78a9 (binary dc65961e…b845) | **BLOCKED, exit 3** (one-full-run): "generic source check (2x, first myMap(address): source tree undefined (erasure))"; the second is `remove` (`delete myMap[_addr]`). tier_reached none; bytecode sha256 9071475602f625d442ffcbba8fcfac971109482af02166d1892f846615cefda6, gas bound 9237812; record.json sha256 7df52bde…0f99 (record dir not yet published) | not applicable: `--replay` of the BLOCKED record exits 1 "the record is BLOCKED: nothing to replay" | **No: BLOCKED.** Not a spec defect; case not edited or re-run. Counts as a held-out negative result |
 
 acc4-flag, as checked by the reviewer: theorem `Certified.flag_4ce5cf9a.Final.final`, shape
 `Generic.Expected`, `assumptions := []`; axioms `propext, Classical.choice, Quot.sound`; closure
@@ -180,7 +181,7 @@ re-added to the kernel alone: 0 rejected. Single thread, 26 modules in 105.9 s w
 | archived input edited + run_files rehashed | 1844041e | **exit 0 CERTIFIED: failure**, fixed in 800d78a9 (receipt pending here) | comparison-reuse |
 | input-rehashed, shape-rehashed, caveats-forged; unedited control | 800d78a9 | reported REJECTED ×3, control CERTIFIED; receipts pending here | comparison-reuse |
 | replay of each held-out record with an edited claim | 800d78a9 | pending | comparison-reuse |
-| `--tier lifecycle` | 800d78a9 | exit 2 "tier not offered" (reported to the coordinator); per-case receipts for H1–H3 pending. Lifecycle is BLOCKED (not offered), not a failure of the runtime claim | one-full-run per case |
+| `--tier lifecycle` | 800d78a9 | exit 2 "tier not offered": H3 receipt (argparse invalid choice, no record; comparison-reuse); H1, H2 pending. Lifecycle is BLOCKED (not offered), not a failure of the runtime claim | one-full-run per case |
 
 ## Files
 
