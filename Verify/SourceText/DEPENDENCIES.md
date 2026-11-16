@@ -57,6 +57,7 @@ solc, solar-verify and the importer only regenerate the frozen upstream readings
 | Grammar | SolidCore.Solidity.Checked, Verify.Spec.Contract, SolidCore.Refinement.Abi |
 | Bridge | Verify.Generic.Expected, Verify.ShapeBundle, Verify.ShapeSpecExport, Verify.ShapeGeneric, SolidCore.Solidity.Shared.PrecompileCrypto |
 | Run | SolidCore.Refinement.Generic.SourceRun |
+| TestRuns | Verify.VC.KernelIdx (mkIdx_eq, at the base) |
 | Cases/*/Imported | SolidCore.Solidity.Checked |
 | Cases/Selectors | SolidCore.Refinement.KernelRfl, SolidCore.Solidity.Checked |
 | Instances/Flag | flag_4ce5cf9a.Final (the record's modules) |
@@ -67,7 +68,7 @@ solc, solar-verify and the importer only regenerate the frozen upstream readings
 Production: the lean_libs `VerifySourceText` (Grammar, Bridge, Run, Tests, TestRuns, and the cases)
 and `VerifySourceTextFlag` (Instances/Flag). Audit.lean and AuditFlag.lean walk every constant of
 every `Verify.SourceText` module in that closure through `Lean.collectAxioms`: Lean's three axioms
-only (2587 constants; 2615 with Flag). They fail on native_decide's axioms, a declared axiom or
+only (4135 constants; 4163 with Flag). They fail on native_decide's axioms, a declared axiom or
 sorry (check.sh's tampered audits), and on any imported `Verify.SourceText.Diagnostics` module, a
 name reserved for diagnostic witnesses outside this policy. The branch has no such module: the
 earlier native-evaluation runs are replaced by kernel runs (`run_eq_runTree`).

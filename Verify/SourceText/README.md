@@ -72,10 +72,11 @@ Binding to the original bytes is not correctness of parsing: a matching digest o
 agrees with upstream does not show that G0's parse and desugaring are Solidity's meaning. **G0 is
 the trusted reference frontend** for statements made through it.
 
-Runs are not evaluated through `Source.run` directly: its storage is a `Std.HashMap`, whose
-`USize` indexing does not reduce in practice with this implementation. `runTree` evaluates the call's
-erased branch tree instead, and the existing `Generic.source_run` proves that this is `Source.run`'s
-result: no second interpreter, no storage model of its own, no extra axiom. It covers contracts
+Each run is checked by two kernel routes. `runTree` evaluates the call's erased branch tree, and
+the existing `Generic.source_run` proves that this is `Source.run`'s result. `Direct` evaluates
+`Source.run` itself, rewriting the hash map's `USize` index with the existing `Verify.VC.mkIdx_eq`.
+Without that rewrite the index does not reduce well, an implementation limit rather than a
+limit of the kernel. Neither route adds an interpreter, a storage model of its own or an axiom. It covers contracts
 whose constructor leaves empty storage, and functions `eraseFn` erases.
 
 **Axiom policy.** `Audit.lean` walks every constant of every `Verify.SourceText` module it imports

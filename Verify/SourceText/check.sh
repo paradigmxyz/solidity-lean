@@ -43,9 +43,11 @@ control() { local f; f=$(copy "$2"); lean_ok "$f" /dev/null; row "$1" 0 $?; }
 control "control: unaltered Tests"    Tests.lean
 control "control: unaltered TestRuns" TestRuns.lean
 control "control: unaltered Audit"    Audit.lean
-tamper "tamper: relay left 7 -> 9"     TestRuns.lean "(some (true, [7, 9, 3]))" "(some (true, [9, 9, 3]))"
-tamper "tamper: swap left 9 -> 7"      TestRuns.lean "(some (true, [9, 9, 3]))" "(some (true, [7, 9, 3]))"
-tamper "tamper: stamp 17 -> 18"        TestRuns.lean "(some (true, [1, 2, 17]))" "(some (true, [1, 2, 18]))"
+tamper "tamper: relay left 7 -> 9"     TestRuns.lean "origRelay_eq origRelay (some (true, [7, 9, 3]))" "origRelay_eq origRelay (some (true, [9, 9, 3]))"
+tamper "tamper: swap left 9 -> 7"      TestRuns.lean "swapRelay_eq swapRelay (some (true, [9, 9, 3]))" "swapRelay_eq swapRelay (some (true, [7, 9, 3]))"
+tamper "tamper: stamp 17 -> 18"        TestRuns.lean "origSetPair_eq origSetPair (some (true, [1, 2, 17]))" "origSetPair_eq origSetPair (some (true, [1, 2, 18]))"
+tamper "tamper: direct relay 7 -> 9"   TestRuns.lean "relay_eq relay (some (true, [7, 9, 3]))" "relay_eq relay (some (true, [9, 9, 3]))"
+tamper "tamper: direct swap 9 -> 7"    TestRuns.lean "swap_eq swap (some (true, [9, 9, 3]))" "swap_eq swap (some (true, [7, 9, 3]))"
 tamper "tamper: caller reads"          Tests.lean "readCaller_eq readCaller none using Cases.Selectors.selector_eq
 theorem caller_closed : read LedgerRelayCaller.bytes = none" "readCaller_eq readCaller (some LedgerRelay.upstream) using Cases.Selectors.selector_eq
 theorem caller_closed : read LedgerRelayCaller.bytes = some LedgerRelay.upstream"

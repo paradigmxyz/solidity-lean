@@ -1,5 +1,6 @@
 import Verify.SourceText.Tests
 import Verify.SourceText.Run
+import Verify.VC.KernelIdx
 
 /-!
 # G0's tests, by run: the body and swap mutations change what the contract does
@@ -117,5 +118,41 @@ theorem body_rejects : (read FlagBody.bytes).isSome ∧ read FlagBody.bytes ≠ 
   rw [bodyRaise_eq, origRaise_eq]; decide
 
 end FlagCases
+
+
+/-! ## The same runs, directly
+
+`Source.run` itself, evaluated by the kernel with the existing `Verify.VC.mkIdx_eq` (the hash map's
+index through `Nat`). A second route to the same values as `runTree` above. -/
+
+/-- What SolidCore's run of a reading's call shows, evaluated directly. -/
+def direct (r : Reading) (s : String) (args : List Nat) (σ : List (Nat × Nat)) (n : Nat) : Option (Bool × List Nat) :=
+  match r.checkedAt fuel with
+  | none => none
+  | some c => shows (Source.run fuel c (callOf (selOf r s) args σ)) n
+
+namespace Direct
+
+open Cases
+
+def relay := direct LedgerRelay.upstream "relay(uint256)" [9] [(1, 7)] 3
+kernel_rfl relay_eq relay (some (true, [7, 9, 3])) using Cases.Selectors.selector_eq SolidCore.Verify.VC.mkIdx_eq
+
+def swap := direct LedgerRelaySwap.upstream "relay(uint256)" [9] [(1, 7)] 3
+kernel_rfl swap_eq swap (some (true, [9, 9, 3])) using Cases.Selectors.selector_eq SolidCore.Verify.VC.mkIdx_eq
+
+def setPair := direct LedgerRelay.upstream "setPair(uint256,uint256)" [1, 2] [] 3
+kernel_rfl setPair_eq setPair (some (true, [1, 2, 17])) using Cases.Selectors.selector_eq SolidCore.Verify.VC.mkIdx_eq
+
+def bodySetPair := direct LedgerRelayBody.upstream "setPair(uint256,uint256)" [1, 2] [] 3
+kernel_rfl bodySetPair_eq bodySetPair (some (true, [1, 2, 18])) using Cases.Selectors.selector_eq SolidCore.Verify.VC.mkIdx_eq
+
+def raise := direct Flag.upstream "raise(uint256)" [5] [] 2
+kernel_rfl raise_eq raise (some (true, [5, 1])) using Cases.Selectors.selector_eq SolidCore.Verify.VC.mkIdx_eq
+
+def bodyRaise := direct FlagBody.upstream "raise(uint256)" [5] [] 2
+kernel_rfl bodyRaise_eq bodyRaise (some (true, [5, 2])) using Cases.Selectors.selector_eq SolidCore.Verify.VC.mkIdx_eq
+
+end Direct
 
 end SolidCore.Verify.SourceText.Tests
