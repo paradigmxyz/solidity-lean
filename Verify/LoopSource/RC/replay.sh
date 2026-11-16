@@ -10,6 +10,29 @@
 # Receipt module checks theorems, axioms and dependencies), runs the negatives, and writes
 # OUT_DIR/replay.json. Exit 0 only when every check passes.
 set -uo pipefail
+# Resource admission: rerun under a recorder of wall time and the peak RSS of every child, and
+# admit the run only within the budget (8 GiB peak RSS, 3600 s wall).
+if [ -z "${REPLAY_INNER:-}" ]; then
+  mkdir -p "$3"
+  REPLAY_INNER=1 python3 - "$0" "$@" <<'PY'
+import json, os, resource, subprocess, sys, time
+script, args = sys.argv[1], sys.argv[2:]
+t0 = time.time()
+code = subprocess.call(["bash", script] + args)
+wall = round(time.time() - t0, 1)
+rss = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
+out = os.path.join(args[2], "replay.json")
+r = json.load(open(out)) if os.path.exists(out) else {}
+budget = {"max_rss_kb": 8 * 1024 * 1024, "wall_s": 3600}
+r["resources"] = {"wall_s": wall, "max_rss_kb": rss, "budget": budget,
+                  "admitted": rss <= budget["max_rss_kb"] and wall <= budget["wall_s"]}
+r["exit"] = code if r["resources"]["admitted"] else (code or 5)
+json.dump(r, open(out, "w"), indent=1)
+print(json.dumps(r))
+sys.exit(r["exit"])
+PY
+  exit $?
+fi
 V=$(readlink -f "$1"); Z=$(readlink -f "$2"); OUT=$(mkdir -p "$3" && readlink -f "$3")
 R=Verify/LoopSource/RC; ROOT=$(pwd); export SOLAR_VERIFY_Z3=$Z
 fails=0; log() { echo "$*" | tee -a "$OUT/replay.log"; }
@@ -21,6 +44,11 @@ mf() { python3 -c "import json,sys;d=json.load(open('$R/MANIFEST.json'));print(e
 for f in inputs/Counter.sol inputs/Gcd.sol Counter/Counter.loop-heads.json; do
   check "sha256 $f" test "$(sha256sum $R/$f | cut -d' ' -f1)" = "$(mf "d['files']['$f']")"
 done
+check "sha256 of every module in MANIFEST.json" python3 -c "
+import json, hashlib, sys
+m = json.load(open('$R/MANIFEST.json'))['modules']
+bad = [f for f, h in m.items() if hashlib.sha256(open(f, 'rb').read()).hexdigest() != h]
+print('mismatch:', bad); sys.exit(1 if bad else 0)"
 check "spec lines of Counter.sol" test "$(grep '@custom:' $R/inputs/Counter.sol | sha256sum | cut -d' ' -f1)" = "$(mf "d['spec']['Counter.sol']")"
 # 2. re-emit with the pinned compiler
 mkdir -p "$OUT/counter" "$OUT/gcd"; cp $R/inputs/Counter.sol "$OUT/counter/"; cp $R/inputs/Gcd.sol "$OUT/gcd/"
@@ -45,6 +73,19 @@ done
 check "gen_loopmap Map.lean identical" bash -c "python3 Verify/LoopSource/gen_loopmap.py $R/Counter/Counter.loop-heads.json '$OUT/counter/emit/manifest.json' $R/inputs/Counter.sol $R/Counter/Obligations.lean Verify.LoopSource.RC.Counter '$OUT/Map.lean' && cmp '$OUT/Map.lean' $R/Counter/Map.lean"
 # 4. build: the Receipt module checks the theorems, their axioms and what body_runs_vc rests on
 check "lake build Verify.LoopSource.RC.Receipt" lake -R build Verify.LoopSource.RC.Receipt
+# 4b. the headline is stated apart from the proof; a changed statement must not check
+cat > "$OUT/neg_headline.lean" <<'EOF'
+import Verify.LoopSource.RC.Headline
+import Contracts.VerifyCounter.LoopVC
+open SolidCore.Solidity.Source SolidCore.Refinement SolidCore.Refinement.Generic
+open SolidCore.Refinement.Generic.Loop Contracts.VerifyCounter.Source
+-- The headline with a smaller fuel bound than the proof gives: must fail to check.
+example : ∀ (ev : List EventDecl) (tbl : FunctionTable) (fn : FunctionDef),
+    fn.body = bumpBody → initState fn = S0 →
+      ∀ fuel : Nat, 2 ^ 256 + 7 ≤ fuel → BodyRuns (env ev tbl) fuel fn bumpBr :=
+  Contracts.VerifyCounter.LoopVC.body_runs_vc
+EOF
+expect 1 "negative changed headline rejected by the kernel" lake env lean "$OUT/neg_headline.lean"
 # 5. negatives
 mkdir -p "$OUT/neg"
 python3 - "$OUT/neg" <<'PY'
@@ -72,5 +113,5 @@ done
 GT="python3 Verify/LoopSource/loopgate.py $V $Z"
 for c in Counter:0 CounterBadInit:1 CounterBadPres:1 CounterBadDecr:1 CounterBadExit:1; do IFS=: read n w <<< "$c"; expect $w "gate $n" $GT $R/inputs/$n.sol Counter.bump "$OUT/gate/$n" --assume '(>= |n@21| 3)' --assume '(>= |count@17| 5)'; done
 for c in Gcd:0 GcdBadInit:1 GcdBadPres:1 GcdBadDecr:1 GcdBadExit:1 GcdVacuous:4; do IFS=: read n w <<< "$c"; expect $w "gate $n" $GT $R/inputs/$n.sol Gcd.gcd "$OUT/gate/$n" --assume '(= |a@19| 12)' --assume '(= |b@20| 18)'; done
-python3 -c "import json;print(json.dumps({'fails': $fails, 'log': '$OUT/replay.log'}))" | tee "$OUT/replay.json"
+python3 -c "import json;print(json.dumps({'fails': $fails, 'checks': $(grep -c '^PASS\|^FAIL' "$OUT/replay.log")}))" | tee "$OUT/replay.json"
 [ $fails = 0 ]

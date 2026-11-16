@@ -1,5 +1,6 @@
 import Contracts.VerifyCounter.LoopVC
 import Verify.LoopSource.RC.Gcd.Obligations
+import Verify.LoopSource.RC.HeadlineCheck
 
 /-!
 # Receipt: the loop route's theorems, their axioms, and what the headline rests on

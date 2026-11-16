@@ -89,14 +89,17 @@
   "Verify/LoopSource/RC/Counter/Map.lean": "a529fbc2073e91f9d9444926a485693737e4f4ed5988c974d5c1a6e2e5a1d5a3",
   "Verify/LoopSource/RC/Gcd/Script.lean": "bda0f16a7574d972b569ed75cc9be113937b7f5ddbcccf0904b51e0f66c339f0",
   "Verify/LoopSource/RC/Gcd/Obligations.lean": "671de382af18d3b10c5aea17ee8ac06f18b2d3140f5971059cb3bc01c37619b3",
-  "Verify/LoopSource/RC/Receipt.lean": "16d229cfae2a56710d547ef0dc38c33680ac1440eb36da799a18de1c43be466c",
+  "Verify/LoopSource/RC/Receipt.lean": "de484fd3011d790772328f7b333097452d68fb048cb5f4611c6adee49fa0763a",
   "Contracts/VerifyCounter/LoopVC.lean": "d8cdeb726d72b3cb8ca1930298bd68011892c4379c7c36f5f86a83d409c61c0d",
   "Contracts/VerifyCounter/LoopBinding.lean": "9e20c7eee48e4858d9f36b784ceffa4bcfe31aafbda1718ce0bb0ba50da53121",
   "SolidCore/Refinement/Generic/LoopErased.lean": "8cd8a29dd840714ce56b7b246b9bb34a71b19a76613197e311ea4dc3c0cd2d64",
   "Verify/LoopSource/gen_loopvc.py": "0d095d7d3311f383ac019162be589f610564469164f1f40f4314602602d9c26f",
   "Verify/LoopSource/gen_loopmap.py": "ee84a7c0db12d7cf1a275958a28b7f824036a2b4cfcc3935c4271ecc944f8931",
   "Verify/LoopSource/loopgate.py": "a77abcbc0d3f2048dd43a8cfd52358546ab633056cbf8c131334279e930a3c8a",
-  "Verify/LoopSource/witness.py": "0f016be59efcdcdea86b11c25c160ab0f255ab8de3ac3f8da1941d9e126abd5a"
+  "Verify/LoopSource/witness.py": "0f016be59efcdcdea86b11c25c160ab0f255ab8de3ac3f8da1941d9e126abd5a",
+  "Verify/LoopSource/RC/Headline.lean": "c2cb5e8f6975a1e9eeb1155cd674d8a9c152df45220ef8327c2445ce1965825c",
+  "Verify/LoopSource/RC/HeadlineCheck.lean": "9b3536e440e7dc616b401f1444b37875a9be054ef40e0d046a05bf10a6639a6b",
+  "Verify/LoopSource/RC/replay.sh": "44daf774ab2dcda38fa9718d61f5d819c610f6a4f46dc07e311b9c44dabe369c"
  },
  "theorem": {
   "name": "Contracts.VerifyCounter.LoopVC.body_runs_vc",
@@ -117,5 +120,32 @@
   "MIR loop cut point",
   "bytecode",
   "gas/fuel bound for loops"
- ]
+ ],
+ "headline": {
+  "module": "Verify.LoopSource.RC.Headline",
+  "imports": [
+   "SolidCore.Refinement.Generic.LoopRun",
+   "SolidCore.Refinement.Generic.SourceCall",
+   "Contracts.VerifyCounter.SourceBump"
+  ],
+  "not_imported_checked": [
+   "Contracts.VerifyCounter.LoopVC",
+   "Contracts.VerifyCounter.LoopBinding",
+   "SolidCore.Refinement.Generic.LoopErased",
+   "Verify.LoopSource.LoopMap",
+   "Verify.LoopSource.CheckRaw",
+   "Verify.LoopSource.RC.Counter.Obligations",
+   "Verify.LoopSource.RC.Counter.Map",
+   "Verify.LoopSource.RC.Counter.Script"
+  ],
+  "name": "Verify.LoopSource.RC.Headline.CounterBumpLoopHeadline",
+  "statement": "\u2200 (ev : List EventDecl) (tbl : FunctionTable) (fn : FunctionDef), fn.body = bumpBody \u2192 initState fn = S0 \u2192 \u2200 fuel : Nat, 2 ^ 256 + 8 \u2264 fuel \u2192 BodyRuns (env ev tbl) fuel fn bumpBr",
+  "check": "Verify.LoopSource.RC.HeadlineCheck: example : CounterBumpLoopHeadline := Contracts.VerifyCounter.LoopVC.body_runs_vc; theorem Verify.LoopSource.RC.Headline.counter_bump_loop",
+  "axioms": [
+   "propext",
+   "Classical.choice",
+   "Quot.sound"
+  ]
+ },
+ "claim_scope": "Counter.bump source-consumer edge only: solar-verify obligations bound to the source erasure semantics through the emitted loop-head map. MIR, bytecode and gas are OPEN; no end-to-end claim."
 }

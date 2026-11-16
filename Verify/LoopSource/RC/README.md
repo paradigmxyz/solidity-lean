@@ -43,6 +43,11 @@ re-emitted on fd53f637 to match the map's pin rather than relaxing the check.
   measure's fall and the exit from solar-verify's obligations at `envN`; `consec_corr` ties
   consecution's goal to the body tree's slot write and `i` update; `pre_witness` is a satisfiable
   precondition (n = 3, count = 5, limit = 8) at which consecution's facts hold.
+- **Expected headline, stated apart:** `RC/Headline.lean` defines `CounterBumpLoopHeadline` importing only
+  the source semantics and Counter's source model (its build checks that none of the proof or
+  obligation modules is imported); `RC/HeadlineCheck.lean` checks
+  `example : CounterBumpLoopHeadline := Contracts.VerifyCounter.LoopVC.body_runs_vc` in the kernel, and
+  the replay checks that a changed statement (fuel bound `2 ^ 256 + 7`) does not check.
 - **Headline:** `body_runs_vc : ∀ ev tbl fn, fn.body = bumpBody → initState fn = S0 → ∀ fuel,
   2 ^ 256 + 8 ≤ fuel → Loop.BodyRuns (env ev tbl) fuel fn bumpBr`, axioms `propext`,
   `Classical.choice`, `Quot.sound`; `RC/Receipt.lean` checks these axioms for every theorem above
@@ -68,4 +73,8 @@ It checks the pinned hashes, re-emits the VCs and the loop-head map and compares
 committed files and `MANIFEST.json`, regenerates every generated Lean module and compares bytes,
 builds `Verify.LoopSource.RC.Receipt`, and runs the negatives: a stale compiler or source hash
 (`gen_loopmap.py` exit 3), an edited source (`--check-loop-heads` exit 1), a map with the wrong
-slot or a swapped variable (Lean exit 1), and the gate cases. `replay.json` records the result.
+slot or a swapped variable (Lean exit 1), and the gate cases. `replay.json` records the result and the resource admission (wall time and peak
+RSS of the whole replay against an 8 GiB / 3600 s budget).
+
+Scope: this closes only the Counter source-consumer edge. MIR, bytecode and gas stay OPEN; there is
+no end-to-end claim.
