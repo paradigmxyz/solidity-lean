@@ -1,6 +1,7 @@
 # Release candidate 2 (2026-11-16)
 
-Status: **OPEN, no verdicts yet.** Publisher: the acceptance reviewer (Lane 6), the only publisher of
+Status: **OPEN: 2 of 4 held-out verdicts in, 0 certified.** H3 BLOCKED, H4 REJECTED (the second
+draw stays 0/1); H1 and H2 pending. Publisher: the acceptance reviewer (Lane 6), the only publisher of
 RC artifacts; one commit per update on `alpharush/rc-2026-11-16`. The first candidate, at driver
 800d78a9, stays frozen in `RC.md` as a negative report (0/3 original held-out, 0/1 second draw) and is
 history here: nothing in RC2 changes its verdicts.
@@ -31,8 +32,8 @@ history here: nothing in RC2 changes its verdicts.
 |---|---|---|---|---|---|---|---|
 | original (denominator 3) | H1 SimpleStorage | T6 | pending | | | | |
 | original | H2 ViewAndPure | T7 | pending | | | | |
-| original | H3 Mapping | T8 | pending | | | | |
-| second (denominator 1, closed) | H4 FunctionModifier | T8 | pending | | | | |
+| original | H3 Mapping | T8 | **BLOCKED** (exit 3): generic source check, `myMap(address)` and `remove(address)`: source tree undefined (erasure) | none | 238.5 s / 2.93 GB tree RSS | [`Certified/record/rc2-h3/`](https://github.com/paradigmxyz/solidity-lean/tree/bf8b8a6ed41837f9a1b881262ccbcbeb443d1350/Certified/record/rc2-h3) | n/a: `--replay` exits 1 (BLOCKED, nothing to replay) |
+| second (denominator 1, closed) | H4 FunctionModifier | T8 | **REJECTED** (exit 1): no cut points for stage0 to mir1, a recursive call into `@decrement.body` | none | 2.1 s / below the 2 s sampler | [`Certified/record/rc2-h4/`](https://github.com/paradigmxyz/solidity-lean/tree/bf8b8a6ed41837f9a1b881262ccbcbeb443d1350/Certified/record/rc2-h4) | n/a: `--replay` exits 1 (no run files) |
 
 RC1 verdicts at 800d78a9, for comparison only: H1 REJECTED (spec step, `get_meets0`), H2 REJECTED
 (resource; spec step times out), H3 BLOCKED (mapping getter and `delete` erasure), H4 REJECTED
@@ -73,8 +74,22 @@ fix for them is in the pin.
 
 Filled in as verdicts land, each with its record commit and a link.
 
+- **R1, H3 and H4 (T8).** Runner commit [bf8b8a6e](https://github.com/paradigmxyz/solidity-lean/commit/bf8b8a6ed41837f9a1b881262ccbcbeb443d1350) on `alpharush/heldout-rc2-h3-h4` (parent 49d1d7f5); `Certified/record/rc2-h3/` and
+  `rc2-h4/` are copied here byte for byte. Checked by the reviewer: both `MANIFEST.sha256` pass
+  (manifest sha256 a0d3f1c5… and 9d8f203d…; record.json 7e7a4bcf… and 845680da…); `solar.commit`
+  and `binary_commit` are 0479b90a, `dirty: false`; source sha256 b39ab391… equals `Mapping.sol` at
+  e0564a28 and 3be4c2f1… equals `draw2/H4-FunctionModifier/FunctionModifier.sol` at aa919153;
+  `bytecode_sha256` equals the RC1 records (90714756… and fe2739e8…). Rerun on a 0479b90a checkout:
+  `--replay` exits 1 on both records with the messages above, and `--tier lifecycle` exits 2 (tier
+  not offered). Wall time and peak RSS come from each run's `receipt.json` (`LEAN_NUM_THREADS=1`,
+  tracked keepalive, no Hand pause, no ABORTED run). Caveats: `record.json` does not name the
+  solidity-lean commit, so base 49d1d7f5 is the runner's statement (README); each record's
+  `MANIFEST.sha256` leaves out its README, which `RC2.MANIFEST.sha256` covers. The pin does not
+  change either RC1 verdict: H3's mapping getter and `delete` gap and H4's recursion gap stay open.
+
 ## Files
 
 - `RC.md`: the frozen RC1 report (800d78a9), unchanged from b83d7526.
-- `RC2.md`: this file. `RC2.MANIFEST.sha256` will cover every `Certified/record/rc2-*` directory and
-  this file once records land.
+- `RC2.md`: this file. `RC2.MANIFEST.sha256` covers this file and every file under
+  `Certified/record/rc2-*`.
+- `Certified/record/rc2-h3/`, `Certified/record/rc2-h4/`: T8's records, byte-identical to bf8b8a6e.

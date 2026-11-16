@@ -1,0 +1,91 @@
+{
+  "schema": "solar-certify-generic/1",
+  "name": "functionmodifier_3be4c2f1",
+  "started": "2026-11-16T04:56:09+00:00",
+  "command": [
+    "/home/hand/rc2/solar/tools/certify/certify",
+    "/home/hand/h3/sl/tests/heldout/rc-2026-11-15/draw2/H4-FunctionModifier/FunctionModifier.sol",
+    "natspec",
+    "--contract",
+    "FunctionModifier",
+    "--solidity-lean",
+    "/home/hand/h3/sl",
+    "--work",
+    "/home/hand/rc2/h4/work",
+    "--record-dir",
+    "/home/hand/rc2/h4/record",
+    "--packages-from",
+    "/home/hand/h3/cache/sl",
+    "--probe-cache",
+    "/home/hand/h3/cache/sl"
+  ],
+  "requested_tier": "certified",
+  "source": {
+    "file": "/home/hand/h3/sl/tests/heldout/rc-2026-11-15/draw2/H4-FunctionModifier/FunctionModifier.sol",
+    "sha256": "3be4c2f15b9f262ff34956f9ef38e579777e00cd93423f64f3488c8716a8f4f4"
+  },
+  "spec": {
+    "kind": "natspec",
+    "sha256": "3be4c2f15b9f262ff34956f9ef38e579777e00cd93423f64f3488c8716a8f4f4"
+  },
+  "invariants": {
+    "file": null,
+    "sha256": null
+  },
+  "options": [
+    "-Ogas",
+    "--evm-version",
+    "osaka"
+  ],
+  "solar": {
+    "commit": "0479b90a422245bf77facc51ea17b960ed5c5851",
+    "dirty": false,
+    "binary_sha256": "85415992e30deeb74a57c1c5f6aee753ffdb470c1658fa15748f89d9fd831d82",
+    "version": "solar 0.3.0-dev+commit.0479b90a",
+    "binary_commit": "0479b90a422245bf77facc51ea17b960ed5c5851"
+  },
+  "solc": {
+    "version": "0.8.35",
+    "path": "/home/hand/.cache/solc/solc-0.8.35",
+    "sha256": "fa8ac9a32d301ad023a36ee5a29f8e291fe3200c60244e43c142539e82a617f4"
+  },
+  "lean_toolchain": {
+    "recorded_digest": "953aa1e72283c07686567bb71eeb3fca202baafe2958a7e57987d3b8c4434c25"
+  },
+  "contract": "FunctionModifier",
+  "functions": [
+    {
+      "signature": "changeOwner(address)",
+      "selector": "0xa6f9dae1",
+      "params": [
+        ".uint 160"
+      ]
+    },
+    {
+      "signature": "decrement(uint256)",
+      "selector": "0x3a9ebefd",
+      "params": [
+        ".uint 256"
+      ]
+    },
+    {
+      "signature": "locked()",
+      "selector": "0xcf309012",
+      "params": []
+    },
+    {
+      "signature": "owner()",
+      "selector": "0x8da5cb5b",
+      "params": []
+    },
+    {
+      "signature": "x()",
+      "selector": "0x0c55699c",
+      "params": []
+    }
+  ],
+  "environment": "one frame, caller 0x2000, contract at 0x1000, the block and transaction of Target.message (fixed, not quantified)",
+  "bytecode_sha256": "fe2739e8895b66eef5e4b71d9b5637901751962b4ed19ce7701ac9a96f19e0c3",
+  "status": "REJECTED",
+  "finished": "2026-11-16T04:56:10+00:00"
+}
