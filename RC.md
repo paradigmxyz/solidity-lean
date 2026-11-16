@@ -37,15 +37,15 @@ Source of truth: `envelope()` in `tools/certify/generic.py` and `docs/SUPPORTED_
 |---|---|---|
 | one concrete contract, no bases, no imports | supported | acc4-flag (driver 6d0f2621 only) |
 | value-type storage scalars (uint/int/bool/address) | supported | acc4-flag (6d0f2621 only) |
-| return values, view/pure functions | admitted by the envelope; **no certified instance**. H1's `get() returns (uint256)` with `result == num` is REJECTED at the spec step (see Receipts) | none (H2 pending) |
-| checked arithmetic (Panic 0x11) | supported | none yet (H2 pending) |
+| return values, view/pure functions | admitted by the envelope; **no certified instance**. H1's `get() returns (uint256)` with `result == num` is REJECTED at the spec step (see Receipts) | none (H2 REJECTED, resource) |
+| checked arithmetic (Panic 0x11) | supported | none (H2 REJECTED, resource) |
 | `mapping(K => V)` of value types: read and write in a declared function | supported with premise (Keccak-256 separation over each call's footprint); H3's probe agrees on `get` and `set`, but H3 as a whole is BLOCKED | none |
 | public mapping (its compiler-generated getter), `delete` of a mapping element | BLOCKED: the generic source check has no erasure for either ("source tree undefined (erasure)"). `envelope()` and `docs/SUPPORTED_ENVELOPE.md` admit both, so this is caught only at the source check, which fails closed (exit 3). Any contract with a `public` mapping is outside the subset at the pin | - |
-| state-variable initializers / constructor without parameters | runtime tier only: the storage is any storage that lists every slot the constructor writes (`Generic.Covers`: those slots, any values); the constructor's run is not part of the claim | none yet (H2 pending) |
+| state-variable initializers / constructor without parameters | runtime tier only: the storage is any storage that lists every slot the constructor writes (`Generic.Covers`: those slots, any values); the constructor's run is not part of the claim | none (H2 REJECTED, resource) |
 | constructor with parameters | BLOCKED (envelope) | - |
 | recursion (a function calling itself) | admitted by `envelope()`, refused later at the gas-need step ("no cut points … a recursive call"); outside the subset at the pin, reported as REJECTED, not BLOCKED (H4) | - |
 | deployment / init code / lifecycle | BLOCKED (not offered): the pin has no lifecycle or constructor tier, and `--tier lifecycle` exits 2 "tier not offered". This is a scope limit, not a failure of the certified runtime claim | - |
-| caller other than 0x2000 (any-caller) | OPEN: `Context.default` only | - |
+| caller other than 0x2000 (any-caller) | proved for acc4-flag (driver 6d0f2621) no-value calls, any caller; not wired into the generic driver, so no RC-pin record has it; calls with value and contracts that read `msg.sender` are outside it (`BOUNDARY.md`) | acc4-flag only: solidity-lean `alpharush/t2-any-caller` @ a388f26133e3defa8f3ae18f675cf5b231981aee (not merged into this RC) |
 | loops (for/while/do), certified bytes | BLOCKED: the generic driver at the pin does not take loops | - |
 | loops, source-level obligations | gate only, SMT level: solar-verify's initiation, consecution, termination and exit obligations all unsat (z3), plus a required nonvacuity witness. Not kernel-certified; no MIR or bytecode binding; source-loop binding for `Counter.bump` only | `Counter.bump`, `Gcd.gcd` (gate ACCEPT, solidity-lean ca0d05b6) |
 | gas / resource certification of loops | BLOCKED: no gas obligation or fuel-bound interface for loops | - |
@@ -107,12 +107,33 @@ The claims are kept separate:
   `@custom:ensures result == num` is refused at `spec_connect` (omega fails, `sorryAx` in
   `get_holds`), so no function that returns a storage word has a certified spec at the pin.
 - Constructor / deployment / lifecycle: BLOCKED (no tier at the pin).
-- Any-caller: OPEN (fixed caller only).
+- Any-caller: proved for acc4-flag's archived bytes, no-value calls, every `Context.Ok` caller
+  (`alpharush/t2-any-caller` @ a388f261: `Generic.Expected` kernel-checked, axioms `propext,
+  Classical.choice, Quot.sound`, `lake -R build VerifyGenericAnyCaller` exit 0 as reported by T2).
+  The reviewer checked that its diff from b0196e92 is `Verify/Generic/{CheckLFrom,AnyCaller}.lean`,
+  `Instances/FlagAnyCaller.lean`, `BOUNDARY.md`, `lakefile.lean` (+13) and a mode-only change to
+  `envelope_check.py`, and adds no `sorry`, `admit` or `axiom`; the build was not rerun here. Not
+  wired into the generic driver.
 - OPEN: E6 any-caller fresh-byte binding.
 - OPEN: acc5 fresh replay.
-- OPEN: Counter loop-head consumer (the Lean module that consumes `Counter.bump`'s loop obligations;
-  T4 `alpharush/t4-loopvc-rc` @ d365320e3010ab60166e3ebc2dec618c2d89fe9c, replay running, not
-  reviewed here).
+- OPEN (one gap): Counter loop-head consumer. Reviewed: T4 `alpharush/t4-loopvc-rc` @
+  d365320e3010ab60166e3ebc2dec618c2d89fe9c, clean replay receipt 19112ca845cd05981f66550d90d321aa3c35110f
+  (`Verify/LoopSource/RC/replay-receipt/`: fresh worktree, `LEAN_NUM_THREADS=1`, exit 0, 32/32
+  checks). Met: (a) pinned hashes: `MANIFEST.json` pins sources, spec lines, options, compiler,
+  loop-head map and SMT/VC hashes, and the replay re-checks each and re-emits the map identically;
+  (b) satisfiable witness: `pre_witness` (n = 3, count = 5, limit = 8), proved by `decide`;
+  (c) wrong-map negatives: `wrong_slot` and `swapped_var` rejected by the kernel (exit 1), and
+  stale compiler/source rejected (exit 3, 1); (d) manifest and clean replay; (e) axioms: every
+  theorem in `RC/Receipt.lean`, headline included, guarded to `propext, Classical.choice,
+  Quot.sound`, and `body_runs_vc` shown to reach `Counter.obs_valid`, `Counter.M` and
+  `Counter.script`. **Gap: no check pins the headline's type.** `body_runs_vc : … → BodyRuns
+  (env ev tbl) fuel fn bumpBr` matches the README's headline by the reviewer's reading (`bumpBr`'s
+  normal leaf writes slot 0 := count + n), but nothing in the replay compares it with an expected
+  statement written apart from the proof (as the generic driver does with `final : Statement`), and
+  other theorems of the same type exist in the tree (`SourceBump.lean:118`, `LoopBinding.lean:151`).
+  Closing it: an `example : <stated headline> := body_runs_vc` (or a separate statement module) in
+  `Receipt.lean`, checked by the replay. Note: this route's compiler is solar fd53f637
+  (`alpharush/t1-loop-heads`), not the RC driver 800d78a9, and it is a source-semantics claim only.
 - OPEN: MIR / bytes / gas binding of any loop result.
 - Loops: certified bytes BLOCKED at the pin. The loop gate (below) is an SMT-level source check
   only. Lean-checked: none, for either loop contract (T4, solidity-lean 3b4f52e5). `Gcd.gcd`'s Lean
