@@ -1,7 +1,7 @@
 # Release candidate 2 (2026-11-16)
 
-Status: **OPEN: 4 of 4 held-out verdicts in, 0 accepted.** H1 CERTIFIED (exit 0), pending its exact-pin replay, so not yet
-accepted; H2 REJECTED (resource), H3 BLOCKED, H4 REJECTED (the second draw stays 0/1). Publisher: the acceptance reviewer (Lane 6), the only publisher of
+Status: **OPEN: 4 of 4 held-out verdicts in, 0 accepted.** H1 CERTIFIED (exit 0), not accepted: its exact-pin replay ABORTED with no restart, so H1 counts as
+regression evidence only; H2 REJECTED (resource), H3 BLOCKED, H4 REJECTED (the second draw stays 0/1). Publisher: the acceptance reviewer (Lane 6), the only publisher of
 RC artifacts; one commit per update on `alpharush/rc-2026-11-16`. The first candidate, at driver
 800d78a9, stays frozen in `RC.md` as a negative report (0/3 original held-out, 0/1 second draw) and is
 history here: nothing in RC2 changes its verdicts.
@@ -30,7 +30,7 @@ history here: nothing in RC2 changes its verdicts.
 
 | Draw | Case | Runner | Verdict | Tier | Wall / peak RSS | Record | Replay (exact-pin) |
 |---|---|---|---|---|---|---|---|
-| original (denominator 3) | H1 SimpleStorage | T6 | **CERTIFIED** (exit 0), **not yet accepted**: rerun on 0479b90a, binary_commit 0479b90a (`binary_sha256` d472fb30…). Caveats below (peak RSS unmeasured, 24 cache oleans added outside the driver, no lifecycle tier, stage-level composition only). First run **ABORTED-env**, not a verdict (see below) | certified (`Generic.Expected`, stage-level) | 24508 s / not measured (sampler died) | [`Certified/record/rc2-h1-simplestorage-r/`](https://github.com/paradigmxyz/solidity-lean/tree/f243eaba0898f61661d41cbc649e6f014414c61e/Certified/record/rc2-h1-simplestorage-r) (first run: [`rc2-h1-aborted-env/`](https://github.com/paradigmxyz/solidity-lean/tree/a8cb3d29913eb8864ada79f8eda3eab850bf60ce/Certified/record/rc2-h1-simplestorage)) | running: exact fresh-clone replay on 0479b90a started [08:01 CST](time:2026-11-16T14:01:00Z), about 7 h (est.) |
+| original (denominator 3) | H1 SimpleStorage | T6 | **CERTIFIED** (exit 0), **not yet accepted**: rerun on 0479b90a, binary_commit 0479b90a (`binary_sha256` d472fb30…). Caveats below (peak RSS unmeasured, 24 cache oleans added outside the driver, no lifecycle tier, stage-level composition only). First run **ABORTED-env**, not a verdict (see below) | certified (`Generic.Expected`, stage-level) | 24508 s / not measured (sampler died) | [`Certified/record/rc2-h1-simplestorage-r/`](https://github.com/paradigmxyz/solidity-lean/tree/f243eaba0898f61661d41cbc649e6f014414c61e/Certified/record/rc2-h1-simplestorage-r) (first run: [`rc2-h1-aborted-env/`](https://github.com/paradigmxyz/solidity-lean/tree/a8cb3d29913eb8864ada79f8eda3eab850bf60ce/Certified/record/rc2-h1-simplestorage)) | **ABORTED**: exact fresh-clone replay on 0479b90a started [08:01 CST](time:2026-11-16T14:01:00Z), killed when the runner machine paused in step 6b (last write [09:24 CST](time:2026-11-16T15:24:00Z)); no exit code, no verdict, nothing published; not restarted. Regression evidence only; exact replay OPEN (R6) |
 | original | H2 ViewAndPure | T7 | **REJECTED** (resource, exit 1): stage 6b, Lean exceeded `LEAN_MEMORY=6000` checking `SpecConnect.lean` and segfaulted (exit 139); `add`, `addToX` not connected; not a proof failure. Binary-pin caveat below | none | 2544.2 s / 14.36 GB tree (2 s trace), 13.70 GB largest process | [`Certified/record/rc2-h2/`](https://github.com/paradigmxyz/solidity-lean/tree/315d258e919028fa0cbade40fe6f3beb6a1a2abe/Certified/record/rc2-h2) | n/a: nothing certified; `--replay` exits 1 |
 | original | H3 Mapping | T8 | **BLOCKED** (exit 3): generic source check, `myMap(address)` and `remove(address)`: source tree undefined (erasure) | none | 238.5 s / 2.93 GB tree RSS | [`Certified/record/rc2-h3/`](https://github.com/paradigmxyz/solidity-lean/tree/96bd11a1a6dfeb2337c3e50227b6af4f368c6bba/Certified/record/rc2-h3) | n/a: `--replay` exits 1 (BLOCKED, nothing to replay) |
 | second (denominator 1, closed) | H4 FunctionModifier | T8 | **REJECTED** (exit 1): no cut points for stage0 to mir1, a recursive call into `@decrement.body` | none | 2.1 s / below the 2 s sampler | [`Certified/record/rc2-h4/`](https://github.com/paradigmxyz/solidity-lean/tree/96bd11a1a6dfeb2337c3e50227b6af4f368c6bba/Certified/record/rc2-h4) | n/a: `--replay` exits 1 (no run files) |
@@ -62,8 +62,8 @@ clean), base 49d1d7f5, held-out e0564a28, from [01:10:27 CST](time:2026-11-16T07
 `requested_tier` and `tier_reached` certified, `strongest` true; final theorem
 `Certified.simplestorage_928cc159.Final.final` of shape `SolidCore.Verify.Generic.Expected`;
 replay closure 3968, replayed 3968, trusted 0, unaccounted 0, `leanchecker` exit 0; `gas_bound`
-1944803; `bytecode_sha256` 6e95f821…, equal to the first run's. Accepted only once its exact
-fresh-clone replay on 0479b90a passes (running since [08:01 CST](time:2026-11-16T14:01:00Z), about 7 h, est.). Caveats, each open
+1944803; `bytecode_sha256` 6e95f821…, equal to the first run's. Not accepted: its exact
+fresh-clone replay on 0479b90a ABORTED and was not restarted (R6), so H1 counts as regression evidence only. Caveats, each open
 until acceptance reconciles it:
 1. **Peak RSS not measured.** The slot's sampler process ended before writing its receipt. The two
    earlier runs of this case peaked at about 5.3 GB (largest process) and 6.2 GB (tree); that is not
@@ -280,7 +280,17 @@ Filled in as verdicts land, each with its record commit and a link.
   49d1d7f5 and held-out e0564a28; source sha256 928cc159… equals `SimpleStorage.sol` at e0564a28;
   `final`, `replay`, `statuses` and `caveats` of `record.json` equal `certify-record.json`. The
   record is linked, not copied into this branch. Not yet run by the reviewer: the exact-pin replay
-  (running) and the tampered-record checks.
+  (aborted, R6) and the tampered-record checks.
+
+- **R6, H1 exact fresh-clone replay (T6), ABORTED, not a verdict.** Started [08:01 CST](time:2026-11-16T14:01:34Z) on
+  solar 0479b90a against the R5 record. The runner machine paused and restarted, killing the run in
+  step 6b (final closure `leanchecker`, 3968 modules planned, 0 trusted): Statement and Final had
+  built and the statement was printed; the last write was at [09:24 CST](time:2026-11-16T15:24:00Z), about 1 h 23 m in,
+  and the processes were gone by [10:24 CST](time:2026-11-16T16:24:00Z). No exit code, wall time, peak RSS, trusted
+  count or REPLAY_KEYS comparison exists; no 6b batch finished, so nothing can be resumed. Nothing
+  was pushed to `alpharush/t6-heldout-records` for it; the ABORTED record and partial logs stay with
+  the runner. Not restarted: H1 counts as regression evidence only, and the exact replay stays OPEN
+  for the single admitted replay of the frozen candidate.
 
 - **R4, H2 (T7), REJECTED (resource).** Runner commit [315d258e](https://github.com/paradigmxyz/solidity-lean/commit/315d258e919028fa0cbade40fe6f3beb6a1a2abe) on
   `alpharush/heldout-h2-records` (parent e5392be4); `Certified/record/rc2-h2/` is copied here byte
