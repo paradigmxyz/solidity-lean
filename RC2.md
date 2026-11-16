@@ -88,7 +88,24 @@ H1 and H2 records are checked for the same key.
 
 | Record | Runner | Driver | Verdict | Replay | Accepted |
 |---|---|---|---|---|---|
-| acc5 | T1 | 0479b90a | pending | pending | pending |
+| acc5 (`flag_4ce5cf9a`) | T1 | 0479b90a | **GENERIC CONDITIONAL COMPOSITION** (default context; not a held-out verdict) | pending: exact fresh-clone replay on 0479b90a, all 18 `REPLAY_KEYS` SAME | pending |
+
+acc5 record: T1 `alpharush/t1-generic-records` @ abcd096127559797224a4fdf330dd3476c65b79c,
+`Certified/record/rc2-acc5-flag/`. Pending until the exact fresh-clone replay above.
+
+- Final theorem: `Certified.flag_4ce5cf9a.Final.final : Certified.flag_4ce5cf9a.Final.Statement`, the
+  expected-type statement (the exact runtime bytes ∧ `Generic.Expected src spec runtimeBytes`);
+  assumptions none; axioms `propext`, `Classical.choice`, `Quot.sound`; closure 3966 modules, 0
+  trusted; strict tier exit 0. Base pin 49d1d7f5; the run executed solidity-lean 97c1a837 (record
+  caveat).
+- Scope: a default-context generic conditional composition: one frame, caller 0x2000, contract at
+  0x1000, the block and transaction of `Target.message`; runtime bytecode only; valid ABI calls.
+  It lacks a Solidity-text/frontend correspondence, so it is **not** universal source-text end to
+  end.
+- TCB: "source model trusted: SolidCore's checked contract (the solc AST through
+  `scripts/solc_ast_to_lean_source.py` and the type checker) is the meaning of the source (frontend
+  trust boundary)".
+- Not yet run by the reviewer: fresh replay, `--tier lifecycle`, vacuity negatives, tampered replay.
 
 ## Addenda carried over (not RC2 verdicts)
 
