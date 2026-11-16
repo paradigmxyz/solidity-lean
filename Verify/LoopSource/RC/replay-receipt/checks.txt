@@ -1,6 +1,7 @@
 PASS sha256 inputs/Counter.sol
 PASS sha256 inputs/Gcd.sol
 PASS sha256 Counter/Counter.loop-heads.json
+PASS sha256 of every module in MANIFEST.json
 PASS spec lines of Counter.sol
 PASS emit Counter.bump
 PASS emit Gcd.gcd
@@ -14,6 +15,7 @@ PASS dump Gcd Script.lean identical
 PASS gen_loopvc Gcd Obligations.lean identical
 PASS gen_loopmap Map.lean identical
 PASS lake build Verify.LoopSource.RC.Receipt
+PASS negative changed headline rejected by the kernel (exit 1)
 PASS negative stale_compiler rejected by gen_loopmap (exit 3)
 PASS negative stale_source rejected by gen_loopmap (exit 3)
 PASS negative stale source rejected by --check-loop-heads (exit 1)
