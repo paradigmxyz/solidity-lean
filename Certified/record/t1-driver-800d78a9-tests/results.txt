@@ -1,0 +1,8 @@
+control old exit=0 :: CERTIFIED: replay of /home/hand/runs/t5edge/control/replay: every pin reproduced by a fresh cold run (/home/hand/runs/t5edge/control/replay.replay-20261116T000327Z/record.json)
+control new exit=0 :: CERTIFIED: replay of /home/hand/runs/t5edge/control/replay: every pin reproduced by a fresh cold run (/home/hand/runs/t5edge/control/replay.replay-20261116T000327Z/record.json)
+input-rehashed old exit=0 :: CERTIFIED: replay of /home/hand/runs/t5edge/input-rehashed/replay: every pin reproduced by a fresh cold run (/home/hand/runs/t5edge/input-rehashed/replay.replay-20261116T000327Z/record.json)
+input-rehashed new exit=1 :: REJECTED: replay: inputs/Certified/flag_4ce5cf9a/Source.lean is not the generated input solidity_lean.inputs_sha256 pins
+shape-rehashed old exit=0 :: CERTIFIED: replay of /home/hand/runs/t5edge/shape-rehashed/replay: every pin reproduced by a fresh cold run (/home/hand/runs/t5edge/shape-rehashed/replay.replay-20261116T000327Z/record.json)
+shape-rehashed new exit=1 :: REJECTED: replay: inputs/Certified/flag_4ce5cf9a/shape.json is not the generated input solidity_lean.inputs_sha256 pins
+caveats-forged-consistent old exit=0 :: CERTIFIED: replay of /home/hand/runs/t5edge/caveats-forged-consistent/replay: every pin reproduced by a fresh cold run (/home/hand/runs/t5edge/caveats-forged-consistent/replay.replay-20261116T000327Z/
+caveats-forged-consistent new exit=1 :: REJECTED: replay: caveats differs between the record and the fresh run (record [], fresh ['solidity-lean at <inputs commit>, not the pinned d0ab5d63a401ae615a4755742f3ab500a2a9d0b1', 'not end to end: 

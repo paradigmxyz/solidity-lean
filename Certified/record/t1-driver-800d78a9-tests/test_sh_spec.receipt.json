@@ -1,0 +1,23 @@
+{
+  "command": [
+    "env",
+    "SOLAR_VERIFY=/home/hand/w2637/target/debug/solar-verify",
+    "bash",
+    "tools/certify/test.sh"
+  ],
+  "exit_code": 0,
+  "wall_seconds": 190.2,
+  "max_rss_one_process_mib": 1908,
+  "peak_tree_rss_mib": 1512,
+  "peak_system_used_mib": 637,
+  "mem_total_mib": 14531,
+  "samples": 95,
+  "sample_interval_s": 2,
+  "trace": "test_sh_spec.receipt.trace.tsv",
+  "memory_definitions": {
+    "system_used_mib": "machine-wide MemTotal - MemAvailable (/proc/meminfo), all processes",
+    "tree_rss_mib": "sum of VmRSS over the command's live process tree; shared pages count per process",
+    "max_rss_one_process_mib": "getrusage(RUSAGE_CHILDREN).ru_maxrss: largest peak RSS of one reaped descendant"
+  },
+  "started_utc": "2026-11-16T00:38:39Z"
+}

@@ -1,0 +1,37 @@
+test_refused (__main__.ExpectedStatement.test_refused) ... ok
+test_writes_expected (__main__.ExpectedStatement.test_writes_expected) ... ok
+test_same_body_from_two_paths (__main__.FrontendLocation.test_same_body_from_two_paths) ... ok
+test_archived_input_added (__main__.ReplayClaims.test_archived_input_added) ... ok
+test_archived_input_edited_and_rehashed (__main__.ReplayClaims.test_archived_input_edited_and_rehashed)
+An archived generated input edited, with only its run_files digest updated: the pin ... ok
+test_certify_record_missing (__main__.ReplayClaims.test_certify_record_missing) ... ok
+test_control_certified (__main__.ReplayClaims.test_control_certified) ... ok
+test_fresh_caveats_differ (__main__.ReplayClaims.test_fresh_caveats_differ) ... ok
+test_fresh_inputs_commit_may_differ (__main__.ReplayClaims.test_fresh_inputs_commit_may_differ)
+A fresh run commits the same inputs at another time: only that hash differs in its caveats. ... ok
+test_fresh_olean_digests_may_differ (__main__.ReplayClaims.test_fresh_olean_digests_may_differ) ... ok
+test_fresh_run_differs (__main__.ReplayClaims.test_fresh_run_differs) ... ok
+test_tampered_record_rejected (__main__.ReplayClaims.test_tampered_record_rejected) ... ok
+test_clean_passes_the_checks (__main__.ReplayManifest.test_clean_passes_the_checks) ... ok
+test_modified_outside_inputs (__main__.ReplayManifest.test_modified_outside_inputs) ... ok
+test_modified_source (__main__.ReplayManifest.test_modified_source) ... ok
+test_stray_nested (__main__.ReplayManifest.test_stray_nested) ... ok
+test_stray_outside_inputs (__main__.ReplayManifest.test_stray_outside_inputs) ... ok
+test_kernel_memory (__main__.ResourceFailures.test_kernel_memory) ... ok
+test_proof_failure_is_not_resources (__main__.ResourceFailures.test_proof_failure_is_not_resources) ... ok
+test_bound (__main__.SourceBound.test_bound) ... ok
+test_refused (__main__.SourceBound.test_refused) ... ok
+test_failing_theorem_named (__main__.SpecConnectCheck.test_failing_theorem_named) ... ok
+test_tolerant_succeeds_proof (__main__.SpecConnectEmission.test_tolerant_succeeds_proof) ... ok
+test_environment_clause_blocked (__main__.SpecGates.test_environment_clause_blocked) ... ok
+test_msg_value_clause_allowed (__main__.SpecGates.test_msg_value_clause_allowed) ... ok
+test_no_succeeds_if_refused (__main__.SpecGates.test_no_succeeds_if_refused) ... ok
+test_spec_none_needs_no_succeeds_if (__main__.SpecGates.test_spec_none_needs_no_succeeds_if) ... ok
+test_guard_on_empty_capture (__main__.SpecRejectionPath.test_guard_on_empty_capture) ... ok
+test_rejected_line_is_the_verdict (__main__.SpecRejectionPath.test_rejected_line_is_the_verdict) ... ok
+
+----------------------------------------------------------------------
+Ran 29 tests in 122.275s
+
+OK
+RECEIPT {"command": ["env", "SOLIDITY_LEAN_DIR=/home/hand/sl445", "python3", "test_generic.py"], "exit_code": 0, "wall_seconds": 124.2, "max_rss_one_process_mib": 1341, "peak_tree_rss_mib": 1892, "peak_system_used_mib": 2222, "mem_total_mib": 14531, "samples": 62, "sample_interval_s": 2, "trace": "test_generic_full.receipt.trace.tsv", "memory_definitions": {"system_used_mib": "machine-wide MemTotal - MemAvailable (/proc/meminfo), all processes", "tree_rss_mib": "sum of VmRSS over the command's live process tree; shared pages count per process", "max_rss_one_process_mib": "getrusage(RUSAGE_CHILDREN).ru_maxrss: largest peak RSS of one reaped descendant"}, "started_utc": "2026-11-16T00:03:39Z"}

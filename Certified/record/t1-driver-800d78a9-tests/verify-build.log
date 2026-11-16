@@ -1,0 +1,101 @@
+   Compiling serde_core v1.0.229
+   Compiling zerocopy v0.8.63
+   Compiling hashbrown v0.17.1
+   Compiling serde v1.0.229
+   Compiling const-hex v1.19.3
+   Compiling bytes v1.12.1
+   Compiling solar-config v0.3.0 (/home/hand/w2637/crates/config)
+   Compiling alloy-rlp v0.3.16
+   Compiling num-traits v0.2.19
+   Compiling ruint v1.20.1
+   Compiling indexmap v2.14.2
+   Compiling alloy-primitives v1.7.3
+   Compiling ppv-lite86 v0.2.21
+   Compiling cpubits v0.1.1
+   Compiling solar-data-structures v0.3.0 (/home/hand/w2637/crates/data-structures)
+   Compiling crypto-bigint v0.7.6
+   Compiling once_map v0.4.24
+   Compiling rand_chacha v0.3.1
+   Compiling serde_json v1.0.154
+   Compiling ff v0.14.0
+   Compiling num-integer v0.1.47
+   Compiling solar-interface v0.3.0 (/home/hand/w2637/crates/interface)
+   Compiling rand v0.8.8
+   Compiling der v0.8.2
+   Compiling enum-ordinalize-derive v4.4.2
+   Compiling enum-ordinalize v4.4.2
+   Compiling solar-ast v0.3.0 (/home/hand/w2637/crates/ast)
+   Compiling ark-std v0.6.0
+   Compiling num-bigint v0.4.8
+   Compiling group v0.14.0
+   Compiling ark-serialize-derive v0.6.0
+   Compiling ahash v0.8.12
+   Compiling base16ct v1.0.0
+   Compiling sec1 v0.8.1
+   Compiling ark-ff-macros v0.6.0
+   Compiling ark-serialize v0.6.0
+   Compiling solar-parse v0.3.0 (/home/hand/w2637/crates/parse)
+   Compiling educe v0.6.0
+   Compiling ark-ff-asm v0.6.0
+   Compiling ident_case v1.0.1
+   Compiling ark-ff v0.6.0
+   Compiling darling_core v0.23.0
+   Compiling elliptic-curve v0.14.1
+   Compiling primefield v0.14.0
+   Compiling hmac v0.13.0
+   Compiling rustix v1.1.5
+   Compiling winnow v1.0.4
+   Compiling crc-catalog v2.5.0
+   Compiling crc v3.4.0
+   Compiling rfc6979 v0.6.0
+   Compiling alloy-sol-type-parser v1.7.3
+   Compiling wnaf v0.14.1
+   Compiling ark-poly v0.6.0
+   Compiling darling_macro v0.23.0
+   Compiling solar-ir v0.3.0 (/home/hand/w2637/crates/ir)
+   Compiling spki v0.8.1
+   Compiling signature v3.0.0
+   Compiling linux-raw-sys v0.12.1
+   Compiling radium v0.7.0
+   Compiling ecdsa v0.17.0
+   Compiling ark-ec v0.6.0
+   Compiling darling v0.23.0
+   Compiling alloy-json-abi v1.7.3
+   Compiling primeorder v0.14.0
+   Compiling alloy-eip2124 v0.2.0
+   Compiling alloy-eip7702 v0.6.3
+   Compiling alloy-eip7928 v0.4.11
+   Compiling alloy-eip8141 v0.1.1
+   Compiling alloy-eip2930 v0.2.4
+   Compiling nybbles v0.4.8
+   Compiling num-iter v0.1.46
+   Compiling auto_impl v1.4.0
+   Compiling num-complex v0.4.6
+   Compiling tap v1.0.1
+   Compiling typeid v1.0.3
+   Compiling tempfile v3.27.0
+   Compiling alloy-eips v2.5.0
+   Compiling wyz v0.5.1
+   Compiling num v0.4.3
+   Compiling alloy-trie v0.9.8
+   Compiling solar-sema v0.3.0 (/home/hand/w2637/crates/sema)
+   Compiling alloy-tx-macros v2.5.0
+   Compiling solar-evmir v0.3.0 (/home/hand/w2637/crates/evmir)
+   Compiling solar-mir v0.3.0 (/home/hand/w2637/crates/mir)
+   Compiling funty v2.0.0
+   Compiling evm2 v0.1.0 (https://github.com/alloy-rs/evm2?rev=9b037449c846515624ff6afde739f2b764851446#9b037449)
+   Compiling hex v0.4.3
+   Compiling aurora-engine-modexp v1.3.0
+   Compiling bitvec v1.1.1
+   Compiling solar-codegen v0.3.0 (/home/hand/w2637/crates/codegen)
+   Compiling alloy-consensus v2.5.0
+   Compiling p256 v0.14.0
+   Compiling k256 v0.14.0
+   Compiling ark-bls12-381 v0.6.0
+   Compiling ark-bn254 v0.6.0
+   Compiling evm2-macros v0.1.0 (https://github.com/alloy-rs/evm2?rev=9b037449c846515624ff6afde739f2b764851446#9b037449)
+   Compiling derive-where v1.7.0
+   Compiling arrayref v0.3.9
+   Compiling solar-cli v0.3.0 (/home/hand/w2637/crates/cli)
+   Compiling solar-verify v0.3.0 (/home/hand/w2637/crates/verify)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 13s

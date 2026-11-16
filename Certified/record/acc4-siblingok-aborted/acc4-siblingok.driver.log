@@ -1,0 +1,105 @@
+== generic: /home/hand/acc-src/SiblingOk.sol (e3749c22494d07461b2074268882227824a84765f8afc21de6bf4da56a61ca47) as siblingok_e3749c22, requested tier certified
+envelope (source): inside; functions level(), set(uint256)
+== generic: build solar
+envelope (bytecode): no call, creation, gas or return-data opcode
+gas bound (the loop checker's, from this export): 2033203
+== generic: probe SolidCore's evaluation and the generic check (separate clone)
+PROBE typecheck: ok
+PROBE core: <3204 chars>
+PROBE constructor: returns
+PROBE storage: []
+PROBE fn level(): agree
+PROBE fn set(uint256): agree
+== generic: solidity-lean 44572c150176365fa5e0d56ae6c59a7a443f8122 + inputs c8fe570c6089347609ea26a35ce5d03a160d5db3; scripts/certify
+== 1. the pinned solidity-lean checkout
+certify: warning: solidity-lean at c8fe570c6089347609ea26a35ce5d03a160d5db3, not the pinned d0ab5d63a401ae615a4755742f3ab500a2a9d0b1
+solidity-lean c8fe570c6089347609ea26a35ce5d03a160d5db3 at /home/hand/runs/acc4-siblingok-work/solidity-lean
+== 2. solar
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.15s
+solar 6d0f2621693c2c4939eaf6241406a1674b22419c
+Build completed successfully (1156 jobs).
+solar sha256 62c9d6edaecd117a8f2fb98dbf6b59800f75ee1e055e99957cc85adbebf5870f
+== 3. compile Certified/siblingok_e3749c22/siblingok_e3749c22.sol and export its stages (-Ogas --evm-version osaka)
+stages: stage0 (lower-evm-shaped), sched (stack-schedule), evm1 (cfg-simplify-early), evm2 (block-layout), evm3 (share-reverts), evm4 (terminal-dedup), evm5 (cfg-simplify-early), evm6 (inline-returns), evm7 (cfg-simplify), bytecode (assemble)
+bytecode: 346025575f3560e01c806360fe47b11460295780636fd5ae15036025575f545f5260205ff35b5f5ffd5b60243610602557600560043511603f5760025f55005b60015f55 sha256 707f63a7b096952969a5361289b6a3750ca33ebf6bc955b77d10276506baa0de
+== 4. write the proofs
+assembly: decoded only; the loop-free stages have no backward composition to run the bytecode with
+{"final": "SolarTV.Milestone.SiblingokE3749c22.siblingok_e3749c22_mir_to_evmir", "last": "evm7", "first": "stage0", "stages": ["stage0", "sched", "evm1", "evm2", "evm3", "evm4", "evm5", "evm6", "evm7"]}
+== 5. build and audit the proofs
+siblingok_e3749c22.gen.SiblingOk.Bytecode: Build completed successfully (2 jobs).
+siblingok_e3749c22.gen.SiblingOk.Evm1: Build completed successfully (12 jobs).
+siblingok_e3749c22.gen.SiblingOk.Evm2: Build completed successfully (12 jobs).
+siblingok_e3749c22.gen.SiblingOk.Evm3: Build completed successfully (12 jobs).
+siblingok_e3749c22.gen.SiblingOk.Evm4: Build completed successfully (12 jobs).
+siblingok_e3749c22.gen.SiblingOk.Evm5: Build completed successfully (12 jobs).
+siblingok_e3749c22.gen.SiblingOk.Evm6: Build completed successfully (12 jobs).
+siblingok_e3749c22.gen.SiblingOk.Evm7: Build completed successfully (12 jobs).
+siblingok_e3749c22.gen.SiblingOk.Manifest: Build completed successfully (2 jobs).
+siblingok_e3749c22.gen.SiblingOk.Sched: Build completed successfully (12 jobs).
+siblingok_e3749c22.gen.SiblingOk.Stage0: Build completed successfully (11 jobs).
+siblingok_e3749c22.Proofs.Runs.Evm1: Build completed successfully (21 jobs).
+siblingok_e3749c22.Proofs.Runs.Evm2: Build completed successfully (21 jobs).
+siblingok_e3749c22.Proofs.Runs.Evm3: Build completed successfully (21 jobs).
+siblingok_e3749c22.Proofs.Runs.Evm4: Build completed successfully (21 jobs).
+siblingok_e3749c22.Proofs.Runs.Evm5: Build completed successfully (21 jobs).
+siblingok_e3749c22.Proofs.Runs.Evm6: Build completed successfully (21 jobs).
+siblingok_e3749c22.Proofs.Runs.Evm7: Build completed successfully (21 jobs).
+siblingok_e3749c22.Proofs.Runs.Sched: Build completed successfully (21 jobs).
+siblingok_e3749c22.Proofs.Runs.Stage0: Build completed successfully (20 jobs).
+siblingok_e3749c22.Proofs.Stages: Build completed successfully (39 jobs).
+siblingok_e3749c22.Proofs.Assembly: Build completed successfully (17 jobs).
+siblingok_e3749c22.Proofs: Build completed successfully (45 jobs).
+'SolarTV.Milestone.SiblingokE3749c22.checked' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.SiblingokE3749c22.decodes' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.SiblingokE3749c22.evm1_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.SiblingokE3749c22.evm1_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.SiblingokE3749c22.evm2_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.SiblingokE3749c22.evm2_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.SiblingokE3749c22.evm3_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.SiblingokE3749c22.evm3_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.SiblingokE3749c22.evm4_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.SiblingokE3749c22.evm4_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.SiblingokE3749c22.evm5_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.SiblingokE3749c22.evm5_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.SiblingokE3749c22.evm6_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.SiblingokE3749c22.evm6_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.SiblingokE3749c22.evm7_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.SiblingokE3749c22.items_eq' depends on axioms: [propext, Quot.sound]
+'SolarTV.Milestone.SiblingokE3749c22.sched_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.SiblingokE3749c22.sched_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.SiblingokE3749c22.siblingok_e3749c22_mir_to_evmir' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.SiblingokE3749c22.stage0_ends' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.SiblingokE3749c22.stage_evm1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.SiblingokE3749c22.stage_evm2' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.SiblingokE3749c22.stage_evm3' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.SiblingokE3749c22.stage_evm4' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.SiblingokE3749c22.stage_evm5' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.SiblingokE3749c22.stage_evm6' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.SiblingokE3749c22.stage_evm7' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.SiblingokE3749c22.stage_sched' depends on axioms: [propext, Classical.choice, Quot.sound]
+'SolarTV.Milestone.SiblingokE3749c22.walk_eq' depends on axioms: [propext, Quot.sound]
+audited 29 theorems
+== 6. the spec (solar-verify) and the headline theorems
+lake packages (20 modules imported): Build completed successfully (2492 jobs).
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.27s
+export: /home/hand/runs/acc4-siblingok-work/solidity-lean/.lake/certify/siblingok_e3749c22/VC.lean is whole (132 lines, ends with end Certified.SiblingokE3749c22.VC)
+spec: exported to .lake/certify/siblingok_e3749c22/VC.lean
+no Certified/siblingok_e3749c22/headline: no end-to-end theorem
+== 6b. the published statement
+export: Certified/siblingok_e3749c22/gen/SiblingOk/Spec.lean is whole (49 lines, ends with end Certified.siblingok_e3749c22.gen.SiblingOk.Spec)
+siblingok_e3749c22.Lowering: Build completed successfully (2566 jobs).
+siblingok_e3749c22.gen.SiblingOk.Spec: Build completed successfully (8 jobs).
+Verify.VC.Model: Build completed successfully (2549 jobs).
+Verify.Spec.Tree: Build completed successfully (2553 jobs).
+Verify.Spec.TreeMap: Build completed successfully (2558 jobs).
+Verify.Spec.TreeMapNested: Build completed successfully (2559 jobs).
+Verify.Spec.TreeIn: Build completed successfully (2567 jobs).
+Verify.Spec.TreeSucceeds: Build completed successfully (2559 jobs).
+Verify.VC.KernelIdx: Build completed successfully (2 jobs).
+SolidCore.Refinement.KernelRfl: Build completed successfully (3 jobs).
+spec connected generically: siblingok_e3749c22.SpecConnect.set_holds
+{"proof": "Certified.siblingok_e3749c22.Shape.published", "gas_needed": 2033203, "blocks": 4}
+source: Certified/siblingok_e3749c22/Source.lean is the front end's AST of SiblingOk in Certified/siblingok_e3749c22/siblingok_e3749c22.sol (solc 0.8.35)
+siblingok_e3749c22.Statement: Build completed successfully (2758 jobs).
+siblingok_e3749c22.Final: Build completed successfully (2784 jobs).
+STATEMENT Certified.siblingok_e3749c22.Final.Statement := And (Eq.{1} (List.{0} Nat) (List.map.{0, 0} UInt8 Nat (fun (x._@.siblingok_e3749c22.Statement.1005636212._hygCtx._hyg.12 : UInt8) => UInt8.toNat x._@.siblingok_e3749c22.Statement.1005636212._hygCtx._hyg.12) (Array.toList.{0} UInt8 (ByteArray.data Certified.siblingok_e3749c22.Final.code))) Certified.siblingok_e3749c22.Final.runtimeBytes) (SolidCore.Verify.Generic.Expected Certified.siblingok_e3749c22.Final.src Certified.siblingok_e3749c22.Final.spec Certified.siblingok_e3749c22.Final.runtimeBytes)

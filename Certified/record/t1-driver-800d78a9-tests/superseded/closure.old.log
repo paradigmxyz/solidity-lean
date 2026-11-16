@@ -1,0 +1,8 @@
+== replay: /usr/bin/python3 /home/hand/wacc4/tools/certify/generic.py /home/hand/runs/t5cases/closure/replay/Flag.sol natspec --tier certified --solidity-lean /nonexistent --base 44572c150176365fa5e0d56ae6c59a7a443f8122 --work /home/hand/runs/t5cases/w-closure-old --record-dir /home/hand/runs/t5cases/closure/replay.replay-20261115T235736Z --contract Flag
+== generic: /home/hand/runs/t5cases/closure/replay/Flag.sol (4ce5cf9a87520dc956a1e7366d5f646a07739832e44a3d8dec2eb656deb6388d) as flag_4ce5cf9a, requested tier certified
+envelope (source): inside; functions lower(), raise(uint256), raised(), value()
+== generic: build solar
+envelope (bytecode): no call, creation, gas or return-data opcode
+gas bound (the loop checker's, from this export): 3580203
+REJECTED: git rev-parse 44572c150176365fa5e0d56ae6c59a7a443f8122^{commit} in /nonexistent: fatal: cannot change to '/nonexistent': No such file or directory
+REJECTED: replay: solidity_lean.base differs between the record and the fresh run (record 44572c150176365fa5e0d56ae6c59a7a443f8122, fresh None)

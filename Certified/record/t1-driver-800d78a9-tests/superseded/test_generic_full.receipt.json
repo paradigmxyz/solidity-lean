@@ -1,0 +1,23 @@
+{
+  "command": [
+    "env",
+    "SOLIDITY_LEAN_DIR=/home/hand/sl445",
+    "python3",
+    "test_generic.py"
+  ],
+  "exit_code": 0,
+  "wall_seconds": 4.0,
+  "max_rss_one_process_mib": 167,
+  "peak_tree_rss_mib": 89,
+  "peak_system_used_mib": 635,
+  "mem_total_mib": 14531,
+  "samples": 2,
+  "sample_interval_s": 2,
+  "trace": "test_generic_full.receipt.trace.tsv",
+  "memory_definitions": {
+    "system_used_mib": "machine-wide MemTotal - MemAvailable (/proc/meminfo), all processes",
+    "tree_rss_mib": "sum of VmRSS over the command's live process tree; shared pages count per process",
+    "max_rss_one_process_mib": "getrusage(RUSAGE_CHILDREN).ru_maxrss: largest peak RSS of one reaped descendant"
+  },
+  "started_utc": "2026-11-15T23:58:40Z"
+}
