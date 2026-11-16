@@ -26,6 +26,16 @@ lake env lean Verify/Lifecycle/Examples.lean
 after building Verify.Lifecycle.Examples' imports, including
 SolidCore.Refinement.Deploy.
 
-Open: the bytecode half (Deploys) has no generic proof yet. Until it does,
-the driver's lifecycle tier ends UNSUPPORTED-lifecycle (exit 4) and never
+- DeployFrame.lean: deploys_of_postS, the bytecode half from a cut point at
+  the creation frame. A PostS specification of the one frame a creation runs
+  gives Deploys initcode code s, for any init code, runtime code and storage,
+  without reducing EthLib's processMessage.
+- Deploy/NoArgCtor.lean: the first instance. NoArgCtor's frame is stepped by
+  EthLib's program logic, with SSTORE priced at its bound (sstore_then), and
+  gives Deploys initcode code [(0, 7)].
+
+Open: the frame is still stepped per contract. A generic frame proof for
+solar's constructor shape is not done yet: the CALLVALUE guard, the body's
+SSTOREs, the argument copy from the end of the code, immutable patching and
+the CODECOPY/RETURN epilogue. Until it is, the driver's lifecycle tier ends UNSUPPORTED-lifecycle (exit 4) and never
 certifies.

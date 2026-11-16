@@ -22,7 +22,8 @@ probe). The negative cases show that each argument matters, that the constructor
 every written slot is stated, that slots are not interchangeable, and that an immutable is not
 storage.
 
-Open: the bytecode half, `Deploys`, has no generic kernel proof yet.
+The bytecode half is Verify/Lifecycle/DeployFrame.lean (`deploys_of_postS`) and its instances under
+Verify/Lifecycle/Deploy/.
 -/
 
 namespace Verify.Lifecycle.Examples
