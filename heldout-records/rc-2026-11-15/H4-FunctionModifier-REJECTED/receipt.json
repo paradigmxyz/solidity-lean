@@ -1,0 +1,34 @@
+{
+  "command": [
+    "tools/certify/certify",
+    "/home/hand/h3/sl/tests/heldout/rc-2026-11-15/draw2/H4-FunctionModifier/FunctionModifier.sol",
+    "natspec",
+    "--contract",
+    "FunctionModifier",
+    "--solidity-lean",
+    "/home/hand/h3/sl",
+    "--work",
+    "/home/hand/h4/run/work",
+    "--record-dir",
+    "/home/hand/h4/run/record",
+    "--packages-from",
+    "/home/hand/h3/cache/sl",
+    "--probe-cache",
+    "/home/hand/h3/cache/sl"
+  ],
+  "exit": 1,
+  "started_utc": "2026-11-16T01:59:20Z",
+  "finished_utc": "2026-11-16T01:59:24Z",
+  "wall_seconds": 4.1,
+  "peak_tree_rss_kb": 55808,
+  "peak_system_used_kb": 544788,
+  "memtrace": "memtrace.tsv (2 s samples: system used = MemTotal-MemAvailable, tree RSS = sum over the run's process group)",
+  "env": {
+    "LEAN_NUM_THREADS": "1",
+    "CARGO_BUILD_JOBS": null
+  },
+  "host": {
+    "nproc": 5,
+    "mem_total_kb": 14880764
+  }
+}
