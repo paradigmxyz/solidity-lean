@@ -146,12 +146,28 @@ Record: T2 `alpharush/t2-e6-transfer-any-caller` @ 109c6132ce68b559124c26bf0bac8
 - Scope: runtime tier only. The constructor, lifecycle and reentrancy are out.
 - Gas 8199112 is an observed-equality bound (from it on, the bytes' observable equals the
   source's), not a no-out-of-gas claim.
+- Exact-input binding receipt: **ACCEPTED (binding scope only)**. Record: T2 @
+  7ca76b0b0ee8f532760fe9f1b909e1cf9917a517 (parent 109c6132): `Certified/uv2_transfer_e6/BINDING.md`,
+  `binding.json` (result `bound`), `PINS`, `verify_binding.sh`, `verify_binding_negatives.sh`.
+  - One raw-byte source identity, 14da00cd…c80b, is shared by the fresh emit, the stage export, the
+    solc-AST import and the spec export.
+  - The 762294af mismatch is resolved by correspondence: exporting from 14da00cd gives the same 18
+    stage modules byte for byte; only `Manifest.lean` differs, and it is outside the closure.
+  - Pins are enforced before any comparison, and a mismatch exits 2 naming the pin: source, options,
+    solc, emitter (dca17546…), spec exporter (solar-verify), spec, spec applier, importer, importer
+    cache, import driver.
+  - `verify_binding.sh` exits 0. Negative controls: exit 2 for source, options, solc, emitter and
+    spec exporter; exit 1 for runtime bytes, stage, import and spec; exit 0 for the unaltered-copy
+    positive control. `verify_binding_negatives.sh` exits 0.
+  - No rebuild or replay: it reuses the closure receipt above.
+- Not a universal source-text end-to-end claim. TCB unchanged: the solc AST, the importer, the
+  port/flattener and the spec export.
 - OPEN: aggregate process-tree RSS admission. The summed `leanchecker` RSS peak was measured at
-  5.6 GiB; the wrappers were not sampled.
-- OPEN: raw-byte source identity. The emit and the import read the same bytes (14da00cd), but the
-  stage export read the unflattened port (762294af); that the two match rests on the port and
-  flattener, which are in the TCB.
-- OPEN: `verify_bytes.sh` compares bytes only. It enforces no binary, source or options hash.
+  5.6 GiB; the wrappers were not sampled, so the `leanchecker`-only peak does not close it.
+- OPEN: reproducibility of the emitter binary from 697fc686 (one build, one hash).
+- OPEN: `importedSourceName` embeds an absolute checkout path; the binding normalizes that one
+  string.
+- OPEN: the generated GPL files are recorded as hashes only.
 - Run history: in the counted run, one task was killed at 00:35 CST during batch 2400 (cause
   unknown). One resume on the same artifacts reran batch 2400 onward. Earlier attempts gave no
   verdict and are not counted.
