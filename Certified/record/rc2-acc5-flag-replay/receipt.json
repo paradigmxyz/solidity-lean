@@ -1,0 +1,28 @@
+{
+  "command": [
+    "tools/certify/certify",
+    "--replay",
+    "/home/hand/runs/rc2-acc5-flag-replay-clone/Certified/record/rc2-acc5-flag/replay",
+    "--solidity-lean",
+    "/home/hand/sl445",
+    "--packages-from",
+    "/home/hand/sl445",
+    "--probe-cache",
+    "/home/hand/sl445"
+  ],
+  "exit_code": 0,
+  "wall_seconds": 10738.9,
+  "max_rss_one_process_mib": 7991,
+  "peak_tree_rss_mib": 8811,
+  "peak_system_used_mib": 6231,
+  "mem_total_mib": 14531,
+  "samples": 5364,
+  "sample_interval_s": 2,
+  "trace": "rc2-acc5-flag-replay.receipt.trace.tsv",
+  "memory_definitions": {
+    "system_used_mib": "machine-wide MemTotal - MemAvailable (/proc/meminfo), all processes",
+    "tree_rss_mib": "sum of VmRSS over the command's live process tree; shared pages count per process",
+    "max_rss_one_process_mib": "getrusage(RUSAGE_CHILDREN).ru_maxrss: largest peak RSS of one reaped descendant"
+  },
+  "started_utc": "2026-11-16T07:52:17Z"
+}
