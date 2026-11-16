@@ -1,12 +1,18 @@
 # Release candidate 2026-11-15 (solidity-lean)
 
-Status: **not a passing release candidate. Held-out positives: 0 of 3** in the original draw (H1
-REJECTED, H2 REJECTED on a resource limit, H3 BLOCKED), and **0 of 1** in the separate second draw
-(H4 REJECTED; closed at H4). There is no exact-pin positive at the RC driver pin. This file is
-complete as a report of those results; acc5 is not needed for it. The acceptance reviewer, the only publisher of RC artifacts,
-updates this file in place, one commit per update on `alpharush/rc-2026-11-15`.
+Status: **Accepted 2026-11-15 as a negative report: 0/3 original held-out, 0/1 second draw, at driver
+800d78a9. Not a passing RC.** There is no exact-pin positive at the RC driver pin. This branch is
+**frozen** at this commit: the acceptance reviewer, its only publisher, makes no further change to
+these verdicts. Results that land later (acc5 on 800d78a9, the Counter headline type check, and any
+further H2 diagnostics) are appended as post-RC addenda under "Post-RC addenda" in a later commit,
+never as changes to these verdicts. (The H2 diagnostic rerun below landed before the freeze and is
+already labelled as not a verdict.)
 
-What this candidate claims, if accepted: for contracts inside the supported subset below, the
+**Next pin:** solar `alpharush/t1-utf8-cut-b` @ bb626f8ad085b129b4f65267de64157584a18258 (parent
+800d78a9; changes only `tools/certify/final_neg.sh`, `generic.py` and `test_generic.py`). Adoption is
+pending `test.sh` exit 0. Nothing in this RC was produced on it.
+
+What a passing candidate would claim (this negative report claims none of it for a held-out contract): for contracts inside the supported subset below, the
 generic driver produces, with no hand-written proof, one kernel-checked theorem of a fixed shape
 (`SolidCore.Verify.Generic.Expected`) about the exact runtime bytes the pinned compiler emitted in
 that run. It makes **no claim about Solidity in general**, about init code or deployment, or about
@@ -297,3 +303,7 @@ re-added to the kernel alone: 0 rejected. Single thread, 26 modules in 105.9 s w
   rule; its seed is H1's `record.json` sha256, and every drawn case is reported whatever its verdict.
 - `RC.MANIFEST.sha256`: sha256 of every file above, from the repository root
   (`sha256sum -c RC.MANIFEST.sha256`).
+
+## Post-RC addenda
+
+None yet. Each addendum names its own commit, driver sha and receipt, and changes no verdict above.
