@@ -620,7 +620,8 @@ lean_lib «abi_hash» where
 -- exact bytes. Needs the generated modules of uv2_erc20, ContractsUniswapV2ERC20SourceMir and
 -- ContractsUniswapV2TransferSlice (scripts/verify/uniswap_v2_stages.sh, uniswap_v2_transfer_slice.sh).
 lean_lib ContractsUniswapV2ERC20Certified where
-  roots := #[`Contracts.UniswapV2.ERC20.Certified.Transfer]
+  roots := #[`Contracts.UniswapV2.ERC20.Certified.Transfer, `Contracts.UniswapV2.ERC20.Certified.TransferFrom,
+    `Contracts.UniswapV2.ERC20.Certified.TransferExpected]
 
 -- UniswapV2Pair's backend stages on the calls of one external function, from solar's first lowered
 -- MIR to the final EVM IR, and the decoding of the exact runtime bytecode (not its execution).
@@ -670,3 +671,16 @@ lean_lib VerifyGeneric where
 -- uniswap_v2_transfer_slice.sh).
 lean_lib VerifyGenericTransfer where
   roots := #[`Verify.Generic.Instances.Transfer]
+
+-- flag_4ce5cf9a: the accepted held-out Flag's generated modules, built from its certificate record
+-- (Certified/record/acc4-flag/generated, unedited).
+lean_lib «flag_4ce5cf9a» where
+  srcDir := "Certified/record/acc4-flag/generated/Certified"
+  roots := #[`flag_4ce5cf9a.Proofs]
+  globs := #[.submodules `flag_4ce5cf9a]
+
+-- Generic.Expected from every caller: the loop checker from any account, the caller check, and
+-- the held-out Flag instantiated in every real context (Verify/Generic/BOUNDARY.md).
+lean_lib VerifyGenericAnyCaller where
+  roots := #[`Verify.Generic.CheckLFrom, `Verify.Generic.AnyCaller,
+    `Verify.Generic.Instances.FlagAnyCaller]
