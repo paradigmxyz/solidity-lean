@@ -1,7 +1,8 @@
 # Release candidate 2026-11-15 (solidity-lean)
 
-Status: **ASSEMBLING, not yet a release candidate.** There is no exact-pin positive at the RC
-driver pin yet (see Receipts). The acceptance reviewer, the only publisher of RC artifacts,
+Status: **ASSEMBLING, not yet a release candidate. Held-out positives: 0 of 3** in the original
+draw (H1 REJECTED, H2 REJECTED on a resource limit, H3 BLOCKED), and there is no exact-pin positive
+at the RC driver pin (see Receipts). The acceptance reviewer, the only publisher of RC artifacts,
 updates this file in place, one commit per update on `alpharush/rc-2026-11-15`.
 
 What this candidate claims, if accepted: for contracts inside the supported subset below, the
@@ -98,6 +99,9 @@ The claims are kept separate:
 ## Known blockers and open items
 
 - Pair: BLOCKED.
+- **Resources:** H2's `SpecConnect.lean` check needs more than Lean's default 6000 MB on a 14 GB
+  Hand (peak 14.25 GB process tree); the generic stage's memory use is a blocker for contracts
+  of that size.
 - **Storage getter returning a word: spec_connect gap.** H1's `get() returns (uint256)` with
   `@custom:ensures result == num` is refused at `spec_connect` (omega fails, `sorryAx` in
   `get_holds`), so no function that returns a storage word has a certified spec at the pin.
@@ -142,11 +146,11 @@ Labels: **one-full-run** = the exit comes from its own complete driver run;
 |---|---|---|---|---|
 | acc4-flag (`Certified/record/acc4-flag/`, from records d66e60bf) | 6d0f2621 | CERTIFIED, tier certified, strict holds, exit 0 (one-full-run) | exact-pin fresh-clone replay at 6d0f2621, 18/18 pins SAME, exit 0 (`Certified/record/acc4-flag-replay/`, from 4df9c420) | **No**: 6d0f2621 is not an ancestor of 800d78a9 and differs from it in 17 driver files and 27 compiler files. Exact-pin at 6d0f2621 only. |
 | H1 SimpleStorage (held-out runner T6) | 800d78a9 (clean; its solar binary reports `binary_commit` c09510a3, which differs from 800d78a9 only in `tools/certify/generic.py` and `test_generic.py`, so the compiler source is the same. A 1844041e attempt was stopped in its probe build and wrote no record) | **REJECTED, exit 1** (one-full-run): "spec: get_meets0 does not check: omega could not prove the goal (SpecConnect.lean:163)"; `get_holds` and `get_holds_in` depend on `sorryAx`, so `spec_connect` refused the functions and `scripts/certify --require-final` exited 1. Only partial result: `set(uint256)`'s spec theorems checked. tier_reached none; bytecode sha256 6e95f821ecc2c71682bb59cd089429e0ab967f2cb33da8a32ffbce7135e9d402, gas bound 1944803; record.json sha256 4758becf…c96e. Record dir `Certified/record/heldout-h1-simplestorage-rejected/`, byte-identical to `alpharush/t6-heldout-records` @ fe49ed41 | not applicable (nothing certified) | **No: REJECTED.** The spec is unchanged and states only `result == num`; a re-elaboration outside the driver shows omega's possible counterexample over `pre.time`, which the spec never mentions. The runner reads it as a gap in the generic stage's proof of a returned value, not a spec defect. Case not edited or re-run. Held-out negative result; the failure fails closed |
-| H2 ViewAndPure (runner T7) | 800d78a9 | pending | pending | pending |
+| H2 ViewAndPure (runner T7) | 800d78a9 (clean), inputs commit 5eaae9e1 | **REJECTED, exit 1** (one-full-run, wall 45:53): Lean went over `LEAN_MEMORY=6000` while checking `SpecConnect.lean` and segfaulted (exit 139), so `spec_connect` refused the functions. Probe: `PROBE constructor: returns`, storage `[(0, 1)]`, all 3 functions agree. tier_reached none; bytecode sha256 9ee97f8f…a8c97; peak RSS 14.25 GB (process tree) on a 14 GB Hand. 23 earlier theorems on `propext, Classical.choice, Quot.sound` only (as reported). Record dir not yet published | not applicable (nothing certified; no `statuses.equivalence` to edit) | **No: REJECTED (resource).** Not a failed proof and not a spec defect; case not edited or re-run. Any later run with more memory is reported separately and never replaces this verdict |
 | H3 Mapping (runner T8) | 800d78a9 (binary dc65961e…b845) | **BLOCKED, exit 3** (one-full-run): "generic source check (2x, first myMap(address): source tree undefined (erasure))"; the second is `remove` (`delete myMap[_addr]`). tier_reached none; bytecode sha256 9071475602f625d442ffcbba8fcfac971109482af02166d1892f846615cefda6, gas bound 9237812; record.json sha256 7df52bde…0f99 (record dir `Certified/record/heldout-h3-mapping-blocked/`, byte-identical to `alpharush/heldout-h3-blocked` @ 4032285f; its record.json has no solidity_lean field because the run stopped before the base was used, so the base rests on the driver default: no `--base` was given, and `tools/certify/solidity-lean.rev` at 800d78a9 is 44572c15) | not applicable: `--replay` of the BLOCKED record exits 1 "the record is BLOCKED: nothing to replay" | **No: BLOCKED.** Not a spec defect; case not edited or re-run. Counts as a held-out negative result |
 
-**Original held-out draw (H1-H3, e0564a28), denominator fixed at 3:** H1 REJECTED (exit 1), H3
-BLOCKED (exit 3), H2 pending. Both failures are genuine failures of the original draw and stay
+**Original held-out draw (H1-H3, e0564a28), denominator fixed at 3: 0 certified.** H1 REJECTED
+(exit 1), H2 REJECTED (exit 1, resource), H3 BLOCKED (exit 3). Both failures are genuine failures of the original draw and stay
 counted in it; nothing replaces or dilutes them.
 
 ### Separate second draw (own denominator; not part of the original draw)
@@ -206,7 +210,7 @@ re-added to the kernel alone: 0 rejected. Single thread, 26 modules in 105.9 s w
 | archived input edited + run_files rehashed | 1844041e | **exit 0 CERTIFIED: failure**, fixed in 800d78a9 (receipt pending here) | comparison-reuse |
 | input-rehashed, shape-rehashed, caveats-forged; unedited control | 800d78a9 | reported REJECTED ×3, control CERTIFIED; receipts pending here | comparison-reuse |
 | replay of each held-out record with an edited claim | 800d78a9 | pending | comparison-reuse |
-| `--tier lifecycle` | 800d78a9 | exit 2 "tier not offered": H1 (`lifecycle-tier.log` in its record dir) and H3 (argparse invalid choice, no record; comparison-reuse); H2 pending. Lifecycle is BLOCKED (not offered), not a failure of the runtime claim | one-full-run per case |
+| `--tier lifecycle` | 800d78a9 | exit 2 "tier not offered": H1 (`lifecycle-tier.log` in its record dir), H2 (one-full-run) and H3 (argparse invalid choice, no record; comparison-reuse). Lifecycle is BLOCKED (not offered), not a failure of the runtime claim | one-full-run per case |
 
 ## Files
 
