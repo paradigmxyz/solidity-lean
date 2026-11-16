@@ -40,14 +40,11 @@ RC1 verdicts at 800d78a9, for comparison only: H1 REJECTED (spec step, `get_meet
 (recursion). RC2's base targets H1's returned-word gap; the others are not expected to change unless a
 fix for them is in the pin.
 
-**Base pin in the H3 and H4 records.** `record.json` still names no solidity-lean commit (its
-`command` passes `--solidity-lean` a path). T8 added `PINS.json` beside it in both records at
-96bd11a1 (R2): driver 0479b90a (tree e87de259…, clean, `solidity-lean.rev` 49d1d7f5) and base
-49d1d7f5 (tree 69c84f61…). `PINS.json` was written after the run and is the runner's attestation,
-not run output: for H3 it cites the run's own base clone at that commit; for H4 only the driver's
-`solidity-lean.rev`, since the run stopped before cloning the base. So the base stays
-runner-attested, not self-contained in `record.json`. H1 and H2 records are checked for the same
-field, and the same gap is stated for any record that lacks it.
+**Base pin receipt (H3, H4).** `Certified/record/rc2-h3/PINS.json:base.commit` and
+`Certified/record/rc2-h4/PINS.json:base.commit` = 49d1d7f5d9b74165486bd9f634202bee1a3633eb, at T8's
+96bd11a1 and byte-identical here; each `PINS.json` is covered by its record's `MANIFEST.sha256` and
+by `RC2.MANIFEST.sha256`. `record.json` itself still names no solidity-lean commit; `PINS.json` is
+the record's base pin. H1 and H2 records are checked for the same key.
 
 ## Other records
 
@@ -81,8 +78,6 @@ field, and the same gap is stated for any record that lacks it.
 - Loops at MIR, bytes and gas (source-level Counter edge only).
 - Counter (e13cda49): source-only; full `leanchecker` replay, aggregate RSS and the transitive
   manifest OPEN.
-- Base pin in records: H3 and H4 `record.json` omit the solidity-lean commit; base 49d1d7f5 is
-  runner-attested in `PINS.json` (H4: driver `solidity-lean.rev` only).
 - Pair: BLOCKED.
 
 ## Receipts
