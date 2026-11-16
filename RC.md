@@ -306,4 +306,29 @@ re-added to the kernel alone: 0 rejected. Single thread, 26 modules in 105.9 s w
 
 ## Post-RC addenda
 
-None yet. Each addendum names its own commit, driver sha and receipt, and changes no verdict above.
+Each addendum names its own commit, driver sha and receipt, and changes no verdict above.
+
+### A1 (2026-11-15 22:05 CST): Counter source-consumer edge
+
+Counter source-consumer edge: T4 e13cda49ed806cd3d35937ae8d9f26cfe357a800 (replayed
+675964ccd0908ca1728879aaf8ec20cc1cc966bb), solidity-lean `alpharush/t4-loopvc-rc`.
+`Verify/LoopSource/RC/Headline.lean` states `CounterBumpLoopHeadline` independently (it imports only
+the source semantics and Counter's source model, and asserts `LoopVC` and `LoopBinding` are not
+imported); `HeadlineCheck.lean` checks exactly `body_runs_vc` against it (axioms `propext,
+Classical.choice, Quot.sound`); `Receipt.lean` imports it; receipt `replay-receipt/replay.json` at
+e13cda49: 34/34 checks, exit 0. This meets the expected-type edge for **source semantics only**,
+closing the gap named above under "Counter loop-head consumer"; that entry is left as frozen.
+
+Caveats:
+
+- `replay.sh` builds `Receipt` with linked packages (`.lake/packages` from the 44572c15 package
+  set); it is not a full `leanchecker` closure replay.
+- The resource wrapper uses `RUSAGE_CHILDREN.ru_maxrss`: the largest child's RSS, not the whole
+  concurrent process tree.
+- The module manifest leaves out the transitive source model.
+- Not hermetic, no aggregate resource admission, and no end-to-end claim. Loop MIR, bytes and gas
+  stay OPEN. This route's compiler is solar fd53f637, not the RC driver 800d78a9.
+
+Reviewer check: the two commits' parentage (19112ca8 → 675964cc → e13cda49), `Headline.lean`'s
+statement and import guards, `HeadlineCheck.lean`'s `example`, `Receipt.lean`'s import and the
+receipt's counts were read at e13cda49; nothing was rebuilt here.
