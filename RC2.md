@@ -102,9 +102,42 @@ H1 and H2 records are checked for the same key.
   and the transitive manifest stay OPEN; it is a linked-package replay, not a full `leanchecker`
   replay. A later InvOkFlat rerun on the same branch, @ a56262ce871f07e86c02644e32bc820517dfb18b, is
   recorded ABORTED-env and parked; it changes nothing above.
-- **E6 any-caller over fresh bytes:** T2 `alpharush/t2-e6-transfer-any-caller` @
-  52152f589b310142f8c807c429545ddfc5f37c64 (parent b0196e92), "transfer from every caller over fresh
-  bytes". **Pending until T2's closure replay lands**; not reviewed here yet, and not part of any RC2 verdict.
+- **E6 any-caller over fresh bytes:** accepted as a post-RC addendum; see the next section. Not
+  part of any RC2 verdict.
+
+## Addendum: E6 UniswapV2ERC20.transfer from every caller
+
+Accepted as a post-RC addendum. **It is not an RC2 verdict**: its emitter is solar 697fc686, not the
+RC2 driver 0479b90a.
+
+Record: T2 `alpharush/t2-e6-transfer-any-caller` @ 109c6132ce68b559124c26bf0bac85fb3bb9f4dc (on
+52152f58): `Certified/uv2_transfer_e6/MANIFEST.md`, `replay/receipt.json` (sha256 5ff89a2c…0ab6) and
+`replay/batch-exits.txt`.
+
+| Item | Pin |
+|---|---|
+| Emitter | solar 697fc6864620d2fdb0b9b3ff66882ae4ad56b41e |
+| Spec exporter | solar 902cccc2cb1213219789780a39caf3c1d4d9f35e |
+| Port | solar 67946d7d204862c9d28ed18b83604aa00546f5f6 |
+| Checkers | solar c09510a39b5c9940845d2c19928c742f676b8675 |
+| Base | solidity-lean 4332b47d3495790581a8d0d4f18f690bd8f3d5a6 |
+
+- Closure replay: 11 of 11 batches, `leanchecker` exit 0; 4027 of 4027 modules replayed, 0 trusted,
+  0 unaccounted.
+- Olean digest 7ddcac87…c818 is identical before and after the replay, over 9906 files.
+- Axioms: `propext`, `Classical.choice`, `Quot.sound`.
+- Scope: runtime tier only. The constructor, lifecycle and reentrancy are out.
+- Gas 8199112 is an observed-equality bound (from it on, the bytes' observable equals the
+  source's), not a no-out-of-gas claim.
+- OPEN: aggregate process-tree RSS admission. The summed `leanchecker` RSS peak was measured at
+  5.6 GiB; the wrappers were not sampled.
+- OPEN: raw-byte source identity. The emit and the import read the same bytes (14da00cd), but the
+  stage export read the unflattened port (762294af); that the two match rests on the port and
+  flattener, which are in the TCB.
+- OPEN: `verify_bytes.sh` compares bytes only. It enforces no binary, source or options hash.
+- Run history: in the counted run, one task was killed at 00:35 CST during batch 2400 (cause
+  unknown). One resume on the same artifacts reran batch 2400 onward. Earlier attempts gave no
+  verdict and are not counted.
 
 ## Open gaps
 
@@ -113,7 +146,8 @@ H1 and H2 records are checked for the same key.
 - Mapping: the compiler-generated getter of a `public` mapping and `delete` of an element (H3).
 - Recursion (H4): admitted by `envelope()`, refused at the gas-need step.
 - Constructor / deployment / lifecycle: no tier offered.
-- Any caller beyond the fixed one (0x2000) in the generic driver; E6 above is pending.
+- Any caller beyond the fixed one (0x2000) in the generic driver; E6 (addendum above) covers
+  `UniswapV2ERC20.transfer` only, on solar 697fc686.
 - Loops at MIR, bytes and gas (source-level Counter edge only).
 - Counter (e13cda49): source-only; full `leanchecker` replay, aggregate RSS and the transitive
   manifest OPEN.
