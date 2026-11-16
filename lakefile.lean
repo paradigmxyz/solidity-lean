@@ -687,7 +687,3 @@ lean_lib VerifySourceText where
 -- Flag (rc2-acc5-flag) through G0. Needs the record's generated flag_4ce5cf9a modules.
 lean_lib VerifySourceTextFlag where
   roots := #[`Verify.SourceText.Instances.Flag]
-
--- Verify.Spec.TreeFrom: registered here; the module comes from its own commit.
-lean_lib VerifySpecTreeFrom where
-  roots := #[`Verify.Spec.TreeFrom]
