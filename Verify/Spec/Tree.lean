@@ -180,7 +180,8 @@ theorem holdsFn_of_tree_fixed {fuel : Nat} {c : TypeCheck.CheckedContract} {d : 
 and no succeeds-if conditions, unfolding `defs` (the tree, the spec bundle and the function's
 spec): it names the argument words, decodes them, splits the tree's branches, evaluates the spec's
 terms and the tree's words (a returned word as one word, by `words_byteOf`, with storage words
-bounded by `hsm` and `hsi`), and closes each case with `omega`. A goal it cannot close stays an
+bounded by `hsm` and `hsi`, argument words by `ham` and `hai`, and any word reduced mod `2 ^ 256`
+by `hml`), and closes each case with `omega`. A goal it cannot close stays an
 error: it never leaves a `sorry`. -/
 
 macro "tree_meets" "[" ds:Lean.Parser.Tactic.simpLemma,* "]" : tactic => `(tactic| (
@@ -188,10 +189,14 @@ macro "tree_meets" "[" ds:Lean.Parser.Tactic.simpLemma,* "]" : tactic => `(tacti
   have hsm : ∀ k, s k % 2 ^ 256 = s k := fun k => Nat.mod_eq_of_lt (hs k)
   have hsi : ∀ k, ((s k : Nat) : Int) % 2 ^ 256 = s k := fun k =>
     Int.emod_eq_of_lt (Int.natCast_nonneg _) (by have := hs k; omega)
+  have ham : ∀ a ∈ args, a % 2 ^ 256 = a := fun a ha => Nat.mod_eq_of_lt (hargs a ha)
+  have hai : ∀ a ∈ args, ((a : Nat) : Int) % 2 ^ 256 = a := fun a ha =>
+    Int.emod_eq_of_lt (Int.natCast_nonneg _) (by have := hargs a ha; omega)
+  have hml : ∀ a : Nat, a % 2 ^ 256 < 2 ^ 256 := fun a => Nat.mod_lt _ (Nat.two_pow_pos 256)
   rcases args with _ | ⟨a0, _ | ⟨a1, _ | ⟨a2, _ | ⟨a3, _ | ⟨a4, _ | ⟨a5, _ | ⟨a6, _ | ⟨a7, _ | ⟨_, _⟩⟩⟩⟩⟩⟩⟩⟩⟩ <;>
     simp only [List.length_cons, List.length_nil] at hl <;> (try omega) <;>
     simp only [List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp, forall_eq,
-      IsEmpty.forall_iff, implies_true, and_true] at hargs <;>
+      IsEmpty.forall_iff, implies_true, and_true] at hargs ham hai <;>
     simp only [$ds,*, List.head, List.getElem_cons_zero, List.getElem_cons_succ, decodeWords, Ty.ofWord,
       hargs, ite_true, bind, pure, Option.bind,
       Option.some.injEq] at hdec <;>
@@ -214,10 +219,14 @@ macro "tree_meets_fixed" "[" ds:Lean.Parser.Tactic.simpLemma,* "]" : tactic => `
   have hsm : ∀ k, s k % 2 ^ 256 = s k := fun k => Nat.mod_eq_of_lt (hs k)
   have hsi : ∀ k, ((s k : Nat) : Int) % 2 ^ 256 = s k := fun k =>
     Int.emod_eq_of_lt (Int.natCast_nonneg _) (by have := hs k; omega)
+  have ham : ∀ a ∈ args, a % 2 ^ 256 = a := fun a ha => Nat.mod_eq_of_lt (hargs a ha)
+  have hai : ∀ a ∈ args, ((a : Nat) : Int) % 2 ^ 256 = a := fun a ha =>
+    Int.emod_eq_of_lt (Int.natCast_nonneg _) (by have := hargs a ha; omega)
+  have hml : ∀ a : Nat, a % 2 ^ 256 < 2 ^ 256 := fun a => Nat.mod_lt _ (Nat.two_pow_pos 256)
   rcases args with _ | ⟨a0, _ | ⟨a1, _ | ⟨a2, _ | ⟨a3, _ | ⟨a4, _ | ⟨a5, _ | ⟨a6, _ | ⟨a7, _ | ⟨_, _⟩⟩⟩⟩⟩⟩⟩⟩⟩ <;>
     simp only [List.length_cons, List.length_nil] at hl <;> (try omega) <;>
     simp only [List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp, forall_eq,
-      IsEmpty.forall_iff, implies_true, and_true] at hargs <;>
+      IsEmpty.forall_iff, implies_true, and_true] at hargs ham hai <;>
     simp only [$ds,*, List.head, List.getElem_cons_zero, List.getElem_cons_succ, decodeWords, Ty.ofWord,
       hargs, ite_true, bind, pure, Option.bind,
       Option.some.injEq] at hdec <;>
