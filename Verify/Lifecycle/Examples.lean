@@ -1,28 +1,28 @@
 import Verify.Lifecycle.Route
+import Verify.Lifecycle.KernelIndex
 import SolidCore.Refinement.KernelRfl
 import Verify.Lifecycle.Examples.NoArgCtor
+import Verify.Lifecycle.Examples.ArgCtor
 import Verify.Lifecycle.Examples.PairCtor
 import Verify.Lifecycle.Examples.ImmutableCtor
 
 /-!
 # Lifecycle regressions
 
-The source half of the lifecycle statement, by the kernel's evaluation of `deployedAtWith` with
-the contracts' selectors by table as the generic source check does: `NoArgCtor`, a constructor
-without parameters, and `ImmutableCtor`, a constructor with a `uint256` parameter that sets an
-immutable, whose value lives in the runtime bytes, not in storage. The storage each states is what
-EthLib's run of solar's init code with the same encoded arguments leaves (the certification
-driver's lifecycle probe, which also checks that the returned runtime bytes are solar's, with the
-immutable filled). The negative cases show that the argument matters, that the constructor needs
-it, and that an immutable is not storage.
+The source half of the lifecycle statement, by the kernel's evaluation of `deployedAtWith` for
+four constructors: no parameters (`NoArgCtor`), a `uint256` and an `address` written to two slots
+(`ArgCtor`), two `uint256` parameters (`PairCtor`), and a parameter that sets an immutable, whose
+value lives in the runtime bytes, not storage (`ImmutableCtor`). Each check replaces
+`ABI.selectorFromSignature` by the examples' selector table (`selector_eq`) and the HashMap bucket
+index by its `Nat` form (`mkIdx_eq`, Verify/Lifecycle/KernelIndex.lean). The second is what lets the
+kernel evaluate SolidCore's storage at any slot count: without it every bucket index past the
+first is stuck on the opaque platform word size. The storage each states is what EthLib's run of
+solar's init code with the same encoded arguments leaves (the certification driver's lifecycle
+probe). The negative cases show that each argument matters, that the constructors need them, that
+every written slot is stated, that slots are not interchangeable, and that an immutable is not
+storage.
 
-Open:
-- The bytecode half, `Deploys`, has no kernel proof: EthLib's message call does not reduce in the
-  kernel at this base.
-- A constructor that leaves two or more storage slots does not reduce in the kernel here: for
-  `PairCtor` (two `uint256` parameters) and the driver's `ArgCtor` (a `uint256` and an
-  `address`) the kernel's evaluation of the storage after construction gets stuck, where compiled
-  evaluation and EthLib's run agree on it. `PairCtor`'s source module stays here for that work.
+Open: the bytecode half, `Deploys`, has no generic kernel proof yet.
 -/
 
 namespace Verify.Lifecycle.Examples
@@ -45,29 +45,35 @@ def selSig1 : SolidCore.Solidity.Shared.Word :=
 kernel_rfl selSig1_eq selSig1 0x0c55699c
 
 def selSig2 : SolidCore.Solidity.Shared.Word :=
-  SolidCore.Solidity.Source.ABI.selectorFromSignature "a()"
+  SolidCore.Solidity.Source.ABI.selectorFromSignature "owner()"
 
-kernel_rfl selSig2_eq selSig2 0x0dbe671f
+kernel_rfl selSig2_eq selSig2 0x8da5cb5b
 
 def selSig3 : SolidCore.Solidity.Shared.Word :=
-  SolidCore.Solidity.Source.ABI.selectorFromSignature "b()"
+  SolidCore.Solidity.Source.ABI.selectorFromSignature "a()"
 
-kernel_rfl selSig3_eq selSig3 0x4df7e3d0
+kernel_rfl selSig3_eq selSig3 0x0dbe671f
 
 def selSig4 : SolidCore.Solidity.Shared.Word :=
-  SolidCore.Solidity.Source.ABI.selectorFromSignature "limit()"
+  SolidCore.Solidity.Source.ABI.selectorFromSignature "b()"
 
-kernel_rfl selSig4_eq selSig4 0xa4d66daf
+kernel_rfl selSig4_eq selSig4 0x4df7e3d0
 
 def selSig5 : SolidCore.Solidity.Shared.Word :=
+  SolidCore.Solidity.Source.ABI.selectorFromSignature "limit()"
+
+kernel_rfl selSig5_eq selSig5 0xa4d66daf
+
+def selSig6 : SolidCore.Solidity.Shared.Word :=
   SolidCore.Solidity.Source.ABI.selectorFromSignature "y()"
 
-kernel_rfl selSig5_eq selSig5 0xa56dfe4a
+kernel_rfl selSig6_eq selSig6 0xa56dfe4a
 
 /-- `ABI.selectorFromSignature`, with the examples' signatures by table. -/
 def selectorTable (s : String) : SolidCore.Solidity.Shared.Word :=
   if s = "get()" then 0x6d4ce63c
   else if s = "x()" then 0x0c55699c
+  else if s = "owner()" then 0x8da5cb5b
   else if s = "a()" then 0x0dbe671f
   else if s = "b()" then 0x4df7e3d0
   else if s = "limit()" then 0xa4d66daf
@@ -89,7 +95,9 @@ theorem selector_eq : SolidCore.Solidity.Source.ABI.selectorFromSignature = sele
           · next h => subst h; exact selSig4_eq
           · split
             · next h => subst h; exact selSig5_eq
-            · rfl
+            · split
+              · next h => subst h; exact selSig6_eq
+              · rfl
 
 /-- Whether the contract `name` of `u` checks and its constructor, called with `ws`, leaves
 exactly `s` and no logs. -/
@@ -109,7 +117,7 @@ theorem constructs_of {u : SourceUnit} {name : String} {ws : List Nat} {s : List
 /-- Whether `NoArgCtor`'s constructor, called with [], leaves exactly [(0, 7)]. -/
 def noArgCtor? : Bool := life? NoArgCtor.importedSourceUnit "NoArgCtor" [] [(0, 7)]
 
-kernel_rfl noArgCtor_eq noArgCtor? true using selector_eq
+kernel_rfl noArgCtor_eq noArgCtor? true using selector_eq mkIdx_eq
 
 /-- `NoArgCtor` (no parameters: the constructor stores 7): SolidCore's constructor, called with [], leaves exactly [(0, 7)] and no logs. -/
 theorem noArgCtor_constructs :
@@ -117,12 +125,32 @@ theorem noArgCtor_constructs :
       ∃ d, DeployedAtWith fuel c (wordArgs []) d [(0, 7)] :=
   constructs_of noArgCtor_eq
 
+/-- Whether `ArgCtor`'s constructor, called with [42, 0xbeef], leaves exactly [(0, 42), (1, 48879)]. -/
+def argCtor? : Bool := life? ArgCtor.importedSourceUnit "ArgCtor" [42, 0xbeef] [(0, 42), (1, 48879)]
 
+kernel_rfl argCtor_eq argCtor? true using selector_eq mkIdx_eq
+
+/-- `ArgCtor` (a `uint256` and an `address`: two slots): SolidCore's constructor, called with [42, 0xbeef], leaves exactly [(0, 42), (1, 48879)] and no logs. -/
+theorem argCtor_constructs :
+    ∃ c, TypeCheck.CheckedInput.contract ArgCtor.importedSourceUnit "ArgCtor" = .ok c ∧
+      ∃ d, DeployedAtWith fuel c (wordArgs [42, 0xbeef]) d [(0, 42), (1, 48879)] :=
+  constructs_of argCtor_eq
+
+/-- Whether `PairCtor`'s constructor, called with [42, 0xbeef], leaves exactly [(0, 42), (1, 48921)]. -/
+def pairCtor? : Bool := life? PairCtor.importedSourceUnit "PairCtor" [42, 0xbeef] [(0, 42), (1, 48921)]
+
+kernel_rfl pairCtor_eq pairCtor? true using selector_eq mkIdx_eq
+
+/-- `PairCtor` (two `uint256` parameters: `a` is the first, `b` their sum): SolidCore's constructor, called with [42, 0xbeef], leaves exactly [(0, 42), (1, 48921)] and no logs. -/
+theorem pairCtor_constructs :
+    ∃ c, TypeCheck.CheckedInput.contract PairCtor.importedSourceUnit "PairCtor" = .ok c ∧
+      ∃ d, DeployedAtWith fuel c (wordArgs [42, 0xbeef]) d [(0, 42), (1, 48921)] :=
+  constructs_of pairCtor_eq
 
 /-- Whether `ImmutableCtor`'s constructor, called with [1000], leaves exactly [(0, 1001)]. -/
 def immutableCtor? : Bool := life? ImmutableCtor.importedSourceUnit "ImmutableCtor" [1000] [(0, 1001)]
 
-kernel_rfl immutableCtor_eq immutableCtor? true using selector_eq
+kernel_rfl immutableCtor_eq immutableCtor? true using selector_eq mkIdx_eq
 
 /-- `ImmutableCtor` (an immutable: `limit` lives in the runtime bytes, so only `y` is stored): SolidCore's constructor, called with [1000], leaves exactly [(0, 1001)] and no logs. -/
 theorem immutableCtor_constructs :
@@ -130,21 +158,49 @@ theorem immutableCtor_constructs :
       ∃ d, DeployedAtWith fuel c (wordArgs [1000]) d [(0, 1001)] :=
   constructs_of immutableCtor_eq
 
+/-- Another first argument does not leave the same storage. -/
+def argCtorOther? : Bool := life? ArgCtor.importedSourceUnit "ArgCtor" [41, 0xbeef] [(0, 42), (1, 48879)]
 
+kernel_rfl argCtorOther_eq argCtorOther? false using selector_eq mkIdx_eq
+
+/-- Another address does not leave the same storage. -/
+def argCtorOwner? : Bool := life? ArgCtor.importedSourceUnit "ArgCtor" [42, 0xbeee] [(0, 42), (1, 48879)]
+
+kernel_rfl argCtorOwner_eq argCtorOwner? false using selector_eq mkIdx_eq
+
+/-- The parameterized constructor has no deployment without its arguments. -/
+def argCtorNoArgs? : Bool := life? ArgCtor.importedSourceUnit "ArgCtor" [] [(0, 42), (1, 48879)]
+
+kernel_rfl argCtorNoArgs_eq argCtorNoArgs? false using selector_eq mkIdx_eq
+
+/-- Leaving out a written slot is not exactly the storage. -/
+def argCtorOneSlot? : Bool := life? ArgCtor.importedSourceUnit "ArgCtor" [42, 0xbeef] [(0, 42)]
+
+kernel_rfl argCtorOneSlot_eq argCtorOneSlot? false using selector_eq mkIdx_eq
+
+/-- Another second argument changes the sum. -/
+def pairCtorOther? : Bool := life? PairCtor.importedSourceUnit "PairCtor" [42, 0xbeee] [(0, 42), (1, 48921)]
+
+kernel_rfl pairCtorOther_eq pairCtorOther? false using selector_eq mkIdx_eq
+
+/-- Slots are not interchangeable. -/
+def pairCtorSwapped? : Bool := life? PairCtor.importedSourceUnit "PairCtor" [42, 0xbeef] [(0, 48921), (1, 42)]
+
+kernel_rfl pairCtorSwapped_eq pairCtorSwapped? false using selector_eq mkIdx_eq
 
 /-- Another argument does not leave the same storage. -/
 def immutableOther? : Bool := life? ImmutableCtor.importedSourceUnit "ImmutableCtor" [999] [(0, 1001)]
 
-kernel_rfl immutableOther_eq immutableOther? false using selector_eq
+kernel_rfl immutableOther_eq immutableOther? false using selector_eq mkIdx_eq
 
 /-- The parameterized constructor has no deployment without its argument. -/
 def immutableNoArgs? : Bool := life? ImmutableCtor.importedSourceUnit "ImmutableCtor" [] [(0, 1001)]
 
-kernel_rfl immutableNoArgs_eq immutableNoArgs? false using selector_eq
+kernel_rfl immutableNoArgs_eq immutableNoArgs? false using selector_eq mkIdx_eq
 
 /-- The immutable is not stored: claiming it in slot 0 fails. -/
 def immutableStored? : Bool := life? ImmutableCtor.importedSourceUnit "ImmutableCtor" [1000] [(0, 1000)]
 
-kernel_rfl immutableStored_eq immutableStored? false using selector_eq
+kernel_rfl immutableStored_eq immutableStored? false using selector_eq mkIdx_eq
 
 end Verify.Lifecycle.Examples
