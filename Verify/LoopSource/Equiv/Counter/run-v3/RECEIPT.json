@@ -1,0 +1,220 @@
+{
+  "format": "t4 GenObl Bump run receipt 1",
+  "status": "lane branch, not freeze content; no closure claim",
+  "producer": {
+    "solar": {
+      "path": "~/exporter/target/debug/solar",
+      "sha256": "297b60b5fece53d179e0fb359a8a799dc34f2f35ee85fc16b30891a02f73eb90",
+      "embedded_commit": "446e0fe9",
+      "version": "0.8.38+commit.446e0fe9.solar.0.3.0-dev",
+      "driver_commit": "446e0fe9fd2d7c46d61ddb83551a25d8e4d1db00",
+      "build": "cargo build --locked -p solar-compiler --bin solar (debug)"
+    },
+    "solar_verify": {
+      "path": "~/exporter/target/debug/solar-verify",
+      "sha256": "ea71713feff1494cad29348fcf2bf98438be5b041b5c71349d4cbb044587bfe9",
+      "commit": "446e0fe9fd2d7c46d61ddb83551a25d8e4d1db00",
+      "z3": "z3-solver 4.15.4.0"
+    },
+    "solc": {
+      "version": "0.8.35",
+      "sha256": "fa8ac9a32d301ad023a36ee5a29f8e291fe3200c60244e43c142539e82a617f4",
+      "use": "scripts/solc_ast_to_lean_source.py --namespace Certified.CounterRun.Src --body-only"
+    }
+  },
+  "source": {
+    "file": "Counter.sol",
+    "sha256": "f1c87a334b8db31fc8f80541febeaf8617318d20b685634f44e26c74146ad326"
+  },
+  "options": [
+    "-Ogas",
+    "--evm-version",
+    "osaka",
+    "--emit=bin-runtime",
+    "-Zemit-lean-stages=export"
+  ],
+  "runtime": {
+    "bytes": 248,
+    "sha256": "509845d3b18cf635ec7ee9b1a9d225cfeec995099a9f5e0d55f27ae6559f411d"
+  },
+  "stage0": {
+    "sha256": "0c544806b2b5013d2c38ce859b167d03e3c19162b53b2ab8f5319b3d55bd3003",
+    "note": "fresh export by this producer; byte-identical to the committed Counter/gen/Counter/Stage0.lean"
+  },
+  "loop_manifest": {
+    "sha256": "dcdcb4fc15f26daa8ba15e5b63320534028103597bdef092f49be024ec23c476",
+    "emit_exit": 0,
+    "check_exit": 0
+  },
+  "cut": {
+    "tool": "tools/certify/loop_equiv.py at 446e0fe9",
+    "tool_sha256": "bd97eabce73c663535d33aa105b89de1cca7a2076f8d6a23a36bb67615e7dc55",
+    "exit": 0,
+    "sha256": "e583390029cc3fe86685bcf8b84bed2500907103349508c8fdb6caa9f63578c5"
+  },
+  "generator": {
+    "gen_driver": "tools/certify/loop_cuts.py gen_driver('CounterRun','Counter','bump',0xb20eb4c4,1) at 446e0fe9 (sha256 d3f3dc99…)",
+    "command": "lake env lean --run Certified/CounterRun/Loops/bump/Gen.lean",
+    "t7_exact": {
+      "file": "Gen.t7.lean",
+      "exit": 2,
+      "stderr": "loop obligations: refused: no body summary (body? is none): the source erasure has no loop case"
+    },
+    "with_body": {
+      "file": "Gen.lean",
+      "diff": "adds import Contracts.VerifyCounter.Source, body? := some Contracts.VerifyCounter.Source.bumpBr, bodyName",
+      "exit": 0,
+      "wall_s": 3.3,
+      "max_rss_kb": 2603400,
+      "stdout": "{\"format\":\"loop obligations 1\",\"modules\":[\"CounterRun/Loops/bump/Data\",\"CounterRun/Loops/bump/V0\",\"CounterRun/Loops/bump/V1\",\"CounterRun/Loops/bump/V2\",\"CounterRun/Loops/bump/V3\",\"CounterRun/Loops/bump/V4\",\"CounterRun/Loops/bump/V5\",\"CounterRun/Loops/bump/V6\",\"CounterRun/Loops/bump/V7\",\"CounterRun/Loops/bump/Obl\"],\"measure\":\"SolidCore.Refinement.Generic.WExpr.bin   (SolidCore.Refinement.Generic.BinOp.sub)   (SolidCore.Refinement.Generic.WExpr.lit 0)   (SolidCore.Refinement.Generic.WExpr.arg 1)\"}"
+    }
+  },
+  "kernel": {
+    "obl_build": {
+      "cmd": "lake build -KleanMemory=6000 CounterRun.Loops.bump.Obl",
+      "exit": 0,
+      "wall_s": 55.7,
+      "max_rss_kb": 6803744
+    },
+    "leanchecker": {
+      "Data": 0,
+      "V0": 0,
+      "V1": 0,
+      "V2": 0,
+      "V3": 0,
+      "V4": 0,
+      "V5": 0,
+      "V6": 0,
+      "V7": 0,
+      "Obl": 0,
+      "obl_max_rss_kb": 6407952,
+      "scope": "per generated module (not --fresh full closure)"
+    },
+    "axioms": {
+      "leaves": [
+        "propext",
+        "Quot.sound"
+      ],
+      "tree": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "seqs": [
+        "propext"
+      ],
+      "valid": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "obl": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "CounterGas.bounded_inhabited": [
+        "propext"
+      ],
+      "CounterGas.bounded_sub": [
+        "propext"
+      ]
+    },
+    "forbidden": "none of sorry, native_decide, ofReduceBool, implemented_by, extern, axiom"
+  },
+  "controls": {
+    "missing_generator": {
+      "via": "T7 loop_cuts.obligations() on a base without GenObl.lean",
+      "result": "Stop(obligations): the solidity-lean base has no Verify/LoopSource/Equiv/GenObl.lean",
+      "obl_written": false
+    },
+    "changed_stage0": {
+      "edit": "bb10 h+1 -> h+2 after emit",
+      "obl_build_exit": 1,
+      "failing_theorem": "leaves"
+    },
+    "changed_cut": {
+      "edit": "nhw 13 -> 99 after emit",
+      "obl_build_exit": 1,
+      "failing_theorem": "leaves"
+    },
+    "changed_manifest": {
+      "edit": "a loop var renamed",
+      "check_loop_heads_exit": 1
+    },
+    "no_mu": {
+      "mutant": "bb10 h+1 -> h+0",
+      "generator_exit": 2,
+      "stderr": "no accepted measure among 0 candidates",
+      "obl_written": false
+    },
+    "restored": {
+      "obl_build_exit": 0
+    }
+  },
+  "cases": {
+    "module": "Cases.lean",
+    "build_exit": 0,
+    "results": {
+      "success": {
+        "call": "bump(1), count 0, limit 5",
+        "expected": "success, count 1",
+        "actual": "success, count 1"
+      },
+      "revert": {
+        "call": "bump(10), count 0, limit 5",
+        "expected": "revert",
+        "actual": "revert"
+      },
+      "zero_iteration": {
+        "call": "bump(0), count 3, limit 5",
+        "expected": "success, count 3",
+        "actual": "success, count 3"
+      },
+      "overflow": {
+        "call": "bump(1), count 2^256-1, limit 2^256-1",
+        "expected": "revert (checked add)",
+        "actual": "revert"
+      }
+    }
+  },
+  "resources": {
+    "status": "OPEN",
+    "premise": "Verify.LoopSource.Equiv.CounterGas.BumpCallBounded K := ∃ σ a, a ≤ K ∧ a < 2^256 ∧ call = bumpCall σ a",
+    "witness": "Verify.LoopSource.Equiv.CounterGas.bounded_inhabited (K) : ∃ call, BumpCallBounded K call  (bump(0))",
+    "note": "Shapes.Resources under BumpCallBounded is not proved"
+  },
+  "run_local_not_committed": [
+    "lakefile.lean: lean_lib «CounterRun» srcDir Certified (the driver's declare_lean_lib does this)"
+  ],
+  "files": {
+    "Ax.lean": "e8e2dfdf602c2e49beed01d707a8bb19869ba34d1f17a88210ad020774e4ea20",
+    "Loops/bump/Cases.lean": "771b5536f1c04251b17c782c37162d21c8dc441f57406286f59958fb79c8a934",
+    "Loops/bump/Cut.lean": "e583390029cc3fe86685bcf8b84bed2500907103349508c8fdb6caa9f63578c5",
+    "Loops/bump/Data.lean": "019ba6506424a6bbeba7b631d169b47ac5db16ce16d78a9bf2be4cd6e04793dd",
+    "Loops/bump/Gen.lean": "51ef6b54998e93d86c532ed48931b46eee7c0eedc48d29270afcc8d144688e87",
+    "Loops/bump/Gen.nomu.lean": "c73c1b67a686257a8de432181411954415a857714aae8e114d860db5989db881",
+    "Loops/bump/Gen.t7.lean": "6d5131f3e43789c2c24c1db6faa24f413529b10cbbf2eb5f9922b32ae468e31d",
+    "Loops/bump/Obl.lean": "28a1bf75f77916afb810e02c747c1ceaec2a54490ce7a00aa3e1ab6a4695b49e",
+    "Loops/bump/V0.lean": "e1a3ad025c247d82194623b5ccdae9b25d0e4ab90b6405651a4839e735d6bcdc",
+    "Loops/bump/V1.lean": "62a02a6fbb808bd8022bcd0f60c6c8c8dc0b09d13e3e8d88e0df56b8751742ea",
+    "Loops/bump/V2.lean": "624ed4a2c6bfc0569f2a6e6495352bd986cf121577ed04624d442928c5773c09",
+    "Loops/bump/V3.lean": "d1e65b096535237c8ebcbde284636e385ab791a8880b7bf9b94abc0a0dbde5cf",
+    "Loops/bump/V4.lean": "32acfb2c0568a1414cc0c77c66e775d2b91972ebb61bac471d0f372b0aedd6ee",
+    "Loops/bump/V5.lean": "4e5df7fd1ebe77daff1d1a85dfeac41395f327512329d8662feeaf8c3bd96081",
+    "Loops/bump/V6.lean": "3b451aa354b58cc073e9d9451514da24899b090db4d4d0aa9c6ac4443a8eea09",
+    "Loops/bump/V7.lean": "a5c77cd73cfaf569582c90afbafcf862ff331c8940a1eb8fc2f32596b5f9a6ab",
+    "Source.lean": "52bcde641daa412106cd8a35d0b276504fad3f2156dfa8c3ce4229ad3333d421",
+    "gen/Counter/Bytecode.lean": "bfdc872439859a009509ca7dc4987695376187d99fe572ea2c2a7e08078d7f17",
+    "gen/Counter/Evm1.lean": "63029b961c2869bee78abb46fa8b701b2f505a879f75892909d6023d5e9f630c",
+    "gen/Counter/Evm2.lean": "c957d43eba21e37ae5ab426bd4ffd41e286305ada5aa69fb260e9bbe294ef0fb",
+    "gen/Counter/Evm3.lean": "1479991d93b931ccfe581abe00791b1732580d8118971aa0fc9d13915f12d6e5",
+    "gen/Counter/Evm4.lean": "5302e935519b1327a562540f0dc7b43c771fcac31bb160be0123b7f5526b10db",
+    "gen/Counter/Evm5.lean": "33c999d6f88532a6c681692a062ebb7f59bba0c1156be7f84d58cd63020009b5",
+    "gen/Counter/Evm6.lean": "371aee906a9eb441dd92ec716e50959f1000a43038cbe87800da06f023540dde",
+    "gen/Counter/Evm7.lean": "d96129d5ab7228bc5f78f9a3d5050ce29601951bcddb8c5f183b414fcde515cc",
+    "gen/Counter/Manifest.lean": "7f1fae465cba874c0c7a6817d1cdd45d6df40c7d6ff7e87cb5abb06b4b89e33d",
+    "gen/Counter/Sched.lean": "fbaf444cb638471866b165cf77372ebc450a588f69c1c4ab87bc9256840c25ad",
+    "gen/Counter/Stage0.lean": "0c544806b2b5013d2c38ce859b167d03e3c19162b53b2ab8f5319b3d55bd3003"
+  }
+}

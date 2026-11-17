@@ -83,9 +83,9 @@ def emitSeqs (dataImports oblImports : List String) (pre ns opens chk tree : Str
   let vimps := (groups.zipIdx).map fun (_, j) => s!"{pre.replace "/" "."}V{j}"
   let conj := ss.foldr (fun s acc => s!"List.forall_mem_cons.mpr ⟨v{idx s}, {acc}⟩") "fun _ h => absurd h List.not_mem_nil"
   let lit := "[" ++ String.intercalate ", " (ss.map fun s => s!"q{idx s}") ++ "]"
-  let obl := hdr (["Verify.LoopSource.Equiv.Emit"] ++ oblImports ++ vimps) "" opens ++
+  let obl := hdr (["Verify.LoopSource.Equiv.Emit", "SolidCore.Refinement.KernelRfl"] ++ oblImports ++ vimps) "" opens ++
     s!"theorem leaves : {chk} = some (le, li) := resBeq_eq (by decide +kernel)\n\n" ++
-    s!"theorem tree : {tree} = some T := treeBeq_eq (by decide +kernel)\n\n" ++
+    s!"/-- The source tree, as the kernel computes it by conversion (`kernel_rfl`). -/\ndef treeV : Option SolidCore.Refinement.Generic.Tree := {tree}\n\nkernel_rfl tree_eq treeV (some T)\n\ntheorem tree : {tree} = some T := tree_eq\n\n" ++
     s!"theorem seqs : allSeqs {n} {cases} T le li I μ = some ss := by decide +kernel\n\n" ++
     s!"theorem valid : ∀ s ∈ ss, s.Valid :=\n  show ∀ s ∈ {lit}, Seq.Valid s from\n  {conj}\n\n" ++
     s!"/-- **The loop's obligations hold.** -/\ntheorem obl : Obl (fun _ => recOf I μ) id (fun _ => True) (fun _ => True) {n} {cases} T le li :=\n  obl_of_seqs seqs valid\n\nend {ns}\n"

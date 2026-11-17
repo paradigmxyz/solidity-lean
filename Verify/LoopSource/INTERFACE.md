@@ -192,3 +192,17 @@ words are read off, and nothing outside the template is written. A branch the ca
 its one side. `tools/certify/loop_equiv.py` in solar emits `C` from solar-verify's loop-head
 manifest and solar's exported lowered MIR. The emitted `C` is a claim only: the kernel's check
 rejects a wrong one.
+
+## Loop-obligation generator (`Verify/LoopSource/Equiv/GenObl.lean`)
+
+`Verify.LoopSource.Equiv.GenObl.run (cfg : Config) : IO UInt32`, run by the certify driver as
+`lake env lean --run Certified/<name>/Loops/<fn>/Gen.lean`. `Config`: `stage0`, `stage0Name`, `cut`,
+`cutName`, `contract?`, `contractName`, `sel`, `nargs`, `imports`, `pre`, `ns`, `root`, `files`, and
+`body? : Option Br := none` with `bodyName : String := ""`, the loop route's summary of the function's
+body (the source erasure has no loop case; without it `run` refuses). It writes
+`<root>/<pre>{Data,V0..Vk,Obl}.lean` with `leaves`, `tree` (by `kernel_rfl`), `seqs`, `valid` and `obl`
+in `ns`, prints `{"format":"loop obligations 1","modules":[…],"measure":"…"}` and returns 0, or
+returns 2 with the reason on stderr.
+
+The iteration-bound premise for Counter's resources is `CounterGas.BumpCallBounded K` with its
+witness `CounterGas.bounded_inhabited` (`Counter/Gas.lean`); `Shapes.Resources` under it is OPEN.
