@@ -1,5 +1,5 @@
 import Verify.LoopSource.Equiv.Counter.Cut
-import Verify.LoopSource.Equiv.Counter.Stage0
+import Verify.LoopSource.Equiv.Counter.gen.Counter.Stage0
 
 /-!
 # Counter.bump's cut-point certificate checks, and its mutations do not
