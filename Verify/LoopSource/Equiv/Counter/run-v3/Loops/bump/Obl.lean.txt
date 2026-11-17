@@ -4,7 +4,7 @@ import Verify.LoopSource.Equiv.GenObl
 import CounterRun.gen.Counter.Stage0
 import CounterRun.Loops.bump.Cut
 import CounterRun.Source
-import Contracts.VerifyCounter.Source
+import Verify.LoopSource.Equiv.Counter.Summary
 import CounterRun.Loops.bump.V0
 import CounterRun.Loops.bump.V1
 import CounterRun.Loops.bump.V2
@@ -22,12 +22,18 @@ open Verify.LoopSource.Equiv Verify.LoopSource.Equiv.Inv
 
 theorem leaves : Verify.LoopSource.Equiv.Generated.cut.check .off SolarTV.Export.Counter.stage0 2987308228 1 = some (le, li) := resBeq_eq (by decide +kernel)
 
-/-- The source tree, as the kernel computes it by conversion (`kernel_rfl`). -/
-def treeV : Option SolidCore.Refinement.Generic.Tree := Verify.LoopSource.Equiv.GenObl.treeOf (SolidCore.Solidity.TypeCheck.CheckedInput.contract Certified.CounterRun.Src.importedSourceUnit "Counter") 2987308228 Contracts.VerifyCounter.Source.bumpBr
+/-- The imported contract has the summary's shape (fields, function and body), by conversion. -/
+def shapeV := Verify.LoopSource.Equiv.GenObl.shapeOf (SolidCore.Solidity.TypeCheck.CheckedInput.contract Certified.CounterRun.Src.importedSourceUnit "Counter") 2987308228
 
-kernel_rfl tree_eq treeV (some T)
+kernel_rfl shape_eq shapeV (some Verify.LoopSource.Equiv.CounterSummary.shape)
 
-theorem tree : Verify.LoopSource.Equiv.GenObl.treeOf (SolidCore.Solidity.TypeCheck.CheckedInput.contract Certified.CounterRun.Src.importedSourceUnit "Counter") 2987308228 Contracts.VerifyCounter.Source.bumpBr = some T := tree_eq
+/-- **The imported function's body runs to the summary's tree.** -/
+theorem runs : Verify.LoopSource.Equiv.GenObl.Runs (SolidCore.Solidity.TypeCheck.CheckedInput.contract Certified.CounterRun.Src.importedSourceUnit "Counter") 2987308228 115792089237316195423570985008687907853269984665640564039457584007913129639944 Contracts.VerifyCounter.Source.bumpBr :=
+  Verify.LoopSource.Equiv.GenObl.runs_of_summary Verify.LoopSource.Equiv.CounterSummary.summary_ok shape_eq
+
+theorem tree : Verify.LoopSource.Equiv.GenObl.treeOf (SolidCore.Solidity.TypeCheck.CheckedInput.contract Certified.CounterRun.Src.importedSourceUnit "Counter") 2987308228 Contracts.VerifyCounter.Source.bumpBr = some T := by
+  rw [Verify.LoopSource.Equiv.GenObl.treeOf_of_shape _ shape_eq]
+  exact treeBeq_eq (by decide +kernel)
 
 theorem seqs : allSeqs 1 Verify.LoopSource.Equiv.Generated.cut.cases T le li I μ = some ss := by decide +kernel
 

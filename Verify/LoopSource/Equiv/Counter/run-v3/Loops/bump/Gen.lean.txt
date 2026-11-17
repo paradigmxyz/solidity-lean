@@ -1,5 +1,5 @@
 import Verify.LoopSource.Equiv.GenObl
-import Contracts.VerifyCounter.Source
+import Verify.LoopSource.Equiv.Counter.Summary
 import CounterRun.gen.Counter.Stage0
 import CounterRun.Loops.bump.Cut
 import CounterRun.Source
@@ -16,10 +16,9 @@ def main : IO UInt32 :=
       contractName := "SolidCore.Solidity.TypeCheck.CheckedInput.contract Certified.CounterRun.Src.importedSourceUnit \"Counter\""
       sel := 0xb20eb4c4
       nargs := 1
-      imports := ["CounterRun.gen.Counter.Stage0", "CounterRun.Loops.bump.Cut", "CounterRun.Source", "Contracts.VerifyCounter.Source"]
+      imports := ["CounterRun.gen.Counter.Stage0", "CounterRun.Loops.bump.Cut", "CounterRun.Source", "Verify.LoopSource.Equiv.Counter.Summary"]
       pre := "CounterRun/Loops/bump/"
       ns := "Certified.CounterRun.Loops.bump"
       root := "Certified"
       files := 8
-      body? := some Contracts.VerifyCounter.Source.bumpBr
-      bodyName := "Contracts.VerifyCounter.Source.bumpBr" }
+      summary? := some (Verify.LoopSource.Equiv.CounterSummary.summary) }

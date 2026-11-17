@@ -1,0 +1,99 @@
+{
+  "format": "t4 GenObl summary-check receipt 1",
+  "status": "lane branch, not freeze content",
+  "base": "1e57a1a0df92a7481642fde4f08d3294b5072585",
+  "check": {
+    "generator": "GenObl.run refuses (exit 2) unless the summary's shape (storage fields, function at the selector incl. body) equals the imported contract's (structural, by reprStr), and no traced valuation refutes a sequent",
+    "kernel": "generated Obl proves shape_eq : shapeOf <imported contract> sel = some <summary shape> by kernel_rfl, and runs : Runs <imported contract> sel minFuel br := runs_of_summary <summary theorem> shape_eq; tree is rewritten through shape_eq",
+    "summary_theorem": "Verify.LoopSource.Equiv.CounterSummary.summary_ok : SummaryOk bumpSel (2^256+8) (vcFields, bumpFn) bumpBr, from the loop route's body_runs_vc"
+  },
+  "positive": {
+    "invocation": "lake env lean --run Certified/CounterRun/Loops/bump/Gen.lean (T7 gen_driver output + summary? := some Verify.LoopSource.Equiv.CounterSummary.summary + import Verify.LoopSource.Equiv.Counter.Summary)",
+    "exit": 0,
+    "stdout_file": "run-Gen.out",
+    "obl_build": {
+      "exit": 0,
+      "wall_s": 56.8,
+      "max_rss_kb": 6755576
+    },
+    "leanchecker": "Data,V0..V7,Obl,Cases all exit 0 (per module, not --fresh)",
+    "cases_build_exit": 0,
+    "axioms": {
+      "shape_eq": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "runs": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "leaves": [
+        "propext",
+        "Quot.sound"
+      ],
+      "tree": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "seqs": [
+        "propext"
+      ],
+      "valid": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "obl": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "summary_ok": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ]
+    }
+  },
+  "negatives": {
+    "wrong_branch": {
+      "file": "Gen.negBranch.lean",
+      "mutation": "require's sides swapped in the summary",
+      "exit": 2,
+      "stderr": "the summary's tree disagrees with the MIR: sequent 27 has a counterexample",
+      "obl_written": false
+    },
+    "wrong_bound": {
+      "file": "Gen.negBound.lean",
+      "mutation": "count + n <= limit replaced by count + n < limit",
+      "exit": 2,
+      "stderr": "the summary's tree disagrees with the MIR: sequent 37 has a counterexample",
+      "obl_written": false
+    },
+    "wrong_step": {
+      "file": "Gen.negStep.lean",
+      "mutation": "summary stores count + n + 1",
+      "exit": 2,
+      "stderr": "the summary's tree disagrees with the MIR: sequent 32 has a counterexample",
+      "obl_written": false
+    },
+    "other_function": {
+      "file": "Gen.negFn.lean",
+      "mutation": "summary's shape is the imported increment()",
+      "exit": 2,
+      "stderr": "the summary was proved for another function or body than the imported one",
+      "obl_written": false
+    },
+    "mutated_source": {
+      "file": "Gen.negSrc.lean",
+      "mutation": "source loop body count++ -> count += 2 (CounterMut.sol sha256 367cc8db…), old summary",
+      "exit": 2,
+      "stderr": "the summary was proved for another function or body than the imported one",
+      "obl_written": false
+    }
+  },
+  "note": "the three wrong-summary negatives are refused by the trace probe before emission; were they emitted, shape_eq would hold but a V-module would fail (no counterexample-free sequent set), so the kernel does not depend on the probe"
+}
