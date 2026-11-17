@@ -1,7 +1,8 @@
 import Verify.Shapes
 import Verify.Basic
 import SolidCore.Refinement.Generic.Total
-import SolidCore.Refinement.Solar.Totality
+import SolidCore.Refinement.Generic.DefinedValue
+import SolidCore.Refinement.Solar.AssembleFast
 import SolidCore.Refinement.Solar.AssembleGasLoop
 import SolidCore.Refinement.Solar.RunOracle
 import SolidCore.Refinement.Keccak.TwoWords
