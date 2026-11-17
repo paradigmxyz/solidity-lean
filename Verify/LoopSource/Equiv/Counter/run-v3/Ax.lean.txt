@@ -1,0 +1,9 @@
+import CounterRun.Loops.bump.Obl
+import Verify.LoopSource.Equiv.Counter.Gas
+#print axioms Certified.CounterRun.Loops.bump.leaves
+#print axioms Certified.CounterRun.Loops.bump.tree
+#print axioms Certified.CounterRun.Loops.bump.seqs
+#print axioms Certified.CounterRun.Loops.bump.valid
+#print axioms Certified.CounterRun.Loops.bump.obl
+#print axioms Verify.LoopSource.Equiv.CounterGas.bounded_inhabited
+#print axioms Verify.LoopSource.Equiv.CounterGas.bounded_sub
