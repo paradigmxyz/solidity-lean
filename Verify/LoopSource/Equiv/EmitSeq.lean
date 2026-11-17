@@ -62,7 +62,7 @@ def chunks {α : Type} (k : Nat) (l : List α) : List (List α) :=
 /-- The modules: `<pre>Data` (the leaves, invariant, measure and unique sequents `q_i`), `<pre>V<j>`
 (each sequent's `wordnorm` proof) and `<pre>Obl` (the obligations). Returns (file stem, text). -/
 def emitSeqs (dataImports oblImports : List String) (pre ns opens chk tree : String) (n : Nat) (cases : String)
-    (le li : List (Facts × Out)) (T : Tree) (I : List F) (μ : WExpr) (ss : List Seq) (files : Nat) :
+    (le li : List (Facts × Out)) (T : Tree) (I : List F) (μ : WExpr) (ss : List Seq) (files : Nat) (ext? : Option String := none) :
     List (String × String) :=
   let uniq := ss.eraseDups
   let idx (s : Seq) : Nat := uniq.idxOf s
@@ -85,7 +85,9 @@ def emitSeqs (dataImports oblImports : List String) (pre ns opens chk tree : Str
   let lit := "[" ++ String.intercalate ", " (ss.map fun s => s!"q{idx s}") ++ "]"
   let obl := hdr (["Verify.LoopSource.Equiv.Emit", "SolidCore.Refinement.KernelRfl"] ++ oblImports ++ vimps) "" opens ++
     s!"theorem leaves : {chk} = some (le, li) := resBeq_eq (by decide +kernel)\n\n" ++
-    s!"/-- The source tree, as the kernel computes it by conversion (`kernel_rfl`). -/\ndef treeV : Option SolidCore.Refinement.Generic.Tree := {tree}\n\nkernel_rfl tree_eq treeV (some T)\n\ntheorem tree : {tree} = some T := tree_eq\n\n" ++
+    (match ext? with
+      | some ext => ext ++ s!"theorem tree : {tree} = some T := by\n  rw [Verify.LoopSource.Equiv.GenObl.treeOf_of_shape _ shape_eq]\n  exact treeBeq_eq (by decide +kernel)\n\n"
+      | none => s!"/-- The source tree, as the kernel computes it by conversion (`kernel_rfl`). -/\ndef treeV : Option SolidCore.Refinement.Generic.Tree := {tree}\n\nkernel_rfl tree_eq treeV (some T)\n\ntheorem tree : {tree} = some T := tree_eq\n\n") ++
     s!"theorem seqs : allSeqs {n} {cases} T le li I μ = some ss := by decide +kernel\n\n" ++
     s!"theorem valid : ∀ s ∈ ss, s.Valid :=\n  show ∀ s ∈ {lit}, Seq.Valid s from\n  {conj}\n\n" ++
     s!"/-- **The loop's obligations hold.** -/\ntheorem obl : Obl (fun _ => recOf I μ) id (fun _ => True) (fun _ => True) {n} {cases} T le li :=\n  obl_of_seqs seqs valid\n\nend {ns}\n"
