@@ -65,7 +65,7 @@ done < scripts/verify/uniswap-v2/transfer-mutants.txt
 
 lake build ${LAKE_BUILD_FLAGS:--KleanMemory=6000} Contracts.UniswapV2.ERC20.Slice.Gen.Spec \
   Contracts.UniswapV2.ERC20.SpecTreeKeccak Verify.VC.Model Verify.Spec.Tree Verify.Spec.TreeMap \
-  Verify.Spec.TreeMapNested Verify.Spec.TreeIn Verify.VC.KernelIdx
+  Verify.Spec.TreeMapNested Verify.Spec.TreeIn Verify.VC.KernelIdx Verify.Spec.TreeSucceeds
 python3 "$SOLAR_DIR/tools/certify/spec_connect.py" --core-module Contracts.UniswapV2.ERC20.Core \
   --namespace SolidCore.Verify.VC.UniswapV2ERC20 --spec-module Contracts.UniswapV2.ERC20.Slice.Gen.Spec \
   --bundle SolidCore.Spec.Export.UniswapV2ERC20Slice.UniswapV2ERC20 \
