@@ -3,17 +3,17 @@ import Verify.LoopSource.Equiv.Foot
 /-!
 # The cut-point run is sound
 
-\`cutRun_sound\`: a cut-point run from a symbolic frame describes every machine frame that holds it.
+`cutRun_sound`: a cut-point run from a symbolic frame describes every machine frame that holds it.
 Each end is an end the module reaches, and each arrival at the header is a frame the module
 reaches with no call in progress, related to the arrival's symbolic frame, whose footprint holds.
-This follows \`symRun_sound\` step for step (\`symStep_sound\`, \`MirRun.lean\`), with \`frame_step\` for
+This follows `symRun_sound` step for step (`symStep_sound`, `MirRun.lean`), with `frame_step` for
 the footprint.
 -/
 
 namespace Verify.LoopSource.Equiv
 open SolarTV SolarTV.Machine SolarTV.MIR.Lowered SolidCore.Refinement.Generic
 
-/-- Every end reached from \`y\` is reached from \`x\`. -/
+/-- Every end reached from `y` is reached from `x`. -/
 def Leads {σ : Type} (step : σ → Option ((Halt × State) ⊕ σ)) (x y : σ) : Prop :=
   ∀ k r, iterate step k y = some r → ∃ k', iterate step k' x = some r
 
@@ -37,8 +37,8 @@ theorem Leads.same {σ : Type} {step : σ → Option ((Halt × State) ⊕ σ)} {
   | zero => simp [iterate] at hk
   | succ k => simp only [iterate, h] at hk ⊢; exact hk
 
-/-- **What a cut-point tree says of a machine frame \`x\`**, on the call's valuation \`ρ\`: an end
-\`x\` reaches with the tree's observable, or a header frame \`x\` leads to, related to the arrival and
+/-- **What a cut-point tree says of a machine frame `x`**, on the call's valuation `ρ`: an end
+`x` reaches with the tree's observable, or a header frame `x` leads to, related to the arrival and
 under its footprint, on the side of each branch the valuation takes. -/
 def CSound (ρ : Val) (call : Call) (o : Oracle) (m : Module) (fn head : Nat) (x : SolarTV.MIR.Lowered.Frame) :
     CTree → Prop

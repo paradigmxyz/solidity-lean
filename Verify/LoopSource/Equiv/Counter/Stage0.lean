@@ -50,14 +50,12 @@ def stage0 : MIR.Lowered.Module :=
       blocks := [
       -- bb0
       ⟨[],
-        [.effect (some 58) .calldatasize [],
-         .pure 60 .lt [.value 58, .const 36]],
-        .branch (.value 60) 11 12⟩,
+        [.effect (some 51) .calldatasize [],
+         .pure 53 .lt [.value 51, .const 36]],
+        .branch (.value 53) 11 12⟩,
       -- bb1
-      ⟨[(13, [(7, .const 0), (10, .value 20)]), (55, [(7, .value 2), (10, .value 43)]), (56, [(7, .const 0), (10, .const 1)])],
-        [.pure 14 .lt [.value 13, .value 62],
-         .effect (some 31) .sload [.const 0],
-         .assume false .eq [.value 30, .value 31]],
+      ⟨[(13, [(7, .value 61), (10, .value 20)]), (48, [(7, .value 2), (10, .value 38)]), (49, [(7, .const 0), (10, .const 1)])],
+        [.ne 14 (.value 13) (.const 0)],
         .branch (.value 14) 3 4⟩,
       -- bb2
       ⟨[],
@@ -65,22 +63,16 @@ def stage0 : MIR.Lowered.Module :=
         .stop⟩,
       -- bb3
       ⟨[],
-        [.effect (some 16) .mload [.const 128],
-         .pure 43 .add [.value 55, .const 1],
-         .pure 44 .eq [.value 43, .const 0],
-         .assume false .eq [.value 16, .value 55]],
-        .branch (.value 44) 8 10⟩,
+        [.pure 38 .add [.value 48, .const 1],
+         .pure 39 .eq [.value 38, .const 0]],
+        .branch (.value 39) 8 10⟩,
       -- bb4
       ⟨[],
-        [.effect (some 26) .mload [.const 160],
-         .ne 28 (.value 56) (.const 0),
-         .assume false .eq [.value 26, .value 56]],
+        [.ne 28 (.value 49) (.const 0)],
         .branch (.value 28) 5 2⟩,
       -- bb5
       ⟨[],
-        [.effect (some 29) .mload [.const 128],
-         .effect none .sstore [.const 0, .value 55],
-         .assume false .eq [.value 29, .value 55]],
+        [.effect none .sstore [.const 0, .value 48]],
         .jump 2⟩,
       -- bb6
       ⟨[],
@@ -88,11 +80,7 @@ def stage0 : MIR.Lowered.Module :=
         .tailCall 6 [.const 4, .const 0x6f76657200000000000000000000000000000000000000000000000000000000]⟩,
       -- bb7
       ⟨[],
-        [.effect (some 24) .sload [.const 0],
-         .effect none .mstore [.const 128, .value 2],
-         .effect none .mstore [.const 160, .const 0],
-         .effect (some 30) .sload [.const 0],
-         .assume false .eq [.value 24, .value 2]],
+        [.pure 61 .sub [.const 0, .value 55]],
         .jump 1⟩,
       -- bb8
       ⟨[],
@@ -102,15 +90,11 @@ def stage0 : MIR.Lowered.Module :=
       -- bb9
       ⟨[],
         [.effect (some 5) .sload [.const 1],
-         .pure 6 .lt [.value 5, .value 35]],
+         .pure 6 .lt [.value 5, .value 30]],
         .branch (.value 6) 6 7⟩,
       -- bb10
       ⟨[],
-        [.effect none .mstore [.const 128, .value 43],
-         .effect none .mstore [.const 160, .const 1],
-         .pure 20 .add [.value 13, .const 1],
-         .pure 33 .eq [.value 13, .const 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff],
-         .assume false .eq [.value 33, .const 0]],
+        [.pure 20 .add [.value 13, .const 1]],
         .jump 1⟩,
       -- bb11
       ⟨[],
@@ -118,11 +102,11 @@ def stage0 : MIR.Lowered.Module :=
         .revert (.const 0) (.const 0)⟩,
       -- bb12
       ⟨[],
-        [.effect (some 62) .calldataload [.const 4],
+        [.effect (some 55) .calldataload [.const 4],
          .effect (some 2) .sload [.const 0],
-         .pure 35 .add [.value 2, .value 62],
-         .pure 36 .lt [.value 35, .value 2]],
-        .branch (.value 36) 8 9⟩] },
+         .pure 30 .add [.value 2, .value 55],
+         .pure 31 .lt [.value 30, .value 2]],
+        .branch (.value 31) 8 9⟩] },
     -- @max
     { params := [],
       blocks := [
