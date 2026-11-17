@@ -95,8 +95,8 @@ theorem rejects_jump : AssembleCtxGas.checkXL F (AssembleCtx.norm prog) (mutant 
   refuses_of_walk (by decide +kernel)
 
 set_option maxRecDepth 100000 in
-/-- The checker refuses the bytes with transfer's debit SSTORE dropped, as POP (byte 0x427). -/
-theorem rejects_sstore : AssembleCtxGas.checkXL F (AssembleCtx.norm prog) (mutant 0x427 0x50) cx = false :=
+/-- The checker refuses the bytes with transfer's debit SSTORE dropped, as POP (byte 0x438). -/
+theorem rejects_sstore : AssembleCtxGas.checkXL F (AssembleCtx.norm prog) (mutant 0x438 0x50) cx = false :=
   refuses_of_walk (by decide +kernel)
 
 /-- info: 'SolarTV.Export.UniswapV2ERC20.CtxGas.gas_edge' depends on axioms: [propext, Classical.choice, Quot.sound] -/
