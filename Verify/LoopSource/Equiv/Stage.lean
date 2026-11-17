@@ -3,18 +3,18 @@ import Verify.LoopSource.Generic.Link
 import Verify.ShapeGeneric
 
 /-!
-# The loop's source-to-MIR stage, and \`Shapes.Equiv\` for a loop-carrying function
+# The loop's source-to-MIR stage, and `Shapes.Equiv` for a loop-carrying function
 
-\`loop_stage\`: a function whose body runs to the tree \`T\` (\`BodyRuns\`, the loop route's product)
-and whose lowered MIR has a cut-point certificate that checks (\`Cut.check\`), with its leaves'
-obligations (\`Obl\`), is compiled to MIR without changing a result: on every valid call, under
+`loop_stage`: a function whose body runs to the tree `T` (`BodyRuns`, the loop route's product)
+and whose lowered MIR has a cut-point certificate that checks (`Cut.check`), with its leaves'
+obligations (`Obl`), is compiled to MIR without changing a result: on every valid call, under
 every oracle the flags allow, the module runs to the source's observable. Both sides are the
-tree's observable at the call's words: the source by \`runs_of_bodyRuns\`, the MIR by
-\`loop_mir_runs\`.
+tree's observable at the call's words: the source by `runs_of_bodyRuns`, the MIR by
+`loop_mir_runs`.
 
-\`loop_equiv\` composes it with the backend's MIR-to-EVM-IR stage and the assembler's loop checker
-(\`AssembleLoop.checkL\`), the two stages the driver proves for every program, loop-free or not, as
-\`ShapeGeneric.compiled_of\` does: the driver's \`Shapes.Equiv\`. Nothing here takes \`Equiv\`, or a
+`loop_equiv` composes it with the backend's MIR-to-EVM-IR stage and the assembler's loop checker
+(`AssembleLoop.checkL`), the two stages the driver proves for every program, loop-free or not, as
+`ShapeGeneric.compiled_of` does: the driver's `Shapes.Equiv`. Nothing here takes `Equiv`, or a
 source-to-anything stage, as a premise.
 -/
 
@@ -45,7 +45,7 @@ theorem loop_stage {fuel : Nat} {c : SolidCore.Solidity.TypeCheck.CheckedContrac
   rw [← hlen] at hchk hobl
   exact loop_mir_runs hchk hobl hc rfl (hA σ args ⟨hlen, hargs, hcl⟩) o (ho.envAsk args (slotValue σ))
 
-/-- **\`Shapes.Equiv\` for a loop-carrying function**: the loop's source-to-MIR stage, the backend's
+/-- **`Shapes.Equiv` for a loop-carrying function**: the loop's source-to-MIR stage, the backend's
 MIR-to-EVM-IR stage and the assembler's loop checker. -/
 theorem loop_equiv {fuel : Nat} {c : SolidCore.Solidity.TypeCheck.CheckedContract} {sel : Nat}
     {fn : FunctionDef} {ws : List Nat} {b : Br} {T : Tree} (hsel : sel < 2 ^ 32)

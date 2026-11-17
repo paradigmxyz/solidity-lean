@@ -5,31 +5,31 @@ import Verify.LoopSource.Generic.Interface
 # Cut points of a loop in solar's lowered MIR: the certificate and its check
 
 A loop-carrying function's lowered MIR has a block its loop comes back to, the **header**. The
-symbolic run of the module (\`symStep\`, \`Mir.lean\`) cannot run it to an end: it would unroll the
-loop. \`cutRun\` runs it the same way, step by step, but stops when it enters the header, and
-leaves a \`back\` leaf with the symbolic frame there.
+symbolic run of the module (`symStep`, `Mir.lean`) cannot run it to an end: it would unroll the
+loop. `cutRun` runs it the same way, step by step, but stops when it enters the header, and
+leaves a `back` leaf with the symbolic frame there.
 
-A **cut-point certificate** (\`Cut\`) names the function, its header block, and a **template** of
+A **cut-point certificate** (`Cut`) names the function, its header block, and a **template** of
 the frame after the header's phis: for each value number, each memory word and each storage write
-the header may hold, a \`Slot\`: either a **header word** \`hw k\` (a word the loop changes, or one the
-certificate does not describe; \`.arg (n + k)\` of a header valuation) or a **fixed** word over
-the call (\`fixed e\`, no argument word past the call's \`n\`). Everything else is zero.
+the header may hold, a `Slot`: either a **header word** `hw k` (a word the loop changes, or one the
+certificate does not describe; `.arg (n + k)` of a header valuation) or a **fixed** word over
+the call (`fixed e`, no argument word past the call's `n`). Everything else is zero.
 
-\`Cut.check\` runs:
+`Cut.check` runs:
 
 * the **entry run**: from the module's entry, to every end or first arrival at the header;
 * the **iteration run**: from the template after the phis, to every end or arrival at the header;
 
-once under each of the certificate's cases (facts at the header, one of which the invariant gives, as `Obl.facts` proves), and matches every arrival against the template (\`matchLeaf\`): it reads off the header words the
+once under each of the certificate's cases (facts at the header, one of which the invariant gives, as `Obl.facts` proves), and matches every arrival against the template (`matchLeaf`): it reads off the header words the
 frame holds, as words over the run's valuation, and fails unless every fixed slot holds its word
-and nothing outside the template was written (the footprint \`Frame\`, tracked along the run). It
-returns the leaves of both runs as first-order data (\`Out\`): an end's tree, or the next header
-words. A function with an internal call that returns, or an \`mstore\` at an offset that is not
-a constant, has no check (\`segFoot\`).
+and nothing outside the template was written (the footprint `Frame`, tracked along the run). It
+returns the leaves of both runs as first-order data (`Out`): an end's tree, or the next header
+words. A function with an internal call that returns, or an `mstore` at an offset that is not
+a constant, has no check (`segFoot`).
 
 The check is a function the kernel evaluates. What it cannot decide (the loop's invariant and
-measure) is \`Obl\`: facts about the leaves over a header valuation, where the back-edge case is
-the source loop's \`LoopRecord.Step\`.
+measure) is `Obl`: facts about the leaves over a header valuation, where the back-edge case is
+the source loop's `LoopRecord.Step`.
 -/
 
 namespace Verify.LoopSource.Equiv
@@ -52,8 +52,8 @@ def instDsts : Inst → List Nat
   | .heapFloor d _ => [d]
   | .alloc d _ => [d]
 
-/-- The memory words an instruction may write: an \`mstore\` at a constant offset writes the word
-there; \`none\` for an \`mstore\` at any other offset. -/
+/-- The memory words an instruction may write: an `mstore` at a constant offset writes the word
+there; `none` for an `mstore` at any other offset. -/
 def instMem : Inst → Option (List Nat)
   | .effect _ .mstore (.const w :: _) => some [w.toNat % wordSize]
   | .effect _ .mstore _ => none
@@ -73,7 +73,7 @@ def termFoot (m : Module) : Terminator → List Nat × List Nat
   | _ => ([], [])
 
 /-- What a block's rest may bind and write: its instructions' footprints, a tail call's parameters
-and its callee's entry heap; \`none\` when it makes an internal call or an \`mstore\` at an offset
+and its callee's entry heap; `none` when it makes an internal call or an `mstore` at an offset
 that is not a constant. -/
 def segFoot (m : Module) (insts : List Inst) (term : Terminator) (pre : List Nat) :
     Option (List Nat × List Nat) :=
@@ -94,29 +94,29 @@ def stepFoot (m : Module) : Pos → Option (List Nat × List Nat)
       | some blk => segFoot m blk.insts blk.term (blk.phis.map Prod.fst)
   | .resume _ _ insts term => segFoot m insts term []
 
-/-- Byte \`i\` is in a word that starts at an offset of \`MO\`. -/
+/-- Byte `i` is in a word that starts at an offset of `MO`. -/
 def Covered (MO : List Nat) (i : Nat) : Prop := ∃ o ∈ MO, o ≤ i ∧ i < o + 32
 
-/-- **The footprint holds**: values outside \`D\` are the word 0 and bytes outside \`MO\`'s words are
+/-- **The footprint holds**: values outside `D` are the word 0 and bytes outside `MO`'s words are
 zero. -/
 def Frame (D MO : List Nat) (senv : SEnv) (st : SState) : Prop :=
   (∀ j, j ∉ D → senv j = .w (.lit 0)) ∧ (∀ i, ¬ Covered MO i → st.mem i = .lit 0)
 
 /-! ## The cut-point run -/
 
-/-- The outcome of a cut-point run: an end, an arrival at the header from \`pred\` with the frame
+/-- The outcome of a cut-point run: an end, an arrival at the header from `pred` with the frame
 there and its footprint, or a branch on a word. -/
 inductive CTree where
   | done (T : Tree)
   | back (pred : Nat) (env : SEnv) (st : SState) (D MO : List Nat)
   | ite (e : WExpr) (t f : CTree)
 
-/-- The predecessor, when the position enters the header \`head\` of function \`fn\`. -/
+/-- The predecessor, when the position enters the header `head` of function `fn`. -/
 def atHead (fn head : Nat) : Pos → Option Nat
   | .enter fn' pred b => if fn' = fn ∧ b = head then some pred else none
   | .resume _ _ _ _ => none
 
-/-- **The cut-point run**: \`symStep\` step by step with no call in progress, the footprint
+/-- **The cut-point run**: `symStep` step by step with no call in progress, the footprint
 tracked, until an end or an arrival at the header. -/
 def cutRun (ev : EnvFlags) (cv : SV) (m : Module) (sel n fn head : Nat) :
     Nat → Pos → SEnv → SState → Facts → List Nat → List Nat → Option CTree
@@ -164,7 +164,7 @@ structure Cut where
   fuel : Nat
   deriving Repr
 
-/-- No argument word at or past \`n\`. -/
+/-- No argument word at or past `n`. -/
 def argsBelow (n : Nat) : WExpr → Bool
   | .lit _ => true
   | .arg i => decide (i < n)
@@ -176,7 +176,7 @@ def argsBelow (n : Nat) : WExpr → Bool
   | .hash a b => argsBelow n a && argsBelow n b
   | .caller => true
 
-/-- A slot's word: header word \`k\` is argument \`n + k\` of a header valuation. -/
+/-- A slot's word: header word `k` is argument `n + k` of a header valuation. -/
 def Slot.expr (n : Nat) : Slot → WExpr
   | .hw k => .arg (n + k)
   | .fixed e => e
@@ -187,12 +187,12 @@ def Cut.env (C : Cut) (n : Nat) : SEnv := fun j =>
   | some s => .w (s.expr n)
   | none => .w (.lit 0)
 
-/-- The template's word covering byte \`i\`, the first in the list. -/
+/-- The template's word covering byte `i`, the first in the list. -/
 def coverFind (i : Nat) : List (Nat × Slot) → Option (Nat × Slot)
   | [] => none
   | (o, s) :: rest => if o ≤ i ∧ i < o + 32 then some (o, s) else coverFind i rest
 
-/-- The template's memory: byte \`i\` of the word covering it, every other byte zero. -/
+/-- The template's memory: byte `i` of the word covering it, every other byte zero. -/
 def memOf (n : Nat) (mem : List (Nat × Slot)) (i : Nat) : OByte :=
   match coverFind i mem with
   | some (o, s) => .byteOf (s.expr n) (i - o)
@@ -202,8 +202,8 @@ def memOf (n : Nat) (mem : List (Nat × Slot)) (i : Nat) : OByte :=
 def Cut.st (C : Cut) (n : Nat) : SState :=
   ⟨memOf n C.mem, C.writes.map (fun p => (p.1, p.2.expr n)), []⟩
 
-/-- A slot holds the word \`e\` of an arrival whose header words are \`hs\`: a header word is the one
-read, a fixed word is \`e\` itself and over the call only. -/
+/-- A slot holds the word `e` of an arrival whose header words are `hs`: a header word is the one
+read, a fixed word is `e` itself and over the call only. -/
 def slotOk (n : Nat) (hs : List WExpr) (s : Slot) (e : WExpr) : Bool :=
   match s with
   | .hw k => decide (hs[k]? = some e)
@@ -297,7 +297,7 @@ def iterLeaves (C : Cut) (ev : EnvFlags) (m : Module) (sel n : Nat) (blk : Block
   | F :: Fs =>
     match cutRun ev (.w (.lit 0)) m sel n C.fn C.head C.fuel (.resume C.fn C.head blk.insts blk.term)
         (C.env n) (C.st n) F (C.ids.map Prod.fst) (C.mem.map Prod.fst), iterLeaves C ev m sel n blk Fs with
-    | some B, some rest => (B.leaves C n blk []).map (· ++ rest)
+    | some B, some rest => (B.leaves C n blk F).map (· ++ rest)
     | _, _ => none
 
 /-- **The check**: the entry run from the module's entry and the iteration runs from the template
@@ -322,14 +322,14 @@ def Cut.check (C : Cut) (ev : EnvFlags) (m : Module) (sel n : Nat) :
 def nextVal (n : Nat) (σ : Val) (hs : List WExpr) : Val :=
   { σ with args := σ.args.take n ++ hs.map (·.eval σ) }
 
-/-- The call's valuation under a header valuation: its first \`n\` words. -/
+/-- The call's valuation under a header valuation: its first `n` words. -/
 def trunc (n : Nat) (σ : Val) : Val := { σ with args := σ.args.take n }
 
-/-- **The obligations of the leaves**, over header valuations: the source loop's record \`L ρ\` of
-the call's valuation \`ρ\`, read at \`toSrc σ\` (its invariant at the first arrival, one
-\`LoopRecord.Step\` per back edge, so its measure falls), a MIR-only invariant \`X\` (what the
+/-- **The obligations of the leaves**, over header valuations: the source loop's record `L ρ` of
+the call's valuation `ρ`, read at `toSrc σ` (its invariant at the first arrival, one
+`LoopRecord.Step` per back edge, so its measure falls), a MIR-only invariant `X` (what the
 compiler keeps beside the loop's words), some case's facts at every header valuation, and every end
-the tree \`T\` of the call, on every call valuation \`A\` admits. -/
+the tree `T` of the call, on every call valuation `A` admits. -/
 structure Obl (L : Val → LoopRecord) (toSrc : Val → Val) (X : Val → Prop) (A : Val → Prop) (n : Nat)
     (cases : List Facts) (T : Tree) (le li : List (Facts × Out)) : Prop where
   entry : ∀ ρ : Val, ρ.args.length = n → ρ.Ok → A ρ → ∀ p ∈ le, p.1.Hold ρ →
