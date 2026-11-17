@@ -3,10 +3,10 @@ import Verify.LoopSource.Equiv.Cut
 /-!
 # Footprints of the symbolic steps
 
-One symbolic step of the module (\`symStep\`) with no call in progress binds only the values and
-writes only the memory words \`stepFoot\` lists, and after a tail call every value outside the
-callee's parameters is the word 0. So \`Frame\`, the footprint of a cut-point run, holds along it
-(\`frame_step\`).
+One symbolic step of the module (`symStep`) with no call in progress binds only the values and
+writes only the memory words `stepFoot` lists, and after a tail call every value outside the
+callee's parameters is the word 0. So `Frame`, the footprint of a cut-point run, holds along it
+(`frame_step`).
 -/
 
 namespace Verify.LoopSource.Equiv
@@ -47,7 +47,7 @@ theorem symEffect_mstore {ev : EnvFlags} {cv : SV} {n : Nat} {args : List SV}
   unfold symEffect at h
   split at h <;> simp_all <;> (obtain ⟨-, rfl⟩ := h; rfl)
 
-/-- An effect writes memory only where \`instMem\` says. -/
+/-- An effect writes memory only where `instMem` says. -/
 theorem effect_mem {ev : EnvFlags} {cv : SV} {n : Nat} {dst : Option Nat} {eff : Effect}
     {args : List Operand} {senv : SEnv} {st st' : SState} {r : Option SV} {o1 : List Nat}
     (h : symEffect ev cv n eff (args.map (SV.ofOperand senv)) st = some (r, st'))
@@ -265,7 +265,7 @@ theorem symSegment_frame {ev : EnvFlags} {cv : SV} {m : Module} {sel n : Nat} {K
           (fun o ho => by simp only [List.mem_append] at ho ⊢; tauto)
   · simp at hfoot
 
-/-- **One step keeps the footprint**: what \`stepFoot\` lists, added to it. -/
+/-- **One step keeps the footprint**: what `stepFoot` lists, added to it. -/
 theorem frame_step {ev : EnvFlags} {cv : SV} {m : Module} {sel n : Nat} {K : Facts} {pos : Pos}
     {senv : SEnv} {st : SState} {x : SNext} {D MO d mo : List Nat} (hF : Frame D MO senv st)
     (hfoot : stepFoot m pos = some (d, mo)) (h : symStep ev cv m sel n K [] pos senv st = some x) :
