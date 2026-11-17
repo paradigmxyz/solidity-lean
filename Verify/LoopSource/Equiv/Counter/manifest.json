@@ -1,0 +1,137 @@
+{
+  "format": "t4 loop-equiv lane manifest 1",
+  "status": "lane evidence, not integrated; Counter parked",
+  "bases": {
+    "solar": "b35dfeb22316c8f9bc3aabe7a636329e72128e5a",
+    "solidity-lean": "9876392965758aafe6aabac435d0b9b40b1eb9c7"
+  },
+  "source": {
+    "path": "Counter.sol",
+    "sha256": "f1c87a334b8db31fc8f80541febeaf8617318d20b685634f44e26c74146ad326"
+  },
+  "runtime": {
+    "bytes": 248,
+    "sha256": "509845d3b18cf635ec7ee9b1a9d225cfeec995099a9f5e0d55f27ae6559f411d",
+    "lean_file": "gen/Counter/Bytecode.lean",
+    "producer": {
+      "binary": "solar (debug build, cargo build --locked --bin solar)",
+      "binary_sha256": "11f9f914304e99106a5258637fe04c58f0d7f2945d2c11be0b88f3dab9300f62",
+      "version": "0.8.38+commit.615f126f.solar.0.3.0-dev",
+      "commit": "615f126fda659052981136cfc7891428547cb9b1",
+      "commit_note": "615f126f is b35dfeb2 plus tools/certify/loop_equiv.py only; no compiler crate differs from b35dfeb2",
+      "flags": [
+        "-Ogas",
+        "--evm-version",
+        "osaka",
+        "--emit=bin-runtime",
+        "-Zemit-lean-stages=<dir>"
+      ],
+      "check": "the exported bytecode equals --emit=bin-runtime of the same run byte for byte"
+    }
+  },
+  "loop_head_certificate": {
+    "role": "untrusted hint: Cut.check re-runs it against b35dfeb2's lowered MIR (gen/Counter/Stage0.lean) in the kernel and rejects any mismatch",
+    "loop_heads": {
+      "sha256": "9987dc74869113b920822b1e942381da81183101aa4bc6fa83f0c98987d742e4",
+      "producer": "solar-verify --emit-loop-heads at 02e629fc2f13432860dc9918f273ffbaf09ee548 (loop-head emitter from fd53f637); b35dfeb2 has no loop-head emitter",
+      "solar_verify_sha256": "170a081a2afea74e91cc3d2a1f68ab708300a1da33546d8cc58fcf58c4deb7dd"
+    },
+    "emitter": "tools/certify/loop_equiv.py at solar 283fa0bec602ddda90c18955c8c120fc7c14e1de",
+    "certificate": "Cut.lean"
+  },
+  "build_deviations": [
+    {
+      "where": "boxctl box only (pyramid-prd-t4wn-a1c3, deleted); not committed",
+      "change": "lakefile.lean lean_lib ContractsVerifyCounter moreLeanArgs -M 3000 -> -M 6000",
+      "reason": "unchanged base module Contracts.VerifyCounter.Source aborts at -M 3000 (lean memory_exception at 'interpreter'); -KleanMemory=6000 does not override a lib's moreLeanArgs",
+      "attempts": [
+        {
+          "run": "b1",
+          "exit": 1
+        },
+        {
+          "run": "b2 (-KleanMemory=6000)",
+          "exit": 1
+        },
+        {
+          "run": "b3 (deviation)",
+          "exit": 0
+        }
+      ]
+    }
+  ],
+  "replay": {
+    "tool": "leanchecker --fresh (full imported closure)",
+    "results": {
+      "Verify.LoopSource.Equiv.Counter.Closed": 0,
+      "Verify.LoopSource.Equiv.Checked": 0,
+      "Verify.LoopSource.Equiv.Counter.Check": 0,
+      "Verify.LoopSource.Equiv.Counter.Neg": 0
+    },
+    "owed": "Counter/Neg.lean changed after the replay (neg_natsub_inv, neg_natsub_measure added; light build exit 0 on the hosted Hand at -KleanMemory=6000): its --fresh replay is owed for the freeze replay"
+  },
+  "open": [
+    "Shapes.Resources (gas)",
+    "lifecycle (constructor/deployment)",
+    "certify driver hook (T7)"
+  ],
+  "files": {
+    "Checked.lean": "fb3093d6f768b03b04edeb55f6d25ad701354c04081706956ee18ff3c250dc72",
+    "Counter/Check.lean": "5d1250a1fe270e94157dbda6b756904f31e7e2db49d0ac4e7fd3528291ca71f3",
+    "Counter/Closed.lean": "d3a3e5d2b0dff402892c5cae2f5f9f038a5df8b7994e1ec575ce5eb23bdc484a",
+    "Counter/Cut.lean": "e6234c39c42f59375b6bc4eb8b4ffe05c7e22b3bc11cf8c027904d63de730285",
+    "Counter/Data.lean": "39b6ce1f08300edcf30949b0dc00fdbe7ad38f0b826b76eb3990780c20a5b017",
+    "Counter/Expected.lean": "5bdfb84080613394e9f693c1f1d12776aa2736352325804bebded60f8dea1eed",
+    "Counter/Neg.lean": "ef8bbd49c254591f797fde4618f22993fe2ab3ab9f329904a5692c5123c8f035",
+    "Counter/Obl.lean": "e8799d533b22a0f166db98bcdde4241d287517aed9f34869a3135f2720222732",
+    "Counter/Proofs.lean": "ccacb1ad89dd47e861391399dc8e551fc86cf6f8d50868a3f5f96da69f384e24",
+    "Counter/Proofs/Assembly.lean": "b98473eb7e7d9a703d6088a2fba12f2a2b31af6370cf9642f701c517bd024012",
+    "Counter/Proofs/Execution.lean": "4c8bbf8c203f2190cdf8d12d9574c853ec30e51415e342cc58bc2ca116e87392",
+    "Counter/Proofs/Runs/Evm1.lean": "03a02f6b9c013798d7d4eea51e00e3fe0453e0dbc4b9f161269ddaf0b65b2841",
+    "Counter/Proofs/Runs/Evm2.lean": "9f5e2ded3c6e13a84313415b1b6e63adac16bf2d97f01ca056eadfb568cf7bcc",
+    "Counter/Proofs/Runs/Evm3.lean": "e3eccea4f2c951e536e5ef912e1dee36b965a81116a28b8204a25b3c11a46bd7",
+    "Counter/Proofs/Runs/Evm4.lean": "5e897c081e6e1f8728d9866d87a786ad06201d322c4234f2e16b16bb845ef65b",
+    "Counter/Proofs/Runs/Evm5.lean": "eb14ad40f9b90803eaf6f18e762d776b7a10593c0adda8f9180d169d412ef8fe",
+    "Counter/Proofs/Runs/Evm6.lean": "c38b325a4468e9a126f37adbee1d3920e82456597444d64d2e770fe977239151",
+    "Counter/Proofs/Runs/Evm7.lean": "da4c758864adc416603407eb3a766b181a8d4aaffde7c61b0a9cfb39e226b8a7",
+    "Counter/Proofs/Runs/Sched.lean": "882249641e86f93733bfdb6e2fe0aec27edce77cfe16a6589a773bfde143e17f",
+    "Counter/Proofs/Stages.lean": "3c8a82a7d4ded697a46e31e5a75f153136c09198402f905eb8659a3f9f97e540",
+    "Counter/V0.lean": "a46c80732309fe36cf88ea86b452acd626023dd551d6b8b732399550e4ee8c61",
+    "Counter/V1.lean": "1a56ef3eea5d8e05bf65d5b74f7b07c33e2465742f5b69cd257ca9fb5b7f6605",
+    "Counter/V10.lean": "e1b063371914d1de60a5f6b8fed1514264db15545fe2b32693b47884adfd693d",
+    "Counter/V11.lean": "f58ca4553d2cff4e7ce66bd5ec53403c3f6574a66172d402b41474201f41f268",
+    "Counter/V12.lean": "92f0167f383b9e7f9e30a1376bf49fe137654be219b8cef28468e7c48a39092a",
+    "Counter/V2.lean": "b2dcb0b60231a0eb531623211f1ddb0d93fe0ecd946e3d9360bc61f7a1214e52",
+    "Counter/V3.lean": "51ee979de1e7216e32259a40f76110d0069a0abd1f708090b34f848a02c8e79a",
+    "Counter/V4.lean": "d7e3a36a907f33887e15e8dbe6a99d6cee2769545757f07eabb03645a44ba0c6",
+    "Counter/V5.lean": "f6be4e93d1f2d95fc07750ee69c2753b33d09ba724e2bdd8b8322fccc90f60da",
+    "Counter/V6.lean": "dab8d68d22c56563464136f46773b683da8a0182841d8b4d7785bf0c338cc0a6",
+    "Counter/V7.lean": "8c64a3bcc5cf1018fab69f8d575e225383bff6d6469ccbc8ad79f442e0f72622",
+    "Counter/V8.lean": "81286cefbb41f423fc4f33a42286cffadf4d5411833f713ebc07bd87bb1d36a2",
+    "Counter/V9.lean": "c9524e6dec332500d942b5b3558988ae443986364d4cdd720eae5c38b07bd6d7",
+    "Counter/gen/Counter/Bytecode.lean": "bfdc872439859a009509ca7dc4987695376187d99fe572ea2c2a7e08078d7f17",
+    "Counter/gen/Counter/Evm1.lean": "63029b961c2869bee78abb46fa8b701b2f505a879f75892909d6023d5e9f630c",
+    "Counter/gen/Counter/Evm2.lean": "c957d43eba21e37ae5ab426bd4ffd41e286305ada5aa69fb260e9bbe294ef0fb",
+    "Counter/gen/Counter/Evm3.lean": "1479991d93b931ccfe581abe00791b1732580d8118971aa0fc9d13915f12d6e5",
+    "Counter/gen/Counter/Evm4.lean": "5302e935519b1327a562540f0dc7b43c771fcac31bb160be0123b7f5526b10db",
+    "Counter/gen/Counter/Evm5.lean": "33c999d6f88532a6c681692a062ebb7f59bba0c1156be7f84d58cd63020009b5",
+    "Counter/gen/Counter/Evm6.lean": "371aee906a9eb441dd92ec716e50959f1000a43038cbe87800da06f023540dde",
+    "Counter/gen/Counter/Evm7.lean": "d96129d5ab7228bc5f78f9a3d5050ce29601951bcddb8c5f183b414fcde515cc",
+    "Counter/gen/Counter/Manifest.lean": "82e6bdfeafd916b25c206f9233e7c09c06442bb0cbd90a99a4f11107c29cab43",
+    "Counter/gen/Counter/Sched.lean": "fbaf444cb638471866b165cf77372ebc450a588f69c1c4ab87bc9256840c25ad",
+    "Counter/gen/Counter/Schedule.json": "b07d9d95a157a10ed00d1ba420b965e5efa4a50baaa2f4d1fa4826baf36d7f1c",
+    "Counter/gen/Counter/Stage0.lean": "0c544806b2b5013d2c38ce859b167d03e3c19162b53b2ab8f5319b3d55bd3003",
+    "Counter/gen/Counter/manifest.json": "35d03010c866303fd6300b4c226d5c4d041fb5c446c2be0cf5b320f0520efafc",
+    "Cut.lean": "189911ade40e4a58e1511231363ad667917576f61d40664729d2ba6e1a01a0f5",
+    "Emit.lean": "3e3d2c471e2d48b08655f012af9ab8d032fce139e431ec24b1c01902caf8f574",
+    "EmitSeq.lean": "10c8465514d61bcbe1319f188de9abef039a4f2564567bbb5d1eb68a4952e7e2",
+    "Foot.lean": "7e807c17b6529d348dabe9a4afb70bdb01f6b6e9297ab0cb5e28c648e44343bd",
+    "Inv.lean": "1a9e9e27adc03430d88d4ea1b55e7f26333a8e3a99b6fff50dfeabca8a3a651b",
+    "Match.lean": "dc589d531d7f67fb1228230d9f41de0bd798d72cd607735985f9c41c9bd2156f",
+    "Obl.lean": "6f332903582f8059fc9ed44358f6ea5b1ec4f0765fc747a864b6b10626c504cb",
+    "Run.lean": "faf31360f091dc656e464162cda60131c5cbe0a86a6b7c279b26144b113f3135",
+    "Seq.lean": "4ece8ebcb5fb0c32e04cf349edf261706b76a2a4adf642154fa453ea9774f212",
+    "Sound.lean": "4366b9cb1c8bce0dd32aeed638b4a8867c700c812c58b0ba463d25ef0d1ecf0d",
+    "Stage.lean": "ec91b3cc93997f73faec763de6bd7805c76fbac403ab79366fd3bfca36aec00b"
+  }
+}
