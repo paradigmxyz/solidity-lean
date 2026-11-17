@@ -113,4 +113,42 @@ theorem neg_init : ∀ le' li', cut.check .off mInit 0xb20eb4c4 1 = some (le', l
   rw [hs] at hb
   exact rejects_sound hb
 
+/-- Truncating (natural number) subtraction from 0 in place of subtraction mod \`2 ^ 256\`: \`0 - x\`
+is 0. -/
+def wNatSub : WExpr → WExpr
+  | .bin .sub (.lit 0) _ => .lit 0
+  | .bin op a b => .bin op (wNatSub a) (wNatSub b)
+  | .un op a => .un op (wNatSub a)
+  | e => e
+
+def fNatSub : F → F
+  | .fact e b => .fact (wNatSub e) b
+  | .le a b => .le (wNatSub a) (wNatSub b)
+  | .lt a b => .lt (wNatSub a) (wNatSub b)
+  | .eq a b => .eq (wNatSub a) (wNatSub b)
+  | .lin a b c d => .lin (wNatSub a) (wNatSub b) (wNatSub c) (wNatSub d)
+  | .or f g => .or (fNatSub f) (fNatSub g)
+  | .not f => .not (fNatSub f)
+
+/-- The invariant with Nat subtraction (3 of its 12 formulas change). -/
+def INat : List F := I.map fNatSub
+
+/-- **The invariant with Nat subtraction is rejected.** -/
+theorem neg_natsub_inv : ∀ ss, allSeqs 1 cut.cases T le li INat μ = some ss → ¬ ∀ s ∈ ss, s.Valid :=
+  fun ss h => rejects_sound (σ := val [1] 0 5) (i := 8) (h ▸ by decide +kernel)
+
+/-- **The measure with Nat subtraction (\`0 - h\` truncated to 0) is rejected.** -/
+theorem neg_natsub_measure : ∀ ss, allSeqs 1 cut.cases T le li I (wNatSub μ) = some ss →
+    ¬ ∀ s ∈ ss, s.Valid :=
+  fun ss h => rejects_sound (σ := val [1, 115792089237316195423570985008687907853269984665640564039457584007913129639935, 0, 0, 0, 0, 0, 0, 36, 0, 115792089237316195423570985008687907853269984665640564039457584007913129639935, 0, 1, 0] 0 5) (i := 30)
+    (h ▸ by decide +kernel)
+
 end Verify.LoopSource.Equiv.CounterNeg
+
+/-- info: 'Verify.LoopSource.Equiv.CounterNeg.neg_natsub_inv' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs (whitespace := lax) in
+#print axioms Verify.LoopSource.Equiv.CounterNeg.neg_natsub_inv
+
+/-- info: 'Verify.LoopSource.Equiv.CounterNeg.neg_natsub_measure' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs (whitespace := lax) in
+#print axioms Verify.LoopSource.Equiv.CounterNeg.neg_natsub_measure
