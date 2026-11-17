@@ -54,9 +54,32 @@ SolidCore.Refinement.Deploy.
   with 999), a missing slot (ArgCtor, PairCtor) and an unpatched immutable
   (ImmutableCtor's code as compiled).
 
+- Symbolic.lean: the creation frame for every argument word at once. symRun
+  runs the same steps as run with the argument words as variables (E.arg),
+  the words computed from them as expressions over the frame's own word
+  functions, and the memory as symbolic bytes; a JUMPI on a word that depends
+  on the arguments falls through and records that word as a path condition.
+  symRun_sound proves once, for any init code, that the symbolic run is the
+  concrete run of initArgs init ws for every ws of that length meeting the
+  path conditions. deploys_all turns one kernel evaluation of symCheck into
+  Deploys for all of them; codeOf_patched reads a runtime code with
+  immutables patched from argument words as patchWord. allArgsCheck reads the
+  specification (specPre, specCode, specStore) off the run itself, and
+  deploys_at recovers one concrete creation as its instance (the driver's
+  LifecycleAll module). Outside, besides what run refuses: a symbolic offset,
+  size, jump destination or storage key, and a JUMPI taken on a symbolic
+  condition, so creations that revert on their arguments are not covered.
+- Deploy/CtorsAll.lean: the four constructors for every argument word:
+  ArgCtor for any uint256 and any address below 2^160, PairCtor for any
+  a, b with a + b < 2^256, ImmutableCtor for any x < 2^256 - 1 (runtime code
+  patchWord runtime 45 x), with storage and code written from each
+  constructor body. The storage is not derived from SolidCore's evaluation
+  of the source; that link stays per argument list (Route.Statement).
+
 Outside the evaluator: SLOAD, KECCAK256, calls, logs, CREATE and other
 opcodes that solar's constructors don't run today. A creation that reverts is
 outside it too, so a refutation of a revert (missing arguments) is not
-covered. Each theorem is about concrete argument words. Until the generic
+covered. Each theorem of Deploy/Ctors.lean is about concrete argument words;
+Symbolic.lean and Deploy/CtorsAll.lean are about every argument word. Until the generic
 theorem is routed to the publisher, the driver's lifecycle tier ends
 UNSUPPORTED-lifecycle (exit 4) and never certifies.
