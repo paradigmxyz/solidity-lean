@@ -687,3 +687,8 @@ lean_lib VerifySourceText where
 -- Flag (rc2-acc5-flag) through G0. Needs the record's generated flag_4ce5cf9a modules.
 lean_lib VerifySourceTextFlag where
   roots := #[`Verify.SourceText.Instances.Flag]
+
+-- Verify.Spec.TreeFrom: a function's spec of SolidCore's run from every caller, from its
+-- symbolic-caller tree (holdsFn_of_tree_from_zero, holdsFn_of_tree_from).
+lean_lib VerifySpecTreeFrom where
+  roots := #[`Verify.Spec.TreeFrom]
