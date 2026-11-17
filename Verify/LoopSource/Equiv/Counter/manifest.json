@@ -1,42 +1,54 @@
 {
-  "format": "t4 loop-equiv lane manifest 1",
-  "status": "lane evidence, not integrated; Counter parked",
+  "format": "t4 loop-equiv lane manifest 2",
+  "status": "lane branch, not freeze content; nothing here is integrated until a freeze adopts it",
   "bases": {
-    "solar": "b35dfeb22316c8f9bc3aabe7a636329e72128e5a",
-    "solidity-lean": "9876392965758aafe6aabac435d0b9b40b1eb9c7"
+    "solar": {
+      "base": "afaefd409e1bab75ab0453eaba93fc06f197dd44",
+      "patches": [
+        "7cfd8261189c333415bf0e2c4938c7eca19528f4"
+      ],
+      "branch": "alpharush/t4-loop-exporter"
+    },
+    "solidity-lean": {
+      "base": "334d1d924f8f6c29ac827fd81d1cc739721b479a",
+      "branch": "alpharush/t4-loop-equiv-v3"
+    }
   },
   "source": {
     "path": "Counter.sol",
     "sha256": "f1c87a334b8db31fc8f80541febeaf8617318d20b685634f44e26c74146ad326"
   },
   "runtime": {
-    "bytes": 248,
-    "sha256": "509845d3b18cf635ec7ee9b1a9d225cfeec995099a9f5e0d55f27ae6559f411d",
-    "lean_file": "gen/Counter/Bytecode.lean",
-    "producer": {
-      "binary": "solar (debug build, cargo build --locked --bin solar)",
-      "binary_sha256": "11f9f914304e99106a5258637fe04c58f0d7f2945d2c11be0b88f3dab9300f62",
-      "version": "0.8.38+commit.615f126f.solar.0.3.0-dev",
-      "commit": "615f126fda659052981136cfc7891428547cb9b1",
-      "commit_note": "615f126f is b35dfeb2 plus tools/certify/loop_equiv.py only; no compiler crate differs from b35dfeb2",
-      "flags": [
-        "-Ogas",
-        "--evm-version",
-        "osaka",
-        "--emit=bin-runtime",
-        "-Zemit-lean-stages=<dir>"
-      ],
-      "check": "the exported bytecode equals --emit=bin-runtime of the same run byte for byte"
+    "status": "stale until regenerated",
+    "previous": {
+      "bytes": 248,
+      "sha256": "509845d3b18cf635ec7ee9b1a9d225cfeec995099a9f5e0d55f27ae6559f411d",
+      "lean_file": "gen/Counter/Bytecode.lean",
+      "producer": {
+        "binary": "solar (debug build, cargo build --locked --bin solar)",
+        "binary_sha256": "11f9f914304e99106a5258637fe04c58f0d7f2945d2c11be0b88f3dab9300f62",
+        "version": "0.8.38+commit.615f126f.solar.0.3.0-dev",
+        "commit": "615f126fda659052981136cfc7891428547cb9b1",
+        "commit_note": "615f126f is b35dfeb2 plus tools/certify/loop_equiv.py only; no compiler crate differs from b35dfeb2",
+        "flags": [
+          "-Ogas",
+          "--evm-version",
+          "osaka",
+          "--emit=bin-runtime",
+          "-Zemit-lean-stages=<dir>"
+        ],
+        "check": "the exported bytecode equals --emit=bin-runtime of the same run byte for byte"
+      }
     }
   },
   "loop_head_certificate": {
-    "role": "untrusted hint: Cut.check re-runs it against b35dfeb2's lowered MIR (gen/Counter/Stage0.lean) in the kernel and rejects any mismatch",
+    "role": "untrusted hint: Cut.check re-runs it against the run's own lowered MIR (gen/<Contract>/Stage0.lean) in the kernel and rejects any mismatch",
     "loop_heads": {
       "sha256": "9987dc74869113b920822b1e942381da81183101aa4bc6fa83f0c98987d742e4",
-      "producer": "solar-verify --emit-loop-heads at 02e629fc2f13432860dc9918f273ffbaf09ee548 (loop-head emitter from fd53f637); b35dfeb2 has no loop-head emitter",
+      "producer": "solar-verify --emit-loop-heads, now from 7cfd8261 (cherry-pick -x of 02e629fc onto afaefd40); the recorded digest is from the earlier 02e629fc run and is stale until regenerated",
       "solar_verify_sha256": "170a081a2afea74e91cc3d2a1f68ab708300a1da33546d8cc58fcf58c4deb7dd"
     },
-    "emitter": "tools/certify/loop_equiv.py at solar 283fa0bec602ddda90c18955c8c120fc7c14e1de",
+    "emitter": "tools/certify/loop_equiv.py at afaefd40 (ada67b32)",
     "certificate": "Cut.lean"
   },
   "build_deviations": [
@@ -68,12 +80,14 @@
       "Verify.LoopSource.Equiv.Counter.Check": 0,
       "Verify.LoopSource.Equiv.Counter.Neg": 0
     },
-    "owed": "Counter/Neg.lean changed after the replay (neg_natsub_inv, neg_natsub_measure added; light build exit 0 on the hosted Hand at -KleanMemory=6000): its --fresh replay is owed for the freeze replay"
+    "owed": "Counter/Neg.lean changed after the replay (neg_natsub_inv, neg_natsub_measure added; light build exit 0 on the hosted Hand at -KleanMemory=6000): its --fresh replay is owed for the freeze replay",
+    "note": "the leanchecker --fresh results above were on the earlier lane bases; a fresh replay on the declared bases is owed"
   },
   "open": [
-    "Shapes.Resources (gas)",
+    "Shapes.Resources (gas): OPEN, see resources",
     "lifecycle (constructor/deployment)",
-    "certify driver hook (T7)"
+    "certify driver hook loop_cuts (T7)",
+    "regeneration and fresh replay on the declared bases"
   ],
   "files": {
     "Checked.lean": "fb3093d6f768b03b04edeb55f6d25ad701354c04081706956ee18ff3c250dc72",
@@ -133,5 +147,15 @@
     "Seq.lean": "4ece8ebcb5fb0c32e04cf349edf261706b76a2a4adf642154fa453ea9774f212",
     "Sound.lean": "4366b9cb1c8bce0dd32aeed638b4a8867c700c812c58b0ba463d25ef0d1ecf0d",
     "Stage.lean": "ec91b3cc93997f73faec763de6bd7805c76fbac403ab79366fd3bfca36aec00b"
+  },
+  "provenance_of_committed_artifacts": {
+    "note": "gen/Counter/*, Proofs/*, Cut.lean and the V*/Data/Obl modules in this tree were produced on the earlier lane (solar 615f126f = b35dfeb2 + loop_equiv.py, solidity-lean 98763929). They are not yet regenerated by the declared bases; the v3 run must regenerate them with the afaefd40+7cfd8261 producer and replace the runtime, loop_head_certificate and files sections below.",
+    "producer_of_record": "pending: candidate-built solar at afaefd40+7cfd8261"
+  },
+  "resources": {
+    "status": "OPEN",
+    "rule": "no unbounded claim: Resources must be stated under an explicit iteration bound in the valid-call precondition, with an inhabitation witness",
+    "premise": "not yet stated (planned: Verify.LoopSource.Equiv.CounterGas.BumpCallBounded K, bump(a) with a <= K)",
+    "witness": "not yet proved (planned: Verify.LoopSource.Equiv.CounterGas.bounded_inhabited, bump(0))"
   }
 }
