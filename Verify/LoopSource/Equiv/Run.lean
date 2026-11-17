@@ -3,12 +3,12 @@ import Verify.LoopSource.Equiv.Match
 /-!
 # A checked cut-point certificate runs the loop to the tree's result
 
-\`loop_mir_runs\`: on a call whose words \`ρ\` the call gives the symbolic run (\`CallFactsAt\`), a
-module whose cut-point certificate checks (\`Cut.check\`) and whose leaves meet their obligations
-(\`Obl\`) runs, under every oracle the flags allow, to the observable of the tree \`T\` at \`ρ\`. The
+`loop_mir_runs`: on a call whose words `ρ` the call gives the symbolic run (`CallFactsAt`), a
+module whose cut-point certificate checks (`Cut.check`) and whose leaves meet their obligations
+(`Obl`) runs, under every oracle the flags allow, to the observable of the tree `T` at `ρ`. The
 proof follows the loop: the entry run reaches an end or the header with the template holding at a
 header valuation where the invariant holds; from there the iteration run reaches an end or the
-header again, at a header valuation where the source loop took one \`LoopRecord.Step\`, so its
+header again, at a header valuation where the source loop took one `LoopRecord.Step`, so its
 measure fell. Induction on the measure ends it.
 -/
 
@@ -54,8 +54,8 @@ theorem envAsk_next {ev : EnvFlags} {o : Oracle} {σ : Val} (h : EnvAsk ev o σ)
 
 /-! ## The leaves of a run -/
 
-/-- What a leaf of a run says of the frame \`x\` the run started from, at valuation \`σ\`: an end
-\`x\` reaches with the leaf tree's observable, or a frame at the header after its phis, which \`x\`
+/-- What a leaf of a run says of the frame `x` the run started from, at valuation `σ`: an end
+`x` reaches with the leaf tree's observable, or a frame at the header after its phis, which `x`
 leads to, holding the template at the next header valuation. -/
 def LeafOk (C : Cut) (n : Nat) (blk : Block) (σ : Val) (call : Call) (o : Oracle) (m : Module)
     (x : SolarTV.MIR.Lowered.Frame) : Out → Prop
@@ -76,7 +76,7 @@ theorem header_block {C : Cut} {m : Module} {blk : Block} (h : C.header m = some
   · exact ⟨_, ‹_›, h⟩
   · simp at h
 
-/-- **Some leaf of a run describes the frame**: the one on the sides of the branches \`σ\` takes. -/
+/-- **Some leaf of a run describes the frame**: the one on the sides of the branches `σ` takes. -/
 theorem leaves_sound {C : Cut} {n : Nat} {m : Module} {blk : Block} (hblk : C.header m = some blk)
     {σ : Val} (hl : n ≤ σ.args.length) {call : Call} {o : Oracle} {x : SolarTV.MIR.Lowered.Frame} :
     ∀ (t : CTree) (path : Facts) (ls : List (Facts × Out)), t.leaves C n blk path = some ls →
@@ -164,7 +164,7 @@ theorem entry_frame (m : Module) :
 
 /-! ## The loop -/
 
-/-- A frame that leads to the header with the template at \`σ\`. -/
+/-- A frame that leads to the header with the template at `σ`. -/
 def AtHead (C : Cut) (n : Nat) (blk : Block) (σ : Val) (call : Call) (o : Oracle) (m : Module)
     (x : SolarTV.MIR.Lowered.Frame) : Prop :=
   ∃ env s, Leads (moduleBlock o call m) x ([], .resume C.fn C.head blk.insts blk.term, env, s) ∧
@@ -175,7 +175,7 @@ theorem iterLeaves_mem {C : Cut} {ev : EnvFlags} {m : Module} {sel n : Nat} {blk
     ∀ {Fs : List Facts} {li : List (Facts × Out)}, iterLeaves C ev m sel n blk Fs = some li →
       ∀ F ∈ Fs, ∃ B l, cutRun ev (.w (.lit 0)) m sel n C.fn C.head C.fuel (.resume C.fn C.head blk.insts blk.term)
         (C.env n) (C.st n) F (C.ids.map Prod.fst) (C.mem.map Prod.fst) = some B ∧
-        B.leaves C n blk [] = some l ∧ ∀ p ∈ l, p ∈ li
+        B.leaves C n blk F = some l ∧ ∀ p ∈ l, p ∈ li
   | [], _, _, F, hF => absurd hF List.not_mem_nil
   | G :: Fs, li, h, F, hF => by
     simp only [iterLeaves] at h
@@ -187,7 +187,7 @@ theorem iterLeaves_mem {C : Cut} {ev : EnvFlags} {m : Module} {sel n : Nat} {blk
     | none => simp [hB, hr] at h
     | some rest =>
     simp only [hB, hr] at h
-    cases hl : B.leaves C n blk [] with
+    cases hl : B.leaves C n blk G with
     | none => simp [hl] at h
     | some l =>
     simp only [hl, Option.map_some, Option.some.injEq] at h
@@ -243,7 +243,7 @@ theorem iter_runs {C : Cut} {ev : EnvFlags} {m : Module} {sel n : Nat} {le li : 
     obtain ⟨B, l, hB, hli, hsub⟩ := iterLeaves_mem hI F hFm
     have hsB := cutRun_sound hc o henv m C.fn C.head C.fuel _ _ _ _ _ _ B hB env s he hs hFh
       (template_frame C n)
-    obtain ⟨p, hpm, hph, hleaf⟩ := leaves_sound hblk hl B [] _ hli (fun _ h => absurd h List.not_mem_nil) hsB
+    obtain ⟨p, hpm, hph, hleaf⟩ := leaves_sound hblk hl B F _ hli hFh hsB
     have hob := hobl.iter σ hl hok hA hP hX p (hsub p hpm) hph
     cases hp2 : p.2 with
     | exit T' =>
@@ -264,8 +264,8 @@ theorem iter_runs {C : Cut} {ev : EnvFlags} {m : Module} {sel n : Nat} {le li : 
       rw [trunc_nextVal hl] at ih
       exact ih
 
-/-- **A checked loop runs to the tree's result**: from the module's entry, on a call of \`n\` words
-\`ρ\` that \`A\` admits, under every oracle the flags allow. -/
+/-- **A checked loop runs to the tree's result**: from the module's entry, on a call of `n` words
+`ρ` that `A` admits, under every oracle the flags allow. -/
 theorem loop_mir_runs {C : Cut} {ev : EnvFlags} {m : Module} {sel n : Nat} {le li : List (Facts × Out)}
     (hchk : C.check ev m sel n = some (le, li)) {L : Val → LoopRecord} {toSrc : Val → Val}
     {X A : Val → Prop} {T : Tree} (hobl : Obl L toSrc X A n C.cases T le li) {ρ : Val} {call : Call}

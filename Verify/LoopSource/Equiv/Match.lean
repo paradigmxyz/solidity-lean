@@ -3,9 +3,9 @@ import Verify.LoopSource.Equiv.Sound
 /-!
 # An arrival that matches the template holds the template at the next header valuation
 
-\`match_rel\`: when \`Cut.matchLeaf\` accepts an arrival (values \`senv1\` after the header's phis,
-state \`st\`), every machine frame that holds the arrival on a valuation \`σ\` holds the template on
-\`nextVal n σ hs\`, the valuation whose header words are the ones the match read.
+`match_rel`: when `Cut.matchLeaf` accepts an arrival (values `senv1` after the header's phis,
+state `st`), every machine frame that holds the arrival on a valuation `σ` holds the template on
+`nextVal n σ hs`, the valuation whose header words are the ones the match read.
 -/
 
 namespace Verify.LoopSource.Equiv
@@ -44,7 +44,7 @@ theorem nextVal_len {n : Nat} {σ : Val} (hl : n ≤ σ.args.length) (hs : List 
     (nextVal n σ hs).args.length = n + hs.length := by
   simp [nextVal]; omega
 
-/-- Header word \`k\` at the next header valuation is the value of the \`k\`-th word read. -/
+/-- Header word `k` at the next header valuation is the value of the `k`-th word read. -/
 theorem eval_hw {n : Nat} {σ : Val} (hl : n ≤ σ.args.length) {hs : List WExpr} {k : Nat} {e : WExpr}
     (h : hs[k]? = some e) : (WExpr.arg (n + k)).eval (nextVal n σ hs) = e.eval σ := by
   have hk : k < hs.length := by
