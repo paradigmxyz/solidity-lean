@@ -127,7 +127,7 @@ lean_lib Loom where
 of a source triple with the refinement to bytecode (Verify/Final.lean). `lake build Verify`
 builds the root's closure; the libraries below hold the heavier, generated-input parts. -/
 lean_lib Verify where
-  roots := #[`Verify, `Verify.AnyCaller.Tests]
+  roots := #[`Verify, `Verify.AnyCaller.Tests, `Verify.Gas.FixedFuel.AcyclicTest]
 
 -- bank's and events' assembly stages against solar's exports (solar-tv/milestone/bank and
 -- solar-tv/milestone/events at 0a455fda): the generic assembler check with mapping hashes,
