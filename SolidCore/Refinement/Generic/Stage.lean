@@ -1,6 +1,7 @@
 import SolidCore.Refinement.Generic.SourceRun
 import SolidCore.Refinement.Generic.MirRun
 import SolidCore.Refinement.Generic.Simp
+import SolidCore.Refinement.Generic.CanonCmp
 import SolidCore.Refinement.Compose
 import SolidCore.Refinement.Evm.Calldata
 
@@ -175,7 +176,8 @@ theorem SourceAsk.envAsk {env : EnvFlags} {o : Oracle} (h : SourceAsk env o) (ar
 /-- Whether the function of `fns` with selector `f.sel` lowers to `m`: SolidCore dispatches the
 selector to a function with `f`'s parameter count, and its erased tree and the symbolic run of
 `m` on the selector, with `mirFuel` blocks along each path and the environment flag `env`, agree in
-canonical form (`Tree.beq`). -/
+canonical form (`Tree.agree`: equal canonical forms, or equal once comparisons are spelled one
+way, `Tree.cmpCanon`). -/
 def checkFn (fuel mirFuel : Nat) (core : Contract) (m : Module) (env : EnvFlags) (f : Fn) : Bool :=
   decide (f.sel < 2 ^ 32) &&
     match core.findFunctionBySelector? f.sel with
@@ -183,7 +185,7 @@ def checkFn (fuel mirFuel : Nat) (core : Contract) (m : Module) (env : EnvFlags)
     | some fn =>
       decide (fn.params.length = f.params.length) &&
         match eraseFn (envOf core) fuel fn, symTree m f.sel f.params.length mirFuel env with
-        | some t1, some t2 => t1.canon.beq t2.canon
+        | some t1, some t2 => Tree.agree t1 t2
         | _, _ => false
 
 /-- Whether every function of `fns` lowers to `m`, with the environment flag `env` (off by
@@ -213,14 +215,14 @@ theorem stageAtWith (o : Oracle) {fuel mirFuel : Nat} {c : TypeCheck.CheckedCont
   | some t2 =>
   simp only [hfind, ht1, ht2, Bool.and_eq_true, decide_eq_true_eq] at hcf
   obtain ⟨hsel, hpl, hcf⟩ := hcf
-  have hcf := Tree.eq_of_beq hcf
+  have hcf := Tree.eval_of_agree hcf
   have hsrc := source_run hd hcov hsel hfind ht1 args (by rw [hlen, hpl]) hargs
   change Source.run fuel c _ = some obs at hrun
   rw [hsrc] at hrun
   cases hrun
   rw [← hlen] at ht2
   rw [symTree_sound (callFacts f.sel hsel args hargs σ) o m (henv.envAsk _ _) ht2,
-    ← Tree.eval_canon, ← hcf, Tree.eval_canon]
+    ← hcf]
 
 /-- **The generic source stage**: a checked contract whose constructor leaves the storage entries
 `s` and no logs and a lowered MIR module that `check` accepts give the stage from SolidCore to the

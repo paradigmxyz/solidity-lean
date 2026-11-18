@@ -394,7 +394,7 @@ def checkFnSym (fuel mirFuel : Nat) (core : Contract) (m : Module) (f : Fn) : Bo
     | some fn =>
       decide (fn.params.length = f.params.length) &&
         match eraseFnSym (envOf core) fuel fn, symTree m f.sel f.params.length mirFuel .allSym with
-        | some t1, some t2 => t1.canon.beq t2.canon
+        | some t1, some t2 => Tree.agree t1 t2
         | _, _ => false
 
 /-- Whether every function of `fns` lowers to `m` for the symbolic caller. -/
@@ -447,14 +447,14 @@ theorem stageFrom (a : Nat) (ha : a < 2 ^ 160) (o : Oracle) (ho : FromOk a o) {f
   | some t2 =>
   simp only [hfind, ht1, ht2, Bool.and_eq_true, decide_eq_true_eq] at hcf
   obtain ⟨hsel, hpl, hcf⟩ := hcf
-  have hcf := Tree.eq_of_beq hcf
+  have hcf := Tree.eval_of_agree hcf
   have hsrc := source_run_from a ha hd hcov hsel hfind ht1 args (by rw [hlen, hpl]) hargs
   change Source.runFrom a fuel c _ = some obs at hrun
   rw [hsrc] at hrun
   cases hrun
   rw [← hlen] at ht2
   rw [symTree_sound (callFactsFrom f.sel hsel args hargs σ a) o m (ho.envAsk ha _ _) ht2,
-    ← Tree.eval_canon, ← hcf, Tree.eval_canon]
+    ← hcf]
 
 /-- `stageFrom` from the deployed storage `s`. -/
 theorem stageDeployedFrom (a : Nat) (ha : a < 2 ^ 160) (o : Oracle) (ho : FromOk a o) {fuel mirFuel : Nat}
