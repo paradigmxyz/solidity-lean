@@ -73,6 +73,13 @@ case $STEP in
   [ "$(git -C $W/solar show $SOLAR_HEAD:tools/certify/solidity-lean.rev)" = "$LEAN_PIN" ] || { echo "pin mismatch"; exit 4; }
   git -C $W/sl merge-base --is-ancestor $LEAN_PIN $LEAN_REV || { echo "lean branch is not on the pin"; exit 4; }
   if git -C $W/sl diff --name-only $LEAN_PIN $LEAN_REV | grep -v '^Verify/LoopSource/'; then echo "lean branch touches other paths"; exit 4; fi
+  # Self-test of step 2's refusal regex on the committed kernel refusal.
+  python3 - $W/sl/Verify/LoopSource/Equiv/Counter/run-v3/LifecycleBad.err <<'EOF' || { echo "refusal regex self-test failed"; exit 12; }
+import re,sys
+log=open(sys.argv[1]).read()
+sys.exit(0 if re.search(r"\(kernel\) declaration type mismatch, '[^']*checkB_eq'", log) else 1)
+EOF
+  echo '{"refusal_regex_selftest":"match"}' > $R/selftest.json
   (cd $W/sl && elan toolchain install "$(cat lean-toolchain)" && lake exe cache get) > $R/cache.log 2>&1
   mkdir -p $HOME/.cache/solc
   curl -sSfL -o $HOME/.cache/solc/solc-0.8.35 https://github.com/argotorg/solidity/releases/download/v0.8.35/solc-static-linux
@@ -130,7 +137,7 @@ EOF
   python3 - "$R" > $R/control.json <<'EOF' || { cat $R/control.json; echo "control failed for another reason"; exit 7; }
 import json,sys,re
 R=sys.argv[1]; log=open(R+"/build-lifecycle-bad.out").read(); m=json.load(open(R+"/build-lifecycle-bad.json"))
-kernel=bool(re.search(r"(kernel) declaration type mismatch, '[^']*checkB_eq'", log))
+kernel=bool(re.search(r"\(kernel\) declaration type mismatch, '[^']*checkB_eq'", log))
 oom=int(m["memory.events"].get("oom_kill","0")); mem_exc="memory_exception" in log or "out of memory" in log
 ok=kernel and oom==0 and not mem_exc and m["exit"]!=0
 print(json.dumps({"control":"wrong storage (1,9)","exit":m["exit"],"kernel_checkB_eq_mismatch":kernel,
