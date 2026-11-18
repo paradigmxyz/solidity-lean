@@ -1,0 +1,77 @@
+diff --git a/tools/certify/generic.py b/tools/certify/generic.py
+index 28b6c675b454f5607fca7e598d07774bd0fd1cbf..7c3bf1e1955b9f4e09bc36c921bf927233401039 100644
+--- a/tools/certify/generic.py
++++ b/tools/certify/generic.py
+@@ -2453,12 +2453,15 @@ def lifecycle_run(
+         life["source_same"] = ok
+         if not ok:
+             errs = " | ".join(l for l in out.splitlines() if "error" in l)[:300]
++            log_name, tail = build_failure(rec_dir, name, "SourceSame", out)
+             raise Blocked(
+                 [
+                     {
+                         "feature": "lifecycle binding",
+                         "where": "",
+                         "detail": f"this run's source unit is not the expected theorem's ({bind['unit']}): {errs}",
++                        "log": log_name,
++                        "log_tail": tail,
+                     }
+                 ]
+             )
+@@ -2526,6 +2529,9 @@ def lifecycle_run(
+             )
+             if not ok:
+                 errs = " | ".join(l for l in out.splitlines() if "error" in l)[:400]
++                life["composed"]["log"], life["composed"]["log_tail"] = build_failure(
++                    rec_dir, name, "Composed", out
++                )
+                 finish(
+                     "BLOCKED",
+                     2,
+@@ -2628,6 +2634,15 @@ def lifecycle_build(lean_dir, name, source_text, mod, text, cache):
+     return rc == 0, out + err
+ 
+ 
++def build_failure(rec_dir, name, mod, out, lines=60):
++    """A failed lifecycle build's whole lake output, kept as NAME.MOD.build.log in the record
++    directory, and its last LINES lines: lake prints a failed module's own messages (such as Lean's
++    memory_exception and its exit code) in that module's block, and they need not say "error"."""
++    log_name = f"{name}.{mod}.build.log"
++    (rec_dir / log_name).write_text(out)
++    return log_name, "\n".join(out.splitlines()[-lines:])
++
++
+ def frontend(lean_dir, src, src_sha, name, contract, solc):
+     """The solc-AST front end's Lean body of the source. The front end records the absolute path it
+     read the source from (importedSourceName), so it reads a copy at a path fixed by the source's
+diff --git a/tools/certify/test_lifecycle_bind.py b/tools/certify/test_lifecycle_bind.py
+index 19280f7b5086f14204c6cbb25471365a9aaf3509..3873a312b60e4942f4ad3a7c4462c7c1493f09bb 100644
+--- a/tools/certify/test_lifecycle_bind.py
++++ b/tools/certify/test_lifecycle_bind.py
+@@ -175,6 +175,26 @@ class Wiring(unittest.TestCase):
+         self.assertLess(body.index("kq = lifecycle_kernel("), body.index('"Composed"'))
+         self.assertIn("this run's source unit is not the expected theorem's", body)
+         self.assertIn("the composed theorem does not build", body)
++        self.assertEqual(body.count("build_failure("), 2)
++
++    def test_build_failure_keeps_the_whole_log(self):
++        out = "\n".join(
++            [f"✔ [{i}/9] Built M{i}" for i in range(80)]
++            + [
++                "✖ [9/9] Building Contracts.VerifyCounter.Source",
++                "INTERNAL PANIC: lean::memory_exception: excessive memory consumption detected at 'interpreter'",
++                "error: Lean exited with code 134",
++            ]
++        )
++        with tempfile.TemporaryDirectory() as d:
++            log_name, tail = generic.build_failure(
++                pathlib.Path(d), NAME, "SourceSame", out
++            )
++            self.assertEqual(log_name, f"{NAME}.SourceSame.build.log")
++            self.assertEqual((pathlib.Path(d) / log_name).read_text(), out)
++        self.assertEqual(len(tail.splitlines()), 60)
++        self.assertIn("lean::memory_exception", tail)
++        self.assertTrue(tail.endswith("error: Lean exited with code 134"))
+ 
+ 
+ if __name__ == "__main__":
