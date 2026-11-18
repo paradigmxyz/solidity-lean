@@ -83,6 +83,20 @@ srcdied() {
 }
 open_step() { echo "{\"step\":\"$STEP $*\",\"status\":\"OPEN\",\"reason\":\"Contracts.VerifyCounter.Source memory_exception\"}" >> $W/rcpt/steps-open.json; }
 
+# axioms_exact OUT NAME: the one "'NAME' depends on axioms: [...]" report in OUT, read in full across
+# Lean's line wrapping, lists exactly propext, Classical.choice and Quot.sound.
+axioms_exact() {
+  python3 - "$1" "$2" <<'EOF'
+import re,sys
+out,name=open(sys.argv[1]).read(),sys.argv[2]
+ms=re.findall(r"'"+re.escape(name)+r"' depends on axioms: \[([^\]]*)\]",out)
+if len(ms)!=1: print("axioms: %d reports for %s"%(len(ms),name)); sys.exit(1)
+ax=[a.strip() for a in ms[0].split(",")]
+ok=sorted(ax)==sorted(["propext","Classical.choice","Quot.sound"]) and len(set(ax))==len(ax)
+print("axioms %s: %s"%(name,ax)); sys.exit(0 if ok else 1)
+EOF
+}
+
 case $STEP in
 0) # setup: toolchains and both checkouts at exact commits
   sudo apt-get update -qq && sudo apt-get install -y -qq git zstd build-essential pkg-config >/dev/null
@@ -230,7 +244,7 @@ import CounterRun.Lifecycle
 EOF
   scoped audit lake env lean Certified/CounterRun/Audit.lean
   if grep -E 'sorryAx|ofReduceBool|trustCompiler' $R/audit.out; then echo "forbidden axiom"; exit 8; fi
-  if grep -rnE '\bsorry\b|native_decide|ofReduceBool|@\[extern|implemented_by|^axiom ' Verify/LoopSource Certified/CounterRun > $R/forbidden.txt; then echo "forbidden token"; exit 8; fi
+  if grep -rnE --include='*.lean' '\bsorry\b|native_decide|ofReduceBool|@\[extern|implemented_by|^axiom ' Verify/LoopSource Certified/CounterRun > $R/forbidden.txt; then echo "forbidden token"; exit 8; fi
   (cd $W/rcpt && find . -type f ! -name receipts.sha256 | sort | xargs sha256sum > receipts.sha256) ;;
 6) # ctx: build the deploy certificates (box-only) and the closed expected theorem with its closure
   cd $W/sl2
@@ -311,15 +325,15 @@ EOF
   [ -e .lake/build/lib/lean/Verify/LoopSource/Equiv/CounterClosedCtx.olean ] || { open_step "not built"; exit 0; }
   printf 'import Verify.LoopSource.Equiv.CounterClosedCtx\n#print axioms Verify.LoopSource.Equiv.CounterClosedCtx.counter_expected_closed\n#print axioms Verify.LoopSource.Equiv.CounterCtx.counter_expected\n' > /tmp/AuditCtx.lean
   scoped audit-ctx lake env lean /tmp/AuditCtx.lean
-  grep -q "counter_expected_closed' depends on axioms: \[propext, Classical.choice, Quot.sound\]" $R/audit-ctx.out || { echo "axioms differ"; exit 8; }
-  if grep -rnE '\bsorry\b|native_decide|ofReduceBool|@\[extern|implemented_by|^axiom ' Verify/LoopSource > $R/forbidden-ctx.txt; then echo "forbidden token"; exit 8; fi
+  axioms_exact $R/audit-ctx.out Verify.LoopSource.Equiv.CounterClosedCtx.counter_expected_closed > $R/axioms-ctx.txt || { cat $R/axioms-ctx.txt; echo "axioms differ"; exit 8; }
+  if grep -rnE --include='*.lean' '\bsorry\b|native_decide|ofReduceBool|@\[extern|implemented_by|^axiom ' Verify/LoopSource > $R/forbidden-ctx.txt; then echo "forbidden token"; exit 8; fi
   G=$W/genwork/solidity-lean; cfail=0
   if [ -e $G/.lake/build/lib/lean/counter_f1c87a33/Composed.olean ]; then
   cd $G
   printf 'import counter_f1c87a33.Composed\n#print axioms Certified.counter_f1c87a33.Composed.composed\n' > /tmp/AuditComposed.lean
   scoped audit-composed lake env lean /tmp/AuditComposed.lean
-  grep -q "Certified.counter_f1c87a33.Composed.composed' depends on axioms: \[propext, Classical.choice, Quot.sound\]" $R/audit-composed.out || { echo "axioms differ"; exit 8; }
-  if grep -rnE '\bsorry\b|native_decide|ofReduceBool|@\[extern|implemented_by|^axiom ' Certified/counter_f1c87a33 > $R/forbidden-composed.txt; then echo "forbidden token"; exit 8; fi
+  axioms_exact $R/audit-composed.out Certified.counter_f1c87a33.Composed.composed > $R/axioms-composed.txt || { cat $R/axioms-composed.txt; echo "axioms differ"; exit 8; }
+  if grep -rnE --include='*.lean' '\bsorry\b|native_decide|ofReduceBool|@\[extern|implemented_by|^axiom ' Certified/counter_f1c87a33 > $R/forbidden-composed.txt; then echo "forbidden token"; exit 8; fi
   else echo '{"status":"FAIL","stage":"Composed not built (step 6c)"}' > $R/composed.json; cfail=14; fi
   (cd $W/rcpt && find . -type f ! -name receipts.sha256 | sort | xargs sha256sum > receipts.sha256)
   exit $cfail ;;
