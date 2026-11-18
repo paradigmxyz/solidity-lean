@@ -1,4 +1,5 @@
 import Verify.LoopSource.Equiv.CounterCtor
+import SolidCore.Refinement.Generic.CtorAll
 
 /-!
 # Counter's constructor, for every argument, at the load level (fixed context; NOT \`DeployedAtWith\`)
@@ -191,3 +192,41 @@ end Verify.LoopSource.Equiv.CounterLoad
 /-- info: 'Verify.LoopSource.Equiv.CounterLoad.wrong_load' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs (whitespace := lax) in
 #print axioms Verify.LoopSource.Equiv.CounterLoad.wrong_load
+
+/-! ## Every word: typed admission and the load-level deployment (LC's generic leaves) -/
+
+namespace Verify.LoopSource.Equiv.CounterLoad
+open SolidCore.Solidity SolidCore.Solidity.Source SolidCore.Refinement SolidCore.Refinement.Generic
+open Contracts.VerifyCounter.Source
+
+/-- **Counter's admission for every word**: `CtorAdmits` on `[n]`, `n < 2 ^ 256`, from the
+constructor's shape (`ctor_of`: one non-payable `uint256` parameter, cleanup `uint 256`) by
+`CtorAdmits.of_fn`. -/
+theorem counter_admits_all {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) {n : Nat}
+    (hn : n < 2 ^ 256) :
+    CtorAdmits c Verify.LoopSource.Equiv.CounterCtor.counterInit
+      (Verify.Lifecycle.initArgs Verify.LoopSource.Equiv.CounterCtor.counterInit [n]) [n] :=
+  CtorAdmits.of_fn (ctor_of hc) rfl rfl (by simp [ctorFn]) (Or.inr rfl) (by simpa using hn)
+
+/-- **Counter's load-level deployment for every word**: the constructor on `[n]` returns a state
+with no logs whose every slot loads what `[(1, n)]` gives it. This is NOT `DeployedAtWith` and NOT
+the bytecode's `Deploys` for every `n`. -/
+theorem counter_deployedAtLoad {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) {n : Nat}
+    (hn : n < 2 ^ 256) : ∃ d, DeployedAtLoad fuel c [n] [(1, n)] d := by
+  obtain ⟨d, hd, hl⟩ := counter_load_deployed hc hn
+  refine ⟨d, ⟨hd.cons, hd.events, fun k hk => ?_⟩⟩
+  rw [hl k, Nat.mod_eq_of_lt hk]
+  by_cases h : k = 1
+  · subst h; rfl
+  · have hb : (1 == k) = false := by simp [beq_iff_eq, Ne.symm h]
+    simp [slotOf, List.find?, hb]
+
+end Verify.LoopSource.Equiv.CounterLoad
+
+/-- info: 'Verify.LoopSource.Equiv.CounterLoad.counter_admits_all' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs (whitespace := lax) in
+#print axioms Verify.LoopSource.Equiv.CounterLoad.counter_admits_all
+
+/-- info: 'Verify.LoopSource.Equiv.CounterLoad.counter_deployedAtLoad' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs (whitespace := lax) in
+#print axioms Verify.LoopSource.Equiv.CounterLoad.counter_deployedAtLoad
