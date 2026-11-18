@@ -1,0 +1,1 @@
+{"tag": "fresh-CounterRun.Lifecycle", "exit": 0, "wall_s": 134.6, "cgroup": "/sys/fs/cgroup/system.slice/run-r5ebf24d76f304f2b9be2897543d6d2c2.scope", "memory.max": "42949672960", "memory.peak_bytes": 4938907648, "memory.events": {"low": "0", "high": "0", "max": "0", "oom": "0", "oom_kill": "0", "oom_group_kill": "0"}}

@@ -1,0 +1,607 @@
+⚠ [1337/1385] Replayed SolidCore.Refinement.Evm.Lemmas
+warning: SolidCore/Refinement/Evm/Lemmas.lean: imports `EthLib.Execution.Proofs.Evm.Logic.Steps` from package `EthLib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: SolidCore/Refinement/Evm/Lemmas.lean: imports `EthLib.Execution.Proofs.Evm.Logic.Symbolic` from package `EthLib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [2300/2536] Replayed EvmYul.UInt256
+warning: EvmYul/UInt256.lean: imports `Mathlib.Data.Nat.Basic` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Data.Fin.Basic` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Data.Vector.Basic` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Algebra.Group.Defs` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Algebra.GroupWithZero.Defs` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Algebra.Ring.Basic` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Algebra.Order.Floor.Defs` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Algebra.Order.Floor.Ring` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Algebra.Order.Floor.Semiring` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Data.ZMod.Defs` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Tactic.Ring` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [2309/2536] Replayed SolidCore.Solidity.Shared.PrecompilePairing
+warning: SolidCore/Solidity/Shared/PrecompilePairing.lean:144:5: Variable name `h` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _h
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+⚠ [2358/2536] Replayed EvmYul.Wheels
+warning: EvmYul/Wheels.lean: imports `Mathlib.Data.Finmap` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [2473/2536] Replayed EvmYul.Maps.ByteMap
+warning: EvmYul/Maps/ByteMap.lean:20:0: it is recommended to use Std.TreeMap instead
+'Batteries.Data.RBMap' has been deprecated: please replace this import by
+
+import Batteries.Data.RBMap.Basic
+import Batteries.Data.RBMap.Depth
+import Batteries.Data.RBMap.Lemmas
+import Batteries.Data.RBMap.Alter
+import Batteries.Data.RBMap.WF
+⚠ [2475/2536] Replayed EvmYul.Operations
+warning: EvmYul/Operations.lean: imports `Mathlib.Data.Finmap` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [2481/2536] Replayed EvmYul.Maps.StorageMap
+warning: EvmYul/Maps/StorageMap.lean: imports `Mathlib.Data.Multiset.Sort` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/Maps/StorageMap.lean:20:0: it is recommended to use Std.TreeMap instead
+'Batteries.Data.RBMap' has been deprecated: please replace this import by
+
+import Batteries.Data.RBMap.Basic
+import Batteries.Data.RBMap.Depth
+import Batteries.Data.RBMap.Lemmas
+import Batteries.Data.RBMap.Alter
+import Batteries.Data.RBMap.WF
+⚠ [2483/2536] Replayed EvmYul.State.Substate
+warning: EvmYul/State/Substate.lean:1:0: it is recommended to use Std.TreeMap instead
+'Batteries.Data.RBMap' has been deprecated: please replace this import by
+
+import Batteries.Data.RBMap.Basic
+import Batteries.Data.RBMap.Depth
+import Batteries.Data.RBMap.Lemmas
+import Batteries.Data.RBMap.Alter
+import Batteries.Data.RBMap.WF
+⚠ [2484/2536] Replayed Conform.Wheels
+warning: Conform/Wheels.lean: imports `Mathlib.Data.Multiset.Sort` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: Conform/Wheels.lean:4:0: it is recommended to use Std.TreeMap instead
+'Batteries.Data.RBMap' has been deprecated: please replace this import by
+
+import Batteries.Data.RBMap.Basic
+import Batteries.Data.RBMap.Depth
+import Batteries.Data.RBMap.Lemmas
+import Batteries.Data.RBMap.Alter
+import Batteries.Data.RBMap.WF
+⚠ [2485/2536] Replayed EvmYul.State.Transaction
+warning: EvmYul/State/Transaction.lean: imports `Mathlib.Data.List.AList` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [2488/2536] Replayed EvmYul.Maps.AccountMap
+warning: EvmYul/Maps/AccountMap.lean:20:0: it is recommended to use Std.TreeMap instead
+'Batteries.Data.RBMap' has been deprecated: please replace this import by
+
+import Batteries.Data.RBMap.Basic
+import Batteries.Data.RBMap.Depth
+import Batteries.Data.RBMap.Lemmas
+import Batteries.Data.RBMap.Alter
+import Batteries.Data.RBMap.WF
+⚠ [2491/2536] Replayed EvmYul.State.Block
+warning: EvmYul/State/Block.lean: imports `Mathlib.Data.Finset.Basic` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [2492/2536] Replayed EvmYul.State
+warning: EvmYul/State.lean: imports `Mathlib.Data.Finset.Basic` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/State.lean:1:0: it is recommended to use Std.TreeMap instead
+'Batteries.Data.RBMap' has been deprecated: please replace this import by
+
+import Batteries.Data.RBMap.Basic
+import Batteries.Data.RBMap.Depth
+import Batteries.Data.RBMap.Lemmas
+import Batteries.Data.RBMap.Alter
+import Batteries.Data.RBMap.WF
+⚠ [2499/2536] Replayed EvmYul.MachineStateOps
+warning: EvmYul/MachineStateOps.lean:1:0: it is recommended to use Std.TreeMap instead
+'Batteries.Data.RBMap' has been deprecated: please replace this import by
+
+import Batteries.Data.RBMap.Basic
+import Batteries.Data.RBMap.Depth
+import Batteries.Data.RBMap.Lemmas
+import Batteries.Data.RBMap.Alter
+import Batteries.Data.RBMap.WF
+⚠ [2501/2536] Replayed EvmInteraction.Simulation.Outcome
+warning: EvmInteraction/Simulation/Outcome.lean: imports `Mathlib.Data.List.Basic` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [2506/2536] Replayed SolidCore.Solidity.Interface.Foundation
+warning: SolidCore/Solidity/Interface/Foundation.lean:4248:20: Unused tactic linter: `<;>` should be replaced with `;` or be removed.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+⚠ [2508/2536] Replayed SolidCore.Solidity.TypeCheck
+warning: SolidCore/Solidity/TypeCheck.lean:5179:34: Unused tactic linter: `<;>` should be replaced with `;` or be removed.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:6863:26: Variable name `tys` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _tys
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: SolidCore/Solidity/TypeCheck.lean:9012:8: Unused tactic linter: `subst rhs` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9013:8: Unused tactic linter: `subst lhs` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9019:6: Unused tactic linter: `(cases rhs) <;> simp_all [sizeOf] <;> omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9021:6: Unused tactic linter: `(cases target) <;> simp_wf <;> try simp_all <;> omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9023:6: Unused tactic linter: `(cases fn) <;> simp_wf <;> try simp_all [sizeOf] <;> omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9032:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9034:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9046:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9078:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9080:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9155:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9195:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9235:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9264:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9363:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9365:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9376:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9393:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9417:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9623:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9625:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9648:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9662:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9664:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9676:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9019:6: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9019:42: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9021:6: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9021:35: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9023:6: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9023:31: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9836:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:10572:4: Variable name `other` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _other
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: SolidCore/Solidity/TypeCheck.lean:15789:14: `String.mk` has been deprecated: Use `String.ofList` instead
+
+Hint: Replace the deprecated name:
+  String.m̵k̵o̲f̲L̲i̲s̲t̲
+warning: SolidCore/Solidity/TypeCheck.lean:15796:29: `String.mk` has been deprecated: Use `String.ofList` instead
+
+Hint: Replace the deprecated name:
+  String.m̵k̵o̲f̲L̲i̲s̲t̲
+warning: SolidCore/Solidity/TypeCheck.lean:15798:26: `String.mk` has been deprecated: Use `String.ofList` instead
+
+Hint: Replace the deprecated name:
+  String.m̵k̵o̲f̲L̲i̲s̲t̲
+⚠ [2510/2536] Replayed SolidCore.Solidity.Interface.Statements
+warning: SolidCore/Solidity/Interface/Statements.lean:1053:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:516:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:1380:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:1331:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:792:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:1211:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:1130:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:3179:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:746:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:958:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:1024:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:1087:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:656:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:493:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:2189:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:679:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:994:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:701:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:95:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:9040:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:9095:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:9144:0: unused `termination_by`, function is not recursive
+⚠ [2511/2536] Replayed SolidCore.Solidity.Interface.Contracts
+warning: SolidCore/Solidity/Interface/Contracts.lean:1262:31: Unused tactic linter: `<;>` should be replaced with `;` or be removed.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/Interface/Contracts.lean:1262:31: Used `tac1 <;> tac2` where `(tac1; tac2)` would suffice
+
+Note: This linter can be disabled with `set_option linter.unnecessarySeqFocus false`
+warning: SolidCore/Solidity/Interface/Contracts.lean:3001:6: Variable name `storageOrder` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _storageOrder
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: SolidCore/Solidity/Interface/Contracts.lean:3166:6: Variable name `dispatchOrder` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _dispatchOrder
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: SolidCore/Solidity/Interface/Contracts.lean:3177:6: Variable name `sharedConstantTail` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _sharedConstantTail
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+⚠ [2515/2536] Replayed SolidCore.Refinement.Statement
+warning: SolidCore/Refinement/Statement.lean: imports `EthLib.Execution.Evm.Call.MessageCall` from package `EthLib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [2516/2536] Replayed SolidCore.Refinement.Check
+warning: SolidCore/Refinement/Check.lean: imports `EthLib.Base.Proofs.BigEndian` from package `EthLib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [2517/2536] Replayed SolidCore.Refinement.Abi
+warning: SolidCore/Refinement/Abi.lean: imports `EthLib.Execution.Proofs.Evm.Logic.NatCode` from package `EthLib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [2526/2536] Replayed Verify.Lifecycle.CreationFrame
+warning: Verify/Lifecycle/CreationFrame.lean: imports `EthLib.Execution.Proofs.Evm.Logic.Copy` from package `EthLib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: Verify/Lifecycle/CreationFrame.lean:318:10: Unused tactic linter: `subst_vars` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: Verify/Lifecycle/CreationFrame.lean:329:12: Unused tactic linter: `subst_vars` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: Verify/Lifecycle/CreationFrame.lean:379:8: `ite_cond_eq_true` has been deprecated: Use `ite_eq_left_of_eq_true` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵t̵r̵u̵e̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲_̲o̲f̲_̲e̲q̲_̲t̲r̲u̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:389:6: `ite_cond_eq_false` has been deprecated: Use `ite_eq_right_of_eq_false` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵f̵a̵l̵s̵e̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲_̲o̲f̲_̲e̲q̲_̲f̲a̲l̲s̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:391:8: `ite_cond_eq_true` has been deprecated: Use `ite_eq_left_of_eq_true` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵t̵r̵u̵e̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲_̲o̲f̲_̲e̲q̲_̲t̲r̲u̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:401:6: `ite_cond_eq_false` has been deprecated: Use `ite_eq_right_of_eq_false` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵f̵a̵l̵s̵e̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲_̲o̲f̲_̲e̲q̲_̲f̲a̲l̲s̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:403:8: `ite_cond_eq_true` has been deprecated: Use `ite_eq_left_of_eq_true` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵t̵r̵u̵e̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲_̲o̲f̲_̲e̲q̲_̲t̲r̲u̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:413:6: `ite_cond_eq_false` has been deprecated: Use `ite_eq_right_of_eq_false` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵f̵a̵l̵s̵e̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲_̲o̲f̲_̲e̲q̲_̲f̲a̲l̲s̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:415:8: `ite_cond_eq_true` has been deprecated: Use `ite_eq_left_of_eq_true` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵t̵r̵u̵e̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲_̲o̲f̲_̲e̲q̲_̲t̲r̲u̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:424:6: `ite_cond_eq_false` has been deprecated: Use `ite_eq_right_of_eq_false` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵f̵a̵l̵s̵e̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲_̲o̲f̲_̲e̲q̲_̲f̲a̲l̲s̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:426:8: `ite_cond_eq_true` has been deprecated: Use `ite_eq_left_of_eq_true` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵t̵r̵u̵e̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲_̲o̲f̲_̲e̲q̲_̲t̲r̲u̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:432:6: `ite_cond_eq_false` has been deprecated: Use `ite_eq_right_of_eq_false` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵f̵a̵l̵s̵e̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲_̲o̲f̲_̲e̲q̲_̲f̲a̲l̲s̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:434:8: `ite_cond_eq_true` has been deprecated: Use `ite_eq_left_of_eq_true` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵t̵r̵u̵e̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲_̲o̲f̲_̲e̲q̲_̲t̲r̲u̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:446:6: `ite_cond_eq_false` has been deprecated: Use `ite_eq_right_of_eq_false` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵f̵a̵l̵s̵e̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲_̲o̲f̲_̲e̲q̲_̲f̲a̲l̲s̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:448:8: `ite_cond_eq_true` has been deprecated: Use `ite_eq_left_of_eq_true` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵t̵r̵u̵e̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲_̲o̲f̲_̲e̲q̲_̲t̲r̲u̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:466:6: `ite_cond_eq_false` has been deprecated: Use `ite_eq_right_of_eq_false` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵f̵a̵l̵s̵e̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲_̲o̲f̲_̲e̲q̲_̲f̲a̲l̲s̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:468:8: `ite_cond_eq_true` has been deprecated: Use `ite_eq_left_of_eq_true` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵t̵r̵u̵e̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲_̲o̲f̲_̲e̲q̲_̲t̲r̲u̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:477:6: `ite_cond_eq_false` has been deprecated: Use `ite_eq_right_of_eq_false` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵f̵a̵l̵s̵e̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲_̲o̲f̲_̲e̲q̲_̲f̲a̲l̲s̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:479:8: `ite_cond_eq_true` has been deprecated: Use `ite_eq_left_of_eq_true` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵t̵r̵u̵e̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲_̲o̲f̲_̲e̲q̲_̲t̲r̲u̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:488:6: `ite_cond_eq_false` has been deprecated: Use `ite_eq_right_of_eq_false` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵f̵a̵l̵s̵e̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲_̲o̲f̲_̲e̲q̲_̲f̲a̲l̲s̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:490:8: `ite_cond_eq_true` has been deprecated: Use `ite_eq_left_of_eq_true` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵t̵r̵u̵e̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲_̲o̲f̲_̲e̲q̲_̲t̲r̲u̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:499:6: `ite_cond_eq_false` has been deprecated: Use `ite_eq_right_of_eq_false` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵f̵a̵l̵s̵e̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲_̲o̲f̲_̲e̲q̲_̲f̲a̲l̲s̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:501:8: `ite_cond_eq_true` has been deprecated: Use `ite_eq_left_of_eq_true` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵t̵r̵u̵e̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲_̲o̲f̲_̲e̲q̲_̲t̲r̲u̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:515:6: `ite_cond_eq_false` has been deprecated: Use `ite_eq_right_of_eq_false` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵f̵a̵l̵s̵e̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲_̲o̲f̲_̲e̲q̲_̲f̲a̲l̲s̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:517:8: `ite_cond_eq_true` has been deprecated: Use `ite_eq_left_of_eq_true` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵t̵r̵u̵e̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲_̲o̲f̲_̲e̲q̲_̲t̲r̲u̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:521:6: `ite_cond_eq_false` has been deprecated: Use `ite_eq_right_of_eq_false` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵f̵a̵l̵s̵e̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲_̲o̲f̲_̲e̲q̲_̲f̲a̲l̲s̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:386:6: Unused tactic linter: `subst_vars` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: Verify/Lifecycle/CreationFrame.lean:398:6: Unused tactic linter: `subst_vars` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: Verify/Lifecycle/CreationFrame.lean:410:6: Unused tactic linter: `subst_vars` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: Verify/Lifecycle/CreationFrame.lean:430:4: Unused tactic linter: `subst_vars` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: Verify/Lifecycle/CreationFrame.lean:551:8: `ite_cond_eq_true` has been deprecated: Use `ite_eq_left_of_eq_true` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵t̵r̵u̵e̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲_̲o̲f̲_̲e̲q̲_̲t̲r̲u̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:552:6: `ite_cond_eq_false` has been deprecated: Use `ite_eq_right_of_eq_false` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵f̵a̵l̵s̵e̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲_̲o̲f̲_̲e̲q̲_̲f̲a̲l̲s̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:554:8: `ite_cond_eq_true` has been deprecated: Use `ite_eq_left_of_eq_true` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵t̵r̵u̵e̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲_̲o̲f̲_̲e̲q̲_̲t̲r̲u̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:555:6: `ite_cond_eq_false` has been deprecated: Use `ite_eq_right_of_eq_false` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵f̵a̵l̵s̵e̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲_̲o̲f̲_̲e̲q̲_̲f̲a̲l̲s̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:557:8: `ite_cond_eq_true` has been deprecated: Use `ite_eq_left_of_eq_true` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵t̵r̵u̵e̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲_̲o̲f̲_̲e̲q̲_̲t̲r̲u̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:558:6: `ite_cond_eq_false` has been deprecated: Use `ite_eq_right_of_eq_false` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵f̵a̵l̵s̵e̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲_̲o̲f̲_̲e̲q̲_̲f̲a̲l̲s̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:560:8: `ite_cond_eq_true` has been deprecated: Use `ite_eq_left_of_eq_true` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵t̵r̵u̵e̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲_̲o̲f̲_̲e̲q̲_̲t̲r̲u̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:561:6: `ite_cond_eq_false` has been deprecated: Use `ite_eq_right_of_eq_false` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵f̵a̵l̵s̵e̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲_̲o̲f̲_̲e̲q̲_̲f̲a̲l̲s̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:563:8: `ite_cond_eq_true` has been deprecated: Use `ite_eq_left_of_eq_true` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵t̵r̵u̵e̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲_̲o̲f̲_̲e̲q̲_̲t̲r̲u̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:564:6: `ite_cond_eq_false` has been deprecated: Use `ite_eq_right_of_eq_false` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵f̵a̵l̵s̵e̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲_̲o̲f̲_̲e̲q̲_̲f̲a̲l̲s̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:566:8: `ite_cond_eq_true` has been deprecated: Use `ite_eq_left_of_eq_true` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵t̵r̵u̵e̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲_̲o̲f̲_̲e̲q̲_̲t̲r̲u̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:567:6: `ite_cond_eq_false` has been deprecated: Use `ite_eq_right_of_eq_false` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵f̵a̵l̵s̵e̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲_̲o̲f̲_̲e̲q̲_̲f̲a̲l̲s̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:569:8: `ite_cond_eq_true` has been deprecated: Use `ite_eq_left_of_eq_true` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵t̵r̵u̵e̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲_̲o̲f̲_̲e̲q̲_̲t̲r̲u̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:576:6: `ite_cond_eq_false` has been deprecated: Use `ite_eq_right_of_eq_false` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵f̵a̵l̵s̵e̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲_̲o̲f̲_̲e̲q̲_̲f̲a̲l̲s̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:578:8: `ite_cond_eq_true` has been deprecated: Use `ite_eq_left_of_eq_true` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵t̵r̵u̵e̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲_̲o̲f̲_̲e̲q̲_̲t̲r̲u̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:579:6: `ite_cond_eq_false` has been deprecated: Use `ite_eq_right_of_eq_false` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵f̵a̵l̵s̵e̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲_̲o̲f̲_̲e̲q̲_̲f̲a̲l̲s̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:581:8: `ite_cond_eq_true` has been deprecated: Use `ite_eq_left_of_eq_true` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵t̵r̵u̵e̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲_̲o̲f̲_̲e̲q̲_̲t̲r̲u̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:582:6: `ite_cond_eq_false` has been deprecated: Use `ite_eq_right_of_eq_false` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵f̵a̵l̵s̵e̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲_̲o̲f̲_̲e̲q̲_̲f̲a̲l̲s̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:584:8: `ite_cond_eq_true` has been deprecated: Use `ite_eq_left_of_eq_true` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵t̵r̵u̵e̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲_̲o̲f̲_̲e̲q̲_̲t̲r̲u̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:585:6: `ite_cond_eq_false` has been deprecated: Use `ite_eq_right_of_eq_false` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵f̵a̵l̵s̵e̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲_̲o̲f̲_̲e̲q̲_̲f̲a̲l̲s̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:587:8: `ite_cond_eq_true` has been deprecated: Use `ite_eq_left_of_eq_true` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵t̵r̵u̵e̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲_̲o̲f̲_̲e̲q̲_̲t̲r̲u̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:588:6: `ite_cond_eq_false` has been deprecated: Use `ite_eq_right_of_eq_false` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵f̵a̵l̵s̵e̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲_̲o̲f̲_̲e̲q̲_̲f̲a̲l̲s̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:590:8: `ite_cond_eq_true` has been deprecated: Use `ite_eq_left_of_eq_true` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵t̵r̵u̵e̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲_̲o̲f̲_̲e̲q̲_̲t̲r̲u̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:604:6: `ite_cond_eq_false` has been deprecated: Use `ite_eq_right_of_eq_false` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵f̵a̵l̵s̵e̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲_̲o̲f̲_̲e̲q̲_̲f̲a̲l̲s̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:694:8: `ite_cond_eq_false` has been deprecated: Use `ite_eq_right_of_eq_false` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵f̵a̵l̵s̵e̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲_̲o̲f̲_̲e̲q̲_̲f̲a̲l̲s̲e̲
+warning: Verify/Lifecycle/CreationFrame.lean:704:8: `ite_cond_eq_false` has been deprecated: Use `ite_eq_right_of_eq_false` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵f̵a̵l̵s̵e̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲_̲o̲f̲_̲e̲q̲_̲f̲a̲l̲s̲e̲
+⚠ [2528/2536] Replayed SolidCore.Refinement.Dirty.Source
+warning: SolidCore/Refinement/Dirty/Source.lean:193:38: This simp argument is unused:
+  pure
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [ABI.decodeValueAt?, ABI.Ty.abiDecodeFuel, ABI.decodeValueAtWithFuel?, hr, ABI.abiArgOpt, bind,
+    Except.bind, Except.pure, wordValue]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Dirty/Source.lean:193:44: This simp argument is unused:
+  Except.pure
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [ABI.decodeValueAt?, ABI.Ty.abiDecodeFuel, ABI.decodeValueAtWithFuel?, hr, ABI.abiArgOpt, bind,
+    Except.bind, pure, wordValue]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Dirty/Source.lean:191:45: Unused tactic linter: `skip` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Refinement/Dirty/Source.lean:194:28: Unused tactic linter: `rfl` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Refinement/Dirty/Source.lean:194:42: Unused tactic linter: `(split <;> simp)` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Refinement/Dirty/Source.lean:194:42: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Refinement/Dirty/Source.lean:259:40: This simp argument is unused:
+  pure
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [ABI.decodeValueAt?, ABI.Ty.abiDecodeFuel, ABI.decodeValueAtWithFuel?, hr, ABI.abiArgOpt, bind,
+    Except.bind, Except.pure]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Dirty/Source.lean:259:46: This simp argument is unused:
+  Except.pure
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [ABI.decodeValueAt?, ABI.Ty.abiDecodeFuel, ABI.decodeValueAtWithFuel?, hr, ABI.abiArgOpt, bind,
+    Except.bind, pure]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Dirty/Source.lean:205:45: Unused tactic linter: `skip` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Refinement/Dirty/Source.lean:302:6: This simp argument is unused:
+  pure
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [List.zip_cons_cons, ABI.decodeArgsAux?, hw, ABI.abiArgOpt, bind, Except.bind, Except.pure]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Dirty/Source.lean:302:12: This simp argument is unused:
+  Except.pure
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [List.zip_cons_cons, ABI.decodeArgsAux?, hw, ABI.abiArgOpt, bind, Except.bind, pure]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+⚠ [2529/2536] Replayed SolidCore.Refinement.Wide.Source
+warning: SolidCore/Refinement/Wide/Source.lean:128:8: `if_pos` has been deprecated: Use `ite_eq_left` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵p̵o̵s̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲
+warning: SolidCore/Refinement/Wide/Source.lean:128:45: `if_pos` has been deprecated: Use `ite_eq_left` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵p̵o̵s̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲
+warning: SolidCore/Refinement/Wide/Source.lean:129:8: `if_neg` has been deprecated: Use `ite_eq_right` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵n̵e̵g̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲
+warning: SolidCore/Refinement/Wide/Source.lean:129:57: `if_neg` has been deprecated: Use `ite_eq_right` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵n̵e̵g̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲
+✖ [2536/2536] Building CounterRun.LifecycleBad (26s)
+trace: .> LEAN_PATH=/home/ubuntu/sl/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/sl/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/sl/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/sl/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/sl/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/sl/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/sl/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/sl/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/sl/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/sl/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/sl/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/sl/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/sl/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/sl/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/sl/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/sl/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/sl/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean /home/ubuntu/sl/Certified/CounterRun/LifecycleBad.lean -o /home/ubuntu/sl/.lake/build/lib/lean/CounterRun/LifecycleBad.olean -i /home/ubuntu/sl/.lake/build/lib/lean/CounterRun/LifecycleBad.ilean -c /home/ubuntu/sl/.lake/build/ir/CounterRun/LifecycleBad.c --setup /home/ubuntu/sl/.lake/build/ir/CounterRun/LifecycleBad.setup.json --json
+error: Certified/CounterRun/LifecycleBad.lean:96:0: (kernel) declaration type mismatch, 'Certified.CounterRun.LifecycleBad.checkB_eq' has type
+  true = true
+but it is expected to have type
+  checkB = true
+error: Certified/CounterRun/LifecycleBad.lean:108:0: (kernel) application type mismatch
+  Eq.trans kernel.using_selector_eq_mkIdx_eq.Certified.CounterRun.LifecycleBad.life?.kclone.eq (Eq.refl true)
+argument has type
+  true = true
+but function has type
+  kernel.using_selector_eq_mkIdx_eq.Certified.CounterRun.LifecycleBad.life?.kclone = true → life? = true
+info: Certified/CounterRun/LifecycleBad.lean:121:0: 'Certified.CounterRun.LifecycleBad.statement' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound,
+ checkB_eq,
+ life_eq]
+error: Certified/CounterRun/LifecycleBad.lean:120:0: ❌️ Docstring on `#guard_msgs` does not match generated message:
+
+- info: 'Certified.CounterRun.LifecycleBad.statement' depends on axioms: [propext, Classical.choice, Quot.sound]
++ info: 'Certified.CounterRun.LifecycleBad.statement' depends on axioms: [propext,
++  Classical.choice,
++  Quot.sound,
++  checkB_eq,
++  life_eq]
+Some required targets logged failures:
+- CounterRun.LifecycleBad
+error: build failed

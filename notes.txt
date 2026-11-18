@@ -1,0 +1,26 @@
+notes.txt: box-v5 run on pyramid-prd-t4v5-f702 (m4-metal-small FRA, 12c/46 GB)
+created_at 2026-11-18T09:10:15.761Z. Failed creates before it (SERVERS_OUT_OF_STOCK, no server, deleted):
+pyramid-prd-t4v4-f506 (m4-metal-large FRA), pyramid-prd-t4v5-f701 (m4-metal-large FRA2).
+
+1. Admission cut: enforced by the orchestrator scripts/run-all.sh (sha256 0e21961f660801da869ed0083b1bfe808a6116f71996c989c10a7d107c30572c),
+   which starts no step at or after created_at + 1h30 = 2026-11-18T10:40:15Z (CUT=$(date -d 2026-11-18T10:40:15Z +%s));
+   box-v5.sh (589e333c) is unchanged and its own 1h50-from-step-0 gate also applied. All steps ended by 09:45:59Z; none was cut.
+
+2. Orchestrator defect (recording only): run-all.sh writes "$?" in a printf whose other argument is $(date ...),
+   so the EXIT column of orchestrator.tsv is the command substitution's status (0), not the step's.
+   The steps' real outcomes are in their own receipts:
+   - 6c: exit 14 (composed.json stage "SourceSame" is not null, so the step's last line exits 14).
+     composed.json's "step_exit": 0 is the status the verdict writer saw when called explicitly, not the step exit.
+   - 7, 8: exit 14 ("Composed not built (step 6c)", their composed.json).
+   - 1, 2, 4 CounterRun.Lifecycle: exit 0 (producer.json; control.json refused true; fresh-CounterRun.Lifecycle.json exit 0).
+   - 0: exit 0 (step.log complete).
+
+3. 6c stage: the generic driver (solar 5b1f1ad6, bin 29b28326) BLOCKED at the lifecycle binding: building
+   counter_f1c87a33.SourceSame failed with "Lean exited with code 134"; its imports are counter_f1c87a33.Source (built)
+   and Contracts.VerifyCounter.Source (no olean in genwork/solidity-lean/.lake/build: that module is the one that died).
+   The driver keeps only lines containing "error", so the memory_exception text is not in this run's record;
+   scope generic-lifecycle peak 7,609,356,288 B of 42,949,672,960, memory.events max 0 oom 0 oom_kill 0.
+   Contracts.VerifyCounter.Source stays OPEN; it was not rerun.
+
+4. The lifecycle tier at 5b1f1ad6 records the runtime loop (line 26) OPEN: its fixed-fuel resource obligation and
+   loop proofs are not discharged by this run.

@@ -1,0 +1,10 @@
+== generic: /home/ubuntu/Counter.sol (f1c87a334b8db31fc8f80541febeaf8617318d20b685634f44e26c74146ad326) as counter_f1c87a33, requested tier lifecycle
+lifecycle: runtime loops OPEN (not this tier's statement): ['line 26']
+envelope (source): inside; functions bump(uint256), count(), increment(), limit(), max(uint256,uint256)
+== generic: build solar
+lifecycle: init code 307 bytes, 1 argument word(s), immutables none
+lifecycle source: ok: SolidCore's type checker accepts the source
+lifecycle initcode: ok: EthLib runs the init code with the encoded arguments to success
+lifecycle runtime bytes: ok: the returned runtime bytes are solar's bin-runtime
+lifecycle storage: ok: SolidCore's constructor and EthLib's run leave the same 1 slot(s) (compared on SolidCore's slots)
+BLOCKED: lifecycle binding (1x, first this run's source unit is not the expected theorem's (SolidCore.Refinement.Source.VerifyCounter.importedSourceUnit): error: Lean exited with code 134 | error: build failed)
