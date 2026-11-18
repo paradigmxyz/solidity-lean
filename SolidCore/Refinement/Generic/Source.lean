@@ -257,6 +257,12 @@ def eraseExpr (fields : List StorageField) (S : SymState) : Expr → Option (Lis
       let k ← boolMapOf? fields x
       let (gs, v) ← eraseExpr fields S idx
       some (gs, boolOfWord (S.writes.read (.hash v (.lit k))))
+  | .storageRead .load x [idx] => do
+    -- The public getter of a word mapping, `storagePath x [idx]` (see
+    -- `StateVarDecl.publicGetterBodyExpr`): the same slot word as `.element`.
+    let k ← mapOf? fields x
+    let (gs, v) ← eraseExpr fields S idx
+    some (gs, S.writes.read (.hash v (.lit k)))
   | .index (.storageRead .element x [i1]) i2 => do
     let k ← map2Of? fields x
     let (g1, v1) ← eraseExpr fields S i1
@@ -794,6 +800,37 @@ theorem loadIndex_map {ρ : Val} {fields : List StorageField} {ctx : Context} {r
     State.loadStorageLayoutAt, State.loadStorageLayoutAtFuel, loadStorageWordAs,
     Ty.storageValueFromWord?, mappingStorageSlot_eq, hsl, pure, Except.pure, StorageLayout.depth]
 
+/-- A word mapping's entry at a key word reads the same through SolidCore's storage path
+(`loadStoragePath`, which `.storageRead .load` evaluates) as through its index read
+(`loadStorageIndex`, which `.storageRead .element` evaluates): both read the slot
+`hash key slot` at the value layout `uint256`. -/
+theorem loadPath_eq_loadIndex {ctx : Context} {rt : Runtime} {x : String} {f : StorageField}
+    (hf : MapOk ctx x f) {w : Nat} (hw : w < wordSize) :
+    rt.loadStoragePath ctx x [.word w] = rt.loadStorageIndex ctx x (.word w) := by
+  rcases hf.layout with hl | hl
+  · have ha : (Ty.address = .address ∨ Ty.address = .uint256) := .inl rfl
+    simp only [Runtime.loadStoragePath, Runtime.loadStorageBasePath, Runtime.resolveStorageBasePath,
+      Runtime.storageBaseAnchor, hf.find, hl, hf.transient, Bool.false_and, Bool.false_eq_true,
+      ↓reduceIte, bind, Except.bind, pure, Except.pure]
+    rw [resolve_step _ _ ha _ _ hw, State.resolveStoragePathSlot.eq_1]
+    simp only [Runtime.loadStorageIndex, hf.find, hl, slot_key _ ha hw, bind, Except.bind]
+  · have ha : (Ty.uint256 = .address ∨ Ty.uint256 = .uint256) := .inr rfl
+    simp only [Runtime.loadStoragePath, Runtime.loadStorageBasePath, Runtime.resolveStorageBasePath,
+      Runtime.storageBaseAnchor, hf.find, hl, hf.transient, Bool.false_and, Bool.false_eq_true,
+      ↓reduceIte, bind, Except.bind, pure, Except.pure]
+    rw [resolve_step _ _ ha _ _ hw, State.resolveStoragePathSlot.eq_1]
+    simp only [Runtime.loadStorageIndex, hf.find, hl, slot_key _ ha hw, bind, Except.bind]
+
+/-- SolidCore reads a word mapping's public-getter path at a key word as the writes' read of the
+slot word `hash key slot`. -/
+theorem loadPath_map {ρ : Val} {fields : List StorageField} {ctx : Context} {rt : Runtime}
+    {S : SymState} (hrel : ExprRel ρ fields ctx rt S) {x : String} {k : Nat}
+    (hk : mapOf? fields x = some k) {w : Nat} (hw : w < wordSize) :
+    rt.loadStoragePath ctx x [.word w] =
+      .ok (.word (Writes.store ρ S.writes (solHash w k % wordSize))) := by
+  obtain ⟨f, hf, rfl⟩ := mapOf?_spec hrel.fields hk
+  rw [loadPath_eq_loadIndex hf hw, loadIndex_map hrel hk hw]
+
 /-- What the fragment knows of a mapping to `bool` it reads and writes. -/
 structure BoolMapOk (ctx : Context) (x : String) (f : StorageField) : Prop where
   find : ctx.storageField? x = some f
@@ -1235,6 +1272,32 @@ theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
             rw [loadIndex_boolMap hrel hk' (v0.eval_lt ρ), boolOfWord_eval, Writes.eval_read hrel.ok]
             simp only [WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf.slot]
             rfl
+    case load =>
+      match idx, h with
+      | [i], h =>
+        simp only [eraseExpr, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq,
+          Prod.mk.injEq] at h
+        obtain ⟨k, hk, ⟨gs0, v0⟩, hi, rfl, rfl⟩ := h
+        obtain ⟨m, rfl⟩ : ∃ m, n = m + 1 + 1 :=
+          ⟨n - 2, by simp [Expr.orderFuel, Expr.listEvalFuel] at hf; omega⟩
+        have ih := eval_erase ρ fields ctx rt S hrel i gs0 v0 (m + 1) hi
+          (by simp [Expr.orderFuel, Expr.listEvalFuel] at hf; omega)
+        rw [Expr.evalFuel.eq_def]
+        simp only
+        rw [Expr.evalListFuel.eq_def]
+        simp only
+        rw [ih, bind_exprResult]
+        unfold exprResult
+        split
+        · rfl
+        · rw [Expr.evalListFuel.eq_def]
+          obtain ⟨f, hf, rfl⟩ := mapOf?_spec hrel.fields hk
+          simp only [bind, EvmCompiler.Simulation.Interaction.bind, liftM, monadLift,
+            MonadLift.monadLift, SolI.ofExcept, pure, EvmCompiler.Simulation.Interaction.pure,
+            List.isEmpty_cons, Bool.false_and, Bool.false_eq_true, ↓reduceIte,
+            loadPath_map hrel hk (v0.eval_lt ρ)]
+          rw [Writes.eval_read hrel.ok]
+          simp only [WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf.slot]
     all_goals
       cases idx <;> simp only [eraseExpr] at h
     all_goals first
