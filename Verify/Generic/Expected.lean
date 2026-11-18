@@ -9,14 +9,25 @@ Every supported contract is certified against the same statement, `Generic.Expec
 bytes`, whatever the contract: no shape is chosen by the contract's name and no fixture is
 selected. Its three parameters are the only per-contract inputs:
 
-* `src : Source`: SolidCore's type check of solc's AST of the source unit
+* `src : Source ws`: SolidCore's type check of solc's AST of the source unit
   (`scripts/solc_ast_to_lean_source.py`'s `importedSourceUnit`) and the contract's name, at a
-  fuel. This independent source semantics is the source of truth; solar's HIR or MIR appears only
-  inside proofs, as a stage checked against it.
+  fuel, deployed with the constructor argument words `ws` (`Source.ctorArgs`, by default `[]`:
+  `Source` alone is `Source []`). This independent source semantics is the source of truth;
+  solar's HIR or MIR appears only inside proofs, as a stage checked against it.
 * `spec : Spec`: the coverage (which contexts, which entrypoints), the valid calls, allowed
   statuses, postcondition and gas bound, each a function of the context, and the named
   assumptions the statement is conditional on.
 * `bytes : List Nat`: the exact runtime bytes the driver's own solar emitted in this run.
+
+## Constructor arguments
+
+The argument words are part of the source's type, so they are an input of the statement, not a
+witness inside it: `src.semAt ctx` runs every call against the contract that SolidCore's
+constructor leaves on exactly `src.ctorArgs` (`solidCoreFromArgs`, the Lifecycle tier's
+constructor call). With `[]` it is `solidCoreFrom`, by `rfl` (`Source.semAt_nil`), so every
+existing statement keeps its meaning. The deployment frame (sender `selfAddress`, no value) is
+not the call's: a `Context` is the runtime frame only. That the words are the ones the creation
+code carries is `Source.CreatedBy` (SolidCore/Refinement/Generic/Statement.lean).
 
 ## One parametric context
 
@@ -61,14 +72,23 @@ open SolidCore.Refinement SolidCore.Refinement.Shapes SolidCore.Solidity
 
 /-! ## Source, context, specification -/
 
-/-- **The source**: solc's AST of the source unit, the contract's name and SolidCore's fuel. -/
-structure Source where
+/-- **The source**: solc's AST of the source unit, the contract's name and SolidCore's fuel, for a
+deployment with the constructor argument words `ctorArgs` (by default none). -/
+structure Source (ctorArgs : List Nat := []) where
   unit : SourceUnit
   contract : String
   fuel : Nat
 
+/-- The constructor argument words of the source's deployment. -/
+def Source.ctorArgs {ws : List Nat} (_ : Source ws) : List Nat := ws
+
+/-- The same source unit, contract and fuel, deployed with the argument words `ws`. -/
+def Source.withArgs {ws₀ : List Nat} (src : Source ws₀) (ws : List Nat) : Source ws :=
+  ⟨src.unit, src.contract, src.fuel⟩
+
 /-- SolidCore's checked contract of the source: the type checker over solc's AST. -/
-def Source.checked (src : Source) : Except TypeCheck.TypeError TypeCheck.CheckedContract :=
+def Source.checked {ws : List Nat} (src : Source ws) :
+    Except TypeCheck.TypeError TypeCheck.CheckedContract :=
   TypeCheck.CheckedInput.contract src.unit src.contract
 
 /-- **The frame of a call**: its caller. The contract's address, the block and the transaction
@@ -86,8 +106,20 @@ def Context.default : Context := ⟨callerAddress⟩
 theorem Context.default_ok : Context.default.Ok := by
   unfold Context.Ok Context.default callerAddress selfAddress; decide
 
-/-- SolidCore at the source's fuel, on calls sent in `ctx`. -/
-abbrev Source.semAt (src : Source) (ctx : Context) : Sem := solidCoreFrom ctx.caller src.fuel
+/-- SolidCore at the source's fuel, on calls sent in `ctx` to the contract deployed with the
+source's argument words. -/
+abbrev Source.semAt {ws : List Nat} (src : Source ws) (ctx : Context) : Sem :=
+  solidCoreFromArgs ctx.caller src.fuel ws
+
+/-- With no argument words, `semAt` is `solidCoreFrom`: the same statement as before arguments. -/
+theorem Source.semAt_nil (src : Source) (ctx : Context) :
+    src.semAt ctx = solidCoreFrom ctx.caller src.fuel :=
+  rfl
+
+/-- Changing only the argument words changes only the deployment. -/
+theorem Source.semAt_withArgs {ws₀ : List Nat} (src : Source ws₀) (ws : List Nat) (ctx : Context) :
+    (src.withArgs ws).semAt ctx = solidCoreFromArgs ctx.caller src.fuel ws :=
+  rfl
 
 /-- EthLib's run of the bytes in `ctx` with `gas` gas. -/
 def runAt (ctx : Context) (gas : Nat) (code : ByteArray) (call : Call) : Option Observable :=
@@ -160,7 +192,7 @@ def runtimeCode (bytes : List Nat) : ByteArray := ⟨(bytes.map UInt8.ofNat).toA
 /-! ## The expected theorem -/
 
 /-- **The expected theorem**, the same for every supported contract. -/
-def Expected (src : Source) (spec : Spec) (bytes : List Nat) : Prop :=
+def Expected {ws : List Nat} (src : Source ws) (spec : Spec) (bytes : List Nat) : Prop :=
   bytes.all (· < 256) = true ∧ spec.Covered ∧
     (spec.Assumed → ∀ ctx, spec.Contexts ctx → ∃ c, src.checked = .ok c ∧
       CertifiedAt (src.semAt ctx) c ctx (runtimeCode bytes) (spec.Valid ctx) (spec.Allowed ctx)
@@ -203,7 +235,7 @@ theorem CertifiedAt.terminates {S : Sem} {p : S.Prog} {ctx : Context} {code : By
 
 /-- **Total correctness of the exact bytes in a covered context**, from the gas bound on: the
 bytes' observable is the source's, allowed and meeting the specification. -/
-theorem Expected.bytecode_total {src : Source} {spec : Spec} {bytes : List Nat}
+theorem Expected.bytecode_total {ws : List Nat} {src : Source ws} {spec : Spec} {bytes : List Nat}
     (h : Expected src spec bytes) (ha : spec.Assumed) {ctx : Context} (hctx : spec.Contexts ctx)
     (call : Call) (hc : spec.Valid ctx call) :
     spec.gas ctx call < 2 ^ 64 ∧ ∀ gas, spec.gas ctx call ≤ gas → gas < 2 ^ 256 → ∃ obs,
@@ -217,7 +249,7 @@ theorem Expected.bytecode_total {src : Source} {spec : Spec} {bytes : List Nat}
 
 /-- **Partial correctness of the exact bytes at every gas in a covered context**: an allowed
 result meeting the specification, or a failure that changes nothing. -/
-theorem Expected.bytecode_any {src : Source} {spec : Spec} {bytes : List Nat}
+theorem Expected.bytecode_any {ws : List Nat} {src : Source ws} {spec : Spec} {bytes : List Nat}
     (h : Expected src spec bytes) (ha : spec.Assumed) {ctx : Context} (hctx : spec.Contexts ctx)
     (gas : Nat) (hg : gas < 2 ^ 256) (call : Call) (hc : spec.Valid ctx call) (obs : Observable)
     (hrun : runAt ctx gas (runtimeCode bytes) call = some obs) :
@@ -231,21 +263,21 @@ theorem Expected.bytecode_any {src : Source} {spec : Spec} {bytes : List Nat}
 
 /-! ## Negative controls: no expected theorem is free -/
 
-theorem not_expected_of_vacuous_post {src : Source} {spec : Spec} {bytes : List Nat}
+theorem not_expected_of_vacuous_post {ws : List Nat} {src : Source ws} {spec : Spec} {bytes : List Nat}
     (h : ∀ ctx call obs, spec.Valid ctx call → spec.Post ctx call obs) :
     ¬ Expected src spec bytes :=
   fun ⟨_, ⟨_, _, _, ⟨ctx, call, obs, _, hv, hn⟩, _⟩, _⟩ => hn (h ctx call obs hv)
 
-theorem not_expected_of_vacuous_allowed {src : Source} {spec : Spec} {bytes : List Nat}
+theorem not_expected_of_vacuous_allowed {ws : List Nat} {src : Source ws} {spec : Spec} {bytes : List Nat}
     (h : ∀ ctx call obs, spec.Valid ctx call → spec.Allowed ctx call obs) :
     ¬ Expected src spec bytes :=
   fun ⟨_, ⟨_, _, _, _, ⟨ctx, call, obs, _, hv, _, hn⟩⟩, _⟩ => hn (h ctx call obs hv)
 
-theorem not_expected_of_uncovered {src : Source} {spec : Spec} {bytes : List Nat}
+theorem not_expected_of_uncovered {ws : List Nat} {src : Source ws} {spec : Spec} {bytes : List Nat}
     (h : ∀ ctx, ¬ spec.Contexts ctx) : ¬ Expected src spec bytes :=
   fun ⟨_, ⟨⟨ctx, hc⟩, _⟩, _⟩ => h ctx hc
 
-theorem not_expected_of_dead_entry {src : Source} {spec : Spec} {bytes : List Nat}
+theorem not_expected_of_dead_entry {ws : List Nat} {src : Source ws} {spec : Spec} {bytes : List Nat}
     {ctx : Context} (hctx : spec.Contexts ctx) {e : String × (Context → Call → Prop)}
     (he : e ∈ spec.entries) (hdead : ∀ call, spec.Valid ctx call → ¬ e.2 ctx call) :
     ¬ Expected src spec bytes :=
@@ -253,7 +285,7 @@ theorem not_expected_of_dead_entry {src : Source} {spec : Spec} {bytes : List Na
     obtain ⟨call, hv, he'⟩ := hent ctx hctx e he
     exact hdead call hv he'
 
-theorem not_expected_of_check_error {src : Source} {spec : Spec} {bytes : List Nat}
+theorem not_expected_of_check_error {ws : List Nat} {src : Source ws} {spec : Spec} {bytes : List Nat}
     {e : TypeCheck.TypeError} (ha : spec.Assumed) {ctx : Context} (hctx : spec.Contexts ctx)
     (h : src.checked = .error e) : ¬ Expected src spec bytes :=
   fun ⟨_, _, hx⟩ => by

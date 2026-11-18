@@ -50,6 +50,56 @@ def runFrom (caller : Nat) (fuel : Nat) (contract : TypeCheck.CheckedContract) (
 theorem runFrom_callerAddress (fuel : Nat) (contract : TypeCheck.CheckedContract) (call : Call) :
     runFrom callerAddress fuel contract call = run fuel contract call := rfl
 
+/-! ### Construction with argument words -/
+
+/-- The deployment of `contract` with the static argument words `ws`: the Lifecycle tier's
+constructor call (`Verify.Lifecycle.DeployedAtWith` and `deployedAtWith` make exactly this call
+on `Verify.Lifecycle.wordArgs ws`, `SolidCore.Refinement.Generic.Statement`): the constructor
+in `Wide.ctxOf contract` from the empty state, sent by `selfAddress` with no value, on the
+argument values `ws.map Value.word`. Its frame is the deployment's alone: it has no runtime
+caller and no call, so a call's sender and value never reach it. -/
+def deployArgs? (fuel : Nat) (ws : List Nat) (contract : TypeCheck.CheckedContract) :
+    Option TypeCheck.CoreCallResult :=
+  TypeCheck.CheckedContract.constructWithContext? fuel contract (Wide.ctxOf contract)
+    State.empty selfAddress 0 (ws.map Value.word)
+
+/-- SolidCore's result for `call` sent by `caller`, against `contract` deployed with the
+argument words `ws` (`deployArgs?`): as `resultFrom?`, the deployed storage overwritten entry
+by entry with the call's, then the ABI dispatcher from `caller` with the call's value. The
+runtime context (`caller`, `call.callvalue`) and the deployment's (`selfAddress`, no value) are
+separate arguments. With no words this is `resultFrom?` (`resultFromArgs?_nil`). -/
+def resultFromArgs? (caller : Nat) (fuel : Nat) (ws : List Nat)
+    (contract : TypeCheck.CheckedContract) (call : Call) :
+    Option TypeCheck.CoreAbiCallResult :=
+  let base := contract.core.context
+  let context :=
+    { base with sender := callerAddress, self := selfAddress, value := call.callvalue }
+  match deployArgs? fuel ws contract with
+  | some (CallResult.returned deployed _) =>
+    let storage := call.storage.foldl
+      (fun acc kv => StorageMap.insertLoop acc kv.1 kv.2) deployed.storage
+    TypeCheck.CheckedContract.callCalldataAtFromWithContext? fuel contract context
+      { deployed with storage := storage } selfAddress caller call.callvalue
+      (call.calldata.data.toList.map (·.toNat))
+  | _ => none
+
+/-- With no argument words, `resultFromArgs?` is `resultFrom?`: the constructor overrides the
+sender and value of the context it is given, so `resultFrom?`'s context and `Wide.ctxOf` give the
+same constructor frame. -/
+theorem resultFromArgs?_nil (caller fuel : Nat) (contract : TypeCheck.CheckedContract)
+    (call : Call) :
+    resultFromArgs? caller fuel [] contract call = resultFrom? caller fuel contract call :=
+  rfl
+
+/-- Run `call`, sent by `caller`, against `contract` deployed with the argument words `ws`. -/
+def runFromArgs (caller : Nat) (fuel : Nat) (ws : List Nat) (contract : TypeCheck.CheckedContract)
+    (call : Call) : Option Observable :=
+  (resultFromArgs? caller fuel ws contract call).map (observe call)
+
+/-- With no argument words, `runFromArgs` is `runFrom`. -/
+theorem runFromArgs_nil (caller fuel : Nat) : runFromArgs caller fuel [] = runFrom caller fuel :=
+  rfl
+
 end Source
 
 /-- SolidCore with fixed fuel, on calls sent by `caller`. -/
@@ -58,6 +108,16 @@ def solidCoreFrom (caller fuel : Nat) : Sem :=
 
 /-- From `callerAddress`, `solidCoreFrom` is `solidCore`. -/
 theorem solidCoreFrom_callerAddress (fuel : Nat) : solidCoreFrom callerAddress fuel = solidCore fuel := rfl
+
+/-- SolidCore with fixed fuel, on calls sent by `caller` to the contract deployed with the
+argument words `ws`. -/
+def solidCoreFromArgs (caller fuel : Nat) (ws : List Nat) : Sem :=
+  { Prog := SolidCore.Solidity.TypeCheck.CheckedContract, run := Source.runFromArgs caller fuel ws }
+
+/-- With no argument words, `solidCoreFromArgs` is `solidCoreFrom`. -/
+theorem solidCoreFromArgs_nil (caller fuel : Nat) :
+    solidCoreFromArgs caller fuel [] = solidCoreFrom caller fuel :=
+  rfl
 
 namespace Generic
 

@@ -222,4 +222,39 @@ theorem runtime_run_clean {fuel : Nat} {c : TypeCheck.CheckedContract} {σ : Lis
 #guard_msgs in
 #print axioms runtime_run_clean
 
+
+/-! ## The runtime code from any caller -/
+
+/-- `runtimeResult?` with the call sent by `caller`: the same dispatcher, context and state, with
+`caller` as the call's sender. `runtimeResult?` is its default instance
+(`runtimeResult?_eq_from`). -/
+def runtimeResultFrom? (caller fuel : Nat) (c : TypeCheck.CheckedContract) (call : Call) :
+    Option TypeCheck.CoreAbiCallResult :=
+  ABI.Contract.callCalldataAtFromWithContext? fuel c.core
+    { c.core.context with sender := callerAddress, self := selfAddress, value := call.callvalue }
+    { State.empty with
+      storage := call.storage.foldl (fun acc kv => StorageMap.insertLoop acc kv.1 kv.2)
+        State.empty.storage }
+    selfAddress caller call.callvalue (call.calldata.data.toList.map (·.toNat))
+
+/-- SolidCore on the runtime code alone from `caller`, observed as `Source.run` observes. -/
+def runtimeRunFrom (caller fuel : Nat) (c : TypeCheck.CheckedContract) (call : Call) :
+    Option Observable :=
+  (runtimeResultFrom? caller fuel c call).map (Source.observe call)
+
+/-- **SolidCore's runtime code from `caller`**, with statement fuel `fuel`. -/
+def solidCoreRuntimeFrom (caller fuel : Nat) : Sem :=
+  { Prog := TypeCheck.CheckedContract, run := runtimeRunFrom caller fuel }
+
+theorem runtimeResult?_eq_from (fuel : Nat) :
+    runtimeResult? fuel = runtimeResultFrom? callerAddress fuel :=
+  rfl
+
+theorem runtimeRun_eq_from (fuel : Nat) : runtimeRun fuel = runtimeRunFrom callerAddress fuel :=
+  rfl
+
+theorem solidCoreRuntime_eq_from (fuel : Nat) :
+    solidCoreRuntime fuel = solidCoreRuntimeFrom callerAddress fuel :=
+  rfl
+
 end SolidCore.Refinement.Generic.Loop
