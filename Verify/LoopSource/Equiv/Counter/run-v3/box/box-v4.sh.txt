@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+# T4 box session: Counter Resources + Lifecycle, producer built from the freeze head, --fresh replay.
+# Usage: box-v4.sh STEP   (STEP = 0 setup | 1 producer | 2 lifecycle | 3 resources | 4 fresh | 5 audit)
+# Each step writes /home/ubuntu/rcpt/<step>/ and exits nonzero on any failure. The operator copies
+# /home/ubuntu/rcpt off the box (copy_files) after every step, before starting the next.
+set -euo pipefail
+SOLAR_HEAD=${SOLAR_HEAD:-92c59b665bbd7ce17b39dd2317e5e66379408528}  # freeze head (or 41f30a4a4f64d4f28849332aef30d26487144e2e)
+LEAN_REV=96f869131d96c88af941a765b03b005e23424e3f                    # alpharush/t4-loop-equiv-v4
+LEAN_PIN=334d1d924f8f6c29ac827fd81d1cc739721b479a                    # tools/certify/solidity-lean.rev at the head
+EXPECT_RT=509845d3b18cf635ec7ee9b1a9d225cfeec995099a9f5e0d55f27ae6559f411d
+EXPECT_STAGE0=0c544806b2b5013d2c38ce859b167d03e3c19162b53b2ab8f5319b3d55bd3003
+MEM_MAX=${MEM_MAX:-48G}
+W=/home/ubuntu; R=$W/rcpt/$1; mkdir -p "$R"
+export PATH=$HOME/.elan/bin:$HOME/.cargo/bin:$HOME/.local/bin:$PATH LEAN_NUM_THREADS=${LEAN_NUM_THREADS:-4}
+exec > >(tee -a "$R/step.log") 2>&1
+
+# Hatch variables must be unset in every step.
+for v in CERTIFY_ALLOW_UNPINNED CERTIFY_REPLAY_TRUST_UPSTREAM CERTIFY_SKIP_BUILD CERTIFY_ALLOW_FOREIGN_SOLAR; do
+  if [ -n "${!v+x}" ]; then echo "HATCH $v is set: refusing"; exit 3; fi
+done
+echo '{"hatch_unset":["CERTIFY_ALLOW_UNPINNED","CERTIFY_REPLAY_TRUST_UPSTREAM","CERTIFY_SKIP_BUILD","CERTIFY_ALLOW_FOREIGN_SOLAR"]}' > "$R/hatch.json"
+
+# scoped TAG CMD...: run CMD in its own transient cgroup scope (MemoryMax=$MEM_MAX). Inside the
+# scope, after CMD returns, read that scope's memory.max, memory.peak and memory.events and write
+# TAG.json with the exit code and wall time; CMD's output goes to TAG.out.
+scoped() {
+  local tag=$1; shift
+  set +e
+  sudo systemd-run --scope --quiet -p MemoryMax=$MEM_MAX --uid="$(id -u)" --gid="$(id -g)" \
+    env PATH="$PATH" HOME="$HOME" LEAN_NUM_THREADS="$LEAN_NUM_THREADS" RCPT="$R" TAG="$tag" \
+    bash -c '
+      t0=$(date +%s.%N); "$@" > "$RCPT/$TAG.out" 2>&1; rc=$?
+      cg=/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup)
+      python3 - "$rc" "$t0" "$cg" "$TAG" > "$RCPT/$TAG.json" <<"EOF"
+import sys,time,json
+rc,t0,cg,tag=int(sys.argv[1]),float(sys.argv[2]),sys.argv[3],sys.argv[4]
+rd=lambda f: open(cg+"/"+f).read().strip()
+ev=dict(l.split() for l in rd("memory.events").splitlines())
+print(json.dumps({"tag":tag,"exit":rc,"wall_s":round(time.time()-t0,1),"cgroup":cg,
+  "memory.max":rd("memory.max"),"memory.peak_bytes":int(rd("memory.peak")),"memory.events":ev}))
+EOF
+      exit $rc' _ "$@"
+  local rc=$?; set -e
+  cat "$R/$tag.json"; return $rc
+}
+
+case $1 in
+0) # setup: toolchains and both checkouts at exact commits
+  sudo apt-get update -qq && sudo apt-get install -y -qq git zstd build-essential pkg-config >/dev/null
+  command -v cargo >/dev/null || curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal >/dev/null
+  command -v elan >/dev/null || curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain none >/dev/null
+  command -v uv >/dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh >/dev/null
+  uv python install 3.14 >/dev/null
+  git clone -q https://github.com/paradigmxyz/solar.git $W/solar && git -C $W/solar checkout -q $SOLAR_HEAD
+  git clone -q https://github.com/paradigmxyz/solidity-lean.git $W/sl && git -C $W/sl checkout -q $LEAN_REV
+  [ "$(git -C $W/solar show $SOLAR_HEAD:tools/certify/solidity-lean.rev)" = "$LEAN_PIN" ] || { echo "pin mismatch"; exit 4; }
+  git -C $W/sl merge-base --is-ancestor $LEAN_PIN $LEAN_REV || { echo "lean branch is not on the pin"; exit 4; }
+  if git -C $W/sl diff --name-only $LEAN_PIN $LEAN_REV | grep -v '^Verify/LoopSource/'; then echo "lean branch touches other paths"; exit 4; fi
+  (cd $W/sl && elan toolchain install "$(cat lean-toolchain)" && lake exe cache get) > $R/cache.log 2>&1
+  mkdir -p $HOME/.cache/solc
+  curl -sSfL -o $HOME/.cache/solc/solc-0.8.35 https://github.com/argotorg/solidity/releases/download/v0.8.35/solc-static-linux
+  chmod +x $HOME/.cache/solc/solc-0.8.35
+  { echo "solar $SOLAR_HEAD"; echo "lean $LEAN_REV"; echo "pin $LEAN_PIN"; sha256sum $HOME/.cache/solc/solc-0.8.35; } > $R/inputs.txt ;;
+
+1) # producer: solar built from the freeze head; its embedded commit must equal the driver commit
+  cd $W/solar
+  scoped build-solar cargo build --locked --release --bin solar
+  B=$W/solar/target/release/solar
+  EMB=$($B --version | sed -n 's/.*commit\.\([0-9a-f]*\)\..*/\1/p' | head -1)
+  [ -n "$EMB" ] && [ "${SOLAR_HEAD:0:${#EMB}}" = "$EMB" ] || { echo "embedded '$EMB' != driver $SOLAR_HEAD"; exit 5; }
+  cp $W/sl/Verify/LoopSource/Equiv/Counter/run-v3/Counter.sol.txt $W/Counter.sol
+  cd $W && rm -rf export && $B Counter.sol -Ogas --evm-version osaka --emit=bin,bin-runtime,abi -Zemit-lean-stages=export > rt.json
+  python3 - "$B" "$EMB" > $R/producer.json <<EOF
+import json,hashlib,sys
+B,EMB=sys.argv[1],sys.argv[2]
+h=lambda b: hashlib.sha256(b).hexdigest()
+j=json.load(open('$W/rt.json')); c=[v for k,v in j['contracts'].items() if k.endswith(':Counter')][0]
+rt=bytes.fromhex(c['bin-runtime']); ini=bytes.fromhex(c['bin'])
+s0=h(open('$W/export/Counter/Stage0.lean','rb').read())
+print(json.dumps({"binary_path":B,"binary_sha256":h(open(B,'rb').read()),"embedded_commit":EMB,
+ "driver_commit":"$SOLAR_HEAD","embedded_eq_driver":"$SOLAR_HEAD".startswith(EMB),
+ "flags":["-Ogas","--evm-version","osaka","--emit=bin,bin-runtime,abi","-Zemit-lean-stages=export"],
+ "source_sha256":h(open('$W/Counter.sol','rb').read()),"runtime_bytes":len(rt),"runtime_sha256":h(rt),
+ "init_bytes":len(ini),"init_sha256":h(ini),"stage0_sha256":s0,
+ "runtime_eq_committed":h(rt)=="$EXPECT_RT","stage0_eq_committed":s0=="$EXPECT_STAGE0"}))
+EOF
+  cat $R/producer.json
+  python3 -c "import json,sys;d=json.load(open('$R/producer.json'));sys.exit(0 if d['runtime_eq_committed'] and d['stage0_eq_committed'] else 6)" \
+    || { echo "STOP: the freeze-head producer emits a different runtime or Stage0; the committed Counter proofs are for other bytes"; exit 6; } ;;
+
+2) # lifecycle: the freeze head's own generic.lifecycle_lean on this producer's init and runtime
+  cd $W/sl; B=$W/solar/target/release/solar; mkdir -p Certified/CounterRun/fe
+  cp $W/Counter.sol Certified/CounterRun/fe/CounterRun.sol
+  { printf -- "-- Generated by solar's tools/certify/generic.py with scripts/solc_ast_to_lean_source.py; do not edit.\n\nimport SolidCore.Solidity.Checked\n\nopen SolidCore.Solidity\n\n"
+    python3 scripts/solc_ast_to_lean_source.py Certified/CounterRun/fe/CounterRun.sol --contract Counter \
+      --solc $HOME/.cache/solc/solc-0.8.35 --namespace Certified.CounterRun.Src --body-only; } > Certified/CounterRun/Source.lean
+  # Run-local lib, as the driver's declare_lean_lib writes it. Not committed; nothing else in the pinned lakefile changes.
+  printf '\nlean_lib «CounterRun» where\n  srcDir := "Certified"\n  globs := #[.submodules `CounterRun]\n  leanOptions := solarTVOptions\n' >> lakefile.lean
+  git diff lakefile.lean > $R/lakefile-runlocal.diff
+  sed "s#/home/hand/solar446#$W/solar#; s#/home/hand/exporter/target/debug/solar#$B#; s#/home/hand/run/Counter.sol#$W/Counter.sol#" \
+    Verify/LoopSource/Equiv/Counter/run-v3/life.py.txt > $W/life.py
+  uv run --python 3.14 --no-project python $W/life.py 8 '[[1,8]]' Certified/CounterRun/Lifecycle.lean Certified.CounterRun.Lifecycle > $R/life-gen.json
+  uv run --python 3.14 --no-project python $W/life.py 8 '[[1,9]]' Certified/CounterRun/LifecycleBad.lean Certified.CounterRun.LifecycleBad > /dev/null
+  sha256sum Certified/CounterRun/*.lean > $R/lifecycle-files.sha256
+  scoped build-lifecycle lake build -KleanMemory=6000 CounterRun.Lifecycle
+  if scoped build-lifecycle-bad lake build -KleanMemory=6000 CounterRun.LifecycleBad; then echo "control NOT refused"; exit 7; fi
+  echo '{"control":"wrong storage (1,9)","expected":"exit 1","refused":true}' > $R/control.json ;;
+
+3) # resources and the modules it composes (Contracts.VerifyCounter.Source builds under its lib's -M 3000, unchanged)
+  cd $W/sl
+  scoped build-resources lake build -KleanMemory=6000 Verify.LoopSource.Equiv.Counter.Resources \
+    Verify.LoopSource.Equiv.Counter.Closed Verify.LoopSource.Equiv.Counter.Neg Verify.LoopSource.Equiv.Counter.Check ;;
+
+4) # --fresh: replay each top module's whole imported closure from scratch
+  cd $W/sl
+  for m in Verify.LoopSource.Equiv.Counter.Resources CounterRun.Lifecycle Verify.LoopSource.Equiv.Counter.Neg; do
+    scoped "fresh-$m" lake env leanchecker --fresh $m
+  done ;;
+
+5) # transitive axiom audit, forbidden tokens, receipts digest
+  cd $W/sl
+  cat > Certified/CounterRun/Audit.lean <<'EOF'
+import Verify.LoopSource.Equiv.Counter.Resources
+import Verify.LoopSource.Equiv.Counter.Neg
+import CounterRun.Lifecycle
+#print axioms Verify.LoopSource.Equiv.CounterResources.counter_certified_bounded
+#print axioms Verify.LoopSource.Equiv.CounterResources.counter_resources
+#print axioms Verify.LoopSource.Equiv.CounterClosed.counter_equiv_closed
+#print axioms Verify.LoopSource.Equiv.CounterGas.bounded_inhabited
+#print axioms Certified.CounterRun.Lifecycle.statement
+#print axioms Verify.LoopSource.Equiv.CounterNeg.neg_natsub_inv
+EOF
+  scoped audit lake env lean Certified/CounterRun/Audit.lean
+  if grep -E 'sorryAx|ofReduceBool|trustCompiler' $R/audit.out; then echo "forbidden axiom"; exit 8; fi
+  if grep -rnE '\bsorry\b|native_decide|ofReduceBool|@\[extern|implemented_by|^axiom ' Verify/LoopSource Certified/CounterRun > $R/forbidden.txt; then echo "forbidden token"; exit 8; fi
+  (cd $W/rcpt && find . -type f ! -name receipts.sha256 | sort | xargs sha256sum > receipts.sha256) ;;
+esac
