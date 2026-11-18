@@ -1,0 +1,13 @@
+import CounterRun.Source
+import SolidCore.Refinement.Generic.StageFrom
+import SolidCore.Refinement.Generic.LoopRun
+open SolidCore.Solidity SolidCore.Refinement
+
+def c? := TypeCheck.CheckedInput.contract Certified.CounterRun.Src.importedSourceUnit "Counter"
+def call1 : Call := { calldata := ⟨#[0xb2, 0x0e, 0xb4, 0xc4] ++ (List.replicate 31 (0 : UInt8) ++ [1]).toArray⟩, callvalue := 0, storage := [(1, 8)] }
+#eval match c? with
+  | .ok c => (reprStr ((Source.runFrom callerAddress 4096 c call1).map (fun o : SolarTV.Observable => o.success)),
+      reprStr ((Generic.Loop.runtimeRun 4096 c call1).map (fun o : SolarTV.Observable => o.success)),
+      match TypeCheck.CheckedContract.constructWithContext? 4096 c { c.core.context with sender := callerAddress, self := selfAddress, value := 0 } Source.State.empty selfAddress 0 [] with
+      | some (.returned _ _) => "constructor []: returned" | some _ => "constructor []: other" | none => "constructor []: none")
+  | .error e => ("err", reprStr e, "")
