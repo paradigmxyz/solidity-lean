@@ -2,10 +2,11 @@
 # T4 box session: Counter Resources + Lifecycle, producer built from the freeze head, --fresh replay.
 # Usage: box-v4.sh STEP [MODULE...]
 #   STEP = 0 setup | 3d Source diagnosis (capped) | 1 producer | 2 lifecycle | 3 resources
-#          | 4 fresh (MODULE...) | 5 audit | 6 ctx build | 7 ctx fresh | 8 ctx audit
+#          | 4 fresh (MODULE...) | 5 audit | 6 ctx build | 6c composed (bound lifecycle) | 7 ctx fresh
+#          | 8 ctx audit
 # One box, at most 2 h, run in this order:
 #   0, 3d, 1, 3, 4 Verify.LoopSource.Equiv.Counter.Resources Verify.LoopSource.Equiv.Counter.Neg,
-#   6, 7, 8, 2, 4 CounterRun.Lifecycle, 5
+#   6, 6c, 7, 8, 2, 4 CounterRun.Lifecycle, 5
 # A step whose build dies in Contracts.VerifyCounter.Source with Lean's memory exception records
 # itself OPEN (not FAIL) in steps-open.json; the steps after it that need that module are OPEN too.
 # A step not started by 1h50 after step 0 began is recorded OPEN (steps-open.json) and the box is
@@ -15,6 +16,7 @@ set -euo pipefail
 SOLAR_HEAD=${SOLAR_HEAD:-92c59b665bbd7ce17b39dd2317e5e66379408528}  # freeze head (or 41f30a4a4f64d4f28849332aef30d26487144e2e)
 LEAN_REV=96f869131d96c88af941a765b03b005e23424e3f                    # [secret GIT_AUTHOR_NAME]/t4-loop-equiv-v4
 CTX_REV=25f481785bd349753c345f72d3db013b2d7e6220                     # [secret GIT_AUTHOR_NAME]/t4-ctx-bridge
+BIND_SOLAR=ed238a92ea60b39f38cdb56d1e8762e407efdb3f                  # [secret GIT_AUTHOR_NAME]/t7-lifecycle-bind
 CTX_BASE=c6295eeb                                                    # [secret GIT_AUTHOR_NAME]/lc-ctor-args (on the pin)
 LEAN_PIN=334d1d924f8f6c29ac827fd81d1cc739721b479a                    # tools/certify/solidity-lean.rev at the head
 EXPECT_RT=509845d3b18cf635ec7ee9b1a9d225cfeec995099a9f5e0d55f27ae6559f411d
@@ -235,10 +237,70 @@ EOF
   if [ $rc -ne 0 ] && srcdied build-ctx; then open_step build-ctx; echo "OPEN: Source died"; exit 0; fi
   exit $rc ;;
 
+6c) # composed: solar at the binding head, its generic driver's lifecycle run bound to counter_expected
+  # (init and runtime from this fresh run), then Certified.counter_f1c87a33.Composed in the run's clone.
+  [ -e $W/sl2/.lake/build/lib/lean/Verify/LoopSource/Equiv/CounterCtx.olean ] || { echo '{"status":"FAIL","stage":"CounterCtx not built (step 6)"}' > $R/composed.json; exit 13; }
+  [ -d $W/solar7 ] || { git clone -q https://github.com/paradigmxyz/solar.git $W/solar7 && git -C $W/solar7 checkout -q $BIND_SOLAR; }
+  cd $W/solar7; [ "$(git rev-parse HEAD)" = "$BIND_SOLAR" ] || { echo "solar7 not at $BIND_SOLAR"; exit 5; }
+  git diff --quiet HEAD || { echo "solar7 has edits"; exit 5; }
+  # The driver's own build (build_solar: debug, --locked); the run then refuses any other binary.
+  scoped build-solar7 cargo build --locked --bin solar
+  B7=$W/solar7/target/debug/solar
+  EMB7=$($B7 --version | sed -n 's/^Commit SHA: *\([0-9a-f]*\)$/\1/p' | head -1)
+  [ "$EMB7" = "$BIND_SOLAR" ] || { echo "embedded '$EMB7' != $BIND_SOLAR"; exit 5; }
+  $B7 --version > $R/solar7-version.txt
+  python3 - "$B7" "$EMB7" > $R/producer7.json <<EOF
+import json,hashlib,sys,re
+B,EMB=sys.argv[1],sys.argv[2]
+h=lambda f: hashlib.sha256(open(f,'rb').read()).hexdigest()
+g=open('$W/solar7/tools/certify/generic.py').read()
+opts=re.search(r'(?m)^OPTIONS = (\[.*\])$',g).group(1)
+print(json.dumps({"binary_path":B,"binary_sha256":h(B),"embedded_commit":EMB,"driver_commit":"$BIND_SOLAR",
+ "embedded_eq_driver":EMB=="$BIND_SOLAR","build":["cargo","build","--locked","--bin","solar"],
+ "compile_flags":json.loads(opts),"cargo_lock_sha256":h('$W/solar7/Cargo.lock'),
+ "generic_py_sha256":h('$W/solar7/tools/certify/generic.py'),
+ "bind_json_sha256":h('$W/solar7/tools/certify/testdata/lifecycle_bind/counter-bind.json'),
+ "source_sha256":h('$W/Counter.sol')}))
+EOF
+  cat $R/producer7.json
+  rm -rf $W/genwork $R/gen-record
+  set +e
+  CERTIFY_SOLAR_SHA256=$(sha256sum $B7 | cut -d' ' -f1) scoped generic-lifecycle \
+    uv run --python 3.14 --no-project python tools/certify/generic.py $W/Counter.sol none --contract Counter \
+    --tier lifecycle --constructor-args 8 --lifecycle-bind tools/certify/testdata/lifecycle_bind/counter-bind.json \
+    --solidity-lean $W/sl2 --base $CTX_REV --packages-from $W/sl2 --work $W/genwork --record-dir $R/gen-record
+  rc=$?; set -e
+  # Verdict: PASS only with CERTIFIED, the bound source, the built composed theorem and this binary.
+  python3 - "$R" "$rc" "$(sha256sum $B7 | cut -d' ' -f1)" > $R/composed.json <<'EOF' || true
+import json,sys,os
+R,rc,bsha=sys.argv[1],int(sys.argv[2]),sys.argv[3]
+p=R+"/gen-record/record.json"
+r=json.load(open(p)) if os.path.exists(p) else {}
+life=r.get("lifecycle") or {}; comp=life.get("composed") or {}
+if r.get("name")!="counter_f1c87a33": stage="name "+str(r.get("name"))
+elif (r.get("solar") or {}).get("binary_sha256")!=bsha: stage="driver binary is not the recorded build"
+elif life.get("source_same") is not True: stage="SourceSame"
+elif not str(life.get("statement","")).startswith("Certified.counter_f1c87a33.Lifecycle.statement"): stage="Lifecycle"
+elif comp.get("built") is not True: stage="Composed"
+elif r.get("status")!="CERTIFIED" or rc!=0: stage="driver status %s exit %d"%(r.get("status"),rc)
+else: stage=None
+print(json.dumps({"status":"PASS" if stage is None else "FAIL","stage":stage,"driver_exit":rc,
+ "record_status":r.get("status"),"name":r.get("name"),"source_same":life.get("source_same"),
+ "composed":comp,"initcode_sha256":life.get("initcode_sha256"),"bin_runtime_sha256":life.get("bin_runtime_sha256"),
+ "runtime_sha256":life.get("runtime_sha256"),"lifecycle_lean_sha256":life.get("lean_sha256"),
+ "stages":life.get("stages")}))
+EOF
+  cat $R/composed.json
+  python3 -c "import json,sys;sys.exit(0 if json.load(open('$R/composed.json'))['status']=='PASS' else 1)" || exit 14 ;;
+
 7) # ctx: replay the closed theorem's whole imported closure from scratch
   cd $W/sl2
   [ -e .lake/build/lib/lean/Verify/LoopSource/Equiv/CounterClosedCtx.olean ] || { open_step "not built"; exit 0; }
-  for m in Verify.LoopSource.Equiv.CounterClosedCtx; do scoped "fresh-$m" lake env leanchecker --fresh $m; done ;;
+  for m in Verify.LoopSource.Equiv.CounterClosedCtx; do scoped "fresh-$m" lake env leanchecker --fresh $m; done
+  # The composed theorem's module, in the generic run's clone (step 6c).
+  G=$W/genwork/solidity-lean
+  [ -e $G/.lake/build/lib/lean/counter_f1c87a33/Composed.olean ] || { echo '{"status":"FAIL","stage":"Composed not built (step 6c)"}' > $R/composed.json; exit 14; }
+  cd $G; scoped fresh-composed lake env leanchecker --fresh counter_f1c87a33.Composed ;;
 
 8) # ctx: transitive axiom audit of the exported theorem
   cd $W/sl2
@@ -247,5 +309,14 @@ EOF
   scoped audit-ctx lake env lean /tmp/AuditCtx.lean
   grep -q "counter_expected_closed' depends on axioms: \[propext, Classical.choice, Quot.sound\]" $R/audit-ctx.out || { echo "axioms differ"; exit 8; }
   if grep -rnE '\bsorry\b|native_decide|ofReduceBool|@\[extern|implemented_by|^axiom ' Verify/LoopSource > $R/forbidden-ctx.txt; then echo "forbidden token"; exit 8; fi
-  (cd $W/rcpt && find . -type f ! -name receipts.sha256 | sort | xargs sha256sum > receipts.sha256) ;;
+  G=$W/genwork/solidity-lean; cfail=0
+  if [ -e $G/.lake/build/lib/lean/counter_f1c87a33/Composed.olean ]; then
+  cd $G
+  printf 'import counter_f1c87a33.Composed\n#print axioms Certified.counter_f1c87a33.Composed.composed\n' > /tmp/AuditComposed.lean
+  scoped audit-composed lake env lean /tmp/AuditComposed.lean
+  grep -q "Certified.counter_f1c87a33.Composed.composed' depends on axioms: \[propext, Classical.choice, Quot.sound\]" $R/audit-composed.out || { echo "axioms differ"; exit 8; }
+  if grep -rnE '\bsorry\b|native_decide|ofReduceBool|@\[extern|implemented_by|^axiom ' Certified/counter_f1c87a33 > $R/forbidden-composed.txt; then echo "forbidden token"; exit 8; fi
+  else echo '{"status":"FAIL","stage":"Composed not built (step 6c)"}' > $R/composed.json; cfail=14; fi
+  (cd $W/rcpt && find . -type f ! -name receipts.sha256 | sort | xargs sha256sum > receipts.sha256)
+  exit $cfail ;;
 esac
