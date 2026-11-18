@@ -529,7 +529,8 @@ lean_lib ContractsVerifyCounter where
   roots := #[`Contracts.VerifyCounter.Holds]
   globs := #[.submodules `Contracts.VerifyCounter]
   leanOptions := solarTVOptions
-  moreLeanArgs := #["-M", "3000"]
+  -- Source's unit checks run in the interpreter and need more than 3000 MB when built cold.
+  moreLeanArgs := #["-M", "6000"]
 
 -- Math.sqrt's Newton loop inside CallSqrt's internal call: its generated ranking certificate
 -- (Contracts/CallSqrt/Inferred.lean), sqrt's total contract under any caller, every call ending on
