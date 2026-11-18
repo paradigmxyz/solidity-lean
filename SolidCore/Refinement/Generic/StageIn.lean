@@ -281,14 +281,14 @@ theorem stageInAtWith (W : World) (o : Oracle) {fuel mirFuel : Nat} {c : TypeChe
   | some t2 =>
   simp only [hfind, ht1, ht2, Bool.and_eq_true, decide_eq_true_eq] at hcf
   obtain ⟨hsel, hpl, hcf⟩ := hcf
-  have hcf := Tree.eq_of_beq hcf
+  have hcf := Tree.eval_of_agree hcf
   have hsrc := source_runIn W hd hcov hsel hfind ht1 args (by rw [hlen, hpl]) hargs
   change Source.runIn W fuel c _ = some obs at hrun
   rw [hsrc] at hrun
   cases hrun
   rw [← hlen] at ht2
   rw [symTree_sound (callFacts f.sel hsel args hargs σ) o m (henv.envAsk _ _) ht2,
-    ← Tree.eval_canon, ← hcf, Tree.eval_canon]
+    ← hcf]
 
 /-- **The generic source stage**: a checked contract whose constructor leaves the storage entries
 `s` and no logs and a lowered MIR module that `check` accepts give the stage from SolidCore in every world `W` to the
