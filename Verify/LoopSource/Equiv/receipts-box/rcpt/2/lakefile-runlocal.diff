@@ -1,0 +1,13 @@
+diff --git a/lakefile.lean b/lakefile.lean
+index 8233a2ed..9768f507 100644
+--- a/lakefile.lean
++++ b/lakefile.lean
+@@ -692,3 +692,8 @@ lean_lib VerifySourceTextFlag where
+ -- symbolic-caller tree (holdsFn_of_tree_from_zero, holdsFn_of_tree_from).
+ lean_lib VerifySpecTreeFrom where
+   roots := #[`Verify.Spec.TreeFrom]
++
++lean_lib «CounterRun» where
++  srcDir := "Certified"
++  globs := #[.submodules `CounterRun]
++  leanOptions := solarTVOptions
