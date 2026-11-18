@@ -1,5 +1,8 @@
 1e8717b4cda6172ffc0a1a52c0de861d4c86932d6e9e66dd6ae3e8d37a72ef6f  ./Ax.lean.txt
 367cc8dbf63aabcbfa6f87060d86a2b980a7612c3f7c32f7d5771a73053d8dfc  ./CounterMut.sol.txt
+c18e1d8e050e19c2b04d34a7dc49123aee3c45b7f055b4fb2be1ddc9356079ce  ./Lifecycle.lean.txt
+2f1198c3aca1a7ba799249f33aa890a3912e94b0047dafab331eb1fea13f6fc2  ./LifecycleBad.err
+af58b813ba8d1b3d18faae73f92691b950a3ede655fd9870572e460c494c9901  ./LifecycleBad.lean.txt
 771b5536f1c04251b17c782c37162d21c8dc441f57406286f59958fb79c8a934  ./Loops/bump/Cases.lean.txt
 e583390029cc3fe86685bcf8b84bed2500907103349508c8fdb6caa9f63578c5  ./Loops/bump/Cut.lean.txt
 52571f312ca4aa7a64bf4eeb1436f344dcb610a91041b4f394c58a628f5e4aa0  ./Loops/bump/Data.lean.txt
@@ -35,9 +38,13 @@ d96129d5ab7228bc5f78f9a3d5050ce29601951bcddb8c5f183b414fcde515cc  ./gen/Counter/
 7f1fae465cba874c0c7a6817d1cdd45d6df40c7d6ff7e87cb5abb06b4b89e33d  ./gen/Counter/Manifest.lean.txt
 fbaf444cb638471866b165cf77372ebc450a588f69c1c4ab87bc9256840c25ad  ./gen/Counter/Sched.lean.txt
 0c544806b2b5013d2c38ce859b167d03e3c19162b53b2ab8f5319b3d55bd3003  ./gen/Counter/Stage0.lean.txt
+bc2fdb35f8b4bb8965df92724f80abb9bc34012a0ed211e1449a166d22b355fc  ./life.py.txt
+f5c5bd0b48213c97bb707a04ff21827b56bb1fb2d7d3ab4c11c0e6f68e53867f  ./life1.time.json
+3823770637b3ac73099020ab85ebe69c24e0873c9d9b69c9dc20f1d53d5043cb  ./life2.time.json
 dcdcb4fc15f26daa8ba15e5b63320534028103597bdef092f49be024ec23c476  ./loop-heads.json
 e94266307511db38b89be59d4851406ba78ce952ef6a2d18031154ef0d9d278e  ./rep5-memfix.out
 a9593adb74f32157fa1fbf8a797079991e3c7892e33d8f8e6f9bbd754b68a283  ./rep5-memfix.sh.txt
+f0417bcddd6bba8d5dcd0ce13116139d8b75559e636312ed79bec4d82c2d602f  ./res9.time.json
 8e855ea9fa198e4d6805b607f20d2624c3718a1dcbbc31d417da044654fa0ee3  ./run-Gen.negBound.err
 eff42e293d748068dc7dec13ca097ef74959620924e897289ae78ef20015d6af  ./run-Gen.negBranch.err
 c3e4d8f2a6ac93e42e5fce4585a6bb6068993df887981daf562959fdd9efc3de  ./run-Gen.negFn.err
