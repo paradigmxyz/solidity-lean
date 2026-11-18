@@ -1,16 +1,21 @@
 #!/usr/bin/env bash
 # T4 box session: Counter Resources + Lifecycle, producer built from the freeze head, --fresh replay.
 # Usage: box-v4.sh STEP [MODULE...]
-#   STEP = 0 setup | 1 producer | 2 lifecycle | 3 resources | 4 fresh (MODULE...) | 5 audit
+#   STEP = 0 setup | 3d Source diagnosis (capped) | 1 producer | 2 lifecycle | 3 resources
+#          | 4 fresh (MODULE...) | 5 audit | 6 ctx build | 7 ctx fresh | 8 ctx audit
 # One box, at most 2 h, run in this order:
-#   0, 1, 3, 4 Verify.LoopSource.Equiv.Counter.Resources Verify.LoopSource.Equiv.Counter.Neg,
-#   2, 4 CounterRun.Lifecycle, 5
+#   0, 3d, 1, 3, 4 Verify.LoopSource.Equiv.Counter.Resources Verify.LoopSource.Equiv.Counter.Neg,
+#   6, 7, 8, 2, 4 CounterRun.Lifecycle, 5
+# A step whose build dies in Contracts.VerifyCounter.Source with Lean's memory exception records
+# itself OPEN (not FAIL) in steps-open.json; the steps after it that need that module are OPEN too.
 # A step not started by 1h50 after step 0 began is recorded OPEN (steps-open.json) and the box is
 # deleted. Each step writes /home/ubuntu/rcpt/<step>[-<n>]/ and exits nonzero on any failure; the
 # operator copies /home/ubuntu/rcpt off the box (copy_files) after every step.
 set -euo pipefail
 SOLAR_HEAD=${SOLAR_HEAD:-92c59b665bbd7ce17b39dd2317e5e66379408528}  # freeze head (or 41f30a4a4f64d4f28849332aef30d26487144e2e)
 LEAN_REV=96f869131d96c88af941a765b03b005e23424e3f                    # [secret GIT_AUTHOR_NAME]/t4-loop-equiv-v4
+CTX_REV=25f481785bd349753c345f72d3db013b2d7e6220                     # alpharush/t4-ctx-bridge
+CTX_BASE=c6295eeb                                                    # alpharush/lc-ctor-args (on the pin)
 LEAN_PIN=334d1d924f8f6c29ac827fd81d1cc739721b479a                    # tools/certify/solidity-lean.rev at the head
 EXPECT_RT=509845d3b18cf635ec7ee9b1a9d225cfeec995099a9f5e0d55f27ae6559f411d
 EXPECT_STAGE0=0c544806b2b5013d2c38ce859b167d03e3c19162b53b2ab8f5319b3d55bd3003
@@ -61,6 +66,10 @@ EOF
   return $rc
 }
 
+# srcdied TAG: the build's log shows Contracts.VerifyCounter.Source died of Lean's memory exception.
+srcdied() { grep -q 'memory_exception' "$R/$1.out" && grep -q 'Contracts/VerifyCounter/Source.lean' "$R/$1.out"; }
+open_step() { echo "{\"step\":\"$STEP $*\",\"status\":\"OPEN\",\"reason\":\"Contracts.VerifyCounter.Source memory_exception\"}" >> $W/rcpt/steps-open.json; }
+
 case $STEP in
 0) # setup: toolchains and both checkouts at exact commits
   sudo apt-get update -qq && sudo apt-get install -y -qq git zstd build-essential pkg-config >/dev/null
@@ -70,6 +79,9 @@ case $STEP in
   uv python install 3.14 >/dev/null
   git clone -q https://github.com/paradigmxyz/solar.git $W/solar && git -C $W/solar checkout -q $SOLAR_HEAD
   git clone -q https://github.com/paradigmxyz/solidity-lean.git $W/sl && git -C $W/sl checkout -q $LEAN_REV
+  git clone -q https://github.com/paradigmxyz/solidity-lean.git $W/sl2 && git -C $W/sl2 checkout -q $CTX_REV
+  git -C $W/sl2 merge-base --is-ancestor $LEAN_PIN $CTX_REV || { echo "ctx branch is not on the pin"; exit 4; }
+  if git -C $W/sl2 diff --name-only $CTX_BASE $CTX_REV | grep -v '^Verify/LoopSource/'; then echo "ctx branch touches other paths"; exit 4; fi
   [ "$(git -C $W/solar show $SOLAR_HEAD:tools/certify/solidity-lean.rev)" = "$LEAN_PIN" ] || { echo "pin mismatch"; exit 4; }
   git -C $W/sl merge-base --is-ancestor $LEAN_PIN $LEAN_REV || { echo "lean branch is not on the pin"; exit 4; }
   if git -C $W/sl diff --name-only $LEAN_PIN $LEAN_REV | grep -v '^Verify/LoopSource/'; then echo "lean branch touches other paths"; exit 4; fi
@@ -81,6 +93,7 @@ sys.exit(0 if re.search(r"\(kernel\) declaration type mismatch, '[^']*checkB_eq'
 EOF
   echo '{"refusal_regex_selftest":"match"}' > $R/selftest.json
   (cd $W/sl && elan toolchain install "$(cat lean-toolchain)" && lake exe cache get) > $R/cache.log 2>&1
+  (cd $W/sl2 && lake exe cache get) >> $R/cache.log 2>&1
   mkdir -p $HOME/.cache/solc
   curl -sSfL -o $HOME/.cache/solc/solc-0.8.35 https://github.com/argotorg/solidity/releases/download/v0.8.35/solc-static-linux
   chmod +x $HOME/.cache/solc/solc-0.8.35
@@ -177,7 +190,7 @@ EOF
   cd $W/sl; git diff --quiet lakefile.lean || { echo "lakefile changed"; exit 11; }
   for v in "default:" "threads1:LEAN_NUM_THREADS=1" "stack8m:ulimit -s 8192;" "stackunl:ulimit -s unlimited;"; do
     tag=${v%%:*}; pre=${v#*:}
-    scoped "src-$tag" bash -c "$pre lake env lean -M 3000 --stats Contracts/VerifyCounter/Source.lean -o /tmp/src-$tag.olean" || true
+    scoped "src-$tag" bash -c "$pre timeout 600 lake env lean -M 3000 --stats Contracts/VerifyCounter/Source.lean -o /tmp/src-$tag.olean" || true
   done ;;
 
 4) # --fresh: replay each top module's whole imported closure from scratch
@@ -203,5 +216,27 @@ EOF
   scoped audit lake env lean Certified/CounterRun/Audit.lean
   if grep -E 'sorryAx|ofReduceBool|trustCompiler' $R/audit.out; then echo "forbidden axiom"; exit 8; fi
   if grep -rnE '\bsorry\b|native_decide|ofReduceBool|@\[extern|implemented_by|^axiom ' Verify/LoopSource Certified/CounterRun > $R/forbidden.txt; then echo "forbidden token"; exit 8; fi
+  (cd $W/rcpt && find . -type f ! -name receipts.sha256 | sort | xargs sha256sum > receipts.sha256) ;;
+6) # ctx: build the deploy certificates (box-only) and the closed expected theorem with its closure
+  cd $W/sl2
+  set +e
+  scoped build-ctx lake build -KleanMemory=6000 Verify.LoopSource.Equiv.CounterDeploy8 Verify.LoopSource.Equiv.CounterDeploy5 \
+    Verify.LoopSource.Equiv.CounterClosedCtx
+  rc=$?; set -e
+  if [ $rc -ne 0 ] && srcdied build-ctx; then open_step build-ctx; echo "OPEN: Source died"; exit 0; fi
+  exit $rc ;;
+
+7) # ctx: replay the closed theorem's whole imported closure from scratch
+  cd $W/sl2
+  [ -e .lake/build/lib/lean/Verify/LoopSource/Equiv/CounterClosedCtx.olean ] || { open_step "not built"; exit 0; }
+  for m in Verify.LoopSource.Equiv.CounterClosedCtx; do scoped "fresh-$m" lake env leanchecker --fresh $m; done ;;
+
+8) # ctx: transitive axiom audit of the exported theorem
+  cd $W/sl2
+  [ -e .lake/build/lib/lean/Verify/LoopSource/Equiv/CounterClosedCtx.olean ] || { open_step "not built"; exit 0; }
+  printf 'import Verify.LoopSource.Equiv.CounterClosedCtx\n#print axioms Verify.LoopSource.Equiv.CounterClosedCtx.counter_expected_closed\n#print axioms Verify.LoopSource.Equiv.CounterCtx.counter_expected\n' > /tmp/AuditCtx.lean
+  scoped audit-ctx lake env lean /tmp/AuditCtx.lean
+  grep -q "counter_expected_closed' depends on axioms: \[propext, Classical.choice, Quot.sound\]" $R/audit-ctx.out || { echo "axioms differ"; exit 8; }
+  if grep -rnE '\bsorry\b|native_decide|ofReduceBool|@\[extern|implemented_by|^axiom ' Verify/LoopSource > $R/forbidden-ctx.txt; then echo "forbidden token"; exit 8; fi
   (cd $W/rcpt && find . -type f ! -name receipts.sha256 | sort | xargs sha256sum > receipts.sha256) ;;
 esac
