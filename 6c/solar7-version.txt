@@ -1,0 +1,7 @@
+solar 0.3.0-dev+commit.aa38f0ab
+Solidity Version: 0.8.38
+Solc-Compatible Version: 0.8.38+commit.aa38f0ab.solar.0.3.0-dev
+Commit SHA: aa38f0abd164bc035511a7d2a5360bbebd9fcd03
+Build Timestamp: 2026-11-18T10:47:27.896922950Z
+Build Features: mimalloc,tracing
+Build Profile: debug

@@ -1,0 +1,228 @@
+{
+  "schema": "solar-certify-generic/1",
+  "name": "counter_f1c87a33",
+  "started": "2026-11-18T10:47:50+00:00",
+  "command": [
+    "/home/ubuntu/solar7/tools/certify/certify",
+    "/home/ubuntu/Counter.sol",
+    "none",
+    "--contract",
+    "Counter",
+    "--tier",
+    "lifecycle",
+    "--constructor-args",
+    "8",
+    "--lifecycle-bind",
+    "tools/certify/testdata/lifecycle_bind/counter-bind.json",
+    "--solidity-lean",
+    "/home/ubuntu/sl2",
+    "--base",
+    "70db97fa7ec395eb0e25ab9abb80e45e6cbe4d68",
+    "--packages-from",
+    "/home/ubuntu/sl2",
+    "--work",
+    "/home/ubuntu/genwork",
+    "--record-dir",
+    "/home/ubuntu/rcpt/6c/gen-record"
+  ],
+  "requested_tier": "lifecycle",
+  "source": {
+    "file": "/home/ubuntu/Counter.sol",
+    "sha256": "f1c87a334b8db31fc8f80541febeaf8617318d20b685634f44e26c74146ad326"
+  },
+  "spec": {
+    "kind": "none",
+    "sha256": null
+  },
+  "invariants": {
+    "file": null,
+    "sha256": null
+  },
+  "options": [
+    "-Ogas",
+    "--evm-version",
+    "osaka"
+  ],
+  "solar": {
+    "commit": "aa38f0abd164bc035511a7d2a5360bbebd9fcd03",
+    "dirty": false,
+    "binary_sha256": "a87558305e95e72473afbfc29c23a5e31dc97e2c0d0c18f1531f3987c5be273c",
+    "version": "solar 0.3.0-dev+commit.aa38f0ab",
+    "binary_commit": "aa38f0abd164bc035511a7d2a5360bbebd9fcd03",
+    "build": {
+      "provenance_version": 2,
+      "commit": "aa38f0abd164bc035511a7d2a5360bbebd9fcd03",
+      "tree": "a5d59ee8898acd04583dd94505d826cb59c96e62",
+      "submodules": [
+        "-1835d247de183f23e7b0e2bc4a50732af525b77c testdata/solidity"
+      ],
+      "cargo_lock_sha256": "039e193eec0426e525995eb21c5c46f9210419ceb04fdac47279088929f7c330",
+      "rustc_vv": "rustc 1.100.0 (0ef1bc386 2026-11-09)\nbinary: rustc\ncommit-hash: 0ef1bc386059596dada8fb65b50425aab2ea637a\ncommit-date: 2026-11-09\nhost: x86_64-unknown-linux-gnu\nrelease: 1.100.0\nLLVM version: 23.1.5",
+      "target": "x86_64-unknown-linux-gnu",
+      "target_source": "host (no --target; CARGO_BUILD_TARGET and build.target refused)",
+      "profile": "debug",
+      "features": "mimalloc,tracing",
+      "rustflags": {
+        "RUSTFLAGS": null,
+        "CARGO_ENCODED_RUSTFLAGS": null,
+        "CARGO_BUILD_RUSTFLAGS": null
+      },
+      "command": [
+        "cargo",
+        "build",
+        "--locked",
+        "--bin",
+        "solar",
+        "--message-format=json-render-diagnostics"
+      ],
+      "cargo_env": {
+        "CARGO_INCREMENTAL": null,
+        "CARGO_NET_OFFLINE": null,
+        "CARGO_TERM_COLOR": null,
+        "CARGO_TERM_PROGRESS_WHEN": null,
+        "CARGO_TERM_VERBOSE": null,
+        "CARGO_TERM_QUIET": null,
+        "CARGO_REGISTRIES_CRATES_IO_PROTOCOL": null,
+        "CARGO_HTTP_TIMEOUT": null,
+        "CARGO_NET_RETRY": null
+      },
+      "cargo_config": [
+        {
+          "scope": "repo",
+          "name": "config.toml",
+          "sha256": "5589a39c068980d86ef248027f526ebb382c3995fa8e075f2dc3617234b4fbe1"
+        }
+      ],
+      "artifact": {
+        "sha256": "a87558305e95e72473afbfc29c23a5e31dc97e2c0d0c18f1531f3987c5be273c",
+        "fresh": true
+      }
+    }
+  },
+  "solc": {
+    "version": "0.8.35",
+    "path": "/home/ubuntu/.cache/solc/solc-0.8.35",
+    "sha256": "fa8ac9a32d301ad023a36ee5a29f8e291fe3200c60244e43c142539e82a617f4"
+  },
+  "lean_toolchain": {
+    "recorded_digest": "953aa1e72283c07686567bb71eeb3fca202baafe2958a7e57987d3b8c4434c25"
+  },
+  "lifecycle_open": [
+    {
+      "feature": "loop",
+      "where": "line 26",
+      "detail": "a runtime loop, outside the lifecycle tier's statement: its fixed-fuel resource obligation and loop proofs are OPEN, not required here"
+    }
+  ],
+  "resources": "OPEN: the fixed-fuel resource obligation of the runtime loop(s) is not required at the lifecycle tier and is not discharged",
+  "contract": "Counter",
+  "functions": [
+    {
+      "signature": "bump(uint256)",
+      "selector": "0xb20eb4c4",
+      "params": [
+        ".uint 256"
+      ]
+    },
+    {
+      "signature": "count()",
+      "selector": "0x06661abd",
+      "params": []
+    },
+    {
+      "signature": "increment()",
+      "selector": "0xd09de08a",
+      "params": []
+    },
+    {
+      "signature": "limit()",
+      "selector": "0xa4d66daf",
+      "params": []
+    },
+    {
+      "signature": "max(uint256,uint256)",
+      "selector": "0x6d5433e6",
+      "params": [
+        ".uint 256",
+        ".uint 256"
+      ]
+    }
+  ],
+  "environment": "one frame, caller 0x2000, contract at 0x1000, the block and transaction of Target.message (fixed, not quantified)",
+  "lifecycle": {
+    "constructor_params": [
+      "uint256"
+    ],
+    "args": [
+      "0x8"
+    ],
+    "immutables": [],
+    "initcode_sha256": "4be2987cc127fffd3a1ac18865da9364711b47d5e57296e98bf409dcbe6daa18",
+    "initcode_size": 307,
+    "creation_sha256": "c634f840ecade80261885bcaf38364762efa27aace6acd4a1cbd30120df1bdfc",
+    "bin_runtime_sha256": "509845d3b18cf635ec7ee9b1a9d225cfeec995099a9f5e0d55f27ae6559f411d",
+    "statement": "Verify.Lifecycle.Statement fuel c initcode code ws s (solidity-lean Verify/Lifecycle/Route.lean, 03ae48d9)",
+    "runtime_sha256": "509845d3b18cf635ec7ee9b1a9d225cfeec995099a9f5e0d55f27ae6559f411d",
+    "storage": [
+      [
+        1,
+        8
+      ]
+    ],
+    "stages": [
+      {
+        "stage": "source",
+        "ok": true,
+        "detail": "SolidCore's type checker accepts the source"
+      },
+      {
+        "stage": "initcode",
+        "ok": true,
+        "detail": "EthLib runs the init code with the encoded arguments to success"
+      },
+      {
+        "stage": "runtime bytes",
+        "ok": true,
+        "detail": "the returned runtime bytes are solar's bin-runtime"
+      },
+      {
+        "stage": "storage",
+        "ok": true,
+        "detail": "SolidCore's constructor and EthLib's run leave the same 1 slot(s) (compared on SolidCore's slots)"
+      },
+      {
+        "stage": "kernel",
+        "ok": false,
+        "detail": "the kernel proves neither the deployment nor its refutation (a revert path, or a frame outside the shape): error: Lean exited with code 134 | error: build failed"
+      }
+    ],
+    "bind": {
+      "unit": "SolidCore.Refinement.Source.VerifyCounter.importedSourceUnit",
+      "unit_module": "Contracts.VerifyCounter.Source",
+      "contract": "Contracts.VerifyCounter.Source.contract?",
+      "fuel": "Contracts.VerifyCounter.Source.fuel",
+      "init": "Verify.LoopSource.Equiv.CounterCtor.counterInit",
+      "runtime": "SolarTV.Export.Counter.bytecode",
+      "modules": [
+        "Verify.LoopSource.Equiv.CounterCtor",
+        "Verify.LoopSource.Equiv.Counter.gen.Counter.Bytecode"
+      ],
+      "ws": [
+        8
+      ],
+      "expected": {
+        "module": "Verify.LoopSource.Equiv.CounterCtx",
+        "binders": "{K : Nat} (hK : K \u2264 Verify.LoopSource.Equiv.CounterCtx.Kmax)",
+        "prop": "SolidCore.Verify.Generic.Expected (Verify.LoopSource.Equiv.CounterCtx.src 8) (Verify.LoopSource.Equiv.CounterCtx.spec 8 K) SolarTV.Export.Counter.bytecode",
+        "term": "Verify.LoopSource.Equiv.CounterCtx.counter_expected (n := 8) (Or.inr rfl) hK"
+      }
+    },
+    "source_same": true
+  },
+  "solidity_lean": {
+    "base": "70db97fa7ec395eb0e25ab9abb80e45e6cbe4d68"
+  },
+  "tier_reached": "none",
+  "status": "UNSUPPORTED-lifecycle",
+  "finished": "2026-11-18T11:15:26+00:00"
+}

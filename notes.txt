@@ -1,0 +1,41 @@
+notes.txt: box-v6 run on pyramid-prd-t4v6-f803 (m4-metal-small FRA)
+created_at 2026-11-18T10:43:53.296962136Z. Before it, these creates failed with SERVERS_OUT_OF_STOCK and no
+server, and were deleted: pyramid-prd-t4v6-f801 (m4-metal-large FRA), pyramid-prd-t4v6-f802 (m4-metal-large FRA2).
+
+1. Script head: solidity-lean alpharush/t4-loop-equiv-v4 = 2520376585724249bb72d9092edf066b873daa28
+   (fast-forward of 0e16c5e9, adds box-v6.sh.txt; git diff --full-index 0e16c5e9 25203765 | sha256sum = 001934b5db15166c77cb5e5e4ae0157989c65a5bbb07360462c508908e539943).
+   box-v6.sh sha256 feb126ce79b7c25d020f7cba9564ea40bba4b9ed5389c0e2e6f00c01714b8f6f (box-v5 589e333c plus the pins,
+   cold check, manifests, OPEN labels, exact-type check and named negatives); run-all-v6.sh sha256 4744d4d9...829c.
+2. Pins, each exactly one owner-applied commit, used as exact commits in their own clones, with no merges:
+   CTX_REV 70db97fa7ec395eb0e25ab9abb80e45e6cbe4d68 (solidity-lean alpharush/pub-v6-lakefile), parent 25f48178,
+     git diff --full-index | sha256sum = 07d908b2c6184e7c97a353139556adef990449133c454cab62beccaed4a279f0.
+   BIND_SOLAR aa38f0abd164bc035511a7d2a5360bbebd9fcd03 (solar alpharush/t7-lifecycle-loop-bind), parent 5b1f1ad6,
+     git diff --full-index | sha256sum = 2c2bff4be59d1343c59a9aea0a32d82b7af7bee8ed2a1c36e96852362078c50b.
+   The script checks both on the box (exit 4 / 5 otherwise) and saves them as 0/ctx.patch and 6c/bind.patch.
+3. The publisher's commit body states the lakefile change's lib-wide scope. It does not record the
+   coordinator's admission of it (2026-11-18T10:02Z, as a resource change only).
+4. box-v5's exit 134 (Contracts.VerifyCounter.Source, built cold inside the driver) is not a confirmed heap-limit
+   diagnosis, whatever that commit body says: the memory_exception text was not retained, and the cgroup recorded
+   oom 0 and max 0.
+5. Admission cut: enforced by the orchestrator run-all-v6.sh, with CREATED_AT set to the created_at above. It
+   starts no step at or after created_at + 1h30 = 2026-11-18T12:13:53Z. The script's own 1h50-from-step-0 gate
+   also applies.
+6. Loop termination and resources: OPEN. The lifecycle tier records the runtime loop (line 26) as OPEN, and
+   nothing in this run proves it.
+7. Not an earlier result: a light hosted test of the driver before this box was invalid (solar was not rebuilt
+   at aa38f0ab) and is not evidence of anything here.
+
+8. Run results (appended after ALL DONE at 2026-11-18T11:23:03Z; orchestrator.tsv has the real exits):
+   0 exit 0; 6c exit 14; 7 exit 14; 8 exit 14; 1 exit 0; 2 exit 0; 4 CounterRun.Lifecycle exit 0.
+   6c FAIL at stage "Lifecycle" (the lifecycle kernel). The driver at aa38f0ab returned UNSUPPORTED-lifecycle, exit 4:
+   "the kernel proves neither the deployment nor its refutation ...: error: Lean exited with code 134 | error: build failed".
+   Before that stage, the cold build of Contracts.VerifyCounter.Source (under -M 6000) and SourceSame both
+   built (source_same true; genwork oleans for counter_f1c87a33.Source and SourceSame exist). All imports of the
+   generated Lifecycle.lean and LifecycleRefute.lean have oleans; neither of those two modules has one, so they
+   are the modules that exited 134. The driver's full-log patch covers only SourceSame and Composed, not this
+   lifecycle-kernel build, so the lake output of the 134 was not retained and its cause is UNDIAGNOSED: no
+   memory_exception text was kept, and the scope recorded oom 0 and max 0 (peak 7.80 GB of 40 GB).
+   Composed was never generated or built, so steps 7 and 8 have nothing to check (14).
+   The generated Lifecycle.lean and LifecycleRefute.lean are kept under 6c/generated/.
+
+receipts.sha256 written at copy-off (2026-11-18T11:25:07Z): step 8 exited 14 before its own seal line, so no in-step seal exists.

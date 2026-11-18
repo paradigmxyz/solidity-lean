@@ -1,0 +1,14 @@
+diff --git a/lakefile.lean b/lakefile.lean
+index 8233a2ed9c516507aca83ce090961ab5c739e003..c8c5b685f598bf18c7256054649fc536ec2b90c6 100644
+--- a/lakefile.lean
++++ b/lakefile.lean
+@@ -529,7 +529,8 @@ lean_lib ContractsVerifyCounter where
+   roots := #[`Contracts.VerifyCounter.Holds]
+   globs := #[.submodules `Contracts.VerifyCounter]
+   leanOptions := solarTVOptions
+-  moreLeanArgs := #["-M", "3000"]
++  -- Source's unit checks run in the interpreter and need more than 3000 MB when built cold.
++  moreLeanArgs := #["-M", "6000"]
+ 
+ -- Math.sqrt's Newton loop inside CallSqrt's internal call: its generated ranking certificate
+ -- (Contracts/CallSqrt/Inferred.lean), sqrt's total contract under any caller, every call ending on

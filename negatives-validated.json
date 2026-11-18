@@ -1,0 +1,26 @@
+{
+ "note": "step 8 exited 14 at 'Composed not built (step 6c)' before composed_type and the negative controls, so none ran",
+ "controls": [
+  {
+   "control": "neg-words",
+   "status": "OPEN",
+   "reason": "not run (step 8 stopped at Composed not built)"
+  },
+  {
+   "control": "neg-storage",
+   "status": "OPEN",
+   "reason": "not run (step 8 stopped at Composed not built)"
+  },
+  {
+   "control": "neg-empty-storage",
+   "status": "OPEN",
+   "reason": "not run (step 8 stopped at Composed not built)"
+  },
+  {
+   "control": "neg-axioms",
+   "label": "parser-negative (axioms_exact rejects doctored text)",
+   "status": "OPEN",
+   "reason": "not run"
+  }
+ ]
+}

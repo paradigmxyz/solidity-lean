@@ -1,0 +1,16 @@
+created_at	2026-11-18T10:43:53Z	cut	2026-11-18T12:13:53Z
+2026-11-18T10:44:42Z	0	START	bash /home/ubuntu/box-v6.sh 0
+2026-11-18T10:47:11Z	0	EXIT	0
+2026-11-18T10:47:11Z	6c	START	bash /home/ubuntu/box-v6.sh 6c
+2026-11-18T11:15:26Z	6c	EXIT	14
+2026-11-18T11:15:26Z	7	START	bash /home/ubuntu/box-v6.sh 7
+2026-11-18T11:15:26Z	7	EXIT	14
+2026-11-18T11:15:26Z	8	START	bash /home/ubuntu/box-v6.sh 8
+2026-11-18T11:15:26Z	8	EXIT	14
+2026-11-18T11:15:26Z	1	START	bash /home/ubuntu/box-v6.sh 1
+2026-11-18T11:16:10Z	1	EXIT	0
+2026-11-18T11:16:10Z	2	START	bash /home/ubuntu/box-v6.sh 2
+2026-11-18T11:20:50Z	2	EXIT	0
+2026-11-18T11:20:50Z	4 CounterRun.Lifecycle	START	bash /home/ubuntu/box-v6.sh 4 CounterRun.Lifecycle
+2026-11-18T11:23:03Z	4 CounterRun.Lifecycle	EXIT	0
+2026-11-18T11:23:03Z	ALL	DONE
