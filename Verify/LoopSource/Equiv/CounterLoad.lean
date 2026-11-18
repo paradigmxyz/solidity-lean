@@ -218,8 +218,8 @@ theorem counter_deployedAtLoad {c : TypeCheck.CheckedContract} (hc : contract? =
   rw [hl k, Nat.mod_eq_of_lt hk]
   by_cases h : k = 1
   · subst h; rfl
-  · have hb : (1 == k) = false := by simp [beq_iff_eq, Ne.symm h]
-    simp [slotOf, List.find?, hb]
+  · have hb : (1 == k) = false := by simp [Ne.symm h]
+    simp [slotOf, List.find?, h, hb]
 
 end Verify.LoopSource.Equiv.CounterLoad
 
