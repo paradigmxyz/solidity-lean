@@ -44,6 +44,8 @@ echo '{"hatch_unset":["CERTIFY_ALLOW_UNPINNED","CERTIFY_REPLAY_TRUST_UPSTREAM","
 # TAG.json with the exit code and wall time; CMD's output goes to TAG.out.
 scoped() {
   local tag=$1; shift
+  # Keep the caller's errexit: a caller under set +e gets the scope's exit back.
+  local errexit=0; case $- in *e*) errexit=1;; esac
   set +e
   sudo systemd-run --scope --quiet -p MemoryMax=$MEM_MAX --uid="$(id -u)" --gid="$(id -g)" \
     env PATH="$PATH" HOME="$HOME" LEAN_NUM_THREADS="$LEAN_NUM_THREADS" RCPT="$R" TAG="$tag" \
@@ -59,7 +61,7 @@ print(json.dumps({"tag":tag,"exit":rc,"wall_s":round(time.time()-t0,1),"cgroup":
   "memory.max":rd("memory.max"),"memory.peak_bytes":int(rd("memory.peak")),"memory.events":ev}))
 EOF
       exit $rc' _ "$@"
-  local rc=$?; set -e
+  local rc=$?; [ $errexit = 0 ] || set -e
   cat "$R/$tag.json"
   # MemoryMax must be in force: a scope with memory.max "max" is not a finite run.
   if python3 -c "import json,sys;sys.exit(0 if json.load(open('$R/$tag.json'))['memory.max']=='max' else 1)"; then
