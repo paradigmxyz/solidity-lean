@@ -1,0 +1,7 @@
+info: SolidCore/Refinement/Generic/EraseLoadTest.lean:85:0: 'SolidCore.Refinement.Generic.loadPath_eq_loadIndex' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: SolidCore/Refinement/Generic/EraseLoadTest.lean:86:0: 'SolidCore.Refinement.Generic.loadPath_map' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: SolidCore/Refinement/Generic/EraseLoadTest.lean:87:0: 'SolidCore.Refinement.Generic.eval_erase' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: SolidCore/Refinement/Generic/EraseLoadTest.lean:88:0: 'SolidCore.Refinement.Generic.EraseLoadTest.erase_getter' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: SolidCore/Refinement/Generic/EraseLoadTest.lean:89:0: 'SolidCore.Refinement.Generic.EraseLoadTest.refuse_nested_getter' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]

@@ -1,0 +1,1 @@
+lake -KleanMemory=6000 build SolidCore.Refinement.Generic.Source

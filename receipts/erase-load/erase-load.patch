@@ -1,0 +1,193 @@
+diff --git a/SolidCore/Refinement/Generic/EraseLoadTest.lean b/SolidCore/Refinement/Generic/EraseLoadTest.lean
+new file mode 100644
+index 0000000000000000000000000000000000000000..c646083dc96ad734e2c962bcf76399c3e7506884
+--- /dev/null
++++ b/SolidCore/Refinement/Generic/EraseLoadTest.lean
+@@ -0,0 +1,99 @@
++import SolidCore.Refinement.Generic.SourceCall
++import SolidCore.Solidity.Interface.Contracts
++
++/-!
++# The generic erasure of a public mapping getter
++
++A regression for the generic check's erasure of the getter SolidCore builds for a public word
++mapping. For `mapping(address => uint256) public balanceOf`, SolidCore's interface
++(`StateVarDecl.toCoreRecursiveGetterIfPublic?`, through `StateVarDecl.publicGetterBodyExpr`)
++builds the function `balanceOf(address)` whose body returns `storagePath "balanceOf" [_key0]`,
++that is `.storageRead .load "balanceOf" [.var "_key0"]`. `eraseExpr` used to erase only the
++`.element` read of a mapping, so `eraseFn` of the getter was `none` and the generic probe
++reported `source tree undefined (erasure)` for `balanceOf(address)`.
++
++* `getter_body`: the getter's body is the `.load` read of the mapping at `_key0`;
++* `erase_load`: `eraseExpr` erases that read to the writes' read of `hash key slot`, the same
++  word as the `.element` read (`erase_element`);
++* `erase_getter`: `eraseFn` erases the whole getter;
++* the refusals: a `.load` read of a mapping to `bool` (`refuse_bool_map`: `mapOf?` admits only
++  `uint256` values) and the two-key `.load` path of a nested mapping's getter (`refuse_nested`
++  and `refuse_nested_getter`: the arm takes exactly one key) stay `none`.
++-/
++
++namespace SolidCore.Refinement.Generic.EraseLoadTest
++
++open SolidCore.Solidity.Source
++
++/-- The storage of the test: a word mapping at slot 2, a mapping to `bool` at slot 3 and a nested
++word mapping at slot 4, with SolidCore's core layouts. -/
++def fields : List StorageField :=
++  [{ name := "balanceOf", slot := 2, layout? := some (.mapping .address (.scalar .uint256)) },
++   { name := "isMinter", slot := 3, layout? := some (.mapping .address (.scalar .bool)) },
++   { name := "allowance", slot := 4,
++     layout? := some (.mapping .address (.mapping .address (.scalar .uint256))) }]
++
++/-- The erasure environment of the test. -/
++def env : EraseEnv := { fields := fields, events := [], tbl := [] }
++
++/-- `mapping(address => uint256) public balanceOf;` -/
++def balanceOfDecl : SolidCore.Solidity.StateVarDecl :=
++  { name := "balanceOf", ty := .mapping (.address false) (.uint 256), visibility := some .public_ }
++
++/-- `mapping(address => mapping(address => uint256)) public allowance;` -/
++def allowanceDecl : SolidCore.Solidity.StateVarDecl :=
++  { name := "allowance", ty := .mapping (.address false) (.mapping (.address false) (.uint 256)),
++    visibility := some .public_ }
++
++/-- The getter SolidCore builds for a public state variable of the test. -/
++def getter? (d : SolidCore.Solidity.StateVarDecl) : Option FunctionDef :=
++  (SolidCore.Solidity.Executable.StateVarDecl.toCoreRecursiveGetterIfPublic?
++    ["balanceOf", "isMinter", "allowance"] d).bind id
++
++/-- A state whose local `k` holds argument word 0. -/
++def S0 : SymState := { scopes := [[("k", .arg 0)]], writes := [], logs := [] }
++
++theorem getter_body :
++    (getter? balanceOfDecl).map (·.body) =
++      some (.returnValues [.storageRead .load "balanceOf" [.var "_key0"]]) := rfl
++
++theorem erase_load :
++    eraseExpr fields S0 (.storageRead .load "balanceOf" [.var "k"]) =
++      some ([], S0.writes.read (.hash (.arg 0) (.lit 2))) := by decide +kernel
++
++theorem erase_element :
++    eraseExpr fields S0 (.storageRead .element "balanceOf" [.var "k"]) =
++      eraseExpr fields S0 (.storageRead .load "balanceOf" [.var "k"]) := by decide +kernel
++
++theorem erase_getter : ((getter? balanceOfDecl).bind (eraseFn env 64)).isSome = true := by
++  decide +kernel
++
++/-- Refusal: `mapOf?` admits only mappings to `uint256`, so the `.load` read of a mapping to
++`bool` erases to nothing. -/
++theorem refuse_bool_map :
++    eraseExpr fields S0 (.storageRead .load "isMinter" [.var "k"]) = none := by decide +kernel
++
++/-- Refusal: the `.load` arm takes exactly one key, so the two-key path of a nested mapping's
++getter erases to nothing. -/
++theorem refuse_nested :
++    eraseExpr fields S0 (.storageRead .load "allowance" [.var "k", .var "k"]) = none := by
++  decide +kernel
++
++theorem refuse_nested_getter :
++    ((getter? allowanceDecl).bind (eraseFn env 64)).isNone = true := by decide +kernel
++
++#print axioms loadPath_eq_loadIndex
++#print axioms loadPath_map
++#print axioms eval_erase
++#print axioms erase_getter
++#print axioms refuse_nested_getter
++
++#eval (getter? balanceOfDecl).map (·.body)
++#eval (getter? balanceOfDecl).bind (eraseFn env 64)
++#eval eraseExpr fields S0 (.storageRead .load "balanceOf" [.var "k"])
++#eval eraseExpr fields S0 (.storageRead .load "isMinter" [.var "k"])
++#eval eraseExpr fields S0 (.storageRead .load "allowance" [.var "k", .var "k"])
++#eval (getter? allowanceDecl).map (·.body)
++#eval (getter? allowanceDecl).bind (eraseFn env 64)
++
++end SolidCore.Refinement.Generic.EraseLoadTest
+diff --git a/SolidCore/Refinement/Generic/Source.lean b/SolidCore/Refinement/Generic/Source.lean
+index cd6af2fd9f372b44689a612d625767943b7a7ac2..f4730b3c55d53d905014ce4ed1641d1fb9bcb8c2 100644
+--- a/SolidCore/Refinement/Generic/Source.lean
++++ b/SolidCore/Refinement/Generic/Source.lean
+@@ -257,6 +257,12 @@ def eraseExpr (fields : List StorageField) (S : SymState) : Expr → Option (Lis
+       let k ← boolMapOf? fields x
+       let (gs, v) ← eraseExpr fields S idx
+       some (gs, boolOfWord (S.writes.read (.hash v (.lit k))))
++  | .storageRead .load x [idx] => do
++    -- The public getter of a word mapping, `storagePath x [idx]` (see
++    -- `StateVarDecl.publicGetterBodyExpr`): the same slot word as `.element`.
++    let k ← mapOf? fields x
++    let (gs, v) ← eraseExpr fields S idx
++    some (gs, S.writes.read (.hash v (.lit k)))
+   | .index (.storageRead .element x [i1]) i2 => do
+     let k ← map2Of? fields x
+     let (g1, v1) ← eraseExpr fields S i1
+@@ -794,6 +800,37 @@ theorem loadIndex_map {ρ : Val} {fields : List StorageField} {ctx : Context} {r
+     State.loadStorageLayoutAt, State.loadStorageLayoutAtFuel, loadStorageWordAs,
+     Ty.storageValueFromWord?, mappingStorageSlot_eq, hsl, pure, Except.pure, StorageLayout.depth]
+ 
++/-- A word mapping's entry at a key word reads the same through SolidCore's storage path
++(`loadStoragePath`, which `.storageRead .load` evaluates) as through its index read
++(`loadStorageIndex`, which `.storageRead .element` evaluates): both read the slot
++`hash key slot` at the value layout `uint256`. -/
++theorem loadPath_eq_loadIndex {ctx : Context} {rt : Runtime} {x : String} {f : StorageField}
++    (hf : MapOk ctx x f) {w : Nat} (hw : w < wordSize) :
++    rt.loadStoragePath ctx x [.word w] = rt.loadStorageIndex ctx x (.word w) := by
++  rcases hf.layout with hl | hl
++  · have ha : (Ty.address = .address ∨ Ty.address = .uint256) := .inl rfl
++    simp only [Runtime.loadStoragePath, Runtime.loadStorageBasePath, Runtime.resolveStorageBasePath,
++      Runtime.storageBaseAnchor, hf.find, hl, hf.transient, Bool.false_and, Bool.false_eq_true,
++      ↓reduceIte, bind, Except.bind, pure, Except.pure]
++    rw [resolve_step _ _ ha _ _ hw, State.resolveStoragePathSlot.eq_1]
++    simp only [Runtime.loadStorageIndex, hf.find, hl, slot_key _ ha hw, bind, Except.bind]
++  · have ha : (Ty.uint256 = .address ∨ Ty.uint256 = .uint256) := .inr rfl
++    simp only [Runtime.loadStoragePath, Runtime.loadStorageBasePath, Runtime.resolveStorageBasePath,
++      Runtime.storageBaseAnchor, hf.find, hl, hf.transient, Bool.false_and, Bool.false_eq_true,
++      ↓reduceIte, bind, Except.bind, pure, Except.pure]
++    rw [resolve_step _ _ ha _ _ hw, State.resolveStoragePathSlot.eq_1]
++    simp only [Runtime.loadStorageIndex, hf.find, hl, slot_key _ ha hw, bind, Except.bind]
++
++/-- SolidCore reads a word mapping's public-getter path at a key word as the writes' read of the
++slot word `hash key slot`. -/
++theorem loadPath_map {ρ : Val} {fields : List StorageField} {ctx : Context} {rt : Runtime}
++    {S : SymState} (hrel : ExprRel ρ fields ctx rt S) {x : String} {k : Nat}
++    (hk : mapOf? fields x = some k) {w : Nat} (hw : w < wordSize) :
++    rt.loadStoragePath ctx x [.word w] =
++      .ok (.word (Writes.store ρ S.writes (solHash w k % wordSize))) := by
++  obtain ⟨f, hf, rfl⟩ := mapOf?_spec hrel.fields hk
++  rw [loadPath_eq_loadIndex hf hw, loadIndex_map hrel hk hw]
++
+ /-- What the fragment knows of a mapping to `bool` it reads and writes. -/
+ structure BoolMapOk (ctx : Context) (x : String) (f : StorageField) : Prop where
+   find : ctx.storageField? x = some f
+@@ -1235,6 +1272,32 @@ theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
+             rw [loadIndex_boolMap hrel hk' (v0.eval_lt ρ), boolOfWord_eval, Writes.eval_read hrel.ok]
+             simp only [WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf.slot]
+             rfl
++    case load =>
++      match idx, h with
++      | [i], h =>
++        simp only [eraseExpr, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq,
++          Prod.mk.injEq] at h
++        obtain ⟨k, hk, ⟨gs0, v0⟩, hi, rfl, rfl⟩ := h
++        obtain ⟨m, rfl⟩ : ∃ m, n = m + 1 + 1 :=
++          ⟨n - 2, by simp [Expr.orderFuel, Expr.listEvalFuel] at hf; omega⟩
++        have ih := eval_erase ρ fields ctx rt S hrel i gs0 v0 (m + 1) hi
++          (by simp [Expr.orderFuel, Expr.listEvalFuel] at hf; omega)
++        rw [Expr.evalFuel.eq_def]
++        simp only
++        rw [Expr.evalListFuel.eq_def]
++        simp only
++        rw [ih, bind_exprResult]
++        unfold exprResult
++        split
++        · rfl
++        · rw [Expr.evalListFuel.eq_def]
++          obtain ⟨f, hf, rfl⟩ := mapOf?_spec hrel.fields hk
++          simp only [bind, EvmCompiler.Simulation.Interaction.bind, liftM, monadLift,
++            MonadLift.monadLift, SolI.ofExcept, pure, EvmCompiler.Simulation.Interaction.pure,
++            List.isEmpty_cons, Bool.false_and, Bool.false_eq_true, ↓reduceIte,
++            loadPath_map hrel hk (v0.eval_lt ρ)]
++          rw [Writes.eval_read hrel.ok]
++          simp only [WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf.slot]
+     all_goals
+       cases idx <;> simp only [eraseExpr] at h
+     all_goals first

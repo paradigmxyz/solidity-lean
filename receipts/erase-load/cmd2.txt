@@ -1,0 +1,1 @@
+lake -KleanMemory=6000 build SolidCore.Refinement.Generic.SourceStmt SolidCore.Refinement.Generic.SourceCall SolidCore.Refinement.Generic.EraseLoadTest

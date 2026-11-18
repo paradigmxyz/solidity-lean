@@ -1,0 +1,1353 @@
+⚠ [963/1185] Replayed EvmYul.UInt256
+warning: EvmYul/UInt256.lean: imports `Mathlib.Data.Nat.Basic` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Data.Fin.Basic` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Data.Vector.Basic` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Algebra.Group.Defs` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Algebra.GroupWithZero.Defs` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Algebra.Ring.Basic` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Algebra.Order.Floor.Defs` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Algebra.Order.Floor.Ring` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Algebra.Order.Floor.Semiring` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Data.ZMod.Defs` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Tactic.Ring` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [972/1185] Replayed SolidCore.Solidity.Shared.PrecompilePairing
+warning: SolidCore/Solidity/Shared/PrecompilePairing.lean:144:5: Variable name `h` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _h
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+⚠ [1021/1185] Replayed EvmYul.Wheels
+warning: EvmYul/Wheels.lean: imports `Mathlib.Data.Finmap` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [1136/1185] Replayed EvmYul.Maps.ByteMap
+warning: EvmYul/Maps/ByteMap.lean:20:0: it is recommended to use Std.TreeMap instead
+'Batteries.Data.RBMap' has been deprecated: please replace this import by
+
+import Batteries.Data.RBMap.Basic
+import Batteries.Data.RBMap.Depth
+import Batteries.Data.RBMap.Lemmas
+import Batteries.Data.RBMap.Alter
+import Batteries.Data.RBMap.WF
+⚠ [1138/1185] Replayed EvmYul.Operations
+warning: EvmYul/Operations.lean: imports `Mathlib.Data.Finmap` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [1144/1185] Replayed EvmYul.Maps.StorageMap
+warning: EvmYul/Maps/StorageMap.lean: imports `Mathlib.Data.Multiset.Sort` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/Maps/StorageMap.lean:20:0: it is recommended to use Std.TreeMap instead
+'Batteries.Data.RBMap' has been deprecated: please replace this import by
+
+import Batteries.Data.RBMap.Basic
+import Batteries.Data.RBMap.Depth
+import Batteries.Data.RBMap.Lemmas
+import Batteries.Data.RBMap.Alter
+import Batteries.Data.RBMap.WF
+⚠ [1146/1185] Replayed EvmYul.State.Substate
+warning: EvmYul/State/Substate.lean:1:0: it is recommended to use Std.TreeMap instead
+'Batteries.Data.RBMap' has been deprecated: please replace this import by
+
+import Batteries.Data.RBMap.Basic
+import Batteries.Data.RBMap.Depth
+import Batteries.Data.RBMap.Lemmas
+import Batteries.Data.RBMap.Alter
+import Batteries.Data.RBMap.WF
+⚠ [1147/1185] Replayed Conform.Wheels
+warning: Conform/Wheels.lean: imports `Mathlib.Data.Multiset.Sort` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: Conform/Wheels.lean:4:0: it is recommended to use Std.TreeMap instead
+'Batteries.Data.RBMap' has been deprecated: please replace this import by
+
+import Batteries.Data.RBMap.Basic
+import Batteries.Data.RBMap.Depth
+import Batteries.Data.RBMap.Lemmas
+import Batteries.Data.RBMap.Alter
+import Batteries.Data.RBMap.WF
+⚠ [1148/1185] Replayed EvmYul.State.Transaction
+warning: EvmYul/State/Transaction.lean: imports `Mathlib.Data.List.AList` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [1151/1185] Replayed EvmYul.Maps.AccountMap
+warning: EvmYul/Maps/AccountMap.lean:20:0: it is recommended to use Std.TreeMap instead
+'Batteries.Data.RBMap' has been deprecated: please replace this import by
+
+import Batteries.Data.RBMap.Basic
+import Batteries.Data.RBMap.Depth
+import Batteries.Data.RBMap.Lemmas
+import Batteries.Data.RBMap.Alter
+import Batteries.Data.RBMap.WF
+⚠ [1154/1185] Replayed EvmYul.State.Block
+warning: EvmYul/State/Block.lean: imports `Mathlib.Data.Finset.Basic` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [1155/1185] Replayed EvmYul.State
+warning: EvmYul/State.lean: imports `Mathlib.Data.Finset.Basic` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/State.lean:1:0: it is recommended to use Std.TreeMap instead
+'Batteries.Data.RBMap' has been deprecated: please replace this import by
+
+import Batteries.Data.RBMap.Basic
+import Batteries.Data.RBMap.Depth
+import Batteries.Data.RBMap.Lemmas
+import Batteries.Data.RBMap.Alter
+import Batteries.Data.RBMap.WF
+⚠ [1162/1185] Replayed EvmYul.MachineStateOps
+warning: EvmYul/MachineStateOps.lean:1:0: it is recommended to use Std.TreeMap instead
+'Batteries.Data.RBMap' has been deprecated: please replace this import by
+
+import Batteries.Data.RBMap.Basic
+import Batteries.Data.RBMap.Depth
+import Batteries.Data.RBMap.Lemmas
+import Batteries.Data.RBMap.Alter
+import Batteries.Data.RBMap.WF
+⚠ [1164/1185] Replayed EvmInteraction.Simulation.Outcome
+warning: EvmInteraction/Simulation/Outcome.lean: imports `Mathlib.Data.List.Basic` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+⚠ [1169/1185] Replayed SolidCore.Solidity.Interface.Foundation
+warning: SolidCore/Solidity/Interface/Foundation.lean:4248:20: Unused tactic linter: `<;>` should be replaced with `;` or be removed.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+⚠ [1172/1185] Replayed SolidCore.Refinement.Generic.Tree
+warning: SolidCore/Refinement/Generic/Tree.lean:271:12: `if_neg` has been deprecated: Use `ite_eq_right` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵n̵e̵g̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲
+warning: SolidCore/Refinement/Generic/Tree.lean:375:30: This simp argument is unused:
+  Nat.mod_mod
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [WExpr.eval]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/Tree.lean:380:30: This simp argument is unused:
+  Nat.mod_mod
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [WExpr.eval]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/Tree.lean:416:47: This simp argument is unused:
+  Nat.mod_mod
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [WExpr.norm, WExpr.eval]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/Tree.lean:439:43: This simp argument is unused:
+  Nat.mod_mod
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [OByte.norm, OByte.eval]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+⚠ [1173/1185] Replayed SolidCore.Refinement.Generic.Packed
+warning: SolidCore/Refinement/Generic/Packed.lean:60:20: This simp argument is unused:
+  this
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [h1, h2]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+⚠ [1174/1185] Replayed SolidCore.Solidity.TypeCheck
+warning: SolidCore/Solidity/TypeCheck.lean:5179:34: Unused tactic linter: `<;>` should be replaced with `;` or be removed.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:6863:26: Variable name `tys` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _tys
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: SolidCore/Solidity/TypeCheck.lean:9012:8: Unused tactic linter: `subst rhs` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9013:8: Unused tactic linter: `subst lhs` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9019:6: Unused tactic linter: `(cases rhs) <;> simp_all [sizeOf] <;> omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9021:6: Unused tactic linter: `(cases target) <;> simp_wf <;> try simp_all <;> omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9023:6: Unused tactic linter: `(cases fn) <;> simp_wf <;> try simp_all [sizeOf] <;> omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9032:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9034:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9046:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9078:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9080:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9155:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9195:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9235:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9264:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9363:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9365:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9376:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9393:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9417:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9623:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9625:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9648:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9662:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9664:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9676:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9019:6: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9019:42: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9021:6: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9021:35: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9023:6: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9023:31: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9836:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:10572:4: Variable name `other` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _other
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: SolidCore/Solidity/TypeCheck.lean:15789:14: `String.mk` has been deprecated: Use `String.ofList` instead
+
+Hint: Replace the deprecated name:
+  String.m̵k̵o̲f̲L̲i̲s̲t̲
+warning: SolidCore/Solidity/TypeCheck.lean:15796:29: `String.mk` has been deprecated: Use `String.ofList` instead
+
+Hint: Replace the deprecated name:
+  String.m̵k̵o̲f̲L̲i̲s̲t̲
+warning: SolidCore/Solidity/TypeCheck.lean:15798:26: `String.mk` has been deprecated: Use `String.ofList` instead
+
+Hint: Replace the deprecated name:
+  String.m̵k̵o̲f̲L̲i̲s̲t̲
+⚠ [1176/1185] Replayed SolidCore.Solidity.Interface.Statements
+warning: SolidCore/Solidity/Interface/Statements.lean:1053:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:516:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:1380:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:1331:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:792:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:1211:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:1130:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:3179:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:746:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:958:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:1024:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:1087:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:656:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:493:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:2189:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:679:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:994:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:701:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:95:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:9040:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:9095:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:9144:0: unused `termination_by`, function is not recursive
+⚠ [1177/1185] Replayed SolidCore.Solidity.Interface.Contracts
+warning: SolidCore/Solidity/Interface/Contracts.lean:1262:31: Unused tactic linter: `<;>` should be replaced with `;` or be removed.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/Interface/Contracts.lean:1262:31: Used `tac1 <;> tac2` where `(tac1; tac2)` would suffice
+
+Note: This linter can be disabled with `set_option linter.unnecessarySeqFocus false`
+warning: SolidCore/Solidity/Interface/Contracts.lean:3001:6: Variable name `storageOrder` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _storageOrder
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: SolidCore/Solidity/Interface/Contracts.lean:3166:6: Variable name `dispatchOrder` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _dispatchOrder
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: SolidCore/Solidity/Interface/Contracts.lean:3177:6: Variable name `sharedConstantTail` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _sharedConstantTail
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+⚠ [1180/1185] Replayed SolidCore.Refinement.Generic.Source
+warning: SolidCore/Refinement/Generic/Source.lean:333:4: This simp argument is unused:
+  size_eq
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [BinaryOp.apply, Value.forceAbiLazy, BinaryOp.applyWord, checkedAdd, norm_lt ha, norm_lt hb, bind,
+    Except.bind, Functor.map, Except.map, wordModulus, RevertData.overflow, addWord_eq, h, modulus_eq]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/Source.lean:439:22: This simp argument is unused:
+  norm_lt ha
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [BinaryOp.apply, Value.forceAbiLazy, BinaryOp.applyWord, bind, Except.bind, Functor.map, Except.map,
+    SolidCore.Solidity.Shared.andWord, SolidCore.Solidity.Shared.liftEvmBinary, SolidCore.Solidity.Shared.ofEvmWord,
+    SolidCore.Solidity.Shared.toEvmWord, toNat_land_u256, toNat_ofNat_u256, norm_lt hb, Nat.mod_eq_of_lt ha,
+    Nat.mod_eq_of_lt hb, SolidCore.Solidity.Shared.norm, modulus_eq, Nat.mod_mod]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/Source.lean:439:34: This simp argument is unused:
+  norm_lt hb
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [BinaryOp.apply, Value.forceAbiLazy, BinaryOp.applyWord, bind, Except.bind, Functor.map, Except.map,
+    SolidCore.Solidity.Shared.andWord, SolidCore.Solidity.Shared.liftEvmBinary, SolidCore.Solidity.Shared.ofEvmWord,
+    SolidCore.Solidity.Shared.toEvmWord, toNat_land_u256, toNat_ofNat_u256, norm_lt ha, Nat.mod_eq_of_lt ha,
+    Nat.mod_eq_of_lt hb, SolidCore.Solidity.Shared.norm, modulus_eq, Nat.mod_mod]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/Source.lean:440:48: This simp argument is unused:
+  Nat.mod_mod
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [BinaryOp.apply, Value.forceAbiLazy, BinaryOp.applyWord, bind, Except.bind, Functor.map, Except.map,
+    SolidCore.Solidity.Shared.andWord, SolidCore.Solidity.Shared.liftEvmBinary, SolidCore.Solidity.Shared.ofEvmWord,
+    SolidCore.Solidity.Shared.toEvmWord, toNat_land_u256, toNat_ofNat_u256, norm_lt ha, norm_lt hb, Nat.mod_eq_of_lt ha,
+    Nat.mod_eq_of_lt hb, SolidCore.Solidity.Shared.norm, modulus_eq]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/Source.lean:447:22: This simp argument is unused:
+  norm_lt ha
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [BinaryOp.apply, Value.forceAbiLazy, BinaryOp.applyWord, bind, Except.bind, Functor.map, Except.map,
+    SolidCore.Solidity.Shared.orWord, SolidCore.Solidity.Shared.liftEvmBinary, SolidCore.Solidity.Shared.ofEvmWord,
+    SolidCore.Solidity.Shared.toEvmWord, toNat_lor_u256, toNat_ofNat_u256, norm_lt hb, Nat.mod_eq_of_lt ha,
+    Nat.mod_eq_of_lt hb, SolidCore.Solidity.Shared.norm, modulus_eq, Nat.mod_mod]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/Source.lean:447:34: This simp argument is unused:
+  norm_lt hb
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [BinaryOp.apply, Value.forceAbiLazy, BinaryOp.applyWord, bind, Except.bind, Functor.map, Except.map,
+    SolidCore.Solidity.Shared.orWord, SolidCore.Solidity.Shared.liftEvmBinary, SolidCore.Solidity.Shared.ofEvmWord,
+    SolidCore.Solidity.Shared.toEvmWord, toNat_lor_u256, toNat_ofNat_u256, norm_lt ha, Nat.mod_eq_of_lt ha,
+    Nat.mod_eq_of_lt hb, SolidCore.Solidity.Shared.norm, modulus_eq, Nat.mod_mod]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/Source.lean:448:48: This simp argument is unused:
+  Nat.mod_mod
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [BinaryOp.apply, Value.forceAbiLazy, BinaryOp.applyWord, bind, Except.bind, Functor.map, Except.map,
+    SolidCore.Solidity.Shared.orWord, SolidCore.Solidity.Shared.liftEvmBinary, SolidCore.Solidity.Shared.ofEvmWord,
+    SolidCore.Solidity.Shared.toEvmWord, toNat_lor_u256, toNat_ofNat_u256, norm_lt ha, norm_lt hb, Nat.mod_eq_of_lt ha,
+    Nat.mod_eq_of_lt hb, SolidCore.Solidity.Shared.norm, modulus_eq]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/Source.lean:455:22: This simp argument is unused:
+  norm_lt ha
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [BinaryOp.apply, Value.forceAbiLazy, BinaryOp.applyWord, bind, Except.bind, Functor.map, Except.map,
+    SolidCore.Solidity.Shared.xorWord, SolidCore.Solidity.Shared.liftEvmBinary, SolidCore.Solidity.Shared.ofEvmWord,
+    SolidCore.Solidity.Shared.toEvmWord, toNat_xor_u256, toNat_ofNat_u256, norm_lt hb, Nat.mod_eq_of_lt ha,
+    Nat.mod_eq_of_lt hb, SolidCore.Solidity.Shared.norm, modulus_eq, Nat.mod_mod]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/Source.lean:455:34: This simp argument is unused:
+  norm_lt hb
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [BinaryOp.apply, Value.forceAbiLazy, BinaryOp.applyWord, bind, Except.bind, Functor.map, Except.map,
+    SolidCore.Solidity.Shared.xorWord, SolidCore.Solidity.Shared.liftEvmBinary, SolidCore.Solidity.Shared.ofEvmWord,
+    SolidCore.Solidity.Shared.toEvmWord, toNat_xor_u256, toNat_ofNat_u256, norm_lt ha, Nat.mod_eq_of_lt ha,
+    Nat.mod_eq_of_lt hb, SolidCore.Solidity.Shared.norm, modulus_eq, Nat.mod_mod]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/Source.lean:456:48: This simp argument is unused:
+  Nat.mod_mod
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [BinaryOp.apply, Value.forceAbiLazy, BinaryOp.applyWord, bind, Except.bind, Functor.map, Except.map,
+    SolidCore.Solidity.Shared.xorWord, SolidCore.Solidity.Shared.liftEvmBinary, SolidCore.Solidity.Shared.ofEvmWord,
+    SolidCore.Solidity.Shared.toEvmWord, toNat_xor_u256, toNat_ofNat_u256, norm_lt ha, norm_lt hb, Nat.mod_eq_of_lt ha,
+    Nat.mod_eq_of_lt hb, SolidCore.Solidity.Shared.norm, modulus_eq]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/Source.lean:562:8: `if_pos` has been deprecated: Use `ite_eq_left` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵p̵o̵s̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲
+warning: SolidCore/Refinement/Generic/Source.lean:562:27: `if_neg` has been deprecated: Use `ite_eq_right` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵n̵e̵g̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲
+warning: SolidCore/Refinement/Generic/Source.lean:562:37: `if_neg` has been deprecated: Use `ite_eq_right` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵n̵e̵g̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲
+warning: SolidCore/Refinement/Generic/Source.lean:801:58: This simp argument is unused:
+  pure
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [Runtime.loadStorageIndex, hf.find, hl, mappingStorageSlotForKey, coerceMappingKeyWordAs,
+    Value.forceAbiLazy, Ty.coerceValue?, Value.asStorageWord?, norm_lt hw, bind, Except.bind, State.loadStorageLayoutAt,
+    State.loadStorageLayoutAtFuel, loadStorageWordAs, Ty.storageValueFromWord?, mappingStorageSlot_eq, hsl, Except.pure,
+    StorageLayout.depth]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/Source.lean:801:64: This simp argument is unused:
+  Except.pure
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [Runtime.loadStorageIndex, hf.find, hl, mappingStorageSlotForKey, coerceMappingKeyWordAs,
+    Value.forceAbiLazy, Ty.coerceValue?, Value.asStorageWord?, norm_lt hw, bind, Except.bind, State.loadStorageLayoutAt,
+    State.loadStorageLayoutAtFuel, loadStorageWordAs, Ty.storageValueFromWord?, mappingStorageSlot_eq, hsl, pure,
+    StorageLayout.depth]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/Source.lean:1010:8: This simp argument is unused:
+  materialize_bytes
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [pure, EvmCompiler.Simulation.Interaction.pure, bind, EvmCompiler.Simulation.Interaction.bind,
+    liftM, monadLift, MonadLift.monadLift, encode2_words, Value.asBytes?, uintCast_fixed, SolI.ofExcept, Except.bind]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/Source.lean:1010:27: This simp argument is unused:
+  encode2_words
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [pure, EvmCompiler.Simulation.Interaction.pure, bind, EvmCompiler.Simulation.Interaction.bind,
+    liftM, monadLift, MonadLift.monadLift, materialize_bytes, Value.asBytes?, uintCast_fixed, SolI.ofExcept,
+    Except.bind]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/Source.lean:1010:58: This simp argument is unused:
+  uintCast_fixed
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [pure, EvmCompiler.Simulation.Interaction.pure, bind, EvmCompiler.Simulation.Interaction.bind,
+    liftM, monadLift, MonadLift.monadLift, materialize_bytes, encode2_words, Value.asBytes?, SolI.ofExcept, Except.bind]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/Source.lean:1010:89: This simp argument is unused:
+  Except.bind
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [pure, EvmCompiler.Simulation.Interaction.pure, bind, EvmCompiler.Simulation.Interaction.bind,
+    liftM, monadLift, MonadLift.monadLift, materialize_bytes, encode2_words, Value.asBytes?, uintCast_fixed,
+    SolI.ofExcept]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/Source.lean:1013:26: This simp argument is unused:
+  materialize_bytes
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [EvmCompiler.Simulation.Interaction.bind, Runtime.materializeForValueUseList, materialize_word,
+    encode2_words, uintCast_fixed, Except.bind]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/Source.lean:1013:45: This simp argument is unused:
+  encode2_words
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [EvmCompiler.Simulation.Interaction.bind, Runtime.materializeForValueUseList, materialize_word,
+    materialize_bytes, uintCast_fixed, Except.bind]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/Source.lean:1013:60: This simp argument is unused:
+  uintCast_fixed
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [EvmCompiler.Simulation.Interaction.bind, Runtime.materializeForValueUseList, materialize_word,
+    materialize_bytes, encode2_words, Except.bind]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/Source.lean:1013:76: This simp argument is unused:
+  Except.bind
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [EvmCompiler.Simulation.Interaction.bind, Runtime.materializeForValueUseList, materialize_word,
+    materialize_bytes, encode2_words, uintCast_fixed]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/Source.lean:1014:12: This simp argument is unused:
+  EvmCompiler.Simulation.Interaction.bind
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [Runtime.materializeForValueUseList, materialize_word, materialize_bytes, encode2_words, uintCast_fixed,
+    bind, Except.bind, pure, Except.pure, WExpr.eval, hash, solHash, storageWordBytes, normByte_wordToBytesBE]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/Source.lean:1014:53: This simp argument is unused:
+  Runtime.materializeForValueUseList
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [EvmCompiler.Simulation.Interaction.bind, materialize_word, materialize_bytes, encode2_words,
+    uintCast_fixed, bind, Except.bind, pure, Except.pure, WExpr.eval, hash, solHash, storageWordBytes,
+    normByte_wordToBytesBE]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/Source.lean:1015:8: This simp argument is unused:
+  materialize_word
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [EvmCompiler.Simulation.Interaction.bind, Runtime.materializeForValueUseList, materialize_bytes,
+    encode2_words, uintCast_fixed, bind, Except.bind, pure, Except.pure, WExpr.eval, hash, solHash, storageWordBytes,
+    normByte_wordToBytesBE]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/Source.lean:1015:95: This simp argument is unused:
+  pure
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [EvmCompiler.Simulation.Interaction.bind, Runtime.materializeForValueUseList, materialize_word,
+    materialize_bytes, encode2_words, uintCast_fixed, bind, Except.bind, Except.pure, WExpr.eval, hash, solHash,
+    storageWordBytes, normByte_wordToBytesBE]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/Source.lean:1016:8: This simp argument is unused:
+  Except.pure
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [EvmCompiler.Simulation.Interaction.bind, Runtime.materializeForValueUseList, materialize_word,
+    materialize_bytes, encode2_words, uintCast_fixed, bind, Except.bind, pure, WExpr.eval, hash, solHash,
+    storageWordBytes, normByte_wordToBytesBE]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/Source.lean:1194:19: This simp argument is unused:
+  any_append
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [hgr]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/Source.lean:1197:21: This simp argument is unused:
+  any_append
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [hgl]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/Source.lean:1200:27: This simp argument is unused:
+  guard_add
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [any_append, hgl, hgr, Bool.false_or, List.any_cons, List.any_nil, Bool.or_false, guard_sub,
+    guard_mul]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/Source.lean:1207:80: This simp argument is unused:
+  Nat.mod_mod
+
+Hint: Omit it from the simp argument list.
+  [apply] simp_all [SolI.ofExcept, WExpr.eval, BinOp.eval, UnOp.eval]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/Source.lean:1121:18: Unused tactic linter: `rfl` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Refinement/Generic/Source.lean:1186:4: Unused tactic linter: `all_goals
+  first
+  | (simp at h; done)
+  | skip` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Refinement/Generic/Source.lean:1211:34: Unused tactic linter: `<;>` should be replaced with `;` or be removed.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Refinement/Generic/Source.lean:1212:14: Unused tactic linter: `(split <;> simp_all)` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Refinement/Generic/Source.lean:1304:20: Unused tactic linter: `done` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Refinement/Generic/Source.lean:1305:8: Unused tactic linter: `skip` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Refinement/Generic/Source.lean:1212:14: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Refinement/Generic/Source.lean:1211:34: Used `tac1 <;> tac2` where `(tac1; tac2)` would suffice
+
+Note: This linter can be disabled with `set_option linter.unnecessarySeqFocus false`
+⚠ [1181/1185] Built SolidCore.Refinement.Generic.Simp (919ms)
+warning: SolidCore/Refinement/Generic/Simp.lean:497:10: `if_pos` has been deprecated: Use `ite_eq_left` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵p̵o̵s̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲
+warning: SolidCore/Refinement/Generic/Simp.lean:504:12: `if_pos` has been deprecated: Use `ite_eq_left` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵p̵o̵s̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲
+warning: SolidCore/Refinement/Generic/Simp.lean:526:12: `if_neg` has been deprecated: Use `ite_eq_right` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵n̵e̵g̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲
+warning: SolidCore/Refinement/Generic/Simp.lean:513:22: This simp argument is unused:
+  Nat.mod_mod
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [WExpr.eval]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/Simp.lean:557:48: `if_neg` has been deprecated: Use `ite_eq_right` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵n̵e̵g̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲
+warning: SolidCore/Refinement/Generic/Simp.lean:533:22: This simp argument is unused:
+  Nat.mod_mod
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [WExpr.eval]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/Simp.lean:550:47: This simp argument is unused:
+  Nat.mod_mod
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [WExpr.eval, BinOp.eval, hw, ↓reduceIte, Nat.mod_eq_of_lt hlr,
+    Nat.mul_div_cancel _ (Nat.pos_of_ne_zero hw), Nat.mod_eq_of_lt hlt]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/Simp.lean:590:12: `if_neg` has been deprecated: Use `ite_eq_right` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵n̵e̵g̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲
+warning: SolidCore/Refinement/Generic/Simp.lean:595:12: `if_pos` has been deprecated: Use `ite_eq_left` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵p̵o̵s̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲
+warning: SolidCore/Refinement/Generic/Simp.lean:563:47: This simp argument is unused:
+  Nat.mod_mod
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [WExpr.simp, WExpr.eval]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/Simp.lean:612:43: This simp argument is unused:
+  Nat.mod_mod
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [OByte.simp, OByte.eval]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/Simp.lean:662:12: `if_neg` has been deprecated: Use `ite_eq_right` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵n̵e̵g̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲
+warning: SolidCore/Refinement/Generic/Simp.lean:667:12: `if_pos` has been deprecated: Use `ite_eq_left` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵p̵o̵s̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲
+warning: SolidCore/Refinement/Generic/Simp.lean:727:14: `if_pos` has been deprecated: Use `ite_eq_left` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵p̵o̵s̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲
+warning: SolidCore/Refinement/Generic/Simp.lean:728:13: `ite_cond_eq_false` has been deprecated: Use `ite_eq_right_of_eq_false` instead
+
+Hint: Replace the deprecated name:
+  i̵t̵e̵_̵c̵o̵n̵d̵_̵e̵q̵_̵f̵a̵l̵s̵e̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲_̲o̲f̲_̲e̲q̲_̲f̲a̲l̲s̲e̲
+⚠ [1182/1185] Built SolidCore.Refinement.Generic.Event (1.1s)
+warning: SolidCore/Refinement/Generic/Event.lean:55:31: This simp argument is unused:
+  show 32 - 1 - i = 31 - i by omega
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [OByte.eval, wordBytes]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+⚠ [1183/1185] Built SolidCore.Refinement.Generic.SourceStmt (6.5s)
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:670:74: This simp argument is unused:
+  List.map_drop
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [Runtime.popScope, SymState.pop, hr.frames]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:678:47: This simp argument is unused:
+  LeafRel
+
+Hint: Omit it from the simp argument list.
+  [apply] simp_all
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:716:8: `if_pos` has been deprecated: Use `ite_eq_left` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵p̵o̵s̵i̲t̲e̲_̲e̲q̲_̲l̲e̲f̲t̲
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:716:27: `if_neg` has been deprecated: Use `ite_eq_right` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵n̵e̵g̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:716:37: `if_neg` has been deprecated: Use `ite_eq_right` instead
+
+Hint: Replace the deprecated name:
+  i̵f̵_̵n̵e̵g̵i̲t̲e̲_̲e̲q̲_̲r̲i̲g̲h̲t̲
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:710:59: This simp argument is unused:
+  pure
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [Runtime.storeStorageFieldWithDeepClear, hf.find, hf.layout, Runtime.storageMaterializedValue,
+    Runtime.derefMemoryValueDeep, Runtime.derefMemoryValueWithFuel, Runtime.storeStorageField, coerceStorageWordAs,
+    Value.forceAbiLazy, Ty.coerceValue?, Value.asStorageWord?, norm_lt hv, State.storeFieldWord, StorageField.isPacked,
+    SolidCore.Solidity.Source.wordBytes, State.storeFieldSlot, hf.transient, bind, Except.bind, Except.pure,
+    State.loadFieldSlot, fieldWrite, wordReplaceBitRange, StorageField.packedBitWidth, StorageField.packedBitOffset,
+    norm_lt hw]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:710:65: This simp argument is unused:
+  Except.pure
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [Runtime.storeStorageFieldWithDeepClear, hf.find, hf.layout, Runtime.storageMaterializedValue,
+    Runtime.derefMemoryValueDeep, Runtime.derefMemoryValueWithFuel, Runtime.storeStorageField, coerceStorageWordAs,
+    Value.forceAbiLazy, Ty.coerceValue?, Value.asStorageWord?, norm_lt hv, State.storeFieldWord, StorageField.isPacked,
+    SolidCore.Solidity.Source.wordBytes, State.storeFieldSlot, hf.transient, bind, Except.bind, pure,
+    State.loadFieldSlot, fieldWrite, wordReplaceBitRange, StorageField.packedBitWidth, StorageField.packedBitOffset,
+    norm_lt hw]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:729:85: This simp argument is unused:
+  Nat.mod_mod
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [h, WExpr.eval, BinOp.eval]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:732:74: This simp argument is unused:
+  Nat.mod_mod
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [h, WExpr.eval, BinOp.eval]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:735:85: This simp argument is unused:
+  Nat.mod_mod
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [h, WExpr.eval, BinOp.eval]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:737:44: This simp argument is unused:
+  Nat.mod_mod
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [overflow, WExpr.eval, BinOp.eval]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:739:44: This simp argument is unused:
+  Nat.mod_mod
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [overflow, WExpr.eval, BinOp.eval]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:741:44: This simp argument is unused:
+  Nat.mod_mod
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [overflow, WExpr.eval, BinOp.eval]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:849:53: This simp argument is unused:
+  pure
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [Runtime.storeStorageIndexWithDeepClear, hf.find, hl, mappingStorageSlotForKey, coerceMappingKeyWordAs,
+    Value.forceAbiLazy, Ty.coerceValue?, Value.asStorageWord?, norm_lt hw, norm_lt hv, bind, Except.bind,
+    State.storeStorageLayoutAtWithDeepClear, State.storeStorageLayoutAtWithDeepClearFuelMode,
+    State.storeStorageLayoutAt, coerceStorageWordAs, Runtime.storageMaterializedValue, Runtime.derefMemoryValueDeep,
+    Runtime.derefMemoryValueWithFuel, StorageLayout.clearDepth, mappingStorageSlot_eq, Except.pure]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:849:59: This simp argument is unused:
+  Except.pure
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [Runtime.storeStorageIndexWithDeepClear, hf.find, hl, mappingStorageSlotForKey, coerceMappingKeyWordAs,
+    Value.forceAbiLazy, Ty.coerceValue?, Value.asStorageWord?, norm_lt hw, norm_lt hv, bind, Except.bind,
+    State.storeStorageLayoutAtWithDeepClear, State.storeStorageLayoutAtWithDeepClearFuelMode,
+    State.storeStorageLayoutAt, coerceStorageWordAs, Runtime.storageMaterializedValue, Runtime.derefMemoryValueDeep,
+    Runtime.derefMemoryValueWithFuel, StorageLayout.clearDepth, mappingStorageSlot_eq, pure]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:915:55: Unused tactic linter: `skip` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:938:87: This simp argument is unused:
+  norm_lt hw
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [Runtime.storeStorageIndexWithDeepClear, hf.find, hl, mappingStorageSlotForKey, coerceMappingKeyWordAs,
+    Value.forceAbiLazy, Ty.coerceValue?, Value.asStorageWord?, bind, Except.bind,
+    State.storeStorageLayoutAtWithDeepClear, State.storeStorageLayoutAtWithDeepClearFuelMode,
+    State.storeStorageLayoutAt, coerceStorageWordAs, Runtime.storageMaterializedValue, Runtime.derefMemoryValueDeep,
+    Runtime.derefMemoryValueWithFuel, StorageLayout.clearDepth, mappingStorageSlot_eq, pure, Except.pure, wordEq,
+    SolidCore.Solidity.Shared.norm, modulus_eq, Nat.mod_eq_of_lt hw]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:942:53: This simp argument is unused:
+  pure
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [Runtime.storeStorageIndexWithDeepClear, hf.find, hl, mappingStorageSlotForKey, coerceMappingKeyWordAs,
+    Value.forceAbiLazy, Ty.coerceValue?, Value.asStorageWord?, norm_lt hw, bind, Except.bind,
+    State.storeStorageLayoutAtWithDeepClear, State.storeStorageLayoutAtWithDeepClearFuelMode,
+    State.storeStorageLayoutAt, coerceStorageWordAs, Runtime.storageMaterializedValue, Runtime.derefMemoryValueDeep,
+    Runtime.derefMemoryValueWithFuel, StorageLayout.clearDepth, mappingStorageSlot_eq, Except.pure, wordEq,
+    SolidCore.Solidity.Shared.norm, modulus_eq, Nat.mod_eq_of_lt hw]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:942:59: This simp argument is unused:
+  Except.pure
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [Runtime.storeStorageIndexWithDeepClear, hf.find, hl, mappingStorageSlotForKey, coerceMappingKeyWordAs,
+    Value.forceAbiLazy, Ty.coerceValue?, Value.asStorageWord?, norm_lt hw, bind, Except.bind,
+    State.storeStorageLayoutAtWithDeepClear, State.storeStorageLayoutAtWithDeepClearFuelMode,
+    State.storeStorageLayoutAt, coerceStorageWordAs, Runtime.storageMaterializedValue, Runtime.derefMemoryValueDeep,
+    Runtime.derefMemoryValueWithFuel, StorageLayout.clearDepth, mappingStorageSlot_eq, pure, wordEq,
+    SolidCore.Solidity.Shared.norm, modulus_eq, Nat.mod_eq_of_lt hw]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:955:57: This simp argument is unused:
+  pure
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Runtime.storageMaterializedValue, Runtime.derefMemoryValueDeep, Runtime.derefMemoryValueWithFuel,
+    bind, Except.bind, Except.pure]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:955:63: This simp argument is unused:
+  Except.pure
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Runtime.storageMaterializedValue, Runtime.derefMemoryValueDeep, Runtime.derefMemoryValueWithFuel,
+    bind, Except.bind, pure]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:959:83: This simp argument is unused:
+  pure
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [State.storeStorageLayoutAtWithDeepClear, State.storeStorageLayoutAtWithDeepClearFuelMode,
+    State.storeStorageLayoutAt, coerceStorageWordAs, Value.forceAbiLazy, Ty.coerceValue?, Value.asStorageWord?,
+    norm_lt hv, StorageLayout.clearDepth, bind, Except.bind, Except.pure]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:959:89: This simp argument is unused:
+  Except.pure
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [State.storeStorageLayoutAtWithDeepClear, State.storeStorageLayoutAtWithDeepClearFuelMode,
+    State.storeStorageLayoutAt, coerceStorageWordAs, Value.forceAbiLazy, Ty.coerceValue?, Value.asStorageWord?,
+    norm_lt hv, StorageLayout.clearDepth, bind, Except.bind, pure]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1044:92: This simp argument is unused:
+  pure
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [Runtime.materializeForValueUseList, Runtime.materializeForValueUse, Runtime.materializeForValueUseFuel,
+    materialize_words ctx rt ρ ws, bind, Except.bind, Except.pure]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1045:6: This simp argument is unused:
+  Except.pure
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [Runtime.materializeForValueUseList, Runtime.materializeForValueUse, Runtime.materializeForValueUseFuel,
+    materialize_words ctx rt ρ ws, bind, Except.bind, pure]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1080:34: This simp argument is unused:
+  Nat.mod_mod
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [OByte.eval]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1066:33: Unused tactic linter: `trivial` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1067:33: Unused tactic linter: `trivial` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1072:23: Unused tactic linter: `rfl` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1066:33: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1067:33: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1224:72: This simp argument is unused:
+  pure
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [collectReturnBindingsRef.collect, hl, deref_word', (wordDecl_spec hr.1 _).1,
+    collectRef_words ρ rt sc hfr rs ws' hr.2 hws', bind, Except.bind, Except.pure]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1224:78: This simp argument is unused:
+  Except.pure
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [collectReturnBindingsRef.collect, hl, deref_word', (wordDecl_spec hr.1 _).1,
+    collectRef_words ρ rt sc hfr rs ws' hr.2 hws', bind, Except.bind, pure]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1234:78: This simp argument is unused:
+  pure
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [coerceReturnBindingsRef.coerce, deref_word', (wordDecl_spec hr.1 _).1,
+    coerceRef_words ρ rt rs vs hr.2 (by simpa using hl), bind, Except.bind, Except.pure]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1234:84: This simp argument is unused:
+  Except.pure
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [coerceReturnBindingsRef.coerce, deref_word', (wordDecl_spec hr.1 _).1,
+    coerceRef_words ρ rt rs vs hr.2 (by simpa using hl), bind, Except.bind, pure]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1303:25: Unused tactic linter: `(rename_i l; cases l <;> cases h1)` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1303:62: Unused tactic linter: `skip` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1303:25: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1303:62: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1347:25: Unused tactic linter: `(rename_i l; cases l <;> cases h1)` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1347:62: Unused tactic linter: `skip` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1347:25: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1347:62: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1425:37: This simp argument is unused:
+  ihl
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Expr.evalFuel, ihr, hchk]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1427:93: This simp argument is unused:
+  ihr
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [pure, EvmCompiler.Simulation.Interaction.pure, bind, EvmCompiler.Simulation.Interaction.bind,
+    liftM, monadLift, MonadLift.monadLift, ihl, apply_add_wrap _ _ hal har, apply_sub_wrap _ _ hal har, SolI.ofExcept]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1429:36: This simp argument is unused:
+  Nat.mod_mod
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [WExpr.eval, BinOp.eval]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1523:16: This simp argument is unused:
+  SolidCore.Solidity.Shared.norm
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [hv, modulus_eq, Nat.mod_eq_of_lt (v.eval_lt ρ), Stmt.evalList]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1523:48: This simp argument is unused:
+  modulus_eq
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [hv, SolidCore.Solidity.Shared.norm, Nat.mod_eq_of_lt (v.eval_lt ρ), Stmt.evalList]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1523:60: This simp argument is unused:
+  Nat.mod_eq_of_lt (v.eval_lt ρ)
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [hv, SolidCore.Solidity.Shared.norm, modulus_eq, Stmt.evalList]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1707:20: This simp argument is unused:
+  SolidCore.Solidity.Shared.norm
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [hv, modulus_eq, Nat.mod_eq_of_lt (v.eval_lt ρ)]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1707:52: This simp argument is unused:
+  modulus_eq
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [hv, SolidCore.Solidity.Shared.norm, Nat.mod_eq_of_lt (v.eval_lt ρ)]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1707:64: This simp argument is unused:
+  Nat.mod_eq_of_lt (v.eval_lt ρ)
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [hv, SolidCore.Solidity.Shared.norm, modulus_eq]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1727:78: This simp argument is unused:
+  Expr.orderFuel
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [LValue.resolveWithRuntime, Expr.resolveLValue, LValue.toExpr, Expr.resolveLValueFuel, hbase, hx]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1765:23: This simp argument is unused:
+  Option.bind_eq_bind
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Option.bind_eq_some_iff] at h
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1791:60: This simp argument is unused:
+  bind_done_ok
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [hgi, Bool.false_eq_true, ↓reduceIte, ResolvedLValue.write, hst, ite_self]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1820:42: This simp argument is unused:
+  Bool.or_assoc
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [hgi, ↓reduceIte]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1822:30: This simp argument is unused:
+  Bool.or_assoc
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [hgi, Bool.false_eq_true, ↓reduceIte, bind_done_ok, ResolvedLValue.write, hst, ite_self]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1822:77: This simp argument is unused:
+  bind_done_ok
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [hgi, Bool.or_assoc, Bool.false_eq_true, ↓reduceIte, ResolvedLValue.write, hst, ite_self]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1833:78: This simp argument is unused:
+  Expr.orderFuel
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [LValue.resolveWithRuntime, Expr.resolveLValue, LValue.toExpr, Expr.resolveLValueFuel]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1911:18: This simp argument is unused:
+  Expr.orderFuel
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [Expr.listEvalFuel, Expr.resolveLValueFuel]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1911:34: This simp argument is unused:
+  Expr.listEvalFuel
+
+Hint: Omit it from the simp argument list.
+  [apply] simp [Expr.orderFuel, Expr.resolveLValueFuel]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1940:23: This simp argument is unused:
+  Option.bind_eq_bind
+
+Hint: Omit it from the simp argument list.
+  [apply] simp only [Option.bind_eq_some_iff] at h
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1896:62: Unused tactic linter: `skip` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1902:48: Unused tactic linter: `skip` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1966:63: Unused tactic linter: `skip` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1978:8: Unused tactic linter: `all_goals simp [eraseStmt] at h` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Refinement/Generic/SourceStmt.lean:1978:18: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+✔ [1184/1185] Built SolidCore.Refinement.Generic.SourceCall (1.0s)
+ℹ [1185/1185] Built SolidCore.Refinement.Generic.EraseLoadTest (1.0s)
+info: SolidCore/Refinement/Generic/EraseLoadTest.lean:56:0: some (SolidCore.Solidity.Source.Stmt.returnValues
+  [SolidCore.Solidity.Source.Expr.storageRead
+     (SolidCore.Solidity.Source.StorageReadMode.load)
+     "balanceOf"
+     [SolidCore.Solidity.Source.Expr.var "_key0"]])
+info: SolidCore/Refinement/Generic/EraseLoadTest.lean:57:0: some (SolidCore.Refinement.Generic.Tree.ite
+  (SolidCore.Refinement.Generic.WExpr.bin
+    (SolidCore.Refinement.Generic.BinOp.gt)
+    (SolidCore.Refinement.Generic.WExpr.arg 0)
+    (SolidCore.Refinement.Generic.WExpr.lit 1461501637330902918203684832716283019655932542975))
+  (SolidCore.Refinement.Generic.Tree.halt false [] [] [])
+  (SolidCore.Refinement.Generic.Tree.halt
+    true
+    [SolidCore.Refinement.Generic.OByte.byteOf
+       (SolidCore.Refinement.Generic.WExpr.sinit
+         (SolidCore.Refinement.Generic.WExpr.hash
+           (SolidCore.Refinement.Generic.WExpr.arg 0)
+           (SolidCore.Refinement.Generic.WExpr.lit 2)))
+       0,
+     SolidCore.Refinement.Generic.OByte.byteOf
+       (SolidCore.Refinement.Generic.WExpr.sinit
+         (SolidCore.Refinement.Generic.WExpr.hash
+           (SolidCore.Refinement.Generic.WExpr.arg 0)
+           (SolidCore.Refinement.Generic.WExpr.lit 2)))
+       1,
+     SolidCore.Refinement.Generic.OByte.byteOf
+       (SolidCore.Refinement.Generic.WExpr.sinit
+         (SolidCore.Refinement.Generic.WExpr.hash
+           (SolidCore.Refinement.Generic.WExpr.arg 0)
+           (SolidCore.Refinement.Generic.WExpr.lit 2)))
+       2,
+     SolidCore.Refinement.Generic.OByte.byteOf
+       (SolidCore.Refinement.Generic.WExpr.sinit
+         (SolidCore.Refinement.Generic.WExpr.hash
+           (SolidCore.Refinement.Generic.WExpr.arg 0)
+           (SolidCore.Refinement.Generic.WExpr.lit 2)))
+       3,
+     SolidCore.Refinement.Generic.OByte.byteOf
+       (SolidCore.Refinement.Generic.WExpr.sinit
+         (SolidCore.Refinement.Generic.WExpr.hash
+           (SolidCore.Refinement.Generic.WExpr.arg 0)
+           (SolidCore.Refinement.Generic.WExpr.lit 2)))
+       4,
+     SolidCore.Refinement.Generic.OByte.byteOf
+       (SolidCore.Refinement.Generic.WExpr.sinit
+         (SolidCore.Refinement.Generic.WExpr.hash
+           (SolidCore.Refinement.Generic.WExpr.arg 0)
+           (SolidCore.Refinement.Generic.WExpr.lit 2)))
+       5,
+     SolidCore.Refinement.Generic.OByte.byteOf
+       (SolidCore.Refinement.Generic.WExpr.sinit
+         (SolidCore.Refinement.Generic.WExpr.hash
+           (SolidCore.Refinement.Generic.WExpr.arg 0)
+           (SolidCore.Refinement.Generic.WExpr.lit 2)))
+       6,
+     SolidCore.Refinement.Generic.OByte.byteOf
+       (SolidCore.Refinement.Generic.WExpr.sinit
+         (SolidCore.Refinement.Generic.WExpr.hash
+           (SolidCore.Refinement.Generic.WExpr.arg 0)
+           (SolidCore.Refinement.Generic.WExpr.lit 2)))
+       7,
+     SolidCore.Refinement.Generic.OByte.byteOf
+       (SolidCore.Refinement.Generic.WExpr.sinit
+         (SolidCore.Refinement.Generic.WExpr.hash
+           (SolidCore.Refinement.Generic.WExpr.arg 0)
+           (SolidCore.Refinement.Generic.WExpr.lit 2)))
+       8,
+     SolidCore.Refinement.Generic.OByte.byteOf
+       (SolidCore.Refinement.Generic.WExpr.sinit
+         (SolidCore.Refinement.Generic.WExpr.hash
+           (SolidCore.Refinement.Generic.WExpr.arg 0)
+           (SolidCore.Refinement.Generic.WExpr.lit 2)))
+       9,
+     SolidCore.Refinement.Generic.OByte.byteOf
+       (SolidCore.Refinement.Generic.WExpr.sinit
+         (SolidCore.Refinement.Generic.WExpr.hash
+           (SolidCore.Refinement.Generic.WExpr.arg 0)
+           (SolidCore.Refinement.Generic.WExpr.lit 2)))
+       10,
+     SolidCore.Refinement.Generic.OByte.byteOf
+       (SolidCore.Refinement.Generic.WExpr.sinit
+         (SolidCore.Refinement.Generic.WExpr.hash
+           (SolidCore.Refinement.Generic.WExpr.arg 0)
+           (SolidCore.Refinement.Generic.WExpr.lit 2)))
+       11,
+     SolidCore.Refinement.Generic.OByte.byteOf
+       (SolidCore.Refinement.Generic.WExpr.sinit
+         (SolidCore.Refinement.Generic.WExpr.hash
+           (SolidCore.Refinement.Generic.WExpr.arg 0)
+           (SolidCore.Refinement.Generic.WExpr.lit 2)))
+       12,
+     SolidCore.Refinement.Generic.OByte.byteOf
+       (SolidCore.Refinement.Generic.WExpr.sinit
+         (SolidCore.Refinement.Generic.WExpr.hash
+           (SolidCore.Refinement.Generic.WExpr.arg 0)
+           (SolidCore.Refinement.Generic.WExpr.lit 2)))
+       13,
+     SolidCore.Refinement.Generic.OByte.byteOf
+       (SolidCore.Refinement.Generic.WExpr.sinit
+         (SolidCore.Refinement.Generic.WExpr.hash
+           (SolidCore.Refinement.Generic.WExpr.arg 0)
+           (SolidCore.Refinement.Generic.WExpr.lit 2)))
+       14,
+     SolidCore.Refinement.Generic.OByte.byteOf
+       (SolidCore.Refinement.Generic.WExpr.sinit
+         (SolidCore.Refinement.Generic.WExpr.hash
+           (SolidCore.Refinement.Generic.WExpr.arg 0)
+           (SolidCore.Refinement.Generic.WExpr.lit 2)))
+       15,
+     SolidCore.Refinement.Generic.OByte.byteOf
+       (SolidCore.Refinement.Generic.WExpr.sinit
+         (SolidCore.Refinement.Generic.WExpr.hash
+           (SolidCore.Refinement.Generic.WExpr.arg 0)
+           (SolidCore.Refinement.Generic.WExpr.lit 2)))
+       16,
+     SolidCore.Refinement.Generic.OByte.byteOf
+       (SolidCore.Refinement.Generic.WExpr.sinit
+         (SolidCore.Refinement.Generic.WExpr.hash
+           (SolidCore.Refinement.Generic.WExpr.arg 0)
+           (SolidCore.Refinement.Generic.WExpr.lit 2)))
+       17,
+     SolidCore.Refinement.Generic.OByte.byteOf
+       (SolidCore.Refinement.Generic.WExpr.sinit
+         (SolidCore.Refinement.Generic.WExpr.hash
+           (SolidCore.Refinement.Generic.WExpr.arg 0)
+           (SolidCore.Refinement.Generic.WExpr.lit 2)))
+       18,
+     SolidCore.Refinement.Generic.OByte.byteOf
+       (SolidCore.Refinement.Generic.WExpr.sinit
+         (SolidCore.Refinement.Generic.WExpr.hash
+           (SolidCore.Refinement.Generic.WExpr.arg 0)
+           (SolidCore.Refinement.Generic.WExpr.lit 2)))
+       19,
+     SolidCore.Refinement.Generic.OByte.byteOf
+       (SolidCore.Refinement.Generic.WExpr.sinit
+         (SolidCore.Refinement.Generic.WExpr.hash
+           (SolidCore.Refinement.Generic.WExpr.arg 0)
+           (SolidCore.Refinement.Generic.WExpr.lit 2)))
+       20,
+     SolidCore.Refinement.Generic.OByte.byteOf
+       (SolidCore.Refinement.Generic.WExpr.sinit
+         (SolidCore.Refinement.Generic.WExpr.hash
+           (SolidCore.Refinement.Generic.WExpr.arg 0)
+           (SolidCore.Refinement.Generic.WExpr.lit 2)))
+       21,
+     SolidCore.Refinement.Generic.OByte.byteOf
+       (SolidCore.Refinement.Generic.WExpr.sinit
+         (SolidCore.Refinement.Generic.WExpr.hash
+           (SolidCore.Refinement.Generic.WExpr.arg 0)
+           (SolidCore.Refinement.Generic.WExpr.lit 2)))
+       22,
+     SolidCore.Refinement.Generic.OByte.byteOf
+       (SolidCore.Refinement.Generic.WExpr.sinit
+         (SolidCore.Refinement.Generic.WExpr.hash
+           (SolidCore.Refinement.Generic.WExpr.arg 0)
+           (SolidCore.Refinement.Generic.WExpr.lit 2)))
+       23,
+     SolidCore.Refinement.Generic.OByte.byteOf
+       (SolidCore.Refinement.Generic.WExpr.sinit
+         (SolidCore.Refinement.Generic.WExpr.hash
+           (SolidCore.Refinement.Generic.WExpr.arg 0)
+           (SolidCore.Refinement.Generic.WExpr.lit 2)))
+       24,
+     SolidCore.Refinement.Generic.OByte.byteOf
+       (SolidCore.Refinement.Generic.WExpr.sinit
+         (SolidCore.Refinement.Generic.WExpr.hash
+           (SolidCore.Refinement.Generic.WExpr.arg 0)
+           (SolidCore.Refinement.Generic.WExpr.lit 2)))
+       25,
+     SolidCore.Refinement.Generic.OByte.byteOf
+       (SolidCore.Refinement.Generic.WExpr.sinit
+         (SolidCore.Refinement.Generic.WExpr.hash
+           (SolidCore.Refinement.Generic.WExpr.arg 0)
+           (SolidCore.Refinement.Generic.WExpr.lit 2)))
+       26,
+     SolidCore.Refinement.Generic.OByte.byteOf
+       (SolidCore.Refinement.Generic.WExpr.sinit
+         (SolidCore.Refinement.Generic.WExpr.hash
+           (SolidCore.Refinement.Generic.WExpr.arg 0)
+           (SolidCore.Refinement.Generic.WExpr.lit 2)))
+       27,
+     SolidCore.Refinement.Generic.OByte.byteOf
+       (SolidCore.Refinement.Generic.WExpr.sinit
+         (SolidCore.Refinement.Generic.WExpr.hash
+           (SolidCore.Refinement.Generic.WExpr.arg 0)
+           (SolidCore.Refinement.Generic.WExpr.lit 2)))
+       28,
+     SolidCore.Refinement.Generic.OByte.byteOf
+       (SolidCore.Refinement.Generic.WExpr.sinit
+         (SolidCore.Refinement.Generic.WExpr.hash
+           (SolidCore.Refinement.Generic.WExpr.arg 0)
+           (SolidCore.Refinement.Generic.WExpr.lit 2)))
+       29,
+     SolidCore.Refinement.Generic.OByte.byteOf
+       (SolidCore.Refinement.Generic.WExpr.sinit
+         (SolidCore.Refinement.Generic.WExpr.hash
+           (SolidCore.Refinement.Generic.WExpr.arg 0)
+           (SolidCore.Refinement.Generic.WExpr.lit 2)))
+       30,
+     SolidCore.Refinement.Generic.OByte.byteOf
+       (SolidCore.Refinement.Generic.WExpr.sinit
+         (SolidCore.Refinement.Generic.WExpr.hash
+           (SolidCore.Refinement.Generic.WExpr.arg 0)
+           (SolidCore.Refinement.Generic.WExpr.lit 2)))
+       31]
+    []
+    []))
+info: SolidCore/Refinement/Generic/EraseLoadTest.lean:58:0: some ([],
+ SolidCore.Refinement.Generic.WExpr.sinit
+   (SolidCore.Refinement.Generic.WExpr.hash
+     (SolidCore.Refinement.Generic.WExpr.arg 0)
+     (SolidCore.Refinement.Generic.WExpr.lit 2)))
+info: SolidCore/Refinement/Generic/EraseLoadTest.lean:59:0: none
+info: SolidCore/Refinement/Generic/EraseLoadTest.lean:60:0: none
+info: SolidCore/Refinement/Generic/EraseLoadTest.lean:61:0: some (SolidCore.Solidity.Source.Stmt.returnValues
+  [SolidCore.Solidity.Source.Expr.storageRead
+     (SolidCore.Solidity.Source.StorageReadMode.load)
+     "allowance"
+     [SolidCore.Solidity.Source.Expr.var "_key0", SolidCore.Solidity.Source.Expr.var "_key1"]])
+info: SolidCore/Refinement/Generic/EraseLoadTest.lean:62:0: none
+Build completed successfully (1185 jobs).
+
+real	0m12.492s
+user	0m18.170s
+sys	0m1.896s
+EXIT=0

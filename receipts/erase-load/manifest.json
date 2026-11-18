@@ -1,0 +1,95 @@
+{
+ "lane": "ERC20 erase-load (light)",
+ "repo": "paradigmxyz/solidity-lean",
+ "branch": "alpharush/erc20-erase-load",
+ "base": "334d1d924f8f6c29ac827fd81d1cc739721b479a",
+ "base_note": "coordinator ruling: main 3db5032a lacks SolidCore/Refinement entirely (not a descendant of 334d1d92, merge-base 1f6fe863); no main-relative diff exists",
+ "head": "a060c0c07efa8566c4c9de9736f4473d0b4af9d7",
+ "patch": "git diff 334d1d92 a060c0c0",
+ "patch_sha256": "18eb650bf1893f4275931ea9b0590616b9736444ab96b416aacdddbdcf910a70",
+ "allowed_paths": [
+  "SolidCore/Refinement/Generic/Source.lean (eraseExpr arm, bridge lemma loadPath_eq_loadIndex + loadPath_map, eval_erase case: the bridge lives here, no separate lemma file)",
+  "SolidCore/Refinement/Generic/EraseLoadTest.lean (new)"
+ ],
+ "touched": [
+  "SolidCore/Refinement/Generic/Source.lean +63",
+  "SolidCore/Refinement/Generic/EraseLoadTest.lean +99"
+ ],
+ "toolchain": "leanprover/lean4:v4.35.0, Mathlib via lake exe cache get",
+ "commands": [
+  {
+   "cmd": "lake -KleanMemory=6000 build SolidCore.Refinement.Generic.Source",
+   "exit": 0,
+   "note": "1180 jobs, 4m18s"
+  },
+  {
+   "cmd": "lake -KleanMemory=6000 build SolidCore.Refinement.Generic.SourceStmt SolidCore.Refinement.Generic.SourceCall SolidCore.Refinement.Generic.EraseLoadTest",
+   "exit": 0,
+   "note": "1185 jobs, dependents SourceStmt+SourceCall rebuilt"
+  },
+  {
+   "cmd": "lake -KleanMemory=6000 build SolidCore.Refinement.Generic.EraseLoadTest",
+   "exit": 0
+  }
+ ],
+ "sorry_admit_axiom_in_diff": 0,
+ "lean_info": [
+  {
+   "line": 85,
+   "msg": "'SolidCore.Refinement.Generic.loadPath_eq_loadIndex' depends on axioms: [propext, Classical.choice, Quot.sound]"
+  },
+  {
+   "line": 86,
+   "msg": "'SolidCore.Refinement.Generic.loadPath_map' depends on axioms: [propext, Classical.choice, Quot.sound]"
+  },
+  {
+   "line": 87,
+   "msg": "'SolidCore.Refinement.Generic.eval_erase' depends on axioms: [propext, Classical.choice, Quot.sound]"
+  },
+  {
+   "line": 88,
+   "msg": "'SolidCore.Refinement.Generic.EraseLoadTest.erase_getter' depends on axioms: [propext, Classical.choice, Quot.sound]"
+  },
+  {
+   "line": 89,
+   "msg": "'SolidCore.Refinement.Generic.EraseLoadTest.refuse_nested_getter' depends on axioms: [propext, Classical.choice, Quot.sound]"
+  },
+  {
+   "line": 91,
+   "msg": "some (SolidCore.Solidity.Source.Stmt.returnValues [SolidCore.Solidity.Source.Expr.storageRead (SolidCore.Solidity.Source.StorageReadMode.load) \"balanceOf\" [SolidCore.Solidity.Source.Expr.var \"_key0\"]])"
+  },
+  {
+   "line": 92,
+   "msg": "some (SolidCore.Refinement.Generic.Tree.ite (SolidCore.Refinement.Generic.WExpr.bin (SolidCore.Refinement.Generic.BinOp.gt) (SolidCore.Refinement.Generic.WExpr.arg 0) (SolidCore.Refinement.Generic.WExpr.lit 1461501637330902918203684832716283019655932542975)) (SolidCore.Refinement.Generic.Tree.halt false [] [] []) (SolidCore.Refinement.Generic.Tree.halt true [SolidCore.Refinement.Generic.OByte.byte"
+  },
+  {
+   "line": 93,
+   "msg": "some ([], SolidCore.Refinement.Generic.WExpr.sinit (SolidCore.Refinement.Generic.WExpr.hash (SolidCore.Refinement.Generic.WExpr.arg 0) (SolidCore.Refinement.Generic.WExpr.lit 2)))"
+  },
+  {
+   "line": 94,
+   "msg": "none"
+  },
+  {
+   "line": 95,
+   "msg": "none"
+  },
+  {
+   "line": 96,
+   "msg": "some (SolidCore.Solidity.Source.Stmt.returnValues [SolidCore.Solidity.Source.Expr.storageRead (SolidCore.Solidity.Source.StorageReadMode.load) \"allowance\" [SolidCore.Solidity.Source.Expr.var \"_key0\", SolidCore.Solidity.Source.Expr.var \"_key1\"]])"
+  },
+  {
+   "line": 97,
+   "msg": "none"
+  }
+ ],
+ "patch_file": "erase-load.patch",
+ "patch_command": "git diff --full-index 334d1d924f8f6c29ac827fd81d1cc739721b479a a060c0c07efa8566c4c9de9736f4473d0b4af9d7 > erase-load.patch",
+ "patch_sha256_note": "Canonical: --full-index (clone-independent). Plain 'git diff 334d1d92 a060c0c0' prints abbreviated index ids whose length (core.abbrev=auto) grows with the clone's object count, so its hash is not reproducible across clones: on the producing worktree it printed 7-char ids, sha256 ea15e8ab158951ecd978cdd06c3d616dc42aa8d683ce3e9b2f2f9d9b431dd643 (the earlier, superseded value; reproduce with git diff --abbrev=7); on the coordinator's clone, cffc3a450c24a7c4... .",
+ "axioms_file": "axioms.txt",
+ "logs": [
+  "build1.log",
+  "build2.log",
+  "build3.log"
+ ]
+}
