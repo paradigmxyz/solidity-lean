@@ -1,0 +1,4 @@
+'Verify.LoopSource.Equiv.CounterClosedCtx.counter_expected_closed' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+'Verify.LoopSource.Equiv.CounterCtx.counter_expected' depends on axioms: [propext, Classical.choice, Quot.sound]

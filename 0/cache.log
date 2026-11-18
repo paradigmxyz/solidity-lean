@@ -1,0 +1,180 @@
+info: downloading https://releases.lean-lang.org/lean4/v4.35.0/lean-4.35.0-linux.tar.zst
+info: installing /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0
+
+leanprover/lean4:v4.35.0 installed - Lean (version 4.35.0, x86_64-unknown-linux-gnu, commit eb6cafb7290e8bd5f2937522d8d804f58f02bafc, Release)
+
+info: mathlib: materializing new dependency
+info: mathlib: fetching revision '56a005855ea17e0b0958f73ec801ae140b0a1679' from https://github.com/leanprover-community/mathlib4
+info: mathlib: checking out revision '56a005855ea17e0b0958f73ec801ae140b0a1679'
+info: EthLib: materializing new dependency
+info: EthLib: fetching revision '2cd5d14a6a2f6fd22ef6b68423e45cfa3a21001a' from https://github.com/ethereum/EthLib.git
+info: EthLib: checking out revision '2cd5d14a6a2f6fd22ef6b68423e45cfa3a21001a'
+info: plausible: materializing new dependency
+info: plausible: fetching revision 'dfa4f38190d07c37e315953e08b90fe2d95b3c24' from https://github.com/leanprover-community/plausible
+info: plausible: checking out revision 'dfa4f38190d07c37e315953e08b90fe2d95b3c24'
+info: LeanSearchClient: materializing new dependency
+info: LeanSearchClient: fetching revision 'd6b4c7be5be75ec4917c873ac50c756dc1436372' from https://github.com/leanprover-community/LeanSearchClient
+info: LeanSearchClient: checking out revision 'd6b4c7be5be75ec4917c873ac50c756dc1436372'
+info: importGraph: materializing new dependency
+info: importGraph: fetching revision 'a41f0e9a4dea23188ea9cc1c41ac9f8bbafe0b93' from https://github.com/leanprover-community/import-graph
+info: importGraph: checking out revision 'a41f0e9a4dea23188ea9cc1c41ac9f8bbafe0b93'
+info: proofwidgets: materializing new dependency
+info: proofwidgets: fetching revision 'df72b022e558978a1c50264cfc4d7fec86fa8e04' from https://github.com/leanprover-community/ProofWidgets4
+info: proofwidgets: checking out revision 'df72b022e558978a1c50264cfc4d7fec86fa8e04'
+info: aesop: materializing new dependency
+info: aesop: fetching revision '4a174c490d8707121c4a9290800489f105d85e07' from https://github.com/leanprover-community/aesop
+info: aesop: checking out revision '4a174c490d8707121c4a9290800489f105d85e07'
+info: Qq: materializing new dependency
+info: Qq: fetching revision 'dce0ad79c486cb1fb504af04f953c3466b0c6db8' from https://github.com/leanprover-community/quote4
+info: Qq: checking out revision 'dce0ad79c486cb1fb504af04f953c3466b0c6db8'
+info: batteries: materializing new dependency
+info: batteries: fetching revision '66e469188fe07963e5cf666c7d4433f45b8131c5' from https://github.com/leanprover-community/batteries
+info: batteries: checking out revision '66e469188fe07963e5cf666c7d4433f45b8131c5'
+info: VCVio: materializing new dependency
+info: VCVio: fetching revision 'bbf05eeeedf84c5f98baaf5ab846f2d2479cc8ab' from https://github.com/Verified-zkEVM/VCVio.git
+info: VCVio: checking out revision 'bbf05eeeedf84c5f98baaf5ab846f2d2479cc8ab'
+info: Cli: materializing new dependency
+info: Cli: fetching revision 'c24fe6078c630e89b489bffe59b3e20ac30d12c8' from https://github.com/leanprover/lean4-cli
+info: Cli: checking out revision 'c24fe6078c630e89b489bffe59b3e20ac30d12c8'
+info: QuantumFoundations: materializing new dependency
+info: QuantumFoundations: fetching revision '901aaab7967ceecd2240d0b38bbde7cf3e2c14ac' from https://github.com/lean-crypto-foundations/QuantumFoundations
+info: QuantumFoundations: checking out revision '901aaab7967ceecd2240d0b38bbde7cf3e2c14ac'
+info: PolyFun: materializing new dependency
+info: PolyFun: fetching revision '4181c82238142d9b73403fbf4c4b13e1a801e400' from https://github.com/Verified-zkEVM/PolyFun
+info: PolyFun: checking out revision '4181c82238142d9b73403fbf4c4b13e1a801e400'
+info: cslib: materializing new dependency
+info: cslib: fetching revision '5b56df99362532c46e1175381fbbdd755bd56030' from https://github.com/leanprover/cslib
+info: cslib: checking out revision '5b56df99362532c46e1175381fbbdd755bd56030'
+✔ [2/6] Built Cache.Cli (134ms)
+✔ [3/6] Built Cache.Lean (142ms)
+✔ [7/43] Built Cache.Env (136ms)
+✔ [8/43] Built Cache.Cli:c.o (60ms)
+✔ [9/43] Built Cache.Lean:c.o (73ms)
+✔ [10/43] Built Cache.Env:c.o (73ms)
+✔ [11/43] Built Cache.Infra (152ms)
+✔ [12/43] Built Batteries.Tactic.OpenPrivate (371ms)
+✔ [13/43] Built Cache.Infra:c.o (86ms)
+✔ [14/43] Built Cache.Location (183ms)
+✔ [15/43] Built Cache.Location:c.o (111ms)
+✔ [16/43] Built Cache.IO (518ms)
+✔ [17/43] Built Batteries.Tactic.OpenPrivate:c.o (483ms)
+✔ [18/43] Built Cache.Hashing (248ms)
+✔ [19/43] Built Cache.Hashing:c.o (259ms)
+✔ [20/43] Built Cache.IO:c.o (709ms)
+✔ [21/43] Built Cache.Requests (677ms)
+✔ [22/43] Built Cache.Marker (157ms)
+✔ [23/43] Built Cache.Marker:c.o (63ms)
+✔ [24/43] Built Cache.Upload.Curl (186ms)
+✔ [25/43] Built Cache.Upload.Rclone (198ms)
+✔ [26/43] Built Cache.Query (219ms)
+✔ [27/43] Built Cache.Upload.Curl:c.o (90ms)
+✔ [28/43] Built Cache.Upload.Rclone:c.o (107ms)
+✔ [29/43] Built Cache.Upload.Azure (169ms)
+✔ [30/43] Built Cache.Query:c.o (127ms)
+✔ [31/43] Built Cache.Upload.S3 (207ms)
+✔ [32/43] Built Cache.Upload.Azure:c.o (66ms)
+✔ [33/43] Built Cache.Warning (229ms)
+✔ [34/43] Built Cache.Upload.S3:c.o (132ms)
+✔ [35/43] Built Cache.Upload.Defs (179ms)
+✔ [36/43] Built Cache.Upload.Defs:c.o (70ms)
+✔ [37/43] Built Cache.Upload (153ms)
+✔ [38/43] Built Cache.Warning:c.o (137ms)
+✔ [39/43] Built Cache.Upload:c.o (50ms)
+✔ [40/43] Built Cache.Requests:c.o (1.2s)
+✔ [41/43] Built Cache.Main (371ms)
+✔ [42/43] Built Cache.Main:c.o (407ms)
+✔ [43/43] Built cache:exe (294ms)
+Current branch: HEAD
+Using cache from origin: (some leanprover-community/mathlib4)
+Attempting to download 9031 file(s) from leanprover-community/mathlib4 cache at https://cache.mathlib.org/mathlib4-master
+Downloaded: 53 file(s) [attempted 53/9031 = 0%, 7663 KB/s][KDownloaded: 143 file(s) [attempted 143/9031 = 1%, 569 KB/s][KDownloaded: 237 file(s) [attempted 237/9031 = 2%, 207 KB/s][KDownloaded: 327 file(s) [attempted 327/9031 = 3%, 329 KB/s][KDownloaded: 425 file(s) [attempted 425/9031 = 4%, 1449 KB/s][KDownloaded: 530 file(s) [attempted 530/9031 = 5%, 644 KB/s][KDownloaded: 626 file(s) [attempted 626/9031 = 6%, 111 KB/s][KDownloaded: 729 file(s) [attempted 729/9031 = 8%, 1963 KB/s][KDownloaded: 815 file(s) [attempted 815/9031 = 9%, 342 KB/s][KDownloaded: 886 file(s) [attempted 886/9031 = 9%, 868 KB/s][KDownloaded: 975 file(s) [attempted 975/9031 = 10%, 629 KB/s][KDownloaded: 1068 file(s) [attempted 1068/9031 = 11%, 463 KB/s][KDownloaded: 1156 file(s) [attempted 1156/9031 = 12%, 634 KB/s][KDownloaded: 1218 file(s) [attempted 1218/9031 = 13%, 209 KB/s][KDownloaded: 1306 file(s) [attempted 1306/9031 = 14%, 1110 KB/s][KDownloaded: 1409 file(s) [attempted 1409/9031 = 15%, 468 KB/s][KDownloaded: 1521 file(s) [attempted 1521/9031 = 16%, 4165 KB/s][KDownloaded: 1621 file(s) [attempted 1621/9031 = 17%, 305 KB/s][KDownloaded: 1716 file(s) [attempted 1716/9031 = 19%, 751 KB/s][KDownloaded: 1795 file(s) [attempted 1795/9031 = 19%, 1032 KB/s][KDownloaded: 1881 file(s) [attempted 1881/9031 = 20%, 1177 KB/s][KDownloaded: 1971 file(s) [attempted 1971/9031 = 21%, 1244 KB/s][KDownloaded: 2050 file(s) [attempted 2050/9031 = 22%, 512 KB/s][KDownloaded: 2141 file(s) [attempted 2141/9031 = 23%, 1130 KB/s][KDownloaded: 2248 file(s) [attempted 2248/9031 = 24%, 153 KB/s][KDownloaded: 2353 file(s) [attempted 2353/9031 = 26%, 320 KB/s][KDownloaded: 2446 file(s) [attempted 2446/9031 = 27%, 1553 KB/s][KDownloaded: 2511 file(s) [attempted 2511/9031 = 27%, 873 KB/s][KDownloaded: 2575 file(s) [attempted 2575/9031 = 28%, 510 KB/s][KDownloaded: 2673 file(s) [attempted 2673/9031 = 29%, 898 KB/s][KDownloaded: 2785 file(s) [attempted 2785/9031 = 30%, 282 KB/s][KDownloaded: 2888 file(s) [attempted 2888/9031 = 31%, 596 KB/s][KDownloaded: 2981 file(s) [attempted 2981/9031 = 33%, 469 KB/s][KDownloaded: 3083 file(s) [attempted 3083/9031 = 34%, 1259 KB/s][KDownloaded: 3164 file(s) [attempted 3164/9031 = 35%, 546 KB/s][KDownloaded: 3238 file(s) [attempted 3238/9031 = 35%, 2490 KB/s][KDownloaded: 3326 file(s) [attempted 3326/9031 = 36%, 2026 KB/s][KDownloaded: 3412 file(s) [attempted 3412/9031 = 37%, 59 KB/s][KDownloaded: 3508 file(s) [attempted 3508/9031 = 38%, 2314 KB/s][KDownloaded: 3613 file(s) [attempted 3613/9031 = 40%, 3898 KB/s][KDownloaded: 3715 file(s) [attempted 3715/9031 = 41%, 3359 KB/s][KDownloaded: 3801 file(s) [attempted 3801/9031 = 42%, 496 KB/s][KDownloaded: 3875 file(s) [attempted 3875/9031 = 42%, 97 KB/s][KDownloaded: 3951 file(s) [attempted 3951/9031 = 43%, 1060 KB/s][KDownloaded: 4052 file(s) [attempted 4052/9031 = 44%, 864 KB/s][KDownloaded: 4154 file(s) [attempted 4154/9031 = 45%, 318 KB/s][KDownloaded: 4257 file(s) [attempted 4257/9031 = 47%, 4780 KB/s][KDownloaded: 4357 file(s) [attempted 4357/9031 = 48%, 1947 KB/s][KDownloaded: 4459 file(s) [attempted 4459/9031 = 49%, 1218 KB/s][KDownloaded: 4560 file(s) [attempted 4560/9031 = 50%, 450 KB/s][KDownloaded: 4662 file(s) [attempted 4662/9031 = 51%, 273 KB/s][KDownloaded: 4762 file(s) [attempted 4762/9031 = 52%, 94 KB/s][KDownloaded: 4882 file(s) [attempted 4882/9031 = 54%, 226 KB/s][KDownloaded: 4999 file(s) [attempted 4999/9031 = 55%, 1229 KB/s][KDownloaded: 5101 file(s) [attempted 5101/9031 = 56%, 836 KB/s][KDownloaded: 5204 file(s) [attempted 5204/9031 = 57%, 177 KB/s][KDownloaded: 5263 file(s) [attempted 5263/9031 = 58%, 95 KB/s][KDownloaded: 5354 file(s) [attempted 5354/9031 = 59%, 2380 KB/s][KDownloaded: 5457 file(s) [attempted 5457/9031 = 60%, 919 KB/s][KDownloaded: 5557 file(s) [attempted 5557/9031 = 61%, 4580 KB/s][KDownloaded: 5652 file(s) [attempted 5652/9031 = 62%, 159 KB/s][KDownloaded: 5750 file(s) [attempted 5750/9031 = 63%, 1841 KB/s][KDownloaded: 5855 file(s) [attempted 5855/9031 = 64%, 86 KB/s][KDownloaded: 5957 file(s) [attempted 5957/9031 = 65%, 1934 KB/s][KDownloaded: 6058 file(s) [attempted 6058/9031 = 67%, 2747 KB/s][KDownloaded: 6174 file(s) [attempted 6174/9031 = 68%, 1702 KB/s][KDownloaded: 6289 file(s) [attempted 6289/9031 = 69%, 383 KB/s][KDownloaded: 6377 file(s) [attempted 6377/9031 = 70%, 178 KB/s][KDownloaded: 6449 file(s) [attempted 6449/9031 = 71%, 940 KB/s][KDownloaded: 6520 file(s) [attempted 6520/9031 = 72%, 478 KB/s][KDownloaded: 6592 file(s) [attempted 6592/9031 = 72%, 269 KB/s][KDownloaded: 6642 file(s) [attempted 6642/9031 = 73%, 374 KB/s][KDownloaded: 6730 file(s) [attempted 6730/9031 = 74%, 102 KB/s][KDownloaded: 6819 file(s) [attempted 6819/9031 = 75%, 641 KB/s][KDownloaded: 6904 file(s) [attempted 6904/9031 = 76%, 1062 KB/s][KDownloaded: 7026 file(s) [attempted 7026/9031 = 77%, 308 KB/s][KDownloaded: 7145 file(s) [attempted 7145/9031 = 79%, 252 KB/s][KDownloaded: 7272 file(s) [attempted 7272/9031 = 80%, 189 KB/s][KDownloaded: 7381 file(s) [attempted 7381/9031 = 81%, 333 KB/s][KDownloaded: 7491 file(s) [attempted 7491/9031 = 82%, 441 KB/s][KDownloaded: 7591 file(s) [attempted 7591/9031 = 84%, 3349 KB/s][KDownloaded: 7680 file(s) [attempted 7680/9031 = 85%, 351 KB/s][KDownloaded: 7770 file(s) [attempted 7770/9031 = 86%, 574 KB/s][KDownloaded: 7866 file(s) [attempted 7866/9031 = 87%, 703 KB/s][KDownloaded: 7925 file(s) [attempted 7925/9031 = 87%, 270 KB/s][KDownloaded: 8006 file(s) [attempted 8006/9031 = 88%, 488 KB/s][KDownloaded: 8090 file(s) [attempted 8090/9031 = 89%, 238 KB/s][KDownloaded: 8180 file(s) [attempted 8180/9031 = 90%, 542 KB/s][KDownloaded: 8266 file(s) [attempted 8266/9031 = 91%, 619 KB/s][KDownloaded: 8352 file(s) [attempted 8352/9031 = 92%, 734 KB/s][KDownloaded: 8443 file(s) [attempted 8443/9031 = 93%, 2044 KB/s][KDownloaded: 8533 file(s) [attempted 8533/9031 = 94%, 614 KB/s][KDownloaded: 8624 file(s) [attempted 8624/9031 = 95%, 1890 KB/s][KDownloaded: 8736 file(s) [attempted 8736/9031 = 96%, 158 KB/s][KDownloaded: 8836 file(s) [attempted 8836/9031 = 97%, 319 KB/s][KDownloaded: 8946 file(s) [attempted 8946/9031 = 99%, 820 KB/s][KDownloaded: 9031 file(s) [attempted 9031/9031 = 100%, 820 KB/s][K
+Still decompressing downloaded files...
+Decompressed 9031 file(s)
+Already decompressed 9031 file(s)
+info: mathlib: materializing new dependency
+info: mathlib: fetching revision '56a005855ea17e0b0958f73ec801ae140b0a1679' from https://github.com/leanprover-community/mathlib4
+info: mathlib: checking out revision '56a005855ea17e0b0958f73ec801ae140b0a1679'
+info: EthLib: materializing new dependency
+info: EthLib: fetching revision '2cd5d14a6a2f6fd22ef6b68423e45cfa3a21001a' from https://github.com/ethereum/EthLib.git
+info: EthLib: checking out revision '2cd5d14a6a2f6fd22ef6b68423e45cfa3a21001a'
+info: plausible: materializing new dependency
+info: plausible: fetching revision 'dfa4f38190d07c37e315953e08b90fe2d95b3c24' from https://github.com/leanprover-community/plausible
+info: plausible: checking out revision 'dfa4f38190d07c37e315953e08b90fe2d95b3c24'
+info: LeanSearchClient: materializing new dependency
+info: LeanSearchClient: fetching revision 'd6b4c7be5be75ec4917c873ac50c756dc1436372' from https://github.com/leanprover-community/LeanSearchClient
+info: LeanSearchClient: checking out revision 'd6b4c7be5be75ec4917c873ac50c756dc1436372'
+info: importGraph: materializing new dependency
+info: importGraph: fetching revision 'a41f0e9a4dea23188ea9cc1c41ac9f8bbafe0b93' from https://github.com/leanprover-community/import-graph
+info: importGraph: checking out revision 'a41f0e9a4dea23188ea9cc1c41ac9f8bbafe0b93'
+info: proofwidgets: materializing new dependency
+info: proofwidgets: fetching revision 'df72b022e558978a1c50264cfc4d7fec86fa8e04' from https://github.com/leanprover-community/ProofWidgets4
+info: proofwidgets: checking out revision 'df72b022e558978a1c50264cfc4d7fec86fa8e04'
+info: aesop: materializing new dependency
+info: aesop: fetching revision '4a174c490d8707121c4a9290800489f105d85e07' from https://github.com/leanprover-community/aesop
+info: aesop: checking out revision '4a174c490d8707121c4a9290800489f105d85e07'
+info: Qq: materializing new dependency
+info: Qq: fetching revision 'dce0ad79c486cb1fb504af04f953c3466b0c6db8' from https://github.com/leanprover-community/quote4
+info: Qq: checking out revision 'dce0ad79c486cb1fb504af04f953c3466b0c6db8'
+info: batteries: materializing new dependency
+info: batteries: fetching revision '66e469188fe07963e5cf666c7d4433f45b8131c5' from https://github.com/leanprover-community/batteries
+info: batteries: checking out revision '66e469188fe07963e5cf666c7d4433f45b8131c5'
+info: VCVio: materializing new dependency
+info: VCVio: fetching revision 'bbf05eeeedf84c5f98baaf5ab846f2d2479cc8ab' from https://github.com/Verified-zkEVM/VCVio.git
+info: VCVio: checking out revision 'bbf05eeeedf84c5f98baaf5ab846f2d2479cc8ab'
+info: Cli: materializing new dependency
+info: Cli: fetching revision 'c24fe6078c630e89b489bffe59b3e20ac30d12c8' from https://github.com/leanprover/lean4-cli
+info: Cli: checking out revision 'c24fe6078c630e89b489bffe59b3e20ac30d12c8'
+info: QuantumFoundations: materializing new dependency
+info: QuantumFoundations: fetching revision '901aaab7967ceecd2240d0b38bbde7cf3e2c14ac' from https://github.com/lean-crypto-foundations/QuantumFoundations
+info: QuantumFoundations: checking out revision '901aaab7967ceecd2240d0b38bbde7cf3e2c14ac'
+info: PolyFun: materializing new dependency
+info: PolyFun: fetching revision '4181c82238142d9b73403fbf4c4b13e1a801e400' from https://github.com/Verified-zkEVM/PolyFun
+info: PolyFun: checking out revision '4181c82238142d9b73403fbf4c4b13e1a801e400'
+info: cslib: materializing new dependency
+info: cslib: fetching revision '5b56df99362532c46e1175381fbbdd755bd56030' from https://github.com/leanprover/cslib
+info: cslib: checking out revision '5b56df99362532c46e1175381fbbdd755bd56030'
+✔ [2/6] Built Cache.Cli (129ms)
+✔ [3/6] Built Cache.Lean (140ms)
+✔ [7/43] Built Cache.Env (133ms)
+✔ [8/43] Built Cache.Cli:c.o (57ms)
+✔ [9/43] Built Cache.Lean:c.o (69ms)
+✔ [10/43] Built Cache.Env:c.o (73ms)
+✔ [11/43] Built Cache.Infra (150ms)
+✔ [12/43] Built Batteries.Tactic.OpenPrivate (373ms)
+✔ [13/43] Built Cache.Infra:c.o (84ms)
+✔ [14/43] Built Cache.Location (187ms)
+✔ [15/43] Built Cache.Location:c.o (109ms)
+✔ [16/43] Built Cache.IO (522ms)
+✔ [17/43] Built Batteries.Tactic.OpenPrivate:c.o (481ms)
+✔ [18/43] Built Cache.Hashing (249ms)
+✔ [19/43] Built Cache.Hashing:c.o (265ms)
+✔ [20/43] Built Cache.IO:c.o (710ms)
+✔ [21/43] Built Cache.Requests (675ms)
+✔ [22/43] Built Cache.Marker (158ms)
+✔ [23/43] Built Cache.Marker:c.o (62ms)
+✔ [24/43] Built Cache.Upload.Curl (178ms)
+✔ [25/43] Built Cache.Upload.Rclone (194ms)
+✔ [26/43] Built Cache.Upload.Curl:c.o (89ms)
+✔ [27/43] Built Cache.Query (221ms)
+✔ [28/43] Built Cache.Upload.Rclone:c.o (112ms)
+✔ [29/43] Built Cache.Upload.Azure (175ms)
+✔ [30/43] Built Cache.Query:c.o (124ms)
+✔ [31/43] Built Cache.Upload.S3 (223ms)
+✔ [32/43] Built Cache.Upload.Azure:c.o (70ms)
+✔ [33/43] Built Cache.Warning (224ms)
+✔ [34/43] Built Cache.Upload.S3:c.o (135ms)
+✔ [35/43] Built Cache.Upload.Defs (182ms)
+✔ [36/43] Built Cache.Upload.Defs:c.o (72ms)
+✔ [37/43] Built Cache.Upload (156ms)
+✔ [38/43] Built Cache.Warning:c.o (140ms)
+✔ [39/43] Built Cache.Upload:c.o (50ms)
+✔ [40/43] Built Cache.Requests:c.o (1.2s)
+✔ [41/43] Built Cache.Main (370ms)
+✔ [42/43] Built Cache.Main:c.o (408ms)
+✔ [43/43] Built cache:exe (292ms)
+Current branch: HEAD
+Using cache from origin: (some leanprover-community/mathlib4)
+Decompressing 9030 already-cached file(s) (1 already decompressed)
+No files to download
+Decompressed 9030 already-cached file(s)
+Completed successfully in 4461 ms!

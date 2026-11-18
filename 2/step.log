@@ -1,0 +1,3 @@
+{"tag": "build-lifecycle", "exit": 0, "wall_s": 33.1, "cgroup": "/sys/fs/cgroup/system.slice/run-r46d4e921125d44e4b060a113320f486b.scope", "memory.max": "42949672960", "memory.peak_bytes": 5064224768, "memory.events": {"low": "0", "high": "0", "max": "0", "oom": "0", "oom_kill": "0", "oom_group_kill": "0"}}
+{"tag": "build-lifecycle-bad", "exit": 1, "wall_s": 27.9, "cgroup": "/sys/fs/cgroup/system.slice/run-r780e6ff373be477e8a7321735a9e6452.scope", "memory.max": "42949672960", "memory.peak_bytes": 4979384320, "memory.events": {"low": "0", "high": "0", "max": "0", "oom": "0", "oom_kill": "0", "oom_group_kill": "0"}}
+{"control": "wrong storage (1,9)", "exit": 1, "kernel_checkB_eq_mismatch": true, "oom_kill": 0, "memory_exception": false, "refused": true}

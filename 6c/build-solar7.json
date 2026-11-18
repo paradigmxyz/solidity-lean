@@ -1,0 +1,1 @@
+{"tag": "build-solar7", "exit": 0, "wall_s": 24.1, "cgroup": "/sys/fs/cgroup/system.slice/run-r8b964a7ec3f94171bcecfe0b6301d755.scope", "memory.max": "42949672960", "memory.peak_bytes": 3539656704, "memory.events": {"low": "0", "high": "0", "max": "0", "oom": "0", "oom_kill": "0", "oom_group_kill": "0"}}

@@ -1,0 +1,1 @@
+{"tag": "build-lifecycle", "exit": 0, "wall_s": 33.1, "cgroup": "/sys/fs/cgroup/system.slice/run-r46d4e921125d44e4b060a113320f486b.scope", "memory.max": "42949672960", "memory.peak_bytes": 5064224768, "memory.events": {"low": "0", "high": "0", "max": "0", "oom": "0", "oom_kill": "0", "oom_group_kill": "0"}}

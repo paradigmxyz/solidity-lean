@@ -1,0 +1,92 @@
+{
+  "schema": "solar-certify-generic/1",
+  "name": "counter_f1c87a33",
+  "started": "2026-11-18T07:10:07+00:00",
+  "command": [
+    "/home/ubuntu/solar7/tools/certify/certify",
+    "/home/ubuntu/Counter.sol",
+    "none",
+    "--contract",
+    "Counter",
+    "--tier",
+    "lifecycle",
+    "--constructor-args",
+    "8",
+    "--lifecycle-bind",
+    "tools/certify/testdata/lifecycle_bind/counter-bind.json",
+    "--solidity-lean",
+    "/home/ubuntu/sl2",
+    "--base",
+    "25f481785bd349753c345f72d3db013b2d7e6220",
+    "--packages-from",
+    "/home/ubuntu/sl2",
+    "--work",
+    "/home/ubuntu/genwork",
+    "--record-dir",
+    "/home/ubuntu/rcpt/6c/gen-record"
+  ],
+  "requested_tier": "lifecycle",
+  "source": {
+    "file": "/home/ubuntu/Counter.sol",
+    "sha256": "f1c87a334b8db31fc8f80541febeaf8617318d20b685634f44e26c74146ad326"
+  },
+  "spec": {
+    "kind": "none",
+    "sha256": null
+  },
+  "invariants": {
+    "file": null,
+    "sha256": null
+  },
+  "options": [
+    "-Ogas",
+    "--evm-version",
+    "osaka"
+  ],
+  "solar": {
+    "commit": "ed238a92ea60b39f38cdb56d1e8762e407efdb3f",
+    "dirty": false
+  },
+  "solc": {
+    "version": "0.8.35",
+    "path": "/home/ubuntu/.cache/solc/solc-0.8.35",
+    "sha256": "fa8ac9a32d301ad023a36ee5a29f8e291fe3200c60244e43c142539e82a617f4"
+  },
+  "lean_toolchain": {
+    "recorded_digest": "953aa1e72283c07686567bb71eeb3fca202baafe2958a7e57987d3b8c4434c25"
+  },
+  "loop_heads": null,
+  "loop_cuts": {},
+  "loop_cuts_blocked": {
+    "*": {
+      "step": "exporter",
+      "why": "SOLAR_VERIFY_Z3 is not set"
+    }
+  },
+  "resource_obligation": {
+    "kind": "fixed-fuel",
+    "loop": {
+      "function": "bump",
+      "src": "704:64:0",
+      "M": 115792089237316195423570985008687907853269984665640564039457584007913129639935,
+      "limit": "word"
+    },
+    "final_evm_ir": "Evm7",
+    "header": 8,
+    "B": 2,
+    "X": 3,
+    "E": 2,
+    "F": 231584178474632390847141970017375815706539969331281128078915168015826259279875,
+    "M": 115792089237316195423570985008687907853269984665640564039457584007913129639935,
+    "bmax": 32,
+    "memory": 12,
+    "per_iteration_gas": 1414400,
+    "exit_gas": 3536012,
+    "G": 163776331017260026807098801196288176867665066311082013777408806820792330562727600012,
+    "verdict": "out-of-gas",
+    "lean": "Verify.Gas.FixedFuel.verdictOf (some 115792089237316195423570985008687907853269984665640564039457584007913129639935) 1414400 3536012"
+  },
+  "rejected_for": "resource: out of gas",
+  "status": "REJECTED",
+  "finished": "2026-11-18T07:10:39+00:00"
+}

@@ -1,0 +1,1 @@
+Verify/LoopSource/Equiv/Counter/run-v3/RECEIPT.json:123:    "forbidden": "none of sorry, native_decide, ofReduceBool, implemented_by, extern, axiom"

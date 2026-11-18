@@ -1,0 +1,7 @@
+Supplementary reads after step 8 (not admitted script steps; read-only, recorded for the coordinator):
+- Step 8 printed "axioms differ" and exited 8. audit-ctx.out shows counter_expected_closed's axioms as
+  [propext,\n Classical.choice,\n Quot.sound]: Lean wrapped the list across lines, so the script's single-line
+  grep missed it. counter_expected (one line) shows [propext, Classical.choice, Quot.sound].
+- The step's forbidden scan never ran. Rerunning its regex over Verify/LoopSource matches one line:
+  run-v3/RECEIPT.json:123, which lists the forbidden names as text (supplementary-forbidden-ctx.txt).
+  Over *.lean files only it matches nothing (supplementary-forbidden-ctx-lean.txt, grep exit 1).

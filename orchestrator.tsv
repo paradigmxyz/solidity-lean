@@ -1,0 +1,25 @@
+2026-11-18T06:51:22Z	0	START	bash box-v4.sh 0
+2026-11-18T06:53:42Z	0	EXIT	1
+2026-11-18T06:53:42Z	3d	START	bash box-v4.sh 3d
+2026-11-18T06:53:46Z	3d	EXIT	0
+2026-11-18T06:53:46Z	1	START	bash box-v4.sh 1
+2026-11-18T06:54:33Z	1	EXIT	1
+2026-11-18T06:54:33Z	3	START	bash box-v4.sh 3
+2026-11-18T07:01:29Z	3	EXIT	1
+2026-11-18T07:01:29Z	4 Verify.LoopSource.Equiv.Counter.Resources Verify.LoopSource.Equiv.Counter.Neg	START	bash box-v4.sh 4 Verify.LoopSource.Equiv.Counter.Resources Verify.LoopSource.Equiv.Counter.Neg
+2026-11-18T07:01:32Z	4 Verify.LoopSource.Equiv.Counter.Resources Verify.LoopSource.Equiv.Counter.Neg	EXIT	1
+2026-11-18T07:01:32Z	6	START	bash box-v4.sh 6
+2026-11-18T07:09:36Z	6	EXIT	0
+2026-11-18T07:09:36Z	6c	START	bash box-v4.sh 6c
+2026-11-18T07:10:40Z	6c	EXIT	1
+2026-11-18T07:10:40Z	7	START	bash box-v4.sh 7
+2026-11-18T07:15:26Z	7	EXIT	14
+2026-11-18T07:15:26Z	8	START	bash box-v4.sh 8
+2026-11-18T07:15:27Z	8	EXIT	8
+2026-11-18T07:15:27Z	2	START	bash box-v4.sh 2
+2026-11-18T07:16:29Z	2	EXIT	0
+2026-11-18T07:16:29Z	4 CounterRun.Lifecycle	START	bash box-v4.sh 4 CounterRun.Lifecycle
+2026-11-18T07:18:43Z	4 CounterRun.Lifecycle	EXIT	0
+2026-11-18T07:18:43Z	5	START	bash box-v4.sh 5
+2026-11-18T07:18:44Z	5	EXIT	1
+2026-11-18T07:18:44Z	ALL	DONE

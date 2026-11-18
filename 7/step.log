@@ -1,0 +1,1 @@
+{"tag": "fresh-Verify.LoopSource.Equiv.CounterClosedCtx", "exit": 0, "wall_s": 286.2, "cgroup": "/sys/fs/cgroup/system.slice/run-rf441a68c237347399ec548d4f294c976.scope", "memory.max": "42949672960", "memory.peak_bytes": 4947763200, "memory.events": {"low": "0", "high": "0", "max": "0", "oom": "0", "oom_kill": "0", "oom_group_kill": "0"}}

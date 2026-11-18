@@ -1,0 +1,22 @@
+Contracts/VerifyCounter/Source.lean:1:0: error: unknown module prefix 'SolidCore'
+
+No directory 'SolidCore' or file 'SolidCore.olean' in the search path entries:
+/home/ubuntu/sl/.lake/packages/cslib/.lake/build/lib/lean
+/home/ubuntu/sl/.lake/packages/PolyFun/.lake/build/lib/lean
+/home/ubuntu/sl/.lake/packages/QuantumFoundations/.lake/build/lib/lean
+/home/ubuntu/sl/.lake/packages/Cli/.lake/build/lib/lean
+/home/ubuntu/sl/.lake/packages/VCVio/.lake/build/lib/lean
+/home/ubuntu/sl/.lake/packages/batteries/.lake/build/lib/lean
+/home/ubuntu/sl/.lake/packages/Qq/.lake/build/lib/lean
+/home/ubuntu/sl/.lake/packages/aesop/.lake/build/lib/lean
+/home/ubuntu/sl/.lake/packages/proofwidgets/.lake/build/lib/lean
+/home/ubuntu/sl/.lake/packages/importGraph/.lake/build/lib/lean
+/home/ubuntu/sl/.lake/packages/LeanSearchClient/.lake/build/lib/lean
+/home/ubuntu/sl/.lake/packages/plausible/.lake/build/lib/lean
+/home/ubuntu/sl/.lake/packages/EthLib/.lake/build/lib/lean
+/home/ubuntu/sl/vendor/evmyul/.lake/build/lib/lean
+/home/ubuntu/sl/vendor/evm-interaction/.lake/build/lib/lean
+/home/ubuntu/sl/.lake/packages/mathlib/.lake/build/lib/lean
+/home/ubuntu/sl/.lake/build/lib/lean
+/home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/lib/lean
+/home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/lib/lean

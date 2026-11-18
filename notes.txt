@@ -1,0 +1,40 @@
+notes.txt: run notes for box pyramid-prd-t4v4-f505 (coordinator ruling, no script changes on this box)
+
+1. scoped() set -e defect (present in both scripts; each step's run is as admitted, 1 attempt in step 3).
+   scoped() re-enables errexit before returning a nonzero exit, so the caller's 'set +e' around it is undone
+   and the step exits at the call: step 3's retry loop (attempts.log/attempts.json never written) and step 6's
+   srcdied -> open_step branch are unreachable.
+   box-v4-orig.sh (sha256 6e21a62cfd5be7716fa9be73e9525e1a0a9d284e3e694ed578d29ee54c816b25):
+     box-v4-orig.sh:15: set -euo pipefail
+     box-v4-orig.sh:45: scoped() {
+     box-v4-orig.sh:47:   set +e
+     box-v4-orig.sh:62:   local rc=$?; set -e
+     box-v4-orig.sh:68:   return $rc
+     box-v4-orig.sh:184:     set +e
+     box-v4-orig.sh:185:     scoped "build-resources-a$a" lake build -KleanMemory=6000 Verify.LoopSource.Equiv.Counter.Resources \
+     box-v4-orig.sh:187:     rc=$?; set -e
+     box-v4-orig.sh:233:   set +e
+     box-v4-orig.sh:234:   scoped build-ctx lake build -KleanMemory=6000 Verify.LoopSource.Equiv.CounterDeploy8 Verify.LoopSource.Equiv.CounterDeploy5 \
+     box-v4-orig.sh:236:   rc=$?; set -e
+     box-v4-orig.sh:237:   if [ $rc -ne 0 ] && srcdied build-ctx; then open_step build-ctx; echo "OPEN: Source died"; exit 0; fi
+   box-v4-fix.sh (sha256 f337f1617141c4d1d987b6b2a0710cf17bd9414ede500961f00113e1d4792f4a):
+     box-v4-fix.sh:15: set -euo pipefail
+     box-v4-fix.sh:45: scoped() {
+     box-v4-fix.sh:47:   set +e
+     box-v4-fix.sh:62:   local rc=$?; set -e
+     box-v4-fix.sh:68:   return $rc
+     box-v4-fix.sh:186:     set +e
+     box-v4-fix.sh:187:     scoped "build-resources-a$a" lake build -KleanMemory=6000 Verify.LoopSource.Equiv.Counter.Resources \
+     box-v4-fix.sh:189:     rc=$?; set -e
+     box-v4-fix.sh:235:   set +e
+     box-v4-fix.sh:236:   scoped build-ctx lake build -KleanMemory=6000 Verify.LoopSource.Equiv.CounterDeploy8 Verify.LoopSource.Equiv.CounterDeploy5 \
+     box-v4-fix.sh:238:   rc=$?; set -e
+     box-v4-fix.sh:239:   if [ $rc -ne 0 ] && srcdied build-ctx; then open_step build-ctx; echo "OPEN: Source died"; exit 0; fi
+   Fixed on the branch for the next admission only.
+
+2. Step 3: Contracts.VerifyCounter.Source OPEN. Lean interpreter limit, not a cgroup OOM: lean::memory_exception
+   'excessive memory consumption detected at interpreter', Lean exited with code 134, under its lib's -M 3000;
+   scope memory.max 42949672960, memory.peak 6057279488 B, memory.events max 0 oom 0 oom_kill 0.
+
+3. Steps 4, 6c, 7, 8 and counter_expected_closed: OPEN (blocked on Source), each with the blocking stage named
+   in the final report; not proof failures. Step 6 is recorded the same way if Source aborts again.

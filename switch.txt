@@ -1,0 +1,6 @@
+switch_time: 2026-11-18T07:02:23Z
+original_script: box-v4-orig.sh sha256 6e21a62cfd5be7716fa9be73e9525e1a0a9d284e3e694ed578d29ee54c816b25 (solidity-lean 7fb616c2)
+fixed_script: box-v4-fix.sh sha256 f337f1617141c4d1d987b6b2a0710cf17bd9414ede500961f00113e1d4792f4a (solidity-lean 2ce8318d, admitted)
+dispatcher: box-v4.sh sha256 ce656bd5306c8c31e5b219d0f88b908ac24c8b15275bae8d442a8573fee3a104 (orchestrator run-all.sh calls bash box-v4.sh STEP; from the switch time it dispatches to the fixed script)
+ran under original: 0 (exit 1, findmnt diagnostic), 3d, 1 (exit 1, missing Counter.sol.txt), 3, 4 Resources Neg, 6 (started 07:01:32Z, before the switch; its bash holds the original file)
+ran under fixed: 1 (full rerun, inside the orchestrator's 6c slot), 6c, 7, 8, 2, 4 CounterRun.Lifecycle, 5 (exits in switch-steps.tsv)
