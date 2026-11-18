@@ -134,29 +134,224 @@ theorem ArgsBound.unique {initcode creation : ByteArray} {ws ws' : List Nat}
     (h : ArgsBound initcode creation ws) (h' : ArgsBound initcode creation ws') : ws = ws' :=
   h.decode.symm.trans h'.decode
 
+/-! ## Typed admission of the constructor's arguments
+
+The first subset: a constructor that is not payable, whose parameters all have SolidCore type
+`uint256` with no narrowing cleanup (narrow `uintN`, `intN` and enums lower to `uint256` or
+`int256` with a cleanup; `address`, `bool`, `bytesN` and dynamic types are other types). Everything
+else is refused, with the reason (`CtorBlocked`). The parameters are the checked contract's own
+(`CheckedProgram.constructorFunctionFor?`, the lookup `constructWithContext?` makes) and the words are
+decoded by SolidCore's own ABI decoder (`ABI.decodeFunctionArgs?`, the runtime dispatcher's).
+
+Which layer refuses what: a suffix shorter than the parameters' heads is refused by the decoder
+(its whole-head presence check) and by the exact suffix; trailing bytes after the heads, aligned
+(an extra word) or not (a misaligned tail), are accepted by the decoder, as solc's is, and refused
+only by the exact suffix (`ArgsBound.code`), so admission fails closed there. -/
+
+/-- Why a constructor's arguments are not admitted. -/
+inductive CtorBlocked where
+  | noConstructor
+  | payable
+  | param (i : Nat) (ty : Solidity.Source.Ty)
+  | cleanup (i : Nat) (k : Solidity.Source.AbiCleanup)
+  | arity (params words : Nat)
+  | wordRange
+  | suffix
+  | decode
+  | decodeMismatch
+  deriving Repr
+
+/-- The word of a decoded value, if it is one. -/
+def wordOf? : Solidity.Source.Value → Option Nat
+  | .word w => some w
+  | _ => none
+
+/-- Every parameter type is `uint256`; else the first that is not. -/
+def paramsOk : Nat → List Solidity.Source.Ty → Except CtorBlocked Unit
+  | _, [] => .ok ()
+  | i, .uint256 :: ts => paramsOk (i + 1) ts
+  | i, t :: _ => .error (.param i t)
+
+/-- Every parameter cleanup is none or `uint 256`; else the first that is not. -/
+def cleanupsOk : Nat → List Solidity.Source.AbiCleanup → Except CtorBlocked Unit
+  | _, [] => .ok ()
+  | i, .none :: ks => cleanupsOk (i + 1) ks
+  | i, .uint b :: ks => if b = 256 then cleanupsOk (i + 1) ks else .error (.cleanup i (.uint b))
+  | i, k :: _ => .error (.cleanup i k)
+
+/-- The bytes after the init code, as the decoder reads them. -/
+def suffixBytes (initcode creation : ByteArray) : List Nat :=
+  (creation.data.toList.drop initcode.size).map UInt8.toNat
+
+/-- Admission against one constructor definition. -/
+def admitFn (f : TypeCheck.CoreFunctionDef) (initcode creation : ByteArray) (ws : List Nat) :
+    Except CtorBlocked Unit :=
+  if f.payable then .error .payable else
+  match paramsOk 0 (f.params.map Solidity.Source.BindingDecl.ty) with
+  | .error e => .error e
+  | .ok () =>
+  match cleanupsOk 0 f.paramAbiCleanups with
+  | .error e => .error e
+  | .ok () =>
+  if f.params.length ≠ ws.length then .error (.arity f.params.length ws.length) else
+  if ¬ (∀ w ∈ ws, w < 2 ^ 256) then .error .wordRange else
+  if creation.data.toList ≠ (Verify.Lifecycle.initArgs initcode ws).data.toList then .error .suffix else
+  match Solidity.Source.ABI.decodeFunctionArgs? f (suffixBytes initcode creation) with
+  | .error _ => .error .decode
+  | .ok vs => if vs.map wordOf? = ws.map some then .ok () else .error .decodeMismatch
+
+/-- **Typed admission**: the checked contract's constructor, its parameters in the subset, the
+creation code exactly the init code and the words' encoding, and SolidCore's decoder reading back
+exactly those words. -/
+structure CtorAdmits (c : TypeCheck.CheckedContract) (initcode creation : ByteArray)
+    (ws : List Nat) : Prop where
+  bound : ArgsBound initcode creation ws
+  ctor : ∃ f, TypeCheck.CheckedProgram.constructorFunctionFor? c.program c.decl = some f ∧
+    f.payable = false ∧
+    f.params.map Solidity.Source.BindingDecl.ty = ws.map (fun _ => Solidity.Source.Ty.uint256) ∧
+    (∀ k ∈ f.paramAbiCleanups, k = .none ∨ k = .uint 256) ∧
+    Solidity.Source.ABI.decodeFunctionArgs? f (suffixBytes initcode creation) =
+      .ok (Verify.Lifecycle.wordArgs ws)
+
+/-- Admission of the checked contract's constructor: refused when there is none. -/
+def admitCtor? (c : TypeCheck.CheckedContract) (initcode creation : ByteArray) (ws : List Nat) :
+    Except CtorBlocked Unit :=
+  match TypeCheck.CheckedProgram.constructorFunctionFor? c.program c.decl with
+  | none => .error .noConstructor
+  | some f => admitFn f initcode creation ws
+
+theorem paramsOk_sound : ∀ {i : Nat} {ts : List Solidity.Source.Ty}, paramsOk i ts = .ok () →
+    ∀ t ∈ ts, t = .uint256
+  | _, [], _ => by simp
+  | i, t :: ts, h => by
+    cases t <;> simp only [paramsOk, reduceCtorEq] at h
+    intro t' ht'
+    rcases List.mem_cons.mp ht' with rfl | ht'
+    · rfl
+    · exact paramsOk_sound h t' ht'
+
+theorem cleanupsOk_sound : ∀ {i : Nat} {ks : List Solidity.Source.AbiCleanup},
+    cleanupsOk i ks = .ok () → ∀ k ∈ ks, k = .none ∨ k = .uint 256
+  | _, [], _ => by simp
+  | i, k :: ks, h => by
+    intro k' hk'
+    cases k with
+    | none =>
+      simp only [cleanupsOk] at h
+      rcases List.mem_cons.mp hk' with rfl | hk'
+      · exact .inl rfl
+      · exact cleanupsOk_sound h k' hk'
+    | uint b =>
+      simp only [cleanupsOk] at h
+      split at h
+      · next hb =>
+        subst hb
+        rcases List.mem_cons.mp hk' with rfl | hk'
+        · exact .inr rfl
+        · exact cleanupsOk_sound h k' hk'
+      · simp at h
+    | _ => simp [cleanupsOk] at h
+
+theorem map_eq_of_mapWord : ∀ {vs : List Solidity.Source.Value} {ws : List Nat},
+    vs.map wordOf? = ws.map some → vs = Verify.Lifecycle.wordArgs ws
+  | [], [], _ => rfl
+  | [], _ :: _, h => by simp at h
+  | _ :: _, [], h => by simp at h
+  | v :: vs, w :: ws, h => by
+    simp only [List.map_cons, List.cons.injEq] at h
+    obtain ⟨h1, h2⟩ := h
+    have hv : v = .word w := by cases v <;> simp_all [wordOf?]
+    simp only [Verify.Lifecycle.wordArgs, List.map_cons] at *
+    rw [hv, map_eq_of_mapWord h2]; rfl
+
+theorem map_uint256 {ts : List Solidity.Source.Ty} {ws : List Nat}
+    (h : ∀ t ∈ ts, t = .uint256) (hl : ts.length = ws.length) :
+    ts = ws.map (fun _ => Solidity.Source.Ty.uint256) := by
+  induction ts generalizing ws with
+  | nil => cases ws <;> simp_all
+  | cons t ts ih =>
+    cases ws with
+    | nil => simp at hl
+    | cons w ws =>
+      simp only [List.map_cons, List.cons.injEq]
+      exact ⟨h t (List.mem_cons_self ..), ih (fun t' ht' => h t' (List.mem_cons_of_mem _ ht'))
+        (by simpa using hl)⟩
+
+/-- **The checker is sound**: `admitCtor? = .ok ()` is checked evidence of `CtorAdmits`. -/
+theorem admitCtor?_sound {c : TypeCheck.CheckedContract} {initcode creation : ByteArray}
+    {ws : List Nat} (h : admitCtor? c initcode creation ws = .ok ()) :
+    CtorAdmits c initcode creation ws := by
+  unfold admitCtor? at h
+  split at h
+  · simp at h
+  next f hf =>
+  unfold admitFn at h
+  split at h
+  · simp at h
+  next hpay =>
+  split at h
+  · simp at h
+  next hp =>
+  split at h
+  · simp at h
+  next hk =>
+  split at h
+  · simp at h
+  next har =>
+  split at h
+  · simp at h
+  next hwr =>
+  split at h
+  · simp at h
+  next hsuf =>
+  split at h
+  · simp at h
+  next vs hdec =>
+  split at h
+  · next hvs =>
+    have hcode : creation = Verify.Lifecycle.initArgs initcode ws :=
+      ByteArray.ext (Array.toList_inj.mp (Classical.not_not.mp hsuf))
+    refine ⟨⟨hcode, Classical.not_not.mp hwr⟩, f, hf, by simpa using hpay, ?_, cleanupsOk_sound hk,
+      by rw [hdec, map_eq_of_mapWord hvs]⟩
+    exact map_uint256 (by simpa using paramsOk_sound hp)
+      (by simpa using Classical.not_not.mp har)
+  · simp at h
+
+/-- No two lists of words are admitted for the same creation code. -/
+theorem CtorAdmits.unique {c : TypeCheck.CheckedContract} {initcode creation : ByteArray}
+    {ws ws' : List Nat} (h : CtorAdmits c initcode creation ws)
+    (h' : CtorAdmits c initcode creation ws') : ws = ws' :=
+  ArgsBound.unique h.bound h'.bound
+
 end SolidCore.Refinement.Generic
 
 namespace SolidCore.Verify.Generic
 
 open SolidCore.Solidity SolidCore.Refinement SolidCore.Refinement.Generic
 
-/-- The source's argument words are the ones the creation code `creation` of `initcode` carries. -/
-def Source.CreatedBy {ws : List Nat} (_ : Source ws) (initcode creation : ByteArray) : Prop :=
-  ArgsBound initcode creation ws
+/-- The source's argument words are the ones the creation code `creation` of `initcode` carries,
+admitted for the checked contract `c`'s constructor (`CtorAdmits`): the exact suffix, the arity and the
+typed values. -/
+def Source.CreatedBy {ws : List Nat} (_ : Source ws) (c : TypeCheck.CheckedContract)
+    (initcode creation : ByteArray) : Prop :=
+  CtorAdmits c initcode creation ws
 
 /-- Two sources created by the same creation code have the same argument words. -/
 theorem Source.CreatedBy.unique {ws ws' : List Nat} {src : Source ws} {src' : Source ws'}
-    {initcode creation : ByteArray} (h : src.CreatedBy initcode creation)
-    (h' : src'.CreatedBy initcode creation) : src.ctorArgs = src'.ctorArgs :=
-  ArgsBound.unique h h'
+    {c : TypeCheck.CheckedContract} {initcode creation : ByteArray}
+    (h : src.CreatedBy c initcode creation) (h' : src'.CreatedBy c initcode creation) :
+    src.ctorArgs = src'.ctorArgs :=
+  CtorAdmits.unique h h'
 
-/-- **The lifecycle statement and the source semantics agree**: a source created by `creation`,
+/-- **The lifecycle statement and the source semantics agree**: a source whose checked contract is
+`c`, created by `creation` with its arguments admitted for `c`,
 whose lifecycle statement holds, has its creation code deploy the runtime code `code` with the
 storage `s`, and in every runtime context its semantics runs from the state SolidCore's constructor
 left on the same words, whose storage is `s`. -/
 theorem Source.run_of_statement {ws : List Nat} {src : Source ws} {c : TypeCheck.CheckedContract}
     {initcode code creation : ByteArray} {s : List (Nat × Nat)}
-    (hb : src.CreatedBy initcode creation)
+    (_hc : src.checked = .ok c)
+    (hb : src.CreatedBy c initcode creation)
     (hl : Verify.Lifecycle.Statement src.fuel c initcode code ws s) :
     Deploys creation code s ∧ ∃ d : SolidCore.Solidity.Source.State, d.storage.toList = s ∧
       ∀ ctx : Context, ∀ call : Call, (src.semAt ctx).run c call =
@@ -168,7 +363,7 @@ theorem Source.run_of_statement {ws : List Nat} {src : Source ws} {c : TypeCheck
               d.storage }
           selfAddress ctx.caller call.callvalue (call.calldata.data.toList.map (·.toNat))).map
           (Refinement.Source.observe call) := by
-  refine ⟨hb.code ▸ hl.deploys, ?_⟩
+  refine ⟨hb.bound.code ▸ hl.deploys, ?_⟩
   obtain ⟨d, hd⟩ := hl.source
   refine ⟨d, hd.storage, fun ctx call => ?_⟩
   show (Refinement.Source.resultFromArgs? ctx.caller src.fuel ws c call).map _ = _

@@ -1,5 +1,5 @@
 import Verify.Generic.CtorArgs.Gates
-
+import Verify.Generic.CtorArgs.Admission
 
 /-!
 # Exact types and axioms of the constructor-arguments interface
@@ -411,19 +411,20 @@ info: 'SolidCore.Verify.Generic.Expected' depends on axioms: [propext, Classical
 #print axioms SolidCore.Verify.Generic.Expected
 /--
 info: @SolidCore.Verify.Generic.Source.CreatedBy : {ws : List ℕ} →
-  SolidCore.Verify.Generic.Source ws → ByteArray → ByteArray → Prop
+  SolidCore.Verify.Generic.Source ws → SolidCore.Solidity.TypeCheck.CheckedContract → ByteArray → ByteArray → Prop
 -/
 #guard_msgs in
 #check @SolidCore.Verify.Generic.Source.CreatedBy
 /--
-info: 'SolidCore.Verify.Generic.Source.CreatedBy' depends on axioms: [propext]
+info: 'SolidCore.Verify.Generic.Source.CreatedBy' depends on axioms: [propext, Classical.choice, Quot.sound]
 -/
 #guard_msgs in
 #print axioms SolidCore.Verify.Generic.Source.CreatedBy
 /--
 info: @SolidCore.Verify.Generic.Source.CreatedBy.unique : ∀ {ws ws' : List ℕ} {src : SolidCore.Verify.Generic.Source ws}
-  {src' : SolidCore.Verify.Generic.Source ws'} {initcode creation : ByteArray},
-  src.CreatedBy initcode creation → src'.CreatedBy initcode creation → src.ctorArgs = src'.ctorArgs
+  {src' : SolidCore.Verify.Generic.Source ws'} {c : SolidCore.Solidity.TypeCheck.CheckedContract}
+  {initcode creation : ByteArray},
+  src.CreatedBy c initcode creation → src'.CreatedBy c initcode creation → src.ctorArgs = src'.ctorArgs
 -/
 #guard_msgs in
 #check @SolidCore.Verify.Generic.Source.CreatedBy.unique
@@ -435,37 +436,38 @@ info: 'SolidCore.Verify.Generic.Source.CreatedBy.unique' depends on axioms: [pro
 /--
 info: @SolidCore.Verify.Generic.Source.run_of_statement : ∀ {ws : List ℕ} {src : SolidCore.Verify.Generic.Source ws}
   {c : SolidCore.Solidity.TypeCheck.CheckedContract} {initcode code creation : ByteArray} {s : List (ℕ × ℕ)},
-  src.CreatedBy initcode creation →
-    Verify.Lifecycle.Statement src.fuel c initcode code ws s →
-      SolidCore.Refinement.Deploys creation code s ∧
-        ∃ d,
-          Std.HashMap.toList d.storage = s ∧
-            ∀ (ctx : SolidCore.Verify.Generic.Context) (call : SolarTV.Call),
-              (src.semAt ctx).run c call =
-                Option.map (SolidCore.Refinement.Source.observe call)
-                  (SolidCore.Solidity.TypeCheck.CheckedContract.callCalldataAtFromWithContext? src.fuel c
-                    (have __src := SolidCore.Solidity.Source.Contract.context c.core;
-                    { storageFields := __src.storageFields, immutableFields := __src.immutableFields,
-                      selfDispatch? := __src.selfDispatch?, eventDecls := __src.eventDecls,
-                      errorDecls := __src.errorDecls, checked := __src.checked, construction := __src.construction,
-                      calldata := __src.calldata, sender := SolidCore.Refinement.callerAddress, value := call.callvalue,
-                      self := SolidCore.Refinement.selfAddress, accountBalances := __src.accountBalances,
-                      accountCodes := __src.accountCodes, accountCodehashes := __src.accountCodehashes,
-                      contractAddresses := __src.contractAddresses,
-                      contractCreationCodes := __src.contractCreationCodes,
-                      contractRuntimeCodes := __src.contractRuntimeCodes, blockEnv := __src.blockEnv,
-                      txEnv := __src.txEnv, evmVersion := __src.evmVersion,
-                      createdInTransactionAccounts := __src.createdInTransactionAccounts, gasleft := __src.gasleft,
-                      memoryAllocationLimit? := __src.memoryAllocationLimit? })
-                    { storage := List.foldl (fun acc kv => acc.insertLoop kv.1 kv.2) d.storage call.storage,
-                      transient := d.transient, immutables := d.immutables, selfdestructs := d.selfdestructs,
-                      selfdestructEffects := d.selfdestructEffects, externalInteractions := d.externalInteractions,
-                      selfBalance := d.selfBalance, selfNonce := d.selfNonce, events := d.events,
-                      envWorld? := d.envWorld?, worldMutatedSinceAdoption := d.worldMutatedSinceAdoption,
-                      adoptedLogPrefix := d.adoptedLogPrefix, adoptedEventCount := d.adoptedEventCount,
-                      adoptedSelfdestructCount := d.adoptedSelfdestructCount }
-                    SolidCore.Refinement.selfAddress ctx.caller call.callvalue
-                    (List.map (fun x => x.toNat) call.calldata.data.toList))
+  src.checked = Except.ok c →
+    src.CreatedBy c initcode creation →
+      Verify.Lifecycle.Statement src.fuel c initcode code ws s →
+        SolidCore.Refinement.Deploys creation code s ∧
+          ∃ d,
+            Std.HashMap.toList d.storage = s ∧
+              ∀ (ctx : SolidCore.Verify.Generic.Context) (call : SolarTV.Call),
+                (src.semAt ctx).run c call =
+                  Option.map (SolidCore.Refinement.Source.observe call)
+                    (SolidCore.Solidity.TypeCheck.CheckedContract.callCalldataAtFromWithContext? src.fuel c
+                      (have __src := SolidCore.Solidity.Source.Contract.context c.core;
+                      { storageFields := __src.storageFields, immutableFields := __src.immutableFields,
+                        selfDispatch? := __src.selfDispatch?, eventDecls := __src.eventDecls,
+                        errorDecls := __src.errorDecls, checked := __src.checked, construction := __src.construction,
+                        calldata := __src.calldata, sender := SolidCore.Refinement.callerAddress,
+                        value := call.callvalue, self := SolidCore.Refinement.selfAddress,
+                        accountBalances := __src.accountBalances, accountCodes := __src.accountCodes,
+                        accountCodehashes := __src.accountCodehashes, contractAddresses := __src.contractAddresses,
+                        contractCreationCodes := __src.contractCreationCodes,
+                        contractRuntimeCodes := __src.contractRuntimeCodes, blockEnv := __src.blockEnv,
+                        txEnv := __src.txEnv, evmVersion := __src.evmVersion,
+                        createdInTransactionAccounts := __src.createdInTransactionAccounts, gasleft := __src.gasleft,
+                        memoryAllocationLimit? := __src.memoryAllocationLimit? })
+                      { storage := List.foldl (fun acc kv => acc.insertLoop kv.1 kv.2) d.storage call.storage,
+                        transient := d.transient, immutables := d.immutables, selfdestructs := d.selfdestructs,
+                        selfdestructEffects := d.selfdestructEffects, externalInteractions := d.externalInteractions,
+                        selfBalance := d.selfBalance, selfNonce := d.selfNonce, events := d.events,
+                        envWorld? := d.envWorld?, worldMutatedSinceAdoption := d.worldMutatedSinceAdoption,
+                        adoptedLogPrefix := d.adoptedLogPrefix, adoptedEventCount := d.adoptedEventCount,
+                        adoptedSelfdestructCount := d.adoptedSelfdestructCount }
+                      SolidCore.Refinement.selfAddress ctx.caller call.callvalue
+                      (List.map (fun x => x.toNat) call.calldata.data.toList))
 -/
 #guard_msgs in
 #check @SolidCore.Verify.Generic.Source.run_of_statement
@@ -586,4 +588,360 @@ info: 'Verify.Generic.CtorArgs.semAt_ctx_differ' depends on axioms: [propext, Cl
 -/
 #guard_msgs in
 #print axioms Verify.Generic.CtorArgs.semAt_ctx_differ
+/--
+info: SolidCore.Refinement.Generic.CtorBlocked : Type
+-/
+#guard_msgs in
+#check @SolidCore.Refinement.Generic.CtorBlocked
+/--
+info: 'SolidCore.Refinement.Generic.CtorBlocked' does not depend on any axioms
+-/
+#guard_msgs in
+#print axioms SolidCore.Refinement.Generic.CtorBlocked
+/--
+info: SolidCore.Refinement.Generic.wordOf? : SolidCore.Solidity.Source.Value → Option ℕ
+-/
+#guard_msgs in
+#check @SolidCore.Refinement.Generic.wordOf?
+/--
+info: 'SolidCore.Refinement.Generic.wordOf?' depends on axioms: [propext]
+-/
+#guard_msgs in
+#print axioms SolidCore.Refinement.Generic.wordOf?
+/--
+info: SolidCore.Refinement.Generic.paramsOk : ℕ →
+  List SolidCore.Solidity.Source.Ty → Except SolidCore.Refinement.Generic.CtorBlocked Unit
+-/
+#guard_msgs in
+#check @SolidCore.Refinement.Generic.paramsOk
+/--
+info: 'SolidCore.Refinement.Generic.paramsOk' depends on axioms: [propext]
+-/
+#guard_msgs in
+#print axioms SolidCore.Refinement.Generic.paramsOk
+/--
+info: SolidCore.Refinement.Generic.cleanupsOk : ℕ →
+  List SolidCore.Solidity.Source.AbiCleanup → Except SolidCore.Refinement.Generic.CtorBlocked Unit
+-/
+#guard_msgs in
+#check @SolidCore.Refinement.Generic.cleanupsOk
+/--
+info: 'SolidCore.Refinement.Generic.cleanupsOk' depends on axioms: [propext]
+-/
+#guard_msgs in
+#print axioms SolidCore.Refinement.Generic.cleanupsOk
+/--
+info: SolidCore.Refinement.Generic.suffixBytes : ByteArray → ByteArray → List ℕ
+-/
+#guard_msgs in
+#check @SolidCore.Refinement.Generic.suffixBytes
+/--
+info: 'SolidCore.Refinement.Generic.suffixBytes' does not depend on any axioms
+-/
+#guard_msgs in
+#print axioms SolidCore.Refinement.Generic.suffixBytes
+/--
+info: SolidCore.Refinement.Generic.admitFn : SolidCore.Solidity.TypeCheck.CoreFunctionDef →
+  ByteArray → ByteArray → List ℕ → Except SolidCore.Refinement.Generic.CtorBlocked Unit
+-/
+#guard_msgs in
+#check @SolidCore.Refinement.Generic.admitFn
+/--
+info: 'SolidCore.Refinement.Generic.admitFn' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms SolidCore.Refinement.Generic.admitFn
+/--
+info: SolidCore.Refinement.Generic.CtorAdmits : SolidCore.Solidity.TypeCheck.CheckedContract →
+  ByteArray → ByteArray → List ℕ → Prop
+-/
+#guard_msgs in
+#check @SolidCore.Refinement.Generic.CtorAdmits
+/--
+info: 'SolidCore.Refinement.Generic.CtorAdmits' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms SolidCore.Refinement.Generic.CtorAdmits
+/--
+info: SolidCore.Refinement.Generic.admitCtor? : SolidCore.Solidity.TypeCheck.CheckedContract →
+  ByteArray → ByteArray → List ℕ → Except SolidCore.Refinement.Generic.CtorBlocked Unit
+-/
+#guard_msgs in
+#check @SolidCore.Refinement.Generic.admitCtor?
+/--
+info: 'SolidCore.Refinement.Generic.admitCtor?' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms SolidCore.Refinement.Generic.admitCtor?
+/--
+info: @SolidCore.Refinement.Generic.paramsOk_sound : ∀ {i : ℕ} {ts : List SolidCore.Solidity.Source.Ty},
+  SolidCore.Refinement.Generic.paramsOk i ts = Except.ok () → ∀ t ∈ ts, t = SolidCore.Solidity.Source.Ty.uint256
+-/
+#guard_msgs in
+#check @SolidCore.Refinement.Generic.paramsOk_sound
+/--
+info: 'SolidCore.Refinement.Generic.paramsOk_sound' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms SolidCore.Refinement.Generic.paramsOk_sound
+/--
+info: @SolidCore.Refinement.Generic.cleanupsOk_sound : ∀ {i : ℕ} {ks : List SolidCore.Solidity.Source.AbiCleanup},
+  SolidCore.Refinement.Generic.cleanupsOk i ks = Except.ok () →
+    ∀ k ∈ ks, k = SolidCore.Solidity.Source.AbiCleanup.none ∨ k = SolidCore.Solidity.Source.AbiCleanup.uint 256
+-/
+#guard_msgs in
+#check @SolidCore.Refinement.Generic.cleanupsOk_sound
+/--
+info: 'SolidCore.Refinement.Generic.cleanupsOk_sound' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms SolidCore.Refinement.Generic.cleanupsOk_sound
+/--
+info: @SolidCore.Refinement.Generic.map_eq_of_mapWord : ∀ {vs : List SolidCore.Solidity.Source.Value} {ws : List ℕ},
+  List.map SolidCore.Refinement.Generic.wordOf? vs = List.map some ws → vs = Verify.Lifecycle.wordArgs ws
+-/
+#guard_msgs in
+#check @SolidCore.Refinement.Generic.map_eq_of_mapWord
+/--
+info: 'SolidCore.Refinement.Generic.map_eq_of_mapWord' depends on axioms: [propext]
+-/
+#guard_msgs in
+#print axioms SolidCore.Refinement.Generic.map_eq_of_mapWord
+/--
+info: @SolidCore.Refinement.Generic.map_uint256 : ∀ {ts : List SolidCore.Solidity.Source.Ty} {ws : List ℕ},
+  (∀ t ∈ ts, t = SolidCore.Solidity.Source.Ty.uint256) →
+    ts.length = ws.length → ts = List.map (fun x => SolidCore.Solidity.Source.Ty.uint256) ws
+-/
+#guard_msgs in
+#check @SolidCore.Refinement.Generic.map_uint256
+/--
+info: 'SolidCore.Refinement.Generic.map_uint256' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms SolidCore.Refinement.Generic.map_uint256
+/--
+info: @SolidCore.Refinement.Generic.admitCtor?_sound : ∀ {c : SolidCore.Solidity.TypeCheck.CheckedContract}
+  {initcode creation : ByteArray} {ws : List ℕ},
+  SolidCore.Refinement.Generic.admitCtor? c initcode creation ws = Except.ok () →
+    SolidCore.Refinement.Generic.CtorAdmits c initcode creation ws
+-/
+#guard_msgs in
+#check @SolidCore.Refinement.Generic.admitCtor?_sound
+/--
+info: 'SolidCore.Refinement.Generic.admitCtor?_sound' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms SolidCore.Refinement.Generic.admitCtor?_sound
+/--
+info: @SolidCore.Refinement.Generic.CtorAdmits.unique : ∀ {c : SolidCore.Solidity.TypeCheck.CheckedContract}
+  {initcode creation : ByteArray} {ws ws' : List ℕ},
+  SolidCore.Refinement.Generic.CtorAdmits c initcode creation ws →
+    SolidCore.Refinement.Generic.CtorAdmits c initcode creation ws' → ws = ws'
+-/
+#guard_msgs in
+#check @SolidCore.Refinement.Generic.CtorAdmits.unique
+/--
+info: 'SolidCore.Refinement.Generic.CtorAdmits.unique' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms SolidCore.Refinement.Generic.CtorAdmits.unique
+/--
+info: @Verify.Generic.CtorArgs.Admission.admits_of : ∀ {u : SolidCore.Solidity.SourceUnit} {name : String}
+  {init creation : ByteArray} {ws : List ℕ},
+  Verify.Generic.CtorArgs.Admission.isOk (Verify.Generic.CtorArgs.Admission.admit? u name init creation ws) = true →
+    ∀ {c : SolidCore.Solidity.TypeCheck.CheckedContract},
+      SolidCore.Solidity.TypeCheck.CheckedInput.contract u name = Except.ok c →
+        SolidCore.Refinement.Generic.CtorAdmits c init creation ws
+-/
+#guard_msgs in
+#check @Verify.Generic.CtorArgs.Admission.admits_of
+/--
+info: 'Verify.Generic.CtorArgs.Admission.admits_of' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Verify.Generic.CtorArgs.Admission.admits_of
+/--
+info: Verify.Generic.CtorArgs.Admission.pairOk_eq : Verify.Generic.CtorArgs.Admission.pairOk? = true
+-/
+#guard_msgs in
+#check @Verify.Generic.CtorArgs.Admission.pairOk_eq
+/--
+info: 'Verify.Generic.CtorArgs.Admission.pairOk_eq' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Verify.Generic.CtorArgs.Admission.pairOk_eq
+/--
+info: Verify.Generic.CtorArgs.Admission.pairMax_eq : Verify.Generic.CtorArgs.Admission.pairMax? = true
+-/
+#guard_msgs in
+#check @Verify.Generic.CtorArgs.Admission.pairMax_eq
+/--
+info: 'Verify.Generic.CtorArgs.Admission.pairMax_eq' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Verify.Generic.CtorArgs.Admission.pairMax_eq
+/--
+info: Verify.Generic.CtorArgs.Admission.pairOver_eq : Verify.Generic.CtorArgs.Admission.pairOver? = true
+-/
+#guard_msgs in
+#check @Verify.Generic.CtorArgs.Admission.pairOver_eq
+/--
+info: 'Verify.Generic.CtorArgs.Admission.pairOver_eq' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Verify.Generic.CtorArgs.Admission.pairOver_eq
+/--
+info: Verify.Generic.CtorArgs.Admission.argBlocked_eq : Verify.Generic.CtorArgs.Admission.argBlocked? = true
+-/
+#guard_msgs in
+#check @Verify.Generic.CtorArgs.Admission.argBlocked_eq
+/--
+info: 'Verify.Generic.CtorArgs.Admission.argBlocked_eq' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Verify.Generic.CtorArgs.Admission.argBlocked_eq
+/--
+info: Verify.Generic.CtorArgs.Admission.u8Blocked_eq : Verify.Generic.CtorArgs.Admission.u8Blocked? = true
+-/
+#guard_msgs in
+#check @Verify.Generic.CtorArgs.Admission.u8Blocked_eq
+/--
+info: 'Verify.Generic.CtorArgs.Admission.u8Blocked_eq' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Verify.Generic.CtorArgs.Admission.u8Blocked_eq
+/--
+info: Verify.Generic.CtorArgs.Admission.pairWrong_eq : Verify.Generic.CtorArgs.Admission.pairWrong? = true
+-/
+#guard_msgs in
+#check @Verify.Generic.CtorArgs.Admission.pairWrong_eq
+/--
+info: 'Verify.Generic.CtorArgs.Admission.pairWrong_eq' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Verify.Generic.CtorArgs.Admission.pairWrong_eq
+/--
+info: Verify.Generic.CtorArgs.Admission.pairArity_eq : Verify.Generic.CtorArgs.Admission.pairArity? = true
+-/
+#guard_msgs in
+#check @Verify.Generic.CtorArgs.Admission.pairArity_eq
+/--
+info: 'Verify.Generic.CtorArgs.Admission.pairArity_eq' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Verify.Generic.CtorArgs.Admission.pairArity_eq
+/--
+info: Verify.Generic.CtorArgs.Admission.decShort_eq : Verify.Generic.CtorArgs.Admission.decShort? = false
+-/
+#guard_msgs in
+#check @Verify.Generic.CtorArgs.Admission.decShort_eq
+/--
+info: 'Verify.Generic.CtorArgs.Admission.decShort_eq' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Verify.Generic.CtorArgs.Admission.decShort_eq
+/--
+info: Verify.Generic.CtorArgs.Admission.decTrailing_eq : Verify.Generic.CtorArgs.Admission.decTrailing? = true
+-/
+#guard_msgs in
+#check @Verify.Generic.CtorArgs.Admission.decTrailing_eq
+/--
+info: 'Verify.Generic.CtorArgs.Admission.decTrailing_eq' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Verify.Generic.CtorArgs.Admission.decTrailing_eq
+/--
+info: Verify.Generic.CtorArgs.Admission.decMisaligned_eq : Verify.Generic.CtorArgs.Admission.decMisaligned? = true
+-/
+#guard_msgs in
+#check @Verify.Generic.CtorArgs.Admission.decMisaligned_eq
+/--
+info: 'Verify.Generic.CtorArgs.Admission.decMisaligned_eq' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Verify.Generic.CtorArgs.Admission.decMisaligned_eq
+/--
+info: Verify.Generic.CtorArgs.Admission.pairShort_eq : Verify.Generic.CtorArgs.Admission.pairShort? = true
+-/
+#guard_msgs in
+#check @Verify.Generic.CtorArgs.Admission.pairShort_eq
+/--
+info: 'Verify.Generic.CtorArgs.Admission.pairShort_eq' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Verify.Generic.CtorArgs.Admission.pairShort_eq
+/--
+info: Verify.Generic.CtorArgs.Admission.pairTrailing_eq : Verify.Generic.CtorArgs.Admission.pairTrailing? = true
+-/
+#guard_msgs in
+#check @Verify.Generic.CtorArgs.Admission.pairTrailing_eq
+/--
+info: 'Verify.Generic.CtorArgs.Admission.pairTrailing_eq' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Verify.Generic.CtorArgs.Admission.pairTrailing_eq
+/--
+info: Verify.Generic.CtorArgs.Admission.pairMisaligned_eq : Verify.Generic.CtorArgs.Admission.pairMisaligned? = true
+-/
+#guard_msgs in
+#check @Verify.Generic.CtorArgs.Admission.pairMisaligned_eq
+/--
+info: 'Verify.Generic.CtorArgs.Admission.pairMisaligned_eq' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Verify.Generic.CtorArgs.Admission.pairMisaligned_eq
+/--
+info: Verify.Generic.CtorArgs.Admission.no_rescue : ∀ (c : SolidCore.Solidity.TypeCheck.CheckedContract) (init : ByteArray)
+  (ws : List ℕ),
+  SolidCore.Refinement.Generic.CtorAdmits c init (Verify.Lifecycle.initArgs init [41, 48879]) ws → ws ≠ [42, 48879]
+-/
+#guard_msgs in
+#check @Verify.Generic.CtorArgs.Admission.no_rescue
+/--
+info: 'Verify.Generic.CtorArgs.Admission.no_rescue' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Verify.Generic.CtorArgs.Admission.no_rescue
+/--
+info: Verify.Generic.CtorArgs.Admission.pairCtor_premises : ∃ c,
+  Verify.Generic.CtorArgs.Admission.pairSrc.checked = Except.ok c ∧
+    Verify.Generic.CtorArgs.Admission.pairSrc.CreatedBy c Verify.Generic.CtorArgs.Admission.pI
+        (Verify.Lifecycle.initArgs Verify.Generic.CtorArgs.Admission.pI [42, 48879]) ∧
+      Verify.Lifecycle.Statement Verify.Generic.CtorArgs.Admission.pairSrc.fuel c Verify.Generic.CtorArgs.Admission.pI
+        Verify.Lifecycle.Deploy.Ctors.PairCtor.code [42, 48879] [(0, 42), (1, 48921)]
+-/
+#guard_msgs in
+#check @Verify.Generic.CtorArgs.Admission.pairCtor_premises
+/--
+info: 'Verify.Generic.CtorArgs.Admission.pairCtor_premises' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Verify.Generic.CtorArgs.Admission.pairCtor_premises
+/--
+info: Verify.Generic.CtorArgs.Admission.pairCtor_run : ∃ c,
+  Verify.Generic.CtorArgs.Admission.pairSrc.checked = Except.ok c ∧
+    SolidCore.Refinement.Deploys (Verify.Lifecycle.initArgs Verify.Generic.CtorArgs.Admission.pI [42, 48879])
+      Verify.Lifecycle.Deploy.Ctors.PairCtor.code [(0, 42), (1, 48921)]
+-/
+#guard_msgs in
+#check @Verify.Generic.CtorArgs.Admission.pairCtor_run
+/--
+info: 'Verify.Generic.CtorArgs.Admission.pairCtor_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Verify.Generic.CtorArgs.Admission.pairCtor_run
+/--
+info: Verify.Generic.CtorArgs.Admission.argCtor_not_created : ∀ (c : SolidCore.Solidity.TypeCheck.CheckedContract),
+  SolidCore.Solidity.TypeCheck.CheckedInput.contract Verify.Generic.CtorArgs.Admission.argU "ArgCtor" = Except.ok c →
+    SolidCore.Refinement.Generic.admitCtor? c Verify.Generic.CtorArgs.Admission.aI
+        (Verify.Lifecycle.initArgs Verify.Generic.CtorArgs.Admission.aI [42, 48879]) [42, 48879] =
+      Except.error (SolidCore.Refinement.Generic.CtorBlocked.param 1 SolidCore.Solidity.Source.Ty.address)
+-/
+#guard_msgs in
+#check @Verify.Generic.CtorArgs.Admission.argCtor_not_created
+/--
+info: 'Verify.Generic.CtorArgs.Admission.argCtor_not_created' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Verify.Generic.CtorArgs.Admission.argCtor_not_created
 
