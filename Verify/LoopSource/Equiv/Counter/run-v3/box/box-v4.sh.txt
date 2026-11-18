@@ -111,7 +111,7 @@ EOF
   { echo "solar $SOLAR_HEAD"; echo "lean $LEAN_REV"; echo "pin $LEAN_PIN"; sha256sum $HOME/.cache/solc/solc-0.8.35; } > $R/inputs.txt
   # Host limits that Lean's -M and interpreter checks depend on, for comparison with a passing host.
   { ulimit -a; echo "nproc $(nproc)"; grep -E 'MemTotal|MemAvailable|CommitLimit|Committed_AS' /proc/meminfo
-    cat /proc/sys/vm/overcommit_memory /proc/sys/vm/max_map_count; uname -r; findmnt -no FSTYPE,OPTIONS $W
+    cat /proc/sys/vm/overcommit_memory /proc/sys/vm/max_map_count; uname -r; findmnt -T $W -no FSTYPE,OPTIONS
   } > $R/host-limits.txt 2>&1 ;;
 
 1) # producer: solar built from the freeze head; its embedded commit must equal the driver commit
@@ -124,7 +124,9 @@ EOF
   [[ "$EMB" =~ ^[0-9a-f]{12,}$ ]] || { echo "embedded commit '$EMB' is not >= 12 hex chars"; exit 5; }
   [ "${SOLAR_HEAD:0:${#EMB}}" = "$EMB" ] || { echo "embedded $EMB != driver $SOLAR_HEAD"; exit 5; }
   $B --version > $R/solar-version.txt
-  cp $W/sl/Verify/LoopSource/Equiv/Counter/run-v3/Counter.sol.txt $W/Counter.sol
+  # Counter's source at LEAN_REV (run-v3/Counter.sol.txt came later); the run pins its digest.
+  cp $W/sl/scripts/verify/Counter.sol $W/Counter.sol
+  [ "$(sha256sum $W/Counter.sol | cut -d' ' -f1)" = f1c87a334b8db31fc8f80541febeaf8617318d20b685634f44e26c74146ad326 ] || { echo "Counter.sol digest"; exit 6; }
   cd $W && rm -rf export && $B Counter.sol -Ogas --evm-version osaka --emit=bin,bin-runtime,abi -Zemit-lean-stages=export > rt.json
   python3 - "$B" "$EMB" > $R/producer.json <<EOF
 import json,hashlib,sys
