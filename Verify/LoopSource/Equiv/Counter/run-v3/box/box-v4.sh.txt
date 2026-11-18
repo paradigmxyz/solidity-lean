@@ -14,8 +14,8 @@
 set -euo pipefail
 SOLAR_HEAD=${SOLAR_HEAD:-92c59b665bbd7ce17b39dd2317e5e66379408528}  # freeze head (or 41f30a4a4f64d4f28849332aef30d26487144e2e)
 LEAN_REV=96f869131d96c88af941a765b03b005e23424e3f                    # [secret GIT_AUTHOR_NAME]/t4-loop-equiv-v4
-CTX_REV=25f481785bd349753c345f72d3db013b2d7e6220                     # alpharush/t4-ctx-bridge
-CTX_BASE=c6295eeb                                                    # alpharush/lc-ctor-args (on the pin)
+CTX_REV=25f481785bd349753c345f72d3db013b2d7e6220                     # [secret GIT_AUTHOR_NAME]/t4-ctx-bridge
+CTX_BASE=c6295eeb                                                    # [secret GIT_AUTHOR_NAME]/lc-ctor-args (on the pin)
 LEAN_PIN=334d1d924f8f6c29ac827fd81d1cc739721b479a                    # tools/certify/solidity-lean.rev at the head
 EXPECT_RT=509845d3b18cf635ec7ee9b1a9d225cfeec995099a9f5e0d55f27ae6559f411d
 EXPECT_STAGE0=0c544806b2b5013d2c38ce859b167d03e3c19162b53b2ab8f5319b3d55bd3003
@@ -67,7 +67,16 @@ EOF
 }
 
 # srcdied TAG: the build's log shows Contracts.VerifyCounter.Source died of Lean's memory exception.
-srcdied() { grep -q 'memory_exception' "$R/$1.out" && grep -q 'Contracts/VerifyCounter/Source.lean' "$R/$1.out"; }
+# Exactly that signature: the only failed module (✖ lines and lake's failure list) is
+# Contracts.VerifyCounter.Source, its block reports Lean's memory_exception and exit 134. Anything else is FAIL.
+srcdied() {
+  local f="$R/$1.out"
+  [ "$(grep -c '^✖ ' "$f")" = 1 ] && grep -q '^✖ \[[0-9/]*\] Building Contracts.VerifyCounter.Source ' "$f" || return 1
+  [ "$(sed -n '/^Some required targets logged failures:/,$p' "$f" | grep -c '^- ')" = 1 ] || return 1
+  sed -n '/^Some required targets logged failures:/,$p' "$f" | grep -qx -- '- Contracts.VerifyCounter.Source' || return 1
+  sed -n '/^✖ .*Building Contracts.VerifyCounter.Source /,/^error: Lean exited with code/p' "$f" > "$f.srcblock"
+  grep -q 'lean::memory_exception' "$f.srcblock" && grep -qx 'error: Lean exited with code 134' "$f.srcblock"
+}
 open_step() { echo "{\"step\":\"$STEP $*\",\"status\":\"OPEN\",\"reason\":\"Contracts.VerifyCounter.Source memory_exception\"}" >> $W/rcpt/steps-open.json; }
 
 case $STEP in
