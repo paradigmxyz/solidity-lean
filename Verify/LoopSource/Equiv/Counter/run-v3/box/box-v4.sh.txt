@@ -1,16 +1,28 @@
 #!/usr/bin/env bash
 # T4 box session: Counter Resources + Lifecycle, producer built from the freeze head, --fresh replay.
-# Usage: box-v4.sh STEP   (STEP = 0 setup | 1 producer | 2 lifecycle | 3 resources | 4 fresh | 5 audit)
-# Each step writes /home/ubuntu/rcpt/<step>/ and exits nonzero on any failure. The operator copies
-# /home/ubuntu/rcpt off the box (copy_files) after every step, before starting the next.
+# Usage: box-v4.sh STEP [MODULE...]
+#   STEP = 0 setup | 1 producer | 2 lifecycle | 3 resources | 4 fresh (MODULE...) | 5 audit
+# One box, at most 2 h, run in this order:
+#   0, 1, 3, 4 Verify.LoopSource.Equiv.Counter.Resources Verify.LoopSource.Equiv.Counter.Neg,
+#   2, 4 CounterRun.Lifecycle, 5
+# A step not started by 1h50 after step 0 began is recorded OPEN (steps-open.json) and the box is
+# deleted. Each step writes /home/ubuntu/rcpt/<step>[-<n>]/ and exits nonzero on any failure; the
+# operator copies /home/ubuntu/rcpt off the box (copy_files) after every step.
 set -euo pipefail
 SOLAR_HEAD=${SOLAR_HEAD:-92c59b665bbd7ce17b39dd2317e5e66379408528}  # freeze head (or 41f30a4a4f64d4f28849332aef30d26487144e2e)
-LEAN_REV=96f869131d96c88af941a765b03b005e23424e3f                    # alpharush/t4-loop-equiv-v4
+LEAN_REV=96f869131d96c88af941a765b03b005e23424e3f                    # [secret GIT_AUTHOR_NAME]/t4-loop-equiv-v4
 LEAN_PIN=334d1d924f8f6c29ac827fd81d1cc739721b479a                    # tools/certify/solidity-lean.rev at the head
 EXPECT_RT=509845d3b18cf635ec7ee9b1a9d225cfeec995099a9f5e0d55f27ae6559f411d
 EXPECT_STAGE0=0c544806b2b5013d2c38ce859b167d03e3c19162b53b2ab8f5319b3d55bd3003
 MEM_MAX=${MEM_MAX:-48G}
-W=/home/ubuntu; R=$W/rcpt/$1; mkdir -p "$R"
+W=/home/ubuntu; STEP=$1; shift
+R=$W/rcpt/$STEP; n=1; while [ -e "$R" ]; do n=$((n+1)); R=$W/rcpt/$STEP-$n; done; mkdir -p "$R"
+# The 1h50 budget, from step 0's start.
+[ "$STEP" = 0 ] && date +%s > $W/rcpt/.t0
+if [ "$STEP" != 0 ] && [ $(( $(date +%s) - $(cat $W/rcpt/.t0) )) -ge 6600 ]; then
+  echo "{\"step\":\"$STEP $*\",\"status\":\"OPEN\",\"reason\":\"not started by 1h50\"}" >> $W/rcpt/steps-open.json
+  echo "budget spent: step $STEP recorded OPEN"; exit 9
+fi
 export PATH=$HOME/.elan/bin:$HOME/.cargo/bin:$HOME/.local/bin:$PATH LEAN_NUM_THREADS=${LEAN_NUM_THREADS:-4}
 exec > >(tee -a "$R/step.log") 2>&1
 
@@ -41,10 +53,15 @@ print(json.dumps({"tag":tag,"exit":rc,"wall_s":round(time.time()-t0,1),"cgroup":
 EOF
       exit $rc' _ "$@"
   local rc=$?; set -e
-  cat "$R/$tag.json"; return $rc
+  cat "$R/$tag.json"
+  # MemoryMax must be in force: a scope with memory.max "max" is not a finite run.
+  if python3 -c "import json,sys;sys.exit(0 if json.load(open('$R/$tag.json'))['memory.max']=='max' else 1)"; then
+    echo "memory.max is 'max': MemoryMax not in force"; exit 10
+  fi
+  return $rc
 }
 
-case $1 in
+case $STEP in
 0) # setup: toolchains and both checkouts at exact commits
   sudo apt-get update -qq && sudo apt-get install -y -qq git zstd build-essential pkg-config >/dev/null
   command -v cargo >/dev/null || curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal >/dev/null
@@ -66,8 +83,12 @@ case $1 in
   cd $W/solar
   scoped build-solar cargo build --locked --release --bin solar
   B=$W/solar/target/release/solar
-  EMB=$($B --version | sed -n 's/.*commit\.\([0-9a-f]*\)\..*/\1/p' | head -1)
-  [ -n "$EMB" ] && [ "${SOLAR_HEAD:0:${#EMB}}" = "$EMB" ] || { echo "embedded '$EMB' != driver $SOLAR_HEAD"; exit 5; }
+  # The embedded commit is solar --version's "Commit SHA:" line; at least 12 hex chars, and an exact
+  # prefix of the driver commit on its own length.
+  EMB=$($B --version | sed -n 's/^Commit SHA: *\([0-9a-f]*\)$/\1/p' | head -1)
+  [[ "$EMB" =~ ^[0-9a-f]{12,}$ ]] || { echo "embedded commit '$EMB' is not >= 12 hex chars"; exit 5; }
+  [ "${SOLAR_HEAD:0:${#EMB}}" = "$EMB" ] || { echo "embedded $EMB != driver $SOLAR_HEAD"; exit 5; }
+  $B --version > $R/solar-version.txt
   cp $W/sl/Verify/LoopSource/Equiv/Counter/run-v3/Counter.sol.txt $W/Counter.sol
   cd $W && rm -rf export && $B Counter.sol -Ogas --evm-version osaka --emit=bin,bin-runtime,abi -Zemit-lean-stages=export > rt.json
   python3 - "$B" "$EMB" > $R/producer.json <<EOF
@@ -78,7 +99,8 @@ j=json.load(open('$W/rt.json')); c=[v for k,v in j['contracts'].items() if k.end
 rt=bytes.fromhex(c['bin-runtime']); ini=bytes.fromhex(c['bin'])
 s0=h(open('$W/export/Counter/Stage0.lean','rb').read())
 print(json.dumps({"binary_path":B,"binary_sha256":h(open(B,'rb').read()),"embedded_commit":EMB,
- "driver_commit":"$SOLAR_HEAD","embedded_eq_driver":"$SOLAR_HEAD".startswith(EMB),
+ "driver_commit":"$SOLAR_HEAD","embedded_len":len(EMB),
+ "embedded_eq_driver":len(EMB)>=12 and "$SOLAR_HEAD"[:len(EMB)]==EMB,
  "flags":["-Ogas","--evm-version","osaka","--emit=bin,bin-runtime,abi","-Zemit-lean-stages=export"],
  "source_sha256":h(open('$W/Counter.sol','rb').read()),"runtime_bytes":len(rt),"runtime_sha256":h(rt),
  "init_bytes":len(ini),"init_sha256":h(ini),"stage0_sha256":s0,
@@ -104,16 +126,41 @@ EOF
   sha256sum Certified/CounterRun/*.lean > $R/lifecycle-files.sha256
   scoped build-lifecycle lake build -KleanMemory=6000 CounterRun.Lifecycle
   if scoped build-lifecycle-bad lake build -KleanMemory=6000 CounterRun.LifecycleBad; then echo "control NOT refused"; exit 7; fi
-  echo '{"control":"wrong storage (1,9)","expected":"exit 1","refused":true}' > $R/control.json ;;
+  # A refusal counts only as the kernel's: the checkB_eq type mismatch, and no OOM in the scope.
+  python3 - "$R" > $R/control.json <<'EOF' || { cat $R/control.json; echo "control failed for another reason"; exit 7; }
+import json,sys,re
+R=sys.argv[1]; log=open(R+"/build-lifecycle-bad.out").read(); m=json.load(open(R+"/build-lifecycle-bad.json"))
+kernel=bool(re.search(r"(kernel) declaration type mismatch, '[^']*checkB_eq'", log))
+oom=int(m["memory.events"].get("oom_kill","0")); mem_exc="memory_exception" in log or "out of memory" in log
+ok=kernel and oom==0 and not mem_exc and m["exit"]!=0
+print(json.dumps({"control":"wrong storage (1,9)","exit":m["exit"],"kernel_checkB_eq_mismatch":kernel,
+  "oom_kill":oom,"memory_exception":mem_exc,"refused":ok}))
+sys.exit(0 if ok else 1)
+EOF
+  cat $R/control.json ;;
 
 3) # resources and the modules it composes (Contracts.VerifyCounter.Source builds under its lib's -M 3000, unchanged)
   cd $W/sl
-  scoped build-resources lake build -KleanMemory=6000 Verify.LoopSource.Equiv.Counter.Resources \
-    Verify.LoopSource.Equiv.Counter.Closed Verify.LoopSource.Equiv.Counter.Neg Verify.LoopSource.Equiv.Counter.Check ;;
+  # Up to 2 extra attempts (approved), only on exit 134 with a memory_exception or "out of memory"
+  # message; the lakefile is unchanged and every attempt's log and memory json are kept.
+  a=1
+  while :; do
+    git diff --quiet lakefile.lean || { echo "lakefile changed"; exit 11; }
+    set +e
+    scoped "build-resources-a$a" lake build -KleanMemory=6000 Verify.LoopSource.Equiv.Counter.Resources \
+      Verify.LoopSource.Equiv.Counter.Closed Verify.LoopSource.Equiv.Counter.Neg Verify.LoopSource.Equiv.Counter.Check
+    rc=$?; set -e
+    mem=0; grep -qE 'memory_exception|out of memory' "$R/build-resources-a$a.out" && mem=1
+    if [ $rc -eq 0 ]; then break; fi
+    if [ $a -lt 3 ] && [ $rc -eq 134 ] && [ $mem -eq 1 ]; then a=$((a+1)); continue; fi
+    echo "{\"attempts\":$a,\"exit\":$rc,\"memory_exception\":$mem}" > $R/attempts.json; exit $rc
+  done
+  echo "{\"attempts\":$a,\"exit\":0,\"source_headroom\":\"OPEN\"}" > $R/attempts.json; cat $R/attempts.json ;;
 
 4) # --fresh: replay each top module's whole imported closure from scratch
   cd $W/sl
-  for m in Verify.LoopSource.Equiv.Counter.Resources CounterRun.Lifecycle Verify.LoopSource.Equiv.Counter.Neg; do
+  [ $# -gt 0 ] || { echo "step 4 needs modules"; exit 2; }
+  for m in "$@"; do
     scoped "fresh-$m" lake env leanchecker --fresh $m
   done ;;
 
