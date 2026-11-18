@@ -84,7 +84,11 @@ EOF
   mkdir -p $HOME/.cache/solc
   curl -sSfL -o $HOME/.cache/solc/solc-0.8.35 https://github.com/argotorg/solidity/releases/download/v0.8.35/solc-static-linux
   chmod +x $HOME/.cache/solc/solc-0.8.35
-  { echo "solar $SOLAR_HEAD"; echo "lean $LEAN_REV"; echo "pin $LEAN_PIN"; sha256sum $HOME/.cache/solc/solc-0.8.35; } > $R/inputs.txt ;;
+  { echo "solar $SOLAR_HEAD"; echo "lean $LEAN_REV"; echo "pin $LEAN_PIN"; sha256sum $HOME/.cache/solc/solc-0.8.35; } > $R/inputs.txt
+  # Host limits that Lean's -M and interpreter checks depend on, for comparison with a passing host.
+  { ulimit -a; echo "nproc $(nproc)"; grep -E 'MemTotal|MemAvailable|CommitLimit|Committed_AS' /proc/meminfo
+    cat /proc/sys/vm/overcommit_memory /proc/sys/vm/max_map_count; uname -r; findmnt -no FSTYPE,OPTIONS $W
+  } > $R/host-limits.txt 2>&1 ;;
 
 1) # producer: solar built from the freeze head; its embedded commit must equal the driver commit
   cd $W/solar
@@ -158,11 +162,23 @@ EOF
       Verify.LoopSource.Equiv.Counter.Closed Verify.LoopSource.Equiv.Counter.Neg Verify.LoopSource.Equiv.Counter.Check
     rc=$?; set -e
     mem=0; grep -qE 'memory_exception|out of memory' "$R/build-resources-a$a.out" && mem=1
+    # lake reports 1; the inner Lean exit is in its log ("Lean exited with code N").
+    inner=$(sed -n 's/^error: Lean exited with code \([0-9]*\)$/\1/p' "$R/build-resources-a$a.out" | head -1)
+    echo "{\"attempt\":$a,\"lake_exit\":$rc,\"inner_exit\":\"$inner\",\"memory_exception\":$mem}" >> $R/attempts.log
     if [ $rc -eq 0 ]; then break; fi
-    if [ $a -lt 3 ] && [ $rc -eq 134 ] && [ $mem -eq 1 ]; then a=$((a+1)); continue; fi
+    if [ $a -lt 3 ] && [ "$inner" = 134 ] && [ $mem -eq 1 ]; then a=$((a+1)); continue; fi
     echo "{\"attempts\":$a,\"exit\":$rc,\"memory_exception\":$mem}" > $R/attempts.json; exit $rc
   done
   echo "{\"attempts\":$a,\"exit\":0,\"source_headroom\":\"OPEN\"}" > $R/attempts.json; cat $R/attempts.json ;;
+
+3d) # diagnosis only (no receipt for acceptance): compile Contracts.VerifyCounter.Source exactly as lake
+  # does (its lib's -M 3000, lakefile unchanged), alone, with Lean's own peak report, then with
+  # LEAN_NUM_THREADS=1 and with an 8 MiB / unlimited stack, to localize the interpreter memory check.
+  cd $W/sl; git diff --quiet lakefile.lean || { echo "lakefile changed"; exit 11; }
+  for v in "default:" "threads1:LEAN_NUM_THREADS=1" "stack8m:ulimit -s 8192;" "stackunl:ulimit -s unlimited;"; do
+    tag=${v%%:*}; pre=${v#*:}
+    scoped "src-$tag" bash -c "$pre lake env lean -M 3000 --stats Contracts/VerifyCounter/Source.lean -o /tmp/src-$tag.olean" || true
+  done ;;
 
 4) # --fresh: replay each top module's whole imported closure from scratch
   cd $W/sl
