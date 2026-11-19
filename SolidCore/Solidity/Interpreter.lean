@@ -4868,13 +4868,13 @@ def Runtime.storagePathSlotValue (context : Context)
 
 def Runtime.storeStorageBasePathWithDeepClear (context : Context)
     (runtime : Runtime) (base : StorageBase) (indexes : List Value)
-    (value : Value) : Except RevertData Runtime := do
+    (value : Value) (signExtend : Bool := true) : Except RevertData Runtime := do
   let value ← runtime.storageMaterializedValue value
   let (slot, valueLayout) ←
     runtime.resolveStorageBasePath context base indexes
   let state ←
     State.storeStorageLayoutAtWithDeepClear
-      runtime.state slot valueLayout value
+      runtime.state slot valueLayout value (signExtend := signExtend)
   Except.ok { runtime with state }
 
 def Runtime.storeStoragePathWithDeepClear (context : Context)
@@ -10002,7 +10002,12 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
                 | ResolvedLValue.storageField name =>
                     Runtime.storeStorageFieldWithDeepClear context runtime' name value
                       (signExtend := false)
-                | _ => resolved.write context runtime' value
+                | _ =>
+                    match resolved.asStoragePath? with
+                    | some (base, indexes) =>
+                        runtime'.storeStorageBasePathWithDeepClear context base indexes value
+                          (signExtend := false)
+                    | none => resolved.write context runtime' value
               else resolved.write context runtime' value
             match stored with
             | Except.ok updated => pure (Result.normal updated)

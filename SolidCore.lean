@@ -158,3 +158,4 @@ import SolidCore.Witness.WideSignedStorageCopy
 import SolidCore.Witness.EnumMappingKeyCleanup
 import SolidCore.Witness.EnumMappingKeyContract
 import SolidCore.Witness.DirtyStorageBytesDelete
+import SolidCore.Witness.SignedArrayMemberCopy
