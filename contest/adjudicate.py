@@ -874,6 +874,28 @@ def adjudicate(root: Path, tools: Optional[hb.ToolPaths] = None,
             "no measured EVM observable available (Forge measurement did not "
             "run); cannot adjudicate a soundness claim without the oracle"),
             evidence=evidence)
+    # SEM-CLOSEDGAS, measured (register 1.6.0 row, dynamic half): the failed
+    # entry call (or constructor) HALTED EXCEPTIONALLY, returning none of its
+    # forwarded gas (Measurement.exhausted). Out-of-gas is the common cause,
+    # and it needs no named gas quantity in the source: a failing precompile
+    # staticcall burns all gas forwarded to it (63/64 of what remains), so a
+    # few in a loop exhaust the frame, as do a long loop or deep recursion.
+    # The EVM outcome then depends on the gas budget, which solidity-lean does
+    # not meter, so it is not a comparable observable (design §1 SEM-CLOSEDGAS:
+    # "any assertion that a call reverts specifically due to out-of-gas").
+    # The syntactic detector cannot see these forms; the measurement can.
+    _cg = reg.entry_by_id("SEM-CLOSEDGAS")
+    if (measured.exhausted and _cg is not None
+            and _cg.is_active(effective_version)):
+        evidence["evm_exceptional_halt"] = True
+        frame = "constructor" if measured.deploy_reverted else "entry call"
+        return Report("REJECTED_OOS", reason=(
+            f"reject gate fired: SEM-CLOSEDGAS (intentional exclusion, out of "
+            f"scope) — the measured EVM {frame} halted exceptionally and kept "
+            f"all its forwarded gas (out-of-gas or another resource limit, "
+            f"not a source-level revert), so the observable depends on the "
+            f"gas budget, which solidity-lean does not meter"),
+            evidence=evidence)
     # Custom-error definitions (name + params + selector) from the entry source,
     # so a custom-error revert decodes to custom:<Name>:... instead of raw:.
     error_defs, ambiguous_sels = meas.error_definitions(sig.source_file, tools.solc)

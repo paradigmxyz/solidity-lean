@@ -1,0 +1,17 @@
+{
+  "lane": "S",
+  "entry": {
+    "contract": "PointEvalOog",
+    "function": "f",
+    "args": [],
+    "constructor_args": [],
+    "value": 0
+  },
+  "expected_divergence": "SEM-CLOSEDGAS (measured): a failing point-evaluation staticcall burns all gas forwarded to it (63/64 of what remains), so the loop exhausts the entry frame and the EVM halts out-of-gas with empty data, while solidity-lean (no gas metering) completes and returns 13. The harness measures an exceptional halt (halt=1) -> REJECTED_OOS, not SOUNDNESS_GAP.",
+  "declared_observable": {
+    "kind": "revert",
+    "normal_form": "revert|empty##EVT####STO##"
+  },
+  "feature": "failed-point-evaluation-staticcall-consumes-forwarded-gas",
+  "register_version_seen": "1.6.0"
+}

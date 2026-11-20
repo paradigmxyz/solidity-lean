@@ -1,0 +1,5 @@
+[profile.default]
+src = "src"
+test = "test"
+evm_version = "cancun"
+ffi = false

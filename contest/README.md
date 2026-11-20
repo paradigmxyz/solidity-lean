@@ -213,7 +213,14 @@ entry. An adversary hiding `gasleft()` in a transitive callee is caught (see the
   pass**: a value derived from the excluded quantity (gas, real bytecode,
   create2 address, unpinnable env facts, closed-world gas/stipend) reaching an
   **observed** position (assert / return / emit): SEM-GAS, SEM-CODE, SEM-ADDR,
-  SEM-ENV, SEM-CLOSEDGAS.
+  SEM-ENV, SEM-CLOSEDGAS. SEM-CLOSEDGAS also has a **measured** half: the
+  measurement harness reads `gas()` around the entry CALL and the deploy
+  CREATE, and when the failed frame kept all its forwarded gas (an
+  exceptional halt such as out-of-gas, leaving the caller at most the 1/64
+  EIP-150 withholds; a REVERT refunds the rest) the adjudicator returns
+  REJECTED_OOS. This catches out-of-gas with no named gas quantity, such as
+  a loop of failing precompile staticcalls, each of which burns all the gas
+  forwarded to it.
 
 ### Register history (current: **1.6.0** — it SHRINKS as the harness grows)
 

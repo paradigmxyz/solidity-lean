@@ -101,6 +101,7 @@ def test_ast_reuse_and_input_tool_request_invalidation(tmp_path, monkeypatch, ca
     'ok|0x0011|self=0x1234|origin=0xabcd|evt=t=[1];d=0x12|sto=;0:7',
     'revert|0x1234|self=0x1234|origin=0xabcd|evt=|sto=',
     'deployrevert|0x1234|self=0x1234|origin=0xabcd|evt=|sto=',
+    'revert|0x|self=0x1234|origin=0xabcd|halt=1|evt=|sto=',
 ])
 def test_oracle_reuse_keeps_raw_evidence_and_invalidates(tmp_path, monkeypatch, cache, raw):
     source = tmp_path / 'src' / 'C.sol'
