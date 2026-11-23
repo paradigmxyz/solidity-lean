@@ -329,7 +329,7 @@ lean_lib VerifySpec where
     `Verify.Spec.Ghost, `Verify.Spec.GhostFree, `Verify.Spec.TrustedBase,
     `Verify.Spec.TrustedBase.Hypotheses, `Verify.Spec.TrustedBase.Interface,
     `Verify.Spec.TreeMapNested, `Verify.Spec.HashScopeCheck, `Verify.Spec.HashScopeFinite,
-    `Verify.Spec.HashScopeFiniteNested, `Verify.Spec.TreeReturnCheck,
+    `Verify.Spec.HashScopeFiniteNested, `Verify.Spec.HashScopeFiniteCheck, `Verify.Spec.TreeReturnCheck,
     `Verify.Spec.HashScopeFrame, `Contracts.UniswapV2.ERC20.Slice.FrameFinite]
 
 -- The trusted base discharged for c4 and Counter on their checked-in source ASTs, and its axiom
