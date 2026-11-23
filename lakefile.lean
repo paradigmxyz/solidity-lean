@@ -329,7 +329,7 @@ lean_lib VerifySpec where
     `Verify.Spec.Ghost, `Verify.Spec.GhostFree, `Verify.Spec.TrustedBase,
     `Verify.Spec.TrustedBase.Hypotheses, `Verify.Spec.TrustedBase.Interface,
     `Verify.Spec.TreeMapNested, `Verify.Spec.HashScopeCheck, `Verify.Spec.HashScopeFinite,
-    `Verify.Spec.TreeReturnCheck,
+    `Verify.Spec.HashScopeFiniteNested, `Verify.Spec.TreeReturnCheck,
     `Verify.Spec.HashScopeFrame, `Contracts.UniswapV2.ERC20.Slice.FrameFinite]
 
 -- The trusted base discharged for c4 and Counter on their checked-in source ASTs, and its axiom
@@ -375,11 +375,13 @@ lean_lib ContractsUniswapV2 where
 
 -- UniswapV2Factory's translation, createPair included, is checked in stages as the Pair's is (one
 -- module each, each within 6 GB; checked in one declaration it peaks at the 6 GB cap), with the
--- CREATE2 address lemmas (Create2) and createPair's execution tests (Create2Run).
+-- CREATE2 address lemmas (Create2) and createPair's execution tests (Create2Run), and createPair's
+-- hash premise for every pair of a finite token set (Specs/FactoryFinite.lean, which needs no
+-- generated source).
 lean_lib ContractsUniswapV2Factory where
   roots := #[`Contracts.UniswapV2.Factory.Contract, `Contracts.UniswapV2.Factory.Create2,
-    `Contracts.UniswapV2.Factory.Create2Run]
-  globs := #[.submodules `Contracts.UniswapV2.Factory]
+    `Contracts.UniswapV2.Factory.Create2Run, `Contracts.UniswapV2.Specs.FactoryFinite]
+  globs := #[.submodules `Contracts.UniswapV2.Factory, .one `Contracts.UniswapV2.Specs.FactoryFinite]
 
 -- Inline assembly create2 (Stmt.assemblyCreate2): Contracts/Create2/Deployer.sol's translation
 -- (scripts/verify/create2_sources.py) and its execution tests, with the view negative control,
