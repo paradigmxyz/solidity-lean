@@ -1,0 +1,1 @@
+lake -KleanMemory=6000 build Contracts.UniswapV2.ERC20.Slice.Post Verify.Spec.HashScopeCheck Verify.Generic.Expected

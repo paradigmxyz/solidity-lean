@@ -1,0 +1,1 @@
+lake -KleanMemory=6000 env lean Certified/erc20_any/Gates.lean

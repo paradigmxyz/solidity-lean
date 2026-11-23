@@ -694,3 +694,9 @@ lean_lib VerifySourceTextFlag where
 -- symbolic-caller tree (holdsFn_of_tree_from_zero, holdsFn_of_tree_from).
 lean_lib VerifySpecTreeFrom where
   roots := #[`Verify.Spec.TreeFrom]
+
+-- UniswapV2ERC20.transfer from every caller over this run's bytes (solar tools/certify/erc20_any).
+lean_lib «erc20_any» where
+  srcDir := "Certified"
+  roots := #[`erc20_any.Statement, `erc20_any.Proof, `erc20_any.Final]
+  globs := #[.submodules `erc20_any]
