@@ -1,0 +1,30 @@
+{
+  "command": [
+    "tools/certify/certify",
+    "--replay",
+    "~/w/acc4/pin-e2e/from-stale-bytes-pin/replay",
+    "--solidity-lean",
+    "~/w/sl",
+    "--work",
+    "~/w/acc4/pin-e2e/w/stale-bytes@pin",
+    "--packages-from",
+    "~/w/sl",
+    "--probe-cache",
+    "~/w/mut"
+  ],
+  "exit_code": 1,
+  "wall_seconds": 13808.3,
+  "max_rss_one_process_mib": 2470,
+  "peak_tree_rss_mib": 8799,
+  "peak_system_used_mib": 6451,
+  "mem_total_mib": 14531,
+  "samples": 6901,
+  "sample_interval_s": 2,
+  "trace": "receipt.trace.tsv",
+  "memory_definitions": {
+    "system_used_mib": "machine-wide MemTotal - MemAvailable (/proc/meminfo), all processes",
+    "tree_rss_mib": "sum of VmRSS over the command's live process tree; shared pages count per process",
+    "max_rss_one_process_mib": "getrusage(RUSAGE_CHILDREN).ru_maxrss: largest peak RSS of one reaped descendant"
+  },
+  "started_utc": "2026-11-15T23:25:46Z"
+}

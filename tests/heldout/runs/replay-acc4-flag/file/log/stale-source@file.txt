@@ -1,0 +1,2 @@
+tools/certify/certify --replay ~/w/acc4/neg-file/from-stale-source-file/replay --solidity-lean ~/w/sl --work ~/w/acc4/neg-file/w/stale-source@file
+REJECTED: replay: Flag.sol differs from the record (stale or edited run file)

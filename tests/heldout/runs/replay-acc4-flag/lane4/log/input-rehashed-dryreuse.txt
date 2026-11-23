@@ -1,0 +1,3 @@
+== replay: /usr/bin/python3 ~/w/drv184/tools/certify/generic.py ~/w/acc4/lane4-184/input-rehashed/replay/Flag.sol natspec --tier certified --solidity-lean /nonexistent --base 44572c150176365fa5e0d56ae6c59a7a443f8122 --work ~/w/acc4/lane4-184/input-rehashed/replay-replay-work-20261116T000226Z --record-dir ~/w/acc4/lane4-184/input-rehashed/replay.replay-20261116T000226Z --contract Flag
+== reuse: fresh run ~/w/acc4/rec-replay/Certified/record/acc4-flag-replay/fresh-run (exit 0) as ~/w/acc4/lane4-184/input-rehashed/replay.replay-20261116T000226Z
+CERTIFIED: replay of ~/w/acc4/lane4-184/input-rehashed/replay: every pin reproduced by a fresh cold run (~/w/acc4/lane4-184/input-rehashed/replay.replay-20261116T000226Z/record.json)

@@ -1,0 +1,2 @@
+== generic: ~/w/t5/tests/heldout/blocked/Payable.sol (a02b259602e4f7c59b51c67f7d5d0b1a11ec026bd63757988a2e30095411bef3) as payable_a02b2596, requested tier certified
+BLOCKED: value transfer (1x, first line 8: function deposit is payable)

@@ -1,0 +1,2 @@
+== generic: ~/w/t5/tests/heldout/blocked/Delegatecall.sol (472d5a8980073c8f78c71d89025de5f4be84900dc0b0a0f272855605b1f4d114) as delegatecall_472d5a89, requested tier certified
+BLOCKED: external call (1x, first line 10: .delegatecall on an address); ABI types (1x, first run(bytes): only uintN, intN, bool, address and enum parameters and results)

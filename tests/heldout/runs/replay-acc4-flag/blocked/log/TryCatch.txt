@@ -1,0 +1,2 @@
+== generic: ~/w/t5/tests/heldout/blocked/TryCatch.sol (5f818caa5edc9124314eb9a136b0e3208581c2a6b8a12ea79e5349ab5179951a) as trycatch_5f818caa, requested tier certified
+BLOCKED: external call (2x, first line 9: try/catch makes an external call)

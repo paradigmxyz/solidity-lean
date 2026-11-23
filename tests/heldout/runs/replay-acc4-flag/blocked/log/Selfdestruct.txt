@@ -1,0 +1,2 @@
+== generic: ~/w/t5/tests/heldout/blocked/Selfdestruct.sol (a1cd11d2ae756570892042d872122e7412d8fd48204972c74933a4ddc262fc94) as selfdestruct_a1cd11d2, requested tier certified
+BLOCKED: environment (1x, first line 12: selfdestruct is outside the source semantics' environment)

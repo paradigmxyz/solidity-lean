@@ -1,0 +1,182 @@
+[
+  {
+    "case": "stale-bytes@pin",
+    "changed": "record.json bytecode_sha256: f689833eb749e7509b4fb038bd8a4e251e77daa1 -> 1f1579b3842e5a82551d5d1d2e27698478387650",
+    "command": [
+      "tools/certify/certify",
+      "--replay",
+      "~/w/acc4/neg-pin-pre/from-stale-bytes-pin/replay",
+      "--solidity-lean",
+      "~/w/sl",
+      "--work",
+      "~/w/acc4/neg-pin-pre/w/stale-bytes@pin"
+    ],
+    "exit": -15,
+    "verdict": "FRESH-RUN",
+    "line": "the manifest passed and the fresh cold run started (stopped: --no-fresh-run)",
+    "start": "2026-11-15T23:25:08+00:00",
+    "end": "2026-11-15T23:25:08+00:00",
+    "wall_s": 0,
+    "log_sha256": "3a232faf17d5ff48e7c78a0d1a7bd1cb3e45bc5e2032ff1db6797a173ee92c41"
+  },
+  {
+    "case": "flipped-byte@pin",
+    "changed": "record.json bytecode_sha256: f689833eb749e7509b4fb038bd8a4e251e77daa1 -> d48df2542d5ad7efb74be825259d41664b3c3d0f",
+    "command": [
+      "tools/certify/certify",
+      "--replay",
+      "~/w/acc4/neg-pin-pre/from-flipped-byte-pin/replay",
+      "--solidity-lean",
+      "~/w/sl",
+      "--work",
+      "~/w/acc4/neg-pin-pre/w/flipped-byte@pin"
+    ],
+    "exit": -15,
+    "verdict": "FRESH-RUN",
+    "line": "the manifest passed and the fresh cold run started (stopped: --no-fresh-run)",
+    "start": "2026-11-15T23:25:08+00:00",
+    "end": "2026-11-15T23:25:08+00:00",
+    "wall_s": 0,
+    "log_sha256": "8131efa856f1e7ce1ebf989b5778e314270c8b51e50d2771b57f40a99b52ea86"
+  },
+  {
+    "case": "changed-solar-options@pin",
+    "changed": "record.json options: ['-Ogas', '--evm-version', 'osaka'] -> ['-Osize', '--evm-version', 'osaka']",
+    "command": [
+      "tools/certify/certify",
+      "--replay",
+      "~/w/acc4/neg-pin-pre/from-changed-solar-options-pin/replay",
+      "--solidity-lean",
+      "~/w/sl",
+      "--work",
+      "~/w/acc4/neg-pin-pre/w/changed-solar-options@pin"
+    ],
+    "exit": -15,
+    "verdict": "FRESH-RUN",
+    "line": "the manifest passed and the fresh cold run started (stopped: --no-fresh-run)",
+    "start": "2026-11-15T23:25:08+00:00",
+    "end": "2026-11-15T23:25:08+00:00",
+    "wall_s": 0,
+    "log_sha256": "e800af375ada4dc32fb5a6566f4f7e5c7585ae25841608fa7c837c9865b99918"
+  },
+  {
+    "case": "stale-spec-hash@pin",
+    "changed": "record.json spec.sha256: 4ce5cf9a87520dc956a1e7366d5f646a07739832 -> 4de5cf9a87520dc956a1e7366d5f646a07739832",
+    "command": [
+      "tools/certify/certify",
+      "--replay",
+      "~/w/acc4/neg-pin-pre/from-stale-spec-hash-pin/replay",
+      "--solidity-lean",
+      "~/w/sl",
+      "--work",
+      "~/w/acc4/neg-pin-pre/w/stale-spec-hash@pin"
+    ],
+    "exit": -15,
+    "verdict": "FRESH-RUN",
+    "line": "the manifest passed and the fresh cold run started (stopped: --no-fresh-run)",
+    "start": "2026-11-15T23:25:08+00:00",
+    "end": "2026-11-15T23:25:08+00:00",
+    "wall_s": 0,
+    "log_sha256": "5e9e8e3be99c12dc61c4ed8373a2190018f051bc423ad79a4083840f3a588d79"
+  },
+  {
+    "case": "stale-source@pin",
+    "changed": "record.json source.sha256: 4ce5cf9a87520dc956a1e7366d5f646a07739832 -> 4de5cf9a87520dc956a1e7366d5f646a07739832",
+    "command": [
+      "tools/certify/certify",
+      "--replay",
+      "~/w/acc4/neg-pin-pre/from-stale-source-pin/replay",
+      "--solidity-lean",
+      "~/w/sl",
+      "--work",
+      "~/w/acc4/neg-pin-pre/w/stale-source@pin"
+    ],
+    "exit": 1,
+    "verdict": "REJECTED",
+    "line": "REJECTED: replay: the record's source digest is not its source file's",
+    "start": "2026-11-15T23:25:08+00:00",
+    "end": "2026-11-15T23:25:08+00:00",
+    "wall_s": 0,
+    "log_sha256": "eb2e54499a4fa963c55c7c0171a96be2edc346fd71b74d68789316b085122a57"
+  },
+  {
+    "case": "stale-import@pin",
+    "changed": "record.json solidity_lean.inputs_sha256: {'Certified/flag_4ce5cf9a/Lowering.lean' -> 0000000000000000000000000000000000000000",
+    "command": [
+      "tools/certify/certify",
+      "--replay",
+      "~/w/acc4/neg-pin-pre/from-stale-import-pin/replay",
+      "--solidity-lean",
+      "~/w/sl",
+      "--work",
+      "~/w/acc4/neg-pin-pre/w/stale-import@pin"
+    ],
+    "exit": -15,
+    "verdict": "FRESH-RUN",
+    "line": "the manifest passed and the fresh cold run started (stopped: --no-fresh-run)",
+    "start": "2026-11-15T23:25:08+00:00",
+    "end": "2026-11-15T23:25:08+00:00",
+    "wall_s": 0,
+    "log_sha256": "39ffe70747473cf214f50543f6c82fb65c81657508b58c699de8ab6d8faf66d8"
+  },
+  {
+    "case": "omitted-selector@pin",
+    "changed": "record.json functions: [{'signature': 'lower()', 'selector': '0 -> [{'signature': 'raise(uint256)', 'select",
+    "command": [
+      "tools/certify/certify",
+      "--replay",
+      "~/w/acc4/neg-pin-pre/from-omitted-selector-pin/replay",
+      "--solidity-lean",
+      "~/w/sl",
+      "--work",
+      "~/w/acc4/neg-pin-pre/w/omitted-selector@pin"
+    ],
+    "exit": -15,
+    "verdict": "FRESH-RUN",
+    "line": "the manifest passed and the fresh cold run started (stopped: --no-fresh-run)",
+    "start": "2026-11-15T23:25:08+00:00",
+    "end": "2026-11-15T23:25:08+00:00",
+    "wall_s": 0,
+    "log_sha256": "3d6ee33a7ae351ae3eaebc5b3b39ac8ab8479b84ecad4cbd25d7772a59bd29fa"
+  },
+  {
+    "case": "false-env-pin@pin",
+    "changed": "record.json environment: one frame, caller 0x2000, contract at 0x -> one frame, caller 0x0, contract at 0x100",
+    "command": [
+      "tools/certify/certify",
+      "--replay",
+      "~/w/acc4/neg-pin-pre/from-false-env-pin-pin/replay",
+      "--solidity-lean",
+      "~/w/sl",
+      "--work",
+      "~/w/acc4/neg-pin-pre/w/false-env-pin@pin"
+    ],
+    "exit": -15,
+    "verdict": "FRESH-RUN",
+    "line": "the manifest passed and the fresh cold run started (stopped: --no-fresh-run)",
+    "start": "2026-11-15T23:25:08+00:00",
+    "end": "2026-11-15T23:25:09+00:00",
+    "wall_s": 0,
+    "log_sha256": "18dbc2c8372b9570e1c6c2485d8fa9372c461944a3a3dd7e272b983947f9f600"
+  },
+  {
+    "case": "oog-as-revert@pin",
+    "changed": "record.json gas_bound: 3580203 -> 1790101",
+    "command": [
+      "tools/certify/certify",
+      "--replay",
+      "~/w/acc4/neg-pin-pre/from-oog-as-revert-pin/replay",
+      "--solidity-lean",
+      "~/w/sl",
+      "--work",
+      "~/w/acc4/neg-pin-pre/w/oog-as-revert@pin"
+    ],
+    "exit": -15,
+    "verdict": "FRESH-RUN",
+    "line": "the manifest passed and the fresh cold run started (stopped: --no-fresh-run)",
+    "start": "2026-11-15T23:25:09+00:00",
+    "end": "2026-11-15T23:25:09+00:00",
+    "wall_s": 0,
+    "log_sha256": "698d77fd87d02248b4f66f01e4456f0adc9b77d51e32f7f4307a1b40dfc73b2a"
+  }
+]
