@@ -62,6 +62,50 @@ theorem words_calldata (sel : Nat) {args : List Nat} (h : ∀ a ∈ args, a < 2 
     words (((calldata sel args).data.toList.map (·.toNat)).drop 4) = args := by
   rw [Dirty.bytes_calldata, Wide.drop_selector, words_argBytes args h]
 
+theorem foldl_bytesWord (a : Nat) (l : List Nat) :
+    l.foldl (fun acc b => acc * 256 + b) a = a * 256 ^ l.length + bytesWord l := by
+  induction l generalizing a with
+  | nil => simp [bytesWord]
+  | cons x l ih =>
+    simp only [List.foldl_cons, List.length_cons]
+    rw [ih, show bytesWord (x :: l) = List.foldl (fun acc b => acc * 256 + b) (0 * 256 + x) l from rfl,
+      ih, Nat.pow_succ, Nat.zero_mul, Nat.zero_add, Nat.add_mul, Nat.add_assoc]
+    ac_rfl
+
+theorem bytesWord_cons (x : Nat) (l : List Nat) :
+    bytesWord (x :: l) = x * 256 ^ l.length + bytesWord l := by
+  show List.foldl (fun acc b => acc * 256 + b) (0 * 256 + x) l = _
+  rw [foldl_bytesWord, Nat.zero_mul, Nat.zero_add]
+
+/-- The big-endian bytes of `v`'s low `n` bytes, read back as a word. -/
+theorem bytesWord_range_reverse (v : Nat) : ∀ n,
+    bytesWord ((List.range n).reverse.map fun i => v / 256 ^ i % 256) = v % 256 ^ n
+  | 0 => by rw [Nat.pow_zero, Nat.mod_one]; rfl
+  | n + 1 => by
+    rw [List.range_succ, List.reverse_append, List.reverse_singleton, List.singleton_append,
+      List.map_cons, bytesWord_cons, bytesWord_range_reverse v n, List.length_map, List.length_reverse,
+      List.length_range, Nat.mod_pow_succ]
+    ac_rfl
+
+/-- The 32 output bytes of a returned word (`wordOBytes e`, as the erased tree spells them out), read
+back as words: the word, then the words of the rest. `tree_meets` rewrites with it before the bytes are
+evaluated one by one, so a returned word that is not a literal (a storage word, an argument) reaches
+the spec as one word. -/
+theorem words_byteOf (ρ : Val) (e : WExpr) (rest : List OByte) :
+    words (List.map (OByte.eval ρ) (.byteOf e 0 :: .byteOf e 1 :: .byteOf e 2 :: .byteOf e 3 :: .byteOf e 4 :: .byteOf e 5 :: .byteOf e 6 :: .byteOf e 7 ::
+        .byteOf e 8 :: .byteOf e 9 :: .byteOf e 10 :: .byteOf e 11 :: .byteOf e 12 :: .byteOf e 13 :: .byteOf e 14 :: .byteOf e 15 ::
+        .byteOf e 16 :: .byteOf e 17 :: .byteOf e 18 :: .byteOf e 19 :: .byteOf e 20 :: .byteOf e 21 :: .byteOf e 22 :: .byteOf e 23 ::
+        .byteOf e 24 :: .byteOf e 25 :: .byteOf e 26 :: .byteOf e 27 :: .byteOf e 28 :: .byteOf e 29 :: .byteOf e 30 :: .byteOf e 31 :: rest)) =
+      (e.eval ρ % 2 ^ 256) :: words (List.map (OByte.eval ρ) rest) := by
+  have h : List.map (OByte.eval ρ) (.byteOf e 0 :: .byteOf e 1 :: .byteOf e 2 :: .byteOf e 3 :: .byteOf e 4 :: .byteOf e 5 :: .byteOf e 6 :: .byteOf e 7 ::
+        .byteOf e 8 :: .byteOf e 9 :: .byteOf e 10 :: .byteOf e 11 :: .byteOf e 12 :: .byteOf e 13 :: .byteOf e 14 :: .byteOf e 15 ::
+        .byteOf e 16 :: .byteOf e 17 :: .byteOf e 18 :: .byteOf e 19 :: .byteOf e 20 :: .byteOf e 21 :: .byteOf e 22 :: .byteOf e 23 ::
+        .byteOf e 24 :: .byteOf e 25 :: .byteOf e 26 :: .byteOf e 27 :: .byteOf e 28 :: .byteOf e 29 :: .byteOf e 30 :: .byteOf e 31 :: rest) =
+      ((List.range 32).reverse.map fun i => e.eval ρ / 256 ^ i % 256) ++
+        List.map (OByte.eval ρ) rest := rfl
+  rw [h, words_append32 (by simp), bytesWord_range_reverse]
+  rfl
+
 /-- What a function's spec asks of its erased tree: see the module comment. -/
 def TreeMeets (b : Bundle) (fs : FnSpec) (ctx : Ctx) (n : Nat) (T : Tree) : Prop :=
   ∀ (args : List Nat) (s : Storage) (iargs : List Int) (pre : State) (ghost' : Ghost),
@@ -135,16 +179,24 @@ theorem holdsFn_of_tree_fixed {fuel : Nat} {c : TypeCheck.CheckedContract} {d : 
 `tree_meets [defs]` proves `TreeMeets b fs ctx n T` for a function of at most eight parameters
 and no succeeds-if conditions, unfolding `defs` (the tree, the spec bundle and the function's
 spec): it names the argument words, decodes them, splits the tree's branches, evaluates the spec's
-terms and the tree's words, and closes each case with `omega`. A goal it cannot close stays an
+terms and the tree's words (a returned word as one word, by `words_byteOf`, with storage words
+bounded by `hsm` and `hsi`, argument words by `ham` and `hai`, and any word reduced mod `2 ^ 256`
+by `hml`), and closes each case with `omega`. A goal it cannot close stays an
 error: it never leaves a `sorry`. -/
 
 macro "tree_meets" "[" ds:Lean.Parser.Tactic.simpLemma,* "]" : tactic => `(tactic| (
   intro args s iargs pre g hl hargs hs hdec hst ht hreq hinv
   have hsm : ∀ k, s k % 2 ^ 256 = s k := fun k => Nat.mod_eq_of_lt (hs k)
+  have hsi : ∀ k, ((s k : Nat) : Int) % 2 ^ 256 = s k := fun k =>
+    Int.emod_eq_of_lt (Int.natCast_nonneg _) (by have := hs k; omega)
+  have ham : ∀ a ∈ args, a % 2 ^ 256 = a := fun a ha => Nat.mod_eq_of_lt (hargs a ha)
+  have hai : ∀ a ∈ args, ((a : Nat) : Int) % 2 ^ 256 = a := fun a ha =>
+    Int.emod_eq_of_lt (Int.natCast_nonneg _) (by have := hargs a ha; omega)
+  have hml : ∀ a : Nat, a % 2 ^ 256 < 2 ^ 256 := fun a => Nat.mod_lt _ (Nat.two_pow_pos 256)
   rcases args with _ | ⟨a0, _ | ⟨a1, _ | ⟨a2, _ | ⟨a3, _ | ⟨a4, _ | ⟨a5, _ | ⟨a6, _ | ⟨a7, _ | ⟨_, _⟩⟩⟩⟩⟩⟩⟩⟩⟩ <;>
     simp only [List.length_cons, List.length_nil] at hl <;> (try omega) <;>
     simp only [List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp, forall_eq,
-      IsEmpty.forall_iff, implies_true, and_true] at hargs <;>
+      IsEmpty.forall_iff, implies_true, and_true] at hargs ham hai <;>
     simp only [$ds,*, List.head, List.getElem_cons_zero, List.getElem_cons_succ, decodeWords, Ty.ofWord,
       hargs, ite_true, bind, pure, Option.bind,
       Option.some.injEq] at hdec <;>
@@ -152,11 +204,11 @@ macro "tree_meets" "[" ds:Lean.Parser.Tactic.simpLemma,* "]" : tactic => `(tacti
     refine ⟨fun hsucc => ?_, fun hne => ?_⟩ <;>
     first
     | (simp [$ds,*] at hne; done)
-    | (simp only [$ds,*, Tree.eval, WExpr.eval, BinOp.eval, Generic.wordSize, hsm,
+    | (simp only [$ds,*, Tree.eval, Res.obs, words_byteOf, WExpr.eval, BinOp.eval, Generic.wordSize, hsm,
           List.getD_cons_zero, List.getD_cons_succ] at hsucc ⊢
        split_ifs at hsucc ⊢ <;>
        simp_all [$ds,*, Res.obs, Writes.store, WExpr.eval, BinOp.eval, Bundle.satAll, Bundle.sat,
-         eval, slotOf, mkEnv, Env.cur, BinOp.apply, Ty.ofBits, toWord, decodeWords, words,
+         eval, slotOf, mkEnv, Env.cur, BinOp.apply, Ty.ofBits, Ty.ofWord, toWord, decodeWords, words,
          Generic.wordSize] <;>
        omega)))
 
@@ -165,10 +217,16 @@ pre-state's. -/
 macro "tree_meets_fixed" "[" ds:Lean.Parser.Tactic.simpLemma,* "]" : tactic => `(tactic| (
   intro args s iargs pre hl hargs hs hdec hst ht hreq hinv
   have hsm : ∀ k, s k % 2 ^ 256 = s k := fun k => Nat.mod_eq_of_lt (hs k)
+  have hsi : ∀ k, ((s k : Nat) : Int) % 2 ^ 256 = s k := fun k =>
+    Int.emod_eq_of_lt (Int.natCast_nonneg _) (by have := hs k; omega)
+  have ham : ∀ a ∈ args, a % 2 ^ 256 = a := fun a ha => Nat.mod_eq_of_lt (hargs a ha)
+  have hai : ∀ a ∈ args, ((a : Nat) : Int) % 2 ^ 256 = a := fun a ha =>
+    Int.emod_eq_of_lt (Int.natCast_nonneg _) (by have := hargs a ha; omega)
+  have hml : ∀ a : Nat, a % 2 ^ 256 < 2 ^ 256 := fun a => Nat.mod_lt _ (Nat.two_pow_pos 256)
   rcases args with _ | ⟨a0, _ | ⟨a1, _ | ⟨a2, _ | ⟨a3, _ | ⟨a4, _ | ⟨a5, _ | ⟨a6, _ | ⟨a7, _ | ⟨_, _⟩⟩⟩⟩⟩⟩⟩⟩⟩ <;>
     simp only [List.length_cons, List.length_nil] at hl <;> (try omega) <;>
     simp only [List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp, forall_eq,
-      IsEmpty.forall_iff, implies_true, and_true] at hargs <;>
+      IsEmpty.forall_iff, implies_true, and_true] at hargs ham hai <;>
     simp only [$ds,*, List.head, List.getElem_cons_zero, List.getElem_cons_succ, decodeWords, Ty.ofWord,
       hargs, ite_true, bind, pure, Option.bind,
       Option.some.injEq] at hdec <;>
@@ -176,11 +234,11 @@ macro "tree_meets_fixed" "[" ds:Lean.Parser.Tactic.simpLemma,* "]" : tactic => `
     refine ⟨fun hsucc => ?_, fun hne => ?_⟩ <;>
     first
     | (simp [$ds,*] at hne; done)
-    | (simp only [$ds,*, Tree.eval, WExpr.eval, BinOp.eval, Generic.wordSize, hsm,
+    | (simp only [$ds,*, Tree.eval, Res.obs, words_byteOf, WExpr.eval, BinOp.eval, Generic.wordSize, hsm,
           List.getD_cons_zero, List.getD_cons_succ] at hsucc ⊢
        split_ifs at hsucc ⊢ <;>
        simp_all [$ds,*, Res.obs, Writes.store, WExpr.eval, BinOp.eval, Bundle.satAll, Bundle.sat,
-         eval, slotOf, mkEnv, Env.cur, BinOp.apply, Ty.ofBits, toWord, decodeWords, words,
+         eval, slotOf, mkEnv, Env.cur, BinOp.apply, Ty.ofBits, Ty.ofWord, toWord, decodeWords, words,
          Generic.wordSize] <;>
        omega)))
 

@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+. ~/px.sh; export LEAN_NUM_THREADS=1; cd ~/leanv3
+B=.lake/build/lib/lean
+for i in 1 2 3 4 5; do
+  rm -rf $B/Verify/LoopSource/Equiv/Counter/Summary.* $B/Verify/LoopSource/Equiv/GenObl.* $B/CounterRun $B/Contracts/VerifyCounter/Source.* .lake/build/ir/CounterRun
+  rm -f Certified/CounterRun/Loops/bump/{Data,Obl,V*}.lean
+  python3 - $i <<'EOF'
+import subprocess,time,resource,sys,json
+i=sys.argv[1]; out={}
+def step(name,cmd):
+    t=time.time(); p=subprocess.run(cmd,capture_output=True,text=True)
+    out[name]={'exit':p.returncode,'wall_s':round(time.time()-t,1)}
+    return p
+p=step('imports',['lake','build','-KleanMemory=6000','Verify.LoopSource.Equiv.GenObl','Verify.LoopSource.Equiv.Counter.Summary','CounterRun.gen.Counter.Stage0','CounterRun.Loops.bump.Cut','CounterRun.Source'])
+out['imports']['built_Contracts.VerifyCounter.Source']='Contracts.VerifyCounter.Source' in p.stdout
+g=step('gen',['lake','env','lean','--run','Certified/CounterRun/Loops/bump/Gen.lean']); out['gen']['stdout_sha']=__import__('hashlib').sha256(g.stdout.encode()).hexdigest()[:16]
+step('obl',['lake','build','-KleanMemory=6000','CounterRun.Loops.bump.Obl'])
+out['max_rss_kb']=resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
+print(i,json.dumps(out),flush=True)
+EOF
+done

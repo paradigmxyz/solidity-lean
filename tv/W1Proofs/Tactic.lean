@@ -1098,8 +1098,20 @@ macro "sym_mem_order" : tactic => `(tactic|
   simp (disch := decide) only [Mem.store_expand_comm, Mem.store_store_same, Mem.expand_expand,
     Mem.expand_comm, Mem.expand_store, Mem.store_store_comm] at *)
 
+open Lean Elab Tactic in
+/-- One round of `sym_norm`: `sym_eval` unless the last step was `sym_eval`, then `sym_cond`,
+then `sym_mem`; none applying ends it. `sym_eval` is one `dsimp` call, which runs to a fixpoint,
+so a second `sym_eval` right after it can only fail after traversing the goal. Skipping it changes
+no proof, since a failed step leaves none. -/
+partial def symNormLoop (lastEval : Bool) : TacticM Unit := do
+  let step (stx : Syntax) : TacticM Bool := (do evalTactic stx; pure true) <|> pure false
+  if !lastEval then
+    if ← step (← `(tactic| sym_eval)) then return ← symNormLoop true
+  if ← step (← `(tactic| sym_cond)) then return ← symNormLoop false
+  if ← step (← `(tactic| sym_mem)) then return ← symNormLoop false
+
 /-- Evaluate, decide conditions and move memory reads until none changes the goal. -/
-macro "sym_norm" : tactic => `(tactic| repeat (first | sym_eval | sym_cond | sym_mem))
+elab "sym_norm" : tactic => symNormLoop false
 
 /-- Two ends that differ in addresses and memory sizes alone: one program spells an address as
 the sum of numerals its pass left unfolded (`(Evm.add 32 128).toNat`) where the other has the

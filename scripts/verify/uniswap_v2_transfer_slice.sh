@@ -7,7 +7,7 @@
 # Needs scripts/verify/uniswap_v2_gen.sh's outputs (scripts/verify/uniswap-v2/UniswapV2ERC20.sol,
 # Contracts/UniswapV2/ERC20/{Source,Core}.lean) and:
 #   SOLAR_DIR     a solar checkout with crates/verify/uniswap-v2/{apply_specs.py,transfer-slice.spec}
-#                 and tools/certify/spec_connect.py with --tree-only;
+#                 and tools/certify/spec_connect.py with --tree-only and --any-caller;
 #   SOLAR_VERIFY  its solar-verify binary (--emit-lean-spec);
 #   SOLC          solc 0.8.35 (default .cache/solc-0.8.35, which uniswap_v2_gen.sh downloads);
 #   LEAN          the command that runs Lean on one file of this checkout (default: lake env lean).
@@ -15,6 +15,9 @@
 #   Spec.lean          solar-verify's --emit-lean-spec export of transfer-slice.spec;
 #   Tree.lean          spec_connect.py --tree-only: transfer's erased tree, checked against
 #                      SolidCore's contract by kernel_rfl (transfer_erase_eq, deploy_eq);
+#   TreeFrom.lean      spec_connect.py --tree-only --any-caller: transfer's erased tree with
+#                      msg.sender symbolic (eraseFnSym), checked the same way
+#                      (transfer_erase_from_eq), for Slice/From.lean;
 #   Mut<M>/Source.lean, Mut<M>/Core.lean, Mut<M>/Tree.lean
 #                      the frontend's source and the checked contract of each source mutant of the
 #                      port (scripts/verify/uniswap-v2/transfer-mutants.txt): one text edit of
@@ -62,12 +65,20 @@ done < scripts/verify/uniswap-v2/transfer-mutants.txt
 
 lake build ${LAKE_BUILD_FLAGS:--KleanMemory=6000} Contracts.UniswapV2.ERC20.Slice.Gen.Spec \
   Contracts.UniswapV2.ERC20.SpecTreeKeccak Verify.VC.Model Verify.Spec.Tree Verify.Spec.TreeMap \
-  Verify.Spec.TreeMapNested Verify.Spec.TreeIn Verify.VC.KernelIdx
+  Verify.Spec.TreeMapNested Verify.Spec.TreeIn Verify.VC.KernelIdx Verify.Spec.TreeSucceeds
 python3 "$SOLAR_DIR/tools/certify/spec_connect.py" --core-module Contracts.UniswapV2.ERC20.Core \
   --namespace SolidCore.Verify.VC.UniswapV2ERC20 --spec-module Contracts.UniswapV2.ERC20.Slice.Gen.Spec \
   --bundle SolidCore.Spec.Export.UniswapV2ERC20Slice.UniswapV2ERC20 \
   --module-name SolidCore.Spec.UniswapV2.ERC20.Slice.Gen --out "$out/Tree.lean" --lean "$LEAN" \
   --tree-only --only UniswapV2ERC20.transfer \
+  --using SolidCore.Verify.VC.UniswapV2ERC20.digest_eq \
+  --using SolidCore.Spec.UniswapV2.ERC20.Keccak.keccakWord_eq \
+  --import Contracts.UniswapV2.ERC20.SpecTreeKeccak
+python3 "$SOLAR_DIR/tools/certify/spec_connect.py" --core-module Contracts.UniswapV2.ERC20.Core \
+  --namespace SolidCore.Verify.VC.UniswapV2ERC20 --spec-module Contracts.UniswapV2.ERC20.Slice.Gen.Spec \
+  --bundle SolidCore.Spec.Export.UniswapV2ERC20Slice.UniswapV2ERC20 \
+  --module-name SolidCore.Spec.UniswapV2.ERC20.Slice.GenFrom --out "$out/TreeFrom.lean" --lean "$LEAN" \
+  --tree-only --any-caller --only UniswapV2ERC20.transfer \
   --using SolidCore.Verify.VC.UniswapV2ERC20.digest_eq \
   --using SolidCore.Spec.UniswapV2.ERC20.Keccak.keccakWord_eq \
   --import Contracts.UniswapV2.ERC20.SpecTreeKeccak

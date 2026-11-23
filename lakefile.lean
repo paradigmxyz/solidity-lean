@@ -127,7 +127,7 @@ lean_lib Loom where
 of a source triple with the refinement to bytecode (Verify/Final.lean). `lake build Verify`
 builds the root's closure; the libraries below hold the heavier, generated-input parts. -/
 lean_lib Verify where
-  roots := #[`Verify]
+  roots := #[`Verify, `Verify.AnyCaller.Tests]
 
 -- bank's and events' assembly stages against solar's exports (solar-tv/milestone/bank and
 -- solar-tv/milestone/events at 0a455fda): the generic assembler check with mapping hashes,
@@ -328,7 +328,7 @@ lean_lib VerifySpec where
   roots := #[`Verify.Spec.Syntax, `Verify.Spec.Semantics, `Verify.Spec.Contract,
     `Verify.Spec.Ghost, `Verify.Spec.GhostFree, `Verify.Spec.TrustedBase,
     `Verify.Spec.TrustedBase.Hypotheses, `Verify.Spec.TrustedBase.Interface,
-    `Verify.Spec.TreeMapNested, `Verify.Spec.HashScopeCheck]
+    `Verify.Spec.TreeMapNested, `Verify.Spec.HashScopeCheck, `Verify.Spec.TreeReturnCheck]
 
 -- The trusted base discharged for c4 and Counter on their checked-in source ASTs, and its axiom
 -- audit. Separate from VerifySpec because the ASTs import the type checker.
@@ -529,7 +529,8 @@ lean_lib ContractsVerifyCounter where
   roots := #[`Contracts.VerifyCounter.Holds]
   globs := #[.submodules `Contracts.VerifyCounter]
   leanOptions := solarTVOptions
-  moreLeanArgs := #["-M", "3000"]
+  -- Source's unit checks run in the interpreter and need more than 3000 MB when built cold.
+  moreLeanArgs := #["-M", "6000"]
 
 -- Math.sqrt's Newton loop inside CallSqrt's internal call: its generated ranking certificate
 -- (Contracts/CallSqrt/Inferred.lean), sqrt's total contract under any caller, every call ending on
@@ -671,3 +672,25 @@ lean_lib VerifyGeneric where
 -- uniswap_v2_transfer_slice.sh).
 lean_lib VerifyGenericTransfer where
   roots := #[`Verify.Generic.Instances.Transfer]
+
+-- flag_4ce5cf9a: the stages of Certified/flag_4ce5cf9a/flag_4ce5cf9a.sol's Flag and their kernel proofs, which
+-- solar's scripts/certify writes.
+lean_lib «flag_4ce5cf9a» where
+  srcDir := "Certified"
+  roots := #[`flag_4ce5cf9a.Proofs]
+  globs := #[.submodules `flag_4ce5cf9a]
+
+-- G0, the source-text bridge (Verify/SourceText/README.md): the reference reader of a source
+-- file's bytes, the bridge to the generic expected theorem, and its tests.
+lean_lib VerifySourceText where
+  roots := #[`Verify.SourceText.Grammar, `Verify.SourceText.Bridge,
+    `Verify.SourceText.Tests, `Verify.SourceText.TestRuns]
+
+-- Flag (rc2-acc5-flag) through G0. Needs the record's generated flag_4ce5cf9a modules.
+lean_lib VerifySourceTextFlag where
+  roots := #[`Verify.SourceText.Instances.Flag]
+
+-- Verify.Spec.TreeFrom: a function's spec of SolidCore's run from every caller, from its
+-- symbolic-caller tree (holdsFn_of_tree_from_zero, holdsFn_of_tree_from).
+lean_lib VerifySpecTreeFrom where
+  roots := #[`Verify.Spec.TreeFrom]
