@@ -8291,9 +8291,27 @@ def Expr.anfHoist
                   let (c1, pm, m') := rec1 c m
                   let (c2, pb, b') := rec1 c1 b
                   let (c3, pa, a') := rec1 c2 a
-                  ( c3
-                  , pm ++ pb ++ pa
-                  , [Arg.positional a', Arg.positional b', Arg.positional m'] )
+                  -- A later hoisted operand can mutate storage read by an
+                  -- earlier operand. Capture the already evaluated words.
+                  let capture (counter : Nat) (operand : Expr) :=
+                    let name := anfHoistName counter
+                    let decl := Stmt.varDecl
+                      [{ name := some name, ty := some (Ty.uint 256), location := none }]
+                      (some operand)
+                    (counter + 1, decl, Expr.ident name)
+                  let (c4, mpre, m'') :=
+                    if pb.isEmpty && pa.isEmpty then (c3, [], m')
+                    else
+                      let (next, decl, value) := capture c3 m'
+                      (next, [decl], value)
+                  let (c5, bpre, b'') :=
+                    if pa.isEmpty then (c4, [], b')
+                    else
+                      let (next, decl, value) := capture c4 b'
+                      (next, [decl], value)
+                  ( c5
+                  , pm ++ mpre ++ pb ++ bpre ++ pa
+                  , [Arg.positional a', Arg.positional b'', Arg.positional m''] )
                 else
                   recArgs c args
             | _, _ => recArgs c args
