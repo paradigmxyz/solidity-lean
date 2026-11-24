@@ -31,6 +31,11 @@ From the one hypothesis `KeccakSep (erc20Preimages b a A)`:
 * `keccakSep_balance_of_universal`: the universal form implies the finite one for every `A`, by
   `universalTransferSep_iff`; the converse is not claimed.
 
+**The bound.** `KeccakSep (erc20Preimages b a A)` is a premise about small sets of accounts only: it is
+false once `A` has more than `2 ^ 128` addresses (`not_keccakSep_large`), since the `A.card ^ 2` inner
+allowance preimages would need pairwise distinct images below `2 ^ 256`. Like `ScopedSep` it has no
+`apart` clause, so it says nothing about addresses outside `A`.
+
 `real_erc20_ABC` is the hypothesis for three addresses at the real keccak256, by one kernel
 evaluation of the check. `missing_preimage_not_sep`, `missing_preimage_no_lift` and
 `missing_preimage_rejected` are the negative controls: a set missing a footprint preimage does not
@@ -107,6 +112,15 @@ theorem transfer_sep {b a : Nat} {A : Finset Nat} (h : KeccakSep (erc20Preimages
     rcases hx with rfl | rfl
     · exact balance_mem hc
     · exact balance_mem ht
+
+/-- `transfer` from the balance preimages alone, for a token with no allowance mapping. -/
+theorem transfer_sep_balance {b : Nat} {A : Finset Nat} (h : KeccakSep (balancePreimages b A))
+    {c t : Nat} (hc : c ∈ A) (ht : t ∈ A) : ScopedSep (transferFootprint b c t) :=
+  scopedSep_of_keccakSep h fun x hx => by
+    simp only [transferFootprint, List.mem_cons, List.not_mem_nil, or_false] at hx
+    rcases hx with rfl | rfl
+    · exact Finset.mem_image_of_mem (fun k => mappingPreimage k b) hc
+    · exact Finset.mem_image_of_mem (fun k => mappingPreimage k b) ht
 
 /-- The self-transfer: `transfer` from `c` to `c`. -/
 theorem self_transfer_sep {b a : Nat} {A : Finset Nat} (h : KeccakSep (erc20Preimages b a A))
@@ -226,10 +240,60 @@ theorem erc20Preimages_ABC_sub : erc20Preimages 1 2 addrsABC ⊆ erc20ListABC.to
   · exact .inl (.inr ⟨o, hl ho, rfl⟩)
   · exact .inr ⟨o, hl ho, s, hl hs, rfl⟩
 
+/-! The 15 images at the real keccak256, one kernel evaluation each (the inner preimages over the
+literal outer images), so that no single evaluation holds every sponge at once. -/
+
 set_option maxRecDepth 100000 in
-/-- The check at the real keccak256 on the 15 preimages: one kernel evaluation. -/
+theorem erc20ABC_img0 : keccakWord (mappingPreimage addrA 1) = 0x36306db541fd1551fd93a60031e8a8c89d69ddef41d6249f5fdc265dbc8fffa2 := by decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem erc20ABC_img1 : keccakWord (mappingPreimage addrB 1) = 0x9d4d959825f0680278e64197773b2a50cd78b2b2cb00711ddbeebf0bf93cd8a4 := by decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem erc20ABC_img2 : keccakWord (mappingPreimage addrC 1) = 0xe20f19dc6931eb9e42fe3f21abe1a9ef59942d8e586871d88564d0d0b63a5e5c := by decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem erc20ABC_img3 : keccakWord (mappingPreimage addrA 2) = 0xb314f101a00aa0d8cc6704cc6dd1e9dd7551ec98c9df52079c192c560ba66c4a := by decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem erc20ABC_img4 : keccakWord (mappingPreimage addrB 2) = 0xf4c32baaad9a468f8a07690e6d59a45329a58ffaa2080ee4ccc1c4e2d7249e78 := by decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem erc20ABC_img5 : keccakWord (mappingPreimage addrC 2) = 0x6e3256c0d903d06dbf1594b7c30afa1a58a0e687f0a0df1b6b6358c60bd3e992 := by decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem erc20ABC_img6 : keccakWord (mappingPreimage addrA 0xb314f101a00aa0d8cc6704cc6dd1e9dd7551ec98c9df52079c192c560ba66c4a) = 0x4d80218e38ec5632663a8b57acdbbb6111d57e5231395495d10e4c9e7e529334 := by decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem erc20ABC_img7 : keccakWord (mappingPreimage addrB 0xb314f101a00aa0d8cc6704cc6dd1e9dd7551ec98c9df52079c192c560ba66c4a) = 0x2d293aa0902765963fe96dce827cc61b41302193196975dfc5b7d8991325423 := by decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem erc20ABC_img8 : keccakWord (mappingPreimage addrC 0xb314f101a00aa0d8cc6704cc6dd1e9dd7551ec98c9df52079c192c560ba66c4a) = 0xccaeb10c53a10a2a5ba805c46b8e54cbc5a26b1c9268c2acc63e6f5ef9e92c97 := by decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem erc20ABC_img9 : keccakWord (mappingPreimage addrA 0xf4c32baaad9a468f8a07690e6d59a45329a58ffaa2080ee4ccc1c4e2d7249e78) = 0xbdf360ab9ff96112ffaa40da9615e11321c938316664145a7d0c3a3b8a374a06 := by decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem erc20ABC_img10 : keccakWord (mappingPreimage addrB 0xf4c32baaad9a468f8a07690e6d59a45329a58ffaa2080ee4ccc1c4e2d7249e78) = 0xc2a81cd7ce1c533337814ea18730f6fabf93e8a00760325295ca851fd6fec141 := by decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem erc20ABC_img11 : keccakWord (mappingPreimage addrC 0xf4c32baaad9a468f8a07690e6d59a45329a58ffaa2080ee4ccc1c4e2d7249e78) = 0xc8f1f724c956a81e9f6b3de8de9b9bede7fd2d227ba0376ad8aa72f8dec362a3 := by decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem erc20ABC_img12 : keccakWord (mappingPreimage addrA 0x6e3256c0d903d06dbf1594b7c30afa1a58a0e687f0a0df1b6b6358c60bd3e992) = 0xa538513e84b1a01d079d4ef4feb8b48c513493ed754b2612d837fd053f7b5762 := by decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem erc20ABC_img13 : keccakWord (mappingPreimage addrB 0x6e3256c0d903d06dbf1594b7c30afa1a58a0e687f0a0df1b6b6358c60bd3e992) = 0x5dfa9b312d76cce84d7ae186686faf1bbbc80b4e3b79bbccf3e7150a5d7f164a := by decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem erc20ABC_img14 : keccakWord (mappingPreimage addrC 0x6e3256c0d903d06dbf1594b7c30afa1a58a0e687f0a0df1b6b6358c60bd3e992) = 0x98d84cb62c65db7457149706fe353d14a5bd1158d5c81c0def593868cd6b3671 := by decide +kernel
+
+/-- The 15 preimages separated at the real keccak256, from their images. -/
 theorem real_erc20ListABC : ScopedSep erc20ListABC :=
-  scopedSep_of_check (by decide +kernel)
+  keccakSeparated_of_images (H := [0x36306db541fd1551fd93a60031e8a8c89d69ddef41d6249f5fdc265dbc8fffa2, 0x9d4d959825f0680278e64197773b2a50cd78b2b2cb00711ddbeebf0bf93cd8a4, 0xe20f19dc6931eb9e42fe3f21abe1a9ef59942d8e586871d88564d0d0b63a5e5c, 0xb314f101a00aa0d8cc6704cc6dd1e9dd7551ec98c9df52079c192c560ba66c4a, 0xf4c32baaad9a468f8a07690e6d59a45329a58ffaa2080ee4ccc1c4e2d7249e78, 0x6e3256c0d903d06dbf1594b7c30afa1a58a0e687f0a0df1b6b6358c60bd3e992, 0x4d80218e38ec5632663a8b57acdbbb6111d57e5231395495d10e4c9e7e529334, 0x2d293aa0902765963fe96dce827cc61b41302193196975dfc5b7d8991325423, 0xccaeb10c53a10a2a5ba805c46b8e54cbc5a26b1c9268c2acc63e6f5ef9e92c97, 0xbdf360ab9ff96112ffaa40da9615e11321c938316664145a7d0c3a3b8a374a06, 0xc2a81cd7ce1c533337814ea18730f6fabf93e8a00760325295ca851fd6fec141, 0xc8f1f724c956a81e9f6b3de8de9b9bede7fd2d227ba0376ad8aa72f8dec362a3, 0xa538513e84b1a01d079d4ef4feb8b48c513493ed754b2612d837fd053f7b5762, 0x5dfa9b312d76cce84d7ae186686faf1bbbc80b4e3b79bbccf3e7150a5d7f164a, 0x98d84cb62c65db7457149706fe353d14a5bd1158d5c81c0def593868cd6b3671])
+    (by simp only [erc20ListABC, List.map_cons, List.map_nil, List.flatMap_cons,
+      List.flatMap_nil, List.cons_append, List.nil_append, List.append_nil, erc20ABC_img0, erc20ABC_img1, erc20ABC_img2, erc20ABC_img3, erc20ABC_img4, erc20ABC_img5, erc20ABC_img6, erc20ABC_img7, erc20ABC_img8, erc20ABC_img9, erc20ABC_img10, erc20ABC_img11, erc20ABC_img12, erc20ABC_img13, erc20ABC_img14])
+    (by decide) (by decide)
 
 /-- **The hypothesis holds for the three addresses at the real keccak256.** -/
 theorem real_erc20_ABC : KeccakSep (erc20Preimages 1 2 addrsABC) :=
@@ -241,6 +305,47 @@ theorem real_erc20_ABC_calls :
       ScopedSep (approveFootprint 2 c t) ∧
       ∀ s ∈ addrsABC, ScopedSep (transferFromFootprint 1 2 c t s) :=
   erc20_sep real_erc20_ABC
+
+/-! ## The bound: no separation for more than `2 ^ 128` accounts -/
+
+/-- keccak256 of a mapping preimage is a word. -/
+theorem keccakWord_mappingPreimage_lt (k s : Nat) : keccakWord (mappingPreimage k s) < 2 ^ 256 := by
+  have e : solHash k s = keccakWord (mappingPreimage k s) := solHash_eq k s
+  have := solHash_lt k s
+  unfold Generic.wordSize at this
+  omega
+
+/-- **The finite premise is false for every set of more than `2 ^ 128` word-sized addresses**: under it
+the inner allowance preimages of `A ×ˢ A` have pairwise distinct images, `A.card ^ 2 > 2 ^ 256` of
+them, all below `2 ^ 256`. -/
+theorem not_keccakSep_large {b a : Nat} {A : Finset Nat} (ha : a < 2 ^ 256)
+    (hA : ∀ x ∈ A, x < 2 ^ 256) (hcard : 2 ^ 128 < A.card) : ¬ KeccakSep (erc20Preimages b a A) := by
+  intro h
+  let f : Nat × Nat → Nat :=
+    fun p => keccakWord (mappingPreimage p.2 (keccakWord (mappingPreimage p.1 a)))
+  have hinj : Set.InjOn f ↑(A ×ˢ A) := by
+    rintro ⟨o, s⟩ hp ⟨o', s'⟩ hp' he
+    simp only [Finset.coe_product, Set.mem_prod, Finset.mem_coe] at hp hp'
+    have e1 := h.1 _ _ (inner_mem hp.1 hp.2) (inner_mem hp'.1 hp'.2) he
+    obtain ⟨hs, hk⟩ := mappingPreimage_inj (hA s hp.2) (hA s' hp'.2)
+      (keccakWord_mappingPreimage_lt o a) (keccakWord_mappingPreimage_lt o' a) e1
+    have e2 := h.1 _ _ (outer_mem hp.1) (outer_mem hp'.1) hk
+    obtain ⟨ho, -⟩ := mappingPreimage_inj (hA o hp.1) (hA o' hp'.1) ha ha e2
+    simp [ho, hs]
+  have hmaps : Set.MapsTo f ↑(A ×ˢ A) ↑(Finset.range (2 ^ 256)) := by
+    intro p _
+    simp only [Finset.coe_range, Set.mem_Iio]
+    exact keccakWord_mappingPreimage_lt _ _
+  have hle := Finset.card_le_card_of_injOn f hmaps hinj
+  rw [Finset.card_product, Finset.card_range] at hle
+  have h2 : 2 ^ 128 * 2 ^ 128 < A.card * A.card := Nat.mul_lt_mul'' hcard hcard
+  have h3 : (2 : Nat) ^ 128 * 2 ^ 128 = 2 ^ 256 := by norm_num
+  omega
+
+/-- So some finite set of real addresses refutes it: the first `2 ^ 128 + 1`. -/
+theorem not_keccakSep_range {b a : Nat} (ha : a < 2 ^ 256) :
+    ¬ KeccakSep (erc20Preimages b a (Finset.range (2 ^ 128 + 1))) :=
+  not_keccakSep_large ha (fun x hx => by simp at hx; omega) (by simp)
 
 /-! ## Negative controls: a set missing a preimage -/
 
@@ -343,5 +448,49 @@ theorem missing_preimage_rejected (h : KeccakSep (erc20Preimages 1 2 {addrA})) :
 /-- info: 'SolidCore.Spec.missing_preimage_rejected' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in
 #print axioms missing_preimage_rejected
+
+/-- info: 'SolidCore.Spec.KeccakSep.mono' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in
+#print axioms KeccakSep.mono
+
+/-- info: 'SolidCore.Spec.keccakSep_toFinset_iff' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in
+#print axioms keccakSep_toFinset_iff
+
+/-- info: 'SolidCore.Spec.keccakSep_iff_toList' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in
+#print axioms keccakSep_iff_toList
+
+/-- info: 'SolidCore.Spec.balance_mem' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in
+#print axioms balance_mem
+
+/-- info: 'SolidCore.Spec.outer_mem' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in
+#print axioms outer_mem
+
+/-- info: 'SolidCore.Spec.inner_mem' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in
+#print axioms inner_mem
+
+/-- info: 'SolidCore.Spec.transfer_sep_balance' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in
+#print axioms transfer_sep_balance
+
+/-- info: 'SolidCore.Spec.balancePreimages_pair' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in
+#print axioms balancePreimages_pair
+
+/-- info: 'SolidCore.Spec.erc20Preimages_ABC_sub' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in
+#print axioms erc20Preimages_ABC_sub
+
+/-- info: 'SolidCore.Spec.not_keccakSep_large' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in
+#print axioms not_keccakSep_large
+
+/-- info: 'SolidCore.Spec.not_keccakSep_range' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in
+#print axioms not_keccakSep_range
 
 end SolidCore.Spec
