@@ -3,40 +3,40 @@ import Verify.Spec.HashScopeFinite
 /-!
 # The address-level storage frame of an ERC20 call, from the finite premise
 
-An ERC20 call's target postcondition frames storage by slot: every slot \`n\` other than the slots the
+An ERC20 call's target postcondition frames storage by slot: every slot `n` other than the slots the
 call writes keeps its value,
 
-  \`∀ n, n % 2 ^ 256 ≠ w₁ → … → s' n = s n\`.
+  `∀ n, n % 2 ^ 256 ≠ w₁ → … → s' n = s n`.
 
-A reader wants the frame by address: \`balanceOf[k]\` is unchanged for every account \`k\` the call
+A reader wants the frame by address: `balanceOf[k]` is unchanged for every account `k` the call
 does not name, and so is every allowance it does not write. Between the two sits keccak256: the
-slot of \`balanceOf[k]\` is \`solHash k b\`, the slot of \`allowance[o][p]\` is
-\`solHash p (solHash o a)\`, and that a slot the call writes is none of these is a fact about keccak256
+slot of `balanceOf[k]` is `solHash k b`, the slot of `allowance[o][p]` is
+`solHash p (solHash o a)`, and that a slot the call writes is none of these is a fact about keccak256
 on their preimages.
 
 This file derives the address-level frame from the finite premise of Verify/Spec/HashScopeFinite.lean,
-\`KeccakSep (erc20Preimages b a A)\`: keccak256 injective, with images at least \`2 ^ 128\`, on the
-preimages an ERC20 with balances at slot \`b\` and allowances at slot \`a\` hashes for the finite set \`A\`
-of addresses. No universal separation is assumed, and every conclusion is about keys in \`A\`:
+`KeccakSep (erc20Preimages b a A)`: keccak256 injective, with images at least `2 ^ 128`, on the
+preimages an ERC20 with balances at slot `b` and allowances at slot `a` hashes for the finite set `A`
+of addresses. No universal separation is assumed, and every conclusion is about keys in `A`:
 
-* \`transfer_frame\`: \`transfer\` from \`c\` to \`t\` (\`c, t ∈ A\`, \`c = t\` included) leaves
-  \`balanceOf[k]\` for every \`k ∈ A\` other than \`c\` and \`t\`, and every \`allowance[o][p]\` with
-  \`o, p ∈ A\`; \`transfer_balance_frame\` is its balance half, from the balance preimages alone;
-* \`transferFrom_frame\`: \`transferFrom(f, t)\` sent by \`c\` (writing \`balanceOf[f]\`, \`balanceOf[t]\` and
-  \`allowance[f][c]\`) leaves every other balance of \`A\` and every allowance of \`A\` but
-  \`allowance[f][c]\`;
-* \`approve_frame\`: \`approve(p₀)\` sent by \`c\` (writing \`allowance[c][p₀]\`) leaves every balance of \`A\`
-  and every allowance of \`A\` but \`allowance[c][p₀]\`.
+* `transfer_frame`: `transfer` from `c` to `t` (`c, t ∈ A`, `c = t` included) leaves
+  `balanceOf[k]` for every `k ∈ A` other than `c` and `t`, and every `allowance[o][p]` with
+  `o, p ∈ A`; `transfer_balance_frame` is its balance half, from the balance preimages alone;
+* `transferFrom_frame`: `transferFrom(f, t)` sent by `c` (writing `balanceOf[f]`, `balanceOf[t]` and
+  `allowance[f][c]`) leaves every other balance of `A` and every allowance of `A` but
+  `allowance[f][c]`;
+* `approve_frame`: `approve(p₀)` sent by `c` (writing `allowance[c][p₀]`) leaves every balance of `A`
+  and every allowance of `A` but `allowance[c][p₀]`.
 
-Premises: \`A\`'s addresses are below \`2 ^ 160\`, \`b < 2 ^ 128\` (an allowance slot is not a balance slot
-because its inner key, a keccak256 image, is at least \`2 ^ 128\`), \`a < 2 ^ 256\`. The storage functions
-\`s s' : Nat → Nat\` are arbitrary: the theorems are about the frame's shape, not about any contract.
+Premises: `A`'s addresses are below `2 ^ 160`, `b < 2 ^ 128` (an allowance slot is not a balance slot
+because its inner key, a keccak256 image, is at least `2 ^ 128`), `a < 2 ^ 256`. The storage functions
+`s s' : Nat → Nat` are arbitrary: the theorems are about the frame's shape, not about any contract.
 
-Negative controls: \`written_slot_not_framed\` (the slot frame says nothing about the caller's own
-slot: a storage pair satisfies it and changes \`balanceOf[c]\`), \`outside_key_not_separated\` (a hash
-separated on the balance preimages of \`{addrA, addrB}\` can send \`addrC\`'s balance slot onto
-\`addrA\`'s, so nothing follows for a key outside \`A\`), and \`frame_rejects_caller_and_outside\`
-(\`transfer_frame\` does not elaborate at \`k = c\` or at \`k ∉ A\`).
+Negative controls: `written_slot_not_framed` (the slot frame says nothing about the caller's own
+slot: a storage pair satisfies it and changes `balanceOf[c]`), `outside_key_not_separated` (a hash
+separated on the balance preimages of `{addrA, addrB}` can send `addrC`'s balance slot onto
+`addrA`'s, so nothing follows for a key outside `A`), and `frame_rejects_caller_and_outside`
+(`transfer_frame` does not elaborate at `k = c` or at `k ∉ A`).
 -/
 
 namespace SolidCore.Spec
@@ -56,12 +56,12 @@ theorem keccakSep_inj {S : Finset (List Nat)} (h : KeccakSep S) {x y m n : Nat}
   rw [solHash_eq, solHash_eq] at he
   exact mappingPreimage_inj hx hy hm hn (h.1 _ _ hxS hyS he)
 
-/-- A slot whose preimage lies in a separated set is at least \`2 ^ 128\`. -/
+/-- A slot whose preimage lies in a separated set is at least `2 ^ 128`. -/
 theorem keccakSep_ge {S : Finset (List Nat)} (h : KeccakSep S) {x m : Nat}
     (hxS : mappingPreimage x m ∈ S) : 2 ^ 128 ≤ solHash x m := by
   rw [solHash_eq]; exact h.2 _ hxS
 
-/-- The inner preimage of \`allowance[o][p]\`, its key written as SolidCore's slot \`solHash o a\`. -/
+/-- The inner preimage of `allowance[o][p]`, its key written as SolidCore's slot `solHash o a`. -/
 theorem inner_mem' {b a : Nat} {A : Finset Nat} {o p : Nat} (ho : o ∈ A) (hp : p ∈ A) :
     mappingPreimage p (solHash o a) ∈ erc20Preimages b a A := by
   rw [solHash_eq]; exact inner_mem ho hp
@@ -74,15 +74,15 @@ theorem balancePreimages_sub (b a : Nat) (A : Finset Nat) :
     balancePreimages b A ⊆ erc20Preimages b a A :=
   Finset.subset_union_left
 
-/-- **Distinct accounts of \`A\` have distinct balance slots.** -/
+/-- **Distinct accounts of `A` have distinct balance slots.** -/
 theorem bal_ne_bal {b : Nat} {A : Finset Nat} (h : KeccakSep (balancePreimages b A))
     (hA : ∀ x ∈ A, x < 2 ^ 160) (hb : b < 2 ^ 256) {k c : Nat} (hk : k ∈ A) (hc : c ∈ A)
     (hne : k ≠ c) : solHash k b ≠ solHash c b := fun he =>
   hne (keccakSep_inj h (lt_trans (hA k hk) (by decide)) (lt_trans (hA c hc) (by decide)) hb hb
     (balance_mem_bal hk) (balance_mem_bal hc) he).1
 
-/-- **No allowance slot of \`A\` is a balance slot of \`A\`**: equal slots would give equal inner keys,
-\`solHash o a = b\`, but the left side is at least \`2 ^ 128\` and \`b\` is below it. -/
+/-- **No allowance slot of `A` is a balance slot of `A`**: equal slots would give equal inner keys,
+`solHash o a = b`, but the left side is at least `2 ^ 128` and `b` is below it. -/
 theorem allow_ne_bal {b a : Nat} {A : Finset Nat} (h : KeccakSep (erc20Preimages b a A))
     (hA : ∀ x ∈ A, x < 2 ^ 160) (hb : b < 2 ^ 128) {o p k : Nat} (ho : o ∈ A) (hp : p ∈ A)
     (hk : k ∈ A) : solHash p (solHash o a) ≠ solHash k b := fun he => by
@@ -91,7 +91,7 @@ theorem allow_ne_bal {b a : Nat} {A : Finset Nat} (h : KeccakSep (erc20Preimages
     (solHash_lt o a) (lt_trans hb (by decide)) (inner_mem' ho hp) (balance_mem hk) he).2
   omega
 
-/-- **Distinct allowance entries of \`A\` have distinct slots**: equal slots give the same spender and
+/-- **Distinct allowance entries of `A` have distinct slots**: equal slots give the same spender and
 equal outer slots, hence the same owner. -/
 theorem allow_ne_allow {b a : Nat} {A : Finset Nat} (h : KeccakSep (erc20Preimages b a A))
     (hA : ∀ x ∈ A, x < 2 ^ 160) (ha : a < 2 ^ 256) {o p o' p' : Nat} (ho : o ∈ A) (hp : p ∈ A)
@@ -108,9 +108,9 @@ theorem allow_ne_allow {b a : Nat} {A : Finset Nat} (h : KeccakSep (erc20Preimag
 
 /-! ## transfer -/
 
-/-- **transfer's balance frame by address**: if \`s'\` agrees with \`s\` off the balance slots of \`c\` and
-\`t\`, then for every \`k ∈ A\` other than \`c\` and \`t\`, \`balanceOf[k]\` is unchanged. Needs only the
-balance preimages of \`A\`. -/
+/-- **transfer's balance frame by address**: if `s'` agrees with `s` off the balance slots of `c` and
+`t`, then for every `k ∈ A` other than `c` and `t`, `balanceOf[k]` is unchanged. Needs only the
+balance preimages of `A`. -/
 theorem transfer_balance_frame {b : Nat} {A : Finset Nat} (h : KeccakSep (balancePreimages b A))
     (hA : ∀ x ∈ A, x < 2 ^ 160) (hb : b < 2 ^ 256) {c t : Nat} (hc : c ∈ A) (ht : t ∈ A)
     {s s' : Nat → Nat}
@@ -119,9 +119,9 @@ theorem transfer_balance_frame {b : Nat} {A : Finset Nat} (h : KeccakSep (balanc
   hfr _ (by rw [solHash_mod]; exact bal_ne_bal h hA hb hk hc hkc)
     (by rw [solHash_mod]; exact bal_ne_bal h hA hb hk ht hkt)
 
-/-- **transfer from \`c\` to \`t\`, the address-level frame** (\`c, t ∈ A\`, \`c = t\` included): from the
-slot frame, \`balanceOf[k]\` is unchanged for every \`k ∈ A\` other than \`c\` and \`t\`, and
-\`allowance[o][p]\` is unchanged for every \`o, p ∈ A\`. -/
+/-- **transfer from `c` to `t`, the address-level frame** (`c, t ∈ A`, `c = t` included): from the
+slot frame, `balanceOf[k]` is unchanged for every `k ∈ A` other than `c` and `t`, and
+`allowance[o][p]` is unchanged for every `o, p ∈ A`. -/
 theorem transfer_frame {b a : Nat} {A : Finset Nat} (h : KeccakSep (erc20Preimages b a A))
     (hA : ∀ x ∈ A, x < 2 ^ 160) (hb : b < 2 ^ 128) {c t : Nat} (hc : c ∈ A) (ht : t ∈ A)
     {s s' : Nat → Nat}
@@ -135,10 +135,10 @@ theorem transfer_frame {b a : Nat} {A : Finset Nat} (h : KeccakSep (erc20Preimag
 
 /-! ## transferFrom -/
 
-/-- **transferFrom(f, t) sent by \`c\`, the address-level frame** (\`f, t, c ∈ A\`, equal addresses
-included): the call writes \`balanceOf[f]\`, \`balanceOf[t]\` and \`allowance[f][c]\`; from the slot frame
-over those three slots, \`balanceOf[k]\` is unchanged for every \`k ∈ A\` other than \`f\` and \`t\`, and
-\`allowance[o][p]\` for every \`o, p ∈ A\` with \`(o, p) ≠ (f, c)\`. -/
+/-- **transferFrom(f, t) sent by `c`, the address-level frame** (`f, t, c ∈ A`, equal addresses
+included): the call writes `balanceOf[f]`, `balanceOf[t]` and `allowance[f][c]`; from the slot frame
+over those three slots, `balanceOf[k]` is unchanged for every `k ∈ A` other than `f` and `t`, and
+`allowance[o][p]` for every `o, p ∈ A` with `(o, p) ≠ (f, c)`. -/
 theorem transferFrom_frame {b a : Nat} {A : Finset Nat} (h : KeccakSep (erc20Preimages b a A))
     (hA : ∀ x ∈ A, x < 2 ^ 160) (hb : b < 2 ^ 128) (ha : a < 2 ^ 256) {f t c : Nat} (hf : f ∈ A)
     (ht : t ∈ A) (hc : c ∈ A) {s s' : Nat → Nat}
@@ -160,9 +160,9 @@ theorem transferFrom_frame {b a : Nat} {A : Finset Nat} (h : KeccakSep (erc20Pre
 
 /-! ## approve -/
 
-/-- **approve(p₀) sent by \`c\`, the address-level frame** (\`c, p₀ ∈ A\`): the call writes
-\`allowance[c][p₀]\`; from the slot frame over that slot, \`balanceOf[k]\` is unchanged for every
-\`k ∈ A\`, and \`allowance[o][p]\` for every \`o, p ∈ A\` with \`(o, p) ≠ (c, p₀)\`. -/
+/-- **approve(p₀) sent by `c`, the address-level frame** (`c, p₀ ∈ A`): the call writes
+`allowance[c][p₀]`; from the slot frame over that slot, `balanceOf[k]` is unchanged for every
+`k ∈ A`, and `allowance[o][p]` for every `o, p ∈ A` with `(o, p) ≠ (c, p₀)`. -/
 theorem approve_frame {b a : Nat} {A : Finset Nat} (h : KeccakSep (erc20Preimages b a A))
     (hA : ∀ x ∈ A, x < 2 ^ 160) (hb : b < 2 ^ 128) (ha : a < 2 ^ 256) {c p₀ : Nat} (hc : c ∈ A)
     (hp₀ : p₀ ∈ A) {s s' : Nat → Nat}
@@ -175,9 +175,9 @@ theorem approve_frame {b a : Nat} {A : Finset Nat} (h : KeccakSep (erc20Preimage
 
 /-! ## Negative controls -/
 
-/-- **The slot frame says nothing about a written slot**: for every \`b\`, \`c\`, \`t\` there are storages
-\`s\`, \`s'\` that satisfy transfer's slot frame and change \`balanceOf[c]\`. So \`transfer_frame\` with
-\`k = c\` allowed is false, whatever premise on keccak256. -/
+/-- **The slot frame says nothing about a written slot**: for every `b`, `c`, `t` there are storages
+`s`, `s'` that satisfy transfer's slot frame and change `balanceOf[c]`. So `transfer_frame` with
+`k = c` allowed is false, whatever premise on keccak256. -/
 theorem written_slot_not_framed (b c t : Nat) :
     ∃ s s' : Nat → Nat,
       (∀ n, n % 2 ^ 256 ≠ solHash c b → n % 2 ^ 256 ≠ solHash t b → s' n = s n) ∧
@@ -188,9 +188,9 @@ theorem written_slot_not_framed (b c t : Nat) :
       rw [solHash_mod, if_pos rfl]
       decide⟩
 
-/-- **The premise on \`A\` says nothing outside \`A\`**: a hash separated on the balance preimages of
-\`{addrA, addrB}\` (injective, images at least \`2 ^ 128\`) can send \`addrC\`'s balance preimage onto
-\`addrA\`'s image, so no argument from it frames \`balanceOf[addrC]\`. -/
+/-- **The premise on `A` says nothing outside `A`**: a hash separated on the balance preimages of
+`{addrA, addrB}` (injective, images at least `2 ^ 128`) can send `addrC`'s balance preimage onto
+`addrA`'s image, so no argument from it frames `balanceOf[addrC]`. -/
 theorem outside_key_not_separated :
     ∃ hash : List Nat → Nat,
       SeparatedBy hash [mappingPreimage addrA 1, mappingPreimage addrB 1] ∧
@@ -198,10 +198,10 @@ theorem outside_key_not_separated :
   ⟨fun x => if x = mappingPreimage addrB 1 then 2 ^ 128 + 1 else 2 ^ 128,
     (separatedBy_iff_check _ _).2 (by decide +kernel), by decide +kernel⟩
 
-/-- **\`transfer_frame\` refuses the caller's own slot and a key outside \`A\`**: at the three addresses
-of \`addrsABC\`, the frame of \`addrC\`'s balance in a transfer from \`addrA\` to \`addrB\` elaborates; at
-\`k = addrA\` (the caller) the side condition \`addrA ≠ addrA\` cannot be shown, and with
-\`A = {addrA, addrB}\` the key \`addrC\` is not in \`A\`. \`fail_if_success\` keeps this file building only
+/-- **`transfer_frame` refuses the caller's own slot and a key outside `A`**: at the three addresses
+of `addrsABC`, the frame of `addrC`'s balance in a transfer from `addrA` to `addrB` elaborates; at
+`k = addrA` (the caller) the side condition `addrA ≠ addrA` cannot be shown, and with
+`A = {addrA, addrB}` the key `addrC` is not in `A`. `fail_if_success` keeps this file building only
 while both are refused. -/
 theorem frame_rejects_caller_and_outside (h : KeccakSep (erc20Preimages 1 2 addrsABC))
     (_h2 : KeccakSep (erc20Preimages 1 2 {addrA, addrB})) {s s' : Nat → Nat}
@@ -222,8 +222,8 @@ theorem frame_rejects_caller_and_outside (h : KeccakSep (erc20Preimages 1 2 addr
         (by decide) (by decide)
   trivial
 
-/-- The frame of the three addresses at the real keccak256 (\`real_erc20_ABC\`): a transfer from
-\`addrA\` to \`addrB\` leaves \`balanceOf[addrC]\` and every allowance among the three. -/
+/-- The frame of the three addresses at the real keccak256 (`real_erc20_ABC`): a transfer from
+`addrA` to `addrB` leaves `balanceOf[addrC]` and every allowance among the three. -/
 theorem real_transfer_frame_ABC {s s' : Nat → Nat}
     (hfr : ∀ n, n % 2 ^ 256 ≠ solHash addrA 1 → n % 2 ^ 256 ≠ solHash addrB 1 → s' n = s n) :
     s' (solHash addrC 1) = s (solHash addrC 1) ∧
