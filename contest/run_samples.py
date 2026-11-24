@@ -258,6 +258,21 @@ def ctor_revert_unit_tests() -> tuple[bool, str]:
         "deployrevert|0x08c379a0|self=0x01|origin=0x02|evt=|sto=")
     checks.append(("meas-deployrevert-parsed",
                    m is not None and m.deploy_reverted and not m.ok))
+    # Exceptional-halt flag (SEM-CLOSEDGAS, measured): parsed on a failure,
+    # absent means no halt, and never trusted on a success.
+    mh = _meas._parse_measurement(
+        "revert|0x|self=0x01|origin=0x02|halt=1|evt=|sto=")
+    checks.append(("meas-halt-parsed", mh is not None and mh.exhausted
+                   and mh.storage == "" and mh.events == ""))
+    mh0 = _meas._parse_measurement(
+        "deployrevert|0x|self=0x01|origin=0x02|halt=0|evt=|sto=")
+    checks.append(("meas-halt0-not-exhausted",
+                   mh0 is not None and mh0.deploy_reverted and not mh0.exhausted))
+    mho = _meas._parse_measurement(
+        "ok|0x|self=0x01|origin=0x02|halt=1|evt=|sto=0:1")
+    checks.append(("meas-halt-ignored-on-ok",
+                   mho is not None and mho.ok and not mho.exhausted
+                   and mho.storage == "0:1"))
     m2 = _meas._parse_measurement("ok|0x|self=0x01|origin=0x02|evt=|sto=")
     checks.append(("meas-ok-not-deployrevert",
                    m2 is not None and not m2.deploy_reverted and m2.ok))
@@ -1534,6 +1549,22 @@ def main() -> int:
     # All TEN mainnet precompiles (0x1..0xa, incl. bn254 pairing and the
     # trivial KZG point-evaluation proof) answer byte-identically.
     _defer("precompile_all10 parity (FULL, carve-out)", lambda: run_full("precompile_all10", "NO_DIVERGENCE", timeout=1500))
+
+    # SEM-CLOSEDGAS, measured: failing point-evaluation staticcalls burn all
+    # their forwarded gas, so a loop of them runs the entry frame (or the
+    # constructor) out of gas on the EVM with no named gas quantity in the
+    # source. The harness measures the exceptional halt -> REJECTED_OOS, not
+    # a SOUNDNESS_GAP against the unmetered model.
+    _defer("precompile_fail_oog SEM-CLOSEDGAS halt (FULL)", lambda: run_full("precompile_fail_oog", "REJECTED_OOS"))
+
+    _defer("precompile_fail_oog_ctor SEM-CLOSEDGAS ctor halt (FULL)", lambda: run_full("precompile_fail_oog_ctor", "REJECTED_OOS"))
+
+    # Control: one failing point-evaluation call then a source-level revert
+    # (REVERT refunds the rest, halt=0) is compared and agrees ...
+    _defer("precompile_fail_revert control (FULL)", lambda: run_full("precompile_fail_revert", "NO_DIVERGENCE"))
+
+    # ... and a genuine (non-gas) divergence on it is still banked.
+    _defer_serial("precompile_fail_revert real-divergence preserved (SIM)", lambda: run_simulated( "precompile_fail_revert", "SOUNDNESS_GAP", "S", hb.SolidityLeanResult( ok=True, stage="run", fail_closed=False, observable=obs.parse_observable("revert|custom:Failed:w:1,w:0##EVT####STO##"), message="", inconclusive=False), expect_component="wrong-revert"))
 
     # Divergence DIRECTION for the carved-out precompile channel.
     _defer("precompile divergence-detector (REAL + delta)", lambda: run_perturbed_precompile_selftest())
