@@ -25,7 +25,7 @@ preimages), for the preimages of `n[o][s]` over a finite set `A` of keys:
   (`nested_ne_outer`) nor a balance slot (`nested_ne_balance`), and every slot at least `2 ^ 128`
   (`nested_slot_ge`, `balance_slot_ge`), each with its bounds as premises.
 * `real_nested_tokens`: the premise at the real keccak256 for three token addresses at slot 2, by
-  one kernel evaluation of the check on the 12 preimages; `real_nested_ABC`: the same for
+  one kernel evaluation per image of the 12 preimages; `real_nested_ABC`: the same for
   HashScopeFinite's three addresses, from `real_erc20_ABC`.
 
 The negative control `nested_rejected` checks that a key outside `A` is refused.
@@ -261,9 +261,47 @@ theorem nestedPreimages_3_sub : nestedPreimages 2 tokens3 ⊆ nestedList3.toFins
   · exact .inr ⟨o, hl ho, s, hl hs, rfl⟩
 
 set_option maxRecDepth 100000 in
-/-- The check at the real keccak256 on the 12 preimages: one kernel evaluation. -/
+theorem nested3_img0 : keccakWord (mappingPreimage tokWETH 2) = 0xde032e96a833a2191f55c5766e34554d9b07734477ea9cb69c40158c1078e793 := by decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem nested3_img1 : keccakWord (mappingPreimage tokUSDC 2) = 0xb7598821b71eb990d952f174dec3507a6d48dc93be8e23cae785c98ca310bfbb := by decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem nested3_img2 : keccakWord (mappingPreimage tokDAI 2) = 0xf02f5385b52432c1a270c20c346d380219f286755cbd16bede4ce0fb454a4722 := by decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem nested3_img3 : keccakWord (mappingPreimage tokWETH 0xde032e96a833a2191f55c5766e34554d9b07734477ea9cb69c40158c1078e793) = 0xfd8427d5610b0cefed9791362adf7f4ecdd32b53cb2304502301b660df7bd428 := by decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem nested3_img4 : keccakWord (mappingPreimage tokUSDC 0xde032e96a833a2191f55c5766e34554d9b07734477ea9cb69c40158c1078e793) = 0x10cbec91f600e7f895b03bc61241c3cc3bb96ded9a260421b1d174032138cc01 := by decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem nested3_img5 : keccakWord (mappingPreimage tokDAI 0xde032e96a833a2191f55c5766e34554d9b07734477ea9cb69c40158c1078e793) = 0xae9064ee67c8f04baee0d98c97981c0e36cfee39e8cfc8c887cba3f150d82b6f := by decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem nested3_img6 : keccakWord (mappingPreimage tokWETH 0xb7598821b71eb990d952f174dec3507a6d48dc93be8e23cae785c98ca310bfbb) = 0xafa326b64c4892c3ee6de4b00fc63570bf096fe1f5c1ed6996c9dd09d6b6adc1 := by decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem nested3_img7 : keccakWord (mappingPreimage tokUSDC 0xb7598821b71eb990d952f174dec3507a6d48dc93be8e23cae785c98ca310bfbb) = 0x3c6d82c7e0c192a1ce70c8e27cc245f556beeaccce0fddef11be6d1a46d6cda5 := by decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem nested3_img8 : keccakWord (mappingPreimage tokDAI 0xb7598821b71eb990d952f174dec3507a6d48dc93be8e23cae785c98ca310bfbb) = 0x9d3d027b4d93eaabff67370912e02b04c1a099c4151699d08a869555c07a2ab2 := by decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem nested3_img9 : keccakWord (mappingPreimage tokWETH 0xf02f5385b52432c1a270c20c346d380219f286755cbd16bede4ce0fb454a4722) = 0x9c4edeb8df4a00e2743165d747ad9a487886e4059d0373f705c0f4d5a3a4abc1 := by decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem nested3_img10 : keccakWord (mappingPreimage tokUSDC 0xf02f5385b52432c1a270c20c346d380219f286755cbd16bede4ce0fb454a4722) = 0x7832d14fc17d60081ffe5a2f56467a73388f4873958d07fda886bca2775f6251 := by decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem nested3_img11 : keccakWord (mappingPreimage tokDAI 0xf02f5385b52432c1a270c20c346d380219f286755cbd16bede4ce0fb454a4722) = 0xc5339d775eb98c01a7fbd138d8235832f04b970778702f8af2e2e3cc5e8a4df0 := by decide +kernel
+
+/-- The 12 preimages separated at the real keccak256, from one kernel evaluation per image. -/
 theorem real_nestedList3 : ScopedSep nestedList3 :=
-  scopedSep_of_check (by decide +kernel)
+  keccakSeparated_of_images (H := [0xde032e96a833a2191f55c5766e34554d9b07734477ea9cb69c40158c1078e793, 0xb7598821b71eb990d952f174dec3507a6d48dc93be8e23cae785c98ca310bfbb, 0xf02f5385b52432c1a270c20c346d380219f286755cbd16bede4ce0fb454a4722, 0xfd8427d5610b0cefed9791362adf7f4ecdd32b53cb2304502301b660df7bd428, 0x10cbec91f600e7f895b03bc61241c3cc3bb96ded9a260421b1d174032138cc01, 0xae9064ee67c8f04baee0d98c97981c0e36cfee39e8cfc8c887cba3f150d82b6f, 0xafa326b64c4892c3ee6de4b00fc63570bf096fe1f5c1ed6996c9dd09d6b6adc1, 0x3c6d82c7e0c192a1ce70c8e27cc245f556beeaccce0fddef11be6d1a46d6cda5, 0x9d3d027b4d93eaabff67370912e02b04c1a099c4151699d08a869555c07a2ab2, 0x9c4edeb8df4a00e2743165d747ad9a487886e4059d0373f705c0f4d5a3a4abc1, 0x7832d14fc17d60081ffe5a2f56467a73388f4873958d07fda886bca2775f6251, 0xc5339d775eb98c01a7fbd138d8235832f04b970778702f8af2e2e3cc5e8a4df0])
+    (by simp only [nestedList3, List.map_cons, List.map_nil, List.flatMap_cons, List.flatMap_nil,
+      List.cons_append, List.nil_append, List.append_nil, nested3_img0, nested3_img1, nested3_img2, nested3_img3, nested3_img4, nested3_img5, nested3_img6, nested3_img7, nested3_img8, nested3_img9, nested3_img10, nested3_img11])
+    (by decide) (by decide)
 
 /-- **The nested premise holds for the three tokens at slot 2 at the real keccak256.** -/
 theorem real_nested_tokens : KeccakSep (nestedPreimages 2 tokens3) :=

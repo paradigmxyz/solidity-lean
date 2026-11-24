@@ -17,7 +17,7 @@ statement, and `createPairSpec_of_keccakSep` assumes it.
 * `createPairSpec_of_keccakSep`: `CreatePairSpec` with the hash premise replaced by `a, b ∈ A`;
 * `pairKey_ne`: the `getPair` slots of distinct ordered pairs of `A` are apart;
 * `real_createPair_tokens`: the premise for every pair of three token addresses at the real
-  keccak256 (`real_nested_tokens`, one kernel evaluation);
+  keccak256 (`real_nested_tokens`, one kernel evaluation per image);
 * negatives: `createPair_rejected` (a token outside `A` does not elaborate) and
   `outside_token_no_lift` (no hash argument lifts the separation of `A = {addrA}`'s preimages to
   the pair `(addrA, addrB)`).
