@@ -1,0 +1,16 @@
+{
+  "lane": "S",
+  "entry": {
+    "contract": "Udvt",
+    "function": "f",
+    "args": [{"int": -7}, {"int": -3}],
+    "value": 0
+  },
+  "expected_divergence": "none - UDVT ABI-type regression: user-defined value types decode as their underlying type on the EVM side (measure._param_type), so negative signed UDVT returns (file-level U is int128, contract-level V is int8, in a fixed array and a struct member), an unsigned UDVT array and an enum render identically on both engines. BEFORE the fix the return type was the bare name U and -7 decoded as w:2^256-7 against solidity-lean's i:-7, a fake SOUNDNESS_GAP.",
+  "declared_observable": {
+    "kind": "return_value",
+    "normal_form": "success|i:-7,[i:-3,i:-2],(i:-14,i:-3,w:65535),w:2,[w:1,w:2]##EVT####STO##"
+  },
+  "feature": "udvt-return-abi-type",
+  "register_version_seen": "1.6.0"
+}
