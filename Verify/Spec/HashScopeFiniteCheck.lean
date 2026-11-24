@@ -16,10 +16,10 @@ Verify/Spec/HashScopeFinite.lean states the premise `KeccakSep (erc20Preimages b
    five addresses at the real keccak256, 35 sponges.
 2. **A model for every finite set** (`erc20_model`): for every finite `A` with fewer than `2 ^ 64`
    addresses some word-valued hash `h` separates `erc20PreimagesBy h b a A`, the preimages with the
-   inner allowance keys computed by `h` itself. So the premise is not `False` in disguise for any
-   such `A`. This is a statement about a model hash, not about keccak256. Some bound on `A` is
-   needed: with `2 ^ 128` distinct addresses the inner preimages alone outnumber the `2 ^ 256`
-   words.
+   inner allowance keys computed by `h` itself. So no argument about an abstract hash refutes the
+   premise for any such `A`. This is a statement about a model hash, not about keccak256. Some
+   bound on `A` is needed: past `2 ^ 128` addresses the inner preimages alone outnumber the
+   `2 ^ 256` words (`not_keccakSep_large`). Between `2 ^ 64` and `2 ^ 128` neither result applies.
 3. **Negative controls**: the checker refuses a constant hash and a truncated one; a hash that
    passes the checker for `[addrA]` need not separate the transfer from `addrA` to `addrB`; and
    `erc20SepCheck_sound` on a list without `addrB` does not give a transfer to `addrB`.
