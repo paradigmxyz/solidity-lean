@@ -407,7 +407,10 @@ lean_lib ContractsUniswapV2ERC20Spec where
 -- scripts/verify/uniswap_v2_trees.py. Every module is checked within 6 GB.
 lean_lib ContractsUniswapV2ERC20Nested where
   roots := #[`Contracts.UniswapV2.ERC20.Nested.All]
-  globs := #[.submodules `Contracts.UniswapV2.ERC20.Nested, .one `Verify.Spec.HashScopeNested]
+  -- Slice/ScopeFinite.lean imports no generated module, so it is checked here as well as in
+  -- ContractsUniswapV2TransferSlice: each call's scope from one keccak256 premise on a finite set.
+  globs := #[.submodules `Contracts.UniswapV2.ERC20.Nested, .one `Verify.Spec.HashScopeNested,
+    .one `Contracts.UniswapV2.ERC20.Slice.ScopeFinite]
 
 -- UniswapV2ERC20.transfer's certified slice, E7 (docs/CERTIFICATION_TARGET.md): solar-verify's
 -- transfer-slice.spec exported, its VC discharged over SolidCore's runs with no global hash premise,
@@ -622,7 +625,8 @@ lean_lib «abi_hash» where
 -- exact bytes. Needs the generated modules of uv2_erc20, ContractsUniswapV2ERC20SourceMir and
 -- ContractsUniswapV2TransferSlice (scripts/verify/uniswap_v2_stages.sh, uniswap_v2_transfer_slice.sh).
 lean_lib ContractsUniswapV2ERC20Certified where
-  roots := #[`Contracts.UniswapV2.ERC20.Certified.Transfer, `Contracts.UniswapV2.ERC20.Certified.TransferFrom]
+  roots := #[`Contracts.UniswapV2.ERC20.Certified.Transfer, `Contracts.UniswapV2.ERC20.Certified.TransferFrom,
+    `Contracts.UniswapV2.ERC20.Certified.TransferFinite]
 
 -- UniswapV2Pair's backend stages on the calls of one external function, from solar's first lowered
 -- MIR to the final EVM IR, and the decoding of the exact runtime bytecode (not its execution).
