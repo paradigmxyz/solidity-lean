@@ -76,60 +76,50 @@ theorem variant (o : Oracle) (σ : List (Nat × Nat)) {a : Nat} (ha : a < 2 ^ 25
     intro x h
     obtain ⟨r, hr⟩ := inl_of_halts h
     exact ⟨_, hr, fun _ h => by cases h⟩
+  have step : ∀ {x y}, EVM.Program.block o call evm7 x = some (.inr y) → bumpInv call y →
+      bumpMu a y < bumpMu a x → ∃ y', EVM.Program.block o call evm7 x = some y' ∧
+        ∀ x', y' = .inr x' → bumpInv call x' ∧ bumpMu a x' < bumpMu a x :=
+    fun hb hi hm => ⟨_, hb, fun _ h => by cases Sum.inr.inj h; exact ⟨hi, hm⟩⟩
   rintro x (rfl | ⟨s, rfl⟩ | ⟨f, h, c, w, s, rfl, hc⟩ | ⟨f, h, c, w, s, rfl, hh, hc⟩ |
     ⟨st, s, rfl⟩ | ⟨a1, b1, c1, d1, s, rfl⟩ | ⟨a1, b1, c1, s, rfl⟩)
   · -- the entry reaches the argument check
-    refine ⟨_, b0' o call hcv hsel, fun x' hx' => ?_⟩
-    obtain rfl := Sum.inr.inj hx'
-    exact ⟨Or.inr (Or.inl ⟨_, rfl⟩), by show 2 * a + 3 < 2 * a + 4; omega⟩
+    exact step (b0' o call hcv hsel) (.inr (.inl ⟨_, rfl⟩)) (by show 2 * a + 3 < 2 * a + 4; omega)
   · -- the argument check reverts or reaches the header
     by_cases ho : EvmRules.Evm.add (s.storage 0) (calldataWord call 4) < s.storage 0
-    · refine ⟨_, b6_ovf o call s _ hz ho, fun x' hx' => ?_⟩
-      obtain rfl := Sum.inr.inj hx'
-      exact ⟨Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl ⟨_, _, _, _, _, rfl⟩))))),
-        by show 0 < 2 * a + 3; omega⟩
+    · exact step (b6_ovf o call s _ hz ho)
+        (.inr (.inr (.inr (.inr (.inr (.inl ⟨_, _, _, _, _, rfl⟩)))))) (by show 0 < 2 * a + 3; omega)
     by_cases hl : s.storage 1 < EvmRules.Evm.add (s.storage 0) (calldataWord call 4)
-    · refine ⟨_, b6_over o call s _ hz ho hl, fun x' hx' => ?_⟩
-      obtain rfl := Sum.inr.inj hx'
-      exact ⟨Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr ⟨_, _, _, _, rfl⟩))))),
-        by show 0 < 2 * a + 3; omega⟩
-    · refine ⟨_, b6_pass o call s _ hz ho hl, fun x' hx' => ?_⟩
-      obtain rfl := Sum.inr.inj hx'
-      have hno : (s.storage 0).toNat + a < 2 ^ 256 := by
-        simp only [EvmRules.Evm.add] at ho
-        rw [← hn]
-        bv_omega
-      have hm : (0 - EvmRules.Evm.sub 0 (calldataWord call 4)).toNat = a := by
-        simp only [EvmRules.Evm.sub]
-        rw [← hn]
-        bv_omega
-      refine ⟨Or.inr (Or.inr (Or.inl ⟨_, _, _, _, _, rfl, by rw [hm]; exact hno⟩)), ?_⟩
-      show 2 * (0 - EvmRules.Evm.sub 0 (calldataWord call 4)).toNat + 2 < 2 * a + 3
-      rw [hm]
-      omega
+    · exact step (b6_over o call s _ hz ho hl)
+        (.inr (.inr (.inr (.inr (.inr (.inr ⟨_, _, _, _, rfl⟩)))))) (by show 0 < 2 * a + 3; omega)
+    have hno : (s.storage 0).toNat + a < 2 ^ 256 := by
+      simp only [EvmRules.Evm.add] at ho
+      rw [← hn]
+      bv_omega
+    have hm : (0 - EvmRules.Evm.sub 0 (calldataWord call 4)).toNat = a := by
+      simp only [EvmRules.Evm.sub]
+      rw [← hn]
+      bv_omega
+    refine step (b6_pass o call s _ hz ho hl)
+      (.inr (.inr (.inl ⟨_, _, _, _, _, rfl, by rw [hm]; exact hno⟩))) ?_
+    show 2 * (0 - EvmRules.Evm.sub 0 (calldataWord call 4)).toNat + 2 < 2 * a + 3
+    rw [hm]
+    omega
   · -- the header: another iteration, or the exit
     by_cases hh : h = 0
     · subst hh
       by_cases hf : f = 0
       · subst hf
-        refine ⟨_, b8_exit0 o call c w s, fun x' hx' => ?_⟩
-        obtain rfl := Sum.inr.inj hx'
-        exact ⟨Or.inr (Or.inr (Or.inr (Or.inr (Or.inl ⟨_, _, rfl⟩)))),
-          by show 0 < 2 * (0 - (0 : EvmRules.Word)).toNat + 2; omega⟩
-      · refine ⟨_, b8_exit1 o call f c w s hf, fun x' hx' => ?_⟩
-        obtain rfl := Sum.inr.inj hx'
-        exact ⟨Or.inr (Or.inr (Or.inr (Or.inr (Or.inl ⟨_, _, rfl⟩)))),
-          by show 0 < 2 * (0 - (0 : EvmRules.Word)).toNat + 2; omega⟩
-    · refine ⟨_, b8_loop o call f h c w s hh, fun x' hx' => ?_⟩
-      obtain rfl := Sum.inr.inj hx'
-      exact ⟨Or.inr (Or.inr (Or.inr (Or.inl ⟨f, h, c, w, s, rfl, hh, hc⟩))),
-        by show 2 * (0 - h).toNat + 1 < 2 * (0 - h).toNat + 2; omega⟩
+        exact step (b8_exit0 o call c w s) (.inr (.inr (.inr (.inr (.inl ⟨_, _, rfl⟩)))))
+          (by show 0 < 2 * (0 - (0 : EvmRules.Word)).toNat + 2; omega)
+      · exact step (b8_exit1 o call f c w s hf) (.inr (.inr (.inr (.inr (.inl ⟨_, _, rfl⟩)))))
+          (by show 0 < 2 * (0 - (0 : EvmRules.Word)).toNat + 2; omega)
+    · exact step (b8_loop o call f h c w s hh) (.inr (.inr (.inr (.inl ⟨f, h, c, w, s, rfl, hh, hc⟩))))
+        (by show 2 * (0 - h).toNat + 1 < 2 * (0 - h).toNat + 2; omega)
   · -- the body: back to the header with one iteration fewer
     obtain ⟨m, hm⟩ : ∃ m, (0 - h).toNat = m + 1 := ⟨(0 - h).toNat - 1, by bv_omega⟩
     have hc' : c.toNat + (m + 1) < 2 ^ 256 := by rw [← hm]; exact hc
-    refine ⟨_, b7 o call f h c w s (succ_ne_zero_of hc'), fun x' hx' => ?_⟩
-    obtain rfl := Sum.inr.inj hx'
-    refine ⟨Or.inr (Or.inr (Or.inl ⟨1, h + 1, c + 1, w, s, rfl, ?_⟩)), ?_⟩
+    refine step (b7 o call f h c w s (succ_ne_zero_of hc'))
+      (.inr (.inr (.inl ⟨1, h + 1, c + 1, w, s, rfl, ?_⟩))) ?_
     · rw [toNat_succ_of hc', neg_toNat_succ hm]
       omega
     · show 2 * (0 - (h + 1)).toNat + 2 < 2 * (0 - h).toNat + 1
@@ -204,11 +194,7 @@ theorem counter_bump_variant :
       Verify.LoopSource.Equiv.From.CtxGas.check_ok ctx.caller hAB o (fun h => absurd h (by decide))
       (by decide) (Verify.LoopSource.MirLink.bumpCall σ a) (run_q o _)
       (InvImage.wf (bumpMu a) Nat.lt_wfRel.wf) (variant o σ ha).wf (inv_entry _)
-    rcases hw gas obs' hrun with h | h
-    · left
-      rw [h, hobs n r hr]
-    · right
-      exact h
+    exact (hw gas obs' hrun).imp_left fun h => by rw [h, hobs n r hr]
   · intro gas hg
     obtain ⟨r, hr, hrun⟩ := AssembleCtxGas.forward_of_variantFrom
       Verify.LoopSource.Equiv.From.CtxGas.check_ok ctx.caller hAB o (fun h => absurd h (by decide))
@@ -259,9 +245,7 @@ theorem counter_partial_any_of_variant :
   · left
     rw [h5 gas hg] at hrun
     exact (Option.some.inj hrun).symm
-  · rcases h4 gas obs' hrun with e | e
-    · exact Or.inl e
-    · exact Or.inr ⟨Nat.lt_of_not_le hg, e⟩
+  · exact (h4 gas obs' hrun).imp_right fun e => ⟨Nat.lt_of_not_le hg, e⟩
 
 end Verify.Partial.CounterVariant
 

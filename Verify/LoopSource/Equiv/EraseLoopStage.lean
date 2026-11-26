@@ -21,8 +21,7 @@ open SolarTV SolarTV.Machine SolarTV.MIR.Lowered SolidCore.Refinement SolidCore.
 open SolidCore.Solidity.Source Verify.LoopSource.Interface Verify.LoopSource.Generic
 open SolidCore.Refinement.Generic.Loop SolidCore.Refinement.Solar
 
-/-- **The loop's source-to-MIR stage, from the erasure.** -/
-theorem loop_stage_of_eraseLoop {fuel : Nat} {c : SolidCore.Solidity.TypeCheck.CheckedContract}
+variable {fuel : Nat} {c : SolidCore.Solidity.TypeCheck.CheckedContract}
     {sel : Nat} {fn : FunctionDef} {ws : List Nat} {b : Br} {T : Tree} (hsel : sel < 2 ^ 32)
     (hfind : c.core.findFunctionBySelector? sel = some fn)
     (hw : widthsOf fn.params fn.paramAbiCleanups = some ws) (hret : fn.returns.all wordBinding = true)
@@ -33,24 +32,16 @@ theorem loop_stage_of_eraseLoop {fuel : Nat} {c : SolidCore.Solidity.TypeCheck.C
     {L : Val → LoopRecord} {toSrc : Val → Val} {X A : Val → Prop}
     (hobl : Obl L toSrc X A fn.params.length C.cases T le li)
     (hA : ∀ σ args, ArgsOk fn ws args → A ⟨args, slotValue σ, solHash, callerWord⟩)
-    (o : Oracle) (ho : SourceAsk ev o) :
+include hsel hfind hw hret h hT hchk hobl hA
+
+/-- **The loop's source-to-MIR stage, from the erasure.** -/
+theorem loop_stage_of_eraseLoop (o : Oracle) (ho : SourceAsk ev o) :
     Stage (solidCoreRuntime fuel) (mirSem o) c m (SelCall sel fn ws) :=
   loop_stage hsel hfind hw hret (bodyRuns_of_eraseLoop h) hT hchk hobl hA o ho
 
 /-- **The source edge, from the erasure**: the loop's source-to-MIR stage composed with the
 backend's MIR-to-EVM-IR stage. -/
-theorem source_edge_of_eraseLoop {fuel : Nat} {c : SolidCore.Solidity.TypeCheck.CheckedContract}
-    {sel : Nat} {fn : FunctionDef} {ws : List Nat} {b : Br} {T : Tree} (hsel : sel < 2 ^ 32)
-    (hfind : c.core.findFunctionBySelector? sel = some fn)
-    (hw : widthsOf fn.params fn.paramAbiCleanups = some ws) (hret : fn.returns.all wordBinding = true)
-    (h : eraseLoopStmt { envOf c.core with facts := argFacts ws 0 } fuel fn.body (initState fn) = some b)
-    (hT : brTree fn (argFacts ws 0) b = some T)
-    {C : Cut} {ev : EnvFlags} {m : Module} {le li : List (Facts × Out)}
-    (hchk : C.check ev m sel fn.params.length = some (le, li))
-    {L : Val → LoopRecord} {toSrc : Val → Val} {X A : Val → Prop}
-    (hobl : Obl L toSrc X A fn.params.length C.cases T le li)
-    (hA : ∀ σ args, ArgsOk fn ws args → A ⟨args, slotValue σ, solHash, callerWord⟩)
-    (o : Oracle) (ho : SourceAsk ev o)
+theorem source_edge_of_eraseLoop (o : Oracle) (ho : SourceAsk ev o)
     {q : Assemble.Program} {scope : Call → Prop}
     (backend : Stage (mirSem o) (evmirSem o) m q scope)
     (hscope : ∀ call, SelCall sel fn ws call → scope call) :
@@ -58,17 +49,7 @@ theorem source_edge_of_eraseLoop {fuel : Nat} {c : SolidCore.Solidity.TypeCheck.
   (loop_stage_of_eraseLoop hsel hfind hw hret h hT hchk hobl hA o ho).trans (backend.mono hscope)
 
 /-- **`Shapes.Equiv` for a function with a counted loop, from the erasure.** -/
-theorem loop_equiv_of_eraseLoop {fuel : Nat} {c : SolidCore.Solidity.TypeCheck.CheckedContract}
-    {sel : Nat} {fn : FunctionDef} {ws : List Nat} {b : Br} {T : Tree} (hsel : sel < 2 ^ 32)
-    (hfind : c.core.findFunctionBySelector? sel = some fn)
-    (hw : widthsOf fn.params fn.paramAbiCleanups = some ws) (hret : fn.returns.all wordBinding = true)
-    (h : eraseLoopStmt { envOf c.core with facts := argFacts ws 0 } fuel fn.body (initState fn) = some b)
-    (hT : brTree fn (argFacts ws 0) b = some T)
-    {C : Cut} {ev : EnvFlags} {m : Module} {le li : List (Facts × Out)}
-    (hchk : C.check ev m sel fn.params.length = some (le, li))
-    {L : Val → LoopRecord} {toSrc : Val → Val} {X A : Val → Prop}
-    (hobl : Obl L toSrc X A fn.params.length C.cases T le li)
-    (hA : ∀ σ args, ArgsOk fn ws args → A ⟨args, slotValue σ, solHash, callerWord⟩)
+theorem loop_equiv_of_eraseLoop
     {q : Assemble.Program} {code : ByteArray} {scope : Call → Prop} {cert : Assemble.Cert} {mx : List Nat}
     (backend : Stage (mirSem Shapes.oracle) (evmirSem Shapes.oracle) m q scope)
     (hscope : ∀ call, SelCall sel fn ws call → scope call)

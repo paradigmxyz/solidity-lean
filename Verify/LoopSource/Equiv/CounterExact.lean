@@ -87,35 +87,10 @@ theorem eval_assignStorage_exact {ρ : Val} {E : EraseEnv} {ctx : Context} {rt :
     store_field hfx hslw _ hw, ite_self]
   rfl
 
-theorem eval_skip (m : Nat) (tbl : FunctionTable) (ctx : Context) (rt : Runtime) :
-    Stmt.eval (m + 1) tbl ctx rt .skip = .done (.ok (.normal rt)) := by
-  rw [Stmt.eval]; rfl
-
-theorem eval_block (m : Nat) (tbl : FunctionTable) (ctx : Context) (rt : Runtime) (ss : List Stmt) :
-    Stmt.eval (m + 1) tbl ctx rt (.block ss) =
-      Stmt.evalList m tbl ctx rt.pushScope ss >>= fun r => pure (r.mapRuntime Runtime.popScope) := by
-  rw [Stmt.eval]
-
-theorem evalList_nil (m : Nat) (tbl : FunctionTable) (ctx : Context) (rt : Runtime) :
-    Stmt.evalList m tbl ctx rt [] = .done (.ok (.normal rt)) := by
-  rw [Stmt.evalList]; rfl
-
-theorem evalList_cons_normal (m : Nat) (tbl : FunctionTable) (ctx : Context) (rt rt' : Runtime)
-    (s : Stmt) (ss : List Stmt) (h : Stmt.eval m tbl ctx rt s = .done (.ok (.normal rt'))) :
-    Stmt.evalList m tbl ctx rt (s :: ss) = Stmt.evalList m tbl ctx rt' ss := by
-  rw [Stmt.evalList, h]; rfl
-
 /-- The storage a single write of a word to slot 1 of the empty state leaves: exactly one entry. -/
 theorem toList_insert_empty (k v : Nat) :
     (Std.HashMap.insert (∅ : Std.HashMap Nat Nat) k v).toList = [(k, v)] := by
-  have hl : (Std.HashMap.insert (∅ : Std.HashMap Nat Nat) k v).toList.length = 1 := by
-    rw [Std.HashMap.length_toList, Std.HashMap.size_insert]; simp
-  have hm : (k, v) ∈ (Std.HashMap.insert (∅ : Std.HashMap Nat Nat) k v).toList :=
-    Std.HashMap.mem_toList_iff_getElem?_eq_some.mpr (by simp)
-  obtain ⟨a, ha⟩ := List.length_eq_one_iff.mp hl
-  rw [ha] at hm ⊢
-  simp only [List.mem_singleton] at hm
-  rw [hm]
+  simpa using Std.HashMap.toList_insert_perm (m := (∅ : Std.HashMap Nat Nat)) (k := k) (v := v)
 
 /-! ## Counter's constructor: the exact state -/
 
@@ -173,7 +148,6 @@ theorem counter_deployedAtWith_all {c : TypeCheck.CheckedContract} (hc : contrac
   have hL : Scopes.set CounterLoad.S0.push.scopes "_limit" (.arg 0) = some [[], [("_limit", .arg 0)]] := rfl
   have hrel2 : StmtRel ρ E ctx { rt0.pushScope with locals := ([[], [("_limit", .arg 0)]] : Scopes).map (frameOf ρ) }
       { CounterLoad.S0.push with scopes := [[], [("_limit", .arg 0)]] } := { hrel1 with frames := rfl }
-  have hrel3 := hrel2.pushScope
   have he2 : eraseExpr E.fields { CounterLoad.S0.push with scopes := [[], [("_limit", .arg 0)]] }.push
       (.castOp .uintCleanup 256 (.var "_limit")) = some ([], .arg 0) := by
     rw [hE]; rfl
@@ -181,23 +155,14 @@ theorem counter_deployedAtWith_all {c : TypeCheck.CheckedContract} (hc : contrac
   have key : ∀ m, Stmt.eval (m + 1 + 1 + 1) E.tbl ctx rt0 ctorFn.body = .done (.ok (.normal
       { rt0 with state := st0.storeSlot 1 (fieldWrite (st0.loadSlot 1) ((WExpr.arg 0).eval ρ) 0 32) })) := by
     intro m
-    have h3 := eval_assignVar_exact hrel1 (m + 1) he1 hL rfl
-    have h4 := eval_assignStorage_exact hrel3 m hk he2 rfl
-    have h4b : Stmt.eval (m + 1 + 1) E.tbl ctx
-        { rt0.pushScope with locals := ([[], [("_limit", .arg 0)]] : Scopes).map (frameOf ρ) }
-        (.block [.assign (.storage "limit") (.castOp .uintCleanup 256 (.var "_limit"))]) =
-        .done (.ok (.normal { rt0.pushScope with
-          locals := ([[], [("_limit", .arg 0)]] : Scopes).map (frameOf ρ),
-          state := st0.storeSlot 1 (fieldWrite (st0.loadSlot 1) ((WExpr.arg 0).eval ρ) 0 32) })) := by
-      rw [eval_block, evalList_cons_normal _ _ _ _ _ _ _ h4, evalList_nil]
-      rfl
-    show Stmt.eval (m + 1 + 1 + 1) E.tbl ctx rt0 (.block [.skip, .skip,
-      .assign (.var "_limit") (.castOp .uintCleanup 256 (.var "_limit")),
-      .block [.assign (.storage "limit") (.castOp .uintCleanup 256 (.var "_limit"))]]) = _
-    rw [eval_block, evalList_cons_normal _ _ _ _ _ _ _ (eval_skip _ _ _ _),
-      evalList_cons_normal _ _ _ _ _ _ _ (eval_skip _ _ _ _),
-      evalList_cons_normal _ _ _ _ _ _ _ h3, evalList_cons_normal _ _ _ _ _ _ _ h4b, evalList_nil]
-    rfl
+    have hskip : ∀ rt, Stmt.eval (m + 1 + 1) E.tbl ctx rt .skip = .done (.ok (.normal rt)) := fun _ => by
+      rw [Stmt.eval]; rfl
+    exact eval_block_of ((evalList_cons_normal (hskip _)).trans <| (evalList_cons_normal (hskip _)).trans <|
+      (evalList_cons_normal (eval_assignVar_exact hrel1 (m + 1) he1 hL rfl)).trans <|
+      (evalList_cons_normal (eval_block_of ((evalList_cons_normal
+        (eval_assignStorage_exact hrel2.pushScope m hk he2 rfl)).trans (evalList_nil _ _ _ _)))).trans
+      (evalList_nil _ _ _ _))
+
   have hrun := key (fuel - 3)
   rw [show fuel - 3 + 1 + 1 + 1 = fuel from by unfold fuel; omega] at hrun
   have hval : fieldWrite (st0.loadSlot 1) ((WExpr.arg 0).eval ρ) 0 32 = n := by
@@ -214,30 +179,32 @@ theorem counter_deployedAtWith_all {c : TypeCheck.CheckedContract} (hc : contrac
     exact storage_single rfl n hn
 
 
+/-- Two runs of one constructor that both return leave the same state. -/
+private theorem returned_eq {x : Option CallResult} {d d' : Source.State}
+    (h : ∃ vs, x = some (.returned d vs)) (h' : ∃ vs, x = some (.returned d' vs)) : d = d' := by
+  obtain ⟨_, rfl⟩ := h
+  obtain ⟨_, h'⟩ := h'
+  cases h'
+  rfl
+
 /-- Every `DeployedAtWith` of Counter on `[n]` names the storage `[(1, n)]`. -/
 theorem deployedAtWith_unique {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) {n : Nat}
     (hn : n < 2 ^ 256) {d : Source.State} {s : List (Nat × Nat)}
     (hd : Verify.Lifecycle.DeployedAtWith fuel c (Verify.Lifecycle.wordArgs [n]) d s) : s = [(1, n)] := by
   obtain ⟨d', hd'⟩ := counter_deployedAtWith_all hc hn
-  obtain ⟨vs, hv⟩ := hd.cons
-  obtain ⟨vs', hv'⟩ := hd'.cons
-  rw [hv] at hv'
-  simp only [Option.some.injEq, CallResult.returned.injEq] at hv'
-  rw [← hd.storage, ← hd'.storage, hv'.1]
+  rw [← hd.storage, returned_eq hd.cons hd'.cons, hd'.storage]
 
 /-- **A wrong slot is refused**: no deployment of Counter on `[n]` leaves exactly `[(0, n)]`. -/
 theorem wrong_slot {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) {n : Nat} (hn : n < 2 ^ 256)
     (d : Source.State) :
     ¬ Verify.Lifecycle.DeployedAtWith fuel c (Verify.Lifecycle.wordArgs [n]) d [(0, n)] := fun hd => by
-  have := deployedAtWith_unique hc hn hd
-  simp at this
+  simpa using deployedAtWith_unique hc hn hd
 
 /-- **A wrong value is refused**: no deployment of Counter on `[n]` leaves exactly `[(1, n + 1)]`. -/
 theorem wrong_value {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) {n : Nat} (hn : n < 2 ^ 256)
     (d : Source.State) :
     ¬ Verify.Lifecycle.DeployedAtWith fuel c (Verify.Lifecycle.wordArgs [n]) d [(1, n + 1)] := fun hd => by
-  have := deployedAtWith_unique hc hn hd
-  simp at this
+  simpa using deployedAtWith_unique hc hn hd
 
 /-! ## The load-level consequence -/
 
@@ -261,20 +228,14 @@ theorem wrong_load {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) {n :
     (d : Source.State) :
     ¬ DeployedAtLoad fuel c [n] [(1, n + 1)] d ∧ (n ≠ 0 → ¬ DeployedAtLoad fuel c [n] [(0, n)] d) := by
   obtain ⟨d', -, hl'⟩ := counter_deployedAtLoad_all hc hn
-  have same : ∀ {s}, DeployedAtLoad fuel c [n] s d → d = d' := fun h => by
-    obtain ⟨vs, hv⟩ := h.cons
-    obtain ⟨vs', hv'⟩ := hl'.cons
-    rw [hv] at hv'
-    simp only [Option.some.injEq, CallResult.returned.injEq] at hv'
-    exact hv'.1
+  have same : ∀ {s} k, k < 2 ^ 256 → DeployedAtLoad fuel c [n] s d → slotOf s k = slotOf [(1, n)] k :=
+    fun k hk h => by rw [← h.loads k hk, returned_eq h.cons hl'.cons, hl'.loads k hk]
   refine ⟨fun h => ?_, fun h0 h => ?_⟩
-  · have e := h.loads 1 (by decide)
-    rw [same h, hl'.loads 1 (by decide)] at e
+  · have e := same 1 (by decide) h
     simp [slotOf] at e
-  · have e := h.loads 0 (by decide)
-    rw [same h, hl'.loads 0 (by decide)] at e
+  · have e := same 0 (by decide) h
     simp [slotOf] at e
-    exact h0 e.symm
+    exact h0 e
 
 /-! ## The bytecode half for every argument -/
 
