@@ -54,23 +54,14 @@ theorem within_of_checkXLFrom {F : List Nat} {p : Assemble.Program} {code : Byte
     obs = SolarTV.Machine.observe call r.2 r.1 ∨
       (obs.success = false ∧ obs.storage = slotValue call.storage ∧ obs.logs = []) := by
   obtain ⟨G, hseg, hcount, hneed0, hF0⟩ := globXL_of_checkXL hc
-  cases hs : obs.success
-  · refine Or.inr ⟨rfl, ?_⟩
-    unfold Final.Target.runWithFrom at hrun
-    split at hrun
-    · cases hrun
-    · simp only [Option.some.injEq] at hrun
-      subst hrun
-      simp only at hs ⊢
-      simp [hs]
-  left
   unfold Final.Target.runWithFrom at hrun
   split at hrun
   · cases hrun
   rename_i evm hev hpm
-  simp only [Option.some.injEq] at hrun
-  subst hrun
-  have hok : evm.error = none := by simpa using hs
+  cases hrun
+  cases hok : evm.error
+  case some => exact Or.inr (by simp)
+  left
   obtain ⟨st', ss', runChild, within, hcases, hmove, hrf⟩ :=
     processMessage_ok (message := Target.messageFromWith a gas code call) (evm := ⟨evm, hev⟩)
       (precompileAddress_messageFromWith a gas code call) hpm hok
@@ -109,39 +100,18 @@ theorem within_of_checkXLFrom {F : List Nat} {p : Assemble.Program} {code : Byte
       simp [pushTransferLog, show ¬ (Fork.fusaka ≥ Fork.glamsterdam) by decide, Substate.empty]
     · rw [(hcases htr).2]
       simp [Substate.empty]
-  have hlogs := logs_of_match hL2
-  have hL1' : ssF.logs.toList = L := by rw [hL1, hss', List.nil_append]
-  have herr' : evm.error = errorOf (SolarTV.Machine.observe call sF halt) := herr
-  have hout' : evm.output.toList.map (·.toNat) = (SolarTV.Machine.observe call sF halt).output := hout
-  have hst' : (SolarTV.Machine.observe call sF halt).success = true →
-      evm.substate.logs = ssF.logs ∧ ∀ slot,
-        (evm.state.getStorage (Target.address selfAddress) (Target.storageKey slot)).toNat =
-          (SolarTV.Machine.observe call sF halt).storage slot :=
-    fun h => ⟨hlogsF, hst h⟩
-  have hok2 : (SolarTV.Machine.observe call sF halt).success = true →
+  have hlogs : (SolarTV.Machine.observe call sF halt).success = true →
       (SolarTV.Machine.observe call sF halt).logs = SolarTV.Machine.logs sF := by
     cases halt <;> simp [SolarTV.Machine.observe]
-  clear herr hout hst hsim hit
-  generalize SolarTV.Machine.observe call sF halt = X at *
-  have hsucc : evm.error.isNone = X.success := by
-    rw [herr']; cases hX : X.success <;> simp [errorOf, hX]
-  cases X with
-  | mk success output logs storage =>
-    simp only at hsucc hout' hok2 hst' ⊢
-    rw [SolarTV.Observable.mk.injEq]
-    refine ⟨hsucc, hout', ?_, ?_⟩
-    · rw [hsucc]
-      cases hs : success
-      · simp [hok, hs] at hsucc
-      · simp only [ite_true]
-        rw [(hst' hs).1, hL1', hlogs, hok2 hs]
-        rfl
-    · funext slot
-      rw [hsucc]
-      cases hs : success
-      · simp [hok, hs] at hsucc
-      · simp only [ite_true]
-        exact (hst' hs).2 slot
+  generalize SolarTV.Machine.observe call sF halt = X at herr hout hst hlogs ⊢
+  obtain ⟨success, output, logs, storage⟩ := X
+  obtain rfl : success = true := by cases success <;> simp_all [errorOf]
+  simp only at hst hlogs
+  simp only [Option.isNone_none, ite_true, SolarTV.Observable.mk.injEq, true_and]
+  refine ⟨hout, ?_, funext (hst trivial)⟩
+  rw [show evm.substate.logs = ssF.logs from hlogsF, hL1, hss', List.nil_append, logs_of_match hL2,
+    hlogs trivial]
+  rfl
 
 
 end SolidCore.Refinement.Solar.AssembleCtxGas

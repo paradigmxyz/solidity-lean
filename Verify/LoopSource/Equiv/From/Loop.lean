@@ -74,13 +74,11 @@ theorem rank_of {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {i c : 
     Nat.mod_eq_of_lt hi]
 
 set_option maxHeartbeats 4000000 in
-/-- **bump's loop with any measure R that falls on every iteration is certified**: everything
-but the rank's fall is checked here, against SolidCore's interpreter. -/
-theorem certWith (ρ : Val) (E : EraseEnv) (ctx : Context) (hcount : countOk E)
-    (hfacts : E.facts = []) (hpre : ρ.store 0 + nOf ρ ≤ ρ.store 1) (R : Runtime → Nat)
-    (hR : ∀ i rt rt', i < nOf ρ → StmtRel (hval ρ i (ρ.store 0 + i)) E ctx rt headerS →
-      StmtRel (hval ρ (i + 1) (ρ.store 0 + (i + 1))) E ctx rt' headerS → R rt' < R rt) :
-    ForCert 3 E.tbl ctx cond post body (Inv ρ E ctx) R (Q ρ E ctx) := by
+/-- **bump's loop has a ranking certificate**, checked against SolidCore's interpreter: the
+inferred measure `n - i` falls by one on every iteration. -/
+theorem cert (ρ : Val) (E : EraseEnv) (ctx : Context) (hcount : countOk E)
+    (hfacts : E.facts = []) (hpre : ρ.store 0 + nOf ρ ≤ ρ.store 1) :
+    ForCert 3 E.tbl ctx cond post body (Inv ρ E ctx) (rank ρ) (Q ρ E ctx) := by
   constructor
   rintro rt ⟨i, hi, hrel⟩
   have hok : ρ.Ok := hrel.ok
@@ -102,17 +100,15 @@ theorem certWith (ρ : Val) (E : EraseEnv) (ctx : Context) (hcount : countOk E)
   by_cases hin : i < nOf ρ
   · rw [if_pos hin, if_pos (by decide)]
     -- the body: count++ under the header state
-    have hk : fieldOf? E.fields "count" = some (0, 0, 32) := hcount
-    obtain ⟨r1, h1, hl1⟩ := eval_incField _ E ctx rt.pushScope headerS.push hrel.pushScope 1 true hk
+    obtain ⟨r1, h1, hl1⟩ := eval_incField _ E ctx rt.pushScope headerS.push hrel.pushScope 1 true hcount
     have hbr : incFieldBr 0 0 32 headerS.push =
         guards [.bin .lt (.bin .add (.arg 2) (.lit 1)) (.arg 2)]
           (.leaf (.normal { headerS.push with writes := [(.lit 0, .bin .add (.arg 2) (.lit 1))] })) := rfl
-    rw [hbr, guards_eval] at hl1
     have hg : ([WExpr.bin .lt (.bin .add (.arg 2) (.lit 1)) (.arg 2)].any
         (fun g => g.eval (hval ρ i (ρ.store 0 + i)) != 0)) = false := by
       have h1' : ρ.store 0 + i + 1 < wordSize := by omega
       simp [WExpr.eval, BinOp.eval, hval, Nat.mod_eq_of_lt hcw, Nat.mod_eq_of_lt h1']
-    rw [hg] at hl1
+    rw [hbr, guards_eval, hg] at hl1
     simp only [Bool.false_eq_true, ↓reduceIte, Br.eval] at hl1
     rcases r1 with rb | ⟨_, _⟩ | _ | ⟨_, _⟩ | _ | _ <;> simp only [LeafRel] at hl1
     have hlist : Stmt.evalList (1 + 1) E.tbl ctx rt.pushScope
@@ -145,7 +141,9 @@ theorem certWith (ρ : Val) (E : EraseEnv) (ctx : Context) (hcount : countOk E)
         split_ifs
         · rw [Nat.mod_eq_of_lt hcw, show 1 % wordSize = 1 by decide, Nat.mod_mod, ← Nat.add_assoc]
         · rfl
-    exact ⟨⟨i + 1, by omega, hrelp⟩, hR i rt rp hin hrel hrelp⟩
+    refine ⟨⟨i + 1, by omega, hrelp⟩, ?_⟩
+    rw [rank_of hrelp hi1, rank_of hrel hiw]
+    omega
   · rw [if_neg hin, if_neg (by decide)]
     have hie : i = nOf ρ := by omega
     refine ⟨rt, rfl, StmtRel.congr hrel hrel.hash hok (by rw [hfacts]; exact Facts.hold_nil _) ?_ ?_ rfl⟩
@@ -157,16 +155,6 @@ theorem certWith (ρ : Val) (E : EraseEnv) (ctx : Context) (hcount : countOk E)
         List.getD_cons_zero]
       by_cases hk0 : 0 % wordSize = k % wordSize <;> simp only [hk0, ↓reduceIte]
       rw [Nat.mod_eq_of_lt h0, hie', Nat.mod_mod]
-
-/-- **bump's loop has a ranking certificate**: the inferred measure `n - i` falls by one on every
-iteration. -/
-theorem cert (ρ : Val) (E : EraseEnv) (ctx : Context) (hcount : countOk E)
-    (hfacts : E.facts = []) (hpre : ρ.store 0 + nOf ρ ≤ ρ.store 1) :
-    ForCert 3 E.tbl ctx cond post body (Inv ρ E ctx) (rank ρ) (Q ρ E ctx) :=
-  certWith ρ E ctx hcount hfacts hpre (rank ρ) fun i _ _ hin h h' => by
-    have hn := nOf_lt ρ
-    rw [rank_of h' (by omega), rank_of h (by omega)]
-    omega
 
 /-- info: 'Verify.LoopSource.Equiv.From.cert' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in

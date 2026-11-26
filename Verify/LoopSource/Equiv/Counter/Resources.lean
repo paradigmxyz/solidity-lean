@@ -42,12 +42,18 @@ theorem ends_of_halts {o : Oracle} {call : Call} {x : Nat × EVM.Stack × State}
 /-! ## Blocks of `evm7` -/
 
 set_option maxHeartbeats 4000000 in
-theorem b0 (o : Oracle) (call : Call) (hv : BitVec.ofNat 256 call.callvalue = 0)
+private theorem b0 (o : Oracle) (call : Call) (hv : BitVec.ofNat 256 call.callvalue = 0)
     (hs : EvmRules.Evm.shr 224 (calldataWord call 0) = 0xb20eb4c4) :
     EVM.Program.block o call evm7 (0, [], State.initial call) = some (.inr (6, [0xb20eb4c4],
       { memory := Mem.initial, storage := (State.initial call).storage,
         transient := (State.initial call).transient, world := (State.initial call).world })) := by
   sym_exec
+
+theorem b0' (o : Oracle) (call : Call) (hv : BitVec.ofNat 256 call.callvalue = 0)
+    (hs : EvmRules.Evm.shr 224 (calldataWord call 0) = 0xb20eb4c4) :
+    EVM.Program.block o call evm7 (0, [], State.initial call) =
+      some (.inr (6, [0xb20eb4c4], State.initial call)) :=
+  b0 o call hv hs
 
 set_option maxHeartbeats 4000000 in
 theorem b6_pass (o : Oracle) (call : Call) (s : State) (sel : EvmRules.Word)
@@ -74,11 +80,6 @@ theorem b6_ovf (o : Oracle) (call : Call) (s : State) (sel : EvmRules.Word)
     EVM.Program.block o call evm7 (6, [sel], s) = some (.inr (2, [EvmRules.Evm.add (s.storage 0) (calldataWord call 4),
       s.storage 0, calldataWord call 4, sel],
       { memory := s.memory, storage := s.storage, transient := s.transient, world := s.world })) := by
-  sym_exec
-
-set_option maxHeartbeats 4000000 in
-theorem b1 (o : Oracle) (call : Call) (a : EvmRules.Word) (s : State) :
-    halts (EVM.Program.block o call evm7 (1, [a], s)) = true := by
   sym_exec
 
 set_option maxHeartbeats 4000000 in
@@ -120,20 +121,8 @@ theorem b9 (o : Oracle) (call : Call) (st : EVM.Stack) (s : State) :
 
 /-! ## The loop -/
 
-theorem exit_ends (o : Oracle) (call : Call) (f c w : EvmRules.Word) (s : State) :
-    ∃ r, iterate (EVM.Program.block o call evm7) 2 (8, [f, 0, c, w], s) = some r := by
-  by_cases hf : f = 0
-  · subst hf
-    rw [iterate_inr (b8_exit0 o call c w s)]
-    exact ends_of_halts (b9 o call _ _) 0
-  · rw [iterate_inr (b8_exit1 o call f c w s hf)]
-    exact ends_of_halts (b9 o call _ _) 0
-
 theorem neg_toNat_succ {h : BitVec 256} {m : Nat} (hm : (0 - h).toNat = m + 1) :
     (0 - (h + 1)).toNat = m := by
-  bv_omega
-
-theorem ne_zero_of_neg {h : BitVec 256} {m : Nat} (hm : (0 - h).toNat = m + 1) : h ≠ 0 := by
   bv_omega
 
 theorem succ_ne_zero_of {c : BitVec 256} {m : Nat} (hc : c.toNat + (m + 1) < 2 ^ 256) : c + 1 ≠ 0 := by
@@ -148,14 +137,17 @@ theorem header_ends (o : Oracle) (call : Call) :
     ∀ (m : Nat) (f h c w : EvmRules.Word) (s : State), (0 - h).toNat = m → c.toNat + m < 2 ^ 256 →
       ∃ r, iterate (EVM.Program.block o call evm7) (2 * m + 2) (8, [f, h, c, w], s) = some r
   | 0, f, h, c, w, s, hm, _ => by
-    have : h = 0 := by bv_omega
-    subst this
-    exact exit_ends o call f c w s
+    obtain rfl : h = 0 := by bv_omega
+    by_cases hf : f = 0
+    · subst hf
+      rw [iterate_inr (b8_exit0 o call c w s)]
+      exact ends_of_halts (b9 o call _ _) 0
+    · rw [iterate_inr (b8_exit1 o call f c w s hf)]
+      exact ends_of_halts (b9 o call _ _) 0
   | m + 1, f, h, c, w, s, hm, hc => by
-    have hh := ne_zero_of_neg hm
-    have hc1 := succ_ne_zero_of hc
-    have e : 2 * (m + 1) + 2 = (2 * m + 2) + 1 + 1 := by omega
-    rw [e, iterate_inr (b8_loop o call f h c w s hh), iterate_inr (b7 o call f h c w s hc1)]
+    rw [show 2 * (m + 1) + 2 = (2 * m + 2) + 1 + 1 by omega,
+      iterate_inr (b8_loop o call f h c w s (by bv_omega)),
+      iterate_inr (b7 o call f h c w s (succ_ne_zero_of hc))]
     exact header_ends o call m 1 (h + 1) (c + 1) w s (neg_toNat_succ hm)
       (by rw [toNat_succ_of hc]; omega)
 
@@ -171,12 +163,6 @@ theorem bump_facts {σ : List (Nat × Nat)} {a : Nat} (ha : a < 2 ^ 256) :
   refine ⟨by simp [Verify.LoopSource.MirLink.bumpCall], hf.size, ?_, hf.selector⟩
   have := hf.args 0 (by simp) (by decide)
   simpa [WExpr.eval, Nat.mod_eq_of_lt ha, Verify.LoopSource.MirLink.bumpCall, Contracts.VerifyCounter.Source.bumpSel] using this
-
-theorem b0' (o : Oracle) (call : Call) (hv : BitVec.ofNat 256 call.callvalue = 0)
-    (hs : EvmRules.Evm.shr 224 (calldataWord call 0) = 0xb20eb4c4) :
-    EVM.Program.block o call evm7 (0, [], State.initial call) =
-      some (.inr (6, [0xb20eb4c4], State.initial call)) :=
-  b0 o call hv hs
 
 /-- **Every bounded call ends within the fixed fuel.** -/
 theorem ends (o : Oracle) {K : Nat} {call : Call}

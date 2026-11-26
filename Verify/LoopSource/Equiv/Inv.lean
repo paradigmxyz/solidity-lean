@@ -10,8 +10,8 @@ obligation is a list of formulas refuted by solar-verify's verified decision pro
 (`Verify/VC/Discharge.lean`). A word becomes an integer term in which every operation is an
 uninterpreted function (`tr`), which `env ρ` interprets exactly as `WExpr.eval ρ`; for the
 operations a loop's arithmetic uses (addition, subtraction, comparison), `defs` states their meaning
-as case splits the procedure decides. `infer` finds `I` and `μ` from the leaves; it is untrusted, as
-only `checkWith` is proved sound (`Obl.lean`).
+as case splits the procedure decides. `cands` and `measures` propose `I` and `μ` from the leaves; they
+are untrusted, as only `checkWith` is proved sound (`Obl.lean`).
 -/
 
 namespace Verify.LoopSource.Equiv.Inv
@@ -300,16 +300,6 @@ def treeBelow (n : Nat) : Tree → Bool
 
 /-! ## The check -/
 
-/-- `f` holds at every arrival: from the entry under the path's facts, from the header under the
-invariant `S` and the path's facts. -/
-def holdsAfter (n : Nat) (le li : List (Facts × Out)) (S : List F) (f : F) : Bool :=
-  (le.all fun p => match p.2 with
-    | .back hs => proves n [] (factsF p.1) (f.sub n hs)
-    | .exit _ => true) &&
-  (li.all fun p => match p.2 with
-    | .back hs => proves n S (factsF p.1) (f.sub n hs)
-    | .exit _ => true)
-
 /-- One obligation of the check. -/
 inductive Task where
   /-- The source's tree reads only the call's words. -/
@@ -348,39 +338,19 @@ def checkWith (n : Nat) (cases : List Facts) (T : Tree) (le li : List (Facts × 
     (μ : WExpr) : Bool :=
   (tasks le li I).all (Task.ok n cases T I μ)
 
-/-- The check from each task by its index, for one kernel check per task. -/
-theorem checkWith_of_each {n : Nat} {cases : List Facts} {T : Tree} {le li : List (Facts × Out)}
-    {I : List F} {μ : WExpr}
-    (h : ∀ i (hi : i < (tasks le li I).length), ((tasks le li I)[i]).ok n cases T I μ = true) :
-    checkWith n cases T le li I μ = true := by
-  unfold checkWith
-  rw [List.all_eq_true]
-  intro t ht
-  obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem ht
-  exact h i hi
-
-/-- A check fails when one of its tasks does. -/
-theorem checkWith_false {n : Nat} {cases : List Facts} {T : Tree} {le li : List (Facts × Out)}
-    {I : List F} {μ : WExpr} {t : Task} (hm : t ∈ tasks le li I) (h : t.ok n cases T I μ = false) :
-    checkWith n cases T le li I μ = false := by
-  unfold checkWith
-  rw [Bool.eq_false_iff]
-  intro hall
-  rw [List.all_eq_true] at hall
-  rw [hall t hm] at h
-  exact Bool.noConfusion h
-
-/-! ## Inference (untrusted) -/
+/-! ## Candidates (untrusted) -/
 
 def hw (n k : Nat) : WExpr := .arg (n + k)
 
-def entryOf (le : List (Facts × Out)) : Option (Facts × List WExpr) :=
-  match le.filterMap (fun p => match p.2 with | .back hs => some (p.1, hs) | _ => none) with
-  | [e] => some e
-  | _ => none
-
+/-- The back edges of leaves, with their facts. -/
 def backs (li : List (Facts × Out)) : List (Facts × List WExpr) :=
   li.filterMap fun p => match p.2 with | .back hs => some (p.1, hs) | _ => none
+
+/-- The entry run's one arrival at the header. -/
+def entryOf (le : List (Facts × Out)) : Option (Facts × List WExpr) :=
+  match backs le with
+  | [e] => some e
+  | _ => none
 
 def steps (n : Nat) (li : List (Facts × Out)) (k c : Nat) : Bool :=
   (backs li).all fun b => b.2[k]? == some (.bin .add (hw n k) (.lit c))
@@ -436,15 +406,5 @@ def measures (n : Nat) (li : List (Facts × Out)) : List WExpr :=
   let b : List WExpr := (nzTests n li).filterMap fun k =>
     if steps n li k 1 then some (WExpr.bin .sub (.lit 0) (hw n k)) else none
   (a ++ b).eraseDups
-
-def houdini (n : Nat) (le li : List (Facts × Out)) : Nat → List F → List F
-  | 0, fs => fs
-  | k + 1, fs =>
-    let keep := fs.filter (holdsAfter n le li fs)
-    if keep.length = fs.length then fs else houdini n le li k keep
-
-/-- The inferred invariant. -/
-def infer (n nhw : Nat) (le li : List (Facts × Out)) : List F :=
-  houdini n le li (nhw + 8) (cands n nhw le li)
 
 end Verify.LoopSource.Equiv.Inv
