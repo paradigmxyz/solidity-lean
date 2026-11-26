@@ -93,37 +93,26 @@ namespace Bridge
 variable {L : LoopRecord} {step : ς → Option (Res ⊕ ς)} {B X : Nat}
 
 /-- **The run a bridge gives**: from a header configuration of the invariant, `n` steps of the
-record and a run that ends within `n * B + X` steps. -/
-theorem runs (Bd : Bridge L step B X) {k : Nat} {σ : Val} {x : ς} (hk : L.m σ ≤ k)
-    (hx : Bd.At σ x) (hp : L.P σ) :
+record and a run that ends within `n * B + X` steps, by recursion on the measure. -/
+theorem runs (Bd : Bridge L step B X) {σ : Val} {x : ς} (hx : Bd.At σ x) (hp : L.P σ) :
     ∃ n, L.Steps n σ ∧ ∃ r, SolarTV.Machine.iterate step (n * B + X) x = some r := by
-  induction k generalizing σ x with
-  | zero =>
-    by_cases hc : L.c.eval σ = 0
-    · obtain ⟨r, hr⟩ := Bd.done hx hp hc
-      exact ⟨0, .done σ, r, by simpa using hr⟩
-    · obtain ⟨σ', x', hs, -, -⟩ := Bd.iter hx hp hc
-      have := hs.2.2.2
-      omega
-  | succ k ih =>
-    by_cases hc : L.c.eval σ = 0
-    · obtain ⟨r, hr⟩ := Bd.done hx hp hc
-      exact ⟨0, .done σ, r, by simpa using hr⟩
-    · obtain ⟨σ', x', hs, hx', hw⟩ := Bd.iter hx hp hc
-      have hm := hs.2.2.2
-      obtain ⟨n, hn, r, hr⟩ := ih (by omega) hx' hs.2.2.1
-      refine ⟨n + 1, .step hs hn, r, ?_⟩
-      have h1 := iterate_of_within hw hr
-      have e : (n + 1) * B + X = B + (n * B + X) := by rw [Nat.succ_mul]; omega
-      rw [e]
-      exact h1
+  by_cases hc : L.c.eval σ = 0
+  · obtain ⟨r, hr⟩ := Bd.done hx hp hc
+    exact ⟨0, .done σ, r, by simpa using hr⟩
+  obtain ⟨σ', x', hs, hx', hw⟩ := Bd.iter hx hp hc
+  have := hs.2.2.2
+  obtain ⟨n, hn, r, hr⟩ := Bd.runs hx' hs.2.2.1
+  refine ⟨n + 1, .step hs hn, r, ?_⟩
+  rw [show (n + 1) * B + X = B + (n * B + X) by rw [Nat.succ_mul]; omega]
+  exact iterate_of_within hw hr
+termination_by L.m σ
 
 /-- **The run ends within a measure bound's fuel**: when the entry valuation's measure is at most
 `M`, the run from the header ends within `M * B + X` steps. -/
 theorem ends_within (Bd : Bridge L step B X) {σ : Val} {x : ς} (hx : Bd.At σ x) (hp : L.P σ)
     {M : Nat} (hM : L.m σ ≤ M) :
     ∃ r, SolarTV.Machine.iterate step (M * B + X) x = some r := by
-  obtain ⟨n, hn, r, hr⟩ := Bd.runs (Nat.le_refl _) hx hp
+  obtain ⟨n, hn, r, hr⟩ := Bd.runs hx hp
   have hle : n ≤ M := Nat.le_trans (LoopRecord.steps_le hn) hM
   exact ⟨r, iterate_mono_le (Nat.add_le_add_right (Nat.mul_le_mul_right B hle) X) hr⟩
 

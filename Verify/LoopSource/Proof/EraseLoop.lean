@@ -464,11 +464,8 @@ def incOf? : Stmt → Option (Bool × Expr)
 theorem incOf?_spec {s : Stmt} {pst : Bool} {tgt : Expr} (h : incOf? s = some (pst, tgt)) :
     s = .exprStmt (.incDec .add pst (some (.uint 256)) tgt) := by
   unfold incOf? at h
-  split at h
-  · simp only [Option.some.injEq, Prod.mk.injEq] at h
-    obtain ⟨rfl, rfl⟩ := h
-    rfl
-  · cases h
+  split at h <;> cases h
+  rfl
 
 /-- **The loop-free erasure with increments**: `eraseStmt`, with blocks erased by itself and the
 increments `x++` of a local word (`incVarBr`) and of a word storage field (`incFieldBr`). -/
@@ -502,20 +499,6 @@ theorem splitG_spec : ∀ {b : Br} {gs : List WExpr} {S : SymState}, splitG b = 
     simp only [splitG, Option.some.injEq, Prod.mk.injEq] at h
     obtain ⟨rfl, rfl⟩ := h
     rfl
-  | .ite g (.leaf (.reverted (.panic 0x11))) rest, gs, S, h => by
-    simp only [splitG, Option.map_eq_some_iff] at h
-    obtain ⟨⟨gs', S'⟩, h', he⟩ := h
-    simp only [Prod.mk.injEq] at he
-    obtain ⟨rfl, rfl⟩ := he
-    rw [splitG_spec h']
-    rfl
-  | .leaf (.returned _ _), _, _, h => by simp [splitG] at h
-  | .leaf (.reverted _), _, _, h => by simp [splitG] at h
-  | .ite _ (.leaf (.normal _)) _, _, _, h => by simp [splitG] at h
-  | .ite _ (.leaf (.returned _ _)) _, _, _, h => by simp [splitG] at h
-  | .ite _ (.leaf (.reverted .empty)) _, _, _, h => by simp [splitG] at h
-  | .ite _ (.leaf (.reverted (.error _))) _, _, _, h => by simp [splitG] at h
-  | .ite _ (.ite _ _ _) _, _, _, h => by simp [splitG] at h
   | .ite g (.leaf (.reverted (.panic c))) rest, gs, S, h => by
     by_cases hc : c = 0x11
     · subst hc
@@ -526,6 +509,10 @@ theorem splitG_spec : ∀ {b : Br} {gs : List WExpr} {S : SymState}, splitG b = 
       rw [splitG_spec h']
       rfl
     · simp [splitG, hc] at h
+  | .leaf (.returned _ _), _, _, h | .leaf (.reverted _), _, _, h
+  | .ite _ (.leaf (.normal _)) _, _, _, h | .ite _ (.leaf (.returned _ _)) _, _, _, h
+  | .ite _ (.leaf (.reverted .empty)) _, _, _, h | .ite _ (.leaf (.reverted (.error _))) _, _, _, h
+  | .ite _ (.ite _ _ _) _, _, _, h => by simp [splitG] at h
 
 /-- The overflow guard of `w + 1`, as `x++` checks it. -/
 def ovf1 (w : WExpr) : WExpr := .bin .lt (.bin .add w (.lit 1)) w
@@ -729,16 +716,9 @@ theorem iterFor_spec {E : EraseEnv} {k : Nat} {post body : Stmt} {H : SymState} 
 theorem guardIdx_spec {base : Nat} {g : WExpr} {j : Nat} (h : guardIdx base g = some j) :
     g = ovf1 (.arg (base + j)) := by
   unfold guardIdx at h
-  split at h
-  · rename_i a a'
-    by_cases hc : a = a' ∧ base ≤ a
-    · rw [ite_eq_left hc] at h
-      simp only [Option.some.injEq] at h
-      obtain ⟨rfl, hle⟩ := hc
-      subst h
-      simp only [ovf1, Nat.add_sub_cancel' hle]
-    · rw [ite_eq_right hc] at h; cases h
-  · cases h
+  split at h <;> [split at h; cases h] <;> cases h
+  obtain ⟨rfl, hle⟩ := ‹_ ∧ _›
+  simp only [ovf1, Nat.add_sub_cancel' hle]
 
 theorem guardIdxs_spec {base : Nat} : ∀ {gs : List WExpr} {js : List Nat},
     guardIdxs base gs = some js → gs = js.map fun j => ovf1 (.arg (base + j))
@@ -753,16 +733,9 @@ theorem condOf_spec {base len : Nat} {trs : List Bool} {cv : List WExpr × WExpr
     cv = ([], .bin .lt (.arg (base + ji)) bnd) ∧ ji < len ∧ trs.getD ji false = true ∧
       instW base len (stepθ base trs) bnd = bnd := by
   unfold condOf at h
-  split at h
-  · rename_i a b
-    by_cases hc : base ≤ a ∧ a - base < len ∧ trs.getD (a - base) false = true ∧
-        instW base len (stepθ base trs) b = b
-    · rw [ite_eq_left hc] at h
-      simp only [Option.some.injEq, Prod.mk.injEq] at h
-      obtain ⟨rfl, rfl⟩ := h
-      exact ⟨by rw [Nat.add_sub_cancel' hc.1], hc.2.1, hc.2.2.1, hc.2.2.2⟩
-    · rw [ite_eq_right hc] at h; cases h
-  · cases h
+  split at h <;> [split at h; cases h] <;> cases h
+  rename_i hc
+  exact ⟨by rw [Nat.add_sub_cancel' hc.1], hc.2.1, hc.2.2.1, hc.2.2.2⟩
 
 /-- The words at iteration `t`: a stepping word `t` higher, modulo `2 ^ 256`, the others as before. -/
 def valsAt (vs0 : Nat → Nat) (trs : List Bool) (t j : Nat) : Nat :=

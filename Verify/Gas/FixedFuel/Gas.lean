@@ -132,25 +132,13 @@ theorem verdictOf_bounded {b : Option Nat} {pi ex G : Nat} (h : verdictOf b pi e
     ∃ M, b = some M ∧ G = M * pi + ex ∧ G < 2 ^ 64 := by
   cases b with
   | none => cases h
-  | some M =>
-    simp only [verdictOf] at h
-    split at h
-    · rename_i hl
-      cases h
-      exact ⟨M, rfl, rfl, hl⟩
-    · cases h
+  | some M => simp only [verdictOf] at h; split at h <;> cases h; exact ⟨M, rfl, rfl, ‹_›⟩
 
 theorem verdictOf_outOfGas {b : Option Nat} {pi ex G : Nat} (h : verdictOf b pi ex = .outOfGas G) :
     ∃ M, b = some M ∧ G = M * pi + ex ∧ 2 ^ 64 ≤ G := by
   cases b with
   | none => cases h
-  | some M =>
-    simp only [verdictOf] at h
-    split at h
-    · cases h
-    · rename_i hl
-      cases h
-      exact ⟨M, rfl, rfl, Nat.le_of_not_lt hl⟩
+  | some M => simp only [verdictOf] at h; split at h <;> cases h; exact ⟨M, rfl, rfl, by omega⟩
 
 /-- **Out of gas refutes the obligation**: no `Resources` holds at an `outOfGas` bound. -/
 theorem not_resources_of_outOfGas {b : Option Nat} {pi ex G : Nat}

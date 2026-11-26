@@ -659,59 +659,21 @@ theorem tReturn_sound (c : SCfg) {r : SR} (h : tReturn c = some r) : Sim as r (s
 theorem tFamily_sound (c : SCfg) (op : Op) {r : SR} (h : tFamily init c op = some r) :
     Sim as r (family (codeOfArgs init as) (inst as c) op) := by
   unfold tFamily at h
-  split at h
-  · rename_i k f hbin
-    split at h
-    · rename_i x y rest hs
-      simp only [Option.some.injEq] at h; subst h
-      intro _
-      simp only [family, hbin, inst, hs, List.map_cons]
-      rw [mkBin_eval hbin]
-    · simp at h
-  · rename_i hbin
-    split at h
-    · rename_i k f hun
-      split at h
-      · rename_i x rest hs
-        simp only [Option.some.injEq] at h; subst h
-        intro _
-        simp only [family, hbin, hun, inst, hs, List.map_cons]
-        rw [mkUn_eval hun]
-      · simp at h
-    · rename_i hun
-      split at h
-      · rename_i m
-        split at h
-        · rename_i hc
-          simp only [Option.some.injEq] at h; subst h
-          intro _
-          simp only [family, hbin, hun, inst, List.length_map]
-          rw [if_pos ⟨hc.1, hc.2.1⟩, pushData_codeOfArgs hc.2.2] <;> rfl
-        · simp at h
-      · rename_i m
-        split at h
-        · rename_i x hx
-          split at h
-          · rename_i hlen
-            simp only [Option.some.injEq] at h; subst h
-            intro _
-            simp only [family, hbin, hun, inst, List.getElem?_map, hx, Option.map_some,
-              List.length_map]
-            rw [if_pos hlen] <;> rfl
-          · simp at h
-        · simp at h
-      · rename_i m
-        split at h
-        · rename_i top rest hs
-          split at h
-          · rename_i x hx
-            simp only [Option.some.injEq] at h; subst h
-            intro _
-            simp only [family, hbin, hun, inst, hs, List.map_cons, List.getElem?_map, hx,
-              Option.map_some, List.map_set]
-          · simp at h
-        · simp at h
-      · simp at h
+  repeat' split at h
+  all_goals try (simp at h; done)
+  all_goals simp only [Option.some.injEq] at h; subst h; intro _
+  · simp only [family, ‹binOf _ = _›, inst, ‹c.stack = _›, List.map_cons]
+    rw [mkBin_eval ‹_›]
+  · simp only [family, ‹binOf _ = _›, ‹unOf _ = _›, inst, ‹c.stack = _›, List.map_cons]
+    rw [mkUn_eval ‹_›]
+  · rename_i hc _
+    simp only [family, ‹binOf _ = _›, ‹unOf _ = _›, inst, List.length_map]
+    rw [if_pos ⟨hc.1, hc.2.1⟩, pushData_codeOfArgs hc.2.2] <;> rfl
+  · simp only [family, ‹binOf _ = _›, ‹unOf _ = _›, inst, List.getElem?_map, ‹c.stack[_]? = _›,
+      Option.map_some, List.length_map]
+    rw [if_pos ‹_›] <;> rfl
+  · simp only [family, ‹binOf _ = _›, ‹unOf _ = _›, inst, ‹c.stack = _›, List.map_cons,
+      List.getElem?_map, ‹_[_]? = _›, Option.map_some, List.map_set]
 
 theorem tStep_sound (c : SCfg) (b : UInt8) {r : SR} (h : tStep init as.length c b = some r) :
     Sim as r (stepB (codeOfArgs init as) (inst as c) b) := by
@@ -987,15 +949,6 @@ theorem slotValue_key (s : List (Nat × Nat)) {k k' : Nat} (h : k % 2 ^ 256 = k'
     SolarTV.slotValue s k = SolarTV.slotValue s k' := by
   simp only [SolarTV.slotValue, h]
 
-theorem foldl_none (s : List (Nat × Nat)) (k acc : Nat) (h : ∀ p ∈ s, p.1 % 2 ^ 256 ≠ k % 2 ^ 256) :
-    s.foldl (fun acc kv => if kv.1 % 2 ^ 256 = k % 2 ^ 256 then kv.2 % 2 ^ 256 else acc) acc = acc := by
-  induction s generalizing acc with
-  | nil => rfl
-  | cons p r ih =>
-    simp only [List.foldl_cons]
-    rw [if_neg (h p (by simp))]
-    exact ih acc (fun q hq => h q (by simp [hq]))
-
 theorem slotValue_eq_of_sameSlots {a b : List (Nat × Nat)} (h : sameSlots a b = true) (k : Nat) :
     SolarTV.slotValue a k = SolarTV.slotValue b k := by
   simp only [sameSlots, List.all_eq_true, beq_iff_eq] at h
@@ -1005,7 +958,7 @@ theorem slotValue_eq_of_sameSlots {a b : List (Nat × Nat)} (h : sameSlots a b =
     exact h p hp
   · have hn : ∀ (s : List (Nat × Nat)), (∀ q ∈ s.map Prod.fst, q % 2 ^ 256 ≠ k % 2 ^ 256) →
         SolarTV.slotValue s k = 0 := fun s hs =>
-      foldl_none s k 0 (fun p hp => hs p.1 (List.mem_map_of_mem hp))
+      foldl_slot_eq (fun p hp => hs p.1 (List.mem_map_of_mem hp))
     rw [hn a (fun q hq he => hk ⟨q, List.mem_append_left _ hq, he⟩),
       hn b (fun q hq he => hk ⟨q, List.mem_append_right _ hq, he⟩)]
 

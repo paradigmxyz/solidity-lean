@@ -292,58 +292,17 @@ theorem family_good {c c' : Cfg} {k : Nat} {op : Op} (hlt : c.pc < code.size)
   obtain ⟨pc, stack, mem, cws⟩ := c
   simp only at hlt hop
   unfold family at h
-  split at h
-  · rename_i k' f hbin
-    split at h
-    · rename_i x y r
-      simp only [Option.some.injEq, R.next.injEq] at h
-      obtain ⟨rfl, rfl⟩ := h
-      subst_vars
-      exact good_seq ih rfl (fun _ _ _ hg => binary hlt rfl hop (binOf_sound hbin) hg)
-    · simp at h
-  · split at h
-    · rename_i k' f hun
-      split at h
-      · simp only [Option.some.injEq, R.next.injEq] at h
-        obtain ⟨rfl, rfl⟩ := h
-        subst_vars
-        exact good_seq ih rfl (fun _ _ _ hg => unary hlt rfl hop (unOf_sound hun) hg)
-      · simp at h
-    · split at h
-      · rename_i n
-        split at h
-        · rename_i hc
-          simp only [Option.some.injEq, R.next.injEq] at h
-          obtain ⟨rfl, rfl⟩ := h
-          subst_vars
-          exact good_seq ih rfl (fun _ _ _ hg =>
-            push_of_decode hlt rfl (decode_of_ofByte hop) hc.1 rfl hg hc.2)
-        · simp at h
-      · rename_i n
-        split at h
-        · rename_i x hx
-          split at h
-          · rename_i hlen
-            simp only [Option.some.injEq, R.next.injEq] at h
-            obtain ⟨rfl, rfl⟩ := h
-            subst_vars
-            exact good_seq ih rfl (fun _ _ _ hg =>
-              dup_of_decode hlt rfl (decode_of_ofByte hop) hx hg hlen)
-          · simp at h
-        · simp at h
-      · rename_i n
-        split at h
-        · rename_i top r
-          split at h
-          · rename_i x hx
-            simp only [Option.some.injEq, R.next.injEq] at h
-            obtain ⟨rfl, rfl⟩ := h
-            subst_vars
-            exact good_seq ih rfl (fun _ _ _ hg =>
-              swap_of_decode hlt rfl (decode_of_ofByte hop) hx hg)
-          · simp at h
-        · simp at h
-      · simp at h
+  repeat' split at h
+  all_goals try (simp at h; done)
+  all_goals simp only [Option.some.injEq, R.next.injEq] at h; obtain ⟨rfl, rfl⟩ := h; subst_vars
+  · exact good_seq ih rfl (fun _ _ _ hg => binary hlt rfl hop (binOf_sound ‹_›) hg)
+  · exact good_seq ih rfl (fun _ _ _ hg => unary hlt rfl hop (unOf_sound ‹_›) hg)
+  · rename_i hc
+    exact good_seq ih rfl (fun _ _ _ hg =>
+      push_of_decode hlt rfl (decode_of_ofByte hop) hc.1 rfl hg hc.2)
+  · exact good_seq ih rfl (fun _ _ _ hg =>
+      dup_of_decode hlt rfl (decode_of_ofByte hop) ‹_› hg ‹_›)
+  · exact good_seq ih rfl (fun _ _ _ hg => swap_of_decode hlt rfl (decode_of_ofByte hop) ‹_› hg)
 
 /-- SSTORE keeps the invariant with the new write in front. -/
 theorem inv_sstore {st : TransactionState} {ss : Substate} {cws : List (U256 × U256)}
@@ -528,19 +487,8 @@ theorem family_ne_ret {c : Cfg} {o : ByteArray} {k : Nat} (op : Op) :
     family code c op ≠ some (.ret o k) := by
   intro hf
   unfold family at hf
-  split at hf
-  · split at hf <;> simp at hf
-  · split at hf
-    · split at hf <;> simp at hf
-    · split at hf
-      · split at hf <;> simp at hf
-      · split at hf
-        · split at hf <;> simp at hf
-        · simp at hf
-      · split at hf
-        · split at hf <;> simp at hf
-        · simp at hf
-      · simp at hf
+  repeat' split at hf
+  all_goals simp at hf
 
 theorem stepB_ret {c : Cfg} {o : ByteArray} {k : Nat} (hlt : c.pc < code.size)
     (h : stepB code c code[c.pc] = some (.ret o k)) : Good code msg c o c.ws k := by
