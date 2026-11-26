@@ -94,6 +94,44 @@ theorem processMessage_ok_of_spec {c : ByteArray} {message : Message .fusaka}
     · split <;> rfl
     · simp [hE]
 
+/-- A specification of the frame of a message that moves nonzero value, to code that is no
+precompile, from the state `st'` the move of its value leaves, gives `processMessage` at
+Fusaka from `st`, as `processMessage_ok_of_spec` does for a message with no value. -/
+theorem processMessage_ok_of_spec_value {c : ByteArray} {message : Message .fusaka}
+    (hcode : message.code = c) (htr : message.shouldTransferValue = true)
+    (hv : message.value ≠ 0) (hpre : precompileAddress .fusaka message = none)
+    {st st' : State.TransactionState}
+    (hmove : st.moveEther .fusaka message.caller message.currentTarget message.value = .ok st')
+    {ss : Substate} {Q : Evm .fusaka Nat → Prop}
+    (h : Spec .fusaka (At c message 0 [] .empty message.gas st' ss .empty) Q) :
+    ∃ evm after, processMessage (Meter := Nat) .fusaka message st ss = .ok evm ∧ Q after ∧
+      evm.1.error = after.error ∧ evm.1.output = after.output ∧
+      evm.1.substate = after.substate ∧ (after.error = none → evm.1.state = after.state) := by
+  rw [processMessage]
+  have hss : startState .fusaka message st = st := by
+    simp [startState, show ¬ (Fork.fusaka < Fork.paris) by decide]
+  simp only [hss, hpre, htr, ne_eq, hv, not_false_eq_true, and_self, ↓reduceIte, hmove]
+  simp only [pure, Except.pure, bind, Except.bind, Except.mapError]
+  -- At Fusaka a move of value pushes no transfer log.
+  have hsub : ∀ x : Substate,
+      { x with logs := (pushTransferLog .fusaka x.logs message.caller message.currentTarget
+        message.value) } = x := fun x => by
+    simp [pushTransferLog, show ¬ (Fork.fusaka ≥ Fork.glamsterdam) by decide]
+  split
+  · rename_i e hr
+    simp only [htr, hv, not_false_eq_true, and_self, ↓reduceIte, hsub] at hr
+    obtain ⟨after, h', -⟩ := runFrame_ok_of_spec hcode h hr
+    cases h'
+  · rename_i after hr
+    simp only [htr, hv, not_false_eq_true, and_self, ↓reduceIte, hsub] at hr
+    obtain ⟨after', h', -, hq⟩ := runFrame_ok_of_spec hcode h hr
+    cases h'
+    refine ⟨_, after, rfl, hq, ?_, ?_, ?_, fun hE => ?_⟩ <;> simp only [rollbackOnError]
+    · split <;> rfl
+    · split <;> rfl
+    · split <;> rfl
+    · simp [hE]
+
 end SolidCore.Refinement.Evm.Logic
 
 open EthLib.Base EthLib.Execution EthLib.Execution.Evm

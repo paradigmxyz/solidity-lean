@@ -51,21 +51,9 @@ theorem processMessage_reverts_value {c : ByteArray} (message : Message .fusaka)
     (hmove : st.moveEther .fusaka message.caller message.currentTarget message.value = .ok st') :
     ∃ evm, processMessage (Meter := Nat) .fusaka message st ss = .ok evm ∧
       evm.1.error = some .revert ∧ evm.1.output = .empty := by
-  rw [processMessage]
-  have hss : startState .fusaka message st = st := by
-    simp [startState, show ¬ (Fork.fusaka < Fork.paris) by decide]
-  simp only [hss, hpre, htr, ne_eq, hv, not_false_eq_true, and_self, ↓reduceIte, hmove]
-  simp only [pure, Except.pure, bind, Except.bind, Except.mapError]
-  split
-  · rename_i e hr
-    obtain ⟨after, h', -⟩ := runFrame_of_spec hcode (h _ _) hr
-    cases h'
-  · rename_i after hr
-    obtain ⟨after', h', -, herr, hout⟩ := runFrame_of_spec hcode (h _ _) hr
-    cases h'
-    refine ⟨_, rfl, ?_, ?_⟩
-    · simp only [rollbackOnError]; split <;> simp [herr]
-    · simp only [rollbackOnError]; split <;> simp [hout]
+  obtain ⟨evm, _, hr, ⟨herr, hout⟩, he, ho, -⟩ :=
+    processMessage_ok_of_spec_value hcode htr hv hpre hmove (h st' ss)
+  exact ⟨evm, hr, he.trans herr, ho.trans hout⟩
 
 
 /-- The call value as a word is nonzero. -/

@@ -1622,7 +1622,7 @@ end Move
 
 section RunAny
 
-open SolidCore.Refinement.Evm.Symex
+open SolidCore.Refinement.Evm.Symex SolidCore.Refinement.Evm.Logic
 
 /-- What `processMessage` gives from a frame that ends as `PostS X` shows for a substate whose logs
 are those of `ss` and then SolarTV's world `w`. -/
@@ -1633,6 +1633,18 @@ def MsgOut (X : SolarTV.Observable) (a : Address) (ss : Substate) (w : List Sola
       (evm.state.getStorage (Target.address selfAddress) (Target.storageKey slot)).toNat =
         X.storage slot)
 
+/-- The result of `processMessage` from a frame `after` that ends as `PostS X` shows, with its
+error, output and substate, and with its state when it succeeds, shows `MsgOut`. -/
+theorem msgOut_of_post {X : SolarTV.Observable} {a : Address} {ss : Substate}
+    {w : List SolarTV.Machine.Event} {evm after : Evm .fusaka Nat}
+    (hq : ∃ ssF, PostS X ssF after ∧ LogsRel a ss ssF w) (he : evm.error = after.error)
+    (ho : evm.output = after.output) (hs : evm.substate = after.substate)
+    (hst : after.error = none → evm.state = after.state) : MsgOut X a ss w evm := by
+  obtain ⟨ssF, ⟨herr, hout, hlogs, hS⟩, hL⟩ := hq
+  refine ⟨ssF, hL, he.trans herr, ho ▸ hout, fun hX => ?_⟩
+  rw [hs, hst (by simp [herr, errorOf, hX])]
+  exact ⟨hlogs, hS hX⟩
+
 /-- processMessage at Fusaka of a message with no value, to code that is no precompile. -/
 theorem processMessage_postL {c : ByteArray} (message : Message .fusaka)
     (hcode : message.code = c) (hv : message.value = 0)
@@ -1641,29 +1653,8 @@ theorem processMessage_postL {c : ByteArray} (message : Message .fusaka)
     (h : Spec .fusaka (At c message 0 [] .empty message.gas st ss .empty)
       (fun evm => ∃ ssF, PostS X ssF evm ∧ LogsRel a ss ssF w)) :
     ∃ evm, processMessage (Meter := Nat) .fusaka message st ss = .ok evm ∧ MsgOut X a ss w evm.1 := by
-  rw [processMessage]
-  have hss : startState .fusaka message st = st := by
-    simp [startState, show ¬ (Fork.fusaka < Fork.paris) by decide]
-  simp only [hss, hpre]
-  split
-  · rename_i htr; exact absurd htr.2 (by simp [hv])
-  simp only [pure, Except.pure, bind, Except.bind]
-  split
-  · rename_i e hr
-    simp only [hv, ne_eq, not_true_eq_false, and_false, ite_false] at hr
-    obtain ⟨after, h', -⟩ := runFrame_of_spec hcode h hr
-    cases h'
-  · rename_i after hr
-    simp only [hv, ne_eq, not_true_eq_false, and_false, ite_false] at hr
-    obtain ⟨after', h', -, ssF, ⟨herr, hout, hlogs, hst⟩, hL⟩ := runFrame_of_spec hcode h hr
-    cases h'
-    refine ⟨_, rfl, ssF, hL, ?_, ?_, ?_⟩
-    · simp only [rollbackOnError]; split <;> simp [herr]
-    · simp only [rollbackOnError]; split <;> exact hout
-    · intro hX
-      have hE : errorOf X = none := by simp [errorOf, hX]
-      simp only [rollbackOnError, herr, hE, Option.isSome_none, Bool.false_eq_true, ↓reduceIte]
-      exact ⟨hlogs, hst hX⟩
+  obtain ⟨evm, after, hr, hq, he, ho, hs, hst⟩ := processMessage_ok_of_spec hcode hv hpre h
+  exact ⟨evm, hr, msgOut_of_post hq he ho hs hst⟩
 
 /-- processMessage at Fusaka of a message with nonzero value, whose move of the value succeeds
 into st', to code that is no precompile. -/
@@ -1676,32 +1667,9 @@ theorem processMessage_postL_move {c : ByteArray} (message : Message .fusaka)
     (h : Spec .fusaka (At c message 0 [] .empty message.gas st' ss .empty)
       (fun evm => ∃ ssF, PostS X ssF evm ∧ LogsRel a ss ssF w)) :
     ∃ evm, processMessage (Meter := Nat) .fusaka message st ss = .ok evm ∧ MsgOut X a ss w evm.1 := by
-  rw [processMessage]
-  have hss : startState .fusaka message st = st := by
-    simp [startState, show ¬ (Fork.fusaka < Fork.paris) by decide]
-  simp only [hss, hpre, htr, ne_eq, hv, not_false_eq_true, and_self, ↓reduceIte, hmove]
-  simp only [pure, Except.pure, bind, Except.bind, Except.mapError]
-  -- At Fusaka a move of value pushes no transfer log.
-  have hsub : ∀ x : Substate,
-      { x with logs := (pushTransferLog .fusaka x.logs message.caller message.currentTarget
-        message.value) } = x := fun x => by
-    simp [pushTransferLog, show ¬ (Fork.fusaka ≥ Fork.glamsterdam) by decide]
-  split
-  · rename_i e hr
-    simp only [htr, hv, not_false_eq_true, and_self, ↓reduceIte, hsub] at hr
-    obtain ⟨after, h', -⟩ := runFrame_of_spec hcode h hr
-    cases h'
-  · rename_i after hr
-    simp only [htr, hv, not_false_eq_true, and_self, ↓reduceIte, hsub] at hr
-    obtain ⟨after', h', -, ssF, ⟨herr, hout, hlogs, hst⟩, hL⟩ := runFrame_of_spec hcode h hr
-    cases h'
-    refine ⟨_, rfl, ssF, hL, ?_, ?_, ?_⟩
-    · simp only [rollbackOnError]; split <;> simp [herr]
-    · simp only [rollbackOnError]; split <;> exact hout
-    · intro hX
-      have hE : errorOf X = none := by simp [errorOf, hX]
-      simp only [rollbackOnError, herr, hE, Option.isSome_none, Bool.false_eq_true, ↓reduceIte]
-      exact ⟨hlogs, hst hX⟩
+  obtain ⟨evm, after, hr, hq, he, ho, hs, hst⟩ :=
+    processMessage_ok_of_spec_value hcode htr hv hpre hmove h
+  exact ⟨evm, hr, msgOut_of_post hq he ho hs hst⟩
 
 /-- The observable `Target.run` builds from EthLib's frame at the end of a call. -/
 def evmObservable (call : SolarTV.Call) (evm : Evm .fusaka Nat) : SolarTV.Observable :=

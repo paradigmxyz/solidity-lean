@@ -65,22 +65,10 @@ theorem processMessage_postS_value {c : ByteArray} (message : Message .fusaka)
     (hmove : st.moveEther .fusaka message.caller message.currentTarget message.value = .ok st') :
     ∃ evm, processMessage (Meter := Nat) .fusaka message st ss = .ok evm ∧
       evm.1.error = some .revert ∧ evm.1.output.toList.map (·.toNat) = X.output := by
-  rw [processMessage]
-  have hss : startState .fusaka message st = st := by
-    simp [startState, show ¬ (Fork.fusaka < Fork.paris) by decide]
-  simp only [hss, hpre, htr, ne_eq, hv, not_false_eq_true, and_self, ↓reduceIte, hmove]
-  simp only [pure, Except.pure, bind, Except.bind, Except.mapError]
-  split
-  · rename_i e hr
-    obtain ⟨after, h', -⟩ := runFrame_of_spec hcode (h _ _) hr
-    cases h'
-  · rename_i after hr
-    obtain ⟨after', h', -, herr, hout, -⟩ := runFrame_of_spec hcode (h _ _) hr
-    cases h'
-    simp only [errorOf, hX, Bool.false_eq_true, ↓reduceIte] at herr
-    refine ⟨_, rfl, ?_, ?_⟩
-    · simp only [rollbackOnError]; split <;> simp [herr]
-    · simp only [rollbackOnError]; split <;> exact hout
+  obtain ⟨evm, _, hr, ⟨herr, hout, -⟩, he, ho, -⟩ :=
+    processMessage_ok_of_spec_value hcode htr hv hpre hmove (h st' ss)
+  simp only [errorOf, hX, Bool.false_eq_true, ↓reduceIte] at herr
+  exact ⟨evm, hr, he.trans herr, ho ▸ hout⟩
 
 set_option maxHeartbeats 0 in
 set_option maxRecDepth 100000 in
