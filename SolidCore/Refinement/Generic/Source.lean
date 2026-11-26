@@ -383,16 +383,21 @@ theorem apply_not (a : Nat) (ha : a < wordSize) :
   simp [UnaryOp.apply, boolWord, wordTruthy, SolidCore.Solidity.Shared.norm, modulus_eq,
     Nat.mod_eq_of_lt ha, h]
 
-theorem fieldOk_spec {f : StorageField} (h : fieldOk f = true) :
-    f.layout? = some (.scalar .uint256) ∧ f.transient = false ∧ 0 < f.packedBytes ∧
-      f.packedOffset + f.packedBytes ≤ 32 ∧ f.slot < wordSize := by
-  unfold fieldOk at h
-  simp only [Bool.and_eq_true, Bool.not_eq_true', decide_eq_true_eq] at h
-  obtain ⟨⟨⟨⟨hl, ht⟩, hb⟩, ho⟩, hs⟩ := h
-  refine ⟨?_, ht, hb, ho, hs⟩
-  split at hl
-  · rename_i h; exact h
-  · simp at hl
+/-- A lookup of the field `x` that keeps it when `ok` accepts it finds it in the context. -/
+private theorem of_find {fields : List StorageField} {ctx : Context}
+    (hf : ctx.storageFields = fields) {x : String} {ok : StorageField → Bool} {β : Type}
+    {g : StorageField → β} {r : β}
+    (h : (match fields.find? (fun f => f.name == x) with
+      | some f => if ok f then some (g f) else none
+      | none => none) = some r) :
+    ∃ f, ctx.storageField? x = some f ∧ ok f = true ∧ g f = r := by
+  split at h
+  · rename_i f hfind
+    split at h
+    · rename_i hok
+      exact ⟨f, by simp [Context.storageField?, hf, hfind], hok, Option.some.inj h⟩
+    · simp at h
+  · simp at h
 
 /-- What the fragment knows of a field it reads and writes. -/
 structure FieldOk (ctx : Context) (x : String) (f : StorageField) : Prop where
@@ -406,17 +411,13 @@ structure FieldOk (ctx : Context) (x : String) (f : StorageField) : Prop where
 theorem fieldOf?_spec {fields : List StorageField} {ctx : Context} (hf : ctx.storageFields = fields)
     {x : String} {k off bytes : Nat} (h : fieldOf? fields x = some (k, off, bytes)) :
     ∃ f, FieldOk ctx x f ∧ f.slot = k ∧ f.packedOffset = off ∧ f.packedBytes = bytes := by
-  unfold fieldOf? at h
-  split at h
-  · rename_i f hfind
-    split at h
-    · rename_i hs
-      simp only [Option.some.injEq, Prod.mk.injEq] at h
-      obtain ⟨rfl, rfl, rfl⟩ := h
-      obtain ⟨h1, h2, h3, h4, h5⟩ := fieldOk_spec hs
-      exact ⟨f, ⟨by simp [Context.storageField?, hf, hfind], h1, h2, h3, h4, h5⟩, rfl, rfl, rfl⟩
-    · simp at h
-  · simp at h
+  obtain ⟨f, hfind, hok, hg⟩ :=
+    of_find (ok := fieldOk) (g := fun f => (f.slot, f.packedOffset, f.packedBytes)) hf h
+  simp only [Prod.mk.injEq] at hg
+  obtain ⟨rfl, rfl, rfl⟩ := hg
+  simp only [fieldOk, Bool.and_eq_true, Bool.not_eq_true', decide_eq_true_eq] at hok
+  obtain ⟨⟨⟨⟨hl, ht⟩, hb⟩, ho⟩, hs⟩ := hok
+  exact ⟨f, ⟨hfind, by split at hl <;> simp_all, ht, hb, ho, hs⟩, rfl, rfl, rfl⟩
 
 theorem toNat_land_u256 (x y : EvmYul.UInt256) :
     (x.land y).toNat = (x.toNat &&& y.toNat) % wordSize := rfl
@@ -625,6 +626,17 @@ theorem bind_exprResult {α : Type} (ρ : Val) (gs : List WExpr) (v : WExpr) (rt
   unfold exprResult
   split <;> rfl
 
+/-- A step on an erased operand that maps its word `v` to `w` keeps the operand's guards. -/
+private theorem exprResult_bind {ρ : Val} {gs : List WExpr} {v w : WExpr} {rt : Runtime}
+    {k : Value × Runtime → SolI (Value × Runtime)}
+    (hk : k (.word (v.eval ρ), rt) = .done (.ok (.word (w.eval ρ), rt))) :
+    (exprResult ρ gs v rt >>= k) = exprResult ρ gs w rt := by
+  rw [bind_exprResult]
+  unfold exprResult
+  split
+  · rfl
+  · exact hk
+
 
 theorem add_wrap_lt {a b : Nat} (ha : a < wordSize) (hb : b < wordSize) (h : wordSize ≤ a + b) :
     (a + b) % wordSize < a := by
@@ -706,22 +718,10 @@ structure Map2Ok (ctx : Context) (x : String) (f : StorageField) : Prop where
 theorem map2Of?_spec {fields : List StorageField} {ctx : Context} (hf : ctx.storageFields = fields)
     {x : String} {k : Nat} (h : map2Of? fields x = some k) :
     ∃ f, Map2Ok ctx x f ∧ f.slot = k := by
-  unfold map2Of? at h
-  split at h
-  · rename_i f hfind
-    split at h
-    · rename_i hs
-      simp only [Option.some.injEq] at h
-      subst h
-      unfold map2Ok at hs
-      simp only [Bool.and_eq_true, Bool.not_eq_true', decide_eq_true_eq] at hs
-      obtain ⟨⟨hl, ht⟩, hsl⟩ := hs
-      refine ⟨f, ⟨by simp [Context.storageField?, hf, hfind], ?_, ht, hsl⟩, rfl⟩
-      split at hl
-      · rename_i h; exact h
-      · simp at hl
-    · simp at h
-  · simp at h
+  obtain ⟨f, hfind, hok, rfl⟩ := of_find (ok := map2Ok) (g := StorageField.slot) hf h
+  simp only [map2Ok, Bool.and_eq_true, Bool.not_eq_true', decide_eq_true_eq] at hok
+  obtain ⟨⟨hl, ht⟩, hsl⟩ := hok
+  exact ⟨f, ⟨hfind, by split at hl <;> simp_all, ht, hsl⟩, rfl⟩
 
 /-- The slot of the entry of a nested mapping at two key words. -/
 theorem resolve_map2 {ctx : Context} {rt : Runtime} {x : String} {f : StorageField}
@@ -759,24 +759,10 @@ structure MapOk (ctx : Context) (x : String) (f : StorageField) : Prop where
 theorem mapOf?_spec {fields : List StorageField} {ctx : Context} (hf : ctx.storageFields = fields)
     {x : String} {k : Nat} (h : mapOf? fields x = some k) :
     ∃ f, MapOk ctx x f ∧ f.slot = k := by
-  unfold mapOf? at h
-  split at h
-  · rename_i f hfind
-    split at h
-    · rename_i hs
-      simp only [Option.some.injEq] at h
-      subst h
-      unfold mapOk at hs
-      simp only [Bool.and_eq_true, Bool.not_eq_true', decide_eq_true_eq] at hs
-      obtain ⟨⟨hl, ht⟩, hsl⟩ := hs
-      refine ⟨f, ⟨by simp [Context.storageField?, hf, hfind], ?_, ht, hsl⟩, rfl⟩
-      split at hl
-      · rename_i h; exact .inl h
-      · rename_i h; exact .inr h
-      · simp at hl
-    · simp at h
-  · simp at h
-
+  obtain ⟨f, hfind, hok, rfl⟩ := of_find (ok := mapOk) (g := StorageField.slot) hf h
+  simp only [mapOk, Bool.and_eq_true, Bool.not_eq_true', decide_eq_true_eq] at hok
+  obtain ⟨⟨hl, ht⟩, hsl⟩ := hok
+  exact ⟨f, ⟨hfind, by split at hl <;> simp_all, ht, hsl⟩, rfl⟩
 
 /-- SolidCore reads the entry of a mapping at a key word as the writes' read of the slot word
 `hash key slot`. -/
@@ -805,23 +791,10 @@ structure BoolMapOk (ctx : Context) (x : String) (f : StorageField) : Prop where
 theorem boolMapOf?_spec {fields : List StorageField} {ctx : Context} (hf : ctx.storageFields = fields)
     {x : String} {k : Nat} (h : boolMapOf? fields x = some k) :
     ∃ f, BoolMapOk ctx x f ∧ f.slot = k := by
-  unfold boolMapOf? at h
-  split at h
-  · rename_i f hfind
-    split at h
-    · rename_i hs
-      simp only [Option.some.injEq] at h
-      subst h
-      unfold boolMapOk at hs
-      simp only [Bool.and_eq_true, Bool.not_eq_true', decide_eq_true_eq] at hs
-      obtain ⟨⟨hl, ht⟩, hsl⟩ := hs
-      refine ⟨f, ⟨by simp [Context.storageField?, hf, hfind], ?_, ht, hsl⟩, rfl⟩
-      split at hl
-      · rename_i h; exact .inl h
-      · rename_i h; exact .inr h
-      · simp at hl
-    · simp at h
-  · simp at h
+  obtain ⟨f, hfind, hok, rfl⟩ := of_find (ok := boolMapOk) (g := StorageField.slot) hf h
+  simp only [boolMapOk, Bool.and_eq_true, Bool.not_eq_true', decide_eq_true_eq] at hok
+  obtain ⟨⟨hl, ht⟩, hsl⟩ := hok
+  exact ⟨f, ⟨hfind, by split at hl <;> simp_all, ht, hsl⟩, rfl⟩
 
 /-- The `bool` of a storage word, as `boolOfWord` computes it: whether its low byte is not zero. -/
 theorem boolOfWord_eval (ρ : Val) (w : WExpr) :
@@ -863,22 +836,13 @@ structure AddrFieldOk (ctx : Context) (x : String) (f : StorageField) : Prop whe
 theorem addrFieldOf?_spec {fields : List StorageField} {ctx : Context} (hf : ctx.storageFields = fields)
     {x : String} {k off : Nat} (h : addrFieldOf? fields x = some (k, off)) :
     ∃ f, AddrFieldOk ctx x f ∧ f.slot = k ∧ f.packedOffset = off := by
-  unfold addrFieldOf? at h
-  split at h
-  · rename_i f hfind
-    split at h
-    · rename_i hs
-      simp only [Option.some.injEq, Prod.mk.injEq] at h
-      obtain ⟨rfl, rfl⟩ := h
-      unfold addrFieldOk at hs
-      simp only [Bool.and_eq_true, Bool.not_eq_true', decide_eq_true_eq] at hs
-      obtain ⟨⟨⟨⟨hl, ht⟩, hb⟩, ho⟩, hsl⟩ := hs
-      refine ⟨f, ⟨by simp [Context.storageField?, hf, hfind], ?_, ht, hb, ho, hsl⟩, rfl, rfl⟩
-      split at hl
-      · rename_i h; exact h
-      · simp at hl
-    · simp at h
-  · simp at h
+  obtain ⟨f, hfind, hok, hg⟩ :=
+    of_find (ok := addrFieldOk) (g := fun f => (f.slot, f.packedOffset)) hf h
+  simp only [Prod.mk.injEq] at hg
+  obtain ⟨rfl, rfl⟩ := hg
+  simp only [addrFieldOk, Bool.and_eq_true, Bool.not_eq_true', decide_eq_true_eq] at hok
+  obtain ⟨⟨⟨⟨hl, ht⟩, hb⟩, ho⟩, hsl⟩ := hok
+  exact ⟨f, ⟨hfind, by split at hl <;> simp_all, ht, hb, ho, hsl⟩, rfl, rfl⟩
 
 theorem load_addrField {ctx : Context} {rt : Runtime} {x : String} {f : StorageField}
     (hf : AddrFieldOk ctx x f) (hw : rt.state.loadSlot f.slot < wordSize) :
@@ -1028,14 +992,11 @@ theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
   | word w =>
     simp only [eraseExpr, Option.some.injEq, Prod.mk.injEq] at h
     obtain ⟨rfl, rfl⟩ := h
-    simp [Expr.evalFuel, exprResult, WExpr.eval, normWord, SolidCore.Solidity.Shared.norm, modulus_eq]
-    rfl
+    exact eval_atom hrel rfl n
   | var x =>
     simp only [eraseExpr, Option.map_eq_some_iff, Prod.mk.injEq] at h
     obtain ⟨e, he, rfl, rfl⟩ := h
-    have hl := hrel.locals x e he
-    simp [Expr.evalFuel, exprResult, Runtime.lookupStorageBase?, hl, Runtime.derefMemoryValue]
-    rfl
+    exact eval_atom hrel (x := .var x) he n
   | castOp k b e =>
     cases k
     case uintCleanup =>
@@ -1052,12 +1013,10 @@ theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
           Option.some.injEq, Prod.mk.injEq] at h
         obtain ⟨rfl, rfl⟩ := h
         simp only [Expr.evalFuel, ih, hrel.checked]
-        unfold exprResult
-        split
-        · rfl
-        · simp only [bind, EvmCompiler.Simulation.Interaction.bind, liftM, monadLift,
-            MonadLift.monadLift, uintCleanup_256 _ hv0, SolI.ofExcept]
-          rfl
+        refine exprResult_bind ?_
+        simp only [bind, EvmCompiler.Simulation.Interaction.bind, liftM, monadLift,
+          MonadLift.monadLift, uintCleanup_256 _ hv0, SolI.ofExcept]
+        rfl
       · by_cases hb2 : 0 < b ∧ b < 256
         · simp only [eraseExpr, he, Option.bind_eq_bind, Option.bind_some, hb, hb2, and_self,
             ↓reduceIte, Option.some.injEq, Prod.mk.injEq] at h
@@ -1108,25 +1067,21 @@ theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
           Option.some.injEq, Prod.mk.injEq] at h
         obtain ⟨rfl, rfl⟩ := h
         simp only [Expr.evalFuel, ih]
-        unfold exprResult
-        split
-        · rfl
-        · simp only [bind, EvmCompiler.Simulation.Interaction.bind, liftM, monadLift,
-            MonadLift.monadLift, uintCast_word _ _ hv0 (by decide) (Nat.le_refl _),
-            Nat.mod_eq_of_lt hv0, SolI.ofExcept]
-          rfl
+        refine exprResult_bind ?_
+        simp only [bind, EvmCompiler.Simulation.Interaction.bind, liftM, monadLift,
+          MonadLift.monadLift, uintCast_word _ _ hv0 (by decide) (Nat.le_refl _),
+          Nat.mod_eq_of_lt hv0, SolI.ofExcept]
+        rfl
       · by_cases hb2 : 0 < b ∧ b < 256
         · simp only [eraseExpr, hh, he, Option.bind_eq_bind, Option.bind_some, hb, hb2, and_self,
             ↓reduceIte, Option.some.injEq, Prod.mk.injEq] at h
           obtain ⟨rfl, rfl⟩ := h
           simp only [Expr.evalFuel, ih]
-          unfold exprResult
-          split
-          · rfl
-          · simp only [bind, EvmCompiler.Simulation.Interaction.bind, liftM, monadLift,
-              MonadLift.monadLift, uintCast_word _ _ hv0 hb2.1 (by omega), SolI.ofExcept,
-              eval_and_pow ρ v0 (show b ≤ 256 by omega)]
-            rfl
+          refine exprResult_bind ?_
+          simp only [bind, EvmCompiler.Simulation.Interaction.bind, liftM, monadLift,
+            MonadLift.monadLift, uintCast_word _ _ hv0 hb2.1 (by omega), SolI.ofExcept,
+            eval_and_pow ρ v0 (show b ≤ 256 by omega)]
+          rfl
         · simp [eraseExpr, hh, he, hb, hb2] at h
     all_goals simp [eraseExpr] at h
   | binary op l r =>
@@ -1185,22 +1140,17 @@ theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
       obtain ⟨rfl, rfl⟩ := h
       have ih := eval_erase ρ fields ctx rt S hrel e gs0 v0 n he
         (by simp [Expr.orderFuel] at hf; omega)
-      simp only [Expr.evalFuel, ih, bind_exprResult, hrel.checked]
-      unfold exprResult
-      split
-      · rfl
-      · simp only [bind, EvmCompiler.Simulation.Interaction.bind, liftM, monadLift,
-          MonadLift.monadLift, apply_not _ (v0.eval_lt ρ), SolI.ofExcept, pure,
-          EvmCompiler.Simulation.Interaction.pure]
-        simp only [WExpr.eval, UnOp.eval]
-        split <;> rfl
+      simp only [Expr.evalFuel, ih, hrel.checked]
+      refine exprResult_bind ?_
+      simp only [bind, EvmCompiler.Simulation.Interaction.bind, liftM, monadLift,
+        MonadLift.monadLift, apply_not _ (v0.eval_lt ρ), SolI.ofExcept, pure,
+        EvmCompiler.Simulation.Interaction.pure, WExpr.eval, UnOp.eval]
+      split <;> rfl
     all_goals simp [eraseExpr] at h
   | caller =>
     simp only [eraseExpr, Option.some.injEq, Prod.mk.injEq] at h
     obtain ⟨rfl, rfl⟩ := h
-    simp only [Expr.evalFuel, exprResult, List.any_nil, Bool.false_eq_true, ↓reduceIte,
-      hrel.sender]
-    rfl
+    exact eval_atom hrel rfl n
   | storageRead m x idx =>
     cases m
     case element =>
@@ -1213,28 +1163,24 @@ theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
           obtain ⟨⟨gs0, v0⟩, hi, rfl, rfl⟩ := h
           have ih := eval_erase ρ fields ctx rt S hrel i gs0 v0 n hi
             (by simp [Expr.orderFuel, Expr.listEvalFuel] at hf; omega)
-          simp only [Expr.evalFuel, ih, bind_exprResult]
-          unfold exprResult
-          split
-          · rfl
-          · obtain ⟨f, hf, rfl⟩ := mapOf?_spec hrel.fields hk
-            rw [loadIndex_map hrel hk (v0.eval_lt ρ), Writes.eval_read hrel.ok]
-            simp only [WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf.slot]
-            rfl
+          simp only [Expr.evalFuel, ih]
+          refine exprResult_bind ?_
+          obtain ⟨f, hf, rfl⟩ := mapOf?_spec hrel.fields hk
+          rw [loadIndex_map hrel hk (v0.eval_lt ρ), Writes.eval_read hrel.ok]
+          simp only [WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf.slot]
+          rfl
         | none =>
           simp only [eraseExpr, hk, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq,
             Prod.mk.injEq] at h
           obtain ⟨k, hk', ⟨gs0, v0⟩, hi, rfl, rfl⟩ := h
           have ih := eval_erase ρ fields ctx rt S hrel i gs0 v0 n hi
             (by simp [Expr.orderFuel, Expr.listEvalFuel] at hf; omega)
-          simp only [Expr.evalFuel, ih, bind_exprResult]
-          unfold exprResult
-          split
-          · rfl
-          · obtain ⟨f, hf, rfl⟩ := boolMapOf?_spec hrel.fields hk'
-            rw [loadIndex_boolMap hrel hk' (v0.eval_lt ρ), boolOfWord_eval, Writes.eval_read hrel.ok]
-            simp only [WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf.slot]
-            rfl
+          simp only [Expr.evalFuel, ih]
+          refine exprResult_bind ?_
+          obtain ⟨f, hf, rfl⟩ := boolMapOf?_spec hrel.fields hk'
+          rw [loadIndex_boolMap hrel hk' (v0.eval_lt ρ), boolOfWord_eval, Writes.eval_read hrel.ok]
+          simp only [WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf.slot]
+          rfl
     all_goals
       cases idx <;> simp only [eraseExpr] at h
     all_goals first

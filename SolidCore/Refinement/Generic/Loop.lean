@@ -43,6 +43,14 @@ theorem eval_mono {n m : Nat} (hnm : n ≤ m) {tbl : FunctionTable} {ctx : Conte
     Stmt.eval m tbl ctx rt s = .done (.ok r) := by
   rw [Stmt.eval_fuel_mono hnm (by rw [h]; exact noFuelStop_done r), h]
 
+/-- A statement ends in one result, whatever fuel ends it. -/
+theorem eval_det {n m : Nat} {tbl : FunctionTable} {ctx : Context} {rt : Runtime} {s : Stmt}
+    {r1 r2 : Result} (h1 : Stmt.eval n tbl ctx rt s = .done (.ok r1))
+    (h2 : Stmt.eval m tbl ctx rt s = .done (.ok r2)) : r1 = r2 := by
+  have := (eval_mono (Nat.le_max_left n m) h1).symm.trans (eval_mono (Nat.le_max_right n m) h2)
+  cases this
+  rfl
+
 /-- A bind that ends had a prefix that ended. -/
 theorem bind_eq_done {α β : Type} {t : SolI α} {k : α → SolI β} {b : β}
     (h : (t >>= k) = .done (.ok b)) : ∃ a, t = .done (.ok a) ∧ k a = .done (.ok b) := by
@@ -117,21 +125,15 @@ theorem evalFor_of_cert {k : Nat} {tbl : FunctionTable} {ctx : Context} {cond : 
     · rw [if_pos ht] at hstep ⊢
       obtain ⟨r1, hb, hrest⟩ := hstep
       rw [eval_mono (by omega) hb, bind_done_ok]
+      -- A normal or `continue` end runs `post`; every other end is the loop's.
       rcases r1 with rb | ⟨rt1, vs⟩ | rt1 | ⟨rt1, e⟩ | rb | rb <;> dsimp only [ForRest] at hrest ⊢
-      · obtain ⟨r2, hp, hn⟩ := hrest
-        rw [eval_mono (by omega) hp, bind_done_ok]
-        rcases r2 with rp | ⟨rt2, vs⟩ | rt2 | ⟨rt2, e⟩ | rt2 | rt2 <;> dsimp only at hn ⊢
-        · exact ih rp hn.1 (by omega) f (by omega)
-        all_goals exact ⟨_, rfl, hn⟩
-      · exact ⟨_, rfl, hrest⟩
-      · exact ⟨_, rfl, hrest⟩
-      · exact ⟨_, rfl, hrest⟩
-      · exact ⟨_, rfl, hrest⟩
-      · obtain ⟨r2, hp, hn⟩ := hrest
-        rw [eval_mono (by omega) hp, bind_done_ok]
-        rcases r2 with rp | ⟨rt2, vs⟩ | rt2 | ⟨rt2, e⟩ | rt2 | rt2 <;> dsimp only at hn ⊢
-        · exact ih rp hn.1 (by omega) f (by omega)
-        all_goals exact ⟨_, rfl, hn⟩
+      all_goals first
+        | (obtain ⟨r2, hp, hn⟩ := hrest
+           rw [eval_mono (by omega) hp, bind_done_ok]
+           rcases r2 with rp | ⟨rt2, vs⟩ | rt2 | ⟨rt2, e⟩ | rt2 | rt2 <;> dsimp only at hn ⊢
+           · exact ih rp hn.1 (by omega) f (by omega)
+           all_goals exact ⟨_, rfl, hn⟩)
+        | exact ⟨_, rfl, hrest⟩
     · rw [if_neg ht] at hstep ⊢
       exact ⟨_, rfl, hstep⟩
 
@@ -195,12 +197,9 @@ theorem evalWhile_of_cert {k : Nat} {tbl : FunctionTable} {ctx : Context} {cond 
       obtain ⟨r1, hb, hrest⟩ := hstep
       rw [eval_mono (by omega) hb, bind_done_ok]
       rcases r1 with rb | ⟨rt1, vs⟩ | rt1 | ⟨rt1, e⟩ | rb | rb <;> dsimp only [WhileRest] at hrest ⊢
-      · exact ih rb hrest.1 (by omega) f (by omega)
-      · exact ⟨_, rfl, hrest⟩
-      · exact ⟨_, rfl, hrest⟩
-      · exact ⟨_, rfl, hrest⟩
-      · exact ⟨_, rfl, hrest⟩
-      · exact ih rb hrest.1 (by omega) f (by omega)
+      all_goals first
+        | exact ih rb hrest.1 (by omega) f (by omega)
+        | exact ⟨_, rfl, hrest⟩
     · rw [if_neg ht] at hstep ⊢
       exact ⟨_, rfl, hstep⟩
 
@@ -237,15 +236,9 @@ theorem evalFor_never {tbl : FunctionTable} {ctx : Context} {cond : Expr} {post 
     rw [hc, bind_done_ok] at hr
     simp only [Value.expectWord, wordTruthy_norm, ht, ite_true] at hr
     obtain ⟨r1, hb1, hr⟩ := bind_eq_done hr
-    have e1 : r1 = .normal rb := by
-      have := (eval_mono (Nat.le_max_left f k) hb1).symm.trans (eval_mono (Nat.le_max_right f k) hb)
-      cases this; rfl
-    subst e1
+    obtain rfl := eval_det hb1 hb
     obtain ⟨r2, hp2, hr⟩ := bind_eq_done hr
-    have e2 : r2 = .normal rp := by
-      have := (eval_mono (Nat.le_max_left f k) hp2).symm.trans (eval_mono (Nat.le_max_right f k) hpo)
-      cases this; rfl
-    subst e2
+    obtain rfl := eval_det hp2 hpo
     exact ih rp hp' r hr
 
 /-- **The `for` statement of a loop without progress finishes at no fuel.** -/
@@ -263,10 +256,7 @@ theorem forLoop_never {tbl : FunctionTable} {ctx : Context} {init : Stmt} {cond 
   | succ f =>
     simp only [Stmt.eval] at hr
     obtain ⟨r0, h0, hr⟩ := bind_eq_done hr
-    have e0 : r0 = .normal rt1 := by
-      have := (eval_mono (Nat.le_max_left f k0) h0).symm.trans (eval_mono (Nat.le_max_right f k0) hinit)
-      cases this; rfl
-    subst e0
+    obtain rfl := eval_det h0 hinit
     obtain ⟨r1, h1, -⟩ := bind_eq_done hr
     exact evalFor_never P h f rt1 hp r1 h1
 

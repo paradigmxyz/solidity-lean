@@ -22,13 +22,8 @@ theorem testBit_word {x : Nat} (hx : x < 2 ^ 256) {i : Nat} (hi : 256 ≤ i) : x
 theorem testBit_clearMask (o w i : Nat) (h : o + w ≤ 256) :
     (clearMask o w).testBit i = (decide (i < o) || (decide (o + w ≤ i) && decide (i < 256))) := by
   simp only [clearMask, Nat.testBit_or, Nat.testBit_shiftLeft, Nat.testBit_two_pow_sub_one]
-  by_cases h1 : i < o
-  · simp [h1]
-  · by_cases h2 : o + w ≤ i
-    · by_cases h3 : i < 256
-      · simp [h1, h2, h3] <;> omega
-      · simp [h1, h2, h3] <;> omega
-    · simp [h1, h2] <;> omega
+  by_cases h1 : i < o <;> by_cases h2 : o + w ≤ i <;> by_cases h3 : i < 256 <;> simp [h1, h2, h3] <;>
+    omega
 
 theorem clearMask_lt (o w : Nat) (h : o + w ≤ 256) : clearMask o w < 2 ^ 256 := by
   have : clearMask o w = clearMask o w % 2 ^ 256 := by
@@ -47,17 +42,12 @@ theorem and_clearMask {x : Nat} (hx : x < 2 ^ 256) (o w : Nat) (h : o + w ≤ 25
   intro i
   simp only [Nat.testBit_and, Nat.testBit_or, testBit_clearMask o w i h, Nat.testBit_shiftLeft,
     Nat.testBit_shiftRight, Nat.testBit_mod_two_pow]
-  by_cases h1 : i < o
-  · have : ¬ i ≥ o + w := by omega
-    simp [h1, this]
-  · by_cases h2 : o + w ≤ i
-    · by_cases h3 : i < 256
-      · have e : o + w + (i - (o + w)) = i := by omega
-        simp [h1, h2, h3, e]
-      · have e : o + w + (i - (o + w)) = i := by omega
-        simp [h1, h2, h3, e, testBit_word hx (Nat.le_of_not_lt h3)]
-    · have : ¬ i ≥ o + w := by omega
-      simp [h1, h2, this]
+  by_cases h2 : o + w ≤ i
+  · have e : o + w + (i - (o + w)) = i := by omega
+    by_cases h3 : i < 256
+    · simp [h2, h3, e, show ¬ i < o by omega]
+    · simp [h2, h3, e, show ¬ i < o by omega, testBit_word hx (Nat.le_of_not_lt h3)]
+  · by_cases h1 : i < o <;> simp [h1, h2, show ¬ i ≥ o + w by omega]
 
 /-- SolidCore's arithmetic write of a packed field is the masked write. -/
 theorem replace_eq {cur : Nat} (hcur : cur < 2 ^ 256) (v o w : Nat) (h : o + w ≤ 256) :

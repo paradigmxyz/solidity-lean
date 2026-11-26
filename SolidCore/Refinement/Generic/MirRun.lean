@@ -154,6 +154,14 @@ theorem rel_args {ρ : Val} {call : Call} {env : Env} {senv : SEnv} (h : EnvRel 
   | [] => trivial
   | op :: ops => ⟨rel_operand h op, rel_args h ops⟩
 
+/-- A word that holds `SV.paid` is not 0. -/
+theorem rel_paid {ρ : Val} {call : Call} {v : Word} (h : SV.Rel ρ call v .paid) : v.toNat ≠ 0 :=
+  fun h0 => h (BitVec.eq_of_toNat_eq (by simpa using h0))
+
+/-- The environment of a function's entry, every value 0, holds the symbolic one. -/
+theorem EnvRel.zero (ρ : Val) (call : Call) : EnvRel ρ call (fun _ => 0) (fun _ => .w (.lit 0)) :=
+  fun _ => by simp [SV.Rel, WExpr.eval]
+
 /-! ## Word operations -/
 
 theorem shl_toNat_eval (a b : Word) :
@@ -299,10 +307,9 @@ theorem symPure_sound {cv : SV} {sel n : Nat} {ρ : Val} {call : Call}
     | [x], ⟨hx, _⟩ =>
       obtain ⟨h1, h2⟩ := evalPure_iszero x
       refine ⟨_, h1, ?_⟩
-      have hx' : x.toNat ≠ 0 := fun h0 => hx (BitVec.eq_of_toNat_eq (by simpa using h0))
       simp only [SV.Rel, WExpr.eval]
       rw [h2]
-      simp [UnOp.eval, hx']
+      simp [UnOp.eval, rel_paid hx]
   · -- eq of a value other than 0 and 0
     split at h
     · rename_i hz
@@ -312,10 +319,9 @@ theorem symPure_sound {cv : SV} {sel n : Nat} {ρ : Val} {call : Call}
       | [x, y], ⟨hx, hy, _⟩ =>
         obtain ⟨w, hw, hwv⟩ := evalPure_bin (op := .eq) (o := .eq) rfl x y
         refine ⟨w, hw, ?_⟩
-        have hx' : x.toNat ≠ 0 := fun h0 => hx (BitVec.eq_of_toNat_eq (by simpa using h0))
         simp only [SV.Rel, WExpr.eval, hz] at hy ⊢
         rw [hwv]
-        simp [BinOp.eval, hy, hx']
+        simp [BinOp.eval, hy, rel_paid hx]
     · simp at h
   · -- eq of 0 and a value other than 0
     split at h
@@ -326,10 +332,9 @@ theorem symPure_sound {cv : SV} {sel n : Nat} {ρ : Val} {call : Call}
       | [x, y], ⟨hx, hy, _⟩ =>
         obtain ⟨w, hw, hwv⟩ := evalPure_bin (op := .eq) (o := .eq) rfl x y
         refine ⟨w, hw, ?_⟩
-        have hy' : y.toNat ≠ 0 := fun h0 => hy (BitVec.eq_of_toNat_eq (by simpa using h0))
         simp only [SV.Rel, WExpr.eval, hz] at hx ⊢
         rw [hwv]
-        simp [BinOp.eval, hx, Ne.symm hy']
+        simp [BinOp.eval, hx, Ne.symm (rel_paid hy)]
     · simp at h
   · simp at h
 
@@ -673,58 +678,44 @@ theorem symInsts_sound {ev : EnvFlags} {cv : SV} {sel n : Nat} {ρ : Val} {call 
     · simp at h
   | .ne dst a b :: rest, senv, senv', st, st', h, env, s, he, hs => by
     simp only [symInsts] at h
-    split at h
-    · rename_i x y hx hy
-      have ha := rel_operand he a
-      have hb := rel_operand he b
-      rw [hx] at ha
-      rw [hy] at hb
-      have hv : SV.Rel ρ call (Evm.ne (a.eval env) (b.eval env)) (.w (mkUn .iszero (mkBin .eq x y))) := by
+    have ha := rel_operand he a
+    have hb := rel_operand he b
+    obtain ⟨sv, hv, h⟩ : ∃ sv, SV.Rel ρ call (Evm.ne (a.eval env) (b.eval env)) sv ∧
+        symInsts ev cv sel n K rest (senv.set dst sv) st = some (senv', st') := by
+      split at h
+      · rename_i x y hx hy
+        rw [hx] at ha
+        rw [hy] at hb
+        refine ⟨_, ?_, h⟩
         simp only [SV.Rel] at ha hb ⊢
         rw [eval_mkUn, ne_toNat]
         simp only [WExpr.eval, eval_mkBin, ha, hb]
-      obtain ⟨env', s', h1, h2, h3⟩ :=
-        symInsts_sound hc henv hK rest _ _ _ _ h _ s (he.set hv dst) hs
-      exact ⟨env', s', by simp only [execInsts]; exact h1, h2, h3⟩
-    · -- a value other than 0 against 0
-      rename_i z hx hy
-      split at h
-      · rename_i hz
-        have ha := rel_operand he a
-        have hb := rel_operand he b
-        rw [hx] at ha
-        rw [hy] at hb
-        have ha' : (a.eval env).toNat ≠ 0 := fun h0 =>
-          ha (BitVec.eq_of_toNat_eq (by simpa using h0))
-        simp only [SV.Rel, WExpr.eval, hz] at hb
-        have hv : SV.Rel ρ call (Evm.ne (a.eval env) (b.eval env)) (.w (.lit 1)) := by
-          simp only [SV.Rel, WExpr.eval]
+      · -- A value other than 0 against 0.
+        rename_i z hx hy
+        split at h
+        · rename_i hz
+          rw [hx] at ha
+          rw [hy] at hb
+          refine ⟨_, ?_, h⟩
+          simp only [SV.Rel, WExpr.eval, hz] at hb ⊢
           rw [ne_toNat, hb]
-          simp [BinOp.eval, UnOp.eval, ha']
-        obtain ⟨env', s', h1, h2, h3⟩ :=
-          symInsts_sound hc henv hK rest _ _ _ _ h _ s (he.set hv dst) hs
-        exact ⟨env', s', by simp only [execInsts]; exact h1, h2, h3⟩
-      · simp at h
-    · -- 0 against a value other than 0
-      rename_i z hx hy
-      split at h
-      · rename_i hz
-        have ha := rel_operand he a
-        have hb := rel_operand he b
-        rw [hx] at ha
-        rw [hy] at hb
-        have hb' : (b.eval env).toNat ≠ 0 := fun h0 =>
-          hb (BitVec.eq_of_toNat_eq (by simpa using h0))
-        simp only [SV.Rel, WExpr.eval, hz] at ha
-        have hv : SV.Rel ρ call (Evm.ne (a.eval env) (b.eval env)) (.w (.lit 1)) := by
-          simp only [SV.Rel, WExpr.eval]
+          simp [BinOp.eval, UnOp.eval, rel_paid ha]
+        · simp at h
+      · -- 0 against a value other than 0.
+        rename_i z hx hy
+        split at h
+        · rename_i hz
+          rw [hx] at ha
+          rw [hy] at hb
+          refine ⟨_, ?_, h⟩
+          simp only [SV.Rel, WExpr.eval, hz] at ha ⊢
           rw [ne_toNat, ha]
-          simp [BinOp.eval, UnOp.eval, Ne.symm hb']
-        obtain ⟨env', s', h1, h2, h3⟩ :=
-          symInsts_sound hc henv hK rest _ _ _ _ h _ s (he.set hv dst) hs
-        exact ⟨env', s', by simp only [execInsts]; exact h1, h2, h3⟩
+          simp [BinOp.eval, UnOp.eval, Ne.symm (rel_paid hb)]
+        · simp at h
       · simp at h
-    · simp at h
+    obtain ⟨env', s', h1, h2, h3⟩ :=
+      symInsts_sound hc henv hK rest _ _ _ _ h _ s (he.set hv dst) hs
+    exact ⟨env', s', by simp only [execInsts]; exact h1, h2, h3⟩
   | .assume negated op args :: rest, senv, senv', st, st', h, env, s, he, hs => by
     simp only [symInsts] at h
     split at h
@@ -937,21 +928,11 @@ theorem symTerm_sound {cv : SV} {sel n : Nat} {ρ : Val} {call : Call}
         simp only [hl, Option.some.injEq] at h
         subst h
         have hev : e.eval ρ = v % wordSize := by rw [WExpr.eq_of_lit? hl]; rfl
-        refine ⟨ms, env, s, ?_, hst, he, hs⟩
-        by_cases h0 : v % wordSize = 0
-        · have hc0 : c.eval env = 0 := hz.mpr (by rw [hev, h0])
-          simp only [hc0, h0, ↓reduceIte]
-        · have hc0 : ¬ c.eval env = 0 := fun h' => h0 (by rw [← hev]; exact hz.mp h')
-          simp only [hc0, h0, ↓reduceIte]
+        exact ⟨ms, env, s, by simp only [hz, hev], hst, he, hs⟩
       | none =>
         simp only [hl, Option.some.injEq] at h
         subst h
-        refine ⟨ms, env, s, ?_, hst, he, hs⟩
-        by_cases h0 : e.eval ρ = 0
-        · have hc0 : c.eval env = 0 := hz.mpr h0
-          simp only [hc0, h0, ↓reduceIte]
-        · have hc0 : ¬ c.eval env = 0 := fun h' => h0 (hz.mp h')
-          simp only [hc0, h0, ↓reduceIte]
+        exact ⟨ms, env, s, by simp only [hz], hst, he, hs⟩
   | switch key d cs =>
     simp only [symTerm] at h
     split at h
@@ -978,9 +959,8 @@ theorem symTerm_sound {cv : SV} {sel n : Nat} {ρ : Val} {call : Call}
       | some senv3 =>
         simp only [hbp, Option.some.injEq] at h
         subst h
-        have hz : EnvRel ρ call (fun _ => 0) (fun _ => .w (.lit 0)) := fun _ => by
-          simp [SV.Rel, WExpr.eval]
-        obtain ⟨env3, hbp', he3⟩ := symBindParams_sound g.params _ _ _ _ _ hbp (rel_args he args) hz
+        obtain ⟨env3, hbp', he3⟩ :=
+          symBindParams_sound g.params _ _ _ _ _ hbp (rel_args he args) (EnvRel.zero ρ call)
         exact ⟨ms, env3, g.start s, by simp only [segment, splitCall, execInsts, hg', hbp'], hst, he3,
           hs.start g⟩
   | leave values =>
@@ -1087,10 +1067,8 @@ theorem symSegment_sound {ev : EnvFlags} {cv : SV} {sel n : Nat} {ρ : Val} {cal
         | some inner =>
           simp only [hbp, Option.some.injEq] at h
           subst h
-          have hz : EnvRel ρ call (fun _ => 0) (fun _ => .w (.lit 0)) := fun _ => by
-            simp [SV.Rel, WExpr.eval]
           obtain ⟨env3, hbp', he3⟩ :=
-            symBindParams_sound g.params _ _ _ _ _ hbp (rel_args he2 args) hz
+            symBindParams_sound g.params _ _ _ _ _ hbp (rel_args he2 args) (EnvRel.zero ρ call)
           exact ⟨⟨fn, b, dst, rest, term, env2, [], none⟩ :: ms, env3, g.start s2,
             by simp only [segment, hsp, hexec, hg', hbp'],
             ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, he2, hst⟩, he3, hs2.start g⟩
@@ -1205,9 +1183,8 @@ theorem symRun_entry_sound {ev : EnvFlags} {cv : SV} {sel n : Nat} {ρ : Val} {c
     (h : symRun ev cv m sel n fuel [] (.enter m.entry 0 0) (fun _ => .w (.lit 0))
       (symEntryStart m SState.initial) [] = some T) :
     (moduleSem o).run m call = some (T.eval ρ).obs := by
-  have hz : EnvRel ρ call (fun _ => 0) (fun _ => .w (.lit 0)) := fun _ => by
-    simp [SV.Rel, WExpr.eval]
-  obtain ⟨k, r, hk, hr⟩ := symRun_sound hc o henv m fuel _ _ _ _ _ T h [] _ _ trivial hz
+  obtain ⟨k, r, hk, hr⟩ := symRun_sound hc o henv m fuel _ _ _ _ _ T h [] _ _ trivial
+    (EnvRel.zero ρ call)
     ((StRel.initial call hc.store hc.ok).entryStart m) (fun _ hp => absurd hp List.not_mem_nil)
   have e : moduleLayer.result o m call = some r := moduleLayer.result_of_ends ⟨k, hk⟩
   show (moduleLayer.result o m call).map _ = _

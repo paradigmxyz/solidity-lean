@@ -710,22 +710,16 @@ theorem splitNeg_eval (ρ : Val) (c : WExpr) (t e : Tree) :
     simp only [or_eval_eq_zero]
     by_cases ha : a.eval ρ = 0 <;> by_cases hb : b.eval ρ = 0 <;> simp [ha, hb]
   | case5 a t e =>
-    have ha := a.eval_le ρ
+    have hlt := a.eval_lt ρ
     have hm : maxWord % wordSize = maxWord := Nat.mod_eq_of_lt (by decide)
     simp only [Tree.eval, WExpr.eval, BinOp.eval, UnOp.eval, hm]
     by_cases h : a.eval ρ = maxWord
     · simp [h]
-    · have hlt := a.eval_lt ρ
-      have h3 : (wordSize - 1 - a.eval ρ) % wordSize ≠ 0 := by
-        rw [Nat.mod_eq_of_lt (by omega)]
-        simp only [maxWord] at h
-        omega
-      have h4 : (if a.eval ρ = maxWord then 1 else 0) % wordSize = 0 := by
-        split
-        · exact absurd ‹_› h
-        · rfl
-      rw [h4, if_pos rfl]
-      exact (ite_cond_eq_false _ _ (eq_false h3)).symm
+    · rw [if_neg h, Nat.zero_mod, if_pos rfl]
+      refine (ite_cond_eq_false _ _ (eq_false ?_)).symm
+      rw [Nat.mod_eq_of_lt (by omega)]
+      simp only [maxWord] at h
+      omega
   | case6 => rfl
 
 theorem Tree.eval_splitNeg (ρ : Val) : ∀ T : Tree, T.splitNeg.eval ρ = T.eval ρ

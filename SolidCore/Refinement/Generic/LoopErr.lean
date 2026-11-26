@@ -108,69 +108,21 @@ theorem runtime_run_err {fuel : Nat} {c : TypeCheck.CheckedContract} {σ : List 
     runtimeRun fuel c { calldata := Abi.calldata sel args, callvalue := 0, storage := σ } = none := by
   unfold runtimeRun runtimeResult?
   simp only [Dirty.bytes_calldata]
-  rw [show ({ c.core.context with sender := callerAddress, self := selfAddress, value := 0 } :
-    Source.Context) = Wide.ctxOf c from rfl]
+  obtain ⟨rt, hrel, hcall⟩ := call_entry (c := c) hw hret fuel
+    { c.core.context with sender := callerAddress, self := selfAddress, value := 0 } callerAddress
+    ((EthLib.Base.natToBytes 4 sel).map (·.toNat) ++ Dirty.argBytes args)
+    (st0 := { State.empty with
+      storage := σ.foldl (fun acc kv => StorageMap.insertLoop acc kv.1 kv.2) State.empty.storage })
+    (getD_storage_empty σ) rfl
+    (.lit callerWord) hlen hargs (argFacts_hold ⟨args, slotValue σ, solHash, callerWord⟩ hargs ws 0 (by simpa using hclean)) rfl
+  obtain ⟨e, he⟩ := hb _ rt hrel
   have hdrop : ((EthLib.Base.natToBytes 4 sel).map (·.toNat) ++ Dirty.argBytes args).drop
       ABI.selectorBytes = Dirty.argBytes args := by
     simp [ABI.selectorBytes, EthLib.Base.natToBytes_length]
   simp only [ABI.Contract.callCalldataAtFromWithContext?, Dirty.readSelector_calldata _ hsel, hfind,
-    hdrop, hdec]
-  have hp := (widthsOf_spec hw).2.2.1
-  have hr : ∀ r ∈ fn.returns, RetTy r.ty ∧ r.isStorageRef = false :=
-    fun r hr => wordBinding_ty (List.all_eq_true.mp hret r hr)
-  generalize hctx : ABI.Contract.callContextAtWithBase c.core (Wide.ctxOf c) selfAddress callerAddress 0
-    ((EthLib.Base.natToBytes 4 sel).map (·.toNat) ++ Dirty.argBytes args) = ctx
-  generalize hst : ({ State.empty with
-      storage := σ.foldl (fun acc kv => acc.insertLoop kv.1 kv.2) State.empty.storage } :
-    Source.State) = st0
-  have hacc : fn.acceptsValue 0 = true := by
-    simp [FunctionDef.acceptsValue, wordEq]
-  have hctxv : ctx.value = 0 := by
-    subst hctx; simp [ABI.Contract.callContextAtWithBase, SolidCore.Solidity.Shared.norm]
-  set ρ : Val := ⟨args, slotValue σ, solHash, callerWord⟩ with hρ
-  have hρok : ρ.Ok := slotValue_store σ
-  set K := argFacts ws 0 with hK
-  have hKρ : K.Hold ρ := argFacts_hold ρ hargs ws 0 (by simpa [hρ] using hclean)
-  set E : EraseEnv := { envOf c.core with facts := K } with hE
-  have hframe : fn.initialFrame? (args.map .word) =
-      some (frameOf ρ (paramLocals fn.params 0 ++ fn.returns.map fun r => (r.name, .lit 0))) := by
-    have h0 : BindingDecl.bindArgs? fn.params (args.map .word) =
-        some (frameOf ρ (paramLocals fn.params 0)) :=
-      bindArgs_words ρ hargs fn.params 0 hp (by simp [hρ, hlen])
-    simp only [FunctionDef.initialFrame?, h0, FunctionDef.returnDefaultBindings,
-      defaults_words ρ fn.returns hr, frameOf, List.map_append]
-  have hrel : StmtRel ρ E ctx
-      { state := { st0 with
-          selfBalance := SolidCore.Solidity.Shared.addWord
-            (SolidCore.Solidity.Shared.Account.balanceAt ctx.accountBalances ctx.self) ctx.value
-          worldMutatedSinceAdoption := true },
-        locals := [frameOf ρ (paramLocals fn.params 0 ++ fn.returns.map fun r => (r.name, .lit 0))] }
-      (initState fn) :=
-    { fields := by subst hctx; rfl
-      events := by subst hctx; rfl
-      checked := by subst hctx; rfl
-      sender := by subst hctx; rfl
-      hash := rfl
-      ok := hρok
-      frames := rfl
-      store := by
-        intro k hk
-        have := getD_storage_empty σ k
-        subst hst
-        simp only [State.loadSlot, StorageMap.lookup?, initState, Writes.store, hρ]
-        rw [← this]
-        simp only [SolidCore.Solidity.Shared.norm, modulus_eq, Std.HashMap.get?_eq_getElem?]
-        cases (List.foldl (fun acc kv => acc.insertLoop kv.1 kv.2) State.empty.storage σ)[k % wordSize]? <;> rfl
-      logs := by subst hst; simp [State.empty, initState]
-      facts := hKρ }
-  obtain ⟨e, he⟩ := hb ctx _ hrel
-  have hcall : fn.call? fuel c.core.table ctx st0 (args.map .word) = none := by
-    have hacc' : fn.acceptsValue ctx.value = true := hctxv ▸ hacc
-    simp only [FunctionDef.call?, FunctionDef.call, FunctionDef.evalBodyEntry, hacc', hframe,
-      if_true, Option.map_some, Option.bind_some]
-    rw [he]
-    rfl
-  rw [hacc, if_pos rfl, hcall]
+    hdrop, hdec, FunctionDef.call?, hcall, he]
+  have hacc : fn.acceptsValue 0 = true := by simp [FunctionDef.acceptsValue, wordEq]
+  rw [hacc, if_pos rfl]
   first | rfl | simp
 
 /-- info: 'SolidCore.Refinement.Generic.Loop.runtime_run_err' depends on axioms: [propext, Classical.choice, Quot.sound] -/

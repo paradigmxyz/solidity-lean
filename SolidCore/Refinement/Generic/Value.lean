@@ -66,16 +66,17 @@ theorem fullScopeValue_zero (fns : List Fn) (s : List (Nat × Nat)) (call : Call
 
 /-! ## SolidCore rejects a value -/
 
-/-- **SolidCore rejects a value**: a call with a value other than 0 of a non-payable function of
-the fragment, on any argument words, reverts with empty output and leaves the storage. -/
-theorem source_run_value {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.State}
-    {s : List (Nat × Nat)} (hd : Wide.DeployedAt fuel c d s) {sel : Nat} (hsel : sel < 2 ^ 32)
-    {fn : FunctionDef} (hfind : c.core.findFunctionBySelector? sel = some fn)
+/-- **SolidCore rejects a value from every caller**: a call sent by `a` with a value other than 0
+of a non-payable function of the fragment, on any argument words, reverts with empty output and
+leaves the storage. -/
+theorem source_run_value_from (a : Nat) {fuel : Nat} {c : TypeCheck.CheckedContract}
+    {d : Source.State} {s : List (Nat × Nat)} (hd : Wide.DeployedAt fuel c d s) {sel : Nat}
+    (hsel : sel < 2 ^ 32) {fn : FunctionDef} (hfind : c.core.findFunctionBySelector? sel = some fn)
     {ws : List Nat} (hw : widthsOf fn.params fn.paramAbiCleanups = some ws)
     (hpay : fn.payable = false) (args : List Nat)
     (hlen : args.length = fn.params.length) (hargs : ∀ a ∈ args, a < 2 ^ 256) {v : Nat}
     (hv0 : v ≠ 0) (hv : v < 2 ^ 256) (σ : List (Nat × Nat)) :
-    Source.run fuel c { calldata := Abi.calldata sel args, callvalue := v, storage := σ } =
+    Source.runFrom a fuel c { calldata := Abi.calldata sel args, callvalue := v, storage := σ } =
       some (rejected σ) := by
   obtain ⟨s0, hdep⟩ := deployedStorage_of hd
   unfold Abi.deployedStorage at hdep
@@ -83,7 +84,7 @@ theorem source_run_value {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Sourc
   split at hdep
   case h_2 => simp at hdep
   rename_i deployed st hcons
-  -- The constructor runs with no value, whatever the call's.
+  -- The constructor runs with no value and from `callerAddress`, whoever sends the call.
   have hcons' : TypeCheck.CheckedContract.constructWithContext? fuel c
       { c.core.context with sender := callerAddress, self := selfAddress, value := v }
       State.empty selfAddress 0 [] = some (CallResult.returned deployed st) := hcons
@@ -97,7 +98,7 @@ theorem source_run_value {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Sourc
   have hvm : v % SolidCore.Solidity.Shared.wordModulus = v := Nat.mod_eq_of_lt hv
   have hacc : fn.acceptsValue v = false := by
     simp [FunctionDef.acceptsValue, hpay, wordEq, SolidCore.Solidity.Shared.norm, hvm, hv0]
-  simp only [Source.run, Source.result?, hcons',
+  simp only [Source.runFrom, Source.resultFrom?, hcons',
     TypeCheck.CheckedContract.callCalldataAtFromWithContext?,
     ABI.Contract.callCalldataAtFromWithContext?, Dirty.bytes_calldata,
     Dirty.readSelector_calldata _ hsel, hfind]
@@ -108,6 +109,40 @@ theorem source_run_value {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Sourc
       ABI.Contract.revertedEmptyCall?, ABI.Contract.revertedCall?,
       ABI.Contract.encodeRevertData?, bind, Option.bind, Option.map_some, Source.observe,
       rejected]
+
+/-- **SolidCore rejects a value**: `source_run_value_from` for the call sent by `callerAddress`,
+`Source.run`'s (`Source.runFrom_callerAddress`). -/
+theorem source_run_value {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.State}
+    {s : List (Nat × Nat)} (hd : Wide.DeployedAt fuel c d s) {sel : Nat} (hsel : sel < 2 ^ 32)
+    {fn : FunctionDef} (hfind : c.core.findFunctionBySelector? sel = some fn)
+    {ws : List Nat} (hw : widthsOf fn.params fn.paramAbiCleanups = some ws)
+    (hpay : fn.payable = false) (args : List Nat)
+    (hlen : args.length = fn.params.length) (hargs : ∀ a ∈ args, a < 2 ^ 256) {v : Nat}
+    (hv0 : v ≠ 0) (hv : v < 2 ^ 256) (σ : List (Nat × Nat)) :
+    Source.run fuel c { calldata := Abi.calldata sel args, callvalue := v, storage := σ } =
+      some (rejected σ) :=
+  source_run_value_from callerAddress hd hsel hfind hw hpay args hlen hargs hv0 hv σ
+
+/-- The value word of a call with a value other than 0, from any caller, is the symbolic run's
+`SV.paid`. -/
+theorem callFactsFromValue (sel : Nat) (hsel : sel < 2 ^ 32) (args : List Nat)
+    (hargs : ∀ a ∈ args, a < 2 ^ 256) (σ : List (Nat × Nat)) (a : Nat) {v : Nat} (hv0 : v ≠ 0)
+    (hv : v < 2 ^ 256) :
+    CallFactsAt .paid sel args.length ⟨args, slotValue σ, solHash, a⟩
+      { calldata := Abi.calldata sel args, callvalue := v, storage := σ } :=
+  have hc0 := callFactsFrom sel hsel args hargs σ a
+  { value := by
+      show BitVec.ofNat 256 v ≠ 0
+      intro h
+      apply hv0
+      have := congrArg BitVec.toNat h
+      rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hv] at this
+      simpa using this
+    size := hc0.size
+    args := hc0.args
+    selector := hc0.selector
+    store := hc0.store
+    ok := hc0.ok }
 
 /-! ## The check -/
 
@@ -151,6 +186,20 @@ def checkValue (mirFuel : Nat) (core : Contract) (m : Module) (fns : List Fn) (e
     Bool :=
   fns.all (checkValueFn mirFuel core m env)
 
+/-- What `checkValue` accepts of a function of `fns` SolidCore dispatches its selector to: the
+function is not payable, and the symbolic run with a value reverts with empty output on every
+path. -/
+theorem checkValue_mem {mirFuel : Nat} {core : Contract} {m : Module} {fns : List Fn}
+    {env : EnvFlags} (hval : checkValue mirFuel core m fns env = true) {f : Fn} (hf : f ∈ fns)
+    {fn : FunctionDef} (hfind : core.findFunctionBySelector? f.sel = some fn) :
+    fn.payable = false ∧ ∃ T, symTreeValue m f.sel f.params.length mirFuel env = some T ∧
+      T.revertsEmpty = true := by
+  have hcv := List.all_eq_true.mp hval f hf
+  simp only [checkValueFn, hfind, Bool.and_eq_true, Bool.not_eq_true'] at hcv
+  refine ⟨hcv.1, ?_⟩
+  revert hcv
+  cases symTreeValue m f.sel f.params.length mirFuel env <;> simp
+
 /-! ## The stage -/
 
 /-- The generic source stage at every value for `check` and `checkValue` with the environment flag
@@ -168,45 +217,15 @@ theorem stageAtValueWith (o : Oracle) {fuel mirFuel : Nat} {c : TypeCheck.Checke
   by_cases hv0 : v = 0
   · subst hv0
     exact stageAtWith o hd henv hchk _ ⟨σ, hcov, f, hf, args, hlen, hargs, rfl⟩ obs hrun
-  have hcf := List.all_eq_true.mp hchk f hf
-  have hcv := List.all_eq_true.mp hval f hf
-  unfold checkFn at hcf
-  unfold checkValueFn at hcv
-  cases hfind : c.core.findFunctionBySelector? f.sel with
-  | none => simp [hfind] at hcf
-  | some fn =>
-  cases ht1 : eraseFn (envOf c.core) fuel fn with
-  | none => simp [hfind, ht1] at hcf
-  | some t1 =>
-  cases ht2 : symTreeValue m f.sel f.params.length mirFuel env with
-  | none => simp [hfind, ht2] at hcv
-  | some T =>
-  simp only [hfind, ht1, Bool.and_eq_true, decide_eq_true_eq] at hcf
-  obtain ⟨hsel, hpl, -⟩ := hcf
-  simp only [hfind, ht2, Bool.and_eq_true, Bool.not_eq_true'] at hcv
-  obtain ⟨hpay, hrev⟩ := hcv
+  obtain ⟨hsel, fn, t1, -, hfind, hpl, ht1, -⟩ := check_mem hchk hf
+  obtain ⟨hpay, T, ht2, hrev⟩ := checkValue_mem hval hf hfind
   obtain ⟨ws, hw⟩ := eraseFn_widths ht1
-  have hsrc := source_run_value hd hsel hfind hw hpay args (by rw [hlen, hpl]) hargs hv0 hv σ
   change Source.run fuel c _ = some obs at hrun
-  rw [hsrc] at hrun
+  rw [source_run_value hd hsel hfind hw hpay args (by rw [hlen, hpl]) hargs hv0 hv σ] at hrun
   cases hrun
-  have hc0 := callFacts f.sel hsel args hargs σ
-  have hcfv : CallFactsAt .paid f.sel args.length ⟨args, slotValue σ, solHash, callerWord⟩
-      { calldata := Abi.calldata f.sel args, callvalue := v, storage := σ } :=
-    { value := by
-        show BitVec.ofNat 256 v ≠ 0
-        intro h
-        apply hv0
-        have := congrArg BitVec.toNat h
-        rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hv] at this
-        simpa using this
-      size := hc0.size
-      args := hc0.args
-      selector := hc0.selector
-      store := hc0.store
-      ok := hc0.ok }
   rw [← hlen] at ht2
-  rw [symTreeValue_sound hcfv o m (henv.envAsk _ _) ht2, Tree.eval_revertsEmpty _ _ hrev]
+  rw [symTreeValue_sound (callFactsFromValue f.sel hsel args hargs σ callerWord hv0 hv) o m
+    (henv.envAsk _ _) ht2, Tree.eval_revertsEmpty _ _ hrev]
   rfl
 
 /-- **The generic source stage at every value**: a checked contract whose constructor leaves the
@@ -290,47 +309,6 @@ theorem stageValueCaller (o : Oracle) (henv : CallerOk o) {fuel mirFuel : Nat}
 
 /-! ## Every caller -/
 
-/-- **SolidCore rejects a value from every caller**: `source_run_value` for the call sent by `a`. -/
-theorem source_run_value_from (a : Nat) {fuel : Nat} {c : TypeCheck.CheckedContract}
-    {d : Source.State} {s : List (Nat × Nat)} (hd : Wide.DeployedAt fuel c d s) {sel : Nat}
-    (hsel : sel < 2 ^ 32) {fn : FunctionDef} (hfind : c.core.findFunctionBySelector? sel = some fn)
-    {ws : List Nat} (hw : widthsOf fn.params fn.paramAbiCleanups = some ws)
-    (hpay : fn.payable = false) (args : List Nat)
-    (hlen : args.length = fn.params.length) (hargs : ∀ a ∈ args, a < 2 ^ 256) {v : Nat}
-    (hv0 : v ≠ 0) (hv : v < 2 ^ 256) (σ : List (Nat × Nat)) :
-    Source.runFrom a fuel c { calldata := Abi.calldata sel args, callvalue := v, storage := σ } =
-      some (rejected σ) := by
-  obtain ⟨s0, hdep⟩ := deployedStorage_of hd
-  unfold Abi.deployedStorage at hdep
-  dsimp only at hdep
-  split at hdep
-  case h_2 => simp at hdep
-  rename_i deployed st hcons
-  -- The constructor runs with no value and from `callerAddress`, whoever sends the call.
-  have hcons' : TypeCheck.CheckedContract.constructWithContext? fuel c
-      { c.core.context with sender := callerAddress, self := selfAddress, value := v }
-      State.empty selfAddress 0 [] = some (CallResult.returned deployed st) := hcons
-  have hdec : ABI.decodeFunctionArgs? fn (Dirty.argBytes args) = .ok (args.map .word) ∨
-      ABI.decodeFunctionArgs? fn (Dirty.argBytes args) = .error .empty := by
-    rw [decode_args hw args hlen hargs]
-    by_cases hclean : argsClean ws args = true
-    · exact Or.inl (if_pos hclean)
-    · exact Or.inr (if_neg hclean)
-  have hvm : v % SolidCore.Solidity.Shared.wordModulus = v := Nat.mod_eq_of_lt hv
-  have hacc : fn.acceptsValue v = false := by
-    simp [FunctionDef.acceptsValue, hpay, wordEq, SolidCore.Solidity.Shared.norm, hvm, hv0]
-  simp only [Source.runFrom, Source.resultFrom?, hcons',
-    TypeCheck.CheckedContract.callCalldataAtFromWithContext?,
-    ABI.Contract.callCalldataAtFromWithContext?, Dirty.bytes_calldata,
-    Dirty.readSelector_calldata _ hsel, hfind]
-  rw [show ((natToBytes 4 sel).map (·.toNat) ++ Dirty.argBytes args).drop ABI.selectorBytes =
-      Dirty.argBytes args by simp [ABI.selectorBytes, natToBytes_length]]
-  rcases hdec with hdec | hdec <;> rw [hdec] <;>
-    simp only [hacc, Bool.false_eq_true, ↓reduceIte, ABI.Contract.rejectedValueCall?,
-      ABI.Contract.revertedEmptyCall?, ABI.Contract.revertedCall?,
-      ABI.Contract.encodeRevertData?, bind, Option.bind, Option.map_some, Source.observe,
-      rejected]
-
 /-- A function the symbolic-caller erasure accepts has the widths of its parameters. -/
 theorem eraseFnSym_widths {E : EraseEnv} {fuel : Nat} {fn : FunctionDef} {t : Tree}
     (h : eraseFnSym E fuel fn = some t) : ∃ ws, widthsOf fn.params fn.paramAbiCleanups = some ws := by
@@ -338,27 +316,6 @@ theorem eraseFnSym_widths {E : EraseEnv} {fuel : Nat} {fn : FunctionDef} {t : Tr
   cases hw : widthsOf fn.params fn.paramAbiCleanups with
   | none => simp [hw] at h
   | some ws => exact ⟨ws, rfl⟩
-
-/-- The value word of a call with a value other than 0, from any caller, is the symbolic run's
-`SV.paid`. -/
-theorem callFactsFromValue (sel : Nat) (hsel : sel < 2 ^ 32) (args : List Nat)
-    (hargs : ∀ a ∈ args, a < 2 ^ 256) (σ : List (Nat × Nat)) (a : Nat) {v : Nat} (hv0 : v ≠ 0)
-    (hv : v < 2 ^ 256) :
-    CallFactsAt .paid sel args.length ⟨args, slotValue σ, solHash, a⟩
-      { calldata := Abi.calldata sel args, callvalue := v, storage := σ } :=
-  have hc0 := callFactsFrom sel hsel args hargs σ a
-  { value := by
-      show BitVec.ofNat 256 v ≠ 0
-      intro h
-      apply hv0
-      have := congrArg BitVec.toNat h
-      rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hv] at this
-      simpa using this
-    size := hc0.size
-    args := hc0.args
-    selector := hc0.selector
-    store := hc0.store
-    ok := hc0.ok }
 
 /-- **The generic source stage at every value, for every caller**: a checked contract whose
 constructor leaves the storage entries `s` and no logs and a lowered MIR module that `checkSym` and
@@ -378,27 +335,11 @@ theorem stageAtValueFrom (a : Nat) (ha : a < 2 ^ 160) (o : Oracle) (ho : FromOk 
   by_cases hv0 : v = 0
   · subst hv0
     exact stageFrom a ha o ho hd hchk _ ⟨σ, hcov, f, hf, args, hlen, hargs, rfl⟩ obs hrun
-  have hcf := List.all_eq_true.mp hchk f hf
-  have hcv := List.all_eq_true.mp hval f hf
-  unfold checkFnSym at hcf
-  unfold checkValueFn at hcv
-  cases hfind : c.core.findFunctionBySelector? f.sel with
-  | none => simp [hfind] at hcf
-  | some fn =>
-  cases ht1 : eraseFnSym (envOf c.core) fuel fn with
-  | none => simp [hfind, ht1] at hcf
-  | some t1 =>
-  cases ht2 : symTreeValue m f.sel f.params.length mirFuel .allSym with
-  | none => simp [hfind, ht2] at hcv
-  | some T =>
-  simp only [hfind, ht1, Bool.and_eq_true, decide_eq_true_eq] at hcf
-  obtain ⟨hsel, hpl, -⟩ := hcf
-  simp only [hfind, ht2, Bool.and_eq_true, Bool.not_eq_true'] at hcv
-  obtain ⟨hpay, hrev⟩ := hcv
+  obtain ⟨hsel, fn, t1, -, hfind, hpl, ht1, -⟩ := checkSym_mem hchk hf
+  obtain ⟨hpay, T, ht2, hrev⟩ := checkValue_mem hval hf hfind
   obtain ⟨ws, hw⟩ := eraseFnSym_widths ht1
-  have hsrc := source_run_value_from a hd hsel hfind hw hpay args (by rw [hlen, hpl]) hargs hv0 hv σ
   change Source.runFrom a fuel c _ = some obs at hrun
-  rw [hsrc] at hrun
+  rw [source_run_value_from a hd hsel hfind hw hpay args (by rw [hlen, hpl]) hargs hv0 hv σ] at hrun
   cases hrun
   rw [← hlen] at ht2
   rw [symTreeValue_sound (callFactsFromValue f.sel hsel args hargs σ a hv0 hv) o m
@@ -428,20 +369,8 @@ theorem definedValueFrom (a : Nat) (ha : a < 2 ^ 160) {fuel mirFuel : Nat}
   by_cases hv0 : v = 0
   · subst hv0
     exact definedFrom a ha hd hchk _ ⟨σ, hcov, f, hf, args, hlen, hargs, rfl⟩
-  have hcf := List.all_eq_true.mp hchk f hf
-  have hcv := List.all_eq_true.mp hval f hf
-  unfold checkFnSym at hcf
-  unfold checkValueFn at hcv
-  cases hfind : c.core.findFunctionBySelector? f.sel with
-  | none => simp [hfind] at hcf
-  | some fn =>
-  cases ht1 : eraseFnSym (envOf c.core) fuel fn with
-  | none => simp [hfind, ht1] at hcf
-  | some t1 =>
-  simp only [hfind, ht1, Bool.and_eq_true, decide_eq_true_eq] at hcf
-  obtain ⟨hsel, hpl, -⟩ := hcf
-  simp only [hfind, Bool.and_eq_true, Bool.not_eq_true'] at hcv
-  obtain ⟨hpay, -⟩ := hcv
+  obtain ⟨hsel, fn, t1, -, hfind, hpl, ht1, -⟩ := checkSym_mem hchk hf
+  obtain ⟨hpay, -⟩ := checkValue_mem hval hf hfind
   obtain ⟨ws, hw⟩ := eraseFnSym_widths ht1
   change (Source.runFrom a fuel c _).isSome = true
   rw [source_run_value_from a hd hsel hfind hw hpay args (by rw [hlen, hpl]) hargs hv0 hv σ]

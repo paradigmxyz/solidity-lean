@@ -1,4 +1,5 @@
 import SolidCore.Refinement.Generic.Stage
+import SolidCore.Refinement.Generic.LoopRun
 
 /-!
 # The generic source stage for every caller
@@ -198,163 +199,6 @@ theorem run_rejected_from (a : Nat) {fuel : Nat} {c : TypeCheck.CheckedContract}
   simp
 
 
-theorem source_run_clean_from (a : Nat) (ha : a < 2 ^ 160) {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.State}
-    {s : List (Nat × Nat)} (hd : Wide.DeployedAt fuel c d s) {σ : List (Nat × Nat)}
-    (hcov : Covers s σ) {sel : Nat} (hsel : sel < 2 ^ 32) {fn : FunctionDef}
-    (hfind : c.core.findFunctionBySelector? sel = some fn) {ws : List Nat}
-    (hw : widthsOf fn.params fn.paramAbiCleanups = some ws)
-    (hret : fn.returns.all wordBinding = true) {b : Br}
-    (hb : eraseStmt { envOf c.core with facts := callerFact :: argFacts ws 0 } fuel fn.body (initFrom fn) = some b)
-    {T : Tree} (hT : brTree fn (callerFact :: argFacts ws 0) b = some T) (args : List Nat)
-    (hlen : args.length = fn.params.length) (hargs : ∀ a ∈ args, a < 2 ^ 256)
-    (hclean : argsClean ws args = true)
-    (hdec : ABI.decodeFunctionArgs? fn (Dirty.argBytes args) = .ok (args.map .word)) :
-    Source.runFrom a fuel c { calldata := Abi.calldata sel args, callvalue := 0, storage := σ } =
-      some (T.eval ⟨args, slotValue σ, solHash, a⟩).obs := by
-  rw [SolidCore.Refinement.Wide.callAt_of_args sel args hargs σ,
-    run_eq_at_from a hd, SolidCore.Refinement.Wide.map_ofNat_toNat args hargs]
-  have hdrop : ((EthLib.Base.natToBytes 4 sel).map (·.toNat) ++ Dirty.argBytes args).drop
-      ABI.selectorBytes = Dirty.argBytes args := by
-    simp [ABI.selectorBytes, EthLib.Base.natToBytes_length]
-  simp only [ABI.Contract.callCalldataAtFromWithContext?, Dirty.readSelector_calldata _ hsel, hfind,
-    hdrop, hdec]
-  have hp := (widthsOf_spec hw).2.2.1
-  have hr : ∀ r ∈ fn.returns, RetTy r.ty ∧ r.isStorageRef = false :=
-    fun r hr => wordBinding_ty (List.all_eq_true.mp hret r hr)
-  generalize hctx : ABI.Contract.callContextAtWithBase c.core (Wide.ctxOf c) selfAddress a 0
-    ((EthLib.Base.natToBytes 4 sel).map (·.toNat) ++ Dirty.argBytes args) = ctx
-  generalize hst : ({ d with storage := σ.foldl (fun acc kv => acc.insertLoop kv.1 kv.2) d.storage } :
-    Source.State) = st0
-  have hacc : fn.acceptsValue 0 = true := by
-    simp [FunctionDef.acceptsValue, wordEq]
-  have hctxv : ctx.value = 0 := by
-    subst hctx; simp [ABI.Contract.callContextAtWithBase, SolidCore.Solidity.Shared.norm]
-  set ρ : Val := ⟨args, slotValue σ, solHash, a⟩ with hρ
-  have hρok : ρ.Ok := slotValue_store σ
-  set K : Facts := callerFact :: argFacts ws 0 with hK
-  have hKρ : K.Hold ρ := (argFacts_hold ρ hargs ws 0 (by simpa [hρ] using hclean)).cons (callerFact_eval ρ ha)
-  set E : EraseEnv := { envOf c.core with facts := K } with hE
-  have hframe : fn.initialFrame? (args.map .word) =
-      some (frameOf ρ (paramLocals fn.params 0 ++ fn.returns.map fun r => (r.name, .lit 0))) := by
-    have h0 : BindingDecl.bindArgs? fn.params (args.map .word) =
-        some (frameOf ρ (paramLocals fn.params 0)) :=
-      bindArgs_words ρ hargs fn.params 0 hp (by simp [hρ, hlen])
-    simp only [FunctionDef.initialFrame?, h0, FunctionDef.returnDefaultBindings,
-      defaults_words ρ fn.returns hr, frameOf, List.map_append]
-  have hrel : StmtRel ρ E ctx
-      { state := { st0 with
-          selfBalance := SolidCore.Solidity.Shared.addWord
-            (SolidCore.Solidity.Shared.Account.balanceAt ctx.accountBalances ctx.self) ctx.value
-          worldMutatedSinceAdoption := true },
-        locals := [frameOf ρ (paramLocals fn.params 0 ++ fn.returns.map fun r => (r.name, .lit 0))] }
-      (initFrom fn) :=
-    { fields := by subst hctx; rfl
-      events := by subst hctx; rfl
-      checked := by subst hctx; rfl
-      sender := by subst hctx; rfl
-      hash := rfl
-      ok := hρok
-      frames := rfl
-      store := by
-        intro k hk
-        have := getD_storage_cover hd hcov k
-        subst hst
-        simp only [State.loadSlot, StorageMap.lookup?, initFrom, initState, Writes.store, hρ]
-        rw [← this]
-        simp only [SolidCore.Solidity.Shared.norm, modulus_eq, Std.HashMap.get?_eq_getElem?]
-        cases (List.foldl (fun acc kv => acc.insertLoop kv.1 kv.2) d.storage σ)[k % wordSize]? <;> rfl
-      logs := by subst hst; simp [hd.events, initFrom, initState]
-      facts := hKρ }
-  obtain ⟨r, hrun, hleaf⟩ := eval_stmt ρ E ctx fuel fn.body (initFrom fn) b hb _ hrel
-  have hcall : fn.call? fuel c.core.table ctx st0 (args.map .word) =
-      some (fn.callBodyResult st0 r) := by
-    have hacc' : fn.acceptsValue ctx.value = true := hctxv ▸ hacc
-    simp only [FunctionDef.call?, FunctionDef.call, FunctionDef.evalBodyEntry, hacc', hframe,
-      if_true, Option.map_some, Option.bind_some]
-    rw [show c.core.table = E.tbl from rfl, hrun]
-    rfl
-  obtain ⟨T', hT', hTe⟩ := brTree_eval fn K ρ b T hT
-  rw [hacc, if_pos rfl, hcall, ← hTe]
-  generalize b.eval ρ = l at hT' hleaf
-  cases l with
-  | normal S =>
-    cases r <;> simp only [LeafRel] at hleaf
-    rename_i rt
-    simp only [leafTree, Option.bind_eq_bind, Option.bind_eq_some_iff] at hT'
-    obtain ⟨ws, hws, hT'⟩ := hT'
-    split at hT'
-    case isFalse => simp at hT'
-    rename_i hok
-    simp only [Option.some.injEq] at hT'
-    subst hT'
-    simp only [FunctionDef.callBodyResult, FunctionDef.collectReturns, collectReturnBindings,
-      collect_words ρ rt S hKρ hleaf.expr.locals fn.returns ws hok hws, untag_words,
-      encode_words ρ hKρ fn.returns ws hok, bind, Option.bind, Option.map_some]
-    simp only [Source.observe, Tree.eval, Res.obs, if_true, ↓reduceIte, logEntries_map,
-      hleaf.logs, Option.some.injEq, Observable.mk.injEq, true_and]
-    funext slot
-    exact loadSlot_eq _ S.writes ρ hρok hleaf.store slot
-  | returned S vs =>
-    cases r <;> simp only [LeafRel] at hleaf
-    rename_i rt vals
-    obtain ⟨hst', rfl⟩ := hleaf
-    by_cases hv : vs = []
-    · subst hv
-      simp only [leafTree, if_true, Option.bind_eq_bind, Option.bind_eq_some_iff] at hT'
-      obtain ⟨ws, hws, hT'⟩ := hT'
-      split at hT'
-      case isFalse => simp at hT'
-      rename_i hok
-      simp only [Option.some.injEq] at hT'
-      subst hT'
-      simp only [FunctionDef.callBodyResult, List.map_nil, List.isEmpty_nil, if_true,
-        FunctionDef.collectReturns, collectReturnBindings,
-        collect_words ρ rt S hKρ hst'.expr.locals fn.returns ws hok hws, untag_words,
-        encode_words ρ hKρ fn.returns ws hok, bind, Option.bind, Option.map_some]
-      simp only [Source.observe, Tree.eval, Res.obs, if_true, ↓reduceIte, logEntries_map,
-        hst'.logs, Option.some.injEq, Observable.mk.injEq, true_and]
-      funext slot
-      exact loadSlot_eq _ S.writes ρ hρok hst'.store slot
-    · simp only [leafTree, hv, if_false] at hT'
-      split at hT'
-      case isFalse => simp at hT'
-      rename_i hok
-      simp only [Option.some.injEq] at hT'
-      subst hT'
-      have hne : (vs.map fun e => Value.word (e.eval ρ)).isEmpty = false := by
-        cases vs with
-        | nil => exact absurd rfl hv
-        | cons _ _ => rfl
-      simp only [FunctionDef.callBodyResult, hne, Bool.false_eq_true, if_false,
-        FunctionDef.coerceReturnValues, coerceReturnBindings,
-        coerce_words ρ rt hKρ fn.returns vs hok, untag_words,
-        encode_words ρ hKρ fn.returns vs hok, bind, Option.bind, Option.map_some]
-      simp only [Source.observe, Tree.eval, Res.obs, if_true, ↓reduceIte, logEntries_map,
-        hst'.logs, Option.some.injEq, Observable.mk.injEq, true_and]
-      funext slot
-      exact loadSlot_eq _ S.writes ρ hρok hst'.store slot
-  | reverted p =>
-    cases r <;> simp only [LeafRel] at hleaf
-    subst hleaf
-    cases p with
-    | empty =>
-      simp only [leafTree, Option.some.injEq] at hT'
-      subst hT'
-      simp [FunctionDef.callBodyResult, RevertData.untagFixedBytes, Fail.data,
-        ABI.Contract.encodeRevertData?, Source.observe, Tree.eval, Res.obs, hρ,
-        SolidCore.Refinement.Evm.Wide.callAt]
-    | panic c =>
-      simp only [leafTree, Option.some.injEq] at hT'
-      subst hT'
-      simp [FunctionDef.callBodyResult, RevertData.untagFixedBytes, Fail.data, encode_panic ρ,
-        Source.observe, Tree.eval, Res.obs, hρ, SolidCore.Refinement.Evm.Wide.callAt]
-    | error m =>
-      simp only [leafTree, Option.map_eq_some_iff] at hT'
-      obtain ⟨bs, hbs, rfl⟩ := hT'
-      simp [FunctionDef.callBodyResult, RevertData.untagFixedBytes, Fail.data, encode_error ρ _ hbs,
-        Source.observe, Tree.eval, Res.obs, hρ, SolidCore.Refinement.Evm.Wide.callAt]
-
-
 theorem source_run_from (a : Nat) (ha : a < 2 ^ 160) {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.State}
     {s : List (Nat × Nat)} (hd : Wide.DeployedAt fuel c d s) {σ : List (Nat × Nat)}
     (hcov : Covers s σ) {sel : Nat} (hsel : sel < 2 ^ 32) {fn : FunctionDef}
@@ -377,7 +221,12 @@ theorem source_run_from (a : Nat) (ha : a < 2 ^ 160) {fuel : Nat} {c : TypeCheck
   by_cases hclean : argsClean ws args = true
   · rw [if_pos hclean]
     rw [if_pos hclean] at hdec
-    exact source_run_clean_from a ha hd hcov hsel hfind hw hret hb ht args hlen hargs hclean hdec
+    rw [Wide.callAt_of_args sel args hargs σ, run_eq_at_from a hd, Wide.map_ofNat_toNat args hargs]
+    exact And.right (Loop.abi_clean hsel hfind hw hret fuel _ a (getD_storage_cover hd hcov)
+      (by exact hd.events) .caller hlen hargs
+      ((argFacts_hold ⟨args, slotValue σ, solHash, a⟩ hargs ws 0 (by simpa using hclean)).cons
+        (callerFact_eval ⟨args, slotValue σ, solHash, a⟩ ha)) rfl hdec ht
+      (fun rt hrel => eval_stmt _ _ _ fuel fn.body _ b hb rt hrel) _ rfl)
   · rw [if_neg hclean]
     rw [if_neg hclean] at hdec
     rw [run_rejected_from a hd hsel hfind args hdec σ]
@@ -422,6 +271,47 @@ theorem callFactsFrom (sel : Nat) (hsel : sel < 2 ^ 32) (args : List Nat)
   have h := callFacts sel hsel args hargs σ
   ⟨h.value, h.size, h.args, h.selector, h.store, h.ok⟩
 
+/-- What `check` accepts of a function of `fns`: its selector, SolidCore's function of it with
+`f`'s parameter count, and the two trees, which agree. -/
+theorem check_mem {fuel mirFuel : Nat} {core : Contract} {m : Module} {fns : List Fn}
+    {env : EnvFlags} (hchk : check fuel mirFuel core m fns env = true) {f : Fn} (hf : f ∈ fns) :
+    f.sel < 2 ^ 32 ∧ ∃ fn t1 t2, core.findFunctionBySelector? f.sel = some fn ∧
+      fn.params.length = f.params.length ∧ eraseFn (envOf core) fuel fn = some t1 ∧
+      symTree m f.sel f.params.length mirFuel env = some t2 ∧ Tree.agree t1 t2 = true := by
+  have hcf := List.all_eq_true.mp hchk f hf
+  unfold checkFn at hcf
+  cases hfind : core.findFunctionBySelector? f.sel with
+  | none => simp [hfind] at hcf
+  | some fn =>
+  cases ht1 : eraseFn (envOf core) fuel fn with
+  | none => simp [hfind, ht1] at hcf
+  | some t1 =>
+  cases ht2 : symTree m f.sel f.params.length mirFuel env with
+  | none => simp [hfind, ht1, ht2] at hcf
+  | some t2 =>
+  simp only [hfind, ht1, ht2, Bool.and_eq_true, decide_eq_true_eq] at hcf
+  exact ⟨hcf.1, fn, t1, t2, rfl, hcf.2.1, ht1, rfl, hcf.2.2⟩
+
+/-- What `checkSym` accepts of a function of `fns`, as `check_mem`. -/
+theorem checkSym_mem {fuel mirFuel : Nat} {core : Contract} {m : Module} {fns : List Fn}
+    (hchk : checkSym fuel mirFuel core m fns = true) {f : Fn} (hf : f ∈ fns) :
+    f.sel < 2 ^ 32 ∧ ∃ fn t1 t2, core.findFunctionBySelector? f.sel = some fn ∧
+      fn.params.length = f.params.length ∧ eraseFnSym (envOf core) fuel fn = some t1 ∧
+      symTree m f.sel f.params.length mirFuel .allSym = some t2 ∧ Tree.agree t1 t2 = true := by
+  have hcf := List.all_eq_true.mp hchk f hf
+  unfold checkFnSym at hcf
+  cases hfind : core.findFunctionBySelector? f.sel with
+  | none => simp [hfind] at hcf
+  | some fn =>
+  cases ht1 : eraseFnSym (envOf core) fuel fn with
+  | none => simp [hfind, ht1] at hcf
+  | some t1 =>
+  cases ht2 : symTree m f.sel f.params.length mirFuel .allSym with
+  | none => simp [hfind, ht1, ht2] at hcf
+  | some t2 =>
+  simp only [hfind, ht1, ht2, Bool.and_eq_true, decide_eq_true_eq] at hcf
+  exact ⟨hcf.1, fn, t1, t2, rfl, hcf.2.1, ht1, rfl, hcf.2.2⟩
+
 /-- **The generic source stage for every caller**: a checked contract whose constructor leaves the
 storage entries `s` and no logs and a lowered MIR module that `checkSym` accepts give, for every
 address `a < 2 ^ 160` and every oracle whose caller is `a` and whose Keccak-256 of two words is
@@ -434,27 +324,13 @@ theorem stageFrom (a : Nat) (ha : a < 2 ^ 160) (o : Oracle) (ho : FromOk a o) {f
     (hchk : checkSym fuel mirFuel c.core m fns = true) :
     Stage (solidCoreFrom a fuel) (moduleSem o) c m (fun call => ∃ σ, Covers s σ ∧ fullScope fns σ call) := by
   rintro _ ⟨σ, hcov, f, hf, args, hlen, hargs, rfl⟩ obs hrun
-  have hcf := List.all_eq_true.mp hchk f hf
-  unfold checkFnSym at hcf
-  cases hfind : c.core.findFunctionBySelector? f.sel with
-  | none => simp [hfind] at hcf
-  | some fn =>
-  cases ht1 : eraseFnSym (envOf c.core) fuel fn with
-  | none => simp [hfind, ht1] at hcf
-  | some t1 =>
-  cases ht2 : symTree m f.sel f.params.length mirFuel .allSym with
-  | none => simp [hfind, ht1, ht2] at hcf
-  | some t2 =>
-  simp only [hfind, ht1, ht2, Bool.and_eq_true, decide_eq_true_eq] at hcf
-  obtain ⟨hsel, hpl, hcf⟩ := hcf
-  have hcf := Tree.eval_of_agree hcf
-  have hsrc := source_run_from a ha hd hcov hsel hfind ht1 args (by rw [hlen, hpl]) hargs
+  obtain ⟨hsel, fn, t1, t2, hfind, hpl, ht1, ht2, hcf⟩ := checkSym_mem hchk hf
   change Source.runFrom a fuel c _ = some obs at hrun
-  rw [hsrc] at hrun
+  rw [source_run_from a ha hd hcov hsel hfind ht1 args (by rw [hlen, hpl]) hargs] at hrun
   cases hrun
   rw [← hlen] at ht2
   rw [symTree_sound (callFactsFrom f.sel hsel args hargs σ a) o m (ho.envAsk ha _ _) ht2,
-    ← hcf]
+    ← Tree.eval_of_agree hcf]
 
 /-- `stageFrom` from the deployed storage `s`. -/
 theorem stageDeployedFrom (a : Nat) (ha : a < 2 ^ 160) (o : Oracle) (ho : FromOk a o) {fuel mirFuel : Nat}
@@ -471,22 +347,9 @@ theorem definedFrom (a : Nat) (ha : a < 2 ^ 160) {fuel mirFuel : Nat}
     (hchk : checkSym fuel mirFuel c.core m fns = true) :
     ∀ call, (∃ σ, Covers s σ ∧ fullScope fns σ call) → ((solidCoreFrom a fuel).run c call).isSome := by
   rintro _ ⟨σ, hcov, f, hf, args, hlen, hargs, rfl⟩
-  have hcf := List.all_eq_true.mp hchk f hf
-  unfold checkFnSym at hcf
-  cases hfind : c.core.findFunctionBySelector? f.sel with
-  | none => simp [hfind] at hcf
-  | some fn =>
-  cases ht1 : eraseFnSym (envOf c.core) fuel fn with
-  | none => simp [hfind, ht1] at hcf
-  | some t1 =>
-  cases ht2 : symTree m f.sel f.params.length mirFuel .allSym with
-  | none => simp [hfind, ht1, ht2] at hcf
-  | some t2 =>
-  simp only [hfind, ht1, ht2, Bool.and_eq_true, decide_eq_true_eq] at hcf
-  obtain ⟨hsel, hpl, -⟩ := hcf
-  have hsrc := source_run_from a ha hd hcov hsel hfind ht1 args (by rw [hlen, hpl]) hargs
+  obtain ⟨hsel, fn, t1, -, hfind, hpl, ht1, -⟩ := checkSym_mem hchk hf
   change (Source.runFrom a fuel c _).isSome = true
-  rw [hsrc]
+  rw [source_run_from a ha hd hcov hsel hfind ht1 args (by rw [hlen, hpl]) hargs]
   rfl
 
 end Generic
