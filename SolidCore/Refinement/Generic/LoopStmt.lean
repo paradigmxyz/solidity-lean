@@ -45,7 +45,6 @@ theorem binOf_add : binOf .add = some .add := rfl
 
 theorem pure_bind_sol {α β : Type} (a : α) (k : α → SolI β) : ((pure a : SolI α) >>= k) = k a := rfl
 
-set_option maxHeartbeats 2000000 in
 /-- `target++` on a target that resolves to `lv`, which holds the word `old`: `Panic(0x11)` when
 `old` is the largest word, else `old + 1` written back, which leaves `rt'` related to `S'`. -/
 theorem eval_inc (ρ : Val) (E : EraseEnv) (ctx : Context) (rt : Runtime) (S : SymState)
