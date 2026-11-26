@@ -33,6 +33,8 @@ package «solidity-lean» where
 -- The default root retains every proof and witness in the full build.
 @[default_target]
 lean_lib SolidCore where
+  -- Outside SolidCore.lean's closure: the lemmas generated modules (solar's tools/certify) use.
+  roots := #[`SolidCore, `SolidCore.Refinement.KernelTable, `SolidCore.Refinement.Generic.Shape]
 
 -- c1's hand-written refinement evaluates SolidCore with `native_decide`, which trusts Lean's
 -- compiler, so it stays out of the default library: `lake build SolidCoreNative`.
@@ -127,7 +129,8 @@ lean_lib Loom where
 of a source triple with the refinement to bytecode (Verify/Final.lean). `lake build Verify`
 builds the root's closure; the libraries below hold the heavier, generated-input parts. -/
 lean_lib Verify where
-  roots := #[`Verify, `Verify.AnyCaller.Tests]
+  roots := #[`Verify, `Verify.AnyCaller.Tests, `Verify.Lifecycle.Life, `Verify.Gas.FixedFuel.Counted,
+    `Verify.ShapeSpecExportTac, `Verify.Spec.TreeSucceedsTry]
 
 -- bank's and events' assembly stages against solar's exports (solar-tv/milestone/bank and
 -- solar-tv/milestone/events at 0a455fda): the generic assembler check with mapping hashes,
@@ -183,7 +186,8 @@ lean_lib SolidCoreSolarRunOracle where
     `SolidCore.Refinement.Solar.AssembleCtx, `SolidCore.Refinement.Solar.AssembleCtxExample,
     `SolidCore.Refinement.Solar.AssembleCtxCall,
     `SolidCore.Refinement.Solar.AssembleNoCall, `SolidCore.Refinement.Solar.AssembleNoCallExample,
-    `SolidCore.Refinement.Solar.AssembleCtxGas, `SolidCore.Refinement.Solar.AssembleCtxGasFrom]
+    `SolidCore.Refinement.Solar.AssembleCtxGas, `SolidCore.Refinement.Solar.AssembleCtxGasFrom,
+    `SolidCore.Refinement.Solar.AssembleCheckFast, `SolidCore.Refinement.Solar.AssembleCutCheckFast]
 
 -- Runs that revert: no step of EthLib throws a revert and only REVERT ends a frame with it
 -- (Solar/EthLibErr.lean), so a run with less gas that reverts follows the run with more
