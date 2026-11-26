@@ -47,27 +47,33 @@ theorem WithinRun.of_fixed {sem : Oracle → Sem} {p : ∀ o, (sem o).Prog} {cod
     WithinRun sem p code scope Ok :=
   fun gas call hc => ⟨o, ho, fun call' h' obs hrun => h gas call' (h' ▸ hc) obs hrun⟩
 
-/-- Stages proved for every oracle meeting `Ok` before a per-run refinement, with the earlier
-program defined wherever the later one is, give a per-run refinement from the earlier program. -/
-theorem WithinRun.of_stage {A sem : Oracle → Sem} {q : ∀ o, (A o).Prog} {p : ∀ o, (sem o).Prog}
+/-- Stages read backwards (every result of the later program is the earlier one's), for every
+oracle meeting `Ok`, before a per-run refinement give a per-run refinement from the earlier program. -/
+theorem WithinRun.of_back {A sem : Oracle → Sem} {q : ∀ o, (A o).Prog} {p : ∀ o, (sem o).Prog}
     {code : ByteArray} {scope : Call → Prop} {Ok : Oracle → Prop}
-    (stage : ∀ o, Ok o → Stage (A o) (sem o) (q o) (p o) scope)
-    (defined : ∀ o, Ok o → ∀ call, scope call → (A o).run (q o) call = none →
-      (sem o).run (p o) call = none)
+    (back : ∀ o, Ok o → Stage (sem o) (A o) (p o) (q o) scope)
     (h : WithinRun sem p code scope Ok) : WithinRun A q code scope Ok := by
   intro gas call hc
   obtain ⟨o, ho, hw⟩ := h gas call hc
   refine ⟨o, ho, fun call' h' obs hrun => ?_⟩
   subst h'
   rcases hw call' rfl obs hrun with e | e
-  · left
-    cases hq : (A o).run (q o) call' with
-    | none => rw [defined o ho call' hc hq] at e; cases e
-    | some obs' =>
-      have := stage o ho call' hc obs' hq
-      rw [this] at e
-      rw [e]
+  · exact Or.inl (back o ho call' hc obs e)
   · exact Or.inr e
+
+/-- Stages proved for every oracle meeting `Ok` before a per-run refinement, with the earlier
+program defined wherever the later one is, give a per-run refinement from the earlier program:
+each stage read backwards, by `WithinRun.of_back`. -/
+theorem WithinRun.of_stage {A sem : Oracle → Sem} {q : ∀ o, (A o).Prog} {p : ∀ o, (sem o).Prog}
+    {code : ByteArray} {scope : Call → Prop} {Ok : Oracle → Prop}
+    (stage : ∀ o, Ok o → Stage (A o) (sem o) (q o) (p o) scope)
+    (defined : ∀ o, Ok o → ∀ call, scope call → (A o).run (q o) call = none →
+      (sem o).run (p o) call = none)
+    (h : WithinRun sem p code scope Ok) : WithinRun A q code scope Ok :=
+  WithinRun.of_back (fun o ho call hc obs hrun => by
+    cases hq : (A o).run (q o) call with
+    | none => rw [defined o ho call hc hq] at hrun; cases hrun
+    | some obs' => rw [stage o ho call hc obs' hq] at hrun; exact hrun) h
 
 /-- **A specification proved for every oracle meeting `Ok` holds of the bytecode at every gas.** -/
 theorem holds_of_withinRun {St : Type} {sem : Oracle → Sem} {p : ∀ o, (sem o).Prog}
@@ -244,20 +250,6 @@ theorem withinRun_of_checkL {p : Program} {code : ByteArray} {c : Cert} {mx : Li
   refine WithinRun.of_fixed (tableOracle (envOracle (ethOracle anyOracle)) {})
     ⟨fun _ => hok.1, fun _ => hok.2⟩ fun gas => ?_
   exact AssembleLoop.within_of_checkL hc _ (fun _ => hok.1) scope gas (fun _ => hok.2)
-
-/-- Stages read backwards (every result of the later program is the earlier one's), for every
-oracle meeting `Ok`, before a per-run refinement give a per-run refinement from the earlier program. -/
-theorem WithinRun.of_back {A sem : Oracle → Sem} {q : ∀ o, (A o).Prog} {p : ∀ o, (sem o).Prog}
-    {code : ByteArray} {scope : Call → Prop} {Ok : Oracle → Prop}
-    (back : ∀ o, Ok o → Stage (sem o) (A o) (p o) (q o) scope)
-    (h : WithinRun sem p code scope Ok) : WithinRun A q code scope Ok := by
-  intro gas call hc
-  obtain ⟨o, ho, hw⟩ := h gas call hc
-  refine ⟨o, ho, fun call' h' obs hrun => ?_⟩
-  subst h'
-  rcases hw call' rfl obs hrun with e | e
-  · exact Or.inl (back o ho call' hc obs e)
-  · exact Or.inr e
 
 /-- **The first lowered MIR to the exact bytecode, run by run**: the backend stages read backwards
 and the assembly checker for code with loops give, for every gas and every call, an oracle meeting

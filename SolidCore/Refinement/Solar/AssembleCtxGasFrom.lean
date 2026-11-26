@@ -55,8 +55,6 @@ def messageFromWith (caller gas : Nat) (code : ByteArray) (call : Call) : Messag
     code, depth := 0, shouldTransferValue := true, isStatic := false,
     disablePrecompiles := false }
 
-theorem txEnvFrom_callerAddress : txEnvFrom callerAddress = txEnv := rfl
-
 theorem preStateFrom_callerAddress : preStateFrom callerAddress = preState := rfl
 
 end SolidCore.Refinement.Target
@@ -166,46 +164,16 @@ theorem getAccount_preStateFrom_caller (a : Nat) (code : ByteArray) (call : Sola
 theorem rel_initialFrom (a gas : Nat) (hAB : Target.address selfAddress ≠ Target.address a)
     (code : ByteArray) (call : SolarTV.Call) :
     Rel (Target.messageFromWith a gas code call) Substate.empty (Target.preStateFrom a code call)
-      Substate.empty (SolarTV.Machine.State.initial call) := by
-  have htgt : (Target.messageFromWith a gas code call).currentTarget = Target.address selfAddress := rfl
-  refine ⟨fun k => ?_, ?_, ⟨[], by simp, .nil⟩⟩
-  · apply BitVec.eq_of_toNat_eq
-    have hkey : U256.toBeBytes k = Target.storageKey k.toNat :=
-      ((storageKey_eq_toBeBytes k.toNat k).2 (Nat.mod_eq_of_lt k.isLt)).symm
-    rw [htgt, hkey, getStorage_preStateFrom a code call k.toNat]
-    simp only [SolarTV.Machine.State.initial, BitVec.toNat_ofNat]
-    exact (Nat.mod_eq_of_lt (slotValue_lt _ _)).symm
-  · rw [htgt]
-    exact Option.isSome_iff_ne_none.2 (account_preStateFrom a hAB code call)
+      Substate.empty (SolarTV.Machine.State.initial call) :=
+  rel_of_pre rfl (getStorage_preStateFrom a code call) (account_preStateFrom a hAB code call)
 
 /-- `moveEther_preState_any` from the account `a`. -/
 theorem moveEther_preStateFrom_any (a : Nat) (hAB : Target.address selfAddress ≠ Target.address a)
     (code : ByteArray) (call : SolarTV.Call) :
     ∃ st', (Target.preStateFrom a code call).moveEther .fusaka (Target.address a)
-      (Target.address selfAddress) (BitVec.ofNat 256 call.callvalue) = .ok st' := by
-  have hd : Account.debit (Target.address a) (BitVec.ofNat 256 call.callvalue)
-      ((Target.preStateFrom a code call).getAccount (Target.address a)) =
-      .ok { (Target.preStateFrom a code call).getAccount (Target.address a) with
-        balance := 0 } := by
-    simp [Account.debit, getAccount_preStateFrom_caller]
-  obtain ⟨t1, h1⟩ := modifyState_exists (fork := .fusaka) hd
-  have ha1 := (modifyState_ne h1 hAB (Target.storageKey 0)).2
-  have hc : Account.credit (Target.address selfAddress) (BitVec.ofNat 256 call.callvalue)
-      (t1.getAccount (Target.address selfAddress)) =
-      .ok { t1.getAccount (Target.address selfAddress) with
-        balance := 0 + BitVec.ofNat 256 call.callvalue } := by
-    have : t1.getAccount (Target.address selfAddress) =
-        (Target.preStateFrom a code call).getAccount (Target.address selfAddress) := by
-      simp only [TransactionState.getAccount, ha1]
-    rw [this, getAccount_preStateFrom_self a hAB]
-    unfold Account.credit
-    rw [ite_eq_left_iff.mpr (fun h => absurd ?_ h)]
-    dsimp only
-    have h1 := (BitVec.ofNat 256 call.callvalue).isLt
-    have h0 : (0 : U256).toNat = 0 := rfl
-    omega
-  obtain ⟨t2, h2⟩ := modifyState_exists (fork := .fusaka) hc
-  exact ⟨t2, by simp [TransactionState.moveEther, bind, Except.bind, h1, h2]⟩
+      (Target.address selfAddress) (BitVec.ofNat 256 call.callvalue) = .ok st' :=
+  moveEther_of_balance hAB (by rw [getAccount_preStateFrom_caller]; exact BitVec.le_refl _)
+    (by rw [getAccount_preStateFrom_self a hAB])
 
 /-- `run_of_rel_with` from the account `a`: `runWithFrom a gas` of any call, with or without value. -/
 theorem run_of_rel_withFrom (a gas : Nat) (hAB : Target.address selfAddress ≠ Target.address a)
@@ -216,56 +184,13 @@ theorem run_of_rel_withFrom (a gas : Nat) (hAB : Target.address selfAddress ≠ 
       Spec .fusaka (At code (Target.messageFromWith a gas code call) 0 [] .empty gas st Substate.empty
         .empty) (PostL call (Target.address selfAddress) Substate.empty s halt)) :
     Final.Target.runWithFrom a gas code call = some (SolarTV.Machine.observe call s halt) := by
-  have key : ∃ evm, processMessage (Meter := Nat) .fusaka (Target.messageFromWith a gas code call)
-      (Target.preStateFrom a code call) Substate.empty = .ok evm ∧
-      MsgOut (SolarTV.Machine.observe call s halt) (Target.address selfAddress) Substate.empty
-        s.world evm.1 := by
-    by_cases hv : (Target.messageFromWith a gas code call).value = 0
-    · exact processMessage_postL _ rfl hv (precompileAddress_messageFromWith a gas code call) _ _ _ _ _
-        (h _ (rel_initialFrom a gas hAB code call))
-    · obtain ⟨st', hmove⟩ := moveEther_preStateFrom_any a hAB code call
-      have hn : ((Target.preStateFrom a code call).getAccount
-          (Target.address selfAddress)).nonce ≠ 0 := by
-        rw [getAccount_preStateFrom_self a hAB]; simp
-      have R0 := rel_initialFrom a gas hAB code call
-      have R : Rel (Target.messageFromWith a gas code call) Substate.empty st' Substate.empty
-          (SolarTV.Machine.State.initial call) :=
-        ⟨fun k => ((moveEther_recipient hmove hAB hn _).1).trans (R0.storage k),
-          (moveEther_recipient hmove hAB hn (Target.storageKey 0)).2, R0.logs⟩
-      exact processMessage_postL_move _ rfl rfl hv (precompileAddress_messageFromWith a gas code call)
-        _ _ _ _ st' _ hmove (h st' R)
-  obtain ⟨evm, hr, ssF, ⟨L, hL1, hL2⟩, herr, hout, hst⟩ := key
-  have hlogs := logs_of_match hL2
-  have hL1' : ssF.logs.toList = L := by simpa [Substate.empty] using hL1
-  have hfail : (SolarTV.Machine.observe call s halt).success = false →
-      (SolarTV.Machine.observe call s halt).logs = [] ∧
-      (SolarTV.Machine.observe call s halt).storage = slotValue call.storage := by
-    cases halt <;> simp [SolarTV.Machine.observe]
-  have hok : (SolarTV.Machine.observe call s halt).success = true →
-      (SolarTV.Machine.observe call s halt).logs = SolarTV.Machine.logs s := by
-    cases halt <;> simp [SolarTV.Machine.observe]
+  obtain ⟨evm, hr, he⟩ := run_of_rel_msg (Target.messageFromWith a gas code call)
+    (Target.preStateFrom a code call) rfl rfl (precompileAddress_messageFromWith a gas code call) hAB
+    (show ((Target.preStateFrom a code call).getAccount (Target.address selfAddress)).nonce ≠ 0 by
+      rw [getAccount_preStateFrom_self a hAB]; simp)
+    (moveEther_preStateFrom_any a hAB code call) (rel_initialFrom a gas hAB code call) h
   simp only [Final.Target.runWithFrom, hr]
-  generalize SolarTV.Machine.observe call s halt = X at *
-  have hsucc : evm.1.error.isNone = X.success := by
-    rw [herr]; cases hX : X.success <;> simp [errorOf, hX]
-  congr 1
-  cases X with
-  | mk success output logs storage =>
-    simp only at hsucc hout hfail hok hst ⊢
-    rw [SolarTV.Observable.mk.injEq]
-    refine ⟨hsucc, hout, ?_, ?_⟩
-    · rw [hsucc]
-      cases hs : success
-      · simp [(hfail hs).1]
-      · simp only [ite_true]
-        rw [(hst hs).1, hL1', hlogs, hok hs]
-        rfl
-    · funext slot
-      rw [hsucc]
-      cases hs : success
-      · simp [(hfail hs).2]
-      · simp only [ite_true]
-        exact (hst hs).2 slot
+  exact congrArg some he
 
 end SolidCore.Refinement.Solar.Assemble
 

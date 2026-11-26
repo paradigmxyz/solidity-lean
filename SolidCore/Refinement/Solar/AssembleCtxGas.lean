@@ -192,8 +192,6 @@ def EntL (F : List Nat) (p : Assemble.Program) (cx : CtxCert) (code : ByteArray)
       maxH mx x.1 = (cx.at x.1 j).max ∧ c.entry x.1 = (cx.at x.1 j).types ∧
       LabOk (cx.at x.1 j).labs x.2.1)
 
-theorem bmax_certAt (cx : CtxCert) (n b j : Nat) : bmax (certAt cx n b j) = bmax cx.base := rfl
-
 open SolarTV.EVM.Program in
 /-- **EthLib runs the bytecode as SolarTV runs `guard F p`**, from a block whose relation holds,
 with gas for `fuel` blocks: to SolarTV's result when its run ends within them. -/
@@ -268,9 +266,7 @@ theorem run_simXL {F : List Nat} {p : Assemble.Program} {cx : CtxCert} {code : B
         · have hl : labelItems p c b = 1 := by simp [labelItems, ht]
           rw [hl] at hL ⊢
           simp only [ht, ite_true, List.singleton_append] at E'
-          obtain ⟨next, hd, hseg⟩ := E'.seg.head
-          simp only [Item.expected] at hd
-          obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+          obtain ⟨hlt, hcode, hseg⟩ := E'.seg.op rfl
           exact ⟨pc + 1, g - 1, Logic.jumpdestG hlt hcode (by omega), by simp only [ht, ite_true]; omega,
             ⟨hseg, by omega, by omega, E'.le_top, E'.mem⟩⟩
         · have hl : labelItems p c b = 0 := by simp [labelItems, ht]
@@ -412,39 +408,7 @@ theorem within_of_checkXL {F : List Nat} {p : Assemble.Program} {code : ByteArra
       simp [pushTransferLog, show ¬ (Fork.fusaka ≥ Fork.glamsterdam) by decide, Substate.empty]
     · rw [(hcases htr).2]
       simp [Substate.empty]
-  have hlogs := logs_of_match hL2
-  have hL1' : ssF.logs.toList = L := by rw [hL1, hss', List.nil_append]
-  have herr' : evm.error = errorOf (SolarTV.Machine.observe call sF halt) := herr
-  have hout' : evm.output.toList.map (·.toNat) = (SolarTV.Machine.observe call sF halt).output := hout
-  have hst' : (SolarTV.Machine.observe call sF halt).success = true →
-      evm.substate.logs = ssF.logs ∧ ∀ slot,
-        (evm.state.getStorage (Target.address selfAddress) (Target.storageKey slot)).toNat =
-          (SolarTV.Machine.observe call sF halt).storage slot :=
-    fun h => ⟨hlogsF, hst h⟩
-  have hok2 : (SolarTV.Machine.observe call sF halt).success = true →
-      (SolarTV.Machine.observe call sF halt).logs = SolarTV.Machine.logs sF := by
-    cases halt <;> simp [SolarTV.Machine.observe]
-  clear herr hout hst hsim hit
-  generalize SolarTV.Machine.observe call sF halt = X at *
-  have hsucc : evm.error.isNone = X.success := by
-    rw [herr']; cases hX : X.success <;> simp [errorOf, hX]
-  cases X with
-  | mk success output logs storage =>
-    simp only at hsucc hout' hok2 hst' ⊢
-    rw [SolarTV.Observable.mk.injEq]
-    refine ⟨hsucc, hout', ?_, ?_⟩
-    · rw [hsucc]
-      cases hs : success
-      · simp [hok, hs] at hsucc
-      · simp only [ite_true]
-        rw [(hst' hs).1, hL1', hlogs, hok2 hs]
-        rfl
-    · funext slot
-      rw [hsucc]
-      cases hs : success
-      · simp [hok, hs] at hsucc
-      · simp only [ite_true]
-        exact (hst' hs).2 slot
+  exact observe_of_msgOut hss' ⟨ssF, ⟨L, hL1, hL2⟩, herr, hout, fun h => ⟨hlogsF, hst h⟩⟩
 
 /-- info: 'SolidCore.Refinement.Solar.AssembleCtxGas.within_of_checkXL' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs (whitespace := lax) in

@@ -129,6 +129,22 @@ theorem tabResp_congr {oks oks' : List Bool} {outs outs' : List ByteArray} {n : 
   funext k c v i
   simp only [tabResp, h1, h2]
 
+/-- The oracles of two tables, one extending the other, read the same environment at every world
+whose calls and GAS reads the shorter answers. -/
+theorem OS_env_le {codes : SolidCore.Solidity.Shared.Account.BytesMap} {T T' : RunTable}
+    (hle : T.Le T') {w : List Event} (hn : (machineCalls w).length ≤ T.oks.length)
+    (hn' : (machineCalls w).length ≤ T.outs.length) (hg : gasReads w ≤ T.gases.length)
+    (name : String) (a : List (BitVec 256)) :
+    (OS codes T').env name w a = (OS codes T).env name w a := by
+  simp only [OS, gasOracle]
+  split_ifs with h
+  · rw [getD_of_prefix hle.2.2.2.2 (by omega) _]
+  · simp only [envOracle, ethOracle, tabOracle_envEq]
+    rcases Nat.eq_zero_or_pos (machineCalls w).length with h0 | h0
+    · simp [tabEnv, List.eq_nil_of_length_eq_zero h0]
+    · simp only [tabEnv, tabResp_congr (n := (machineCalls w).length - 1)
+        (getD_of_prefix hle.1 (by omega) _) (getD_of_prefix hle.2.1 (by omega) _)]
+
 /-- The oracles of two tables, one extending the other, agree at every world whose calls and GAS
 reads the shorter answers. -/
 theorem OS_le {codes : SolidCore.Solidity.Shared.Account.BytesMap} {T T' : RunTable} (hle : T.Le T')
@@ -137,19 +153,10 @@ theorem OS_le {codes : SolidCore.Solidity.Shared.Account.BytesMap} {T T' : RunTa
     (hg : gasReads w ≤ T.gases.length) :
     (∀ name a, (OS codes T').env name w a = (OS codes T).env name w a) ∧
       (OS codes T').result w = (OS codes T).result w := by
-  have hr : tabResp T'.oks T'.outs ((machineCalls w).length - 1) =
-      tabResp T.oks T.outs ((machineCalls w).length - 1) :=
-    tabResp_congr (getD_of_prefix hle.1 (by omega) _) (getD_of_prefix hle.2.1 (by omega) _)
-  have hgas : gasReads w ≠ 0 →
-      T'.gases.getD (gasReads w - 1) 0 = T.gases.getD (gasReads w - 1) 0 := fun h =>
-    getD_of_prefix hle.2.2.2.2 (by omega) _
-  refine ⟨fun name a => ?_, ?_⟩
-  · simp only [OS, gasOracle]
-    split_ifs with h
-    · rw [hgas h.2.2]
-    · simp only [envOracle, ethOracle, tabOracle_envEq, tabEnv, hr]
-  · show tabResult T'.oks T'.outs w = tabResult T.oks T.outs w
-    simp only [tabResult, hr]
+  refine ⟨OS_env_le hle hn hn' hg, ?_⟩
+  show tabResult T'.oks T'.outs w = tabResult T.oks T.outs w
+  simp only [tabResult, tabResp_congr (n := (machineCalls w).length - 1)
+    (getD_of_prefix hle.1 (by omega) _) (getD_of_prefix hle.2.1 (by omega) _)]
 
 /-! ## Segments under the oracles of tables that extend each other -/
 
@@ -169,22 +176,8 @@ theorem OS_agreeT (codes : SolidCore.Solidity.Shared.Account.BytesMap) {T T' : R
     (hle : T.Le T') {ng ns : Nat} (hg : ng ≤ T.gases.length) (hn : ns ≤ T.oks.length)
     (hn' : ns ≤ T.outs.length) : Agree (OS codes T) (OS codes T') ng ns := by
   refine ⟨rfl, rfl, fun w hw hsw name a => ?_⟩
-  have hgas : gasReads w ≠ 0 →
-      T.gases.getD (gasReads w - 1) 0 = T'.gases.getD (gasReads w - 1) 0 := fun h =>
-    (getD_of_prefix hle.2.2.2.2 (by omega) _).symm
   have hm := machineCalls_length_le_sent w
-  simp only [OS, gasOracle]
-  split_ifs with h
-  · rw [hgas h.2.2]
-  · simp only [envOracle, ethOracle, tabOracle_envEq]
-    by_cases h0 : (machineCalls w).length = 0
-    · have hnil : machineCalls w = [] := List.eq_nil_of_length_eq_zero h0
-      simp [tabEnv, hnil]
-    · have hr : tabResp T.oks T.outs ((machineCalls w).length - 1) =
-          tabResp T'.oks T'.outs ((machineCalls w).length - 1) :=
-        tabResp_congr (getD_of_prefix hle.1 (by omega) _).symm
-          (getD_of_prefix hle.2.1 (by omega) _).symm
-      simp only [tabEnv, hr]
+  exact (OS_env_le hle (by omega) (by omega) (by omega) name a).symm
 
 /-- An effect that stops no segment adds no call to the frame's world. -/
 theorem apply_calls {o : Oracle} {call : Call} {e : Effect} (he : cutEffect e = false)

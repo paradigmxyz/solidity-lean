@@ -119,9 +119,6 @@ theorem tyAt_tail (ty : List Ty) (i : Nat) : tyAt ty.tail i = tyAt ty (i + 1) :=
 
 theorem tyAt_cons_zero (τ : Ty) (ty : List Ty) : tyAt (τ :: ty) 0 = τ := by simp [tyAt]
 
-theorem tyAt_cons_succ (τ : Ty) (ty : List Ty) (i : Nat) : tyAt (τ :: ty) (i + 1) = tyAt ty i := by
-  simp [tyAt]
-
 theorem SR.nil (c : Cert) (ty : List Ty) : SR c ty [] [] :=
   ⟨rfl, fun _ h => absurd h (by simp)⟩
 
@@ -819,6 +816,84 @@ theorem Seg.head {code : List Nat} {offset : Nat → Nat} {pc e : Nat} {item : I
     ∃ next, decode code pc = some (item.expected offset, next) ∧ Seg code offset next items e := by
   cases h with | cons d _ r => exact ⟨_, d, r⟩
 
+/-- An item that decodes to an opcode at the head of a walk segment: its byte at the counter, and
+the segment after it. -/
+theorem Seg.op {code : ByteArray} {offset : Nat → Nat} {pc e byte : Nat} {item : Item}
+    {items : List Item} (h : Seg (bytesOf code) offset pc (item :: items) e)
+    (he : item.expected offset = .op byte) :
+    ∃ hlt : pc < code.size, code[pc] = UInt8.ofNat byte ∧
+      Seg (bytesOf code) offset (pc + 1) items e := by
+  obtain ⟨next, hd, hseg⟩ := h.head
+  rw [he] at hd
+  obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+  exact ⟨hlt, hcode, hseg⟩
+
+/-- The top word of related stacks, data at its type: the same on both sides. -/
+theorem SR.pop1 {c : Cert} {ty : List Ty} {S T : List Word} (hR : SR c ty S T)
+    (hd : isData ty 1 = true) (h : 1 ≤ S.length) :
+    ∃ x S' T', S = x :: S' ∧ T = x :: T' ∧ SR c ty.tail S' T' := by
+  rcases S with _ | ⟨x, S'⟩
+  · simp at h
+  rcases T with _ | ⟨y, T'⟩
+  · exact absurd hR.1 (by simp)
+  obtain rfl := SR.head hR hd
+  exact ⟨_, S', T', rfl, rfl, (SR.uncons.1 hR).2⟩
+
+/-- The two top words of related stacks, data at their types: the same on both sides. -/
+theorem SR.pop2 {c : Cert} {ty : List Ty} {S T : List Word} (hR : SR c ty S T)
+    (hd : isData ty 2 = true) (h : 2 ≤ S.length) :
+    ∃ x y S' T', S = x :: y :: S' ∧ T = x :: y :: T' ∧ SR c (ty.drop 2) S' T' := by
+  rcases S with _ | ⟨x, _ | ⟨y, S'⟩⟩
+  · simp at h
+  · simp at h
+  rcases T with _ | ⟨x', _ | ⟨y', T'⟩⟩
+  · exact absurd hR.1 (by simp)
+  · exact absurd hR.1 (by simp)
+  have htake := hR.data hd
+  simp only [List.take_succ_cons, List.take_zero, List.cons.injEq] at htake
+  obtain ⟨rfl, rfl, -⟩ := htake
+  exact ⟨x, y, S', T', rfl, rfl, by simpa using SR.drop 2 hR⟩
+
+/-- The two known constants on top of related stacks, data at their types. -/
+theorem SR.range {c : Cert} {ty : List Ty} {S T known : List Word} {o sz : Word}
+    (hR : SR c ty S T) (hd : isData ty 2 = true) (hk : o :: sz :: known <+: S) :
+    ∃ S' T', S = o :: sz :: S' ∧ T = o :: sz :: T' ∧ SR c (ty.drop 2) S' T' := by
+  obtain ⟨x, y, S', T', rfl, rfl, hR'⟩ := hR.pop2 hd (by have := hk.length_le; simp at this; omega)
+  obtain ⟨rfl, hk'⟩ := List.cons_prefix_cons.1 hk
+  obtain ⟨rfl, -⟩ := List.cons_prefix_cons.1 hk'
+  exact ⟨S', T', rfl, rfl, hR'⟩
+
+/-- Growth of memory for a checked range: its price, its bound and the relation of the memories. -/
+theorem Inv.range {p : Program} {c : Cert} {code : ByteArray} (G : Glob p c code)
+    {call : SolarTV.Call} {items : List Item} {k pc : Nat} {S : List Word}
+    {s : SolarTV.Machine.State} {M : ByteArray} {g : Nat} (I : Inv c code call items k pc S s M g)
+    {o sz : Word} (hin : sz.toNat = 0 ∨ o.toNat + sz.toNat ≤ c.top) :
+    (extendMemory M.size [(o, sz)]).cost + (memoryGasCost c.top -
+        memoryGasCost (memoryExtend M (extendMemory M.size [(o, sz)]).expandBy).size) =
+      memoryGasCost c.top - memoryGasCost M.size ∧
+    (memoryExtend M (extendMemory M.size [(o, sz)]).expandBy).size ≤ c.top ∧
+    MemRel (s.memory.expand o.toNat sz.toNat)
+      (memoryExtend M (extendMemory M.size [(o, sz)]).expandBy) := by
+  have hmod : M.size % 32 = 0 := by rw [I.mem.1]; omega
+  have hz : sz.toNat = 0 → sz = 0 := fun h0 => BitVec.eq_of_toNat_eq (by simpa using h0)
+  obtain ⟨hle, hcost⟩ := extend_cost hmod G.top_mod I.le_top (hin.imp_left hz)
+  rw [size_memoryExtend]
+  exact ⟨hcost, hle, memRel_expand I.mem (hin.imp hz fun _ => by have := G.top_le; omega)⟩
+
+/-- The end of the lowered program: EthLib's frame stops as SolarTV's STOP. -/
+theorem Inv.stop {p : Program} {c : Cert} {code : ByteArray} {call : SolarTV.Call} {b k pc : Nat}
+    {S : List Word} {s : SolarTV.Machine.State} {M : ByteArray} {g : Nat}
+    (I : Inv c code call (lowerFrom p c b (p.blocks.drop b)) k pc S s M g)
+    (hb : p.blocks.length ≤ b) {msg : Message .fusaka} {ss0 : Substate}
+    {st : State.TransactionState} {ss : Substate} (R : Rel msg ss0 st ss s)
+    (hself : msg.currentTarget = Target.address selfAddress) (T : List Word) :
+    Spec .fusaka (At code msg pc T M g st ss .empty) (PostL call msg.currentTarget ss0 s .stop) := by
+  have hseg := I.seg
+  rw [lowerFrom_nil p c hb] at hseg
+  have hpc := hseg.nil_end
+  exact Spec.consequence (Logic.stop_of_size_le (by omega)) (fun _ h => h)
+    fun evm h => postL_stop R hself evm h
+
 open SolarTV.EVM.Program in
 /-- EthLib runs the code of a block's instructions from the offset of the next one as SolarTV
 runs them. -/
@@ -854,21 +929,13 @@ theorem exec_sim {p : Program} {c : Cert} {code : ByteArray} (G : Glob p c code)
         decide_eq_true_eq] at hok
       obtain ⟨⟨⟨⟨hk3, h1⟩, hdat⟩, ⟨⟨⟨hen, hetgt⟩, hneed⟩, hety⟩, hcost⟩, ⟨hfall, hfty⟩, hcost'⟩ := hok
       simp only [lowerInstrs, hT, List.cons_append, List.nil_append] at I
-      rcases S with _ | ⟨cond, S'⟩
-      · simp at hh; omega
-      rcases T with _ | ⟨cond', T'⟩
-      · simp at hL
-      obtain rfl := (SR.head hR hdat).symm
-      have hR' := (SR.uncons.1 hR).2
-      simp only [List.length_cons] at hL
-      obtain ⟨n0, hd0, hs0⟩ := I.seg.head
+      obtain ⟨cond, S', T', rfl, rfl, hR'⟩ := hR.pop1 hdat (by omega)
+      obtain ⟨hlt0, hcode0, hs0⟩ := I.seg.op rfl
       obtain ⟨n1, hd1, hs1⟩ := hs0.head
-      obtain ⟨n2, hd2, hseg⟩ := hs1.head
-      simp only [Item.expected] at hd0 hd1 hd2
-      obtain ⟨hlt0, hcode0, rfl⟩ := op_item hd0
-      obtain ⟨hlt2, hcode2, rfl⟩ := op_item hd2
+      obtain ⟨hlt2, hcode2, hseg⟩ := hs1.op rfl
+      simp only [Item.expected] at hd1
       have hS := I.stack; have hG := I.gas
-      simp only [List.length_cons] at hS hh
+      simp only [List.length_cons] at hS hh hL
       obtain ⟨g0, hg0, hisz⟩ := stack_rule (msg := msg) (M := M) (st := st) (ss := ss) (gas := g)
         (op := .iszero) (stack := cond :: T') (next := EvmRules.Evm.iszero cond :: T')
         (r := o.env "returndatasize" s.world []) rfl hlt0 hcode0 rfl (by omega)
@@ -915,12 +982,8 @@ theorem exec_sim {p : Program} {c : Cert} {code : ByteArray} (G : Glob p c code)
             SR.le hok.1.2 hR, I.weaken hok.2, R⟩
         · -- The last block's STOP, left out: the code ends.
           simp only [lowerInstrs, hT, hD, ite_true, List.nil_append] at I
-          have hseg := I.seg
-          rw [lowerFrom_nil p c (by omega)] at hseg
-          have hpc := hseg.nil_end
           simp only [exec, SimOut]
-          exact Spec.consequence (Logic.stop_of_size_le (by omega))
-            (fun _ h => h) fun evm h => postL_stop R hself evm h
+          exact I.stop (by omega) R hself T
       have hD' : dropped p b i rest = false := by simpa using hD
       have hok' : blockStep p c (fun h known ty k => blockOk p c b h known ty k rest) h known ty k i =
           true := by
@@ -930,6 +993,20 @@ theorem exec_sim {p : Program} {c : Cert} {code : ByteArray} (G : Glob p c code)
         simpa only [lowerInstrs, hT, hD', Bool.false_eq_true, ite_false, List.append_assoc] using I
       clear hok hD hD' hT
       have IH := exec_sim (o := o) (ss0 := ss0) G hdata hvalue hstatic hself hcaller ho b hb rest
+      -- An instruction of one opcode whose rule pushes a data word for 2 gas.
+      have push : ∀ (byte : Nat) (w : Word), lowerInstr i = [.op byte] → 1 ≤ k →
+          blockOk p c b (h + 1) [] (some false :: ty) (k - 1) rest = true →
+          (∀ _ : pc < code.size, code[pc] = UInt8.ofNat byte → 2 ≤ g → T.length < 1024 →
+            Hoare .fusaka (At code msg pc T M g st ss .empty)
+              (At code msg (pc + 1) (w :: T) M (g - 2) st ss .empty)) →
+          SimOut p c code call msg ss0 st ss pc T M g (exec o call b rest (w :: S) s) := by
+        intro byte w hi hk1 hok hrule
+        rw [hi, List.singleton_append] at I'
+        obtain ⟨hlt, hcode, hseg⟩ := I'.seg.op rfl
+        have hS := I'.stack; have hG := I'.gas
+        exact SimOut.pre (hrule hlt hcode (by omega) (by omega)) (IH (h + 1) [] _ _ _ (k - 1) s
+          (pc + 1) M (g - 2) st ss hok (by simp; omega) List.nil_prefix
+          (SR.cons (τ := some false) rfl hR) (I'.next hk1 hseg (by simp) (by omega)) R)
       rcases i with mop | ⟨e, ar⟩ | t | t | t | _ | _ | _ | _ | _ | _ | _
       · rcases mop with sop | _ | _ | _ | _ | _ | _
         · by_cases hpush : ∃ v, sop = .push v
@@ -953,9 +1030,7 @@ theorem exec_sim {p : Program} {c : Cert} {code : ByteArray} (G : Glob p c code)
               hok⟩ := stack_sim (ctx := context o call s) hne hok' hh hk hR
             rw [lowerInstr_stack hne, hbyte] at I'
             simp only [Option.getD_some, List.singleton_append] at I'
-            obtain ⟨next, hd, hseg⟩ := I'.seg.head
-            simp only [Item.expected] at hd
-            obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+            obtain ⟨hlt, hcode, hseg⟩ := I'.seg.op rfl
             rw [← hctx] at hstepT
             have hS := I'.stack; have hG := I'.gas
             obtain ⟨g1, hg1, hrule⟩ := stack_rule (M := M) (st := st) (ss := ss) (gas := g)
@@ -969,21 +1044,10 @@ theorem exec_sim {p : Program} {c : Cert} {code : ByteArray} (G : Glob p c code)
           · simp [blockStep] at hok'
           simp only [blockStep, Bool.and_eq_true, decide_eq_true_eq] at hok'
           obtain ⟨⟨⟨⟨hk1, h2⟩, hin⟩, hdat⟩, hok'⟩ := hok'
-          rcases S with _ | ⟨x, _ | ⟨v, S'⟩⟩
-          · simp at hh; omega
-          · simp at hh; omega
-          rcases T with _ | ⟨x', _ | ⟨v', T'⟩⟩
-          · simp at hL
-          · simp at hL
-          have htake := hR.data hdat
-          simp only [List.take_succ_cons, List.take_zero, List.cons.injEq] at htake
-          obtain ⟨rfl, rfl, -⟩ := htake
-          have hR' : SR c (ty.drop 2) S' T' := by simpa using SR.drop 2 hR
+          obtain ⟨x, v, S', T', rfl, rfl, hR'⟩ := hR.pop2 hdat (by omega)
           obtain ⟨rfl, -⟩ := List.cons_prefix_cons.1 hk
           simp only [lowerInstr, List.singleton_append] at I'
-          obtain ⟨next, hd, hseg⟩ := I'.seg.head
-          simp only [Item.expected] at hd
-          obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+          obtain ⟨hlt, hcode, hseg⟩ := I'.seg.op rfl
           have hS := I'.stack; have hG := I'.gas
           simp only [List.length_cons] at hS hG hh hL
           have hmod : M.size % 32 = 0 := by rw [I'.mem.1]; omega
@@ -1004,29 +1068,16 @@ theorem exec_sim {p : Program} {c : Cert} {code : ByteArray} (G : Glob p c code)
             (by omega) (List.nil_prefix) hR' ⟨hseg, by omega, ?_, by rw [hM']; omega, hmem'⟩
             ⟨R.storage, R.account, R.logs⟩)
           rw [hM']; omega
-        · simp [blockStep] at hok'
-        · simp [blockStep] at hok'
-        · simp [blockStep] at hok'
-        · simp [blockStep] at hok'
+        all_goals simp [blockStep] at hok'
       · rcases e with _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | n | _ | _ | _
         all_goals try (simp [blockStep] at hok'; done)
         · -- SLOAD.
-          rcases ar with _ | _ | ar
-          · simp [blockStep] at hok'
-          rotate_left
-          · simp [blockStep] at hok'
+          rcases ar with _ | _ | ar <;> try (simp [blockStep] at hok'; done)
           simp only [blockStep, Bool.and_eq_true, decide_eq_true_eq] at hok'
           obtain ⟨⟨⟨hk1, h1⟩, hdat⟩, hok⟩ := hok'
-          rcases S with _ | ⟨x, S'⟩
-          · simp at hh; omega
-          rcases T with _ | ⟨x', T'⟩
-          · simp at hL
-          obtain rfl := (SR.head hR hdat).symm
-          have hR' := (SR.uncons.1 hR).2
+          obtain ⟨x, S', T', rfl, rfl, hR'⟩ := hR.pop1 hdat (by omega)
           simp only [lowerInstr, List.singleton_append] at I'
-          obtain ⟨next, hd, hseg⟩ := I'.seg.head
-          simp only [Item.expected] at hd
-          obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+          obtain ⟨hlt, hcode, hseg⟩ := I'.seg.op rfl
           have hS := I'.stack; have hG := I'.gas
           simp only [List.length_cons] at hS hG hh hL
           rw [exec_effect1 (w := s.storage x) rfl (by omega)]
@@ -1045,27 +1096,12 @@ theorem exec_sim {p : Program} {c : Cert} {code : ByteArray} (G : Glob p c code)
           · rw [(hreads x).1]
             exact R.account
         · -- SSTORE.
-          rcases ar with _ | _ | _ | ar
-          · simp [blockStep] at hok'
-          · simp [blockStep] at hok'
-          rotate_left
-          · simp [blockStep] at hok'
+          rcases ar with _ | _ | _ | ar <;> try (simp [blockStep] at hok'; done)
           simp only [blockStep, Bool.and_eq_true, decide_eq_true_eq] at hok'
           obtain ⟨⟨⟨hk1, h2⟩, hdat⟩, hok⟩ := hok'
-          rcases S with _ | ⟨x, _ | ⟨v, S'⟩⟩
-          · simp at hh; omega
-          · simp at hh; omega
-          rcases T with _ | ⟨x', _ | ⟨v', T'⟩⟩
-          · simp at hL
-          · simp at hL
-          have htake := hR.data hdat
-          simp only [List.take_succ_cons, List.take_zero, List.cons.injEq] at htake
-          obtain ⟨rfl, rfl, -⟩ := htake
-          have hR' : SR c (ty.drop 2) S' T' := by simpa using SR.drop 2 hR
+          obtain ⟨x, v, S', T', rfl, rfl, hR'⟩ := hR.pop2 hdat (by omega)
           simp only [lowerInstr, List.singleton_append] at I'
-          obtain ⟨next, hd, hseg⟩ := I'.seg.head
-          simp only [Item.expected] at hd
-          obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+          obtain ⟨hlt, hcode, hseg⟩ := I'.seg.op rfl
           have hS := I'.stack; have hG := I'.gas
           simp only [List.length_cons] at hS hG hh hL
           rw [exec_effect2 (s' := { s with storage := SolarTV.Machine.update s.storage x v }) rfl
@@ -1088,22 +1124,12 @@ theorem exec_sim {p : Program} {c : Cert} {code : ByteArray} (G : Glob p c code)
           · rw [hothers _ _ (Or.inr fun he => hk (U256.toBeBytes_inj he)), R.storage k]
             simp [SolarTV.Machine.update, hk]
         · -- CALLDATALOAD.
-          rcases ar with _ | _ | ar
-          · simp [blockStep] at hok'
-          rotate_left
-          · simp [blockStep] at hok'
+          rcases ar with _ | _ | ar <;> try (simp [blockStep] at hok'; done)
           simp only [blockStep, Bool.and_eq_true, decide_eq_true_eq] at hok'
           obtain ⟨⟨⟨hk1, h1⟩, hdat⟩, hok⟩ := hok'
-          rcases S with _ | ⟨x, S'⟩
-          · simp at hh; omega
-          rcases T with _ | ⟨x', T'⟩
-          · simp at hL
-          obtain rfl := (SR.head hR hdat).symm
-          have hR' := (SR.uncons.1 hR).2
+          obtain ⟨x, S', T', rfl, rfl, hR'⟩ := hR.pop1 hdat (by omega)
           simp only [lowerInstr, List.singleton_append] at I'
-          obtain ⟨next, hd, hseg⟩ := I'.seg.head
-          simp only [Item.expected] at hd
-          obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+          obtain ⟨hlt, hcode, hseg⟩ := I'.seg.op rfl
           have hS := I'.stack; have hG := I'.gas
           simp only [List.length_cons] at hS hG hh hL
           rw [exec_effect1 (w := SolarTV.Machine.calldataWord call x) rfl (by omega)]
@@ -1114,60 +1140,37 @@ theorem exec_sim {p : Program} {c : Cert} {code : ByteArray} (G : Glob p c code)
           exact SimOut.pre hrule (IH h [] _ _ _ (k - 1) s (pc + 1) M (g - 3) st ss hok (by simp; omega)
             (List.nil_prefix) (SR.cons (τ := some false) rfl (by simpa using hR')) (I'.next hk1 hseg (by simp) (by omega)) R)
         · -- CALLDATASIZE.
-          rcases ar with _ | ar
-          rotate_left
-          · simp [blockStep] at hok'
+          rcases ar with _ | ar <;> try (simp [blockStep] at hok'; done)
           simp only [blockStep, Bool.and_eq_true, decide_eq_true_eq] at hok'
-          obtain ⟨hk1, hok⟩ := hok'
-          simp only [lowerInstr, List.singleton_append] at I'
-          obtain ⟨next, hd, hseg⟩ := I'.seg.head
-          simp only [Item.expected] at hd
-          obtain ⟨hlt, hcode, rfl⟩ := op_item hd
-          have hS := I'.stack; have hG := I'.gas
-          rw [exec_effect0 (w := BitVec.ofNat 256 call.calldata.size) rfl (by omega)]
+          rw [exec_effect0 (w := BitVec.ofNat 256 call.calldata.size) rfl
+            (by have := I'.stack; omega)]
+          refine push _ _ rfl hok'.1 hok'.2 fun hlt hcode hg hT => ?_
           have hrule := Logic.calldatasize (message := msg) (memory := M) (state := st)
-            (substate := ss) (returnData := .empty) (stack := T) (gas := g) hlt hcode (by omega)
+            (substate := ss) (returnData := .empty) (stack := T) (gas := g) hlt hcode hg
             (by unfold STACK_LIMIT; omega)
           rw [hdata] at hrule
-          exact SimOut.pre hrule (IH (h + 1) [] _ _ _ (k - 1) s (pc + 1) M (g - 2) st ss hok
-            (by simp; omega) (List.nil_prefix) (SR.cons (τ := some false) rfl hR) (I'.next hk1 hseg (by simp) (by omega)) R)
+          exact hrule
         · -- CALLVALUE.
-          rcases ar with _ | ar
-          rotate_left
-          · simp [blockStep] at hok'
+          rcases ar with _ | ar <;> try (simp [blockStep] at hok'; done)
           simp only [blockStep, Bool.and_eq_true, decide_eq_true_eq] at hok'
-          obtain ⟨hk1, hok⟩ := hok'
-          simp only [lowerInstr, List.singleton_append] at I'
-          obtain ⟨next, hd, hseg⟩ := I'.seg.head
-          simp only [Item.expected] at hd
-          obtain ⟨hlt, hcode, rfl⟩ := op_item hd
-          have hS := I'.stack; have hG := I'.gas
-          rw [exec_effect0 (w := BitVec.ofNat 256 call.callvalue) rfl (by omega)]
+          rw [exec_effect0 (w := BitVec.ofNat 256 call.callvalue) rfl (by have := I'.stack; omega)]
+          refine push _ _ rfl hok'.1 hok'.2 fun hlt hcode hg hT => ?_
           have hrule := Logic.callvalue (message := msg) (memory := M) (state := st)
-            (substate := ss) (returnData := .empty) (stack := T) (gas := g) hlt hcode (by omega)
+            (substate := ss) (returnData := .empty) (stack := T) (gas := g) hlt hcode hg
             (by unfold STACK_LIMIT; omega)
           rw [hvalue] at hrule
-          exact SimOut.pre hrule (IH (h + 1) [] _ _ _ (k - 1) s (pc + 1) M (g - 2) st ss hok
-            (by simp; omega) (List.nil_prefix) (SR.cons (τ := some false) rfl hR) (I'.next hk1 hseg (by simp) (by omega)) R)
+          exact hrule
         · -- CALLER.
-          rcases ar with _ | ar
-          rotate_left
-          · simp [blockStep] at hok'
+          rcases ar with _ | ar <;> try (simp [blockStep] at hok'; done)
           simp only [blockStep, Bool.and_eq_true, decide_eq_true_eq] at hok'
           obtain ⟨⟨henv, hk1⟩, hok⟩ := hok'
-          obtain ⟨hoc, -⟩ := ho henv
-          simp only [lowerInstr, List.singleton_append] at I'
-          obtain ⟨next, hd, hseg⟩ := I'.seg.head
-          simp only [Item.expected] at hd
-          obtain ⟨hlt, hcode, rfl⟩ := op_item hd
-          have hS := I'.stack; have hG := I'.gas
-          rw [exec_effect0 (w := o.caller.setWidth 256) rfl (by omega)]
+          rw [exec_effect0 (w := o.caller.setWidth 256) rfl (by have := I'.stack; omega)]
+          refine push _ _ rfl hk1 hok fun hlt hcode hg hT => ?_
           have hrule := Logic.caller (message := msg) (memory := M) (state := st)
-            (substate := ss) (returnData := .empty) (stack := T) (gas := g) hlt hcode (by omega)
+            (substate := ss) (returnData := .empty) (stack := T) (gas := g) hlt hcode hg
             (by unfold STACK_LIMIT; omega)
-          rw [hcaller, ← hoc] at hrule
-          exact SimOut.pre hrule (IH (h + 1) [] _ _ _ (k - 1) s (pc + 1) M (g - 2) st ss hok
-            (by simp; omega) (List.nil_prefix) (SR.cons (τ := some false) rfl hR) (I'.next hk1 hseg (by simp) (by omega)) R)
+          rw [hcaller, ← (ho henv).1] at hrule
+          exact hrule
         · -- LOGn.
           rcases known with _ | ⟨ow, _ | ⟨sw, known'⟩⟩
           · simp [blockStep] at hok'
@@ -1195,88 +1198,53 @@ theorem exec_sim {p : Program} {c : Cert} {code : ByteArray} (G : Glob p c code)
           have hR' : SR c (ty.drop (tops.length + 2)) S2 T2 := by
             simpa using SR.drop (tops.length + 2) hR
           simp only [lowerInstr, hn4, ite_true, List.singleton_append] at I'
-          obtain ⟨next, hd, hseg⟩ := I'.seg.head
-          simp only [Item.expected] at hd
-          obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+          obtain ⟨hlt, hcode, hseg⟩ := I'.seg.op rfl
           have hS := I'.stack; have hG := I'.gas
           simp only [List.length_cons, List.length_append] at hS hG hh hL
-          have hmod : M.size % 32 = 0 := by rw [I'.mem.1]; omega
-          obtain ⟨hle, hcost⟩ := extend_cost (o := ow) (sz := sw) hmod G.top_mod I'.le_top
-            (hin.imp_left fun h0 => BitVec.eq_of_toNat_eq (by simpa using h0))
-          have hbound : sw = 0 ∨ ow.toNat + sw.toNat ≤ 2 ^ 32 :=
-            hin.imp (fun h0 => BitVec.eq_of_toNat_eq (by simpa using h0))
-              (fun h0 => by have := G.top_le; omega)
+          obtain ⟨hcost, hle, hmem⟩ := I'.range G hin
           have hrule := Logic.log (n := ⟨tops.length, by omega⟩) (message := msg) (memory := M)
             (state := st) (substate := ss) (returnData := .empty) (start := ow) (size := sw)
             (words := tops) (rest := T2) (gas := g) rfl hlt hcode (decode_log ⟨tops.length, by omega⟩) hstatic
             (show logCost tops.length sw + (extendMemory M.size [(ow, sw)]).cost ≤ g by omega)
           dsimp only at hrule
           rw [exec_log (by omega)]
-          have hM' := size_memoryExtend M (extendMemory M.size [(ow, sw)]).expandBy
           obtain ⟨L, hL1, hL2⟩ := R.logs
           refine SimOut.pre hrule (IH (h - (tops.length + 2)) [] _ S2 T2 (k - 1) _ (pc + 1) _ _ st _
-            hok (by omega) (List.nil_prefix) hR' ⟨hseg, by omega, ?_, by rw [hM']; omega,
-            memRel_expand I'.mem hbound⟩ ⟨R.storage, R.account, ?_⟩)
-          · rw [hM']; omega
-          · refine ⟨L ++ [⟨msg.currentTarget, tops.map U256.toBeBytes,
-              memoryReadBytes (memoryExtend M (extendMemory M.size [(ow, sw)]).expandBy)
-                ow.toNat sw.toNat⟩], by simp [Array.toList_push, hL1],
-              filter_snoc_log ▸ forall₂_snoc hL2 ⟨rfl, rfl, ?_⟩⟩
-            exact read_eq I'.mem
+            hok (by omega) (List.nil_prefix) hR' ⟨hseg, by omega, by omega, hle, hmem⟩
+            ⟨R.storage, R.account, ?_⟩)
+          refine ⟨L ++ [⟨msg.currentTarget, tops.map U256.toBeBytes,
+            memoryReadBytes (memoryExtend M (extendMemory M.size [(ow, sw)]).expandBy)
+              ow.toNat sw.toNat⟩], by simp [Array.toList_push, hL1],
+            filter_snoc_log ▸ forall₂_snoc hL2 ⟨rfl, rfl, ?_⟩⟩
+          exact read_eq I'.mem
         · -- KECCAK256.
-          rcases ar with _ | _ | _ | ar
-          · simp [blockStep] at hok'
-          · simp [blockStep] at hok'
-          rotate_left
-          · simp [blockStep] at hok'
+          rcases ar with _ | _ | _ | ar <;> try (simp [blockStep] at hok'; done)
           rcases known with _ | ⟨ow, _ | ⟨sw, known'⟩⟩
           · simp [blockStep] at hok'
           · simp [blockStep] at hok'
           simp only [blockStep, rangeOk, Bool.and_eq_true, Bool.or_eq_true, decide_eq_true_eq] at hok'
           obtain ⟨⟨⟨⟨⟨⟨henv, hk1⟩, h2⟩, hdat⟩, hin⟩, hkc⟩, hok⟩ := hok'
-          rcases S with _ | ⟨x, _ | ⟨y, S'⟩⟩
-          · simp at hk
-          · simp at hk
-          obtain ⟨rfl, hk'⟩ := List.cons_prefix_cons.1 hk
-          obtain ⟨rfl, -⟩ := List.cons_prefix_cons.1 hk'
-          rcases T with _ | ⟨x', _ | ⟨y', T'⟩⟩
-          · simp at hL
-          · simp at hL
-          have htake := hR.data hdat
-          simp only [List.take_succ_cons, List.take_zero, List.cons.injEq] at htake
-          obtain ⟨rfl, rfl, -⟩ := htake
-          have hR' : SR c (ty.drop 2) S' T' := by simpa using SR.drop 2 hR
+          obtain ⟨S', T', rfl, rfl, hR'⟩ := hR.range hdat hk
           simp only [lowerInstr, List.singleton_append] at I'
-          obtain ⟨next, hd, hseg⟩ := I'.seg.head
-          simp only [Item.expected] at hd
-          obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+          obtain ⟨hlt, hcode, hseg⟩ := I'.seg.op rfl
           have hS := I'.stack; have hG := I'.gas
           simp only [List.length_cons] at hS hG hh hL
-          have hmod : M.size % 32 = 0 := by rw [I'.mem.1]; omega
-          obtain ⟨hle, hcost⟩ := extend_cost (o := ow) (sz := sw) hmod G.top_mod I'.le_top
-            (hin.imp_left fun h0 => BitVec.eq_of_toNat_eq (by simpa using h0))
-          have hbound : sw = 0 ∨ ow.toNat + sw.toNat ≤ 2 ^ 32 :=
-            hin.imp (fun h0 => BitVec.eq_of_toNat_eq (by simpa using h0))
-              (fun h0 => by have := G.top_le; omega)
-          obtain ⟨-, hkec⟩ := ho henv
+          obtain ⟨hcost, hle, hmem⟩ := I'.range G hin
           have hrule := Logic.keccak256 (message := msg) (memory := M) (state := st) (substate := ss)
             (returnData := .empty) (start := ow) (size := sw) (rest := T') (gas := g) hlt hcode
             (by omega)
-          rw [byteArray_eq_of_map (read_eq I'.mem), ← hkec] at hrule
+          rw [byteArray_eq_of_map (read_eq I'.mem), ← (ho henv).2] at hrule
           rw [exec_keccak (by omega)]
-          have hM' := size_memoryExtend M (extendMemory M.size [(ow, sw)]).expandBy
-          refine SimOut.pre hrule (IH (h - 1) [] _ _ _ (k - 1) _ (pc + 1) _ _ st ss hok
-            (by simp; omega) (List.nil_prefix) (SR.cons (τ := some false) rfl hR') ⟨hseg, by simp; omega, ?_,
-            by rw [hM']; omega, memRel_expand I'.mem hbound⟩ ⟨R.storage, R.account, R.logs⟩)
-          rw [hM']; omega
+          exact SimOut.pre hrule (IH (h - 1) [] _ _ _ (k - 1) _ (pc + 1) _ _ st ss hok
+            (by simp; omega) (List.nil_prefix) (SR.cons (τ := some false) rfl hR')
+            ⟨hseg, by simp; omega, by omega, hle, hmem⟩ ⟨R.storage, R.account, R.logs⟩)
       · -- JUMP.
         simp only [blockStep, jumpOk, Bool.and_eq_true, decide_eq_true_eq] at hok'
         obtain ⟨hk2, ⟨⟨⟨⟨htn, htgt⟩, hneed⟩, hty⟩, hcost⟩⟩ := hok'
         simp only [lowerInstr, List.cons_append, List.nil_append] at I'
         obtain ⟨n1, hd1, hs1⟩ := I'.seg.head
-        obtain ⟨n2, hd2, -⟩ := hs1.head
-        simp only [Item.expected] at hd1 hd2
-        obtain ⟨hlt2, hcode2, rfl⟩ := op_item hd2
+        obtain ⟨hlt2, hcode2, -⟩ := hs1.op rfl
+        simp only [Item.expected] at hd1
         have hS := I'.stack; have hG := I'.gas
         have hoff := toNat_offset (G.target t htn htgt).2.1 G.size_lt
         obtain ⟨g1, hg1, hpush⟩ := push_item (msg := msg) (M := M) (st := st) (ss := ss) (gas := g)
@@ -1292,17 +1260,11 @@ theorem exec_sim {p : Program} {c : Cert} {code : ByteArray} (G : Glob p c code)
       · -- JUMPI.
         simp only [blockStep, jumpOk, Bool.and_eq_true, decide_eq_true_eq] at hok'
         obtain ⟨⟨⟨⟨hk2, h1⟩, hdat⟩, ⟨⟨⟨⟨htn, htgt⟩, hneed⟩, hty⟩, hcost⟩⟩, hok'⟩ := hok'
-        rcases S with _ | ⟨cond, S'⟩
-        · simp at hh; omega
-        rcases T with _ | ⟨cond', T'⟩
-        · simp at hL
-        obtain rfl := (SR.head hR hdat).symm
-        have hR' := (SR.uncons.1 hR).2
+        obtain ⟨cond, S', T', rfl, rfl, hR'⟩ := hR.pop1 hdat (by omega)
         simp only [lowerInstr, List.cons_append, List.nil_append] at I'
         obtain ⟨n1, hd1, hs1⟩ := I'.seg.head
-        obtain ⟨n2, hd2, hseg⟩ := hs1.head
-        simp only [Item.expected] at hd1 hd2
-        obtain ⟨hlt2, hcode2, rfl⟩ := op_item hd2
+        obtain ⟨hlt2, hcode2, hseg⟩ := hs1.op rfl
+        simp only [Item.expected] at hd1
         have hS := I'.stack; have hG := I'.gas
         simp only [List.length_cons] at hS hh hL
         have hoff := toNat_offset (G.target t htn htgt).2.1 G.size_lt
@@ -1359,9 +1321,7 @@ theorem exec_sim {p : Program} {c : Cert} {code : ByteArray} (G : Glob p c code)
         simp only [jumpOk, Bool.and_eq_true, decide_eq_true_eq] at hj'
         obtain ⟨⟨⟨⟨htn, htgt⟩, hneed⟩, hty⟩, hcost⟩ := hj'
         simp only [lowerInstr, List.singleton_append] at I'
-        obtain ⟨next, hd, -⟩ := I'.seg.head
-        simp only [Item.expected] at hd
-        obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+        obtain ⟨hlt, hcode, -⟩ := I'.seg.op rfl
         have hS := I'.stack; have hG := I'.gas
         simp only [List.length_cons] at hS hh hL
         have hoff := toNat_offset (G.target _ htn htgt).2.1 G.size_lt
@@ -1377,9 +1337,7 @@ theorem exec_sim {p : Program} {c : Cert} {code : ByteArray} (G : Glob p c code)
       · simp [blockStep] at hok'
       · -- STOP.
         simp only [lowerInstr, List.singleton_append] at I'
-        obtain ⟨next, hd, -⟩ := I'.seg.head
-        simp only [Item.expected] at hd
-        obtain ⟨hlt, hcode, -⟩ := op_item hd
+        obtain ⟨hlt, hcode, -⟩ := I'.seg.op rfl
         simp only [exec, SimOut]
         exact Spec.consequence (Logic.stop hlt hcode) (fun _ h => h)
           fun evm h => postL_stop R hself evm h
@@ -1388,26 +1346,11 @@ theorem exec_sim {p : Program} {c : Cert} {code : ByteArray} (G : Glob p c code)
         · simp [blockStep] at hok'
         · simp [blockStep] at hok'
         simp only [blockStep, rangeOk, Bool.and_eq_true, Bool.or_eq_true, decide_eq_true_eq] at hok'
-        obtain ⟨hdat, hin⟩ := hok'
-        rcases S with _ | ⟨x, _ | ⟨y, S'⟩⟩
-        · simp at hk
-        · simp at hk
-        obtain ⟨rfl, hk'⟩ := List.cons_prefix_cons.1 hk
-        obtain ⟨rfl, -⟩ := List.cons_prefix_cons.1 hk'
-        rcases T with _ | ⟨x', _ | ⟨y', T'⟩⟩
-        · simp at hL
-        · simp at hL
-        have htake := hR.data hdat
-        simp only [List.take_succ_cons, List.take_zero, List.cons.injEq] at htake
-        obtain ⟨rfl, rfl, -⟩ := htake
+        obtain ⟨S', T', rfl, rfl, -⟩ := hR.range hok'.1 hk
         simp only [lowerInstr, List.singleton_append] at I'
-        obtain ⟨next, hd, -⟩ := I'.seg.head
-        simp only [Item.expected] at hd
-        obtain ⟨hlt, hcode, -⟩ := op_item hd
+        obtain ⟨hlt, hcode, -⟩ := I'.seg.op rfl
         have hG := I'.gas
-        have hmod : M.size % 32 = 0 := by rw [I'.mem.1]; omega
-        obtain ⟨-, hcost⟩ := extend_cost (o := ow) (sz := sw) hmod G.top_mod I'.le_top
-          (hin.imp_left fun h0 => BitVec.eq_of_toNat_eq (by simpa using h0))
+        obtain ⟨hcost, -, -⟩ := I'.range G hok'.2
         simp only [exec, SolarTV.EVM.Program.output, SimOut, Bool.false_eq_true, ↓reduceIte]
         exact Spec.consequence (return_postS (ss := ss) hlt hcode (by omega) rfl
           (by rw [read_eq I'.mem]; rfl) rfl (R.slot hself)) (fun _ h => h)
@@ -1417,26 +1360,11 @@ theorem exec_sim {p : Program} {c : Cert} {code : ByteArray} (G : Glob p c code)
         · simp [blockStep] at hok'
         · simp [blockStep] at hok'
         simp only [blockStep, rangeOk, Bool.and_eq_true, Bool.or_eq_true, decide_eq_true_eq] at hok'
-        obtain ⟨hdat, hin⟩ := hok'
-        rcases S with _ | ⟨x, _ | ⟨y, S'⟩⟩
-        · simp at hk
-        · simp at hk
-        obtain ⟨rfl, hk'⟩ := List.cons_prefix_cons.1 hk
-        obtain ⟨rfl, -⟩ := List.cons_prefix_cons.1 hk'
-        rcases T with _ | ⟨x', _ | ⟨y', T'⟩⟩
-        · simp at hL
-        · simp at hL
-        have htake := hR.data hdat
-        simp only [List.take_succ_cons, List.take_zero, List.cons.injEq] at htake
-        obtain ⟨rfl, rfl, -⟩ := htake
+        obtain ⟨S', T', rfl, rfl, -⟩ := hR.range hok'.1 hk
         simp only [lowerInstr, List.singleton_append] at I'
-        obtain ⟨next, hd, -⟩ := I'.seg.head
-        simp only [Item.expected] at hd
-        obtain ⟨hlt, hcode, -⟩ := op_item hd
+        obtain ⟨hlt, hcode, -⟩ := I'.seg.op rfl
         have hG := I'.gas
-        have hmod : M.size % 32 = 0 := by rw [I'.mem.1]; omega
-        obtain ⟨-, hcost⟩ := extend_cost (o := ow) (sz := sw) hmod G.top_mod I'.le_top
-          (hin.imp_left fun h0 => BitVec.eq_of_toNat_eq (by simpa using h0))
+        obtain ⟨hcost, -, -⟩ := I'.range G hok'.2
         simp only [exec, SolarTV.EVM.Program.output, SimOut, ↓reduceIte]
         exact Spec.consequence (revert_postS (ss := ss) (by decide) hlt hcode (by omega) rfl
           (by rw [read_eq I'.mem]; rfl) rfl) (fun _ h => h) (fun _ h => ⟨ss, h, R.logs⟩)
@@ -1475,9 +1403,7 @@ theorem run_sim {p : Program} {c : Cert} {code : ByteArray} (G : Glob p c code)
         · have hl : labelItems p c b = 1 := by simp [labelItems, ht]
           rw [hl] at hL ⊢
           simp only [ht, ite_true, List.singleton_append] at I'
-          obtain ⟨next, hd, hseg⟩ := I'.seg.head
-          simp only [Item.expected] at hd
-          obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+          obtain ⟨hlt, hcode, hseg⟩ := I'.seg.op rfl
           have hG := I'.gas
           exact ⟨pc + 1, g - 1, Logic.jumpdest hlt hcode (by omega),
             I'.next hL hseg (Nat.le_succ _) (by omega)⟩
@@ -1501,11 +1427,7 @@ theorem run_sim {p : Program} {c : Cert} {code : ByteArray} (G : Glob p c code)
       have hblk : p.blocks[p.blocks.length]? = none := List.getElem?_eq_none (by omega)
       simp only [SolarTV.Machine.iterate, block, hblk, ite_true, Option.some.injEq] at hr
       subst hr
-      have hseg := I.seg
-      rw [lowerFrom_nil p c (by omega)] at hseg
-      have hpc := hseg.nil_end
-      exact Spec.consequence (Logic.stop_of_size_le (by omega))
-        (fun _ h => h) fun evm h => postL_stop R hself evm h
+      exact I.stop le_rfl R hself T
 
 theorem logs_of_match' {a : Address} : ∀ {w : List SolarTV.Machine.Event}
     {L : List EthLib.Execution.Blocks.Log}, List.Forall₂ (LogMatch a) w L →
@@ -1546,21 +1468,30 @@ theorem logs_of_match {a : Address} {w : List SolarTV.Machine.Event}
         | .call .. | .read _ | .create .. => none := by
   rw [logs_of_match' h, filterMap_logs]
 
-/-- The callee's storage before the call, at its account, which exists, is the call's: the
-relation at the start of the frame. -/
-theorem rel_initial (code : ByteArray) (call : SolarTV.Call) :
-    Rel (Target.message code call) Substate.empty (Target.preState code call) Substate.empty
-      (SolarTV.Machine.State.initial call) := by
-  have htgt : (Target.message code call).currentTarget = Target.address selfAddress := rfl
+/-- The relation at the start of the frame, from a state whose storage at the contract is the
+call's and which has the contract's account. -/
+theorem rel_of_pre {msg : Message .fusaka} {pre : State.TransactionState} {call : SolarTV.Call}
+    (htgt : msg.currentTarget = Target.address selfAddress)
+    (hs : ∀ k, (pre.getStorage (Target.address selfAddress) (Target.storageKey k)).toNat =
+      slotValue call.storage k)
+    (ha : pre.getAccountOptional (Target.address selfAddress) ≠ none) :
+    Rel msg Substate.empty pre Substate.empty (SolarTV.Machine.State.initial call) := by
   refine ⟨fun k => ?_, ?_, ⟨[], by simp, .nil⟩⟩
   · apply BitVec.eq_of_toNat_eq
     have hkey : U256.toBeBytes k = Target.storageKey k.toNat :=
       ((storageKey_eq_toBeBytes k.toNat k).2 (Nat.mod_eq_of_lt k.isLt)).symm
-    rw [htgt, hkey, getStorage_preState code call k.toNat]
+    rw [htgt, hkey, hs k.toNat]
     simp only [SolarTV.Machine.State.initial, BitVec.toNat_ofNat]
     exact (Nat.mod_eq_of_lt (slotValue_lt _ _)).symm
   · rw [htgt]
-    exact Option.isSome_iff_ne_none.2 (account_preState code call)
+    exact Option.isSome_iff_ne_none.2 ha
+
+/-- The callee's storage before the call, at its account, which exists, is the call's: the
+relation at the start of the frame. -/
+theorem rel_initial (code : ByteArray) (call : SolarTV.Call) :
+    Rel (Target.message code call) Substate.empty (Target.preState code call) Substate.empty
+      (SolarTV.Machine.State.initial call) :=
+  rel_of_pre rfl (getStorage_preState code call) (account_preState code call)
 
 /-! ## Calls with value
 
@@ -1662,35 +1593,30 @@ theorem modifyState_exists {fork : Fork} {tx : TransactionState} {a : Address}
   simp only [bind, Except.bind, pure, Except.pure, getAccount_recordAccountRead, h]
   split <;> exact ⟨_, rfl⟩
 
+/-- A move of `v` from `a`, which holds at least it, to another address `r`, which holds none,
+succeeds. -/
+theorem moveEther_of_balance {tx : TransactionState} {a r : Address} {v : U256} (hra : r ≠ a)
+    (ha : v ≤ (tx.getAccount a).balance) (hr : (tx.getAccount r).balance = 0) :
+    ∃ tx', tx.moveEther .fusaka a r v = .ok tx' := by
+  have hd : Account.debit a v (tx.getAccount a) =
+      .ok { tx.getAccount a with balance := (tx.getAccount a).balance - v } := by
+    simp [Account.debit, BitVec.not_lt.2 ha]
+  obtain ⟨t1, h1⟩ := modifyState_exists (fork := .fusaka) hd
+  have hr1 : (t1.getAccount r).balance = 0 := by
+    simpa only [TransactionState.getAccount, (modifyState_ne h1 hra (Target.storageKey 0)).2] using hr
+  have hc : Account.credit r v (t1.getAccount r) =
+      .ok { t1.getAccount r with balance := (t1.getAccount r).balance + v } := by
+    simp [Account.credit, hr1, v.isLt]
+  obtain ⟨t2, h2⟩ := modifyState_exists (fork := .fusaka) hc
+  exact ⟨t2, by simp [TransactionState.moveEther, bind, Except.bind, h1, h2]⟩
+
 /-- The move of the call's value from the caller, who holds exactly it, to the contract, which
 holds none, succeeds, for every value. -/
 theorem moveEther_preState_any (code : ByteArray) (call : SolarTV.Call) :
     ∃ st', (Target.preState code call).moveEther .fusaka (Target.address callerAddress)
-      (Target.address selfAddress) (BitVec.ofNat 256 call.callvalue) = .ok st' := by
-  have hAB : Target.address selfAddress ≠ Target.address callerAddress := by decide
-  have hd : Account.debit (Target.address callerAddress) (BitVec.ofNat 256 call.callvalue)
-      ((Target.preState code call).getAccount (Target.address callerAddress)) =
-      .ok { (Target.preState code call).getAccount (Target.address callerAddress) with
-        balance := 0 } := by
-    simp [Account.debit, getAccount_preState_caller]
-  obtain ⟨t1, h1⟩ := modifyState_exists (fork := .fusaka) hd
-  have ha1 := (modifyState_ne h1 hAB (Target.storageKey 0)).2
-  have hc : Account.credit (Target.address selfAddress) (BitVec.ofNat 256 call.callvalue)
-      (t1.getAccount (Target.address selfAddress)) =
-      .ok { t1.getAccount (Target.address selfAddress) with
-        balance := 0 + BitVec.ofNat 256 call.callvalue } := by
-    have : t1.getAccount (Target.address selfAddress) =
-        (Target.preState code call).getAccount (Target.address selfAddress) := by
-      simp only [TransactionState.getAccount, ha1]
-    rw [this, getAccount_preState_self]
-    unfold Account.credit
-    rw [ite_eq_left_iff.mpr (fun h => absurd ?_ h)]
-    dsimp only
-    have h1 := (BitVec.ofNat 256 call.callvalue).isLt
-    have h0 : (0 : U256).toNat = 0 := rfl
-    omega
-  obtain ⟨t2, h2⟩ := modifyState_exists (fork := .fusaka) hc
-  exact ⟨t2, by simp [TransactionState.moveEther, bind, Except.bind, h1, h2]⟩
+      (Target.address selfAddress) (BitVec.ofNat 256 call.callvalue) = .ok st' :=
+  moveEther_of_balance (by decide) (by rw [getAccount_preState_caller]; exact BitVec.le_refl _)
+    (by rw [getAccount_preState_self])
 
 end Move
 
@@ -1777,37 +1703,30 @@ theorem processMessage_postL_move {c : ByteArray} (message : Message .fusaka)
       simp only [rollbackOnError, herr, hE, Option.isSome_none, Bool.false_eq_true, ↓reduceIte]
       exact ⟨hlogs, hst hX⟩
 
-/-- Target.run of any call, with or without value, is SolarTV's observable of `halt` in `s` when the
-frame from every state related to the call's storage ends as `PostL` shows: with value, the frame
-starts after the move of the value, which keeps the contract's storage. -/
-theorem run_of_rel (code : ByteArray) (call : SolarTV.Call) (s : SolarTV.Machine.State)
-    (halt : SolarTV.Machine.Halt)
-    (h : ∀ st, Rel (Target.message code call) Substate.empty st Substate.empty
-        (SolarTV.Machine.State.initial call) →
-      Spec .fusaka (At code (Target.message code call) 0 [] .empty 10000000 st Substate.empty
-        .empty) (PostL call (Target.address selfAddress) Substate.empty s halt)) :
-    Target.run code call = some (SolarTV.Machine.observe call s halt) := by
-  have key : ∃ evm, processMessage (Meter := Nat) .fusaka (Target.message code call)
-      (Target.preState code call) Substate.empty = .ok evm ∧
-      MsgOut (SolarTV.Machine.observe call s halt) (Target.address selfAddress) Substate.empty
-        s.world evm.1 := by
-    by_cases hv : (Target.message code call).value = 0
-    · exact processMessage_postL _ rfl hv (precompileAddress_message code call) _ _ _ _ _
-        (h _ (rel_initial code call))
-    · obtain ⟨st', hmove⟩ := moveEther_preState_any code call
-      have hn : ((Target.preState code call).getAccount (Target.address selfAddress)).nonce ≠ 0 := by
-        rw [getAccount_preState_self]; simp
-      have hAB : Target.address selfAddress ≠ Target.address callerAddress := by decide
-      have R0 := rel_initial code call
-      have R : Rel (Target.message code call) Substate.empty st' Substate.empty
-          (SolarTV.Machine.State.initial call) :=
-        ⟨fun k => ((moveEther_recipient hmove hAB hn _).1).trans (R0.storage k),
-          (moveEther_recipient hmove hAB hn (Target.storageKey 0)).2, R0.logs⟩
-      exact processMessage_postL_move _ rfl rfl hv (precompileAddress_message code call) _ _ _ _
-        st' _ hmove (h st' R)
-  obtain ⟨evm, hr, ssF, ⟨L, hL1, hL2⟩, herr, hout, hst⟩ := key
+/-- The observable `Target.run` builds from EthLib's frame at the end of a call. -/
+def evmObservable (call : SolarTV.Call) (evm : Evm .fusaka Nat) : SolarTV.Observable :=
+  { success := evm.error.isNone
+    output := evm.output.toList.map (·.toNat)
+    logs :=
+      if evm.error.isNone then
+        evm.substate.logs.toList.map fun log =>
+          (log.topics.map fun topic => bytesToNat topic.toList, log.data.toList.map (·.toNat))
+      else []
+    storage := fun slot =>
+      if evm.error.isNone then
+        (evm.state.getStorage (Target.address selfAddress) (Target.storageKey slot)).toNat
+      else slotValue call.storage slot }
+
+/-- A frame that ends as `MsgOut` shows for SolarTV's halt, from a substate with no logs, shows
+SolarTV's observable. -/
+theorem observe_of_msgOut {call : SolarTV.Call} {s : SolarTV.Machine.State}
+    {halt : SolarTV.Machine.Halt} {ss : Substate} (hss : ss.logs.toList = [])
+    {evm : Evm .fusaka Nat}
+    (h : MsgOut (SolarTV.Machine.observe call s halt) (Target.address selfAddress) ss s.world evm) :
+    evmObservable call evm = SolarTV.Machine.observe call s halt := by
+  obtain ⟨ssF, ⟨L, hL1, hL2⟩, herr, hout, hst⟩ := h
   have hlogs := logs_of_match hL2
-  have hL1' : ssF.logs.toList = L := by simpa [Substate.empty] using hL1
+  rw [hss, List.nil_append] at hL1
   have hfail : (SolarTV.Machine.observe call s halt).success = false →
       (SolarTV.Machine.observe call s halt).logs = [] ∧
       (SolarTV.Machine.observe call s halt).storage = slotValue call.storage := by
@@ -1815,28 +1734,63 @@ theorem run_of_rel (code : ByteArray) (call : SolarTV.Call) (s : SolarTV.Machine
   have hok : (SolarTV.Machine.observe call s halt).success = true →
       (SolarTV.Machine.observe call s halt).logs = SolarTV.Machine.logs s := by
     cases halt <;> simp [SolarTV.Machine.observe]
-  simp only [Target.run, hr]
   generalize SolarTV.Machine.observe call s halt = X at *
-  have hsucc : evm.1.error.isNone = X.success := by
+  have hsucc : evm.error.isNone = X.success := by
     rw [herr]; cases hX : X.success <;> simp [errorOf, hX]
-  congr 1
   cases X with
   | mk success output logs storage =>
-    simp only at hsucc hout hfail hok hst ⊢
-    rw [SolarTV.Observable.mk.injEq]
-    refine ⟨hsucc, hout, ?_, ?_⟩
-    · rw [hsucc]
-      cases hs : success
-      · simp [(hfail hs).1]
-      · simp only [ite_true]
-        rw [(hst hs).1, hL1', hlogs, hok hs]
-        rfl
-    · funext slot
-      rw [hsucc]
-      cases hs : success
-      · simp [(hfail hs).2]
-      · simp only [ite_true]
-        exact (hst hs).2 slot
+    simp only at hsucc hout hfail hok hst
+    simp only [evmObservable, SolarTV.Observable.mk.injEq, hsucc, hout, true_and]
+    cases hs : success
+    · simp [hfail hs]
+    · simp only [ite_true, (hst hs).1, hL1, hlogs, hok hs]
+      exact ⟨rfl, funext (hst hs).2⟩
+
+/-- `Target.run` and its forms at other gas and from other callers: EthLib's message `msg` from
+`pre`, whose frame from every state related to the call's storage ends as `PostL` shows,
+succeeds with SolarTV's observable. With value, the frame starts after the move of the value,
+which keeps the contract's storage. -/
+theorem run_of_rel_msg {code : ByteArray} {call : SolarTV.Call} {s : SolarTV.Machine.State}
+    {halt : SolarTV.Machine.Halt} (msg : Message .fusaka) (pre : State.TransactionState)
+    (hcode : msg.code = code) (htr : msg.shouldTransferValue = true)
+    (hpre : precompileAddress .fusaka msg = none) (hAB : msg.currentTarget ≠ msg.caller)
+    (hn : (pre.getAccount msg.currentTarget).nonce ≠ 0)
+    (hmove : ∃ st', pre.moveEther .fusaka msg.caller msg.currentTarget msg.value = .ok st')
+    (R0 : Rel msg Substate.empty pre Substate.empty (SolarTV.Machine.State.initial call))
+    (h : ∀ st, Rel msg Substate.empty st Substate.empty (SolarTV.Machine.State.initial call) →
+      Spec .fusaka (At code msg 0 [] .empty msg.gas st Substate.empty .empty)
+        (PostL call (Target.address selfAddress) Substate.empty s halt)) :
+    ∃ evm, processMessage (Meter := Nat) .fusaka msg pre Substate.empty = .ok evm ∧
+      evmObservable call evm.1 = SolarTV.Machine.observe call s halt := by
+  have key : ∃ evm, processMessage (Meter := Nat) .fusaka msg pre Substate.empty = .ok evm ∧
+      MsgOut (SolarTV.Machine.observe call s halt) (Target.address selfAddress) Substate.empty
+        s.world evm.1 := by
+    by_cases hv : msg.value = 0
+    · exact processMessage_postL msg hcode hv hpre _ _ _ _ _ (h _ R0)
+    · obtain ⟨st', hm⟩ := hmove
+      exact processMessage_postL_move msg hcode htr hv hpre _ _ _ _ st' _ hm
+        (h st' ⟨fun k => ((moveEther_recipient hm hAB hn _).1).trans (R0.storage k),
+          (moveEther_recipient hm hAB hn (Target.storageKey 0)).2, R0.logs⟩)
+  obtain ⟨evm, hr, hout⟩ := key
+  exact ⟨evm, hr, observe_of_msgOut (by simp [Substate.empty]) hout⟩
+
+/-- Target.run of any call, with or without value, is SolarTV's observable of `halt` in `s` when the
+frame from every state related to the call's storage ends as `PostL` shows. -/
+theorem run_of_rel (code : ByteArray) (call : SolarTV.Call) (s : SolarTV.Machine.State)
+    (halt : SolarTV.Machine.Halt)
+    (h : ∀ st, Rel (Target.message code call) Substate.empty st Substate.empty
+        (SolarTV.Machine.State.initial call) →
+      Spec .fusaka (At code (Target.message code call) 0 [] .empty 10000000 st Substate.empty
+        .empty) (PostL call (Target.address selfAddress) Substate.empty s halt)) :
+    Target.run code call = some (SolarTV.Machine.observe call s halt) := by
+  obtain ⟨evm, hr, he⟩ := run_of_rel_msg (Target.message code call) (Target.preState code call)
+    rfl rfl (precompileAddress_message code call)
+    (show Target.address selfAddress ≠ Target.address callerAddress by decide)
+    (show ((Target.preState code call).getAccount (Target.address selfAddress)).nonce ≠ 0 by
+      rw [getAccount_preState_self]; simp)
+    (moveEther_preState_any code call) (rel_initial code call) h
+  simp only [Target.run, hr]
+  exact congrArg some he
 
 /-- EVM IR to bytecode, for every program and code the checker accepts: on every call, with or
 without value, from any storage, under every oracle whose caller and hash are EthLib's when the
