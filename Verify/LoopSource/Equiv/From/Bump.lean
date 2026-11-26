@@ -111,6 +111,16 @@ theorem require_passed (ρ : Val) (hok : ρ.Ok) (hg : ¬([ovf].any (fun g => g.e
   · exact absurd rfl hv
   · omega
 
+/-- `{ s; t }` when `s` ends normally: `t`'s result, out of the block's scope. -/
+private theorem eval_pair {n : Nat} {tbl : FunctionTable} {ctx : Context} {rt rt' : Runtime} {s t : Stmt}
+    {r : Result} (h1 : Stmt.eval n tbl ctx rt.pushScope s = .done (.ok (.normal rt')))
+    (h2 : Stmt.eval n tbl ctx rt' t = .done (.ok r)) :
+    Stmt.eval (n + 1) tbl ctx rt (.block [s, t]) = .done (.ok (r.mapRuntime Runtime.popScope)) := by
+  refine eval_block_of ((evalList_cons_normal h1).trans ?_)
+  cases r <;> first
+    | rw [evalList_cons_normal h2, evalList_nil]
+    | exact evalList_cons_stop h2 (fun _ h => by cases h)
+
 set_option maxHeartbeats 4000000 in
 /-- **bump's body runs to `bumpBr`**, at every fuel from `2 ^ 256 + 8` on. -/
 theorem body_runs (ev : List EventDecl) (tbl : FunctionTable) (fn : FunctionDef)
@@ -132,35 +142,17 @@ theorem body_runs (ev : List EventDecl) (tbl : FunctionTable) (fn : FunctionDef)
   have h2' := eval_mono (by omega : 10 ≤ f + 2) h2
   unfold bumpBr
   rw [guards_eval] at l2 ⊢
-  by_cases hg : [ovf].any (fun g => g.eval ρ != 0) = true
-  · -- count + n wraps: Panic(0x11)
-    rw [if_pos hg] at l2 ⊢
-    cases r2 <;> simp only [LeafRel] at l2
-    rename_i rt2 e
-    have hl2 := evalList_cons_stop (rest := [.block [s3, loop]]) h2' (fun _ h => by cases h)
-    have hb2 := eval_block_of hl2
-    have hl1 := evalList_cons_stop (rest := []) hb2 (fun _ h => by cases h)
-    exact ⟨_, eval_block_of ((evalList_cons_normal h1').trans hl1), l2⟩
-  rw [if_neg hg] at l2 ⊢
   simp only [Br.eval] at l2 ⊢
-  by_cases hv : le.eval ρ = 0
-  · -- count + n > limit: Error("over")
-    rw [if_pos hv] at l2 ⊢
-    cases r2 <;> simp only [LeafRel] at l2
-    have hl2 := evalList_cons_stop (rest := [.block [s3, loop]]) h2' (fun _ h => by cases h)
-    have hb2 := eval_block_of hl2
-    have hl1 := evalList_cons_stop (rest := []) hb2 (fun _ h => by cases h)
-    exact ⟨_, eval_block_of ((evalList_cons_normal h1').trans hl1), l2⟩
-  rw [if_neg hv] at l2 ⊢
-  obtain ⟨rt2, rfl, hrel2⟩ := leaf_normal l2
+  cases r2 with
+  | normal rt2 =>
   -- the require passed: count + n does not wrap and is at most limit
+  split_ifs at l2 ⊢ with hg hv <;> simp only [LeafRel] at l2
   have h0 := hok.word 0
-  have h1w := hok.word 1
   have hn := nOf_lt ρ
   have hpre := require_passed ρ hok hg hv
   -- uint256 i = 0
   obtain ⟨r3, h3, l3⟩ := eval_stmt ρ E ctx 10 s3 S0.push.push.push _ (e3 ev tbl) rt2.pushScope
-    hrel2.pushScope
+    l2.pushScope
   obtain ⟨rt3, rfl, hrel3⟩ := leaf_normal l3
   have h3' := eval_mono (by omega : 10 ≤ f + 1) h3
   -- the loop, by its ranking certificate
@@ -176,24 +168,16 @@ theorem body_runs (ev : List EventDecl) (tbl : FunctionTable) (fn : FunctionDef)
       · rfl
   have hskip : Stmt.eval 1 E.tbl ctx rt3.pushScope .skip = .done (.ok (.normal rt3.pushScope)) := by
     rw [Stmt.eval]; rfl
-  have hinv : Inv ρ E ctx rt3.pushScope := ⟨0, Nat.zero_le _, hrelh⟩
-  obtain ⟨r, hr, hq⟩ := forLoop_of_cert (cert ρ E ctx rfl rfl hpre) hskip hinv (f + 1)
+  obtain ⟨r, hr, rtx, rfl, hrelx⟩ := forLoop_of_cert (cert ρ E ctx rfl rfl hpre) hskip
+    ⟨0, Nat.zero_le _, hrelh⟩ (f + 1)
     (by have hn2 : nOf ρ < 2 ^ 256 := hn; rw [rank_of hrelh (by decide)]; omega) (by omega)
-  obtain ⟨rtx, rfl, hrelx⟩ := hq
   have hr' : Stmt.eval (f + 1) E.tbl ctx rt3 loop = .done (.ok (.normal rtx.popScope)) := hr
-  have hl3 : Stmt.evalList (f + 1) E.tbl ctx rt2.pushScope [s3, loop] =
-      .done (.ok (.normal rtx.popScope)) := by
-    rw [evalList_cons_normal h3', evalList_cons_normal hr', evalList_nil]
-  have hb3 : Stmt.eval (f + 2) E.tbl ctx rt2 (.block [s3, loop]) = _ := eval_block_of hl3
-  have hl2 : Stmt.evalList (f + 2) E.tbl ctx rt1.pushScope [s2, .block [s3, loop]] =
-      .done (.ok (.normal rtx.popScope.popScope)) := by
-    rw [evalList_cons_normal h2', evalList_cons_normal hb3, evalList_nil]
-  have hb2 : Stmt.eval (f + 3) E.tbl ctx rt1 (.block [s2, .block [s3, loop]]) = _ :=
-    eval_block_of hl2
-  have hl1 : Stmt.evalList (f + 3) E.tbl ctx rt.pushScope [s1, .block [s2, .block [s3, loop]]] =
-      .done (.ok (.normal rtx.popScope.popScope.popScope)) := by
-    rw [evalList_cons_normal h1', evalList_cons_normal hb2, evalList_nil]
-  exact ⟨_, eval_block_of hl1, hrelx.popScope.popScope.popScope.popScope⟩
+  exact ⟨_, eval_pair h1' (eval_pair h2' (eval_pair h3' hr')),
+    hrelx.popScope.popScope.popScope.popScope⟩
+  -- count + n wraps (Panic(0x11)) or exceeds limit (Error("over")): the require stops the body
+  | _ =>
+  refine ⟨_, eval_pair h1' (eval_block_of (evalList_cons_stop h2' (fun _ h => by cases h))), ?_⟩
+  split_ifs at l2 ⊢ <;> simp_all [LeafRel, Result.mapRuntime]
 
 /-- info: 'Verify.LoopSource.Equiv.From.body_runs' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in

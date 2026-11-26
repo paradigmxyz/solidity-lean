@@ -16,8 +16,7 @@ open SolarTV SolarTV.Machine SolarTV.MIR.Lowered SolidCore.Refinement SolidCore.
 open SolidCore.Solidity.Source Verify.LoopSource.Interface Verify.LoopSource.Generic
 open SolidCore.Refinement.Generic.Loop SolidCore.Refinement.Solar
 
-/-- **The loop's source-to-MIR stage from the checks.** -/
-theorem loop_stage_checked {fuel : Nat} {c : SolidCore.Solidity.TypeCheck.CheckedContract} {sel : Nat}
+variable {fuel : Nat} {c : SolidCore.Solidity.TypeCheck.CheckedContract} {sel : Nat}
     {fn : FunctionDef} {ws : List Nat} {b : Br} {T : Tree} (hsel : sel < 2 ^ 32)
     (hfind : c.core.findFunctionBySelector? sel = some fn)
     (hw : widthsOf fn.params fn.paramAbiCleanups = some ws) (hret : fn.returns.all wordBinding = true)
@@ -26,20 +25,15 @@ theorem loop_stage_checked {fuel : Nat} {c : SolidCore.Solidity.TypeCheck.Checke
     {C : Cut} {ev : EnvFlags} {m : Module} {le li : List (Facts × Out)}
     (hchk : C.check ev m sel fn.params.length = some (le, li))
     {I : List Inv.F} {μ : WExpr} (hinv : Inv.checkWith fn.params.length C.cases T le li I μ = true)
-    (o : Oracle) (ho : SourceAsk ev o) :
+include hsel hfind hw hret hb hT hchk hinv
+
+/-- **The loop's source-to-MIR stage from the checks.** -/
+theorem loop_stage_checked (o : Oracle) (ho : SourceAsk ev o) :
     Stage (solidCoreRuntime fuel) (mirSem o) c m (SelCall sel fn ws) :=
   loop_stage hsel hfind hw hret hb hT hchk (Inv.obl_of_checkWith hinv) (fun _ _ _ => trivial) o ho
 
 /-- **`Shapes.Equiv` for a loop-carrying function from the checks.** -/
-theorem loop_equiv_checked {fuel : Nat} {c : SolidCore.Solidity.TypeCheck.CheckedContract} {sel : Nat}
-    {fn : FunctionDef} {ws : List Nat} {b : Br} {T : Tree} (hsel : sel < 2 ^ 32)
-    (hfind : c.core.findFunctionBySelector? sel = some fn)
-    (hw : widthsOf fn.params fn.paramAbiCleanups = some ws) (hret : fn.returns.all wordBinding = true)
-    (hb : BodyRuns { envOf c.core with facts := argFacts ws 0 } fuel fn b)
-    (hT : brTree fn (argFacts ws 0) b = some T)
-    {C : Cut} {ev : EnvFlags} {m : Module} {le li : List (Facts × Out)}
-    (hchk : C.check ev m sel fn.params.length = some (le, li))
-    {I : List Inv.F} {μ : WExpr} (hinv : Inv.checkWith fn.params.length C.cases T le li I μ = true)
+theorem loop_equiv_checked
     {q : Assemble.Program} {code : ByteArray} {scope : Call → Prop} {cert : Assemble.Cert} {mx : List Nat}
     (backend : Stage (mirSem Shapes.oracle) (evmirSem Shapes.oracle) m q scope)
     (hscope : ∀ call, SelCall sel fn ws call → scope call)
