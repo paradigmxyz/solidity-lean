@@ -137,35 +137,18 @@ theorem body_mismatch (o : Oracle) (call : Call) (s : State) :
     ¬∃ k k', SegRel Agree (fun y y' => ∃ Q ∈ rels call, Q y y')
       (seg (block o call countdown) header k (1, [1#256], s))
       (seg (block o call countdownBody) header k' (1, [1#256], s)) := by
-  rintro ⟨k, k', h⟩
-  cases k with
-  | zero => simp [seg, SegRel] at h
-  | succ k =>
-    cases k' with
-    | zero => simp [seg, SegRel] at h
-    | succ k' =>
-      simp [seg, block, countdown, countdownBody, exec, stepOp, EVM.stepChecked, EVM.step,
-        Except.map, header, SegRel, rels, Evm.iszero, Evm.sub] at h
+  rintro ⟨_ | k, _ | k', h⟩ <;>
+    simp [seg, block, countdown, countdownBody, exec, stepOp, EVM.stepChecked, EVM.step,
+      Except.map, header, SegRel, rels, Evm.iszero, Evm.sub] at h
 
 /-- From a counter of one, \`countdown\` comes back to the header and \`countdownExit\` stops. -/
 theorem exit_mismatch (o : Oracle) (call : Call) (s : State) :
     ¬∃ k k', SegRel Agree (fun y y' => ∃ Q ∈ rels call, Q y y')
       (seg (block o call countdown) header k (1, [1#256], s))
       (seg (block o call countdownExit) header k' (1, [1#256], s)) := by
-  rintro ⟨k, k', h⟩
-  cases k with
-  | zero => simp [seg, SegRel] at h
-  | succ k =>
-    cases k' with
-    | zero => simp [seg, SegRel] at h
-    | succ k' =>
-      cases k' with
-      | zero =>
-        simp [seg, block, countdown, countdownExit, exec, stepOp, EVM.stepChecked, EVM.step,
-          Except.map, header, SegRel, Evm.iszero, Evm.sub] at h
-      | succ k' =>
-        simp [seg, block, countdown, countdownExit, exec, stepOp, EVM.stepChecked, EVM.step,
-          Except.map, header, SegRel, Evm.iszero, Evm.sub] at h
+  rintro ⟨_ | k, _ | _ | k', h⟩ <;>
+    simp [seg, block, countdown, countdownExit, exec, stepOp, EVM.stepChecked, EVM.step,
+      Except.map, header, SegRel, Evm.iszero, Evm.sub] at h
 
 /-- info: 'SolarTV.CutPoint.Examples.stage' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in

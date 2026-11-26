@@ -129,24 +129,29 @@ def LockFrame (Locked : Storage → Prop) : Prop :=
   ∀ o call r, Locked (State.initial call).storage → L.Ends o p call r →
     Halt.commits r.1 = true → r.2.storage = (State.initial call).storage
 
+/-- Every successful run of the program under an oracle in `R` keeps `I`. -/
+def Preserves (R : Oracle → Prop) (I : Storage → Prop) : Prop :=
+  ∀ o call r, R o → I (State.initial call).storage → L.Ends o p call r →
+    Halt.commits r.1 = true → I r.2.storage
+
+/-- A reentrant step keeps what every successful run keeps: a failed run commits nothing. -/
+private theorem Preserves.step {R : Oracle → Prop} {I : Storage → Prop}
+    (keep : Preserves (L := L) (p := p) R I) {τ τ' : Storage} (hτ : I τ) (s : Step L p R τ τ') :
+    I τ' := by
+  obtain ⟨o', call, r, ro, start, ends, rfl⟩ := s
+  unfold after
+  split
+  · exact keep o' call r ro (by rw [start.initial]; exact hτ) ends ‹_›
+  · exact hτ
+
 /-- Under a reentrancy lock, an external call leaves the storage as it was. -/
 theorem Respects.frame {Locked : Storage → Prop} (lock : LockFrame (L := L) (p := p) Locked)
     {n : Nat} {o : Oracle} (h : Respects L p n o) {world : List Event} {σ : Storage}
     (hw : Handoff world σ) (locked : Locked σ) : o.storageAfter world = σ := by
   obtain ⟨R, reach⟩ := h.reach hw
-  refine reach.keeps (fun τ => τ = σ) (fun τ τ' eq s => ?_) rfl
-  subst eq
-  obtain ⟨o', call, r, _, start, ends, rfl⟩ := s
-  unfold after
-  split
-  · rename_i commits
-    rw [lock o' call r (by rw [start.initial]; exact locked) ends commits, start.initial]
-  · rfl
-
-/-- Every successful run of the program under an oracle in `R` keeps `I`. -/
-def Preserves (R : Oracle → Prop) (I : Storage → Prop) : Prop :=
-  ∀ o call r, R o → I (State.initial call).storage → L.Ends o p call r →
-    Halt.commits r.1 = true → I r.2.storage
+  refine reach.keeps (· = σ) (fun _ _ eq s => Preserves.step (R := R) (I := (· = σ)) ?_ eq s) rfl
+  intro o' call r _ start ends commits
+  rw [lock o' call r (start ▸ locked) ends commits, start]
 
 /-- An invariant that holds at an external call holds after it, when the runs one call deeper
 keep it. -/
@@ -154,13 +159,7 @@ theorem Respects.preserves {I : Storage → Prop} {n : Nat}
     (keep : Preserves (L := L) (p := p) (Respects L p n) I) {o : Oracle}
     (h : Respects L p (n + 1) o) {world : List Event} {σ : Storage} (hw : Handoff world σ)
     (holds : I σ) : I (o.storageAfter world) :=
-  (h world σ hw).keeps I (fun τ τ' hτ s => by
-    obtain ⟨o', call, r, ro, start, ends, rfl⟩ := s
-    unfold after
-    split
-    · rename_i commits
-      exact keep o' call r ro (by rw [start.initial]; exact hτ) ends commits
-    · exact hτ) holds
+  (h world σ hw).keeps I (fun _ _ hτ => keep.step hτ) holds
 
 /-- At depth 0 every property holds after every call it holds at: nothing reenters. -/
 theorem Respects.preserves_zero {I : Storage → Prop} {o : Oracle} (h : Respects L p 0 o)

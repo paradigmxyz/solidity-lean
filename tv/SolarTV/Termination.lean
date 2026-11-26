@@ -54,97 +54,6 @@ instance SegEnds.decidable {Inv : σ → Prop} {Post : R → Prop} {below : σ �
 
 /-! ## Segment lengths -/
 
-section Lengths
-
-variable {step : Step σ R} {cut : σ → Bool}
-
-/-- A segment with `k` steps of fuel that reaches a cut point ran at most `k` steps to it. -/
-theorem seg_cut_le : ∀ {k : Nat} {x y : σ}, seg step cut k x = .cut y →
-    ∃ j, 1 ≤ j ∧ j ≤ k ∧ ∀ n, run step (n + j) x = run step n y ∧ steps step (n + j) x = steps step n y
-  | 0, _, _, h => by cases h
-  | k + 1, x, y, h => by
-    simp only [seg] at h
-    cases e : step x with
-    | none => rw [e] at h; cases h
-    | some v =>
-      cases v with
-      | inl r => rw [e] at h; cases h
-      | inr z =>
-        rw [e] at h
-        simp only at h
-        by_cases c : cut z = true
-        · simp only [c, ↓reduceIte] at h
-          cases h
-          refine ⟨1, Nat.le_refl 1, by omega, fun n => ⟨?_, ?_⟩⟩ <;> simp only [run, steps, e]
-        · simp only [c] at h
-          obtain ⟨j, pos, le, runs⟩ := seg_cut_le h
-          refine ⟨j + 1, by omega, by omega, fun n => ?_⟩
-          rw [← Nat.add_assoc]
-          simp only [run, steps, e]
-          exact runs n
-
-/-- A segment with `k` steps of fuel that ends ran at most `k` steps to its result. -/
-theorem seg_done_le : ∀ {k : Nat} {x : σ} {r : R}, seg step cut k x = .done r →
-    ∃ j, 1 ≤ j ∧ j ≤ k ∧ ∀ n, run step (n + j) x = some r
-  | 0, _, _, h => by cases h
-  | k + 1, x, r, h => by
-    simp only [seg] at h
-    cases e : step x with
-    | none => rw [e] at h; cases h
-    | some v =>
-      cases v with
-      | inl r' =>
-        rw [e] at h
-        cases h
-        exact ⟨1, Nat.le_refl 1, by omega, fun n => by simp only [run, e]⟩
-      | inr z =>
-        rw [e] at h
-        simp only at h
-        by_cases c : cut z = true
-        · simp only [c, ↓reduceIte] at h; cases h
-        · simp only [c] at h
-          obtain ⟨j, pos, le, runs⟩ := seg_done_le h
-          refine ⟨j + 1, by omega, by omega, fun n => ?_⟩
-          rw [← Nat.add_assoc]
-          simp only [run, e]
-          exact runs n
-
-end Lengths
-
-/-! ## Well-founded ranks -/
-
-/-- **Total correctness through cut points under any well-founded rank**: lexicographic ranks
-for nested loops, stack measures for recursion. -/
-theorem ends_of_segments_wf {step : Step σ R} {cut : σ → Bool} {Inv : σ → Prop} {Post : R → Prop}
-    {α : Sort w} {lt : α → α → Prop} (wf : WellFounded lt) (rank : σ → α)
-    (segment : ∀ x, Inv x → ∃ k, SegEnds Inv Post (fun y => lt (rank y) (rank x)) (seg step cut k x)) :
-    ∀ x, Inv x → ∃ n r, run step n x = some r ∧ Post r := by
-  intro x
-  induction x using (InvImage.wf rank wf).induction with
-  | h x ih =>
-    intro inv
-    obtain ⟨k, hk⟩ := segment x inv
-    cases hs : seg step cut k x with
-    | fuel | stuck => rw [hs] at hk; exact hk.elim
-    | done a =>
-      rw [hs] at hk
-      obtain ⟨j, _, runs⟩ := seg_done hs
-      exact ⟨0 + j, a, runs 0, hk⟩
-    | cut y =>
-      rw [hs] at hk
-      obtain ⟨iy, lt'⟩ := hk
-      obtain ⟨j, _, runs⟩ := seg_cut hs
-      obtain ⟨n, r, ran, post⟩ := ih y lt' iy
-      exact ⟨n + j, r, by rw [(runs n).1]; exact ran, post⟩
-
-/-! ## Compositional total contracts -/
-
-/-- **A total contract**: from every configuration meeting `Pre`, the machine reaches, in
-finitely many steps, a configuration meeting `Q` or an end meeting `Post`. An internal call's
-contract has the callee's entry as `Pre` and the caller's return configuration as `Q`. -/
-def Reaches (step : Step σ R) (Pre Q : σ → Prop) (Post : R → Prop) : Prop :=
-  ∀ x, Pre x → (∃ n r, run step n x = some r ∧ Post r) ∨ ∃ j y, steps step j x = some (.inr y) ∧ Q y
-
 theorem steps_add {step : Step σ R} : ∀ (i j : Nat) (x : σ) (y : σ),
     steps step i x = some (.inr y) → steps step (i + j) x = steps step j y
   | 0, j, x, y, h => by simp only [steps] at h; cases h; simp
@@ -162,15 +71,60 @@ theorem run_add {step : Step σ R} (i n : Nat) (x y : σ) (h : steps step i x = 
     run step (i + n) x = run step n y := by
   rw [run_eq_steps, run_eq_steps, steps_add i n x y h]
 
+section Lengths
+
+variable {step : Step σ R} {cut : σ → Bool}
+
+/-- A segment that stops, short of its fuel `k`, took `j ≤ k` steps to where it stopped: its
+result, its cut point or a stuck step. -/
+private theorem seg_stops : ∀ {k : Nat} {x : σ}, seg step cut k x ≠ .fuel →
+    ∃ j, j ≤ k ∧ steps step j x = match seg step cut k x with
+      | .done r => some (.inl r)
+      | .cut y => some (.inr y)
+      | _ => none
+  | 0, _, h => absurd rfl h
+  | k + 1, x, h => by
+    simp only [seg] at h ⊢
+    cases e : step x with
+    | none => exact ⟨1, by omega, by simp only [steps, e]⟩
+    | some v =>
+      cases v with
+      | inl r => exact ⟨1, by omega, by simp only [steps, e]⟩
+      | inr z =>
+        rw [e] at h
+        by_cases c : cut z = true
+        · simp only [c, ↓reduceIte]
+          exact ⟨1, by omega, by simp only [steps, e]⟩
+        · simp only [c, Bool.false_eq_true, ↓reduceIte] at h ⊢
+          obtain ⟨j, le, hj⟩ := seg_stops h
+          exact ⟨j + 1, by omega, by simp only [steps, e]; exact hj⟩
+
+end Lengths
+
+/-! ## Compositional total contracts -/
+
+/-- **A total contract**: from every configuration meeting `Pre`, the machine reaches, in
+finitely many steps, a configuration meeting `Q` or an end meeting `Post`. An internal call's
+contract has the callee's entry as `Pre` and the caller's return configuration as `Q`. -/
+def Reaches (step : Step σ R) (Pre Q : σ → Prop) (Post : R → Prop) : Prop :=
+  ∀ x, Pre x → (∃ n r, run step n x = some r ∧ Post r) ∨ ∃ j y, steps step j x = some (.inr y) ∧ Q y
+
+/-- A run to `y`, then what the machine reaches from `y`. -/
+private theorem reach_after {step : Step σ R} {Q : σ → Prop} {Post : R → Prop} {j : Nat} {x y : σ}
+    (hy : steps step j x = some (.inr y))
+    (h : (∃ n r, run step n y = some r ∧ Post r) ∨ ∃ i z, steps step i y = some (.inr z) ∧ Q z) :
+    (∃ n r, run step n x = some r ∧ Post r) ∨ ∃ i z, steps step i x = some (.inr z) ∧ Q z := by
+  rcases h with ⟨n, r, ran, post⟩ | ⟨i, z, hz, qz⟩
+  · exact Or.inl ⟨j + n, r, by rw [run_add j n x y hy]; exact ran, post⟩
+  · exact Or.inr ⟨j + i, z, by rw [steps_add j i x y hy]; exact hz, qz⟩
+
 /-- Total contracts compose. -/
 theorem Reaches.trans {step : Step σ R} {P Q S : σ → Prop} {Post : R → Prop}
     (h1 : Reaches step P Q Post) (h2 : Reaches step Q S Post) : Reaches step P S Post := by
   intro x hx
   rcases h1 x hx with e | ⟨i, y, hy, qy⟩
   · exact Or.inl e
-  rcases h2 y qy with ⟨n, r, ran, post⟩ | ⟨j, z, hz, sz⟩
-  · exact Or.inl ⟨i + n, r, by rw [run_add i n x y hy]; exact ran, post⟩
-  · exact Or.inr ⟨i + j, z, by rw [steps_add i j x y hy]; exact hz, sz⟩
+  · exact reach_after hy (h2 y qy)
 
 /-- A total contract whose target is the end itself is termination. -/
 theorem Reaches.ends {step : Step σ R} {P : σ → Prop} {Post : R → Prop}
@@ -226,6 +180,38 @@ theorem SegReaches.mono {Inv Inv' Q Q' : σ → Prop} {Post Post' : R → Prop} 
   | .cut _, h => h.elim (fun ⟨a, b⟩ => Or.inl ⟨hi _ a, b⟩) (fun q => Or.inr (hq _ q))
   | .stuck, h | .fuel, h => h
 
+/-- Where a segment that ends as `SegReaches` asks stops, as runs see it. -/
+private theorem reach_of_seg {step : Step σ R} {cut : σ → Bool} {Inv Q : σ → Prop}
+    {Post : R → Prop} {below : σ → Prop} {k : Nat} {x : σ}
+    (hk : SegReaches Inv Q Post below (seg step cut k x)) :
+    (∃ n r, run step n x = some r ∧ Post r) ∨
+      ∃ j y, steps step j x = some (.inr y) ∧ ((Inv y ∧ below y) ∨ Q y) := by
+  obtain ⟨j, -, hj⟩ := seg_stops (fun e => by rw [e] at hk; exact hk)
+  cases hs : seg step cut k x <;> simp only [hs, SegReaches] at hk hj
+  · exact Or.inl ⟨j, _, run_of_steps hj, hk⟩
+  · exact Or.inr ⟨j, _, hj, hk⟩
+
+/-- A segment that ends as a certificate asks reaches its cut points or ends. -/
+private theorem SegEnds.reaches {Inv : σ → Prop} {Post : R → Prop} {below : σ → Prop} :
+    ∀ {s : Seg R σ}, SegEnds Inv Post below s → SegReaches Inv (fun _ => False) Post below s
+  | .done _, h | .stuck, h | .fuel, h => h
+  | .cut _, h => Or.inl h
+
+/-! ## Well-founded ranks -/
+
+/-- **Total correctness through cut points under any well-founded rank**: lexicographic ranks
+for nested loops, stack measures for recursion. -/
+theorem ends_of_segments_wf {step : Step σ R} {cut : σ → Bool} {Inv : σ → Prop} {Post : R → Prop}
+    {α : Sort w} {lt : α → α → Prop} (wf : WellFounded lt) (rank : σ → α)
+    (segment : ∀ x, Inv x → ∃ k, SegEnds Inv Post (fun y => lt (rank y) (rank x)) (seg step cut k x)) :
+    ∀ x, Inv x → ∃ n r, run step n x = some r ∧ Post r :=
+  ends_of_reach wf rank fun x inv => by
+    obtain ⟨k, hk⟩ := segment x inv
+    rcases reach_of_seg (SegEnds.reaches hk) with e | ⟨j, y, hy, ⟨iy, lt⟩ | f⟩
+    · exact Or.inl e
+    · exact Or.inr ⟨j, y, hy, iy, lt⟩
+    · exact f.elim
+
 /-- **A callee's total contract from its segments**: when every segment from the invariant ends
 in a result meeting `Post`, at the invariant with a lower rank, or at `Q`, every configuration of
 the invariant reaches `Q` or such a result. -/
@@ -238,53 +224,59 @@ theorem reaches_of_segments {step : Step σ R} {cut : σ → Bool} {Inv Q : σ �
   | ind m ih =>
     intro inv
     obtain ⟨k, hk⟩ := segment x inv
-    cases hs : seg step cut k x with
-    | fuel | stuck => rw [hs] at hk; exact hk.elim
-    | done a =>
-      rw [hs] at hk
-      obtain ⟨j, _, runs⟩ := seg_done hs
-      exact Or.inl ⟨0 + j, a, runs 0, hk⟩
-    | cut y =>
-      rw [hs] at hk
-      obtain ⟨j, _, runs⟩ := seg_cut hs
-      have hy : steps step j x = some (.inr y) := by
-        have := (runs 0).2
-        simpa [steps] using this
-      rcases hk with ⟨iy, lt⟩ | qy
-      · rcases ih (rank y) (h ▸ lt) y rfl iy with ⟨n, r, ran, post⟩ | ⟨i, z, hz, qz⟩
-        · exact Or.inl ⟨j + n, r, by rw [run_add j n x y hy]; exact ran, post⟩
-        · exact Or.inr ⟨j + i, z, by rw [steps_add j i x y hy]; exact hz, qz⟩
-      · exact Or.inr ⟨j, y, hy, qy⟩
+    rcases reach_of_seg hk with e | ⟨j, y, hy, ⟨iy, lt⟩ | qy⟩
+    · exact Or.inl e
+    · exact reach_after hy (ih (rank y) (h ▸ lt) y rfl iy)
+    · exact Or.inr ⟨j, y, hy, qy⟩
 
 /-- The same from a first configuration that need not be a cut point. -/
 theorem reaches_of_start {step : Step σ R} {cut : σ → Bool} {Inv Q : σ → Prop}
     {Post : R → Prop} (rank : σ → Nat) {x₀ : σ}
     (start : ∃ k, SegReaches Inv Q Post (fun _ => True) (seg step cut k x₀))
     (segment : ∀ x, Inv x → ∃ k, SegReaches Inv Q Post (fun y => rank y < rank x) (seg step cut k x)) :
-    (∃ n r, run step n x₀ = some r ∧ Post r) ∨ ∃ j y, steps step j x₀ = some (.inr y) ∧ Q y :=
-  Reaches.trans (P := (· = x₀)) (Q := fun y => Inv y ∨ Q y)
-    (fun x hx => by
-      subst hx
-      obtain ⟨k, hk⟩ := start
-      cases hs : seg step cut k x with
-      | fuel | stuck => rw [hs] at hk; exact hk.elim
-      | done a =>
-        rw [hs] at hk
-        obtain ⟨j, _, runs⟩ := seg_done hs
-        exact Or.inl ⟨0 + j, a, runs 0, hk⟩
-      | cut y =>
-        rw [hs] at hk
-        obtain ⟨j, _, runs⟩ := seg_cut hs
-        have hy : steps step j x = some (.inr y) := by simpa [steps] using (runs 0).2
-        exact Or.inr ⟨j, y, hy, hk.elim (fun h => Or.inl h.1) Or.inr⟩)
-    (fun y hy => hy.elim (reaches_of_segments rank segment y)
-      (fun q => Or.inr ⟨0, y, rfl, q⟩)) x₀ rfl
+    (∃ n r, run step n x₀ = some r ∧ Post r) ∨ ∃ j y, steps step j x₀ = some (.inr y) ∧ Q y := by
+  obtain ⟨k, hk⟩ := start
+  rcases reach_of_seg hk with e | ⟨j, y, hy, ⟨iy, -⟩ | qy⟩
+  · exact Or.inl e
+  · exact reach_after hy (reaches_of_segments rank segment y iy)
+  · exact Or.inr ⟨j, y, hy, qy⟩
 
 /-- info: 'SolarTV.CutPoint.reaches_of_start' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms reaches_of_start
 
 /-! ## Explicit step bounds -/
+
+section Within
+
+universe u' v'
+
+variable {τ : Type u'} {R' : Type v'}
+
+/-- One segment of each machine that end alike, the first as a certificate asks, and runs of the
+second within `N` steps from where its segment reaches a cut point: the second ends within
+`N + K'` steps. -/
+private theorem within_seg {step' : Step τ R'} {cut' : τ → Bool} {Ag : R → R' → Prop}
+    {Rel : σ → τ → Prop} {Inv : σ → Prop} {Post : R → Prop} {below : σ → Prop} {P : R' → Prop}
+    {s : Seg R σ} {K' N : Nat} {x' : τ}
+    (hk : SegEnds Inv Post below s) (hs : SegRel Ag Rel s (seg step' cut' K' x'))
+    (done : ∀ r r', Post r → Ag r r' → P r')
+    (next : ∀ y y', Inv y → below y → Rel y y' → ∃ r', run step' N y' = some r' ∧ P r') :
+    ∃ r', run step' (N + K') x' = some r' ∧ P r' := by
+  obtain ⟨j, le, hj⟩ := seg_stops (fun e => by rw [e] at hs; cases s <;> exact hs)
+  cases s <;> cases hb : seg step' cut' K' x' <;> simp only [hb, SegRel, SegEnds] at hs hk hj
+  case done.done a b => exact ⟨b, run_mono (n := j) (m := N + K') (by omega) (run_of_steps hj), done a b hk hs⟩
+  case cut.cut y y' =>
+    obtain ⟨r', ran, p⟩ := next y y' hk.1 hk.2 hs
+    exact ⟨r', run_mono (n := j + N) (m := N + K') (by omega) (by rw [run_add j N x' y' hj]; exact ran), p⟩
+
+/-- A segment that ends as a certificate asks ends alike with itself. -/
+private theorem SegEnds.rel_self {Inv : σ → Prop} {Post : R → Prop} {below : σ → Prop} :
+    ∀ {s : Seg R σ}, SegEnds Inv Post below s → SegRel Eq Eq s s
+  | .done _, _ | .cut _, _ => rfl
+  | .stuck, h | .fuel, h => h.elim
+
+end Within
 
 /-- **A step bound from the ranking**: when every segment of the certificate takes at most `K`
 steps of fuel, a run from a cut point of rank `r` ends within `(r + 1) * K` steps. -/
@@ -297,29 +289,11 @@ theorem ends_within {step : Step σ R} {cut : σ → Bool} {Inv : σ → Prop} {
   | ind m ih =>
     intro inv
     have hk := segment x inv
-    cases hs : seg step cut K x with
-    | fuel | stuck => rw [hs] at hk; exact hk.elim
-    | done a =>
-      rw [hs] at hk
-      obtain ⟨j, _, le, runs⟩ := seg_done_le hs
-      refine ⟨a, ?_, hk⟩
-      have := runs ((m + 1) * K - j)
-      rw [show (m + 1) * K - j + j = (m + 1) * K by
-        have : K ≤ (m + 1) * K := Nat.le_mul_of_pos_left K (Nat.succ_pos m)
-        omega] at this
-      exact this
-    | cut y =>
-      rw [hs] at hk
-      obtain ⟨iy, lt⟩ := hk
-      obtain ⟨j, _, le, runs⟩ := seg_cut_le hs
-      obtain ⟨r, ran, post⟩ := ih (rank y) (h ▸ lt) y rfl iy
-      refine ⟨r, ?_, post⟩
-      have e1 := (runs ((rank y + 1) * K)).1
-      rw [ran] at e1
-      apply run_mono _ e1
-      have : (rank y + 1) * K + K ≤ (m + 1) * K := by
-        rw [← Nat.succ_mul]; exact Nat.mul_le_mul_right K (by omega)
-      omega
+    rw [show (m + 1) * K = m * K + K from Nat.succ_mul m K]
+    refine within_seg hk (SegEnds.rel_self hk) (fun _ _ post e => e ▸ post) ?_
+    rintro y _ iy lt rfl
+    obtain ⟨r, ran, post⟩ := ih (rank y) (h ▸ lt) y rfl iy
+    exact ⟨r, run_mono (Nat.mul_le_mul_right K (by omega)) ran, post⟩
 
 /-- The same from a first configuration that need not be a cut point, with every rank of the
 invariant at most `B`: the run ends within `(B + 2) * K` steps. -/
@@ -328,28 +302,11 @@ theorem ends_within_start {step : Step σ R} {cut : σ → Bool} {Inv : σ → P
     (start : SegEnds Inv Post (fun _ => True) (seg step cut K x₀))
     (segment : ∀ x, Inv x → SegEnds Inv Post (fun y => rank y < rank x) (seg step cut K x)) :
     ∃ r, run step ((B + 2) * K) x₀ = some r ∧ Post r := by
-  cases hs : seg step cut K x₀ with
-  | fuel | stuck => rw [hs] at start; exact start.elim
-  | done a =>
-    rw [hs] at start
-    obtain ⟨j, _, le, runs⟩ := seg_done_le hs
-    refine ⟨a, ?_, start⟩
-    have := runs ((B + 2) * K - j)
-    rw [show (B + 2) * K - j + j = (B + 2) * K by
-      have : K ≤ (B + 2) * K := Nat.le_mul_of_pos_left K (by omega)
-      omega] at this
-    exact this
-  | cut y =>
-    rw [hs] at start
-    obtain ⟨j, _, le, runs⟩ := seg_cut_le hs
-    obtain ⟨r, ran, post⟩ := ends_within rank K segment y start.1
-    refine ⟨r, ?_, post⟩
-    have e1 := (runs ((rank y + 1) * K)).1
-    rw [ran] at e1
-    apply run_mono _ e1
-    have : (rank y + 1) * K + K ≤ (B + 2) * K := by
-      rw [← Nat.succ_mul]; exact Nat.mul_le_mul_right K (by have := hB y start.1; omega)
-    omega
+  rw [show (B + 2) * K = (B + 1) * K + K from Nat.succ_mul (B + 1) K]
+  refine within_seg start (SegEnds.rel_self start) (fun _ _ post e => e ▸ post) ?_
+  rintro y _ iy - rfl
+  obtain ⟨r, ran, post⟩ := ends_within rank K segment y iy
+  exact ⟨r, run_mono (Nat.mul_le_mul_right K (by have := hB y iy; omega)) ran, post⟩
 
 /-! ## Bounds along simulations -/
 
@@ -411,35 +368,10 @@ theorem ends_within_sim {step : Step σ R} {cut : σ → Bool} {step' : Step τ 
     have hne : seg step cut K x ≠ .fuel := fun e => by rw [e] at hk; exact hk
     have hne' : seg step cut k x ≠ .fuel := fun e => by rw [e] at hs; exact hs
     rw [seg_eq_of_ne_fuel hne' hne] at hs
-    have hK : K' ≤ (m + 1) * K' := Nat.le_mul_of_pos_left K' (Nat.succ_pos m)
-    cases ha : seg step cut K x with
-    | fuel | stuck => rw [ha] at hk; exact hk.elim
-    | done a =>
-      rw [ha] at hk hs
-      cases hb : seg step' cut' K' x' with
-      | done b =>
-        rw [hb] at hs
-        obtain ⟨j, _, le, runs⟩ := seg_done_le hb
-        refine ⟨b, ?_, a, hs, hk⟩
-        have := runs ((m + 1) * K' - j)
-        rwa [show (m + 1) * K' - j + j = (m + 1) * K' by omega] at this
-      | cut _ | stuck | fuel => rw [hb] at hs; exact hs.elim
-    | cut y =>
-      rw [ha] at hk hs
-      obtain ⟨iy, lt⟩ := hk
-      cases hb : seg step' cut' K' x' with
-      | cut y' =>
-        rw [hb] at hs
-        obtain ⟨j, _, le, runs⟩ := seg_cut_le hb
-        obtain ⟨r', ran, r, ag, post⟩ := ih (rank y) (h ▸ lt) y rfl y' iy hs
-        refine ⟨r', ?_, r, ag, post⟩
-        have e1 := (runs ((rank y + 1) * K')).1
-        rw [ran] at e1
-        apply run_mono _ e1
-        have : (rank y + 1) * K' + K' ≤ (m + 1) * K' := by
-          rw [← Nat.succ_mul]; exact Nat.mul_le_mul_right K' (by omega)
-        omega
-      | done _ | stuck | fuel => rw [hb] at hs; exact hs.elim
+    rw [show (m + 1) * K' = m * K' + K' from Nat.succ_mul m K']
+    refine within_seg hk hs (fun r _ post ag => ⟨r, ag, post⟩) fun y y' iy lt rel' => ?_
+    obtain ⟨r', ran, p⟩ := ih (rank y) (h ▸ lt) y rfl y' iy rel'
+    exact ⟨r', run_mono (Nat.mul_le_mul_right K' (by omega)) ran, p⟩
 
 /-- The same from related first configurations that need not be cut points, with every rank of
 the invariant at most `B`: the target ends within `(B + 2) * K'` steps. -/
@@ -455,34 +387,10 @@ theorem ends_within_sim_start {step : Step σ R} {cut : σ → Bool} {step' : St
   have hne : seg step cut K x₀ ≠ .fuel := fun e => by rw [e] at start; exact start
   have hne' : seg step cut k x₀ ≠ .fuel := fun e => by rw [e] at hs; exact hs
   rw [seg_eq_of_ne_fuel hne' hne] at hs
-  have hK : K' ≤ (B + 2) * K' := Nat.le_mul_of_pos_left K' (by omega)
-  cases ha : seg step cut K x₀ with
-  | fuel | stuck => rw [ha] at start; exact start.elim
-  | done a =>
-    rw [ha] at start hs
-    cases hb : seg step' cut' K' x₀' with
-    | done b =>
-      rw [hb] at hs
-      obtain ⟨j, _, le, runs⟩ := seg_done_le hb
-      refine ⟨b, ?_, a, hs, start⟩
-      have := runs ((B + 2) * K' - j)
-      rwa [show (B + 2) * K' - j + j = (B + 2) * K' by omega] at this
-    | cut _ | stuck | fuel => rw [hb] at hs; exact hs.elim
-  | cut y =>
-    rw [ha] at start hs
-    cases hb : seg step' cut' K' x₀' with
-    | cut y' =>
-      rw [hb] at hs
-      obtain ⟨j, _, le, runs⟩ := seg_cut_le hb
-      obtain ⟨r', ran, r, ag, post⟩ := ends_within_sim rank K K' segment sim y y' start.1 hs
-      refine ⟨r', ?_, r, ag, post⟩
-      have e1 := (runs ((rank y + 1) * K')).1
-      rw [ran] at e1
-      apply run_mono _ e1
-      have : (rank y + 1) * K' + K' ≤ (B + 2) * K' := by
-        rw [← Nat.succ_mul]; exact Nat.mul_le_mul_right K' (by have := hB y start.1; omega)
-      omega
-    | done _ | stuck | fuel => rw [hb] at hs; exact hs.elim
+  rw [show (B + 2) * K' = (B + 1) * K' + K' from Nat.succ_mul (B + 1) K']
+  refine within_seg start hs (fun r _ post ag => ⟨r, ag, post⟩) fun y y' iy _ rel' => ?_
+  obtain ⟨r', ran, p⟩ := ends_within_sim rank K K' segment sim y y' iy rel'
+  exact ⟨r', run_mono (Nat.mul_le_mul_right K' (by have := hB y iy; omega)) ran, p⟩
 
 /-- A bounded simulation from one obligation per pair of cut points, each target segment with its
 own literal fuel at most `K'` (as the certify driver's `refine ⟨k, k', ?_⟩` gives): fuel beyond a
@@ -581,58 +489,38 @@ theorem runGas_done_run : ∀ {n g : Nat} {x : σ} {r : R} {left : Nat},
         | inl r' => rw [e] at h; cases h; rfl
         | inr y => rw [e] at h; exact runGas_done_run h
 
-theorem segCost_cut : ∀ {k : Nat} {x y : σ} {g : Nat}, seg step cut k x = .cut y →
-    segCost step cut cost k x ≤ g →
-    ∃ j, j ≤ k ∧ ∀ n, runGas step cost (n + j) g x = runGas step cost n (g - segCost step cut cost k x) y
-  | 0, _, _, _, h, _ => by cases h
-  | k + 1, x, y, g, h, hg => by
-    simp only [seg] at h
-    simp only [segCost] at hg ⊢
+/-- A segment that ends or reaches a cut point within the gas it costs: the metered run then goes
+on with what is left. -/
+private theorem segCost_run : ∀ {k : Nat} {x : σ} {g : Nat}, segCost step cut cost k x ≤ g →
+    ∃ j, j ≤ k ∧ ∀ n, match seg step cut k x with
+      | .done r => runGas step cost (n + j) g x = some (.done r (g - segCost step cut cost k x))
+      | .cut y => runGas step cost (n + j) g x = runGas step cost n (g - segCost step cut cost k x) y
+      | _ => True
+  | 0, _, _, _ => ⟨0, Nat.le_refl 0, fun _ => trivial⟩
+  | k + 1, x, g, hg => by
+    simp only [seg, segCost] at hg ⊢
+    have first : ∀ n, runGas step cost (n + 1) g x = match step x with
+        | some (.inl r) => some (.done r (g - cost x))
+        | some (.inr y) => runGas step cost n (g - cost x) y
+        | none => some .stuck := fun n => by
+      simp only [runGas, show ¬ g < cost x by omega, ↓reduceIte]
     cases e : step x with
-    | none => rw [e] at h; cases h
+    | none => exact ⟨0, by omega, fun _ => trivial⟩
     | some v =>
+      simp only [e] at hg first ⊢
       cases v with
-      | inl r => rw [e] at h; cases h
+      | inl r => exact ⟨1, by omega, fun n => by rw [first]; rfl⟩
       | inr z =>
-        simp only [e] at h hg ⊢
         by_cases c : cut z = true
-        · simp only [c, ↓reduceIte] at h hg ⊢
-          cases h
-          refine ⟨1, by omega, fun n => ?_⟩
-          simp only [runGas, show ¬ g < cost x by omega, ↓reduceIte, e, Nat.add_zero]
-        · simp only [c, Bool.false_eq_true, ↓reduceIte] at h hg ⊢
-          obtain ⟨j, le, runs⟩ := segCost_cut (g := g - cost x) h (by omega)
+        · simp only [c, ↓reduceIte] at hg ⊢
+          exact ⟨1, by omega, fun n => by rw [first]; rfl⟩
+        · simp only [c, Bool.false_eq_true, ↓reduceIte] at hg ⊢
+          obtain ⟨j, le, runs⟩ := segCost_run (k := k) (x := z) (g := g - cost x) (by omega)
           refine ⟨j + 1, by omega, fun n => ?_⟩
-          rw [← Nat.add_assoc]
-          simp only [runGas, show ¬ g < cost x by omega, ↓reduceIte, e]
-          rw [runs n, Nat.sub_sub]
-
-theorem segCost_done : ∀ {k : Nat} {x : σ} {r : R} {g : Nat}, seg step cut k x = .done r →
-    segCost step cut cost k x ≤ g →
-    ∃ j, j ≤ k ∧ ∀ n, runGas step cost (n + j) g x = some (.done r (g - segCost step cut cost k x))
-  | 0, _, _, _, h, _ => by cases h
-  | k + 1, x, r, g, h, hg => by
-    simp only [seg] at h
-    simp only [segCost] at hg ⊢
-    cases e : step x with
-    | none => rw [e] at h; cases h
-    | some v =>
-      cases v with
-      | inl r' =>
-        simp only [e] at h hg ⊢
-        cases h
-        refine ⟨1, by omega, fun n => ?_⟩
-        simp only [runGas, show ¬ g < cost x by omega, ↓reduceIte, e, Nat.add_zero]
-      | inr z =>
-        simp only [e] at h hg ⊢
-        by_cases c : cut z = true
-        · simp only [c, ↓reduceIte] at h; cases h
-        · simp only [c, Bool.false_eq_true, ↓reduceIte] at h hg ⊢
-          obtain ⟨j, le, runs⟩ := segCost_done (g := g - cost x) h (by omega)
-          refine ⟨j + 1, by omega, fun n => ?_⟩
-          rw [← Nat.add_assoc]
-          simp only [runGas, show ¬ g < cost x by omega, ↓reduceIte, e]
-          rw [runs n, Nat.sub_sub]
+          have := runs n
+          rw [← Nat.add_assoc, first, ← Nat.sub_sub]
+          generalize seg step cut k z = s at this ⊢
+          cases s <;> first | trivial | exact this
 
 /-- **Enough gas from the ranking**: when every segment of the certificate costs at most `C`,
 a metered run from a cut point of rank `r` with at least `(r + 1) * C` gas never runs out of gas:
@@ -648,21 +536,15 @@ theorem gas_ends (rank : σ → Nat) (K C : Nat) {Inv : σ → Prop} {Post : R �
     intro inv g hg
     obtain ⟨hk, hc⟩ := segment x inv
     have hCg : C ≤ g := Nat.le_trans (Nat.le_mul_of_pos_left C (Nat.succ_pos m)) hg
-    cases hs : seg step cut K x with
-    | fuel | stuck => rw [hs] at hk; exact hk.elim
-    | done a =>
-      rw [hs] at hk
-      obtain ⟨j, _, runs⟩ := segCost_done (cost := cost) (g := g) hs (by omega)
-      exact ⟨0 + j, a, _, runs 0, hk⟩
-    | cut y =>
-      rw [hs] at hk
-      obtain ⟨iy, lt⟩ := hk
-      obtain ⟨j, _, runs⟩ := segCost_cut (cost := cost) (g := g) hs (by omega)
+    obtain ⟨j, _, runs⟩ := segCost_run (step := step) (cut := cut) (cost := cost) (k := K) (x := x) (g := g) (by omega)
+    cases hs : seg step cut K x <;> simp only [hs, SegEnds] at hk runs
+    case done a => exact ⟨0 + j, a, _, runs 0, hk⟩
+    case cut y =>
       have hg' : (rank y + 1) * C ≤ g - segCost step cut cost K x := by
         have : (rank y + 1) * C + C ≤ (m + 1) * C := by
           rw [← Nat.succ_mul]; exact Nat.mul_le_mul_right C (by omega)
         omega
-      obtain ⟨n, r, left, ran, post⟩ := ih (rank y) (h ▸ lt) y rfl iy _ hg'
+      obtain ⟨n, r, left, ran, post⟩ := ih (rank y) (h ▸ hk.2) y rfl hk.1 _ hg'
       exact ⟨n + j, r, left, by rw [runs n]; exact ran, post⟩
 
 /-- Each step charged one unit: the segment's cost is at most its fuel. -/

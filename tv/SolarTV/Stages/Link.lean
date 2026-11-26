@@ -183,20 +183,6 @@ theorem decode_congr {code code' : List Nat} {pc next : Nat} {instr : Instr}
           simp only [hi] at h ⊢
           exact h
 
-/-- The offsets a walk reaches are at least where it starts. -/
-theorem walk_ge {code : List Nat} {offset : Nat → Nat} {pc : Nat} {items : List Item}
-    {stream : List (Nat × Instr)} (w : Walk code offset pc items stream) :
-    ∀ e ∈ stream, pc ≤ e.1 := by
-  induction w with
-  | nil => simp
-  | cons decoded _ _ ih =>
-    have := decode_advances decoded
-    intro e he
-    rcases List.mem_cons.1 he with rfl | later
-    · exact Nat.le_refl _
-    · have := ih e later
-      omega
-
 /-- The placeholders of a walk start after where it starts. -/
 theorem placeholdersOf_gt {code : List Nat} {offset : Nat → Nat} {pc : Nat} {items : List Item}
     {stream : List (Nat × Instr)} (w : Walk code offset pc items stream) :

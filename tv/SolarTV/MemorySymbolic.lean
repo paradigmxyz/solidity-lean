@@ -35,10 +35,16 @@ theorem words_expand (m : Mem) (offset size : Nat) : (m.expand offset size).word
     if size = 0 then m.words else Memory.grow m.words (BitVec.ofNat 251 ((offset + size + 31) / 32)) := by
   unfold expand; split <;> rfl
 
+theorem bytes_write (m : Mem) (offset size : Nat) (source : Nat → Memory.Byte) (i : Nat) :
+    (m.write offset size source).bytes i =
+      if offset ≤ i ∧ i < offset + size then source (i - offset) else m.bytes i := by
+  simp [write]
+
+/-- A store is a write of the value's bytes (`store_eq_write`), as are its laws below. -/
 theorem bytes_store (m : Mem) (offset : Nat) (value : Word) (i : Nat) :
     (m.store offset value).bytes i =
-      if offset ≤ i ∧ i < offset + 32 then Memory.byte value (i - offset) else m.bytes i := by
-  simp [store]
+      if offset ≤ i ∧ i < offset + 32 then Memory.byte value (i - offset) else m.bytes i :=
+  bytes_write m offset 32 _ i
 
 theorem words_store (m : Mem) (offset : Nat) (value : Word) :
     (m.store offset value).words = Memory.grow m.words (BitVec.ofNat 251 ((offset + 32 + 31) / 32)) := by
@@ -51,11 +57,6 @@ theorem bytes_storeByte (m : Mem) (offset : Nat) (value : Word) (i : Nat) :
 theorem words_storeByte (m : Mem) (offset : Nat) (value : Word) :
     (m.storeByte offset value).words = Memory.grow m.words (BitVec.ofNat 251 ((offset + 1 + 31) / 32)) := by
   simp [storeByte, words_expand]
-
-theorem bytes_write (m : Mem) (offset size : Nat) (source : Nat → Memory.Byte) (i : Nat) :
-    (m.write offset size source).bytes i =
-      if offset ≤ i ∧ i < offset + size then source (i - offset) else m.bytes i := by
-  simp [write]
 
 theorem words_write (m : Mem) (offset size : Nat) (source : Nat → Memory.Byte) :
     (m.write offset size source).words = (m.expand offset size).words := by
@@ -100,17 +101,23 @@ theorem read_split (m : Mem) (address count : Nat) (h : 32 < count) (bounded : c
   have := read_append m address 32 (count - 32)
   rwa [Nat.add_sub_cancel' (by omega)] at this
 
-/-- A read is unchanged by a store outside it. -/
-theorem read_store_disjoint (m : Mem) (offset : Nat) (value : Word) (address count : Nat)
-    (h : address + count ≤ offset ∨ offset + 32 ≤ address) :
-    (m.store offset value).read address count = m.read address count := by
+/-- A read is unchanged by a copy, calldata or return data write outside it. -/
+theorem read_write_disjoint (m : Mem) (offset size : Nat) (source : Nat → Memory.Byte)
+    (address count : Nat) (h : address + count ≤ offset ∨ offset + size ≤ address) :
+    (m.write offset size source).read address count = m.read address count := by
   unfold read
   apply List.map_congr_left
   intro i hi
   simp only [List.mem_range] at hi
-  rw [bytes_store]
-  have : ¬(offset ≤ address + i ∧ address + i < offset + 32) := by omega
+  rw [bytes_write]
+  have : ¬(offset ≤ address + i ∧ address + i < offset + size) := by omega
   simp only [this, ite_false]
+
+/-- A read is unchanged by a store outside it. -/
+theorem read_store_disjoint (m : Mem) (offset : Nat) (value : Word) (address count : Nat)
+    (h : address + count ≤ offset ∨ offset + 32 ≤ address) :
+    (m.store offset value).read address count = m.read address count :=
+  read_write_disjoint m offset 32 _ address count h
 
 /-- A load is unchanged by a store whose word it does not overlap. -/
 theorem load_store_disjoint (m : Mem) (offset : Nat) (value : Word) (address : Nat)
@@ -137,39 +144,6 @@ theorem load_storeByte_disjoint (m : Mem) (offset : Nat) (value : Word) (address
   unfold load
   rw [read_storeByte_disjoint m offset value address 32 h]
 
-/-- A read is unchanged by a copy, calldata or return data write outside it. -/
-theorem read_write_disjoint (m : Mem) (offset size : Nat) (source : Nat → Memory.Byte)
-    (address count : Nat) (h : address + count ≤ offset ∨ offset + size ≤ address) :
-    (m.write offset size source).read address count = m.read address count := by
-  unfold read
-  apply List.map_congr_left
-  intro i hi
-  simp only [List.mem_range] at hi
-  rw [bytes_write]
-  have : ¬(offset ≤ address + i ∧ address + i < offset + size) := by omega
-  simp only [this, ite_false]
-
-/-- The word a store wrote, read back as bytes, as `KECCAK256` over it reads them. -/
-theorem read_store_same (m : Mem) (offset : Nat) (value : Word) :
-    (m.store offset value).read offset 32 = wordBytes value := by
-  unfold read wordBytes
-  apply List.map_congr_left
-  intro i hi
-  simp only [List.mem_range] at hi
-  rw [bytes_store]
-  have : offset ≤ offset + i ∧ offset + i < offset + 32 := by omega
-  simp only [this, and_self, ite_true, Nat.add_sub_cancel_left]
-
-/-- A word stored at an offset equal to the read's, as `omega` proves it (such as
-`(p + 32).toNat` and `p.toNat + 32` when the sum does not wrap). -/
-theorem read_store_at (m : Mem) (offset : Nat) (value : Word) (address count : Nat)
-    (h : address = offset) (hc : count = 32) :
-    (m.store offset value).read address count = wordBytes value := by
-  subst h hc; exact read_store_same m address value
-
-theorem load_store_at (m : Mem) (offset : Nat) (value : Word) (address : Nat) (h : address = offset) :
-    (m.store offset value).load address = value := by
-  subst h; exact load_store_same m address value
 
 /-- A read inside the range a write wrote reads the source at the same distance. -/
 theorem read_write_inside (m : Mem) (offset size : Nat) (source : Nat → Memory.Byte)
@@ -190,6 +164,22 @@ theorem read_write_same (m : Mem) (offset size : Nat) (source : Nat → Memory.B
     (m.write offset size source).read offset size = (List.range size).map source := by
   rw [read_write_inside m offset size source offset size (Nat.le_refl _) (Nat.le_refl _)]
   simp
+
+/-- The word a store wrote, read back as bytes, as `KECCAK256` over it reads them. -/
+theorem read_store_same (m : Mem) (offset : Nat) (value : Word) :
+    (m.store offset value).read offset 32 = wordBytes value :=
+  read_write_same m offset 32 _
+
+/-- A word stored at an offset equal to the read's, as `omega` proves it (such as
+`(p + 32).toNat` and `p.toNat + 32` when the sum does not wrap). -/
+theorem read_store_at (m : Mem) (offset : Nat) (value : Word) (address count : Nat)
+    (h : address = offset) (hc : count = 32) :
+    (m.store offset value).read address count = wordBytes value := by
+  subst h hc; exact read_store_same m address value
+
+theorem load_store_at (m : Mem) (offset : Nat) (value : Word) (address : Nat) (h : address = offset) :
+    (m.store offset value).load address = value := by
+  subst h; exact load_store_same m address value
 
 /-- An `MCOPY` read back inside its destination: the source memory's bytes, at the source
 offset moved by the same distance. `from` is the memory the copy read, which `apply_mcopy`
@@ -231,21 +221,6 @@ theorem read_write_at (m : Mem) (offset size : Nat) (source : Nat → Memory.Byt
     (m.write offset size source).read address count = (List.range size).map source := by
   subst h hc; exact read_write_same m address count source
 
-/-- A range that contains a stored word: the bytes before it, the word, the bytes after it.
-This is how a hash over a region built word by word at computed offsets meets its words. -/
-theorem read_store_within (m : Mem) (offset : Nat) (value : Word) (address count : Nat)
-    (lo : address ≤ offset) (hi : offset + 32 ≤ address + count) :
-    (m.store offset value).read address count =
-      m.read address (offset - address) ++ wordBytes value ++
-        m.read (offset + 32) (address + count - (offset + 32)) := by
-  have hk : count = (offset - address) + (32 + (address + count - (offset + 32))) := by omega
-  have ho : address + (offset - address) = offset := by omega
-  conv => lhs; rw [hk, read_append, read_append, ho]
-  rw [read_store_disjoint m offset value address (offset - address) (Or.inl (by omega)),
-    read_store_same,
-    read_store_disjoint m offset value (offset + 32) _ (Or.inr (Nat.le_refl _)),
-    List.append_assoc]
-
 /-- A range that contains a copy's destination: the bytes before it, the copied bytes at any
 symbolic length, the bytes after it, as a hash over a header and a copied array reads them. -/
 theorem read_write_within (m : Mem) (offset size : Nat) (source : Nat → Memory.Byte)
@@ -260,5 +235,14 @@ theorem read_write_within (m : Mem) (offset size : Nat) (source : Nat → Memory
     read_write_same,
     read_write_disjoint m offset size source (offset + size) _ (Or.inr (Nat.le_refl _)),
     List.append_assoc]
+
+/-- A range that contains a stored word: the bytes before it, the word, the bytes after it.
+This is how a hash over a region built word by word at computed offsets meets its words. -/
+theorem read_store_within (m : Mem) (offset : Nat) (value : Word) (address count : Nat)
+    (lo : address ≤ offset) (hi : offset + 32 ≤ address + count) :
+    (m.store offset value).read address count =
+      m.read address (offset - address) ++ wordBytes value ++
+        m.read (offset + 32) (address + count - (offset + 32)) :=
+  read_write_within m offset 32 _ address count lo hi
 
 end SolarTV.Machine.Mem

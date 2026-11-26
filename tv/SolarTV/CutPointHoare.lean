@@ -36,32 +36,16 @@ theorem SegOk.mono {Inv Inv' : σ → Prop} {Post : R → Prop} (h : ∀ y, Inv 
 theorem post_of_segments {step : Step σ R} {cut : σ → Bool} {Inv : σ → Prop} {Post : R → Prop}
     (segment : ∀ x, Inv x → ∃ k, SegOk Inv Post (seg step cut k x)) :
     ∀ (n : Nat) (x : σ) (r : R), Inv x → run step n x = some r → Post r := by
-  intro n
-  induction n using Nat.strongRecOn with
-  | ind n ih =>
-    intro x r inv ran
-    obtain ⟨k, h⟩ := segment x inv
-    cases hs : seg step cut k x with
-    | fuel => rw [hs] at h; exact h.elim
-    | stuck =>
-      rw [(seg_stuck hs).1 n] at ran
-      cases ran
-    | done a =>
-      rw [hs] at h
-      obtain ⟨j, _, runs⟩ := seg_done hs
-      have e : r = a := run_unique ran (runs 0)
+  -- The machine simulates itself on the invariant, with results that meet `Post` agreeing.
+  have S : Sim step cut step cut (fun r _ => Post r) (fun y y' => y = y' ∧ Inv y) :=
+    ⟨fun x _ ⟨e, inv⟩ => by
       subst e
-      exact h
-    | cut y =>
-      rw [hs] at h
-      obtain ⟨j, pos, runs⟩ := seg_cut hs
-      by_cases le : j ≤ n
-      · have e : n = (n - j) + j := by omega
-        rw [e, (runs (n - j)).1] at ran
-        exact ih (n - j) (by omega) y r h ran
-      · have := run_mono (Nat.le_of_lt (Nat.lt_of_not_le le)) ran
-        rw [show j = 0 + j from (Nat.zero_add j).symm, (runs 0).1] at this
-        cases this
+      obtain ⟨k, h⟩ := segment x inv
+      refine ⟨k, k, ?_⟩
+      cases hs : seg step cut k x <;> rw [hs] at h <;> first | exact h | exact ⟨rfl, h⟩ | trivial⟩
+  intro n x r inv ran
+  obtain ⟨_, _, _, post⟩ := S.ends n x x r ⟨rfl, inv⟩ ran
+  exact post
 
 /-- The same from a first configuration that need not be a cut point: its segment ends as
 `SegOk` asks too. -/
@@ -97,6 +81,23 @@ def SegEnds (Inv : σ → Prop) (Post : R → Prop) (below : σ → Prop) : Seg 
   | .stuck => False
   | .fuel => False
 
+/-- A segment that ends as `SegEnds` asks, and runs that end from where it stops. -/
+private theorem ends_of_seg {step : Step σ R} {cut : σ → Bool} {Inv : σ → Prop} {Post : R → Prop}
+    {below : σ → Prop} {k : Nat} {x : σ} (hk : SegEnds Inv Post below (seg step cut k x))
+    (next : ∀ y, Inv y → below y → ∃ n r, run step n y = some r ∧ Post r) :
+    ∃ n r, run step n x = some r ∧ Post r := by
+  cases hs : seg step cut k x with
+  | fuel | stuck => rw [hs] at hk; exact hk.elim
+  | done a =>
+    rw [hs] at hk
+    obtain ⟨j, _, runs⟩ := seg_done hs
+    exact ⟨0 + j, a, runs 0, hk⟩
+  | cut y =>
+    rw [hs] at hk
+    obtain ⟨j, _, runs⟩ := seg_cut hs
+    obtain ⟨n, r, ran, post⟩ := next y hk.1 hk.2
+    exact ⟨n + j, r, by rw [(runs n).1]; exact ran, post⟩
+
 /-- **Total correctness through cut points.** -/
 theorem ends_of_segments {step : Step σ R} {cut : σ → Bool} {Inv : σ → Prop} {Post : R → Prop}
     (rank : σ → Nat)
@@ -107,36 +108,15 @@ theorem ends_of_segments {step : Step σ R} {cut : σ → Bool} {Inv : σ → Pr
   | ind m ih =>
     intro inv
     obtain ⟨k, hk⟩ := segment x inv
-    cases hs : seg step cut k x with
-    | fuel | stuck => rw [hs] at hk; exact hk.elim
-    | done a =>
-      rw [hs] at hk
-      obtain ⟨j, _, runs⟩ := seg_done hs
-      exact ⟨0 + j, a, runs 0, hk⟩
-    | cut y =>
-      rw [hs] at hk
-      obtain ⟨iy, lt⟩ := hk
-      obtain ⟨j, _, runs⟩ := seg_cut hs
-      obtain ⟨n, r, ran, post⟩ := ih (rank y) (h ▸ lt) y rfl iy
-      exact ⟨n + j, r, by rw [(runs n).1]; exact ran, post⟩
+    exact ends_of_seg hk fun y iy lt => ih (rank y) (h ▸ lt) y rfl iy
 
 /-- The same from a first configuration that need not be a cut point. -/
 theorem ends_of_start {step : Step σ R} {cut : σ → Bool} {Inv : σ → Prop} {Post : R → Prop}
     (rank : σ → Nat) {x₀ : σ} (start : ∃ k, SegEnds Inv Post (fun _ => True) (seg step cut k x₀))
     (segment : ∀ x, Inv x → ∃ k, SegEnds Inv Post (fun y => rank y < rank x) (seg step cut k x)) :
-    ∃ n r, run step n x₀ = some r ∧ Post r := by
-  obtain ⟨k, hk⟩ := start
-  cases hs : seg step cut k x₀ with
-  | fuel | stuck => rw [hs] at hk; exact hk.elim
-  | done a =>
-    rw [hs] at hk
-    obtain ⟨j, _, runs⟩ := seg_done hs
-    exact ⟨0 + j, a, runs 0, hk⟩
-  | cut y =>
-    rw [hs] at hk
-    obtain ⟨j, _, runs⟩ := seg_cut hs
-    obtain ⟨n, r, ran, post⟩ := ends_of_segments rank segment y hk.1
-    exact ⟨n + j, r, by rw [(runs n).1]; exact ran, post⟩
+    ∃ n r, run step n x₀ = some r ∧ Post r :=
+  let ⟨_, hk⟩ := start
+  ends_of_seg hk fun y iy _ => ends_of_segments rank segment y iy
 
 /-- info: 'SolarTV.CutPoint.ends_of_start' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in

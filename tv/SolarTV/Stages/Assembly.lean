@@ -90,18 +90,6 @@ def pairOk (n m : Nat) : Bool := 1 ≤ n && n < m && n + m ≤ 30
 def immediateOk (byte imm : Nat) : Bool :=
   if byte = EXCHANGE then (decodePair imm).isSome else (decodeDepth imm).isSome
 
-/-- Each immediate that decodes is the encoding of what it decodes to. -/
-def depthRound (x : Nat) : Bool :=
-  match decodeDepth x with
-  | some n => depthOk n && encodeDepth n == x
-  | none => true
-
-/-- Each EXCHANGE immediate that decodes is the encoding of the pair it decodes to. -/
-def pairRound (x : Nat) : Bool :=
-  match decodePair x with
-  | some (n, m) => pairOk n m && encodePair n m == x
-  | none => true
-
 set_option maxRecDepth 8000 in
 theorem decodeDepth_encodeDepth_all :
     ∀ n < 256, depthOk n = true → decodeDepth (encodeDepth n) = some n := by
@@ -114,16 +102,6 @@ theorem decodeDepth_encodeDepth {n : Nat} (h : depthOk n = true) :
 
 theorem encodeDepth_lt (n : Nat) : encodeDepth n < 256 := Nat.mod_lt _ (by decide)
 
-set_option maxRecDepth 8000 in
-theorem depthRound_all : ∀ x < 256, depthRound x = true := by decide
-
-/-- A byte that decodes to a depth is that depth's encoding, and DUPN and SWAPN reach it. -/
-theorem encodeDepth_decodeDepth {x n : Nat} (hx : x < 256) (h : decodeDepth x = some n) :
-    depthOk n = true ∧ encodeDepth n = x := by
-  have := depthRound_all x hx
-  simp only [depthRound, h, Bool.and_eq_true, beq_iff_eq] at this
-  exact this
-
 theorem decodePair_encodePair_all :
     ∀ n < 32, ∀ m < 32, pairOk n m = true →
       decodePair (encodePair n m) = some (n, m) ∧ encodePair n m < 256 := by
@@ -133,16 +111,6 @@ theorem decodePair_encodePair_all :
 theorem decodePair_encodePair {n m : Nat} (h : pairOk n m = true) :
     decodePair (encodePair n m) = some (n, m) ∧ encodePair n m < 256 :=
   decodePair_encodePair_all n (by simp [pairOk] at h; omega) m (by simp [pairOk] at h; omega) h
-
-set_option maxRecDepth 8000 in
-theorem pairRound_all : ∀ x < 256, pairRound x = true := by decide
-
-/-- A byte that decodes to a pair is that pair's encoding, and EXCHANGE reaches it. -/
-theorem encodePair_decodePair {x n m : Nat} (hx : x < 256) (h : decodePair x = some (n, m)) :
-    pairOk n m = true ∧ encodePair n m = x := by
-  have := pairRound_all x hx
-  simp only [pairRound, h, Bool.and_eq_true, beq_iff_eq] at this
-  exact this
 
 /-- No immediate that decodes is a PUSH opcode (PUSH0 to PUSH32) or JUMPDEST, so a scan for
 jump destinations that steps over the immediate as an opcode of its own (as EIP-8024 keeps it)

@@ -69,59 +69,6 @@ def stackItem : EVM.Op → Option Item
     if pairOk first.val second.val then some (.opImm EXCHANGE (encodePair first.val second.val))
     else none
 
-/-! The immediates `stackItem` writes decode back to the operation: DUPN and SWAPN to the
-depth `index + 1`, EXCHANGE to its pair, each a valid immediate, so the walk's decoding of the
-bytes (`decode`) reads the item and nothing else. -/
-
-theorem stackItem_dup_opImm {index : Fin 256} {byte imm : Nat}
-    (h : stackItem (.dup index) = some (.opImm byte imm)) :
-    byte = DUPN ∧ decodeDepth imm = some (index.val + 1) ∧ immediateOk byte imm = true := by
-  simp only [stackItem] at h
-  split at h
-  · cases h
-  · split at h
-    · rename_i hd
-      cases h
-      have := decodeDepth_encodeDepth hd
-      exact ⟨rfl, this, by simp [immediateOk, DUPN, EXCHANGE, this]⟩
-    · cases h
-
-theorem stackItem_swap_opImm {index : Fin 256} {byte imm : Nat}
-    (h : stackItem (.swap index) = some (.opImm byte imm)) :
-    byte = SWAPN ∧ decodeDepth imm = some (index.val + 1) ∧ immediateOk byte imm = true := by
-  simp only [stackItem] at h
-  split at h
-  · cases h
-  · split at h
-    · rename_i hd
-      cases h
-      have := decodeDepth_encodeDepth hd
-      exact ⟨rfl, this, by simp [immediateOk, SWAPN, EXCHANGE, this]⟩
-    · cases h
-
-theorem stackItem_exchange_opImm {first second : Fin 32} {byte imm : Nat}
-    (h : stackItem (.exchange first second) = some (.opImm byte imm)) :
-    byte = EXCHANGE ∧ decodePair imm = some (first.val, second.val) ∧
-      immediateOk byte imm = true := by
-  simp only [stackItem] at h
-  split at h
-  · rename_i hp
-    cases h
-    have := (decodePair_encodePair hp).1
-    exact ⟨rfl, this, by simp [immediateOk, this]⟩
-  · cases h
-
-/-- The bytes of an item `stackItem` writes with an immediate decode to that item, two bytes on. -/
-theorem decode_opImm_of_valid {code : List Nat} {pc byte imm : Nat}
-    (hb : code[pc]? = some byte) (hi : code[pc + 1]? = some imm) (hh : hasImmediate byte = true)
-    (ok : immediateOk byte imm = true) : decode code pc = some (.opImm byte imm, pc + 2) := by
-  have h0 : byte ≠ PUSH0 := by
-    intro e; subst e; simp [hasImmediate, PUSH0, DUPN, SWAPN, EXCHANGE] at hh
-  have h1 : ¬(PUSH1 ≤ byte ∧ byte ≤ PUSH32) := by
-    simp only [hasImmediate, Bool.or_eq_true, beq_iff_eq, DUPN, SWAPN, EXCHANGE] at hh
-    simp only [PUSH1, PUSH32]; omega
-  simp [decode, hb, hi, h0, h1, hh, ok]
-
 /-- The opcode of a memory instruction, or `none` for a copy or hash, which the program runs
 as effects. -/
 def memoryItem : EVM.Memory.Op → Option Item

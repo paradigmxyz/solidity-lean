@@ -199,6 +199,24 @@ theorem iterate_eq {ς : Type} (step : Step ς (Machine.Halt × Machine.State)) 
       | inl r => rfl
       | inr y => exact iterate_eq step n y
 
+/-- Two counts of steps that both stop (in a result or a stuck step) stop alike. -/
+private theorem steps_stop {k j : Nat} {x : σ} (hk : ∀ y, steps step k x ≠ some (.inr y))
+    (hj : ∀ y, steps step j x ≠ some (.inr y)) : steps step k x = steps step j x := by
+  rw [← steps_le (Nat.le_max_left k j) hk, ← steps_le (Nat.le_max_right k j) hj]
+
+/-- After `j` steps to a configuration, the run goes on from it. -/
+private theorem steps_after : ∀ {j : Nat} {x y : σ}, steps step j x = some (.inr y) →
+    ∀ n, steps step (n + j) x = steps step n y
+  | 0, _, _, h, _ => by cases h; rfl
+  | j + 1, x, y, h, n => by
+    simp only [steps] at h ⊢
+    cases e : step x with
+    | none => rw [e] at h; cases h
+    | some v =>
+      cases v with
+      | inl r => rw [e] at h; cases h
+      | inr z => rw [e] at h; exact steps_after h n
+
 end Runs
 
 /-! What a segment says about whole runs. -/
@@ -207,81 +225,56 @@ section Segments
 
 variable {step : Step σ R} {cut : σ → Bool}
 
-/-- A segment that reaches a cut point ran \`j ≥ 1\` steps to it. -/
-theorem seg_cut : ∀ {k : Nat} {x y : σ}, seg step cut k x = .cut y →
-    ∃ j, 1 ≤ j ∧ ∀ n, run step (n + j) x = run step n y ∧ steps step (n + j) x = steps step n y
-  | 0, _, _, h => by cases h
-  | k + 1, x, y, h => by
-    simp only [seg] at h
+/-- A segment that stops, short of its fuel, took `j` steps, `1 ≤ j ≤ k`, to where it stopped:
+its result, its cut point or a stuck step. -/
+private theorem seg_steps : ∀ {k : Nat} {x : σ}, seg step cut k x ≠ .fuel →
+    ∃ j, 1 ≤ j ∧ j ≤ k ∧ steps step j x = match seg step cut k x with
+      | .done r => some (.inl r)
+      | .cut y => some (.inr y)
+      | _ => none
+  | 0, _, h => absurd rfl h
+  | k + 1, x, h => by
+    simp only [seg] at h ⊢
     cases e : step x with
-    | none => rw [e] at h; cases h
+    | none => exact ⟨1, Nat.le_refl 1, by omega, by simp only [steps, e]⟩
     | some v =>
       cases v with
-      | inl r => rw [e] at h; cases h
+      | inl r => exact ⟨1, Nat.le_refl 1, by omega, by simp only [steps, e]⟩
       | inr z =>
         rw [e] at h
-        simp only at h
         by_cases c : cut z = true
-        · simp only [c, ↓reduceIte] at h
-          cases h
-          refine ⟨1, Nat.le_refl 1, fun n => ⟨?_, ?_⟩⟩ <;> simp only [run, steps, e]
-        · simp only [c] at h
-          obtain ⟨j, pos, runs⟩ := seg_cut h
-          refine ⟨j + 1, by omega, fun n => ?_⟩
-          rw [← Nat.add_assoc]
-          simp only [run, steps, e]
-          exact runs n
+        · simp only [c, ↓reduceIte]
+          exact ⟨1, Nat.le_refl 1, by omega, by simp only [steps, e]⟩
+        · simp only [c, Bool.false_eq_true, ↓reduceIte] at h ⊢
+          obtain ⟨j, pos, le, hj⟩ := seg_steps h
+          exact ⟨j + 1, by omega, by omega, by simp only [steps, e]; exact hj⟩
+
+/-- A segment that reaches a cut point ran \`j ≥ 1\` steps to it. -/
+theorem seg_cut {k : Nat} {x y : σ} (h : seg step cut k x = .cut y) :
+    ∃ j, 1 ≤ j ∧ ∀ n, run step (n + j) x = run step n y ∧ steps step (n + j) x = steps step n y := by
+  obtain ⟨j, pos, -, hj⟩ := seg_steps (by rw [h]; nofun)
+  rw [h] at hj
+  exact ⟨j, pos, fun n => ⟨by rw [run_eq_steps, run_eq_steps, steps_after hj], steps_after hj n⟩⟩
 
 /-- A segment that ends ran \`j ≥ 1\` steps to its result. -/
-theorem seg_done : ∀ {k : Nat} {x : σ} {r : R}, seg step cut k x = .done r →
-    ∃ j, 1 ≤ j ∧ ∀ n, run step (n + j) x = some r
-  | 0, _, _, h => by cases h
-  | k + 1, x, r, h => by
-    simp only [seg] at h
-    cases e : step x with
-    | none => rw [e] at h; cases h
-    | some v =>
-      cases v with
-      | inl r' =>
-        rw [e] at h
-        cases h
-        exact ⟨1, Nat.le_refl 1, fun n => by simp only [run, e]⟩
-      | inr z =>
-        rw [e] at h
-        simp only at h
-        by_cases c : cut z = true
-        · simp only [c, ↓reduceIte] at h; cases h
-        · simp only [c] at h
-          obtain ⟨j, pos, runs⟩ := seg_done h
-          refine ⟨j + 1, by omega, fun n => ?_⟩
-          rw [← Nat.add_assoc]
-          simp only [run, e]
-          exact runs n
+theorem seg_done {k : Nat} {x : σ} {r : R} (h : seg step cut k x = .done r) :
+    ∃ j, 1 ≤ j ∧ ∀ n, run step (n + j) x = some r := by
+  obtain ⟨j, pos, -, hj⟩ := seg_steps (by rw [h]; nofun)
+  rw [h] at hj
+  exact ⟨j, pos, fun n => run_mono (Nat.le_add_left j n) (run_of_steps hj)⟩
 
 /-- A segment that gets stuck never ends, and is stuck after \`j\` steps. -/
-theorem seg_stuck : ∀ {k : Nat} {x : σ}, seg step cut k x = .stuck →
-    (∀ n, run step n x = none) ∧ ∃ j, steps step j x = none
-  | 0, _, h => by cases h
-  | k + 1, x, h => by
-    simp only [seg] at h
-    cases e : step x with
-    | none =>
-      refine ⟨fun n => ?_, 1, by simp only [steps, e]⟩
-      cases n <;> simp only [run, e]
-    | some v =>
-      cases v with
-      | inl r => rw [e] at h; cases h
-      | inr z =>
-        rw [e] at h
-        simp only at h
-        by_cases c : cut z = true
-        · simp only [c, ↓reduceIte] at h; cases h
-        · simp only [c] at h
-          obtain ⟨runs, j, stuck⟩ := seg_stuck h
-          refine ⟨fun n => ?_, j + 1, by simp only [steps, e]; exact stuck⟩
-          cases n with
-          | zero => rfl
-          | succ n => simp only [run, e]; exact runs n
+theorem seg_stuck {k : Nat} {x : σ} (h : seg step cut k x = .stuck) :
+    (∀ n, run step n x = none) ∧ ∃ j, steps step j x = none := by
+  obtain ⟨j, -, -, hj⟩ := seg_steps (by rw [h]; nofun)
+  rw [h] at hj
+  refine ⟨fun n => ?_, j, hj⟩
+  cases ran : run step n x with
+  | none => rfl
+  | some r =>
+    have := steps_stop (j := j) (by rw [steps_of_run ran]; nofun) (by rw [hj]; nofun)
+    rw [steps_of_run ran, hj] at this
+    cases this
 
 /-- Cut points that cover every cycle bound every segment: when every step to a configuration
 that is no cut point climbs a rank bounded by \`N\` (a topological order of the control flow with
@@ -331,45 +324,50 @@ theorem flip (S : Sim step cut step' cut' Ag Rel) :
     obtain ⟨k, k', h⟩ := S.segment x x' rel
     exact ⟨k', k, h.flip⟩
 
+/-- Every run of the first program that stops, `steps step k x = t.map .inl` in a result
+(`t = some r`) or a stuck step (`t = none`), is matched by a run of the second that stops alike,
+in an agreeing result or a stuck step. -/
+private theorem final (S : Sim step cut step' cut' Ag Rel) :
+    ∀ (k : Nat) (x : σ) (x' : τ) (t : Option R), Rel x x' → steps step k x = t.map .inl →
+      ∃ m t', steps step' m x' = t'.map .inl ∧ Option.Rel Ag t t' := by
+  intro k
+  induction k using Nat.strongRecOn with
+  | ind k ih =>
+    intro x x' t rel stop
+    have stops : ∀ y, steps step k x ≠ some (.inr y) := by rw [stop]; cases t <;> nofun
+    obtain ⟨k₁, k₁', h⟩ := S.segment x x' rel
+    have ne : seg step cut k₁ x ≠ .fuel := fun e => by rw [e] at h; exact h
+    have ne' : seg step' cut' k₁' x' ≠ .fuel := fun e => by
+      rw [e] at h; revert h; cases seg step cut k₁ x <;> exact id
+    obtain ⟨j, pos, -, hj⟩ := seg_steps ne
+    obtain ⟨j', -, -, hj'⟩ := seg_steps ne'
+    cases hs : seg step cut k₁ x <;> cases hs' : seg step' cut' k₁' x' <;>
+      simp only [hs, hs', SegRel] at h hj hj'
+    case done.done a a' =>
+      rw [steps_stop stops (by rw [hj]; nofun), hj] at stop
+      cases t <;> cases stop
+      exact ⟨j', some a', hj', .some h⟩
+    case stuck.stuck =>
+      rw [steps_stop stops (by rw [hj]; nofun), hj] at stop
+      cases t <;> cases stop
+      exact ⟨j', none, hj', .none⟩
+    case cut.cut y y' =>
+      by_cases le : j ≤ k
+      · rw [show k = (k - j) + j by omega, steps_after hj] at stop
+        obtain ⟨m, t', hm, ht⟩ := ih (k - j) (by omega) y y' t h stop
+        exact ⟨m + j', t', by rw [steps_after hj']; exact hm, ht⟩
+      · -- Stopped before the cut point, which the run reaches: impossible.
+        have := steps_le (Nat.le_of_lt (Nat.lt_of_not_le le)) stops
+        rw [hj, stop] at this
+        cases t <;> cases this
+
 /-- Every end of the first program, at any fuel, is matched by an agreeing end of the second. -/
 theorem ends (S : Sim step cut step' cut' Ag Rel) :
     ∀ (n : Nat) (x : σ) (x' : τ) (r : R), Rel x x' → run step n x = some r →
       ∃ m r', run step' m x' = some r' ∧ Ag r r' := by
-  intro n
-  induction n using Nat.strongRecOn with
-  | ind n ih =>
-    intro x x' r rel ran
-    obtain ⟨k, k', h⟩ := S.segment x x' rel
-    cases hs : seg step cut k x with
-    | fuel => rw [hs] at h; exact h.elim
-    | stuck =>
-      rw [(seg_stuck hs).1 n] at ran
-      cases ran
-    | done a =>
-      cases hs' : seg step' cut' k' x' with
-      | done a' =>
-        rw [hs, hs'] at h
-        obtain ⟨j, _, runs⟩ := seg_done hs
-        obtain ⟨j', _, runs'⟩ := seg_done hs'
-        have e : r = a := run_unique ran (runs 0)
-        subst e
-        exact ⟨0 + j', a', runs' 0, h⟩
-      | cut _ | stuck | fuel => rw [hs, hs'] at h; exact h.elim
-    | cut y =>
-      cases hs' : seg step' cut' k' x' with
-      | cut y' =>
-        rw [hs, hs'] at h
-        obtain ⟨j, pos, runs⟩ := seg_cut hs
-        obtain ⟨j', _, runs'⟩ := seg_cut hs'
-        by_cases le : j ≤ n
-        · have e : n = (n - j) + j := by omega
-          rw [e, (runs (n - j)).1] at ran
-          obtain ⟨m, r', ran', ag⟩ := ih (n - j) (by omega) y y' r h ran
-          exact ⟨m + j', r', by rw [(runs' m).1]; exact ran', ag⟩
-        · have := run_mono (Nat.le_of_lt (Nat.lt_of_not_le le)) ran
-          rw [show j = 0 + j from (Nat.zero_add j).symm, (runs 0).1] at this
-          cases this
-      | done _ | stuck | fuel => rw [hs, hs'] at h; exact h.elim
+  intro n x x' r rel ran
+  obtain ⟨m, _, hm, ⟨ag⟩⟩ := S.final n x x' (some r) rel (steps_of_run ran)
+  exact ⟨m, _, run_of_steps hm, ag⟩
 
 /-- Every end of the second program is matched by an agreeing end of the first. -/
 theorem ends_back (S : Sim step cut step' cut' Ag Rel) (m : Nat) (x : σ) (x' : τ) (r' : R')
@@ -391,42 +389,9 @@ theorem ends_iff (S : Sim step cut step' cut' Ag Rel) {x : σ} {x' : τ} (rel : 
 /-- A stuck first program has a stuck second program. -/
 theorem stuck (S : Sim step cut step' cut' Ag Rel) :
     ∀ (k : Nat) (x : σ) (x' : τ), Rel x x' → steps step k x = none → Stuck step' x' := by
-  intro k
-  induction k using Nat.strongRecOn with
-  | ind k ih =>
-    intro x x' rel stuckAt
-    obtain ⟨k₁, k₁', h⟩ := S.segment x x' rel
-    cases hs : seg step cut k₁ x with
-    | fuel => rw [hs] at h; exact h.elim
-    | stuck =>
-      cases hs' : seg step' cut' k₁' x' with
-      | stuck => exact (seg_stuck hs').2
-      | done _ | cut _ | fuel => rw [hs, hs'] at h; exact h.elim
-    | done a =>
-      obtain ⟨j, _, runs⟩ := seg_done hs
-      have ended := steps_of_run (runs 0)
-      have := steps_le (step := step) (x := x) (Nat.le_max_left (0 + j) k)
-        (by rw [ended]; intro y e; cases e)
-      rw [ended, steps_le (Nat.le_max_right (0 + j) k) (by rw [stuckAt]; intro y e; cases e),
-        stuckAt] at this
-      cases this
-    | cut y =>
-      cases hs' : seg step' cut' k₁' x' with
-      | cut y' =>
-        rw [hs, hs'] at h
-        obtain ⟨j, pos, runs⟩ := seg_cut hs
-        obtain ⟨j', _, runs'⟩ := seg_cut hs'
-        by_cases le : j ≤ k
-        · have e : k = (k - j) + j := by omega
-          rw [e, (runs (k - j)).2] at stuckAt
-          obtain ⟨i, si⟩ := ih (k - j) (by omega) y y' h stuckAt
-          exact ⟨i + j', by rw [(runs' i).2]; exact si⟩
-        · -- Stuck before reaching the cut point, which it reaches: impossible.
-          have := steps_le (step := step) (x := x) (Nat.le_of_lt (Nat.lt_of_not_le le))
-            (by rw [stuckAt]; intro y e; cases e)
-          rw [show j = 0 + j from (Nat.zero_add j).symm, (runs 0).2, stuckAt] at this
-          cases this
-      | done _ | stuck | fuel => rw [hs, hs'] at h; exact h.elim
+  intro k x x' rel stuckAt
+  obtain ⟨m, _, hm, ⟨⟩⟩ := S.final k x x' none rel stuckAt
+  exact ⟨m, hm⟩
 
 theorem stuck_iff (S : Sim step cut step' cut' Ag Rel) {x : σ} {x' : τ} (rel : Rel x x') :
     Stuck step x ↔ Stuck step' x' :=
