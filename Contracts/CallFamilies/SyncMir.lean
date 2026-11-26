@@ -82,14 +82,14 @@ kernel_thm b1 : syncFn.blocks[1]? = some ⟨[],
      .effect (some 24) .returndatasize []],
     .revert (.const 0) (.value 24)⟩
 
-theorem exec_b1 (o : Oracle) (call : Call) (env : Env) (s : State) :
-    execInsts o call [.effect (some 23) .returndatasize [],
-     .effect none .returndatacopy [.const 0, .const 0, .value 23],
-     .effect (some 24) .returndatasize []] env s =
-    some ((env.set 23 (returndataSize o s.world)).set 24 (returndataSize o s.world),
+theorem exec_b1 (o : Oracle) (call : Call) (env : Env) (s : State) (r r' : Nat) :
+    execInsts o call [.effect (some r) .returndatasize [],
+     .effect none .returndatacopy [.const 0, .const 0, .value r],
+     .effect (some r') .returndatasize []] env s =
+    some ((env.set r (returndataSize o s.world)).set r' (returndataSize o s.world),
       { s with memory := s.memory.write 0 (returndataSize o s.world).toNat (fun i => returndataByte o s.world (0 + i)) }) := by
   simp only [execInsts, Effect.apply, List.map_cons, List.map_nil, Operand.eval]
-  have h : (env.set 23 (returndataSize o s.world)) 23 = returndataSize o s.world := by
+  have h : (env.set r (returndataSize o s.world)) r = returndataSize o s.world := by
     simp [Env.set]
   simp only [h, returndataSize]
   simp

@@ -259,16 +259,8 @@ theorem skim_source (k : Nat) (V : World) {c : SolidCore.Solidity.TypeCheck.Chec
       by decide⟩
   have hfx : AddrFieldOk ctx "token" tokenField :=
     ⟨by simp [Context.storageField?, hctxf, callsFields, tokenField], rfl, rfl, rfl, by decide, by decide⟩
-  have hload : ∀ k, k < Generic.wordSize → st0.loadSlot k = slotValue σ k := by
-    intro k hk
-    have := getD_storage_cover hd (σ := σ) (by intro kv hkv; simp at hkv) k
-    subst hst
-    simp only [State.loadSlot, StorageMap.lookup?]
-    rw [← this]
-    simp only [SolidCore.Solidity.Shared.norm, modulus_eq, Std.HashMap.get?_eq_getElem?]
-    cases (List.foldl (fun acc kv => acc.insertLoop kv.1 kv.2) d.storage σ)[k % Generic.wordSize]? <;> rfl
   have hst0 : (rt0.pushScope.pushScope.declareLocal "_sol_hoist_2" (Value.word dst)).state.loadSlot 2 = slotValue σ 2 := by
-    rw [← hrt0]; exact hload 2 (by decide)
+    rw [← hrt0, ← hst]; exact load_deployed hd σ 2 (by decide)
   rw [evalList_cons, eval_varDecl_some, reserve_eval ctx _ hfr (by rw [show reserveField.slot = 2 from rfl, hst0]; exact hlt 2),
     caught_done_ok, bind_done_ok] at hrun
   dsimp only at hrun
@@ -285,17 +277,11 @@ theorem skim_source (k : Nat) (V : World) {c : SolidCore.Solidity.TypeCheck.Chec
     rw [← hR, ← hst0]; simp [Runtime.declareLocal, Runtime.pushScope, LocalEnv.declare, hrt0l, Ty.defaultValue]; rfl
   clear hR
   have hT : R.state.loadSlot tokenField.slot = slotValue σ 1 := by
-    rw [hRs, ← hrt0]; exact hload 1 (by decide)
+    rw [hRs, ← hrt0, ← hst]; exact load_deployed hd σ 1 (by decide)
   have ht := tok_eval ctx R hfx (by rw [hT]; exact hlt 1)
   rw [hT] at ht
   have hne : wordEq (SolidCore.Solidity.Shared.norm (fieldValue (slotValue σ 1) tokenField.packedOffset 20)) ctx.self = false := by
-    rw [hctxs]
-    simp only [wordEq, fieldValue, tokenField, SolidCore.Solidity.Shared.norm]
-    simp
-    have h1 : slotValue σ 1 % 1461501637330902918203684832716283019655932542976 < Solidity.Shared.wordModulus :=
-      lt_of_lt_of_le (Nat.mod_lt _ (by decide)) (by decide)
-    rw [Nat.mod_eq_of_lt h1, Nat.mod_eq_of_lt (by decide : selfAddress < Solidity.Shared.wordModulus)]
-    exact hself
+    rw [hctxs]; exact callee_ne_self hself
   rw [show k + 6 = (k + 5) + 1 from rfl,
     eval_tryCall (k + 5) _ ctx _ _ _ _ _ false _ _ _ _ ht rfl (word0_eval ctx _) rfl (enc_eval ctx _ hctxs) rfl hne] at hrun
   generalize hW : snapshotWorld ctx R.state = world at hrun
@@ -304,70 +290,17 @@ theorem skim_source (k : Nat) (V : World) {c : SolidCore.Solidity.TypeCheck.Chec
       (List.map normByte encSync) (Solidity.Shared.norm 0) none = request at hrun
   simp only [bind_request, map_request] at hrun
   rw [foldAns_request] at hrun
-  have hmut : R.state.worldMutatedSinceAdoption = true := by rw [hRs, ← hrt0]
-  have hwf : StorageMap.WF R.state.storage := by
-    rw [hRs, ← hrt0, ← hst]; exact wf_foldl σ _ (wf_of_toList_nil _ hd.storage)
-  have hworld : ∀ slot < 2 ^ 256, storageIn world slot = slotValue σ slot % 2 ^ 256 := by
-    intro slot hslot
-    have hl := hload slot hslot
-    have hsto : R.state.storage = st0.storage := by rw [hRs, ← hrt0]
-    subst hW
-    unfold storageIn accountIn
-    rw [show wordToAddress selfAddress = wordToAddress ctx.self by rw [hctxs],
-      snapshotWorld_find_self ctx _ (Or.inr hmut)]
-    simp only [Option.getD_some, snapshotSelfAccount]
-    rw [lookup?_roundtrip _ hwf, hsto]
-    unfold State.loadSlot at hl
-    cases h : StorageMap.lookup? st0.storage slot with
-    | none => rw [h] at hl; simp [← hl]
-    | some v => rw [h] at hl; simp [← hl, SolidCore.Solidity.Shared.norm]; rfl
-  have htrans : ∀ slot < 2 ^ 256, transientIn world slot = 0 := by
-    intro slot hslot
-    have htr : R.state.transient = d.transient := by rw [hRs, ← hrt0, ← hst]
-    subst hW
-    unfold transientIn accountIn
-    rw [show wordToAddress selfAddress = wordToAddress ctx.self by rw [hctxs],
-      snapshotWorld_find_self ctx _ (Or.inr hmut)]
-    simp only [Option.getD_some, snapshotSelfAccount]
-    rw [lookup?_roundtrip _ (by rw [htr]; exact wf_of_toList_nil _ hdt), htr]
-    have hnone : StorageMap.lookup? d.transient slot = none := by
-      unfold StorageMap.lookup?
-      rw [Std.HashMap.get?_eq_getElem?]
-      cases h : d.transient[SolidCore.Solidity.Shared.norm slot]? with
-      | none => rfl
-      | some v =>
-        have := Std.HashMap.mem_toList_iff_getElem?_eq_some.mpr h
-        rw [hdt] at this; cases this
-    rw [hnone]; rfl
-  have hacc : ctx.accountCodes = V.codes.getD [] := by
-    subst hctx
-    show V.codes.getD c.core.context.accountCodes = V.codes.getD []
-    rw [hcc]
-  have hcodes : ∀ x < 2 ^ 160, (codeIn world x).isEmpty =
-      (SolidCore.Solidity.Shared.Account.codeAt (V.codes.getD []) x).isEmpty := by
-    intro x hx
-    rw [← hacc]
-    subst hW
-    apply codeIn_snapshot
-    · rw [hRs, ← hrt0, ← hst]; exact hde
-    · subst hctx; exact hcb
-    · subst hctx; exact hch
-    · rw [hacc]; exact hkeys
-    · rw [hctxs]; decide
-    · exact hx
+  obtain ⟨hworld, htrans, hcodes⟩ := sent_world hd V σ ctx hctxs
+    (by subst hctx; show V.codes.getD c.core.context.accountCodes = V.codes.getD []; rw [hcc])
+    (by subst hctx; exact hcb) (by subst hctx; exact hch) hkeys hdt st0 hst _ world hW
+    (by rw [hRs, ← hrt0]) (by rw [hRs, ← hrt0]) (by rw [hRs, ← hrt0, ← hst]) (by rw [hRs, ← hrt0, ← hst]; exact hde)
   cases hans : V.ans [] (Query.external world (ExternalRequest.call request)) with
   | none => simp [hans] at hrun
   | some a =>
   simp only [hans] at hrun
   have hask : Sync.SyncAsk σ V world request a := by
-    refine ⟨hans, by subst hRq; rfl, ?_, by subst hRq; rfl, ?_, hworld, htrans, hcodes, hsize _ _ _ _ hans⟩
-    · subst hRq
-      simp [buildCallRequest, addressToWord, wordToAddress, wordToU256, fieldValue, tokenField,
-        EvmYul.AccountAddress.ofUInt256, SolidCore.Solidity.Shared.norm]
-      have h1 : slotValue σ 1 % 1461501637330902918203684832716283019655932542976 <
-          Solidity.Shared.wordModulus := lt_of_lt_of_le (Nat.mod_lt _ (by decide)) (by decide)
-      rw [Nat.mod_eq_of_lt h1]
-      simp [EvmYul.UInt256.ofNat, EvmYul.AccountAddress.size, Fin.ofNat, Id.run, EvmYul.UInt256.size]
+    refine ⟨hans, by subst hRq; rfl, by subst hRq; exact callee_word _, by subst hRq; rfl, ?_, hworld, htrans, hcodes,
+      hsize _ _ _ _ hans⟩
     · subst hRq
       show byteArrayToBytes (bytesToByteArray (List.map normByte encSync)) = List.map BitVec.toNat Sync.input
       simp only [byteArrayToBytes, toList_eq_data, bytesToByteArray]
@@ -380,22 +313,9 @@ theorem skim_source (k : Nat) (V : World) {c : SolidCore.Solidity.TypeCheck.Chec
     simp only [hs, Bool.false_eq_true, ↓reduceIte, findMatch_nil] at hrun
     simp only [sbind_pure, map_pure', foldAns_pure, Result.mapRuntime, FunctionDef.callBodyResult,
       RevertData.fromRawBytes, normByte_bytes] at hrun
-    have hout : ∀ out, ABI.Contract.encodeRevertData? c.core
-        (if (byteArrayToBytes a.returnData == []) = true then SolidCore.Solidity.Source.RevertData.empty
-          else SolidCore.Solidity.Source.RevertData.raw (byteArrayToBytes a.returnData)).untagFixedBytes = some out →
-        out = byteArrayToBytes a.returnData := by
-      intro out h
-      split at h
-      · rename_i he
-        simp only [beq_iff_eq] at he
-        simp only [RevertData.untagFixedBytes, ABI.Contract.encodeRevertData?, Option.some.injEq] at h
-        rw [← h, he]
-      · simp only [RevertData.untagFixedBytes, ABI.Contract.encodeRevertData?, Option.some.injEq] at h
-        rw [← h]
-        exact normByte_bytes a.returnData
     simp only [Option.bind_eq_bind, Option.map_bind] at hrun
     obtain ⟨out, hout', hobs⟩ := Option.bind_eq_some_iff.mp hrun
-    rw [hout out hout'] at hobs
+    rw [revert_raw c a out hout'] at hobs
     simp only [Function.comp, Option.map_some, Option.some.injEq] at hobs
     rw [← hobs]
     simp only [Source.observe, Skim.obsEarly, Skim.failObs, hs, Bool.false_eq_true, ↓reduceIte, byteArrayToBytes_eq]
@@ -510,13 +430,8 @@ theorem skim_source (k : Nat) (V : World) {c : SolidCore.Solidity.TypeCheck.Chec
         hpay (pay_frame dst _ hdst hamt)] at hrun
       have hUs : U.state.storage = (adoptWorld a.postWorld ctx R.state).storage := by
         rw [← hU, ← hT, ← hQ]; rfl
-      have hadopt : ∀ j, (adoptWorld a.postWorld ctx R.state).loadSlot j = storageIn a.postWorld j := by
-        intro j
-        simp only [adoptWorld, State.loadSlot, storageIn, accountIn, hctxs]
-        cases StorageMap.lookup? _ j <;> rfl
-      have hpost : ∀ j < 2 ^ 256, storageIn a.postWorld j = slotValue σ j := by
-        intro j hj
-        rw [hstatic _ _ _ _ hans (by subst hRq; rfl) j, hworld j hj, Nat.mod_eq_of_lt (hlt j)]
+      have hadopt := adopt_load hctxs a.postWorld R.state
+      have hpost := static_post hstatic hans (by subst hRq; rfl) hworld
       have hU1 : U.state.loadSlot tokenField.slot = slotValue σ 1 := by
         rw [show U.state.loadSlot tokenField.slot = (adoptWorld a.postWorld ctx R.state).loadSlot 1 by
           unfold State.loadSlot; rw [hUs]; rfl, hadopt, hpost 1 (by decide)]
@@ -545,12 +460,7 @@ theorem skim_source (k : Nat) (V : World) {c : SolidCore.Solidity.TypeCheck.Chec
       · refine ⟨by rw [List.nil_append] at hans2; exact hans2, by subst hRq2; rfl, ?_, by subst hRq2; rfl, ?_, ?_, ?_, fun _ _ => rfl, ?_⟩
         · subst hRq2
           rw [hPs, hU1]
-          simp [buildCallRequest, addressToWord, wordToAddress, wordToU256, fieldValue, tokenField,
-            EvmYul.AccountAddress.ofUInt256, SolidCore.Solidity.Shared.norm]
-          have h1 : slotValue σ 1 % 1461501637330902918203684832716283019655932542976 <
-              Solidity.Shared.wordModulus := lt_of_lt_of_le (Nat.mod_lt _ (by decide)) (by decide)
-          rw [Nat.mod_eq_of_lt h1]
-          simp [EvmYul.UInt256.ofNat, EvmYul.AccountAddress.size, Fin.ofNat, Id.run, EvmYul.UInt256.size]
+          exact callee_word _
         · subst hRq2
           simp only [buildCallRequest, bytes_roundtrip]
           exact input_eq σ dst a w hv (Nat.le_of_not_lt hlw)

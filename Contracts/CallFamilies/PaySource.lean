@@ -20,14 +20,6 @@ theorem mat_bytes (ctx : Context) (rt : Runtime) (bs : List Byte) :
   all_goals intros
   all_goals contradiction
 
-/-- The cast of the signature's Keccak-256 to its first four bytes. -/
-def selCast : Except SolidCore.Solidity.Source.RevertData Value :=
-  fixedBytesCast? 4 32 (keccakWord ([116, 114, 97, 110, 115, 102, 101, 114, 40, 97, 100, 100, 114, 101,
-    115, 115, 44, 117, 105, 110, 116, 50, 53, 54, 41].map normByte))
-
-kernel_rfl selCast_eq selCast (Except.ok (Value.fixedBytes 4
-  2835717307))
-
 /-- The selector cast as the interpreter computes it. -/
 def selCast2 : Except SolidCore.Solidity.Source.RevertData Value :=
   fixedBytesCast? 4 32 (SolidCore.Solidity.Shared.norm (keccakWord (List.map normByte (List.map normByte
@@ -41,21 +33,6 @@ abbrev transferWord : Nat := 2835717307
 
 theorem dbind {ε α β : Type} (a : α) (f : α → Interaction ε β) :
     (Interaction.done (Except.ok a)).bind f = f a := rfl
-
-theorem sel_eval (ctx : Context) (rt : Runtime) :
-    transferSelE.evalWithRuntimeByContext ctx rt = .ok (.fixedBytes 4 transferWord, rt) := by
-  simp only [transferSelE, Expr.evalWithRuntimeByContext, Expr.eval, Expr.orderFuel, Expr.evalFuel]
-  simp only [bind, pure, liftM, monadLift, MonadLift.monadLift, SolI.ofExcept, ipure_bind, mat_bytes]
-  have h := selCast_eq
-  unfold selCast at h
-  simp only [List.map_cons, List.map_nil] at h
-  rw [dbind]
-  simp only [Value.asBytes?, ipure_bind, Value.expectWord]
-  rw [dbind]
-  have h2 := selCast2_eq
-  unfold selCast2 at h2
-  rw [h2]
-  rfl
 
 theorem selF (n : Nat) (ctx : Context) (rt : Runtime) :
     Expr.evalFuel (n + 4) ctx rt transferSelE = pure (.fixedBytes 4 transferWord, rt) := by
@@ -146,10 +123,6 @@ def payBody : Stmt :=
     Stmt.assign (LValue.var "amount") (Expr.castOp CastKind.uintCleanup 256 (Expr.var "amount")),
     Stmt.block payInner]
 
-theorem eval_skip (n : Nat) (tbl : FunctionTable) (ctx : Context) (rt : Runtime) :
-    Stmt.eval (n + 1) tbl ctx rt .skip = pure (Result.normal rt) := by
-  rw [Stmt.eval]
-
 theorem eval_varDecl_some (n : Nat) (tbl : FunctionTable) (ctx : Context) (rt : Runtime)
     (ty : Ty) (x : String) (e : Expr) :
     Stmt.eval (n + 1) tbl ctx rt (.varDecl ty x (some e)) =
@@ -185,11 +158,6 @@ theorem eval_require (n : Nat) (tbl : FunctionTable) (ctx : Context) (rt : Runti
             | Except.error err => pure (Result.reverted runtime' err)
         | Except.error err => pure (Result.reverted rt err)) := by
   rw [Stmt.eval]; dsimp only; rfl
-
-theorem eval_assign_var (n : Nat) (tbl : FunctionTable) (ctx : Context) (rt : Runtime)
-    (x : String) (e : Expr) :
-    Stmt.eval (n + 1) tbl ctx rt (.assign (.var x) e) = Stmt.eval (n + 1) tbl ctx rt (.assign (.var x) e) := rfl
-
 
 theorem cleanup256 (c : Bool) (w : Nat) (hw : w < 2 ^ 256) :
     uintCleanup? c 256 (.word w) = .ok (.word w) := by

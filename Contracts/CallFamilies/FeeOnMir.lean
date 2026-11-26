@@ -97,18 +97,6 @@ kernel_thm b3 : syncFn6.blocks[3]? = some ⟨[], [.effect none .sstore [.const 3
 kernel_thm b4 : syncFn6.blocks[4]? = some ⟨[],
     [.word 31 (.value 21), .effect none .mstore [.const 0, .value 31]], .ret (.const 0) (.const 32)⟩
 
-theorem exec_b1 (o : Oracle) (call : Call) (env : Env) (s : State) :
-    execInsts o call [.effect (some 26) .returndatasize [],
-     .effect none .returndatacopy [.const 0, .const 0, .value 26],
-     .effect (some 27) .returndatasize []] env s =
-    some ((env.set 26 (returndataSize o s.world)).set 27 (returndataSize o s.world),
-      { s with memory := s.memory.write 0 (returndataSize o s.world).toNat (fun i => returndataByte o s.world (0 + i)) }) := by
-  simp only [execInsts, Effect.apply, List.map_cons, List.map_nil, Operand.eval]
-  have h : (env.set 26 (returndataSize o s.world)) 26 = returndataSize o s.world := by
-    simp [Env.set]
-  simp only [h, returndataSize]
-  simp
-
 theorem g1 (o : Oracle) (σ : List (Nat × Nat)) (env : Env) :
     step o σ ([], .enter 6 0 1, env, S4 o σ) = some (.inl (halt
       { S4 o σ with memory := (M4 o σ).write 0 (returndataSize o (W o σ)).toNat (fun i => returndataByte o (W o σ) (0 + i)) } 0 (returndataSize o (W o σ)) true)) := by

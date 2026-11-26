@@ -158,37 +158,9 @@ kernel_thm f10b1 : fn10.blocks[1]? = some ⟨[],
          .pure 6 .shr [.const 224, .value 4]],
         .switch (.value 6) 10 [(.const 0x4f335d0a, 2), (.const 0x7464fc3d, 3), (.const 0xbc25cf77, 4), (.const 0xc45a0155, 5), (.const 0xcd3293de, 6), (.const 0xf740f328, 7), (.const 0xfc0c546a, 8), (.const 0xfff6cae9, 9)]⟩
 
-kernel_thm f10b2 : fn10.blocks[2]? = some ⟨[],
-        [],
-        .tailCall 6 []⟩
-
-kernel_thm f10b3 : fn10.blocks[3]? = some ⟨[],
-        [],
-        .tailCall 3 []⟩
-
 kernel_thm f10b4 : fn10.blocks[4]? = some ⟨[],
         [],
         .tailCall 5 []⟩
-
-kernel_thm f10b5 : fn10.blocks[5]? = some ⟨[],
-        [],
-        .tailCall 0 []⟩
-
-kernel_thm f10b6 : fn10.blocks[6]? = some ⟨[],
-        [],
-        .tailCall 2 []⟩
-
-kernel_thm f10b7 : fn10.blocks[7]? = some ⟨[],
-        [],
-        .tailCall 7 []⟩
-
-kernel_thm f10b8 : fn10.blocks[8]? = some ⟨[],
-        [],
-        .tailCall 1 []⟩
-
-kernel_thm f10b9 : fn10.blocks[9]? = some ⟨[],
-        [],
-        .tailCall 4 []⟩
 
 kernel_thm f10b10 : fn10.blocks[10]? = some ⟨[],
         [],

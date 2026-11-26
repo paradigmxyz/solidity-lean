@@ -134,10 +134,182 @@ theorem retWord_toNat (a : CallResponse) (h : 32 ≤ a.returnData.size) :
 theorem syncCall_eq (σ : List (Nat × Nat)) :
     Sync.syncCall σ = Evm.Wide.callAt 4294363881 [] σ := rfl
 
+/-- The storage a call from `σ` starts with: `σ` written over the constructor's (empty) storage. -/
+theorem load_deployed {fuel : Nat} {c : SolidCore.Solidity.TypeCheck.CheckedContract}
+    {d : SolidCore.Solidity.Source.State} (hd : Wide.DeployedAt fuel c d []) (σ : List (Nat × Nat))
+    (k : Nat) (hk : k < Generic.wordSize) :
+    ({ d with storage := σ.foldl (fun acc kv => acc.insertLoop kv.1 kv.2) d.storage } :
+      SolidCore.Solidity.Source.State).loadSlot k = slotValue σ k := by
+  have := getD_storage_cover hd (σ := σ) (by intro kv hkv; simp at hkv) k
+  simp only [State.loadSlot, StorageMap.lookup?]
+  rw [← this]
+  simp only [SolidCore.Solidity.Shared.norm, modulus_eq, Std.HashMap.get?_eq_getElem?]
+  cases (List.foldl (fun acc kv => acc.insertLoop kv.1 kv.2) d.storage σ)[k % Generic.wordSize]? <;> rfl
+
+/-- An address field holding `x` names another account than the contract's. -/
+theorem callee_ne_self {x : Nat} (h : x % 2 ^ 160 ≠ selfAddress) :
+    wordEq (SolidCore.Solidity.Shared.norm (fieldValue x 0 20)) selfAddress = false := by
+  simp only [wordEq, fieldValue, SolidCore.Solidity.Shared.norm]
+  simp
+  have h1 : x % 1461501637330902918203684832716283019655932542976 < Solidity.Shared.wordModulus :=
+    lt_of_lt_of_le (Nat.mod_lt _ (by decide)) (by decide)
+  rw [Nat.mod_eq_of_lt h1, Nat.mod_eq_of_lt (by decide : selfAddress < Solidity.Shared.wordModulus)]
+  exact h
+
+/-- The callee of a call of an address field holding `x`. -/
+theorem callee_word (x : Nat) :
+    addressToWord (wordToAddress (SolidCore.Solidity.Shared.norm (fieldValue x 0 20))) = x % 2 ^ 160 := by
+  simp [addressToWord, wordToAddress, wordToU256, fieldValue, EvmYul.AccountAddress.ofUInt256,
+    SolidCore.Solidity.Shared.norm]
+  have h1 : x % 1461501637330902918203684832716283019655932542976 < Solidity.Shared.wordModulus :=
+    lt_of_lt_of_le (Nat.mod_lt _ (by decide)) (by decide)
+  rw [Nat.mod_eq_of_lt h1]
+  simp [EvmYul.UInt256.ofNat, EvmYul.AccountAddress.size, Fin.ofNat, Id.run, EvmYul.UInt256.size]
+
+/-- **The world a first call sends**: `σ`'s storage, no transient storage, and `V`'s code. `X` is the
+state at the call, which still holds the deployed state with `σ` written. -/
+theorem sent_world {fuel : Nat} {c : SolidCore.Solidity.TypeCheck.CheckedContract}
+    {d : SolidCore.Solidity.Source.State} (hd : Wide.DeployedAt fuel c d []) (V : World)
+    (σ : List (Nat × Nat)) (ctx : Context) (hctxs : ctx.self = selfAddress)
+    (hacc : ctx.accountCodes = V.codes.getD []) (hcb : ctx.accountBalances = [])
+    (hch : ctx.accountCodehashes = []) (hkeys : ∀ p ∈ V.codes.getD [], p.1 < 2 ^ 160)
+    (hdt : d.transient.toList = []) (st0 : SolidCore.Solidity.Source.State)
+    (hst : ({ d with storage := σ.foldl (fun acc kv => acc.insertLoop kv.1 kv.2) d.storage } :
+      SolidCore.Solidity.Source.State) = st0)
+    (X : SolidCore.Solidity.Source.State) (world : SolidCore.Solidity.Shared.OpenWorld)
+    (hW : snapshotWorld ctx X = world) (hmut : X.worldMutatedSinceAdoption = true)
+    (hsto : X.storage = st0.storage) (htr : X.transient = d.transient) (henv : X.envWorld? = none) :
+    (∀ slot < 2 ^ 256, storageIn world slot = slotValue σ slot % 2 ^ 256) ∧
+      (∀ slot < 2 ^ 256, transientIn world slot = 0) ∧
+      ∀ x < 2 ^ 160, (codeIn world x).isEmpty =
+        (SolidCore.Solidity.Shared.Account.codeAt (V.codes.getD []) x).isEmpty := by
+  subst hW
+  refine ⟨fun slot hslot => ?_, fun slot hslot => ?_, fun x hx => ?_⟩
+  · have hl : st0.loadSlot slot = slotValue σ slot := by subst hst; exact load_deployed hd σ slot hslot
+    have hwf : StorageMap.WF X.storage := by
+      rw [hsto, ← hst]; exact wf_foldl σ _ (wf_of_toList_nil _ hd.storage)
+    unfold storageIn accountIn
+    rw [show wordToAddress selfAddress = wordToAddress ctx.self by rw [hctxs],
+      snapshotWorld_find_self ctx _ (Or.inr hmut)]
+    simp only [Option.getD_some, snapshotSelfAccount]
+    rw [lookup?_roundtrip _ hwf, hsto]
+    unfold State.loadSlot at hl
+    cases h : StorageMap.lookup? st0.storage slot with
+    | none => rw [h] at hl; simp [← hl]
+    | some v => rw [h] at hl; simp [← hl, SolidCore.Solidity.Shared.norm]; rfl
+  · unfold transientIn accountIn
+    rw [show wordToAddress selfAddress = wordToAddress ctx.self by rw [hctxs],
+      snapshotWorld_find_self ctx _ (Or.inr hmut)]
+    simp only [Option.getD_some, snapshotSelfAccount]
+    rw [lookup?_roundtrip _ (by rw [htr]; exact wf_of_toList_nil _ hdt), htr]
+    have hnone : StorageMap.lookup? d.transient slot = none := by
+      unfold StorageMap.lookup?
+      rw [Std.HashMap.get?_eq_getElem?]
+      cases h : d.transient[SolidCore.Solidity.Shared.norm slot]? with
+      | none => rfl
+      | some v =>
+        have := Std.HashMap.mem_toList_iff_getElem?_eq_some.mpr h
+        rw [hdt] at this; cases this
+    rw [hnone]; rfl
+  · rw [← hacc]
+    exact codeIn_snapshot ctx X henv hcb hch (by rw [hacc]; exact hkeys) (by rw [hctxs]; decide) x hx
+
+/-- A failed call's raw revert data are its return data. -/
+theorem revert_raw (c : SolidCore.Solidity.TypeCheck.CheckedContract) (a : CallResponse) :
+    ∀ out, ABI.Contract.encodeRevertData? c.core
+        (if (byteArrayToBytes a.returnData == []) = true then SolidCore.Solidity.Source.RevertData.empty
+          else SolidCore.Solidity.Source.RevertData.raw (byteArrayToBytes a.returnData)).untagFixedBytes = some out →
+      out = byteArrayToBytes a.returnData := by
+  intro out h
+  split at h
+  · rename_i he
+    simp only [beq_iff_eq] at he
+    simp only [RevertData.untagFixedBytes, ABI.Contract.encodeRevertData?, Option.some.injEq] at h
+    rw [← h, he]
+  · simp only [RevertData.untagFixedBytes, ABI.Contract.encodeRevertData?, Option.some.injEq] at h
+    rw [← h]
+    exact normByte_bytes a.returnData
+
 /-- The world hypothesis a static call needs: its answer keeps the caller's storage. -/
 def StaticKeeps (V : World) : Prop :=
   ∀ h world request a, V.ans h (.external world (.call request)) = some a →
     request.kind = .staticcall → ∀ slot, storageIn a.postWorld slot = storageIn world slot
+
+theorem eval_skip (n : Nat) (table : FunctionTable) (ctx : Context) (rt : Runtime) :
+    Stmt.eval (n + 1) table ctx rt .skip = pure (Result.normal rt) := by
+  rw [Stmt.eval]
+
+/-- Adopting the callee's world leaves the contract's slots as the world holds them. -/
+theorem adopt_load {ctx : Context} (hctxs : ctx.self = selfAddress) (w : SolidCore.Solidity.Shared.OpenWorld)
+    (X : SolidCore.Solidity.Source.State) (j : Nat) :
+    (adoptWorld w ctx X).loadSlot j = storageIn w j := by
+  simp only [adoptWorld, State.loadSlot, storageIn, accountIn, hctxs]
+  cases StorageMap.lookup? _ j <;> rfl
+
+/-- After a first static call, the callee's world still holds `σ`'s storage. -/
+theorem static_post {V : World} (hstatic : StaticKeeps V) {σ : List (Nat × Nat)}
+    {world : SolidCore.Solidity.Shared.OpenWorld} {request : CallRequest} {a : CallResponse}
+    (hans : V.ans [] (.external world (.call request)) = some a) (hkind : request.kind = .staticcall)
+    (hworld : ∀ slot < 2 ^ 256, storageIn world slot = slotValue σ slot % 2 ^ 256) :
+    ∀ j < 2 ^ 256, storageIn a.postWorld j = slotValue σ j := fun j hj => by
+  rw [hstatic _ _ _ _ hans hkind j, hworld j hj, Nat.mod_eq_of_lt (slotValue_lt σ j)]
+
+/-- **The relation after a first static call**: the runtime that adopted the callee's world, with
+no writes or logs yet, and locals `sc`. -/
+theorem static_rel {fuel : Nat} {c : SolidCore.Solidity.TypeCheck.CheckedContract}
+    {d : SolidCore.Solidity.Source.State} (hd : Wide.DeployedAt fuel c d []) {V : World}
+    (hstatic : StaticKeeps V) {σ : List (Nat × Nat)} {ctx : Context} (hctxs : ctx.self = selfAddress)
+    (hfields : ctx.storageFields = callsFields) (hchecked : ctx.checked = true)
+    (hsender : ctx.sender = (WExpr.lit SolidCore.Refinement.Generic.callerWord).eval ⟨[], slotValue σ, solHash, SolidCore.Refinement.Generic.callerWord⟩)
+    {world : SolidCore.Solidity.Shared.OpenWorld} {request : CallRequest} {a : CallResponse}
+    (hans : V.ans [] (.external world (.call request)) = some a) (hkind : request.kind = .staticcall)
+    (hworld : ∀ slot < 2 ^ 256, storageIn world slot = slotValue σ slot % 2 ^ 256)
+    (X : SolidCore.Solidity.Source.State) (rt : Runtime)
+    (hload : ∀ j, rt.state.loadSlot j = (adoptWorld a.postWorld ctx X).loadSlot j)
+    (hev : rt.state.events = d.events) (sc : Scopes)
+    (hframes : rt.locals = sc.map (frameOf ⟨[], slotValue σ, solHash, SolidCore.Refinement.Generic.callerWord⟩)) :
+    StmtRel ⟨[], slotValue σ, solHash, SolidCore.Refinement.Generic.callerWord⟩
+      { fields := callsFields, events := ctx.eventDecls, tbl := c.core.table } ctx rt
+      ⟨sc, [], [], .lit SolidCore.Refinement.Generic.callerWord⟩ :=
+  { fields := hfields
+    events := rfl
+    checked := hchecked
+    sender := hsender
+    hash := rfl
+    ok := slotValue_store σ
+    frames := hframes
+    store := fun j hj => by
+      rw [hload, adopt_load hctxs, static_post hstatic hans hkind hworld j hj]
+      rfl
+    logs := by rw [hev, hd.events]; rfl
+    facts := by intro p hp; cases hp }
+
+/-- The storage after one word write at slot `n`, as the symbolic writes give it. -/
+theorem store_write (call : SolarTV.Call) (rc n w : Nat) (hn : n < 2 ^ 256) (x : BitVec 256)
+    (hx : x.toNat = w) (slot : Nat) :
+    (Machine.update (Machine.State.initial call).storage (BitVec.ofNat 256 n) x
+        (BitVec.ofNat 256 slot)).toNat =
+      Writes.store ⟨[], slotValue call.storage, solHash, rc⟩
+        [(.lit n, writeField (.init n) (.lit w) 0 32)] slot := by
+  have hn' : n % 115792089237316195423570985008687907853269984665640564039457584007913129639936 = n :=
+    Nat.mod_eq_of_lt hn
+  have hw' : w % 115792089237316195423570985008687907853269984665640564039457584007913129639936 = w :=
+    Nat.mod_eq_of_lt (hx ▸ x.isLt)
+  simp only [Writes.store, Machine.update]
+  rw [writeField_eval _ _ _ (by decide) (by decide)]
+  by_cases h2 : slot % 115792089237316195423570985008687907853269984665640564039457584007913129639936 = n
+  · have hb : BitVec.ofNat 256 slot = BitVec.ofNat 256 n := by
+      apply BitVec.eq_of_toNat_eq; simp [h2, hn']
+    rw [if_pos hb, hx]
+    simp [WExpr.eval, Generic.wordSize, h2, fieldWrite, hw', hn']
+  · have hb : BitVec.ofNat 256 slot ≠ BitVec.ofNat 256 n := by
+      intro h; apply h2; have := congrArg BitVec.toNat h; simpa [hn'] using this
+    rw [if_neg hb]
+    have hne : ¬ ((WExpr.lit n).eval ⟨[], slotValue call.storage, solHash, rc⟩ = slot % Generic.wordSize) := by
+      intro h; apply h2; simpa [WExpr.eval, Generic.wordSize, hn'] using h.symm
+    rw [if_neg hne]
+    simp only [Machine.State.initial, BitVec.toNat_ofNat]
+    exact slotValue_store call.storage slot
 
 set_option maxHeartbeats 4000000 in
 theorem sync_source (k : Nat) (V : World) {c : SolidCore.Solidity.TypeCheck.CheckedContract}
@@ -188,27 +360,13 @@ theorem sync_source (k : Nat) (V : World) {c : SolidCore.Solidity.TypeCheck.Chec
   have hctxf : ctx.storageFields = callsFields := by subst hctx; exact hfields
   have hfx : AddrFieldOk ctx "token" tokenField :=
     ⟨by simp [Context.storageField?, hctxf, callsFields, tokenField], rfl, rfl, rfl, by decide, by decide⟩
-  have hload : ∀ k, k < Generic.wordSize → st0.loadSlot k = slotValue σ k := by
-    intro k hk
-    have := getD_storage_cover hd (σ := σ) (by intro kv hkv; simp at hkv) k
-    subst hst
-    simp only [State.loadSlot, StorageMap.lookup?]
-    rw [← this]
-    simp only [SolidCore.Solidity.Shared.norm, modulus_eq, Std.HashMap.get?_eq_getElem?]
-    cases (List.foldl (fun acc kv => acc.insertLoop kv.1 kv.2) d.storage σ)[k % Generic.wordSize]? <;> rfl
   have hT : (rt0.pushScope.pushScope.declareLocal "_sol_hoist_0" Ty.uint256.defaultValue).state.loadSlot tokenField.slot = slotValue σ 1 := by
-    subst hrt0; exact hload 1 (by decide)
+    subst hrt0 hst; exact load_deployed hd σ 1 (by decide)
   have ht := tok_eval ctx (rt0.pushScope.pushScope.declareLocal "_sol_hoist_0" Ty.uint256.defaultValue) hfx
     (by rw [hT]; exact hlt 1)
   rw [hT] at ht
   have hne : wordEq (SolidCore.Solidity.Shared.norm (fieldValue (slotValue σ 1) tokenField.packedOffset 20)) ctx.self = false := by
-    rw [hctxs]
-    simp only [wordEq, fieldValue, tokenField, SolidCore.Solidity.Shared.norm]
-    simp
-    have h1 : slotValue σ 1 % 1461501637330902918203684832716283019655932542976 < Solidity.Shared.wordModulus :=
-      lt_of_lt_of_le (Nat.mod_lt _ (by decide)) (by decide)
-    rw [Nat.mod_eq_of_lt h1, Nat.mod_eq_of_lt (by decide : selfAddress < Solidity.Shared.wordModulus)]
-    exact hself
+    rw [hctxs]; exact callee_ne_self hself
   rw [eval_tryCall (k + 2) _ ctx _ _ _ _ _ false _ _ _ _ ht rfl (word0_eval ctx _) rfl (enc_eval ctx _ hctxs) rfl hne] at hrun
   generalize hW : snapshotWorld ctx (rt0.pushScope.pushScope.declareLocal "_sol_hoist_0" Ty.uint256.defaultValue).state = world at hrun
   generalize hR : buildCallRequest ctx Solidity.Shared.Call.ExternalCallKind.staticcall
@@ -216,100 +374,28 @@ theorem sync_source (k : Nat) (V : World) {c : SolidCore.Solidity.TypeCheck.Chec
       (List.map normByte encSync) (Solidity.Shared.norm 0) none = request at hrun
   simp only [bind_request, map_request] at hrun
   rw [foldAns_request] at hrun
+  obtain ⟨hworld, htrans, hcodes⟩ := sent_world hd V σ ctx hctxs
+    (by subst hctx; show V.codes.getD c.core.context.accountCodes = V.codes.getD []; rw [hcc])
+    (by subst hctx; exact hcb) (by subst hctx; exact hch) hkeys hdt st0 hst _ world hW
+    (by subst hrt0; rfl) (by subst hrt0; rfl) (by subst hrt0 hst; rfl) (by subst hrt0 hst; exact hde)
   cases hans : V.ans [] (Query.external world (ExternalRequest.call request)) with
   | none => simp [hans] at hrun
   | some a =>
     simp only [hans] at hrun
-    have hworld : ∀ slot < 2 ^ 256, storageIn world slot = slotValue σ slot % 2 ^ 256 := by
-      intro slot hslot
-      have hmut : (rt0.pushScope.pushScope.declareLocal "_sol_hoist_0" Ty.uint256.defaultValue).state.worldMutatedSinceAdoption = true := by
-        subst hrt0; rfl
-      have hwf : StorageMap.WF (rt0.pushScope.pushScope.declareLocal "_sol_hoist_0" Ty.uint256.defaultValue).state.storage := by
-        subst hrt0 hst
-        exact wf_foldl σ _ (wf_of_toList_nil _ hd.storage)
-      have hl := hload slot hslot
-      have hsto : (rt0.pushScope.pushScope.declareLocal "_sol_hoist_0" Ty.uint256.defaultValue).state.storage = st0.storage := by
-        subst hrt0; rfl
-      subst hW
-      unfold storageIn accountIn
-      rw [show wordToAddress selfAddress = wordToAddress ctx.self by rw [hctxs],
-        snapshotWorld_find_self ctx _ (Or.inr hmut)]
-      simp only [Option.getD_some, snapshotSelfAccount]
-      rw [lookup?_roundtrip _ hwf, hsto]
-      unfold State.loadSlot at hl
-      cases h : StorageMap.lookup? st0.storage slot with
-      | none => rw [h] at hl; simp [← hl]
-      | some v => rw [h] at hl; simp [← hl, SolidCore.Solidity.Shared.norm]; rfl
-    refine ⟨world, request, a, ?_, ?_⟩
-    · refine ⟨hans, by subst hR; rfl, ?_, by subst hR; rfl, ?_, ?_, ?_, ?_, ?_⟩
-      · subst hR
-        simp [buildCallRequest, addressToWord, wordToAddress, wordToU256, fieldValue, tokenField,
-          EvmYul.AccountAddress.ofUInt256, SolidCore.Solidity.Shared.norm]
-        have h1 : slotValue σ 1 % 1461501637330902918203684832716283019655932542976 <
-            Solidity.Shared.wordModulus := lt_of_lt_of_le (Nat.mod_lt _ (by decide)) (by decide)
-        rw [Nat.mod_eq_of_lt h1]
-        simp [EvmYul.UInt256.ofNat, EvmYul.AccountAddress.size, Fin.ofNat, Id.run, EvmYul.UInt256.size]
-      · subst hR
-        show byteArrayToBytes (bytesToByteArray (List.map normByte encSync)) = List.map BitVec.toNat Sync.input
-        simp only [byteArrayToBytes, toList_eq_data, bytesToByteArray]
-        decide
-      · exact hworld
-      · intro slot hslot
-        have hmut : (rt0.pushScope.pushScope.declareLocal "_sol_hoist_0" Ty.uint256.defaultValue).state.worldMutatedSinceAdoption = true := by
-          subst hrt0; rfl
-        have htr : (rt0.pushScope.pushScope.declareLocal "_sol_hoist_0" Ty.uint256.defaultValue).state.transient = d.transient := by
-          subst hrt0 hst; rfl
-        subst hW
-        unfold transientIn accountIn
-        rw [show wordToAddress selfAddress = wordToAddress ctx.self by rw [hctxs],
-          snapshotWorld_find_self ctx _ (Or.inr hmut)]
-        simp only [Option.getD_some, snapshotSelfAccount]
-        rw [lookup?_roundtrip _ (by rw [htr]; exact wf_of_toList_nil _ hdt), htr]
-        have hnone : StorageMap.lookup? d.transient slot = none := by
-          unfold StorageMap.lookup?
-          rw [Std.HashMap.get?_eq_getElem?]
-          cases h : d.transient[SolidCore.Solidity.Shared.norm slot]? with
-          | none => rfl
-          | some v =>
-            have := Std.HashMap.mem_toList_iff_getElem?_eq_some.mpr h
-            rw [hdt] at this; cases this
-        rw [hnone]; rfl
-      · intro x hx
-        have hacc : ctx.accountCodes = V.codes.getD [] := by
-          subst hctx
-          show V.codes.getD c.core.context.accountCodes = V.codes.getD []
-          rw [hcc]
-        rw [← hacc]
-        subst hW
-        apply codeIn_snapshot
-        · subst hrt0 hst; exact hde
-        · subst hctx; exact hcb
-        · subst hctx; exact hch
-        · rw [hacc]; exact hkeys
-        · rw [hctxs]; decide
-        · exact hx
-      · exact hsize _ _ _ _ hans
+    refine ⟨world, request, a, ⟨hans, by subst hR; rfl, by subst hR; exact callee_word _, by subst hR; rfl,
+      ?_, hworld, htrans, hcodes, hsize _ _ _ _ hans⟩, ?_⟩
+    · subst hR
+      show byteArrayToBytes (bytesToByteArray (List.map normByte encSync)) = List.map BitVec.toNat Sync.input
+      simp only [byteArrayToBytes, toList_eq_data, bytesToByteArray]
+      decide
     · simp only [tryTail, decodeCallResponse] at hrun
       cases hs : a.success
       · simp only [hs, Bool.false_eq_true, ↓reduceIte, findMatch_nil] at hrun
         simp only [sbind_pure, map_pure', foldAns_pure, Result.mapRuntime, FunctionDef.callBodyResult,
           RevertData.fromRawBytes, normByte_bytes] at hrun
-        have hout : ∀ out, ABI.Contract.encodeRevertData? c.core
-            (if (byteArrayToBytes a.returnData == []) = true then SolidCore.Solidity.Source.RevertData.empty
-              else SolidCore.Solidity.Source.RevertData.raw (byteArrayToBytes a.returnData)).untagFixedBytes = some out →
-            out = byteArrayToBytes a.returnData := by
-          intro out h
-          split at h
-          · rename_i he
-            simp only [beq_iff_eq] at he
-            simp only [RevertData.untagFixedBytes, ABI.Contract.encodeRevertData?, Option.some.injEq] at h
-            rw [← h, he]
-          · simp only [RevertData.untagFixedBytes, ABI.Contract.encodeRevertData?, Option.some.injEq] at h
-            rw [← h]
-            exact normByte_bytes a.returnData
         simp only [Option.bind_eq_bind, Option.map_bind] at hrun
         obtain ⟨out, hout', hobs⟩ := Option.bind_eq_some_iff.mp hrun
-        rw [hout out hout'] at hobs
+        rw [revert_raw c a out hout'] at hobs
         simp only [Function.comp, Option.map_some, Option.some.injEq] at hobs
         rw [← hobs]
         simp only [Source.observe, Sync.obsOf, hs, Bool.false_eq_true, ↓reduceIte, byteArrayToBytes_eq]
@@ -344,32 +430,13 @@ theorem sync_source (k : Nat) (V : World) {c : SolidCore.Solidity.TypeCheck.Chec
           let E : EraseEnv := { fields := callsFields, events := ctx.eventDecls, tbl := c.core.table }
           let S1 : SymState := ⟨[[("__ext0", .lit w)], [("_sol_hoist_0", .lit 0)], [], []], [], [], .lit SolidCore.Refinement.Generic.callerWord⟩
           have hrel1 : StmtRel ρ E ctx ((({ state := adoptWorld a.postWorld ctx (rt0.pushScope.pushScope.declareLocal "_sol_hoist_0" Ty.uint256.defaultValue).state, locals := (rt0.pushScope.pushScope.declareLocal "_sol_hoist_0" Ty.uint256.defaultValue).locals, memory := (rt0.pushScope.pushScope.declareLocal "_sol_hoist_0" Ty.uint256.defaultValue).memory, nextMemory := (rt0.pushScope.pushScope.declareLocal "_sol_hoist_0" Ty.uint256.defaultValue).nextMemory, nextMemoryByte := (rt0.pushScope.pushScope.declareLocal "_sol_hoist_0" Ty.uint256.defaultValue).nextMemoryByte } : Runtime).recordExternalInteraction (ExternalInteraction.lowLevelCall { kind := Solidity.Shared.Call.ExternalCallKind.staticcall, target := Solidity.Shared.norm (fieldValue (slotValue σ 1) tokenField.packedOffset 20), calldata := List.map normByte encSync, value := Solidity.Shared.norm 0, success := true, output := byteArrayToBytes a.returnData })).withFrame [("__ext0", Value.word w)]) S1 :=
-            { fields := hctxf
-              events := rfl
-              checked := by subst hctx; rfl
-              sender := by subst hctx; rfl
-              hash := rfl
-              ok := slotValue_store σ
-              frames := by
+            static_rel hd hstatic hctxs hctxf (by subst hctx; rfl) (by subst hctx; rfl) hans (by subst hR; rfl)
+              hworld (rt0.pushScope.pushScope.declareLocal "_sol_hoist_0" Ty.uint256.defaultValue).state _
+              (fun _ => by rfl) (by subst hrt0 hst; rfl) _ (by
                 subst hrt0
                 simp [Runtime.withFrame, Runtime.recordExternalInteraction, Runtime.declareLocal,
                   Runtime.pushScope, frameOf, S1, WExpr.eval, Nat.mod_eq_of_lt hwlt]
-                simp [LocalEnv.declare, Ty.defaultValue]
-              store := by
-                intro j hj
-                show (adoptWorld a.postWorld ctx
-                  (rt0.pushScope.pushScope.declareLocal "_sol_hoist_0" Ty.uint256.defaultValue).state).loadSlot j = slotValue σ j
-                have hadopt : ∀ X, (adoptWorld a.postWorld ctx X).loadSlot j = storageIn a.postWorld j := by
-                  intro X
-                  simp only [adoptWorld, State.loadSlot, storageIn, accountIn, hctxs]
-                  cases StorageMap.lookup? _ j <;> rfl
-                rw [hadopt, hstatic _ _ _ _ hans (by subst hR; rfl) j, hworld j hj, Nat.mod_eq_of_lt (hlt j)]
-              logs := by
-                subst hrt0 hst
-                show List.map logOf d.events = List.map (Log.eval ρ) []
-                rw [hd.events]
-                rfl
-              facts := by intro p hp; cases hp }
+                simp [LocalEnv.declare, Ty.defaultValue])
           obtain ⟨r1, hr1, hl1⟩ := eval_stmt ρ E ctx (k + 2) (Stmt.assign (LValue.var "_sol_hoist_0")
             (Expr.castOp CastKind.uintCleanup 256 (Expr.var "__ext0"))) S1 _ rfl _ hrel1
           rw [hr1] at hrun
@@ -405,27 +472,7 @@ theorem sync_source (k : Nat) (V : World) {c : SolidCore.Solidity.TypeCheck.Chec
               congr 1
               funext slot
               rw [loadSlot_eq rt2.state S3.writes ρ (slotValue_store σ) hrel3.store slot]
-              have hv : (Sync.retWord a).toNat = w := by rw [retWord_toNat a hsz, hw]
-              simp only [S3, Writes.store, Machine.update, Machine.State.initial]
-              rw [writeField_eval ρ _ _ (by decide) (by decide)]
-              by_cases h2 : slot % 2 ^ 256 = 2
-              · have hb : BitVec.ofNat 256 slot = 2 := by
-                  apply BitVec.eq_of_toNat_eq; simpa using h2
-                rw [if_pos hb, hv]
-                have h2' : slot % 115792089237316195423570985008687907853269984665640564039457584007913129639936 = 2 := h2
-                simp [WExpr.eval, Generic.wordSize, h2', fieldWrite, Nat.mod_eq_of_lt hwlt]
-                exact hwlt
-              · have hb : BitVec.ofNat 256 slot ≠ 2 := by
-                  intro h; apply h2; have := congrArg BitVec.toNat h; simpa using this
-                rw [if_neg hb]
-                have h2' : ¬ slot % 115792089237316195423570985008687907853269984665640564039457584007913129639936 = 2 := h2
-                have hne : ¬ ((WExpr.lit 2).eval ρ = slot % Generic.wordSize) := by
-                  intro h; apply h2'; simpa [WExpr.eval, Generic.wordSize] using h.symm
-                rw [if_neg hne]
-                simp only [BitVec.toNat_ofNat]
-                show slotValue σ slot = _
-                rw [← slotValue_store σ slot]
-                rfl
+              exact (store_write (Sync.syncCall σ) _ 2 w (by decide) _ (by rw [retWord_toNat a hsz, hw]) slot).symm
             | _ => exact absurd hl2' id
           | _ => exact absurd hl1' id
 

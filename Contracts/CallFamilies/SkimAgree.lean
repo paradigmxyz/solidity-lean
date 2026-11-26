@@ -169,33 +169,9 @@ theorem sem_skim (o : Oracle) (σ : List (Nat × Nat)) (dst : Nat) (hd : dst < 2
 theorem answer1 (o : Oracle) (V : World) (σ : List (Nat × Nat))
     (world : SolidCore.Solidity.Shared.OpenWorld) (request : CallRequest) (a : CallResponse)
     (agree : CallsAgree o V) (hs : Sync.SyncAsk σ V world request a) :
-    CodesAgree o (Sync.W o σ ++ [.read "gas"]) (codeIn a.postWorld) := by
-  have hcalls : machineCalls (Sync.W o σ) =
-      sourceCalls ([] ++ [⟨.external world (.call request), a⟩]) := by
-    simp only [Sync.W, machineCalls, sourceCalls, List.nil_append, hs.kind, hs.callee, hs.value, hs.input,
-      machineKind, List.getD]
-    simp
-  have hstore : ∀ slot < 2 ^ 256,
-      ((State.initial (Sync.syncCall σ)).storage (BitVec.ofNat 256 slot)).toNat = storageIn world slot ∧
-        ((fun _ => (0 : BitVec 256)) (BitVec.ofNat 256 slot)).toNat = transientIn world slot := by
-    intro slot hslot
-    refine ⟨?_, ?_⟩
-    · rw [hs.storage slot hslot]
-      simp only [State.initial, BitVec.toNat_ofNat]
-      rw [Nat.mod_eq_of_lt hslot]
-      rfl
-    · rw [hs.transient slot hslot]; rfl
-  have hcodes : CodesAgree o (Sync.W o σ).dropLast (codeIn world) := by
-    intro x hx
-    rw [hs.codes x hx]
-    exact agree.codes [.read "gas"] rfl x hx
-  obtain ⟨-, -, hrest⟩ := agree.calls [] world request a hs.ans (Sync.W o σ) .staticcall _ _ _ _
-    rfl hcalls hstore hcodes
-  obtain ⟨-, -, hc⟩ := hrest [.read "gas"] rfl
-  intro x hx
-  rw [hc x hx]
-  rfl
-
+    CodesAgree o (Sync.W o σ ++ [.read "gas"]) (codeIn a.postWorld) :=
+  (Sync.static_answer o V σ (Sync.syncCall σ).calldata 1 Sync.input world request a agree hs.ans
+    hs.kind hs.callee hs.value hs.input hs.storage hs.transient hs.codes hs.size).2.2.2
 
 /-- The second call's agreement: pay's CALL of transfer, with the balance read as its history. -/
 theorem answer2 (o : Oracle) (V : World) (σ : List (Nat × Nat)) (dst : Nat) (hd : dst < 2 ^ 160)
@@ -313,32 +289,13 @@ theorem mir_skim_agree (o : Oracle) (V : World) (σ : List (Nat × Nat)) (dst : 
   obtain ⟨w1, r1, a1, hs1, hE, hL⟩ := h
   obtain ⟨hflag1, hsize1, hbytes1⟩ := Sync.answer o V σ w1 r1 a1 agree hs1
   have hlt := SolidCore.Refinement.Evm.Wide.slotValue_lt σ
-  have hf0 : callFlag o (Sync.W o σ) = 0#256 ↔ a1.success = false := by
-    constructor
-    · intro h0
-      cases hs : a1.success
-      · rfl
-      · have := hflag1.mpr hs; rw [h0] at this; exact absurd this (by decide)
-    · intro hf
-      rcases Sync.callFlag_cases o (Sync.W o σ) with h' | h'
-      · exact h'
-      · rw [hflag1.mp h'] at hf; cases hf
+  have hf0 : callFlag o (Sync.W o σ) = 0#256 ↔ a1.success = false := Sync.flag_zero hflag1
   have hsz1 : (o.env "returndatasize" (Sync.S4 o σ).world []).toNat = a1.returnData.size := hsize1
   have hlt1 : EvmRules.Evm.lt (o.env "returndatasize" (Sync.S4 o σ).world []) 32#256 = 0#256 ↔ ¬ a1.returnData.size < 32 := by
     rw [Sync.lt_word, hsz1]
     by_cases hc : a1.returnData.size < 32 <;> simp [hc]
-  have hload1 : 32 ≤ a1.returnData.size → (Sync.M4 o σ).load 0 = Sync.retWord a1 := by
-    intro hge
-    unfold Mem.load Mem.read Sync.retWord
-    congr 1
-    apply List.map_congr_left
-    intro i hi
-    rw [List.mem_range] at hi
-    have hmin : min 32 (returndataSize o (Sync.W o σ)).toNat = 32 := by rw [hsize1]; omega
-    rw [Sync.M4, Sync.bytes_write, hmin]
-    simp only [Nat.zero_le, Nat.zero_add, hi, and_self, if_true, Nat.sub_zero]
-    apply BitVec.eq_of_toNat_eq
-    rw [hbytes1 i (by omega), BitVec.toNat_ofNat, Nat.mod_eq_of_lt (UInt8.toNat_lt _)]
+  have hload1 : 32 ≤ a1.returnData.size → (Sync.M4 o σ).load 0 = Sync.retWord a1 :=
+    Sync.load_ret o _ _ a1 hsize1 hbytes1
   have hst2 : ((Sync.S4 o σ).storage 2#256).toNat = slotValue σ 2 := by
     show (BitVec.ofNat 256 (slotValue σ (2#256).toNat)).toNat = slotValue σ 2
     rw [BitVec.toNat_ofNat]; exact Nat.mod_eq_of_lt (hlt 2)
@@ -385,17 +342,8 @@ theorem mir_skim_agree (o : Oracle) (V : World) (σ : List (Nat × Nat)) (dst : 
   swap
   · have hf : a1.success = false := by simpa using hsucc
     rw [if_pos (hf0.mpr hf), hE (Or.inl hf)]
-    simp only [obsEarly, hsucc, if_false, failObs, halt, if_true, observe]
-    congr 1
-    rw [hsz1]
-    unfold Mem.read
-    rw [List.map_map]
-    apply List.map_congr_left
-    intro i hi
-    rw [List.mem_range] at hi
-    simp only [Function.comp, Sync.bytes_expand, Sync.bytes_write, Nat.zero_le, Nat.zero_add]
-    simp [hi]
-    exact hbytes1 i hi
+    simp only [obsEarly, hsucc, if_false, failObs]
+    exact Sync.obs_bubble o _ _ (Sync.S4 o σ) a1 hsize1 hbytes1
   have c1 : ¬ callFlag o (Sync.W o σ) = 0#256 := fun h0 => by rw [hf0.mp h0] at hsucc; cases hsucc
   rw [if_neg c1]
   by_cases hsmall : a1.returnData.size < 32

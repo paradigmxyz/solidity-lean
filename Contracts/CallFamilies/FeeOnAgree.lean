@@ -13,7 +13,7 @@ or a dirty address, else `true` with slot 3 set to 1 for a nonzero `feeTo`, or `
 namespace SolidCore.Refinement.CallFamilies.FeeOn
 
 open SolarTV SolarTV.Machine SolarTV.MIR.Lowered SolidCore.Refinement
-open SolidCore.Refinement.CallFamilies.Sync (retWord bytes_write bytes_expand lt_word callFlag_cases)
+open SolidCore.Refinement.CallFamilies.Sync (retWord bytes_expand lt_word flag_zero load_ret obs_bubble)
 open EvmCompiler.Simulation
 open SolidCore.Solidity.Source (addressToWord u256ToWord byteArrayToBytes)
 
@@ -54,31 +54,9 @@ theorem answer (o : Oracle) (V : World) (σ : List (Nat × Nat))
     ((callFlag o (W o σ) = 1) ↔ a.success = true) ∧
       (returndataSize o (W o σ)).toNat = a.returnData.size ∧
       ∀ j < a.returnData.size, (returndataByte o (W o σ) j).toNat = (a.returnData.get! j).toNat := by
-  have hcalls : machineCalls (W o σ) =
-      sourceCalls ([] ++ [⟨.external world (.call request), a⟩]) := by
-    simp only [W, machineCalls, sourceCalls, List.nil_append, hs.kind, hs.callee, hs.value, hs.input,
-      machineKind, List.getD]
-    simp
-  have hstore : ∀ slot < 2 ^ 256,
-      ((State.initial (feeOnCall σ)).storage (BitVec.ofNat 256 slot)).toNat = storageIn world slot ∧
-        ((fun _ => (0 : BitVec 256)) (BitVec.ofNat 256 slot)).toNat = transientIn world slot := by
-    intro slot hslot
-    refine ⟨?_, ?_⟩
-    · rw [hs.storage slot hslot]
-      simp only [State.initial, BitVec.toNat_ofNat]
-      rw [Nat.mod_eq_of_lt hslot]
-      rfl
-    · rw [hs.transient slot hslot]; rfl
-  have hcodes : CodesAgree o (W o σ).dropLast (codeIn world) := by
-    intro x hx
-    rw [hs.codes x hx]
-    exact agree.codes [.read "gas"] rfl x hx
-  obtain ⟨hflag, -, hrest⟩ := agree.calls [] world request a hs.ans (W o σ) .staticcall _ _ _ _
-    rfl hcalls hstore hcodes
-  obtain ⟨hsz, hby, -⟩ := hrest [] rfl
-  simp only [List.append_nil] at hsz hby
-  refine ⟨hflag, ?_, fun j hj => hby j hj (Nat.lt_trans hj hs.size)⟩
-  rw [hsz, Nat.mod_eq_of_lt hs.size]
+  obtain ⟨h1, h2, h3, -⟩ := Sync.static_answer o V σ (feeOnCall σ).calldata 0 input world request a agree
+    hs.ans hs.kind hs.callee hs.value hs.input hs.storage hs.transient hs.codes hs.size
+  exact ⟨h1, h2, h3⟩
 
 theorem gt_mask (v : BitVec 256) : EvmRules.Evm.gt v mask = if 2 ^ 160 ≤ v.toNat then 1 else 0 := by
   change (bif mask.ult v then (1 : BitVec 256) else 0) = _
@@ -115,56 +93,31 @@ theorem mir_feeOn_agree (o : Oracle) (V : World) (σ : List (Nat × Nat))
   congr 1
   unfold feeOnEnd obsOf
   by_cases hsucc : a.success = true
-  · have hf : callFlag o (W o σ) ≠ 0 := by
-      intro h; have := hflag.mpr hsucc; rw [h] at this; exact absurd this (by decide)
-    rw [if_neg hf, if_pos hsucc, lt_word, hsize]
-    by_cases hlt : a.returnData.size < 32
-    · have : ((if a.returnData.size < (32 : BitVec 256).toNat then (1 : BitVec 256) else 0) ≠ 0) := by
-        simp [hlt]
-      rw [if_pos this, if_pos hlt]
-      rfl
-    · have : ¬ ((if a.returnData.size < (32 : BitVec 256).toNat then (1 : BitVec 256) else 0) ≠ 0) := by
-        simp [hlt]
-      rw [if_neg this, if_neg hlt]
-      have hload : ret o σ = retWord a := by
-        unfold ret Mem.load Mem.read retWord
-        congr 1
-        apply List.map_congr_left
-        intro i hi
-        rw [List.mem_range] at hi
-        have hmin : min 32 (returndataSize o (W o σ)).toNat = 32 := by rw [hsize]; omega
-        rw [M4, bytes_write, hmin]
-        simp only [Nat.zero_le, Nat.zero_add, hi, and_self, if_true, Nat.sub_zero]
-        apply BitVec.eq_of_toNat_eq
-        rw [hbytes i (by omega), BitVec.toNat_ofNat, Nat.mod_eq_of_lt (UInt8.toNat_lt _)]
-      rw [hload, gt_mask, ne_zero]
-      by_cases hd : 2 ^ 160 ≤ (retWord a).toNat
-      · rw [if_pos hd, if_pos (by decide), if_pos hd]
-        rfl
-      · rw [if_neg hd, if_neg (by decide), if_neg hd]
-        by_cases hz : retWord a = 0
-        · rw [if_pos hz, if_pos rfl, if_pos hz]
-          simp only [halt, observe]
-          rfl
-        · rw [if_neg hz, if_neg (by decide), if_neg hz]
-          simp only [halt, observe]
-          rfl
-  · have hf : callFlag o (W o σ) = 0 := by
-      rcases callFlag_cases o (W o σ) with h | h
-      · exact h
-      · exact absurd (hflag.mp h) hsucc
-    rw [if_pos hf, if_neg hsucc]
-    simp only [halt, if_true, observe]
-    congr 1
-    rw [hsize]
-    unfold Mem.read
-    rw [List.map_map]
-    apply List.map_congr_left
-    intro i hi
-    rw [List.mem_range] at hi
-    simp only [Function.comp, bytes_expand, bytes_write, Nat.zero_le, Nat.zero_add]
-    simp [hi]
-    exact hbytes i hi
+  swap
+  · rw [if_pos ((flag_zero hflag).mpr (by simpa using hsucc)), if_neg hsucc]
+    exact obs_bubble o _ _ (S4 o σ) a hsize hbytes
+  have hf : callFlag o (W o σ) ≠ 0 := fun h => by simp [(flag_zero hflag).mp h] at hsucc
+  rw [if_neg hf, if_pos hsucc, lt_word, hsize]
+  by_cases hlt : a.returnData.size < 32
+  · have : ((if a.returnData.size < (32 : BitVec 256).toNat then (1 : BitVec 256) else 0) ≠ 0) := by
+      simp [hlt]
+    rw [if_pos this, if_pos hlt]
+    rfl
+  have : ¬ ((if a.returnData.size < (32 : BitVec 256).toNat then (1 : BitVec 256) else 0) ≠ 0) := by
+    simp [hlt]
+  rw [if_neg this, if_neg hlt, show ret o σ = retWord a from load_ret o _ _ a hsize hbytes (by omega),
+    gt_mask, ne_zero]
+  by_cases hd : 2 ^ 160 ≤ (retWord a).toNat
+  · rw [if_pos hd, if_pos (by decide), if_pos hd]
+    rfl
+  rw [if_neg hd, if_neg (by decide), if_neg hd]
+  by_cases hz : retWord a = 0
+  · rw [if_pos hz, if_pos rfl, if_pos hz]
+    simp only [halt, observe]
+    rfl
+  · rw [if_neg hz, if_neg (by decide), if_neg hz]
+    simp only [halt, observe]
+    rfl
 
 /-- info: 'SolidCore.Refinement.CallFamilies.FeeOn.mir_feeOn_agree' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs (whitespace := lax) in
