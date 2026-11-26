@@ -59,8 +59,6 @@ CREATE2 preimage (the init code's hash is shared by every pair). -/
 def inputs (H : Hash) (factory : Address) (init : ByteArray) (t0 t1 : Address) : List ByteArray :=
   [packed t0 t1, create2Preimage factory (saltOf H t0 t1) (H init)]
 
-theorem toList_data_mk (v : Array UInt8) : (ByteArray.mk v).data.toList = v.toList := rfl
-
 /-- The list of bytes of a CREATE2 preimage. -/
 theorem preimage_toList (sender : Address) (salt : U256) (h : Vector UInt8 32) :
     (create2Preimage sender salt h).data.toList =
@@ -107,17 +105,10 @@ theorem pairAddr_comm (H : Hash) (factory : Address) (init : ByteArray) {a b : A
     (hab : a.toU256 ≠ b.toU256) :
     pairAddr H factory init (sortTokens a b).1 (sortTokens a b).2 =
       pairAddr H factory init (sortTokens b a).1 (sortTokens b a).2 := by
-  unfold sortTokens
   have hne : a.toU256.toNat ≠ b.toU256.toNat := fun h => hab (BitVec.eq_of_toNat_eq h)
-  by_cases h1 : a.toU256 < b.toU256
-  · have h2 : ¬ b.toU256 < a.toU256 := by
-      rw [BitVec.lt_def] at h1 ⊢
-      omega
-    simp [h1, h2]
-  · have h2 : b.toU256 < a.toU256 := by
-      rw [BitVec.lt_def] at h1 ⊢
-      omega
-    simp [h1, h2]
+  unfold sortTokens
+  by_cases h1 : a.toU256 < b.toU256 <;> by_cases h2 : b.toU256 < a.toU256 <;> simp [h1, h2] <;>
+    rw [BitVec.lt_def] at * <;> omega
 
 /-- info: 'Contracts.UniswapV2.Factory.Create2.pair_inj' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs (whitespace := lax) in

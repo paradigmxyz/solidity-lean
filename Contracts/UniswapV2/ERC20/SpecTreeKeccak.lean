@@ -57,18 +57,8 @@ def keccakTable (bs : List Nat) : Nat :=
 theorem keccakWord_eq : keccakWord = keccakTable := by
   funext bs
   unfold keccakTable
-  by_cases h0 : bs = domainType
-  · rw [if_pos h0, h0]; exact hDomainType_eq
-  rw [if_neg h0]
-  by_cases h1 : bs = nameBytes
-  · rw [if_pos h1, h1]; exact hName_eq
-  rw [if_neg h1]
-  by_cases h2 : bs = versionBytes
-  · rw [if_pos h2, h2]; exact hVersion_eq
-  rw [if_neg h2]
-  by_cases h3 : bs = domainBytes
-  · rw [if_pos h3, h3]; exact hDomain_eq
-  rw [if_neg h3]
+  split_ifs <;> subst_vars
+  exacts [hDomainType_eq, hName_eq, hVersion_eq, hDomain_eq, rfl]
 
 /-- info: 'SolidCore.Spec.UniswapV2.ERC20.Keccak.keccakWord_eq' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
