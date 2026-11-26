@@ -186,11 +186,8 @@ theorem runFrame_of_spec {c : ByteArray} {message : Message fork} {st : State.Tr
     {within : GasMeter.gasHeld (startFrame message st ss g).gas ≤ bound} {result}
     (hr : runFrame (step fork) (step_decreases fork) bound runChild
         (startFrame message st ss g) within = result) :
-    ∃ after, result = .ok after ∧ after.running = false ∧ Q after := by
-  obtain ⟨after, h', hq⟩ := Spec.runFrame h (evm := startFrame message st ss g)
-    ⟨by simp [startFrame, hcode], by simp [startFrame, hcode], rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-      rfl, rfl, rfl, rfl⟩ within (runChild := runChild)
-  exact ⟨after, hr ▸ h', running_runFrame h', hq⟩
+    ∃ after, result = .ok after ∧ after.running = false ∧ Q after :=
+  runFrame_ok_of_spec hcode h hr
 
 /-- A message with no value, to code that is no precompile, whose frame reverts with empty
 output from every state: `processMessage` at Fusaka returns the revert with empty output. -/
@@ -201,23 +198,8 @@ theorem processMessage_reverts {c : ByteArray} (message : Message .fusaka)
     (st : State.TransactionState) (ss : Substate) :
     ∃ evm, processMessage (Meter := Nat) .fusaka message st ss = .ok evm ∧
       evm.1.error = some .revert ∧ evm.1.output = .empty := by
-  rw [processMessage]
-  have hss : startState .fusaka message st = st := by
-    simp [startState, show ¬ (Fork.fusaka < Fork.paris) by decide]
-  simp only [hss, hpre]
-  split
-  · rename_i htr; exact absurd htr.2 (by simp [hv])
-  simp only [pure, Except.pure, bind, Except.bind]
-  split
-  · rename_i e hr
-    obtain ⟨after, h', -⟩ := runFrame_of_spec hcode (h _ _) hr
-    cases h'
-  · rename_i after hr
-    obtain ⟨after', h', -, herr, hout⟩ := runFrame_of_spec hcode (h _ _) hr
-    cases h'
-    refine ⟨_, rfl, ?_, ?_⟩
-    · simp only [rollbackOnError]; split <;> simp [herr]
-    · simp only [rollbackOnError]; split <;> simp [hout]
+  obtain ⟨evm, _, hr, ⟨herr, hout⟩, he, ho, -⟩ := processMessage_ok_of_spec hcode hv hpre (h st ss)
+  exact ⟨evm, hr, he.trans herr, ho.trans hout⟩
 
 theorem precompileAddress_message (code : ByteArray) (c : Call) :
     precompileAddress .fusaka (Target.message code c) = none := by
@@ -315,12 +297,12 @@ macro_rules
       BitVec.reduceSignExtend]))
 
 /-- Runs one step of a symbolic run: closes an empty REVERT, or steps one opcode, taking or
-splitting a JUMPI. `ls` are the rules of the code, `ns` the facts about the message and
-`hf` the hypothesis that names the fork. -/
-syntax "symex_one" " [" simpLemma,* "]" " [" simpLemma,* "]" ident : tactic
+splitting a JUMPI, whose conditions the tactic `close` decides or refutes. `ls` are the rules
+of the code and `ns` the facts about the message. -/
+syntax "symex_one_by" " [" simpLemma,* "]" " [" simpLemma,* "]" " (" tactic ")" : tactic
 
 macro_rules
-  | `(tactic| symex_one [$ls,*] [$ns,*] $hf) => `(tactic| ((try unfold Spec) <;> first
+  | `(tactic| symex_one_by [$ls,*] [$ns,*] ($close)) => `(tactic| ((try unfold Spec) <;> first
       | (refine revert_empty (by decide) ?lt ?op
          case lt => evm_code [$ls,*]
          case op => evm_code [$ls,*])
@@ -344,20 +326,20 @@ macro_rules
           case lt => evm_code [$ls,*]
           case op => evm_code [$ls,*]
           case gas => evm_gas
-          case zero => symex_bv $hf) <;> evm_tidy)
+          case zero => $close:tactic) <;> evm_tidy)
       | ((refine' Triple.seq (jumpi_taken ?lt ?op ?gas ?nz ?dest) ?next
           case lt => evm_code [$ls,*]
           case op => evm_code [$ls,*]
           case gas => evm_gas
-          case nz => symex_bv $hf
+          case nz => $close:tactic
           case dest => evm_dest [$ls,*]) <;> evm_tidy)
       | ((refine jumpi_split ?lt ?op ?gas ?dest (fun _ => ?zero) (fun _ => ?taken)
           case lt => evm_code [$ls,*]
           case op => evm_code [$ls,*]
           case gas => evm_gas
           case dest => evm_dest [$ls,*]
-          case zero => try (exfalso; symex_bv $hf)
-          case taken => try (exfalso; symex_bv $hf)) <;> evm_tidy)
+          case zero => try (exfalso; $close:tactic)
+          case taken => try (exfalso; $close:tactic)) <;> evm_tidy)
       | ((refine' Triple.seq (mstore ?lt ?op ?gas) ?next
           case lt => evm_code [$ls,*]
           case op => evm_code [$ls,*]
@@ -370,6 +352,13 @@ macro_rules
             ↓reduceIte, Nat.reduceAdd, Nat.reduceDiv, Nat.reduceMul, Nat.reduceSub, Nat.reducePow,
             Nat.reduceLeDiff, Nat.reduceMod, Nat.reduceLT, Nat.reduceEqDiff]) <;> evm_tidy)
       | evm_step [$ls,*]) <;> (try symex_norm [$ns,*]))
+
+/-- `symex_one_by` with `symex_bv hf` deciding the branches, `hf` the hypothesis that names the
+fork. -/
+syntax "symex_one" " [" simpLemma,* "]" " [" simpLemma,* "]" ident : tactic
+
+macro_rules
+  | `(tactic| symex_one [$ls,*] [$ns,*] $hf) => `(tactic| symex_one_by [$ls,*] [$ns,*] (symex_bv $hf))
 
 /-- Proves the frame hypothesis of `dirty_of_frame` for a code: every path of the code on
 dirty call data reverts with empty output. `ls` are the rules that turn the code into numbers,

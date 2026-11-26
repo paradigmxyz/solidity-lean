@@ -1,6 +1,7 @@
 import SolidCore.Refinement.Statement
 import SolidCore.Refinement.Source.C1
 import SolidCore.Refinement.C1.Target
+import SolidCore.Refinement.Dirty.Source
 
 /-!
 # c1: solar's bytecode refines SolidCore's `Main`
@@ -77,29 +78,6 @@ theorem bytes_call (w : U256) :
   rw [← EthLib.Base.U256.toList_toBeBytes]
   rfl
 
-/-- A 256-bit word is already a SolidCore word. -/
-theorem norm_toNat (w : U256) : Shared.norm w.toNat = w.toNat := by
-  simp only [Shared.norm, Shared.wordModulus]
-  exact Nat.mod_eq_of_lt w.isLt
-
-open SolidCore.Solidity.Source in
-/-- SolidCore reads the 32 big-endian bytes of `w` back as `w`. -/
-theorem bytesToWordBE_natToBytes (w : U256) :
-    ABI.bytesToWordBE (ABI.normalizeBytes ((natToBytes 32 w.toNat).map (·.toNat))) = w.toNat := by
-  have small : w.toNat < 256 ^ 32 := by
-    have := w.isLt
-    rwa [show (2 : Nat) ^ 256 = 256 ^ 32 by decide] at this
-  have hnorm : Shared.norm w.toNat = w.toNat := norm_toNat w
-  have hbyte : ∀ b : UInt8, normByte (Shared.External.byte b.toNat) = b.toNat := by
-    intro b
-    have := b.toNat_lt
-    simp [normByte, Shared.Account.byte, Shared.External.byte, Nat.mod_eq_of_lt this]
-  unfold ABI.bytesToWordBE ABI.normalizeBytes Shared.External.normalizeBytes
-  rw [List.map_map, List.foldl_map]
-  simp only [Function.comp_def, hbyte]
-  change Shared.norm (bytesToNat (natToBytes 32 w.toNat)) = _
-  rw [EthLib.Base.bytesToNat_natToBytes_of_lt small, hnorm]
-
 open SolidCore.Solidity.Source in
 /-- A `uint256` parameter cleaned as `uint8` rejects every word from 256 up. -/
 theorem decode_dirty (fn : FunctionDef) (hp : fn.params.map BindingDecl.ty = [Source.Ty.uint256])
@@ -113,11 +91,12 @@ theorem decode_dirty (fn : FunctionDef) (hp : fn.params.map BindingDecl.ty = [So
     natToBytes_length, ABI.Ty.listAbiHeadWords?, ABI.Ty.abiHeadWords?, ABI.Ty.abiDecodeFuel,
     ABI.Ty.isDynamicAbi, ABI.Ty.staticAbiHeadWords?, ABI.wordBytes, bind, Except.bind, pure,
     Except.pure]
-  have hlt := norm_toNat w
+  have hlt := Dirty.norm_of_lt w.isLt
   have htake : List.take 32 ((natToBytes 32 w.toNat).map (·.toNat)) =
       (natToBytes 32 w.toNat).map (·.toNat) :=
     List.take_of_length_le (by simp [natToBytes_length])
-  simp [htake, bytesToWordBE_natToBytes, hlt, show ¬ w.toNat < 256 by omega]
+  simp [htake, Dirty.bytesToWordBE_natToBytes 32 w.toNat (by simpa using w.isLt) (by decide), hlt,
+    show ¬ w.toNat < 256 by omega]
 
 open SolidCore.Solidity.Source in
 /-- The ABI dispatcher sends every dirty word for `f` to the empty revert. -/

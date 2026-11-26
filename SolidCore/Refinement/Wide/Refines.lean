@@ -82,25 +82,6 @@ theorem run_eq {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.State}
   simp only [List.foldl_nil, TypeCheck.CheckedContract.callCalldataAtFromWithContext?,
     Dirty.bytes_calldata]
 
-/-- One theorem per function, on free argument words, gives the refinement on every call of
-every function on any argument words below `2 ^ 256`, from empty storage. -/
-theorem refines_of_calls {fuel : Nat} {c : TypeCheck.CheckedContract} {code : ByteArray}
-    {fns : List Abi.Fn}
-    (h : ∀ fn ∈ fns, ∀ ws : List U256, ws.length = fn.params.length →
-      ∃ obs, Source.run fuel c (callOf fn.sel ws) = some obs ∧
-        Target.run code (callOf fn.sel ws) = some obs) :
-    Refines fuel c code (Abi.fullScope fns []) := by
-  rintro _ ⟨fn, hfn, args, hlen, hargs, rfl⟩
-  have hws : (args.map (BitVec.ofNat 256)).map BitVec.toNat = args := by
-    rw [List.map_map]
-    conv_rhs => rw [← List.map_id args]
-    apply List.map_congr_left
-    intro a ha
-    simpa using hargs a ha
-  have := h fn hfn (args.map (BitVec.ofNat 256)) (by simpa using hlen)
-  simp only [callOf, hws] at this
-  exact this
-
 /-! ## Calls from the storage the constructor leaves
 
 A constructor that leaves storage `s` makes every call of `Abi.fullScope fns s` start from it:
@@ -192,5 +173,15 @@ theorem refines_of_calls_at {fuel : Nat} {c : TypeCheck.CheckedContract} {code :
   rintro _ ⟨fn, hfn, args, hlen, hargs, rfl⟩
   rw [callAt_of_args _ _ hargs]
   exact h fn hfn _ (by simpa using hlen)
+
+/-- One theorem per function, on free argument words, gives the refinement on every call of
+every function on any argument words below `2 ^ 256`, from empty storage. -/
+theorem refines_of_calls {fuel : Nat} {c : TypeCheck.CheckedContract} {code : ByteArray}
+    {fns : List Abi.Fn}
+    (h : ∀ fn ∈ fns, ∀ ws : List U256, ws.length = fn.params.length →
+      ∃ obs, Source.run fuel c (callOf fn.sel ws) = some obs ∧
+        Target.run code (callOf fn.sel ws) = some obs) :
+    Refines fuel c code (Abi.fullScope fns []) :=
+  refines_of_calls_at h
 
 end SolidCore.Refinement.Wide

@@ -58,15 +58,8 @@ theorem length_srcBytes (data : ByteArray) : (srcBytes data).length = data.size 
 
 /-- SolidCore reads big-endian bytes as EthLib does, modulo `2 ^ 256`. -/
 theorem bytesToWordBE_map (l : List UInt8) :
-    ABI.bytesToWordBE (ABI.normalizeBytes (l.map (·.toNat))) = bytesToNat l % 2 ^ 256 := by
-  have hbyte : ∀ b : UInt8, normByte (Shared.External.byte b.toNat) = b.toNat := by
-    intro b
-    have := b.toNat_lt
-    simp [normByte, Shared.Account.byte, Shared.External.byte, Nat.mod_eq_of_lt this]
-  unfold ABI.bytesToWordBE ABI.normalizeBytes Shared.External.normalizeBytes
-  rw [List.map_map, List.foldl_map]
-  simp only [Function.comp_def, hbyte]
-  rfl
+    ABI.bytesToWordBE (ABI.normalizeBytes (l.map (·.toNat))) = bytesToNat l % 2 ^ 256 :=
+  Dirty.bytesToWordBE_bytesToNat l
 
 theorem bufferRead_eq_take (data : ByteArray) (p n : Nat) (h : p + n ≤ data.size) :
     bufferRead data p n = (data.data.toList.drop p).take n := by
@@ -420,13 +413,8 @@ theorem bytes_callOn (sel : Nat) (data : ByteArray) :
   simp [Evm.selectorOf, srcBytes]
 
 theorem readSelector_append (sel : Nat) (hsel : sel < 2 ^ 32) (rest : List Nat) :
-    ABI.readSelector? ((natToBytes 4 sel).map (·.toNat) ++ rest) = some sel := by
-  have hlen : ((natToBytes 4 sel).map (·.toNat)).length = 4 := by simp [natToBytes_length]
-  simp only [ABI.readSelector?, ABI.readBytes?, ABI.selectorBytes, List.drop_zero,
-    List.length_append, hlen]
-  rw [ite_eq_left (by omega), List.take_append_of_le_length (by omega),
-    List.take_of_length_le (by omega)]
-  simp only [Dirty.bytesToWordBE_natToBytes 4 sel (by simpa using hsel) (by decide)]
+    ABI.readSelector? ((natToBytes 4 sel).map (·.toNat) ++ rest) = some sel :=
+  Dirty.readSelector_natToBytes sel hsel rest
 
 /-- SolidCore's run of a call of a function of the shape, from any storage, on malformed call
 data: the empty revert, which keeps the call's storage. -/
@@ -439,19 +427,7 @@ theorem run_malformed {fuel : Nat} {c : TypeCheck.CheckedContract} {s0 : List (N
   split at hshape
   case h_2 => simp at hshape
   rename_i f hf
-  unfold deployedStorage at hdep
-  dsimp only at hdep
-  split at hdep
-  case h_2 => simp at hdep
-  rename_i deployed st hcons
-  simp only [callOn, Source.run, Source.result?, hcons,
-    TypeCheck.CheckedContract.callCalldataAtFromWithContext?,
-    ABI.Contract.callCalldataAtFromWithContext?, bytes_callOn, readSelector_append _ hsel, hf]
-  rw [show ((natToBytes 4 fn.sel).map (·.toNat) ++ srcBytes data).drop ABI.selectorBytes =
-      srcBytes data by simp [ABI.selectorBytes, natToBytes_length],
-    decode_malformed f fn.params hshape data hm]
-  simp only [ABI.Contract.revertedCall?, ABI.Contract.encodeRevertData?, bind, Option.bind,
-    Option.map_some, Source.observe, rejected]
-  simp
+  exact Dirty.run_of_decode_empty hdep hsel hf (bytes_callOn _ _)
+    (decode_malformed f fn.params hshape data hm) σ
 
 end SolidCore.Refinement.Dyn

@@ -67,26 +67,14 @@ theorem tailPastEnd_iff {s : Nat} {data cd : ByteArray} (hd : cd = Evm.selectorO
             (loadWord cd (loadWord cd (4 + pos) 32 + 4#256).toNat 32).toNat * k) := by
   subst hd
   simp only [TailPastEnd, wordAt, loadWord_selectorOf_append]
-  generalize ho : loadWord data pos 32 = o
-  constructor
-  · rintro (h | h)
-    · exact Or.inl h
-    · by_cases hlt : data.size < o.toNat + 32
-      · exact Or.inl hlt
-      · refine Or.inr ⟨by omega, ?_⟩
-        have : (o + 4#256).toNat = 4 + o.toNat := by
-          rw [BitVec.toNat_add, BitVec.toNat_ofNat]
-          omega
-        rw [this, loadWord_selectorOf_append]
-        exact h
-  · rintro (h | ⟨h1, h2⟩)
-    · exact Or.inl h
-    · right
-      have : (o + 4#256).toNat = 4 + o.toNat := by
-        rw [BitVec.toNat_add, BitVec.toNat_ofNat]
-        omega
-      rw [this, loadWord_selectorOf_append] at h2
-      exact h2
+  generalize loadWord data pos 32 = o
+  by_cases hlt : data.size < o.toNat + 32
+  · simp [hlt]
+  · have : (o + 4#256).toNat = 4 + o.toNat := by
+      rw [BitVec.toNat_add, BitVec.toNat_ofNat]
+      omega
+    simp only [hlt, false_or, this, loadWord_selectorOf_append]
+    omega
 
 /-! ## Branch conditions -/
 
@@ -150,56 +138,7 @@ branches. -/
 syntax "dyn_one" " [" simpLemma,* "]" " [" simpLemma,* "]" ident : tactic
 
 macro_rules
-  | `(tactic| dyn_one [$ls,*] [$ns,*] $hf) => `(tactic| ((try unfold Spec) <;> first
-      | (refine revert_empty (by decide) ?lt ?op
-         case lt => evm_code [$ls,*]
-         case op => evm_code [$ls,*])
-      | ((refine' Triple.seq (push0 (by decide) ?lt ?op ?gas ?room) ?next
-          case lt => evm_code [$ls,*]
-          case op => evm_code [$ls,*]
-          case gas => evm_gas
-          case room => evm_room) <;> evm_tidy)
-      | ((refine' Triple.seq (jumpi_of_eq_zero ?lt ?op ?gas ?zero) ?next
-          case lt => evm_code [$ls,*]
-          case op => evm_code [$ls,*]
-          case gas => evm_gas
-          case zero => first | assumption | decide) <;> evm_tidy)
-      | ((refine' Triple.seq (jumpi_taken ?lt ?op ?gas ?nz ?dest) ?next
-          case lt => evm_code [$ls,*]
-          case op => evm_code [$ls,*]
-          case gas => evm_gas
-          case nz => first | assumption | decide
-          case dest => evm_dest [$ls,*]) <;> evm_tidy)
-      | ((refine' Triple.seq (jumpi_of_eq_zero ?lt ?op ?gas ?zero) ?next
-          case lt => evm_code [$ls,*]
-          case op => evm_code [$ls,*]
-          case gas => evm_gas
-          case zero => dyn_close $hf) <;> evm_tidy)
-      | ((refine' Triple.seq (jumpi_taken ?lt ?op ?gas ?nz ?dest) ?next
-          case lt => evm_code [$ls,*]
-          case op => evm_code [$ls,*]
-          case gas => evm_gas
-          case nz => dyn_close $hf
-          case dest => evm_dest [$ls,*]) <;> evm_tidy)
-      | ((refine jumpi_split ?lt ?op ?gas ?dest (fun _ => ?zero) (fun _ => ?taken)
-          case lt => evm_code [$ls,*]
-          case op => evm_code [$ls,*]
-          case gas => evm_gas
-          case dest => evm_dest [$ls,*]
-          case zero => try (exfalso; dyn_close $hf)
-          case taken => try (exfalso; dyn_close $hf)) <;> evm_tidy)
-      | ((refine' Triple.seq (mstore ?lt ?op ?gas) ?next
-          case lt => evm_code [$ls,*]
-          case op => evm_code [$ls,*]
-          case gas => simp only [extendMemory, memoryGasCost, wordCount, ceil32, MEMORY_PER_WORD,
-            WORD_BYTES, ByteArray.size_empty, size_memoryExtend, BitVec.reduceToNat, BitVec.reduceEq,
-            ↓reduceIte, Nat.reduceAdd, Nat.reduceDiv, Nat.reduceMul, Nat.reduceSub, Nat.reducePow,
-            Nat.reduceLeDiff, Nat.reduceMod, Nat.reduceLT, Nat.reduceEqDiff] <;> omega) <;>
-          (try simp only [extendMemory, memoryGasCost, wordCount, ceil32, MEMORY_PER_WORD,
-            WORD_BYTES, ByteArray.size_empty, size_memoryExtend, BitVec.reduceToNat, BitVec.reduceEq,
-            ↓reduceIte, Nat.reduceAdd, Nat.reduceDiv, Nat.reduceMul, Nat.reduceSub, Nat.reducePow,
-            Nat.reduceLeDiff, Nat.reduceMod, Nat.reduceLT, Nat.reduceEqDiff]) <;> evm_tidy)
-      | evm_step [$ls,*]) <;> (try symex_norm [$ns,*]))
+  | `(tactic| dyn_one [$ls,*] [$ns,*] $hf) => `(tactic| symex_one_by [$ls,*] [$ns,*] (dyn_close $hf))
 
 /-- Proves the frame hypothesis of `malformed_of_frame` for a code: every path of the code
 on malformed call data reverts with empty output. `ls` are the rules that turn the code into

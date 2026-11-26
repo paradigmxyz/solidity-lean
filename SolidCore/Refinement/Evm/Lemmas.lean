@@ -1,12 +1,14 @@
 import EthLib.Execution.Proofs.Evm.Logic.Steps
 import EthLib.Execution.Proofs.Evm.Logic.Symbolic
+import EthLib.Execution.Evm.Call.MessageCall
 
 /-!
 # EVM lemmas for the refinement proofs
 
 Rules about EthLib's EVM that the bytecode proofs use and EthLib does not have
-yet: PUSH0 as a Hoare triple, and how CALLDATALOAD and SHR read a selector and
-an argument word out of call data.
+yet: PUSH0 as a Hoare triple, how CALLDATALOAD and SHR read a selector and
+an argument word out of call data, and `processMessage_ok_of_spec`, which turns a frame
+specification of a message with no value into the result of `processMessage` at Fusaka.
 -/
 
 open EthLib.Base EthLib.Execution EthLib.Execution.Evm EthLib.Execution.Evm.Logic GasCosts
@@ -40,6 +42,57 @@ theorem push0 (hfork : .shapella ≤ fork) (hlt : pc < code.size) (hbyte : code[
     Hoare fork (At code message pc stack memory gas state substate returnData)
       (At code message (pc + 1) (0 :: stack) memory (gas - 2) state substate returnData) :=
   (push0GA hfork hlt hbyte hgas hstack).toG.toHoare
+
+/-! ## From a frame specification to `processMessage` -/
+
+/-- A specification of the frame at pc 0 gives the result of the interpreter loop, from any
+equation for the run. -/
+theorem runFrame_ok_of_spec {c : ByteArray} {message : Message fork}
+    {st : State.TransactionState} {ss : Substate} {g : Nat} {Q : Evm fork Nat → Prop}
+    (hcode : message.code = c) (h : Spec fork (At c message 0 [] .empty g st ss .empty) Q)
+    {bound : Nat} {runChild : MessageRunner fork Nat bound}
+    {within : GasMeter.gasHeld (startFrame message st ss g).gas ≤ bound} {result}
+    (hr : runFrame (step fork) (step_decreases fork) bound runChild
+        (startFrame message st ss g) within = result) :
+    ∃ after, result = .ok after ∧ after.running = false ∧ Q after := by
+  obtain ⟨after, h', hq⟩ := Spec.runFrame h (evm := startFrame message st ss g)
+    ⟨by simp [startFrame, hcode], by simp [startFrame, hcode], rfl, rfl, rfl, rfl, rfl, rfl, rfl,
+      rfl, rfl, rfl, rfl⟩ within (runChild := runChild)
+  exact ⟨after, hr ▸ h', running_runFrame h', hq⟩
+
+/-- A specification of the frame of a message with no value, to code that is no precompile,
+gives `processMessage` at Fusaka: it ends as a frame `after` that meets the specification,
+with its error, output and substate, and with its state when it succeeds (a failed call is
+rolled back). -/
+theorem processMessage_ok_of_spec {c : ByteArray} {message : Message .fusaka}
+    (hcode : message.code = c) (hv : message.value = 0)
+    (hpre : precompileAddress .fusaka message = none) {st : State.TransactionState}
+    {ss : Substate} {Q : Evm .fusaka Nat → Prop}
+    (h : Spec .fusaka (At c message 0 [] .empty message.gas st ss .empty) Q) :
+    ∃ evm after, processMessage (Meter := Nat) .fusaka message st ss = .ok evm ∧ Q after ∧
+      evm.1.error = after.error ∧ evm.1.output = after.output ∧
+      evm.1.substate = after.substate ∧ (after.error = none → evm.1.state = after.state) := by
+  rw [processMessage]
+  have hss : startState .fusaka message st = st := by
+    simp [startState, show ¬ (Fork.fusaka < Fork.paris) by decide]
+  simp only [hss, hpre]
+  split
+  · rename_i htr; exact absurd htr.2 (by simp [hv])
+  simp only [pure, Except.pure, bind, Except.bind]
+  split
+  · rename_i e hr
+    simp only [hv, ne_eq, not_true_eq_false, and_false, ite_false] at hr
+    obtain ⟨after, h', -⟩ := runFrame_ok_of_spec hcode h hr
+    cases h'
+  · rename_i after hr
+    simp only [hv, ne_eq, not_true_eq_false, and_false, ite_false] at hr
+    obtain ⟨after', h', -, hq⟩ := runFrame_ok_of_spec hcode h hr
+    cases h'
+    refine ⟨_, after, rfl, hq, ?_, ?_, ?_, fun hE => ?_⟩ <;> simp only [rollbackOnError]
+    · split <;> rfl
+    · split <;> rfl
+    · split <;> rfl
+    · simp [hE]
 
 end SolidCore.Refinement.Evm.Logic
 

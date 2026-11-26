@@ -187,5 +187,11 @@ def Refines (fuel : Nat) (contract : SolidCore.Solidity.TypeCheck.CheckedContrac
   ∀ call, scope call →
     ∃ obs, Source.run fuel contract call = some obs ∧ Target.run code call = some obs
 
+/-- A pair appended to a storage list wins for its slot. -/
+theorem slotValue_append_pair (σ : List (Nat × Nat)) (k v slot : Nat) :
+    slotValue (σ ++ [(k, v)]) slot =
+      if k % 2 ^ 256 = slot % 2 ^ 256 then v % 2 ^ 256 else slotValue σ slot := by
+  simp [slotValue, List.foldl_append]
+
 end SolidCore.Refinement
 

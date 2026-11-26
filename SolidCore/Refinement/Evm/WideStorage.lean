@@ -63,68 +63,11 @@ theorem processMessage_postS {c : ByteArray} (message : Message .fusaka)
       (X.success = true → evm.1.substate.logs = ss.logs ∧ ∀ slot,
         (evm.1.state.getStorage (Target.address selfAddress) (Target.storageKey slot)).toNat =
           X.storage slot) := by
-  rw [processMessage]
-  have hss : startState .fusaka message st = st := by
-    simp [startState, show ¬ (Fork.fusaka < Fork.paris) by decide]
-  simp only [hss, hpre]
-  split
-  · rename_i htr; exact absurd htr.2 (by simp [hv])
-  simp only [pure, Except.pure, bind, Except.bind]
-  split
-  · rename_i e hr
-    simp only [hv, ne_eq, not_true_eq_false, and_false, ite_false] at hr
-    obtain ⟨after, h', -⟩ := runFrame_of_spec hcode h hr
-    cases h'
-  · rename_i after hr
-    simp only [hv, ne_eq, not_true_eq_false, and_false, ite_false] at hr
-    obtain ⟨after', h', -, herr, hout, hlogs, hst⟩ := runFrame_of_spec hcode h hr
-    cases h'
-    refine ⟨_, rfl, ?_, ?_, ?_⟩
-    · simp only [rollbackOnError]; split <;> simp [herr]
-    · simp only [rollbackOnError]; split <;> exact hout
-    · intro hX
-      have hE : errorOf X = none := by simp [errorOf, hX]
-      simp only [rollbackOnError, herr, hE, Option.isSome_none, Bool.false_eq_true, ↓reduceIte]
-      exact ⟨hlogs, hst hX⟩
-
-/-- The frame of every message of the call, from the call's state before it, stops as `PostS X`
-says: `Target.run` of the call is `X`, when `X` shows no logs and keeps the empty storage when it
-fails. -/
-theorem run_of_postS (code : ByteArray) (s : Nat) (ws : List U256) (X : Observable)
-    (hlogs : X.logs = []) (hfail : X.success = false → ∀ slot, X.storage slot = 0)
-    (h : ∀ msg : Message .fusaka, msg.value = 0 → msg.data = cdOf (selectorOf s) ws →
-      msg.isStatic = false → msg.currentTarget = Target.address selfAddress →
-      Spec .fusaka (At code msg 0 [] .empty 10000000 (Target.preState code (callOf s ws))
-        Substate.empty .empty) (PostS X Substate.empty)) :
-    Target.run code (callOf s ws) = some X := by
-  have hd : Abi.calldata s (ws.map BitVec.toNat) = cdOf (selectorOf s) ws := by
-    rw [calldata_eq_cdOf s _ (by simpa using fun a _ => a.isLt)]
-    simp [List.map_map, Function.comp_def]
-  let c := callOf s ws
-  obtain ⟨evm, hr, herr, hout, hst⟩ := processMessage_postS (Target.message code c) rfl rfl
-    (precompileAddress_message code c) X (Target.preState code c) Substate.empty
-    (h _ rfl (by simp [Target.message, c, callOf, hd]) rfl rfl)
-  show Target.run code c = some X
-  simp only [Target.run, hr]
-  have hsucc : evm.1.error.isNone = X.success := by
-    rw [herr]; cases hX : X.success <;> simp [errorOf, hX]
-  congr 1
-  cases X with
-  | mk success output logs storage =>
-    simp only at hsucc hout hlogs hfail hst ⊢
-    subst hlogs
-    rw [Observable.mk.injEq]
-    refine ⟨hsucc, hout, ?_, ?_⟩
-    · rw [hsucc]
-      cases hs : success
-      · rfl
-      · simp [(hst hs).1, Substate.empty]
-    · funext slot
-      rw [hsucc]
-      cases hs : success
-      · simp [slotValue, c, callOf, hfail hs slot]
-      · simp only [ite_true]
-        exact (hst hs).2 slot
+  obtain ⟨evm, _, hr, ⟨herr, hout, hlogs, hst⟩, he, ho, hs, hst'⟩ :=
+    processMessage_ok_of_spec hcode hv hpre h
+  refine ⟨evm, hr, he.trans herr, by rw [ho]; exact hout, fun hX => ⟨by rw [hs, hlogs], fun slot => ?_⟩⟩
+  rw [hst' (by rw [herr]; simp [errorOf, hX])]
+  exact hst hX slot
 
 /-- SSTORE at Fusaka costs at most a cold access and a new slot. -/
 theorem sstoreCost_le (o c n : U256) (cold : Bool) : sstoreCost .fusaka o c n cold ≤ 22100 := by
@@ -151,27 +94,6 @@ theorem account_preState (code : ByteArray) (c : Call) :
   rw [Std.ExtTreeMap.getElem?_insert, ite_eq_right (by decide +kernel), Std.ExtTreeMap.getElem?_insert,
     ite_eq_left (by decide +kernel)]
   simp
-
-/-- The storage after one write to the account of the call, from the empty storage of a call
-with no initial storage: the written word at its key, zero elsewhere. -/
-theorem getStorage_writeOf (code : ByteArray) (c : Call) (hst : c.storage = []) (a : Address)
-    (k : Bytes32) (v : U256) (a' : Address) (k' : Bytes32) :
-    (writeOf ((Target.preState code c).recordStorageRead a k) a k v).getStorage a' k' =
-      if a' = a ∧ k' = k then v else 0 := by
-  simp only [writeOf, TransactionState.getStorage, TransactionState.recordAccountRead,
-    TransactionState.recordStorageRead, Target.preState, hst, List.foldl_nil,
-    TransactionState.ofBlock, StorageMap.slot]
-  by_cases ha : a' = a
-  · subst ha
-    by_cases hk : k' = k
-    · subst hk; simp
-    · simp [hk, Std.ExtTreeMap.getElem?_insert, State.getStorage, StorageMap.slot]
-      simp only [show (k = k') = False from eq_false (fun h => hk h.symm), ite_false]
-      by_cases h : Target.address selfAddress = a' <;> simp [h]
-  · simp [ha, Std.ExtTreeMap.getElem?_insert, State.getStorage, StorageMap.slot]
-    simp only [show (a = a') = False from eq_false (fun h => ha h.symm), ite_false,
-      Option.bind_none]
-    by_cases h : Target.address selfAddress = a' <;> simp [h]
 
 /-- The storage key of a slot is the key of a word when the slot is the word modulo 2^256. -/
 theorem storageKey_eq_toBeBytes (slot : Nat) (key : U256) :
@@ -285,19 +207,13 @@ theorem getD_foldl_insert (σ : List (Nat × Nat)) (m : Std.ExtTreeMap Bytes32 E
 
 /-- A slot of a call's storage is a word. -/
 theorem slotValue_lt (σ : List (Nat × Nat)) (k : Nat) : slotValue σ k < 2 ^ 256 := by
-  unfold slotValue
-  suffices h : ∀ b < 2 ^ 256, σ.foldl
-      (fun acc kv => if kv.1 % 2 ^ 256 = k % 2 ^ 256 then kv.2 % 2 ^ 256 else acc) b < 2 ^ 256 from
-    h 0 (by decide)
-  induction σ with
-  | nil => exact fun b hb => hb
-  | cons kv σ ih =>
-    intro b hb
-    simp only [List.foldl_cons]
-    apply ih
+  induction σ using List.reverseRecOn with
+  | nil => exact Nat.two_pow_pos _
+  | append_singleton σ kv ih =>
+    rw [slotValue_append_pair]
     split
-    · exact Nat.mod_lt _ (by decide)
-    · exact hb
+    · exact Nat.mod_lt _ (Nat.two_pow_pos _)
+    · exact ih
 
 /-- A slot of a call's storage depends on the slot modulo 2^256 only. -/
 theorem slotValue_mod (σ : List (Nat × Nat)) (k : Nat) : slotValue σ (k % 2 ^ 256) = slotValue σ k := by
@@ -327,31 +243,16 @@ theorem run_of_post_at (code : ByteArray) (s : Nat) (ws : List U256) (σ : List 
     Target.run code
       { calldata := Abi.calldata s (ws.map BitVec.toNat), callvalue := 0, storage := σ } =
         some X := by
-  have hd : Abi.calldata s (ws.map BitVec.toNat) = cdOf (selectorOf s) ws := by
-    rw [calldata_eq_cdOf s _ (by simpa using fun a _ => a.isLt)]
-    simp [List.map_map, Function.comp_def]
   let c : Call := { calldata := Abi.calldata s (ws.map BitVec.toNat), callvalue := 0, storage := σ }
   obtain ⟨evm, hr, herr, hout, hsub, hst⟩ := processMessage_post (Target.message code c) rfl rfl
     (precompileAddress_message code c) X
-    (fun st ss => h _ rfl (by simp [Target.message, c, hd]) st ss) (Target.preState code c)
+    (h _ rfl (by simp [Target.message, c, calldata_eq_cdOf_words])) (Target.preState code c)
     Substate.empty
-  show Target.run code c = some X
-  simp only [Target.run, hr]
-  have hsucc : evm.1.error.isNone = X.success := by
-    rw [herr]; cases hX : X.success <;> simp [errorOf, hX]
-  congr 1
-  cases X with
-  | mk success output logs storage =>
-    simp only at hsucc hout hlogs hstore hst ⊢
-    subst hlogs
-    rw [Observable.mk.injEq]
-    refine ⟨hsucc, hout, by simp [hsub, Substate.empty], ?_⟩
-    funext slot
-    rw [hstore slot, hsucc]
-    cases hs : success
-    · simp [c]
-    · simp only [ite_true]
-      rw [hst hs, getStorage_preState code c slot]
+  refine run_eq_of_processMessage hr herr hout hlogs (fun _ => by rw [hsub]) fun slot => ?_
+  rw [hstore slot]
+  split
+  · rw [hst ‹_›, getStorage_preState code c slot]
+  · rfl
 
 /-! ## Calls from a given storage
 
@@ -420,6 +321,19 @@ theorem getStorage_writeOf_of (tx : TransactionState) (a : Address) (k : Bytes32
   · simp only [h, ↓reduceIte]
     rfl
 
+/-- The storage after one write to the account of the call, from the empty storage of a call
+with no initial storage: the written word at its key, zero elsewhere. -/
+theorem getStorage_writeOf (code : ByteArray) (c : Call) (hst : c.storage = []) (a : Address)
+    (k : Bytes32) (v : U256) (a' : Address) (k' : Bytes32) :
+    (writeOf ((Target.preState code c).recordStorageRead a k) a k v).getStorage a' k' =
+      if a' = a ∧ k' = k then v else 0 := by
+  rw [getStorage_writeOf_of, getStorage_recordStorageRead]
+  split
+  · rfl
+  · simp only [Target.preState, hst, List.foldl_nil, TransactionState.getStorage,
+      TransactionState.ofBlock, StorageMap.slot, State.getStorage]
+    by_cases h : Target.address selfAddress = a' <;> simp [h]
+
 /-- The frame of every message of the call from the storage `σ`, from the call's state before
 it, stops as `PostS X` says: `Target.run` of the call is `X`, when `X` shows no logs and keeps
 the words of `σ` when it fails. -/
@@ -431,34 +345,25 @@ theorem run_of_postS_at (code : ByteArray) (s : Nat) (ws : List U256) (σ : List
       Spec .fusaka (At code msg 0 [] .empty 10000000 (Target.preState code (callAt s ws σ))
         Substate.empty .empty) (PostS X Substate.empty)) :
     Target.run code (callAt s ws σ) = some X := by
-  have hd : Abi.calldata s (ws.map BitVec.toNat) = cdOf (selectorOf s) ws := by
-    rw [calldata_eq_cdOf s _ (by simpa using fun a _ => a.isLt)]
-    simp [List.map_map, Function.comp_def]
-  let c := callAt s ws σ
-  obtain ⟨evm, hr, herr, hout, hst⟩ := processMessage_postS (Target.message code c) rfl rfl
-    (precompileAddress_message code c) X (Target.preState code c) Substate.empty
-    (h _ rfl (by simp [Target.message, c, callAt, hd]) rfl rfl)
-  show Target.run code c = some X
-  simp only [Target.run, hr]
-  have hsucc : evm.1.error.isNone = X.success := by
-    rw [herr]; cases hX : X.success <;> simp [errorOf, hX]
-  congr 1
-  cases X with
-  | mk success output logs storage =>
-    simp only at hsucc hout hlogs hfail hst ⊢
-    subst hlogs
-    rw [Observable.mk.injEq]
-    refine ⟨hsucc, hout, ?_, ?_⟩
-    · rw [hsucc]
-      cases hs : success
-      · rfl
-      · simp [(hst hs).1, Substate.empty]
-    · funext slot
-      rw [hsucc]
-      cases hs : success
-      · simp [c, callAt, hfail hs slot]
-      · simp only [ite_true]
-        exact (hst hs).2 slot
+  obtain ⟨evm, hr, herr, hout, hst⟩ := processMessage_postS (Target.message code (callAt s ws σ))
+    rfl rfl (precompileAddress_message code _) X (Target.preState code (callAt s ws σ))
+    Substate.empty (h _ rfl (by simp [Target.message, callAt, calldata_eq_cdOf_words]) rfl rfl)
+  refine run_eq_of_processMessage hr herr hout hlogs (fun hs => (hst hs).1) fun slot => ?_
+  cases hs : X.success
+  · simp [hfail hs slot, callAt]
+  · exact ((hst hs).2 slot).symm
+
+/-- The frame of every message of the call, from the call's state before it, stops as `PostS X`
+says: `Target.run` of the call is `X`, when `X` shows no logs and keeps the empty storage when it
+fails. -/
+theorem run_of_postS (code : ByteArray) (s : Nat) (ws : List U256) (X : Observable)
+    (hlogs : X.logs = []) (hfail : X.success = false → ∀ slot, X.storage slot = 0)
+    (h : ∀ msg : Message .fusaka, msg.value = 0 → msg.data = cdOf (selectorOf s) ws →
+      msg.isStatic = false → msg.currentTarget = Target.address selfAddress →
+      Spec .fusaka (At code msg 0 [] .empty 10000000 (Target.preState code (callOf s ws))
+        Substate.empty .empty) (PostS X Substate.empty)) :
+    Target.run code (callOf s ws) = some X :=
+  run_of_postS_at code s ws [] X hlogs (fun hs slot => by simp [hfail hs slot, slotValue]) h
 
 /-- SLOAD of a slot of the callee, as a step of a specification: it reads the word of the state,
 at a price of at most a cold access. -/

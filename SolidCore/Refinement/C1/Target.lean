@@ -198,37 +198,6 @@ theorem frame_spec (hf : Fork.shapella ≤ fork) (w : U256) (message : Message f
     · rw [hout, spec_dirty (by omega)]
       decide +kernel
 
-/-- The interpreter loop, from the frame that `processMessage` starts, ends as the spec says. -/
-theorem runFrame_spec (hf : Fork.shapella ≤ fork) (w : U256) (message : Message fork)
-    (hcode : message.code = code) (hv : message.value = 0) (hd : message.data = cd w)
-    (st : State.TransactionState) (ss : Substate) (g : Nat) (hg : g = 10000000) {bound : Nat}
-    {runChild : MessageRunner fork Nat bound}
-    (within : GasMeter.gasHeld (startFrame message st ss g).gas ≤ bound) :
-    ∃ after, runFrame (step fork) (step_decreases fork) bound runChild
-        (startFrame message st ss g) within = .ok after ∧
-      after.running = false ∧ after.error = (spec w).1 ∧ after.output = (spec w).2 ∧
-      after.state = st ∧ after.substate = ss := by
-  obtain ⟨after, h, herr, hout, hs, hss⟩ := Spec.runFrame (frame_spec hf w message hv hd st ss)
-    (evm := startFrame message st ss g)
-    ⟨by simp [startFrame, hcode], by simp [startFrame, hcode], rfl, rfl, rfl, rfl, hg, rfl, rfl,
-      rfl, rfl, rfl, rfl⟩ within
-  exact ⟨after, h, running_runFrame h, herr, hout, hs, hss⟩
-
-/-- Any spec of the frame at pc 0 gives the result of the interpreter loop, from any equation for
-the run (general: any code, any postcondition). -/
-theorem runFrame_of_spec {c : ByteArray} {message : Message fork} {st : State.TransactionState}
-    {ss : Substate} {g : Nat} {Q : Evm fork Nat → Prop} (hcode : message.code = c)
-    (h : Spec fork (At c message 0 [] .empty g st ss .empty) Q) {bound : Nat}
-    {runChild : MessageRunner fork Nat bound}
-    {within : GasMeter.gasHeld (startFrame message st ss g).gas ≤ bound} {result}
-    (hr : runFrame (step fork) (step_decreases fork) bound runChild
-        (startFrame message st ss g) within = result) :
-    ∃ after, result = .ok after ∧ after.running = false ∧ Q after := by
-  obtain ⟨after, h', hq⟩ := Spec.runFrame h (evm := startFrame message st ss g)
-    ⟨by simp [startFrame, hcode], by simp [startFrame, hcode], rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-      rfl, rfl, rfl, rfl⟩ within (runChild := runChild)
-  exact ⟨after, hr ▸ h', running_runFrame h', hq⟩
-
 /-- A spec of the frame of a message with no value, that fixes the error and the output and
 leaves state and substate alone, gives the result of `processMessage` at Fusaka (general: any
 code that is no precompile). A failed call is rolled back, so the state is known only on success. -/
@@ -242,28 +211,10 @@ theorem processMessage_of_spec {c : ByteArray} (message : Message .fusaka)
     ∃ evm, processMessage (Meter := Nat) .fusaka message st ss = .ok evm ∧
       evm.1.error = E ∧ evm.1.output = O ∧ evm.1.substate = ss ∧
       (E = none → evm.1.state = st) := by
-  rw [processMessage]
-  have hss : startState .fusaka message st = st := by
-    simp [startState, show ¬ (Fork.fusaka < Fork.paris) by decide]
-  simp only [hss, hpre]
-  split
-  · rename_i htr; exact absurd htr.2 (by simp [hv])
-  simp only [pure, Except.pure, bind, Except.bind]
-  split
-  · rename_i e hr
-    obtain ⟨after, h', -⟩ := runFrame_of_spec hcode (h _ _) hr
-    cases h'
-  · rename_i after hr
-    obtain ⟨after', h', -, hq⟩ := runFrame_of_spec hcode (h _ _) hr
-    cases h'
-    obtain ⟨herr, hout, hst, hsub⟩ := hQ _ _ _ hq
-    refine ⟨_, rfl, ?_, ?_, ?_, ?_⟩
-    · simp only [rollbackOnError]; split <;> simp [herr]
-    · simp only [rollbackOnError]; split <;> simp [hout]
-    · simp only [rollbackOnError]; split <;> simp [hsub, hv]
-    · intro hE
-      simp only [rollbackOnError, herr, hE, Option.isSome_none, Bool.false_eq_true, ↓reduceIte]
-      exact hst
+  obtain ⟨evm, _, hr, hq, he, ho, hs, hst'⟩ := processMessage_ok_of_spec hcode hv hpre (h st ss)
+  obtain ⟨herr, hout, hst, hsub⟩ := hQ _ _ _ hq
+  exact ⟨evm, hr, he.trans herr, ho.trans hout, hs.trans hsub,
+    fun hE => (hst' (herr.trans hE)).trans hst⟩
 
 /-- The whole message call of `f` on call data `selector ++ toBeBytes w`, at Fusaka
 with 10M gas and no value: for every 256-bit `w`, the error and the output are the spec. -/

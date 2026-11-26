@@ -70,20 +70,14 @@ theorem slotValue_mod (storage : List (Nat × Nat)) (s : Nat) :
 
 theorem slotValue_of_not_mem (call : Call) (s : Nat) (h : s % wordSize ∉ callKeys call) :
     slotValue call.storage s = 0 := by
-  unfold slotValue
   unfold callKeys at h
   generalize call.storage = l at h
-  suffices ∀ acc, acc = 0 → List.foldl (fun acc kv =>
-      if kv.1 % 2 ^ 256 = s % 2 ^ 256 then kv.2 % 2 ^ 256 else acc) acc l = 0 from this 0 rfl
-  induction l with
-  | nil => intro acc h; simpa using h
-  | cons kv l ih =>
-    intro acc hacc
-    simp only [List.map_cons, List.mem_cons, not_or] at h
-    simp only [List.foldl_cons]
-    apply ih h.2
-    have hne : ¬ kv.1 % 2 ^ 256 = s % 2 ^ 256 := fun e => h.1 (by simpa [wordSize] using e.symm)
-    simp only [hne, ite_false, hacc]
+  induction l using List.reverseRecOn with
+  | nil => rfl
+  | append_singleton l kv ih =>
+    simp only [List.map_append, List.map_cons, List.map_nil, List.mem_append, List.mem_singleton,
+      not_or] at h
+    rw [slotValue_append_pair, ite_eq_right fun e => h.2 (by simpa [wordSize] using e.symm), ih h.1]
 
 /-! ## EthLib's storage -/
 

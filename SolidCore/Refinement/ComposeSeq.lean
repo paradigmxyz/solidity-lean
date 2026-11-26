@@ -124,12 +124,6 @@ values. -/
 def writeBack (W : List Nat) : Carry :=
   fun call obs => call.storage ++ W.map fun k => (k, obs.storage k)
 
-/-- A pair appended to a storage list wins for its slot. -/
-theorem slotValue_append_pair (σ : List (Nat × Nat)) (k v slot : Nat) :
-    slotValue (σ ++ [(k, v)]) slot =
-      if k % 2 ^ 256 = slot % 2 ^ 256 then v % 2 ^ 256 else slotValue σ slot := by
-  simp [slotValue, List.foldl_append]
-
 /-- \`writeBack W\` carries exactly the final storage of a call that keeps every slot outside
 \`W\` (modulo \`2 ^ 256\`), whose final storage gives the same word for slots equal modulo
 \`2 ^ 256\` and holds words below \`2 ^ 256\`. -/
@@ -147,21 +141,13 @@ theorem carries_writeBack {W : List Nat} {call : Call} {obs : Observable}
     | nil => intro σ slot; simp
     | cons k V ih =>
       intro σ slot
-      rw [List.map_cons, show ∀ (l : List (Nat × Nat)) a, σ ++ a :: l = (σ ++ [a]) ++ l by simp,
-        ih, slotValue_append_pair]
-      by_cases hV : ∃ k' ∈ V, k' % 2 ^ 256 = slot % 2 ^ 256
-      · obtain ⟨k', hk', e⟩ := hV
-        rw [ite_eq_left ⟨k', hk', e⟩, ite_eq_left ⟨k', List.mem_cons_of_mem _ hk', e⟩]
-      · rw [ite_eq_right hV]
-        by_cases e : k % 2 ^ 256 = slot % 2 ^ 256
-        · rw [ite_eq_left e, ite_eq_left ⟨k, List.mem_cons_self, e⟩, Nat.mod_eq_of_lt (hlt k), hmod k,
-            hmod slot, e]
-        · have : ¬ ∃ k' ∈ k :: V, k' % 2 ^ 256 = slot % 2 ^ 256 := by
-            rintro ⟨k', hk', e'⟩
-            rcases List.mem_cons.mp hk' with rfl | hk'
-            · exact e e'
-            · exact hV ⟨k', hk', e'⟩
-          rw [ite_eq_right e, ite_eq_right this]
+      rw [List.map_cons, ← List.singleton_append, ← List.append_assoc, ih, slotValue_append_pair]
+      by_cases e : k % 2 ^ 256 = slot % 2 ^ 256
+      · have hk : obs.storage k % 2 ^ 256 = obs.storage slot := by
+          rw [Nat.mod_eq_of_lt (hlt k), hmod k, e, ← hmod slot]
+        simp only [e, hk, ↓reduceIte, ite_self]
+        exact (ite_eq_left ⟨k, List.mem_cons_self, e⟩).symm
+      · simp only [e, ↓reduceIte, List.mem_cons, or_and_right, exists_or, exists_eq_left, false_or]
   funext slot
   unfold writeBack
   rw [key W call.storage slot]

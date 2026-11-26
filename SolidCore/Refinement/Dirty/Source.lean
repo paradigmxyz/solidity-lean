@@ -114,21 +114,23 @@ theorem norm_of_lt {a : Nat} (h : a < 2 ^ 256) : Shared.norm a = a := by
   simp only [Shared.norm, Shared.wordModulus]
   exact Nat.mod_eq_of_lt h
 
+/-- SolidCore reads big-endian bytes as EthLib does, modulo `2 ^ 256`. -/
+theorem bytesToWordBE_bytesToNat (l : List UInt8) :
+    ABI.bytesToWordBE (ABI.normalizeBytes (l.map (·.toNat))) = bytesToNat l % 2 ^ 256 := by
+  have hbyte : ∀ b : UInt8, normByte (Shared.External.byte b.toNat) = b.toNat := fun b => by
+    simp [normByte, Shared.Account.byte, Shared.External.byte, Nat.mod_eq_of_lt b.toNat_lt]
+  unfold ABI.bytesToWordBE ABI.normalizeBytes Shared.External.normalizeBytes
+  rw [List.map_map, List.foldl_map]
+  simp only [Function.comp_def, hbyte]
+  rfl
+
 /-- SolidCore reads `n` big-endian bytes of `a` back as `a`. -/
 theorem bytesToWordBE_natToBytes (n a : Nat) (ha : a < 256 ^ n) (hn : n ≤ 32) :
     ABI.bytesToWordBE (ABI.normalizeBytes ((natToBytes n a).map (·.toNat))) = a := by
   have h256 : 256 ^ n ≤ 2 ^ 256 := by
     rw [show (256 : Nat) = 2 ^ 8 by rfl, ← Nat.pow_mul]
     exact Nat.pow_le_pow_right (by decide) (by omega)
-  have hbyte : ∀ b : UInt8, normByte (Shared.External.byte b.toNat) = b.toNat := by
-    intro b
-    have := b.toNat_lt
-    simp [normByte, Shared.Account.byte, Shared.External.byte, Nat.mod_eq_of_lt this]
-  unfold ABI.bytesToWordBE ABI.normalizeBytes Shared.External.normalizeBytes
-  rw [List.map_map, List.foldl_map]
-  simp only [Function.comp_def, hbyte]
-  change Shared.norm (bytesToNat (natToBytes n a)) = _
-  rw [EthLib.Base.bytesToNat_natToBytes_of_lt ha, norm_of_lt (by omega)]
+  rw [bytesToWordBE_bytesToNat, EthLib.Base.bytesToNat_natToBytes_of_lt ha, Nat.mod_eq_of_lt (by omega)]
 
 theorem length_argBytes (args : List Nat) : (argBytes args).length = 32 * args.length := by
   induction args with
@@ -401,14 +403,41 @@ theorem bytes_calldata (sel : Nat) (args : List Nat) :
       (natToBytes 4 sel).map (·.toNat) ++ argBytes args := by
   simp [calldata, argBytes, List.map_flatMap]
 
-theorem readSelector_calldata (sel : Nat) (hsel : sel < 2 ^ 32) (args : List Nat) :
-    ABI.readSelector? ((natToBytes 4 sel).map (·.toNat) ++ argBytes args) = some sel := by
+/-- SolidCore reads the selector back from call data that starts with its 4 bytes. -/
+theorem readSelector_natToBytes (sel : Nat) (hsel : sel < 2 ^ 32) (rest : List Nat) :
+    ABI.readSelector? ((natToBytes 4 sel).map (·.toNat) ++ rest) = some sel := by
   have hlen : ((natToBytes 4 sel).map (·.toNat)).length = 4 := by simp [natToBytes_length]
   simp only [ABI.readSelector?, ABI.readBytes?, ABI.selectorBytes, List.drop_zero,
     List.length_append, hlen]
   rw [ite_eq_left (by omega), List.take_append_of_le_length (by omega),
     List.take_of_length_le (by omega)]
   simp only [bytesToWordBE_natToBytes 4 sel (by simpa using hsel) (by decide)]
+
+theorem readSelector_calldata (sel : Nat) (hsel : sel < 2 ^ 32) (args : List Nat) :
+    ABI.readSelector? ((natToBytes 4 sel).map (·.toNat) ++ argBytes args) = some sel :=
+  readSelector_natToBytes sel hsel _
+
+/-- SolidCore's run of a call, from any storage, whose call data is the selector of a function
+followed by bytes it decodes to the empty revert: the empty revert, which keeps the call's
+storage. -/
+theorem run_of_decode_empty {fuel : Nat} {c : TypeCheck.CheckedContract} {s0 : List (Nat × Nat)}
+    (hdep : deployedStorage fuel c = some s0) {sel : Nat} (hsel : sel < 2 ^ 32) {f : FunctionDef}
+    (hf : c.core.findFunctionBySelector? sel = some f) {cd : ByteArray} {rest : List Nat}
+    (hcd : cd.data.toList.map (·.toNat) = (natToBytes 4 sel).map (·.toNat) ++ rest)
+    (hdec : ABI.decodeFunctionArgs? f rest = .error .empty) (σ : List (Nat × Nat)) :
+    Source.run fuel c { calldata := cd, callvalue := 0, storage := σ } = some (rejected σ) := by
+  unfold deployedStorage at hdep
+  dsimp only at hdep
+  split at hdep
+  case h_2 => simp at hdep
+  rename_i deployed st hcons
+  simp only [Source.run, Source.result?, hcons, TypeCheck.CheckedContract.callCalldataAtFromWithContext?,
+    ABI.Contract.callCalldataAtFromWithContext?, hcd, readSelector_natToBytes _ hsel, hf]
+  rw [show ((natToBytes 4 sel).map (·.toNat) ++ rest).drop ABI.selectorBytes = rest by
+      simp [ABI.selectorBytes, natToBytes_length], hdec]
+  simp only [ABI.Contract.revertedCall?, ABI.Contract.encodeRevertData?, bind, Option.bind,
+    Option.map_some, Source.observe, rejected]
+  simp
 
 /-- SolidCore's run of a call of a function of the shape, from any storage, on argument
 words with a dirty one: the empty revert, which keeps the call's storage. -/
@@ -423,19 +452,8 @@ theorem run_dirty {fuel : Nat} {c : TypeCheck.CheckedContract} {s0 : List (Nat �
   split at hshape
   case h_2 => simp at hshape
   rename_i f hf
-  unfold deployedStorage at hdep
-  dsimp only at hdep
-  split at hdep
-  case h_2 => simp at hdep
-  rename_i deployed st hcons
-  simp only [Source.run, Source.result?, hcons, TypeCheck.CheckedContract.callCalldataAtFromWithContext?,
-    ABI.Contract.callCalldataAtFromWithContext?, bytes_calldata, readSelector_calldata _ hsel, hf]
-  rw [show ((natToBytes 4 fn.sel).map (·.toNat) ++ argBytes args).drop ABI.selectorBytes =
-      argBytes args by simp [ABI.selectorBytes, natToBytes_length],
-    decode_dirty f fn.params hshape args hlen hargs hd]
-  simp only [ABI.Contract.revertedCall?, ABI.Contract.encodeRevertData?, bind, Option.bind,
-    Option.map_some, Source.observe, rejected]
-  simp
+  exact run_of_decode_empty hdep hsel hf (bytes_calldata _ _) (decode_dirty f fn.params hshape args
+    hlen hargs hd) σ
 
 /-! ## The full scope -/
 
