@@ -39,14 +39,6 @@ def gates? : Option (List Bool) :=
 
 kernel_rfl gates_eq gates? (some [true, true, false, false, false]) using selector_eq Verify.Lifecycle.mkIdx_eq
 
-theorem gate {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) :
-    gates? = some [Verify.Lifecycle.deployedAtWith fuel c (Verify.Lifecycle.wordArgs [8]) [(1, 8)],
-       Verify.Lifecycle.deployedAtWith fuel c (Verify.Lifecycle.wordArgs [5]) [(1, 5)],
-       Verify.Lifecycle.deployedAtWith fuel c (Verify.Lifecycle.wordArgs [8]) [(1, 9)],
-       (match SolidCore.Refinement.Source.deployArgs? fuel [] c with | some (CallResult.returned _ _) => true | _ => false),
-       (match SolidCore.Refinement.Source.deployArgs? fuel [8, 9] c with | some (CallResult.returned _ _) => true | _ => false)] := by
-  unfold gates?; rw [hc]
-
 theorem gates_of {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) :
     Verify.Lifecycle.deployedAtWith fuel c (Verify.Lifecycle.wordArgs [8]) [(1, 8)] = true ∧
     Verify.Lifecycle.deployedAtWith fuel c (Verify.Lifecycle.wordArgs [5]) [(1, 5)] = true ∧
@@ -54,9 +46,9 @@ theorem gates_of {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) :
     (match SolidCore.Refinement.Source.deployArgs? fuel [] c with | some (CallResult.returned _ _) => true | _ => false) = false ∧
     (match SolidCore.Refinement.Source.deployArgs? fuel [8, 9] c with | some (CallResult.returned _ _) => true | _ => false) = false := by
   have h := gates_eq
-  rw [gate hc] at h
-  simp only [Option.some.injEq, List.cons.injEq] at h
-  exact ⟨h.1, h.2.1, h.2.2.1, h.2.2.2.1, h.2.2.2.2.1⟩
+  unfold gates? at h
+  rw [hc] at h
+  simpa only [Option.some.injEq, List.cons.injEq, and_true] using h
 
 /-- **Before**: deployed with no words, Counter has no run on any call. -/
 theorem before_fails {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) (caller : Nat) (call : Call) :
@@ -132,3 +124,4 @@ end Verify.LoopSource.Equiv.CounterCtor
 /-- info: 'Verify.LoopSource.Equiv.CounterCtor.counter_admits' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs (whitespace := lax) in
 #print axioms Verify.LoopSource.Equiv.CounterCtor.counter_admits
+
