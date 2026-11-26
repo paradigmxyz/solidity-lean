@@ -250,22 +250,25 @@ private theorem seg_steps : ∀ {k : Nat} {x : σ}, seg step cut k x ≠ .fuel �
           exact ⟨j + 1, by omega, by omega, by simp only [steps, e]; exact hj⟩
 
 /-- A segment that reaches a cut point ran \`j ≥ 1\` steps to it. -/
-theorem seg_cut {k : Nat} {x y : σ} (h : seg step cut k x = .cut y) :
+theorem seg_cut : ∀ {k : Nat} {x y : σ}, seg step cut k x = .cut y →
     ∃ j, 1 ≤ j ∧ ∀ n, run step (n + j) x = run step n y ∧ steps step (n + j) x = steps step n y := by
+  intro k x y h
   obtain ⟨j, pos, -, hj⟩ := seg_steps (by rw [h]; nofun)
   rw [h] at hj
   exact ⟨j, pos, fun n => ⟨by rw [run_eq_steps, run_eq_steps, steps_after hj], steps_after hj n⟩⟩
 
 /-- A segment that ends ran \`j ≥ 1\` steps to its result. -/
-theorem seg_done {k : Nat} {x : σ} {r : R} (h : seg step cut k x = .done r) :
+theorem seg_done : ∀ {k : Nat} {x : σ} {r : R}, seg step cut k x = .done r →
     ∃ j, 1 ≤ j ∧ ∀ n, run step (n + j) x = some r := by
+  intro k x r h
   obtain ⟨j, pos, -, hj⟩ := seg_steps (by rw [h]; nofun)
   rw [h] at hj
   exact ⟨j, pos, fun n => run_mono (Nat.le_add_left j n) (run_of_steps hj)⟩
 
 /-- A segment that gets stuck never ends, and is stuck after \`j\` steps. -/
-theorem seg_stuck {k : Nat} {x : σ} (h : seg step cut k x = .stuck) :
+theorem seg_stuck : ∀ {k : Nat} {x : σ}, seg step cut k x = .stuck →
     (∀ n, run step n x = none) ∧ ∃ j, steps step j x = none := by
+  intro k x h
   obtain ⟨j, -, -, hj⟩ := seg_steps (by rw [h]; nofun)
   rw [h] at hj
   refine ⟨fun n => ?_, j, hj⟩
