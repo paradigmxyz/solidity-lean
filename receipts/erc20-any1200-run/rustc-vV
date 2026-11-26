@@ -1,0 +1,8 @@
+rustc 1.100.0 (0ef1bc386 2026-11-09)
+binary: rustc
+commit-hash: 0ef1bc386059596dada8fb65b50425aab2ea637a
+commit-date: 2026-11-09
+host: x86_64-unknown-linux-gnu
+release: 1.100.0
+LLVM version: 23.1.5
+5073422953727c9427a76b7fce03aa9404da46315e5a1e4965389512a41e8db0  /home/hand/.rustup/toolchains/1.100.0-x86_64-unknown-linux-gnu/bin/rustc
