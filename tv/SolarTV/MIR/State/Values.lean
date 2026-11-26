@@ -115,7 +115,7 @@ def Value.flatten : Nat → ValueType → Value → Except String (List Word)
   apply_ite ..
 
 @[simp↓] theorem except_ok_ite (p : Prop) [Decidable p] (a b : α) :
-    (if p then Except.ok a else Except.ok b : Except ε α) = .ok (if p then a else b) :=
-  (apply_ite ..).symm
+    (if p then Except.ok a else Except.ok b : Except ε α) = .ok (if p then a else b) := by
+  split <;> rfl
 
 end SolarTV.MIR.State
