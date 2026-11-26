@@ -1,5 +1,6 @@
 import SolidCore.Refinement.Wide.Tactic
 import SolidCore.Refinement.Dirty.Source
+import SolidCore.Refinement.BytesBE
 
 /-!
 # Rewrite rules for evaluating a call of a wide function in SolidCore
@@ -45,11 +46,9 @@ theorem normByte_eq (v : Nat) : normByte v = v % 256 := by
 /-- SolidCore writes a word big-endian as EthLib does. -/
 theorem wordToBytesBE_eq (n v : Nat) :
     ABI.wordToBytesBE n v = (natToBytes n v).map (·.toNat) := by
-  induction n generalizing v with
-  | zero => rfl
-  | succ n ih =>
-    rw [ABI.wordToBytesBE, natToBytes_succ, ih, List.map_append]
-    simp [normByte_eq]
+  rw [bytesBE_eq_range ABI.wordToBytesBE (fun _ => rfl) fun _ _ => rfl]
+  exact (bytesBE_eq_range (fun n v => (natToBytes n v).map (·.toNat)) (fun _ => rfl)
+    (fun _ _ => by simp [natToBytes_succ]) n v).symm
 
 /-! ## Word operations as bit-vector operations -/
 

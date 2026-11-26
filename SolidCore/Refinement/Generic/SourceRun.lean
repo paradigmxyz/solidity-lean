@@ -366,16 +366,8 @@ theorem coerce_words (ρ : Val) (rt : Runtime) {K : Facts} (hK : K.Hold ρ) :
 /-! ## Encoding the output -/
 
 theorem wordToBytesBE_eq : ∀ (n v : Nat),
-    ABI.wordToBytesBE n v = (List.range n).map fun i => v / 256 ^ (n - 1 - i) % 256
-  | 0, _ => rfl
-  | n + 1, v => by
-    rw [ABI.wordToBytesBE, wordToBytesBE_eq n (v / 256), List.range_succ, List.map_append]
-    congr 1
-    · apply List.map_congr_left
-      intro i hi
-      simp only [List.mem_range] at hi
-      rw [Nat.div_div_eq_div_mul, ← Nat.pow_succ', show (n - 1 - i).succ = n + 1 - 1 - i by omega]
-    · simp [normByte, SolidCore.Solidity.Shared.Account.byte]
+    ABI.wordToBytesBE n v = (List.range n).map fun i => v / 256 ^ (n - 1 - i) % 256 :=
+  bytesBE_eq_range _ (fun _ => rfl) fun _ _ => rfl
 
 theorem div_pow_mod (v k : Nat) (hk : k < 32) : v % wordSize / 256 ^ k % 256 = v / 256 ^ k % 256 := by
   have hw : wordSize = 256 ^ k * 256 ^ (32 - k) := by
@@ -483,20 +475,8 @@ theorem brTree_eval (fn : FunctionDef) (K : Facts) (ρ : Val) :
     · exact brTree_eval fn K ρ e e' he
     · exact brTree_eval fn K ρ t t' ht
 
-theorem slotValue_lt (σ : List (Nat × Nat)) (k : Nat) : slotValue σ k < wordSize := by
-  unfold slotValue
-  have key : ∀ a, a < wordSize → σ.foldl (fun acc kv => if kv.1 % 2 ^ 256 = k % 2 ^ 256 then
-      kv.2 % 2 ^ 256 else acc) a < wordSize := by
-    induction σ with
-    | nil => intro a h; exact h
-    | cons kv σ ih =>
-      intro a h
-      simp only [List.foldl_cons]
-      apply ih
-      split
-      · exact Nat.mod_lt _ (by decide)
-      · exact h
-  exact key 0 (by decide)
+theorem slotValue_lt (σ : List (Nat × Nat)) (k : Nat) : slotValue σ k < wordSize :=
+  Evm.Wide.slotValue_lt σ k
 
 theorem slotValue_mod (σ : List (Nat × Nat)) (k : Nat) : slotValue σ (k % wordSize) = slotValue σ k := by
   simp only [slotValue, Nat.mod_mod]

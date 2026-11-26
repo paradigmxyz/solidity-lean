@@ -1,5 +1,6 @@
 import SolidCore.Refinement.Generic.Source
 import SolidCore.Refinement.Generic.Simp
+import SolidCore.Refinement.BytesBE
 
 /-!
 # Events of the fragment: SolidCore's encoding of a log
@@ -35,16 +36,8 @@ theorem bytesToWord_wordToBytes {v : Nat} (hv : v < wordSize) :
     show (256 : Nat) ^ wordBytes = wordSize from rfl, Nat.mod_eq_of_lt hv, norm_mod]
 
 theorem evWordToBytesBE_eq : ∀ (n v : Nat),
-    wordToBytesBE n v = (List.range n).map fun i => v / 256 ^ (n - 1 - i) % 256
-  | 0, _ => rfl
-  | n + 1, v => by
-    rw [wordToBytesBE, evWordToBytesBE_eq n (v / 256), List.range_succ, List.map_append]
-    congr 1
-    · apply List.map_congr_left
-      intro i hi
-      simp only [List.mem_range] at hi
-      rw [Nat.div_div_eq_div_mul, ← Nat.pow_succ', show (n - 1 - i).succ = n + 1 - 1 - i by omega]
-    · simp [normByte, SolidCore.Solidity.Shared.Account.byte]
+    wordToBytesBE n v = (List.range n).map fun i => v / 256 ^ (n - 1 - i) % 256 :=
+  bytesBE_eq_range _ (fun _ => rfl) fun _ _ => rfl
 
 theorem wordBytes_eval (ρ : Val) (e : WExpr) :
     wordToBytesBE wordBytes (e.eval ρ) = (wordOBytes e).map (OByte.eval ρ) := by

@@ -42,26 +42,6 @@ theorem argData_length (ws : List Nat) : (argData ws).length = 32 * ws.length :=
   | nil => rfl
   | cons w ws ih => simp [List.flatMap_cons, natToBytes_length, ih]; omega
 
-theorem normalizeBytes_toNat (l : List UInt8) :
-    ABI.normalizeBytes (l.map UInt8.toNat) = l.map UInt8.toNat := by
-  induction l with
-  | nil => rfl
-  | cons b l ih =>
-    have hb : SolidCore.Solidity.Shared.External.byte b.toNat = b.toNat :=
-      Nat.mod_eq_of_lt b.toNat_lt
-    simp only [ABI.normalizeBytes, SolidCore.Solidity.Shared.External.normalizeBytes, List.map_cons,
-      hb] at ih ⊢
-    rw [ih]
-
-theorem bytesToWordBE_toNat (l : List UInt8) :
-    ABI.bytesToWordBE (l.map UInt8.toNat) = bytesToNat l % SolidCore.Solidity.Shared.wordModulus := by
-  simp only [ABI.bytesToWordBE, SolidCore.Solidity.Shared.norm, bytesToNat, List.foldl_map,
-    normByte, SolidCore.Solidity.Shared.Account.byte]
-  congr 1
-  congr 1
-  funext acc b
-  rw [Nat.mod_eq_of_lt b.toNat_lt]
-
 /-- The word at head index `p.length` is `w`. -/
 theorem readWord_at (p ws : List Nat) {w : Nat} (hw : w < 2 ^ 256) :
     ABI.readWord? (argData (p ++ w :: ws)) (ABI.wordBytes * p.length) = some w := by
@@ -72,9 +52,7 @@ theorem readWord_at (p ws : List Nat) {w : Nat} (hw : w < 2 ^ 256) :
   have hl : ((natToBytes 32 w).map UInt8.toNat).length = 32 := by simp [natToBytes_length]
   simp only [ABI.readWord?, ABI.readBytes?, ABI.wordBytes, hd]
   rw [if_pos (by simp only [List.length_append, hl]; omega)]
-  simp only [List.take_left' hl, normalizeBytes_toNat, bytesToWordBE_toNat,
-    bytesToNat_natToBytes_of_lt (show w < 256 ^ 32 from hw)]
-  simp [Nat.mod_eq_of_lt (show w < SolidCore.Solidity.Shared.wordModulus from hw)]
+  simp [List.take_left' hl, Dirty.bytesToWordBE_natToBytes 32 w hw (Nat.le_refl _)]
 
 theorem decodeArgsAux_uint256 (p ws : List Nat) (hw : ∀ w ∈ ws, w < 2 ^ 256) :
     ABI.decodeArgsAux? (argData (p ++ ws)) (ws.map fun _ => (true, Ty.uint256)) p.length =

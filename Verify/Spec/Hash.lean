@@ -1,6 +1,7 @@
 import Verify.Spec.Semantics
 import SolidCore.Refinement.Generic.Source
 import Verify.Spec.TrustedBase.Hypotheses
+import SolidCore.Refinement.BytesBE
 
 /-!
 # SolidCore's storage hash is the spec's
@@ -66,15 +67,11 @@ theorem keccakWord_eq (l : List Nat) :
   simpa using this
 
 theorem wordToBytesBE_eq : ∀ (n v : Nat), SolidCore.Solidity.Source.wordToBytesBE n v =
-    ((List.range n).reverse.map fun i => v / 256 ^ i % 256)
-  | 0, _ => rfl
-  | n + 1, v => by
-    rw [SolidCore.Solidity.Source.wordToBytesBE, wordToBytesBE_eq n, List.range_succ_eq_map,
-      List.reverse_cons, List.map_append, ← List.map_reverse, List.map_map]
-    refine congrArg₂ _ ?_ ?_
-    · refine List.map_congr_left fun i _ => ?_
-      simp only [Function.comp, Nat.pow_succ, Nat.div_div_eq_div_mul, Nat.mul_comm (256 ^ i)]
-    · simp [SolidCore.Solidity.Source.normByte, SolidCore.Solidity.Shared.Account.byte]
+    ((List.range n).reverse.map fun i => v / 256 ^ i % 256) := fun n v => by
+  rw [SolidCore.Refinement.bytesBE_eq_range SolidCore.Solidity.Source.wordToBytesBE (fun _ => rfl)
+    (fun _ _ => rfl), List.range_eq_range',
+    List.reverse_range', List.map_map, Nat.zero_add, ← List.range_eq_range']
+  rfl
 
 /-- **SolidCore's mapping slot is the spec's.** -/
 theorem solHash_eq (k s : Nat) :
