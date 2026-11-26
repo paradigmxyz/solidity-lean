@@ -17,22 +17,22 @@ open SolidCore.Refinement.Solar.Assemble
 open SolarTV.Assembly
 open EthLib.Base EthLib.Execution EthLib.Execution.Evm EthLib.Execution.Evm.Logic GasCosts
 
-/-- A square below \`2 ^ k * 2 ^ k\` has its root below \`2 ^ k\`. -/
+/-- A square below `2 ^ k * 2 ^ k` has its root below `2 ^ k`. -/
 private theorem lt_pow_of_mul_self_lt {w k : Nat} (h : w * w < 2 ^ k * 2 ^ k) : w < 2 ^ k :=
   Nat.lt_of_not_le fun hw => Nat.lt_irrefl _ (Nat.lt_of_lt_of_le h (Nat.mul_le_mul hw hw))
 
-/-- EthLib's count of the words of \`n\` bytes. -/
+/-- EthLib's count of the words of `n` bytes. -/
 private theorem wordCount_eq (n : Nat) : wordCount n = (n + 31) / 32 := by
   unfold wordCount WORD_BYTES
   rw [ceil32_eq]
   omega
 
 set_option exponentiation.threshold 600 in
-/-- A square below \`2 ^ 502\` has its root below \`2 ^ 251\`. -/
+/-- A square below `2 ^ 502` has its root below `2 ^ 251`. -/
 theorem lt_of_mul_self_lt {w : Nat} (h : w * w < 2 ^ 502) : w < 2 ^ 251 :=
   lt_pow_of_mul_self_lt (by rwa [← Nat.pow_add])
 
-/-- **Memory a budget below \`2 ^ 300\` pays for has fewer than \`2 ^ 251\` words**, so SolarTV's count
+/-- **Memory a budget below `2 ^ 300` pays for has fewer than `2 ^ 251` words**, so SolarTV's count
 of words does not wrap. -/
 theorem words_lt_of_cost {n B : Nat} (h : memoryGasCost n ≤ B) (hB : B < 2 ^ 300) :
     (n + 31) / 32 < 2 ^ 251 := by
@@ -42,7 +42,7 @@ theorem words_lt_of_cost {n B : Nat} (h : memoryGasCost n ≤ B) (hB : B < 2 ^ 3
   generalize (n + 31) / 32 * ((n + 31) / 32) = sq at hw ⊢
   omega
 
-/-- Memory a budget below \`2 ^ 256\` pays for is at most \`2 ^ 140\` bytes. -/
+/-- Memory a budget below `2 ^ 256` pays for is at most `2 ^ 140` bytes. -/
 theorem size_le_of_cost {n B : Nat} (h : memoryGasCost n ≤ B) (hB : B < 2 ^ 256) (hmod : n % 32 = 0) :
     n ≤ 2 ^ 140 := by
   have hw := wordCount_mul_self_le h
@@ -56,7 +56,7 @@ theorem size_le_of_cost {n B : Nat} (h : memoryGasCost n ≤ B) (hB : B < 2 ^ 25
 /-! ## SolarTV's memory and EthLib's at any range SolarTV holds -/
 
 open SolarTV.Machine in
-/-- \`Assemble.memRel_expand\` for every range whose words SolarTV holds. -/
+/-- `Assemble.memRel_expand` for every range whose words SolarTV holds. -/
 theorem memRel_expandW {m : Mem} {M : ByteArray} {o sz : Word} (hm : MemRel m M)
     (hbound : sz = 0 ∨ (o.toNat + sz.toNat + 31) / 32 < 2 ^ 251) :
     MemRel (m.expand o.toNat sz.toNat) (memoryExtend M (extendMemory M.size [(o, sz)]).expandBy) := by
@@ -76,7 +76,7 @@ theorem memRel_expandW {m : Mem} {M : ByteArray} {o sz : Word} (hm : MemRel m M)
       simp only [BitVec.ult_iff_toNat_lt, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hlt] at h ⊢ <;> omega
 
 open SolarTV.Machine in
-/-- \`Assemble.memRel_store\` for every offset whose word SolarTV holds. -/
+/-- `Assemble.memRel_store` for every offset whose word SolarTV holds. -/
 theorem memRel_storeW {m : Mem} {M : ByteArray} {o v : Word} (hm : MemRel m M)
     (hlt : (o.toNat + 32 + 31) / 32 < 2 ^ 251) :
     MemRel (m.store o.toNat v)

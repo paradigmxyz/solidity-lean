@@ -310,7 +310,7 @@ theorem stack_simL {p : Program} {c : Cert} {mx : List Nat} {bb : Nat} {ok : Nat
 
 /-- An opcode item at the head of a walk: its byte at the counter, and the walk on from the next
 byte. -/
-theorem op_seg {code : ByteArray} {offset : Nat → Nat} {pc e byte : Nat} {items : List Item}
+private theorem op_seg {code : ByteArray} {offset : Nat → Nat} {pc e byte : Nat} {items : List Item}
     (h : Seg (bytesOf code) offset pc (.op byte :: items) e) :
     ∃ _ : pc < code.size, code[pc] = UInt8.ofNat byte ∧
       Seg (bytesOf code) offset (pc + 1) items e := by
@@ -319,7 +319,7 @@ theorem op_seg {code : ByteArray} {offset : Nat → Nat} {pc e byte : Nat} {item
   exact ⟨hlt, hcode, hseg⟩
 
 /-- A data word on top of SolarTV's stack is the word on top of EthLib's. -/
-theorem sr_data1 {c : Cert} {ty : List Ty} {S T : List Word} (hR : SR c ty S T)
+private theorem sr_data1 {c : Cert} {ty : List Ty} {S T : List Word} (hR : SR c ty S T)
     (hd : isData ty 1 = true) (hS : 1 ≤ S.length) :
     ∃ x S' T', S = x :: S' ∧ T = x :: T' ∧ SR c ty.tail S' T' := by
   have hL := hR.length
@@ -328,7 +328,7 @@ theorem sr_data1 {c : Cert} {ty : List Ty} {S T : List Word} (hR : SR c ty S T)
   exact ⟨x, S', T', rfl, rfl, (SR.uncons.1 hR).2⟩
 
 /-- Two data words on top of SolarTV's stack are the words on top of EthLib's. -/
-theorem sr_data2 {c : Cert} {ty : List Ty} {S T : List Word} (hR : SR c ty S T)
+private theorem sr_data2 {c : Cert} {ty : List Ty} {S T : List Word} (hR : SR c ty S T)
     (hd : isData ty 2 = true) (hS : 2 ≤ S.length) :
     ∃ x y S' T', S = x :: y :: S' ∧ T = x :: y :: T' ∧ SR c (ty.drop 2) S' T' := by
   have hL := hR.length
@@ -339,7 +339,7 @@ theorem sr_data2 {c : Cert} {ty : List Ty} {S T : List Word} (hR : SR c ty S T)
   exact ⟨x, y, S', T', rfl, rfl, by simpa using SR.drop 2 hR⟩
 
 /-- A stack with a known second word has at least two. -/
-theorem KR.two_le {j : Option Word} {o : Word} {known : Known} {S : List Word}
+private theorem KR.two_le {j : Option Word} {o : Word} {known : Known} {S : List Word}
     (h : KR (j :: some o :: known) S) : 2 ≤ S.length := by
   obtain ⟨hl, -⟩ := List.getElem?_eq_some_iff.1 (h 1 o (by simp [kAt]))
   omega
