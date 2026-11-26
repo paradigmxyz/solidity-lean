@@ -92,13 +92,9 @@ theorem certified_of_query (query : Query) (o : Oracle) (scope : Call → Prop) 
     refine ⟨1, _, run_after o call 0, ?_⟩
     simp only [ended, Agree, true_and, and_true]
     -- The query's array disequality, at the call's calldata and initial storage.
-    refine Classical.byContradiction fun differ => query (calldataWord call) (fun _ => 0)
+    exact Classical.byContradiction fun differ => query (calldataWord call) (fun _ => 0)
       (State.initial call).storage (State.initial call).transient (calldataWord call 0)
-      (0 + calldataWord call 0) _ _ _ _ rfl rfl rfl rfl rfl rfl ?_
-    intro same
-    apply differ
-    simp only [BitVec.add_comm (calldataWord call 0) 0]
-    exact same
+      (calldataWord call 0 + 0) _ _ _ _ rfl (BitVec.add_comm _ _) rfl rfl rfl rfl differ
 
 theorem stage (o : Oracle) (scope : Call → Prop) :
     Stage (sem o) (sem o) before after scope :=

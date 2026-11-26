@@ -28,14 +28,14 @@ def extractField (ty : ValueType) (aggregate : Value) (index : Nat) : Except Str
 @[simp↓] theorem insertField_ite (ty : ValueType) (index : Nat) (value : Value)
     (p : Prop) [Decidable p] (a b : Value) :
     insertField ty (if p then a else b) index value =
-      (if p then insertField ty a index value else insertField ty b index value) := by
-  split <;> rfl
+      (if p then insertField ty a index value else insertField ty b index value) :=
+  apply_ite (insertField ty · index value) ..
 
 @[simp↓] theorem extractField_ite (ty : ValueType) (index : Nat)
     (p : Prop) [Decidable p] (a b : Value) :
     extractField ty (if p then a else b) index =
-      (if p then extractField ty a index else extractField ty b index) := by
-  split <;> rfl
+      (if p then extractField ty a index else extractField ty b index) :=
+  apply_ite (extractField ty · index) ..
 
 /-- Reading an initialized field does not consult the still-undefined neighbor. -/
 theorem project_inserted_field (word : EvmRules.Word) :

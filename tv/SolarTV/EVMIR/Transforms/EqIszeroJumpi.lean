@@ -14,8 +14,7 @@ theorem eq_iszero_jumpi (ctx : Context) (stack : Stack) (dst fallthrough : Word)
   rcases stack with _ | ⟨a, _ | ⟨b, rest⟩⟩ <;> try rfl
   have h : ¬ 1024 < rest.length + 1 + 1 := by simpa using legal
   have h' : ¬ 1024 < rest.length + 1 := by omega
-  have zero (x y : Word) : Evm.sub x y = 0#256 ↔ x = y := by
-    simp [Evm.sub, BitVec.sub_eq_iff_eq_add]
-  by_cases same : a = b <;> simp [execute, stepChecked, step, finish, Evm.eq, Evm.iszero, zero, same, h, h']
+  by_cases same : a = b <;> simp [execute, stepChecked, step, finish, Evm.eq, Evm.iszero,
+    Evm.sub, BitVec.sub_eq_iff_eq_add, same, h, h']
 
 end SolarTV.EVM

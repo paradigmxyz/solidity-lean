@@ -139,12 +139,12 @@ def code : Execution → List Word
   | .failed .invalid => [6]
 
 @[simp] theorem code_ite (condition : Prop) [Decidable condition] (yes no : Execution) :
-    code (if condition then yes else no) = if condition then code yes else code no := by
-  split <;> rfl
+    code (if condition then yes else no) = if condition then code yes else code no :=
+  apply_ite ..
 
 @[simp] theorem code_cond (condition : Bool) (yes no : Execution) :
-    code (bif condition then yes else no) = bif condition then code yes else code no := by
-  cases condition <;> rfl
+    code (bif condition then yes else no) = bif condition then code yes else code no :=
+  Bool.apply_cond ..
 
 def describe : Execution → String
   | .edge destination stack =>

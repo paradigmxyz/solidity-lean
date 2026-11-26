@@ -12,11 +12,6 @@ theorem rename_phi_predecessors (rename : Nat → Nat) (injective : Function.Inj
       phi predecessor incoming := by
   induction incoming with
   | nil => rfl
-  | cons entry rest ih =>
-    obtain ⟨block, value⟩ := entry
-    have same : rename predecessor = rename block ↔ predecessor = block :=
-      ⟨fun h => injective h, congrArg rename⟩
-    simp only [List.map_cons, phi, same]
-    split <;> simp_all
+  | cons entry rest ih => simp [phi, injective.eq_iff, ih]
 
 end SolarTV.MIR

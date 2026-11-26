@@ -103,19 +103,19 @@ def Value.flatten : Nat → ValueType → Value → Except String (List Word)
 
 /-- Normalize value conditionals without distributing the whole execution state. -/
 @[simp↓] theorem fits_ite (fuel : Nat) (ty : ValueType) (p : Prop) [Decidable p] (a b : Value) :
-    (if p then a else b).fits fuel ty = (if p then a.fits fuel ty else b.fits fuel ty) := by
-  split <;> rfl
+    (if p then a else b).fits fuel ty = (if p then a.fits fuel ty else b.fits fuel ty) :=
+  apply_ite ..
 
 @[simp↓] theorem word_ite (p : Prop) [Decidable p] (a b : Value) :
-    (if p then a else b).word = (if p then a.word else b.word) := by
-  split <;> rfl
+    (if p then a else b).word = (if p then a.word else b.word) :=
+  apply_ite ..
 
 @[simp↓] theorem flatten_ite (fuel : Nat) (ty : ValueType) (p : Prop) [Decidable p] (a b : Value) :
-    (if p then a else b).flatten fuel ty = (if p then a.flatten fuel ty else b.flatten fuel ty) := by
-  split <;> rfl
+    (if p then a else b).flatten fuel ty = (if p then a.flatten fuel ty else b.flatten fuel ty) :=
+  apply_ite ..
 
 @[simp↓] theorem except_ok_ite (p : Prop) [Decidable p] (a b : α) :
-    (if p then Except.ok a else Except.ok b : Except ε α) = .ok (if p then a else b) := by
-  split <;> rfl
+    (if p then Except.ok a else Except.ok b : Except ε α) = .ok (if p then a else b) :=
+  (apply_ite ..).symm
 
 end SolarTV.MIR.State

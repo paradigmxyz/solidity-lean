@@ -74,29 +74,14 @@ theorem stepOp_project (ctx : Context) (op : EVM.Memory.Op) (stack : Stack) (m :
   unfold stepOp EVM.Memory.step
   split
   · rfl
-  · cases op with
-    | stack op =>
-      show Except.map _ (Except.map _ (stepChecked ctx op stack)) =
-        Except.map _ (stepChecked ctx op stack)
-      cases stepChecked ctx op stack <;> rfl
-    | load =>
-      cases stack with
-      | nil => rfl
-      | cons offset rest =>
-        simp only [InBounds] at bounded
-        simp only [Except.map, Mem.project_load m _ bounded, Mem.project_expand]
-    | store =>
-      match stack with
-      | [] | [_] => rfl
-      | offset :: value :: rest => simp only [Except.map, Mem.project_store]
-    | storeByte =>
-      match stack with
-      | [] | [_] => rfl
-      | offset :: value :: rest => simp only [Except.map, Mem.project_storeByte]
-    | size =>
-      by_cases h : stack.length + 1 > 1024 <;> simp [h, Except.map, Mem.project_msize]
-    | copy => exact absurd bounded (by cases stack <;> simp [InBounds])
-    | hash => exact absurd bounded (by cases stack <;> simp [InBounds])
+  cases op with
+  | stack op => dsimp only; cases stepChecked ctx op stack <;> rfl
+  | size => dsimp only; split <;> rfl
+  | _ =>
+    -- Loads and stores project lemma by lemma; copies and hashes are out of bounds.
+    rcases stack with _ | ⟨_, _ | ⟨_, _⟩⟩ <;>
+      simp_all [InBounds, Except.map, Mem.project_load, Mem.project_expand,
+        Mem.project_store, Mem.project_storeByte]
 
 def context (o : Oracle) (call : Call) (s : State) : Context :=
   ⟨BitVec.ofNat 256 call.calldata.size, o.env "returndatasize" s.world []⟩
