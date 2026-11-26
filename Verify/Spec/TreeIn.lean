@@ -29,16 +29,10 @@ theorem holdsFn_of_tree_in (W : World) {fuel : Nat} {c : TypeCheck.CheckedContra
     {ctxOf : Call → Ctx} {step : GhostStep} {ctx : Ctx}
     (hctx : ∀ call : Call, call.callvalue = 0 → ctxOf call = ctx)
     (hm : TreeMeets b fs ctx fn.params.length T) :
-    HoldsFn (solidCoreIn W fuel) c (SolidCore.Verify.VC.stageScope fn s) b ctxOf step fs := by
-  rintro _ ⟨σ, hcov, fn', hfn', args, hl, hargs, rfl⟩ iargs pre hpre
-  simp only [List.mem_singleton] at hfn'
-  subst hfn'
-  have hrun := source_runIn W hd hcov hsel hfind hT args (hl.trans hlen.symm) hargs
-  obtain ⟨⟨-, -, hdec⟩, hst, ht, hreq, hinv⟩ := hpre
-  rw [hctx _ rfl] at ht hreq hinv ⊢
-  rw [words_calldata _ hargs] at hdec
-  exact ⟨_, hrun, hm args (slotValue σ) iargs pre _ hl hargs (fun k => Generic.slotValue_lt σ k)
-    hdec hst ht hreq hinv⟩
+    HoldsFn (solidCoreIn W fuel) c (SolidCore.Verify.VC.stageScope fn s) b ctxOf step fs :=
+  holdsFn_of_tree_run (fun _ hcov args hl hargs =>
+    source_runIn W hd hcov hsel hfind hT args (hl.trans hlen.symm) hargs) hctx
+    fun _ _ args st iargs pre => hm args st iargs pre _
 
 /-- `holdsFn_of_tree_in` for a function that leaves the ghost state alone. -/
 theorem holdsFn_of_tree_fixed_in (W : World) {fuel : Nat} {c : TypeCheck.CheckedContract}
@@ -51,19 +45,11 @@ theorem holdsFn_of_tree_fixed_in (W : World) {fuel : Nat} {c : TypeCheck.Checked
     (hctx : ∀ call : Call, call.callvalue = 0 → ctxOf call = ctx)
     (hstep : ∀ call, SolidCore.Verify.VC.stageScope fn s call → ∀ g, step call g = g)
     (hm : TreeMeetsFixed b fs ctx fn.params.length T) :
-    HoldsFn (solidCoreIn W fuel) c (SolidCore.Verify.VC.stageScope fn s) b ctxOf step fs := by
-  intro call hcall iargs pre hpre
-  have hg := hstep call hcall pre.ghost
-  obtain ⟨σ, hcov, fn', hfn', args, hl, hargs, rfl⟩ := hcall
-  simp only [List.mem_singleton] at hfn'
-  subst hfn'
-  have hrun := source_runIn W hd hcov hsel hfind hT args (hl.trans hlen.symm) hargs
-  obtain ⟨⟨-, -, hdec⟩, hst, ht, hreq, hinv⟩ := hpre
-  rw [hctx _ rfl] at ht hreq hinv ⊢
-  rw [words_calldata _ hargs] at hdec
-  rw [hg]
-  exact ⟨_, hrun, hm args (slotValue σ) iargs pre hl hargs (fun k => Generic.slotValue_lt σ k)
-    hdec hst ht hreq hinv⟩
+    HoldsFn (solidCoreIn W fuel) c (SolidCore.Verify.VC.stageScope fn s) b ctxOf step fs :=
+  holdsFn_of_tree_run (fun _ hcov args hl hargs =>
+    source_runIn W hd hcov hsel hfind hT args (hl.trans hlen.symm) hargs) hctx
+    fun call hcall args st iargs pre => by
+      rw [hstep call hcall pre.ghost]; exact hm args st iargs pre
 
 /-- info: 'SolidCore.Spec.holdsFn_of_tree_in' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs (whitespace := lax) in

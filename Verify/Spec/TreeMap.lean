@@ -102,6 +102,78 @@ theorem map_ge' {ms : List Nat} (h : MapSlotsSeparated ms) (m : Nat) (hm : m ∈
     a < 2 ^ 160 → 2 ^ 128 ≤ solHash a m :=
   map_ge h hm a
 
+/-! ## The mapping tactics
+
+`hash_facts` and its kin (TreeMapNested.lean, HashScope.lean) read the slot terms of the goal and
+the hypotheses with `slotTerms` and add their instances with `hashBounds` and `hashPairs`;
+`tree_meets_map` and its kin (TreeMapNested.lean, TreeSplit.lean, TreeSucceeds.lean,
+HashScope.lean) decode the call with `decodeArgs` and evaluate the tree and the spec with
+`meetsSteps`, as Tree.lean's `tree_meets` does with `splitArgs`. -/
+
+/-- Whether `t` is a slot term `H x y`. -/
+def isSlotOf (He t : Lean.Expr) : Bool := t.getAppFn == He && t.getAppNumArgs == 2
+
+open Lean Meta Elab Tactic in
+/-- The goal and the types of the hypotheses. -/
+def goalAndHyps : TacticM (Array Expr) := withMainContext do
+  let mut es := #[← instantiateMVars (← getMainTarget)]
+  for d in (← getLCtx) do
+    if d.isImplementationDetail then continue
+    es := es.push (← instantiateMVars d.type)
+  pure es
+
+open Lean Meta Elab Tactic in
+/-- The closed slot terms `H x y` of `es` and, for a storage `s`, the keys `x` of its closed reads
+`s x`: each once, in the order they occur. -/
+def hashTerms (He : Expr) (se : Option Expr) (es : Array Expr) :
+    TacticM (Array Expr × Array Expr) := do
+  let tr ← IO.mkRef (#[] : Array Expr)
+  let sr ← IO.mkRef (#[] : Array Expr)
+  for e in es do
+    e.forEachWhere (fun t => isSlotOf He t && !t.hasLooseBVars)
+      fun t => tr.modify fun a => if a.contains t then a else a.push t
+    if let some se := se then
+      e.forEachWhere (fun t => t.isApp && t.appFn! == se && !t.hasLooseBVars)
+        fun t => sr.modify fun a => if a.contains t.appArg! then a else a.push t.appArg!
+  pure (← tr.get, ← sr.get)
+
+open Lean Meta Elab Tactic in
+/-- `hashTerms` of the goal and the hypotheses, for the slot hash `H` and the storage `s`. -/
+def slotTerms (H s : Ident) : TacticM (Array Expr × Array Expr) := do
+  let (He, se, es) ← withMainContext do
+    pure (← getFVarFromUserName H.getId, ← getFVarFromUserName s.getId, ← goalAndHyps)
+  hashTerms He (some se) es
+
+open Lean Meta Elab Tactic in
+/-- `hlt x y` and what `ge x y` adds, for every slot term `H x y` of `ts`; then `hs x` for every
+storage key `x` of `ss`. -/
+def hashBounds (ts ss : Array Expr) (hlt hs : Ident)
+    (ge : Lean.TSyntax `term → Lean.TSyntax `term → TacticM Unit) : TacticM Unit := do
+  for t in ts do
+    withMainContext do
+      let x ← Term.exprToSyntax t.appFn!.appArg!
+      let y ← Term.exprToSyntax t.appArg!
+      evalTactic (← `(tactic| have := $hlt $x $y))
+      ge x y
+  for x in ss do
+    withMainContext do
+      let x ← Term.exprToSyntax x
+      evalTactic (← `(tactic| try have := $hs $x))
+
+open Lean Meta Elab Tactic in
+/-- What `f x y x' y'` adds, for every pair of slot terms `H x y`, `H x' y'` of `ts`, in order. -/
+def hashPairs (ts : Array Expr)
+    (f : Lean.TSyntax `term → Lean.TSyntax `term → Lean.TSyntax `term → Lean.TSyntax `term → TacticM Unit) :
+    TacticM Unit := do
+  for i in [0:ts.size] do
+    for j in [i+1:ts.size] do
+      withMainContext do
+        let x1 ← Term.exprToSyntax ts[i]!.appFn!.appArg!
+        let y1 ← Term.exprToSyntax ts[i]!.appArg!
+        let x2 ← Term.exprToSyntax ts[j]!.appFn!.appArg!
+        let y2 ← Term.exprToSyntax ts[j]!.appArg!
+        f x1 y1 x2 y2
+
 open Lean Meta Elab Tactic in
 /-- `hash_facts H s hinj hge hlt hs`, with `H` the slot hash (generalized from `solHash`) and `s`
 the storage: for every term `H x y` of the goal and the hypotheses, `hlt x y : H x y < 2 ^ 256`
@@ -111,93 +183,100 @@ x' < 2 ^ 160 → H x y = H x' y' → x = x' ∧ y = y'`; and `hs x : s x < 2 ^ 2
 term `s x`. Each is an instance of a hypothesis; one whose side conditions `decide` does not show
 is left out. -/
 elab "hash_facts " H:ident s:ident hinj:ident hge:ident hlt:ident hs:ident : tactic => do
-  let (ts, ss) ← withMainContext do
-    let He ← getFVarFromUserName H.getId
-    let se ← getFVarFromUserName s.getId
-    let mut es := #[← instantiateMVars (← getMainTarget)]
-    for d in (← getLCtx) do
-      if d.isImplementationDetail then continue
-      es := es.push (← instantiateMVars d.type)
-    let tr ← IO.mkRef (#[] : Array Expr)
-    let sr ← IO.mkRef (#[] : Array Expr)
-    for e in es do
-      e.forEachWhere (fun t => t.getAppFn == He && t.getAppNumArgs == 2 && !t.hasLooseBVars)
-        fun t => tr.modify fun a => if a.contains t then a else a.push t
-      e.forEachWhere (fun t => t.isApp && t.appFn! == se && !t.hasLooseBVars)
-        fun t => sr.modify fun a => if a.contains t.appArg! then a else a.push t.appArg!
-    pure (← tr.get, ← sr.get)
-  for t in ts do
-    withMainContext do
-      let x ← Term.exprToSyntax t.appFn!.appArg!
-      let y ← Term.exprToSyntax t.appArg!
-      evalTactic (← `(tactic| have := $hlt $x $y))
-      evalTactic (← `(tactic| try have := $hge $y (by decide) $x))
-  for x in ss do
-    withMainContext do
-      let x ← Term.exprToSyntax x
-      evalTactic (← `(tactic| try have := $hs $x))
-  for i in [0:ts.size] do
-    for j in [i+1:ts.size] do
-      withMainContext do
-        let x1 ← Term.exprToSyntax ts[i]!.appFn!.appArg!
-        let y1 ← Term.exprToSyntax ts[i]!.appArg!
-        let x2 ← Term.exprToSyntax ts[j]!.appFn!.appArg!
-        let y2 ← Term.exprToSyntax ts[j]!.appArg!
-        evalTactic (← `(tactic| try have := $hinj $y1 $y2 (by decide) (by decide) (by decide) (by decide) $x1 $x2))
+  let (ts, ss) ← slotTerms H s
+  hashBounds ts ss hlt hs fun x y => do
+    evalTactic (← `(tactic| try have := $hge $y (by decide) $x))
+  hashPairs ts fun x1 y1 x2 y2 => do
+    evalTactic (← `(tactic| try have := $hinj $y1 $y2 (by decide) (by decide) (by decide) (by decide) $x1 $x2))
 
+/-- The case split every mapping tactic starts with: `splitArgs`, then the argument words'
+bounds and their decoding, a case for each of `decodeWords`' range checks. -/
+def decodeArgs (ds : Lean.Syntax.TSepArray `Lean.Parser.Tactic.simpLemma ",") : Lean.MacroM (Array (Lean.TSyntax `tactic)) :=
+  return (← splitArgs) ++ #[
+    ← `(tactic| simp only [List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp, forall_eq,
+      IsEmpty.forall_iff, implies_true, and_true, Nat.reducePow] at hargs),
+    ← `(tactic| simp only [$ds,*, List.head, List.getElem_cons_zero, List.getElem_cons_succ, decodeWords, Ty.ofWord,
+      bind, pure, Option.bind, Nat.reducePow] at hdec),
+    ← `(tactic| split_ifs at hdec),
+    ← `(tactic| simp only [Option.some.injEq, reduceCtorEq] at hdec),
+    ← `(tactic| subst hdec)]
 
-/-- \`tree_meets_map [defs] hsep\` proves \`TreeMeetsFixed b fs ctx n T\` for a function of at most eight
-parameters that reads and writes mappings keyed by addresses at the slots \`ms\`, from
-\`hsep : MapSlotsSeparated ms\`, unfolding \`defs\` (the tree, the spec bundle, the function's spec and
-the call context). It decodes the argument words, generalizes the slot hash \`solHash\` to a
-variable \`H\` (so no step evaluates keccak256), evaluates the tree and the spec's terms, splits
-every branch, and closes each case by \`omega\` with \`hash_facts\`'s instances of \`map_inj\`,
-\`map_ge\` and the word bounds. A case it cannot close stays an error: it never leaves a \`sorry\`. -/
-macro "tree_meets_map" "[" ds:Lean.Parser.Tactic.simpLemma,* "]" hsep:term:max : tactic => `(tactic| (
-  intro args s iargs pre hl hargs hs hdec hst ht hreq hinv
-  simp only [Nat.reducePow] at hs
-  rcases args with _ | ⟨a0, _ | ⟨a1, _ | ⟨a2, _ | ⟨a3, _ | ⟨a4, _ | ⟨a5, _ | ⟨a6, _ | ⟨a7, _ | ⟨_, _⟩⟩⟩⟩⟩⟩⟩⟩⟩ <;>
-    simp only [List.length_cons, List.length_nil] at hl <;> (try omega) <;>
-    simp only [List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp, forall_eq,
-      IsEmpty.forall_iff, implies_true, and_true, Nat.reducePow] at hargs <;>
-    simp only [$ds,*, List.head, List.getElem_cons_zero, List.getElem_cons_succ, decodeWords, Ty.ofWord,
-      bind, pure, Option.bind, Nat.reducePow] at hdec <;>
-    split_ifs at hdec <;> simp only [Option.some.injEq, reduceCtorEq] at hdec <;>
-    subst hdec <;>
-    have hinj := map_inj' $hsep <;> have hge := map_ge' $hsep <;> have hlt := solHash_lt' <;>
-    have hkec := keccak_solHash <;>
-    generalize solHash = H at hinj hge hlt hkec ⊢ <;>
-    refine ⟨fun hsucc => ?_, fun hne => ?_⟩
-  all_goals try (simp [$ds,*] at hne; done)
-  all_goals simp only [$ds,*, Tree.eval, WExpr.eval, BinOp.eval, UnOp.eval, Generic.wordSize, Res.obs,
-    Writes.store, List.getD_cons_zero, List.getD_cons_succ, Nat.reducePow] at hsucc ⊢
-  all_goals simp (disch := simp only [hargs, hs, hlt, Nat.reduceLT]) only [Nat.mod_eq_of_lt, ite_mod_nat,
-    Nat.reduceMod, Nat.zero_mod, ite10_eq_zero_iff, Decidable.not_not] at hsucc ⊢
-  all_goals split_ifs at hsucc ⊢
-  all_goals simp only [Bool.false_eq_true, Bool.true_eq_false, imp_false, not_true_eq_false,
-    IsEmpty.forall_iff] at hsucc
-  all_goals simp only [$ds,*, OByte.eval, WExpr.eval, Generic.wordSize, words, bytesWord, decodeWords, Ty.ofWord,
-    List.map_cons, List.map_nil, List.length_cons, List.length_nil, List.range_succ, List.range_zero,
-    List.nil_append, List.cons_append, List.drop_zero, List.take_succ_cons, List.take_zero, List.foldl_cons,
-    List.foldl_nil, Nat.reduceDiv, Nat.reducePow, Nat.reduceMod, Nat.reduceSub, Nat.reduceMul, Nat.reduceAdd,
-    Nat.reduceLT, ite_true, ite_false, List.getElem_cons_succ, List.getElem_cons_zero, Option.some.injEq,
-    exists_eq_left', bind, pure, Option.bind, Ty.InRange, Nat.cast_ofNat, Nat.zero_add,
-    Nat.reduceLeDiff] at hsucc ⊢
-  all_goals try clear hsucc
-  all_goals try refine ⟨?_, ?_⟩
-  all_goals simp only [Bundle.satAll, Bundle.sat, $ds,*, List.getElem_cons_succ, List.getElem_cons_zero,
-    List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp, forall_eq, eval, evalList, slotOf, mkEnv,
-    Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero, List.getD_cons_succ,
-    List.lookup, hkec, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
-    beq_self_eq_true, Ty.InRange, Option.getD_some, forall_int_range, Nat.cast_ofNat] at hinv ⊢
-  all_goals simp only [wordMod, Nat.reducePow] at hinv ⊢
-  all_goals simp (disch := first | exact hlt _ _ | exact hs _ | omega) only [Nat.mod_eq_of_lt,
-    toNat_natCast_emod] at hinv ⊢
-  all_goals simp (disch := first | exact hlt _ _ | exact hs _ | omega) only [Nat.cast_ofNat,
-    Int.reduceMod, Int.reduceToNat, Nat.mod_eq_of_lt, toNat_natCast_emod, toNat_ofNat_emod,
-    toNat_zero_emod, toNat_one_emod, wordMod, Nat.reducePow, Nat.reduceMul, Nat.reduceMod, Nat.div_one,
-    Nat.reduceDiv, Int.reducePow] at hinv ⊢
-  all_goals (repeat' (first | (apply And.intro) | intro))
-  all_goals (hash_facts H s hinj hge hlt hs; split_ifs <;> omega)))
+/-- The links after the decoding that take the separation lemmas `hinj := inj` and `hge := ge`,
+the slot hash's bound `hlt` and `hkec`, and generalize `solHash` to `H` in them. -/
+def hashLinks (inj ge : Lean.TSyntax `term) : Lean.MacroM (Array (Lean.TSyntax `tactic)) := return #[
+  ← `(tactic| have hinj := $inj), ← `(tactic| have hge := $ge),
+  ← `(tactic| have hlt := solHash_lt'), ← `(tactic| have hkec := keccak_solHash),
+  ← `(tactic| generalize solHash = H at hinj hge hlt hkec ⊢)]
+
+/-- `all_goals t`, or `all_goals try (t)` when `lenient`: a step that may make no progress. -/
+def allGoals (lenient : Bool) (t : Lean.TSyntax `tactic) : Lean.MacroM (Lean.TSyntax `tactic) :=
+  if lenient then `(tactic| all_goals try ($t:tactic)) else `(tactic| all_goals $t:tactic)
+
+/-- The last lemmas of `meetsSteps`' step on the invariants. -/
+def invBase : Lean.MacroM (Array (Lean.TSyntax `Lean.Parser.Tactic.simpLemma)) := return #[← `(Lean.Parser.Tactic.simpLemma| Nat.cast_ofNat)]
+
+/-- What the mapping tactics do after their case split: evaluate the tree and the spec's terms
+(`hsucc`, `hne`, the invariants `hinv`), split every branch and reduce each word mod `2 ^ 256`,
+each step `allGoals lenient`. With `onP` the split tree's tests `hP` are evaluated and split too;
+`inv` ends the lemmas of the step on the invariants. -/
+def meetsSteps (ds : Lean.Syntax.TSepArray `Lean.Parser.Tactic.simpLemma ",") (lenient onP : Bool)
+    (inv : Array (Lean.TSyntax `Lean.Parser.Tactic.simpLemma)) : Lean.MacroM (Array (Lean.TSyntax `tactic)) := do
+  let step := allGoals lenient
+  let mut ts := #[← `(tactic| all_goals try (simp [$ds,*] at hne; done)),
+    ← step (← `(tactic| simp only [$ds,*, Tree.eval, WExpr.eval, BinOp.eval, UnOp.eval, Generic.wordSize, Res.obs,
+      Writes.store, List.getD_cons_zero, List.getD_cons_succ, Nat.reducePow] at hsucc ⊢))]
+  if onP then
+    ts := ts.push (← `(tactic| all_goals try simp (disch := simp only [hargs, hs, hlt, Nat.reduceLT]) only [Nat.mod_eq_of_lt, ite_mod_nat,
+      Nat.reduceMod, Nat.zero_mod, ite10_eq_zero_iff, Decidable.not_not, ne_eq] at hP))
+  ts := ts.push (← step (← `(tactic| simp (disch := simp only [hargs, hs, hlt, Nat.reduceLT]) only [Nat.mod_eq_of_lt, ite_mod_nat,
+    Nat.reduceMod, Nat.zero_mod, ite10_eq_zero_iff, Decidable.not_not] at hsucc ⊢)))
+  if onP then
+    ts := ts.push (← step (← `(tactic| first | split_ifs at hP hsucc ⊢ | split_ifs at hP ⊢ | split_ifs at hsucc ⊢)))
+  else
+    ts := ts.push (← step (← `(tactic| split_ifs at hsucc ⊢)))
+  return ts ++ #[
+    ← step (← `(tactic| simp only [Bool.false_eq_true, Bool.true_eq_false, imp_false, not_true_eq_false,
+      IsEmpty.forall_iff] at hsucc)),
+    ← step (← `(tactic| simp only [$ds,*, OByte.eval, WExpr.eval, Generic.wordSize, words, bytesWord, decodeWords, Ty.ofWord,
+      List.map_cons, List.map_nil, List.length_cons, List.length_nil, List.range_succ, List.range_zero,
+      List.nil_append, List.cons_append, List.drop_zero, List.take_succ_cons, List.take_zero, List.foldl_cons,
+      List.foldl_nil, Nat.reduceDiv, Nat.reducePow, Nat.reduceMod, Nat.reduceSub, Nat.reduceMul, Nat.reduceAdd,
+      Nat.reduceLT, ite_true, ite_false, List.getElem_cons_succ, List.getElem_cons_zero, Option.some.injEq,
+      exists_eq_left', bind, pure, Option.bind, Ty.InRange, Nat.cast_ofNat, Nat.zero_add,
+      Nat.reduceLeDiff] at hsucc ⊢)),
+    ← `(tactic| all_goals try clear hsucc),
+    ← `(tactic| all_goals try refine ⟨?_, ?_⟩),
+    ← step (← `(tactic| simp only [Bundle.satAll, Bundle.sat, $ds,*, List.getElem_cons_succ, List.getElem_cons_zero,
+      List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp, forall_eq, eval, evalList, slotOf, mkEnv,
+      Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero, List.getD_cons_succ,
+      List.lookup, hkec, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
+      beq_self_eq_true, Ty.InRange, Option.getD_some, forall_int_range, $[$inv],*] at hinv ⊢)),
+    ← step (← `(tactic| simp only [wordMod, Nat.reducePow] at hinv ⊢)),
+    ← step (← `(tactic| simp (disch := first | exact hlt _ _ | exact hs _ | omega) only [Nat.mod_eq_of_lt,
+      toNat_natCast_emod] at hinv ⊢)),
+    ← step (← `(tactic| simp (disch := first | exact hlt _ _ | exact hs _ | omega) only [Nat.cast_ofNat,
+      Int.reduceMod, Int.reduceToNat, Nat.mod_eq_of_lt, toNat_natCast_emod, toNat_ofNat_emod,
+      toNat_zero_emod, toNat_one_emod, wordMod, Nat.reducePow, Nat.reduceMul, Nat.reduceMod, Nat.div_one,
+      Nat.reduceDiv, Int.reducePow] at hinv ⊢))]
+
+/-- The step after `meetsSteps` that splits every conjunction of the goal and introduces every
+hypothesis, `allGoals lenient`. -/
+def splitGoals (lenient : Bool) : Lean.MacroM (Lean.TSyntax `tactic) := do
+  allGoals lenient (← `(tactic| (repeat' (first | (apply And.intro) | intro))))
+
+/-- `tree_meets_map [defs] hsep` proves `TreeMeetsFixed b fs ctx n T` for a function of at most eight
+parameters that reads and writes mappings keyed by addresses at the slots `ms`, from
+`hsep : MapSlotsSeparated ms`, unfolding `defs` (the tree, the spec bundle, the function's spec and
+the call context). It decodes the argument words, generalizes the slot hash `solHash` to a
+variable `H` (so no step evaluates keccak256), evaluates the tree and the spec's terms, splits
+every branch, and closes each case by `omega` with `hash_facts`'s instances of `map_inj`,
+`map_ge` and the word bounds. A case it cannot close stays an error: it never leaves a `sorry`. -/
+macro "tree_meets_map" "[" ds:Lean.Parser.Tactic.simpLemma,* "]" hsep:term:max : tactic => do
+  seqTactics (#[← `(tactic| intro args s iargs pre hl hargs hs hdec hst ht hreq hinv),
+    ← `(tactic| simp only [Nat.reducePow] at hs),
+    ← chainTactics ((← decodeArgs ds) ++ (← hashLinks (← `(map_inj' $hsep)) (← `(map_ge' $hsep))) ++
+      #[← `(tactic| refine ⟨fun hsucc => ?_, fun hne => ?_⟩)])] ++
+    (← meetsSteps ds false false (← invBase)) ++
+    #[← splitGoals false, ← `(tactic| all_goals (hash_facts H s hinj hge hlt hs; split_ifs <;> omega))])
 
 end SolidCore.Spec

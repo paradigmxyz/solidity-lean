@@ -111,6 +111,36 @@ def TreeMeets (b : Bundle) (fs : FnSpec) (ctx : Ctx) (n : Nat) (T : Tree) : Prop
     b.satAll b.spec.invariants (mkEnv ctx iargs [] pre pre) →
     Post b fs ctx pre ghost' (T.eval ⟨args, s, solHash, SolidCore.Refinement.Generic.callerWord⟩).obs iargs
 
+/-- **A function's spec holds of a contract that runs the stage's calls of the function as the
+erased tree**, for any semantics: `hrun` says each call of the stage's scope finishes with the
+tree's observable, and `hm` that this observable meets `Post` for the call's ghost step. The
+step `holdsFn_of_tree`, `holdsFn_of_tree_fixed` and their every-world forms (TreeIn.lean) share. -/
+theorem holdsFn_of_tree_run {S : Sem} {p : S.Prog} {s : List (Nat × Nat)} {fn : Fn} {T : Tree}
+    (hrun : ∀ σ, Covers s σ → ∀ args : List Nat, args.length = fn.params.length →
+      (∀ a ∈ args, a < 2 ^ 256) →
+      S.run p { calldata := Abi.calldata fn.sel args, callvalue := 0, storage := σ } =
+        some (T.eval ⟨args, slotValue σ, solHash, callerWord⟩).obs)
+    {b : Bundle} {fs : FnSpec} {ctxOf : Call → Ctx} {step : GhostStep} {ctx : Ctx}
+    (hctx : ∀ call : Call, call.callvalue = 0 → ctxOf call = ctx)
+    (hm : ∀ call, SolidCore.Verify.VC.stageScope fn s call →
+      ∀ (args : List Nat) (st : Storage) (iargs : List Int) (pre : State),
+      args.length = fn.params.length → (∀ a ∈ args, a < 2 ^ 256) → (∀ k, st k < 2 ^ 256) →
+      decodeWords fs.params args = some iargs → pre.storage = st → pre.time ≤ ctx.timestamp →
+      b.satAll fs.requires (mkEnv ctx iargs [] pre pre) →
+      b.satAll b.spec.invariants (mkEnv ctx iargs [] pre pre) →
+      Post b fs ctx pre (step call pre.ghost) (T.eval ⟨args, st, solHash, callerWord⟩).obs iargs) :
+    HoldsFn S p (SolidCore.Verify.VC.stageScope fn s) b ctxOf step fs := by
+  intro call hcall iargs pre hpre
+  have hm := hm call hcall
+  obtain ⟨σ, hcov, fn', hfn', args, hl, hargs, rfl⟩ := hcall
+  simp only [List.mem_singleton] at hfn'
+  subst hfn'
+  obtain ⟨⟨-, -, hdec⟩, hst, ht, hreq, hinv⟩ := hpre
+  rw [hctx _ rfl] at ht hreq hinv ⊢
+  rw [words_calldata _ hargs] at hdec
+  exact ⟨_, hrun σ hcov args hl hargs, hm args (slotValue σ) iargs pre hl hargs
+    (fun k => Generic.slotValue_lt σ k) hdec hst ht hreq hinv⟩
+
 /-- **A function's spec holds of SolidCore's contract when it holds of the erased tree**, on
 the stage's calls of the function (any argument words, no value, any storage covering the
 deployed one), for a call context fixed on those calls. -/
@@ -122,16 +152,10 @@ theorem holdsFn_of_tree {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Source
     {ctxOf : Call → Ctx} {step : GhostStep} {ctx : Ctx}
     (hctx : ∀ call : Call, call.callvalue = 0 → ctxOf call = ctx)
     (hm : TreeMeets b fs ctx fn.params.length T) :
-    HoldsFn (solidCore fuel) c (SolidCore.Verify.VC.stageScope fn s) b ctxOf step fs := by
-  rintro _ ⟨σ, hcov, fn', hfn', args, hl, hargs, rfl⟩ iargs pre hpre
-  simp only [List.mem_singleton] at hfn'
-  subst hfn'
-  have hrun := source_run hd hcov hsel hfind hT args (hl.trans hlen.symm) hargs
-  obtain ⟨⟨-, -, hdec⟩, hst, ht, hreq, hinv⟩ := hpre
-  rw [hctx _ rfl] at ht hreq hinv ⊢
-  rw [words_calldata _ hargs] at hdec
-  exact ⟨_, hrun, hm args (slotValue σ) iargs pre _ hl hargs (fun k => Generic.slotValue_lt σ k)
-    hdec hst ht hreq hinv⟩
+    HoldsFn (solidCore fuel) c (SolidCore.Verify.VC.stageScope fn s) b ctxOf step fs :=
+  holdsFn_of_tree_run (fun _ hcov args hl hargs =>
+    source_run hd hcov hsel hfind hT args (hl.trans hlen.symm) hargs) hctx
+    fun _ _ args st iargs pre => hm args st iargs pre _
 
 /-! ## Functions that leave the ghost state alone -/
 
@@ -156,19 +180,11 @@ theorem holdsFn_of_tree_fixed {fuel : Nat} {c : TypeCheck.CheckedContract} {d : 
     (hctx : ∀ call : Call, call.callvalue = 0 → ctxOf call = ctx)
     (hstep : ∀ call, SolidCore.Verify.VC.stageScope fn s call → ∀ g, step call g = g)
     (hm : TreeMeetsFixed b fs ctx fn.params.length T) :
-    HoldsFn (solidCore fuel) c (SolidCore.Verify.VC.stageScope fn s) b ctxOf step fs := by
-  intro call hcall iargs pre hpre
-  have hg := hstep call hcall pre.ghost
-  obtain ⟨σ, hcov, fn', hfn', args, hl, hargs, rfl⟩ := hcall
-  simp only [List.mem_singleton] at hfn'
-  subst hfn'
-  have hrun := source_run hd hcov hsel hfind hT args (hl.trans hlen.symm) hargs
-  obtain ⟨⟨-, -, hdec⟩, hst, ht, hreq, hinv⟩ := hpre
-  rw [hctx _ rfl] at ht hreq hinv ⊢
-  rw [words_calldata _ hargs] at hdec
-  rw [hg]
-  exact ⟨_, hrun, hm args (slotValue σ) iargs pre hl hargs (fun k => Generic.slotValue_lt σ k)
-    hdec hst ht hreq hinv⟩
+    HoldsFn (solidCore fuel) c (SolidCore.Verify.VC.stageScope fn s) b ctxOf step fs :=
+  holdsFn_of_tree_run (fun _ hcov args hl hargs =>
+    source_run hd hcov hsel hfind hT args (hl.trans hlen.symm) hargs) hctx
+    fun call hcall args st iargs pre => by
+      rw [hstep call hcall pre.ghost]; exact hm args st iargs pre
 
 /-! ## Proving `TreeMeets`
 
@@ -178,64 +194,63 @@ spec): it names the argument words, decodes them, splits the tree's branches, ev
 terms and the tree's words (a returned word as one word, by `words_byteOf`, with storage words
 bounded by `hsm` and `hsi`, argument words by `ham` and `hai`, and any word reduced mod `2 ^ 256`
 by `hml`), and closes each case with `omega`. A goal it cannot close stays an
-error: it never leaves a `sorry`. -/
+error: it never leaves a `sorry`.
 
-macro "tree_meets" "[" ds:Lean.Parser.Tactic.simpLemma,* "]" : tactic => `(tactic| (
-  intro args s iargs pre g hl hargs hs hdec hst ht hreq hinv
-  have hsm : ∀ k, s k % 2 ^ 256 = s k := fun k => Nat.mod_eq_of_lt (hs k)
-  have hsi : ∀ k, ((s k : Nat) : Int) % 2 ^ 256 = s k := fun k =>
-    Int.emod_eq_of_lt (Int.natCast_nonneg _) (by have := hs k; omega)
-  have ham : ∀ a ∈ args, a % 2 ^ 256 = a := fun a ha => Nat.mod_eq_of_lt (hargs a ha)
-  have hai : ∀ a ∈ args, ((a : Nat) : Int) % 2 ^ 256 = a := fun a ha =>
-    Int.emod_eq_of_lt (Int.natCast_nonneg _) (by have := hargs a ha; omega)
-  have hml : ∀ a : Nat, a % 2 ^ 256 < 2 ^ 256 := fun a => Nat.mod_lt _ (Nat.two_pow_pos 256)
-  rcases args with _ | ⟨a0, _ | ⟨a1, _ | ⟨a2, _ | ⟨a3, _ | ⟨a4, _ | ⟨a5, _ | ⟨a6, _ | ⟨a7, _ | ⟨_, _⟩⟩⟩⟩⟩⟩⟩⟩⟩ <;>
-    simp only [List.length_cons, List.length_nil] at hl <;> (try omega) <;>
-    simp only [List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp, forall_eq,
-      IsEmpty.forall_iff, implies_true, and_true] at hargs ham hai <;>
-    simp only [$ds,*, List.head, List.getElem_cons_zero, List.getElem_cons_succ, decodeWords, Ty.ofWord,
-      hargs, ite_true, bind, pure, Option.bind,
-      Option.some.injEq] at hdec <;>
-    subst hdec <;>
-    refine ⟨fun hsucc => ?_, fun hne => ?_⟩ <;>
-    first
-    | (simp [$ds,*] at hne; done)
-    | (simp only [$ds,*, Tree.eval, Res.obs, words_byteOf, WExpr.eval, BinOp.eval, Generic.wordSize, hsm,
-          List.getD_cons_zero, List.getD_cons_succ] at hsucc ⊢
-       split_ifs at hsucc ⊢ <;>
-       simp_all [$ds,*, Res.obs, Writes.store, WExpr.eval, BinOp.eval, Bundle.satAll, Bundle.sat,
-         eval, slotOf, mkEnv, Env.cur, BinOp.apply, Ty.ofBits, Ty.ofWord, toWord, decodeWords, words,
-         Generic.wordSize] <;>
-       omega)))
+The tree tactics (here, TreeMap.lean, TreeMapNested.lean, TreeSplit.lean, TreeSucceeds.lean and
+HashScope.lean) are built from shared pieces: each piece is a `Lean.MacroM` function its tactic calls
+while it expands, so the names one piece introduces (`hl`, `hargs`, `hsucc`, `H`, …) are the
+names the next reads. -/
+
+/-- `ts` joined by `<;>` from the left, `t₀ <;> t₁ <;> …`: the case split of a tree tactic. -/
+def chainTactics (ts : Array (Lean.TSyntax `tactic)) : Lean.MacroM (Lean.TSyntax `tactic) :=
+  ts.foldlM (fun a b => `(tactic| $a <;> $b)) ts[0]! 1
+
+/-- `ts` as one tactic block, `(t₀; t₁; …)`. -/
+def seqTactics (ts : Array (Lean.TSyntax `tactic)) : Lean.MacroM (Lean.TSyntax `tactic) :=
+  `(tactic| ($[$ts]*))
+
+/-- The first links of every tree tactic's case split: the argument words `a0`, …, `a7` of a
+function of at most eight parameters, every other length refuted from `hl`. -/
+def splitArgs : Lean.MacroM (Array (Lean.TSyntax `tactic)) := return #[
+  ← `(tactic| rcases args with _ | ⟨a0, _ | ⟨a1, _ | ⟨a2, _ | ⟨a3, _ | ⟨a4, _ | ⟨a5, _ | ⟨a6, _ | ⟨a7, _ | ⟨_, _⟩⟩⟩⟩⟩⟩⟩⟩⟩),
+  ← `(tactic| simp only [List.length_cons, List.length_nil] at hl),
+  ← `(tactic| (try omega))]
+
+/-- What `tree_meets` and `tree_meets_fixed` do once they have named the call's parts. -/
+def treeMeetsSteps (ds : Lean.Syntax.TSepArray `Lean.Parser.Tactic.simpLemma ",") :
+    Lean.MacroM (Array (Lean.TSyntax `tactic)) := return #[
+  ← `(tactic| have hsm : ∀ k, s k % 2 ^ 256 = s k := fun k => Nat.mod_eq_of_lt (hs k)),
+  ← `(tactic| have hsi : ∀ k, ((s k : Nat) : Int) % 2 ^ 256 = s k := fun k =>
+    Int.emod_eq_of_lt (Int.natCast_nonneg _) (by have := hs k; omega)),
+  ← `(tactic| have ham : ∀ a ∈ args, a % 2 ^ 256 = a := fun a ha => Nat.mod_eq_of_lt (hargs a ha)),
+  ← `(tactic| have hai : ∀ a ∈ args, ((a : Nat) : Int) % 2 ^ 256 = a := fun a ha =>
+    Int.emod_eq_of_lt (Int.natCast_nonneg _) (by have := hargs a ha; omega)),
+  ← `(tactic| have hml : ∀ a : Nat, a % 2 ^ 256 < 2 ^ 256 := fun a => Nat.mod_lt _ (Nat.two_pow_pos 256)),
+  ← chainTactics ((← splitArgs) ++ #[
+    ← `(tactic| simp only [List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp, forall_eq,
+      IsEmpty.forall_iff, implies_true, and_true] at hargs ham hai),
+    ← `(tactic| simp only [$ds,*, List.head, List.getElem_cons_zero, List.getElem_cons_succ, decodeWords,
+      Ty.ofWord, hargs, ite_true, bind, pure, Option.bind, Option.some.injEq] at hdec),
+    ← `(tactic| subst hdec),
+    ← `(tactic| refine ⟨fun hsucc => ?_, fun hne => ?_⟩),
+    ← `(tactic| first
+      | (simp [$ds,*] at hne; done)
+      | (simp only [$ds,*, Tree.eval, Res.obs, words_byteOf, WExpr.eval, BinOp.eval, Generic.wordSize, hsm,
+            List.getD_cons_zero, List.getD_cons_succ] at hsucc ⊢
+         split_ifs at hsucc ⊢ <;>
+         simp_all [$ds,*, Res.obs, Writes.store, WExpr.eval, BinOp.eval, Bundle.satAll, Bundle.sat,
+           eval, slotOf, mkEnv, Env.cur, BinOp.apply, Ty.ofBits, Ty.ofWord, toWord, decodeWords, words,
+           Generic.wordSize] <;>
+         omega))])]
+
+macro "tree_meets" "[" ds:Lean.Parser.Tactic.simpLemma,* "]" : tactic => do
+  seqTactics (#[← `(tactic| intro args s iargs pre g hl hargs hs hdec hst ht hreq hinv)] ++
+    (← treeMeetsSteps ds))
 
 /-- `tree_meets` for `TreeMeetsFixed`: the same steps, with the post-state's ghost state the
 pre-state's. -/
-macro "tree_meets_fixed" "[" ds:Lean.Parser.Tactic.simpLemma,* "]" : tactic => `(tactic| (
-  intro args s iargs pre hl hargs hs hdec hst ht hreq hinv
-  have hsm : ∀ k, s k % 2 ^ 256 = s k := fun k => Nat.mod_eq_of_lt (hs k)
-  have hsi : ∀ k, ((s k : Nat) : Int) % 2 ^ 256 = s k := fun k =>
-    Int.emod_eq_of_lt (Int.natCast_nonneg _) (by have := hs k; omega)
-  have ham : ∀ a ∈ args, a % 2 ^ 256 = a := fun a ha => Nat.mod_eq_of_lt (hargs a ha)
-  have hai : ∀ a ∈ args, ((a : Nat) : Int) % 2 ^ 256 = a := fun a ha =>
-    Int.emod_eq_of_lt (Int.natCast_nonneg _) (by have := hargs a ha; omega)
-  have hml : ∀ a : Nat, a % 2 ^ 256 < 2 ^ 256 := fun a => Nat.mod_lt _ (Nat.two_pow_pos 256)
-  rcases args with _ | ⟨a0, _ | ⟨a1, _ | ⟨a2, _ | ⟨a3, _ | ⟨a4, _ | ⟨a5, _ | ⟨a6, _ | ⟨a7, _ | ⟨_, _⟩⟩⟩⟩⟩⟩⟩⟩⟩ <;>
-    simp only [List.length_cons, List.length_nil] at hl <;> (try omega) <;>
-    simp only [List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp, forall_eq,
-      IsEmpty.forall_iff, implies_true, and_true] at hargs ham hai <;>
-    simp only [$ds,*, List.head, List.getElem_cons_zero, List.getElem_cons_succ, decodeWords, Ty.ofWord,
-      hargs, ite_true, bind, pure, Option.bind,
-      Option.some.injEq] at hdec <;>
-    subst hdec <;>
-    refine ⟨fun hsucc => ?_, fun hne => ?_⟩ <;>
-    first
-    | (simp [$ds,*] at hne; done)
-    | (simp only [$ds,*, Tree.eval, Res.obs, words_byteOf, WExpr.eval, BinOp.eval, Generic.wordSize, hsm,
-          List.getD_cons_zero, List.getD_cons_succ] at hsucc ⊢
-       split_ifs at hsucc ⊢ <;>
-       simp_all [$ds,*, Res.obs, Writes.store, WExpr.eval, BinOp.eval, Bundle.satAll, Bundle.sat,
-         eval, slotOf, mkEnv, Env.cur, BinOp.apply, Ty.ofBits, Ty.ofWord, toWord, decodeWords, words,
-         Generic.wordSize] <;>
-       omega)))
+macro "tree_meets_fixed" "[" ds:Lean.Parser.Tactic.simpLemma,* "]" : tactic => do
+  seqTactics (#[← `(tactic| intro args s iargs pre hl hargs hs hdec hst ht hreq hinv)] ++
+    (← treeMeetsSteps ds))
 
 end SolidCore.Spec

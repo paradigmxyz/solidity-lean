@@ -92,21 +92,9 @@ open Lean Meta Elab Tactic in
 `hnn n n' _ _ _ _ x x' c c'`. Each is an instance of a hypothesis; one whose side conditions
 `decide` does not show is left out. -/
 elab "hash_facts_nested " H:ident hgn:ident hln:ident hnn:ident : tactic => do
-  let ts ← withMainContext do
-    let He ← getFVarFromUserName H.getId
-    let mut es := #[← instantiateMVars (← getMainTarget)]
-    for d in (← getLCtx) do
-      if d.isImplementationDetail then continue
-      es := es.push (← instantiateMVars d.type)
-    let tr ← IO.mkRef (#[] : Array Expr)
-    for e in es do
-      e.forEachWhere (fun t => t.getAppFn == He && t.getAppNumArgs == 2 && !t.hasLooseBVars)
-        fun t => tr.modify fun a => if a.contains t then a else a.push t
-    pure (← tr.get, He)
-  let (ts, He) := ts
-  let isNested (t : Expr) : Bool :=
-    let y := t.appArg!
-    y.getAppFn == He && y.getAppNumArgs == 2
+  let (He, es) ← withMainContext do pure (← getFVarFromUserName H.getId, ← goalAndHyps)
+  let (ts, _) ← hashTerms He none es
+  let isNested (t : Expr) : Bool := isSlotOf He t.appArg!
   for i in [0:ts.size] do
     let t := ts[i]!
     if !isNested t then continue
@@ -132,6 +120,26 @@ elab "hash_facts_nested " H:ident hgn:ident hln:ident hnn:ident : tactic => do
           let m ← Term.exprToSyntax u.appArg!
           evalTactic (← `(tactic| try have := $hln $m $n (by decide) (by decide) (by decide) $x2 $x $c))
 
+open Lean Meta Elab Tactic in
+/-- Whether `ty` is, up to reducible unfolding, a clause `∀ x : Nat, x < b → P x` (or `x ≤ b`), as
+`inst_foralls` and `inst_forall_lits` instantiate. -/
+def isBoundedForall (ty : Expr) : MetaM Bool := do
+  let ty ← whnfR ty
+  return ty.isForall && ty.bindingDomain!.isConstOf `Nat && ty.bindingBody!.hasLooseBVars &&
+    ty.bindingBody!.isForall && (ty.bindingBody!.bindingDomain!.isAppOfArity `LT.lt 4 ||
+      ty.bindingBody!.bindingDomain!.isAppOfArity `LE.le 4)
+
+open Lean Meta Elab Tactic in
+/-- `f a` for every clause `f` of `fs` and every `a` of `as` (as the term `arg a`), its bound
+discharged by `omega`; an instance whose bound `omega` does not show is left out. -/
+def instClauses {α : Type} (fs : Array FVarId) (as : Array α) (arg : α → TacticM (TSyntax `term)) :
+    TacticM Unit := do
+  for f in fs do
+    for a in as do
+      withMainContext do
+        let fe ← Term.exprToSyntax (mkFVar f)
+        let ae ← arg a
+        evalTactic (← `(tactic| first | have := $fe $ae (by omega) | skip))
 
 open Lean Meta Elab Tactic in
 /-- `inst_foralls`: split every conjunction among the hypotheses, then instantiate every hypothesis
@@ -163,51 +171,20 @@ elab "inst_foralls" : tactic => do
     let mut vs := #[]
     for d in (← getLCtx) do
       if d.isImplementationDetail then continue
-      let ty ← whnfR (← instantiateMVars d.type)
-      if ty.isForall && ty.bindingDomain!.isConstOf `Nat && ty.bindingBody!.hasLooseBVars &&
-          ty.bindingBody!.isForall && (ty.bindingBody!.bindingDomain!.isAppOfArity `LT.lt 4 ||
-            ty.bindingBody!.bindingDomain!.isAppOfArity `LE.le 4) then
+      if (← isBoundedForall (← instantiateMVars d.type)) then
         fs := fs.push d.fvarId
       else if (← instantiateMVars d.type).isConstOf `Nat then
         vs := vs.push d.fvarId
     pure (fs, vs)
-  for f in fs do
-    for v in vs do
-      withMainContext do
-        let fe ← Term.exprToSyntax (mkFVar f)
-        let ve ← Term.exprToSyntax (mkFVar v)
-        evalTactic (← `(tactic| first | have := $fe $ve (by omega) | skip))
-
+  instClauses fs vs fun v => Term.exprToSyntax (mkFVar v)
 
 open Lean Meta Elab Tactic in
 /-- `hash_bounds H s hlt hs`: for every slot term `H x y` of the goal and the hypotheses,
 `hlt x y : H x y < 2 ^ 256`, and for every storage read `s x`, `hs x : s x < 2 ^ 256`: word bounds only, no
 implication, so `omega` stays linear in them. -/
 elab "hash_bounds " H:ident s:ident hlt:ident hs:ident : tactic => do
-  let (ts, ss) ← withMainContext do
-    let He ← getFVarFromUserName H.getId
-    let se ← getFVarFromUserName s.getId
-    let mut es := #[← instantiateMVars (← getMainTarget)]
-    for d in (← getLCtx) do
-      if d.isImplementationDetail then continue
-      es := es.push (← instantiateMVars d.type)
-    let tr ← IO.mkRef (#[] : Array Expr)
-    let sr ← IO.mkRef (#[] : Array Expr)
-    for e in es do
-      e.forEachWhere (fun t => t.getAppFn == He && t.getAppNumArgs == 2 && !t.hasLooseBVars)
-        fun t => tr.modify fun a => if a.contains t then a else a.push t
-      e.forEachWhere (fun t => t.isApp && t.appFn! == se && !t.hasLooseBVars)
-        fun t => sr.modify fun a => if a.contains t.appArg! then a else a.push t.appArg!
-    pure (← tr.get, ← sr.get)
-  for t in ts do
-    withMainContext do
-      let x ← Term.exprToSyntax t.appFn!.appArg!
-      let y ← Term.exprToSyntax t.appArg!
-      evalTactic (← `(tactic| have := $hlt $x $y))
-  for x in ss do
-    withMainContext do
-      let x ← Term.exprToSyntax x
-      evalTactic (← `(tactic| try have := $hs $x))
+  let (ts, ss) ← slotTerms H s
+  hashBounds ts ss hlt hs fun _ _ => pure ()
 
 open Lean Meta Elab Tactic in
 /-- `hash_eqs H hinj hge hgn hln hnn`: for every hypothesis that equates a slot term `H x y` with
@@ -220,16 +197,15 @@ the facts grow with the branch, not with the square of the slot terms. -/
 elab "hash_eqs " H:ident hinj:ident hge:ident hgn:ident hln:ident hnn:ident : tactic => do
   let eqs ← withMainContext do
     let He ← getFVarFromUserName H.getId
-    let isH (t : Expr) : Bool := t.getAppFn == He && t.getAppNumArgs == 2
     let mut acc := #[]
     for d in (← getLCtx) do
       if d.isImplementationDetail then continue
       let ty ← instantiateMVars d.type
       if let some (_, l, r) := ty.eq? then
-        if (isH l || isH r) && !ty.hasLooseBVars then acc := acc.push (d.fvarId, l, r)
+        if (isSlotOf He l || isSlotOf He r) && !ty.hasLooseBVars then acc := acc.push (d.fvarId, l, r)
     pure (acc, He)
   let (eqs, He) := eqs
-  let isH (t : Expr) : Bool := t.getAppFn == He && t.getAppNumArgs == 2
+  let isH := isSlotOf He
   let isN (t : Expr) : Bool := isH t && isH t.appArg!
   for (h, l, r) in eqs do
     withMainContext do
@@ -259,66 +235,46 @@ elab "hash_eqs " H:ident hinj:ident hge:ident hgn:ident hln:ident hnn:ident : ta
           let (x, y) := (← k t, ← m t)
           evalTactic (← `(tactic| try have := $hge $y (by decide) $x (by omega)))
 
+/-- The links after the decoding of `tree_meets_map2` and `tree_meets_map2_on`: the separation
+lemmas of both levels from `hsep`, the slot hash's bound `hlt` and `hkec`. -/
+def nestedLinks (hsep : Lean.TSyntax `term) : Lean.MacroM (Array (Lean.TSyntax `tactic)) := return #[
+  ← `(tactic| have hinj := map_inj' (NestedSlotsSeparated.flat $hsep)),
+  ← `(tactic| have hge := map_ge' (NestedSlotsSeparated.flat $hsep)),
+  ← `(tactic| have hgn := nmap_ge_n $hsep), ← `(tactic| have hln := nmap_inj_ln $hsep),
+  ← `(tactic| have hnn := nmap_inj_nn $hsep), ← `(tactic| have hlt := solHash_lt'),
+  ← `(tactic| have hkec := keccak_solHash)]
+
+/-- `invBase` with the string comparisons of a nested spec's terms. -/
+def nestedInv : Lean.MacroM (Array (Lean.TSyntax `Lean.Parser.Tactic.simpLemma)) :=
+  return (← invBase) ++ #[← `(Lean.Parser.Tactic.simpLemma| String.reduceBEq), ← `(Lean.Parser.Tactic.simpLemma| Bool.false_eq_true)]
+
+/-- The steps of `tree_meets_map2` and `tree_meets_map2_on` after `meetsSteps`, each
+`allGoals lenient` but the last: split the goals, cast the words back to naturals, instantiate the
+invariants' quantified clauses (then `extra`), bound the slot terms and close each case with
+`hash_eqs`. -/
+def nestedSteps (lenient : Bool) (extra : Array (Lean.TSyntax `tactic)) :
+    Lean.MacroM (Array (Lean.TSyntax `tactic)) := do
+  let step := allGoals lenient
+  return #[← splitGoals lenient,
+    ← step (← `(tactic| (try simp only [toNat_natCast_emod_ofNat] at hinv ⊢))),
+    ← step (← `(tactic| (try simp (disch := first | exact hlt _ _ | exact hs _ | omega) only [Nat.mod_eq_of_lt,
+      toNat_natCast_emod_word, toNat_natCast_emod, Int.toNat_natCast, Nat.cast_inj, Nat.cast_le, Nat.cast_lt] at hinv ⊢))),
+    ← step (← `(tactic| inst_foralls))] ++ extra ++ #[
+    ← step (← `(tactic| (try simp (disch := omega) only [toNat_natCast_emod_word, Int.toNat_natCast, Nat.cast_inj] at *))),
+    ← step (← `(tactic| hash_bounds H s hlt hs)),
+    ← `(tactic| all_goals ((try split_ifs) <;> (try simp only [Nat.cast_inj] at *) <;> (hash_eqs H hinj hge hgn hln hnn; (try subst_vars); first | contradiction | omega)))]
+
 /-- `tree_meets_map2 [defs] hsep` is `tree_meets_map` for functions that also read and write
 mappings of mappings keyed by addresses at the slots `ns`, from `hsep : NestedSlotsSeparated ms ns`:
 `hash_facts` instantiates the first level (`map_inj`, `map_ge` of `ms ++ ns`) and
 `hash_facts_nested` the second. A case it cannot close stays an error: it never leaves a `sorry`. -/
-macro "tree_meets_map2" "[" ds:Lean.Parser.Tactic.simpLemma,* "]" hsep:term:max : tactic => `(tactic| (
-  intro args s iargs pre hl hargs hs hdec hst ht hreq hinv
-  simp only [Nat.reducePow] at hs
-  rcases args with _ | ⟨a0, _ | ⟨a1, _ | ⟨a2, _ | ⟨a3, _ | ⟨a4, _ | ⟨a5, _ | ⟨a6, _ | ⟨a7, _ | ⟨_, _⟩⟩⟩⟩⟩⟩⟩⟩⟩ <;>
-    simp only [List.length_cons, List.length_nil] at hl <;> (try omega) <;>
-    simp only [List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp, forall_eq,
-      IsEmpty.forall_iff, implies_true, and_true, Nat.reducePow] at hargs <;>
-    simp only [$ds,*, List.head, List.getElem_cons_zero, List.getElem_cons_succ, decodeWords, Ty.ofWord,
-      bind, pure, Option.bind, Nat.reducePow] at hdec <;>
-    split_ifs at hdec <;> simp only [Option.some.injEq, reduceCtorEq] at hdec <;>
-    subst hdec <;>
-    have hinj := map_inj' (NestedSlotsSeparated.flat $hsep) <;>
-    have hge := map_ge' (NestedSlotsSeparated.flat $hsep) <;>
-    have hgn := nmap_ge_n $hsep <;> have hln := nmap_inj_ln $hsep <;> have hnn := nmap_inj_nn $hsep <;>
-    have hlt := solHash_lt' <;>
-    have hkec := keccak_solHash <;>
-    generalize solHash = H at hinj hge hgn hln hnn hlt hkec ⊢ <;>
-    refine ⟨fun hsucc => ?_, fun hne => ?_⟩
-  all_goals try (simp [$ds,*] at hne; done)
-  all_goals simp only [$ds,*, Tree.eval, WExpr.eval, BinOp.eval, UnOp.eval, Generic.wordSize, Res.obs,
-    Writes.store, List.getD_cons_zero, List.getD_cons_succ, Nat.reducePow] at hsucc ⊢
-  all_goals simp (disch := simp only [hargs, hs, hlt, Nat.reduceLT]) only [Nat.mod_eq_of_lt, ite_mod_nat,
-    Nat.reduceMod, Nat.zero_mod, ite10_eq_zero_iff, Decidable.not_not] at hsucc ⊢
-  all_goals split_ifs at hsucc ⊢
-  all_goals simp only [Bool.false_eq_true, Bool.true_eq_false, imp_false, not_true_eq_false,
-    IsEmpty.forall_iff] at hsucc
-  all_goals simp only [$ds,*, OByte.eval, WExpr.eval, Generic.wordSize, words, bytesWord, decodeWords, Ty.ofWord,
-    List.map_cons, List.map_nil, List.length_cons, List.length_nil, List.range_succ, List.range_zero,
-    List.nil_append, List.cons_append, List.drop_zero, List.take_succ_cons, List.take_zero, List.foldl_cons,
-    List.foldl_nil, Nat.reduceDiv, Nat.reducePow, Nat.reduceMod, Nat.reduceSub, Nat.reduceMul, Nat.reduceAdd,
-    Nat.reduceLT, ite_true, ite_false, List.getElem_cons_succ, List.getElem_cons_zero, Option.some.injEq,
-    exists_eq_left', bind, pure, Option.bind, Ty.InRange, Nat.cast_ofNat, Nat.zero_add,
-    Nat.reduceLeDiff] at hsucc ⊢
-  all_goals try clear hsucc
-  all_goals try refine ⟨?_, ?_⟩
-  all_goals simp only [Bundle.satAll, Bundle.sat, $ds,*, List.getElem_cons_succ, List.getElem_cons_zero,
-    List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp, forall_eq, eval, evalList, slotOf, mkEnv,
-    Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero, List.getD_cons_succ,
-    List.lookup, hkec, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
-    beq_self_eq_true, Ty.InRange, Option.getD_some, forall_int_range, Nat.cast_ofNat,
-    String.reduceBEq, Bool.false_eq_true] at hinv ⊢
-  all_goals simp only [wordMod, Nat.reducePow] at hinv ⊢
-  all_goals simp (disch := first | exact hlt _ _ | exact hs _ | omega) only [Nat.mod_eq_of_lt,
-    toNat_natCast_emod] at hinv ⊢
-  all_goals simp (disch := first | exact hlt _ _ | exact hs _ | omega) only [Nat.cast_ofNat,
-    Int.reduceMod, Int.reduceToNat, Nat.mod_eq_of_lt, toNat_natCast_emod, toNat_ofNat_emod,
-    toNat_zero_emod, toNat_one_emod, wordMod, Nat.reducePow, Nat.reduceMul, Nat.reduceMod, Nat.div_one,
-    Nat.reduceDiv, Int.reducePow] at hinv ⊢
-  all_goals (repeat' (first | (apply And.intro) | intro))
-  all_goals (try simp only [toNat_natCast_emod_ofNat] at hinv ⊢)
-  all_goals (try simp (disch := first | exact hlt _ _ | exact hs _ | omega) only [Nat.mod_eq_of_lt,
-    toNat_natCast_emod_word, toNat_natCast_emod, Int.toNat_natCast, Nat.cast_inj, Nat.cast_le, Nat.cast_lt] at hinv ⊢)
-  all_goals inst_foralls
-  all_goals (try simp (disch := omega) only [toNat_natCast_emod_word, Int.toNat_natCast, Nat.cast_inj] at *)
-  all_goals hash_bounds H s hlt hs
-  all_goals ((try split_ifs) <;> (try simp only [Nat.cast_inj] at *) <;> (hash_eqs H hinj hge hgn hln hnn; (try subst_vars); first | contradiction | omega))))
+macro "tree_meets_map2" "[" ds:Lean.Parser.Tactic.simpLemma,* "]" hsep:term:max : tactic => do
+  seqTactics (#[← `(tactic| intro args s iargs pre hl hargs hs hdec hst ht hreq hinv),
+    ← `(tactic| simp only [Nat.reducePow] at hs),
+    ← chainTactics ((← decodeArgs ds) ++ (← nestedLinks hsep) ++ #[
+      ← `(tactic| generalize solHash = H at hinj hge hgn hln hnn hlt hkec ⊢),
+      ← `(tactic| refine ⟨fun hsucc => ?_, fun hne => ?_⟩)])] ++
+    (← meetsSteps ds false false (← nestedInv)) ++ (← nestedSteps false #[]))
 
 /-- info: 'SolidCore.Spec.nmap_inj_nn' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in

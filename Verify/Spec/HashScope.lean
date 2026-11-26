@@ -200,39 +200,11 @@ open Lean Meta Elab Tactic in
 `hge y _ x _`; for every pair, `hinj y y' _ _ _ _ x x' _` when one of the keys is in scope. An
 instance whose side conditions do not hold is left out. -/
 elab "hash_facts_scoped " H:ident s:ident hinj:ident hge:ident hlt:ident hs:ident : tactic => do
-  let (ts, ss) ← withMainContext do
-    let He ← getFVarFromUserName H.getId
-    let se ← getFVarFromUserName s.getId
-    let mut es := #[← instantiateMVars (← getMainTarget)]
-    for d in (← getLCtx) do
-      if d.isImplementationDetail then continue
-      es := es.push (← instantiateMVars d.type)
-    let tr ← IO.mkRef (#[] : Array Expr)
-    let sr ← IO.mkRef (#[] : Array Expr)
-    for e in es do
-      e.forEachWhere (fun t => t.getAppFn == He && t.getAppNumArgs == 2 && !t.hasLooseBVars)
-        fun t => tr.modify fun a => if a.contains t then a else a.push t
-      e.forEachWhere (fun t => t.isApp && t.appFn! == se && !t.hasLooseBVars)
-        fun t => sr.modify fun a => if a.contains t.appArg! then a else a.push t.appArg!
-    pure (← tr.get, ← sr.get)
-  for t in ts do
-    withMainContext do
-      let x ← Term.exprToSyntax t.appFn!.appArg!
-      let y ← Term.exprToSyntax t.appArg!
-      evalTactic (← `(tactic| have := $hlt $x $y))
-      evalTactic (← `(tactic| try (have := $hge $y (by decide) $x ?_; rotate_left; simp; done)))
-  for x in ss do
-    withMainContext do
-      let x ← Term.exprToSyntax x
-      evalTactic (← `(tactic| try have := $hs $x))
-  for i in [0:ts.size] do
-    for j in [i+1:ts.size] do
-      withMainContext do
-        let x1 ← Term.exprToSyntax ts[i]!.appFn!.appArg!
-        let y1 ← Term.exprToSyntax ts[i]!.appArg!
-        let x2 ← Term.exprToSyntax ts[j]!.appFn!.appArg!
-        let y2 ← Term.exprToSyntax ts[j]!.appArg!
-        evalTactic (← `(tactic| try (have := $hinj $y1 $y2 (by decide) (by decide) (by decide) (by decide) $x1 $x2 ?_; rotate_left; simp; done)))
+  let (ts, ss) ← slotTerms H s
+  hashBounds ts ss hlt hs fun x y => do
+    evalTactic (← `(tactic| try (have := $hge $y (by decide) $x ?_; rotate_left; simp; done)))
+  hashPairs ts fun x1 y1 x2 y2 => do
+    evalTactic (← `(tactic| try (have := $hinj $y1 $y2 (by decide) (by decide) (by decide) (by decide) $x1 $x2 ?_; rotate_left; simp; done)))
 
 /-- `tree_meets_scoped [defs]` proves `TreeMeetsFixedOn (fun ρ => MapScope sender idx ms ρ.args) b fs
 ctx n T` for a function of at most eight parameters that reads and writes single-level mappings at
@@ -241,56 +213,17 @@ decodes the argument words, reads the keys the call touches from the premise, ta
 `scope_inj` and `scope_ge`, generalizes `solHash` to a variable `H` (no step evaluates keccak256)
 and closes each case by `omega` with `hash_facts_scoped`'s instances. A case it cannot close stays an
 error: it never leaves a `sorry`. -/
-macro "tree_meets_scoped" "[" ds:Lean.Parser.Tactic.simpLemma,* "]" : tactic => `(tactic| (
-  intro args s iargs pre hl hargs hs hdec hst ht hreq hinv hP
-  simp only [Nat.reducePow] at hs
-  rcases args with _ | ⟨a0, _ | ⟨a1, _ | ⟨a2, _ | ⟨a3, _ | ⟨a4, _ | ⟨a5, _ | ⟨a6, _ | ⟨a7, _ | ⟨_, _⟩⟩⟩⟩⟩⟩⟩⟩⟩ <;>
-    simp only [List.length_cons, List.length_nil] at hl <;> (try omega) <;>
-    simp only [List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp, forall_eq,
-      IsEmpty.forall_iff, implies_true, and_true, Nat.reducePow] at hargs <;>
-    simp only [$ds,*, List.head, List.getElem_cons_zero, List.getElem_cons_succ, decodeWords, Ty.ofWord,
-      bind, pure, Option.bind, Nat.reducePow] at hdec <;>
-    split_ifs at hdec <;> simp only [Option.some.injEq, reduceCtorEq] at hdec <;>
-    subst hdec <;>
-    simp only [MapScope, callKeys, List.map_cons, List.map_nil, List.getD_cons_zero,
-      List.getD_cons_succ, Nat.reducePow] at hP <;>
-    simp (disch := omega) only [Nat.mod_eq_of_lt] at hP <;>
-    have hinj := scope_inj hP <;> have hge := scope_ge hP <;> have hlt := solHash_lt' <;>
-    have hkec := keccak_solHash <;>
-    generalize solHash = H at hinj hge hlt hkec ⊢ <;>
-    refine ⟨fun hsucc => ?_, fun hne => ?_⟩
-  all_goals try (simp [$ds,*] at hne; done)
-  all_goals simp only [$ds,*, Tree.eval, WExpr.eval, BinOp.eval, UnOp.eval, Generic.wordSize, Res.obs,
-    Writes.store, List.getD_cons_zero, List.getD_cons_succ, Nat.reducePow] at hsucc ⊢
-  all_goals simp (disch := simp only [hargs, hs, hlt, Nat.reduceLT]) only [Nat.mod_eq_of_lt, ite_mod_nat,
-    Nat.reduceMod, Nat.zero_mod, ite10_eq_zero_iff, Decidable.not_not] at hsucc ⊢
-  all_goals split_ifs at hsucc ⊢
-  all_goals simp only [Bool.false_eq_true, Bool.true_eq_false, imp_false, not_true_eq_false,
-    IsEmpty.forall_iff] at hsucc
-  all_goals simp only [$ds,*, OByte.eval, WExpr.eval, Generic.wordSize, words, bytesWord, decodeWords, Ty.ofWord,
-    List.map_cons, List.map_nil, List.length_cons, List.length_nil, List.range_succ, List.range_zero,
-    List.nil_append, List.cons_append, List.drop_zero, List.take_succ_cons, List.take_zero, List.foldl_cons,
-    List.foldl_nil, Nat.reduceDiv, Nat.reducePow, Nat.reduceMod, Nat.reduceSub, Nat.reduceMul, Nat.reduceAdd,
-    Nat.reduceLT, ite_true, ite_false, List.getElem_cons_succ, List.getElem_cons_zero, Option.some.injEq,
-    exists_eq_left', bind, pure, Option.bind, Ty.InRange, Nat.cast_ofNat, Nat.zero_add,
-    Nat.reduceLeDiff] at hsucc ⊢
-  all_goals try clear hsucc
-  all_goals try refine ⟨?_, ?_⟩
-  all_goals simp only [Bundle.satAll, Bundle.sat, $ds,*, List.getElem_cons_succ, List.getElem_cons_zero,
-    List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp, forall_eq, eval, evalList, slotOf, mkEnv,
-    Env.cur, Env.bind, BinOp.apply, Ty.ofBits, toWord, List.getD_cons_zero, List.getD_cons_succ,
-    List.lookup, hkec, ofProp_ne_zero, ite_true, ite_false, Bool.false_eq_true, Nat.zero_mod, hst,
-    beq_self_eq_true, Ty.InRange, Option.getD_some, forall_int_range, Nat.cast_ofNat] at hinv ⊢
-  all_goals simp only [wordMod, Nat.reducePow] at hinv ⊢
-  all_goals simp (disch := first | exact hlt _ _ | exact hs _ | omega) only [Nat.mod_eq_of_lt,
-    toNat_natCast_emod] at hinv ⊢
-  all_goals simp (disch := first | exact hlt _ _ | exact hs _ | omega) only [Nat.cast_ofNat,
-    Int.reduceMod, Int.reduceToNat, Nat.mod_eq_of_lt, toNat_natCast_emod, toNat_ofNat_emod,
-    toNat_zero_emod, toNat_one_emod, wordMod, Nat.reducePow, Nat.reduceMul, Nat.reduceMod, Nat.div_one,
-    Nat.reduceDiv, Int.reducePow] at hinv ⊢
-  all_goals (repeat' (first | (apply And.intro) | intro))
-  all_goals (hash_facts_scoped H s hinj hge hlt hs; split_ifs <;> omega)))
-
+macro "tree_meets_scoped" "[" ds:Lean.Parser.Tactic.simpLemma,* "]" : tactic => do
+  seqTactics (#[← `(tactic| intro args s iargs pre hl hargs hs hdec hst ht hreq hinv hP),
+    ← `(tactic| simp only [Nat.reducePow] at hs),
+    ← chainTactics ((← decodeArgs ds) ++ #[
+      ← `(tactic| simp only [MapScope, callKeys, List.map_cons, List.map_nil, List.getD_cons_zero,
+      List.getD_cons_succ, Nat.reducePow] at hP),
+      ← `(tactic| simp (disch := omega) only [Nat.mod_eq_of_lt] at hP)] ++
+      (← hashLinks (← `(scope_inj hP)) (← `(scope_ge hP))) ++
+      #[← `(tactic| refine ⟨fun hsucc => ?_, fun hne => ?_⟩)])] ++
+    (← meetsSteps ds false false (← invBase)) ++
+    #[← splitGoals false, ← `(tactic| all_goals (hash_facts_scoped H s hinj hge hlt hs; split_ifs <;> omega))])
 /-! ## From the tree to SolidCore's contract, under a per-call premise -/
 
 open SolarTV SolidCore.Refinement.Abi SolidCore.Solidity
