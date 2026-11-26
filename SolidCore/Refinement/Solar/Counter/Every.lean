@@ -125,31 +125,22 @@ theorem source_run_every {c : TypeCheck.CheckedContract} (hc : contract? = .ok c
   rcases call with ⟨cd, v, σ⟩
   obtain ⟨hv, hcl⟩ := h
   dsimp only at hv hcl
+  by_cases h0 : v = 0
+  swap
+  · rw [expectedEvery_value _ h0]
+    rcases hcl with ⟨d, rfl⟩ | rfl | hshort | ⟨s, data, hs, rfl, hsel⟩
+    · exact source_run_value hc incSelector [d] (Or.inl ⟨rfl, rfl⟩) v h0 hv σ
+    · exact source_run_value hc getSelector [] (Or.inr ⟨rfl, rfl⟩) v h0 hv σ
+    · exact source_run_short hc _ hshort
+    · exact source_run_selector hc s hs data hsel v σ
+  subst h0
   rcases hcl with ⟨d, rfl⟩ | rfl | hshort | ⟨s, data, hs, rfl, hsel⟩
-  · by_cases h0 : v = 0
-    · subst h0
-      have := expectedEvery_inc d σ
-      exact (source_run_at hc d σ).trans (congrArg some this.symm)
-    · rw [expectedEvery_value _ h0]
-      exact source_run_value hc incSelector [d] (Or.inl ⟨rfl, rfl⟩) v h0 hv σ
-  · by_cases h0 : v = 0
-    · subst h0
-      have := expectedEvery_get σ
-      exact (source_run_get hc σ).trans (congrArg some this.symm)
-    · rw [expectedEvery_value _ h0]
-      exact source_run_value hc getSelector [] (Or.inr ⟨rfl, rfl⟩) v h0 hv σ
-  · by_cases h0 : v = 0
-    · subst h0
-      rw [expectedEvery_short _ hshort rfl]
-      exact source_run_short hc _ hshort
-    · rw [expectedEvery_value _ h0]
-      exact source_run_short hc _ hshort
-  · by_cases h0 : v = 0
-    · subst h0
-      rw [expectedEvery_selector s hs data hsel σ]
-      exact source_run_selector hc s hs data hsel 0 σ
-    · rw [expectedEvery_value _ h0]
-      exact source_run_selector hc s hs data hsel v σ
+  · exact (source_run_at hc d σ).trans (congrArg some (expectedEvery_inc d σ).symm)
+  · exact (source_run_get hc σ).trans (congrArg some (expectedEvery_get σ).symm)
+  · rw [expectedEvery_short _ hshort rfl]
+    exact source_run_short hc _ hshort
+  · rw [expectedEvery_selector s hs data hsel σ]
+    exact source_run_selector hc s hs data hsel 0 σ
 
 /-- The specification on every call of the scope holds of SolidCore's checked Counter. -/
 theorem satisfiesEvery : ∃ c, contract? = .ok c ∧

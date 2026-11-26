@@ -158,21 +158,10 @@ def callFree (code : ByteArray) : Bool :=
 theorem decode_next_gt {code : List Nat} {pc next : Nat} {i : SolarTV.Assembly.Instr}
     (h : decode code pc = some (i, next)) : pc < next := by
   unfold decode at h
-  split at h
-  · cases h
-  · split at h
-    · cases h; omega
-    · split at h
-      · split at h
-        · cases h; omega
-        · cases h
-      · split at h
-        · split at h
-          · split at h
-            · cases h; omega
-            · cases h
-          · cases h
-        · cases h; omega
+  repeat' split at h
+  all_goals first
+    | (simp at h; done)
+    | (obtain ⟨-, rfl⟩ := Prod.mk.inj (Option.some.inj h); omega)
 
 theorem seg_length_le {code : List Nat} {off : Nat → Nat} {pc pc' : Nat} {items : List Item}
     (h : Seg code off pc items pc') : pc + items.length ≤ pc' := by

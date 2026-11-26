@@ -248,6 +248,72 @@ theorem RdF.nil (code : ByteArray) (T : RunTable) (A : CreateTable) : RdF code T
   refine ⟨?_, fun i hi => by simp at hi⟩
   simp [returndataSize, tableOracle, RunTable.out, sent]
 
+/-! ## One segment after another -/
+
+/-- The item at a segment's start is an opcode the code holds there. -/
+private theorem seg_op {code : ByteArray} {off : Nat → Nat} {pc e byte : Nat} {L rest tail : List Item}
+    (hL : L = .op byte :: rest) (h : Seg (bytesOf code) off pc (L ++ tail) e) :
+    ∃ hlt : pc < code.size, code[pc] = UInt8.ofNat byte ∧
+      Seg (bytesOf code) off (pc + 1) (rest ++ tail) e := by
+  subst hL
+  obtain ⟨next, hd, hs⟩ := h.head
+  simp only [Item.expected] at hd
+  obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+  exact ⟨hlt, hcode, hs⟩
+
+/-- Memory within the frame's budget, at a checker that allows any offset, is within the
+certificate's bound. -/
+private theorem size_le_top {m : Mem} {M : ByteArray} {G g top : Nat} (hm : MemRel m M)
+    (hb : MemBudget G M g) (hG : G < 2 ^ 256) (htop : 2 ^ 140 ≤ top) : M.size ≤ top := by
+  have hmod : M.size % 32 = 0 := by rw [hm.1]; omega
+  have := size_le_of_cost (B := G) (by unfold MemBudget at hb; omega) hG hmod
+  omega
+
+/-- What `segF` gives of the rest `is` of block `b` from the stack `S` and state `s`, under the
+tables `T` and `A`, at the frame's gas `g`. -/
+private def SegOut (p : Assemble.Program) (c : Cert) (mx : List Nat) (code : ByteArray) (call : Call)
+    (msg : Message .fusaka) (ss0 : Substate) (b : Nat) {bound : Nat}
+    (runChild : MessageRunner .fusaka Nat bound) (fin : Evm .fusaka Nat) (G0 : Nat)
+    (is : List Assemble.Instr) (S : List Word) (s : State) (T : RunTable) (A : CreateTable)
+    (g : Nat) : Prop :=
+  ∃ T' A' r, T.Le T' ∧ A.Le A' ∧
+    (∀ T'' A'', T'.Le T'' → A'.Le A'' →
+      SolarTV.EVM.Program.exec (FO code T'' A'') call b is S s = r) ∧
+    (∀ res, r = .inl res → PostL call msg.currentTarget ss0 res.2 res.1 fin) ∧
+    (∀ y, r = .inr y → (y.1 ≤ p.blocks.length ∧
+      (y.1 < p.blocks.length → c.need y.1 ≤ y.2.1.length ∧ y.2.1.length ≤ maxH mx y.1) ∧
+      (y.1 = b + 1 ∨ isTarget p c y.1 = true)) ∧
+      ∃ (after : Evm .fusaka Nat) (within' : GasMeter.gasHeld after.gas ≤ bound),
+        EntC p c mx code msg ss0 y after ∧ TabF T' A' y.2.2.world ∧
+        RdF code T' A' y.2.2.world after.returnData ∧ after.gas ≤ g ∧
+        memoryGasCost after.memory.size + after.gas ≤ G0 ∧
+        runFrame (step .fusaka) (step_decreases .fusaka) bound runChild after within' = .ok fin)
+
+/-- **A cut hands the block to the next segment**: the rest of the block runs as the cut's
+instruction `is0` does from its stack and state under every extension of `T` and `A` (`hex`),
+which runs as the segment after it from tables `T1 A1` that extend them (`he`), at no more
+gas; so what that segment gives, the block gives. -/
+private theorem segF_step {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray} {call : Call}
+    {msg : Message .fusaka} {ss0 : Substate} {b bound : Nat}
+    {runChild : MessageRunner .fusaka Nat bound} {fin : Evm .fusaka Nat} {G0 g g1 : Nat}
+    {T T1 : RunTable} {A A1 : CreateTable} {is is0 is1 : List Assemble.Instr} {S S0 S1 : List Word}
+    {s s0 s1 : State}
+    (hex : ∀ T'' A'', T.Le T'' → A.Le A'' → SolarTV.EVM.Program.exec (FO code T'' A'') call b is S s =
+      SolarTV.EVM.Program.exec (FO code T'' A'') call b is0 S0 s0)
+    (h : SegOut p c mx code call msg ss0 b runChild fin G0 is1 S1 s1 T1 A1 g1) (hg : g1 ≤ g)
+    (hT : T.Le T1) (hA : A.Le A1)
+    (he : ∀ T'' A'', T1.Le T'' → A1.Le A'' →
+      SolarTV.EVM.Program.exec (FO code T'' A'') call b is0 S0 s0 =
+        SolarTV.EVM.Program.exec (FO code T'' A'') call b is1 S1 s1) :
+    SegOut p c mx code call msg ss0 b runChild fin G0 is S s T A g := by
+  obtain ⟨T', A', r, h1, h2, hr, hpost, hnext⟩ := h
+  refine ⟨T', A', r, hT.trans h1, hA.trans h2, fun T'' A'' h3 h4 => ?_, hpost, fun y hy => ?_⟩
+  · rw [hex T'' A'' ((hT.trans h1).trans h3) ((hA.trans h2).trans h4),
+      he T'' A'' (h1.trans h3) (h2.trans h4)]
+    exact hr T'' A'' h3 h4
+  · obtain ⟨hy1, after, within', hE, hT', hrdy, hga, hbud, hra⟩ := hnext y hy
+    exact ⟨hy1, after, within', hE, hT', hrdy, by omega, hbud, hra⟩
+
 set_option maxRecDepth 8000 in
 /-- **`AssembleCut.seg` with CALLs, CREATE2s and CODECOPYs**: the rest of a block from an instruction,
 read back from a run that succeeds, under the oracle of the run's two tables. Every extension of the
@@ -363,11 +429,7 @@ theorem segF {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
         hc2i | hcci
       · obtain rfl := isGasI_eq hgi
         obtain ⟨hk1, hok3⟩ := blockOkC_gas hok2
-        have hs := I'.seg
-        rw [lowerInstrs_gas, List.cons_append] at hs
-        obtain ⟨next, hd, hseg'⟩ := hs.head
-        simp only [Item.expected] at hd
-        obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+        obtain ⟨hlt, hcode, hseg'⟩ := seg_op (lowerInstrs_gas _ _ _ _) I'.seg
         -- GAS at the frame's gas.
         obtain ⟨h2, m2, within2, hat2, hrun2⟩ :=
           gas_back hatm hlt hcode (by unfold STACK_LIMIT; omega) within1 hrm hok
@@ -378,7 +440,7 @@ theorem segF {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
           intro T'' hle
           rw [getD_of_prefix hle.2.2.2.2 (by simp [T1]; omega)]
           simp [T1, List.getD_eq_getElem?_getD, hc1.1, ← hTg]
-        obtain ⟨T2, A2, r, hle2, hA2, hex2, hpost, hnext⟩ := segF (G0 := G0) G hcr hdata hvalue hstatic hself hcaller hbenv
+        refine segF_step hex (segF (G0 := G0) G hcr hdata hvalue hstatic hself hcaller hbenv
           htx hb hok hG0 hdepth meets hsites n rest (h' + 1) [] (some false :: ty') (k' - 1)
           (BitVec.ofNat 256 (m.gas - 2) :: S') (BitVec.ofNat 256 (m.gas - 2) :: T')
           { s' with world := s'.world ++ [.read "gas"] } (pc' + 1) M' (m.gas - 2) st' ss' rd T1 A m2
@@ -386,23 +448,15 @@ theorem segF {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
           (KR.nil _) (SR.cons (τ := some false) rfl hR') hseg' (by simp; omega) I'.le_top
           I'.mem ⟨R'.storage, R'.account, logsRel_read _ R'.logs⟩ hat2
           (TabF.gas hs1 (m.gas - 2)) (RdF.append rfl rfl (RdF.mono hle1 (CreateTable.Le.refl A) hrd1))
-          (by unfold MemBudget at *; omega) hrun2
-        refine ⟨T2, A2, r, hle1.trans hle2, hA2, fun T'' A'' hle hleA => ?_, hpost, fun y hy => ?_⟩
-        · rw [hex T'' A'' (hle1.trans (hle2.trans hle)) (hA2.trans hleA)]
-          show SolarTV.EVM.Program.exec (FO code T'' A'') call b (.effect .gas 0 :: rest) S' s' = r
-          rw [exec_gasF (hv T'' (hle2.trans hle)) (by omega)]
-          exact hex2 T'' A'' hle hleA
-        · obtain ⟨hy1, after, within', hE, hT, hrdy, hga, hbud, hra⟩ := hnext y hy
-          exact ⟨hy1, after, within', hE, hT, hrdy, by omega, hbud, hra⟩
+          (by unfold MemBudget at *; omega) hrun2)
+          (by omega) hle1 (CreateTable.Le.refl A) fun T'' A'' hle hleA => ?_
+        show SolarTV.EVM.Program.exec (FO code T'' A'') call b (.effect .gas 0 :: rest) S' s' = _
+        rw [exec_gasF (hv T'' hle) (by omega)]
 
       · -- MLOAD at the frame's gas, at any offset.
         obtain rfl := isLoadI_eq hli
         obtain ⟨hk1, hh1, hdat, htop', hok3⟩ := blockOkC_load hok2
-        have hs := I'.seg
-        rw [lowerInstrs_load, List.cons_append] at hs
-        obtain ⟨next, hd, hseg'⟩ := hs.head
-        simp only [Item.expected] at hd
-        obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+        obtain ⟨hlt, hcode, hseg'⟩ := seg_op (lowerInstrs_load _ _ _ _) I'.seg
         rcases S' with _ | ⟨x, S''⟩
         · simp at hh2; omega
         rcases T' with _ | ⟨x', Tr⟩
@@ -412,33 +466,21 @@ theorem segF {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
         simp only [List.length_cons] at hL hst hh2 hu2
         obtain ⟨M2, g2, m2, within2, hmem2, hb2, hg2, hat2, hrun2⟩ :=
           AssembleDyn.mload_dyn I'.mem hmB (by omega) hatm hlt hcode within1 hrm hok
-        have hsz : M2.size ≤ c.top := by
-          have hmod : M2.size % 32 = 0 := by rw [hmem2.1]; omega
-          have := size_le_of_cost (B := G0) (by unfold MemBudget at hb2; omega) hG0 hmod
-          omega
-        obtain ⟨T2, A2, r, hle2, hA2, hex2, hpost, hnext⟩ := segF (G0 := G0) G hcr hdata hvalue hstatic hself
+        refine segF_step hex (segF (G0 := G0) G hcr hdata hvalue hstatic hself
           hcaller hbenv htx hb hok hG0 hdepth meets hsites n rest h' [] (some false :: ty'.drop 1) (k' - 1)
           (s'.memory.load x.toNat :: S'') (s'.memory.load x.toNat :: Tr)
           { s' with memory := s'.memory.expand x.toNat 32 } (pc' + 1) M2 g2 st' ss' rd T A m2
           within2 (by omega) hok3 (by simp; omega) (by simp; omega)
           (KR.nil _) (SR.cons (τ := some false) rfl (by simpa using hR'')) hseg'
-          (by simp; omega) hsz hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2
-          hs1 hrd1 hb2 hrun2
-        refine ⟨T2, A2, r, hle2, hA2, fun T3 A3 hle hleA => ?_, hpost, fun y hy => ?_⟩
-        · rw [hex T3 A3 (hle2.trans hle) (hA2.trans hleA)]
-          show SolarTV.EVM.Program.exec (FO code T3 A3) call b (.op .load :: rest) _ s' = r
-          rw [exec_loadC (by omega)]
-          exact hex2 T3 A3 hle hleA
-        · obtain ⟨hy1, after, within', hE, hT, hrdy, hga, hbud, hra⟩ := hnext y hy
-          exact ⟨hy1, after, within', hE, hT, hrdy, by omega, hbud, hra⟩
+          (by simp; omega) (size_le_top hmem2 hb2 hG0 htop') hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2
+          hs1 hrd1 hb2 hrun2)
+          (by omega) (RunTable.Le.refl T) (CreateTable.Le.refl A) fun T3 A3 hle hleA => ?_
+        show SolarTV.EVM.Program.exec (FO code T3 A3) call b (.op .load :: rest) _ s' = _
+        rw [exec_loadC (by omega)]
       · -- MSTORE at the frame's gas, at any offset.
         obtain rfl := isStoreI_eq hsi
         obtain ⟨hk1, hh1, hdat, htop', hok3⟩ := blockOkC_store hok2
-        have hs := I'.seg
-        rw [lowerInstrs_store, List.cons_append] at hs
-        obtain ⟨next, hd, hseg'⟩ := hs.head
-        simp only [Item.expected] at hd
-        obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+        obtain ⟨hlt, hcode, hseg'⟩ := seg_op (lowerInstrs_store _ _ _ _) I'.seg
         rcases S' with _ | ⟨x, _ | ⟨y, S''⟩⟩
         · simp at hh2; omega
         · simp at hh2; omega
@@ -452,32 +494,20 @@ theorem segF {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
         simp only [List.length_cons] at hL hst hh2 hu2
         obtain ⟨M2, g2, m2, within2, hmem2, hb2, hg2, hat2, hrun2⟩ :=
           AssembleDyn.mstore_dyn I'.mem hmB (by omega) hatm hlt hcode within1 hrm hok
-        have hsz : M2.size ≤ c.top := by
-          have hmod : M2.size % 32 = 0 := by rw [hmem2.1]; omega
-          have := size_le_of_cost (B := G0) (by unfold MemBudget at hb2; omega) hG0 hmod
-          omega
-        obtain ⟨T2, A2, r, hle2, hA2, hex2, hpost, hnext⟩ := segF (G0 := G0) G hcr hdata hvalue hstatic hself
+        refine segF_step hex (segF (G0 := G0) G hcr hdata hvalue hstatic hself
           hcaller hbenv htx hb hok hG0 hdepth meets hsites n rest (h' - 2) [] (ty'.drop 2) (k' - 1) S'' Tr
           { s' with memory := s'.memory.store x.toNat y } (pc' + 1) M2 g2 st' ss' rd T A m2
           within2 (by omega) hok3 (by omega) (by omega)
-          (KR.nil _) hR'' hseg' (by omega) hsz hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2
-          hs1 hrd1 hb2 hrun2
-        refine ⟨T2, A2, r, hle2, hA2, fun T3 A3 hle hleA => ?_, hpost, fun y hy => ?_⟩
-        · rw [hex T3 A3 (hle2.trans hle) (hA2.trans hleA)]
-          show SolarTV.EVM.Program.exec (FO code T3 A3) call b (.op .store :: rest) _ s' = r
-          rw [exec_storeC (by omega)]
-          exact hex2 T3 A3 hle hleA
-        · obtain ⟨hy1, after, within', hE, hT, hrdy, hga, hbud, hra⟩ := hnext y hy
-          exact ⟨hy1, after, within', hE, hT, hrdy, by omega, hbud, hra⟩
+          (KR.nil _) hR'' hseg' (by omega) (size_le_top hmem2 hb2 hG0 htop') hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2
+          hs1 hrd1 hb2 hrun2)
+          (by omega) (RunTable.Le.refl T) (CreateTable.Le.refl A) fun T3 A3 hle hleA => ?_
+        show SolarTV.EVM.Program.exec (FO code T3 A3) call b (.op .store :: rest) _ s' = _
+        rw [exec_storeC (by omega)]
 
       · -- RETURN at the frame's gas, from any range.
         obtain rfl := isRetI_eq hri
         obtain ⟨hh1, hdat⟩ := blockOkC_ret hok2
-        have hs := I'.seg
-        rw [lowerInstrs_ret, List.cons_append] at hs
-        obtain ⟨next, hd, -⟩ := hs.head
-        simp only [Item.expected] at hd
-        obtain ⟨hlt, hcode, -⟩ := op_item hd
+        obtain ⟨hlt, hcode, -⟩ := seg_op (lowerInstrs_ret _ _ _ _) I'.seg
         rcases S' with _ | ⟨x, _ | ⟨y, S''⟩⟩
         · simp at hh2; omega
         · simp at hh2; omega
@@ -501,11 +531,7 @@ theorem segF {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
       · -- REVERT: no run that succeeds reaches it.
         obtain rfl := isRevI_eq hvi
         obtain ⟨hh1, hdat⟩ := blockOkC_revert hok2
-        have hs := I'.seg
-        rw [lowerInstrs_revert, List.cons_append] at hs
-        obtain ⟨next, hd, -⟩ := hs.head
-        simp only [Item.expected] at hd
-        obtain ⟨hlt, hcode, -⟩ := op_item hd
+        obtain ⟨hlt, hcode, -⟩ := seg_op (lowerInstrs_revert _ _ _ _) I'.seg
         rcases S' with _ | ⟨x, _ | ⟨y, S''⟩⟩
         · simp at hh2; omega
         · simp at hh2; omega
@@ -517,11 +543,7 @@ theorem segF {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
       · -- KECCAK256 at the frame's gas, of any range.
         obtain rfl := isKecI_eq hki
         obtain ⟨henv, hk1, hh1, hdat, htop', hok3⟩ := blockOkC_kec hok2
-        have hs := I'.seg
-        rw [lowerInstrs_kec, List.cons_append] at hs
-        obtain ⟨next, hd, hseg'⟩ := hs.head
-        simp only [Item.expected] at hd
-        obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+        obtain ⟨hlt, hcode, hseg'⟩ := seg_op (lowerInstrs_kec _ _ _ _) I'.seg
         rcases S' with _ | ⟨x, _ | ⟨y, S''⟩⟩
         · simp at hh2; omega
         · simp at hh2; omega
@@ -537,36 +559,24 @@ theorem segF {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
           AssembleDyn.keccak_dyn I'.mem hmB (by omega) hatm hlt hcode within1 hrm hok
         obtain ⟨-, hkec⟩ := (FO_ok c code T A).1 henv
         rw [byteArray_eq_of_map (read_eq I'.mem), ← hkec] at hat2
-        have hsz : (memoryExtend M' (extendMemory M'.size [(x, y)]).expandBy).size ≤ c.top := by
-          have hmod : (memoryExtend M' (extendMemory M'.size [(x, y)]).expandBy).size % 32 = 0 := by
-            rw [hmem2.1]; omega
-          have := size_le_of_cost (B := G0) (by unfold MemBudget at hb2; omega) hG0 hmod
-          omega
-        obtain ⟨T2, A2, r, hle2, hA2, hex2, hpost, hnext⟩ := segF (G0 := G0) G hcr hdata hvalue hstatic hself
+        refine segF_step hex (segF (G0 := G0) G hcr hdata hvalue hstatic hself
           hcaller hbenv htx hb hok hG0 hdepth meets hsites n rest (h' - 1) [] (some false :: ty'.drop 2) (k' - 1)
           ((FO code T A).keccak ((s'.memory.expand x.toNat y.toNat).read x.toNat y.toNat) :: S'')
           ((FO code T A).keccak ((s'.memory.expand x.toNat y.toNat).read x.toNat y.toNat) :: Tr)
           { s' with memory := s'.memory.expand x.toNat y.toNat } (pc' + 1) _ _ st' ss' rd T A m2
           within2 (by omega) hok3 (by simp; omega) (by simp; omega)
           (KR.nil _) (SR.cons (τ := some false) rfl (by simpa using hR'')) hseg'
-          (by simp; omega) hsz hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2
-          hs1 hrd1 hb2 hrun2
-        refine ⟨T2, A2, r, hle2, hA2, fun T3 A3 hle hleA => ?_, hpost, fun y hy => ?_⟩
-        · rw [hex T3 A3 (hle2.trans hle) (hA2.trans hleA)]
-          show SolarTV.EVM.Program.exec (FO code T3 A3) call b (.effect .keccak256 2 :: rest) _ s' = r
-          rw [exec_keccakC (by omega)]
-          exact hex2 T3 A3 hle hleA
-        · obtain ⟨hy1, after, within', hE, hT, hrdy, hga, hbud, hra⟩ := hnext y hy
-          exact ⟨hy1, after, within', hE, hT, hrdy, by omega, hbud, hra⟩
+          (by simp; omega) (size_le_top hmem2 hb2 hG0 htop') hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2
+          hs1 hrd1 hb2 hrun2)
+          (by omega) (RunTable.Le.refl T) (CreateTable.Le.refl A) fun T3 A3 hle hleA => ?_
+        show SolarTV.EVM.Program.exec (FO code T3 A3) call b (.effect .keccak256 2 :: rest) _ s' = _
+        rw [exec_keccakC (by omega)]
+        rfl
 
       · -- LOGn at the frame's gas, of any range.
         obtain ⟨nl, hn4, rfl⟩ := isLogI_eq hlgi
         obtain ⟨hk1, hnh, hdat, htop', hok3⟩ := blockOkC_log hn4 hok2
-        have hs := I'.seg
-        rw [lowerInstrs_log p c b hn4, List.cons_append] at hs
-        obtain ⟨next, hd, hseg'⟩ := hs.head
-        simp only [Item.expected] at hd
-        obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+        obtain ⟨hlt, hcode, hseg'⟩ := seg_op (lowerInstrs_log _ _ _ hn4 _) I'.seg
         rcases S' with _ | ⟨x, _ | ⟨y, S1⟩⟩
         · simp at hh2; omega
         · simp at hh2; omega
@@ -589,13 +599,8 @@ theorem segF {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
         obtain ⟨m2, within2, hmem2, hb2, hat2, hrun2⟩ :=
           AssembleDyn.log_dyn (n := ⟨tops.length, by omega⟩) I'.mem hmB (by omega) hatm rfl hlt hcode
             (decode_log ⟨tops.length, by omega⟩) hstatic within1 hrm hok
-        have hsz : (memoryExtend M' (extendMemory M'.size [(x, y)]).expandBy).size ≤ c.top := by
-          have hmod : (memoryExtend M' (extendMemory M'.size [(x, y)]).expandBy).size % 32 = 0 := by
-            rw [hmem2.1]; omega
-          have := size_le_of_cost (B := G0) (by unfold MemBudget at hb2; omega) hG0 hmod
-          omega
         obtain ⟨L, hL1, hL2⟩ := R'.logs
-        obtain ⟨T2', A2, r, hle2, hA2, hex2, hpost, hnext⟩ := segF (G0 := G0) (ss0 := ss0) G hcr hdata hvalue hstatic hself
+        refine segF_step hex (segF (G0 := G0) (ss0 := ss0) G hcr hdata hvalue hstatic hself
           hcaller hbenv htx hb hok hG0 hdepth meets hsites n rest (h' - (tops.length + 2)) [] (ty'.drop (tops.length + 2))
           (k' - 1) S2 T2
           ⟨s'.memory.expand x.toNat y.toNat, s'.storage, s'.transient,
@@ -603,29 +608,21 @@ theorem segF {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
           (pc' + 1) _ _ st' { ss' with logs := ss'.logs.push ⟨msg.currentTarget,
             tops.map U256.toBeBytes, memoryReadBytes (memoryExtend M' (extendMemory M'.size
               [(x, y)]).expandBy) x.toNat y.toNat⟩ } rd T A m2 within2 (by omega) hok3 (by omega) (by omega)
-          (KR.nil _) hR'' hseg' (by omega) hsz hmem2
+          (KR.nil _) hR'' hseg' (by omega) (size_le_top hmem2 hb2 hG0 htop') hmem2
           ⟨R'.storage, R'.account, ⟨L ++ [⟨msg.currentTarget, tops.map U256.toBeBytes,
               memoryReadBytes (memoryExtend M' (extendMemory M'.size [(x, y)]).expandBy)
                 x.toNat y.toNat⟩], by simp [Array.toList_push, hL1],
               filter_snoc_log ▸ forall₂_snoc hL2 ⟨rfl, rfl, read_eq I'.mem⟩⟩⟩ hat2
-          (TabF.log hs1 _ _) (RdF.append rfl rfl hrd1) hb2 hrun2
-        refine ⟨T2', A2, r, hle2, hA2, fun T3 A3 hle hleA => ?_, hpost, fun y hy => ?_⟩
-        · rw [hex T3 A3 (hle2.trans hle) (hA2.trans hleA)]
-          show SolarTV.EVM.Program.exec (FO code T3 A3) call b
-            (.effect (.log tops.length) (tops.length + 2) :: rest) _ s' = r
-          rw [exec_logC (by omega)]
-          exact hex2 T3 A3 hle hleA
-        · obtain ⟨hy1, after, within', hE, hT, hrdy, hga, hbud, hra⟩ := hnext y hy
-          exact ⟨hy1, after, within', hE, hT, hrdy, by omega, hbud, hra⟩
+          (TabF.log hs1 _ _) (RdF.append rfl rfl hrd1) hb2 hrun2)
+          (by omega) (RunTable.Le.refl T) (CreateTable.Le.refl A) fun T3 A3 hle hleA => ?_
+        show SolarTV.EVM.Program.exec (FO code T3 A3) call b
+          (.effect (.log tops.length) (tops.length + 2) :: rest) _ s' = _
+        rw [exec_logC (by omega)]
 
       · -- CALLDATACOPY at the frame's gas, of any range.
         obtain rfl := isCdcI_eq hcdi
         obtain ⟨hk1, hh1, hdat, htop', hok3⟩ := blockOkC_cdc hok2
-        have hs := I'.seg
-        rw [lowerInstrs_cdc, List.cons_append] at hs
-        obtain ⟨next, hd, hseg'⟩ := hs.head
-        simp only [Item.expected] at hd
-        obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+        obtain ⟨hlt, hcode, hseg'⟩ := seg_op (lowerInstrs_cdc _ _ _ _) I'.seg
         rcases S' with _ | ⟨x, _ | ⟨y, _ | ⟨z, S''⟩⟩⟩
         · simp at hh2; omega
         · simp at hh2; omega
@@ -641,35 +638,23 @@ theorem segF {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
         simp only [List.length_cons] at hL hst hh2 hu2
         obtain ⟨M2, g2, m2, within2, hmem2, hb2, hg2, hat2, hrun2⟩ :=
           AssembleDynCopy.cdc_dyn hdata I'.mem hmB (by omega) hatm hlt hcode within1 hrm hok
-        have hsz : M2.size ≤ c.top := by
-          have hmod : M2.size % 32 = 0 := by rw [hmem2.1]; omega
-          have := size_le_of_cost (B := G0) (by unfold MemBudget at hb2; omega) hG0 hmod
-          omega
-        obtain ⟨T2, A2, r, hle2, hA2, hex2, hpost, hnext⟩ := segF (G0 := G0) (ss0 := ss0) G hcr hdata hvalue
+        refine segF_step hex (segF (G0 := G0) (ss0 := ss0) G hcr hdata hvalue
           hstatic hself hcaller hbenv htx hb hok hG0 hdepth meets hsites n rest (h' - 3) [] (ty'.drop 3) (k' - 1) S'' Tr
           { s' with
             memory := s'.memory.write x.toNat z.toNat
               (fun i => SolarTV.Machine.calldataByte call (y.toNat + i)) } (pc' + 1) M2 g2 st' ss' rd T A m2
           within2 (by omega) hok3 (by omega) (by omega)
-          (KR.nil _) hR'' hseg' (by omega) hsz hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2
-          hs1 hrd1 hb2 hrun2
-        refine ⟨T2, A2, r, hle2, hA2, fun T3 A3 hle hleA => ?_, hpost, fun y hy => ?_⟩
-        · rw [hex T3 A3 (hle2.trans hle) (hA2.trans hleA)]
-          show SolarTV.EVM.Program.exec (FO code T3 A3) call b (.effect .calldatacopy 3 :: rest) _ s' = r
-          rw [exec_cdcC (by omega)]
-          exact hex2 T3 A3 hle hleA
-        · obtain ⟨hy1, after, within', hE, hT, hrdy, hga, hbud, hra⟩ := hnext y hy
-          exact ⟨hy1, after, within', hE, hT, hrdy, by omega, hbud, hra⟩
+          (KR.nil _) hR'' hseg' (by omega) (size_le_top hmem2 hb2 hG0 htop') hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2
+          hs1 hrd1 hb2 hrun2)
+          (by omega) (RunTable.Le.refl T) (CreateTable.Le.refl A) fun T3 A3 hle hleA => ?_
+        show SolarTV.EVM.Program.exec (FO code T3 A3) call b (.effect .calldatacopy 3 :: rest) _ s' = _
+        rw [exec_cdcC (by omega)]
       · -- STATICCALL: the checker refuses it in a program that creates.
         exact absurd (blockOkC_noSc_creates hsci hok2) (by simp [hcr])
       · -- RETURNDATASIZE at the frame's gas: the size of the frame's return data, the tables'.
         obtain rfl := isRdsI_eq hrdi
         obtain ⟨-, hk1, hok3⟩ := blockOkC_rds hok2
-        have hs := I'.seg
-        rw [AssembleCallSeg.lowerInstrs_rds, List.cons_append] at hs
-        obtain ⟨next, hd, hseg'⟩ := hs.head
-        simp only [Item.expected] at hd
-        obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+        obtain ⟨hlt, hcode, hseg'⟩ := seg_op (AssembleCallSeg.lowerInstrs_rds _ _ _ _) I'.seg
         obtain ⟨h2, m2, within2, hat2, hrun2⟩ :=
           AssembleCallSeg.rds_back hatm hlt hcode (by unfold STACK_LIMIT; omega) within1 hrm hok
         have hv : ∀ T3 A3, T.Le T3 → A.Le A3 →
@@ -680,28 +665,20 @@ theorem segF {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
           have hlt' : rd.size < 2 ^ 256 := by rw [← h1]; exact BitVec.isLt _
           apply BitVec.eq_of_toNat_eq
           rw [BitVec.toNat_ofNat, h1, Nat.mod_eq_of_lt hlt']
-        obtain ⟨T2, A2, r, hle2, hA2, hex2, hpost, hnext⟩ := segF (G0 := G0) G hcr hdata hvalue
+        refine segF_step hex (segF (G0 := G0) G hcr hdata hvalue
           hstatic hself hcaller hbenv htx hb hok hG0 hdepth meets hsites n rest (h' + 1) []
           (some false :: ty') (k' - 1) (BitVec.ofNat 256 rd.size :: S')
           (BitVec.ofNat 256 rd.size :: T') s' (pc' + 1) M' (m.gas - 2) st' ss' rd T A m2 within2
           (by omega) hok3 (by simp; omega) (by simp; omega) (KR.nil _)
           (SR.cons (τ := some false) rfl hR') hseg' (by simp; omega) I'.le_top I'.mem R' hat2 hs1
-          hrd1 (by unfold MemBudget at *; omega) hrun2
-        refine ⟨T2, A2, r, hle2, hA2, fun T3 A3 hle hleA => ?_, hpost, fun y hy => ?_⟩
-        · rw [hex T3 A3 (hle2.trans hle) (hA2.trans hleA)]
-          show SolarTV.EVM.Program.exec (FO code T3 A3) call b (.effect .returndatasize 0 :: rest) S' s' = r
-          rw [AssembleCallSeg.exec_rdsC (hv T3 A3 (hle2.trans hle) (hA2.trans hleA)) (by omega)]
-          exact hex2 T3 A3 hle hleA
-        · obtain ⟨hy1, after, within', hE, hT, hrdy, hga, hbud, hra⟩ := hnext y hy
-          exact ⟨hy1, after, within', hE, hT, hrdy, by omega, hbud, hra⟩
+          hrd1 (by unfold MemBudget at *; omega) hrun2)
+          (by omega) (RunTable.Le.refl T) (CreateTable.Le.refl A) fun T3 A3 hle hleA => ?_
+        show SolarTV.EVM.Program.exec (FO code T3 A3) call b (.effect .returndatasize 0 :: rest) S' s' = _
+        rw [AssembleCallSeg.exec_rdsC (hv T3 A3 hle hleA) (by omega)]
       · -- RETURNDATACOPY at the frame's gas, of any range within the return data.
         obtain rfl := isRdcI_eq hrdci
         obtain ⟨-, hk1, hh1, hdat, htop', hok3⟩ := blockOkC_rdc hok2
-        have hs := I'.seg
-        rw [AssembleCallSeg.lowerInstrs_rdc, List.cons_append] at hs
-        obtain ⟨next, hd, hseg'⟩ := hs.head
-        simp only [Item.expected] at hd
-        obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+        obtain ⟨hlt, hcode, hseg'⟩ := seg_op (AssembleCallSeg.lowerInstrs_rdc _ _ _ _) I'.seg
         rcases S' with _ | ⟨x, _ | ⟨y, _ | ⟨z, S''⟩⟩⟩
         · simp at hh2; omega
         · simp at hh2; omega
@@ -718,10 +695,6 @@ theorem segF {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
         obtain ⟨hfit, M2, g2, m2, within2, hmem2, hb2, hg2, hat2, hrun2⟩ :=
           AssembleCallSeg.rdc_dyn I'.mem hmB (by omega) (hrd1 T A (RunTable.Le.refl T)
             (CreateTable.Le.refl A)) hatm hlt hcode within1 hrm hok
-        have hsz : M2.size ≤ c.top := by
-          have hmod : M2.size % 32 = 0 := by rw [hmem2.1]; omega
-          have := size_le_of_cost (B := G0) (by unfold MemBudget at hb2; omega) hG0 hmod
-          omega
         have hext : ∀ T3 A3, T.Le T3 → A.Le A3 → returndataByte (FO code T3 A3) s'.world =
             returndataByte (FO code T A) s'.world := by
           intro T3 A3 hle hleA
@@ -729,31 +702,23 @@ theorem segF {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
           simp only [returndataByte]
           rw [createTable_agree (baseF code) hle hleA (le_of_eq hs1.1.symm) (le_of_eq hs1.2.2.1.symm)
             (le_of_eq hs1.2.2.2.2.2.2.1.symm)]
-        obtain ⟨T2, A2, r, hle2, hA2, hex2, hpost, hnext⟩ := segF (G0 := G0) G hcr hdata hvalue
+        refine segF_step hex (segF (G0 := G0) G hcr hdata hvalue
           hstatic hself hcaller hbenv htx hb hok hG0 hdepth meets hsites n rest (h' - 3) [] (ty'.drop 3)
           (k' - 1) S'' Tr
           { s' with
             memory := s'.memory.write x.toNat z.toNat
               (fun i => returndataByte (FO code T A) s'.world (y.toNat + i)) } (pc' + 1) M2 g2 st' ss' rd
           T A m2 within2 (by omega) hok3 (by omega) (by omega)
-          (KR.nil _) hR'' hseg' (by omega) hsz hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2
-          hs1 hrd1 hb2 hrun2
-        refine ⟨T2, A2, r, hle2, hA2, fun T3 A3 hle hleA => ?_, hpost, fun y hy => ?_⟩
-        · rw [hex T3 A3 (hle2.trans hle) (hA2.trans hleA)]
-          show SolarTV.EVM.Program.exec (FO code T3 A3) call b (.effect .returndatacopy 3 :: rest) _ s' = r
-          rw [AssembleCallSeg.exec_rdcC (by rw [(hrd1 T3 A3 (hle2.trans hle) (hA2.trans hleA)).1]; exact hfit)
-            (by omega), hext T3 A3 (hle2.trans hle) (hA2.trans hleA)]
-          exact hex2 T3 A3 hle hleA
-        · obtain ⟨hy1, after, within', hE, hT, hrdy, hga, hbud, hra⟩ := hnext y hy
-          exact ⟨hy1, after, within', hE, hT, hrdy, by omega, hbud, hra⟩
+          (KR.nil _) hR'' hseg' (by omega) (size_le_top hmem2 hb2 hG0 htop') hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2
+          hs1 hrd1 hb2 hrun2)
+          (by omega) (RunTable.Le.refl T) (CreateTable.Le.refl A) fun T3 A3 hle hleA => ?_
+        show SolarTV.EVM.Program.exec (FO code T3 A3) call b (.effect .returndatacopy 3 :: rest) _ s' = _
+        rw [AssembleCallSeg.exec_rdcC (by rw [(hrd1 T3 A3 hle hleA).1]; exact hfit)
+          (by omega), hext T3 A3 hle hleA]
       · -- CALL at the frame's gas: the callee's flag, output and the storage after join the table.
         obtain rfl := isCallI_eq hcalli
         obtain ⟨-, -, hk1, hh1, hdat, htop', hok3⟩ := blockOkC_call hok2
-        have hs := I'.seg
-        rw [lowerInstrs_call, List.cons_append] at hs
-        obtain ⟨next, hd, hseg'⟩ := hs.head
-        simp only [Item.expected] at hd
-        obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+        obtain ⟨hlt, hcode, hseg'⟩ := seg_op (lowerInstrs_call _ _ _ _) I'.seg
         rcases S' with _ | ⟨x1, _ | ⟨x2, _ | ⟨x3, _ | ⟨x4, _ | ⟨x5, _ | ⟨x6, _ | ⟨x7, S''⟩⟩⟩⟩⟩⟩⟩
         all_goals (first | (simp at hh2; omega) | skip)
         rcases T' with _ | ⟨y1, _ | ⟨y2, _ | ⟨y3, _ | ⟨y4, _ | ⟨y5, _ | ⟨y6, _ | ⟨y7, Tr⟩⟩⟩⟩⟩⟩⟩
@@ -791,10 +756,6 @@ theorem segF {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
             exact ⟨ok, out, s2, st2, ss2, M2, g2, m2, within2, fun T'' hle => hall T'' hle, hw,
               hmem2, R2, hb2, hg2, hat2, hrun2⟩
         have hle1 := le_pushCall T ok out (storeOf st2 msg.currentTarget)
-        have hsz : M2.size ≤ c.top := by
-          have hmod : M2.size % 32 = 0 := by rw [hmem2.1]; omega
-          have := size_le_of_cost (B := G0) (by unfold MemBudget at hb2; omega) hG0 hmod
-          omega
         have hT1 : TabF (pushCall T ok out (storeOf st2 msg.currentTarget)) A s2.world := by
           rw [hw]
           exact TabF.call hs1 ok out _ .call [x1, x2, x3] _ _ _
@@ -804,33 +765,25 @@ theorem segF {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
             rw [hw]
             simp [callWorld, lastCreate, List.filter_append, Event.sends]
           exact rdRel_FO_of_table hl (hall T'' h1).2
-        obtain ⟨T2, A2, r, hle2, hA2, hex2, hpost, hnext⟩ := segF (G0 := G0) G hcr hdata hvalue
+        refine segF_step hex (segF (G0 := G0) G hcr hdata hvalue
           hstatic hself hcaller hbenv htx hb hok hG0 hdepth meets hsites n rest (h' - 6) []
           (some false :: ty'.drop 7) (k' - 1) ((if ok then 1 else 0) :: S'')
           ((if ok then 1 else 0) :: Tr) s2 (pc' + 1) M2 g2 st2 ss2 out _ A m2 within2 (by omega)
           hok3 (by simp; omega) (by simp; omega) (KR.nil _) (SR.cons (τ := some false) rfl hR'')
-          hseg' (by simp; omega) hsz hmem2 R2 hat2 hT1 hRd1 hb2 hrun2
-        refine ⟨T2, A2, r, hle1.trans hle2, hA2, fun T3 A3 hle hleA => ?_, hpost, fun y hy => ?_⟩
-        · rw [hex T3 A3 (hle1.trans (hle2.trans hle)) (hA2.trans hleA)]
-          show SolarTV.EVM.Program.exec (FO code T3 A3) call b
-            (.effect (.call .call) 7 :: rest) _ s' = r
-          have happ3 : Effect.apply (FO code T3 A3) call (.call .call) [x1, x2, x3, x4, x5, x6, x7] s' =
-              some (some (if ok then 1 else 0), s2) := by
-            rw [apply_call_createOracle]
-            exact (hall T3 (hle2.trans hle)).1
-          rw [exec_callC happ3 (by omega)]
-          exact hex2 T3 A3 hle hleA
-        · obtain ⟨hy1, after, within', hE, hT, hrdy, hga, hbud, hra⟩ := hnext y hy
-          exact ⟨hy1, after, within', hE, hT, hrdy, by omega, hbud, hra⟩
+          hseg' (by simp; omega) (size_le_top hmem2 hb2 hG0 htop') hmem2 R2 hat2 hT1 hRd1 hb2 hrun2)
+          (by omega) hle1 (CreateTable.Le.refl A) fun T3 A3 hle hleA => ?_
+        show SolarTV.EVM.Program.exec (FO code T3 A3) call b
+          (.effect (.call .call) 7 :: rest) _ s' = _
+        have happ3 : Effect.apply (FO code T3 A3) call (.call .call) [x1, x2, x3, x4, x5, x6, x7] s' =
+            some (some (if ok then 1 else 0), s2) := by
+          rw [apply_call_createOracle]
+          exact (hall T3 hle).1
+        rw [exec_callC happ3 (by omega)]
       · -- CREATE2 at the frame's gas: its word, return data and the storage after join the
         -- creation table, and an entry at its message the run table.
         obtain rfl := isC2I_eq hc2i
         obtain ⟨-, -, hk1, hh1, hdat, htop', hok3⟩ := blockOkC_c2 hok2
-        have hs := I'.seg
-        rw [lowerInstrs_c2, List.cons_append] at hs
-        obtain ⟨next, hd, hseg'⟩ := hs.head
-        simp only [Item.expected] at hd
-        obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+        obtain ⟨hlt, hcode, hseg'⟩ := seg_op (lowerInstrs_c2 _ _ _ _) I'.seg
         rcases S' with _ | ⟨x1, _ | ⟨x2, _ | ⟨x3, _ | ⟨x4, S''⟩⟩⟩⟩
         all_goals (first | (simp at hh2; omega) | skip)
         rcases T' with _ | ⟨y1, _ | ⟨y2, _ | ⟨y3, _ | ⟨y4, Tr⟩⟩⟩⟩
@@ -846,10 +799,6 @@ theorem segF {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
             hmB hG0 hatm hlt hcode hstatic meets (hsites.create2 hatm hlt hcode hrm)
             within1 hrm hok hs1.2.2.2.2.2.1 hs1.2.2.2.2.2.2.1 hs1.2.2.2.2.2.2.2
         have hleA1 := CreateTable.le_push A r0 out (storeOf st2 msg.currentTarget)
-        have hsz : M2.size ≤ c.top := by
-          have hmod : M2.size % 32 = 0 := by rw [hmem2.1]; omega
-          have := size_le_of_cost (B := G0) (by unfold MemBudget at hb2; omega) hG0 hmod
-          omega
         have hT1 : TabF (pushCall T false .empty (fun _ => 0))
             (A.push r0 out (storeOf st2 msg.currentTarget))
             (postCreate (tableOracle (baseF code) (pushCall T false .empty (fun _ => 0))) s'
@@ -863,39 +812,30 @@ theorem segF {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
           have hl : lastCreate (createWorld s' x1 x2 x3 x4) = true := by
             simp [createWorld]
           exact rdRel_FO_of_create hl (hall A'' h2).2
-        obtain ⟨T2, A2, r, hle2, hA2, hex2, hpost, hnext⟩ := segF (G0 := G0) G hcr hdata hvalue
+        refine segF_step hex (segF (G0 := G0) G hcr hdata hvalue
           hstatic hself hcaller hbenv htx hb hok hG0 hdepth meets hsites n rest (h' - 3) []
           (some false :: ty'.drop 4) (k' - 1) (r0 :: S'') (r0 :: Tr) _ (pc' + 1) M2 g2 st2 ss2 out _
           _ m2 within2 (by omega) hok3 (by simp; omega) (by simp; omega) (KR.nil _)
-          (SR.cons (τ := some false) rfl hR'') hseg' (by simp; omega) hsz hmem2 R2 hat2 hT1 hRd1 hb2 hrun2
-        refine ⟨T2, A2, r, hle1.trans hle2, hleA1.trans hA2, fun T3 A3 hle hleA => ?_, hpost,
-          fun y hy => ?_⟩
-        · rw [hex T3 A3 (hle1.trans (hle2.trans hle)) (hleA1.trans (hA2.trans hleA))]
-          show SolarTV.EVM.Program.exec (FO code T3 A3) call b (.effect .create2 4 :: rest) _ s' = r
-          have hlA := (hA2.trans hleA).2.2.length_le
-          simp only [CreateTable.push, List.length_append, List.length_singleton] at hlA
-          have htr := hs1.2.2.2.2.1
-          have hAst := hs1.2.2.2.2.2.2.2
-          have hsent : sent s'.world < (pushCall T false .empty (fun _ => 0)).transients.length := by
-            simp only [pushCall, List.length_append, List.length_singleton]
-            omega
-          have happ3 : Effect.apply (FO code T3 A3) call .create2 [x1, x2, x3, x4] s' =
-              some (some r0, postCreate (tableOracle (baseF code) (pushCall T false .empty (fun _ => 0)))
-                s' (storeOf st2 msg.currentTarget) x1 x2 x3 x4) := by
-            rw [create2_table (hle2.trans hle) hsent (by omega)]
-            exact (hall A3 (hA2.trans hleA)).1
-          rw [exec_c2C happ3 (by omega)]
-          exact hex2 T3 A3 hle hleA
-        · obtain ⟨hy1, after, within', hE, hT, hrdy, hga, hbud, hra⟩ := hnext y hy
-          exact ⟨hy1, after, within', hE, hT, hrdy, by omega, hbud, hra⟩
+          (SR.cons (τ := some false) rfl hR'') hseg' (by simp; omega) (size_le_top hmem2 hb2 hG0 htop') hmem2 R2 hat2 hT1 hRd1 hb2 hrun2)
+          (by omega) hle1 hleA1 fun T3 A3 hle hleA => ?_
+        show SolarTV.EVM.Program.exec (FO code T3 A3) call b (.effect .create2 4 :: rest) _ s' = _
+        have hlA := hleA.2.2.length_le
+        simp only [CreateTable.push, List.length_append, List.length_singleton] at hlA
+        have htr := hs1.2.2.2.2.1
+        have hAst := hs1.2.2.2.2.2.2.2
+        have hsent : sent s'.world < (pushCall T false .empty (fun _ => 0)).transients.length := by
+          simp only [pushCall, List.length_append, List.length_singleton]
+          omega
+        have happ3 : Effect.apply (FO code T3 A3) call .create2 [x1, x2, x3, x4] s' =
+            some (some r0, postCreate (tableOracle (baseF code) (pushCall T false .empty (fun _ => 0)))
+              s' (storeOf st2 msg.currentTarget) x1 x2 x3 x4) := by
+          rw [create2_table hle hsent (by omega)]
+          exact (hall A3 hleA).1
+        rw [exec_c2C happ3 (by omega)]
       · -- CODECOPY at the frame's gas, at the code offset the checker knows.
         obtain rfl := isCcI_eq hcci
         obtain ⟨-, -, ⟨x0, off0, t0, rfl, hoff⟩, hk1, hh1, hdat, htop', hok3⟩ := blockOkC_cc hok2
-        have hs := I'.seg
-        rw [lowerInstrs_cc, List.cons_append] at hs
-        obtain ⟨next, hd, hseg'⟩ := hs.head
-        simp only [Item.expected] at hd
-        obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+        obtain ⟨hlt, hcode, hseg'⟩ := seg_op (lowerInstrs_cc _ _ _ _) I'.seg
         rcases S' with _ | ⟨x, _ | ⟨y, _ | ⟨z, S''⟩⟩⟩
         all_goals (first | (simp at hh2; omega) | skip)
         rcases T' with _ | ⟨x', _ | ⟨y', _ | ⟨z', Tr⟩⟩⟩
@@ -910,22 +850,14 @@ theorem segF {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
         obtain ⟨M2, g2, m2, within2, -, hmem2, R2, hb2, hg2, hat2, hrun2⟩ :=
           codecopy_cut (call := call) (FO_codeOk code T A) hoff I'.mem R' hmB hG0 hatm hlt hcode
             within1 hrm hok
-        have hsz : M2.size ≤ c.top := by
-          have hmod : M2.size % 32 = 0 := by rw [hmem2.1]; omega
-          have := size_le_of_cost (B := G0) (by unfold MemBudget at hb2; omega) hG0 hmod
-          omega
-        obtain ⟨T2, A2, r, hle2, hA2, hex2, hpost, hnext⟩ := segF (G0 := G0) G hcr hdata hvalue
+        refine segF_step hex (segF (G0 := G0) G hcr hdata hvalue
           hstatic hself hcaller hbenv htx hb hok hG0 hdepth meets hsites n rest (h' - 3) []
           (ty'.drop 3) (k' - 1) S'' Tr _ (pc' + 1) M2 g2 st'
           ss' rd T A m2 within2 (by omega) hok3 (by omega) (by omega) (KR.nil _) hR'' hseg'
-          (by omega) hsz hmem2 R2 hat2 hs1 hrd1 hb2 hrun2
-        refine ⟨T2, A2, r, hle2, hA2, fun T3 A3 hle hleA => ?_, hpost, fun y hy => ?_⟩
-        · rw [hex T3 A3 (hle2.trans hle) (hA2.trans hleA)]
-          show SolarTV.EVM.Program.exec (FO code T3 A3) call b (.effect .codecopy 3 :: rest) _ s' = r
-          rw [exec_codecopy (by omega), codeCopied_FO code T T3 A A3]
-          exact hex2 T3 A3 hle hleA
-        · obtain ⟨hy1, after, within', hE, hT, hrdy, hga, hbud, hra⟩ := hnext y hy
-          exact ⟨hy1, after, within', hE, hT, hrdy, by omega, hbud, hra⟩
+          (by omega) (size_le_top hmem2 hb2 hG0 htop') hmem2 R2 hat2 hs1 hrd1 hb2 hrun2)
+          (by omega) (RunTable.Le.refl T) (CreateTable.Le.refl A) fun T3 A3 hle hleA => ?_
+        show SolarTV.EVM.Program.exec (FO code T3 A3) call b (.effect .codecopy 3 :: rest) _ s' = _
+        rw [exec_codecopy (by omega), codeCopied_FO code T T3 A A3]
 
 /-- info: 'SolidCore.Refinement.Solar.AssembleCreateSegF.segF' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs (whitespace := lax) in
