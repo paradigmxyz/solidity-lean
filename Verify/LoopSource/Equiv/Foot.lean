@@ -17,11 +17,28 @@ theorem not_covered_append {a b : List Nat} {i : Nat} (h : ¬ Covered (a ++ b) i
   ⟨fun ⟨o, ho, h1⟩ => h ⟨o, List.mem_append_left _ ho, h1⟩,
     fun ⟨o, ho, h1⟩ => h ⟨o, List.mem_append_right _ ho, h1⟩⟩
 
-/-- A footprint holds for any larger one. -/
-theorem Frame.mono {D D' MO MO' : List Nat} {senv : SEnv} {st : SState} (h : Frame D MO senv st)
-    (hD : ∀ j ∈ D, j ∈ D') (hM : ∀ o ∈ MO, o ∈ MO') : Frame D' MO' senv st :=
-  ⟨fun j hj => h.1 j (fun hm => hj (hD j hm)),
-    fun i hi => h.2 i (fun ⟨o, ho, h1⟩ => hi ⟨o, hM o ho, h1⟩)⟩
+/-- `(senv', st')` differs from `(senv, st)` only at the values `D` and in the words at `MO`. -/
+private def Changes (D MO : List Nat) (senv senv' : SEnv) (st st' : SState) : Prop :=
+  (∀ j, j ∉ D → senv' j = senv j) ∧ (∀ i, ¬ Covered MO i → st'.mem i = st.mem i)
+
+private theorem Changes.rfl' {D MO : List Nat} {senv : SEnv} {st : SState} : Changes D MO senv senv st st :=
+  ⟨fun _ _ => rfl, fun _ _ => rfl⟩
+
+private theorem Changes.set {MO : List Nat} {senv : SEnv} {st : SState} (d : Nat) (v : SV) :
+    Changes [d] MO senv (senv.set d v) st st :=
+  ⟨fun j hj => by simp [SEnv.set, List.mem_singleton.not.mp hj], fun _ _ => rfl⟩
+
+private theorem Changes.trans {D D' MO MO' : List Nat} {e1 e2 e3 : SEnv} {s1 s2 s3 : SState}
+    (h1 : Changes D MO e1 e2 s1 s2) (h2 : Changes D' MO' e2 e3 s2 s3) :
+    Changes (D ++ D') (MO ++ MO') e1 e3 s1 s3 :=
+  ⟨fun j hj => by simp only [List.mem_append, not_or] at hj; rw [h2.1 j hj.2, h1.1 j hj.1],
+    fun i hi => by obtain ⟨c1, c2⟩ := not_covered_append hi; rw [h2.2 i c2, h1.2 i c1]⟩
+
+/-- A footprint, grown by what a run changes, holds after it. -/
+private theorem Frame.changes {D D' MO MO' : List Nat} {senv senv' : SEnv} {st st' : SState}
+    (hF : Frame D MO senv st) (h : Changes D' MO' senv senv' st st') : Frame (D ++ D') (MO ++ MO') senv' st' :=
+  ⟨fun j hj => by simp only [List.mem_append, not_or] at hj; rw [h.1 j hj.2]; exact hF.1 j hj.1,
+    fun i hi => by obtain ⟨c1, c2⟩ := not_covered_append hi; rw [h.2 i c2]; exact hF.2 i c1⟩
 
 theorem splitCall_of_noCall : ∀ insts : List Inst, insts.all (fun i => !isCallInst i) = true →
     splitCall insts = (insts, none)
@@ -68,15 +85,38 @@ theorem effect_mem {ev : EnvFlags} {cv : SV} {n : Nat} {dst : Option Nat} {eff :
   · intro i _
     rw [symEffect_mem_of_ne he h]
 
-theorem symInsts_foot {ev : EnvFlags} {cv : SV} {sel n : Nat} {K : Facts} :
+/-- One instruction changes only what `instDsts` and `instMem` list. -/
+private theorem symInsts_cons {ev : EnvFlags} {cv : SV} {sel n : Nat} {K : Facts} {inst : Inst}
+    {rest : List Inst} {senv senv' : SEnv} {st st' : SState} {o1 : List Nat}
+    (h : symInsts ev cv sel n K (inst :: rest) senv st = some (senv', st')) (hi : instMem inst = some o1) :
+    ∃ senv1 st1, Changes (instDsts inst) o1 senv senv1 st st1 ∧
+      symInsts ev cv sel n K rest senv1 st1 = some (senv', st') := by
+  cases inst with
+  | effect d eff args =>
+    simp only [symInsts] at h
+    split at h
+    · rename_i res st2 he
+      refine ⟨_, _, ⟨fun j hj => ?_, effect_mem he hi⟩, h⟩
+      clear h
+      cases d <;> cases res <;> simp_all [instDsts, SEnv.set]
+    · simp at h
+  | assume neg op args =>
+    simp only [symInsts] at h
+    repeat' split at h
+    all_goals first | exact ⟨_, _, Changes.rfl', h⟩ | simp at h
+  | _ =>
+    simp only [symInsts] at h
+    repeat' split at h
+    all_goals first | exact ⟨_, _, Changes.set _ _, h⟩ | simp at h
+
+private theorem symInsts_foot {ev : EnvFlags} {cv : SV} {sel n : Nat} {K : Facts} :
     ∀ (insts : List Inst) (senv senv' : SEnv) (st st' : SState) (offs : List (List Nat)),
       symInsts ev cv sel n K insts senv st = some (senv', st') → insts.mapM instMem = some offs →
-      (∀ j, j ∉ insts.flatMap instDsts → senv' j = senv j) ∧
-      (∀ i, ¬ Covered offs.flatten i → st'.mem i = st.mem i)
+      Changes (insts.flatMap instDsts) offs.flatten senv senv' st st'
   | [], senv, senv', st, st', offs, h, _ => by
     simp only [symInsts, Option.some.injEq, Prod.mk.injEq] at h
     obtain ⟨rfl, rfl⟩ := h
-    exact ⟨fun _ _ => rfl, fun _ _ => rfl⟩
+    exact Changes.rfl'
   | inst :: rest, senv, senv', st, st', offs, h, ho => by
     rw [List.mapM_cons] at ho
     cases hi : instMem inst with
@@ -87,61 +127,8 @@ theorem symInsts_foot {ev : EnvFlags} {cv : SV} {sel n : Nat} {K : Facts} :
     | some os =>
     simp [hi, hr] at ho
     subst ho
-    have cov : ∀ i, ¬ Covered (o1 :: os).flatten i → ¬ Covered o1 i ∧ ¬ Covered os.flatten i :=
-      fun i hc => not_covered_append (by simpa using hc)
-    have dst : ∀ j, j ∉ (inst :: rest).flatMap instDsts → j ∉ instDsts inst ∧ j ∉ rest.flatMap instDsts :=
-      fun j hj => by simp only [List.flatMap_cons, List.mem_append, not_or] at hj; exact hj
-    have setk : ∀ d v, (∀ j, j ∉ instDsts inst → j ≠ d) →
-        symInsts ev cv sel n K rest (senv.set d v) st = some (senv', st') →
-        (∀ j, j ∉ (inst :: rest).flatMap instDsts → senv' j = senv j) ∧
-        (∀ i, ¬ Covered (o1 :: os).flatten i → st'.mem i = st.mem i) := fun d v hd hv => by
-      obtain ⟨h1, h2⟩ := symInsts_foot rest _ _ _ _ os hv hr
-      refine ⟨fun j hj => ?_, fun i hc => h2 i (cov i hc).2⟩
-      obtain ⟨hj1, hj2⟩ := dst j hj
-      rw [h1 j hj2]
-      simp [SEnv.set, hd j hj1]
-    have keep : symInsts ev cv sel n K rest senv st = some (senv', st') →
-        (∀ j, j ∉ (inst :: rest).flatMap instDsts → senv' j = senv j) ∧
-        (∀ i, ¬ Covered (o1 :: os).flatten i → st'.mem i = st.mem i) := fun hv => by
-      obtain ⟨h1, h2⟩ := symInsts_foot rest _ _ _ _ os hv hr
-      exact ⟨fun j hj => h1 j (dst j hj).2, fun i hc => h2 i (cov i hc).2⟩
-    cases inst with
-    | pure d op args =>
-      simp only [symInsts] at h
-      split at h
-      · exact setk d _ (fun j hj => by simpa [instDsts] using hj) h
-      · simp at h
-    | effect d eff args =>
-      simp only [symInsts] at h
-      split at h
-      · rename_i res st2 he
-        obtain ⟨h1, h2⟩ := symInsts_foot rest _ _ _ _ os h hr
-        have hm := effect_mem he hi
-        refine ⟨fun j hj => ?_, fun i hc => by rw [h2 i (cov i hc).2, hm i (cov i hc).1]⟩
-        obtain ⟨hj1, hj2⟩ := dst j hj
-        rw [h1 j hj2]
-        cases d <;> cases res <;> simp_all [instDsts, SEnv.set]
-      · simp at h
-    | ne d a b =>
-      simp only [symInsts] at h
-      have hd : ∀ j, j ∉ instDsts (Inst.ne d a b) → j ≠ d := fun j hj => by simpa [instDsts] using hj
-      split at h <;> (try split at h) <;> first | exact setk d _ hd h | simp at h
-    | assume neg op args =>
-      simp only [symInsts] at h
-      repeat' split at h
-      all_goals first | exact keep h | simp at h
-    | word d a =>
-      simp only [symInsts] at h
-      split at h
-      · exact setk d _ (fun j hj => by simpa [instDsts] using hj) h
-      · simp at h
-    | heapFloor d fl =>
-      simp only [symInsts] at h
-      exact setk d _ (fun j hj => by simpa [instDsts] using hj) h
-    | call _ _ _ _ _ => simp [symInsts] at h
-    | low _ _ _ => simp [symInsts] at h
-    | select _ _ _ _ => simp [symInsts] at h
-    | alloc _ _ => simp [symInsts] at h
+    obtain ⟨_, _, h1, h2⟩ := symInsts_cons h hi
+    exact h1.trans (symInsts_foot rest _ _ _ _ os h2 hr)
 
 theorem symPhis_foot {inc : SEnv} {pred : Nat} :
     ∀ (phis : List (Nat × List (Nat × Operand))) (env env' : SEnv),
@@ -172,10 +159,6 @@ def nextFrame (D MO : List Nat) : SNext → Prop
   | .go stack _ senv st => stack = [] → Frame D MO senv st
   | .fork _ stack _ _ _ _ senv st => stack = [] → Frame D MO senv st
 
-theorem nextFrame_mono {D D' MO MO' : List Nat} {x : SNext} (h : nextFrame D MO x)
-    (hD : ∀ j ∈ D, j ∈ D') (hM : ∀ o ∈ MO, o ∈ MO') : nextFrame D' MO' x := by
-  cases x <;> simp only [nextFrame] at h ⊢ <;> first | trivial | exact fun hs => (h hs).mono hD hM
-
 theorem symStart_mem {g : Function} {st : SState} :
     ∀ i, ¬ Covered (match g.entryHeap with | some _ => [64] | none => []) i →
       (symStart g st).mem i = st.mem i := by
@@ -191,8 +174,6 @@ theorem symTerm_frame {m : Module} {fn b : Nat} {senv : SEnv} {st : SState} {ter
     {x : SNext} {D MO : List Nat} (hF : Frame D MO senv st)
     (h : symTerm m [] fn b senv st term = some x) :
     nextFrame (D ++ (termFoot m term).1) (MO ++ (termFoot m term).2) x := by
-  have hF' : Frame (D ++ (termFoot m term).1) (MO ++ (termFoot m term).2) senv st :=
-    hF.mono (fun j hj => List.mem_append_left _ hj) (fun o ho => List.mem_append_left _ ho)
   cases term with
   | tailCall callee args =>
     simp only [symTerm] at h
@@ -218,24 +199,13 @@ theorem symTerm_frame {m : Module} {fn b : Nat} {senv : SEnv} {st : SState} {ter
     simp only [symTerm] at h
     repeat' split at h
     all_goals first
-      | (simp only [Option.some.injEq] at h; subst h; first | trivial | exact fun _ => hF')
+      | (simp only [Option.some.injEq] at h; subst h; first | trivial | exact fun _ => hF.changes Changes.rfl')
       | simp at h
 
-theorem segFoot_pre {m : Module} {insts : List Inst} {term : Terminator} {pre d mo : List Nat}
-    (h : segFoot m insts term pre = some (d, mo)) : ∀ j ∈ pre, j ∈ d := by
-  unfold segFoot at h
-  split at h
-  · split at h
-    · simp at h
-    · simp only [Option.some.injEq, Prod.mk.injEq] at h
-      obtain ⟨rfl, -⟩ := h
-      intro j hj
-      simp [hj]
-  · simp at h
-
+/-- A segment from a footprint that already holds its block's phis `pre`. -/
 theorem symSegment_frame {ev : EnvFlags} {cv : SV} {m : Module} {sel n : Nat} {K : Facts}
     {fn b : Nat} {insts : List Inst} {term : Terminator} {senv : SEnv} {st : SState} {x : SNext}
-    {D MO pre d mo : List Nat} (hF : Frame D MO senv st)
+    {D MO pre d mo : List Nat} (hF : Frame (D ++ pre) MO senv st)
     (hfoot : segFoot m insts term pre = some (d, mo))
     (h : symSegment ev cv m sel n K [] fn b insts term senv st = some x) :
     nextFrame (D ++ d) (MO ++ mo) x := by
@@ -253,16 +223,8 @@ theorem symSegment_frame {ev : EnvFlags} {cv : SV} {m : Module} {sel n : Nat} {K
       split at h
       · simp at h
       · rename_i senv2 st2 hi
-        obtain ⟨h1, h2⟩ := symInsts_foot insts _ _ _ _ offs hi ho
-        have hF2 : Frame (D ++ insts.flatMap instDsts) (MO ++ offs.flatten) senv2 st2 := by
-          refine ⟨fun j hj => ?_, fun i hc => ?_⟩
-          · simp only [List.mem_append, not_or] at hj
-            rw [h1 j hj.2]; exact hF.1 j hj.1
-          · obtain ⟨c1, c2⟩ := not_covered_append hc
-            rw [h2 i c2]; exact hF.2 i c1
-        exact nextFrame_mono (symTerm_frame hF2 h)
-          (fun j hj => by simp only [List.mem_append] at hj ⊢; tauto)
-          (fun o ho => by simp only [List.mem_append] at ho ⊢; tauto)
+        simpa only [List.append_assoc] using
+          symTerm_frame (hF.changes (symInsts_foot insts _ _ _ _ offs hi ho)) h
   · simp at hfoot
 
 /-- **One step keeps the footprint**: what `stepFoot` lists, added to it. -/
@@ -285,21 +247,11 @@ theorem frame_step {ev : EnvFlags} {cv : SV} {m : Module} {sel n : Nat} {K : Fac
         split at h
         · simp at h
         · rename_i senv1 hp
-          have hF1 : Frame (D ++ blk.phis.map Prod.fst) MO senv1 st := by
-            refine ⟨fun j hj => ?_, hF.2⟩
-            simp only [List.mem_append, not_or] at hj
-            rw [symPhis_foot _ _ _ hp j hj.2]; exact hF.1 j hj.1
-          have hpre := segFoot_pre hfoot
-          exact nextFrame_mono (symSegment_frame hF1 hfoot h)
-            (fun j hj => by
-              simp only [List.mem_append] at hj ⊢
-              rcases hj with (hj | hj) | hj
-              · exact Or.inl hj
-              · exact Or.inr (hpre j hj)
-              · exact Or.inr hj)
-            (fun o ho => ho)
+          refine symSegment_frame ⟨fun j hj => ?_, hF.2⟩ hfoot h
+          simp only [List.mem_append, not_or] at hj
+          rw [symPhis_foot _ _ _ hp j hj.2]; exact hF.1 j hj.1
   | resume fn b insts term =>
     simp only [stepFoot] at hfoot
-    exact symSegment_frame hF hfoot h
+    exact symSegment_frame (by rwa [List.append_nil]) hfoot h
 
 end Verify.LoopSource.Equiv

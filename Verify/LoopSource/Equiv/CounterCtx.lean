@@ -41,55 +41,14 @@ open Verify.LoopSource.Equiv.CounterLoad
 
 /-! ## The postcondition at any caller word -/
 
+/-- The postcondition at caller word `x`: `bump`'s tree never reads the caller, so this is
+`MirLink.tree_post` at the pinned tree. -/
 theorem tree_post_at (x : Nat) {T : Tree} (hT : brTree bumpFn (argFacts [256] 0) bumpBr = some T)
     (σ : List (Nat × Nat)) {a : Nat} (ha : a < 2 ^ 256) :
     Verify.LoopSource.MirLink.BumpPost (Verify.LoopSource.MirLink.bumpCall σ a)
       (T.eval ⟨[a], slotValue σ, solHash, x⟩).obs := by
-  refine ⟨σ, a, ha, rfl, fun hs => ?_⟩
-  set ρ : Val := ⟨[a], slotValue σ, solHash, x⟩ with hρ
-  have hok : ρ.Ok := slotValue_store σ
-  obtain ⟨T', hT', hTe⟩ := brTree_eval bumpFn (argFacts [256] 0) ρ bumpBr T hT
-  simp only [Res.obs] at hs ⊢
-  rw [← hTe] at hs ⊢
-  unfold bumpBr at hT'
-  rw [guards_eval] at hT'
-  by_cases hg : [ovf].any (fun g => g.eval ρ != 0) = true
-  · rw [if_pos hg] at hT'
-    simp only [leafTree, Option.some.injEq] at hT'
-    subst hT'
-    simp [Tree.eval] at hs
-  rw [if_neg hg] at hT'
-  simp only [Br.eval] at hT'
-  by_cases hv : le.eval ρ = 0
-  · rw [if_pos hv] at hT'
-    simp only [leafTree, Option.map_eq_some_iff] at hT'
-    obtain ⟨bs, _, rfl⟩ := hT'
-    simp [Tree.eval] at hs
-  rw [if_neg hv] at hT'
-  have hpre := require_passed ρ hok hg hv
-  have hn : nOf ρ = a := by
-    simp only [nOf, WExpr.eval, hρ, List.getD_cons_zero]; exact Nat.mod_eq_of_lt ha
-  rw [hn] at hpre
-  have h1w := hok.word 1
-  have h0 := hok.word 0
-  have hT2 : T' = .halt true [] [(.lit 0, .bin .add (.init 0) (.arg 0))] [] := by
-    simp [leafTree, bumpFn, SF, retsOk] at hT'
-    first | exact hT'.symm | exact hT'
-  subst hT2
-  have h0' : slotValue σ 0 < Generic.wordSize := h0
-  have h1' : slotValue σ 1 < Generic.wordSize := h1w
-  have ha' : a < Generic.wordSize := ha
-  have hpre' : slotValue σ 0 + a ≤ slotValue σ 1 := hpre
-  refine ⟨?_, hpre', ?_⟩
-  · simp only [Tree.eval, ↓reduceIte, Writes.store, WExpr.eval, BinOp.eval, hρ, List.getD_cons_zero]
-    rw [Nat.mod_eq_of_lt h0', Nat.mod_eq_of_lt ha', Nat.mod_mod, Nat.mod_eq_of_lt (by omega)]
-  · intro k hk
-    simp only [Tree.eval, ↓reduceIte, Writes.store, WExpr.eval]
-    by_cases he : 0 % Generic.wordSize = k % Generic.wordSize
-    · rw [Nat.zero_mod] at he; exact absurd he.symm hk
-    · simp only [he, ↓reduceIte] <;> rfl
-
-
+  obtain rfl := Option.some.inj (hT.symm.trans Verify.LoopSource.Equiv.CounterObl.tree)
+  exact Verify.LoopSource.MirLink.tree_post _ Verify.LoopSource.Equiv.CounterObl.tree σ a ha
 
 /-! ## Valuations, calls, cover -/
 
@@ -149,10 +108,7 @@ theorem src_run {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) {n : Na
     SolidCore.Refinement.Source.runFromArgs x fuel [n] c (Verify.LoopSource.MirLink.bumpCall σ a) =
       some (Verify.LoopSource.Equiv.CounterObl.T.eval (ρOf σ a x)).obs := by
   have hw : widthsOf bumpFn.params bumpFn.paramAbiCleanups = some [256] := rfl
-  have hargs : ∀ v ∈ [a], v < 2 ^ 256 := by simpa using ha
-  have hclean : argsClean [256] [a] = true := by
-    show (decide (a < 2 ^ 256) && true) = true
-    simp only [Bool.and_true, decide_eq_true_eq]; exact ha
+  obtain ⟨-, hargs, hclean⟩ := Verify.LoopSource.MirLink.args_one ha
   have hdec := decode_args hw [a] rfl hargs
   rw [if_pos hclean] at hdec
   have h := deployed_run_entry_from x hd (getD_load_cover (coversLoad hl hcov)) (slotValue_store σ)
