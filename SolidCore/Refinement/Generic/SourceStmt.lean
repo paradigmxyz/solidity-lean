@@ -598,6 +598,18 @@ def LeafRel (ρ : Val) (E : EraseEnv) (ctx : Context) : Result → Leaf → Prop
   | .reverted _ r, .reverted f => r = f.data
   | _, _ => False
 
+/-- Split on whether the overflow conditions `c` fire: then the statement reverts with
+`Panic(0x11)`, as its guarded leaf does; otherwise go on past them. -/
+local macro "guard_cases " h:ident " : " c:term : tactic => `(tactic|
+  (by_cases $h:ident : $c = true
+   focus
+     simp only [$h:ident, ↓reduceIte, Bool.true_or, Bool.or_true, Bool.or_assoc]
+     first
+       | exact ⟨_, rfl, rfl⟩
+       | exact ⟨.reverted _ (.panic 0x11), by split <;> (try split) <;> first | rfl | simp_all, rfl⟩
+   simp only [$h:ident, Bool.false_eq_true, ↓reduceIte, Bool.false_or, Bool.or_false,
+     Bool.or_assoc]))
+
 theorem caught_exprResult (ρ : Val) (gs : List WExpr) (v : WExpr) (rt : Runtime) :
     (exprResult ρ gs v rt).caught =
       .done (.ok (if gs.any (fun g => g.eval ρ != 0) then .error (.panic 0x11)
@@ -688,13 +700,6 @@ theorem caught_done_ok {α : Type} (a : α) :
 theorem bind_done_ok {α β : Type} (a : α) (k : α → SolI β) :
     ((EvmCompiler.Simulation.Interaction.done (.ok a) : SolI α) >>= k) = k a := rfl
 
-theorem fieldWrite_lt {cur v off bytes : Nat} (hc : cur < wordSize) (hv : v < wordSize)
-    (h : off + bytes ≤ 32) : fieldWrite cur v off bytes < wordSize := by
-  unfold fieldWrite
-  split
-  · exact hv
-  · exact replace_lt hc v _ _ (by omega)
-
 theorem store_field {ctx : Context} {rt : Runtime} {x : String} {f : StorageField}
     (hf : FieldOk ctx x f) (hw : rt.state.loadSlot f.slot < wordSize) (v : Nat)
     (hv : v < wordSize) (sx : Bool) :
@@ -716,6 +721,22 @@ theorem store_field {ctx : Context} {rt : Runtime} {x : String} {f : StorageFiel
     rw [if_pos (by omega), if_neg h, if_neg (by omega),
       replace_eq hw v _ _ hob8, norm_lt (replace_lt hw v _ _ hob8)]
 
+/-- A word field reads its `readField` and writes its `writeField` of the slot's symbolic word. -/
+theorem StmtRel.field_rw {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {S : SymState}
+    (hrel : StmtRel ρ E ctx rt S) {x : String} {f : StorageField} (hfx : FieldOk ctx x f) :
+    ResolvedLValue.read ctx rt (.storageField x) =
+        .ok (.word ((readField (S.writes.read (.lit f.slot)) f.packedOffset f.packedBytes).eval ρ)) ∧
+      ∀ (w : WExpr) (sx : Bool), rt.storeStorageFieldWithDeepClear ctx x (.word (w.eval ρ)) sx =
+        .ok { rt with state := (rt.state.storeSlot f.slot
+          ((Generic.writeField (S.writes.read (.lit f.slot)) w f.packedOffset f.packedBytes).eval ρ)) } := by
+  have hsl : rt.state.loadSlot f.slot = (S.writes.read (.lit f.slot)).eval ρ :=
+    slot_read hrel.expr hfx.slot
+  have hslw : rt.state.loadSlot f.slot < wordSize := hsl ▸ WExpr.eval_lt _ _
+  refine ⟨?_, fun w sx => ?_⟩
+  · simp [ResolvedLValue.read, ResolvedLValue.readRaw, load_field hfx hslw, hsl,
+      Runtime.derefMemoryValue, bind, Except.bind, readField_eval ρ _ hfx.fits hfx.bytes]
+  · simp only [store_field hfx hslw _ (w.eval_lt ρ), writeField_eval ρ _ _ hfx.fits hfx.bytes, hsl]
+
 /-- The overflow check of a checked binary operation of the fragment on two words. -/
 theorem apply_erased (ρ : Val) {op : BinaryOp} {o : BinOp} (ho : binOf op = some o) (l r : WExpr) :
     BinaryOp.apply true op (.word (l.eval ρ)) (.word (r.eval ρ)) =
@@ -733,27 +754,10 @@ theorem apply_erased (ρ : Val) {op : BinaryOp} {o : BinOp} (ho : binOf op = som
   · rw [apply_mul _ _ hl hr]
     simp only [overflow, Option.toList_some, List.any_cons, List.any_nil, Bool.or_false, guard_mul]
     by_cases h : wordSize ≤ l.eval ρ * r.eval ρ <;> simp [h, WExpr.eval, BinOp.eval, Nat.mod_mod]
-  · rw [apply_bitAnd _ _ hl hr]
-    simp [overflow, WExpr.eval, BinOp.eval, Nat.mod_mod]
-  · rw [apply_bitOr _ _ hl hr]
-    simp [overflow, WExpr.eval, BinOp.eval, Nat.mod_mod]
-  · rw [apply_bitXor _ _ hl hr]
-    simp [overflow, WExpr.eval, BinOp.eval, Nat.mod_mod]
-  · rw [apply_lt _ _ hl hr]
-    simp only [overflow, Option.toList_none, List.any_nil, Bool.false_eq_true, ↓reduceIte]
-    congr 2
-    simp only [WExpr.eval, BinOp.eval]
-    split <;> rfl
-  · rw [apply_gt _ _ hl hr]
-    simp only [overflow, Option.toList_none, List.any_nil, Bool.false_eq_true, ↓reduceIte]
-    congr 2
-    simp only [WExpr.eval, BinOp.eval]
-    split <;> rfl
-  · rw [apply_eq _ _ hl hr]
-    simp only [overflow, Option.toList_none, List.any_nil, Bool.false_eq_true, ↓reduceIte]
-    congr 2
-    simp only [WExpr.eval, BinOp.eval]
-    split <;> rfl
+  all_goals simp only [apply_bitAnd _ _ hl hr, apply_bitOr _ _ hl hr, apply_bitXor _ _ hl hr,
+    apply_lt _ _ hl hr, apply_gt _ _ hl hr, apply_eq _ _ hl hr, overflow, Option.toList_none,
+    List.any_nil, Bool.false_eq_true, ↓reduceIte, WExpr.eval, BinOp.eval]
+  all_goals split_ifs <;> rfl
 
 theorem cleanupGuard_spec (ρ : Val) {b : Nat} {w : WExpr} {cg : List WExpr}
     (h : cleanupGuard b w = some cg) :
@@ -782,53 +786,73 @@ theorem cleanupGuard_spec (ρ : Val) {b : Nat} {w : WExpr} {cg : List WExpr}
         simp [WExpr.eval, BinOp.eval, hm, this, hc]
     · simp at h
 
-theorem eval_returnList (ρ : Val) (fields : List StorageField) (ctx : Context) (rt : Runtime)
-    (S : SymState) (hrel : ExprRel ρ fields ctx rt S) :
+/-- A left-to-right evaluator of expressions of the fragment, whose step gives each expression's
+erased word without touching the runtime, gives the list's words after their overflow conditions.
+`Expr.evalListFuel`, `Expr.evalReturnListFuel` and `Expr.evalRefArgListFuel` are such
+evaluators. -/
+theorem eval_wordList (ρ : Val) (fields : List StorageField) (S : SymState) (rt : Runtime)
+    (F : Nat → Runtime → List Expr → SolI (List Value × Runtime))
+    (step : Nat → Expr → SolI (Value × Runtime))
+    (hF : ∀ n e es, F (n + 1) rt (e :: es) = (do
+      let (v, rt1) ← step n e
+      let (vs, rt2) ← F n rt1 es
+      pure (v :: vs, rt2)))
+    (hnil : ∀ n, F (n + 1) rt [] = pure ([], rt))
+    (hstep : ∀ n e g v, eraseExpr fields S e = some (g, v) → e.orderFuel < n →
+      step n e = exprResult ρ g v rt) :
     ∀ (es : List Expr) (gs vs : List WExpr) (fuel : Nat), eraseExprs fields S es = some (gs, vs) →
-      es.length < fuel →
-      Expr.evalReturnListFuel fuel ctx rt es =
+      Expr.listEvalFuel es ≤ fuel →
+      F fuel rt es =
         if gs.any (fun g => g.eval ρ != 0) then .done (.error (.revert (.panic 0x11)))
         else .done (.ok (vs.map (fun e => Value.word (e.eval ρ)), rt)) := by
   intro es
   induction es with
   | nil =>
     intro gs vs fuel h hf
-    obtain ⟨n, rfl⟩ : ∃ n, fuel = n + 1 := ⟨fuel - 1, by simp at hf; omega⟩
+    obtain ⟨n, rfl⟩ : ∃ n, fuel = n + 1 := ⟨fuel - 1, by simp [Expr.listEvalFuel] at hf; omega⟩
     simp only [eraseExprs, Option.some.injEq, Prod.mk.injEq] at h
     obtain ⟨rfl, rfl⟩ := h
-    rw [Expr.evalReturnListFuel]
-    rfl
+    exact hnil n
   | cons e es ih =>
     intro gs vs fuel h hf
-    obtain ⟨n, rfl⟩ : ∃ n, fuel = n + 1 := ⟨fuel - 1, by simp at hf; omega⟩
-    simp only [eraseExprs, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
-    obtain ⟨⟨g, v⟩, he, ⟨gs', vs'⟩, hes, h⟩ := h
-    simp only [Prod.mk.injEq] at h
-    obtain ⟨rfl, rfl⟩ := h
-    have hv : Expr.evalReturnValue ctx rt e = exprResult ρ g v rt := by
-      have := eval_eq ρ fields ctx rt S hrel he
-      unfold Expr.evalReturnValue
-      split
-      · rename_i x
-        have hx : ∃ ex, Scopes.get? S.scopes x = some ex := by
-          simp only [eraseExpr, Option.map_eq_some_iff] at he
-          obtain ⟨ex, hex, -⟩ := he
-          exact ⟨ex, hex⟩
-        obtain ⟨ex, hex⟩ := hx
-        have hmem : rt.lookupMemoryRef? x = none := by
-          simp [Runtime.lookupMemoryRef?, hrel.locals x ex hex]
-        simp only [hmem]
-        exact this
-      · exact this
-    rw [Expr.evalReturnListFuel]
-    simp only [hv, bind_exprResult, List.any_append]
+    obtain ⟨n, rfl⟩ : ∃ n, fuel = n + 1 := ⟨fuel - 1, by simp [Expr.listEvalFuel] at hf; omega⟩
+    simp only [eraseExprs, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq,
+      Prod.mk.injEq] at h
+    obtain ⟨⟨g, v⟩, he, ⟨gs', vs'⟩, hes, rfl, rfl⟩ := h
+    simp only [Expr.listEvalFuel] at hf
+    have hpos : 1 ≤ Expr.listEvalFuel es := by cases es <;> simp [Expr.listEvalFuel]
+    rw [hF, hstep n e g v he (by omega), bind_exprResult, List.any_append]
     by_cases h1 : g.any (fun g => g.eval ρ != 0) = true
     · simp [h1]
     · simp only [h1, Bool.false_eq_true, ↓reduceIte, Bool.false_or]
-      rw [ih gs' vs' n hes (by simp at hf; omega)]
-      by_cases h2 : gs'.any (fun g => g.eval ρ != 0) = true
-      · simp [h2]; rfl
-      · simp [h2]; rfl
+      rw [ih gs' vs' n hes (by omega)]
+      by_cases h2 : gs'.any (fun g => g.eval ρ != 0) = true <;> simp [h2] <;> rfl
+
+/-- A local of the fragment holds a word: it is neither a memory reference nor a storage base. -/
+theorem var_refs {ρ : Val} {fields : List StorageField} {ctx : Context} {rt : Runtime} {S : SymState}
+    (hrel : ExprRel ρ fields ctx rt S) {x : String} {g : List WExpr} {v : WExpr}
+    (he : eraseExpr fields S (.var x) = some (g, v)) :
+    rt.lookupMemoryRef? x = none ∧ rt.lookupStorageBase? x = none := by
+  simp only [eraseExpr, Option.map_eq_some_iff] at he
+  obtain ⟨ex, hex, -⟩ := he
+  have hl := hrel.locals x ex hex
+  exact ⟨by simp [Runtime.lookupMemoryRef?, hl], by simp [Runtime.lookupStorageBase?, hl]⟩
+
+theorem eval_returnList (ρ : Val) (fields : List StorageField) (ctx : Context) (rt : Runtime)
+    (S : SymState) (hrel : ExprRel ρ fields ctx rt S) {es : List Expr} {gs vs : List WExpr}
+    (h : eraseExprs fields S es = some (gs, vs)) :
+    Expr.evalReturnList ctx rt es =
+      if gs.any (fun g => g.eval ρ != 0) then .done (.error (.revert (.panic 0x11)))
+      else .done (.ok (vs.map (fun e => Value.word (e.eval ρ)), rt)) :=
+  eval_wordList ρ fields S rt (Expr.evalReturnListFuel · ctx) (fun _ => Expr.evalReturnValue ctx rt)
+    (fun _ _ _ => by simp only [Expr.evalReturnListFuel]) (fun _ => by simp only [Expr.evalReturnListFuel])
+    (fun _ e g v he _ => by
+      unfold Expr.evalReturnValue
+      split
+      · simp only [(var_refs hrel he).1]; exact eval_eq ρ fields ctx rt S hrel he
+      · exact eval_eq ρ fields ctx rt S hrel he)
+    es gs vs _ h le_rfl
+
 
 theorem storeSlot_mod (st : State) (k w : Nat) : st.storeSlot (k % wordSize) w = st.storeSlot k w := by
   simp only [State.storeSlot, StorageMap.insertLoop, norm_mod, Nat.mod_mod]
@@ -848,6 +872,53 @@ theorem storeIndex_map {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} 
     Runtime.storageMaterializedValue, Runtime.derefMemoryValueDeep, Runtime.derefMemoryValueWithFuel,
     StorageLayout.clearDepth, mappingStorageSlot_eq, pure, Except.pure]
 
+/-- A compound assignment `target op= rhs` with a `uint b` cleanup, whose target resolves to `lv`
+after the overflow conditions `gi` and holds the word `cur`: the right side's overflow
+conditions, the target's, the operation's and the cleanup's range check, then the write of the
+new word, which `wr` and `S'` relate. -/
+theorem eval_compound (ρ : Val) (E : EraseEnv) (ctx : Context) (rt : Runtime) (S : SymState)
+    (hrel : StmtRel ρ E ctx rt S) (n : Nat) {op : BinaryOp} {b : Nat} {target rhs : Expr}
+    {gs gi cg : List WExpr} {v cur : WExpr} {o : BinOp} {lv : ResolvedLValue}
+    {wr : WExpr → Runtime} {S' : WExpr → SymState}
+    (hv : eraseExpr E.fields S rhs = some (gs, v))
+    (hres : ∀ F, target.orderFuel < F → Expr.resolveLValueFuel F ctx rt target =
+      if gi.any (fun g => g.eval ρ != 0) then .done (.error (.revert (.panic 0x11)))
+      else .done (.ok (lv, rt)))
+    (ho : binOf op = some o) (hcg : cleanupGuard b (.bin o cur v) = some cg)
+    (hrd : lv.read ctx rt = .ok (.word (cur.eval ρ)))
+    (hwr : ∀ w : WExpr, lv.write ctx rt (.word (w.eval ρ)) = .ok (wr w))
+    (hrelw : ∀ w, StmtRel ρ E ctx (wr w) (S' w)) :
+    ∃ r, Stmt.eval (n + 1) E.tbl ctx rt
+        (.exprStmt (.assignment (some op) (some (.uint b)) target rhs)) = .done (.ok r) ∧
+      LeafRel ρ E ctx r ((guards (gs ++ gi ++ (overflow o cur v).toList ++ cg)
+        (.leaf (.normal (S' (.bin o cur v))))).eval ρ) := by
+  obtain ⟨hb0, hb, hcgv⟩ := cleanupGuard_spec ρ hcg
+  have hcl : ValueCleanup.apply true (.uint b) (.word ((WExpr.bin o cur v).eval ρ)) =
+      if (WExpr.bin o cur v).eval ρ < 2 ^ b then .ok (.word ((WExpr.bin o cur v).eval ρ))
+      else .error (.panic 0x11) := uintCleanup_lt _ _ (WExpr.eval_lt ρ _) hb0 hb
+  rw [Stmt.eval]
+  simp only [Expr.eval, Expr.orderFuel]
+  rw [Expr.evalFuel, eval_erase ρ E.fields ctx rt S hrel.expr rhs gs v _ hv (by omega),
+    bind_exprResult, guards_eval]
+  simp only [any_append]
+  guard_cases hg : gs.any (fun g => g.eval ρ != 0)
+  rw [hres _ (by omega)]
+  guard_cases hgi : gi.any (fun g => g.eval ρ != 0)
+  simp only [bind_done_ok, pure, EvmCompiler.Simulation.Interaction.pure, liftM, monadLift,
+    MonadLift.monadLift, SolI.ofExcept, hrd, hrel.checked, apply_erased ρ ho, hcgv]
+  guard_cases ho' : (overflow o cur v).toList.any (fun g => g.eval ρ != 0)
+  simp only [bind_done_ok]
+  cases op
+  all_goals first | (simp [binOf] at ho; done) | skip
+  all_goals
+  dsimp only
+  rw [hcl]
+  by_cases hc : (WExpr.bin o cur v).eval ρ < 2 ^ b
+  · simp only [hc, decide_true, Bool.not_true, Bool.false_eq_true, ↓reduceIte, bind_done_ok, hwr]
+    exact ⟨_, rfl, hrelw _⟩
+  · simp only [hc, decide_false, Bool.not_false, ↓reduceIte]
+    exact ⟨_, rfl, rfl⟩
+
 /-- A compound assignment to a mapping's entry, `m[i] op= rhs` with a `uint b` cleanup: the
 right side's and the key's overflow conditions, the operation's, the cleanup's range check, then
 the write of the entry's slot word. -/
@@ -863,66 +934,23 @@ theorem eval_mapAssign (ρ : Val) (E : EraseEnv) (ctx : Context) (rt : Runtime) 
       LeafRel ρ E ctx r ((guards (gs ++ gi ++ (overflow o (S.writes.read (.hash key (.lit k))) v).toList ++ cg)
         (.leaf (.normal { S with writes := (S.writes.set (.hash key (.lit k))
           (.bin o (S.writes.read (.hash key (.lit k))) v)) }))).eval ρ) := by
-  have hk' := hk
-  obtain ⟨f, hf, rfl⟩ := mapOf?_spec hrel.fields hk'
-  have hread : (S.writes.read (.hash key (.lit f.slot))).eval ρ =
-      Writes.store ρ S.writes (solHash (key.eval ρ) f.slot % wordSize) := by
-    rw [Writes.eval_read hrel.ok]
-    simp only [WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf.slot]
-  rw [Stmt.eval]
-  simp only [Expr.eval, Expr.orderFuel, Expr.listEvalFuel]
-  rw [Expr.evalFuel]
-  rw [eval_erase ρ E.fields ctx rt S hrel.expr rhs gs v _ hv (by omega)]
-  rw [bind_exprResult]
-  rw [guards_eval]
-  have hrd : ResolvedLValue.read ctx rt (.storageIndex x (.word (key.eval ρ))) =
-      .ok (.word ((S.writes.read (.hash key (.lit f.slot))).eval ρ)) := by
-    simp [ResolvedLValue.read, ResolvedLValue.readRaw, loadIndex_map hrel.expr hk (key.eval_lt ρ),
-      hread, Runtime.derefMemoryValue, bind, Except.bind]
+  obtain ⟨f, hf, rfl⟩ := mapOf?_spec hrel.fields hk
   have hsl : (WExpr.hash key (.lit f.slot)).eval ρ = solHash (key.eval ρ) f.slot % wordSize := by
     simp only [WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf.slot]
-  have hwr : ∀ w : WExpr, ResolvedLValue.write ctx rt (.storageIndex x (.word (key.eval ρ)))
-      (.word (w.eval ρ)) =
-        .ok { rt with state := (rt.state.storeSlot ((WExpr.hash key (.lit f.slot)).eval ρ) (w.eval ρ)) } := by
-    intro w
-    simp only [ResolvedLValue.write, storeIndex_map hrel hk (key.eval_lt ρ) (w.eval_lt ρ), hsl,
-      storeSlot_mod]
-  obtain ⟨hb0, hb, hcgv⟩ := cleanupGuard_spec ρ hcg
-  have hcl : ∀ w : WExpr, ValueCleanup.apply true (.uint b) (.word (w.eval ρ)) =
-      if w.eval ρ < 2 ^ b then .ok (.word (w.eval ρ)) else .error (.panic 0x11) :=
-    fun w => uintCleanup_lt _ _ (w.eval_lt ρ) hb0 hb
-  simp only [any_append]
-  by_cases hg : gs.any (fun g => g.eval ρ != 0) = true
-  · simp only [hg, ↓reduceIte, Bool.true_or]
-    exact ⟨.reverted rt (.panic 0x11), rfl, rfl⟩
-  · simp only [hg, Bool.false_eq_true, ↓reduceIte, Bool.false_or]
+  refine eval_compound ρ E ctx rt S hrel n (lv := .storageIndex x (.word (key.eval ρ)))
+    (wr := fun w => { rt with state := rt.state.storeSlot ((WExpr.hash key (.lit f.slot)).eval ρ) (w.eval ρ) })
+    (S' := fun w => { S with writes := S.writes.set (.hash key (.lit f.slot)) w })
+    hv (fun F hF => ?_) ho hcg ?_ (fun w => ?_) (fun w => hrel.write _ w)
+  · obtain ⟨m, rfl⟩ : ∃ m, F = m + 1 := ⟨F - 1, by omega⟩
+    simp only [Expr.orderFuel, Expr.listEvalFuel] at hF
     rw [Expr.resolveLValueFuel]
     simp only []
     rw [eval_erase ρ E.fields ctx rt S hrel.expr i gi key _ hi (by omega), bind_exprResult]
-    by_cases hgi : gi.any (fun g => g.eval ρ != 0) = true
-    · simp only [hgi, ↓reduceIte, Bool.true_or]
-      exact ⟨.reverted rt (.panic 0x11), rfl, rfl⟩
-    · simp only [hgi, Bool.false_eq_true, ↓reduceIte, Bool.false_or, bind_done_ok, pure,
-        EvmCompiler.Simulation.Interaction.pure, liftM, monadLift, MonadLift.monadLift,
-        SolI.ofExcept, hrd, hrel.checked, apply_erased ρ ho, hcgv]
-      by_cases ho' : (overflow o (S.writes.read (.hash key (.lit f.slot))) v).toList.any
-          (fun g => g.eval ρ != 0) = true
-      · simp only [ho', Bool.true_or, ↓reduceIte]
-        exact ⟨.reverted rt (.panic 0x11), rfl, rfl⟩
-      · simp only [ho', Bool.false_or, Bool.false_eq_true, ↓reduceIte, bind_done_ok]
-        have hcl' := hcl (.bin o (S.writes.read (.hash key (.lit f.slot))) v)
-        cases op
-        all_goals first | (simp [binOf] at ho; done) | skip
-        all_goals
-        dsimp only
-        rw [hcl']
-        by_cases hc : (WExpr.bin o (S.writes.read (.hash key (.lit f.slot))) v).eval ρ < 2 ^ b
-        · simp only [hc, decide_true, Bool.not_true, Bool.false_eq_true, ↓reduceIte,
-            bind_done_ok, hwr]
-          exact ⟨_, rfl, hrel.write _ _⟩
-        · simp only [hc, decide_false, Bool.not_false, ↓reduceIte]
-          exact ⟨.reverted rt (.panic 0x11), rfl, rfl⟩
-
+    rfl
+  · simp [ResolvedLValue.read, ResolvedLValue.readRaw, loadIndex_map hrel.expr hk (key.eval_lt ρ),
+      Writes.eval_read hrel.ok, hsl, Runtime.derefMemoryValue, bind, Except.bind]
+  · simp only [ResolvedLValue.write, storeIndex_map hrel hk (key.eval_lt ρ) (w.eval_lt ρ), hsl,
+      storeSlot_mod]
 
 /-- A plain write of a `bool` word to a mapping to `bool`'s entry stores the word in the entry's
 slot. -/
@@ -1000,40 +1028,15 @@ theorem resolve_index2 (ρ : Val) (fields : List StorageField) (ctx : Context) (
       rfl
 
 theorem eval_exprList (ρ : Val) (fields : List StorageField) (ctx : Context) (rt : Runtime)
-    (S : SymState) (hrel : ExprRel ρ fields ctx rt S) :
-    ∀ (es : List Expr) (gs vs : List WExpr) (fuel : Nat), eraseExprs fields S es = some (gs, vs) →
-      Expr.listEvalFuel es ≤ fuel →
-      Expr.evalListFuel fuel ctx rt es =
-        if gs.any (fun g => g.eval ρ != 0) then .done (.error (.revert (.panic 0x11)))
-        else .done (.ok (vs.map (fun e => Value.word (e.eval ρ)), rt)) := by
-  intro es
-  induction es with
-  | nil =>
-    intro gs vs fuel h hf
-    obtain ⟨n, rfl⟩ : ∃ n, fuel = n + 1 := ⟨fuel - 1, by simp [Expr.listEvalFuel] at hf; omega⟩
-    simp only [eraseExprs, Option.some.injEq, Prod.mk.injEq] at h
-    obtain ⟨rfl, rfl⟩ := h
-    rw [Expr.evalListFuel]
-    rfl
-  | cons e es ih =>
-    intro gs vs fuel h hf
-    obtain ⟨n, rfl⟩ : ∃ n, fuel = n + 1 := ⟨fuel - 1, by simp [Expr.listEvalFuel] at hf; omega⟩
-    simp only [eraseExprs, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
-    obtain ⟨⟨g, v⟩, he, ⟨gs', vs'⟩, hes, h⟩ := h
-    simp only [Prod.mk.injEq] at h
-    obtain ⟨rfl, rfl⟩ := h
-    simp only [Expr.listEvalFuel] at hf
-    have hpos : 1 ≤ Expr.listEvalFuel es := by cases es <;> simp [Expr.listEvalFuel]
-    rw [Expr.evalListFuel]
-    simp only [eval_erase ρ fields ctx rt S hrel e g v n he (by omega), bind_exprResult,
-      List.any_append]
-    by_cases h1 : g.any (fun g => g.eval ρ != 0) = true
-    · simp [h1]
-    · simp only [h1, Bool.false_eq_true, ↓reduceIte, Bool.false_or]
-      rw [ih gs' vs' n hes (by omega)]
-      by_cases h2 : gs'.any (fun g => g.eval ρ != 0) = true
-      · simp [h2]; rfl
-      · simp [h2]; rfl
+    (S : SymState) (hrel : ExprRel ρ fields ctx rt S) {es : List Expr} {gs vs : List WExpr}
+    (h : eraseExprs fields S es = some (gs, vs)) :
+    Expr.evalList ctx rt es =
+      if gs.any (fun g => g.eval ρ != 0) then .done (.error (.revert (.panic 0x11)))
+      else .done (.ok (vs.map (fun e => Value.word (e.eval ρ)), rt)) :=
+  eval_wordList ρ fields S rt (Expr.evalListFuel · ctx) (Expr.evalFuel · ctx rt)
+    (fun _ _ _ => by simp only [Expr.evalListFuel]) (fun _ => by simp only [Expr.evalListFuel])
+    (fun n e g v he hn => eval_erase ρ fields ctx rt S hrel e g v n he hn) es gs vs _ h le_rfl
+
 
 theorem materialize_words (ctx : Context) (rt : Runtime) (ρ : Val) : ∀ ws : List WExpr,
     rt.materializeForValueUseList ctx (ws.map fun e => Value.word (e.eval ρ)) =
@@ -1121,55 +1124,20 @@ theorem assignMany_words {ρ : Val} : ∀ (xs : List String) (ws : List WExpr) (
   | [], _ :: _, _, _, _, _, h | _ :: _, [], _, _, _, _, h => by simp [Scopes.setMany] at h
 
 theorem eval_refArgs (ρ : Val) (fields : List StorageField) (ctx : Context) (rt : Runtime)
-    (S : SymState) (hrel : ExprRel ρ fields ctx rt S) :
-    ∀ (es : List Expr) (gs vs : List WExpr) (fuel : Nat), eraseExprs fields S es = some (gs, vs) →
-      Expr.listEvalFuel es ≤ fuel →
-      Expr.evalRefArgListFuel fuel ctx rt es =
-        if gs.any (fun g => g.eval ρ != 0) then .done (.error (.revert (.panic 0x11)))
-        else .done (.ok (vs.map (fun e => Value.word (e.eval ρ)), rt)) := by
-  intro es
-  induction es with
-  | nil =>
-    intro gs vs fuel h hf
-    obtain ⟨n, rfl⟩ : ∃ n, fuel = n + 1 := ⟨fuel - 1, by simp [Expr.listEvalFuel] at hf; omega⟩
-    simp only [eraseExprs, Option.some.injEq, Prod.mk.injEq] at h
-    obtain ⟨rfl, rfl⟩ := h
-    rw [Expr.evalRefArgListFuel]
-    rfl
-  | cons e es ih =>
-    intro gs vs fuel h hf
-    obtain ⟨n, rfl⟩ : ∃ n, fuel = n + 1 := ⟨fuel - 1, by simp [Expr.listEvalFuel] at hf; omega⟩
-    simp only [eraseExprs, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
-    obtain ⟨⟨g, v⟩, he, ⟨gs', vs'⟩, hes, h⟩ := h
-    simp only [Prod.mk.injEq] at h
-    obtain ⟨rfl, rfl⟩ := h
-    simp only [Expr.listEvalFuel] at hf
-    have hpos : 1 ≤ Expr.listEvalFuel es := by cases es <;> simp [Expr.listEvalFuel]
-    have hv : Expr.evalRefArg ctx rt e = exprResult ρ g v rt := by
-      have := eval_eq ρ fields ctx rt S hrel he
+    (S : SymState) (hrel : ExprRel ρ fields ctx rt S) {es : List Expr} {gs vs : List WExpr}
+    (h : eraseExprs fields S es = some (gs, vs)) :
+    Expr.evalRefArgList ctx rt es =
+      if gs.any (fun g => g.eval ρ != 0) then .done (.error (.revert (.panic 0x11)))
+      else .done (.ok (vs.map (fun e => Value.word (e.eval ρ)), rt)) :=
+  eval_wordList ρ fields S rt (Expr.evalRefArgListFuel · ctx) (fun _ => Expr.evalRefArg ctx rt)
+    (fun _ _ _ => by simp only [Expr.evalRefArgListFuel]) (fun _ => by simp only [Expr.evalRefArgListFuel])
+    (fun _ e g v he _ => by
       unfold Expr.evalRefArg
       split
-      · rename_i x
-        have hx : ∃ ex, Scopes.get? S.scopes x = some ex := by
-          simp only [eraseExpr, Option.map_eq_some_iff] at he
-          obtain ⟨ex, hex, -⟩ := he
-          exact ⟨ex, hex⟩
-        obtain ⟨ex, hex⟩ := hx
-        have hl := hrel.locals x ex hex
-        have hb : rt.lookupStorageBase? x = none := by simp [Runtime.lookupStorageBase?, hl]
-        have hm : rt.lookupMemoryRef? x = none := by simp [Runtime.lookupMemoryRef?, hl]
-        simp only [hb, hm]
-        exact this
-      · exact this
-    rw [Expr.evalRefArgListFuel]
-    simp only [hv, bind_exprResult, List.any_append]
-    by_cases h1 : g.any (fun g => g.eval ρ != 0) = true
-    · simp [h1]
-    · simp only [h1, Bool.false_eq_true, ↓reduceIte, Bool.false_or]
-      rw [ih gs' vs' n hes (by omega)]
-      by_cases h2 : gs'.any (fun g => g.eval ρ != 0) = true
-      · simp [h2]; rfl
-      · simp [h2]; rfl
+      · simp only [(var_refs hrel he).1, (var_refs hrel he).2]; exact eval_eq ρ fields ctx rt S hrel he
+      · exact eval_eq ρ fields ctx rt S hrel he)
+    es gs vs _ h le_rfl
+
 
 theorem wordDecl_spec {b : BindingDecl} (h : wordDecl b = true) (v : Nat) :
     b.ty.coerceValue? (.word v) = some (.word v) ∧ b.defaultBinding = (b.name, .word 0) := by
@@ -1429,6 +1397,23 @@ theorem eval_wrapRead (ρ : Val) (ctx : Context) (rt : Runtime) (S : SymState)
       simp [WExpr.eval, BinOp.eval, Nat.mod_mod]
   all_goals simp [wrapRead] at h
 
+/-- A `require` whose condition gives the word `v` goes on when `v` is not zero, and reverts with
+its reason otherwise. -/
+theorem eval_require {ρ : Val} {E : EraseEnv} {ctx ctx' : Context} {rt rt' : Runtime}
+    {S : SymState} (hrel : StmtRel ρ E ctx rt' S) {n : Nat} {tbl : FunctionTable} {c : Expr}
+    {rs : Option String} {v : WExpr}
+    (hc : (Expr.eval ctx' rt c).caught = .done (.ok (.ok (.word (v.eval ρ), rt')))) :
+    ∃ r, Stmt.eval (n + 1) tbl ctx' rt (.requireStmt c rs) = .done (.ok r) ∧
+      LeafRel ρ E ctx r ((Br.ite v (.leaf (.normal S)) (.leaf (.reverted (failOf rs)))).eval ρ) := by
+  rw [Stmt.eval]
+  simp only [hc, bind_done_ok, Value.expectWord, norm_lt (v.eval_lt ρ), Br.eval, wordTruthy]
+  by_cases hv : v.eval ρ = 0
+  · refine ⟨.reverted rt' (failOf rs).data, ?_, by simp only [hv, ↓reduceIte, LeafRel]⟩
+    cases rs <;> simp [hv] <;> rfl
+  · refine ⟨.normal rt', ?_, by simp only [hv, ↓reduceIte, LeafRel]; exact hrel⟩
+    simp [hv, SolidCore.Solidity.Shared.norm, modulus_eq, Nat.mod_eq_of_lt (v.eval_lt ρ)]
+    rfl
+
 theorem eval_uncheckedCond (ρ : Val) (ctx : Context) (rt : Runtime) (S : SymState)
     (hchk : ctx.checked = false) (hframes : rt.locals = S.scopes.map (frameOf ρ))
     (hloc : ∀ x e, Scopes.get? S.scopes x = some e → rt.lookupLocal? x = some (.word (e.eval ρ)))
@@ -1500,34 +1485,14 @@ theorem eval_unchecked (ρ : Val) (E : EraseEnv) (ctx : Context) (k : Nat) (body
       .done (.ok (.word (v.eval ρ), { rt.pushScope with locals := L.map (frameOf ρ) })) :=
     eval_uncheckedCond ρ _ rt.pushScope S.push rfl hrel'.frames
       (fun x e he => hrel'.expr.locals x e he) hc hL _ (Nat.lt_succ_self _)
-  have hrelL : StmtRel ρ E ctx { rt.pushScope with locals := L.map (frameOf ρ) }
-      { S.push with scopes := L } := { hrel' with frames := rfl }
-  have hinner : ∃ r, Stmt.evalList (k + 1) E.tbl { ctx with checked := false } rt.pushScope
-      [.requireStmt c rs] = .done (.ok r) ∧
-      LeafRel ρ E ctx r ((Br.ite v (.leaf (.normal { S.push with scopes := L }))
-        (.leaf (.reverted (failOf rs)))).eval ρ) := by
-    rw [Stmt.evalList, Stmt.eval]
-    simp only [hcond, caught_done_ok, bind_done_ok, Value.expectWord, norm_lt (v.eval_lt ρ), Br.eval,
-      wordTruthy]
-    by_cases hv : v.eval ρ = 0
-    · cases rs
-      case none =>
-        refine ⟨.reverted { rt.pushScope with locals := L.map (frameOf ρ) } .empty, ?_, by simp only [hv, ↓reduceIte, LeafRel]; rfl⟩
-        simp [hv, Stmt.evalList]
-        rfl
-      case some m =>
-        refine ⟨.reverted { rt.pushScope with locals := L.map (frameOf ρ) } (.error m), ?_, by simp only [hv, ↓reduceIte, LeafRel]; rfl⟩
-        simp [hv, Stmt.evalList]
-        rfl
-    · refine ⟨.normal { rt.pushScope with locals := L.map (frameOf ρ) }, ?_, by simp only [hv, ↓reduceIte, LeafRel]; exact hrelL⟩
-      simp [hv, SolidCore.Solidity.Shared.norm, modulus_eq, Nat.mod_eq_of_lt (v.eval_lt ρ),
-        Stmt.evalList]
-      rfl
-  obtain ⟨r, hr, hl⟩ := hinner
+  obtain ⟨r, hr, hl⟩ := eval_require (n := k) (tbl := E.tbl) (rs := rs)
+    (show StmtRel ρ E ctx { rt.pushScope with locals := L.map (frameOf ρ) } { S.push with scopes := L }
+      from { hrel' with frames := rfl }) (by rw [hcond]; rfl)
   refine ⟨r.mapRuntime Runtime.popScope, ?_, ?_⟩
   · rw [Stmt.eval]
-    simp only [hr, bind, EvmCompiler.Simulation.Interaction.bind]
-    rfl
+    simp only [Stmt.evalList]
+    rw [hr, bind_done_ok]
+    cases r <;> rfl
   · rw [Br.eval_mapS]
     exact hl.popScope
 
@@ -1580,15 +1545,13 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
         have heval := eval_eq ρ E.fields ctx rt S hrel.expr he
         rw [Stmt.eval]
         simp only [heval, caught_exprResult, guards_eval]
-        by_cases hg : gs.any (fun g => g.eval ρ != 0) = true
-        · simp only [hg, ↓reduceIte]
-          exact ⟨.reverted rt (.panic 0x11), rfl, rfl⟩
-        · simp only [hg, Bool.false_eq_true, ↓reduceIte, bind_done_ok, hco]
-          refine ⟨.normal (rt.declareLocal x (.word (v.eval ρ))), rfl, ?_⟩
-          have hf : (rt.declareLocal x (.word (v.eval ρ))).locals =
-              (S.scopes.declare x v).map (frameOf ρ) := by
-            rw [Runtime.declareLocal, hrel.frames, env_declare]
-          exact { hrel with frames := hf }
+        guard_cases hg : gs.any (fun g => g.eval ρ != 0)
+        simp only [bind_done_ok, hco]
+        refine ⟨.normal (rt.declareLocal x (.word (v.eval ρ))), rfl, ?_⟩
+        have hf : (rt.declareLocal x (.word (v.eval ρ))).locals =
+            (S.scopes.declare x v).map (frameOf ρ) := by
+          rw [Runtime.declareLocal, hrel.frames, env_declare]
+        exact { hrel with frames := hf }
     case emitEvent name es =>
       simp only [eraseStmt, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
       obtain ⟨decl, hdecl, t, ht, ⟨gs, svs⟩, hes, h⟩ := h
@@ -1599,7 +1562,7 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
       subst h
       have hfind : ctx.eventDecl? name = some decl := by
         simp [Context.eventDecl?, hrel.events, hdecl]
-      have hlist := eval_exprList ρ E.fields ctx rt S hrel.expr _ gs svs _ hes (Nat.le_refl _)
+      have hlist := eval_exprList ρ E.fields ctx rt S hrel.expr hes
       have hlog := emit_words ρ ctx rt hfind ht hrel.facts hok
       have heq : Stmt.eval (n + 1) E.tbl ctx rt (.emitEvent name es) =
           (do
@@ -1619,24 +1582,21 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
         rw [Stmt.eval]
         simp only [hfind]
         rfl
-      rw [heq, Expr.evalList, hlist]
+      rw [heq, hlist]
       rw [guards_eval]
-      by_cases hg : gs.any (fun g => g.eval ρ != 0) = true
-      · simp only [hg, ↓reduceIte]
-        exact ⟨.reverted rt (.panic 0x11), rfl, rfl⟩
-      · simp only [hg, Bool.false_eq_true, ↓reduceIte, caught_done_ok, bind_done_ok,
-          unschedule_map, materialize_words]
-        obtain ⟨ev, rt', hrt, hev, hloc, hsto, hl⟩ := hlog
-        simp only [hrt]
-        refine ⟨.normal rt', rfl, ?_⟩
-        exact { hrel with
-          frames := by rw [hloc, hrel.frames]
-          store := fun k hk => by
-            rw [← hrel.store k hk]
-            simp only [State.loadSlot, hsto]
-          logs := by
-            rw [hev, List.map_append, hrel.logs, List.map_append]
-            simp only [List.map_cons, List.map_nil, hl] }
+      guard_cases hg : gs.any (fun g => g.eval ρ != 0)
+      simp only [caught_done_ok, bind_done_ok, unschedule_map, materialize_words]
+      obtain ⟨ev, rt', hrt, hev, hloc, hsto, hl⟩ := hlog
+      simp only [hrt]
+      refine ⟨.normal rt', rfl, ?_⟩
+      exact { hrel with
+        frames := by rw [hloc, hrel.frames]
+        store := fun k hk => by
+          rw [← hrel.store k hk]
+          simp only [State.loadSlot, hsto]
+        logs := by
+          rw [hev, List.map_append, hrel.logs, List.map_append]
+          simp only [List.map_cons, List.map_nil, hl] }
     case captureReturn names body =>
       simp only [eraseStmt, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
       obtain ⟨b0, hb0, h⟩ := h
@@ -1659,25 +1619,23 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
       have hp : fn.params.all wordDecl = true := hshape.1.1
       have hr : fn.returns.all wordDecl = true := hshape.1.2
       have hvl : vs.length = fn.params.length := (eraseExprs_length hargs).trans hshape.2
-      have hev := eval_refArgs ρ E.fields ctx rt S hrel.expr args gs vs _ hargs (Nat.le_refl _)
+      have hev := eval_refArgs ρ E.fields ctx rt S hrel.expr hargs
       rw [Stmt.eval]
-      simp only [Expr.evalRefArgList, hev]
+      simp only [hev]
       rw [guards_eval]
-      by_cases hg : gs.any (fun g => g.eval ρ != 0) = true
-      · simp only [hg, ↓reduceIte]
-        exact ⟨.reverted rt (.panic 0x11), rfl, rfl⟩
-      · simp only [hg, Bool.false_eq_true, ↓reduceIte, caught_done_ok, bind_done_ok, hfn,
-          internalCallEnter?, initialFrame_words ρ fn vs hp hr hvl]
-        have hctx : ({ ctx with checked := true } : Context) = ctx := by
-          rw [show true = ctx.checked from hrel.checked.symm]
-        have hrel0 : StmtRel ρ E ctx { rt with locals := [frameOf ρ (callFrame fn vs)] }
-            { scopes := [callFrame fn vs], writes := S.writes, logs := S.logs, caller := S.caller } :=
-          { hrel with frames := rfl }
-        obtain ⟨r0, hr0, hl0⟩ := ih fn.body _ b0 hb0 _ hrel0
-        rw [hctx, hr0, bind_done_ok]
-        obtain ⟨c, hc, hce⟩ := Br.bindLeaf_eval ρ hb1
-        rw [hce]
-        exact finish_call hrel hr r0 _ c hl0 hc
+      guard_cases hg : gs.any (fun g => g.eval ρ != 0)
+      simp only [caught_done_ok, bind_done_ok, hfn, internalCallEnter?,
+        initialFrame_words ρ fn vs hp hr hvl]
+      have hctx : ({ ctx with checked := true } : Context) = ctx := by
+        rw [show true = ctx.checked from hrel.checked.symm]
+      have hrel0 : StmtRel ρ E ctx { rt with locals := [frameOf ρ (callFrame fn vs)] }
+          { scopes := [callFrame fn vs], writes := S.writes, logs := S.logs, caller := S.caller } :=
+        { hrel with frames := rfl }
+      obtain ⟨r0, hr0, hl0⟩ := ih fn.body _ b0 hb0 _ hrel0
+      rw [hctx, hr0, bind_done_ok]
+      obtain ⟨c, hc, hce⟩ := Br.bindLeaf_eval ρ hb1
+      rw [hce]
+      exact finish_call hrel hr r0 _ c hl0 hc
     case panic code =>
       simp only [eraseStmt, Option.some.injEq] at h
       subst h
@@ -1686,32 +1644,17 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
       simp only [eraseStmt, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
       obtain ⟨⟨gs, v⟩, hc, rfl⟩ := h
       have heval := eval_eq ρ E.fields ctx rt S hrel.expr hc
-      rw [Stmt.eval]
-      simp only [heval, caught_exprResult, guards_eval]
+      rw [guards_eval]
       by_cases hg : gs.any (fun g => g.eval ρ != 0) = true
-      · simp only [hg, ↓reduceIte]
-        exact ⟨.reverted rt (.panic 0x11), rfl, rfl⟩
-      · simp only [hg, Bool.false_eq_true, ↓reduceIte, bind_done_ok, Value.expectWord,
-          norm_lt (v.eval_lt ρ), Br.eval, wordTruthy]
-        by_cases hv : v.eval ρ = 0
-        · cases r
-          case none =>
-            refine ⟨.reverted rt .empty, ?_, by simp only [hv, ↓reduceIte, LeafRel]; rfl⟩
-            simp [hv]
-            rfl
-          case some m =>
-            refine ⟨.reverted rt (.error m), ?_, by simp only [hv, ↓reduceIte, LeafRel]; rfl⟩
-            simp [hv]
-            rfl
-        · refine ⟨.normal rt, ?_, by simp only [hv, ↓reduceIte, LeafRel]; exact hrel⟩
-          simp [hv, SolidCore.Solidity.Shared.norm, modulus_eq, Nat.mod_eq_of_lt (v.eval_lt ρ)]
-          rfl
+      · rw [Stmt.eval]
+        simp only [heval, caught_exprResult, hg, ↓reduceIte]
+        exact ⟨_, rfl, rfl⟩
+      · simp only [hg, Bool.false_eq_true, ↓reduceIte]
+        exact eval_require hrel (by simp only [heval, caught_exprResult, hg, Bool.false_eq_true, ↓reduceIte])
     case revertError r =>
       simp only [eraseStmt, Option.some.injEq] at h
       subst h
-      cases r
-      case none => exact ⟨.reverted rt .empty, by rw [Stmt.eval]; rfl, rfl⟩
-      case some m => exact ⟨.reverted rt (.error m), by rw [Stmt.eval]; rfl, rfl⟩
+      exact ⟨.reverted rt (failOf r).data, by cases r <;> (rw [Stmt.eval]; rfl), rfl⟩
 
     case assign target e =>
       cases target
@@ -1736,19 +1679,15 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
         simp only [LValue.wantsMemoryRefRhs, hmem, Option.isSome_none, Bool.false_eq_true,
           ↓reduceIte, heval, caught_exprResult]
         rw [guards_eval]
-        by_cases hg : gs.any (fun g => g.eval ρ != 0) = true
-        · simp only [hg, ↓reduceIte]
-          refine ⟨.reverted rt (.panic 0x11), ?_, rfl⟩
-          split <;> (try split) <;> first | rfl | simp_all
-        · simp only [hg, Bool.false_eq_true, ↓reduceIte]
-          refine ⟨.normal { rt with locals := L'.map (frameOf ρ) }, ?_, hrel'⟩
-          split
-          · split
-            · simp_all
-            · simp only [bind_done_ok, hres, caught_done_ok, ite_self, ResolvedLValue.write, hassign]
-              rfl
+        guard_cases hg : gs.any (fun g => g.eval ρ != 0)
+        refine ⟨.normal { rt with locals := L'.map (frameOf ρ) }, ?_, hrel'⟩
+        split
+        · split
+          · simp_all
           · simp only [bind_done_ok, hres, caught_done_ok, ite_self, ResolvedLValue.write, hassign]
             rfl
+        · simp only [bind_done_ok, hres, caught_done_ok, ite_self, ResolvedLValue.write, hassign]
+          rfl
       case storageIndex x i =>
         simp only [eraseStmt, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
         obtain ⟨⟨gs, v⟩, he, ⟨gi, key⟩, hi, h⟩ := h
@@ -1781,16 +1720,11 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
         simp only [LValue.wantsMemoryRefRhs, Bool.false_eq_true, ↓reduceIte, heval, caught_exprResult]
         rw [guards_eval]
         simp only [any_append]
-        by_cases hg : gs.any (fun g => g.eval ρ != 0) = true
-        · simp only [hg, Bool.true_or, ↓reduceIte]
-          exact ⟨.reverted rt (.panic 0x11), rfl, rfl⟩
-        · simp only [hg, Bool.false_or, Bool.false_eq_true, ↓reduceIte, bind_done_ok, hres]
-          by_cases hgi : gi.any (fun g => g.eval ρ != 0) = true
-          · simp only [hgi, ↓reduceIte]
-            exact ⟨.reverted rt (.panic 0x11), rfl, rfl⟩
-          · simp only [hgi, Bool.false_eq_true, ↓reduceIte, bind_done_ok, ResolvedLValue.write, hst,
-              ite_self]
-            exact ⟨_, rfl, hw⟩
+        guard_cases hg : gs.any (fun g => g.eval ρ != 0)
+        simp only [bind_done_ok, hres]
+        guard_cases hgi : gi.any (fun g => g.eval ρ != 0)
+        simp only [bind_done_ok, ResolvedLValue.write, hst, ite_self]
+        exact ⟨_, rfl, hw⟩
       case index base i2 =>
         cases base
         case storageIndex x i1 =>
@@ -1812,16 +1746,11 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
             Bool.not_true, Bool.false_eq_true, ↓reduceIte, heval, caught_exprResult]
           rw [guards_eval]
           simp only [any_append]
-          by_cases hg : gs.any (fun g => g.eval ρ != 0) = true
-          · simp only [hg, Bool.true_or, ↓reduceIte]
-            exact ⟨.reverted rt (.panic 0x11), rfl, rfl⟩
-          · simp only [hg, Bool.false_or, Bool.false_eq_true, ↓reduceIte, bind_done_ok, hres]
-            by_cases hgi : (g1.any (fun g => g.eval ρ != 0) || g2.any (fun g => g.eval ρ != 0)) = true
-            · simp only [hgi, ↓reduceIte, Bool.or_assoc]
-              exact ⟨.reverted rt (.panic 0x11), rfl, rfl⟩
-            · simp only [hgi, Bool.or_assoc, Bool.false_eq_true, ↓reduceIte, bind_done_ok,
-                ResolvedLValue.write, hst, ite_self]
-              exact ⟨_, rfl, hw⟩
+          guard_cases hg : gs.any (fun g => g.eval ρ != 0)
+          simp only [bind_done_ok, hres]
+          guard_cases hgi : (g1.any (fun g => g.eval ρ != 0) || g2.any (fun g => g.eval ρ != 0))
+          simp only [bind_done_ok, ResolvedLValue.write, hst, ite_self]
+          exact ⟨_, rfl, hw⟩
         all_goals simp [eraseStmt] at h
       case storage x =>
         simp only [eraseStmt, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
@@ -1833,57 +1762,38 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
           simp [LValue.resolveWithRuntime, Expr.resolveLValue, LValue.toExpr, Expr.orderFuel,
             Expr.resolveLValueFuel]
           rfl
-        have hw := v.eval_lt ρ
-        have hsl : rt.state.loadSlot f.slot = (S.writes.read (.lit f.slot)).eval ρ :=
-          slot_read hrel.expr hfx.slot
-        have hslw : rt.state.loadSlot f.slot < wordSize := hsl ▸ WExpr.eval_lt _ _
-        have hrelw := hrel.writeField hfx v
         rw [Stmt.eval]
         simp only [LValue.wantsMemoryRefRhs, Bool.false_eq_true, ↓reduceIte, heval, caught_exprResult]
         rw [guards_eval]
-        by_cases hg : gs.any (fun g => g.eval ρ != 0) = true
-        · simp only [hg, ↓reduceIte]
-          exact ⟨.reverted rt (.panic 0x11), by split <;> rfl, rfl⟩
-        · simp only [hg, Bool.false_eq_true, ↓reduceIte]
-          refine ⟨.normal _, ?_, hrelw⟩
-          simp only [bind_done_ok, hres, caught_done_ok, ResolvedLValue.write,
-            store_field hfx hslw _ hw, ite_self, writeField_eval ρ _ _ hfx.fits hfx.bytes, hsl]
-          rfl
+        guard_cases hg : gs.any (fun g => g.eval ρ != 0)
+        refine ⟨.normal _, ?_, hrel.writeField hfx v⟩
+        simp only [bind_done_ok, hres, caught_done_ok, ResolvedLValue.write, (hrel.field_rw hfx).2 v,
+          ite_self]
+        rfl
       all_goals simp [eraseStmt] at h
     case returnValues es =>
       simp only [eraseStmt, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
       obtain ⟨⟨gs, vs⟩, hes, rfl⟩ := h
-      have hlen : es.length < Expr.listEvalFuel es := by
-        clear hes
-        induction es with
-        | nil => simp [Expr.listEvalFuel]
-        | cons e es ihl => simp only [List.length_cons, Expr.listEvalFuel]; omega
-      have hl := eval_returnList ρ E.fields ctx rt S hrel.expr es gs vs _ hes hlen
+      have hl := eval_returnList ρ E.fields ctx rt S hrel.expr hes
       rw [Stmt.eval]
-      simp only [Expr.evalReturnList, hl, guards_eval]
-      by_cases hg : gs.any (fun g => g.eval ρ != 0) = true
-      · simp only [hg, ↓reduceIte]
-        exact ⟨.reverted rt (.panic 0x11), rfl, rfl⟩
-      · simp only [hg, Bool.false_eq_true, ↓reduceIte]
-        exact ⟨.returned rt (vs.map fun e => Value.word (e.eval ρ)), rfl, hrel, rfl⟩
+      simp only [hl, guards_eval]
+      guard_cases hg : gs.any (fun g => g.eval ρ != 0)
+      exact ⟨.returned rt (vs.map fun e => Value.word (e.eval ρ)), rfl, hrel, rfl⟩
     case ifElse c t e =>
       simp only [eraseStmt, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
       obtain ⟨⟨gs, v⟩, hc, bt, hbt, be, hbe, rfl⟩ := h
       have heval := eval_eq ρ E.fields ctx rt S hrel.expr hc
       rw [Stmt.eval]
       simp only [heval, caught_exprResult, guards_eval]
-      by_cases hg : gs.any (fun g => g.eval ρ != 0) = true
-      · simp only [hg, ↓reduceIte]
-        exact ⟨.reverted rt (.panic 0x11), rfl, rfl⟩
-      · simp only [hg, Bool.false_eq_true, ↓reduceIte, bind_done_ok, Value.expectWord,
-          norm_lt (v.eval_lt ρ), Br.eval, wordTruthy]
-        by_cases hv : v.eval ρ = 0
-        · obtain ⟨r, hr, hl⟩ := ih e S be hbe rt hrel
-          refine ⟨r, ?_, by simpa [hv] using hl⟩
-          simp [hv, hr]
-        · obtain ⟨r, hr, hl⟩ := ih t S bt hbt rt hrel
-          refine ⟨r, ?_, by simpa [hv] using hl⟩
-          simp [hv, hr]
+      guard_cases hg : gs.any (fun g => g.eval ρ != 0)
+      simp only [bind_done_ok, Value.expectWord, norm_lt (v.eval_lt ρ), Br.eval, wordTruthy]
+      by_cases hv : v.eval ρ = 0
+      · obtain ⟨r, hr, hl⟩ := ih e S be hbe rt hrel
+        refine ⟨r, ?_, by simpa [hv] using hl⟩
+        simp [hv, hr]
+      · obtain ⟨r, hr, hl⟩ := ih t S bt hbt rt hrel
+        refine ⟨r, ?_, by simpa [hv] using hl⟩
+        simp [hv, hr]
     case exprStmt ex =>
       cases ex
       case assignment op? cleanup? target rhs =>
@@ -1903,77 +1813,38 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
           simp only [Option.bind_eq_bind, Option.bind_eq_some_iff] at h
           obtain ⟨⟨k, off, bytes⟩, hk, ⟨gs, v⟩, hv, h⟩ := h
           obtain ⟨f, hfx, rfl, rfl, rfl⟩ := fieldOf?_spec hrel.fields hk
-          have heval := eval_erase ρ E.fields ctx rt S hrel.expr rhs gs v
-            ((Expr.storageRead .header x []).orderFuel + rhs.orderFuel + 1) hv (by omega)
-          have hres : Expr.resolveLValueFuel ((Expr.storageRead .header x []).orderFuel +
-              rhs.orderFuel + 1) ctx rt (.storageRead .header x []) =
-              .done (.ok (.storageField x, rt)) := by
-            simp [Expr.orderFuel, Expr.listEvalFuel, Expr.resolveLValueFuel]
-            rfl
-          rw [Stmt.eval]
-          simp only [Expr.eval, Expr.orderFuel] at heval hres ⊢
-          generalize Expr.listEvalFuel [] + 1 + rhs.orderFuel + 1 = F at heval hres ⊢
-          rw [Expr.evalFuel]
-          simp only [heval, bind_exprResult, hres, bind_done_ok]
-          have hw := v.eval_lt ρ
-          have hsl : rt.state.loadSlot f.slot = (S.writes.read (.lit f.slot)).eval ρ :=
-            slot_read hrel.expr hfx.slot
-          have hslw : rt.state.loadSlot f.slot < wordSize := hsl ▸ WExpr.eval_lt _ _
-          have hst : ∀ w : WExpr, ResolvedLValue.write ctx rt (.storageField x) (.word (w.eval ρ)) =
-              .ok { rt with state := (rt.state.storeSlot f.slot
-                ((writeField (S.writes.read (.lit f.slot)) w f.packedOffset f.packedBytes).eval ρ)) } := by
-            intro w
-            simp only [ResolvedLValue.write, store_field hfx hslw _ (w.eval_lt ρ),
-              writeField_eval ρ _ _ hfx.fits hfx.bytes, hsl]
+          obtain ⟨hread, hst⟩ := hrel.field_rw hfx
           cases op? <;> cases cleanup? <;> simp only [Option.some.injEq, reduceCtorEq] at h
           case none.none =>
             subst h
+            have heval := eval_erase ρ E.fields ctx rt S hrel.expr rhs gs v
+              ((Expr.storageRead .header x []).orderFuel + rhs.orderFuel + 1) hv (by omega)
+            have hres : Expr.resolveLValueFuel ((Expr.storageRead .header x []).orderFuel +
+                rhs.orderFuel + 1) ctx rt (.storageRead .header x []) =
+                .done (.ok (.storageField x, rt)) := by
+              simp [Expr.orderFuel, Expr.listEvalFuel, Expr.resolveLValueFuel]
+              rfl
+            rw [Stmt.eval]
+            simp only [Expr.eval, Expr.orderFuel] at heval hres ⊢
+            generalize Expr.listEvalFuel [] + 1 + rhs.orderFuel + 1 = F at heval hres ⊢
+            rw [Expr.evalFuel]
+            simp only [heval, bind_exprResult, hres, bind_done_ok]
             rw [guards_eval]
-            by_cases hg : gs.any (fun g => g.eval ρ != 0) = true
-            · simp only [hg, ↓reduceIte]
-              exact ⟨.reverted rt (.panic 0x11), rfl, rfl⟩
-            · simp only [hg, Bool.false_eq_true, ↓reduceIte, hst v]
-              exact ⟨_, rfl, hrel.writeField hfx v⟩
+            guard_cases hg : gs.any (fun g => g.eval ρ != 0)
+            simp only [ResolvedLValue.write, hst v]
+            exact ⟨_, rfl, hrel.writeField hfx v⟩
           case some.some op c =>
             cases c <;> simp only [reduceCtorEq] at h
-            rename_i b
-            simp only [Option.bind_eq_bind, Option.bind_eq_some_iff] at h
-            obtain ⟨o, ho, cg, hcg, h⟩ := h
-            simp only [Option.some.injEq] at h
-            subst h
-            obtain ⟨hb0, hb, hcgv⟩ := cleanupGuard_spec ρ hcg
-            have hread : ResolvedLValue.read ctx rt (.storageField x) =
-                .ok (.word ((readField (S.writes.read (.lit f.slot)) f.packedOffset f.packedBytes).eval ρ)) := by
-              simp [ResolvedLValue.read, ResolvedLValue.readRaw, load_field hfx hslw, hsl,
-                Runtime.derefMemoryValue, bind, Except.bind, readField_eval ρ _ hfx.fits hfx.bytes]
-            have hcl : ∀ w : WExpr, ValueCleanup.apply true (.uint b) (.word (w.eval ρ)) =
-                if w.eval ρ < 2 ^ b then .ok (.word (w.eval ρ)) else .error (.panic 0x11) :=
-              fun w => uintCleanup_lt _ _ (w.eval_lt ρ) hb0 hb
-            rw [guards_eval]
-            simp only [any_append, hread, hrel.checked, liftM, monadLift, MonadLift.monadLift,
-              SolI.ofExcept, bind_done_ok, apply_erased ρ ho, hcgv]
-            by_cases hg : gs.any (fun g => g.eval ρ != 0) = true
-            · simp only [hg, Bool.true_or, ↓reduceIte]
-              exact ⟨.reverted rt (.panic 0x11), rfl, rfl⟩
-            · simp only [hg, Bool.false_or, Bool.false_eq_true, ↓reduceIte]
-              by_cases ho' : (overflow o (readField (S.writes.read (.lit f.slot)) f.packedOffset f.packedBytes)
-                  v).toList.any (fun g => g.eval ρ != 0) = true
-              · simp only [ho', Bool.true_or, ↓reduceIte]
-                exact ⟨.reverted rt (.panic 0x11), rfl, rfl⟩
-              · simp only [ho', Bool.false_or, Bool.false_eq_true, ↓reduceIte, bind_done_ok]
-                have hcl' := hcl (.bin o (readField (S.writes.read (.lit f.slot)) f.packedOffset f.packedBytes) v)
-                cases op
-                all_goals first | (simp [binOf] at ho; done) | skip
-                all_goals
-                dsimp only
-                rw [hcl']
-                by_cases hc : (WExpr.bin o (readField (S.writes.read (.lit f.slot)) f.packedOffset f.packedBytes)
-                    v).eval ρ < 2 ^ b
-                · simp only [hc, decide_true, Bool.not_true, Bool.false_eq_true, ↓reduceIte,
-                    bind_done_ok, hst]
-                  exact ⟨_, rfl, hrel.writeField hfx _⟩
-                · simp only [hc, decide_false, Bool.not_false, ↓reduceIte]
-                  exact ⟨.reverted rt (.panic 0x11), rfl, rfl⟩
+            simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
+            obtain ⟨o, ho, cg, hcg, rfl⟩ := h
+            simpa only [List.append_nil] using eval_compound ρ E ctx rt S hrel n (gi := [])
+              (S' := fun w => { S with
+                writes := S.writes.set (.lit f.slot)
+                  (writeField (S.writes.read (.lit f.slot)) w f.packedOffset f.packedBytes) })
+              hv (fun F hF => by
+                obtain ⟨m, rfl⟩ : ∃ m, F = m + 1 := ⟨F - 1, by omega⟩
+                simp [Expr.resolveLValueFuel] <;> rfl)
+              ho hcg hread (fun w => hst w _) (fun w => hrel.writeField hfx w)
         all_goals simp [eraseStmt] at h
         all_goals simp [eraseStmt] at h
       all_goals simp [eraseStmt] at h

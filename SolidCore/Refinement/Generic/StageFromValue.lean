@@ -26,6 +26,12 @@ def callBytes (call : Call) : List Nat := call.calldata.data.toList.map (·.toNa
 def overlay (d : Source.State) (call : Call) : Source.State :=
   { d with storage := call.storage.foldl (fun acc kv => StorageMap.insertLoop acc kv.1 kv.2) d.storage }
 
+/-- A function that is not payable refuses a nonzero value. -/
+theorem acceptsValue_false {f : FunctionDef} {v : Nat} (hpay : f.payable = false)
+    (hv : SolidCore.Solidity.Shared.norm v ≠ 0) : f.acceptsValue v = false := by
+  simp [FunctionDef.acceptsValue, hpay, wordEq, SolidCore.Solidity.Shared.norm]
+  simpa [SolidCore.Solidity.Shared.norm] using hv
+
 /-- **On decoded arguments the value check rejects the call** with an empty revert. -/
 theorem resultFromArgs?_value_rejected {caller fuel : Nat} {ws : List Nat}
     {c : TypeCheck.CheckedContract} {call : Call} {d : Source.State} {vs : List Value}
@@ -38,9 +44,7 @@ theorem resultFromArgs?_value_rejected {caller fuel : Nat} {ws : List Nat}
     (hv : SolidCore.Solidity.Shared.norm call.callvalue ≠ 0) :
     Refinement.Source.resultFromArgs? caller fuel ws c call =
       some { success := false, output := [], state := overlay d call } := by
-  have hacc : f.acceptsValue call.callvalue = false := by
-    simp [FunctionDef.acceptsValue, hpay, wordEq, SolidCore.Solidity.Shared.norm]
-    simpa [SolidCore.Solidity.Shared.norm] using hv
+  have hacc := acceptsValue_false hpay hv
   simp only [Refinement.Source.resultFromArgs?, hd,
     TypeCheck.CheckedContract.callCalldataAtFromWithContext?,
     ABI.Contract.callCalldataAtFromWithContext?]
@@ -59,9 +63,7 @@ theorem runFromArgs_value_inert {caller fuel : Nat} {ws : List Nat}
     (hv : SolidCore.Solidity.Shared.norm call.callvalue ≠ 0)
     {obs : Observable} (hrun : Refinement.Source.runFromArgs caller fuel ws c call = some obs) :
     obs.success = false ∧ obs.logs = [] ∧ obs.storage = slotValue call.storage := by
-  have hacc : f.acceptsValue call.callvalue = false := by
-    simp [FunctionDef.acceptsValue, hpay, wordEq, SolidCore.Solidity.Shared.norm]
-    simpa [SolidCore.Solidity.Shared.norm] using hv
+  have hacc := acceptsValue_false hpay hv
   unfold Refinement.Source.runFromArgs Refinement.Source.resultFromArgs? at hrun
   split at hrun
   next d vs hd =>

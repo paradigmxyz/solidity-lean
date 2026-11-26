@@ -249,17 +249,7 @@ theorem Writes.store_mod (ρ : Val) (hρ : ρ.Ok) (n : Nat) : ∀ ws : Writes,
 
 theorem Writes.eval_read {ρ : Val} (hρ : ρ.Ok) (k : WExpr) : ∀ ws : Writes,
     (ws.read k).eval ρ = Writes.store ρ ws (k.eval ρ)
-  | [] => by
-    have hk := k.eval_lt ρ
-    cases k with
-    | lit n =>
-      simp only [Writes.read, WExpr.eval, Writes.store]
-      exact Nat.mod_eq_of_lt (hρ.word _)
-    | _ =>
-      simp only [Writes.read, WExpr.eval, Writes.store]
-      first
-        | exact Nat.mod_eq_of_lt (hρ.word _)
-        | skip
+  | [] => by cases k <;> exact Nat.mod_eq_of_lt (hρ.word _)
   | (k', e') :: rest => by
     have hk := k.eval_lt ρ
     simp only [Writes.read, Writes.store, Nat.mod_eq_of_lt hk]

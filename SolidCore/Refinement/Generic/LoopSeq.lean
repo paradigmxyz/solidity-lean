@@ -34,9 +34,6 @@ theorem evalList_cons_stop {n : Nat} {tbl : FunctionTable} {ctx : Context} {rt :
   | normal rt' => exact absurd rfl (hr rt')
   | _ => rfl
 
-theorem Result.mapRuntime_reverted (f : Runtime → Runtime) (rt : Runtime) (e : RevertData) :
-    (Result.reverted rt e).mapRuntime f = .reverted (f rt) e := rfl
-
 theorem Facts.hold_nil (ρ : Val) : Facts.Hold ρ [] := fun _ h => absurd h List.not_mem_nil
 
 end SolidCore.Refinement.Generic.Loop

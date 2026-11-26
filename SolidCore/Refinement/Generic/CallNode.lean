@@ -275,17 +275,8 @@ theorem mem_dedup (x : Word) : ∀ (l acc : List Word),
     simp only [List.foldl_cons]
     rw [mem_dedup x l]
     split
-    · rename_i h
-      have : a ∈ acc := by simpa using h
-      constructor
-      · rintro (h1 | h1)
-        · exact Or.inl h1
-        · exact Or.inr (List.mem_cons_of_mem _ h1)
-      · rintro (h1 | h1)
-        · exact Or.inl h1
-        · rcases List.mem_cons.mp h1 with h2 | h2
-          · exact Or.inl (h2 ▸ this)
-          · exact Or.inr h2
+    · have : a ∈ acc := by simpa using ‹acc.contains a = true›
+      by_cases hx : x = a <;> simp_all
     · simp only [List.mem_append, List.mem_singleton, List.mem_cons]
       tauto
 

@@ -123,15 +123,6 @@ theorem splitCall_noLog : ∀ {is : List Inst}, is.all Inst.noLog = true →
       obtain ⟨h1, h2⟩ := splitCall_noLog hno.2
       exact ⟨by simp only [List.all_cons, hno.1, h1, Bool.and_self], h2⟩
 
-theorem splitCall_noLog_eq {is before : List Inst}
-    {next : Option (Option Nat × Nat × List Operand × List (Option Nat) × Option EvmRules.Word × List Inst)}
-    (hno : is.all Inst.noLog = true) (h : splitCall is = (before, next)) :
-    before.all Inst.noLog = true ∧
-      ∀ d c a x p rest, next = some (d, c, a, x, p, rest) → rest.all Inst.noLog = true := by
-  have := splitCall_noLog hno
-  rw [h] at this
-  exact this
-
 theorem logs_start (f : Function) (s : State) : logs (f.start s) = logs s := by
   unfold Function.start
   split <;> rfl
@@ -161,7 +152,7 @@ theorem segment_ok {o : Oracle} {call : Call} {m : Module} {stack : List Return}
   unfold segment at h
   split at h
   · rename_i before dst callee args extras publish rest hsplit
-    obtain ⟨hb, hr⟩ := splitCall_noLog_eq hno hsplit
+    obtain ⟨hb, hr⟩ := hsplit ▸ splitCall_noLog hno
     split at h
     · cases h
     · rename_i env1 s1 hex
@@ -178,7 +169,7 @@ theorem segment_ok {o : Oracle} {call : Call} {m : Module} {stack : List Return}
           · exact hr dst callee args extras publish rest rfl
           · exact hst r hr'
   · rename_i before hsplit
-    obtain ⟨hb, -⟩ := splitCall_noLog_eq hno hsplit
+    obtain ⟨hb, -⟩ := hsplit ▸ splitCall_noLog hno
     split at h
     · cases h
     · rename_i env1 s1 hex
@@ -207,12 +198,8 @@ theorem segment_ok {o : Oracle} {call : Call} {m : Module} {stack : List Return}
             exact hst ret List.mem_cons_self
 
 theorem block_noLog {m : Module} (hm : m.noLog = true) {fn b : Nat} {f : Function} {blk : Block}
-    (hf : m.functions[fn]? = some f) (hb : f.blocks[b]? = some blk) : blk.insts.all Inst.noLog = true := by
-  unfold Module.noLog at hm
-  rw [List.all_eq_true] at hm
-  have h1 := hm f (List.mem_of_getElem? hf)
-  rw [List.all_eq_true] at h1
-  exact h1 blk (List.mem_of_getElem? hb)
+    (hf : m.functions[fn]? = some f) (hb : f.blocks[b]? = some blk) : blk.insts.all Inst.noLog = true :=
+  List.all_eq_true.mp (List.all_eq_true.mp hm f (List.mem_of_getElem? hf)) blk (List.mem_of_getElem? hb)
 
 theorem step_ok {o : Oracle} {call : Call} {m : Module} (hm : m.noLog = true) {x : Frame}
     {y : (Halt × State) ⊕ Frame} (hx : FrameOk x) (h : moduleBlock o call m x = some y) : StepOk y := by

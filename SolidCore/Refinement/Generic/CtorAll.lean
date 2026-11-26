@@ -160,16 +160,10 @@ theorem decode_uint256_word (f : FunctionDef) (ws : List Nat)
   simp only [ABI.decodeArgsWith?, List.map_map, Function.comp_def, listAbiHeadWords_uint256,
     ABI.abiArgOpt, argData_length, bind, Except.bind, ABI.wordBytes]
   rw [if_neg (by omega), hdec]
-  rcases hkl with h | h
-  · simp [h, Verify.Lifecycle.wordArgs, pure, Except.pure]
-  · have hne : ¬ f.paramAbiCleanups.isEmpty = true ∨ ws = [] := by
-      cases ws with
-      | nil => exact .inr rfl
-      | cons _ _ => left; cases hc : f.paramAbiCleanups <;> simp_all
-    rcases hne with hne | rfl
-    · simp only [Bool.not_eq_true] at hne
-      simp [hne, lazyParamValues_uint256 _ ws hk h hw, Verify.Lifecycle.wordArgs, pure, Except.pure]
-    · cases hc : f.paramAbiCleanups <;> simp_all [Verify.Lifecycle.wordArgs, pure, Except.pure]
+  by_cases h0 : f.paramAbiCleanups = []
+  · simp [h0, Verify.Lifecycle.wordArgs, pure, Except.pure]
+  · simp [List.isEmpty_iff, h0, lazyParamValues_uint256 _ ws hk (hkl.resolve_left h0) hw,
+      Verify.Lifecycle.wordArgs, pure, Except.pure]
 
 /-! ## Typed admission for every word -/
 

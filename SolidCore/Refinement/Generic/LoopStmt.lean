@@ -46,6 +46,47 @@ theorem binOf_add : binOf .add = some .add := rfl
 theorem pure_bind_sol {α β : Type} (a : α) (k : α → SolI β) : ((pure a : SolI α) >>= k) = k a := rfl
 
 set_option maxHeartbeats 2000000 in
+/-- `target++` on a target that resolves to `lv`, which holds the word `old`: `Panic(0x11)` when
+`old` is the largest word, else `old + 1` written back, which leaves `rt'` related to `S'`. -/
+theorem eval_inc (ρ : Val) (E : EraseEnv) (ctx : Context) (rt : Runtime) (S : SymState)
+    (hrel : StmtRel ρ E ctx rt S) (n : Nat) (post : Bool) {target : Expr} {lv : ResolvedLValue}
+    {old : WExpr} {rt' : Runtime} {S' : SymState}
+    (hres : ∀ F, target.orderFuel < F → Expr.resolveLValueFuel F ctx rt target = pure (lv, rt))
+    (hread : ResolvedLValue.read ctx rt lv = .ok (.word (old.eval ρ)))
+    (hwrite : ResolvedLValue.write ctx rt lv (.word ((WExpr.bin .add old (.lit 1)).eval ρ)) = .ok rt')
+    (hrel' : StmtRel ρ E ctx rt' S') :
+    ∃ r, Stmt.eval (n + 1) E.tbl ctx rt
+        (.exprStmt (.incDec .add post (some (.uint 256)) target)) = .done (.ok r) ∧
+      LeafRel ρ E ctx r ((guards (overflow .add old (.lit 1)).toList (.leaf (.normal S'))).eval ρ) := by
+  have happ := apply_erased ρ binOf_add old (.lit 1)
+  rw [← one_eq] at happ
+  have hcleq : ctx.checked = true := hrel.checked
+  have hcl : ValueCleanup.apply true (.uint 256) (.word ((WExpr.bin .add old (.lit 1)).eval ρ)) =
+      .ok (.word ((WExpr.bin .add old (.lit 1)).eval ρ)) := uintCleanup_256 _ (WExpr.eval_lt ρ _)
+  rw [Stmt.eval]
+  simp only [Expr.eval, Expr.orderFuel]
+  rw [Expr.evalFuel, hres _ (by omega)]
+  simp only [pure_bind_sol]
+  rw [guards_eval]
+  by_cases hg : (overflow .add old (.lit 1)).toList.any (fun g => g.eval ρ != 0) = true
+  · have hE : ResolvedLValue.applyIncDecCleanup ctx rt lv .add post (.uint 256) =
+        .error (.panic 0x11) := by
+      simp only [ResolvedLValue.applyIncDecCleanup, hread, hcleq, bind, Except.bind,
+        Value.oneLike?, happ, hg, ↓reduceIte]
+    rw [hE]
+    simp only [hg, ↓reduceIte]
+    exact ⟨.reverted rt (.panic 0x11), rfl, rfl⟩
+  · have hE : ∃ v, ResolvedLValue.applyIncDecCleanup ctx rt lv .add post (.uint 256) =
+        .ok (v, rt') := by
+      simp only [ResolvedLValue.applyIncDecCleanup, hread, hcleq, bind, Except.bind,
+        Value.oneLike?, happ, hg, Bool.false_eq_true, ↓reduceIte,
+        hcl, hwrite]
+      cases post <;> exact ⟨_, rfl⟩
+    obtain ⟨v, hv⟩ := hE
+    rw [hv]
+    simp only [hg, Bool.false_eq_true, ↓reduceIte]
+    exact ⟨_, rfl, hrel'⟩
+
 /-- **`x++` on a local word.** -/
 theorem eval_incVar (ρ : Val) (E : EraseEnv) (ctx : Context) (rt : Runtime) (S : SymState)
     (hrel : StmtRel ρ E ctx rt S) (n : Nat) (post : Bool) {x : String} {old : WExpr} {L' : Scopes}
@@ -54,46 +95,17 @@ theorem eval_incVar (ρ : Val) (E : EraseEnv) (ctx : Context) (rt : Runtime) (S 
     ∃ r, Stmt.eval (n + 1) E.tbl ctx rt
         (.exprStmt (.incDec .add post (some (.uint 256)) (.var x))) = .done (.ok r) ∧
       LeafRel ρ E ctx r ((incVarBr old L' S).eval ρ) := by
-  obtain ⟨old', hold'⟩ := Scopes.get?_of_set hL
   have hx : rt.lookupLocal? x = some (.word (old.eval ρ)) := hrel.expr.locals x old hold
   have hbase : rt.lookupStorageBase? x = none := by simp [Runtime.lookupStorageBase?, hx]
-  have hassign : rt.assignLocal? x (.word ((WExpr.bin .add old (.lit 1)).eval ρ)) =
-      some { rt with locals := L'.map (frameOf ρ) } := by
-    simp [Runtime.assignLocal?, hx, Value.coerceLike?, hrel.frames, env_assign ρ S.scopes x _, hL]
-  have hrel' : StmtRel ρ E ctx { rt with locals := L'.map (frameOf ρ) } { S with scopes := L' } :=
-    { hrel with frames := rfl }
-  have hread : ResolvedLValue.read ctx rt (.local x) = .ok (.word (old.eval ρ)) := by
-    simp [ResolvedLValue.read, ResolvedLValue.readRaw, hx, Runtime.derefMemoryValue, bind,
+  refine eval_inc ρ E ctx rt S hrel n post (lv := .local x) (rt' := { rt with locals := L'.map (frameOf ρ) })
+    (S' := { S with scopes := L' })
+    (fun F hF => ?_) ?_ ?_ { hrel with frames := rfl }
+  · obtain ⟨m, rfl⟩ : ∃ m, F = m + 1 := ⟨F - 1, by omega⟩
+    simp only [Expr.resolveLValueFuel, hbase, hx]
+  · simp [ResolvedLValue.read, ResolvedLValue.readRaw, hx, Runtime.derefMemoryValue, bind,
       Except.bind]
-  have hcl : ∀ w, w < wordSize → ValueCleanup.apply true (.uint 256) (.word w) = .ok (.word w) :=
-    fun w hw => uintCleanup_256 w hw
-  have happ := apply_erased ρ binOf_add old (.lit 1)
-  rw [← one_eq] at happ
-  have hcleq : ctx.checked = true := hrel.checked
-  rw [Stmt.eval]
-  simp only [Expr.eval, Expr.orderFuel]
-  rw [Expr.evalFuel]
-  simp only [Expr.resolveLValueFuel, hbase, hx, pure_bind_sol]
-  unfold incVarBr
-  rw [guards_eval]
-  by_cases hg : (overflow .add old (.lit 1)).toList.any (fun g => g.eval ρ != 0) = true
-  · have hE : ResolvedLValue.applyIncDecCleanup ctx rt (.local x) .add post (.uint 256) =
-        .error (.panic 0x11) := by
-      simp only [ResolvedLValue.applyIncDecCleanup, hread, hcleq, bind, Except.bind,
-        Value.oneLike?, happ, hg, ↓reduceIte]
-    rw [hE]
-    simp only [hg, ↓reduceIte]
-    exact ⟨.reverted rt (.panic 0x11), rfl, rfl⟩
-  · have hE : ∃ v, ResolvedLValue.applyIncDecCleanup ctx rt (.local x) .add post (.uint 256) =
-        .ok (v, { rt with locals := L'.map (frameOf ρ) }) := by
-      simp only [ResolvedLValue.applyIncDecCleanup, hread, hcleq, bind, Except.bind,
-        Value.oneLike?, happ, hg, Bool.false_eq_true, ↓reduceIte, hcl _ (WExpr.eval_lt ρ _),
-        ResolvedLValue.write, hassign]
-      cases post <;> exact ⟨_, rfl⟩
-    obtain ⟨v, hv⟩ := hE
-    rw [hv]
-    simp only [hg, Bool.false_eq_true, ↓reduceIte]
-    exact ⟨_, rfl, hrel'⟩
+  · simp [ResolvedLValue.write, Runtime.assignLocal?, hx, Value.coerceLike?, hrel.frames,
+      env_assign ρ S.scopes x _, hL]
 
 /-- The leaf of `x++` on a word field of slot `k` at byte offset `off` of `bytes` bytes. -/
 def incFieldBr (k off bytes : Nat) (S : SymState) : Br :=
@@ -102,7 +114,6 @@ def incFieldBr (k off bytes : Nat) (S : SymState) : Br :=
       (writeField (S.writes.read (.lit k)) (.bin .add (readField (S.writes.read (.lit k)) off bytes)
         (.lit 1)) off bytes)) }))
 
-set_option maxHeartbeats 2000000 in
 /-- **`x++` on a word storage field.** -/
 theorem eval_incField (ρ : Val) (E : EraseEnv) (ctx : Context) (rt : Runtime) (S : SymState)
     (hrel : StmtRel ρ E ctx rt S) (n : Nat) (post : Bool) {x : String} {k off bytes : Nat}
@@ -114,48 +125,14 @@ theorem eval_incField (ρ : Val) (E : EraseEnv) (ctx : Context) (rt : Runtime) (
   have hsl : rt.state.loadSlot f.slot = (S.writes.read (.lit f.slot)).eval ρ :=
     slot_read hrel.expr hfx.slot
   have hslw : rt.state.loadSlot f.slot < wordSize := hsl ▸ WExpr.eval_lt _ _
-  have hst : ∀ w : WExpr, ResolvedLValue.write ctx rt (.storageField x) (.word (w.eval ρ)) =
-      .ok { rt with state := (rt.state.storeSlot f.slot
-        ((writeField (S.writes.read (.lit f.slot)) w f.packedOffset f.packedBytes).eval ρ)) } := by
-    intro w
-    simp only [ResolvedLValue.write, store_field hfx hslw _ (w.eval_lt ρ),
-      writeField_eval ρ _ _ hfx.fits hfx.bytes, hsl]
-  have hread : ResolvedLValue.read ctx rt (.storageField x) =
-      .ok (.word ((readField (S.writes.read (.lit f.slot)) f.packedOffset f.packedBytes).eval ρ)) := by
-    simp [ResolvedLValue.read, ResolvedLValue.readRaw, load_field hfx hslw, hsl,
+  refine eval_inc ρ E ctx rt S hrel n post (lv := .storageField x) (fun F hF => ?_) ?_ ?_
+    (hrel.writeField hfx _)
+  · obtain ⟨m, rfl⟩ : ∃ m, F = m + 1 := ⟨F - 1, by omega⟩
+    simp only [Expr.resolveLValueFuel]
+  · simp [ResolvedLValue.read, ResolvedLValue.readRaw, load_field hfx hslw, hsl,
       Runtime.derefMemoryValue, bind, Except.bind, readField_eval ρ _ hfx.fits hfx.bytes]
-  have hcl : ∀ w, w < wordSize → ValueCleanup.apply true (.uint 256) (.word w) = .ok (.word w) :=
-    fun w hw => uintCleanup_256 w hw
-  have happ := apply_erased ρ binOf_add
-    (readField (S.writes.read (.lit f.slot)) f.packedOffset f.packedBytes) (.lit 1)
-  rw [← one_eq] at happ
-  have hcleq : ctx.checked = true := hrel.checked
-  rw [Stmt.eval]
-  simp only [Expr.eval, Expr.orderFuel, Expr.listEvalFuel]
-  rw [Expr.evalFuel]
-  simp only [Expr.resolveLValueFuel, pure_bind_sol]
-  unfold incFieldBr
-  rw [guards_eval]
-  by_cases hg : (overflow .add (readField (S.writes.read (.lit f.slot)) f.packedOffset f.packedBytes)
-      (.lit 1)).toList.any (fun g => g.eval ρ != 0) = true
-  · have hE : ResolvedLValue.applyIncDecCleanup ctx rt (.storageField x) .add post (.uint 256) =
-        .error (.panic 0x11) := by
-      simp only [ResolvedLValue.applyIncDecCleanup, hread, hcleq, bind, Except.bind,
-        Value.oneLike?, happ, hg, ↓reduceIte]
-    rw [hE]
-    simp only [hg, ↓reduceIte]
-    exact ⟨.reverted rt (.panic 0x11), rfl, rfl⟩
-  · have hE : ∃ v, ResolvedLValue.applyIncDecCleanup ctx rt (.storageField x) .add post (.uint 256) =
-        .ok (v, { rt with state := (rt.state.storeSlot f.slot
-          ((writeField (S.writes.read (.lit f.slot)) (.bin .add (readField (S.writes.read (.lit f.slot))
-            f.packedOffset f.packedBytes) (.lit 1)) f.packedOffset f.packedBytes).eval ρ)) }) := by
-      simp only [ResolvedLValue.applyIncDecCleanup, hread, hcleq, bind, Except.bind,
-        Value.oneLike?, happ, hg, Bool.false_eq_true, ↓reduceIte, hcl _ (WExpr.eval_lt ρ _), hst]
-      cases post <;> exact ⟨_, rfl⟩
-    obtain ⟨v, hv⟩ := hE
-    rw [hv]
-    simp only [hg, Bool.false_eq_true, ↓reduceIte]
-    exact ⟨_, rfl, hrel.writeField hfx _⟩
+  · simp only [ResolvedLValue.write, store_field hfx hslw _ (WExpr.eval_lt ρ _),
+      writeField_eval ρ _ _ hfx.fits hfx.bytes, hsl]
 
 /-- info: 'SolidCore.Refinement.Generic.Loop.eval_incField' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in

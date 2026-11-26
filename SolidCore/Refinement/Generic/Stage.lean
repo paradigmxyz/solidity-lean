@@ -139,12 +139,6 @@ structure SourceEnvOk (o : Oracle) : Prop where
   caller : CallerOk o
   hash : HashOk o
 
-/-- An oracle `SourceEnvOk` describes is one the symbolic run with the environment flag takes, for
-every call whose hash is `solHash`. -/
-theorem SourceEnvOk.envOk {o : Oracle} (h : SourceEnvOk o) (args : List Nat) (store : Nat → Nat) :
-    EnvOk o ⟨args, store, solHash, callerWord⟩ :=
-  ⟨h.caller, h.hash⟩
-
 /-- What the flags `env` ask of the oracle: SolidCore's caller when they read the caller, and
 SolidCore's hash of two words when they hash. -/
 structure SourceAsk (env : EnvFlags) (o : Oracle) : Prop where

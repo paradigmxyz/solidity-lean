@@ -47,10 +47,6 @@ def cmpBin : BinOp → WExpr → WExpr → WExpr
     if m % wordSize = maxWord then .bin .gt a (.lit (maxWord - 1)) else .bin .eq (.lit m) a
   | op, a, b => .bin op a b
 
-theorem ite01_mod (p : Prop) [Decidable p] {n : Nat} (hn : 1 < n) :
-    (if p then 1 else 0 : Nat) % n = if p then 1 else 0 := by
-  by_cases h : p <;> simp [h, Nat.mod_eq_of_lt hn]
-
 theorem cmpBin_eval (ρ : Val) (op : BinOp) (a b : WExpr) :
     (cmpBin op a b).eval ρ = (WExpr.bin op a b).eval ρ := by
   have ha := a.eval_lt ρ

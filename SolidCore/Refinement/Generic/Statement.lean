@@ -281,41 +281,13 @@ theorem map_uint256 {ts : List Solidity.Source.Ty} {ws : List Nat}
 theorem admitCtor?_sound {c : TypeCheck.CheckedContract} {initcode creation : ByteArray}
     {ws : List Nat} (h : admitCtor? c initcode creation ws = .ok ()) :
     CtorAdmits c initcode creation ws := by
-  unfold admitCtor? at h
-  split at h
-  · simp at h
-  next f hf =>
-  unfold admitFn at h
-  split at h
-  · simp at h
-  next hpay =>
-  split at h
-  · simp at h
-  next hp =>
-  split at h
-  · simp at h
-  next hk =>
-  split at h
-  · simp at h
-  next har =>
-  split at h
-  · simp at h
-  next hwr =>
-  split at h
-  · simp at h
-  next hsuf =>
-  split at h
-  · simp at h
-  next vs hdec =>
-  split at h
-  · next hvs =>
-    have hcode : creation = Verify.Lifecycle.initArgs initcode ws :=
-      ByteArray.ext (Array.toList_inj.mp (Classical.not_not.mp hsuf))
-    refine ⟨⟨hcode, Classical.not_not.mp hwr⟩, f, hf, by simpa using hpay, ?_, cleanupsOk_sound hk,
-      by rw [hdec, map_eq_of_mapWord hvs]⟩
-    exact map_uint256 (by simpa using paramsOk_sound hp)
-      (by simpa using Classical.not_not.mp har)
-  · simp at h
+  unfold admitCtor? admitFn at h
+  repeat (split at h <;> try (simp at h; done))
+  rename_i f hf hpay _ hp _ hk har hwr hsuf _ vs hdec hvs
+  exact ⟨⟨ByteArray.ext (Array.toList_inj.mp (Classical.not_not.mp hsuf)), Classical.not_not.mp hwr⟩,
+    f, hf, by simpa using hpay,
+    map_uint256 (by simpa using paramsOk_sound hp) (by simpa using Classical.not_not.mp har),
+    cleanupsOk_sound hk, by rw [hdec, map_eq_of_mapWord hvs]⟩
 
 /-- No two lists of words are admitted for the same creation code. -/
 theorem CtorAdmits.unique {c : TypeCheck.CheckedContract} {initcode creation : ByteArray}
