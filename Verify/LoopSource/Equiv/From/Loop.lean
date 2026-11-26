@@ -1,8 +1,7 @@
-import SolidCore.Refinement.Generic.LoopStmt
-import SolidCore.Refinement.Generic.LoopSeq
+import Contracts.VerifyCounter.SourceLoop
 
 /-!
-# bump's loop in SolidCore: a ranking certificate
+# bump's loop in SolidCore from any caller: a ranking certificate
 
 `bump(n)` of solar-verify's `Counter` (crates/verify/examples/Counter.sol),
 
@@ -17,6 +16,10 @@ The loop's certificate (`cert`) is solar-verify's inferred invariant and measure
 run by SolidCore's interpreter (`eval_incField`, `eval_incVar`): the overflow guards of `count++`
 and `i++` are false under the invariant and the `require`, the invariant comes back with `i + 1`,
 and the rank falls by one; on exit `i = n` and `count` is `old(count) + n` (`exitS`).
+
+These are `Contracts/VerifyCounter/SourceLoop.lean`'s states with `msg.sender` erased to the
+symbolic caller (`caller := .caller`) instead of the default word, and the certificate is that
+file's `certAt .caller`.
 -/
 
 namespace Verify.LoopSource.Equiv.From
@@ -68,93 +71,19 @@ def countOk (E : EraseEnv) : Prop := fieldOf? E.fields "count" = some (0, 0, 32)
 theorem nOf_lt (ρ : Val) : nOf ρ < wordSize := WExpr.eval_lt ρ _
 
 theorem rank_of {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {i c : Nat}
-    (h : StmtRel (hval ρ i c) E ctx rt headerS) (hi : i < wordSize) : rank ρ rt = nOf ρ - i := by
-  have := h.expr.locals "i" (.arg 1) rfl
-  simp only [rank, this, WExpr.eval, hval, List.getD_cons_succ, List.getD_cons_zero,
-    Nat.mod_eq_of_lt hi]
+    (h : StmtRel (hval ρ i c) E ctx rt headerS) (hi : i < wordSize) : rank ρ rt = nOf ρ - i :=
+  Contracts.VerifyCounter.Source.rank_ofAt (w := .caller) h hi
 
-set_option maxHeartbeats 4000000 in
 /-- **bump's loop has a ranking certificate**, checked against SolidCore's interpreter: the
 inferred measure `n - i` falls by one on every iteration. -/
 theorem cert (ρ : Val) (E : EraseEnv) (ctx : Context) (hcount : countOk E)
     (hfacts : E.facts = []) (hpre : ρ.store 0 + nOf ρ ≤ ρ.store 1) :
-    ForCert 3 E.tbl ctx cond post body (Inv ρ E ctx) (rank ρ) (Q ρ E ctx) := by
-  constructor
-  rintro rt ⟨i, hi, hrel⟩
-  have hok : ρ.Ok := hrel.ok
-  have hlim : ρ.store 1 < wordSize := hok.word 1
-  have hn := nOf_lt ρ
-  have hiw : i < wordSize := by omega
-  have hcw : ρ.store 0 + i < wordSize := by omega
-  have hcond : eraseExpr E.fields headerS cond = some ([], .bin .lt (.arg 1) (.arg 0)) := rfl
-  have hev := eval_eq _ E.fields ctx rt headerS hrel.expr hcond
-  have hlt : (WExpr.bin .lt (.arg 1) (.arg 0)).eval (hval ρ i (ρ.store 0 + i)) =
-      if i < nOf ρ then 1 else 0 := by
-    simp only [WExpr.eval, BinOp.eval, hval, List.getD_cons_succ, List.getD_cons_zero,
-      Nat.mod_eq_of_lt hiw, nOf]
-    by_cases h : i < ρ.args.getD 0 0 % wordSize <;> simp only [h, ↓reduceIte] <;> decide
-  refine ⟨.ok (.word (if i < nOf ρ then 1 else 0), rt), ?_, ?_⟩
-  · rw [hev, caught_exprResult]
-    simp only [List.any_nil, Bool.false_eq_true, ↓reduceIte, hlt]
-  dsimp only [Value.expectWord]
-  by_cases hin : i < nOf ρ
-  · rw [if_pos hin, if_pos (by decide)]
-    -- the body: count++ under the header state
-    obtain ⟨r1, h1, hl1⟩ := eval_incField _ E ctx rt.pushScope headerS.push hrel.pushScope 1 true hcount
-    have hbr : incFieldBr 0 0 32 headerS.push =
-        guards [.bin .lt (.bin .add (.arg 2) (.lit 1)) (.arg 2)]
-          (.leaf (.normal { headerS.push with writes := [(.lit 0, .bin .add (.arg 2) (.lit 1))] })) := rfl
-    have hg : ([WExpr.bin .lt (.bin .add (.arg 2) (.lit 1)) (.arg 2)].any
-        (fun g => g.eval (hval ρ i (ρ.store 0 + i)) != 0)) = false := by
-      have h1' : ρ.store 0 + i + 1 < wordSize := by omega
-      simp [WExpr.eval, BinOp.eval, hval, Nat.mod_eq_of_lt hcw, Nat.mod_eq_of_lt h1']
-    rw [hbr, guards_eval, hg] at hl1
-    simp only [Bool.false_eq_true, ↓reduceIte, Br.eval] at hl1
-    rcases r1 with rb | ⟨_, _⟩ | _ | ⟨_, _⟩ | _ | _ <;> simp only [LeafRel] at hl1
-    have hlist : Stmt.evalList (1 + 1) E.tbl ctx rt.pushScope
-        [.exprStmt (.incDec .add true (some (.uint 256)) (.storageRead .header "count" []))] =
-        .done (.ok (.normal rb)) := by
-      rw [evalList_cons_normal h1, evalList_nil]
-    have hb := eval_block_of hlist
-    refine ⟨_, hb, ?_⟩
-    -- the update: i++
-    have hrelb := hl1.popScope
-    obtain ⟨r2, h2, hl2⟩ := eval_incVar _ E ctx rb.popScope _ hrelb 2 true (x := "i")
-      (old := .arg 1) (L' := [[], [("i", .bin .add (.arg 1) (.lit 1))], [], [], [("n", .arg 0)]])
-      rfl rfl
-    simp only [ForRest, Result.mapRuntime]
-    refine ⟨r2, h2, ?_⟩
-    have hi1 : i + 1 < wordSize := by omega
-    have hg2 : (overflow .add (.arg 1) (.lit 1)).toList.any
-        (fun g => g.eval (hval ρ i (ρ.store 0 + i)) != 0) = false := by
-      simp [overflow, WExpr.eval, BinOp.eval, hval, Nat.mod_eq_of_lt hiw, Nat.mod_eq_of_lt hi1]
-    simp only [incVarBr, guards_eval, hg2, Bool.false_eq_true, ↓reduceIte, Br.eval] at hl2
-    rcases r2 with rp | ⟨_, _⟩ | _ | ⟨_, _⟩ | _ | _ <;> simp only [LeafRel] at hl2
-    have hc1 : ρ.store 0 + (i + 1) < wordSize := by omega
-    have hrelp : StmtRel (hval ρ (i + 1) (ρ.store 0 + (i + 1))) E ctx rp headerS := by
-      refine StmtRel.congr hl2 hrel.hash hok (by rw [hfacts]; exact Facts.hold_nil _) ?_ ?_ rfl
-      · simp [headerS, SymState.pop, SymState.push, frameOf, WExpr.eval, BinOp.eval, hval,
-          Nat.mod_eq_of_lt hiw, Nat.mod_eq_of_lt hi1]
-      · intro k _
-        simp only [Writes.store, SymState.pop, SymState.push, headerS, WExpr.eval, BinOp.eval, hval,
-          List.getD_cons_succ, List.getD_cons_zero]
-        split_ifs
-        · rw [Nat.mod_eq_of_lt hcw, show 1 % wordSize = 1 by decide, Nat.mod_mod, ← Nat.add_assoc]
-        · rfl
-    refine ⟨⟨i + 1, by omega, hrelp⟩, ?_⟩
-    rw [rank_of hrelp hi1, rank_of hrel hiw]
-    omega
-  · rw [if_neg hin, if_neg (by decide)]
-    have hie : i = nOf ρ := by omega
-    refine ⟨rt, rfl, StmtRel.congr hrel hrel.hash hok (by rw [hfacts]; exact Facts.hold_nil _) ?_ ?_ rfl⟩
-    · simp [headerS, exitS, frameOf, WExpr.eval, hval, Nat.mod_eq_of_lt hiw, hie, nOf]
-    · intro k _
-      have h0 := hok.word 0
-      have hie' : ρ.args.getD 0 0 % wordSize = i := hie.symm
-      simp only [Writes.store, headerS, exitS, WExpr.eval, BinOp.eval, hval, List.getD_cons_succ,
-        List.getD_cons_zero]
-      by_cases hk0 : 0 % wordSize = k % wordSize <;> simp only [hk0, ↓reduceIte]
-      rw [Nat.mod_eq_of_lt h0, hie', Nat.mod_mod]
+    ForCert 3 E.tbl ctx cond post body (Inv ρ E ctx) (rank ρ) (Q ρ E ctx) :=
+  Contracts.VerifyCounter.Source.certAt .caller ρ E ctx (fun _ _ => rfl) hcount hfacts hpre (rank ρ)
+    fun i _ _ (hin : i < nOf ρ) h h' => by
+      have hn := nOf_lt ρ
+      rw [rank_of h' (by omega), rank_of h (by omega)]
+      omega
 
 /-- info: 'Verify.LoopSource.Equiv.From.cert' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in

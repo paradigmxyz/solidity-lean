@@ -344,46 +344,40 @@ theorem forward_of_checkXL {F : List Nat} {p : Assemble.Program} {code : ByteArr
 #print axioms forward_of_checkXL
 
 open SolidCore.Refinement.Evm.Symex in
-/-- **EVM IR to bytecode at every gas, without hypotheses on the runner of messages.** When
-SolarTV's run of `guard F p` ends within `n` blocks, every result EthLib gives for the exact
-bytecode at any gas is that run's result, or a failure that changes nothing: a run that succeeds at
-gas `g` is the run with `gasBoundL cx.base n` more gas, which `run_simXL` follows to the end. No
-block of `F` (the only ones with STATICCALL or GAS) is reached, so the runner of messages is never
-consulted. -/
-theorem within_of_checkXL {F : List Nat} {p : Assemble.Program} {code : ByteArray} {cx : CtxCert}
-    (hc : checkXL F p code cx = true) (o : SolarTV.Machine.Oracle) (ho : cx.base.env = true → OracleOk o)
-    (he : cx.base.reads = true → EnvOk o) (call : SolarTV.Call) (n : Nat)
-    (r : SolarTV.Machine.Halt × SolarTV.Machine.State)
+/-- **The run that succeeds, over the message.** A message `msg` of `call` from the account `a`,
+whose pre-state `st0` relates to SolarTV's initial state once its value moves (`hR`, which
+`rel_start` gives), and which EthLib runs from `st0` without error: its result is SolarTV's run
+of `guard F p` when that ends within `n` blocks. `run_simXL` follows the run with
+`gasBoundL cx.base n` more gas to the end. -/
+theorem observe_of_checkXL {F : List Nat} {p : Assemble.Program} {code : ByteArray} {cx : CtxCert}
+    (hc : checkXL F p code cx = true) {o : SolarTV.Machine.Oracle} {call : SolarTV.Call}
+    {msg : Message .fusaka} {a : Nat} (hcode : msg.code = code) (hdata : msg.data = call.calldata)
+    (hvalue : msg.value = BitVec.ofNat 256 call.callvalue) (hstatic : msg.isStatic = false)
+    (hself : msg.currentTarget = Target.address selfAddress) (hcaller : msg.caller = Target.address a)
+    (hpre : precompileAddress .fusaka msg = none) (ho : cx.base.env = true → OracleOkAt a o)
+    (hbenv : msg.blockEnv = Target.blockEnv) (htx : cx.base.reads = true → msg.txEnv = Target.txEnv)
+    (he : cx.base.reads = true → EnvOk o) {st0 : State.TransactionState}
+    (hR : ∀ {st' : State.TransactionState} (ss' : Substate),
+      (¬ (msg.shouldTransferValue = true ∧ msg.value ≠ 0) → st' = st0) →
+      ((msg.shouldTransferValue = true ∧ msg.value ≠ 0) →
+        st0.moveEther .fusaka msg.caller msg.currentTarget msg.value = .ok st') →
+      Rel msg ss' st' ss' (SolarTV.Machine.State.initial call))
+    (n : Nat) (r : SolarTV.Machine.Halt × SolarTV.Machine.State)
     (hit : SolarTV.Machine.iterate (SolarTV.EVM.Program.block o call (guard F p)) n
-      (0, [], SolarTV.Machine.State.initial call) = some r) (gas : Nat) (obs : Observable)
-    (hrun : Final.Target.runWith gas code call = some obs) :
-    obs = SolarTV.Machine.observe call r.2 r.1 ∨
-      (obs.success = false ∧ obs.storage = slotValue call.storage ∧ obs.logs = []) := by
+      (0, [], SolarTV.Machine.State.initial call) = some r) {evm}
+    (hpm : processMessage (Meter := Nat) .fusaka msg st0 Substate.empty = .ok evm)
+    (hok : evm.1.error = none) :
+    evmObservable call evm.1 = SolarTV.Machine.observe call r.2 r.1 := by
   obtain ⟨G, hseg, hcount, hneed0, hF0⟩ := globXL_of_checkXL hc
-  cases hs : obs.success
-  · exact Or.inr ⟨rfl, Target.runWith_failure hrun hs⟩
-  left
-  unfold Target.runWith Target.runMsg at hrun
-  split at hrun
-  · cases hrun
-  rename_i evm hev hpm
-  simp only [Option.some.injEq] at hrun
-  subst hrun
-  have hok : evm.error = none := by simpa using hs
-  obtain ⟨st', ss', runChild, within, hcases, hmove, hrf⟩ :=
-    processMessage_ok (message := Final.Target.messageWith gas code call) (evm := ⟨evm, hev⟩)
-      (precompileAddress_message code call) hpm hok
-  simp only at hrf
-  set msg := Final.Target.messageWith gas code call with hmsg
-  have hcode : msg.code = code := rfl
-  have R := rel_start code call gas ss' (fun h => (hcases h).1) (fun h => (hmove h).1)
+  obtain ⟨st', ss', runChild, within, hcases, hmove, hrf⟩ := processMessage_ok hpre hpm hok
+  have R := hR ss' (fun h => (hcases h).1) (fun h => (hmove h).1)
   have hm0 : memoryGasCost (ByteArray.empty).size = 0 := by decide
   have h0n : 0 < p.blocks.length + 1 := by omega
   have hsame := certAt_same cx (p.blocks.length + 1) 0 0
   have hn0 : (certAt cx (p.blocks.length + 1) 0 0).need 0 = (cx.at 0 0).need := by
     rw [certAt_need h0n, pick_of_exit (exitCtx_self cx 0 0)]
-  have hsim := run_simXL (msg := msg) (ss0 := ss') G rfl (by simp [msg, Final.Target.messageWith,
-    Target.message]) rfl rfl rfl ho rfl (fun _ => rfl) he n 0 [] [] _ 0 .empty (gas + gasBoundL cx.base n) st' ss'
+  have hsim := run_simXL (ss0 := ss') G hdata hvalue hstatic hself hcaller ho hbenv htx he n 0 [] [] _ 0
+    .empty (msg.gas + gasBoundL cx.base n) st' ss'
     ⟨certAt cx (p.blocks.length + 1) 0 0, maxsAt cx (p.blocks.length + 1) 0 0, hsame, Nat.zero_le _,
       fun _ => ⟨by simp [hn0, hneed0], by simp⟩, SR.nil _ _,
       ⟨by rw [hsame.offset, lowerFrom_congr hsame.2.1, List.drop_zero]; exact hseg,
@@ -396,7 +390,7 @@ theorem within_of_checkXL {F : List Nat} {p : Assemble.Program} {code : ByteArra
         by simp, memRel_initial⟩,
       fun _ => ⟨0, hcount, hn0, by rw [maxsAt_max h0n, pick_of_exit (exitCtx_self cx 0 0)],
         by rw [certAt_entry h0n, pick_of_exit (exitCtx_self cx 0 0)], LabOk.empty _⟩⟩ R r hit
-  have hl : At code msg 0 [] .empty gas st' ss' .empty (startFrame msg st' ss' msg.gas) :=
+  have hl : At code msg 0 [] .empty msg.gas st' ss' .empty (startFrame msg st' ss' msg.gas) :=
     ⟨by simp [startFrame, hcode], by simp [startFrame, hcode], rfl, rfl, rfl, rfl, rfl, rfl, rfl,
       rfl, rfl, rfl, rfl⟩
   have hp := hl.addGas (gasBoundL cx.base n)
@@ -408,7 +402,34 @@ theorem within_of_checkXL {F : List Nat} {p : Assemble.Program} {code : ByteArra
       simp [pushTransferLog, show ¬ (Fork.fusaka ≥ Fork.glamsterdam) by decide, Substate.empty]
     · rw [(hcases htr).2]
       simp [Substate.empty]
+  rw [hself] at hL2
   exact observe_of_msgOut hss' ⟨ssF, ⟨L, hL1, hL2⟩, herr, hout, fun h => ⟨hlogsF, hst h⟩⟩
+
+/-- **EVM IR to bytecode at every gas, without hypotheses on the runner of messages.** When
+SolarTV's run of `guard F p` ends within `n` blocks, every result EthLib gives for the exact
+bytecode at any gas is that run's result, or a failure that changes nothing: a run that succeeds is
+`observe_of_checkXL`'s. No block of `F` (the only ones with STATICCALL or GAS) is reached, so the
+runner of messages is never consulted. -/
+theorem within_of_checkXL {F : List Nat} {p : Assemble.Program} {code : ByteArray} {cx : CtxCert}
+    (hc : checkXL F p code cx = true) (o : SolarTV.Machine.Oracle) (ho : cx.base.env = true → OracleOk o)
+    (he : cx.base.reads = true → EnvOk o) (call : SolarTV.Call) (n : Nat)
+    (r : SolarTV.Machine.Halt × SolarTV.Machine.State)
+    (hit : SolarTV.Machine.iterate (SolarTV.EVM.Program.block o call (guard F p)) n
+      (0, [], SolarTV.Machine.State.initial call) = some r) (gas : Nat) (obs : Observable)
+    (hrun : Final.Target.runWith gas code call = some obs) :
+    obs = SolarTV.Machine.observe call r.2 r.1 ∨
+      (obs.success = false ∧ obs.storage = slotValue call.storage ∧ obs.logs = []) := by
+  unfold Target.runWith Target.runMsg at hrun
+  split at hrun
+  · cases hrun
+  rename_i evm hev hpm
+  cases hrun
+  by_cases hok : evm.error = none
+  · exact Or.inl (observe_of_checkXL hc (msg := Final.Target.messageWith gas code call)
+      (st0 := Target.preState code call) rfl rfl (by simp [Final.Target.messageWith, Target.message]) rfl rfl rfl
+      (Evm.Symex.precompileAddress_message code call) ho rfl (fun _ => rfl) he (rel_start code call gas)
+      n r hit hpm hok)
+  · exact Or.inr (by simp [hok, Option.ne_none_iff_isSome.mp hok])
 
 /-- info: 'SolidCore.Refinement.Solar.AssembleCtxGas.within_of_checkXL' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs (whitespace := lax) in
