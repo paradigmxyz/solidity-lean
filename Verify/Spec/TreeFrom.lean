@@ -92,87 +92,7 @@ theorem zeroScope_valueScope {fn : Fn} {s : List (Nat × Nat)} {call : Call}
   let ⟨σ, hcov, hv⟩ := h
   ⟨σ, 0, hcov, hv⟩
 
-/-- **A function's spec holds of SolidCore's run from every caller, on its calls without a
-value**, when it holds of the symbolic-caller tree from every caller. -/
-theorem holdsFn_of_tree_from_zero {fuel : Nat} {c : TypeCheck.CheckedContract}
-    {d : Source.State} {s : List (Nat × Nat)} (hd : Wide.DeployedAt fuel c d s) {fn : Fn}
-    {f : Source.FunctionDef} (hsel : fn.sel < 2 ^ 32)
-    (hfind : c.core.findFunctionBySelector? fn.sel = some f)
-    (hlen : f.params.length = fn.params.length) {T : Tree}
-    (hT : eraseFnSym (envOf c.core) fuel f = some T) {b : Bundle} {fs : FnSpec}
-    {step : GhostStep} (hstep : ∀ call, zeroScope fn s call → ∀ g, step call g = g)
-    (hm : TreeMeetsFrom b fs fn.params.length T) :
-    ∀ a, a < 2 ^ 160 → a ≠ selfAddress →
-      HoldsFn (solidCoreFrom a fuel) c (zeroScope fn s) b (ctxOfCallFrom a) step fs := by
-  intro a ha hne call hcall iargs pre hpre
-  have hg := hstep call hcall pre.ghost
-  obtain ⟨σ, hcov, -, fn', hfn', args, hl, hargs, rfl⟩ := hcall
-  simp only [List.mem_singleton] at hfn'
-  subst hfn'
-  obtain ⟨⟨-, -, hdec⟩, hst, ht, hreq, hinv⟩ := hpre
-  rw [hg]
-  have hrun := source_run_from a ha hd hcov hsel hfind hT args (hl.trans hlen.symm) hargs
-  rw [words_calldata _ hargs] at hdec
-  exact ⟨_, hrun, hm a ha hne args (slotValue σ) iargs pre hl hargs
-    (fun k => SolidCore.Refinement.Evm.Wide.slotValue_lt σ k) hdec hst ht hreq hinv⟩
-
-/-- **A nonpayable function's spec holds of SolidCore's run from every caller, at every value**,
-when it holds of the symbolic-caller tree from every caller and no value-carrying call meets its
-succeeds-if conditions. -/
-theorem holdsFn_of_tree_from {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.State}
-    {s : List (Nat × Nat)} (hd : Wide.DeployedAt fuel c d s) {fn : Fn} {f : Source.FunctionDef}
-    (hsel : fn.sel < 2 ^ 32) (hfind : c.core.findFunctionBySelector? fn.sel = some f)
-    (hlen : f.params.length = fn.params.length) {T : Tree}
-    (hT : eraseFnSym (envOf c.core) fuel f = some T) {ws : List Nat}
-    (hw : widthsOf f.params f.paramAbiCleanups = some ws) (hpay : f.payable = false)
-    {b : Bundle} {fs : FnSpec} {step : GhostStep}
-    (hstep : ∀ call, valueScope fn s call → ∀ g, step call g = g)
-    (hm : TreeMeetsFrom b fs fn.params.length T) (hv : ValueRefuses b fs) :
-    ∀ a, a < 2 ^ 160 → a ≠ selfAddress →
-      HoldsFn (solidCoreFrom a fuel) c (valueScope fn s) b (ctxOfCallFrom a) step fs := by
-  intro a ha hne call hcall iargs pre hpre
-  have hg := hstep call hcall pre.ghost
-  obtain ⟨σ, v, hcov, hvlt, fn', hfn', args, hl, hargs, rfl⟩ := hcall
-  simp only [List.mem_singleton] at hfn'
-  subst hfn'
-  obtain ⟨⟨-, -, hdec⟩, hst, ht, hreq, hinv⟩ := hpre
-  rw [hg]
-  by_cases hv0 : v = 0
-  · subst hv0
-    have hrun := source_run_from a ha hd hcov hsel hfind hT args (hl.trans hlen.symm) hargs
-    rw [words_calldata _ hargs] at hdec
-    exact ⟨_, hrun, hm a ha hne args (slotValue σ) iargs pre hl hargs
-      (fun k => SolidCore.Refinement.Evm.Wide.slotValue_lt σ k) hdec hst ht hreq hinv⟩
-  · have hrun := source_run_value_from a hd hsel hfind hw hpay args (hl.trans hlen.symm) hargs
-      hv0 hvlt σ
-    refine ⟨_, hrun, ⟨fun hok => ?_, fun hne' hsat => ?_⟩⟩
-    · simp [rejected] at hok
-    · exact absurd hsat (hv a v iargs pre hv0 hvlt hne')
-
-/-- info: 'SolidCore.Spec.holdsFn_of_tree_from_zero' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs (whitespace := lax) in
-#print axioms holdsFn_of_tree_from_zero
-
-/-- info: 'SolidCore.Spec.holdsFn_of_tree_from' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs (whitespace := lax) in
-#print axioms holdsFn_of_tree_from
-
-/-! ## Functions that read and write mappings: a finite hash footprint per call
-
-A mapping stores `m[k]` at `keccak256(k . m)`, and keccak256 is not injective, so a spec of a
-function that reads or writes mappings needs a premise about which of its slots differ. The global
-premise is false for nested mappings (`not_nestedSlotsSeparated`, HashScope.lean). Here, as in
-`holdsFnUnder_of_tree_fixed`, each call carries its own premise, and from every caller `a` it is:
-
-* `footprintFrom a idx ms args`: the finite list of preimages `k . m` for the mapping slots `ms`
-  and the keys `k` the call touches, the caller `a` and the address arguments at the positions
-  `idx`; it has exactly `(idx.length + 1) * ms.length` entries (`footprintFrom_length`).
-* `FootprintSep a idx ms args`: `ScopedSep` of that list, keccak256 injective on its entries with
-  every image at least `2 ^ 128`. Nothing is asked of any other preimage.
-
-The premise is a computational assumption on keccak256 of the call's own preimages, stated in the
-theorem call by call: it is not proved, and no global hash premise is used.
--/
+/-! ## Under a per-caller, per-call premise -/
 
 /-- `TreeMeetsFixedOn` with the tree evaluated for the caller `a`, on the argument words meeting `P`. -/
 def TreeMeetsFixedOnAt (a : Nat) (P : List Nat → Prop) (b : Bundle) (fs : FnSpec) (ctx : Ctx) (n : Nat)
@@ -184,40 +104,11 @@ def TreeMeetsFixedOnAt (a : Nat) (P : List Nat → Prop) (b : Bundle) (fs : FnSp
     b.satAll b.spec.invariants (mkEnv ctx iargs [] pre pre) → P args →
     Post b fs ctx pre pre.ghost (T.eval ⟨args, s, solHash, a⟩).obs iargs
 
-/-- **The hash footprint of a call sent by `a`**: the preimages `k . m` of the slots `m[k]` for
-`m ∈ ms` and `k` the caller or an address argument at a position in `idx`. -/
-def footprintFrom (a : Nat) (idx ms args : List Nat) : List (List Nat) :=
-  mapScope (callKeys a idx args) ms
-
-/-- `mapScope K ms` has one preimage per key and mapping slot. -/
-theorem mapScope_length (K ms : List Nat) : (mapScope K ms).length = K.length * ms.length := by
-  induction K with
-  | nil => simp [mapScope]
-  | cons k K ih =>
-    simp only [mapScope, List.flatMap_cons, List.length_append, List.length_map] at ih ⊢
-    rw [ih, List.length_cons, Nat.succ_mul]; omega
-
-/-- The footprint is finite, with one preimage per key and mapping slot. -/
-theorem footprintFrom_length (a : Nat) (idx ms args : List Nat) :
-    (footprintFrom a idx ms args).length = (idx.length + 1) * ms.length := by
-  rw [footprintFrom, mapScope_length]; simp [callKeys]
-
-/-- **The finite keccak256 premise of one call sent by `a`**: keccak256 injective, with images at
-least `2 ^ 128`, on the call's footprint and nothing else. -/
-def FootprintSep (a : Nat) (idx ms args : List Nat) : Prop := ScopedSep (footprintFrom a idx ms args)
-
-/-- For `transfer(to, value)` of one balance mapping at `m` (key `to` at position 0), the premise
-is `ScopedSep (transferFootprint m a to)`: two preimages. -/
-theorem footprintSep_transfer {a m dst v : Nat} (hto : dst < 2 ^ 160) :
-    FootprintSep a [0] [m] [dst, v] ↔ ScopedSep (transferFootprint m a dst) := by
-  have : dst % 2 ^ 160 = dst := Nat.mod_eq_of_lt hto
-  simp only [FootprintSep, footprintFrom, callKeys, mapScope, transferFootprint, List.map_cons,
-    List.map_nil, List.getD_cons_zero, List.flatMap_cons, List.flatMap_nil, List.cons_append,
-    List.nil_append, List.append_nil, this]
-
-/-- **The spec holds of the tree from every caller on the calls whose footprint premise holds.** -/
-def TreeMeetsFootprintFrom (idx ms : List Nat) (b : Bundle) (fs : FnSpec) (n : Nat) (T : Tree) : Prop :=
-  ∀ a, a < 2 ^ 160 → a ≠ selfAddress → TreeMeetsFixedOnAt a (FootprintSep a idx ms) b fs (ctxAt a 0) n T
+/-- The spec on every evaluation is the spec on those meeting `P`. -/
+theorem TreeMeetsFixedAt.onAt {a : Nat} {P : List Nat → Prop} {b : Bundle} {fs : FnSpec} {ctx : Ctx}
+    {n : Nat} {T : Tree} (h : TreeMeetsFixedAt a b fs ctx n T) : TreeMeetsFixedOnAt a P b fs ctx n T :=
+  fun args s iargs pre hl hargs hs hdec hst ht hreq hinv _ =>
+    h args s iargs pre hl hargs hs hdec hst ht hreq hinv
 
 /-- **`holdsFn_of_tree_from_zero` under a per-caller, per-call premise `P a`** on the argument
 words: the spec of SolidCore's run from every caller on the calls without a value whose words meet it. -/
@@ -266,24 +157,110 @@ theorem holdsFnUnder_of_tree_from_on {fuel : Nat} {c : TypeCheck.CheckedContract
         (ctxOfCallFrom a) step fs := by
   intro a ha hne call hcall hq iargs pre hpre
   have hg := hstep call hcall pre.ghost
-  obtain ⟨σ, v, hcov, hvlt, fn', hfn', args, hl, hargs, rfl⟩ := hcall
-  simp only [List.mem_singleton] at hfn'
-  subst hfn'
-  obtain ⟨⟨-, -, hdec⟩, hst, ht, hreq, hinv⟩ := hpre
-  rw [hg]
+  obtain ⟨σ, v, hcov, hfull⟩ := hcall
   by_cases hv0 : v = 0
   · subst hv0
-    have hrun := source_run_from a ha hd hcov hsel hfind hT args (hl.trans hlen.symm) hargs
-    rw [words_calldata _ hargs] at hdec
-    simp only [callArgs] at hq
-    rw [words_calldata _ hargs] at hq
-    exact ⟨_, hrun, hm a ha hne args (slotValue σ) iargs pre hl hargs
-      (fun k => SolidCore.Refinement.Evm.Wide.slotValue_lt σ k) hdec hst ht hreq hinv hq⟩
-  · have hrun := source_run_value_from a hd hsel hfind hw hpay args (hl.trans hlen.symm) hargs
-      hv0 hvlt σ
-    refine ⟨_, hrun, ⟨fun hok => ?_, fun hne' hsat => ?_⟩⟩
-    · simp [rejected] at hok
-    · exact absurd hsat (hv a v iargs pre hv0 hvlt hne')
+    exact holdsFnUnder_of_tree_from_on_zero hd hsel hfind hlen hT
+      (fun call h => hstep call (zeroScope_valueScope h)) hm a ha hne call ⟨σ, hcov, hfull⟩ hq iargs
+      pre hpre
+  obtain ⟨hvlt, fn', hfn', args, hl, hargs, rfl⟩ := hfull
+  simp only [List.mem_singleton] at hfn'
+  subst hfn'
+  rw [hg]
+  refine ⟨_, source_run_value_from a hd hsel hfind hw hpay args (hl.trans hlen.symm) hargs hv0 hvlt σ,
+    fun hok => by simp [rejected] at hok, fun hne' hsat => absurd hsat (hv a v iargs pre hv0 hvlt hne')⟩
+
+/-- **A function's spec holds of SolidCore's run from every caller, on its calls without a
+value**, when it holds of the symbolic-caller tree from every caller. -/
+theorem holdsFn_of_tree_from_zero {fuel : Nat} {c : TypeCheck.CheckedContract}
+    {d : Source.State} {s : List (Nat × Nat)} (hd : Wide.DeployedAt fuel c d s) {fn : Fn}
+    {f : Source.FunctionDef} (hsel : fn.sel < 2 ^ 32)
+    (hfind : c.core.findFunctionBySelector? fn.sel = some f)
+    (hlen : f.params.length = fn.params.length) {T : Tree}
+    (hT : eraseFnSym (envOf c.core) fuel f = some T) {b : Bundle} {fs : FnSpec}
+    {step : GhostStep} (hstep : ∀ call, zeroScope fn s call → ∀ g, step call g = g)
+    (hm : TreeMeetsFrom b fs fn.params.length T) :
+    ∀ a, a < 2 ^ 160 → a ≠ selfAddress →
+      HoldsFn (solidCoreFrom a fuel) c (zeroScope fn s) b (ctxOfCallFrom a) step fs :=
+  fun a ha hne => HoldsFnUnder.holdsFn (holdsFnUnder_of_tree_from_on_zero (P := fun _ _ => True) hd
+    hsel hfind hlen hT hstep (fun a ha hne => (hm a ha hne).onAt) a ha hne)
+
+/-- **A nonpayable function's spec holds of SolidCore's run from every caller, at every value**,
+when it holds of the symbolic-caller tree from every caller and no value-carrying call meets its
+succeeds-if conditions. -/
+theorem holdsFn_of_tree_from {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.State}
+    {s : List (Nat × Nat)} (hd : Wide.DeployedAt fuel c d s) {fn : Fn} {f : Source.FunctionDef}
+    (hsel : fn.sel < 2 ^ 32) (hfind : c.core.findFunctionBySelector? fn.sel = some f)
+    (hlen : f.params.length = fn.params.length) {T : Tree}
+    (hT : eraseFnSym (envOf c.core) fuel f = some T) {ws : List Nat}
+    (hw : widthsOf f.params f.paramAbiCleanups = some ws) (hpay : f.payable = false)
+    {b : Bundle} {fs : FnSpec} {step : GhostStep}
+    (hstep : ∀ call, valueScope fn s call → ∀ g, step call g = g)
+    (hm : TreeMeetsFrom b fs fn.params.length T) (hv : ValueRefuses b fs) :
+    ∀ a, a < 2 ^ 160 → a ≠ selfAddress →
+      HoldsFn (solidCoreFrom a fuel) c (valueScope fn s) b (ctxOfCallFrom a) step fs :=
+  fun a ha hne => HoldsFnUnder.holdsFn (holdsFnUnder_of_tree_from_on (P := fun _ _ => True) hd hsel
+    hfind hlen hT hw hpay hstep (fun a ha hne => (hm a ha hne).onAt) hv a ha hne)
+
+/-- info: 'SolidCore.Spec.holdsFn_of_tree_from_zero' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs (whitespace := lax) in
+#print axioms holdsFn_of_tree_from_zero
+
+/-- info: 'SolidCore.Spec.holdsFn_of_tree_from' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs (whitespace := lax) in
+#print axioms holdsFn_of_tree_from
+
+/-! ## Functions that read and write mappings: a finite hash footprint per call
+
+A mapping stores `m[k]` at `keccak256(k . m)`, and keccak256 is not injective, so a spec of a
+function that reads or writes mappings needs a premise about which of its slots differ. The global
+premise is false for nested mappings (`not_nestedSlotsSeparated`, HashScope.lean). Here, as in
+`holdsFnUnder_of_tree_fixed`, each call carries its own premise, and from every caller `a` it is:
+
+* `footprintFrom a idx ms args`: the finite list of preimages `k . m` for the mapping slots `ms`
+  and the keys `k` the call touches, the caller `a` and the address arguments at the positions
+  `idx`; it has exactly `(idx.length + 1) * ms.length` entries (`footprintFrom_length`).
+* `FootprintSep a idx ms args`: `ScopedSep` of that list, keccak256 injective on its entries with
+  every image at least `2 ^ 128`. Nothing is asked of any other preimage.
+
+The premise is a computational assumption on keccak256 of the call's own preimages, stated in the
+theorem call by call: it is not proved, and no global hash premise is used.
+-/
+
+/-- **The hash footprint of a call sent by `a`**: the preimages `k . m` of the slots `m[k]` for
+`m ∈ ms` and `k` the caller or an address argument at a position in `idx`. -/
+def footprintFrom (a : Nat) (idx ms args : List Nat) : List (List Nat) :=
+  mapScope (callKeys a idx args) ms
+
+/-- `mapScope K ms` has one preimage per key and mapping slot. -/
+theorem mapScope_length (K ms : List Nat) : (mapScope K ms).length = K.length * ms.length := by
+  induction K with
+  | nil => simp [mapScope]
+  | cons k K ih =>
+    simp only [mapScope, List.flatMap_cons, List.length_append, List.length_map] at ih ⊢
+    rw [ih, List.length_cons, Nat.succ_mul]; omega
+
+/-- The footprint is finite, with one preimage per key and mapping slot. -/
+theorem footprintFrom_length (a : Nat) (idx ms args : List Nat) :
+    (footprintFrom a idx ms args).length = (idx.length + 1) * ms.length := by
+  rw [footprintFrom, mapScope_length]; simp [callKeys]
+
+/-- **The finite keccak256 premise of one call sent by `a`**: keccak256 injective, with images at
+least `2 ^ 128`, on the call's footprint and nothing else. -/
+def FootprintSep (a : Nat) (idx ms args : List Nat) : Prop := ScopedSep (footprintFrom a idx ms args)
+
+/-- For `transfer(to, value)` of one balance mapping at `m` (key `to` at position 0), the premise
+is `ScopedSep (transferFootprint m a to)`: two preimages. -/
+theorem footprintSep_transfer {a m dst v : Nat} (hto : dst < 2 ^ 160) :
+    FootprintSep a [0] [m] [dst, v] ↔ ScopedSep (transferFootprint m a dst) := by
+  have : dst % 2 ^ 160 = dst := Nat.mod_eq_of_lt hto
+  simp only [FootprintSep, footprintFrom, callKeys, mapScope, transferFootprint, List.map_cons,
+    List.map_nil, List.getD_cons_zero, List.flatMap_cons, List.flatMap_nil, List.cons_append,
+    List.nil_append, List.append_nil, this]
+
+/-- **The spec holds of the tree from every caller on the calls whose footprint premise holds.** -/
+def TreeMeetsFootprintFrom (idx ms : List Nat) (b : Bundle) (fs : FnSpec) (n : Nat) (T : Tree) : Prop :=
+  ∀ a, a < 2 ^ 160 → a ≠ selfAddress → TreeMeetsFixedOnAt a (FootprintSep a idx ms) b fs (ctxAt a 0) n T
 
 /-- **A function's spec of SolidCore's run from every caller, for functions that read and write
 mappings, on every call without a value whose finite hash footprint is separated.** For every

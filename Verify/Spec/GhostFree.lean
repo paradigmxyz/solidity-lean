@@ -79,22 +79,14 @@ theorem eval_ghostEquiv_with {fns : List SpecFn} {fuel : Nat} {k : Term → Bool
   | .bin op a b, hg, e, e', h => by
     simp only [Term.ghostFreeWith, Bool.and_eq_true] at hg
     simp only [eval, eval_ghostEquiv_with hk a hg.1 e e' h, eval_ghostEquiv_with hk b hg.2 e e' h]
-  | .shl t _, hg, e, e', h => by
-    simp only [Term.ghostFreeWith] at hg
-    simp only [eval, eval_ghostEquiv_with hk t hg e e' h]
-  | .shr t _, hg, e, e', h => by
+  | .shl t _, hg, e, e', h | .shr t _, hg, e, e', h => by
     simp only [Term.ghostFreeWith] at hg
     simp only [eval, eval_ghostEquiv_with hk t hg e e' h]
   | .ite c a b, hg, e, e', h => by
     simp only [Term.ghostFreeWith, Bool.and_eq_true] at hg
     simp only [eval, eval_ghostEquiv_with hk c hg.1.1 e e' h, eval_ghostEquiv_with hk a hg.1.2 e e' h,
       eval_ghostEquiv_with hk b hg.2 e e' h]
-  | .all x _ body, hg, e, e', h => by
-    simp only [Term.ghostFreeWith] at hg
-    have hb : ∀ v, eval fns fuel body (e.bind x v) = eval fns fuel body (e'.bind x v) :=
-      fun v => eval_ghostEquiv_with hk body hg _ _ (h.bind x v)
-    simp only [eval, hb]
-  | .ex x _ body, hg, e, e', h => by
+  | .all x _ body, hg, e, e', h | .ex x _ body, hg, e, e', h => by
     simp only [Term.ghostFreeWith] at hg
     have hb : ∀ v, eval fns fuel body (e.bind x v) = eval fns fuel body (e'.bind x v) :=
       fun v => eval_ghostEquiv_with hk body hg _ _ (h.bind x v)
@@ -130,15 +122,7 @@ theorem slotOf_ghostEquiv_with {fns : List SpecFn} {fuel : Nat} {k : Term → Bo
     ∀ (p : Place), Place.ghostFreeWith fns k p = true →
       ∀ e e', e.ghostEquiv e' → slotOf fns fuel p e = slotOf fns fuel p e'
   | .slot _, _, e, e', _ => by simp only [slotOf]
-  | .offset b i, hg, e, e', h => by
-    simp only [Place.ghostFreeWith, Bool.and_eq_true] at hg
-    simp only [slotOf, slotOf_ghostEquiv_with hk b hg.1 e e' h, eval_ghostEquiv_with hk i hg.2 e e' h]
-  | .entry b i, hg, e, e', h => by
-    simp only [Place.ghostFreeWith, Bool.and_eq_true] at hg
-    simp only [slotOf, slotOf_ghostEquiv_with hk b hg.1 e e' h, eval_ghostEquiv_with hk i hg.2 e e' h]
-  | .elem b i _, hg, e, e', h => by
-    simp only [Place.ghostFreeWith, Bool.and_eq_true] at hg
-    simp only [slotOf, slotOf_ghostEquiv_with hk b hg.1 e e' h, eval_ghostEquiv_with hk i hg.2 e e' h]
+  | .offset b i, hg, e, e', h | .entry b i, hg, e, e', h | .elem b i _, hg, e, e', h
   | .packedElem b i _, hg, e, e', h => by
     simp only [Place.ghostFreeWith, Bool.and_eq_true] at hg
     simp only [slotOf, slotOf_ghostEquiv_with hk b hg.1 e e' h, eval_ghostEquiv_with hk i hg.2 e e' h]

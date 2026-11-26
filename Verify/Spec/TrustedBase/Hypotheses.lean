@@ -60,24 +60,11 @@ theorem KeccakSeparated.mono {S T : Preimages} (h : KeccakSeparated T) (hST : �
 theorem keccakSeparated_empty : KeccakSeparated (fun _ => False) :=
   ⟨fun _ _ h => h.elim, fun _ h => h.elim⟩
 
-/-- Injectivity on a list from distinct images. -/
-theorem inj_of_nodup_map {α β : Type} {f : α → β} :
-    ∀ {l : List α}, (l.map f).Nodup → ∀ x ∈ l, ∀ y ∈ l, f x = f y → x = y
-  | [], _, _, hx, _, _, _ => by simp at hx
-  | a :: l, h, x, hx, y, hy, he => by
-    simp only [List.map_cons, List.nodup_cons, List.mem_map] at h
-    simp only [List.mem_cons] at hx hy
-    rcases hx with rfl | hx <;> rcases hy with rfl | hy
-    · rfl
-    · exact absurd ⟨y, hy, he.symm⟩ h.1
-    · exact absurd ⟨x, hx, he⟩ h.1
-    · exact inj_of_nodup_map h.2 x hx y hy he
-
 /-- Separation on a list, from its images: distinct and each at least `2 ^ 128`. -/
 theorem keccakSeparated_of_images {L : List (List Nat)} {H : List Nat}
     (hH : L.map keccakWord = H) (hnd : H.Nodup) (hge : ∀ v ∈ H, 2 ^ 128 ≤ v) :
     KeccakSeparated (· ∈ L) :=
-  ⟨fun x y hx hy he => inj_of_nodup_map (hH ▸ hnd) x hx y hy he,
+  ⟨fun _ _ hx hy he => List.inj_on_of_nodup_map (hH ▸ hnd) hx hy he,
     fun _ hx => hge _ (hH ▸ List.mem_map_of_mem hx)⟩
 
 /-- The preimage of the slot of `m[k]` for a mapping `m` at slot `s`: `k` then `s`, as words. -/
@@ -194,10 +181,7 @@ theorem exec_dropAssumes {s : Ghost.Stmt} {σ : Store} {o : Out} (h : Exec s σ 
 theorem dropAssumes_of_noAssume : ∀ {s : Ghost.Stmt}, noAssume s = true → dropAssumes s = s
   | .skip, _ | .assign _ _, _ | .require _, _ | .ghost _ _, _ | .assert _, _ => rfl
   | .assume _, h => by simp [noAssume] at h
-  | .seq s t, h => by
-    simp only [noAssume, Bool.and_eq_true] at h
-    simp [dropAssumes, dropAssumes_of_noAssume h.1, dropAssumes_of_noAssume h.2]
-  | .ite c s t, h => by
+  | .seq s t, h | .ite _ s t, h => by
     simp only [noAssume, Bool.and_eq_true] at h
     simp [dropAssumes, dropAssumes_of_noAssume h.1, dropAssumes_of_noAssume h.2]
   | .loop c b, h => by
@@ -389,12 +373,8 @@ theorem defaultCalls_transcriptWith {ε α : Type} {ans : (q : Query) → Answer
   | .request q k => by
     have ih := defaultCalls_transcriptWith hans (k (ans q))
     match q with
-    | .external w (.call r) =>
-      exact defaultCalls_cons_call ((hans w r).trans rfl) ih
-    | .external w (.create r) =>
-      intro c hc
-      exact ih c (by simpa [transcriptWith, callsOf] using hc)
-    | .resource r =>
+    | .external w (.call r) => exact defaultCalls_cons_call ((hans w r).trans rfl) ih
+    | .external _ (.create _) | .resource _ =>
       intro c hc
       exact ih c (by simpa [transcriptWith, callsOf] using hc)
 

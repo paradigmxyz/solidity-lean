@@ -200,48 +200,64 @@ theorem Exp.eval_agree {σ τ : Store} (h : Agree isGhost σ τ) :
     simp only [Exp.real, Exp.vars, List.all_append, Bool.and_eq_true] at he
     simp only [Exp.eval, Exp.eval_agree h a he.1, Exp.eval_agree h b he.2]
 
+/-- A real assignment keeps two stores agreeing on the real variables. -/
+private theorem Agree.assign {σ τ : Store} (h : Agree isGhost σ τ) {x : String} {e : Exp}
+    (he : e.real isGhost = true) : Agree isGhost (σ.set x (e.eval σ)) (τ.set x (e.eval τ)) :=
+  Exp.eval_agree h e he ▸ h.set x _
+
+private theorem OutAgree.trans {o o' o'' : Out} (h : OutAgree isGhost o o')
+    (h' : OutAgree isGhost o' o'') : OutAgree isGhost o o'' := by
+  cases o <;> cases o' <;> cases o'' <;> simp_all [OutAgree] <;> exact h.trans h'
+
+/-- Of two agreeing outcomes, one stops (reverts or fails) when the other does. -/
+private theorem OutAgree.stop {o o' : Out} (h : OutAgree isGhost o o') :
+    (∀ σ, o ≠ .ok σ) ↔ ∀ σ, o' ≠ .ok σ := by
+  cases o <;> cases o' <;> simp_all [OutAgree]
+
+private theorem OutAgree.ok_left {σ : Store} {o : Out} (h : OutAgree isGhost (.ok σ) o) :
+    ∃ τ, o = .ok τ ∧ Agree isGhost σ τ := by
+  cases o <;> simp_all [OutAgree]
+
+private theorem OutAgree.ok_right {τ : Store} {o : Out} (h : OutAgree isGhost o (.ok τ)) :
+    ∃ σ, o = .ok σ ∧ Agree isGhost σ τ := by
+  cases o <;> simp_all [OutAgree]
+
+/-- A sequence whose first statement stops stops the same way. -/
+private theorem Exec.seq_stop {a b : Stmt} {σ : Store} {o : Out} (h : Exec a σ o)
+    (hs : ∀ σ', o ≠ .ok σ') : Exec (.seq a b) σ o := by
+  cases o with
+  | ok => exact absurd rfl (hs _)
+  | rev => exact .seqRev h
+  | fail => exact .seqFail h
+
+/-- A loop whose body stops stops the same way. -/
+private theorem Exec.loop_stop {c : Exp} {b : Stmt} {σ : Store} {o : Out} (hc : c.eval σ ≠ 0)
+    (h : Exec b σ o) (hs : ∀ σ', o ≠ .ok σ') : Exec (.loop c b) σ o := by
+  cases o with
+  | ok => exact absurd rfl (hs _)
+  | rev => exact .loopRev hc h
+  | fail => exact .loopFail hc h
+
 /-- Ghost code changes no real variable and never reverts. -/
 theorem ghostCode_exec {s : Stmt} {σ : Store} {o : Out} (hx : Exec s σ o)
-    (hg : s.ghostCode isGhost = true) :
-    o = .fail ∨ ∃ σ', o = .ok σ' ∧ Agree isGhost σ' σ := by
+    (hg : s.ghostCode isGhost = true) : o = .fail ∨ OutAgree isGhost o (.ok σ) := by
   induction hx with
-  | skip => exact .inr ⟨_, rfl, Agree.refl _⟩
-  | assign => simp [Stmt.ghostCode] at hg
-  | requireOk => simp [Stmt.ghostCode] at hg
-  | requireRev => simp [Stmt.ghostCode] at hg
+  | assign | requireOk | requireRev => simp [Stmt.ghostCode] at hg
+  | seqFail | loopFail | assertFail => exact .inl rfl
+  | skip | loopDone | assertOk | assume => exact .inr (Agree.refl _)
+  | ghost => exact .inr (Agree.set_ghost hg _)
   | seqOk _ _ ih1 ih2 =>
     simp only [Stmt.ghostCode, Bool.and_eq_true] at hg
-    rcases ih1 hg.1 with h | ⟨σ1, h1, a1⟩
-    · cases h
-    · cases h1
-      rcases ih2 hg.2 with h | ⟨σ2, h2, a2⟩
-      · exact .inl h
-      · exact .inr ⟨σ2, h2, a2.trans a1⟩
+    exact (ih2 hg.2).imp_right (OutAgree.trans · ((ih1 hg.1).resolve_left nofun))
+  | loopOk _ _ _ ih1 ih2 =>
+    exact (ih2 hg).imp_right (OutAgree.trans · ((ih1 hg).resolve_left nofun))
   | seqRev _ ih =>
     simp only [Stmt.ghostCode, Bool.and_eq_true] at hg
-    rcases ih hg.1 with h | ⟨_, h, _⟩ <;> cases h
-  | seqFail => exact .inl rfl
-  | iteT _ _ ih =>
+    simpa [OutAgree] using ih hg.1
+  | loopRev _ _ ih => simpa [OutAgree] using ih hg
+  | iteT _ _ ih | iteF _ _ ih =>
     simp only [Stmt.ghostCode, Bool.and_eq_true] at hg
-    exact ih hg.1
-  | iteF _ _ ih =>
-    simp only [Stmt.ghostCode, Bool.and_eq_true] at hg
-    exact ih hg.2
-  | loopDone => exact .inr ⟨_, rfl, Agree.refl _⟩
-  | loopOk _ _ _ ih1 ih2 =>
-    rcases ih1 hg with h | ⟨σ1, h1, a1⟩
-    · cases h
-    · cases h1
-      rcases ih2 hg with h | ⟨σ2, h2, a2⟩
-      · exact .inl h
-      · exact .inr ⟨σ2, h2, a2.trans a1⟩
-  | loopRev _ _ ih =>
-    rcases ih hg with h | ⟨_, h, _⟩ <;> cases h
-  | loopFail => exact .inl rfl
-  | ghost => exact .inr ⟨_, rfl, Agree.set_ghost (by simpa [Stmt.ghostCode] using hg) _⟩
-  | assertOk => exact .inr ⟨_, rfl, Agree.refl _⟩
-  | assertFail => exact .inl rfl
-  | assume => exact .inr ⟨_, rfl, Agree.refl _⟩
+    first | exact ih hg.1 | exact ih hg.2
 
 theorem erase_of_ghostCode {s : Stmt} (hg : s.ghostCode isGhost = true) :
     s.erase isGhost = .skip := by
@@ -257,6 +273,18 @@ theorem erase_of_not_ghostCode {s : Stmt} (hg : s.ghostCode isGhost = false) :
 
 /-! ## Soundness: instrumented executions are executions of the erased program -/
 
+/-- Soundness at a statement: ghost code erases to `skip` and keeps the real variables, so only
+the real case is left. -/
+private theorem sound_step {s : Stmt} {σ τ : Store} {o : Out} (hx : Exec s σ o) (hnf : o ≠ .fail)
+    (h : Agree isGhost σ τ)
+    (hreal : s.ghostCode isGhost = false →
+      ∃ o', Exec (s.erase isGhost) τ o' ∧ OutAgree isGhost o o') :
+    ∃ o', Exec (s.erase isGhost) τ o' ∧ OutAgree isGhost o o' := by
+  cases hg : s.ghostCode isGhost
+  · exact hreal hg
+  · rw [erase_of_ghostCode hg]
+    exact ⟨_, .skip, ((ghostCode_exec hx hg).resolve_left hnf).trans h⟩
+
 /-- **Soundness of erasure.** An instrumented execution of a well-formed program that does not
 fail an assertion is, from any store agreeing on the real variables, an execution of the erased
 program agreeing on the real variables. -/
@@ -264,136 +292,88 @@ theorem sound {s : Stmt} {σ : Store} {o : Out} (hx : Exec s σ o) (hwf : s.WF i
     (hnf : o ≠ .fail) : ∀ τ, Agree isGhost σ τ →
       ∃ o', Exec (s.erase isGhost) τ o' ∧ OutAgree isGhost o o' := by
   induction hx with
-  | skip => intro τ h; exact ⟨.ok τ, by simp [Stmt.erase, Stmt.ghostCode]; exact .skip, h⟩
+  | seqFail | loopFail | assertFail => exact absurd rfl hnf
+  | skip => exact fun τ h => sound_step .skip hnf h nofun
+  | assertOk hc => exact fun τ h => sound_step (.assertOk hc) hnf h nofun
+  | assume hc => exact fun τ h => sound_step (.assume hc) hnf h nofun
+  | ghost => exact fun τ h => sound_step .ghost hnf h fun hg => absurd hwf (by simp_all [Stmt.WF, Stmt.ghostCode])
   | @assign x e σ =>
-    intro τ h
-    simp only [Stmt.WF, Bool.and_eq_true, Bool.not_eq_true'] at hwf
-    have he : (Stmt.assign x e).erase isGhost = .assign x e := by simp [Stmt.erase, Stmt.ghostCode]
-    rw [he]
-    refine ⟨_, .assign, ?_⟩
-    show Agree isGhost _ _
-    rw [Exp.eval_agree h e hwf.2]
-    exact h.set x _
-  | @requireOk e σ hc =>
-    intro τ h
-    simp only [Stmt.WF] at hwf
-    have he : (Stmt.require e).erase isGhost = .require e := by simp [Stmt.erase, Stmt.ghostCode]
-    rw [he]
-    exact ⟨.ok τ, .requireOk (by rwa [← Exp.eval_agree h e hwf]), h⟩
-  | @requireRev e σ hc =>
-    intro τ h
-    simp only [Stmt.WF] at hwf
-    have he : (Stmt.require e).erase isGhost = .require e := by simp [Stmt.erase, Stmt.ghostCode]
-    rw [he]
-    exact ⟨_, .requireRev (by rwa [← Exp.eval_agree h e hwf]), trivial⟩
+    simp only [Stmt.WF, Bool.and_eq_true] at hwf
+    exact fun τ h => ⟨_, .assign, h.assign hwf.2⟩
+  | @requireOk e σ hc => exact fun τ h => ⟨_, .requireOk (Exp.eval_agree h e hwf ▸ hc), h⟩
+  | @requireRev e σ hc => exact fun τ h => ⟨_, .requireRev (Exp.eval_agree h e hwf ▸ hc), trivial⟩
   | @seqOk a σ σ1 b o h1 h2 ih1 ih2 =>
     intro τ h
+    refine sound_step (.seqOk h1 h2) hnf h fun hg => ?_
+    rw [erase_of_not_ghostCode hg]
     simp only [Stmt.WF, Bool.and_eq_true] at hwf
-    cases hg : (Stmt.seq a b).ghostCode isGhost
-    · rw [erase_of_not_ghostCode hg]
-      obtain ⟨o1, e1, a1⟩ := ih1 hwf.1 (by simp) τ h
-      cases o1 with
-      | ok τ1 =>
-        obtain ⟨o2, e2, a2⟩ := ih2 hwf.2 hnf τ1 a1
-        exact ⟨o2, .seqOk e1 e2, a2⟩
-      | rev => exact absurd a1 (by simp [OutAgree])
-      | fail => exact absurd a1 (by simp [OutAgree])
-    · rw [erase_of_ghostCode hg]
-      rcases ghostCode_exec (.seqOk h1 h2) hg with hf | ⟨σ', ho, ha⟩
-      · exact absurd hf hnf
-      · subst ho; exact ⟨.ok τ, .skip, ha.trans h⟩
+    obtain ⟨o1, e1, a1⟩ := ih1 hwf.1 nofun τ h
+    obtain ⟨τ1, rfl, a1⟩ := a1.ok_left
+    exact (ih2 hwf.2 hnf τ1 a1).imp fun _ => And.imp_left (Exec.seqOk e1)
   | @seqRev a σ b h1 ih =>
     intro τ h
+    refine sound_step (.seqRev h1) hnf h fun hg => ?_
+    rw [erase_of_not_ghostCode hg]
     simp only [Stmt.WF, Bool.and_eq_true] at hwf
-    cases hg : (Stmt.seq a b).ghostCode isGhost
-    · rw [erase_of_not_ghostCode hg]
-      obtain ⟨o1, e1, a1⟩ := ih hwf.1 (by simp) τ h
-      cases o1 with
-      | rev => exact ⟨_, .seqRev e1, trivial⟩
-      | ok _ => exact absurd a1 (by simp [OutAgree])
-      | fail => exact absurd a1 (by simp [OutAgree])
-    · rcases ghostCode_exec (.seqRev (t := b) h1) hg with hf | ⟨σ', ho, _⟩
-      · cases hf
-      · cases ho
-  | seqFail => exact absurd rfl hnf
+    exact (ih hwf.1 hnf τ h).imp fun _ ⟨e1, a1⟩ => ⟨e1.seq_stop (a1.stop.1 nofun), a1⟩
   | @iteT a σ o c b hc h1 ih =>
     intro τ h
-    cases hg : (Stmt.ite c a b).ghostCode isGhost
-    · rw [erase_of_not_ghostCode hg]
-      simp only [Stmt.WF, hg, Bool.false_or, Bool.and_eq_true] at hwf
-      obtain ⟨o1, e1, a1⟩ := ih hwf.1.2 hnf τ h
-      exact ⟨o1, .iteT (by rwa [← Exp.eval_agree h c hwf.1.1]) e1, a1⟩
-    · rw [erase_of_ghostCode hg]
-      rcases ghostCode_exec (.iteT (t := b) hc h1) hg with hf | ⟨σ', ho, ha⟩
-      · exact absurd hf hnf
-      · subst ho; exact ⟨.ok τ, .skip, ha.trans h⟩
+    refine sound_step (.iteT hc h1) hnf h fun hg => ?_
+    rw [erase_of_not_ghostCode hg]
+    simp only [Stmt.WF, hg, Bool.false_or, Bool.and_eq_true] at hwf
+    exact (ih hwf.1.2 hnf τ h).imp fun _ =>
+      And.imp_left (Exec.iteT (Exp.eval_agree h c hwf.1.1 ▸ hc))
   | @iteF b σ o c a hc h1 ih =>
     intro τ h
-    cases hg : (Stmt.ite c a b).ghostCode isGhost
-    · rw [erase_of_not_ghostCode hg]
-      simp only [Stmt.WF, hg, Bool.false_or, Bool.and_eq_true] at hwf
-      obtain ⟨o1, e1, a1⟩ := ih hwf.2 hnf τ h
-      exact ⟨o1, .iteF (by rwa [← Exp.eval_agree h c hwf.1.1]) e1, a1⟩
-    · rw [erase_of_ghostCode hg]
-      rcases ghostCode_exec (.iteF (s := a) hc h1) hg with hf | ⟨σ', ho, ha⟩
-      · exact absurd hf hnf
-      · subst ho; exact ⟨.ok τ, .skip, ha.trans h⟩
+    refine sound_step (.iteF hc h1) hnf h fun hg => ?_
+    rw [erase_of_not_ghostCode hg]
+    simp only [Stmt.WF, hg, Bool.false_or, Bool.and_eq_true] at hwf
+    exact (ih hwf.2 hnf τ h).imp fun _ =>
+      And.imp_left (Exec.iteF (Exp.eval_agree h c hwf.1.1 ▸ hc))
   | @loopDone c b σ hc =>
     intro τ h
-    cases hg : (Stmt.loop c b).ghostCode isGhost
-    · rw [erase_of_not_ghostCode hg]
-      simp only [Stmt.WF, hg, Bool.false_or, Bool.and_eq_true] at hwf
-      exact ⟨.ok τ, .loopDone (by rwa [← Exp.eval_agree h c hwf.1]), h⟩
-    · rw [erase_of_ghostCode hg]; exact ⟨.ok τ, .skip, h⟩
+    refine sound_step (.loopDone hc) hnf h fun hg => ?_
+    rw [erase_of_not_ghostCode hg]
+    simp only [Stmt.WF, hg, Bool.false_or, Bool.and_eq_true] at hwf
+    exact ⟨_, .loopDone (Exp.eval_agree h c hwf.1 ▸ hc), h⟩
   | @loopOk b σ σ1 c o hc h1 h2 ih1 ih2 =>
     intro τ h
-    cases hg : (Stmt.loop c b).ghostCode isGhost
-    · have hwf' := hwf
-      rw [erase_of_not_ghostCode hg] at ih2 ⊢
-      simp only [Stmt.WF, hg, Bool.false_or, Bool.and_eq_true] at hwf
-      obtain ⟨o1, e1, a1⟩ := ih1 hwf.2 (by simp) τ h
-      cases o1 with
-      | ok τ1 =>
-        obtain ⟨o2, e2, a2⟩ := ih2 hwf' hnf τ1 a1
-        exact ⟨o2, .loopOk (by rwa [← Exp.eval_agree h c hwf.1]) e1 e2, a2⟩
-      | rev => exact absurd a1 (by simp [OutAgree])
-      | fail => exact absurd a1 (by simp [OutAgree])
-    · rw [erase_of_ghostCode hg]
-      rcases ghostCode_exec (.loopOk hc h1 h2) hg with hf | ⟨σ', ho, ha⟩
-      · exact absurd hf hnf
-      · subst ho; exact ⟨.ok τ, .skip, ha.trans h⟩
+    refine sound_step (.loopOk hc h1 h2) hnf h fun hg => ?_
+    have hwf' := hwf
+    rw [erase_of_not_ghostCode hg] at ih2 ⊢
+    simp only [Stmt.WF, hg, Bool.false_or, Bool.and_eq_true] at hwf
+    obtain ⟨o1, e1, a1⟩ := ih1 hwf.2 nofun τ h
+    obtain ⟨τ1, rfl, a1⟩ := a1.ok_left
+    exact (ih2 hwf' hnf τ1 a1).imp fun _ =>
+      And.imp_left (Exec.loopOk (Exp.eval_agree h c hwf.1 ▸ hc) e1)
   | @loopRev b σ c hc h1 ih =>
     intro τ h
-    cases hg : (Stmt.loop c b).ghostCode isGhost
-    · rw [erase_of_not_ghostCode hg]
-      simp only [Stmt.WF, hg, Bool.false_or, Bool.and_eq_true] at hwf
-      obtain ⟨o1, e1, a1⟩ := ih hwf.2 (by simp) τ h
-      cases o1 with
-      | rev => exact ⟨_, .loopRev (by rwa [← Exp.eval_agree h c hwf.1]) e1, trivial⟩
-      | ok _ => exact absurd a1 (by simp [OutAgree])
-      | fail => exact absurd a1 (by simp [OutAgree])
-    · rcases ghostCode_exec (.loopRev hc h1) hg with hf | ⟨σ', ho, _⟩
-      · cases hf
-      · cases ho
-  | loopFail => exact absurd rfl hnf
-  | @ghost x e σ =>
-    intro τ h
-    simp only [Stmt.WF] at hwf
-    have hg : (Stmt.ghost x e).ghostCode isGhost = true := by simpa [Stmt.ghostCode] using hwf
-    rw [erase_of_ghostCode hg]
-    exact ⟨.ok τ, .skip, (Agree.set_ghost hwf _).trans h⟩
-  | assertOk =>
-    intro τ h; exact ⟨.ok τ, by simp [Stmt.erase, Stmt.ghostCode]; exact .skip, h⟩
-  | assertFail => exact absurd rfl hnf
-  | assume =>
-    intro τ h; exact ⟨.ok τ, by simp [Stmt.erase, Stmt.ghostCode]; exact .skip, h⟩
+    refine sound_step (.loopRev hc h1) hnf h fun hg => ?_
+    rw [erase_of_not_ghostCode hg]
+    simp only [Stmt.WF, hg, Bool.false_or, Bool.and_eq_true] at hwf
+    exact (ih hwf.2 hnf τ h).imp fun _ ⟨e1, a1⟩ =>
+      ⟨.loop_stop (Exp.eval_agree h c hwf.1 ▸ hc) e1 (a1.stop.1 nofun), a1⟩
 
 /-! ## Completeness: every execution of the erased program is matched -/
 
-theorem ghostTotal_here {s : Stmt} (ht : GhostTotal isGhost s) (hg : s.ghostCode isGhost = true) :
-    ∀ σ, ∃ o, Exec s σ o := by
-  cases s <;> simp only [GhostTotal] at ht
-  all_goals first | exact ht hg | exact ht.1 hg
+/-- Completeness for ghost code: it erases to `skip`, and it terminates without changing a real
+variable. -/
+private theorem complete_ghost {s : Stmt} (ht : GhostTotal isGhost s)
+    (hg : s.ghostCode isGhost = true) {τ : Store} {o : Out} (hx : Exec (s.erase isGhost) τ o)
+    (σ : Store) (h : Agree isGhost σ τ) :
+    ∃ o', Exec s σ o' ∧ (o' = .fail ∨ OutAgree isGhost o' o) := by
+  rw [erase_of_ghostCode hg] at hx
+  cases hx
+  obtain ⟨o', e'⟩ : ∃ o', Exec s σ o' := by
+    cases s <;> simp only [GhostTotal] at ht <;> first | exact ht hg σ | exact ht.1 hg σ
+  exact ⟨o', e', (ghostCode_exec e' hg).imp_right (OutAgree.trans · (o' := .ok σ) h)⟩
+
+/-- An instrumented outcome that matches one that stops stops. -/
+private theorem stop_of_match {o' o : Out} (h : o' = .fail ∨ OutAgree isGhost o' o)
+    (hs : ∀ σ, o ≠ .ok σ) : ∀ σ, o' ≠ .ok σ := by
+  rcases h with rfl | h
+  · exact nofun
+  · exact h.stop.2 hs
 
 /-- **Completeness of erasure.** Every execution of the erased program of a well-formed program
 whose ghost code terminates is matched, from any store agreeing on the real variables (any ghost
@@ -404,148 +384,75 @@ theorem complete : ∀ {s : Stmt}, s.WF isGhost = true → GhostTotal isGhost s 
       ∃ o', Exec s σ o' ∧ (o' = .fail ∨ OutAgree isGhost o' o) := by
   intro s
   induction s with
-  | skip =>
-    intro _ _ τ o hx σ h
-    simp only [Stmt.erase, Stmt.ghostCode, ite_true] at hx
-    cases hx
-    exact ⟨_, .skip, .inr h⟩
+  | skip | assert _ | assume _ => exact fun _ ht _ _ hx σ h => complete_ghost ht rfl hx σ h
+  | ghost x e => exact fun hwf ht _ _ hx σ h => complete_ghost ht hwf hx σ h
   | assign x e =>
     intro hwf _ τ o hx σ h
-    simp only [Stmt.WF, Bool.and_eq_true, Bool.not_eq_true'] at hwf
+    simp only [Stmt.WF, Bool.and_eq_true] at hwf
     simp only [Stmt.erase, Stmt.ghostCode] at hx
     cases hx
-    refine ⟨_, .assign, .inr ?_⟩
-    show Agree isGhost _ _
-    rw [Exp.eval_agree h e hwf.2]
-    exact h.set x _
+    exact ⟨_, .assign, .inr (h.assign hwf.2)⟩
   | require e =>
     intro hwf _ τ o hx σ h
-    simp only [Stmt.WF] at hwf
     simp only [Stmt.erase, Stmt.ghostCode] at hx
     cases hx with
-    | requireOk hc => exact ⟨_, .requireOk (by rwa [Exp.eval_agree h e hwf]), .inr h⟩
-    | requireRev hc => exact ⟨_, .requireRev (by rwa [Exp.eval_agree h e hwf]), .inr trivial⟩
+    | requireOk hc => exact ⟨_, .requireOk (Exp.eval_agree h e hwf ▸ hc), .inr h⟩
+    | requireRev hc => exact ⟨_, .requireRev (Exp.eval_agree h e hwf ▸ hc), .inr trivial⟩
   | seq a b iha ihb =>
     intro hwf ht τ o hx σ h
     cases hg : (Stmt.seq a b).ghostCode isGhost
-    · rw [erase_of_not_ghostCode hg] at hx
-      simp only [Stmt.WF, Bool.and_eq_true] at hwf
-      simp only [GhostTotal] at ht
-      cases hx with
-      | seqOk h1 h2 =>
-        obtain ⟨o1, e1, a1⟩ := iha hwf.1 ht.2.1 h1 σ h
-        rcases a1 with rfl | a1
-        · exact ⟨_, .seqFail e1, .inl rfl⟩
-        · cases o1 with
-          | ok σ1 =>
-            obtain ⟨o2, e2, a2⟩ := ihb hwf.2 ht.2.2 h2 σ1 a1
-            exact ⟨o2, .seqOk e1 e2, a2⟩
-          | _ => simp [OutAgree] at a1
-      | seqRev h1 =>
-        obtain ⟨o1, e1, a1⟩ := iha hwf.1 ht.2.1 h1 σ h
-        rcases a1 with rfl | a1
-        · exact ⟨_, .seqFail e1, .inl rfl⟩
-        · cases o1 with
-          | rev => exact ⟨_, .seqRev e1, .inr trivial⟩
-          | _ => simp [OutAgree] at a1
-      | seqFail h1 =>
-        obtain ⟨o1, e1, a1⟩ := iha hwf.1 ht.2.1 h1 σ h
-        rcases a1 with rfl | a1
-        · exact ⟨_, .seqFail e1, .inl rfl⟩
-        · cases o1 with
-          | fail => exact ⟨_, .seqFail e1, .inl rfl⟩
-          | _ => simp [OutAgree] at a1
-    · rw [erase_of_ghostCode hg] at hx
-      cases hx
-      obtain ⟨o', e'⟩ := ghostTotal_here ht hg σ
-      rcases ghostCode_exec e' hg with rfl | ⟨σ', rfl, a'⟩
-      · exact ⟨_, e', .inl rfl⟩
-      · exact ⟨_, e', .inr (a'.trans h)⟩
+    case true => exact complete_ghost ht hg hx σ h
+    rw [erase_of_not_ghostCode hg] at hx
+    simp only [Stmt.WF, Bool.and_eq_true] at hwf
+    simp only [GhostTotal] at ht
+    cases hx with
+    | seqOk h1 h2 =>
+      obtain ⟨o1, e1, rfl | a1⟩ := iha hwf.1 ht.2.1 h1 σ h
+      · exact ⟨_, .seqFail e1, .inl rfl⟩
+      obtain ⟨σ1, rfl, a1⟩ := a1.ok_right
+      exact (ihb hwf.2 ht.2.2 h2 σ1 a1).imp fun _ => And.imp_left (Exec.seqOk e1)
+    | seqRev h1 | seqFail h1 =>
+      obtain ⟨o1, e1, a1⟩ := iha hwf.1 ht.2.1 h1 σ h
+      exact ⟨o1, e1.seq_stop (stop_of_match a1 nofun), a1⟩
   | ite c a b iha ihb =>
     intro hwf ht τ o hx σ h
     cases hg : (Stmt.ite c a b).ghostCode isGhost
-    · rw [erase_of_not_ghostCode hg] at hx
-      simp only [Stmt.WF, hg, Bool.false_or, Bool.and_eq_true] at hwf
-      simp only [GhostTotal] at ht
-      cases hx with
-      | iteT hc h1 =>
-        obtain ⟨o1, e1, a1⟩ := iha hwf.1.2 ht.2.1 h1 σ h
-        exact ⟨o1, .iteT (by rwa [Exp.eval_agree h c hwf.1.1]) e1, a1⟩
-      | iteF hc h1 =>
-        obtain ⟨o1, e1, a1⟩ := ihb hwf.2 ht.2.2 h1 σ h
-        exact ⟨o1, .iteF (by rwa [Exp.eval_agree h c hwf.1.1]) e1, a1⟩
-    · rw [erase_of_ghostCode hg] at hx
-      cases hx
-      obtain ⟨o', e'⟩ := ghostTotal_here ht hg σ
-      rcases ghostCode_exec e' hg with rfl | ⟨σ', rfl, a'⟩
-      · exact ⟨_, e', .inl rfl⟩
-      · exact ⟨_, e', .inr (a'.trans h)⟩
+    case true => exact complete_ghost ht hg hx σ h
+    rw [erase_of_not_ghostCode hg] at hx
+    simp only [Stmt.WF, hg, Bool.false_or, Bool.and_eq_true] at hwf
+    simp only [GhostTotal] at ht
+    cases hx with
+    | iteT hc h1 =>
+      exact (iha hwf.1.2 ht.2.1 h1 σ h).imp fun _ =>
+        And.imp_left (Exec.iteT (Exp.eval_agree h c hwf.1.1 ▸ hc))
+    | iteF hc h1 =>
+      exact (ihb hwf.2 ht.2.2 h1 σ h).imp fun _ =>
+        And.imp_left (Exec.iteF (Exp.eval_agree h c hwf.1.1 ▸ hc))
   | loop c b ihb =>
     intro hwf ht τ o hx σ h
     cases hg : (Stmt.loop c b).ghostCode isGhost
-    · have he : (Stmt.loop c b).erase isGhost = .loop c (b.erase isGhost) := by
-        simp [Stmt.erase, hg]
-      rw [he] at hx
-      simp only [Stmt.WF, hg, Bool.false_or, Bool.and_eq_true] at hwf
-      simp only [GhostTotal] at ht
-      generalize hl : Stmt.loop c (b.erase isGhost) = l at hx
-      induction hx generalizing σ with
-      | loopDone hc =>
-        cases hl
-        exact ⟨_, .loopDone (by rwa [Exp.eval_agree h c hwf.1]), .inr h⟩
-      | loopOk hc h1 _ _ ih2 =>
-        cases hl
-        obtain ⟨o1, e1, a1⟩ := ihb hwf.2 ht.2 h1 σ h
-        rcases a1 with rfl | a1
-        · exact ⟨_, .loopFail (by rwa [Exp.eval_agree h c hwf.1]) e1, .inl rfl⟩
-        · cases o1 with
-          | ok σ1 =>
-            obtain ⟨o2, e2, a2⟩ := ih2 σ1 a1 rfl
-            exact ⟨o2, .loopOk (by rwa [Exp.eval_agree h c hwf.1]) e1 e2, a2⟩
-          | _ => simp [OutAgree] at a1
-      | loopRev hc h1 =>
-        cases hl
-        obtain ⟨o1, e1, a1⟩ := ihb hwf.2 ht.2 h1 σ h
-        rcases a1 with rfl | a1
-        · exact ⟨_, .loopFail (by rwa [Exp.eval_agree h c hwf.1]) e1, .inl rfl⟩
-        · cases o1 with
-          | rev => exact ⟨_, .loopRev (by rwa [Exp.eval_agree h c hwf.1]) e1, .inr trivial⟩
-          | _ => simp [OutAgree] at a1
-      | loopFail hc h1 =>
-        cases hl
-        obtain ⟨o1, e1, a1⟩ := ihb hwf.2 ht.2 h1 σ h
-        rcases a1 with rfl | a1
-        · exact ⟨_, .loopFail (by rwa [Exp.eval_agree h c hwf.1]) e1, .inl rfl⟩
-        · cases o1 with
-          | fail => exact ⟨_, .loopFail (by rwa [Exp.eval_agree h c hwf.1]) e1, .inl rfl⟩
-          | _ => simp [OutAgree] at a1
-      | _ => cases hl
-    · rw [erase_of_ghostCode hg] at hx
-      cases hx
-      obtain ⟨o', e'⟩ := ghostTotal_here ht hg σ
-      rcases ghostCode_exec e' hg with rfl | ⟨σ', rfl, a'⟩
-      · exact ⟨_, e', .inl rfl⟩
-      · exact ⟨_, e', .inr (a'.trans h)⟩
-  | ghost x e =>
-    intro hwf ht τ o hx σ h
-    have hg : (Stmt.ghost x e).ghostCode isGhost = true := by simpa [Stmt.WF, Stmt.ghostCode] using hwf
-    rw [erase_of_ghostCode hg] at hx
-    cases hx
-    exact ⟨_, .ghost, .inr ((Agree.set_ghost (by simpa [Stmt.WF] using hwf) _).trans h)⟩
-  | assert e =>
-    intro _ _ τ o hx σ h
-    simp only [Stmt.erase, Stmt.ghostCode, ite_true] at hx
-    cases hx
-    by_cases hc : e.eval σ = 0
-    · exact ⟨_, .assertFail hc, .inl rfl⟩
-    · exact ⟨_, .assertOk hc, .inr h⟩
-  | assume e =>
-    intro _ ht τ o hx σ h
-    simp only [Stmt.erase, Stmt.ghostCode, ite_true] at hx
-    cases hx
-    obtain ⟨o', e'⟩ := ht (by simp [Stmt.ghostCode]) σ
-    cases e'
-    exact ⟨_, .assume ‹_›, .inr h⟩
+    case true => exact complete_ghost ht hg hx σ h
+    rw [erase_of_not_ghostCode hg] at hx
+    dsimp only at hx
+    simp only [Stmt.WF, hg, Bool.false_or, Bool.and_eq_true] at hwf
+    simp only [GhostTotal] at ht
+    generalize hl : Stmt.loop c (b.erase isGhost) = l at hx
+    induction hx generalizing σ with
+    | loopDone hc =>
+      cases hl
+      exact ⟨_, .loopDone (Exp.eval_agree h c hwf.1 ▸ hc), .inr h⟩
+    | loopOk hc h1 _ _ ih2 =>
+      cases hl
+      have hc' : c.eval σ ≠ 0 := Exp.eval_agree h c hwf.1 ▸ hc
+      obtain ⟨o1, e1, rfl | a1⟩ := ihb hwf.2 ht.2 h1 σ h
+      · exact ⟨_, .loopFail hc' e1, .inl rfl⟩
+      obtain ⟨σ1, rfl, a1⟩ := a1.ok_right
+      exact (ih2 σ1 a1 rfl).imp fun _ => And.imp_left (Exec.loopOk hc' e1)
+    | loopRev hc h1 | loopFail hc h1 =>
+      cases hl
+      obtain ⟨o1, e1, a1⟩ := ihb hwf.2 ht.2 h1 σ h
+      exact ⟨o1, .loop_stop (Exp.eval_agree h c hwf.1 ▸ hc) e1 (stop_of_match a1 nofun), a1⟩
+    | _ => cases hl
 
 /-! ## A spec proved with ghost code holds of the erased program -/
 
@@ -563,9 +470,7 @@ theorem spec_of_erased {s : Stmt} {Q : Store → Out → Prop} (hwf : s.WF isGho
   intro τ o hx σ h
   obtain ⟨o', e', a'⟩ := complete hwf ht hx σ h
   obtain ⟨hnf, hq⟩ := hproof σ o' e'
-  rcases a' with rfl | a'
-  · exact absurd rfl hnf
-  · exact ⟨o', e', hq, a'⟩
+  exact ⟨o', e', hq, a'.resolve_left hnf⟩
 
 /-- `Q` reads only the real variables of the outcome. -/
 def RealOnly (isGhost : String → Bool) (Q : Out → Prop) : Prop :=
@@ -605,29 +510,21 @@ theorem total_of_straight : ∀ {s : Stmt}, s.straight = true → ∀ σ, ∃ o,
     simp only [Stmt.straight, Bool.and_eq_true] at hs
     obtain ⟨o1, e1⟩ := total_of_straight hs.1 σ
     cases o1 with
-    | ok σ1 =>
-      obtain ⟨o2, e2⟩ := total_of_straight hs.2 σ1
-      exact ⟨_, .seqOk e1 e2⟩
+    | ok σ1 => exact (total_of_straight hs.2 σ1).imp fun _ => .seqOk e1
     | rev => exact ⟨_, .seqRev e1⟩
     | fail => exact ⟨_, .seqFail e1⟩
   | .ite c a b, hs, σ => by
     simp only [Stmt.straight, Bool.and_eq_true] at hs
     by_cases hc : c.eval σ = 0
-    · obtain ⟨o, e⟩ := total_of_straight hs.2 σ
-      exact ⟨_, .iteF hc e⟩
-    · obtain ⟨o, e⟩ := total_of_straight hs.1 σ
-      exact ⟨_, .iteT hc e⟩
+    · exact (total_of_straight hs.2 σ).imp fun _ => .iteF hc
+    · exact (total_of_straight hs.1 σ).imp fun _ => .iteT hc
 
 /-- **Rule 3 for straight-line ghost code**: a program whose statements have no loop and no
 assumption meets `GhostTotal`. -/
 theorem ghostTotal_of_straight : ∀ {s : Stmt}, s.straight = true → GhostTotal isGhost s
   | .skip, _ | .assert _, _ | .ghost _ _, _ | .assign _ _, _ | .require _, _ =>
     fun _ => total_of_straight (by simp [Stmt.straight])
-  | .seq a b, hs => by
-    simp only [Stmt.straight, Bool.and_eq_true] at hs
-    exact ⟨fun _ => total_of_straight (by simp [Stmt.straight, hs]),
-      ghostTotal_of_straight hs.1, ghostTotal_of_straight hs.2⟩
-  | .ite c a b, hs => by
+  | .seq a b, hs | .ite _ a b, hs => by
     simp only [Stmt.straight, Bool.and_eq_true] at hs
     exact ⟨fun _ => total_of_straight (by simp [Stmt.straight, hs]),
       ghostTotal_of_straight hs.1, ghostTotal_of_straight hs.2⟩

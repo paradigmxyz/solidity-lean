@@ -162,48 +162,119 @@ def model (ws : List Nat) : SolM (List Nat) :=
     else revert (panic 0x11)
   else revert []
 
+/-! ## SolidCore's run of `add`, from any storage that writes slot 0 -/
+
+/-- The last write of a slot among σ, over any earlier word, is slotValue's when σ writes the
+slot. -/
+theorem foldl_some_of_mem (σ : List (Nat × Nat)) (q : Nat) (hq : q < 2 ^ 256) (a : Option Nat)
+    (b : Nat) (h : a = some b ∨ ∃ kv ∈ σ, kv.1 % 2 ^ 256 = q) :
+    σ.foldl (fun acc kv => if Shared.norm kv.1 = q then some (Shared.norm kv.2) else acc) a =
+      some (σ.foldl (fun acc kv => if kv.1 % 2 ^ 256 = q % 2 ^ 256 then kv.2 % 2 ^ 256 else acc) b) := by
+  induction σ generalizing a b with
+  | nil =>
+    rcases h with h | ⟨_, h, _⟩
+    · simpa using h
+    · simp at h
+  | cons kv σ ih =>
+    simp only [List.foldl_cons]
+    apply ih
+    by_cases hk : kv.1 % 2 ^ 256 = q
+    · left
+      rw [ite_eq_left_of_eq_true _ _ (eq_true (show Shared.norm kv.1 = q from hk)),
+        ite_eq_left_of_eq_true _ _ (eq_true (show kv.1 % 2 ^ 256 = q % 2 ^ 256 by
+          rw [Nat.mod_eq_of_lt hq]; exact hk))]
+      rfl
+    · rw [ite_eq_right_of_eq_false _ _ (eq_false (show ¬ Shared.norm kv.1 = q from hk)),
+        ite_eq_right_of_eq_false _ _ (eq_false (show ¬ kv.1 % 2 ^ 256 = q % 2 ^ 256 by
+          rw [Nat.mod_eq_of_lt hq]; exact hk))]
+      rcases h with h | ⟨kv', h', hq'⟩
+      · exact Or.inl h
+      · rcases List.mem_cons.1 h' with rfl | h'
+        · exact absurd hq' hk
+        · exact Or.inr ⟨kv', h', hq'⟩
+
+theorem model_dirty (x : Nat) (s : Storage) (hx : ¬ x < 256) : model [x] s = .error [] := by
+  simp [model, hx, revert]
+
+theorem model_panic (x : Nat) (s : Storage) (hx : x < 256) (h : ¬ s 0 % 256 + x < 256) :
+    model [x] s = .error (panic 0x11) := by
+  simp [model, hx, h, revert, sload, bind, StateT.bind, Except.bind]
+
+theorem model_ok (x : Nat) (s : Storage) (hx : x < 256) (h : s 0 % 256 + x < 256) :
+    model [x] s = .ok (word (s 0 % 256 + x), fun k => if k % 2 ^ 256 = 0 then
+      (s 0 / 65536 * 65536 + (s 0 / 256 % 256 ^^^ x) * 256 + (s 0 % 256 + x)) % 2 ^ 256
+      else s k) := by
+  simp [model, hx, h, sload, sstore, bind, StateT.bind, Except.bind, pure, StateT.pure, Except.pure]
+
 set_option maxHeartbeats 0 in
 set_option maxRecDepth 100000 in
-/-- SolidCore runs `add` on any argument word, from the deployed storage, as `model` does. -/
+/-- SolidCore runs add on any argument word, from any storage σ that writes slot 0, as model
+does. -/
+theorem run_add_at {c : TypeCheck.CheckedContract} (hcore : c.core = coreLit) {d : Source.State}
+    (hd : DeployedAt fuel c d deployed) (w : U256) (σ : List (Nat × Nat))
+    (hσ : ∃ kv ∈ σ, kv.1 % 2 ^ 256 = 0) :
+    Source.run fuel c (callAt Bytecode.C4.Main.addSelector [w] σ) =
+      some (observe (slotValue σ) (model [w.toNat] (slotValue σ))) := by
+  rw [run_eq_at hd]
+  have hev := hd.events
+  have hm0 : (σ.foldl (fun acc kv => StorageMap.insertLoop acc kv.1 kv.2) d.storage)[0]? =
+      some (slotValue σ 0) := by
+    rw [getElem?_foldl_insertLoop]
+    exact foldl_some_of_mem σ 0 (by decide) _ 0 (Or.inr hσ)
+  have hmk : ∀ k, k % 2 ^ 256 ≠ 0 →
+      ((σ.foldl (fun acc kv => StorageMap.insertLoop acc kv.1 kv.2) d.storage)[k % 2 ^ 256]?).getD 0 =
+        slotValue σ k := by
+    intro k hk
+    rw [getElem?_foldl_insertLoop, hd.getElem?_eq_none (by simp [deployed]; omega)]
+    exact getD_foldl σ k none 0 rfl
+  generalize σ.foldl (fun acc kv => StorageMap.insertLoop acc kv.1 kv.2) d.storage = m at hm0 hmk
+  simp only [hcore, List.map_cons, List.map_nil]
+  wide_symex [coreLit, fuel, ctxOf, hcore, Bytecode.C4.Main.addSelector, hm0]
+  all_goals
+    have hw := w.isLt
+    have hs := slotValue_lt σ 0
+    generalize BitVec.toNat w = x at *
+    simp only [Nat.reducePow] at hw hs
+  · -- Panic(0x11): v + x overflows uint8.
+    rw [model_panic x _ (by omega) (by omega)]
+    simp [Source.observe, observe, callAt, panic, word]
+  · -- v + x fits.
+    rw [model_ok x _ (by omega) (by omega)]
+    generalize slotValue σ 0 = s0 at *
+    have hA : (s0 % 2 ^ 256 - s0 % 256 + (s0 + x) % 256) % 2 ^ 256 = s0 + x := by omega
+    have hW : (s0 + x) / 256 % 256 = s0 / 256 % 256 := by omega
+    have hO : (s0 + x - s0 / 256 % 256 * 256) % 256 = s0 % 256 + x := by omega
+    simp only [Nat.reducePow] at hA
+    simp only [hA, hW, hO]
+    have hy : (s0 / 256 % 256 ^^^ x) < 256 := Nat.xor_lt_two_pow (n := 8) (by omega) (by omega)
+    generalize (s0 / 256 % 256 ^^^ x) = y at *
+    have hB : s0 + x - s0 / 256 % 256 * 256 + y * 256 =
+        s0 / 65536 * 65536 + y * 256 + (s0 % 256 + x) := by omega
+    simp only [hB]
+    simp [Source.observe, observe, State.loadSlot, StorageMap.lookup?, State.logEntries, word]
+    funext slot
+    have hk := hmk slot
+    simp only [Std.HashMap.getElem?_insert, Shared.norm, Shared.wordModulus, beq_iff_eq,
+      EvmYul.UInt256.size, Nat.reducePow] at hk ⊢
+    generalize slot % 115792089237316195423570985008687907853269984665640564039457584007913129639936 = k at hk ⊢
+    by_cases h : k = 0
+    · subst h
+      simp
+    · have h' : ¬0 = k := fun e => h e.symm
+      rw [← hk h]
+      simp only [h, h', ↓reduceIte]
+      cases m[k]? <;> rfl
+  · -- A dirty word reverts with no data.
+    rw [model_dirty x _ (by omega)]
+    simp [Source.observe, observe, callAt]
+
+/-- SolidCore runs `add` on any argument word, from the deployed storage, as `model` does: the
+storage `deployed` writes slot 0. -/
 theorem run_add {c : TypeCheck.CheckedContract} (hcore : c.core = coreLit) {d : Source.State}
     (hd : DeployedAt fuel c d deployed) (w : U256) :
     Source.run fuel c (callAt Bytecode.C4.Main.addSelector [w] deployed) =
-      some (observe (slotValue deployed) (model [w.toNat] (slotValue deployed))) := by
-  rw [run_eq_at hd]
-  have hev := hd.events
-  have hnone : ∀ k, k ≠ 0 → d.storage.get? k = none := fun k hk => by
-    rw [Std.HashMap.get?_eq_getElem?]
-    exact hd.getElem?_eq_none (by simp [deployed]; omega)
-  simp only [hcore, List.map_cons, List.map_nil, deployed, List.foldl_cons, List.foldl_nil]
-  wide_symex [coreLit, fuel, ctxOf, hcore, Bytecode.C4.Main.addSelector,
-    get?_insert]
-  all_goals
-    have hw := w.isLt
-    generalize BitVec.toNat w = x at *
-    simp only [Nat.reducePow] at hw
-  · have h1 : (1792 + x) % 2 ^ 256 = 1792 + x := Nat.mod_eq_of_lt (by omega)
-    simp only [Nat.reducePow] at h1
-    have h2 : (1792 + x) / 256 % 256 = 7 := by omega
-    have h3 : 1792 + x - 7 * 256 = x := by omega
-    have h4 : (7 ^^^ x) < 256 := Nat.xor_lt_two_pow (n := 8) (by omega) (by omega)
-    simp only [h1, h2, h3]
-    simp [Source.observe, observe, model, sload, sstore, bind, StateT.bind, pure, StateT.pure,
-      Except.bind, Except.pure, slotValue, callAt, State.loadSlot, StorageMap.lookup?, get?_insert,
-      hev, State.logEntries, *, Nat.mod_eq_of_lt, word]
-    funext slot
-    simp only [Std.HashMap.getElem?_insert, Shared.norm, Shared.wordModulus, beq_iff_eq]
-    try rw [show EvmYul.UInt256.size = 2 ^ 256 from rfl]
-    generalize slot % 115792089237316195423570985008687907853269984665640564039457584007913129639936 = k
-    by_cases h : k = 0
-    · subst h; simp; rw [Nat.add_comm]
-    · have h' : ¬0 = k := fun e => h e.symm
-      have := hnone k h
-      rw [Std.HashMap.get?_eq_getElem?] at this
-      simp [h, h', this]
-  · simp [Source.observe, observe, model, revert, slotValue, callAt, State.loadSlot,
-      StorageMap.lookup?, get?_insert, hev, State.logEntries, *]
-    funext k
-    simp only [slotValue, List.foldl_cons, List.foldl_nil]
+      some (observe (slotValue deployed) (model [w.toNat] (slotValue deployed))) :=
+  run_add_at hcore hd w deployed ⟨(0, 7 * 256), List.mem_singleton_self _, rfl⟩
 
 /-- The calls of the specification: `add` on any argument word, clean or dirty, from the
 deployed storage, the scope of c4's refinement (`Corpus.C4.refines_full`). -/
@@ -273,48 +344,6 @@ v + x = s0 % 2 ^ 8 + x and leaves slot 0 with its high bytes kept, w ^ x in its 
 v + x in its low byte when v + x fits in uint8, and otherwise reverts with Panic(0x11); a dirty
 word reverts with empty data. A revert keeps σ, and no call logs. -/
 
-/-- The last write of a slot among σ, over any earlier word, is slotValue's when σ writes the
-slot. -/
-theorem foldl_some_of_mem (σ : List (Nat × Nat)) (q : Nat) (hq : q < 2 ^ 256) (a : Option Nat)
-    (b : Nat) (h : a = some b ∨ ∃ kv ∈ σ, kv.1 % 2 ^ 256 = q) :
-    σ.foldl (fun acc kv => if Shared.norm kv.1 = q then some (Shared.norm kv.2) else acc) a =
-      some (σ.foldl (fun acc kv => if kv.1 % 2 ^ 256 = q % 2 ^ 256 then kv.2 % 2 ^ 256 else acc) b) := by
-  induction σ generalizing a b with
-  | nil =>
-    rcases h with h | ⟨_, h, _⟩
-    · simpa using h
-    · simp at h
-  | cons kv σ ih =>
-    simp only [List.foldl_cons]
-    apply ih
-    by_cases hk : kv.1 % 2 ^ 256 = q
-    · left
-      rw [ite_eq_left_of_eq_true _ _ (eq_true (show Shared.norm kv.1 = q from hk)),
-        ite_eq_left_of_eq_true _ _ (eq_true (show kv.1 % 2 ^ 256 = q % 2 ^ 256 by
-          rw [Nat.mod_eq_of_lt hq]; exact hk))]
-      rfl
-    · rw [ite_eq_right_of_eq_false _ _ (eq_false (show ¬ Shared.norm kv.1 = q from hk)),
-        ite_eq_right_of_eq_false _ _ (eq_false (show ¬ kv.1 % 2 ^ 256 = q % 2 ^ 256 by
-          rw [Nat.mod_eq_of_lt hq]; exact hk))]
-      rcases h with h | ⟨kv', h', hq'⟩
-      · exact Or.inl h
-      · rcases List.mem_cons.1 h' with rfl | h'
-        · exact absurd hq' hk
-        · exact Or.inr ⟨kv', h', hq'⟩
-
-theorem model_dirty (x : Nat) (s : Storage) (hx : ¬ x < 256) : model [x] s = .error [] := by
-  simp [model, hx, revert]
-
-theorem model_panic (x : Nat) (s : Storage) (hx : x < 256) (h : ¬ s 0 % 256 + x < 256) :
-    model [x] s = .error (panic 0x11) := by
-  simp [model, hx, h, revert, sload, bind, StateT.bind, Except.bind]
-
-theorem model_ok (x : Nat) (s : Storage) (hx : x < 256) (h : s 0 % 256 + x < 256) :
-    model [x] s = .ok (word (s 0 % 256 + x), fun k => if k % 2 ^ 256 = 0 then
-      (s 0 / 65536 * 65536 + (s 0 / 256 % 256 ^^^ x) * 256 + (s 0 % 256 + x)) % 2 ^ 256
-      else s k) := by
-  simp [model, hx, h, sload, sstore, bind, StateT.bind, Except.bind, pure, StateT.pure, Except.pure]
-
 /-- The calls of add on any argument word, with no value, from any storage that writes slot 0. -/
 def scopeAt : Call → Prop := fun call => ∃ σ, (∃ kv ∈ σ, kv.1 % 2 ^ 256 = 0) ∧ fullScope fns σ call
 
@@ -342,68 +371,6 @@ def postAt (call : Call) (obs : Observable) : Prop :=
    else
     obs.success = false ∧ obs.output = [] ∧ ∀ slot, obs.storage slot = slotValue call.storage slot) ∧
   obs.logs = []
-
-set_option maxHeartbeats 0 in
-set_option maxRecDepth 100000 in
-/-- SolidCore runs add on any argument word, from any storage σ that writes slot 0, as model
-does. -/
-theorem run_add_at {c : TypeCheck.CheckedContract} (hcore : c.core = coreLit) {d : Source.State}
-    (hd : DeployedAt fuel c d deployed) (w : U256) (σ : List (Nat × Nat))
-    (hσ : ∃ kv ∈ σ, kv.1 % 2 ^ 256 = 0) :
-    Source.run fuel c (callAt Bytecode.C4.Main.addSelector [w] σ) =
-      some (observe (slotValue σ) (model [w.toNat] (slotValue σ))) := by
-  rw [run_eq_at hd]
-  have hev := hd.events
-  have hm0 : (σ.foldl (fun acc kv => StorageMap.insertLoop acc kv.1 kv.2) d.storage)[0]? =
-      some (slotValue σ 0) := by
-    rw [getElem?_foldl_insertLoop]
-    exact foldl_some_of_mem σ 0 (by decide) _ 0 (Or.inr hσ)
-  have hmk : ∀ k, k % 2 ^ 256 ≠ 0 →
-      ((σ.foldl (fun acc kv => StorageMap.insertLoop acc kv.1 kv.2) d.storage)[k % 2 ^ 256]?).getD 0 =
-        slotValue σ k := by
-    intro k hk
-    rw [getElem?_foldl_insertLoop, hd.getElem?_eq_none (by simp [deployed]; omega)]
-    exact getD_foldl σ k none 0 rfl
-  generalize σ.foldl (fun acc kv => StorageMap.insertLoop acc kv.1 kv.2) d.storage = m at hm0 hmk
-  simp only [hcore, List.map_cons, List.map_nil]
-  wide_symex [coreLit, fuel, ctxOf, hcore, Bytecode.C4.Main.addSelector, hm0]
-  all_goals
-    have hw := w.isLt
-    have hs := slotValue_lt σ 0
-    generalize BitVec.toNat w = x at *
-    simp only [Nat.reducePow] at hw hs
-  · -- Panic(0x11): v + x overflows uint8.
-    rw [model_panic x _ (by omega) (by omega)]
-    simp [Source.observe, observe, callAt, panic, word]
-  · -- v + x fits.
-    rw [model_ok x _ (by omega) (by omega)]
-    generalize slotValue σ 0 = s0 at *
-    have hA : (s0 % 2 ^ 256 - s0 % 256 + (s0 + x) % 256) % 2 ^ 256 = s0 + x := by omega
-    have hW : (s0 + x) / 256 % 256 = s0 / 256 % 256 := by omega
-    have hO : (s0 + x - s0 / 256 % 256 * 256) % 256 = s0 % 256 + x := by omega
-    simp only [Nat.reducePow] at hA
-    simp only [hA, hW, hO]
-    have hy : (s0 / 256 % 256 ^^^ x) < 256 := Nat.xor_lt_two_pow (n := 8) (by omega) (by omega)
-    generalize (s0 / 256 % 256 ^^^ x) = y at *
-    have hB : s0 + x - s0 / 256 % 256 * 256 + y * 256 =
-        s0 / 65536 * 65536 + y * 256 + (s0 % 256 + x) := by omega
-    simp only [hB]
-    simp [Source.observe, observe, State.loadSlot, StorageMap.lookup?, State.logEntries, word]
-    funext slot
-    have hk := hmk slot
-    simp only [Std.HashMap.getElem?_insert, Shared.norm, Shared.wordModulus, beq_iff_eq,
-      EvmYul.UInt256.size, Nat.reducePow] at hk ⊢
-    generalize slot % 115792089237316195423570985008687907853269984665640564039457584007913129639936 = k at hk ⊢
-    by_cases h : k = 0
-    · subst h
-      simp
-    · have h' : ¬0 = k := fun e => h e.symm
-      rw [← hk h]
-      simp only [h, h', ↓reduceIte]
-      cases m[k]? <;> rfl
-  · -- A dirty word reverts with no data.
-    rw [model_dirty x _ (by omega)]
-    simp [Source.observe, observe, callAt]
 
 /-- model implements SolidCore's Main on every call of scopeAt. -/
 theorem implementsAt {c : TypeCheck.CheckedContract} (hcore : c.core = coreLit) {d : Source.State}

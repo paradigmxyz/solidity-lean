@@ -97,13 +97,9 @@ theorem words_byteOf (ρ : Val) (e : WExpr) (rest : List OByte) :
         .byteOf e 16 :: .byteOf e 17 :: .byteOf e 18 :: .byteOf e 19 :: .byteOf e 20 :: .byteOf e 21 :: .byteOf e 22 :: .byteOf e 23 ::
         .byteOf e 24 :: .byteOf e 25 :: .byteOf e 26 :: .byteOf e 27 :: .byteOf e 28 :: .byteOf e 29 :: .byteOf e 30 :: .byteOf e 31 :: rest)) =
       (e.eval ρ % 2 ^ 256) :: words (List.map (OByte.eval ρ) rest) := by
-  have h : List.map (OByte.eval ρ) (.byteOf e 0 :: .byteOf e 1 :: .byteOf e 2 :: .byteOf e 3 :: .byteOf e 4 :: .byteOf e 5 :: .byteOf e 6 :: .byteOf e 7 ::
-        .byteOf e 8 :: .byteOf e 9 :: .byteOf e 10 :: .byteOf e 11 :: .byteOf e 12 :: .byteOf e 13 :: .byteOf e 14 :: .byteOf e 15 ::
-        .byteOf e 16 :: .byteOf e 17 :: .byteOf e 18 :: .byteOf e 19 :: .byteOf e 20 :: .byteOf e 21 :: .byteOf e 22 :: .byteOf e 23 ::
-        .byteOf e 24 :: .byteOf e 25 :: .byteOf e 26 :: .byteOf e 27 :: .byteOf e 28 :: .byteOf e 29 :: .byteOf e 30 :: .byteOf e 31 :: rest) =
-      ((List.range 32).reverse.map fun i => e.eval ρ / 256 ^ i % 256) ++
-        List.map (OByte.eval ρ) rest := rfl
-  rw [h, words_append32 (by simp), bytesWord_range_reverse]
+  change words (((List.range 32).reverse.map fun i => e.eval ρ / 256 ^ i % 256) ++
+    List.map (OByte.eval ρ) rest) = _
+  rw [words_append32 (by simp), bytesWord_range_reverse]
   rfl
 
 /-- What a function's spec asks of its erased tree: see the module comment. -/

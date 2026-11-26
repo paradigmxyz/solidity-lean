@@ -226,14 +226,49 @@ def Holds {St : Type} (S : Sem) (p : S.Prog) (spec : ContractSpec St) : Prop :=
     spec.invariant (spec.abs (slotValue σ)) → f.requires args (spec.abs (slotValue σ)) →
     ∀ obs, S.run p (f.call args v σ) = some obs → spec.Outcome f args (f.call args v σ) obs
 
+/-- **Every result of `q` on the scope is a result of `p`, or a failure that leaves the storage
+and logs nothing**: the direction of refinement that admits running out of gas, or any other
+exceptional halt, where the source does not. -/
+def Within (A B : Sem) (p : A.Prog) (q : B.Prog) (scope : Call → Prop) : Prop :=
+  ∀ call, scope call → ∀ obs, B.run q call = some obs →
+    A.run p call = some obs ∨ (obs.success = false ∧ obs.storage = slotValue call.storage ∧ obs.logs = [])
+
+theorem Agree.within {A B : Sem} {p : A.Prog} {q : B.Prog} {scope : Call → Prop}
+    (h : Agree A B p q scope) : Within A B p q scope :=
+  fun _ hc _ hq => Or.inl (h.backward hc hq)
+
+/-- Agreement, then refinement with failures. -/
+theorem Agree.trans_within {A B C : Sem} {p : A.Prog} {q : B.Prog} {r : C.Prog}
+    {scope : Call → Prop} (first : Agree A B p q scope) (second : Within B C q r scope) :
+    Within A C p r scope :=
+  fun call hc obs hr => (second call hc obs hr).imp_left (first.backward hc)
+
+/-- A specification holds of every program within one it holds of: a result of the source meets
+it, and so does a failure that changes nothing. -/
+theorem Holds.of_within {St : Type} {A B : Sem} {p : A.Prog} {q : B.Prog} {spec : ContractSpec St}
+    (h : Holds A p spec) (within : Within A B p q spec.Calls) : Holds B q spec := by
+  intro f hf args ht v hv σ hinv hreq obs hrun
+  rcases within _ ⟨f, hf, args, ht, v, hv, σ, rfl⟩ obs hrun with h' | ⟨hs, hst, hl⟩
+  · exact h f hf args ht v hv σ hinv hreq obs h'
+  · exact ⟨fun h'' => absurd (hs.symm.trans h'') (by decide), fun _ => ⟨hst, hl⟩⟩
+
 /-- A specification holds of every program that agrees with one it holds of. -/
 theorem Holds.of_agree {St : Type} {A B : Sem} {p : A.Prog} {q : B.Prog} {spec : ContractSpec St}
-    (h : Holds A p spec) (agree : Agree A B p q spec.Calls) : Holds B q spec := by
-  intro f hf args ht v hv σ hinv hreq obs hrun
-  exact h f hf args ht v hv σ hinv hreq obs
-    (agree.backward ⟨f, hf, args, ht, v, hv, σ, rfl⟩ hrun)
+    (h : Holds A p spec) (agree : Agree A B p q spec.Calls) : Holds B q spec :=
+  h.of_within agree.within
 
 /-! ## Composition -/
+
+/-- The composition for any source semantics `S`, such as SolidCore with as much fuel as a call
+needs (`solidCoreAny`). -/
+theorem compose {St : Type} {S mirSem evmirSem : Sem} {p : S.Prog} {mir : mirSem.Prog}
+    {evmir : evmirSem.Prog} {code : ByteArray} {spec : ContractSpec St}
+    (source : Holds S p spec) (fin : ∀ call, spec.Calls call → (S.run p call).isSome)
+    (lowering : Stage S mirSem p mir spec.Calls) (backend : Stage mirSem evmirSem mir evmir spec.Calls)
+    (assembly : Stage evmirSem ethLib evmir code spec.Calls) :
+    Agree S ethLib p code spec.Calls ∧ Holds ethLib code spec := by
+  have agree := agree_of_stage ((lowering.trans backend).trans assembly) fin
+  exact ⟨agree, source.of_agree agree⟩
 
 /-- **The composition.** A specification SolidCore's contract meets and finishes, and the stages
 from SolidCore to lowered MIR, through the backend to EVM IR and from EVM IR to the bytecode on
@@ -247,9 +282,8 @@ theorem certificate_of_stages {St : Type} {fuel : Nat} {mirSem evmirSem : Sem}
     (lowering : Stage (solidCore fuel) mirSem c mir spec.Calls)
     (backend : Stage mirSem evmirSem mir evmir spec.Calls)
     (assembly : Stage evmirSem ethLib evmir code spec.Calls) :
-    Agree (solidCore fuel) ethLib c code spec.Calls ∧ Holds ethLib code spec := by
-  have agree := agree_of_stage ((lowering.trans backend).trans assembly) fin
-  exact ⟨agree, source.of_agree agree⟩
+    Agree (solidCore fuel) ethLib c code spec.Calls ∧ Holds ethLib code spec :=
+  compose source fin lowering backend assembly
 
 /-! ## What each half alone does not say -/
 
@@ -264,17 +298,6 @@ theorem Holds.of_fails {St : Type} {S : Sem} {p : S.Prog} (spec : ContractSpec S
   exact ⟨fun h => absurd (hs.symm.trans h) (by decide), fun _ => ⟨hst, hl⟩⟩
 
 /-! ## Any source semantics -/
-
-/-- The composition for any source semantics \`S\`, such as SolidCore with as much fuel as a call
-needs (\`solidCoreAny\`). -/
-theorem compose {St : Type} {S mirSem evmirSem : Sem} {p : S.Prog} {mir : mirSem.Prog}
-    {evmir : evmirSem.Prog} {code : ByteArray} {spec : ContractSpec St}
-    (source : Holds S p spec) (fin : ∀ call, spec.Calls call → (S.run p call).isSome)
-    (lowering : Stage S mirSem p mir spec.Calls) (backend : Stage mirSem evmirSem mir evmir spec.Calls)
-    (assembly : Stage evmirSem ethLib evmir code spec.Calls) :
-    Agree S ethLib p code spec.Calls ∧ Holds ethLib code spec := by
-  have agree := agree_of_stage ((lowering.trans backend).trans assembly) fin
-  exact ⟨agree, source.of_agree agree⟩
 
 open Classical in
 /-- SolidCore with as much fuel as the call needs: the run at the least fuel that finishes it.
@@ -296,14 +319,9 @@ theorem solidCoreAny_run {c : SolidCore.Solidity.TypeCheck.CheckedContract} (sta
     solidCoreAny.run c call = some obs := by
   classical
   have hex : ∃ n, (Source.run n c call).isSome := ⟨fuel, by simp [h]⟩
-  show (if h : ∃ n, (Source.run n c call).isSome then Source.run (Nat.find h) c call else none) = _
-  rw [dif_pos hex]
   obtain ⟨o, ho⟩ := Option.isSome_iff_exists.mp (Nat.find_spec hex)
-  have hle : Nat.find hex ≤ fuel := Nat.find_min' hex (by simp [h])
-  rw [ho]
-  have := stable _ _ _ _ hle ho
-  rw [h] at this
-  exact this.symm
+  show (if h : ∃ n, (Source.run n c call).isSome then Source.run (Nat.find h) c call else none) = _
+  rw [dif_pos hex, ho, ← h, stable _ _ _ _ (Nat.find_min' hex (by simp [h])) ho]
 
 /-- The stage from SolidCore at a fixed fuel to SolidCore with as much fuel as a call needs. -/
 theorem stage_solidCoreAny {c : SolidCore.Solidity.TypeCheck.CheckedContract} (stable : FuelStable c)
@@ -429,10 +447,8 @@ theorem runMsg_message (code : ByteArray) (call : Call) :
   split <;> rename_i h <;> rw [h]
 
 theorem runWith_gasLimit (code : ByteArray) (call : Call) :
-    runWith gasLimit code call = Refinement.Target.run code call := by
-  unfold runWith
-  rw [messageWith_gasLimit]
-  exact runMsg_message code call
+    runWith gasLimit code call = Refinement.Target.run code call :=
+  runMsg_message code call
 
 /-- A failed run, at any gas and for any reason, out of gas included, leaves the storage as it
 was and logs nothing. -/
@@ -456,17 +472,20 @@ def GasStable (code : ByteArray) (scope : Call → Prop) : Prop :=
   ∀ gas call obs, scope call → Target.runWith gas code call = some obs → obs.success = true →
     Refinement.Target.run code call = some obs
 
+/-- On a scope where the code is gas stable, its run at any gas is within its run at
+`gasLimit`: a success is the success at `gasLimit`, and a failure changes nothing. -/
+theorem within_ethLibWith {code : ByteArray} {scope : Call → Prop} (stable : GasStable code scope)
+    (gas : Nat) : Within ethLib (ethLibWith gas) code code scope := by
+  intro call hc obs hrun
+  cases hs : obs.success
+  · exact .inr ⟨rfl, Target.runWith_failure hrun hs⟩
+  · exact .inl (stable gas call obs hc hrun hs)
+
 /-- **The specification at every gas.** -/
 theorem Holds.allGas {St : Type} {code : ByteArray} {spec : ContractSpec St}
     (h : Holds ethLib code spec) (stable : GasStable code spec.Calls) (gas : Nat) :
-    Holds (ethLibWith gas) code spec := by
-  intro f hf args ht v hv σ hinv hreq obs hrun
-  change Target.runWith gas code _ = some obs at hrun
-  cases hs : obs.success
-  · exact ⟨fun h' => absurd (hs.symm.trans h') (by decide),
-      fun _ => Target.runWith_failure hrun hs⟩
-  · exact h f hf args ht v hv σ hinv hreq obs
-      (stable gas _ obs ⟨f, hf, args, ht, v, hv, σ, rfl⟩ hrun hs)
+    Holds (ethLibWith gas) code spec :=
+  h.of_within (within_ethLibWith stable gas)
 
 /-- Every result of the bytecode, at any gas, on a call of the scope, is the source's result or a
 failure that leaves the storage and logs nothing. -/
@@ -478,11 +497,8 @@ def RefinesAtAnyGas (fuel : Nat) (c : SolidCore.Solidity.TypeCheck.CheckedContra
 
 theorem refinesAtAnyGas {fuel : Nat} {c : SolidCore.Solidity.TypeCheck.CheckedContract}
     {code : ByteArray} {scope : Call → Prop} (agree : Agree (solidCore fuel) ethLib c code scope)
-    (stable : GasStable code scope) : RefinesAtAnyGas fuel c code scope := by
-  intro gas call obs hc hrun
-  cases hs : obs.success
-  · exact Or.inr ⟨rfl, Target.runWith_failure hrun hs⟩
-  · exact Or.inl (agree.backward hc (stable gas call obs hc hrun hs))
+    (stable : GasStable code scope) : RefinesAtAnyGas fuel c code scope :=
+  fun gas call obs hc => agree.trans_within (within_ethLibWith stable gas) call hc obs
 
 /-! ## The code runs in one frame -/
 
@@ -554,35 +570,6 @@ structure Certificate {St : Type} (spec : ContractSpec St) (m : Manifest) where
   refines : Agree (solidCore fuel) ethLib source code spec.Calls
   holds : Holds ethLib code spec
 
-/-! ## Refinement with out of gas -/
-
-/-- **Every result of `q` on the scope is a result of `p`, or a failure that leaves the storage
-and logs nothing**: the direction of refinement that admits running out of gas, or any other
-exceptional halt, where the source does not. -/
-def Within (A B : Sem) (p : A.Prog) (q : B.Prog) (scope : Call → Prop) : Prop :=
-  ∀ call, scope call → ∀ obs, B.run q call = some obs →
-    A.run p call = some obs ∨ (obs.success = false ∧ obs.storage = slotValue call.storage ∧ obs.logs = [])
-
-theorem Agree.within {A B : Sem} {p : A.Prog} {q : B.Prog} {scope : Call → Prop}
-    (h : Agree A B p q scope) : Within A B p q scope :=
-  fun _ hc _ hq => Or.inl (h.backward hc hq)
-
-/-- Agreement, then refinement with failures. -/
-theorem Agree.trans_within {A B C : Sem} {p : A.Prog} {q : B.Prog} {r : C.Prog}
-    {scope : Call → Prop} (first : Agree A B p q scope) (second : Within B C q r scope) :
-    Within A C p r scope := by
-  intro call hc obs hr
-  rcases second call hc obs hr with h | h
-  · exact Or.inl (first.backward hc h)
-  · exact Or.inr h
-
-/-- A specification holds of every program within one it holds of. -/
-theorem Holds.of_within {St : Type} {A B : Sem} {p : A.Prog} {q : B.Prog} {spec : ContractSpec St}
-    (h : Holds A p spec) (within : Within A B p q spec.Calls) : Holds B q spec := by
-  intro f hf args ht v hv σ hinv hreq obs hrun
-  rcases within _ ⟨f, hf, args, ht, v, hv, σ, rfl⟩ obs hrun with h' | ⟨hs, hst, hl⟩
-  · exact h f hf args ht v hv σ hinv hreq obs h'
-  · exact ⟨fun h'' => absurd (hs.symm.trans h'') (by decide), fun _ => ⟨hst, hl⟩⟩
 
 /-- With enough gas, the bytecode shows exactly what the source does: every call of the scope has
 a gas from which on `runWith` gives the source's result. -/

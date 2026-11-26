@@ -54,17 +54,14 @@ theorem Scoped.mono {L L' : List (List Nat)} (h : Scoped L') (hs : ∀ x ∈ L, 
 
 /-- A footprint slot is no small constant slot. -/
 theorem slot_ge {L : List (List Nat)} (h : Scoped L) {a m : Nat} (hx : pre a m ∈ L) :
-    2 ^ 128 ≤ solHash a m := by
-  rw [solHash_eq]
-  exact h.2 _ hx
+    2 ^ 128 ≤ solHash a m :=
+  scoped_ge h hx
 
 /-- Two footprint slots are equal only for equal keys and mapping slots. -/
 theorem slot_ne {L : List (List Nat)} (h : Scoped L) {a b m n : Nat} (h1 : pre a m ∈ L)
     (h2 : pre b n ∈ L) (ha : a < 2 ^ 256) (hb : b < 2 ^ 256) (hm : m < 2 ^ 256) (hn : n < 2 ^ 256)
-    (hne : ¬(a = b ∧ m = n)) : solHash a m ≠ solHash b n := by
-  intro he
-  rw [solHash_eq, solHash_eq] at he
-  exact hne (mappingPreimage_inj ha hb hm hn (h.1 _ _ h1 h2 he))
+    (hne : ¬(a = b ∧ m = n)) : solHash a m ≠ solHash b n :=
+  fun he => hne (scoped_inj h ha hb hm hn h1 h2 he)
 
 /-- A nested footprint slot `n[o][s]` is no first-level slot `m[b]` of a small mapping slot. -/
 theorem nested_ne_flat {L : List (List Nat)} (h : Scoped L) {o s n b m : Nat}
