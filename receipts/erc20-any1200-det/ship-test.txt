@@ -1,0 +1,12 @@
+modules 1714
+pack: 11585 files, 1714 closure modules, ship.tar 38ad3e304feb407f5f0fe4f5f19c118910332d628180591c43df2939aa45ad87
+pack exit=0
+tar bytes 1459896320
+precheck planned 1714 mismatched 0
+unpack exit=0 (want 0)
+refused: ship.tar is not 0000000000000000000000000000000000000000000000000000000000000000
+unpack wrong-sha exit=4 (want 4)
+refused: the unpacked tree does not match the plan (see precheck)
+unpack tampered-plan exit=4 (want 4)
+mismatch x ~/work/sl/.lake/build/lib/lean/EvmRules/Word.olean
+precheck planned 1714 mismatched 1

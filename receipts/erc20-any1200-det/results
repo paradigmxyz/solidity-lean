@@ -1,0 +1,35 @@
+first build of SolidCore.Refinement.Solar.AssembleCallWorld exit=0 2026-11-26T20:17:03Z
+acw-t12-1 module=SolidCore.Refinement.Solar.AssembleCallWorld threads=12 exit=0 olean=2e474eefd7f7a7e73de6448681a51384ba3832bb8bfacf1658e878bedffa45af ilean=6bd2a0a6eb319e902af0249ec7b04ce6a403aacd2864210af2e46890f34616f0 2026-11-26T20:17:17Z
+acw-t12-2 module=SolidCore.Refinement.Solar.AssembleCallWorld threads=12 exit=0 olean=2e474eefd7f7a7e73de6448681a51384ba3832bb8bfacf1658e878bedffa45af ilean=6bd2a0a6eb319e902af0249ec7b04ce6a403aacd2864210af2e46890f34616f0 2026-11-26T20:17:30Z
+acw-t12-3 module=SolidCore.Refinement.Solar.AssembleCallWorld threads=12 exit=0 olean=2e474eefd7f7a7e73de6448681a51384ba3832bb8bfacf1658e878bedffa45af ilean=6bd2a0a6eb319e902af0249ec7b04ce6a403aacd2864210af2e46890f34616f0 2026-11-26T20:17:43Z
+acw-t1-1 module=SolidCore.Refinement.Solar.AssembleCallWorld threads=1 exit=0 olean=2e474eefd7f7a7e73de6448681a51384ba3832bb8bfacf1658e878bedffa45af ilean=6bd2a0a6eb319e902af0249ec7b04ce6a403aacd2864210af2e46890f34616f0 2026-11-26T20:17:57Z
+acw-t1-2 module=SolidCore.Refinement.Solar.AssembleCallWorld threads=1 exit=0 olean=2e474eefd7f7a7e73de6448681a51384ba3832bb8bfacf1658e878bedffa45af ilean=6bd2a0a6eb319e902af0249ec7b04ce6a403aacd2864210af2e46890f34616f0 2026-11-26T20:18:11Z
+acw-t5-1 module=SolidCore.Refinement.Solar.AssembleCallWorld threads=5 exit=0 olean=2e474eefd7f7a7e73de6448681a51384ba3832bb8bfacf1658e878bedffa45af ilean=6bd2a0a6eb319e902af0249ec7b04ce6a403aacd2864210af2e46890f34616f0 2026-11-26T20:18:24Z
+acw-t5-2 module=SolidCore.Refinement.Solar.AssembleCallWorld threads=5 exit=0 olean=2e474eefd7f7a7e73de6448681a51384ba3832bb8bfacf1658e878bedffa45af ilean=6bd2a0a6eb319e902af0249ec7b04ce6a403aacd2864210af2e46890f34616f0 2026-11-26T20:18:39Z
+man-exp1 module=uv2_erc20.gen.UniswapV2ERC20.Manifest threads=12 exit=0 olean=7627e374c70a3c489831d10ecf205975ca4f535a8f1ecb228313f4a549ec6aec ilean=c53ab5ce4ec603e6732be75ad0bb5ff99bc8c365135624e31fa57a6d5681c8a6 2026-11-26T20:18:43Z
+man-exp2 module=uv2_erc20.gen.UniswapV2ERC20.Manifest threads=12 exit=0 olean=0ec21569f2d701d2dcfe99cfe2dda7ebb86cefb045c9b00bf489faf06bfaa869 ilean=c53ab5ce4ec603e6732be75ad0bb5ff99bc8c365135624e31fa57a6d5681c8a6 2026-11-26T20:18:46Z
+man-n1 module=uv2_erc20.gen.UniswapV2ERC20.Manifest threads=12 exit=0 olean=ce9d1a8b5a4f326193601158584955960614c5ff10291e9d3d2f0aeb0305377b ilean=c53ab5ce4ec603e6732be75ad0bb5ff99bc8c365135624e31fa57a6d5681c8a6 2026-11-26T20:18:50Z
+man-n2 module=uv2_erc20.gen.UniswapV2ERC20.Manifest threads=12 exit=0 olean=ce9d1a8b5a4f326193601158584955960614c5ff10291e9d3d2f0aeb0305377b ilean=c53ab5ce4ec603e6732be75ad0bb5ff99bc8c365135624e31fa57a6d5681c8a6 2026-11-26T20:18:54Z
+DONE 2026-11-26T20:18:54Z
+stress-1 threads=48 cpu-saturated exit=0 olean=2e474eefd7f7a7e73de6448681a51384ba3832bb8bfacf1658e878bedffa45af 2026-11-26T20:19:55Z
+stress-2 threads=48 cpu-saturated exit=0 olean=cebc9de867ea8f6465955c9f3610cd26232271e72c3744489c3629b6e563f1d5 2026-11-26T20:20:09Z
+stress-3 threads=48 cpu-saturated exit=0 olean=2e474eefd7f7a7e73de6448681a51384ba3832bb8bfacf1658e878bedffa45af 2026-11-26T20:20:24Z
+stress-4 threads=48 cpu-saturated exit=0 olean=2e474eefd7f7a7e73de6448681a51384ba3832bb8bfacf1658e878bedffa45af 2026-11-26T20:20:39Z
+stress-5 threads=48 cpu-saturated exit=0 olean=2e474eefd7f7a7e73de6448681a51384ba3832bb8bfacf1658e878bedffa45af 2026-11-26T20:20:54Z
+stress-6 threads=48 cpu-saturated exit=0 olean=2e474eefd7f7a7e73de6448681a51384ba3832bb8bfacf1658e878bedffa45af 2026-11-26T20:21:10Z
+stress-7 threads=48 cpu-saturated exit=0 olean=2e474eefd7f7a7e73de6448681a51384ba3832bb8bfacf1658e878bedffa45af 2026-11-26T20:21:26Z
+stress-8 threads=48 cpu-saturated exit=0 olean=2e474eefd7f7a7e73de6448681a51384ba3832bb8bfacf1658e878bedffa45af 2026-11-26T20:21:40Z
+stress-9 threads=48 cpu-saturated exit=0 olean=2e474eefd7f7a7e73de6448681a51384ba3832bb8bfacf1658e878bedffa45af 2026-11-26T20:21:55Z
+stress-10 threads=48 cpu-saturated exit=0 olean=2e474eefd7f7a7e73de6448681a51384ba3832bb8bfacf1658e878bedffa45af 2026-11-26T20:22:09Z
+STRESSDONE
+serial-1 threads=1 cpu-saturated exit=0 olean=2e474eefd7f7a7e73de6448681a51384ba3832bb8bfacf1658e878bedffa45af 2026-11-26T20:31:04Z
+serial-2 threads=1 cpu-saturated exit=0 olean=2e474eefd7f7a7e73de6448681a51384ba3832bb8bfacf1658e878bedffa45af 2026-11-26T20:31:46Z
+serial-3 threads=1 cpu-saturated exit=0 olean=2e474eefd7f7a7e73de6448681a51384ba3832bb8bfacf1658e878bedffa45af 2026-11-26T20:32:27Z
+serial-4 threads=1 cpu-saturated exit=0 olean=2e474eefd7f7a7e73de6448681a51384ba3832bb8bfacf1658e878bedffa45af 2026-11-26T20:33:07Z
+serial-5 threads=1 cpu-saturated exit=0 olean=2e474eefd7f7a7e73de6448681a51384ba3832bb8bfacf1658e878bedffa45af 2026-11-26T20:33:43Z
+serial-6 threads=1 cpu-saturated exit=0 olean=cebc9de867ea8f6465955c9f3610cd26232271e72c3744489c3629b6e563f1d5 2026-11-26T20:34:28Z
+serial-7 threads=1 cpu-saturated exit=0 olean=2e474eefd7f7a7e73de6448681a51384ba3832bb8bfacf1658e878bedffa45af 2026-11-26T20:35:21Z
+serial-8 threads=1 cpu-saturated exit=0 olean=2e474eefd7f7a7e73de6448681a51384ba3832bb8bfacf1658e878bedffa45af 2026-11-26T20:36:06Z
+serial-9 threads=1 cpu-saturated exit=0 olean=2e474eefd7f7a7e73de6448681a51384ba3832bb8bfacf1658e878bedffa45af 2026-11-26T20:36:59Z
+serial-10 threads=1 cpu-saturated exit=0 olean=2e474eefd7f7a7e73de6448681a51384ba3832bb8bfacf1658e878bedffa45af 2026-11-26T20:37:52Z
+SERIALDONE
