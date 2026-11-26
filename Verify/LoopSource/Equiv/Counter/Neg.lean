@@ -21,9 +21,6 @@ namespace Verify.LoopSource.Equiv.CounterNeg
 open SolarTV SolarTV.MIR.Lowered SolidCore.Refinement.Generic Verify.LoopSource.Equiv
 open Verify.LoopSource.Equiv.Inv Verify.LoopSource.Equiv.Generated.Counter Verify.LoopSource.Equiv.CounterObl
 
-def setBlock (m : Module) (fn b : Nat) (g : Block → Block) : Module :=
-  { m with functions := m.functions.modify fn fun f => { f with blocks := f.blocks.modify b g } }
-
 /-- Counter's MIR with the loop header's branch sides swapped. -/
 def swapM : Module := setBlock SolarTV.Export.Counter.stage0 cut.fn cut.head fun blk =>
   { blk with term := match blk.term with | .branch c y n => .branch c n y | t => t }

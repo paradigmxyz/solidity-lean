@@ -42,11 +42,7 @@ theorem summary_ok : SummaryOk sel (2 ^ 256 + 8) shape bumpBr := by
     have : widthsOf fn.params fn.paramAbiCleanups = some [256] := rfl
     rw [this] at hw; exact (Option.some.inj hw).symm
   subst hw'
-  have hE : ({ envOf c.core with facts := argFacts [256] 0 } : EraseEnv) =
-      env c.core.eventDecls c.core.table := by
-    simp only [envOf, env, hfields]
-    rfl
-  rw [hE]
+  rw [envOf_eq hfields]
   exact Contracts.VerifyCounter.LoopVC.body_runs_vc _ _ fn rfl rfl fuel hfu
 
 /-- **Counter.bump's summary.** -/

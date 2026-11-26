@@ -344,4 +344,8 @@ structure Obl (L : Val → LoopRecord) (toSrc : Val → Val) (X : Val → Prop) 
   facts : ∀ σ : Val, n ≤ σ.args.length → σ.Ok → A (trunc n σ) → (L (trunc n σ)).P (toSrc σ) → X σ →
     ∃ F ∈ cases, F.Hold σ
 
+/-- The module with block `b` of function `fn` changed by `g`, for negative tests. -/
+def setBlock (m : Module) (fn b : Nat) (g : Block → Block) : Module :=
+  { m with functions := m.functions.modify fn fun f => { f with blocks := f.blocks.modify b g } }
+
 end Verify.LoopSource.Equiv

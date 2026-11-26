@@ -20,10 +20,6 @@ open Verify.LoopSource.Equiv.Generated.Counter
 /-- `Counter.bump`'s selector. -/
 def sel : Nat := 0xb20eb4c4
 
-/-- The module with block `b` of function `fn` changed by `g`. -/
-def setBlock (m : Module) (fn b : Nat) (g : Block → Block) : Module :=
-  { m with functions := m.functions.modify fn fun f => { f with blocks := f.blocks.modify b g } }
-
 /-- **The certificate checks against Counter's lowered MIR.** -/
 theorem counter_check : (cut.check .off SolarTV.Export.Counter.stage0 sel 1).isSome = true := by
   decide +kernel

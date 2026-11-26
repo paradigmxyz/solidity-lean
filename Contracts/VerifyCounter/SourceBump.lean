@@ -66,6 +66,12 @@ def bumpBr : Br := guards [ovf] (.ite le (.leaf (.normal SF)) (.leaf (.reverted 
 def env (ev : List EventDecl) (tbl : FunctionTable) : EraseEnv :=
   { fields := vcFields, events := ev, tbl := tbl, facts := [] }
 
+/-- A checked contract with `Counter`'s storage fields erases bump's body in `env`. -/
+theorem envOf_eq {c : SolidCore.Solidity.TypeCheck.CheckedContract} (hf : c.core.storageFields = vcFields) :
+    ({ envOf c.core with facts := argFacts [256] 0 } : EraseEnv) = env c.core.eventDecls c.core.table := by
+  simp only [envOf, env, hf]
+  rfl
+
 theorem e1 (ev : List EventDecl) (tbl : FunctionTable) :
     eraseStmt (env ev tbl) 10 s1 S0.push = some (.leaf (.normal S0.push)) := rfl
 

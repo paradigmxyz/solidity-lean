@@ -124,12 +124,8 @@ theorem runs {c : SolidCore.Solidity.TypeCheck.CheckedContract} (hc : contract? 
     exact ha
   have hdec := decode_args hw [a] rfl hargs
   rw [if_pos hclean] at hdec
-  have hE : ({ envOf c.core with facts := argFacts [256] 0 } : EraseEnv) =
-      env c.core.eventDecls c.core.table := by
-    simp only [envOf, env, hf]
-    rfl
   have hb : BodyRuns { envOf c.core with facts := argFacts [256] 0 } fuel bumpFn bumpBr := by
-    rw [hE]
+    rw [envOf_eq hf]
     exact body_runs _ _ bumpFn rfl rfl fuel (by unfold fuel; omega)
   exact runtime_run_clean (by decide) hfind hw rfl hb hT [a] rfl hargs hclean hdec
 

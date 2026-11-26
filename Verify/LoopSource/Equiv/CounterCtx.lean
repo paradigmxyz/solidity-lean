@@ -86,12 +86,7 @@ theorem fixObs_at (σ : List (Nat × Nat)) (args : List Nat) (x : Nat) (T : Tree
 
 theorem bodyRunsFrom {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) :
     BodyRunsFrom { envOf c.core with facts := argFacts [256] 0 } fuel bumpFn Verify.LoopSource.Equiv.From.bumpBr := by
-  obtain ⟨hf, -, -⟩ := shape_of hc
-  have hE : ({ envOf c.core with facts := argFacts [256] 0 } : EraseEnv) =
-      Verify.LoopSource.Equiv.From.env c.core.eventDecls c.core.table := by
-    simp only [envOf, Verify.LoopSource.Equiv.From.env, hf]
-    rfl
-  rw [hE]
+  rw [envOf_eq (shape_of hc).1]
   exact Verify.LoopSource.Equiv.From.VC.body_runs_vc _ _ bumpFn rfl rfl _ (by unfold fuel; omega)
 
 theorem treeFrom : brTree bumpFn (argFacts [256] 0) Verify.LoopSource.Equiv.From.bumpBr = some Verify.LoopSource.Equiv.CounterObl.T := by

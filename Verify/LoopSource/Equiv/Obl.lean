@@ -75,10 +75,15 @@ theorem refutes_sound {n : Nat} {hyps : List F} (h : refutes n hyps = true) (ρ 
 theorem slice_sub (k : Nat) (S seed : List F) : ∀ f ∈ slice k S seed, f ∈ S :=
   fun _ hf => (List.mem_filter.mp hf).1
 
+/-- A slice of `S` and formulas `R` hold where `S` and `R` do. -/
+theorem slice_holds {k : Nat} {S seed R : List F} {ρ : Val} (hS : ∀ f ∈ S, f.Holds ρ)
+    (hR : ∀ f ∈ R, f.Holds ρ) : ∀ f ∈ slice k S seed ++ R, f.Holds ρ :=
+  fun f hf => (List.mem_append.mp hf).elim (hS f ∘ slice_sub k S seed f) (hR f)
+
 /-- A refutation of a slice of `S` and formulas `R` has no valuation of `S` and `R`. -/
 theorem refutes_slice {n k : Nat} {S seed R : List F} (h : refutes n (slice k S seed ++ R) = true)
     {ρ : Val} (hS : ∀ f ∈ S, f.Holds ρ) (hR : ∀ f ∈ R, f.Holds ρ) : False :=
-  refutes_sound h ρ fun f hf => (List.mem_append.mp hf).elim (hS f ∘ slice_sub k S seed f) (hR f)
+  refutes_sound h ρ (slice_holds hS hR)
 
 /-- **What `proves` accepts holds.** -/
 theorem proves_sound {n : Nat} {S K : List F} {g : F} (h : proves n S K g = true) {ρ : Val}
@@ -353,59 +358,88 @@ def recOf (I : List F) (μ : WExpr) : LoopRecord :=
     m := fun σ => μ.eval σ, c := .bin .lt (.lit 0) μ,
     bb := .leaf (.normal { scopes := [], writes := [], logs := [] }) }
 
-/-- **The decided obligations are the obligations.** -/
-theorem obl_of_checkWith {n : Nat} {cases : List Facts} {T : Tree} {le li : List (Facts × Out)}
-    {I : List F} {μ : WExpr} (h : checkWith n cases T le li I μ = true) :
+/-- `g` holds wherever `S` and `K` do. -/
+def Entails (S K : List F) (g : F) : Prop :=
+  ∀ ρ : Val, (∀ f ∈ S, f.Holds ρ) → (∀ f ∈ K, f.Holds ρ) → g.Holds ρ
+
+/-- The end `T'` shows the tree `T`'s result wherever `S` and `K` hold. -/
+def EndOk (S K : List F) (T' T : Tree) : Prop :=
+  ∀ ρ : Val, ρ.Ok → (∀ f ∈ S, f.Holds ρ) → (∀ f ∈ K, f.Holds ρ) → (T'.eval ρ).obs = (T.eval ρ).obs
+
+/-- **What a task states**, for invariant `I` and measure `μ`: what `Task.ok` checks. -/
+def Task.Sound (n : Nat) (cases : List Facts) (T : Tree) (I : List F) (μ : WExpr) : Task → Prop
+  | .below => treeBelow n T = true
+  | .inv f entry p => match p.2 with
+    | .back hs => Entails (if entry then [] else I) (factsF p.1) (f.sub n hs)
+    | .exit _ => True
+  | .entryEnd p => match p.2 with
+    | .exit T' => EndOk [] (factsF p.1) T' T
+    | .back _ => True
+  | .iterLeaf p => match p.2 with
+    | .exit T' => EndOk I (factsF p.1) T' T
+    | .back hs => Entails I (factsF p.1) (.lt (Inv.sub n hs μ) μ)
+  | .cover => Entails I (cases.map noCase) (.lt (.lit 0) (.lit 0))
+
+/-- **Tasks that hold give the obligations.** -/
+theorem obl_of_sound {n : Nat} {cases : List Facts} {T : Tree} {le li : List (Facts × Out)}
+    {I : List F} {μ : WExpr} (task : ∀ t ∈ tasks le li I, t.Sound n cases T I μ) :
     Obl (fun _ => recOf I μ) id (fun _ => True) (fun _ => True) n cases T le li := by
-  unfold checkWith at h
-  rw [List.all_eq_true] at h
-  have task : ∀ t ∈ tasks le li I, t.ok n cases T I μ = true := h
   have mem_inv : ∀ f ∈ I, ∀ (e : Bool) (p : Facts × Out), (e = true → p ∈ le) → (e = false → p ∈ li) →
       Task.inv f e p ∈ tasks le li I := by
     intro f hf e p h1 h2
     cases e <;> simp_all [tasks]
-  have hbelow : treeBelow n T = true := task .below (by simp [tasks])
+  have nil : ∀ {ρ : Val}, ∀ f ∈ ([] : List F), f.Holds ρ := fun _ h => absurd h List.not_mem_nil
   refine ⟨?_, ?_, ?_⟩
   · intro ρ hlen hok _ p hp hph
     split
     · rename_i T' hT'
       have := task (.entryEnd p) (by simp [tasks, hp])
-      simp only [Task.ok, hT'] at this
-      exact exitOk_sound this hok (fun _ h => absurd h List.not_mem_nil) (factsF_holds hph)
+      simp only [Task.Sound, hT'] at this
+      exact this ρ hok nil (factsF_holds hph)
     · rename_i hs hhs
       refine ⟨fun f hf => ?_, trivial⟩
-      have := task (.inv f true p) (mem_inv f hf true p (fun _ => hp) (fun h => absurd h (by decide)))
-      simp only [Task.ok, hhs, ↓reduceIte] at this
-      exact (F.sub_holds (by omega) hs f).mp (proves_sound this (fun _ h => absurd h List.not_mem_nil)
-        (factsF_holds hph))
+      have := task (.inv f true p) (mem_inv f hf true p (fun _ => hp) nofun)
+      simp only [Task.Sound, hhs, ↓reduceIte] at this
+      exact (F.sub_holds (by omega) hs f).mp (this ρ nil (factsF_holds hph))
   · intro σ hl hok _ hP _ p hp hph
     have hleaf := task (.iterLeaf p) (by simp [tasks, hp])
     split
     · rename_i T' hT'
-      simp only [Task.ok, hT'] at hleaf
-      rw [exitOk_sound hleaf hok hP (factsF_holds hph), tree_below hl T hbelow]
+      simp only [Task.Sound, hT'] at hleaf
+      rw [hleaf σ hok hP (factsF_holds hph), tree_below hl T (task .below (by simp [tasks]))]
     · rename_i hs hhs
-      simp only [Task.ok, hhs] at hleaf
-      have hm := proves_sound hleaf hP (factsF_holds hph)
+      simp only [Task.Sound, hhs] at hleaf
       have hm' : μ.eval (nextVal n σ hs) < μ.eval σ := by
-        rw [← sub_eval hl hs]; simpa [F.Holds] using hm
+        rw [← sub_eval hl hs]; simpa [F.Holds] using hleaf σ hP (factsF_holds hph)
       refine ⟨⟨hP, ?_, fun f hf => ?_, hm'⟩, trivial⟩
       · show (WExpr.bin .lt (.lit 0) μ).eval σ ≠ 0
         simp only [WExpr.eval, BinOp.eval]
         have : 0 < μ.eval σ := by omega
         simp [this, wordSize]
-      · have := task (.inv f false p) (mem_inv f hf false p (fun h => absurd h (by decide)) (fun _ => hp))
-        simp only [Task.ok, hhs, Bool.false_eq_true, ↓reduceIte] at this
-        exact (F.sub_holds hl hs f).mp (proves_sound this hP (factsF_holds hph))
+      · have := task (.inv f false p) (mem_inv f hf false p nofun (fun _ => hp))
+        simp only [Task.Sound, hhs, Bool.false_eq_true, ↓reduceIte] at this
+        exact (F.sub_holds hl hs f).mp (this σ hP (factsF_holds hph))
   · intro σ _ hok _ hP _
     by_contra hno
     simp only [not_exists, not_and] at hno
-    have hc := task .cover (by simp [tasks])
-    simp only [Task.ok] at hc
-    have := proves_sound hc hP fun f hf => by
+    have := task .cover (by simp [tasks]) σ hP fun f hf => by
       simp only [List.mem_map] at hf
       obtain ⟨c, hc, rfl⟩ := hf
       exact noCase_holds (hno c hc)
     simp [F.Holds, WExpr.eval] at this
+
+/-- **What `Task.ok` accepts holds.** -/
+theorem Task.ok_sound {n : Nat} {cases : List Facts} {T : Tree} {I : List F} {μ : WExpr} :
+    ∀ {t : Task}, t.ok n cases T I μ = true → t.Sound n cases T I μ
+  | .below, h => h
+  | .inv _ _ (_, .back _), h | .iterLeaf (_, .back _), h | .cover, h => fun _ => proves_sound h
+  | .entryEnd (_, .exit _), h | .iterLeaf (_, .exit _), h => fun _ => exitOk_sound h
+  | .inv _ _ (_, .exit _), _ | .entryEnd (_, .back _), _ => trivial
+
+/-- **The decided obligations are the obligations.** -/
+theorem obl_of_checkWith {n : Nat} {cases : List Facts} {T : Tree} {le li : List (Facts × Out)}
+    {I : List F} {μ : WExpr} (h : checkWith n cases T le li I μ = true) :
+    Obl (fun _ => recOf I μ) id (fun _ => True) (fun _ => True) n cases T le li :=
+  obl_of_sound fun t ht => Task.ok_sound (List.all_eq_true.mp h t ht)
 
 end Verify.LoopSource.Equiv.Inv

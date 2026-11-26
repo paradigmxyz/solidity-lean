@@ -51,12 +51,7 @@ theorem bodyRuns_of_headline (hL : CounterBumpLoopHeadline)
     {c : SolidCore.Solidity.TypeCheck.CheckedContract} (hc : contract? = .ok c) :
     BodyRuns { envOf c.core with facts := argFacts [256] 0 } Contracts.VerifyCounter.Source.fuel
       bumpFn bumpBr := by
-  obtain ⟨hf, -, -⟩ := shape_of hc
-  have hE : ({ envOf c.core with facts := argFacts [256] 0 } : EraseEnv) =
-      env c.core.eventDecls c.core.table := by
-    simp only [envOf, env, hf]
-    rfl
-  rw [hE]
+  rw [envOf_eq (shape_of hc).1]
   exact hL _ _ bumpFn rfl rfl _ (by unfold Contracts.VerifyCounter.Source.fuel; omega)
 
 /-- **Counter's whole Statement from the headline**, by the generic link. -/

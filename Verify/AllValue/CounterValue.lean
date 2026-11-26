@@ -6,6 +6,7 @@ import SolidCore.Refinement.Generic.LoopRun
 import Verify.Generic.Expected
 import Verify.LoopSource.MirLink.Statement
 import Contracts.VerifyCounter.Source
+import Verify.LoopSource.Equiv.CounterCtx
 
 /-!
 # Counter is non-payable from every caller, value and storage (R3)
@@ -96,24 +97,14 @@ theorem b1_revert (o : Oracle) (call : Call) :
         (State.initial call).transient (State.initial call).world)) := by
   sym_exec
 
-theorem guard_nil (p : Assemble.Program) : AssembleCtxGas.guard [] p = p := by
-  cases p with
-  | mk blocks =>
-    simp only [AssembleCtxGas.guard, List.contains_nil, Bool.false_eq_true, ↓reduceIte]
-    congr 1
-    induction blocks with
-    | nil => rfl
-    | cons b bs ih => simp [List.mapIdx_cons, ih]
-
 theorem hit_value (o : Oracle) (call : Call) (hv : BitVec.ofNat 256 call.callvalue ≠ 0) :
     ∃ s, iterate (EVM.Program.block o call (AssembleCtxGas.guard Verify.LoopSource.Equiv.From.CtxGas.F
       (AssembleCtx.norm SolarTV.Export.Counter.evm7))) 2 (0, [], State.initial call) =
         some (.revert [], s) := by
   refine ⟨State.mk (Mem.initial.expand 0 0) (State.initial call).storage
     (State.initial call).transient (State.initial call).world, ?_⟩
-  have h := congrFun (congrFun (AssembleCtx.run_norm o SolarTV.Export.Counter.evm7) call) 2
-  show EVM.Program.run o (AssembleCtxGas.guard [] _) call 2 = _
-  rw [guard_nil, h]
+  show EVM.Program.run o _ call 2 = _
+  rw [Verify.LoopSource.Equiv.CounterCtx.run_guard]
   unfold EVM.Program.run
   rw [iterate_inr (b0_value o call hv)]
   exact iterate_inl (b1_revert o call)
