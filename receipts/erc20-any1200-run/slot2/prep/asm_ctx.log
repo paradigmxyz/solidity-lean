@@ -1,0 +1,1 @@
+{"assembly": "checker accepts; bytes make calls", "calls": [[920, "STATICCALL"], [1175, "RETURNDATASIZE"], [1178, "RETURNDATACOPY"], [1179, "RETURNDATASIZE"]]}

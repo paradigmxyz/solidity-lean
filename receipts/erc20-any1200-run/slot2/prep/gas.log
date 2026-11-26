@@ -1,0 +1,8 @@
+warning[2264]: code generation is experimental
+
+warning[2264]: code generation is experimental
+
+wrote /home/ubuntu/w/solidity-lean/Certified/uv2_erc20/gen/UniswapV2ERC20 (f71b7554d6e044cf974ac4f0e5f0b184cd96ff9b)
+selector 0xa9059cbb: block 15
+top=128 env=True reads=False
+wrote Certified/uv2_erc20/gen Certified/uv2_erc20/CtxGas.lean

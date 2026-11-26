@@ -1,0 +1,6 @@
+admission prep cg=/sys/fs/cgroup/erc20cap-prep-50777 want_max=303819337728 got_max=303819337728 want_swap=0 got_swap=0 concurrency=sampled-only ADMITTED
+gas exit=0 2026-11-26T19:09:23Z
+certify exit=0 2026-11-26T19:09:24Z
+asm_ctx exit=0 2026-11-26T19:09:24Z
+prep done: 68 input files
+build prep exit=0 cap_jobs=12 budget_kb=296698575 max_bytes=303819337728 post_max=303819337728 post_swap=0 peak_tree_kb=90316 max_sampled_tree_rss_kb=13220 max_lean=0 max_rustc=0 concurrency=sampled-only oom_kill=0 PASS

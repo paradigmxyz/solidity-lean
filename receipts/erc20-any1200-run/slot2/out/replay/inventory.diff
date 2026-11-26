@@ -1,0 +1,8 @@
+3393c3393
+< SolidCore.Refinement.Solar.AssembleCallWorld 2e474eefd7f7a7e73de6448681a51384ba3832bb8bfacf1658e878bedffa45af
+---
+> SolidCore.Refinement.Solar.AssembleCallWorld cebc9de867ea8f6465955c9f3610cd26232271e72c3744489c3629b6e563f1d5
+3972c3972
+< uv2_erc20.gen.UniswapV2ERC20.Manifest 6a1173d2effe9a915468a86699ebce2c1248748b750c2b2a030502b7e6894e3e
+---
+> uv2_erc20.gen.UniswapV2ERC20.Manifest bc86adf18b1a438368c47d1fd420745cb985ce2519d06b8ff363659125f1ced2

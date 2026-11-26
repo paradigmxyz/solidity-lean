@@ -1,0 +1,1671 @@
+admission core cg=/sys/fs/cgroup/erc20cap-core-18396 want_max=303929683968 got_max=303929683968 want_swap=0 got_swap=0 concurrency=sampled-only ADMITTED
+✔ [0/79] Ran «solidity-lean»:extraDep
+✔ [1/79] Ran evmyul:extraDep
+✔ [2/79] Ran mathlib:extraDep
+✔ [3/79] Ran batteries:extraDep
+✔ [4/79] Replayed Batteries.CodeAction.Deprecated
+✔ [5/79] Replayed Batteries.Tactic.Alias
+✔ [6/79] Replayed Batteries.Logic
+✔ [7/79] Replayed Batteries.Util.LibraryNote
+✔ [8/79] Replayed Batteries.Tactic.HelpCmd
+✔ [9/79] Replayed Batteries.Tactic.Lint.Basic
+✔ [10/79] Replayed Batteries.Tactic.Lint.Misc
+✔ [11/79] Replayed Batteries.Util.ProofWanted
+✔ [12/79] Ran importGraph:extraDep
+✔ [13/79] Replayed ImportGraph.Lean.Syntax
+✔ [14/79] Replayed ImportGraph.Imports.Pretty
+✔ [15/79] Replayed ImportGraph.Lean.MessageData
+✔ [16/79] Replayed ImportGraph.Shake.Core
+✔ [17/79] Replayed ImportGraph.Shake.Basic
+✔ [18/79] Replayed ImportGraph.Shake.Algebra
+✔ [19/79] Replayed ImportGraph.Lean.EnvExtension
+✔ [20/79] Replayed ImportGraph.Shake.EnvExtension
+✔ [21/79] Replayed ImportGraph.Shake.DeclNeeds
+✔ [22/79] Replayed ImportGraph.Lean.Json
+✔ [23/79] Replayed ImportGraph.Util.Modules
+✔ [24/79] Replayed ImportGraph.WorkspaceModel.Base
+✔ [25/79] Replayed ImportGraph.WorkspaceModel.Model
+✔ [26/79] Replayed ImportGraph.WorkspaceModel.Summary.Core
+✔ [27/79] Replayed ImportGraph.WorkspaceModel.Summary.Cache
+✔ [28/79] Replayed ImportGraph.WorkspaceModel.Summary.Get
+✔ [29/79] Replayed ImportGraph.WorkspaceModel.Summary
+✔ [30/79] Replayed ImportGraph.WorkspaceModel.Build
+✔ [31/79] Replayed ImportGraph.Shake.Workspace
+✔ [32/79] Replayed ImportGraph.Imports.ImportGraph
+✔ [33/79] Replayed ImportGraph.Lean.Environment
+✔ [34/79] Replayed ImportGraph.Imports.RequiredModules
+✔ [35/79] Replayed ImportGraph.Graph.TransitiveClosure
+✔ [36/79] Replayed ImportGraph.Widget.Collapsible
+✔ [37/79] Replayed ImportGraph.Widget.Copy
+✔ [38/79] Replayed ImportGraph.Widget.GoToModule
+✔ [39/79] Replayed ImportGraph.Tools.FindHome
+✔ [40/79] Replayed ImportGraph.Tools.ImportDiff
+✔ [41/79] Replayed ImportGraph.Imports.Redundant
+✔ [42/79] Replayed ImportGraph.Tools.MinImports
+✔ [43/79] Replayed ImportGraph.Imports.FromSource
+✔ [44/79] Replayed ImportGraph.Shake.Environment
+✔ [45/79] Replayed ImportGraph.Tools.NormImports
+✔ [46/79] Replayed ImportGraph.Tools.RedundantImports
+✔ [47/79] Replayed ImportGraph.Tools
+✔ [48/79] Replayed Mathlib.Tactic.Linter.DirectoryDependency
+✔ [49/79] Replayed Mathlib.Tactic.Linter.Header
+✔ [50/79] Replayed Mathlib.Lean.Linter
+✔ [51/79] Replayed Mathlib.Tactic.AdaptationNote
+✔ [52/79] Replayed Mathlib.Tactic.Lemma
+✔ [53/79] Replayed Mathlib.Tactic.Linter.AuxLemma
+✔ [54/79] Replayed Batteries.Lean.Position
+✔ [55/79] Replayed Mathlib.Lean.Environment
+✔ [56/79] Replayed Mathlib.Lean.Elab.InfoTree
+✔ [57/79] Replayed Mathlib.Lean.Expr.Basic
+✔ [58/79] Replayed Mathlib.Tactic.Linter.UnusedInstancesInType
+✔ [59/79] Replayed Mathlib.Tactic.Linter.OverlappingInstances
+✔ [60/79] Replayed Mathlib.Tactic.Linter.DeclType
+✔ [61/79] Replayed Mathlib.Tactic.Linter.DeprecatedSyntaxLinter
+✔ [62/79] Replayed Mathlib.Tactic.Linter.DocPrime
+✔ [63/79] Replayed Mathlib.Tactic.Linter.DocString
+✔ [64/79] Replayed Mathlib.Tactic.Linter.EmptyLine
+✔ [65/79] Replayed Mathlib.Tactic.Linter.FlexibleLinter
+✔ [66/79] Replayed Mathlib.Tactic.Linter.HashCommandLinter
+✔ [67/79] Replayed Mathlib.Tactic.Linter.HaveILetI
+✔ [68/79] Replayed Mathlib.Tactic.Linter.InternalConstructor
+✔ [69/79] Replayed Batteries.Tactic.Lint.Simp
+✔ [70/79] Replayed Batteries.Tactic.Lint.TypeClass
+✔ [71/79] Replayed Batteries.Tactic.Lint.Frontend
+✔ [72/79] Replayed Batteries.Tactic.Lint
+✔ [73/79] Replayed Mathlib.Tactic.DeclarationNames
+✔ [74/79] Replayed Mathlib.Tactic.Linter.Lint
+✔ [75/79] Replayed Mathlib.Tactic.Linter.Multigoal
+✔ [76/79] Replayed Mathlib.Tactic.Linter.OldObtain
+✔ [77/79] Replayed Mathlib.Tactic.Linter.PrivateModule
+✔ [78/79] Replayed Mathlib.Tactic.Linter.Style
+✔ [79/178] Replayed Mathlib.Tactic.Linter.TacticDocumentation
+✔ [80/178] Replayed Batteries.Tactic.Unreachable
+✔ [81/178] Replayed Mathlib.Tactic.Linter.UnusedTacticExtension
+✔ [82/178] Replayed Mathlib.Tactic.Linter.UnusedTactic
+✔ [83/178] Replayed Mathlib.Tactic.Linter.Whitespace
+✔ [84/178] Replayed Mathlib.Tactic.MinImports
+✔ [85/178] Replayed Mathlib.Lean.Elab.Tactic.Meta
+✔ [86/178] Replayed Mathlib.Lean.ContextInfo
+✔ [87/178] Replayed Mathlib.Tactic.TacticAnalysis
+✔ [88/178] Replayed Batteries.Lean.Meta.Inaccessible
+✔ [89/178] Replayed Mathlib.Tactic.ExtractGoal
+✔ [90/178] Replayed Mathlib.Util.ParseCommand
+✔ [91/178] Replayed Mathlib.Tactic.TacticAnalysis.Declarations
+✔ [92/178] Replayed Mathlib.Tactic.TypeStar
+✔ [93/178] Replayed Mathlib.Util.CodeActions.BinderPlicity
+✔ [94/178] Replayed Mathlib.Util.CodeActions
+✔ [95/178] Replayed Mathlib.Init
+✔ [96/178] Replayed Mathlib.Lean.Meta.Simp
+✔ [97/178] Replayed Mathlib.Tactic.Attr.Register
+✔ [98/178] Replayed Mathlib.Basic.Logic.Basic
+✔ [99/178] Replayed Mathlib.Tactic.Push.Attr
+✔ [100/178] Replayed Mathlib.Basic.Nontrivial.Defs
+✔ [101/178] Replayed Batteries.Data.Nat.Basic
+✔ [102/178] Replayed Batteries.Data.Nat.Lemmas
+✔ [103/178] Replayed Mathlib.Data.Int.Notation
+✔ [104/178] Replayed Mathlib.Data.Nat.Notation
+✔ [105/178] Replayed Mathlib.Data.Nat.Init
+✔ [106/178] Replayed Batteries.Linter.UnreachableTactic
+✔ [107/178] Replayed Batteries.Lean.TagAttribute
+✔ [108/178] Replayed Batteries.Lean.AttributeExtra
+✔ [109/178] Replayed Batteries.Linter.UnnecessarySeqFocus
+✔ [110/178] Replayed Batteries.Linter
+✔ [111/178] Replayed Batteries.Tactic.Init
+✔ [112/178] Replayed Batteries.Tactic.SeqFocus
+✔ [113/178] Replayed Batteries.Tactic.Basic
+✔ [114/178] Replayed Batteries.Classes.Order
+✔ [115/178] Replayed Mathlib.Data.Ordering.Basic
+✔ [116/178] Replayed Mathlib.Lean.Name
+✔ [117/178] Replayed Batteries.Tactic.Trans
+✔ [118/178] Replayed Batteries.Lean.NameMapAttribute
+✔ [119/178] Replayed Mathlib.Tactic.Eqns
+✔ [120/178] Replayed Mathlib.Tactic.Translate.Attributes
+✔ [121/178] Replayed Mathlib.Data.String.Defs
+✔ [122/178] Replayed Mathlib.Tactic.Translate.GuessName
+✔ [123/178] Replayed Mathlib.Tactic.Translate.Reorder
+✔ [124/178] Replayed Mathlib.Tactic.Translate.UnfoldBoundary
+✔ [125/178] Replayed Mathlib.Tactic.Translate.Expr
+✔ [126/178] Replayed Mathlib.Tactic.Translate.Core
+✔ [127/178] Replayed Mathlib.Tactic.Translate.TagUnfoldBoundary
+✔ [128/178] Replayed Mathlib.Tactic.Translate.ToDual
+✔ [129/178] Replayed Mathlib.Tactic.ToDual
+✔ [130/178] Replayed Mathlib.Order.Defs.PartialOrder
+✔ [131/178] Replayed Mathlib.Tactic.Simps.NotationClass
+✔ [132/178] Replayed Mathlib.Util.AddRelatedDecl
+✔ [133/178] Replayed Mathlib.Tactic.Simps.Basic
+✔ [134/178] Replayed Mathlib.Tactic.Simps
+✔ [135/178] Replayed Batteries.Lean.Expr
+✔ [136/178] Replayed Mathlib.Tactic.Core
+✔ [137/178] Replayed Mathlib.Tactic.SplitIfs
+✔ [138/178] Replayed Mathlib.Order.Defs.LinearOrder
+✔ [139/178] Replayed Batteries.Data.Except
+✔ [140/178] Replayed Batteries.Lean.Except
+✔ [141/178] Replayed Mathlib.Tactic.GCongr.ForwardAttr
+✔ [142/178] Replayed Batteries.Tactic.Exact
+✔ [143/178] Replayed Batteries.Util.ExtendedBinder
+✔ [144/178] Replayed Mathlib.Lean.PrettyPrinter.Delaborator
+✔ [145/178] Replayed Mathlib.Tactic.SetNotationForOrder
+✔ [146/178] Replayed Mathlib.Data.Set.Defs
+✔ [147/178] Replayed Mathlib.Tactic.ExtendDoc
+✔ [148/178] Replayed Mathlib.Order.Defs.Unbundled
+✔ [149/178] Replayed Mathlib.Tactic.GCongr.Core
+✔ [150/178] Replayed Batteries.Control.Lemmas
+✔ [151/178] Replayed Batteries.Control.AlternativeMonad
+✔ [152/178] Replayed Batteries.Data.MLList.Basic
+✔ [153/178] Replayed Batteries.Control.Nondet.Basic
+✔ [154/178] Replayed Mathlib.Tactic.PPWithUniv
+✔ [155/178] Replayed Mathlib.Tactic.Basic
+✔ [156/178] Replayed Mathlib.Tactic.Hint
+✔ [157/178] Replayed Mathlib.Tactic.GCongr
+✔ [158/178] Replayed Mathlib.Data.Nat.Basic
+✔ [159/178] Replayed Batteries.Data.Fin.Basic
+✔ [160/178] Replayed Mathlib.Data.Int.DivMod
+✔ [161/178] Replayed Mathlib.Basic.IsEmpty.Defs
+✔ [162/178] Replayed Mathlib.Basic.ExistsUnique
+✔ [163/178] Replayed Mathlib.Basic.Nonempty
+✔ [164/178] Replayed Mathlib.Logic.Function.Defs
+✔ [165/178] Replayed Mathlib.Logic.Function.Basic
+✔ [166/178] Replayed Mathlib.Tactic.Inhabit
+✔ [167/178] Replayed Mathlib.Basic.Unique
+✔ [168/178] Replayed Mathlib.Basic.FunLike.Basic
+✔ [169/178] Replayed Mathlib.Basic.FunLike.Embedding
+✔ [170/178] Replayed Mathlib.Basic.FunLike.Equiv
+✔ [171/178] Replayed Mathlib.Logic.Relator
+✔ [172/178] Replayed Mathlib.Order.Defs.Prop
+✔ [173/178] Replayed Mathlib.Lean.Meta
+✔ [174/178] Replayed Mathlib.Tactic.MkIffOfInductiveProp
+✔ [175/178] Replayed Mathlib.Tactic.SimpRw
+✔ [176/178] Replayed Mathlib.Tactic.Use
+✔ [177/178] Replayed Mathlib.Logic.Relation
+✔ [178/277] Replayed Batteries.Lean.Syntax
+✔ [179/277] Replayed Mathlib.Lean.Elab.Term
+✔ [180/277] Replayed Mathlib.Util.WithWeakNamespace
+✔ [181/277] Replayed Mathlib.Tactic.ScopedNS
+✔ [182/277] Replayed Mathlib.Util.Notation3
+✔ [183/277] Replayed Mathlib.Data.Quot
+✔ [184/277] Replayed Mathlib.Data.Subtype
+✔ [185/277] Replayed Mathlib.Logic.Equiv.Defs
+✔ [186/277] Replayed Mathlib.Tactic.Attr.Core
+✔ [187/277] Ran aesop:extraDep
+✔ [188/277] Replayed Aesop.Script.Tactic
+✔ [189/277] Replayed Batteries.Lean.Meta.Basic
+✔ [190/277] Replayed Aesop.Script.GoalWithMVars
+✔ [191/277] Replayed Aesop.Script.TacticState
+✔ [192/277] Replayed Aesop.Nanos
+✔ [193/277] Replayed Batteries.Data.Array.Merge
+✔ [194/277] Replayed Aesop.Util.UnorderedArraySet
+✔ [195/277] Replayed Aesop.Index.DiscrTreeConfig
+✔ [196/277] Replayed Aesop.Util.Basic
+✔ [197/277] Replayed Aesop.Tracing
+✔ [198/277] Replayed Batteries.Tactic.PermuteGoals
+✔ [199/277] Replayed Batteries.Lean.MonadBacktrack
+✔ [200/277] Replayed Batteries.Lean.Meta.SavedState
+✔ [201/277] Replayed Aesop.Util.EqualUpToIds
+✔ [202/277] Replayed Aesop.Script.Util
+✔ [203/277] Replayed Aesop.Script.Step
+✔ [204/277] Replayed Aesop.Script.UScript
+✔ [205/277] Replayed Aesop.Check
+✔ [206/277] Replayed Aesop.Script.Check
+✔ [207/277] Replayed Aesop.Rule.Name
+✔ [208/277] Replayed Aesop.Options.Public
+✔ [209/277] Replayed Aesop.Stats.Basic
+✔ [210/277] Replayed Aesop.Options.Internal
+✔ [211/277] Replayed Aesop.Script.OptimizeSyntax
+✔ [212/277] Replayed Aesop.Script.SScript
+✔ [213/277] Replayed Aesop.Script.UScriptToSScript
+✔ [214/277] Replayed Aesop.Script.StructureDynamic
+✔ [215/277] Replayed Aesop.Script.StructureStatic
+✔ [216/277] Replayed Aesop.Script.Main
+✔ [217/277] Replayed Aesop.Forward.LevelIndex
+✔ [218/277] Replayed Aesop.Forward.PremiseIndex
+✔ [219/277] Replayed Aesop.Forward.Substitution
+✔ [220/277] Replayed Aesop.Index.Basic
+✔ [221/277] Replayed Aesop.Percent
+✔ [222/277] Replayed Aesop.RulePattern.Cache
+✔ [223/277] Replayed Aesop.BaseM
+✔ [224/277] Replayed Aesop.RuleTac.GoalDiff
+✔ [225/277] Replayed Aesop.RuleTac.Basic
+✔ [226/277] Replayed Aesop.Forward.SlotIndex
+✔ [227/277] Replayed Aesop.RulePattern
+✔ [228/277] Replayed Aesop.Util.UnionFind
+✔ [229/277] Replayed Batteries.Data.UInt
+✔ [230/277] Replayed Batteries.Data.Array.Basic
+✔ [231/277] Replayed Aesop.Forward.RuleInfo
+✔ [232/277] Replayed Aesop.RuleTac.RuleTerm
+✔ [233/277] Replayed Aesop.Rule.Forward
+✔ [234/277] Replayed Aesop.Forward.Match.Types
+✔ [235/277] Replayed Aesop.Script.CtorNames
+✔ [236/277] Replayed Aesop.RuleTac.Descr
+✔ [237/277] Replayed Aesop.Rule.Basic
+✔ [238/277] Replayed Aesop.Rule
+✔ [239/277] Replayed Aesop.ElabM
+✔ [240/277] Replayed Aesop.RuleTac.ElabRuleTerm
+✔ [241/277] Replayed Aesop.Util.Tactic.Ext
+✔ [242/277] Replayed Aesop.Script.ScriptM
+✔ [243/277] Replayed Aesop.Util.Tactic
+✔ [244/277] Replayed Aesop.Util.Unfold
+✔ [245/277] Replayed Aesop.Util.Tactic.Unfold
+✔ [246/277] Replayed Aesop.Script.SpecificTactics
+✔ [247/277] Replayed Aesop.RuleTac.Forward.Basic
+✔ [248/277] Replayed Batteries.Lean.Meta.UnusedNames
+✔ [249/277] Replayed Aesop.Forward.Match
+✔ [250/277] Replayed Aesop.Tree.Data.ForwardRuleMatches
+✔ [251/277] Replayed Aesop.Constants
+✔ [252/277] Replayed Aesop.Tree.UnsafeQueue
+✔ [253/277] Replayed Aesop.EMap
+✔ [254/277] Replayed Aesop.Forward.State
+✔ [255/277] Replayed Aesop.Tree.Data
+✔ [256/277] Replayed Aesop.Search.Queue.Class
+✔ [257/277] Replayed Aesop.Util.OrderedHashSet
+✔ [258/277] Replayed Batteries.Lean.Meta.Expr
+✔ [259/277] Replayed Batteries.Lean.PersistentHashMap
+✔ [260/277] Replayed Batteries.Lean.Meta.DiscrTree
+✔ [261/277] Replayed Aesop.Index.RulePattern
+✔ [262/277] Replayed Batteries.Lean.Meta.InstantiateMVars
+✔ [263/277] Replayed Batteries.Lean.PersistentHashSet
+✔ [264/277] Replayed Aesop.Index
+✔ [265/277] Replayed Aesop.Index.Forward
+✔ [266/277] Replayed Aesop.RuleSet.Name
+✔ [267/277] Replayed Aesop.RuleSet.Filter
+✔ [268/277] Replayed Aesop.RuleSet.Member
+✔ [269/277] Replayed Aesop.RuleSet
+✔ [270/277] Replayed Aesop.Forward.State.Initial
+✔ [271/277] Replayed Aesop.Tree.TreeM
+✔ [272/277] Replayed Aesop.Tree.RunMetaM
+✔ [273/369] Replayed Aesop.Search.SearchM
+✔ [274/369] Replayed Aesop.Tree.Traversal
+✔ [275/369] Replayed Aesop.Tree.State
+✔ [276/369] Replayed Batteries.Lean.HashSet
+✔ [277/369] Replayed Aesop.Forward.State.ApplyGoalDiff
+✔ [278/369] Replayed Aesop.RuleTac.Apply
+✔ [279/369] Replayed Aesop.RuleTac.Cases
+✔ [280/369] Replayed Aesop.RuleTac.Forward
+✔ [281/369] Replayed Aesop.RuleTac.Preprocess
+✔ [282/369] Replayed Aesop.RuleTac.Tactic
+✔ [283/369] Replayed Aesop.RuleTac
+✔ [284/369] Replayed Aesop.Search.Expansion.Basic
+✔ [285/369] Replayed Aesop.Search.Expansion.Simp
+✔ [286/369] Replayed Aesop.Search.RuleSelection
+✔ [287/369] Replayed Aesop.Search.Expansion.Norm
+✔ [288/369] Replayed Aesop.Tree.AddRapp
+✔ [289/369] Replayed Aesop.Forward.State.UpdateGoal
+✔ [290/369] Replayed Aesop.Search.Expansion
+✔ [291/369] Replayed Aesop.Exception
+✔ [292/369] Replayed Aesop.Search.ExpandSafePrefix
+✔ [293/369] Replayed Aesop.Tree.Check
+✔ [294/369] Replayed Aesop.Tree.ExtractProof
+✔ [295/369] Replayed Aesop.Tree.ExtractScript
+✔ [296/369] Replayed Aesop.Tree.Tracing
+✔ [297/369] Replayed Aesop.Frontend.Extension.Init
+✔ [298/369] Replayed Aesop.Frontend.Extension
+✔ [299/369] Replayed Batteries.Control.ForInStep.Basic
+✔ [300/369] Replayed Batteries.Data.BinomialHeap.Basic
+✔ [301/369] Replayed Aesop.Search.Queue
+✔ [302/369] Replayed Aesop.Tree.Free
+✔ [303/369] Replayed Aesop.Tree.Stats
+✔ [304/369] Replayed Aesop.Search.Main
+✔ [305/369] Replayed Aesop.Builder.Basic
+✔ [306/369] Replayed Aesop.Builder.Cases
+✔ [307/369] Replayed Aesop.Builder.Constructors
+✔ [308/369] Replayed Aesop.Builder.NormSimp
+✔ [309/369] Replayed Aesop.Builder.Tactic
+✔ [310/369] Replayed Aesop.Builder.Apply
+✔ [311/369] Replayed Aesop.Builder.Default
+✔ [312/369] Replayed Aesop.Builder.Forward
+✔ [313/369] Replayed Aesop.Builder.Unfold
+✔ [314/369] Replayed Aesop.Frontend.RuleExpr
+✔ [315/369] Replayed Aesop.Frontend.Tactic
+✔ [316/369] Replayed Aesop.Stats.Extension
+✔ [317/369] Replayed Aesop.Stats.File
+✔ [318/369] Replayed Aesop.Main
+✔ [319/369] Replayed Aesop.Frontend.Attribute
+✔ [320/369] Replayed Aesop.Frontend.Basic
+✔ [321/369] Replayed Aesop.Stats.Report
+✔ [322/369] Replayed Aesop.Frontend.Command
+✔ [323/369] Replayed Aesop.Saturate
+✔ [324/369] Replayed Aesop.Frontend.Saturate
+✔ [325/369] Replayed Aesop.Frontend
+✔ [326/369] Replayed Aesop.BuiltinRules.Assumption
+✔ [327/369] Replayed Aesop.BuiltinRules.ApplyHyps
+✔ [328/369] Replayed Aesop.BuiltinRules.DestructProducts
+✔ [329/369] Replayed Aesop.BuiltinRules.Ext
+✔ [330/369] Replayed Aesop.BuiltinRules.Intros
+✔ [331/369] Replayed Aesop.BuiltinRules.Rfl
+✔ [332/369] Replayed Aesop.BuiltinRules.Split
+✔ [333/369] Replayed Aesop.BuiltinRules.Subst
+✔ [334/369] Replayed Aesop.BuiltinRules
+✔ [335/369] Replayed Aesop
+✔ [336/369] Ran Qq:extraDep
+✔ [337/369] Replayed Qq.ForLean.ReduceEval
+✔ [338/369] Replayed Qq.ForLean.ToExpr
+✔ [339/369] Replayed Qq.Typ
+✔ [340/369] Replayed Qq.Macro
+✔ [341/369] Replayed Qq.Delab
+✔ [342/369] Replayed Qq.MetaM
+✔ [343/369] Replayed Qq.Simp
+✔ [344/369] Replayed Qq.ForLean.Do
+✔ [345/369] Replayed Qq.SortLocalDecls
+✔ [346/369] Replayed Qq.MatchImpl
+✔ [347/369] Replayed Qq.Match
+✔ [348/369] Replayed Qq.AssertInstancesCommute
+✔ [349/369] Replayed Qq.Commands
+✔ [350/369] Replayed Qq
+✔ [351/369] Ran plausible:extraDep
+✔ [352/369] Replayed Plausible.Random
+✔ [353/369] Replayed Plausible.Gen
+✔ [354/369] Replayed Plausible.Arbitrary
+✔ [355/369] Replayed Plausible.Shrinkable
+✔ [356/369] Replayed Plausible.Sampleable
+✔ [357/369] Replayed Plausible.Testable
+✔ [358/369] Replayed Plausible.Functions
+✔ [359/369] Replayed Plausible.Attr
+✔ [360/369] Replayed Plausible.Tactic
+✔ [361/369] Replayed Plausible.ArbitraryFueled
+✔ [362/369] Replayed Plausible.DeriveArbitrary
+✔ [363/369] Replayed Plausible.DeriveShrinkable
+✔ [364/369] Replayed Plausible
+✔ [365/369] Replayed Batteries.Tactic.Case
+✔ [366/369] Replayed Batteries.Tactic.GeneralizeProofs
+✔ [367/369] Replayed Batteries.CodeAction.Attr
+✔ [368/451] Replayed Batteries.CodeAction.Basic
+✔ [369/451] Replayed Batteries.CodeAction.Misc
+✔ [370/451] Replayed Batteries.Data.List.Basic
+✔ [371/451] Replayed Batteries.CodeAction.Match
+✔ [372/451] Replayed Batteries.CodeAction
+✔ [373/451] Ran LeanSearchClient:extraDep
+✔ [374/451] Replayed LeanSearchClient.Basic
+✔ [375/451] Replayed LeanSearchClient.Syntax
+✔ [376/451] Replayed LeanSearchClient.LoogleSyntax
+✔ [377/451] Replayed LeanSearchClient
+✔ [378/451] Replayed Mathlib.Tactic.ApplyCongr
+✔ [379/451] Replayed Mathlib.Lean.Meta.Basic
+✔ [380/451] Replayed Mathlib.Tactic.ApplyAt
+✔ [381/451] Replayed Mathlib.Tactic.ApplyWith
+✔ [382/451] Replayed Mathlib.Tactic.Conv
+✔ [383/451] Replayed Mathlib.Util.AtLocation
+✔ [384/451] Replayed Mathlib.Tactic.Push
+✔ [385/451] Replayed Mathlib.Tactic.ByCases
+✔ [386/451] Replayed Mathlib.Tactic.ByContra
+✔ [387/451] Replayed Mathlib.Tactic.CasesM
+✔ [388/451] Replayed Mathlib.Tactic.Check
+✔ [389/451] Replayed Mathlib.Tactic.Choose
+✔ [390/451] Replayed Mathlib.Tactic.ClearExclamation
+✔ [391/451] Replayed Mathlib.Tactic.ClearExcept
+✔ [392/451] Replayed Mathlib.Tactic.Clear_
+✔ [393/451] Replayed Mathlib.Lean.GoalsLocation
+✔ [394/451] Replayed Mathlib.Lean.Meta.KAbstractPositions
+✔ [395/451] Replayed Mathlib.Lean.FoldEnvironment
+✔ [396/451] Replayed Mathlib.Lean.Meta.RefinedDiscrTree.Basic
+✔ [397/451] Replayed Mathlib.Lean.Meta.RefinedDiscrTree.Initialize
+✔ [398/451] Replayed Mathlib.Lean.Meta.RefinedDiscrTree.Encode
+✔ [399/451] Replayed Mathlib.Lean.Meta.RefinedDiscrTree.Lookup
+✔ [400/451] Replayed Mathlib.Lean.Meta.RefinedDiscrTree
+✔ [401/451] Replayed Mathlib.Tactic.DepRewrite
+✔ [402/451] Replayed Mathlib.Tactic.GRewrite.Core
+✔ [403/451] Replayed Mathlib.Tactic.GRewrite.Elab
+✔ [404/451] Replayed Mathlib.Tactic.GRewrite
+✔ [405/451] Replayed Mathlib.Tactic.NthRewrite
+✔ [406/451] Ran proofwidgets:extraDep
+✔ [407/451] Ran widgetJsSrcs
+✔ [408/451] Ran widgetRollupConfig
+✔ [409/451] Ran widgetTsconfig
+✔ [410/451] Ran widgetPackageJson
+ℹ [411/451] Replayed proofwidgets/widgetPackageLock
+trace: /Users/wjn/ProofWidgets4/widget> npm install
+trace: stdout:
+added 6 packages, and audited 364 packages in 5s
+
+67 packages are looking for funding
+  run `npm fund` for details
+
+10 vulnerabilities (4 moderate, 6 high)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues possible (including breaking changes), run:
+  npm audit fix --force
+
+Some issues need review, and may require choosing
+a different dependency.
+
+Run `npm audit` for details.
+trace: stderr:
+npm warn allow-scripts 1 package has install scripts not yet covered by allowScripts:
+npm warn allow-scripts   fsevents@2.3.3 (install: (install scripts present))
+npm warn allow-scripts
+npm warn allow-scripts Run `npm approve-scripts --allow-scripts-pending` to review, or `npm approve-scripts <pkg>` to allow.
+ℹ [412/451] Replayed proofwidgets/widgetJsAll
+trace: /Users/wjn/ProofWidgets4/widget> npm clean-install
+trace: stdout:
+added 363 packages, and audited 364 packages in 11s
+
+67 packages are looking for funding
+  run `npm fund` for details
+
+10 vulnerabilities (4 moderate, 6 high)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues possible (including breaking changes), run:
+  npm audit fix --force
+
+Some issues need review, and may require choosing
+a different dependency.
+
+Run `npm audit` for details.
+trace: stderr:
+npm warn deprecated glob@11.1.0: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+npm warn deprecated three-mesh-bvh@0.7.8: Deprecated due to three.js version incompatibility. Please use v0.8.0, instead.
+npm warn deprecated mathjax-full@3.2.2: Version 4 replaces this package with the scoped package @mathjax/src
+npm warn allow-scripts 1 package has install scripts not yet covered by allowScripts:
+npm warn allow-scripts   fsevents@2.3.3 (install: (install scripts present))
+npm warn allow-scripts
+npm warn allow-scripts Run `npm approve-scripts --allow-scripts-pending` to review, or `npm approve-scripts <pkg>` to allow.
+trace: /Users/wjn/ProofWidgets4/widget> npm run build
+trace: stdout:
+> @leanprover-community/proofwidgets4@0.2.0 build
+> npx tsc && rollup --environment NODE_ENV:production --config
+trace: stderr:
+[36m
+[1mdist/rubiks.js[22m → [1m./js[22m...[39m
+[32mcreated [1m./js[22m in [1m11s[22m[39m
+[36m
+[1mdist/recharts.js[22m → [1m./js[22m...[39m
+[1m[33m(!) Circular dependencies[39m[22m
+node_modules/d3-interpolate/src/value.js -> node_modules/d3-interpolate/src/array.js -> node_modules/d3-interpolate/src/value.js
+node_modules/d3-interpolate/src/value.js -> node_modules/d3-interpolate/src/object.js -> node_modules/d3-interpolate/src/value.js
+node_modules/recharts/es6/util/ChartUtils.js -> node_modules/recharts/es6/util/getLegendProps.js -> node_modules/recharts/es6/util/ChartUtils.js
+[32mcreated [1m./js[22m in [1m7.3s[22m[39m
+[36m
+[1mdist/rbTree.js[22m → [1m./js[22m...[39m
+[1m[33m(!) Circular dependencies[39m[22m
+node_modules/d3-selection/src/selection/index.js -> node_modules/d3-selection/src/selection/select.js -> node_modules/d3-selection/src/selection/index.js
+node_modules/d3-selection/src/selection/index.js -> node_modules/d3-selection/src/selection/selectAll.js -> node_modules/d3-selection/src/selection/index.js
+node_modules/d3-selection/src/selection/index.js -> node_modules/d3-selection/src/selection/filter.js -> node_modules/d3-selection/src/selection/index.js
+...and 12 more
+[32mcreated [1m./js[22m in [1m1.4s[22m[39m
+[36m
+[1mdist/presentSelection.js[22m → [1m./js[22m...[39m
+[32mcreated [1m./js[22m in [1m194ms[22m[39m
+[36m
+[1mdist/penroseDisplay.js[22m → [1m./js[22m...[39m
+[1m[33m(!) Circular dependencies[39m[22m
+node_modules/true-myth/dist/es/maybe.js -> node_modules/true-myth/dist/es/result.js -> node_modules/true-myth/dist/es/maybe.js
+node_modules/@penrose/core/dist/engine/EngineUtils.js -> node_modules/@penrose/core/dist/utils/Util.js -> node_modules/@penrose/core/dist/engine/EngineUtils.js
+node_modules/@penrose/core/dist/engine/BBox.js -> node_modules/@penrose/core/dist/contrib/Queries.js -> node_modules/@penrose/core/dist/engine/BBox.js
+...and 14 more
+[32mcreated [1m./js[22m in [1m14.2s[22m[39m
+[36m
+[1mdist/penroseCanvas.js[22m → [1m./js[22m...[39m
+[1m[33m(!) Circular dependencies[39m[22m
+node_modules/true-myth/dist/es/maybe.js -> node_modules/true-myth/dist/es/result.js -> node_modules/true-myth/dist/es/maybe.js
+node_modules/@penrose/core/dist/engine/EngineUtils.js -> node_modules/@penrose/core/dist/utils/Util.js -> node_modules/@penrose/core/dist/engine/EngineUtils.js
+node_modules/@penrose/core/dist/engine/BBox.js -> node_modules/@penrose/core/dist/contrib/Queries.js -> node_modules/@penrose/core/dist/engine/BBox.js
+...and 14 more
+[32mcreated [1m./js[22m in [1m14.1s[22m[39m
+[36m
+[1mdist/ofRpcMethod.js[22m → [1m./js[22m...[39m
+[32mcreated [1m./js[22m in [1m216ms[22m[39m
+[36m
+[1mdist/maximizable.js[22m → [1m./js[22m...[39m
+[32mcreated [1m./js[22m in [1m145ms[22m[39m
+[36m
+[1mdist/makeEditLink.js[22m → [1m./js[22m...[39m
+[32mcreated [1m./js[22m in [1m127ms[22m[39m
+[36m
+[1mdist/interactiveSvg.js[22m → [1m./js[22m...[39m
+[32mcreated [1m./js[22m in [1m194ms[22m[39m
+[36m
+[1mdist/interactiveExpr.js[22m → [1m./js[22m...[39m
+[32mcreated [1m./js[22m in [1m150ms[22m[39m
+[36m
+[1mdist/index.js[22m → [1m./js[22m...[39m
+[1m[33m(!) Circular dependencies[39m[22m
+node_modules/d3-selection/src/selection/index.js -> node_modules/d3-selection/src/selection/select.js -> node_modules/d3-selection/src/selection/index.js
+node_modules/d3-selection/src/selection/index.js -> node_modules/d3-selection/src/selection/selectAll.js -> node_modules/d3-selection/src/selection/index.js
+node_modules/d3-selection/src/selection/index.js -> node_modules/d3-selection/src/selection/filter.js -> node_modules/d3-selection/src/selection/index.js
+...and 12 more
+[32mcreated [1m./js[22m in [1m4.4s[22m[39m
+[36m
+[1mdist/htmlDisplayPanel.js[22m → [1m./js[22m...[39m
+[32mcreated [1m./js[22m in [1m160ms[22m[39m
+[36m
+[1mdist/htmlDisplay.js[22m → [1m./js[22m...[39m
+[32mcreated [1m./js[22m in [1m144ms[22m[39m
+[36m
+[1mdist/graphvizDisplay.js[22m → [1m./js[22m...[39m
+[1m[33m(!) Circular dependencies[39m[22m
+node_modules/d3-selection/src/selection/index.js -> node_modules/d3-selection/src/selection/select.js -> node_modules/d3-selection/src/selection/index.js
+node_modules/d3-selection/src/selection/index.js -> node_modules/d3-selection/src/selection/selectAll.js -> node_modules/d3-selection/src/selection/index.js
+node_modules/d3-selection/src/selection/index.js -> node_modules/d3-selection/src/selection/filter.js -> node_modules/d3-selection/src/selection/index.js
+...and 12 more
+[32mcreated [1m./js[22m in [1m3.5s[22m[39m
+[36m
+[1mdist/goalTypePanel.js[22m → [1m./js[22m...[39m
+[32mcreated [1m./js[22m in [1m204ms[22m[39m
+[36m
+[1mdist/forceGraphDisplay.js[22m → [1m./js[22m...[39m
+[1m[33m(!) Circular dependencies[39m[22m
+node_modules/d3-selection/src/selection/index.js -> node_modules/d3-selection/src/selection/select.js -> node_modules/d3-selection/src/selection/index.js
+node_modules/d3-selection/src/selection/index.js -> node_modules/d3-selection/src/selection/selectAll.js -> node_modules/d3-selection/src/selection/index.js
+node_modules/d3-selection/src/selection/index.js -> node_modules/d3-selection/src/selection/filter.js -> node_modules/d3-selection/src/selection/index.js
+...and 12 more
+[32mcreated [1m./js[22m in [1m2.6s[22m[39m
+[36m
+[1mdist/filterDetails.js[22m → [1m./js[22m...[39m
+[32mcreated [1m./js[22m in [1m158ms[22m[39m
+[36m
+[1mdist/exprPresentation.js[22m → [1m./js[22m...[39m
+[32mcreated [1m./js[22m in [1m168ms[22m[39m
+[36m
+[1mdist/dotGraph.js[22m → [1m./js[22m...[39m
+[1m[33m(!) Circular dependencies[39m[22m
+node_modules/d3-selection/src/selection/index.js -> node_modules/d3-selection/src/selection/select.js -> node_modules/d3-selection/src/selection/index.js
+node_modules/d3-selection/src/selection/index.js -> node_modules/d3-selection/src/selection/selectAll.js -> node_modules/d3-selection/src/selection/index.js
+node_modules/d3-selection/src/selection/index.js -> node_modules/d3-selection/src/selection/filter.js -> node_modules/d3-selection/src/selection/index.js
+...and 12 more
+[32mcreated [1m./js[22m in [1m2.8s[22m[39m
+[36m
+[1mdist/d3Graph.js[22m → [1m./js[22m...[39m
+[1m[33m(!) Circular dependencies[39m[22m
+node_modules/d3-selection/src/selection/index.js -> node_modules/d3-selection/src/selection/select.js -> node_modules/d3-selection/src/selection/index.js
+node_modules/d3-selection/src/selection/index.js -> node_modules/d3-selection/src/selection/selectAll.js -> node_modules/d3-selection/src/selection/index.js
+node_modules/d3-selection/src/selection/index.js -> node_modules/d3-selection/src/selection/filter.js -> node_modules/d3-selection/src/selection/index.js
+...and 12 more
+[32mcreated [1m./js[22m in [1m2.5s[22m[39m
+[36m
+[1mdist/cancellable.js[22m → [1m./js[22m...[39m
+[32mcreated [1m./js[22m in [1m130ms[22m[39m
+[36m
+[1mdist/animatedHtml.js[22m → [1m./js[22m...[39m
+[32mcreated [1m./js[22m in [1m148ms[22m[39m
+[36m
+[1mdist/RefreshComponent.js[22m → [1m./js[22m...[39m
+[32mcreated [1m./js[22m in [1m150ms[22m[39m
+✔ [413/451] Replayed ProofWidgets.Compat
+✔ [414/451] Replayed ProofWidgets.Component.Basic
+✔ [415/451] Replayed ProofWidgets.Component.MakeEditLink
+✔ [416/451] Replayed ProofWidgets.Component.Panel.Basic
+✔ [417/451] Replayed ProofWidgets.Util
+✔ [418/451] Replayed ProofWidgets.Data.Html
+✔ [419/451] Replayed ProofWidgets.Component.RefreshComponent
+✔ [420/451] Replayed Mathlib.Tactic.ClickSuggestions.Util
+✔ [421/451] Replayed ProofWidgets.Component.FilterDetails
+✔ [422/451] Replayed Mathlib.Tactic.ClickSuggestions.SectionState
+✔ [423/451] Replayed Mathlib.Tactic.ClickSuggestions.Apply
+✔ [424/451] Replayed Mathlib.Tactic.ClickSuggestions.ApplyAt
+✔ [425/451] Replayed Mathlib.Tactic.ClickSuggestions.GRewrite
+✔ [426/451] Replayed Mathlib.Control.Combinators
+✔ [427/451] Replayed Mathlib.Control.Basic
+✔ [428/451] Replayed Mathlib.Tactic.ClickSuggestions.Rewrite
+✔ [429/451] Replayed Mathlib.Tactic.ClickSuggestions.FindPremises
+✔ [430/451] Replayed Mathlib.Tactic.ClickSuggestions.TryPremises
+✔ [431/451] Replayed Mathlib.Tactic.ClickSuggestions.Unfold
+✔ [432/451] Replayed ProofWidgets.Cancellable
+✔ [433/451] Replayed ProofWidgets.Component.OfRpcMethod
+✔ [434/451] Replayed Mathlib.Tactic.ClickSuggestions
+✔ [435/451] Replayed Mathlib.Tactic.Coe
+✔ [436/451] Replayed Mathlib.Lean.Meta.CongrTheorems
+✔ [437/451] Replayed Mathlib.Tactic.Relation.Rfl
+✔ [438/451] Replayed Mathlib.Tactic.CongrExclamation
+✔ [439/451] Replayed Mathlib.Tactic.TermCongr
+✔ [440/451] Replayed Mathlib.Tactic.CongrM
+✔ [441/451] Replayed Mathlib.Tactic.Constructor
+✔ [442/451] Replayed Mathlib.Tactic.Contrapose
+✔ [443/451] Replayed Mathlib.Tactic.Convert
+✔ [444/451] Replayed Mathlib.Lean.MessageData.Trace
+✔ [445/451] Replayed Mathlib.Tactic.DefEqAbuse
+✔ [446/451] Replayed Mathlib.Tactic.DefEqTransformations
+✔ [447/451] Replayed Mathlib.Tactic.DeprecateTo
+✔ [448/451] Replayed Mathlib.Tactic.DSimpPercent
+✔ [449/451] Replayed Mathlib.Tactic.ErwQuestion
+✔ [450/451] Replayed Mathlib.Tactic.ExistsI
+✔ [451/525] Replayed Mathlib.Tactic.FailIfNoProgress
+✔ [452/525] Replayed Batteries.Util.Cache
+✔ [453/525] Replayed Mathlib.Tactic.Find
+✔ [454/525] Replayed Mathlib.Tactic.FunProp.Decl
+✔ [455/525] Replayed Mathlib.Tactic.FunProp.Mor
+✔ [456/525] Replayed Mathlib.Tactic.FunProp.ToBatteries
+✔ [457/525] Replayed Mathlib.Tactic.FunProp.FunctionData
+✔ [458/525] Replayed Mathlib.Tactic.FunProp.Types
+✔ [459/525] Replayed Mathlib.Tactic.FunProp.Theorems
+✔ [460/525] Replayed Mathlib.Tactic.FunProp.Attr
+✔ [461/525] Replayed Mathlib.Tactic.FunProp.Core
+✔ [462/525] Replayed Mathlib.Tactic.InferParam
+✔ [463/525] Replayed Mathlib.Tactic.FunProp.Elab
+✔ [464/525] Replayed Mathlib.Tactic.FunProp
+✔ [465/525] Replayed Mathlib.Tactic.GrindAttrs
+✔ [466/525] Replayed Mathlib.Tactic.GuardGoalNums
+✔ [467/525] Replayed Mathlib.Tactic.GuardHypNums
+✔ [468/525] Replayed Mathlib.Tactic.HigherOrder
+✔ [469/525] Replayed Mathlib.Util.TermReduce
+✔ [470/525] Replayed Mathlib.Tactic.IrreducibleDef
+✔ [471/525] Replayed Mathlib.Tactic.Lift
+✔ [472/525] Replayed Mathlib.Tactic.Linter.HaveLetLinter
+✔ [473/525] Replayed Mathlib.Tactic.Linter.MinImports
+✔ [474/525] Replayed Mathlib.Tactic.Linter.PPRoundtrip
+✔ [475/525] Replayed Mathlib.Tactic.Linter.UpstreamableDecl
+✔ [476/525] Replayed Mathlib.Tactic.Linter
+✔ [477/525] Replayed Mathlib.Tactic.Observe
+✔ [478/525] Replayed Mathlib.Tactic.OfNat
+✔ [479/525] Replayed Mathlib.Tactic.RSuffices
+✔ [480/525] Replayed Mathlib.Tactic.Recover
+✔ [481/525] Replayed Mathlib.Tactic.Rename
+✔ [482/525] Replayed Mathlib.Util.Tactic
+✔ [483/525] Replayed Mathlib.Tactic.RenameBVar
+✔ [484/525] Replayed Mathlib.Tactic.Says
+✔ [485/525] Replayed Mathlib.Tactic.Set
+✔ [486/525] Replayed Mathlib.Lean.Elab.Tactic.Basic
+✔ [487/525] Replayed Mathlib.Tactic.Setm
+✔ [488/525] Replayed Mathlib.Tactic.SimpIntro
+✔ [489/525] Replayed Mathlib.Tactic.Simproc.ExistsAndEq
+✔ [490/525] Replayed Mathlib.Tactic.Spread
+✔ [491/525] Replayed Mathlib.Tactic.Subsingleton
+✔ [492/525] Replayed Mathlib.Tactic.Substs
+✔ [493/525] Replayed Mathlib.Tactic.SuccessIfFailWithMsg
+✔ [494/525] Replayed Mathlib.Tactic.SudoSetOption
+✔ [495/525] Replayed Mathlib.Tactic.SwapVar
+✔ [496/525] Replayed Mathlib.Tactic.Tauto
+✔ [497/525] Replayed Mathlib.Tactic.ToFun
+✔ [498/525] Replayed Mathlib.Tactic.ToExpr
+✔ [499/525] Replayed Mathlib.Tactic.ToLevel
+✔ [500/525] Replayed Mathlib.Tactic.Trace
+✔ [501/525] Replayed Mathlib.Tactic.UnsetOption
+✔ [502/525] Replayed Mathlib.Tactic.Variable
+✔ [503/525] Replayed Mathlib.Tactic.Widget.SelectInsertParamsClass
+✔ [504/525] Replayed Mathlib.Tactic.Widget.SelectPanelUtils
+✔ [505/525] Replayed Mathlib.Tactic.Widget.Calc
+✔ [506/525] Replayed Mathlib.Tactic.Widget.CongrM
+✔ [507/525] Replayed Mathlib.Tactic.Widget.Conv
+✔ [508/525] Replayed Mathlib.Tactic.Widget.LibraryRewrite
+✔ [509/525] Replayed Mathlib.Tactic.WLOG
+✔ [510/525] Replayed Mathlib.Util.CountHeartbeats
+✔ [511/525] Replayed Mathlib.Util.PrintSorries
+✔ [512/525] Replayed Mathlib.Util.TransImports
+✔ [513/525] Replayed Mathlib.Util.WhatsNew
+✔ [514/525] Replayed Mathlib.Tactic.Common
+✔ [515/525] Replayed Mathlib.Data.Fin.Basic
+✔ [516/525] Replayed Batteries.Control.ForInStep.Lemmas
+✔ [517/525] Replayed Batteries.Data.List.Lemmas
+✔ [518/525] Replayed Mathlib.Tactic.Translate.ToAdditive
+✔ [519/525] Replayed Mathlib.Tactic.ToAdditive
+✔ [520/525] Replayed Mathlib.Algebra.Regular.Defs
+✔ [521/525] Replayed Mathlib.Algebra.Group.Semigroup
+✔ [522/525] Replayed Mathlib.Data.Nat.BinaryRec
+✔ [523/590] Replayed Mathlib.Algebra.Group.Monoid
+✔ [524/590] Replayed Mathlib.Algebra.BigOperators.Group.List.Defs
+✔ [525/590] Replayed Mathlib.Tactic.CrossRefAttribute
+✔ [526/590] Replayed Mathlib.Algebra.Group.DivInvMonoid
+✔ [527/590] Replayed Mathlib.Algebra.Group.Defs
+✔ [528/590] Replayed Mathlib.Algebra.Notation.Defs
+✔ [529/590] Replayed Mathlib.Data.Int.Init
+✔ [530/590] Replayed Mathlib.Logic.Function.Conjugate
+✔ [531/590] Replayed Mathlib.Logic.Function.Iterate
+✔ [532/590] Replayed Mathlib.Algebra.Group.Basic
+✔ [533/590] Replayed Mathlib.Algebra.Group.Semiconj.Defs
+✔ [534/590] Replayed Mathlib.Algebra.Group.Commute.Defs
+✔ [535/590] Replayed Mathlib.Algebra.Notation.Pi.Defs
+✔ [536/590] Replayed Mathlib.Algebra.Group.Hom.Defs
+✔ [537/590] Replayed Mathlib.Algebra.Group.Int.Defs
+✔ [538/590] Replayed Mathlib.Algebra.Group.Nat.Defs
+✔ [539/590] Replayed Mathlib.Tactic.FBinop
+✔ [540/590] Replayed Mathlib.Basic.SProd
+✔ [541/590] Replayed Mathlib.Control.Functor
+✔ [542/590] Replayed Mathlib.Data.List.Defs
+✔ [543/590] Replayed Mathlib.Data.List.Monad
+✔ [544/590] Replayed Mathlib.Data.List.Basic
+✔ [545/590] Replayed Batteries.Data.List.Perm
+✔ [546/590] Replayed Mathlib.Util.CompileInductive
+✔ [547/590] Replayed Mathlib.Data.List.Forall2
+✔ [548/590] Replayed Mathlib.Data.List.InsertIdx
+✔ [549/590] Replayed Mathlib.Logic.OpClass
+✔ [550/590] Replayed Mathlib.Data.List.Perm.Basic
+✔ [551/590] Replayed Mathlib.Data.List.TakeDrop
+✔ [552/590] Replayed Mathlib.Order.Notation
+✔ [553/590] Replayed Mathlib.Tactic.FastInstance
+✔ [554/590] Replayed Mathlib.Order.Basic
+✔ [555/590] Replayed Mathlib.Algebra.Group.InjSurj
+✔ [556/590] Replayed Mathlib.Algebra.Group.Semiconj.Basic
+✔ [557/590] Replayed Mathlib.Algebra.Group.Commute.Basic
+✔ [558/590] Replayed Mathlib.Algebra.Group.SelfInv
+✔ [559/590] Replayed Mathlib.Algebra.Group.Torsion
+✔ [560/590] Replayed Mathlib.Algebra.Opposites
+✔ [561/590] Replayed Mathlib.Algebra.Group.Opposite
+✔ [562/590] Replayed Mathlib.Algebra.Divisibility.Basic
+✔ [563/590] Replayed Mathlib.Algebra.BigOperators.Group.List.Basic
+✔ [564/590] Replayed Mathlib.Control.Applicative
+✔ [565/590] Replayed Mathlib.Data.Option.Defs
+✔ [566/590] Replayed Mathlib.Control.Traversable.Basic
+✔ [567/590] Replayed Mathlib.Data.Set.CoeSort
+✔ [568/590] Replayed Mathlib.Data.Set.Operations
+✔ [569/590] Replayed Mathlib.Data.Fin.SuccPred
+✔ [570/590] Replayed Mathlib.Data.Vector.Defs
+✔ [571/590] Replayed Batteries.Data.Fin.Lemmas
+✔ [572/590] Replayed Mathlib.Data.List.Nodup
+✔ [573/590] Replayed Mathlib.Data.Vector.Basic
+✔ [574/590] Replayed Mathlib.Algebra.GroupWithZero.Defs
+✔ [575/590] Replayed Mathlib.Algebra.Group.Hom.Basic
+✔ [576/590] Replayed Mathlib.Algebra.Notation.Pi.Basic
+✔ [577/590] Replayed Mathlib.Data.Sum.Basic
+✔ [578/590] Replayed Mathlib.Algebra.Group.Pi.Basic
+✔ [579/590] Replayed Mathlib.Algebra.Group.Hom.Instances
+✔ [580/590] Replayed Mathlib.Algebra.Group.IsCommutative
+✔ [581/590] Replayed Mathlib.Data.Nat.Cast.Defs
+✔ [582/590] Replayed Mathlib.Data.Int.Cast.Defs
+✔ [583/590] Replayed Mathlib.Algebra.Ring.Defs
+✔ [584/590] Replayed Mathlib.Util.AtomM
+✔ [585/590] Replayed Batteries.Data.List.Pairwise
+✔ [586/590] Replayed Mathlib.Data.List.TFAE
+✔ [587/590] Replayed Mathlib.Logic.Pairwise
+✔ [588/590] Replayed Mathlib.Data.List.Pairwise
+✔ [589/590] Replayed Mathlib.Tactic.TFAE
+✔ [590/656] Replayed Mathlib.Tactic.Basify.Attr
+✔ [591/656] Replayed Mathlib.Algebra.NeZero
+✔ [592/656] Replayed Mathlib.Algebra.GroupWithZero.NeZero
+✔ [593/656] Replayed Mathlib.Algebra.Ring.Basic
+✔ [594/656] Replayed Mathlib.Data.Prod.Basic
+✔ [595/656] Replayed Mathlib.Algebra.Notation.Prod
+✔ [596/656] Replayed Mathlib.Algebra.Order.ZeroLEOne
+✔ [597/656] Replayed Mathlib.Order.OrderDual
+✔ [598/656] Replayed Mathlib.Order.Max
+✔ [599/656] Replayed Mathlib.Logic.Function.ULift
+✔ [600/656] Replayed Mathlib.Order.ULift
+✔ [601/656] Replayed Mathlib.Tactic.Finiteness.Attr
+✔ [602/656] Replayed Mathlib.Order.BoundedOrder.Basic
+✔ [603/656] Replayed Mathlib.Data.Bool.Basic
+✔ [604/656] Replayed Mathlib.Order.Defs.Lattice
+✔ [605/656] Replayed Mathlib.Data.Int.Order.Basic
+✔ [606/656] Replayed Mathlib.Order.Compare
+✔ [607/656] Replayed Mathlib.Order.Monotone.Defs
+✔ [608/656] Replayed Mathlib.Basic.IsEmpty.Basic
+✔ [609/656] Replayed Mathlib.Order.RelClasses
+✔ [610/656] Replayed Mathlib.Order.Monotone.Basic
+✔ [611/656] Replayed Mathlib.Order.Lattice
+✔ [612/656] Replayed Mathlib.Order.BoundedOrder.Lattice
+✔ [613/656] Replayed Mathlib.Algebra.Order.IsBotOne
+✔ [614/656] Replayed Mathlib.Algebra.Order.Monoid.Unbundled.Defs
+✔ [615/656] Replayed Mathlib.Order.MinMax
+✔ [616/656] Replayed Mathlib.Algebra.Order.Monoid.Unbundled.Basic
+✔ [617/656] Replayed Mathlib.Algebra.Order.Sub.Defs
+✔ [618/656] Replayed Mathlib.Algebra.Order.Group.Unbundled.Basic
+✔ [619/656] Replayed Mathlib.Algebra.Order.Monoid.Defs
+✔ [620/656] Replayed Mathlib.Algebra.Order.Group.Defs
+✔ [621/656] Replayed Mathlib.Algebra.Group.Equiv.Defs
+✔ [622/656] Replayed Mathlib.Control.EquivFunctor
+✔ [623/656] Replayed Mathlib.Data.Option.Basic
+✔ [624/656] Replayed Mathlib.Logic.Equiv.Option
+✔ [625/656] Replayed Mathlib.Data.Sigma.Basic
+✔ [626/656] Replayed Mathlib.Logic.Equiv.Prod
+✔ [627/656] Replayed Mathlib.Logic.Equiv.Sum
+✔ [628/656] Replayed Mathlib.Logic.Equiv.Basic
+✔ [629/656] Replayed Mathlib.Algebra.Group.Equiv.Basic
+✔ [630/656] Replayed Mathlib.Algebra.Group.Equiv.Opposite
+✔ [631/656] Replayed Mathlib.Algebra.Group.TypeTags.Basic
+✔ [632/656] Replayed Mathlib.Algebra.Group.Even
+✔ [633/656] Replayed Mathlib.Algebra.Group.Units.Defs
+✔ [634/656] Replayed Mathlib.Algebra.Group.Units.Basic
+✔ [635/656] Replayed Mathlib.Algebra.Group.Units.Hom
+✔ [636/656] Replayed Mathlib.Algebra.Group.Units.Equiv
+✔ [637/656] Replayed Mathlib.Order.Disjoint
+✔ [638/656] Replayed Mathlib.Data.Prod.PProd
+✔ [639/656] Replayed Mathlib.Logic.Embedding.Basic
+✔ [640/656] Replayed Mathlib.Order.RelIso.Basic
+✔ [641/656] Replayed Mathlib.Tactic.Monotonicity.Attr
+✔ [642/656] Replayed Mathlib.Order.Hom.Basic
+✔ [643/656] Replayed Mathlib.Algebra.Order.Group.OrderIso
+✔ [644/656] Replayed Mathlib.Algebra.Order.Group.Lattice
+✔ [645/656] Replayed Mathlib.Algebra.Order.Group.Unbundled.Abs
+✔ [646/656] Replayed Mathlib.Order.Lex
+✔ [647/656] Replayed Mathlib.Algebra.Order.Group.Synonym
+✔ [648/656] Replayed Mathlib.Algebra.Order.Monoid.Unbundled.OrderDual
+✔ [649/656] Replayed Mathlib.Algebra.Order.Monoid.Unbundled.Pow
+✔ [650/656] Replayed Mathlib.Algebra.Order.Group.Abs
+✔ [651/656] Replayed Mathlib.Algebra.Order.Group.Int
+✔ [652/656] Replayed Mathlib.Data.Int.Basic
+✔ [653/656] Replayed Mathlib.Algebra.Order.Group.Unbundled.Int
+✔ [654/656] Replayed Mathlib.Algebra.CharZero.Defs
+✔ [655/656] Replayed Mathlib.Algebra.GroupWithZero.Basic
+✔ [656/718] Replayed Mathlib.Basic.Nontrivial.Basic
+✔ [657/718] Replayed Mathlib.Tactic.Nontriviality.Core
+✔ [658/718] Replayed Mathlib.Tactic.Nontriviality
+✔ [659/718] Replayed Mathlib.Algebra.GroupWithZero.Units.Basic
+✔ [660/718] Replayed Mathlib.Algebra.Order.GroupWithZero.Defs
+✔ [661/718] Replayed Mathlib.Tactic.Bound.Init
+✔ [662/718] Replayed Mathlib.Tactic.Bound.Attribute
+✔ [663/718] Replayed Batteries.Tactic.Congr
+✔ [664/718] Replayed Mathlib.Order.PropInstances
+✔ [665/718] Replayed Mathlib.Data.Set.Basic
+✔ [666/718] Replayed Mathlib.Data.Set.Inclusion
+✔ [667/718] Replayed Mathlib.Data.Set.Disjoint
+✔ [668/718] Replayed Mathlib.Data.Set.Insert
+✔ [669/718] Replayed Mathlib.Data.Set.Subsingleton
+✔ [670/718] Replayed Mathlib.Order.GaloisConnection.Defs
+✔ [671/718] Replayed Mathlib.Order.Heyting.Basic
+✔ [672/718] Replayed Mathlib.Order.BooleanAlgebra.Defs
+✔ [673/718] Replayed Mathlib.Order.BooleanAlgebra.Basic
+✔ [674/718] Replayed Mathlib.Order.BooleanAlgebra.Set
+✔ [675/718] Replayed Mathlib.Order.SymmDiff
+✔ [676/718] Replayed Mathlib.Data.Set.SymmDiff
+✔ [677/718] Replayed Mathlib.Data.Set.Image
+✔ [678/718] Replayed Mathlib.Data.Set.Prod
+✔ [679/718] Replayed Mathlib.Data.Set.Restrict
+✔ [680/718] Replayed Mathlib.Data.Set.Function
+✔ [681/718] Replayed Mathlib.Algebra.Order.GroupWithZero.Basic
+✔ [682/718] Replayed Mathlib.Algebra.Order.Monoid.NatCast
+✔ [683/718] Replayed Mathlib.Algebra.Order.Monoid.Unbundled.ExistsOfLE
+✔ [684/718] Replayed Mathlib.Algebra.Order.Monoid.Unbundled.MinMax
+✔ [685/718] Replayed Mathlib.Algebra.Order.Ring.Unbundled.Basic
+✔ [686/718] Replayed Mathlib.Data.Int.Cast.Basic
+✔ [687/718] Replayed Mathlib.Algebra.Ring.GrindInstances
+✔ [688/718] Replayed Mathlib.Algebra.Order.Ring.Defs
+✔ [689/718] Replayed Mathlib.Algebra.Ring.Int.Defs
+✔ [690/718] Replayed Mathlib.Data.Nat.Sqrt
+✔ [691/718] Replayed Mathlib.Algebra.Group.Nat.Even
+✔ [692/718] Replayed Mathlib.Data.Int.Sqrt
+✔ [693/718] Replayed Mathlib.Algebra.Group.Int.Even
+✔ [694/718] Replayed Mathlib.Algebra.Divisibility.Hom
+✔ [695/718] Replayed Mathlib.Algebra.Group.TypeTags.Hom
+✔ [696/718] Replayed Mathlib.Algebra.Group.Nat.Hom
+✔ [697/718] Replayed Mathlib.Algebra.GroupWithZero.Hom
+✔ [698/718] Replayed Mathlib.Algebra.Ring.Hom.Defs
+✔ [699/718] Replayed Mathlib.Algebra.GroupWithZero.Nat
+✔ [700/718] Replayed Mathlib.Algebra.Ring.Nat
+✔ [701/718] Replayed Mathlib.Data.Nat.Cast.Pi
+✔ [702/718] Replayed Mathlib.Data.Nat.Cast.Basic
+✔ [703/718] Replayed Mathlib.Algebra.Group.Semiconj.Units
+✔ [704/718] Replayed Mathlib.Algebra.Group.Commute.Units
+✔ [705/718] Replayed Mathlib.Algebra.GroupWithZero.Semiconj
+✔ [706/718] Replayed Mathlib.Algebra.GroupWithZero.Commute
+✔ [707/718] Replayed Mathlib.Algebra.Notation.Bracket
+✔ [708/718] Replayed Mathlib.Algebra.Ring.Semiconj
+✔ [709/718] Replayed Mathlib.Algebra.GroupWithZero.InjSurj
+✔ [710/718] Replayed Mathlib.Algebra.Ring.InjSurj
+✔ [711/718] Replayed Mathlib.Algebra.Ring.Units
+✔ [712/718] Replayed Mathlib.Algebra.Ring.Commute
+✔ [713/718] Replayed Mathlib.Data.Nat.Cast.Commute
+✔ [714/718] Replayed Mathlib.Algebra.Ring.Parity
+✔ [715/718] Replayed Mathlib.Algebra.Ring.Int.Parity
+✔ [716/718] Replayed Mathlib.Order.Bounds.Defs
+✔ [717/749] Replayed Mathlib.Data.Int.GCD
+✔ [718/749] Replayed Mathlib.Data.Nat.Cast.NeZero
+✔ [719/749] Replayed Mathlib.Data.Nat.Cast.Order.Basic
+✔ [720/749] Replayed Mathlib.Algebra.Order.Ring.Int
+✔ [721/749] Replayed Mathlib.Algebra.Order.Monoid.Canonical.Defs
+✔ [722/749] Replayed Mathlib.Algebra.Order.Group.Nat
+✔ [723/749] Replayed Mathlib.Algebra.Group.WithOne.Defs
+✔ [724/749] Replayed Mathlib.Data.Option.NAry
+✔ [725/749] Replayed Mathlib.Algebra.Group.WithOne.Map
+✔ [726/749] Replayed Mathlib.Algebra.GroupWithZero.Regular
+✔ [727/749] Replayed Mathlib.Algebra.GroupWithZero.Equiv
+✔ [728/749] Replayed Mathlib.Algebra.GroupWithZero.WithZero
+✔ [729/749] Replayed Mathlib.Order.TypeTags
+✔ [730/749] Replayed Mathlib.Order.WithBot
+✔ [731/749] Replayed Mathlib.Algebra.Order.Monoid.Unbundled.WithTop
+✔ [732/749] Replayed Mathlib.Algebra.Order.Monoid.WithTop
+✔ [733/749] Replayed Mathlib.Algebra.Regular.Basic
+✔ [734/749] Replayed Mathlib.Algebra.Order.AddGroupWithTop
+✔ [735/749] Replayed Mathlib.Algebra.Order.Monoid.Units
+✔ [736/749] Replayed Mathlib.Algebra.Order.Group.Units
+✔ [737/749] Replayed Mathlib.Algebra.Order.Monoid.OrderDual
+✔ [738/749] Replayed Mathlib.Algebra.Order.Monoid.Unbundled.TypeTags
+✔ [739/749] Replayed Mathlib.Algebra.Order.Monoid.TypeTags
+✔ [740/749] Replayed Mathlib.Algebra.Order.GroupWithZero.Canonical
+✔ [741/749] Replayed Mathlib.Algebra.Order.Ring.Nat
+✔ [742/749] Replayed Mathlib.Algebra.Order.Sub.Unbundled.Basic
+✔ [743/749] Replayed Mathlib.Algebra.Order.Sub.Basic
+✔ [744/749] Replayed Mathlib.Data.Nat.Cast.Order.Ring
+✔ [745/749] Replayed Mathlib.Algebra.Order.Ring.Cast
+✔ [746/749] Replayed Mathlib.Data.Nat.Find
+✔ [747/749] Replayed Mathlib.Order.Int.LeastGreatest
+✔ [748/749] Replayed Mathlib.Algebra.Order.Floor.Defs
+✔ [749/787] Replayed Batteries.Classes.RatCast
+✔ [750/787] Replayed Mathlib.Data.Rat.Init
+✔ [751/787] Replayed Mathlib.Algebra.Field.Defs
+✔ [752/787] Replayed Mathlib.Algebra.Order.Ring.Synonym
+✔ [753/787] Replayed Mathlib.Algebra.Group.Invertible.Defs
+✔ [754/787] Replayed Mathlib.Algebra.Group.Invertible.Basic
+✔ [755/787] Replayed Mathlib.Algebra.GroupWithZero.Invertible
+✔ [756/787] Replayed Mathlib.Algebra.Ring.Invertible
+✔ [757/787] Replayed Mathlib.Algebra.Field.Basic
+✔ [758/787] Replayed Mathlib.Algebra.GroupWithZero.Units.Lemmas
+✔ [759/787] Replayed Mathlib.Algebra.GroupWithZero.Units.Equiv
+✔ [760/787] Replayed Mathlib.Algebra.Order.GroupWithZero.OrderIso
+✔ [761/787] Replayed Mathlib.Algebra.Order.Ring.Basic
+✔ [762/787] Replayed Mathlib.Algebra.Ring.Divisibility.Basic
+✔ [763/787] Replayed Mathlib.Algebra.Group.Nat.Units
+✔ [764/787] Replayed Mathlib.Algebra.Group.Int.Units
+✔ [765/787] Replayed Mathlib.Algebra.Ring.Int.Units
+✔ [766/787] Replayed Mathlib.Algebra.Order.Ring.Abs
+✔ [767/787] Replayed Mathlib.Data.Set.Monotone
+✔ [768/787] Replayed Mathlib.Data.Set.NAry
+✔ [769/787] Replayed Mathlib.Order.Antisymmetrization
+✔ [770/787] Replayed Mathlib.Order.BoundedOrder.Monotone
+✔ [771/787] Replayed Mathlib.Util.PPOptions
+✔ [772/787] Replayed Mathlib.Util.Delaborators
+✔ [773/787] Replayed Mathlib.Order.Directed
+✔ [774/787] Replayed Mathlib.Order.Interval.Set.Defs
+✔ [775/787] Replayed Mathlib.Order.Interval.Set.Basic
+✔ [776/787] Replayed Mathlib.Order.SetNotation
+✔ [777/787] Replayed Mathlib.Order.Bounds.Basic
+✔ [778/787] Replayed Mathlib.Order.Bounds.Image
+✔ [779/787] Replayed Mathlib.Logic.Equiv.Set
+✔ [780/787] Replayed Mathlib.Order.WellFounded
+✔ [781/787] Replayed Mathlib.Order.Hom.Set
+✔ [782/787] Replayed Mathlib.Order.Bounds.OrderIso
+✔ [783/787] Replayed Mathlib.Algebra.Order.Invertible
+✔ [784/787] Replayed Mathlib.Tactic.HaveI
+✔ [785/787] Replayed Mathlib.Lean.Expr.Rat
+✔ [786/787] Replayed Mathlib.Util.Qq
+✔ [787/824] Replayed Mathlib.Tactic.NormNum.Result
+✔ [788/824] Replayed Mathlib.Tactic.NormNum.Core
+✔ [789/824] Replayed Mathlib.Tactic.Positivity.Core
+✔ [790/824] Replayed Mathlib.Algebra.Order.Field.Basic
+✔ [791/824] Replayed Mathlib.Algebra.Order.Floor.Semiring
+✔ [792/824] Replayed Mathlib.Algebra.Order.Group.Basic
+✔ [793/824] Replayed Mathlib.Util.AtomM.Recurse
+✔ [794/824] Replayed Mathlib.Tactic.NormNum.Basic
+✔ [795/824] Replayed Mathlib.Tactic.TryThis
+✔ [796/824] Replayed Mathlib.Tactic.Abel
+✔ [797/824] Replayed Mathlib.Data.Ineq
+✔ [798/824] Replayed Mathlib.Tactic.FieldSimp.Attr
+✔ [799/824] Replayed Mathlib.Util.DischargerAsTactic
+✔ [800/824] Replayed Mathlib.Tactic.FieldSimp.Discharger
+✔ [801/824] Replayed Mathlib.Tactic.FieldSimp.Lemmas
+✔ [802/824] Replayed Mathlib.Util.SynthesizeUsing
+✔ [803/824] Replayed Mathlib.Tactic.FieldSimp
+✔ [804/824] Replayed Mathlib.Data.Rat.Defs
+✔ [805/824] Replayed Mathlib.Algebra.Order.Ring.Unbundled.Rat
+✔ [806/824] Replayed Mathlib.Algebra.Order.Nonneg.Basic
+✔ [807/824] Replayed Mathlib.Algebra.Ring.Rat
+✔ [808/824] Replayed Mathlib.Data.NNRat.Defs
+✔ [809/824] Replayed Mathlib.Algebra.Field.Rat
+✔ [810/824] Replayed Mathlib.Data.Int.Cast.Lemmas
+✔ [811/824] Replayed Mathlib.Algebra.Divisibility.Units
+✔ [812/824] Replayed Mathlib.Algebra.GroupWithZero.Divisibility
+✔ [813/824] Replayed Mathlib.Data.PNat.Notation
+✔ [814/824] Replayed Mathlib.Data.PNat.Defs
+✔ [815/824] Replayed Mathlib.Data.Rat.Lemmas
+✔ [816/824] Replayed Mathlib.Order.Nat
+✔ [817/824] Replayed Mathlib.Data.Rat.Cast.Defs
+✔ [818/824] Replayed Mathlib.Data.Rat.Cast.CharZero
+✔ [819/824] Replayed Mathlib.Tactic.NormNum.Inv
+✔ [820/824] Replayed Mathlib.Tactic.NormNum.Pow
+✔ [821/824] Replayed Mathlib.Tactic.Ring.Common
+✔ [822/824] Replayed Mathlib.Tactic.Ring.Basic
+✔ [823/824] Replayed Mathlib.Tactic.Field
+✔ [824/882] Replayed Mathlib.Tactic.Linarith.Lemmas
+✔ [825/882] Replayed Mathlib.Tactic.Linarith.Datatypes
+✔ [826/882] Replayed Mathlib.Tactic.Linarith.Oracle.SimplexAlgorithm.Datatypes
+✔ [827/882] Replayed Mathlib.Tactic.Linarith.Oracle.SimplexAlgorithm.Gauss
+✔ [828/882] Replayed Mathlib.Tactic.Linarith.Oracle.SimplexAlgorithm.SimplexAlgorithm
+✔ [829/882] Replayed Mathlib.Tactic.Linarith.Oracle.SimplexAlgorithm.PositiveVector
+✔ [830/882] Replayed Mathlib.Tactic.Linarith.Oracle.SimplexAlgorithm
+✔ [831/882] Replayed Mathlib.Lean.Meta.Tactic.Rewrite
+✔ [832/882] Replayed Mathlib.Data.Tree.Basic
+✔ [833/882] Replayed Mathlib.Tactic.CancelDenoms.Core
+✔ [834/882] Replayed Mathlib.Tactic.Zify
+✔ [835/882] Replayed Mathlib.Tactic.Linarith.Preprocessing
+✔ [836/882] Replayed Mathlib.Tactic.Linarith.Parsing
+✔ [837/882] Replayed Mathlib.Tactic.Linarith.Verification
+✔ [838/882] Replayed Mathlib.Util.ElabWithoutMVars
+✔ [839/882] Replayed Mathlib.Tactic.Linarith.Frontend
+✔ [840/882] Replayed Mathlib.Algebra.Order.Ring.Canonical
+✔ [841/882] Replayed Mathlib.Algebra.Order.Field.Canonical
+✔ [842/882] Replayed Mathlib.Data.Bool.Set
+✔ [843/882] Replayed Mathlib.Data.Nat.Set
+✔ [844/882] Replayed Mathlib.Control.ULift
+✔ [845/882] Replayed Mathlib.Data.ULift
+✔ [846/882] Replayed Mathlib.Order.CompleteLattice.Defs
+✔ [847/882] Replayed Mathlib.Order.CompleteLattice.Basic
+✔ [848/882] Replayed Mathlib.Order.CompleteLattice.Lemmas
+✔ [849/882] Replayed Mathlib.Order.GaloisConnection.Basic
+✔ [850/882] Replayed Mathlib.Order.CompleteBooleanAlgebra
+✔ [851/882] Replayed Mathlib.Data.Set.BooleanAlgebra
+✔ [852/882] Replayed Mathlib.Data.Set.Lattice.Indexed
+✔ [853/882] Replayed Mathlib.Order.ConditionallyCompleteLattice.Defs
+✔ [854/882] Replayed Mathlib.Order.ConditionallyCompletePartialOrder.Defs
+✔ [855/882] Replayed Mathlib.Order.ConditionallyCompletePartialOrder.Basic
+✔ [856/882] Replayed Mathlib.Order.ConditionallyCompleteLattice.Basic
+✔ [857/882] Replayed Mathlib.Tactic.SetLike
+✔ [858/882] Replayed Mathlib.Basic.SetLike.Basic
+✔ [859/882] Replayed Mathlib.Lean.Expr.ExtraRecognizers
+✔ [860/882] Replayed Mathlib.Data.Set.Notation
+✔ [861/882] Replayed Mathlib.Data.Set.Pairwise.Basic
+✔ [862/882] Replayed Mathlib.Order.Preorder.Chain
+✔ [863/882] Replayed Mathlib.Order.Antichain
+✔ [864/882] Replayed Mathlib.Data.Set.Order
+✔ [865/882] Replayed Mathlib.Order.Interval.Set.Image
+✔ [866/882] Replayed Mathlib.Order.Interval.Set.LinearOrder
+✔ [867/882] Replayed Mathlib.Order.Interval.Set.UnorderedInterval
+✔ [868/882] Replayed Mathlib.Order.Interval.Set.OrderEmbedding
+✔ [869/882] Replayed Mathlib.Order.Interval.Set.OrdConnected
+✔ [870/882] Replayed Mathlib.Order.LatticeIntervals
+✔ [871/882] Replayed Mathlib.Order.CompleteLatticeIntervals
+✔ [872/882] Replayed Mathlib.Algebra.Order.Nonneg.Lattice
+✔ [873/882] Replayed Mathlib.Algebra.Order.Monoid.Basic
+✔ [874/882] Replayed Mathlib.Algebra.Order.Ring.InjSurj
+✔ [875/882] Replayed Mathlib.Algebra.Order.Positive.Ring
+✔ [876/882] Replayed Mathlib.Algebra.Order.Ring.Rat
+✔ [877/964] Replayed Mathlib.Algebra.Order.Nonneg.Ring
+✔ [878/964] Replayed Mathlib.Algebra.Order.Nonneg.Field
+✔ [879/964] Replayed Mathlib.Algebra.Order.Field.Rat
+✔ [880/964] Replayed Mathlib.Data.Rat.Cast.Order
+✔ [881/964] Replayed Mathlib.Tactic.NormNum.Abs
+✔ [882/964] Replayed Mathlib.Tactic.NormNum.Eq
+✔ [883/964] Replayed Mathlib.Tactic.NormNum.Ineq
+✔ [884/964] Replayed Mathlib.Tactic.NormNum.DivMod
+✔ [885/964] Replayed Mathlib.Algebra.Notation
+✔ [886/964] Replayed Mathlib.Algebra.Order.Group.PosPart
+✔ [887/964] Replayed Mathlib.Algebra.Order.Hom.Basic
+✔ [888/964] Replayed Mathlib.Algebra.Notation.Support
+✔ [889/964] Replayed Mathlib.Data.Int.Cast.Field
+✔ [890/964] Replayed Mathlib.Data.Int.Cast.Pi
+✔ [891/964] Replayed Mathlib.Data.Int.CharZero
+✔ [892/964] Replayed Mathlib.Data.Nat.Factorial.Basic
+✔ [893/964] Replayed Mathlib.Tactic.Positivity.Basic
+✔ [894/964] Replayed Mathlib.Tactic.NormNum.OfScientific
+✔ [895/964] Replayed Mathlib.Tactic.NormNum
+✔ [896/964] Replayed Mathlib.Tactic.Linarith
+✔ [897/964] Replayed Mathlib.Algebra.Order.Floor.Ring
+✔ [898/964] Replayed Mathlib.Data.Fin.Rev
+✔ [899/964] Replayed Mathlib.Algebra.Group.Fin.Basic
+✔ [900/964] Replayed Mathlib.Data.List.Perm.Subperm
+✔ [901/964] Replayed Mathlib.Data.Multiset.Defs
+✔ [902/964] Replayed Mathlib.Data.Finset.Defs
+✔ [903/964] Replayed Mathlib.Data.List.Count
+✔ [904/964] Replayed Mathlib.Data.Multiset.ZeroCons
+✔ [905/964] Replayed Mathlib.Data.Multiset.Count
+✔ [906/964] Replayed Mathlib.Data.Multiset.AddSub
+✔ [907/964] Replayed Mathlib.Data.Multiset.Replicate
+✔ [908/964] Replayed Mathlib.Data.Set.List
+✔ [909/964] Replayed Mathlib.Data.Multiset.MapFold
+✔ [910/964] Replayed Mathlib.Data.Finset.Attach
+✔ [911/964] Replayed Mathlib.Data.Finset.Attr
+✔ [912/964] Replayed Mathlib.Data.Multiset.Basic
+✔ [913/964] Replayed Mathlib.Data.List.Lattice
+✔ [914/964] Replayed Mathlib.Data.List.Dedup
+✔ [915/964] Replayed Mathlib.Data.List.Perm.Lattice
+✔ [916/964] Replayed Mathlib.Data.Multiset.Filter
+✔ [917/964] Replayed Mathlib.Data.Multiset.UnionInter
+✔ [918/964] Replayed Mathlib.Data.Multiset.Dedup
+✔ [919/964] Replayed Mathlib.Data.Finset.Dedup
+✔ [920/964] Replayed Mathlib.Data.Finset.Empty
+✔ [921/964] Replayed Mathlib.Data.List.Induction
+✔ [922/964] Replayed Mathlib.Data.List.Infix
+✔ [923/964] Replayed Mathlib.Data.Multiset.FinsetOps
+✔ [924/964] Replayed Mathlib.Data.Finset.Insert
+✔ [925/964] Replayed Mathlib.Data.Finset.Disjoint
+✔ [926/964] Replayed Mathlib.Data.Finset.Erase
+✔ [927/964] Replayed Mathlib.Data.Finset.Lattice.Basic
+✔ [928/964] Replayed Mathlib.Data.Finset.Lattice.Lemmas
+✔ [929/964] Replayed Mathlib.Data.Multiset.Range
+✔ [930/964] Replayed Mathlib.Data.Finset.Range
+✔ [931/964] Replayed Mathlib.Data.Finset.SDiff
+✔ [932/964] Replayed Mathlib.Basic.Finite.Defs
+✔ [933/964] Replayed Mathlib.Data.Finset.Filter
+✔ [934/964] Replayed Mathlib.Data.Fintype.Defs
+✔ [935/964] Replayed Mathlib.Data.Finset.Image
+✔ [936/964] Replayed Mathlib.Data.Finset.Basic
+✔ [937/964] Replayed Mathlib.Data.Finset.Card
+✔ [938/964] Replayed Mathlib.Data.Finset.BooleanAlgebra
+✔ [939/964] Replayed Mathlib.Data.Finset.SymmDiff
+✔ [940/964] Replayed Mathlib.Data.Fintype.OfMap
+✔ [941/964] Replayed Mathlib.Data.Fintype.Sets
+✔ [942/964] Replayed Mathlib.Data.Fin.Embedding
+✔ [943/964] Replayed Mathlib.Order.Fin.Basic
+✔ [944/964] Replayed Mathlib.Data.Fin.Tuple.Basic
+✔ [945/964] Replayed Mathlib.Data.List.FinRange
+✔ [946/964] Replayed Mathlib.Data.List.OfFn
+✔ [947/964] Replayed Mathlib.Data.Fintype.Basic
+✔ [948/964] Replayed Mathlib.Data.Fintype.Card
+✔ [949/964] Replayed Mathlib.Data.List.Duplicate
+✔ [950/964] Replayed Mathlib.Data.List.Sort
+✔ [951/964] Replayed Mathlib.Data.List.NodupEquivFin
+✔ [952/964] Replayed Mathlib.Data.Fintype.EquivFin
+✔ [953/964] Replayed Mathlib.Algebra.Group.ModEq
+✔ [954/964] Replayed Mathlib.Data.Nat.GCD.Basic
+✔ [955/964] Replayed Mathlib.Data.Nat.ModEq
+✔ [956/964] Replayed Mathlib.Data.ZMod.Defs
+✔ [957/964] Replayed Mathlib.Data.PNat.Equiv
+✔ [958/964] Replayed Mathlib.Data.PNat.Basic
+✔ [959/964] Replayed Mathlib.Tactic.Ring.PNat
+✔ [960/964] Replayed Mathlib.Tactic.Ring.RingNF
+✔ [961/964] Replayed Mathlib.Tactic.Ring
+✔ [962/991] Ran «evm-interaction»:extraDep
+✔ [963/991] Replayed Batteries.Recycling.RBTree.Basic
+✔ [964/991] Replayed Batteries.Data.RBMap.Basic
+✔ [965/991] Replayed Batteries.Recycling.RBTree.WF
+✔ [966/991] Replayed Batteries.Recycling.RBTree.Depth
+✔ [967/991] Replayed Batteries.Data.RBMap.Depth
+✔ [968/991] Replayed Batteries.Recycling.RBTree.Alter
+✔ [969/991] Replayed Batteries.Recycling.RBTree.Lemmas
+✔ [970/991] Replayed Batteries.Data.RBMap.Lemmas
+✔ [971/991] Replayed Batteries.Data.RBMap.Alter
+✔ [972/991] Replayed Batteries.Data.RBMap.WF
+✔ [973/991] Replayed Batteries.Data.RBMap
+✔ [974/991] Replayed Mathlib.Data.Multiset.Fold
+✔ [975/991] Replayed Mathlib.Data.Finset.Fold
+✔ [976/991] Replayed Mathlib.Algebra.Order.Group.Multiset
+✔ [977/991] Replayed Mathlib.Data.Multiset.Sum
+✔ [978/991] Replayed Mathlib.Data.Finset.Sum
+✔ [979/1022] Replayed Mathlib.Data.Multiset.Lattice
+✔ [980/1022] Replayed Mathlib.Order.Hom.Bounded
+✔ [981/1022] Replayed Mathlib.Order.Hom.Lattice
+✔ [982/1022] Replayed Mathlib.Order.Hom.BoundedLattice
+✔ [983/1022] Replayed Mathlib.Data.Finset.Lattice.Fold
+✔ [984/1022] Replayed Mathlib.Data.Set.Sigma
+✔ [985/1022] Replayed Mathlib.Data.List.Flatten
+✔ [986/1022] Replayed Mathlib.Data.List.ProdSigma
+✔ [987/1022] Replayed Mathlib.Data.List.Lex
+✔ [988/1022] Replayed Mathlib.Data.List.Chain
+✔ [989/1022] Replayed Mathlib.Data.List.Range
+✔ [990/1022] Replayed Mathlib.Data.List.Rotate
+✔ [991/1022] Replayed Mathlib.Algebra.BigOperators.Group.List.Lemmas
+✔ [992/1022] Replayed Mathlib.Algebra.BigOperators.Group.Multiset.Defs
+✔ [993/1022] Replayed Mathlib.Algebra.Group.Prod
+✔ [994/1022] Replayed Mathlib.Algebra.BigOperators.Group.Multiset.Basic
+✔ [995/1022] Replayed Mathlib.Data.Multiset.Bind
+✔ [996/1022] Replayed Mathlib.Data.Finset.Union
+✔ [997/1022] Replayed Mathlib.Data.Finset.Option
+✔ [998/1022] Replayed Mathlib.Data.Set.Lattice.Bounded
+✔ [999/1022] Replayed Mathlib.Data.Set.Lattice.Image
+✔ [1000/1022] Replayed Mathlib.Order.CompleteLattice.Finset
+✔ [1001/1022] Replayed Mathlib.Data.Finset.Sigma
+✔ [1002/1022] Replayed Mathlib.Data.List.Lookmap
+✔ [1003/1022] Replayed Mathlib.Data.List.Sigma
+✔ [1004/1022] Replayed Mathlib.Data.List.AList
+✔ [1005/1022] Replayed Mathlib.Data.Part
+✔ [1006/1022] Replayed Mathlib.Data.Finmap
+✔ [1007/1063] Replayed Batteries.Classes.Cast
+✔ [1008/1063] Replayed Batteries.Lean.EStateM
+✔ [1009/1063] Replayed Batteries.Recycling.MonadSatisfying.Basic
+✔ [1010/1063] Replayed Batteries.Classes.SatisfiesM
+✔ [1011/1063] Replayed Batteries.Control.ForInStep
+✔ [1012/1063] Replayed Batteries.Control.LawfulMonadState
+✔ [1013/1063] Replayed Batteries.Control.OptionT
+✔ [1014/1063] Replayed Batteries.Data.Array.Init.Lemmas
+✔ [1015/1063] Replayed Batteries.Data.Array.Lemmas
+✔ [1016/1063] Replayed Batteries.Data.Array.Match
+✔ [1017/1063] Replayed Batteries.Recycling.MonadSatisfying.Array
+✔ [1018/1063] Replayed Batteries.Data.Array.Monadic
+✔ [1019/1063] Replayed Batteries.Data.Array.Pairwise
+✔ [1020/1063] Replayed Batteries.Data.Array.Scan
+✔ [1021/1063] Replayed Batteries.Data.Array
+✔ [1022/1063] Replayed Batteries.Data.AssocList.Basic
+✔ [1023/1063] Replayed Batteries.Data.AssocList.Lemmas
+✔ [1024/1063] Replayed Batteries.Data.AssocList
+✔ [1025/1063] Replayed Batteries.Data.BinaryHeap.Basic
+✔ [1026/1063] Replayed Batteries.Data.BinaryHeap.WF
+✔ [1027/1063] Replayed Batteries.Data.Vector.Basic
+✔ [1028/1063] Replayed Batteries.Data.Vector.Lemmas
+✔ [1029/1063] Replayed Batteries.Data.BinaryHeap.Lemmas
+✔ [1030/1063] Replayed Batteries.Data.BinaryHeap
+✔ [1031/1063] Replayed Batteries.Data.BinomialHeap.Lemmas
+✔ [1032/1063] Replayed Batteries.Data.BinomialHeap
+✔ [1033/1063] Replayed Batteries.Data.BitVec.Basic
+✔ [1034/1063] Replayed Batteries.Data.Fin.OfBits
+✔ [1035/1063] Replayed Batteries.Data.Int
+✔ [1036/1063] Replayed Batteries.Data.BitVec.Lemmas
+✔ [1037/1063] Replayed Batteries.Data.BitVec
+✔ [1038/1063] Replayed Batteries.Data.Bool
+✔ [1039/1063] Replayed Batteries.Data.ByteArray
+✔ [1040/1063] Replayed Batteries.Data.ByteSlice
+✔ [1041/1063] Replayed Batteries.Data.Char.Basic
+✔ [1042/1063] Replayed Batteries.Data.Char.AsciiCasing
+✔ [1043/1063] Replayed Batteries.Data.Char
+✔ [1044/1063] Replayed Batteries.Data.DList.Basic
+✔ [1045/1063] Replayed Batteries.Data.DList.Lemmas
+✔ [1046/1063] Replayed Batteries.Data.DList
+✔ [1047/1063] Replayed Batteries.Data.Fin.Coding
+✔ [1048/1114] Replayed Batteries.Data.Fin.Fold
+✔ [1049/1114] Replayed Batteries.Data.Fin
+✔ [1050/1114] Replayed Batteries.Data.Float.Basic
+✔ [1051/1114] Replayed Batteries.Data.Float.Lemmas
+✔ [1052/1114] Replayed Batteries.Data.Float.Rat
+✔ [1053/1114] Replayed Batteries.Data.Float
+✔ [1054/1114] Replayed Batteries.Data.FloatArray
+✔ [1055/1114] Replayed Batteries.Lean.HashMap
+✔ [1056/1114] Replayed Batteries.Data.HashMap.Basic
+✔ [1057/1114] Replayed Batteries.Data.HashMap
+✔ [1058/1114] Replayed Batteries.Data.List.ArrayMap
+✔ [1059/1114] Replayed Batteries.Data.List.Count
+✔ [1060/1114] Replayed Batteries.Data.List.Init.Lemmas
+✔ [1061/1114] Replayed Batteries.Data.List.Interleave
+✔ [1062/1114] Replayed Batteries.Data.List.Matcher
+✔ [1063/1114] Replayed Batteries.Recycling.MonadSatisfying.List
+✔ [1064/1114] Replayed Batteries.Data.List.Monadic
+✔ [1065/1114] Replayed Batteries.Data.List.Scan
+✔ [1066/1114] Replayed Batteries.Data.List
+✔ [1067/1114] Replayed Batteries.Data.MLList.IO
+✔ [1068/1114] Replayed Batteries.Data.MLList.Heartbeats
+✔ [1069/1114] Replayed Batteries.Data.MLList
+✔ [1070/1114] Replayed Batteries.Data.NameSet
+✔ [1071/1114] Replayed Batteries.Data.Nat.Bisect
+✔ [1072/1114] Replayed Batteries.Data.Nat.Bitwise.Lemmas
+✔ [1073/1114] Replayed Batteries.Data.Nat.Bitwise
+✔ [1074/1114] Replayed Batteries.Data.Nat
+✔ [1075/1114] Replayed Batteries.Data.PairingHeap
+✔ [1076/1114] Replayed Batteries.Data.Random.MersenneTwister
+✔ [1077/1114] Replayed Batteries.Data.Random
+✔ [1078/1114] Replayed Batteries.Data.Range.Lemmas
+✔ [1079/1114] Replayed Batteries.Data.Range
+✔ [1080/1114] Replayed Batteries.Data.Rat.Float
+✔ [1081/1114] Replayed Batteries.Data.Rat
+✔ [1082/1114] Replayed Batteries.Data.RunningStats
+✔ [1083/1114] Replayed Batteries.Data.Stream
+✔ [1084/1114] Replayed Batteries.Data.String.AsciiCasing
+✔ [1085/1114] Replayed Batteries.Data.String.Basic
+✔ [1086/1114] Replayed Batteries.Data.String.Legacy
+✔ [1087/1114] Replayed Batteries.Data.String.Lemmas
+✔ [1088/1114] Replayed Batteries.Data.String.Matcher
+✔ [1089/1114] Replayed Batteries.Data.String
+✔ [1090/1114] Replayed Batteries.Util.Panic
+✔ [1091/1114] Replayed Batteries.Data.UnionFind.Basic
+✔ [1092/1114] Replayed Batteries.Data.UnionFind.Lemmas
+✔ [1093/1114] Replayed Batteries.Data.UnionFind
+✔ [1094/1114] Replayed Batteries.Recycling.MonadSatisfying.Vector
+✔ [1095/1114] Replayed Batteries.Data.Vector.Monadic
+✔ [1096/1114] Replayed Batteries.Data.Vector
+✔ [1097/1114] Replayed Batteries.Lean.Float
+✔ [1098/1114] Replayed Batteries.Lean.IO.Process
+✔ [1099/1146] Replayed Batteries.Lean.Json
+✔ [1100/1146] Replayed Batteries.Lean.LawfulMonad
+✔ [1101/1146] Replayed Batteries.Lean.LawfulMonadLift
+✔ [1102/1146] Replayed Batteries.Lean.Meta.Simp
+✔ [1103/1146] Replayed Batteries.Recycling.MonadSatisfying.Lean
+✔ [1104/1146] Replayed Batteries.Lean.SatisfiesM
+✔ [1105/1146] Replayed Batteries.Lean.System.IO
+✔ [1106/1146] Replayed Batteries.Lean.Util.EnvSearch
+✔ [1107/1146] Replayed Batteries.Recycling.MonadSatisfying
+✔ [1108/1146] Replayed Batteries.Recycling.RBTree
+✔ [1109/1146] Replayed Batteries.Tactic.Instances
+✔ [1110/1146] Replayed Batteries.Tactic.Lemma
+✔ [1111/1146] Replayed Batteries.Tactic.NoMatch
+ℹ [1112/1146] Replayed Batteries.Tactic.OpenPrivate
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean /home/ubuntu/w/solidity-lean/.lake/packages/batteries/Batteries/Tactic/OpenPrivate.lean -o /home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean/Batteries/Tactic/OpenPrivate.olean -i /home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean/Batteries/Tactic/OpenPrivate.ilean -c /home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/ir/Batteries/Tactic/OpenPrivate.c --setup /home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/ir/Batteries/Tactic/OpenPrivate.setup.json --json
+✔ [1113/1146] Replayed Batteries.Tactic.PrintDependents
+✔ [1114/1146] Replayed Batteries.Tactic.PrintOpaques
+✔ [1115/1146] Replayed Batteries.Tactic.PrintPrefix
+✔ [1116/1146] Replayed Batteries.Tactic.ShowUnused
+✔ [1117/1146] Replayed Batteries.Tactic.SqueezeScope
+✔ [1118/1146] Replayed Batteries.Util.Pickle
+✔ [1119/1146] Replayed Batteries
+✔ [1120/1146] Replayed Mathlib.Data.Multiset.Sort
+✔ [1121/1181] Ran job computation
+ℹ [1122/1181] Built EvmYul.SpongeHash.Keccak256 (1.6s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean -DautoImplicit=false /home/ubuntu/w/solidity-lean/vendor/evmyul/EvmYul/SpongeHash/Keccak256.lean -o /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/SpongeHash/Keccak256.olean -i /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/SpongeHash/Keccak256.ilean -c /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/SpongeHash/Keccak256.c --setup /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/SpongeHash/Keccak256.setup.json --json
+ℹ [1123/1181] Built EvmYul.PerformIO (1.3s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean -DautoImplicit=false /home/ubuntu/w/solidity-lean/vendor/evmyul/EvmYul/PerformIO.lean -o /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/PerformIO.olean -i /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/PerformIO.ilean -c /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/PerformIO.c --setup /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/PerformIO.setup.json --json
+ℹ [1124/1181] Built EvmYul.Data.Stack (1.7s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean -DautoImplicit=false /home/ubuntu/w/solidity-lean/vendor/evmyul/EvmYul/Data/Stack.lean -o /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/Data/Stack.olean -i /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/Data/Stack.ilean -c /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/Data/Stack.c --setup /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/Data/Stack.setup.json --json
+ℹ [1125/1181] Built SolidCore.Solidity.Keccak (1.5s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean /home/ubuntu/w/solidity-lean/SolidCore/Solidity/Keccak.lean -o /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/Keccak.olean -i /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/Keccak.ilean -c /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/Keccak.c --setup /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/Keccak.setup.json --json
+ℹ [1126/1181] Built EvmYul.FFI.ffi (1.6s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean -DautoImplicit=false /home/ubuntu/w/solidity-lean/vendor/evmyul/EvmYul/FFI/ffi.lean -o /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/FFI/ffi.olean -i /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/FFI/ffi.ilean -c /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/FFI/ffi.c --setup /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/FFI/ffi.setup.json --json
+ℹ [1127/1181] Built Verify.VC.KernelIdx (2.7s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean /home/ubuntu/w/solidity-lean/Verify/VC/KernelIdx.lean -o /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/Verify/VC/KernelIdx.olean -i /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/Verify/VC/KernelIdx.ilean -c /home/ubuntu/w/solidity-lean/.lake/build/ir/Verify/VC/KernelIdx.c --setup /home/ubuntu/w/solidity-lean/.lake/build/ir/Verify/VC/KernelIdx.setup.json --json
+⚠ [1128/1181] Built EvmInteraction.Simulation.Outcome (4.3s)
+warning: EvmInteraction/Simulation/Outcome.lean: imports `Mathlib.Data.List.Basic` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean -DautoImplicit=false -Dlinter.all=false -Dlinter.constructorNameAsVariable=false -Dlinter.deprecated=false -Dlinter.unnecessarySeqFocus=false -Dlinter.unnecessarySimpa=false -Dlinter.unreachableTactic=false -Dlinter.unusedSimpArgs=false -Dlinter.unusedTactic=false -Dlinter.unusedVariables=false /home/ubuntu/w/solidity-lean/vendor/evm-interaction/EvmInteraction/Simulation/Outcome.lean -o /home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean/EvmInteraction/Simulation/Outcome.olean -i /home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean/EvmInteraction/Simulation/Outcome.ilean -c /home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/ir/EvmInteraction/Simulation/Outcome.c --setup /home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/ir/EvmInteraction/Simulation/Outcome.setup.json --json
+ℹ [1129/1181] Built SolidCore.Solidity.Shared.PrecompileCrypto (3.9s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean /home/ubuntu/w/solidity-lean/SolidCore/Solidity/Shared/PrecompileCrypto.lean -o /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/Shared/PrecompileCrypto.olean -i /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/Shared/PrecompileCrypto.ilean -c /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/Shared/PrecompileCrypto.c --setup /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/Shared/PrecompileCrypto.setup.json --json
+⚠ [1130/1181] Built SolidCore.Solidity.Shared.PrecompilePairing (2.3s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean /home/ubuntu/w/solidity-lean/SolidCore/Solidity/Shared/PrecompilePairing.lean -o /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/Shared/PrecompilePairing.olean -i /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/Shared/PrecompilePairing.ilean -c /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/Shared/PrecompilePairing.c --setup /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/Shared/PrecompilePairing.setup.json --json
+warning: SolidCore/Solidity/Shared/PrecompilePairing.lean:144:5: Variable name `h` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _h
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+ℹ [1131/1181] Built SolidCore.Refinement.Kernel (7.4s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean /home/ubuntu/w/solidity-lean/SolidCore/Refinement/Kernel.lean -o /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Refinement/Kernel.olean -i /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Refinement/Kernel.ilean -c /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Refinement/Kernel.c --setup /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Refinement/Kernel.setup.json --json
+⚠ [1132/1181] Built EvmYul.UInt256 (8.4s)
+warning: EvmYul/UInt256.lean: imports `Mathlib.Data.Nat.Basic` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Data.Fin.Basic` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Data.Vector.Basic` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Algebra.Group.Defs` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Algebra.GroupWithZero.Defs` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Algebra.Ring.Basic` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Algebra.Order.Floor.Defs` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Algebra.Order.Floor.Ring` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Algebra.Order.Floor.Semiring` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Data.ZMod.Defs` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+warning: EvmYul/UInt256.lean: imports `Mathlib.Tactic.Ring` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean -DautoImplicit=false /home/ubuntu/w/solidity-lean/vendor/evmyul/EvmYul/UInt256.lean -o /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/UInt256.olean -i /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/UInt256.ilean -c /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/UInt256.c --setup /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/UInt256.setup.json --json
+ℹ [1133/1181] Built EvmYul.EVM.GasConstants (2.9s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean -DautoImplicit=false /home/ubuntu/w/solidity-lean/vendor/evmyul/EvmYul/EVM/GasConstants.lean -o /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/EVM/GasConstants.olean -i /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/EVM/GasConstants.ilean -c /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/EVM/GasConstants.c --setup /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/EVM/GasConstants.setup.json --json
+ℹ [1134/1181] Built SolidCore.Solidity.Shared.Word (3.6s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean /home/ubuntu/w/solidity-lean/SolidCore/Solidity/Shared/Word.lean -o /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/Shared/Word.olean -i /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/Shared/Word.ilean -c /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/Shared/Word.c --setup /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/Shared/Word.setup.json --json
+ℹ [1135/1181] Built SolidCore.Refinement.KernelRfl (4.5s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean /home/ubuntu/w/solidity-lean/SolidCore/Refinement/KernelRfl.lean -o /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Refinement/KernelRfl.olean -i /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Refinement/KernelRfl.ilean -c /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Refinement/KernelRfl.c --setup /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Refinement/KernelRfl.setup.json --json
+⚠ [1136/1181] Built EvmYul.Wheels (5.4s)
+warning: EvmYul/Wheels.lean: imports `Mathlib.Data.Finmap` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean -DautoImplicit=false /home/ubuntu/w/solidity-lean/vendor/evmyul/EvmYul/Wheels.lean -o /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/Wheels.olean -i /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/Wheels.ilean -c /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/Wheels.c --setup /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/Wheels.setup.json --json
+ℹ [1137/1181] Built SolidCore.Solidity.Shared.Block (4.8s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean /home/ubuntu/w/solidity-lean/SolidCore/Solidity/Shared/Block.lean -o /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/Shared/Block.olean -i /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/Shared/Block.ilean -c /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/Shared/Block.c --setup /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/Shared/Block.setup.json --json
+ℹ [1138/1181] Built EvmYul.State.TrieRoot (3.2s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean -DautoImplicit=false /home/ubuntu/w/solidity-lean/vendor/evmyul/EvmYul/State/TrieRoot.lean -o /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/State/TrieRoot.olean -i /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/State/TrieRoot.ilean -c /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/State/TrieRoot.c --setup /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/State/TrieRoot.setup.json --json
+ℹ [1139/1181] Built EvmYul.State.BlockHeader (4.6s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean -DautoImplicit=false /home/ubuntu/w/solidity-lean/vendor/evmyul/EvmYul/State/BlockHeader.lean -o /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/State/BlockHeader.olean -i /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/State/BlockHeader.ilean -c /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/State/BlockHeader.c --setup /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/State/BlockHeader.setup.json --json
+⚠ [1140/1181] Built EvmYul.Maps.ByteMap (4.6s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean -DautoImplicit=false /home/ubuntu/w/solidity-lean/vendor/evmyul/EvmYul/Maps/ByteMap.lean -o /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/Maps/ByteMap.olean -i /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/Maps/ByteMap.ilean -c /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/Maps/ByteMap.c --setup /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/Maps/ByteMap.setup.json --json
+warning: EvmYul/Maps/ByteMap.lean:20:0: it is recommended to use Std.TreeMap instead
+'Batteries.Data.RBMap' has been deprecated: please replace this import by
+
+import Batteries.Data.RBMap.Basic
+import Batteries.Data.RBMap.Depth
+import Batteries.Data.RBMap.Lemmas
+import Batteries.Data.RBMap.Alter
+import Batteries.Data.RBMap.WF
+⚠ [1141/1181] Built Conform.Wheels (5.4s)
+warning: Conform/Wheels.lean: imports `Mathlib.Data.Multiset.Sort` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean -DautoImplicit=false /home/ubuntu/w/solidity-lean/vendor/evmyul/Conform/Wheels.lean -o /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/Conform/Wheels.olean -i /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/Conform/Wheels.ilean -c /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/Conform/Wheels.c --setup /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/Conform/Wheels.setup.json --json
+warning: Conform/Wheels.lean:4:0: it is recommended to use Std.TreeMap instead
+'Batteries.Data.RBMap' has been deprecated: please replace this import by
+
+import Batteries.Data.RBMap.Basic
+import Batteries.Data.RBMap.Depth
+import Batteries.Data.RBMap.Lemmas
+import Batteries.Data.RBMap.Alter
+import Batteries.Data.RBMap.WF
+ℹ [1142/1181] Built EvmYul.MachineState (3.0s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean -DautoImplicit=false /home/ubuntu/w/solidity-lean/vendor/evmyul/EvmYul/MachineState.lean -o /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/MachineState.olean -i /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/MachineState.ilean -c /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/MachineState.c --setup /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/MachineState.setup.json --json
+⚠ [1143/1181] Built EvmYul.Maps.StorageMap (5.4s)
+warning: EvmYul/Maps/StorageMap.lean: imports `Mathlib.Data.Multiset.Sort` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean -DautoImplicit=false /home/ubuntu/w/solidity-lean/vendor/evmyul/EvmYul/Maps/StorageMap.lean -o /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/Maps/StorageMap.olean -i /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/Maps/StorageMap.ilean -c /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/Maps/StorageMap.c --setup /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/Maps/StorageMap.setup.json --json
+warning: EvmYul/Maps/StorageMap.lean:20:0: it is recommended to use Std.TreeMap instead
+'Batteries.Data.RBMap' has been deprecated: please replace this import by
+
+import Batteries.Data.RBMap.Basic
+import Batteries.Data.RBMap.Depth
+import Batteries.Data.RBMap.Lemmas
+import Batteries.Data.RBMap.Alter
+import Batteries.Data.RBMap.WF
+ℹ [1144/1181] Built SolidCore.Solidity.Shared.Account (5.8s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean /home/ubuntu/w/solidity-lean/SolidCore/Solidity/Shared/Account.lean -o /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/Shared/Account.olean -i /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/Shared/Account.ilean -c /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/Shared/Account.c --setup /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/Shared/Account.setup.json --json
+ℹ [1145/1181] Built SolidCore.Solidity.Shared.External (6.5s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean /home/ubuntu/w/solidity-lean/SolidCore/Solidity/Shared/External.lean -o /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/Shared/External.olean -i /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/Shared/External.ilean -c /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/Shared/External.c --setup /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/Shared/External.setup.json --json
+⚠ [1146/1181] Built EvmYul.MachineStateOps (3.4s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean -DautoImplicit=false /home/ubuntu/w/solidity-lean/vendor/evmyul/EvmYul/MachineStateOps.lean -o /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/MachineStateOps.olean -i /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/MachineStateOps.ilean -c /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/MachineStateOps.c --setup /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/MachineStateOps.setup.json --json
+warning: EvmYul/MachineStateOps.lean:1:0: it is recommended to use Std.TreeMap instead
+'Batteries.Data.RBMap' has been deprecated: please replace this import by
+
+import Batteries.Data.RBMap.Basic
+import Batteries.Data.RBMap.Depth
+import Batteries.Data.RBMap.Lemmas
+import Batteries.Data.RBMap.Alter
+import Batteries.Data.RBMap.WF
+ℹ [1147/1181] Built SolidCore.Solidity.Shared.Log (3.4s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean /home/ubuntu/w/solidity-lean/SolidCore/Solidity/Shared/Log.lean -o /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/Shared/Log.olean -i /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/Shared/Log.ilean -c /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/Shared/Log.c --setup /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/Shared/Log.setup.json --json
+ℹ [1148/1181] Built SolidCore.Solidity.Shared.Call (5.8s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean /home/ubuntu/w/solidity-lean/SolidCore/Solidity/Shared/Call.lean -o /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/Shared/Call.olean -i /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/Shared/Call.ilean -c /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/Shared/Call.c --setup /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/Shared/Call.setup.json --json
+⚠ [1149/1181] Built EvmYul.Operations (8.3s)
+warning: EvmYul/Operations.lean: imports `Mathlib.Data.Finmap` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean -DautoImplicit=false /home/ubuntu/w/solidity-lean/vendor/evmyul/EvmYul/Operations.lean -o /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/Operations.olean -i /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/Operations.ilean -c /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/Operations.c --setup /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/Operations.setup.json --json
+ℹ [1150/1181] Built SolidCore.Solidity.Shared.Precompile (3.7s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean /home/ubuntu/w/solidity-lean/SolidCore/Solidity/Shared/Precompile.lean -o /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/Shared/Precompile.olean -i /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/Shared/Precompile.ilean -c /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/Shared/Precompile.c --setup /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/Shared/Precompile.setup.json --json
+ℹ [1151/1181] Built EvmYul.Pretty (3.1s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean -DautoImplicit=false /home/ubuntu/w/solidity-lean/vendor/evmyul/EvmYul/Pretty.lean -o /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/Pretty.olean -i /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/Pretty.ilean -c /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/Pretty.c --setup /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/Pretty.setup.json --json
+ℹ [1152/1181] Built EvmYul.Yul.Ast (4.3s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean -DautoImplicit=false /home/ubuntu/w/solidity-lean/vendor/evmyul/EvmYul/Yul/Ast.lean -o /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/Yul/Ast.olean -i /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/Yul/Ast.ilean -c /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/Yul/Ast.c --setup /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/Yul/Ast.setup.json --json
+ℹ [1153/1181] Built EvmYul.State.ExecutionEnv (3.5s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean -DautoImplicit=false /home/ubuntu/w/solidity-lean/vendor/evmyul/EvmYul/State/ExecutionEnv.lean -o /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/State/ExecutionEnv.olean -i /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/State/ExecutionEnv.ilean -c /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/State/ExecutionEnv.c --setup /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/State/ExecutionEnv.setup.json --json
+ℹ [1154/1181] Built EvmYul.State.Account (3.7s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean -DautoImplicit=false /home/ubuntu/w/solidity-lean/vendor/evmyul/EvmYul/State/Account.lean -o /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/State/Account.olean -i /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/State/Account.ilean -c /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/State/Account.c --setup /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/State/Account.setup.json --json
+ℹ [1155/1181] Built EvmYul.State.AccountOps (3.5s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean -DautoImplicit=false /home/ubuntu/w/solidity-lean/vendor/evmyul/EvmYul/State/AccountOps.lean -o /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/State/AccountOps.olean -i /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/State/AccountOps.ilean -c /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/State/AccountOps.c --setup /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/State/AccountOps.setup.json --json
+⚠ [1156/1181] Built EvmYul.State.Substate (3.9s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean -DautoImplicit=false /home/ubuntu/w/solidity-lean/vendor/evmyul/EvmYul/State/Substate.lean -o /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/State/Substate.olean -i /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/State/Substate.ilean -c /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/State/Substate.c --setup /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/State/Substate.setup.json --json
+warning: EvmYul/State/Substate.lean:1:0: it is recommended to use Std.TreeMap instead
+'Batteries.Data.RBMap' has been deprecated: please replace this import by
+
+import Batteries.Data.RBMap.Basic
+import Batteries.Data.RBMap.Depth
+import Batteries.Data.RBMap.Lemmas
+import Batteries.Data.RBMap.Alter
+import Batteries.Data.RBMap.WF
+⚠ [1157/1181] Built EvmYul.Maps.AccountMap (3.5s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean -DautoImplicit=false /home/ubuntu/w/solidity-lean/vendor/evmyul/EvmYul/Maps/AccountMap.lean -o /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/Maps/AccountMap.olean -i /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/Maps/AccountMap.ilean -c /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/Maps/AccountMap.c --setup /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/Maps/AccountMap.setup.json --json
+warning: EvmYul/Maps/AccountMap.lean:20:0: it is recommended to use Std.TreeMap instead
+'Batteries.Data.RBMap' has been deprecated: please replace this import by
+
+import Batteries.Data.RBMap.Basic
+import Batteries.Data.RBMap.Depth
+import Batteries.Data.RBMap.Lemmas
+import Batteries.Data.RBMap.Alter
+import Batteries.Data.RBMap.WF
+ℹ [1158/1181] Built EvmYul.State.SubstateOps (3.4s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean -DautoImplicit=false /home/ubuntu/w/solidity-lean/vendor/evmyul/EvmYul/State/SubstateOps.lean -o /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/State/SubstateOps.olean -i /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/State/SubstateOps.ilean -c /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/State/SubstateOps.c --setup /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/State/SubstateOps.setup.json --json
+⚠ [1159/1181] Built EvmYul.State.Transaction (5.0s)
+warning: EvmYul/State/Transaction.lean: imports `Mathlib.Data.List.AList` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean -DautoImplicit=false /home/ubuntu/w/solidity-lean/vendor/evmyul/EvmYul/State/Transaction.lean -o /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/State/Transaction.olean -i /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/State/Transaction.ilean -c /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/State/Transaction.c --setup /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/State/Transaction.setup.json --json
+ℹ [1160/1181] Built SolidCore.Solidity.Ast (16s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean /home/ubuntu/w/solidity-lean/SolidCore/Solidity/Ast.lean -o /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/Ast.olean -i /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/Ast.ilean -c /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/Ast.c --setup /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/Ast.setup.json --json
+ℹ [1161/1181] Built EvmYul.EVM.Exception (4.2s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean -DautoImplicit=false /home/ubuntu/w/solidity-lean/vendor/evmyul/EvmYul/EVM/Exception.lean -o /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/EVM/Exception.olean -i /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/EVM/Exception.ilean -c /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/EVM/Exception.c --setup /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/EVM/Exception.setup.json --json
+ℹ [1162/1181] Built EvmYul.State.Withdrawal (3.0s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean -DautoImplicit=false /home/ubuntu/w/solidity-lean/vendor/evmyul/EvmYul/State/Withdrawal.lean -o /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/State/Withdrawal.olean -i /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/State/Withdrawal.ilean -c /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/State/Withdrawal.c --setup /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/State/Withdrawal.setup.json --json
+⚠ [1163/1181] Built EvmYul.State.Block (4.3s)
+warning: EvmYul/State/Block.lean: imports `Mathlib.Data.Finset.Basic` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean -DautoImplicit=false /home/ubuntu/w/solidity-lean/vendor/evmyul/EvmYul/State/Block.lean -o /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/State/Block.olean -i /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/State/Block.ilean -c /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/State/Block.c --setup /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/State/Block.setup.json --json
+⚠ [1164/1181] Built EvmYul.State (2.9s)
+warning: EvmYul/State.lean: imports `Mathlib.Data.Finset.Basic` from package `mathlib`, which is designed for use with the module system; consider adding `module` to the start of this file
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean -DautoImplicit=false /home/ubuntu/w/solidity-lean/vendor/evmyul/EvmYul/State.lean -o /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/State.olean -i /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/State.ilean -c /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/State.c --setup /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/State.setup.json --json
+warning: EvmYul/State.lean:1:0: it is recommended to use Std.TreeMap instead
+'Batteries.Data.RBMap' has been deprecated: please replace this import by
+
+import Batteries.Data.RBMap.Basic
+import Batteries.Data.RBMap.Depth
+import Batteries.Data.RBMap.Lemmas
+import Batteries.Data.RBMap.Alter
+import Batteries.Data.RBMap.WF
+ℹ [1165/1181] Built EvmYul.SharedState (2.0s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean -DautoImplicit=false /home/ubuntu/w/solidity-lean/vendor/evmyul/EvmYul/SharedState.lean -o /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/SharedState.olean -i /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/SharedState.ilean -c /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/SharedState.c --setup /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/SharedState.setup.json --json
+ℹ [1166/1181] Built EvmYul.StateOps (3.3s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean -DautoImplicit=false /home/ubuntu/w/solidity-lean/vendor/evmyul/EvmYul/StateOps.lean -o /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/StateOps.olean -i /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean/EvmYul/StateOps.ilean -c /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/StateOps.c --setup /home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/ir/EvmYul/StateOps.setup.json --json
+ℹ [1167/1181] Built EvmInteraction.Simulation.OpenWorld (5.2s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean -DautoImplicit=false -Dlinter.all=false -Dlinter.constructorNameAsVariable=false -Dlinter.deprecated=false -Dlinter.unnecessarySeqFocus=false -Dlinter.unnecessarySimpa=false -Dlinter.unreachableTactic=false -Dlinter.unusedSimpArgs=false -Dlinter.unusedTactic=false -Dlinter.unusedVariables=false /home/ubuntu/w/solidity-lean/vendor/evm-interaction/EvmInteraction/Simulation/OpenWorld.lean -o /home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean/EvmInteraction/Simulation/OpenWorld.olean -i /home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean/EvmInteraction/Simulation/OpenWorld.ilean -c /home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/ir/EvmInteraction/Simulation/OpenWorld.c --setup /home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/ir/EvmInteraction/Simulation/OpenWorld.setup.json --json
+ℹ [1168/1181] Built EvmInteraction.Simulation.Interaction (8.7s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean -DautoImplicit=false -Dlinter.all=false -Dlinter.constructorNameAsVariable=false -Dlinter.deprecated=false -Dlinter.unnecessarySeqFocus=false -Dlinter.unnecessarySimpa=false -Dlinter.unreachableTactic=false -Dlinter.unusedSimpArgs=false -Dlinter.unusedTactic=false -Dlinter.unusedVariables=false /home/ubuntu/w/solidity-lean/vendor/evm-interaction/EvmInteraction/Simulation/Interaction.lean -o /home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean/EvmInteraction/Simulation/Interaction.olean -i /home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean/EvmInteraction/Simulation/Interaction.ilean -c /home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/ir/EvmInteraction/Simulation/Interaction.c --setup /home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/ir/EvmInteraction/Simulation/Interaction.setup.json --json
+ℹ [1169/1181] Built SolidCore.Solidity.Interaction (2.8s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean /home/ubuntu/w/solidity-lean/SolidCore/Solidity/Interaction.lean -o /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/Interaction.olean -i /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/Interaction.ilean -c /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/Interaction.c --setup /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/Interaction.setup.json --json
+ℹ [1170/1181] Built SolidCore.Solidity.Interpreter (80s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean /home/ubuntu/w/solidity-lean/SolidCore/Solidity/Interpreter.lean -o /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/Interpreter.olean -i /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/Interpreter.ilean -c /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/Interpreter.c --setup /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/Interpreter.setup.json --json
+ℹ [1171/1181] Built SolidCore.Solidity.ABI (6.0s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean /home/ubuntu/w/solidity-lean/SolidCore/Solidity/ABI.lean -o /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/ABI.olean -i /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/ABI.ilean -c /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/ABI.c --setup /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/ABI.setup.json --json
+⚠ [1172/1181] Built SolidCore.Solidity.Interface.Foundation (214s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean /home/ubuntu/w/solidity-lean/SolidCore/Solidity/Interface/Foundation.lean -o /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/Interface/Foundation.olean -i /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/Interface/Foundation.ilean -c /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/Interface/Foundation.c --setup /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/Interface/Foundation.setup.json --json
+warning: SolidCore/Solidity/Interface/Foundation.lean:4248:20: Unused tactic linter: `<;>` should be replaced with `;` or be removed.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+ℹ [1173/1181] Built SolidCore.Solidity.Interface.ContractMetadata (3.6s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean /home/ubuntu/w/solidity-lean/SolidCore/Solidity/Interface/ContractMetadata.lean -o /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/Interface/ContractMetadata.olean -i /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/Interface/ContractMetadata.ilean -c /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/Interface/ContractMetadata.c --setup /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/Interface/ContractMetadata.setup.json --json
+ℹ [1174/1181] Built SolidCore.Solidity.Interface.Expressions (42s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean /home/ubuntu/w/solidity-lean/SolidCore/Solidity/Interface/Expressions.lean -o /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/Interface/Expressions.olean -i /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/Interface/Expressions.ilean -c /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/Interface/Expressions.c --setup /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/Interface/Expressions.setup.json --json
+⚠ [1175/1181] Built SolidCore.Solidity.TypeCheck (126s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean /home/ubuntu/w/solidity-lean/SolidCore/Solidity/TypeCheck.lean -o /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/TypeCheck.olean -i /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/TypeCheck.ilean -c /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/TypeCheck.c --setup /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/TypeCheck.setup.json --json
+warning: SolidCore/Solidity/TypeCheck.lean:5179:34: Unused tactic linter: `<;>` should be replaced with `;` or be removed.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:6863:26: Variable name `tys` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _tys
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: SolidCore/Solidity/TypeCheck.lean:9012:8: Unused tactic linter: `subst rhs` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9013:8: Unused tactic linter: `subst lhs` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9019:6: Unused tactic linter: `(cases rhs) <;> simp_all [sizeOf] <;> omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9021:6: Unused tactic linter: `(cases target) <;> simp_wf <;> try simp_all <;> omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9023:6: Unused tactic linter: `(cases fn) <;> simp_wf <;> try simp_all [sizeOf] <;> omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9032:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9034:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9046:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9078:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9080:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9155:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9195:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9235:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9264:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9363:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9365:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9376:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9393:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9417:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9623:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9625:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9648:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9662:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9664:8: Unused tactic linter: `omega` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9676:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9019:6: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9019:42: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9021:6: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9021:35: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9023:6: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9023:31: this tactic is never executed
+
+Note: This linter can be disabled with `set_option linter.unreachableTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:9836:8: Unused tactic linter: `subst expr` does nothing.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/TypeCheck.lean:10572:4: Variable name `other` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _other
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: SolidCore/Solidity/TypeCheck.lean:15789:14: `String.mk` has been deprecated: Use `String.ofList` instead
+
+Hint: Replace the deprecated name:
+  String.m̵k̵o̲f̲L̲i̲s̲t̲
+warning: SolidCore/Solidity/TypeCheck.lean:15796:29: `String.mk` has been deprecated: Use `String.ofList` instead
+
+Hint: Replace the deprecated name:
+  String.m̵k̵o̲f̲L̲i̲s̲t̲
+warning: SolidCore/Solidity/TypeCheck.lean:15798:26: `String.mk` has been deprecated: Use `String.ofList` instead
+
+Hint: Replace the deprecated name:
+  String.m̵k̵o̲f̲L̲i̲s̲t̲
+⚠ [1176/1181] Built SolidCore.Solidity.Interface.Statements (470s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean /home/ubuntu/w/solidity-lean/SolidCore/Solidity/Interface/Statements.lean -o /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/Interface/Statements.olean -i /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/Interface/Statements.ilean -c /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/Interface/Statements.c --setup /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/Interface/Statements.setup.json --json
+warning: SolidCore/Solidity/Interface/Statements.lean:1053:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:516:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:1380:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:1331:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:792:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:1211:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:1130:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:3179:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:746:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:958:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:1024:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:1087:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:656:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:493:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:2189:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:679:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:994:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:701:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:95:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:9040:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:9095:0: unused `termination_by`, function is not recursive
+warning: SolidCore/Solidity/Interface/Statements.lean:9144:0: unused `termination_by`, function is not recursive
+⚠ [1177/1181] Built SolidCore.Solidity.Interface.Contracts (10s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean /home/ubuntu/w/solidity-lean/SolidCore/Solidity/Interface/Contracts.lean -o /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/Interface/Contracts.olean -i /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/Interface/Contracts.ilean -c /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/Interface/Contracts.c --setup /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/Interface/Contracts.setup.json --json
+warning: SolidCore/Solidity/Interface/Contracts.lean:1262:31: Unused tactic linter: `<;>` should be replaced with `;` or be removed.
+
+Note: This linter can be disabled with `set_option linter.unusedTactic false`
+warning: SolidCore/Solidity/Interface/Contracts.lean:1262:31: Used `tac1 <;> tac2` where `(tac1; tac2)` would suffice
+
+Note: This linter can be disabled with `set_option linter.unnecessarySeqFocus false`
+warning: SolidCore/Solidity/Interface/Contracts.lean:3001:6: Variable name `storageOrder` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _storageOrder
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: SolidCore/Solidity/Interface/Contracts.lean:3166:6: Variable name `dispatchOrder` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _dispatchOrder
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: SolidCore/Solidity/Interface/Contracts.lean:3177:6: Variable name `sharedConstantTail` is not explicitly referenced.
+
+Hint: The binding can be removed (if unused) or named `_` (if used implicitly). Alternatively, prefix the name with `_` to silence this warning:
+  [apply] _sharedConstantTail
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+ℹ [1178/1181] Built SolidCore.Solidity.Interface (3.1s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean /home/ubuntu/w/solidity-lean/SolidCore/Solidity/Interface.lean -o /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/Interface.olean -i /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/Interface.ilean -c /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/Interface.c --setup /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/Interface.setup.json --json
+ℹ [1179/1181] Built SolidCore.Solidity.Checked (6.8s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean /home/ubuntu/w/solidity-lean/SolidCore/Solidity/Checked.lean -o /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/Checked.olean -i /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/SolidCore/Solidity/Checked.ilean -c /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/Checked.c --setup /home/ubuntu/w/solidity-lean/.lake/build/ir/SolidCore/Solidity/Checked.setup.json --json
+ℹ [1180/1181] Built Contracts.UniswapV2.ERC20.Source (4.1s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean /home/ubuntu/w/solidity-lean/Contracts/UniswapV2/ERC20/Source.lean -o /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/Contracts/UniswapV2/ERC20/Source.olean -i /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/Contracts/UniswapV2/ERC20/Source.ilean -c /home/ubuntu/w/solidity-lean/.lake/build/ir/Contracts/UniswapV2/ERC20/Source.c --setup /home/ubuntu/w/solidity-lean/.lake/build/ir/Contracts/UniswapV2/ERC20/Source.setup.json --json
+ℹ [1181/1181] Built Contracts.UniswapV2.ERC20.Core (163s)
+trace: .> LEAN_PATH=/home/ubuntu/w/solidity-lean/.lake/packages/cslib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/PolyFun/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/QuantumFoundations/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Cli/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/VCVio/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/batteries/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/Qq/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/aesop/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/importGraph/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/plausible/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/EthLib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evmyul/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/vendor/evm-interaction/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/packages/mathlib/.lake/build/lib/lean:/home/ubuntu/w/solidity-lean/.lake/build/lib/lean /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean /home/ubuntu/w/solidity-lean/Contracts/UniswapV2/ERC20/Core.lean -o /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/Contracts/UniswapV2/ERC20/Core.olean -i /home/ubuntu/w/solidity-lean/.lake/build/lib/lean/Contracts/UniswapV2/ERC20/Core.ilean -c /home/ubuntu/w/solidity-lean/.lake/build/ir/Contracts/UniswapV2/ERC20/Core.c --setup /home/ubuntu/w/solidity-lean/.lake/build/ir/Contracts/UniswapV2/ERC20/Core.setup.json --json
+Build completed successfully (1181 jobs).
+build core exit=0 cap_jobs=12 budget_kb=296806335 max_bytes=303929683968 post_max=303929683968 post_swap=0 peak_tree_kb=4407680 max_sampled_tree_rss_kb=8600408 max_lean=8 max_rustc=0 concurrency=sampled-only oom_kill=0 PASS

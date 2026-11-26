@@ -1,0 +1,8 @@
+port exit=0 wall_s=5 peak_rss_kb=34392 2026-11-26T18:50:13Z
+candidate /home/ubuntu/w/candidate-bin/solar sha256 166137ef66c1d792afd5b39bf5e3a1b02402f6c4484032f8b4115d926dd1245a
+verify exit=0 wall_s=153 peak_rss_kb=1674156 2026-11-26T18:52:59Z
+core exit=0 wall_s=473 peak_rss_kb=5461624 2026-11-26T19:00:52Z
+slice exit=0 wall_s=511 peak_rss_kb=4799072 2026-11-26T19:09:23Z
+prep exit=0 wall_s=2 peak_rss_kb=92996 2026-11-26T19:09:25Z
+run exit=0 wall_s=369 peak_rss_kb=8137580 2026-11-26T19:15:34Z
+replay exit=3 wall_s=4 2026-11-26T19:15:38Z

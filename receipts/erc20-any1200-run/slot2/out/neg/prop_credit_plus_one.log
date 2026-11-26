@@ -1,0 +1,10 @@
+/home/ubuntu/w/slot2/out/neg/prop_credit_plus_one.lean:7:97: error: Type mismatch
+  Certified.erc20_any.Proof.scopedExpected
+has type
+  Expected src specScoped runtimeBytes
+but is expected to have type
+  Expected src
+    (let __src := specScoped;
+    { Contexts := __src.Contexts, entries := __src.entries, Valid := __src.Valid, Allowed := __src.Allowed,
+      Post := fun ctx => mutPost ctx.caller, gas := __src.gas, assumptions := __src.assumptions })
+    runtimeBytes

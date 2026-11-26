@@ -1,0 +1,3 @@
+admission port cg=/sys/fs/cgroup/erc20cap-port-6339 want_max=303929683968 got_max=303929683968 want_swap=0 got_swap=0 concurrency=sampled-only ADMITTED
+/home/ubuntu/w/solidity-lean/.cache/uniswap-v2/src
+build port exit=0 cap_jobs=12 budget_kb=296806335 max_bytes=303929683968 post_max=303929683968 post_swap=0 peak_tree_kb=154816 max_sampled_tree_rss_kb=47584 max_lean=0 max_rustc=0 concurrency=sampled-only oom_kill=0 PASS

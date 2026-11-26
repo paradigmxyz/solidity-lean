@@ -1,0 +1,6 @@
+path /home/ubuntu/w/candidate-bin/solar
+sha256 166137ef66c1d792afd5b39bf5e3a1b02402f6c4484032f8b4115d926dd1245a
+commit f71b7554d6e044cf974ac4f0e5f0b184cd96ff9b
+version solar 0.3.0-dev+commit.f71b7554
+flags -Ogas --evm-version osaka
+tools 2b2c3ddf3b20de8331676a998a6ba384bf5ece43 0 uncommitted

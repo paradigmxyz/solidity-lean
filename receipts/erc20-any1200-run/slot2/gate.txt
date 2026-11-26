@@ -1,0 +1,12 @@
+admission port cg=/sys/fs/cgroup/erc20cap-port-6931 want_max=303819337728 got_max=303819337728 want_swap=0 got_swap=0 concurrency=sampled-only ADMITTED
+build port exit=0 cap_jobs=12 budget_kb=296698575 max_bytes=303819337728 post_max=303819337728 post_swap=0 peak_tree_kb=150916 max_sampled_tree_rss_kb=43972 max_lean=0 max_rustc=0 concurrency=sampled-only oom_kill=0 PASS
+admission verify cg=/sys/fs/cgroup/erc20cap-verify-7245 want_max=303819337728 got_max=303819337728 want_swap=0 got_swap=0 concurrency=sampled-only ADMITTED
+build verify exit=0 cap_jobs=12 budget_kb=296698575 max_bytes=303819337728 post_max=303819337728 post_swap=0 peak_tree_kb=2828848 max_sampled_tree_rss_kb=2343376 max_lean=0 max_rustc=4 concurrency=sampled-only oom_kill=0 PASS
+admission core cg=/sys/fs/cgroup/erc20cap-core-15418 want_max=303819337728 got_max=303819337728 want_swap=0 got_swap=0 concurrency=sampled-only ADMITTED
+build core exit=0 cap_jobs=12 budget_kb=296698575 max_bytes=303819337728 post_max=303819337728 post_swap=0 peak_tree_kb=4466236 max_sampled_tree_rss_kb=8455764 max_lean=6 max_rustc=0 concurrency=sampled-only oom_kill=0 PASS
+admission slice cg=/sys/fs/cgroup/erc20cap-slice-22629 want_max=303819337728 got_max=303819337728 want_swap=0 got_swap=0 concurrency=sampled-only ADMITTED
+build slice exit=0 cap_jobs=12 budget_kb=296698575 max_bytes=303819337728 post_max=303819337728 post_swap=0 peak_tree_kb=3620064 max_sampled_tree_rss_kb=9620528 max_lean=12 max_rustc=0 concurrency=sampled-only oom_kill=0 PASS
+admission prep cg=/sys/fs/cgroup/erc20cap-prep-50777 want_max=303819337728 got_max=303819337728 want_swap=0 got_swap=0 concurrency=sampled-only ADMITTED
+build prep exit=0 cap_jobs=12 budget_kb=296698575 max_bytes=303819337728 post_max=303819337728 post_swap=0 peak_tree_kb=90316 max_sampled_tree_rss_kb=13220 max_lean=0 max_rustc=0 concurrency=sampled-only oom_kill=0 PASS
+admission run cg=/sys/fs/cgroup/erc20cap-run-51024 want_max=303819337728 got_max=303819337728 want_swap=0 got_swap=0 concurrency=sampled-only ADMITTED
+build run exit=0 cap_jobs=12 budget_kb=296698575 max_bytes=303819337728 post_max=303819337728 post_swap=0 peak_tree_kb=12351160 max_sampled_tree_rss_kb=30620604 max_lean=12 max_rustc=0 concurrency=sampled-only oom_kill=0 PASS

@@ -1,0 +1,5 @@
+2026-11-26T17:25:05Z tree_rss_kb=29440 lean=0 largest_pid=6372 largest_rss_kb=15392 argv=/usr/lib/git-core/git-remote-https origin https://github.com/paradigmxyz/solar.git 
+2026-11-26T17:25:06Z tree_rss_kb=35644 lean=0 largest_pid=6372 largest_rss_kb=16424 argv=/usr/lib/git-core/git-remote-https origin https://github.com/paradigmxyz/solar.git 
+2026-11-26T17:25:07Z tree_rss_kb=41192 lean=0 largest_pid=6372 largest_rss_kb=20288 argv=/usr/lib/git-core/git-remote-https origin https://github.com/paradigmxyz/solar.git 
+2026-11-26T17:25:09Z tree_rss_kb=41428 lean=0 largest_pid=6495 largest_rss_kb=15328 argv=/usr/lib/git-core/git-remote-https origin https://github.com/Uniswap/v2-core.git 
+2026-11-26T17:25:11Z tree_rss_kb=47584 lean=0 largest_pid=6571 largest_rss_kb=30316 argv=/usr/bin/python3 /home/ubuntu/w/solidity-lean/scripts/solc_ast_to_lean_source.py --solc /home/ubuntu/.cache/solc/solc-0.8.35 --contract UniswapV2Factory --namespace SolidCore.Verify.VC.Source.UniswapV2Factory scripts/verify/uniswap-v2/UniswapV2Factory.sol 
