@@ -55,26 +55,104 @@ def fnHashPair : Fn := ⟨hashPairSel, [.uint 256, .uint 256]⟩
 /-- The external function of `AbiHash`. -/
 def fns : List Fn := [fnHashPair]
 
-/-- `hashPair` as the type checker leaves it, under the name `name` and the selector `sel`: the
-external function and its internal copy differ in nothing else. -/
-def hashPairDef (name : String) (sel : Option SolidCore.Solidity.Shared.Word) : Source.FunctionDef :=
-  let u : Source.Ty := .uint256
-  let p (x : String) : Source.BindingDecl := { name := x, ty := u, isStorageRef := false }
-  let clean (e : Source.Expr) : Source.Expr := .castOp .uintCleanup 256 e
-  { name, selector? := sel, payable := false, params := [p "a", p "b"],
-    paramAbiCleanups := [.uint 256, .uint 256], returns := [p "_ret0"],
-    body := .block
-      [.assign (.var "a") (clean (.var "a")), .assign (.var "b") (clean (.var "b")), .skip,
-       .block [.returnValues [clean (.castOp .uintCast 256
-         (.keccak256 (.encode .plain none [] [u, u] [.var "a", .var "b"])))]]],
-    dispatchId? := none }
-
 /-- SolidCore's core contract of `AbiHash`, as the type checker leaves it. -/
 def coreLit : Contract :=
-  { storageFields := [], immutableFields := [], eventDecls := [], errorDecls := [],
-    functions := [hashPairDef "hashPair" (some 1725442859),
-      hashPairDef "__internal_hashPair(uint256,uint256)#[SolidCore.Solidity.Ty.uint 256, SolidCore.Solidity.Ty.uint 256]"
-        none] }
+  { storageFields := [],
+    immutableFields := [],
+    eventDecls := [],
+    errorDecls := [],
+    functions := [{ name := "hashPair",
+                    selector? := some 1725442859,
+                    payable := false,
+                    params := [{ name := "a",
+                                 ty := SolidCore.Solidity.Source.Ty.uint256,
+                                 isStorageRef := false },
+                               { name := "b",
+                                 ty := SolidCore.Solidity.Source.Ty.uint256,
+                                 isStorageRef := false }],
+                    paramAbiCleanups := [SolidCore.Solidity.Source.AbiCleanup.uint 256,
+                                         SolidCore.Solidity.Source.AbiCleanup.uint 256],
+                    returns := [{ name := "_ret0",
+                                  ty := SolidCore.Solidity.Source.Ty.uint256,
+                                  isStorageRef := false }],
+                    body := SolidCore.Solidity.Source.Stmt.block
+                              [SolidCore.Solidity.Source.Stmt.assign
+                                 (SolidCore.Solidity.Source.LValue.var "a")
+                                 (SolidCore.Solidity.Source.Expr.castOp
+                                   (SolidCore.Solidity.Source.CastKind.uintCleanup)
+                                   256
+                                   (SolidCore.Solidity.Source.Expr.var "a")),
+                               SolidCore.Solidity.Source.Stmt.assign
+                                 (SolidCore.Solidity.Source.LValue.var "b")
+                                 (SolidCore.Solidity.Source.Expr.castOp
+                                   (SolidCore.Solidity.Source.CastKind.uintCleanup)
+                                   256
+                                   (SolidCore.Solidity.Source.Expr.var "b")),
+                               SolidCore.Solidity.Source.Stmt.skip,
+                               SolidCore.Solidity.Source.Stmt.block
+                                 [SolidCore.Solidity.Source.Stmt.returnValues
+                                    [SolidCore.Solidity.Source.Expr.castOp
+                                       (SolidCore.Solidity.Source.CastKind.uintCleanup)
+                                       256
+                                       (SolidCore.Solidity.Source.Expr.castOp
+                                         (SolidCore.Solidity.Source.CastKind.uintCast)
+                                         256
+                                         (SolidCore.Solidity.Source.Expr.keccak256
+                                           (SolidCore.Solidity.Source.Expr.encode
+                                             (SolidCore.Solidity.Source.EncodeKind.plain)
+                                             none
+                                             []
+                                             [SolidCore.Solidity.Source.Ty.uint256,
+                                              SolidCore.Solidity.Source.Ty.uint256]
+                                             [SolidCore.Solidity.Source.Expr.var "a",
+                                              SolidCore.Solidity.Source.Expr.var "b"])))]]],
+                    dispatchId? := none },
+                  { name := "__internal_hashPair(uint256,uint256)#[SolidCore.Solidity.Ty.uint 256, SolidCore.Solidity.Ty.uint 256]",
+                    selector? := none,
+                    payable := false,
+                    params := [{ name := "a",
+                                 ty := SolidCore.Solidity.Source.Ty.uint256,
+                                 isStorageRef := false },
+                               { name := "b",
+                                 ty := SolidCore.Solidity.Source.Ty.uint256,
+                                 isStorageRef := false }],
+                    paramAbiCleanups := [SolidCore.Solidity.Source.AbiCleanup.uint 256,
+                                         SolidCore.Solidity.Source.AbiCleanup.uint 256],
+                    returns := [{ name := "_ret0",
+                                  ty := SolidCore.Solidity.Source.Ty.uint256,
+                                  isStorageRef := false }],
+                    body := SolidCore.Solidity.Source.Stmt.block
+                              [SolidCore.Solidity.Source.Stmt.assign
+                                 (SolidCore.Solidity.Source.LValue.var "a")
+                                 (SolidCore.Solidity.Source.Expr.castOp
+                                   (SolidCore.Solidity.Source.CastKind.uintCleanup)
+                                   256
+                                   (SolidCore.Solidity.Source.Expr.var "a")),
+                               SolidCore.Solidity.Source.Stmt.assign
+                                 (SolidCore.Solidity.Source.LValue.var "b")
+                                 (SolidCore.Solidity.Source.Expr.castOp
+                                   (SolidCore.Solidity.Source.CastKind.uintCleanup)
+                                   256
+                                   (SolidCore.Solidity.Source.Expr.var "b")),
+                               SolidCore.Solidity.Source.Stmt.skip,
+                               SolidCore.Solidity.Source.Stmt.block
+                                 [SolidCore.Solidity.Source.Stmt.returnValues
+                                    [SolidCore.Solidity.Source.Expr.castOp
+                                       (SolidCore.Solidity.Source.CastKind.uintCleanup)
+                                       256
+                                       (SolidCore.Solidity.Source.Expr.castOp
+                                         (SolidCore.Solidity.Source.CastKind.uintCast)
+                                         256
+                                         (SolidCore.Solidity.Source.Expr.keccak256
+                                           (SolidCore.Solidity.Source.Expr.encode
+                                             (SolidCore.Solidity.Source.EncodeKind.plain)
+                                             none
+                                             []
+                                             [SolidCore.Solidity.Source.Ty.uint256,
+                                              SolidCore.Solidity.Source.Ty.uint256]
+                                             [SolidCore.Solidity.Source.Expr.var "a",
+                                              SolidCore.Solidity.Source.Expr.var "b"])))]]],
+                    dispatchId? := none }] }
 
 /-! ## The selector
 
