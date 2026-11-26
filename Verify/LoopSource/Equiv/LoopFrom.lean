@@ -4,19 +4,19 @@ import SolidCore.Refinement.Generic.LoopRun
 /-!
 # Loop runs from any caller
 
-\`BodyRunsFrom\`: the loop route's \`BodyRuns\` from the symbolic-caller initial state \`initFrom fn\`
-(\`msg.sender\` the valuation's caller word, bounded below \`2 ^ 160\` by \`callerFact\`), so a body
-proved to run to \`b\` this way runs to \`b\` for every caller.
+`BodyRunsFrom`: the loop route's `BodyRuns` from the symbolic-caller initial state `initFrom fn`
+(`msg.sender` the valuation's caller word, bounded below `2 ^ 160` by `callerFact`), so a body
+proved to run to `b` this way runs to `b` for every caller.
 
-\`runtime_run_clean_from\`: from caller \`a\`, the runtime code (\`runtimeRunFrom a\`) runs a valid call
-of a function whose body runs to \`b\` to the observable of \`b\`'s tree at caller word \`a\`. It is
-\`runtime_run_clean\` with the caller \`a\`.
+`runtime_run_clean_from`: from caller `a`, the runtime code (`runtimeRunFrom a`) runs a valid call
+of a function whose body runs to `b` to the observable of `b`'s tree at caller word `a`. It is
+`runtime_run_clean` with the caller `a`.
 -/
 
 namespace SolidCore.Refinement.Generic.Loop
 open SolidCore.Solidity SolidCore.Solidity.Source SolidCore.Refinement SolidCore.Refinement.Generic
 
-/-- The body of \`fn\` runs to the leaf of \`b\` from every runtime related to its symbolic-caller
+/-- The body of `fn` runs to the leaf of `b` from every runtime related to its symbolic-caller
 first state. -/
 def BodyRunsFrom (E : EraseEnv) (fuel : Nat) (fn : FunctionDef) (b : Br) : Prop :=
   ∀ ρ ctx rt, StmtRel ρ E ctx rt (initFrom fn) →
@@ -102,83 +102,53 @@ theorem runtime_run_clean_from (a : Nat) (ha : a < 2 ^ 160) {fuel : Nat} {c : Ty
   obtain ⟨T', hT', hTe⟩ := brTree_eval fn K ρ b T hT
   rw [hacc, if_pos rfl, hcall, ← hTe]
   generalize b.eval ρ = l at hT' hleaf
-  cases l with
-  | normal S =>
-    cases r <;> simp only [LeafRel] at hleaf
+  rcases l with S | ⟨S, _ | ⟨v, vs⟩⟩ | p <;> cases r <;> simp only [LeafRel] at hleaf <;>
+    try obtain ⟨hleaf, rfl⟩ : _ ∧ _ := hleaf
+  -- A normal end and a bare `return` both return the named returns' words.
+  iterate 2
     rename_i rt
-    simp only [leafTree, Option.bind_eq_bind, Option.bind_eq_some_iff] at hT'
+    simp only [leafTree, ↓reduceIte, Option.bind_eq_bind, Option.bind_eq_some_iff] at hT'
     obtain ⟨ws, hws, hT'⟩ := hT'
     split at hT'
     case isFalse => simp at hT'
     rename_i hok
     simp only [Option.some.injEq] at hT'
     subst hT'
-    simp only [FunctionDef.callBodyResult, FunctionDef.collectReturns, collectReturnBindings,
+    simp only [FunctionDef.callBodyResult, List.map_nil, List.isEmpty_nil, ↓reduceIte,
+      FunctionDef.collectReturns, collectReturnBindings,
       collect_words ρ rt S hKρ hleaf.expr.locals fn.returns ws hok hws, untag_words,
       encode_words ρ hKρ fn.returns ws hok, bind, Option.bind, Option.map_some]
-    simp only [Source.observe, Tree.eval, Res.obs, if_true, ↓reduceIte, logEntries_map,
+    simp only [Source.observe, Tree.eval, Res.obs, ↓reduceIte, logEntries_map,
       hleaf.logs, Option.some.injEq, Observable.mk.injEq, true_and]
     funext slot
     exact loadSlot_eq _ S.writes ρ hρok hleaf.store slot
-  | returned S vs =>
-    cases r <;> simp only [LeafRel] at hleaf
-    rename_i rt vals
-    obtain ⟨hst', rfl⟩ := hleaf
-    by_cases hv : vs = []
-    · subst hv
-      simp only [leafTree, if_true, Option.bind_eq_bind, Option.bind_eq_some_iff] at hT'
-      obtain ⟨ws, hws, hT'⟩ := hT'
-      split at hT'
-      case isFalse => simp at hT'
-      rename_i hok
-      simp only [Option.some.injEq] at hT'
-      subst hT'
-      simp only [FunctionDef.callBodyResult, List.map_nil, List.isEmpty_nil, if_true,
-        FunctionDef.collectReturns, collectReturnBindings,
-        collect_words ρ rt S hKρ hst'.expr.locals fn.returns ws hok hws, untag_words,
-        encode_words ρ hKρ fn.returns ws hok, bind, Option.bind, Option.map_some]
-      simp only [Source.observe, Tree.eval, Res.obs, if_true, ↓reduceIte, logEntries_map,
-        hst'.logs, Option.some.injEq, Observable.mk.injEq, true_and]
-      funext slot
-      exact loadSlot_eq _ S.writes ρ hρok hst'.store slot
-    · simp only [leafTree, hv, if_false] at hT'
-      split at hT'
-      case isFalse => simp at hT'
-      rename_i hok
-      simp only [Option.some.injEq] at hT'
-      subst hT'
-      have hne : (vs.map fun e => Value.word (e.eval ρ)).isEmpty = false := by
-        cases vs with
-        | nil => exact absurd rfl hv
-        | cons _ _ => rfl
-      simp only [FunctionDef.callBodyResult, hne, Bool.false_eq_true, if_false,
-        FunctionDef.coerceReturnValues, coerceReturnBindings,
-        coerce_words ρ rt hKρ fn.returns vs hok, untag_words,
-        encode_words ρ hKρ fn.returns vs hok, bind, Option.bind, Option.map_some]
-      simp only [Source.observe, Tree.eval, Res.obs, if_true, ↓reduceIte, logEntries_map,
-        hst'.logs, Option.some.injEq, Observable.mk.injEq, true_and]
-      funext slot
-      exact loadSlot_eq _ S.writes ρ hρok hst'.store slot
-  | reverted p =>
-    cases r <;> simp only [LeafRel] at hleaf
-    subst hleaf
-    cases p with
-    | empty =>
-      simp only [leafTree, Option.some.injEq] at hT'
-      subst hT'
+  · rename_i rt
+    simp only [leafTree, List.cons_ne_nil, ↓reduceIte] at hT'
+    split at hT'
+    case isFalse => simp at hT'
+    rename_i hok
+    simp only [Option.some.injEq] at hT'
+    subst hT'
+    have hne : ((v :: vs).map fun e => Value.word (e.eval ρ)).isEmpty = false := rfl
+    simp only [FunctionDef.callBodyResult, hne, Bool.false_eq_true, ↓reduceIte,
+      FunctionDef.coerceReturnValues, coerceReturnBindings,
+      coerce_words ρ rt hKρ fn.returns (v :: vs) hok, untag_words,
+      encode_words ρ hKρ fn.returns (v :: vs) hok, bind, Option.bind, Option.map_some]
+    simp only [Source.observe, Tree.eval, Res.obs, ↓reduceIte, logEntries_map,
+      hleaf.logs, Option.some.injEq, Observable.mk.injEq, true_and]
+    funext slot
+    exact loadSlot_eq _ S.writes ρ hρok hleaf.store slot
+  · subst hleaf
+    rcases p with _ | c | m <;> simp only [leafTree, Option.some.injEq, Option.map_eq_some_iff] at hT'
+    · subst hT'
       simp [FunctionDef.callBodyResult, RevertData.untagFixedBytes, Fail.data,
         ABI.Contract.encodeRevertData?, Source.observe, Tree.eval, Res.obs, hρ]
-    | panic c =>
-      simp only [leafTree, Option.some.injEq] at hT'
-      subst hT'
+    · subst hT'
       simp [FunctionDef.callBodyResult, RevertData.untagFixedBytes, Fail.data, encode_panic ρ,
         Source.observe, Tree.eval, Res.obs, hρ]
-    | error m =>
-      simp only [leafTree, Option.map_eq_some_iff] at hT'
-      obtain ⟨bs, hbs, rfl⟩ := hT'
+    · obtain ⟨bs, hbs, rfl⟩ := hT'
       simp [FunctionDef.callBodyResult, RevertData.untagFixedBytes, Fail.data, encode_error ρ _ hbs,
         Source.observe, Tree.eval, Res.obs, hρ]
-
 
 end SolidCore.Refinement.Generic.Loop
 
