@@ -99,16 +99,9 @@ theorem mir_sem_of_run {o : Oracle} {m : MIR.Lowered.Module} {call : Call} {obs 
   rw [e]
   rfl
 
-/-- SolarTV's lowered MIR semantics runs w5's first lowered MIR module on every call of f(a, b),
-under every oracle, to the observable expected a b. -/
-theorem mir_run (o : Oracle) (a b : U256) :
-    (MIR.Lowered.moduleSem o).run SolarTV.Export.Main.stage0 (callOf fSelector [a, b]) =
-      some (expected a b) := by
-  rw [← expectedAt_nil]
-  exact mir_sem_of_run 9 (mir_run_of o _ a b rfl (size_callOf a b) (by rw [word0]; rfl) (word4 a b)
-    (word36 a b))
-
-/-- The same from any storage `σ`, which the module keeps. -/
+/-- SolarTV's lowered MIR semantics runs w5's first lowered MIR module on every call of f(a, b)
+from any storage `σ`, under every oracle, to the observable expectedAt σ a b: the module keeps the
+storage. -/
 theorem mir_run_at (o : Oracle) (a b : U256) (σ : List (Nat × Nat)) :
     (MIR.Lowered.moduleSem o).run SolarTV.Export.Main.stage0
         { callOf fSelector [a, b] with storage := σ } = some (expectedAt σ a b) :=
@@ -116,17 +109,26 @@ theorem mir_run_at (o : Oracle) (a b : U256) (σ : List (Nat × Nat)) :
     (by have h := word0 a b; rw [show BitVec.ofNat 256 fSelector = 332507694 from rfl] at h; exact h)
     (word4 a b) (word36 a b))
 
+/-- The same from empty storage, to expected a b. -/
+theorem mir_run (o : Oracle) (a b : U256) :
+    (MIR.Lowered.moduleSem o).run SolarTV.Export.Main.stage0 (callOf fSelector [a, b]) =
+      some (expected a b) :=
+  expectedAt_nil a b ▸ mir_run_at o a b []
+
 end Lowering
+
+/-- The model SolidCore runs f as from any storage `σ` shows expectedAt σ a b. -/
+theorem observe_model_at (a b : U256) (σ : List (Nat × Nat)) :
+    Verify.observe (slotValue σ) (Verify.W5.model [a.toNat, b.toNat] (slotValue σ)) =
+      expectedAt σ a b := by
+  unfold Verify.W5.model expectedAt expected
+  by_cases h : a.toNat + b.toNat < 2 ^ 256 <;>
+    simp only [List.getD_cons_zero, List.getD_cons_succ, h, ↓reduceIte] <;> rfl
 
 /-- The model SolidCore runs f as shows expected a b. -/
 theorem observe_model (a b : U256) :
-    Verify.observe (fun _ => 0) (Verify.W5.model [a.toNat, b.toNat] (fun _ => 0)) = expected a b := by
-  unfold Verify.W5.model expected
-  by_cases h : a.toNat + b.toNat < 2 ^ 256
-  · simp only [List.getD_cons_zero, List.getD_cons_succ, h, ↓reduceIte]
-    rfl
-  · simp only [List.getD_cons_zero, List.getD_cons_succ, h, ↓reduceIte]
-    rfl
+    Verify.observe (fun _ => 0) (Verify.W5.model [a.toNat, b.toNat] (fun _ => 0)) = expected a b :=
+  expectedAt_nil a b ▸ observe_model_at a b []
 
 /-- SolidCore runs w5's f on any two argument words to expected a b. -/
 theorem source_run {c : SolidCore.Solidity.TypeCheck.CheckedContract}
@@ -151,17 +153,6 @@ theorem lowering (o : SolarTV.Machine.Oracle) {c : SolidCore.Solidity.TypeCheck.
   cases hrun
   exact mir_run o a b
 
-/-- The model SolidCore runs f as from any storage `σ` shows expectedAt σ a b. -/
-theorem observe_model_at (a b : U256) (σ : List (Nat × Nat)) :
-    Verify.observe (slotValue σ) (Verify.W5.model [a.toNat, b.toNat] (slotValue σ)) =
-      expectedAt σ a b := by
-  unfold Verify.W5.model expectedAt expected
-  by_cases h : a.toNat + b.toNat < 2 ^ 256
-  · simp only [List.getD_cons_zero, List.getD_cons_succ, h, ↓reduceIte]
-    rfl
-  · simp only [List.getD_cons_zero, List.getD_cons_succ, h, ↓reduceIte]
-    rfl
-
 /-- SolidCore runs w5's f on any two argument words from any storage `σ` to expectedAt σ a b. -/
 theorem source_run_at {c : SolidCore.Solidity.TypeCheck.CheckedContract}
     (hc : Corpus.W5.contract? = .ok c) (a b : U256) (σ : List (Nat × Nat)) :
@@ -169,9 +160,7 @@ theorem source_run_at {c : SolidCore.Solidity.TypeCheck.CheckedContract}
       some (expectedAt σ a b) := by
   obtain ⟨hk, _, hemp⟩ := Corpus.W5.shape_of hc
   obtain ⟨d, hd⟩ := deployed_of hemp
-  have := Verify.W5.run_f_at hk (Verify.deployedAt_of_deployed hd) a b σ
-  rw [observe_model_at] at this
-  exact this
+  exact observe_model_at a b σ ▸ Verify.W5.run_f_at hk (Verify.deployedAt_of_deployed hd) a b σ
 
 /-- **The source stage of w5 from any storage**: SolidCore to solar's first lowered MIR on every
 call of f on any two argument words with no value, from any storage, under every oracle. -/

@@ -10,15 +10,15 @@ less gas is then the same run with less gas left (`Logic.LessGas`). That argumen
 code whose every step is monotone in gas: GAS pushes the gas left, a call forwards all but a 64th
 of it, and a copy of dynamic size has no static bound on its memory, so none of them fits it.
 
-This file proves the refinement at the gas the run has, from a simulation block by block over
-EthLib's steps under the runner of messages (`StepBy`, `HoareUnder`), with the oracle of the run
-built as the run goes:
+This file proves the refinement at the gas the run has, from a simulation block by block read
+back from a run of EthLib's loop under the runner of messages, with the oracle of the run built as
+the run goes:
 
-* `Advances`: from a frame related to a SolarTV block state, EthLib reaches a frame that failed
-  (out of gas, or any exceptional halt), or the table of the run grows to `T'` (the gas a GAS read
-  pushed, the success and output of a call) and every oracle of a table extending `T'` runs the
-  block to the same end, which EthLib's frame shows (`Post`), or to the next block state, related
-  to EthLib's frame with a lower measure.
+* `Advances`: from a frame related to a SolarTV block state that the loop runs to a frame with no
+  error, the table of the run grows to `T'` (the gas a GAS read pushed, the success and output of
+  a call) and every oracle of a table extending `T'` runs the block to the same end, which the
+  last frame shows (`Post`), or to the next block state, related to a frame with a lower measure
+  that the loop runs to the same last frame.
 * `run_of_advances`: a run of EthLib that ends with no error is, for every table extending the
   last one, SolarTV's run to the same end.
 * `within_of_advances`: at every gas, for every call, the oracle of that run's table makes every
@@ -81,45 +81,6 @@ def Advances (E : RunTable → σ → Evm .fusaka Nat → Prop)
         (∀ res, r = .inl res → Post res fin) ∧
         (∀ y, r = .inr y → ∃ after within', E T' y after ∧ meas y after < meas x evm ∧
           runFrame (step .fusaka) (step_decreases .fusaka) bound runChild after within' = .ok fin)
-
-/-- **One block of the simulation, forwards**: from the frame `evm`, under every runner of messages,
-EthLib reaches a frame that failed, or the table grows to `T'` and every oracle of a table extending
-`T'` runs the block to the same `r`: an end the frame reached shows, or the next block state,
-related to the frame reached with a lower measure. -/
-def AdvancesFwd (E : RunTable → σ → Evm .fusaka Nat → Prop)
-    (Post : Halt × Machine.State → Evm .fusaka Nat → Prop) (meas : σ → Evm .fusaka Nat → Nat)
-    (T : RunTable) (x : σ) (evm : Evm .fusaka Nat) : Prop :=
-  HoareUnder .fusaka (fun _ _ _ => True) (· = evm) fun after =>
-    (after.running = false ∧ after.error ≠ none) ∨
-    ∃ T' r, T.Le T' ∧ (∀ T'', T'.Le T'' → blk (O T'') x = some r) ∧
-      (∀ res, r = .inl res → after.running = false ∧ Post res after) ∧
-      (∀ y, r = .inr y → E T' y after ∧ meas y after < meas x evm)
-
-/-- A block that advances forwards advances in a run that succeeds. -/
-theorem advances_of_fwd {E : RunTable → σ → Evm .fusaka Nat → Prop}
-    {Post : Halt × Machine.State → Evm .fusaka Nat → Prop} {meas : σ → Evm .fusaka Nat → Nat}
-    {T : RunTable} {x : σ} {evm : Evm .fusaka Nat} (h : AdvancesFwd blk O E Post meas T x evm) :
-    Advances blk O E Post meas T x evm := by
-  intro bound runChild meets within fin hrun hok
-  obtain ⟨after, hreach, hq⟩ := h bound runChild meets evm rfl within
-  have within' := Nat.le_trans (hreach.gasHeld_le StepBy.gasHeld_le) within
-  have hrun' := hrun
-  rw [runFrame_eq_of_reaches StepBy.gasHeld_le StepBy.runFrame_eq hreach within] at hrun'
-  rcases hq with hq | aborted
-  · rcases hq with ⟨hstop, herr⟩ | ⟨T', r, hle, hstep, hinl, hinr⟩
-    · rw [runFrame_of_running_eq_false hstop] at hrun'
-      cases hrun'
-      exact absurd hok herr
-    · refine ⟨T', r, hle, hstep, fun res hr => ?_, fun y hy => ?_⟩
-      · obtain ⟨hstop, hpost⟩ := hinl res hr
-        rw [runFrame_of_running_eq_false hstop] at hrun'
-        cases hrun'
-        exact hpost
-      · obtain ⟨hE', hm'⟩ := hinr y hy
-        exact ⟨after, within', hE', hm', hrun'⟩
-  · obtain ⟨e, he, -⟩ := runFrame_of_abortsBy meets.aborts aborted within'
-    rw [he] at hrun'
-    cases hrun'
 
 /-- **A run of EthLib that ends with no error is SolarTV's**, for every table extending the last
 one the run grew. -/
