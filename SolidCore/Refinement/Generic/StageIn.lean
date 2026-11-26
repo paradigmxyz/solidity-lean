@@ -106,7 +106,7 @@ theorem source_runIn_clean (W : World) {fuel : Nat} {c : TypeCheck.CheckedContra
       some (T.eval ⟨args, slotValue σ, solHash, callerWord⟩).obs := by
   rw [SolidCore.Refinement.Wide.callAt_of_args sel args hargs σ,
     runIn_eq_at W hd, SolidCore.Refinement.Wide.map_ofNat_toNat args hargs]
-  obtain ⟨⟨R, hR⟩, hobs⟩ := Loop.abi_clean hsel hfind hw hret fuel (ctxIn W c) callerAddress
+  obtain ⟨⟨R, hR⟩, hobs⟩ := abi_clean hsel hfind hw hret fuel (ctxIn W c) callerAddress
     (st0 := { d with storage := σ.foldl (fun acc kv => StorageMap.insertLoop acc kv.1 kv.2) d.storage })
     (getD_storage_cover hd hcov) hd.events (.lit callerWord) hlen hargs
     (argFacts_hold ⟨args, slotValue σ, solHash, callerWord⟩ hargs ws 0 (by simpa using hclean)) rfl hdec hT

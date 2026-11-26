@@ -222,7 +222,7 @@ theorem source_run_from (a : Nat) (ha : a < 2 ^ 160) {fuel : Nat} {c : TypeCheck
   · rw [if_pos hclean]
     rw [if_pos hclean] at hdec
     rw [Wide.callAt_of_args sel args hargs σ, run_eq_at_from a hd, Wide.map_ofNat_toNat args hargs]
-    exact And.right (Loop.abi_clean hsel hfind hw hret fuel _ a (getD_storage_cover hd hcov)
+    exact And.right (abi_clean hsel hfind hw hret fuel _ a (getD_storage_cover hd hcov)
       (by exact hd.events) .caller hlen hargs
       ((argFacts_hold ⟨args, slotValue σ, solHash, a⟩ hargs ws 0 (by simpa using hclean)).cons
         (callerFact_eval ⟨args, slotValue σ, solHash, a⟩ ha)) rfl hdec ht
@@ -270,27 +270,6 @@ theorem callFactsFrom (sel : Nat) (hsel : sel < 2 ^ 32) (args : List Nat)
       { calldata := Abi.calldata sel args, callvalue := 0, storage := σ } :=
   have h := callFacts sel hsel args hargs σ
   ⟨h.value, h.size, h.args, h.selector, h.store, h.ok⟩
-
-/-- What `check` accepts of a function of `fns`: its selector, SolidCore's function of it with
-`f`'s parameter count, and the two trees, which agree. -/
-theorem check_mem {fuel mirFuel : Nat} {core : Contract} {m : Module} {fns : List Fn}
-    {env : EnvFlags} (hchk : check fuel mirFuel core m fns env = true) {f : Fn} (hf : f ∈ fns) :
-    f.sel < 2 ^ 32 ∧ ∃ fn t1 t2, core.findFunctionBySelector? f.sel = some fn ∧
-      fn.params.length = f.params.length ∧ eraseFn (envOf core) fuel fn = some t1 ∧
-      symTree m f.sel f.params.length mirFuel env = some t2 ∧ Tree.agree t1 t2 = true := by
-  have hcf := List.all_eq_true.mp hchk f hf
-  unfold checkFn at hcf
-  cases hfind : core.findFunctionBySelector? f.sel with
-  | none => simp [hfind] at hcf
-  | some fn =>
-  cases ht1 : eraseFn (envOf core) fuel fn with
-  | none => simp [hfind, ht1] at hcf
-  | some t1 =>
-  cases ht2 : symTree m f.sel f.params.length mirFuel env with
-  | none => simp [hfind, ht1, ht2] at hcf
-  | some t2 =>
-  simp only [hfind, ht1, ht2, Bool.and_eq_true, decide_eq_true_eq] at hcf
-  exact ⟨hcf.1, fn, t1, t2, rfl, hcf.2.1, ht1, rfl, hcf.2.2⟩
 
 /-- What `checkSym` accepts of a function of `fns`, as `check_mem`. -/
 theorem checkSym_mem {fuel mirFuel : Nat} {core : Contract} {m : Module} {fns : List Fn}

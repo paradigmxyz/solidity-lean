@@ -188,6 +188,27 @@ def check (fuel mirFuel : Nat) (core : Contract) (m : Module) (fns : List Fn) (e
     Bool :=
   fns.all (checkFn fuel mirFuel core m env)
 
+/-- What `check` accepts of a function of `fns`: its selector, SolidCore's function of it with
+`f`'s parameter count, and the two trees, which agree. -/
+theorem check_mem {fuel mirFuel : Nat} {core : Contract} {m : Module} {fns : List Fn}
+    {env : EnvFlags} (hchk : check fuel mirFuel core m fns env = true) {f : Fn} (hf : f ∈ fns) :
+    f.sel < 2 ^ 32 ∧ ∃ fn t1 t2, core.findFunctionBySelector? f.sel = some fn ∧
+      fn.params.length = f.params.length ∧ eraseFn (envOf core) fuel fn = some t1 ∧
+      symTree m f.sel f.params.length mirFuel env = some t2 ∧ Tree.agree t1 t2 = true := by
+  have hcf := List.all_eq_true.mp hchk f hf
+  unfold checkFn at hcf
+  cases hfind : core.findFunctionBySelector? f.sel with
+  | none => simp [hfind] at hcf
+  | some fn =>
+  cases ht1 : eraseFn (envOf core) fuel fn with
+  | none => simp [hfind, ht1] at hcf
+  | some t1 =>
+  cases ht2 : symTree m f.sel f.params.length mirFuel env with
+  | none => simp [hfind, ht1, ht2] at hcf
+  | some t2 =>
+  simp only [hfind, ht1, ht2, Bool.and_eq_true, decide_eq_true_eq] at hcf
+  exact ⟨hcf.1, fn, t1, t2, rfl, hcf.2.1, ht1, rfl, hcf.2.2⟩
+
 /-- The generic source stage for `check` with the environment flag `env`, under every oracle when
 the flag is off and every oracle `SourceEnvOk` describes when it is on. -/
 theorem stageAtWith (o : Oracle) {fuel mirFuel : Nat} {c : TypeCheck.CheckedContract}
@@ -196,27 +217,13 @@ theorem stageAtWith (o : Oracle) {fuel mirFuel : Nat} {c : TypeCheck.CheckedCont
     (hchk : check fuel mirFuel c.core m fns env = true) :
     Stage (solidCore fuel) (moduleSem o) c m (fun call => ∃ σ, Covers s σ ∧ fullScope fns σ call) := by
   rintro _ ⟨σ, hcov, f, hf, args, hlen, hargs, rfl⟩ obs hrun
-  have hcf := List.all_eq_true.mp hchk f hf
-  unfold checkFn at hcf
-  cases hfind : c.core.findFunctionBySelector? f.sel with
-  | none => simp [hfind] at hcf
-  | some fn =>
-  cases ht1 : eraseFn (envOf c.core) fuel fn with
-  | none => simp [hfind, ht1] at hcf
-  | some t1 =>
-  cases ht2 : symTree m f.sel f.params.length mirFuel env with
-  | none => simp [hfind, ht1, ht2] at hcf
-  | some t2 =>
-  simp only [hfind, ht1, ht2, Bool.and_eq_true, decide_eq_true_eq] at hcf
-  obtain ⟨hsel, hpl, hcf⟩ := hcf
-  have hcf := Tree.eval_of_agree hcf
-  have hsrc := source_run hd hcov hsel hfind ht1 args (by rw [hlen, hpl]) hargs
+  obtain ⟨hsel, fn, t1, t2, hfind, hpl, ht1, ht2, hcf⟩ := check_mem hchk hf
   change Source.run fuel c _ = some obs at hrun
-  rw [hsrc] at hrun
+  rw [source_run hd hcov hsel hfind ht1 args (by rw [hlen, hpl]) hargs] at hrun
   cases hrun
   rw [← hlen] at ht2
   rw [symTree_sound (callFacts f.sel hsel args hargs σ) o m (henv.envAsk _ _) ht2,
-    ← hcf]
+    ← Tree.eval_of_agree hcf]
 
 /-- **The generic source stage**: a checked contract whose constructor leaves the storage entries
 `s` and no logs and a lowered MIR module that `check` accepts give the stage from SolidCore to the
