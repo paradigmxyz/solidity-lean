@@ -57,51 +57,51 @@ theorem hval_args (ρ : Val) (i c : Nat) (hi : i < Generic.wordSize) (hc : c < G
       (WExpr.arg 2).eval (hval ρ i c) = c := by
   simp [WExpr.eval, hval, nOf, Nat.mod_eq_of_lt hi, Nat.mod_eq_of_lt hc]
 
-/-- **The loop's arithmetic**, over the count `c0` before the loop and the bound `n`, at every
-counter `i` and count `cnt` below `2 ^ 256`: initiation at `i = 0`, the exit, and per iteration
-consecution and the measure's fall. `obl_of` and `body_runs_of` take the loop's runs from it;
-`arith` proves it by `omega`, `LoopVC.arith_vc` from solar-verify's obligations. -/
-structure Arith (c0 n : Nat) : Prop where
-  init : 0 ≤ n ∧ c0 + 0 = c0 + 0
-  post : ∀ i cnt, i < Generic.wordSize → cnt < Generic.wordSize → i ≤ n → cnt = c0 + i →
-    ¬ i < n → cnt = c0 + n
-  consec : ∀ i cnt, i < Generic.wordSize → cnt < Generic.wordSize → i ≤ n → cnt = c0 + i →
-    i < n → i + 1 ≤ n ∧ cnt + 1 = c0 + (i + 1)
-  decr : ∀ i cnt, i < Generic.wordSize → cnt < Generic.wordSize → i ≤ n → cnt = c0 + i →
-    i < n → n - (i + 1) < n - i
-
-theorem arith (c0 n : Nat) : Arith c0 n :=
-  ⟨by omega, fun _ _ _ _ _ _ _ => by omega, fun _ _ _ _ _ _ _ => by omega,
-    fun _ _ _ _ _ _ _ => by omega⟩
-
 set_option maxHeartbeats 4000000 in
-/-- **The loop's obligations hold**, from the loop's arithmetic. -/
-theorem obl_of (ev : List EventDecl) (tbl : FunctionTable) (ρ : Val) (ctx : Context) (hok : ρ.Ok)
-    (hpre : ρ.store 0 + nOf ρ ≤ ρ.store 1) (ha : Arith (ρ.store 0) (nOf ρ)) :
+/-- **The loop's obligations hold.** -/
+theorem obl (ev : List EventDecl) (tbl : FunctionTable) (ρ : Val) (ctx : Context) (hok : ρ.Ok)
+    (hpre : ρ.store 0 + nOf ρ ≤ ρ.store 1) :
     ForObl 3 (env ev tbl) ctx cond post body headerS (P ρ) m (Q ρ (env ev tbl) ctx) c bb where
   cond_erase := rfl
   body_runs := stmtRuns_block1 (stmtRuns_incField 1 true rfl)
   exit := by
-    rintro σ rt ⟨i, cnt, hiw, hcw, rfl, hi, rfl⟩ hrel hc0
-    have hge : ¬ i < nOf ρ := fun hlt => by rw [c_eval ρ i hiw, if_pos hlt] at hc0; cases hc0
-    have hie : i = nOf ρ := by have := ha.post i _ hiw hcw hi rfl hge; omega
+    rintro σ rt ⟨i, cnt, hiw0, hcw0, rfl, hI⟩ hrel hc0
+    have hi : i ≤ nOf ρ := by omega
+    have hcnt : cnt = ρ.store 0 + i := by omega
+    subst hcnt
+    have hlim : ρ.store 1 < Generic.wordSize := hok.word 1
+    have hn := nOf_lt ρ
+    have hiw : i < Generic.wordSize := by omega
+    have hcw : ρ.store 0 + i < Generic.wordSize := by omega
+    obtain ⟨a0, a1, -⟩ := hval_args ρ i _ hiw hcw
+    have hie : i = nOf ρ := by
+      by_contra hne
+      have hlt : i < nOf ρ := by omega
+      rw [c_eval ρ i hiw, if_pos hlt] at hc0
+      cases hc0
     refine ⟨rt, rfl, StmtRel.congr hrel hrel.hash hok (Facts.hold_nil _) ?_ ?_ rfl⟩
     · simp [headerS, exitS, frameOf, WExpr.eval, hval, Nat.mod_eq_of_lt hiw, hie, nOf]
     · intro k _
+      have h0 := hok.word 0
       have hie' : ρ.args.getD 0 0 % Generic.wordSize = i := hie.symm
       simp only [Writes.store, headerS, exitS, WExpr.eval, BinOp.eval, hval, List.getD_cons_succ,
         List.getD_cons_zero]
       by_cases hk0 : 0 % Generic.wordSize = k % Generic.wordSize <;> simp only [hk0, ↓reduceIte]
-      rw [Nat.mod_eq_of_lt (hok.word 0), hie', Nat.mod_mod]
+      rw [Nat.mod_eq_of_lt h0, hie', Nat.mod_mod]
   iter := by
-    rintro σ ⟨i, cnt, hiw, hcw, rfl, hi, rfl⟩ hc
+    rintro σ ⟨i, cnt, hiw0, hcw0, rfl, hI⟩ hc
+    have hi : i ≤ nOf ρ := by omega
+    have hcnt : cnt = ρ.store 0 + i := by omega
+    subst hcnt
+    have hlim : ρ.store 1 < Generic.wordSize := hok.word 1
+    have hn := nOf_lt ρ
+    have hiw : i < Generic.wordSize := by omega
+    have hcw : ρ.store 0 + i < Generic.wordSize := by omega
+    obtain ⟨a0, a1, a2⟩ := hval_args ρ i (ρ.store 0 + i) hiw hcw
     have hin : i < nOf ρ := by
       by_contra hge
       exact hc (by rw [c_eval ρ i hiw, if_neg hge])
-    have hn := nOf_lt ρ
-    have hc1 : ρ.store 0 + i + 1 < Generic.wordSize := by
-      have := hok.word 1
-      omega
+    have hc1 : ρ.store 0 + i + 1 < Generic.wordSize := by omega
     have hi1 : i + 1 < Generic.wordSize := by omega
     -- the body: count++, its overflow guard false
     have hbb : bb.eval (hval ρ i (ρ.store 0 + i)) = .normal SB := by
@@ -122,12 +122,11 @@ theorem obl_of (ev : List EventDecl) (tbl : FunctionTable) (ρ : Val) (ctx : Con
     simp only [incVarBr, guards_eval, hg2, Bool.false_eq_true, ↓reduceIte, Br.eval]
     -- back at the header with i + 1, the measure one lower
     have hc1' : ρ.store 0 + (i + 1) < Generic.wordSize := by omega
-    obtain ⟨a0, a1, a2⟩ := hval_args ρ i (ρ.store 0 + i) hiw hcw
     obtain ⟨b0, b1, b2⟩ := hval_args ρ (i + 1) _ hi1 hc1'
     refine ⟨hval ρ (i + 1) (ρ.store 0 + (i + 1)),
-      ⟨i + 1, ρ.store 0 + (i + 1), hi1, hc1', rfl, (ha.consec i _ hiw hcw hi rfl hin).1, rfl⟩, ?_, ?_⟩
+      ⟨i + 1, ρ.store 0 + (i + 1), hi1, hc1', rfl, by omega⟩, ?_, ?_⟩
     · simp only [m, a0, a1, a2, b0, b1, b2]
-      exact ha.decr i _ hiw hcw hi rfl hin
+      omega
     · intro rp hl2
       refine StmtRel.congr hl2 hl2.hash hok (Facts.hold_nil _) ?_ ?_ rfl
       · simp [SB, L', headerS, SymState.pop, SymState.push, frameOf, WExpr.eval, BinOp.eval, hval,
@@ -139,24 +138,17 @@ theorem obl_of (ev : List EventDecl) (tbl : FunctionTable) (ρ : Val) (ctx : Con
         · rw [Nat.mod_eq_of_lt hcw, show 1 % Generic.wordSize = 1 by decide, Nat.mod_mod, ← Nat.add_assoc]
         · rfl
 
-/-- **The loop's obligations hold.** -/
-theorem obl (ev : List EventDecl) (tbl : FunctionTable) (ρ : Val) (ctx : Context) (hok : ρ.Ok)
-    (hpre : ρ.store 0 + nOf ρ ≤ ρ.store 1) :
-    ForObl 3 (env ev tbl) ctx cond post body headerS (P ρ) m (Q ρ (env ev tbl) ctx) c bb :=
-  obl_of ev tbl ρ ctx hok hpre (arith _ _)
-
 /-- info: 'Contracts.VerifyCounter.LoopBinding.obl' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in
 #print axioms obl
 
+
 set_option maxHeartbeats 4000000 in
-/-- **bump's body runs to `bumpBr`**, from the loop's arithmetic at every valuation that passes the
-`require`, the loop by the generic bridge, at every fuel from `2 ^ 256 + 8` on. -/
-theorem body_runs_of (ev : List EventDecl) (tbl : FunctionTable) (fn : FunctionDef)
+/-- **bump's body runs to `bumpBr`**, the loop by the generic bridge, at every fuel from
+`2 ^ 256 + 8` on. -/
+theorem body_runs (ev : List EventDecl) (tbl : FunctionTable) (fn : FunctionDef)
     (hbody : fn.body = bumpBody) (hinit : initState fn = S0) (fuel : Nat)
-    (hfuel : 2 ^ 256 + 8 ≤ fuel)
-    (ha : ∀ ρ : Val, ρ.Ok → ρ.store 0 + nOf ρ ≤ ρ.store 1 → Arith (ρ.store 0) (nOf ρ)) :
-    BodyRuns (env ev tbl) fuel fn bumpBr := by
+    (hfuel : 2 ^ 256 + 8 ≤ fuel) : BodyRuns (env ev tbl) fuel fn bumpBr := by
   intro ρ ctx rt hrel
   rw [hinit] at hrel
   rw [hbody]
@@ -217,8 +209,8 @@ theorem body_runs_of (ev : List EventDecl) (tbl : FunctionTable) (fn : FunctionD
     simp only [m, z0, z1, z2]
     omega
   -- the loop, by the generic bridge
-  obtain ⟨r, hr, hq⟩ := forLoop_of_erased (obl_of ev tbl ρ ctx hok hpre (ha ρ hok hpre)) hskip
-    ⟨0, ρ.store 0 + 0, by decide, by omega, rfl, (ha ρ hok hpre).init⟩ hrelh (f + 1) (by omega) (by omega)
+  obtain ⟨r, hr, hq⟩ := forLoop_of_erased (obl ev tbl ρ ctx hok hpre) hskip
+    ⟨0, ρ.store 0 + 0, by decide, by omega, rfl, by omega⟩ hrelh (f + 1) (by omega) (by omega)
   obtain ⟨rtx, rfl, hrelx⟩ := hq
   have hr' : Stmt.eval (f + 1) E.tbl ctx rt3 loop = .done (.ok (.normal rtx.popScope)) := hr
   have hl3 : Stmt.evalList (f + 1) E.tbl ctx rt2.pushScope [s3, loop] =
@@ -235,15 +227,9 @@ theorem body_runs_of (ev : List EventDecl) (tbl : FunctionTable) (fn : FunctionD
     rw [evalList_cons_normal h1', evalList_cons_normal hb2, evalList_nil]
   exact ⟨_, eval_block_of hl1, hrelx.popScope.popScope.popScope.popScope⟩
 
-/-- **bump's body runs to `bumpBr`**, the loop by the generic bridge, at every fuel from
-`2 ^ 256 + 8` on. -/
-theorem body_runs (ev : List EventDecl) (tbl : FunctionTable) (fn : FunctionDef)
-    (hbody : fn.body = bumpBody) (hinit : initState fn = S0) (fuel : Nat)
-    (hfuel : 2 ^ 256 + 8 ≤ fuel) : BodyRuns (env ev tbl) fuel fn bumpBr :=
-  body_runs_of ev tbl fn hbody hinit fuel hfuel fun _ _ _ => arith _ _
-
 /-- info: 'Contracts.VerifyCounter.LoopBinding.body_runs' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in
 #print axioms body_runs
 
 end Contracts.VerifyCounter.LoopBinding
+
