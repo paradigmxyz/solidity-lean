@@ -65,6 +65,11 @@ theorem beq_array (i e : Srt) (a b : Srt.Den (.array i e)) :
     Srt.beq (.array i e) a b = qdec (∀ k : Srt.Den i, Srt.beq e (a k) (b k) = true) := by
   rw [Srt.beq]; rfl
 
+/-- A quantifier's value, once its binder list becomes Lean binders on both of its propositions. -/
+theorem qite_quant {A A' B B' : Prop} (h1 : A ↔ A') (h2 : B ↔ B') :
+    qite A (some (⟨.bool, qdec B⟩ : Val)) none = qite A' (some ⟨.bool, qdec B'⟩) none := by
+  rw [propext h1, propext h2]
+
 /-! Quantifiers over one to four integers, the ones the exporter emits so far: each binder becomes a
 Lean `∀ x : Int` (`∃`), with the bound value at the head of the locals. -/
 
@@ -75,15 +80,8 @@ theorem eval_forall_int (env : Env) (decls : List Decl) (locals : Locals) (body 
           boolOf (Term.eval env decls (⟨.int, x⟩ :: locals) body) = some true)⟩)
         none := by
   rw [Term.eval]
-  have h1 : (∀ xs : Srt.DenList [.int],
-      (boolOf (Term.eval env decls (bindAll [.int] xs locals) body)).isSome) =
-      ∀ x : Int, (boolOf (Term.eval env decls (⟨.int, x⟩ :: locals) body)).isSome :=
-    propext ⟨fun h x => h (x, ()), fun h p => h p.1⟩
-  have h2 : (∀ xs : Srt.DenList [.int],
-      boolOf (Term.eval env decls (bindAll [.int] xs locals) body) = some true) =
-      ∀ x : Int, boolOf (Term.eval env decls (⟨.int, x⟩ :: locals) body) = some true :=
-    propext ⟨fun h x => h (x, ()), fun h p => h p.1⟩
-  rw [h1, h2]; rfl
+  exact qite_quant ⟨fun h x => h (x, ()), fun h p => h p.1⟩
+    ⟨fun h x => h (x, ()), fun h p => h p.1⟩
 
 theorem eval_exists_int (env : Env) (decls : List Decl) (locals : Locals) (body : SolarVerify.Smt.Term) :
     Term.eval env decls locals (.exists [.int] body) =
@@ -92,15 +90,8 @@ theorem eval_exists_int (env : Env) (decls : List Decl) (locals : Locals) (body 
           boolOf (Term.eval env decls (⟨.int, x⟩ :: locals) body) = some true)⟩)
         none := by
   rw [Term.eval]
-  have h1 : (∀ xs : Srt.DenList [.int],
-      (boolOf (Term.eval env decls (bindAll [.int] xs locals) body)).isSome) =
-      ∀ x : Int, (boolOf (Term.eval env decls (⟨.int, x⟩ :: locals) body)).isSome :=
-    propext ⟨fun h x => h (x, ()), fun h p => h p.1⟩
-  have h2 : (∃ xs : Srt.DenList [.int],
-      boolOf (Term.eval env decls (bindAll [.int] xs locals) body) = some true) =
-      ∃ x : Int, boolOf (Term.eval env decls (⟨.int, x⟩ :: locals) body) = some true :=
-    propext ⟨fun ⟨p, h⟩ => ⟨p.1, h⟩, fun ⟨x, h⟩ => ⟨(x, ()), h⟩⟩
-  rw [h1, h2]; rfl
+  exact qite_quant ⟨fun h x => h (x, ()), fun h p => h p.1⟩
+    ⟨fun ⟨p, h⟩ => ⟨p.1, h⟩, fun ⟨x, h⟩ => ⟨(x, ()), h⟩⟩
 /-- `forall` over 2 integers: the binders become Lean binders, the last one at the head of the locals. -/
 theorem eval_forall_int2 (env : Env) (decls : List Decl) (locals : Locals) (body : SolarVerify.Smt.Term) :
     Term.eval env decls locals (.forall [.int, .int] body) =
@@ -109,15 +100,8 @@ theorem eval_forall_int2 (env : Env) (decls : List Decl) (locals : Locals) (body
           boolOf (Term.eval env decls (⟨.int, y⟩ :: ⟨.int, x⟩ :: locals) body) = some true)⟩)
         none := by
   rw [Term.eval]
-  have h1 : (∀ xs : Srt.DenList [.int, .int],
-      (boolOf (Term.eval env decls (bindAll [.int, .int] xs locals) body)).isSome) =
-      ∀ x y : Int, (boolOf (Term.eval env decls (⟨.int, y⟩ :: ⟨.int, x⟩ :: locals) body)).isSome :=
-    propext ⟨fun h x y => h (x, (y, ())), fun h p => h p.1 p.2.1⟩
-  have h2 : (∀ xs : Srt.DenList [.int, .int],
-      boolOf (Term.eval env decls (bindAll [.int, .int] xs locals) body) = some true) =
-      ∀ x y : Int, boolOf (Term.eval env decls (⟨.int, y⟩ :: ⟨.int, x⟩ :: locals) body) = some true :=
-    propext ⟨fun h x y => h (x, (y, ())), fun h p => h p.1 p.2.1⟩
-  rw [h1, h2]; rfl
+  exact qite_quant ⟨fun h x y => h (x, (y, ())), fun h p => h p.1 p.2.1⟩
+    ⟨fun h x y => h (x, (y, ())), fun h p => h p.1 p.2.1⟩
 
 /-- `forall` over 3 integers: the binders become Lean binders, the last one at the head of the locals. -/
 theorem eval_forall_int3 (env : Env) (decls : List Decl) (locals : Locals) (body : SolarVerify.Smt.Term) :
@@ -127,15 +111,8 @@ theorem eval_forall_int3 (env : Env) (decls : List Decl) (locals : Locals) (body
           boolOf (Term.eval env decls (⟨.int, z⟩ :: ⟨.int, y⟩ :: ⟨.int, x⟩ :: locals) body) = some true)⟩)
         none := by
   rw [Term.eval]
-  have h1 : (∀ xs : Srt.DenList [.int, .int, .int],
-      (boolOf (Term.eval env decls (bindAll [.int, .int, .int] xs locals) body)).isSome) =
-      ∀ x y z : Int, (boolOf (Term.eval env decls (⟨.int, z⟩ :: ⟨.int, y⟩ :: ⟨.int, x⟩ :: locals) body)).isSome :=
-    propext ⟨fun h x y z => h (x, (y, (z, ()))), fun h p => h p.1 p.2.1 p.2.2.1⟩
-  have h2 : (∀ xs : Srt.DenList [.int, .int, .int],
-      boolOf (Term.eval env decls (bindAll [.int, .int, .int] xs locals) body) = some true) =
-      ∀ x y z : Int, boolOf (Term.eval env decls (⟨.int, z⟩ :: ⟨.int, y⟩ :: ⟨.int, x⟩ :: locals) body) = some true :=
-    propext ⟨fun h x y z => h (x, (y, (z, ()))), fun h p => h p.1 p.2.1 p.2.2.1⟩
-  rw [h1, h2]; rfl
+  exact qite_quant ⟨fun h x y z => h (x, (y, (z, ()))), fun h p => h p.1 p.2.1 p.2.2.1⟩
+    ⟨fun h x y z => h (x, (y, (z, ()))), fun h p => h p.1 p.2.1 p.2.2.1⟩
 
 /-- `forall` over 4 integers: the binders become Lean binders, the last one at the head of the locals. -/
 theorem eval_forall_int4 (env : Env) (decls : List Decl) (locals : Locals) (body : SolarVerify.Smt.Term) :
@@ -145,15 +122,8 @@ theorem eval_forall_int4 (env : Env) (decls : List Decl) (locals : Locals) (body
           boolOf (Term.eval env decls (⟨.int, w⟩ :: ⟨.int, z⟩ :: ⟨.int, y⟩ :: ⟨.int, x⟩ :: locals) body) = some true)⟩)
         none := by
   rw [Term.eval]
-  have h1 : (∀ xs : Srt.DenList [.int, .int, .int, .int],
-      (boolOf (Term.eval env decls (bindAll [.int, .int, .int, .int] xs locals) body)).isSome) =
-      ∀ x y z w : Int, (boolOf (Term.eval env decls (⟨.int, w⟩ :: ⟨.int, z⟩ :: ⟨.int, y⟩ :: ⟨.int, x⟩ :: locals) body)).isSome :=
-    propext ⟨fun h x y z w => h (x, (y, (z, (w, ())))), fun h p => h p.1 p.2.1 p.2.2.1 p.2.2.2.1⟩
-  have h2 : (∀ xs : Srt.DenList [.int, .int, .int, .int],
-      boolOf (Term.eval env decls (bindAll [.int, .int, .int, .int] xs locals) body) = some true) =
-      ∀ x y z w : Int, boolOf (Term.eval env decls (⟨.int, w⟩ :: ⟨.int, z⟩ :: ⟨.int, y⟩ :: ⟨.int, x⟩ :: locals) body) = some true :=
-    propext ⟨fun h x y z w => h (x, (y, (z, (w, ())))), fun h p => h p.1 p.2.1 p.2.2.1 p.2.2.2.1⟩
-  rw [h1, h2]; rfl
+  exact qite_quant ⟨fun h x y z w => h (x, (y, (z, (w, ())))), fun h p => h p.1 p.2.1 p.2.2.1 p.2.2.2.1⟩
+    ⟨fun h x y z w => h (x, (y, (z, (w, ())))), fun h p => h p.1 p.2.1 p.2.2.1 p.2.2.2.1⟩
 
 /-- `exists` over 2 integers: the binders become Lean binders, the last one at the head of the locals. -/
 theorem eval_exists_int2 (env : Env) (decls : List Decl) (locals : Locals) (body : SolarVerify.Smt.Term) :
@@ -163,15 +133,8 @@ theorem eval_exists_int2 (env : Env) (decls : List Decl) (locals : Locals) (body
           boolOf (Term.eval env decls (⟨.int, y⟩ :: ⟨.int, x⟩ :: locals) body) = some true)⟩)
         none := by
   rw [Term.eval]
-  have h1 : (∀ xs : Srt.DenList [.int, .int],
-      (boolOf (Term.eval env decls (bindAll [.int, .int] xs locals) body)).isSome) =
-      ∀ x y : Int, (boolOf (Term.eval env decls (⟨.int, y⟩ :: ⟨.int, x⟩ :: locals) body)).isSome :=
-    propext ⟨fun h x y => h (x, (y, ())), fun h p => h p.1 p.2.1⟩
-  have h2 : (∃ xs : Srt.DenList [.int, .int],
-      boolOf (Term.eval env decls (bindAll [.int, .int] xs locals) body) = some true) =
-      ∃ x y : Int, boolOf (Term.eval env decls (⟨.int, y⟩ :: ⟨.int, x⟩ :: locals) body) = some true :=
-    propext ⟨fun ⟨p, h⟩ => ⟨p.1, p.2.1, h⟩, fun ⟨x, y, h⟩ => ⟨(x, (y, ())), h⟩⟩
-  rw [h1, h2]; rfl
+  exact qite_quant ⟨fun h x y => h (x, (y, ())), fun h p => h p.1 p.2.1⟩
+    ⟨fun ⟨p, h⟩ => ⟨p.1, p.2.1, h⟩, fun ⟨x, y, h⟩ => ⟨(x, (y, ())), h⟩⟩
 /-- A value's view at its own sort. -/
 theorem as_self (s : Srt) (x : s.Den) : Val.as ⟨s, x⟩ s = some x := by
   simp [Val.as]

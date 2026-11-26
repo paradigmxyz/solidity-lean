@@ -51,25 +51,12 @@ theorem div_bounds (y x : Int) : ¬ 1 ≤ x ∨ (x * (y / x) ≤ y ∧ y < x * (
 theorem div_facts (y x : Int) : ¬ 1 ≤ x ∨ ¬ 0 ≤ y ∨
     (0 ≤ y / x ∧ y / x ≤ y ∧ (¬ x ≤ y ∨ 1 ≤ y / x) ∧ (¬ y < x ∨ y / x = 0)) := by
   refine Classical.or_iff_not_imp_left.mpr fun hx => Classical.or_iff_not_imp_left.mpr fun hy => ?_
-  have hx : 1 ≤ x := Classical.not_not.mp hx
-  have hy : 0 ≤ y := Classical.not_not.mp hy
-  have hb := (div_bounds y x).resolve_left (by omega)
-  have hq0 : 0 ≤ y / x := Int.ediv_nonneg hy (by omega)
-  have hxq : 1 * (y / x) ≤ x * (y / x) := Int.mul_le_mul_of_nonneg_right hx hq0
-  rw [Int.one_mul] at hxq
-  refine ⟨hq0, by omega, ?_, ?_⟩
-  · refine Classical.or_iff_not_imp_left.mpr fun hxy => ?_
-    have hxy : x ≤ y := Classical.not_not.mp hxy
-    refine Classical.byContradiction fun hc => ?_
-    have h0 : y / x = 0 := by omega
-    rw [h0, Int.mul_zero] at hb
-    omega
-  · refine Classical.or_iff_not_imp_left.mpr fun hlt => ?_
-    have hlt : y < x := Classical.not_not.mp hlt
-    refine Classical.byContradiction fun hc => ?_
-    have h1 : 1 ≤ y / x := by omega
-    have := Int.mul_le_mul_of_nonneg_left h1 (by omega : 0 ≤ x)
-    rw [Int.mul_one] at this
+  have hb := (div_bounds y x).resolve_left hx
+  have hq0 : 0 ≤ y / x := Int.ediv_nonneg (by omega) (by omega)
+  rcases (by omega : y / x = 0 ∨ 1 ≤ y / x) with h | h
+  · rw [h, Int.mul_zero] at hb; omega
+  · have := Int.mul_le_mul_of_nonneg_left h (by omega : 0 ≤ x)
+    have := Int.mul_le_mul_of_nonneg_right (by omega : 1 ≤ x) hq0
     omega
 
 theorem newton_lt (y x : Int) :
@@ -145,17 +132,7 @@ theorem div_cmp (y x : Int) : ¬ 1 ≤ x ∨
   have s1 := sq_ge_one x
   have s2 := sq_ge_two x
   have s3 := sq_succ x
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, s3, s2, s1⟩
-  · exact Classical.or_iff_not_imp_left.mpr fun h => Classical.byContradiction fun h' => h (h0.2 (by omega))
-  · exact Classical.or_iff_not_imp_right.mpr fun h => h0.1 (by omega)
-  · exact Classical.or_iff_not_imp_left.mpr fun h => Classical.byContradiction fun h' => h (h1.2 (by omega))
-  · exact Classical.or_iff_not_imp_right.mpr fun h => h1.1 (by omega)
-  · exact Classical.or_iff_not_imp_left.mpr fun h => Classical.byContradiction fun h' => h (h2.2 (by omega))
-  · exact Classical.or_iff_not_imp_right.mpr fun h => h2.1 (by omega)
-  · exact Classical.or_iff_not_imp_left.mpr fun h => Classical.byContradiction fun h' => h (h3.2 (by omega))
-  · exact Classical.or_iff_not_imp_right.mpr fun h => h3.1 (by omega)
-  · exact Classical.or_iff_not_imp_left.mpr fun h => Classical.byContradiction fun h' => h (h4.2 (by omega))
-  · exact Classical.or_iff_not_imp_right.mpr fun h => h4.1 (by omega)
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, s3, s2, s1⟩ <;> omega
 
 /-- A Newton step from `x ≥ 1` on `y ≥ 4` stays at least 2 (from `newton_lt`). -/
 theorem newton_ge_two (y x : Int) : ¬ 1 ≤ x ∨ ¬ 4 ≤ y ∨ 2 ≤ (y / x + x) / 2 := by
@@ -172,13 +149,12 @@ theorem newton_ge_two (y x : Int) : ¬ 1 ≤ x ∨ ¬ 4 ≤ y ∨ 2 ≤ (y / x +
 
 /-- SMT-LIB's total division, `if x = 0 then divZero y else y / x`, is `y / x` off zero. -/
 theorem ite_div (x a y : Int) (inst : Decidable (x = 0)) :
-    x = 0 ∨ @ite Int (x = 0) inst a (y / x) = y / x := by
-  refine Classical.or_iff_not_imp_left.mpr fun h => ?_
-  exact @if_neg (x = 0) inst h Int a (y / x)
+    x = 0 ∨ @ite Int (x = 0) inst a (y / x) = y / x :=
+  (Classical.em _).imp_right fun h => ite_eq_right_iff.mpr (absurd · h)
 
 /-- `ite_div` as a rewrite, for `simp` with a discharger that proves `x ≠ 0`. -/
 theorem ite_div_of_ne {x a y : Int} [Decidable (x = 0)] (h : ¬ x = 0) :
-    (if x = 0 then a else y / x) = y / x := if_neg h
+    (if x = 0 then a else y / x) = y / x := ite_eq_right_iff.mpr (absurd · h)
 
 open Lean Meta Elab Tactic
 

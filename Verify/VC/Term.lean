@@ -64,28 +64,14 @@ end
 
 mutual
 theorem Tm.eq_of_beq : ∀ {a b : Tm}, Tm.beq a b = true → a = b
-  | .num a, .num b, h => by simp [Tm.beq] at h; rw [h]
-  | .tt, .tt, _ => rfl
-  | .ff, .ff, _ => rfl
-  | .ivar a, .ivar b, h => by simp [Tm.beq] at h; rw [h]
-  | .bvar a, .bvar b, h => by simp [Tm.beq] at h; rw [h]
-  | .avar a, .avar b, h => by simp [Tm.beq] at h; rw [h]
-  | .a2var a, .a2var b, h => by simp [Tm.beq] at h; rw [h]
-  | .app f as, .app g bs, h => by
-    simp only [Tm.beq, Bool.and_eq_true, beq_iff_eq] at h
+  | .num _, b, h | .tt, b, h | .ff, b, h | .ivar _, b, h | .bvar _, b, h | .avar _, b, h
+  | .a2var _, b, h => by cases b <;> simp_all [Tm.beq]
+  | .app f as, b, h => by
+    cases b <;> simp only [Tm.beq, Bool.and_eq_true, beq_iff_eq, Bool.false_eq_true] at h
     rw [h.1, Tm.eq_of_beqList h.2]
-  | .all x a, .all y b, h => by
-    simp only [Tm.beq, Bool.and_eq_true, beq_iff_eq] at h
+  | .all x a, b, h => by
+    cases b <;> simp only [Tm.beq, Bool.and_eq_true, beq_iff_eq, Bool.false_eq_true] at h
     rw [h.1, Tm.eq_of_beq h.2]
-  | .num _, .tt, h | .num _, .ff, h | .num _, .ivar _, h | .num _, .bvar _, h | .num _, .avar _, h | .num _, .a2var _, h | .num _, .app _ _, h | .num _, .all _ _, h => by simp [Tm.beq] at h
-  | .tt, .num _, h | .tt, .ff, h | .tt, .ivar _, h | .tt, .bvar _, h | .tt, .avar _, h | .tt, .a2var _, h | .tt, .app _ _, h | .tt, .all _ _, h => by simp [Tm.beq] at h
-  | .ff, .num _, h | .ff, .tt, h | .ff, .ivar _, h | .ff, .bvar _, h | .ff, .avar _, h | .ff, .a2var _, h | .ff, .app _ _, h | .ff, .all _ _, h => by simp [Tm.beq] at h
-  | .ivar _, .num _, h | .ivar _, .tt, h | .ivar _, .ff, h | .ivar _, .bvar _, h | .ivar _, .avar _, h | .ivar _, .a2var _, h | .ivar _, .app _ _, h | .ivar _, .all _ _, h => by simp [Tm.beq] at h
-  | .bvar _, .num _, h | .bvar _, .tt, h | .bvar _, .ff, h | .bvar _, .ivar _, h | .bvar _, .avar _, h | .bvar _, .a2var _, h | .bvar _, .app _ _, h | .bvar _, .all _ _, h => by simp [Tm.beq] at h
-  | .avar _, .num _, h | .avar _, .tt, h | .avar _, .ff, h | .avar _, .ivar _, h | .avar _, .bvar _, h | .avar _, .a2var _, h | .avar _, .app _ _, h | .avar _, .all _ _, h => by simp [Tm.beq] at h
-  | .a2var _, .num _, h | .a2var _, .tt, h | .a2var _, .ff, h | .a2var _, .ivar _, h | .a2var _, .bvar _, h | .a2var _, .avar _, h | .a2var _, .app _ _, h | .a2var _, .all _ _, h => by simp [Tm.beq] at h
-  | .app _ _, .num _, h | .app _ _, .tt, h | .app _ _, .ff, h | .app _ _, .ivar _, h | .app _ _, .bvar _, h | .app _ _, .avar _, h | .app _ _, .a2var _, h | .app _ _, .all _ _, h => by simp [Tm.beq] at h
-  | .all _ _, .num _, h | .all _ _, .tt, h | .all _ _, .ff, h | .all _ _, .ivar _, h | .all _ _, .bvar _, h | .all _ _, .avar _, h | .all _ _, .a2var _, h | .all _ _, .app _ _, h => by simp [Tm.beq] at h
 theorem Tm.eq_of_beqList : ∀ {as bs : List Tm}, Tm.beqList as bs = true → as = bs
   | [], [], _ => rfl
   | a :: as, b :: bs, h => by

@@ -52,13 +52,9 @@ theorem Env.Agree.setI {σ τ : Env} {x : String} (h : σ.Agree τ x) (y : Strin
 mutual
 theorem Tm.eval_congr : ∀ (t : Tm) {σ τ : Env}, σ.u = τ.u → (∀ x ∈ t.vars, σ.Agree τ x) →
     t.eval σ = t.eval τ
-  | .num _, _, _, _, _ => rfl
-  | .tt, _, _, _, _ => rfl
-  | .ff, _, _, _, _ => rfl
-  | .ivar x, _, _, _, h => by simp [Tm.eval, (h x (by simp [Tm.vars])).1]
-  | .bvar x, _, _, _, h => by simp [Tm.eval, (h x (by simp [Tm.vars])).2.1]
-  | .avar x, _, _, _, h => by simp [Tm.eval, (h x (by simp [Tm.vars])).2.2.1]
-  | .a2var x, _, _, _, h => by simp [Tm.eval, (h x (by simp [Tm.vars])).2.2.2]
+  | .num _, _, _, _, _ | .tt, _, _, _, _ | .ff, _, _, _, _ => rfl
+  | .ivar x, _, _, _, h | .bvar x, _, _, _, h | .avar x, _, _, _, h | .a2var x, _, _, _, h => by
+    obtain ⟨h1, h2, h3, h4⟩ := h x (by simp [Tm.vars]); simp [Tm.eval, h1, h2, h3, h4]
   | .app f args, σ, τ, hu, h => by
     simp only [Tm.eval]
     rw [Tm.evalList_congr args hu (by simpa [Tm.vars] using h), hu]
@@ -130,13 +126,8 @@ theorem applyOp_sortOf (u : String → List Int → Int) (f : String) :
 
 mutual
 theorem Tm.eval_sortOf : ∀ (t : Tm) (σ : Env) {s : Srt}, t.sort? = some s → (t.eval σ).sortOf = s
-  | .num _, _, s, h => by simp_all [Tm.sort?, Tm.eval, Value.sortOf]
-  | .tt, _, s, h => by simp_all [Tm.sort?, Tm.eval, Value.sortOf]
-  | .ff, _, s, h => by simp_all [Tm.sort?, Tm.eval, Value.sortOf]
-  | .ivar _, _, s, h => by simp_all [Tm.sort?, Tm.eval, Value.sortOf]
-  | .bvar _, _, s, h => by simp_all [Tm.sort?, Tm.eval, Value.sortOf]
-  | .avar _, _, s, h => by simp_all [Tm.sort?, Tm.eval, Value.sortOf]
-  | .a2var _, _, s, h => by simp_all [Tm.sort?, Tm.eval, Value.sortOf]
+  | .num _, _, s, h | .tt, _, s, h | .ff, _, s, h | .ivar _, _, s, h | .bvar _, _, s, h
+  | .avar _, _, s, h | .a2var _, _, s, h => by simp_all [Tm.sort?, Tm.eval, Value.sortOf]
   | .all _ _, _, s, h => by
     simp only [Tm.sort?] at h
     split at h <;> simp at h
@@ -172,7 +163,7 @@ def Tm.isVar : Tm → Srt → String → Bool
   | _, _, _ => false
 
 mutual
-/-- Replace the constant of sort \`s\` named \`x\` by \`u\`. A bound variable of the same name shadows
+/-- Replace the constant of sort `s` named `x` by `u`. A bound variable of the same name shadows
 it. -/
 def Tm.subst : Tm → Srt → String → Tm → Tm
   | .num n, _, _, _ => .num n
@@ -248,25 +239,8 @@ mutual
 theorem Tm.eval_subst (s : Srt) (x : String) (u : Tm) (hu : u.sort? = some s) :
     ∀ (A : Tm) (σ : Env), (∀ y ∈ A.binders, y ∉ u.vars) →
       (A.subst s x u).eval σ = A.eval (σ.set s x (u.eval σ))
-  | .num _, σ, _ => rfl
-  | .tt, σ, _ => rfl
-  | .ff, σ, _ => rfl
-  | .ivar y, σ, _ => by
-    simp only [Tm.subst]
-    split
-    · rename_i h; exact (Env.set_var σ s x _ (Tm.eval_sortOf u σ hu) _ h).symm
-    · rename_i h; exact (Env.set_other σ s x _ _ rfl (by simpa using h)).symm
-  | .bvar y, σ, _ => by
-    simp only [Tm.subst]
-    split
-    · rename_i h; exact (Env.set_var σ s x _ (Tm.eval_sortOf u σ hu) _ h).symm
-    · rename_i h; exact (Env.set_other σ s x _ _ rfl (by simpa using h)).symm
-  | .avar y, σ, _ => by
-    simp only [Tm.subst]
-    split
-    · rename_i h; exact (Env.set_var σ s x _ (Tm.eval_sortOf u σ hu) _ h).symm
-    · rename_i h; exact (Env.set_other σ s x _ _ rfl (by simpa using h)).symm
-  | .a2var y, σ, _ => by
+  | .num _, σ, _ | .tt, σ, _ | .ff, σ, _ => rfl
+  | .ivar y, σ, _ | .bvar y, σ, _ | .avar y, σ, _ | .a2var y, σ, _ => by
     simp only [Tm.subst]
     split
     · rename_i h; exact (Env.set_var σ s x _ (Tm.eval_sortOf u σ hu) _ h).symm
@@ -374,6 +348,7 @@ theorem inlineFuel_sound : ∀ (n : Nat) (done rest : List Tm),
       simp only [inlineFuel, List.mem_append, List.mem_reverse]; exact ht)
   | _ + 1, done, [], h, σ, hs => h σ fun t ht => hs t (by simp [inlineFuel]; simpa using ht)
   | n + 1, done, f :: rest, h, σ, hs => by
+    have skip := inlineFuel_sound n (f :: done) rest (fun τ hτ => h τ fun t ht => hτ t (shift ht)) σ
     simp only [inlineFuel] at hs
     split at hs
     · rename_i s x u hd
@@ -387,21 +362,17 @@ theorem inlineFuel_sound : ∀ (n : Nat) (done rest : List Tm),
           have := List.all_eq_true.mp hcap t ht
           have := List.all_eq_true.mp this y hy
           simp [hyu] at this
-        apply h (τ.set s x (u.eval τ))
-        intro t ht
-        rcases ht with ht | ht
-        · have := hτ (t.subst s x u) (Or.inl (List.mem_map.mpr ⟨t, ht, rfl⟩))
+        have hsub : ∀ t ∈ done ++ rest, t.Holds (τ.set s x (u.eval τ)) := fun t ht => by
+          have := hτ (t.subst s x u) ((List.mem_append.mp ht).imp (List.mem_map.mpr ⟨t, ·, rfl⟩)
+            (List.mem_map.mpr ⟨t, ·, rfl⟩))
           simp only [Tm.Holds] at this ⊢
-          rwa [Tm.eval_subst s x u hu t τ (hcap' t (by simp [ht]))] at this
-        · rcases List.mem_cons.mp ht with rfl | ht
-          · exact def_holds hd τ
-          · have := hτ (t.subst s x u) (Or.inr (List.mem_map.mpr ⟨t, ht, rfl⟩))
-            simp only [Tm.Holds] at this ⊢
-            rwa [Tm.eval_subst s x u hu t τ (hcap' t (by simp [ht]))] at this
-      · exact inlineFuel_sound n (f :: done) rest
-          (fun τ hτ => h τ fun t ht => hτ t (shift ht)) σ hs
-    · exact inlineFuel_sound n (f :: done) rest
-        (fun τ hτ => h τ fun t ht => hτ t (shift ht)) σ hs
+          rwa [Tm.eval_subst s x u hu t τ (hcap' t ht)] at this
+        refine h _ fun t ht => ht.elim (hsub t <| List.mem_append_left _ ·) fun ht => ?_
+        rcases List.mem_cons.mp ht with rfl | ht
+        · exact def_holds hd τ
+        · exact hsub t (List.mem_append_right _ ht)
+      · exact skip hs
+    · exact skip hs
 
 theorem inline_sound {fs : List Tm} (h : ∀ σ, ¬ Sat σ fs) : ∀ σ, ¬ Sat σ (inline fs) :=
   inlineFuel_sound _ [] fs (fun σ hσ => h σ fun t ht => hσ t (Or.inr ht))
@@ -445,13 +416,9 @@ def Env.Renamed (σ τ : Env) (y : String) : Prop :=
 mutual
 theorem Tm.eval_rename : ∀ (t : Tm) {σ τ : Env}, σ.u = τ.u → t.renameOk = true →
     (∀ y ∈ t.vars, σ.Renamed τ y) → t.eval σ = t.rename.eval τ
-  | .num _, _, _, _, _, _ => rfl
-  | .tt, _, _, _, _, _ => rfl
-  | .ff, _, _, _, _, _ => rfl
-  | .ivar x, _, _, _, _, h => by simp [Tm.rename, Tm.eval, (h x (by simp [Tm.vars])).1]
-  | .bvar x, _, _, _, _, h => by simp [Tm.rename, Tm.eval, (h x (by simp [Tm.vars])).2.1]
-  | .avar x, _, _, _, _, h => by simp [Tm.rename, Tm.eval, (h x (by simp [Tm.vars])).2.2.1]
-  | .a2var x, _, _, _, _, h => by simp [Tm.rename, Tm.eval, (h x (by simp [Tm.vars])).2.2.2]
+  | .num _, _, _, _, _, _ | .tt, _, _, _, _, _ | .ff, _, _, _, _, _ => rfl
+  | .ivar x, _, _, _, _, h | .bvar x, _, _, _, _, h | .avar x, _, _, _, _, h | .a2var x, _, _, _, _, h => by
+    obtain ⟨h1, h2, h3, h4⟩ := h x (by simp [Tm.vars]); simp [Tm.rename, Tm.eval, h1, h2, h3, h4]
   | .app f args, σ, τ, hu, ho, h => by
     simp only [Tm.rename, Tm.eval]
     rw [Tm.evalList_rename args hu (by simpa [Tm.renameOk] using ho) (by simpa [Tm.vars] using h), hu]
@@ -519,13 +486,8 @@ theorem flatten_holds : ∀ (t : Tm) (σ : Env), (∀ c ∈ flatten t, c.Holds �
     · have : flatten (.app f args) = [.app f args] := by
         unfold flatten; split <;> simp_all
       exact h _ (by simp [this])
-  | .num n, _, h => h _ (by simp [flatten])
-  | .ff, _, h => h _ (by simp [flatten])
-  | .ivar x, _, h => h _ (by simp [flatten])
-  | .bvar x, _, h => h _ (by simp [flatten])
-  | .avar x, _, h => h _ (by simp [flatten])
-  | .a2var x, _, h => h _ (by simp [flatten])
-  | .all x b, _, h => h _ (by simp [flatten])
+  | .num _, _, h | .ff, _, h | .ivar _, _, h | .bvar _, _, h | .avar _, _, h | .a2var _, _, h
+  | .all _ _, _, h => h _ (by simp [flatten])
 theorem flattenList_holds : ∀ (ts : List Tm) (σ : Env), (∀ c ∈ flattenList ts, c.Holds σ) →
     ∀ t ∈ ts, t.Holds σ
   | [], _, _ => by simp
@@ -616,15 +578,10 @@ theorem eval_store_select (σ : Env) (a i v j : Tm) :
       else ((Tm.app "select" [a, j]).eval σ).toInt) ∨
     ((Tm.app "select" [.app "store" [a, i, v], j]).eval σ).toInt = 0 := by
   simp only [Tm.eval, Tm.evalList, applyOp]
-  cases a.eval σ with
-  | arr2 f => exact Or.inr rfl
-  | arr f => left; simp only [Value.store, Value.select, Value.toInt]; first | rfl | (by_cases hc : (Tm.eval σ j).toInt = (Tm.eval σ i).toInt <;> simp_all [Value.toInt])
-  | int n => left; simp only [Value.store, Value.select, Value.toInt]; first | rfl | (by_cases hc : (Tm.eval σ j).toInt = (Tm.eval σ i).toInt <;> simp_all [Value.toInt])
-  | prop p => left; simp only [Value.store, Value.select, Value.toInt]; first | rfl | (by_cases hc : (Tm.eval σ j).toInt = (Tm.eval σ i).toInt <;> simp_all [Value.toInt])
-
-open Classical in
-theorem eval_ite_int (σ : Env) (c a b : Tm) :
-    ((Tm.app "ite" [c, a, b]).eval σ).toInt = ((Tm.app "ite" [c, a, b]).eval σ).toInt := rfl
+  cases a.eval σ <;> first
+    | exact Or.inr rfl
+    | left; simp only [Value.store, Value.select, Value.toInt]
+      by_cases hc : (Tm.eval σ j).toInt = (Tm.eval σ i).toInt <;> simp_all [Value.toInt]
 
 /-- The integer an `ite` takes is one of its branches', whatever their sorts. -/
 theorem ite_toInt (σ : Env) (c a b : Tm) :
@@ -637,6 +594,19 @@ theorem ite_toInt (σ : Env) (c a b : Tm) :
     | (simp [applyOp, Value.toInt]; done)
     | (right; right; rfl)
     | (simp only [applyOp, Value.toInt]; split <;> simp; done)
+
+/-- A property of integers that 0 has holds of an `ite` whose branches have it. -/
+theorem ite_toInt_of {P : Int → Prop} (σ : Env) (c a b : Tm) (h0 : P 0) (ha : P (a.eval σ).toInt)
+    (hb : P (b.eval σ).toInt) : P ((Tm.app "ite" [c, a, b]).eval σ).toInt := by
+  rcases ite_toInt σ c a b with e | e | e <;> rw [e] <;> assumption
+
+/-- A property of integers that 0 has holds of a read over a write whose parts have it. -/
+theorem store_select_of {P : Int → Prop} (σ : Env) (a i v j : Tm) (h0 : P 0)
+    (hv : P (v.eval σ).toInt) (ha : P ((Tm.app "select" [a, j]).eval σ).toInt) :
+    P ((Tm.app "select" [.app "store" [a, i, v], j]).eval σ).toInt := by
+  rcases eval_store_select σ a i v j with e | e <;> rw [e]
+  · split <;> assumption
+  · exact h0
 
 theorem lowerOk_sound (hs : List Tm) {σ : Env} (hh : ∀ x ∈ hs, x.Holds σ) :
     ∀ n t, lowerOk hs n t = true → 0 ≤ (t.eval σ).toInt := by
@@ -655,19 +625,10 @@ theorem lowerOk_sound (hs : List Tm) {σ : Env} (hh : ∀ x ∈ hs, x.Holds σ) 
     rcases h with h | h
     · exact mem t h
     · split at h
-      · rename_i c a b
-        simp only [Bool.and_eq_true] at h
-        rcases ite_toInt σ c a b with e | e | e <;> rw [e]
-        · exact ih a h.1
-        · exact ih b h.2
-        · exact Int.le_refl 0
-      · rename_i a i v j
-        simp only [Bool.and_eq_true] at h
-        rcases eval_store_select σ a i v j with e | e <;> rw [e]
-        · split
-          · exact ih v h.1
-          · exact ih _ h.2
-        · exact Int.le_refl 0
+      · simp only [Bool.and_eq_true] at h
+        exact ite_toInt_of (P := (0 ≤ ·)) σ _ _ _ (Int.le_refl 0) (ih _ h.1) (ih _ h.2)
+      · simp only [Bool.and_eq_true] at h
+        exact store_select_of (P := (0 ≤ ·)) σ _ _ _ _ (Int.le_refl 0) (ih _ h.1) (ih _ h.2)
       · rename_i m j
         obtain ⟨f, hf, hm⟩ := List.any_eq_true.mp h
         split at hm
@@ -707,19 +668,10 @@ theorem upperOk_sound (hs : List Tm) (M : Nat) {σ : Env} (hh : ∀ x ∈ hs, x.
     rcases h with h | h
     · exact mem t h
     · split at h
-      · rename_i c a b
-        simp only [Bool.and_eq_true] at h
-        rcases ite_toInt σ c a b with e | e | e <;> rw [e]
-        · exact ih a h.1
-        · exact ih b h.2
-        · exact Int.natCast_nonneg M
-      · rename_i a i v j
-        simp only [Bool.and_eq_true] at h
-        rcases eval_store_select σ a i v j with e | e <;> rw [e]
-        · split
-          · exact ih v h.1
-          · exact ih _ h.2
-        · exact Int.natCast_nonneg M
+      · simp only [Bool.and_eq_true] at h
+        exact ite_toInt_of (P := (· ≤ (M : Int))) σ _ _ _ (Int.natCast_nonneg M) (ih _ h.1) (ih _ h.2)
+      · simp only [Bool.and_eq_true] at h
+        exact store_select_of (P := (· ≤ (M : Int))) σ _ _ _ _ (Int.natCast_nonneg M) (ih _ h.1) (ih _ h.2)
       · rename_i m j
         rw [eval_select]
         exact (arrBound_sound h hh _).2
@@ -782,14 +734,8 @@ theorem hypOk_sound {hs : List Tm} {φ : Tm} {σ : Env} (hh : ∀ x ∈ hs, x.Ho
   · obtain ⟨f, hf, he⟩ := List.any_eq_true.mp ok
     rw [← Tm.eq_of_beq he]; exact hh' f hf
   · unfold defaultOk at ok
-    split at ok
-    · rename_i x
-      simp only [Bool.not_eq_true', List.contains_eq_mem, decide_eq_false_iff_not] at ok
-      rw [holds_le]; simp [Tm.eval, Env.restrict, ok, Value.toInt]
-    · rename_i x M
-      simp only [Bool.not_eq_true', List.contains_eq_mem, decide_eq_false_iff_not] at ok
-      rw [holds_le]; simp [Tm.eval, Env.restrict, ok, Value.toInt]
-    · simp at ok
+    split at ok <;> simp only [Bool.not_eq_true', List.contains_eq_mem, decide_eq_false_iff_not,
+      Bool.false_eq_true] at ok <;> rw [holds_le] <;> simp [Tm.eval, Env.restrict, ok, Value.toInt]
   · split at ok
     · rename_i t
       rw [holds_le]

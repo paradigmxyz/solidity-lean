@@ -18,23 +18,16 @@ theorem ite_neg {α : Type} {c : Prop} {_ : Decidable c} (h : ¬c) (a b : α) : 
 
 /-! Congruence, as disjunctions `omega` can case on (Ackermann's reduction). -/
 
-theorem congr1 {β : Type} (f : Int → β) (a b : Int) : ¬a = b ∨ f a = f b :=
-  (Classical.em (a = b)).elim (fun h => .inr (h ▸ rfl)) .inl
+theorem congr1 {β : Type} (f : Int → β) (a b : Int) : ¬a = b ∨ f a = f b := by
+  by_cases a = b <;> simp_all
 
 theorem congr2 {β : Type} (f : Int → Int → β) (a b c d : Int) :
-    ¬a = c ∨ ¬b = d ∨ f a b = f c d :=
-  (Classical.em (a = c)).elim
-    (fun h => (Classical.em (b = d)).elim (fun h' => .inr (.inr (h ▸ h' ▸ rfl))) (fun h' => .inr (.inl h')))
-    .inl
+    ¬a = c ∨ ¬b = d ∨ f a b = f c d := by
+  by_cases a = c <;> by_cases b = d <;> simp_all
 
 theorem congr3 {β : Type} (f : Int → Int → Int → β) (a b c d e g : Int) :
-    ¬a = d ∨ ¬b = e ∨ ¬c = g ∨ f a b c = f d e g :=
-  (Classical.em (a = d)).elim
-    (fun h => (Classical.em (b = e)).elim
-      (fun h' => (Classical.em (c = g)).elim (fun h'' => .inr (.inr (.inr (h ▸ h' ▸ h'' ▸ rfl))))
-        (fun h'' => .inr (.inr (.inl h''))))
-      (fun h' => .inr (.inl h')))
-    .inl
+    ¬a = d ∨ ¬b = e ∨ ¬c = g ∨ f a b c = f d e g := by
+  by_cases a = d <;> by_cases b = e <;> by_cases c = g <;> simp_all
 
 theorem true_eq_iff (b : Bool) : (true = b) ↔ (b = true) := ⟨Eq.symm, Eq.symm⟩
 

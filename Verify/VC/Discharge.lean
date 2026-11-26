@@ -598,12 +598,8 @@ theorem lin_sound : ∀ (n : Nat) (t : Tm) (l : Lin), lin n t = some l → t.eva
       · subst h2
         split at h
         · rename_i a
-          cases ha : lin n a with
-          | none => simp [ha] at h
-          | some la =>
-            simp only [ha, Option.map_some, Option.some.injEq] at h
-            subst h
-            simp [eval_app, applyOp, lin_sound n a la ha, Value.toInt, Lin.eval_scale]
+          obtain ⟨la, ha, rfl⟩ := Option.map_eq_some_iff.mp h
+          simp [eval_app, applyOp, lin_sound n a la ha, Value.toInt, Lin.eval_scale]
         · rename_i a b
           split at h
           · rename_i la lb ha hb
@@ -616,20 +612,12 @@ theorem lin_sound : ∀ (n : Nat) (t : Tm) (l : Lin), lin n t = some l → t.eva
       · subst h3
         split at h
         · rename_i c a
-          cases ha : lin n a with
-          | none => simp [ha] at h
-          | some la =>
-            simp only [ha, Option.map_some, Option.some.injEq] at h
-            subst h
-            simp [eval_app, applyOp, lin_sound n a la ha, Value.toInt, Lin.eval_scale, eval_num]
+          obtain ⟨la, ha, rfl⟩ := Option.map_eq_some_iff.mp h
+          simp [eval_app, applyOp, lin_sound n a la ha, Value.toInt, Lin.eval_scale, eval_num]
         · rename_i a c _
-          cases ha : lin n a with
-          | none => simp [ha] at h
-          | some la =>
-            simp only [ha, Option.map_some, Option.some.injEq] at h
-            subst h
-            simp [eval_app, applyOp, lin_sound n a la ha, Value.toInt, Lin.eval_scale, eval_num]
-            ring
+          obtain ⟨la, ha, rfl⟩ := Option.map_eq_some_iff.mp h
+          simp [eval_app, applyOp, lin_sound n a la ha, Value.toInt, Lin.eval_scale, eval_num]
+          ring
         · exact linAtom_sound σ h
       · exact linAtom_sound σ h
     · exact linAtom_sound σ h
@@ -672,15 +660,11 @@ theorem liftArgs_sound {g : Tm → Option (Tm × Tm × Tm)}
       obtain ⟨rfl, rfl, rfl⟩ := h
       obtain ⟨h1, h2⟩ := hg a _ _ _ ha
       exact ⟨fun hc => by simp [h1 hc], fun hc => by simp [h2 hc]⟩
-    · cases hr : liftArgs g as with
-      | none => simp [hr] at h
-      | some r =>
-        simp only [hr, Option.map_some, Option.some.injEq] at h
-        obtain ⟨c', r1, r2⟩ := r
-        simp only [Prod.mk.injEq] at h
-        obtain ⟨rfl, rfl, rfl⟩ := h
-        obtain ⟨h1, h2⟩ := liftArgs_sound hg as hr
-        exact ⟨fun hc => by simp [h1 hc], fun hc => by simp [h2 hc]⟩
+    · obtain ⟨⟨c', r1, r2⟩, hr, h⟩ := Option.map_eq_some_iff.mp h
+      simp only [Prod.mk.injEq] at h
+      obtain ⟨rfl, rfl, rfl⟩ := h
+      obtain ⟨h1, h2⟩ := liftArgs_sound hg as hr
+      exact ⟨fun hc => by simp [h1 hc], fun hc => by simp [h2 hc]⟩
 
 theorem liftIte_sound : ∀ (n : Nat) (t c t1 t2 : Tm), liftIte n t = some (c, t1, t2) →
     (c.Holds σ → t.eval σ = t1.eval σ) ∧ (¬ c.Holds σ → t.eval σ = t2.eval σ)
@@ -694,15 +678,11 @@ theorem liftIte_sound : ∀ (n : Nat) (t c t1 t2 : Tm), liftIte n t = some (c, t
         simp only [Option.some.injEq] at h
         subst h
         exact isIte_sound σ hi
-      · cases hr : liftArgs (liftIte n) args with
-        | none => simp [hr] at h
-        | some r =>
-          simp only [hr, Option.map_some, Option.some.injEq] at h
-          obtain ⟨c', r1, r2⟩ := r
-          simp only [Prod.mk.injEq] at h
-          obtain ⟨rfl, rfl, rfl⟩ := h
-          obtain ⟨h1, h2⟩ := liftArgs_sound σ (liftIte_sound n) args hr
-          exact ⟨fun hc => by simp only [eval_app, h1 hc], fun hc => by simp only [eval_app, h2 hc]⟩
+      · obtain ⟨⟨c', r1, r2⟩, hr, h⟩ := Option.map_eq_some_iff.mp h
+        simp only [Prod.mk.injEq] at h
+        obtain ⟨rfl, rfl, rfl⟩ := h
+        obtain ⟨h1, h2⟩ := liftArgs_sound σ (liftIte_sound n) args hr
+        exact ⟨fun hc => by simp only [eval_app, h1 hc], fun hc => by simp only [eval_app, h2 hc]⟩
     · simp at h
 
 theorem cmpCons_sound (f : String) (pos : Bool) {a b : Tm} {la lb : Lin}
@@ -718,29 +698,9 @@ theorem cmpCons_sound (f : String) (pos : Bool) {a b : Tm} {la lb : Lin}
     cases pos <;> simp [wrap, holds_neg, hx]
   rw [hw] at h
   unfold cmpCons at hl
-  by_cases h1 : f = "<="
-  · subst h1
-    cases pos <;> simp [applyOp, Value.toProp, Value.toInt] at h hl <;> subst hl <;>
-      simp only [Lin.eval_sub, Lin.eval_inc] <;> omega
-  by_cases h2 : f = "<"
-  · subst h2
-    cases pos <;> simp [applyOp, Value.toProp, Value.toInt] at h hl <;> subst hl <;>
-      simp only [Lin.eval_sub, Lin.eval_inc] <;> omega
-  by_cases h3 : f = ">="
-  · subst h3
-    cases pos <;> simp [applyOp, Value.toProp, Value.toInt] at h hl <;> subst hl <;>
-      simp only [Lin.eval_sub, Lin.eval_inc] <;> omega
-  by_cases h4 : f = ">"
-  · subst h4
-    cases pos <;> simp [applyOp, Value.toProp, Value.toInt] at h hl <;> subst hl <;>
-      simp only [Lin.eval_sub, Lin.eval_inc] <;> omega
-  by_cases h5 : f = "="
-  · subst h5
-    cases pos
-    · simp at hl
-    · simp [applyOp, Value.toProp, Value.eq] at h hl
-      rcases hl with rfl | rfl <;> simp only [Lin.eval_sub] <;> omega
-  simp [h1, h2, h3, h4, h5] at hl
+  split_ifs at hl h <;> subst_vars <;>
+    simp [applyOp, Value.toProp, Value.toInt, Value.eq] at h hl <;>
+    (try rcases hl with rfl | rfl) <;> (try subst hl) <;> simp only [Lin.eval_sub, Lin.eval_inc] <;> omega
 
 /-- What a step of the tableau may assume of one fact's model. -/
 def StepOK : Step → Prop
@@ -1030,6 +990,69 @@ theorem iteEqs_sound (c : Tm) (hc : c.Holds σ) : ∀ e ∈ iteEqs c, e.1.eval �
     · rw [if_neg h1] at he; simp at he
   · simp at he
 
+/-- Setting a constant that occurs in none of the facts `ts` and constraints `cs` changes none of
+their values. -/
+theorem fresh_setI {x : String} {ts : List Tm} {cs : List Lin} (hf : fresh x ts cs = true) (m : Int) :
+    (∀ t ∈ ts, t.eval (σ.setI x m) = t.eval σ) ∧ ∀ l ∈ cs, l.eval (σ.setI x m) = l.eval σ := by
+  simp only [fresh, Bool.and_eq_true, List.all_eq_true] at hf
+  refine ⟨fun t ht => Tm.eval_congr t (σ := σ.setI x m) (τ := σ) rfl fun y hy =>
+      agree_setI_ne m fun e => ?_,
+    fun l hl => congrArg (l.k + ·) (sumCs_congr (τ := σ.setI x m) (ρ := σ) rfl l.cs fun p hp y hy =>
+      agree_setI_ne m fun e => ?_)⟩
+  · subst e; have := hf.1 t ht; simp [hy] at this
+  · subst e; have := hf.2 l hl p hp; simp [hy] at this
+
+/-- The skolem step of `refute` and `refuteC`: whichever list of facts it continues with (`R`), some
+assignment satisfies them and the constraints. -/
+theorem skolem_sound {x : String} {u : Tm} {rest : List Tm} {cs : List Lin} (R : List Tm → Bool)
+    (hR : ∀ τ ts, R ts = true → (∀ t ∈ ts, t.Holds τ) → (∀ l ∈ cs, l.eval τ ≤ 0) → False)
+    (h : (if fresh x rest cs then R (u :: rest)
+      else if fresh (x ++ "'") (u :: rest) cs then R (u.subst .int x (.ivar (x ++ "'")) :: rest)
+      else R rest) = true)
+    (hst : ∃ m : Int, u.Holds (σ.setI x m)) (hr : ∀ t ∈ rest, t.Holds σ)
+    (hc : ∀ l ∈ cs, l.eval σ ≤ 0) : False := by
+  obtain ⟨m, hm⟩ := hst
+  split_ifs at h with hf hf'
+  · have e := fresh_setI σ hf m
+    refine hR _ _ h (List.forall_mem_cons.2 ⟨hm, fun t ht => ?_⟩) fun l hl => ?_
+    · simpa only [Tm.Holds, e.1 t ht] using hr t ht
+    · simpa only [e.2 l hl] using hc l hl
+  · have e := fresh_setI σ hf' m
+    have hx : x ++ "'" ∉ u.vars := fun hy => by
+      simp only [fresh, Bool.and_eq_true, List.all_eq_true] at hf'
+      have := hf'.1 u (by simp); simp [hy] at this
+    refine hR (σ.setI (x ++ "'") m) _ h (List.forall_mem_cons.2 ⟨?_, fun t ht => ?_⟩) fun l hl => ?_
+    · simp only [Tm.Holds] at hm ⊢
+      rw [Tm.eval_subst .int x (.ivar (x ++ "'")) rfl u _ (fun y hy hyx => by
+        simp only [Tm.vars, List.mem_cons, List.not_mem_nil, or_false] at hyx
+        subst hyx
+        exact hx (Tm.mem_vars_of_binders u hy)),
+        show (Tm.ivar (x ++ "'")).eval (σ.setI (x ++ "'") m) = .int m by simp [Tm.eval, Env.setI]]
+      rwa [Tm.eval_congr u (σ := (σ.setI (x ++ "'") m).set .int x (.int m)) (τ := σ.setI x m) rfl
+        fun y hy => by
+          have hy' : y ≠ x ++ "'" := fun e => hx (e ▸ hy)
+          refine ⟨?_, rfl, rfl, rfl⟩
+          simp only [Env.set, Env.setI, Value.toInt]
+          by_cases hyx : y = x <;> simp [hyx, hy']]
+    · simpa only [Tm.Holds, e.1 t (List.mem_cons_of_mem _ ht)] using hr t ht
+    · simpa only [e.2 l hl] using hc l hl
+  · exact hR _ _ h hr hc
+
+/-- The two cases of an `ite` step, as `refute` and `refuteC` continue with them. -/
+theorem ite_cases {c t1 t2 : Tm} {rest : List Tm} (hst : StepOK σ (.ite c t1 t2))
+    (hr : ∀ u ∈ rest, u.Holds σ) :
+    (c.Holds σ ∧ ∀ u ∈ c :: ((t1 :: rest).map (resolve c true resolveFuel)).map
+      (substN (iteEqs c) substFuel), u.Holds σ) ∨
+    ∀ u ∈ neg c :: (t2 :: rest).map (resolve c false resolveFuel), u.Holds σ := by
+  rcases hst with ⟨hc1, ht1⟩ | ⟨hc2, ht2⟩
+  · refine Or.inl ⟨hc1, List.forall_mem_cons.2 ⟨hc1, ?_⟩⟩
+    simp only [List.forall_mem_map, Tm.Holds, substN_eval substFuel _ σ (iteEqs_sound σ c hc1),
+      resolve_eval σ c true (by simpa using hc1)]
+    exact List.forall_mem_cons.2 ⟨ht1, hr⟩
+  · refine Or.inr (List.forall_mem_cons.2 ⟨(holds_neg σ c).2 hc2, ?_⟩)
+    simp only [List.forall_mem_map, Tm.Holds, resolve_eval σ c false (by simpa using hc2)]
+    exact List.forall_mem_cons.2 ⟨ht2, hr⟩
+
 theorem refute_sound (F : Nat) (ks : List String) : ∀ (n b : Nat) (σ : Env) (ts : List Tm) (cs : List Lin),
     refute F ks n b ts cs = true → (∀ t ∈ ts, t.Holds σ) → (∀ l ∈ cs, l.eval σ ≤ 0) → False
   | 0, _, _, _, _, h, _, _ => by simp [refute] at h
@@ -1042,134 +1065,52 @@ theorem refute_sound (F : Nat) (ks : List String) : ∀ (n b : Nat) (σ : Env) (
     cases s with
     | drop => exact refute_sound F ks n b σ rest cs h hr hc
     | closed => exact hst
-    | facts us =>
-      refine refute_sound F ks n b σ _ cs h ?_ hc
-      intro u hu
-      rcases List.mem_append.mp hu with hu | hu
-      · exact hst u hu
-      · exact hr u hu
-    | cons ls =>
-      refine refute_sound F ks n b σ rest _ h hr ?_
-      intro l hl
-      rcases List.mem_append.mp hl with hl | hl
-      · exact hst l hl
-      · exact hc l hl
+    | facts us => exact refute_sound F ks n b σ _ cs h (List.forall_mem_append.2 ⟨hst, hr⟩) hc
+    | cons ls => exact refute_sound F ks n b σ rest _ h hr (List.forall_mem_append.2 ⟨hst, hc⟩)
     | split bs =>
       rcases Bool.or_eq_true _ _ |>.mp h with h | h
       · exact fm_sound σ F cs h hc
       obtain ⟨us, hus, hall⟩ := hst
-      refine refute_sound F ks n (b - 1) σ _ cs
-        (List.all_eq_true.mp (Bool.and_eq_true _ _ |>.mp h).2 us hus) ?_ hc
-      intro u hu
-      rcases List.mem_append.mp hu with hu | hu
-      · exact hall u hu
-      · exact hr u hu
+      exact refute_sound F ks n (b - 1) σ _ cs
+        (List.all_eq_true.mp (Bool.and_eq_true _ _ |>.mp h).2 us hus)
+        (List.forall_mem_append.2 ⟨hall, hr⟩) hc
     | ite c t1 t2 =>
       rcases Bool.or_eq_true _ _ |>.mp h with h | h
       · exact fm_sound σ F cs h hc
-      rw [Bool.and_eq_true, Bool.and_eq_true] at h
-      replace h := h.2
-      have hres : ∀ (b : Bool), (if b then c.Holds σ else ¬ c.Holds σ) → ∀ u ∈ rest,
-          (resolve c b resolveFuel u).Holds σ := by
-        intro b hb u hu
-        simp only [Tm.Holds]
-        rw [resolve_eval σ c b hb]
-        exact hr u hu
-      rcases hst with ⟨hc1, ht1⟩ | ⟨hc2, ht2⟩
-      · refine refute_sound F ks n (b - 1) σ _ cs h.1 ?_ hc
-        have he := iteEqs_sound σ c hc1
-        intro u hu
-        rcases List.mem_cons.mp hu with rfl | hu
-        · exact hc1
-        obtain ⟨v, hv, rfl⟩ := List.mem_map.mp hu
-        obtain ⟨w, hw, rfl⟩ := List.mem_map.mp hv
-        simp only [Tm.Holds]
-        rw [substN_eval _ _ σ he]
-        rcases List.mem_cons.mp hw with rfl | hw
-        · rw [resolve_eval σ c true (by simpa using hc1)]
-          exact ht1
-        · exact hres true (by simpa using hc1) w hw
-      · refine refute_sound F ks n (b - 1) σ _ cs h.2 ?_ hc
-        intro u hu
-        simp only [List.mem_cons, List.map_cons, List.mem_map] at hu
-        rcases hu with rfl | rfl | ⟨u', hu', rfl⟩
-        · exact (holds_neg σ c).mpr hc2
-        · simp only [Tm.Holds]
-          rw [resolve_eval σ c false (by simpa using hc2)]
-          exact ht2
-        · exact hres false (by simpa using hc2) u' hu'
+      simp only [Bool.and_eq_true] at h
+      rcases ite_cases σ hst hr with ⟨-, h1⟩ | h2
+      · exact refute_sound F ks n (b - 1) σ _ cs h.2.1 h1 hc
+      · exact refute_sound F ks n (b - 1) σ _ cs h.2.2 h2 hc
     | skolem x u =>
-      have h' : (if fresh x rest cs then refute F ks n b (u :: rest) cs
-        else if fresh (x ++ "'") (u :: rest) cs then
-          refute F ks n b (u.subst .int x (.ivar (x ++ "'")) :: rest) cs
-        else refute F ks n b rest cs) = true := h
-      by_cases hf : fresh x rest cs
-      · simp only [hf, ↓reduceIte] at h'
-        obtain ⟨m, hm⟩ := hst
-        simp only [fresh, Bool.and_eq_true, List.all_eq_true] at hf
-        obtain ⟨hf1, hf2⟩ := hf
-        have hx1 : ∀ v ∈ rest, x ∉ v.vars := fun v hv hxv => by
-          have := hf1 v hv
-          simp [hxv] at this
-        have hx2 : ∀ l ∈ cs, ∀ p ∈ l.cs, x ∉ p.1.vars := fun l hl p hp hxp => by
-          have := hf2 l hl p hp
-          simp [hxp] at this
-        refine refute_sound F ks n b (σ.setI x m) _ cs h' ?_ ?_
-        · intro v hv
-          rcases List.mem_cons.mp hv with rfl | hv
-          · exact hm
-          · have := hr v hv
-            simp only [Tm.Holds] at this ⊢
-            rwa [Tm.eval_congr v (σ := σ.setI x m) (τ := σ) rfl (fun y hy => agree_setI_ne (x := x) m (fun e => hx1 v hv (e ▸ hy)))]
-        · intro l hl
-          have := hc l hl
-          simp only [Lin.eval] at this ⊢
-          rwa [sumCs_congr (τ := σ.setI x m) (ρ := σ) rfl l.cs (fun p hp y hy => agree_setI_ne (x := x) m (fun e => hx2 l hl p hp (e ▸ hy)))]
-      · simp only [hf, Bool.false_eq_true, ↓reduceIte] at h'
-        by_cases hf' : fresh (x ++ "'") (u :: rest) cs
-        · simp only [hf', ↓reduceIte] at h'
-          obtain ⟨m, hm⟩ := hst
-          simp only [fresh, Bool.and_eq_true, List.all_eq_true] at hf'
-          obtain ⟨hf1, hf2⟩ := hf'
-          have hx1 : ∀ v ∈ u :: rest, x ++ "'" ∉ v.vars := fun v hv hxv => by
-            have := hf1 v hv
-            simp [hxv] at this
-          have hx2 : ∀ l ∈ cs, ∀ p ∈ l.cs, x ++ "'" ∉ p.1.vars := fun l hl p hp hxp => by
-            have := hf2 l hl p hp
-            simp [hxp] at this
-          refine refute_sound F ks n b (σ.setI (x ++ "'") m) _ cs h' ?_ ?_
-          · intro v hv
-            rcases List.mem_cons.mp hv with hvu | hv
-            · subst hvu
-              simp only [Tm.Holds] at hm ⊢
-              rw [Tm.eval_subst .int x (.ivar (x ++ "'")) rfl u _ (fun y hy hyx => by
-                simp only [Tm.vars, List.mem_cons, List.not_mem_nil, or_false] at hyx
-                subst hyx
-                exact hx1 u (by simp) (Tm.mem_vars_of_binders u hy))]
-              have e1 : (Tm.ivar (x ++ "'")).eval (σ.setI (x ++ "'") m) = .int m := by
-                simp [Tm.eval, Env.setI]
-              rw [e1]
-              have e2 : u.eval ((σ.setI (x ++ "'") m).set .int x (.int m)) = u.eval (σ.setI x m) :=
-                Tm.eval_congr u (σ := (σ.setI (x ++ "'") m).set .int x (.int m)) (τ := σ.setI x m) rfl
-                  (fun y hy => by
-                    have hy' : y ≠ x ++ "'" := fun e => hx1 u (by simp) (e ▸ hy)
-                    refine ⟨?_, rfl, rfl, rfl⟩
-                    simp only [Env.set, Env.setI, Value.toInt]
-                    by_cases hyx : y = x <;> simp [hyx, hy'])
-              rw [e2]
-              exact hm
-            · have := hr v hv
-              simp only [Tm.Holds] at this ⊢
-              rwa [Tm.eval_congr v (σ := σ.setI (x ++ "'") m) (τ := σ) rfl
-                (fun y hy => agree_setI_ne (x := x ++ "'") m
-                  (fun e => hx1 v (List.mem_cons_of_mem _ hv) (e ▸ hy)))]
-          · intro l hl
-            have := hc l hl
-            simp only [Lin.eval] at this ⊢
-            rwa [sumCs_congr (τ := σ.setI (x ++ "'") m) (ρ := σ) rfl l.cs
-              (fun p hp y hy => agree_setI_ne (x := x ++ "'") m (fun e => hx2 l hl p hp (e ▸ hy)))]
-        · simp only [hf', Bool.false_eq_true, ↓reduceIte] at h'
-          exact refute_sound F ks n b σ rest cs h' hr hc
+      exact skolem_sound σ (refute F ks n b · cs) (fun τ ts h => refute_sound F ks n b τ ts cs h)
+        h hst hr hc
+
+open Classical in
+/-- An `ite` of two values of one sort is the one its condition picks. -/
+theorem applyOp_ite (u : String → List Int → Int) (c : Value) {X Y : Value} (h : X.sortOf = Y.sortOf) :
+    applyOp u "ite" [c, X, Y] = if c.toProp then X else Y := by
+  cases X <;> cases Y <;> simp_all [Value.sortOf, applyOp, apply_ite]
+
+/-- Read over write, of an array of integers or a mapping of mappings. -/
+theorem select_store {A V : Value}
+    (h : (A.sortOf = .arr ∧ V.sortOf = .int) ∨ (A.sortOf = .arr2 ∧ V.sortOf = .arr)) (I J : Int) :
+    (A.store I V).select J = if J = I then V else A.select J := by
+  rcases h with ⟨ha, hv⟩ | ⟨ha, hv⟩ <;> cases A <;> cases V <;>
+    simp_all [Value.sortOf, Value.store, Value.select, apply_ite, Value.toInt, Value.toArr]
+
+theorem applyOp_select (u : String → List Int → Int) (a i : Value) :
+    applyOp u "select" [a, i] = a.select i.toInt := by simp [applyOp]
+
+theorem applyOp_store (u : String → List Int → Int) (a i v : Value) :
+    applyOp u "store" [a, i, v] = a.store i.toInt v := by simp [applyOp]
+
+theorem applyOp_eq (u : String → List Int → Int) (a b : Value) :
+    applyOp u "=" [a, b] = .prop (a.eq b) := by simp [applyOp]
+
+/-- Reads of two values of one sort have one sort. -/
+theorem sortOf_select_congr {A B : Value} (h : A.sortOf = B.sortOf) (J K : Int) :
+    (A.select J).sortOf = (B.select K).sortOf := by
+  cases A <;> cases B <;> simp_all [Value.sortOf, Value.select]
 
 theorem rowSel_eval {r : Tm → Tm} (hr : ∀ t, (r t).eval σ = t.eval σ) (x j : Tm) :
     (rowSel r x j).eval σ = (Tm.app "select" [x, j]).eval σ := by
@@ -1179,53 +1120,33 @@ theorem rowSel_eval {r : Tm → Tm} (hr : ∀ t, (r t).eval σ = t.eval σ) (x j
     by_cases h1 : g = "store" ∧ i.isIntAtom = true ∧ j.isIntAtom = true ∧ rowSorts a v = true
     · rw [if_pos h1]
       obtain ⟨rfl, hi, hj, hs⟩ := h1
+      have hs' : ((a.eval σ).sortOf = .arr ∧ (v.eval σ).sortOf = .int) ∨
+          ((a.eval σ).sortOf = .arr2 ∧ (v.eval σ).sortOf = .arr) := by
+        simp only [rowSorts, Tm.isIntAtom, Bool.or_eq_true, Bool.and_eq_true, beq_iff_eq] at hs
+        exact hs.imp (fun h => ⟨Tm.eval_sortOf a σ h.1, Tm.eval_sortOf v σ h.2⟩)
+          (fun h => ⟨Tm.eval_sortOf a σ h.1, Tm.eval_sortOf v σ h.2⟩)
       obtain ⟨I, eI⟩ : ∃ I, i.eval σ = .int I := ⟨_, int_atom σ hi⟩
       obtain ⟨J, eJ⟩ : ∃ J, j.eval σ = .int J := ⟨_, int_atom σ hj⟩
-      simp only [rowSorts, Bool.or_eq_true, Bool.and_eq_true, beq_iff_eq] at hs
-      rcases hs with ⟨ha, hv⟩ | ⟨ha, hv⟩
-      · obtain ⟨V, eV⟩ : ∃ V, v.eval σ = .int V := ⟨_, int_atom σ hv⟩
-        obtain ⟨eA', eA⟩ : ∃ X, a.eval σ = .arr X := ⟨_, Value.sortOf_arr (Tm.eval_sortOf a σ ha)⟩
-        by_cases hb : Tm.beq j i = true
-        · rw [if_pos hb]
-          have := Tm.eq_of_beq hb
-          subst this
-          simp only [Tm.eval, Tm.evalList, applyOp, eA, eV, eI, Value.store, Value.select, Value.toInt]
-          simp
-        · rw [if_neg hb]
-          simp only [Tm.eval, Tm.evalList, applyOp, hr, eA, eV, eI, eJ, Value.store, Value.select,
-            Value.toInt, Value.toProp, Value.eq]
-          by_cases hJI : J = I <;> simp [hJI]
-      · obtain ⟨eV', eV⟩ : ∃ X, v.eval σ = .arr X := ⟨_, Value.sortOf_arr (Tm.eval_sortOf v σ hv)⟩
-        obtain ⟨eA', eA⟩ : ∃ X, a.eval σ = .arr2 X := ⟨_, Value.sortOf_arr2 (Tm.eval_sortOf a σ ha)⟩
-        by_cases hb : Tm.beq j i = true
-        · rw [if_pos hb]
-          have := Tm.eq_of_beq hb
-          subst this
-          simp only [Tm.eval, Tm.evalList, applyOp, eA, eV, eI, Value.store, Value.select, Value.toInt,
-            Value.toArr]
-          simp
-        · rw [if_neg hb]
-          simp only [Tm.eval, Tm.evalList, applyOp, hr, eA, eV, eI, eJ, Value.store, Value.select,
-            Value.toInt, Value.toProp, Value.eq, Value.toArr]
-          by_cases hJI : J = I <;> simp [hJI]
+      split_ifs with hb
+      · obtain rfl := Tm.eq_of_beq hb
+        simp [eval_app, applyOp, select_store hs', eJ, Value.toInt]
+      · have hsort : (v.eval σ).sortOf = ((a.eval σ).select J).sortOf := by
+          rcases hs' with ⟨ha, hv⟩ | ⟨ha, hv⟩ <;> revert ha <;> cases a.eval σ <;>
+            simp_all [Value.sortOf, Value.select]
+        simp only [eval_app, List.map, hr, applyOp_select, applyOp_store, applyOp_eq, eI, eJ, Value.toInt]
+        rw [applyOp_ite _ _ hsort, select_store hs']
+        simp only [Value.toProp, Value.eq]
+        congr
     · rw [if_neg h1]
       by_cases h2 : g = "ite" ∧ arrPair i v = true
       · rw [if_pos h2]
         obtain ⟨rfl, hp⟩ := h2
-        simp only [arrPair, Bool.or_eq_true, Bool.and_eq_true, beq_iff_eq] at hp
-        rcases hp with ⟨hi, hv⟩ | ⟨hi, hv⟩
-        · obtain ⟨eI', eI⟩ : ∃ X, i.eval σ = .arr X := ⟨_, Value.sortOf_arr (Tm.eval_sortOf i σ hi)⟩
-          obtain ⟨eV', eV⟩ : ∃ X, v.eval σ = .arr X := ⟨_, Value.sortOf_arr (Tm.eval_sortOf v σ hv)⟩
-          simp only [Tm.eval, Tm.evalList, applyOp, hr]
-          rw [eI, eV]
-          simp only [applyOp, Value.select, Value.toInt]
-          by_cases hc : (a.eval σ).toProp <;> simp [hc]
-        · obtain ⟨eI', eI⟩ : ∃ X, i.eval σ = .arr2 X := ⟨_, Value.sortOf_arr2 (Tm.eval_sortOf i σ hi)⟩
-          obtain ⟨eV', eV⟩ : ∃ X, v.eval σ = .arr2 X := ⟨_, Value.sortOf_arr2 (Tm.eval_sortOf v σ hv)⟩
-          simp only [Tm.eval, Tm.evalList, applyOp, hr]
-          rw [eI, eV]
-          simp only [applyOp, Value.select]
-          by_cases hc : (a.eval σ).toProp <;> simp [hc]
+        have hiv : (i.eval σ).sortOf = (v.eval σ).sortOf := by
+          simp only [arrPair, Bool.or_eq_true, Bool.and_eq_true, beq_iff_eq] at hp
+          rcases hp with ⟨hi, hv⟩ | ⟨hi, hv⟩ <;> rw [Tm.eval_sortOf i σ hi, Tm.eval_sortOf v σ hv]
+        simp only [eval_app, List.map, hr, applyOp_select]
+        rw [applyOp_ite _ _ (sortOf_select_congr hiv _ _), applyOp_ite _ _ hiv]
+        split <;> rfl
       · rw [if_neg h2]
   · rename_i g v
     by_cases hc : (g = isOpName.constName ∧ v.isIntAtom = true) ∨
@@ -1298,29 +1219,31 @@ theorem mem_goalFirst {fs : List Tm} {t : Tm} (h : t ∈ goalFirst fs) : t ∈ f
   · exact List.mem_of_getLast? (by simpa using h)
   · exact List.dropLast_subset fs h
 
-theorem refuteOb_sound {fs : List Tm} (h : refuteOb fs = true) : ∀ σ : Env, ¬ ∀ t ∈ fs, t.Holds σ := by
-  intro σ hσ
-  have he : ∀ e ∈ fs.filterMap eqOf?, e.1.eval σ = e.2.eval σ := by
-    intro e hm
+/-- The facts `refuteOb` reads, with or without the facts of `mod` and `div`, hold in every model of
+the obligation. -/
+theorem refuteOb_facts {fs : List Tm} (hσ : ∀ t ∈ fs, t.Holds σ) (d : Bool) :
+    let rs := relevant ((fs.filter fun t => (eqOf? t).isNone).map
+      fun t => rowN rowFuel (substN (fs.filterMap eqOf?) substFuel t))
+    ∀ t ∈ (if d then goalFirst rs ++ divFacts rs else goalFirst rs), t.Holds σ := by
+  intro rs
+  have he : ∀ e ∈ fs.filterMap eqOf?, e.1.eval σ = e.2.eval σ := fun e hm => by
     obtain ⟨t, ht, hte⟩ := List.mem_filterMap.mp hm
     exact eqOf_sound σ hte (hσ t ht)
-  have hg : ∀ t ∈ relevant ((fs.filter fun t => (eqOf? t).isNone).map
-      fun t => rowN rowFuel (substN (fs.filterMap eqOf?) substFuel t)), t.Holds σ := by
-    intro t ht
-    simp only [relevant, List.mem_filter] at ht
+  have hg : ∀ t ∈ rs, t.Holds σ := fun t ht => by
+    simp only [rs, relevant, List.mem_filter] at ht
     obtain ⟨t', ht', rfl⟩ := List.mem_map.mp ht.1
-    simp only [Tm.Holds]
-    rw [rowN_eval _ σ, substN_eval _ _ σ he]
+    simp only [Tm.Holds, rowN_eval _ σ, substN_eval _ _ σ he]
     exact hσ t' (List.mem_filter.mp ht').1
+  cases d
+  · exact fun t ht => hg t (mem_goalFirst ht)
+  · exact List.forall_mem_append.2 ⟨fun t ht => hg t (mem_goalFirst ht), divFacts_holds σ _⟩
+
+theorem refuteOb_sound {fs : List Tm} (h : refuteOb fs = true) : ∀ σ : Env, ¬ ∀ t ∈ fs, t.Holds σ := by
+  intro σ hσ
   simp only [refuteOb, Bool.or_eq_true] at h
   rcases h with h | h
-  · exact refute_sound fmFuel _ stepFuel splitFuel σ _ [] h (fun t ht => hg t (mem_goalFirst ht))
-      (by simp)
-  · refine refute_sound fmFuel _ stepFuel splitFuel σ _ [] h ?_ (by simp)
-    intro t ht
-    rcases List.mem_append.mp ht with ht | ht
-    · exact hg t (mem_goalFirst ht)
-    · exact divFacts_holds σ _ t ht
+  · exact refute_sound fmFuel _ stepFuel splitFuel σ _ [] h (refuteOb_facts σ hσ false) (by simp)
+  · exact refute_sound fmFuel _ stepFuel splitFuel σ _ [] h (refuteOb_facts σ hσ true) (by simp)
 
 end Sound
 
