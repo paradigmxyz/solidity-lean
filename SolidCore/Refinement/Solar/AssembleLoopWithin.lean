@@ -165,10 +165,6 @@ theorem within_of_checkL {p : Assemble.Program} {code : ByteArray} {c : Cert} {m
           (evm.state.getStorage (Target.address selfAddress) (Target.storageKey slot)).toNat =
             (SolarTV.Machine.observe call sF halt).storage slot :=
       fun h => ⟨hlogsF, hst h⟩
-    have hfail : (SolarTV.Machine.observe call sF halt).success = false →
-        (SolarTV.Machine.observe call sF halt).logs = [] ∧
-        (SolarTV.Machine.observe call sF halt).storage = slotValue call.storage := by
-      cases halt <;> simp [SolarTV.Machine.observe]
     have hok2 : (SolarTV.Machine.observe call sF halt).success = true →
         (SolarTV.Machine.observe call sF halt).logs = SolarTV.Machine.logs sF := by
       cases halt <;> simp [SolarTV.Machine.observe]
@@ -180,21 +176,15 @@ theorem within_of_checkL {p : Assemble.Program} {code : ByteArray} {c : Cert} {m
     congr 1
     cases X with
     | mk success output logs storage =>
-      simp only at hsucc hout' hfail hok2 hst' ⊢
+      simp only at hsucc hout' hok2 hst' ⊢
+      obtain rfl : success = true := by rw [← hsucc, hok]; rfl
       rw [SolarTV.Observable.mk.injEq]
-      refine ⟨hsucc, hout', ?_, ?_⟩
-      · rw [hsucc]
-        cases hs : success
-        · simp [hok, hs] at hsucc
-        · simp only [ite_true]
-          rw [(hst' hs).1, hL1', hlogs, hok2 hs]
-          rfl
-      · funext slot
-        rw [hsucc]
-        cases hs : success
-        · simp [hok, hs] at hsucc
-        · simp only [ite_true]
-          exact (hst' hs).2 slot
+      refine ⟨hsucc, hout', ?_, funext fun slot => ?_⟩
+      · simp only [hsucc, ↓reduceIte]
+        rw [(hst' rfl).1, hL1', hlogs, hok2 rfl]
+        rfl
+      · simp only [hsucc, ↓reduceIte]
+        exact (hst' rfl).2 slot
 
 /--
 info: 'SolidCore.Refinement.Solar.AssembleLoop.within_of_checkL' depends on axioms: [propext, Classical.choice, Quot.sound]

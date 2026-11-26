@@ -433,21 +433,10 @@ theorem env_readG {name : String} {byte w : Nat} {stack : List Word}
       (At code msg (pc + 1) (BitVec.ofNat 256 w :: stack) M (gas - 2) st ss rd) := by
   unfold envRead at he
   split at he <;> simp only [Option.some.injEq, Prod.mk.injEq, reduceCtorEq] at he <;>
-    obtain ⟨rfl, rfl⟩ := he
-  · exact (push_of_readFrameGA (op := .origin) hlt hcode (ofByte_of_decode rfl (by decide)) rfl
-      (fun _ _ hm _ _ => by rw [hm, htx]; decide +kernel) hgas hstack).toG
-  · exact (push_of_readFrameGA (op := .gasprice) hlt hcode (ofByte_of_decode rfl (by decide)) rfl
-      (fun _ _ hm _ _ => by rw [hm, htx]; decide +kernel) hgas hstack).toG
-  · exact (push_of_readFrameGA (op := .coinbase) hlt hcode (ofByte_of_decode rfl (by decide)) rfl
-      (fun _ _ hm _ _ => by rw [hm, hblock]; decide +kernel) hgas hstack).toG
-  · exact (push_of_readFrameGA (op := .timestamp) hlt hcode (ofByte_of_decode rfl (by decide)) rfl
-      (fun _ _ hm _ _ => by rw [hm, hblock]; decide +kernel) hgas hstack).toG
-  · exact (push_of_readFrameGA (op := .number) hlt hcode (ofByte_of_decode rfl (by decide)) rfl
-      (fun _ _ hm _ _ => by rw [hm, hblock]; decide +kernel) hgas hstack).toG
-  · exact (push_of_readFrameGA (op := .gaslimit) hlt hcode (ofByte_of_decode rfl (by decide)) rfl
-      (fun _ _ hm _ _ => by rw [hm, hblock]; decide +kernel) hgas hstack).toG
-  · exact (push_of_readFrameGA (op := .chainid) hlt hcode (ofByte_of_decode rfl (by decide)) rfl
-      (fun _ _ hm _ _ => by rw [hm, hblock]; decide +kernel) hgas hstack).toG
+    obtain ⟨rfl, rfl⟩ := he <;>
+    exact (push_of_readFrameGA hlt hcode (ofByte_of_decode rfl (by decide)) rfl
+      (fun _ _ hm _ _ => by rw [hm]; first | (rw [htx]; decide +kernel) | (rw [hblock]; decide +kernel))
+      hgas hstack).toG
 
 /-- `Assemble.stack_rule_cheap` over steps monotone in gas. -/
 theorem stack_rule_cheapG {op : SolarTV.EVM.Op} {byte : Nat} {stack next : List Word}

@@ -17,43 +17,40 @@ open SolidCore.Refinement.Solar.Assemble
 open SolarTV.Assembly
 open EthLib.Base EthLib.Execution EthLib.Execution.Evm EthLib.Execution.Evm.Logic GasCosts
 
+/-- A square below \`2 ^ k * 2 ^ k\` has its root below \`2 ^ k\`. -/
+private theorem lt_pow_of_mul_self_lt {w k : Nat} (h : w * w < 2 ^ k * 2 ^ k) : w < 2 ^ k :=
+  Nat.lt_of_not_le fun hw => Nat.lt_irrefl _ (Nat.lt_of_lt_of_le h (Nat.mul_le_mul hw hw))
+
+/-- EthLib's count of the words of \`n\` bytes. -/
+private theorem wordCount_eq (n : Nat) : wordCount n = (n + 31) / 32 := by
+  unfold wordCount WORD_BYTES
+  rw [ceil32_eq]
+  omega
+
 set_option exponentiation.threshold 600 in
 /-- A square below \`2 ^ 502\` has its root below \`2 ^ 251\`. -/
-theorem lt_of_mul_self_lt {w : Nat} (h : w * w < 2 ^ 502) : w < 2 ^ 251 := by
-  refine Nat.lt_of_not_le fun hw => ?_
-  have hsq := Nat.mul_le_mul hw hw
-  have e : (2 : Nat) ^ 251 * 2 ^ 251 = 2 ^ 502 := by rw [← Nat.pow_add]
-  omega
+theorem lt_of_mul_self_lt {w : Nat} (h : w * w < 2 ^ 502) : w < 2 ^ 251 :=
+  lt_pow_of_mul_self_lt (by rwa [← Nat.pow_add])
 
 /-- **Memory a budget below \`2 ^ 300\` pays for has fewer than \`2 ^ 251\` words**, so SolarTV's count
 of words does not wrap. -/
 theorem words_lt_of_cost {n B : Nat} (h : memoryGasCost n ≤ B) (hB : B < 2 ^ 300) :
     (n + 31) / 32 < 2 ^ 251 := by
   have hw := wordCount_mul_self_le h
-  have e : wordCount n = (n + 31) / 32 := by
-    unfold wordCount WORD_BYTES
-    rw [ceil32_eq]
-    omega
-  rw [e] at hw
+  rw [wordCount_eq] at hw
   apply lt_of_mul_self_lt
   generalize (n + 31) / 32 * ((n + 31) / 32) = sq at hw ⊢
   omega
 
-/-- Memory a budget below `2 ^ 256` pays for is at most `2 ^ 140` bytes. -/
+/-- Memory a budget below \`2 ^ 256\` pays for is at most \`2 ^ 140\` bytes. -/
 theorem size_le_of_cost {n B : Nat} (h : memoryGasCost n ≤ B) (hB : B < 2 ^ 256) (hmod : n % 32 = 0) :
     n ≤ 2 ^ 140 := by
   have hw := wordCount_mul_self_le h
-  have e : wordCount n = (n + 31) / 32 := by
-    unfold wordCount WORD_BYTES
-    rw [ceil32_eq]
-    omega
-  rw [e] at hw
-  have hlt : (n + 31) / 32 < 2 ^ 135 := by
-    refine Nat.lt_of_not_le fun hw' => ?_
-    have hsq := Nat.mul_le_mul hw' hw'
-    have e2 : (2 : Nat) ^ 135 * 2 ^ 135 = 2 ^ 270 := by rw [← Nat.pow_add]
-    generalize (n + 31) / 32 * ((n + 31) / 32) = sq at hw hsq
-    omega
+  rw [wordCount_eq] at hw
+  have hlt : (n + 31) / 32 < 2 ^ 135 := lt_pow_of_mul_self_lt (by
+    rw [← Nat.pow_add]
+    generalize (n + 31) / 32 * ((n + 31) / 32) = sq at hw ⊢
+    omega)
   omega
 
 /-! ## SolarTV's memory and EthLib's at any range SolarTV holds -/
@@ -75,14 +72,8 @@ theorem memRel_expandW {m : Mem} {M : ByteArray} {o sz : Word} (hm : MemRel m M)
     have hz' : sz.toNat ≠ 0 := fun h => hz (BitVec.eq_of_toNat_eq (by simpa using h))
     unfold Mem.expand SolarTV.Memory.grow
     simp only [hz', ite_false]
-    split
-    · rename_i h
-      rw [BitVec.ult_iff_toNat_lt, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hlt] at h
-      rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hlt]
-      omega
-    · rename_i h
-      rw [BitVec.ult_iff_toNat_lt, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hlt] at h
-      omega
+    split <;> rename_i h <;>
+      simp only [BitVec.ult_iff_toNat_lt, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hlt] at h ⊢ <;> omega
 
 open SolarTV.Machine in
 /-- \`Assemble.memRel_store\` for every offset whose word SolarTV holds. -/
@@ -105,18 +96,10 @@ theorem memRel_storeW {m : Mem} {M : ByteArray} {o v : Word} (hm : MemRel m M)
   have hsize : (memoryWrite (memoryExtend M (extendMemory M.size [(o, 32)]).expandBy) o.toNat
       (wordBytes v)).size = max M.size (ceil32 (o.toNat + 32)) := by
     rw [size_memoryWrite_of_fit (fun _ => hfit), hext]
+  -- The store grows memory as the expansion of its word does.
   refine ⟨⟨?_, fun i => ?_⟩, hsize⟩
-  · rw [hsize, hm.1, ceil32_eq]
-    unfold Mem.store Mem.expand SolarTV.Memory.grow
-    simp only [show (32 = 0) = False from by decide, ite_false]
-    split
-    · rename_i h
-      rw [BitVec.ult_iff_toNat_lt, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hlt] at h
-      rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hlt]
-      omega
-    · rename_i h
-      rw [BitVec.ult_iff_toNat_lt, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hlt] at h
-      omega
+  · rw [hsize, ← hext]
+    exact (memRel_expandW hm (.inr hlt)).1
   · rw [byteAt_memoryWrite hfit, byteAt_memoryExtend, size_wordBytes]
     have hb : (m.store o.toNat v).bytes i =
         if o.toNat ≤ i ∧ i < o.toNat + 32 then SolarTV.Memory.byte v (i - o.toNat) else m.bytes i := by

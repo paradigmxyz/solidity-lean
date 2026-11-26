@@ -308,6 +308,42 @@ theorem stack_simL {p : Program} {c : Cert} {mx : List Nat} {bb : Nat} {ok : Nat
   · cases hok
 
 
+/-- An opcode item at the head of a walk: its byte at the counter, and the walk on from the next
+byte. -/
+theorem op_seg {code : ByteArray} {offset : Nat → Nat} {pc e byte : Nat} {items : List Item}
+    (h : Seg (bytesOf code) offset pc (.op byte :: items) e) :
+    ∃ _ : pc < code.size, code[pc] = UInt8.ofNat byte ∧
+      Seg (bytesOf code) offset (pc + 1) items e := by
+  obtain ⟨next, hd, hseg⟩ := h.head
+  obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+  exact ⟨hlt, hcode, hseg⟩
+
+/-- A data word on top of SolarTV's stack is the word on top of EthLib's. -/
+theorem sr_data1 {c : Cert} {ty : List Ty} {S T : List Word} (hR : SR c ty S T)
+    (hd : isData ty 1 = true) (hS : 1 ≤ S.length) :
+    ∃ x S' T', S = x :: S' ∧ T = x :: T' ∧ SR c ty.tail S' T' := by
+  have hL := hR.length
+  rcases S with _ | ⟨x, S'⟩ <;> rcases T with _ | ⟨y, T'⟩ <;> simp at hS hL
+  obtain rfl := (SR.head hR hd).symm
+  exact ⟨x, S', T', rfl, rfl, (SR.uncons.1 hR).2⟩
+
+/-- Two data words on top of SolarTV's stack are the words on top of EthLib's. -/
+theorem sr_data2 {c : Cert} {ty : List Ty} {S T : List Word} (hR : SR c ty S T)
+    (hd : isData ty 2 = true) (hS : 2 ≤ S.length) :
+    ∃ x y S' T', S = x :: y :: S' ∧ T = x :: y :: T' ∧ SR c (ty.drop 2) S' T' := by
+  have hL := hR.length
+  rcases S with _ | ⟨x, _ | ⟨y, S'⟩⟩ <;> rcases T with _ | ⟨x', _ | ⟨y', T'⟩⟩ <;> simp at hS hL
+  have htake := hR.data hd
+  simp only [List.take_succ_cons, List.take_zero, List.cons.injEq] at htake
+  obtain ⟨rfl, rfl, -⟩ := htake
+  exact ⟨x, y, S', T', rfl, rfl, by simpa using SR.drop 2 hR⟩
+
+/-- A stack with a known second word has at least two. -/
+theorem KR.two_le {j : Option Word} {o : Word} {known : Known} {S : List Word}
+    (h : KR (j :: some o :: known) S) : 2 ≤ S.length := by
+  obtain ⟨hl, -⟩ := List.getElem?_eq_some_iff.1 (h 1 o (by simp [kAt]))
+  omega
+
 /-- An oracle whose CALLER is the account `a` and whose hash is EthLib's: the oracle of a call from
 `a`. `OracleOk` is the case of `callerAddress` (`OracleOk.at`). -/
 def OracleOkAt (a : Nat) (o : SolarTV.Machine.Oracle) : Prop :=
@@ -356,21 +392,13 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
         decide_eq_true_eq] at hok
       obtain ⟨⟨⟨⟨hk3, h1⟩, hdat⟩, ⟨⟨⟨hen, hetgt⟩, hneed⟩, hety⟩, hcost⟩, ⟨hfall, hfty⟩, hcost'⟩ := hok
       simp only [lowerInstrs, hT, List.cons_append, List.nil_append] at I
-      rcases S with _ | ⟨cond, S'⟩
-      · simp at hh; omega
-      rcases T with _ | ⟨cond', T'⟩
-      · simp at hL
-      obtain rfl := (SR.head hR hdat).symm
-      have hR' := (SR.uncons.1 hR).2
-      simp only [List.length_cons] at hL
-      obtain ⟨n0, hd0, hs0⟩ := I.seg.head
+      obtain ⟨cond, S', T', rfl, rfl, hR'⟩ := sr_data1 hR hdat (by omega)
+      obtain ⟨hlt0, hcode0, hs0⟩ := op_seg I.seg
       obtain ⟨n1, hd1, hs1⟩ := hs0.head
-      obtain ⟨n2, hd2, hseg⟩ := hs1.head
-      simp only [Item.expected] at hd0 hd1 hd2
-      obtain ⟨hlt0, hcode0, rfl⟩ := op_item hd0
-      obtain ⟨hlt2, hcode2, rfl⟩ := op_item hd2
+      obtain ⟨hlt2, hcode2, hseg⟩ := op_seg hs1
+      simp only [Item.expected] at hd1
       have hS := I.stack; have hG := I.gas
-      simp only [List.length_cons] at hS hh hu
+      simp only [List.length_cons] at hS hh hu hL
       obtain ⟨g0, hg0, hisz⟩ := stack_ruleG (msg := msg) (M := M) (st := st) (ss := ss) (gas := g)
         (op := .iszero) (stack := cond :: T') (next := EvmRules.Evm.iszero cond :: T')
         (r := o.env "returndatasize" s.world []) rfl hlt0 hcode0 rfl (by omega)
@@ -431,8 +459,28 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
         simpa only [lowerInstrs, hT, hD', Bool.false_eq_true, ite_false, List.append_assoc] using I
       clear hok hD hD' hT
       have IH := exec_simL (mx := mx) (o := o) (ss0 := ss0) G hdata hvalue hstatic hself hcaller ho hbenv htx he b hb Rv rest
+      -- An effect that pushes one word on both stacks for 2 gas and keeps the rest.
+      have push2 : ∀ {e : SolarTV.Machine.Effect} {byte : Nat} {w : Word} {known' : Known},
+          SolarTV.Machine.Effect.apply o call e [] s = some (some w, s) → KR known' (w :: S) →
+          InvL c code call (.op byte :: (lowerInstrs p c b rest ++
+            lowerFrom p c (b + 1) (p.blocks.drop (b + 1)))) k Rv pc S s M g → 1 ≤ k →
+          blockOkL p c mx b (h + 1) known' (some false :: ty) (k - 1) rest = true →
+          (∀ hlt : pc < code.size, code[pc] = UInt8.ofNat byte → 2 ≤ g → T.length < STACK_LIMIT →
+            HoareG .fusaka (At code msg pc T M g st ss .empty)
+              (At code msg (pc + 1) (w :: T) M (g - 2) st ss .empty)) →
+          SimOutL p c mx code call msg ss0 st ss b Rv pc T M g
+            (exec o call b (.effect e 0 :: rest) S s) := by
+        intro e byte w known' happ hkn I' hk1 hok hrule
+        obtain ⟨hlt, hcode, hseg⟩ := op_seg I'.seg
+        have hS := I'.stack; have hG := I'.gas
+        rw [exec_effect0 happ (by omega)]
+        exact SimOutL.pre (hrule hlt hcode (by omega) (by unfold STACK_LIMIT; omega))
+          (IH (h + 1) known' _ _ _ (k - 1) s (pc + 1) M (g - 2) st ss hok (by simp; omega)
+            (by hu_tac) hkn (SR.cons (τ := some false) rfl hR) (I'.next hk1 hseg (by simp) (by omega)) R)
       rcases i with mop | ⟨e, ar⟩ | t | t | t | _ | _ | _ | _ | _ | _ | _
-      · rcases mop with sop | _ | _ | _ | _ | _ | _
+      -- The check refuses the instructions outside the fragment.
+      all_goals try (simp [blockStepL] at hok'; done)
+      · rcases mop with sop | _ | _ | _ | _ | _ | _ <;> try (simp [blockStepL] at hok'; done)
         · by_cases hpush : ∃ v, sop = .push v
           · obtain ⟨v, rfl⟩ := hpush
             simp only [blockStepL, Bool.and_eq_true, decide_eq_true_eq] at hok'
@@ -454,9 +502,7 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
               hok⟩ := stack_simL (ctx := context o call s) hne hok' hh hk hR
             rw [lowerInstr_stack hne, hbyte] at I'
             simp only [Option.getD_some, List.singleton_append] at I'
-            obtain ⟨next, hd, hseg⟩ := I'.seg.head
-            simp only [Item.expected] at hd
-            obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+            obtain ⟨hlt, hcode, hseg⟩ := op_seg I'.seg
             rw [← hctx] at hstepT
             have hS := I'.stack; have hG := I'.gas
             obtain ⟨g1, hg1, hrule⟩ := stack_ruleG (M := M) (st := st) (ss := ss) (gas := g)
@@ -465,23 +511,13 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
             exact SimOutL.pre hrule (IH h' known' ty' S' T' (k - 1) s (pc + 1) M g1 st ss hok (by omega) (by hu_tac)
               hkn hR' (I'.next hk1 hseg (by omega) (by omega)) R)
         · -- MLOAD.
-          obtain _ | ⟨o, known'⟩ := known
-          · simp [blockStepL] at hok'
-          obtain _ | ow := o
-          · simp [blockStepL] at hok'
+          rcases known with _ | ⟨_ | ow, known'⟩ <;> try (simp [blockStepL] at hok'; done)
           simp only [blockStepL, Bool.and_eq_true, decide_eq_true_eq] at hok'
           obtain ⟨⟨⟨⟨hk1, h1⟩, hin⟩, hdat⟩, hok'⟩ := hok'
-          rcases S with _ | ⟨x, S'⟩
-          · simp at hh; omega
-          rcases T with _ | ⟨x', T'⟩
-          · simp at hL
-          obtain rfl := (SR.head hR hdat).symm
-          have hR' := (SR.uncons.1 hR).2
+          obtain ⟨x, S', T', rfl, rfl, hR'⟩ := sr_data1 hR hdat (by omega)
           obtain ⟨rfl, -⟩ := KR.head hk
           simp only [lowerInstr, List.singleton_append] at I'
-          obtain ⟨next, hd, hseg⟩ := I'.seg.head
-          simp only [Item.expected] at hd
-          obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+          obtain ⟨hlt, hcode, hseg⟩ := op_seg I'.seg
           have hS := I'.stack; have hG := I'.gas
           simp only [List.length_cons] at hS hG hh hL hu
           have hmod : M.size % 32 = 0 := by rw [I'.mem.1]; omega
@@ -500,27 +536,13 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
             ⟨R.storage, R.account, R.logs⟩)
           rw [hM']; omega
         · -- MSTORE.
-          obtain _ | ⟨o, known'⟩ := known
-          · simp [blockStepL] at hok'
-          obtain _ | ow := o
-          · simp [blockStepL] at hok'
+          rcases known with _ | ⟨_ | ow, known'⟩ <;> try (simp [blockStepL] at hok'; done)
           simp only [blockStepL, Bool.and_eq_true, decide_eq_true_eq] at hok'
           obtain ⟨⟨⟨⟨hk1, h2⟩, hin⟩, hdat⟩, hok'⟩ := hok'
-          rcases S with _ | ⟨x, _ | ⟨v, S'⟩⟩
-          · simp at hh; omega
-          · simp at hh; omega
-          rcases T with _ | ⟨x', _ | ⟨v', T'⟩⟩
-          · simp at hL
-          · simp at hL
-          have htake := hR.data hdat
-          simp only [List.take_succ_cons, List.take_zero, List.cons.injEq] at htake
-          obtain ⟨rfl, rfl, -⟩ := htake
-          have hR' : SR c (ty.drop 2) S' T' := by simpa using SR.drop 2 hR
+          obtain ⟨x, v, S', T', rfl, rfl, hR'⟩ := sr_data2 hR hdat (by omega)
           obtain ⟨rfl, -⟩ := KR.head hk
           simp only [lowerInstr, List.singleton_append] at I'
-          obtain ⟨next, hd, hseg⟩ := I'.seg.head
-          simp only [Item.expected] at hd
-          obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+          obtain ⟨hlt, hcode, hseg⟩ := op_seg I'.seg
           have hS := I'.stack; have hG := I'.gas
           simp only [List.length_cons] at hS hG hh hL hu
           have hmod : M.size % 32 = 0 := by rw [I'.mem.1]; omega
@@ -532,38 +554,22 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
           rw [size_memoryExtend] at hext
           have h32 : (32 : U256).toNat = 32 := rfl
           rw [h32] at hext
-          have hM' : (memoryWrite (memoryExtend M (extendMemory M.size [(ow, 32)]).expandBy)
-              ow.toNat (wordBytes v)).size = M.size + (extendMemory M.size [(ow, 32)]).expandBy := by
-            rw [hsize, hext]
+          have hM' := hsize.trans hext.symm
           rw [exec_store (by omega)]
           refine SimOutL.pre (Logic.mstoreG (start := ow) (value := v) (rest := T') (memory := M)
             (gas := g) hlt hcode (by omega)) (IH (h - 2) _ _ S' T' (k - 1) _ (pc + 1) _ _ st ss hok'
             (by omega) (by hu_tac) (hk.drop 2) hR' ⟨hseg, by omega, ?_, by rw [hM']; omega, hmem'⟩
             ⟨R.storage, R.account, R.logs⟩)
           rw [hM']; omega
-        · simp [blockStepL] at hok'
-        · simp [blockStepL] at hok'
-        · simp [blockStepL] at hok'
-        · simp [blockStepL] at hok'
       · rcases e with _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | n | _ | name | _
         all_goals try (simp [blockStepL] at hok'; done)
         · -- SLOAD.
-          rcases ar with _ | _ | ar
-          · simp [blockStepL] at hok'
-          rotate_left
-          · simp [blockStepL] at hok'
+          rcases ar with _ | _ | ar <;> try (simp [blockStepL] at hok'; done)
           simp only [blockStepL, Bool.and_eq_true, decide_eq_true_eq] at hok'
           obtain ⟨⟨⟨hk1, h1⟩, hdat⟩, hok⟩ := hok'
-          rcases S with _ | ⟨x, S'⟩
-          · simp at hh; omega
-          rcases T with _ | ⟨x', T'⟩
-          · simp at hL
-          obtain rfl := (SR.head hR hdat).symm
-          have hR' := (SR.uncons.1 hR).2
+          obtain ⟨x, S', T', rfl, rfl, hR'⟩ := sr_data1 hR hdat (by omega)
           simp only [lowerInstr, List.singleton_append] at I'
-          obtain ⟨next, hd, hseg⟩ := I'.seg.head
-          simp only [Item.expected] at hd
-          obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+          obtain ⟨hlt, hcode, hseg⟩ := op_seg I'.seg
           have hS := I'.stack; have hG := I'.gas
           simp only [List.length_cons] at hS hG hh hL hu
           rw [exec_effect1 (w := s.storage x) rfl (by omega)]
@@ -582,27 +588,12 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
           · rw [(hreads x).1]
             exact R.account
         · -- SSTORE.
-          rcases ar with _ | _ | _ | ar
-          · simp [blockStepL] at hok'
-          · simp [blockStepL] at hok'
-          rotate_left
-          · simp [blockStepL] at hok'
+          rcases ar with _ | _ | _ | ar <;> try (simp [blockStepL] at hok'; done)
           simp only [blockStepL, Bool.and_eq_true, decide_eq_true_eq] at hok'
           obtain ⟨⟨⟨hk1, h2⟩, hdat⟩, hok⟩ := hok'
-          rcases S with _ | ⟨x, _ | ⟨v, S'⟩⟩
-          · simp at hh; omega
-          · simp at hh; omega
-          rcases T with _ | ⟨x', _ | ⟨v', T'⟩⟩
-          · simp at hL
-          · simp at hL
-          have htake := hR.data hdat
-          simp only [List.take_succ_cons, List.take_zero, List.cons.injEq] at htake
-          obtain ⟨rfl, rfl, -⟩ := htake
-          have hR' : SR c (ty.drop 2) S' T' := by simpa using SR.drop 2 hR
+          obtain ⟨x, v, S', T', rfl, rfl, hR'⟩ := sr_data2 hR hdat (by omega)
           simp only [lowerInstr, List.singleton_append] at I'
-          obtain ⟨next, hd, hseg⟩ := I'.seg.head
-          simp only [Item.expected] at hd
-          obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+          obtain ⟨hlt, hcode, hseg⟩ := op_seg I'.seg
           have hS := I'.stack; have hG := I'.gas
           simp only [List.length_cons] at hS hG hh hL hu
           rw [exec_effect2 (s' := { s with storage := SolarTV.Machine.update s.storage x v }) rfl
@@ -625,22 +616,12 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
           · rw [hothers _ _ (Or.inr fun he => hk (U256.toBeBytes_inj he)), R.storage k]
             simp [SolarTV.Machine.update, hk]
         · -- CALLDATALOAD.
-          rcases ar with _ | _ | ar
-          · simp [blockStepL] at hok'
-          rotate_left
-          · simp [blockStepL] at hok'
+          rcases ar with _ | _ | ar <;> try (simp [blockStepL] at hok'; done)
           simp only [blockStepL, Bool.and_eq_true, decide_eq_true_eq] at hok'
           obtain ⟨⟨⟨hk1, h1⟩, hdat⟩, hok⟩ := hok'
-          rcases S with _ | ⟨x, S'⟩
-          · simp at hh; omega
-          rcases T with _ | ⟨x', T'⟩
-          · simp at hL
-          obtain rfl := (SR.head hR hdat).symm
-          have hR' := (SR.uncons.1 hR).2
+          obtain ⟨x, S', T', rfl, rfl, hR'⟩ := sr_data1 hR hdat (by omega)
           simp only [lowerInstr, List.singleton_append] at I'
-          obtain ⟨next, hd, hseg⟩ := I'.seg.head
-          simp only [Item.expected] at hd
-          obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+          obtain ⟨hlt, hcode, hseg⟩ := op_seg I'.seg
           have hS := I'.stack; have hG := I'.gas
           simp only [List.length_cons] at hS hG hh hL hu
           rw [exec_effect1 (w := SolarTV.Machine.calldataWord call x) rfl (by omega)]
@@ -651,87 +632,30 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
           exact SimOutL.pre hrule (IH h _ _ _ _ (k - 1) s (pc + 1) M (g - 3) st ss hok (by simp; omega) (by hu_tac)
             ((hk.drop 1).cons_none _) (SR.cons (τ := some false) rfl (by simpa using hR')) (I'.next hk1 hseg (by simp) (by omega)) R)
         · -- CALLDATASIZE.
-          rcases ar with _ | ar
-          rotate_left
-          · simp [blockStepL] at hok'
+          rcases ar with _ | ar <;> try (simp [blockStepL] at hok'; done)
           simp only [blockStepL, Bool.and_eq_true, decide_eq_true_eq] at hok'
-          obtain ⟨hk1, hok⟩ := hok'
-          simp only [lowerInstr, List.singleton_append] at I'
-          obtain ⟨next, hd, hseg⟩ := I'.seg.head
-          simp only [Item.expected] at hd
-          obtain ⟨hlt, hcode, rfl⟩ := op_item hd
-          have hS := I'.stack; have hG := I'.gas
-          rw [exec_effect0 (w := BitVec.ofNat 256 call.calldata.size) rfl (by omega)]
-          have hrule := Logic.calldatasizeG (message := msg) (memory := M) (state := st)
-            (substate := ss) (returnData := .empty) (stack := T) (gas := g) hlt hcode (by omega)
-            (by unfold STACK_LIMIT; omega)
-          rw [hdata] at hrule
-          exact SimOutL.pre hrule (IH (h + 1) [] _ _ _ (k - 1) s (pc + 1) M (g - 2) st ss hok
-            (by simp; omega) (by hu_tac) (KR.nil _) (SR.cons (τ := some false) rfl hR) (I'.next hk1 hseg (by simp) (by omega)) R)
+          exact push2 (w := BitVec.ofNat 256 call.calldata.size) rfl (KR.nil _) I' hok'.1 hok'.2
+            fun hlt hcode hg hs => by rw [← hdata]; exact Logic.calldatasizeG hlt hcode hg hs
         · -- CALLVALUE.
-          rcases ar with _ | ar
-          rotate_left
-          · simp [blockStepL] at hok'
+          rcases ar with _ | ar <;> try (simp [blockStepL] at hok'; done)
           simp only [blockStepL, Bool.and_eq_true, decide_eq_true_eq] at hok'
-          obtain ⟨hk1, hok⟩ := hok'
-          simp only [lowerInstr, List.singleton_append] at I'
-          obtain ⟨next, hd, hseg⟩ := I'.seg.head
-          simp only [Item.expected] at hd
-          obtain ⟨hlt, hcode, rfl⟩ := op_item hd
-          have hS := I'.stack; have hG := I'.gas
-          rw [exec_effect0 (w := BitVec.ofNat 256 call.callvalue) rfl (by omega)]
-          have hrule := Logic.callvalueG (message := msg) (memory := M) (state := st)
-            (substate := ss) (returnData := .empty) (stack := T) (gas := g) hlt hcode (by omega)
-            (by unfold STACK_LIMIT; omega)
-          rw [hvalue] at hrule
-          exact SimOutL.pre hrule (IH (h + 1) [] _ _ _ (k - 1) s (pc + 1) M (g - 2) st ss hok
-            (by simp; omega) (by hu_tac) (KR.nil _) (SR.cons (τ := some false) rfl hR) (I'.next hk1 hseg (by simp) (by omega)) R)
+          exact push2 (w := BitVec.ofNat 256 call.callvalue) rfl (KR.nil _) I' hok'.1 hok'.2
+            fun hlt hcode hg hs => by rw [← hvalue]; exact Logic.callvalueG hlt hcode hg hs
         · -- CALLER.
-          rcases ar with _ | ar
-          rotate_left
-          · simp [blockStepL] at hok'
+          rcases ar with _ | ar <;> try (simp [blockStepL] at hok'; done)
           simp only [blockStepL, Bool.and_eq_true, decide_eq_true_eq] at hok'
           obtain ⟨⟨henv, hk1⟩, hok⟩ := hok'
-          obtain ⟨hoc, -⟩ := ho henv
-          simp only [lowerInstr, List.singleton_append] at I'
-          obtain ⟨next, hd, hseg⟩ := I'.seg.head
-          simp only [Item.expected] at hd
-          obtain ⟨hlt, hcode, rfl⟩ := op_item hd
-          have hS := I'.stack; have hG := I'.gas
-          rw [exec_effect0 (w := o.caller.setWidth 256) rfl (by omega)]
-          have hrule := Logic.callerG (message := msg) (memory := M) (state := st)
-            (substate := ss) (returnData := .empty) (stack := T) (gas := g) hlt hcode (by omega)
-            (by unfold STACK_LIMIT; omega)
-          rw [hcaller, ← hoc] at hrule
-          exact SimOutL.pre hrule (IH (h + 1) _ _ _ _ (k - 1) s (pc + 1) M (g - 2) st ss hok
-            (by simp; omega) (by hu_tac) (hk.cons_none _) (SR.cons (τ := some false) rfl hR) (I'.next hk1 hseg (by simp) (by omega)) R)
+          exact push2 (w := o.caller.setWidth 256) rfl (hk.cons_none _) I' hk1 hok
+            fun hlt hcode hg hs => by
+              rw [(ho henv).1, ← hcaller]; exact Logic.callerG hlt hcode hg hs
         · -- ADDRESS.
-          rcases ar with _ | ar
-          rotate_left
-          · simp [blockStepL] at hok'
+          rcases ar with _ | ar <;> try (simp [blockStepL] at hok'; done)
           simp only [blockStepL, Bool.and_eq_true, decide_eq_true_eq] at hok'
-          obtain ⟨hk1, hok⟩ := hok'
-          simp only [lowerInstr, List.singleton_append] at I'
-          obtain ⟨next, hd, hseg⟩ := I'.seg.head
-          simp only [Item.expected] at hd
-          obtain ⟨hlt, hcode, rfl⟩ := op_item hd
-          have hS := I'.stack; have hG := I'.gas
-          rw [exec_effect0 (w := BitVec.ofNat 256 SolarTV.environment.callee) rfl (by omega)]
-          have hrule := Logic.addressG (message := msg) (memory := M) (state := st)
-            (substate := ss) (returnData := .empty) (stack := T) (gas := g) hlt hcode (by omega)
-            (by unfold STACK_LIMIT; omega)
-          rw [hself, address_word] at hrule
-          exact SimOutL.pre hrule (IH (h + 1) [] _ _ _ (k - 1) s (pc + 1) M (g - 2) st ss hok
-            (by simp; omega) (by hu_tac) (KR.nil _) (SR.cons (τ := some false) rfl hR) (I'.next hk1 hseg (by simp) (by omega)) R)
+          exact push2 (w := BitVec.ofNat 256 SolarTV.environment.callee) rfl (KR.nil _) I' hok'.1
+            hok'.2 fun hlt hcode hg hs => by
+              rw [← address_word, ← hself]; exact Logic.addressG hlt hcode hg hs
         · -- LOGn.
-          obtain _ | ⟨o, known'⟩ := known
-          · simp [blockStepL] at hok'
-          obtain _ | ow := o
-          · simp [blockStepL] at hok'
-          obtain _ | ⟨o2, known'⟩ := known'
-          · simp [blockStepL] at hok'
-          obtain _ | sw := o2
-          · simp [blockStepL] at hok'
+          rcases known with _ | ⟨_ | ow, _ | ⟨_ | sw, known'⟩⟩ <;> try (simp [blockStepL] at hok'; done)
           simp only [blockStepL, rangeOk, Bool.and_eq_true, Bool.or_eq_true, decide_eq_true_eq] at hok'
           obtain ⟨⟨⟨⟨⟨⟨⟨hn4, rfl⟩, hk1⟩, hnh⟩, hdat⟩, hin⟩, hlc⟩, hok⟩ := hok'
           rcases S with _ | ⟨x, _ | ⟨y, S1⟩⟩
@@ -755,9 +679,7 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
           have hR' : SR c (ty.drop (tops.length + 2)) S2 T2 := by
             simpa using SR.drop (tops.length + 2) hR
           simp only [lowerInstr, hn4, ite_true, List.singleton_append] at I'
-          obtain ⟨next, hd, hseg⟩ := I'.seg.head
-          simp only [Item.expected] at hd
-          obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+          obtain ⟨hlt, hcode, hseg⟩ := op_seg I'.seg
           have hS := I'.stack; have hG := I'.gas
           simp only [List.length_cons, List.length_append] at hS hG hh hL hu
           have hmod : M.size % 32 = 0 := by rw [I'.mem.1]; omega
@@ -784,37 +706,15 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
               filter_snoc_log ▸ forall₂_snoc hL2 ⟨rfl, rfl, ?_⟩⟩
             exact read_eq I'.mem
         · -- KECCAK256.
-          rcases ar with _ | _ | _ | ar
-          · simp [blockStepL] at hok'
-          · simp [blockStepL] at hok'
-          rotate_left
-          · simp [blockStepL] at hok'
-          obtain _ | ⟨o, known'⟩ := known
-          · simp [blockStepL] at hok'
-          obtain _ | ow := o
-          · simp [blockStepL] at hok'
-          obtain _ | ⟨o2, known'⟩ := known'
-          · simp [blockStepL] at hok'
-          obtain _ | sw := o2
-          · simp [blockStepL] at hok'
+          rcases ar with _ | _ | _ | ar <;> try (simp [blockStepL] at hok'; done)
+          rcases known with _ | ⟨_ | ow, _ | ⟨_ | sw, known'⟩⟩ <;> try (simp [blockStepL] at hok'; done)
           simp only [blockStepL, rangeOk, Bool.and_eq_true, Bool.or_eq_true, decide_eq_true_eq] at hok'
           obtain ⟨⟨⟨⟨⟨⟨henv, hk1⟩, h2⟩, hdat⟩, hin⟩, hkc⟩, hok⟩ := hok'
-          rcases S with _ | ⟨x, _ | ⟨y, S'⟩⟩
-          · exact hk.not_nil.elim
-          · exact hk.not_one.elim
+          obtain ⟨x, y, S', T', rfl, rfl, hR'⟩ := sr_data2 hR hdat hk.two_le
           obtain ⟨rfl, hk'⟩ := KR.head hk
           obtain ⟨rfl, -⟩ := KR.head hk'
-          rcases T with _ | ⟨x', _ | ⟨y', T'⟩⟩
-          · simp at hL
-          · simp at hL
-          have htake := hR.data hdat
-          simp only [List.take_succ_cons, List.take_zero, List.cons.injEq] at htake
-          obtain ⟨rfl, rfl, -⟩ := htake
-          have hR' : SR c (ty.drop 2) S' T' := by simpa using SR.drop 2 hR
           simp only [lowerInstr, List.singleton_append] at I'
-          obtain ⟨next, hd, hseg⟩ := I'.seg.head
-          simp only [Item.expected] at hd
-          obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+          obtain ⟨hlt, hcode, hseg⟩ := op_seg I'.seg
           have hS := I'.stack; have hG := I'.gas
           simp only [List.length_cons] at hS hG hh hL hu
           have hmod : M.size % 32 = 0 := by rw [I'.mem.1]; omega
@@ -835,32 +735,22 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
             by rw [hM']; omega, memRel_expand I'.mem hbound⟩ ⟨R.storage, R.account, R.logs⟩)
           rw [hM']; omega
         · -- An environment read of the block or the transaction.
-          rcases ar with _ | ar
-          rotate_left
-          · simp [blockStepL] at hok'
+          rcases ar with _ | ar <;> try (simp [blockStepL] at hok'; done)
           simp only [blockStepL, Bool.and_eq_true, decide_eq_true_eq] at hok'
           obtain ⟨⟨⟨hreads, hsome⟩, hk1⟩, hok⟩ := hok'
           obtain ⟨⟨byte, w⟩, hread⟩ := Option.isSome_iff_exists.1 hsome
           simp only [lowerInstr, hread, Option.map_some, Option.getD_some,
             List.singleton_append] at I'
-          obtain ⟨next, hd, hseg⟩ := I'.seg.head
-          simp only [Item.expected] at hd
-          obtain ⟨hlt, hcode, rfl⟩ := op_item hd
-          have hS := I'.stack; have hG := I'.gas
-          rw [exec_effect0 (w := BitVec.ofNat 256 w)
-            (by simp [SolarTV.Machine.Effect.apply, he hreads name byte w hread]) (by omega)]
-          have hrule := env_readG (msg := msg) (M := M) (st := st) (ss := ss) (rd := .empty) (gas := g)
-            (stack := T) hread hlt hcode hbenv (htx hreads) (by omega) (by unfold STACK_LIMIT; omega)
-          exact SimOutL.pre hrule (IH (h + 1) [] _ _ _ (k - 1) s (pc + 1) M (g - 2) st ss hok
-            (by simp; omega) (by hu_tac) (KR.nil _) (SR.cons (τ := some false) rfl hR) (I'.next hk1 hseg (by simp) (by omega)) R)
+          exact push2 (w := BitVec.ofNat 256 w)
+            (by simp [SolarTV.Machine.Effect.apply, he hreads name byte w hread]) (KR.nil _) I' hk1 hok
+            fun hlt hcode hg hs => env_readG hread hlt hcode hbenv (htx hreads) hg hs
       · -- JUMP.
         simp only [blockStepL, jumpOkL, Bool.and_eq_true, decide_eq_true_eq] at hok'
         obtain ⟨hk2, ⟨⟨⟨⟨htn, htgt⟩, hneed⟩, hty⟩, hcost⟩⟩ := hok'
         simp only [lowerInstr, List.cons_append, List.nil_append] at I'
         obtain ⟨n1, hd1, hs1⟩ := I'.seg.head
-        obtain ⟨n2, hd2, -⟩ := hs1.head
-        simp only [Item.expected] at hd1 hd2
-        obtain ⟨hlt2, hcode2, rfl⟩ := op_item hd2
+        obtain ⟨hlt2, hcode2, -⟩ := op_seg hs1
+        simp only [Item.expected] at hd1
         have hS := I'.stack; have hG := I'.gas
         have hoff := toNat_offset (G.target t htn htgt).2.1 G.size_lt
         obtain ⟨g1, hg1, hpush⟩ := push_itemG (msg := msg) (M := M) (st := st) (ss := ss) (gas := g)
@@ -876,17 +766,11 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
       · -- JUMPI.
         simp only [blockStepL, jumpOkL, Bool.and_eq_true, decide_eq_true_eq] at hok'
         obtain ⟨⟨⟨⟨hk2, h1⟩, hdat⟩, ⟨⟨⟨⟨htn, htgt⟩, hneed⟩, hty⟩, hcost⟩⟩, hok'⟩ := hok'
-        rcases S with _ | ⟨cond, S'⟩
-        · simp at hh; omega
-        rcases T with _ | ⟨cond', T'⟩
-        · simp at hL
-        obtain rfl := (SR.head hR hdat).symm
-        have hR' := (SR.uncons.1 hR).2
+        obtain ⟨cond, S', T', rfl, rfl, hR'⟩ := sr_data1 hR hdat (by omega)
         simp only [lowerInstr, List.cons_append, List.nil_append] at I'
         obtain ⟨n1, hd1, hs1⟩ := I'.seg.head
-        obtain ⟨n2, hd2, hseg⟩ := hs1.head
-        simp only [Item.expected] at hd1 hd2
-        obtain ⟨hlt2, hcode2, rfl⟩ := op_item hd2
+        obtain ⟨hlt2, hcode2, hseg⟩ := op_seg hs1
+        simp only [Item.expected] at hd1
         have hS := I'.stack; have hG := I'.gas
         simp only [List.length_cons] at hS hh hL hu
         have hoff := toNat_offset (G.target t htn htgt).2.1 G.size_lt
@@ -943,9 +827,7 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
         simp only [jumpOkL, Bool.and_eq_true, decide_eq_true_eq] at hj'
         obtain ⟨⟨⟨⟨htn, htgt⟩, hneed⟩, hty⟩, hcost⟩ := hj'
         simp only [lowerInstr, List.singleton_append] at I'
-        obtain ⟨next, hd, -⟩ := I'.seg.head
-        simp only [Item.expected] at hd
-        obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+        obtain ⟨hlt, hcode, -⟩ := op_seg I'.seg
         have hS := I'.stack; have hG := I'.gas
         simp only [List.length_cons] at hS hh hL hu
         have hoff := toNat_offset (G.target _ htn htgt).2.1 G.size_lt
@@ -956,86 +838,32 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
         simp only [exec, SimOutL]
         exact ⟨⟨by omega, fun _ => ⟨by omega, by omega⟩, Or.inr htgt⟩, c.offset x.toNat, T', M, g - 8, st,
           ss, hj, SR.le hty hR', I'.target G htn htgt (m := 1) (by omega) (by omega), R⟩
-      · -- A conditional dynamic jump and a jump table: outside the fragment.
-        simp [blockStepL] at hok'
-      · simp [blockStepL] at hok'
       · -- STOP.
         simp only [lowerInstr, List.singleton_append] at I'
-        obtain ⟨next, hd, -⟩ := I'.seg.head
-        simp only [Item.expected] at hd
-        obtain ⟨hlt, hcode, -⟩ := op_item hd
+        obtain ⟨hlt, hcode, -⟩ := op_seg I'.seg
         simp only [exec, SimOutL]
         exact SpecG.consequence (Logic.stopG hlt hcode) (fun _ h => h)
           fun evm h => postL_stop R hself evm h
-      · -- RETURN.
-        obtain _ | ⟨o, known'⟩ := known
-        · simp [blockStepL] at hok'
-        obtain _ | ow := o
-        · simp [blockStepL] at hok'
-        obtain _ | ⟨o2, known'⟩ := known'
-        · simp [blockStepL] at hok'
-        obtain _ | sw := o2
-        · simp [blockStepL] at hok'
+      -- RETURN and REVERT: two known data words, a range within the certificate's bound.
+      all_goals
+        rcases known with _ | ⟨_ | ow, _ | ⟨_ | sw, known'⟩⟩ <;> try (simp [blockStepL] at hok'; done)
         simp only [blockStepL, rangeOk, Bool.and_eq_true, Bool.or_eq_true, decide_eq_true_eq] at hok'
         obtain ⟨hdat, hin⟩ := hok'
-        rcases S with _ | ⟨x, _ | ⟨y, S'⟩⟩
-        · exact hk.not_nil.elim
-        · exact hk.not_one.elim
+        obtain ⟨x, y, S', T', rfl, rfl, -⟩ := sr_data2 hR hdat hk.two_le
         obtain ⟨rfl, hk'⟩ := KR.head hk
         obtain ⟨rfl, -⟩ := KR.head hk'
-        rcases T with _ | ⟨x', _ | ⟨y', T'⟩⟩
-        · simp at hL
-        · simp at hL
-        have htake := hR.data hdat
-        simp only [List.take_succ_cons, List.take_zero, List.cons.injEq] at htake
-        obtain ⟨rfl, rfl, -⟩ := htake
         simp only [lowerInstr, List.singleton_append] at I'
-        obtain ⟨next, hd, -⟩ := I'.seg.head
-        simp only [Item.expected] at hd
-        obtain ⟨hlt, hcode, -⟩ := op_item hd
+        obtain ⟨hlt, hcode, -⟩ := op_seg I'.seg
         have hG := I'.gas
         have hmod : M.size % 32 = 0 := by rw [I'.mem.1]; omega
         obtain ⟨-, hcost⟩ := extend_cost (o := ow) (sz := sw) hmod G.top_mod I'.le_top
           (hin.imp_left fun h0 => BitVec.eq_of_toNat_eq (by simpa using h0))
-        simp only [exec, SolarTV.EVM.Program.output, SimOutL, Bool.false_eq_true, ↓reduceIte]
+      · simp only [exec, SolarTV.EVM.Program.output, SimOutL, Bool.false_eq_true, ↓reduceIte]
         exact SpecG.consequence (return_postSG (ss := ss) hlt hcode (by omega) rfl
           (by rw [read_eq I'.mem]; rfl) rfl (R.slot hself)) (fun _ h => h)
           (fun _ h => ⟨ss, h, R.logs⟩)
-      · -- REVERT.
-        obtain _ | ⟨o, known'⟩ := known
-        · simp [blockStepL] at hok'
-        obtain _ | ow := o
-        · simp [blockStepL] at hok'
-        obtain _ | ⟨o2, known'⟩ := known'
-        · simp [blockStepL] at hok'
-        obtain _ | sw := o2
-        · simp [blockStepL] at hok'
-        simp only [blockStepL, rangeOk, Bool.and_eq_true, Bool.or_eq_true, decide_eq_true_eq] at hok'
-        obtain ⟨hdat, hin⟩ := hok'
-        rcases S with _ | ⟨x, _ | ⟨y, S'⟩⟩
-        · exact hk.not_nil.elim
-        · exact hk.not_one.elim
-        obtain ⟨rfl, hk'⟩ := KR.head hk
-        obtain ⟨rfl, -⟩ := KR.head hk'
-        rcases T with _ | ⟨x', _ | ⟨y', T'⟩⟩
-        · simp at hL
-        · simp at hL
-        have htake := hR.data hdat
-        simp only [List.take_succ_cons, List.take_zero, List.cons.injEq] at htake
-        obtain ⟨rfl, rfl, -⟩ := htake
-        simp only [lowerInstr, List.singleton_append] at I'
-        obtain ⟨next, hd, -⟩ := I'.seg.head
-        simp only [Item.expected] at hd
-        obtain ⟨hlt, hcode, -⟩ := op_item hd
-        have hG := I'.gas
-        have hmod : M.size % 32 = 0 := by rw [I'.mem.1]; omega
-        obtain ⟨-, hcost⟩ := extend_cost (o := ow) (sz := sw) hmod G.top_mod I'.le_top
-          (hin.imp_left fun h0 => BitVec.eq_of_toNat_eq (by simpa using h0))
-        simp only [exec, SolarTV.EVM.Program.output, SimOutL, ↓reduceIte]
+      · simp only [exec, SolarTV.EVM.Program.output, SimOutL, ↓reduceIte]
         exact SpecG.consequence (revert_postSG (ss := ss) (by decide) hlt hcode (by omega) rfl
           (by rw [read_eq I'.mem]; rfl) rfl) (fun _ h => h) (fun _ h => ⟨ss, h, R.logs⟩)
-      · simp [blockStepL] at hok'
-
-
 
 end SolidCore.Refinement.Solar.AssembleLoop

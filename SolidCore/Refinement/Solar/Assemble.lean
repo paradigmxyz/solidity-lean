@@ -438,21 +438,15 @@ theorem decode_push {code : List Nat} {pc next v : Nat}
   unfold decode at h
   split at h
   · cases h
-  · rename_i b hb
-    refine ⟨b, hb, ?_⟩
-    by_cases h0 : b = PUSH0
-    · rw [if_pos h0] at h
-      simp only [Option.some.injEq, Prod.mk.injEq, Instr.push.injEq] at h
-      exact .inl ⟨h0, h.1.symm, h.2.symm⟩
-    · by_cases h1 : PUSH1 ≤ b ∧ b ≤ PUSH32
-      · rw [if_neg h0, if_pos h1] at h
-        split at h
-        · simp only [Option.some.injEq, Prod.mk.injEq, Instr.push.injEq] at h
-          exact .inr ⟨h1.1, h1.2, h.2.symm, by omega, h.1.symm⟩
-        · cases h
-      · rw [if_neg h0, if_neg h1] at h
-        repeat' split at h
-        all_goals simp at h
+  rename_i b hb
+  refine ⟨b, hb, ?_⟩
+  -- Every branch but PUSH0's and PUSHn's decodes to no push.
+  repeat' split at h
+  all_goals try (simp at h; done)
+  all_goals simp only [Option.some.injEq, Prod.mk.injEq, Instr.push.injEq] at h
+  · exact .inl ⟨‹b = PUSH0›, h.1.symm, h.2.symm⟩
+  · exact .inr ⟨‹PUSH1 ≤ b ∧ b ≤ PUSH32›.1, ‹PUSH1 ≤ b ∧ b ≤ PUSH32›.2, h.2.symm, by omega,
+      h.1.symm⟩
 
 theorem decode_pushByte : ∀ b : Fin 32,
     Op.decode (UInt8.ofNat (0x60 + b.val)) = some (.push ⟨b.val + 1, by omega⟩) := by
@@ -584,14 +578,8 @@ theorem memRel_store {m : Mem} {M : ByteArray} {o v : Word} (hm : MemRel m M)
     unfold Mem.store Mem.expand SolarTV.Memory.grow
     simp only [show (32 = 0) = False from by decide, ite_false]
     have hlt : (o.toNat + 32 + 31) / 32 < 2 ^ 251 := by omega
-    split
-    · rename_i h
-      rw [BitVec.ult_iff_toNat_lt, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hlt] at h
-      rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hlt]
-      omega
-    · rename_i h
-      rw [BitVec.ult_iff_toNat_lt, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hlt] at h
-      omega
+    split <;> rename_i h <;>
+      simp only [BitVec.ult_iff_toNat_lt, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hlt] at h ⊢ <;> omega
   · rw [byteAt_memoryWrite hfit, byteAt_memoryExtend, size_wordBytes]
     have hb : (m.store o.toNat v).bytes i =
         if o.toNat ≤ i ∧ i < o.toNat + 32 then SolarTV.Memory.byte v (i - o.toNat) else m.bytes i := by
