@@ -64,7 +64,7 @@ variable {σ : Type} (blk : Oracle → σ → Option ((Halt × Machine.State) �
   (O : Tabs → Oracle)
 
 /-- **One block of the simulation, read back from a run that succeeds**, as
-`AssembleCall.AdvancesS` under every runner of messages meeting `P`, for the runs to a frame `fin`
+`AssembleCallSeg.AdvancesQ` under every runner of messages meeting `P`, for the runs to a frame `fin`
 that meet the hypothesis `Q`. -/
 def AdvancesF (P : (bound : Nat) → MessageRunner .fusaka Nat bound → Evm .fusaka Nat → Message .fusaka → Evm .fusaka Nat → Prop)
     (Q : (bound : Nat) → MessageRunner .fusaka Nat bound → Evm .fusaka Nat → Prop)
