@@ -97,8 +97,7 @@ theorem LabOk.drop {L : List Lab} {S : List Word} (h : LabOk L S) (n : Nat) :
   exact h _ ts hl w hw
 
 theorem LabOk.tail {L : List Lab} {S : List Word} (h : LabOk L S) : LabOk L.tail S.tail := by
-  have := h.drop 1
-  simpa using this
+  simpa using h.drop 1
 
 theorem LabOk.cons {L : List Lab} {S : List Word} (h : LabOk L S) {x : Lab} {v : Word}
     (hx : ∀ ts, x = some ts → v.toNat ∈ ts) : LabOk (x :: L) (v :: S) := by
@@ -224,14 +223,8 @@ theorem exec_effect_inv {e : Effect} {a : Nat} {rest : List SolarTV.EVM.Program.
       obtain ⟨r, s1⟩ := rs
       refine ⟨r, s1, pushesE_apply ha, ?_⟩
       simp only [ha] at h
-      cases r with
-      | none =>
-        try simp only at h ⊢
-        split at h
-        · cases h
-        · exact h
-      | some v =>
-        try simp only at h ⊢
+      cases r <;>
+      · try simp only at h ⊢
         split at h
         · cases h
         · exact h
