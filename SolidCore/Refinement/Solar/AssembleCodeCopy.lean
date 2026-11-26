@@ -151,33 +151,11 @@ theorem codecopy_dyn {code : ByteArray} {msg : Message .fusaka} {o : Oracle} (hc
     by_cases hz : sz = 0
     · exact .inl hz
     · exact .inr (size_le_of_budget hmod hz hb hG hg)
-  have hbound : sz = 0 ∨ (d.toNat + sz.toNat + 31) / 32 < 2 ^ 251 := by
-    rcases hsmall with h | h
-    · exact .inl h
-    · exact .inr (by omega)
-  have hfit : sz.toNat ≠ 0 →
-      d.toNat + sz.toNat ≤ (memoryExtend M (extendMemory M.size [(d, sz)]).expandBy).size := by
-    intro hz
-    have hz' : sz ≠ 0 := fun h => hz (by simp [h])
-    rw [size_memoryExtend_extendMemory' hmod hz']
-    have := le_ceil32 (d.toNat + sz.toNat)
-    omega
-  refine ⟨_, _, m, within', ?_, ?_, by omega, hat', hrun'⟩
-  · have he := memRel_expandW hm hbound
-    rw [← write_expand]
-    refine memRel_write he hfit (size_bufferRead _ _ _) (fun i hi => ?_)
-    rw [byteAt_bufferRead, ite_eq_left_of_eq_true _ _ (eq_true hi)]
-    have hz : sz ≠ 0 := by
-      intro h
-      subst h
-      simp at hi
-    have hle := hsmall.resolve_left hz
-    rw [codeByte_eq hc (by omega)]
-  · refine MemBudget.grow hmod hb hg ?_
-    rw [size_memoryWrite_of_fit, size_memoryExtend]
-    intro h
-    rw [size_bufferRead] at h ⊢
-    exact hfit h
+  obtain ⟨hR, hB⟩ := AssembleDynCopy.copy_dyn (src := fun i => codeByte o (off.toNat + i)) hm hb
+    (by omega) hg (size_bufferRead code off.toNat _) fun i hi => by
+      have := hsmall.resolve_left (by rintro rfl; simp at hi)
+      rw [byteAt_bufferRead, ite_eq_left_of_eq_true _ _ (eq_true hi), codeByte_eq hc (by omega)]
+  exact ⟨_, _, m, within', hR, hB, by omega, hat', hrun'⟩
 
 /-- **CODECOPY in SolarTV**: the effect writes the oracle's bytes of the code and grows nothing else. -/
 theorem codecopy_effect (o : Oracle) (call : Call) (d off sz : Word) (s : SolarTV.Machine.State) :

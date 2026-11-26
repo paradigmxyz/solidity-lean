@@ -462,29 +462,11 @@ theorem rdc_dynR {code : ByteArray} {msg : Message .fusaka} {o : Oracle} {w : Li
       MemBudget G M' g' ∧ g' ≤ g ∧ At code msg (pc + 1) T M' g' st ss rd m ∧
       runFrame (step .fusaka) (step_decreases .fusaka) bound runChild m within' = .ok fin := by
   obtain ⟨hfit0, hg, m, within', hat', hrun'⟩ := rdc_backR hat hlt hbyte within hrun hok
-  have hmod : M.size % 32 = 0 := by rw [hm.1]; omega
-  have hbound : sz = 0 ∨ (d.toNat + sz.toNat + 31) / 32 < 2 ^ 251 := by
-    by_cases hz : sz = 0
-    · exact .inl hz
-    · exact .inr (words_lt_of_cost (budget_grow hmod hz hb hg).1 hG)
-  have hfit : sz.toNat ≠ 0 →
-      d.toNat + sz.toNat ≤ (memoryExtend M (extendMemory M.size [(d, sz)]).expandBy).size := by
-    intro hz
-    have hz' : sz ≠ 0 := fun h => hz (by simp [h])
-    rw [size_memoryExtend_extendMemory' hmod hz']
-    have := le_ceil32 (d.toNat + sz.toNat)
-    omega
-  refine ⟨hfit0, _, _, m, within', ?_, ?_, by omega, hat', hrun'⟩
-  · have he := memRel_expandW hm hbound
-    rw [← write_expand]
-    refine memRel_write he hfit (size_memoryReadBytes hfit0) (fun i hi => ?_)
-    rw [byteAt_memoryReadBytes hfit0, if_pos hi]
-    exact (hrdr.2 (off.toNat + i) (by omega)).symm
-  · refine MemBudget.grow hmod hb hg ?_
-    rw [size_memoryWrite_of_fit, size_memoryExtend]
-    intro h
-    rw [size_memoryReadBytes hfit0] at h ⊢
-    exact hfit h
+  obtain ⟨hR, hB⟩ := AssembleDynCopy.copy_dyn (src := fun i => returndataByte o w (off.toNat + i))
+    hm hb hG hg (size_memoryReadBytes hfit0) fun i hi => by
+      rw [byteAt_memoryReadBytes hfit0, if_pos hi]
+      exact (hrdr.2 (off.toNat + i) (by omega)).symm
+  exact ⟨hfit0, _, _, m, within', hR, hB, by omega, hat', hrun'⟩
 
 end Dyn
 
@@ -526,37 +508,6 @@ private theorem SegR.back {p : Assemble.Program} {c : Cert} {mx : List Nat} {cod
     fun y hy => ?_⟩
   obtain ⟨hy1, after, within', hE, hT, hsn, hrdy, hga, hbud, hra⟩ := hnext y hy
   exact ⟨hy1, after, within', hE, hT, hsn, hrdy, by omega, hbud, hra⟩
-
-/-- An instruction lowered to one opcode at the head of a walk segment: its byte at the counter,
-and the segment after it. -/
-private theorem seg_lower {p : Assemble.Program} {c : Cert} {b : Nat} {i : Assemble.Instr}
-    {rest : List Assemble.Instr} {byte : Nat} {code : ByteArray} {pc e : Nat} {tail : List Item}
-    (hl : lowerInstrs p c b (i :: rest) = .op byte :: lowerInstrs p c b rest)
-    (h : Seg (bytesOf code) c.offset pc (lowerInstrs p c b (i :: rest) ++ tail) e) :
-    ∃ hlt : pc < code.size, code[pc] = UInt8.ofNat byte ∧
-      Seg (bytesOf code) c.offset (pc + 1) (lowerInstrs p c b rest ++ tail) e := by
-  rw [hl, List.cons_append] at h
-  obtain ⟨next, hd, hseg⟩ := h.head
-  simp only [Item.expected] at hd
-  obtain ⟨hlt, hcode, rfl⟩ := op_item hd
-  exact ⟨hlt, hcode, hseg⟩
-
-/-- The words `xs` on top of related stacks, data at their types: the same on both sides. -/
-private theorem sr_pop {c : Cert} {ty : List Ty} {S T : List Word} (xs : List Word)
-    (h : SR c ty (xs ++ S) T) (hd : isData ty xs.length = true) :
-    ∃ T', T = xs ++ T' ∧ SR c (ty.drop xs.length) S T' := by
-  refine ⟨T.drop xs.length, ?_, by simpa using SR.drop xs.length h⟩
-  have := h.data hd
-  rw [List.take_left' rfl] at this
-  exact (List.take_append_drop xs.length T).symm.trans (by rw [← this])
-
-/-- Memory within a budget below `2 ^ 256` fits a certificate's top of at least `2 ^ 140`. -/
-private theorem le_top {c : Cert} {m : SolarTV.Machine.Mem} {M : ByteArray} {G0 g : Nat}
-    (hm : MemRel m M) (hb : MemBudget G0 M g) (hG0 : G0 < 2 ^ 256) (htop : 2 ^ 140 ≤ c.top) :
-    M.size ≤ c.top := by
-  have hmod : M.size % 32 = 0 := by rw [hm.1]; omega
-  have := size_le_of_cost (B := G0) (by unfold MemBudget at hb; omega) hG0 hmod
-  omega
 
 set_option maxRecDepth 8000 in
 /-- **`AssembleCut.seg` with STATICCALLs**: the rest of a block from an instruction, read back from
@@ -702,7 +653,7 @@ theorem segSR {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArra
           (s'.memory.load x.toNat :: Tr) { s' with memory := s'.memory.expand x.toNat 32 } (pc' + 1)
           M2 g2 st' ss' rd T m2 within2 (by omega) hok3 (by simp; omega) (by simp; omega)
           (KR.nil _) (SR.cons (τ := some false) rfl hR'') hseg' (by simp; omega)
-          (le_top hmem2 hb2 hG0 htop') hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2 hTg' hs0' hrd' hb2
+          (mem_le_top hmem2 hb2 hG0 htop') hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2 hTg' hs0' hrd' hb2
           hrun2)
         exact exec_loadC (by omega)
       · -- MSTORE at the frame's gas, at any offset.
@@ -719,7 +670,7 @@ theorem segSR {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArra
         refine SegR.back (RunTable.Le.refl T) (by omega) (fun T3 _ => ?_) (IH rest (h' - 2) []
           (ty'.drop 2) (k' - 1) S'' Tr { s' with memory := s'.memory.store x.toNat y } (pc' + 1) M2
           g2 st' ss' rd T m2 within2 (by omega) hok3 (by omega) (by omega) (KR.nil _) hR'' hseg'
-          (by omega) (le_top hmem2 hb2 hG0 htop') hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2 hTg'
+          (by omega) (mem_le_top hmem2 hb2 hG0 htop') hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2 hTg'
           hs0' hrd' hb2 hrun2)
         exact exec_storeC (by omega)
       · -- RETURN at the frame's gas, from any range.
@@ -774,7 +725,7 @@ theorem segSR {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArra
           { s' with memory := s'.memory.expand x.toNat y.toNat } (pc' + 1) _ _ st' ss' rd T m2
           within2 (by omega) hok3 (by simp; omega) (by simp; omega)
           (KR.nil _) (SR.cons (τ := some false) rfl hR'') hseg' (by simp; omega)
-          (le_top hmem2 hb2 hG0 htop') hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2 hTg' hs0' hrd' hb2
+          (mem_le_top hmem2 hb2 hG0 htop') hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2 hTg' hs0' hrd' hb2
           hrun2)
         exact exec_keccakC (by omega)
       · -- LOGn at the frame's gas, of any range.
@@ -800,7 +751,7 @@ theorem segSR {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArra
           (pc' + 1) _ _ st' { ss' with logs := ss'.logs.push ⟨msg.currentTarget,
             tops.map U256.toBeBytes, memoryReadBytes (memoryExtend M' (extendMemory M'.size
               [(x, y)]).expandBy) x.toNat y.toNat⟩ } rd T m2 within2 (by omega) hok3 (by omega)
-          (by omega) (KR.nil _) hR'' hseg' (by omega) (le_top hmem2 hb2 hG0 htop') hmem2
+          (by omega) (KR.nil _) hR'' hseg' (by omega) (mem_le_top hmem2 hb2 hG0 htop') hmem2
           ⟨R'.storage, R'.account, ⟨L ++ [⟨msg.currentTarget, tops.map U256.toBeBytes,
               memoryReadBytes (memoryExtend M' (extendMemory M'.size [(x, y)]).expandBy)
                 x.toNat y.toNat⟩], by simp [Array.toList_push, hL1],
@@ -825,7 +776,7 @@ theorem segSR {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArra
             memory := s'.memory.write x.toNat z.toNat
               (fun i => SolarTV.Machine.calldataByte call (y.toNat + i)) } (pc' + 1) M2 g2 st' ss' rd
           T m2 within2 (by omega) hok3 (by omega) (by omega) (KR.nil _) hR'' hseg' (by omega)
-          (le_top hmem2 hb2 hG0 htop') hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2 hTg' hs0' hrd' hb2
+          (mem_le_top hmem2 hb2 hG0 htop') hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2 hTg' hs0' hrd' hb2
           hrun2)
         exact exec_cdcC (by omega)
       · -- STATICCALL to code at the frame's gas: the callee frame's flag and output join the table.
@@ -861,7 +812,7 @@ theorem segSR {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArra
           (some false :: ty'.drop 6) (k' - 1) ((if ok then 1 else 0) :: S'')
           ((if ok then 1 else 0) :: Tr) s2 (pc' + 1) M2 g2 st2 ss2 out T1 m2 within2 (by omega) hok3
           (by simp; omega) (by simp; omega) (KR.nil _) (SR.cons (τ := some false) rfl hR'')
-          hseg' (by simp; omega) (le_top hmem2 hb2 hG0 htop') hmem2 R2 hat2 hTg1 hinv
+          hseg' (by simp; omega) (mem_le_top hmem2 hb2 hG0 htop') hmem2 R2 hat2 hTg1 hinv
           (fun T3 hle => (happ T3 hle).2) hb2 hrun2)
         exact exec_scC (happ T3 hle).1 (by omega)
       · -- RETURNDATASIZE at the frame's gas: the size of the frame's return data, the table's.
@@ -908,7 +859,7 @@ theorem segSR {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArra
             memory := s'.memory.write x.toNat z.toNat
               (fun i => returndataByte (OS codes T) s'.world (y.toNat + i)) } (pc' + 1) M2 g2 st' ss' rd
           T m2 within2 (by omega) hok3 (by omega) (by omega) (KR.nil _) hR'' hseg' (by omega)
-          (le_top hmem2 hb2 hG0 htop') hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2 hTg' hs0' hrd' hb2
+          (mem_le_top hmem2 hb2 hG0 htop') hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2 hTg' hs0' hrd' hb2
           hrun2)
         rw [exec_rdcC (by rw [(hrd' T3 hle).1]; exact hfit) (by omega), hext T3 hle]
       · -- CALL, CREATE2 and CODECOPY: only a certificate that says the program creates lets the
@@ -926,7 +877,7 @@ variable {σ : Type} (blk : Oracle → σ → Option ((Halt × Machine.State) �
   (O : RunTable → Oracle)
 
 /-- **One block of the simulation, read back from a run that succeeds**, as
-`AssembleCall.AdvancesS` under every runner of messages meeting `P`, for the runs to a frame `fin`
+`AssembleCallSeg.AdvancesQ` under every runner of messages meeting `P`, for the runs to a frame `fin`
 that meet the hypothesis `Q`. -/
 def AdvancesQR (P : Evm .fusaka Nat → Message .fusaka → Evm .fusaka Nat → Prop)
     (Q : (bound : Nat) → MessageRunner .fusaka Nat bound → Evm .fusaka Nat → Prop)
@@ -958,22 +909,10 @@ theorem run_of_advancesQR {P : Evm .fusaka Nat → Message .fusaka → Evm .fusa
       OkR fin → Q bound runChild fin →
       ∃ T' res, T.Le T' ∧
         (∀ T'', T'.Le T'' → ∃ k, SolarTV.Machine.iterate (blk (O T'')) k x = some res) ∧
-        Post res fin
-  | 0, _, _, _, _, _, _, h, _, _, _ => absurd h (Nat.not_lt_zero _)
-  | n + 1, T, x, evm, within, fin, hE, hm, hrun, hok, hq => by
-    obtain ⟨T', r, hle, hstep, hinl, hinr⟩ :=
-      adv T x evm hE bound runChild meets within fin hrun hok hq
-    cases r with
-    | inl res =>
-      exact ⟨T', res, hle, fun T'' h => ⟨1, by simp [SolarTV.Machine.iterate, hstep T'' h]⟩,
-        hinl res rfl⟩
-    | inr y =>
-      obtain ⟨after, within', hE', hm', hrun'⟩ := hinr y rfl
-      obtain ⟨T2, res, hle2, hit, hpost⟩ :=
-        run_of_advancesQR adv meets n T' y after within' fin hE' (by omega) hrun' hok hq
-      refine ⟨T2, res, hle.trans hle2, fun T'' h => ?_, hpost⟩
-      obtain ⟨k, hk⟩ := hit T'' h
-      exact ⟨k + 1, by simp [SolarTV.Machine.iterate, hstep T'' (hle2.trans h), hk]⟩
+        Post res fin := fun n T x evm within fin hE hm hrun hok hq =>
+  run_of_advancesG blk O (R := fun _ rc => Meets P rc) (Q := fun b rc f => OkR f ∧ Q b rc f)
+    (fun T x evm hE b rc hR w f hr h => adv T x evm hE b rc hR w f hr h.1 h.2) meets n T x evm within
+    fin hE hm hrun ⟨hok, hq⟩
 
 end BlocksQ
 
@@ -1011,9 +950,7 @@ theorem advances_checkCSR {p : Assemble.Program} {c : Cert} {mx : List Nat} {cod
         runFrame (step .fusaka) (step_decreases .fusaka) bound runChild m1 within1 = .ok fin := by
       by_cases ht : isTarget p c b = true
       · simp only [ht, ite_true, List.singleton_append, List.cons_append] at hseg
-        obtain ⟨next, hd, hseg'⟩ := hseg.head
-        simp only [Item.expected] at hd
-        obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+        obtain ⟨hlt, hcode, hseg'⟩ := hseg.op rfl
         have hp := hat.addGas 1
         obtain ⟨e1, r1, he1⟩ := Logic.jumpdestG hlt hcode (show 1 ≤ evm.gas + 1 by omega) _ hp
         obtain ⟨m, within', hz, hrm⟩ := reaches_lowAt r1 1 evm rfl hat within hrun hok

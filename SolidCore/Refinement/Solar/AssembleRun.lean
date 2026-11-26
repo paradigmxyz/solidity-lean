@@ -20,7 +20,8 @@ the run goes:
   last frame shows (`Post`), or to the next block state, related to a frame with a lower measure
   that the loop runs to the same last frame.
 * `run_of_advances`: a run of EthLib that ends with no error is, for every table extending the
-  last one, SolarTV's run to the same end.
+  last one, SolarTV's run to the same end. `AdvancesG` and `run_of_advancesG` are the general
+  form, under any hypothesis on the runner of messages and on the run's last frame.
 * `within_of_advances`: at every gas, for every call, the oracle of that run's table makes every
   result of the bytecode the EVM IR's or a failure that changes nothing: the per-run theorem
   (`RunOracle.WithinRun`) for code with GAS, calls and dynamic copies, from a block simulation.
@@ -65,6 +66,56 @@ section Blocks
 variable {σ : Type} (blk : Oracle → σ → Option ((Halt × Machine.State) ⊕ σ))
   (O : RunTable → Oracle)
 
+/-- **One block of the simulation, read back from a run that succeeds**, in general: under every
+runner of messages meeting `R`, when the loop runs the frame `evm` to a frame `fin` that meets `Q`
+(no error, say), the table grows to `T'` and every oracle of a table extending `T'` runs the block
+from `x` to the same `r`: an end `fin` shows (`Post`), or the next block state, related (`E T'`)
+to a frame with a lower measure that the loop runs to `fin` too. `Advances` and its variants for
+calls and reverts are its instances. -/
+def AdvancesG (R : (bound : Nat) → MessageRunner .fusaka Nat bound → Prop)
+    (Q : (bound : Nat) → MessageRunner .fusaka Nat bound → Evm .fusaka Nat → Prop)
+    (E : RunTable → σ → Evm .fusaka Nat → Prop)
+    (Post : Halt × Machine.State → Evm .fusaka Nat → Prop) (meas : σ → Evm .fusaka Nat → Nat)
+    (T : RunTable) (x : σ) (evm : Evm .fusaka Nat) : Prop :=
+  ∀ (bound : Nat) (runChild : MessageRunner .fusaka Nat bound), R bound runChild →
+    ∀ (within : GasMeter.gasHeld evm.gas ≤ bound) (fin : Evm .fusaka Nat),
+      runFrame (step .fusaka) (step_decreases .fusaka) bound runChild evm within = .ok fin →
+      Q bound runChild fin →
+      ∃ T' r, T.Le T' ∧ (∀ T'', T'.Le T'' → blk (O T'') x = some r) ∧
+        (∀ res, r = .inl res → Post res fin) ∧
+        (∀ y, r = .inr y → ∃ after within', E T' y after ∧ meas y after < meas x evm ∧
+          runFrame (step .fusaka) (step_decreases .fusaka) bound runChild after within' = .ok fin)
+
+/-- **A run of EthLib that ends meeting `Q` is SolarTV's**, for every table extending the last one
+the run grew. -/
+theorem run_of_advancesG {R : (bound : Nat) → MessageRunner .fusaka Nat bound → Prop}
+    {Q : (bound : Nat) → MessageRunner .fusaka Nat bound → Evm .fusaka Nat → Prop}
+    {E : RunTable → σ → Evm .fusaka Nat → Prop}
+    {Post : Halt × Machine.State → Evm .fusaka Nat → Prop} {meas : σ → Evm .fusaka Nat → Nat}
+    (adv : ∀ T x evm, E T x evm → AdvancesG blk O R Q E Post meas T x evm)
+    {bound : Nat} {runChild : MessageRunner .fusaka Nat bound} (hR : R bound runChild) :
+    ∀ (n : Nat) (T : RunTable) (x : σ) (evm : Evm .fusaka Nat)
+      (within : GasMeter.gasHeld evm.gas ≤ bound) (fin : Evm .fusaka Nat),
+      E T x evm → meas x evm < n →
+      runFrame (step .fusaka) (step_decreases .fusaka) bound runChild evm within = .ok fin →
+      Q bound runChild fin →
+      ∃ T' res, T.Le T' ∧
+        (∀ T'', T'.Le T'' → ∃ k, iterate (blk (O T'')) k x = some res) ∧
+        Post res fin
+  | 0, _, _, _, _, _, _, h, _, _ => absurd h (Nat.not_lt_zero _)
+  | n + 1, T, x, evm, within, fin, hE, hm, hrun, hq => by
+    obtain ⟨T', r, hle, hstep, hinl, hinr⟩ := adv T x evm hE bound runChild hR within fin hrun hq
+    cases r with
+    | inl res =>
+      exact ⟨T', res, hle, fun T'' h => ⟨1, by simp [iterate, hstep T'' h]⟩, hinl res rfl⟩
+    | inr y =>
+      obtain ⟨after, within', hE', hm', hrun'⟩ := hinr y rfl
+      obtain ⟨T2, res, hle2, hit, hpost⟩ :=
+        run_of_advancesG adv hR n T' y after within' fin hE' (by omega) hrun' hq
+      refine ⟨T2, res, hle.trans hle2, fun T'' h => ?_, hpost⟩
+      obtain ⟨k, hk⟩ := hit T'' h
+      exact ⟨k + 1, by simp [iterate, hstep T'' (hle2.trans h), hk]⟩
+
 /-- **One block of the simulation, read back from a run that succeeds**: under every runner of
 messages, when the loop runs the frame `evm` to a frame `fin` with no error, the table grows to `T'`
 and every oracle of a table extending `T'` runs the block from `x` to the same `r`: an end `fin`
@@ -96,20 +147,9 @@ theorem run_of_advances {E : RunTable → σ → Evm .fusaka Nat → Prop}
       fin.error = none →
       ∃ T' res, T.Le T' ∧
         (∀ T'', T'.Le T'' → ∃ k, iterate (blk (O T'')) k x = some res) ∧
-        Post res fin
-  | 0, _, _, _, _, _, _, h, _, _ => absurd h (Nat.not_lt_zero _)
-  | n + 1, T, x, evm, within, fin, hE, hm, hrun, hok => by
-    obtain ⟨T', r, hle, hstep, hinl, hinr⟩ := adv T x evm hE bound runChild meets within fin hrun hok
-    cases r with
-    | inl res =>
-      exact ⟨T', res, hle, fun T'' h => ⟨1, by simp [iterate, hstep T'' h]⟩, hinl res rfl⟩
-    | inr y =>
-      obtain ⟨after, within', hE', hm', hrun'⟩ := hinr y rfl
-      obtain ⟨T2, res, hle2, hit, hpost⟩ :=
-        run_of_advances adv meets n T' y after within' fin hE' (by omega) hrun' hok
-      refine ⟨T2, res, hle.trans hle2, fun T'' h => ?_, hpost⟩
-      obtain ⟨k, hk⟩ := hit T'' h
-      exact ⟨k + 1, by simp [iterate, hstep T'' (hle2.trans h), hk]⟩
+        Post res fin :=
+  run_of_advancesG blk O (R := fun _ rc => Meets (fun _ _ _ => True) rc)
+    (Q := fun _ _ fin => fin.error = none) adv meets
 
 end Blocks
 

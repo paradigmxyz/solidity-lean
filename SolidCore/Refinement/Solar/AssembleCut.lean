@@ -210,27 +210,13 @@ theorem gas_back {code : ByteArray} {msg : Message .fusaka} {pc : Nat} {T : List
     (hok : fin.error = none) :
     2 ≤ g ∧ ∃ (m : Evm .fusaka Nat) (within' : GasMeter.gasHeld m.gas ≤ bound),
       At code msg (pc + 1) (BitVec.ofNat 256 (g - 2) :: T) M (g - 2) st ss rd m ∧
-      runFrame (step .fusaka) (step_decreases .fusaka) bound runChild m within' = .ok fin := by
-  by_cases hg : 2 ≤ g
-  · obtain ⟨m, hr, hm⟩ := Logic.gas_rule (fork := .fusaka) hlt hbyte hg hstack evm hat
-    have := runFrame_eq_of_reaches (runChild := runChild) Step.gasHeld_le Step.runFrame_eq hr within
-    rw [this] at hrun
-    exact ⟨hg, m, _, hm, hrun⟩
-  · exfalso
-    have hspec : Spec .fusaka (At code msg pc T M g st ss rd) (Faulted .outOfGas st ss) := by
-      refine At.fault rfl fun e hat' => ?_
-      obtain ⟨hcode, -, -, hpc, hst, -, hgas, -⟩ := hat'
-      subst hcode hpc
-      have decoded : Op.ofByte .fusaka e.code[e.pc] = some .gas := by
-        rw [hbyte]
-        exact ofByte_of_decode rfl (Fork.frontier_le _)
-      rw [step_of_instruction hlt decoded rfl]
-      simp [readFrame, chargeGas, GasMeter.charge, hgas, OPCODE_GAS, BASE, show g < 2 by omega, bind, Except.bind]
-    obtain ⟨z, hr, hstop, hf⟩ := hspec evm hat
-    rw [runFrame_of_reaches hr hstop within] at hrun
-    cases hrun
-    rw [hf.2.1] at hok
-    cases hok
+      runFrame (step .fusaka) (step_decreases .fusaka) bound runChild m within' = .ok fin :=
+  AssembleDyn.backR (fun hg => Logic.gas_rule hlt hbyte hg hstack)
+    (fun hg => AssembleDyn.faultAt hlt hbyte (ofByte_of_decode rfl (Fork.frontier_le _)) rfl
+      fun e hat' => by
+        obtain ⟨-, -, -, -, -, -, hgas, -⟩ := hat'
+        simp [readFrame, chargeGas, GasMeter.charge, hgas, OPCODE_GAS, BASE, show g < 2 by omega,
+          bind, Except.bind]) hat within hrun (.inl hok)
 
 /-! ## The oracle of a run -/
 
@@ -578,6 +564,34 @@ theorem at_of_addGasR {code : ByteArray} {msg : Message .fusaka} {pc : Nat} {T :
   obtain ⟨h1, h2, h3, h4, h5, h6, h7, h8, h9, h10, h11, h12, h13⟩ := h
   exact ⟨⟨h1, h2, h3, h4, h5, h6, rfl, h8, h9, h10, h11, h12, h13⟩, by simpa using h7⟩
 
+/-- An instruction lowered to one opcode at the head of a walk segment: its byte at the counter,
+and the segment after it. -/
+theorem seg_lower {p : Assemble.Program} {c : Cert} {b : Nat} {i : Assemble.Instr}
+    {rest : List Assemble.Instr} {byte : Nat} {code : ByteArray} {pc e : Nat} {tail : List Item}
+    (hl : lowerInstrs p c b (i :: rest) = .op byte :: lowerInstrs p c b rest)
+    (h : Seg (bytesOf code) c.offset pc (lowerInstrs p c b (i :: rest) ++ tail) e) :
+    ∃ hlt : pc < code.size, code[pc] = UInt8.ofNat byte ∧
+      Seg (bytesOf code) c.offset (pc + 1) (lowerInstrs p c b rest ++ tail) e := by
+  rw [hl, List.cons_append] at h
+  exact h.op rfl
+
+/-- The words `xs` on top of related stacks, data at their types: the same on both sides. -/
+theorem sr_pop {c : Cert} {ty : List Ty} {S T : List Word} {n : Nat} (xs : List Word)
+    (h : SR c ty (xs ++ S) T) (hd : isData ty n = true) (hn : xs.length = n := by rfl) :
+    ∃ T', T = xs ++ T' ∧ SR c (ty.drop n) S T' := by
+  subst hn
+  refine ⟨T.drop xs.length, ?_, by simpa using SR.drop xs.length h⟩
+  have := h.data hd
+  rw [List.take_left' rfl] at this
+  exact (List.take_append_drop xs.length T).symm.trans (by rw [← this])
+
+/-- Memory within a budget below `2 ^ 256` fits a certificate's top of at least `2 ^ 140`. -/
+theorem mem_le_top {c : Cert} {m : SolarTV.Machine.Mem} {M : ByteArray} {G g : Nat}
+    (hm : MemRel m M) (hb : MemBudget G M g) (hG : G < 2 ^ 256) (htop : 2 ^ 140 ≤ c.top) :
+    M.size ≤ c.top :=
+  Nat.le_trans (size_le_of_cost (B := G) (by unfold MemBudget at hb; omega) hG (by rw [hm.1]; omega))
+    htop
+
 /-- The `n` words on top of related stacks, when the types say they are data, are the same on
 both. -/
 private theorem split_of_SR {c : Cert} {ty : List Ty} {S Tw : List Word} (h : SR c ty S Tw)
@@ -712,12 +726,6 @@ theorem seg {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray}
       have hmB : MemBudget G0 M' m.gas := by unfold MemBudget at *; omega
       have hT1 : T.gases.length = gasReads s'.world := by rw [hc1.1]; exact hTg
       have hs1 : sent s'.world = 0 := by rw [hc1.2]; exact hs0
-      -- Memory the run pays for within the budget fits under the certificate's top.
-      have hsz : ∀ {mm M2 g2}, MemRel mm M2 → MemBudget G0 M2 g2 → 2 ^ 140 ≤ c.top →
-          M2.size ≤ c.top := fun {_ M2 _} hm2 hb2 htop' => by
-        have := size_le_of_cost (n := M2.size) (B := G0) (by unfold MemBudget at hb2; omega) hG0
-          (by rw [hm2.1]; omega)
-        omega
       -- Every cut the run goes on from: the segment after it, from the state it leaves, reads the
       -- rest of the block back.
       have cont : ∀ (T1 : RunTable) (h2 : Nat) (ty2 : List Ty) (S2 Tw2 : List Word) (s2 : State)
@@ -763,11 +771,7 @@ theorem seg {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray}
         hc2i | hcci
       · obtain rfl := isGasI_eq hgi
         obtain ⟨hk1, hok3⟩ := blockOkC_gas hok2
-        have hs := I'.seg
-        rw [lowerInstrs_gas, List.cons_append] at hs
-        obtain ⟨next, hd, hseg'⟩ := hs.head
-        simp only [Item.expected] at hd
-        obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+        obtain ⟨hlt, hcode, hseg'⟩ := seg_lower (lowerInstrs_gas p c b rest) I'.seg
         -- GAS at the frame's gas.
         obtain ⟨h2, m2, within2, hat2, hrun2⟩ :=
           gas_back hatm hlt hcode (by unfold STACK_LIMIT; omega) within1 hrm hok
@@ -787,11 +791,7 @@ theorem seg {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray}
       · -- MLOAD at the frame's gas, at any offset.
         obtain rfl := isLoadI_eq hli
         obtain ⟨hk1, hh1, hdat, htop', hok3⟩ := blockOkC_load hok2
-        have hs := I'.seg
-        rw [lowerInstrs_load, List.cons_append] at hs
-        obtain ⟨next, hd, hseg'⟩ := hs.head
-        simp only [Item.expected] at hd
-        obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+        obtain ⟨hlt, hcode, hseg'⟩ := seg_lower (lowerInstrs_load p c b rest) I'.seg
         rcases S' with _ | ⟨x, S''⟩
         · simp at hh2; omega
         rcases T' with _ | ⟨x', Tr⟩
@@ -805,32 +805,24 @@ theorem seg {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray}
           (s'.memory.load x.toNat :: Tr) { s' with memory := s'.memory.expand x.toNat 32 } M2 g2 st'
           ss' m2 within2 (RunTable.Le.refl T) (fun _ _ => exec_loadC (by omega)) (by omega) hok3
           (by simp; omega) (by simp; omega) (SR.cons (τ := some false) rfl (by simpa using hR''))
-          hseg' (by simp; omega) (hsz hmem2 hb2 htop') hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2
+          hseg' (by simp; omega) (mem_le_top hmem2 hb2 hG0 htop') hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2
           hT1 hs1 hb2 hrun2
       · -- MSTORE at the frame's gas, at any offset.
         obtain rfl := isStoreI_eq hsi
         obtain ⟨hk1, hh1, hdat, htop', hok3⟩ := blockOkC_store hok2
-        have hs := I'.seg
-        rw [lowerInstrs_store, List.cons_append] at hs
-        obtain ⟨next, hd, hseg'⟩ := hs.head
-        simp only [Item.expected] at hd
-        obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+        obtain ⟨hlt, hcode, hseg'⟩ := seg_lower (lowerInstrs_store p c b rest) I'.seg
         obtain ⟨x, y, S'', Tr, rfl, rfl, hR''⟩ := top2_of_SR hR' hdat (by omega)
         simp only [List.length_cons] at hL hst hh2 hu2
         obtain ⟨M2, g2, m2, within2, hmem2, hb2, hg2, hat2, hrun2⟩ :=
           AssembleDyn.mstore_dyn I'.mem hmB (by omega) hatm hlt hcode within1 hrm hok
         exact cont T (h' - 2) (ty'.drop 2) S'' Tr { s' with memory := s'.memory.store x.toNat y } M2
           g2 st' ss' m2 within2 (RunTable.Le.refl T) (fun _ _ => exec_storeC (by omega)) (by omega)
-          hok3 (by omega) (by omega) hR'' hseg' (by omega) (hsz hmem2 hb2 htop') hmem2
+          hok3 (by omega) (by omega) hR'' hseg' (by omega) (mem_le_top hmem2 hb2 hG0 htop') hmem2
           ⟨R'.storage, R'.account, R'.logs⟩ hat2 hT1 hs1 hb2 hrun2
       · -- RETURN at the frame's gas, from any range.
         obtain rfl := isRetI_eq hri
         obtain ⟨hh1, hdat⟩ := blockOkC_ret hok2
-        have hs := I'.seg
-        rw [lowerInstrs_ret, List.cons_append] at hs
-        obtain ⟨next, hd, -⟩ := hs.head
-        simp only [Item.expected] at hd
-        obtain ⟨hlt, hcode, -⟩ := op_item hd
+        obtain ⟨hlt, hcode, -⟩ := seg_lower (lowerInstrs_ret p c b rest) I'.seg
         obtain ⟨x, y, S'', Tr, rfl, rfl, -⟩ := top2_of_SR hR' hdat (by omega)
         have hg := AssembleDyn.return_back hatm hlt hcode within1 hrm hok
         refine ⟨T, .inl (SolarTV.EVM.Program.output s' (x :: y :: S'') false), RunTable.Le.refl T,
@@ -846,21 +838,13 @@ theorem seg {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray}
       · -- REVERT: no run that succeeds reaches it.
         obtain rfl := isRevI_eq hvi
         obtain ⟨hh1, hdat⟩ := blockOkC_revert hok2
-        have hs := I'.seg
-        rw [lowerInstrs_revert, List.cons_append] at hs
-        obtain ⟨next, hd, -⟩ := hs.head
-        simp only [Item.expected] at hd
-        obtain ⟨hlt, hcode, -⟩ := op_item hd
+        obtain ⟨hlt, hcode, -⟩ := seg_lower (lowerInstrs_revert p c b rest) I'.seg
         obtain ⟨x, y, S'', Tr, rfl, rfl, -⟩ := top2_of_SR hR' hdat (by omega)
         exact (AssembleDyn.revert_false hatm hlt hcode within1 hrm hok).elim
       · -- KECCAK256 at the frame's gas, of any range.
         obtain rfl := isKecI_eq hki
         obtain ⟨henv, hk1, hh1, hdat, htop', hok3⟩ := blockOkC_kec hok2
-        have hs := I'.seg
-        rw [lowerInstrs_kec, List.cons_append] at hs
-        obtain ⟨next, hd, hseg'⟩ := hs.head
-        simp only [Item.expected] at hd
-        obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+        obtain ⟨hlt, hcode, hseg'⟩ := seg_lower (lowerInstrs_kec p c b rest) I'.seg
         obtain ⟨x, y, S'', Tr, rfl, rfl, hR''⟩ := top2_of_SR hR' hdat (by omega)
         simp only [List.length_cons] at hL hst hh2 hu2
         obtain ⟨m2, within2, hmem2, hb2, hat2, hrun2⟩ :=
@@ -873,15 +857,11 @@ theorem seg {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray}
           { s' with memory := s'.memory.expand x.toNat y.toNat } _ _ st' ss' m2 within2
           (RunTable.Le.refl T) (fun _ _ => exec_keccakC (by omega)) (by omega) hok3 (by simp; omega)
           (by simp; omega) (SR.cons (τ := some false) rfl hR'') hseg' (by simp; omega)
-          (hsz hmem2 hb2 htop') hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2 hT1 hs1 hb2 hrun2
+          (mem_le_top hmem2 hb2 hG0 htop') hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2 hT1 hs1 hb2 hrun2
       · -- LOGn at the frame's gas, of any range.
         obtain ⟨nl, hn4, rfl⟩ := isLogI_eq hlgi
         obtain ⟨hk1, hnh, hdat, htop', hok3⟩ := blockOkC_log hn4 hok2
-        have hs := I'.seg
-        rw [lowerInstrs_log p c b hn4, List.cons_append] at hs
-        obtain ⟨next, hd, hseg'⟩ := hs.head
-        simp only [Item.expected] at hd
-        obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+        obtain ⟨hlt, hcode, hseg'⟩ := seg_lower (lowerInstrs_log p c b hn4 rest) I'.seg
         obtain ⟨x, y, tops, S2, T2, rfl, rfl, rfl, hR''⟩ := topN_of_SR hR' hdat (by omega)
         simp only [List.length_cons, List.length_append] at hL hst hh2 hu2
         obtain ⟨m2, within2, hmem2, hb2, hat2, hrun2⟩ :=
@@ -895,7 +875,7 @@ theorem seg {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray}
             tops.map U256.toBeBytes, memoryReadBytes (memoryExtend M' (extendMemory M'.size
               [(x, y)]).expandBy) x.toNat y.toNat⟩ } m2 within2 (RunTable.Le.refl T)
           (fun _ _ => exec_logC (by omega)) (by omega) hok3 (by omega) (by omega) hR'' hseg'
-          (by omega) (hsz hmem2 hb2 htop') hmem2
+          (by omega) (mem_le_top hmem2 hb2 hG0 htop') hmem2
           ⟨R'.storage, R'.account, ⟨L ++ [⟨msg.currentTarget, tops.map U256.toBeBytes,
               memoryReadBytes (memoryExtend M' (extendMemory M'.size [(x, y)]).expandBy)
                 x.toNat y.toNat⟩], by simp [Array.toList_push, hL1],
@@ -905,11 +885,7 @@ theorem seg {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray}
       · -- CALLDATACOPY at the frame's gas, of any range.
         obtain rfl := isCdcI_eq hcdi
         obtain ⟨hk1, hh1, hdat, htop', hok3⟩ := blockOkC_cdc hok2
-        have hs := I'.seg
-        rw [lowerInstrs_cdc, List.cons_append] at hs
-        obtain ⟨next, hd, hseg'⟩ := hs.head
-        simp only [Item.expected] at hd
-        obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+        obtain ⟨hlt, hcode, hseg'⟩ := seg_lower (lowerInstrs_cdc p c b rest) I'.seg
         obtain ⟨x, y, z, S'', Tr, rfl, rfl, hR''⟩ := top3_of_SR hR' hdat (by omega)
         simp only [List.length_cons] at hL hst hh2 hu2
         obtain ⟨M2, g2, m2, within2, hmem2, hb2, hg2, hat2, hrun2⟩ :=
@@ -918,7 +894,7 @@ theorem seg {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray}
             memory := s'.memory.write x.toNat z.toNat
               (fun j => SolarTV.Machine.calldataByte call (y.toNat + j)) } M2 g2 st' ss' m2 within2
           (RunTable.Le.refl T) (fun _ _ => exec_cdcC (by omega)) (by omega) hok3 (by omega)
-          (by omega) hR'' hseg' (by omega) (hsz hmem2 hb2 htop') hmem2
+          (by omega) hR'' hseg' (by omega) (mem_le_top hmem2 hb2 hG0 htop') hmem2
           ⟨R'.storage, R'.account, R'.logs⟩ hat2 hT1 hs1 hb2 hrun2
       · -- STATICCALL: only a certificate that says the program makes calls lets the checker cut there.
         obtain rfl := isScI_eq hsci
@@ -1073,9 +1049,7 @@ theorem advances_checkC {p : Assemble.Program} {c : Cert} {mx : List Nat} {code 
         runFrame (step .fusaka) (step_decreases .fusaka) bound runChild m1 within1 = .ok fin := by
       by_cases ht : isTarget p c b = true
       · simp only [ht, ite_true, List.singleton_append, List.cons_append] at hseg
-        obtain ⟨next, hd, hseg'⟩ := hseg.head
-        simp only [Item.expected] at hd
-        obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+        obtain ⟨hlt, hcode, hseg'⟩ := hseg.op rfl
         have hp := hat.addGas 1
         obtain ⟨e1, r1, he1⟩ := Logic.jumpdestG hlt hcode (show 1 ≤ evm.gas + 1 by omega) _ hp
         obtain ⟨m, within', hz, hrm⟩ := reaches_low r1 1 evm rfl within hrun hok
