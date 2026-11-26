@@ -69,11 +69,9 @@ def allSeqs (n : Nat) (cases : List Facts) (T : Tree) (le li : List (Facts × Ou
 
 theorem hyp_holds {S K : List F} {g : Option F} {σ : Val} (hS : ∀ f ∈ S, f.Holds σ)
     (hK : ∀ f ∈ K, f.Holds σ) : ∀ f ∈ hyp S K g, f.Holds σ := by
-  intro f hf
-  simp only [hyp, List.mem_append] at hf
-  rcases hf with hf | hf
-  · exact hS f (slice_sub 1 S _ f hf)
-  · exact hK f hf
+  simp only [hyp, List.mem_append]
+  rintro f (hf | hf)
+  exacts [hS f (slice_sub 1 S _ f hf), hK f hf]
 
 /-- A valid sequent's goal holds where `S` and `K` do. -/
 theorem goal_of_valid {S K : List F} {g : F} (h : Seq.Valid (hyp S K (some g), some g)) {σ : Val}
@@ -92,27 +90,17 @@ theorem endSeqs_sound {S K : List F} {T' T : Tree} (h : ∀ s ∈ endSeqs S K T'
   obtain ⟨p', hp', hh', he', -⟩ := paths_sound ρ T'
   obtain ⟨p, hp, hhp, he, -⟩ := paths_sound ρ T
   have hk : ∀ f ∈ K ++ factsF p'.1 ++ factsF p.1, f.Holds ρ := by
-    intro f hf
-    simp only [List.mem_append] at hf
-    rcases hf with (hf | hf) | hf
-    · exact hK f hf
-    · exact factsF_holds hh' f hf
-    · exact factsF_holds hhp f hf
-  have hmem : ∀ s, (s ∈ match haltGoals p'.2 p.2 with
-      | some gs => gs.map fun g => (hyp S (K ++ factsF p'.1 ++ factsF p.1) (some g), some g)
-      | none => [(hyp S (K ++ factsF p'.1 ++ factsF p.1) none, none)]) → s ∈ endSeqs S K T' T := by
-    intro s hs
-    simp only [endSeqs, List.mem_flatMap]
-    exact ⟨p', hp', p, hp, hs⟩
+    simp only [List.mem_append]
+    rintro f ((hf | hf) | hf)
+    exacts [hK f hf, factsF_holds hh' f hf, factsF_holds hhp f hf]
+  have hv := fun s hs => h s (List.mem_flatMap.mpr ⟨p', hp', List.mem_flatMap.mpr ⟨p, hp, hs⟩⟩)
+  simp only [] at hv
   rw [he', he]
   cases hg : haltGoals p'.2 p.2 with
-  | none =>
-    have := h _ (hmem _ (by rw [hg]; exact List.mem_singleton_self _))
-    exact (false_of_valid this hS hk).elim
+  | none => exact (false_of_valid (hv _ (by rw [hg]; exact List.mem_singleton_self _)) hS hk).elim
   | some gs =>
-    refine halt_obs hρ hg fun g hgm => goal_of_valid (h _ (hmem _ ?_)) hS hk
-    rw [hg]
-    exact List.mem_map.mpr ⟨g, hgm, rfl⟩
+    exact halt_obs hρ hg fun g hgm =>
+      goal_of_valid (hv _ (by rw [hg]; exact List.mem_map_of_mem hgm)) hS hk
 
 theorem seqs_mem {n : Nat} {cases : List Facts} {T : Tree} {le li : List (Facts × Out)} {I : List F}
     {μ : WExpr} {ss : List Seq} (h : allSeqs n cases T le li I μ = some ss) {t : Task}
@@ -131,10 +119,12 @@ theorem obl_of_seqs {n : Nat} {cases : List Facts} {T : Tree} {le li : List (Fac
     {I : List F} {μ : WExpr} {ss : List Seq} (h : allSeqs n cases T le li I μ = some ss)
     (hv : ∀ s ∈ ss, s.Valid) :
     Obl (fun _ => recOf I μ) id (fun _ => True) (fun _ => True) n cases T le li := by
-  have task : ∀ t ∈ tasks le li I, ∃ ts, t.seqs n cases T I μ = some ts ∧ ∀ s ∈ ts, s.Valid :=
-    fun t ht => by
-      obtain ⟨ts, h1, h2⟩ := seqs_mem h ht
-      exact ⟨ts, h1, fun s hs => hv s (h2 s hs)⟩
+  -- every sequent of a task is valid
+  have valid : ∀ {t ts}, t ∈ tasks le li I → t.seqs n cases T I μ = some ts → ∀ s ∈ ts, s.Valid :=
+    fun ht hts s hs => by
+      obtain ⟨ts', h1, h2⟩ := seqs_mem h ht
+      rw [hts, Option.some.injEq] at h1
+      exact hv s (h2 s (h1 ▸ hs))
   have mem_inv : ∀ f ∈ I, ∀ (e : Bool) (p : Facts × Out), (e = true → p ∈ le) → (e = false → p ∈ li) →
       Task.inv f e p ∈ tasks le li I := by
     intro f hf e p h1 h2
@@ -145,38 +135,30 @@ theorem obl_of_seqs {n : Nat} {cases : List Facts} {T : Tree} {le li : List (Fac
     | true => exact Or.inl ⟨p, h1 rfl, rfl⟩
     | false => exact Or.inr ⟨p, h2 rfl, rfl⟩
   have hbelow : treeBelow n T = true := by
-    obtain ⟨ts, h1, -⟩ := task .below (by simp [tasks])
+    obtain ⟨ts, h1, -⟩ := seqs_mem h (t := .below) (by simp [tasks])
     simp only [Task.seqs] at h1
-    split at h1
-    · assumption
-    · simp at h1
+    split at h1 <;> simp_all
   refine ⟨?_, ?_, ?_⟩
   · intro ρ hlen hok _ p hp hph
     split
     · rename_i T' hT'
-      obtain ⟨ts, h1, h2⟩ := task (.entryEnd p) (by simp [tasks, hp])
-      simp only [Task.seqs, hT', Option.some.injEq] at h1
-      subst h1
-      exact endSeqs_sound h2 hok (fun _ h => absurd h List.not_mem_nil) (factsF_holds hph)
+      exact endSeqs_sound (valid (t := .entryEnd p) (by simp [tasks, hp]) (by simp only [Task.seqs, hT']))
+        hok (fun _ h => absurd h List.not_mem_nil) (factsF_holds hph)
     · rename_i hs hhs
-      refine ⟨fun f hf => ?_, trivial⟩
-      obtain ⟨ts, h1, h2⟩ := task (.inv f true p) (mem_inv f hf true p (fun _ => hp) (fun h => absurd h (by decide)))
-      simp only [Task.seqs, hhs, ↓reduceIte, Option.some.injEq] at h1
-      subst h1
-      exact (F.sub_holds (by omega) hs f).mp
-        (goal_of_valid (h2 _ (List.mem_singleton_self _)) (fun _ h => absurd h List.not_mem_nil)
-          (factsF_holds hph))
+      refine ⟨fun f hf => (F.sub_holds (by omega) hs f).mp (goal_of_valid ?_
+        (fun _ h => absurd h List.not_mem_nil) (factsF_holds hph)), trivial⟩
+      exact valid (mem_inv f hf true p (fun _ => hp) nofun) (by simp only [Task.seqs, hhs, ↓reduceIte])
+        _ (List.mem_singleton_self _)
   · intro σ hl hok _ hP _ p hp hph
-    obtain ⟨ts, h1, h2⟩ := task (.iterLeaf p) (by simp [tasks, hp])
+    have hleaf : ∀ {ts}, (Task.iterLeaf p).seqs n cases T I μ = some ts → ∀ s ∈ ts, s.Valid :=
+      valid (by simp [tasks, hp])
     split
     · rename_i T' hT'
-      simp only [Task.seqs, hT', Option.some.injEq] at h1
-      subst h1
-      rw [endSeqs_sound h2 hok hP (factsF_holds hph), tree_below hl T hbelow]
+      rw [endSeqs_sound (hleaf (by simp only [Task.seqs, hT']; rfl)) hok hP (factsF_holds hph),
+        tree_below hl T hbelow]
     · rename_i hs hhs
-      simp only [Task.seqs, hhs, Option.some.injEq] at h1
-      subst h1
-      have hm := goal_of_valid (h2 _ (List.mem_singleton_self _)) hP (factsF_holds hph)
+      have hm := goal_of_valid (hleaf (by simp only [Task.seqs, hhs]; rfl) _ (List.mem_singleton_self _))
+        hP (factsF_holds hph)
       have hm' : μ.eval (nextVal n σ hs) < μ.eval σ := by
         rw [← sub_eval hl hs]; simpa [F.Holds] using hm
       refine ⟨⟨hP, ?_, fun f hf => ?_, hm'⟩, trivial⟩
@@ -184,21 +166,18 @@ theorem obl_of_seqs {n : Nat} {cases : List Facts} {T : Tree} {le li : List (Fac
         simp only [WExpr.eval, BinOp.eval]
         have : 0 < μ.eval σ := by omega
         simp [this, wordSize]
-      · obtain ⟨ts', h1', h2'⟩ := task (.inv f false p)
-          (mem_inv f hf false p (fun h => absurd h (by decide)) (fun _ => hp))
-        simp only [Task.seqs, hhs, Bool.false_eq_true, ↓reduceIte, Option.some.injEq] at h1'
-        subst h1'
-        exact (F.sub_holds hl hs f).mp (goal_of_valid (h2' _ (List.mem_singleton_self _)) hP (factsF_holds hph))
+      · exact (F.sub_holds hl hs f).mp (goal_of_valid
+          (valid (mem_inv f hf false p nofun (fun _ => hp))
+            (by simp only [Task.seqs, hhs, Bool.false_eq_true, ↓reduceIte]) _ (List.mem_singleton_self _))
+          hP (factsF_holds hph))
   · intro σ _ hok _ hP _
     by_contra hno
     simp only [not_exists, not_and] at hno
-    obtain ⟨ts, h1, h2⟩ := task .cover (by simp [tasks])
-    simp only [Task.seqs, Option.some.injEq] at h1
-    subst h1
-    exact false_of_valid (h2 _ (List.mem_singleton_self _)) hP fun f hf => by
-      simp only [List.mem_map] at hf
-      obtain ⟨c, hc, rfl⟩ := hf
-      exact noCase_holds (hno c hc)
+    refine false_of_valid (valid (t := .cover) (by simp [tasks]) rfl _
+      (List.mem_singleton_self _)) hP fun f hf => ?_
+    simp only [List.mem_map] at hf
+    obtain ⟨c, hc, rfl⟩ := hf
+    exact noCase_holds (hno c hc)
 
 /-! ## Deciding a formula at one valuation (for negatives) -/
 
