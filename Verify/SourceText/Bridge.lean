@@ -70,18 +70,6 @@ theorem statement_of_agree {bytes : List Nat} {r : Reading} {fuel gas : Nat} {rt
     (hspec : r.spec gas = spec) (h : Expected src spec rt) : SourceStatement bytes fuel gas rt :=
   ⟨r, hread, hsrc ▸ hspec ▸ h⟩
 
-/-- A call that meets a function spec's precondition and its succeeds-if conditions has an
-allowed status only by succeeding. -/
-theorem success_of_allowed {b : SolidCore.Spec.Bundle} {call : Call} {obs : Observable}
-    (h : bundleAllowed b ctxOfCall call obs) {fs : SolidCore.Spec.FnSpec} (hfs : fs ∈ b.spec.specs)
-    {args : List Int} {pre : SolidCore.Spec.State} (hpre : SolidCore.Spec.Pre b fs (ctxOfCall call) pre call args)
-    (hne : fs.succeedsIf ≠ [])
-    (hs : b.satAll fs.succeedsIf (SolidCore.Spec.mkEnv (ctxOfCall call) args [] pre pre)) :
-    obs.success = true := by
-  rcases h with h | h
-  · exact h
-  · exact absurd hs (h fs hfs args pre hpre hne)
-
 /-- **Row P: the specification on the exact bytes.** For every valid call of a reading's ABI,
 from the gas bound up, the runtime bytes return a result; a call that meets a function spec's
 precondition and its succeeds-if conditions succeeds; and the result meets every ensures
@@ -101,6 +89,6 @@ theorem bytecode_meets {bytes : List Nat} {fuel gas : Nat} {rt : List Nat}
   have ha : (r.spec gas).Assumed := fun A hA => by simp [Reading.spec] at hA
   obtain ⟨-, hrun⟩ := he.bytecode_total ha (ctx := Context.default) rfl call hc
   obtain ⟨obs, hobs, hal, hpost⟩ := hrun g hg hg'
-  exact ⟨obs, hobs, fun fs hfs args pre hpre hne hs => success_of_allowed hal hfs hpre hne hs, hpost⟩
+  exact ⟨obs, hobs, fun fs hfs args pre hpre hne hs => Or.elim hal id (absurd hs <| · fs hfs args pre hpre hne), hpost⟩
 
 end SolidCore.Verify.SourceText

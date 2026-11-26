@@ -46,84 +46,21 @@ open SolidCore.Refinement SolidCore.Refinement.Shapes SolidCore.Verify.SourceTex
 
 /-! ## What a reading does -/
 
+/-- `reads h b v` proves `h : read b = v` in the kernel (`kernel_rfl`, through the definition
+`h_read` and its equation `h_read_eq`), with the selectors by the table of `Cases.Selectors`. -/
+local macro "reads " h:ident ppSpace b:term:max ppSpace v:term:max : command => do
+  let c := Lean.mkIdent (h.getId.appendAfter "_read")
+  let e := Lean.mkIdent (h.getId.appendAfter "_read_eq")
+  return ⟨Lean.mkNullNode #[
+    ← `(def $c := read $b),
+    ← `(kernel_rfl $e $c $v using SolidCore.Verify.SourceText.Cases.Selectors.selector_eq),
+    ← `(theorem $h : read $b = $v := $e)]⟩
+
 /-- The ABI signatures of a reading. -/
-def sigs (o : Option Reading) : Option (List String) := o.map (·.abi.map (·.1))
+def sigs (r : Reading) : List String := r.abi.map (·.1)
 
-/-! ## LedgerRelay -/
-
-namespace Ledger
-
-open Cases
-
-def read0 := read LedgerRelay.bytes
-kernel_rfl read0_eq read0 (some LedgerRelay.upstream) using Cases.Selectors.selector_eq
-theorem original_agrees : read LedgerRelay.bytes = some LedgerRelay.upstream := read0_eq
-
-/-- The record digest of the frozen bytes, sha256 8c89354e…2f6d. -/
-def frozenDigest : List Nat := [0x8c, 0x89, 0x35, 0x4e, 0x56, 0xfc, 0x9a, 0xa4, 0x53, 0xca, 0xa8, 0x48,
-  0x52, 0x59, 0x2a, 0xbe, 0x87, 0xcc, 0x73, 0xe3, 0xff, 0x1a, 0x64, 0xda, 0x8a, 0x37, 0x44, 0x18,
-  0x95, 0x38, 0x2f, 0x6d]
-theorem digest_eq : digest LedgerRelay.bytes = frozenDigest := by decide +kernel
-
-def readAlpha := read LedgerRelayAlpha.bytes
-kernel_rfl readAlpha_eq readAlpha (some LedgerRelayAlpha.upstream) using Cases.Selectors.selector_eq
-theorem alpha_agrees : read LedgerRelayAlpha.bytes = some LedgerRelayAlpha.upstream := readAlpha_eq
-
-def readLayout := read LedgerRelayLayout.bytes
-kernel_rfl readLayout_eq readLayout (some LedgerRelayLayout.upstream) using Cases.Selectors.selector_eq
-theorem layout_agrees : read LedgerRelayLayout.bytes = some LedgerRelayLayout.upstream := readLayout_eq
-
-def readBody := read LedgerRelayBody.bytes
-kernel_rfl readBody_eq readBody (some LedgerRelayBody.upstream) using Cases.Selectors.selector_eq
-theorem body_agrees : read LedgerRelayBody.bytes = some LedgerRelayBody.upstream := readBody_eq
-
-def readSpec := read LedgerRelaySpec.bytes
-kernel_rfl readSpec_eq readSpec (some LedgerRelaySpec.upstream) using Cases.Selectors.selector_eq
-theorem spec_agrees : read LedgerRelaySpec.bytes = some LedgerRelaySpec.upstream := readSpec_eq
-
-def readName := read LedgerRelayName.bytes
-kernel_rfl readName_eq readName (some LedgerRelayName.upstream) using Cases.Selectors.selector_eq
-theorem name_agrees : read LedgerRelayName.bytes = some LedgerRelayName.upstream := readName_eq
-
-def readSwap := read LedgerRelaySwap.bytes
-kernel_rfl readSwap_eq readSwap (some LedgerRelaySwap.upstream) using Cases.Selectors.selector_eq
-theorem swap_agrees : read LedgerRelaySwap.bytes = some LedgerRelaySwap.upstream := readSwap_eq
-
-def readCaller := read LedgerRelayCaller.bytes
-kernel_rfl readCaller_eq readCaller none using Cases.Selectors.selector_eq
-theorem caller_closed : read LedgerRelayCaller.bytes = none := readCaller_eq
-
-def readStorage := read LedgerRelayStorage.bytes
-kernel_rfl readStorage_eq readStorage none using Cases.Selectors.selector_eq
-theorem storage_closed : read LedgerRelayStorage.bytes = none := readStorage_eq
-
-def readRequire := read LedgerRelayRequire.bytes
-kernel_rfl readRequire_eq readRequire none using Cases.Selectors.selector_eq
-theorem require_closed : read LedgerRelayRequire.bytes = none := readRequire_eq
-
-/-! ### Rejection: each mutation parses, and its reading is not the original's -/
-
-def nameSigs := sigs (read LedgerRelayName.bytes)
-kernel_rfl nameSigs_eq nameSigs (some ["left()", "relay(uint256)", "right()", "setPairs(uint256,uint256)", "stamp()"]) using Cases.Selectors.selector_eq
-def origSigs := sigs (some LedgerRelay.upstream)
-kernel_rfl origSigs_eq origSigs (some ["left()", "relay(uint256)", "right()", "setPair(uint256,uint256)", "stamp()"])
-
-theorem name_rejects : (read LedgerRelayName.bytes).isSome ∧ read LedgerRelayName.bytes ≠ some LedgerRelay.upstream := by
-  refine ⟨by rw [name_agrees]; rfl, fun h => ?_⟩
-  have h1 := nameSigs_eq
-  unfold nameSigs at h1
-  rw [h, ← origSigs.eq_def, origSigs_eq] at h1
-  simp at h1
-
-end Ledger
-
-/-! ## Spec rejection: the literals of the ensures
-
-`SolidCore.Spec.Term` has no decidable equality, so a spec mutation is told apart by the integer
-literals of each function spec's ensures, in order: equal readings have equal literals. The walk
-is the same for every term; it stops at a depth bound and skips constructors it does not enter. -/
-
-/-- The integer literals of a term, left to right, to depth `n`. -/
+/-- The integer literals of a term, left to right, to depth `n`. The walk is the same for every
+term; it stops at a depth bound and skips constructors it does not enter. -/
 def lits : Nat → SolidCore.Spec.Term → List Int
   | 0, _ => []
   | _ + 1, .lit v => [v]
@@ -134,24 +71,57 @@ def lits : Nat → SolidCore.Spec.Term → List Int
   | n + 1, .load _ o _ _ => lits n o
   | _, _ => []
 
-/-- The ensures literals of every function spec of a reading. -/
-def ensuresLits (o : Option Reading) : Option (List (List Int)) :=
-  o.map fun r => r.bundle.spec.specs.map fun fs => (fs.ensures.map (lits 64)).flatten
+/-- The ensures literals of every function spec of a reading. `SolidCore.Spec.Term` has no
+decidable equality, so a spec mutation is told apart by these: equal readings have equal
+literals. -/
+def ensuresLits (r : Reading) : List (List Int) :=
+  r.bundle.spec.specs.map fun fs => (fs.ensures.map (lits 64)).flatten
 
-theorem ne_of_ensuresLits {o : Option Reading} {r : Reading} (h : ensuresLits o ≠ ensuresLits (some r)) :
-    o ≠ some r := fun he => h (he ▸ rfl)
+/-- A mutation whose bytes read as `u` parses, and is rejected against `u'` when some function of
+readings tells `u` and `u'` apart. -/
+theorem rejects_of {α : Type} {b : List Nat} {u u' : Reading} (f : Reading → α)
+    (ha : read b = some u) (hne : f u ≠ f u') : (read b).isSome ∧ read b ≠ some u' := by
+  rw [ha]
+  exact ⟨rfl, fun h => hne (by cases Option.some.inj h; rfl)⟩
+
+/-! ## LedgerRelay -/
 
 namespace Ledger
 
 open Cases
 
-def specText := ensuresLits (read LedgerRelaySpec.bytes)
-def origText := ensuresLits (some LedgerRelay.upstream)
+reads original_agrees LedgerRelay.bytes (some LedgerRelay.upstream)
 
-theorem spec_rejects : (read LedgerRelaySpec.bytes).isSome ∧ read LedgerRelaySpec.bytes ≠ some LedgerRelay.upstream := by
-  refine ⟨by rw [spec_agrees]; rfl, ne_of_ensuresLits ?_⟩
-  show specText ≠ origText
-  decide +kernel
+/-- The record digest of the frozen bytes, sha256 8c89354e…2f6d. -/
+def frozenDigest : List Nat := [0x8c, 0x89, 0x35, 0x4e, 0x56, 0xfc, 0x9a, 0xa4, 0x53, 0xca, 0xa8, 0x48,
+  0x52, 0x59, 0x2a, 0xbe, 0x87, 0xcc, 0x73, 0xe3, 0xff, 0x1a, 0x64, 0xda, 0x8a, 0x37, 0x44, 0x18,
+  0x95, 0x38, 0x2f, 0x6d]
+theorem digest_eq : digest LedgerRelay.bytes = frozenDigest := by decide +kernel
+
+reads alpha_agrees LedgerRelayAlpha.bytes (some LedgerRelayAlpha.upstream)
+reads layout_agrees LedgerRelayLayout.bytes (some LedgerRelayLayout.upstream)
+reads body_agrees LedgerRelayBody.bytes (some LedgerRelayBody.upstream)
+reads spec_agrees LedgerRelaySpec.bytes (some LedgerRelaySpec.upstream)
+reads name_agrees LedgerRelayName.bytes (some LedgerRelayName.upstream)
+reads swap_agrees LedgerRelaySwap.bytes (some LedgerRelaySwap.upstream)
+
+def readCaller := read LedgerRelayCaller.bytes
+kernel_rfl readCaller_eq readCaller none using Cases.Selectors.selector_eq
+theorem caller_closed : read LedgerRelayCaller.bytes = none := readCaller_eq
+
+reads storage_closed LedgerRelayStorage.bytes none
+reads require_closed LedgerRelayRequire.bytes none
+
+/-! ### Rejection: each mutation parses, and its reading is not the original's -/
+
+def nameSigs := (read LedgerRelayName.bytes).map sigs
+kernel_rfl nameSigs_eq nameSigs (some ["left()", "relay(uint256)", "right()", "setPairs(uint256,uint256)", "stamp()"]) using Cases.Selectors.selector_eq
+
+theorem name_rejects : (read LedgerRelayName.bytes).isSome ∧ read LedgerRelayName.bytes ≠ some LedgerRelay.upstream :=
+  rejects_of sigs name_agrees (by decide +kernel)
+
+theorem spec_rejects : (read LedgerRelaySpec.bytes).isSome ∧ read LedgerRelaySpec.bytes ≠ some LedgerRelay.upstream :=
+  rejects_of ensuresLits spec_agrees (by decide +kernel)
 
 end Ledger
 
@@ -161,53 +131,22 @@ namespace FlagCases
 
 open Cases
 
-def read0 := read Flag.bytes
-kernel_rfl read0_eq read0 (some Flag.upstream) using Cases.Selectors.selector_eq
-theorem original_agrees : read Flag.bytes = some Flag.upstream := read0_eq
+reads original_agrees Flag.bytes (some Flag.upstream)
+reads body_agrees FlagBody.bytes (some FlagBody.upstream)
+reads spec_agrees FlagSpec.bytes (some FlagSpec.upstream)
+reads name_agrees FlagName.bytes (some FlagName.upstream)
+reads caller_closed FlagCaller.bytes none
+reads storage_closed FlagStorage.bytes none
+reads require_closed FlagRequire.bytes none
 
-def readBody := read FlagBody.bytes
-kernel_rfl readBody_eq readBody (some FlagBody.upstream) using Cases.Selectors.selector_eq
-theorem body_agrees : read FlagBody.bytes = some FlagBody.upstream := readBody_eq
+theorem spec_rejects : (read FlagSpec.bytes).isSome ∧ read FlagSpec.bytes ≠ some Flag.upstream :=
+  rejects_of ensuresLits spec_agrees (by decide +kernel)
 
-def readSpec := read FlagSpec.bytes
-kernel_rfl readSpec_eq readSpec (some FlagSpec.upstream) using Cases.Selectors.selector_eq
-theorem spec_agrees : read FlagSpec.bytes = some FlagSpec.upstream := readSpec_eq
-
-def readName := read FlagName.bytes
-kernel_rfl readName_eq readName (some FlagName.upstream) using Cases.Selectors.selector_eq
-theorem name_agrees : read FlagName.bytes = some FlagName.upstream := readName_eq
-
-def readCaller := read FlagCaller.bytes
-kernel_rfl readCaller_eq readCaller none using Cases.Selectors.selector_eq
-theorem caller_closed : read FlagCaller.bytes = none := readCaller_eq
-
-def readStorage := read FlagStorage.bytes
-kernel_rfl readStorage_eq readStorage none using Cases.Selectors.selector_eq
-theorem storage_closed : read FlagStorage.bytes = none := readStorage_eq
-
-def readRequire := read FlagRequire.bytes
-kernel_rfl readRequire_eq readRequire none using Cases.Selectors.selector_eq
-theorem require_closed : read FlagRequire.bytes = none := readRequire_eq
-
-def specText := ensuresLits (read FlagSpec.bytes)
-def origText := ensuresLits (some Flag.upstream)
-
-theorem spec_rejects : (read FlagSpec.bytes).isSome ∧ read FlagSpec.bytes ≠ some Flag.upstream := by
-  refine ⟨by rw [spec_agrees]; rfl, ne_of_ensuresLits ?_⟩
-  show specText ≠ origText
-  decide +kernel
-
-def nameSigs := sigs (read FlagName.bytes)
+def nameSigs := (read FlagName.bytes).map sigs
 kernel_rfl nameSigs_eq nameSigs (some ["lower()", "raised()", "raises(uint256)", "value()"]) using Cases.Selectors.selector_eq
-def origSigs := sigs (some Flag.upstream)
-kernel_rfl origSigs_eq origSigs (some ["lower()", "raise(uint256)", "raised()", "value()"])
 
-theorem name_rejects : (read FlagName.bytes).isSome ∧ read FlagName.bytes ≠ some Flag.upstream := by
-  refine ⟨by rw [name_agrees]; rfl, fun h => ?_⟩
-  have h1 := nameSigs_eq
-  unfold nameSigs at h1
-  rw [h, ← origSigs.eq_def, origSigs_eq] at h1
-  simp at h1
+theorem name_rejects : (read FlagName.bytes).isSome ∧ read FlagName.bytes ≠ some Flag.upstream :=
+  rejects_of sigs name_agrees (by decide +kernel)
 
 end FlagCases
 

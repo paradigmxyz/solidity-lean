@@ -55,9 +55,14 @@ def direct (r : Reading) (s : String) (args : List Nat) (σ : List (Nat × Nat))
   | none => none
   | some c => shows (Source.run fuel c (callOf (selOf r s) args σ)) n
 
-/-- Two readings whose runs of one call show differently are different readings. -/
-theorem ne_of_runs {r r' : Reading} {s : String} {args : List Nat} {σ : List (Nat × Nat)} {n : Nat}
-    (h : direct r s args σ n ≠ direct r' s args σ n) : r ≠ r' := fun he => h (he ▸ rfl)
+/-- A mutation whose bytes read as `u` parses, and is rejected against `u'` when the two
+readings' runs of one call show differently (`x ≠ y`). -/
+theorem rejects_of_runs {b : List Nat} {u u' : Reading} {s : String} {args : List Nat}
+    {σ : List (Nat × Nat)} {n : Nat} {x y : Option (Bool × List Nat)} (ha : read b = some u)
+    (hx : direct u s args σ n = x) (hy : direct u' s args σ n = y) (hne : x ≠ y) :
+    (read b).isSome ∧ read b ≠ some u' := by
+  rw [ha]
+  exact ⟨rfl, fun h => hne (by cases Option.some.inj h; exact hx.symm.trans hy)⟩
 
 /-- A shown result is SolidCore's run of the call. -/
 theorem run_shows {r : Reading} {s : String} {args : List Nat} {σ : List (Nat × Nat)} {n : Nat}
@@ -65,19 +70,12 @@ theorem run_shows {r : Reading} {s : String} {args : List Nat} {σ : List (Nat �
     ∃ c o, r.checkedAt fuel = some c ∧
       Source.run fuel c (callOf (selOf r s) args σ) = some o ∧
       o.success = b ∧ (List.range n).map o.storage = ws := by
-  unfold direct at h
-  cases hc : r.checkedAt fuel with
-  | none => rw [hc] at h; cases h
-  | some c =>
-    rw [hc] at h
-    simp only [] at h
-    unfold shows at h
-    cases ho : Source.run fuel c (callOf (selOf r s) args σ) with
-    | none => rw [ho] at h; cases h
-    | some o =>
-      rw [ho] at h
-      simp only [Option.map_some, Option.some.injEq, Prod.mk.injEq] at h
-      exact ⟨c, o, rfl, ho, h.1, h.2⟩
+  unfold direct shows at h
+  split at h
+  · cases h
+  · obtain ⟨o, ho, he⟩ := Option.map_eq_some_iff.mp h
+    cases he
+    exact ⟨_, o, ‹_›, ho, rfl, rfl⟩
 
 namespace Ledger
 
@@ -105,19 +103,11 @@ theorem swap_run : ∃ c o, LedgerRelaySwap.upstream.checkedAt fuel = some c ∧
     Source.run fuel c (callOf (selOf LedgerRelaySwap.upstream "relay(uint256)") [9] [(1, 7)]) = some o ∧ o.success = true ∧ (List.range 3).map o.storage = [9, 9, 3] :=
   run_shows swapRelay_eq
 
-theorem body_rejects : (read LedgerRelayBody.bytes).isSome ∧ read LedgerRelayBody.bytes ≠ some LedgerRelay.upstream := by
-  refine ⟨by rw [body_agrees]; rfl, ?_⟩
-  rw [body_agrees]
-  refine fun h => ne_of_runs (s := "setPair(uint256,uint256)") (args := [1, 2]) (σ := []) (n := 3) ?_ (Option.some.inj h)
-  show bodySetPair ≠ origSetPair
-  rw [bodySetPair_eq, origSetPair_eq]; decide
+theorem body_rejects : (read LedgerRelayBody.bytes).isSome ∧ read LedgerRelayBody.bytes ≠ some LedgerRelay.upstream :=
+  rejects_of_runs body_agrees bodySetPair_eq origSetPair_eq (by decide)
 
-theorem swap_rejects : (read LedgerRelaySwap.bytes).isSome ∧ read LedgerRelaySwap.bytes ≠ some LedgerRelay.upstream := by
-  refine ⟨by rw [swap_agrees]; rfl, ?_⟩
-  rw [swap_agrees]
-  refine fun h => ne_of_runs (s := "relay(uint256)") (args := [9]) (σ := [(1, 7)]) (n := 3) ?_ (Option.some.inj h)
-  show swapRelay ≠ origRelay
-  rw [swapRelay_eq, origRelay_eq]; decide
+theorem swap_rejects : (read LedgerRelaySwap.bytes).isSome ∧ read LedgerRelaySwap.bytes ≠ some LedgerRelay.upstream :=
+  rejects_of_runs swap_agrees swapRelay_eq origRelay_eq (by decide)
 
 end Ledger
 
@@ -131,12 +121,8 @@ kernel_rfl origRaise_eq origRaise (some (true, [5, 1])) using Cases.Selectors.se
 def bodyRaise := direct FlagBody.upstream "raise(uint256)" [5] [] 2
 kernel_rfl bodyRaise_eq bodyRaise (some (true, [5, 2])) using Cases.Selectors.selector_eq SolidCore.Verify.VC.mkIdx_eq
 
-theorem body_rejects : (read FlagBody.bytes).isSome ∧ read FlagBody.bytes ≠ some Flag.upstream := by
-  refine ⟨by rw [body_agrees]; rfl, ?_⟩
-  rw [body_agrees]
-  refine fun h => ne_of_runs (s := "raise(uint256)") (args := [5]) (σ := []) (n := 2) ?_ (Option.some.inj h)
-  show bodyRaise ≠ origRaise
-  rw [bodyRaise_eq, origRaise_eq]; decide
+theorem body_rejects : (read FlagBody.bytes).isSome ∧ read FlagBody.bytes ≠ some Flag.upstream :=
+  rejects_of_runs body_agrees bodyRaise_eq origRaise_eq (by decide)
 
 end FlagCases
 
