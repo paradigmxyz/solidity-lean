@@ -79,57 +79,39 @@ theorem lStep_exceptionalHalt (evm : Evm fork Meter) (e : EvmError) :
 
 /-! ## The instructions that give the next frame (after EthLib's Instructions/Static.lean) -/
 
-/-- BALANCE is a static step. -/
-theorem lStep_balanceStep {evm after : Evm fork Meter} (h : balanceStep evm = .ok after) :
-    LStep evm after := by
+set_option hygiene false in
+/-- Closes `LStep evm after` from `h : step evm = .ok after` for a step that pops an address,
+accesses it, charges, may read its code, records the read and pushes one word. -/
+local macro "lstep_read" : tactic => `(tactic| (
   obtain ⟨⟨w, e1⟩, h1, h⟩ := Base.bind_ok_iff.mp h
   rcases hacc : accessAddress e1 (toAddressMasked w) with ⟨cold, e2⟩
   simp only [hacc] at h
-  obtain ⟨e3, h3, h⟩ := Base.bind_ok_iff.mp h
-  obtain ⟨e4, h4, h⟩ := Base.bind_ok_iff.mp h
-  cases h
   have ha : LStep e1 e2 := by
     have := lStep_accessAddress e1 (toAddressMasked w)
     rwa [hacc] at this
+  obtain ⟨e3, h3, h⟩ := Base.bind_ok_iff.mp h
+  obtain ⟨e4, h4, h⟩ := Base.bind_ok_iff.mp h
+  try obtain ⟨e4, h4, h⟩ := Base.bind_ok_iff.mp h
+  cases h
   exact ((((LStep.of_sameContext (popWord_sameContext h1)).trans ha).trans
     (LStep.of_sameContext (chargeGas_sameContext h3))).trans
     (lStep_recordAccountRead _ _)).trans
-    (LStep.of_sameContext (pushWord_sameContext h4)) |>.advance
+    (LStep.of_sameContext (pushWord_sameContext h4)) |>.advance))
+
+/-- BALANCE is a static step. -/
+theorem lStep_balanceStep {evm after : Evm fork Meter} (h : balanceStep evm = .ok after) :
+    LStep evm after := by
+  lstep_read
 
 /-- EXTCODESIZE is a static step. -/
 theorem lStep_extcodesizeStep {evm after : Evm fork Meter}
     (h : extcodesizeStep evm = .ok after) : LStep evm after := by
-  obtain ⟨⟨w, e1⟩, h1, h⟩ := Base.bind_ok_iff.mp h
-  rcases hacc : accessAddress e1 (toAddressMasked w) with ⟨cold, e2⟩
-  simp only [hacc] at h
-  obtain ⟨e3, h3, h⟩ := Base.bind_ok_iff.mp h
-  obtain ⟨code, h4, h⟩ := Base.bind_ok_iff.mp h
-  obtain ⟨e5, h5, h⟩ := Base.bind_ok_iff.mp h
-  cases h
-  have ha : LStep e1 e2 := by
-    have := lStep_accessAddress e1 (toAddressMasked w)
-    rwa [hacc] at this
-  exact ((((LStep.of_sameContext (popWord_sameContext h1)).trans ha).trans
-    (LStep.of_sameContext (chargeGas_sameContext h3))).trans
-    (lStep_recordAccountRead _ _)).trans
-    (LStep.of_sameContext (pushWord_sameContext h5)) |>.advance
+  lstep_read
 
 /-- EXTCODEHASH is a static step. -/
 theorem lStep_extcodehashStep {evm after : Evm fork Meter}
     (h : extcodehashStep evm = .ok after) : LStep evm after := by
-  obtain ⟨⟨w, e1⟩, h1, h⟩ := Base.bind_ok_iff.mp h
-  rcases hacc : accessAddress e1 (toAddressMasked w) with ⟨cold, e2⟩
-  simp only [hacc] at h
-  obtain ⟨e3, h3, h⟩ := Base.bind_ok_iff.mp h
-  obtain ⟨e4, h4, h⟩ := Base.bind_ok_iff.mp h
-  cases h
-  have ha : LStep e1 e2 := by
-    have := lStep_accessAddress e1 (toAddressMasked w)
-    rwa [hacc] at this
-  exact ((((LStep.of_sameContext (popWord_sameContext h1)).trans ha).trans
-    (LStep.of_sameContext (chargeGas_sameContext h3))).trans
-    (lStep_recordAccountRead _ _)).trans
-    (LStep.of_sameContext (pushWord_sameContext h4)) |>.advance
+  lstep_read
 
 /-- EXTCODECOPY is a static step. -/
 theorem lStep_extcodecopyStep {evm after : Evm fork Meter}
@@ -596,39 +578,19 @@ theorem lResult_step {evm : Evm fork Meter} {result : StepResult fork Meter}
 theorem lStep_runPrecompile {address : Nat} {evm after : Evm fork Meter}
     (h : runPrecompile fork address evm = some after) : LStep evm after := by
   unfold runPrecompile at h
-  split at h
-  · cases h
-  · cases h
-    exact lStep_exceptionalHalt _ _
-  · split at h
-    · cases h
-      exact lStep_exceptionalHalt _ _
-    · cases h
-      exact ⟨rfl, rfl⟩
+  repeat' split at h
+  all_goals cases h
+  all_goals first | exact lStep_exceptionalHalt _ _ | exact ⟨rfl, rfl⟩
 
 /-- The deposit of code keeps the substate, and leaves no error only after a frame with none. -/
 theorem depositCode_facts {snapshot : TransactionState} {evm after : Evm fork Meter}
     (h : depositCode fork snapshot evm = .ok after) :
     after.substate = evm.substate ∧ (after.error = none → evm.error = none) := by
   unfold depositCode at h
-  split at h
-  · cases h
-    exact ⟨rfl, id⟩
-  · dsimp only at h
-    split at h
-    · cases h
-      exact ⟨rfl, fun h' => by simp at h'⟩
-    · split at h
-      · cases h
-        exact ⟨rfl, fun h' => by simp at h'⟩
-      · split at h
-        · split at h <;> cases h <;> first | exact ⟨rfl, id⟩ | exact ⟨rfl, fun h' => by simp at h'⟩
-        · split at h
-          · cases h
-            exact ⟨rfl, fun h' => by simp at h'⟩
-          · obtain ⟨st, -, h⟩ := Base.bind_ok_iff.mp h
-            cases h
-            exact ⟨rfl, id⟩
+  repeat' ((try dsimp only at h); split at h)
+  all_goals first
+    | (cases h; first | exact ⟨rfl, id⟩ | exact ⟨rfl, fun h' => by simp at h'⟩)
+    | (obtain ⟨st, -, h⟩ := Base.bind_ok_iff.mp h; cases h; exact ⟨rfl, id⟩)
 
 /-- What a static message that ends with no error keeps: its starting logs. -/
 def LogsKept (message : Message fork) (_state : TransactionState) (substate : Substate)

@@ -322,19 +322,11 @@ theorem sem_norm (o : Oracle) (p : Assemble.Program) (call : Call) :
     (evmirSem o).run (norm p) call = (evmirSem o).run p call := by
   have h : SolarTV.EVM.Program.layer.run o (norm p) = SolarTV.EVM.Program.layer.run o p :=
     run_norm o p
-  have hE : ∀ r, SolarTV.EVM.Program.layer.Ends o (norm p) call r ↔
-      SolarTV.EVM.Program.layer.Ends o p call r := by
-    intro r; simp only [Layer.Ends, h]
-  have hres : SolarTV.EVM.Program.layer.result o (norm p) call =
-      SolarTV.EVM.Program.layer.result o p call := by
-    by_cases hq : ∃ r, SolarTV.EVM.Program.layer.Ends o p call r
-    · obtain ⟨r, hr⟩ := hq
-      rw [SolarTV.EVM.Program.layer.result_of_ends hr,
-        SolarTV.EVM.Program.layer.result_of_ends ((hE r).2 hr)]
-    · have hq' : ¬ ∃ r, SolarTV.EVM.Program.layer.Ends o (norm p) call r :=
-        fun ⟨r, hr⟩ => hq ⟨r, (hE r).1 hr⟩
-      simp only [Layer.result, hq, hq', dite_false]
-  simp only [evmirSem, SolarTV.EVM.Program.sem, Layer.sem, hres]
+  have hE : SolarTV.EVM.Program.layer.Ends o (norm p) call = SolarTV.EVM.Program.layer.Ends o p call := by
+    funext r
+    simp only [Layer.Ends, h]
+  simp only [evmirSem, SolarTV.EVM.Program.sem, Layer.sem, Layer.result]
+  rw [hE]
 
 theorem within_norm {o : Oracle} {T : Sem} {p : Assemble.Program} {code : T.Prog}
     {scope : Call → Prop} (h : Within (evmirSem o) T (norm p) code scope) :

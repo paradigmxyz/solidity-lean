@@ -182,17 +182,10 @@ kernel_rfl shape_eq shape? (some (coreLit, true)) using selector_eq digest_eq
 
 /-! ## The check on solar's module -/
 set_option maxRecDepth 100000 in
-/-- The kernel's evaluation: the generic check accepts stage0 for `transfer`. -/
-theorem check_transfer :
-    Generic.check fuel mirFuel coreLit SolarTV.Export.Events.stage0 [fnTransfer] .callerOnly = true := by
-  decide +kernel
-
-/-- The generic check accepts stage0 for every external function. -/
+/-- The kernel's evaluation: the generic check accepts stage0 for every external function. -/
 theorem check_stage0 :
     Generic.check fuel mirFuel coreLit SolarTV.Export.Events.stage0 fns .callerOnly = true := by
-  have h0 := check_transfer
-  simp only [Generic.check, List.all_cons, List.all_nil, Bool.and_true] at h0
-  simp only [Generic.check, fns, List.all_cons, List.all_nil, Bool.and_true, h0]
+  decide +kernel
 
 set_option maxRecDepth 100000 in
 /-- The kernel's evaluation: no function is payable, and stage0 reverts with empty output on a
