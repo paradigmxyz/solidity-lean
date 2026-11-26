@@ -93,30 +93,8 @@ def selectorTable (s : String) : SolidCore.Solidity.Shared.Word :=
 theorem selector_eq : SolidCore.Solidity.Source.ABI.selectorFromSignature = selectorTable := by
   funext s
   unfold selectorTable
-  by_cases h0 : s = "balanceOf(address)"
-  · rw [ite_eq_left h0, h0]
-    exact selBalanceOf_eq
-  rw [ite_eq_right h0]
-  by_cases h1 : s = "totalSupply()"
-  · rw [ite_eq_left h1, h1]
-    exact selTotalSupply_eq
-  rw [ite_eq_right h1]
-  by_cases h2 : s = "owner()"
-  · rw [ite_eq_left h2, h2]
-    exact selOwner_eq
-  rw [ite_eq_right h2]
-  by_cases h3 : s = "mint(address,uint256)"
-  · rw [ite_eq_left h3, h3]
-    exact selMint_eq
-  rw [ite_eq_right h3]
-  by_cases h4 : s = "transfer(address,uint256)"
-  · rw [ite_eq_left h4, h4]
-    exact selTransfer_eq
-  rw [ite_eq_right h4]
-  by_cases h5 : s = "burn(uint256)"
-  · rw [ite_eq_left h5, h5]
-    exact selBurn_eq
-  rw [ite_eq_right h5]
+  split_ifs <;> subst_vars
+  exacts [selBalanceOf_eq, selTotalSupply_eq, selOwner_eq, selMint_eq, selTransfer_eq, selBurn_eq, rfl]
 
 /-- The revert data of `Panic(0x11)`, byte by byte. -/
 def panic11 : List OByte :=
@@ -253,14 +231,6 @@ def burnPost (call : Call) (obs : SolarTV.Observable) : Prop :=
     obs.storage senderSlot = initStorage call senderSlot - (argWords 1 call).getD 0 0 ∧
       obs.storage 1 = initStorage call 1 - (argWords 1 call).getD 0 0
 
-theorem vc_eq (model : List Nat → SolM (List Nat)) (args : Call → List Nat)
-    (post : Call → SolarTV.Observable → Prop) (call : Call) :
-    vc model args post call =
-      post call (observe (initStorage call) (model (args call) (initStorage call))) := by
-  unfold vc
-  rw [wp_eq]
-  rcases h : model (args call) (initStorage call) with e | ⟨out, s'⟩ <;> simp only [h] <;> rfl
-
 /-- solar-verify's verdict on its script for `Token` gives `burn`'s ensures obligation at the
 assignment of every successful call: `checkScript_sound`, with the facts discharged from the
 success path. -/
@@ -269,55 +239,43 @@ theorem burn_obligation (hv : Valid Export.Token.script) {a b t : Nat} (ha : a �
   checkScript_sound burn_check hv (burnHyps, burnGoal) (List.mem_singleton_self _) _
     (burnHyps_hold ha ht hb htt)
 
-/-- `burn` meets its ensures clause on the stage's scope. SolidCore runs every call as the erased
-tree (`implements_tree`), whose success path writes the caller's slot with the value of
-solar-verify's encoding `burnStore` of the new balance at `burnEnv` (`hagree` below). solar-verify's
-goal for this clause selects the stored value back out of its own `store`, which is valid in the
-array theory, so the triple rests on that agreement and needs no verdict; `burn_obligation` is the
-transfer through `checkScript_sound` that a goal not valid on its own (the invariant, `transfer`'s
-frame) needs. -/
-theorem burn_triple {c : SolidCore.Solidity.TypeCheck.CheckedContract}
-    (hc : contract? = .ok c) :
-    Triple fuel c (stageScope fnBurn [(2, 4096)]) (fun _ => True) burnPost := by
-  have hshape := burnShape_eq
-  simp only [burnShape?, hc, Option.some.injEq, Prod.mk.injEq] at hshape
-  obtain ⟨hdep, hmap⟩ := hshape
-  obtain ⟨d, hd⟩ := Wide.deployedAt_of hdep
-  simp only [Option.map_eq_some_iff, Prod.mk.injEq] at hmap
-  obtain ⟨f, hf, hlen, hT⟩ := hmap
-  have himpl := implements_tree (fn := fnBurn) hd (by decide) hf hlen hT rfl
-  apply triple_of_wp himpl
-  rintro _ ⟨σ, hcov, fn', hfn', args, hl, hargs, rfl⟩ -
-  simp only [List.mem_singleton] at hfn'
-  subst hfn'
+/-- `burnPost` of a call's argument words and storage. -/
+def burnP (args : List Nat) (s : Storage) (o : SolarTV.Observable) : Prop :=
+  o.success = true →
+    o.storage senderSlot = s senderSlot - args.getD 0 0 ∧ o.storage 1 = s 1 - args.getD 0 0
+
+/-- The binding of `burn`'s erased tree: its success path lowers the caller's slot and slot 1 by
+the amount. It needs no obligation: solar-verify's goal for this clause selects the stored value
+back out of its own `store` (`burnStore_eval`), which is valid in the array theory;
+`burn_obligation` is the transfer through `checkScript_sound` that a goal not valid on its own
+(the invariant, `transfer`'s frame) needs. -/
+theorem burn_binds :
+    Binds fnBurn burnTree [] (fun args s => burnEnv (args.getD 0 0) (s senderSlot) (s 1)) burnP := by
+  rintro args s hl hargs hs - hok
   obtain ⟨a, rfl⟩ : ∃ a, args = [a] := by
     match args, hl with
     | [a], _ => exact ⟨a, rfl⟩
-  have ha : a < 2 ^ 256 := hargs a (List.mem_singleton_self a)
-  have hw : argWords 1 ({ calldata := Abi.calldata fnBurn.sel [a], callvalue := 0, storage := σ } :
-      Call) = [a] := argWords_calldata _ [a] hargs 0 σ
-  rw [vc_eq, treeModel_run, show fnBurn.params.length = 1 from rfl, hw]
-  set s := initStorage ({ calldata := Abi.calldata fnBurn.sel [a], callvalue := 0, storage := σ } :
-      Call) with hs_def
-  have hs : ∀ k, s k < 2 ^ 256 := fun k => Generic.slotValue_lt σ k
-  unfold resOutcome
-  split
-  · next hok =>
-    intro _
-    obtain ⟨hb, ht, h1, h2⟩ := tree_success s hs a ha hok
-    have hgoal : (burnStore.eval (burnEnv a (s senderSlot) (s 1))).toInt =
-        ((s senderSlot : Int) - a) := burnStore_eval a _ _
-    -- SolidCore's new balance is the value of solar-verify's encoding of it.
-    have hagree : (((burnTree.eval (valOf [a] s)).store senderSlot : Nat) : Int) =
-        (burnStore.eval (burnEnv a (s senderSlot) (s 1))).toInt := by
-      rw [hgoal, h1]; omega
-    simp only [observe, hw, List.getD_cons_zero]
-    rw [← hs_def]
-    refine ⟨?_, ?_⟩
-    · omega
-    · exact h2
-  · intro h; simp_all [observe]
+  obtain ⟨-, -, h1, h2⟩ := tree_success s hs a (hargs a (List.mem_singleton_self a)) hok
+  exact ⟨h1, h2⟩
 
+/-- What `burnShape_eq` says, as the generic theorems take it: `Token` deploys with `owner` alone
+in storage and no logs, and the source stage erases `burn` to `burnTree`. -/
+theorem burn_erased {c : SolidCore.Solidity.TypeCheck.CheckedContract} (hc : contract? = .ok c) :
+    ∃ d f, Wide.DeployedAt fuel c d [(2, 4096)] ∧ c.core.findFunctionBySelector? fnBurn.sel = some f ∧
+      f.params.length = fnBurn.params.length ∧ eraseFn (envOf c.core) fuel f = some burnTree := by
+  have h := burnShape_eq
+  simp only [burnShape?, hc, Option.some.injEq, Prod.mk.injEq, Option.map_eq_some_iff] at h
+  obtain ⟨hdep, f, hf, hlen, hT⟩ := h
+  obtain ⟨d, hd⟩ := Wide.deployedAt_of hdep
+  exact ⟨d, f, hd, hf, hlen, hT⟩
+
+/-- `burn` meets its ensures clause on the stage's scope: the generic `triple_of_binds` with the
+binding `burn_binds` and no obligation. -/
+theorem burn_triple {c : SolidCore.Solidity.TypeCheck.CheckedContract}
+    (hc : contract? = .ok c) :
+    Triple fuel c (stageScope fnBurn [(2, 4096)]) (fun _ => True) burnPost := by
+  obtain ⟨d, f, hd, hf, hlen, hT⟩ := burn_erased hc
+  exact triple_of_binds hd (by decide) hf hlen hT (fun _ h => by simp at h) burn_binds
 
 /-- info: 'SolidCore.Verify.VC.Token.burn_triple' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in

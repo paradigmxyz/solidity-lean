@@ -149,19 +149,17 @@ macro_rules
 
 set_option maxHeartbeats 4000000 in
 theorem tseg0 (o : Oracle) (call : Call) (hsel : IsBump call) :
-    ∃ k, SegEnds (Inferred.Inv call) (Post call) (fun _ => True)
-      (seg (MIR.Lowered.moduleBlock o call stage0) cut k ([], .enter stage0.entry 0 0, fun _ => 0, MIR.Lowered.Module.startState stage0 (State.initial call))) := by
-  refine ⟨40, ?_⟩
+    SegEnds (Inferred.Inv call) (Post call) (fun _ => True)
+      (seg (MIR.Lowered.moduleBlock o call stage0) cut 40 ([], .enter stage0.entry 0 0, fun _ => 0, MIR.Lowered.Module.startState stage0 (State.initial call))) := by
   unfold IsBump at hsel
   total_seg
 
 set_option maxHeartbeats 4000000 in
 theorem tseg7 (o : Oracle) (call : Call) (env : MIR.Lowered.Env) (s : State)
     (h : Inferred.at7 call env s) :
-    ∃ k, SegEnds (Inferred.Inv call) (Post call)
+    SegEnds (Inferred.Inv call) (Post call)
       (fun y => Inferred.rank call y < Inferred.rank call ([], .enter 4 7 1, env, s))
-      (seg (MIR.Lowered.moduleBlock o call stage0) cut k ([], .enter 4 7 1, env, s)) := by
-  refine ⟨40, ?_⟩
+      (seg (MIR.Lowered.moduleBlock o call stage0) cut 40 ([], .enter 4 7 1, env, s)) := by
   unfold Inferred.at7 at h
   repeat obtain ⟨_, h⟩ := h
   total_seg
@@ -169,10 +167,9 @@ theorem tseg7 (o : Oracle) (call : Call) (env : MIR.Lowered.Env) (s : State)
 set_option maxHeartbeats 4000000 in
 theorem tseg10 (o : Oracle) (call : Call) (env : MIR.Lowered.Env) (s : State)
     (h : Inferred.at10 call env s) :
-    ∃ k, SegEnds (Inferred.Inv call) (Post call)
+    SegEnds (Inferred.Inv call) (Post call)
       (fun y => Inferred.rank call y < Inferred.rank call ([], .enter 4 10 1, env, s))
-      (seg (MIR.Lowered.moduleBlock o call stage0) cut k ([], .enter 4 10 1, env, s)) := by
-  refine ⟨40, ?_⟩
+      (seg (MIR.Lowered.moduleBlock o call stage0) cut 40 ([], .enter 4 10 1, env, s)) := by
   unfold Inferred.at10 at h
   repeat obtain ⟨_, h⟩ := h
   total_seg
@@ -181,36 +178,23 @@ theorem tseg10 (o : Oracle) (call : Call) (env : MIR.Lowered.Env) (s : State)
 `n` is: the loop runs `n` times. -/
 theorem stage0_ends (o : Oracle) (call : Call) (hsel : IsBump call) :
     ∃ r, MIR.Lowered.moduleLayer.Ends o stage0 call r ∧ Post call r := by
-  obtain ⟨n, r, ran, post⟩ := CutPoint.ends_of_start (Inferred.rank call) (tseg0 o call hsel) (by
-    rintro x (⟨env, s, rfl, h⟩ | ⟨env, s, rfl, h⟩)
-    · exact tseg7 o call env s h
-    · exact tseg10 o call env s h)
+  obtain ⟨n, r, ran, post⟩ := CutPoint.ends_of_start (Inferred.rank call) ⟨40, tseg0 o call hsel⟩
+    (by
+      rintro x (⟨env, s, rfl, h⟩ | ⟨env, s, rfl, h⟩)
+      · exact ⟨40, tseg7 o call env s h⟩
+      · exact ⟨40, tseg10 o call env s h⟩)
   refine ⟨r, ⟨n, ?_⟩, post⟩
   change Machine.iterate _ n _ = some r
   rw [CutPoint.iterate_eq]
   exact ran
-
-theorem iterate_le {σ : Type} (step : σ → Option ((Halt × State) ⊕ σ)) {n m : Nat} (x : σ)
-    (r : Halt × State) (le : n ≤ m) (ran : Machine.iterate step n x = some r) :
-    Machine.iterate step m x = some r := by
-  induction le with
-  | refl => exact ran
-  | step _ ih => exact Machine.iterate_mono _ _ _ _ ih
 
 /-- **bump's spec of solar's first lowered MIR, on every call of bump, whatever number of times
 its loop runs**: every end of stage0 on a call with bump's selector meets `Post`, since the one
 `stage0_ends` finds is the only one. -/
 theorem stage0_post (o : Oracle) (call : Call) (hsel : IsBump call) (r : Halt × State)
     (e : MIR.Lowered.moduleLayer.Ends o stage0 call r) : Post call r := by
-  obtain ⟨r0, ⟨n0, e0⟩, post⟩ := stage0_ends o call hsel
-  obtain ⟨n, e⟩ := e
-  change Machine.iterate _ n _ = some r at e
-  change Machine.iterate _ n0 _ = some r0 at e0
-  have h1 := iterate_le _ _ _ (Nat.le_max_left n n0) e
-  have h2 := iterate_le _ _ _ (Nat.le_max_right n n0) e0
-  rw [h1] at h2
-  cases h2
-  exact post
+  obtain ⟨r0, e0, post⟩ := stage0_ends o call hsel
+  rwa [MIR.Lowered.moduleLayer.ends_unique e e0]
 
 /-- `Post` is read off what an observer sees: it holds of an end that agrees with one it holds
 of. -/

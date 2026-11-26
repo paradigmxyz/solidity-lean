@@ -32,12 +32,7 @@ theorem transfer_holds (hsep : SlotsSeparated 0) {c : SolidCore.Solidity.TypeChe
     (hstep : ∀ call, SolidCore.Verify.VC.stageScope fnTransfer [(2, 4096)] call → ∀ g, step call g = g) :
     HoldsFn (solidCore fuel) c (SolidCore.Verify.VC.stageScope fnTransfer [(2, 4096)]) spec ctxOf step
       transferSpec := by
-  have hdep := burnShape_eq
-  simp only [burnShape?, hc, Option.some.injEq, Prod.mk.injEq] at hdep
-  obtain ⟨d, hd⟩ := Wide.deployedAt_of hdep.1
-  have hshape := transferShape_eq
-  simp only [transferShape?, hc, Option.some.injEq, Option.map_eq_some_iff, Prod.mk.injEq] at hshape
-  obtain ⟨f, hf, hlen, hT⟩ := hshape
+  obtain ⟨d, f, hd, hf, hlen, hT⟩ := transfer_erased hc
   exact holdsFn_of_tree_fixed (fn := fnTransfer) hd (by decide) hf hlen hT
     (fun call h => by simp [ctxOf, ctx, h]) hstep (transfer_meets hsep)
 
@@ -49,12 +44,7 @@ theorem transfer_holds_in (W : SolidCore.Refinement.World) (hsep : SlotsSeparate
     (hstep : ∀ call, SolidCore.Verify.VC.stageScope fnTransfer [(2, 4096)] call → ∀ g, step call g = g) :
     HoldsFn (solidCoreIn W fuel) c (SolidCore.Verify.VC.stageScope fnTransfer [(2, 4096)]) spec ctxOf
       step transferSpec := by
-  have hdep := burnShape_eq
-  simp only [burnShape?, hc, Option.some.injEq, Prod.mk.injEq] at hdep
-  obtain ⟨d, hd⟩ := Wide.deployedAt_of hdep.1
-  have hshape := transferShape_eq
-  simp only [transferShape?, hc, Option.some.injEq, Option.map_eq_some_iff, Prod.mk.injEq] at hshape
-  obtain ⟨f, hf, hlen, hT⟩ := hshape
+  obtain ⟨d, f, hd, hf, hlen, hT⟩ := transfer_erased hc
   exact holdsFn_of_tree_fixed_in W (fn := fnTransfer) hd (by decide) hf hlen hT
     (fun call h => by simp [ctxOf, ctx, h]) hstep (transfer_meets hsep)
 

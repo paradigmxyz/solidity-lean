@@ -70,14 +70,8 @@ def selectorTable (s : String) : SolidCore.Solidity.Shared.Word :=
 theorem selector_eq : SolidCore.Solidity.Source.ABI.selectorFromSignature = selectorTable := by
   funext s
   unfold selectorTable
-  by_cases h0 : s = "inc(uint256)"
-  · rw [ite_eq_left h0, h0]
-    exact selInc_eq
-  rw [ite_eq_right h0]
-  by_cases h1 : s = "get()"
-  · rw [ite_eq_left h1, h1]
-    exact selGet_eq
-  rw [ite_eq_right h1]
+  split_ifs <;> subst_vars
+  exacts [selInc_eq, selGet_eq, rfl]
 
 /-- `inc(uint256)` as the stage's ABI sees it. -/
 def fnInc : Fn := ⟨incSel, [.uint 256]⟩
@@ -219,55 +213,53 @@ def incPost (call : Call) (obs : SolarTV.Observable) : Prop :=
   (obs.success = true ↔ s 0 + d < 2 ^ 256) ∧
     (obs.success = true → obs.storage 0 = s 0 + d ∧ ∀ k, k % 2 ^ 256 ≠ 0 → obs.storage k = s k)
 
-theorem vc_eq (model : List Nat → SolM (List Nat)) (args : Call → List Nat)
-    (post : Call → SolarTV.Observable → Prop) (call : Call) :
-    vc model args post call =
-      post call (observe (initStorage call) (model (args call) (initStorage call))) := by
-  unfold vc
-  rw [wp_eq]
-  rcases h : model (args call) (initStorage call) with e | ⟨out, s'⟩ <;> simp only [h] <;> rfl
+/-- `incPost` of a call's argument words and storage. -/
+def incP (args : List Nat) (s : Storage) (o : SolarTV.Observable) : Prop :=
+  let d := args.getD 0 0
+  (o.success = true ↔ s 0 + d < 2 ^ 256) ∧
+    (o.success = true → o.storage 0 = s 0 + d ∧ ∀ k, k % 2 ^ 256 ≠ 0 → o.storage k = s k)
 
-/-- `Counter.inc` on the stage's scope: it succeeds exactly when `x + d` does not wrap, and then slot 0
-holds `x + d` and every other slot is unchanged, through `implementsTree` and the binding to
-solar-verify's encoding. -/
-theorem inc_triple {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) :
-    Triple fuel c (stageScope fnInc []) (fun _ => True) incPost := by
-  have hshape := incShape_eq
-  simp only [incShape?, hc, Option.some.injEq, Prod.mk.injEq] at hshape
-  obtain ⟨hdep, hmap⟩ := hshape
-  obtain ⟨dd, hdd⟩ := Wide.deployedAt_of hdep
-  simp only [Option.map_eq_some_iff, Prod.mk.injEq] at hmap
-  obtain ⟨f, hf, hlen, hT⟩ := hmap
-  have himpl := implements_tree (fn := fnInc) hdd (by decide) hf hlen hT rfl
-  apply triple_of_wp himpl
-  rintro _ ⟨σ, -, fn', hfn', args, hl, hargs, rfl⟩ -
-  simp only [List.mem_singleton] at hfn'
-  subst hfn'
+/-- solar-verify's obligation for `inc`'s clause holds everywhere. -/
+theorem inc_obs_valid : ObsValid [(incHyps, incGoal)] := by
+  intro o ho σ _
+  simp only [List.mem_singleton] at ho
+  subst ho
+  simp [incGoal, incEff, Ob.add, Ob.eq, Ob.x, Ob.d, Tm.Holds, Tm.eval, Tm.evalList, applyOp,
+    Value.select, Value.store, Value.toProp, Value.eq]
+
+/-- The binding of `inc`'s erased tree to solar-verify's obligation, from `inc_binding`. -/
+theorem inc_binds :
+    Binds fnInc incTree [(incHyps, incGoal)] (fun args s => incEnv (args.getD 0 0) s) incP := by
+  intro args s hl hargs hs _
   obtain ⟨d, rfl⟩ : ∃ d, args = [d] := by
     match args, hl with
     | [d], _ => exact ⟨d, rfl⟩
   have hd : d < 2 ^ 256 := hargs d (List.mem_singleton_self d)
-  have hw : argWords 1 ({ calldata := Abi.calldata fnInc.sel [d], callvalue := 0, storage := σ } : Call) =
-      [d] := argWords_calldata _ [d] hargs 0 σ
-  rw [vc_eq, treeModel_run, show fnInc.params.length = 1 from rfl, hw]
-  set s := initStorage ({ calldata := Abi.calldata fnInc.sel [d], callvalue := 0, storage := σ } : Call)
-    with hs_def
-  have hs : ∀ k, s k < 2 ^ 256 := fun k => Generic.slotValue_lt σ k
   obtain ⟨hiff, hok⟩ := inc_binding s hs d hd
-  have hguard := incHyps_iff d s hd (hs 0)
-  simp only [incPost, hw, List.getD_cons_zero, ← hs_def]
-  unfold resOutcome
-  split
-  · next hsucc =>
-    obtain ⟨h0, hk⟩ := hok hsucc
-    rw [incEff_eval] at h0
-    simp only [observe, true_iff]
-    refine ⟨hguard.mp (hiff.mp hsucc), fun _ => ⟨?_, hk⟩⟩
-    omega
-  · next hfail =>
-    simp only [observe, Bool.false_eq_true, false_iff, false_implies, and_true]
-    intro hlt
-    exact hfail (hiff.mpr (hguard.mpr hlt))
+  simp only [incP, Res.obs, List.getD_cons_zero]
+  refine ⟨hiff.trans (incHyps_iff d s hd (hs 0)), fun hsucc => ?_⟩
+  obtain ⟨h0, hk⟩ := hok hsucc
+  rw [incEff_eval] at h0
+  exact ⟨by omega, hk⟩
+
+/-- What `incShape_eq` says, as the generic theorems take it: `Counter` deploys with no storage
+and no logs, and the source stage erases `inc` to `incTree`. -/
+theorem inc_erased {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) :
+    ∃ d f, Wide.DeployedAt fuel c d [] ∧ c.core.findFunctionBySelector? fnInc.sel = some f ∧
+      f.params.length = fnInc.params.length ∧ eraseFn (envOf c.core) fuel f = some incTree := by
+  have h := incShape_eq
+  simp only [incShape?, hc, Option.some.injEq, Prod.mk.injEq, Option.map_eq_some_iff] at h
+  obtain ⟨hdep, f, hf, hlen, hT⟩ := h
+  obtain ⟨d, hd⟩ := Wide.deployedAt_of hdep
+  exact ⟨d, f, hd, hf, hlen, hT⟩
+
+/-- `Counter.inc` on the stage's scope: it succeeds exactly when `x + d` does not wrap, and then
+slot 0 holds `x + d` and every other slot is unchanged: the generic `triple_of_binds` with the
+binding `inc_binds` and its obligation, valid by solar-verify's own encoding. -/
+theorem inc_triple {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) :
+    Triple fuel c (stageScope fnInc []) (fun _ => True) incPost := by
+  obtain ⟨d, f, hd, hf, hlen, hT⟩ := inc_erased hc
+  exact triple_of_binds hd (by decide) hf hlen hT inc_obs_valid inc_binds
 
 /-- info: 'SolidCore.Verify.VC.Counter.inc_triple' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in

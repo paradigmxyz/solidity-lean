@@ -13,9 +13,9 @@ fixed at 40 blocks, which gives a bound read off the ranking: every call of bump
 charged one unit (`stage0_gas`), a metered run with that much gas never runs out of it, and
 its result is the unmetered run's (`SolarTV.CutPoint.runGas_done_run`).
 
-The segments are checked again, conjunct by conjunct, by the symbolic procedure of `Bump`;
-the rank must fall on the back edge (`i` grows, `n` is fixed) or the segment from block 10
-fails by mismatch.
+The segments are `Bump`'s (`tseg0`, `tseg7`, `tseg10`), checked conjunct by conjunct by its
+symbolic procedure at that fuel; the rank must fall on the back edge (`i` grows, `n` is fixed)
+or the segment from block 10 fails by mismatch.
 -/
 
 namespace SolarTV.Milestone.VerifyCounter.Bump
@@ -27,42 +27,14 @@ open SolarTV.CutPoint (seg SegEnds)
 def start (call : Call) : MIR.Lowered.Frame :=
   ([], .enter stage0.entry 0 0, fun _ => 0, MIR.Lowered.Module.startState stage0 (State.initial call))
 
-set_option maxHeartbeats 4000000 in
-theorem wseg0 (o : Oracle) (call : Call) (hsel : IsBump call) :
-    SegEnds (Inferred.Inv call) (Post call) (fun _ => True)
-      (seg (MIR.Lowered.moduleBlock o call stage0) cut 40 (start call)) := by
-  unfold IsBump at hsel
-  unfold start
-  total_seg
-
-set_option maxHeartbeats 4000000 in
-theorem wseg7 (o : Oracle) (call : Call) (env : MIR.Lowered.Env) (s : State)
-    (h : Inferred.at7 call env s) :
-    SegEnds (Inferred.Inv call) (Post call)
-      (fun y => Inferred.rank call y < Inferred.rank call ([], .enter 4 7 1, env, s))
-      (seg (MIR.Lowered.moduleBlock o call stage0) cut 40 ([], .enter 4 7 1, env, s)) := by
-  unfold Inferred.at7 at h
-  repeat obtain ⟨_, h⟩ := h
-  total_seg
-
-set_option maxHeartbeats 4000000 in
-theorem wseg10 (o : Oracle) (call : Call) (env : MIR.Lowered.Env) (s : State)
-    (h : Inferred.at10 call env s) :
-    SegEnds (Inferred.Inv call) (Post call)
-      (fun y => Inferred.rank call y < Inferred.rank call ([], .enter 4 10 1, env, s))
-      (seg (MIR.Lowered.moduleBlock o call stage0) cut 40 ([], .enter 4 10 1, env, s)) := by
-  unfold Inferred.at10 at h
-  repeat obtain ⟨_, h⟩ := h
-  total_seg
-
 /-- Every segment from a cut point of the certificate. -/
 theorem wseg (o : Oracle) (call : Call) :
     ∀ x, Inferred.Inv call x → SegEnds (Inferred.Inv call) (Post call)
       (fun y => Inferred.rank call y < Inferred.rank call x)
       (seg (MIR.Lowered.moduleBlock o call stage0) cut 40 x) := by
   rintro x (⟨env, s, rfl, h⟩ | ⟨env, s, rfl, h⟩)
-  · exact wseg7 o call env s h
-  · exact wseg10 o call env s h
+  · exact tseg7 o call env s h
+  · exact tseg10 o call env s h
 
 /-- Every rank of the invariant is at most `n`. -/
 theorem rank_le (call : Call) :
@@ -75,7 +47,7 @@ theorem stage0_ends_within (o : Oracle) (call : Call) (hsel : IsBump call) :
     ∃ r, Machine.iterate (MIR.Lowered.moduleBlock o call stage0)
       (((calldataWord call 4).toNat + 2) * 40) (start call) = some r ∧ Post call r := by
   obtain ⟨r, ran, post⟩ := CutPoint.ends_within_start (Inferred.rank call) 40
-    (calldataWord call 4).toNat (rank_le call) (wseg0 o call hsel) (wseg o call)
+    (calldataWord call 4).toNat (rank_le call) (tseg0 o call hsel) (wseg o call)
   exact ⟨r, by rw [CutPoint.iterate_eq]; exact ran, post⟩
 
 /-- **The resource form**: charging each block one unit, a run with `(n + 1) * 40` units from

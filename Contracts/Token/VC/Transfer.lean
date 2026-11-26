@@ -599,84 +599,95 @@ def trPost (call : Call) (obs : SolarTV.Observable) : Prop :=
     (t ≠ callerWord → obs.storage (solHash t 0) = s (solHash t 0) + a) ∧
     (∀ x < 2 ^ 160, x ≠ callerWord → x ≠ t → obs.storage (solHash x 0) = s (solHash x 0))
 
-/-- The goal of one of `transfer`'s obligations, at `trEnv`, from solar-verify's verdict. -/
-theorem tr_obligation (hv : Valid Export.Token.script) {φ : Tm} (hφ : (trHyps, φ) ∈ trObs)
-    {s : Storage} (hs : ∀ k, s k < 2 ^ 256) {t a : Nat} (hta : t < 2 ^ 160) (ha : a < 2 ^ 256)
-    (hle : a ≤ s senderSlot) (hov : midTo t a s + a < 2 ^ 256) : φ.Holds (trEnv t a s) :=
-  checkScript_sound transfer_check hv _ hφ _ (trHyps_hold s hs t a hta ha hle hov)
+/-- `trPost` of a call's argument words and storage. -/
+def trP (args : List Nat) (s : Storage) (o : SolarTV.Observable) : Prop :=
+  o.success = true →
+    let t := args.getD 0 0
+    let a := args.getD 1 0
+    (t ≠ callerWord → o.storage (solHash callerWord 0) = s (solHash callerWord 0) - a) ∧
+    (t ≠ callerWord → o.storage (solHash t 0) = s (solHash t 0) + a) ∧
+    (∀ x < 2 ^ 160, x ≠ callerWord → x ≠ t → o.storage (solHash x 0) = s (solHash x 0))
 
-/-- `Token.transfer` meets its three ensures clauses on distinct addresses on the stage's scope,
-given solar-verify's verdict on its script for `Token` and injectivity of the mapping slot on
-address keys. Each clause is read off solar-verify's obligation for it (`tr_obligation`) through
-the binding `trStore_eval`. -/
-theorem transfer_triple (hv : Valid Export.Token.script) (inj : HashInj)
-    {c : SolidCore.Solidity.TypeCheck.CheckedContract} (hc : contract? = .ok c) :
-    Triple fuel c (stageScope fnTransfer [(2, 4096)]) (fun _ => True) trPost := by
-  have hdep := burnShape_eq
-  simp only [burnShape?, hc, Option.some.injEq, Prod.mk.injEq] at hdep
-  obtain ⟨d, hd⟩ := Wide.deployedAt_of hdep.1
-  have hshape := transferShape_eq
-  simp only [transferShape?, hc, Option.some.injEq, Option.map_eq_some_iff, Prod.mk.injEq] at hshape
-  obtain ⟨f, hf, hlen, hT⟩ := hshape
-  have himpl := implements_tree (fn := fnTransfer) hd (by decide) hf hlen hT rfl
-  apply triple_of_wp himpl
-  rintro _ ⟨σ, hcov, fn', hfn', args, hl, hargs, rfl⟩ -
-  simp only [List.mem_singleton] at hfn'
-  subst hfn'
+/-- The binding of `transfer`'s erased tree to its obligations `trObs` at `trEnv`: each clause
+is read off its obligation, whose facts `trHyps_hold` discharges from the success path, through
+`trStore_eval`. -/
+theorem transfer_binds (inj : HashInj) :
+    Binds fnTransfer transferTree trObs (fun args s => trEnv (args.getD 0 0) (args.getD 1 0) s)
+      trP := by
+  rintro args s hl hargs hs hobs hok
   obtain ⟨t, a, rfl⟩ : ∃ t a, args = [t, a] := by
     match args, hl with
     | [t, a], _ => exact ⟨t, a, rfl⟩
   have ht : t < 2 ^ 256 := hargs t (by simp)
   have ha : a < 2 ^ 256 := hargs a (by simp)
-  have hw : argWords 2 ({ calldata := Abi.calldata fnTransfer.sel [t, a], callvalue := 0, storage := σ } : Call) =
-      [t, a] := argWords_calldata _ [t, a] hargs 0 σ
-  rw [vc_eq, treeModel_run, show fnTransfer.params.length = 2 from rfl, hw]
-  set s := initStorage ({ calldata := Abi.calldata fnTransfer.sel [t, a], callvalue := 0, storage := σ } : Call)
-    with hs_def
-  have hs : ∀ k, s k < 2 ^ 256 := fun k => Generic.slotValue_lt σ k
-  unfold resOutcome
-  split
-  · next hok =>
-    intro _
-    obtain ⟨hta, hle, hov, -⟩ := tr_success inj s hs t a ht ha hok
-    have hb := trStore_eval inj s hs t a ht ha hok
-    have hcw : (callerWord : Int) = 8192 := rfl
-    have h8 : balArr s 8192 = (s senderSlot : Int) := balArr_caller s
-    have hob := fun φ (hφ : (trHyps, φ) ∈ trObs) => tr_obligation hv hφ hs hta ha hle hov
-    have gFrom := hob trGoalFrom (by simp [trObs])
-    have gTo := hob trGoalTo (by simp [trObs])
-    have gFrame := hob trGoalFrame (by simp [trObs])
-    obtain ⟨f2, hf2⟩ : ∃ f, Ob.S2.eval (trEnv t a s) = .arr f :=
-      ⟨_, Value.sortOf_arr (Tm.eval_sortOf _ _ (by decide))⟩
-    simp only [trGoalFrom, trGoalTo, trGoalFrame, Tm.Holds, Tm.eval, Tm.evalList, applyOp, Value.select, Value.store,
-      Value.toProp, Value.toInt, Value.toArr, Value.eq, Ob.eq, Ob.sel, Ob.sub, Ob.add, Ob.le0,
-      Ob.leA, Ob.bal, Ob.B, Ob.ms, Ob.amt, Ob.rcpt, S2_setI, hf2] at gFrom gTo gFrame
-    simp only [observe, hw, List.getD_cons_zero, List.getD_cons_succ]
-    rw [← hs_def]
-    have hsl : solHash callerWord 0 = senderSlot := hash_eq
-    refine ⟨fun hne => ?_, fun hne => ?_, fun x hx hx8 hxt => ?_⟩
-    · have e : (((transferTree.eval (valOf [t, a] s)).store senderSlot : Nat) : Int) =
-          (Ob.S2.eval (trEnv t a s)).toArr 8192 := by
-        have := hb callerWord (by decide); rwa [hsl] at this
-      have g := gFrom (by simp; omega)
-      simp [h8] at g
-      simp only [hf2, Value.toArr] at e g
-      rw [hsl]
-      omega
-    · have e := hb t hta
-      have g := gTo (by simp; omega)
-      simp [balArr_nat] at g
-      simp only [hf2, Value.toArr] at e g
-      omega
-    · have e := hb x hx
-      have hx8' : ¬ (x : Int) = 8192 := by intro h; apply hx8; exact_mod_cast h
-      have hxt' : ¬ (x : Int) = t := by omega
-      have hxA : (x : Int) ≤ 1461501637330902918203684832716283019655932542975 := by omega
-      have g := gFrame x
-      simp [balArr_nat, hx8', hxt', hxA, S2_setI] at g
-      simp only [hf2, Value.toArr] at e g
-      omega
-  · intro h; simp_all [observe]
+  obtain ⟨hta, hle, hov, -⟩ := tr_success inj s hs t a ht ha hok
+  have hb := trStore_eval inj s hs t a ht ha hok
+  have hcw : (callerWord : Int) = 8192 := rfl
+  have h8 : balArr s 8192 = (s senderSlot : Int) := balArr_caller s
+  have hob : ∀ φ, (trHyps, φ) ∈ trObs → φ.Holds (trEnv t a s) :=
+    fun φ hφ => hobs _ hφ (trHyps_hold s hs t a hta ha hle hov)
+  have gFrom := hob trGoalFrom (by simp [trObs])
+  have gTo := hob trGoalTo (by simp [trObs])
+  have gFrame := hob trGoalFrame (by simp [trObs])
+  obtain ⟨f2, hf2⟩ : ∃ f, Ob.S2.eval (trEnv t a s) = .arr f :=
+    ⟨_, Value.sortOf_arr (Tm.eval_sortOf _ _ (by decide))⟩
+  simp only [trGoalFrom, trGoalTo, trGoalFrame, Tm.Holds, Tm.eval, Tm.evalList, applyOp, Value.select,
+    Value.store, Value.toProp, Value.toInt, Value.toArr, Value.eq, Ob.eq, Ob.sel, Ob.sub, Ob.add,
+    Ob.le0, Ob.leA, Ob.bal, Ob.B, Ob.ms, Ob.amt, Ob.rcpt, S2_setI, hf2] at gFrom gTo gFrame
+  simp only [Res.obs, List.getD_cons_zero, List.getD_cons_succ]
+  have hsl : solHash callerWord 0 = senderSlot := hash_eq
+  refine ⟨fun hne => ?_, fun hne => ?_, fun x hx hx8 hxt => ?_⟩
+  · have e : (((transferTree.eval (valOf [t, a] s)).store senderSlot : Nat) : Int) =
+        (Ob.S2.eval (trEnv t a s)).toArr 8192 := by
+      have := hb callerWord (by decide); rwa [hsl] at this
+    have g := gFrom (by simp; omega)
+    simp [h8] at g
+    simp only [hf2, Value.toArr] at e g
+    rw [hsl]
+    omega
+  · have e := hb t hta
+    have g := gTo (by simp; omega)
+    simp [balArr_nat] at g
+    simp only [hf2, Value.toArr] at e g
+    omega
+  · have e := hb x hx
+    have hx8' : ¬ (x : Int) = 8192 := by intro h; apply hx8; exact_mod_cast h
+    have hxt' : ¬ (x : Int) = t := by omega
+    have hxA : (x : Int) ≤ 1461501637330902918203684832716283019655932542975 := by omega
+    have g := gFrame x
+    simp [balArr_nat, hx8', hxt', hxA, S2_setI] at g
+    simp only [hf2, Value.toArr] at e g
+    omega
+
+/-- What `burnShape_eq` and `transferShape_eq` say, as the generic theorems take it: `Token`
+deploys with `owner` alone in storage and no logs, and the source stage erases `transfer` to
+`transferTree`. -/
+theorem transfer_erased {c : SolidCore.Solidity.TypeCheck.CheckedContract} (hc : contract? = .ok c) :
+    ∃ d f, Wide.DeployedAt fuel c d [(2, 4096)] ∧
+      c.core.findFunctionBySelector? fnTransfer.sel = some f ∧
+      f.params.length = fnTransfer.params.length ∧ eraseFn (envOf c.core) fuel f = some transferTree := by
+  obtain ⟨d, -, hd, -⟩ := burn_erased hc
+  have h := transferShape_eq
+  simp only [transferShape?, hc, Option.some.injEq, Option.map_eq_some_iff, Prod.mk.injEq] at h
+  obtain ⟨f, hf, hlen, hT⟩ := h
+  exact ⟨d, f, hd, hf, hlen, hT⟩
+
+/-- `transfer`'s clauses on the stage's scope from valid obligations: the generic
+`triple_of_binds` with the binding `transfer_binds`. -/
+theorem transfer_triple_of (hobs : ObsValid trObs) (inj : HashInj)
+    {c : SolidCore.Solidity.TypeCheck.CheckedContract} (hc : contract? = .ok c) :
+    Triple fuel c (stageScope fnTransfer [(2, 4096)]) (fun _ => True) trPost := by
+  obtain ⟨d, f, hd, hf, hlen, hT⟩ := transfer_erased hc
+  exact triple_of_binds hd (by decide) hf hlen hT hobs (transfer_binds inj)
+
+/-- `Token.transfer` meets its three ensures clauses on distinct addresses on the stage's scope,
+given solar-verify's verdict on its script for `Token` and injectivity of the mapping slot on
+address keys. Each clause is read off solar-verify's obligation for it (`checkScript_sound`)
+through the binding `trStore_eval`. -/
+theorem transfer_triple (hv : Valid Export.Token.script) (inj : HashInj)
+    {c : SolidCore.Solidity.TypeCheck.CheckedContract} (hc : contract? = .ok c) :
+    Triple fuel c (stageScope fnTransfer [(2, 4096)]) (fun _ => True) trPost :=
+  transfer_triple_of (checkScript_sound transfer_check hv) inj hc
 
 /-- info: 'SolidCore.Verify.VC.Token.transfer_triple' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in

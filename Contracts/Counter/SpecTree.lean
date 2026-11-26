@@ -38,12 +38,7 @@ theorem inc_meets : TreeMeets spec incSpec ctx 1 incTree := by
 theorem inc_holds {c : SolidCore.Solidity.TypeCheck.CheckedContract} (hc : contract? = .ok c)
     (step : GhostStep) :
     HoldsFn (solidCore fuel) c (SolidCore.Verify.VC.stageScope fnInc []) spec ctxOf step incSpec := by
-  have hshape := incShape_eq
-  simp only [incShape?, hc, Option.some.injEq, Prod.mk.injEq] at hshape
-  obtain ⟨hdep, hmap⟩ := hshape
-  obtain ⟨dd, hdd⟩ := Wide.deployedAt_of hdep
-  simp only [Option.map_eq_some_iff, Prod.mk.injEq] at hmap
-  obtain ⟨f, hf, hlen, hT⟩ := hmap
+  obtain ⟨dd, f, hdd, hf, hlen, hT⟩ := inc_erased hc
   exact holdsFn_of_tree (fn := fnInc) hdd (by decide) hf hlen hT
     (fun call h => by simp [ctxOf, ctx, h]) inc_meets
 

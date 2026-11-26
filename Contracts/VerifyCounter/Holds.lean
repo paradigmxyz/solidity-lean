@@ -234,17 +234,9 @@ theorem holds_stage0 (o : Oracle) : Holds (MIR.Lowered.moduleSem o) stage0 spec 
       subst hret
       have key : (if BitVec.ofNat 256 a < BitVec.ofNat 256 b then BitVec.ofNat 256 b
           else BitVec.ofNat 256 a).toNat = if a ≥ b then a else b := by
-        by_cases h : a < b
-        · have hl : BitVec.ofNat 256 a < BitVec.ofNat 256 b := by
-            rw [BitVec.lt_def, BitVec.toNat_ofNat, BitVec.toNat_ofNat, Nat.mod_eq_of_lt ha,
-              Nat.mod_eq_of_lt hb]
-            exact h
-          rw [if_pos hl, if_neg (by omega), BitVec.toNat_ofNat, Nat.mod_eq_of_lt hb]
-        · have hl : ¬BitVec.ofNat 256 a < BitVec.ofNat 256 b := by
-            rw [BitVec.lt_def, BitVec.toNat_ofNat, BitVec.toNat_ofNat, Nat.mod_eq_of_lt ha,
-              Nat.mod_eq_of_lt hb]
-            exact h
-          rw [if_neg hl, if_pos (by omega), BitVec.toNat_ofNat, Nat.mod_eq_of_lt ha]
+        split_ifs with h1 h2 <;>
+          simp only [BitVec.lt_def, BitVec.toNat_ofNat, Nat.mod_eq_of_lt ha, Nat.mod_eq_of_lt hb]
+            at h1 ⊢ <;> omega
       refine ⟨if a ≥ b then a else b, ?_, rfl, ?_⟩
       · show List.map BitVec.toNat _ = _
         rw [read_store0, key]

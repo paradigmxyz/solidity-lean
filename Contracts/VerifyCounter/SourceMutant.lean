@@ -59,16 +59,7 @@ theorem body_err (ev : List EventDecl) (tbl : FunctionTable) (fn : FunctionDef)
     hrel2.pushScope
   obtain ⟨rt3, rfl, hrel3⟩ := leaf_normal l3
   have h3' := eval_mono (by omega : 10 ≤ f + 1) h3
-  have hrelh : StmtRel (hval ρ 0 (ρ.store 0 + 0)) E ctx rt3.pushScope headerS := by
-    refine StmtRel.congr hrel3.pushScope hrel3.hash hok (Facts.hold_nil _) ?_ ?_ rfl
-    · simp [SymState.push, S0, headerS, frameOf, WExpr.eval, hval]
-    · intro k hk
-      simp only [Writes.store, SymState.push, S0, headerS]
-      split_ifs with hk0
-      · simp only [WExpr.eval, hval, List.getD_cons_succ, List.getD_cons_zero, Nat.add_zero] at hk0 ⊢
-        rw [Nat.mod_eq_of_lt hk] at hk0
-        rw [← hk0, Nat.mod_eq_of_lt h0, Nat.zero_mod]
-      · rfl
+  have hrelh := header_entry hrel3
   -- the loop: its condition always holds and nothing changes
   have hloop : ∀ g, ∃ e, Stmt.eval g E.tbl ctx rt3 loopM = .done (.error e) := by
     refine forLoop_err (fun rt => StmtRel (hval ρ 0 (ρ.store 0 + 0)) E ctx rt headerS) ?_ ?_

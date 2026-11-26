@@ -111,6 +111,24 @@ theorem require_passed (ρ : Val) (hok : ρ.Ok) (hg : ¬([ovf].any (fun g => g.e
   · exact absurd rfl hv
   · omega
 
+/-- The loop's header is entered with the invariant at `i = 0`: the state after `uint256 i = 0`,
+read as `headerS` at `hval ρ 0 count`. -/
+theorem header_entry {ρ : Val} {ev : List EventDecl} {tbl : FunctionTable} {ctx : Context}
+    {rt : Runtime} (h : StmtRel ρ (env ev tbl) ctx rt
+      { S0.push.push.push with scopes := [[("i", .lit 0)], [], [], [("n", .arg 0)]] }) :
+    StmtRel (hval ρ 0 (ρ.store 0 + 0)) (env ev tbl) ctx rt.pushScope headerS := by
+  have hok : ρ.Ok := h.ok
+  have h0 := hok.word 0
+  refine StmtRel.congr h.pushScope h.hash hok (Facts.hold_nil _) ?_ ?_ rfl
+  · simp [SymState.push, S0, headerS, frameOf, WExpr.eval, hval]
+  · intro k hk
+    simp only [Writes.store, SymState.push, S0, headerS]
+    split_ifs with hk0
+    · simp only [WExpr.eval, hval, List.getD_cons_succ, List.getD_cons_zero, Nat.add_zero] at hk0 ⊢
+      rw [Nat.mod_eq_of_lt hk] at hk0
+      rw [← hk0, Nat.mod_eq_of_lt h0, Nat.zero_mod]
+    · rfl
+
 set_option maxHeartbeats 4000000 in
 /-- **bump's body runs to `bumpBr`**, at every fuel from `2 ^ 256 + 8` on. -/
 theorem body_runs (ev : List EventDecl) (tbl : FunctionTable) (fn : FunctionDef)
@@ -164,16 +182,7 @@ theorem body_runs (ev : List EventDecl) (tbl : FunctionTable) (fn : FunctionDef)
   obtain ⟨rt3, rfl, hrel3⟩ := leaf_normal l3
   have h3' := eval_mono (by omega : 10 ≤ f + 1) h3
   -- the loop, by its ranking certificate
-  have hrelh : StmtRel (hval ρ 0 (ρ.store 0 + 0)) E ctx rt3.pushScope headerS := by
-    refine StmtRel.congr hrel3.pushScope hrel3.hash hok (Facts.hold_nil _) ?_ ?_ rfl
-    · simp [SymState.push, S0, headerS, frameOf, WExpr.eval, hval]
-    · intro k hk
-      simp only [Writes.store, SymState.push, S0, headerS]
-      split_ifs with hk0
-      · simp only [WExpr.eval, hval, List.getD_cons_succ, List.getD_cons_zero, Nat.add_zero] at hk0 ⊢
-        rw [Nat.mod_eq_of_lt hk] at hk0
-        rw [← hk0, Nat.mod_eq_of_lt h0, Nat.zero_mod]
-      · rfl
+  have hrelh := header_entry hrel3
   have hskip : Stmt.eval 1 E.tbl ctx rt3.pushScope .skip = .done (.ok (.normal rt3.pushScope)) := by
     rw [Stmt.eval]; rfl
   have hinv : Inv ρ E ctx rt3.pushScope := ⟨0, Nat.zero_le _, hrelh⟩

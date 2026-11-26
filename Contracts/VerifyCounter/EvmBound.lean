@@ -8,7 +8,7 @@ Every stage from the first lowered MIR to the final EVM IR states its target seg
 (`<stage>_bounded : CutPoint.BoundedSim … K'`, written by the certify driver). Chained
 (`CutPoint.BoundedSim.trans`), the stages match the MIR's segments one for one with segments of
 `evm11` of at most 22 blocks each. The MIR's ranking certificate for bump's loop (`n - i`, the
-inferred measure, `Bump.wseg0`, `Bump.wseg`) then bounds the run of the final EVM IR
+inferred measure, `Bump.tseg0`, `Bump.wseg`) then bounds the run of the final EVM IR
 (`CutPoint.ends_within_sim_start`): every call of bump ends on `evm11` within `(n + 2) * 22`
 blocks. This is the block count a gas bound on the bytecode multiplies by the most a block
 costs; it is a step bound derived from the rank, not a chosen fuel.
@@ -29,7 +29,7 @@ theorem evm11_ends_within (o : Oracle) (call : Call) (hsel : IsBump call) :
   obtain ⟨r, ran, -⟩ := CutPoint.ends_within_sim_start (sim := chain) (Inferred.rank call) 40 22
     (calldataWord call 4).toNat (rank_le call) (x₀ := start call)
     (x₀' := ((0, [], State.initial call) : Nat × EVM.Stack × State))
-    (start := wseg0 o call hsel) (segment := wseg o call)
+    (start := tseg0 o call hsel) (segment := wseg o call)
     (rel := by
       repeat' (first | exact ⟨_, List.Mem.head _, rfl, rfl⟩ | (apply Exists.intro; apply And.intro)))
   exact ⟨r, by rw [CutPoint.iterate_eq]; exact ran⟩

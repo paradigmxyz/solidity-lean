@@ -82,11 +82,8 @@ theorem bytecode_of_triple {c : SolidCore.Solidity.TypeCheck.CheckedContract}
     {post : Call → Observable → Prop}
     (ht : Triple fuel c (stageScope fn [(2, 4096)]) (fun _ => True) post) :
     ∀ call, stageScope fn [(2, 4096)] call →
-      ∃ obs, Target.run code call = some obs ∧ post call obs := by
-  intro call hs
-  obtain ⟨hsome, hpost⟩ := ht call hs trivial
-  obtain ⟨obs, hobs⟩ := Option.isSome_iff_exists.mp hsome
-  exact ⟨obs, certified hc h call hs obs hobs, hpost obs hobs⟩
+      ∃ obs, Target.run code call = some obs ∧ post call obs :=
+  VC.bytecode_of_triple (certified hc h) ht
 
 /-- **Token's `burn` on solar's bytecode**, with no hypothesis: every call of `burn(uint256)` in
 solar-verify's binding scope runs, under EthLib, to an observable meeting `burnPost`. -/

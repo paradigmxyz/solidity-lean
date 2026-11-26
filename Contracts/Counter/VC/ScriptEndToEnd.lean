@@ -25,12 +25,7 @@ theorem inc_bytecode_of_script :
       ∃ o, Target.run SolidCore.Refinement.Solar.Counter.code call = some o ∧ treePost fnInc incP call o := by
   obtain ⟨c, hc⟩ := SolidCore.Refinement.Solar.Counter.contract_ok
   have hc' : contract? = .ok c := by exact hc
-  have hshape := incShape_eq
-  simp only [incShape?, hc', Option.some.injEq, Prod.mk.injEq] at hshape
-  obtain ⟨hdep, hmap⟩ := hshape
-  obtain ⟨dd, hdd⟩ := Wide.deployedAt_of hdep
-  simp only [Option.map_eq_some_iff, Prod.mk.injEq] at hmap
-  obtain ⟨f, hf, hlen, hT⟩ := hmap
+  obtain ⟨dd, f, hdd, hf, hlen, hT⟩ := inc_erased hc'
   exact bytecode_of_checked (fn := fnInc) hdd (by decide) hf hlen hT MilestoneDischarged.script_valid
     inc_check inc_binds
     (fun call h => (SolidCore.Refinement.Solar.Counter.Verdict.agree hc).stage call

@@ -70,21 +70,8 @@ def selectorTable (s : String) : SolidCore.Solidity.Shared.Word :=
 theorem selector_eq : ABI.selectorFromSignature = selectorTable := by
   funext s
   unfold selectorTable
-  by_cases h0 : s = "count()"
-  · rw [if_pos h0, h0]; exact selCount_eq
-  rw [if_neg h0]
-  by_cases h1 : s = "limit()"
-  · rw [if_pos h1, h1]; exact selLimit_eq
-  rw [if_neg h1]
-  by_cases h2 : s = "increment()"
-  · rw [if_pos h2, h2]; exact selIncrement_eq
-  rw [if_neg h2]
-  by_cases h3 : s = "bump(uint256)"
-  · rw [if_pos h3, h3]; exact selBump_eq
-  rw [if_neg h3]
-  by_cases h4 : s = "max(uint256,uint256)"
-  · rw [if_pos h4, h4]; exact selMax_eq
-  rw [if_neg h4]
+  split_ifs <;> subst_vars
+  exacts [selCount_eq, selLimit_eq, selIncrement_eq, selBump_eq, selMax_eq, rfl]
 
 /-- What the statement reads of the checked contract. -/
 def shape? : Option (List StorageField × List EventDecl × Option FunctionDef) :=

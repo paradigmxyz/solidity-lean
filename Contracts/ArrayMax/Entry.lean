@@ -1,5 +1,4 @@
-import Contracts.ArrayMax.Entry.Loop
-import Contracts.ArrayMax.Entry.Start
+import Contracts.ArrayMax.Entry.Total
 
 /-!
 # ArrayMaxEntry.max on solar's first lowered MIR, through one cut point
@@ -10,11 +9,13 @@ its header at block 2. The header invariant is not written here: `Inferred.lean`
 solar's `solar-tv/milestone/inferred.py` from what `solar-verify --show-inferred` inferred for the
 loop (the quantified clauses over `xs` included), bound to the header's values, with the frame
 the compiler keeps (the copy of the calldata array, the induction pointer) read off the MIR.
-The segments below check every conjunct, so a wrong clause fails by mismatch.
+The segments (`Entry/Start.lean`, `Entry/Loop.lean`) check every conjunct, so a wrong clause fails
+by mismatch.
 
 * `stage0_post`: every end of stage0 on a call of `max` meets `Post`: on success it returns one
   word `m`, no element of the calldata array is above it, and one element equals it, whatever the
-  array's length (the loop runs `xs.length - 1` times).
+  array's length (the loop runs `xs.length - 1` times). stage0 runs deterministically, so its one
+  end is the one `stage0_ends` (`Entry/Total.lean`) finds.
 
 `CalldataFits`: the calldata is shorter than 2^64 bytes. Without it, offsets past 2^256 wrap in
 the word arithmetic of the decoder, and the copy may land elsewhere; every call the EVM can pay
@@ -32,13 +33,8 @@ open SolarTV.CutPoint (seg SegOk)
 `max` meets `Post`, however many times the loop runs. -/
 theorem stage0_post (o : Oracle) (call : Call) (hsel : IsMax call) (fits : CalldataFits call)
     (r : Halt × State) (e : MIR.Lowered.moduleLayer.Ends o stage0 call r) : Post call r := by
-  obtain ⟨n, e⟩ := e
-  change Machine.iterate _ n _ = some r at e
-  rw [CutPoint.iterate_eq] at e
-  exact CutPoint.post_of_start (seg0 o call hsel fits) (by
-    rintro x (⟨env, s, rfl, h⟩ | ⟨env, s, rfl, h⟩)
-    · exact seg5 o call env s h
-    · exact seg10 o call env s h) n r e
+  obtain ⟨r0, e0, post⟩ := stage0_ends o call hsel fits
+  rwa [MIR.Lowered.moduleLayer.ends_unique e e0]
 
 /-- `Post` is read off what an observer sees. -/
 theorem Post.of_agree {call : Call} {r r' : Halt × State} (ag : Agree r r') (h : Post call r) :

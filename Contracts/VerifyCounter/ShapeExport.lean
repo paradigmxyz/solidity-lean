@@ -36,22 +36,6 @@ def post : Call → Observable → Prop := bundlePost B ctxOfCall idStep
 
 theorem bumpSel_lt : bumpSel < 2 ^ 32 := by decide
 
-theorem slotValue_lt (σ : List (Nat × Nat)) (k : Nat) : slotValue σ k < 2 ^ 256 := by
-  unfold slotValue
-  suffices ∀ (l : List (Nat × Nat)) (a : Nat), a < 2 ^ 256 →
-      l.foldl (fun acc kv => if kv.1 % 2^256 = k % 2^256 then kv.2 % 2^256 else acc) a < 2 ^ 256 from
-    this σ 0 (by decide)
-  intro l
-  induction l with
-  | nil => intro a h; exact h
-  | cons kv l ih =>
-    intro a h
-    simp only [List.foldl_cons]
-    apply ih
-    split
-    · exact Nat.mod_lt _ (by decide)
-    · exact h
-
 theorem decodes_bump {a : Nat} (ha : a < 2 ^ 256) {args : List Int}
     (h : decodeWords [.uint 256] (words (((Abi.calldata bumpSel [a]).data.toList.map (·.toNat)).drop 4)) = some args) :
     args = [(a : Int)] := by
@@ -76,8 +60,8 @@ theorem meets {c : SolidCore.Solidity.TypeCheck.CheckedContract} (hc : contract?
     refine ⟨fun hs => ?_, fun h => absurd rfl h⟩
     obtain ⟨h0, hle, hframe⟩ := success_spec hc hT σ a haw hrun hs
     have h1 := hframe 1 (by decide)
-    have l0 := slotValue_lt σ 0
-    have l1 := slotValue_lt σ 1
+    have l0 : slotValue σ 0 < 2 ^ 256 := Generic.slotValue_lt σ 0
+    have l1 : slotValue σ 1 < 2 ^ 256 := Generic.slotValue_lt σ 1
     simp only [Nat.reducePow] at l0 l1
     refine ⟨[], rfl, ?_, ?_⟩ <;>
       simp only [Bundle.satAll, Bundle.sat, List.mem_cons, List.not_mem_nil, or_false, forall_eq,
