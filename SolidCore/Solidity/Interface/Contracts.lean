@@ -1338,42 +1338,22 @@ theorem mapOption_filter_concat {α γ : Type} (f : α -> Option (List γ)) (p :
         concatLists ys' = (concatLists ys).filter q := by
   intro l
   induction l with
-  | nil => intro ys h; cases h; exact ⟨[], rfl, rfl⟩
+  | nil => rintro _ ⟨⟩; exact ⟨[], rfl, rfl⟩
   | cons x rest ih =>
-      intro ys h
-      unfold mapOption at h
-      cases hx : f x with
-      | none => simp [hx] at h
-      | some zs =>
-          cases hr : mapOption f rest with
-          | none => simp [hx, hr] at h
-          | some yr =>
-              simp only [hx, hr, bind, Option.bind] at h
-              cases h
-              obtain ⟨ys', h1, h2⟩ := ih yr hr
-              have hz := hpq x zs hx
-              cases hp : p x with
-              | true =>
-                  refine ⟨zs :: ys', ?_, ?_⟩
-                  · simp only [List.filter_cons, hp, ↓reduceIte]
-                    unfold mapOption
-                    simp [hx, h1]
-                  · simp only [concatLists, List.filter_append, h2]
-                    congr 1
-                    refine (List.filter_eq_self.mpr ?_).symm
-                    intro z hzm
-                    rw [hz z hzm, hp]
-              | false =>
-                  refine ⟨ys', ?_, ?_⟩
-                  · simp only [List.filter_cons, hp, Bool.false_eq_true, ↓reduceIte]
-                    exact h1
-                  · simp only [concatLists, List.filter_append, h2]
-                    have : zs.filter q = [] := by
-                      rw [List.filter_eq_nil_iff]
-                      intro z hzm
-                      rw [hz z hzm, hp]
-                      simp
-                    rw [this, List.nil_append]
+    intro ys h
+    simp only [mapOption, bind, Option.bind] at h
+    rcases hx : f x with _ | zs <;> rcases hr : mapOption f rest with _ | yr <;>
+      simp only [hx, hr, reduceCtorEq] at h
+    cases h
+    obtain ⟨ys', h1, h2⟩ := ih yr hr
+    have hz := hpq x zs hx
+    cases hp : p x
+    · refine ⟨ys', by simpa [hp] using h1, ?_⟩
+      have : zs.filter q = [] := List.filter_eq_nil_iff.2 fun z hzm => by simp [hz z hzm, hp]
+      simp only [concatLists, List.filter_append, h2, this, List.nil_append]
+    · refine ⟨zs :: ys', by simp [hp, mapOption, hx, h1], ?_⟩
+      have : zs.filter q = zs := List.filter_eq_self.2 fun z hzm => by simp [hz z hzm, hp]
+      simp only [concatLists, List.filter_append, h2, this]
 
 theorem mapOption_filter_single {α γ : Type} (f : α -> Option γ) (p : α -> Bool)
     (q : γ -> Bool) (hpq : ∀ x z, f x = some z -> q z = p x) :
@@ -1381,28 +1361,14 @@ theorem mapOption_filter_single {α γ : Type} (f : α -> Option γ) (p : α -> 
       mapOption f (l.filter p) = some (ys.filter q) := by
   intro l
   induction l with
-  | nil => intro ys h; cases h; rfl
+  | nil => rintro _ ⟨⟩; rfl
   | cons x rest ih =>
-      intro ys h
-      unfold mapOption at h
-      cases hx : f x with
-      | none => simp [hx] at h
-      | some z =>
-          cases hr : mapOption f rest with
-          | none => simp [hx, hr] at h
-          | some yr =>
-              simp only [hx, hr, bind, Option.bind] at h
-              cases h
-              have h1 := ih yr hr
-              have hz := hpq x z hx
-              cases hp : p x with
-              | true =>
-                  simp only [List.filter_cons, hp, ↓reduceIte, hz]
-                  unfold mapOption
-                  simp [hx, h1]
-              | false =>
-                  simp only [List.filter_cons, hp, hz, Bool.false_eq_true, ↓reduceIte]
-                  exact h1
+    intro ys h
+    simp only [mapOption, bind, Option.bind] at h
+    rcases hx : f x with _ | z <;> rcases hr : mapOption f rest with _ | yr <;>
+      simp only [hx, hr, reduceCtorEq] at h
+    cases h
+    cases hp : p x <;> simp [hp, hpq x z hx, mapOption, hx, ih yr hr]
 
 /-- Whenever the whole source unit's external call kind environment exists, the
 environment of the contracts in `scope` is exactly its entries for those contracts. -/
@@ -1433,6 +1399,11 @@ theorem ExternalCallKindEnv.fromContractsFor?_eq_filter {contracts : List Contra
           unfold ExternalCallKindEnv.fromContractsFor?
           simp only [hg', hc', bind, Option.bind, hcat, List.filter_append]
 
+/-- A contract a filter drops is not the contract it keeps. -/
+private theorem beq_false_of_keep_false {keep : Name -> Bool} {c n : Name} (hc : keep c = true)
+    (hk : keep n = false) : (n == c) = false := by
+  rw [beq_eq_false_iff_ne]; rintro rfl; rw [hc] at hk; cases hk
+
 theorem ExternalCallKindEnv.lookup?_filter (keep : Name -> Bool) {c : Name}
     (hc : keep c = true) (functionName : Name) (paramTys : List Ty) :
     ∀ env : ExternalCallKindEnv,
@@ -1442,20 +1413,8 @@ theorem ExternalCallKindEnv.lookup?_filter (keep : Name -> Bool) {c : Name}
   induction env with
   | nil => rfl
   | cons e rest ih =>
-      cases hk : keep e.contractName with
-      | true =>
-          simp only [List.filter_cons, hk, ↓reduceIte]
-          unfold ExternalCallKindEnv.lookup?
-          rw [ih]
-      | false =>
-          simp only [List.filter_cons, hk, Bool.false_eq_true, ↓reduceIte]
-          rw [ih]
-          conv => rhs; unfold ExternalCallKindEnv.lookup?
-          have hne : (e.contractName == c) = false := by
-            cases heq : e.contractName == c
-            · rfl
-            · have := beq_iff_eq.mp heq; rw [this, hc] at hk; cases hk
-          simp [hne]
+      cases hk : keep e.contractName <;>
+        simp [hk, ExternalCallKindEnv.lookup?, ih, beq_false_of_keep_false hc]
 
 theorem ExternalCallKindEnv.lookupConstructorEntry?_filter (keep : Name -> Bool) {c : Name}
     (hc : keep c = true) :
@@ -1466,20 +1425,8 @@ theorem ExternalCallKindEnv.lookupConstructorEntry?_filter (keep : Name -> Bool)
   induction env with
   | nil => rfl
   | cons e rest ih =>
-      cases hk : keep e.contractName with
-      | true =>
-          simp only [List.filter_cons, hk, ↓reduceIte]
-          unfold ExternalCallKindEnv.lookupConstructorEntry?
-          rw [ih]
-      | false =>
-          simp only [List.filter_cons, hk, Bool.false_eq_true, ↓reduceIte]
-          rw [ih]
-          conv => rhs; unfold ExternalCallKindEnv.lookupConstructorEntry?
-          have hne : (e.contractName == c) = false := by
-            cases heq : e.contractName == c
-            · rfl
-            · have := beq_iff_eq.mp heq; rw [this, hc] at hk; cases hk
-          simp [hne]
+      cases hk : keep e.contractName <;>
+        simp [hk, ExternalCallKindEnv.lookupConstructorEntry?, ih, beq_false_of_keep_false hc]
 
 theorem ExternalCallKindEnv.lookupAbiCall?_filter (keep : Name -> Bool) {c : Name}
     (hc : keep c = true) (storageNames : List Name) (functionName : Name) (args : List Arg) :
@@ -1491,20 +1438,8 @@ theorem ExternalCallKindEnv.lookupAbiCall?_filter (keep : Name -> Bool) {c : Nam
   induction env with
   | nil => rfl
   | cons e rest ih =>
-      cases hk : keep e.contractName with
-      | true =>
-          simp only [List.filter_cons, hk, ↓reduceIte]
-          unfold ExternalCallKindEnv.lookupAbiCall?
-          rw [ih]
-      | false =>
-          simp only [List.filter_cons, hk, Bool.false_eq_true, ↓reduceIte]
-          rw [ih]
-          conv => rhs; unfold ExternalCallKindEnv.lookupAbiCall?
-          have hne : (e.contractName == c) = false := by
-            cases heq : e.contractName == c
-            · rfl
-            · have := beq_iff_eq.mp heq; rw [this, hc] at hk; cases hk
-          simp [hne]
+      cases hk : keep e.contractName <;>
+        simp [hk, ExternalCallKindEnv.lookupAbiCall?, ih, beq_false_of_keep_false hc]
 
 /-- Dropping entries of an external call kind environment keeps the type environment
 it makes: a lookup of a key that only kept entries carry answers as before. -/
@@ -1515,75 +1450,29 @@ theorem ExternalCallKindEnv.toTypeEnv?_filter (p : ExternalCallKindEntry -> Bool
         ∀ key : Name,
           (∀ e ∈ env, ∀ ty, e.toTypeEnvEntry? = some (some (key, ty)) -> p e = true) ->
           TypeEnv.lookup? typeEnv' key = TypeEnv.lookup? typeEnv key := by
+  unfold ExternalCallKindEnv.toTypeEnv?
   intro env
   induction env with
-  | nil =>
-      intro typeEnv h
-      cases h
-      exact ⟨[], rfl, fun _ _ => rfl⟩
+  | nil => rintro _ ⟨⟩; exact ⟨[], rfl, fun _ _ => rfl⟩
   | cons e rest ih =>
-      intro typeEnv h
-      unfold ExternalCallKindEnv.toTypeEnv? filterMapOption at h
-      cases he : e.toTypeEnvEntry? with
-      | none => simp [he] at h
-      | some hd =>
-          cases hr : filterMapOption ExternalCallKindEntry.toTypeEnvEntry? rest with
-          | none => simp [he, hr] at h
-          | some tail =>
-              simp only [he, hr, bind, Option.bind] at h
-              obtain ⟨tail', h1, h2⟩ := ih tail hr
-              have hrest : ∀ key : Name,
-                  (∀ e' ∈ e :: rest, ∀ ty, e'.toTypeEnvEntry? = some (some (key, ty)) ->
-                    p e' = true) ->
-                  (∀ e' ∈ rest, ∀ ty, e'.toTypeEnvEntry? = some (some (key, ty)) ->
-                    p e' = true) :=
-                fun key hk e' he' => hk e' (List.mem_cons_of_mem _ he')
-              cases hp : p e with
-              | true =>
-                  cases hd with
-                  | none =>
-                      simp only at h
-                      cases h
-                      refine ⟨tail', ?_, fun key hk => h2 key (hrest key hk)⟩
-                      simp only [List.filter_cons, hp, ↓reduceIte]
-                      unfold ExternalCallKindEnv.toTypeEnv? filterMapOption
-                      unfold ExternalCallKindEnv.toTypeEnv? at h1
-                      simp [he, h1]
-                  | some entry =>
-                      simp only at h
-                      cases h
-                      refine ⟨entry :: tail', ?_, ?_⟩
-                      · simp only [List.filter_cons, hp, ↓reduceIte]
-                        unfold ExternalCallKindEnv.toTypeEnv? filterMapOption
-                        unfold ExternalCallKindEnv.toTypeEnv? at h1
-                        simp [he, h1]
-                      · intro key hk
-                        obtain ⟨k0, ty0⟩ := entry
-                        unfold TypeEnv.lookup?
-                        rw [h2 key (hrest key hk)]
-              | false =>
-                  have h1' : ExternalCallKindEnv.toTypeEnv? ((e :: rest).filter p) = some tail' := by
-                    simp only [List.filter_cons, hp, Bool.false_eq_true, ↓reduceIte]
-                    exact h1
-                  refine ⟨tail', h1', ?_⟩
-                  intro key hk
-                  rw [h2 key (hrest key hk)]
-                  cases hd with
-                  | none => simp only at h; cases h; rfl
-                  | some entry =>
-                      simp only at h
-                      cases h
-                      obtain ⟨k0, ty0⟩ := entry
-                      have hne : (k0 == key) = false := by
-                        cases heq : k0 == key
-                        · rfl
-                        · have hk0 := beq_iff_eq.mp heq
-                          subst hk0
-                          have := hk e (List.mem_cons_self) ty0 he
-                          rw [hp] at this
-                          cases this
-                      conv => rhs; unfold TypeEnv.lookup?
-                      simp [hne]
+    intro typeEnv h
+    simp only [filterMapOption, bind, Option.bind] at h
+    rcases he : e.toTypeEnvEntry? with _ | hd <;>
+      rcases hr : filterMapOption ExternalCallKindEntry.toTypeEnvEntry? rest with _ | tail <;>
+      simp only [he, hr, reduceCtorEq] at h
+    obtain ⟨tail', h1, h2⟩ := ih tail hr
+    have hrest : ∀ key, (∀ e' ∈ e :: rest, ∀ ty,
+        e'.toTypeEnvEntry? = some (some (key, ty)) → p e' = true) →
+        TypeEnv.lookup? tail' key = TypeEnv.lookup? tail key :=
+      fun key hk => h2 key fun e' he' => hk e' (List.mem_cons_of_mem _ he')
+    cases hp : p e <;> rcases hd with _ | ⟨k0, ty0⟩ <;> cases h
+    · exact ⟨tail', by simpa [hp] using h1, hrest⟩
+    · refine ⟨tail', by simpa [hp] using h1, fun key hk => ?_⟩
+      have : k0 ≠ key := by rintro rfl; simpa [hp] using hk e List.mem_cons_self ty0 he
+      simp [TypeEnv.lookup?, this, hrest key hk]
+    · exact ⟨tail', by simp [hp, filterMapOption, he, h1], hrest⟩
+    · exact ⟨(k0, ty0) :: tail', by simp [hp, filterMapOption, he, h1],
+        fun key hk => by simp [TypeEnv.lookup?, hrest key hk]⟩
 
 /-- The type environment of the restricted call kind environment answers every key
 that only entries of contracts in scope carry as the whole one's does. -/

@@ -112,23 +112,17 @@ theorem wordToU256_eq_iff (a b : Word) :
 
 theorem u256_eq_wordToU256_iff (u : EvmYul.UInt256) (k : Word) :
     u = wordToU256 k ↔ wordEq (u256ToWord u) k = true := by
-  constructor
-  · intro h
-    rw [h]
-    rw [wordEq_iff_norm, u256ToWord_wordToU256]
-    simp [SolidCore.Solidity.Shared.norm, SolidCore.Solidity.Shared.wordModulus]
-  · intro h
-    have hn : SolidCore.Solidity.Shared.norm (u256ToWord u) =
-        SolidCore.Solidity.Shared.norm k := (wordEq_iff_norm _ _).1 h
-    rw [norm_u256ToWord] at hn
-    calc u = wordToU256 (u256ToWord u) := (wordToU256_u256ToWord u).symm
-      _ = wordToU256 (SolidCore.Solidity.Shared.norm k) := by rw [hn]
-      _ = wordToU256 k := wordToU256_norm k
+  rw [wordEq_iff_norm, norm_u256ToWord]
+  refine ⟨fun h => h ▸ rfl, fun h => ?_⟩
+  rw [← wordToU256_u256ToWord u, h, wordToU256_norm]
 
 theorem compare_wordToU256_eq_iff (a b : Word) :
     (compare (wordToU256 a) (wordToU256 b) = .eq) ↔ wordEq a b = true := by
   rw [← wordToU256_eq_iff]
   exact Std.LawfulEqCmp.compare_eq_iff_eq
+
+private theorem wordEq_comm (a b : Word) : wordEq a b = wordEq b a := by
+  simp only [wordEq, Bool.beq_comm]
 
 /-! ### Storage conversion round-trip (lookup-extensional) -/
 
@@ -150,25 +144,8 @@ def StorageMap.WF (m : StorageMap) : Prop :=
 theorem u256ToWord_beq_norm_eq (u : EvmYul.UInt256) (k : Word) :
     (u256ToWord u == SolidCore.Solidity.Shared.norm k) =
       (compare (wordToU256 k) u == Ordering.eq) := by
-  have hiff : u256ToWord u = SolidCore.Solidity.Shared.norm k ↔ u = wordToU256 k := by
-    constructor
-    · intro h
-      calc u = wordToU256 (u256ToWord u) := (wordToU256_u256ToWord u).symm
-        _ = wordToU256 (SolidCore.Solidity.Shared.norm k) := by rw [h]
-        _ = wordToU256 k := wordToU256_norm k
-    · intro h; rw [h, u256ToWord_wordToU256]
-  have hcmp : (compare (wordToU256 k) u = Ordering.eq) ↔ u = wordToU256 k := by
-    rw [Std.LawfulEqCmp.compare_eq_iff_eq]
-    exact eq_comm
-  by_cases h : u = wordToU256 k
-  · simp only [(hiff.2 h : u256ToWord u = _), beq_self_eq_true]
-    have : compare (wordToU256 k) u = Ordering.eq := hcmp.2 h
-    simp [this]
-  · have h1 : ¬ (u256ToWord u = SolidCore.Solidity.Shared.norm k) := fun hc => h (hiff.1 hc)
-    have h2 : ¬ (compare (wordToU256 k) u = Ordering.eq) := fun hc => h (hcmp.1 hc)
-    have e1 : (u256ToWord u == SolidCore.Solidity.Shared.norm k) = false := by simp [h1]
-    have e2 : (compare (wordToU256 k) u == Ordering.eq) = false := by simp [h2]
-    rw [e1, e2]
+  rw [Bool.eq_iff_iff, beq_iff_eq, beq_iff_eq, Std.LawfulEqCmp.compare_eq_iff_eq, eq_comm (a := wordToU256 k),
+    u256_eq_wordToU256_iff, wordEq_iff_norm, norm_u256ToWord]
 
 /-- Folding a list of word pairs into an `EvmYul.Storage` (each key/value sent
     through `wordToU256`) is a last-write-wins insert: the resulting `find?` is
@@ -189,47 +166,29 @@ theorem find?_storage_foldl (L : List (Word × Word)) (init : EvmYul.Storage)
       | some w => simp
       | none =>
           simp only [Option.none_or, List.find?_cons, List.find?_nil]
-          by_cases hb : wordEq kv.1 k = true
-          · have hc : compare (wordToU256 k) (wordToU256 kv.1) = Ordering.eq := by
-              rw [compare_wordToU256_eq_iff, wordEq_iff_norm]
-              exact ((wordEq_iff_norm _ _).1 hb).symm
-            simp only [hb, Option.elim]
-            rw [RBTree.RBMap.find?_insert_of_eq _ hc]
-          · have hbf : wordEq kv.1 k = false := by
-              cases hh : wordEq kv.1 k
-              · rfl
-              · exact absurd hh hb
-            have hc : compare (wordToU256 k) (wordToU256 kv.1) ≠ Ordering.eq := by
-              intro hcontra
-              have hkk : wordEq k kv.1 = true := (compare_wordToU256_eq_iff k kv.1).1 hcontra
-              have hsym : wordEq kv.1 k = true := by
-                rw [wordEq_iff_norm] at hkk ⊢; exact hkk.symm
-              exact hb hsym
-            simp only [hbf, Option.elim]
-            rw [RBTree.RBMap.find?_insert_of_ne _ hc]
+          have hc := compare_wordToU256_eq_iff k kv.1
+          rw [wordEq_comm] at hc
+          cases hb : wordEq kv.1 k <;> simp only [Option.elim]
+          · exact RBTree.RBMap.find?_insert_of_ne _ (by simp [hc, hb])
+          · exact RBTree.RBMap.find?_insert_of_eq _ (hc.2 hb)
 
 /-- First-match `find?` is determined by membership + uniqueness. -/
 theorem list_find?_eq_some_of_unique {α : Type} {l : List α} {p : α → Bool}
     {y : α} (hy : y ∈ l) (hp : p y = true)
     (huniq : ∀ z ∈ l, p z = true → z = y) :
     l.find? p = some y := by
-  induction l with
-  | nil => cases hy
-  | cons a t ih =>
-      by_cases ha : p a = true
-      · have haY : a = y := huniq a (List.mem_cons_self) ha
-        subst haY
-        simp [List.find?, ha]
-      · have hy' : y ∈ t := by
-          cases hy with
-          | head => exact absurd hp ha
-          | tail _ h => exact h
-        have ha' : p a = false := by
-          cases hpa : p a
-          · rfl
-          · exact absurd hpa ha
-        simp only [List.find?, ha']
-        exact ih hy' (fun z hz hpz => huniq z (List.mem_cons_of_mem _ hz) hpz)
+  obtain ⟨z, hz, rfl⟩ : ∃ z, l.find? p = some z ∧ z = y := by
+    obtain ⟨z, hz⟩ := Option.isSome_iff_exists.1 (List.find?_isSome.2 ⟨y, hy, hp⟩)
+    exact ⟨z, hz, huniq z (List.mem_of_find?_eq_some hz) (List.find?_some hz)⟩
+  exact hz
+
+/-- Two `toList` entries whose keys both compare equal to one key are the same entry. -/
+private theorem toList_eq_of_compare_eq {T : EvmYul.Storage} {u : EvmYul.UInt256}
+    {x y : EvmYul.UInt256 × EvmYul.UInt256} (hx : x ∈ T.toList) (hy : y ∈ T.toList)
+    (hxu : compare u x.1 = .eq) (hyu : compare u y.1 = .eq) : x = y :=
+  RBTree.RBSet.mem_toList_unique hx hy (by
+    show compare x.1 y.1 = .eq
+    rw [← Std.LawfulEqCmp.eq_of_compare hxu, hyu])
 
 /-- Bridge: `RBMap.findEntry?` is exactly the first `toList` entry whose key
     compares equal (sortedness makes it unique). -/
@@ -241,22 +200,7 @@ theorem toList_find?_eq_findEntry? (T : EvmYul.Storage) (u : EvmYul.UInt256) :
       have hMem := (RBTree.RBMap.findEntry?_some.1 hFind)
       apply list_find?_eq_some_of_unique hMem.1
       · simp [hMem.2]
-      · intro z hz hpz
-        have hzEq : compare u z.1 = Ordering.eq := by
-          cases hc : compare u z.1 <;> simp_all
-        -- two toList entries whose keys both compare .eq to u are the same
-        -- entry, by sortedness (mem_toList_unique on the pair order).
-        have hyz : Ordering.byKey Prod.fst compare z y = Ordering.eq := by
-          show compare z.1 y.1 = Ordering.eq
-          have h₁ : compare z.1 u = Ordering.eq := by
-            have hs := Std.OrientedCmp.eq_swap
-              (cmp := compare) (a := z.1) (b := u)
-            rw [hs, hzEq]
-            rfl
-          have h₂ := Std.TransCmp.congr_left (cmp := compare) h₁ (c := y.1)
-          rw [h₂]
-          exact hMem.2
-        exact RBTree.RBSet.mem_toList_unique hz hMem.1 hyz
+      · exact fun z hz hpz => toList_eq_of_compare_eq hz hMem.1 (by simpa using hpz) hMem.2
   | none =>
       apply List.find?_eq_none.2
       intro z hz
@@ -326,21 +270,8 @@ theorem lookup?_storageToWordMap (T : EvmYul.Storage) (k : Word) :
   unfold StorageMap.lookup? storageToWordMap
   rw [Std.HashMap.get?_eq_getElem?, hfun, getElem?_storage_foldl,
     Std.HashMap.getElem?_empty]
-  rw [find?_reverse_eq_of_unique (l := T.toList) (by
-    intro x hx y hy hpx hpy
-    have hxe : compare (wordToU256 k) x.1 = Ordering.eq := by
-      simpa using hpx
-    have hye : compare (wordToU256 k) y.1 = Ordering.eq := by
-      simpa using hpy
-    have hxy : Ordering.byKey Prod.fst compare x y = Ordering.eq := by
-      show compare x.1 y.1 = Ordering.eq
-      have h₁ : compare x.1 (wordToU256 k) = Ordering.eq := by
-        have hs := Std.OrientedCmp.eq_swap
-          (cmp := compare) (a := x.1) (b := wordToU256 k)
-        rw [hs, hxe]; rfl
-      have h₂ := Std.TransCmp.congr_left (cmp := compare) h₁ (c := y.1)
-      rw [h₂]; exact hye
-    exact RBTree.RBSet.mem_toList_unique hx hy hxy)]
+  rw [find?_reverse_eq_of_unique (l := T.toList) fun x hx y hy hpx hpy =>
+    toList_eq_of_compare_eq hx hy (by simpa using hpx) (by simpa using hpy)]
   rw [toList_find?_eq_findEntry?]
   show (T.findEntry? (wordToU256 k)).elim none (fun kv => some (u256ToWord kv.2)) =
     ((T.findEntry? (wordToU256 k)).map (·.2)).map u256ToWord
@@ -351,59 +282,29 @@ theorem lookup?_storageToWordMap (T : EvmYul.Storage) (k : Word) :
 theorem find?_wordMapToStorage (m : StorageMap) (hm : StorageMap.WF m) (k : Word) :
     (wordMapToStorage m).find? (wordToU256 k) =
       (StorageMap.lookup? m k).map wordToU256 := by
-  have hz_props : ∀ z ∈ Std.HashMap.toList m, wordEq z.1 k = true →
-      z.1 = SolidCore.Solidity.Shared.norm k ∧
+  -- An entry matches `k` exactly when it is the entry stored at `norm k`.
+  have hz : ∀ z ∈ Std.HashMap.toList m, wordEq z.1 k = true →
+      z = (SolidCore.Solidity.Shared.norm k, z.2) ∧
         m[SolidCore.Solidity.Shared.norm k]? = some z.2 := by
-    intro z hzmem hpz
-    have hwf := (hm z hzmem).1
-    have hnn : SolidCore.Solidity.Shared.norm z.1 = SolidCore.Solidity.Shared.norm k :=
-      (wordEq_iff_norm _ _).1 hpz
-    have hz1 : z.1 = SolidCore.Solidity.Shared.norm k := by rw [← hwf]; exact hnn
-    refine ⟨hz1, ?_⟩
-    have hz2 : m[z.1]? = some z.2 := by
-      rw [Std.HashMap.getElem?_eq_some_iff_exists_beq_and_mem_toList]
-      exact ⟨z.1, by simp, by rw [Prod.mk.eta]; exact hzmem⟩
-    rw [hz1] at hz2; exact hz2
-  have hlk : StorageMap.lookup? m k = m[SolidCore.Solidity.Shared.norm k]? := by
-    unfold StorageMap.lookup?; rw [Std.HashMap.get?_eq_getElem?]
-  have hfold : (wordMapToStorage m).find? (wordToU256 k) =
-      (m.toList.foldl (fun (acc : EvmYul.Storage) kv =>
-        acc.insert (wordToU256 kv.1) (wordToU256 kv.2))
-        default).find? (wordToU256 k) := by
-    unfold wordMapToStorage
-    rw [Std.HashMap.fold_eq_foldl_toList]
-  rw [hfold, find?_storage_foldl]
-  have hdef : (default : EvmYul.Storage).find? (wordToU256 k) = none := rfl
-  rw [hdef, hlk]
+    intro z hzm hpz
+    have h1 : z.1 = SolidCore.Solidity.Shared.norm k :=
+      (hm z hzm).1.symm.trans ((wordEq_iff_norm _ _).1 hpz)
+    exact ⟨Prod.ext h1 rfl, h1 ▸ Std.HashMap.mem_toList_iff_getElem?_eq_some.1 hzm⟩
+  unfold wordMapToStorage StorageMap.lookup?
+  rw [Std.HashMap.fold_eq_foldl_toList, find?_storage_foldl, Std.HashMap.get?_eq_getElem?]
   cases hg : m[SolidCore.Solidity.Shared.norm k]? with
   | some v =>
-      have hmem : (SolidCore.Solidity.Shared.norm k, v) ∈ Std.HashMap.toList m := by
-        rcases (Std.HashMap.getElem?_eq_some_iff_exists_beq_and_mem_toList).1 hg
-          with ⟨k', hbeq, hmem'⟩
-        have hkk : SolidCore.Solidity.Shared.norm k = k' := by simpa using hbeq
-        rw [hkk]; exact hmem'
-      have hfr : (Std.HashMap.toList m).reverse.find? (fun kv => wordEq kv.1 k) =
-          some (SolidCore.Solidity.Shared.norm k, v) := by
-        apply list_find?_eq_some_of_unique (List.mem_reverse.2 hmem)
-        · show wordEq (SolidCore.Solidity.Shared.norm k) k = true
-          rw [wordEq_iff_norm]
-          simp only [SolidCore.Solidity.Shared.norm]
-          exact Nat.mod_mod_of_dvd k dvd_rfl
-        · intro z hz hpz
-          obtain ⟨hz1, hz2⟩ := hz_props z (List.mem_reverse.1 hz) hpz
-          rw [hg] at hz2
-          have hz2v : z.2 = v := (Option.some.inj hz2).symm
-          calc z = (z.1, z.2) := (Prod.mk.eta).symm
-            _ = (SolidCore.Solidity.Shared.norm k, v) := by rw [hz1, hz2v]
-      rw [hfr]; rfl
+    rw [list_find?_eq_some_of_unique (y := (SolidCore.Solidity.Shared.norm k, v))
+      (List.mem_reverse.2 (Std.HashMap.mem_toList_iff_getElem?_eq_some.2 hg))
+      ((wordEq_iff_norm _ _).2 (Nat.mod_mod_of_dvd k dvd_rfl))
+      fun z hzm hpz => by
+        obtain ⟨h1, h2⟩ := hz z (List.mem_reverse.1 hzm) hpz
+        rw [h1, Option.some.inj (hg.symm.trans h2)]]
+    rfl
   | none =>
-      have hnone : (Std.HashMap.toList m).reverse.find? (fun kv => wordEq kv.1 k) = none := by
-        rw [List.find?_eq_none]
-        intro z hz hpz
-        obtain ⟨_, hz2⟩ := hz_props z (List.mem_reverse.1 hz) hpz
-        rw [hg] at hz2
-        cases hz2
-      rw [hnone]; rfl
+    rw [List.find?_eq_none.2 fun z hzm hpz => by
+      simpa [hg] using (hz z (List.mem_reverse.1 hzm) hpz).2]
+    rfl
 
 /-- The storage conversion round-trip is lookup-extensional (up to `norm`, which
     every interpreter read applies anyway; canonical stores are already
