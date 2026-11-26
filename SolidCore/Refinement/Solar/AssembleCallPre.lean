@@ -29,13 +29,12 @@ open SolarTV SolarTV.Machine SolidCore.Refinement SolidCore.Refinement.Witness
 open EthLib.Base EthLib.Execution EthLib.Execution.Evm EthLib.Execution.Evm.Logic GasCosts
 open EthLib.Execution.State
 
-/-- ECRECOVER at a frame with the gas for it: the frame ends with no new error, the precompile's
+/-- ECRECOVER at a frame with the gas for it runs, and ends with no new error, the precompile's
 output, and the substate and state it had. -/
-theorem runPrecompile_ecrecover {evm after : Evm .fusaka Nat} (hg : 3000 ≤ evm.gas)
-    (h : runPrecompile .fusaka 1 evm = some after) :
-    after.error = evm.error ∧ after.output = Precompiles.Ecrecover.compute evm.message.data ∧
+theorem runPrecompile_ecrecover {evm : Evm .fusaka Nat} (hg : 3000 ≤ evm.gas) :
+    ∃ after, runPrecompile .fusaka 1 evm = some after ∧ after.error = evm.error ∧
+      after.output = Precompiles.Ecrecover.compute evm.message.data ∧
       after.substate = evm.substate ∧ after.state = evm.state := by
-  unfold runPrecompile at h
   have hrun : Precompiles.run .fusaka 1 evm.message.data (GasMeter.gasLeft evm.gas) =
       some (.ok (Precompiles.Ecrecover.compute evm.message.data)) := by
     simp only [Precompiles.run, show Precompiles.isPrecompile Fork.fusaka 1 = true by decide,
@@ -45,40 +44,20 @@ theorem runPrecompile_ecrecover {evm after : Evm .fusaka Nat} (hg : 3000 ≤ evm
       omega
     rw [ite_cond_eq_false _ _ (eq_false this)]
     rfl
-  rw [hrun] at h
-  simp only at h
   have hp : Precompiles.price .fusaka 1 evm.message.data = some 3000 := by
     simp [Precompiles.price, show Precompiles.isPrecompile Fork.fusaka 1 = true by decide,
       Precompiles.Ecrecover.GAS_ECRECOVER]
-  rw [hp] at h
-  simp only [Option.getD_some] at h
-  split at h
-  · rename_i heq
-    have : ¬ evm.gas < 3000 := by omega
-    simp only [GasMeter.charge, this, ite_false] at heq
-    cases heq
-  · rename_i hc
-    simp only [Option.some.injEq] at h
-    subst h
-    refine ⟨rfl, ?_, rfl, rfl⟩
-    dsimp only
-
-/-- ECRECOVER at a frame with the gas for it runs. -/
-theorem runPrecompile_ecrecover_isSome {evm : Evm .fusaka Nat} (hg : 3000 ≤ evm.gas) :
-    (runPrecompile .fusaka 1 evm).isSome = true := by
   unfold runPrecompile
-  have hrun : Precompiles.run .fusaka 1 evm.message.data (GasMeter.gasLeft evm.gas) =
-      some (.ok (Precompiles.Ecrecover.compute evm.message.data)) := by
-    simp only [Precompiles.run, show Precompiles.isPrecompile Fork.fusaka 1 = true by decide,
-      Bool.not_true, Bool.false_eq_true, ite_false, Precompiles.Ecrecover.ecrecover]
-    have : ¬ GasMeter.gasLeft evm.gas < Precompiles.Ecrecover.GAS_ECRECOVER := by
-      show ¬ evm.gas < 3000
-      omega
-    rw [ite_cond_eq_false _ _ (eq_false this)]
-    rfl
   rw [hrun]
   simp only
-  split <;> rfl
+  rw [hp]
+  simp only [Option.getD_some]
+  split
+  · rename_i heq
+    simp only [GasMeter.charge, show ¬ evm.gas < 3000 by omega, ite_false] at heq
+    cases heq
+  · refine ⟨_, rfl, rfl, ?_, rfl, rfl⟩
+    dsimp only
 
 /-- **A message to ECRECOVER with the gas for it succeeds with EthLib's output**, keeping the
 substate it was sent with. -/
@@ -94,33 +73,15 @@ theorem processMessage_ecrecover {m : Message .fusaka} {state : TransactionState
   have ht : ¬ (m.shouldTransferValue = true ∧ m.value ≠ 0) := by simp [hval]
   simp only [ht, ite_false, hpa, hdis, Bool.false_eq_true, pure, Except.pure, bind, Except.bind]
     at hdo
-  split at hdo
-  · rename_i after heq
-    rw [if_neg ht] at heq
-    cases hdo
-    subst rolled
-    obtain ⟨e1, e2, e3, -⟩ := runPrecompile_ecrecover (by simp only [startFrame]; exact hg) heq
-    simp only [startFrame] at e1 e2 e3
-    have herr : after.error = none := e1
-    refine ⟨?_, ?_, ?_⟩
-    · unfold rollbackOnError
-      split
-      · rename_i hx; rw [herr] at hx; cases hx
-      · exact herr
-    · unfold rollbackOnError
-      split
-      · rename_i hx; rw [herr] at hx; cases hx
-      · exact e2
-    · unfold rollbackOnError
-      split
-      · rename_i hx; rw [herr] at hx; cases hx
-      · exact e3
-  · rename_i heq
-    rw [if_neg ht] at heq
-    have := runPrecompile_ecrecover_isSome (evm := startFrame m (startState .fusaka m state) substate
-      (GasMeter.start m.gas m.reservoir)) (by simp only [startFrame]; exact hg)
-    rw [heq] at this
-    cases this
+  obtain ⟨after, hpre, e1, e2, e3, -⟩ := runPrecompile_ecrecover (evm := startFrame m
+    (startState .fusaka m state) substate (GasMeter.start m.gas m.reservoir))
+    (by simp only [startFrame]; exact hg)
+  split at hdo <;> rename_i heq <;> rw [if_neg ht, hpre] at heq <;> cases heq
+  cases hdo
+  subst rolled
+  simp only [startFrame] at e1 e2 e3
+  simp only [rollbackOnError, e1, e2, e3, Option.isSome_none, Bool.false_eq_true, ite_false,
+    and_self]
 
 /-- A message the runner sends to ECRECOVER with its price in gas: a call (it has a target) whose
 code address is ECRECOVER's, with precompiles enabled, no value and at least 3000 gas. -/

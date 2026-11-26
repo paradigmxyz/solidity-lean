@@ -17,7 +17,7 @@ program's revert, with its data, as RETURN shows its output.
   included.
 * `within_of_advancesR`: `AssembleRun.within_of_advances` with the revert data related
   (`AssembleLoop.WithinR`).
-* `runs_of_checkCR`, `withinRunR_of_checkC`: for every program the checker with GAS accepts, at
+* `withinRunR_of_checkC`: for every program the checker with GAS accepts, at
   every gas below `2 ^ 256` and every call, the oracle of the run's table makes every result of the
   bytecode the EVM IR's, a revert with its data among them, unless the run halted exceptionally.
 
@@ -69,100 +69,68 @@ theorem reaches_lowAt {code : ByteArray} {msg : Message .fusaka} {pc : Nat} {T :
   · exact RevertErr.reaches_lowR (by decide) hr k low e
       (by rw [hat.2.2.2.2.2.2.2.2.1]; simp) within hs h
 
+
 section Dyn
 
 variable {rd : ByteArray}
 
-/-- **MSTORE in a run that succeeds**: the frame had the gas for it and its growth of memory, and
-the run goes on from the frame after it. -/
-theorem mstore_backR {code : ByteArray} {msg : Message .fusaka} {pc : Nat} {o v : Word}
-    {T : List Word} {M : ByteArray} {g : Nat} {st : State.TransactionState} {ss : Substate}
-    {evm : Evm .fusaka Nat} (hat : At code msg pc (o :: v :: T) M g st ss rd evm)
-    (hlt : pc < code.size) (hbyte : code[pc] = 0x52) {bound : Nat}
-    {runChild : MessageRunner .fusaka Nat bound} (within : GasMeter.gasHeld evm.gas ≤ bound)
-    {fin : Evm .fusaka Nat}
-    (hrun : runFrame (step .fusaka) (step_decreases .fusaka) bound runChild evm within = .ok fin)
-    (hok : OkR fin) :
-    3 + (extendMemory M.size [(o, 32)]).cost ≤ g ∧
-    ∃ (m : Evm .fusaka Nat) (within' : GasMeter.gasHeld m.gas ≤ bound),
-      At code msg (pc + 1) T
-        (memoryWrite (memoryExtend M (extendMemory M.size [(o, 32)]).expandBy) o.toNat
-          (wordBytes v))
-        (g - (3 + (extendMemory M.size [(o, 32)]).cost)) st ss rd m ∧
-      runFrame (step .fusaka) (step_decreases .fusaka) bound runChild m within' = .ok fin := by
-  by_cases hg : 3 + (extendMemory M.size [(o, 32)]).cost ≤ g
-  · obtain ⟨m, hr, hm⟩ := Logic.mstore (fork := .fusaka) hlt hbyte hg evm hat
-    have := runFrame_eq_of_reaches (runChild := runChild) Step.gasHeld_le Step.runFrame_eq hr within
-    rw [this] at hrun
-    exact ⟨hg, m, _, hm, hrun⟩
-  · exfalso
-    have hspec : Spec .fusaka (At code msg pc (o :: v :: T) M g st ss rd)
-        (Faulted .outOfGas st ss) := by
-      refine At.fault rfl fun e hat' => ?_
-      obtain ⟨hcode, -, -, hpc, hst, hmem, hgas, -⟩ := hat'
-      subst hcode hpc
-      have decoded : Op.ofByte .fusaka e.code[e.pc] = some .mstore := by
-        rw [hbyte]
-        exact ofByte_of_decode rfl (Fork.frontier_le _)
-      rw [step_of_instruction hlt decoded instruction_mstore, mstoreStep_cons hst]
-      have hc : GasMeter.charge e.gas (OPCODE_MSTORE_BASE + (extendMemory e.memory.size [(o, 32)]).cost)
-          = .error .outOfGas := by
-        rw [hgas, hmem, show OPCODE_MSTORE_BASE = 3 from rfl]
-        have hlt' : g < 3 + (extendMemory M.size [(o, 32)]).cost := Nat.lt_of_not_le hg
-        simp only [GasMeter.charge]
-        rw [ite_eq_left_of_eq_true _ _ (eq_true hlt')]
-      simp only [hc]
-      rfl
-    obtain ⟨z, hr, hstop, hf⟩ := hspec evm hat
-    rw [runFrame_of_reaches hr hstop within] at hrun
-    cases hrun
-    rcases hok with hok | hok <;> rw [hf.2.1] at hok <;> cases hok
+/-- A charge short of its price fails, whatever follows it. -/
+private theorem map_charge_lt {α : Type} {g c : Nat} (h : g < c) (f : Nat → α) :
+    (GasMeter.charge g c).map f = (.error .outOfGas : Except EvmError α) := by
+  simp only [GasMeter.charge, h, ite_true]
+  rfl
 
-/-- **MLOAD in a run that succeeds**: the frame had the gas for it and its growth of memory, and
-the run goes on from the frame after it. -/
-theorem mload_backR {code : ByteArray} {msg : Message .fusaka} {pc : Nat} {o : Word}
-    {T : List Word} {M : ByteArray} {g : Nat} {st : State.TransactionState} {ss : Substate}
-    {evm : Evm .fusaka Nat} (hat : At code msg pc (o :: T) M g st ss rd evm)
-    (hlt : pc < code.size) (hbyte : code[pc] = 0x51) {bound : Nat}
-    {runChild : MessageRunner .fusaka Nat bound} (within : GasMeter.gasHeld evm.gas ≤ bound)
-    {fin : Evm .fusaka Nat}
+/-- An instruction whose rule fails out of gas from every frame of `At` faults the frame. -/
+private theorem faultAt {code : ByteArray} {msg : Message .fusaka} {pc : Nat} {T : List Word}
+    {M : ByteArray} {g : Nat} {st : State.TransactionState} {ss : Substate} {byte : UInt8} {op : Op}
+    {run : Evm .fusaka Nat → Except EvmError (Evm .fusaka Nat)} (hlt : pc < code.size)
+    (hbyte : code[pc] = byte) (decoded : Op.ofByte .fusaka byte = some op)
+    (hrun : instruction .fusaka op = some run)
+    (h : ∀ e, At code msg pc T M g st ss rd e → run e = .error .outOfGas) :
+    Spec .fusaka (At code msg pc T M g st ss rd) (Faulted .outOfGas st ss) :=
+  At.fault rfl fun e hat => by
+    have hr := h e hat
+    obtain ⟨hcode, -, -, hpc, -⟩ := hat
+    subst hcode hpc
+    rw [step_of_instruction hlt (by rw [hbyte]; exact decoded) hrun, hr]
+    rfl
+
+/-- A frame that faults out of gas ends no run that ends with no error or reverts. -/
+private theorem faultR {P : Evm .fusaka Nat → Prop} {st : State.TransactionState} {ss : Substate}
+    (bad : Spec .fusaka P (Faulted .outOfGas st ss)) {evm : Evm .fusaka Nat} (hat : P evm)
+    {bound : Nat} {runChild : MessageRunner .fusaka Nat bound}
+    (within : GasMeter.gasHeld evm.gas ≤ bound) {fin : Evm .fusaka Nat}
+    (hrun : runFrame (step .fusaka) (step_decreases .fusaka) bound runChild evm within = .ok fin)
+    (hok : OkR fin) : False := by
+  obtain ⟨z, hr, hstop, hf⟩ := bad evm hat
+  rw [runFrame_of_reaches hr hstop within] at hrun
+  cases hrun
+  rcases hok with hok | hok <;> rw [hf.2.1] at hok <;> cases hok
+
+/-- **An instruction in a run that ends with no error or reverts**: when the frame short of its
+price `c` faults out of gas, it had the gas, and the run goes on from the frame its rule gives. -/
+private theorem backR {c : Prop} {P Q : Evm .fusaka Nat → Prop} {st : State.TransactionState}
+    {ss : Substate} (ok : c → Hoare .fusaka P Q) (bad : ¬ c → Spec .fusaka P (Faulted .outOfGas st ss))
+    {evm : Evm .fusaka Nat} (hat : P evm) {bound : Nat} {runChild : MessageRunner .fusaka Nat bound}
+    (within : GasMeter.gasHeld evm.gas ≤ bound) {fin : Evm .fusaka Nat}
     (hrun : runFrame (step .fusaka) (step_decreases .fusaka) bound runChild evm within = .ok fin)
     (hok : OkR fin) :
-    3 + (extendMemory M.size [(o, 32)]).cost ≤ g ∧
-    ∃ (m : Evm .fusaka Nat) (within' : GasMeter.gasHeld m.gas ≤ bound),
-      At code msg (pc + 1)
-        (loadWord (memoryReadBytes
-          (memoryExtend M (extendMemory M.size [(o, 32)]).expandBy) o.toNat 32) 0 32 :: T)
-        (memoryExtend M (extendMemory M.size [(o, 32)]).expandBy)
-        (g - (3 + (extendMemory M.size [(o, 32)]).cost)) st ss rd m ∧
+    c ∧ ∃ (m : Evm .fusaka Nat) (within' : GasMeter.gasHeld m.gas ≤ bound), Q m ∧
       runFrame (step .fusaka) (step_decreases .fusaka) bound runChild m within' = .ok fin := by
-  by_cases hg : 3 + (extendMemory M.size [(o, 32)]).cost ≤ g
-  · obtain ⟨m, hr, hm⟩ := Logic.mload (fork := .fusaka) hlt hbyte hg evm hat
-    have := runFrame_eq_of_reaches (runChild := runChild) Step.gasHeld_le Step.runFrame_eq hr within
-    rw [this] at hrun
-    exact ⟨hg, m, _, hm, hrun⟩
-  · exfalso
-    have hspec : Spec .fusaka (At code msg pc (o :: T) M g st ss rd)
-        (Faulted .outOfGas st ss) := by
-      refine At.fault rfl fun e hat' => ?_
-      obtain ⟨hcode, -, -, hpc, hst, hmem, hgas, -⟩ := hat'
-      subst hcode hpc
-      have decoded : Op.ofByte .fusaka e.code[e.pc] = some .mload := by
-        rw [hbyte]
-        exact ofByte_of_decode rfl (Fork.frontier_le _)
-      rw [step_of_instruction hlt decoded instruction_mload, mloadStep_cons hst]
-      have hc : GasMeter.charge e.gas (OPCODE_MLOAD_BASE + (extendMemory e.memory.size [(o, 32)]).cost)
-          = .error .outOfGas := by
-        rw [hgas, hmem, show OPCODE_MLOAD_BASE = 3 from rfl]
-        have hlt' : g < 3 + (extendMemory M.size [(o, 32)]).cost := Nat.lt_of_not_le hg
-        simp only [GasMeter.charge]
-        rw [ite_eq_left_of_eq_true _ _ (eq_true hlt')]
-      simp only [hc]
-      rfl
-    obtain ⟨z, hr, hstop, hf⟩ := hspec evm hat
-    rw [runFrame_of_reaches hr hstop within] at hrun
-    cases hrun
-    rcases hok with hok | hok <;> rw [hf.2.1] at hok <;> cases hok
+  by_cases hc : c
+  · obtain ⟨m, hr, hm⟩ := ok hc evm hat
+    rw [runFrame_eq_of_reaches Step.gasHeld_le Step.runFrame_eq hr within] at hrun
+    exact ⟨hc, m, _, hm, hrun⟩
+  · exact (faultR (bad hc) hat within hrun hok).elim
+
+/-- A growth of memory that a budget below `2 ^ 300` pays for ends below `2 ^ 251` words. -/
+private theorem boundR {m0 : SolarTV.Machine.Mem} {M : ByteArray} {G g X : Nat} {o sz : Word}
+    (hm : MemRel m0 M) (hb : MemBudget G M g) (hG : G < 2 ^ 300)
+    (hg : X + (extendMemory M.size [(o, sz)]).cost ≤ g) :
+    sz = 0 ∨ (o.toNat + sz.toNat + 31) / 32 < 2 ^ 251 := by
+  by_cases hz : sz = 0
+  · exact .inl hz
+  · exact .inr (words_lt_of_cost (budget_grow (by rw [hm.1]; omega) hz hb hg).1 hG)
 
 /-- **RETURN in a run that succeeds**: the frame had the gas for the growth of memory to its
 range. -/
@@ -174,74 +142,12 @@ theorem return_backR {code : ByteArray} {msg : Message .fusaka} {pc : Nat} {o sz
     {fin : Evm .fusaka Nat}
     (hrun : runFrame (step .fusaka) (step_decreases .fusaka) bound runChild evm within = .ok fin)
     (hok : OkR fin) :
-    (extendMemory M.size [(o, sz)]).cost ≤ g := by
-  refine Nat.le_of_not_lt fun hlt' => ?_
-  have hspec : Spec .fusaka (At code msg pc (o :: sz :: T) M g st ss rd)
-      (Faulted .outOfGas st ss) := by
-    refine At.fault rfl fun e hat' => ?_
-    obtain ⟨hcode, -, -, hpc, hst, hmem, hgas, -⟩ := hat'
-    subst hcode hpc
-    have decoded : Op.ofByte .fusaka e.code[e.pc] = some .«return» := by
-      rw [hbyte]
-      exact ofByte_of_decode rfl (Fork.frontier_le _)
-    rw [step_of_instruction hlt decoded instruction_return, returnStep_cons hst]
-    have hc : GasMeter.charge e.gas (extendMemory e.memory.size [(o, sz)]).cost =
-        .error .outOfGas := by
-      rw [hgas, hmem]
-      simp only [GasMeter.charge]
-      rw [ite_eq_left_of_eq_true _ _ (eq_true hlt')]
-    simp only [hc]
-    rfl
-  obtain ⟨z, hr, hstop, hf⟩ := hspec evm hat
-  rw [runFrame_of_reaches hr hstop within] at hrun
-  cases hrun
-  rcases hok with hok | hok <;> rw [hf.2.1] at hok <;> cases hok
-
-/-- **KECCAK256 in a run that succeeds**: the frame had the gas for the hash and the growth of
-memory to its range, and the run goes on from the frame after it. -/
-theorem keccak_backR {code : ByteArray} {msg : Message .fusaka} {pc : Nat} {o sz : Word}
-    {T : List Word} {M : ByteArray} {g : Nat} {st : State.TransactionState} {ss : Substate}
-    {evm : Evm .fusaka Nat} (hat : At code msg pc (o :: sz :: T) M g st ss rd evm)
-    (hlt : pc < code.size) (hbyte : code[pc] = 0x20) {bound : Nat}
-    {runChild : MessageRunner .fusaka Nat bound} (within : GasMeter.gasHeld evm.gas ≤ bound)
-    {fin : Evm .fusaka Nat}
-    (hrun : runFrame (step .fusaka) (step_decreases .fusaka) bound runChild evm within = .ok fin)
-    (hok : OkR fin) :
-    keccak256Cost sz + (extendMemory M.size [(o, sz)]).cost ≤ g ∧
-    ∃ (m : Evm .fusaka Nat) (within' : GasMeter.gasHeld m.gas ≤ bound),
-      At code msg (pc + 1)
-        (keccak (memoryReadBytes (memoryExtend M (extendMemory M.size [(o, sz)]).expandBy)
-          o.toNat sz.toNat) :: T)
-        (memoryExtend M (extendMemory M.size [(o, sz)]).expandBy)
-        (g - (keccak256Cost sz + (extendMemory M.size [(o, sz)]).cost)) st ss rd m ∧
-      runFrame (step .fusaka) (step_decreases .fusaka) bound runChild m within' = .ok fin := by
-  by_cases hg : keccak256Cost sz + (extendMemory M.size [(o, sz)]).cost ≤ g
-  · obtain ⟨m, hr, hm⟩ := Logic.keccak256 (fork := .fusaka) hlt hbyte hg evm hat
-    have := runFrame_eq_of_reaches (runChild := runChild) Step.gasHeld_le Step.runFrame_eq hr within
-    rw [this] at hrun
-    exact ⟨hg, m, _, hm, hrun⟩
-  · exfalso
-    have hspec : Spec .fusaka (At code msg pc (o :: sz :: T) M g st ss rd)
-        (Faulted .outOfGas st ss) := by
-      refine At.fault rfl fun e hat' => ?_
-      obtain ⟨hcode, -, -, hpc, hst, hmem, hgas, -⟩ := hat'
-      subst hcode hpc
-      have decoded : Op.ofByte .fusaka e.code[e.pc] = some .keccak256 := by
-        rw [hbyte]
-        exact ofByte_of_decode rfl (Fork.frontier_le _)
-      rw [step_of_instruction hlt decoded instruction_keccak256, keccak256Step_cons hst]
-      have hlt' : g < keccak256Cost sz + (extendMemory M.size [(o, sz)]).cost := Nat.lt_of_not_le hg
-      have hc : GasMeter.charge e.gas (keccak256Cost sz +
-          (extendMemory e.memory.size [(o, sz)]).cost) = .error .outOfGas := by
-        rw [hgas, hmem]
-        simp only [GasMeter.charge]
-        rw [ite_eq_left_of_eq_true _ _ (eq_true hlt')]
-      simp only [hc]
-      rfl
-    obtain ⟨z, hr, hstop, hf⟩ := hspec evm hat
-    rw [runFrame_of_reaches hr hstop within] at hrun
-    cases hrun
-    rcases hok with hok | hok <;> rw [hf.2.1] at hok <;> cases hok
+    (extendMemory M.size [(o, sz)]).cost ≤ g :=
+  Nat.le_of_not_lt fun hlt' => faultR (faultAt hlt hbyte (ofByte_of_decode rfl (Fork.frontier_le _))
+    instruction_return fun e hat' => by
+      obtain ⟨-, -, -, -, hst, rfl, rfl, -⟩ := hat'
+      rw [returnStep_cons hst]
+      exact map_charge_lt hlt' _) hat within hrun hok
 
 /-- **KECCAK256 of any range, in a run that succeeds**: with the budget below `2 ^ 300`,
 SolarTV's growth agrees with EthLib's memory after it, the budget holds at the gas left, and the run
@@ -265,72 +171,14 @@ theorem keccak_dynR {code : ByteArray} {msg : Message .fusaka} {pc : Nat} {o sz 
         (memoryExtend M (extendMemory M.size [(o, sz)]).expandBy)
         (g - (keccak256Cost sz + (extendMemory M.size [(o, sz)]).cost)) st ss rd m ∧
       runFrame (step .fusaka) (step_decreases .fusaka) bound runChild m within' = .ok fin := by
-  obtain ⟨hg, m, within', hat', hrun'⟩ := keccak_backR hat hlt hbyte within hrun hok
-  have hmod : M.size % 32 = 0 := by rw [hm.1]; omega
-  have hbound : sz = 0 ∨ (o.toNat + sz.toNat + 31) / 32 < 2 ^ 251 := by
-    by_cases hz : sz = 0
-    · exact .inl hz
-    · exact .inr (words_lt_of_cost (budget_grow hmod hz hb hg).1 hG)
-  refine ⟨m, within', memRel_expandW hm hbound, ?_, hat', hrun'⟩
-  exact MemBudget.grow hmod hb hg (size_memoryExtend M _)
-
-/-- **LOGn in a run that succeeds**: the frame had the gas for the log and the growth of memory
-to its range, and the run goes on from the frame after it, with the log appended. -/
-theorem log_backR {n : Fin 5} {byte : UInt8} {code : ByteArray} {msg : Message .fusaka} {pc : Nat}
-    {o sz : Word} {words T : List Word} {M : ByteArray} {g : Nat} {st : State.TransactionState}
-    {ss : Substate} {evm : Evm .fusaka Nat}
-    (hat : At code msg pc (o :: sz :: (words ++ T)) M g st ss rd evm)
-    (hlen : words.length = n.val) (hlt : pc < code.size) (hbyte : code[pc] = byte)
-    (decoded : Op.decode byte = some (.log n)) (hstatic : msg.isStatic = false) {bound : Nat}
-    {runChild : MessageRunner .fusaka Nat bound} (within : GasMeter.gasHeld evm.gas ≤ bound)
-    {fin : Evm .fusaka Nat}
-    (hrun : runFrame (step .fusaka) (step_decreases .fusaka) bound runChild evm within = .ok fin)
-    (hok : OkR fin) :
-    logCost n.val sz + (extendMemory M.size [(o, sz)]).cost ≤ g ∧
-    ∃ (m : Evm .fusaka Nat) (within' : GasMeter.gasHeld m.gas ≤ bound),
-      At code msg (pc + 1) T (memoryExtend M (extendMemory M.size [(o, sz)]).expandBy)
-        (g - (logCost n.val sz + (extendMemory M.size [(o, sz)]).cost)) st
-        { ss with
-          logs := ss.logs.push
-            { address := msg.currentTarget
-              topics := words.map U256.toBeBytes
-              data := memoryReadBytes (memoryExtend M (extendMemory M.size [(o, sz)]).expandBy)
-                o.toNat sz.toNat } } rd m ∧
-      runFrame (step .fusaka) (step_decreases .fusaka) bound runChild m within' = .ok fin := by
-  by_cases hg : logCost n.val sz + (extendMemory M.size [(o, sz)]).cost ≤ g
-  · obtain ⟨m, hr, hm⟩ := Logic.log (fork := .fusaka) hlen hlt hbyte decoded hstatic hg evm hat
-    have := runFrame_eq_of_reaches (runChild := runChild) Step.gasHeld_le Step.runFrame_eq hr within
-    rw [this] at hrun
-    exact ⟨hg, m, _, hm, hrun⟩
-  · exfalso
-    have hspec : Spec .fusaka (At code msg pc (o :: sz :: (words ++ T)) M g st ss rd)
-        (Faulted .outOfGas st ss) := by
-      refine At.fault rfl fun e hat' => ?_
-      obtain ⟨hcode, -, -, hpc, hst, hmem, hgas, -⟩ := hat'
-      subst hcode hpc
-      have dec' : Op.ofByte .fusaka e.code[e.pc] = some (.log n) := by
-        rw [hbyte]
-        exact ofByte_of_decode decoded (Fork.frontier_le _)
-      rw [step_of_instruction hlt dec' (instruction_log n)]
-      have hl := e.stack.property
-      rw [hst] at hl
-      have hlr : (words ++ T).length ≤ STACK_LIMIT := by simp at hl ⊢; omega
-      have hs : e.stack = ⟨o :: sz :: (words ++ T), hst ▸ e.stack.property⟩ := Subtype.ext hst
-      have htop := popTopics_append (evm := { e with stack := ⟨words ++ T, hlr⟩ })
-        (words := words) (rest := T) rfl
-      rw [hlen] at htop
-      have hlt' : e.gas < logCost n.val sz + (extendMemory e.memory.size [(o, sz)]).cost := by
-        rw [hgas, hmem]
-        omega
-      simp only [logStep, popWord, Stack.pop, hs, bind, Except.bind, pure, Except.pure]
-      rw [htop]
-      simp only [chargeGasAndMemory, chargeGas, GasMeter.charge, logCost] at hlt' ⊢
-      simp [hlt']
-      try rfl
-    obtain ⟨z, hr, hstop, hf⟩ := hspec evm hat
-    rw [runFrame_of_reaches hr hstop within] at hrun
-    cases hrun
-    rcases hok with hok | hok <;> rw [hf.2.1] at hok <;> cases hok
+  obtain ⟨hg, m, within', hat', hrun'⟩ := backR (Logic.keccak256 hlt hbyte)
+    (fun hg => faultAt hlt hbyte (ofByte_of_decode rfl (Fork.frontier_le _)) instruction_keccak256
+      fun e hat' => by
+        obtain ⟨-, -, -, -, hst, rfl, rfl, -⟩ := hat'
+        rw [keccak256Step_cons hst]
+        exact map_charge_lt (Nat.lt_of_not_le hg) _) hat within hrun hok
+  exact ⟨m, within', memRel_expandW hm (boundR hm hb hG hg),
+    MemBudget.grow (by rw [hm.1]; omega) hb hg (size_memoryExtend M _), hat', hrun'⟩
 
 /-- **LOGn of any range, in a run that succeeds**: with the budget below `2 ^ 300`, SolarTV's
 growth agrees with EthLib's memory after it, the budget holds at the gas left, and the run goes on
@@ -359,14 +207,27 @@ theorem log_dynR {n : Fin 5} {byte : UInt8} {code : ByteArray} {msg : Message .f
               data := memoryReadBytes (memoryExtend M (extendMemory M.size [(o, sz)]).expandBy)
                 o.toNat sz.toNat } } rd m ∧
       runFrame (step .fusaka) (step_decreases .fusaka) bound runChild m within' = .ok fin := by
-  obtain ⟨hg, m, within', hat', hrun'⟩ := log_backR hat hlen hlt hbyte decoded hstatic within hrun hok
-  have hmod : M.size % 32 = 0 := by rw [hm.1]; omega
-  have hbound : sz = 0 ∨ (o.toNat + sz.toNat + 31) / 32 < 2 ^ 251 := by
-    by_cases hz : sz = 0
-    · exact .inl hz
-    · exact .inr (words_lt_of_cost (budget_grow hmod hz hb hg).1 hG)
-  exact ⟨m, within', memRel_expandW hm hbound, MemBudget.grow hmod hb hg (size_memoryExtend M _),
-    hat', hrun'⟩
+  obtain ⟨hg, m, within', hat', hrun'⟩ := backR (Logic.log hlen hlt hbyte decoded hstatic)
+    (fun hg => faultAt hlt hbyte (ofByte_of_decode decoded (Fork.frontier_le _)) (instruction_log n)
+      fun e hat' => by
+        obtain ⟨-, -, -, -, hst, rfl, rfl, -⟩ := hat'
+        have hlr : (words ++ T).length ≤ STACK_LIMIT := by
+          have hl := e.stack.property
+          rw [hst] at hl
+          simp at hl ⊢
+          omega
+        have htop := popTopics_append (evm := { e with stack := ⟨words ++ T, hlr⟩ })
+          (words := words) (rest := T) rfl
+        rw [hlen] at htop
+        have hs : e.stack = ⟨o :: sz :: (words ++ T), hst ▸ e.stack.property⟩ := Subtype.ext hst
+        have hlt' := Nat.lt_of_not_le hg
+        simp only [logStep, popWord, Stack.pop, hs, bind, Except.bind, pure, Except.pure]
+        rw [htop]
+        simp only [chargeGasAndMemory, chargeGas, GasMeter.charge, logCost] at hlt' ⊢
+        simp [hlt']
+        try rfl) hat within hrun hok
+  exact ⟨m, within', memRel_expandW hm (boundR hm hb hG hg),
+    MemBudget.grow (by rw [hm.1]; omega) hb hg (size_memoryExtend M _), hat', hrun'⟩
 
 /-- **MSTORE at any offset, in a run that succeeds**: with the budget below `2 ^ 300`, SolarTV's
 store agrees with EthLib's memory after it, the budget holds at the gas left, and the run goes on. -/
@@ -383,13 +244,17 @@ theorem mstore_dynR {code : ByteArray} {msg : Message .fusaka} {pc : Nat} {o v :
       MemRel (m0.store o.toNat v) M' ∧ MemBudget G M' g' ∧ g' ≤ g ∧
       At code msg (pc + 1) T M' g' st ss rd m ∧
       runFrame (step .fusaka) (step_decreases .fusaka) bound runChild m within' = .ok fin := by
-  obtain ⟨hg, m, within', hat', hrun'⟩ := mstore_backR hat hlt hbyte within hrun hok
+  obtain ⟨hg, m, within', hat', hrun'⟩ := backR (Logic.mstore hlt hbyte)
+    (fun hg => faultAt hlt hbyte (ofByte_of_decode rfl (Fork.frontier_le _)) instruction_mstore
+      fun e hat' => by
+        obtain ⟨-, -, -, -, hst, rfl, rfl, -⟩ := hat'
+        rw [mstoreStep_cons hst]
+        exact map_charge_lt (Nat.lt_of_not_le hg) _) hat within hrun hok
   have hmod : M.size % 32 = 0 := by rw [hm.1]; omega
   obtain ⟨hc, hb'⟩ := budget_grow (pre := 3) hmod (o := o) (sz := 32) (by decide) hb hg
   have h32 : (32 : Word).toNat = 32 := rfl
   rw [h32] at hc
-  have hw := words_lt_of_cost hc hG
-  obtain ⟨hmem', -⟩ := memRel_storeW (v := v) hm hw
+  obtain ⟨hmem', -⟩ := memRel_storeW (v := v) hm (words_lt_of_cost hc hG)
   refine ⟨_, _, m, within', hmem', ?_, by omega, hat', hrun'⟩
   unfold MemBudget
   rw [size_memoryWrite_of_fit, size_memoryExtend]
@@ -414,67 +279,15 @@ theorem mload_dynR {code : ByteArray} {msg : Message .fusaka} {pc : Nat} {o : Wo
       MemRel (m0.expand o.toNat 32) M' ∧ MemBudget G M' g' ∧ g' ≤ g ∧
       At code msg (pc + 1) (m0.load o.toNat :: T) M' g' st ss rd m ∧
       runFrame (step .fusaka) (step_decreases .fusaka) bound runChild m within' = .ok fin := by
-  obtain ⟨hg, m, within', hat', hrun'⟩ := mload_backR hat hlt hbyte within hrun hok
-  have hmod : M.size % 32 = 0 := by rw [hm.1]; omega
-  obtain ⟨hc, hb'⟩ := budget_grow (pre := 3) hmod (o := o) (sz := 32) (by decide) hb hg
-  have h32 : (32 : Word).toNat = 32 := rfl
-  rw [h32] at hc
-  have hw := words_lt_of_cost hc hG
-  have hmem' := memRel_expandW (o := o) (sz := 32) hm (.inr (by rw [h32]; exact hw))
-  rw [h32] at hmem'
+  obtain ⟨hg, m, within', hat', hrun'⟩ := backR (Logic.mload hlt hbyte)
+    (fun hg => faultAt hlt hbyte (ofByte_of_decode rfl (Fork.frontier_le _)) instruction_mload
+      fun e hat' => by
+        obtain ⟨-, -, -, -, hst, rfl, rfl, -⟩ := hat'
+        rw [mloadStep_cons hst]
+        exact map_charge_lt (Nat.lt_of_not_le hg) _) hat within hrun hok
   rw [load_eq hm] at hat'
-  refine ⟨_, _, m, within', hmem', ?_, by omega, hat', hrun'⟩
-  unfold MemBudget
-  rw [size_memoryExtend]
-  exact hb'
-
-/-- **CALLDATACOPY in a run that succeeds**: the frame had the gas for the copy and the growth of
-memory, and the run goes on from the frame after it. -/
-theorem cdc_backR {code : ByteArray} {msg : Message .fusaka} {pc : Nat} {d off sz : Word}
-    {T : List Word} {M : ByteArray} {g : Nat} {st : State.TransactionState} {ss : Substate}
-    {evm : Evm .fusaka Nat} (hat : At code msg pc (d :: off :: sz :: T) M g st ss rd evm)
-    (hlt : pc < code.size) (hbyte : code[pc] = 0x37) {bound : Nat}
-    {runChild : MessageRunner .fusaka Nat bound} (within : GasMeter.gasHeld evm.gas ≤ bound)
-    {fin : Evm .fusaka Nat}
-    (hrun : runFrame (step .fusaka) (step_decreases .fusaka) bound runChild evm within = .ok fin)
-    (hok : OkR fin) :
-    3 + 3 * wordCount sz.toNat + (extendMemory M.size [(d, sz)]).cost ≤ g ∧
-    ∃ (m : Evm .fusaka Nat) (within' : GasMeter.gasHeld m.gas ≤ bound),
-      At code msg (pc + 1) T
-        (memoryWrite (memoryExtend M (extendMemory M.size [(d, sz)]).expandBy)
-          d.toNat ⟨(bufferRead msg.data off.toNat sz.toNat).toArray⟩)
-        (g - (3 + 3 * wordCount sz.toNat + (extendMemory M.size [(d, sz)]).cost)) st ss rd m ∧
-      runFrame (step .fusaka) (step_decreases .fusaka) bound runChild m within' = .ok fin := by
-  by_cases hg : 3 + 3 * wordCount sz.toNat + (extendMemory M.size [(d, sz)]).cost ≤ g
-  · obtain ⟨m, hr, hm⟩ := Logic.calldatacopy (fork := .fusaka) hlt hbyte hg evm hat
-    have := runFrame_eq_of_reaches (runChild := runChild) Step.gasHeld_le Step.runFrame_eq hr within
-    rw [this] at hrun
-    exact ⟨hg, m, _, hm, hrun⟩
-  · exfalso
-    have hspec : Spec .fusaka (At code msg pc (d :: off :: sz :: T) M g st ss rd)
-        (Faulted .outOfGas st ss) := by
-      refine At.fault rfl fun e hat' => ?_
-      obtain ⟨hcode, -, -, hpc, hst, hmem, hgas, -⟩ := hat'
-      subst hcode hpc
-      have decoded : Op.ofByte .fusaka e.code[e.pc] = some .calldatacopy := by
-        rw [hbyte]
-        exact ofByte_of_decode rfl (Fork.frontier_le _)
-      rw [step_of_instruction hlt decoded instruction_calldatacopy]
-      rw [copyToMemory_cons hst]
-      have hlt' : g < 3 + 3 * wordCount sz.toNat + (extendMemory M.size [(d, sz)]).cost :=
-        Nat.lt_of_not_le hg
-      have hc : GasMeter.charge e.gas (OPCODE_CALLDATACOPY_BASE + OPCODE_COPY_PER_WORD *
-          wordCount sz.toNat + (extendMemory e.memory.size [(d, sz)]).cost) = .error .outOfGas := by
-        rw [hgas, hmem, show OPCODE_CALLDATACOPY_BASE = 3 from rfl,
-          show OPCODE_COPY_PER_WORD = 3 from rfl]
-        simp only [GasMeter.charge]
-        rw [ite_eq_left_of_eq_true _ _ (eq_true hlt')]
-      simp only [hc]
-      rfl
-    obtain ⟨z, hr, hstop, hf⟩ := hspec evm hat
-    rw [runFrame_of_reaches hr hstop within] at hrun
-    cases hrun
-    rcases hok with hok | hok <;> rw [hf.2.1] at hok <;> cases hok
+  exact ⟨_, _, m, within', memRel_expandW hm (boundR hm hb hG hg),
+    MemBudget.grow (by rw [hm.1]; omega) hb hg (size_memoryExtend M _), by omega, hat', hrun'⟩
 
 /-- **CALLDATACOPY of any range, in a run that succeeds**: with the budget below `2 ^ 300`,
 SolarTV's copy agrees with EthLib's memory after it, the budget holds at the gas left, and the run
@@ -493,12 +306,13 @@ theorem cdc_dynR {code : ByteArray} {msg : Message .fusaka} {call : Call} (hdata
       MemRel (m0.write d.toNat sz.toNat (fun i => calldataByte call (off.toNat + i))) M' ∧
       MemBudget G M' g' ∧ g' ≤ g ∧ At code msg (pc + 1) T M' g' st ss rd m ∧
       runFrame (step .fusaka) (step_decreases .fusaka) bound runChild m within' = .ok fin := by
-  obtain ⟨hg, m, within', hat', hrun'⟩ := cdc_backR hat hlt hbyte within hrun hok
+  obtain ⟨hg, m, within', hat', hrun'⟩ := backR (Logic.calldatacopy hlt hbyte)
+    (fun hg => faultAt hlt hbyte (ofByte_of_decode rfl (Fork.frontier_le _)) instruction_calldatacopy
+      fun e hat' => by
+        obtain ⟨-, -, -, -, hst, rfl, rfl, -⟩ := hat'
+        rw [copyToMemory_cons hst]
+        exact map_charge_lt (Nat.lt_of_not_le hg) _) hat within hrun hok
   have hmod : M.size % 32 = 0 := by rw [hm.1]; omega
-  have hbound : sz = 0 ∨ (d.toNat + sz.toNat + 31) / 32 < 2 ^ 251 := by
-    by_cases hz : sz = 0
-    · exact .inl hz
-    · exact .inr (words_lt_of_cost (budget_grow hmod hz hb hg).1 hG)
   have hfit : sz.toNat ≠ 0 →
       d.toNat + sz.toNat ≤ (memoryExtend M (extendMemory M.size [(d, sz)]).expandBy).size := by
     intro hz
@@ -507,16 +321,15 @@ theorem cdc_dynR {code : ByteArray} {msg : Message .fusaka} {call : Call} (hdata
     have := le_ceil32 (d.toNat + sz.toNat)
     omega
   refine ⟨_, _, m, within', ?_, ?_, by omega, hat', hrun'⟩
-  · have he := memRel_expandW hm hbound
-    rw [← write_expand]
-    refine memRel_write he hfit (size_bufferRead _ _ _) (fun i hi => ?_)
+  · rw [← write_expand]
+    refine memRel_write (memRel_expandW hm (boundR hm hb hG hg)) hfit (size_bufferRead _ _ _)
+      (fun i hi => ?_)
     rw [byteAt_bufferRead, ite_cond_eq_true _ _ (eq_true hi), hdata, calldataByte_eq]
   · refine MemBudget.grow hmod hb hg ?_
     rw [size_memoryWrite_of_fit, size_memoryExtend]
     intro h
     rw [size_bufferRead] at h ⊢
     exact hfit h
-
 
 /-- **REVERT in a run that ends with no error or reverts**: the frame had the gas for the growth of
 memory to its range. -/
@@ -528,31 +341,12 @@ theorem revert_backR {code : ByteArray} {msg : Message .fusaka} {pc : Nat} {o sz
     {fin : Evm .fusaka Nat}
     (hrun : runFrame (step .fusaka) (step_decreases .fusaka) bound runChild evm within = .ok fin)
     (hok : OkR fin) :
-    (extendMemory M.size [(o, sz)]).cost ≤ g := by
-  refine Nat.le_of_not_lt fun hlt' => ?_
-  have hspec : Spec .fusaka (At code msg pc (o :: sz :: T) M g st ss rd)
-      (Faulted .outOfGas st ss) := by
-    refine At.fault rfl fun e hat' => ?_
-    obtain ⟨hcode, -, -, hpc, hst, hmem, hgas, -⟩ := hat'
-    subst hcode hpc
-    have decoded : Op.ofByte .fusaka e.code[e.pc] = some .revert := by
-      rw [hbyte]
-      exact ofByte_of_decode rfl (by decide)
-    rw [step_of_instruction hlt decoded (instruction_revert (by decide)), revertStep_eq,
-      returnStep_cons hst]
-    have hc : GasMeter.charge e.gas (extendMemory e.memory.size [(o, sz)]).cost =
-        .error .outOfGas := by
-      rw [hgas, hmem]
-      simp only [GasMeter.charge]
-      rw [ite_eq_left_of_eq_true _ _ (eq_true hlt')]
-    simp only [hc]
-    rfl
-  obtain ⟨z, hr, hstop, hf⟩ := hspec evm hat
-  rw [runFrame_of_reaches hr hstop within] at hrun
-  cases hrun
-  rcases hok with hok | hok <;> rw [hf.2.1] at hok <;> cases hok
-
-end Dyn
+    (extendMemory M.size [(o, sz)]).cost ≤ g :=
+  Nat.le_of_not_lt fun hlt' => faultR (faultAt hlt hbyte (ofByte_of_decode rfl (by decide))
+    (instruction_revert (by decide)) fun e hat' => by
+      obtain ⟨-, -, -, -, hst, rfl, rfl, -⟩ := hat'
+      rw [revertStep_eq, returnStep_cons hst, map_charge_lt hlt']
+      rfl) hat within hrun hok
 
 /-- **GAS in a run that succeeds**: the frame had the gas for it, and the run goes on from the frame
 after it, with the gas left after its price pushed. -/
@@ -566,26 +360,45 @@ theorem gas_backR {code : ByteArray} {msg : Message .fusaka} {pc : Nat} {T : Lis
     (hok : OkR fin) :
     2 ≤ g ∧ ∃ (m : Evm .fusaka Nat) (within' : GasMeter.gasHeld m.gas ≤ bound),
       At code msg (pc + 1) (BitVec.ofNat 256 (g - 2) :: T) M (g - 2) st ss rd m ∧
-      runFrame (step .fusaka) (step_decreases .fusaka) bound runChild m within' = .ok fin := by
-  by_cases hg : 2 ≤ g
-  · obtain ⟨m, hr, hm⟩ := Logic.gas_rule (fork := .fusaka) hlt hbyte hg hstack evm hat
-    have := runFrame_eq_of_reaches (runChild := runChild) Step.gasHeld_le Step.runFrame_eq hr within
-    rw [this] at hrun
-    exact ⟨hg, m, _, hm, hrun⟩
-  · exfalso
-    have hspec : Spec .fusaka (At code msg pc T M g st ss rd) (Faulted .outOfGas st ss) := by
-      refine At.fault rfl fun e hat' => ?_
-      obtain ⟨hcode, -, -, hpc, hst, -, hgas, -⟩ := hat'
-      subst hcode hpc
-      have decoded : Op.ofByte .fusaka e.code[e.pc] = some .gas := by
-        rw [hbyte]
-        exact ofByte_of_decode rfl (Fork.frontier_le _)
-      rw [step_of_instruction hlt decoded rfl]
-      simp [readFrame, chargeGas, GasMeter.charge, hgas, OPCODE_GAS, BASE, show g < 2 by omega, bind, Except.bind]
-    obtain ⟨z, hr, hstop, hf⟩ := hspec evm hat
-    rw [runFrame_of_reaches hr hstop within] at hrun
-    cases hrun
-    rcases hok with hok | hok <;> rw [hf.2.1] at hok <;> cases hok
+      runFrame (step .fusaka) (step_decreases .fusaka) bound runChild m within' = .ok fin :=
+  backR (fun hg => Logic.gas_rule hlt hbyte hg hstack)
+    (fun hg => faultAt hlt hbyte (ofByte_of_decode rfl (Fork.frontier_le _)) rfl fun e hat' => by
+      obtain ⟨-, -, -, -, -, -, hgas, -⟩ := hat'
+      simp [readFrame, chargeGas, GasMeter.charge, hgas, OPCODE_GAS, BASE, show g < 2 by omega,
+        bind, Except.bind]) hat within hrun hok
+
+end Dyn
+
+/-- Memory that a budget below `2 ^ 256` pays for fits under a top of at least `2 ^ 140`. -/
+private theorem size_le_topR {c : Cert} {G g : Nat} {m0 : SolarTV.Machine.Mem} {M : ByteArray}
+    (hm : MemRel m0 M) (hb : MemBudget G M g) (hG : G < 2 ^ 256) (htop : 2 ^ 140 ≤ c.top) :
+    M.size ≤ c.top :=
+  Nat.le_trans (size_le_of_cost (B := G) (by unfold MemBudget at hb; omega) hG (by rw [hm.1]; omega))
+    htop
+
+/-- The byte an instruction lowers to, at the head of the code from the counter, and the code after
+it. -/
+private theorem seg_opR {p : Assemble.Program} {c : Cert} {b : Nat} {i : Assemble.Instr}
+    {rest : List Assemble.Instr} {code : ByteArray} {pc byte : Nat} {L : List Item}
+    (heq : lowerInstrs p c b (i :: rest) = .op byte :: lowerInstrs p c b rest)
+    (h : Seg (bytesOf code) c.offset pc (lowerInstrs p c b (i :: rest) ++ L) code.size) :
+    ∃ hlt : pc < code.size, code[pc] = UInt8.ofNat byte ∧
+      Seg (bytesOf code) c.offset (pc + 1) (lowerInstrs p c b rest ++ L) code.size := by
+  rw [heq, List.cons_append] at h
+  obtain ⟨next, hd, hseg⟩ := h.head
+  simp only [Item.expected] at hd
+  obtain ⟨hlt, hcode, rfl⟩ := op_item hd
+  exact ⟨hlt, hcode, hseg⟩
+
+/-- The top words of related stacks, data at their types: the same on both sides. -/
+private theorem sr_popR {c : Cert} {ty : List Ty} {xs S T : List Word} {n : Nat}
+    (hR : SR c ty (xs ++ S) T) (hn : xs.length = n) (hd : isData ty n = true) :
+    ∃ T', T = xs ++ T' ∧ SR c (ty.drop n) S T' := by
+  subst hn
+  have h := hR.data hd
+  rw [List.take_left' rfl] at h
+  exact ⟨T.drop xs.length, (List.take_append_drop xs.length T).symm.trans (by rw [← h]),
+    by simpa using SR.drop xs.length hR⟩
 
 /-- **The rest of a block from an instruction, read back from a run that succeeds**: the segments
 up to each GAS with gas to spare, moved back to the frame's gas, and each GAS at the frame's gas,
@@ -682,20 +495,59 @@ theorem segR {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
       have hc1 := hcnt.1 s' rfl
       have hlen := hcnt.2 _ rest S' s' rfl
       have hmB : MemBudget G0 M' m.gas := by unfold MemBudget at *; omega
+      have hex' : ∀ T'', T.Le T'' → SolarTV.EVM.Program.exec (O T'') call b is S s =
+          SolarTV.EVM.Program.exec (O T'') call b (i :: rest) S' s' := hex
+      have hTg' : T.gases.length = gasReads s'.world := by rw [hc1.1]; exact hTg
+      have hs' : sent s'.world = 0 := by rw [hc1.2]; exact hs0
+      -- The rest of the block after the instruction at the cut, by induction, from the frame the
+      -- instruction leaves, under a table `T1` extending `T`.
+      have next : ∀ (h2 : Nat) (ty2 : List Ty) (S2 Tw2 : List Word) (s2 : State) (M2 : ByteArray)
+          (g2 : Nat) (st2 : State.TransactionState) (ss2 : Substate) (T1 : RunTable)
+          (m2 : Evm .fusaka Nat) (within2 : GasMeter.gasHeld m2.gas ≤ bound),
+          T.Le T1 → g2 ≤ g →
+          (∀ T3, T1.Le T3 → SolarTV.EVM.Program.exec (O T3) call b (i :: rest) S' s' =
+            SolarTV.EVM.Program.exec (O T3) call b rest S2 s2) →
+          blockOkC p c mx b h2 [] ty2 (k' - 1) rest = true → h2 ≤ S2.length →
+          S2.length + c.need b ≤ h2 + maxH mx b → SR c ty2 S2 Tw2 →
+          Seg (bytesOf code) c.offset (pc' + 1)
+            (lowerInstrs p c b rest ++ lowerFrom p c (b + 1) (p.blocks.drop (b + 1))) code.size →
+          S2.length + (k' - 1) ≤ 1000 → M2.size ≤ c.top → MemRel s2.memory M2 →
+          Rel msg ss0 st2 ss2 s2 → At code msg (pc' + 1) Tw2 M2 g2 st2 ss2 rd m2 →
+          T1.gases.length = gasReads s2.world → sent s2.world = 0 → MemBudget G0 M2 g2 →
+          runFrame (step .fusaka) (step_decreases .fusaka) bound runChild m2 within2 = .ok fin →
+          ∃ T' r, T.Le T' ∧
+            (∀ T'', T'.Le T'' → SolarTV.EVM.Program.exec (O T'') call b is S s = r) ∧
+            (∀ res, r = .inl res → PostL call msg.currentTarget ss0 res.2 res.1 fin) ∧
+            (∀ y, r = .inr y → (y.1 ≤ p.blocks.length ∧
+              (y.1 < p.blocks.length → c.need y.1 ≤ y.2.1.length ∧ y.2.1.length ≤ maxH mx y.1) ∧
+              (y.1 = b + 1 ∨ isTarget p c y.1 = true)) ∧
+              ∃ (after : Evm .fusaka Nat) (within' : GasMeter.gasHeld after.gas ≤ bound),
+                EntC p c mx code msg ss0 y after ∧ T'.gases.length = gasReads y.2.2.world ∧
+                sent y.2.2.world = 0 ∧ after.gas ≤ g ∧
+                memoryGasCost after.memory.size + after.gas ≤ G0 ∧
+                runFrame (step .fusaka) (step_decreases .fusaka) bound runChild after within' =
+                  .ok fin) := by
+        intro h2 ty2 S2 Tw2 s2 M2 g2 st2 ss2 T1 m2 within2 hle1 hg2 hex1 hok3 hh3 hu3 hR3 hseg3
+          hk3 htop3 hmem3 R3 hat3 hTg3 hs3 hB3 hrun3
+        obtain ⟨T2, r, hle2, hex2, hpost, hnext⟩ := segR (G0 := G0) G hnc hdata hvalue hstatic
+          hself hcaller hbenv htx hb hok hG0 n rest h2 [] ty2 (k' - 1) S2 Tw2 s2 (pc' + 1) M2 g2 st2
+          ss2 T1 m2 within2 (by omega) hok3 hh3 hu3 (KR.nil _) hR3 hseg3 hk3 htop3 hmem3 R3 hat3
+          hTg3 hs3 hB3 hrun3
+        refine ⟨T2, r, hle1.trans hle2, fun T3 hle => ?_, hpost, fun y hy => ?_⟩
+        · rw [hex' T3 (hle1.trans (hle2.trans hle)), hex1 T3 (hle2.trans hle)]
+          exact hex2 T3 hle
+        · obtain ⟨hy1, after, within', hE, hT, hsn, hga, hbud, hra⟩ := hnext y hy
+          exact ⟨hy1, after, within', hE, hT, hsn, by omega, hbud, hra⟩
       have hci' : isGasI i = true ∨ isLoadI i = true ∨ isStoreI i = true ∨ isRetI i = true ∨
           isRevI i = true ∨ isKecI i = true ∨ isLogI i = true ∨ isCdcI i = true ∨ isScI i = true ∨
           isRdsI i = true ∨ isRdcI i = true ∨ isCallI i = true ∨ isC2I i = true ∨ isCcI i = true := by
         simpa [isCutI, isMemCutI, or_assoc] using hci
       rcases hci' with hgi | hli | hsi | hri | hvi | hki | hlgi | hcdi | hsci | hrdi | hrdci | hcalli |
         hc2i | hcci
-      · obtain rfl := isGasI_eq hgi
+      · -- GAS at the frame's gas: its gas joins the table.
+        obtain rfl := isGasI_eq hgi
         obtain ⟨hk1, hok3⟩ := blockOkC_gas hok2
-        have hs := I'.seg
-        rw [lowerInstrs_gas, List.cons_append] at hs
-        obtain ⟨next, hd, hseg'⟩ := hs.head
-        simp only [Item.expected] at hd
-        obtain ⟨hlt, hcode, rfl⟩ := op_item hd
-        -- GAS at the frame's gas.
+        obtain ⟨hlt, hcode, hseg'⟩ := seg_opR (lowerInstrs_gas p c b rest) I'.seg
         obtain ⟨h2, m2, within2, hat2, hrun2⟩ :=
           gas_backR hatm hlt hcode (by unfold STACK_LIMIT; omega) within1 hrm hok
         let T1 : RunTable := { T with gases := T.gases ++ [m.gas - 2] }
@@ -705,117 +557,55 @@ theorem segR {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
           intro T'' hle
           rw [getD_of_prefix hle.2.2.2.2 (by simp [T1]; omega)]
           simp [T1, List.getD_eq_getElem?_getD, hc1.1, ← hTg]
-        obtain ⟨T2, r, hle2, hex2, hpost, hnext⟩ := segR (G0 := G0) G hnc hdata hvalue hstatic hself hcaller hbenv
-          htx hb hok hG0 n rest (h' + 1) [] (some false :: ty') (k' - 1)
-          (BitVec.ofNat 256 (m.gas - 2) :: S') (BitVec.ofNat 256 (m.gas - 2) :: T')
-          { s' with world := s'.world ++ [.read "gas"] } (pc' + 1) M' (m.gas - 2) st' ss' T1 m2
-          within2 (by omega) hok3 (by simp; omega) (by simp; omega)
-          (KR.nil _) (SR.cons (τ := some false) rfl hR') hseg' (by simp; omega) I'.le_top
-          I'.mem ⟨R'.storage, R'.account, logsRel_read _ R'.logs⟩ hat2
-          (by simp [T1]; omega) (by simp [hc1.2, hs0])
-          (by unfold MemBudget at *; omega) hrun2
-        refine ⟨T2, r, hle1.trans hle2, fun T'' hle => ?_, hpost, fun y hy => ?_⟩
-        · rw [hex T'' (hle1.trans (hle2.trans hle))]
-          show SolarTV.EVM.Program.exec (O T'') call b (.effect .gas 0 :: rest) S' s' = r
-          rw [exec_gas (hv T'' (hle2.trans hle)) (by omega)]
-          exact hex2 T'' hle
-        · obtain ⟨hy1, after, within', hE, hT, hsn, hga, hbud, hra⟩ := hnext y hy
-          exact ⟨hy1, after, within', hE, hT, hsn, by omega, hbud, hra⟩
-
+        exact next (h' + 1) (some false :: ty') (BitVec.ofNat 256 (m.gas - 2) :: S')
+          (BitVec.ofNat 256 (m.gas - 2) :: T') { s' with world := s'.world ++ [.read "gas"] } M'
+          (m.gas - 2) st' ss' T1 m2 within2 hle1 (by omega)
+          (fun T3 hle => exec_gas (hv T3 hle) (by omega)) hok3 (by simp; omega) (by simp; omega)
+          (SR.cons (τ := some false) rfl hR') hseg' (by simp; omega) I'.le_top I'.mem
+          ⟨R'.storage, R'.account, logsRel_read _ R'.logs⟩ hat2 (by simp [T1]; omega)
+          (by simp [hs']) (by unfold MemBudget at *; omega) hrun2
       · -- MLOAD at the frame's gas, at any offset.
         obtain rfl := isLoadI_eq hli
         obtain ⟨hk1, hh1, hdat, htop', hok3⟩ := blockOkC_load hok2
-        have hs := I'.seg
-        rw [lowerInstrs_load, List.cons_append] at hs
-        obtain ⟨next, hd, hseg'⟩ := hs.head
-        simp only [Item.expected] at hd
-        obtain ⟨hlt, hcode, rfl⟩ := op_item hd
-        rcases S' with _ | ⟨x, S''⟩
-        · simp at hh2; omega
-        rcases T' with _ | ⟨x', Tr⟩
-        · simp at hL
-        obtain rfl := (SR.head hR' hdat).symm
-        have hR'' := (SR.uncons.1 hR').2
+        obtain ⟨hlt, hcode, hseg'⟩ := seg_opR (lowerInstrs_load p c b rest) I'.seg
+        rcases S' with _ | ⟨x, S''⟩ <;> try (simp at hh2; omega)
+        obtain ⟨Tr, hT, hR''⟩ := sr_popR (xs := [x]) (S := S'') hR' rfl hdat
+        simp only [List.cons_append, List.nil_append] at hT
+        subst hT
         simp only [List.length_cons] at hL hst hh2 hu2
         obtain ⟨M2, g2, m2, within2, hmem2, hb2, hg2, hat2, hrun2⟩ :=
           mload_dynR I'.mem hmB (by omega) hatm hlt hcode within1 hrm hok
-        have hsz : M2.size ≤ c.top := by
-          have hmod : M2.size % 32 = 0 := by rw [hmem2.1]; omega
-          have := size_le_of_cost (B := G0) (by unfold MemBudget at hb2; omega) hG0 hmod
-          omega
-        obtain ⟨T2, r, hle2, hex2, hpost, hnext⟩ := segR (G0 := G0) G hnc hdata hvalue hstatic hself
-          hcaller hbenv htx hb hok hG0 n rest h' [] (some false :: ty'.drop 1) (k' - 1)
-          (s'.memory.load x.toNat :: S'') (s'.memory.load x.toNat :: Tr)
-          { s' with memory := s'.memory.expand x.toNat 32 } (pc' + 1) M2 g2 st' ss' T m2
-          within2 (by omega) hok3 (by simp; omega) (by simp; omega)
-          (KR.nil _) (SR.cons (τ := some false) rfl (by simpa using hR'')) hseg'
-          (by simp; omega) hsz hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2
-          (by show T.gases.length = gasReads s'.world; rw [hc1.1]; exact hTg)
-          (by show sent s'.world = 0; rw [hc1.2]; exact hs0) hb2 hrun2
-        refine ⟨T2, r, hle2, fun T3 hle => ?_, hpost, fun y hy => ?_⟩
-        · rw [hex T3 (hle2.trans hle)]
-          show SolarTV.EVM.Program.exec (O T3) call b (.op .load :: rest) _ s' = r
-          rw [exec_loadC (by omega)]
-          exact hex2 T3 hle
-        · obtain ⟨hy1, after, within', hE, hT, hsn, hga, hbud, hra⟩ := hnext y hy
-          exact ⟨hy1, after, within', hE, hT, hsn, by omega, hbud, hra⟩
+        exact next h' (some false :: ty'.drop 1) (s'.memory.load x.toNat :: S'')
+          (s'.memory.load x.toNat :: Tr) { s' with memory := s'.memory.expand x.toNat 32 } M2 g2
+          st' ss' T m2 within2 (RunTable.Le.refl T) (by omega)
+          (fun _ _ => exec_loadC (by omega)) hok3 (by simp; omega) (by simp; omega)
+          (SR.cons (τ := some false) rfl hR'') hseg' (by simp; omega)
+          (size_le_topR hmem2 hb2 hG0 htop') hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2 hTg' hs'
+          hb2 hrun2
       · -- MSTORE at the frame's gas, at any offset.
         obtain rfl := isStoreI_eq hsi
         obtain ⟨hk1, hh1, hdat, htop', hok3⟩ := blockOkC_store hok2
-        have hs := I'.seg
-        rw [lowerInstrs_store, List.cons_append] at hs
-        obtain ⟨next, hd, hseg'⟩ := hs.head
-        simp only [Item.expected] at hd
-        obtain ⟨hlt, hcode, rfl⟩ := op_item hd
-        rcases S' with _ | ⟨x, _ | ⟨y, S''⟩⟩
-        · simp at hh2; omega
-        · simp at hh2; omega
-        rcases T' with _ | ⟨x', _ | ⟨y', Tr⟩⟩
-        · simp at hL
-        · simp at hL
-        have htake := hR'.data hdat
-        simp only [List.take_succ_cons, List.take_zero, List.cons.injEq] at htake
-        obtain ⟨rfl, rfl, -⟩ := htake
-        have hR'' : SR c (ty'.drop 2) S'' Tr := by simpa using SR.drop 2 hR'
+        obtain ⟨hlt, hcode, hseg'⟩ := seg_opR (lowerInstrs_store p c b rest) I'.seg
+        rcases S' with _ | ⟨x, _ | ⟨y, S''⟩⟩ <;> try (simp at hh2; omega)
+        obtain ⟨Tr, hT, hR''⟩ := sr_popR (xs := [x, y]) (S := S'') hR' rfl hdat
+        simp only [List.cons_append, List.nil_append] at hT
+        subst hT
         simp only [List.length_cons] at hL hst hh2 hu2
         obtain ⟨M2, g2, m2, within2, hmem2, hb2, hg2, hat2, hrun2⟩ :=
           mstore_dynR I'.mem hmB (by omega) hatm hlt hcode within1 hrm hok
-        have hsz : M2.size ≤ c.top := by
-          have hmod : M2.size % 32 = 0 := by rw [hmem2.1]; omega
-          have := size_le_of_cost (B := G0) (by unfold MemBudget at hb2; omega) hG0 hmod
-          omega
-        obtain ⟨T2, r, hle2, hex2, hpost, hnext⟩ := segR (G0 := G0) G hnc hdata hvalue hstatic hself
-          hcaller hbenv htx hb hok hG0 n rest (h' - 2) [] (ty'.drop 2) (k' - 1) S'' Tr
-          { s' with memory := s'.memory.store x.toNat y } (pc' + 1) M2 g2 st' ss' T m2
-          within2 (by omega) hok3 (by omega) (by omega)
-          (KR.nil _) hR'' hseg' (by omega) hsz hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2
-          (by show T.gases.length = gasReads s'.world; rw [hc1.1]; exact hTg)
-          (by show sent s'.world = 0; rw [hc1.2]; exact hs0) hb2 hrun2
-        refine ⟨T2, r, hle2, fun T3 hle => ?_, hpost, fun y hy => ?_⟩
-        · rw [hex T3 (hle2.trans hle)]
-          show SolarTV.EVM.Program.exec (O T3) call b (.op .store :: rest) _ s' = r
-          rw [exec_storeC (by omega)]
-          exact hex2 T3 hle
-        · obtain ⟨hy1, after, within', hE, hT, hsn, hga, hbud, hra⟩ := hnext y hy
-          exact ⟨hy1, after, within', hE, hT, hsn, by omega, hbud, hra⟩
-
+        exact next (h' - 2) (ty'.drop 2) S'' Tr { s' with memory := s'.memory.store x.toNat y } M2
+          g2 st' ss' T m2 within2 (RunTable.Le.refl T) (by omega)
+          (fun _ _ => exec_storeC (by omega)) hok3 (by omega) (by omega) hR'' hseg' (by omega)
+          (size_le_topR hmem2 hb2 hG0 htop') hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2 hTg' hs'
+          hb2 hrun2
       · -- RETURN at the frame's gas, from any range.
         obtain rfl := isRetI_eq hri
         obtain ⟨hh1, hdat⟩ := blockOkC_ret hok2
-        have hs := I'.seg
-        rw [lowerInstrs_ret, List.cons_append] at hs
-        obtain ⟨next, hd, -⟩ := hs.head
-        simp only [Item.expected] at hd
-        obtain ⟨hlt, hcode, -⟩ := op_item hd
-        rcases S' with _ | ⟨x, _ | ⟨y, S''⟩⟩
-        · simp at hh2; omega
-        · simp at hh2; omega
-        rcases T' with _ | ⟨x', _ | ⟨y', Tr⟩⟩
-        · simp at hL
-        · simp at hL
-        have htake := hR'.data hdat
-        simp only [List.take_succ_cons, List.take_zero, List.cons.injEq] at htake
-        obtain ⟨rfl, rfl, -⟩ := htake
+        obtain ⟨hlt, hcode, -⟩ := seg_opR (lowerInstrs_ret p c b rest) I'.seg
+        rcases S' with _ | ⟨x, _ | ⟨y, S''⟩⟩ <;> try (simp at hh2; omega)
+        obtain ⟨Tr, hT, -⟩ := sr_popR (xs := [x, y]) (S := S'') hR' rfl hdat
+        simp only [List.cons_append, List.nil_append] at hT
+        subst hT
         have hg := return_backR hatm hlt hcode within1 hrm hok
         refine ⟨T, .inl (SolarTV.EVM.Program.output s' (x :: y :: S'') false), RunTable.Le.refl T,
           fun T3 hle => ?_, fun res hres => ?_, fun y hy => ?_⟩
@@ -830,20 +620,11 @@ theorem segR {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
       · -- REVERT at the frame's gas, from any range: the program's revert, with its data.
         obtain rfl := isRevI_eq hvi
         obtain ⟨hh1, hdat⟩ := blockOkC_revert hok2
-        have hs := I'.seg
-        rw [lowerInstrs_revert, List.cons_append] at hs
-        obtain ⟨next, hd, -⟩ := hs.head
-        simp only [Item.expected] at hd
-        obtain ⟨hlt, hcode, -⟩ := op_item hd
-        rcases S' with _ | ⟨x, _ | ⟨y, S''⟩⟩
-        · simp at hh2; omega
-        · simp at hh2; omega
-        rcases T' with _ | ⟨x', _ | ⟨y', Tr⟩⟩
-        · simp at hL
-        · simp at hL
-        have htake := hR'.data hdat
-        simp only [List.take_succ_cons, List.take_zero, List.cons.injEq] at htake
-        obtain ⟨rfl, rfl, -⟩ := htake
+        obtain ⟨hlt, hcode, -⟩ := seg_opR (lowerInstrs_revert p c b rest) I'.seg
+        rcases S' with _ | ⟨x, _ | ⟨y, S''⟩⟩ <;> try (simp at hh2; omega)
+        obtain ⟨Tr, hT, -⟩ := sr_popR (xs := [x, y]) (S := S'') hR' rfl hdat
+        simp only [List.cons_append, List.nil_append] at hT
+        subst hT
         have hg := revert_backR hatm hlt hcode within1 hrm hok
         refine ⟨T, .inl (SolarTV.EVM.Program.output s' (x :: y :: S'') true), RunTable.Le.refl T,
           fun T3 hle => ?_, fun res hres => ?_, fun y hy => ?_⟩
@@ -855,156 +636,77 @@ theorem segR {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
             rfl (by rw [read_eq I'.mem]; rfl) rfl) (fun _ h => h)
             (fun _ h => ⟨ss', h, R'.logs⟩)) (hatm.addGas 0) within1 hrm hok
         · cases hy
-
       · -- KECCAK256 at the frame's gas, of any range.
         obtain rfl := isKecI_eq hki
         obtain ⟨henv, hk1, hh1, hdat, htop', hok3⟩ := blockOkC_kec hok2
-        have hs := I'.seg
-        rw [lowerInstrs_kec, List.cons_append] at hs
-        obtain ⟨next, hd, hseg'⟩ := hs.head
-        simp only [Item.expected] at hd
-        obtain ⟨hlt, hcode, rfl⟩ := op_item hd
-        rcases S' with _ | ⟨x, _ | ⟨y, S''⟩⟩
-        · simp at hh2; omega
-        · simp at hh2; omega
-        rcases T' with _ | ⟨x', _ | ⟨y', Tr⟩⟩
-        · simp at hL
-        · simp at hL
-        have htake := hR'.data hdat
-        simp only [List.take_succ_cons, List.take_zero, List.cons.injEq] at htake
-        obtain ⟨rfl, rfl, -⟩ := htake
-        have hR'' : SR c (ty'.drop 2) S'' Tr := by simpa using SR.drop 2 hR'
+        obtain ⟨hlt, hcode, hseg'⟩ := seg_opR (lowerInstrs_kec p c b rest) I'.seg
+        rcases S' with _ | ⟨x, _ | ⟨y, S''⟩⟩ <;> try (simp at hh2; omega)
+        obtain ⟨Tr, hT, hR''⟩ := sr_popR (xs := [x, y]) (S := S'') hR' rfl hdat
+        simp only [List.cons_append, List.nil_append] at hT
+        subst hT
         simp only [List.length_cons] at hL hst hh2 hu2
         obtain ⟨m2, within2, hmem2, hb2, hat2, hrun2⟩ :=
           keccak_dynR I'.mem hmB (by omega) hatm hlt hcode within1 hrm hok
         obtain ⟨-, hkec⟩ := (O_ok c T).1 henv
         rw [byteArray_eq_of_map (read_eq I'.mem), ← hkec] at hat2
-        have hsz : (memoryExtend M' (extendMemory M'.size [(x, y)]).expandBy).size ≤ c.top := by
-          have hmod : (memoryExtend M' (extendMemory M'.size [(x, y)]).expandBy).size % 32 = 0 := by
-            rw [hmem2.1]; omega
-          have := size_le_of_cost (B := G0) (by unfold MemBudget at hb2; omega) hG0 hmod
-          omega
-        obtain ⟨T2, r, hle2, hex2, hpost, hnext⟩ := segR (G0 := G0) G hnc hdata hvalue hstatic hself
-          hcaller hbenv htx hb hok hG0 n rest (h' - 1) [] (some false :: ty'.drop 2) (k' - 1)
+        exact next (h' - 1) (some false :: ty'.drop 2)
           ((O T).keccak ((s'.memory.expand x.toNat y.toNat).read x.toNat y.toNat) :: S'')
           ((O T).keccak ((s'.memory.expand x.toNat y.toNat).read x.toNat y.toNat) :: Tr)
-          { s' with memory := s'.memory.expand x.toNat y.toNat } (pc' + 1) _ _ st' ss' T m2
-          within2 (by omega) hok3 (by simp; omega) (by simp; omega)
-          (KR.nil _) (SR.cons (τ := some false) rfl (by simpa using hR'')) hseg'
-          (by simp; omega) hsz hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2
-          (by show T.gases.length = gasReads s'.world; rw [hc1.1]; exact hTg)
-          (by show sent s'.world = 0; rw [hc1.2]; exact hs0) hb2 hrun2
-        refine ⟨T2, r, hle2, fun T3 hle => ?_, hpost, fun y hy => ?_⟩
-        · rw [hex T3 (hle2.trans hle)]
-          show SolarTV.EVM.Program.exec (O T3) call b (.effect .keccak256 2 :: rest) _ s' = r
-          rw [exec_keccakC (by omega)]
-          exact hex2 T3 hle
-        · obtain ⟨hy1, after, within', hE, hT, hsn, hga, hbud, hra⟩ := hnext y hy
-          exact ⟨hy1, after, within', hE, hT, hsn, by omega, hbud, hra⟩
-
+          { s' with memory := s'.memory.expand x.toNat y.toNat } _ _ st' ss' T m2 within2
+          (RunTable.Le.refl T) (by omega) (fun _ _ => exec_keccakC (by omega)) hok3 (by simp; omega)
+          (by simp; omega) (SR.cons (τ := some false) rfl hR'') hseg' (by simp; omega)
+          (size_le_topR hmem2 hb2 hG0 htop') hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2 hTg' hs'
+          hb2 hrun2
       · -- LOGn at the frame's gas, of any range.
         obtain ⟨nl, hn4, rfl⟩ := isLogI_eq hlgi
         obtain ⟨hk1, hnh, hdat, htop', hok3⟩ := blockOkC_log hn4 hok2
-        have hs := I'.seg
-        rw [lowerInstrs_log p c b hn4, List.cons_append] at hs
-        obtain ⟨next, hd, hseg'⟩ := hs.head
-        simp only [Item.expected] at hd
-        obtain ⟨hlt, hcode, rfl⟩ := op_item hd
-        rcases S' with _ | ⟨x, _ | ⟨y, S1⟩⟩
-        · simp at hh2; omega
-        · simp at hh2; omega
-        rcases T' with _ | ⟨x', _ | ⟨y', T1⟩⟩
-        · simp at hL
-        · simp at hL
-        simp only [List.length_cons] at hL hst hh2 hu2
+        obtain ⟨hlt, hcode, hseg'⟩ := seg_opR (lowerInstrs_log p c b hn4 rest) I'.seg
+        rcases S' with _ | ⟨x, _ | ⟨y, S1⟩⟩ <;> try (simp at hh2; omega)
+        simp only [List.length_cons] at hst hh2 hu2
         obtain ⟨tops, S2, rfl, hlen⟩ : ∃ tops S2, S1 = tops ++ S2 ∧ tops.length = nl :=
           ⟨S1.take nl, S1.drop nl, (List.take_append_drop nl S1).symm, by simp; omega⟩
-        obtain ⟨tops', T2, rfl, hlen'⟩ : ∃ tops' T2, T1 = tops' ++ T2 ∧ tops'.length = nl :=
-          ⟨T1.take nl, T1.drop nl, (List.take_append_drop nl T1).symm, by simp; omega⟩
         subst hlen
-        have htake := hR'.data hdat
-        simp only [List.take_succ_cons, List.cons.injEq, List.take_left' hlen',
-          List.take_left' rfl] at htake
-        obtain ⟨rfl, rfl, rfl⟩ := htake
-        have hR'' : SR c (ty'.drop (tops.length + 2)) S2 T2 := by
-          simpa using SR.drop (tops.length + 2) hR'
-        simp only [List.length_append] at hL hst hh2 hu2
+        obtain ⟨T2, hT, hR''⟩ := sr_popR (xs := x :: y :: tops) (S := S2) hR'
+          (by simp only [List.length_cons] <;> omega) hdat
+        simp only [List.cons_append] at hT
+        subst hT
+        simp only [List.length_append, List.length_cons] at hL hst hh2 hu2
         obtain ⟨m2, within2, hmem2, hb2, hat2, hrun2⟩ :=
           log_dynR (n := ⟨tops.length, by omega⟩) I'.mem hmB (by omega) hatm rfl hlt hcode
             (decode_log ⟨tops.length, by omega⟩) hstatic within1 hrm hok
-        have hsz : (memoryExtend M' (extendMemory M'.size [(x, y)]).expandBy).size ≤ c.top := by
-          have hmod : (memoryExtend M' (extendMemory M'.size [(x, y)]).expandBy).size % 32 = 0 := by
-            rw [hmem2.1]; omega
-          have := size_le_of_cost (B := G0) (by unfold MemBudget at hb2; omega) hG0 hmod
-          omega
         obtain ⟨L, hL1, hL2⟩ := R'.logs
-        obtain ⟨T2', r, hle2, hex2, hpost, hnext⟩ := segR (G0 := G0) (ss0 := ss0) G hnc hdata hvalue hstatic hself
-          hcaller hbenv htx hb hok hG0 n rest (h' - (tops.length + 2)) [] (ty'.drop (tops.length + 2))
-          (k' - 1) S2 T2
+        exact next (h' - (tops.length + 2)) (ty'.drop (tops.length + 2)) S2 T2
           ⟨s'.memory.expand x.toNat y.toNat, s'.storage, s'.transient,
             s'.world ++ [.log tops ((s'.memory.expand x.toNat y.toNat).read x.toNat y.toNat)]⟩
-          (pc' + 1) _ _ st' { ss' with logs := ss'.logs.push ⟨msg.currentTarget,
+          _ _ st' { ss' with logs := ss'.logs.push ⟨msg.currentTarget,
             tops.map U256.toBeBytes, memoryReadBytes (memoryExtend M' (extendMemory M'.size
-              [(x, y)]).expandBy) x.toNat y.toNat⟩ } T m2 within2 (by omega) hok3 (by omega) (by omega)
-          (KR.nil _) hR'' hseg' (by omega) hsz hmem2
+              [(x, y)]).expandBy) x.toNat y.toNat⟩ } T m2 within2 (RunTable.Le.refl T) (by omega)
+          (fun _ _ => exec_logC (by omega)) hok3 (by omega) (by omega) hR'' hseg' (by omega)
+          (size_le_topR hmem2 hb2 hG0 htop') hmem2
           ⟨R'.storage, R'.account, ⟨L ++ [⟨msg.currentTarget, tops.map U256.toBeBytes,
               memoryReadBytes (memoryExtend M' (extendMemory M'.size [(x, y)]).expandBy)
                 x.toNat y.toNat⟩], by simp [Array.toList_push, hL1],
               filter_snoc_log ▸ forall₂_snoc hL2 ⟨rfl, rfl, read_eq I'.mem⟩⟩⟩ hat2
-          (by show T.gases.length = gasReads (s'.world ++ [_]); rw [AssembleCut.gasReads_log, hc1.1]; exact hTg)
-          (by show sent (s'.world ++ [_]) = 0; rw [AssembleCut.sent_log, hc1.2]; exact hs0) hb2 hrun2
-        refine ⟨T2', r, hle2, fun T3 hle => ?_, hpost, fun y hy => ?_⟩
-        · rw [hex T3 (hle2.trans hle)]
-          show SolarTV.EVM.Program.exec (O T3) call b
-            (.effect (.log tops.length) (tops.length + 2) :: rest) _ s' = r
-          rw [exec_logC (by omega)]
-          exact hex2 T3 hle
-        · obtain ⟨hy1, after, within', hE, hT, hsn, hga, hbud, hra⟩ := hnext y hy
-          exact ⟨hy1, after, within', hE, hT, hsn, by omega, hbud, hra⟩
-
+          (by show T.gases.length = gasReads (s'.world ++ [_]); rw [AssembleCut.gasReads_log]; exact hTg')
+          (by show sent (s'.world ++ [_]) = 0; rw [AssembleCut.sent_log]; exact hs') hb2 hrun2
       · -- CALLDATACOPY at the frame's gas, of any range.
         obtain rfl := isCdcI_eq hcdi
         obtain ⟨hk1, hh1, hdat, htop', hok3⟩ := blockOkC_cdc hok2
-        have hs := I'.seg
-        rw [lowerInstrs_cdc, List.cons_append] at hs
-        obtain ⟨next, hd, hseg'⟩ := hs.head
-        simp only [Item.expected] at hd
-        obtain ⟨hlt, hcode, rfl⟩ := op_item hd
-        rcases S' with _ | ⟨x, _ | ⟨y, _ | ⟨z, S''⟩⟩⟩
-        · simp at hh2; omega
-        · simp at hh2; omega
-        · simp at hh2; omega
-        rcases T' with _ | ⟨x', _ | ⟨y', _ | ⟨z', Tr⟩⟩⟩
-        · simp at hL
-        · simp at hL
-        · simp at hL
-        have htake := hR'.data hdat
-        simp only [List.take_succ_cons, List.take_zero, List.cons.injEq] at htake
-        obtain ⟨rfl, rfl, rfl, -⟩ := htake
-        have hR'' : SR c (ty'.drop 3) S'' Tr := by simpa using SR.drop 3 hR'
+        obtain ⟨hlt, hcode, hseg'⟩ := seg_opR (lowerInstrs_cdc p c b rest) I'.seg
+        rcases S' with _ | ⟨x, _ | ⟨y, _ | ⟨z, S''⟩⟩⟩ <;> try (simp at hh2; omega)
+        obtain ⟨Tr, hT, hR''⟩ := sr_popR (xs := [x, y, z]) (S := S'') hR' rfl hdat
+        simp only [List.cons_append, List.nil_append] at hT
+        subst hT
         simp only [List.length_cons] at hL hst hh2 hu2
         obtain ⟨M2, g2, m2, within2, hmem2, hb2, hg2, hat2, hrun2⟩ :=
           cdc_dynR hdata I'.mem hmB (by omega) hatm hlt hcode within1 hrm hok
-        have hsz : M2.size ≤ c.top := by
-          have hmod : M2.size % 32 = 0 := by rw [hmem2.1]; omega
-          have := size_le_of_cost (B := G0) (by unfold MemBudget at hb2; omega) hG0 hmod
-          omega
-        obtain ⟨T2, r, hle2, hex2, hpost, hnext⟩ := segR (G0 := G0) (ss0 := ss0) G hnc hdata hvalue
-          hstatic hself hcaller hbenv htx hb hok hG0 n rest (h' - 3) [] (ty'.drop 3) (k' - 1) S'' Tr
+        exact next (h' - 3) (ty'.drop 3) S'' Tr
           { s' with
             memory := s'.memory.write x.toNat z.toNat
-              (fun i => SolarTV.Machine.calldataByte call (y.toNat + i)) } (pc' + 1) M2 g2 st' ss' T m2
-          within2 (by omega) hok3 (by omega) (by omega)
-          (KR.nil _) hR'' hseg' (by omega) hsz hmem2 ⟨R'.storage, R'.account, R'.logs⟩ hat2
-          (by show T.gases.length = gasReads s'.world; rw [hc1.1]; exact hTg)
-          (by show sent s'.world = 0; rw [hc1.2]; exact hs0) hb2 hrun2
-        refine ⟨T2, r, hle2, fun T3 hle => ?_, hpost, fun y hy => ?_⟩
-        · rw [hex T3 (hle2.trans hle)]
-          show SolarTV.EVM.Program.exec (O T3) call b (.effect .calldatacopy 3 :: rest) _ s' = r
-          rw [exec_cdcC (by omega)]
-          exact hex2 T3 hle
-        · obtain ⟨hy1, after, within', hE, hT, hsn, hga, hbud, hra⟩ := hnext y hy
-          exact ⟨hy1, after, within', hE, hT, hsn, by omega, hbud, hra⟩
+              (fun i => SolarTV.Machine.calldataByte call (y.toNat + i)) } M2 g2 st' ss' T m2
+          within2 (RunTable.Le.refl T) (by omega) (fun _ _ => exec_cdcC (by omega)) hok3 (by omega)
+          (by omega) hR'' hseg' (by omega) (size_le_topR hmem2 hb2 hG0 htop') hmem2
+          ⟨R'.storage, R'.account, R'.logs⟩ hat2 hTg' hs' hb2 hrun2
       · -- STATICCALL: only a certificate that says the program makes calls lets the checker cut there.
         obtain rfl := isScI_eq hsci
         exact absurd (blockOkC_sc hok2).1 (by simp [hnc])
@@ -1163,34 +865,8 @@ theorem processMessage_frameP {message : Message .fusaka}
       runFrame (step .fusaka) (step_decreases .fusaka) message.gas
         (processRunner .fusaka message.gas) (startFrame message st' ss' message.gas) within =
           .ok fr ∧
-      evm.1.error = fr.error ∧ evm.1.output = fr.output := by
-  rw [processMessage] at hr
-  have hss : startState .fusaka message st = st := by
-    simp [startState, show ¬ (Fork.fusaka < Fork.paris) by decide]
-  simp only [hss, hpre] at hr
-  by_cases htr : message.shouldTransferValue = true ∧ message.value ≠ 0
-  · simp only [htr, ne_eq, not_false_eq_true, and_self, ↓reduceIte] at hr
-    cases hm : st.moveEther .fusaka message.caller message.currentTarget message.value with
-    | error e => simp [hm, Except.mapError, bind, Except.bind, Except.map] at hr
-    | ok st' =>
-      simp only [hm, Except.mapError, bind, Except.bind, pure, Except.pure] at hr
-      split at hr
-      · simp [throw, throwThe, MonadExceptOf.throw, Except.map] at hr
-      · rename_i after hrf
-        simp only [Except.map, Except.ok.injEq] at hr
-        subst hr
-        simp only [htr.1, htr.2, not_false_eq_true, and_self, ↓reduceIte] at hrf
-        exact ⟨st', _, _, _, fun h => absurd htr h, fun _ => ⟨rfl, rfl⟩, hrf,
-          AssembleLoop.error_rollbackOnError _ _, AssembleLoop.output_rollbackOnError _ _⟩
-  · simp only [htr, ↓reduceIte, bind, Except.bind, pure, Except.pure] at hr
-    split at hr
-    · simp [throw, throwThe, MonadExceptOf.throw, Except.map] at hr
-    · rename_i after hrf
-      simp only [Except.map, Except.ok.injEq] at hr
-      subst hr
-      simp only [htr, ↓reduceIte] at hrf
-      exact ⟨st, ss, _, _, fun _ => ⟨rfl, rfl⟩, fun h => absurd h htr, hrf,
-        AssembleLoop.error_rollbackOnError _ _, AssembleLoop.output_rollbackOnError _ _⟩
+      evm.1.error = fr.error ∧ evm.1.output = fr.output :=
+  processMessage_frame hpre hr
 
 open SolarTV.EVM.Program SolidCore.Refinement.Evm.Wide SolidCore.Refinement.Evm.Symex in
 /-- **`AssembleRun.within_of_advances` with the revert data related**: when every frame related to a
@@ -1215,44 +891,22 @@ theorem within_of_advancesR {p : Assemble.Program} {code : ByteArray} {call : Ca
     rw [hrunE] at h
     cases h
   | some obs =>
-  have hrun0 := hrunE
-  unfold Target.runWith Target.runMsg at hrunE
-  split at hrunE
-  · cases hrunE
-  rename_i evm hev hpm
-  simp only [Option.some.injEq] at hrunE
-  by_cases hex : ∃ e, e ≠ EvmError.revert ∧ evm.error = some e
-  · obtain ⟨e, hne, he'⟩ := hex
-    have hs : obs.success = false := by rw [← hrunE]; simp [he']
-    have hfail := Target.runWith_failure hrun0 hs
-    have hh : HaltsExceptionally gas code call := ⟨⟨evm, hev⟩, hpm, e, hne, he'⟩
-    refine ⟨{}, fun call' hc obs' h => ?_⟩
+  suffices h : ∃ T, (evmirSem (O T)).run p call = some obs ∨ (HaltsExceptionally gas code call ∧
+      obs.success = false ∧ obs.storage = slotValue call.storage ∧ obs.logs = []) by
+    obtain ⟨T, hT⟩ := h
+    refine ⟨T, fun call' hc obs' h' => ?_⟩
     subst hc
-    rw [hrun0] at h
-    cases h
-    exact Or.inr ⟨hh, hs, hfail⟩
-  rcases herrc : evm.error with _ | e
+    rw [hrunE] at h'
+    cases h'
+    exact hT
+  rcases runWith_cases hrunE with h | hs | ⟨st', ss', within, fr, R, hrf, hfrrev, hX⟩
+  · exact ⟨{}, .inr h⟩
   · obtain ⟨T, hT⟩ := within_of_advances O E meas start
       (fun ss0 T x evm h => (adv ss0 T x evm h).advances)
-    have hsucc : obs.success = true := by rw [← hrunE]; simp [herrc]
-    refine ⟨T, fun call' hc obs' h => ?_⟩
-    rcases hT call' hc obs' h with h' | ⟨hs, -⟩
+    refine ⟨T, ?_⟩
+    rcases hT call rfl obs hrunE with h' | ⟨hs', -⟩
     · exact .inl h'
-    · subst hc
-      rw [hrun0] at h
-      cases h
-      rw [hsucc] at hs
-      cases hs
-  have hrev : e = .revert := by
-    by_contra hne
-    exact hex ⟨e, hne, herrc⟩
-  subst hrev
-  obtain ⟨st', ss', within, fr, hcases, hmove, hrf, herrfr, houtfr⟩ :=
-    processMessage_frameP (message := Final.Target.messageWith gas code call) (evm := ⟨evm, hev⟩)
-      (precompileAddress_message code call) hpm
-  simp only at herrfr houtfr
-  have hfrrev : fr.error = some .revert := by rw [← herrfr, herrc]
-  have R := AssembleLoop.rel_start code call gas ss' (fun h => (hcases h).1) (fun h => (hmove h).1)
+    · rw [hs] at hs'; cases hs'
   obtain ⟨T, ⟨halt, sF⟩, -, hit, hpost⟩ := run_of_advancesR (fun o => block o call p) O (adv ss')
     (meets_process .fusaka _) _ {} _ _ within fr (start st' ss' R) (Nat.lt_succ_self _) hrf
     (.inr hfrrev)
@@ -1262,43 +916,20 @@ theorem within_of_advancesR {p : Assemble.Program} {code : ByteArray} {call : Ca
     rw [SolarTV.EVM.Program.layer.result_of_ends ⟨k, hk⟩]
     rfl
   obtain ⟨ssF, ⟨herr, hout, -, -⟩, -⟩ := hpost
-  have hfinal : (evmirSem (O T)).run p call = some obs := by
-    rw [hres, ← hrunE]
-    have herr' : fr.error = errorOf (observe call sF halt) := herr
-    have hout' : fr.output.toList.map (·.toNat) = (observe call sF halt).output := hout
-    have hfail : (observe call sF halt).success = false →
-        (observe call sF halt).logs = [] ∧
-        (observe call sF halt).storage = slotValue call.storage := by
-      cases halt <;> simp [observe]
-    clear herr hout hres hit hk
-    generalize observe call sF halt = X at *
-    have hsucc : fr.error.isNone = X.success := by
-      rw [herr']; cases hX : X.success <;> simp [errorOf, hX]
-    rw [hfrrev] at hsucc
-    simp only [Option.isNone_some] at hsucc
-    obtain ⟨hlogs, hst⟩ := hfail hsucc.symm
-    congr 1
-    cases X with
-    | mk success output logs storage =>
-      simp only at hsucc hout' hlogs hst ⊢
-      subst hsucc hlogs hst
-      rw [SolarTV.Observable.mk.injEq]
-      refine ⟨by simp [herrc], ?_, by simp [herrc], by funext slot; simp [herrc]⟩
-      rw [houtfr]
-      exact hout'.symm
-  refine ⟨T, fun call' hc obs' h => ?_⟩
-  subst hc
-  rw [hrun0] at h
-  cases h
-  exact .inl hfinal
+  exact ⟨T, .inl (by rw [hres, hX _ herr hout (by cases halt <;> simp [observe])])⟩
 
-/-- **EVM IR to bytecode, run by run, for code with loops, GAS and memory at any offset, with the
-revert data related**: for every program the checker with GAS accepts, at every gas below
-`2 ^ 256` and every call, the oracle of the run's table makes every result of the bytecode the EVM
-IR's (a revert with its data among them), unless the run halted exceptionally. -/
-theorem runs_of_checkCR {p : Assemble.Program} {code : ByteArray} {c : Cert} {mx : List Nat}
-    (hc : checkC p code c mx = true) (gas : Nat) (hgas : gas < 2 ^ 256) (call : Call) :
-    ∃ T, WithinR (evmirSem (O T)) gas p code (· = call) := by
+/-- **The per-run theorem with the revert data related**, below `2 ^ 256` gas, for every program
+the checker with GAS accepts: for every call, an oracle meeting the certificate's constraints (the
+oracle of the run's table) makes every result of the bytecode the EVM IR's (a revert with its data
+among them), unless the run halted exceptionally. -/
+theorem withinRunR_of_checkC {p : Assemble.Program} {code : ByteArray} {c : Cert}
+    {mx : List Nat} (hc : checkC p code c mx = true) :
+    ∀ gas, gas < 2 ^ 256 → ∀ call, ∃ o, CertOk c o ∧
+      WithinR (evmirSem o) gas p code (· = call) := by
+  intro gas hgas call
+  suffices h : ∃ T, WithinR (evmirSem (O T)) gas p code (· = call) by
+    obtain ⟨T, hT⟩ := h
+    exact ⟨O T, O_ok c T, hT⟩
   obtain ⟨hcb, hnc⟩ := checkC_base hc
   obtain ⟨G, hseg, hneed0⟩ := globC_of_checkC hcb
   refine within_of_advancesR O
@@ -1315,16 +946,6 @@ theorem runs_of_checkCR {p : Assemble.Program} {code : ByteArray} {c : Cert} {mx
     simp only [startFrame, ByteArray.size_empty, h0, Nat.zero_add]
     exact le_refl _
 
-/-- **The per-run theorem with the revert data related**, below `2 ^ 256` gas, for every program
-the checker with GAS accepts: an oracle meeting the certificate's constraints for each run. -/
-theorem withinRunR_of_checkC {p : Assemble.Program} {code : ByteArray} {c : Cert}
-    {mx : List Nat} (hc : checkC p code c mx = true) :
-    ∀ gas, gas < 2 ^ 256 → ∀ call, ∃ o, CertOk c o ∧
-      WithinR (evmirSem o) gas p code (· = call) := by
-  intro gas hgas call
-  obtain ⟨T, hT⟩ := runs_of_checkCR hc gas hgas call
-  exact ⟨O T, O_ok c T, hT⟩
-
 /-- info: 'SolidCore.Refinement.Solar.AssembleRevertCut.withinRunR_of_checkC' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs (whitespace := lax) in
 #print axioms withinRunR_of_checkC
@@ -1334,14 +955,6 @@ def WithinRunLtR (sem : Oracle → Sem) (p : ∀ o, (sem o).Prog) (code : ByteAr
     (scope : Call → Prop) (Ok : Oracle → Prop) : Prop :=
   ∀ gas, gas < 2 ^ 256 → ∀ call, scope call → ∃ o, Ok o ∧
     WithinR (sem o) gas (p o) code (· = call)
-
-/-- `WithinRunLtR` gives `AssembleCut.WithinRunLt`. -/
-theorem WithinRunLtR.withinRunLt {sem : Oracle → Sem} {p : ∀ o, (sem o).Prog} {code : ByteArray}
-    {scope : Call → Prop} {Ok : Oracle → Prop} (h : WithinRunLtR sem p code scope Ok) :
-    WithinRunLt sem p code scope Ok := by
-  intro gas hgas call hc
-  obtain ⟨o, ho, hw⟩ := h gas hgas call hc
-  exact ⟨o, ho, hw.within⟩
 
 /-- Stages read backwards before a per-run refinement with the revert data related give one from
 the earlier program. -/
@@ -1357,13 +970,6 @@ theorem WithinRunLtR.of_back {A sem : Oracle → Sem} {q : ∀ o, (A o).Prog} {p
   · exact Or.inl (back o ho call' hc obs e)
   · exact Or.inr e
 
-/-- **The per-run theorem with the revert data related** on a scope, for every program the checker
-with GAS accepts. -/
-theorem withinRunLtR_of_checkC {p : Assemble.Program} {code : ByteArray} {c : Cert}
-    {mx : List Nat} (hc : checkC p code c mx = true) (scope : Call → Prop) :
-    WithinRunLtR evmirSem (fun _ => p) code scope (CertOk c) :=
-  fun gas hgas call _ => withinRunR_of_checkC hc gas hgas call
-
 /-- **The first lowered MIR to the exact bytecode, run by run, with the revert data related**: the
 backend stages read backwards and the checker with GAS give, for every gas below `2 ^ 256` and
 every call, an oracle meeting the certificate's constraints under which every result of the
@@ -1376,7 +982,7 @@ theorem withinRunR_mir_of_checkC {stage0 : SolarTV.MIR.Lowered.moduleLayer.Prog}
     WithinRunLtR mirSem (fun _ => stage0) code scope (CertOk c) :=
   WithinRunLtR.of_back (fun o _ => fun call hcall obs h =>
       stage_of_certified (back o) call (hS call hcall) obs h)
-    (withinRunLtR_of_checkC hc scope)
+    (fun gas hgas call _ => withinRunR_of_checkC hc gas hgas call)
 
 /-- info: 'SolidCore.Refinement.Solar.AssembleRevertCut.withinRunR_mir_of_checkC' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs (whitespace := lax) in

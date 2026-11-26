@@ -1,5 +1,6 @@
 import SolidCore.Refinement.Solar.EthLibErrLow
 import SolidCore.Refinement.Solar.AssembleLoopWithin
+import EthLib.Execution.Proofs.Evm.Logic.Message
 
 /-!
 # EVM IR to bytecode with the revert data related
@@ -14,6 +15,8 @@ is the call's.
 
 * `processMessage_frame`: a message to code that is no precompile ran its frame, and the message
   ends with that frame's error and output (`rollbackOnError` keeps them).
+* `runWith_cases`: a run halts exceptionally, succeeds, or reverts with the frame of its message,
+  whose every observable is the run's.
 * `withinR_of_checkL`: for every program and code the checker of code with loops accepts, at every
   gas, `WithinR`. A run that reverts is transferred to the run with the checker's reserve of gas by
   `RevertErr.SpecG.lowR`, which rests on `RevertErr.step_good` (no step throws a revert, and only
@@ -35,12 +38,13 @@ theorem output_rollbackOnError (snap : TransactionState) (e : Evm .fusaka Nat) :
     (rollbackOnError snap e).output = e.output := by
   unfold rollbackOnError; split <;> rfl
 
-/-- A message to code that is no precompile ran its frame, from the state or from the state after
-the move of the value, and ends with the error and the output of that frame. -/
+/-- A message to code that is no precompile ran its frame under the interpreter's runner of messages,
+from the state or from the state after the move of the value, and ends with the error and the output
+of that frame. -/
 theorem processMessage_frame {message : Message .fusaka}
     (hpre : precompileAddress .fusaka message = none) {st : TransactionState} {ss : Substate} {evm}
     (hr : processMessage (Meter := Nat) .fusaka message st ss = .ok evm) :
-    ∃ (st' : TransactionState) (ss' : Substate) (runChild : MessageRunner .fusaka Nat message.gas)
+    ∃ (st' : TransactionState) (ss' : Substate)
       (within : GasMeter.gasHeld (startFrame message st' ss' message.gas).gas ≤ message.gas)
       (fr : Evm .fusaka Nat),
       (¬ (message.shouldTransferValue = true ∧ message.value ≠ 0) → st' = st ∧ ss' = ss) ∧
@@ -48,8 +52,8 @@ theorem processMessage_frame {message : Message .fusaka}
         st.moveEther .fusaka message.caller message.currentTarget message.value = .ok st' ∧
         ss' = { ss with logs := (pushTransferLog .fusaka ss.logs message.caller message.currentTarget
           message.value) }) ∧
-      runFrame (step .fusaka) (step_decreases .fusaka) message.gas runChild
-        (startFrame message st' ss' message.gas) within = .ok fr ∧
+      runFrame (step .fusaka) (step_decreases .fusaka) message.gas
+        (processRunner .fusaka message.gas) (startFrame message st' ss' message.gas) within = .ok fr ∧
       evm.1.error = fr.error ∧ evm.1.output = fr.output := by
   rw [processMessage] at hr
   have hss : startState .fusaka message st = st := by
@@ -67,7 +71,7 @@ theorem processMessage_frame {message : Message .fusaka}
         simp only [Except.map, Except.ok.injEq] at hr
         subst hr
         simp only [htr.1, htr.2, not_false_eq_true, and_self, ↓reduceIte] at hrf
-        exact ⟨st', _, _, _, _, fun h => absurd htr h, fun _ => ⟨rfl, rfl⟩, hrf,
+        exact ⟨st', _, _, _, fun h => absurd htr h, fun _ => ⟨rfl, rfl⟩, hrf,
           error_rollbackOnError _ _, output_rollbackOnError _ _⟩
   · simp only [htr, ↓reduceIte, bind, Except.bind, pure, Except.pure] at hr
     split at hr
@@ -76,7 +80,7 @@ theorem processMessage_frame {message : Message .fusaka}
       simp only [Except.map, Except.ok.injEq] at hr
       subst hr
       simp only [htr, ↓reduceIte] at hrf
-      exact ⟨st, ss, _, _, _, fun _ => ⟨rfl, rfl⟩, fun h => absurd h htr, hrf,
+      exact ⟨st, ss, _, _, fun _ => ⟨rfl, rfl⟩, fun h => absurd h htr, hrf,
         error_rollbackOnError _ _, output_rollbackOnError _ _⟩
 
 open SolidCore.Refinement.Final
@@ -111,6 +115,66 @@ theorem WithinR.within {A : Sem} {gas : Nat} {p : A.Prog} {code : ByteArray}
 
 open SolidCore.Refinement.Solar.Assemble SolidCore.Refinement.Evm.Wide
   SolidCore.Refinement.Evm.Symex in
+/-- **How a run ends**: it halts exceptionally and fails (storage kept, no log), or succeeds, or the
+frame of its message, run from a start state related to the call's under the interpreter's runner of
+messages, reverts, and every observable that frame shows (its error and output, and a failure that
+keeps the storage and logs nothing) is the run's. -/
+theorem runWith_cases {gas : Nat} {code : ByteArray} {call : SolarTV.Call} {obs : SolarTV.Observable}
+    (hrun : Target.runWith gas code call = some obs) :
+    (HaltsExceptionally gas code call ∧ obs.success = false ∧
+        obs.storage = slotValue call.storage ∧ obs.logs = []) ∨
+    obs.success = true ∨
+    ∃ (st' : TransactionState) (ss' : Substate)
+      (within : GasMeter.gasHeld (startFrame (Final.Target.messageWith gas code call) st' ss'
+        (Final.Target.messageWith gas code call).gas).gas ≤ (Final.Target.messageWith gas code call).gas)
+      (fr : Evm .fusaka Nat),
+      Rel (Final.Target.messageWith gas code call) ss' st' ss' (SolarTV.Machine.State.initial call) ∧
+      runFrame (step .fusaka) (step_decreases .fusaka) (Final.Target.messageWith gas code call).gas
+        (processRunner .fusaka _) (startFrame (Final.Target.messageWith gas code call) st' ss'
+          (Final.Target.messageWith gas code call).gas) within = .ok fr ∧
+      fr.error = some .revert ∧
+      ∀ X : SolarTV.Observable, fr.error = errorOf X → fr.output.toList.map (·.toNat) = X.output →
+        (X.success = false → X.logs = [] ∧ X.storage = slotValue call.storage) → X = obs := by
+  have hrun0 := hrun
+  unfold Target.runWith Target.runMsg at hrun
+  split at hrun
+  · cases hrun
+  rename_i evm hev hpm
+  simp only [Option.some.injEq] at hrun
+  by_cases hex : ∃ e, e ≠ EvmError.revert ∧ evm.error = some e
+  · obtain ⟨e, hne, he'⟩ := hex
+    have hs : obs.success = false := by rw [← hrun]; simp [he']
+    exact .inl ⟨⟨⟨evm, hev⟩, hpm, e, hne, he'⟩, hs, Target.runWith_failure hrun0 hs⟩
+  right
+  rcases herrc : evm.error with _ | e
+  · exact .inl (by rw [← hrun]; simp [herrc])
+  obtain rfl : e = .revert := by
+    by_contra hne
+    exact hex ⟨e, hne, herrc⟩
+  obtain ⟨st', ss', within, fr, hcases, hmove, hrf, herrfr, houtfr⟩ :=
+    processMessage_frame (message := Final.Target.messageWith gas code call) (evm := ⟨evm, hev⟩)
+      (precompileAddress_message code call) hpm
+  simp only at herrfr houtfr
+  have hfrrev : fr.error = some .revert := by rw [← herrfr, herrc]
+  refine .inr ⟨st', ss', within, fr, rel_start code call gas ss' (fun h => (hcases h).1)
+    (fun h => (hmove h).1), hrf, hfrrev, fun X herr hout hfail => ?_⟩
+  subst hrun
+  have hsucc : fr.error.isNone = X.success := by
+    rw [herr]; cases hX : X.success <;> simp [errorOf, hX]
+  rw [hfrrev] at hsucc
+  simp only [Option.isNone_some] at hsucc
+  obtain ⟨hlogs, hst⟩ := hfail hsucc.symm
+  cases X with
+  | mk success output logs storage =>
+    simp only at hsucc hout hlogs hst ⊢
+    subst hsucc hlogs hst
+    rw [SolarTV.Observable.mk.injEq]
+    refine ⟨by simp [herrc], ?_, by simp [herrc], by funext slot; simp [herrc]⟩
+    rw [houtfr]
+    exact hout.symm
+
+open SolidCore.Refinement.Solar.Assemble SolidCore.Refinement.Evm.Wide
+  SolidCore.Refinement.Evm.Symex in
 /-- **EVM IR to bytecode at every gas, for code with loops, with the revert data related.** For
 every program and code the checker of code with loops accepts, under every oracle that
 `within_of_checkL` admits, at every gas: every result the bytecode gives on a call is the result
@@ -122,35 +186,15 @@ theorem withinR_of_checkL {p : Assemble.Program} {code : ByteArray} {c : Cert} {
     (he : c.reads = true → EnvOk o := by intro h; exact absurd h (by decide)) :
     WithinR (SolarTV.evmirSem o) gas p code scope := by
   intro call hcall obs hrun
-  have hrun0 := hrun
-  unfold Target.runWith Target.runMsg at hrun
-  split at hrun
-  · cases hrun
-  rename_i evm hev hpm
-  simp only [Option.some.injEq] at hrun
-  by_cases hex : ∃ e, e ≠ EvmError.revert ∧ evm.error = some e
-  · obtain ⟨e, hne, he'⟩ := hex
-    have hs : obs.success = false := by rw [← hrun]; simp [he']
-    exact Or.inr ⟨⟨⟨evm, hev⟩, hpm, e, hne, he'⟩, hs, Target.runWith_failure hrun0 hs⟩
+  rcases runWith_cases hrun with h | hs | ⟨st', ss', within, fr, R, hrf, hfrrev, hX⟩
+  · exact .inr h
+  · rcases within_of_checkL hc o ho scope gas he call hcall obs hrun with h | ⟨hs', -⟩
+    · exact .inl h
+    · rw [hs] at hs'; cases hs'
   left
-  rcases herrc : evm.error with _ | e
-  · rcases within_of_checkL hc o ho scope gas he call hcall obs hrun0 with h | ⟨hs, -⟩
-    · exact h
-    · rw [← hrun] at hs; simp [herrc] at hs
-  have hrev : e = .revert := by
-    by_contra hne
-    exact hex ⟨e, hne, herrc⟩
-  subst hrev
-  subst hrun
   obtain ⟨G, hseg, hneed0⟩ := globL_of_checkL hc
-  obtain ⟨st', ss', runChild, within, fr, hcases, hmove, hrf, herrfr, houtfr⟩ :=
-    processMessage_frame (message := Final.Target.messageWith gas code call) (evm := ⟨evm, hev⟩)
-      (precompileAddress_message code call) hpm
-  simp only at herrfr houtfr
-  have hfrrev : fr.error = some .revert := by rw [← herrfr, herrc]
   set msg := Final.Target.messageWith gas code call with hmsg
   have hcode : msg.code = code := rfl
-  have R := rel_start code call gas ss' (fun h => (hcases h).1) (fun h => (hmove h).1)
   generalize hW : p.blocks.length + 2 = W
   generalize hn : 2 * (W * gas) + W + p.blocks.length + 1 = n
   generalize hK : 22100 * (n * bmax c) + memoryGasCost c.top = K
@@ -186,32 +230,9 @@ theorem withinR_of_checkL {p : Assemble.Program} {code : ByteArray} {c : Cert} {
       change (SolarTV.EVM.Program.layer.result o p call).map _ = _
       rw [SolarTV.EVM.Program.layer.result_of_ends ⟨n, hit⟩]
       rfl
-    rw [hres]
     obtain ⟨ssF, ⟨herr, hout, -, -⟩, -⟩ :=
       RevertErr.SpecG.lowR hfork (hsim.1 _ hit) hp hstart within hrf hfrrev
-    have herr' : fr.error = errorOf (SolarTV.Machine.observe call sF halt) := herr
-    have hout' : fr.output.toList.map (·.toNat) = (SolarTV.Machine.observe call sF halt).output :=
-      hout
-    have hfail : (SolarTV.Machine.observe call sF halt).success = false →
-        (SolarTV.Machine.observe call sF halt).logs = [] ∧
-        (SolarTV.Machine.observe call sF halt).storage = slotValue call.storage := by
-      cases halt <;> simp [SolarTV.Machine.observe]
-    clear herr hout hres hsim hit
-    generalize SolarTV.Machine.observe call sF halt = X at *
-    have hsucc : fr.error.isNone = X.success := by
-      rw [herr']; cases hX : X.success <;> simp [errorOf, hX]
-    rw [hfrrev] at hsucc
-    simp only [Option.isNone_some] at hsucc
-    obtain ⟨hlogs, hst⟩ := hfail hsucc.symm
-    congr 1
-    cases X with
-    | mk success output logs storage =>
-      simp only at hsucc hout' hlogs hst ⊢
-      subst hsucc hlogs hst
-      rw [SolarTV.Observable.mk.injEq]
-      refine ⟨by simp [herrc], ?_, by simp [herrc], by funext slot; simp [herrc]⟩
-      rw [houtfr]
-      exact hout'.symm
+    rw [hres, hX _ herr hout (by cases halt <;> simp [SolarTV.Machine.observe])]
 
 /--
 info: 'SolidCore.Refinement.Solar.AssembleLoop.withinR_of_checkL' depends on axioms: [propext, Classical.choice, Quot.sound]

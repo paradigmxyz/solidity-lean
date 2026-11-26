@@ -70,13 +70,6 @@ def cost2 (msize : Nat) (start size : U256) : Nat :=
   createBaseCost .fusaka + OPCODE_KECCAK256_PER_WORD * wordCount size.toNat +
     initCodeCost size.toNat + (extendMemory msize [(start, size)]).cost
 
-theorem cost2_eq (msize : Nat) (start size : U256) :
-    cost2 msize start size = createBaseCost .fusaka +
-      (if true then OPCODE_KECCAK256_PER_WORD * wordCount size.toNat else 0) +
-      (if Fork.fusaka ≥ .shapella then initCodeCost size.toNat else 0) +
-      (extendMemory msize [(start, size)]).cost := by
-  simp [cost2, show Fork.fusaka ≥ .shapella by decide]
-
 /-- **CREATE2 short of its price fails**: the step is an error. -/
 theorem createStep2_oog {evm : Evm .fusaka Nat} {value start size salt : U256} {rest : List U256}
     (hst : evm.stack.val = value :: start :: size :: salt :: rest)
@@ -105,6 +98,17 @@ theorem size_read {memory : ByteArray} (hmod : memory.size % 32 = 0) (start size
     rw [ceil32_of_mod hmod] at hle
     simp only at hle
     simp only [ByteArray.size_extract, size_memoryExtend]
+    omega
+
+/-- Init code within the limit of EIP-3860 reads from memory within it. -/
+private theorem read_fits {memory : ByteArray} {start size : U256}
+    (hinit : size.toNat ≤ maxInitCodeSize .fusaka) :
+    ¬ maxInitCodeSize .fusaka < (memoryReadBytes (memoryExtend memory
+      (extendMemory memory.size [(start, size)]).expandBy) start.toNat size.toNat).size := by
+  unfold memoryReadBytes
+  split
+  · simp
+  · simp only [ByteArray.size_extract]
     omega
 
 /-- **CREATE2 of init code past the limit of EIP-3860 fails.** -/
@@ -149,30 +153,14 @@ theorem createStep2_skip {evm : Evm .fusaka Nat} {value start size salt : U256} 
   simp only at hst hstatic hgas hskip ⊢
   subst hst
   unfold cost2 at hgas ⊢
-  have hread : (memoryReadBytes (memoryExtend memory
-      (extendMemory memory.size [(start, size)]).expandBy) start.toNat size.toNat).size ≤
-      size.toNat := by
-    unfold memoryReadBytes
-    split
-    · simp
-    · simp only [ByteArray.size_extract]
-      omega
-  have hlim : ¬(Fork.shapella ≤ Fork.fusaka ∧ maxInitCodeSize .fusaka < (memoryReadBytes
-      (memoryExtend memory (extendMemory memory.size [(start, size)]).expandBy) start.toNat
-      size.toNat).size) := by
-    rintro ⟨-, hlt⟩
-    omega
-  have hlen : rest.length < STACK_LIMIT := by simp at hl; unfold STACK_LIMIT at *; omega
-  have hne : rest.length ≠ STACK_LIMIT := by omega
-  have hlim' : ¬ maxInitCodeSize .fusaka < (memoryReadBytes (memoryExtend memory
-      (extendMemory memory.size [(start, size)]).expandBy) start.toNat size.toNat).size := by
-    omega
+  have hlim := read_fits (memory := memory) (start := start) hinit
+  have hne : rest.length ≠ STACK_LIMIT := by simp at hl; unfold STACK_LIMIT at *; omega
   have hgd : ∀ (tx : State.TransactionState) (x : Address),
       (tx.recordAccountRead x).getAccount = tx.getAccount := fun _ _ => rfl
   simp [createStep, show ¬ Fork.fusaka ≥ .glamsterdam by decide, popWord, Stack.pop, popSalt, bind,
     Except.bind, pure, Except.pure, chargeGasAndMemory, chargeGas, GasMeter.charge,
     show Fork.fusaka ≥ .shapella by decide, Nat.not_lt.mpr hgas, genericCreate, hlim, hstatic,
-    launchCreate, recordAccountRead, hgd, hskip, skipCall, pushWord, Stack.push, hne, hlim',
+    launchCreate, recordAccountRead, hgd, hskip, skipCall, pushWord, Stack.push, hne,
     GasMeter.credit, advance]
   all_goals first
     | done
@@ -215,20 +203,8 @@ theorem createStep2_collision {evm : Evm .fusaka Nat} {value start size salt : U
   simp only at hst hstatic hgas hbal hnonce hdepth hdeploy ⊢
   subst hst
   unfold cost2 at hgas ⊢
-  have hread : (memoryReadBytes (memoryExtend memory
-      (extendMemory memory.size [(start, size)]).expandBy) start.toNat size.toNat).size ≤
-      size.toNat := by
-    unfold memoryReadBytes
-    split
-    · simp
-    · simp only [ByteArray.size_extract]
-      omega
-  have hlim : ¬(Fork.shapella ≤ Fork.fusaka ∧ maxInitCodeSize .fusaka < (memoryReadBytes
-      (memoryExtend memory (extendMemory memory.size [(start, size)]).expandBy) start.toNat
-      size.toNat).size) := by
-    rintro ⟨-, hlt⟩
-    omega
-  have hlen : rest.length < STACK_LIMIT := by simp at hl; unfold STACK_LIMIT at *; omega
+  have hlim := read_fits (memory := memory) (start := start) hinit
+  have hne : rest.length ≠ STACK_LIMIT := by simp at hl; unfold STACK_LIMIT at *; omega
   have hmg : ∀ g, ¬g < createMessageGas .fusaka g := by
     intro g
     simp only [createMessageGas, show Fork.fusaka ≥ .tangerineWhistle by decide, ite_true,
@@ -240,16 +216,12 @@ theorem createStep2_collision {evm : Evm .fusaka Nat} {value start size salt : U
     (extendMemory memory.size [(start, size)]).expandBy) start.toNat size.toNat) = A at hdeploy ⊢
   obtain ⟨state', hinc⟩ := State.TransactionState.incrementNonce_isOk .fusaka
     ((state.recordAccountRead message.currentTarget).recordAccountRead A) message.currentTarget
-  have hne : rest.length ≠ STACK_LIMIT := by omega
-  have hlim' : ¬ maxInitCodeSize .fusaka < (memoryReadBytes (memoryExtend memory
-      (extendMemory memory.size [(start, size)]).expandBy) start.toNat size.toNat).size := by
-    omega
   simp [createStep, show ¬ Fork.fusaka ≥ .glamsterdam by decide, popWord, Stack.pop, popSalt, bind,
     Except.bind, pure, Except.pure, chargeGasAndMemory, chargeGas, GasMeter.charge,
     show Fork.fusaka ≥ .shapella by decide, Nat.not_lt.mpr hgas, genericCreate, hlim, hstatic,
     launchCreate, recordAccountRead, hgd, BitVec.not_lt.mpr hbal, hnonce, Nat.not_lt.mpr hdepth,
     creationAddress, hA, accessAddress, keepReads, show Fork.berlin ≤ Fork.fusaka by decide, createNewAccountStateGas, chargeStateGas,
     GasMeter.chargeState, hmg, hdeploy, hinc, Except.mapError, GasMeter.gasLeft, pushWord,
-    Stack.push, hne, hlim', advance]
+    Stack.push, hne, advance]
 
 end SolidCore.Refinement.Solar.AssembleCreate

@@ -66,6 +66,39 @@ def Create2Q (msg : Message .fusaka) (P : Evm .fusaka Nat → Message .fusaka �
       start.toNat size.toNat → m.value = value →
     m.gas = createMessageGas .fusaka (g - cost2 M.size start size) → CreateOk msg child
 
+/-- A frame the caller takes back that logs nothing when it succeeds leaves the caller's logs. -/
+private theorem logs_incorporate {caller child : Evm .fusaka Nat} {ss : Substate}
+    (hcsub : caller.substate.logs = ss.logs)
+    (hlogs : child.error.isNone = true → child.substate.logs.toList = []) :
+    (incorporateChild .fusaka caller child).substate.logs.toList = ss.logs.toList := by
+  unfold incorporateChild
+  split
+  · rename_i hn
+    simp [Array.toList_append, hcsub, hlogs (by simpa using hn)]
+  · simp [hcsub]
+
+/-- The log relation reads only the substate's logs. -/
+private theorem logsRel_of_logs {a : Address} {ss0 ss ss' : Substate} {w : List Event}
+    (h : ss'.logs.toList = ss.logs.toList) (R : LogsRel a ss0 ss w) : LogsRel a ss0 ss' w :=
+  let ⟨L, h1, h2⟩ := R
+  ⟨L, h.trans h1, h2⟩
+
+/-- Writing return data into memory already grown for its range keeps the budget. -/
+private theorem budget_writeOut {G g : Nat} {M : ByteArray} {o osz : U256} {out : ByteArray}
+    (hb : MemBudget G M g) (hfit : osz ≠ 0 → o.toNat + osz.toNat ≤ M.size) :
+    MemBudget G (memoryWrite M o.toNat (out.extract 0 (min osz.toNat out.size))) g := by
+  unfold MemBudget at *
+  rw [size_memoryWrite_of_fit]
+  · exact hb
+  · intro h
+    simp only [ByteArray.size_extract] at h ⊢
+    have hz : osz ≠ 0 := by
+      intro hz
+      simp [hz] at h
+    have := hfit hz
+    have := Nat.min_le_left osz.toNat out.size
+    omega
+
 /-- **CREATE2 as a cut of a run that succeeds**: the creation had the gas for its price, and the run
 goes on from the frame after it, pushing the word `r` (the EIP-1014 address on success, 0 otherwise),
 with return data `out` and the storage of the frame's account after it. Under the oracle of every
@@ -153,16 +186,7 @@ theorem create2_cutQ {code : ByteArray} {msg : Message .fusaka} {call : Call} {p
       · exact hfit
     · rw [incorporateChild_state]
       exact hacc
-    · have hl : (incorporateChild .fusaka caller child).substate.logs.toList = ss.logs.toList := by
-        unfold incorporateChild
-        split
-        · rename_i hn
-          simp [Array.toList_append, hcsub, hlogs (by simpa using hn)]
-        · simp [hcsub]
-      obtain ⟨L, h1, h2⟩ := R.logs
-      refine ⟨L, by rw [hl, h1], ?_⟩
-      simp only [postCreate, createWorld, List.filter_append]
-      simpa [isLogE] using h2
+    · exact logsRel_of_logs (logs_incorporate (by simp [hcsub]) hlogs) (logsRel_create _ _ _ _ R.logs)
 
 /-- **CALL with value as a cut of a run that succeeds**, from what the run gives the frame its
 message ends with (`CallVQ`, at the caller state and callee code the CALL makes). -/
@@ -208,54 +232,11 @@ theorem callValue_cutQ {code : ByteArray} {msg : Message .fusaka} {call : Call} 
     unfold MemBudget at hb ⊢
     rw [size_memoryExtend]
     omega
-  -- The world with the call, and what every extension of a table with it answers there.
   have hsent : sent (callWorld s asked dst v i isz o osz) = T.oks.length + 1 := by
     simp [callWorld, hoks]
-  have hsame : ∀ (ok : Bool) (out : ByteArray) (sto : Word → Word) T'',
-      (pushCall T ok out sto).Le T'' →
-      Effect.apply (tableOracle base T'') call (.call .call) [asked, dst, v, i, isz, o, osz] s =
-        Effect.apply (tableOracle base (pushCall T ok out sto)) call (.call .call)
-          [asked, dst, v, i, isz, o, osz] s := by
-    intro ok out sto T'' hle
-    obtain ⟨r1, o1, s1, t1⟩ := table_call (base := base) hsent (by omega) (by omega) (by omega) hle
-    obtain ⟨r2, o2, s2, t2⟩ := table_call (base := base) hsent (by omega) (by omega) (by omega)
-      (RunTable.Le.refl (pushCall T ok out sto))
-    have hrds : returndataSize (tableOracle base T'') (callWorld s asked dst v i isz o osz) =
-        returndataSize (tableOracle base (pushCall T ok out sto)) (callWorld s asked dst v i isz o osz) := by
-      rw [returndataSize_table, returndataSize_table, o1, o2]
-    have hrdb : returndataByte (tableOracle base T'') (callWorld s asked dst v i isz o osz) =
-        returndataByte (tableOracle base (pushCall T ok out sto)) (callWorld s asked dst v i isz o osz) := by
-      funext j
-      simp only [returndataByte, tableOracle, o1, o2]
-      simp
-    have hflag : callFlag (tableOracle base T'') (callWorld s asked dst v i isz o osz) =
-        callFlag (tableOracle base (pushCall T ok out sto)) (callWorld s asked dst v i isz o osz) := by
-      simp only [callFlag, r1, r2]
-    simp only [callWorld] at hrds hrdb hflag s1 s2 t1 t2
-    simp only [Effect.apply, CallKind.shape, called, hflag, hrds, hrdb, s1, s2, t1, t2]
-  -- SolarTV's CALL under the table with the call's answers.
-  have heff : ∀ (ok : Bool) (out : ByteArray) (sto : Word → Word), out.size < 2 ^ 256 →
-      ∃ s', (∀ T'', (pushCall T ok out sto).Le T'' →
-        Effect.apply (tableOracle base T'') call (.call .call) [asked, dst, v, i, isz, o, osz] s =
-            some (some (if ok then 1 else 0), s') ∧ RdRel (tableOracle base T'') s'.world out) ∧
-        s'.storage = sto ∧ s'.world = callWorld s asked dst v i isz o osz ∧
-        MemRel s'.memory (memoryWrite (memoryExtend M
-          (extendMemory M.size [(i, isz), (o, osz)]).expandBy)
-          o.toNat (out.extract 0 (min osz.toNat out.size))) := by
-    intro ok out sto hsz
-    obtain ⟨r2, o2, s2, -⟩ := table_call (base := base) (ok := ok) (out := out) (sto := sto) hsent
-      (by omega) (by omega) (by omega) (RunTable.Le.refl _)
-    have hrd2 : RdRel (tableOracle base (pushCall T ok out sto)) (callWorld s asked dst v i isz o osz) out := by
-      have := rdRel_table base (pushCall T ok out sto) (callWorld s asked dst v i isz o osz) (by rw [o2]; exact hsz)
-      rwa [o2] at this
-    obtain ⟨s', happ, hsto, hw, hmem⟩ := call_effectO (o := tableOracle base (pushCall T ok out sto))
-      (call := call) (ok := ok) hm hb1 hb2 (by simp only [callFlag, r2]; cases ok <;> simp) hrd2
-    refine ⟨s', fun T'' hle => ⟨by rw [hsame ok out sto T'' hle, happ], ?_⟩, by rw [hsto, s2], hw, hmem⟩
-    obtain ⟨-, o1, -, -⟩ := table_call (base := base) hsent (by omega) (by omega) (by omega) hle
-    have := rdRel_table base T'' (callWorld s asked dst v i isz o osz) (by rw [o1]; exact hsz)
-    rw [o1] at this
-    rw [hw]
-    exact this
+  -- SolarTV's CALL under every extension of the table with the call's answers.
+  have heff := call_answers (base := base) (call := call) hm hb1 hb2 hsent (by omega) (by omega)
+    (by omega)
   rcases hcase with ⟨-, m, within', hat', hrun'⟩ |
     ⟨-, caller, mm, child, after, within', hP, hcg, hcs, hcsub, hmg, hmc, hmt, hmcode, hmd, hmv, -,
       hat', hrun'⟩
@@ -290,30 +271,10 @@ theorem callValue_cutQ {code : ByteArray} {msg : Message .fusaka} {call : Call} 
       hall, hw, hmem, ⟨fun k => by rw [hsto]; rfl, ?_, ?_⟩, ?_, by omega, hat', hrun'⟩
     · rw [incorporateChild_state]
       exact hacc
-    · have hl : (incorporateChild .fusaka caller child).substate.logs.toList = ss.logs.toList := by
-        unfold incorporateChild
-        split
-        · rename_i hn
-          simp [Array.toList_append, hcsub, hlogs (by simpa using hn)]
-        · simp [hcsub]
-      obtain ⟨L, h1, h2⟩ := R.logs
-      refine ⟨L, by rw [hl, h1], ?_⟩
-      rw [hw, callWorld, List.filter_append]
-      simpa [isLogE] using h2
-    · unfold MemBudget
-      rw [size_memoryWrite_of_fit, size_memoryExtend]
-      · unfold MemBudget at hbud0
-        rw [size_memoryExtend] at hbud0
-        omega
-      · intro h
-        simp only [ByteArray.size_extract] at h ⊢
-        have hz : osz ≠ 0 := by
-          intro hz
-          simp [hz] at h
-        have := hfit hz
-        rw [size_memoryExtend]
-        have := Nat.min_le_left osz.toNat child.output.size
-        omega
+    · rw [hw]
+      exact logsRel_of_logs (logs_incorporate (by simp [hcsub]) hlogs) (logsRel_call _ _ _ _ _ R.logs)
+    · exact budget_writeOut (MemBudget.spend hbud0 (by omega))
+        (fun hz => by rw [size_memoryExtend]; exact hfit hz)
 
 /-- **CALL with no value as a cut of a run that succeeds**, from what the run gives the frame its
 message ends with (`Call0Q`, at the caller state and code the CALL makes). -/
@@ -359,29 +320,11 @@ theorem call0_cutQ {code : ByteArray} {msg : Message .fusaka} {call : Call} {pc 
     ⟨fun k => by rw [hsto]; rfl, ?_, ?_⟩, ?_, by omega, hat', hrun'⟩
   · rw [incorporateChild_state]
     exact hacc
-  · have hl : (incorporateChild .fusaka caller child).substate.logs.toList = ss.logs.toList := by
-      unfold incorporateChild
-      split
-      · rename_i hn
-        have h0 := hlogs (by simpa using hn)
-        rcases route with _ | ⟨d, c'⟩ <;> simp [Array.toList_append, h0, hcsub, routeSub]
-      · rcases route with _ | ⟨d, c'⟩ <;> simp [hcsub, routeSub]
-    obtain ⟨L, h1, h2⟩ := R.logs
-    refine ⟨L, by rw [hl, h1], ?_⟩
-    rw [hw, callWorld, List.filter_append]
-    simpa [isLogE] using h2
-  · unfold MemBudget
-    rw [size_memoryWrite_of_fit, size_memoryExtend]
-    · omega
-    · intro h
-      simp only [ByteArray.size_extract] at h ⊢
-      have hz : outSize ≠ 0 := by
-        intro hz
-        simp [hz] at h
-      have := hfit hz
-      rw [size_memoryExtend]
-      have := Nat.min_le_left outSize.toNat child.output.size
-      omega
+  · rw [hw]
+    exact logsRel_of_logs (logs_incorporate (by rcases route with _ | ⟨d, c'⟩ <;> simp [hcsub, routeSub])
+      hlogs) (logsRel_call _ _ _ _ _ R.logs)
+  · exact budget_writeOut (by unfold MemBudget; rw [size_memoryExtend]; omega)
+      (fun hz => by rw [size_memoryExtend]; exact hfit hz)
 
 
 /-- info: 'SolidCore.Refinement.Solar.AssembleCreateCutQ.call0_cutQ' depends on axioms: [propext, Classical.choice, Quot.sound] -/

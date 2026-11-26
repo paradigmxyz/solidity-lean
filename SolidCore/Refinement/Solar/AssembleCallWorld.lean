@@ -31,14 +31,6 @@ def isStaticM : SolarTV.Machine.CallKind → Bool
   | .staticcall => true
   | _ => false
 
-/-- A `STATICCALL`, on the source side. -/
-def isStaticS : CallKind → Bool
-  | .staticcall => true
-  | _ => false
-
-theorem isStaticM_machineKind (k : CallKind) : isStaticM (machineKind k) = isStaticS k := by
-  cases k <;> rfl
-
 /-- A `STATICCALL` with no value to a precompile address, which SolidCore answers itself. -/
 def prePath (k : SolarTV.Machine.CallKind) (callee value : Nat) : Bool :=
   isStaticM k && value == 0 && (SolidCore.Solidity.Shared.Precompile.kindOfAddress? callee).isSome
@@ -318,54 +310,6 @@ theorem machineCalls_static (w : List SolarTV.Machine.Event) (gas addr : (BitVec
   rw [machineCalls_append]
   simp [machineCalls]
 
-/-- **A static call to code under the oracle of a run answers the table's next entry**: the
-`n`-th call of the frame (`n` the calls before it) succeeds as the table's `n`-th flag says, and
-until the next call the return data is the table's `n`-th output. With
-`AssembleCall.staticcall_back`, which reads the callee frame's flag and output from the run, these
-are `AssembleCall.staticcall_effectW`'s premises. -/
-theorem OS_static (codes : SolidCore.Solidity.Shared.Account.BytesMap) (T : RunTable)
-    (w : List SolarTV.Machine.Event) (gas addr : (BitVec 256)) (input : List SolarTV.Memory.Byte) (st tr : (BitVec 256) → (BitVec 256))
-    (hc : toCode .staticcall (addr.toNat % 2 ^ 160) 0 = true)
-    (hsz : (T.outs.getD (machineCalls w).length ByteArray.empty).size < 2 ^ 256) :
-    callFlag (OS codes T) (w ++ [.call .staticcall [gas, addr] input st tr]) =
-        (if T.oks.getD (machineCalls w).length false then 1 else 0) ∧
-      ∀ rest, machineCalls rest = [] →
-        RdRel (OS codes T) (w ++ [.call .staticcall [gas, addr] input st tr] ++ rest)
-          (T.outs.getD (machineCalls w).length ByteArray.empty) := by
-  have hm := machineCalls_static w gas addr input st tr
-  refine ⟨?_, fun rest hrest => ?_⟩
-  · show (if tabResult T.oks T.outs _ = 0 then _ else _) = _
-    simp only [tabResult, hm, List.getLast?_append, List.getLast?_singleton, Option.some_or,
-      List.length_append, List.length_singleton, Nat.add_sub_cancel, tabResp, hc, ite_true]
-    cases T.oks.getD (machineCalls w).length false <;> simp
-  · have hmr : machineCalls (w ++ [.call .staticcall [gas, addr] input st tr] ++ rest) =
-        machineCalls w ++ [(.staticcall, addr.toNat % 2 ^ 160, 0, input.map BitVec.toNat)] := by
-      rw [machineCalls_append, hm, hrest, List.append_nil]
-    refine ⟨?_, fun i hi => ?_⟩
-    · show ((OS codes T).env "returndatasize" _ []).toNat = _
-      rw [OS_env codes T _ _ _ (by decide) rfl]
-      simp only [tabEnv, show ("returndatasize" = "extcodesize") = False by simp, ite_false, hmr,
-        List.getLast?_append, List.getLast?_singleton, Option.some_or, List.length_append,
-        List.length_singleton, Nat.add_sub_cancel, tabResp, hc, ite_true, BitVec.toNat_ofNat]
-      exact Nat.mod_eq_of_lt hsz
-    · show ((OS codes T).env "returndata" _ [BitVec.ofNat 256 i]).setWidth 8 = _
-      rw [OS_env codes T _ _ _ (by decide) rfl]
-      simp only [tabEnv, show ("returndata" = "extcodesize") = False by simp, ite_false, hmr,
-        List.getLast?_append, List.getLast?_singleton, Option.some_or, List.length_append,
-        List.length_singleton, Nat.add_sub_cancel, tabResp, hc, ite_true]
-      apply BitVec.eq_of_toNat_eq
-      have hi' : i < 2 ^ 256 := by omega
-      simp only [BitVec.toNat_setWidth, BitVec.toNat_ofNat, UInt8.toNat_toBitVec,
-        Nat.mod_eq_of_lt hi', EthLib.Base.byteAt, hi, dite_true]
-      have := ((T.outs.getD (machineCalls w).length ByteArray.empty).get! i).toNat_lt
-      rw [Nat.mod_eq_of_lt (by omega), Nat.mod_eq_of_lt (by omega)]
-      simp only [ByteArray.get!]
-      clear this
-      revert hi
-      simp only [List.getD_eq_getElem?_getD]
-      intro hi
-      exact congrArg UInt8.toNat (data_getElem! _ i hi)
-
 /-- The world of a table whose one static call succeeded with data `d` answers that call with
 success and `d`: the open world of `OS_agree` admits successful calls. -/
 example (d : ByteArray) (world : SolidCore.Solidity.Shared.OpenWorld)
@@ -384,9 +328,5 @@ example (d : ByteArray) (world : SolidCore.Solidity.Shared.OpenWorld)
 /-- info: 'SolidCore.Refinement.Solar.AssembleCallWorld.OS_ok' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs (whitespace := lax) in
 #print axioms OS_ok
-
-/-- info: 'SolidCore.Refinement.Solar.AssembleCallWorld.OS_static' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs (whitespace := lax) in
-#print axioms OS_static
 
 end SolidCore.Refinement.Solar.AssembleCallWorld
