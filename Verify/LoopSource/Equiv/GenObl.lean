@@ -64,12 +64,9 @@ def Runs (c? : Checked) (sel m : Nat) (b : Br) : Prop :=
 /-- **A summary applies to an imported contract of its shape.** -/
 theorem runs_of_summary {c? : Checked} {sel m : Nat} {s} {b : Br} (h : SummaryOk sel m s b)
     (hs : shapeOf c? sel = some s) : Runs c? sel m b := by
-  intro c hc fn ws hf hw fuel hfu
-  subst hc
+  rintro c rfl fn ws hf hw fuel hfu
   have hs' : shapeOfC c sel = some s := hs
-  have : s = (c.core.storageFields, fn) := by
-    simp only [shapeOfC, hf, Option.map_some, Option.some.injEq] at hs'; exact hs'.symm
-  subst this
+  obtain rfl : (c.core.storageFields, fn) = s := by simpa [shapeOfC, hf] using hs'
   exact h c hs' ws hw fuel hfu
 
 /-- The source tree of a function from its body summary `b`. -/

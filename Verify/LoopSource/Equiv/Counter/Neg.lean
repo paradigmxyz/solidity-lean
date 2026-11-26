@@ -55,63 +55,48 @@ def Texit : Tree := mapLeaves (fun ok o w l => .halt (!ok) o w l) T
 def val (as : List Nat) (s0 s1 : Nat) : Val :=
   { args := as, store := fun k => [s0, s1].getD k 0, hash := fun _ _ => 0, caller := 0 }
 
+/-- A header valuation of an iteration: header word 1 (the count) is `2 ^ 256 - 1`. -/
+def σw : Val := val [1, 2 ^ 256 - 1, 0, 0, 0, 0, 0, 0, 36, 0, 2 ^ 256 - 1, 0, 1, 0] 0 5
+
+/-- A mutated MIR's obligations are refuted: on its check's leaves, sequent `i` fails at `σ`. -/
+theorem rejects_check {m : Module} {T : Tree} {I : List F} {μ : WExpr} {σ : Val} {i : Nat}
+    (hb : rejects σ i ((cut.check .off m 0xb20eb4c4 1).bind fun p => allSeqs 1 cut.cases T p.1 p.2 I μ) = true) :
+    ∀ le' li', cut.check .off m 0xb20eb4c4 1 = some (le', li') →
+      ∀ ss, allSeqs 1 cut.cases T le' li' I μ = some ss → ¬ ∀ s ∈ ss, s.Valid := by
+  intro le' li' hc ss hs
+  simp only [hc, Option.bind_some, hs] at hb
+  exact rejects_sound hb
+
 theorem neg_measure : ∀ ss, allSeqs 1 cut.cases T le li I (.arg 2) = some ss → ¬ ∀ s ∈ ss, s.Valid :=
-  fun ss h => rejects_sound (σ := val [1, 115792089237316195423570985008687907853269984665640564039457584007913129639935, 0, 0, 0, 0, 0, 0, 36, 0, 115792089237316195423570985008687907853269984665640564039457584007913129639935, 0, 1, 0] 0 5) (i := 30)
-    (h ▸ by decide +kernel)
+  fun ss h => rejects_sound (σ := σw) (i := 30) (h ▸ by decide +kernel)
 
 theorem neg_swap : ∀ le' li', cut.check .off swapM 0xb20eb4c4 1 = some (le', li') →
-    ∀ ss, allSeqs 1 cut.cases T le' li' I μ = some ss → ¬ ∀ s ∈ ss, s.Valid := by
-  have hb : (match cut.check .off swapM 0xb20eb4c4 1 with
-      | some p => rejects (val [0] 0 0) 17 (allSeqs 1 cut.cases T p.1 p.2 I μ)
-      | none => false) = true := by decide +kernel
-  intro le' li' hc ss hs
-  rw [hc] at hb
-  simp only at hb
-  rw [hs] at hb
-  exact rejects_sound hb
+    ∀ ss, allSeqs 1 cut.cases T le' li' I μ = some ss → ¬ ∀ s ∈ ss, s.Valid :=
+  rejects_check (σ := val [0] 0 0) (i := 17) (by decide +kernel)
 
 theorem neg_body : ∀ ss, allSeqs 1 cut.cases Tbody le li I μ = some ss → ¬ ∀ s ∈ ss, s.Valid :=
-  fun ss h => rejects_sound (σ := val [1, 0, 1, 1, 1, 1, 0, 0, 36, 0, 115792089237316195423570985008687907853269984665640564039457584007913129639935, 0, 1, 0] 0 5) (i := 32)
-    (h ▸ by decide +kernel)
+  fun ss h => rejects_sound (σ := val [1, 0, 1, 1, 1, 1, 0, 0, 36, 0, 2 ^ 256 - 1, 0, 1, 0] 0 5) (i := 32) (h ▸ by decide +kernel)
+
+/-- A call valuation whose stored count is `2 ^ 256 - 2`. -/
+def σg : Val := val [2] (2 ^ 256 - 2) 0
 
 theorem neg_guard : ∀ ss, allSeqs 1 cut.cases Tguard le li I μ = some ss → ¬ ∀ s ∈ ss, s.Valid :=
-  fun ss h => rejects_sound (σ := val [2] 115792089237316195423570985008687907853269984665640564039457584007913129639934 0) (i := 24) (h ▸ by decide +kernel)
+  fun ss h => rejects_sound (σ := σg) (i := 24) (h ▸ by decide +kernel)
 
 theorem neg_exit : ∀ ss, allSeqs 1 cut.cases Texit le li I μ = some ss → ¬ ∀ s ∈ ss, s.Valid :=
-  fun ss h => rejects_sound (σ := val [2] 115792089237316195423570985008687907853269984665640564039457584007913129639934 0) (i := 24) (h ▸ by decide +kernel)
+  fun ss h => rejects_sound (σ := σg) (i := 24) (h ▸ by decide +kernel)
 
 theorem neg_delta : ∀ le' li', cut.check .off mDelta 0xb20eb4c4 1 = some (le', li') →
-    ∀ ss, allSeqs 1 cut.cases T le' li' I μ = some ss → ¬ ∀ s ∈ ss, s.Valid := by
-  have hb : (match cut.check .off mDelta 0xb20eb4c4 1 with
-      | some p => rejects (val [1, 115792089237316195423570985008687907853269984665640564039457584007913129639935, 0, 0, 0, 0, 0, 0, 36, 0, 115792089237316195423570985008687907853269984665640564039457584007913129639935, 0, 1, 0] 0 5) 17 (allSeqs 1 cut.cases T p.1 p.2 I μ)
-      | none => false) = true := by decide +kernel
-  intro le' li' hc ss hs
-  rw [hc] at hb
-  simp only at hb
-  rw [hs] at hb
-  exact rejects_sound hb
+    ∀ ss, allSeqs 1 cut.cases T le' li' I μ = some ss → ¬ ∀ s ∈ ss, s.Valid :=
+  rejects_check (σ := σw) (i := 17) (by decide +kernel)
 
 theorem neg_sign : ∀ le' li', cut.check .off mSign 0xb20eb4c4 1 = some (le', li') →
-    ∀ ss, allSeqs 1 cut.cases T le' li' I μ = some ss → ¬ ∀ s ∈ ss, s.Valid := by
-  have hb : (match cut.check .off mSign 0xb20eb4c4 1 with
-      | some p => rejects (val [1] 0 5) 8 (allSeqs 1 cut.cases T p.1 p.2 I μ)
-      | none => false) = true := by decide +kernel
-  intro le' li' hc ss hs
-  rw [hc] at hb
-  simp only at hb
-  rw [hs] at hb
-  exact rejects_sound hb
+    ∀ ss, allSeqs 1 cut.cases T le' li' I μ = some ss → ¬ ∀ s ∈ ss, s.Valid :=
+  rejects_check (σ := val [1] 0 5) (i := 8) (by decide +kernel)
 
 theorem neg_init : ∀ le' li', cut.check .off mInit 0xb20eb4c4 1 = some (le', li') →
-    ∀ ss, allSeqs 1 cut.cases T le' li' I μ = some ss → ¬ ∀ s ∈ ss, s.Valid := by
-  have hb : (match cut.check .off mInit 0xb20eb4c4 1 with
-      | some p => rejects (val [0] 5 5) 16 (allSeqs 1 cut.cases T p.1 p.2 I μ)
-      | none => false) = true := by decide +kernel
-  intro le' li' hc ss hs
-  rw [hc] at hb
-  simp only at hb
-  rw [hs] at hb
-  exact rejects_sound hb
+    ∀ ss, allSeqs 1 cut.cases T le' li' I μ = some ss → ¬ ∀ s ∈ ss, s.Valid :=
+  rejects_check (σ := val [0] 5 5) (i := 16) (by decide +kernel)
 
 /-- Truncating (natural number) subtraction from 0 in place of subtraction mod \`2 ^ 256\`: \`0 - x\`
 is 0. -/
@@ -140,8 +125,7 @@ theorem neg_natsub_inv : ∀ ss, allSeqs 1 cut.cases T le li INat μ = some ss �
 /-- **The measure with Nat subtraction (\`0 - h\` truncated to 0) is rejected.** -/
 theorem neg_natsub_measure : ∀ ss, allSeqs 1 cut.cases T le li I (wNatSub μ) = some ss →
     ¬ ∀ s ∈ ss, s.Valid :=
-  fun ss h => rejects_sound (σ := val [1, 115792089237316195423570985008687907853269984665640564039457584007913129639935, 0, 0, 0, 0, 0, 0, 36, 0, 115792089237316195423570985008687907853269984665640564039457584007913129639935, 0, 1, 0] 0 5) (i := 30)
-    (h ▸ by decide +kernel)
+  fun ss h => rejects_sound (σ := σw) (i := 30) (h ▸ by decide +kernel)
 
 end Verify.LoopSource.Equiv.CounterNeg
 
