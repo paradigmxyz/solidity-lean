@@ -1,0 +1,15 @@
+{
+ "slot": "C",
+ "box": "erc20rc-dba6",
+ "id": "box_1795739763828033758",
+ "status": "destroyed",
+ "plan": "m4-metal-large",
+ "region": "FRA2",
+ "keep_alive": "2h0m0s",
+ "provider_server_id": "sv_XDO7NYXxd0Pgw",
+ "created_at": "2026-11-27T00:36:03.828033217Z",
+ "expires_at": "2026-11-27T02:36:03.828033217Z",
+ "destroyed_at": "2026-11-27T02:08:40.514713183Z",
+ "purpose": "erc20-readmit-slotC",
+ "source": "boxctl get_box, read 2026-11-27T03:0xZ"
+}
