@@ -378,6 +378,9 @@ def μ : WExpr := (WExpr.arg 1)
     match allSeqsW 1 cut.cases T le li I μ with
     | none => throw (IO.userError "allSeqsW is none")
     | some ss =>
+      -- Runs only with the obligation module's prelude at `out/prelude.lean` (from the repository
+      -- root), so a library build writes nothing.
+      unless (← System.FilePath.pathExists "out/prelude.lean") do return
       let pre ← IO.FS.readFile "out/prelude.lean"
       IO.FS.writeFile "Verify/Phase3/Infer/Horn/Obl.lean" (emitW pre "Verify.Phase3.Infer.HornOkTransfer" "cut.check .off stage0 4244640165 1" 1 "cut.cases" le li T I μ ss)
       IO.println s!"wrote {ss.length} sequents ({ss.eraseDups.length} unique)"
