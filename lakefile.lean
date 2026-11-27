@@ -749,7 +749,7 @@ lean_lib VerifyLoopSource where
     -- Fixed-fuel gas from the compiled IR's measured loop costs and its generated instances
     -- (Verify/Gas/FixedFuel/Measured.lean, Gen/), and the constructor's argument words
     -- (Verify/Generic/CtorWords.lean).
-    .one `Verify.Gas.FixedFuel.Measured, .submodules `Verify.Gas.FixedFuel.Gen,
+    .one `Verify.Gas.FixedFuel.Measured, .one `Verify.Gas.FixedFuel.MeasuredDec, .submodules `Verify.Gas.FixedFuel.Gen,
     .one `Verify.Generic.CtorWords,
     -- Recursion's cut points and invariant discovery (Verify/Phase3), and the assembly checker's
     -- entry heights from the run at a recursive function's cut points.
