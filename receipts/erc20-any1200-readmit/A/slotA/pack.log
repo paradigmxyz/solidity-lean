@@ -1,0 +1,3 @@
+admission pack cg=/sys/fs/cgroup/erc20cap-pack-61904 want_max=303880249344 got_max=303880249344 want_swap=0 got_swap=0 concurrency=sampled-only ADMITTED
+pack: 10223 files, 4028 closure modules, ship.tar 7bdc19a839df208ccaf51f7b5ef153e6392fed2c2bbdf06bc2a542704606a3c8
+build pack exit=0 cap_jobs=12 budget_kb=296758059 max_bytes=303880249344 post_max=303880249344 post_swap=0 peak_tree_kb=1814584 max_sampled_tree_rss_kb=849400 max_lean=0 max_rustc=0 concurrency=sampled-only oom_kill=0 PASS

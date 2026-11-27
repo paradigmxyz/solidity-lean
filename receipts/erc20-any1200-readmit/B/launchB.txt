@@ -1,0 +1,17 @@
+launch 2026-11-26T22:54:58Z slot=B CANDIDATE_SHA256=166137ef66c1d792afd5b39bf5e3a1b02402f6c4484032f8b4115d926dd1245a deadline=1795740802 ship=7bdc19a839df208ccaf51f7b5ef153e6392fed2c2bbdf06bc2a542704606a3c8
+apt exit=0 2026-11-26T22:55:02Z
+rustup exit=0 2026-11-26T22:55:09Z
+elan exit=0 2026-11-26T22:55:10Z
+solar ecc82815472d6ed2d796a2c7bdb940ca370982a0 2026-11-26T22:55:20Z
+solidity-lean 1f0db760f3ef35c7ffc974a24bae68d566788109 2026-11-26T22:55:23Z
+fetched package 41e6b29b and overlay 4332b47d exit=0 2026-11-26T22:55:24Z
+toolchain leanprover/lean4:v4.35.0 exit=0 2026-11-26T22:55:32Z
+lake exe cache get exit=0 2026-11-26T22:56:42Z
+solc 0.8.35 exit=0 2026-11-26T22:56:42Z
+setup done 2026-11-26T22:56:43Z
+slot B solar ecc82815472d6ed2d796a2c7bdb940ca370982a0 lean 1f0db760f3ef35c7ffc974a24bae68d566788109 deadline 1795740802
+unpack exit=0 wall_s=5 peak_rss_kb=130872 2026-11-26T22:56:48Z
+replay exit=2 wall_s=5704 2026-11-27T00:31:52Z
+slot B replay exit recorded in /home/ubuntu/w/slotB/steps
+slot.sh exit=0 2026-11-27T00:31:52Z
+launch done 2026-11-27T00:31:52Z

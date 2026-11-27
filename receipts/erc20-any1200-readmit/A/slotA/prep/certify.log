@@ -1,0 +1,2 @@
+assembly: decoded only; the final EVM IR is outside the executed fragment: block 21: ('other', '.effect (.call .staticcall) 6')
+{"final": "SolarTV.Milestone.Uv2Erc20T.uv2_erc20_transfer_mir_to_evmir", "last": "evm11", "first": "stage0", "stages": ["stage0", "mir1", "mir2", "mir3", "mir4", "sched", "evm1", "evm2", "evm3", "evm4", "evm5", "evm6", "evm7", "evm8", "evm9", "evm10", "evm11"]}

@@ -1,0 +1,11 @@
+closure: 4028 modules, 4028 to replay, 0 trusted by directory
+a77d7bd5b26c50ae10fdd627e09e71b8234070771cc152735bdf057ba0e342af  /home/ubuntu/w/slotA/out/replay/plan
+a55ac3a9bce172b2f76615e6c5feb6e4d00a179c3eb884e92d3c9b982d810da4  /home/ubuntu/w/slotA/out/replay/inventory
+closure modules to replay: 4028
+par 4 max_concurrent_checkers 2 OK
+budget_kb 296758059 of 395677412 max_used_kb 160493268 headroom 59% OK
+max_tree_rss_kb 151733588
+hard_limit_kb 346217735 kills 0 
+   3628 unverified
+    400 verified
+partial slot: merge with merge.py

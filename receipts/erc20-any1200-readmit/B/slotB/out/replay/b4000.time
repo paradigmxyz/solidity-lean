@@ -1,0 +1,23 @@
+	Command being timed: "lake env /home/ubuntu/.elan/toolchains/leanprover--lean4---v4.35.0/bin/leanchecker --verbose uv2_erc20.gen.UniswapV2ERC20.Evm3 uv2_erc20.ProofsT.Runs.Evm3 uv2_erc20.gen.UniswapV2ERC20.Evm4 uv2_erc20.ProofsT.Runs.Evm4 uv2_erc20.gen.UniswapV2ERC20.Evm5 uv2_erc20.ProofsT.Runs.Evm5 uv2_erc20.gen.UniswapV2ERC20.Evm6 uv2_erc20.ProofsT.Runs.Evm6 uv2_erc20.gen.UniswapV2ERC20.Evm7 uv2_erc20.ProofsT.Runs.Evm7 uv2_erc20.gen.UniswapV2ERC20.Evm8 uv2_erc20.ProofsT.Runs.Evm8 uv2_erc20.gen.UniswapV2ERC20.Evm9 uv2_erc20.ProofsT.Runs.Evm9 uv2_erc20.gen.UniswapV2ERC20.Evm10 uv2_erc20.ProofsT.Runs.Evm10 uv2_erc20.ProofsT.Runs.Evm11 uv2_erc20.ProofsT.Stages uv2_erc20.AnyCaller Contracts.UniswapV2.ERC20.SourceMirFromDefs Contracts.UniswapV2.ERC20.SourceMirFromCheck Contracts.UniswapV2.ERC20.SourceMirFrom Contracts.UniswapV2.ERC20.Certified.Transfer Verify.Generic.Instances.Transfer Contracts.UniswapV2.ERC20.Certified.TransferFrom Contracts.UniswapV2.ERC20.Certified.TransferExpected erc20_any.Proof erc20_any.Final"
+	User time (seconds): 114.32
+	System time (seconds): 227.72
+	Percent of CPU this job got: 156%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 3:39.07
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 44552880
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 0
+	Minor (reclaiming a frame) page faults: 12610694
+	Voluntary context switches: 2821583
+	Involuntary context switches: 1201
+	Swaps: 0
+	File system inputs: 0
+	File system outputs: 8
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0

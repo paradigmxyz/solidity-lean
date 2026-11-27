@@ -1,0 +1,2 @@
+2026-11-27T00:40:05Z tree_rss_kb=11372 lean=0 largest_pid=6591 largest_rss_kb=3752 argv=bash /home/ubuntu/w/solar/tools/certify/erc20_any/unpack.sh /home/ubuntu/ship 7bdc19a839df208ccaf51f7b5ef153e6392fed2c2bbdf06bc2a542704606a3c8 /home/ubuntu/prior/replay/plan /home/ubuntu/w/slotC/out 
+2026-11-27T00:40:11Z tree_rss_kb=26984 lean=0 largest_pid=6707 largest_rss_kb=23164 argv=python3 - /home/ubuntu/prior/replay/plan 

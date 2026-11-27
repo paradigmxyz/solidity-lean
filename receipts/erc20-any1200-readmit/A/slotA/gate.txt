@@ -1,0 +1,18 @@
+admission port cg=/sys/fs/cgroup/erc20cap-port-7891 want_max=303880249344 got_max=303880249344 want_swap=0 got_swap=0 concurrency=sampled-only ADMITTED
+build port exit=0 cap_jobs=12 budget_kb=296758059 max_bytes=303880249344 post_max=303880249344 post_swap=0 peak_tree_kb=34160 max_sampled_tree_rss_kb=0 max_lean=0 max_rustc=0 concurrency=sampled-only oom_kill=0 PASS
+admission verify cg=/sys/fs/cgroup/erc20cap-verify-8073 want_max=303880249344 got_max=303880249344 want_swap=0 got_swap=0 concurrency=sampled-only ADMITTED
+build verify exit=0 cap_jobs=12 budget_kb=296758059 max_bytes=303880249344 post_max=303880249344 post_swap=0 peak_tree_kb=2848216 max_sampled_tree_rss_kb=2461796 max_lean=0 max_rustc=4 concurrency=sampled-only oom_kill=0 PASS
+admission core cg=/sys/fs/cgroup/erc20cap-core-15609 want_max=303880249344 got_max=303880249344 want_swap=0 got_swap=0 concurrency=sampled-only ADMITTED
+build core exit=0 cap_jobs=12 budget_kb=296758059 max_bytes=303880249344 post_max=303880249344 post_swap=0 peak_tree_kb=4447196 max_sampled_tree_rss_kb=8705416 max_lean=7 max_rustc=0 concurrency=sampled-only oom_kill=0 PASS
+admission slice cg=/sys/fs/cgroup/erc20cap-slice-21266 want_max=303880249344 got_max=303880249344 want_swap=0 got_swap=0 concurrency=sampled-only ADMITTED
+build slice exit=0 cap_jobs=12 budget_kb=296758059 max_bytes=303880249344 post_max=303880249344 post_swap=0 peak_tree_kb=3683536 max_sampled_tree_rss_kb=9206200 max_lean=12 max_rustc=0 concurrency=sampled-only oom_kill=0 PASS
+admission prep cg=/sys/fs/cgroup/erc20cap-prep-45861 want_max=303880249344 got_max=303880249344 want_swap=0 got_swap=0 concurrency=sampled-only ADMITTED
+build prep exit=0 cap_jobs=12 budget_kb=296758059 max_bytes=303880249344 post_max=303880249344 post_swap=0 peak_tree_kb=177708 max_sampled_tree_rss_kb=0 max_lean=0 max_rustc=0 concurrency=sampled-only oom_kill=0 PASS
+admission run cg=/sys/fs/cgroup/erc20cap-run-46100 want_max=303880249344 got_max=303880249344 want_swap=0 got_swap=0 concurrency=sampled-only ADMITTED
+build run exit=0 cap_jobs=12 budget_kb=296758059 max_bytes=303880249344 post_max=303880249344 post_swap=0 peak_tree_kb=12617132 max_sampled_tree_rss_kb=30858492 max_lean=12 max_rustc=0 concurrency=sampled-only oom_kill=0 PASS
+admission pack cg=/sys/fs/cgroup/erc20cap-pack-61904 want_max=303880249344 got_max=303880249344 want_swap=0 got_swap=0 concurrency=sampled-only ADMITTED
+build pack exit=0 cap_jobs=12 budget_kb=296758059 max_bytes=303880249344 post_max=303880249344 post_swap=0 peak_tree_kb=1814584 max_sampled_tree_rss_kb=849400 max_lean=0 max_rustc=0 concurrency=sampled-only oom_kill=0 PASS
+replay par 4 max_concurrent_checkers 2 OK
+replay budget_kb 296758059 of 395677412 max_used_kb 160493268 headroom 59% OK
+replay max_tree_rss_kb 151733588
+replay hard_limit_kb 346217735 kills 0 

@@ -1,0 +1,4 @@
+par 4 max_concurrent_checkers 2 OK
+budget_kb 296758059 of 395677412 max_used_kb 160493268 headroom 59% OK
+max_tree_rss_kb 151733588
+hard_limit_kb 346217735 kills 0 

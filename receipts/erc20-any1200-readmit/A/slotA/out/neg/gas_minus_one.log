@@ -1,0 +1,10 @@
+/home/ubuntu/w/slotA/out/neg/gas_minus_one.lean:6:82: error: Type mismatch
+  Certified.erc20_any.Proof.any
+has type
+  Expected src specAny runtimeBytes
+but is expected to have type
+  Expected src
+    (let __src := specAny;
+    { Contexts := __src.Contexts, entries := __src.entries, Valid := __src.Valid, Allowed := __src.Allowed,
+      Post := __src.Post, gas := fun x x_1 => 8199111, assumptions := __src.assumptions })
+    runtimeBytes

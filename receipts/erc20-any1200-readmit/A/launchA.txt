@@ -1,0 +1,26 @@
+launch 2026-11-26T20:48:06Z slot=A CANDIDATE_SHA256=166137ef66c1d792afd5b39bf5e3a1b02402f6c4484032f8b4115d926dd1245a deadline=1795733203
+apt exit=0 2026-11-26T20:48:12Z
+rustup exit=0 2026-11-26T20:48:18Z
+elan exit=0 2026-11-26T20:48:19Z
+solar ecc82815472d6ed2d796a2c7bdb940ca370982a0 2026-11-26T20:48:30Z
+solidity-lean 1f0db760f3ef35c7ffc974a24bae68d566788109 2026-11-26T20:48:32Z
+fetched package 41e6b29b and overlay 4332b47d exit=0 2026-11-26T20:48:33Z
+toolchain leanprover/lean4:v4.35.0 exit=0 2026-11-26T20:48:42Z
+lake exe cache get exit=0 2026-11-26T20:49:54Z
+solc 0.8.35 exit=0 2026-11-26T20:49:54Z
+setup done 2026-11-26T20:49:54Z
+raw export exit=0 2026-11-26T20:49:58Z
+slot A solar ecc82815472d6ed2d796a2c7bdb940ca370982a0 lean 1f0db760f3ef35c7ffc974a24bae68d566788109 deadline 1795733203
+port exit=0 wall_s=1 peak_rss_kb=33724 2026-11-26T20:50:00Z
+candidate /home/ubuntu/w/candidate-bin/solar sha256 166137ef66c1d792afd5b39bf5e3a1b02402f6c4484032f8b4115d926dd1245a
+verify exit=0 wall_s=96 peak_rss_kb=1739052 2026-11-26T20:51:49Z
+core exit=0 wall_s=302 peak_rss_kb=5530004 2026-11-26T20:56:51Z
+slice exit=0 wall_s=315 peak_rss_kb=4871184 2026-11-26T21:02:06Z
+prep exit=0 wall_s=1 peak_rss_kb=95932 2026-11-26T21:02:07Z
+run exit=0 wall_s=239 peak_rss_kb=8332380 2026-11-26T21:06:06Z
+pack exit=0 wall_s=7 peak_rss_kb=840284 2026-11-26T21:06:13Z
+replay exit=2 wall_s=5318 2026-11-26T22:34:51Z
+slot A replay exit recorded in /home/ubuntu/w/slotA/steps
+slot.sh exit=0 2026-11-26T22:34:51Z
+neg.sh exit=0 2026-11-26T22:35:24Z
+launch done 2026-11-26T22:35:24Z

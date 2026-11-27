@@ -1,0 +1,4 @@
+/home/ubuntu/w/slotA/out/neg/byte_last.lean:6:145: error: Tactic `decide` proved that the proposition
+  List.map (fun x => x.toNat) UniswapV2.ERC20.Certified.code.data.toList =
+    runtimeBytes.dropLast ++ [runtimeBytes.getLast! ^^^ 1]
+is false

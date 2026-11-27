@@ -1,0 +1,3 @@
+admission unpack cg=/sys/fs/cgroup/erc20cap-unpack-6574 want_max=303819341824 got_max=303819341824 want_swap=0 got_swap=0 concurrency=sampled-only ADMITTED
+precheck planned 4028 mismatched 0
+build unpack exit=0 cap_jobs=12 budget_kb=296698578 max_bytes=303819341824 post_max=303819341824 post_swap=0 peak_tree_kb=1956200 max_sampled_tree_rss_kb=26984 max_lean=0 max_rustc=0 concurrency=sampled-only oom_kill=0 PASS

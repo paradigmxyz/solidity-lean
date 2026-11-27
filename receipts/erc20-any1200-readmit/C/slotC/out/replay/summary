@@ -1,0 +1,9 @@
+closure modules to replay: 4028
+inventory identical to /home/ubuntu/prior/replay
+par 4 max_concurrent_checkers 3 OK
+budget_kb 296698578 of 395598104 max_used_kb 30561136 headroom 92% OK
+max_tree_rss_kb 26877056
+hard_limit_kb 346148341 kills 0 
+   1200 verified
+   2828 verified-earlier-slot
+partial slot: merge with merge.py

@@ -1,0 +1,14 @@
+control want=pass exit=0 OK peak_rss_kb=2952132 why=none
+byte_first want=fail exit=1 OK peak_rss_kb=2956772 why=error: Tactic `decide` proved that the proposition
+byte_last want=fail exit=1 OK peak_rss_kb=3030808 why=error: Tactic `decide` proved that the proposition
+source_pins want=fail exit=1 OK peak_rss_kb=2951368 why=error: Tactic `decide` proved that the proposition
+source_contract want=fail exit=1 OK peak_rss_kb=2953184 why=error: Type mismatch
+prop_credit_plus_one want=fail exit=1 OK peak_rss_kb=2955876 why=error: Type mismatch
+prop_self_no_overflow want=fail exit=1 OK peak_rss_kb=2955748 why=error: Type mismatch
+prop_unchecked_overflow want=fail exit=1 OK peak_rss_kb=2956368 why=error: Type mismatch
+ctx_self_caller want=fail exit=1 OK peak_rss_kb=2953076 why=error: Type mismatch
+gas_minus_one want=fail exit=1 OK peak_rss_kb=2953768 why=error: Type mismatch
+footprint_dropped want=fail exit=1 OK peak_rss_kb=2951208 why=error: Type mismatch
+gen_mutated_emit want=fail exit=1 OK
+src_stage_safemath want=fail exit=1 OK
+src_stage_erc20 want=fail exit=1 OK

@@ -1,0 +1,178 @@
+{
+  "arguments": [
+    "-Ogas",
+    "--evm-version",
+    "osaka",
+    "-Zemit-lean-stages=/tmp/tmp.99ruyzPzlc/stages",
+    "--emit",
+    "bin-runtime",
+    "UniswapV2ERC20.sol"
+  ],
+  "bytecode": "6004361034176063575f3560e01c80633644e5151160705780633644e5151461015a57806370a082311460ff5780637ecebe001461018c57806395d89b411460d2578063a9059cbb1461020a578063d505accf146102be578063dd62ed3e14610123575b5f5ffd5b60015f5260205ff35b806306fdde031460b3578063095ea7b3146101b057806318160ddd1460f657806323b872dd1461024257806330adf81f14610164578063313ce5671460ed575f5ffd5b60205f52600a60205269556e697377617020563260b01b60405260605ff35b60205f52600660205265554e492d563260d01b60405260605ff35b60125f5260205ff35b5f545f5260205ff35b60043560a01c60243610176063576004355f52600160205260405f20545f5260205ff35b60043560a01c604436101760243560a01c176063576004355f52600260205260405f206024355f5260205260405f20545f5260205ff35b6003545f5260205ff35b7f6e71edae12b1b97f4d1f60370fef10105fa2faae0126114a169c64845d6126c95f5260205ff35b60043560a01c60243610176063576004355f52600460205260405f20545f5260205ff35b60043560a01c60443610176063576024356004353360675b815f52600260205260405f20835f526020528360405f2055925f527f8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b92560205fa3565b60043560a01c60443610176063576024356004353360675b815f52600160205260405f208481546104365b9181039081116104165790565b60043560a01c606436101760243560a01c17606357600435604435815f52600260205260405f20335f5260205260405f205419156102b257815f52600260205260405f20335f526020528060405f205461029a610235565b825f52600260205260405f20335f5260205260405f20555b60243590916067610222565b608060405260043560a01c60e436101760243560a01c1760ff60843511176063576064354281106103f957600435600354815f52600460205260405f20805460018101801561049e57602435925560443560807f6e71edae12b1b97f4d1f60370fef10105fa2faae0126114a169c64845d6126c9815285602082015283604082015281606082015282818201528660a082015260c0902060809461190160f01b86526002860152602285015260429093206080908152608435602082015260a435604082015260c43560608201525f5f5260205f828360015afa156104965750505f5160601b60601c80156103bf5783036103bf5790916103bd6101c8565b005b7b556e697377617056323a20494e56414c49445f5349474e415455524560201b601c5b602080526040526060526308c379a05f526064601cfd5b71556e697377617056323a204558504952454460701b60126103e2565b7464732d6d6174682d7375622d756e646572666c6f7760581b60156103e2565b9055825f5260405f208054858101908110610477579055925f527fddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef60205fa3565b7364732d6d6174682d6164642d6f766572666c6f7760601b60146103e2565b3d5f5f3e3d5ffd5b6011602052634e487b715f526024601cfd",
+  "bytecode_sha256": "31f5c33cf15e660cf99ef9a9629a3b09fd48cb93fb983ad128d423f7ce11b420",
+  "compiler": "0.8.38+commit.f71b7554.solar.0.3.0-dev",
+  "contract": "UniswapV2ERC20",
+  "evm_version": "osaka",
+  "optimization": "Gas",
+  "options": "CompileOpts { input: [\"UniswapV2ERC20.sol\"], import_remappings: [], base_path: None, include_paths: [], allow_paths: [], no_import_callback: false, language: Solidity, threads: 48, evm_version: Osaka, stop_after: None, optimization: Gas, optimizer_runs: None, revert_strings: Default, libraries: [], out_dir: None, emit: [BinRuntime], standard_json: false, color: Auto, verbose: false, pretty_json: false, pretty_json_err: false, error_format: Human, error_format_human: Unicode, diagnostic_width: None, no_warnings: false, allow: [], _unstable: [\"emit-lean-stages=/tmp/tmp.99ruyzPzlc/stages\"], unstable: UnstableOpts { ui_testing: false, track_diagnostics: false, parse_yul: false, no_resolve_imports: false, recover_incomplete_input: false, dump: None, ast_stats: false, hir_stats: false, standard_json_stats: false, span_visitor: false, print_max_storage_sizes: false, print_natspec: false, mir_pipeline: None, evm_ir_pipeline: None, print_after_each: false, pass_diff: false, debugify: None, debugify_output: None, solar_tv: None, solar_tv_capture: false, emit_lean_stages: Some(\"/tmp/tmp.99ruyzPzlc/stages\"), validate_ir: None, time_passes: false, codegen_all_functions: false, switch_lowering: Auto, switch_max_gas_code_growth: None, switch_max_bit_slice_gas_code_growth: None, tune: None, pack_wide_jump_tables: false, forget_gcx: true, help: (), _non_exhaustive: () }, _non_exhaustive: () }",
+  "sources": [
+    {
+      "path": "interfaces/IUniswapV2ERC20.sol",
+      "sha256": "4360b8bd89db3ab4255c073cd6db6e0f0e6c2cfe2b8dbf6f7ceade3d5cf461d5"
+    },
+    {
+      "path": "libraries/SafeMath.sol",
+      "sha256": "3617583205f5fac4a6b05e928c354ba38815b1e0e972cbbb5c78e38505af2178"
+    },
+    {
+      "path": "UniswapV2ERC20.sol",
+      "sha256": "762294af01e1257b4332c1808776df55ee39c2a837febd2cd4100568a7e15d4c"
+    }
+  ],
+  "stages": [
+    {
+      "definition": "stage0",
+      "file": "Stage0.lean",
+      "index": 0,
+      "kind": "mir",
+      "pass": "lower-evm-shaped",
+      "sha256": "155372530048b340b5f05722dcce31527c29188d2451a00cc178d703fa6a73bf"
+    },
+    {
+      "definition": "mir1",
+      "file": "Mir1.lean",
+      "index": 1,
+      "kind": "mir",
+      "pass": "place-reads",
+      "sha256": "2f8a9fb50c9bf9f81d5196a1c00bbd9b2128800545f40ee3944e6cecc5b9c34e"
+    },
+    {
+      "definition": "mir2",
+      "file": "Mir2.lean",
+      "index": 2,
+      "kind": "mir",
+      "pass": "dce",
+      "sha256": "41778946629df97171a733c99d6d4311a3d5fb861aa07c0a8f833eb4a192fdd1"
+    },
+    {
+      "definition": "mir3",
+      "file": "Mir3.lean",
+      "index": 3,
+      "kind": "mir",
+      "pass": "spell-width-tests",
+      "sha256": "90e0bad1d854e2d391bf418c030ec6e6ab802b56049fa6085729352ca196de45"
+    },
+    {
+      "definition": "mir4",
+      "file": "Mir4.lean",
+      "index": 4,
+      "kind": "mir",
+      "pass": "evm-inst-schedule",
+      "sha256": "20280538ee1559b2cbd4d33bdfe05ff8c09d84bd5ab31b99e5a6592e1337cf85"
+    },
+    {
+      "definition": "sched",
+      "file": "Sched.lean",
+      "index": 0,
+      "kind": "sched",
+      "pass": "stack-schedule",
+      "sha256": "56e6afcc00e4384fd1f191e7123213281585ae7dc6bed047be163ec063c3d2c2"
+    },
+    {
+      "definition": "evm1",
+      "file": "Evm1.lean",
+      "index": 1,
+      "kind": "evm",
+      "pass": "peephole-early",
+      "sha256": "2fe14191f13c2b58e45d16db3e68af83a744dd83b9049f541fdcd4d601ddcb14"
+    },
+    {
+      "definition": "evm2",
+      "file": "Evm2.lean",
+      "index": 2,
+      "kind": "evm",
+      "pass": "cfg-simplify-early",
+      "sha256": "105c69fb2130881a414f7d26cd0a0ef2b2b55cbb896695dcb4e4a8b8bc024841"
+    },
+    {
+      "definition": "evm3",
+      "file": "Evm3.lean",
+      "index": 3,
+      "kind": "evm",
+      "pass": "compact-pushes",
+      "sha256": "d83cd9d4182564158d97bd0227afa135db5a7bef0b37003426f762bf64eb85d5"
+    },
+    {
+      "definition": "evm4",
+      "file": "Evm4.lean",
+      "index": 4,
+      "kind": "evm",
+      "pass": "block-layout",
+      "sha256": "fb761aca746f15ad62b9b9588895ba922385cb406b5404b2a02d86aed0baf11c"
+    },
+    {
+      "definition": "evm5",
+      "file": "Evm5.lean",
+      "index": 5,
+      "kind": "evm",
+      "pass": "terminal-dedup",
+      "sha256": "74b6c29a12fe05480dc9e64293813011078cf581b22aa888becd6d175faa5efc"
+    },
+    {
+      "definition": "evm6",
+      "file": "Evm6.lean",
+      "index": 6,
+      "kind": "evm",
+      "pass": "cfg-simplify-early",
+      "sha256": "9050c1563d8dda866dacb3df680db47bce55e4a8136b7214102c3ff83e1e8fca"
+    },
+    {
+      "definition": "evm7",
+      "file": "Evm7.lean",
+      "index": 7,
+      "kind": "evm",
+      "pass": "block-cse",
+      "sha256": "6bf619ba700dab498fcae69b682cd9326051e8b463cd5a7586dead7f8c4cc1e4"
+    },
+    {
+      "definition": "evm8",
+      "file": "Evm8.lean",
+      "index": 8,
+      "kind": "evm",
+      "pass": "block-layout",
+      "sha256": "c12dfb87ac7bedbbb64384e2bdf78f0effa1766d9d94b90b4f6e3727d71995da"
+    },
+    {
+      "definition": "evm9",
+      "file": "Evm9.lean",
+      "index": 9,
+      "kind": "evm",
+      "pass": "stack-reschedule",
+      "sha256": "16232721d83e1e0d9566cc31d447903e55a6af1130ab809fe5b7889194a2bca9"
+    },
+    {
+      "definition": "evm10",
+      "file": "Evm10.lean",
+      "index": 10,
+      "kind": "evm",
+      "pass": "inline-returns",
+      "sha256": "3c098280ed5e71ba8701c76e3c6893e796145ab75fcc332612f998beff211297"
+    },
+    {
+      "definition": "evm11",
+      "file": "Evm11.lean",
+      "index": 11,
+      "kind": "evm",
+      "pass": "late-word",
+      "sha256": "e9a534e7ec5045452bac8bfa2c57629f48a2e1c408cbd4fabc9756882317704c"
+    },
+    {
+      "definition": "bytecode",
+      "file": "Bytecode.lean",
+      "index": 0,
+      "kind": "bytecode",
+      "pass": "assemble",
+      "sha256": "dbb96a946a9524fb53632d33c498c29b2f8b2e48dcae786b4a0d31282dfd9b92"
+    }
+  ]
+}

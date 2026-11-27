@@ -1,0 +1,10 @@
+apt exit=0 2026-11-27T00:37:54Z
+rustup exit=0 2026-11-27T00:38:04Z
+elan exit=0 2026-11-27T00:38:05Z
+solar ecc82815472d6ed2d796a2c7bdb940ca370982a0 2026-11-27T00:38:16Z
+solidity-lean 1f0db760f3ef35c7ffc974a24bae68d566788109 2026-11-27T00:38:19Z
+fetched package 41e6b29b and overlay 4332b47d exit=0 2026-11-27T00:38:19Z
+toolchain leanprover/lean4:v4.35.0 exit=0 2026-11-27T00:38:30Z
+lake exe cache get exit=0 2026-11-27T00:40:03Z
+solc 0.8.35 exit=0 2026-11-27T00:40:03Z
+setup done 2026-11-27T00:40:03Z

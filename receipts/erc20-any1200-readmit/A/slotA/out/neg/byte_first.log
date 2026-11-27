@@ -1,0 +1,3 @@
+/home/ubuntu/w/slotA/out/neg/byte_first.lean:6:103: error: Tactic `decide` proved that the proposition
+  Export.UniswapV2ERC20.bytecode = (runtimeBytes.head! + 1) :: runtimeBytes.tail
+is false

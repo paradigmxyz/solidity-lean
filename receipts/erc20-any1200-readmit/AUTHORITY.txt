@@ -1,0 +1,5 @@
+Admission: READMIT tempoxyz/solar-verification-archive coordinator/receipts @ 4ec3f803, receipts/ERC20-1200-READMIT.md (sha256 71ac4137). Cap: at most 3 sequential m4-metal-large 2 h slots, never two boxes at once.
+Hold: coordinator 21:03Z Nov 26 (slots B and C held pending a direct ruling).
+Release authority, verbatim: Troy Sargent's typed message, 15:04 CST Nov 26, thread 2ee861d1: "don't do hourly runs just run it now and keep going all the way"
+Interpretation (coordinator, stated separately): the message came right after the coordinator's yes/no question on slots B and C and was taken as releasing them within READMIT 4ec3f803's cap of 3 sequential slots. It was not an explicit three-slot or nondeterminism ruling.
+Constraints: no fourth slot, no further optimization; batch credit deduplicated across A, B and C (each module counted once).

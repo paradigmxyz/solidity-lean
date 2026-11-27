@@ -1,0 +1,8 @@
+admission run cg=/sys/fs/cgroup/erc20cap-run-46100 want_max=303880249344 got_max=303880249344 want_swap=0 got_swap=0 concurrency=sampled-only ADMITTED
+warning[2264]: code generation is experimental
+
+wrote /home/ubuntu/w/solidity-lean/Certified/erc20_any: 1200 runtime bytes, 18 stages, 3 stage sources
+build exit=0 peak_rss_kb=6236692 2026-11-26T21:05:56Z
+check_final exit=0 peak_rss_kb=8332380 2026-11-26T21:06:06Z
+done
+build run exit=0 cap_jobs=12 budget_kb=296758059 max_bytes=303880249344 post_max=303880249344 post_swap=0 peak_tree_kb=12617132 max_sampled_tree_rss_kb=30858492 max_lean=12 max_rustc=0 concurrency=sampled-only oom_kill=0 PASS
