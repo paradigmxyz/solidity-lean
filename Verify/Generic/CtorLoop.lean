@@ -8,8 +8,9 @@ import Verify.LoopSource.Proof.EraseLoopCall
 for every argument list from one erasure of its body by `eraseStmt`, which has no loop case. This
 module states the same deployment from the erasure by `Loop.eraseLoopCall`
 (`Verify/LoopSource/Proof/EraseLoopCall.lean`): `eraseLoopStmt`, which erases counted `for` loops
-in closed form, extended to internal calls whose callee's body it erases too (`runs_eraseLoopCall`:
-a statement runs as that erasure, at the same fuel). A loop only creation runs (in the constructor,
+in closed form, extended to loops of a closed condition (unrolled) and to internal calls whose
+callee's body it erases too (`runs_eraseLoopCall`: a statement runs as that erasure, at the same
+fuel). A loop only creation runs (in the constructor,
 its modifiers or the internal functions it calls) leaves no loop in the runtime bytecode: only the
 deployment changes, so the rest of the generic route (`Shapes.compiledArgs`) applies unchanged.
 
