@@ -106,27 +106,27 @@ def decVarBr (old : WExpr) (L' : Scopes) (S : SymState) : Br :=
 /-- **`x--` on a local word.** -/
 theorem eval_decVar (ρ : Val) (E : EraseEnv) (ctx : Context) (rt : Runtime) (S : SymState)
     (hrel : StmtRel ρ E ctx rt S) (n : Nat) (post : Bool) {x : String} {old : WExpr} {L' : Scopes}
-    (hold : Scopes.get? S.scopes x = some old)
-    (hL : Scopes.set S.scopes x (.bin .sub old (.lit 1)) = some L') :
+    (hold : S.word? x = some old)
+    (hL : S.setW x (.bin .sub old (.lit 1)) = some L') :
     ∃ r, Stmt.eval (n + 1) E.tbl ctx rt
         (.exprStmt (.incDec .sub post (some (.uint 256)) (.var x))) = .done (.ok r) ∧
       LeafRel ρ E ctx r ((decVarBr old L' S).eval ρ) := by
   have hx : rt.lookupLocal? x = some (.word (old.eval ρ)) := hrel.expr.locals x old hold
   have hbase : rt.lookupStorageBase? x = none := by simp [Runtime.lookupStorageBase?, hx]
-  refine eval_dec ρ E ctx rt S hrel n post (lv := .local x) (rt' := { rt with locals := L'.map (frameOf ρ) })
+  obtain ⟨hxw, hL0⟩ := SymState.setW_spec hL
+  refine eval_dec ρ E ctx rt S hrel n post (lv := .local x) (rt' := { rt with locals := L'.map (frameOfT ρ S.tags) })
     (S' := { S with scopes := L' })
     (fun F hF => ?_) ?_ ?_ { hrel with frames := rfl }
   · obtain ⟨m, rfl⟩ : ∃ m, F = m + 1 := ⟨F - 1, by omega⟩
     simp only [Expr.resolveLValueFuel, hbase, hx]
   · simp [ResolvedLValue.read, ResolvedLValue.readRaw, hx, Runtime.derefMemoryValue, bind,
       Except.bind]
-  · simp [ResolvedLValue.write, Runtime.assignLocal?, hx, Value.coerceLike?, hrel.frames,
-      env_assign ρ S.scopes x _, hL]
+  · simp [ResolvedLValue.write, assignLocal_word hrel.frames hxw hL0]
 
 /-- `x--` on a local word runs as `decVarBr`. -/
 theorem stmtRuns_decVar {E : EraseEnv} {ctx : Context} {S : SymState} (n : Nat) (pst : Bool)
-    {x : String} {old : WExpr} {L' : Scopes} (hold : Scopes.get? S.scopes x = some old)
-    (hL : Scopes.set S.scopes x (.bin .sub old (.lit 1)) = some L') :
+    {x : String} {old : WExpr} {L' : Scopes} (hold : S.word? x = some old)
+    (hL : S.setW x (.bin .sub old (.lit 1)) = some L') :
     StmtRuns E (n + 1) ctx (.exprStmt (.incDec .sub pst (some (.uint 256)) (.var x))) S
       (decVarBr old L' S) :=
   fun σ rt hrel => eval_decVar σ E ctx rt S hrel n pst hold hL
@@ -156,8 +156,8 @@ def eraseStep (E : EraseEnv) : Nat → Stmt → SymState → Option Br
     | s =>
       match decOf? s with
       | some (_, .var x) => do
-        let old ← Scopes.get? S.scopes x
-        let L' ← Scopes.set S.scopes x (.bin .sub old (.lit 1))
+        let old ← S.word? x
+        let L' ← S.setW x (.bin .sub old (.lit 1))
         some (decVarBr old L' S)
       | _ => eraseInc E (n + 1) s S
 

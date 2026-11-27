@@ -270,7 +270,7 @@ theorem static_rel {fuel : Nat} {c : SolidCore.Solidity.TypeCheck.CheckedContrac
     (hframes : rt.locals = sc.map (frameOf ⟨[], slotValue σ, solHash, SolidCore.Refinement.Generic.callerWord⟩)) :
     StmtRel ⟨[], slotValue σ, solHash, SolidCore.Refinement.Generic.callerWord⟩
       { fields := callsFields, events := ctx.eventDecls, tbl := c.core.table } ctx rt
-      ⟨sc, [], [], .lit SolidCore.Refinement.Generic.callerWord⟩ :=
+      ⟨sc, [], [], .lit SolidCore.Refinement.Generic.callerWord, []⟩ :=
   { fields := hfields
     events := rfl
     checked := hchecked
@@ -428,7 +428,7 @@ theorem sync_source (k : Nat) (V : World) {c : SolidCore.Solidity.TypeCheck.Chec
           simp only [hacc, hbind, Bool.or_true, ↓reduceIte] at hrun
           let ρ : Val := ⟨[], slotValue σ, solHash, SolidCore.Refinement.Generic.callerWord⟩
           let E : EraseEnv := { fields := callsFields, events := ctx.eventDecls, tbl := c.core.table }
-          let S1 : SymState := ⟨[[("__ext0", .lit w)], [("_sol_hoist_0", .lit 0)], [], []], [], [], .lit SolidCore.Refinement.Generic.callerWord⟩
+          let S1 : SymState := ⟨[[("__ext0", .lit w)], [("_sol_hoist_0", .lit 0)], [], []], [], [], .lit SolidCore.Refinement.Generic.callerWord, []⟩
           have hrel1 : StmtRel ρ E ctx ((({ state := adoptWorld a.postWorld ctx (rt0.pushScope.pushScope.declareLocal "_sol_hoist_0" Ty.uint256.defaultValue).state, locals := (rt0.pushScope.pushScope.declareLocal "_sol_hoist_0" Ty.uint256.defaultValue).locals, memory := (rt0.pushScope.pushScope.declareLocal "_sol_hoist_0" Ty.uint256.defaultValue).memory, nextMemory := (rt0.pushScope.pushScope.declareLocal "_sol_hoist_0" Ty.uint256.defaultValue).nextMemory, nextMemoryByte := (rt0.pushScope.pushScope.declareLocal "_sol_hoist_0" Ty.uint256.defaultValue).nextMemoryByte } : Runtime).recordExternalInteraction (ExternalInteraction.lowLevelCall { kind := Solidity.Shared.Call.ExternalCallKind.staticcall, target := Solidity.Shared.norm (fieldValue (slotValue σ 1) tokenField.packedOffset 20), calldata := List.map normByte encSync, value := Solidity.Shared.norm 0, success := true, output := byteArrayToBytes a.returnData })).withFrame [("__ext0", Value.word w)]) S1 :=
             static_rel hd hstatic hctxs hctxf (by subst hctx; rfl) (by subst hctx; rfl) hans (by subst hR; rfl)
               hworld (rt0.pushScope.pushScope.declareLocal "_sol_hoist_0" Ty.uint256.defaultValue).state _
@@ -440,7 +440,7 @@ theorem sync_source (k : Nat) (V : World) {c : SolidCore.Solidity.TypeCheck.Chec
           obtain ⟨r1, hr1, hl1⟩ := eval_stmt ρ E ctx (k + 2) (Stmt.assign (LValue.var "_sol_hoist_0")
             (Expr.castOp CastKind.uintCleanup 256 (Expr.var "__ext0"))) S1 _ rfl _ hrel1
           rw [hr1] at hrun
-          let S1' : SymState := ⟨[[("__ext0", .lit w)], [("_sol_hoist_0", .lit w)], [], []], [], [], .lit SolidCore.Refinement.Generic.callerWord⟩
+          let S1' : SymState := ⟨[[("__ext0", .lit w)], [("_sol_hoist_0", .lit w)], [], []], [], [], .lit SolidCore.Refinement.Generic.callerWord, []⟩
           have hl1' : LeafRel ρ E ctx r1 (.normal S1') := hl1
           cases r1 with
           | normal rt1 =>
@@ -450,7 +450,7 @@ theorem sync_source (k : Nat) (V : World) {c : SolidCore.Solidity.TypeCheck.Chec
             simp only [done_bind', Result.mapRuntime, sbind_pure] at hrun
             rw [hr2] at hrun
             let S3 : SymState := ⟨[[("_sol_hoist_0", .lit w)], [], []],
-              [(.lit 2, writeField (.init 2) (.lit w) 0 32)], [], .lit SolidCore.Refinement.Generic.callerWord⟩
+              [(.lit 2, writeField (.init 2) (.lit w) 0 32)], [], .lit SolidCore.Refinement.Generic.callerWord, []⟩
             have hl2' : LeafRel ρ E ctx r2 (.normal S3) := hl2
             cases r2 with
             | normal rt2 =>

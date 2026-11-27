@@ -167,7 +167,7 @@ theorem holdsFnUnder_of_tree_from_on {fuel : Nat} {c : TypeCheck.CheckedContract
   simp only [List.mem_singleton] at hfn'
   subst hfn'
   rw [hg]
-  refine ⟨_, source_run_value_from a hd hsel hfind hw hpay args (hl.trans hlen.symm) hargs hv0 hvlt σ,
+  refine ⟨_, source_run_value_from a hd hsel hfind (widthsOf_T hw).1 hpay args (hl.trans hlen.symm) hargs hv0 hvlt σ,
     fun hok => by simp [rejected] at hok, fun hne' hsat => absurd hsat (hv a v iargs pre hv0 hvlt hne')⟩
 
 /-- **A function's spec holds of SolidCore's run from every caller, on its calls without a

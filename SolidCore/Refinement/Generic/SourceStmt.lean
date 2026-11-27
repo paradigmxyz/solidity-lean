@@ -199,23 +199,33 @@ def Scopes.setMany : Scopes → List String → List WExpr → Option Scopes
     Scopes.setMany sc' xs vs
   | _, _, _ => none
 
+/-- Assign the word `e` to the local `x` the state holds as a word: none for a typed local. -/
+def SymState.setW (S : SymState) (x : String) (e : WExpr) : Option Scopes :=
+  if S.tags.get x = .word then Scopes.set S.scopes x e else none
+
+/-- Assign words to locals the state holds as words, one after the other: none when one of them is
+typed. -/
+def SymState.setManyW (S : SymState) (xs : List String) (es : List WExpr) : Option Scopes :=
+  if xs.all (fun x => S.tags.get x == .word) then Scopes.setMany S.scopes xs es else none
+
 /-- The caller's state after an internal call returned the words `ws`: the call's targets
 assigned, the callee's writes and logs. -/
 def callAssign (targets : List String) (S S1 : SymState) (ws : List WExpr) : Option Br :=
   if targets = [] then some (.leaf (.normal { S with writes := S1.writes, logs := S1.logs }))
   else do
-    let sc ← Scopes.setMany S.scopes targets ws
-    some (.leaf (.normal { scopes := sc, writes := S1.writes, logs := S1.logs, caller := S.caller }))
+    let sc ← S.setManyW targets ws
+    let S2 : SymState := { scopes := sc, writes := S1.writes, logs := S1.logs, caller := S.caller, tags := S.tags }
+    some (.leaf (.normal S2))
 
 /-- The end of an internal call from the end of its callee's body: its named returns or its
 returned words assigned to the targets, or the callee's revert. -/
 def callLeaf (fn : InternalFunction) (targets : List String) (S : SymState) : Leaf → Option Br
   | .normal S1 => do
-    let ws ← fn.returns.mapM fun r => Scopes.get? S1.scopes r.name
+    let ws ← fn.returns.mapM fun r => S1.word? r.name
     callAssign targets S S1 ws
   | .returned S1 vs =>
     if vs = [] then do
-      let ws ← fn.returns.mapM fun r => Scopes.get? S1.scopes r.name
+      let ws ← fn.returns.mapM fun r => S1.word? r.name
       callAssign targets S S1 ws
     else if vs.length = fn.returns.length then callAssign targets S S1 vs
     else none
@@ -226,7 +236,7 @@ def captureLeaf (names : List String) : Leaf → Option Br
   | .returned S1 vs =>
     if vs = [] ∨ names = [] then some (.leaf (.normal S1))
     else do
-      let sc ← Scopes.setMany S1.scopes names vs
+      let sc ← S1.setManyW names vs
       some (.leaf (.normal { S1 with scopes := sc }))
   | l => some (.leaf l)
 
@@ -274,7 +284,7 @@ def wrapOf : BinaryOp → Option BinOp
 /-- The word of an expression of an `unchecked` block of the fragment: locals under `uint256`
 cleanups and wrapping `+` and `-` of them, none of which reverts. -/
 def wrapRead (S : SymState) : Expr → Option WExpr
-  | .var x => Scopes.get? S.scopes x
+  | .var x => S.word? x
   | .castOp .uintCleanup 256 e => wrapRead S e
   | .binary op l r => do
     let o ← wrapOf op
@@ -306,7 +316,7 @@ whose condition assigns a local, as SafeMath's `add` and `sub` check their wrapp
 def eraseUnchecked (S : SymState) : Stmt → Option Br
   | .block [.requireStmt c r] => do
     let (z, w, v) ← uncheckedCond S.push c
-    let L ← Scopes.set S.push.scopes z w
+    let L ← S.push.setW z w
     some (Br.mapS SymState.pop
       (.ite v (.leaf (.normal { S.push with scopes := L })) (.leaf (.reverted (failOf r)))))
   | _ => none
@@ -328,7 +338,7 @@ def eraseStmt (E : EraseEnv) : Nat → Stmt → SymState → Option Br
       some (b.mapS SymState.pop)
     | .assign (.var x) e => do
       let (gs, v) ← eraseExpr E.fields S e
-      let L ← Scopes.set S.scopes x v
+      let L ← S.setW x v
       some (guards gs (.leaf (.normal { S with scopes := L })))
     | .assign (.storage x) e => do
       let (k, off, bytes) ← fieldOf? E.fields x
@@ -371,7 +381,7 @@ def eraseStmt (E : EraseEnv) : Nat → Stmt → SymState → Option Br
       let (gs, _) ← eraseExpr E.fields S e
       some (guards gs (.leaf (.normal S)))
     | .varDecl ty x init =>
-      if wordTy ty then
+      if wordTy ty ∧ S.tags.get x = .word then
         match init with
         | none => some (.leaf (.normal { S with scopes := S.scopes.declare x (.lit 0) }))
         | some e => do
@@ -440,6 +450,13 @@ def eraseStmt (E : EraseEnv) : Nat → Stmt → SymState → Option Br
 /-- A scope of a function's locals, as SolidCore holds it. -/
 def frameOf (ρ : Val) (L : Locals) : Frame := L.map fun p => (p.1, Value.word (p.2.eval ρ))
 
+/-- A scope of a function's locals, as SolidCore holds it, each local by its tag: a word, a signed
+word or a `bytes32`. -/
+def frameOfT (ρ : Val) (T : Tags) (L : Locals) : Frame :=
+  L.map fun p => (p.1, (T.get p.1).val (p.2.eval ρ))
+
+@[simp] theorem frameOfT_nil (ρ : Val) : frameOfT ρ [] = frameOf ρ := rfl
+
 /-- What an event of SolidCore's state shows as a log: its topics and its data bytes. -/
 def logOf (ev : Event) : List Nat × List Nat :=
   (ev.topics.map SolidCore.Solidity.Shared.norm,
@@ -456,7 +473,7 @@ structure StmtRel (ρ : Val) (E : EraseEnv) (ctx : Context) (rt : Runtime) (S : 
   sender : ctx.sender = S.caller.eval ρ
   hash : ρ.hash = solHash
   ok : ρ.Ok
-  frames : rt.locals = S.scopes.map (frameOf ρ)
+  frames : rt.locals = S.scopes.map (frameOfT ρ S.tags)
   store : ∀ k, k < wordSize → rt.state.loadSlot k = Writes.store ρ S.writes k
   logs : rt.state.events.map logOf = S.logs.map (Log.eval ρ)
   facts : E.facts.Hold ρ
@@ -507,6 +524,85 @@ theorem env_declare (ρ : Val) (sc : Scopes) (x : String) (v : WExpr) :
     LocalEnv.declare (sc.map (frameOf ρ)) x (Value.word (v.eval ρ)) =
       (sc.declare x v).map (frameOf ρ) := by
   cases sc <;> rfl
+
+theorem frameT_lookup (ρ : Val) (T : Tags) (L : Locals) (x : String) :
+    Frame.lookup? (frameOfT ρ T L) x = (L.get? x).map fun e => (T.get x).val (e.eval ρ) := by
+  induction L with
+  | nil => rfl
+  | cons p L ih =>
+    obtain ⟨y, e⟩ := p
+    simp only [frameOfT, List.map_cons, Frame.lookup?, Locals.get?] at ih ⊢
+    by_cases h : y = x
+    · subst h; simp
+    · simp [h, ih]
+
+theorem envT_lookup (ρ : Val) (T : Tags) : ∀ (sc : Scopes) (x : String),
+    LocalEnv.lookup? (sc.map (frameOfT ρ T)) x = (Scopes.get? sc x).map fun e => (T.get x).val (e.eval ρ)
+  | [], _ => rfl
+  | L :: rest, x => by
+    simp only [List.map_cons, LocalEnv.lookup?, frameT_lookup, Scopes.get?]
+    cases L.get? x with
+    | some e => rfl
+    | none => exact envT_lookup ρ T rest x
+
+/-- A word local's lookup in a typed scope. -/
+theorem lookup_word {ρ : Val} {rt : Runtime} {S : SymState}
+    (hfr : rt.locals = S.scopes.map (frameOfT ρ S.tags)) {x : String} {e : WExpr}
+    (he : S.word? x = some e) : rt.lookupLocal? x = some (.word (e.eval ρ)) := by
+  unfold SymState.word? at he
+  split at he
+  · rename_i ht
+    simp [Runtime.lookupLocal?, hfr, envT_lookup, he, ht]
+  · simp at he
+
+theorem frameT_assign (ρ : Val) (T : Tags) (L : Locals) (x : String) (v : WExpr)
+    (hx : T.get x = .word) :
+    Frame.assign? (frameOfT ρ T L) x (Value.word (v.eval ρ)) = (L.set x v).map (frameOfT ρ T) := by
+  induction L with
+  | nil => rfl
+  | cons p L ih =>
+    obtain ⟨y, e⟩ := p
+    by_cases hy : y = x
+    · subst hy; simp [frameOfT, Frame.assign?, Locals.set, hx]
+    · simp only [frameOfT, List.map_cons, Frame.assign?, Locals.set, hy, ↓reduceIte] at ih ⊢
+      rw [ih]
+      cases Locals.set L x v <;> rfl
+
+theorem envT_assign (ρ : Val) (T : Tags) (x : String) (v : WExpr) (hx : T.get x = .word) :
+    ∀ (sc : Scopes), LocalEnv.assign? (sc.map (frameOfT ρ T)) x (Value.word (v.eval ρ)) =
+      (Scopes.set sc x v).map (·.map (frameOfT ρ T))
+  | [] => rfl
+  | L :: rest => by
+    simp only [List.map_cons, LocalEnv.assign?, frameT_assign ρ T L x v hx, Scopes.set]
+    cases L.set x v with
+    | some L' => rfl
+    | none =>
+      simp only [Option.map_none, envT_assign ρ T x v hx rest]
+      cases Scopes.set rest x v <;> rfl
+
+theorem envT_declare (ρ : Val) (T : Tags) (sc : Scopes) (x : String) (v : WExpr)
+    (hx : T.get x = .word) :
+    LocalEnv.declare (sc.map (frameOfT ρ T)) x (Value.word (v.eval ρ)) =
+      (sc.declare x v).map (frameOfT ρ T) := by
+  cases sc <;> simp [LocalEnv.declare, Scopes.declare, frameOfT, hx]
+
+theorem SymState.setW_spec {S : SymState} {x : String} {v : WExpr} {L : Scopes}
+    (h : S.setW x v = some L) : S.tags.get x = .word ∧ Scopes.set S.scopes x v = some L := by
+  unfold SymState.setW at h
+  split at h
+  · exact ⟨by assumption, h⟩
+  · simp at h
+
+theorem SymState.setManyW_spec {S : SymState} {xs : List String} {es : List WExpr} {L : Scopes}
+    (h : S.setManyW xs es = some L) :
+    (∀ x ∈ xs, S.tags.get x = .word) ∧ Scopes.setMany S.scopes xs es = some L := by
+  unfold SymState.setManyW at h
+  split at h
+  · rename_i ha
+    refine ⟨fun x hx => ?_, h⟩
+    have := List.all_eq_true.mp ha x hx
+    simpa using this
+  · simp at h
 
 theorem Locals.get?_of_set {L L' : Locals} {x : String} {v : WExpr} (h : L.set x v = some L') :
     ∃ e, L.get? x = some e := by
@@ -559,8 +655,7 @@ theorem StmtRel.expr {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {S
   sender := h.sender
   hash := h.hash
   ok := h.ok
-  locals x e he := by
-    simp [Runtime.lookupLocal?, h.frames, env_lookup, he]
+  locals x e he := lookup_word h.frames he
   store := h.store
 
 theorem loadSlot_storeSlot (st : State) (k w q : Nat) (hk : k < wordSize) (hw : w < wordSize)
@@ -705,7 +800,7 @@ theorem LeafRel.popScope {ρ : Val} {E : EraseEnv} {ctx : Context}
 
 theorem StmtRel.pushScope {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {S : SymState}
     (h : StmtRel ρ E ctx rt S) : StmtRel ρ E ctx rt.pushScope S.push :=
-  { h with frames := by simp [Runtime.pushScope, SymState.push, h.frames, frameOf] }
+  { h with frames := by simp [Runtime.pushScope, SymState.push, h.frames, frameOfT] }
 
 theorem caught_done_ok {α : Type} (a : α) :
     SolI.caught (EvmCompiler.Simulation.Interaction.done (.ok a) : SolI α) =
@@ -1165,34 +1260,36 @@ theorem eraseExprs_length {fields : List StorageField} {S : SymState} :
     simp only [Prod.mk.injEq] at h
     rw [← h.2, List.length_cons, List.length_cons, eraseExprs_length hes]
 
-theorem assignLocal_word {ρ : Val} {rt : Runtime} {sc sc' : Scopes} {x : String} {v : WExpr}
-    (hfr : rt.locals = sc.map (frameOf ρ)) (h : Scopes.set sc x v = some sc') :
-    rt.assignLocal? x (.word (v.eval ρ)) = some { rt with locals := sc'.map (frameOf ρ) } := by
+theorem assignLocal_word {ρ : Val} {T : Tags} {rt : Runtime} {sc sc' : Scopes} {x : String} {v : WExpr}
+    (hfr : rt.locals = sc.map (frameOfT ρ T)) (hx : T.get x = .word) (h : Scopes.set sc x v = some sc') :
+    rt.assignLocal? x (.word (v.eval ρ)) = some { rt with locals := sc'.map (frameOfT ρ T) } := by
   obtain ⟨old, hold⟩ := Scopes.get?_of_set h
-  have hx : rt.lookupLocal? x = some (.word (old.eval ρ)) := by
-    simp [Runtime.lookupLocal?, hfr, env_lookup, hold]
-  simp [Runtime.assignLocal?, hx, Value.coerceLike?, hfr, env_assign ρ sc x v, h]
+  have hl : rt.lookupLocal? x = some (.word (old.eval ρ)) := by
+    simp [Runtime.lookupLocal?, hfr, envT_lookup, hold, hx]
+  simp [Runtime.assignLocal?, hl, Value.coerceLike?, hfr, envT_assign ρ T x v hx sc, h]
 
-theorem assignMany_words {ρ : Val} : ∀ (xs : List String) (ws : List WExpr) (rt : Runtime)
-    (sc sc' : Scopes), rt.locals = sc.map (frameOf ρ) → Scopes.setMany sc xs ws = some sc' →
+theorem assignMany_words {ρ : Val} {T : Tags} : ∀ (xs : List String) (ws : List WExpr) (rt : Runtime)
+    (sc sc' : Scopes), rt.locals = sc.map (frameOfT ρ T) → (∀ x ∈ xs, T.get x = .word) →
+    Scopes.setMany sc xs ws = some sc' →
     rt.assignNamedValues? xs (ws.map fun e => .word (e.eval ρ)) =
-        some { rt with locals := sc'.map (frameOf ρ) } ∧
+        some { rt with locals := sc'.map (frameOfT ρ T) } ∧
       rt.assignNamedValuesRef? xs (ws.map fun e => .word (e.eval ρ)) =
-        some { rt with locals := sc'.map (frameOf ρ) }
-  | [], [], rt, sc, sc', hfr, h => by
+        some { rt with locals := sc'.map (frameOfT ρ T) }
+  | [], [], rt, sc, sc', hfr, _, h => by
     simp only [Scopes.setMany, Option.some.injEq] at h
     subst h
     rw [← hfr]
     exact ⟨rfl, rfl⟩
-  | x :: xs, w :: ws, rt, sc, sc', hfr, h => by
+  | x :: xs, w :: ws, rt, sc, sc', hfr, ht, h => by
     simp only [Scopes.setMany, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
     obtain ⟨sc1, h1, h2⟩ := h
-    have ha := assignLocal_word hfr h1
-    obtain ⟨ih1, ih2⟩ := assignMany_words xs ws { rt with locals := sc1.map (frameOf ρ) } sc1 sc' rfl h2
+    have ha := assignLocal_word hfr (ht x List.mem_cons_self) h1
+    obtain ⟨ih1, ih2⟩ := assignMany_words xs ws { rt with locals := sc1.map (frameOfT ρ T) } sc1 sc' rfl
+      (fun y hy => ht y (List.mem_cons_of_mem _ hy)) h2
     simp only [List.map_cons, Runtime.assignNamedValues?, Runtime.assignNamedValuesRef?,
       Runtime.assignLocalRefAware?, ha]
     exact ⟨ih1, ih2⟩
-  | [], _ :: _, _, _, _, _, h | _ :: _, [], _, _, _, _, h => by simp [Scopes.setMany] at h
+  | [], _ :: _, _, _, _, _, _, h | _ :: _, [], _, _, _, _, _, h => by simp [Scopes.setMany] at h
 
 theorem eval_refArgs (ρ : Val) (fields : List StorageField) (ctx : Context) (rt : Runtime)
     (S : SymState) (hrel : ExprRel ρ fields ctx rt S) {es : List Expr} {gs vs : List WExpr}
@@ -1245,9 +1342,9 @@ theorem initialFrame_words (ρ : Val) (fn : InternalFunction) (vs : List WExpr)
 theorem deref_word' (rt : Runtime) (v : Nat) : rt.derefMemoryValueDeep (.word v) = .ok (.word v) := by
   simp [Runtime.derefMemoryValueDeep, Runtime.derefMemoryValueWithFuel]
 
-theorem collectRef_words (ρ : Val) (rt : Runtime) (sc : Scopes)
-    (hfr : rt.locals = sc.map (frameOf ρ)) : ∀ (rs : List BindingDecl) (ws : List WExpr),
-    rs.all wordDecl = true → rs.mapM (fun r => Scopes.get? sc r.name) = some ws →
+theorem collectRef_words (ρ : Val) (rt : Runtime) (S : SymState)
+    (hfr : rt.locals = S.scopes.map (frameOfT ρ S.tags)) : ∀ (rs : List BindingDecl) (ws : List WExpr),
+    rs.all wordDecl = true → rs.mapM (fun r => S.word? r.name) = some ws →
     collectReturnBindingsRef.collect rt rs = .ok (ws.map fun e => .word (e.eval ρ))
   | [], ws, _, h => by
     simp only [List.mapM_nil, Option.pure_def, Option.some.injEq] at h
@@ -1257,10 +1354,9 @@ theorem collectRef_words (ρ : Val) (rt : Runtime) (sc : Scopes)
     simp only [List.mapM_cons, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.pure_def,
       Option.some.injEq] at h
     obtain ⟨w, hw, ws', hws', rfl⟩ := h
-    have hl : rt.lookupLocal? r.name = some (.word (w.eval ρ)) := by
-      simp [Runtime.lookupLocal?, hfr, env_lookup, hw]
+    have hl : rt.lookupLocal? r.name = some (.word (w.eval ρ)) := lookup_word hfr hw
     simp [collectReturnBindingsRef.collect, hl, deref_word', (wordDecl_spec hr.1 _).1,
-      collectRef_words ρ rt sc hfr rs ws' hr.2 hws', bind, Except.bind, pure, Except.pure]
+      collectRef_words ρ rt S hfr rs ws' hr.2 hws', bind, Except.bind, pure, Except.pure]
 
 theorem coerceRef_words (ρ : Val) (rt : Runtime) : ∀ (rs : List BindingDecl) (vs : List WExpr),
     rs.all wordDecl = true → vs.length = rs.length →
@@ -1288,11 +1384,13 @@ theorem callAssign_ok {ρ : Val} {E : EraseEnv} {ctx : Context} {rt rt1 : Runtim
   · rename_i ht
     simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
     obtain ⟨sc, hsc, rfl⟩ := h
-    have := (assignMany_words targets ws { rt1 with locals := rt.locals } S.scopes sc hrel.frames hsc).2
+    obtain ⟨hts, hsc⟩ := SymState.setManyW_spec hsc
+    have := (assignMany_words targets ws { rt1 with locals := rt.locals } S.scopes sc hrel.frames hts hsc).2
     have hne : targets.isEmpty = false := by cases targets <;> simp_all
-    refine ⟨.normal { rt1 with locals := sc.map (frameOf ρ) }, ?_,
-      (show StmtRel ρ E ctx { rt1 with locals := sc.map (frameOf ρ) }
-        { scopes := sc, writes := S1.writes, logs := S1.logs, caller := S.caller } from { hrel1 with frames := rfl, sender := hrel.sender })⟩
+    refine ⟨.normal { rt1 with locals := sc.map (frameOfT ρ S.tags) }, ?_,
+      (show StmtRel ρ E ctx { rt1 with locals := sc.map (frameOfT ρ S.tags) }
+        { scopes := sc, writes := S1.writes, logs := S1.logs, caller := S.caller, tags := S.tags }
+        from { hrel1 with frames := rfl, sender := hrel.sender })⟩
     simp only [internalCallAssign, hne, Bool.false_eq_true, ↓reduceIte, this]
     rfl
 
@@ -1306,7 +1404,7 @@ theorem finish_call {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {S 
     simp only [callLeaf, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
     obtain ⟨ws, hws, h⟩ := h
     simp only [internalCallFinish, collectReturnBindingsRef,
-      collectRef_words ρ rt1 S1.scopes h1.frames fn.returns ws hr hws]
+      collectRef_words ρ rt1 S1 h1.frames fn.returns ws hr hws]
     exact callAssign_ok hrel h1 h
   | .returned rt1 vals, .returned S1 vs, c, h1, h => by
     simp only [LeafRel] at h1
@@ -1318,7 +1416,7 @@ theorem finish_call {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {S 
       simp only [Option.bind_eq_bind, Option.bind_eq_some_iff] at h
       obtain ⟨ws, hws, h⟩ := h
       simp only [internalCallFinish, List.map_nil, List.isEmpty_nil, ↓reduceIte, collectReturnBindingsRef,
-        collectRef_words ρ rt1 S1.scopes h1.frames fn.returns ws hr hws]
+        collectRef_words ρ rt1 S1 h1.frames fn.returns ws hr hws]
       exact callAssign_ok hrel h1 h
     · rename_i hv
       split at h
@@ -1366,9 +1464,10 @@ theorem capture_ok {ρ : Val} {E : EraseEnv} {ctx : Context} (names : List Strin
     · rename_i hv
       simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
       obtain ⟨sc, hsc, rfl⟩ := h
+      obtain ⟨hts, hsc⟩ := SymState.setManyW_spec hsc
       have : ((vs.map fun e => Value.word (e.eval ρ)).isEmpty || names.isEmpty) = false := by
         cases vs <;> cases names <;> simp_all
-      have ha := (assignMany_words names vs rt1 S1.scopes sc h1.frames hsc).1
+      have ha := (assignMany_words names vs rt1 S1.scopes sc h1.frames hts hsc).1
       simp only [this, Bool.false_eq_true, ↓reduceIte, ha]
       exact ⟨_, rfl, { h1 with frames := rfl }⟩
   | .normal rt1, .normal S1, c, h1, h => by
@@ -1422,7 +1521,7 @@ theorem apply_ne_unchecked (a b : Nat) (ha : a < wordSize) (hb : b < wordSize) :
 
 theorem eval_wrapRead (ρ : Val) (ctx : Context) (rt : Runtime) (S : SymState)
     (hchk : ctx.checked = false)
-    (hloc : ∀ x e, Scopes.get? S.scopes x = some e → rt.lookupLocal? x = some (.word (e.eval ρ))) :
+    (hloc : ∀ x e, S.word? x = some e → rt.lookupLocal? x = some (.word (e.eval ρ))) :
     ∀ (e : Expr) (w : WExpr) (fuel : Nat), wrapRead S e = some w → Expr.orderFuel e < fuel →
       Expr.evalFuel fuel ctx rt e = .done (.ok (.word (w.eval ρ), rt)) := by
   intro e w fuel h hf
@@ -1486,12 +1585,13 @@ theorem eval_require {ρ : Val} {E : EraseEnv} {ctx ctx' : Context} {rt rt' : Ru
     rfl
 
 theorem eval_uncheckedCond (ρ : Val) (ctx : Context) (rt : Runtime) (S : SymState)
-    (hchk : ctx.checked = false) (hframes : rt.locals = S.scopes.map (frameOf ρ))
-    (hloc : ∀ x e, Scopes.get? S.scopes x = some e → rt.lookupLocal? x = some (.word (e.eval ρ)))
+    (hchk : ctx.checked = false) (hframes : rt.locals = S.scopes.map (frameOfT ρ S.tags))
+    (hloc : ∀ x e, S.word? x = some e → rt.lookupLocal? x = some (.word (e.eval ρ)))
     {c : Expr} {z : String} {w v : WExpr} {L : Scopes}
-    (h : uncheckedCond S c = some (z, w, v)) (hL : Scopes.set S.scopes z w = some L) :
+    (h : uncheckedCond S c = some (z, w, v)) (hL' : S.setW z w = some L) :
     ∀ fuel, Expr.orderFuel c < fuel →
-      Expr.evalFuel fuel ctx rt c = .done (.ok (.word (v.eval ρ), { rt with locals := L.map (frameOf ρ) })) := by
+      Expr.evalFuel fuel ctx rt c = .done (.ok (.word (v.eval ρ), { rt with locals := L.map (frameOfT ρ S.tags) })) := by
+  obtain ⟨hz, hL⟩ := SymState.setW_spec hL'
   intro fuel hf
   unfold uncheckedCond at h
   split at h
@@ -1500,10 +1600,11 @@ theorem eval_uncheckedCond (ρ : Val) (ctx : Context) (rt : Runtime) (S : SymSta
   simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq, Prod.mk.injEq] at h
   obtain ⟨vc, hc, w', hw, v', ho, rfl, rfl, rfl⟩ := h
   obtain ⟨old, hold⟩ := Scopes.get?_of_set hL
-  have hx := hloc z' old hold
+  have hx := hloc z' old (by simp [SymState.word?, hz, hold])
   have hbase : rt.lookupStorageBase? z' = none := by simp [Runtime.lookupStorageBase?, hx]
-  have hassign : rt.assignLocal? z' (.word (w'.eval ρ)) = some { rt with locals := L.map (frameOf ρ) } := by
-    simp [Runtime.assignLocal?, hx, Value.coerceLike?, hframes, env_assign ρ S.scopes z' w', hL]
+  have hassign : rt.assignLocal? z' (.word (w'.eval ρ)) =
+      some { rt with locals := L.map (frameOfT ρ S.tags) } :=
+    assignLocal_word hframes hz hL
   simp only [Expr.orderFuel] at hf
   obtain ⟨n, rfl⟩ : ∃ n, fuel = n + 1 := ⟨fuel - 1, by omega⟩
   obtain ⟨m, rfl⟩ : ∃ m, n = m + 1 := ⟨n - 1, by omega⟩
@@ -1517,14 +1618,14 @@ theorem eval_uncheckedCond (ρ : Val) (ctx : Context) (rt : Runtime) (S : SymSta
   have hwv := w'.eval_lt ρ
   have hcv := vc.eval_lt ρ
   have hA : Expr.evalFuel (j + 1 + 1) ctx rt (.assignment none none (.var z') rhs) =
-      .done (.ok (.word (w'.eval ρ), { rt with locals := L.map (frameOf ρ) })) := by
+      .done (.ok (.word (w'.eval ρ), { rt with locals := L.map (frameOfT ρ S.tags) })) := by
     rw [Expr.evalFuel]
     simp only [pure, EvmCompiler.Simulation.Interaction.pure, bind,
       EvmCompiler.Simulation.Interaction.bind, liftM, monadLift, MonadLift.monadLift, hvw, hres,
       ResolvedLValue.write, hassign, SolI.ofExcept]
   have hC : Expr.evalFuel (j + 1 + 1 + 1) ctx rt
       (.castOp .uintCleanup 256 (.assignment none none (.var z') rhs)) =
-      .done (.ok (.word (w'.eval ρ), { rt with locals := L.map (frameOf ρ) })) := by
+      .done (.ok (.word (w'.eval ρ), { rt with locals := L.map (frameOfT ρ S.tags) })) := by
     rw [Expr.evalFuel]
     simp only [pure, EvmCompiler.Simulation.Interaction.pure, bind,
       EvmCompiler.Simulation.Interaction.bind, liftM, monadLift, MonadLift.monadLift, hA, hchk,
@@ -1553,11 +1654,11 @@ theorem eval_unchecked (ρ : Val) (E : EraseEnv) (ctx : Context) (k : Nat) (body
   obtain ⟨⟨z, w, v⟩, hc, L, hL, rfl⟩ := h
   have hrel' := hrel.pushScope
   have hcond : Expr.eval { ctx with checked := false } rt.pushScope c =
-      .done (.ok (.word (v.eval ρ), { rt.pushScope with locals := L.map (frameOf ρ) })) :=
+      .done (.ok (.word (v.eval ρ), { rt.pushScope with locals := L.map (frameOfT ρ S.tags) })) :=
     eval_uncheckedCond ρ _ rt.pushScope S.push rfl hrel'.frames
       (fun x e he => hrel'.expr.locals x e he) hc hL _ (Nat.lt_succ_self _)
   obtain ⟨r, hr, hl⟩ := eval_require (n := k) (tbl := E.tbl) (rs := rs)
-    (show StmtRel ρ E ctx { rt.pushScope with locals := L.map (frameOf ρ) } { S.push with scopes := L }
+    (show StmtRel ρ E ctx { rt.pushScope with locals := L.map (frameOfT ρ S.tags) } { S.push with scopes := L }
       from { hrel' with frames := rfl }) (by rw [hcond]; rfl)
   refine ⟨r.mapRuntime Runtime.popScope, ?_, ?_⟩
   · rw [Stmt.eval]
@@ -1669,7 +1770,9 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
       simp only [eraseStmt] at h
       split at h
       case isFalse => simp at h
-      rename_i hty
+      rename_i hty'
+      have hty := hty'.1
+      have hxw := hty'.2
       have hco := fun v => (wordTy_coerce hty v).1
       have hdef := (wordTy_coerce hty 0).2
       cases init with
@@ -1681,9 +1784,9 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
           simp only [hdef]
           rfl
         · have hf : (rt.declareLocal x (.word 0)).locals =
-              (S.scopes.declare x (.lit 0)).map (frameOf ρ) := by
+              (S.scopes.declare x (.lit 0)).map (frameOfT ρ S.tags) := by
             rw [Runtime.declareLocal, hrel.frames]
-            exact env_declare ρ S.scopes x (.lit 0)
+            exact envT_declare ρ S.tags S.scopes x (.lit 0) hxw
           exact { hrel with frames := hf }
       | some e =>
         simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
@@ -1695,8 +1798,8 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
         simp only [bind_done_ok, hco]
         refine ⟨.normal (rt.declareLocal x (.word (v.eval ρ))), rfl, ?_⟩
         have hf : (rt.declareLocal x (.word (v.eval ρ))).locals =
-            (S.scopes.declare x v).map (frameOf ρ) := by
-          rw [Runtime.declareLocal, hrel.frames, env_declare]
+            (S.scopes.declare x v).map (frameOfT ρ S.tags) := by
+          rw [Runtime.declareLocal, hrel.frames, envT_declare ρ S.tags S.scopes x v hxw]
         exact { hrel with frames := hf }
     case emitEvent name es =>
       simp only [eraseStmt, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
@@ -1806,9 +1909,11 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
       cases target
       case var x =>
         simp only [eraseStmt, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
-        obtain ⟨⟨gs, v⟩, he, L', hL, rfl⟩ := h
+        obtain ⟨⟨gs, v⟩, he, L', hL', rfl⟩ := h
+        obtain ⟨hxw, hL⟩ := SymState.setW_spec hL'
         obtain ⟨old, hold⟩ := Scopes.get?_of_set hL
-        have hx : rt.lookupLocal? x = some (.word (old.eval ρ)) := hrel.expr.locals x old hold
+        have hx : rt.lookupLocal? x = some (.word (old.eval ρ)) :=
+          hrel.expr.locals x old (by simp [SymState.word?, hxw, hold])
         have hmem : rt.lookupMemoryRef? x = none := by simp [Runtime.lookupMemoryRef?, hx]
         have hbase : rt.lookupStorageBase? x = none := by simp [Runtime.lookupStorageBase?, hx]
         have heval := eval_eq ρ E.fields ctx rt S hrel.expr he
@@ -1817,16 +1922,16 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
             Expr.resolveLValueFuel, hbase, hx]
           rfl
         have hassign : rt.assignLocal? x (.word (v.eval ρ)) =
-            some { rt with locals := L'.map (frameOf ρ) } := by
-          simp [Runtime.assignLocal?, hx, Value.coerceLike?, hrel.frames, env_assign ρ S.scopes x v, hL]
-        have hrel' : StmtRel ρ E ctx { rt with locals := L'.map (frameOf ρ) }
+            some { rt with locals := L'.map (frameOfT ρ S.tags) } :=
+          assignLocal_word hrel.frames hxw hL
+        have hrel' : StmtRel ρ E ctx { rt with locals := L'.map (frameOfT ρ S.tags) }
             { S with scopes := L' } := { hrel with frames := rfl }
         rw [Stmt.eval]
         simp only [LValue.wantsMemoryRefRhs, hmem, Option.isSome_none, Bool.false_eq_true,
           ↓reduceIte, heval, caught_exprResult]
         rw [guards_eval]
         guard_cases hg : gs.any (fun g => g.eval ρ != 0)
-        refine ⟨.normal { rt with locals := L'.map (frameOf ρ) }, ?_, hrel'⟩
+        refine ⟨.normal { rt with locals := L'.map (frameOfT ρ S.tags) }, ?_, hrel'⟩
         split
         · split
           · simp_all

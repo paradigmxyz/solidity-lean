@@ -234,7 +234,7 @@ theorem feeOn_source (k : Nat) (V : World) {c : SolidCore.Solidity.TypeCheck.Che
               hbind, ↓reduceIte] at hrun
             let ρ : Val := ⟨[], slotValue σ, solHash, SolidCore.Refinement.Generic.callerWord⟩
             let E : EraseEnv := { fields := callsFields, events := ctx.eventDecls, tbl := c.core.table }
-            let S1 : SymState := ⟨[[("__ext0", .lit w)], [("_sol_hoist_0", .lit 0), ("_sol_hoist_1", .lit 0)], [], [("on", .lit 0)]], [], [], .lit SolidCore.Refinement.Generic.callerWord⟩
+            let S1 : SymState := ⟨[[("__ext0", .lit w)], [("_sol_hoist_0", .lit 0), ("_sol_hoist_1", .lit 0)], [], [("on", .lit 0)]], [], [], .lit SolidCore.Refinement.Generic.callerWord, []⟩
             have hrel1 : StmtRel ρ E ctx (((({ state := adoptWorld a.postWorld ctx ((rt0.pushScope.pushScope.declareLocal "_sol_hoist_1" (Value.word 0)).declareLocal "_sol_hoist_0" Ty.address.defaultValue).state, locals := ((rt0.pushScope.pushScope.declareLocal "_sol_hoist_1" (Value.word 0)).declareLocal "_sol_hoist_0" Ty.address.defaultValue).locals, memory := ((rt0.pushScope.pushScope.declareLocal "_sol_hoist_1" (Value.word 0)).declareLocal "_sol_hoist_0" Ty.address.defaultValue).memory, nextMemory := ((rt0.pushScope.pushScope.declareLocal "_sol_hoist_1" (Value.word 0)).declareLocal "_sol_hoist_0" Ty.address.defaultValue).nextMemory, nextMemoryByte := ((rt0.pushScope.pushScope.declareLocal "_sol_hoist_1" (Value.word 0)).declareLocal "_sol_hoist_0" Ty.address.defaultValue).nextMemoryByte } : Runtime).recordExternalInteraction (ExternalInteraction.lowLevelCall { kind := Solidity.Shared.Call.ExternalCallKind.staticcall, target := Solidity.Shared.norm (fieldValue (slotValue σ 0) factoryField.packedOffset 20), calldata := [normByte 1, normByte 126, normByte 126, normByte 88], value := Solidity.Shared.norm 0, success := true, output := byteArrayToBytes a.returnData })).withFrame [("__ext0", Value.word w)])) S1 :=
               static_rel hd hstatic hctxs hctxf (by subst hctx; rfl) (by subst hctx; rfl) hans (by subst hR; rfl)
                 hworld ((rt0.pushScope.pushScope.declareLocal "_sol_hoist_1" (Value.word 0)).declareLocal "_sol_hoist_0" Ty.address.defaultValue).state _
@@ -246,7 +246,7 @@ theorem feeOn_source (k : Nat) (V : World) {c : SolidCore.Solidity.TypeCheck.Che
             obtain ⟨r1, hr1, hl1⟩ := eval_stmt ρ E ctx (k + 2) (Stmt.assign (LValue.var "_sol_hoist_0")
               (Expr.var "__ext0")) S1 _ rfl _ hrel1
             rw [hr1] at hrun
-            let S1' : SymState := ⟨[[("__ext0", .lit w)], [("_sol_hoist_0", .lit w), ("_sol_hoist_1", .lit 0)], [], [("on", .lit 0)]], [], [], .lit SolidCore.Refinement.Generic.callerWord⟩
+            let S1' : SymState := ⟨[[("__ext0", .lit w)], [("_sol_hoist_0", .lit w), ("_sol_hoist_1", .lit 0)], [], [("on", .lit 0)]], [], [], .lit SolidCore.Refinement.Generic.callerWord, []⟩
             have hl1' : LeafRel ρ E ctx r1 (.normal S1') := hl1
             cases r1 with
             | normal rt1 =>
@@ -256,7 +256,7 @@ theorem feeOn_source (k : Nat) (V : World) {c : SolidCore.Solidity.TypeCheck.Che
               simp only [done_bind', Result.mapRuntime, sbind_pure] at hrun
               rw [hr2] at hrun
               let ON : WExpr := .un .iszero (.bin .eq (.lit w) (.lit 0))
-              let S3 : SymState := ⟨[[("_sol_hoist_0", .lit w), ("_sol_hoist_1", .lit 0)], [], [("on", ON)]], [], [], .lit SolidCore.Refinement.Generic.callerWord⟩
+              let S3 : SymState := ⟨[[("_sol_hoist_0", .lit w), ("_sol_hoist_1", .lit 0)], [], [("on", ON)]], [], [], .lit SolidCore.Refinement.Generic.callerWord, []⟩
               have hl2' : LeafRel ρ E ctx r2 (.normal S3) := hl2
               cases r2 with
               | normal rt2 =>
@@ -264,7 +264,7 @@ theorem feeOn_source (k : Nat) (V : World) {c : SolidCore.Solidity.TypeCheck.Che
                   (Stmt.assign (LValue.storage "kLast") (Expr.word 1)) Stmt.skip) S3 _ rfl _ hl2'
                 simp only [done_bind', sbind_pure] at hrun
                 rw [hr3] at hrun
-                let S4 : SymState := ⟨S3.scopes, [(.lit 3, writeField (.init 3) (.lit 1) 0 32)], [], .lit SolidCore.Refinement.Generic.callerWord⟩
+                let S4 : SymState := ⟨S3.scopes, [(.lit 3, writeField (.init 3) (.lit 1) 0 32)], [], .lit SolidCore.Refinement.Generic.callerWord, []⟩
                 have hl3' : LeafRel ρ E ctx r3 (if ON.eval ρ = 0 then .normal S3 else .normal S4) := hl3
                 have hON : ON.eval ρ = if w = 0 then 0 else 1 := by
                   have hwlt' : w < 115792089237316195423570985008687907853269984665640564039457584007913129639936 := hwlt

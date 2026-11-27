@@ -37,11 +37,12 @@ open SolidCore.Solidity.Source SolidCore.Refinement.Generic
 theorem eval_assignVar_exact {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {S : SymState}
     (hrel : StmtRel ρ E ctx rt S) (m : Nat) {x : String} {e : Expr} {gs : List WExpr} {v : WExpr}
     {L' : Scopes} (he : eraseExpr E.fields S e = some (gs, v)) (hL : Scopes.set S.scopes x v = some L')
-    (hg : gs.any (fun g => g.eval ρ != 0) = false) :
+    (hg : gs.any (fun g => g.eval ρ != 0) = false) (htg : S.tags = [] := by rfl) :
     Stmt.eval (m + 1) E.tbl ctx rt (.assign (.var x) e) =
       .done (.ok (.normal { rt with locals := L'.map (frameOf ρ) })) := by
   obtain ⟨old, hold⟩ := Scopes.get?_of_set hL
-  have hx : rt.lookupLocal? x = some (.word (old.eval ρ)) := hrel.expr.locals x old hold
+  have hx : rt.lookupLocal? x = some (.word (old.eval ρ)) :=
+    hrel.expr.locals x old (by simp [SymState.word?, htg, hold])
   have hmem : rt.lookupMemoryRef? x = none := by simp [Runtime.lookupMemoryRef?, hx]
   have hbase : rt.lookupStorageBase? x = none := by simp [Runtime.lookupStorageBase?, hx]
   have heval := eval_eq ρ E.fields ctx rt S hrel.expr he
@@ -51,7 +52,8 @@ theorem eval_assignVar_exact {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Run
     rfl
   have hassign : rt.assignLocal? x (.word (v.eval ρ)) =
       some { rt with locals := L'.map (frameOf ρ) } := by
-    simp [Runtime.assignLocal?, hx, Value.coerceLike?, hrel.frames, env_assign ρ S.scopes x v, hL]
+    have := assignLocal_word hrel.frames (x := x) (by simp [htg]) hL
+    rwa [htg, frameOfT_nil] at this
   rw [Stmt.eval]
   simp only [LValue.wantsMemoryRefRhs, hmem, Option.isSome_none, Bool.false_eq_true,
     ↓reduceIte, heval, caught_exprResult, hg]

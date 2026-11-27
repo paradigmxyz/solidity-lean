@@ -72,7 +72,7 @@ leaves the storage. -/
 theorem source_run_value_from (a : Nat) {fuel : Nat} {c : TypeCheck.CheckedContract}
     {d : Source.State} {s : List (Nat × Nat)} (hd : Wide.DeployedAt fuel c d s) {sel : Nat}
     (hsel : sel < 2 ^ 32) {fn : FunctionDef} (hfind : c.core.findFunctionBySelector? sel = some fn)
-    {ws : List Nat} (hw : widthsOf fn.params fn.paramAbiCleanups = some ws)
+    {ws : List Nat} (hw : widthsOfT fn.params fn.paramAbiCleanups = some ws)
     (hpay : fn.payable = false) (args : List Nat)
     (hlen : args.length = fn.params.length) (hargs : ∀ a ∈ args, a < 2 ^ 256) {v : Nat}
     (hv0 : v ≠ 0) (hv : v < 2 ^ 256) (σ : List (Nat × Nat)) :
@@ -89,9 +89,10 @@ theorem source_run_value_from (a : Nat) {fuel : Nat} {c : TypeCheck.CheckedContr
       { c.core.context with sender := callerAddress, self := selfAddress, value := v }
       State.empty selfAddress 0 [] = some (CallResult.returned deployed st) := hcons
   -- The arguments decode, or a dirty word reverts with empty data.
-  have hdec : ABI.decodeFunctionArgs? fn (Dirty.argBytes args) = .ok (args.map .word) ∨
+  have hdec : ABI.decodeFunctionArgs? fn (Dirty.argBytes args) =
+        .ok (tyVals (fn.params.map BindingDecl.ty) args) ∨
       ABI.decodeFunctionArgs? fn (Dirty.argBytes args) = .error .empty := by
-    rw [decode_args hw args hlen hargs]
+    rw [decode_argsT hw args hlen hargs]
     by_cases hclean : argsClean ws args = true
     · exact Or.inl (if_pos hclean)
     · exact Or.inr (if_neg hclean)
@@ -115,7 +116,7 @@ theorem source_run_value_from (a : Nat) {fuel : Nat} {c : TypeCheck.CheckedContr
 theorem source_run_value {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.State}
     {s : List (Nat × Nat)} (hd : Wide.DeployedAt fuel c d s) {sel : Nat} (hsel : sel < 2 ^ 32)
     {fn : FunctionDef} (hfind : c.core.findFunctionBySelector? sel = some fn)
-    {ws : List Nat} (hw : widthsOf fn.params fn.paramAbiCleanups = some ws)
+    {ws : List Nat} (hw : widthsOfT fn.params fn.paramAbiCleanups = some ws)
     (hpay : fn.payable = false) (args : List Nat)
     (hlen : args.length = fn.params.length) (hargs : ∀ a ∈ args, a < 2 ^ 256) {v : Nat}
     (hv0 : v ≠ 0) (hv : v < 2 ^ 256) (σ : List (Nat × Nat)) :
@@ -311,9 +312,9 @@ theorem stageValueCaller (o : Oracle) (henv : CallerOk o) {fuel mirFuel : Nat}
 
 /-- A function the symbolic-caller erasure accepts has the widths of its parameters. -/
 theorem eraseFnSym_widths {E : EraseEnv} {fuel : Nat} {fn : FunctionDef} {t : Tree}
-    (h : eraseFnSym E fuel fn = some t) : ∃ ws, widthsOf fn.params fn.paramAbiCleanups = some ws := by
+    (h : eraseFnSym E fuel fn = some t) : ∃ ws, widthsOfT fn.params fn.paramAbiCleanups = some ws := by
   unfold eraseFnSym at h
-  cases hw : widthsOf fn.params fn.paramAbiCleanups with
+  cases hw : widthsOfT fn.params fn.paramAbiCleanups with
   | none => simp [hw] at h
   | some ws => exact ⟨ws, rfl⟩
 

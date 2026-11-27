@@ -145,10 +145,10 @@ def initFrom (fn : FunctionDef) : SymState := { initState fn with caller := .cal
 /-- `eraseFn` with `msg.sender` the symbolic caller `WExpr.caller`, which the facts bound by
 `2 ^ 160 - 1`. -/
 def eraseFnSym (E : EraseEnv) (fuel : Nat) (fn : FunctionDef) : Option Tree :=
-  match widthsOf fn.params fn.paramAbiCleanups with
+  match widthsOfT fn.params fn.paramAbiCleanups with
   | none => none
   | some ws =>
-    if fn.returns.all wordBinding then do
+    if fn.returns.all wordBinding && tagsOk fn then do
       let b ← eraseStmt { E with facts := callerFact :: argFacts ws 0 } fuel fn.body (initFrom fn)
       let t ← brTree fn (callerFact :: argFacts ws 0) b
       some (paramGuards ws 0 t)
@@ -213,11 +213,12 @@ theorem source_run_from (a : Nat) (ha : a < 2 ^ 160) {fuel : Nat} {c : TypeCheck
   rename_i ws hw
   split at hT
   case isFalse => simp at hT
-  rename_i hret
+  rename_i hret'
+  obtain ⟨hret, htags⟩ := Bool.and_eq_true _ _ ▸ hret'
   simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at hT
   obtain ⟨b, hb, t, ht, rfl⟩ := hT
   rw [paramGuards_eval ⟨args, slotValue σ, solHash, a⟩ t hargs ws 0, List.drop_zero]
-  have hdec := decode_args hw args hlen hargs
+  have hdec := decode_argsT hw args hlen hargs
   by_cases hclean : argsClean ws args = true
   · rw [if_pos hclean]
     rw [if_pos hclean] at hdec
@@ -225,7 +226,7 @@ theorem source_run_from (a : Nat) (ha : a < 2 ^ 160) {fuel : Nat} {c : TypeCheck
     exact And.right (abi_clean hsel hfind hw hret fuel _ a (getD_storage_cover hd hcov)
       (by exact hd.events) .caller hlen hargs
       ((argFacts_hold ⟨args, slotValue σ, solHash, a⟩ hargs ws 0 (by simpa using hclean)).cons
-        (callerFact_eval ⟨args, slotValue σ, solHash, a⟩ ha)) rfl hdec ht
+        (callerFact_eval ⟨args, slotValue σ, solHash, a⟩ ha)) rfl htags hdec ht
       (fun rt hrel => eval_stmt _ _ _ fuel fn.body _ b hb rt hrel) _ rfl)
   · rw [if_neg hclean]
     rw [if_neg hclean] at hdec

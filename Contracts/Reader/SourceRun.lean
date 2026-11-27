@@ -104,7 +104,7 @@ theorem post_rel {fuel : Nat} {c : SolidCore.Solidity.TypeCheck.CheckedContract}
     (hev : rt.state.events = d.events) (sc : Scopes)
     (hframes : rt.locals = sc.map (frameOf (postVal w))) :
     StmtRel (postVal w) { fields := F, events := ctx.eventDecls, tbl := c.core.table } ctx rt
-      ⟨sc, [], [], .lit SolidCore.Refinement.Generic.callerWord⟩ :=
+      ⟨sc, [], [], .lit SolidCore.Refinement.Generic.callerWord, []⟩ :=
   { fields := hfields
     events := rfl
     checked := hchecked
@@ -277,7 +277,7 @@ theorem read_source (k : Nat) (V : World) {c : SolidCore.Solidity.TypeCheck.Chec
       let ρ : Val := postVal r.postWorld
       let E : EraseEnv := { fields := [], events := ctx.eventDecls, tbl := c.core.table }
       let S1 : SymState := ⟨[[("__ext0", .lit w)], [("_sol_hoist_0", .lit 0), ("_sol_hoist_1", .lit 1)], [],
-        [("o", .lit a), ("_ret0", .lit 0)]], [], [], .lit SolidCore.Refinement.Generic.callerWord⟩
+        [("o", .lit a), ("_ret0", .lit 0)]], [], [], .lit SolidCore.Refinement.Generic.callerWord, []⟩
       have hctxf : ctx.storageFields = [] := by subst hctx; exact hfields
       have hQl : Q.locals = [[("__ext0", Value.word w)], [("_sol_hoist_0", Value.word 0), ("_sol_hoist_1", Value.word 1)], [],
           [("o", Value.word a), ("_ret0", Value.word 0)]] := by
@@ -293,7 +293,7 @@ theorem read_source (k : Nat) (V : World) {c : SolidCore.Solidity.TypeCheck.Chec
         (Expr.castOp CastKind.uintCleanup 256 (Expr.var "__ext0"))) S1 _ rfl _ hrel1
       rw [hr1] at hrun
       let S1' : SymState := ⟨[[("__ext0", .lit w)], [("_sol_hoist_0", .lit w), ("_sol_hoist_1", .lit 1)], [],
-        [("o", .lit a), ("_ret0", .lit 0)]], [], [], .lit SolidCore.Refinement.Generic.callerWord⟩
+        [("o", .lit a), ("_ret0", .lit 0)]], [], [], .lit SolidCore.Refinement.Generic.callerWord, []⟩
       have hl1' : LeafRel ρ E ctx r1 (.normal S1') := hl1
       cases r1 with
       | normal rt1 =>

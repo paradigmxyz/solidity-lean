@@ -187,7 +187,8 @@ def instS (base len : Nat) (θ : Nat → WExpr) (S : SymState) : SymState :=
   { scopes := S.scopes.map (instL base len θ)
     writes := instWs base len θ S.writes
     logs := S.logs.map (instLog base len θ)
-    caller := instW base len θ S.caller }
+    caller := instW base len θ S.caller
+    tags := S.tags }
 
 /-- Every argument word of the state is below `base`. -/
 def belowS (base : Nat) (S : SymState) : Bool :=
@@ -246,6 +247,13 @@ theorem frameOf_instL (ρ : Val) (base len : Nat) (θ : Nat → WExpr) (L : Loca
   intro p _
   simp [eval_instW]
 
+theorem frameOfT_instL (ρ : Val) (T : Tags) (base len : Nat) (θ : Nat → WExpr) (L : Locals) :
+    frameOfT ρ T (instL base len θ L) = frameOfT (extV ρ base len fun j => (θ j).eval ρ) T L := by
+  simp only [frameOfT, instL, List.map_map]
+  apply List.map_congr_left
+  intro p _
+  simp [eval_instW]
+
 theorem frameOf_below (ρ : Val) (base len : Nat) (f : Nat → Nat) (L : Locals)
     (h : (L.all fun p => belowW base p.2) = true) :
     frameOf (extV ρ base len f) L = frameOf ρ L := by
@@ -290,7 +298,7 @@ theorem rel_of_inst {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {ba
     StmtRel (extV ρ base len fun j => (θ j).eval ρ) E ctx rt S :=
   StmtRel.congr h h.hash h.ok ((hold_extV ρ base len _ hK).mpr h.facts)
     (by simp only [instS, List.map_map]; apply List.map_congr_left; intro L _
-        exact frameOf_instL ρ base len θ L)
+        exact frameOfT_instL ρ S.tags base len θ L)
     (fun k _ => store_instWs ρ base len θ k S.writes)
     (by simp only [instS, List.map_map]; apply List.map_congr_left; intro l _
         exact logEval_inst ρ base len θ l)
@@ -304,7 +312,7 @@ theorem inst_of_rel {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {ba
     StmtRel ρ E ctx rt (instS base len θ S) :=
   StmtRel.congr h h.hash h.ok ((hold_extV ρ base len _ hK).mp h.facts)
     (by simp only [instS, List.map_map]; apply List.map_congr_left; intro L _
-        exact (frameOf_instL ρ base len θ L).symm)
+        exact (frameOfT_instL ρ S.tags base len θ L).symm)
     (fun k _ => (store_instWs ρ base len θ k S.writes).symm)
     (by simp only [instS, List.map_map]; apply List.map_congr_left; intro l _
         exact (logEval_inst ρ base len θ l).symm)
@@ -388,6 +396,41 @@ theorem frames_freshSc (σ ρ : Val) (base : Nat) : ∀ (sc : Scopes) (j : Nat),
       rw [this])
     rw [hL, ih]
 
+
+theorem framesT_freshL (σ ρ : Val) (T : Tags) (base : Nat) : ∀ (L : Locals) (j : Nat),
+    (∀ i, i < L.length → (WExpr.arg (base + j + i)).eval σ = ((L.map (fun p : String × WExpr => p.2)).getD i (WExpr.lit 0)).eval ρ) →
+    frameOfT σ T (freshL base j L) = frameOfT ρ T L
+  | [], _, _ => rfl
+  | (x, e) :: rest, j, h => by
+    have h0 := h 0 (by simp)
+    simp only [Nat.add_zero, List.map_cons, List.getD_cons_zero] at h0
+    have ih := framesT_freshL σ ρ T base rest (j + 1) (fun i hi => by
+      have := h (i + 1) (by simp; omega)
+      simpa [Nat.add_assoc, Nat.add_comm 1 i] using this)
+    simp only [freshL, frameOfT, List.map_cons] at ih ⊢
+    rw [h0, ih]
+
+theorem framesT_freshSc (σ ρ : Val) (T : Tags) (base : Nat) : ∀ (sc : Scopes) (j : Nat),
+    (∀ i, i < (wordsSc sc).length → (WExpr.arg (base + j + i)).eval σ = ((wordsSc sc).getD i (.lit 0)).eval ρ) →
+    (freshSc base j sc).map (frameOfT σ T) = sc.map (frameOfT ρ T)
+  | [], _, _ => rfl
+  | L :: rest, j, h => by
+    simp only [freshSc, List.map_cons]
+    have hL := framesT_freshL σ ρ T base L j (fun i hi => by
+      have := h i (by simp [wordsSc]; omega)
+      rw [this]
+      simp only [wordsSc]
+      rw [getD_append_left' _ (by simpa using hi)])
+    have ih := framesT_freshSc σ ρ T base rest (j + L.length) (fun i hi => by
+      have := h (L.length + i) (by simp [wordsSc]; omega)
+      have e1 : base + (j + L.length) + i = base + j + (L.length + i) := by omega
+      rw [e1, this]
+      simp only [wordsSc]
+      have := getD_append_right' (l₁ := L.map (·.2)) (l₂ := wordsSc rest) i (.lit 0)
+      simp only [List.length_map] at this
+      rw [this])
+    rw [hL, ih]
+
 theorem store_freshWs (σ ρ : Val) (hρ : ρ.Ok) (base : Nat) (ws0 : Writes) : ∀ (ks : List Nat) (j : Nat) (ws : Writes),
     (∀ n, Writes.store σ ws n = Writes.store ρ ws0 n) →
     (∀ i, i < ks.length → (WExpr.arg (base + j + i)).eval σ = (ws0.read (.lit (ks.getD i 0))).eval ρ) →
@@ -431,7 +474,7 @@ theorem rel_header {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {S :
     simp [entries]
   refine StmtRel.congr h h.hash h.ok ((hold_extV ρ base _ _ hK).mpr h.facts) ?_ ?_ ?_ ?_
   · simp only [header]
-    refine (frames_freshSc _ ρ base S.scopes 0 (fun i hi => ?_)).symm
+    refine (framesT_freshSc _ ρ S.tags base S.scopes 0 (fun i hi => ?_)).symm
     rw [Nat.add_zero, arg_headVal ρ base S slots i (by omega)]
     simp only [entries]
     rw [getD_append_left' _ hi]
@@ -479,8 +522,8 @@ def eraseInc (E : EraseEnv) : Nat → Stmt → SymState → Option Br
     | s =>
       match incOf? s with
       | some (_, .var x) => do
-        let old ← Scopes.get? S.scopes x
-        let L' ← Scopes.set S.scopes x (.bin .add old (.lit 1))
+        let old ← S.word? x
+        let L' ← S.setW x (.bin .add old (.lit 1))
         some (incVarBr old L' S)
       | some (_, .storageRead .header x []) => do
         let (k, off, bytes) ← fieldOf? E.fields x

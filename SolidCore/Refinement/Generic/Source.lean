@@ -143,6 +143,30 @@ def Scopes.get? : Scopes → String → Option WExpr
     | some e => some e
     | none => Scopes.get? rest x
 
+/-- How SolidCore holds a local's word: as a word (`uint256`, `address`, `bool`, an enum), as a
+signed word (`int256`) or as a `bytes32`. -/
+inductive Tag where
+  | word
+  | int
+  | bytes32
+  deriving DecidableEq, Repr
+
+/-- SolidCore's value of a local of tag `t` whose word is `v`. -/
+def Tag.val : Tag → Nat → Value
+  | .word, v => .word v
+  | .int, v => .int v
+  | .bytes32, v => .fixedBytes 32 v
+
+/-- The tags of a call's locals that SolidCore holds as other than words, by name. -/
+abbrev Tags := List (String × Tag)
+
+/-- The tag of the local `x`: `word` unless the tags name it. -/
+def Tags.get (T : Tags) (x : String) : Tag := (T.lookup x).getD .word
+
+@[simp] theorem Tags.get_nil (x : String) : Tags.get [] x = .word := rfl
+
+@[simp] theorem Tag.val_word (v : Nat) : Tag.word.val v = .word v := rfl
+
 /-- The symbolic state of a function body: its locals by scope, its storage writes so far and
 the logs it emitted, the oldest first. -/
 structure SymState where
@@ -151,7 +175,14 @@ structure SymState where
   logs : List Log
   /-- The word `msg.sender` erases to: `callerWord`, or the symbolic `WExpr.caller`. -/
   caller : WExpr := .lit callerWord
+  /-- The call's locals that SolidCore holds as typed values other than words (`int256` and
+  `bytes32` parameters), by name: the erasure reads, assigns and declares none of them as a word. -/
+  tags : Tags := []
   deriving DecidableEq, Repr
+
+/-- The word of the local `x` when the state holds it as a word: none for a typed local. -/
+def SymState.word? (S : SymState) (x : String) : Option WExpr :=
+  if S.tags.get x = .word then Scopes.get? S.scopes x else none
 
 /-- SolidCore's slot of a mapping's entry: Keccak-256 of the key's word and the mapping's slot,
 as `mappingStorageSlot slot key` computes it. -/
@@ -190,7 +221,7 @@ def negOf : BinaryOp → Option BinOp
 /-- An atom of the fragment: a word literal, a local or `msg.sender`, erased to its word. -/
 def eraseAtom (S : SymState) : Expr → Option WExpr
   | .word n => some (.lit n)
-  | .var x => Scopes.get? S.scopes x
+  | .var x => S.word? x
   | .caller => some S.caller
   | _ => none
 
@@ -211,7 +242,7 @@ def hashPair? (S : SymState) (b : Nat) (e : Expr) : Option WExpr :=
 reverting with `Panic(0x11)` when not zero, and its word. -/
 def eraseExpr (fields : List StorageField) (S : SymState) : Expr → Option (List WExpr × WExpr)
   | .word n => some ([], .lit n)
-  | .var x => (Scopes.get? S.scopes x).map fun e => ([], e)
+  | .var x => (S.word? x).map fun e => ([], e)
   | .caller => some ([], S.caller)
   | .castOp .uintCleanup b e => do
     let (gs, v) ← eraseExpr fields S e
@@ -412,7 +443,7 @@ theorem apply_le (a b : Nat) (ha : a < wordSize) (hb : b < wordSize) :
     Except.map, gtWord_eq, Nat.mod_eq_of_lt ha, Nat.mod_eq_of_lt hb, boolWord, wordTruthy, h,
     SolidCore.Solidity.Shared.norm, modulus_eq]
 
-/-- SolidCore's \`!\` on a word is \`iszero\`. -/
+/-- SolidCore's `!` on a word is `iszero`. -/
 theorem apply_not (a : Nat) (ha : a < wordSize) :
     UnaryOp.apply true .logicalNot (.word a) = .ok (.word (if a = 0 then 1 else 0)) := by
   by_cases h : a = 0 <;>
@@ -565,7 +596,7 @@ structure ExprRel (ρ : Val) (fields : List StorageField) (ctx : Context) (rt : 
   sender : ctx.sender = S.caller.eval ρ
   hash : ρ.hash = solHash
   ok : ρ.Ok
-  locals : ∀ x e, Scopes.get? S.scopes x = some e → rt.lookupLocal? x = some (.word (e.eval ρ))
+  locals : ∀ x e, S.word? x = some e → rt.lookupLocal? x = some (.word (e.eval ρ))
   store : ∀ k, k < wordSize → rt.state.loadSlot k = Writes.store ρ S.writes k
 
 /-- What SolidCore's evaluation of an erased expression gives: `Panic(0x11)` when one of its

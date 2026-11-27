@@ -63,8 +63,8 @@ theorem runtime_run_clean_from (a : Nat) (ha : a < 2 ^ 160) {fuel : Nat} {c : Ty
       some (frameOf ρ (paramLocals fn.params 0 ++ fn.returns.map fun r => (r.name, .lit 0))) := by
     have h0 : BindingDecl.bindArgs? fn.params (args.map .word) =
         some (frameOf ρ (paramLocals fn.params 0)) :=
-      bindArgs_clean ρ hargs fn.params fn.paramAbiCleanups ws 0 hw (by simpa [hρ] using hclean)
-        (by simp [hρ, hlen])
+      bindArgs_clean ρ hargs [] fn.params fn.paramAbiCleanups ws 0 (widthsOf_T hw).1
+        (by simpa [hρ] using hclean) (by simp [hρ, hlen]) (fun p hp => ((widthsOf_T hw).2 p hp).symm)
     simp only [FunctionDef.initialFrame?, h0, FunctionDef.returnDefaultBindings,
       defaults_words ρ fn.returns hr, frameOf, List.map_append]
   have hrel : StmtRel ρ E ctx
@@ -80,7 +80,7 @@ theorem runtime_run_clean_from (a : Nat) (ha : a < 2 ^ 160) {fuel : Nat} {c : Ty
       sender := by subst hctx; rfl
       hash := rfl
       ok := hρok
-      frames := rfl
+      frames := by simp [initFrom, initState, paramTags_words (widthsOf_T hw).2]
       store := by
         intro k hk
         have := getD_storage_empty σ k

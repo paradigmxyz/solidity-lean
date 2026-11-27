@@ -77,9 +77,10 @@ theorem runtime_run_clean {fuel : Nat} {c : TypeCheck.CheckedContract} {σ : Lis
       some (T.eval ⟨args, slotValue σ, solHash, callerWord⟩).obs := by
   unfold runtimeRun runtimeResult?
   simp only [Dirty.bytes_calldata]
-  exact And.right (abi_clean hsel hfind hw hret fuel _ callerAddress (getD_storage_empty σ) rfl
-    (.lit callerWord) hlen hargs (argFacts_hold ⟨args, slotValue σ, solHash, callerWord⟩ hargs ws 0 (by simpa using hclean)) rfl hdec hT
-    (fun rt hrel => hb _ _ rt hrel) _ rfl)
+  have hwT := widthsOf_T hw
+  exact And.right (abi_clean hsel hfind hwT.1 hret fuel _ callerAddress (getD_storage_empty σ) rfl
+    (.lit callerWord) hlen hargs (argFacts_hold ⟨args, slotValue σ, solHash, callerWord⟩ hargs ws 0 (by simpa using hclean)) rfl (tagsOk_of_words hwT.2)
+    (by rw [tyVals_params hw hlen]; exact hdec) hT (fun rt hrel => hb _ _ rt hrel) _ rfl)
 
 /-- info: 'SolidCore.Refinement.Generic.Loop.runtime_run_clean' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in

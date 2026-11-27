@@ -73,9 +73,10 @@ closed dispatcher does. -/
 theorem callCalldata_done (ans : Ans) {fuel : Nat} {core : Contract} {base : Source.Context}
     {st0 : Source.State} {a : Nat} {sel : Nat} (hsel : sel < 2 ^ 32) {fn : FunctionDef}
     (hfind : core.findFunctionBySelector? sel = some fn) {args : List Nat}
-    (hdec : ABI.decodeFunctionArgs? fn (Dirty.argBytes args) = .ok (args.map .word)) {R : CallResult}
+    {vals : List Value}
+    (hdec : ABI.decodeFunctionArgs? fn (Dirty.argBytes args) = .ok vals) {R : CallResult}
     (h : fn.call fuel core.table (ABI.Contract.callContextAtWithBase core base selfAddress a 0
-      ((EthLib.Base.natToBytes 4 sel).map (·.toNat) ++ Dirty.argBytes args)) st0 (args.map .word) =
+      ((EthLib.Base.natToBytes 4 sel).map (·.toNat) ++ Dirty.argBytes args)) st0 vals =
       some (.done (.ok R))) :
     Source.ABI.Oracle.callCalldata ans fuel core base st0 selfAddress a 0
         ((EthLib.Base.natToBytes 4 sel).map (·.toNat) ++ Dirty.argBytes args) =
@@ -95,13 +96,14 @@ theorem source_runIn_clean (W : World) {fuel : Nat} {c : TypeCheck.CheckedContra
     {s : List (Nat × Nat)} (hd : Wide.DeployedAt fuel c d s) {σ : List (Nat × Nat)}
     (hcov : Covers s σ) {sel : Nat} (hsel : sel < 2 ^ 32) {fn : FunctionDef}
     (hfind : c.core.findFunctionBySelector? sel = some fn) {ws : List Nat}
-    (hw : widthsOf fn.params fn.paramAbiCleanups = some ws)
-    (hret : fn.returns.all wordBinding = true) {b : Br}
+    (hw : widthsOfT fn.params fn.paramAbiCleanups = some ws)
+    (hret : fn.returns.all wordBinding = true) (htags : tagsOk fn = true) {b : Br}
     (hb : eraseStmt { envOf c.core with facts := argFacts ws 0 } fuel fn.body (initState fn) = some b)
     {T : Tree} (hT : brTree fn (argFacts ws 0) b = some T) (args : List Nat)
     (hlen : args.length = fn.params.length) (hargs : ∀ a ∈ args, a < 2 ^ 256)
     (hclean : argsClean ws args = true)
-    (hdec : ABI.decodeFunctionArgs? fn (Dirty.argBytes args) = .ok (args.map .word)) :
+    (hdec : ABI.decodeFunctionArgs? fn (Dirty.argBytes args) =
+      .ok (tyVals (fn.params.map BindingDecl.ty) args)) :
     Source.runIn W fuel c { calldata := Abi.calldata sel args, callvalue := 0, storage := σ } =
       some (T.eval ⟨args, slotValue σ, solHash, callerWord⟩).obs := by
   rw [SolidCore.Refinement.Wide.callAt_of_args sel args hargs σ,
@@ -109,10 +111,10 @@ theorem source_runIn_clean (W : World) {fuel : Nat} {c : TypeCheck.CheckedContra
   obtain ⟨⟨R, hR⟩, hobs⟩ := abi_clean hsel hfind hw hret fuel (ctxIn W c) callerAddress
     (st0 := { d with storage := σ.foldl (fun acc kv => StorageMap.insertLoop acc kv.1 kv.2) d.storage })
     (getD_storage_cover hd hcov) hd.events (.lit callerWord) hlen hargs
-    (argFacts_hold ⟨args, slotValue σ, solHash, callerWord⟩ hargs ws 0 (by simpa using hclean)) rfl hdec hT
-    (fun rt hrel => eval_stmt _ _ _ fuel fn.body _ b hb rt hrel)
+    (argFacts_hold ⟨args, slotValue σ, solHash, callerWord⟩ hargs ws 0 (by simpa using hclean)) rfl htags
+    hdec hT (fun rt hrel => eval_stmt _ _ _ fuel fn.body _ b hb rt hrel)
     (Wide.callAt sel (args.map (BitVec.ofNat 256)) σ) rfl
-  rw [callCalldata_done W.ans hsel hfind hdec hR]
+  rw [callCalldata_done W.ans hsel hfind hdec ((call_tyVals hw hlen hargs _ _ _ _).trans hR)]
   exact hobs
 
 /-- **SolidCore runs a call of a function of the fragment as its erased tree, in every world**, from any storage
@@ -132,15 +134,16 @@ theorem source_runIn (W : World) {fuel : Nat} {c : TypeCheck.CheckedContract} {d
   rename_i ws hw
   split at hT
   case isFalse => simp at hT
-  rename_i hret
+  rename_i hret'
+  obtain ⟨hret, htags⟩ := Bool.and_eq_true _ _ ▸ hret'
   simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at hT
   obtain ⟨b, hb, t, ht, rfl⟩ := hT
   rw [paramGuards_eval ⟨args, slotValue σ, solHash, callerWord⟩ t hargs ws 0, List.drop_zero]
-  have hdec := decode_args hw args hlen hargs
+  have hdec := decode_argsT hw args hlen hargs
   by_cases hclean : argsClean ws args = true
   · rw [if_pos hclean]
     rw [if_pos hclean] at hdec
-    exact source_runIn_clean W hd hcov hsel hfind hw hret hb ht args hlen hargs hclean hdec
+    exact source_runIn_clean W hd hcov hsel hfind hw hret htags hb ht args hlen hargs hclean hdec
   · rw [if_neg hclean]
     rw [if_neg hclean] at hdec
     rw [runIn_rejected W hd hsel hfind args hargs hdec σ]

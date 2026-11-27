@@ -98,8 +98,8 @@ theorem stmtRuns_of_erase {E : EraseEnv} {n : Nat} {ctx : Context} {s : Stmt} {S
 
 /-- `x++` on a local word runs as `incVarBr`. -/
 theorem stmtRuns_incVar {E : EraseEnv} {ctx : Context} {S : SymState} (n : Nat) (pst : Bool)
-    {x : String} {old : WExpr} {L' : Scopes} (hold : Scopes.get? S.scopes x = some old)
-    (hL : Scopes.set S.scopes x (.bin .add old (.lit 1)) = some L') :
+    {x : String} {old : WExpr} {L' : Scopes} (hold : S.word? x = some old)
+    (hL : S.setW x (.bin .add old (.lit 1)) = some L') :
     StmtRuns E (n + 1) ctx (.exprStmt (.incDec .add pst (some (.uint 256)) (.var x))) S
       (incVarBr old L' S) :=
   fun σ rt hrel => eval_incVar σ E ctx rt S hrel n pst hold hL

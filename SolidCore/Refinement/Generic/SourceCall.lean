@@ -37,9 +37,11 @@ def wordBinding (b : BindingDecl) : Bool :=
 cleanup: the largest word SolidCore's decoder accepts for it. `2 ^ b - 1` for a `uint256` with the
 cleanup `uint b`, `0 < b ≤ 256`; `m` for a `uint256` with the cleanup `enum m`, `0 < m` (an enum
 parameter whose largest member is `m`); `2 ^ 160 - 1` for an `address` and 1 for a `bool`, each with
-no cleanup. An enum of one member (`m = 0`) has no bound here: past its check its argument word is 0,
-which solar's MIR returns as the constant while the erasure keeps the word, so the trees differ. -/
-def paramWidth (p : BindingDecl) (c : AbiCleanup) : Option Nat :=
+no cleanup; `2 ^ 256 - 1` (no check) for an `int256` with the cleanup `int 256` and for a `bytes32`,
+which SolidCore holds as typed values (`tagOf`). An enum of one member (`m = 0`) has no bound here:
+past its check its argument word is 0, which solar's MIR returns as the constant while the erasure
+keeps the word, so the trees differ. -/
+def paramWidthT (p : BindingDecl) (c : AbiCleanup) : Option Nat :=
   if p.isStorageRef then none
   else
     match p.ty, c with
@@ -47,15 +49,49 @@ def paramWidth (p : BindingDecl) (c : AbiCleanup) : Option Nat :=
     | .uint256, .enum m => if 0 < m ∧ m < wordSize then some m else none
     | .address, .none => some (2 ^ 160 - 1)
     | .bool, .none => some 1
+    | .int256, .int 256 => some (2 ^ 256 - 1)
+    | .fixedBytes 32, .none => some (2 ^ 256 - 1)
     | _, _ => none
 
+/-- The tag SolidCore holds a parameter of type `ty` by: a signed word for an `int256`, a
+`bytes32` for a `bytes32`, and a word otherwise. -/
+def tagOf : Ty → Tag
+  | .int256 => .int
+  | .fixedBytes 32 => .bytes32
+  | _ => .word
+
+/-- The tags of the parameters SolidCore holds as typed values, by name. -/
+def paramTags : List BindingDecl → Tags
+  | [] => []
+  | p :: ps => if tagOf p.ty = .word then paramTags ps else (p.name, tagOf p.ty) :: paramTags ps
+
+/-- Every parameter's name has its type's tag and every return's name the word tag: no typed
+parameter shares its name with another binding of the call. -/
+def tagsOk (fn : FunctionDef) : Bool :=
+  fn.params.all (fun p => (paramTags fn.params).get p.name == tagOf p.ty) &&
+    fn.returns.all (fun r => (paramTags fn.params).get r.name == .word)
+
+/-- The bound of a parameter the fragment holds as a word: `paramWidthT` on a parameter whose type's
+tag is the word tag. The loop routes take only these. -/
+def paramWidth (p : BindingDecl) (c : AbiCleanup) : Option Nat :=
+  if tagOf p.ty = .word then paramWidthT p c else none
+
 /-- The bounds of the parameters of the fragment, one per parameter and its ABI cleanup (the name
-is kept from when every bound was `2 ^ w - 1` for a width `w`). -/
+is kept from when every bound was `2 ^ w - 1` for a width `w`), every parameter a word. -/
 def widthsOf : List BindingDecl → List AbiCleanup → Option (List Nat)
   | [], [] => some []
   | p :: ps, c :: cs => do
     let w ← paramWidth p c
     let ws ← widthsOf ps cs
+    some (w :: ws)
+  | _, _ => none
+
+/-- The bounds of the parameters of the generic source stage, typed parameters included. -/
+def widthsOfT : List BindingDecl → List AbiCleanup → Option (List Nat)
+  | [], [] => some []
+  | p :: ps, c :: cs => do
+    let w ← paramWidthT p c
+    let ws ← widthsOfT ps cs
     some (w :: ws)
   | _, _ => none
 
@@ -86,7 +122,8 @@ no writes and no logs. -/
 def initState (fn : FunctionDef) : SymState :=
   { scopes := [paramLocals fn.params 0 ++ fn.returns.map (fun r => (r.name, .lit 0))]
     writes := []
-    logs := [] }
+    logs := []
+    tags := paramTags fn.params }
 
 /-- A returned word SolidCore's encoder takes for its type on every call the facts hold on: any
 word for a `uint256`, one below `2 ^ 160` for an `address`, at most 1 for a `bool`. -/
@@ -117,12 +154,12 @@ returns when the body falls through or returns nothing, with the body's writes a
 revert's data, with no writes and no logs. -/
 def leafTree (fn : FunctionDef) (K : Facts) : Leaf → Option Tree
   | .normal S => do
-    let ws ← fn.returns.mapM fun r => Scopes.get? S.scopes r.name
+    let ws ← fn.returns.mapM fun r => S.word? r.name
     if retsOk K fn.returns ws then some (.halt true (ws.flatMap wordOBytes) S.writes S.logs)
     else none
   | .returned S vs =>
     if vs = [] then do
-      let ws ← fn.returns.mapM fun r => Scopes.get? S.scopes r.name
+      let ws ← fn.returns.mapM fun r => S.word? r.name
       if retsOk K fn.returns ws then some (.halt true (ws.flatMap wordOBytes) S.writes S.logs)
       else none
     else if retsOk K fn.returns vs then
@@ -143,10 +180,10 @@ def brTree (fn : FunctionDef) (K : Facts) : Br → Option Tree
 /-- The erasure of an external call of `fn` in the contract `E` describes: its argument checks,
 then its body run with fuel `fuel`, knowing the facts the checks leave. -/
 def eraseFn (E : EraseEnv) (fuel : Nat) (fn : FunctionDef) : Option Tree :=
-  match widthsOf fn.params fn.paramAbiCleanups with
+  match widthsOfT fn.params fn.paramAbiCleanups with
   | none => none
   | some ws =>
-    if fn.returns.all wordBinding then do
+    if fn.returns.all wordBinding && tagsOk fn then do
       let b ← eraseStmt { E with facts := argFacts ws 0 } fuel fn.body (initState fn)
       let t ← brTree fn (argFacts ws 0) b
       some (paramGuards ws 0 t)

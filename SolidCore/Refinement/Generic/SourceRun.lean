@@ -1,6 +1,7 @@
 import SolidCore.Refinement.Generic.SourceCall
 import Verify.Run
 import SolidCore.Refinement.Dirty.Source
+import SolidCore.Refinement.AbiStatic
 
 /-!
 # SolidCore runs an external call of a function of the fragment as its tree
@@ -39,13 +40,23 @@ def envOf (core : Contract) : EraseEnv :=
 
 /-! ## The shape of the parameters -/
 
-theorem paramWidth_spec {p : BindingDecl} {c : AbiCleanup} {w : Nat} (h : paramWidth p c = some w) :
+/-- A parameter type of the fragment: a word, a signed word or a `bytes32`. -/
+abbrev ParamTy (ty : Source.Ty) : Prop :=
+  ty = .uint256 ∨ ty = .address ∨ ty = .bool ∨ ty = .int256 ∨ ty = .fixedBytes 32
+
+/-- An ABI cleanup of a parameter of the fragment. -/
+abbrev ParamCleanup (c : AbiCleanup) : Prop :=
+  c = .none ∨ (∃ b, c = .uint b ∧ 0 < b ∧ b ≤ 256) ∨ (∃ m, c = .enum m ∧ m < wordSize) ∨ c = .int 256
+
+theorem paramWidth_spec {p : BindingDecl} {c : AbiCleanup} {w : Nat} (h : paramWidthT p c = some w) :
     p.isStorageRef = false ∧ w < wordSize ∧
       ((p.ty = .uint256 ∧ ∃ b, c = .uint b ∧ 0 < b ∧ b ≤ 256 ∧ w = 2 ^ b - 1) ∨
         (p.ty = .uint256 ∧ c = .enum w) ∨
         (p.ty = .address ∧ c = .none ∧ w = 2 ^ 160 - 1) ∨
-        (p.ty = .bool ∧ c = .none ∧ w = 1)) := by
-  unfold paramWidth at h
+        (p.ty = .bool ∧ c = .none ∧ w = 1) ∨
+        (p.ty = .int256 ∧ c = .int 256 ∧ w = 2 ^ 256 - 1) ∨
+        (p.ty = .fixedBytes 32 ∧ c = .none ∧ w = 2 ^ 256 - 1)) := by
+  unfold paramWidthT at h
   split at h
   · simp at h
   rename_i hs
@@ -73,52 +84,129 @@ theorem paramWidth_spec {p : BindingDecl} {c : AbiCleanup} {w : Nat} (h : paramW
   · rename_i ht
     simp only [Option.some.injEq] at h
     subst h
-    exact ⟨hs', by decide, .inr (.inr (.inr ⟨ht, rfl, rfl⟩))⟩
+    exact ⟨hs', by decide, .inr (.inr (.inr (.inl ⟨ht, rfl, rfl⟩)))⟩
+  · rename_i ht
+    simp only [Option.some.injEq] at h
+    subst h
+    exact ⟨hs', by decide, .inr (.inr (.inr (.inr (.inl ⟨ht, rfl, rfl⟩))))⟩
+  · rename_i ht
+    simp only [Option.some.injEq] at h
+    subst h
+    exact ⟨hs', by decide, .inr (.inr (.inr (.inr (.inr ⟨ht, rfl, rfl⟩))))⟩
   · simp at h
 
-/-- A parameter type of the fragment, held as a word. -/
-abbrev ParamTy (ty : Source.Ty) : Prop := ty = .uint256 ∨ ty = .address ∨ ty = .bool
+theorem paramWidth_ty {p : BindingDecl} {c : AbiCleanup} {w : Nat} (h : paramWidthT p c = some w) :
+    ParamTy p.ty := by
+  rcases (paramWidth_spec h).2.2 with ⟨ht, -⟩ | ⟨ht, -⟩ | ⟨ht, -⟩ | ⟨ht, -⟩ | ⟨ht, -⟩ | ⟨ht, -⟩
+  · exact .inl ht
+  · exact .inl ht
+  · exact .inr (.inl ht)
+  · exact .inr (.inr (.inl ht))
+  · exact .inr (.inr (.inr (.inl ht)))
+  · exact .inr (.inr (.inr (.inr ht)))
 
-/-- An ABI cleanup of a parameter of the fragment. -/
-abbrev ParamCleanup (c : AbiCleanup) : Prop :=
-  c = .none ∨ (∃ b, c = .uint b ∧ 0 < b ∧ b ≤ 256) ∨ (∃ m, c = .enum m ∧ m < wordSize)
+theorem paramWidth_cleanup {p : BindingDecl} {c : AbiCleanup} {w : Nat} (h : paramWidthT p c = some w) :
+    ParamCleanup c := by
+  have hw := (paramWidth_spec h).2.1
+  rcases (paramWidth_spec h).2.2 with ⟨-, b, hc, hb0, hb, -⟩ | ⟨-, hc⟩ | ⟨-, hc, -⟩ | ⟨-, hc, -⟩ |
+      ⟨-, hc, -⟩ | ⟨-, hc, -⟩
+  · exact .inr (.inl ⟨b, hc, hb0, hb⟩)
+  · exact .inr (.inr (.inl ⟨w, hc, hw⟩))
+  · exact .inl hc
+  · exact .inl hc
+  · exact .inr (.inr (.inr hc))
+  · exact .inl hc
 
 theorem widthsOf_spec : ∀ {ps : List BindingDecl} {cs : List AbiCleanup} {ws : List Nat},
-    widthsOf ps cs = some ws →
+    widthsOfT ps cs = some ws →
       cs.length = ps.length ∧ ws.length = ps.length ∧
       (∀ p ∈ ps, ParamTy p.ty ∧ p.isStorageRef = false) ∧
       (∀ c ∈ cs, ParamCleanup c) ∧ (∀ w ∈ ws, w < wordSize)
   | [], [], ws, h => by
-    simp only [widthsOf, Option.some.injEq] at h
+    simp only [widthsOfT, Option.some.injEq] at h
     subst h
     simp
   | p :: ps, c :: cs, ws, h => by
-    simp only [widthsOf, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
+    simp only [widthsOfT, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
     obtain ⟨w, hw, ws', hws', rfl⟩ := h
     obtain ⟨h1, h2, h3, h4, h5⟩ := widthsOf_spec hws'
-    obtain ⟨hs, hwl, hk⟩ := paramWidth_spec hw
+    obtain ⟨hs, hwl, -⟩ := paramWidth_spec hw
     refine ⟨by simp [h1], by simp [h2], ?_, ?_, ?_⟩
     · intro q hq
       rcases List.mem_cons.mp hq with rfl | hq
-      · rcases hk with ⟨ht, -⟩ | ⟨ht, -⟩ | ⟨ht, -⟩ | ⟨ht, -⟩
-        · exact ⟨.inl ht, hs⟩
-        · exact ⟨.inl ht, hs⟩
-        · exact ⟨.inr (.inl ht), hs⟩
-        · exact ⟨.inr (.inr ht), hs⟩
+      · exact ⟨paramWidth_ty hw, hs⟩
       · exact h3 q hq
     · intro d hd
       rcases List.mem_cons.mp hd with rfl | hd
-      · rcases hk with ⟨-, b, hc, hb0, hb, -⟩ | ⟨-, hc⟩ | ⟨-, hc, -⟩ | ⟨-, hc, -⟩
-        · exact .inr (.inl ⟨b, hc, hb0, hb⟩)
-        · exact .inr (.inr ⟨w, hc, hwl⟩)
-        · exact .inl hc
-        · exact .inl hc
+      · exact paramWidth_cleanup hw
       · exact h4 d hd
     · intro v hv
       rcases List.mem_cons.mp hv with rfl | hv
       · exact hwl
       · exact h5 v hv
+  | [], _ :: _, _, h | _ :: _, [], _, h => by simp [widthsOfT] at h
+
+/-- SolidCore's values of argument words, each by its parameter type's tag. -/
+def tyVals : List Source.Ty → List Nat → List Value
+  | ty :: tys, a :: as => (tagOf ty).val a :: tyVals tys as
+  | _, _ => []
+
+theorem tyVals_length : ∀ (tys : List Source.Ty) (as : List Nat), tys.length = as.length →
+    (tyVals tys as).length = as.length
+  | [], [], _ => rfl
+  | _ :: tys, _ :: as, h => by simp [tyVals, tyVals_length tys as (by simpa using h)]
+  | [], _ :: _, h | _ :: _, [], h => by simp at h
+
+theorem paramWidth_T {p : BindingDecl} {c : AbiCleanup} {w : Nat} (h : paramWidth p c = some w) :
+    paramWidthT p c = some w ∧ tagOf p.ty = .word := by
+  unfold paramWidth at h
+  split at h
+  · exact ⟨h, by assumption⟩
+  · simp at h
+
+/-- Bounds of word parameters are bounds of the generic stage, and every parameter is a word. -/
+theorem widthsOf_T : ∀ {ps : List BindingDecl} {cs : List AbiCleanup} {ws : List Nat},
+    widthsOf ps cs = some ws → widthsOfT ps cs = some ws ∧ ∀ p ∈ ps, tagOf p.ty = .word
+  | [], [], ws, h => by simp only [widthsOf, Option.some.injEq] at h; subst h; simp [widthsOfT]
+  | p :: ps, c :: cs, ws, h => by
+    simp only [widthsOf, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
+    obtain ⟨w, hw, ws', hws', rfl⟩ := h
+    obtain ⟨h1, h2⟩ := paramWidth_T hw
+    obtain ⟨h3, h4⟩ := widthsOf_T hws'
+    refine ⟨by simp [widthsOfT, h1, h3], ?_⟩
+    intro q hq
+    rcases List.mem_cons.mp hq with rfl | hq
+    · exact h2
+    · exact h4 q hq
   | [], _ :: _, _, h | _ :: _, [], _, h => by simp [widthsOf] at h
+
+theorem paramTags_words : ∀ {ps : List BindingDecl}, (∀ p ∈ ps, tagOf p.ty = .word) → paramTags ps = []
+  | [], _ => rfl
+  | p :: ps, h => by
+    simp only [paramTags, h p List.mem_cons_self, ↓reduceIte]
+    exact paramTags_words (fun q hq => h q (List.mem_cons_of_mem _ hq))
+
+/-- A function whose parameters are all words has consistent tags. -/
+theorem tagsOk_of_words {fn : FunctionDef} (h : ∀ p ∈ fn.params, tagOf p.ty = .word) : tagsOk fn = true := by
+  simp only [tagsOk, paramTags_words h, Tags.get_nil, Bool.and_eq_true, List.all_eq_true, beq_iff_eq]
+  exact ⟨fun p hp => (h p hp).symm, fun _ _ => trivial⟩
+
+theorem tyVals_words : ∀ {tys : List Source.Ty} {as : List Nat}, (∀ ty ∈ tys, tagOf ty = .word) →
+    as.length = tys.length → tyVals tys as = as.map .word
+  | [], [], _, _ => rfl
+  | ty :: tys, a :: as, h, hl => by
+    simp only [tyVals, h ty List.mem_cons_self, Tag.val, List.map_cons,
+      tyVals_words (fun t ht => h t (List.mem_cons_of_mem _ ht)) (by simpa using hl)]
+  | [], _ :: _, _, hl | _ :: _, [], _, hl => by simp at hl
+
+/-- The decoded values of a function whose parameters are all words are its argument words. -/
+theorem tyVals_params {fn : FunctionDef} {ws : List Nat}
+    (hw : widthsOf fn.params fn.paramAbiCleanups = some ws) {args : List Nat}
+    (hlen : args.length = fn.params.length) :
+    tyVals (fn.params.map BindingDecl.ty) args = args.map .word :=
+  tyVals_words (fun ty hty => by
+    obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hty
+    exact (widthsOf_T hw).2 p hp) (by simpa using hlen)
 
 /-! ## Decoding the argument words -/
 
@@ -152,7 +240,7 @@ def argsClean : List Nat → List Nat → Bool
 
 theorem headWords_word {ty : Source.Ty} (h : ParamTy ty) :
     ABI.Ty.abiHeadWords? ty = some 1 := by
-  rcases h with rfl | rfl | rfl <;>
+  rcases h with rfl | rfl | rfl | rfl | rfl <;>
     simp [ABI.Ty.abiHeadWords?, ABI.Ty.isDynamicAbi, ABI.Ty.staticAbiHeadWords?]
 
 theorem listHeadWords_words : ∀ (tys : List Source.Ty), (∀ t ∈ tys, ParamTy t) →
@@ -166,12 +254,13 @@ theorem decodeAux_words (args : List Nat) (hargs : ∀ a ∈ args, a < wordSize)
     ∀ (ps : List (Bool × Source.Ty)) (idx : Nat), (∀ p ∈ ps, ParamTy p.2) →
       idx + ps.length = args.length →
       ABI.decodeArgsAux? (Dirty.argBytes args) ps idx =
-        if decodeCleanAll (ps.map Prod.snd) (args.drop idx) then .ok ((args.drop idx).map .word)
+        if decodeCleanAll (ps.map Prod.snd) (args.drop idx) then
+          .ok (tyVals (ps.map Prod.snd) (args.drop idx))
         else .error .empty
   | [], idx, _, hlen => by
     simp only [List.length_nil, Nat.add_zero] at hlen
     subst hlen
-    simp [ABI.decodeArgsAux?, decodeCleanAll]
+    simp [ABI.decodeArgsAux?, decodeCleanAll, tyVals]
   | (lazy, ty) :: ps, idx, hps, hlen => by
     have hi : idx < args.length := by simp at hlen; omega
     have hr := Dirty.readWord_argBytes args hargs idx hi
@@ -180,17 +269,17 @@ theorem decodeAux_words (args : List Nat) (hargs : ∀ a ∈ args, a < wordSize)
     have hty : ParamTy ty := hps _ List.mem_cons_self
     have ha := hargs _ (List.getElem_mem hi)
     rw [List.drop_eq_getElem_cons hi]
-    rcases hty with rfl | rfl | rfl
+    rcases hty with rfl | rfl | rfl | rfl | rfl
     · simp only [ABI.decodeArgsAux?, ABI.decodeValueAt?, ABI.Ty.abiDecodeFuel,
         ABI.decodeValueAtWithFuel?, ABI.wordBytes, hr, ABI.abiArgOpt,
         headWords_word (Or.inl rfl), bind, Except.bind, pure, Except.pure, ih, List.map_cons,
-        decodeCleanAll, decodeClean, Bool.true_and]
+        decodeCleanAll, decodeClean, Bool.true_and, tyVals, tagOf, Tag.val]
       by_cases hc : decodeCleanAll (List.map Prod.snd ps) (List.drop (idx + 1) args) = true <;>
         simp [hc]
     · simp only [ABI.decodeArgsAux?, ABI.decodeValueAt?, ABI.Ty.abiDecodeFuel,
         ABI.decodeValueAtWithFuel?, ABI.wordBytes, hr, ABI.abiArgOpt, ABI.addressFits, norm_lt ha,
         headWords_word (Or.inr (Or.inl rfl)), bind, Except.bind, pure, Except.pure, ih, List.map_cons,
-        decodeCleanAll, decodeClean]
+        decodeCleanAll, decodeClean, tyVals, tagOf, Tag.val]
       by_cases h1 : args[idx] < 2 ^ 160
       · simp only [h1, decide_true, Bool.true_and, ↓reduceIte]
         by_cases hc : decodeCleanAll (List.map Prod.snd ps) (List.drop (idx + 1) args) = true <;>
@@ -211,56 +300,93 @@ theorem decodeAux_words (args : List Nat) (hargs : ∀ a ∈ args, a < wordSize)
         exact key _ ha
       simp only [ABI.decodeArgsAux?, ABI.decodeValueAt?, ABI.Ty.abiDecodeFuel,
         ABI.decodeValueAtWithFuel?, ABI.wordBytes, hr, ABI.abiArgOpt, hb,
-        headWords_word (Or.inr (Or.inr rfl)), bind, Except.bind, pure, Except.pure, ih, List.map_cons,
-        decodeCleanAll, decodeClean]
+        headWords_word (Or.inr (Or.inr (Or.inl rfl))), bind, Except.bind, pure, Except.pure, ih,
+        List.map_cons, decodeCleanAll, decodeClean, tyVals, tagOf, Tag.val]
       by_cases h1 : args[idx] ≤ 1
       · simp only [h1, decide_true, Bool.true_and, ↓reduceIte]
         by_cases hc : decodeCleanAll (List.map Prod.snd ps) (List.drop (idx + 1) args) = true <;>
           simp [hc]
       · simp only [h1, decide_false, Bool.false_and, Bool.false_eq_true, ↓reduceIte]
+    · simp only [ABI.decodeArgsAux?, ABI.decodeValueAt?, ABI.Ty.abiDecodeFuel,
+        ABI.decodeValueAtWithFuel?, ABI.wordBytes, hr, ABI.abiArgOpt,
+        headWords_word (Or.inr (Or.inr (Or.inr (Or.inl rfl)))), bind, Except.bind, pure,
+        Except.pure, ih, List.map_cons, decodeCleanAll, decodeClean, Bool.true_and, tyVals, tagOf,
+        Tag.val]
+      by_cases hc : decodeCleanAll (List.map Prod.snd ps) (List.drop (idx + 1) args) = true <;>
+        simp [hc]
+    · have hd : ABI.decodeValueAt? lazy (Dirty.argBytes args) idx (.fixedBytes 32) =
+          .ok (.fixedBytes 32 args[idx]) := Abi.decode_bytes32 args hargs hi 0 lazy
+      simp only [ABI.decodeArgsAux?, hd, ABI.abiArgOpt,
+        headWords_word (Or.inr (Or.inr (Or.inr (Or.inr rfl)))), bind, Except.bind, pure,
+        Except.pure, ih, List.map_cons, decodeCleanAll, decodeClean, Bool.true_and, tyVals, tagOf,
+        Tag.val]
+      by_cases hc : decodeCleanAll (List.map Prod.snd ps) (List.drop (idx + 1) args) = true <;>
+        simp [hc]
 
-theorem lazyParamValues_words : ∀ (cs : List AbiCleanup) (args : List Nat),
-    (∀ c ∈ cs, ParamCleanup c) → cs.length = args.length →
+theorem accepts_int256 (a : Nat) (ha : a < wordSize) : AbiCleanup.accepts (.int 256) (.int a) = true := by
+  have hn : SolidCore.Solidity.Shared.norm a = a := norm_lt ha
+  simp only [AbiCleanup.accepts, hn, show (0 < 256 && 256 ≤ 256) = true from rfl, ↓reduceIte,
+    Nat.mod_eq_of_lt ha, wordEq, Nat.sub_self, show SolidCore.Solidity.Shared.wordModulus = 2 ^ 256 from rfl]
+  have h0 : wordModulus -
+      115792089237316195423570985008687907853269984665640564039457584007913129639936 = 0 := rfl
+  have h1 : (wordModulus -
+      115792089237316195423570985008687907853269984665640564039457584007913129639936 + a) %
+      115792089237316195423570985008687907853269984665640564039457584007913129639936 = a := by
+    rw [h0, Nat.zero_add]; exact Nat.mod_eq_of_lt ha
+  split <;> simp [SolidCore.Solidity.Shared.norm, Nat.mod_eq_of_lt ha, Nat.zero_add, h1,
+    show SolidCore.Solidity.Shared.wordModulus = 2 ^ 256 from rfl]
+
+theorem lazyParamValues_vals : ∀ (ps : List BindingDecl) (cs : List AbiCleanup) (ws : List Nat)
+    (args : List Nat), widthsOfT ps cs = some ws → args.length = ps.length →
     (∀ a ∈ args, a < wordSize) →
-    AbiCleanups.lazyParamValues cs (args.map .word) =
-      if cleanupsClean cs args then some (args.map .word) else none
-  | [], [], _, _, _ => rfl
-  | c :: cs, a :: args, hc, hl, ha => by
-    have ih := lazyParamValues_words cs args (fun d hd => hc d (List.mem_cons_of_mem _ hd))
-      (by simpa using hl) (fun b hb => ha b (List.mem_cons_of_mem _ hb))
+    AbiCleanups.lazyParamValues cs (tyVals (ps.map BindingDecl.ty) args) =
+      if cleanupsClean cs args then some (tyVals (ps.map BindingDecl.ty) args) else none
+  | [], [], _, [], _, _, _ => rfl
+  | p :: ps, c :: cs, ws, a :: args, hw, hl, ha => by
+    simp only [widthsOfT, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at hw
+    obtain ⟨w, hw1, ws', hws', rfl⟩ := hw
+    have ih := lazyParamValues_vals ps cs ws' args hws' (by simpa using hl)
+      (fun b hb => ha b (List.mem_cons_of_mem _ hb))
     have hlt := ha a List.mem_cons_self
-    rcases hc c List.mem_cons_self with rfl | ⟨b, rfl, hb0, hb⟩ | ⟨m, rfl, hm⟩
-    · simp only [List.map_cons, AbiCleanups.lazyParamValues, AbiCleanup.lazyParamValue, ih,
-        cleanupsClean, cleanArg, Bool.true_and, bind, Option.bind]
-      by_cases hc : cleanupsClean cs args = true <;> simp [hc]
-    rotate_left
-    · by_cases h : a ≤ m
-      · simp only [List.map_cons, AbiCleanups.lazyParamValues, ih, cleanupsClean, cleanArg, h,
-          decide_true, Bool.true_and]
-        by_cases hc : cleanupsClean cs args = true <;>
-          simp [AbiCleanup.lazyParamValue, AbiCleanup.accepts, norm_lt hlt, norm_lt hm, h, bind,
-            Option.bind, hc]
-      · simp [AbiCleanups.lazyParamValues, AbiCleanup.lazyParamValue, AbiCleanup.accepts,
-          norm_lt hlt, norm_lt hm, h, bind, Option.bind, cleanupsClean, cleanArg]
+    obtain ⟨-, -, hk⟩ := paramWidth_spec hw1
+    rcases hk with ⟨ht, b, rfl, hb0, hb, -⟩ | ⟨ht, rfl⟩ | ⟨ht, rfl, -⟩ | ⟨ht, rfl, -⟩ |
+        ⟨ht, rfl, -⟩ | ⟨ht, rfl, -⟩
     · by_cases h : a < 2 ^ b
-      · simp only [List.map_cons, AbiCleanups.lazyParamValues, ih, cleanupsClean, cleanArg, h,
-          decide_true, Bool.true_and]
+      · simp only [List.map_cons, tyVals, ht, tagOf, Tag.val, AbiCleanups.lazyParamValues, ih,
+          cleanupsClean, cleanArg, h, decide_true, Bool.true_and]
         by_cases hc : cleanupsClean cs args = true <;>
           simp [AbiCleanup.lazyParamValue, AbiCleanup.accepts, norm_lt hlt, h, hb0, hb, bind,
             Option.bind, hc]
-      · simp [AbiCleanups.lazyParamValues, AbiCleanup.lazyParamValue, AbiCleanup.accepts,
-          norm_lt hlt, h, hb0, hb, bind, Option.bind, cleanupsClean, cleanArg]
-  | [], _ :: _, _, hl, _ | _ :: _, [], _, hl, _ => by simp at hl
+      · simp [List.map_cons, tyVals, ht, tagOf, Tag.val, AbiCleanups.lazyParamValues,
+          AbiCleanup.lazyParamValue, AbiCleanup.accepts, norm_lt hlt, h, hb0, hb, bind,
+          Option.bind, cleanupsClean, cleanArg]
+    · have hm := (paramWidth_spec hw1).2.1
+      by_cases h : a ≤ w
+      · simp only [List.map_cons, tyVals, ht, tagOf, Tag.val, AbiCleanups.lazyParamValues, ih,
+          cleanupsClean, cleanArg, h, decide_true, Bool.true_and]
+        by_cases hc : cleanupsClean cs args = true <;>
+          simp [AbiCleanup.lazyParamValue, AbiCleanup.accepts, norm_lt hlt, norm_lt hm, h, bind,
+            Option.bind, hc]
+      · simp [List.map_cons, tyVals, ht, tagOf, Tag.val, AbiCleanups.lazyParamValues,
+          AbiCleanup.lazyParamValue, AbiCleanup.accepts, norm_lt hlt, norm_lt hm, h, bind,
+          Option.bind, cleanupsClean, cleanArg]
+    all_goals
+      simp only [List.map_cons, tyVals, ht, tagOf, Tag.val, AbiCleanups.lazyParamValues, ih,
+        AbiCleanup.lazyParamValue, cleanupsClean, cleanArg, Bool.true_and, bind, Option.bind,
+        accepts_int256 a hlt, ↓reduceIte]
+      by_cases hc : cleanupsClean cs args = true <;> simp [hc]
+  | [], _ :: _, _, _, hw, _, _ | _ :: _, [], _, _, hw, _, _ => by simp [widthsOfT] at hw
+  | [], [], _, _ :: _, _, hl, _ | _ :: _, _ :: _, _, [], _, hl, _ => by simp at hl
 
 theorem argsClean_widths : ∀ {ps : List BindingDecl} {cs : List AbiCleanup} {ws : List Nat}
-    (args : List Nat), widthsOf ps cs = some ws → args.length = ps.length → (∀ a ∈ args, a < wordSize) →
+    (args : List Nat), widthsOfT ps cs = some ws → args.length = ps.length → (∀ a ∈ args, a < wordSize) →
     argsClean ws args = (decodeCleanAll (ps.map BindingDecl.ty) args && cleanupsClean cs args)
   | [], [], ws, [], h, _, _ => by
-    simp only [widthsOf, Option.some.injEq] at h
+    simp only [widthsOfT, Option.some.injEq] at h
     subst h
     rfl
   | p :: ps, c :: cs, ws, a :: args, h, hl, ha => by
-    simp only [widthsOf, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
+    simp only [widthsOfT, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
     obtain ⟨w, hw, ws', hws', rfl⟩ := h
     have ih := argsClean_widths args hws' (by simpa using hl)
       (fun b hb => ha b (List.mem_cons_of_mem _ hb))
@@ -268,7 +394,8 @@ theorem argsClean_widths : ∀ {ps : List BindingDecl} {cs : List AbiCleanup} {w
     obtain ⟨-, -, hk⟩ := paramWidth_spec hw
     simp only [argsClean, ih, List.map_cons, decodeCleanAll, cleanupsClean]
     have key : decide (a ≤ w) = (decodeClean p.ty a && cleanArg c a) := by
-      rcases hk with ⟨ht, b, rfl, hb0, -, rfl⟩ | ⟨ht, rfl⟩ | ⟨ht, rfl, rfl⟩ | ⟨ht, rfl, rfl⟩
+      rcases hk with ⟨ht, b, rfl, hb0, -, rfl⟩ | ⟨ht, rfl⟩ | ⟨ht, rfl, rfl⟩ | ⟨ht, rfl, rfl⟩ |
+          ⟨ht, rfl, rfl⟩ | ⟨ht, rfl, rfl⟩
       · have := Nat.two_pow_pos b
         simp only [ht, decodeClean, cleanArg, Bool.true_and]
         exact decide_eq_decide.mpr (by omega)
@@ -277,19 +404,23 @@ theorem argsClean_widths : ∀ {ps : List BindingDecl} {cs : List AbiCleanup} {w
         simp only [ht, decodeClean, cleanArg, Bool.and_true]
         exact decide_eq_decide.mpr (by omega)
       · simp [ht, decodeClean, cleanArg]
+      · simp only [ht, decodeClean, cleanArg, Bool.and_true]
+        exact decide_eq_true (Nat.le_sub_one_of_lt hlt)
+      · simp only [ht, decodeClean, cleanArg, Bool.and_true]
+        exact decide_eq_true (Nat.le_sub_one_of_lt hlt)
     rw [key]
     cases decodeClean p.ty a <;> cases cleanArg c a <;>
       cases decodeCleanAll (ps.map BindingDecl.ty) args <;> cases cleanupsClean cs args <;> rfl
   | [], [], _, _ :: _, _, hl, _ | _ :: _, _ :: _, _, [], _, hl, _ => by simp at hl
-  | [], _ :: _, _, _, h, _, _ | _ :: _, [], _, _, h, _, _ => by simp [widthsOf] at h
+  | [], _ :: _, _, _, h, _, _ | _ :: _, [], _, _, h, _, _ => by simp [widthsOfT] at h
 
 /-- **SolidCore decodes the argument words of a function of the fragment** to themselves when
 each is at most its parameter's bound, and otherwise reverts with empty data. -/
-theorem decode_args {fn : FunctionDef} {ws : List Nat}
-    (hw : widthsOf fn.params fn.paramAbiCleanups = some ws) (args : List Nat)
+theorem decode_argsT {fn : FunctionDef} {ws : List Nat}
+    (hw : widthsOfT fn.params fn.paramAbiCleanups = some ws) (args : List Nat)
     (hlen : args.length = fn.params.length) (hargs : ∀ a ∈ args, a < wordSize) :
     ABI.decodeFunctionArgs? fn (Dirty.argBytes args) =
-      if argsClean ws args then .ok (args.map .word) else .error .empty := by
+      if argsClean ws args then .ok (tyVals (fn.params.map BindingDecl.ty) args) else .error .empty := by
   obtain ⟨hcl, -, hp, hc, -⟩ := widthsOf_spec hw
   have hflags : (fn.paramAbiCleanups.length == (fn.params.map BindingDecl.ty).length) = true := by
     simp [hcl]
@@ -318,7 +449,7 @@ theorem decode_args {fn : FunctionDef} {ws : List Nat}
     ABI.wordBytes, Nat.lt_irrefl, bind, Except.bind, pure, Except.pure, hdec]
   by_cases hd : decodeCleanAll (fn.params.map BindingDecl.ty) args = true
   · simp only [hd, ↓reduceIte, Bool.true_and]
-    rw [lazyParamValues_words _ _ hc (by omega) hargs]
+    rw [lazyParamValues_vals fn.params _ ws args hw hlen hargs]
     split
     · rename_i hnil
       have : args = [] := by
@@ -330,6 +461,15 @@ theorem decode_args {fn : FunctionDef} {ws : List Nat}
       cases fn.paramAbiCleanups <;> rfl
     · by_cases hcc : cleanupsClean fn.paramAbiCleanups args = true <;> simp [hcc]
   · simp only [hd, Bool.false_eq_true, ↓reduceIte, Bool.false_and]
+
+/-- **SolidCore decodes the argument words of a function whose parameters are all words** to
+themselves when each is at most its parameter's bound, and otherwise reverts with empty data. -/
+theorem decode_args {fn : FunctionDef} {ws : List Nat}
+    (hw : widthsOf fn.params fn.paramAbiCleanups = some ws) (args : List Nat)
+    (hlen : args.length = fn.params.length) (hargs : ∀ a ∈ args, a < wordSize) :
+    ABI.decodeFunctionArgs? fn (Dirty.argBytes args) =
+      if argsClean ws args then .ok (args.map .word) else .error .empty := by
+  rw [decode_argsT (widthsOf_T hw).1 args hlen hargs, tyVals_params hw hlen]
 
 /-! ## The frame a call starts with -/
 
@@ -359,54 +499,104 @@ theorem bindArgs_words (ρ : Val) (hρ : ∀ a ∈ ρ.args, a < wordSize) :
       List.getElem?_eq_getElem hi, Option.getD_some, Nat.mod_eq_of_lt hlt]
 
 theorem coerce_param_clean {ty : Source.Ty} (h : ParamTy ty) {v : Nat} (hv : decodeClean ty v = true)
-    (hlt : v < wordSize) : ty.coerceValue? (.word v) = some (.word v) := by
-  rcases h with rfl | rfl | rfl
+    (hlt : v < wordSize) : ty.coerceValue? (.word v) = some ((tagOf ty).val v) := by
+  rcases h with rfl | rfl | rfl | rfl | rfl
   · rfl
   · rfl
   · simp only [decodeClean, decide_eq_true_eq] at hv
     have h' : v = 0 ∨ v = 1 := by omega
     rcases h' with rfl | rfl <;> rfl
+  · rfl
+  · rfl
 
-/-- **The parameters bind to the argument words, as `paramLocals` says**, on argument words each
-at most its parameter's bound (a `bool` word is 0 or 1). -/
-theorem bindArgs_clean (ρ : Val) (hρ : ∀ a ∈ ρ.args, a < wordSize) :
+/-- SolidCore coerces a parameter's decoded value as it coerces its word. -/
+theorem coerce_tyVal {ty : Source.Ty} (h : ParamTy ty) {v : Nat} (hlt : v < wordSize) :
+    ty.coerceValue? ((tagOf ty).val v) = ty.coerceValue? (.word v) := by
+  rcases h with rfl | rfl | rfl | rfl | rfl
+  · rfl
+  · rfl
+  · rfl
+  · rfl
+  · simp [tagOf, Tag.val, Source.Ty.coerceValue?, normWord, SolidCore.Solidity.Shared.norm,
+      Nat.mod_eq_of_lt hlt, show SolidCore.Solidity.Shared.wordModulus = wordSize from rfl]
+
+/-- The parameters bind their decoded values as they bind their words. -/
+theorem bindArgs_tyVals : ∀ (ps : List BindingDecl) (as : List Nat),
+    (∀ p ∈ ps, ParamTy p.ty ∧ p.isStorageRef = false) → (∀ a ∈ as, a < wordSize) →
+    as.length = ps.length →
+    BindingDecl.bindArgs? ps (tyVals (ps.map BindingDecl.ty) as) = BindingDecl.bindArgs? ps (as.map .word)
+  | [], [], _, _, _ => rfl
+  | [], _ :: _, _, _, hl | _ :: _, [], _, _, hl => by simp at hl
+  | p :: ps, a :: as, hp, ha, hl => by
+    have ih := bindArgs_tyVals ps as (fun q hq => hp q (List.mem_cons_of_mem _ hq))
+      (fun b hb => ha b (List.mem_cons_of_mem _ hb)) (by simpa using hl)
+    simp only [List.map_cons, tyVals, BindingDecl.bindArgs?, BindingDecl.bindArg?,
+      coerce_tyVal (hp p List.mem_cons_self).1 (ha a List.mem_cons_self), ih]
+
+/-- A call of a function of the fragment on its decoded values runs as on its argument words. -/
+theorem call_tyVals {fn : FunctionDef} {ws : List Nat}
+    (hw : widthsOfT fn.params fn.paramAbiCleanups = some ws) {args : List Nat}
+    (hlen : args.length = fn.params.length) (hargs : ∀ a ∈ args, a < wordSize) (fuel : Nat)
+    (tbl : FunctionTable) (ctx : Context) (st0 : Source.State) :
+    fn.call fuel tbl ctx st0 (tyVals (fn.params.map BindingDecl.ty) args) =
+      fn.call fuel tbl ctx st0 (args.map .word) := by
+  simp only [FunctionDef.call, FunctionDef.evalBodyEntry, FunctionDef.initialFrame?,
+    bindArgs_tyVals fn.params args (widthsOf_spec hw).2.2.1 hargs hlen]
+
+/-- A scope whose every local is a word shows as words. -/
+theorem frameOfT_words (ρ : Val) (T : Tags) : ∀ (L : Locals), (∀ p ∈ L, T.get p.1 = .word) →
+    frameOfT ρ T L = frameOf ρ L
+  | [], _ => rfl
+  | p :: L, h => by
+    simp only [frameOfT, frameOf, List.map_cons, h p List.mem_cons_self, Tag.val_word]
+    have := frameOfT_words ρ T L (fun q hq => h q (List.mem_cons_of_mem _ hq))
+    simp only [frameOfT, frameOf] at this
+    rw [this]
+
+theorem tagsOk_spec {fn : FunctionDef} (h : tagsOk fn = true) :
+    (∀ p ∈ fn.params, (paramTags fn.params).get p.name = tagOf p.ty) ∧
+      (∀ r ∈ fn.returns, (paramTags fn.params).get r.name = .word) := by
+  simp only [tagsOk, Bool.and_eq_true, List.all_eq_true, beq_iff_eq] at h
+  exact h
+
+/-- **The parameters bind to the argument words, as `paramLocals` says**, each by its type's tag,
+on argument words each at most its parameter's bound (a `bool` word is 0 or 1). -/
+theorem bindArgs_clean (ρ : Val) (hρ : ∀ a ∈ ρ.args, a < wordSize) (T : Tags) :
     ∀ (ps : List BindingDecl) (cs : List AbiCleanup) (ws : List Nat) (i : Nat),
-      widthsOf ps cs = some ws → argsClean ws (ρ.args.drop i) = true →
-      i + ps.length = ρ.args.length →
-      BindingDecl.bindArgs? ps ((ρ.args.drop i).map .word) = some (frameOf ρ (paramLocals ps i))
-  | [], _, _, i, _, _, h => by
+      widthsOfT ps cs = some ws → argsClean ws (ρ.args.drop i) = true →
+      i + ps.length = ρ.args.length → (∀ p ∈ ps, T.get p.name = tagOf p.ty) →
+      BindingDecl.bindArgs? ps ((ρ.args.drop i).map .word) = some (frameOfT ρ T (paramLocals ps i))
+  | [], _, _, i, _, _, h, _ => by
     simp only [List.length_nil, Nat.add_zero] at h
     subst h
-    simp [BindingDecl.bindArgs?, paramLocals, frameOf]
-  | p :: ps, c :: cs, ws, i, hw, hcl, h => by
-    simp only [widthsOf, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at hw
+    simp [BindingDecl.bindArgs?, paramLocals, frameOfT]
+  | p :: ps, c :: cs, ws, i, hw, hcl, h, hT => by
+    simp only [widthsOfT, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at hw
     obtain ⟨w, hw1, ws', hws', rfl⟩ := hw
     have hi : i < ρ.args.length := by simp at h; omega
     have hlt := hρ _ (List.getElem_mem hi)
     have hdi : ρ.args.drop i = ρ.args[i] :: ρ.args.drop (i + 1) := List.drop_eq_getElem_cons hi
     rw [hdi] at hcl
     simp only [argsClean, Bool.and_eq_true, decide_eq_true_eq] at hcl
-    have ih := bindArgs_clean ρ hρ ps cs ws' (i + 1) hws' hcl.2 (by simp at h; omega)
+    have ih := bindArgs_clean ρ hρ T ps cs ws' (i + 1) hws' hcl.2 (by simp at h; omega)
+      (fun q hq => hT q (List.mem_cons_of_mem _ hq))
     obtain ⟨hs, -, hk⟩ := paramWidth_spec hw1
-    have hty : ParamTy p.ty := by
-      rcases hk with ⟨ht, -⟩ | ⟨ht, -⟩ | ⟨ht, -⟩ | ⟨ht, -⟩
-      · exact .inl ht
-      · exact .inl ht
-      · exact .inr (.inl ht)
-      · exact .inr (.inr ht)
+    have hty : ParamTy p.ty := paramWidth_ty hw1
     have hdc : decodeClean p.ty ρ.args[i] = true := by
-      rcases hk with ⟨ht, -⟩ | ⟨ht, -⟩ | ⟨ht, -, rfl⟩ | ⟨ht, -, rfl⟩
+      rcases hk with ⟨ht, -⟩ | ⟨ht, -⟩ | ⟨ht, -, rfl⟩ | ⟨ht, -, rfl⟩ | ⟨ht, -⟩ | ⟨ht, -⟩
       · simp [ht, decodeClean]
       · simp [ht, decodeClean]
       · simp only [ht, decodeClean, decide_eq_true_eq]
         exact Nat.lt_of_le_of_lt hcl.1 (by decide)
       · simpa [ht, decodeClean] using hcl.1
+      · simp [ht, decodeClean]
+      · simp [ht, decodeClean]
     rw [hdi]
     simp only [List.map_cons, BindingDecl.bindArgs?, BindingDecl.bindArg?,
       coerce_param_clean hty hdc hlt, ih,
-      bind, Option.bind, paramLocals, frameOf, List.map_cons, WExpr.eval, List.getD_eq_getElem?_getD,
-      List.getElem?_eq_getElem hi, Option.getD_some, Nat.mod_eq_of_lt hlt]
-  | _ :: _, [], _, _, hw, _, _ => by simp [widthsOf] at hw
+      bind, Option.bind, paramLocals, frameOfT, List.map_cons, WExpr.eval, List.getD_eq_getElem?_getD,
+      List.getElem?_eq_getElem hi, Option.getD_some, Nat.mod_eq_of_lt hlt, hT p List.mem_cons_self]
+  | _ :: _, [], _, _, hw, _, _, _ => by simp [widthsOfT] at hw
 
 /-- A return the fragment encodes: a `uint256`, `address` or `bool`. -/
 abbrev RetTy (ty : Source.Ty) : Prop := ty = .uint256 ∨ ty = .address ∨ ty = .bool
@@ -458,9 +648,9 @@ theorem retsOk_length {K : Facts} : ∀ {rs : List BindingDecl} {ws : List WExpr
 /-! ## Reading the returned words -/
 
 theorem collect_words (ρ : Val) (rt : Runtime) (S : SymState) {K : Facts} (hK : K.Hold ρ)
-    (hl : ∀ x e, Scopes.get? S.scopes x = some e → rt.lookupLocal? x = some (.word (e.eval ρ))) :
+    (hl : ∀ x e, S.word? x = some e → rt.lookupLocal? x = some (.word (e.eval ρ))) :
     ∀ (rs : List BindingDecl) (ws : List WExpr), retsOk K rs ws = true →
-      rs.mapM (fun r => Scopes.get? S.scopes r.name) = some ws →
+      rs.mapM (fun r => S.word? r.name) = some ws →
       collectReturnBindings.collect rt rs = .ok (ws.map fun e => .word (e.eval ρ))
   | [], ws, _, h => by
     simp only [List.mapM_nil, Option.pure_def, Option.some.injEq] at h
@@ -802,7 +992,7 @@ theorem wordBinding_ty {b : BindingDecl} (h : wordBinding b = true) :
 
 /-- The parameter widths of a function the erasure accepts. -/
 theorem eraseFn_widths {E : EraseEnv} {fuel : Nat} {fn : FunctionDef} {T : Tree}
-    (h : eraseFn E fuel fn = some T) : ∃ ws, widthsOf fn.params fn.paramAbiCleanups = some ws := by
+    (h : eraseFn E fuel fn = some T) : ∃ ws, widthsOfT fn.params fn.paramAbiCleanups = some ws := by
   unfold eraseFn at h
   split at h
   · simp at h
@@ -814,8 +1004,9 @@ theorem eraseFn_widths {E : EraseEnv} {fuel : Nat} {fn : FunctionDef} {T : Tree}
 body from a runtime related to its first symbolic state with the caller `cw`, the sender's word,
 and the call is the body's run turned into the call's result. -/
 theorem call_entry {c : TypeCheck.CheckedContract} {fn : FunctionDef} {ws : List Nat}
-    (hw : widthsOf fn.params fn.paramAbiCleanups = some ws)
-    (hret : fn.returns.all wordBinding = true) (fuel : Nat) (base : Source.Context) (a : Nat)
+    (hw : widthsOfT fn.params fn.paramAbiCleanups = some ws)
+    (hret : fn.returns.all wordBinding = true) (htags : tagsOk fn = true) (fuel : Nat)
+    (base : Source.Context) (a : Nat)
     (bytes : List Nat) {st0 : Source.State} {σ : List (Nat × Nat)}
     (hstore : ∀ k, (st0.storage[k % 2 ^ 256]?).getD 0 = slotValue σ k) (hev : st0.events = [])
     {K : Facts} {args : List Nat} {rc : Nat} (cw : WExpr)
@@ -834,14 +1025,24 @@ theorem call_entry {c : TypeCheck.CheckedContract} {fn : FunctionDef} {ws : List
   set ρ : Val := ⟨args, slotValue σ, solHash, rc⟩ with hρ
   have hr : ∀ r ∈ fn.returns, RetTy r.ty ∧ r.isStorageRef = false :=
     fun r hr => wordBinding_ty (List.all_eq_true.mp hret r hr)
+  have htg := tagsOk_spec htags
   have hframe : fn.initialFrame? (args.map .word) =
-      some (frameOf ρ (paramLocals fn.params 0 ++ fn.returns.map fun r => (r.name, .lit 0))) := by
+      some (frameOfT ρ (paramTags fn.params)
+        (paramLocals fn.params 0 ++ fn.returns.map fun r => (r.name, .lit 0))) := by
     have h0 : BindingDecl.bindArgs? fn.params (args.map .word) =
-        some (frameOf ρ (paramLocals fn.params 0)) :=
-      bindArgs_clean ρ hargs fn.params fn.paramAbiCleanups ws 0 hw (by simpa [hρ] using hclean)
-        (by simp [hρ, hlen])
-    simp only [FunctionDef.initialFrame?, h0, FunctionDef.returnDefaultBindings,
-      defaults_words ρ fn.returns hr, frameOf, List.map_append]
+        some (frameOfT ρ (paramTags fn.params) (paramLocals fn.params 0)) :=
+      bindArgs_clean ρ hargs (paramTags fn.params) fn.params fn.paramAbiCleanups ws 0 hw
+        (by simpa [hρ] using hclean) (by simp [hρ, hlen]) htg.1
+    have hd : fn.returns.map BindingDecl.defaultBinding =
+        frameOfT ρ (paramTags fn.params) (fn.returns.map fun r => (r.name, WExpr.lit 0)) := by
+      rw [frameOfT_words, defaults_words ρ fn.returns hr]
+      intro p hp
+      obtain ⟨r, hr', rfl⟩ := List.mem_map.mp hp
+      exact htg.2 r hr'
+    have happ : ∀ (A B : Locals), frameOfT ρ (paramTags fn.params) (A ++ B) =
+        frameOfT ρ (paramTags fn.params) A ++ frameOfT ρ (paramTags fn.params) B := by
+      intro A B; simp [frameOfT, List.map_append]
+    simp only [FunctionDef.initialFrame?, h0, FunctionDef.returnDefaultBindings, ← hd, happ]
   have hacc : fn.acceptsValue ctx.value = true := by
     simp [hctx, ABI.Contract.callContextAtWithBase, SolidCore.Solidity.Shared.norm,
       FunctionDef.acceptsValue, wordEq]
@@ -849,7 +1050,8 @@ theorem call_entry {c : TypeCheck.CheckedContract} {fn : FunctionDef} {ws : List
               selfBalance := SolidCore.Solidity.Shared.addWord
                 (SolidCore.Solidity.Shared.Account.balanceAt ctx.accountBalances ctx.self) ctx.value
               worldMutatedSinceAdoption := true }
-            locals := [frameOf ρ (paramLocals fn.params 0 ++ fn.returns.map fun r => (r.name, .lit 0))] },
+            locals := [frameOfT ρ (paramTags fn.params)
+              (paramLocals fn.params 0 ++ fn.returns.map fun r => (r.name, .lit 0))] },
     { fields := rfl, events := rfl, checked := rfl, sender := hcw, hash := rfl,
       ok := slotValue_store σ, frames := rfl, facts := hK
       store := fun k _ => by
@@ -865,7 +1067,7 @@ call's words select makes the call a finished one, and the ABI dispatcher shows 
 makes of `b`. -/
 theorem abi_clean {c : TypeCheck.CheckedContract} {sel : Nat} (hsel : sel < 2 ^ 32)
     {fn : FunctionDef} (hfind : c.core.findFunctionBySelector? sel = some fn) {ws : List Nat}
-    (hw : widthsOf fn.params fn.paramAbiCleanups = some ws)
+    (hw : widthsOfT fn.params fn.paramAbiCleanups = some ws)
     (hret : fn.returns.all wordBinding = true) (fuel : Nat) (base : Source.Context) (a : Nat)
     {st0 : Source.State} {σ : List (Nat × Nat)}
     (hstore : ∀ k, (st0.storage[k % 2 ^ 256]?).getD 0 = slotValue σ k) (hev : st0.events = [])
@@ -873,7 +1075,9 @@ theorem abi_clean {c : TypeCheck.CheckedContract} {sel : Nat} (hsel : sel < 2 ^ 
     (hlen : args.length = fn.params.length) (hargs : ∀ a ∈ args, a < 2 ^ 256)
     (hK : K.Hold ⟨args, slotValue σ, solHash, rc⟩)
     (hcw : SolidCore.Solidity.Shared.norm a = cw.eval ⟨args, slotValue σ, solHash, rc⟩)
-    (hdec : ABI.decodeFunctionArgs? fn (Dirty.argBytes args) = .ok (args.map .word))
+    (htags : tagsOk fn = true)
+    (hdec : ABI.decodeFunctionArgs? fn (Dirty.argBytes args) =
+      .ok (tyVals (fn.params.map BindingDecl.ty) args))
     {b : Br} {T : Tree} (hT : brTree fn K b = some T)
     (hb : ∀ rt, StmtRel ⟨args, slotValue σ, solHash, rc⟩ { envOf c.core with facts := K }
         (ABI.Contract.callContextAtWithBase c.core base selfAddress a 0
@@ -896,14 +1100,17 @@ theorem abi_clean {c : TypeCheck.CheckedContract} {sel : Nat} (hsel : sel < 2 ^ 
   set ρ : Val := ⟨args, slotValue σ, solHash, rc⟩ with hρ
   have hρok : ρ.Ok := slotValue_store σ
   have hclean : argsClean ws args = true := by
-    have hd := decode_args hw args hlen hargs
+    have hd := decode_argsT hw args hlen hargs
     rw [hdec] at hd
     by_contra hn
     rw [if_neg hn] at hd
     exact absurd hd (by simp)
-  obtain ⟨rt, hrel, hcall⟩ := call_entry (c := c) hw hret fuel base a
+  obtain ⟨rt, hrel, hcall⟩ := call_entry (c := c) hw hret htags fuel base a
     ((EthLib.Base.natToBytes 4 sel).map (·.toNat) ++ Dirty.argBytes args) hstore hev cw hlen hargs
     hclean hK hcw
+  have hbind : BindingDecl.bindArgs? fn.params (tyVals (fn.params.map BindingDecl.ty) args) =
+      BindingDecl.bindArgs? fn.params (args.map .word) :=
+    bindArgs_tyVals fn.params args (widthsOf_spec hw).2.2.1 hargs hlen
   obtain ⟨r, hrun, hleaf⟩ := hb rt hrel
   rw [hrun] at hcall
   refine ⟨⟨_, hcall⟩, ?_⟩
@@ -918,8 +1125,14 @@ theorem abi_clean {c : TypeCheck.CheckedContract} {sel : Nat} (hsel : sel < 2 ^ 
       (args.map .word) = some (fn.callBodyResult st0 r) := by
     simp only [FunctionDef.call?, hcall]
     rfl
+  have hcallT : fn.call? fuel c.core.table (ABI.Contract.callContextAtWithBase c.core base
+      selfAddress a 0 ((EthLib.Base.natToBytes 4 sel).map (·.toNat) ++ Dirty.argBytes args)) st0
+      (tyVals (fn.params.map BindingDecl.ty) args) = some (fn.callBodyResult st0 r) := by
+    rw [← hcall']
+    simp only [FunctionDef.call?, FunctionDef.call, FunctionDef.evalBodyEntry,
+      FunctionDef.initialFrame?, hbind]
   obtain ⟨T', hT', hTe⟩ := brTree_eval fn K ρ b T hT
-  rw [hacc, if_pos rfl, hcall', ← hTe]
+  rw [hacc, if_pos rfl, hcallT, ← hTe]
   generalize b.eval ρ = l at hT' hleaf
   cases l with
   | normal S =>
@@ -1015,11 +1228,12 @@ theorem source_run {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.Stat
   rename_i ws hw
   split at hT
   case isFalse => simp at hT
-  rename_i hret
+  rename_i hret'
+  obtain ⟨hret, htags⟩ := Bool.and_eq_true _ _ ▸ hret'
   simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at hT
   obtain ⟨b, hb, t, ht, rfl⟩ := hT
   rw [paramGuards_eval ⟨args, slotValue σ, solHash, callerWord⟩ t hargs ws 0, List.drop_zero]
-  have hdec := decode_args hw args hlen hargs
+  have hdec := decode_argsT hw args hlen hargs
   by_cases hclean : argsClean ws args = true
   · rw [if_pos hclean]
     rw [if_pos hclean] at hdec
@@ -1027,8 +1241,8 @@ theorem source_run {fuel : Nat} {c : TypeCheck.CheckedContract} {d : Source.Stat
     exact (abi_clean hsel hfind hw hret fuel _ callerAddress
       (st0 := { d with storage := σ.foldl (fun acc kv => acc.insertLoop kv.1 kv.2) d.storage })
       (getD_storage_cover hd hcov) hd.events
-      (.lit callerWord) hlen hargs (argFacts_hold _ hargs ws 0 (by simpa using hclean)) rfl hdec ht
-      (fun rt hrel => eval_stmt _ _ _ fuel fn.body _ b hb rt hrel) _ rfl).2
+      (.lit callerWord) hlen hargs (argFacts_hold _ hargs ws 0 (by simpa using hclean)) rfl htags
+      hdec ht (fun rt hrel => eval_stmt _ _ _ fuel fn.body _ b hb rt hrel) _ rfl).2
   · rw [if_neg hclean]
     rw [if_neg hclean] at hdec
     rw [run_rejected hd hsel hfind args hdec σ]

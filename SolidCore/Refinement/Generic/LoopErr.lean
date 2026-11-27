@@ -108,7 +108,8 @@ theorem runtime_run_err {fuel : Nat} {c : TypeCheck.CheckedContract} {σ : List 
     runtimeRun fuel c { calldata := Abi.calldata sel args, callvalue := 0, storage := σ } = none := by
   unfold runtimeRun runtimeResult?
   simp only [Dirty.bytes_calldata]
-  obtain ⟨rt, hrel, hcall⟩ := call_entry (c := c) hw hret fuel
+  have hwT := widthsOf_T hw
+  obtain ⟨rt, hrel, hcall⟩ := call_entry (c := c) hwT.1 hret (tagsOk_of_words hwT.2) fuel
     { c.core.context with sender := callerAddress, self := selfAddress, value := 0 } callerAddress
     ((EthLib.Base.natToBytes 4 sel).map (·.toNat) ++ Dirty.argBytes args)
     (st0 := { State.empty with

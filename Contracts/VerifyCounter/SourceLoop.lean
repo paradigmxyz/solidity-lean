@@ -163,7 +163,7 @@ theorem certAt (c : WExpr) (ρ : Val) (E : EraseEnv) (ctx : Context)
     have hrelp : StmtRel (hval ρ (i + 1) (ρ.store 0 + (i + 1))) E ctx rp (headerSAt c) := by
       refine StmtRel.congr hl2 hrel.hash hok (by rw [hfacts]; exact Facts.hold_nil _) ?_ ?_ rfl
         ((hc _ _).trans (hc _ _).symm)
-      · simp [headerSAt, frameOf, WExpr.eval, BinOp.eval, hval, Nat.mod_eq_of_lt hiw, Nat.mod_eq_of_lt hi1]
+      · simp [headerSAt, frameOf, frameOfT, SymState.pop, SymState.push, WExpr.eval, BinOp.eval, hval, Nat.mod_eq_of_lt hiw, Nat.mod_eq_of_lt hi1]
       · intro k _
         simp only [Writes.store, SymState.pop, SymState.push, headerSAt, WExpr.eval, BinOp.eval, hval,
           List.getD_cons_succ, List.getD_cons_zero]
@@ -175,7 +175,7 @@ theorem certAt (c : WExpr) (ρ : Val) (E : EraseEnv) (ctx : Context)
     have hie : i = nOf ρ := by omega
     refine ⟨rt, rfl, StmtRel.congr hrel hrel.hash hok (by rw [hfacts]; exact Facts.hold_nil _) ?_ ?_ rfl
       (hc _ _)⟩
-    · simp [headerSAt, exitSAt, frameOf, WExpr.eval, hval, hie, nOf]
+    · simp [headerSAt, exitSAt, frameOf, frameOfT, WExpr.eval, hval, hie, nOf]
     · intro k _
       have h0 := hok.word 0
       have hie' : ρ.args.getD 0 0 % wordSize = i := hie.symm

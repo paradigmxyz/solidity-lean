@@ -84,16 +84,17 @@ theorem source_run_args {fuel : Nat} {ws0 : List Nat} {c : TypeCheck.CheckedCont
   rename_i ws hw
   split at hT
   case isFalse => simp at hT
-  rename_i hret
+  rename_i hret'
+  obtain ⟨hret, htags⟩ := Bool.and_eq_true _ _ ▸ hret'
   simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at hT
   obtain ⟨b, hb, t, ht, rfl⟩ := hT
   rw [paramGuards_eval ⟨args, slotValue σ, solHash, callerWord⟩ t hargs ws 0, List.drop_zero]
-  have hdec := decode_args hw args hlen hargs
+  have hdec := decode_argsT hw args hlen hargs
   by_cases hclean : argsClean ws args = true
   · rw [if_pos hclean]
     rw [if_pos hclean] at hdec
-    rw [Loop.deployed_run_entry hd (Loop.getD_load_cover hcov) (slotValue_store σ) hsel hfind hw
-      hret (Loop.bodyRuns_of_erase hb) ht args hlen hargs hclean hdec, Loop.fixObs_slotValue]
+    rw [Loop.deployed_run_entryT hd (Loop.getD_load_cover hcov) (slotValue_store σ) hsel hfind hw
+      hret htags (Loop.bodyRuns_of_erase hb) ht args hlen hargs hclean hdec, Loop.fixObs_slotValue]
   · rw [if_neg hclean]
     rw [if_neg hclean] at hdec
     rw [run_rejected_args hd hsel hfind args hdec σ]
@@ -104,7 +105,7 @@ function with a value other than 0 reverts with empty output and leaves the stor
 theorem source_run_value_args {fuel : Nat} {ws0 : List Nat} {c : TypeCheck.CheckedContract}
     {d : Source.State} (hd : Loop.LoadDeployed fuel c ws0 d) {sel : Nat} (hsel : sel < 2 ^ 32)
     {fn : FunctionDef} (hfind : c.core.findFunctionBySelector? sel = some fn)
-    {ws : List Nat} (hw : widthsOf fn.params fn.paramAbiCleanups = some ws)
+    {ws : List Nat} (hw : widthsOfT fn.params fn.paramAbiCleanups = some ws)
     (hpay : fn.payable = false) (args : List Nat)
     (hlen : args.length = fn.params.length) (hargs : ∀ a ∈ args, a < 2 ^ 256) {v : Nat}
     (hv0 : v ≠ 0) (hv : v < 2 ^ 256) (σ : List (Nat × Nat)) :
@@ -112,9 +113,10 @@ theorem source_run_value_args {fuel : Nat} {ws0 : List Nat} {c : TypeCheck.Check
         { calldata := Abi.calldata sel args, callvalue := v, storage := σ } =
       some (rejected σ) := by
   obtain ⟨vs, hcons⟩ := hd.cons
-  have hdec : ABI.decodeFunctionArgs? fn (Dirty.argBytes args) = .ok (args.map .word) ∨
+  have hdec : ABI.decodeFunctionArgs? fn (Dirty.argBytes args) =
+        .ok (tyVals (fn.params.map BindingDecl.ty) args) ∨
       ABI.decodeFunctionArgs? fn (Dirty.argBytes args) = .error .empty := by
-    rw [decode_args hw args hlen hargs]
+    rw [decode_argsT hw args hlen hargs]
     by_cases hclean : argsClean ws args = true
     · exact Or.inl (if_pos hclean)
     · exact Or.inr (if_neg hclean)
@@ -258,7 +260,8 @@ theorem construct_of_erase {fuel : Nat} {c : TypeCheck.CheckedContract} {fn : Fu
       sender := rfl
       hash := rfl
       ok := hρok
-      frames := rfl
+      frames := by
+        simp [initState, paramTags_words (fun p hp => by rcases (hps p hp).1 with h | h <;> simp [h, tagOf])]
       store := by
         intro k _
         simp [State.loadSlot, StorageMap.lookup?, State.empty, Writes.store, initState, hρ]
