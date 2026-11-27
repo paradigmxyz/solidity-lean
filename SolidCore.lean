@@ -160,3 +160,6 @@ import SolidCore.Witness.EnumMappingKeyContract
 import SolidCore.Witness.BytesNShiftConversionWidth
 import SolidCore.Witness.AddmodArgOrder
 import SolidCore.Witness.TupleStorageCopyOrder
+import SolidCore.Witness.DirtyStorageBytesDelete
+import SolidCore.Witness.SignedArrayMemberCopy
+import SolidCore.Witness.ModularArgumentOrder

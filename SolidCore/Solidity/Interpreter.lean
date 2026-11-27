@@ -3524,6 +3524,12 @@ def State.storeStorageBytesAt (state : State) (slot : Word)
   State.clearStorageBytesLongSlots written slot
     newLongChunks (oldLongChunks - newLongChunks)
 
+/-- Solidity validates the old bytes header before deleting the value. -/
+def State.deleteStorageBytesAt (state : State) (slot : Word) :
+    Except RevertData State := do
+  let _ ← storageBytesHeader? (state.loadSlot slot)
+  pure (state.storeStorageBytesAt slot [])
+
 def State.storageBytesLengthAt (state : State) (slot : Word) :
     Except RevertData Nat := do
   let header ← storageBytesHeader? (state.loadSlot slot)
@@ -4124,9 +4130,9 @@ def State.clearStorageLayoutAt (state : State) (slot : Word) :
   | StorageLayout.struct layouts =>
       State.clearStructLayoutSlots state slot { slot := 0, offset := 0 } layouts
   | StorageLayout.bytes =>
-      Except.ok (State.storeStorageBytesAt state slot [])
+      State.deleteStorageBytesAt state slot
   | StorageLayout.string =>
-      Except.ok (State.storeStorageBytesAt state slot [])
+      State.deleteStorageBytesAt state slot
   | StorageLayout.dynamicArray _ =>
       Except.ok (state.storeSlot slot 0)
   | StorageLayout.mapping _ _ =>
@@ -4239,9 +4245,9 @@ def State.clearStorageLayoutAtFuel :
               (state, { slot := 0, offset := 0 })
           Except.ok state
       | StorageLayout.bytes =>
-          Except.ok (State.storeStorageBytesAt state slot [])
+          State.deleteStorageBytesAt state slot
       | StorageLayout.string =>
-          Except.ok (State.storeStorageBytesAt state slot [])
+          State.deleteStorageBytesAt state slot
       | StorageLayout.dynamicArray elementLayout => do
           let length := SolidCore.Solidity.Shared.norm (state.loadSlot slot)
           let state ←
@@ -4541,16 +4547,9 @@ def Runtime.deleteStorageField (context : Context)
         State.clearStorageLayoutAtDeep runtime.state field.slot
           (StorageLayout.dynamicArray elementLayout)
       Except.ok { runtime with state }
-  | some StorageLayout.bytes =>
-      Except.ok
-        { runtime with
-          state :=
-            State.storeStorageBytesAt runtime.state field.slot [] }
-  | some StorageLayout.string =>
-      Except.ok
-        { runtime with
-          state :=
-            State.storeStorageBytesAt runtime.state field.slot [] }
+  | some StorageLayout.bytes | some StorageLayout.string => do
+      let state ← runtime.state.deleteStorageBytesAt field.slot
+      pure { runtime with state }
   | some (StorageLayout.struct layouts) => do
       let state ←
         State.clearStorageLayoutAtDeep runtime.state field.slot
@@ -4891,13 +4890,13 @@ def Runtime.storagePathSlotValue (context : Context)
 
 def Runtime.storeStorageBasePathWithDeepClear (context : Context)
     (runtime : Runtime) (base : StorageBase) (indexes : List Value)
-    (value : Value) : Except RevertData Runtime := do
+    (value : Value) (signExtend : Bool := true) : Except RevertData Runtime := do
   let value ← runtime.storageMaterializedValue value
   let (slot, valueLayout) ←
     runtime.resolveStorageBasePath context base indexes
   let state ←
     State.storeStorageLayoutAtWithDeepClear
-      runtime.state slot valueLayout value
+      runtime.state slot valueLayout value (signExtend := signExtend)
   Except.ok { runtime with state }
 
 def Runtime.storeStoragePathWithDeepClear (context : Context)
@@ -10062,7 +10061,12 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
                 | ResolvedLValue.storageField name =>
                     Runtime.storeStorageFieldWithDeepClear context runtime' name value
                       (signExtend := false)
-                | _ => resolved.write context runtime' value
+                | _ =>
+                    match resolved.asStoragePath? with
+                    | some (base, indexes) =>
+                        runtime'.storeStorageBasePathWithDeepClear context base indexes value
+                          (signExtend := false)
+                    | none => resolved.write context runtime' value
               else resolved.write context runtime' value
             match stored with
             | Except.ok updated => pure (Result.normal updated)

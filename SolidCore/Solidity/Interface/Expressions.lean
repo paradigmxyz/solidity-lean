@@ -8406,10 +8406,11 @@ def Expr.anfHoist
                   let (c2, pb, b') := rec1 c1 b
                   let (c3, pa, a') := rec1 c2 a
                   -- A later-evaluated operand's hoisted calls must not run
-                  -- before an earlier-evaluated operand is read: park the
-                  -- modulus (and check it for zero, as solc does before the
-                  -- operands) ahead of the operand preludes, and the second
-                  -- operand ahead of the first operand's prelude.
+                  -- before an earlier-evaluated operand is read, since they
+                  -- can mutate storage it reads: park the modulus (and check
+                  -- it for zero, as solc does before the operands) ahead of
+                  -- the operand preludes, and the second operand ahead of the
+                  -- first operand's prelude.
                   let park := fun (cc : Nat) (x : Expr) =>
                     match x with
                     | Expr.literal _ => (cc, [], x)
