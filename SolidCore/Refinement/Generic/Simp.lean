@@ -339,6 +339,10 @@ def sLt (K : Facts) (a b : WExpr) : WExpr :=
   | .bin .add x y => if x = b ∧ bound K x + bound K y < wordSize then .lit 0 else .bin .lt a b
   | _ => .bin .lt a b
 
+/-- Adding zero is the other operand. -/
+def sAdd (a b : WExpr) : WExpr :=
+  if b = .lit 0 then a else if a = .lit 0 then b else .bin .add a b
+
 /-- A shift by zero is its value. -/
 def sShift (op : BinOp) (a b : WExpr) : WExpr := if a = .lit 0 then b else .bin op a b
 
@@ -364,6 +368,7 @@ def sBin (K : Facts) (op : BinOp) (a b : WExpr) : WExpr :=
     | .shl => sShift .shl a b
     | .shr => sShift .shr a b
     | .byte => sByte K a b
+    | .add => sAdd a b
     | .eq => if a = b then .lit 1 else .bin .eq a b
     | _ => .bin op a b
 
@@ -468,6 +473,18 @@ theorem eval_sLt {ρ : Val} {K : Facts} (h : K.Hold ρ) (a b : WExpr) :
     · rfl
   · rfl
 
+theorem eval_sAdd (ρ : Val) (a b : WExpr) : (sAdd a b).eval ρ = (WExpr.bin .add a b).eval ρ := by
+  unfold sAdd
+  split
+  · rename_i he; subst he
+    rw [eval_bin, eval_lit]
+    simp [BinOp.eval, Nat.mod_eq_of_lt (a.eval_lt ρ)]
+  · split
+    · rename_i he; subst he
+      rw [eval_bin, eval_lit]
+      simp [BinOp.eval, Nat.mod_eq_of_lt (b.eval_lt ρ)]
+    · rfl
+
 theorem eval_sShift (ρ : Val) (op : BinOp) (hop : op = .shl ∨ op = .shr) (a b : WExpr) :
     (sShift op a b).eval ρ = (WExpr.bin op a b).eval ρ := by
   unfold sShift
@@ -519,6 +536,7 @@ theorem eval_sBin {ρ : Val} {K : Facts} (h : K.Hold ρ) (op : BinOp) (a b : WEx
     case shl => exact eval_sShift ρ .shl (.inl rfl) a b
     case shr => exact eval_sShift ρ .shr (.inr rfl) a b
     case byte => exact eval_sByte h a b
+    case add => exact eval_sAdd ρ a b
     case eq =>
       show (if a = b then WExpr.lit 1 else .bin .eq a b).eval ρ = _
       by_cases hab : a = b
