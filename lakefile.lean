@@ -749,9 +749,9 @@ lean_lib VerifyLoopSource where
     .one `Verify.Spec.TreeLoopFrame, .submodules `Verify.Phase2,
     -- Fixed-fuel gas from the compiled IR's measured loop costs and its generated instances
     -- (Verify/Gas/FixedFuel/Measured.lean, Gen/), and the constructor's argument words
-    -- (Verify/Generic/CtorWords.lean).
+    -- (Verify/Generic/CtorWords.lean; with counted loops, CtorLoop.lean).
     .one `Verify.Gas.FixedFuel.Measured, .one `Verify.Gas.FixedFuel.MeasuredDec, .submodules `Verify.Gas.FixedFuel.Gen,
-    .one `Verify.Generic.CtorWords,
+    .one `Verify.Generic.CtorWords, .one `Verify.Generic.CtorLoop,
     -- Recursion's cut points and invariant discovery (Verify/Phase3), and the assembly checker's
     -- entry heights from the run at a recursive function's cut points.
     .submodules `Verify.Phase3, .one `SolidCore.Refinement.Solar.AssembleRec]
