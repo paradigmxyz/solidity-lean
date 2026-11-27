@@ -364,7 +364,7 @@ def sBin (K : Facts) (op : BinOp) (a b : WExpr) : WExpr :=
     | .or => sOr a b
     | .and => sAnd K a b
     | .gt => sGt K a b
-    | .lt => sLt K a b
+    | .lt => if a = b then .lit 0 else sLt K a b
     | .shl => sShift .shl a b
     | .shr => sShift .shr a b
     | .byte => sByte K a b
@@ -532,7 +532,11 @@ theorem eval_sBin {ρ : Val} {K : Facts} (h : K.Hold ρ) (op : BinOp) (a b : WEx
     case or => exact eval_sOr ρ a b
     case and => exact eval_sAnd h a b
     case gt => exact eval_sGt h a b
-    case lt => exact eval_sLt h a b
+    case lt =>
+      show (if a = b then WExpr.lit 0 else sLt K a b).eval ρ = _
+      by_cases hab : a = b
+      · subst hab; simp [WExpr.eval, BinOp.eval]
+      · rw [if_neg hab]; exact eval_sLt h a b
     case shl => exact eval_sShift ρ .shl (.inl rfl) a b
     case shr => exact eval_sShift ρ .shr (.inr rfl) a b
     case byte => exact eval_sByte h a b
