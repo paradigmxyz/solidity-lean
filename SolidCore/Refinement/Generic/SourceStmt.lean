@@ -314,7 +314,9 @@ def eraseUnchecked (S : SymState) : Stmt → Option Br
 /-- The erasure of a statement of the fragment with fuel `n`, the fuel SolidCore runs it with:
 skips, blocks (a scope each), assignments to locals and to storage fields, compound assignments
 to storage fields (`v += x`, `w ^= x`: the operation's overflow check, then the cleanup's range
-check), returns, `if`, panics and SafeMath's `unchecked` blocks (`eraseUnchecked`). -/
+check), expression statements of an expression of the fragment (`y;`: its overflow checks, then
+the state unchanged), returns, `if`, panics and SafeMath's `unchecked` blocks
+(`eraseUnchecked`). -/
 def eraseStmt (E : EraseEnv) : Nat → Stmt → SymState → Option Br
   | 0, _, _ => none
   | n + 1, s, S =>
@@ -356,6 +358,9 @@ def eraseStmt (E : EraseEnv) : Nat → Stmt → SymState → Option Br
       let cg ← cleanupGuard b w
       some (guards (gs ++ gi ++ (overflow o (S.writes.read (.hash key (.lit k))) v).toList ++ cg)
         (.leaf (.normal { S with writes := S.writes.set (.hash key (.lit k)) w })))
+    | .exprStmt e => do
+      let (gs, _) ← eraseExpr E.fields S e
+      some (guards gs (.leaf (.normal S)))
     | .varDecl ty x init =>
       if wordTy ty then
         match init with
@@ -1496,6 +1501,27 @@ theorem eval_unchecked (ρ : Val) (E : EraseEnv) (ctx : Context) (k : Nat) (body
   · rw [Br.eval_mapS]
     exact hl.popScope
 
+/-- An assignment is never an expression of the fragment: `eraseStmt` erases the assignments it
+knows by their own cases, and its expression statement of an assignment erases to nothing. -/
+@[simp] theorem eraseExpr_assignment (fields : List StorageField) (S : SymState) (op? : Option BinaryOp)
+    (cleanup? : Option ValueCleanup) (target rhs : Expr) :
+    eraseExpr fields S (.assignment op? cleanup? target rhs) = none := by
+  simp [eraseExpr]
+
+/-- An expression statement of the fragment (`y;`, an expression whose value is dropped): SolidCore
+evaluates the expression and goes on with the runtime it leaves, which the expression's erasure
+keeps, or reverts with `Panic(0x11)` when one of its overflow conditions holds. -/
+theorem eval_exprStmt (ρ : Val) (E : EraseEnv) (ctx : Context) (rt : Runtime) (S : SymState)
+    (n : Nat) (hrel : StmtRel ρ E ctx rt S) {e : Expr} {gs : List WExpr} {v : WExpr}
+    (he : eraseExpr E.fields S e = some (gs, v)) :
+    ∃ r, Stmt.eval (n + 1) E.tbl ctx rt (.exprStmt e) = .done (.ok r) ∧
+      LeafRel ρ E ctx r ((guards gs (.leaf (.normal S))).eval ρ) := by
+  have heval := eval_eq ρ E.fields ctx rt S hrel.expr he
+  rw [Stmt.eval]
+  simp only [heval, caught_exprResult, guards_eval]
+  guard_cases hg : gs.any (fun g => g.eval ρ != 0)
+  exact ⟨.normal rt, rfl, hrel⟩
+
 theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
     ∀ n s S b, eraseStmt E n s S = some b → ∀ rt, StmtRel ρ E ctx rt S →
       ∃ r, Stmt.eval n E.tbl ctx rt s = .done (.ok r) ∧ LeafRel ρ E ctx r (b.eval ρ) := by
@@ -1845,9 +1871,12 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
                 obtain ⟨m, rfl⟩ : ∃ m, F = m + 1 := ⟨F - 1, by omega⟩
                 simp [Expr.resolveLValueFuel] <;> rfl)
               ho hcg hread (fun w => hst w _) (fun w => hrel.writeField hfx w)
-        all_goals simp [eraseStmt] at h
-        all_goals simp [eraseStmt] at h
-      all_goals simp [eraseStmt] at h
+        all_goals simp [eraseStmt, eraseExpr] at h
+        all_goals simp [eraseStmt, eraseExpr] at h
+      all_goals
+        simp only [eraseStmt, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
+        obtain ⟨⟨gs, v⟩, he, rfl⟩ := h
+        exact eval_exprStmt ρ E ctx rt S n hrel he
     case unchecked body =>
       simp only [eraseStmt] at h
       split at h

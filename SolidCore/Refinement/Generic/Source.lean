@@ -8,7 +8,9 @@ import SolidCore.Refinement.Generic.Packed
 `eraseExpr` erases a SolidCore expression of the fragment (word literals, locals, unsigned
 cleanups `uintCleanup b` and truncating casts `uintCast b` for `0 < b ≤ 256`, the latter to
 `and v (2 ^ b - 1)`, checked `+`, `-`, `*`, the bitwise `&`, `|`, `^`, the comparisons `<`,
-`>`, `==`, and reads of unsigned storage fields, alone in their slot or packed with others) to
+`>`, `==`, reads of unsigned storage fields, alone in their slot or packed with others, and reads of
+mapping entries, by index or, as a public getter reads them, by `.load` through the storage
+path of their one or two keys) to
 its overflow conditions and its word, over a symbolic state of locals and storage writes
 (`SymState`). Each overflow condition is a word whose being nonzero makes
 SolidCore revert with `Panic(0x11)`: solar's check of a checked `uint256` operation
@@ -258,6 +260,20 @@ def eraseExpr (fields : List StorageField) (S : SymState) : Expr → Option (Lis
       let (gs, v) ← eraseExpr fields S idx
       some (gs, boolOfWord (S.writes.read (.hash v (.lit k))))
   | .index (.storageRead .element x [i1]) i2 => do
+    let k ← map2Of? fields x
+    let (g1, v1) ← eraseExpr fields S i1
+    let (g2, v2) ← eraseExpr fields S i2
+    some (g1 ++ g2, S.writes.read (.hash v2 (.hash v1 (.lit k))))
+  | .storageRead .load x [idx] =>
+    match mapOf? fields x with
+    | some k => do
+      let (gs, v) ← eraseExpr fields S idx
+      some (gs, S.writes.read (.hash v (.lit k)))
+    | none => do
+      let k ← boolMapOf? fields x
+      let (gs, v) ← eraseExpr fields S idx
+      some (gs, boolOfWord (S.writes.read (.hash v (.lit k))))
+  | .storageRead .load x [i1, i2] => do
     let k ← map2Of? fields x
     let (g1, v1) ← eraseExpr fields S i1
     let (g2, v2) ← eraseExpr fields S i2
@@ -824,6 +840,69 @@ theorem loadIndex_boolMap {ρ : Val} {fields : List StorageField} {ctx : Context
     State.loadStorageLayoutAt, State.loadStorageLayoutAtFuel, loadStorageWordAs,
     Ty.storageValueFromWord?, mappingStorageSlot_eq, hsl, StorageLayout.depth, norm_lt hlt]
 
+/-- The slot of a mapping's entry at a key word, through its storage path. -/
+theorem resolve_map {ctx : Context} {rt : Runtime} {x : String} {f : StorageField}
+    (hf : MapOk ctx x f) {w : Nat} (h : w < wordSize) :
+    rt.resolveStorageBasePath ctx (.field x) [.word w] = .ok (solHash w f.slot, .scalar .uint256) := by
+  rcases hf.layout with hl | hl
+  · have ha : (Ty.address = .address ∨ Ty.address = .uint256) := .inl rfl
+    simp only [Runtime.resolveStorageBasePath, Runtime.storageBaseAnchor, hf.find, hl,
+      hf.transient, Bool.false_and, Bool.false_eq_true, ↓reduceIte, bind, Except.bind, pure,
+      Except.pure]
+    rw [resolve_step _ _ ha _ _ h, State.resolveStoragePathSlot.eq_1]
+  · have ha : (Ty.uint256 = .address ∨ Ty.uint256 = .uint256) := .inr rfl
+    simp only [Runtime.resolveStorageBasePath, Runtime.storageBaseAnchor, hf.find, hl,
+      hf.transient, Bool.false_and, Bool.false_eq_true, ↓reduceIte, bind, Except.bind, pure,
+      Except.pure]
+    rw [resolve_step _ _ ha _ _ h, State.resolveStoragePathSlot.eq_1]
+
+/-- SolidCore loads the entry of a mapping at a key word through its storage path (a public
+getter's `.load` read) as the writes' read of the slot word `hash key slot`, as
+`loadIndex_map` reads it. -/
+theorem loadPath_map {ρ : Val} {fields : List StorageField} {ctx : Context} {rt : Runtime}
+    {S : SymState} (hrel : ExprRel ρ fields ctx rt S) {x : String} {k : Nat}
+    (hk : mapOf? fields x = some k) {w : Nat} (hw : w < wordSize) :
+    rt.loadStorageBasePath ctx (.field x) [.word w] =
+      .ok (.word (Writes.store ρ S.writes (solHash w k % wordSize))) := by
+  obtain ⟨f, hf, rfl⟩ := mapOf?_spec hrel.fields hk
+  rw [Runtime.loadStorageBasePath, resolve_map hf hw]
+  simp only [bind, Except.bind, State.loadStorageLayoutAt, StorageLayout.depth,
+    State.loadStorageLayoutAtFuel, loadStorageWordAs, Ty.storageValueFromWord?]
+  rw [← loadSlot_mod, hrel.store _ (Nat.mod_lt _ (by decide))]
+
+/-- The slot of the entry of a mapping to `bool` at a key word, through its storage path. -/
+theorem resolve_boolMap {ctx : Context} {rt : Runtime} {x : String} {f : StorageField}
+    (hf : BoolMapOk ctx x f) {w : Nat} (h : w < wordSize) :
+    rt.resolveStorageBasePath ctx (.field x) [.word w] = .ok (solHash w f.slot, .scalar .bool) := by
+  rcases hf.layout with hl | hl
+  · have ha : (Ty.address = .address ∨ Ty.address = .uint256) := .inl rfl
+    simp only [Runtime.resolveStorageBasePath, Runtime.storageBaseAnchor, hf.find, hl,
+      hf.transient, Bool.false_and, Bool.false_eq_true, ↓reduceIte, bind, Except.bind, pure,
+      Except.pure]
+    rw [resolve_step _ _ ha _ _ h, State.resolveStoragePathSlot.eq_1]
+  · have ha : (Ty.uint256 = .address ∨ Ty.uint256 = .uint256) := .inr rfl
+    simp only [Runtime.resolveStorageBasePath, Runtime.storageBaseAnchor, hf.find, hl,
+      hf.transient, Bool.false_and, Bool.false_eq_true, ↓reduceIte, bind, Except.bind, pure,
+      Except.pure]
+    rw [resolve_step _ _ ha _ _ h, State.resolveStoragePathSlot.eq_1]
+
+/-- SolidCore loads the entry of a mapping to `bool` at a key word through its storage path as
+`loadIndex_boolMap` reads it: whether the low byte of the writes' read of `hash key slot` is
+not zero. -/
+theorem loadPath_boolMap {ρ : Val} {fields : List StorageField} {ctx : Context} {rt : Runtime}
+    {S : SymState} (hrel : ExprRel ρ fields ctx rt S) {x : String} {k : Nat}
+    (hk : boolMapOf? fields x = some k) {w : Nat} (hw : w < wordSize) :
+    rt.loadStorageBasePath ctx (.field x) [.word w] =
+      .ok (.word (if Writes.store ρ S.writes (solHash w k % wordSize) % 256 = 0 then 0 else 1)) := by
+  obtain ⟨f, hf, rfl⟩ := boolMapOf?_spec hrel.fields hk
+  have hsl : rt.state.loadSlot (solHash w f.slot) = Writes.store ρ S.writes (solHash w f.slot % wordSize) := by
+    rw [← loadSlot_mod, hrel.store _ (Nat.mod_lt _ (by decide))]
+  have hlt : Writes.store ρ S.writes (solHash w f.slot % wordSize) < wordSize :=
+    Writes.store_word hrel.ok _ _
+  rw [Runtime.loadStorageBasePath, resolve_boolMap hf hw]
+  simp [bind, Except.bind, State.loadStorageLayoutAt, StorageLayout.depth,
+    State.loadStorageLayoutAtFuel, loadStorageWordAs, Ty.storageValueFromWord?, hsl, norm_lt hlt]
+
 /-- What the fragment knows of an `address` field it reads. -/
 structure AddrFieldOk (ctx : Context) (x : String) (f : StorageField) : Prop where
   find : ctx.storageField? x = some f
@@ -981,6 +1060,36 @@ theorem hashPair?_spec {S : SymState} {b : Nat} {e : Expr} {v : WExpr} (h : hash
       · simp at h
     · simp at h
   · simp at h
+
+/-- SolidCore evaluates a one-key index list whose key evaluates as an erased expression to the
+key's word, after its overflow checks. -/
+theorem evalList_one {ρ : Val} {ctx : Context} {rt : Runtime} {i : Expr} {gs : List WExpr}
+    {v : WExpr} (m : Nat) (hi : Expr.evalFuel (m + 1) ctx rt i = exprResult ρ gs v rt) :
+    Expr.evalListFuel (m + 2) ctx rt [i] =
+      if gs.any (fun g => g.eval ρ != 0) then .done (.error (.revert (.panic 0x11)))
+      else .done (.ok ([.word (v.eval ρ)], rt)) := by
+  rw [Expr.evalListFuel]
+  simp only [hi, bind_exprResult]
+  split
+  · rfl
+  · rw [Expr.evalListFuel]; rfl
+
+/-- SolidCore evaluates a two-key index list whose keys evaluate as erased expressions to the two
+keys' words, after their overflow checks, the first key's first. -/
+theorem evalList_two {ρ : Val} {ctx : Context} {rt : Runtime} {i1 i2 : Expr}
+    {g1 g2 : List WExpr} {v1 v2 : WExpr} (m : Nat)
+    (h1 : Expr.evalFuel (m + 2) ctx rt i1 = exprResult ρ g1 v1 rt)
+    (h2 : Expr.evalFuel (m + 1) ctx rt i2 = exprResult ρ g2 v2 rt) :
+    Expr.evalListFuel (m + 3) ctx rt [i1, i2] =
+      if (g1 ++ g2).any (fun g => g.eval ρ != 0) then .done (.error (.revert (.panic 0x11)))
+      else .done (.ok ([.word (v1.eval ρ), .word (v2.eval ρ)], rt)) := by
+  rw [Expr.evalListFuel]
+  simp only [h1, bind_exprResult]
+  by_cases hg1 : g1.any (fun g => g.eval ρ != 0) = true
+  · simp only [hg1, any_append, Bool.true_or, ↓reduceIte]
+  · simp only [hg1, Bool.false_eq_true, ↓reduceIte, any_append, Bool.false_or]
+    rw [evalList_one m h2]
+    split <;> rfl
 
 theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt : Runtime)
     (S : SymState) (hrel : ExprRel ρ fields ctx rt S) (e : Expr) :
@@ -1181,6 +1290,67 @@ theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
           rw [loadIndex_boolMap hrel hk' (v0.eval_lt ρ), boolOfWord_eval, Writes.eval_read hrel.ok]
           simp only [WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf.slot]
           rfl
+    case load =>
+      match idx, h with
+      | [i], h =>
+        obtain ⟨m, rfl⟩ : ∃ m, n = m + 2 :=
+          ⟨n - 2, by simp [Expr.orderFuel, Expr.listEvalFuel] at hf; omega⟩
+        have hfi : Expr.orderFuel i < m + 1 := by
+          simp [Expr.orderFuel, Expr.listEvalFuel] at hf; omega
+        cases hk : mapOf? fields x with
+        | some k =>
+          simp only [eraseExpr, hk, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq,
+            Prod.mk.injEq] at h
+          obtain ⟨⟨gs0, v0⟩, hi, rfl, rfl⟩ := h
+          have ih := eval_erase ρ fields ctx rt S hrel i gs0 v0 (m + 1) hi hfi
+          simp only [Expr.evalFuel, evalList_one m ih]
+          unfold exprResult
+          split
+          · rfl
+          · obtain ⟨f, hf', rfl⟩ := mapOf?_spec hrel.fields hk
+            simp only [bind_done_ok', List.isEmpty_cons, Bool.false_and, Bool.false_eq_true,
+              ↓reduceIte, Runtime.loadStoragePath, loadPath_map hrel hk (v0.eval_lt ρ),
+              Writes.eval_read hrel.ok]
+            simp only [WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf'.slot]
+            rfl
+        | none =>
+          simp only [eraseExpr, hk, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq,
+            Prod.mk.injEq] at h
+          obtain ⟨k, hk', ⟨gs0, v0⟩, hi, rfl, rfl⟩ := h
+          have ih := eval_erase ρ fields ctx rt S hrel i gs0 v0 (m + 1) hi hfi
+          simp only [Expr.evalFuel, evalList_one m ih]
+          unfold exprResult
+          split
+          · rfl
+          · obtain ⟨f, hf', rfl⟩ := boolMapOf?_spec hrel.fields hk'
+            simp only [bind_done_ok', List.isEmpty_cons, Bool.false_and, Bool.false_eq_true,
+              ↓reduceIte, Runtime.loadStoragePath, loadPath_boolMap hrel hk' (v0.eval_lt ρ),
+              boolOfWord_eval, Writes.eval_read hrel.ok]
+            simp only [WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf'.slot]
+            rfl
+      | [i1, i2], h =>
+        obtain ⟨m, rfl⟩ : ∃ m, n = m + 3 :=
+          ⟨n - 3, by simp [Expr.orderFuel, Expr.listEvalFuel] at hf; omega⟩
+        simp only [eraseExpr, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq,
+          Prod.mk.injEq] at h
+        obtain ⟨k, hk, ⟨g1, v1⟩, h1, ⟨g2, v2⟩, h2, rfl, rfl⟩ := h
+        have ih1 := eval_erase ρ fields ctx rt S hrel i1 g1 v1 (m + 2) h1
+          (by simp [Expr.orderFuel, Expr.listEvalFuel] at hf; omega)
+        have ih2 := eval_erase ρ fields ctx rt S hrel i2 g2 v2 (m + 1) h2
+          (by simp [Expr.orderFuel, Expr.listEvalFuel] at hf; omega)
+        simp only [Expr.evalFuel, evalList_two m ih1 ih2]
+        unfold exprResult
+        split
+        · rfl
+        · obtain ⟨f, hf', rfl⟩ := map2Of?_spec hrel.fields hk
+          simp only [bind_done_ok', List.isEmpty_cons, Bool.false_and, Bool.false_eq_true,
+            ↓reduceIte, Runtime.loadStoragePath,
+            loadPath_map2 hrel hk (v1.eval_lt ρ) (v2.eval_lt ρ), Writes.eval_read hrel.ok]
+          simp only [WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf'.slot,
+            Nat.mod_eq_of_lt (solHash_lt _ _)]
+          rfl
+      | [], h => simp [eraseExpr] at h
+      | _ :: _ :: _ :: _, h => simp [eraseExpr] at h
     all_goals
       cases idx <;> simp only [eraseExpr] at h
     all_goals first

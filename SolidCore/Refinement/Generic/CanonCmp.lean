@@ -122,17 +122,313 @@ theorem Tree.eval_cmpCanon (ρ : Val) (U : Tree) : U.cmpCanon.eval ρ = U.eval �
 theorem Tree.eval_canonCmp (ρ : Val) (T : Tree) : T.canonCmp.eval ρ = T.eval ρ := by
   rw [Tree.canonCmp, Tree.eval_cmpCanon, Tree.eval_canon]
 
+/-! ## Checked arithmetic in one spelling, and a select as a branch
+
+Three more spellings of one word, SolidCore's check against solar's (`arithBin`, bottom up in
+`WExpr.arith`):
+
+* `lt (add x 1) x`, the overflow check of a checked `x + 1`, is `iszero (add x 1)`: `x + 1`
+  wraps exactly when it is zero, which is solar's test.
+* `eq (div (mul a c) c) a`, what is left of `uint256`'s mul overflow check by a nonzero constant
+  `c` once `iszero c` folds, is `iszero (gt a (maxWord / c))`: `a * c` does not wrap exactly
+  when `a ≤ maxWord / c`, solar's range check.
+* `add a a` is `mul a 2`.
+
+`Tree.unsel` splits a halt whose output holds `mul x (iszero c)` (solar's branch-free
+`c ? 0 : x`) into a branch on `c`: the output with the word `0` where `c` holds and `x` where
+it does not, as the source's `if` spells it. `Tree.canonArith` applies both to the comparison
+form and brings it to canonical form again. Each rewrite keeps every word's value and every
+call's result (`WExpr.eval_arith`, `Tree.eval_unsel`). -/
+
+/-- `lt (add x 1) x` as `iszero (add x 1)`. -/
+def arithLt (a b : WExpr) : Option WExpr :=
+  match a with
+  | .bin .add x (.lit c) => if x = b ∧ c % wordSize = 1 then some (.un .iszero a) else none
+  | _ => none
+
+/-- `eq (div (mul a c) c) a`, `c` a nonzero constant, as `iszero (gt a (maxWord / c))`. -/
+def arithEq (a b : WExpr) : Option WExpr :=
+  match a with
+  | .bin .div (.bin .mul x (.lit c)) (.lit c') =>
+    if x = b ∧ c' % wordSize = c % wordSize ∧ 0 < c % wordSize then
+      some (.un .iszero (.bin .gt x (.lit (maxWord / (c % wordSize)))))
+    else none
+  | _ => none
+
+/-- One of the three arithmetic spellings, when it applies. -/
+def arithBin : BinOp → WExpr → WExpr → Option WExpr
+  | .lt, a, b => arithLt a b
+  | .eq, a, b => arithEq a b
+  | .add, a, b => if a = b then some (.bin .mul a (.lit 2)) else none
+  | _, _, _ => none
+
+/-- `a * k` does not wrap exactly when the wrapped product divided by `k` is `a`. -/
+theorem mul_div_eq_iff {a k : Nat} (hk : 0 < k) :
+    a * k % wordSize / k = a ↔ a ≤ maxWord / k := by
+  rw [Nat.le_div_iff_mul_le hk]
+  constructor
+  · intro h
+    rcases Nat.lt_or_ge (a * k) wordSize with hlt | hge
+    · exact Nat.le_sub_one_of_lt hlt
+    · exfalso
+      have h1 : a * k % wordSize < wordSize := Nat.mod_lt _ (by decide)
+      have h2 : a * k % wordSize / k * k ≤ a * k % wordSize := Nat.div_mul_le_self _ _
+      rw [h] at h2
+      omega
+  · intro h
+    have hlt : a * k < wordSize := Nat.lt_of_le_of_lt h (Nat.sub_one_lt (by decide))
+    rw [Nat.mod_eq_of_lt hlt, Nat.mul_div_cancel _ hk]
+
+theorem arithLt_eval (ρ : Val) {a b e : WExpr} (h : arithLt a b = some e) :
+    e.eval ρ = (WExpr.bin .lt a b).eval ρ := by
+  have hW : (1 : Nat) < wordSize := by decide
+  cases a with
+  | bin op x y =>
+    cases y with
+    | lit c =>
+      cases op
+      case add =>
+        simp only [arithLt] at h
+        split at h
+        · rename_i hc
+          obtain ⟨rfl, hc1⟩ := hc
+          simp only [Option.some.injEq] at h
+          subst h
+          have hx := x.eval_lt ρ
+          simp only [WExpr.eval, BinOp.eval, UnOp.eval, hc1, Nat.mod_mod]
+          generalize x.eval ρ = v at hx ⊢
+          by_cases hs : v + 1 < wordSize
+          · rw [Nat.mod_eq_of_lt hs]
+            have h1 : ¬ v + 1 = 0 := by omega
+            have h2 : ¬ v + 1 < v := by omega
+            simp [h1, h2]
+          · have he : v + 1 = wordSize := by omega
+            have h2 : 0 < v := by omega
+            rw [he, Nat.mod_self]
+            simp [h2]
+        · simp at h
+      all_goals simp [arithLt] at h
+    | _ => cases op <;> simp [arithLt] at h
+  | _ => simp [arithLt] at h
+
+theorem arithEq_eval (ρ : Val) {a b e : WExpr} (h : arithEq a b = some e) :
+    e.eval ρ = (WExpr.bin .eq a b).eval ρ := by
+  cases a with
+  | bin op m y =>
+    cases y with
+    | lit c' =>
+      cases m with
+      | bin op' x z =>
+        cases z with
+        | lit c =>
+          cases op <;> cases op' <;> simp only [arithEq, reduceCtorEq] at h <;>
+            try (simp at h; done)
+          split at h
+          · rename_i hc
+            obtain ⟨rfl, hcc, hpos⟩ := hc
+            simp only [Option.some.injEq] at h
+            subst h
+            have hW1 : (1 : Nat) % wordSize = 1 := Nat.mod_eq_of_lt (by decide)
+            have hq : maxWord / (c % wordSize) < wordSize :=
+              Nat.lt_of_le_of_lt (Nat.div_le_self _ _) (Nat.sub_one_lt (by decide))
+            have key := mul_div_eq_iff (a := x.eval ρ) hpos
+            have hprod : x.eval ρ * (c % wordSize) % wordSize < wordSize := Nat.mod_lt _ (by decide)
+            have hdiv : x.eval ρ * (c % wordSize) % wordSize / (c % wordSize) < wordSize :=
+              Nat.lt_of_le_of_lt (Nat.div_le_self _ _) hprod
+            have hL : (WExpr.un .iszero (.bin .gt x (.lit (maxWord / (c % wordSize))))).eval ρ =
+                if x.eval ρ ≤ maxWord / (c % wordSize) then 1 else 0 := by
+              show (if (if (maxWord / (c % wordSize)) % wordSize < x.eval ρ then 1 else 0) % wordSize = 0
+                then 1 else 0) % wordSize = _
+              rw [Nat.mod_eq_of_lt hq]
+              by_cases h1 : x.eval ρ ≤ maxWord / (c % wordSize)
+              · rw [if_neg (Nat.not_lt.mpr h1), Nat.zero_mod, if_pos rfl, if_pos h1, hW1]
+              · rw [if_pos (Nat.lt_of_not_le h1), hW1, if_neg (by decide), if_neg h1, Nat.zero_mod]
+            have hR : (WExpr.bin .eq (.bin .div (.bin .mul x (.lit c)) (.lit c')) x).eval ρ =
+                if x.eval ρ * (c % wordSize) % wordSize / (c % wordSize) = x.eval ρ then 1 else 0 := by
+              show (if (if c' % wordSize = 0 then 0
+                  else x.eval ρ * (c % wordSize) % wordSize % wordSize / (c' % wordSize)) % wordSize =
+                  x.eval ρ then 1 else 0) % wordSize = _
+              rw [hcc, if_neg (Nat.pos_iff_ne_zero.mp hpos), Nat.mod_mod, Nat.mod_eq_of_lt hdiv]
+              split <;> simp [hW1]
+            rw [hL, hR]
+            by_cases h1 : x.eval ρ ≤ maxWord / (c % wordSize)
+            · rw [if_pos h1, if_pos (key.mpr h1)]
+            · rw [if_neg h1, if_neg (fun h => h1 (key.mp h))]
+          · simp at h
+        | _ => cases op <;> cases op' <;> simp [arithEq] at h
+      | _ => cases op <;> simp [arithEq] at h
+    | _ => cases op <;> cases m <;> simp [arithEq] at h
+  | _ => simp [arithEq] at h
+
+theorem arithBin_eval (ρ : Val) {op : BinOp} {a b e : WExpr} (h : arithBin op a b = some e) :
+    e.eval ρ = (WExpr.bin op a b).eval ρ := by
+  cases op
+  case lt => exact arithLt_eval ρ h
+  case eq => exact arithEq_eval ρ h
+  case add =>
+    simp only [arithBin] at h
+    split at h
+    · rename_i hab
+      subst hab
+      simp only [Option.some.injEq] at h
+      subst h
+      simp only [WExpr.eval, BinOp.eval, Nat.mod_mod]
+      rw [Nat.mod_eq_of_lt (show 2 < wordSize by decide)]
+      congr 1
+      omega
+    · simp at h
+  all_goals simp [arithBin] at h
+
+/-- Every word with its arithmetic in the one spelling, bottom up. -/
+def WExpr.arith : WExpr → WExpr
+  | .lit n => .lit n
+  | .arg i => .arg i
+  | .init k => .init k
+  | .un op a => .un op a.arith
+  | .bin op a b => (arithBin op a.arith b.arith).getD (.bin op a.arith b.arith)
+  | .sinit k => .sinit k.arith
+  | .sel c a b => .sel c.arith a.arith b.arith
+  | .hash a b => .hash a.arith b.arith
+  | .caller => .caller
+
+theorem WExpr.eval_arith (ρ : Val) : ∀ e : WExpr, e.arith.eval ρ = e.eval ρ
+  | .lit _ => rfl
+  | .arg _ => rfl
+  | .init _ => rfl
+  | .un op a => by simp only [WExpr.arith, WExpr.eval, WExpr.eval_arith ρ a]
+  | .bin op a b => by
+    simp only [WExpr.arith]
+    cases h : arithBin op a.arith b.arith with
+    | none => simp only [Option.getD_none, WExpr.eval, WExpr.eval_arith ρ a, WExpr.eval_arith ρ b]
+    | some e =>
+      simp only [Option.getD_some, arithBin_eval ρ h]
+      simp only [WExpr.eval, WExpr.eval_arith ρ a, WExpr.eval_arith ρ b]
+  | .sinit k => by simp only [WExpr.arith, WExpr.eval, WExpr.eval_arith ρ k]
+  | .sel c a b => by
+    simp only [WExpr.arith, WExpr.eval, WExpr.eval_arith ρ c, WExpr.eval_arith ρ a,
+      WExpr.eval_arith ρ b]
+  | .hash a b => by simp only [WExpr.arith, WExpr.eval, WExpr.eval_arith ρ a, WExpr.eval_arith ρ b]
+  | .caller => rfl
+
+/-- A byte of output, its word's arithmetic in the one spelling. -/
+def OByte.arith : OByte → OByte
+  | .lit b => .lit b
+  | .byteOf e i => .byteOf e.arith i
+
+theorem OByte.eval_arith (ρ : Val) (b : OByte) : b.arith.eval ρ = b.eval ρ := by
+  cases b <;> simp [OByte.arith, OByte.eval, WExpr.eval_arith]
+
+/-- Every word of a tree, its arithmetic in the one spelling. -/
+def Tree.arith : Tree → Tree
+  | .halt ok out ws ls =>
+    .halt ok (out.map OByte.arith) (ws.mapW WExpr.arith) (ls.map (Log.mapL WExpr.arith OByte.arith))
+  | .ite c t e => .ite c.arith t.arith e.arith
+
+theorem Tree.eval_arith (ρ : Val) : ∀ T : Tree, T.arith.eval ρ = T.eval ρ
+  | .halt ok out ws ls => by
+    simp only [Tree.arith, Tree.eval, List.map_map, Writes.store_mapW ρ _ (WExpr.eval_arith ρ)]
+    congr 2
+    · funext b
+      exact OByte.eval_arith ρ b
+    · congr 1
+      funext l
+      exact Log.eval_mapL ρ _ _ (WExpr.eval_arith ρ) (OByte.eval_arith ρ) l
+  | .ite c t e => by
+    simp only [Tree.arith, Tree.eval, WExpr.eval_arith, Tree.eval_arith ρ t, Tree.eval_arith ρ e]
+
+/-- The select `c ? 0 : x` a byte of output reads, spelled `mul x (iszero c)`: `(c, x)`. -/
+def OByte.sel? : OByte → Option (WExpr × WExpr × WExpr)
+  | .byteOf (.bin .mul x (.un .iszero c)) _ => some (.bin .mul x (.un .iszero c), c, x)
+  | _ => none
+
+/-- A byte of output with the word `w` read as `r`. -/
+def OByte.subst (w r : WExpr) : OByte → OByte
+  | .byteOf e i => if e = w then .byteOf r i else .byteOf e i
+  | b => b
+
+theorem OByte.eval_subst (ρ : Val) {w r : WExpr} (h : r.eval ρ = w.eval ρ) (b : OByte) :
+    (b.subst w r).eval ρ = b.eval ρ := by
+  cases b with
+  | lit b => rfl
+  | byteOf e i =>
+    simp only [OByte.subst]
+    split
+    · rename_i he
+      subst he
+      simp only [OByte.eval, h]
+    · rfl
+
+/-- A halt whose output holds a select `c ? 0 : x` as a branch on `c`; any other tree as it is. -/
+def Tree.unsel : Tree → Tree
+  | .halt ok out ws ls =>
+    match out.findSome? OByte.sel? with
+    | some (w, c, x) =>
+      .ite c (.halt ok (out.map (OByte.subst w (.lit 0))) ws ls)
+        (.halt ok (out.map (OByte.subst w x)) ws ls)
+    | none => .halt ok out ws ls
+  | .ite c t e => .ite c t.unsel e.unsel
+
+theorem OByte.sel?_spec {b : OByte} {w c x : WExpr} (h : b.sel? = some (w, c, x)) :
+    w = .bin .mul x (.un .iszero c) := by
+  unfold OByte.sel? at h
+  split at h
+  · simp only [Option.some.injEq, Prod.mk.injEq] at h
+    obtain ⟨rfl, rfl, rfl⟩ := h
+    rfl
+  · simp at h
+
+theorem Tree.eval_unsel (ρ : Val) : ∀ T : Tree, T.unsel.eval ρ = T.eval ρ
+  | .halt ok out ws ls => by
+    simp only [Tree.unsel]
+    split
+    · rename_i w c x hf
+      obtain ⟨b, -, hb⟩ := List.exists_of_findSome?_eq_some hf
+      have hw := OByte.sel?_spec hb
+      subst hw
+      have hx := x.eval_lt ρ
+      simp only [Tree.eval]
+      split
+      · rename_i hc
+        have hr : x.eval ρ = (WExpr.bin .mul x (.un .iszero c)).eval ρ := by
+          simp only [WExpr.eval, BinOp.eval, UnOp.eval, hc, ↓reduceIte, Nat.mod_mod]
+          rw [Nat.mod_eq_of_lt (show 1 < wordSize by decide), Nat.mul_one, Nat.mod_eq_of_lt hx]
+        simp only [List.map_map]
+        congr 2
+        funext b
+        exact OByte.eval_subst ρ hr b
+      · rename_i hc
+        have hr : (WExpr.lit 0).eval ρ = (WExpr.bin .mul x (.un .iszero c)).eval ρ := by
+          simp only [WExpr.eval, BinOp.eval, UnOp.eval, hc, ↓reduceIte]
+          simp
+        simp only [List.map_map]
+        congr 2
+        funext b
+        exact OByte.eval_subst ρ hr b
+    · rfl
+  | .ite c t e => by simp only [Tree.unsel, Tree.eval, Tree.eval_unsel ρ t, Tree.eval_unsel ρ e]
+
+/-- **The comparison form with its arithmetic in the one spelling and its selects as branches**,
+canonical again. -/
+def Tree.canonArith (T : Tree) : Tree := T.canonCmp.arith.unsel.canon
+
+theorem Tree.eval_canonArith (ρ : Val) (T : Tree) : T.canonArith.eval ρ = T.eval ρ := by
+  rw [Tree.canonArith, Tree.eval_canon, Tree.eval_unsel, Tree.eval_arith, Tree.eval_canonCmp]
+
 /-- Two trees agree: their canonical forms are equal, or, failing that, the forms with their
-comparisons in one spelling are. -/
-def Tree.agree (t1 t2 : Tree) : Bool := t1.canon.beq t2.canon || t1.canonCmp.beq t2.canonCmp
+comparisons in one spelling are, or, failing that, the forms with their arithmetic in one spelling
+and their selects as branches are. -/
+def Tree.agree (t1 t2 : Tree) : Bool :=
+  t1.canon.beq t2.canon || t1.canonCmp.beq t2.canonCmp || t1.canonArith.beq t2.canonArith
 
 /-- **Agreeing trees are equal on every call.** -/
 theorem Tree.eval_of_agree {t1 t2 : Tree} (h : Tree.agree t1 t2 = true) (ρ : Val) :
     t1.eval ρ = t2.eval ρ := by
   unfold Tree.agree at h
   rcases Bool.or_eq_true_iff.mp h with h | h
-  · rw [← Tree.eval_canon ρ t1, Tree.eq_of_beq h, Tree.eval_canon]
-  · rw [← Tree.eval_canonCmp ρ t1, Tree.eq_of_beq h, Tree.eval_canonCmp]
+  · rcases Bool.or_eq_true_iff.mp h with h | h
+    · rw [← Tree.eval_canon ρ t1, Tree.eq_of_beq h, Tree.eval_canon]
+    · rw [← Tree.eval_canonCmp ρ t1, Tree.eq_of_beq h, Tree.eval_canonCmp]
+  · rw [← Tree.eval_canonArith ρ t1, Tree.eq_of_beq h, Tree.eval_canonArith]
 
 /-- What the old comparison accepts, `agree` accepts. -/
 theorem Tree.agree_of_beq {t1 t2 : Tree} (h : t1.canon.beq t2.canon = true) :
