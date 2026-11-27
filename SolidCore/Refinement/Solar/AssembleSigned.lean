@@ -11,7 +11,7 @@ import SolarTV.Word
 The assembly checker (`Assemble.check` and the checkers built on its step) runs a stack
 operation of the final EVM IR at its opcode with EthLib's own rule for that opcode and shows
 that EthLib computes the word SolarTV's EVM IR semantics computes, `EvmRules.Evm`'s operation
-(`Assemble.stack_rule`). This file gives that equality for the signed operations and EXP:
+(`Assemble.stack_rule`). This file gives that equality for the signed operations, and for EXP:
 
 * `sdiv_agree`: EthLib's SDIV, written over two's-complement integers (the quotient rounded
   toward zero, `-2^255 / -1 = -2^255`, and 0 for a divisor of 0), is `BitVec.sdiv`;
@@ -25,6 +25,11 @@ that EthLib computes the word SolarTV's EVM IR semantics computes, `EvmRules.Evm
 * `exp_agree`: EthLib's EXP (square-and-multiply modulo `2^256`) is SolarTV's `Word.power`
   (square-and-multiply on words), and `exp_cost_le` bounds its price at Fusaka by 1610 (10 and
   50 for each of at most 32 bytes of exponent).
+
+NOTE: EXP is not in the checker's fragment yet. Its rule is EthLib's EXP, not a two-operand rule
+of 5 gas, so running it would change the statements of `Assemble.stack_rule` and
+`AssembleLoop.stack_ruleG` (their gas bound from 5 to 1610) or of `Assemble.lowerInstr_stack`;
+the two lemmas here are what that change needs.
 
 Every proof goes through `BitVec.toInt` or `BitVec.toNat` and Lean's own `BitVec` lemmas; no
 solver and no evaluation of symbolic words.
