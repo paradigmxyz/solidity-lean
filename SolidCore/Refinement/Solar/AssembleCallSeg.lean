@@ -1316,7 +1316,8 @@ theorem advances_checkCS {p : Assemble.Program} {c : Cert} {mx : List Nat} {code
 
 /-- **Named hypothesis on a run of the bytecode**: when the run of the call succeeds, every frame of
 the code at a STATICCALL byte whose run goes on to its final frame (reached from the start or not)
-calls an address outside SolidCore's precompile set, or ECRECOVER priced (`CalleesOk`). -/
+calls an address outside SolidCore's precompile set, or ECRECOVER (address 1) with no delegation
+there and at least 3000 gas passed on (`CalleesOk`). -/
 def CalleesRun (gas : Nat) (code : ByteArray) (call : Call) : Prop :=
   ∀ r, processMessage (Meter := Nat) .fusaka (Final.Target.messageWith gas code call)
       (SolidCore.Refinement.Target.preState code call) Substate.empty = .ok r → r.1.error = none →

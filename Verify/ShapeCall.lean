@@ -47,9 +47,10 @@ open SolidCore.Solidity.Source EvmCompiler.Simulation
 
 /-- **The callee-world assumption on the environment**: its accounts are well formed, and in every
 successful run of a valid call, each frame of the code at a `STATICCALL` byte whose run goes on to
-the final frame (reached from the run's start or not)
-calls an address outside SolidCore's precompile set (`0x01`–`0x0a`, whatever code or delegation is
-there, possibly none) or calls ECRECOVER priced (`AssembleCallOpen.CalleesRunOpen`). -/
+the final frame (reached from the run's start or not) calls an address outside SolidCore's
+precompile set (`0x01`–`0x0a`, whatever code or delegation is there, possibly none) or calls
+ECRECOVER (address 1) with no delegation there and at least 3000 gas passed on
+(`AssembleCallOpen.CalleesRunOpen`). -/
 def CallEnvOk (fns : List CFn) (code : ByteArray) (env : TargetEnv) : Prop :=
   env.WF ∧ ∀ gas, gas < 2 ^ 256 → ∀ call, CValid fns call →
     AssembleCallOpen.CalleesRunOpen env gas code call
