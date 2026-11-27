@@ -131,6 +131,7 @@ of a source triple with the refinement to bytecode (Verify/Final.lean). `lake bu
 builds the root's closure; the libraries below hold the heavier, generated-input parts. -/
 lean_lib Verify where
   roots := #[`Verify, `Verify.AnyCaller.Tests, `Verify.Lifecycle.Life, `Verify.Gas.FixedFuel.Counted,
+    `Verify.ShapeGenericRuntime,
     `Verify.ShapeSpecExportTac, `Verify.Spec.TreeSucceedsTry]
 
 -- bank's and events' assembly stages against solar's exports (solar-tv/milestone/bank and
