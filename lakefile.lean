@@ -705,3 +705,51 @@ lean_lib «erc20_any» where
   srcDir := "Certified"
   roots := #[`erc20_any.Statement, `erc20_any.Proof, `erc20_any.Final]
   globs := #[.submodules `erc20_any]
+
+-- The loop-source and runtime proof cones, which no library above reaches: the loop link from
+-- SolidCore to solar's first lowered MIR and its Counter instance (Verify/LoopSource), runtime
+-- partial correctness from every caller (Verify/Partial), the all-value statements
+-- (Verify/AllValue), the constructor and value stages (SolidCore/Refinement/Generic/CtorAll.lean,
+-- StageFromValue.lean), the symbolic lifecycle and constructors (Verify/Lifecycle/Symbolic.lean,
+-- Verify/Lifecycle/Deploy/CtorsAll.lean) and the VC certificate (Verify/VC/Cert.lean). The globs
+-- take every file under these directories, so a new module there is built too. The roots are the
+-- cone's leaves. The *Challenge modules are statement files closed with `sorry` that nothing
+-- imports (audits restate them with `example`): they build with warnings, and no root or
+-- audited theorem rests on them. The options are the package's, as for `Verify` and
+-- `SolidCore`, which own these modules when another library imports them.
+lean_lib VerifyLoopSource where
+  roots := #[`Verify.LoopSource.Equiv.Checked, `Verify.LoopSource.Equiv.Counter.Check,
+    `Verify.LoopSource.Equiv.Counter.Neg, `Verify.LoopSource.Equiv.Counter.Proofs,
+    `Verify.LoopSource.Equiv.Counter.gen.Counter.Manifest, `Verify.LoopSource.Equiv.CounterAllAudit,
+    `Verify.LoopSource.Equiv.CounterClosedCtx, `Verify.LoopSource.Equiv.CounterCreated,
+    `Verify.LoopSource.Equiv.CounterExact, `Verify.LoopSource.Equiv.EraseLoopCounterShape,
+    `Verify.LoopSource.Equiv.EraseLoopResources, `Verify.LoopSource.MirLink.Check,
+    `Verify.LoopSource.RC.HeadlineCheck, `Verify.Partial.CounterVariant,
+    `Verify.AllValue.CounterValue, `Verify.AllValue.CounterValueBytes,
+    `Verify.Lifecycle.Deploy.CtorsAll, `Verify.VC.Cert,
+    -- `while` loops through an invariant: the source join, its published theorem and generator.
+    `Verify.LoopSource.Invariant.Join, `Verify.LoopSource.Invariant.Final,
+    `Verify.LoopSource.Invariant.GenWhile, `Verify.LoopSource.Invariant.HornStage,
+    `Verify.LoopSource.Invariant.Control]
+  globs := #[.submodules `Verify.LoopSource, .submodules `Verify.Partial, .submodules `Verify.AllValue,
+    .one `SolidCore.Refinement.Generic.CtorAll, .one `SolidCore.Refinement.Generic.StageFromValue,
+    .one `Verify.Lifecycle.Symbolic, .one `Verify.Lifecycle.Deploy.CtorsAll, .one `Verify.VC.Cert,
+    -- Built on the cone: the spec tree through loops (Verify/Spec/TreeLoop*.lean) and the
+    -- caller and value contexts (Verify/Phase2).
+    .one `Verify.Spec.TreeLoop, .one `Verify.Spec.TreeLoopCheck, .one `Verify.Spec.TreeLoopCounter,
+    .one `Verify.Spec.TreeLoopFrame, .submodules `Verify.Phase2,
+    -- Fixed-fuel gas from the compiled IR's measured loop costs and its generated instances
+    -- (Verify/Gas/FixedFuel/Measured.lean, Gen/), and the constructor's argument words
+    -- (Verify/Generic/CtorWords.lean).
+    .one `Verify.Gas.FixedFuel.Measured, .submodules `Verify.Gas.FixedFuel.Gen,
+    .one `Verify.Generic.CtorWords,
+    -- Recursion's cut points and invariant discovery (Verify/Phase3), and the assembly checker's
+    -- entry heights from the run at a recursive function's cut points.
+    .submodules `Verify.Phase3, .one `SolidCore.Refinement.Solar.AssembleRec]
+
+-- Counter's loop contract, the published statement over the run's own bytes and its proof through
+-- the eraseLoop route (solar tools/certify; Certified/counter_loop).
+lean_lib «counter_loop» where
+  srcDir := "Certified"
+  roots := #[`counter_loop.Statement, `counter_loop.Final]
+  globs := #[.submodules `counter_loop]
