@@ -5,9 +5,10 @@ import SolidCore.Refinement.Solar.AssembleCallOpen
 /-!
 # The open shape of a contract whose functions make one external call
 
-A contract of the call route is certified as `Shapes.OpenFunctional` (Verify/ShapeOpen.lean): its
-exact bytecode in every admitted environment, against SolidCore's checked source in every admitted
-open world, on the valid calls `CValid` (Generic/CallStage.lean: no value, and a target argument
+A contract of the call route is certified as `Shapes.OpenFunctional` (Verify/ShapeOpen.lean): on
+the valid calls, the checked source terminates in every admitted open world, and every result of its
+exact bytecode in every admitted environment is the source's result in **some** admitted open world
+(or a failure that changes nothing), on the valid calls `CValid` (Generic/CallStage.lean: no value, and a target argument
 that is not the contract and whose low 160 bits are no address of EthLib's Fusaka precompile set,
 `0x01`–`0x11` and `0x100`; nothing about its code). What the statement assumes is
 named in it:
@@ -45,7 +46,8 @@ open SolarTV SolidCore.Refinement SolidCore.Refinement.Generic SolidCore.Refinem
 open SolidCore.Solidity.Source EvmCompiler.Simulation
 
 /-- **The callee-world assumption on the environment**: its accounts are well formed, and in every
-successful run of a valid call, each frame at a `STATICCALL` whose run goes on to the final frame
+successful run of a valid call, each frame of the code at a `STATICCALL` byte whose run goes on to
+the final frame (reached from the run's start or not)
 calls an address outside SolidCore's precompile set (`0x01`–`0x0a`, whatever code or delegation is
 there, possibly none) or calls ECRECOVER priced (`AssembleCallOpen.CalleesRunOpen`). -/
 def CallEnvOk (fns : List CFn) (code : ByteArray) (env : TargetEnv) : Prop :=

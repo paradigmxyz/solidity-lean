@@ -329,8 +329,9 @@ theorem within_of_advancesQ_in {env : TargetEnv} (hwf : env.WF) {p : Assemble.Pr
 
 /-! ## The checker with contexts in the environment -/
 
-/-- **Named hypothesis on a run in the environment**: when it succeeds, each frame at a STATICCALL
-whose run goes on to the final frame (`AssembleCallSeg.CalleesOkR`) calls an address outside
+/-- **Named hypothesis on a run in the environment**: when it succeeds, each frame of the code at a
+STATICCALL byte whose run goes on to the final frame, reached from the start or not
+(`AssembleCallSeg.CalleesOkR`), calls an address outside
 SolidCore's precompile set (`AssembleCallSeg.CalleeOk`: `0x01`–`0x0a`, whatever code, possibly
 none, or delegation is there), or ECRECOVER as `AssembleCallSeg.PreRun` asks. -/
 def CalleesRunOpen (env : TargetEnv) (gas : Nat) (code : ByteArray) (call : Call) : Prop :=
@@ -442,8 +443,10 @@ theorem assembly_of_checkXB_norm_open {p : Assemble.Program} {code : ByteArray} 
 
 open SolidCore.Solidity.Source EvmCompiler.Simulation in
 /-- **What the source stage may assume of a world**: the other accounts' code is at addresses below
-`2 ^ 160`, and a static call to code (`toCode`: no value, an address outside SolidCore's precompile
-set, whatever code is there) is answered with fewer than `2 ^ 256` bytes of return data. Only calls to code: an open world answers a precompile call as SolidCore does
+`2 ^ 160`, and a static call to code (`toCode`: a STATICCALL SolidCore does not answer as a
+precompile, that is with a nonzero value or to an address outside SolidCore's precompile set,
+whatever code is there) is answered with fewer than `2 ^ 256` bytes of return data. Only calls to
+code: an open world answers a precompile call as SolidCore does
 (`World.Open.precompiles`), and IDENTITY returns its input, so no open world bounds every answer. -/
 def Fits (W : World) : Prop :=
   (∀ p ∈ W.codes.getD [], p.1 < 2 ^ 160) ∧

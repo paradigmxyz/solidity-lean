@@ -19,7 +19,9 @@ that succeeds (`rdc_back`).
 The final theorems name what they assume of the run, beside `AssembleCallCut.StaticOk`'s
 `StaticNoLogs` and `OutputFits`:
 
-* `CalleesOk`: at every STATICCALL of the run, the callee address is outside SolidCore's precompile
+* `CalleesOk`: at every frame of the code at a STATICCALL byte (`0xfa`) whose run goes on to the
+  successful run's final frame (whether or not the run reached that frame from its start), the
+  callee address is outside SolidCore's precompile
   set (`0x01`–`0x0a`; EthLib's Fusaka set is larger, `0x01`–`0x11` and `0x100`), or it is
   ECRECOVER's and `AssembleCallCut.PreOk` holds (the named `AssembleCallPre.EcrecoverAgree`, at
   least 3000 gas passed on, no delegation at address 1); then the source's answer gives the flag
@@ -29,8 +31,10 @@ The final theorems name what they assume of the run, beside `AssembleCallCut.Sta
   (`AssembleCall.staticcall_routes_of_ok`), and delegated callees are covered
   (`AssembleCall.staticcall_back` follows EthLib's `callKindRoute` along any route).
 
-Throughout, a "call to code" is `AssembleCallWorld.toCode`: a STATICCALL with no value to an address
-outside SolidCore's precompile set. It says nothing of the account there, which may have no code.
+Throughout, a "call to code" is `AssembleCallWorld.toCode`: a STATICCALL that SolidCore does not
+answer as a precompile (`prePath`), that is one with a nonzero value or one to an address outside
+SolidCore's precompile set; with value zero, as here, it is the address test alone (`CalleeOk`).
+It says nothing of the account there, which may have no code.
 -/
 
 namespace SolidCore.Refinement.Solar.AssembleCallSeg
@@ -1310,8 +1314,9 @@ theorem advances_checkCS {p : Assemble.Program} {c : Cert} {mx : List Nat} {code
       (fun y e => AssembleLoop.meas p c e.gas y.1) T0 x evm :=
   advances_checkCS_in G codes hcr hdata hvalue hstatic hself hcaller hbenv htx hgas hdepth T0 x evm hE (fun _ _ _ h => h.1.toIn)
 
-/-- **Named hypothesis on a run of the bytecode**: the run of the call, when it succeeds, calls an
-address outside SolidCore's precompile set, or ECRECOVER priced, at each STATICCALL (`CalleesOk`). -/
+/-- **Named hypothesis on a run of the bytecode**: when the run of the call succeeds, every frame of
+the code at a STATICCALL byte whose run goes on to its final frame (reached from the start or not)
+calls an address outside SolidCore's precompile set, or ECRECOVER priced (`CalleesOk`). -/
 def CalleesRun (gas : Nat) (code : ByteArray) (call : Call) : Prop :=
   ∀ r, processMessage (Meter := Nat) .fusaka (Final.Target.messageWith gas code call)
       (SolidCore.Refinement.Target.preState code call) Substate.empty = .ok r → r.1.error = none →
@@ -1469,9 +1474,10 @@ def CalleesOkR (code : ByteArray) (msg : Message .fusaka)
     runFrame (step .fusaka) (step_decreases .fusaka) bound runChild e within = .ok fin →
     CalleeOk addr ∨ PreRun P st ss M g asked addr inOff inSize outOff outSize
 
-/-- **Named hypothesis on a run**, without the ECRECOVER agreement: its STATICCALLs call addresses
-outside SolidCore's precompile set (`CalleeOk`, whatever code is there), or ECRECOVER as `PreRun`
-asks. -/
+/-- **Named hypothesis on a run**, without the ECRECOVER agreement: when the run succeeds, every frame
+of the code at a STATICCALL byte whose run goes on to its final frame (reached from the start or
+not: `CalleesOkR`) calls an address outside SolidCore's precompile set (`CalleeOk`, whatever code is
+there), or ECRECOVER as `PreRun` asks. -/
 def CalleesRunR (gas : Nat) (code : ByteArray) (call : Call) : Prop :=
   ∀ r, processMessage (Meter := Nat) .fusaka (Final.Target.messageWith gas code call)
       (SolidCore.Refinement.Target.preState code call) Substate.empty = .ok r → r.1.error = none →
@@ -1493,9 +1499,10 @@ of the runner.
 specification at every open world, its totality, the stages and the checker give the
 specification of the exact bytecode at every gas below `2 ^ 256`, under the named hypotheses
 `StaticRunner` (EIP-214 logs, output sizes), `AssembleCallPre.EcrecoverAgree` (SolidCore's and
-EthLib's ECRECOVER agree) and `CalleesRunR` (each STATICCALL of the run calls an address outside
-SolidCore's precompile set, whatever code is there, or ECRECOVER with its price passed on and no
-delegation at address 1). -/
+EthLib's ECRECOVER agree) and `CalleesRunR` (every frame of the code at a STATICCALL byte whose run
+goes on to the successful run's final frame, reached or not, calls an address outside SolidCore's
+precompile set, whatever code is there, or ECRECOVER with its price passed on and no delegation at
+address 1). -/
 theorem holds_of_checkCB_named {St : Type} {fuel : Nat}
     {mirSem : SolarTV.Machine.Oracle → Sem} {c : SolidCore.Solidity.TypeCheck.CheckedContract}
     {mir : ∀ o, (mirSem o).Prog} {p : Assemble.Program} {code : ByteArray} {cert : Cert}
