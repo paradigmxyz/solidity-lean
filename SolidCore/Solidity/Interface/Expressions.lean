@@ -4466,11 +4466,15 @@ def ContractDecl.qualifyCollidingEventErrors
         (ContractItem.qualifyCollidingEventErrors collidingEvents
           collidingErrors) }
 
+/-- The temporary that holds a modifier's argument `index`. Named by `toString` (`Nat.repr`):
+the same string `reprStr` prints at run time, but one the kernel computes, since `reprStr` goes
+through `Std.Format.pretty`, whose printer is `partial` and so opaque to the kernel and to proofs. -/
 def modifierArgTempName (index : Nat) : Name :=
-  "_sol_mod_arg" ++ reprStr index
+  "_sol_mod_arg" ++ toString index
 
+/-- The runtime name of a modifier's parameter `index`, by `toString` as `modifierArgTempName`. -/
 def modifierParamRuntimeName (index : Nat) : Name :=
-  "_sol_mod_param" ++ reprStr index
+  "_sol_mod_param" ++ toString index
 
 abbrev NameAliasEnv := List (Name × Name)
 
