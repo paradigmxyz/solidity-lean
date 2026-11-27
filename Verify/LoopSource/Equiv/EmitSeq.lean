@@ -4,7 +4,7 @@ import Verify.LoopSource.Equiv.Seq
 # Inferring a loop's invariant from traces, and emitting its sequents (untrusted)
 
 Nothing here is trusted: what it emits is a module of sequents whose validity the kernel checks
-(`wordnorm` proofs) and whose relation to the leaves the kernel computes (`allSeqs … = some ss`).
+(`wordnorm` proofs, or for a sequent `wordnorm` leaves unchanged, `F.Holds` unfolded by `simp`) and whose relation to the leaves the kernel computes (`allSeqs … = some ss`).
 
 `traceVals` runs the leaves of a cut-point check on concrete calls: from the entry run's leaf whose
 facts hold, then the iteration runs' leaves, collecting every header valuation reached. `inferT`
@@ -60,9 +60,13 @@ def chunks {α : Type} (k : Nat) (l : List α) : List (List α) :=
   (List.range k).map (fun i => (l.drop (i * m)).take m) |>.filter (· ≠ [])
 
 /-- The modules: `<pre>Data` (the leaves, invariant, measure and unique sequents `q_i`), `<pre>V<j>`
-(each sequent's `wordnorm` proof) and `<pre>Obl` (the obligations). Returns (file stem, text). -/
+(each sequent's `wordnorm` proof) and `<pre>Obl` (the obligations). Returns (file stem, text).
+
+`ext?` is text put into `<pre>Obl` before the theorem `tree`; with it, `tree` is proved by
+`treeBy?` when given (a term over what `ext?` declares), else from `ext?`'s `shape_eq`. -/
 def emitSeqs (dataImports oblImports : List String) (pre ns opens chk tree : String) (n : Nat) (cases : String)
-    (le li : List (Facts × Out)) (T : Tree) (I : List F) (μ : WExpr) (ss : List Seq) (files : Nat) (ext? : Option String := none) :
+    (le li : List (Facts × Out)) (T : Tree) (I : List F) (μ : WExpr) (ss : List Seq) (files : Nat) (ext? : Option String := none)
+    (treeBy? : Option String := none) :
     List (String × String) :=
   let uniq := ss.eraseDups
   let idx (s : Seq) : Nat := uniq.idxOf s
@@ -79,14 +83,16 @@ def emitSeqs (dataImports oblImports : List String) (pre ns opens chk tree : Str
   let vfiles := (groups.zipIdx).map fun (g, j) =>
     (s!"{pre}V{j}", hdr [s!"{pre.replace "/" "."}Data"] "" "" ++
       String.intercalate "\n" (g.map fun (_, i) =>
-        s!"theorem v{i} : Seq.Valid q{i} := by\n  simp only [q{i}, Seq.Valid]\n  wordnorm\n") ++ s!"\nend {ns}\n")
+        s!"theorem v{i} : Seq.Valid q{i} := by\n  simp only [q{i}, Seq.Valid]\n  first\n    | wordnorm\n    | (intro σ _\n       simp [Verify.LoopSource.Equiv.Inv.F.Holds])\n") ++ s!"\nend {ns}\n")
   let vimps := (groups.zipIdx).map fun (_, j) => s!"{pre.replace "/" "."}V{j}"
   let conj := ss.foldr (fun s acc => s!"List.forall_mem_cons.mpr ⟨v{idx s}, {acc}⟩") "fun _ h => absurd h List.not_mem_nil"
   let lit := "[" ++ String.intercalate ", " (ss.map fun s => s!"q{idx s}") ++ "]"
   let obl := hdr (["Verify.LoopSource.Equiv.Emit", "SolidCore.Refinement.KernelRfl"] ++ oblImports ++ vimps) "" opens ++
     s!"theorem leaves : {chk} = some (le, li) := resBeq_eq (by decide +kernel)\n\n" ++
     (match ext? with
-      | some ext => ext ++ s!"theorem tree : {tree} = some T := by\n  rw [Verify.LoopSource.Equiv.GenObl.treeOf_of_shape _ shape_eq]\n  exact treeBeq_eq (by decide +kernel)\n\n"
+      | some ext => ext ++ match treeBy? with
+        | some pf => s!"theorem tree : {tree} = some T :=\n  {pf}\n\n"
+        | none => s!"theorem tree : {tree} = some T := by\n  rw [Verify.LoopSource.Equiv.GenObl.treeOf_of_shape _ shape_eq]\n  exact treeBeq_eq (by decide +kernel)\n\n"
       | none => s!"/-- The source tree, as the kernel computes it by conversion (`kernel_rfl`). -/\ndef treeV : Option SolidCore.Refinement.Generic.Tree := {tree}\n\nkernel_rfl tree_eq treeV (some T)\n\ntheorem tree : {tree} = some T := tree_eq\n\n") ++
     s!"theorem seqs : allSeqs {n} {cases} T le li I μ = some ss := by decide +kernel\n\n" ++
     s!"theorem valid : ∀ s ∈ ss, s.Valid :=\n  show ∀ s ∈ {lit}, Seq.Valid s from\n  {conj}\n\n" ++
