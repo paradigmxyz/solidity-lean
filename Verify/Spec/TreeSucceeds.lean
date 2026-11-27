@@ -52,6 +52,44 @@ theorem treeMeetsFixed_of_succeeds {b : Bundle} {fs : FnSpec} {ctx : Ctx} {n : N
   exact ⟨(h args s iargs pre hl ha hs' hd hst ht hr hi).1,
     fun _ hsat => hs args s iargs pre hl ha hs' hd hst ht hr hi hsat⟩
 
+/-! ## Closing word goals the case split leaves
+
+What the last steps of `tree_succeeds_map` and `tree_meets_map'` fall back on when `omega` and
+`simp_all` leave a goal: SolidCore reads a packed field with a low mask (`x &&& (2 ^ k - 1)`, an
+address at `2 ^ 160 - 1`) where a spec reads it modulo `2 ^ k`; a spec's slot of a mapping entry
+holds the key as `((a : Int) % 2 ^ 256).toNat`; and a succeeds-if disjunct such as
+`msg.sender == to` is an equation of a word with a literal, which `omega` cannot carry into the
+keys of the storage function. Each rewrite below is an equation, so nothing is assumed. -/
+
+/-- A word cast to `Int`, modulo a literal, back in the naturals (the literal as `OfNat`, under
+any instance that is the cast). -/
+theorem toNat_natCast_emod_lit (a N : Nat) [N.AtLeastTwo] :
+    ((a : Int) % (no_index (OfNat.ofNat N : Int))).toNat = a % N := by
+  rw [show (OfNat.ofNat N : Int) = ((N : Nat) : Int) from rfl, ← Int.natCast_emod, Int.toNat_natCast]
+
+open Lean Meta Simp in
+/-- `x &&& m = x % (m + 1)` for a literal `m` with `m + 1` a power of two
+(`Nat.and_two_pow_sub_one_eq_mod`). -/
+simproc_decl reduceLandLowMask ((_ : Nat) &&& _) := fun e => do
+  let_expr HAnd.hAnd _ _ _ _ x m ← e | return .continue
+  let some mv ← Nat.fromExpr? m | return .continue
+  let k := (mv + 1).log2
+  unless mv + 1 = 2 ^ k do return .continue
+  let rhs ← mkAppM ``HMod.hMod #[x, mkNatLit (mv + 1)]
+  let pf ← mkAppM ``Nat.and_two_pow_sub_one_eq_mod #[x, mkNatLit k]
+  return .done { expr := rhs, proof? := some (← mkExpectedTypeHint pf (← mkEq e rhs)) }
+
+/-- The fallback of the last steps: the rewrites above, words below `2 ^ 256` reduced, then
+`omega`, else every disjunction and conjunction of the hypotheses split, casts normalized, each
+variable equal to a term substituted, and `omega` or `simp_all`. -/
+macro "spec_word_close" : tactic => `(tactic| (
+  (try simp only [reduceLandLowMask, toNat_natCast_emod_lit] at *)
+  (try simp (disch := omega) only [Nat.mod_eq_of_lt] at *)
+  first
+  | omega
+  | (casesm* _ ∨ _, _ ∧ _ <;> (try norm_cast at *) <;> (try subst_vars) <;>
+      first | omega | (simp_all; done) | (simp_all; omega))))
+
 /-- What `tree_succeeds` and `tree_succeeds_map` do after their case split: evaluate the tree and
 the succeeds-if terms `hsi`, reducing each word mod `2 ^ 256`; with `map`, by the slot hash's bound
 `hlt` and `hkec` too. -/
@@ -99,7 +137,8 @@ macro "tree_succeeds_map" "[" ds:Lean.Parser.Tactic.simpLemma,* "]" hsep:term:ma
     #[← `(tactic| all_goals ((try split_ifs) <;> (try rfl) <;> first
       | (hash_facts H s hinj hge hlt hs; omega)
       | (hash_facts H s hinj hge hlt hs; simp_all; done)
-      | (hash_facts H s hinj hge hlt hs; simp_all; omega)))])
+      | (hash_facts H s hinj hge hlt hs; simp_all; omega)
+      | (hash_facts H s hinj hge hlt hs; spec_word_close)))])
 
 /-- `tree_meets_map' [defs] hsep`: `tree_meets_map`, with each simplification step allowed to make
 no progress (a spec with no invariants, or a goal a step leaves alone), as `spec_connect` uses it for
@@ -110,6 +149,6 @@ macro "tree_meets_map'" "[" ds:Lean.Parser.Tactic.simpLemma,* "]" hsep:term:max 
     ← chainTactics ((← decodeArgs ds) ++ (← hashLinks (← `(map_inj' $hsep)) (← `(map_ge' $hsep))) ++
       #[← `(tactic| refine ⟨fun hsucc => ?_, fun hne => ?_⟩)])] ++
     (← meetsSteps ds true false (← invBase)) ++
-    #[← splitGoals false, ← `(tactic| all_goals (hash_facts H s hinj hge hlt hs; (try split_ifs) <;> first | omega | (simp_all; done) | (simp_all; omega)))])
+    #[← splitGoals false, ← `(tactic| all_goals (hash_facts H s hinj hge hlt hs; (try split_ifs) <;> first | omega | (simp_all; done) | (simp_all; omega) | spec_word_close))])
 
 end SolidCore.Spec
