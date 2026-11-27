@@ -8,7 +8,7 @@ import SolidCore.Refinement.Generic.Packed
 `eraseExpr` erases a SolidCore expression of the fragment (word literals, locals, unsigned
 cleanups `uintCleanup b` and truncating casts `uintCast b` for `0 < b ≤ 256`, the latter to
 `and v (2 ^ b - 1)`, checked `+`, `-`, `*`, the bitwise `&`, `|`, `^`, the comparisons `<`,
-`>`, `==`, reads of unsigned storage fields, alone in their slot or packed with others, and reads of
+`>`, `==`, division `/` by a literal other than zero (which never reverts), reads of unsigned storage fields, alone in their slot or packed with others, and reads of
 mapping entries, by index or, as a public getter reads them, by `.load` through the storage
 path of their one or two keys) to
 its overflow conditions and its word, over a symbolic state of locals and storage writes
@@ -226,6 +226,12 @@ def eraseExpr (fields : List StorageField) (S : SymState) : Expr → Option (Lis
       if b = 256 then some (gs, v)
       else if 0 < b ∧ b < 256 then some (gs, .bin .and v (.lit (2 ^ b - 1)))
       else none
+  | .binary .div l r => do
+    let (gl, vl) ← eraseExpr fields S l
+    let (gr, vr) ← eraseExpr fields S r
+    match gr, vr with
+    | [], .lit k => if k % wordSize = 0 then none else some (gl, .bin .div vl (.lit k))
+    | _, _ => none
   | .binary op l r =>
     match binOf op with
     | some o => do
@@ -312,6 +318,14 @@ theorem subWord_eq (a b : Nat) (ha : a < wordSize) (hb : b < wordSize) :
     toNat_ofNat_u256, Nat.mod_mod, Nat.mod_eq_of_lt hb, Nat.mod_eq_of_lt ha]
   rw [Nat.add_comm]
 
+theorem toNat_div_u256 (x y : EvmYul.UInt256) : (x.div y).toNat = x.toNat / y.toNat := rfl
+
+open SolidCore.Solidity.Shared in
+theorem divWord_eq (a b : Nat) (ha : a < wordSize) (hb : b < wordSize) : divWord a b = a / b := by
+  simp only [divWord, liftEvmBinary, ofEvmWord, toEvmWord, norm, modulus_eq, toNat_div_u256,
+    toNat_ofNat_u256, Nat.mod_eq_of_lt ha, Nat.mod_eq_of_lt hb]
+  exact Nat.mod_eq_of_lt (Nat.lt_of_le_of_lt (Nat.div_le_self _ _) ha)
+
 open SolidCore.Solidity.Shared in
 theorem mulWord_eq (a b : Nat) : mulWord a b = (a * b) % wordSize := by
   simp only [mulWord, liftEvmBinary, ofEvmWord, toEvmWord, norm, modulus_eq, toNat_mul_u256,
@@ -356,6 +370,12 @@ theorem apply_mul (a b : Nat) (ha : a < wordSize) (hb : b < wordSize) :
   simp [BinaryOp.apply, Value.forceAbiLazy, BinaryOp.applyWord, checkedMul, norm_lt ha, norm_lt hb,
     bind, Except.bind, Functor.map, Except.map, wordModulus, RevertData.overflow, mulWord_eq, h,
     modulus_eq]
+
+/-- Checked division by a word other than zero is the quotient, and never reverts. -/
+theorem apply_div (a b : Nat) (ha : a < wordSize) (hb : b < wordSize) (hb0 : b ≠ 0) :
+    BinaryOp.apply true .div (.word a) (.word b) = .ok (.word (a / b)) := by
+  simp [BinaryOp.apply, Value.forceAbiLazy, BinaryOp.applyWord, checkedDiv, norm_lt ha, norm_lt hb,
+    hb0, bind, Except.bind, Functor.map, Except.map, divWord_eq a b ha hb]
 
 theorem apply_lt (a b : Nat) (ha : a < wordSize) (hb : b < wordSize) :
     BinaryOp.apply true .lt (.word a) (.word b) = .ok (.word (if a < b then 1 else 0)) := by
@@ -1194,11 +1214,48 @@ theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
         · simp [eraseExpr, hh, he, hb, hb2] at h
     all_goals simp [eraseExpr] at h
   | binary op l r =>
+    by_cases hdiv : op = .div
+    · subst hdiv
+      cases hl : eraseExpr fields S l with
+      | none => simp [eraseExpr, hl] at h
+      | some pl =>
+      cases hr : eraseExpr fields S r with
+      | none => simp [eraseExpr, hl, hr] at h
+      | some pr =>
+      obtain ⟨gl, vl⟩ := pl
+      obtain ⟨gr, vr⟩ := pr
+      simp only [eraseExpr, hl, hr, Option.bind_eq_bind, Option.bind_some] at h
+      split at h
+      · rename_i k
+        split at h
+        · simp at h
+        · rename_i hk0
+          simp only [Option.some.injEq, Prod.mk.injEq] at h
+          obtain ⟨rfl, rfl⟩ := h
+          have hfl : Expr.orderFuel l < n := by simp [Expr.orderFuel] at hf; omega
+          have hfr : Expr.orderFuel r < n := by simp [Expr.orderFuel] at hf; omega
+          have ihl := eval_erase ρ fields ctx rt S hrel l gl vl n hl hfl
+          have ihr := eval_erase ρ fields ctx rt S hrel r [] (.lit k) n hr hfr
+          have hal := vl.eval_lt ρ
+          have hk : k % wordSize < wordSize := Nat.mod_lt _ (by decide)
+          have hq : vl.eval ρ / (k % wordSize) < wordSize :=
+            Nat.lt_of_le_of_lt (Nat.div_le_self _ _) hal
+          simp only [Expr.evalFuel, ihr, bind_exprResult, hrel.checked]
+          unfold exprResult
+          simp only [List.any_nil, Bool.false_eq_true, ↓reduceIte, ihl, bind_exprResult]
+          by_cases hgl : gl.any (fun g => g.eval ρ != 0) = true
+          · simp [hgl]
+          · simp only [hgl, Bool.false_eq_true, ↓reduceIte]
+            simp only [pure, EvmCompiler.Simulation.Interaction.pure, bind,
+              EvmCompiler.Simulation.Interaction.bind, liftM, monadLift, MonadLift.monadLift,
+              WExpr.eval, apply_div _ _ hal hk hk0, SolI.ofExcept, BinOp.eval, hk0, if_false,
+              Nat.mod_eq_of_lt hq]
+      · simp at h
     cases hl : eraseExpr fields S l with
-    | none => cases op <;> simp [eraseExpr, hl, binOf, negOf] at h
+    | none => cases op <;> first | exact absurd rfl hdiv | simp [eraseExpr, hl, binOf, negOf] at h
     | some pl =>
     cases hr : eraseExpr fields S r with
-    | none => cases op <;> simp [eraseExpr, hl, hr, binOf, negOf] at h
+    | none => cases op <;> first | exact absurd rfl hdiv | simp [eraseExpr, hl, hr, binOf, negOf] at h
     | some pr =>
     obtain ⟨gl, vl⟩ := pl
     obtain ⟨gr, vr⟩ := pr
@@ -1208,7 +1265,9 @@ theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
     have ihr := eval_erase ρ fields ctx rt S hrel r gr vr n hr hfr
     have hal := vl.eval_lt ρ
     have har := vr.eval_lt ρ
-    cases op <;> simp only [eraseExpr, hl, hr, binOf, negOf, overflow, Option.bind_eq_bind,
+    cases op
+    case div => exact absurd rfl hdiv
+    all_goals simp only [eraseExpr, hl, hr, binOf, negOf, overflow, Option.bind_eq_bind,
       Option.bind_some, Option.some.injEq, Prod.mk.injEq, reduceCtorEq, Option.bind_none] at h
     all_goals first
       | (simp at h; done)
