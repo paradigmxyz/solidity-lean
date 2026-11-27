@@ -4,7 +4,7 @@ import Verify.Phase3.RecSource.Join
 /-!
 # RecSum: a concrete gas bound, from the final EVM IR's block count
 
-`total_returns_bytecode` (lane 185) gives the bytecode's result from an existential gas `G` on each
+`total_returns_bytecode` gives the bytecode's result from an existential gas `G` on each
 call: the assembly checker's bound `gasBoundL cert n` for a block count `n` that the backend stages'
 forward simulation only shows to exist. Here the count is computed on the final EVM IR itself
 (`evm6`): the recursive function's blocks run `2 * v + 2` times from an entry at measure `v` (by

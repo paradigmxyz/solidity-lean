@@ -154,8 +154,8 @@ def json : String :=
     s!"\{\"format\":\"loop leaves 1\",\"fn\":\"ok_transfer\",\"sel\":{0xfd0011a5},\"n\":1,\"nhw\":{cut.nhw},\"cases\":{arr (cut.cases.map kj)},\"le\":{lj le},\"li\":{lj li}}"
   | none => "null"
 
-#eval IO.FS.writeFile "/home/hand/simp/p3/horn/leaves.json" (json ++ "\n")
-#eval IO.FS.writeFile "/home/hand/simp/p3/horn/leaves.repr" (reprStr (cut.check .off stage0 0xfd0011a5 1) ++ "\n")
+#eval IO.FS.writeFile "out/leaves.json" (json ++ "\n")
+#eval IO.FS.writeFile "out/leaves.repr" (reprStr (cut.check .off stage0 0xfd0011a5 1) ++ "\n")
 #eval (cut.check .off stage0 0xfd0011a5 1).map fun r => (r.1.length, r.2.length)
 
 end Verify.Phase3.Infer.HornExport

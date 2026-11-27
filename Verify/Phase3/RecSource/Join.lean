@@ -9,7 +9,7 @@ The property solar-verify proves of `RecSum.total` (`n <= 64 ==> result == n * (
 `sum`'s contract inferred and proved by induction on its measure) holds of the Solidity source in
 SolidCore's runtime semantics (`source_returns`, through `total_runs` and `sum_runs`: induction on
 `sum`'s measure in SolidCore's own interpreter), and the exact bytecode solar emits returns the same
-output on the same calls (`total_returns_bytecode`, lane 185's MIR-to-bytecode theorem, whose
+output on the same calls (`total_returns_bytecode`, the MIR-to-bytecode theorem, whose
 MIR-level property is now the source's: `source_to_bytecode`). `runtimeBytes` is this run's fresh
 compile of RecSum.sol (`-Ogas --evm-version osaka`); `runtime_is_fresh` binds the proof's bytecode to it.
 

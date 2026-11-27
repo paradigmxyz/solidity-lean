@@ -4,7 +4,7 @@ import Contracts.Token.VC.Burn
 # Oracle allow-list corollaries: `Token.vc_eq`
 
 The simplification pass changed or removed these declarations. The oracle
-(/home/hand/simp/oracle/oracle.sh with the allow-list ACCEPTED.md) accepts each change
+(with its allow-list ACCEPTED.md) accepts each change
 only because its outside users were rewritten in the same commit (fad955ce) against the generic
 `triple_of_binds` with their own statements unchanged, and the lemma still holds of
 `Verify.Basic`'s `vc`, which did not change. Each theorem below

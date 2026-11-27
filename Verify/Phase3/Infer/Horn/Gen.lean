@@ -378,8 +378,8 @@ def μ : WExpr := (WExpr.arg 1)
     match allSeqsW 1 cut.cases T le li I μ with
     | none => throw (IO.userError "allSeqsW is none")
     | some ss =>
-      let pre ← IO.FS.readFile "/home/hand/simp/p3/horn/out/prelude.lean"
-      IO.FS.writeFile "/home/hand/p2lean/Verify/Phase3/Infer/Horn/Obl.lean" (emitW pre "Verify.Phase3.Infer.HornOkTransfer" "cut.check .off stage0 4244640165 1" 1 "cut.cases" le li T I μ ss)
+      let pre ← IO.FS.readFile "out/prelude.lean"
+      IO.FS.writeFile "Verify/Phase3/Infer/Horn/Obl.lean" (emitW pre "Verify.Phase3.Infer.HornOkTransfer" "cut.check .off stage0 4244640165 1" 1 "cut.cases" le li T I μ ss)
       IO.println s!"wrote {ss.length} sequents ({ss.eraseDups.length} unique)"
 
 end Verify.Phase3.Infer.HornOkTransfer

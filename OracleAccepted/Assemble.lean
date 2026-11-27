@@ -5,7 +5,7 @@ import SolidCore.Refinement.Solar.AssembleRevert
 # Oracle allow-list corollaries: the assembly back lemmas
 
 The simplification pass changed or removed these declarations. The oracle
-(/home/hand/simp/oracle/oracle.sh with the allow-list ACCEPTED.md) accepts each change
+(with its allow-list ACCEPTED.md) accepts each change
 only because the new statement is at least as strong as the base's (550ff580). Each theorem below
 restates a base statement verbatim, under the same name in a `Base` namespace, and
 proves it from the declaration that replaced it, in one line. Nothing imports this module.
