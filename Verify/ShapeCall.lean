@@ -7,21 +7,33 @@ import SolidCore.Refinement.Solar.AssembleCallOpen
 
 A contract of the call route is certified as `Shapes.OpenFunctional` (Verify/ShapeOpen.lean): its
 exact bytecode in every admitted environment, against SolidCore's checked source in every admitted
-open world, on the valid calls `CValid` (Generic/CallStage.lean). What the statement assumes is
+open world, on the valid calls `CValid` (Generic/CallStage.lean: no value, and a target argument
+that is not the contract and whose low 160 bits are no address of EthLib's Fusaka precompile set,
+`0x01`–`0x11` and `0x100`; nothing about its code). What the statement assumes is
 named in it:
 
 * `CallEnvOk`, **the callee-world assumption on the environment**: the other accounts are well
-  formed, and on every valid call that succeeds, every `STATICCALL` of the run calls code (or
-  ECRECOVER priced): `AssembleCallOpen.CalleesRunOpen`;
-* `CallWorldOk`, the source worlds: open worlds whose answers to static calls to code are shorter
-  than `2 ^ 256` bytes (`Fits`) and that some MIR oracle agrees with (`CallsAgree`: in particular a
+  formed, and on every valid call whose run succeeds, every frame of the contract's code at a
+  `STATICCALL` byte whose run goes on to the run's final frame (`AssembleCallSeg.CalleesOkR`; such
+  a frame is not asked to be reachable from the start) calls an address outside SolidCore's
+  precompile set `0x01`–`0x0a` (`AssembleCallSeg.CalleeOk`: nothing about the code there, which
+  may be empty or a delegation), or calls ECRECOVER (address 1) with no delegation there and at
+  least 3000 gas passed on (`AssembleCallSeg.PreRun`): `AssembleCallOpen.CalleesRunOpen`. It does
+  not say the callee has code;
+* `CallWorldOk`, the source worlds: open worlds whose answers to static calls outside SolidCore's
+  precompile set are shorter than `2 ^ 256` bytes (`Fits`) and that some MIR oracle agrees with (`CallsAgree`: in particular a
   static call's answer keeps the caller's storage);
 * `AssembleCallPre.EcrecoverAgree`, a premise of the published statement (SolidCore's and EthLib's
   ECRECOVER agree), which the bytes edge takes.
 
-The world a result is explained by is existential (`OpenFunctional.equiv`): the statement does not
-say it is the world this environment's callee computes, only that it is an admitted one; the
-bytes edge's world is a run's world (`RunWorld`) whose answers are frames of EthLib's runner.
+**What the statement says of a returned word**: the world a result is explained by is existential
+(`OpenFunctional.equiv`). A result of the bytecode (its status, return data, the contract's
+storage and logs) is SolidCore's result in **some** admitted world (`CallWorldOk`), or a failure
+that changes nothing; the statement does not say that world is the one this environment's callee
+computes, so a returned word is the source's function of some admitted answer to the call, not
+necessarily of the answer the actual callee in this environment gives. The bytes edge builds its
+world from the run's callee frames (`RunWorld`), but the published statement keeps only
+`CallWorldOk`.
 
 `openFunctional_of_check` composes the kernel's check of the contract (`callCheck`: the type check,
 no seeded accounts, a constructor that leaves nothing, and `checkC`), the stages from the first
@@ -32,14 +44,18 @@ namespace SolidCore.Refinement.Shapes
 open SolarTV SolidCore.Refinement SolidCore.Refinement.Generic SolidCore.Refinement.Solar
 open SolidCore.Solidity.Source EvmCompiler.Simulation
 
-/-- **The callee-world assumption on the environment**: its accounts are well formed, and every
-successful run of a valid call makes each of its `STATICCALL`s to code (or ECRECOVER priced). -/
+/-- **The callee-world assumption on the environment**: its accounts are well formed, and in every
+successful run of a valid call, each frame at a `STATICCALL` whose run goes on to the final frame
+calls an address outside SolidCore's precompile set (`0x01`–`0x0a`, whatever code or delegation is
+there, possibly none) or calls ECRECOVER priced (`AssembleCallOpen.CalleesRunOpen`). -/
 def CallEnvOk (fns : List CFn) (code : ByteArray) (env : TargetEnv) : Prop :=
   env.WF ∧ ∀ gas, gas < 2 ^ 256 → ∀ call, CValid fns call →
     AssembleCallOpen.CalleesRunOpen env gas code call
 
-/-- The source worlds of the call route: open, answering static calls to code with fewer than
-`2 ^ 256` bytes, and agreeing with some MIR oracle. -/
+/-- The source worlds of the call route: open, answering static calls outside SolidCore's
+precompile set with fewer than `2 ^ 256` bytes, and agreeing with some MIR oracle. Neither the world
+nor the oracle is tied to the environment: a result is explained by some such world, not
+necessarily the one the environment's callee computes. -/
 def CallWorldOk (W : World) : Prop :=
   W.Open ∧ AssembleCallOpen.Fits W ∧ ∃ o, CallsAgree o W
 
@@ -142,7 +158,8 @@ theorem totalC (W : World) (o : SolarTV.Machine.Oracle) (hagree : CallsAgree o W
     obtain ⟨hj, htgt⟩ := htg
     rw [targetsArg_paramGuardsC] at htgt
     simp only [CTree.targetsArg, beq_iff_eq] at htgt
-    obtain ⟨hnself, hnpre⟩ := htv j htarget
+    obtain ⟨hnself, hnfus⟩ := htv j htarget
+    have hnpre := kind_none_of_fusaka (Nat.mod_lt _ (by decide)) hnfus
     by_cases hclean : argsClean ws args = true
     · obtain ⟨world, request, resp, -, -, -, -, -, -, hrunC⟩ :=
         source_runC W hW (fun h world request a hans hk slot => (hagree.static h world request a hans hk slot).1)

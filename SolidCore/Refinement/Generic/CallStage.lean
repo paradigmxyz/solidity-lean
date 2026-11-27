@@ -11,7 +11,8 @@ function that calls out calls argument `j` (the function's declared target). `st
 world whose answers to static calls to code fit (`AssembleCallOpen.Fits`) and every MIR oracle that
 agrees with it (`CallsAgree`), SolidCore refines the MIR on every valid call (`CValid`): a call of a
 checked function on argument words below `2 ^ 256`, with no value, from any storage, whose target
-argument is neither the contract itself nor a precompile. `totalC`: SolidCore runs every valid call
+argument is neither the contract itself nor, in its low 160 bits, an address of EthLib's Fusaka
+precompile set. `totalC`: SolidCore runs every valid call
 to an end in such a world.
 -/
 
@@ -97,14 +98,37 @@ def checkC (fuel mirFuel : Nat) (core : Contract) (m : Module) (fns : List CFn) 
     Bool :=
   fns.all (checkCFn fuel mirFuel core m env)
 
+/-- An address outside EthLib's Fusaka precompile set (`0x01`–`0x11` and `0x100`) is outside
+SolidCore's (`0x01`–`0x0a`). -/
+theorem kind_none_of_fusaka {w : Nat} (hw : w < 2 ^ 160)
+    (h : EthLib.Execution.Evm.Precompiles.isPrecompile .fusaka w = false) :
+    SolidCore.Solidity.Shared.Precompile.kindOfAddress? w = none := by
+  open SolidCore.Solidity.Shared in
+  unfold Precompile.kindOfAddress?
+  rw [List.find?_eq_none]
+  intro k hk hk'
+  have hlt : w < SolidCore.Solidity.Shared.wordModulus := lt_trans hw (by decide)
+  simp only [SolidCore.Solidity.Shared.Precompile.mainnetKinds, List.mem_cons, List.not_mem_nil,
+    or_false] at hk
+  rcases hk with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
+  · simp only [SolidCore.Solidity.Shared.Precompile.address, SolidCore.Solidity.Shared.Call.wordEq,
+      SolidCore.Solidity.Shared.Account.wordEq, SolidCore.Solidity.Shared.norm,
+      Nat.mod_eq_of_lt hlt, beq_iff_eq] at hk'
+    rw [Nat.mod_eq_of_lt (by decide : (_ : Nat) < SolidCore.Solidity.Shared.wordModulus)] at hk'
+    subst hk'
+    revert h; decide
+
 /-- **The valid calls**: a call of a function of `fns` on argument words below `2 ^ 256`, with no
-value, from any storage, whose target argument, for a function that calls out, is neither the
-contract itself nor a precompile. -/
+value, from any storage, whose target argument, for a function that calls out, is not the contract
+itself and whose low 160 bits are no address of EthLib's Fusaka precompile set
+(`EthLib.Execution.Evm.Precompiles.isPrecompile .fusaka`: `0x01`–`0x11` and `0x100`, which
+contains SolidCore's `0x01`–`0x0a`: `kind_none_of_fusaka`). Nothing is said of the code at the
+target: it may be empty or a delegation. -/
 def CValid (fns : List CFn) (call : Call) : Prop :=
   ∃ f ∈ fns, ∃ args σ, args.length = f.n ∧ (∀ a ∈ args, a < 2 ^ 256) ∧
     call = { calldata := Abi.calldata f.sel args, callvalue := 0, storage := σ } ∧
     ∀ j, f.target = some j → args.getD j 0 ≠ selfAddress ∧
-      SolidCore.Solidity.Shared.Precompile.kindOfAddress? (args.getD j 0 % 2 ^ 160) = none
+      EthLib.Execution.Evm.Precompiles.isPrecompile .fusaka (args.getD j 0 % 2 ^ 160) = false
 
 
 /-! ## Pieces of the stage -/
@@ -284,7 +308,8 @@ theorem stageC (W : World) (o : Oracle) (hagree : CallsAgree o W) (hW : W.Open)
     obtain ⟨hj, htgt⟩ := htg
     rw [targetsArg_paramGuardsC] at htgt
     simp only [CTree.targetsArg, beq_iff_eq] at htgt
-    obtain ⟨hnself, hnpre⟩ := htv j htarget
+    obtain ⟨hnself, hnfus⟩ := htv j htarget
+    have hnpre := kind_none_of_fusaka (Nat.mod_lt _ (by decide)) hnfus
     by_cases hclean : argsClean ws args = true
     · obtain ⟨world, request, resp, hresp, hreq, hst, htr, hcodes, hsize, hrunC⟩ :=
         source_runC W hW (fun h world request a hans hk slot => (hagree.static h world request a hans hk slot).1)
