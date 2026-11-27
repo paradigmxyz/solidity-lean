@@ -314,7 +314,8 @@ def eraseUnchecked (S : SymState) : Stmt → Option Br
 /-- The erasure of a statement of the fragment with fuel `n`, the fuel SolidCore runs it with:
 skips, blocks (a scope each), assignments to locals and to storage fields, compound assignments
 to storage fields (`v += x`, `w ^= x`: the operation's overflow check, then the cleanup's range
-check), expression statements of an expression of the fragment (`y;`: its overflow checks, then
+check), increments and decrements of storage fields as statements (`v++`, `--v`: the same with
+the word 1), expression statements of an expression of the fragment (`y;`: its overflow checks, then
 the state unchanged), returns, `if`, panics and SafeMath's `unchecked` blocks
 (`eraseUnchecked`). -/
 def eraseStmt (E : EraseEnv) : Nat → Stmt → SymState → Option Br
@@ -358,6 +359,14 @@ def eraseStmt (E : EraseEnv) : Nat → Stmt → SymState → Option Br
       let cg ← cleanupGuard b w
       some (guards (gs ++ gi ++ (overflow o (S.writes.read (.hash key (.lit k))) v).toList ++ cg)
         (.leaf (.normal { S with writes := S.writes.set (.hash key (.lit k)) w })))
+    | .exprStmt (.incDec op _ (some (.uint b)) (.storageRead .header x [])) => do
+      let (k, off, bytes) ← fieldOf? E.fields x
+      let o ← binOf op
+      let w := WExpr.bin o (readField (S.writes.read (.lit k)) off bytes) (.lit 1)
+      let cg ← cleanupGuard b w
+      some (guards ((overflow o (readField (S.writes.read (.lit k)) off bytes) (.lit 1)).toList ++ cg)
+        (.leaf (.normal
+          { S with writes := S.writes.set (.lit k) (writeField (S.writes.read (.lit k)) w off bytes) })))
     | .exprStmt e => do
       let (gs, _) ← eraseExpr E.fields S e
       some (guards gs (.leaf (.normal S)))
@@ -1522,6 +1531,60 @@ theorem eval_exprStmt (ρ : Val) (E : EraseEnv) (ctx : Context) (rt : Runtime) (
   guard_cases hg : gs.any (fun g => g.eval ρ != 0)
   exact ⟨.normal rt, rfl, hrel⟩
 
+/-- An increment or decrement is never an expression of the fragment: `eraseStmt` erases the
+statements of one it knows by their own cases. -/
+@[simp] theorem eraseExpr_incDec (fields : List StorageField) (S : SymState) (op : BinaryOp)
+    (ret : Bool) (cleanup? : Option ValueCleanup) (target : Expr) :
+    eraseExpr fields S (.incDec op ret cleanup? target) = none := by
+  simp [eraseExpr]
+
+/-- An increment or decrement statement `target++` (or `--target`, its value dropped) with a
+`uint b` cleanup, whose target resolves to `lv` after the overflow conditions `gi` and holds the
+word `cur`: the target's overflow conditions, the operation's with the word 1 and the cleanup's
+range check, then the write of the new word, which `wr` and `S'` relate. SolidCore reads the
+target, adds or subtracts its type's one and writes the cleaned word, as `target op= 1` does. -/
+theorem eval_incDec (ρ : Val) (E : EraseEnv) (ctx : Context) (rt : Runtime) (S : SymState)
+    (hrel : StmtRel ρ E ctx rt S) (n : Nat) {op : BinaryOp} {ret : Bool} {b : Nat} {target : Expr}
+    {gi cg : List WExpr} {cur : WExpr} {o : BinOp} {lv : ResolvedLValue}
+    {wr : WExpr → Runtime} {S' : WExpr → SymState}
+    (hres : ∀ F, target.orderFuel < F → Expr.resolveLValueFuel F ctx rt target =
+      if gi.any (fun g => g.eval ρ != 0) then .done (.error (.revert (.panic 0x11)))
+      else .done (.ok (lv, rt)))
+    (ho : binOf op = some o) (hcg : cleanupGuard b (.bin o cur (.lit 1)) = some cg)
+    (hrd : lv.read ctx rt = .ok (.word (cur.eval ρ)))
+    (hwr : ∀ w : WExpr, lv.write ctx rt (.word (w.eval ρ)) = .ok (wr w))
+    (hrelw : ∀ w, StmtRel ρ E ctx (wr w) (S' w)) :
+    ∃ r, Stmt.eval (n + 1) E.tbl ctx rt
+        (.exprStmt (.incDec op ret (some (.uint b)) target)) = .done (.ok r) ∧
+      LeafRel ρ E ctx r ((guards (gi ++ (overflow o cur (.lit 1)).toList ++ cg)
+        (.leaf (.normal (S' (.bin o cur (.lit 1)))))).eval ρ) := by
+  obtain ⟨hb0, hb, hcgv⟩ := cleanupGuard_spec ρ hcg
+  have hcl : ValueCleanup.apply true (.uint b) (.word ((WExpr.bin o cur (.lit 1)).eval ρ)) =
+      if (WExpr.bin o cur (.lit 1)).eval ρ < 2 ^ b then .ok (.word ((WExpr.bin o cur (.lit 1)).eval ρ))
+      else .error (.panic 0x11) := uintCleanup_lt _ _ (WExpr.eval_lt ρ _) hb0 hb
+  have hone : Value.word 1 = Value.word ((WExpr.lit 1).eval ρ) := by
+    simp [WExpr.eval, wordSize]
+  have happ := apply_erased ρ ho cur (.lit 1)
+  rw [← hone] at happ
+  rw [Stmt.eval]
+  simp only [Expr.eval, Expr.orderFuel]
+  rw [Expr.evalFuel, hres _ (by omega), guards_eval]
+  simp only [any_append]
+  guard_cases hgi : gi.any (fun g => g.eval ρ != 0)
+  rw [bind_done_ok]
+  simp only [ResolvedLValue.applyIncDecCleanup, hrel.checked, liftM, monadLift,
+    MonadLift.monadLift, SolI.ofExcept, bind, Except.bind]
+  rw [hrd]
+  dsimp only [Value.oneLike?]
+  rw [happ, hcgv]
+  guard_cases ho' : (overflow o cur (.lit 1)).toList.any (fun g => g.eval ρ != 0)
+  rw [hcl]
+  by_cases hc : (WExpr.bin o cur (.lit 1)).eval ρ < 2 ^ b
+  · simp only [hc, decide_true, Bool.not_true, Bool.false_eq_true, ↓reduceIte, hwr]
+    cases ret <;> exact ⟨_, rfl, hrelw _⟩
+  · simp only [hc, decide_false, Bool.not_false, ↓reduceIte]
+    exact ⟨_, rfl, rfl⟩
+
 theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
     ∀ n s S b, eraseStmt E n s S = some b → ∀ rt, StmtRel ρ E ctx rt S →
       ∃ r, Stmt.eval n E.tbl ctx rt s = .done (.ok r) ∧ LeafRel ρ E ctx r (b.eval ρ) := by
@@ -1822,6 +1885,29 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
         simp [hv, hr]
     case exprStmt ex =>
       cases ex
+      case incDec op ret cleanup? target =>
+        rcases cleanup? with _ | c
+        · simp [eraseStmt] at h
+        cases c
+        all_goals first | (simp [eraseStmt] at h; done) | skip
+        rename_i b
+        cases target
+        all_goals first | (simp [eraseStmt] at h; done) | skip
+        rename_i m x idx
+        cases m <;> cases idx
+        all_goals first | (simp [eraseStmt] at h; done) | skip
+        simp only [eraseStmt, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
+        obtain ⟨⟨k, off, bytes⟩, hk, o, ho, cg, hcg, rfl⟩ := h
+        obtain ⟨f, hfx, rfl, rfl, rfl⟩ := fieldOf?_spec hrel.fields hk
+        obtain ⟨hread, hst⟩ := hrel.field_rw hfx
+        simpa only [List.nil_append] using eval_incDec ρ E ctx rt S hrel n (gi := []) (ret := ret)
+          (S' := fun w => { S with
+            writes := S.writes.set (.lit f.slot)
+              (writeField (S.writes.read (.lit f.slot)) w f.packedOffset f.packedBytes) })
+          (fun F hF => by
+            obtain ⟨m, rfl⟩ : ∃ m, F = m + 1 := ⟨F - 1, by omega⟩
+            simp [Expr.resolveLValueFuel] <;> rfl)
+          ho hcg hread (fun w => hst w _) (fun w => hrel.writeField hfx w)
       case assignment op? cleanup? target rhs =>
         cases target
         case storageRead m x idx =>
