@@ -34,7 +34,8 @@ package «solidity-lean» where
 @[default_target]
 lean_lib SolidCore where
   -- Outside SolidCore.lean's closure: the lemmas generated modules (solar's tools/certify) use.
-  roots := #[`SolidCore, `SolidCore.Refinement.KernelTable, `SolidCore.Refinement.Generic.Shape]
+  roots := #[`SolidCore, `SolidCore.Refinement.KernelTable, `SolidCore.Refinement.Generic.Shape,
+    `SolidCore.Refinement.AbiStatic]
 
 -- c1's hand-written refinement evaluates SolidCore with `native_decide`, which trusts Lean's
 -- compiler, so it stays out of the default library: `lake build SolidCoreNative`.
