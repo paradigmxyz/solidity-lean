@@ -398,7 +398,9 @@ theorem OS_ans (codes : SolidCore.Solidity.Shared.Account.BytesMap) (T : RunTabl
 /-- **A STATICCALL to code, read back from a run that succeeds**, at the frame's own gas: the run's
 table grows by the callee frame's flag and output, and under the oracle of every extension of it,
 SolarTV's STATICCALL pushes that flag and leaves that return data, and the frame after it relates to
-SolarTV's state as a block entry does (memory, storage, logs, the budget of memory and gas). -/
+SolarTV's state as a block entry does (memory, storage, logs, the budget of memory and gas). The new
+entry is the flag and output of a frame the runner gave (so meeting `P`) for a static message with
+fewer than `2 ^ 256` bytes of data. -/
 theorem staticcall_cut_in {code : ByteArray} {msg : Message .fusaka} {call : Call} {pc g G : Nat}
     {M : ByteArray} {st : State.TransactionState} {ss ss0 : Substate} {rd : ByteArray}
     {asked addr inOff inSize outOff outSize : U256} {Tr : List U256}
@@ -431,7 +433,9 @@ theorem staticcall_cut_in {code : ByteArray} {msg : Message .fusaka} {call : Cal
         (machineCalls [ev]).length = 1) ∧
       MemRel s'.memory M' ∧ Rel msg ss0 st' ss' s' ∧ MemBudget G M' g' ∧ g' ≤ g ∧
       At code msg (pc + 1) ((if ok then 1 else 0) :: Tr) M' g' st' ss' out m ∧
-      runFrame (step .fusaka) (step_decreases .fusaka) bound runChild m within' = .ok fin := by
+      runFrame (step .fusaka) (step_decreases .fusaka) bound runChild m within' = .ok fin ∧
+      ∃ (c : Evm .fusaka Nat) (mc : Message .fusaka) (ch : Evm .fusaka Nat), P c mc ch ∧
+        mc.isStatic = true ∧ mc.data.size < 2 ^ 256 ∧ ok = ch.error.isNone ∧ out = ch.output := by
   obtain ⟨calleeCode, route, hcode, hroute, hg, caller, mm, child, after, within', g', hPP, -, hcs,
     hcsub, hms, hmv, hmc, hmt, htg, hmd, hmca, hmdp, hmgas, hg', hat', hrun'⟩ :=
     staticcall_back hat hlt hbyte hdepth meets within hrun hok
@@ -527,7 +531,7 @@ theorem staticcall_cut_in {code : ByteArray} {msg : Message .fusaka} {call : Cal
   refine ⟨child.error.isNone, child.output, s', _, g', (incorporateChild .fusaka caller child).state,
     (incorporateChild .fusaka caller child).substate, after, within', fun T'' hle => ?_,
     ⟨ev, hw, by simp [ev], by simp [ev], by simp [ev, machineCalls]⟩, hmem', ?_, ?_,
-    by omega, ?_, hrun'⟩
+    by omega, ?_, hrun', caller, mm, child, hPP, hms, by rw [hmd]; exact data_lt_of_read _ _ _, rfl, rfl⟩
   · rw [hsame T'' hle, happ]
     refine ⟨by cases child.error.isNone <;> rfl, ?_⟩
     rw [hw]
@@ -598,8 +602,15 @@ theorem staticcall_cut {code : ByteArray} {msg : Message .fusaka} {call : Call} 
         (machineCalls [ev]).length = 1) ∧
       MemRel s'.memory M' ∧ Rel msg ss0 st' ss' s' ∧ MemBudget G M' g' ∧ g' ≤ g ∧
       At code msg (pc + 1) ((if ok then 1 else 0) :: Tr) M' g' st' ss' out m ∧
-      runFrame (step .fusaka) (step_decreases .fusaka) bound runChild m within' = .ok fin :=
-  staticcall_cut_in codes T hm R hb hG hat hlt hbyte hdepth meets (fun c m ch h => (hPok c m ch h).toIn) within hrun hok hto hoks houts hgr
+      runFrame (step .fusaka) (step_decreases .fusaka) bound runChild m within' = .ok fin := by
+  obtain ⟨ok, out, s', M', g', st', ss', m, within', h1, h2, h3, h4, h5, h6, h7, h8, -⟩ :=
+    staticcall_cut_in codes T hm R hb hG hat hlt hbyte hdepth meets
+      (fun c m ch h => (hPok c m ch h).toIn) within hrun hok hto hoks houts hgr
+  exact ⟨ok, out, s', M', g', st', ss', m, within', h1, h2, h3, h4, h5, h6, h7, h8⟩
+
+/-- info: 'SolidCore.Refinement.Solar.AssembleCallCut.staticcall_cut_in' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs (whitespace := lax) in
+#print axioms staticcall_cut_in
 
 /-- info: 'SolidCore.Refinement.Solar.AssembleCallCut.staticcall_cut' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs (whitespace := lax) in

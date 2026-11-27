@@ -9,10 +9,12 @@ hypothesis of AssembleCallSeg.StaticRunner. EthLib.Execution.Evm.StaticLogs.meet
 proves it of the interpreter's runner of messages before Glamsterdam, so at Fusaka:
 
 * meets_staticNoLogs: the runner meets StaticNoLogs at every bound (proved, no hypothesis).
-* OutputRunner: what is left of StaticRunner, the named hypothesis that each callee's output
-  has fewer than 2 ^ 256 bytes (AssembleCallCut.OutputFits; not derived here).
-* holds_of_checkCB_out: holds_of_checkCB_named with StaticRunner replaced by OutputRunner, so the
-  final theorem names OutputRunner, EcrecoverAgree and CalleesRunR and nothing about logs.
+* OutputRunner: what is left of StaticRunner, that each callee's output has fewer than 2 ^ 256
+  bytes (AssembleCallCut.OutputFits). It is false at every gas above IDENTITY's price for 2 ^ 256
+  bytes, so its every-gas form is refuted (AssembleNoCall.not_forall_outputRunner); the bound that
+  holds, for messages with fewer than 2 ^ 256 bytes of data, is AssembleCallIn.outputRunnerIn.
+* holds_of_checkCB_out: holds_of_checkCB_named with StaticRunner replaced by OutputRunner.
+  Deprecated, vacuous as stated: use AssembleCallIn.holds_of_checkCB_in.
 -/
 
 namespace SolidCore.Refinement.Solar.AssembleCallStaticRunner
@@ -29,7 +31,9 @@ theorem meets_staticNoLogs (gas : Nat) :
   EthLib.Execution.Evm.StaticLogs.meets_staticNoLogs (by decide) gas
 
 /-- **Named hypothesis on the runner of messages**: each callee's output has fewer than
-2 ^ 256 bytes (OutputFits), the part of StaticRunner not derived. -/
+2 ^ 256 bytes (OutputFits), the part of StaticRunner not derived. False above IDENTITY's price for
+2 ^ 256 bytes (AssembleNoCall.not_outputRunner_of_lt); AssembleCallIn.OutputRunnerIn is the form
+that holds (AssembleCallIn.outputRunnerIn). -/
 def OutputRunner (gas : Nat) : Prop :=
   Meets (bound := gas) OutputFits (processRunner .fusaka (Meter := Nat) gas)
 
@@ -37,7 +41,12 @@ def OutputRunner (gas : Nat) : Prop :=
 theorem staticRunner_of_output {gas : Nat} (h : OutputRunner gas) : StaticRunner gas :=
   ⟨fun a b c d e => ⟨(meets_staticNoLogs gas).ok a b c d e, h.ok a b c d e⟩, h.aborts⟩
 
-/-- **holds_of_checkCB_named without the EIP-214 hypothesis**: the source's specification at
+/-- **Deprecated, vacuous as stated:** its premise `∀ gas, OutputRunner gas` is refuted
+(`AssembleNoCall.not_forall_staticRunner`, `AssembleNoCall.not_forall_outputRunner`: IDENTITY
+with `2 ^ 256` bytes of data). Use `AssembleCallIn.holds_of_checkCB_in`, which assumes nothing
+of the runner.
+
+**holds_of_checkCB_named without the EIP-214 hypothesis**: the source's specification at
 every open world, its totality, the stages and the checker give the specification of the exact
 bytecode at every gas below 2 ^ 256, under the named hypotheses OutputRunner (callee outputs
 below 2 ^ 256 bytes), AssembleCallPre.EcrecoverAgree and CalleesRunR. -/

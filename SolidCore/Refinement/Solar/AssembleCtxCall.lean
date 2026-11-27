@@ -91,8 +91,9 @@ theorem entS_congr {codes : SolidCore.Solidity.Shared.Account.BytesMap} {p : Ass
   ⟨entC_congr h hn he hl hE.1, hE.2⟩
 
 /-- **A block of code with loops, GAS and STATICCALLs, in one of its contexts, read back from a run
-that succeeds.** -/
-theorem advances_checkXS_in {p : Assemble.Program} {cx : CtxCert} {code : ByteArray}
+that succeeds.** Each output the block adds to the table, with its flag, meets `F` when the runner's
+frames meet `P` (`hF`), so the table keeps `TabP F`, at a halt too (`AssembleCallSeg.AdvancesQT`). -/
+theorem advances_checkXS_tab {p : Assemble.Program} {cx : CtxCert} {code : ByteArray}
     (G : GlobXB p cx code) (codes : SolidCore.Solidity.Shared.Account.BytesMap) {call : Call} {msg : Message .fusaka} {ss0 : Substate}
     (hdata : msg.data = call.calldata) (hvalue : msg.value = BitVec.ofNat 256 call.callvalue)
     (hstatic : msg.isStatic = false) (hself : msg.currentTarget = Target.address selfAddress)
@@ -100,11 +101,12 @@ theorem advances_checkXS_in {p : Assemble.Program} {cx : CtxCert} {code : ByteAr
     (hbenv : msg.blockEnv = Target.blockEnv) (htx : msg.txEnv = Target.txEnv)
     (hgas : msg.gas < 2 ^ 256) (hdepth : msg.depth + 1 ≤ STACK_DEPTH_LIMIT)
     (T0 : RunTable) (x : Nat × List Word × State) (evm : Evm .fusaka Nat)
-    (hE : EntXS codes p cx code msg ss0 T0 x evm)
+    (hE : EntXS codes p cx code msg ss0 T0 x evm) {F : Bool → ByteArray → Prop} (hT0 : TabP F T0)
     {P : Evm .fusaka Nat → Message .fusaka → Evm .fusaka Nat → Prop}
-    (hPok : ∀ c m ch, P c m ch → StaticOkIn c m ch) :
-    AdvancesQ (fun o => SolarTV.EVM.Program.block o call p) (OS codes) P
-      (CalleesOk code msg P) (EntXS codes p cx code msg ss0)
+    (hPok : ∀ c m ch, P c m ch → StaticOkIn c m ch)
+    (hF : ∀ c m ch, P c m ch → m.isStatic = true → m.data.size < 2 ^ 256 → F ch.error.isNone ch.output) :
+    AdvancesQT (fun o => SolarTV.EVM.Program.block o call p) (OS codes) F P
+      (CalleesOk code msg P) (fun T y e => EntXS codes p cx code msg ss0 T y e ∧ TabP F T)
       (fun res => PostL call msg.currentTarget ss0 res.2 res.1)
       (fun y e => AssembleLoop.meas p cx.base e.gas y.1) T0 x evm := by
   intro bound runChild meets within fin hrun hok hcal
@@ -166,13 +168,13 @@ theorem advances_checkXS_in {p : Assemble.Program} {cx : CtxCert} {code : ByteAr
       · simp only [ht, Bool.false_eq_true, ite_false, List.nil_append] at hseg
         exact ⟨pc, evm, within, hat, hseg, by simp only [ht, Bool.false_eq_true, ite_false]; omega,
           hrun⟩
-    obtain ⟨T', r, hle', hex, hpost, hnext⟩ := segS_in (G0 := msg.gas) hGc codes (hc ▸ G.creates) hdata hvalue hstatic
-      hself hcaller hbenv htx hb hok hgas hdepth meets hPok hcal (p.blocks[b].length + 1) p.blocks[b] (c.need b) [] (c.entry b)
+    obtain ⟨T', r, hle', hP', hex, hpost, hnext⟩ := segS_tab (G0 := msg.gas) hGc codes (hc ▸ G.creates) hdata hvalue hstatic
+      hself hcaller hbenv htx hb hok hgas hdepth meets hPok hF hcal (p.blocks[b].length + 1) p.blocks[b] (c.need b) [] (c.entry b)
       (budget c b - labelItems p c b) S Tw s pc1 M m1.gas st ss rd T0 m1 within1 (Nat.lt_succ_self _)
-      hblock hn (by omega) (KR.nil _) hR hseg1 (by omega) htop hmem R hat1 hTg hs0
+      hblock hn (by omega) (KR.nil _) hR hseg1 (by omega) htop hmem R hat1 hTg hs0 hT0
       (by rw [← hat.2.2.2.2.2.2.2.2.2.2.2.2]; exact hrdr)
       (by unfold MemBudget; rw [← hat.2.2.2.2.2.1]; omega) hrun1
-    refine ⟨T', r, hle', fun T'' h => ?_, fun res hres => hpost res hres, fun y hy => ?_⟩
+    refine ⟨T', r, hle', hP', fun T'' h => ?_, fun res hres => hpost res hres, fun y hy => ?_⟩
     · simp only [SolarTV.EVM.Program.block, hblk]
       rw [hex T'' h]
     · obtain ⟨t, S', s'⟩ := y
@@ -180,7 +182,7 @@ theorem advances_checkXS_in {p : Assemble.Program} {cx : CtxCert} {code : ByteAr
       have hr := hex T' (RunTable.Le.refl T')
       rw [hy] at hr
       obtain ⟨L', hmemE, hL'⟩ := exits_sound (OS codes T') call b p.blocks[b] _ S s Ex _ hlab hexE hr
-      refine ⟨after, within', ⟨c, mx, hsame, ⟨hE', hT', hs', hrdy', hbud'⟩, fun ht => ?_⟩, ?_, hra⟩
+      refine ⟨after, within', ⟨⟨c, mx, hsame, ⟨hE', hT', hs', hrdy', hbud'⟩, fun ht => ?_⟩, hP'⟩, ?_, hra⟩
       · obtain ⟨j', hx, hj'c, hlabs⟩ := exitsOk_mem hexOk hmemE ht
         have htn : t < p.blocks.length + 1 := by omega
         have hpk := pick_of_exit hx
@@ -200,7 +202,7 @@ theorem advances_checkXS_in {p : Assemble.Program} {cx : CtxCert} {code : ByteAr
         some (.inl (.stop, s)) := by
       intro o
       simp only [SolarTV.EVM.Program.block, hblk, ite_true]
-    refine ⟨T0, _, RunTable.Le.refl T0, fun _ _ => hbl _, ?_, ?_⟩
+    refine ⟨T0, _, RunTable.Le.refl T0, hT0, fun _ _ => hbl _, ?_, ?_⟩
     · intro res hres
       cases hres
       have hseg' := hseg
@@ -210,6 +212,35 @@ theorem advances_checkXS_in {p : Assemble.Program} {cx : CtxCert} {code : ByteAr
         (fun _ h => h) fun evm h => postL_stop R hself evm h) (hat.addGas 0) within hrun hok
     · intro y hy
       cases hy
+
+/-- `advances_checkXS_tab` without a property of the table's entries. -/
+theorem advances_checkXS_in {p : Assemble.Program} {cx : CtxCert} {code : ByteArray}
+    (G : GlobXB p cx code) (codes : SolidCore.Solidity.Shared.Account.BytesMap) {call : Call} {msg : Message .fusaka} {ss0 : Substate}
+    (hdata : msg.data = call.calldata) (hvalue : msg.value = BitVec.ofNat 256 call.callvalue)
+    (hstatic : msg.isStatic = false) (hself : msg.currentTarget = Target.address selfAddress)
+    (hcaller : msg.caller = Target.address callerAddress)
+    (hbenv : msg.blockEnv = Target.blockEnv) (htx : msg.txEnv = Target.txEnv)
+    (hgas : msg.gas < 2 ^ 256) (hdepth : msg.depth + 1 ≤ STACK_DEPTH_LIMIT)
+    (T0 : RunTable) (x : Nat × List Word × State) (evm : Evm .fusaka Nat)
+    (hE : EntXS codes p cx code msg ss0 T0 x evm)
+    {P : Evm .fusaka Nat → Message .fusaka → Evm .fusaka Nat → Prop}
+    (hPok : ∀ c m ch, P c m ch → StaticOkIn c m ch) :
+    AdvancesQ (fun o => SolarTV.EVM.Program.block o call p) (OS codes) P
+      (CalleesOk code msg P) (EntXS codes p cx code msg ss0)
+      (fun res => PostL call msg.currentTarget ss0 res.2 res.1)
+      (fun y e => AssembleLoop.meas p cx.base e.gas y.1) T0 x evm :=
+  AdvancesQT.toQ (fun o => SolarTV.EVM.Program.block o call p) (OS codes)
+    (E := EntXS codes p cx code msg ss0)
+    (advances_checkXS_tab G codes hdata hvalue hstatic hself hcaller hbenv htx hgas hdepth T0 x evm hE
+      (TabP.true T0) hPok (fun _ _ _ _ _ _ => trivial))
+
+/-- info: 'SolidCore.Refinement.Solar.AssembleCtx.advances_checkXS_tab' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs (whitespace := lax) in
+#print axioms advances_checkXS_tab
+
+/-- info: 'SolidCore.Refinement.Solar.AssembleCtx.advances_checkXS_in' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs (whitespace := lax) in
+#print axioms advances_checkXS_in
 
 /-- `advances_checkXS_in` with the runner premise `StaticOk`, which implies `StaticOkIn`: its statement before the premise was weakened. -/
 theorem advances_checkXS {p : Assemble.Program} {cx : CtxCert} {code : ByteArray}
@@ -264,7 +295,12 @@ theorem runs_of_checkXB {p : Assemble.Program} {code : ByteArray} {cx : CtxCert}
     simp only [startFrame, ByteArray.size_empty, h0, Nat.zero_add]
     exact le_refl _
 
-/-- **The assembly premise of \`holds_of_runs\` for code with STATICCALLs and internal functions
+/-- **Deprecated, vacuous as stated:** its premise `∀ gas, StaticRunner gas` is refuted
+(`AssembleNoCall.not_forall_staticRunner`, `AssembleNoCall.not_forall_outputRunner`: IDENTITY
+with `2 ^ 256` bytes of data). Use `AssembleCallIn.assembly_of_checkXB_in`, which assumes
+nothing of the runner.
+
+**The assembly premise of \`holds_of_runs\` for code with STATICCALLs and internal functions
 called in several contexts**: \`AssembleCallSeg.assembly_of_checkCB\`'s statement, with its named
 hypotheses, for every program the checker with contexts accepts. -/
 theorem assembly_of_checkXB {p : Assemble.Program} {code : ByteArray} {cx : CtxCert}
@@ -388,7 +424,12 @@ theorem checkXB_of_parts {p : Assemble.Program} {code : ByteArray} {cx : CtxCert
   obtain ⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩ := hrest
   simp only [checkXB, hw, hl, h1, h2, h3, h4, h5, hcre, hbx, Bool.and_self, Bool.not_false]
 
-/-- **The assembly premise for an exported program with RETURNDATASIZE as a stack operation**:
+/-- **Deprecated, vacuous as stated:** its premise `∀ gas, StaticRunner gas` is refuted
+(`AssembleNoCall.not_forall_staticRunner`, `AssembleNoCall.not_forall_outputRunner`: IDENTITY
+with `2 ^ 256` bytes of data). Use `AssembleCallIn.assembly_of_checkXB_norm_in`, which assumes
+nothing of the runner.
+
+**The assembly premise for an exported program with RETURNDATASIZE as a stack operation**:
 \`assembly_of_checkXB\` for the program the checker accepts in its effect form. -/
 theorem assembly_of_checkXB_norm {p : Assemble.Program} {code : ByteArray} {cx : CtxCert}
     (hc : checkXB (norm p) code cx = true) (codes : SolidCore.Solidity.Shared.Account.BytesMap)

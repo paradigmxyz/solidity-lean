@@ -184,7 +184,8 @@ lean_lib SolidCoreSolarRunOracle where
     `SolidCore.Refinement.Solar.AssembleCallPre, `SolidCore.Refinement.Solar.AssembleCallStatic,
     `SolidCore.Refinement.Solar.AssembleCallStaticRunner, `SolidCore.Refinement.Solar.AssembleCtxTrack,
     `SolidCore.Refinement.Solar.AssembleCtx, `SolidCore.Refinement.Solar.AssembleCtxExample,
-    `SolidCore.Refinement.Solar.AssembleCtxCall,
+    `SolidCore.Refinement.Solar.AssembleCtxCall, `SolidCore.Refinement.Solar.AssembleCallOutput,
+    `SolidCore.Refinement.Solar.AssembleCallIn, `SolidCore.Refinement.Solar.AssembleCallOpen,
     `SolidCore.Refinement.Solar.AssembleNoCall, `SolidCore.Refinement.Solar.AssembleNoCallExample,
     `SolidCore.Refinement.Solar.AssembleCtxGas, `SolidCore.Refinement.Solar.AssembleCtxGasFrom,
     `SolidCore.Refinement.Solar.AssembleCheckFast, `SolidCore.Refinement.Solar.AssembleCutCheckFast]
@@ -560,6 +561,13 @@ lean_lib «callsqrt» where
 lean_lib ContractsCallFamilies where
   roots := #[`Contracts.CallFamilies.NonVacuity]
   globs := #[.submodules `Contracts.CallFamilies]
+  moreLeanArgs := #["-M", "6000"]
+
+-- Reader (Certified/reader/reader.sol): SolidCore's checked contract from its solc AST and its source
+-- stage in every open world that fits, the source side of reader.Open.Final.
+lean_lib ContractsReader where
+  roots := #[`Contracts.Reader.Stage]
+  globs := #[.submodules `Contracts.Reader]
   moreLeanArgs := #["-M", "6000"]
 
 -- arraymax: the stages of Certified/arraymax/arraymax.sol's ArrayMaxEntry, which solar's

@@ -18,10 +18,13 @@ whatever EthLib computes for that code, however deep its own calls go.
   program's, or a failure that changes nothing.
 * `within_of_advancesQ_in`: `AssembleCallSeg.within_of_advancesQ` from `preStateIn env`.
 * `runs_of_checkXB_open`, `assembly_of_checkXB_norm_open`: the checker with contexts' theorems
-  in every well-formed environment, under `AssembleCallIn.OutputRunnerIn`,
-  `AssembleCallPre.EcrecoverAgree` and `CalleesRunOpen` (`AssembleCallIn.CalleesRunIn` of the
-  run in `env`), every one of them in the statement. The oracle answers the run's static calls from
-  its table and agrees with an open world (`CallsAgree`).
+  in every well-formed environment, under `AssembleCallPre.EcrecoverAgree` and `CalleesRunOpen`
+  (`AssembleCallIn.CalleesRunIn` of the run in `env`), both in the statement. The oracle answers the
+  run's static calls from its table and agrees with an open world (`CallsAgree`).
+* `runs_of_checkXB_tab`, `assembly_of_checkXB_norm_tab`: the same, with the table read from
+  EthLib (`TabP (CalleeEntry gas)`: every output is a callee frame's, of fewer than `2 ^ 256`
+  bytes), so the open world fits (`Fits`) and is a run's world (`RunWorld`).
+* `open_equiv_run`: the composition with a source stage asked only of fitting open worlds.
 -/
 
 namespace SolidCore.Refinement.Solar.AssembleCallOpen
@@ -184,9 +187,11 @@ theorem address_of_match {a : Address} {w : List SolarTV.Machine.Event}
 open SolarTV.EVM.Program SolidCore.Refinement.Evm.Wide SolidCore.Refinement.Evm.Symex in
 /-- **`AssembleCallSeg.within_of_advancesQ` in the environment `env`**: the same block simulation
 makes every result of the bytecode run from `preStateIn env` the EVM IR's under the oracle of the
-run's table, or a failure that changes nothing. -/
-theorem within_of_advancesQ_in {env : TargetEnv} (hwf : env.WF) {p : Assemble.Program}
+run's table, or a failure that changes nothing, and every output of that table meets `F` when each
+block keeps it (`AdvancesQT`). -/
+theorem within_of_advancesQT_in {env : TargetEnv} (hwf : env.WF) {p : Assemble.Program}
     {code : ByteArray} {call : Call} {gas : Nat}
+    {F : Bool → ByteArray → Prop}
     (O : RunTable → Oracle) (P : Evm .fusaka Nat → Message .fusaka → Evm .fusaka Nat → Prop)
     (Q : (bound : Nat) → MessageRunner .fusaka Nat bound → Evm .fusaka Nat → Prop)
     (E : Substate → RunTable → Nat × List Word × Machine.State → Evm .fusaka Nat → Prop)
@@ -199,13 +204,13 @@ theorem within_of_advancesQ_in {env : TargetEnv} (hwf : env.WF) {p : Assemble.Pr
         (Machine.State.initial call) →
       E ss' {} (0, [], Machine.State.initial call)
         (startFrame (Final.Target.messageWith gas code call) st' ss' gas))
-    (adv : ∀ ss0 T x evm, E ss0 T x evm → AdvancesQ (fun o => block o call p) O P Q (E ss0)
+    (adv : ∀ ss0 T x evm, E ss0 T x evm → AdvancesQT (fun o => block o call p) O F P Q (E ss0)
       (fun res => PostL call (Final.Target.messageWith gas code call).currentTarget ss0 res.2 res.1)
       meas T x evm) :
-    ∃ T, Within (evmirSem (O T)) (ethLibIn env gas) p code (· = call) := by
+    ∃ T, TabP F T ∧ Within (evmirSem (O T)) (ethLibIn env gas) p code (· = call) := by
   by_cases hs : ∃ obs, Shapes.Target.runWithIn env gas code call = some obs ∧ obs.success = true
   swap
-  · refine ⟨{}, fun call' hc obs hrun => Or.inr ?_⟩
+  · refine ⟨{}, TabP.empty F, fun call' hc obs hrun => Or.inr ?_⟩
     subst hc
     have hf : obs.success = false := by
       cases h : obs.success
@@ -213,9 +218,9 @@ theorem within_of_advancesQ_in {env : TargetEnv} (hwf : env.WF) {p : Assemble.Pr
       · exact absurd ⟨obs, hrun, h⟩ hs
     exact ⟨hf, runWithIn_failure hrun hf⟩
   obtain ⟨obs, hrun, hsucc⟩ := hs
-  suffices H : ∃ T, (evmirSem (O T)).run p call = some obs by
-    obtain ⟨T, hT⟩ := H
-    refine ⟨T, fun call' hc obs' hrun' => Or.inl ?_⟩
+  suffices H : ∃ T, TabP F T ∧ (evmirSem (O T)).run p call = some obs by
+    obtain ⟨T, hTP, hT⟩ := H
+    refine ⟨T, hTP, fun call' hc obs' hrun' => Or.inl ?_⟩
     subst hc
     change Shapes.Target.runWithIn env gas code call' = some obs' at hrun'
     rw [hrun] at hrun'
@@ -233,10 +238,10 @@ theorem within_of_advancesQ_in {env : TargetEnv} (hwf : env.WF) {p : Assemble.Pr
       (precompileAddress_message code call) hpm hok
   simp only at hrf
   have R := rel_start_in hwf code call gas ss' (fun h => (hcases h).1) (fun h => (hmove h).1)
-  obtain ⟨T, ⟨halt, sF⟩, -, hit, hpost⟩ := run_of_advancesQ (fun o => block o call p) O (adv ss')
+  obtain ⟨T, ⟨halt, sF⟩, -, hTP, hit, hpost⟩ := run_of_advancesQT (fun o => block o call p) O (adv ss')
     hP _ {} _ _ within evm (start st' ss' R) (Nat.lt_succ_self _) hrf hok (hQ _ hpm hok)
   obtain ⟨k, hk⟩ := hit T (RunTable.Le.refl T)
-  refine ⟨T, ?_⟩
+  refine ⟨T, hTP, ?_⟩
   have hres : (evmirSem (O T)).run p call = some (observe call sF halt) := by
     change (SolarTV.EVM.Program.layer.result (O T) p call).map _ = _
     rw [SolarTV.EVM.Program.layer.result_of_ends ⟨k, hk⟩]
@@ -295,6 +300,33 @@ theorem within_of_advancesQ_in {env : TargetEnv} (hwf : env.WF) {p : Assemble.Pr
       · simp only [ite_true]
         exact (hst' hs).2 slot
 
+open SolarTV.EVM.Program SolidCore.Refinement.Evm.Wide SolidCore.Refinement.Evm.Symex in
+/-- **`AssembleCallSeg.within_of_advancesQ` in the environment `env`**: `within_of_advancesQT_in`
+with no property of the table's entries. -/
+theorem within_of_advancesQ_in {env : TargetEnv} (hwf : env.WF) {p : Assemble.Program}
+    {code : ByteArray} {call : Call} {gas : Nat}
+    (O : RunTable → Oracle) (P : Evm .fusaka Nat → Message .fusaka → Evm .fusaka Nat → Prop)
+    (Q : (bound : Nat) → MessageRunner .fusaka Nat bound → Evm .fusaka Nat → Prop)
+    (E : Substate → RunTable → Nat × List Word × Machine.State → Evm .fusaka Nat → Prop)
+    (meas : Nat × List Word × Machine.State → Evm .fusaka Nat → Nat)
+    (hP : Meets P (processRunner .fusaka (Meter := Nat) (Final.Target.messageWith gas code call).gas))
+    (hQ : ∀ r, processMessage (Meter := Nat) .fusaka (Final.Target.messageWith gas code call)
+        (Shapes.Target.preStateIn env code call) Substate.empty = .ok r → r.1.error = none →
+      Q _ (processRunner .fusaka (Meter := Nat) (Final.Target.messageWith gas code call).gas) r.1)
+    (start : ∀ st' ss', Rel (Final.Target.messageWith gas code call) ss' st' ss'
+        (Machine.State.initial call) →
+      E ss' {} (0, [], Machine.State.initial call)
+        (startFrame (Final.Target.messageWith gas code call) st' ss' gas))
+    (adv : ∀ ss0 T x evm, E ss0 T x evm → AdvancesQ (fun o => block o call p) O P Q (E ss0)
+      (fun res => PostL call (Final.Target.messageWith gas code call).currentTarget ss0 res.2 res.1)
+      meas T x evm) :
+    ∃ T, Within (evmirSem (O T)) (ethLibIn env gas) p code (· = call) := by
+  obtain ⟨T, -, hT⟩ := within_of_advancesQT_in hwf (F := fun _ _ => True) O P Q
+    (fun ss0 T x e => E ss0 T x e ∧ TabP (fun _ _ => True) T) meas hP hQ
+    (fun st' ss' R => ⟨start st' ss' R, TabP.true _⟩)
+    (fun ss0 T x evm hE => AdvancesQ.toQT _ _ (adv ss0 T x evm hE.1))
+  exact ⟨T, hT⟩
+
 /-! ## The checker with contexts in the environment -/
 
 /-- **Named hypothesis on a run in the environment**: when it succeeds, each of its STATICCALLs
@@ -305,25 +337,53 @@ def CalleesRunOpen (env : TargetEnv) (gas : Nat) (code : ByteArray) (call : Call
     CalleesOkR code (Final.Target.messageWith gas code call) StaticOkEIn gas
       (processRunner .fusaka (Meter := Nat) gas) r.1
 
-/-- **EVM IR to bytecode, run by run, in the environment `env`**, for code with STATICCALLs. -/
-theorem runs_of_checkXB_open {env : TargetEnv} (hwf : env.WF) {p : Assemble.Program}
+/-- The runner's callee frames as the open route reads them: `StaticOkEIn`, and the frame is the
+one EthLib's runner of messages gives for that message from that caller. -/
+def RanIn (gas : Nat) (caller : Evm .fusaka Nat) (m : Message .fusaka) (child : Evm .fusaka Nat) :
+    Prop :=
+  StaticOkEIn caller m child ∧
+    ∃ lt e, processRunner .fusaka (Meter := Nat) gas caller m lt = .ok e ∧ e.val = child
+
+theorem meets_ranIn (gas : Nat) :
+    Meets (bound := gas) (RanIn gas) (processRunner .fusaka (Meter := Nat) gas) :=
+  ⟨fun a b c d e => ⟨(staticOkEIn gas).ok a b c d e, c, d, e, rfl⟩, (staticOkEIn gas).aborts⟩
+
+/-- **An entry of a run's table, read from EthLib**: the success flag and output of a frame
+EthLib's runner of messages gives for a static message, and an output of fewer than `2 ^ 256`
+bytes. -/
+def CalleeEntry (gas : Nat) (ok : Bool) (out : ByteArray) : Prop :=
+  out.size < 2 ^ 256 ∧ ∃ (caller : Evm .fusaka Nat) (m : Message .fusaka) (child : Evm .fusaka Nat),
+    ∃ lt e, processRunner .fusaka (Meter := Nat) gas caller m lt = .ok e ∧ e.val = child ∧
+    m.isStatic = true ∧ ok = child.error.isNone ∧ out = child.output
+
+theorem calleeEntry_of (gas : Nat) : ∀ c m ch, RanIn gas c m ch → m.isStatic = true →
+    m.data.size < 2 ^ 256 → CalleeEntry gas ch.error.isNone ch.output :=
+  fun c m ch ⟨hS, lt, e, he, hv⟩ hs hd => ⟨hS.1.2.2 hd, c, m, ch, lt, e, he, hv, hs, rfl, rfl⟩
+
+/-- **EVM IR to bytecode, run by run, in the environment `env`**, for code with STATICCALLs, with
+the run's table read from EthLib: each of its outputs, with its flag, is a callee frame's
+(`CalleeEntry`). -/
+theorem runs_of_checkXB_tab {env : TargetEnv} (hwf : env.WF) {p : Assemble.Program}
     {code : ByteArray} {cx : CtxCert}
     (hc : checkXB p code cx = true) (codes : SolidCore.Solidity.Shared.Account.BytesMap)
-    (gas : Nat) (hgas : gas < 2 ^ 256) (call : Call) (hO : OutputRunnerIn gas)
+    (gas : Nat) (hgas : gas < 2 ^ 256) (call : Call)
     (hagree : AssembleCallPre.EcrecoverAgree) (hQ : CalleesRunOpen env gas code call) :
-    ∃ T, Within (evmirSem (OS codes T)) (ethLibIn env gas) p code (· = call) := by
+    ∃ T, TabP (CalleeEntry gas) T ∧
+      Within (evmirSem (OS codes T)) (ethLibIn env gas) p code (· = call) := by
   obtain ⟨G, hseg, hcount, hneed0⟩ := globXB_of_checkXB hc
-  refine within_of_advancesQ_in hwf (OS codes) StaticOkEIn
-    (CalleesOk code (Final.Target.messageWith gas code call) StaticOkEIn)
-    (fun ss0 => EntXS codes p cx code (Final.Target.messageWith gas code call) ss0)
-    (fun y e => AssembleLoop.meas p cx.base e.gas y.1) (staticOkEIn_of gas hO)
+  refine within_of_advancesQT_in hwf (F := CalleeEntry gas) (OS codes) (RanIn gas)
+    (CalleesOk code (Final.Target.messageWith gas code call) (RanIn gas))
+    (fun ss0 T x e => EntXS codes p cx code (Final.Target.messageWith gas code call) ss0 T x e ∧
+      TabP (CalleeEntry gas) T)
+    (fun y e => AssembleLoop.meas p cx.base e.gas y.1) (meets_ranIn gas)
     (fun r hr he => by
       intro e within pc asked addr inOff inSize outOff outSize S M g st ss rd hat hlt hb hrun
-      exact (hQ r hr he hat hlt hb hrun).imp id fun ⟨a, b, c, d⟩ => ⟨a, hagree, b, c, d⟩)
-    (fun st' ss' R => ?_)
-    (fun ss0 T x evm hE => advances_checkXS_in G codes rfl
+      exact (hQ r hr he hat hlt hb hrun).imp id fun ⟨a, b, c, d⟩ =>
+        ⟨a, hagree, fun c' m' ch' h' => b c' m' ch' h'.1, c, d⟩)
+    (fun st' ss' R => ⟨?_, TabP.empty _⟩)
+    (fun ss0 T x evm hE => advances_checkXS_tab G codes rfl
       (by simp [Final.Target.messageWith, SolidCore.Refinement.Target.message]) rfl rfl rfl rfl rfl
-      hgas (by show 0 + 1 ≤ 1024; decide) T x evm hE (fun _ _ _ h => h.1))
+      hgas (by show 0 + 1 ≤ 1024; decide) T x evm hE.1 hE.2 (fun _ _ _ h => h.1.1) (calleeEntry_of gas))
   have h0n : 0 < p.blocks.length + 1 := by omega
   have hsame := certAt_same cx (p.blocks.length + 1) 0 0
   have hn0 : (certAt cx (p.blocks.length + 1) 0 0).need 0 = (cx.at 0 0).need := by
@@ -345,26 +405,87 @@ theorem runs_of_checkXB_open {env : TargetEnv} (hwf : env.WF) {p : Assemble.Prog
     simp only [startFrame, ByteArray.size_empty, h0, Nat.zero_add]
     exact le_refl _
 
+/-- **EVM IR to bytecode, run by run, in the environment `env`**, for code with STATICCALLs, with no
+hypothesis on the runner. -/
+theorem runs_of_checkXB_open {env : TargetEnv} (hwf : env.WF) {p : Assemble.Program}
+    {code : ByteArray} {cx : CtxCert}
+    (hc : checkXB p code cx = true) (codes : SolidCore.Solidity.Shared.Account.BytesMap)
+    (gas : Nat) (hgas : gas < 2 ^ 256) (call : Call)
+    (hagree : AssembleCallPre.EcrecoverAgree) (hQ : CalleesRunOpen env gas code call) :
+    ∃ T, Within (evmirSem (OS codes T)) (ethLibIn env gas) p code (· = call) := by
+  obtain ⟨T, -, hT⟩ := runs_of_checkXB_tab hwf hc codes gas hgas call hagree hQ
+  exact ⟨T, hT⟩
+
 /-- **The assembly premise in every environment, for code with STATICCALLs**: below `2 ^ 256`
 gas, in every well-formed environment (any other accounts, with any code), for every call in scope
-whose run meets `CalleesRunOpen`, under `OutputRunnerIn` and `EcrecoverAgree`, an oracle and an
+whose run meets `CalleesRunOpen`, under `EcrecoverAgree`, an oracle and an
 open world that agree, under which the EVM IR gives the bytecode's result in that environment or a
 failure that changes nothing. -/
 theorem assembly_of_checkXB_norm_open {p : Assemble.Program} {code : ByteArray} {cx : CtxCert}
     (hc : checkXB (norm p) code cx = true) (codes : SolidCore.Solidity.Shared.Account.BytesMap)
-    (scope : Call → Prop) (hO : ∀ gas, gas < 2 ^ 256 → OutputRunnerIn gas)
-    (hagree : AssembleCallPre.EcrecoverAgree) :
+    (scope : Call → Prop) (hagree : AssembleCallPre.EcrecoverAgree) :
     ∀ env : TargetEnv, env.WF → ∀ gas, gas < 2 ^ 256 → ∀ call, scope call →
       CalleesRunOpen env gas code call → ∃ (o : Oracle) (W : World), W.Open ∧
       CallsAgree o W ∧ CertOk cx.base o ∧ Within (evmirSem o) (ethLibIn env gas) p code (· = call) := by
   intro env hwf gas hgas call _ hQ
-  obtain ⟨T, hT⟩ := runs_of_checkXB_open hwf hc codes gas hgas call (hO gas hgas) hagree hQ
+  obtain ⟨T, hT⟩ := runs_of_checkXB_open hwf hc codes gas hgas call hagree hQ
   exact ⟨OS codes T, tabWorld T.oks T.outs codes, (OS_agree codes T).1, (OS_agree codes T).2,
     OS_ok codes cx.base T, within_norm hT⟩
 
 /-- info: 'SolidCore.Refinement.Solar.AssembleCallOpen.assembly_of_checkXB_norm_open' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs (whitespace := lax) in
 #print axioms assembly_of_checkXB_norm_open
+
+/-! ## The worlds of the open route -/
+
+open SolidCore.Solidity.Source EvmCompiler.Simulation in
+/-- **What the source stage may assume of a world**: the other accounts' code is at addresses below
+`2 ^ 160`, and a static call to code (no precompile, no value) is answered with fewer than `2 ^ 256`
+bytes of return data. Only calls to code: an open world answers a precompile call as SolidCore does
+(`World.Open.precompiles`), and IDENTITY returns its input, so no open world bounds every answer. -/
+def Fits (W : World) : Prop :=
+  (∀ p ∈ W.codes.getD [], p.1 < 2 ^ 160) ∧
+    ∀ h world request a, W.ans h (.external world (.call request)) = some a →
+      toCode (machineKind request.kind) (addressToWord request.codeAddress)
+        (u256ToWord request.transferValue) = true →
+      a.returnData.size < 2 ^ 256
+
+/-- **A world of callee outputs**: a world whose every output, with its flag, is SOME callee frame's
+that EthLib's runner gave at the bound `gas` (`CalleeEntry`); the caller, message and
+table are existential, so this does not tie the answers to a particular run's callee. -/
+def RunWorld (gas : Nat) (W : World) : Prop :=
+  ∃ (T : RunTable) (codes : SolidCore.Solidity.Shared.Account.BytesMap),
+    W = tabWorld T.oks T.outs codes ∧ TabP (CalleeEntry gas) T
+
+open SolidCore.Solidity.Source EvmCompiler.Simulation in
+/-- The world of a table of callee frames fits. -/
+theorem tabWorld_fits {gas : Nat} {T : RunTable} {codes : SolidCore.Solidity.Shared.Account.BytesMap}
+    (hcodes : ∀ p ∈ codes, p.1 < 2 ^ 160) (hT : TabP (CalleeEntry gas) T) :
+    Fits (tabWorld T.oks T.outs codes) := by
+  refine ⟨fun p hp => hcodes p (by simpa [tabWorld] using hp), fun h world request a ha hto => ?_⟩
+  change some (tabCall T.oks T.outs (sourceCalls h).length world request) = some a at ha
+  obtain rfl := Option.some.inj ha
+  simp only [tabCall, hto, ite_true, tabHit]
+  by_cases hn : (sourceCalls h).length < T.outs.length
+  · exact (hT _ hn).1
+  · simp [List.getD_eq_getElem?_getD, List.getElem?_eq_none (Nat.le_of_not_lt hn)]
+
+/-- **The assembly premise in every environment, with the world read from EthLib**:
+`assembly_of_checkXB_norm_open`'s statement whose open world also fits (`Fits`) and is a run's world
+(`RunWorld`): each static call to code is answered with the flag and output of a callee frame of
+EthLib's runner. -/
+theorem assembly_of_checkXB_norm_tab {p : Assemble.Program} {code : ByteArray} {cx : CtxCert}
+    (hc : checkXB (norm p) code cx = true) (codes : SolidCore.Solidity.Shared.Account.BytesMap)
+    (hcodes : ∀ q ∈ codes, q.1 < 2 ^ 160) (scope : Call → Prop)
+    (hagree : AssembleCallPre.EcrecoverAgree) :
+    ∀ env : TargetEnv, env.WF → ∀ gas, gas < 2 ^ 256 → ∀ call, scope call →
+      CalleesRunOpen env gas code call → ∃ (o : Oracle) (W : World), W.Open ∧ Fits W ∧
+      RunWorld gas W ∧ CallsAgree o W ∧ CertOk cx.base o ∧
+      Within (evmirSem o) (ethLibIn env gas) p code (· = call) := by
+  intro env hwf gas hgas call _ hQ
+  obtain ⟨T, hTP, hT⟩ := runs_of_checkXB_tab hwf hc codes gas hgas call hagree hQ
+  exact ⟨OS codes T, tabWorld T.oks T.outs codes, (OS_agree codes T).1, tabWorld_fits hcodes hTP,
+    ⟨T, codes, rfl, hTP⟩, (OS_agree codes T).2, OS_ok codes cx.base T, within_norm hT⟩
 
 /-! ## The composition in every environment -/
 
@@ -401,5 +522,74 @@ theorem open_equiv_of_parts {fuel : Nat} {c : SolidCore.Solidity.TypeCheck.Check
 /-- info: 'SolidCore.Refinement.Solar.AssembleCallOpen.open_equiv_of_parts' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs (whitespace := lax) in
 #print axioms open_equiv_of_parts
+
+
+/-- **Source to bytecode in every environment, with the world read from EthLib**: as
+`open_equiv_of_parts`, with the source's totality and stage asked only of open worlds that fit
+(`Fits`, which the size of an answer needs: SolidCore decodes a call's return data at its full
+length, the EVM IR at its length modulo `2 ^ 256`), and the bytes edge giving a fitting run's world
+(`RunWorld`). Every result of the exact bytecode on a valid call whose run meets `RunOk` is SolidCore's
+result in a world that fits and whose answers are callee frames of EthLib's runner, or a failure
+that changes nothing. -/
+theorem open_equiv_run {fuel : Nat} {c : SolidCore.Solidity.TypeCheck.CheckedContract}
+    {mirSem : Oracle → Sem} {m : ∀ o, (mirSem o).Prog} {q : Assemble.Program} {code : ByteArray}
+    {Valid : Call → Prop} {RunOk : TargetEnv → Nat → Call → Prop}
+    (total : ∀ W : World, W.Open → Fits W → ∀ call, Valid call → (Source.runIn W fuel c call).isSome)
+    (source : ∀ o W, W.Open → Fits W → CallsAgree o W →
+      Stage (solidCoreIn W fuel) (mirSem o) c (m o) Valid)
+    (backend : ∀ o, Stage (mirSem o) (evmirSem o) (m o) q Valid)
+    (bytes : ∀ env : TargetEnv, env.WF → ∀ gas, gas < 2 ^ 256 → ∀ call, Valid call →
+      RunOk env gas call → ∃ (o : Oracle) (W : World), W.Open ∧ Fits W ∧ RunWorld gas W ∧
+        CallsAgree o W ∧ Within (evmirSem o) (ethLibIn env gas) q code (· = call)) :
+    ∀ env : TargetEnv, env.WF → ∀ gas, gas < 2 ^ 256 → ∀ call, Valid call → RunOk env gas call →
+      ∀ obs, Shapes.Target.runWithIn env gas code call = some obs →
+        (∃ W : World, W.Open ∧ Fits W ∧ RunWorld gas W ∧ Source.runIn W fuel c call = some obs) ∨
+          Shapes.Inert call obs := by
+  intro env hwf gas hgas call hv hok obs hrun
+  obtain ⟨o, W, hW, hF, hR, hA, hwi⟩ := bytes env hwf gas hgas call hv hok
+  rcases hwi call rfl obs hrun with h | h
+  · left
+    obtain ⟨obs0, h0⟩ := Option.isSome_iff_exists.mp (total W hW hF call hv)
+    have hq := ((source o W hW hF hA).trans (backend o)) call hv obs0 h0
+    rw [hq] at h
+    cases h
+    exact ⟨W, hW, hF, hR, h0⟩
+  · exact Or.inr h
+
+/-- info: 'SolidCore.Refinement.Solar.AssembleCallOpen.within_of_advancesQT_in' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs (whitespace := lax) in
+#print axioms within_of_advancesQT_in
+
+/-- info: 'SolidCore.Refinement.Solar.AssembleCallOpen.within_of_advancesQ_in' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs (whitespace := lax) in
+#print axioms within_of_advancesQ_in
+
+/-- info: 'SolidCore.Refinement.Solar.AssembleCallOpen.meets_ranIn' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs (whitespace := lax) in
+#print axioms meets_ranIn
+
+/-- info: 'SolidCore.Refinement.Solar.AssembleCallOpen.calleeEntry_of' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs (whitespace := lax) in
+#print axioms calleeEntry_of
+
+/-- info: 'SolidCore.Refinement.Solar.AssembleCallOpen.runs_of_checkXB_tab' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs (whitespace := lax) in
+#print axioms runs_of_checkXB_tab
+
+/-- info: 'SolidCore.Refinement.Solar.AssembleCallOpen.runs_of_checkXB_open' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs (whitespace := lax) in
+#print axioms runs_of_checkXB_open
+
+/-- info: 'SolidCore.Refinement.Solar.AssembleCallOpen.tabWorld_fits' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs (whitespace := lax) in
+#print axioms tabWorld_fits
+
+/-- info: 'SolidCore.Refinement.Solar.AssembleCallOpen.assembly_of_checkXB_norm_tab' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs (whitespace := lax) in
+#print axioms assembly_of_checkXB_norm_tab
+
+/-- info: 'SolidCore.Refinement.Solar.AssembleCallOpen.open_equiv_run' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs (whitespace := lax) in
+#print axioms open_equiv_run
 
 end SolidCore.Refinement.Solar.AssembleCallOpen

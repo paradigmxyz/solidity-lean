@@ -1,4 +1,4 @@
-import SolidCore.Refinement.Solar.AssembleCallSeg
+import SolidCore.Refinement.Solar.AssembleCallIn
 
 /-!
 # A STATICCALL to an address the call names: an example and mutants
@@ -7,8 +7,10 @@ A program that makes a STATICCALL with all its gas to the address in the call da
 offset 4, with no input and 32 bytes of output at offset 0, then stores the call's flag at offset 0
 and returns that word. The checker without the no-call gate (`AssembleCut.checkCB`) accepts the
 bytecode under a certificate that says the program makes calls; at every gas below `2 ^ 256`, every
-run that meets the named hypotheses (`AssembleCallSeg.StaticRunner`, `AssembleCallSeg.CalleesRun`)
-gives the program's result under the oracle of the run's table, which agrees with an open world.
+run that meets the named hypotheses (`AssembleCallPre.EcrecoverAgree`,
+`AssembleCallIn.CalleesRunIn`) gives the program's result under the oracle of the run's table, which
+agrees with an open world (`bytecode_in` and its siblings). The `bytecode` forms assume
+`∀ gas, AssembleCallSeg.StaticRunner gas`, which is refuted, and are kept only for their names.
 
 Rejected by evaluation: the bytecode reading the address at offset 5, the bytecode with
 DELEGATECALL in place of STATICCALL, the certificate that says the program makes no call, and the
@@ -58,7 +60,11 @@ theorem nocalls_fails : checkCB prog code { cert with calls := false } maxs = fa
 /-- The gated checker takes programs without calls only. -/
 theorem gated_fails : checkC prog code cert maxs = false := by decide +kernel
 
-/-- **At every gas below `2 ^ 256`, every result of the bytecode is the program's**, under an oracle
+/-- **Deprecated, vacuous as stated:** its premise `∀ gas, StaticRunner gas` is refuted
+(`AssembleNoCall.not_forall_staticRunner`, `AssembleNoCall.not_forall_outputRunner`: IDENTITY
+with `2 ^ 256` bytes of data). Use `bytecode_in`.
+
+**At every gas below `2 ^ 256`, every result of the bytecode is the program's**, under an oracle
 that agrees with an open world, for every run meeting the named hypotheses. -/
 theorem bytecode (codes : SolidCore.Solidity.Shared.Account.BytesMap) (scope : SolarTV.Call → Prop)
     (hP : ∀ gas, StaticRunner gas) (hQ : ∀ gas call, scope call → CalleesRun gas code call) :
@@ -70,6 +76,20 @@ theorem bytecode (codes : SolidCore.Solidity.Shared.Account.BytesMap) (scope : S
 /-- info: 'SolidCore.Refinement.Solar.AssembleCallExample.bytecode' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs (whitespace := lax) in
 #print axioms bytecode
+
+/-- `bytecode` with no hypothesis on the runner: under `AssembleCallPre.EcrecoverAgree` and
+`AssembleCallIn.CalleesRunIn` only. -/
+theorem bytecode_in (codes : SolidCore.Solidity.Shared.Account.BytesMap) (scope : SolarTV.Call → Prop)
+    (hagree : AssembleCallPre.EcrecoverAgree)
+    (hQ : ∀ gas call, scope call → AssembleCallIn.CalleesRunIn gas code call) :
+    ∀ gas, gas < 2 ^ 256 → ∀ call, scope call → ∃ (o : SolarTV.Machine.Oracle) (W : World),
+      W.Open ∧ SolidCore.Refinement.CallsAgree o W ∧ RunOracle.CertOk cert o ∧
+      SolidCore.Refinement.Final.Within (SolarTV.evmirSem o) (ethLibWith gas) prog code (· = call) :=
+  AssembleCallIn.assembly_of_checkCB_in check_ok codes scope hagree hQ
+
+/-- info: 'SolidCore.Refinement.Solar.AssembleCallExample.bytecode_in' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs (whitespace := lax) in
+#print axioms bytecode_in
 
 /-- The flag and RETURNDATASIZE, after the call, stored at offsets 0 and 32 and returned. -/
 def progRds : Assemble.Program :=
@@ -93,7 +113,11 @@ theorem checkRds_ok : checkCB progRds codeRds certRds maxs = true := by decide +
 
 theorem mutantRds_fails : checkCB progRds mutantRds certRds maxs = false := by decide +kernel
 
-/-- **The callee's return data size, read back**: at every gas below `2 ^ 256`, every result of the
+/-- **Deprecated, vacuous as stated:** its premise `∀ gas, StaticRunner gas` is refuted
+(`AssembleNoCall.not_forall_staticRunner`, `AssembleNoCall.not_forall_outputRunner`: IDENTITY
+with `2 ^ 256` bytes of data). Use `bytecodeRds_in`.
+
+**The callee's return data size, read back**: at every gas below `2 ^ 256`, every result of the
 bytecode is the program's, whose RETURNDATASIZE reads the table's output of the call. -/
 theorem bytecodeRds (codes : SolidCore.Solidity.Shared.Account.BytesMap) (scope : SolarTV.Call → Prop)
     (hP : ∀ gas, StaticRunner gas) (hQ : ∀ gas call, scope call → CalleesRun gas codeRds call) :
@@ -106,6 +130,20 @@ theorem bytecodeRds (codes : SolidCore.Solidity.Shared.Account.BytesMap) (scope 
 /-- info: 'SolidCore.Refinement.Solar.AssembleCallExample.bytecodeRds' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs (whitespace := lax) in
 #print axioms bytecodeRds
+
+/-- `bytecodeRds` with no hypothesis on the runner: under `AssembleCallPre.EcrecoverAgree` and
+`AssembleCallIn.CalleesRunIn` only. -/
+theorem bytecodeRds_in (codes : SolidCore.Solidity.Shared.Account.BytesMap) (scope : SolarTV.Call → Prop)
+    (hagree : AssembleCallPre.EcrecoverAgree)
+    (hQ : ∀ gas call, scope call → AssembleCallIn.CalleesRunIn gas codeRds call) :
+    ∀ gas, gas < 2 ^ 256 → ∀ call, scope call → ∃ (o : SolarTV.Machine.Oracle) (W : World),
+      W.Open ∧ SolidCore.Refinement.CallsAgree o W ∧ RunOracle.CertOk certRds o ∧
+      SolidCore.Refinement.Final.Within (SolarTV.evmirSem o) (ethLibWith gas) progRds codeRds (· = call) :=
+  AssembleCallIn.assembly_of_checkCB_in checkRds_ok codes scope hagree hQ
+
+/-- info: 'SolidCore.Refinement.Solar.AssembleCallExample.bytecodeRds_in' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs (whitespace := lax) in
+#print axioms bytecodeRds_in
 
 /-- After the call, the whole return data copied to offset 0 and returned: RETURNDATASIZE PUSH0
 PUSH0 RETURNDATACOPY RETURNDATASIZE PUSH0 RETURN. -/
@@ -131,7 +169,11 @@ theorem checkRdc_ok : checkCB progRdc codeRdc certRdc maxs = true := by decide +
 
 theorem mutantRdc_fails : checkCB progRdc mutantRdc certRdc maxs = false := by decide +kernel
 
-/-- **The callee's return data, copied and returned**: return data bubbling. At every gas below
+/-- **Deprecated, vacuous as stated:** its premise `∀ gas, StaticRunner gas` is refuted
+(`AssembleNoCall.not_forall_staticRunner`, `AssembleNoCall.not_forall_outputRunner`: IDENTITY
+with `2 ^ 256` bytes of data). Use `bytecodeRdc_in`.
+
+**The callee's return data, copied and returned**: return data bubbling. At every gas below
 `2 ^ 256`, every result of the bytecode is the program's. -/
 theorem bytecodeRdc (codes : SolidCore.Solidity.Shared.Account.BytesMap) (scope : SolarTV.Call → Prop)
     (hP : ∀ gas, StaticRunner gas) (hQ : ∀ gas call, scope call → CalleesRun gas codeRdc call) :
@@ -144,6 +186,20 @@ theorem bytecodeRdc (codes : SolidCore.Solidity.Shared.Account.BytesMap) (scope 
 /-- info: 'SolidCore.Refinement.Solar.AssembleCallExample.bytecodeRdc' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs (whitespace := lax) in
 #print axioms bytecodeRdc
+
+/-- `bytecodeRdc` with no hypothesis on the runner: under `AssembleCallPre.EcrecoverAgree` and
+`AssembleCallIn.CalleesRunIn` only. -/
+theorem bytecodeRdc_in (codes : SolidCore.Solidity.Shared.Account.BytesMap) (scope : SolarTV.Call → Prop)
+    (hagree : AssembleCallPre.EcrecoverAgree)
+    (hQ : ∀ gas call, scope call → AssembleCallIn.CalleesRunIn gas codeRdc call) :
+    ∀ gas, gas < 2 ^ 256 → ∀ call, scope call → ∃ (o : SolarTV.Machine.Oracle) (W : World),
+      W.Open ∧ SolidCore.Refinement.CallsAgree o W ∧ RunOracle.CertOk certRdc o ∧
+      SolidCore.Refinement.Final.Within (SolarTV.evmirSem o) (ethLibWith gas) progRdc codeRdc (· = call) :=
+  AssembleCallIn.assembly_of_checkCB_in checkRdc_ok codes scope hagree hQ
+
+/-- info: 'SolidCore.Refinement.Solar.AssembleCallExample.bytecodeRdc_in' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs (whitespace := lax) in
+#print axioms bytecodeRdc_in
 
 
 /-! ## A STATICCALL to ECRECOVER -/
@@ -172,7 +228,11 @@ theorem checkEc_ok : checkCB progEc codeEc certEc maxs = true := by decide +kern
 
 theorem mutantEcAddr_fails : checkCB progEc mutantEcAddr certEc maxs = false := by decide +kernel
 
-/-- **The ECRECOVER bytecode, at every gas below `2 ^ 256`**: every result is the program's
+/-- **Deprecated, vacuous as stated:** its premise `∀ gas, StaticRunner gas` is refuted
+(`AssembleNoCall.not_forall_staticRunner`, `AssembleNoCall.not_forall_outputRunner`: IDENTITY
+with `2 ^ 256` bytes of data). Use `bytecodeEc_in`.
+
+**The ECRECOVER bytecode, at every gas below `2 ^ 256`**: every result is the program's
 under an oracle that agrees with an open world, in which the call to address 1 is answered by the
 source's ECRECOVER; `CalleesRun` admits the call through `AssembleCallCut.PreOk`, which names
 `AssembleCallPre.EcrecoverAgree`. -/
@@ -187,5 +247,19 @@ theorem bytecodeEc (codes : SolidCore.Solidity.Shared.Account.BytesMap)
 /-- info: 'SolidCore.Refinement.Solar.AssembleCallExample.bytecodeEc' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs (whitespace := lax) in
 #print axioms bytecodeEc
+
+/-- `bytecodeEc` with no hypothesis on the runner: under `AssembleCallPre.EcrecoverAgree` and
+`AssembleCallIn.CalleesRunIn` only. -/
+theorem bytecodeEc_in (codes : SolidCore.Solidity.Shared.Account.BytesMap) (scope : SolarTV.Call → Prop)
+    (hagree : AssembleCallPre.EcrecoverAgree)
+    (hQ : ∀ gas call, scope call → AssembleCallIn.CalleesRunIn gas codeEc call) :
+    ∀ gas, gas < 2 ^ 256 → ∀ call, scope call → ∃ (o : SolarTV.Machine.Oracle) (W : World),
+      W.Open ∧ SolidCore.Refinement.CallsAgree o W ∧ RunOracle.CertOk certEc o ∧
+      SolidCore.Refinement.Final.Within (SolarTV.evmirSem o) (ethLibWith gas) progEc codeEc (· = call) :=
+  AssembleCallIn.assembly_of_checkCB_in checkEc_ok codes scope hagree hQ
+
+/-- info: 'SolidCore.Refinement.Solar.AssembleCallExample.bytecodeEc_in' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs (whitespace := lax) in
+#print axioms bytecodeEc_in
 
 end SolidCore.Refinement.Solar.AssembleCallExample
