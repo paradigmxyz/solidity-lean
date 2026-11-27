@@ -35,7 +35,7 @@ package «solidity-lean» where
 lean_lib SolidCore where
   -- Outside SolidCore.lean's closure: the lemmas generated modules (solar's tools/certify) use.
   roots := #[`SolidCore, `SolidCore.Refinement.KernelTable, `SolidCore.Refinement.Generic.Shape,
-    `SolidCore.Refinement.AbiStatic]
+    `SolidCore.Refinement.AbiStatic, `SolidCore.Refinement.Generic.CallStage]
 
 -- c1's hand-written refinement evaluates SolidCore with `native_decide`, which trusts Lean's
 -- compiler, so it stays out of the default library: `lake build SolidCoreNative`.
@@ -132,7 +132,7 @@ builds the root's closure; the libraries below hold the heavier, generated-input
 lean_lib Verify where
   roots := #[`Verify, `Verify.AnyCaller.Tests, `Verify.Lifecycle.Life, `Verify.Gas.FixedFuel.Counted,
     `Verify.ShapeGenericRuntime,
-    `Verify.ShapeSpecExportTac, `Verify.Spec.TreeSucceedsTry]
+    `Verify.ShapeSpecExportTac, `Verify.Spec.TreeSucceedsTry, `Verify.ShapeCall]
 
 -- bank's and events' assembly stages against solar's exports (solar-tv/milestone/bank and
 -- solar-tv/milestone/events at 0a455fda): the generic assembler check with mapping hashes,
