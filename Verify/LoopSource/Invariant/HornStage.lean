@@ -88,7 +88,7 @@ theorem contract_ok : ∃ c, contract? = .ok c := by
 
 /-- The erasure environment `loop_stage` takes is `Horn.env`. -/
 theorem env_eq {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) :
-    ({ envOf c.core with facts := argFacts [256] 0 } : EraseEnv) =
+    ({ envOf c.core with facts := argFacts [2 ^ 256 - 1] 0 } : EraseEnv) =
       Horn.env c.core.eventDecls c.core.table := by
   simp only [envOf, Horn.env, (fn_checked hc).2]
   rfl
@@ -102,7 +102,7 @@ allow, on solar's lowered MIR to the source's observable. -/
 theorem horn_stage {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) (o : Oracle)
     (ho : SourceAsk .off o) :
     Stage (solidCoreRuntime Horn.fuel) (mirSem o) c Verify.Phase3.Infer.HornOkTransfer.stage0
-      (SelCall sel hornFn [256]) := by
+      (SelCall sel hornFn [2 ^ 256 - 1]) := by
   have hE := env_eq hc
   refine Join.while_stage (by decide) (fn_checked hc).1 rfl rfl (hE ▸ Horn.obl _ _)
     (hE ▸ horn_erased _ _) horn_tree Verify.Phase3.Infer.HornOkTransfer.leaves
@@ -118,11 +118,11 @@ theorem horn_certified {c : TypeCheck.CheckedContract} (hc : contract? = .ok c)
     {mx : List Nat}
     (backend : Stage (mirSem Shapes.oracle) (evmirSem Shapes.oracle)
       Verify.Phase3.Infer.HornOkTransfer.stage0 q scope)
-    (hscope : ∀ call, SelCall sel hornFn [256] call → scope call)
+    (hscope : ∀ call, SelCall sel hornFn [2 ^ 256 - 1] call → scope call)
     (asm : AssembleLoop.checkL q code cert mx = true)
     {Valid : Call → Prop} {Allowed Post : Call → Observable → Prop}
-    (hsub : ∀ call, Valid call → SelCall sel hornFn [256] call) (hinh : ∃ call, Valid call)
-    (hAl : OnTree sel hornFn [256] Tret Allowed) (hP : OnTree sel hornFn [256] Tret Post)
+    (hsub : ∀ call, Valid call → SelCall sel hornFn [2 ^ 256 - 1] call) (hinh : ∃ call, Valid call)
+    (hAl : OnTree sel hornFn [2 ^ 256 - 1] Tret Allowed) (hP : OnTree sel hornFn [2 ^ 256 - 1] Tret Post)
     {R : LoopRecord} {E B Xs M : Nat}
     (loops : ∀ call, Valid call → Verify.Gas.FixedFuel.Loops (EVM.Program.block Shapes.oracle call q)
       (0, [], SolarTV.Machine.State.initial call) R E B Xs M)
@@ -130,7 +130,7 @@ theorem horn_certified {c : TypeCheck.CheckedContract} (hc : contract? = .ok c)
     Shapes.Certified (solidCoreRuntime Horn.fuel) c code Valid Allowed Post
       (fun _ => AssembleLoop.gasBoundL cert (Verify.Gas.FixedFuel.fixedFuel E B Xs M)) := by
   have hE := env_eq hc
-  exact Join.while_certified Horn.fuel c sel hornFn [256] br Tret (by decide) (fn_checked hc).1 rfl rfl
+  exact Join.while_certified Horn.fuel c sel hornFn [2 ^ 256 - 1] br Tret (by decide) (fn_checked hc).1 rfl rfl
     wd I μ (hE ▸ Horn.obl _ _) (hE ▸ horn_erased _ _) horn_tree
     Verify.Phase3.Infer.HornOkTransfer.cut .off Verify.Phase3.Infer.HornOkTransfer.stage0
     Verify.Phase3.Infer.HornOkTransfer.le Verify.Phase3.Infer.HornOkTransfer.li

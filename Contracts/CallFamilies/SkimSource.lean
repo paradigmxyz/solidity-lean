@@ -221,8 +221,8 @@ theorem skim_source (k : Nat) (V : World) {c : SolidCore.Solidity.TypeCheck.Chec
   simp only [List.map_cons, List.map_nil, hdst'] at hrun
   rw [show List.drop ABI.selectorBytes (List.map (fun x => x.toNat) (EthLib.Base.natToBytes 4 3156594551) ++
       Dirty.argBytes [dst]) = Dirty.argBytes [dst] by simp [ABI.selectorBytes, EthLib.Base.natToBytes_length],
-    decode_args (ws := [160]) rfl [dst] rfl (by simp; exact lt_trans hdst (by decide))] at hrun
-  have hcl : argsClean [160] [dst] = true := by simp [argsClean]; omega
+    decode_args (ws := [2 ^ 160 - 1]) rfl [dst] rfl (by simp; exact lt_trans hdst (by decide))] at hrun
+  have hcl : argsClean [2 ^ 160 - 1] [dst] = true := by simp [argsClean]; omega
   simp only [hcl, ↓reduceIte, show skimFn.acceptsValue 0 = true from rfl, List.map_cons, List.map_nil] at hrun
   generalize hctx : ABI.Contract.callContextAtWithBase c.core (ctxIn V c) selfAddress callerAddress 0
     (List.map (fun x => x.toNat) (EthLib.Base.natToBytes 4 3156594551) ++ Dirty.argBytes [dst]) = ctx at hrun

@@ -115,7 +115,7 @@ theorem counter_deployedAtWith_all {c : TypeCheck.CheckedContract} (hc : contrac
   obtain ⟨hfields, hevents, -⟩ := shape_of hc
   set ρ : Val := ⟨[n], fun _ => 0, solHash, callerWord⟩ with hρ
   have hρok : ρ.Ok := fun _ => rfl
-  let E : EraseEnv := { fields := c.core.storageFields, events := c.core.eventDecls, tbl := c.core.table, facts := argFacts [256] 0 }
+  let E : EraseEnv := { fields := c.core.storageFields, events := c.core.eventDecls, tbl := c.core.table, facts := argFacts [2 ^ 256 - 1] 0 }
   set ctx : Context := { Wide.ctxOf c with sender := selfAddress, value := 0, construction := true, selfDispatch? := some (ABI.selfDispatchHook fuel c.core 0) } with hctx
   have hargs : ∀ a ∈ ρ.args, a < Generic.wordSize := by simpa [hρ] using hn
   have hframe : ctorFn.initialFrame? [Value.word n] =
@@ -141,7 +141,7 @@ theorem counter_deployedAtWith_all {c : TypeCheck.CheckedContract} (hc : contrac
         intro k _
         simp [State.loadSlot, StorageMap.lookup?, State.empty, Writes.store, CounterLoad.S0, initState, hρ, hrt0, hst0]
       logs := by simp [State.empty, CounterLoad.S0, initState, hrt0, hst0]
-      facts := argFacts_hold ρ hargs [256] 0 (by simp [argsClean, hρ]; exact hn) }
+      facts := argFacts_hold ρ hargs [2 ^ 256 - 1] 0 (by simp [argsClean, hρ]; exact Nat.le_of_lt_succ hn) }
   have hE : E.fields = vcFields := hfields
   -- the statements of the body, one by one
   have hrel1 := hrel.pushScope

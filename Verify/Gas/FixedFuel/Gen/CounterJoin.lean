@@ -45,7 +45,7 @@ theorem counter_join_generated {K : Nat} (hK : K ≤ Kmax) :
   obtain ⟨TL, hTL⟩ := loop_tree
   have hsame : ∀ ρ : Val, ρ.Ok → (TL.eval ρ).obs = (CounterObl.T.eval ρ).obs :=
     fun ρ _ => congrArg Res.obs (tree_same hTL CounterObl.tree ρ)
-  have h := eraseLoop_certified_generated Contracts.VerifyCounter.Source.fuel c bumpSel bumpFn [256]
+  have h := eraseLoop_certified_generated Contracts.VerifyCounter.Source.fuel c bumpSel bumpFn [2 ^ 256 - 1]
     EraseLoopCounter.bumpLoopBr TL (by decide) (shape_of hc).2.2 rfl rfl (erased hc) hTL
     Generated.Counter.cut .off stage0 CounterObl.le CounterObl.li CounterObl.leaves CounterObl.T
     CounterObl.I CounterObl.μ CounterObl.ss CounterObl.seqs CounterObl.valid hsame evm7

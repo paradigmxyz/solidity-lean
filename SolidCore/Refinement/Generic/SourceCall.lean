@@ -4,18 +4,20 @@ import SolidCore.Refinement.Generic.SourceStmt
 # Functions and the dispatcher of the fragment
 
 `eraseFn` erases a SolidCore function of the fragment to the `Tree` of one external call of it.
-Its parameters are words: a `uint256` with a `uint b` ABI cleanup, `0 < b ≤ 256`, or an `address`
-with no cleanup, as SolidCore's type checker gives a Solidity `address` parameter; each has a
-width (`paramWidth`: `b`, or 160 for an address). Its returns are `uint256`, `address` or `bool`
+Its parameters are words: a `uint256` with a `uint b` ABI cleanup, `0 < b ≤ 256`, a `uint256` with an
+`enum m` cleanup (an enum parameter, whose largest member is `m`), an `address` with no cleanup,
+as SolidCore's type checker gives a Solidity `address` parameter, or a `bool` with no cleanup; each
+has a bound (`paramWidth`: the largest word SolidCore's decoder accepts for it: `2 ^ b - 1`, `m`,
+`2 ^ 160 - 1` or 1). Its returns are `uint256`, `address` or `bool`
 words, and none of its bindings is a storage reference. The tree is the argument checks
-(`paramGuards`: a word at or above `2 ^ w` for a parameter of width `w < 256` reverts with empty
-data, as SolidCore's decoder, its address check or its `uint b` cleanup, and solar's `lower-abi`
+(`paramGuards`: a word above the bound `m < 2 ^ 256 - 1` of its parameter reverts with empty
+data, as SolidCore's decoder, its address and bool checks, or its `uint b` and `enum m` cleanups, and solar's `lower-abi`
 do), then the body's branch tree run from `initState`, with each leaf turned into the call's end
 by `leafTree`: the returned words ABI-encoded with the body's storage writes and logs, or a
 revert's data (empty, `Panic(code)` or `Error(msg)`) with neither.
 
-Past the argument checks every argument word fits its width, which the facts `argFacts` record
-(`gt (arg i) (2 ^ w - 1)` taken as zero). The erasure reads them through the `EraseEnv`'s
+Past the argument checks every argument word is at most its bound, which the facts `argFacts` record
+(`gt (arg i) m` taken as zero). The erasure reads them through the `EraseEnv`'s
 `facts` and `leafTree` through its own: a returned `address` word must be below `2 ^ 160` and a
 `bool` word at most 1 on every call (`retOk`: its `bound` on the facts), as SolidCore's encoder
 asks, so an `address` parameter, `msg.sender`, a masked storage read or a comparison returns
@@ -31,18 +33,24 @@ def wordBinding (b : BindingDecl) : Bool :=
   (match b.ty with | .uint256 => true | .address => true | .bool => true | _ => false) &&
     !b.isStorageRef
 
-/-- The width of the argument word of a parameter of the fragment, from its binding and its ABI
-cleanup: `b` for a `uint256` with the cleanup `uint b`, `0 < b ≤ 256`, and 160 for an `address` with
-no cleanup. -/
+/-- The bound of the argument word of a parameter of the fragment, from its binding and its ABI
+cleanup: the largest word SolidCore's decoder accepts for it. `2 ^ b - 1` for a `uint256` with the
+cleanup `uint b`, `0 < b ≤ 256`; `m` for a `uint256` with the cleanup `enum m`, `0 < m` (an enum
+parameter whose largest member is `m`); `2 ^ 160 - 1` for an `address` and 1 for a `bool`, each with
+no cleanup. An enum of one member (`m = 0`) has no bound here: past its check its argument word is 0,
+which solar's MIR returns as the constant while the erasure keeps the word, so the trees differ. -/
 def paramWidth (p : BindingDecl) (c : AbiCleanup) : Option Nat :=
   if p.isStorageRef then none
   else
     match p.ty, c with
-    | .uint256, .uint b => if 0 < b ∧ b ≤ 256 then some b else none
-    | .address, .none => some 160
+    | .uint256, .uint b => if 0 < b ∧ b ≤ 256 then some (2 ^ b - 1) else none
+    | .uint256, .enum m => if 0 < m ∧ m < wordSize then some m else none
+    | .address, .none => some (2 ^ 160 - 1)
+    | .bool, .none => some 1
     | _, _ => none
 
-/-- The widths of the parameters of the fragment, one per parameter and its ABI cleanup. -/
+/-- The bounds of the parameters of the fragment, one per parameter and its ABI cleanup (the name
+is kept from when every bound was `2 ^ w - 1` for a width `w`). -/
 def widthsOf : List BindingDecl → List AbiCleanup → Option (List Nat)
   | [], [] => some []
   | p :: ps, c :: cs => do
@@ -51,22 +59,22 @@ def widthsOf : List BindingDecl → List AbiCleanup → Option (List Nat)
     some (w :: ws)
   | _, _ => none
 
-/-- The checks of the argument words from parameter `i` on, given their widths: a word of a
-parameter of width `w < 256` above `2 ^ w - 1` reverts with empty data. -/
+/-- The checks of the argument words from parameter `i` on, given their bounds: a word of a
+parameter of bound `m < 2 ^ 256 - 1` above `m` reverts with empty data. -/
 def paramGuards : List Nat → Nat → Tree → Tree
   | [], _, t => t
-  | w :: ws, i, t =>
-    if w < 256 then
-      .ite (.bin .gt (.arg i) (.lit (2 ^ w - 1))) (.halt false [] [] []) (paramGuards ws (i + 1) t)
-    else paramGuards ws (i + 1) t
+  | m :: ms, i, t =>
+    if m < wordSize - 1 then
+      .ite (.bin .gt (.arg i) (.lit m)) (.halt false [] [] []) (paramGuards ms (i + 1) t)
+    else paramGuards ms (i + 1) t
 
 /-- What the argument checks from parameter `i` on leave known: each word of a parameter of
-width `w < 256` is at most `2 ^ w - 1`. -/
+bound `m < 2 ^ 256 - 1` is at most `m`. -/
 def argFacts : List Nat → Nat → Facts
   | [], _ => []
-  | w :: ws, i =>
-    if w < 256 then (.bin .gt (.arg i) (.lit (2 ^ w - 1)), false) :: argFacts ws (i + 1)
-    else argFacts ws (i + 1)
+  | m :: ms, i =>
+    if m < wordSize - 1 then (.bin .gt (.arg i) (.lit m), false) :: argFacts ms (i + 1)
+    else argFacts ms (i + 1)
 
 /-- The parameters as locals: parameter `i` holds argument word `i`. -/
 def paramLocals : List BindingDecl → Nat → Locals

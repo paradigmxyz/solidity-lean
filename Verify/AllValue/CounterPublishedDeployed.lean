@@ -73,7 +73,7 @@ theorem certified_transfer {S S' : Sem} {p : S.Prog} {p' : S'.Prog} {code : Byte
 theorem selCallLoad {n : Nat} {d : SolidCore.Solidity.Source.State}
     (hl : ∀ k, d.loadSlot k = if k % 2 ^ 256 = 1 then n else 0) {call : Call}
     (hv : Contracts.VerifyCounter.ShapeSource.ValidS call) (hcov : CoverN n call.storage) :
-    SelCallLoad bumpSel bumpFn [256] d call := by
+    SelCallLoad bumpSel bumpFn [2 ^ 256 - 1] d call := by
   obtain ⟨σ, a, ha, rfl⟩ := hv
   have ha' : a < 2 ^ 256 := lt_trans ha (by decide)
   refine ⟨⟨σ, [a], ⟨rfl, ?_, ?_⟩, rfl⟩, coversLoad hl hcov⟩

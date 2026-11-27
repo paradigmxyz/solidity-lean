@@ -68,7 +68,7 @@ def env (ev : List EventDecl) (tbl : FunctionTable) : EraseEnv :=
 
 /-- A checked contract with `Counter`'s storage fields erases bump's body in `env`. -/
 theorem envOf_eq {c : SolidCore.Solidity.TypeCheck.CheckedContract} (hf : c.core.storageFields = vcFields) :
-    ({ envOf c.core with facts := argFacts [256] 0 } : EraseEnv) = env c.core.eventDecls c.core.table := by
+    ({ envOf c.core with facts := argFacts [2 ^ 256 - 1] 0 } : EraseEnv) = env c.core.eventDecls c.core.table := by
   simp only [envOf, env, hf]
   rfl
 

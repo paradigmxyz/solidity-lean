@@ -108,12 +108,12 @@ def badCall : SolarTV.Call := bumpCall [(1, 1)] 1
 theorem never {c : SolidCore.Solidity.TypeCheck.CheckedContract} (hc : contractM? = .ok c)
     (fuel : Nat) (hfuel : 14 ≤ fuel) : runtimeRun fuel c badCall = none := by
   obtain ⟨hf, hev, hfind⟩ := shapeM_of hc
-  have hw : widthsOf bumpFnM.params bumpFnM.paramAbiCleanups = some [256] := rfl
+  have hw : widthsOf bumpFnM.params bumpFnM.paramAbiCleanups = some [2 ^ 256 - 1] := rfl
   have hargs : ∀ x ∈ [1], x < 2 ^ 256 := by simp
-  have hclean : argsClean [256] [1] = true := by decide
+  have hclean : argsClean [2 ^ 256 - 1] [1] = true := by decide
   have hdec := decode_args hw [1] rfl hargs
   rw [if_pos hclean] at hdec
-  have hE : ({ envOf c.core with facts := argFacts [256] 0 } : EraseEnv) =
+  have hE : ({ envOf c.core with facts := argFacts [2 ^ 256 - 1] 0 } : EraseEnv) =
       env c.core.eventDecls c.core.table := by
     simp only [envOf, env, hf]
     rfl

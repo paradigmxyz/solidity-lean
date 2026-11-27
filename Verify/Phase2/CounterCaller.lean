@@ -198,7 +198,7 @@ theorem bump_property_from : ∀ c, contract? = .ok c →
       bundlePost B (ctxOfCallFrom x) idStep (bumpCall σ a) obs ∧
         bundleAllowed B (ctxOfCallFrom x) (bumpCall σ a) obs := by
   intro c hc x hx hne σ a ha obs hrun
-  exact property_from (by decide) (Contracts.VerifyCounter.Source.shape_of hc).2.2 (ws := [256]) rfl
+  exact property_from (by decide) (Contracts.VerifyCounter.Source.shape_of hc).2.2 (ws := [2 ^ 256 - 1]) rfl
     rfl (Verify.LoopSource.Equiv.CounterCtx.bodyRunsFrom hc) Verify.LoopSource.Equiv.CounterCtx.treeFrom
     specs_meet_from x hx hne _ ⟨σ, [a], Verify.LoopSource.MirLink.args_one ha, rfl⟩ obs hrun
 

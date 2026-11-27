@@ -34,7 +34,7 @@ theorem tri_le : ∀ n, n ≤ 64 → tri n ≤ 2080 := by
 
 /-- The erasure environment of RecSum's bodies, with the contract's function table. -/
 def envT (tbl : FunctionTable) : EraseEnv :=
-  { fields := [], events := [], tbl := tbl, facts := argFacts [256] 0 }
+  { fields := [], events := [], tbl := tbl, facts := argFacts [2 ^ 256 - 1] 0 }
 
 /-- The first symbolic state of a call of `sum` or `total`: `n` is argument 0. -/
 def S0 : SymState := { scopes := [[("n", .arg 0), ("_ret0", .lit 0)]], writes := [], logs := [] }

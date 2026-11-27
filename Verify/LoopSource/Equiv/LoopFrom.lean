@@ -43,7 +43,6 @@ theorem runtime_run_clean_from (a : Nat) (ha : a < 2 ^ 160) {fuel : Nat} {c : Ty
     simp [ABI.selectorBytes, EthLib.Base.natToBytes_length]
   simp only [ABI.Contract.callCalldataAtFromWithContext?, Dirty.readSelector_calldata _ hsel, hfind,
     hdrop, hdec]
-  have hp := (widthsOf_spec hw).2.2.1
   have hr : ∀ r ∈ fn.returns, RetTy r.ty ∧ r.isStorageRef = false :=
     fun r hr => wordBinding_ty (List.all_eq_true.mp hret r hr)
   generalize hctx : ABI.Contract.callContextAtWithBase c.core (Wide.ctxOf c) selfAddress a 0
@@ -64,7 +63,8 @@ theorem runtime_run_clean_from (a : Nat) (ha : a < 2 ^ 160) {fuel : Nat} {c : Ty
       some (frameOf ρ (paramLocals fn.params 0 ++ fn.returns.map fun r => (r.name, .lit 0))) := by
     have h0 : BindingDecl.bindArgs? fn.params (args.map .word) =
         some (frameOf ρ (paramLocals fn.params 0)) :=
-      bindArgs_words ρ hargs fn.params 0 hp (by simp [hρ, hlen])
+      bindArgs_clean ρ hargs fn.params fn.paramAbiCleanups ws 0 hw (by simpa [hρ] using hclean)
+        (by simp [hρ, hlen])
     simp only [FunctionDef.initialFrame?, h0, FunctionDef.returnDefaultBindings,
       defaults_words ρ fn.returns hr, frameOf, List.map_append]
   have hrel : StmtRel ρ E ctx

@@ -53,14 +53,14 @@ theorem source_rejects {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) 
     (σ : List (Nat × Nat)) {a v : Nat} (ha : a < 2 ^ 256) (hv : v < 2 ^ 256) (hv0 : v ≠ 0) :
     Loop.runtimeRunFrom x fuel c (bumpCallV σ a v) = some (Abi.rejected σ) := by
   have hfind := (Contracts.VerifyCounter.Source.shape_of hc).2.2
-  have hw : widthsOf bumpFn.params bumpFn.paramAbiCleanups = some [256] := rfl
+  have hw : widthsOf bumpFn.params bumpFn.paramAbiCleanups = some [2 ^ 256 - 1] := rfl
   have hargs : ∀ v ∈ [a], v < 2 ^ 256 := by simpa using ha
   have hdec : Source.ABI.decodeFunctionArgs? bumpFn (Dirty.argBytes [a]) = .ok ([a].map .word) ∨
       Source.ABI.decodeFunctionArgs? bumpFn (Dirty.argBytes [a]) = .error .empty := by
     rw [decode_args hw [a] rfl hargs]
-    by_cases hclean : argsClean [256] [a] = true
-    · exact Or.inl (by simp [hclean])
-    · exact Or.inr (by simp [hclean])
+    by_cases hclean : argsClean [2 ^ 256 - 1] [a] = true
+    · exact Or.inl (by rw [if_pos hclean])
+    · exact Or.inr (by rw [if_neg hclean])
   have hvm : v % SolidCore.Solidity.Shared.wordModulus = v := Nat.mod_eq_of_lt hv
   have hpay : bumpFn.payable = false := rfl
   have hacc : bumpFn.acceptsValue v = false := by

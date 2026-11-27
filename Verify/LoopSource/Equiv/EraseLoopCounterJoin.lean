@@ -139,10 +139,10 @@ theorem iters_eval (ρ : Val) : EraseLoopCounter.iters.eval ρ = (WExpr.arg 0).e
 
 /-- The checked contract's `bump` body erases, at the statement's fuel, to `bumpLoopBr`. -/
 theorem erased {c : SolidCore.Solidity.TypeCheck.CheckedContract} (hc : contract? = .ok c) :
-    eraseLoopStmt { envOf c.core with facts := argFacts [256] 0 } Contracts.VerifyCounter.Source.fuel
+    eraseLoopStmt { envOf c.core with facts := argFacts [2 ^ 256 - 1] 0 } Contracts.VerifyCounter.Source.fuel
       bumpFn.body (initState bumpFn) = some EraseLoopCounter.bumpLoopBr := by
   have h := EraseLoopCounter.bump_erased c.core.eventDecls c.core.table
-  have hE : ({ envOf c.core with facts := argFacts [256] 0 } : EraseEnv) =
+  have hE : ({ envOf c.core with facts := argFacts [2 ^ 256 - 1] 0 } : EraseEnv) =
       EraseLoopCounter.env c.core.eventDecls c.core.table := by
     simp only [envOf, EraseLoopCounter.env, (shape_of hc).1]
     rfl
@@ -150,14 +150,14 @@ theorem erased {c : SolidCore.Solidity.TypeCheck.CheckedContract} (hc : contract
   exact h
 
 /-- The erased tree exists. -/
-theorem loop_tree : ∃ T, brTree bumpFn (argFacts [256] 0) EraseLoopCounter.bumpLoopBr = some T :=
+theorem loop_tree : ∃ T, brTree bumpFn (argFacts [2 ^ 256 - 1] 0) EraseLoopCounter.bumpLoopBr = some T :=
   Option.isSome_iff_exists.mp (by decide +kernel)
 
 /-- **The erased tree and the summary tree give every valuation the same result.** -/
-theorem tree_same {TL T0 : Tree} (hL : brTree bumpFn (argFacts [256] 0) EraseLoopCounter.bumpLoopBr = some TL)
-    (h0 : brTree bumpFn (argFacts [256] 0) bumpBr = some T0) (ρ : Val) : TL.eval ρ = T0.eval ρ := by
-  obtain ⟨A, hA, eA⟩ := brTree_eval bumpFn (argFacts [256] 0) ρ _ TL hL
-  obtain ⟨B, hB, eB⟩ := brTree_eval bumpFn (argFacts [256] 0) ρ _ T0 h0
+theorem tree_same {TL T0 : Tree} (hL : brTree bumpFn (argFacts [2 ^ 256 - 1] 0) EraseLoopCounter.bumpLoopBr = some TL)
+    (h0 : brTree bumpFn (argFacts [2 ^ 256 - 1] 0) bumpBr = some T0) (ρ : Val) : TL.eval ρ = T0.eval ρ := by
+  obtain ⟨A, hA, eA⟩ := brTree_eval bumpFn (argFacts [2 ^ 256 - 1] 0) ρ _ TL hL
+  obtain ⟨B, hB, eB⟩ := brTree_eval bumpFn (argFacts [2 ^ 256 - 1] 0) ρ _ T0 h0
   rw [← eA, ← eB]
   have hovf : EraseLoopCounter.ovf = ovf := rfl
   have hle : EraseLoopCounter.le = Contracts.VerifyCounter.Source.le := rfl
@@ -314,7 +314,7 @@ theorem counter_join {K : Nat} (hK : K ≤ Kmax) :
   obtain ⟨TL, hTL⟩ := loop_tree
   have hsame : ∀ ρ : Val, ρ.Ok → (TL.eval ρ).obs = (CounterObl.T.eval ρ).obs :=
     fun ρ _ => congrArg Res.obs (tree_same hTL CounterObl.tree ρ)
-  have h := eraseLoop_certified_generated Contracts.VerifyCounter.Source.fuel c bumpSel bumpFn [256]
+  have h := eraseLoop_certified_generated Contracts.VerifyCounter.Source.fuel c bumpSel bumpFn [2 ^ 256 - 1]
     EraseLoopCounter.bumpLoopBr TL (by decide) (shape_of hc).2.2 rfl rfl (erased hc) hTL
     Generated.Counter.cut .off stage0 CounterObl.le CounterObl.li CounterObl.leaves CounterObl.T
     CounterObl.I CounterObl.μ CounterObl.ss CounterObl.seqs CounterObl.valid hsame evm7

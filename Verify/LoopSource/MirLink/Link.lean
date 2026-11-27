@@ -5,7 +5,7 @@ import Verify.LoopSource.Generic.Link
 # Counter.bump's Statement, as an instance of the generic link
 
 `statement_link : StatementLink` is `generic_link` (`Generic/Link.lean`) at Counter's checked
-contract, bump's selector, `bumpFn`, widths `[256]` and tree `bumpBr`, with the headline
+contract, bump's selector, `bumpFn`, widths `[2 ^ 256 - 1]` and tree `bumpBr`, with the headline
 `CounterBumpLoopHeadline` as the body's `BodyRuns`. The headline is a hypothesis here, never a
 proof of it. The only Counter facts used are the kernel's check that the type checker's `bump` is
 `bumpFn` (`Source.shape_of`) and that Counter's valid calls are the generic ones (`bump_valid`).
@@ -17,20 +17,20 @@ open SolidCore.Solidity.Source SolidCore.Refinement SolidCore.Refinement.Generic
 open SolidCore.Refinement.Generic.Loop Contracts.VerifyCounter.Source
 open Verify.LoopSource.RC.Headline Verify.LoopSource.Generic
 
-theorem args_one {a : Nat} (ha : a < 2 ^ 256) : ArgsOk bumpFn [256] [a] := by
+theorem args_one {a : Nat} (ha : a < 2 ^ 256) : ArgsOk bumpFn [2 ^ 256 - 1] [a] := by
   refine ⟨rfl, by simpa using ha, ?_⟩
-  show (decide (a < 2 ^ 256) && true) = true
+  show (decide (a ≤ 2 ^ 256 - 1) && true) = true
   simp only [Bool.and_true, decide_eq_true_eq]
-  exact ha
+  exact Nat.le_of_lt_succ ha
 
-theorem args_of_ok {args : List Nat} (h : ArgsOk bumpFn [256] args) :
+theorem args_of_ok {args : List Nat} (h : ArgsOk bumpFn [2 ^ 256 - 1] args) :
     ∃ a, a < 2 ^ 256 ∧ args = [a] := by
   obtain ⟨hlen, hargs, -⟩ := h
   obtain ⟨a, rfl⟩ := List.length_eq_one_iff.mp hlen
   exact ⟨a, hargs a (List.mem_singleton_self a), rfl⟩
 
 /-- **Counter's valid calls are the generic ones** at bump's selector, function and widths. -/
-theorem bump_valid : SelCall bumpSel bumpFn [256] = BumpCall := by
+theorem bump_valid : SelCall bumpSel bumpFn [2 ^ 256 - 1] = BumpCall := by
   funext call
   apply propext
   constructor
@@ -41,15 +41,15 @@ theorem bump_valid : SelCall bumpSel bumpFn [256] = BumpCall := by
     exact ⟨σ, [a], args_one ha, rfl⟩
 
 theorem onTree_of {Q : Call → Observable → Prop} (h : OnTree Q) {T : Tree}
-    (hT : brTree bumpFn (argFacts [256] 0) bumpBr = some T) :
-    Generic.OnTree bumpSel bumpFn [256] T Q := by
+    (hT : brTree bumpFn (argFacts [2 ^ 256 - 1] 0) bumpBr = some T) :
+    Generic.OnTree bumpSel bumpFn [2 ^ 256 - 1] T Q := by
   intro σ args ha
   obtain ⟨a, haw, rfl⟩ := args_of_ok ha
   exact h T hT σ a haw
 
 theorem bodyRuns_of_headline (hL : CounterBumpLoopHeadline)
     {c : SolidCore.Solidity.TypeCheck.CheckedContract} (hc : contract? = .ok c) :
-    BodyRuns { envOf c.core with facts := argFacts [256] 0 } Contracts.VerifyCounter.Source.fuel
+    BodyRuns { envOf c.core with facts := argFacts [2 ^ 256 - 1] 0 } Contracts.VerifyCounter.Source.fuel
       bumpFn bumpBr := by
   rw [envOf_eq (shape_of hc).1]
   exact hL _ _ bumpFn rfl rfl _ (by unfold Contracts.VerifyCounter.Source.fuel; omega)
@@ -59,7 +59,7 @@ theorem statement_link : StatementLink := by
   intro hL code Allowed Post G hA hP heq hres
   obtain ⟨c, hc⟩ := contract_ok
   obtain ⟨T, hT⟩ := tree_ok
-  have h := generic_link Contracts.VerifyCounter.Source.fuel c bumpSel bumpFn [256] bumpBr T
+  have h := generic_link Contracts.VerifyCounter.Source.fuel c bumpSel bumpFn [2 ^ 256 - 1] bumpBr T
     (by decide) (shape_of hc).2.2 rfl rfl (bodyRuns_of_headline hL hc) hT code Allowed Post G
     (onTree_of hA hT) (onTree_of hP hT) (by rw [bump_valid]; exact heq c hc)
     (by rw [bump_valid]; exact hres c hc)
@@ -72,7 +72,7 @@ theorem tree_post : OnTree BumpPost := by
   refine ⟨σ, a, ha, rfl, fun hs => ?_⟩
   set ρ : Val := ⟨[a], slotValue σ, solHash, SolidCore.Refinement.Generic.callerWord⟩ with hρ
   have hok : ρ.Ok := slotValue_store σ
-  obtain ⟨T', hT', hTe⟩ := brTree_eval bumpFn (argFacts [256] 0) ρ bumpBr T hT
+  obtain ⟨T', hT', hTe⟩ := brTree_eval bumpFn (argFacts [2 ^ 256 - 1] 0) ρ bumpBr T hT
   simp only [Res.obs] at hs ⊢
   rw [← hTe] at hs ⊢
   unfold bumpBr at hT'

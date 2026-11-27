@@ -106,25 +106,25 @@ def fuel : Nat := 2 ^ 256 + 8
 def BumpCall (call : Call) : Prop :=
   ∃ σ a, a < 2 ^ 256 ∧ call = { calldata := Abi.calldata bumpSel [a], callvalue := 0, storage := σ }
 
-theorem tree_ok : ∃ T, brTree bumpFn (argFacts [256] 0) bumpBr = some T :=
+theorem tree_ok : ∃ T, brTree bumpFn (argFacts [2 ^ 256 - 1] 0) bumpBr = some T :=
   Option.isSome_iff_exists.mp (by decide +kernel)
 
 /-- **Every call of `bump(n)` runs in SolidCore to its tree's observable.** -/
 theorem runs {c : SolidCore.Solidity.TypeCheck.CheckedContract} (hc : contract? = .ok c) {T : Tree}
-    (hT : brTree bumpFn (argFacts [256] 0) bumpBr = some T) (σ : List (Nat × Nat)) (a : Nat)
+    (hT : brTree bumpFn (argFacts [2 ^ 256 - 1] 0) bumpBr = some T) (σ : List (Nat × Nat)) (a : Nat)
     (ha : a < 2 ^ 256) :
     runtimeRun fuel c { calldata := Abi.calldata bumpSel [a], callvalue := 0, storage := σ } =
       some (T.eval ⟨[a], slotValue σ, solHash, SolidCore.Refinement.Generic.callerWord⟩).obs := by
   obtain ⟨hf, hev, hfind⟩ := shape_of hc
-  have hw : widthsOf bumpFn.params bumpFn.paramAbiCleanups = some [256] := rfl
+  have hw : widthsOf bumpFn.params bumpFn.paramAbiCleanups = some [2 ^ 256 - 1] := rfl
   have hargs : ∀ x ∈ [a], x < 2 ^ 256 := by simpa using ha
-  have hclean : argsClean [256] [a] = true := by
+  have hclean : argsClean [2 ^ 256 - 1] [a] = true := by
     show (decide (a < 2 ^ 256) && true) = true
     simp only [Bool.and_true, decide_eq_true_eq]
     exact ha
   have hdec := decode_args hw [a] rfl hargs
   rw [if_pos hclean] at hdec
-  have hb : BodyRuns { envOf c.core with facts := argFacts [256] 0 } fuel bumpFn bumpBr := by
+  have hb : BodyRuns { envOf c.core with facts := argFacts [2 ^ 256 - 1] 0 } fuel bumpFn bumpBr := by
     rw [envOf_eq hf]
     exact body_runs _ _ bumpFn rfl rfl fuel (by unfold fuel; omega)
   exact runtime_run_clean (by decide) hfind hw rfl hb hT [a] rfl hargs hclean hdec
@@ -143,7 +143,7 @@ theorem terminates : ∃ c, contract? = .ok c ∧
 the `require`): a call of `bump(n)` that succeeds leaves slot 0 holding the old `count` plus `n`,
 which did not wrap and is at most `limit` (slot 1), and every other slot as it was. -/
 theorem success_spec {c : SolidCore.Solidity.TypeCheck.CheckedContract} (hc : contract? = .ok c) {T : Tree}
-    (hT : brTree bumpFn (argFacts [256] 0) bumpBr = some T) (σ : List (Nat × Nat)) (a : Nat)
+    (hT : brTree bumpFn (argFacts [2 ^ 256 - 1] 0) bumpBr = some T) (σ : List (Nat × Nat)) (a : Nat)
     (ha : a < 2 ^ 256) {obs : Observable}
     (h : runtimeRun fuel c { calldata := Abi.calldata bumpSel [a], callvalue := 0, storage := σ } =
       some obs) (hs : obs.success = true) :
@@ -153,7 +153,7 @@ theorem success_spec {c : SolidCore.Solidity.TypeCheck.CheckedContract} (hc : co
   obtain rfl := Option.some.inj h
   set ρ : Val := ⟨[a], slotValue σ, solHash, SolidCore.Refinement.Generic.callerWord⟩ with hρ
   have hok : ρ.Ok := slotValue_store σ
-  obtain ⟨T', hT', hTe⟩ := brTree_eval bumpFn (argFacts [256] 0) ρ bumpBr T hT
+  obtain ⟨T', hT', hTe⟩ := brTree_eval bumpFn (argFacts [2 ^ 256 - 1] 0) ρ bumpBr T hT
   simp only [Res.obs] at hs ⊢
   rw [← hTe] at hs ⊢
   unfold bumpBr at hT'

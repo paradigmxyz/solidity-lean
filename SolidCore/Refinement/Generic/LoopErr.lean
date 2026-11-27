@@ -114,7 +114,7 @@ theorem runtime_run_err {fuel : Nat} {c : TypeCheck.CheckedContract} {σ : List 
     (st0 := { State.empty with
       storage := σ.foldl (fun acc kv => StorageMap.insertLoop acc kv.1 kv.2) State.empty.storage })
     (getD_storage_empty σ) rfl
-    (.lit callerWord) hlen hargs (argFacts_hold ⟨args, slotValue σ, solHash, callerWord⟩ hargs ws 0 (by simpa using hclean)) rfl
+    (.lit callerWord) hlen hargs hclean (argFacts_hold ⟨args, slotValue σ, solHash, callerWord⟩ hargs ws 0 (by simpa using hclean)) rfl
   obtain ⟨e, he⟩ := hb _ rt hrel
   have hdrop : ((EthLib.Base.natToBytes 4 sel).map (·.toNat) ++ Dirty.argBytes args).drop
       ABI.selectorBytes = Dirty.argBytes args := by

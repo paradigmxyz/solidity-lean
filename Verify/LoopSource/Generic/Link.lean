@@ -8,7 +8,7 @@ of the tree (`runtime_run_clean`, whose only premise about the body is `BodyRuns
 
 * termination: `some` of the tree's observable, which `Allowed` holds of;
 * the specification: every result is the tree's observable, which `Post` holds of;
-* inhabitation: the call with all-zero argument words, which are clean at every width
+* inhabitation: the call with all-zero argument words, which are clean at every bound
   (`argsClean_zeros`);
 * equivalence and resources: the premises.
 
@@ -20,14 +20,14 @@ namespace Verify.LoopSource.Generic
 open SolidCore.Solidity.Source SolidCore.Refinement SolidCore.Refinement.Generic
 open SolidCore.Refinement.Generic.Loop
 
-/-- All-zero argument words are clean at every width. -/
+/-- All-zero argument words are clean at every bound. -/
 theorem argsClean_zeros : ∀ (ws : List Nat) (k : Nat), argsClean ws (List.replicate k 0) = true
   | [], _ => by cases ‹Nat› <;> rfl
   | _ :: _, 0 => rfl
   | w :: ws, k + 1 => by
-    show (decide (0 < 2 ^ w) && argsClean ws (List.replicate k 0)) = true
+    show (decide (0 ≤ w) && argsClean ws (List.replicate k 0)) = true
     rw [argsClean_zeros ws k]
-    simp [Nat.two_pow_pos]
+    simp
 
 /-- **Every valid call runs to the tree's observable**, from `BodyRuns`. -/
 theorem runs_of_bodyRuns {fuel : Nat} {c : SolidCore.Solidity.TypeCheck.CheckedContract} {sel : Nat}

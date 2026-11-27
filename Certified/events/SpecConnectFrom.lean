@@ -148,7 +148,7 @@ def transfer_erase_from? : Option (Nat × Option Tree × Bool × Option (List Na
       (f.params.length, eraseFnSym (envOf c.core) SolidCore.Refinement.Solar.Events.fuel f, f.payable, widthsOf f.params f.paramAbiCleanups)
   | .error _ => none
 
-kernel_rfl transfer_erase_from_eq transfer_erase_from? (some (2, some transfer_tree_from, false, some [256, 256])) using SolidCore.Refinement.Solar.Events.selector_eq SolidCore.Verify.VC.mkIdx_eq SolidCore.Refinement.Solar.Events.digest_eq
+kernel_rfl transfer_erase_from_eq transfer_erase_from? (some (2, some transfer_tree_from, false, some [115792089237316195423570985008687907853269984665640564039457584007913129639935, 115792089237316195423570985008687907853269984665640564039457584007913129639935])) using SolidCore.Refinement.Solar.Events.selector_eq SolidCore.Verify.VC.mkIdx_eq SolidCore.Refinement.Solar.Events.digest_eq
 
 set_option maxHeartbeats 4000000 in
 /-- `Events.transfer`'s spec without its succeeds-if conditions, from every caller. -/

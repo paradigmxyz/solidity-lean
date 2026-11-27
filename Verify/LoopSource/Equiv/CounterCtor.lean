@@ -63,7 +63,7 @@ theorem before_fails {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) (c
 slot 1 in \`Context.default\` as its runtime code does. -/
 theorem counter_semAt_eq_runtime {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) {n : Nat}
     (hn : n = 5 ∨ n = 8) {call : Call}
-    (hv : SelCallCov bumpSel bumpFn [256] [(1, n)] call) :
+    (hv : SelCallCov bumpSel bumpFn [2 ^ 256 - 1] [(1, n)] call) :
     (solidCoreFromArgs callerAddress fuel [n]).run c call = (solidCoreRuntime fuel).run c call := by
   have hlife : Verify.Lifecycle.deployedAtWith fuel c (Verify.Lifecycle.wordArgs [n]) [(1, n)] = true := by
     rcases hn with rfl | rfl

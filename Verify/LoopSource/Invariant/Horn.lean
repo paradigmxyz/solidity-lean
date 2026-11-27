@@ -177,7 +177,7 @@ theorem horn_runs (ev : List EventDecl) (tbl : FunctionTable) :
 /-- The call's tree: succeed, return the argument word, no writes, no logs. -/
 def Tret : Tree := .halt true (wordOBytes (.arg 0)) [] []
 
-theorem horn_tree : brTree hornFn (argFacts [256] 0) br = some Tret := rfl
+theorem horn_tree : brTree hornFn (argFacts [2 ^ 256 - 1] 0) br = some Tret := rfl
 
 /-! ## Controls -/
 

@@ -41,13 +41,13 @@ theorem runtime_is_fresh : SolarTV.Export.RecSum.bytecode = runtimeBytes :=
 
 theorem envOf_eq {c : SolidCore.Solidity.TypeCheck.CheckedContract} (hf : c.core.storageFields = [])
     (he : c.core.eventDecls = []) :
-    ({ envOf c.core with facts := argFacts [256] 0 } : EraseEnv) = envT c.core.table := by
+    ({ envOf c.core with facts := argFacts [2 ^ 256 - 1] 0 } : EraseEnv) = envT c.core.table := by
   simp only [envOf, envT, hf, he]
 
 /-- `total`'s tree: empty revert above 64, else the 32 bytes of `n * (n + 1) / 2`. -/
 def totalTree : Tree := .ite le64 (.halt true (wordOBytes triW) [] []) (.halt false [] [] [])
 
-theorem tree_eq : brTree totalFn (argFacts [256] 0) totalBr = some totalTree := rfl
+theorem tree_eq : brTree totalFn (argFacts [2 ^ 256 - 1] 0) totalBr = some totalTree := rfl
 
 /-- **Every call of `total(a)` with no value runs, in SolidCore, to its tree's observable.** -/
 theorem runs {c : SolidCore.Solidity.TypeCheck.CheckedContract} (hc : contract? = .ok c)
@@ -55,15 +55,15 @@ theorem runs {c : SolidCore.Solidity.TypeCheck.CheckedContract} (hc : contract? 
     runtimeRun fuel c { calldata := Abi.calldata totalSel [a], callvalue := 0, storage := σ } =
       some (totalTree.eval ⟨[a], slotValue σ, solHash, SolidCore.Refinement.Generic.callerWord⟩).obs := by
   obtain ⟨hf, hev, hfind, htbl⟩ := shape_of hc
-  have hw : widthsOf totalFn.params totalFn.paramAbiCleanups = some [256] := rfl
+  have hw : widthsOf totalFn.params totalFn.paramAbiCleanups = some [2 ^ 256 - 1] := rfl
   have hargs : ∀ x ∈ [a], x < 2 ^ 256 := by simpa using ha
-  have hclean : argsClean [256] [a] = true := by
+  have hclean : argsClean [2 ^ 256 - 1] [a] = true := by
     show (decide (a < 2 ^ 256) && true) = true
     simp only [Bool.and_true, decide_eq_true_eq]
     exact ha
   have hdec := decode_args hw [a] rfl hargs
   rw [if_pos hclean] at hdec
-  have hb : BodyRuns { envOf c.core with facts := argFacts [256] 0 } fuel totalFn totalBr := by
+  have hb : BodyRuns { envOf c.core with facts := argFacts [2 ^ 256 - 1] 0 } fuel totalFn totalBr := by
     rw [envOf_eq hf hev]
     exact total_runs htbl fuel (by unfold fuel; omega)
   exact runtime_run_clean (by decide) hfind hw rfl hb tree_eq [a] rfl hargs hclean hdec

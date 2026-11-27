@@ -101,7 +101,7 @@ theorem neg_property_under_premise : ∀ c, contract? = .ok c → ∀ x : Nat, x
     simp only [Bneg, List.mem_singleton] at hfs
     subst hfs
     exact neg_at_premise x hx
-  exact (property_at (by decide) (Contracts.VerifyCounter.Source.shape_of hc).2.2 (ws := [256]) rfl rfl
+  exact (property_at (by decide) (Contracts.VerifyCounter.Source.shape_of hc).2.2 (ws := [2 ^ 256 - 1]) rfl rfl
     (Verify.LoopSource.Equiv.CounterCtx.bodyRunsFrom hc) Verify.LoopSource.Equiv.CounterCtx.treeFrom
     (by subst hx; decide) hm _ ⟨σ, [a], Verify.LoopSource.MirLink.args_one ha, rfl⟩ obs hrun).1
 

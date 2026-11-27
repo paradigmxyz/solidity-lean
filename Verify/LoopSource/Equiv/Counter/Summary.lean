@@ -38,8 +38,8 @@ theorem summary_ok : SummaryOk sel (2 ^ 256 + 8) shape bumpBr := by
   simp only [shape] at hw ⊢
   simp only [shapeOfC, shape, Option.map_eq_some_iff, Prod.mk.injEq] at hs
   obtain ⟨fn, -, hfields, rfl⟩ := hs
-  have hw' : ws = [256] := by
-    have : widthsOf fn.params fn.paramAbiCleanups = some [256] := rfl
+  have hw' : ws = [2 ^ 256 - 1] := by
+    have : widthsOf fn.params fn.paramAbiCleanups = some [2 ^ 256 - 1] := rfl
     rw [this] at hw; exact (Option.some.inj hw).symm
   subst hw'
   rw [envOf_eq hfields]

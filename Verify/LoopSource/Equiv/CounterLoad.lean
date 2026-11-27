@@ -47,7 +47,7 @@ def Sfin : SymState :=
   { scopes := [[("_limit", .arg 0)]], writes := [(.lit 1, .arg 0)], logs := [], caller := .lit selfAddress }
 
 theorem erase (ev : List Source.EventDecl) (tbl : FunctionTable) :
-    eraseStmt { fields := vcFields, events := ev, tbl := tbl, facts := argFacts [256] 0 } fuel ctorFn.body S0 =
+    eraseStmt { fields := vcFields, events := ev, tbl := tbl, facts := argFacts [2 ^ 256 - 1] 0 } fuel ctorFn.body S0 =
       some (.leaf (.normal Sfin)) := rfl
 
 /-- **Counter's constructor on every argument**, at the load level. -/
@@ -57,7 +57,7 @@ theorem counter_load_deployed {c : TypeCheck.CheckedContract} (hc : contract? = 
   obtain ⟨hfields, hevents, -⟩ := shape_of hc
   set ρ : Val := ⟨[n], fun _ => 0, solHash, callerWord⟩ with hρ
   have hρok : ρ.Ok := fun _ => rfl
-  let E : EraseEnv := { fields := c.core.storageFields, events := c.core.eventDecls, tbl := c.core.table, facts := argFacts [256] 0 }
+  let E : EraseEnv := { fields := c.core.storageFields, events := c.core.eventDecls, tbl := c.core.table, facts := argFacts [2 ^ 256 - 1] 0 }
   set ctx : Context := { Wide.ctxOf c with sender := selfAddress, value := 0, construction := true, selfDispatch? := some (ABI.selfDispatchHook fuel c.core 0) } with hctx
   have hargs : ∀ a ∈ ρ.args, a < Generic.wordSize := by simpa [hρ] using hn
   have hframe : ctorFn.initialFrame? [Value.word n] =
@@ -81,9 +81,9 @@ theorem counter_load_deployed {c : TypeCheck.CheckedContract} (hc : contract? = 
         intro k _
         simp [State.loadSlot, StorageMap.lookup?, State.empty, Writes.store, S0, initState, hρ]
       logs := by simp [State.empty, S0, initState]
-      facts := argFacts_hold ρ hargs [256] 0 (by simp [argsClean, hρ]; exact hn) }
+      facts := argFacts_hold ρ hargs [2 ^ 256 - 1] 0 (by simp [argsClean, hρ]; exact Nat.le_of_lt_succ hn) }
   have herase : eraseStmt E fuel ctorFn.body S0 = some (.leaf (.normal Sfin)) := by
-    show eraseStmt { fields := c.core.storageFields, events := c.core.eventDecls, tbl := c.core.table, facts := argFacts [256] 0 } fuel ctorFn.body S0 = _
+    show eraseStmt { fields := c.core.storageFields, events := c.core.eventDecls, tbl := c.core.table, facts := argFacts [2 ^ 256 - 1] 0 } fuel ctorFn.body S0 = _
     rw [hfields, hevents]; exact erase _ _
   obtain ⟨r, hrun, hleaf⟩ := eval_stmt ρ E ctx fuel ctorFn.body S0 _ herase _ hrel
   cases r <;> simp only [Br.eval, LeafRel] at hleaf
@@ -121,7 +121,7 @@ theorem loadDeployed_unique {fuel' : Nat} {c : TypeCheck.CheckedContract} {ws : 
 runtime code does (fixed context). -/
 theorem counter_semAt_eq_runtime_all {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) {n : Nat}
     (hn : n < 2 ^ 256) :
-    ∃ d, LoadDeployed fuel c [n] d ∧ ∀ call, SelCallLoad bumpSel bumpFn [256] d call →
+    ∃ d, LoadDeployed fuel c [n] d ∧ ∀ call, SelCallLoad bumpSel bumpFn [2 ^ 256 - 1] d call →
       (solidCoreFromArgs callerAddress fuel [n]).run c call = (solidCoreRuntime fuel).run c call := by
   obtain ⟨d, hd, -⟩ := counter_load_deployed hc hn
   obtain ⟨T, hT⟩ := tree_ok
@@ -137,7 +137,7 @@ theorem wrong_load {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) {n :
 
 /-- The tree's success at a valuation, computed. -/
 def treeSuccess (store : Nat → Nat) : Option Bool :=
-  (brTree bumpFn (argFacts [256] 0) bumpBr).map fun T => (T.eval ⟨[1], store, solHash, callerWord⟩).obs.success
+  (brTree bumpFn (argFacts [2 ^ 256 - 1] 0) bumpBr).map fun T => (T.eval ⟨[1], store, solHash, callerWord⟩).obs.success
 
 theorem success_source : treeSuccess (fun k => if k % 2 ^ 256 = 1 then 8 else 0) = some true := by decide +kernel
 theorem success_runtime : treeSuccess (slotValue []) = some false := by decide +kernel
@@ -150,9 +150,9 @@ theorem cover_needed {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) :
   obtain ⟨d, hd, hl⟩ := counter_load_deployed hc (n := 8) (by decide)
   obtain ⟨T, hT⟩ := tree_ok
   have hb := Verify.LoopSource.MirLink.bodyRuns_of_headline Contracts.VerifyCounter.LoopVC.body_runs_vc hc
-  have hw : widthsOf bumpFn.params bumpFn.paramAbiCleanups = some [256] := rfl
+  have hw : widthsOf bumpFn.params bumpFn.paramAbiCleanups = some [2 ^ 256 - 1] := rfl
   have hargs : ∀ a ∈ [1], a < 2 ^ 256 := by simp
-  have hclean : argsClean [256] [1] = true := by decide
+  have hclean : argsClean [2 ^ 256 - 1] [1] = true := by decide
   have hdec := decode_args hw [1] rfl hargs
   rw [if_pos hclean] at hdec
   set store : Nat → Nat := fun k => if k % 2 ^ 256 = 1 then 8 else 0 with hs

@@ -17,7 +17,7 @@ the headline (`RC/Headline.lean`: the source theorem's type) and Counter's check
 never imports the loop route's proof or the link's proof, and the `#assert_not_imported` checks
 below fail the build if it ever does.
 
-* `OnTree Q`: `Q` holds of the observable of bump's tree `brTree bumpFn (argFacts [256] 0) bumpBr`
+* `OnTree Q`: `Q` holds of the observable of bump's tree `brTree bumpFn (argFacts [2 ^ 256 - 1] 0) bumpBr`
   on every call `bump(a)`, from every storage. The tree is loop-free, so this is the finite check
   the driver's specification proof makes of any loop-free function.
 * `StatementLink`: from the headline, for any runtime bytes, allowed statuses, postcondition and gas
@@ -41,7 +41,7 @@ def bumpCall (σ : List (Nat × Nat)) (a : Nat) : Call :=
 
 /-- `Q` holds of the observable of bump's tree on every call `bump(a)`, from every storage. -/
 def OnTree (Q : Call → Observable → Prop) : Prop :=
-  ∀ T, brTree bumpFn (argFacts [256] 0) bumpBr = some T → ∀ (σ : List (Nat × Nat)) (a : Nat),
+  ∀ T, brTree bumpFn (argFacts [2 ^ 256 - 1] 0) bumpBr = some T → ∀ (σ : List (Nat × Nat)) (a : Nat),
     a < 2 ^ 256 →
       Q (bumpCall σ a) (T.eval ⟨[a], slotValue σ, solHash, SolidCore.Refinement.Generic.callerWord⟩).obs
 

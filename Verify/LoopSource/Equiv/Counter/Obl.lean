@@ -24,7 +24,7 @@ open Verify.LoopSource.Equiv Verify.LoopSource.Equiv.Inv
 
 theorem leaves : cut.check .off SolarTV.Export.Counter.stage0 0xb20eb4c4 1 = some (le, li) := resBeq_eq (by decide +kernel)
 
-theorem tree : brTree Contracts.VerifyCounter.Source.bumpFn (argFacts [256] 0) Contracts.VerifyCounter.Source.bumpBr = some T := treeBeq_eq (by decide +kernel)
+theorem tree : brTree Contracts.VerifyCounter.Source.bumpFn (argFacts [2 ^ 256 - 1] 0) Contracts.VerifyCounter.Source.bumpBr = some T := treeBeq_eq (by decide +kernel)
 
 theorem seqs : allSeqs 1 cut.cases T le li I μ = some ss := by decide +kernel
 

@@ -82,14 +82,13 @@ theorem source_rejects_deployed {c : TypeCheck.CheckedContract} (hc : contract? 
   obtain ⟨d, hd, -⟩ := Verify.LoopSource.Equiv.CounterLoad.counter_load_deployed hc hn
   obtain ⟨vs, hdep⟩ := hd.cons
   have hfind := (Contracts.VerifyCounter.Source.shape_of hc).2.2
-  have hw : widthsOf bumpFn.params bumpFn.paramAbiCleanups = some [256] := rfl
+  have hw : widthsOf bumpFn.params bumpFn.paramAbiCleanups = some [2 ^ 256 - 1] := rfl
   have hargs : ∀ v ∈ [a], v < 2 ^ 256 := by simpa using ha
-  have hclean : argsClean [256] [a] = true := by
+  have hclean : argsClean [2 ^ 256 - 1] [a] = true := by
     show (decide (a < 2 ^ 256) && true) = true
     simp only [Bool.and_true, decide_eq_true_eq]; exact ha
   have hdec : Source.ABI.decodeFunctionArgs? bumpFn (Dirty.argBytes [a]) = .ok ([a].map .word) := by
-    rw [decode_args hw [a] rfl hargs]
-    simp [hclean]
+    rw [decode_args hw [a] rfl hargs, if_pos hclean]
   have hs : bumpSel < 2 ^ 32 := by decide
   have hsel : Source.ABI.readSelector? (callBytes (bumpCallV σ a v)) = some bumpSel := by
     simp only [callBytes, bumpCallV, Dirty.bytes_calldata, Dirty.readSelector_calldata _ hs]

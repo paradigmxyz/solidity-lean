@@ -155,7 +155,7 @@ theorem ctl_runs (name : String) (sel : Nat) (ev : List EventDecl) (tbl : Functi
 /-- The call's tree: succeed, return the argument word. -/
 def Tret : Tree := .halt true (wordOBytes (.arg 0)) [] []
 
-theorem ctl_tree (name : String) (sel : Nat) : brTree (ctlFn name sel) (argFacts [256] 0) br = some Tret := rfl
+theorem ctl_tree (name : String) (sel : Nat) : brTree (ctlFn name sel) (argFacts [2 ^ 256 - 1] 0) br = some Tret := rfl
 
 /-! ## The checked contract -/
 
@@ -276,9 +276,9 @@ theorem fns_checked {c : SolidCore.Solidity.TypeCheck.CheckedContract} (hc : con
 premises `hb` and `hT` of `loop_stage` / `Join.while_stage`. -/
 theorem checked_runs {c : SolidCore.Solidity.TypeCheck.CheckedContract} (hc : contract? = .ok c) (name : String)
     (sel : Nat) :
-    BodyRuns { envOf c.core with facts := argFacts [256] 0 } fuel (ctlFn name sel) br ∧
-      brTree (ctlFn name sel) (argFacts [256] 0) br = some Tret := by
-  have hE : ({ envOf c.core with facts := argFacts [256] 0 } : EraseEnv) =
+    BodyRuns { envOf c.core with facts := argFacts [2 ^ 256 - 1] 0 } fuel (ctlFn name sel) br ∧
+      brTree (ctlFn name sel) (argFacts [2 ^ 256 - 1] 0) br = some Tret := by
+  have hE : ({ envOf c.core with facts := argFacts [2 ^ 256 - 1] 0 } : EraseEnv) =
       env c.core.eventDecls c.core.table := by
     simp only [envOf, env, (fns_checked hc).2.2.2]
     rfl

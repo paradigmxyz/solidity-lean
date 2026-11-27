@@ -33,9 +33,9 @@ theorem src_run_rt {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) (x :
     (σ : List (Nat × Nat)) {a : Nat} (ha : a < 2 ^ 256) :
     runtimeRunFrom x fuel c (Verify.LoopSource.MirLink.bumpCall σ a) =
       some (Verify.LoopSource.Equiv.CounterObl.T.eval (ρOf σ a x)).obs := by
-  have hw : widthsOf bumpFn.params bumpFn.paramAbiCleanups = some [256] := rfl
+  have hw : widthsOf bumpFn.params bumpFn.paramAbiCleanups = some [2 ^ 256 - 1] := rfl
   have hargs : ∀ v ∈ [a], v < 2 ^ 256 := by simpa using ha
-  have hclean : argsClean [256] [a] = true := by
+  have hclean : argsClean [2 ^ 256 - 1] [a] = true := by
     show (decide (a < 2 ^ 256) && true) = true
     simp only [Bool.and_true, decide_eq_true_eq]; exact ha
   have hdec := decode_args hw [a] rfl hargs

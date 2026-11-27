@@ -135,7 +135,7 @@ theorem mir_eq (o : Oracle) {c : SolidCore.Solidity.TypeCheck.CheckedContract} (
     rw [BitVec.lt_def, BitVec.toNat_add, toNat_ofNat_lt h0lt, toNat_ofNat_lt ha, toNat_ofNat_lt h1lt]
   -- the tree's leaf
   set ρ : Val := ⟨[a], slotValue σ, solHash, SolidCore.Refinement.Generic.callerWord⟩ with hρ
-  obtain ⟨T', hT', hTe⟩ := brTree_eval bumpFn (argFacts [256] 0) ρ bumpBr T hT
+  obtain ⟨T', hT', hTe⟩ := brTree_eval bumpFn (argFacts [2 ^ 256 - 1] 0) ρ bumpBr T hT
   rw [← hTe]
   have hna : nOf ρ = a := by
     simp only [nOf, WExpr.eval, hρ, List.getD_cons_zero]; exact Nat.mod_eq_of_lt ha

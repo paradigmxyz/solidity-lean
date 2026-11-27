@@ -104,8 +104,8 @@ theorem bump_runs (ev : List EventDecl) (tbl : FunctionTable) :
 /-- The same, in the environment `loop_stage` takes, for a checked contract with `Counter`'s fields. -/
 theorem bump_runs_checked (c : SolidCore.Solidity.TypeCheck.CheckedContract)
     (hfields : c.core.storageFields = fields) :
-    BodyRuns { envOf c.core with facts := argFacts [256] 0 } (2 ^ 256 + 8) bumpFn bumpLoopBr := by
-  have hE : ({ envOf c.core with facts := argFacts [256] 0 } : EraseEnv) =
+    BodyRuns { envOf c.core with facts := argFacts [2 ^ 256 - 1] 0 } (2 ^ 256 + 8) bumpFn bumpLoopBr := by
+  have hE : ({ envOf c.core with facts := argFacts [2 ^ 256 - 1] 0 } : EraseEnv) =
       env c.core.eventDecls c.core.table := by
     simp only [envOf, env, hfields]
     rfl

@@ -13,8 +13,8 @@ namespace Verify.LoopSource.Equiv.From
 open SolidCore.Refinement.Generic
 
 theorem tree_eq :
-    brTree CounterSummary.fn (argFacts [256] 0) bumpBr =
-      brTree CounterSummary.fn (argFacts [256] 0) Contracts.VerifyCounter.Source.bumpBr := by
+    brTree CounterSummary.fn (argFacts [2 ^ 256 - 1] 0) bumpBr =
+      brTree CounterSummary.fn (argFacts [2 ^ 256 - 1] 0) Contracts.VerifyCounter.Source.bumpBr := by
   decide +kernel
 
 end Verify.LoopSource.Equiv.From

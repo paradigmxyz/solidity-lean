@@ -43,7 +43,7 @@ open Verify.LoopSource.Equiv.CounterLoad
 
 /-- The postcondition at caller word `x`: `bump`'s tree never reads the caller, so this is
 `MirLink.tree_post` at the pinned tree. -/
-theorem tree_post_at (x : Nat) {T : Tree} (hT : brTree bumpFn (argFacts [256] 0) bumpBr = some T)
+theorem tree_post_at (x : Nat) {T : Tree} (hT : brTree bumpFn (argFacts [2 ^ 256 - 1] 0) bumpBr = some T)
     (σ : List (Nat × Nat)) {a : Nat} (ha : a < 2 ^ 256) :
     Verify.LoopSource.MirLink.BumpPost (Verify.LoopSource.MirLink.bumpCall σ a)
       (T.eval ⟨[a], slotValue σ, solHash, x⟩).obs := by
@@ -85,11 +85,11 @@ theorem fixObs_at (σ : List (Nat × Nat)) (args : List Nat) (x : Nat) (T : Tree
     rw [eval_store_of_fail _ T h]
 
 theorem bodyRunsFrom {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) :
-    BodyRunsFrom { envOf c.core with facts := argFacts [256] 0 } fuel bumpFn Verify.LoopSource.Equiv.From.bumpBr := by
+    BodyRunsFrom { envOf c.core with facts := argFacts [2 ^ 256 - 1] 0 } fuel bumpFn Verify.LoopSource.Equiv.From.bumpBr := by
   rw [envOf_eq (shape_of hc).1]
   exact Verify.LoopSource.Equiv.From.VC.body_runs_vc _ _ bumpFn rfl rfl _ (by unfold fuel; omega)
 
-theorem treeFrom : brTree bumpFn (argFacts [256] 0) Verify.LoopSource.Equiv.From.bumpBr = some Verify.LoopSource.Equiv.CounterObl.T := by
+theorem treeFrom : brTree bumpFn (argFacts [2 ^ 256 - 1] 0) Verify.LoopSource.Equiv.From.bumpBr = some Verify.LoopSource.Equiv.CounterObl.T := by
   have h := Verify.LoopSource.Equiv.From.tree_eq
   have e : Verify.LoopSource.Equiv.CounterSummary.fn = bumpFn := rfl
   rw [e] at h
@@ -102,7 +102,7 @@ theorem src_run {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) {n : Na
     (x : Nat) {σ : List (Nat × Nat)} (hcov : CoverN n σ) {a : Nat} (ha : a < 2 ^ 256) :
     SolidCore.Refinement.Source.runFromArgs x fuel [n] c (Verify.LoopSource.MirLink.bumpCall σ a) =
       some (Verify.LoopSource.Equiv.CounterObl.T.eval (ρOf σ a x)).obs := by
-  have hw : widthsOf bumpFn.params bumpFn.paramAbiCleanups = some [256] := rfl
+  have hw : widthsOf bumpFn.params bumpFn.paramAbiCleanups = some [2 ^ 256 - 1] := rfl
   obtain ⟨-, hargs, hclean⟩ := Verify.LoopSource.MirLink.args_one ha
   have hdec := decode_args hw [a] rfl hargs
   rw [if_pos hclean] at hdec

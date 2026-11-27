@@ -75,7 +75,7 @@ def bumpTree : Tree :=
 
 /-- **The loop erasure's tree is `bumpTree`.** -/
 theorem bump_tree :
-    brTree Contracts.VerifyCounter.Source.bumpFn (argFacts [256] 0) EraseLoopCounter.bumpLoopBr =
+    brTree Contracts.VerifyCounter.Source.bumpFn (argFacts [2 ^ 256 - 1] 0) EraseLoopCounter.bumpLoopBr =
       some bumpTree := by
   decide +kernel
 
@@ -87,21 +87,21 @@ theorem bump_meets : TreeMeets B bump_spec ctx0 1 bumpTree := by
 export with `bump`'s spec at index 1 (spec_connect.py's `F_loop?`). -/
 def bump_loop? : Bool :=
   contractLoopCheck Contracts.VerifyCounter.Source.contract? Contracts.VerifyCounter.Source.fuel
-    Contracts.VerifyCounter.Source.bumpSel 1 [256] bumpTree B 1
+    Contracts.VerifyCounter.Source.bumpSel 1 [2 ^ 256 - 1] bumpTree B 1
 
 kernel_rfl bump_loop_eq bump_loop? true using Contracts.VerifyCounter.Source.selector_eq
 
 /-- The same check with a bundle that is not `Counter`'s (`B` renamed): refused. -/
 def bump_loop_renamed? : Bool :=
   contractLoopCheck Contracts.VerifyCounter.Source.contract? Contracts.VerifyCounter.Source.fuel
-    Contracts.VerifyCounter.Source.bumpSel 1 [256] bumpTree { B with spec := { B.spec with name := "Other" } } 1
+    Contracts.VerifyCounter.Source.bumpSel 1 [2 ^ 256 - 1] bumpTree { B with spec := { B.spec with name := "Other" } } 1
 
 kernel_rfl bump_loop_renamed_eq bump_loop_renamed? false using Contracts.VerifyCounter.Source.selector_eq
 
 /-- The same check at index 0, `increment`'s spec, which is not of `bump`'s selector: refused. -/
 def bump_loop_index0? : Bool :=
   contractLoopCheck Contracts.VerifyCounter.Source.contract? Contracts.VerifyCounter.Source.fuel
-    Contracts.VerifyCounter.Source.bumpSel 1 [256] bumpTree B 0
+    Contracts.VerifyCounter.Source.bumpSel 1 [2 ^ 256 - 1] bumpTree B 0
 
 kernel_rfl bump_loop_index0_eq bump_loop_index0? false using Contracts.VerifyCounter.Source.selector_eq
 
@@ -111,7 +111,7 @@ statuses and postcondition on that tree (the other two function specs, `incremen
 other selectors). -/
 theorem bump_loopSpec {c : SolidCore.Solidity.TypeCheck.CheckedContract}
     (hc : Contracts.VerifyCounter.Source.contract? = .ok c) :
-    LoopSpec c Contracts.VerifyCounter.Source.fuel Contracts.VerifyCounter.Source.bumpSel [256] bumpTree B :=
+    LoopSpec c Contracts.VerifyCounter.Source.fuel Contracts.VerifyCounter.Source.bumpSel [2 ^ 256 - 1] bumpTree B :=
   loopSpec_of_check hc bump_loop_eq (by decide)
     (meets_of_index (P := fun fs => TreeMeets B fs ctx0 1 bumpTree) 1 (by decide) (by decide) bump_meets)
 
@@ -136,7 +136,7 @@ theorem counter_join_spec {K : Nat} (hK : K ≤ Kmax) :
     fun ρ _ => congrArg Res.obs (Counter.tree_same bump_tree CounterObl.tree ρ)
   have hback : ∀ ρ : Val, ρ.Ok → (CounterObl.T.eval ρ).obs = (bumpTree.eval ρ).obs :=
     fun ρ hρ => (hsame ρ hρ).symm
-  have h := eraseLoop_certified_generated Contracts.VerifyCounter.Source.fuel c bumpSel bumpFn [256]
+  have h := eraseLoop_certified_generated Contracts.VerifyCounter.Source.fuel c bumpSel bumpFn [2 ^ 256 - 1]
     br bumpTree (by decide) hf hw hret hb hT Generated.Counter.cut .off stage0 CounterObl.le
     CounterObl.li CounterObl.leaves CounterObl.T CounterObl.I CounterObl.μ CounterObl.ss CounterObl.seqs
     CounterObl.valid hsame evm7 SolarTV.Milestone.X.code _ SolarTV.Milestone.X.cert
@@ -178,14 +178,14 @@ def B_noInv : Bundle := { B with spec := { B.spec with invariants := [] } }
 /-- The name and selector check with `bump`'s ensures removed. -/
 def bump_loop_noEnsures? : Bool :=
   contractLoopCheck Contracts.VerifyCounter.Source.contract? Contracts.VerifyCounter.Source.fuel
-    Contracts.VerifyCounter.Source.bumpSel 1 [256] bumpTree B_noEnsures 1
+    Contracts.VerifyCounter.Source.bumpSel 1 [2 ^ 256 - 1] bumpTree B_noEnsures 1
 
 kernel_rfl bump_loop_noEnsures_eq bump_loop_noEnsures? true using Contracts.VerifyCounter.Source.selector_eq
 
 /-- The name and selector check with the contract invariant removed. -/
 def bump_loop_noInv? : Bool :=
   contractLoopCheck Contracts.VerifyCounter.Source.contract? Contracts.VerifyCounter.Source.fuel
-    Contracts.VerifyCounter.Source.bumpSel 1 [256] bumpTree B_noInv 1
+    Contracts.VerifyCounter.Source.bumpSel 1 [2 ^ 256 - 1] bumpTree B_noInv 1
 
 kernel_rfl bump_loop_noInv_eq bump_loop_noInv? true using Contracts.VerifyCounter.Source.selector_eq
 
