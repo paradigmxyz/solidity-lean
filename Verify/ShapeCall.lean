@@ -7,14 +7,14 @@ import SolidCore.Refinement.Solar.AssembleCallOpen
 
 A contract of the call route is certified as `Shapes.OpenFunctional` (Verify/ShapeOpen.lean): on
 the valid calls, the checked source terminates in every admitted open world, and every result of its
-exact bytecode in every admitted environment is the source's result in **some** admitted open world
-(or a failure that changes nothing), on the valid calls `CValid` (Generic/CallStage.lean: no value, and a target argument
+exact bytecode in every admitted environment at every gas below `2 ^ 256` is the source's result in
+**some** admitted open world (or a failure that changes nothing), on the valid calls `CValid` (Generic/CallStage.lean: no value, and a target argument
 that is not the contract and whose low 160 bits are no address of EthLib's Fusaka precompile set,
 `0x01`–`0x11` and `0x100`; nothing about its code). What the statement assumes is
 named in it:
 
 * `CallEnvOk`, **the callee-world assumption on the environment**: the other accounts are well
-  formed, and on every valid call whose run succeeds, every frame of the contract's code at a
+  formed, and on every valid call whose run at a gas below `2 ^ 256` succeeds, every frame of the contract's code at a
   `STATICCALL` byte whose run goes on to the run's final frame (`AssembleCallSeg.CalleesOkR`; such
   a frame is not asked to be reachable from the start) calls an address outside SolidCore's
   precompile set `0x01`–`0x0a` (`AssembleCallSeg.CalleeOk`: nothing about the code there, which
@@ -46,7 +46,7 @@ open SolarTV SolidCore.Refinement SolidCore.Refinement.Generic SolidCore.Refinem
 open SolidCore.Solidity.Source EvmCompiler.Simulation
 
 /-- **The callee-world assumption on the environment**: its accounts are well formed, and in every
-successful run of a valid call, each frame of the code at a `STATICCALL` byte whose run goes on to
+successful run of a valid call at a gas below `2 ^ 256`, each frame of the code at a `STATICCALL` byte whose run goes on to
 the final frame (reached from the run's start or not) calls an address outside SolidCore's
 precompile set (`0x01`–`0x0a`, whatever code or delegation is there, possibly none) or calls
 ECRECOVER (address 1) with no delegation there and at least 3000 gas passed on
