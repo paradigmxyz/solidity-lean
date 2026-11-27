@@ -92,7 +92,7 @@ theorem entS_congr {codes : SolidCore.Solidity.Shared.Account.BytesMap} {p : Ass
 
 /-- **A block of code with loops, GAS and STATICCALLs, in one of its contexts, read back from a run
 that succeeds.** -/
-theorem advances_checkXS {p : Assemble.Program} {cx : CtxCert} {code : ByteArray}
+theorem advances_checkXS_in {p : Assemble.Program} {cx : CtxCert} {code : ByteArray}
     (G : GlobXB p cx code) (codes : SolidCore.Solidity.Shared.Account.BytesMap) {call : Call} {msg : Message .fusaka} {ss0 : Substate}
     (hdata : msg.data = call.calldata) (hvalue : msg.value = BitVec.ofNat 256 call.callvalue)
     (hstatic : msg.isStatic = false) (hself : msg.currentTarget = Target.address selfAddress)
@@ -100,9 +100,11 @@ theorem advances_checkXS {p : Assemble.Program} {cx : CtxCert} {code : ByteArray
     (hbenv : msg.blockEnv = Target.blockEnv) (htx : msg.txEnv = Target.txEnv)
     (hgas : msg.gas < 2 ^ 256) (hdepth : msg.depth + 1 ≤ STACK_DEPTH_LIMIT)
     (T0 : RunTable) (x : Nat × List Word × State) (evm : Evm .fusaka Nat)
-    (hE : EntXS codes p cx code msg ss0 T0 x evm) :
-    AdvancesQ (fun o => SolarTV.EVM.Program.block o call p) (OS codes) StaticOkE
-      (CalleesOk code msg StaticOkE) (EntXS codes p cx code msg ss0)
+    (hE : EntXS codes p cx code msg ss0 T0 x evm)
+    {P : Evm .fusaka Nat → Message .fusaka → Evm .fusaka Nat → Prop}
+    (hPok : ∀ c m ch, P c m ch → StaticOkIn c m ch) :
+    AdvancesQ (fun o => SolarTV.EVM.Program.block o call p) (OS codes) P
+      (CalleesOk code msg P) (EntXS codes p cx code msg ss0)
       (fun res => PostL call msg.currentTarget ss0 res.2 res.1)
       (fun y e => AssembleLoop.meas p cx.base e.gas y.1) T0 x evm := by
   intro bound runChild meets within fin hrun hok hcal
@@ -164,8 +166,8 @@ theorem advances_checkXS {p : Assemble.Program} {cx : CtxCert} {code : ByteArray
       · simp only [ht, Bool.false_eq_true, ite_false, List.nil_append] at hseg
         exact ⟨pc, evm, within, hat, hseg, by simp only [ht, Bool.false_eq_true, ite_false]; omega,
           hrun⟩
-    obtain ⟨T', r, hle', hex, hpost, hnext⟩ := segS (G0 := msg.gas) hGc codes (hc ▸ G.creates) hdata hvalue hstatic
-      hself hcaller hbenv htx hb hok hgas hdepth meets (fun _ _ _ h => h.1) hcal (p.blocks[b].length + 1) p.blocks[b] (c.need b) [] (c.entry b)
+    obtain ⟨T', r, hle', hex, hpost, hnext⟩ := segS_in (G0 := msg.gas) hGc codes (hc ▸ G.creates) hdata hvalue hstatic
+      hself hcaller hbenv htx hb hok hgas hdepth meets hPok hcal (p.blocks[b].length + 1) p.blocks[b] (c.need b) [] (c.entry b)
       (budget c b - labelItems p c b) S Tw s pc1 M m1.gas st ss rd T0 m1 within1 (Nat.lt_succ_self _)
       hblock hn (by omega) (KR.nil _) hR hseg1 (by omega) htop hmem R hat1 hTg hs0
       (by rw [← hat.2.2.2.2.2.2.2.2.2.2.2.2]; exact hrdr)
@@ -208,6 +210,22 @@ theorem advances_checkXS {p : Assemble.Program} {cx : CtxCert} {code : ByteArray
         (fun _ h => h) fun evm h => postL_stop R hself evm h) (hat.addGas 0) within hrun hok
     · intro y hy
       cases hy
+
+/-- `advances_checkXS_in` with the runner premise `StaticOk`, which implies `StaticOkIn`: its statement before the premise was weakened. -/
+theorem advances_checkXS {p : Assemble.Program} {cx : CtxCert} {code : ByteArray}
+    (G : GlobXB p cx code) (codes : SolidCore.Solidity.Shared.Account.BytesMap) {call : Call} {msg : Message .fusaka} {ss0 : Substate}
+    (hdata : msg.data = call.calldata) (hvalue : msg.value = BitVec.ofNat 256 call.callvalue)
+    (hstatic : msg.isStatic = false) (hself : msg.currentTarget = Target.address selfAddress)
+    (hcaller : msg.caller = Target.address callerAddress)
+    (hbenv : msg.blockEnv = Target.blockEnv) (htx : msg.txEnv = Target.txEnv)
+    (hgas : msg.gas < 2 ^ 256) (hdepth : msg.depth + 1 ≤ STACK_DEPTH_LIMIT)
+    (T0 : RunTable) (x : Nat × List Word × State) (evm : Evm .fusaka Nat)
+    (hE : EntXS codes p cx code msg ss0 T0 x evm) :
+    AdvancesQ (fun o => SolarTV.EVM.Program.block o call p) (OS codes) StaticOkE
+      (CalleesOk code msg StaticOkE) (EntXS codes p cx code msg ss0)
+      (fun res => PostL call msg.currentTarget ss0 res.2 res.1)
+      (fun y e => AssembleLoop.meas p cx.base e.gas y.1) T0 x evm :=
+  advances_checkXS_in G codes hdata hvalue hstatic hself hcaller hbenv htx hgas hdepth T0 x evm hE (fun _ _ _ h => h.1.toIn)
 
 /-- **EVM IR to bytecode, run by run, for code with loops, GAS, memory at any offset, STATICCALLs to
 code and internal functions called in several contexts**: \`AssembleCallSeg.runs_of_checkCB\` for

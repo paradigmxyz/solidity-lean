@@ -404,7 +404,7 @@ theorem exec_rdcC {o : Oracle} {call : Call} {b : Nat} {rest : List Assemble.Ins
 set_option maxRecDepth 8000 in
 /-- **`AssembleCut.seg` with STATICCALLs**: the rest of a block from an instruction, read back from
 a run that succeeds, under the oracle of the run's table of GAS reads and static calls. -/
-theorem segS {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray}
+theorem segS_in {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray}
     (G : GlobT p c code) (codes : SolidCore.Solidity.Shared.Account.BytesMap) (hcr : c.creates = false) {call : Call} {msg : Message .fusaka} {ss0 : Substate}
     (hdata : msg.data = call.calldata) (hvalue : msg.value = BitVec.ofNat 256 call.callvalue)
     (hstatic : msg.isStatic = false) (hself : msg.currentTarget = Target.address selfAddress)
@@ -414,7 +414,7 @@ theorem segS {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
     {fin : Evm .fusaka Nat} (hok : fin.error = none) {G0 : Nat} (hG0 : G0 < 2 ^ 256)
     (hdepth : msg.depth + 1 ≤ STACK_DEPTH_LIMIT)
     {P : Evm .fusaka Nat → Message .fusaka → Evm .fusaka Nat → Prop} (meets : Meets P runChild)
-    (hPok : ∀ c m ch, P c m ch → StaticOk c m ch)
+    (hPok : ∀ c m ch, P c m ch → StaticOkIn c m ch)
     (hcal : CalleesOk code msg P bound runChild fin) :
     ∀ (n : Nat) (is : List Assemble.Instr) (h : Nat) (known : Known) (ty : List Ty) (k : Nat)
       (S Tw : List Word) (s : State) (pc : Nat) (M : ByteArray) (g : Nat)
@@ -542,7 +542,7 @@ theorem segS {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
                   .ok fin) := by
         intro h2 ty2 S2 Tw2 s2 M2 g2 st2 ss2 rd2 T1 m2 within2 hle1 hg2 hex1 hok3 hh3 hu3 hR3 hseg3
           hk3 htop3 hmem3 R3 hat3 hTg3 hs3 hrd3 hB3 hrun3
-        obtain ⟨T2, r, hle2, hex2, hpost, hnext⟩ := segS G codes hcr hdata hvalue hstatic hself
+        obtain ⟨T2, r, hle2, hex2, hpost, hnext⟩ := segS_in G codes hcr hdata hvalue hstatic hself
           hcaller hbenv htx hb hok hG0 hdepth meets hPok hcal n rest h2 [] ty2 (k' - 1) S2 Tw2 s2
           (pc' + 1) M2 g2 st2 ss2 rd2 T1 m2 within2 (by omega) hok3 hh3 hu3 (KR.nil _) hR3 hseg3 hk3
           htop3 hmem3 R3 hat3 hTg3 hs3 hrd3 hB3 hrun3
@@ -724,7 +724,7 @@ theorem segS {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
         simp only [List.length_cons] at hL hst hh2 hu2
         obtain ⟨hi1, hi2, hi3⟩ := hs0
         obtain ⟨ok, out, s2, M2, g2, st2, ss2, m2, within2, happ, ⟨ev, hw, hev1, hev2, hev3⟩, hmem2,
-          R2, hb2, hg2, hat2, hrun2⟩ := staticcall_cut codes T I'.mem R' hmB (by omega) hatm hlt hcode
+          R2, hb2, hg2, hat2, hrun2⟩ := staticcall_cut_in codes T I'.mem R' hmB (by omega) hatm hlt hcode
             hdepth meets hPok within1 hrm hok (hcal hatm hlt hcode hrm) (by rw [hmc, hi2])
             (by rw [hmc, hi2, hi3]) (by rw [hc1.1]; omega)
         let T1 : RunTable := { T with oks := T.oks ++ [ok], outs := T.outs ++ [out] }
@@ -799,6 +799,46 @@ theorem segS {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray
         exact absurd (blockOkC_c2 hok2).2.1 (by simp [hcr])
       · obtain rfl := isCcI_eq hcci
         exact absurd (blockOkC_cc hok2).2.1 (by simp [hcr])
+
+/-- `segS_in` with the runner premise `StaticOk`, which implies `StaticOkIn`: its statement before the premise was weakened. -/
+theorem segS {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray}
+    (G : GlobT p c code) (codes : SolidCore.Solidity.Shared.Account.BytesMap) (hcr : c.creates = false) {call : Call} {msg : Message .fusaka} {ss0 : Substate}
+    (hdata : msg.data = call.calldata) (hvalue : msg.value = BitVec.ofNat 256 call.callvalue)
+    (hstatic : msg.isStatic = false) (hself : msg.currentTarget = Target.address selfAddress)
+    (hcaller : msg.caller = Target.address callerAddress)
+    (hbenv : msg.blockEnv = Target.blockEnv) (htx : msg.txEnv = Target.txEnv)
+    {b : Nat} (hb : b < p.blocks.length) {bound : Nat} {runChild : MessageRunner .fusaka Nat bound}
+    {fin : Evm .fusaka Nat} (hok : fin.error = none) {G0 : Nat} (hG0 : G0 < 2 ^ 256)
+    (hdepth : msg.depth + 1 ≤ STACK_DEPTH_LIMIT)
+    {P : Evm .fusaka Nat → Message .fusaka → Evm .fusaka Nat → Prop} (meets : Meets P runChild)
+    (hPok : ∀ c m ch, P c m ch → StaticOk c m ch)
+    (hcal : CalleesOk code msg P bound runChild fin) :
+    ∀ (n : Nat) (is : List Assemble.Instr) (h : Nat) (known : Known) (ty : List Ty) (k : Nat)
+      (S Tw : List Word) (s : State) (pc : Nat) (M : ByteArray) (g : Nat)
+      (st : State.TransactionState) (ss : Substate) (rd : ByteArray) (T : RunTable) (evm : Evm .fusaka Nat)
+      (within : GasMeter.gasHeld evm.gas ≤ bound),
+      is.length < n → blockOkC p c mx b h known ty k is = true → h ≤ S.length →
+      S.length + c.need b ≤ h + maxH mx b → KR known S → SR c ty S Tw →
+      Seg (bytesOf code) c.offset pc
+        (lowerInstrs p c b is ++ lowerFrom p c (b + 1) (p.blocks.drop (b + 1))) code.size →
+      S.length + k ≤ 1000 → M.size ≤ c.top → MemRel s.memory M → Rel msg ss0 st ss s →
+      At code msg pc Tw M g st ss rd evm → T.gases.length = gasReads s.world →
+      TabInv T s.world → (∀ T'', T.Le T'' → RdRel (OS codes T'') s.world rd) →
+      MemBudget G0 M g →
+      runFrame (step .fusaka) (step_decreases .fusaka) bound runChild evm within = .ok fin →
+      ∃ T' r, T.Le T' ∧
+        (∀ T'', T'.Le T'' → SolarTV.EVM.Program.exec (OS codes T'') call b is S s = r) ∧
+        (∀ res, r = .inl res → PostL call msg.currentTarget ss0 res.2 res.1 fin) ∧
+        (∀ y, r = .inr y → (y.1 ≤ p.blocks.length ∧
+          (y.1 < p.blocks.length → c.need y.1 ≤ y.2.1.length ∧ y.2.1.length ≤ maxH mx y.1) ∧
+          (y.1 = b + 1 ∨ isTarget p c y.1 = true)) ∧
+          ∃ (after : Evm .fusaka Nat) (within' : GasMeter.gasHeld after.gas ≤ bound),
+            EntC p c mx code msg ss0 y after ∧ T'.gases.length = gasReads y.2.2.world ∧
+            TabInv T' y.2.2.world ∧
+            (∀ T'', T'.Le T'' → RdRel (OS codes T'') y.2.2.world after.returnData) ∧ after.gas ≤ g ∧
+            memoryGasCost after.memory.size + after.gas ≤ G0 ∧
+            runFrame (step .fusaka) (step_decreases .fusaka) bound runChild after within' = .ok fin) :=
+  segS_in G codes hcr hdata hvalue hstatic hself hcaller hbenv htx hb hok hG0 hdepth meets (fun c m ch h => (hPok c m ch h).toIn) hcal
 
 /-- info: 'SolidCore.Refinement.Solar.AssembleCallSeg.segS' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs (whitespace := lax) in
@@ -983,7 +1023,7 @@ def EntS (codes : SolidCore.Solidity.Shared.Account.BytesMap) (p : Assemble.Prog
     memoryGasCost evm.memory.size + evm.gas ≤ msg.gas
 
 /-- **A block of code with loops, GAS and STATICCALLs, read back from a run that succeeds.** -/
-theorem advances_checkCS {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray}
+theorem advances_checkCS_in {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray}
     (G : GlobC p c mx code) (codes : SolidCore.Solidity.Shared.Account.BytesMap) (hcr : c.creates = false) {call : Call} {msg : Message .fusaka} {ss0 : Substate}
     (hdata : msg.data = call.calldata) (hvalue : msg.value = BitVec.ofNat 256 call.callvalue)
     (hstatic : msg.isStatic = false) (hself : msg.currentTarget = Target.address selfAddress)
@@ -991,9 +1031,11 @@ theorem advances_checkCS {p : Assemble.Program} {c : Cert} {mx : List Nat} {code
     (hbenv : msg.blockEnv = Target.blockEnv) (htx : msg.txEnv = Target.txEnv)
     (hgas : msg.gas < 2 ^ 256) (hdepth : msg.depth + 1 ≤ STACK_DEPTH_LIMIT)
     (T0 : RunTable) (x : Nat × List Word × State) (evm : Evm .fusaka Nat)
-    (hE : EntS codes p c mx code msg ss0 T0 x evm) :
-    AdvancesQ (fun o => SolarTV.EVM.Program.block o call p) (OS codes) StaticOkE
-      (CalleesOk code msg StaticOkE)
+    (hE : EntS codes p c mx code msg ss0 T0 x evm)
+    {P : Evm .fusaka Nat → Message .fusaka → Evm .fusaka Nat → Prop}
+    (hPok : ∀ c m ch, P c m ch → StaticOkIn c m ch) :
+    AdvancesQ (fun o => SolarTV.EVM.Program.block o call p) (OS codes) P
+      (CalleesOk code msg P)
       (EntS codes p c mx code msg ss0)
       (fun res => PostL call msg.currentTarget ss0 res.2 res.1)
       (fun y e => AssembleLoop.meas p c e.gas y.1) T0 x evm := by
@@ -1026,8 +1068,8 @@ theorem advances_checkCS {p : Assemble.Program} {c : Cert} {mx : List Nat} {code
       · simp only [ht, Bool.false_eq_true, ite_false, List.nil_append] at hseg
         exact ⟨pc, evm, within, hat, hseg, by simp only [ht, Bool.false_eq_true, ite_false]; omega,
           hrun⟩
-    obtain ⟨T', r, hle', hex, hpost, hnext⟩ := segS (G0 := msg.gas) G.toGlobT codes (hcr := hcr) hdata hvalue hstatic hself hcaller
-      hbenv htx hb hok hgas hdepth meets (fun _ _ _ h => h.1) hcal (p.blocks[b].length + 1) p.blocks[b] (c.need b) [] (c.entry b)
+    obtain ⟨T', r, hle', hex, hpost, hnext⟩ := segS_in (G0 := msg.gas) G.toGlobT codes (hcr := hcr) hdata hvalue hstatic hself hcaller
+      hbenv htx hb hok hgas hdepth meets hPok hcal (p.blocks[b].length + 1) p.blocks[b] (c.need b) [] (c.entry b)
       (budget c b - labelItems p c b) S Tw s pc1 M m1.gas st ss rd T0 m1 within1 (Nat.lt_succ_self _)
       hblock hn (by omega) (KR.nil _) hR hseg1 (by omega) htop hmem R hat1 hTg hs0
       (by rw [← hat.2.2.2.2.2.2.2.2.2.2.2.2]; exact hrdr)
@@ -1057,6 +1099,23 @@ theorem advances_checkCS {p : Assemble.Program} {c : Cert} {mx : List Nat} {code
         (fun _ h => h) fun evm h => postL_stop R hself evm h) (hat.addGas 0) within hrun hok
     · intro y hy
       cases hy
+
+/-- `advances_checkCS_in` with the runner premise `StaticOk`, which implies `StaticOkIn`: its statement before the premise was weakened. -/
+theorem advances_checkCS {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : ByteArray}
+    (G : GlobC p c mx code) (codes : SolidCore.Solidity.Shared.Account.BytesMap) (hcr : c.creates = false) {call : Call} {msg : Message .fusaka} {ss0 : Substate}
+    (hdata : msg.data = call.calldata) (hvalue : msg.value = BitVec.ofNat 256 call.callvalue)
+    (hstatic : msg.isStatic = false) (hself : msg.currentTarget = Target.address selfAddress)
+    (hcaller : msg.caller = Target.address callerAddress)
+    (hbenv : msg.blockEnv = Target.blockEnv) (htx : msg.txEnv = Target.txEnv)
+    (hgas : msg.gas < 2 ^ 256) (hdepth : msg.depth + 1 ≤ STACK_DEPTH_LIMIT)
+    (T0 : RunTable) (x : Nat × List Word × State) (evm : Evm .fusaka Nat)
+    (hE : EntS codes p c mx code msg ss0 T0 x evm) :
+    AdvancesQ (fun o => SolarTV.EVM.Program.block o call p) (OS codes) StaticOkE
+      (CalleesOk code msg StaticOkE)
+      (EntS codes p c mx code msg ss0)
+      (fun res => PostL call msg.currentTarget ss0 res.2 res.1)
+      (fun y e => AssembleLoop.meas p c e.gas y.1) T0 x evm :=
+  advances_checkCS_in G codes hcr hdata hvalue hstatic hself hcaller hbenv htx hgas hdepth T0 x evm hE (fun _ _ _ h => h.1.toIn)
 
 /-- **Named hypothesis on a run of the bytecode**: the run of the call, when it succeeds, calls code
 at each STATICCALL (`CalleesOk`). -/

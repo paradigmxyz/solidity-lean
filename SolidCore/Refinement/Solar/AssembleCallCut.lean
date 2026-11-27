@@ -121,6 +121,31 @@ def OutputFits (_caller : Evm .fusaka Nat) (_m : Message .fusaka) (child : Evm .
 def StaticOk (caller : Evm .fusaka Nat) (m : Message .fusaka) (child : Evm .fusaka Nat) : Prop :=
   StaticKept caller m child ∧ StaticNoLogs caller m child ∧ OutputFits caller m child
 
+/-- A callee's output has fewer than `2 ^ 256` bytes **when its message's data does**. Unlike
+`OutputFits`, the IDENTITY precompile (whose output is its data) does not refute it, and a
+STATICCALL's message always meets the premise: its data is a range of the caller's memory of
+`inSize < 2 ^ 256` bytes (`data_lt_of_read`). -/
+def OutputFitsIn (_caller : Evm .fusaka Nat) (m : Message .fusaka) (child : Evm .fusaka Nat) : Prop :=
+  m.data.size < 2 ^ 256 → child.output.size < 2 ^ 256
+
+/-- `StaticOk` with `OutputFitsIn` for `OutputFits`: all a STATICCALL cut uses. -/
+def StaticOkIn (caller : Evm .fusaka Nat) (m : Message .fusaka) (child : Evm .fusaka Nat) : Prop :=
+  StaticKept caller m child ∧ StaticNoLogs caller m child ∧ OutputFitsIn caller m child
+
+theorem StaticOk.toIn {caller : Evm .fusaka Nat} {m : Message .fusaka} {child : Evm .fusaka Nat}
+    (h : StaticOk caller m child) : StaticOkIn caller m child :=
+  ⟨h.1, h.2.1, fun _ => h.2.2⟩
+
+/-- The data a STATICCALL sends: a range of memory of `inSize` bytes, so fewer than `2 ^ 256`. -/
+theorem data_lt_of_read (M : ByteArray) (start : Nat) (inSize : U256) :
+    (memoryReadBytes M start inSize.toNat).size < 2 ^ 256 := by
+  have h := inSize.isLt
+  unfold memoryReadBytes
+  split
+  · simp
+  · simp only [ByteArray.size_extract]
+    omega
+
 /-! ## Oracles of tables that extend each other -/
 
 theorem tabResp_congr {oks oks' : List Bool} {outs outs' : List ByteArray} {n : Nat}
@@ -374,7 +399,7 @@ theorem OS_ans (codes : SolidCore.Solidity.Shared.Account.BytesMap) (T : RunTabl
 table grows by the callee frame's flag and output, and under the oracle of every extension of it,
 SolarTV's STATICCALL pushes that flag and leaves that return data, and the frame after it relates to
 SolarTV's state as a block entry does (memory, storage, logs, the budget of memory and gas). -/
-theorem staticcall_cut {code : ByteArray} {msg : Message .fusaka} {call : Call} {pc g G : Nat}
+theorem staticcall_cut_in {code : ByteArray} {msg : Message .fusaka} {call : Call} {pc g G : Nat}
     {M : ByteArray} {st : State.TransactionState} {ss ss0 : Substate} {rd : ByteArray}
     {asked addr inOff inSize outOff outSize : U256} {Tr : List U256}
     {s : State} {evm : Evm .fusaka Nat}
@@ -386,7 +411,7 @@ theorem staticcall_cut {code : ByteArray} {msg : Message .fusaka} {call : Call} 
     (hdepth : msg.depth + 1 ≤ STACK_DEPTH_LIMIT)
     {bound : Nat} {runChild : MessageRunner .fusaka Nat bound}
     {P : Evm .fusaka Nat → Message .fusaka → Evm .fusaka Nat → Prop} (meets : Meets P runChild)
-    (hPok : ∀ c m ch, P c m ch → StaticOk c m ch)
+    (hPok : ∀ c m ch, P c m ch → StaticOkIn c m ch)
     (within : GasMeter.gasHeld evm.gas ≤ bound) {fin : Evm .fusaka Nat}
     (hrun : runFrame (step .fusaka) (step_decreases .fusaka) bound runChild evm within = .ok fin)
     (hok : fin.error = none)
@@ -411,6 +436,7 @@ theorem staticcall_cut {code : ByteArray} {msg : Message .fusaka} {call : Call} 
     hcsub, hms, hmv, hmc, hmt, htg, hmd, hmca, hmdp, hmgas, hg', hat', hrun'⟩ :=
     staticcall_back hat hlt hbyte hdepth meets within hrun hok
   have hP := hPok _ _ _ hPP
+  have hfits : child.output.size < 2 ^ 256 := hP.2.2 (by rw [hmd]; exact data_lt_of_read _ _ _)
   have hmod : M.size % 32 = 0 := by rw [hm.1]; omega
   obtain ⟨hb1, hb2, hbud, hfit⟩ := budget_grow2 (pre := (if decide (toAddressMasked addr ∉
     ss.accessedAddresses) then 2600 else 100) +
@@ -467,7 +493,7 @@ theorem staticcall_cut {code : ByteArray} {msg : Message .fusaka} {call : Call} 
         exact AssembleCallPre.ecrecover_answer hag (hER _ _ _ hPP) hmsg
     obtain ⟨hf, hr⟩ := OS_ans codes T'' s.world asked addr
       (((s.memory.expand inOff.toNat inSize.toNat).expand outOff.toNat outSize.toNat).read
-        inOff.toNat inSize.toNat) s.storage s.transient _ _ hresp hP.2.2
+        inOff.toNat inSize.toNat) s.storage s.transient _ _ hresp hfits
     refine ⟨hf, ?_⟩
     have := hr [] rfl
     rw [List.append_nil] at this
@@ -538,6 +564,42 @@ theorem staticcall_cut {code : ByteArray} {msg : Message .fusaka} {call : Call} 
       have := Nat.min_le_left outSize.toNat child.output.size
       omega
   · simpa using hat'
+
+/-- `staticcall_cut_in` with the runner premise `StaticOk`, which implies `StaticOkIn`: its statement before the premise was weakened. -/
+theorem staticcall_cut {code : ByteArray} {msg : Message .fusaka} {call : Call} {pc g G : Nat}
+    {M : ByteArray} {st : State.TransactionState} {ss ss0 : Substate} {rd : ByteArray}
+    {asked addr inOff inSize outOff outSize : U256} {Tr : List U256}
+    {s : State} {evm : Evm .fusaka Nat}
+    (codes : SolidCore.Solidity.Shared.Account.BytesMap) (T : RunTable)
+    (hm : MemRel s.memory M) (R : Rel msg ss0 st ss s) (hb : MemBudget G M g) (hG : G < 2 ^ 300)
+    (hat : At code msg pc (asked :: addr :: inOff :: inSize :: outOff :: outSize :: Tr) M g st ss
+      rd evm)
+    (hlt : pc < code.size) (hbyte : code[pc] = 0xfa)
+    (hdepth : msg.depth + 1 ≤ STACK_DEPTH_LIMIT)
+    {bound : Nat} {runChild : MessageRunner .fusaka Nat bound}
+    {P : Evm .fusaka Nat → Message .fusaka → Evm .fusaka Nat → Prop} (meets : Meets P runChild)
+    (hPok : ∀ c m ch, P c m ch → StaticOk c m ch)
+    (within : GasMeter.gasHeld evm.gas ≤ bound) {fin : Evm .fusaka Nat}
+    (hrun : runFrame (step .fusaka) (step_decreases .fusaka) bound runChild evm within = .ok fin)
+    (hok : fin.error = none)
+    (hto : toCode .staticcall (addr.toNat % 2 ^ 160) 0 = true ∨
+      PreOk P st ss M g asked addr inOff inSize outOff outSize)
+    (hoks : T.oks.length = (machineCalls s.world).length)
+    (houts : T.outs.length = (machineCalls s.world).length)
+    (hgr : gasReads s.world ≤ T.gases.length) :
+    ∃ (ok : Bool) (out : ByteArray) (s' : State) (M' : ByteArray) (g' : Nat)
+      (st' : State.TransactionState) (ss' : Substate) (m : Evm .fusaka Nat)
+      (within' : GasMeter.gasHeld m.gas ≤ bound),
+      (∀ T'', ({ T with oks := T.oks ++ [ok], outs := T.outs ++ [out] } : RunTable).Le T'' →
+        Effect.apply (OS codes T'') call (.call .staticcall)
+            [asked, addr, inOff, inSize, outOff, outSize] s =
+          some (some (if ok then 1 else 0), s') ∧ RdRel (OS codes T'') s'.world out) ∧
+      (∃ ev, s'.world = s.world ++ [ev] ∧ sent [ev] = 1 ∧ gasReads [ev] = 0 ∧
+        (machineCalls [ev]).length = 1) ∧
+      MemRel s'.memory M' ∧ Rel msg ss0 st' ss' s' ∧ MemBudget G M' g' ∧ g' ≤ g ∧
+      At code msg (pc + 1) ((if ok then 1 else 0) :: Tr) M' g' st' ss' out m ∧
+      runFrame (step .fusaka) (step_decreases .fusaka) bound runChild m within' = .ok fin :=
+  staticcall_cut_in codes T hm R hb hG hat hlt hbyte hdepth meets (fun c m ch h => (hPok c m ch h).toIn) within hrun hok hto hoks houts hgr
 
 /-- info: 'SolidCore.Refinement.Solar.AssembleCallCut.staticcall_cut' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs (whitespace := lax) in
