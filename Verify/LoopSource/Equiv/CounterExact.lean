@@ -58,9 +58,11 @@ theorem eval_assignVar_exact {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Run
   split
   · split
     · simp_all
-    · simp only [bind_done_ok, hres, caught_done_ok, ite_self, ResolvedLValue.write, hassign]
+    · simp only [bind_done_ok, hres, caught_done_ok, ite_self, ResolvedLValue.write, hassign,
+        ResolvedLValue.asStoragePath?]
       rfl
-  · simp only [bind_done_ok, hres, caught_done_ok, ite_self, ResolvedLValue.write, hassign]
+  · simp only [bind_done_ok, hres, caught_done_ok, ite_self, ResolvedLValue.write, hassign,
+      ResolvedLValue.asStoragePath?]
     rfl
 
 /-- A storage-field assignment in the fragment writes the field's slot and changes nothing else. -/
