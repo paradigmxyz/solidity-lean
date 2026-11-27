@@ -1078,9 +1078,52 @@ theorem exec_simC {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
         simp only [execC, SimOutC, SimOutB]
         exact ⟨⟨by omega, fun _ => ⟨by omega, by omega⟩, Or.inr htgt⟩, c.offset x.toNat, T', M, g - 8, st,
           ss, hj, SR.le hty hR', I'.targetT G htn htgt (m := 1) (by omega) (by omega), R, by bud_tac⟩
-      · -- A conditional dynamic jump and a jump table: outside the fragment.
+      · -- A conditional dynamic jump to a return label (the label on top, the condition below):
+        -- a JUMPI to the label's offset, or on to the next item.
+        simp only [blockStepL, Bool.and_eq_true, decide_eq_true_eq, beq_iff_eq,
+          List.all_eq_true] at hok'
+        obtain ⟨⟨⟨⟨⟨hk1, h2⟩, hlab⟩, hdat⟩, hall⟩, hok⟩ := hok'
+        rcases S with _ | ⟨x, _ | ⟨cond, S'⟩⟩
+        · simp at hh; omega
+        · simp at hh; omega
+        rcases T with _ | ⟨y, _ | ⟨cond', T'⟩⟩
+        · simp at hL
+        · simp at hL
+        obtain ⟨hw, hR1⟩ := SR.uncons.1 hR
+        rw [hlab] at hw
+        obtain ⟨hmem, rfl⟩ := hw
+        obtain rfl := (SR.head hR1 hdat).symm
+        have hR' := (SR.uncons.1 hR1).2
+        simp only [lowerInstr, List.singleton_append] at I'
+        obtain ⟨hlt, hcode, hseg⟩ := I'.seg.head_op
+        have hS := I'.stack; have hG := I'.gas
+        simp only [List.length_cons] at hS hh hL hu
+        by_cases hc : cond = 0
+        · subst hc
+          have hj := Logic.jumpi_of_eq_zeroG (message := msg) (memory := M) (state := st)
+            (substate := ss) (returnData := rd)
+            (destination := BitVec.ofNat 256 (c.offset x.toNat)) (rest := T') hlt hcode
+            (show 10 ≤ g by omega) rfl
+          have hgu := gas_le_of_hoareG hj (by simp only [List.length_cons] at *; omega)
+          simp only [execC, ↓reduceIte]
+          exact SimOutC.pre hj (IH (h - 2) [] _ S' T' (k - 1) s (pc + 1) M (g - 10) st ss hok
+            (by omega) (by hu_tac) ((KR.nil _)) hR' (I'.next hk1 hseg (by simp; omega) (by omega)) R
+            (by bud_tac))
+        · have hj' := hall _ hmem
+          simp only [jumpOkL, Bool.and_eq_true, decide_eq_true_eq] at hj'
+          obtain ⟨⟨⟨⟨htn, htgt⟩, hneed⟩, hty⟩, hcost⟩ := hj'
+          have hoff := toNat_offset (G.target _ htn htgt).2.1 G.size_lt
+          have hj := Logic.jumpi_takenG (message := msg) (memory := M) (state := st)
+            (substate := ss) (returnData := rd)
+            (destination := BitVec.ofNat 256 (c.offset x.toNat)) (rest := T') hlt hcode
+            (show 10 ≤ g by omega) hc (by rw [hoff]; exact (G.target _ htn htgt).1)
+          rw [hoff] at hj
+          simp only [execC, hc, ↓reduceIte, SimOutC, SimOutB]
+          exact ⟨⟨by omega, fun _ => ⟨by omega, by omega⟩, Or.inr htgt⟩, c.offset x.toNat, T', M,
+            g - 10, st, ss, hj, SR.le hty hR', I'.targetT G htn htgt (m := 1) (by omega) (by omega), R,
+            by bud_tac⟩
+      · -- A jump table: outside the fragment.
         simp [blockStepL] at hok'
-      · simp [blockStepL] at hok'
       · -- STOP.
         simp only [lowerInstr, List.singleton_append] at I'
         obtain ⟨hlt, hcode, -⟩ := I'.seg.head_op

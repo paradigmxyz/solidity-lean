@@ -181,6 +181,10 @@ def blockStepL (p : Program) (c : Cert) (mx : List Nat) (b : Nat)
   | h, _, ty, k, .jumpDyn =>
     decide (1 ≤ k) && decide (1 ≤ h) && tyAt ty 0 == some true &&
       c.rets.all fun t => jumpOkL p c mx b t (h - 1) ty.tail
+  | h, _, ty, k, .jumpiDyn =>
+    decide (1 ≤ k) && decide (2 ≤ h) && tyAt ty 0 == some true && isData ty.tail 1 &&
+      (c.rets.all fun t => jumpOkL p c mx b t (h - 2) ty.tail.tail) &&
+      ok (h - 2) [] ty.tail.tail (k - 1)
   | _, _, _, _, .stop => true
   | _, known, ty, _, .ret | _, known, ty, _, .revert =>
     match known with
@@ -440,14 +444,15 @@ theorem env_readG {name : String} {byte w : Nat} {stack : List Word}
 
 /-- `Assemble.stack_rule_cheap` over steps monotone in gas. -/
 theorem stack_rule_cheapG {op : SolarTV.EVM.Op} {byte : Nat} {stack next : List Word}
-    {r : Word} (hm : low op = false) (hb : opByte op = some byte) (hlt : pc < code.size)
+    {r : Word} (hm : low op = false) (he : dear op = false) (hb : opByte op = some byte) (hlt : pc < code.size)
     (hcode : code[pc] = UInt8.ofNat byte)
     (hstep : SolarTV.EVM.step ⟨BitVec.ofNat 256 msg.data.size, r⟩ op stack = some next)
     (hgas : 3 ≤ gas) (hlen : stack.length < 1024) :
     ∃ g, gas - 3 ≤ g ∧ HoareG .fusaka (At code msg pc stack M gas st ss rd)
       (At code msg (pc + 1) next M g st ss rd) := by
   cases op <;> simp only [opByte, reduceCtorEq, Option.some.injEq] at hb <;> try subst hb
-  case mod | mul | div => simp [low] at hm
+  case mod | mul | div | sdiv | smod | signextend => simp [low] at hm
+  case exp => simp [dear] at he
   case add => bin_ruleG add_agree
   case sub => bin_ruleG sub_agree
   case lt => bin_ruleG lt_agree
@@ -461,6 +466,7 @@ theorem stack_rule_cheapG {op : SolarTV.EVM.Op} {byte : Nat} {stack next : List 
   case byte => bin_ruleG byte_agree
   case shl => bin_ruleG shl_agree
   case shr => bin_ruleG shr_agree
+  case sar => bin_ruleG AssembleSigned.sar_agree
   case iszero => un_ruleG iszero_agree
   case not => un_ruleG not_agree
   case pop =>
@@ -493,16 +499,17 @@ theorem stack_rule_cheapG {op : SolarTV.EVM.Op} {byte : Nat} {stack next : List 
         exact ⟨_, le_refl _, swap_of_decodeG hlt hcode (decode_swap ⟨i.val, hi⟩) hx hgas⟩
     · simp at hb
 
-/-- `Assemble.stack_rule` over steps monotone in gas. -/
-theorem stack_ruleG {op : SolarTV.EVM.Op} {byte : Nat} {stack next : List Word}
-    {r : Word} (hb : opByte op = some byte) (hlt : pc < code.size)
+/-- `Assemble.stack_rule5` over steps monotone in gas. -/
+theorem stack_rule5G {op : SolarTV.EVM.Op} {byte : Nat} {stack next : List Word}
+    {r : Word} (he : dear op = false) (hb : opByte op = some byte) (hlt : pc < code.size)
     (hcode : code[pc] = UInt8.ofNat byte)
     (hstep : SolarTV.EVM.step ⟨BitVec.ofNat 256 msg.data.size, r⟩ op stack = some next)
     (hgas : 5 ≤ gas) (hlen : stack.length < 1024) :
     ∃ g, gas - 5 ≤ g ∧ HoareG .fusaka (At code msg pc stack M gas st ss rd)
       (At code msg (pc + 1) next M g st ss rd) := by
   cases hm : low op
-  · obtain ⟨g, hg, H⟩ := stack_rule_cheapG hm hb hlt hcode hstep (Nat.le_trans (by decide) hgas) hlen
+  · obtain ⟨g, hg, H⟩ :=
+      stack_rule_cheapG hm he hb hlt hcode hstep (Nat.le_trans (by decide) hgas) hlen
     exact ⟨g, by omega, H⟩
   · cases op <;> simp [low] at hm <;> simp only [opByte, Option.some.injEq] at hb <;> subst hb <;>
       rcases stack with _ | ⟨x, _ | ⟨y, rest⟩⟩ <;> simp only [SolarTV.EVM.step, reduceCtorEq,
@@ -511,6 +518,31 @@ theorem stack_ruleG {op : SolarTV.EVM.Op} {byte : Nat} {stack next : List Word}
       | (rw [← mul_agree x y]; exact binaryG hlt hcode rfl (instr_stack _ _ rfl) hgas)
       | (rw [← div_agree x y]; exact binaryG hlt hcode rfl (instr_stack _ _ rfl) hgas)
       | (rw [← mod_agree x y]; exact binaryG hlt hcode rfl (instr_stack _ _ rfl) hgas)
+      | (rw [← AssembleSigned.sdiv_agree x y]; exact binaryG hlt hcode rfl (instr_stack _ _ rfl) hgas)
+      | (rw [← AssembleSigned.smod_agree x y]; exact binaryG hlt hcode rfl (instr_stack _ _ rfl) hgas)
+      | (rw [← AssembleSigned.signextend_agree x y]
+         exact binaryG hlt hcode rfl (instr_stack _ _ rfl) hgas)
+
+/-- `Assemble.stack_rule` over steps monotone in gas: at most 1610 gas, EXP's highest price. -/
+theorem stack_ruleG {op : SolarTV.EVM.Op} {byte : Nat} {stack next : List Word}
+    {r : Word} (hb : opByte op = some byte) (hlt : pc < code.size)
+    (hcode : code[pc] = UInt8.ofNat byte)
+    (hstep : SolarTV.EVM.step ⟨BitVec.ofNat 256 msg.data.size, r⟩ op stack = some next)
+    (hgas : 1610 ≤ gas) (hlen : stack.length < 1024) :
+    ∃ g, gas - 1610 ≤ g ∧ HoareG .fusaka (At code msg pc stack M gas st ss rd)
+      (At code msg (pc + 1) next M g st ss rd) := by
+  cases he : dear op
+  · obtain ⟨g, hg, H⟩ := stack_rule5G he hb hlt hcode hstep (Nat.le_trans (by decide) hgas) hlen
+    exact ⟨g, by omega, H⟩
+  · cases op <;> simp [dear] at he
+    simp only [opByte, Option.some.injEq] at hb
+    subst hb
+    rcases stack with _ | ⟨x, _ | ⟨y, rest⟩⟩ <;> simp only [SolarTV.EVM.step, reduceCtorEq,
+      Option.some.injEq] at hstep
+    subst hstep
+    rw [← AssembleSigned.exp_agree x y]
+    have hc := AssembleSigned.exp_cost_le y
+    exact ⟨_, Nat.sub_le_sub_left hc gas, EthLib.Execution.Evm.Logic.expG hlt hcode (Nat.le_trans hc hgas)⟩
 
 end Rules
 

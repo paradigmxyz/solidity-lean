@@ -838,6 +838,44 @@ theorem exec_simL {p : Assemble.Program} {c : Cert} {mx : List Nat} {code : Byte
         simp only [exec, SimOutL]
         exact ⟨⟨by omega, fun _ => ⟨by omega, by omega⟩, Or.inr htgt⟩, c.offset x.toNat, T', M, g - 8, st,
           ss, hj, SR.le hty hR', I'.target G htn htgt (m := 1) (by omega) (by omega), R⟩
+      · -- A conditional dynamic jump to a return label (the label on top, the condition below):
+        -- a JUMPI to the label's offset, or on to the next item.
+        simp only [blockStepL, Bool.and_eq_true, decide_eq_true_eq, beq_iff_eq,
+          List.all_eq_true] at hok'
+        obtain ⟨⟨⟨⟨⟨hk1, h2⟩, hlab⟩, hdat⟩, hall⟩, hok⟩ := hok'
+        rcases S with _ | ⟨x, S1⟩
+        · simp at hh; omega
+        rcases T with _ | ⟨y, T1⟩
+        · simp at hL
+        obtain ⟨hw, hR1⟩ := SR.uncons.1 hR
+        rw [hlab] at hw
+        obtain ⟨hmem, rfl⟩ := hw
+        obtain ⟨cond, S', T', rfl, rfl, hR'⟩ := sr_data1 hR1 hdat (by simp at hh; omega)
+        simp only [lowerInstr, List.singleton_append] at I'
+        obtain ⟨hlt, hcode, hseg⟩ := op_seg I'.seg
+        have hS := I'.stack; have hG := I'.gas
+        simp only [List.length_cons] at hS hh hL hu
+        by_cases hc : cond = 0
+        · subst hc
+          have hj := Logic.jumpi_of_eq_zeroG (message := msg) (memory := M) (state := st)
+            (substate := ss) (returnData := .empty)
+            (destination := BitVec.ofNat 256 (c.offset x.toNat)) (rest := T') hlt hcode
+            (show 10 ≤ g by omega) rfl
+          simp only [exec, ↓reduceIte]
+          exact SimOutL.pre hj (IH (h - 2) [] _ S' T' (k - 1) s (pc + 1) M (g - 10) st ss hok
+            (by omega) (by hu_tac) (KR.nil _) hR' (I'.next hk1 hseg (by simp; omega) (by omega)) R)
+        · have hj' := hall _ hmem
+          simp only [jumpOkL, Bool.and_eq_true, decide_eq_true_eq] at hj'
+          obtain ⟨⟨⟨⟨htn, htgt⟩, hneed⟩, hty⟩, hcost⟩ := hj'
+          have hoff := toNat_offset (G.target _ htn htgt).2.1 G.size_lt
+          have hj := Logic.jumpi_takenG (message := msg) (memory := M) (state := st)
+            (substate := ss) (returnData := .empty)
+            (destination := BitVec.ofNat 256 (c.offset x.toNat)) (rest := T') hlt hcode
+            (show 10 ≤ g by omega) hc (by rw [hoff]; exact (G.target _ htn htgt).1)
+          rw [hoff] at hj
+          simp only [exec, hc, ↓reduceIte, SimOutL]
+          exact ⟨⟨by omega, fun _ => ⟨by omega, by omega⟩, Or.inr htgt⟩, c.offset x.toNat, T', M,
+            g - 10, st, ss, hj, SR.le hty hR', I'.target G htn htgt (m := 1) (by omega) (by omega), R⟩
       · -- STOP.
         simp only [lowerInstr, List.singleton_append] at I'
         obtain ⟨hlt, hcode, -⟩ := op_seg I'.seg

@@ -2,6 +2,7 @@ import SolidCore.Refinement.Evm.Wide
 import SolarTV.Composition
 import SolarTV.Stages.AssemblyCheck
 import SolidCore.Refinement.Solar.AssembleStackN
+import SolidCore.Refinement.Solar.AssembleSigned
 
 /-!
 # EVM IR to bytecode, once for every program
@@ -46,8 +47,8 @@ whose hash is EthLib's KECCAK256 (`OracleOk`, `stage_of_check_eth`).
   the frame throughout: SLOAD reads it and SSTORE writes it, at any price EthLib charges for a
   cold or warm slot; SolarTV's logs are EthLib's, topic by topic and byte by byte.
 
-The fragment: PUSH, POP, DUP, SWAP, ADD, MUL, SUB, DIV, MOD, LT, GT, EQ, ISZERO, AND, OR, XOR, NOT, BYTE,
-SHL, SHR, CALLDATASIZE, CALLVALUE, CALLDATALOAD, CALLER, KECCAK256, MSTORE, SLOAD, SSTORE,
+The fragment: PUSH, POP, DUP, SWAP, ADD, MUL, SUB, DIV, SDIV, MOD, SMOD, SIGNEXTEND, LT, GT, SLT,
+SGT, EQ, ISZERO, AND, OR, XOR, NOT, BYTE, SHL, SHR, SAR, EXP, CALLDATASIZE, CALLVALUE, CALLDATALOAD, CALLER, KECCAK256, MSTORE, SLOAD, SSTORE,
 LOG0 to LOG4, JUMP (static and to a return label), JUMPI, STOP, RETURN and REVERT. Anything
 else (a conditional jump to a label on the stack, a jump table, ...) makes the check false.
 -/
@@ -121,10 +122,11 @@ as SolarTV's EVM IR does; only DUP1 to DUP16 and SWAP1 to SWAP16 are one-byte op
 position (DUPN and SWAPN, which take an immediate) is outside the fragment. -/
 def opByte : SolarTV.EVM.Op → Option Nat
   | .add => some 0x01 | .mul => some 0x02 | .sub => some 0x03 | .div => some 0x04
+  | .sdiv => some 0x05 | .smod => some 0x07 | .signextend => some 0x0b | .exp => some 0x0a
   | .mod => some 0x06 | .lt => some 0x10 | .gt => some 0x11 | .slt => some 0x12 | .sgt => some 0x13
   | .eq => some 0x14 | .iszero => some 0x15 | .and => some 0x16 | .or => some 0x17
   | .xor => some 0x18 | .not => some 0x19 | .byte => some 0x1a | .shl => some 0x1b
-  | .shr => some 0x1c
+  | .shr => some 0x1c | .sar => some 0x1d
   | .calldatasize => some 0x36 | .pop => some 0x50
   | .dup i => if i.val < 16 then some (0x80 + i.val) else none
   | .swap i => if i.val < 16 then some (0x90 + i.val) else none
@@ -174,7 +176,7 @@ def lowerInstr : Instr → List Item
   | .jumpi t => [.pushLabel t, .op 0x57]
   | .pushLabel t => [.pushLabel t]
   | .jumpDyn => [.op 0x56]
-  | .jumpiDyn => [.op 0xfe]
+  | .jumpiDyn => [.op 0x57]
   | .jumpTable _ => [.op 0xfe]
   | .stop => [.op 0x00]
   | .ret => [.op 0xf3]
@@ -260,7 +262,7 @@ def bytesOf (code : ByteArray) : List Nat := code.data.toList.map (·.toNat)
 height `h`. -/
 def stackNeed : SolarTV.EVM.Op → Option (Nat × Int)
   | .add | .mul | .sub | .div | .mod | .lt | .gt | .slt | .sgt | .eq | .and | .or | .xor | .byte
-  | .shl | .shr => some (2, -1)
+  | .shl | .shr | .sdiv | .smod | .signextend | .sar | .exp => some (2, -1)
   | .iszero | .not => some (1, 0)
   | .calldatasize => some (0, 1)
   | .pop => some (1, -1)
@@ -789,22 +791,30 @@ local macro "un_rule" agree:term : tactic => `(tactic| (
   rw [← $agree x]
   exact unary hlt hcode rfl (instr_stack _ _ rfl) (Nat.le_trans (m := 3) (by decide) hgas)))
 
-/-- Whether a stack operation of the fragment costs 5 gas (MUL, DIV and MOD) rather than 3. -/
+/-- Whether a stack operation of the fragment costs 5 gas (MUL, DIV, SDIV, MOD, SMOD and
+SIGNEXTEND) rather than 3. -/
 def low : SolarTV.EVM.Op → Bool
-  | .mul | .div | .mod => true
+  | .mul | .div | .mod | .sdiv | .smod | .signextend => true
   | _ => false
 
-/-- A stack operation of the fragment other than MUL, DIV and MOD, at its opcode, does what
-SolarTV's semantics does. -/
+/-- Whether a stack operation of the fragment is EXP, whose price grows with its exponent: 10 and
+50 per byte at Fusaka, at most 1610 (`AssembleSigned.exp_cost_le`). -/
+def dear : SolarTV.EVM.Op → Bool
+  | .exp => true
+  | _ => false
+
+/-- A stack operation of the fragment other than MUL, DIV, SDIV, MOD, SMOD and SIGNEXTEND, at its
+opcode, does what SolarTV's semantics does. -/
 theorem stack_rule_cheap {op : SolarTV.EVM.Op} {byte : Nat} {stack next : List Word}
-    {r : Word} (hm : low op = false) (hb : opByte op = some byte) (hlt : pc < code.size)
+    {r : Word} (hm : low op = false) (he : dear op = false) (hb : opByte op = some byte) (hlt : pc < code.size)
     (hcode : code[pc] = UInt8.ofNat byte)
     (hstep : SolarTV.EVM.step ⟨BitVec.ofNat 256 msg.data.size, r⟩ op stack = some next)
     (hgas : 3 ≤ gas) (hlen : stack.length < 1024) :
     ∃ g, gas - 3 ≤ g ∧ Hoare .fusaka (At code msg pc stack M gas st ss .empty)
       (At code msg (pc + 1) next M g st ss .empty) := by
   cases op <;> simp only [opByte, reduceCtorEq, Option.some.injEq] at hb <;> try subst hb
-  case mod | mul | div => simp [low] at hm
+  case mod | mul | div | sdiv | smod | signextend => simp [low] at hm
+  case exp => simp [dear] at he
   case add => bin_rule add_agree
   case sub => bin_rule sub_agree
   case lt => bin_rule lt_agree
@@ -818,6 +828,7 @@ theorem stack_rule_cheap {op : SolarTV.EVM.Op} {byte : Nat} {stack next : List W
   case byte => bin_rule byte_agree
   case shl => bin_rule shl_agree
   case shr => bin_rule shr_agree
+  case sar => bin_rule AssembleSigned.sar_agree
   case iszero => un_rule iszero_agree
   case not => un_rule not_agree
   case pop =>
@@ -850,17 +861,19 @@ theorem stack_rule_cheap {op : SolarTV.EVM.Op} {byte : Nat} {stack next : List W
         exact ⟨_, le_refl _, swap_of_decode hlt hcode (decode_swap ⟨i.val, hi⟩) hx hgas⟩
     · simp at hb
 
-/-- A stack operation of the fragment, at its opcode, does what SolarTV's semantics does, for at
-most 5 gas (the price of MUL, DIV and MOD; the rest cost 3). -/
-theorem stack_rule {op : SolarTV.EVM.Op} {byte : Nat} {stack next : List Word}
-    {r : Word} (hb : opByte op = some byte) (hlt : pc < code.size)
+/-- A stack operation of the fragment other than EXP, at its opcode, does what SolarTV's semantics
+does, for at most 5 gas (the price of MUL, DIV, SDIV, MOD, SMOD and SIGNEXTEND; the rest cost
+3). -/
+theorem stack_rule5 {op : SolarTV.EVM.Op} {byte : Nat} {stack next : List Word}
+    {r : Word} (he : dear op = false) (hb : opByte op = some byte) (hlt : pc < code.size)
     (hcode : code[pc] = UInt8.ofNat byte)
     (hstep : SolarTV.EVM.step ⟨BitVec.ofNat 256 msg.data.size, r⟩ op stack = some next)
     (hgas : 5 ≤ gas) (hlen : stack.length < 1024) :
     ∃ g, gas - 5 ≤ g ∧ Hoare .fusaka (At code msg pc stack M gas st ss .empty)
       (At code msg (pc + 1) next M g st ss .empty) := by
   cases hm : low op
-  · obtain ⟨g, hg, H⟩ := stack_rule_cheap hm hb hlt hcode hstep (Nat.le_trans (by decide) hgas) hlen
+  · obtain ⟨g, hg, H⟩ :=
+      stack_rule_cheap hm he hb hlt hcode hstep (Nat.le_trans (by decide) hgas) hlen
     exact ⟨g, by omega, H⟩
   · cases op <;> simp [low] at hm <;> simp only [opByte, Option.some.injEq] at hb <;> subst hb <;>
       rcases stack with _ | ⟨x, _ | ⟨y, rest⟩⟩ <;> simp only [SolarTV.EVM.step, reduceCtorEq,
@@ -869,6 +882,32 @@ theorem stack_rule {op : SolarTV.EVM.Op} {byte : Nat} {stack next : List Word}
       | (rw [← mul_agree x y]; exact binary hlt hcode rfl (instr_stack _ _ rfl) hgas)
       | (rw [← div_agree x y]; exact binary hlt hcode rfl (instr_stack _ _ rfl) hgas)
       | (rw [← mod_agree x y]; exact binary hlt hcode rfl (instr_stack _ _ rfl) hgas)
+      | (rw [← AssembleSigned.sdiv_agree x y]; exact binary hlt hcode rfl (instr_stack _ _ rfl) hgas)
+      | (rw [← AssembleSigned.smod_agree x y]; exact binary hlt hcode rfl (instr_stack _ _ rfl) hgas)
+      | (rw [← AssembleSigned.signextend_agree x y]
+         exact binary hlt hcode rfl (instr_stack _ _ rfl) hgas)
+
+/-- A stack operation of the fragment, at its opcode, does what SolarTV's semantics does, for at
+most 1610 gas (the most EXP costs; the rest cost at most 5). -/
+theorem stack_rule {op : SolarTV.EVM.Op} {byte : Nat} {stack next : List Word}
+    {r : Word} (hb : opByte op = some byte) (hlt : pc < code.size)
+    (hcode : code[pc] = UInt8.ofNat byte)
+    (hstep : SolarTV.EVM.step ⟨BitVec.ofNat 256 msg.data.size, r⟩ op stack = some next)
+    (hgas : 1610 ≤ gas) (hlen : stack.length < 1024) :
+    ∃ g, gas - 1610 ≤ g ∧ Hoare .fusaka (At code msg pc stack M gas st ss .empty)
+      (At code msg (pc + 1) next M g st ss .empty) := by
+  cases he : dear op
+  · obtain ⟨g, hg, H⟩ := stack_rule5 he hb hlt hcode hstep (Nat.le_trans (by decide) hgas) hlen
+    exact ⟨g, by omega, H⟩
+  · cases op <;> simp [dear] at he
+    simp only [opByte, Option.some.injEq] at hb
+    subst hb
+    rcases stack with _ | ⟨x, _ | ⟨y, rest⟩⟩ <;> simp only [SolarTV.EVM.step, reduceCtorEq,
+      Option.some.injEq] at hstep
+    subst hstep
+    rw [← AssembleSigned.exp_agree x y]
+    have hc := AssembleSigned.exp_cost_le y
+    exact ⟨_, Nat.sub_le_sub_left hc gas, EthLib.Execution.Evm.Logic.exp hlt hcode (Nat.le_trans hc hgas)⟩
 
 end Rules
 
