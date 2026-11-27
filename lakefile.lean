@@ -753,3 +753,10 @@ lean_lib «counter_loop» where
   srcDir := "Certified"
   roots := #[`counter_loop.Statement, `counter_loop.Final]
   globs := #[.submodules `counter_loop]
+
+/-- The simplification oracle's allow-list corollaries (OracleAccepted/*.lean, for the oracle's
+ACCEPTED.md): each base statement a simplification changed or removed, restated verbatim and
+proved from its replacement. Nothing imports them. -/
+lean_lib OracleAccepted where
+  roots := #[`OracleAccepted.Bump, `OracleAccepted.VCCounter, `OracleAccepted.VCToken,
+    `OracleAccepted.Assemble]
