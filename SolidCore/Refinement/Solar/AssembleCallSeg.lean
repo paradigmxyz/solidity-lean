@@ -31,8 +31,8 @@ The final theorems name what they assume of the run, beside `AssembleCallCut.Sta
   (`AssembleCall.staticcall_routes_of_ok`), and delegated callees are covered
   (`AssembleCall.staticcall_back` follows EthLib's `callKindRoute` along any route).
 
-Throughout, a "call to code" is `AssembleCallWorld.toCode`: a STATICCALL that SolidCore does not
-answer as a precompile (`prePath`), that is one with a nonzero value or one to an address outside
+Throughout, a "call to code" is `Witness.toCode` (AssembleCallWorld.lean): a STATICCALL that SolidCore does not
+answer as a precompile (`Witness.prePath`), that is one with a nonzero value or one to an address outside
 SolidCore's precompile set; with value zero, as here, it is the address test alone (`CalleeOk`).
 It says nothing of the account there, which may have no code.
 -/
