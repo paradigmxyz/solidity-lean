@@ -1,0 +1,10 @@
+; Drain.drain (a = n; b = 0; while (a > 0) { a--; b++; } return b; ensures result == n) CHC, uint256 checked-arithmetic semantics
+(set-logic HORN)
+(declare-fun Inv (Int Int Int) Bool)
+(assert (forall ((n Int)) (=> (and (<= 0 n) (< n 115792089237316195423570985008687907853269984665640564039457584007913129639936)) (Inv n n 0))))
+(assert (forall ((n Int) (a Int) (b Int))
+  (=> (and (Inv n a b) (> a 0) (and (<= 0 (- a 1)) (< (- a 1) 115792089237316195423570985008687907853269984665640564039457584007913129639936)) (and (<= 0 (+ b 1)) (< (+ b 1) 115792089237316195423570985008687907853269984665640564039457584007913129639936))) (Inv n (- a 1) (+ b 1)))))
+(assert (forall ((n Int) (a Int) (b Int))
+  (=> (and (Inv n a b) (not (> a 0)) (not (= b n))) false)))
+(check-sat)
+(get-model)

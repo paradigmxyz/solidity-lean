@@ -1,0 +1,2 @@
+== generic: ~/w/t5/tests/heldout/blocked/Reentrancy.sol (2cbe6cc07293c24a7d873782ce131a19d1c0f62db825332ba4b3a5e1fbf0cedd) as reentrancy_2cbe6cc0, requested tier certified
+BLOCKED: external call (1x, first line 12: .call on an address)

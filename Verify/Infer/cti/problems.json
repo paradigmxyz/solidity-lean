@@ -1,0 +1,1088 @@
+{
+ "schema": "solidity-lean/cti/problems/v1",
+ "note": "Inputs of cti.py. Paths are relative to this file; spacer:FILE is z3 Spacer's model in FILE next to the chc file.",
+ "problems": [
+  {
+   "id": "infer-counter-u256",
+   "chc": "../chc/counter_u256.smt2",
+   "origin": "handwritten (Verify/Infer/chc)",
+   "vars": [
+    "c0",
+    "n",
+    "lim",
+    "i",
+    "c"
+   ],
+   "source": {
+    "file": "Certified/verify_counter/verify_counter.sol",
+    "line": 26,
+    "text": "for (uint256 i = 0; i < n; i++) { count++; }",
+    "col": 9
+   },
+   "candidates": [
+    {
+     "id": "spacer",
+     "conjuncts": [
+      "spacer:counter_u256.spacer.out"
+     ],
+     "decreases": "(- n i)",
+     "expect": "inductive",
+     "expect_rank": "decreases",
+     "source": {
+      "file": "Verify/Infer/chc/counter_u256.spacer.out",
+      "text": "z3 Spacer's answer, unedited"
+     }
+    },
+    {
+     "id": "annotated",
+     "conjuncts": [
+      "(<= i n)",
+      "(= c (+ c0 i))"
+     ],
+     "decreases": "(- n i)",
+     "expect": "too-weak",
+     "expect_rank": "decreases",
+     "source": {
+      "file": "Certified/verify_counter/verify_counter.sol",
+      "line": 24,
+      "text": "@custom:invariant count == old(count) + i"
+     },
+     "note": "the two annotated invariants alone: in this CHC old(count) and limit are head variables, so the entry fact c0 + n <= lim is lost at the head and the exit negative c0 + n > lim is a state no run reaches"
+    },
+    {
+     "id": "annotated-frame",
+     "conjuncts": [
+      "(<= i n)",
+      "(= c (+ c0 i))",
+      "(<= (+ c0 n) lim)"
+     ],
+     "decreases": "(- n i)",
+     "expect": "inductive",
+     "expect_rank": "decreases",
+     "source": {
+      "file": "Certified/verify_counter/verify_counter.sol",
+      "line": 24,
+      "text": "@custom:invariant count == old(count) + i"
+     },
+     "note": "the annotated invariants with the entry fact carried"
+    },
+    {
+     "id": "mut-lt",
+     "conjuncts": [
+      "(< i n)",
+      "(= c (+ c0 i))",
+      "(<= (+ c0 n) lim)"
+     ],
+     "expect": "rejected",
+     "source": {
+      "file": "Certified/verify_counter/verify_counter.sol",
+      "line": 23,
+      "text": "@custom:invariant i <= n"
+     },
+     "note": "i < n for i <= n: false on entry when n = 0"
+    },
+    {
+     "id": "mut-off-by-one",
+     "conjuncts": [
+      "(<= i n)",
+      "(= c (+ c0 i 1))",
+      "(<= (+ c0 n) lim)"
+     ],
+     "expect": "rejected",
+     "source": {
+      "file": "Certified/verify_counter/verify_counter.sol",
+      "line": 24,
+      "text": "@custom:invariant count == old(count) + i"
+     },
+     "note": "count == old(count) + i + 1"
+    },
+    {
+     "id": "mut-i-zero",
+     "conjuncts": [
+      "(= i 0)",
+      "(= c (+ c0 i))",
+      "(<= (+ c0 n) lim)"
+     ],
+     "expect": "rejected",
+     "source": {
+      "file": "Certified/verify_counter/verify_counter.sol",
+      "line": 23,
+      "text": "@custom:invariant i <= n"
+     },
+     "note": "i == 0 holds on entry; its back-edge CTI's pre-state is reached, so it is a positive"
+    },
+    {
+     "id": "mut-drop-bound",
+     "conjuncts": [
+      "(= c (+ c0 i))",
+      "(<= (+ c0 n) lim)"
+     ],
+     "expect": "too-weak",
+     "source": {
+      "file": "Certified/verify_counter/verify_counter.sol",
+      "line": 23,
+      "text": "@custom:invariant i <= n"
+     },
+     "note": "without i <= n the exit sees i > n: a negative no run reaches, so the candidate is too weak, not the program wrong"
+    },
+    {
+     "id": "mut-weak-count",
+     "conjuncts": [
+      "(<= i n)",
+      "(<= c (+ c0 n))",
+      "(<= c0 c)",
+      "(<= (+ c0 n) lim)"
+     ],
+     "expect": "not-inductive",
+     "source": {
+      "file": "Certified/verify_counter/verify_counter.sol",
+      "line": 24,
+      "text": "@custom:invariant count == old(count) + i"
+     },
+     "note": "count bounded instead of equal: the back-edge CTI is an implication pair whose pre-state no run reaches; its pre-state is not labelled negative"
+    },
+    {
+     "id": "guarded-dead",
+     "conjuncts": [
+      "(<= i n)",
+      "(= c (+ c0 i))",
+      "(<= (+ c0 n) lim)",
+      "(=> (> i n) (= c 0))"
+     ],
+     "expect": "inductive",
+     "expect_flag": "passes-only-because-antecedent-false",
+     "source": {
+      "file": "Certified/verify_counter/verify_counter.sol",
+      "line": 24,
+      "text": "@custom:invariant count == old(count) + i"
+     },
+     "note": "a guarded strengthening whose antecedent i > n no head state under the candidate satisfies: it passes only because the antecedent is false"
+    },
+    {
+     "id": "guarded-live",
+     "conjuncts": [
+      "(<= i n)",
+      "(= c (+ c0 i))",
+      "(<= (+ c0 n) lim)",
+      "(=> (= i 0) (= c c0))"
+     ],
+     "expect": "inductive",
+     "expect_flag": "guarded",
+     "source": {
+      "file": "Certified/verify_counter/verify_counter.sol",
+      "line": 24,
+      "text": "@custom:invariant count == old(count) + i"
+     },
+     "note": "control: a guarded conjunct whose antecedent is reached"
+    },
+    {
+     "id": "wrong-rank",
+     "conjuncts": [
+      "(<= i n)",
+      "(= c (+ c0 i))",
+      "(<= (+ c0 n) lim)"
+     ],
+     "decreases": "(- i n)",
+     "expect": "inductive",
+     "expect_rank": "rejected",
+     "source": {
+      "file": "Certified/verify_counter/verify_counter.sol",
+      "line": 25,
+      "text": "@custom:decreases n - i"
+     },
+     "note": "decreases i - n: negative on every reached head state that takes the back edge"
+    }
+   ]
+  },
+  {
+   "id": "infer-okwhile-u256",
+   "chc": "../chc/okwhile_u256.smt2",
+   "origin": "handwritten (Verify/Infer/chc)",
+   "vars": [
+    "n",
+    "i"
+   ],
+   "source": {
+    "file": "solar crates/verify/tests/cases/control.sol",
+    "line": 14,
+    "text": "while (i < n) { i++; }"
+   },
+   "candidates": [
+    {
+     "id": "spacer",
+     "conjuncts": [
+      "spacer:okwhile_u256.spacer.out"
+     ],
+     "decreases": "(- n i)",
+     "expect": "inductive",
+     "expect_rank": "decreases",
+     "source": {
+      "file": "Verify/Infer/chc/okwhile_u256.spacer.out"
+     }
+    },
+    {
+     "id": "none",
+     "conjuncts": [],
+     "expect": "too-weak",
+     "source": null,
+     "note": "no invariant: the exit negative i > n is not reached"
+    },
+    {
+     "id": "mut-lt",
+     "conjuncts": [
+      "(< i n)"
+     ],
+     "expect": "rejected",
+     "note": "false on entry when n = 0"
+    },
+    {
+     "id": "mut-i-zero",
+     "conjuncts": [
+      "(= i 0)"
+     ],
+     "expect": "rejected"
+    },
+    {
+     "id": "guarded-dead",
+     "conjuncts": [
+      "(<= i n)",
+      "(=> (> i n) (= i 5))"
+     ],
+     "expect": "inductive",
+     "expect_flag": "passes-only-because-antecedent-false"
+    },
+    {
+     "id": "wrong-rank",
+     "conjuncts": [
+      "(<= i n)"
+     ],
+     "decreases": "(+ i 1)",
+     "expect": "inductive",
+     "expect_rank": "rejected"
+    }
+   ]
+  },
+  {
+   "id": "infer-drain-u256",
+   "chc": "../chc/drain_u256.smt2",
+   "origin": "handwritten (Verify/Infer/chc)",
+   "vars": [
+    "n",
+    "a",
+    "b"
+   ],
+   "source": {
+    "file": "Verify/Infer/README.md",
+    "text": "a = n; b = 0; while (a > 0) { a--; b++; } (no Solidity file in either repository)"
+   },
+   "candidates": [
+    {
+     "id": "spacer",
+     "conjuncts": [
+      "spacer:drain_u256.spacer.out"
+     ],
+     "decreases": "a",
+     "expect": "inductive",
+     "expect_rank": "decreases",
+     "source": {
+      "file": "Verify/Infer/chc/drain_u256.spacer.out"
+     }
+    },
+    {
+     "id": "sum-only",
+     "conjuncts": [
+      "(= (+ a b) n)"
+     ],
+     "decreases": "a",
+     "expect": "too-weak",
+     "note": "a + b == n without a >= 0: the exit negative has a < 0, which no run reaches"
+    },
+    {
+     "id": "sum-nonneg",
+     "conjuncts": [
+      "(= (+ a b) n)",
+      "(>= a 0)"
+     ],
+     "decreases": "a",
+     "expect": "inductive",
+     "expect_rank": "decreases"
+    },
+    {
+     "id": "mut-b-zero",
+     "conjuncts": [
+      "(= b 0)"
+     ],
+     "expect": "rejected"
+    },
+    {
+     "id": "mut-sum-off",
+     "conjuncts": [
+      "(= (+ a b) (+ n 1))",
+      "(>= a 0)"
+     ],
+     "expect": "rejected"
+    }
+   ]
+  },
+  {
+   "id": "infer-counter-int",
+   "chc": "../chc/counter_int.smt2",
+   "origin": "handwritten (Verify/Infer/chc)",
+   "vars": [
+    "c0",
+    "n",
+    "lim",
+    "i",
+    "c"
+   ],
+   "source": {
+    "file": "Certified/verify_counter/verify_counter.sol",
+    "line": 26,
+    "text": "for (uint256 i = 0; i < n; i++) { count++; }",
+    "col": 9
+   },
+   "candidates": [
+    {
+     "id": "spacer",
+     "conjuncts": [
+      "spacer:counter_int.spacer.out"
+     ],
+     "decreases": "(- n i)",
+     "expect": "inductive",
+     "expect_rank": "decreases",
+     "source": {
+      "file": "Verify/Infer/chc/counter_int.spacer.out",
+      "text": "z3 Spacer's answer, unedited"
+     }
+    },
+    {
+     "id": "annotated",
+     "conjuncts": [
+      "(<= i n)",
+      "(= c (+ c0 i))"
+     ],
+     "decreases": "(- n i)",
+     "expect": "too-weak",
+     "expect_rank": "decreases",
+     "source": {
+      "file": "Certified/verify_counter/verify_counter.sol",
+      "line": 24,
+      "text": "@custom:invariant count == old(count) + i"
+     },
+     "note": "the two annotated invariants alone: in this CHC old(count) and limit are head variables, so the entry fact c0 + n <= lim is lost at the head and the exit negative c0 + n > lim is a state no run reaches"
+    },
+    {
+     "id": "annotated-frame",
+     "conjuncts": [
+      "(<= i n)",
+      "(= c (+ c0 i))",
+      "(<= (+ c0 n) lim)"
+     ],
+     "decreases": "(- n i)",
+     "expect": "inductive",
+     "expect_rank": "decreases",
+     "source": {
+      "file": "Certified/verify_counter/verify_counter.sol",
+      "line": 24,
+      "text": "@custom:invariant count == old(count) + i"
+     },
+     "note": "the annotated invariants with the entry fact carried"
+    },
+    {
+     "id": "mut-lt",
+     "conjuncts": [
+      "(< i n)",
+      "(= c (+ c0 i))",
+      "(<= (+ c0 n) lim)"
+     ],
+     "expect": "rejected",
+     "source": {
+      "file": "Certified/verify_counter/verify_counter.sol",
+      "line": 23,
+      "text": "@custom:invariant i <= n"
+     },
+     "note": "i < n for i <= n: false on entry when n = 0"
+    },
+    {
+     "id": "mut-off-by-one",
+     "conjuncts": [
+      "(<= i n)",
+      "(= c (+ c0 i 1))",
+      "(<= (+ c0 n) lim)"
+     ],
+     "expect": "rejected",
+     "source": {
+      "file": "Certified/verify_counter/verify_counter.sol",
+      "line": 24,
+      "text": "@custom:invariant count == old(count) + i"
+     },
+     "note": "count == old(count) + i + 1"
+    },
+    {
+     "id": "mut-i-zero",
+     "conjuncts": [
+      "(= i 0)",
+      "(= c (+ c0 i))",
+      "(<= (+ c0 n) lim)"
+     ],
+     "expect": "rejected",
+     "source": {
+      "file": "Certified/verify_counter/verify_counter.sol",
+      "line": 23,
+      "text": "@custom:invariant i <= n"
+     },
+     "note": "i == 0 holds on entry; its back-edge CTI's pre-state is reached, so it is a positive"
+    },
+    {
+     "id": "mut-drop-bound",
+     "conjuncts": [
+      "(= c (+ c0 i))",
+      "(<= (+ c0 n) lim)"
+     ],
+     "expect": "too-weak",
+     "source": {
+      "file": "Certified/verify_counter/verify_counter.sol",
+      "line": 23,
+      "text": "@custom:invariant i <= n"
+     },
+     "note": "without i <= n the exit sees i > n: a negative no run reaches, so the candidate is too weak, not the program wrong"
+    },
+    {
+     "id": "mut-weak-count",
+     "conjuncts": [
+      "(<= i n)",
+      "(<= c (+ c0 n))",
+      "(<= c0 c)",
+      "(<= (+ c0 n) lim)"
+     ],
+     "expect": "not-inductive",
+     "source": {
+      "file": "Certified/verify_counter/verify_counter.sol",
+      "line": 24,
+      "text": "@custom:invariant count == old(count) + i"
+     },
+     "note": "count bounded instead of equal: the back-edge CTI is an implication pair whose pre-state no run reaches; its pre-state is not labelled negative"
+    },
+    {
+     "id": "guarded-dead",
+     "conjuncts": [
+      "(<= i n)",
+      "(= c (+ c0 i))",
+      "(<= (+ c0 n) lim)",
+      "(=> (> i n) (= c 0))"
+     ],
+     "expect": "inductive",
+     "expect_flag": "passes-only-because-antecedent-false",
+     "source": {
+      "file": "Certified/verify_counter/verify_counter.sol",
+      "line": 24,
+      "text": "@custom:invariant count == old(count) + i"
+     },
+     "note": "a guarded strengthening whose antecedent i > n no head state under the candidate satisfies: it passes only because the antecedent is false"
+    },
+    {
+     "id": "guarded-live",
+     "conjuncts": [
+      "(<= i n)",
+      "(= c (+ c0 i))",
+      "(<= (+ c0 n) lim)",
+      "(=> (= i 0) (= c c0))"
+     ],
+     "expect": "inductive",
+     "expect_flag": "guarded",
+     "source": {
+      "file": "Certified/verify_counter/verify_counter.sol",
+      "line": 24,
+      "text": "@custom:invariant count == old(count) + i"
+     },
+     "note": "control: a guarded conjunct whose antecedent is reached"
+    },
+    {
+     "id": "wrong-rank",
+     "conjuncts": [
+      "(<= i n)",
+      "(= c (+ c0 i))",
+      "(<= (+ c0 n) lim)"
+     ],
+     "decreases": "(- i n)",
+     "expect": "inductive",
+     "expect_rank": "rejected",
+     "source": {
+      "file": "Certified/verify_counter/verify_counter.sol",
+      "line": 25,
+      "text": "@custom:decreases n - i"
+     },
+     "note": "decreases i - n: negative on every reached head state that takes the back edge"
+    }
+   ]
+  },
+  {
+   "id": "infer-okwhile-int",
+   "chc": "../chc/okwhile_int.smt2",
+   "origin": "handwritten (Verify/Infer/chc)",
+   "vars": [
+    "n",
+    "i"
+   ],
+   "source": {
+    "file": "solar crates/verify/tests/cases/control.sol",
+    "line": 14,
+    "text": "while (i < n) { i++; }"
+   },
+   "candidates": [
+    {
+     "id": "spacer",
+     "conjuncts": [
+      "spacer:okwhile_int.spacer.out"
+     ],
+     "decreases": "(- n i)",
+     "expect": "inductive",
+     "expect_rank": "decreases",
+     "source": {
+      "file": "Verify/Infer/chc/okwhile_int.spacer.out"
+     }
+    },
+    {
+     "id": "none",
+     "conjuncts": [],
+     "expect": "too-weak",
+     "source": null,
+     "note": "no invariant: the exit negative i > n is not reached"
+    },
+    {
+     "id": "mut-lt",
+     "conjuncts": [
+      "(< i n)"
+     ],
+     "expect": "rejected",
+     "note": "false on entry when n = 0"
+    },
+    {
+     "id": "mut-i-zero",
+     "conjuncts": [
+      "(= i 0)"
+     ],
+     "expect": "rejected"
+    },
+    {
+     "id": "guarded-dead",
+     "conjuncts": [
+      "(<= i n)",
+      "(=> (> i n) (= i 5))"
+     ],
+     "expect": "inductive",
+     "expect_flag": "passes-only-because-antecedent-false"
+    },
+    {
+     "id": "wrong-rank",
+     "conjuncts": [
+      "(<= i n)"
+     ],
+     "decreases": "(+ i 1)",
+     "expect": "inductive",
+     "expect_rank": "rejected"
+    }
+   ]
+  },
+  {
+   "id": "infer-drain-int",
+   "chc": "../chc/drain_int.smt2",
+   "origin": "handwritten (Verify/Infer/chc)",
+   "vars": [
+    "n",
+    "a",
+    "b"
+   ],
+   "source": {
+    "file": "Verify/Infer/README.md",
+    "text": "a = n; b = 0; while (a > 0) { a--; b++; } (no Solidity file in either repository)"
+   },
+   "candidates": [
+    {
+     "id": "spacer",
+     "conjuncts": [
+      "spacer:drain_int.spacer.out"
+     ],
+     "decreases": "a",
+     "expect": "inductive",
+     "expect_rank": "decreases",
+     "source": {
+      "file": "Verify/Infer/chc/drain_int.spacer.out"
+     }
+    },
+    {
+     "id": "sum-only",
+     "conjuncts": [
+      "(= (+ a b) n)"
+     ],
+     "decreases": "a",
+     "expect": "too-weak",
+     "note": "a + b == n without a >= 0: the exit negative has a < 0, which no run reaches"
+    },
+    {
+     "id": "sum-nonneg",
+     "conjuncts": [
+      "(= (+ a b) n)",
+      "(>= a 0)"
+     ],
+     "decreases": "a",
+     "expect": "inductive",
+     "expect_rank": "decreases"
+    },
+    {
+     "id": "mut-b-zero",
+     "conjuncts": [
+      "(= b 0)"
+     ],
+     "expect": "rejected"
+    },
+    {
+     "id": "mut-sum-off",
+     "conjuncts": [
+      "(= (+ a b) (+ n 1))",
+      "(>= a 0)"
+     ],
+     "expect": "rejected"
+    }
+   ]
+  },
+  {
+   "id": "solar-bump-spec-post",
+   "chc": "chc/bump_spec_post_1.smt2",
+   "origin": "solar-verify horn.rs (export-solar.sh)",
+   "shared": true,
+   "frame": {
+    "old_count": "entry:count",
+    "limit": "name:limit"
+   },
+   "query_edge": "exit",
+   "source": {
+    "file": "Certified/verify_counter/verify_counter.sol",
+    "line": 26,
+    "text": "for (uint256 i = 0; i < n; i++) { count++; }",
+    "col": 9
+   },
+   "candidates": [
+    {
+     "id": "annotated",
+     "conjuncts": [
+      "(<= i n)",
+      "(= count (+ old_count i))"
+     ],
+     "decreases": "(- n i)",
+     "expect": "goal-violated",
+     "expect_rank": "decreases",
+     "source": {
+      "file": "Certified/verify_counter/verify_counter.sol",
+      "line": 24,
+      "text": "@custom:invariant count == old(count) + i"
+     },
+     "note": "the annotated invariants hold, and the exit negative is reached: the spec is wrong, not the candidate"
+    },
+    {
+     "id": "houdini-kept",
+     "conjuncts": [
+      "(>= count old_count)",
+      "(>= count 0)",
+      "(>= count i)",
+      "(>= i 0)",
+      "(<= i count)",
+      "(<= i n)",
+      "(= count (+ old_count i))",
+      "(<= count limit)"
+     ],
+     "decreases": "(- n i)",
+     "expect": "goal-violated",
+     "expect_rank": "decreases",
+     "source": {
+      "file": "solar-verify --show-inferred Certified/verify_counter/verify_counter.sol",
+      "text": "the 8 of 15 candidates Houdini kept for bump's loop (entry(i) is 0)"
+     },
+     "note": "what the existing Houdini keeps on the unmutated source: no initiation or preservation CTI; the only CTIs are the spec mutant's reached negatives"
+    },
+    {
+     "id": "mut-lt",
+     "conjuncts": [
+      "(< i n)",
+      "(= count (+ old_count i))"
+     ],
+     "expect": "rejected",
+     "source": {
+      "file": "Certified/verify_counter/verify_counter.sol",
+      "line": 23,
+      "text": "@custom:invariant i <= n"
+     }
+    },
+    {
+     "id": "mut-off-by-one",
+     "conjuncts": [
+      "(<= i n)",
+      "(= count (+ old_count i 1))"
+     ],
+     "expect": "rejected",
+     "source": {
+      "file": "Certified/verify_counter/verify_counter.sol",
+      "line": 24,
+      "text": "@custom:invariant count == old(count) + i"
+     }
+    },
+    {
+     "id": "mut-i-zero",
+     "conjuncts": [
+      "(= i 0)",
+      "(= count (+ old_count i))"
+     ],
+     "expect": "rejected",
+     "source": {
+      "file": "Certified/verify_counter/verify_counter.sol",
+      "line": 23,
+      "text": "@custom:invariant i <= n"
+     }
+    },
+    {
+     "id": "guarded-dead",
+     "conjuncts": [
+      "(<= i n)",
+      "(= count (+ old_count i))",
+      "(=> (> i n) (= count 0))"
+     ],
+     "expect": "goal-violated",
+     "expect_flag": "passes-only-because-antecedent-false",
+     "source": {
+      "file": "Certified/verify_counter/verify_counter.sol",
+      "line": 24,
+      "text": "@custom:invariant count == old(count) + i"
+     }
+    },
+    {
+     "id": "wrong-rank",
+     "conjuncts": [
+      "(<= i n)",
+      "(= count (+ old_count i))"
+     ],
+     "decreases": "(- i n)",
+     "expect": "goal-violated",
+     "expect_rank": "rejected",
+     "source": {
+      "file": "Certified/verify_counter/verify_counter.sol",
+      "line": 25,
+      "text": "@custom:decreases n - i"
+     }
+    }
+   ],
+   "mutation": {
+    "file": "Certified/verify_counter/verify_counter.sol",
+    "line": 20,
+    "text": "@custom:ensures count == old(count) + n + 1 (spec mutant)"
+   }
+  },
+  {
+   "id": "solar-bump-sdl22",
+   "chc": "chc/bump_sdl22_1.smt2",
+   "origin": "solar-verify horn.rs (export-solar.sh)",
+   "shared": true,
+   "frame": {
+    "old_count": "entry:count",
+    "limit": "name:limit"
+   },
+   "query_edge": "exit",
+   "source": {
+    "file": "Certified/verify_counter/verify_counter.sol",
+    "line": 26,
+    "text": "for (uint256 i = 0; i < n; i++) { count++; }",
+    "col": 9
+   },
+   "candidates": [
+    {
+     "id": "none",
+     "conjuncts": [],
+     "expect": "goal-violated",
+     "note": "no candidate: the negative is reached, so the mutant is a reachable violation"
+    },
+    {
+     "id": "annotated",
+     "conjuncts": [
+      "(<= i n)",
+      "(= count (+ old_count i))"
+     ],
+     "expect": "goal-violated",
+     "source": {
+      "file": "Certified/verify_counter/verify_counter.sol",
+      "line": 24,
+      "text": "@custom:invariant count == old(count) + i"
+     },
+     "note": ""
+    }
+   ],
+   "mutation": {
+    "file": "Certified/verify_counter/verify_counter.sol",
+    "line": 22,
+    "text": "require removed (solar-verify mutate SDL line 22)"
+   }
+  },
+  {
+   "id": "solar-bump-aor22",
+   "chc": "chc/bump_aor22_1.smt2",
+   "origin": "solar-verify horn.rs (export-solar.sh)",
+   "shared": true,
+   "frame": {
+    "old_count": "entry:count",
+    "limit": "name:limit"
+   },
+   "query_edge": "exit",
+   "source": {
+    "file": "Certified/verify_counter/verify_counter.sol",
+    "line": 26,
+    "text": "for (uint256 i = 0; i < n; i++) { count++; }",
+    "col": 9
+   },
+   "candidates": [
+    {
+     "id": "none",
+     "conjuncts": [],
+     "expect": "goal-violated",
+     "note": "no candidate: the negative is reached, so the mutant is a reachable violation"
+    },
+    {
+     "id": "annotated",
+     "conjuncts": [
+      "(<= i n)",
+      "(= count (+ old_count i))"
+     ],
+     "expect": "goal-violated",
+     "source": {
+      "file": "Certified/verify_counter/verify_counter.sol",
+      "line": 24,
+      "text": "@custom:invariant count == old(count) + i"
+     },
+     "note": ""
+    }
+   ],
+   "mutation": {
+    "file": "Certified/verify_counter/verify_counter.sol",
+    "line": 22,
+    "text": "require(count - n <= limit) (AOR line 22)"
+   }
+  },
+  {
+   "id": "solar-bump-crp26-1",
+   "chc": "chc/bump_crp26_1.smt2",
+   "origin": "solar-verify horn.rs (export-solar.sh)",
+   "shared": true,
+   "frame": {
+    "old_count": "entry:count",
+    "limit": "name:limit"
+   },
+   "query_edge": "entry",
+   "source": {
+    "file": "Certified/verify_counter/verify_counter.sol",
+    "line": 26,
+    "text": "for (uint256 i = 0; i < n; i++) { count++; }",
+    "col": 9
+   },
+   "candidates": [
+    {
+     "id": "none",
+     "conjuncts": [],
+     "expect": "goal-violated",
+     "note": "no candidate: the negative is reached, so the mutant is a reachable violation"
+    },
+    {
+     "id": "annotated",
+     "conjuncts": [
+      "(<= i n)",
+      "(= count (+ old_count i))"
+     ],
+     "expect": "rejected",
+     "source": {
+      "file": "Certified/verify_counter/verify_counter.sol",
+      "line": 24,
+      "text": "@custom:invariant count == old(count) + i"
+     },
+     "note": "the mutant breaks the annotated invariants themselves: a reached state falsifies one"
+    }
+   ],
+   "mutation": {
+    "file": "Certified/verify_counter/verify_counter.sol",
+    "line": 26,
+    "text": "for (uint256 i = 1; ...) (CRP line 26): i <= n on entry"
+   }
+  },
+  {
+   "id": "solar-bump-crp26-2",
+   "chc": "chc/bump_crp26_2.smt2",
+   "origin": "solar-verify horn.rs (export-solar.sh)",
+   "shared": true,
+   "frame": {
+    "old_count": "entry:count",
+    "limit": "name:limit"
+   },
+   "query_edge": "entry",
+   "source": {
+    "file": "Certified/verify_counter/verify_counter.sol",
+    "line": 26,
+    "text": "for (uint256 i = 0; i < n; i++) { count++; }",
+    "col": 9
+   },
+   "candidates": [
+    {
+     "id": "none",
+     "conjuncts": [],
+     "expect": "goal-violated",
+     "note": "no candidate: the negative is reached, so the mutant is a reachable violation"
+    },
+    {
+     "id": "annotated",
+     "conjuncts": [
+      "(<= i n)",
+      "(= count (+ old_count i))"
+     ],
+     "expect": "rejected",
+     "source": {
+      "file": "Certified/verify_counter/verify_counter.sol",
+      "line": 24,
+      "text": "@custom:invariant count == old(count) + i"
+     },
+     "note": "the mutant breaks the annotated invariants themselves: a reached state falsifies one"
+    }
+   ],
+   "mutation": {
+    "file": "Certified/verify_counter/verify_counter.sol",
+    "line": 26,
+    "text": "for (uint256 i = 1; ...) (CRP line 26): count == old(count) + i on entry"
+   }
+  },
+  {
+   "id": "solar-bump-ror26",
+   "chc": "chc/bump_ror26_1.smt2",
+   "origin": "solar-verify horn.rs (export-solar.sh)",
+   "shared": true,
+   "frame": {
+    "old_count": "entry:count",
+    "limit": "name:limit"
+   },
+   "query_edge": "back",
+   "source": {
+    "file": "Certified/verify_counter/verify_counter.sol",
+    "line": 26,
+    "text": "for (uint256 i = 0; i < n; i++) { count++; }",
+    "col": 9
+   },
+   "candidates": [
+    {
+     "id": "none",
+     "conjuncts": [],
+     "expect": "goal-violated",
+     "note": "no candidate: the negative is reached, so the mutant is a reachable violation"
+    },
+    {
+     "id": "annotated",
+     "conjuncts": [
+      "(<= i n)",
+      "(= count (+ old_count i))"
+     ],
+     "expect": "rejected",
+     "source": {
+      "file": "Certified/verify_counter/verify_counter.sol",
+      "line": 24,
+      "text": "@custom:invariant count == old(count) + i"
+     },
+     "note": "the mutant breaks the annotated invariants themselves: a reached state falsifies one"
+    }
+   ],
+   "mutation": {
+    "file": "Certified/verify_counter/verify_counter.sol",
+    "line": 26,
+    "text": "i <= n as the guard (ROR line 26)"
+   }
+  },
+  {
+   "id": "solar-bump-aor27",
+   "chc": "chc/bump_aor27_1.smt2",
+   "origin": "solar-verify horn.rs (export-solar.sh)",
+   "shared": true,
+   "frame": {
+    "old_count": "entry:count",
+    "limit": "name:limit"
+   },
+   "query_edge": "back",
+   "source": {
+    "file": "Certified/verify_counter/verify_counter.sol",
+    "line": 26,
+    "text": "for (uint256 i = 0; i < n; i++) { count++; }",
+    "col": 9
+   },
+   "candidates": [
+    {
+     "id": "none",
+     "conjuncts": [],
+     "expect": "goal-violated",
+     "note": "no candidate: the negative is reached, so the mutant is a reachable violation"
+    },
+    {
+     "id": "annotated",
+     "conjuncts": [
+      "(<= i n)",
+      "(= count (+ old_count i))"
+     ],
+     "expect": "rejected",
+     "source": {
+      "file": "Certified/verify_counter/verify_counter.sol",
+      "line": 24,
+      "text": "@custom:invariant count == old(count) + i"
+     },
+     "note": "the mutant breaks the annotated invariants themselves: a reached state falsifies one"
+    }
+   ],
+   "mutation": {
+    "file": "Certified/verify_counter/verify_counter.sol",
+    "line": 27,
+    "text": "count-- (AOR line 27)"
+   }
+  },
+  {
+   "id": "solar-bump-sdl27",
+   "chc": "chc/bump_sdl27_1.smt2",
+   "origin": "solar-verify horn.rs (export-solar.sh)",
+   "shared": true,
+   "frame": {
+    "old_count": "name:count",
+    "limit": "name:limit"
+   },
+   "query_edge": "back",
+   "source": {
+    "file": "Certified/verify_counter/verify_counter.sol",
+    "line": 26,
+    "text": "for (uint256 i = 0; i < n; i++) { count++; }",
+    "col": 9
+   },
+   "candidates": [
+    {
+     "id": "none",
+     "conjuncts": [],
+     "expect": "goal-violated"
+    },
+    {
+     "id": "bound",
+     "conjuncts": [
+      "(<= i n)"
+     ],
+     "decreases": "(- n i)",
+     "expect": "goal-violated",
+     "expect_rank": "decreases",
+     "source": {
+      "file": "Certified/verify_counter/verify_counter.sol",
+      "line": 23,
+      "text": "@custom:invariant i <= n"
+     },
+     "note": "count is not a loop variable here; i <= n and the measure still hold"
+    }
+   ],
+   "mutation": {
+    "file": "Certified/verify_counter/verify_counter.sol",
+    "line": 27,
+    "text": "count++ removed (SDL line 27)"
+   }
+  }
+ ]
+}

@@ -1,0 +1,2 @@
+{"step":"4 Verify.LoopSource.Equiv.Counter.Resources Verify.LoopSource.Equiv.Counter.Neg","status":"OPEN","reason":"step 3 BLOCKED (Contracts.VerifyCounter.Source memory_exception x3)"}
+{"step":"5","status":"OPEN","reason":"audit imports Counter.Resources, not built (step 3 BLOCKED); audit exit 1"}

@@ -1,0 +1,18 @@
+import sys,json,subprocess,importlib.util,hashlib
+sys.path.insert(0,'/home/hand/solar446/tools/certify')
+spec=importlib.util.spec_from_file_location('g','/home/hand/solar446/tools/certify/generic.py');g=importlib.util.module_from_spec(spec);spec.loader.exec_module(g)
+import keccak
+S='/home/hand/exporter/target/debug/solar'
+o=subprocess.run([S,'/home/hand/run/Counter.sol','-Ogas','--evm-version','osaka','--emit=bin,bin-runtime,abi'],capture_output=True,text=True)
+j=json.loads(o.stdout); k=[k for k in j['contracts'] if k.endswith(':Counter')][0]; c=j['contracts'][k]
+init=bytes.fromhex(c['bin']); plain=bytes.fromhex(c['bin-runtime'])
+ws=[int(a) for a in sys.argv[1].split(',')]; storage=json.loads(sys.argv[2]); out=sys.argv[3]; ns=sys.argv[4]
+abi=c['abi'] if isinstance(c['abi'],list) else json.loads(c['abi'])
+sigs=[]
+for e in abi:
+    if e.get('type')=='function':
+        sg=e['name']+'('+','.join(i['type'] for i in e['inputs'])+')'
+        sigs.append({'sig':sg,'sel':int.from_bytes(keccak.keccak256(sg.encode())[:4],'big')})
+text=g.lifecycle_lean(ns,'CounterRun.Source','Certified.CounterRun.Src.importedSourceUnit','Counter',sigs,init,plain,plain,ws,[tuple(x) for x in storage])
+open(out,'w').write(text)
+print(json.dumps({'init_bytes':len(init),'init_sha256':hashlib.sha256(init).hexdigest(),'runtime_sha256':hashlib.sha256(plain).hexdigest(),'sigs':[s['sig'] for s in sigs],'ws':ws,'storage':storage}))

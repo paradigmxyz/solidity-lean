@@ -1,0 +1,50 @@
+{
+  "contract": "CallSqrt",
+  "name": "callsqrt",
+  "source": "Certified/callsqrt/callsqrt.sol",
+  "bytecode": "6024361034176022575f3560e01c8063b3de648b146026578063e420264a146048575b5f5ffd5b60043560395b60038211605b57905f1090565b6001018015609b575f5260205ff35b60043560011c6054602c565b5f5260205ff35b8160011c600181015f1982101560b45783915090808210607a57925050565b50801560ae57808304818101908110609b5760011c90808210607a57925050565b60115b602052634e487b715f526024601cfd5b6012609e565b506d03080000000200000001000000016020526040525f1960605263ed572b275f526064601cfd",
+  "solar": "cb5053ab39adfd59820913b336d346389ce1b8d9",
+  "solidity_lean": "696df0a81602fc416fabec7b892073e15e8920de",
+  "mir_to_evmir": "proved: SolarTV.Milestone.Callsqrt.callsqrt_mir_to_evmir",
+  "assembly": "executed: SolarTV.Milestone.Callsqrt.callsqrt_bytecode",
+  "vc": "exported to .lake/certify/callsqrt/VC.lean",
+  "end_to_end": "not proved",
+  "end_to_end_statement": {},
+  "hypotheses": {},
+  "refused": [
+    {
+      "function": "Math.sqrt",
+      "reason": "command outside the Lean fragment: (set-option :timeout 0)",
+      "status": "refused (unproved)"
+    },
+    {
+      "function": "CallSqrt.f",
+      "reason": "command outside the Lean fragment: (set-option :timeout 0)",
+      "status": "refused (unproved)"
+    },
+    {
+      "function": "CallSqrt.g",
+      "reason": "command outside the Lean fragment: (set-option :timeout 0)",
+      "status": "refused (unproved)"
+    }
+  ],
+  "vacuous": "not checked",
+  "assembly_statement": "∀ {anyCall : SolarTV.Call → Prop} (o : SolarTV.Machine.Oracle), (SolarTV.Milestone.Callsqrt.cert.env = true → SolidCore.Refinement.Solar.Assemble.OracleOk o) → (SolarTV.Milestone.Callsqrt.cert.reads = true → SolidCore.Refinement.Solar.Assemble.EnvOk o) → ∀ (gas : ℕ), SolidCore.Refinement.Final.Within (SolarTV.mirSem o) (SolidCore.Refinement.Final.ethLibWith gas) SolarTV.Export.CallSqrt.stage0 SolarTV.Milestone.Callsqrt.code anyCall",
+  "assembly_hypotheses": [
+    "anyCall : SolarTV.Call → Prop",
+    "o : SolarTV.Machine.Oracle",
+    "(SolarTV.Milestone.Callsqrt.cert.env = true → SolidCore.Refinement.Solar.Assemble.OracleOk o)",
+    "(SolarTV.Milestone.Callsqrt.cert.reads = true → SolidCore.Refinement.Solar.Assemble.EnvOk o)"
+  ],
+  "negative_tests": false,
+  "caveats": [
+    "solidity-lean at 696df0a81602fc416fabec7b892073e15e8920de, not the pinned 813949dc3556d3c3f1c129e8254a4eead78bac87",
+    "solar cb5053ab39adfd59820913b336d346389ce1b8d9, not built from this checkout's compiler sources",
+    "3 spec function(s) refused, unproved",
+    "not end to end: solidity-lean states no source or spec theorem for callsqrt",
+    "negative tests skipped"
+  ],
+  "backend": {
+    "theorem": "SolarTV.Milestone.Callsqrt.callsqrt_mir_to_evmir"
+  }
+}

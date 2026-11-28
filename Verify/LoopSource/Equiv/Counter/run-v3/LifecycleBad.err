@@ -1,0 +1,4 @@
+error: Certified/CounterRun/LifecycleBad.lean:96:0: (kernel) declaration type mismatch, 'Certified.CounterRun.LifecycleBad.checkB_eq' has type
+error: Certified/CounterRun/LifecycleBad.lean:108:0: (kernel) application type mismatch
+error: Certified/CounterRun/LifecycleBad.lean:120:0: ❌️ Docstring on `#guard_msgs` does not match generated message:
+error: build failed

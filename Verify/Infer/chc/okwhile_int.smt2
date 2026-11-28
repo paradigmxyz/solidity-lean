@@ -1,0 +1,10 @@
+; Control.ok_no_invariant (ok_while) CHC, mathematical Int (uint param >= 0, no overflow guards) semantics
+(set-logic HORN)
+(declare-fun Inv (Int Int) Bool)
+(assert (forall ((n Int)) (=> (<= 0 n) (Inv n 0))))
+(assert (forall ((n Int) (i Int))
+  (=> (and (Inv n i) (< i n) ) (Inv n (+ i 1)))))
+(assert (forall ((n Int) (i Int))
+  (=> (and (Inv n i) (not (< i n)) (not (= i n))) false)))
+(check-sat)
+(get-model)

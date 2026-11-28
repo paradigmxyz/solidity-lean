@@ -1,0 +1,11 @@
+import CounterRun.Loops.bump.Obl
+#print axioms Certified.CounterRun.Loops.bump.shape_eq
+#print axioms Certified.CounterRun.Loops.bump.runs
+#print axioms Certified.CounterRun.Loops.bump.leaves
+#print axioms Certified.CounterRun.Loops.bump.tree
+#print axioms Certified.CounterRun.Loops.bump.seqs
+#print axioms Certified.CounterRun.Loops.bump.valid
+#print axioms Certified.CounterRun.Loops.bump.obl
+#print axioms Verify.LoopSource.Equiv.CounterSummary.summary_ok
+#print axioms Verify.LoopSource.Equiv.GenObl.runs_of_summary
+#check @Certified.CounterRun.Loops.bump.runs

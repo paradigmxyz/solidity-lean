@@ -1,0 +1,32 @@
+{
+  "kind": "certified",
+  "contract": "Contracts.VerifyCounter.Source.contract?",
+  "fuel": "Contracts.VerifyCounter.Source.fuel",
+  "source_sem": "SolidCore.Refinement.Generic.Loop.solidCoreRuntime",
+  "iteration_bound": {
+    "var": "K",
+    "max": 13042098468400
+  },
+  "valid": "Verify.LoopSource.Equiv.CounterGas.BumpCallBounded K",
+  "allowed": "fun _ _ => True",
+  "post": "Verify.LoopSource.MirLink.BumpPost",
+  "vacuity": "every status is allowed (bump's overflow and limit reverts are results the source gives), and no witness that the postcondition rejects a result is in the statement",
+  "gas": "fun _ => K * 1414400 + 3536012",
+  "env": [],
+  "spec": "a Lean specification (Verify.LoopSource.MirLink.BumpPost), not solar-verify's export: a successful bump(a) leaves slot 0 holding the old count plus a, at most limit (slot 1), and every other slot as it was",
+  "spec_modules": [
+    "Contracts.VerifyCounter.Source",
+    "Verify.LoopSource.MirLink.Statement",
+    "Verify.LoopSource.Equiv.Counter.Gas"
+  ],
+  "pinned_bytes": "SolarTV.Export.Counter.bytecode",
+  "pinned_module": "Verify.LoopSource.Equiv.Counter.gen.Counter.Bytecode",
+  "proof_module": "Verify.LoopSource.Equiv.EraseLoopCounterJoin",
+  "proof": "Verify.LoopSource.Equiv.EraseLoopJoin.Counter.counter_join",
+  "excluded": [
+    "calls: bump(a) with a ≤ K for an iteration bound K ≤ 13042098468400, no value, any storage; the other functions and other call data are outside the statement",
+    "gas: the bound is K * 1414400 + 3536012; below it the bytecode may run out of gas, which equivalence admits as a failure that changes nothing",
+    "deployment: the init code is not covered by this statement",
+    "source model trusted: SolidCore's checked Counter (Contracts.VerifyCounter.Source.contract?) is the meaning of Counter.sol (frontend trust boundary)"
+  ]
+}

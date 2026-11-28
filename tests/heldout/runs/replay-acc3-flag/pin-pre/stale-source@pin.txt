@@ -1,0 +1,2 @@
+tools/certify/certify --replay /home/hand/w/acc3/neg-pin-pre/from-stale-source-pin/replay --solidity-lean /home/hand/w/sl --work /home/hand/w/acc3/neg-pin-pre/w/stale-source@pin
+REJECTED: replay: the record's source digest is not its source file's

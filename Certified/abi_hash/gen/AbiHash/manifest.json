@@ -1,0 +1,89 @@
+{
+  "arguments": [
+    "Certified/abi_hash/abi_hash.sol",
+    "-Ogas",
+    "--evm-version",
+    "osaka",
+    "--emit=bin-runtime",
+    "-Zemit-lean-stages=Certified/abi_hash/gen"
+  ],
+  "bytecode": "34602f575f3560e01c806366d82b2b03602f5760443610602f576004355f5260243560205260405f205f5260205ff35b5f5ffd",
+  "bytecode_sha256": "4ebf12dcd2d28ab92d3b72bb17f68f6da9eb5f46b8b6deba620d0fda68a3f31f",
+  "compiler": "0.8.38+commit.38b5232a.solar.0.3.0-dev",
+  "contract": "AbiHash",
+  "evm_version": "osaka",
+  "optimization": "Gas",
+  "options": "CompileOpts { input: [\"Certified/abi_hash/abi_hash.sol\"], import_remappings: [], base_path: None, include_paths: [], allow_paths: [], no_import_callback: false, language: Solidity, threads: 4, evm_version: Osaka, stop_after: None, optimization: Gas, optimizer_runs: None, revert_strings: Default, libraries: [], out_dir: None, emit: [BinRuntime], standard_json: false, color: Auto, verbose: false, pretty_json: false, pretty_json_err: false, error_format: Human, error_format_human: Unicode, diagnostic_width: None, no_warnings: false, allow: [], _unstable: [\"emit-lean-stages=Certified/abi_hash/gen\"], unstable: UnstableOpts { ui_testing: false, track_diagnostics: false, parse_yul: false, no_resolve_imports: false, recover_incomplete_input: false, dump: None, ast_stats: false, hir_stats: false, standard_json_stats: false, span_visitor: false, print_max_storage_sizes: false, print_natspec: false, mir_pipeline: None, evm_ir_pipeline: None, print_after_each: false, pass_diff: false, debugify: None, debugify_output: None, solar_tv: None, validate_ir: None, time_passes: false, codegen_all_functions: false, switch_lowering: Auto, switch_max_gas_code_growth: None, switch_max_bit_slice_gas_code_growth: None, tune: None, pack_wide_jump_tables: false, check_analyses: None, prove_analyses: None, validate_passes: None, validate_passes_fault: None, validate_backend: None, validate_backend_fault: None, validate_evm_ir_passes: None, validate_assembly: false, validate_assembly_fault: None, emit_lean_stages: Some(\"Certified/abi_hash/gen\"), keep_asts: false, forget_gcx: true, help: (), _non_exhaustive: () }, _non_exhaustive: () }",
+  "sources": [
+    {
+      "path": "Certified/abi_hash/abi_hash.sol",
+      "sha256": "330f02c0291e970c20831975c0a05fa106ef10e8a8fda640f42b703aa47059a5"
+    }
+  ],
+  "stages": [
+    {
+      "definition": "stage0",
+      "file": "Stage0.lean",
+      "index": 0,
+      "kind": "mir",
+      "pass": "lower-evm-shaped",
+      "sha256": "ad37dc2c35b0f3fbe955e35bd8863587fc94881f2071557c6eda360f380450a5"
+    },
+    {
+      "definition": "mir1",
+      "file": "Mir1.lean",
+      "index": 1,
+      "kind": "mir",
+      "pass": "evm-inst-schedule",
+      "sha256": "5a3e6459f69279bac88f2b3833ba833542d074453423fc3d6a35452a6d1891cf"
+    },
+    {
+      "definition": "sched",
+      "file": "Sched.lean",
+      "index": 0,
+      "kind": "sched",
+      "pass": "stack-schedule",
+      "sha256": "6d9327f0240ff6e6550603675fac64a6582e2499ab328f62fa5277311b521305"
+    },
+    {
+      "definition": "evm1",
+      "file": "Evm1.lean",
+      "index": 1,
+      "kind": "evm",
+      "pass": "cfg-simplify-early",
+      "sha256": "4929e76ced8a279f12fdf31c1a21023beaf43d366656288a3b3988c8849dc54c"
+    },
+    {
+      "definition": "evm2",
+      "file": "Evm2.lean",
+      "index": 2,
+      "kind": "evm",
+      "pass": "share-reverts",
+      "sha256": "511632cd6e447d01f682069e3ff88568d8846325c2c763f151da22bf3c4c21cf"
+    },
+    {
+      "definition": "evm3",
+      "file": "Evm3.lean",
+      "index": 3,
+      "kind": "evm",
+      "pass": "terminal-dedup",
+      "sha256": "84eafe240fc117c8aaec8a238c5333b7f89dc6140c0e8ff3d4b1ffef274b8aa2"
+    },
+    {
+      "definition": "evm4",
+      "file": "Evm4.lean",
+      "index": 4,
+      "kind": "evm",
+      "pass": "cfg-simplify-early",
+      "sha256": "9fa4f065aa12373d79e10fded303e284d8b83e5ecc5f99bcf6a424fffa05df94"
+    },
+    {
+      "definition": "bytecode",
+      "file": "Bytecode.lean",
+      "index": 0,
+      "kind": "bytecode",
+      "pass": "assemble",
+      "sha256": "d3114e9ecdb0e711442668f42b64d8feb2e30bff4fa9528f9e243e0d0a934105"
+    }
+  ]
+}

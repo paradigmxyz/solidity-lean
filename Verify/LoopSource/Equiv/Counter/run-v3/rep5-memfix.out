@@ -1,0 +1,5 @@
+1 {"imports": {"exit": 0, "wall_s": 11.8, "built_Contracts.VerifyCounter.Source": true}, "gen": {"exit": 0, "wall_s": 3.8, "stdout_sha": "54d774071c448679"}, "obl": {"exit": 0, "wall_s": 83.5}, "max_rss_kb": 6784656}
+2 {"imports": {"exit": 0, "wall_s": 9.7, "built_Contracts.VerifyCounter.Source": true}, "gen": {"exit": 0, "wall_s": 3.1, "stdout_sha": "54d774071c448679"}, "obl": {"exit": 0, "wall_s": 77.3}, "max_rss_kb": 6784588}
+3 {"imports": {"exit": 0, "wall_s": 10.5, "built_Contracts.VerifyCounter.Source": true}, "gen": {"exit": 0, "wall_s": 3.8, "stdout_sha": "54d774071c448679"}, "obl": {"exit": 0, "wall_s": 76.5}, "max_rss_kb": 6785272}
+4 {"imports": {"exit": 0, "wall_s": 8.9, "built_Contracts.VerifyCounter.Source": true}, "gen": {"exit": 0, "wall_s": 3.2, "stdout_sha": "54d774071c448679"}, "obl": {"exit": 0, "wall_s": 66.9}, "max_rss_kb": 6786180}
+5 {"imports": {"exit": 0, "wall_s": 9.7, "built_Contracts.VerifyCounter.Source": true}, "gen": {"exit": 0, "wall_s": 3.2, "stdout_sha": "54d774071c448679"}, "obl": {"exit": 0, "wall_s": 67.3}, "max_rss_kb": 6784612}

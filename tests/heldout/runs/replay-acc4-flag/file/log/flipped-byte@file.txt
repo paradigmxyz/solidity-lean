@@ -1,0 +1,2 @@
+tools/certify/certify --replay ~/w/acc4/neg-file/from-flipped-byte-file/replay --solidity-lean ~/w/sl --work ~/w/acc4/neg-file/w/flipped-byte@file
+REJECTED: replay: certify-record.json differs from the record (stale or edited run file)

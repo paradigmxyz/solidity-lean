@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+src=$(sed -n '/^srcdied() {/,/^}/p' /tmp/b4.sh)
+R=/tmp/sdt; mkdir -p $R; eval "$src"
+cp ${1:?box log} $R/a.out; srcdied a && echo "box-log: OPEN" || echo "box-log: FAIL"
+printf '✖ [1/2] Building Verify.LoopSource.Equiv.CounterDeploy8 (3s)\nerror: Lean exited with code 1\nSome required targets logged failures:\n- Verify.LoopSource.Equiv.CounterDeploy8\n' > $R/b.out; srcdied b && echo "other-module: OPEN" || echo "other-module: FAIL"
+{ cat $R/a.out | sed '/^Some required targets/,$d'; printf '✖ [9/9] Building Verify.LoopSource.Equiv.X (1s)\nerror: x\nSome required targets logged failures:\n- Contracts.VerifyCounter.Source\n- Verify.LoopSource.Equiv.X\n'; } > $R/c.out; srcdied c && echo "source+other: OPEN" || echo "source+other: FAIL"
+sed 's/code 134/code 1/' $R/a.out > $R/d.out; srcdied d && echo "source-nonmem: OPEN" || echo "source-nonmem: FAIL"

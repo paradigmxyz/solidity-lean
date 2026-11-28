@@ -1,0 +1,27 @@
+import CounterRun.Loops.bump.Obl
+
+/-! Behaviour of the generated source tree \`T\` of \`Counter.bump\` (count slot 0, limit slot 1), which
+\`obl\` makes the MIR's result on every call. Each \`(T.eval v).obs\` is computed by the kernel. -/
+
+namespace Certified.CounterRun.Loops.bump.Cases
+open SolidCore.Refinement.Generic
+
+def val (a s0 s1 : Nat) : Val :=
+  { args := [a], store := fun k => [s0, s1].getD k 0, hash := fun _ _ => 0, caller := 0 }
+
+/-- Success: \`bump(1)\` from count 0, limit 5 succeeds and stores 1. -/
+theorem success : (T.eval (val 1 0 5)).obs.success = true ∧ (T.eval (val 1 0 5)).obs.storage 0 = 1 := by
+  decide +kernel
+
+/-- Revert: \`bump(10)\` from count 0, limit 5 reverts (\`over\`). -/
+theorem revert : (T.eval (val 10 0 5)).obs.success = false := by decide +kernel
+
+/-- Zero iterations: \`bump(0)\` from count 3, limit 5 succeeds and leaves count 3. -/
+theorem zero_iter : (T.eval (val 0 3 5)).obs.success = true ∧ (T.eval (val 0 3 5)).obs.storage 0 = 3 := by
+  decide +kernel
+
+/-- Wrap/overflow: \`bump(1)\` from count \`2 ^ 256 - 1\` (limit \`2 ^ 256 - 1\`) reverts: the checked add
+does not wrap to 0. -/
+theorem overflow : (T.eval (val 1 115792089237316195423570985008687907853269984665640564039457584007913129639935 115792089237316195423570985008687907853269984665640564039457584007913129639935)).obs.success = false := by decide +kernel
+
+end Certified.CounterRun.Loops.bump.Cases

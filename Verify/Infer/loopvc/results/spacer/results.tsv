@@ -1,0 +1,10 @@
+id	role	answer	backend	status	seconds	peak_mb	axioms
+Counter.bump@L0#t0.c0	obligation	not-run	smt	proved	2.0	1830	propext Classical.choice Quot.sound
+Counter.bump@L0#t0.c1	obligation	not-run	smt	proved	1.9	1829	propext Classical.choice Quot.sound
+Counter.bump@L0#t0.c2	obligation	not-run	smt	proved	1.9	1829	propext Classical.choice Quot.sound
+Counter.bump@L0#t1.c0	obligation	not-run	smt	proved	2.4	1850	propext Classical.choice Quot.sound
+Counter.bump@L0#t1.c1	obligation	not-run	smt	proved	2.4	1850	propext Classical.choice Quot.sound
+Counter.bump@L0#t1.c2	obligation	not-run	smt	proved	2.2	1853	propext Classical.choice Quot.sound
+Counter.bump@L0#t2	obligation	not-run	smt	proved	2.5	1852	propext Classical.choice Quot.sound
+Counter.bump@L0#t3	obligation	not-run	smt	proved	2.4	1854	propext Classical.choice Quot.sound
+Counter.bump@L0#t4	obligation	not-run	smt	proved	2.5	1854	propext Classical.choice Quot.sound

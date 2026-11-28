@@ -1,0 +1,22 @@
+[
+  {
+    "case": "stale-source@pin",
+    "changed": "record.json source.sha256: 4ce5cf9a87520dc956a1e7366d5f646a07739832 -> 4de5cf9a87520dc956a1e7366d5f646a07739832",
+    "command": [
+      "tools/certify/certify",
+      "--replay",
+      "/home/hand/w/acc3/neg-pin-pre/from-stale-source-pin/replay",
+      "--solidity-lean",
+      "/home/hand/w/sl",
+      "--work",
+      "/home/hand/w/acc3/neg-pin-pre/w/stale-source@pin"
+    ],
+    "exit": 1,
+    "verdict": "REJECTED",
+    "line": "REJECTED: replay: the record's source digest is not its source file's",
+    "start": "2026-11-15T15:42:06+00:00",
+    "end": "2026-11-15T15:42:06+00:00",
+    "wall_s": 0,
+    "log_sha256": "75dfff6899d78fbfd11d508577253d1f5bef57dacafda4b6e509df7b904ed18d"
+  }
+]

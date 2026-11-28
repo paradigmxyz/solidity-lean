@@ -1,0 +1,193 @@
+{
+  "arguments": [
+    "Certified/arraymax/arraymax.sol",
+    "-Ogas",
+    "--evm-version",
+    "osaka",
+    "--emit=bin-runtime",
+    "-Zemit-lean-stages=Certified/arraymax/gen"
+  ],
+  "bytecode": "346013575f3560e01c80633bf6de9614602c575b5f5ffd5b6d01020000000000000005000000285f610124565b6080604052600435602436106004820191602436031017813591602001803603918260051c841117601357825f1080156013578360051b8460fb1c5f109381138480610253575060135760208101602081106102685760800160405260808086815260a0928584378051925160c0888003610236578885036102195785156101ff576001935093509350935060ed565b855184518087108a83036101515783801561016c575061018157505050506001810191602001905f19148060175750905b835186821087820361010e578060bc57505050505f52508061013c5760205ff35b5090506d010300000000000000020000001b9091955b906020529060405260605263ed572b275f526064601cfd5b6d01020000000000000001000000065f610124565b505090506d010300000000000000030000001d909197610124565b6d020200000000000000030000001c5f610124565b875186518b82036101b6578281036101d057505082156101e85795505050506001810191602001905f191480601757509060ed565b5090506d0103000000000000000400000023909199610124565b90506d01030000000000000004000000249091610124565b50506d020200000000000000040000001c5f610124565b50505050506d0202000000000000000a000000015f610124565b5050505090506d0103000000000000000a00000015909193610124565b50505050505050506d0103000000000000000a0000003181610124565b6d01020000000000000007000000065f610124565b6041602052634e487b715f526024601cfd",
+  "bytecode_sha256": "83ee403925f2dbc4df58c6c27466204e0a28e1ecaadb0dd8760a3eba3f1a2e2d",
+  "compiler": "0.8.38+commit.6c3ba965.solar.0.3.0-dev",
+  "contract": "ArrayMaxEntry",
+  "evm_version": "osaka",
+  "optimization": "Gas",
+  "options": "CompileOpts { input: [\"Certified/arraymax/arraymax.sol\"], import_remappings: [], base_path: None, include_paths: [], allow_paths: [], no_import_callback: false, language: Solidity, threads: 4, evm_version: Osaka, stop_after: None, optimization: Gas, optimizer_runs: None, revert_strings: Default, libraries: [], out_dir: None, emit: [BinRuntime], standard_json: false, color: Auto, verbose: false, pretty_json: false, pretty_json_err: false, error_format: Human, error_format_human: Unicode, diagnostic_width: None, no_warnings: false, allow: [], _unstable: [\"emit-lean-stages=Certified/arraymax/gen\"], unstable: UnstableOpts { ui_testing: false, track_diagnostics: false, parse_yul: false, no_resolve_imports: false, recover_incomplete_input: false, dump: None, ast_stats: false, hir_stats: false, standard_json_stats: false, span_visitor: false, print_max_storage_sizes: false, print_natspec: false, mir_pipeline: None, evm_ir_pipeline: None, print_after_each: false, pass_diff: false, debugify: None, debugify_output: None, solar_tv: None, validate_ir: None, time_passes: false, codegen_all_functions: false, switch_lowering: Auto, switch_max_gas_code_growth: None, switch_max_bit_slice_gas_code_growth: None, tune: None, pack_wide_jump_tables: false, check_analyses: None, prove_analyses: None, validate_passes: None, validate_passes_fault: None, validate_backend: None, validate_backend_fault: None, validate_evm_ir_passes: None, validate_assembly: false, validate_assembly_fault: None, emit_lean_stages: Some(\"Certified/arraymax/gen\"), keep_asts: false, forget_gcx: true, help: (), _non_exhaustive: () }, _non_exhaustive: () }",
+  "sources": [
+    {
+      "path": "Certified/arraymax/arraymax.sol",
+      "sha256": "904535ac694498a9823f530ca158ee0c762fd1adcc56f3e7b73ca0e457e61f4a"
+    }
+  ],
+  "stages": [
+    {
+      "definition": "stage0",
+      "file": "Stage0.lean",
+      "index": 0,
+      "kind": "mir",
+      "pass": "lower-evm-shaped",
+      "sha256": "2ab103c66098e0cbff43e9d16f844b9fc8f2178914b597de6fa486e8f338e04c"
+    },
+    {
+      "definition": "mir1",
+      "file": "Mir1.lean",
+      "index": 1,
+      "kind": "mir",
+      "pass": "spell-width-tests",
+      "sha256": "f14623bbb30c8a5e512477e2a06889160586717851645b4e4781261147f7b5ce"
+    },
+    {
+      "definition": "mir2",
+      "file": "Mir2.lean",
+      "index": 2,
+      "kind": "mir",
+      "pass": "lower-assumes",
+      "sha256": "b55fbef1d487415cd25806ffb905d134474a6e7344a9adc7b0381d87ba5f1606"
+    },
+    {
+      "definition": "mir3",
+      "file": "Mir3.lean",
+      "index": 3,
+      "kind": "mir",
+      "pass": "evm-inst-schedule",
+      "sha256": "f581ebc8a44a5751048aa9d5e3579be194f28a7ae43b324c05ba4174f05bbf70"
+    },
+    {
+      "definition": "sched",
+      "file": "Sched.lean",
+      "index": 0,
+      "kind": "sched",
+      "pass": "stack-schedule",
+      "sha256": "8faa6cf13e13f298634ce462803284a497f59d430e3e70ad5ebc1bf5f4e73a9b"
+    },
+    {
+      "definition": "evm1",
+      "file": "Evm1.lean",
+      "index": 1,
+      "kind": "evm",
+      "pass": "peephole-early",
+      "sha256": "d95c9c8f0d475b1f35ee80699231413b1310781faaba552a14cfbc03a0a7e53b"
+    },
+    {
+      "definition": "evm2",
+      "file": "Evm2.lean",
+      "index": 2,
+      "kind": "evm",
+      "pass": "cfg-simplify-early",
+      "sha256": "ed72735eb66fbc15a592a9955f4c255b968d1370f089658e1e908f6fe779663a"
+    },
+    {
+      "definition": "evm3",
+      "file": "Evm3.lean",
+      "index": 3,
+      "kind": "evm",
+      "pass": "compact-pushes",
+      "sha256": "494c9e25b5e6c67aec0914bea37cf7485a6d970cdf91174459ce815de6986224"
+    },
+    {
+      "definition": "evm4",
+      "file": "Evm4.lean",
+      "index": 4,
+      "kind": "evm",
+      "pass": "block-layout",
+      "sha256": "c7558e4e7760306023d76956fcb6f3cf0d7f92359feb2cfcf2d9638e26675ee4"
+    },
+    {
+      "definition": "evm5",
+      "file": "Evm5.lean",
+      "index": 5,
+      "kind": "evm",
+      "pass": "terminal-dedup",
+      "sha256": "4afdad9262ef7af05ec2b06e8aa697bf65ca0a7eb56c74705f02c275ad97d606"
+    },
+    {
+      "definition": "evm6",
+      "file": "Evm6.lean",
+      "index": 6,
+      "kind": "evm",
+      "pass": "cfg-simplify-early",
+      "sha256": "da150428e0c6d3f9109dc3bb4e912f6d315e61c369c7e6df4bfab1f3160d1107"
+    },
+    {
+      "definition": "evm7",
+      "file": "Evm7.lean",
+      "index": 7,
+      "kind": "evm",
+      "pass": "reorder-pushes",
+      "sha256": "64b694dd38e060ad399efef56b4a31a076f9765307c5ae52e67363cee1304485"
+    },
+    {
+      "definition": "evm8",
+      "file": "Evm8.lean",
+      "index": 8,
+      "kind": "evm",
+      "pass": "block-cse",
+      "sha256": "ef86fb9e88ff3e15275cf0b5288bb254053d11c0186e84eba05cfb3d07b97446"
+    },
+    {
+      "definition": "evm9",
+      "file": "Evm9.lean",
+      "index": 9,
+      "kind": "evm",
+      "pass": "stack-normalize",
+      "sha256": "1116b6d7d727966921e1e2710770c4f88b968b700f6ff83f019e83fc40930212"
+    },
+    {
+      "definition": "evm10",
+      "file": "Evm10.lean",
+      "index": 10,
+      "kind": "evm",
+      "pass": "cfg-simplify-early",
+      "sha256": "6ca82ae248233de9a028fc16e6b0da94d6042e9e761fb7720605b3caf8b3e3cd"
+    },
+    {
+      "definition": "evm11",
+      "file": "Evm11.lean",
+      "index": 11,
+      "kind": "evm",
+      "pass": "stack-reschedule",
+      "sha256": "1402c1eee6398954770f2fad457499ac4ea22372cacaded73c998fb04250cafe"
+    },
+    {
+      "definition": "evm12",
+      "file": "Evm12.lean",
+      "index": 12,
+      "kind": "evm",
+      "pass": "copy-loop-blocks",
+      "sha256": "e05ca1ab37fef8cb2650f2c4e210e91767b5d9c7908c5c55bbc3e455dc32fba7"
+    },
+    {
+      "definition": "evm13",
+      "file": "Evm13.lean",
+      "index": 13,
+      "kind": "evm",
+      "pass": "cfg-simplify",
+      "sha256": "38c56172c0491a9a3c30e457c47944d8fcdf0a3ab629fd979e482478d077f20a"
+    },
+    {
+      "definition": "evm14",
+      "file": "Evm14.lean",
+      "index": 14,
+      "kind": "evm",
+      "pass": "loop-layout",
+      "sha256": "bf5bc78e7083cea04133c049d5a141d683d7ba02c07854748c3b61ce83ff9369"
+    },
+    {
+      "definition": "evm15",
+      "file": "Evm15.lean",
+      "index": 15,
+      "kind": "evm",
+      "pass": "reorder-expressions",
+      "sha256": "1251a3ee3b2814803caea0da5de814008093817ef21fac4a96930718ca0fc832"
+    },
+    {
+      "definition": "bytecode",
+      "file": "Bytecode.lean",
+      "index": 0,
+      "kind": "bytecode",
+      "pass": "assemble",
+      "sha256": "dd9122080d9e308dfd9936f661b54b24678f7ade95bc4a106c43f313a342483e"
+    }
+  ]
+}

@@ -1,0 +1,140 @@
+{
+  "schema": "solar-certify-generic/1",
+  "name": "siblingleak_7e2f4c33",
+  "started": "2026-11-16T13:52:56+00:00",
+  "command": [
+    "~/w/drv047/tools/certify/certify",
+    "~/w/rc2/src/SiblingLeak.sol",
+    "natspec",
+    "--solidity-lean",
+    "~/w/sl",
+    "--base",
+    "49d1d7f5d9b74165486bd9f634202bee1a3633eb",
+    "--work",
+    "~/w/rc2/leak-work",
+    "--record-dir",
+    "~/w/rc2/leak-rec",
+    "--packages-from",
+    "~/w/sl",
+    "--probe-cache",
+    "~/w/mut"
+  ],
+  "requested_tier": "certified",
+  "source": {
+    "file": "~/w/rc2/src/SiblingLeak.sol",
+    "sha256": "7e2f4c33f69309afa5ba3464dd1eb172b5b81fe33cf98d9bc61d3a45e4b1eef2"
+  },
+  "spec": {
+    "kind": "natspec",
+    "sha256": "7e2f4c33f69309afa5ba3464dd1eb172b5b81fe33cf98d9bc61d3a45e4b1eef2"
+  },
+  "invariants": {
+    "file": null,
+    "sha256": null
+  },
+  "options": [
+    "-Ogas",
+    "--evm-version",
+    "osaka"
+  ],
+  "solar": {
+    "commit": "0479b90a422245bf77facc51ea17b960ed5c5851",
+    "dirty": false,
+    "binary_sha256": "a3a961fa01b9265bca1af5b2df709ad759deea713b9323b321a1e96a04f3fbc2",
+    "version": "solar 0.3.0-dev+commit.0479b90a",
+    "binary_commit": "0479b90a422245bf77facc51ea17b960ed5c5851"
+  },
+  "solc": {
+    "version": "0.8.35",
+    "path": "~/.cache/solc/solc-0.8.35",
+    "sha256": "fa8ac9a32d301ad023a36ee5a29f8e291fe3200c60244e43c142539e82a617f4"
+  },
+  "lean_toolchain": {
+    "recorded_digest": "953aa1e72283c07686567bb71eeb3fca202baafe2958a7e57987d3b8c4434c25",
+    "lean-toolchain": "leanprover/lean4:v4.35.0"
+  },
+  "contract": "SiblingLeak",
+  "functions": [
+    {
+      "signature": "level()",
+      "selector": "0x6fd5ae15",
+      "params": []
+    },
+    {
+      "signature": "set(uint256)",
+      "selector": "0x60fe47b1",
+      "params": [
+        ".uint 256"
+      ]
+    }
+  ],
+  "environment": "one frame, caller 0x2000, contract at 0x1000, the block and transaction of Target.message (fixed, not quantified)",
+  "bytecode_sha256": "707f63a7b096952969a5361289b6a3750ca33ebf6bc955b77d10276506baa0de",
+  "gas_bound": 2033203,
+  "probe": [
+    "PROBE typecheck: ok",
+    "PROBE core: <3204 chars>",
+    "PROBE constructor: returns",
+    "PROBE storage: []",
+    "PROBE fn level(): agree",
+    "PROBE fn set(uint256): agree"
+  ],
+  "solidity_lean_source": "~/w/sl",
+  "solidity_lean": {
+    "base": "49d1d7f5d9b74165486bd9f634202bee1a3633eb",
+    "inputs_commit": "52ceaa817ef4d6a56eb1c3f1d79ee21a5a061756",
+    "inputs": [
+      "Certified/siblingleak_7e2f4c33/Lowering.lean",
+      "Certified/siblingleak_7e2f4c33/Shape.lean",
+      "Certified/siblingleak_7e2f4c33/Source.lean",
+      "Certified/siblingleak_7e2f4c33/options",
+      "Certified/siblingleak_7e2f4c33/shape.json",
+      "Certified/siblingleak_7e2f4c33/siblingleak_7e2f4c33.sol",
+      "lakefile.lean"
+    ],
+    "inputs_sha256": {
+      "Certified/siblingleak_7e2f4c33/Lowering.lean": "78b86bb83ee3490d0d3202612c4ffb648019707fc74892ee6c76055d990da4c6",
+      "Certified/siblingleak_7e2f4c33/Shape.lean": "c3d6a925842d9e5c2efb7d16667a1b30ae6d37d87b45fdffc4eb716bf44e3dea",
+      "Certified/siblingleak_7e2f4c33/Source.lean": "5d6809280fa5943811fcd7e403601b5afef9d6aaf764967ba5d090111d34841c",
+      "Certified/siblingleak_7e2f4c33/options": "e8dcb59d1d2c9325d924f23afb16523ebcef2750f7fa447cf67b494f81a9038c",
+      "Certified/siblingleak_7e2f4c33/shape.json": "59f6b3b46fe5ab06c1d61c9b465b79159aa4bd70415afc951ca2f3080a6aea35",
+      "Certified/siblingleak_7e2f4c33/siblingleak_7e2f4c33.sol": "7e2f4c33f69309afa5ba3464dd1eb172b5b81fe33cf98d9bc61d3a45e4b1eef2",
+      "lakefile.lean": "988646783a061ed2c61bb4cc208b1fc295ffe86d08a786f77c4f78fb7a3b9492"
+    }
+  },
+  "run_files": {
+    "SiblingLeak.sol": "7e2f4c33f69309afa5ba3464dd1eb172b5b81fe33cf98d9bc61d3a45e4b1eef2",
+    "inputs/Certified/siblingleak_7e2f4c33/Lowering.lean": "78b86bb83ee3490d0d3202612c4ffb648019707fc74892ee6c76055d990da4c6",
+    "inputs/Certified/siblingleak_7e2f4c33/Shape.lean": "c3d6a925842d9e5c2efb7d16667a1b30ae6d37d87b45fdffc4eb716bf44e3dea",
+    "inputs/Certified/siblingleak_7e2f4c33/Source.lean": "5d6809280fa5943811fcd7e403601b5afef9d6aaf764967ba5d090111d34841c",
+    "inputs/Certified/siblingleak_7e2f4c33/options": "e8dcb59d1d2c9325d924f23afb16523ebcef2750f7fa447cf67b494f81a9038c",
+    "inputs/Certified/siblingleak_7e2f4c33/shape.json": "59f6b3b46fe5ab06c1d61c9b465b79159aa4bd70415afc951ca2f3080a6aea35",
+    "inputs/Certified/siblingleak_7e2f4c33/siblingleak_7e2f4c33.sol": "7e2f4c33f69309afa5ba3464dd1eb172b5b81fe33cf98d9bc61d3a45e4b1eef2",
+    "inputs/lakefile.lean": "988646783a061ed2c61bb4cc208b1fc295ffe86d08a786f77c4f78fb7a3b9492",
+    "certify.log": "a5df9454f1b5cccbf188a359257d013da909c3c606c9dc223fd1e2c29f972d9d"
+  },
+  "packages_from": "~/w/sl/.lake/packages",
+  "scripts_certify": {
+    "command": [
+      "bash",
+      "~/w/drv047/scripts/certify",
+      "~/w/rc2/leak-work/solidity-lean/Certified/siblingleak_7e2f4c33/siblingleak_7e2f4c33.sol",
+      "--name",
+      "siblingleak_7e2f4c33",
+      "--contract",
+      "SiblingLeak",
+      "--require-final"
+    ],
+    "env": {
+      "SOLIDITY_LEAN_DIR": "~/w/rc2/leak-work/solidity-lean",
+      "CERTIFY_ALLOW_UNPINNED": "1",
+      "CERTIFY_CLEAN_BUILD": "1",
+      "SOLC": "~/.cache/solc/solc-0.8.35",
+      "CERTIFY_SOLAR_SHA256": "a3a961fa01b9265bca1af5b2df709ad759deea713b9323b321a1e96a04f3fbc2",
+      "LEAN_MEMORY": "6000"
+    },
+    "exit": 1
+  },
+  "status": "REJECTED",
+  "finished": "2026-11-16T14:07:24+00:00"
+}

@@ -1,0 +1,36 @@
+{
+  "kind": "certified",
+  "contract": "Contracts.VerifyCounter.Source.contract?",
+  "fuel": "Contracts.VerifyCounter.Source.fuel",
+  "source_sem": "SolidCore.Refinement.Generic.Loop.solidCoreRuntime",
+  "valid": "Contracts.VerifyCounter.ShapeSource.ValidS",
+  "allowed": "Contracts.VerifyCounter.ShapeSource.Allowed",
+  "spec_export": {
+    "ctx": "SolidCore.Refinement.Shapes.ctxOfCall",
+    "step": "SolidCore.Refinement.Shapes.idStep"
+  },
+  "nonvacuous": "Contracts.VerifyCounter.ShapeExport.nonvacuous",
+  "gas": "SolarTV.Milestone.VerifyCounter.Bump.gasBound",
+  "env": [],
+  "spec": "solar-verify's export of verify_counter.sol in this run (Certified.verify_counter.gen.Counter.Spec.Counter): bump(n) ensures count == old(count) + n and the invariant count <= limit, read by Shapes.bundlePost; increment and max are in the export and do not apply to the valid calls (other selectors). Allowed statuses: success, Panic(0x11) or Error(\"over\") (ShapeSource.Allowed)",
+  "spec_modules": [
+    "Contracts.VerifyCounter.ShapeSource",
+    "Contracts.VerifyCounter.Gas",
+    "Verify.ShapeSpecExport"
+  ],
+  "proof_module": "Contracts.VerifyCounter.ShapeExport",
+  "proof": "Contracts.VerifyCounter.ShapeExport.published",
+  "excluded": [
+    "source model trusted: SolidCore's checked Counter (the solc AST through scripts/solc_ast_to_lean_source.py and the type checker) is the meaning of the source (frontend trust boundary)",
+    "source to MIR: SolidCore's runtime run equals solar's first lowered MIR on every valid call (Contracts.VerifyCounter.StageSource.mir_eq, from the generic erasure of bump with the loop's kernel-checked ranking certificate); the backend from MIR to the bytes is Contracts.VerifyCounter.Shape.functional and resources",
+    "deployment: the init code is not covered; runtime bytecode from any storage",
+    "calls: one frame, caller 0x2000, contract at 0x1000, the block and transaction of Target.message",
+    "valid calls: bump(uint256) with ABI call data, no value, any storage, argument n < 2^32 (where the gas bound stays below 2^64); count(), limit(), increment() and max() are outside this statement",
+    "resources: gas bound Bump.gasBound call, linear in n, coarse (22100 gas per item)"
+  ],
+  "source_ast": {
+    "file": "Contracts/VerifyCounter/SourceAst.lean",
+    "namespace": "SolidCore.Refinement.Source.VerifyCounter",
+    "contract": "Counter"
+  }
+}

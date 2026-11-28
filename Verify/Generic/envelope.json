@@ -1,0 +1,536 @@
+{
+  "schema": "solidity-lean/supported-envelope/v1",
+  "statement": "SolidCore.Verify.Generic.Expected",
+  "tier": "runtime: every valid call from any storage the spec admits; constructor establishment, preservation by every entrypoint and reentrant post-states are not stated (lifecycle tier: BLOCKED)",
+  "default": {
+    "status": "BLOCKED",
+    "reason": "unclassified source feature: not in the supported envelope"
+  },
+  "statuses": [
+    "Supported",
+    "Supported-with-premise",
+    "BLOCKED"
+  ],
+  "features": [
+    {
+      "id": "storage-scalar",
+      "status": "Supported",
+      "title": "Value-type state variables (uint/int/bool/address/bytesN)",
+      "evidence": "Certified/counter, Certified/mulx (compiled), Contracts/Counter/ShapeExport.lean",
+      "detect": {
+        "node": "VariableDeclaration",
+        "stateVariable": true,
+        "typeIdentifierPrefix": [
+          "t_uint",
+          "t_int",
+          "t_bool",
+          "t_address",
+          "t_bytes"
+        ],
+        "notTypeIdentifierPrefix": [
+          "t_bytes_storage",
+          "t_bytes_memory",
+          "t_bytes_calldata"
+        ]
+      }
+    },
+    {
+      "id": "mapping",
+      "status": "Supported-with-premise",
+      "title": "One-level mappings with uint256 values",
+      "premise": "Keccak-256 separation scoped to each call's footprint (ScopedSep), stated inside spec.Valid at the call; or a named HashInj assumption (conditional tier). Never a global separation premise.",
+      "evidence": "Contracts/UniswapV2/ERC20/Certified/Transfer.lean, Certified/verify_token",
+      "detect": {
+        "node": "Mapping",
+        "valueNotNode": "Mapping",
+        "valueTypeIdentifierPrefix": [
+          "t_uint256"
+        ]
+      }
+    },
+    {
+      "id": "mapping-other-values",
+      "status": "BLOCKED",
+      "reason": "mappings whose values are not uint256 (such as mapping(address => bool)): Generic.eraseFn gives no tree (generic driver probe: Registry)",
+      "detect": {
+        "node": "Mapping",
+        "valueNotNode": "Mapping",
+        "notValueTypeIdentifierPrefix": [
+          "t_uint256"
+        ]
+      }
+    },
+    {
+      "id": "nested-mapping",
+      "status": "BLOCKED",
+      "reason": "nested mappings: only slot-level and key-level results under scoped separation exist (Contracts/UniswapV2/ERC20/Nested), no end-to-end certificate; a global NestedSlotsSeparated premise is not accepted",
+      "detect": {
+        "node": "Mapping",
+        "valueNode": "Mapping"
+      }
+    },
+    {
+      "id": "checked-arith",
+      "status": "Supported",
+      "title": "Checked +, -, * and comparisons, with Panic(0x11) on overflow",
+      "evidence": "Certified/counter (Panic 0x11 in allowed), Certified/mulx, transfer's SafeMath reverts",
+      "detect": {
+        "node": "BinaryOperation",
+        "operator": [
+          "+",
+          "-",
+          "*",
+          "<",
+          "<=",
+          ">",
+          ">=",
+          "==",
+          "!=",
+          "&&",
+          "||"
+        ]
+      }
+    },
+    {
+      "id": "arith-other",
+      "status": "BLOCKED",
+      "reason": "division, modulo, exponentiation, bitwise operators and shifts: no certified contract exercises them end to end",
+      "detect": {
+        "node": "BinaryOperation",
+        "operator": [
+          "/",
+          "%",
+          "**",
+          "&",
+          "|",
+          "^",
+          "<<",
+          ">>"
+        ]
+      }
+    },
+    {
+      "id": "unchecked",
+      "status": "Supported",
+      "title": "unchecked blocks with wrapping + and -",
+      "evidence": "transfer: the port of SafeMath.add/sub (unchecked, then require) is in the certified scope",
+      "detect": {
+        "node": "UncheckedBlock"
+      }
+    },
+    {
+      "id": "unchecked-mul",
+      "status": "BLOCKED",
+      "reason": "wrapping multiplication in unchecked blocks: no certified contract exercises it",
+      "detect": {
+        "node": "BinaryOperation",
+        "operator": [
+          "*"
+        ],
+        "insideNode": "UncheckedBlock"
+      }
+    },
+    {
+      "id": "events",
+      "status": "Supported",
+      "title": "emit of events with value-type fields (LOG0-LOG4)",
+      "evidence": "Certified/events (certified), transfer's Transfer log",
+      "detect": {
+        "node": "EmitStatement"
+      }
+    },
+    {
+      "id": "internal-calls",
+      "status": "Supported",
+      "title": "Calls of internal and private functions, and internal library functions (using-for)",
+      "evidence": "Certified/bank (compiled), transfer's _transfer and SafeMath (checker with contexts, AssembleCtx)",
+      "detect": {
+        "node": "FunctionCall",
+        "functionTypePrefix": [
+          "t_function_internal"
+        ]
+      }
+    },
+    {
+      "id": "public-called-internally",
+      "status": "BLOCKED",
+      "reason": "a public function called internally: Generic.eraseFn gives no tree (generic driver probe: Band)",
+      "detect": {
+        "publicCalledInternally": true
+      }
+    },
+    {
+      "id": "recursion",
+      "status": "BLOCKED",
+      "reason": "recursive internal calls: the checker with contexts types each internal function once per call site; no recursion support",
+      "detect": {
+        "callGraphCycle": true
+      }
+    },
+    {
+      "id": "loops",
+      "status": "BLOCKED",
+      "reason": "loops: the generic source stage (Generic.eraseFn/check) is loop-free, so supplied invariants have no generic consumer yet; loop certificates exist only on contract-specific routes (Contracts/VerifyCounter, Contracts/CallSqrt). The gate also blocks a loop without a supplied invariant/ranking certificate",
+      "evidence": "generic driver probe at solar 902cccc2 / solidity-lean bc6da61b (StepSum, EmptyRevert)",
+      "detect": {
+        "node": [
+          "ForStatement",
+          "WhileStatement",
+          "DoWhileStatement"
+        ]
+      }
+    },
+    {
+      "id": "external-calls",
+      "status": "BLOCKED",
+      "reason": "calls to other contracts or accounts (external, low-level call/delegatecall/staticcall, transfer/send): Expected runs the source in a closed world; the open-world shape (Shapes.OpenFunctional) is never Certified",
+      "detect": {
+        "node": "FunctionCall",
+        "functionTypePrefix": [
+          "t_function_external",
+          "t_function_barecall",
+          "t_function_baredelegatecall",
+          "t_function_barestaticcall",
+          "t_function_transfer",
+          "t_function_send"
+        ]
+      }
+    },
+    {
+      "id": "reentrancy",
+      "status": "BLOCKED",
+      "reason": "reentrancy: needs external calls and the actual post-state of a reentrant call; not stated",
+      "impliedBy": "external-calls"
+    },
+    {
+      "id": "create",
+      "status": "BLOCKED",
+      "reason": "contract creation (new C, CREATE): source and assembly nodes exist (CreateNode, AssembleCreate) but no certificate composes them",
+      "detect": {
+        "node": "FunctionCall",
+        "functionTypePrefix": [
+          "t_function_creation"
+        ]
+      }
+    },
+    {
+      "id": "create2",
+      "status": "BLOCKED",
+      "reason": "salted creation (new C{salt: s}, CREATE2): not certified end to end",
+      "detect": {
+        "node": "FunctionCallOptions",
+        "names": [
+          "salt"
+        ]
+      }
+    },
+    {
+      "id": "new-array",
+      "status": "BLOCKED",
+      "reason": "memory array allocation: not certified",
+      "detect": {
+        "node": "FunctionCall",
+        "functionTypePrefix": [
+          "t_function_objectcreation"
+        ]
+      }
+    },
+    {
+      "id": "gas-bound",
+      "status": "Supported",
+      "title": "Constant gas bound per valid call, below 2^64",
+      "premise": "observable-equality bound: from the bound on, the bytes' observable equals the source's; an empty revert is not told apart from out-of-gas, so this is not a no-out-of-gas guarantee",
+      "evidence": "every certified instance"
+    },
+    {
+      "id": "constructor",
+      "status": "Supported-with-premise",
+      "title": "Constructors without parameters",
+      "premise": "runtime tier only: the init code is not covered and valid calls range over any storage the spec admits (storage that writes the constructor's slots); constructor establishment of the spec's invariant is not stated",
+      "evidence": "Certified/verify_counter, Certified/verify_token",
+      "detect": {
+        "node": "FunctionDefinition",
+        "kind": "constructor",
+        "maxParameters": 0
+      }
+    },
+    {
+      "id": "constructor-args",
+      "status": "BLOCKED",
+      "reason": "constructors with parameters: Wide.DeployedAt runs the constructor with no arguments, so no generic route reaches a deployed state (generic driver probe: Clamp, StepSum)",
+      "detect": {
+        "node": "FunctionDefinition",
+        "kind": "constructor",
+        "minParameters": 1
+      }
+    },
+    {
+      "id": "lifecycle",
+      "status": "BLOCKED",
+      "reason": "lifecycle certificate (constructor establishes the invariant, every entrypoint preserves it, reentrant post-states): not provided; Expected is the runtime tier",
+      "detect": {
+        "specRequests": "lifecycle"
+      }
+    },
+    {
+      "id": "immutables",
+      "status": "BLOCKED",
+      "reason": "immutable variables: their values are patched into the runtime bytes by the constructor; not modelled",
+      "detect": {
+        "node": "VariableDeclaration",
+        "mutability": "immutable"
+      }
+    },
+    {
+      "id": "constants",
+      "status": "BLOCKED",
+      "reason": "constant state variables: Generic.eraseFn gives no tree for functions reading them (generic driver probe: Band)",
+      "detect": {
+        "node": "VariableDeclaration",
+        "mutability": "constant"
+      }
+    },
+    {
+      "id": "assembly",
+      "status": "BLOCKED",
+      "reason": "inline assembly: not certified (assembly create2 has a source node only)",
+      "detect": {
+        "node": "InlineAssembly"
+      }
+    },
+    {
+      "id": "modifiers",
+      "status": "Supported",
+      "title": "Function modifiers",
+      "evidence": "Certified/verify_token (onlyOwner)",
+      "detect": {
+        "node": "ModifierInvocation"
+      }
+    },
+    {
+      "id": "require-revert-string",
+      "status": "Supported",
+      "title": "require/revert with a string reason (Error(string))",
+      "evidence": "transfer's ds-math-sub-underflow",
+      "detect": {
+        "node": "FunctionCall",
+        "functionTypePrefix": [
+          "t_function_require",
+          "t_function_revert"
+        ]
+      }
+    },
+    {
+      "id": "custom-errors",
+      "status": "BLOCKED",
+      "reason": "custom errors: no certified contract",
+      "detect": {
+        "node": [
+          "ErrorDefinition",
+          "RevertStatement"
+        ]
+      }
+    },
+    {
+      "id": "try-catch",
+      "status": "BLOCKED",
+      "reason": "try/catch: external calls",
+      "detect": {
+        "node": "TryStatement"
+      }
+    },
+    {
+      "id": "payable",
+      "status": "BLOCKED",
+      "reason": "payable functions accepting value: no certified contract (a call with value to a non-payable function is supported and reverts)",
+      "detect": {
+        "node": "FunctionDefinition",
+        "stateMutability": "payable"
+      }
+    },
+    {
+      "id": "fallback-receive",
+      "status": "BLOCKED",
+      "reason": "fallback and receive functions: not certified",
+      "detect": {
+        "node": "FunctionDefinition",
+        "kind": [
+          "fallback",
+          "receive"
+        ]
+      }
+    },
+    {
+      "id": "dynamic-abi",
+      "status": "BLOCKED",
+      "reason": "dynamic ABI types (string, bytes, arrays, structs) in parameters or returns: valid calls are clean static argument words only",
+      "detect": {
+        "node": "VariableDeclaration",
+        "parameter": true,
+        "typeIdentifierPrefix": [
+          "t_string",
+          "t_bytes_memory",
+          "t_bytes_calldata",
+          "t_array",
+          "t_struct"
+        ]
+      }
+    },
+    {
+      "id": "storage-aggregates",
+      "status": "BLOCKED",
+      "reason": "structs, arrays, strings and bytes in storage: no certified contract",
+      "detect": {
+        "node": "VariableDeclaration",
+        "stateVariable": true,
+        "typeIdentifierPrefix": [
+          "t_struct",
+          "t_array",
+          "t_string",
+          "t_bytes_storage"
+        ]
+      }
+    },
+    {
+      "id": "inheritance-code",
+      "status": "BLOCKED",
+      "reason": "inheriting from a contract with code: no certified contract (inheriting interfaces only is accepted)",
+      "detect": {
+        "baseKind": "contract"
+      }
+    },
+    {
+      "id": "external-library",
+      "status": "BLOCKED",
+      "reason": "public/external library functions (DELEGATECALL to a linked library)",
+      "detect": {
+        "node": "FunctionCall",
+        "functionTypePrefix": [
+          "t_function_delegatecall"
+        ]
+      }
+    },
+    {
+      "id": "selfdestruct",
+      "status": "BLOCKED",
+      "reason": "selfdestruct",
+      "detect": {
+        "identifier": [
+          "selfdestruct",
+          "suicide"
+        ]
+      }
+    },
+    {
+      "id": "caller",
+      "status": "Supported-with-premise",
+      "title": "msg.sender",
+      "premise": "the statement covers the contexts in spec.Contexts (a caller parameter); coverage is reported, and a single-caller coverage is never reported as any-caller",
+      "detect": {
+        "memberOf": "msg",
+        "member": "sender"
+      }
+    },
+    {
+      "id": "msg-other",
+      "status": "BLOCKED",
+      "reason": "msg.value, msg.data and msg.sig reads: not certified",
+      "detect": {
+        "memberOf": "msg",
+        "memberNot": "sender"
+      }
+    },
+    {
+      "id": "block-tx-env",
+      "status": "Supported-with-premise",
+      "title": "block.* and tx.* reads",
+      "premise": "the block and transaction are Target.message's fixed values, recorded in coverage, not quantified",
+      "detect": {
+        "memberOf": [
+          "block",
+          "tx"
+        ]
+      }
+    },
+    {
+      "id": "keccak",
+      "status": "Supported-with-premise",
+      "title": "keccak256 and abi.encode of value types",
+      "premise": "EthLib's Keccak-256 on both sides; no injectivity assumed by the translation (Certified/abi_hash, compiled)",
+      "detect": {
+        "node": "FunctionCall",
+        "functionTypePrefix": [
+          "t_function_keccak256",
+          "t_function_abiencode"
+        ]
+      }
+    },
+    {
+      "id": "other-builtins",
+      "status": "BLOCKED",
+      "reason": "other builtins (ecrecover, sha256, ripemd160, addmod, mulmod, gasleft, blockhash, abi.decode, abi.encodePacked, abi.encodeWithSelector, ...)",
+      "detect": {
+        "node": "FunctionCall",
+        "functionTypePrefix": [
+          "t_function_ecrecover",
+          "t_function_sha256",
+          "t_function_ripemd160",
+          "t_function_addmod",
+          "t_function_mulmod",
+          "t_function_gasleft",
+          "t_function_blockhash",
+          "t_function_abidecode",
+          "t_function_abiencodepacked",
+          "t_function_abiencodewithselector",
+          "t_function_abiencodewithsignature",
+          "t_function_abiencodecall",
+          "t_function_bytesconcat",
+          "t_function_stringconcat",
+          "t_function_selfdestruct"
+        ]
+      }
+    }
+  ],
+  "supportedNodes": [
+    "SourceUnit",
+    "PragmaDirective",
+    "ContractDefinition",
+    "FunctionDefinition",
+    "ParameterList",
+    "VariableDeclaration",
+    "ElementaryTypeName",
+    "Mapping",
+    "UserDefinedTypeName",
+    "IdentifierPath",
+    "Block",
+    "ExpressionStatement",
+    "VariableDeclarationStatement",
+    "Return",
+    "IfStatement",
+    "Assignment",
+    "BinaryOperation",
+    "UnaryOperation",
+    "Conditional",
+    "Identifier",
+    "Literal",
+    "MemberAccess",
+    "IndexAccess",
+    "FunctionCall",
+    "ElementaryTypeNameExpression",
+    "EmitStatement",
+    "EventDefinition",
+    "ModifierDefinition",
+    "ModifierInvocation",
+    "PlaceholderStatement",
+    "UsingForDirective",
+    "InheritanceSpecifier",
+    "StructuredDocumentation",
+    "TupleExpression",
+    "ForStatement",
+    "WhileStatement",
+    "DoWhileStatement",
+    "Break",
+    "Continue",
+    "OverrideSpecifier"
+  ]
+}

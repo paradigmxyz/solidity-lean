@@ -1,0 +1,14 @@
+id	role	answer	status	backends	vacuous
+Token.constructor#1	obligation	unsat	proved	smt	no
+Token.constructor#2	obligation	unsat	proved	smt	no
+Token.mint#1	obligation	unsat	proved	smt	unknown
+Token.mint#2	obligation	unsat	proved	smt	unknown
+Token.mint#3	obligation	unsat	proved	smt	unknown
+Token.mint#4	obligation	unsat	proved	smt	unknown
+Token.transfer#1	obligation	unsat	proved	smt	unknown
+Token.transfer#2	obligation	unsat	proved	smt	unknown
+Token.transfer#3	obligation	unsat	proved	smt	unknown
+Token.transfer#4	obligation	unsat	proved	smt	unknown
+Token.transfer#5	obligation	settled	proved	smt	unknown
+Token.burn#1	obligation	unsat	proved	smt	unknown
+Token.burn#2	obligation	unsat	proved	smt	unknown

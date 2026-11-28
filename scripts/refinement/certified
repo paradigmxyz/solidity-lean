@@ -1,0 +1,6 @@
+# Corpus contracts whose generated refinement proofs certified libraries import
+# (SolidCore.Refinement.Solar.{C4,W4,Lowering}): gen.sh requires each to be checked by the
+# kernel alone.
+c4
+w4
+w5

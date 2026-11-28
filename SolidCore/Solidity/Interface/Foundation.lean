@@ -346,6 +346,8 @@ def Stmt.inlineConstantsFuel : Nat -> ConstantEnv -> Stmt -> Stmt
       | Stmt.continue => Stmt.continue
       | Stmt.unchecked body => Stmt.unchecked (inlineStmt body)
       | Stmt.inlineAssembly code => Stmt.inlineAssembly code
+      | Stmt.assemblyCreate2 t v c s =>
+          Stmt.assemblyCreate2 (inlineExpr t) (inlineExpr v) (inlineExpr c) (inlineExpr s)
       | Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
 
 /-- Rewrite a statement list in source order. A local declaration shadows a
@@ -533,6 +535,8 @@ def Stmt.rewriteSuperCallsFuel (contractName : Name) : Nat -> Stmt -> Stmt
       | Stmt.continue => Stmt.continue
       | Stmt.unchecked body => Stmt.unchecked (rewriteStmt body)
       | Stmt.inlineAssembly code => Stmt.inlineAssembly code
+      | Stmt.assemblyCreate2 t v c s =>
+          Stmt.assemblyCreate2 (rewriteExpr t) (rewriteExpr v) (rewriteExpr c) (rewriteExpr s)
       | Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
 
 def CatchClause.rewriteSuperCallsFuel (contractName : Name) :
@@ -740,6 +744,8 @@ def Stmt.rewriteBaseCallsFuel (baseNames stateNames : List Name) :
       | Stmt.continue => Stmt.continue
       | Stmt.unchecked body => Stmt.unchecked (rewriteStmt body)
       | Stmt.inlineAssembly code => Stmt.inlineAssembly code
+      | Stmt.assemblyCreate2 t v c s =>
+          Stmt.assemblyCreate2 (rewriteExpr t) (rewriteExpr v) (rewriteExpr c) (rewriteExpr s)
       | Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
 
 def CatchClause.rewriteBaseCallsFuel (baseNames stateNames : List Name) :
@@ -1228,6 +1234,8 @@ def Stmt.resolveUserTypesFuel : Nat -> UserTypeEnv -> Stmt -> Stmt
       | Stmt.continue => Stmt.continue
       | Stmt.unchecked body => Stmt.unchecked (resolveStmt body)
       | Stmt.inlineAssembly code => Stmt.inlineAssembly code
+      | Stmt.assemblyCreate2 t v c s =>
+          Stmt.assemblyCreate2 (resolveExpr t) (resolveExpr v) (resolveExpr c) (resolveExpr s)
       | Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
 
 def CatchClause.resolveUserTypesFuel :
@@ -1565,6 +1573,8 @@ def Stmt.resolveEnumsFuel : Nat -> EnumEnv -> Stmt -> Stmt
       | Stmt.continue => Stmt.continue
       | Stmt.unchecked body => Stmt.unchecked (resolveStmt body)
       | Stmt.inlineAssembly code => Stmt.inlineAssembly code
+      | Stmt.assemblyCreate2 t v c s =>
+          Stmt.assemblyCreate2 (resolveExpr t) (resolveExpr v) (resolveExpr c) (resolveExpr s)
       | Stmt.modifierPlaceholder => Stmt.modifierPlaceholder
 
 def CatchClause.resolveEnumsFuel :
@@ -2207,6 +2217,8 @@ def Stmt.resolveStructsInSeqFuel :
       | Stmt.continue => (Stmt.continue, typeEnv)
       | Stmt.unchecked body => (Stmt.unchecked (resolveStmt body), typeEnv)
       | Stmt.inlineAssembly code => (Stmt.inlineAssembly code, typeEnv)
+      | Stmt.assemblyCreate2 t v c s =>
+          (Stmt.assemblyCreate2 (resolveExpr t) (resolveExpr v) (resolveExpr c) (resolveExpr s), typeEnv)
       | Stmt.modifierPlaceholder => (Stmt.modifierPlaceholder, typeEnv)
 
 end
@@ -4235,6 +4247,23 @@ termination_by expr => sizeOf expr
 decreasing_by
   all_goals simp_wf <;> omega
 
+
+/-- LITERAL-BASE-WIDE-TYPE: the type of `lit ** e`, `lit << e`, `lit >> e` and `lit >>> e` for an
+untyped number literal `lit` and a NON-literal right operand. Since Solidity 0.7.0 such an
+operation is computed in `uint256`, or `int256` for a negative literal — not in the literal's
+mobile type (solc 0.8.35 types `4 ** k`, `uint8 k`, as `uint256`, its base `int_const 4` as
+`uint256`). `none` for any other operator or operand shape, so callers keep their own rule. -/
+def Expr.literalBaseWideTy? (op : BinaryOp) (lhs rhs : Expr) : Option Ty :=
+  match op with
+  | BinaryOp.exp | BinaryOp.shl | BinaryOp.shr | BinaryOp.sar =>
+      if Expr.isRawNumberLiteralExpression lhs && !Expr.isRawNumberLiteralExpression rhs then
+        match Expr.untypedLiteralMobileTy? lhs with
+        | some (Ty.int _) => some (Ty.int 256)
+        | some (Ty.uint _) => some (Ty.uint 256)
+        | _ => none
+      else none
+  | _ => none
+
 def Expr.toCoreNumericLiteralAs? (ty : Ty) (expr : Expr) :
     Option CoreExpr := do
   let value ← Expr.numberLiteralInt? expr
@@ -4631,10 +4660,11 @@ def externalCallKindTypeEnvName? (contractName functionName : Name)
   -- identity of the resolved parameter types (derived `repr`, which carries
   -- the canonical enum path and struct path) — computed identically at entry
   -- build and lookup, so the key stays symmetric. Repr-identity only: the
-  -- key never reaches an ABI boundary.
+  -- key never reaches an ABI boundary. `Ty.reprListString` is the flat print,
+  -- which the kernel evaluates (the derived print when short).
   some
     (externalCallKindTypeEnvPrefix ++ contractName ++ ":" ++ signature ++
-      "#" ++ toString (repr paramTys))
+      "#" ++ Ty.reprListString paramTys)
 
 def ExternalCallKindEntry.toTypeEnvEntry?
     (entry : ExternalCallKindEntry) : Option (Option (Name × Ty)) := do
@@ -6045,12 +6075,15 @@ def Expr.abiTy? (storageNames : List Name) : Expr -> Option Ty
   | Expr.unary UnaryOp.logicalNot _ => some Ty.bool
   | Expr.unary UnaryOp.bitNot expr => Expr.abiTy? storageNames expr
   | Expr.unary UnaryOp.neg expr => Expr.abiTy? storageNames expr
-  | Expr.binary op lhs _ =>
+  | Expr.binary op lhs rhs =>
       match op with
       | BinaryOp.lt | BinaryOp.gt | BinaryOp.le | BinaryOp.ge
       | BinaryOp.eq | BinaryOp.ne | BinaryOp.boolAnd | BinaryOp.boolOr =>
           some Ty.bool
-      | _ => Expr.abiTy? storageNames lhs
+      | _ =>
+          match Expr.literalBaseWideTy? op lhs rhs with
+          | some ty => some ty
+          | none => Expr.abiTy? storageNames lhs
   | expr@(Expr.ternary _ thenExpr elseExpr) =>
       -- A conditional of two untyped number literals carries the ternary's
       -- COMMON (mobile) type, not the then-branch's width nor `uint256`
@@ -7646,7 +7679,9 @@ def Expr.abiTyWithEnv? (env : TypeEnv) : Expr -> Option Ty
       | BinaryOp.eq | BinaryOp.ne
       | BinaryOp.boolAnd | BinaryOp.boolOr => some Ty.bool
       | BinaryOp.shl | BinaryOp.shr | BinaryOp.sar | BinaryOp.exp =>
-          Expr.abiTyWithEnv? env lhs
+          match Expr.literalBaseWideTy? op lhs rhs with
+          | some ty => some ty
+          | none => Expr.abiTyWithEnv? env lhs
       | _ => do
           let lhsTy ← Expr.abiTyWithEnv? env lhs
           let rhsTy ← Expr.abiTyWithEnv? env rhs
@@ -7930,7 +7965,21 @@ def Expr.toCoreFixedBytesBitOp? (storageNames : List Name) (env : TypeEnv)
   | Expr.call (Expr.typeName (Ty.bytesN castSize)) [Arg.positional inner]
   | Expr.call (Expr.typeName (Ty.fixedBytes castSize)) [Arg.positional inner] =>
       if castSize == size then
-        Expr.toCoreFixedBytesBitOp? storageNames env size inner
+        -- A conversion to `bytesN size` of a narrower (or wider) shift/bitwise
+        -- operand: the operator runs at the OPERAND's width, then the result
+        -- is converted. Walking the operand at `size` would widen the leaves
+        -- first, so `bytes32(bytes2(x) >> c)` kept the bits shifted below the
+        -- 2-byte lane instead of discarding them.
+        match (Expr.abiTyWithEnv? env inner).bind Ty.fixedBytesSize? with
+        | some innerSize =>
+            if innerSize != size && Expr.isFixedBytesBitOpShape inner then do
+              let innerCore ←
+                Expr.toCoreFixedBytesBitOp? storageNames env innerSize inner
+              some (SolidCore.Solidity.Source.Expr.fixedBytesCast
+                size innerSize innerCore)
+            else
+              Expr.toCoreFixedBytesBitOp? storageNames env size inner
+        | none => Expr.toCoreFixedBytesBitOp? storageNames env size inner
       else
         Expr.toCoreAsWithEnvDirect?
           storageNames env (Ty.bytesN size)

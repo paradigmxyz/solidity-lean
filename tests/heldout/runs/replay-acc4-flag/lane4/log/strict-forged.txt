@@ -1,0 +1,1 @@
+REJECTED: replay: strict.components.spec is not what certify-record.json gives (record {'tier': 'certified', 'holds': True, 'components': {'published_statement': True, 'equivalence': True, 'termination': Tru, expected {'tier': 'certified', 'holds': True, 'components': {'published_statement': True, 'equivalence': True, 'termination': Tru)

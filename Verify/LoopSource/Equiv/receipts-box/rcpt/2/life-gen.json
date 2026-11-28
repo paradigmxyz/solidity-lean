@@ -1,0 +1,1 @@
+{"init_bytes": 307, "init_sha256": "4be2987cc127fffd3a1ac18865da9364711b47d5e57296e98bf409dcbe6daa18", "runtime_sha256": "509845d3b18cf635ec7ee9b1a9d225cfeec995099a9f5e0d55f27ae6559f411d", "sigs": ["bump(uint256)", "count()", "increment()", "limit()", "max(uint256,uint256)"], "ws": [8], "storage": [[1, 8]]}

@@ -1,0 +1,8 @@
+Assembly|3|BLOCKED: inline assembly (1x, first line 10: assembly blocks have no SolidCore source sema
+Delegatecall|3|BLOCKED: external call (1x, first line 10: .delegatecall on an address); ABI types (1x, fi
+ExternalCall|3|BLOCKED: external call (1x, first line 14: a call of an external function (function () vie
+Payable|3|BLOCKED: value transfer (1x, first line 8: function deposit is payable)
+Reentrancy|3|BLOCKED: external call (1x, first line 12: .call on an address)
+Selfdestruct|3|BLOCKED: environment (1x, first line 12: selfdestruct is outside the source semantics' env
+StringArg|3|BLOCKED: ABI types (1x, first set(string): only uintN, intN, bool, address and enum parame
+TryCatch|3|BLOCKED: external call (2x, first line 9: try/catch makes an external call)

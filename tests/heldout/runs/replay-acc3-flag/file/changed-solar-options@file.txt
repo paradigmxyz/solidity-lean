@@ -1,0 +1,2 @@
+tools/certify/certify --replay /home/hand/w/acc3/neg-file/from-changed-solar-options-file/replay --solidity-lean /home/hand/w/sl --work /home/hand/w/acc3/neg-file/w/changed-solar-options@file
+REJECTED: replay: inputs/Certified/flag_4ce5cf9a/options differs from the record (stale or edited run file)

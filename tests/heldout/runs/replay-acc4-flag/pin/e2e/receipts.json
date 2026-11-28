@@ -1,0 +1,31 @@
+[
+  {
+    "case": "stale-bytes@pin",
+    "changed": "record.json bytecode_sha256: f689833eb749e7509b4fb038bd8a4e251e77daa1 -> 1f1579b3842e5a82551d5d1d2e27698478387650",
+    "command": [
+      "python3",
+      "~/w/t5/scripts/verify/mutant/generic/receipt.py",
+      "--out",
+      "~/w/acc4/pin-e2e/receipt.json",
+      "--",
+      "tools/certify/certify",
+      "--replay",
+      "~/w/acc4/pin-e2e/from-stale-bytes-pin/replay",
+      "--solidity-lean",
+      "~/w/sl",
+      "--work",
+      "~/w/acc4/pin-e2e/w/stale-bytes@pin",
+      "--packages-from",
+      "~/w/sl",
+      "--probe-cache",
+      "~/w/mut"
+    ],
+    "exit": 1,
+    "verdict": "REJECTED",
+    "line": "REJECTED: replay: bytecode_sha256 differs between the record and the fresh run (record 1f1579b3842e5a82551d5d1d2e27698478387650be13278ca3d51cd6c111506d, fresh f689833eb749e7509b4fb038bd8a4e251e77daa10aed088b2b12fa70ab76f69f)",
+    "start": "2026-11-15T23:25:46+00:00",
+    "end": "2026-11-16T03:15:54+00:00",
+    "wall_s": 13808,
+    "log_sha256": "5bee9e3a100cafa3cea2a19cd5f5976efa6d1dbd11fb67ec642cb259bcbeefac"
+  }
+]

@@ -5,6 +5,22 @@ The run is fully autonomous; where the phases and implementation notes leave a
 choice open, the most conservative behavior-preserving option was taken and
 recorded here.
 
+## 2026-11-14 — Inline assembly create2 as an open-world creation of the init code's bytes
+
+The frontend translates exactly one inline assembly block,
+`target := create2(value, add(code, 32), mload(code), salt)` over Solidity locals (an
+address target, a `bytes memory` init code, a literal or `uint256` value, a literal,
+`uint256` or `bytes32` salt), to `Stmt.assemblyCreate2`; every other block stays rejected.
+`add(code, 32)` and `mload(code)` are the first byte and the length of `code`'s bytes, so the
+statement means CREATE2 of exactly those bytes. It lowers to the core `Expr.create2Bytes`,
+which emits one `Query.external` creation whose init code is the bytes themselves (not the
+name encoding `creationInitCode` that `new C{salt: s}()` uses), and returns the answered
+address, 0 on failure, with no revert of the caller, as the EVM's CREATE2. The salt, the code
+and the value evaluate right to left as Yul's builtin arguments; they are literals or locals,
+so the order has no other effect. `type(C).creationCode` stays the context's
+`contractCreationCodes` entry, which a certificate binds to the compiler's bytes. This puts
+`UniswapV2Factory.createPair` in the fragment (Contracts/UniswapV2/Factory/Create2Run.lean).
+
 ## 2026-07-09 — NEW-OOM investigation: scaled `finalize_allocation` guard is via-IR-ONLY (NON-divergence under legacy ground truth)
 
 Investigated a proposed "MISSING-PANIC" gap: inline `new T[](n)` for `n` in the

@@ -1,0 +1,2 @@
+== generic: ~/w/t5/tests/heldout/blocked/ExternalCall.sol (ef263ba8b3b08aaea6794a1c384e371095d2751f410a7c16030bf18095736374) as externalcall_ef263ba8, requested tier certified
+BLOCKED: external call (1x, first line 14: a call of an external function (function () view external returns (uint256))); several contracts (1x, first line 4: interface IOracle: only one concrete contract per file)
