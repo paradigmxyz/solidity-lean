@@ -52,6 +52,28 @@ theorem runtime_run_rejected {fuel : Nat} {c : TypeCheck.CheckedContract} {sel :
     Option.map_some, Source.observe, Abi.rejected]
   simp
 
+/-- **A call of a function of the generic source stage (typed parameters included) with clean
+argument words runs on the runtime code as the tree of its body's leaves**: `Loop.runtime_run_clean`
+with the typed decode (`abi_clean` on `widthsOfT` and `tagsOk`). -/
+theorem runtime_run_cleanT {fuel : Nat} {c : TypeCheck.CheckedContract} {σ : List (Nat × Nat)}
+    {sel : Nat} (hsel : sel < 2 ^ 32) {fn : FunctionDef}
+    (hfind : c.core.findFunctionBySelector? sel = some fn) {ws : List Nat}
+    (hw : widthsOfT fn.params fn.paramAbiCleanups = some ws)
+    (hret : fn.returns.all wordBinding = true) (htags : tagsOk fn = true) {b : Br}
+    (hb : BodyRuns { envOf c.core with facts := argFacts ws 0 } fuel fn b)
+    {T : Tree} (hT : brTree fn (argFacts ws 0) b = some T) (args : List Nat)
+    (hlen : args.length = fn.params.length) (hargs : ∀ a ∈ args, a < 2 ^ 256)
+    (hclean : argsClean ws args = true)
+    (hdec : ABI.decodeFunctionArgs? fn (Dirty.argBytes args) =
+      .ok (tyVals (fn.params.map BindingDecl.ty) args)) :
+    runtimeRun fuel c { calldata := Abi.calldata sel args, callvalue := 0, storage := σ } =
+      some (T.eval ⟨args, slotValue σ, solHash, callerWord⟩).obs := by
+  unfold runtimeRun runtimeResult?
+  simp only [Dirty.bytes_calldata]
+  exact And.right (abi_clean hsel hfind hw hret fuel _ callerAddress (getD_storage_empty σ) rfl
+    (.lit callerWord) hlen hargs (argFacts_hold ⟨args, slotValue σ, solHash, callerWord⟩ hargs ws 0
+      (by simpa using hclean)) rfl htags hdec hT (fun rt hrel => hb _ _ rt hrel) _ rfl)
+
 /-- **SolidCore's runtime code runs a call of a function of the fragment as its erased tree**,
 from any storage `σ`, on any argument words below `2 ^ 256`, clean or dirty. -/
 theorem runtime_run_erased {fuel : Nat} {c : TypeCheck.CheckedContract} {σ : List (Nat × Nat)}
@@ -67,15 +89,16 @@ theorem runtime_run_erased {fuel : Nat} {c : TypeCheck.CheckedContract} {σ : Li
   rename_i ws hw
   split at hT
   case isFalse => simp at hT
-  rename_i hret
+  rename_i hret'
+  obtain ⟨hret, htags⟩ := Bool.and_eq_true _ _ ▸ hret'
   simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at hT
   obtain ⟨b, hb, t, ht, rfl⟩ := hT
   rw [paramGuards_eval ⟨args, slotValue σ, solHash, callerWord⟩ t hargs ws 0, List.drop_zero]
-  have hdec := decode_args hw args hlen hargs
+  have hdec := decode_argsT hw args hlen hargs
   by_cases hclean : argsClean ws args = true
   · rw [if_pos hclean]
     rw [if_pos hclean] at hdec
-    exact runtime_run_clean hsel hfind hw hret (bodyRuns_of_erase hb) ht args hlen hargs hclean hdec
+    exact runtime_run_cleanT hsel hfind hw hret htags (bodyRuns_of_erase hb) ht args hlen hargs hclean hdec
   · rw [if_neg hclean]
     rw [if_neg hclean] at hdec
     rw [runtime_run_rejected hsel hfind args hdec σ]
@@ -86,15 +109,16 @@ function of the fragment, on any argument words, reverts with empty output and t
 storage. -/
 theorem runtime_run_value {fuel : Nat} {c : TypeCheck.CheckedContract} {sel : Nat}
     (hsel : sel < 2 ^ 32) {fn : FunctionDef} (hfind : c.core.findFunctionBySelector? sel = some fn)
-    {ws : List Nat} (hw : widthsOf fn.params fn.paramAbiCleanups = some ws)
+    {ws : List Nat} (hw : widthsOfT fn.params fn.paramAbiCleanups = some ws)
     (hpay : fn.payable = false) (args : List Nat)
     (hlen : args.length = fn.params.length) (hargs : ∀ a ∈ args, a < 2 ^ 256) {v : Nat}
     (hv0 : v ≠ 0) (hv : v < 2 ^ 256) (σ : List (Nat × Nat)) :
     runtimeRun fuel c { calldata := Abi.calldata sel args, callvalue := v, storage := σ } =
       some (rejected σ) := by
-  have hdec : ABI.decodeFunctionArgs? fn (Dirty.argBytes args) = .ok (args.map .word) ∨
+  have hdec : ABI.decodeFunctionArgs? fn (Dirty.argBytes args) =
+        .ok (tyVals (fn.params.map BindingDecl.ty) args) ∨
       ABI.decodeFunctionArgs? fn (Dirty.argBytes args) = .error .empty := by
-    rw [decode_args hw args hlen hargs]
+    rw [decode_argsT hw args hlen hargs]
     by_cases hclean : argsClean ws args = true
     · exact Or.inl (if_pos hclean)
     · exact Or.inr (if_neg hclean)
