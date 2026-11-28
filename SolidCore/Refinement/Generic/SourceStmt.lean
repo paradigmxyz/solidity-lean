@@ -2773,6 +2773,95 @@ theorem storePath_map2 {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} 
     State.storeStorageLayoutAt, coerceStorageWordAs, Value.forceAbiLazy, Ty.coerceValue?,
     Value.asStorageWord?, norm_lt hv, StorageLayout.clearDepth, bind, Except.bind, pure, Except.pure]
 
+/-- A storage-to-storage copy into a mapping's entry (`m[i] = n` with a storage right side) stores
+through the entry's storage path, with or without sign extension, the same word
+`storeIndex_map` stores. -/
+theorem storeBase_map {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {S : SymState}
+    (hrel : StmtRel ρ E ctx rt S) {x : String} {k : Nat}
+    (hk : mapOf? E.fields x = some k) {w v : Nat} (hw : w < wordSize) (hv : v < wordSize)
+    (se : Bool) :
+    rt.storeStorageBasePathWithDeepClear ctx (.field x) [.word w] (.word v) se =
+      .ok { rt with state := rt.state.storeSlot (solHash w k) v } := by
+  obtain ⟨f, hf, rfl⟩ := mapOf?_spec hrel.fields hk
+  rw [Runtime.storeStorageBasePathWithDeepClear]
+  simp only [Runtime.storageMaterializedValue, Runtime.derefMemoryValueDeep,
+    Runtime.derefMemoryValueWithFuel, bind, Except.bind, pure, Except.pure]
+  rw [resolve_map hf hw]
+  cases se <;>
+  simp [State.storeStorageLayoutAtWithDeepClear, State.storeStorageLayoutAtWithDeepClearFuelMode,
+    State.storeStorageLayoutAt, coerceStorageWordAs, Value.forceAbiLazy, Ty.coerceValue?,
+    Value.asStorageWord?, norm_lt hv, StorageLayout.clearDepth, bind, Except.bind, pure, Except.pure]
+
+/-- A storage-to-storage copy into a mapping-to-`bool` entry stores through the entry's storage
+path the same word `storeIndex_boolMap` stores. -/
+theorem storeBase_boolMap {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {S : SymState}
+    (hrel : StmtRel ρ E ctx rt S) {x : String} {k : Nat}
+    (hk : boolMapOf? E.fields x = some k) {w v : Nat} (hw : w < wordSize) (hv : v ≤ 1)
+    (se : Bool) :
+    rt.storeStorageBasePathWithDeepClear ctx (.field x) [.word w] (.word v) se =
+      .ok { rt with state := rt.state.storeSlot (solHash w k) v } := by
+  obtain ⟨f, hf, rfl⟩ := boolMapOf?_spec hrel.fields hk
+  have hv' : v = 0 ∨ v = 1 := by omega
+  rw [Runtime.storeStorageBasePathWithDeepClear]
+  simp only [Runtime.storageMaterializedValue, Runtime.derefMemoryValueDeep,
+    Runtime.derefMemoryValueWithFuel, bind, Except.bind, pure, Except.pure]
+  rw [resolve_boolMap hf hw]
+  cases se <;> rcases hv' with rfl | rfl <;>
+  simp [State.storeStorageLayoutAtWithDeepClear, State.storeStorageLayoutAtWithDeepClearFuelMode,
+    State.storeStorageLayoutAt, coerceStorageWordAs, Value.forceAbiLazy, Ty.coerceValue?,
+    Value.asStorageWord?, StorageLayout.clearDepth, bind, Except.bind, pure, Except.pure, wordEq,
+    SolidCore.Solidity.Shared.norm, modulus_eq]
+
+/-- The slot of a fixed-size array's element at a constant index below its length, through its
+storage path: the array's slot plus the index, past the bounds check. -/
+theorem resolve_arr {ctx : Context} {rt : Runtime} {x : String} {f : StorageField} {n : Nat}
+    (hf : ArrOk ctx x f n) {j : Nat} (hj : j < n) :
+    rt.resolveStorageBasePath ctx (.field x) [.word j] = .ok (f.slot + j, .scalar .uint256) := by
+  have hfit : f.slot + n ≤ wordSize := hf.fits
+  have hsum : f.slot + j < wordSize := Nat.lt_of_lt_of_le (Nat.add_lt_add_left hj _) hfit
+  have hjw : j < wordSize := Nat.lt_of_le_of_lt (Nat.le_add_left j f.slot) hsum
+  have hn : ¬ n ≤ j := Nat.not_le_of_lt hj
+  simp [Runtime.resolveStorageBasePath, Runtime.storageBaseAnchor, hf.find, hf.layout,
+    hf.transient, State.resolveStoragePathSlot, Value.expectWord, norm_lt hjw, hn, arrSlot hf hj,
+    bind, Except.bind, pure, Except.pure]
+
+/-- A storage-to-storage copy into a fixed-size array's element at a constant index below its
+length stores through the element's storage path, with or without sign extension, the same word
+`storeIndex_arr` stores. -/
+theorem storeBase_arr {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {S : SymState}
+    (hrel : StmtRel ρ E ctx rt S) {x : String} {k n : Nat}
+    (hk : arrOf? E.fields x = some (k, n)) {j v : Nat} (hj : j < n) (hv : v < wordSize)
+    (se : Bool) :
+    rt.storeStorageBasePathWithDeepClear ctx (.field x) [.word j] (.word v) se =
+      .ok { rt with state := rt.state.storeSlot (k + j) v } := by
+  obtain ⟨f, hf, rfl⟩ := arrOf?_spec hrel.fields hk
+  rw [Runtime.storeStorageBasePathWithDeepClear]
+  simp only [Runtime.storageMaterializedValue, Runtime.derefMemoryValueDeep,
+    Runtime.derefMemoryValueWithFuel, bind, Except.bind, pure, Except.pure]
+  rw [resolve_arr hf hj]
+  cases se <;>
+  simp [State.storeStorageLayoutAtWithDeepClear, State.storeStorageLayoutAtWithDeepClearFuelMode,
+    State.storeStorageLayoutAt, coerceStorageWordAs, Value.forceAbiLazy, Ty.coerceValue?,
+    Value.asStorageWord?, norm_lt hv, StorageLayout.clearDepth, bind, Except.bind, pure, Except.pure]
+
+/-- `storePath_map2` with or without sign extension, as a storage-to-storage copy into a nested
+mapping's entry stores. -/
+theorem storeBase_map2 {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {S : SymState}
+    (hrel : StmtRel ρ E ctx rt S) {x : String} {k : Nat}
+    (hk : map2Of? E.fields x = some k) {w1 w2 v : Nat} (h1 : w1 < wordSize) (h2 : w2 < wordSize)
+    (hv : v < wordSize) (se : Bool) :
+    rt.storeStorageBasePathWithDeepClear ctx (.field x) [.word w1, .word w2] (.word v) se =
+      .ok { rt with state := rt.state.storeSlot (solHash w2 (solHash w1 k)) v } := by
+  obtain ⟨f, hf, rfl⟩ := map2Of?_spec hrel.fields hk
+  rw [Runtime.storeStorageBasePathWithDeepClear]
+  simp only [Runtime.storageMaterializedValue, Runtime.derefMemoryValueDeep,
+    Runtime.derefMemoryValueWithFuel, bind, Except.bind, pure, Except.pure]
+  rw [resolve_map2 hf h1 h2]
+  cases se <;>
+  simp [State.storeStorageLayoutAtWithDeepClear, State.storeStorageLayoutAtWithDeepClearFuelMode,
+    State.storeStorageLayoutAt, coerceStorageWordAs, Value.forceAbiLazy, Ty.coerceValue?,
+    Value.asStorageWord?, norm_lt hv, StorageLayout.clearDepth, bind, Except.bind, pure, Except.pure]
+
 /-- SolidCore resolves the target `m[i]` to the entry at `i`'s word, after `i`'s overflow
 checks. -/
 theorem resolve_storageIndex (ρ : Val) (fields : List StorageField) (ctx : Context) (rt : Runtime)
@@ -5285,15 +5374,20 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
         split
         · split
           · simp_all
-          · simp only [bind_done_ok, hres, caught_done_ok, ite_self, ResolvedLValue.write, hassign]
+          · simp only [bind_done_ok, hres, caught_done_ok, ite_self, ResolvedLValue.write, hassign,
+              ResolvedLValue.asStoragePath?]
             rfl
-        · simp only [bind_done_ok, hres, caught_done_ok, ite_self, ResolvedLValue.write, hassign]
+        · simp only [bind_done_ok, hres, caught_done_ok, ite_self, ResolvedLValue.write, hassign,
+            ResolvedLValue.asStoragePath?]
           rfl
       case storageIndex x i =>
         simp only [eraseStmt, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
         obtain ⟨⟨gs, v⟩, he, ⟨gi, key⟩, hi, h⟩ := h
-        obtain ⟨sl, s, hst, hsl, rfl⟩ : ∃ (sl : WExpr) (s : Nat),
+        obtain ⟨sl, s, hst, hcp, hsl, rfl⟩ : ∃ (sl : WExpr) (s : Nat),
             rt.storeStorageIndexWithDeepClear ctx x (.word (key.eval ρ)) (.word (v.eval ρ)) =
+              .ok { rt with state := rt.state.storeSlot s (v.eval ρ) } ∧
+            rt.storeStorageBasePathWithDeepClear ctx (.field x) [.word (key.eval ρ)]
+                (.word (v.eval ρ)) false =
               .ok { rt with state := rt.state.storeSlot s (v.eval ρ) } ∧
             sl.eval ρ = s % wordSize ∧
             b = guards (gs ++ gi) (.leaf (.normal { S with writes := S.writes.set sl v })) := by
@@ -5302,6 +5396,7 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
             simp only [Option.some.injEq] at h
             obtain ⟨f, hf, rfl⟩ := mapOf?_spec hrel.fields hk
             exact ⟨_, _, storeIndex_map hrel hk (key.eval_lt ρ) (v.eval_lt ρ),
+              storeBase_map hrel hk (key.eval_lt ρ) (v.eval_lt ρ) false,
               by simp only [mkHash_eval hrel.hash, WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf.slot], h.symm⟩
           · split at h
             · rename_i k hk
@@ -5311,6 +5406,8 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
                 obtain ⟨f, hf, rfl⟩ := boolMapOf?_spec hrel.fields hk
                 exact ⟨_, _, storeIndex_boolMap hrel hk (key.eval_lt ρ)
                   (Nat.le_trans (bound_sound hrel.facts v) hb),
+                  storeBase_boolMap hrel hk (key.eval_lt ρ)
+                    (Nat.le_trans (bound_sound hrel.facts v) hb) false,
                   by simp only [mkHash_eval hrel.hash, WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf.slot], h.symm⟩
               · simp at h
             · simp only [Option.bind_eq_bind, Option.bind_eq_some_iff] at h
@@ -5328,9 +5425,11 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
                   Nat.lt_of_lt_of_le (Nat.add_lt_add_left hjl _) hfit
                 have hjw : j < wordSize := Nat.lt_of_le_of_lt (Nat.le_add_left j f.slot) hsum
                 have hl : (WExpr.lit j).eval ρ = j := Nat.mod_eq_of_lt hjw
-                refine ⟨_, _, ?_, rfl, h.symm⟩
-                rw [hl]
-                exact storeIndex_arr hrel ha hjl (v.eval_lt ρ)
+                refine ⟨_, _, ?_, ?_, rfl, h.symm⟩
+                · rw [hl]
+                  exact storeIndex_arr hrel ha hjl (v.eval_lt ρ)
+                · rw [hl]
+                  exact storeBase_arr hrel ha hjl (v.eval_lt ρ) false
               · simp at h
         have heval := eval_eq ρ E.fields ctx rt S hrel.expr he
         have hres := resolve_storageIndex ρ E.fields ctx rt S hrel.expr x hi
@@ -5343,7 +5442,8 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
         guard_cases hg : gs.any (fun g => g.eval ρ != 0)
         simp only [bind_done_ok, hres]
         guard_cases hgi : gi.any (fun g => g.eval ρ != 0)
-        simp only [bind_done_ok, ResolvedLValue.write, hst, ite_self]
+        simp only [bind_done_ok, ResolvedLValue.write, ResolvedLValue.asStoragePath?, hst, hcp,
+          ite_self]
         exact ⟨_, rfl, hw⟩
       case index base i2 =>
         cases base
@@ -5498,6 +5598,7 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
           have hw := hrel.write (mkHash k2 (mkHash k1 (.lit f.slot))) v
           rw [hsl, storeSlot_mod] at hw
           have hst := storePath_map2 hrel hk (k1.eval_lt ρ) (k2.eval_lt ρ) (v.eval_lt ρ)
+          have hcp := storeBase_map2 hrel hk (k1.eval_lt ρ) (k2.eval_lt ρ) (v.eval_lt ρ) false
           rw [Stmt.eval]
           simp only [LValue.wantsMemoryRefRhs, LValue.toExpr, Expr.hasStorageRoot, Bool.true_or,
             Bool.not_true, Bool.false_eq_true, ↓reduceIte, heval, caught_exprResult]
@@ -5506,7 +5607,8 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
           guard_cases hg : gs.any (fun g => g.eval ρ != 0)
           simp only [bind_done_ok, hres]
           guard_cases hgi : (g1.any (fun g => g.eval ρ != 0) || g2.any (fun g => g.eval ρ != 0))
-          simp only [bind_done_ok, ResolvedLValue.write, hst, ite_self]
+          simp only [bind_done_ok, ResolvedLValue.write, ResolvedLValue.asStoragePath?, hst, hcp,
+            ite_self]
           exact ⟨_, rfl, hw⟩
         all_goals simp [eraseStmt] at h
       case storage x =>
