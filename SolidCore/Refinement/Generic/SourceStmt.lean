@@ -2844,6 +2844,21 @@ theorem storeBase_arr {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {
     State.storeStorageLayoutAt, coerceStorageWordAs, Value.forceAbiLazy, Ty.coerceValue?,
     Value.asStorageWord?, norm_lt hv, StorageLayout.clearDepth, bind, Except.bind, pure, Except.pure]
 
+/-- `storePtr` with or without sign extension, as a storage-to-storage copy into a struct
+pointer's field stores. -/
+theorem storeBase_ptr {ctx : Context} {rt : Runtime} {s n j off v : Nat} (hs : s < wordSize)
+    (hj : j < wordSize) (hoff : ptrField? n j = some off) (hv : v < wordSize) (se : Bool) :
+    rt.storeStorageBasePathWithDeepClear ctx (.slot s (ptrLayout n)) [.word j] (.word v) se =
+      .ok { rt with state := rt.state.storeSlot ((s + off) % wordSize) v } := by
+  cases se <;>
+  simp [Runtime.storeStorageBasePathWithDeepClear, resolvePtr hs hj hoff,
+    Runtime.storageMaterializedValue, Runtime.derefMemoryValueDeep, Runtime.derefMemoryValueWithFuel,
+    State.storeStorageLayoutAtWithDeepClear, State.storeStorageLayoutAtWithDeepClearFuelMode,
+    State.storeStorageLayoutAt, StorageLayout.clearDepth, wordField, wordReplaceBitRange,
+    coerceStorageWordAs, Value.forceAbiLazy, Ty.coerceValue?, Value.asStorageWord?,
+    SolidCore.Solidity.Shared.norm, modulus_eq, Nat.mod_eq_of_lt hv, bind, Except.bind, pure,
+    Except.pure]
+
 /-- `storePath_map2` with or without sign extension, as a storage-to-storage copy into a nested
 mapping's entry stores. -/
 theorem storeBase_map2 {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {S : SymState}
@@ -3855,9 +3870,11 @@ theorem eval_assignInt (ρ : Val) (E : EraseEnv) (ctx : Context) (rt : Runtime) 
   split
   · split
     · simp_all
-    · simp only [bind_done_ok, hres, caught_done_ok, ite_self, ResolvedLValue.write, hassign]
+    · simp only [bind_done_ok, hres, caught_done_ok, ite_self, ResolvedLValue.write, hassign,
+        ResolvedLValue.asStoragePath?]
       rfl
-  · simp only [bind_done_ok, hres, caught_done_ok, ite_self, ResolvedLValue.write, hassign]
+  · simp only [bind_done_ok, hres, caught_done_ok, ite_self, ResolvedLValue.write, hassign,
+      ResolvedLValue.asStoragePath?]
     rfl
 
 theorem assignLocal_b32 {ρ : Val} {T : Tags} {rt : Runtime} {sc sc' : Scopes} {x : String} {v : WExpr}
@@ -5479,6 +5496,7 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
                       (by omega), exprResult, List.any_nil, Bool.false_eq_true, ↓reduceIte, hl]
                   rfl
                 have hst := storePtr (ctx := ctx) (rt := rt) hm hjw hoff (v.eval_lt ρ)
+                have hcp := storeBase_ptr (ctx := ctx) (rt := rt) hm hjw hoff (v.eval_lt ρ) false
                 have hw := hrel.write (.lit ((m + off) % wordSize)) v
                 simp only [WExpr.eval, Nat.mod_mod] at hw
                 rw [Stmt.eval]
@@ -5488,7 +5506,8 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
                 rw [guards_eval]
                 simp only [List.append_nil]
                 guard_cases hg : gs.any (fun g => g.eval ρ != 0)
-                simp only [bind_done_ok, hres, ResolvedLValue.write, hst, ite_self]
+                simp only [bind_done_ok, hres, ResolvedLValue.write, ResolvedLValue.asStoragePath?,
+                  hst, hcp, ite_self]
                 exact ⟨_, rfl, hw⟩
               · simp at h
             | none =>
@@ -5545,7 +5564,7 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
                   ↓reduceIte, hrhs, caught_exprResult]
                 rw [guards_eval]
                 guard_cases hg : gs.any (fun g => g.eval ρ != 0)
-                simp only [bind_done_ok, hres, hw, ite_self]
+                simp only [bind_done_ok, hres, ResolvedLValue.asStoragePath?, hw, ite_self]
                 exact ⟨_, rfl, hrel'⟩
               · simp at h
           | some t =>
@@ -5572,6 +5591,7 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
             have hres := resolve_ptrIndex ρ E.fields ctx rt S hrel.expr ht hi
             rw [hl] at hres
             have hst := storeIndex_arr hrel ha hjl (v.eval_lt ρ)
+            have hcp := storeBase_arr hrel ha hjl (v.eval_lt ρ) false
             have hw := hrel.write (.lit (f.slot + j)) v
             simp only [WExpr.eval, Nat.mod_eq_of_lt hsum] at hw
             rw [Stmt.eval]
@@ -5581,7 +5601,8 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
             rw [guards_eval]
             simp only [List.append_nil]
             guard_cases hg : gs.any (fun g => g.eval ρ != 0)
-            simp only [bind_done_ok, hres, ResolvedLValue.write, hst, ite_self]
+            simp only [bind_done_ok, hres, ResolvedLValue.write, ResolvedLValue.asStoragePath?, hst,
+              hcp, ite_self]
             exact ⟨_, rfl, hw⟩
           · simp at h
         case storageIndex x i1 =>
