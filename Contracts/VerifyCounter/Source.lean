@@ -178,7 +178,7 @@ theorem success_spec {c : SolidCore.Solidity.TypeCheck.CheckedContract} (hc : co
   have h1w := hok.word 1
   have h0 := hok.word 0
   have hT2 : T' = .halt true [] [(.lit 0, .bin .add (.init 0) (.arg 0))] [] := by
-    simp [leafTree, bumpFn, SF, retsOk] at hT'
+    simp [leafTree, bumpFn, SF, retsOk, retsOkT] at hT'
     first | exact hT'.symm | exact hT'
   subst hT2
   have h0' : slotValue σ 0 < Generic.wordSize := h0

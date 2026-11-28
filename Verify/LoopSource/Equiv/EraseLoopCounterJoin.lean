@@ -192,10 +192,10 @@ theorem tree_same {TL T0 : Tree} (hL : brTree bumpFn (argFacts [2 ^ 256 - 1] 0) 
   rw [guards_eval, hg2] at hA
   simp only [Br.eval, Bool.false_eq_true, ite_false] at hA
   obtain rfl : A = Tree.halt true [] [(.lit 0, .bin .add (.init 0) EraseLoopCounter.iters)] [] := by
-    simp [leafTree, bumpFn, EraseLoopCounter.SF, retsOk] at hA
+    simp [leafTree, bumpFn, EraseLoopCounter.SF, retsOk, retsOkT] at hA
     exact hA.symm
   obtain rfl : B = Tree.halt true [] [(.lit 0, .bin .add (.init 0) (.arg 0))] [] := by
-    simp [leafTree, bumpFn, SF, retsOk] at hB
+    simp [leafTree, bumpFn, SF, retsOk, retsOkT] at hB
     exact hB.symm
   simp only [Tree.eval, ite_true]
   congr 1

@@ -2426,5 +2426,82 @@ theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
     all_goals simp [eraseExpr] at h
   | _ => simp [eraseExpr] at h
 
+/-! ## The hash of a memory array's word and a word -/
+
+/-- The ABI encoding of a memory array of one `uint256` word and a `uint256` word is their 64
+bytes, as the slot hash hashes them. -/
+theorem encode_arr1_word (a b : Nat) :
+    abiEncodeValues? [.fixedArray 1 .uint256, .uint256] [.fixedArray [.word a], .word b] =
+      some (storageWordBytes a ++ storageWordBytes b) := by
+  simp [abiEncodeValues?, Ty.listAbiHeadWords?, Ty.abiHeadWords?, abiEncodeValuesAux?, Ty.isDynamicAbi,
+    Ty.staticAbiHeadWords?, abiEncodeStaticValue?, abiEncodeStaticValueList?, abiStaticBytes?,
+    storageWordBytes]
+
+/-- `keccak256(abi.encode(a, y))` of a memory array `a` of one word and a `uint256` expression `y`
+with no overflow conditions, a `bytes32`: the hash of the array's word, read when the encoder runs,
+and `y`'s word. The module hashes the same 64 bytes of memory, so the hash stays `WExpr.hash`
+and is never folded. -/
+def encHash? (fields : List StorageField) (S : SymState) : Expr → Option WExpr
+  | .keccak256 (.encode .plain none [] [.fixedArray 1 .uint256, .uint256] [.var p, y]) => do
+    let id ← S.mref? p
+    let ws ← S.mem.lookup id
+    let (gs, v) ← eraseExpr fields S y
+    if ws.length = 1 ∧ gs = [] then some (.hash (ws.headD (.lit 0)) v) else none
+  | _ => none
+
+theorem encHash?_spec {fields : List StorageField} {S : SymState} {e : Expr} {h : WExpr}
+    (he : encHash? fields S e = some h) :
+    ∃ p y id w v,
+      e = .keccak256 (.encode .plain none [] [.fixedArray 1 .uint256, .uint256] [.var p, y]) ∧
+      S.mref? p = some id ∧ S.mem.lookup id = some [w] ∧ eraseExpr fields S y = some ([], v) ∧
+      h = .hash w v := by
+  unfold encHash? at he
+  split at he
+  · rename_i p y
+    simp only [Option.bind_eq_bind, Option.bind_eq_some_iff] at he
+    obtain ⟨id, hid, ws, hws, ⟨gs, v⟩, hv, he⟩ := he
+    split at he
+    · rename_i hc
+      obtain ⟨hl, rfl⟩ := hc
+      rcases ws with _ | ⟨w, _ | ⟨_, _⟩⟩
+      · simp at hl
+      · simp only [Option.some.injEq, List.headD_cons] at he
+        exact ⟨p, y, id, w, v, rfl, hid, hws, hv, he.symm⟩
+      · simp at hl
+    · simp at he
+  · simp at he
+
+/-- SolidCore evaluates `keccak256(abi.encode(a, y))` of `encHash?` to the `bytes32` of the hash of
+the array's word, read from memory when the encoder runs, and `y`'s word. -/
+theorem eval_encHash {ρ : Val} {fields : List StorageField} {ctx : Context} {rt : Runtime}
+    {S : SymState} (hrel : ExprRel ρ fields ctx rt S) {e : Expr} {h : WExpr}
+    (he : encHash? fields S e = some h) {fuel : Nat} (hf : Expr.orderFuel e < fuel) :
+    Expr.evalFuel fuel ctx rt e = .done (.ok (.fixedBytes 32 (h.eval ρ), rt)) := by
+  obtain ⟨p, y, id, w, v, rfl, hid, hws, hv, rfl⟩ := encHash?_spec he
+  have hl := hrel.mrefs p id hid
+  have hm := hrel.mem id [w] hws
+  have hbase : rt.lookupStorageBase? p = none := by
+    simp [Runtime.lookupStorageBase?, hl]
+  obtain ⟨n, rfl⟩ : ∃ n, fuel = n + 4 :=
+    ⟨fuel - 4, by simp [Expr.orderFuel, Expr.listEvalFuel] at hf; omega⟩
+  have hyf : Expr.orderFuel y < n := by simp [Expr.orderFuel, Expr.listEvalFuel] at hf; omega
+  have hy := eval_erase ρ fields ctx rt S hrel y [] v n hv hyf
+  simp only [Expr.evalFuel, Expr.evalListFuel]
+  simp only [hbase, hl, Runtime.derefMemoryValue, Runtime.loadMemory?] at hm ⊢
+  simp only [hm, liftM, monadLift, MonadLift.monadLift, SolI.ofExcept, pure,
+    EvmCompiler.Simulation.Interaction.pure, bind, EvmCompiler.Simulation.Interaction.bind]
+  rw [hy]
+  obtain ⟨m, rfl⟩ : ∃ m, n = m + 1 := ⟨n - 1, by omega⟩
+  simp only [Expr.evalListFuel]
+  simp only [exprResult, List.any_nil, Bool.false_eq_true, ↓reduceIte, memArr, List.map_cons,
+    List.map_nil, pure, EvmCompiler.Simulation.Interaction.pure, bind,
+    EvmCompiler.Simulation.Interaction.bind, liftM, monadLift, MonadLift.monadLift, SolI.ofExcept,
+    Except.bind]
+  simp [Runtime.materializeForValueUseList, Runtime.materializeForValueUse,
+    Runtime.materializeForValueUseFuel, Runtime.materializeForValueUseListFuel, encode_arr1_word,
+    Value.asBytes?, WExpr.eval, hrel.hash, solHash, storageWordBytes, normByte_wordToBytesBE,
+    Except.bind, bind, pure, Except.pure, wordBytes]
+  exact (Nat.mod_eq_of_lt (by simpa [solHash, storageWordBytes, wordBytes] using solHash_lt (w.eval ρ) (v.eval ρ))).symm
+
 end SolidCore.Refinement.Generic
 

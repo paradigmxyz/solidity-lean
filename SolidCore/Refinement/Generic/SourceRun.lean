@@ -698,7 +698,7 @@ theorem bindArgs_clean (ρ : Val) (hρ : ∀ a ∈ ρ.args, a < wordSize) (T : T
 abbrev RetTy (ty : Source.Ty) : Prop := ty = .uint256 ∨ ty = .address ∨ ty = .bool
 
 theorem retBinding_ty {b : BindingDecl} (h : retBinding b = true) :
-    (RetTy b.ty ∨ b.ty = .int256) ∧ b.isStorageRef = false := by
+    (RetTy b.ty ∨ b.ty = .int256 ∨ b.ty = .fixedBytes 32) ∧ b.isStorageRef = false := by
   unfold retBinding at h
   simp only [Bool.and_eq_true, Bool.not_eq_true'] at h
   refine ⟨?_, h.2⟩
@@ -707,7 +707,8 @@ theorem retBinding_ty {b : BindingDecl} (h : retBinding b = true) :
   · rename_i h'; exact .inl (.inl h')
   · rename_i h'; exact .inl (.inr (.inl h'))
   · rename_i h'; exact .inl (.inr (.inr h'))
-  · rename_i h'; exact .inr h'
+  · rename_i h'; exact .inr (.inl h')
+  · rename_i h'; exact .inr (.inr h')
   · simp at this
 
 /-- The returns start at zero, each by its type's tag. -/
@@ -721,7 +722,7 @@ theorem defaults_typed (ρ : Val) (T : Tags) (rs : List BindingDecl)
     have ht := hT r List.mem_cons_self
     simp only [List.map_cons, frameOfT] at ih ⊢
     rw [ih (fun q hq => hrs q (List.mem_cons_of_mem _ hq)) (fun q hq => hT q (List.mem_cons_of_mem _ hq)), ht]
-    rcases h.1 with (h1 | h1 | h1) | h1 <;>
+    rcases h.1 with (h1 | h1 | h1) | h1 | h1 <;>
     simp [BindingDecl.defaultBinding, h1, h.2, Source.Ty.defaultValue, WExpr.eval, tagOf, Tag.val]
 
 theorem defaults_words (ρ : Val) (rs : List BindingDecl)
@@ -787,6 +788,15 @@ theorem collect_words (ρ : Val) (rt : Runtime) (S : SymState) {K : Facts} (hK :
     simp [collectReturnBindings.collect, hl _ _ he, deref_word', (retOk_spec hK hrs.1).1, ih, bind,
       Except.bind, pure, Except.pure]
 
+/-- A named return's lookup in a typed scope, by its tag. -/
+theorem lookup_retW {ρ : Val} {rt : Runtime} {S : SymState}
+    (hfr : rt.locals = S.scopes.map (frameOfT ρ S.tags)) {x : String} {e : WExpr}
+    (he : S.retW? x = some e) : rt.lookupLocal? x = some ((S.tags.get x).val (e.eval ρ)) := by
+  unfold SymState.retW? at he
+  split at he
+  · simp [Runtime.lookupLocal?, hfr, envT_lookup, he]
+  · simp at he
+
 theorem coerce_words (ρ : Val) (rt : Runtime) {K : Facts} (hK : K.Hold ρ) :
     ∀ (rs : List BindingDecl) (ws : List WExpr), retsOk K rs ws = true →
       coerceReturnBindings.coerce rt rs (ws.map fun e => .word (e.eval ρ)) =
@@ -800,23 +810,53 @@ theorem coerce_words (ρ : Val) (rt : Runtime) {K : Facts} (hK : K.Hold ρ) :
       bind, Except.bind, pure, Except.pure]
   | [], _ :: _, h | _ :: _, [], h => by simp [retsOk] at h
 
+/-- The value SolidCore's ABI boundary returns for a word of tag `t`: a `bytes32` drops its width
+(`Value.untagFixedBytes`), every other tag keeps its value. -/
+def Tag.out : Tag → Nat → Value
+  | .bytes32, v => .word v
+  | t, v => t.val v
+
+/-- SolidCore's returned values of the words `ws` past its ABI boundary, each by its tag. -/
+def retValsO (ρ : Val) : List Tag → List WExpr → List Value
+  | t :: ts, w :: ws => t.out (w.eval ρ) :: retValsO ρ ts ws
+  | [], ws => ws.map fun e => Value.word (e.eval ρ)
+  | _ :: _, [] => []
+
+@[simp] theorem retValsO_nil (ρ : Val) (ws : List WExpr) :
+    retValsO ρ [] ws = ws.map fun e => Value.word (e.eval ρ) := by
+  cases ws <;> rfl
+
 theorem retOkT_spec {ρ : Val} {K : Facts} (hK : K.Hold ρ) {ty : Source.Ty} {t : Tag} {w : WExpr}
     (h : retOkT K ty t w = true) :
     ty.coerceValue? (t.val (w.eval ρ)) = some (t.val (w.eval ρ)) ∧
       ABI.Ty.isDynamicAbi ty = false ∧ ABI.Ty.staticAbiHeadWords? ty = some 1 ∧
-      ABI.encodeStaticValue? ty (t.val (w.eval ρ)) = some (ABI.encodeWord (w.eval ρ)) ∧
+      ABI.encodeStaticValue? ty (t.out (w.eval ρ)) = some (ABI.encodeWord (w.eval ρ)) ∧
       (∀ rt : Runtime, rt.derefMemoryValueDeep (t.val (w.eval ρ)) = .ok (t.val (w.eval ρ))) ∧
-      (t.val (w.eval ρ)).untagFixedBytes = t.val (w.eval ρ) := by
+      (t.val (w.eval ρ)).untagFixedBytes = t.out (w.eval ρ) := by
   cases t with
   | word =>
     obtain ⟨h1, h2, h3, h4⟩ := retOk_spec hK h
-    exact ⟨h1, h2, h3, h4, fun rt => deref_word' rt _, by simp [Tag.val, Value.untagFixedBytes]⟩
+    exact ⟨h1, h2, h3, h4, fun rt => deref_word' rt _, by simp [Tag.val, Tag.out, Value.untagFixedBytes]⟩
   | int =>
     cases ty <;> simp [retOkT] at h
     refine ⟨rfl, rfl, rfl, rfl, fun rt => ?_, ?_⟩
     · simp [Tag.val, Runtime.derefMemoryValueDeep, Runtime.derefMemoryValueWithFuel]
-    · simp [Tag.val, Value.untagFixedBytes]
-  | bytes32 => simp [retOkT] at h
+    · simp [Tag.val, Tag.out, Value.untagFixedBytes]
+  | bytes32 =>
+    have hlt := w.eval_lt ρ
+    obtain rfl : ty = .fixedBytes 32 := by
+      simp only [retOkT] at h
+      split at h
+      · rfl
+      · simp at h
+    refine ⟨?_, rfl, rfl, ?_, fun rt => ?_, ?_⟩
+    · simp [Tag.val, Source.Ty.coerceValue?, normWord, norm_lt hlt]
+    · have hlt' : WExpr.eval ρ w <
+          115792089237316195423570985008687907853269984665640564039457584007913129639936 := hlt
+      simp [Tag.out, ABI.encodeStaticValue?, ABI.fixedBytesFits, ABI.encodeWord, ABI.wordBytes,
+        norm_lt hlt, hlt']
+    · simp [Tag.val, Runtime.derefMemoryValueDeep, Runtime.derefMemoryValueWithFuel]
+    · simp [Tag.val, Tag.out, Value.untagFixedBytes]
   | sref _ => simp [retOkT] at h
   | sptr _ => simp [retOkT] at h
   | mref => simp [retOkT] at h
@@ -845,14 +885,34 @@ theorem coerce_vals (ρ : Val) (rt : Runtime) {K : Facts} (hK : K.Hold ρ) :
 
 theorem untag_vals (ρ : Val) : ∀ (ts : List Tag) (ws : List WExpr) {K : Facts} {rs : List BindingDecl},
     K.Hold ρ → retsOkT K rs ts ws = true →
-    (retVals ρ ts ws).map Value.untagFixedBytes = retVals ρ ts ws
+    (retVals ρ ts ws).map Value.untagFixedBytes = retValsO ρ ts ws
   | [], ws, _, _, _, _ => by simp [Value.untagFixedBytes]
   | t :: ts, w :: ws, K, r :: rs, hK, h => by
     simp only [retsOkT, Bool.and_eq_true] at h
     obtain ⟨-, -, -, -, -, h6⟩ := retOkT_spec hK h.1
-    simp only [retVals, List.map_cons, h6, untag_vals ρ ts ws hK h.2]
+    simp only [retVals, retValsO, List.map_cons, h6, untag_vals ρ ts ws hK h.2]
   | _ :: _, [], _, _, _, _ => rfl
   | _ :: _, _ :: _, _, [], _, h => by simp [retsOkT] at h
+
+/-- SolidCore collects the named returns as their values by their tags. -/
+theorem collect_vals (ρ : Val) (rt : Runtime) (S : SymState) {E : EraseEnv} {ctx : Context}
+    {K : Facts} (hK : K.Hold ρ) (hrel : StmtRel ρ E ctx rt S) :
+    ∀ (rs : List BindingDecl) (ws : List WExpr),
+      retsOkT K rs (rs.map fun r => S.tags.get r.name) ws = true →
+      rs.mapM (fun r => S.retW? r.name) = some ws →
+      collectReturnBindings.collect rt rs = .ok (retVals ρ (rs.map fun r => S.tags.get r.name) ws)
+  | [], ws, _, h => by
+    simp only [List.mapM_nil, Option.pure_def, Option.some.injEq] at h
+    subst h; rfl
+  | r :: rs, ws, hrs, h => by
+    simp only [List.mapM_cons, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.pure_def,
+      Option.some.injEq] at h
+    obtain ⟨e, he, ws', hws', rfl⟩ := h
+    simp only [List.map_cons, retsOkT, Bool.and_eq_true] at hrs
+    have ih := collect_vals ρ rt S hK hrel rs ws' hrs.2 hws'
+    obtain ⟨h1, -, -, -, h5, -⟩ := retOkT_spec hK hrs.1
+    simp [collectReturnBindings.collect, lookup_retW hrel.frames he, h5 rt, h1, ih, retVals, bind,
+      Except.bind, pure, Except.pure]
 
 /-! ## Encoding the output -/
 
@@ -922,16 +982,16 @@ theorem encode_words (ρ : Val) {K : Facts} (hK : K.Hold ρ) (rs : List BindingD
 
 theorem encodeAux_vals (ρ : Val) {K : Facts} (hK : K.Hold ρ) :
     ∀ (rs : List BindingDecl) (ts : List Tag) (ws : List WExpr) (off : Nat), retsOkT K rs ts ws = true →
-      ABI.encodeValuesAux? (rs.map BindingDecl.ty) (retVals ρ ts ws) off =
+      ABI.encodeValuesAux? (rs.map BindingDecl.ty) (retValsO ρ ts ws) off =
         some ((ws.flatMap wordOBytes).map (OByte.eval ρ), [], off)
   | rs, [], ws, off, h => by
-    simp only [retVals_nil]
+    simp only [retValsO_nil]
     exact encodeAux_words ρ hK rs ws off (by simpa [retsOkT] using h)
   | r :: rs, t :: ts, w :: ws, off, h => by
     simp only [retsOkT, Bool.and_eq_true] at h
     have ih := encodeAux_vals ρ hK rs ts ws off h.2
     obtain ⟨-, hd, -, he, -, -⟩ := retOkT_spec hK h.1
-    simp only [retVals, List.map_cons, ABI.encodeValuesAux?, hd, he, ih, Bool.false_eq_true, ↓reduceIte,
+    simp only [retValsO, List.map_cons, ABI.encodeValuesAux?, hd, he, ih, Bool.false_eq_true, ↓reduceIte,
       List.flatMap_cons, List.map_append, encodeWord_eval]
   | [], _ :: _, _, _, h | _ :: _, _ :: _, [], _, h => by simp [retsOkT] at h
 
@@ -958,7 +1018,7 @@ theorem headWords_vals (ρ : Val) {K : Facts} (hK : K.Hold ρ) :
 
 theorem encode_vals (ρ : Val) {K : Facts} (hK : K.Hold ρ) (rs : List BindingDecl) (ts : List Tag)
     (ws : List WExpr) (hrs : retsOkT K rs ts ws = true) :
-    ABI.encodeValues? (rs.map BindingDecl.ty) (retVals ρ ts ws) =
+    ABI.encodeValues? (rs.map BindingDecl.ty) (retValsO ρ ts ws) =
       some ((ws.flatMap wordOBytes).map (OByte.eval ρ)) := by
   simp [ABI.encodeValues?, headWords_vals ρ hK rs ts ws hrs, encodeAux_vals ρ hK rs ts ws _ hrs, bind,
     Option.bind]
@@ -1404,8 +1464,8 @@ theorem abi_clean {c : TypeCheck.CheckedContract} {sel : Nat} (hsel : sel < 2 ^ 
     simp only [Option.some.injEq] at hT'
     subst hT'
     simp only [FunctionDef.callBodyResult, FunctionDef.collectReturns, collectReturnBindings,
-      collect_words ρ rt S hK hleaf.expr.locals fn.returns ws hok hws, untag_words,
-      encode_words ρ hK fn.returns ws hok, bind, Option.bind, Option.map_some]
+      collect_vals ρ rt S hK hleaf fn.returns ws hok hws, untag_vals ρ _ ws hK hok,
+      encode_vals ρ hK fn.returns _ ws hok, bind, Option.bind, Option.map_some]
     simp only [Source.observe, Tree.eval, Res.obs, ↓reduceIte, logEntries_map,
       hleaf.logs, Option.some.injEq, Observable.mk.injEq, true_and]
     funext slot
@@ -1426,8 +1486,8 @@ theorem abi_clean {c : TypeCheck.CheckedContract} {sel : Nat} (hsel : sel < 2 ^ 
       subst hT'
       simp only [FunctionDef.callBodyResult, List.map_nil, List.isEmpty_nil, if_true,
         FunctionDef.collectReturns, collectReturnBindings,
-        collect_words ρ rt S hK hst'.expr.locals fn.returns ws hok hws, untag_words,
-        encode_words ρ hK fn.returns ws hok, bind, Option.bind, Option.map_some]
+        collect_vals ρ rt S hK hst' fn.returns ws hok hws, untag_vals ρ _ ws hK hok,
+        encode_vals ρ hK fn.returns _ ws hok, bind, Option.bind, Option.map_some]
       simp only [Source.observe, Tree.eval, Res.obs, ↓reduceIte, logEntries_map,
         hst'.logs, Option.some.injEq, Observable.mk.injEq, true_and]
       funext slot

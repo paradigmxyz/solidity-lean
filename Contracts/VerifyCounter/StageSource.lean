@@ -192,7 +192,7 @@ theorem mir_eq (o : Oracle) {c : SolidCore.Solidity.TypeCheck.CheckedContract} (
   simp only at hstop hst0 hstk hl
   subst hstop
   have hT2 : T' = .halt true [] [(.lit 0, .bin .add (.init 0) (.arg 0))] [] := by
-    simp [leafTree, bumpFn, SF, retsOk] at hT'
+    simp [leafTree, bumpFn, SF, retsOk, retsOkT] at hT'
     first | exact hT'.symm | exact hT'
   subst hT2
   simp only [observe, Tree.eval, Res.obs, ↓reduceIte, List.map_nil, hl]

@@ -77,10 +77,12 @@ another binding of the call. -/
 def tagsOk (fn : FunctionDef) : Bool :=
   (fn.params ++ fn.returns).all (fun p => (fnTags fn).get p.name == tagOf p.ty)
 
-/-- A return binding of the generic source stage: a word return, or an `int256`, not a storage
-reference. -/
+/-- A return binding of the generic source stage: a word return, an `int256` or a `bytes32`, not a
+storage reference. -/
 def retBinding (b : BindingDecl) : Bool :=
-  (match b.ty with | .uint256 => true | .address => true | .bool => true | .int256 => true | _ => false) &&
+  (match b.ty with
+    | .uint256 => true | .address => true | .bool => true | .int256 => true | .fixedBytes 32 => true
+    | _ => false) &&
     !b.isStorageRef
 
 /-- The bound of a parameter the fragment holds as a word: `paramWidthT` on a parameter whose type's
@@ -155,7 +157,7 @@ says, and a signed word for an `int256`. -/
 def retOkT (K : Facts) (ty : Ty) : Tag → WExpr → Bool
   | .word, w => retOk K ty w
   | .int, _ => match ty with | .int256 => true | _ => false
-  | .bytes32, _ => false
+  | .bytes32, _ => match ty with | .fixedBytes 32 => true | _ => false
   | .sref _, _ => false
   | .sptr _, _ => false
   | .mref, _ => false
@@ -182,18 +184,24 @@ def errorBytes (msg : String) : Option (List OByte) :=
     if bs.all (· < 256) then some (bs.map .lit) else none
   | none => none
 
+/-- The word of a named return: a local the state holds as a word or as a `bytes32`. -/
+def SymState.retW? (S : SymState) (x : String) : Option WExpr :=
+  if S.tags.get x = .word ∨ S.tags.get x = .bytes32 then Scopes.get? S.scopes x else none
+
 /-- How a call ends, from how its body ends: the returned words, ABI-encoded, or the named
 returns when the body falls through or returns nothing, with the body's writes and logs; a
 revert's data, with no writes and no logs. -/
 def leafTree (fn : FunctionDef) (K : Facts) : Leaf → Option Tree
   | .normal S => do
-    let ws ← fn.returns.mapM fun r => S.word? r.name
-    if retsOk K fn.returns ws then some (.halt true (ws.flatMap wordOBytes) S.writes S.logs)
+    let ws ← fn.returns.mapM fun r => S.retW? r.name
+    if retsOkT K fn.returns (fn.returns.map fun r => S.tags.get r.name) ws then
+      some (.halt true (ws.flatMap wordOBytes) S.writes S.logs)
     else none
   | .returned S vs ts =>
     if vs = [] then do
-      let ws ← fn.returns.mapM fun r => S.word? r.name
-      if retsOk K fn.returns ws then some (.halt true (ws.flatMap wordOBytes) S.writes S.logs)
+      let ws ← fn.returns.mapM fun r => S.retW? r.name
+      if retsOkT K fn.returns (fn.returns.map fun r => S.tags.get r.name) ws then
+        some (.halt true (ws.flatMap wordOBytes) S.writes S.logs)
       else none
     else if retsOkT K fn.returns ts vs then
       some (.halt true (vs.flatMap wordOBytes) S.writes S.logs)

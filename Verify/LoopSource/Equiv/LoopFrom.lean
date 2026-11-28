@@ -118,8 +118,8 @@ theorem runtime_run_clean_from (a : Nat) (ha : a < 2 ^ 160) {fuel : Nat} {c : Ty
     subst hT'
     simp only [FunctionDef.callBodyResult, retVals_nil_vals, List.map_nil, List.isEmpty_nil, ↓reduceIte,
       FunctionDef.collectReturns, collectReturnBindings,
-      collect_words ρ rt S hKρ hleaf.expr.locals fn.returns ws hok hws, untag_words,
-      encode_words ρ hKρ fn.returns ws hok, bind, Option.bind, Option.map_some]
+      collect_vals ρ rt S hKρ hleaf fn.returns ws hok hws, untag_vals ρ _ ws hKρ hok,
+      encode_vals ρ hKρ fn.returns _ ws hok, bind, Option.bind, Option.map_some]
     simp only [Source.observe, Tree.eval, Res.obs, ↓reduceIte, logEntries_map,
       hleaf.logs, Option.some.injEq, Observable.mk.injEq, true_and]
     funext slot
