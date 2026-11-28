@@ -207,13 +207,13 @@ def condBr (fields : List StorageField) (S : SymState) : Expr → Br → Br → 
     let (gs, v) ← eraseExpr fields S c
     some (guards gs (.ite (condWord v) t e))
 
-/-- The one `bytes32` a `return` of the fragment gives as `encHash?` says. -/
+/-- The one `bytes32` a `return` of the fragment gives as `eraseB32` says. -/
 def encRet? (fields : List StorageField) (S : SymState) : List Expr → Option WExpr
-  | [e] => encHash? fields S e
+  | [e] => eraseB32 fields S e
   | _ => none
 
 theorem encRet?_spec {fields : List StorageField} {S : SymState} {es : List Expr} {h : WExpr}
-    (he : encRet? fields S es = some h) : ∃ e, es = [e] ∧ encHash? fields S e = some h := by
+    (he : encRet? fields S es = some h) : ∃ e, es = [e] ∧ eraseB32 fields S e = some h := by
   unfold encRet? at he
   split at he
   · exact ⟨_, rfl, he⟩
@@ -667,9 +667,9 @@ def eraseStmt (E : EraseEnv) : Nat → Stmt → SymState → Option Br
         let (gs, v) ← eraseIntCleaned S e
         let L ← Scopes.set S.scopes x v
         some (guards gs (.leaf (.normal { S with scopes := L })))
-      -- `r = keccak256(abi.encode(a, y))` to a `bytes32` local
+      -- a `bytes32` the fragment computes (`eraseB32`) to a `bytes32` local
       else if S.tags.get x = .bytes32 then do
-        let h ← encHash? E.fields S e
+        let h ← eraseB32 E.fields S e
         let L ← Scopes.set S.scopes x h
         some (.leaf (.normal { S with scopes := L }))
       else do
@@ -3656,10 +3656,10 @@ theorem assignLocal_b32 {ρ : Val} {T : Tags} {rt : Runtime} {sc sc' : Scopes} {
   simp only [Tag.val] at ha
   simp [Runtime.assignLocal?, hl, Value.coerceLike?, hfr, ha, h]
 
-/-- An assignment to a `bytes32` local of `keccak256(abi.encode(a, y))`: the write of its hash. -/
+/-- An assignment to a `bytes32` local of a `bytes32` `eraseB32` erases: the write of its word. -/
 theorem eval_assignB32 (ρ : Val) (E : EraseEnv) (ctx : Context) (rt : Runtime) (S : SymState)
     (hrel : StmtRel ρ E ctx rt S) (n : Nat) {x : String} {e : Expr} {h : WExpr}
-    {L' : Scopes} (hxb : S.tags.get x = .bytes32) (he : encHash? E.fields S e = some h)
+    {L' : Scopes} (hxb : S.tags.get x = .bytes32) (he : eraseB32 E.fields S e = some h)
     (hL : Scopes.set S.scopes x h = some L') :
     ∃ r, Stmt.eval (n + 1) E.tbl ctx rt (.assign (.var x) e) = .done (.ok r) ∧
       LeafRel ρ E ctx r ((Br.leaf (.normal { S with scopes := L' })).eval ρ) := by
@@ -3669,7 +3669,7 @@ theorem eval_assignB32 (ρ : Val) (E : EraseEnv) (ctx : Context) (rt : Runtime) 
   have hmem : rt.lookupMemoryRef? x = none := by simp [Runtime.lookupMemoryRef?, hx]
   have hbase : rt.lookupStorageBase? x = none := by simp [Runtime.lookupStorageBase?, hx]
   have hev : Expr.eval ctx rt e = .done (.ok (.fixedBytes 32 (h.eval ρ), rt)) :=
-    eval_encHash hrel.expr he (Nat.lt_succ_self _)
+    eval_eraseB32 hrel.expr he (Nat.lt_succ_self _)
   have hres : LValue.resolveWithRuntime (.var x) ctx rt = .done (.ok (.local x, rt)) := by
     simp [LValue.resolveWithRuntime, Expr.resolveLValue, LValue.toExpr, Expr.orderFuel,
       Expr.resolveLValueFuel, hbase, hx]
@@ -3679,23 +3679,23 @@ theorem eval_assignB32 (ρ : Val) (E : EraseEnv) (ctx : Context) (rt : Runtime) 
     assignLocal_b32 hrel.frames hxb hL
   have hrel' : StmtRel ρ E ctx { rt with locals := L'.map (frameOfT ρ S.tags) }
       { S with scopes := L' } := { hrel with frames := rfl }
-  obtain ⟨p, y, id, w, v, rfl, -, -, -, -⟩ := encHash?_spec he
+  obtain ⟨y, rfl⟩ := eraseB32_keccak he
   refine ⟨.normal { rt with locals := L'.map (frameOfT ρ S.tags) }, ?_, hrel'⟩
   rw [Stmt.eval]
   simp only [LValue.wantsMemoryRefRhs, hmem, Option.isSome_none, Bool.false_eq_true,
     ↓reduceIte, hev, caught_done_ok, bind_done_ok, hres, ResolvedLValue.write, hassign]
   rfl
 
-/-- SolidCore returns `keccak256(abi.encode(a, y))` as the `bytes32` of its hash. -/
+/-- SolidCore returns a `bytes32` `eraseB32` erases as its word, tagged. -/
 theorem eval_returnEnc {ρ : Val} {fields : List StorageField} {ctx : Context} {rt : Runtime}
     {S : SymState} (hrel : ExprRel ρ fields ctx rt S) {es : List Expr} {h : WExpr}
     (he : encRet? fields S es = some h) :
     Expr.evalReturnList ctx rt es = .done (.ok ([Tag.bytes32.val (h.eval ρ)], rt)) := by
   obtain ⟨e, rfl, he⟩ := encRet?_spec he
   have hev : Expr.eval ctx rt e = .done (.ok (.fixedBytes 32 (h.eval ρ), rt)) :=
-    eval_encHash hrel he (Nat.lt_succ_self _)
+    eval_eraseB32 hrel he (Nat.lt_succ_self _)
   have hrv : Expr.evalReturnValue ctx rt e = Expr.eval ctx rt e := by
-    obtain ⟨p, y, id, w, v, rfl, -, -, -, -⟩ := encHash?_spec he
+    obtain ⟨y, rfl⟩ := eraseB32_keccak he
     rfl
   simp only [Expr.evalReturnList, Expr.listEvalFuel, Expr.evalReturnListFuel, hrv, hev, Tag.val,
     pure, EvmCompiler.Simulation.Interaction.pure, bind, EvmCompiler.Simulation.Interaction.bind]

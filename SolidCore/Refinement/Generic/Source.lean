@@ -2503,5 +2503,278 @@ theorem eval_encHash {ρ : Val} {fields : List StorageField} {ctx : Context} {rt
     Except.bind, bind, pure, Except.pure, wordBytes]
   exact (Nat.mod_eq_of_lt (by simpa [solHash, storageWordBytes, wordBytes] using solHash_lt (w.eval ρ) (v.eval ρ))).symm
 
+/-! ## Hashes of byte strings and of a `bytes32` and a word -/
+
+theorem normByte_idem (v : Nat) : normByte (normByte v) = normByte v := by
+  simp [normByte, SolidCore.Solidity.Shared.Account.byte]
+
+theorem normByte_comp : normByte ∘ normByte = normByte := by
+  funext v
+  exact normByte_idem v
+
+theorem map_normByte_idem (bs : List Nat) : (bs.map normByte).map normByte = bs.map normByte := by
+  simp only [List.map_map]
+  congr 1
+  funext v
+  exact normByte_idem v
+
+/-- The bytes of the string literals a packed encoding of `bytes` literals concatenates. -/
+def packedLits? : List Nat → List Ty → List Expr → Option (List Byte)
+  | [], [], [] => some []
+  | 0 :: ws, .bytesCalldata :: tys, .byteArray bs :: es =>
+    (packedLits? ws tys es).map fun rest => bs.map normByte ++ rest
+  | _, _, _ => none
+
+/-- `keccak256` of a string literal, or of the packed encoding of string literals: the constant
+hash of its bytes, which solar's MIR folds. -/
+def keccakLit? : Expr → Option Nat
+  | .keccak256 (.byteArray bs) => some (keccakWord (bs.map normByte))
+  | .keccak256 (.encode .packed none ws tys es) => (packedLits? ws tys es).map keccakWord
+  | _ => none
+
+theorem keccakWord_lt (bs : List Byte) : keccakWord bs < wordSize := by
+  simp only [keccakWord, bytesToWordBE, norm_mod]
+  exact Nat.mod_lt _ (by decide)
+
+/-- The shape of a nonempty `packedLits?`: a string literal first. -/
+theorem packedLits_cons {w : List Nat} {t : List Ty} {e : Expr} {es : List Expr} {bs : List Byte}
+    (h : packedLits? w t (e :: es) = some bs) :
+    ∃ ws tys b rest, w = 0 :: ws ∧ t = .bytesCalldata :: tys ∧ e = .byteArray b ∧
+      packedLits? ws tys es = some rest ∧ bs = b.map normByte ++ rest := by
+  rcases w with _ | ⟨_ | w, ws⟩ <;> rcases t with _ | ⟨t, tys⟩
+  all_goals first | (simp [packedLits?] at h; done) | skip
+  cases t <;> cases e
+  all_goals first | (simp [packedLits?] at h; done) | skip
+  simp only [packedLits?, Option.map_eq_some_iff] at h
+  obtain ⟨rest, hr, rfl⟩ := h
+  exact ⟨_, _, _, rest, rfl, rfl, rfl, hr, rfl⟩
+
+theorem packedLits_nil {w : List Nat} {t : List Ty} {bs : List Byte}
+    (h : packedLits? w t [] = some bs) : w = [] ∧ t = [] ∧ bs = [] := by
+  rcases w with _ | ⟨_ | w, ws⟩ <;> rcases t with _ | ⟨t, tys⟩
+  all_goals first | (simp [packedLits?] at h; done) | skip
+  simp only [packedLits?, Option.some.injEq] at h
+  exact ⟨rfl, rfl, h.symm⟩
+
+theorem packedLits_norm : ∀ {es : List Expr} {w : List Nat} {t : List Ty} {bs : List Byte},
+    packedLits? w t es = some bs → bs.map normByte = bs
+  | [], _, _, _, h => by
+    obtain ⟨-, -, rfl⟩ := packedLits_nil h
+    rfl
+  | _ :: _, _, _, _, h => by
+    obtain ⟨ws, tys, b, rest, -, -, -, hr, rfl⟩ := packedLits_cons h
+    simp only [List.map_append, map_normByte_idem, packedLits_norm hr]
+
+/-- SolidCore evaluates string literals as their bytes, in order. -/
+theorem evalList_packedLits {ctx : Context} {rt : Runtime} :
+    ∀ (es : List Expr) (w : List Nat) (t : List Ty) (bs : List Byte), packedLits? w t es = some bs →
+      ∀ fuel, Expr.listEvalFuel es ≤ fuel →
+      ∃ vs, Expr.evalListFuel fuel ctx rt es = .done (.ok (vs, rt)) ∧
+        rt.materializeForValueUseList ctx vs = .ok vs ∧
+        abiEncodePackedValues? w t vs = some bs
+  | [], w, t, bs, h, fuel, hf => by
+    obtain ⟨rfl, rfl, rfl⟩ := packedLits_nil h
+    obtain ⟨n, rfl⟩ : ∃ n, fuel = n + 1 := ⟨fuel - 1, by simp [Expr.listEvalFuel] at hf; omega⟩
+    exact ⟨[], by simp [Expr.evalListFuel, pure, EvmCompiler.Simulation.Interaction.pure],
+      rfl, rfl⟩
+  | e :: es, w, t, bs, h, fuel, hf => by
+    obtain ⟨ws, tys, b, rest, rfl, rfl, rfl, hr, rfl⟩ := packedLits_cons h
+    obtain ⟨n, rfl⟩ : ∃ n, fuel = n + 1 :=
+      ⟨fuel - 1, by simp [Expr.listEvalFuel, Expr.orderFuel] at hf; omega⟩
+    obtain ⟨vs, hv, hm, he⟩ := evalList_packedLits es ws tys rest hr n
+      (by simp [Expr.listEvalFuel, Expr.orderFuel] at hf; omega)
+    obtain ⟨k, rfl⟩ : ∃ k, n = k + 1 :=
+      ⟨n - 1, by simp [Expr.listEvalFuel, Expr.orderFuel] at hf; omega⟩
+    refine ⟨.bytes (b.map normByte) :: vs, ?_, ?_, ?_⟩
+    · rw [Expr.evalListFuel]
+      simp only [Expr.evalFuel, bind, EvmCompiler.Simulation.Interaction.bind, pure,
+        EvmCompiler.Simulation.Interaction.pure]
+      rw [hv]
+      rfl
+    · simp [Runtime.materializeForValueUseList, Runtime.materializeForValueUse,
+        Runtime.materializeForValueUseFuel, hm, bind, Except.bind]
+    · simp [abiEncodePackedValues?, abiEncodePackedValue?, he, map_normByte_idem, normByte_idem,
+        normByte_comp, bind, Option.bind]
+
+theorem keccakLit_lt {e : Expr} {h : Nat} (he : keccakLit? e = some h) : h < wordSize := by
+  unfold keccakLit? at he
+  split at he
+  · simp only [Option.some.injEq] at he
+    subst he
+    exact keccakWord_lt _
+  · simp only [Option.map_eq_some_iff] at he
+    obtain ⟨bs, -, rfl⟩ := he
+    exact keccakWord_lt _
+  · simp at he
+
+/-- SolidCore evaluates `keccakLit?`'s expressions to the `bytes32` of their constant hash. -/
+theorem eval_keccakLit {ctx : Context} {rt : Runtime} {e : Expr} {h : Nat}
+    (he : keccakLit? e = some h) {fuel : Nat} (hf : Expr.orderFuel e < fuel) :
+    Expr.evalFuel fuel ctx rt e = .done (.ok (.fixedBytes 32 h, rt)) := by
+  unfold keccakLit? at he
+  split at he
+  · rename_i bs
+    simp only [Option.some.injEq] at he
+    subst he
+    obtain ⟨n, rfl⟩ : ∃ n, fuel = n + 2 := ⟨fuel - 2, by simp [Expr.orderFuel] at hf; omega⟩
+    simp [Expr.evalFuel, Runtime.materializeForValueUse, Runtime.materializeForValueUseFuel,
+      Value.asBytes?, map_normByte_idem, normByte_idem, normByte_comp, bind,
+      EvmCompiler.Simulation.Interaction.bind, pure,
+      EvmCompiler.Simulation.Interaction.pure, liftM, monadLift, MonadLift.monadLift,
+      SolI.ofExcept, Except.bind, wordBytes]
+  · rename_i ws tys es
+    simp only [Option.map_eq_some_iff] at he
+    obtain ⟨bs, hbs, rfl⟩ := he
+    obtain ⟨n, rfl⟩ : ∃ n, fuel = n + 2 :=
+      ⟨fuel - 2, by simp [Expr.orderFuel] at hf; omega⟩
+    obtain ⟨vs, hv, hm, hen⟩ := evalList_packedLits (ctx := ctx) (rt := rt) es ws tys bs hbs n
+      (by simp [Expr.orderFuel] at hf; omega)
+    simp only [Expr.evalFuel]
+    simp only [bind, EvmCompiler.Simulation.Interaction.bind, hv, pure,
+      EvmCompiler.Simulation.Interaction.pure, liftM, monadLift, MonadLift.monadLift, SolI.ofExcept,
+      Except.bind, hm, hen]
+    simp [Runtime.materializeForValueUse, Runtime.materializeForValueUseFuel, Value.asBytes?,
+      packedLits_norm hbs, wordBytes]
+  · simp at he
+
+/-- An argument of a two-word `abi.encode` of the fragment as its word: a `uint256` expression with
+no overflow conditions, or a `bytes32` string literal hash. -/
+def encW? (fields : List StorageField) (S : SymState) : Ty → Expr → Option WExpr
+  | .uint256, e => match eraseExpr fields S e with
+    | some ([], v) => some v
+    | _ => none
+  | .fixedBytes 32, e => (keccakLit? e).map .lit
+  | _, _ => none
+
+/-- The value an argument of type `t` of `encW?` evaluates to. -/
+def encVal : Ty → Nat → Value
+  | .fixedBytes _, n => .fixedBytes 32 n
+  | _, n => .word n
+
+theorem eval_encW {ρ : Val} {fields : List StorageField} {ctx : Context} {rt : Runtime}
+    {S : SymState} (hrel : ExprRel ρ fields ctx rt S) {t : Ty} {e : Expr} {w : WExpr}
+    (he : encW? fields S t e = some w) {fuel : Nat} (hf : Expr.orderFuel e < fuel) :
+    Expr.evalFuel fuel ctx rt e = .done (.ok (encVal t (w.eval ρ), rt)) ∧
+      (t = .uint256 ∨ t = .fixedBytes 32) := by
+  unfold encW? at he
+  split at he
+  · split at he
+    · rename_i v hv
+      simp only [Option.some.injEq] at he
+      subst he
+      refine ⟨?_, .inl rfl⟩
+      rw [eval_erase ρ fields ctx rt S hrel e [] v fuel hv hf]
+      simp [exprResult, encVal]
+    · simp at he
+  · simp only [Option.map_eq_some_iff] at he
+    obtain ⟨h, hh, rfl⟩ := he
+    refine ⟨?_, .inr rfl⟩
+    rw [eval_keccakLit hh hf]
+    simp [encVal, WExpr.eval, Nat.mod_eq_of_lt (keccakLit_lt hh)]
+  · simp at he
+
+theorem encode2_vals {t1 t2 : Ty} (h1 : t1 = .uint256 ∨ t1 = .fixedBytes 32)
+    (h2 : t2 = .uint256 ∨ t2 = .fixedBytes 32) {a b : Nat} (ha : a < wordSize) (hb : b < wordSize) :
+    abiEncodeValues? [t1, t2] [encVal t1 a, encVal t2 b] =
+      some (storageWordBytes a ++ storageWordBytes b) := by
+  have ha' : a < 115792089237316195423570985008687907853269984665640564039457584007913129639936 := ha
+  have hb' : b < 115792089237316195423570985008687907853269984665640564039457584007913129639936 := hb
+  rcases h1 with rfl | rfl <;> rcases h2 with rfl | rfl <;>
+  simp [abiEncodeValues?, Ty.listAbiHeadWords?, Ty.abiHeadWords?, abiEncodeValuesAux?, Ty.isDynamicAbi,
+    Ty.staticAbiHeadWords?, abiEncodeStaticValue?, abiStaticBytes?, storageWordBytes, encVal,
+    abiFixedBytesFits, wordBytes, ha', hb', norm_lt ha, norm_lt hb]
+
+/-- `keccak256(abi.encode(x, y))` of two arguments `encW?` erases: the hash of their two words. -/
+def encHashW? (fields : List StorageField) (S : SymState) : Expr → Option WExpr
+  | .keccak256 (.encode .plain none [] [t1, t2] [x, y]) => do
+    let a ← encW? fields S t1 x
+    let b ← encW? fields S t2 y
+    some (.hash a b)
+  | _ => none
+
+theorem eval_encHashW {ρ : Val} {fields : List StorageField} {ctx : Context} {rt : Runtime}
+    {S : SymState} (hrel : ExprRel ρ fields ctx rt S) {e : Expr} {h : WExpr}
+    (he : encHashW? fields S e = some h) {fuel : Nat} (hf : Expr.orderFuel e < fuel) :
+    Expr.evalFuel fuel ctx rt e = .done (.ok (.fixedBytes 32 (h.eval ρ), rt)) := by
+  unfold encHashW? at he
+  split at he
+  · rename_i t1 t2 x y
+    simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at he
+    obtain ⟨a, ha, b, hb, rfl⟩ := he
+    obtain ⟨n, rfl⟩ : ∃ n, fuel = n + 3 :=
+      ⟨fuel - 3, by simp [Expr.orderFuel, Expr.listEvalFuel] at hf; omega⟩
+    have hxf : Expr.orderFuel x < n := by simp [Expr.orderFuel, Expr.listEvalFuel] at hf; omega
+    obtain ⟨hx, ht1⟩ := eval_encW hrel ha hxf
+    simp only [Expr.evalFuel, Expr.evalListFuel]
+    rw [hx]
+    simp only [bind, EvmCompiler.Simulation.Interaction.bind, pure,
+      EvmCompiler.Simulation.Interaction.pure]
+    obtain ⟨m, rfl⟩ : ∃ m, n = m + 1 := ⟨n - 1, by omega⟩
+    have hyf : Expr.orderFuel y < m := by simp [Expr.orderFuel, Expr.listEvalFuel] at hf; omega
+    obtain ⟨hy, ht2⟩ := eval_encW hrel hb hyf
+    simp only [Expr.evalListFuel]
+    rw [hy]
+    simp only [bind, EvmCompiler.Simulation.Interaction.bind, pure,
+      EvmCompiler.Simulation.Interaction.pure]
+    obtain ⟨k, rfl⟩ : ∃ k, m = k + 1 := ⟨m - 1, by simp [Expr.orderFuel, Expr.listEvalFuel] at hf; omega⟩
+    simp only [Expr.evalListFuel]
+    have hmat : ∀ t v, Runtime.materializeForValueUseFuel ctx rt (rt.nextMemory + 1) (encVal t v) =
+        .ok (encVal t v) := by
+      intro t v
+      cases t <;> simp [encVal, Runtime.materializeForValueUseFuel]
+    simp [Runtime.materializeForValueUseList, hmat, encode2_vals ht1 ht2 (a.eval_lt ρ) (b.eval_lt ρ),
+      Runtime.materializeForValueUse, Runtime.materializeForValueUseFuel,
+      Value.asBytes?, WExpr.eval, hrel.hash, solHash, storageWordBytes, normByte_wordToBytesBE,
+      Except.bind, bind, pure, Except.pure, wordBytes, liftM, monadLift, MonadLift.monadLift,
+      SolI.ofExcept, EvmCompiler.Simulation.Interaction.bind, EvmCompiler.Simulation.Interaction.pure]
+    have hlt := solHash_lt (a.eval ρ) (b.eval ρ)
+    simp only [solHash, storageWordBytes, wordBytes] at hlt
+    exact (Nat.mod_eq_of_lt hlt).symm
+  · simp at he
+
+/-- A `bytes32` the fragment computes: a string literal hash (a constant), `encHash?`'s hash of a
+memory array's word and a word, or `encHashW?`'s hash of two words. -/
+def eraseB32 (fields : List StorageField) (S : SymState) (e : Expr) : Option WExpr :=
+  match keccakLit? e with
+  | some h => some (.lit h)
+  | none =>
+    match encHash? fields S e with
+    | some v => some v
+    | none => encHashW? fields S e
+
+theorem eraseB32_keccak {fields : List StorageField} {S : SymState} {e : Expr} {h : WExpr}
+    (he : eraseB32 fields S e = some h) : ∃ x, e = .keccak256 x := by
+  unfold eraseB32 at he
+  split at he
+  · rename_i k hk
+    unfold keccakLit? at hk
+    split at hk <;> first | exact ⟨_, rfl⟩ | simp at hk
+  · split at he
+    · rename_i v hv
+      obtain ⟨p, y, id, w, v, rfl, -⟩ := encHash?_spec hv
+      exact ⟨_, rfl⟩
+    · unfold encHashW? at he
+      split at he
+      · exact ⟨_, rfl⟩
+      · simp at he
+
+theorem eval_eraseB32 {ρ : Val} {fields : List StorageField} {ctx : Context} {rt : Runtime}
+    {S : SymState} (hrel : ExprRel ρ fields ctx rt S) {e : Expr} {h : WExpr}
+    (he : eraseB32 fields S e = some h) {fuel : Nat} (hf : Expr.orderFuel e < fuel) :
+    Expr.evalFuel fuel ctx rt e = .done (.ok (.fixedBytes 32 (h.eval ρ), rt)) := by
+  unfold eraseB32 at he
+  split at he
+  · rename_i k hk
+    simp only [Option.some.injEq] at he
+    subst he
+    rw [eval_keccakLit hk hf]
+    simp [WExpr.eval, Nat.mod_eq_of_lt (keccakLit_lt hk)]
+  · split at he
+    · rename_i v hv
+      simp only [Option.some.injEq] at he
+      subst he
+      exact eval_encHash hrel hv hf
+    · exact eval_encHashW hrel he hf
+
 end SolidCore.Refinement.Generic
 
