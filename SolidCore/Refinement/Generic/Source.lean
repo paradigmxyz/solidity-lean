@@ -235,6 +235,22 @@ def solHash (key slot : Nat) : Nat := keccakWord (storageWordBytes key ++ storag
 
 theorem mappingStorageSlot_eq (slot key : Nat) : mappingStorageSlot slot key = solHash key slot := rfl
 
+/-- The slot hash of two words: the literal `solHash` of two literal words (solar's first MIR
+already holds a mapping's slot at a constant key as a constant), else `WExpr.hash`. A first word
+that is `callerWord` stays a hash: it is `msg.sender`, which the MIR's symbolic run hashes from
+memory as `WExpr.hash` of the same literal. -/
+def mkHash : WExpr → WExpr → WExpr
+  | .lit x, .lit y =>
+    if x = callerWord then .hash (.lit x) (.lit y) else .lit (solHash (x % wordSize) (y % wordSize))
+  | a, b => .hash a b
+
+theorem mkHash_eval {ρ : Val} (h : ρ.hash = solHash) (a b : WExpr) :
+    (mkHash a b).eval ρ = (WExpr.hash a b).eval ρ := by
+  unfold mkHash
+  split
+  · split <;> simp [WExpr.eval, h]
+  · rfl
+
 /-- The overflow condition of a checked unsigned operation, as solar lowers it. -/
 def overflow : BinOp → WExpr → WExpr → Option WExpr
   | .add, l, r => some (.bin .lt (.bin .add l r) l)
@@ -490,12 +506,12 @@ def eraseExpr (fields : List StorageField) (S : SymState) : Expr → Option (Lis
     match mapOf? fields x with
     | some k => do
       let (gs, v) ← eraseExpr fields S idx
-      some (gs, S.writes.read (.hash v (.lit k)))
+      some (gs, S.writes.read (mkHash v (.lit k)))
     | none =>
       match boolMapOf? fields x with
       | some k => do
         let (gs, v) ← eraseExpr fields S idx
-        some (gs, boolOfWord (S.writes.read (.hash v (.lit k))))
+        some (gs, boolOfWord (S.writes.read (mkHash v (.lit k))))
       -- `a[j]` of a fixed-size array of words at a constant index below its length: the word of
       -- the slot `slot + j`, no check
       | none => do
@@ -515,21 +531,21 @@ def eraseExpr (fields : List StorageField) (S : SymState) : Expr → Option (Lis
     let k ← map2Of? fields x
     let (g1, v1) ← eraseExpr fields S i1
     let (g2, v2) ← eraseExpr fields S i2
-    some (g1 ++ g2, S.writes.read (.hash v2 (.hash v1 (.lit k))))
+    some (g1 ++ g2, S.writes.read (mkHash v2 (mkHash v1 (.lit k))))
   | .storageRead .load x [idx] =>
     match mapOf? fields x with
     | some k => do
       let (gs, v) ← eraseExpr fields S idx
-      some (gs, S.writes.read (.hash v (.lit k)))
+      some (gs, S.writes.read (mkHash v (.lit k)))
     | none => do
       let k ← boolMapOf? fields x
       let (gs, v) ← eraseExpr fields S idx
-      some (gs, boolOfWord (S.writes.read (.hash v (.lit k))))
+      some (gs, boolOfWord (S.writes.read (mkHash v (.lit k))))
   | .storageRead .load x [i1, i2] => do
     let k ← map2Of? fields x
     let (g1, v1) ← eraseExpr fields S i1
     let (g2, v2) ← eraseExpr fields S i2
-    some (g1 ++ g2, S.writes.read (.hash v2 (.hash v1 (.lit k))))
+    some (g1 ++ g2, S.writes.read (mkHash v2 (mkHash v1 (.lit k))))
   | _ => none
 
 
@@ -1843,7 +1859,7 @@ theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
           refine exprResult_bind ?_
           obtain ⟨f, hf, rfl⟩ := mapOf?_spec hrel.fields hk
           rw [loadIndex_map hrel hk (v0.eval_lt ρ), Writes.eval_read hrel.ok]
-          simp only [WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf.slot]
+          simp only [mkHash_eval hrel.hash, WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf.slot]
           rfl
         | none =>
           cases hk' : boolMapOf? fields x with
@@ -1857,7 +1873,7 @@ theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
             refine exprResult_bind ?_
             obtain ⟨f, hf, rfl⟩ := boolMapOf?_spec hrel.fields hk'
             rw [loadIndex_boolMap hrel hk' (v0.eval_lt ρ), boolOfWord_eval, Writes.eval_read hrel.ok]
-            simp only [WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf.slot]
+            simp only [mkHash_eval hrel.hash, WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf.slot]
             rfl
           | none =>
             simp only [eraseExpr, hk, hk', Option.bind_eq_bind, Option.bind_eq_some_iff] at h
@@ -1905,7 +1921,7 @@ theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
             simp only [bind_done_ok', List.isEmpty_cons, Bool.false_and, Bool.false_eq_true,
               ↓reduceIte, Runtime.loadStoragePath, loadPath_map hrel hk (v0.eval_lt ρ),
               Writes.eval_read hrel.ok]
-            simp only [WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf'.slot]
+            simp only [mkHash_eval hrel.hash, WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf'.slot]
             rfl
         | none =>
           simp only [eraseExpr, hk, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq,
@@ -1920,7 +1936,7 @@ theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
             simp only [bind_done_ok', List.isEmpty_cons, Bool.false_and, Bool.false_eq_true,
               ↓reduceIte, Runtime.loadStoragePath, loadPath_boolMap hrel hk' (v0.eval_lt ρ),
               boolOfWord_eval, Writes.eval_read hrel.ok]
-            simp only [WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf'.slot]
+            simp only [mkHash_eval hrel.hash, WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf'.slot]
             rfl
       | [i1, i2], h =>
         obtain ⟨m, rfl⟩ : ∃ m, n = m + 3 :=
@@ -1940,7 +1956,7 @@ theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
           simp only [bind_done_ok', List.isEmpty_cons, Bool.false_and, Bool.false_eq_true,
             ↓reduceIte, Runtime.loadStoragePath,
             loadPath_map2 hrel hk (v1.eval_lt ρ) (v2.eval_lt ρ), Writes.eval_read hrel.ok]
-          simp only [WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf'.slot,
+          simp only [mkHash_eval hrel.hash, WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf'.slot,
             Nat.mod_eq_of_lt (solHash_lt _ _)]
           rfl
       | [], h => simp [eraseExpr] at h
@@ -2061,7 +2077,7 @@ theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
                 MonadLift.monadLift, SolI.ofExcept,
                 loadPath_map2 hrel hk (v1.eval_lt ρ) (v2.eval_lt ρ)]
               rw [Writes.eval_read hrel.ok]
-              simp only [WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf.slot]
+              simp only [mkHash_eval hrel.hash, WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf.slot]
         · simp [eraseExpr] at h
       all_goals simp [eraseExpr] at h
     all_goals simp [eraseExpr] at h

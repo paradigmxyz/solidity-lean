@@ -600,10 +600,10 @@ def eraseStmt (E : EraseEnv) : Nat → Stmt → SymState → Option Br
       let (gs, v) ← eraseExpr E.fields S rhs
       let (gi, key) ← eraseExpr E.fields S idx
       let o ← binOf op
-      let w := WExpr.bin o (S.writes.read (.hash key (.lit k))) v
+      let w := WExpr.bin o (S.writes.read (mkHash key (.lit k))) v
       let cg ← cleanupGuard b w
-      some (guards (gs ++ gi ++ (overflow o (S.writes.read (.hash key (.lit k))) v).toList ++ cg)
-        (.leaf (.normal { S with writes := S.writes.set (.hash key (.lit k)) w })))
+      some (guards (gs ++ gi ++ (overflow o (S.writes.read (mkHash key (.lit k))) v).toList ++ cg)
+        (.leaf (.normal { S with writes := S.writes.set (mkHash key (.lit k)) w })))
     | .exprStmt (.incDec op _ (some (.uint b)) (.storageRead .header x [])) => do
       let (k, off, bytes) ← fieldOf? E.fields x
       let o ← binOf op
@@ -662,13 +662,13 @@ def eraseStmt (E : EraseEnv) : Nat → Stmt → SymState → Option Br
       let (gi, key) ← eraseExpr E.fields S i
       match mapOf? E.fields x with
       | some k =>
-        some (guards (gs ++ gi) (.leaf (.normal { S with writes := S.writes.set (.hash key (.lit k)) v })))
+        some (guards (gs ++ gi) (.leaf (.normal { S with writes := S.writes.set (mkHash key (.lit k)) v })))
       | none =>
         match boolMapOf? E.fields x with
         | some k =>
           if bound E.facts v ≤ 1 then
             some (guards (gs ++ gi)
-              (.leaf (.normal { S with writes := S.writes.set (.hash key (.lit k)) v })))
+              (.leaf (.normal { S with writes := S.writes.set (mkHash key (.lit k)) v })))
           else none
         -- `a[j] = e` of a fixed-size array of words at a constant index below its length: the
         -- word to the slot `slot + j`
@@ -684,7 +684,7 @@ def eraseStmt (E : EraseEnv) : Nat → Stmt → SymState → Option Br
       let (g1, k1) ← eraseExpr E.fields S i1
       let (g2, k2) ← eraseExpr E.fields S i2
       some (guards (gs ++ g1 ++ g2)
-        (.leaf (.normal { S with writes := S.writes.set (.hash k2 (.hash k1 (.lit k))) v })))
+        (.leaf (.normal { S with writes := S.writes.set (mkHash k2 (mkHash k1 (.lit k))) v })))
     | .internalCall targets callee args => do
       let fn ← E.tbl.lookup? callee
       if fn.params.all wordDecl && fn.returns.all wordDecl && args.length = fn.params.length then
@@ -2121,19 +2121,19 @@ theorem eval_mapAssign (ρ : Val) (E : EraseEnv) (ctx : Context) (rt : Runtime) 
     {k : Nat} {gs gi : List WExpr} {v key : WExpr} {o : BinOp} {cg : List WExpr}
     (hk : mapOf? E.fields x = some k) (hv : eraseExpr E.fields S rhs = some (gs, v))
     (hi : eraseExpr E.fields S i = some (gi, key)) (ho : binOf op = some o)
-    (hcg : cleanupGuard b (.bin o (S.writes.read (.hash key (.lit k))) v) = some cg) :
+    (hcg : cleanupGuard b (.bin o (S.writes.read (mkHash key (.lit k))) v) = some cg) :
     ∃ r, Stmt.eval (n + 1) E.tbl ctx rt
         (.exprStmt (.assignment (some op) (some (.uint b)) (.storageRead .element x [i]) rhs)) =
         .done (.ok r) ∧
-      LeafRel ρ E ctx r ((guards (gs ++ gi ++ (overflow o (S.writes.read (.hash key (.lit k))) v).toList ++ cg)
-        (.leaf (.normal { S with writes := (S.writes.set (.hash key (.lit k))
-          (.bin o (S.writes.read (.hash key (.lit k))) v)) }))).eval ρ) := by
+      LeafRel ρ E ctx r ((guards (gs ++ gi ++ (overflow o (S.writes.read (mkHash key (.lit k))) v).toList ++ cg)
+        (.leaf (.normal { S with writes := (S.writes.set (mkHash key (.lit k))
+          (.bin o (S.writes.read (mkHash key (.lit k))) v)) }))).eval ρ) := by
   obtain ⟨f, hf, rfl⟩ := mapOf?_spec hrel.fields hk
-  have hsl : (WExpr.hash key (.lit f.slot)).eval ρ = solHash (key.eval ρ) f.slot % wordSize := by
-    simp only [WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf.slot]
+  have hsl : (mkHash key (.lit f.slot)).eval ρ = solHash (key.eval ρ) f.slot % wordSize := by
+    simp only [mkHash_eval hrel.hash, WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf.slot]
   refine eval_compound ρ E ctx rt S hrel n (lv := .storageIndex x (.word (key.eval ρ)))
-    (wr := fun w => { rt with state := rt.state.storeSlot ((WExpr.hash key (.lit f.slot)).eval ρ) (w.eval ρ) })
-    (S' := fun w => { S with writes := S.writes.set (.hash key (.lit f.slot)) w })
+    (wr := fun w => { rt with state := rt.state.storeSlot ((mkHash key (.lit f.slot)).eval ρ) (w.eval ρ) })
+    (S' := fun w => { S with writes := S.writes.set (mkHash key (.lit f.slot)) w })
     hv (fun F hF => ?_) ho hcg ?_ (fun w => ?_) (fun w => hrel.write _ w)
   · obtain ⟨m, rfl⟩ : ∃ m, F = m + 1 := ⟨F - 1, by omega⟩
     simp only [Expr.orderFuel, Expr.listEvalFuel] at hF
@@ -4194,7 +4194,7 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
             simp only [Option.some.injEq] at h
             obtain ⟨f, hf, rfl⟩ := mapOf?_spec hrel.fields hk
             exact ⟨_, _, storeIndex_map hrel hk (key.eval_lt ρ) (v.eval_lt ρ),
-              by simp only [WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf.slot], h.symm⟩
+              by simp only [mkHash_eval hrel.hash, WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf.slot], h.symm⟩
           · split at h
             · rename_i k hk
               split at h
@@ -4203,7 +4203,7 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
                 obtain ⟨f, hf, rfl⟩ := boolMapOf?_spec hrel.fields hk
                 exact ⟨_, _, storeIndex_boolMap hrel hk (key.eval_lt ρ)
                   (Nat.le_trans (bound_sound hrel.facts v) hb),
-                  by simp only [WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf.slot], h.symm⟩
+                  by simp only [mkHash_eval hrel.hash, WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf.slot], h.symm⟩
               · simp at h
             · simp only [Option.bind_eq_bind, Option.bind_eq_some_iff] at h
               obtain ⟨⟨k, len⟩, ha, j, hj, h⟩ := h
@@ -4282,11 +4282,11 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
           have heval := eval_eq ρ E.fields ctx rt S hrel.expr he
           have hres := resolve_index2 ρ E.fields ctx rt S hrel.expr x h1 h2
           simp only [any_append] at hres
-          have hsl : (WExpr.hash k2 (.hash k1 (.lit f.slot))).eval ρ =
+          have hsl : (mkHash k2 (mkHash k1 (.lit f.slot))).eval ρ =
               solHash (k2.eval ρ) (solHash (k1.eval ρ) f.slot) % wordSize := by
-            simp only [WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf.slot,
+            simp only [mkHash_eval hrel.hash, WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf.slot,
               Nat.mod_eq_of_lt (solHash_lt _ _)]
-          have hw := hrel.write (.hash k2 (.hash k1 (.lit f.slot))) v
+          have hw := hrel.write (mkHash k2 (mkHash k1 (.lit f.slot))) v
           rw [hsl, storeSlot_mod] at hw
           have hst := storePath_map2 hrel hk (k1.eval_lt ρ) (k2.eval_lt ρ) (v.eval_lt ρ)
           rw [Stmt.eval]
