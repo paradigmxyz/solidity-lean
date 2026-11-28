@@ -52,14 +52,14 @@ theorem runtime_run_rejected {fuel : Nat} {c : TypeCheck.CheckedContract} {sel :
     Option.map_some, Source.observe, Abi.rejected]
   simp
 
-/-- **A call of a function of the generic source stage (typed parameters included) with clean
+/-- **A call of a function of the generic source stage (typed parameters and returns included) with clean
 argument words runs on the runtime code as the tree of its body's leaves**: `Loop.runtime_run_clean`
 with the typed decode (`abi_clean` on `widthsOfT` and `tagsOk`). -/
 theorem runtime_run_cleanT {fuel : Nat} {c : TypeCheck.CheckedContract} {σ : List (Nat × Nat)}
     {sel : Nat} (hsel : sel < 2 ^ 32) {fn : FunctionDef}
     (hfind : c.core.findFunctionBySelector? sel = some fn) {ws : List Nat}
     (hw : widthsOfT fn.params fn.paramAbiCleanups = some ws)
-    (hret : fn.returns.all wordBinding = true) (htags : tagsOk fn = true) {b : Br}
+    (hret : fn.returns.all retBinding = true) (htags : tagsOk fn = true) {b : Br}
     (hb : BodyRuns { envOf c.core with facts := argFacts ws 0 } fuel fn b)
     {T : Tree} (hT : brTree fn (argFacts ws 0) b = some T) (args : List Nat)
     (hlen : args.length = fn.params.length) (hargs : ∀ a ∈ args, a < 2 ^ 256)
