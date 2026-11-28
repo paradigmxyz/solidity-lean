@@ -6,13 +6,16 @@ import Verify.LoopSource.Proof.EraseLoop
 `eraseLoopStmt` erases counted `for` loops in a body, but an internal call in that body is erased
 by `eraseInc`, hence by `eraseStmt`, whose callee body has no loop case, and a loop whose iteration
 is outside the counted shape (it adds the counter to a word, say) is not erased at all.
-`eraseLoopCall` is `eraseLoopStmt` with three more cases:
+`eraseLoopCall` is `eraseLoopStmt` with four more cases:
 
 * a statement-position internal call (`eraseStmt`'s `internalCall` case: word parameters and
   results, its arguments erased in order, then its callee's body at the callee's frame, then its
   results assigned) whose callee's body is erased by `eraseLoopCall` itself;
 * the `captureReturn` wrapper the frontend puts around such a call (its body by `eraseLoopCall`,
   then `eraseStmt`'s `captureLeaf`);
+* a compound assignment `x op= rhs` to a local word with a `uint b` cleanup (`s += i`): the right
+  side's overflow conditions, the operation's and the cleanup's range check, then the new word in
+  `x` (`eval_localOp`, `eval_compound`'s case for a local target);
 * a `for` loop outside `accelFor`'s counted shape whose condition is a **closed** word at every
   iteration (no argument, storage, caller or hash word: `closedW`, so its value is the same at
   every valuation, `eval_closedW`) and has no overflow guard: the loop is **unrolled**, one
@@ -86,7 +89,8 @@ def accelLoop (E : EraseEnv) (n : Nat) (init : Stmt) (cnd : Expr) (post body : S
   else none
 
 /-- **The erasure of a job** with fuel `n`: statements as `eraseLoopStmt` does, internal calls and
-their `captureReturn` wrapper with the callee's body erased here too, and a `for` loop outside the
+their `captureReturn` wrapper with the callee's body erased here too, compound assignments to a
+local word, and a `for` loop outside the
 counted shape unrolled while its condition is closed (the `loop` job: one iteration, then the rest
 at one fuel less, as `Stmt.evalFor` runs it). -/
 def eraseJob (E : EraseEnv) : Nat → EraseJob → SymState → Option Br
@@ -115,6 +119,13 @@ def eraseJob (E : EraseEnv) : Nat → EraseJob → SymState → Option Br
     | .captureReturn names body => do
       let b ← eraseJob E n (.stmt body) S
       b.bindLeaf (captureLeaf names)
+    | .exprStmt (.assignment (some op) (some (.uint w)) (.var x) rhs) => do
+      let (gs, v) ← eraseExpr E.fields S rhs
+      let cur ← S.word? x
+      let o ← binOf op
+      let cg ← cleanupGuard w (.bin o cur v)
+      let L ← S.setW x (.bin o cur v)
+      some (guards (gs ++ (overflow o cur v).toList ++ cg) (.leaf (.normal { S with scopes := L })))
     | s => eraseInc E (n + 1) s S
   | n + 1, .loop cnd post body u, S =>
     match u with
@@ -152,6 +163,61 @@ local macro "guard_cases " h:ident " : " c:term : tactic => `(tactic|
        | exact ⟨.reverted _ (.panic 0x11), by split <;> (try split) <;> first | rfl | simp_all, rfl⟩
    simp only [$h:ident, Bool.false_eq_true, ↓reduceIte, Bool.false_or, Bool.or_false,
      Bool.or_assoc]))
+
+/-- Whether a local can be assigned does not depend on the word assigned. -/
+theorem Locals.set_isSome : ∀ (L : Locals) (x : String) (e e' : WExpr),
+    (Locals.set L x e).isSome = (Locals.set L x e').isSome
+  | [], _, _, _ => rfl
+  | (y, _) :: rest, x, e, e' => by
+    simp only [Locals.set]
+    split
+    · rfl
+    · simp only [Option.isSome_map]
+      exact Locals.set_isSome rest x e e'
+
+/-- Whether a local of the scopes can be assigned does not depend on the word assigned. -/
+theorem Scopes.set_isSome : ∀ (sc : Scopes) (x : String) (e e' : WExpr),
+    (Scopes.set sc x e).isSome = (Scopes.set sc x e').isSome
+  | [], _, _, _ => rfl
+  | L :: rest, x, e, e' => by
+    have hL := Locals.set_isSome L x e e'
+    have hr := Scopes.set_isSome rest x e e'
+    simp only [Scopes.set]
+    cases h1 : L.set x e <;> cases h2 : L.set x e' <;> simp_all [Option.isSome_map]
+
+/-- **A compound assignment to a local word**, `x op= rhs` with a `uint w` cleanup: the right side's
+overflow conditions, the operation's and the cleanup's range check, then the new word in `x`
+(`eval_compound` with the local `x` as its target, which resolves with no condition). -/
+theorem eval_localOp (ρ : Val) (E : EraseEnv) (ctx : Context) (rt : Runtime) (S : SymState)
+    (hrel : StmtRel ρ E ctx rt S) (n : Nat) {op : BinaryOp} {w : Nat} {x : String} {rhs : Expr}
+    {gs cg : List WExpr} {v cur : WExpr} {o : BinOp} {L : Scopes}
+    (hv : eraseExpr E.fields S rhs = some (gs, v)) (hcur : S.word? x = some cur)
+    (ho : binOf op = some o) (hcg : cleanupGuard w (.bin o cur v) = some cg)
+    (hL : S.setW x (.bin o cur v) = some L) :
+    ∃ r, Stmt.eval (n + 1) E.tbl ctx rt
+        (.exprStmt (.assignment (some op) (some (.uint w)) (.var x) rhs)) = .done (.ok r) ∧
+      LeafRel ρ E ctx r ((guards (gs ++ (overflow o cur v).toList ++ cg)
+        (.leaf (.normal { S with scopes := L }))).eval ρ) := by
+  have hx : rt.lookupLocal? x = some (.word (cur.eval ρ)) := hrel.expr.locals x cur hcur
+  have hbase : rt.lookupStorageBase? x = none := by simp [Runtime.lookupStorageBase?, hx]
+  obtain ⟨hxw, hL0⟩ := SymState.setW_spec hL
+  have hset : ∀ u : WExpr, ∃ Lu, Scopes.set S.scopes x u = some Lu := fun u => by
+    have h1 := Scopes.set_isSome S.scopes x (.bin o cur v) u
+    rw [hL0, Option.isSome_some] at h1
+    exact Option.isSome_iff_exists.mp h1.symm
+  have h := eval_compound ρ E ctx rt S hrel n (target := .var x) (gi := []) (lv := .local x)
+    (wr := fun u =>
+      { rt with locals := ((Scopes.set S.scopes x u).getD S.scopes).map (frameOfT ρ S.tags) })
+    (S' := fun u => { S with scopes := (Scopes.set S.scopes x u).getD S.scopes })
+    hv (fun F hF => ?_) ho hcg ?_ (fun u => ?_) (fun u => { hrel with frames := rfl })
+  · simpa only [List.append_nil, hL0, Option.getD_some] using h
+  · obtain ⟨m, rfl⟩ : ∃ m, F = m + 1 := ⟨F - 1, by omega⟩
+    simp only [Expr.resolveLValueFuel, hbase, hx, List.any_nil, Bool.false_eq_true, ↓reduceIte]
+    rfl
+  · simp [ResolvedLValue.read, ResolvedLValue.readRaw, hx, Runtime.derefMemoryValue, bind,
+      Except.bind]
+  · obtain ⟨Lu, hLu⟩ := hset u
+    simp [ResolvedLValue.write, assignLocal_word hrel.frames hxw hLu, hLu]
 
 /-- `eraseLoopStmt`'s counted loop runs as its erasure. -/
 theorem runs_accelLoop {E : EraseEnv} {ctx : Context} {n : Nat} {init : Stmt} {cnd : Expr}
@@ -278,6 +344,11 @@ theorem runs_eraseJob (E : EraseEnv) (ctx : Context) :
       rw [Stmt.eval]
       simp only [hr0, bind_done_ok]
       exact hr
+    · rename_i op w x rhs
+      simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
+      obtain ⟨⟨gs, v⟩, hv, cur, hcur, o, ho, cg, hcg, L, hL, rfl⟩ := h
+      intro σ rt hrel
+      exact eval_localOp σ E ctx rt S hrel n hv hcur ho hcg hL
     · exact runs_eraseInc E ctx (n + 1) s S b h
   | n + 1, .loop cnd post body 0, S, b, h => by simp [eraseJob] at h
   | n + 1, .loop cnd post body (u + 1), S, b, h => by
