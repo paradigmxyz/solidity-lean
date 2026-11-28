@@ -3,6 +3,7 @@ import Verify.LoopSource.Equiv.EraseLoopFinal
 import Verify.Generic.CtorWords
 import Verify.ShapeGenericRuntime
 import Verify.Gas.FixedFuel.Run
+import Verify.Lifecycle.Symbolic
 
 /-!
 # Deployed loop statements, and the parts of a contract with loops
@@ -219,6 +220,7 @@ theorem runEq_of_check {fuel mirFuel : Nat} {c : TypeCheck.CheckedContract}
 end SolidCore.Refinement.Generic.Loop
 
 namespace SolidCore.Refinement.Generic
+open SolidCore.Solidity
 
 /-- **`deployed_of_ctorShapeOf` from the shape's flag alone.** -/
 theorem deployed_of_ctorShapeOf_snd {fuel : Nat}
