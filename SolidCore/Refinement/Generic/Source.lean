@@ -91,6 +91,17 @@ def arrOf? (fields : List StorageField) (x : String) : Option (Nat × Nat) :=
   | some f => if arrOk f then some (f.slot, arrLen f.layout?) else none
   | none => none
 
+/-- A dynamic array of `uint256` words the fragment reads the length of and pops, not transient. -/
+def dynOk (f : StorageField) : Bool :=
+  (match f.layout? with | some (.dynamicArray (.scalar .uint256)) => true | _ => false) &&
+    !f.transient && decide (f.slot < wordSize)
+
+/-- The slot of the dynamic array of words `x`, when the fragment reads and pops it. -/
+def dynOf? (fields : List StorageField) (x : String) : Option Nat :=
+  match fields.find? (fun f => f.name == x) with
+  | some f => if dynOk f then some f.slot else none
+  | none => none
+
 /-- The number a word expression names when it is a literal. -/
 def litOf? : WExpr → Option Nat
   | .lit j => some j
@@ -463,11 +474,18 @@ def eraseExpr (fields : List StorageField) (S : SymState) : Expr → Option (Lis
   | .storageRead .header x [] =>
     match fieldOf? fields x with
     | some (k, off, bytes) => some ([], readField (S.writes.read (.lit k)) off bytes)
-    | none => (addrFieldOf? fields x).map fun (k, off) => ([], readField (S.writes.read (.lit k)) off 20)
+    | none =>
+      match addrFieldOf? fields x with
+      | some (k, off) => some ([], readField (S.writes.read (.lit k)) off 20)
+      -- the length of a dynamic array of words: the word of its slot
+      | none => (dynOf? fields x).map fun k => ([], S.writes.read (.lit k))
   | .storageRead .ref x [] =>
     match fieldOf? fields x with
     | some (k, off, bytes) => some ([], readField (S.writes.read (.lit k)) off bytes)
-    | none => (addrFieldOf? fields x).map fun (k, off) => ([], readField (S.writes.read (.lit k)) off 20)
+    | none =>
+      match addrFieldOf? fields x with
+      | some (k, off) => some ([], readField (S.writes.read (.lit k)) off 20)
+      | none => (dynOf? fields x).map fun k => ([], S.writes.read (.lit k))
   | .storageRead .element x [idx] =>
     match mapOf? fields x with
     | some k => do
@@ -1266,6 +1284,33 @@ theorem loadIndex_arr {ρ : Val} {fields : List StorageField} {ctx : Context} {r
     arrSlot hf hj, bind, Except.bind, State.loadStorageLayoutAt, State.loadStorageLayoutAtFuel,
     loadStorageWordAs, Ty.storageValueFromWord?, StorageLayout.depth, hsl]
 
+/-- What the fragment knows of a dynamic array of words it reads the length of and pops. -/
+structure DynOk (ctx : Context) (x : String) (f : StorageField) : Prop where
+  find : ctx.storageField? x = some f
+  layout : f.layout? = some (.dynamicArray (.scalar .uint256))
+  transient : f.transient = false
+  slot : f.slot < wordSize
+
+theorem dynOf?_spec {fields : List StorageField} {ctx : Context} (hf : ctx.storageFields = fields)
+    {x : String} {k : Nat} (h : dynOf? fields x = some k) :
+    ∃ f, DynOk ctx x f ∧ f.slot = k := by
+  obtain ⟨f, hfind, hok, rfl⟩ := of_find (ok := dynOk) (g := StorageField.slot) hf h
+  simp only [dynOk, Bool.and_eq_true, Bool.not_eq_true', decide_eq_true_eq] at hok
+  obtain ⟨⟨hl, ht⟩, hsl⟩ := hok
+  exact ⟨f, ⟨hfind, by split at hl <;> simp_all, ht, hsl⟩, rfl⟩
+
+/-- SolidCore reads the length of a dynamic array of words as the word of its slot. -/
+theorem load_dyn {ctx : Context} {rt : Runtime} {x : String} {f : StorageField}
+    (hf : DynOk ctx x f) :
+    rt.loadStorageField ctx x = .ok (.word (rt.state.loadSlot f.slot)) := by
+  simp [Runtime.loadStorageField, hf.find, hf.layout, State.loadFieldSlot, hf.transient]
+
+theorem loadHeader_dyn {ctx : Context} {rt : Runtime} {x : String} {f : StorageField}
+    (hf : DynOk ctx x f) :
+    rt.loadStorageFieldHeader ctx x = .ok (.word (rt.state.loadSlot f.slot)) := by
+  simp [Runtime.loadStorageFieldHeader, Runtime.loadStorageField, hf.find, hf.layout,
+    State.loadFieldSlot, hf.transient]
+
 /-- What the fragment knows of an `address` field it reads. -/
 structure AddrFieldOk (ctx : Context) (x : String) (f : StorageField) : Prop where
   find : ctx.storageField? x = some f
@@ -1921,17 +1966,29 @@ theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
           readField_eval ρ _ hfx.fits hfx.bytes]
         try rfl
       | none =>
-        simp only [hk, Option.map_eq_some_iff, Prod.mk.injEq] at h
-        obtain ⟨⟨k, off⟩, hk', rfl, rfl⟩ := h
-        obtain ⟨f, hfx, rfl, rfl⟩ := addrFieldOf?_spec hrel.fields hk'
-        have hsl := slot_read hrel hfx.slot
-        have hw : rt.state.loadSlot f.slot < wordSize := by
-          rw [hsl]; exact WExpr.eval_lt _ _
-        simp only [Expr.evalFuel, loadHeader_addrField hfx hw, load_addrField hfx hw, bind,
-          EvmCompiler.Simulation.Interaction.bind, liftM, monadLift, MonadLift.monadLift, SolI.ofExcept,
-          exprResult, List.any_nil, Bool.false_eq_true, ↓reduceIte, hsl,
-          readField_eval ρ _ hfx.fits (by decide)]
-        try rfl
+        cases hk' : addrFieldOf? fields x with
+        | some p =>
+          obtain ⟨k, off⟩ := p
+          simp only [hk, hk', Option.some.injEq, Prod.mk.injEq] at h
+          obtain ⟨rfl, rfl⟩ := h
+          obtain ⟨f, hfx, rfl, rfl⟩ := addrFieldOf?_spec hrel.fields hk'
+          have hsl := slot_read hrel hfx.slot
+          have hw : rt.state.loadSlot f.slot < wordSize := by
+            rw [hsl]; exact WExpr.eval_lt _ _
+          simp only [Expr.evalFuel, loadHeader_addrField hfx hw, load_addrField hfx hw, bind,
+            EvmCompiler.Simulation.Interaction.bind, liftM, monadLift, MonadLift.monadLift,
+            SolI.ofExcept, exprResult, List.any_nil, Bool.false_eq_true, ↓reduceIte, hsl,
+            readField_eval ρ _ hfx.fits (by decide)]
+          try rfl
+        | none =>
+          simp only [hk, hk', Option.map_eq_some_iff, Prod.mk.injEq] at h
+          obtain ⟨k, hk'', rfl, rfl⟩ := h
+          obtain ⟨f, hD, rfl⟩ := dynOf?_spec hrel.fields hk''
+          have hsl := slot_read hrel hD.slot
+          simp only [Expr.evalFuel, loadHeader_dyn hD, load_dyn hD, bind,
+            EvmCompiler.Simulation.Interaction.bind, liftM, monadLift, MonadLift.monadLift,
+            SolI.ofExcept, exprResult, List.any_nil, Bool.false_eq_true, ↓reduceIte, hsl]
+          try rfl
   | index base i2 =>
     cases base
     case var p =>

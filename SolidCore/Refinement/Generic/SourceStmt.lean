@@ -721,6 +721,15 @@ def eraseStmt (E : EraseEnv) : Nat → Stmt → SymState → Option Br
       else none
     | .unchecked body =>
       if 2 ≤ n then (eraseUnchecked S body).orElse fun _ => eraseUncheckedI S body else none
+    -- `a.pop()` of a dynamic array of words: Panic(0x31) on an empty array; otherwise the last
+    -- element's slot cleared, then the length one less, in SolidCore's order
+    | .storageArrayPop x => do
+      let k ← dynOf? E.fields x
+      let len := S.writes.read (.lit k)
+      let nl := WExpr.bin .sub len (.lit 1)
+      some (.ite (.bin .eq len (.lit 0)) (.leaf (.reverted (.panic 0x31)))
+        (.leaf (.normal { S with writes :=
+          ((S.writes.set (.bin .add nl (.lit (dynamicArrayDataSlot k))) (.lit 0)).set (.lit k) nl) })))
     -- `T storage p = a`: a new local no scope holds yet, a pointer to the whole state variable `a`
     | .storageAlias p t =>
       if Scopes.get? S.scopes p = none then
@@ -2203,6 +2212,33 @@ theorem resolve_storageIndex (ρ : Val) (fields : List StorageField) (ctx : Cont
   rw [eval_erase ρ fields ctx rt S hrel i gi key _ hi (by omega)]
   unfold exprResult
   split <;> rfl
+
+/-- SolidCore pops a dynamic array of words: Panic(0x31) when its length word is 0, else it clears
+the last element's slot, then stores the length one less. -/
+def popLen (L : Nat) : Nat := (L + (wordSize - 1)) % wordSize
+
+def popSlot (k L : Nat) : Nat := (popLen L + dynamicArrayDataSlot k % wordSize) % wordSize
+
+theorem pop_dyn {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {S : SymState}
+    (hrel : StmtRel ρ E ctx rt S) {x : String} {k : Nat} (hk : dynOf? E.fields x = some k) :
+    rt.storageArrayPop ctx x =
+      if rt.state.loadSlot k = 0 then .error (.panic 0x31)
+      else .ok { rt with state := State.storeSlot (State.storeSlot rt.state
+        (popSlot k (rt.state.loadSlot k)) 0) k (popLen (rt.state.loadSlot k)) } := by
+  obtain ⟨f, hD, rfl⟩ := dynOf?_spec hrel.fields hk
+  have hw : rt.state.loadSlot f.slot < wordSize := by
+    rw [slot_read hrel.expr hD.slot]; exact WExpr.eval_lt _ _
+  by_cases h0 : rt.state.loadSlot f.slot = 0
+  · simp [Runtime.storageArrayPop, hD.find, hD.layout, h0, wordEq, RevertData.popEmptyArray,
+      bind, Except.bind, pure, Except.pure]
+  · have hsub := subWord_eq (rt.state.loadSlot f.slot) 1 hw (by decide)
+    simp [Runtime.storageArrayPop, hD.find, hD.layout, h0, wordEq, hsub,
+      popSlot, popLen, dynamicArrayLayoutStorageSlotAndLayout?, StorageLayout.arrayElementOffsetAndLayout?,
+      StorageLayout.slotSpan, State.clearStorageLayoutAtDeep, StorageLayout.clearDepth,
+      State.clearStorageLayoutAtFuel, coerceStorageWordAs, Ty.defaultValue, normWord,
+      SolidCore.Solidity.Shared.norm, modulus_eq, bind, Except.bind, pure, Except.pure,
+      norm_lt hw, Nat.mod_eq_of_lt hw, Value.forceAbiLazy, Ty.coerceValue?, Value.asStorageWord?]
+    rw [Nat.add_comm (dynamicArrayDataSlot f.slot)]
 
 /-- SolidCore resolves the target `p[i]` through a storage pointer `p` to the whole state variable
 `t`, of an index with no overflow checks, to `t`'s entry at the index's word. -/
@@ -4418,6 +4454,28 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
         simp only [hu, Option.orElse] at h
         obtain ⟨r, hr, hl⟩ := eval_uncheckedI ρ E ctx k body S b h rt hrel
         exact ⟨r, by rw [Stmt.eval]; exact hr, hl⟩
+    case storageArrayPop x =>
+      simp only [eraseStmt, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
+      obtain ⟨k, hk, rfl⟩ := h
+      obtain ⟨f, hD, hkf⟩ := dynOf?_spec hrel.fields hk
+      have hks : k < wordSize := hkf ▸ hD.slot
+      have hsl := slot_read hrel.expr hks
+      have hlt : rt.state.loadSlot k < wordSize := by rw [hsl]; exact WExpr.eval_lt _ _
+      rw [Stmt.eval]
+      simp only [pop_dyn hrel hk]
+      by_cases h0 : rt.state.loadSlot k = 0
+      · refine ⟨.reverted rt (.panic 0x31), by simp [h0]; rfl, ?_⟩
+        simp only [Br.eval, WExpr.eval, BinOp.eval, ← hsl, h0, Nat.zero_mod, ↓reduceIte]
+        rfl
+      · refine ⟨_, by simp [h0]; rfl, ?_⟩
+        simp only [Br.eval, WExpr.eval, BinOp.eval, ← hsl, h0, Nat.zero_mod, ↓reduceIte,
+          Nat.mod_eq_of_lt (show (0 : Nat) < wordSize by decide), if_false]
+        have hw1 := hrel.write (.bin .add (.bin .sub (S.writes.read (.lit k)) (.lit 1))
+          (.lit (dynamicArrayDataSlot k))) (.lit 0)
+        have hw2 := hw1.write (.lit k) (.bin .sub (S.writes.read (.lit k)) (.lit 1))
+        simp only [WExpr.eval, BinOp.eval, ← hsl, Nat.mod_eq_of_lt hks, Nat.zero_mod,
+          Nat.mod_mod] at hw2
+        simpa [LeafRel, Nat.mod_mod, popSlot, popLen] using hw2
     case storageAlias p t =>
       simp only [eraseStmt] at h
       split at h
