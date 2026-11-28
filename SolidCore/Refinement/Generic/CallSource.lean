@@ -89,12 +89,16 @@ def eraseStmtC (E : EraseEnv) (n : Nat) : Nat → Stmt → SymState → Option (
   | f + 1, s, S => eraseCallStmt E n f s S
 
 /-- The argument checks of a call tree, as `paramGuards`: a word of a parameter of bound
-`m < 2 ^ 256 - 1` above `m` reverts with empty data. -/
+`m < 2 ^ 256 - 1` above `m` reverts with empty data, and so does a word of a signed `b`-bit
+parameter (`m = wordSize + b`) that is not its own sign extension. -/
 def paramGuardsC : List Nat → Nat → CTree → CTree
   | [], _, t => t
   | m :: ms, i, t =>
     if m < wordSize - 1 then
       .ite (.bin .gt (.arg i) (.lit m)) (.tree (.halt false [] [] [])) (paramGuardsC ms (i + 1) t)
+    else if 0 < m - wordSize ∧ m - wordSize < 256 then
+      .ite (sextGuard (m - wordSize) (.arg i)) (.tree (.halt false [] [] []))
+        (paramGuardsC ms (i + 1) t)
     else paramGuardsC ms (i + 1) t
 
 /-- **The call tree of an external call of `fn`**: the plain tree of a call-free function, or the

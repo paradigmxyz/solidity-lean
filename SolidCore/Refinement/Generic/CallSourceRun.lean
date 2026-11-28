@@ -253,7 +253,9 @@ theorem callRun_callStmt (ρ : Val) (E : EraseEnv) (ctx : Context) (n f : Nat) {
                   rfl
                 logs := by
                   simp only [Runtime.withFrame, Runtime.recordExternalInteraction, adoptWorld]
-                  exact hrel.logs }
+                  exact hrel.logs
+                mem := hrel.mem
+                next := hrel.next }
             obtain ⟨res, hres, hleaf⟩ := eval_stmt ρ E ctx f succ _ b hb _ hrel'
             rw [hres]
             refine ⟨res.mapRuntime Runtime.popScope, rfl, ?_⟩
@@ -412,18 +414,19 @@ theorem finish_leaf {c : SolidCore.Solidity.TypeCheck.CheckedContract} {fn : Fun
     simp only [Option.some.injEq] at hT'
     subst hT'
     simp only [FunctionDef.callBodyResult, FunctionDef.collectReturns, collectReturnBindings,
-      collect_words ρ rt S hK hleaf.expr.locals fn.returns ws hok hws, untag_words,
-      encode_words ρ hK fn.returns ws hok, bind, Option.bind, Option.map_some]
+      collect_vals ρ rt S hK hleaf fn.returns ws hok hws, untag_vals ρ _ ws hK hok,
+      encode_vals ρ hK fn.returns _ ws hok, bind, Option.bind, Option.map_some]
     simp only [Source.observe, Tree.eval, Res.obs, ↓reduceIte, logEntries_map,
       hleaf.logs, Option.some.injEq, Observable.mk.injEq, true_and]
     funext slot
     exact loadSlot_eq _ S.writes ρ hρok hleaf.store slot
-  | returned S vs =>
+  | returned S vs ts =>
     cases r <;> simp only [LeafRel] at hleaf
     rename_i rt vals
     obtain ⟨hst', rfl⟩ := hleaf
     by_cases hv : vs = []
     · subst hv
+      simp only [retVals_nil_vals]
       simp only [leafTree, if_true, Option.bind_eq_bind, Option.bind_eq_some_iff] at hT'
       obtain ⟨ws, hws, hT'⟩ := hT'
       split at hT'
@@ -433,8 +436,8 @@ theorem finish_leaf {c : SolidCore.Solidity.TypeCheck.CheckedContract} {fn : Fun
       subst hT'
       simp only [FunctionDef.callBodyResult, List.map_nil, List.isEmpty_nil, if_true,
         FunctionDef.collectReturns, collectReturnBindings,
-        collect_words ρ rt S hK hst'.expr.locals fn.returns ws hok hws, untag_words,
-        encode_words ρ hK fn.returns ws hok, bind, Option.bind, Option.map_some]
+        collect_vals ρ rt S hK hst' fn.returns ws hok hws, untag_vals ρ _ ws hK hok,
+        encode_vals ρ hK fn.returns _ ws hok, bind, Option.bind, Option.map_some]
       simp only [Source.observe, Tree.eval, Res.obs, ↓reduceIte, logEntries_map,
         hst'.logs, Option.some.injEq, Observable.mk.injEq, true_and]
       funext slot
@@ -445,14 +448,14 @@ theorem finish_leaf {c : SolidCore.Solidity.TypeCheck.CheckedContract} {fn : Fun
       rename_i hok
       simp only [Option.some.injEq] at hT'
       subst hT'
-      have hne : (vs.map fun e => Value.word (e.eval ρ)).isEmpty = false := by
+      have hne : (retVals ρ ts vs).isEmpty = false := by
         cases vs with
         | nil => exact absurd rfl hv
-        | cons _ _ => rfl
+        | cons _ _ => cases ts <;> rfl
       simp only [FunctionDef.callBodyResult, hne, Bool.false_eq_true, if_false,
         FunctionDef.coerceReturnValues, coerceReturnBindings,
-        coerce_words ρ rt hK fn.returns vs hok, untag_words,
-        encode_words ρ hK fn.returns vs hok, bind, Option.bind, Option.map_some]
+        coerce_vals ρ rt hK fn.returns ts vs hok, untag_vals ρ ts vs hK hok,
+        encode_vals ρ hK fn.returns ts vs hok, bind, Option.bind, Option.map_some]
       simp only [Source.observe, Tree.eval, Res.obs, ↓reduceIte, logEntries_map,
         hst'.logs, Option.some.injEq, Observable.mk.injEq, true_and]
       funext slot
@@ -577,6 +580,8 @@ theorem StmtRel.extend {args extra : List Nat} {st : Nat → Nat} {c : Nat} {E :
   facts := hK
   store := h.store
   logs := h.logs
+  mem := fun _ _ hl => by simp [initState] at hl
+  next := h.next
   frames := by
     rw [h.frames]
     simp only [initState, List.map_cons, List.map_nil, List.cons.injEq, and_true]
@@ -620,10 +625,13 @@ theorem call_entry_state {c : SolidCore.Solidity.TypeCheck.CheckedContract} {fn 
   have hframe : fn.initialFrame? (args.map .word) =
       some (frameOf ρ (paramLocals fn.params 0 ++ fn.returns.map fun r => (r.name, .lit 0))) := by
     have h0 : BindingDecl.bindArgs? fn.params (args.map .word) =
-        some (frameOf ρ (paramLocals fn.params 0)) :=
-      bindArgs_clean ρ hargs [] fn.params fn.paramAbiCleanups ws 0 (widthsOf_T hw).1
+        some (frameOf ρ (paramLocals fn.params 0)) := by
+      have h := bindArgs_clean ρ hargs [] fn.params fn.paramAbiCleanups ws 0 (widthsOf_T hw).1
         (by simpa [hρ] using hclean) (by simp [hρ, hlen])
         (fun p hp => by rw [(widthsOf_T hw).2 p hp]; rfl)
+      rwa [show ρ.args.drop 0 = args from rfl, argVals_words' (fun ty hty => by
+        obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hty
+        exact (widthsOf_T hw).2 p hp) (by simpa using hlen)] at h
     simp only [FunctionDef.initialFrame?, h0, FunctionDef.returnDefaultBindings,
       defaults_words ρ fn.returns hr, frameOf, List.map_append]
   have hacc : fn.acceptsValue ctx.value = true := by
@@ -635,12 +643,18 @@ theorem call_entry_state {c : SolidCore.Solidity.TypeCheck.CheckedContract} {fn 
               worldMutatedSinceAdoption := true }
             locals := [frameOf ρ (paramLocals fn.params 0 ++ fn.returns.map fun r => (r.name, .lit 0))] },
     { fields := rfl, events := rfl, checked := rfl, sender := hcw, hash := rfl,
-      ok := slotValue_store σ, frames := by simp [initState, paramTags_words (widthsOf_T hw).2], facts := hK
+      ok := slotValue_store σ, frames := by simp [initState, fnTags, paramTags_words (words_of_widths hw hret)],
+      facts := hK
       store := fun k _ => by
         simp only [SolidCore.Solidity.Source.State.loadSlot, StorageMap.lookup?, initState, Writes.store, hρ, ← hstore k,
           SolidCore.Solidity.Shared.norm, modulus_eq, Std.HashMap.get?_eq_getElem?]
         cases st0.storage[k % wordSize]? <;> rfl
-      logs := by simp [hev, initState] }, ?_, rfl, rfl, rfl, rfl⟩
+      logs := by simp [hev, initState]
+      mem := fun _ _ hl => by simp [initState] at hl
+      next := fun k hk => by
+        simp only [initState, Option.some.injEq] at hk
+        subst hk
+        rfl }, ?_, rfl, rfl, rfl, rfl⟩
   simp only [FunctionDef.call, FunctionDef.evalBodyEntry, hacc, hframe, if_true, Option.map_some]
 
 theorem widthsOf_length : ∀ {ps : List BindingDecl} {cs : List AbiCleanup} {ws : List Nat},

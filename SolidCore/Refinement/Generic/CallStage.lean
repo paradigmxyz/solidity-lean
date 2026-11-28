@@ -33,11 +33,26 @@ theorem paramGuardsC_eval (ρ : Val) (A : Callee) (T : CTree) (hρ : ∀ a ∈ �
     have ih := paramGuardsC_eval ρ A T hρ ws (i + 1)
     split
     · rename_i hw
-      simp only [CTree.eval, eval_gt_bound ρ _ (show w < wordSize by omega), ih]
+      simp only [CTree.eval, eval_gt_bound ρ _ (show w < wordSize by omega), ih,
+        argOk_lt _ (show w < wordSize by omega)]
       by_cases h : (WExpr.arg i).eval ρ ≤ w <;> simp [h, Tree.eval]
-    · have : (WExpr.arg i).eval ρ ≤ w := by
-        have := WExpr.eval_lt ρ (.arg i); omega
-      simp [ih, this]
+    · rename_i hw
+      split
+      · rename_i hb
+        simp only [CTree.eval, ih, argOk_eq, show ¬ w < wordSize by omega, ↓reduceIte, hb, and_self]
+        by_cases h : sextNat (w - wordSize) ((WExpr.arg i).eval ρ) = (WExpr.arg i).eval ρ
+        · simp [h, (eval_sextGuard ρ hb (.arg i)).mpr h]
+        · have h0 : ¬ (sextGuard (w - wordSize) (.arg i)).eval ρ = 0 :=
+            fun h' => h ((eval_sextGuard ρ hb _).mp h')
+          simp [h, h0, Tree.eval]
+      · rename_i hb
+        have hok : argOk w ((WExpr.arg i).eval ρ) = true := by
+          have := WExpr.eval_lt ρ (.arg i)
+          rw [argOk_eq]
+          split
+          · simp; omega
+          · simp [hb]
+        simp [ih, hok]
 
 theorem paramGuardsC_reach (ρ : Val) (T : CTree) (hρ : ∀ a ∈ ρ.args, a < wordSize) :
     ∀ (ws : List Nat) (i : Nat),
@@ -48,11 +63,26 @@ theorem paramGuardsC_reach (ρ : Val) (T : CTree) (hρ : ∀ a ∈ ρ.args, a < 
     have ih := paramGuardsC_reach ρ T hρ ws (i + 1)
     split
     · rename_i hw
-      simp only [CTree.reach, eval_gt_bound ρ _ (show w < wordSize by omega), ih]
+      simp only [CTree.reach, eval_gt_bound ρ _ (show w < wordSize by omega), ih,
+        argOk_lt _ (show w < wordSize by omega)]
       by_cases h : (WExpr.arg i).eval ρ ≤ w <;> simp [h]
-    · have : (WExpr.arg i).eval ρ ≤ w := by
-        have := WExpr.eval_lt ρ (.arg i); omega
-      simp [ih, this]
+    · rename_i hw
+      split
+      · rename_i hb
+        simp only [CTree.reach, ih, argOk_eq, show ¬ w < wordSize by omega, ↓reduceIte, hb, and_self]
+        by_cases h : sextNat (w - wordSize) ((WExpr.arg i).eval ρ) = (WExpr.arg i).eval ρ
+        · simp [h, (eval_sextGuard ρ hb (.arg i)).mpr h]
+        · have h0 : ¬ (sextGuard (w - wordSize) (.arg i)).eval ρ = 0 :=
+            fun h' => h ((eval_sextGuard ρ hb _).mp h')
+          simp [h, h0]
+      · rename_i hb
+        have hok : argOk w ((WExpr.arg i).eval ρ) = true := by
+          have := WExpr.eval_lt ρ (.arg i)
+          rw [argOk_eq]
+          split
+          · simp; omega
+          · simp [hb]
+        simp [ih, hok]
 
 /-! ## The check -/
 
@@ -164,14 +194,14 @@ theorem targetsArg_paramGuardsC (j : Nat) (T : CTree) : ∀ (ws : List Nat) (i :
   | [], _ => rfl
   | w :: ws, i => by
     simp only [paramGuardsC]
-    split <;> simp [CTree.targetsArg, targetsArg_paramGuardsC j T ws (i + 1)]
+    split <;> (try split) <;> simp [CTree.targetsArg, targetsArg_paramGuardsC j T ws (i + 1)]
 
 theorem callFree_paramGuardsC (T : CTree) : ∀ (ws : List Nat) (i : Nat),
     (paramGuardsC ws i T).callFree = T.callFree
   | [], _ => rfl
   | w :: ws, i => by
     simp only [paramGuardsC]
-    split <;> simp [CTree.callFree, callFree_paramGuardsC T ws (i + 1)]
+    split <;> (try split) <;> simp [CTree.callFree, callFree_paramGuardsC T ws (i + 1)]
 
 theorem CallFacts.extend {sel n : Nat} {args : List Nat} {st : Nat → Nat} {c : Nat} {call : Call}
     (hn : args.length = n) (h : CallFacts sel n ⟨args, st, solHash, c⟩ call) (extra : List Nat) :
