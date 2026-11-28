@@ -241,7 +241,7 @@ def treeMeetsSteps (ds : Lean.Syntax.TSepArray `Lean.Parser.Tactic.simpLemma ","
          (try simp only [Res.obs, words_byteOf, WExpr.eval, BinOp.eval, Generic.wordSize, hsm,
             List.getD_cons_zero, List.getD_cons_succ] at hsucc ⊢) <;>
          simp_all [$ds,*, Res.obs, Writes.store, WExpr.eval, BinOp.eval, Bundle.satAll, Bundle.sat,
-           eval, slotOf, mkEnv, Env.cur, BinOp.apply, Ty.ofBits, Ty.ofWord, toWord, decodeWords, words,
+           eval, evalList, Env.bind, List.zip, List.zipWith, List.lookup, slotOf, mkEnv, Env.cur, BinOp.apply, Ty.ofBits, Ty.ofWord, toWord, decodeWords, words,
            Generic.wordSize] <;>
          omega))])]
 
