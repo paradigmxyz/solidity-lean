@@ -175,7 +175,7 @@ theorem callRun_callStmt (ρ : Val) (E : EraseEnv) (ctx : Context) (n f : Nat) {
   split at h
   case isFalse => simp at h
   rename_i hcond
-  obtain ⟨hw, hl, hsel⟩ := hcond
+  obtain ⟨hw, hl, hsel, htag⟩ := hcond
   split at h
   · rename_i t het
     split at h
@@ -246,7 +246,7 @@ theorem callRun_callStmt (ρ : Val) (E : EraseEnv) (ctx : Context) (n f : Nat) {
                 hash := hrel.hash, ok := hrel.ok, facts := hrel.facts
                 frames := by
                   simp only [Runtime.withFrame, Runtime.recordExternalInteraction, hrel.frames, List.map_cons,
-                    frameOf, List.map_nil, hw1]
+                    frameOfT, htag, Tag.val_word, List.map_nil, hw1]
                 store := fun j hj => by
                   show (adoptWorld resp.postWorld ctx rt.state).loadSlot j = _
                   rw [SolidCore.Refinement.CallFamilies.adopt_load hctxs, hresp.static, hW0 j hj, hw]
@@ -510,6 +510,15 @@ theorem frameOf_congr {ρ ρ' : Val} : ∀ (L : Locals), (∀ p ∈ L, p.2.eval 
     have := frameOf_congr L (fun q hq => h q (List.mem_cons_of_mem _ hq))
     simpa [frameOf] using this
 
+theorem frameOfT_congr {ρ ρ' : Val} (T : Tags) : ∀ (L : Locals), (∀ p ∈ L, p.2.eval ρ = p.2.eval ρ') →
+    frameOfT ρ T L = frameOfT ρ' T L
+  | [], _ => rfl
+  | p :: L, h => by
+    simp only [frameOfT, List.map_cons, List.cons.injEq] at *
+    refine ⟨by rw [h p List.mem_cons_self], ?_⟩
+    have := frameOfT_congr T L (fun q hq => h q (List.mem_cons_of_mem _ hq))
+    simpa [frameOfT] using this
+
 theorem paramLocals_arg : ∀ (ps : List BindingDecl) (i : Nat), ∀ p ∈ paramLocals ps i,
     ∃ j, p.2 = .arg j ∧ i ≤ j ∧ j < i + ps.length
   | [], _, p, hp => by simp [paramLocals] at hp
@@ -571,7 +580,7 @@ theorem StmtRel.extend {args extra : List Nat} {st : Nat → Nat} {c : Nat} {E :
   frames := by
     rw [h.frames]
     simp only [initState, List.map_cons, List.map_nil, List.cons.injEq, and_true]
-    apply frameOf_congr
+    apply frameOfT_congr
     intro p hp
     rcases List.mem_append.mp hp with hp | hp
     · obtain ⟨j, hj, _, hj2⟩ := paramLocals_arg fn.params 0 p hp
@@ -592,6 +601,7 @@ theorem call_entry_state {c : SolidCore.Solidity.TypeCheck.CheckedContract} {fn 
     (hstore : ∀ k, (st0.storage[k % 2 ^ 256]?).getD 0 = slotValue σ k) (hev : st0.events = [])
     {K : Facts} {args : List Nat} {rc : Nat} (cw : WExpr)
     (hlen : args.length = fn.params.length) (hargs : ∀ a ∈ args, a < 2 ^ 256)
+    (hclean : argsClean ws args = true)
     (hK : K.Hold ⟨args, slotValue σ, solHash, rc⟩)
     (hcw : SolidCore.Solidity.Shared.norm a = cw.eval ⟨args, slotValue σ, solHash, rc⟩) :
     ∃ rt, StmtRel ⟨args, slotValue σ, solHash, rc⟩ { envOf c.core with facts := K }
@@ -611,7 +621,9 @@ theorem call_entry_state {c : SolidCore.Solidity.TypeCheck.CheckedContract} {fn 
       some (frameOf ρ (paramLocals fn.params 0 ++ fn.returns.map fun r => (r.name, .lit 0))) := by
     have h0 : BindingDecl.bindArgs? fn.params (args.map .word) =
         some (frameOf ρ (paramLocals fn.params 0)) :=
-      bindArgs_words ρ hargs fn.params 0 (widthsOf_spec hw).2.2.1 (by simp [hρ, hlen])
+      bindArgs_clean ρ hargs [] fn.params fn.paramAbiCleanups ws 0 (widthsOf_T hw).1
+        (by simpa [hρ] using hclean) (by simp [hρ, hlen])
+        (fun p hp => by rw [(widthsOf_T hw).2 p hp]; rfl)
     simp only [FunctionDef.initialFrame?, h0, FunctionDef.returnDefaultBindings,
       defaults_words ρ fn.returns hr, frameOf, List.map_append]
   have hacc : fn.acceptsValue ctx.value = true := by
@@ -623,7 +635,7 @@ theorem call_entry_state {c : SolidCore.Solidity.TypeCheck.CheckedContract} {fn 
               worldMutatedSinceAdoption := true }
             locals := [frameOf ρ (paramLocals fn.params 0 ++ fn.returns.map fun r => (r.name, .lit 0))] },
     { fields := rfl, events := rfl, checked := rfl, sender := hcw, hash := rfl,
-      ok := slotValue_store σ, frames := rfl, facts := hK
+      ok := slotValue_store σ, frames := by simp [initState, paramTags_words (widthsOf_T hw).2], facts := hK
       store := fun k _ => by
         simp only [SolidCore.Solidity.Source.State.loadSlot, StorageMap.lookup?, initState, Writes.store, hρ, ← hstore k,
           SolidCore.Solidity.Shared.norm, modulus_eq, Std.HashMap.get?_eq_getElem?]
@@ -721,7 +733,7 @@ theorem source_runC (W : World) (hW : W.Open)
     argFacts_hold ⟨args, slotValue σ, solHash, callerWord⟩ hargs ws 0 (by simpa using hclean)
   obtain ⟨rt, hrel0, hcall, hsto, htr, henv, hmut⟩ := call_entry_state (c := c) hw hret fuel (ctxIn W c)
     callerAddress ((EthLib.Base.natToBytes 4 sel).map (·.toNat) ++ Dirty.argBytes args) (st0 := st0)
-    (getD_storage_cover hd (fun _ h => absurd h List.not_mem_nil)) hd.events (.lit callerWord) hlen hargs hK0 rfl
+    (getD_storage_cover hd (fun _ h => absurd h List.not_mem_nil)) hd.events (.lit callerWord) hlen hargs hclean hK0 rfl
   have hctxs : ctx.self = selfAddress := rfl
   have hacc : ctx.accountCodes = W.codes.getD [] := by
     show W.codes.getD c.core.context.accountCodes = _

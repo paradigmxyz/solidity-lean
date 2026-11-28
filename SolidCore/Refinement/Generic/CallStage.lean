@@ -33,10 +33,10 @@ theorem paramGuardsC_eval (ρ : Val) (A : Callee) (T : CTree) (hρ : ∀ a ∈ �
     have ih := paramGuardsC_eval ρ A T hρ ws (i + 1)
     split
     · rename_i hw
-      simp only [CTree.eval, eval_gt_mask ρ _ hw, ih]
-      by_cases h : (WExpr.arg i).eval ρ < 2 ^ w <;> simp [h, Tree.eval]
-    · have : (WExpr.arg i).eval ρ < 2 ^ w :=
-        Nat.lt_of_lt_of_le (WExpr.eval_lt ρ _) (Nat.pow_le_pow_right (by decide) (by omega))
+      simp only [CTree.eval, eval_gt_bound ρ _ (show w < wordSize by omega), ih]
+      by_cases h : (WExpr.arg i).eval ρ ≤ w <;> simp [h, Tree.eval]
+    · have : (WExpr.arg i).eval ρ ≤ w := by
+        have := WExpr.eval_lt ρ (.arg i); omega
       simp [ih, this]
 
 theorem paramGuardsC_reach (ρ : Val) (T : CTree) (hρ : ∀ a ∈ ρ.args, a < wordSize) :
@@ -48,10 +48,10 @@ theorem paramGuardsC_reach (ρ : Val) (T : CTree) (hρ : ∀ a ∈ ρ.args, a < 
     have ih := paramGuardsC_reach ρ T hρ ws (i + 1)
     split
     · rename_i hw
-      simp only [CTree.reach, eval_gt_mask ρ _ hw, ih]
-      by_cases h : (WExpr.arg i).eval ρ < 2 ^ w <;> simp [h]
-    · have : (WExpr.arg i).eval ρ < 2 ^ w :=
-        Nat.lt_of_lt_of_le (WExpr.eval_lt ρ _) (Nat.pow_le_pow_right (by decide) (by omega))
+      simp only [CTree.reach, eval_gt_bound ρ _ (show w < wordSize by omega), ih]
+      by_cases h : (WExpr.arg i).eval ρ ≤ w <;> simp [h]
+    · have : (WExpr.arg i).eval ρ ≤ w := by
+        have := WExpr.eval_lt ρ (.arg i); omega
       simp [ih, this]
 
 /-! ## The check -/

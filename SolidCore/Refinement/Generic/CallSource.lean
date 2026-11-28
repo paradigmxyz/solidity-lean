@@ -50,7 +50,7 @@ def eraseCallStmt (E : EraseEnv) (n f : Nat) (s : Stmt) (S : SymState) : Option 
   match callStmt? s with
   | none => none
   | some (tgt, sel, x, succ) =>
-    if S.writes = [] ∧ S.logs = [] ∧ sel < 2 ^ 32 then
+    if S.writes = [] ∧ S.logs = [] ∧ sel < 2 ^ 32 ∧ S.tags.get x = .word then
       match eraseExpr E.fields S tgt with
       | some ([], t) =>
         match eraseStmt E f succ { S with scopes := [(x, .arg (n + 1))] :: S.scopes } with
@@ -88,13 +88,14 @@ def eraseStmtC (E : EraseEnv) (n : Nat) : Nat → Stmt → SymState → Option (
     | none => none
   | f + 1, s, S => eraseCallStmt E n f s S
 
-/-- The argument checks of a call tree, as `paramGuards`. -/
+/-- The argument checks of a call tree, as `paramGuards`: a word of a parameter of bound
+`m < 2 ^ 256 - 1` above `m` reverts with empty data. -/
 def paramGuardsC : List Nat → Nat → CTree → CTree
   | [], _, t => t
-  | w :: ws, i, t =>
-    if w < 256 then
-      .ite (.bin .gt (.arg i) (.lit (2 ^ w - 1))) (.tree (.halt false [] [] [])) (paramGuardsC ws (i + 1) t)
-    else paramGuardsC ws (i + 1) t
+  | m :: ms, i, t =>
+    if m < wordSize - 1 then
+      .ite (.bin .gt (.arg i) (.lit m)) (.tree (.halt false [] [] [])) (paramGuardsC ms (i + 1) t)
+    else paramGuardsC ms (i + 1) t
 
 /-- **The call tree of an external call of `fn`**: the plain tree of a call-free function, or the
 argument checks and the call node of a function of the call fragment. -/
