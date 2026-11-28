@@ -132,7 +132,8 @@ builds the root's closure; the libraries below hold the heavier, generated-input
 lean_lib Verify where
   roots := #[`Verify, `Verify.AnyCaller.Tests, `Verify.Lifecycle.Life, `Verify.Gas.FixedFuel.Counted,
     `Verify.ShapeGenericRuntime,
-    `Verify.ShapeSpecExportTac, `Verify.Spec.TreeSucceedsTry, `Verify.ShapeCall, `Verify.Spec.TreeLoopArgs]
+    `Verify.ShapeSpecExportTac, `Verify.Spec.TreeSucceedsTry, `Verify.ShapeCall, `Verify.Spec.TreeLoopArgs,
+    `Verify.Spec.Ctor]
 
 -- bank's and events' assembly stages against solar's exports (solar-tv/milestone/bank and
 -- solar-tv/milestone/events at 0a455fda): the generic assembler check with mapping hashes,

@@ -142,14 +142,26 @@ structure FnSpec where
   ghostSets : List (String × List Term × Term) := []
   deriving Repr, Inhabited
 
+/-- The spec of the exported contract's own constructor (its `@custom:requires` and
+`@custom:ensures`): its parameters, read as `.arg i`, and terms read in the post-creation state
+(there is no pre-state). -/
+structure CtorSpec where
+  params : List Ty
+  requires : List Term
+  ensures : List Term
+  deriving Repr, Inhabited
+
 /-- A contract's specs. `invariants` are the contract's `@custom:invariant`s and, expanded
-by the exporter over every stored value of the struct, its structs' invariants. -/
+by the exporter over every stored value of the struct, its structs' invariants. `ctor` is the
+constructor's spec when the exporter emits one (`none` in every export that predates it, and for a
+constructor without such tags). -/
 structure ContractSpec where
   name : String
   fns : List SpecFn
   invariants : List Term
   ghosts : List String
   specs : List FnSpec
+  ctor : Option CtorSpec := none
   deriving Repr, Inhabited
 
 /-- What a spec was exported from: the source and its sha256, the compiler that built the
