@@ -306,7 +306,8 @@ theorem read_source (k : Nat) (V : World) {c : SolidCore.Solidity.TypeCheck.Chec
                         (Expr.castOp (CastKind.uintCleanup) 256 (Expr.var "_sol_hoist_1"))))]) S1'.pop _ rfl _ hrel2
         simp only [done_bind', Result.mapRuntime, sbind_pure, evalList_cons] at hrun
         rw [hr2] at hrun
-        simp only [Br.eval, guards, List.foldr, List.nil_append, List.append_nil, List.cons_append] at hl2
+        simp only [Br.eval, guards, List.foldr, ordered_nil, codeOf_lt, List.nil_append, List.append_nil,
+          List.cons_append] at hl2
         have hg : (WExpr.bin BinOp.lt (WExpr.bin BinOp.add (WExpr.lit w) (WExpr.lit 1)) (WExpr.lit w)).eval ρ =
             if w + 1 = 2 ^ 256 then 1 else 0 := by
           exact guard_add_one ρ w hwlt

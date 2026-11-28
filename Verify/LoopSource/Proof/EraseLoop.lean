@@ -533,7 +533,8 @@ def eraseInc (E : EraseEnv) : Nat → Stmt → SymState → Option Br
 /-- A tree of overflow guards before one normal end: the guards and the end's state. -/
 def splitG : Br → Option (List WExpr × SymState)
   | .leaf (.normal S) => some ([], S)
-  | .ite g (.leaf (.reverted (.panic 0x11))) rest => (splitG rest).map fun p => (g :: p.1, p.2)
+  | .ite g (.leaf (.reverted (.panic c))) rest =>
+    if c = 0x11 ∧ codeOf g = 0x11 then (splitG rest).map fun p => (g :: p.1, p.2) else none
   | _ => none
 
 theorem splitG_spec : ∀ {b : Br} {gs : List WExpr} {S : SymState}, splitG b = some (gs, S) →
@@ -543,15 +544,15 @@ theorem splitG_spec : ∀ {b : Br} {gs : List WExpr} {S : SymState}, splitG b = 
     obtain ⟨rfl, rfl⟩ := h
     rfl
   | .ite g (.leaf (.reverted (.panic c))) rest, gs, S, h => by
-    by_cases hc : c = 0x11
-    · subst hc
-      simp only [splitG, Option.map_eq_some_iff] at h
+    by_cases hc : c = 0x11 ∧ codeOf g = 0x11
+    · obtain ⟨rfl, hg⟩ := hc
+      simp only [splitG, hg, and_self, ↓reduceIte, Option.map_eq_some_iff] at h
       obtain ⟨⟨gs', S'⟩, h', he⟩ := h
       simp only [Prod.mk.injEq] at he
       obtain ⟨rfl, rfl⟩ := he
       rw [splitG_spec h']
-      rfl
-    · simp [splitG, hc] at h
+      simp only [guards, List.foldr_cons, hg]
+    · simp only [splitG, hc, ↓reduceIte, reduceCtorEq] at h
   | .leaf (.returned _ _ _), _, _, h | .leaf (.reverted _), _, _, h
   | .ite _ (.leaf (.normal _)) _, _, _, h | .ite _ (.leaf (.returned _ _ _)) _, _, _, h
   | .ite _ (.leaf (.reverted .empty)) _, _, _, h | .ite _ (.leaf (.reverted (.error _))) _, _, _, h
@@ -942,7 +943,9 @@ theorem runs_accel {E : EraseEnv} {ctx : Context} {k : Nat} {cnd : Expr} {post b
       rw [← h1]; simpa using hne
     simp only [decide_eq_true_eq] at h2
     unfold accelBr
-    rw [guards_eval, ite_eq_left]
+    rw [guards_eval]
+    simp only [failCode_map_lt]
+    rw [ite_eq_left]
     rw [List.any_map]
     refine List.any_eq_true.mpr ⟨j, hj, ?_⟩
     simp only [Function.comp, hacc j, decide_eq_true_eq]
@@ -994,6 +997,12 @@ theorem runs_accel {E : EraseEnv} {ctx : Context} {k : Nat} {cnd : Expr} {post b
         obtain ⟨g, hgm, hne⟩ := List.any_eq_true.mp hgb
         show LeafRel ρ E ctx r _
         rw [hfire t htN hs g (List.mem_append_left _ hgm) (by simpa using hne)]
+        have hc : failCode (σ t) gb = 0x11 := failCode_of_codes _ (fun g' hg' => by
+          have hm := List.mem_append_left gp hg'
+          rw [hgs] at hm
+          obtain ⟨j, -, rfl⟩ := List.mem_map.mp hm
+          rfl)
+        rw [hc] at hr
         exact leafRel_reverted hr
       rw [ite_eq_right hgb]
       refine ⟨guards gp (.leaf (.normal S2)), runs_eraseInc E ctx k post S' _ hpb, ?_⟩
@@ -1004,6 +1013,12 @@ theorem runs_accel {E : EraseEnv} {ctx : Context} {k : Nat} {cnd : Expr} {post b
         obtain ⟨g, hgm, hne⟩ := List.any_eq_true.mp hgp
         show LeafRel ρ E ctx r _
         rw [hfire t htN hs g (List.mem_append_right _ hgm) (by simpa using hne)]
+        have hc : failCode (σ t) gp = 0x11 := failCode_of_codes _ (fun g' hg' => by
+          have hm := List.mem_append_right gb hg'
+          rw [hgs] at hm
+          obtain ⟨j, -, rfl⟩ := List.mem_map.mp hm
+          rfl)
+        rw [hc] at hr
         exact leafRel_reverted hr
       rw [ite_eq_right hgp]
       refine ⟨σ (t + 1), ⟨t + 1, by omega, rfl, ?_⟩, ?_, ?_⟩

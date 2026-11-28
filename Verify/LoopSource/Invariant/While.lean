@@ -87,7 +87,7 @@ theorem eval_dec (ρ : Val) (E : EraseEnv) (ctx : Context) (rt : Runtime) (S : S
         Value.oneLike?, happ, hg, ↓reduceIte]
     rw [hE]
     simp only [hg, ↓reduceIte]
-    exact ⟨.reverted rt (.panic 0x11), rfl, rfl⟩
+    exact ⟨.reverted rt (.panic 0x11), rfl, by simp only [failCode_overflow]; rfl⟩
   · have hE : ∃ v, ResolvedLValue.applyIncDecCleanup ctx rt lv .sub post (.uint 256) =
         .ok (v, rt') := by
       simp only [ResolvedLValue.applyIncDecCleanup, hread, hcleq, bind, Except.bind,

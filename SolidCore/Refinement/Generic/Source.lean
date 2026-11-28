@@ -197,6 +197,93 @@ def overflow : BinOp → WExpr → WExpr → Option WExpr
   | .mul, l, r => some (.un .iszero (.bin .or (.un .iszero r) (.bin .eq (.bin .div (.bin .mul l r) r) l)))
   | _, _, _ => none
 
+/-- The check of a checked division `l / r`: the divisor is zero. -/
+def divGuard (r : WExpr) : WExpr := .bin .eq r (.lit 0)
+
+/-- A check's panic code, read from its shape: `0x12` for a division check `eq r 0`
+(`divGuard`), `0x11` for every other check (an operation's overflow, a cleanup's range). -/
+def codeOf : WExpr → Nat
+  | .bin .eq _ (.lit 0) => 0x12
+  | _ => 0x11
+
+/-- The panic code of the first check of the list that holds, in the list's order (`0x11` when
+none does). -/
+def failCode (ρ : Val) : List WExpr → Nat
+  | [] => 0x11
+  | g :: gs => if g.eval ρ != 0 then codeOf g else failCode ρ gs
+
+@[simp] theorem failCode_nil (ρ : Val) : failCode ρ [] = 0x11 := rfl
+
+@[simp] theorem failCode_single (ρ : Val) (g : WExpr) :
+    failCode ρ [g] = if g.eval ρ != 0 then codeOf g else 0x11 := rfl
+
+@[simp] theorem failCode_append (ρ : Val) (a b : List WExpr) :
+    failCode ρ (a ++ b) =
+      if a.any (fun g => g.eval ρ != 0) then failCode ρ a else failCode ρ b := by
+  induction a with
+  | nil => simp
+  | cons g a ih =>
+    simp only [List.cons_append, failCode, List.any_cons, ih]
+    by_cases h : (g.eval ρ != 0) = true <;> simp [h]
+
+@[simp] theorem codeOf_lt (a b : WExpr) : codeOf (.bin .lt a b) = 0x11 := rfl
+@[simp] theorem codeOf_gt (a b : WExpr) : codeOf (.bin .gt a b) = 0x11 := rfl
+@[simp] theorem codeOf_iszero (a : WExpr) : codeOf (.un .iszero a) = 0x11 := rfl
+@[simp] theorem codeOf_divGuard (r : WExpr) : codeOf (divGuard r) = 0x12 := rfl
+@[simp] theorem codeOf_eq0 (a : WExpr) : codeOf (.bin .eq a (.lit 0)) = 0x12 := rfl
+
+theorem codeOf_overflow {o : BinOp} {l r g : WExpr} (h : overflow o l r = some g) :
+    codeOf g = 0x11 := by
+  cases o <;> simp [overflow] at h <;> subst h <;> rfl
+
+@[simp] theorem failCode_overflow (ρ : Val) (o : BinOp) (l r : WExpr) :
+    failCode ρ (overflow o l r).toList = 0x11 := by
+  cases o <;> simp [overflow]
+
+/-- Every check of the list panics with `0x11`. -/
+def plain (gs : List WExpr) : Bool := gs.all fun g => codeOf g == 0x11
+
+theorem failCode_plain (ρ : Val) {gs : List WExpr} (h : plain gs = true) :
+    failCode ρ gs = 0x11 := by
+  induction gs with
+  | nil => rfl
+  | cons g gs ih =>
+    simp only [plain, List.all_cons, Bool.and_eq_true, beq_iff_eq] at h
+    simp only [failCode]
+    split
+    · exact h.1
+    · exact ih h.2
+
+theorem failCode_of_codes (ρ : Val) {gs : List WExpr} (h : ∀ g ∈ gs, codeOf g = 0x11) :
+    failCode ρ gs = 0x11 :=
+  failCode_plain ρ (by simpa [plain] using h)
+
+theorem failCode_map_lt {α : Type} (ρ : Val) (xs : List α) (f h : α → WExpr) :
+    failCode ρ (xs.map fun j => .bin .lt (f j) (h j)) = 0x11 :=
+  failCode_of_codes ρ (fun g hg => by obtain ⟨j, -, rfl⟩ := List.mem_map.mp hg; rfl)
+
+/-- Two operands' checks in an order that keeps the code of the first check that holds: the
+right operand's first, as SolidCore evaluates a binary operation, unless every check panics with
+`0x11`, when the order cannot change the code and the left operand's come first. -/
+def ordered (gl gr : List WExpr) : List WExpr :=
+  if plain gl && plain gr then gl ++ gr else gr ++ gl
+
+@[simp] theorem ordered_nil : ordered [] [] = [] := rfl
+
+@[simp] theorem ordered_any (p : WExpr → Bool) (gl gr : List WExpr) :
+    (ordered gl gr).any p = (gr.any p || gl.any p) := by
+  unfold ordered; split <;> simp [List.any_append, Bool.or_comm]
+
+@[simp] theorem failCode_ordered (ρ : Val) (gl gr : List WExpr) :
+    failCode ρ (ordered gl gr) =
+      if gr.any (fun g => g.eval ρ != 0) then failCode ρ gr else failCode ρ gl := by
+  unfold ordered
+  split
+  · rename_i hp
+    simp only [Bool.and_eq_true] at hp
+    simp only [failCode_append, failCode_plain ρ hp.1, failCode_plain ρ hp.2, ite_self]
+  · simp only [failCode_append]
+
 /-- The fragment's binary operators: SolidCore's operator and the word operation. -/
 def binOf : BinaryOp → Option BinOp
   | .add => some .add
@@ -262,20 +349,20 @@ def eraseExpr (fields : List StorageField) (S : SymState) : Expr → Option (Lis
     let (gr, vr) ← eraseExpr fields S r
     match gr, vr with
     | [], .lit k => if k % wordSize = 0 then none else some (gl, .bin .div vl (.lit k))
-    | _, _ => none
+    | _, _ => some (gr ++ gl ++ [divGuard vr], .bin .div vl vr)
   | .binary op l r =>
     match binOf op with
     | some o => do
       let (gl, vl) ← eraseExpr fields S l
       let (gr, vr) ← eraseExpr fields S r
       match overflow o vl vr with
-      | some g => some (gl ++ gr ++ [g], .bin o vl vr)
-      | none => some (gl ++ gr, .bin o vl vr)
+      | some g => some (ordered gl gr ++ [g], .bin o vl vr)
+      | none => some (ordered gl gr, .bin o vl vr)
     | none => do
       let o ← negOf op
       let (gl, vl) ← eraseExpr fields S l
       let (gr, vr) ← eraseExpr fields S r
-      some (gl ++ gr, .un .iszero (.bin o vl vr))
+      some (ordered gl gr, .un .iszero (.bin o vl vr))
   | .unary .logicalNot e => do
     let (gs, v) ← eraseExpr fields S e
     some (gs, .un .iszero v)
@@ -407,6 +494,13 @@ theorem apply_div (a b : Nat) (ha : a < wordSize) (hb : b < wordSize) (hb0 : b �
     BinaryOp.apply true .div (.word a) (.word b) = .ok (.word (a / b)) := by
   simp [BinaryOp.apply, Value.forceAbiLazy, BinaryOp.applyWord, checkedDiv, norm_lt ha, norm_lt hb,
     hb0, bind, Except.bind, Functor.map, Except.map, divWord_eq a b ha hb]
+
+/-- Checked division by zero panics with `0x12`. -/
+theorem apply_div_zero (a : Nat) (ha : a < wordSize) :
+    BinaryOp.apply true .div (.word a) (.word 0) = .error (.panic 0x12) := by
+  simp [BinaryOp.apply, Value.forceAbiLazy, BinaryOp.applyWord, checkedDiv, norm_lt ha,
+    norm_lt (show 0 < wordSize by decide), bind, Except.bind, Functor.map, Except.map,
+    RevertData.divByZero]
 
 theorem apply_lt (a b : Nat) (ha : a < wordSize) (hb : b < wordSize) :
     BinaryOp.apply true .lt (.word a) (.word b) = .ok (.word (if a < b then 1 else 0)) := by
@@ -602,7 +696,7 @@ structure ExprRel (ρ : Val) (fields : List StorageField) (ctx : Context) (rt : 
 /-- What SolidCore's evaluation of an erased expression gives: `Panic(0x11)` when one of its
 overflow conditions holds, and otherwise its word, with the runtime unchanged. -/
 def exprResult (ρ : Val) (gs : List WExpr) (v : WExpr) (rt : Runtime) : SolI (Value × Runtime) :=
-  if gs.any (fun g => g.eval ρ != 0) then .done (.error (.revert (.panic 0x11)))
+  if gs.any (fun g => g.eval ρ != 0) then .done (.error (.revert (.panic (failCode ρ gs))))
   else .done (.ok (.word (v.eval ρ), rt))
 
 theorem load_field {ctx : Context} {rt : Runtime} {x : String} {f : StorageField}
@@ -688,7 +782,7 @@ theorem bind_done_ok' {α β : Type} (a : α) (k : α → SolI β) :
 theorem bind_exprResult {α : Type} (ρ : Val) (gs : List WExpr) (v : WExpr) (rt : Runtime)
     (k : Value × Runtime → SolI α) :
     (exprResult ρ gs v rt >>= k) =
-      if gs.any (fun g => g.eval ρ != 0) then .done (.error (.revert (.panic 0x11)))
+      if gs.any (fun g => g.eval ρ != 0) then .done (.error (.revert (.panic (failCode ρ gs))))
       else k (.word (v.eval ρ), rt) := by
   unfold exprResult
   split <;> rfl
@@ -1046,7 +1140,7 @@ theorem eval_hash_pair (ρ : Val) (hash : ρ.hash = solHash) (n m k : Nat) (hn :
   by_cases hgx : (gx.any fun g => WExpr.eval ρ g != 0) = true
   · simp only [hgx, ite_true]
     unfold exprResult
-    simp only [any_append, hgx, Bool.true_or, ite_true]
+    simp only [any_append, failCode_append, hgx, Bool.true_or, ite_true]
     rfl
   · simp only [hgx, Bool.false_eq_true, ite_false]
     rw [Expr.evalListFuel.eq_def]
@@ -1056,7 +1150,8 @@ theorem eval_hash_pair (ρ : Val) (hash : ρ.hash = solHash) (n m k : Nat) (hn :
     by_cases hgy : (gy.any fun g => WExpr.eval ρ g != 0) = true
     · simp only [hgy, ite_true]
       unfold exprResult
-      simp only [any_append, hgy, Bool.or_true, ite_true]
+      simp only [any_append, failCode_append, hgx, hgy, Bool.or_true, ite_true, Bool.false_eq_true,
+        ite_false]
       rfl
     · simp only [hgy, Bool.false_eq_true, ite_false]
       rw [Expr.evalListFuel.eq_def]
@@ -1117,7 +1212,7 @@ key's word, after its overflow checks. -/
 theorem evalList_one {ρ : Val} {ctx : Context} {rt : Runtime} {i : Expr} {gs : List WExpr}
     {v : WExpr} (m : Nat) (hi : Expr.evalFuel (m + 1) ctx rt i = exprResult ρ gs v rt) :
     Expr.evalListFuel (m + 2) ctx rt [i] =
-      if gs.any (fun g => g.eval ρ != 0) then .done (.error (.revert (.panic 0x11)))
+      if gs.any (fun g => g.eval ρ != 0) then .done (.error (.revert (.panic (failCode ρ gs))))
       else .done (.ok ([.word (v.eval ρ)], rt)) := by
   rw [Expr.evalListFuel]
   simp only [hi, bind_exprResult]
@@ -1132,13 +1227,13 @@ theorem evalList_two {ρ : Val} {ctx : Context} {rt : Runtime} {i1 i2 : Expr}
     (h1 : Expr.evalFuel (m + 2) ctx rt i1 = exprResult ρ g1 v1 rt)
     (h2 : Expr.evalFuel (m + 1) ctx rt i2 = exprResult ρ g2 v2 rt) :
     Expr.evalListFuel (m + 3) ctx rt [i1, i2] =
-      if (g1 ++ g2).any (fun g => g.eval ρ != 0) then .done (.error (.revert (.panic 0x11)))
+      if (g1 ++ g2).any (fun g => g.eval ρ != 0) then .done (.error (.revert (.panic (failCode ρ (g1 ++ g2)))))
       else .done (.ok ([.word (v1.eval ρ), .word (v2.eval ρ)], rt)) := by
   rw [Expr.evalListFuel]
   simp only [h1, bind_exprResult]
   by_cases hg1 : g1.any (fun g => g.eval ρ != 0) = true
-  · simp only [hg1, any_append, Bool.true_or, ↓reduceIte]
-  · simp only [hg1, Bool.false_eq_true, ↓reduceIte, any_append, Bool.false_or]
+  · simp only [hg1, any_append, failCode_append, Bool.true_or, ↓reduceIte]
+  · simp only [hg1, Bool.false_eq_true, ↓reduceIte, any_append, failCode_append, Bool.false_or]
     rw [evalList_one m h2]
     split <;> rfl
 
@@ -1183,7 +1278,7 @@ theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
           obtain ⟨rfl, rfl⟩ := h
           simp only [Expr.evalFuel, ih, hrel.checked]
           unfold exprResult
-          simp only [any_append, List.any_cons, List.any_nil, Bool.or_false]
+          simp only [any_append, failCode_append, List.any_cons, List.any_nil, Bool.or_false]
           by_cases hg : gs0.any (fun g => g.eval ρ != 0) = true
           · simp only [hg, Bool.true_or, ↓reduceIte]
             rfl
@@ -1281,7 +1376,33 @@ theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
               EvmCompiler.Simulation.Interaction.bind, liftM, monadLift, MonadLift.monadLift,
               WExpr.eval, apply_div _ _ hal hk hk0, SolI.ofExcept, BinOp.eval, hk0, if_false,
               Nat.mod_eq_of_lt hq]
-      · simp at h
+      · simp only [Option.some.injEq, Prod.mk.injEq] at h
+        obtain ⟨rfl, rfl⟩ := h
+        have hfl : Expr.orderFuel l < n := by simp [Expr.orderFuel] at hf; omega
+        have hfr : Expr.orderFuel r < n := by simp [Expr.orderFuel] at hf; omega
+        have ihl := eval_erase ρ fields ctx rt S hrel l gl vl n hl hfl
+        have ihr := eval_erase ρ fields ctx rt S hrel r gr vr n hr hfr
+        have hal := vl.eval_lt ρ
+        have har := vr.eval_lt ρ
+        simp only [Expr.evalFuel, ihr, bind_exprResult, hrel.checked]
+        unfold exprResult
+        by_cases hgr : gr.any (fun g => g.eval ρ != 0) = true
+        · simp [hgr]
+        · simp only [hgr, Bool.false_eq_true, ↓reduceIte, ihl, bind_exprResult]
+          by_cases hgl : gl.any (fun g => g.eval ρ != 0) = true
+          · simp [hgl, hgr]
+          · simp only [hgl, Bool.false_eq_true, ↓reduceIte]
+            by_cases hb : vr.eval ρ = 0
+            · simp only [pure, EvmCompiler.Simulation.Interaction.pure, bind,
+                EvmCompiler.Simulation.Interaction.bind, liftM, monadLift, MonadLift.monadLift, hb,
+                apply_div_zero _ hal, SolI.ofExcept]
+              simp [hgl, hgr, divGuard, WExpr.eval, BinOp.eval, hb]
+            · have hq : vl.eval ρ / vr.eval ρ < wordSize :=
+                Nat.lt_of_le_of_lt (Nat.div_le_self _ _) hal
+              simp only [pure, EvmCompiler.Simulation.Interaction.pure, bind,
+                EvmCompiler.Simulation.Interaction.bind, liftM, monadLift, MonadLift.monadLift,
+                apply_div _ _ hal har hb, SolI.ofExcept]
+              simp [hgl, hgr, divGuard, WExpr.eval, BinOp.eval, hb, Nat.mod_eq_of_lt hq]
     cases hl : eraseExpr fields S l with
     | none => cases op <;> first | exact absurd rfl hdiv | simp [eraseExpr, hl, binOf, negOf] at h
     | some pl =>
@@ -1311,9 +1432,9 @@ theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
       · simp [hgr, any_append]
       · simp only [hgr, Bool.false_eq_true, ↓reduceIte, ihl, bind_exprResult]
         by_cases hgl : gl.any (fun g => g.eval ρ != 0) = true
-        · simp [hgl, any_append]
+        · simp [hgl, hgr, any_append]
         · simp only [hgl, Bool.false_eq_true, ↓reduceIte]
-          simp only [any_append, hgl, hgr, Bool.false_or, List.any_cons, List.any_nil,
+          simp only [any_append, ordered_any, hgl, hgr, Bool.false_or, List.any_cons, List.any_nil,
             Bool.or_false, guard_add, guard_sub, guard_mul]
           simp only [pure, EvmCompiler.Simulation.Interaction.pure, bind,
             EvmCompiler.Simulation.Interaction.bind, liftM, monadLift, MonadLift.monadLift,
@@ -1325,6 +1446,8 @@ theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
           all_goals first
             | exact add_wrap_lt hal har (by assumption)
             | exact add_nowrap_le (by assumption)
+            | (have := add_wrap_lt hal har (by assumption); omega)
+            | (split <;> simp_all <;> first | omega | (have := add_wrap_lt hal har (by assumption); omega))
             | (split <;> simp_all <;> omega)
             | (split <;> simp_all)
   | unary op e =>
@@ -1495,13 +1618,14 @@ theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
           simp only [Expr.hasStorageRoot, ↓reduceIte, Expr.resolveLValueFuel, ih1, bind_exprResult]
           unfold exprResult
           by_cases hg1 : g1.any (fun g => g.eval ρ != 0) = true
-          · simp only [hg1, any_append, Bool.true_or, ↓reduceIte]
+          · simp only [hg1, any_append, failCode_append, Bool.true_or, ↓reduceIte]
             rfl
           · simp only [hg1, Bool.false_eq_true, ↓reduceIte, bind_done_ok', pure,
               EvmCompiler.Simulation.Interaction.pure, ResolvedLValue.asStoragePath?, ih2,
               bind_exprResult]
             by_cases hg2 : g2.any (fun g => g.eval ρ != 0) = true
-            · simp only [hg2, any_append, Bool.or_true, ↓reduceIte]
+            · simp only [hg2, hg1, any_append, failCode_append, Bool.or_true, ↓reduceIte,
+                Bool.false_eq_true]
             · simp only [hg2, Bool.false_eq_true, ↓reduceIte, any_append, hg1, Bool.false_or,
                 List.cons_append, List.nil_append]
               obtain ⟨f, hf, rfl⟩ := map2Of?_spec hrel.fields hk

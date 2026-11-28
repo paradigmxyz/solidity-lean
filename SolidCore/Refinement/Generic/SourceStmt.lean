@@ -58,16 +58,16 @@ def Br.eval (ρ : Val) : Br → Leaf
 
 /-- Revert with `Panic(0x11)` when one of the overflow conditions holds, else go on. -/
 def guards (gs : List WExpr) (rest : Br) : Br :=
-  gs.foldr (fun g acc => .ite g (.leaf (.reverted (.panic 0x11))) acc) rest
+  gs.foldr (fun g acc => .ite g (.leaf (.reverted (.panic (codeOf g)))) acc) rest
 
 theorem guards_eval (ρ : Val) (gs : List WExpr) (rest : Br) :
     (guards gs rest).eval ρ =
-      if gs.any (fun g => g.eval ρ != 0) then .reverted (.panic 0x11) else rest.eval ρ := by
+      if gs.any (fun g => g.eval ρ != 0) then .reverted (.panic (failCode ρ gs)) else rest.eval ρ := by
   induction gs with
   | nil => rfl
   | cons g gs ih =>
     simp only [guards, List.foldr_cons] at ih ⊢
-    simp only [Br.eval, ih, List.any_cons]
+    simp only [Br.eval, ih, List.any_cons, failCode]
     by_cases h : g.eval ρ = 0 <;> simp [h]
 
 /-- A leaf with `f` applied to its state, if it has one. -/
@@ -976,16 +976,17 @@ def LeafRel (ρ : Val) (E : EraseEnv) (ctx : Context) : Result → Leaf → Prop
 local macro "guard_cases " h:ident " : " c:term : tactic => `(tactic|
   (by_cases $h:ident : $c = true
    focus
-     simp only [$h:ident, ↓reduceIte, Bool.true_or, Bool.or_true, Bool.or_assoc]
+     simp only [$h:ident, ↓reduceIte, Bool.true_or, Bool.or_true, Bool.or_assoc, failCode_append,
+       List.any_append, failCode_overflow]
      first
        | exact ⟨_, rfl, rfl⟩
-       | exact ⟨.reverted _ (.panic 0x11), by split <;> (try split) <;> first | rfl | simp_all, rfl⟩
+       | exact ⟨.reverted _ (.panic _), by split <;> (try split) <;> first | rfl | simp_all, rfl⟩
    simp only [$h:ident, Bool.false_eq_true, ↓reduceIte, Bool.false_or, Bool.or_false,
-     Bool.or_assoc]))
+     Bool.or_assoc, failCode_append, List.any_append]))
 
 theorem caught_exprResult (ρ : Val) (gs : List WExpr) (v : WExpr) (rt : Runtime) :
     (exprResult ρ gs v rt).caught =
-      .done (.ok (if gs.any (fun g => g.eval ρ != 0) then .error (.panic 0x11)
+      .done (.ok (if gs.any (fun g => g.eval ρ != 0) then .error (.panic (failCode ρ gs))
         else .ok (.word (v.eval ρ), rt))) := by
   unfold exprResult
   split <;> rfl
@@ -1132,6 +1133,15 @@ theorem apply_erased (ρ : Val) {op : BinaryOp} {o : BinOp} (ho : binOf op = som
     List.any_nil, Bool.false_eq_true, ↓reduceIte, WExpr.eval, BinOp.eval]
   all_goals split_ifs <;> rfl
 
+theorem failCode_cleanup (ρ : Val) {b : Nat} {w : WExpr} {cg : List WExpr}
+    (h : cleanupGuard b w = some cg) : failCode ρ cg = 0x11 := by
+  unfold cleanupGuard at h
+  split at h
+  · simp only [Option.some.injEq] at h; subst h; rfl
+  · split at h
+    · simp only [Option.some.injEq] at h; subst h; simp
+    · simp at h
+
 theorem cleanupGuard_spec (ρ : Val) {b : Nat} {w : WExpr} {cg : List WExpr}
     (h : cleanupGuard b w = some cg) :
     0 < b ∧ b ≤ 256 ∧ cg.any (fun g => g.eval ρ != 0) = !decide (w.eval ρ < 2 ^ b) := by
@@ -1176,7 +1186,7 @@ theorem eval_wordList (ρ : Val) (fields : List StorageField) (S : SymState) (rt
     ∀ (es : List Expr) (gs vs : List WExpr) (fuel : Nat), eraseExprs fields S es = some (gs, vs) →
       Expr.listEvalFuel es ≤ fuel →
       F fuel rt es =
-        if gs.any (fun g => g.eval ρ != 0) then .done (.error (.revert (.panic 0x11)))
+        if gs.any (fun g => g.eval ρ != 0) then .done (.error (.revert (.panic (failCode ρ gs))))
         else .done (.ok (vs.map (fun e => Value.word (e.eval ρ)), rt)) := by
   intro es
   induction es with
@@ -1197,7 +1207,7 @@ theorem eval_wordList (ρ : Val) (fields : List StorageField) (S : SymState) (rt
     rw [hF, hstep n e g v he (by omega), bind_exprResult, List.any_append]
     by_cases h1 : g.any (fun g => g.eval ρ != 0) = true
     · simp [h1]
-    · simp only [h1, Bool.false_eq_true, ↓reduceIte, Bool.false_or]
+    · simp only [h1, Bool.false_eq_true, ↓reduceIte, Bool.false_or, failCode_append]
       rw [ih gs' vs' n hes (by omega)]
       by_cases h2 : gs'.any (fun g => g.eval ρ != 0) = true <;> simp [h2] <;> rfl
 
@@ -1215,7 +1225,7 @@ theorem eval_returnList (ρ : Val) (fields : List StorageField) (ctx : Context) 
     (S : SymState) (hrel : ExprRel ρ fields ctx rt S) {es : List Expr} {gs vs : List WExpr}
     (h : eraseExprs fields S es = some (gs, vs)) :
     Expr.evalReturnList ctx rt es =
-      if gs.any (fun g => g.eval ρ != 0) then .done (.error (.revert (.panic 0x11)))
+      if gs.any (fun g => g.eval ρ != 0) then .done (.error (.revert (.panic (failCode ρ gs))))
       else .done (.ok (vs.map (fun e => Value.word (e.eval ρ)), rt)) :=
   eval_wordList ρ fields S rt (Expr.evalReturnListFuel · ctx) (fun _ => Expr.evalReturnValue ctx rt)
     (fun _ _ _ => by simp only [Expr.evalReturnListFuel]) (fun _ => by simp only [Expr.evalReturnListFuel])
@@ -1255,7 +1265,7 @@ theorem eval_compound (ρ : Val) (E : EraseEnv) (ctx : Context) (rt : Runtime) (
     {wr : WExpr → Runtime} {S' : WExpr → SymState}
     (hv : eraseExpr E.fields S rhs = some (gs, v))
     (hres : ∀ F, target.orderFuel < F → Expr.resolveLValueFuel F ctx rt target =
-      if gi.any (fun g => g.eval ρ != 0) then .done (.error (.revert (.panic 0x11)))
+      if gi.any (fun g => g.eval ρ != 0) then .done (.error (.revert (.panic (failCode ρ gi))))
       else .done (.ok (lv, rt)))
     (ho : binOf op = some o) (hcg : cleanupGuard b (.bin o cur v) = some cg)
     (hrd : lv.read ctx rt = .ok (.word (cur.eval ρ)))
@@ -1290,7 +1300,7 @@ theorem eval_compound (ρ : Val) (E : EraseEnv) (ctx : Context) (rt : Runtime) (
   · simp only [hc, decide_true, Bool.not_true, Bool.false_eq_true, ↓reduceIte, bind_done_ok, hwr]
     exact ⟨_, rfl, hrelw _⟩
   · simp only [hc, decide_false, Bool.not_false, ↓reduceIte]
-    exact ⟨_, rfl, rfl⟩
+    exact ⟨_, rfl, by simp only [failCode_cleanup ρ hcg]; rfl⟩
 
 /-- A compound assignment to a mapping's entry, `m[i] op= rhs` with a `uint b` cleanup: the
 right side's and the key's overflow conditions, the operation's, the cleanup's range check, then
@@ -1422,7 +1432,7 @@ theorem resolve_storageIndex (ρ : Val) (fields : List StorageField) (ctx : Cont
     (S : SymState) (hrel : ExprRel ρ fields ctx rt S) (x : String) {i : Expr} {gi : List WExpr}
     {key : WExpr} (hi : eraseExpr fields S i = some (gi, key)) :
     (LValue.resolveWithRuntime (.storageIndex x i) ctx rt).caught =
-      .done (.ok (if gi.any (fun g => g.eval ρ != 0) then .error (.panic 0x11)
+      .done (.ok (if gi.any (fun g => g.eval ρ != 0) then .error (.panic (failCode ρ gi))
         else .ok (.storageIndex x (.word (key.eval ρ)), rt))) := by
   simp only [LValue.resolveWithRuntime, Expr.resolveLValue, LValue.toExpr, Expr.storageIndex,
     Expr.orderFuel, Expr.listEvalFuel]
@@ -1438,7 +1448,7 @@ theorem resolve_index2 (ρ : Val) (fields : List StorageField) (ctx : Context) (
     {g1 g2 : List WExpr} {k1 k2 : WExpr} (h1 : eraseExpr fields S i1 = some (g1, k1))
     (h2 : eraseExpr fields S i2 = some (g2, k2)) :
     (LValue.resolveWithRuntime (.index (.storageIndex x i1) i2) ctx rt).caught =
-      .done (.ok (if (g1 ++ g2).any (fun g => g.eval ρ != 0) then .error (.panic 0x11)
+      .done (.ok (if (g1 ++ g2).any (fun g => g.eval ρ != 0) then .error (.panic (failCode ρ (g1 ++ g2)))
         else .ok (.storagePath x [.word (k1.eval ρ), .word (k2.eval ρ)], rt))) := by
   simp only [LValue.resolveWithRuntime, Expr.resolveLValue, LValue.toExpr, Expr.storageIndex,
     Expr.orderFuel, Expr.listEvalFuel]
@@ -1446,13 +1456,13 @@ theorem resolve_index2 (ρ : Val) (fields : List StorageField) (ctx : Context) (
   rw [Expr.resolveLValueFuel]
   rw [eval_erase ρ fields ctx rt S hrel i1 g1 k1 _ h1 (by omega), bind_exprResult]
   by_cases hg1 : g1.any (fun g => g.eval ρ != 0) = true
-  · simp only [hg1, any_append, Bool.true_or, ↓reduceIte]
+  · simp only [hg1, any_append, failCode_append, Bool.true_or, ↓reduceIte]
     rfl
   · simp only [hg1, Bool.false_eq_true, ↓reduceIte, bind_done_ok, pure,
       EvmCompiler.Simulation.Interaction.pure]
     rw [eval_erase ρ fields ctx rt S hrel i2 g2 k2 _ h2 (by omega), bind_exprResult]
     by_cases hg2 : g2.any (fun g => g.eval ρ != 0) = true
-    · simp only [hg2, any_append, Bool.or_true, ↓reduceIte]
+    · simp only [hg2, hg1, any_append, failCode_append, Bool.or_true, ↓reduceIte, Bool.false_eq_true]
       rfl
     · simp only [hg2, any_append, hg1, Bool.or_false, Bool.false_eq_true, ↓reduceIte]
       rfl
@@ -1461,7 +1471,7 @@ theorem eval_exprList (ρ : Val) (fields : List StorageField) (ctx : Context) (r
     (S : SymState) (hrel : ExprRel ρ fields ctx rt S) {es : List Expr} {gs vs : List WExpr}
     (h : eraseExprs fields S es = some (gs, vs)) :
     Expr.evalList ctx rt es =
-      if gs.any (fun g => g.eval ρ != 0) then .done (.error (.revert (.panic 0x11)))
+      if gs.any (fun g => g.eval ρ != 0) then .done (.error (.revert (.panic (failCode ρ gs))))
       else .done (.ok (vs.map (fun e => Value.word (e.eval ρ)), rt)) :=
   eval_wordList ρ fields S rt (Expr.evalListFuel · ctx) (Expr.evalFuel · ctx rt)
     (fun _ _ _ => by simp only [Expr.evalListFuel]) (fun _ => by simp only [Expr.evalListFuel])
@@ -1559,7 +1569,7 @@ theorem eval_refArgs (ρ : Val) (fields : List StorageField) (ctx : Context) (rt
     (S : SymState) (hrel : ExprRel ρ fields ctx rt S) {es : List Expr} {gs vs : List WExpr}
     (h : eraseExprs fields S es = some (gs, vs)) :
     Expr.evalRefArgList ctx rt es =
-      if gs.any (fun g => g.eval ρ != 0) then .done (.error (.revert (.panic 0x11)))
+      if gs.any (fun g => g.eval ρ != 0) then .done (.error (.revert (.panic (failCode ρ gs))))
       else .done (.ok (vs.map (fun e => Value.word (e.eval ρ)), rt)) :=
   eval_wordList ρ fields S rt (Expr.evalRefArgListFuel · ctx) (fun _ => Expr.evalRefArg ctx rt)
     (fun _ _ _ => by simp only [Expr.evalRefArgListFuel]) (fun _ => by simp only [Expr.evalRefArgListFuel])
@@ -1984,7 +1994,7 @@ theorem eval_incDec (ρ : Val) (E : EraseEnv) (ctx : Context) (rt : Runtime) (S 
     {gi cg : List WExpr} {cur : WExpr} {o : BinOp} {lv : ResolvedLValue}
     {wr : WExpr → Runtime} {S' : WExpr → SymState}
     (hres : ∀ F, target.orderFuel < F → Expr.resolveLValueFuel F ctx rt target =
-      if gi.any (fun g => g.eval ρ != 0) then .done (.error (.revert (.panic 0x11)))
+      if gi.any (fun g => g.eval ρ != 0) then .done (.error (.revert (.panic (failCode ρ gi))))
       else .done (.ok (lv, rt)))
     (ho : binOf op = some o) (hcg : cleanupGuard b (.bin o cur (.lit 1)) = some cg)
     (hrd : lv.read ctx rt = .ok (.word (cur.eval ρ)))
@@ -2019,7 +2029,7 @@ theorem eval_incDec (ρ : Val) (E : EraseEnv) (ctx : Context) (rt : Runtime) (S 
   · simp only [hc, decide_true, Bool.not_true, Bool.false_eq_true, ↓reduceIte, hwr]
     cases ret <;> exact ⟨_, rfl, hrelw _⟩
   · simp only [hc, decide_false, Bool.not_false, ↓reduceIte]
-    exact ⟨_, rfl, rfl⟩
+    exact ⟨_, rfl, by simp only [failCode_cleanup ρ hcg]; rfl⟩
 
 theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
     ∀ n s S b, eraseStmt E n s S = some b → ∀ rt, StmtRel ρ E ctx rt S →

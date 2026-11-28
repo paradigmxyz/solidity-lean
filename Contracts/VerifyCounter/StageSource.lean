@@ -162,6 +162,8 @@ theorem mir_eq (o : Oracle) {c : SolidCore.Solidity.TypeCheck.CheckedContract} (
     subst hh
     simp only [leafTree, Option.some.injEq] at hT'
     subst hT'
+    rw [show failCode ρ [ovf] = 0x11 from
+      failCode_of_codes ρ (fun g hg => by simp only [List.mem_singleton] at hg; subst hg; rfl)]
     simp only [observe, Tree.eval, Res.obs, Bool.false_eq_true, ↓reduceIte, panic_out]
     rfl
   rw [if_neg hg] at hT'
