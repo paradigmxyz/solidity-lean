@@ -4247,6 +4247,23 @@ termination_by expr => sizeOf expr
 decreasing_by
   all_goals simp_wf <;> omega
 
+
+/-- LITERAL-BASE-WIDE-TYPE: the type of `lit ** e`, `lit << e`, `lit >> e` and `lit >>> e` for an
+untyped number literal `lit` and a NON-literal right operand. Since Solidity 0.7.0 such an
+operation is computed in `uint256`, or `int256` for a negative literal — not in the literal's
+mobile type (solc 0.8.35 types `4 ** k`, `uint8 k`, as `uint256`, its base `int_const 4` as
+`uint256`). `none` for any other operator or operand shape, so callers keep their own rule. -/
+def Expr.literalBaseWideTy? (op : BinaryOp) (lhs rhs : Expr) : Option Ty :=
+  match op with
+  | BinaryOp.exp | BinaryOp.shl | BinaryOp.shr | BinaryOp.sar =>
+      if Expr.isRawNumberLiteralExpression lhs && !Expr.isRawNumberLiteralExpression rhs then
+        match Expr.untypedLiteralMobileTy? lhs with
+        | some (Ty.int _) => some (Ty.int 256)
+        | some (Ty.uint _) => some (Ty.uint 256)
+        | _ => none
+      else none
+  | _ => none
+
 def Expr.toCoreNumericLiteralAs? (ty : Ty) (expr : Expr) :
     Option CoreExpr := do
   let value ← Expr.numberLiteralInt? expr
@@ -6058,12 +6075,15 @@ def Expr.abiTy? (storageNames : List Name) : Expr -> Option Ty
   | Expr.unary UnaryOp.logicalNot _ => some Ty.bool
   | Expr.unary UnaryOp.bitNot expr => Expr.abiTy? storageNames expr
   | Expr.unary UnaryOp.neg expr => Expr.abiTy? storageNames expr
-  | Expr.binary op lhs _ =>
+  | Expr.binary op lhs rhs =>
       match op with
       | BinaryOp.lt | BinaryOp.gt | BinaryOp.le | BinaryOp.ge
       | BinaryOp.eq | BinaryOp.ne | BinaryOp.boolAnd | BinaryOp.boolOr =>
           some Ty.bool
-      | _ => Expr.abiTy? storageNames lhs
+      | _ =>
+          match Expr.literalBaseWideTy? op lhs rhs with
+          | some ty => some ty
+          | none => Expr.abiTy? storageNames lhs
   | expr@(Expr.ternary _ thenExpr elseExpr) =>
       -- A conditional of two untyped number literals carries the ternary's
       -- COMMON (mobile) type, not the then-branch's width nor `uint256`
@@ -7659,7 +7679,9 @@ def Expr.abiTyWithEnv? (env : TypeEnv) : Expr -> Option Ty
       | BinaryOp.eq | BinaryOp.ne
       | BinaryOp.boolAnd | BinaryOp.boolOr => some Ty.bool
       | BinaryOp.shl | BinaryOp.shr | BinaryOp.sar | BinaryOp.exp =>
-          Expr.abiTyWithEnv? env lhs
+          match Expr.literalBaseWideTy? op lhs rhs with
+          | some ty => some ty
+          | none => Expr.abiTyWithEnv? env lhs
       | _ => do
           let lhsTy ← Expr.abiTyWithEnv? env lhs
           let rhsTy ← Expr.abiTyWithEnv? env rhs

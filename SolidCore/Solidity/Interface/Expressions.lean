@@ -2427,6 +2427,13 @@ def Expr.annotateAbiFuel : Nat -> TypeEnv -> Expr -> Expr
             Expr.isDirectLiteral lhs || Expr.isRawNumberLiteralExpression lhs
           let rhsAdopts :=
             Expr.isDirectLiteral rhs || Expr.isRawNumberLiteralExpression rhs
+          -- LITERAL-BASE-WIDE-TYPE: a literal base of `**` or a literal left operand of a shift
+          -- with a non-literal right operand does not adopt the right operand's type (the two
+          -- operands of `**` and of a shift never share one); since Solidity 0.7.0 it is computed
+          -- in `uint256` (`int256` when negative), made explicit here.
+          match Expr.literalBaseWideTy? op lhs rhs with
+          | some wideTy => Expr.binary op (Expr.call (Expr.typeName wideTy) [Arg.positional lhs]) rhs
+          | none =>
           if rhsAdopts && !lhsAdopts then
             match Expr.abiTyWithEnv? env lhs with
             | some lhsTy =>
@@ -5782,14 +5789,17 @@ def Expr.abiTyWithInternalFunctionsEnv?
           Expr.abiTyWithInternalFunctionsEnv? functions freeFunctions env inner
       | Expr.assign lhs _ _ =>
           Expr.abiTyWithInternalFunctionsEnv? functions freeFunctions env lhs
-      | Expr.binary op lhs _ =>
+      | Expr.binary op lhs rhs =>
           match op with
           | BinaryOp.lt | BinaryOp.gt | BinaryOp.le | BinaryOp.ge
           | BinaryOp.eq | BinaryOp.ne
           | BinaryOp.boolAnd | BinaryOp.boolOr => some Ty.bool
           | _ =>
-              Expr.abiTyWithInternalFunctionsEnv?
-                functions freeFunctions env lhs
+              match Expr.literalBaseWideTy? op lhs rhs with
+              | some ty => some ty
+              | none =>
+                Expr.abiTyWithInternalFunctionsEnv?
+                  functions freeFunctions env lhs
       | Expr.ternary _ thenExpr elseExpr => do
           let thenTy ←
             Expr.abiTyWithInternalFunctionsEnv?

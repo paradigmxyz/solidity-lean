@@ -8711,7 +8711,10 @@ def checkExpr (env : CheckEnv) :
           else do
             lhsChecked.expectInteger
             rhsChecked.expectUnsignedInteger
-            Except.ok { source := expr, ty := lhsChecked.ty }
+            -- A literal base with a non-literal exponent is computed in uint256 (int256 when
+            -- negative) since 0.7.0, not in the literal's own type.
+            let ty := (Solidity.Executable.Expr.literalBaseWideTy? op lhs rhs).getD lhsChecked.ty
+            Except.ok { source := expr, ty := ty }
       | Solidity.BinaryOp.bitAnd
       | Solidity.BinaryOp.bitOr
       | Solidity.BinaryOp.bitXor =>
@@ -8724,7 +8727,8 @@ def checkExpr (env : CheckEnv) :
       | Solidity.BinaryOp.shr =>
           lhsChecked.expectShiftLeftOperand
           rhsChecked.expectUnsignedInteger
-          Except.ok { source := expr, ty := lhsChecked.ty }
+          let ty := (Solidity.Executable.Expr.literalBaseWideTy? op lhs rhs).getD lhsChecked.ty
+          Except.ok { source := expr, ty := ty }
       | Solidity.BinaryOp.sar =>
           lhsChecked.expectSignedInteger
           rhsChecked.expectUnsignedInteger
