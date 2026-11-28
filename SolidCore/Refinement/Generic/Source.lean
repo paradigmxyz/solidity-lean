@@ -168,11 +168,13 @@ def Scopes.get? : Scopes → String → Option WExpr
     | none => Scopes.get? rest x
 
 /-- How SolidCore holds a local's word: as a word (`uint256`, `address`, `bool`, an enum), as a
-signed word (`int256`) or as a `bytes32`. -/
+signed word (`int256`), as a `bytes32`, or as a storage pointer to the whole state variable
+`target` (`T storage p = a`), whose word the fragment keeps at 0 and never reads. -/
 inductive Tag where
   | word
   | int
   | bytes32
+  | sref (target : String)
   deriving DecidableEq, Repr
 
 /-- SolidCore's value of a local of tag `t` whose word is `v`. -/
@@ -180,6 +182,7 @@ def Tag.val : Tag → Nat → Value
   | .word, v => .word v
   | .int, v => .int v
   | .bytes32, v => .fixedBytes 32 v
+  | .sref t, _ => .storageRef t
 
 /-- The tags of a call's locals that SolidCore holds as other than words, by name. -/
 abbrev Tags := List (String × Tag)
@@ -207,6 +210,13 @@ structure SymState where
 /-- The word of the local `x` when the state holds it as a word: none for a typed local. -/
 def SymState.word? (S : SymState) (x : String) : Option WExpr :=
   if S.tags.get x = .word then Scopes.get? S.scopes x else none
+
+/-- The state variable the local `x` points to, when the state holds it as a storage pointer to a
+whole state variable. -/
+def SymState.ref? (S : SymState) (x : String) : Option String :=
+  match S.tags.get x with
+  | .sref t => (Scopes.get? S.scopes x).map fun _ => t
+  | _ => none
 
 /-- SolidCore's slot of a mapping's entry: Keccak-256 of the key's word and the mapping's slot,
 as `mappingStorageSlot slot key` computes it. -/
@@ -475,6 +485,14 @@ def eraseExpr (fields : List StorageField) (S : SymState) : Expr → Option (Lis
         let (gs, v) ← eraseExpr fields S idx
         let j ← litOf? v
         if gs = [] ∧ j < n then some ([], S.writes.read (.lit (k + j))) else none
+  -- `p[j]` of a storage pointer to a fixed-size array of words, at a constant index below its
+  -- length: the word of the slot `slot + j`, as `a[j]` reads it
+  | .index (.var p) idx => do
+    let t ← S.ref? p
+    let (k, n) ← arrOf? fields t
+    let (gs, v) ← eraseExpr fields S idx
+    let j ← litOf? v
+    if gs = [] ∧ j < n then some ([], S.writes.read (.lit (k + j))) else none
   | .index (.storageRead .element x [i1]) i2 => do
     let k ← map2Of? fields x
     let (g1, v1) ← eraseExpr fields S i1
@@ -839,6 +857,7 @@ structure ExprRel (ρ : Val) (fields : List StorageField) (ctx : Context) (rt : 
   ok : ρ.Ok
   locals : ∀ x e, S.word? x = some e → rt.lookupLocal? x = some (.word (e.eval ρ))
   store : ∀ k, k < wordSize → rt.state.loadSlot k = Writes.store ρ S.writes k
+  refs : ∀ x t, S.ref? x = some t → rt.lookupLocal? x = some (.storageRef t)
 
 /-- What SolidCore's evaluation of an erased expression gives: `Panic(0x11)` when one of its
 overflow conditions holds, and otherwise its word, with the runtime unchanged. -/
@@ -1915,6 +1934,41 @@ theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
         try rfl
   | index base i2 =>
     cases base
+    case var p =>
+      simp only [eraseExpr, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+      obtain ⟨t, ht, ⟨k, len⟩, ha, ⟨g2, v2⟩, h2, j, hj, h⟩ := h
+      split at h
+      · rename_i hc
+        obtain ⟨rfl, hjl⟩ := hc
+        simp only [Option.some.injEq, Prod.mk.injEq] at h
+        obtain ⟨rfl, rfl⟩ := h
+        obtain rfl : v2 = .lit j := by
+          cases v2 <;> simp only [litOf?, Option.some.injEq, reduceCtorEq] at hj
+          exact congrArg WExpr.lit hj
+        obtain ⟨f, hA, rfl⟩ := arrOf?_spec hrel.fields ha
+        have hfit : f.slot + len ≤ wordSize := hA.fits
+        have hsum : f.slot + j < wordSize := Nat.lt_of_lt_of_le (Nat.add_lt_add_left hjl _) hfit
+        have hjw : j < wordSize := Nat.lt_of_le_of_lt (Nat.le_add_left j f.slot) hsum
+        have hl : (WExpr.lit j).eval ρ = j := Nat.mod_eq_of_lt hjw
+        have hp := hrel.refs p t ht
+        have hbase : rt.lookupStorageBase? p = some (.field t) := by
+          simp [Runtime.lookupStorageBase?, hp]
+        have hfi : Expr.orderFuel i2 + 1 < n := by
+          simp only [Expr.orderFuel] at hf
+          omega
+        obtain ⟨m, rfl⟩ : ∃ m, n = m + 2 := ⟨n - 2, by omega⟩
+        have ih2 := eval_erase ρ fields ctx rt S hrel i2 [] (.lit j) (m + 1) h2 (by omega)
+        rw [Expr.evalFuel]
+        simp only [Expr.hasStorageRoot, Expr.hasStorageRefRoot, hbase, Option.isSome_some,
+          Bool.false_eq_true, ↓reduceIte, Expr.resolveLValueFuel]
+        simp only [pure, EvmCompiler.Simulation.Interaction.pure, bind_done_ok', ih2, exprResult,
+          List.any_nil, Bool.false_eq_true, ↓reduceIte, hl]
+        simp only [bind, EvmCompiler.Simulation.Interaction.bind, liftM, monadLift,
+          MonadLift.monadLift, SolI.ofExcept, ResolvedLValue.read, ResolvedLValue.readRaw,
+          loadIndex_arr hrel ha hjl, Except.bind, Runtime.derefMemoryValue]
+        rw [Writes.eval_read hrel.ok]
+        simp only [WExpr.eval, Nat.mod_eq_of_lt hsum]
+      · simp at h
     case storageRead m x idx =>
       cases m
       case element =>
