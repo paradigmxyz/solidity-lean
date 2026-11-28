@@ -641,21 +641,72 @@ theorem OByte.eval_simp {ρ : Val} {K : Facts} (h : K.Hold ρ) (b : OByte) :
       simp only [OByte.eval, ← he, WExpr.eval, Nat.mod_mod]
     · simp only [OByte.eval, he]
 
+/-- A branch word with every part the facts know to be zero replaced by `0` (a path fact
+substituted, as on the side of `ite a … …` where `a = 0`). -/
+def WExpr.zeroSub (K : Facts) (e : WExpr) : WExpr :=
+  if K.lookup e = some false then .lit 0 else
+  match e with
+  | .un op a => .un op (a.zeroSub K)
+  | .bin op a b =>
+    if (op = .and ∨ op = .mul) ∧ (a.zeroSub K = .lit 0 ∨ b.zeroSub K = .lit 0) then .lit 0
+    else .bin op (a.zeroSub K) (b.zeroSub K)
+  | e => e
+
+theorem WExpr.eval_zeroSub {ρ : Val} {K : Facts} (h : K.Hold ρ) (e : WExpr) :
+    (e.zeroSub K).eval ρ = e.eval ρ := by
+  induction e
+  case un op a ih =>
+    unfold WExpr.zeroSub
+    split
+    · rename_i hl
+      have := (Facts.lookup_sound h hl).mpr rfl
+      rw [this]; simp [WExpr.eval]
+    · simp only [WExpr.eval, ih]
+  case bin op a b iha ihb =>
+    unfold WExpr.zeroSub
+    split
+    · rename_i hl
+      have := (Facts.lookup_sound h hl).mpr rfl
+      rw [this]; simp [WExpr.eval]
+    · show WExpr.eval ρ (if (op = .and ∨ op = .mul) ∧ (a.zeroSub K = .lit 0 ∨ b.zeroSub K = .lit 0)
+          then .lit 0 else .bin op (a.zeroSub K) (b.zeroSub K)) = _
+      by_cases hz : (op = .and ∨ op = .mul) ∧ (a.zeroSub K = .lit 0 ∨ b.zeroSub K = .lit 0)
+      · rw [if_pos hz]
+        obtain ⟨hop, ha | hb⟩ := hz
+        · have h0 : a.eval ρ = 0 := by rw [← iha, ha]; rfl
+          rcases hop with rfl | rfl <;> simp [WExpr.eval, BinOp.eval, h0]
+        · have h0 : b.eval ρ = 0 := by rw [← ihb, hb]; rfl
+          rcases hop with rfl | rfl <;> simp [WExpr.eval, BinOp.eval, h0]
+      · rw [if_neg hz]
+        simp only [WExpr.eval, iha, ihb]
+  all_goals
+    unfold WExpr.zeroSub
+    split
+    · rename_i hl
+      have := (Facts.lookup_sound h hl).mpr rfl
+      rw [this]; simp [WExpr.eval]
+    · rfl
+
 /-- A tree simplified on the paths the facts hold on: every word simplified, a branch on a
-constant or on a word the facts decide takes its side, and each side of any other branch is
-simplified with its word's side as one more fact. -/
+constant or on a word the facts decide (after substituting the path's zero facts into it) takes its
+side, each side of any other branch is simplified with its word's side as one more fact, and a
+branch whose two sides come out the same is that side. -/
 def Tree.simp (K : Facts) : Tree → Tree
   | .halt ok out ws ls =>
     .halt ok (out.map (OByte.simp K)) (ws.mapW (WExpr.simp K))
       (ls.map (Log.mapL (WExpr.simp K) (OByte.simp K)))
   | .ite c t e =>
-    match (c.simp K).lit? with
+    let c' := (c.zeroSub K).simp K
+    match c'.lit? with
     | some n => if n % wordSize = 0 then e.simp K else t.simp K
     | none =>
-      match K.lookup (c.simp K) with
+      match K.lookup c' with
       | some true => t.simp K
       | some false => e.simp K
-      | none => .ite (c.simp K) (t.simp ((c.simp K, true) :: K)) (e.simp ((c.simp K, false) :: K))
+      | none =>
+        let t' := t.simp ((c', true) :: K)
+        let e' := e.simp ((c', false) :: K)
+        if t'.beq e' then t' else .ite c' t' e'
 
 theorem Tree.eval_simp {ρ : Val} : ∀ {K : Facts}, K.Hold ρ → ∀ T : Tree, (T.simp K).eval ρ = T.eval ρ
   | K, h, .halt ok out ws ls => by
@@ -667,7 +718,8 @@ theorem Tree.eval_simp {ρ : Val} : ∀ {K : Facts}, K.Hold ρ → ∀ T : Tree,
       funext l
       exact Log.eval_mapL ρ _ _ (WExpr.eval_simp h) (OByte.eval_simp h) l
   | K, h, .ite c t e => by
-    have hc := WExpr.eval_simp h c
+    have hc : ((c.zeroSub K).simp K).eval ρ = c.eval ρ := by
+      rw [WExpr.eval_simp h, WExpr.eval_zeroSub h]
     simp only [Tree.simp]
     split
     · rename_i n hn
@@ -688,12 +740,21 @@ theorem Tree.eval_simp {ρ : Val} : ∀ {K : Facts}, K.Hold ρ → ∀ T : Tree,
         simp only [Tree.eval, ← hc]
         rw [if_pos (by simpa using this)]
         exact Tree.eval_simp h e
-      · simp only [Tree.eval, hc]
-        split
-        · rename_i h0
-          exact Tree.eval_simp (h.cons (by simp [hc, h0])) e
-        · rename_i h0
-          exact Tree.eval_simp (h.cons (by simp [hc, h0])) t
+      · split
+        · rename_i hb
+          have heq := Tree.eq_of_beq hb
+          simp only [Tree.eval]
+          by_cases h0 : c.eval ρ = 0
+          · rw [if_pos h0, heq]
+            exact Tree.eval_simp (h.cons (by simp [hc, h0])) e
+          · rw [if_neg h0]
+            exact Tree.eval_simp (h.cons (by simp [hc, h0])) t
+        · simp only [Tree.eval, hc]
+          split
+          · rename_i h0
+            exact Tree.eval_simp (h.cons (by simp [hc, h0])) e
+          · rename_i h0
+            exact Tree.eval_simp (h.cons (by simp [hc, h0])) t
 
 /-! ## Negations -/
 
