@@ -680,9 +680,9 @@ lean_lib «uv2_sy» where
 -- instance. docs/GENERIC_INTERFACE.md, docs/SUPPORTED_ENVELOPE.md.
 lean_lib VerifyGeneric where
   roots := #[`Verify.Generic.Expected, `Verify.Generic.Certificate, `Verify.Generic.Compose, `Verify.Generic.VC,
-    `Verify.Generic.Instances.Counter]
+    `Verify.Generic.Instances.Counter, `Verify.Generic.ExpectedArgs]
   globs := #[.one `Verify.Generic.Expected, .one `Verify.Generic.Certificate, .one `Verify.Generic.Compose, .one `Verify.Generic.VC,
-    .one `Verify.Generic.Instances.Counter]
+    .one `Verify.Generic.Instances.Counter, .one `Verify.Generic.ExpectedArgs]
 
 
 -- UniswapV2ERC20.transfer restated as an instance of the generic expected theorem. Needs the
