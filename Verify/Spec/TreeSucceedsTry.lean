@@ -30,7 +30,7 @@ macro "tree_succeeds_try" "[" ds:Lean.Parser.Tactic.simpLemma,* "]" : tactic => 
       IsEmpty.forall_iff, implies_true, and_true, Nat.reducePow] at hargs) <;>
     (try simp (config := { maxSteps := 4000000 }) only [$ds,*, *, List.head, List.getElem_cons_zero, List.getElem_cons_succ, decodeWords,
       Ty.ofWord, bind, pure, Option.bind, Nat.reducePow] at hdec) <;>
-    (try split_ifs at hdec) <;> (try simp (config := { maxSteps := 4000000 }) only [Option.some.injEq, reduceCtorEq] at hdec) <;>
+    (try split_ifs at hdec) <;> (try simp (config := { maxSteps := 4000000 }) only [bind, pure, Option.bind, Option.some.injEq, reduceCtorEq] at hdec) <;>
     (try subst hdec)
   all_goals try simp (config := { maxSteps := 4000000 }) only [$ds,*, *, Tree.eval, WExpr.eval, BinOp.eval, UnOp.eval, Generic.wordSize,
     Res.obs, Writes.store, List.getD_cons_zero, List.getD_cons_succ, Nat.reducePow]

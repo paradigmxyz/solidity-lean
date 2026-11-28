@@ -197,8 +197,8 @@ def decodeArgs (ds : Lean.Syntax.TSepArray `Lean.Parser.Tactic.simpLemma ",") : 
       IsEmpty.forall_iff, implies_true, and_true, Nat.reducePow] at hargs),
     ← `(tactic| simp only [$ds,*, List.head, List.getElem_cons_zero, List.getElem_cons_succ, decodeWords, Ty.ofWord,
       bind, pure, Option.bind, Nat.reducePow] at hdec),
-    ← `(tactic| split_ifs at hdec),
-    ← `(tactic| simp only [Option.some.injEq, reduceCtorEq] at hdec),
+    ← `(tactic| (try split_ifs at hdec)),
+    ← `(tactic| (try simp only [bind, pure, Option.bind, Option.some.injEq, reduceCtorEq] at hdec)),
     ← `(tactic| subst hdec)]
 
 /-- The links after the decoding that take the separation lemmas `hinj := inj` and `hge := ge`,

@@ -239,7 +239,7 @@ def treeMeetsStepsWith (ds : Lean.Syntax.TSepArray `Lean.Parser.Tactic.simpLemma
       Ty.ofWord, wordMod, Nat.reduceSub, Nat.reducePow, hargs, ite_true, and_true, bind, pure, Option.bind,
       Option.some.injEq] at hdec),
     ← `(tactic| (try split_ifs at hdec)),
-    ← `(tactic| (try simp only [Option.some.injEq, reduceCtorEq] at hdec)),
+    ← `(tactic| (try simp only [bind, pure, Option.bind, Option.some.injEq, reduceCtorEq] at hdec)),
     ← `(tactic| subst hdec),
     ← `(tactic| refine ⟨fun hsucc => ?_, fun hne => ?_⟩),
     ← `(tactic| first
