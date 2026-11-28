@@ -55,6 +55,7 @@ def paramWidthT (p : BindingDecl) (c : AbiCleanup) : Option Nat :=
     | .int256, .int 256 => some (2 ^ 256 - 1)
     | .int256, .int b => if 0 < b ∧ b < 256 then some (wordSize + b) else none
     | .fixedBytes 32, .none => some (2 ^ 256 - 1)
+    | .tuple [.uint256], .tuple [.uint 256] => some (2 ^ 256 - 1)
     | _, _ => none
 
 /-- The tag SolidCore holds a parameter of type `ty` by: a signed word for an `int256`, a
@@ -62,6 +63,7 @@ def paramWidthT (p : BindingDecl) (c : AbiCleanup) : Option Nat :=
 def tagOf : Ty → Tag
   | .int256 => .int
   | .fixedBytes 32 => .bytes32
+  | .tuple [.uint256] => .tup1
   | _ => .word
 
 /-- The tags of the parameters SolidCore holds as typed values, by name. -/
@@ -161,6 +163,7 @@ def retOkT (K : Facts) (ty : Ty) : Tag → WExpr → Bool
   | .sref _, _ => false
   | .sptr _, _ => false
   | .mref, _ => false
+  | .tup1, _ => false
 
 /-- Every returned word is one SolidCore's encoder takes for its return's type. -/
 def retsOk (K : Facts) : List BindingDecl → List WExpr → Bool

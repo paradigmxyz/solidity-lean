@@ -188,10 +188,10 @@ theorem deployed_run_entry_at (a : Nat) {e : WExpr} {fuel : Nat} {ws0 : List Nat
   have hKρ : K.Hold ρ := argFacts_hold ρ hargs ws 0 (by simpa [hρ] using hclean)
   set E : EraseEnv := { envOf c.core with facts := K } with hE
   have htg := tagsOk_spec htags
-  have hframe : fn.initialFrame? (args.map .word) =
+  have hframe : fn.initialFrame? (argVals (fn.params.map BindingDecl.ty) args) =
       some (frameOfT ρ (fnTags fn)
         (paramLocals fn.params 0 ++ fn.returns.map fun r => (r.name, .lit 0))) := by
-    have h0 : BindingDecl.bindArgs? fn.params (args.map .word) =
+    have h0 : BindingDecl.bindArgs? fn.params (argVals (fn.params.map BindingDecl.ty) args) =
         some (frameOfT ρ (fnTags fn) (paramLocals fn.params 0)) :=
       bindArgs_clean ρ hargs (fnTags fn) fn.params fn.paramAbiCleanups ws 0 hw
         (by simpa [hρ] using hclean) (by simp [hρ, hlen]) htg.1
@@ -230,7 +230,7 @@ theorem deployed_run_entry_at (a : Nat) {e : WExpr} {fuel : Nat} {ws0 : List Nat
       mem := fun _ _ hl => by simp [initState] at hl
       next := fun k hk => by simp only [initState, Option.some.injEq] at hk; subst hk; rfl }
   obtain ⟨r, hrun, hleaf⟩ := hb ρ ctx _ hrel
-  have hcall : fn.call? fuel c.core.table ctx st0 (args.map .word) =
+  have hcall : fn.call? fuel c.core.table ctx st0 (argVals (fn.params.map BindingDecl.ty) args) =
       some (fn.callBodyResult st0 r) := by
     have hacc' : fn.acceptsValue ctx.value = true := hctxv ▸ hacc
     simp only [FunctionDef.call?, FunctionDef.call, FunctionDef.evalBodyEntry, hacc', hframe,

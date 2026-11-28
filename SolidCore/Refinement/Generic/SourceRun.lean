@@ -42,12 +42,13 @@ def envOf (core : Contract) : EraseEnv :=
 
 /-- A parameter type of the fragment: a word, a signed word or a `bytes32`. -/
 abbrev ParamTy (ty : Source.Ty) : Prop :=
-  ty = .uint256 ∨ ty = .address ∨ ty = .bool ∨ ty = .int256 ∨ ty = .fixedBytes 32
+  ty = .uint256 ∨ ty = .address ∨ ty = .bool ∨ ty = .int256 ∨ ty = .fixedBytes 32 ∨
+    ty = .tuple [.uint256]
 
 /-- An ABI cleanup of a parameter of the fragment. -/
 abbrev ParamCleanup (c : AbiCleanup) : Prop :=
   c = .none ∨ (∃ b, c = .uint b ∧ 0 < b ∧ b ≤ 256) ∨ (∃ m, c = .enum m ∧ m < wordSize) ∨ c = .int 256 ∨
-    (∃ b, c = .int b ∧ 0 < b ∧ b < 256)
+    (∃ b, c = .int b ∧ 0 < b ∧ b < 256) ∨ c = .tuple [.uint 256]
 
 theorem paramWidth_spec {p : BindingDecl} {c : AbiCleanup} {w : Nat} (h : paramWidthT p c = some w) :
     p.isStorageRef = false ∧ ((w < wordSize ∧
@@ -56,7 +57,8 @@ theorem paramWidth_spec {p : BindingDecl} {c : AbiCleanup} {w : Nat} (h : paramW
         (p.ty = .address ∧ c = .none ∧ w = 2 ^ 160 - 1) ∨
         (p.ty = .bool ∧ c = .none ∧ w = 1) ∨
         (p.ty = .int256 ∧ c = .int 256 ∧ w = 2 ^ 256 - 1) ∨
-        (p.ty = .fixedBytes 32 ∧ c = .none ∧ w = 2 ^ 256 - 1))) ∨
+        (p.ty = .fixedBytes 32 ∧ c = .none ∧ w = 2 ^ 256 - 1) ∨
+        (p.ty = .tuple [.uint256] ∧ c = .tuple [.uint 256] ∧ w = 2 ^ 256 - 1))) ∨
       (p.ty = .int256 ∧ ∃ b, c = .int b ∧ 0 < b ∧ b < 256 ∧ w = wordSize + b)) := by
   unfold paramWidthT at h
   split at h
@@ -100,7 +102,11 @@ theorem paramWidth_spec {p : BindingDecl} {c : AbiCleanup} {w : Nat} (h : paramW
   · rename_i ht
     simp only [Option.some.injEq] at h
     subst h
-    exact ⟨hs', .inl ⟨by decide, .inr (.inr (.inr (.inr (.inr ⟨ht, rfl, rfl⟩))))⟩⟩
+    exact ⟨hs', .inl ⟨by decide, .inr (.inr (.inr (.inr (.inr (.inl ⟨ht, rfl, rfl⟩)))))⟩⟩
+  · rename_i ht
+    simp only [Option.some.injEq] at h
+    subst h
+    exact ⟨hs', .inl ⟨by decide, .inr (.inr (.inr (.inr (.inr (.inr ⟨ht, rfl, rfl⟩)))))⟩⟩
   · simp at h
 
 theorem paramWidth_ty {p : BindingDecl} {c : AbiCleanup} {w : Nat} (h : paramWidthT p c = some w) :
@@ -108,27 +114,29 @@ theorem paramWidth_ty {p : BindingDecl} {c : AbiCleanup} {w : Nat} (h : paramWid
   rcases (paramWidth_spec h).2 with ⟨-, hk⟩ | ⟨ht, -⟩
   swap
   · exact .inr (.inr (.inr (.inl ht)))
-  rcases hk with ⟨ht, -⟩ | ⟨ht, -⟩ | ⟨ht, -⟩ | ⟨ht, -⟩ | ⟨ht, -⟩ | ⟨ht, -⟩
+  rcases hk with ⟨ht, -⟩ | ⟨ht, -⟩ | ⟨ht, -⟩ | ⟨ht, -⟩ | ⟨ht, -⟩ | ⟨ht, -⟩ | ⟨ht, -⟩
   · exact .inl ht
   · exact .inl ht
   · exact .inr (.inl ht)
   · exact .inr (.inr (.inl ht))
   · exact .inr (.inr (.inr (.inl ht)))
-  · exact .inr (.inr (.inr (.inr ht)))
+  · exact .inr (.inr (.inr (.inr (.inl ht))))
+  · exact .inr (.inr (.inr (.inr (.inr ht))))
 
 theorem paramWidth_cleanup {p : BindingDecl} {c : AbiCleanup} {w : Nat} (h : paramWidthT p c = some w) :
     ParamCleanup c := by
   rcases (paramWidth_spec h).2 with ⟨hw, hk⟩ | ⟨-, b, hc, hb0, hb, -⟩
   swap
-  · exact .inr (.inr (.inr (.inr ⟨b, hc, hb0, hb⟩)))
+  · exact .inr (.inr (.inr (.inr (.inl ⟨b, hc, hb0, hb⟩))))
   rcases hk with ⟨-, b, hc, hb0, hb, -⟩ | ⟨-, hc⟩ | ⟨-, hc, -⟩ | ⟨-, hc, -⟩ |
-      ⟨-, hc, -⟩ | ⟨-, hc, -⟩
+      ⟨-, hc, -⟩ | ⟨-, hc, -⟩ | ⟨-, hc, -⟩
   · exact .inr (.inl ⟨b, hc, hb0, hb⟩)
   · exact .inr (.inr (.inl ⟨w, hc, hw⟩))
   · exact .inl hc
   · exact .inl hc
   · exact .inr (.inr (.inr (.inl hc)))
   · exact .inl hc
+  · exact .inr (.inr (.inr (.inr (.inr hc))))
 
 theorem widthsOf_spec : ∀ {ps : List BindingDecl} {cs : List AbiCleanup} {ws : List Nat},
     widthsOfT ps cs = some ws →
@@ -171,6 +179,38 @@ theorem tyVals_length : ∀ (tys : List Source.Ty) (as : List Nat), tys.length =
   | [], [], _ => rfl
   | _ :: tys, _ :: as, h => by simp [tyVals, tyVals_length tys as (by simpa using h)]
   | [], _ :: _, h | _ :: _, [], h => by simp at h
+
+/-- SolidCore's decoder's value of an argument word, before the lazy cleanups: a calldata struct
+of one word is the tuple of that word. -/
+def rawVal (ty : Source.Ty) (a : Nat) : Value :=
+  if tagOf ty = .tup1 then .tuple [.word a] else (tagOf ty).val a
+
+/-- SolidCore's decoder's values of argument words, before the lazy cleanups. -/
+def tyValsRaw : List Source.Ty → List Nat → List Value
+  | ty :: tys, a :: as => rawVal ty a :: tyValsRaw tys as
+  | _, _ => []
+
+/-- The value a call's parameter binds as its word does: the word, or for a calldata struct of one
+word, its lazily checked tuple (which no word coerces to). -/
+def argVal (ty : Source.Ty) (a : Nat) : Value :=
+  if tagOf ty = .tup1 then Tag.tup1.val a else .word a
+
+/-- The values the parameters bind as their words do. -/
+def argVals : List Source.Ty → List Nat → List Value
+  | ty :: tys, a :: as => argVal ty a :: argVals tys as
+  | _, _ => []
+
+theorem argVals_words : ∀ {tys : List Source.Ty} {as : List Nat}, (∀ ty ∈ tys, tagOf ty = .word) →
+    argVals tys as = (as.take tys.length).map .word
+  | [], _, _ => by simp [argVals]
+  | _ :: _, [], _ => by simp [argVals]
+  | ty :: tys, a :: as, h => by
+    simp only [argVals, argVal, h ty List.mem_cons_self, reduceCtorEq, ↓reduceIte, List.length_cons,
+      List.take_succ_cons, List.map_cons, argVals_words (fun t ht => h t (List.mem_cons_of_mem _ ht))]
+
+theorem argVals_words' {tys : List Source.Ty} {as : List Nat} (h : ∀ ty ∈ tys, tagOf ty = .word)
+    (hl : as.length = tys.length) : argVals tys as = as.map .word := by
+  rw [argVals_words h, ← hl, List.take_length]
 
 theorem paramWidth_T {p : BindingDecl} {c : AbiCleanup} {w : Nat} (h : paramWidth p c = some w) :
     paramWidthT p c = some w ∧ tagOf p.ty = .word := by
@@ -283,8 +323,21 @@ def argsClean : List Nat → List Nat → Bool
 
 theorem headWords_word {ty : Source.Ty} (h : ParamTy ty) :
     ABI.Ty.abiHeadWords? ty = some 1 := by
-  rcases h with rfl | rfl | rfl | rfl | rfl <;>
-    simp [ABI.Ty.abiHeadWords?, ABI.Ty.isDynamicAbi, ABI.Ty.staticAbiHeadWords?]
+  rcases h with rfl | rfl | rfl | rfl | rfl | rfl <;>
+    simp [ABI.Ty.abiHeadWords?, ABI.Ty.isDynamicAbi, ABI.Ty.staticAbiHeadWords?,
+      ABI.Ty.listHasDynamicAbi, ABI.Ty.listStaticAbiHeadWords?]
+
+/-- SolidCore decodes a calldata struct of one word at a head word as the tuple of that word. -/
+theorem decode_tuple1 (args : List Nat) (hargs : ∀ a ∈ args, a < wordSize) {i : Nat}
+    (hi : i < args.length) (lazy : Bool) :
+    ABI.decodeValueAt? lazy (Dirty.argBytes args) i (.tuple [.uint256]) =
+      .ok (.tuple [.word args[i]]) := by
+  have hr := Dirty.readWord_argBytes args hargs i hi
+  have hb := Abi.readBytes_argBytes args i hi
+  simp [ABI.decodeValueAt?, ABI.Ty.abiDecodeFuel, ABI.Ty.listAbiDecodeFuel, ABI.decodeValueAtWithFuel?,
+    ABI.Ty.listHasDynamicAbi, ABI.Ty.isDynamicAbi, ABI.Ty.listAbiHeadWords?, ABI.Ty.abiHeadWords?,
+    ABI.Ty.staticAbiHeadWords?, ABI.decodeValueList?, ABI.wordBytes, hr, hb, ABI.abiArgOpt, bind,
+    Except.bind, pure, Except.pure]
 
 theorem listHeadWords_words : ∀ (tys : List Source.Ty), (∀ t ∈ tys, ParamTy t) →
     ABI.Ty.listAbiHeadWords? tys = some tys.length
@@ -298,12 +351,12 @@ theorem decodeAux_words (args : List Nat) (hargs : ∀ a ∈ args, a < wordSize)
       idx + ps.length = args.length →
       ABI.decodeArgsAux? (Dirty.argBytes args) ps idx =
         if decodeCleanAll (ps.map Prod.snd) (args.drop idx) then
-          .ok (tyVals (ps.map Prod.snd) (args.drop idx))
+          .ok (tyValsRaw (ps.map Prod.snd) (args.drop idx))
         else .error .empty
   | [], idx, _, hlen => by
     simp only [List.length_nil, Nat.add_zero] at hlen
     subst hlen
-    simp [ABI.decodeArgsAux?, decodeCleanAll, tyVals]
+    simp [ABI.decodeArgsAux?, decodeCleanAll, tyValsRaw]
   | (lazy, ty) :: ps, idx, hps, hlen => by
     have hi : idx < args.length := by simp at hlen; omega
     have hr := Dirty.readWord_argBytes args hargs idx hi
@@ -312,17 +365,17 @@ theorem decodeAux_words (args : List Nat) (hargs : ∀ a ∈ args, a < wordSize)
     have hty : ParamTy ty := hps _ List.mem_cons_self
     have ha := hargs _ (List.getElem_mem hi)
     rw [List.drop_eq_getElem_cons hi]
-    rcases hty with rfl | rfl | rfl | rfl | rfl
+    rcases hty with rfl | rfl | rfl | rfl | rfl | rfl
     · simp only [ABI.decodeArgsAux?, ABI.decodeValueAt?, ABI.Ty.abiDecodeFuel,
         ABI.decodeValueAtWithFuel?, ABI.wordBytes, hr, ABI.abiArgOpt,
         headWords_word (Or.inl rfl), bind, Except.bind, pure, Except.pure, ih, List.map_cons,
-        decodeCleanAll, decodeClean, Bool.true_and, tyVals, tagOf, Tag.val]
+        decodeCleanAll, decodeClean, Bool.true_and, tyValsRaw, rawVal, tagOf, Tag.val, reduceCtorEq, ↓reduceIte]
       by_cases hc : decodeCleanAll (List.map Prod.snd ps) (List.drop (idx + 1) args) = true <;>
         simp [hc]
     · simp only [ABI.decodeArgsAux?, ABI.decodeValueAt?, ABI.Ty.abiDecodeFuel,
         ABI.decodeValueAtWithFuel?, ABI.wordBytes, hr, ABI.abiArgOpt, ABI.addressFits, norm_lt ha,
         headWords_word (Or.inr (Or.inl rfl)), bind, Except.bind, pure, Except.pure, ih, List.map_cons,
-        decodeCleanAll, decodeClean, tyVals, tagOf, Tag.val]
+        decodeCleanAll, decodeClean, tyValsRaw, rawVal, tagOf, Tag.val, reduceCtorEq, ↓reduceIte]
       by_cases h1 : args[idx] < 2 ^ 160
       · simp only [h1, decide_true, Bool.true_and, ↓reduceIte]
         by_cases hc : decodeCleanAll (List.map Prod.snd ps) (List.drop (idx + 1) args) = true <;>
@@ -344,7 +397,7 @@ theorem decodeAux_words (args : List Nat) (hargs : ∀ a ∈ args, a < wordSize)
       simp only [ABI.decodeArgsAux?, ABI.decodeValueAt?, ABI.Ty.abiDecodeFuel,
         ABI.decodeValueAtWithFuel?, ABI.wordBytes, hr, ABI.abiArgOpt, hb,
         headWords_word (Or.inr (Or.inr (Or.inl rfl))), bind, Except.bind, pure, Except.pure, ih,
-        List.map_cons, decodeCleanAll, decodeClean, tyVals, tagOf, Tag.val]
+        List.map_cons, decodeCleanAll, decodeClean, tyValsRaw, rawVal, tagOf, Tag.val, reduceCtorEq, ↓reduceIte]
       by_cases h1 : args[idx] ≤ 1
       · simp only [h1, decide_true, Bool.true_and, ↓reduceIte]
         by_cases hc : decodeCleanAll (List.map Prod.snd ps) (List.drop (idx + 1) args) = true <;>
@@ -353,16 +406,25 @@ theorem decodeAux_words (args : List Nat) (hargs : ∀ a ∈ args, a < wordSize)
     · simp only [ABI.decodeArgsAux?, ABI.decodeValueAt?, ABI.Ty.abiDecodeFuel,
         ABI.decodeValueAtWithFuel?, ABI.wordBytes, hr, ABI.abiArgOpt,
         headWords_word (Or.inr (Or.inr (Or.inr (Or.inl rfl)))), bind, Except.bind, pure,
-        Except.pure, ih, List.map_cons, decodeCleanAll, decodeClean, Bool.true_and, tyVals, tagOf,
-        Tag.val]
+        Except.pure, ih, List.map_cons, decodeCleanAll, decodeClean, Bool.true_and, tyValsRaw, rawVal, tagOf,
+        Tag.val, reduceCtorEq, ↓reduceIte]
       by_cases hc : decodeCleanAll (List.map Prod.snd ps) (List.drop (idx + 1) args) = true <;>
         simp [hc]
     · have hd : ABI.decodeValueAt? lazy (Dirty.argBytes args) idx (.fixedBytes 32) =
           .ok (.fixedBytes 32 args[idx]) := Abi.decode_bytes32 args hargs hi 0 lazy
       simp only [ABI.decodeArgsAux?, hd, ABI.abiArgOpt,
-        headWords_word (Or.inr (Or.inr (Or.inr (Or.inr rfl)))), bind, Except.bind, pure,
-        Except.pure, ih, List.map_cons, decodeCleanAll, decodeClean, Bool.true_and, tyVals, tagOf,
-        Tag.val]
+        headWords_word (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl))))), bind, Except.bind, pure,
+        Except.pure, ih, List.map_cons, decodeCleanAll, decodeClean, Bool.true_and, tyValsRaw, rawVal, tagOf,
+        Tag.val, reduceCtorEq, ↓reduceIte]
+      by_cases hc : decodeCleanAll (List.map Prod.snd ps) (List.drop (idx + 1) args) = true <;>
+        simp [hc]
+
+    · have hd : ABI.decodeValueAt? lazy (Dirty.argBytes args) idx (.tuple [.uint256]) =
+          .ok (.tuple [.word args[idx]]) := decode_tuple1 args hargs hi lazy
+      simp only [ABI.decodeArgsAux?, hd, ABI.abiArgOpt,
+        headWords_word (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr rfl))))), bind, Except.bind, pure,
+        Except.pure, ih, List.map_cons, decodeCleanAll, decodeClean, Bool.true_and, tyValsRaw,
+        rawVal, tagOf, ↓reduceIte]
       by_cases hc : decodeCleanAll (List.map Prod.snd ps) (List.drop (idx + 1) args) = true <;>
         simp [hc]
 
@@ -418,7 +480,7 @@ theorem accepts_intb (a b : Nat) (ha : a < wordSize) (hb : 0 < b ∧ b < 256) :
 theorem lazyParamValues_vals : ∀ (ps : List BindingDecl) (cs : List AbiCleanup) (ws : List Nat)
     (args : List Nat), widthsOfT ps cs = some ws → args.length = ps.length →
     (∀ a ∈ args, a < wordSize) →
-    AbiCleanups.lazyParamValues cs (tyVals (ps.map BindingDecl.ty) args) =
+    AbiCleanups.lazyParamValues cs (tyValsRaw (ps.map BindingDecl.ty) args) =
       if cleanupsClean cs args then some (tyVals (ps.map BindingDecl.ty) args) else none
   | [], [], _, [], _, _, _ => rfl
   | p :: ps, c :: cs, ws, a :: args, hw, hl, ha => by
@@ -431,37 +493,42 @@ theorem lazyParamValues_vals : ∀ (ps : List BindingDecl) (cs : List AbiCleanup
     rcases hk with ⟨hm, hk⟩ | ⟨ht, b, rfl, hb0, hb, -⟩
     swap
     · have hbb : 0 < b ∧ b < 256 := ⟨hb0, hb⟩
-      simp only [List.map_cons, tyVals, ht, tagOf, Tag.val, AbiCleanups.lazyParamValues, ih,
+      simp only [List.map_cons, tyVals, tyValsRaw, rawVal, ht, tagOf, Tag.val, reduceCtorEq, ↓reduceIte, AbiCleanups.lazyParamValues, ih,
         AbiCleanup.lazyParamValue, cleanupsClean, cleanArg, hbb, and_self, ↓reduceIte, bind,
         Option.bind, accepts_intb a b hlt hbb]
       by_cases h : sextNat b a = a
       · by_cases hc : cleanupsClean cs args = true <;> simp [h, hc]
       · simp [h]
     rcases hk with ⟨ht, b, rfl, hb0, hb, -⟩ | ⟨ht, rfl⟩ | ⟨ht, rfl, -⟩ | ⟨ht, rfl, -⟩ |
-        ⟨ht, rfl, -⟩ | ⟨ht, rfl, -⟩
+        ⟨ht, rfl, -⟩ | ⟨ht, rfl, -⟩ | ⟨ht, rfl, -⟩
     · by_cases h : a < 2 ^ b
-      · simp only [List.map_cons, tyVals, ht, tagOf, Tag.val, AbiCleanups.lazyParamValues, ih,
+      · simp only [List.map_cons, tyVals, tyValsRaw, rawVal, ht, tagOf, Tag.val, reduceCtorEq, ↓reduceIte, AbiCleanups.lazyParamValues, ih,
           cleanupsClean, cleanArg, h, decide_true, Bool.true_and]
         by_cases hc : cleanupsClean cs args = true <;>
           simp [AbiCleanup.lazyParamValue, AbiCleanup.accepts, norm_lt hlt, h, hb0, hb, bind,
             Option.bind, hc]
-      · simp [List.map_cons, tyVals, ht, tagOf, Tag.val, AbiCleanups.lazyParamValues,
+      · simp [List.map_cons, tyVals, tyValsRaw, rawVal, ht, tagOf, Tag.val, reduceCtorEq, ↓reduceIte, AbiCleanups.lazyParamValues,
           AbiCleanup.lazyParamValue, AbiCleanup.accepts, norm_lt hlt, h, hb0, hb, bind,
           Option.bind, cleanupsClean, cleanArg]
     · by_cases h : a ≤ w
-      · simp only [List.map_cons, tyVals, ht, tagOf, Tag.val, AbiCleanups.lazyParamValues, ih,
+      · simp only [List.map_cons, tyVals, tyValsRaw, rawVal, ht, tagOf, Tag.val, reduceCtorEq, ↓reduceIte, AbiCleanups.lazyParamValues, ih,
           cleanupsClean, cleanArg, h, decide_true, Bool.true_and]
         by_cases hc : cleanupsClean cs args = true <;>
           simp [AbiCleanup.lazyParamValue, AbiCleanup.accepts, norm_lt hlt, norm_lt hm, h, bind,
             Option.bind, hc]
-      · simp [List.map_cons, tyVals, ht, tagOf, Tag.val, AbiCleanups.lazyParamValues,
+      · simp [List.map_cons, tyVals, tyValsRaw, rawVal, ht, tagOf, Tag.val, reduceCtorEq, ↓reduceIte, AbiCleanups.lazyParamValues,
           AbiCleanup.lazyParamValue, AbiCleanup.accepts, norm_lt hlt, norm_lt hm, h, bind,
           Option.bind, cleanupsClean, cleanArg]
-    all_goals
-      simp only [List.map_cons, tyVals, ht, tagOf, Tag.val, AbiCleanups.lazyParamValues, ih,
-        AbiCleanup.lazyParamValue, cleanupsClean, cleanArg, Bool.true_and, bind, Option.bind,
-        accepts_int256 a hlt, ↓reduceIte]
-      by_cases hc : cleanupsClean cs args = true <;> simp [hc]
+    all_goals first
+      | (simp only [List.map_cons, tyVals, tyValsRaw, rawVal, ht, tagOf, Tag.val, reduceCtorEq,
+          ↓reduceIte, AbiCleanups.lazyParamValues, ih, AbiCleanup.lazyParamValue, cleanupsClean, cleanArg,
+          Bool.true_and, bind, Option.bind, accepts_int256 a hlt]
+         by_cases hc : cleanupsClean cs args = true <;> simp [hc]
+         done)
+      | (simp only [List.map_cons, tyVals, tyValsRaw, rawVal, ht, tagOf, Tag.val, ↓reduceIte,
+          AbiCleanups.lazyParamValues, ih, AbiCleanup.lazyParamValue, AbiCleanups.lazyValues,
+          AbiCleanup.lazyValue, cleanupsClean, cleanArg, Bool.true_and, bind, Option.bind]
+         by_cases hc : cleanupsClean cs args = true <;> simp [hc])
   | [], _ :: _, _, _, hw, _, _ | _ :: _, [], _, _, hw, _, _ => by simp [widthsOfT] at hw
   | [], [], _, _ :: _, _, hl, _ | _ :: _, _ :: _, _, [], _, hl, _ => by simp at hl
 
@@ -486,7 +553,7 @@ theorem argsClean_widths : ∀ {ps : List BindingDecl} {cs : List AbiCleanup} {w
       · simp [argOk_sext a b ⟨hb0, hb⟩, ht, decodeClean, cleanArg, hb0, hb]
       rw [argOk_lt a hwlt]
       rcases hk with ⟨ht, b, rfl, hb0, -, rfl⟩ | ⟨ht, rfl⟩ | ⟨ht, rfl, rfl⟩ | ⟨ht, rfl, rfl⟩ |
-          ⟨ht, rfl, rfl⟩ | ⟨ht, rfl, rfl⟩
+          ⟨ht, rfl, rfl⟩ | ⟨ht, rfl, rfl⟩ | ⟨ht, rfl, rfl⟩
       · have := Nat.two_pow_pos b
         simp only [ht, decodeClean, cleanArg, Bool.true_and]
         exact decide_eq_decide.mpr (by omega)
@@ -495,6 +562,8 @@ theorem argsClean_widths : ∀ {ps : List BindingDecl} {cs : List AbiCleanup} {w
         simp only [ht, decodeClean, cleanArg, Bool.and_true]
         exact decide_eq_decide.mpr (by omega)
       · simp [ht, decodeClean, cleanArg]
+      · simp only [ht, decodeClean, cleanArg, Bool.and_true]
+        exact decide_eq_true (Nat.le_sub_one_of_lt hlt)
       · simp only [ht, decodeClean, cleanArg, Bool.and_true]
         exact decide_eq_true (Nat.le_sub_one_of_lt hlt)
       · simp only [ht, decodeClean, cleanArg, Bool.and_true]
@@ -549,7 +618,9 @@ theorem decode_argsT {fn : FunctionDef} {ws : List Nat}
         simp at hcl
         exact List.eq_nil_of_length_eq_zero (by omega)
       subst this
-      cases fn.paramAbiCleanups <;> rfl
+      have h1 : ∀ tys, tyValsRaw tys [] = [] := fun tys => by cases tys <;> rfl
+      have h2 : ∀ tys, tyVals tys [] = [] := fun tys => by cases tys <;> rfl
+      cases fn.paramAbiCleanups <;> simp [h1, h2, cleanupsClean]
     · by_cases hcc : cleanupsClean fn.paramAbiCleanups args = true <;> simp [hcc]
   · simp only [hd, Bool.false_eq_true, ↓reduceIte, Bool.false_and]
 
@@ -590,8 +661,8 @@ theorem bindArgs_words (ρ : Val) (hρ : ∀ a ∈ ρ.args, a < wordSize) :
       List.getElem?_eq_getElem hi, Option.getD_some, Nat.mod_eq_of_lt hlt]
 
 theorem coerce_param_clean {ty : Source.Ty} (h : ParamTy ty) {v : Nat} (hv : decodeClean ty v = true)
-    (hlt : v < wordSize) : ty.coerceValue? (.word v) = some ((tagOf ty).val v) := by
-  rcases h with rfl | rfl | rfl | rfl | rfl
+    (hlt : v < wordSize) : ty.coerceValue? (argVal ty v) = some ((tagOf ty).val v) := by
+  rcases h with rfl | rfl | rfl | rfl | rfl | rfl
   · rfl
   · rfl
   · simp only [decodeClean, decide_eq_true_eq] at hv
@@ -599,29 +670,32 @@ theorem coerce_param_clean {ty : Source.Ty} (h : ParamTy ty) {v : Nat} (hv : dec
     rcases h' with rfl | rfl <;> rfl
   · rfl
   · rfl
+  · simp [argVal, tagOf, Tag.val, Source.Ty.coerceValue?, Source.Ty.coerceTupleValues?]
 
 /-- SolidCore coerces a parameter's decoded value as it coerces its word. -/
 theorem coerce_tyVal {ty : Source.Ty} (h : ParamTy ty) {v : Nat} (hlt : v < wordSize) :
-    ty.coerceValue? ((tagOf ty).val v) = ty.coerceValue? (.word v) := by
-  rcases h with rfl | rfl | rfl | rfl | rfl
+    ty.coerceValue? ((tagOf ty).val v) = ty.coerceValue? (argVal ty v) := by
+  rcases h with rfl | rfl | rfl | rfl | rfl | rfl
   · rfl
   · rfl
   · rfl
   · rfl
-  · simp [tagOf, Tag.val, Source.Ty.coerceValue?, normWord, SolidCore.Solidity.Shared.norm,
+  · simp [argVal, tagOf, Tag.val, Source.Ty.coerceValue?, normWord, SolidCore.Solidity.Shared.norm,
       Nat.mod_eq_of_lt hlt, show SolidCore.Solidity.Shared.wordModulus = wordSize from rfl]
+  · rfl
 
 /-- The parameters bind their decoded values as they bind their words. -/
 theorem bindArgs_tyVals : ∀ (ps : List BindingDecl) (as : List Nat),
     (∀ p ∈ ps, ParamTy p.ty ∧ p.isStorageRef = false) → (∀ a ∈ as, a < wordSize) →
     as.length = ps.length →
-    BindingDecl.bindArgs? ps (tyVals (ps.map BindingDecl.ty) as) = BindingDecl.bindArgs? ps (as.map .word)
+    BindingDecl.bindArgs? ps (tyVals (ps.map BindingDecl.ty) as) =
+      BindingDecl.bindArgs? ps (argVals (ps.map BindingDecl.ty) as)
   | [], [], _, _, _ => rfl
   | [], _ :: _, _, _, hl | _ :: _, [], _, _, hl => by simp at hl
   | p :: ps, a :: as, hp, ha, hl => by
     have ih := bindArgs_tyVals ps as (fun q hq => hp q (List.mem_cons_of_mem _ hq))
       (fun b hb => ha b (List.mem_cons_of_mem _ hb)) (by simpa using hl)
-    simp only [List.map_cons, tyVals, BindingDecl.bindArgs?, BindingDecl.bindArg?,
+    simp only [List.map_cons, tyVals, argVals, BindingDecl.bindArgs?, BindingDecl.bindArg?,
       coerce_tyVal (hp p List.mem_cons_self).1 (ha a List.mem_cons_self), ih]
 
 /-- A call of a function of the fragment on its decoded values runs as on its argument words. -/
@@ -630,7 +704,7 @@ theorem call_tyVals {fn : FunctionDef} {ws : List Nat}
     (hlen : args.length = fn.params.length) (hargs : ∀ a ∈ args, a < wordSize) (fuel : Nat)
     (tbl : FunctionTable) (ctx : Context) (st0 : Source.State) :
     fn.call fuel tbl ctx st0 (tyVals (fn.params.map BindingDecl.ty) args) =
-      fn.call fuel tbl ctx st0 (args.map .word) := by
+      fn.call fuel tbl ctx st0 (argVals (fn.params.map BindingDecl.ty) args) := by
   simp only [FunctionDef.call, FunctionDef.evalBodyEntry, FunctionDef.initialFrame?,
     bindArgs_tyVals fn.params args (widthsOf_spec hw).2.2.1 hargs hlen]
 
@@ -656,11 +730,12 @@ theorem bindArgs_clean (ρ : Val) (hρ : ∀ a ∈ ρ.args, a < wordSize) (T : T
     ∀ (ps : List BindingDecl) (cs : List AbiCleanup) (ws : List Nat) (i : Nat),
       widthsOfT ps cs = some ws → argsClean ws (ρ.args.drop i) = true →
       i + ps.length = ρ.args.length → (∀ p ∈ ps, T.get p.name = tagOf p.ty) →
-      BindingDecl.bindArgs? ps ((ρ.args.drop i).map .word) = some (frameOfT ρ T (paramLocals ps i))
+      BindingDecl.bindArgs? ps (argVals (ps.map BindingDecl.ty) (ρ.args.drop i)) =
+        some (frameOfT ρ T (paramLocals ps i))
   | [], _, _, i, _, _, h, _ => by
     simp only [List.length_nil, Nat.add_zero] at h
     subst h
-    simp [BindingDecl.bindArgs?, paramLocals, frameOfT]
+    simp [BindingDecl.bindArgs?, paramLocals, frameOfT, argVals]
   | p :: ps, c :: cs, ws, i, hw, hcl, h, hT => by
     simp only [widthsOfT, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at hw
     obtain ⟨w, hw1, ws', hws', rfl⟩ := hw
@@ -679,7 +754,7 @@ theorem bindArgs_clean (ρ : Val) (hρ : ∀ a ∈ ρ.args, a < wordSize) (T : T
       · simp [ht, decodeClean]
       have hcl1 := hcl.1
       rw [argOk_lt _ hwlt, decide_eq_true_eq] at hcl1
-      rcases hk with ⟨ht, -⟩ | ⟨ht, -⟩ | ⟨ht, -, rfl⟩ | ⟨ht, -, rfl⟩ | ⟨ht, -⟩ | ⟨ht, -⟩
+      rcases hk with ⟨ht, -⟩ | ⟨ht, -⟩ | ⟨ht, -, rfl⟩ | ⟨ht, -, rfl⟩ | ⟨ht, -⟩ | ⟨ht, -⟩ | ⟨ht, -⟩
       · simp [ht, decodeClean]
       · simp [ht, decodeClean]
       · simp only [ht, decodeClean, decide_eq_true_eq]
@@ -687,8 +762,9 @@ theorem bindArgs_clean (ρ : Val) (hρ : ∀ a ∈ ρ.args, a < wordSize) (T : T
       · simpa [ht, decodeClean] using hcl1
       · simp [ht, decodeClean]
       · simp [ht, decodeClean]
+      · simp [ht, decodeClean]
     rw [hdi]
-    simp only [List.map_cons, BindingDecl.bindArgs?, BindingDecl.bindArg?,
+    simp only [List.map_cons, argVals, BindingDecl.bindArgs?, BindingDecl.bindArg?,
       coerce_param_clean hty hdc hlt, ih,
       bind, Option.bind, paramLocals, frameOfT, List.map_cons, WExpr.eval, List.getD_eq_getElem?_getD,
       List.getElem?_eq_getElem hi, Option.getD_some, Nat.mod_eq_of_lt hlt, hT p List.mem_cons_self]
@@ -860,6 +936,7 @@ theorem retOkT_spec {ρ : Val} {K : Facts} (hK : K.Hold ρ) {ty : Source.Ty} {t 
   | sref _ => simp [retOkT] at h
   | sptr _ => simp [retOkT] at h
   | mref => simp [retOkT] at h
+  | tup1 => simp [retOkT] at h
 
 theorem retsOkT_length {K : Facts} : ∀ {rs : List BindingDecl} {ts : List Tag} {ws : List WExpr},
     retsOkT K rs ts ws = true → ws.length = rs.length
@@ -1335,17 +1412,17 @@ theorem call_entry {c : TypeCheck.CheckedContract} {fn : FunctionDef} {ws : List
         (ABI.Contract.callContextAtWithBase c.core base selfAddress a 0 bytes) rt
         { initState fn with caller := cw } ∧
       fn.call fuel c.core.table (ABI.Contract.callContextAtWithBase c.core base selfAddress a 0 bytes)
-        st0 (args.map .word) =
+        st0 (argVals (fn.params.map BindingDecl.ty) args) =
         some (fn.callBodyResult st0 <$> Stmt.eval fuel c.core.table
           (ABI.Contract.callContextAtWithBase c.core base selfAddress a 0 bytes) rt fn.body) := by
   set ctx := ABI.Contract.callContextAtWithBase c.core base selfAddress a 0 bytes with hctx
   set ρ : Val := ⟨args, slotValue σ, solHash, rc⟩ with hρ
   have hr : ∀ r ∈ fn.returns, retBinding r = true := fun r hr => List.all_eq_true.mp hret r hr
   have htg := tagsOk_spec htags
-  have hframe : fn.initialFrame? (args.map .word) =
+  have hframe : fn.initialFrame? (argVals (fn.params.map BindingDecl.ty) args) =
       some (frameOfT ρ (fnTags fn)
         (paramLocals fn.params 0 ++ fn.returns.map fun r => (r.name, .lit 0))) := by
-    have h0 : BindingDecl.bindArgs? fn.params (args.map .word) =
+    have h0 : BindingDecl.bindArgs? fn.params (argVals (fn.params.map BindingDecl.ty) args) =
         some (frameOfT ρ (fnTags fn) (paramLocals fn.params 0)) :=
       bindArgs_clean ρ hargs (fnTags fn) fn.params fn.paramAbiCleanups ws 0 hw
         (by simpa [hρ] using hclean) (by simp [hρ, hlen]) htg.1
@@ -1410,7 +1487,7 @@ theorem abi_clean {c : TypeCheck.CheckedContract} {sel : Nat} (hsel : sel < 2 ^ 
           (b.eval ⟨args, slotValue σ, solHash, rc⟩))
     (call : Call) (hcs : call.storage = σ) :
     (∃ R, fn.call fuel c.core.table (ABI.Contract.callContextAtWithBase c.core base selfAddress a 0
-        ((EthLib.Base.natToBytes 4 sel).map (·.toNat) ++ Dirty.argBytes args)) st0 (args.map .word) =
+        ((EthLib.Base.natToBytes 4 sel).map (·.toNat) ++ Dirty.argBytes args)) st0 (argVals (fn.params.map BindingDecl.ty) args) =
         some (.done (.ok R))) ∧
       Option.map (Source.observe call) (ABI.Contract.callCalldataAtFromWithContext? fuel c.core base
         st0 selfAddress a 0 ((EthLib.Base.natToBytes 4 sel).map (·.toNat) ++ Dirty.argBytes args)) =
@@ -1427,7 +1504,7 @@ theorem abi_clean {c : TypeCheck.CheckedContract} {sel : Nat} (hsel : sel < 2 ^ 
     ((EthLib.Base.natToBytes 4 sel).map (·.toNat) ++ Dirty.argBytes args) hstore hev cw hlen hargs
     hclean hK hcw
   have hbind : BindingDecl.bindArgs? fn.params (tyVals (fn.params.map BindingDecl.ty) args) =
-      BindingDecl.bindArgs? fn.params (args.map .word) :=
+      BindingDecl.bindArgs? fn.params (argVals (fn.params.map BindingDecl.ty) args) :=
     bindArgs_tyVals fn.params args (widthsOf_spec hw).2.2.1 hargs hlen
   obtain ⟨r, hrun, hleaf⟩ := hb rt hrel
   rw [hrun] at hcall
@@ -1440,7 +1517,7 @@ theorem abi_clean {c : TypeCheck.CheckedContract} {sel : Nat} (hsel : sel < 2 ^ 
   have hacc : fn.acceptsValue 0 = true := by simp [FunctionDef.acceptsValue, wordEq]
   have hcall' : fn.call? fuel c.core.table (ABI.Contract.callContextAtWithBase c.core base
       selfAddress a 0 ((EthLib.Base.natToBytes 4 sel).map (·.toNat) ++ Dirty.argBytes args)) st0
-      (args.map .word) = some (fn.callBodyResult st0 r) := by
+      (argVals (fn.params.map BindingDecl.ty) args) = some (fn.callBodyResult st0 r) := by
     simp only [FunctionDef.call?, hcall]
     rfl
   have hcallT : fn.call? fuel c.core.table (ABI.Contract.callContextAtWithBase c.core base

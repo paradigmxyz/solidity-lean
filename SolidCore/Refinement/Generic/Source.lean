@@ -195,6 +195,7 @@ inductive Tag where
   | sref (target : String)
   | sptr (n : Nat)
   | mref
+  | tup1
   deriving DecidableEq, Repr
 
 /-- SolidCore's value of a local of tag `t` whose word is `v`. A struct pointer whose word is 0
@@ -209,6 +210,7 @@ def Tag.val : Tag → Nat → Value
   | .sptr n, v =>
     if v = 0 then .storageRef uninitializedStorageReturnTarget else .storageSlotRef v (ptrLayout n)
   | .mref, v => .memoryRef v
+  | .tup1, v => .tuple [.abiLazy (.uint 256) (.word v)]
 
 /-- Whether a word expression is a literal other than 0 below `2 ^ 256`, at every valuation. -/
 def nzLit : WExpr → Bool
