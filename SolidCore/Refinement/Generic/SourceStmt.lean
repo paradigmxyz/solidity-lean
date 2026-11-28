@@ -308,6 +308,43 @@ def rhsPlain : Expr → Bool
   | .ternary _ _ _ => false
   | _ => true
 
+/-- A parameter the fragment passes a memory array of words to, by reference. -/
+def memDecl (b : BindingDecl) : Bool := (fixedWords? b.ty).isSome && !b.isStorageRef
+
+/-- The tag of a parameter of a call with memory array parameters: a reference or a word. -/
+def ptag (b : BindingDecl) : Tag := if memDecl b then .mref else .word
+
+/-- The tags of an internal function's memory array parameters. -/
+def memTags (fn : InternalFunction) : Tags := (fn.params.filter memDecl).map fun b => (b.name, .mref)
+
+/-- An internal call the fragment erases with memory array parameters: each parameter a word or a
+memory array of words, word returns, and no word parameter or return named as a memory array
+parameter. -/
+def memCallOk (fn : InternalFunction) (args : List Expr) : Bool :=
+  fn.params.all (fun p => wordDecl p || memDecl p) && fn.returns.all wordDecl &&
+    (fn.params ++ fn.returns).all
+      (fun b => memDecl b || !((fn.params.filter memDecl).map (·.name)).contains b.name) &&
+    args.length == fn.params.length
+
+/-- The erasure of a call's arguments: a word for a word parameter, the literal id of a memory
+array local for a memory array parameter. -/
+def eraseArgM (fields : List StorageField) (S : SymState) (p : BindingDecl) (e : Expr) :
+    Option (List WExpr × WExpr) :=
+  if memDecl p then
+    match e with
+    | .var a => (S.mref? a).map fun id => ([], WExpr.lit id)
+    | _ => none
+  else eraseExpr fields S e
+
+def eraseArgsM (fields : List StorageField) (S : SymState) :
+    List BindingDecl → List Expr → Option (List WExpr × List WExpr)
+  | [], [] => some ([], [])
+  | p :: ps, e :: es => do
+    let (g, v) ← eraseArgM fields S p e
+    let (gs, vs) ← eraseArgsM fields S ps es
+    some (g ++ gs, v :: vs)
+  | _, _ => none
+
 /-- The tags of an internal function whose returns are all storage pointers: each return a pointer
 to no state variable yet, as SolidCore binds it on entry. -/
 def refTags (fn : InternalFunction) : Tags :=
@@ -745,6 +782,13 @@ def eraseStmt (E : EraseEnv) : Nat → Stmt → SymState → Option Br
           { scopes := [callFrame fn vs], writes := S.writes, logs := S.logs, caller := S.caller,
             tags := intTags fn, mem := S.mem, next := S.next }
         b.bindLeaf (callLeafI fn targets S)
+      else if memCallOk fn args then do
+        let (gs, vs) ← eraseArgsM E.fields S fn.params args
+        let b ← eraseStmt E n fn.body
+          { scopes := [callFrame fn vs], writes := S.writes, logs := S.logs, caller := S.caller,
+            tags := memTags fn, mem := S.mem, next := S.next }
+        let b' ← b.bindLeaf (callLeaf fn targets S)
+        some (guards gs b')
       else if refCallOk fn args then do
         let (gs, vs) ← eraseExprs E.fields S args
         let b ← eraseStmt E n fn.body
@@ -786,6 +830,9 @@ def eraseStmt (E : EraseEnv) : Nat → Stmt → SymState → Option Br
         some (.leaf (.normal
           { S with scopes := S.scopes.declare x (.lit id), tags := (x, .mref) :: S.tags }))
       else none
+    -- a memory array parameter's localization, of a local that already refers to a memory object:
+    -- nothing
+    | .memoryLocalize _ x => if (S.mref? x).isSome then some (.leaf (.normal S)) else none
     -- `a.pop()` of a dynamic array of words: Panic(0x31) on an empty array; otherwise the last
     -- element's slot cleared, then the length one less, in SolidCore's order
     | .storageArrayPop x => do
@@ -4226,6 +4273,183 @@ theorem eval_callR (ρ : Val) (E : EraseEnv) (ctx : Context) (rt : Runtime) (S :
   rw [hce]
   exact finish_callR hrel r0 _ c hl0 hc
 
+/-- What SolidCore evaluates the arguments of a call with memory array parameters to: each word
+argument's word and each memory array argument's reference, after the words' checks, left to
+right. -/
+theorem eval_argsM (ρ : Val) (fields : List StorageField) (ctx : Context) (rt : Runtime) (S : SymState)
+    (hrel : ExprRel ρ fields ctx rt S) :
+    ∀ (ps : List BindingDecl) (es : List Expr) (gs vs : List WExpr) (fuel : Nat),
+    eraseArgsM fields S ps es = some (gs, vs) → es.length < fuel →
+    Expr.evalRefArgListFuel fuel ctx rt es =
+      if gs.any (fun g => g.eval ρ != 0) then .done (.error (.revert (.panic (failCode ρ gs))))
+      else .done (.ok ((ps.zip vs).map (fun q => (ptag q.1).val (q.2.eval ρ)), rt))
+  | [], [], gs, vs, fuel, h, hf => by
+    obtain ⟨n, rfl⟩ : ∃ n, fuel = n + 1 := ⟨fuel - 1, by simp at hf; omega⟩
+    simp only [eraseArgsM, Option.some.injEq, Prod.mk.injEq] at h
+    obtain ⟨rfl, rfl⟩ := h
+    simp [Expr.evalRefArgListFuel, pure, EvmCompiler.Simulation.Interaction.pure]
+  | p :: ps, e :: es, gs, vs, fuel, h, hf => by
+    obtain ⟨n, rfl⟩ : ∃ n, fuel = n + 1 := ⟨fuel - 1, by simp at hf; omega⟩
+    simp only [eraseArgsM, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq,
+      Prod.mk.injEq] at h
+    obtain ⟨⟨g, v⟩, he, ⟨gs', vs'⟩, hes, rfl, rfl⟩ := h
+    have ih := eval_argsM ρ fields ctx rt S hrel ps es gs' vs' n hes (by simp at hf; omega)
+    have hstep : Expr.evalRefArg ctx rt e =
+        if g.any (fun g => g.eval ρ != 0) then .done (.error (.revert (.panic (failCode ρ g))))
+        else .done (.ok ((ptag p).val (v.eval ρ), rt)) := by
+      unfold eraseArgM at he
+      by_cases hm : memDecl p = true
+      · simp only [hm, ↓reduceIte] at he
+        cases e with
+        | var a =>
+          simp only [Option.map_eq_some_iff, Prod.mk.injEq] at he
+          obtain ⟨id, hid, rfl, rfl⟩ := he
+          have hl := hrel.mrefs a id hid
+          have hlt := mref?_lt hid
+          simp [Expr.evalRefArg, Runtime.lookupStorageBase?, Runtime.lookupMemoryRef?, hl, ptag, hm,
+            Tag.val, WExpr.eval, Nat.mod_eq_of_lt hlt, pure, EvmCompiler.Simulation.Interaction.pure]
+        | _ => simp at he
+      · simp only [hm, Bool.false_eq_true, ↓reduceIte] at he
+        have hev : Expr.evalRefArg ctx rt e = exprResult ρ g v rt := by
+          unfold Expr.evalRefArg
+          split
+          · simp only [(var_refs hrel he).1, (var_refs hrel he).2]; exact eval_eq ρ fields ctx rt S hrel he
+          · exact eval_eq ρ fields ctx rt S hrel he
+        rw [hev]
+        simp [exprResult, ptag, hm, Tag.val]
+    rw [Expr.evalRefArgListFuel]
+    simp only [hstep]
+    by_cases hg : g.any (fun g => g.eval ρ != 0) = true
+    · simp [hg, any_append, failCode_append, bind, EvmCompiler.Simulation.Interaction.bind]
+    · simp only [hg, Bool.false_eq_true, ↓reduceIte, bind_done_ok, ih]
+      by_cases hg' : gs'.any (fun g => g.eval ρ != 0) = true
+      · simp [hg, hg', any_append, failCode_append, bind, EvmCompiler.Simulation.Interaction.bind]
+      · simp [hg, hg', any_append, bind, EvmCompiler.Simulation.Interaction.bind, pure,
+          EvmCompiler.Simulation.Interaction.pure]
+  | [], _ :: _, _, _, _, h, _ | _ :: _, [], _, _, _, h, _ => by simp [eraseArgsM] at h
+
+theorem length_lt_listEvalFuel : ∀ es : List Expr, es.length < Expr.listEvalFuel es
+  | [] => by simp [Expr.listEvalFuel]
+  | e :: es => by
+    have := length_lt_listEvalFuel es
+    simp only [Expr.listEvalFuel, List.length_cons]
+    omega
+
+theorem eraseArgsM_length {fields : List StorageField} {S : SymState} :
+    ∀ {ps : List BindingDecl} {es : List Expr} {gs vs : List WExpr},
+    eraseArgsM fields S ps es = some (gs, vs) → vs.length = ps.length ∧ es.length = ps.length
+  | [], [], _, _, h => by simp only [eraseArgsM, Option.some.injEq, Prod.mk.injEq] at h; simp [h.2]
+  | p :: ps, e :: es, gs, vs, h => by
+    simp only [eraseArgsM, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq,
+      Prod.mk.injEq] at h
+    obtain ⟨⟨g, v⟩, _, ⟨gs', vs'⟩, hes, rfl, rfl⟩ := h
+    have := eraseArgsM_length hes
+    simp [this.1, this.2]
+  | [], _ :: _, _, _, h | _ :: _, [], _, _, h => by simp [eraseArgsM] at h
+
+theorem bindArgsRef_tags (ρ : Val) : ∀ (ps : List BindingDecl) (vs : List WExpr),
+    ps.all (fun p => wordDecl p || memDecl p) = true → vs.length = ps.length →
+    BindingDecl.bindArgsRef? ps ((ps.zip vs).map fun q => (ptag q.1).val (q.2.eval ρ)) =
+      some ((ps.zip vs).map fun q => (q.1.name, (ptag q.1).val (q.2.eval ρ)))
+  | [], [], _, _ => rfl
+  | p :: ps, v :: vs, hp, hl => by
+    simp only [List.all_cons, Bool.and_eq_true, Bool.or_eq_true] at hp
+    have ih := bindArgsRef_tags ρ ps vs hp.2 (by simpa using hl)
+    have hh : BindingDecl.bindArgRef? p ((ptag p).val (v.eval ρ)) =
+        some (p.name, (ptag p).val (v.eval ρ)) := by
+      by_cases hm : memDecl p = true
+      · have hpt : ptag p = .mref := by simp [ptag, hm]
+        rw [hpt]
+        rfl
+      · have hw : wordDecl p = true := by rcases hp.1 with h | h; exact h; exact absurd h hm
+        have hpt : ptag p = .word := by simp [ptag, hm]
+        rw [hpt]
+        simp [BindingDecl.bindArgRef?, BindingDecl.bindArg?, Tag.val, (wordDecl_spec hw _).1]
+    simp only [List.zip_cons_cons, List.map_cons, BindingDecl.bindArgsRef?, hh, ih, bind,
+      Option.bind]
+  | [], _ :: _, _, hl | _ :: _, [], _, hl => by simp at hl
+
+theorem memTags_get {fn : InternalFunction} {b : BindingDecl}
+    (h : memDecl b || !((fn.params.filter memDecl).map (·.name)).contains b.name)
+    (hm : memDecl b = true → b ∈ fn.params) :
+    (memTags fn).get b.name = ptag b := by
+  rw [Tags.get, memTags, lookup_constTags]
+  by_cases hmb : memDecl b = true
+  · have hmem : b.name ∈ (fn.params.filter memDecl).map (·.name) :=
+      List.mem_map_of_mem (List.mem_filter.mpr ⟨hm hmb, hmb⟩)
+    simp [hmem, ptag, hmb]
+  · have hn : b.name ∉ (fn.params.filter memDecl).map (·.name) := by
+      simp only [hmb, Bool.false_or, Bool.not_eq_true'] at h
+      intro hc
+      have := List.contains_iff_mem.mpr hc
+      simp_all
+    simp [hn, ptag, hmb]
+
+theorem initialFrame_memcall (ρ : Val) (fn : InternalFunction) (vs : List WExpr) {args : List Expr}
+    (hok : memCallOk fn args = true) (hl : vs.length = fn.params.length) :
+    fn.initialFrame? ((fn.params.zip vs).map fun q => (ptag q.1).val (q.2.eval ρ)) =
+      some (frameOfT ρ (memTags fn) (callFrame fn vs)) := by
+  simp only [memCallOk, Bool.and_eq_true, beq_iff_eq, List.all_append] at hok
+  obtain ⟨⟨⟨hp, hr⟩, hpn, hrn⟩, -⟩ := hok
+  have hd : fn.returnDefaultBindings = fn.returns.map fun r => (r.name, Value.word 0) := by
+    simp only [InternalFunction.returnDefaultBindings]
+    apply List.map_congr_left
+    intro r hrm
+    exact (wordDecl_spec (List.all_eq_true.mp hr r hrm) 0).2
+  simp only [InternalFunction.initialFrame?, bindArgsRef_tags ρ fn.params vs hp hl, hd, callFrame,
+    frameOfT, List.map_append, List.map_map, Option.some.injEq]
+  congr 1
+  · apply List.map_congr_left
+    intro q hq
+    have hm := (List.of_mem_zip hq).1
+    have hg := memTags_get (fn := fn) (b := q.1) (List.all_eq_true.mp hpn q.1 hm) (fun _ => hm)
+    simp [Function.comp_def, hg]
+  · apply List.map_congr_left
+    intro r hrm
+    have hw := List.all_eq_true.mp hr r hrm
+    have hnm : memDecl r = false := by
+      simp only [wordDecl, Bool.and_eq_true, Bool.not_eq_true'] at hw
+      cases hty : r.ty <;> simp_all [memDecl, fixedWords?, wordTy]
+    have hg := memTags_get (fn := fn) (b := r) (List.all_eq_true.mp hrn r hrm) (by simp [hnm])
+    simp [Function.comp_def, hg, ptag, hnm, Tag.val, WExpr.eval]
+
+theorem eval_callM (ρ : Val) (E : EraseEnv) (ctx : Context) (rt : Runtime) (S : SymState)
+    (hrel : StmtRel ρ E ctx rt S) (n : Nat)
+    (ih : ∀ s S b, eraseStmt E n s S = some b → ∀ rt, StmtRel ρ E ctx rt S →
+      ∃ r, Stmt.eval n E.tbl ctx rt s = .done (.ok r) ∧ LeafRel ρ E ctx r (b.eval ρ))
+    {targets : List String} {callee : String} {args : List Expr} {fn : InternalFunction}
+    {gs vs : List WExpr} {b0 b : Br}
+    (hfn : E.tbl.lookup? callee = some fn) (hok : memCallOk fn args = true)
+    (hargs : eraseArgsM E.fields S fn.params args = some (gs, vs))
+    (hb0 : eraseStmt E n fn.body
+      { scopes := [callFrame fn vs], writes := S.writes, logs := S.logs, caller := S.caller,
+        tags := memTags fn, mem := S.mem, next := S.next } = some b0)
+    (hb1 : b0.bindLeaf (callLeaf fn targets S) = some b) :
+    ∃ r, Stmt.eval (n + 1) E.tbl ctx rt (.internalCall targets callee args) = .done (.ok r) ∧
+      LeafRel ρ E ctx r ((guards gs b).eval ρ) := by
+  have hr : fn.returns.all wordDecl = true := by
+    simp only [memCallOk, Bool.and_eq_true] at hok; exact hok.1.1.2
+  obtain ⟨hvl, hel⟩ := eraseArgsM_length hargs
+  have hev := eval_argsM ρ E.fields ctx rt S hrel.expr fn.params args gs vs _ hargs
+    (length_lt_listEvalFuel args)
+  rw [Stmt.eval]
+  simp only [Expr.evalRefArgList, hev]
+  rw [guards_eval]
+  guard_cases hg : gs.any (fun g => g.eval ρ != 0)
+  simp only [caught_done_ok, bind_done_ok, hfn, internalCallEnter?,
+    initialFrame_memcall ρ fn vs hok hvl]
+  have hctx : ({ ctx with checked := true } : Context) = ctx := by
+    rw [show true = ctx.checked from hrel.checked.symm]
+  have hrel0 : StmtRel ρ E ctx { rt with locals := [frameOfT ρ (memTags fn) (callFrame fn vs)] }
+      { scopes := [callFrame fn vs], writes := S.writes, logs := S.logs, caller := S.caller,
+        tags := memTags fn, mem := S.mem, next := S.next } :=
+    { hrel with frames := rfl }
+  obtain ⟨r0, hr0, hl0⟩ := ih fn.body _ b0 hb0 _ hrel0
+  rw [hctx, hr0, bind_done_ok]
+  obtain ⟨c, hc, hce⟩ := Br.bindLeaf_eval ρ hb1
+  rw [hce]
+  exact finish_call hrel hr r0 _ c hl0 hc
+
 theorem intCleanup_false_int (w b : Nat) (hw : w < wordSize) (hb0 : 0 < b) (hb : b ≤ 256) :
     intCleanup? false b (.int w) = intCast? b (.int w) := by
   have hn : SolidCore.Solidity.Shared.norm w = w := norm_lt hw
@@ -4569,11 +4793,17 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
         split at h
         case isFalse =>
           split at h
-          case isFalse => simp at h
-          rename_i hok
+          case isFalse =>
+            split at h
+            case isFalse => simp at h
+            rename_i hok
+            simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
+            obtain ⟨⟨gs, vs⟩, hargs, b0, hb0, b1, hb1, rfl⟩ := h
+            exact eval_callR ρ E ctx rt S hrel n ih hfn hok hargs hb0 hb1
+          rename_i hmok
           simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
           obtain ⟨⟨gs, vs⟩, hargs, b0, hb0, b1, hb1, rfl⟩ := h
-          exact eval_callR ρ E ctx rt S hrel n ih hfn hok hargs hb0 hb1
+          exact eval_callM ρ E ctx rt S hrel n ih hfn hmok hargs hb0 hb1
         rename_i hshape
         simp only [Bool.and_eq_true, decide_eq_true_eq] at hshape
         simp only [Option.bind_eq_bind, Option.bind_eq_some_iff] at h
@@ -5123,6 +5353,19 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
               exact this
             exact { hrel with frames := hf }
         all_goals simp [eraseStmt] at h
+    case memoryLocalize ty x =>
+      simp only [eraseStmt] at h
+      split at h
+      · rename_i hs
+        simp only [Option.some.injEq] at h
+        subst h
+        obtain ⟨id, hid⟩ := Option.isSome_iff_exists.mp hs
+        have hl := hrel.expr.mrefs x id hid
+        refine ⟨.normal rt, ?_, hrel⟩
+        rw [Stmt.eval]
+        simp only [Runtime.localizeMemoryLocal, hl]
+        rfl
+      · simp at h
     case storageArrayPop x =>
       simp only [eraseStmt, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
       obtain ⟨k, hk, rfl⟩ := h
