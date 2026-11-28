@@ -321,6 +321,18 @@ theorem slt_zero_toNat (x : Word) :
   rw [key]
   by_cases h : 2 ^ 255 ≤ x.toNat <;> simp [h]
 
+/-- A word whose number is the `or` of a number other than 0 and another, both words, is not 0. -/
+theorem or_paid {ρ : Val} {call : Call} {w : Word} {a b : Nat} (ha : a ≠ 0)
+    (hw : w.toNat = BinOp.eval .or a b % wordSize) (hal : a < wordSize) (hbl : b < wordSize) :
+    SV.Rel ρ call w .paid := by
+  simp only [SV.Rel]
+  intro h0
+  have hlt : a ||| b < wordSize := Nat.or_lt_two_pow hal hbl
+  have : w.toNat = 0 := by rw [h0]; rfl
+  rw [hw] at this
+  simp only [BinOp.eval, Nat.mod_eq_of_lt hlt] at this
+  exact ha (Nat.or_eq_zero_iff.mp this).1
+
 theorem symPure_sound {cv : SV} {sel n : Nat} {ρ : Val} {call : Call}
     (hc : CallFactsAt cv sel n ρ call)
     {op : EVM.Op} {args : List Word} {sargs : List SV} {sv : SV}
@@ -440,6 +452,23 @@ theorem symPure_sound {cv : SV} {sel n : Nat} {ρ : Val} {call : Call}
         rw [hwv]
         simp [BinOp.eval, hx, Ne.symm (rel_paid hy)]
     · simp at h
+  · -- or of a value other than 0 and a word
+    simp only [Option.some.injEq] at h
+    subst h
+    match args, hr with
+    | [x, y], ⟨hx, _, _⟩ =>
+      obtain ⟨w, hw, hwv⟩ := evalPure_bin (op := .or) (o := .or) rfl x y
+      exact ⟨w, hw, or_paid (rel_paid hx) hwv (x.isLt) (y.isLt)⟩
+  · -- or of a word and a value other than 0
+    simp only [Option.some.injEq] at h
+    subst h
+    match args, hr with
+    | [x, y], ⟨_, hy, _⟩ =>
+      obtain ⟨w, hw, hwv⟩ := evalPure_bin (op := .or) (o := .or) rfl x y
+      refine ⟨w, hw, ?_⟩
+      have hor : w.toNat = BinOp.eval .or y.toNat x.toNat % wordSize := by
+        rw [hwv]; simp only [BinOp.eval, Nat.or_comm]
+      exact or_paid (rel_paid hy) hor (y.isLt) (x.isLt)
   · simp at h
 
 

@@ -142,6 +142,10 @@ def symPure (sel : Nat) : EVM.Op → List SV → Option SV
   | .iszero, [.paid] => some (.w (.lit 0))
   | .eq, [.paid, .w (.lit z)] => if z % wordSize = 0 then some (.w (.lit 0)) else none
   | .eq, [.w (.lit z), .paid] => if z % wordSize = 0 then some (.w (.lit 0)) else none
+  -- `or` of a value other than 0 and any word is a value other than 0, as solar's dispatch joins
+  -- the call value with the short calldata check
+  | .or, [.paid, .w _] => some .paid
+  | .or, [.w _, .paid] => some .paid
   | _, _ => none
 
 def outBytes (mem : Nat → OByte) (off size : Nat) : List OByte :=
