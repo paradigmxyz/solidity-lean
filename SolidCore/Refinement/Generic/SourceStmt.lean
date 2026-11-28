@@ -331,8 +331,20 @@ theorem tup1Ty_spec {ty : Ty} (h : tup1Ty ty = true) : ty = .tuple [.uint256] :=
   · rfl
   · simp at h
 
+/-- `bytes32`, as SolidCore types it. -/
+def b32Ty : Ty → Bool
+  | .fixedBytes 32 => true
+  | _ => false
+
+theorem b32Ty_spec {ty : Ty} (h : b32Ty ty = true) : ty = .fixedBytes 32 := by
+  unfold b32Ty at h
+  split at h
+  · rfl
+  · simp at h
+
 /-- A parameter the fragment passes a memory object to, by reference: an array of words, or a
 struct of one word. -/
+
 def memDecl (b : BindingDecl) : Bool := ((fixedWords? b.ty).isSome || tup1Ty b.ty) && !b.isStorageRef
 
 /-- The tag of a parameter of a call with memory array parameters: a reference or a word. -/
@@ -755,7 +767,17 @@ def eraseStmt (E : EraseEnv) : Nat → Stmt → SymState → Option Br
               if boolish v then some (guards gs (.leaf (.normal { S with scopes := S.scopes.declare x v })))
               else none
           else none
-        | _ => none
+        -- `bytes32 h = e` of a `bytes32` the fragment computes (`eraseB32`): a new `bytes32` local
+        | _ =>
+          if b32Ty ty ∧ Scopes.get? S.scopes x = none then
+            match init with
+            | none => some (.leaf (.normal
+                { S with scopes := S.scopes.declare x (.lit 0), tags := (x, .bytes32) :: S.tags }))
+            | some e => do
+              let h ← eraseB32 E.fields S e
+              some (.leaf (.normal
+                { S with scopes := S.scopes.declare x h, tags := (x, .bytes32) :: S.tags }))
+          else none
     | .returnValues es =>
       match encRet? E.fields S es with
       | some h => some (.leaf (.returned S [h] [.bytes32]))
@@ -4756,7 +4778,41 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
       split at h
       case isFalse =>
         split at h
-        case h_3 => simp at h
+        case h_3 =>
+          split at h
+          case isFalse => simp at h
+          rename_i hc
+          obtain ⟨hb, hnone⟩ := hc
+          obtain rfl := b32Ty_spec hb
+          cases init with
+          | none =>
+            simp only [Option.some.injEq] at h
+            subst h
+            refine ⟨.normal (rt.declareLocal x (.fixedBytes 32 0)), ?_, ?_⟩
+            · rw [Stmt.eval]
+              simp only [Ty.defaultValue]
+              rfl
+            · have hf : (rt.declareLocal x (.fixedBytes 32 0)).locals =
+                  (S.scopes.declare x (.lit 0)).map (frameOfT ρ ((x, .bytes32) :: S.tags)) := by
+                rw [Runtime.declareLocal, hrel.frames]
+                exact envT_declare_fresh ρ S.tags S.scopes x .bytes32 (.lit 0) hnone
+              exact { hrel with frames := hf }
+          | some e =>
+            simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
+            obtain ⟨hv, he, rfl⟩ := h
+            have heval : Expr.eval ctx rt e = .done (.ok (.fixedBytes 32 (hv.eval ρ), rt)) :=
+              eval_eraseB32 hrel.expr he (Nat.lt_succ_self _)
+            have hco : (Ty.fixedBytes 32).coerceValue? (.fixedBytes 32 (hv.eval ρ)) =
+                some (.fixedBytes 32 (hv.eval ρ)) := by
+              simp [Ty.coerceValue?, normWord, norm_lt (hv.eval_lt ρ)]
+            rw [Stmt.eval]
+            simp only [heval, caught_done_ok, bind_done_ok, hco]
+            refine ⟨.normal (rt.declareLocal x (.fixedBytes 32 (hv.eval ρ))), rfl, ?_⟩
+            have hf : (rt.declareLocal x (.fixedBytes 32 (hv.eval ρ))).locals =
+                (S.scopes.declare x hv).map (frameOfT ρ ((x, .bytes32) :: S.tags)) := by
+              rw [Runtime.declareLocal, hrel.frames]
+              exact envT_declare_fresh ρ S.tags S.scopes x .bytes32 hv hnone
+            exact { hrel with frames := hf }
         case h_2 =>
           split at h
           case isFalse => simp at h
