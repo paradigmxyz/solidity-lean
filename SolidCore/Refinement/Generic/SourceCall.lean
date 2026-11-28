@@ -35,21 +35,21 @@ def wordBinding (b : BindingDecl) : Bool :=
 
 /-- The bound of the argument word of a parameter of the fragment, from its binding and its ABI
 cleanup: the largest word SolidCore's decoder accepts for it. `2 ^ b - 1` for a `uint256` with the
-cleanup `uint b`, `0 < b ≤ 256`; `m` for a `uint256` with the cleanup `enum m`, `0 < m` (an enum
+cleanup `uint b`, `0 < b ≤ 256`; `m` for a `uint256` with the cleanup `enum m` (an enum
 parameter whose largest member is `m`); `2 ^ 160 - 1` for an `address` and 1 for a `bool`, each with
 no cleanup; `2 ^ 256 - 1` (no check) for an `int256` with the cleanup `int 256` and for a `bytes32`,
 which SolidCore holds as typed values (`tagOf`); `wordSize + b` for a signed `b`-bit parameter, an
 `int256` with the cleanup `int b`, `0 < b < 256`, whose word must be its own sign extension from
 bit `b - 1` (`sextGuard`): a number at or above `wordSize` names that check rather than a bound,
-so every parameter keeps one number and the checks one list. An enum of one member (`m = 0`) has no bound here:
-past its check its argument word is 0, which solar's MIR returns as the constant while the erasure
-keeps the word, so the trees differ. -/
+so every parameter keeps one number and the checks one list. An enum of one member (`m = 0`) has
+the bound 0: past its check its argument word is 0, which `WExpr.simp` folds from the path's facts
+as solar's MIR returns the constant. -/
 def paramWidthT (p : BindingDecl) (c : AbiCleanup) : Option Nat :=
   if p.isStorageRef then none
   else
     match p.ty, c with
     | .uint256, .uint b => if 0 < b ∧ b ≤ 256 then some (2 ^ b - 1) else none
-    | .uint256, .enum m => if 0 < m ∧ m < wordSize then some m else none
+    | .uint256, .enum m => if m < wordSize then some m else none
     | .address, .none => some (2 ^ 160 - 1)
     | .bool, .none => some 1
     | .int256, .int 256 => some (2 ^ 256 - 1)

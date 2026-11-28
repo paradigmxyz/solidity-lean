@@ -10,7 +10,8 @@ reads a packed byte with `byte`, the source with a shift and a mask; solar joins
 checks with `or`. `canon` brings both trees to one form, which the kernel then compares by `=`:
 
 * `Tree.split` turns a branch on `or a b` into a branch on `a`, then on `b` (`splitCond`);
-* `Tree.simp K` simplifies every word bottom up (`WExpr.simp`): constants fold, `or` with zero
+* `Tree.simp K` simplifies every word bottom up (`WExpr.simp`): constants fold, an argument word
+  the facts bound by 0 is 0 (a one-member enum's), `or` with zero
   and shifts by zero drop, `byte i v` becomes `and (shr (8 * (31 - i)) v) 255`, a mask
   `and a (2 ^ k - 1)` drops when `a` is at most the mask, and a comparison that cannot hold
   (`gt a c` with `a ≤ c`, `uint256`'s add and mul overflow checks on operands too small to
@@ -132,10 +133,12 @@ theorem Facts.Hold.add {ρ : Val} {K : Facts} (c : WExpr) (s : Bool) (h : K.Hold
 
 /-! ## Upper bounds -/
 
-/-- The bound one fact gives a word: `gt e c` taken as zero bounds `e` by `c`. -/
+/-- The bound one fact gives a word: `gt e c` taken as zero bounds `e` by `c`, and `e` taken as zero
+bounds it by 0. -/
 def factBound1 (p : WExpr × Bool) (e : WExpr) : Nat :=
   match p with
   | (.bin .gt e' (.lit c), false) => if e' = e then c % wordSize else maxWord
+  | (e', false) => if e' = e then 0 else maxWord
   | _ => maxWord
 
 /-- The bound the facts give a word. -/
@@ -156,6 +159,11 @@ theorem factBound1_sound {ρ : Val} {p : WExpr × Bool} (hp : p.1.eval ρ = 0 �
       by_cases hc : c % wordSize < e'.eval ρ
       · simp [hc] at h0
       · omega
+    · exact e.eval_le ρ
+  · split
+    · rename_i he
+      subst he
+      exact Nat.le_of_eq (hp.mpr rfl)
     · exact e.eval_le ρ
   · exact e.eval_le ρ
 
@@ -385,7 +393,7 @@ def sUn (K : Facts) (op : UnOp) (a : WExpr) : WExpr :=
 /-- A word simplified on the paths the facts hold on. -/
 def WExpr.simp (K : Facts) : WExpr → WExpr
   | .lit n => .lit (n % wordSize)
-  | .arg i => .arg i
+  | .arg i => if K.bound (.arg i) = 0 then .lit 0 else .arg i
   | .init k => .init k
   | .un op a => sUn K op (a.simp K)
   | .bin op a b => sBin K op (a.simp K) (b.simp K)
@@ -583,7 +591,16 @@ theorem eval_sUn {ρ : Val} {K : Facts} (h : K.Hold ρ) (op : UnOp) (a : WExpr) 
 
 theorem WExpr.eval_simp {ρ : Val} {K : Facts} (h : K.Hold ρ) : ∀ e : WExpr, (e.simp K).eval ρ = e.eval ρ
   | .lit n => by simp [WExpr.simp, WExpr.eval, Nat.mod_mod]
-  | .arg i => rfl
+  | .arg i => by
+    simp only [WExpr.simp]
+    split
+    · rename_i h0
+      have := Facts.bound_sound h (.arg i)
+      rw [h0] at this
+      have h1 : (WExpr.arg i).eval ρ = 0 := by omega
+      rw [h1]
+      rfl
+    · rfl
   | .init k => rfl
   | .un op a => by
     rw [WExpr.simp, eval_sUn h]
@@ -760,13 +777,15 @@ theorem Tree.eval_simp {ρ : Val} : ∀ {K : Facts}, K.Hold ρ → ∀ T : Tree,
 
 /-- A branch on `c`, a negation `iszero a`, `eq a 0` or `eq 0 a` turned into a branch on `a`
 with its sides swapped, a branch on `not a` (zero exactly when `a` is the largest word) into a
-branch on `eq a maxWord` with its sides swapped, and a disjunction split as `splitCond` does. -/
+branch on `eq a maxWord` with its sides swapped, a branch on `gt a 0` into a branch on `a`, and a
+disjunction split as `splitCond` does. -/
 def splitNeg : WExpr → Tree → Tree → Tree
   | .un .iszero a, t, e => splitNeg a e t
   | .bin .eq a (.lit 0), t, e => splitNeg a e t
   | .bin .eq (.lit 0) a, t, e => splitNeg a e t
   | .bin .or a b, t, e => splitNeg a t (splitNeg b t e)
   | .un .not a, t, e => .ite (.bin .eq a (.lit maxWord)) e t
+  | .bin .gt a (.lit 0), t, e => splitNeg a t e
   | c, t, e => .ite c t e
 
 /-- Every branch of a tree, its negations and disjunctions split. -/
@@ -803,7 +822,13 @@ theorem splitNeg_eval (ρ : Val) (c : WExpr) (t e : Tree) :
       rw [Nat.mod_eq_of_lt (by omega)]
       simp only [maxWord] at h
       omega
-  | case6 => rfl
+  | case6 a t e ih =>
+    rw [ih]
+    by_cases h : a.eval ρ = 0
+    · simp [WExpr.eval, BinOp.eval, h]
+    · have hp : 0 < a.eval ρ := Nat.pos_of_ne_zero h
+      simp [WExpr.eval, BinOp.eval, h, hp]
+  | case7 => rfl
 
 theorem Tree.eval_splitNeg (ρ : Val) : ∀ T : Tree, T.splitNeg.eval ρ = T.eval ρ
   | .halt _ _ _ _ => rfl

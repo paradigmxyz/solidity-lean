@@ -77,7 +77,7 @@ theorem paramWidth_spec {p : BindingDecl} {c : AbiCleanup} {w : Nat} (h : paramW
     · rename_i hm
       simp only [Option.some.injEq] at h
       subst h
-      exact ⟨hs', .inl ⟨hm.2, .inr (.inl ⟨ht, rfl⟩)⟩⟩
+      exact ⟨hs', .inl ⟨hm, .inr (.inl ⟨ht, rfl⟩)⟩⟩
     · simp at h
   · rename_i ht
     simp only [Option.some.injEq] at h
