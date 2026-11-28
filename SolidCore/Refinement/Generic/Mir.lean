@@ -129,6 +129,12 @@ def symPure (sel : Nat) : EVM.Op → List SV → Option SV
   -- 8 (k + 1) bits
   | .signextend, [.w (.lit k), .w x] =>
     if k % wordSize < 31 then some (.w (sextW (8 * (k % wordSize + 1)) x)) else none
+  -- exp b k for a constant power of two b = 2 ^ j, 0 < j < 256
+  | .exp, [.w (.lit b), .w k] =>
+    if 0 < Nat.log2 (b % wordSize) ∧ Nat.log2 (b % wordSize) < 256 ∧
+        2 ^ Nat.log2 (b % wordSize) = b % wordSize then
+      some (.w (powTwoW (Nat.log2 (b % wordSize)) k))
+    else none
   -- slt a 0: the sign of a (sneg)
   | .slt, [.w a, .w (.lit z)] => if z % wordSize = 0 then some (.w (sneg a)) else none
   | op, [.w a, .w b] => (binOfOp op).map fun o => .w (mkBin o a b)

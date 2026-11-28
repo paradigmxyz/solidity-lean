@@ -629,4 +629,62 @@ theorem eval_saddGuard (ρ : Val) (a b : WExpr) :
 
 
 
+
+/-! ## Powers of two
+
+`(2 ^ j) ^ k mod 2 ^ 256` from the fragment's operations, for `0 < j < 256`: `shl k 1` for `j = 1`,
+and otherwise `0` when `k > 255` and `shl (j * k) 1` below (where `j * k` cannot wrap), `j * k`
+written `add k k` for `j = 2` as solar strength-reduces it. -/
+
+def powTwoW (j : Nat) (k : WExpr) : WExpr :=
+  if j = 1 then .bin .shl k (.lit 1)
+  else .sel (.bin .gt k (.lit 255)) (.lit 0)
+    (.bin .shl (if j = 2 then .bin .add k k else .bin .mul (.lit j) k) (.lit 1))
+
+theorem pow2_mod_big {n : Nat} (h : 256 ≤ n) : 2 ^ n % wordSize = 0 :=
+  Nat.mod_eq_zero_of_dvd (Nat.pow_dvd_pow 2 h)
+
+theorem shl_one_eval (s : Nat) : BinOp.shl.eval s 1 % wordSize = 2 ^ s % wordSize := by
+  simp only [BinOp.eval, Nat.one_mul]
+  split
+  · exact Nat.mod_mod _ _
+  · rw [pow2_mod_big (by omega)]; rfl
+
+theorem eval_powTwoW (ρ : Val) {j : Nat} (hj : 0 < j ∧ j < 256) (k : WExpr) :
+    (powTwoW j k).eval ρ = (2 ^ j) ^ (k.eval ρ) % wordSize := by
+  have hk := k.eval_lt ρ
+  rw [← Nat.pow_mul]
+  unfold powTwoW
+  split
+  · rename_i h1
+    subst h1
+    show BinOp.shl.eval (k.eval ρ) (1 % wordSize) % wordSize = _
+    rw [show (1 : Nat) % wordSize = 1 from rfl, shl_one_eval, Nat.one_mul]
+  · have hc : (WExpr.bin .gt k (.lit 255)).eval ρ = if 255 < k.eval ρ then 1 else 0 := by
+      simp only [WExpr.eval, BinOp.eval, show (255 : Nat) % wordSize = 255 from rfl]
+      split <;> rfl
+    show (if (WExpr.bin .gt k (.lit 255)).eval ρ = 0 then _ else _) = _
+    rw [hc]
+    by_cases hgt : 255 < k.eval ρ
+    · rw [if_pos hgt, if_neg (by decide)]
+      rw [pow2_mod_big (by
+        have : 1 * k.eval ρ ≤ j * k.eval ρ := Nat.mul_le_mul_right _ (by omega)
+        omega)]
+      rfl
+    · rw [if_neg hgt, if_pos rfl]
+      have hle : k.eval ρ ≤ 255 := by omega
+      have hs : (if j = 2 then WExpr.bin .add k k else WExpr.bin .mul (.lit j) k).eval ρ =
+          j * k.eval ρ := by
+        split
+        · rename_i h2; subst h2
+          have hlt : k.eval ρ + k.eval ρ < wordSize := by show _ < 2 ^ 256; omega
+          simp only [WExpr.eval, BinOp.eval, Nat.mod_mod, Nat.mod_eq_of_lt hlt]; omega
+        · simp only [WExpr.eval, BinOp.eval, Nat.mod_eq_of_lt (show j < wordSize by
+            show _ < 2 ^ 256; omega)]
+          have : j * k.eval ρ ≤ 255 * 255 := Nat.mul_le_mul (by omega) hle
+          have hlt : j * k.eval ρ < wordSize := by show _ < 2 ^ 256; omega
+          rw [Nat.mod_mod, Nat.mod_eq_of_lt hlt]
+      show BinOp.shl.eval _ (1 % wordSize) % wordSize = _
+      rw [hs, show (1 : Nat) % wordSize = 1 from rfl, shl_one_eval]
+
 end SolidCore.Refinement.Generic

@@ -203,6 +203,35 @@ theorem byte_toNat_eval (a b : Word) :
     exact (Nat.mod_eq_of_lt (Nat.lt_of_lt_of_le (Nat.mod_lt _ (by decide)) (by decide))).symm
   · simp [h]
 
+theorem power_toNat : ∀ (n : Nat) (a : Word),
+    (SolarTV.Word.power a n).toNat = a.toNat ^ n % wordSize
+  | n, a => by
+    rw [SolarTV.Word.power]
+    split
+    · rename_i h0
+      subst h0
+      rfl
+    · rename_i h0
+      have ih := power_toNat (n / 2) (a * a)
+      rw [BitVec.toNat_mul, show (2 : Nat) ^ 256 = wordSize from rfl, ← Nat.pow_mod,
+        ← Nat.pow_two, ← Nat.pow_mul] at ih
+      have hn := Nat.div_add_mod n 2
+      split
+      · rename_i he
+        rw [ih]
+        congr 1
+        congr 1
+        omega
+      · rename_i ho
+        have h1 : n % 2 = 1 := by omega
+        rw [BitVec.toNat_mul, ih, show (2 : Nat) ^ 256 = wordSize from rfl, Nat.mul_mod_mod,
+          ← Nat.pow_succ']
+        congr 2
+        omega
+termination_by n => n
+decreasing_by
+  all_goals (simp_wf; omega)
+
 theorem evalPure_bin {op : EVM.Op} {o : BinOp} (h : binOfOp op = some o) (a b : Word) :
     ∃ w, evalPure op [a, b] = some w ∧ w.toNat = o.eval a.toNat b.toNat % wordSize := by
   have ha := a.isLt
@@ -337,6 +366,19 @@ theorem symPure_sound {cv : SV} {sel n : Nat} {ρ : Val} {call : Call}
         rw [eq_ofNat_of_rel ha]
         simp only [SV.Rel] at hy ⊢
         rw [signextend_lit k hk, eval_sextW ρ (by omega) x, hy]
+    · simp at h
+  · -- exp of a constant power of two
+    split at h
+    · rename_i b k hb
+      simp only [Option.some.injEq] at h
+      subst h
+      match args, hr with
+      | [a, y], ⟨ha, hy, _⟩ =>
+        refine ⟨SolarTV.Word.power a y.toNat, rfl, ?_⟩
+        rw [eq_ofNat_of_rel ha]
+        simp only [SV.Rel] at hy ⊢
+        rw [power_toNat, eval_powTwoW ρ ⟨hb.1, hb.2.1⟩ k, ← hy, BitVec.toNat_ofNat,
+          show (2 : Nat) ^ 256 = wordSize from rfl, hb.2.2]
     · simp at h
   · -- slt a 0
     split at h
