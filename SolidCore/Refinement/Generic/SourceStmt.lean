@@ -320,8 +320,20 @@ def rhsPlain : Expr → Bool
   | .ternary _ _ _ => false
   | _ => true
 
-/-- A parameter the fragment passes a memory array of words to, by reference. -/
-def memDecl (b : BindingDecl) : Bool := (fixedWords? b.ty).isSome && !b.isStorageRef
+/-- A struct of one `uint256` field, as SolidCore types it: the tuple of one word. -/
+def tup1Ty : Ty → Bool
+  | .tuple [.uint256] => true
+  | _ => false
+
+theorem tup1Ty_spec {ty : Ty} (h : tup1Ty ty = true) : ty = .tuple [.uint256] := by
+  unfold tup1Ty at h
+  split at h
+  · rfl
+  · simp at h
+
+/-- A parameter the fragment passes a memory object to, by reference: an array of words, or a
+struct of one word. -/
+def memDecl (b : BindingDecl) : Bool := ((fixedWords? b.ty).isSome || tup1Ty b.ty) && !b.isStorageRef
 
 /-- The tag of a parameter of a call with memory array parameters: a reference or a word. -/
 def ptag (b : BindingDecl) : Tag := if memDecl b then .mref else .word
@@ -843,7 +855,18 @@ def eraseStmt (E : EraseEnv) : Nat → Stmt → SymState → Option Br
                    mem := (k, List.replicate nw (.lit 0)) :: S.mem, next := some (k + 1) }))
       else none
     -- `T[n] memory b = a` of a memory array `a`: a new local referring to the same object
-    | .memoryVarDecl ty x (some (.var a)) => do
+    | .memoryVarDecl ty x (some (.var a)) =>
+      -- `S memory b = a` of a calldata struct `a` of one word: a new local referring to a new
+      -- memory object, its copy, which the erasure does not track (no word of it is read)
+      if S.tags.get a = .tup1 then do
+        let _ ← Scopes.get? S.scopes a
+        let k ← S.next
+        if tup1Ty ty ∧ Scopes.get? S.scopes x = none ∧ k < wordSize ∧ S.mem.lookup k = none then
+          some (.leaf (.normal
+            { S with scopes := S.scopes.declare x (.lit k), tags := (x, .mref) :: S.tags,
+                     next := some (k + 1) }))
+        else none
+      else do
       let _ ← fixedWords? ty
       let id ← S.mref? a
       if Scopes.get? S.scopes x = none then
@@ -1578,6 +1601,25 @@ theorem memRel_insert {ρ : Val} {rt : Runtime} {S : SymState}
     simp [MemoryMap.lookup?, MemoryMap.insertLoop, Std.HashMap.get?_eq_getElem?,
       Std.HashMap.getElem?_insert, Ne.symm hk] at this ⊢
     exact this
+
+/-- The memory relation after SolidCore stores an object the state does not track at an id it holds
+no object at. -/
+theorem memRel_insert_other {ρ : Val} {rt : Runtime} {S : SymState}
+    (hmem : ∀ id ws, S.mem.lookup id = some ws → rt.loadMemory? id = some (memArr ρ ws))
+    {k : Nat} (hk : S.mem.lookup k = none) (v : Value) :
+    ∀ id ws, S.mem.lookup id = some ws →
+      MemoryMap.lookup? (MemoryMap.insertLoop rt.memory k v) id = some (memArr ρ ws) := by
+  intro id ws h
+  have hne : id ≠ k := by
+    intro he
+    subst he
+    rw [hk] at h
+    cases h
+  have := hmem id ws h
+  simp only [Runtime.loadMemory?, MemoryMap.lookup?] at this
+  simp [MemoryMap.lookup?, MemoryMap.insertLoop, Std.HashMap.get?_eq_getElem?,
+    Std.HashMap.getElem?_insert, Ne.symm hne] at this ⊢
+  exact this
 
 theorem listUpdateAt?_map {α β : Type} (f : α → β) (v : α) : ∀ (l : List α) (j : Nat), j < l.length →
     listUpdateAt? (l.map f) j (f v) = some ((l.set j v).map f)
@@ -4483,7 +4525,7 @@ theorem initialFrame_memcall (ρ : Val) (fn : InternalFunction) (vs : List WExpr
     have hw := List.all_eq_true.mp hr r hrm
     have hnm : memDecl r = false := by
       simp only [wordDecl, Bool.and_eq_true, Bool.not_eq_true'] at hw
-      cases hty : r.ty <;> simp_all [memDecl, fixedWords?, wordTy]
+      cases hty : r.ty <;> simp_all [memDecl, fixedWords?, wordTy, tup1Ty]
     have hg := memTags_get (fn := fn) (b := r) (List.all_eq_true.mp hrn r hrm) (by simp [hnm])
     simp [Function.comp_def, hg, ptag, hnm, Tag.val, WExpr.eval]
 
@@ -5415,7 +5457,55 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
       | some ie =>
         cases ie
         case var a =>
-          simp only [eraseStmt, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+          by_cases hta : S.tags.get a = .tup1
+          · simp only [eraseStmt, hta, ↓reduceIte, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+            obtain ⟨va, hva, k, hk, h⟩ := h
+            split at h
+            case isFalse => simp at h
+            rename_i hc
+            obtain ⟨hty, hnone, hkw, hmk⟩ := hc
+            simp only [Option.some.injEq] at h
+            subst h
+            obtain rfl := tup1Ty_spec hty
+            have hnext := hrel.next k hk
+            have hla : rt.lookupLocal? a = some (Tag.tup1.val (va.eval ρ)) := by
+              simp [Runtime.lookupLocal?, hrel.frames, envT_lookup, hva, hta]
+            have hmr : Expr.memoryRefOrValue ctx rt (.var a) =
+                .done (.ok (none, some (Tag.tup1.val (va.eval ρ)), rt)) := by
+              unfold Expr.memoryRefOrValue
+              rw [Expr.memoryRefOrValueFuel]
+              simp [Runtime.lookupMemoryRef?, hla, Expr.evalFuel, Runtime.lookupStorageBase?,
+                Runtime.derefMemoryValue, Tag.val, pure, EvmCompiler.Simulation.Interaction.pure, bind,
+                EvmCompiler.Simulation.Interaction.bind, liftM, monadLift, MonadLift.monadLift,
+                SolI.ofExcept]
+            set rt1 := (rt.allocMemory (Tag.tup1.val (va.eval ρ))).1 with hrt1
+            have hdecl : rt.declareMemoryLocal (.tuple [.uint256]) x (Tag.tup1.val (va.eval ρ)) =
+                some (rt1.declareLocal x (.memoryRef k)) := by
+              simp [Runtime.declareMemoryLocal, Tag.val, Ty.coerceValue?, Ty.coerceTupleValues?,
+                Runtime.memoryStoredValue, Runtime.memoryStoredValues, Value.isMemoryObject, hrt1,
+                Runtime.allocMemory, hnext, bind, Option.bind]
+            refine ⟨.normal (rt1.declareLocal x (.memoryRef k)), ?_, ?_⟩
+            · rw [Stmt.eval]
+              simp only [hmr, caught_done_ok, bind_done_ok]
+              simp only [hdecl]
+              rfl
+            · have hf : (rt1.declareLocal x (.memoryRef k)).locals =
+                  (S.scopes.declare x (.lit k)).map (frameOfT ρ ((x, .mref) :: S.tags)) := by
+                have := envT_declare_fresh ρ S.tags S.scopes x .mref (.lit k) hnone
+                simp only [Tag.val, WExpr.eval, Nat.mod_eq_of_lt hkw] at this
+                simp only [Runtime.declareLocal, hrt1, Runtime.allocMemory, hrel.frames]
+                exact this
+              have hm := memRel_insert_other hrel.mem hmk (Tag.tup1.val (va.eval ρ))
+              exact { hrel with frames := hf
+                                mem := fun id ws h => by
+                                  have := hm id ws h
+                                  simpa [Runtime.loadMemory?, Runtime.declareLocal, hrt1,
+                                    Runtime.allocMemory, hnext] using this
+                                next := fun k' hk' => by
+                                  simp only [Option.some.injEq] at hk'
+                                  subst hk'
+                                  simp [Runtime.declareLocal, hrt1, Runtime.allocMemory, hnext] }
+          simp only [eraseStmt, hta, ↓reduceIte, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
           obtain ⟨nw, hnw, id, hid, h⟩ := h
           split at h
           case isFalse => simp at h
