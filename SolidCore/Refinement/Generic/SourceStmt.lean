@@ -342,6 +342,49 @@ theorem b32Ty_spec {ty : Ty} (h : b32Ty ty = true) : ty = .fixedBytes 32 := by
   · rfl
   · simp at h
 
+/-- `keccak256(abi.encode(S(a, b[j] = z)))` of a struct of a memory array `a` of one word and a
+word whose expression writes `z`, a word expression with no overflow conditions, into the word `j`
+of a memory array `b` of words: the object of `b` after the write, and the hash of `a`'s word
+after it (the struct keeps `a` as a reference, which may be `b`) and `z`'s word. -/
+def encTupEff? (fields : List StorageField) (S : SymState) : Expr → Option (Nat × List WExpr × WExpr)
+  | .keccak256 (.encode .plain none [] [.tuple [.fixedArray 1 .uint256, .uint256]]
+      [.tuple [.var p, .castOp .uintCast 256 (.assignment none none (.index (.var q) (.word j)) z)]]) => do
+    let id ← S.mref? q
+    let wq ← S.mem.lookup id
+    let (gs, v) ← eraseExpr fields S z
+    let idp ← S.mref? p
+    let wp ← ((id, wq.set j v) :: S.mem).lookup idp
+    let k ← S.next
+    if gs = [] ∧ j < wq.length ∧ j < wordSize ∧ wp.length = 1 ∧ 0 < k then
+      some (id, wq.set j v, .hash (wp.headD (.lit 0)) v)
+    else none
+  | _ => none
+
+theorem encTupEff?_spec {fields : List StorageField} {S : SymState} {e : Expr} {id : Nat}
+    {ws : List WExpr} {h : WExpr} (he : encTupEff? fields S e = some (id, ws, h)) :
+    ∃ p q j z wq v idp wp k,
+      e = .keccak256 (.encode .plain none [] [.tuple [.fixedArray 1 .uint256, .uint256]]
+        [.tuple [.var p, .castOp .uintCast 256 (.assignment none none (.index (.var q) (.word j)) z)]]) ∧
+      S.mref? q = some id ∧ S.mem.lookup id = some wq ∧ eraseExpr fields S z = some ([], v) ∧
+      S.mref? p = some idp ∧ ((id, wq.set j v) :: S.mem).lookup idp = some [wp] ∧
+      S.next = some k ∧ 0 < k ∧ j < wq.length ∧ j < wordSize ∧ ws = wq.set j v ∧ h = .hash wp v := by
+  unfold encTupEff? at he
+  split at he
+  · rename_i p q j z
+    simp only [Option.bind_eq_bind, Option.bind_eq_some_iff] at he
+    obtain ⟨id', hid, wq, hwq, ⟨gs, v⟩, hv, idp, hp, wp, hwp, k, hk, he⟩ := he
+    split at he
+    · rename_i hc
+      obtain ⟨rfl, hjl, hjw, hl, hk0⟩ := hc
+      rcases wp with _ | ⟨w, _ | ⟨_, _⟩⟩
+      · simp at hl
+      · simp only [Option.some.injEq, Prod.mk.injEq, List.headD_cons] at he
+        obtain ⟨rfl, rfl, rfl⟩ := he
+        exact ⟨p, q, j, z, wq, v, idp, w, k, rfl, hid, hwq, hv, hp, hwp, hk, hk0, hjl, hjw, rfl, rfl⟩
+      · simp at hl
+    · simp at he
+  · simp at he
+
 /-- A parameter the fragment passes a memory object to, by reference: an array of words, or a
 struct of one word. -/
 
@@ -692,10 +735,16 @@ def eraseStmt (E : EraseEnv) : Nat → Stmt → SymState → Option Br
         let L ← Scopes.set S.scopes x v
         some (guards gs (.leaf (.normal { S with scopes := L })))
       -- a `bytes32` the fragment computes (`eraseB32`) to a `bytes32` local
-      else if S.tags.get x = .bytes32 then do
-        let h ← eraseB32 E.fields S e
-        let L ← Scopes.set S.scopes x h
-        some (.leaf (.normal { S with scopes := L }))
+      else if S.tags.get x = .bytes32 then
+        match eraseB32 E.fields S e with
+        | some h => do
+          let L ← Scopes.set S.scopes x h
+          some (.leaf (.normal { S with scopes := L }))
+        -- a hash whose struct argument writes a memory array's word (`encTupEff?`)
+        | none => do
+          let (id, ws, h) ← encTupEff? E.fields S e
+          let L ← Scopes.set S.scopes x h
+          some (.leaf (.normal { S with scopes := L, mem := (id, ws) :: S.mem }))
       else do
         let (gs, v) ← eraseExpr E.fields S e
         let L ← S.setW x v
@@ -3762,6 +3811,142 @@ theorem eval_assignB32 (ρ : Val) (E : EraseEnv) (ctx : Context) (rt : Runtime) 
     ↓reduceIte, hev, caught_done_ok, bind_done_ok, hres, ResolvedLValue.write, hassign]
   rfl
 
+/-- SolidCore evaluates `encTupEff?`'s expressions to the `bytes32` of their hash, with the word
+written into the array's object, which the state then holds. -/
+theorem eval_encTupEff {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {S : SymState}
+    (hrel : StmtRel ρ E ctx rt S) {e : Expr} {id : Nat} {ws : List WExpr} {h : WExpr}
+    (he : encTupEff? E.fields S e = some (id, ws, h)) :
+    Expr.eval ctx rt e = .done (.ok (.fixedBytes 32 (h.eval ρ),
+      { rt with memory := MemoryMap.insertLoop rt.memory id (memArr ρ ws) })) ∧
+    StmtRel ρ E ctx { rt with memory := MemoryMap.insertLoop rt.memory id (memArr ρ ws) }
+      { S with mem := (id, ws) :: S.mem } := by
+  obtain ⟨p, q, j, z, wq, v, idp, wp, k, rfl, hq, hwq, hz, hp, hwp, hk, hk0, hjl, hjw, rfl, rfl⟩ :=
+    encTupEff?_spec he
+  have hl := hrel.expr.mrefs q id hq
+  have hm := hrel.mem id wq hwq
+  have hbase : rt.lookupStorageBase? q = none := by
+    simp [Runtime.lookupStorageBase?, hl]
+  have hw : ResolvedLValue.write ctx rt (.valueIndex (.memoryCell id) j) (.word (v.eval ρ)) =
+      .ok { rt with memory := (MemoryMap.insertLoop rt.memory id (memArr ρ (wq.set j v))) } := by
+    have hsv := storedValue_arr ρ rt (wq.set j v)
+    have hup := listUpdateAt?_map (fun w : WExpr => Value.word (w.eval ρ)) v wq j hjl
+    simp only [Runtime.loadMemory?] at hm
+    simp [ResolvedLValue.write, ResolvedLValue.read, ResolvedLValue.readRaw,
+      ResolvedLValue.writeContainer, Runtime.loadMemory?, hm, Runtime.derefMemoryValue,
+      Runtime.memoryStoreValue, Value.isMemoryObject, Value.setIndex?, memArr,
+      listGet?_map, List.getElem?_eq_getElem hjl, normWord, norm_lt hjw, hup,
+      Runtime.storeMemory?, bind, Except.bind, pure, Except.pure] at hsv ⊢
+    all_goals simp [hsv]
+  have hrel1 : StmtRel ρ E ctx
+      { rt with memory := (MemoryMap.insertLoop rt.memory id (memArr ρ (wq.set j v))) }
+      { S with mem := (id, wq.set j v) :: S.mem } :=
+    { hrel with
+      mem := fun id' ws' h' => by
+        simpa [Runtime.loadMemory?] using memRel_insert hrel.mem id (wq.set j v) id' ws' h'
+      next := fun k hk => hrel.next k hk }
+  refine ⟨?_, hrel1⟩
+  have hmr : rt.lookupMemoryRef? p = some idp := by
+    simp [Runtime.lookupMemoryRef?, hrel.expr.mrefs p idp hp]
+  have hmp := hrel1.mem idp [wp] hwp
+  have hn := hrel.next k hk
+  obtain ⟨i, hi⟩ : ∃ i, rt.nextMemory = i + 1 := ⟨k - 1, by omega⟩
+  have hzv : ∀ m, Expr.orderFuel z < m →
+      Expr.evalFuel m ctx rt z = .done (.ok (.word (v.eval ρ), rt)) := by
+    intro m hm
+    rw [eval_erase ρ E.fields ctx rt S hrel.expr z [] v m hz hm]
+    simp [exprResult]
+  have hres : ∀ m, Expr.resolveLValueFuel (m + 2) ctx rt (.index (.var q) (.word j)) =
+      .done (.ok (.valueIndex (.memoryCell id) j, rt)) := by
+    intro m
+    rw [Expr.resolveLValueFuel, Expr.resolveLValueFuel]
+    simp only [hbase, hl, pure, EvmCompiler.Simulation.Interaction.pure, bind_done_ok]
+    rw [Expr.evalFuel]
+    simp [hbase, hl, Value.expectWord, normWord, norm_lt hjw,
+      ResolvedLValue.readRaw, pure, EvmCompiler.Simulation.Interaction.pure, bind,
+      EvmCompiler.Simulation.Interaction.bind, liftM, monadLift, MonadLift.monadLift,
+      SolI.ofExcept, Except.bind]
+  have hcast : ∀ m, Expr.orderFuel z < m →
+      Expr.evalFuel (m + 4) ctx rt
+          (.castOp .uintCast 256 (.assignment none none (.index (.var q) (.word j)) z)) =
+        .done (.ok (.word (v.eval ρ),
+          { rt with memory := (MemoryMap.insertLoop rt.memory id (memArr ρ (wq.set j v))) })) := by
+    intro m hm
+    rw [Expr.evalFuel, Expr.evalFuel]
+    simp only [hzv (m + 2) (by omega), hres m, hw, uintCast_word (v.eval ρ) 256 (v.eval_lt ρ)
+      (by decide) (Nat.le_refl _), bind_done_ok, pure, EvmCompiler.Simulation.Interaction.pure,
+      bind, EvmCompiler.Simulation.Interaction.bind, liftM, monadLift, MonadLift.monadLift,
+      SolI.ofExcept, Except.bind]
+    simp [Nat.mod_eq_of_lt (v.eval_lt ρ)]
+  have hpv : ∀ m, Expr.memoryRefOrValueFuel (m + 1) ctx rt (.var p) =
+      .done (.ok (some idp, none, rt)) := by
+    intro m
+    simp [Expr.memoryRefOrValueFuel, hmr, pure, EvmCompiler.Simulation.Interaction.pure]
+  have hf : Expr.orderFuel z + 15 ≤ Expr.orderFuel (.keccak256 (.encode .plain none []
+      [.tuple [.fixedArray 1 .uint256, .uint256]]
+      [.tuple [.var p, .castOp .uintCast 256 (.assignment none none (.index (.var q) (.word j)) z)]])) + 1 := by
+    simp [Expr.orderFuel, Expr.listEvalFuel]; omega
+  obtain ⟨n, hn'⟩ : ∃ n, Expr.orderFuel (.keccak256 (.encode .plain none []
+      [.tuple [.fixedArray 1 .uint256, .uint256]]
+      [.tuple [.var p, .castOp .uintCast 256 (.assignment none none (.index (.var q) (.word j)) z)]])) + 1 =
+      n + 11 := ⟨_, (Nat.sub_add_cancel (by omega)).symm⟩
+  have hzn : Expr.orderFuel z < n := by omega
+  unfold Expr.eval
+  rw [hn']
+  have hcv : ∀ m, n ≤ m → Expr.memoryRefOrValueFuel (m + 5) ctx rt
+      (.castOp .uintCast 256 (.assignment none none (.index (.var q) (.word j)) z)) =
+      .done (.ok (none, some (.word (v.eval ρ)),
+        { rt with memory := (MemoryMap.insertLoop rt.memory id (memArr ρ (wq.set j v))) })) := by
+    intro m hm
+    rw [memoryRefOrValue_plain rfl, hcast m (by omega)]
+    simp [pure, EvmCompiler.Simulation.Interaction.pure, bind, EvmCompiler.Simulation.Interaction.bind]
+  simp only [Expr.evalFuel, Expr.evalListFuel, Expr.evalTupleListFuel, hpv, hcv n (Nat.le_refl n),
+    hcv (n + 1) (Nat.le_succ n),
+    pure, EvmCompiler.Simulation.Interaction.pure, bind, EvmCompiler.Simulation.Interaction.bind]
+  simp only [Runtime.loadMemory?] at hmp
+  simp only [Runtime.materializeForValueUseList, Runtime.materializeForValueUse, hi,
+    Runtime.materializeForValueUseFuel, Runtime.materializeForValueUseListFuel, Runtime.loadMemory?,
+    hmp]
+  simp [Runtime.materializeForValueUseFuel, Runtime.materializeForValueUseListFuel,
+    memArr, encode_tup_arr1_word, Value.asBytes?, WExpr.eval, hrel.hash, solHash,
+    storageWordBytes, normByte_wordToBytesBE, Except.bind, bind, pure, Except.pure, wordBytes, liftM,
+    monadLift, MonadLift.monadLift, SolI.ofExcept, EvmCompiler.Simulation.Interaction.bind,
+    EvmCompiler.Simulation.Interaction.pure]
+  exact (Nat.mod_eq_of_lt (by simpa [solHash, storageWordBytes, wordBytes] using solHash_lt (wp.eval ρ) (v.eval ρ))).symm
+
+/-- An assignment to a `bytes32` local of a hash `encTupEff?` erases: the write of the array's
+word, then of the hash's word. -/
+theorem eval_assignB32Eff (ρ : Val) (E : EraseEnv) (ctx : Context) (rt : Runtime) (S : SymState)
+    (hrel : StmtRel ρ E ctx rt S) (n : Nat) {x : String} {e : Expr} {id : Nat} {ws : List WExpr}
+    {h : WExpr} {L' : Scopes} (hxb : S.tags.get x = .bytes32)
+    (he : encTupEff? E.fields S e = some (id, ws, h)) (hL : Scopes.set S.scopes x h = some L') :
+    ∃ r, Stmt.eval (n + 1) E.tbl ctx rt (.assign (.var x) e) = .done (.ok r) ∧
+      LeafRel ρ E ctx r ((Br.leaf (.normal { S with scopes := L', mem := (id, ws) :: S.mem })).eval ρ) := by
+  obtain ⟨old, hold⟩ := Scopes.get?_of_set hL
+  have hx : rt.lookupLocal? x = some (.fixedBytes 32 (old.eval ρ)) := by
+    simp [Runtime.lookupLocal?, hrel.frames, envT_lookup, hold, hxb, Tag.val]
+  have hmem : rt.lookupMemoryRef? x = none := by simp [Runtime.lookupMemoryRef?, hx]
+  obtain ⟨hev, hrel1⟩ := eval_encTupEff hrel he
+  have hres : LValue.resolveWithRuntime (.var x) ctx
+      { rt with memory := MemoryMap.insertLoop rt.memory id (memArr ρ ws) } =
+      .done (.ok (.local x, { rt with memory := MemoryMap.insertLoop rt.memory id (memArr ρ ws) })) := by
+    have hbase : rt.lookupStorageBase? x = none := by simp [Runtime.lookupStorageBase?, hx]
+    simp [LValue.resolveWithRuntime, Expr.resolveLValue, LValue.toExpr, Expr.orderFuel,
+      Expr.resolveLValueFuel, Runtime.lookupStorageBase?, Runtime.lookupLocal?] at hbase hx ⊢
+    simp [hx]
+    rfl
+  have hassign := assignLocal_b32 (v := h) hrel1.frames hxb hL
+  let rt2 : Runtime :=
+    { rt with memory := MemoryMap.insertLoop rt.memory id (memArr ρ ws),
+              locals := L'.map (frameOfT ρ S.tags) }
+  have hrel' : StmtRel ρ E ctx rt2 { S with scopes := L', mem := (id, ws) :: S.mem } :=
+    { hrel1 with frames := rfl }
+  obtain ⟨p, q, j, z, -, -, -, -, -, rfl, -⟩ := encTupEff?_spec he
+  refine ⟨.normal rt2, ?_, hrel'⟩
+  rw [Stmt.eval]
+  simp only [LValue.wantsMemoryRefRhs, hmem, Option.isSome_none, Bool.false_eq_true,
+    ↓reduceIte, hev, caught_done_ok, bind_done_ok, hres, ResolvedLValue.write, hassign]
+  rfl
+
 /-- SolidCore returns a `bytes32` `eraseB32` erases as its word, tagged. -/
 theorem eval_returnEnc {ρ : Val} {fields : List StorageField} {ctx : Context} {rt : Runtime}
     {S : SymState} (hrel : ExprRel ρ fields ctx rt S) {es : List Expr} {h : WExpr}
@@ -5063,10 +5248,15 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
           obtain ⟨⟨gs, v⟩, he, L', hL', rfl⟩ := h
           exact eval_assignInt ρ E ctx rt S hrel n hxi he hL'
         by_cases hxb : S.tags.get x = .bytes32
-        · simp only [eraseStmt, hxi, hxb, ↓reduceIte, Option.bind_eq_bind, Option.bind_eq_some_iff,
-            Option.some.injEq, reduceCtorEq] at h
-          obtain ⟨hh, he, L', hL', rfl⟩ := h
-          exact eval_assignB32 ρ E ctx rt S hrel n hxb he hL'
+        · simp only [eraseStmt, hxi, hxb, ↓reduceIte, reduceCtorEq] at h
+          split at h
+          · rename_i hh he
+            simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
+            obtain ⟨L', hL', rfl⟩ := h
+            exact eval_assignB32 ρ E ctx rt S hrel n hxb he hL'
+          · simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
+            obtain ⟨⟨id, ws, hh⟩, he, L', hL', rfl⟩ := h
+            exact eval_assignB32Eff ρ E ctx rt S hrel n hxb he hL'
         simp only [eraseStmt, hxi, hxb, ↓reduceIte, Option.bind_eq_bind, Option.bind_eq_some_iff,
           Option.some.injEq] at h
         obtain ⟨⟨gs, v⟩, he, L', hL', rfl⟩ := h
