@@ -254,3 +254,71 @@ theorem codeOf_of_consts {code : List B} {l : List UInt8} (h : consts code = som
   rw [consts_eval h]
 
 end Verify.Lifecycle.Creation.Sym
+
+namespace Verify.Lifecycle.Creation.Sym
+open SolidCore.Refinement.Generic (WExpr Writes wordSize)
+
+/-! ## The creation's storage is the constructor's (E6, finding 1)
+
+`storesAgree` compares, entry by entry, the symbolic creation frame's storage specification (`specStore`:
+keys, and words over the argument words) with the writes SolidCore's constructor erasure leaves
+(`Generic.storageOf`'s `Writes`): a key `k` against the literal slot `lit n` with `k = n % 2 ^ 256`, a
+constant word against a literal of the same value, an argument word against the same argument. Anything
+else is refused (`false`). `storeOf_eq_storageOf`: when it accepts, the creation's storage at the
+argument words `as` is SolidCore's constructor storage at `as.map BitVec.toNat`, as lists, so every
+slot reads alike (`slotValue`) and a storage covers one exactly when it covers the other. -/
+
+/-- A word of the creation and a word of the erasure that name the same value at every argument list. -/
+def wordAgree : E → WExpr → Bool
+  | .c v, .lit n => v.toNat == n % 2 ^ 256
+  | .arg j, .arg i => j == i
+  | _, _ => false
+
+/-- The creation's storage specification and the constructor's writes, entry by entry. -/
+def storesAgree : List (Nat × E) → Writes → Bool
+  | [], [] => true
+  | (k, e) :: s, (.lit n, w) :: W => (k == n % 2 ^ 256) && wordAgree e w && storesAgree s W
+  | _, _ => false
+
+theorem wordAgree_eval {e : E} {w : WExpr} (h : wordAgree e w = true) (as : List EthLib.Base.U256) :
+    (e.eval as).toNat =
+      w.eval ⟨as.map BitVec.toNat, fun _ => 0, SolidCore.Refinement.Generic.solHash,
+        SolidCore.Refinement.Generic.callerWord⟩ := by
+  cases e <;> cases w <;> simp only [wordAgree, Bool.false_eq_true] at h
+  · rename_i v n
+    simp only [beq_iff_eq] at h
+    simp only [E.eval, WExpr.eval, wordSize, h]
+  · rename_i j i
+    simp only [beq_iff_eq] at h
+    subst h
+    simp only [E.eval, WExpr.eval, wordSize]
+    rw [List.getD_eq_getElem?_getD, List.getD_eq_getElem?_getD, List.getElem?_map]
+    cases h : as[j]? with
+    | none => simp
+    | some v => simp [Nat.mod_eq_of_lt (BitVec.isLt v)]
+
+/-- **The creation's storage is SolidCore's constructor storage**, as lists, at every argument list. -/
+theorem storeOf_eq_storageOf {s : List (Nat × E)} {W : Writes} (h : storesAgree s W = true)
+    (as : List EthLib.Base.U256) :
+    storeOf as s = SolidCore.Refinement.Generic.storageOf W (as.map BitVec.toNat) := by
+  induction s generalizing W with
+  | nil => cases W with
+    | nil => rfl
+    | cons _ _ => simp [storesAgree] at h
+  | cons p s ih =>
+    obtain ⟨k, e⟩ := p
+    cases W with
+    | nil => simp [storesAgree] at h
+    | cons q W =>
+      obtain ⟨wk, we⟩ := q
+      cases wk with
+      | lit n =>
+        simp only [storesAgree, Bool.and_eq_true, beq_iff_eq] at h
+        obtain ⟨⟨hk, he⟩, hs⟩ := h
+        simp only [storeOf, SolidCore.Refinement.Generic.storageOf, List.map_cons] at ih ⊢
+        rw [ih hs, wordAgree_eval he as]
+        simp only [WExpr.eval, wordSize, hk]
+      | _ => simp [storesAgree] at h
+
+end Verify.Lifecycle.Creation.Sym
+
