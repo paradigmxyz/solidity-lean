@@ -94,6 +94,43 @@ elab "mul_facts" : tactic => withMainContext do
       let (_, g') ← (← g.assert `hmul (← inferType pf) pf).intro1P
       replaceMainGoal [g']
 
+open Lean Meta Elab Tactic in
+/-- Replace every product `a * b` of naturals whose factors are not literals, in the goal and every
+hypothesis, by a fresh variable: `omega` then reads the terms around it as linear (it gives up on a
+term with a product inside), and the facts `mul_facts` added about it carry over. -/
+elab "gen_products" : tactic => do
+  -- One product at a time, the context read again after each (generalizing reintroduces the
+  -- hypotheses it touches, and turns a product around another into one around a variable).
+  for _ in [0:64] do
+    let found ← withMainContext do
+      let mut es : Array Expr := #[← instantiateMVars (← getMainTarget)]
+      for d in ← getLCtx do
+        unless d.isImplementationDetail do
+          es := es.push (← instantiateMVars d.type)
+      let mut res : Option Expr := none
+      for e in es do
+        if res.isSome then break
+        let mut stack := #[e]
+        while stack.size > 0 do
+          let t := stack.back!
+          stack := stack.pop
+          if t.isAppOfArity ``HMul.hMul 6 && t.getArg! 0 == mkConst ``Nat then
+            let a := t.getArg! 4
+            let b := t.getArg! 5
+            if !(a.isAppOf ``OfNat.ofNat) && !(b.isAppOf ``OfNat.ofNat) && (a.rawNatLit?).isNone &&
+                (b.rawNatLit?).isNone && !t.hasLooseBVars then
+              res := some t
+              break
+          match t with
+          | .app f x => stack := (stack.push f).push x
+          | .mdata _ x => stack := stack.push x
+          | _ => pure ()
+      return res
+    let some t := found | return
+    withMainContext do
+      let ts ← Term.exprToSyntax t
+      evalTactic (← `(tactic| generalize $ts = p at *))
+
 /-- Products of casts as casts of products, words below `2 ^ 256` reduced, `mul_facts`, then
 `omega`. -/
 macro "mul_close" : tactic => `(tactic| (
@@ -103,6 +140,7 @@ macro "mul_close" : tactic => `(tactic| (
   mul_facts
   (try simp (disch := omega) only [Nat.mod_eq_of_lt] at *)
   mul_facts
+  (try gen_products)
   omega))
 
 end SolidCore.Spec

@@ -216,9 +216,15 @@ def splitArgs : Lean.MacroM (Array (Lean.TSyntax `tactic)) := return #[
   ← `(tactic| simp only [List.length_cons, List.length_nil] at hl),
   ← `(tactic| (try omega))]
 
-/-- What `tree_meets` and `tree_meets_fixed` do once they have named the call's parts. -/
-def treeMeetsSteps (ds : Lean.Syntax.TSepArray `Lean.Parser.Tactic.simpLemma ",") :
-    Lean.MacroM (Array (Lean.TSyntax `tactic)) := return #[
+/-- What `tree_meets` and `tree_meets_fixed` do once they have named the call's parts, each case
+closed by `close` (`omega` for them). With `big`, each simplification of the observable and the
+spec may take up to 10^8 steps (simp's default is 100000). -/
+def treeMeetsStepsWith (ds : Lean.Syntax.TSepArray `Lean.Parser.Tactic.simpLemma ",")
+    (close : Lean.TSyntax `tactic) (big : Bool := false) :
+    Lean.MacroM (Array (Lean.TSyntax `tactic)) := do
+  let cfg ← if big then `(Lean.Parser.Tactic.optConfig| (config := { maxSteps := 100000000 }))
+    else `(Lean.Parser.Tactic.optConfig| )
+  return #[
   ← `(tactic| have hsm : ∀ k, s k % 2 ^ 256 = s k := fun k => Nat.mod_eq_of_lt (hs k)),
   ← `(tactic| have hsi : ∀ k, ((s k : Nat) : Int) % 2 ^ 256 = s k := fun k =>
     Int.emod_eq_of_lt (Int.natCast_nonneg _) (by have := hs k; omega)),
@@ -238,15 +244,20 @@ def treeMeetsSteps (ds : Lean.Syntax.TSepArray `Lean.Parser.Tactic.simpLemma ","
     ← `(tactic| refine ⟨fun hsucc => ?_, fun hne => ?_⟩),
     ← `(tactic| first
       | (simp [$ds,*] at hne; done)
-      | (simp only [$ds,*, Tree.eval, Res.obs, words_byteOf, WExpr.eval, BinOp.eval, Generic.wordSize, hsm,
+      | (simp $cfg only [$ds,*, Tree.eval, Res.obs, words_byteOf, WExpr.eval, BinOp.eval, UnOp.eval, Generic.wordSize, hsm,
             List.getD_cons_zero, List.getD_cons_succ] at hsucc ⊢
          split_ifs at hsucc ⊢ <;>
-         (try simp only [Res.obs, words_byteOf, WExpr.eval, BinOp.eval, Generic.wordSize, hsm,
+         (try simp $cfg only [Res.obs, words_byteOf, WExpr.eval, BinOp.eval, Generic.wordSize, hsm,
             List.getD_cons_zero, List.getD_cons_succ] at hsucc ⊢) <;>
-         simp_all [$ds,*, Res.obs, Writes.store, WExpr.eval, BinOp.eval, Bundle.satAll, Bundle.sat,
+         simp_all $cfg [$ds,*, Res.obs, Writes.store, WExpr.eval, BinOp.eval, Bundle.satAll, Bundle.sat,
            eval, evalList, Env.bind, List.zip, List.zipWith, List.lookup, slotOf, mkEnv, Env.cur, BinOp.apply, Ty.ofBits, Ty.ofWord, toWord, decodeWords, words,
            Generic.wordSize, wordMod, Nat.reduceSub] <;>
-         omega))])]
+         $close))])]
+
+/-- What `tree_meets` and `tree_meets_fixed` do once they have named the call's parts. -/
+def treeMeetsSteps (ds : Lean.Syntax.TSepArray `Lean.Parser.Tactic.simpLemma ",") :
+    Lean.MacroM (Array (Lean.TSyntax `tactic)) := do
+  treeMeetsStepsWith ds (← `(tactic| omega))
 
 macro "tree_meets" "[" ds:Lean.Parser.Tactic.simpLemma,* "]" : tactic => do
   seqTactics (#[← `(tactic| intro args s iargs pre g hl hargs hs hdec hst ht hreq hinv)] ++

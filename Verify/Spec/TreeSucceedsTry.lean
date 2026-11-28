@@ -1,5 +1,5 @@
 import Verify.Spec.TreeSucceeds
-import Verify.Spec.MulFacts
+import Verify.Spec.PackedFacts
 
 /-!
 # `tree_succeeds_try`: `tree_succeeds` with every step allowed to change nothing
@@ -47,6 +47,6 @@ macro "tree_succeeds_try" "[" ds:Lean.Parser.Tactic.simpLemma,* "]" : tactic => 
     Int.reduceMod, Int.reduceToNat, Nat.mod_eq_of_lt, toNat_natCast_emod, toNat_ofNat_emod,
     toNat_zero_emod, toNat_one_emod, wordMod, Nat.reducePow, Nat.reduceMul, Nat.reduceMod, Nat.div_one,
     Nat.reduceDiv, Int.reducePow] at hsi
-  all_goals ((try split_ifs) <;> (try rfl) <;> first | omega | mul_close | (simp_all; done) | (simp_all; omega) | spec_word_close | (simp_all; spec_word_close))))
+  all_goals ((try split_ifs) <;> (try rfl) <;> first | omega | mul_close | (simp_all; done) | (simp_all; omega) | spec_word_close | (simp_all; spec_word_close) | packed_close)))
 
 end SolidCore.Spec
