@@ -44,7 +44,8 @@ theorem ctor_of {c : TypeCheck.CheckedContract} (hc : contract? = .ok c) :
 /-- The constructor body's erasure: one leaf, writing the argument to slot 1. -/
 def S0 : SymState := { initState ctorFn with caller := .lit selfAddress }
 def Sfin : SymState :=
-  { scopes := [[("_limit", .arg 0)]], writes := [(.lit 1, .arg 0)], logs := [], caller := .lit selfAddress }
+  { scopes := [[("_limit", .arg 0)]], writes := [(.lit 1, .arg 0)], logs := [], caller := .lit selfAddress,
+    next := some 0 }
 
 theorem erase (ev : List Source.EventDecl) (tbl : FunctionTable) :
     eraseStmt { fields := vcFields, events := ev, tbl := tbl, facts := argFacts [2 ^ 256 - 1] 0 } fuel ctorFn.body S0 =

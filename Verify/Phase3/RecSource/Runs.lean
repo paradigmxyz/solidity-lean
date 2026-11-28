@@ -153,6 +153,8 @@ theorem rel_clear {tbl : FunctionTable} {ctx : Context} {ρ ρ' : Val} {rt : Run
     simp [Writes.store, S0, hs]
   logs := by rw [h.logs, hl]; rfl
   facts := by simp [envT, argFacts, Facts.Hold]
+  mem := fun _ _ h => by simp [S0] at h
+  next := fun _ h => by simp [S0] at h
 
 theorem lit_word {ρ : Val} {t : Nat} (ht : t < Generic.wordSize) :
     ([WExpr.lit t].map fun e => Value.word (e.eval ρ)) = [.word t] := by
@@ -167,7 +169,8 @@ theorem call_runs {tbl : FunctionTable} (htbl : tbl.lookup? sumName = some sumFn
     (hc : S.caller = .lit callerWord) (ha : Scopes.get? S.scopes "_ic_arg_0" = some a)
     (hv : a.eval ρ = v) {sc : Scopes}
     (hsc : Scopes.setMany S.scopes ["_ret_sum_0"] [.lit (tri v)] = some sc)
-    (hbody : SumRuns tbl ctx j v) (ht : tri v < Generic.wordSize) (htg : S.tags = [] := by rfl) :
+    (hbody : SumRuns tbl ctx j v) (ht : tri v < Generic.wordSize) (htg : S.tags = [] := by rfl)
+    (hm : S.mem = [] := by rfl) (hn : S.next = none := by rfl) :
     ∃ rt', Stmt.eval (j + 2) tbl ctx rt
         (.captureReturn ["_ret_sum_0"] (.internalCall ["_ret_sum_0"] sumName [.var "_ic_arg_0"])) =
         .done (.ok (.normal rt')) ∧ StmtRel ρ (envT tbl) ctx rt' { S with scopes := sc } := by
@@ -191,11 +194,13 @@ theorem call_runs {tbl : FunctionTable} (htbl : tbl.lookup? sumName = some sumFn
         rw [hrel.store k hk, hw]
         rfl
       logs := by rw [hrel.logs, hlg]; rfl
-      facts := by simp [envT, argFacts, Facts.Hold] }
+      facts := by simp [envT, argFacts, Facts.Hold]
+      mem := fun _ _ h => by simp [S0] at h
+      next := fun _ h => by simp [S0] at h }
   obtain ⟨rt1, hb, hrel1⟩ := hbody _ _ rfl hrelc
   have hrel1' := rel_clear (ρ' := ρ) hrel1 rfl rfl rfl rfl rfl
   have hca : callAssign ["_ret_sum_0"] S { S0 with scopes := [] } [.lit (tri v)] =
-      some (.leaf (.normal ⟨sc, [], [], S.caller, S.tags⟩)) := by
+      some (.leaf (.normal ⟨sc, [], [], S.caller, S.tags, [], none⟩)) := by
     simp [callAssign, SymState.setManyW, htg, hsc, S0]
   obtain ⟨r, hr, hl⟩ := callAssign_ok hrel hrel1' hca
   rw [lit_word ht] at hr
@@ -215,9 +220,9 @@ theorem call_runs {tbl : FunctionTable} (htbl : tbl.lookup? sumName = some sumFn
   · rw [Stmt.eval]
     simp only [hcall, bind_done_ok]
     rfl
-  · obtain ⟨sc0, w0, l0, c0, t0⟩ := S
-    simp only at hw hlg htg
-    subst hw hlg htg
+  · obtain ⟨sc0, w0, l0, c0, t0, m0, n0⟩ := S
+    simp only at hw hlg htg hm hn
+    subst hw hlg htg hm hn
     exact hrel'
 
 /-! ## `sum`, by induction on its measure -/

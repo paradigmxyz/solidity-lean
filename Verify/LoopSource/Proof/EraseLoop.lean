@@ -188,7 +188,9 @@ def instS (base len : Nat) (θ : Nat → WExpr) (S : SymState) : SymState :=
     writes := instWs base len θ S.writes
     logs := S.logs.map (instLog base len θ)
     caller := instW base len θ S.caller
-    tags := S.tags }
+    tags := S.tags
+    mem := S.mem.map fun p => (p.1, p.2.map (instW base len θ))
+    next := S.next }
 
 /-- Every argument word of the state is below `base`. -/
 def belowS (base : Nat) (S : SymState) : Bool :=
@@ -291,6 +293,19 @@ theorem hold_extV (ρ : Val) (base len : Nat) (f : Nat → Nat) {K : Facts}
     rw [eval_extV_below ρ base len f p.1 (hK p hp)]
     exact h p hp
 
+theorem lookup_mapSnd {f : List WExpr → List WExpr} : ∀ (l : List (Nat × List WExpr)) (id : Nat),
+    (l.map fun p => (p.1, f p.2)).lookup id = (l.lookup id).map f
+  | [], _ => rfl
+  | (k, ws) :: l, id => by
+    by_cases h : id = k
+    · subst h; simp [List.lookup]
+    · have hb : (id == k) = false := by simp [h]
+      simp [List.lookup, hb, lookup_mapSnd l id]
+
+theorem memArr_inst (ρ : Val) (base len : Nat) (θ : Nat → WExpr) (ws : List WExpr) :
+    memArr ρ (ws.map (instW base len θ)) = memArr (extV ρ base len fun j => (θ j).eval ρ) ws := by
+  simp [memArr, List.map_map, Function.comp_def, eval_instW]
+
 /-- **A runtime the instantiated state shows is one the state shows at the extended valuation.** -/
 theorem rel_of_inst {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {base len : Nat}
     {θ : Nat → WExpr} {S : SymState} (hK : factsBelow base E.facts = true)
@@ -303,6 +318,9 @@ theorem rel_of_inst {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {ba
     (by simp only [instS, List.map_map]; apply List.map_congr_left; intro l _
         exact logEval_inst ρ base len θ l)
     (eval_instW ρ base len θ S.caller)
+    (fun id ws' hl => ⟨ws'.map (instW base len θ), by simp [instS, lookup_mapSnd, hl],
+      memArr_inst ρ base len θ ws'⟩)
+    (fun k hk => by simpa [instS] using hk)
 
 /-- **The converse**: a runtime the state shows at the extended valuation is one the instantiated
 state shows. -/
@@ -317,6 +335,11 @@ theorem inst_of_rel {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {ba
     (by simp only [instS, List.map_map]; apply List.map_congr_left; intro l _
         exact (logEval_inst ρ base len θ l).symm)
     (eval_instW ρ base len θ S.caller).symm
+    (fun id ws' hl => by
+      simp only [instS, lookup_mapSnd, Option.map_eq_some_iff] at hl
+      obtain ⟨ws, h1, rfl⟩ := hl
+      exact ⟨ws, h1, (memArr_inst ρ base len θ ws).symm⟩)
+    (fun k hk => by simpa [instS] using hk)
 
 /-! ## The loop's header
 
@@ -351,7 +374,8 @@ def entries (S : SymState) (slots : List Nat) : List WExpr :=
 /-- **The loop's header**: `S` with fresh words for its locals and the slots `slots`. -/
 def header (base : Nat) (S : SymState) (slots : List Nat) : SymState :=
   { S with scopes := freshSc base 0 S.scopes,
-           writes := freshWs base (wordsSc S.scopes).length S.writes slots }
+           writes := freshWs base (wordsSc S.scopes).length S.writes slots,
+           mem := [], next := none }
 
 theorem getD_append_left' {l₁ l₂ : List WExpr} {i : Nat} (d : WExpr) (h : i < l₁.length) :
     (l₁ ++ l₂).getD i d = l₁.getD i d := by
@@ -473,6 +497,7 @@ theorem rel_header {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {S :
   have hlen : (entries S slots).length = (wordsSc S.scopes).length + slots.length := by
     simp [entries]
   refine StmtRel.congr h h.hash h.ok ((hold_extV ρ base _ _ hK).mpr h.facts) ?_ ?_ ?_ ?_
+    (fun _ _ hl => by simp [header] at hl) (fun _ hk => by simp [header] at hk)
   · simp only [header]
     refine (framesT_freshSc _ ρ S.tags base S.scopes 0 (fun i hi => ?_)).symm
     rw [Nat.add_zero, arg_headVal ρ base S slots i (by omega)]

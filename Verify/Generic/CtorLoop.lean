@@ -76,7 +76,9 @@ theorem construct_of_eraseLoop {fuel : Nat} {c : TypeCheck.CheckedContract} {fn 
         intro k _
         simp [State.loadSlot, StorageMap.lookup?, State.empty, Writes.store, initState, hρ]
       logs := by simp [State.empty, initState]
-      facts := argFacts_hold ρ hargs' wds 0 (by simpa [hρ] using hclean) }
+      facts := argFacts_hold ρ hargs' wds 0 (by simpa [hρ] using hclean)
+      mem := fun _ _ hl => by simp [initState] at hl
+      next := fun k hk => by simp only [initState, Option.some.injEq] at hk; subst hk; rfl }
   obtain ⟨r, hrun, hleaf⟩ := Loop.runs_eraseLoopCall E ctx fuel fn.body _ _ herase ρ _ hrel
   refine ⟨ctx, r, ?_, hleaf⟩
   have hacc : fn.acceptsValue 0 = true := by

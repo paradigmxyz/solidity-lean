@@ -226,7 +226,9 @@ theorem deployed_run_entry_at (a : Nat) {e : WExpr} {fuel : Nat} {ws0 : List Nat
         simp only [SolidCore.Solidity.Shared.norm, modulus_eq, Std.HashMap.get?_eq_getElem?]
         cases (List.foldl (fun acc kv => acc.insertLoop kv.1 kv.2) d.storage σ)[k % wordSize]? <;> rfl
       logs := by subst hst; simp [hd.events, initState]
-      facts := hKρ }
+      facts := hKρ
+      mem := fun _ _ hl => by simp [initState] at hl
+      next := fun k hk => by simp only [initState, Option.some.injEq] at hk; subst hk; rfl }
   obtain ⟨r, hrun, hleaf⟩ := hb ρ ctx _ hrel
   have hcall : fn.call? fuel c.core.table ctx st0 (args.map .word) =
       some (fn.callBodyResult st0 r) := by

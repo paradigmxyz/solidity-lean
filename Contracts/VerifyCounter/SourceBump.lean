@@ -47,7 +47,7 @@ def loop : Stmt := .forLoop .skip cond post body
 def bumpBody : Stmt := .block [s1, .block [s2, .block [s3, loop]]]
 
 /-- The first symbolic state of a call of `bump`: `n` is argument 0. -/
-def S0 : SymState := { scopes := [[("n", .arg 0)]], writes := [], logs := [] }
+def S0 : SymState := { scopes := [[("n", .arg 0)]], writes := [], logs := [], next := some 0 }
 
 /-- `count + n` wraps. -/
 def ovf : WExpr := .bin .lt (.bin .add (.init 0) (.arg 0)) (.init 0)
@@ -126,6 +126,7 @@ theorem header_entry {ρ : Val} {ev : List EventDecl} {tbl : FunctionTable} {ctx
   have hok : ρ.Ok := h.ok
   have h0 := hok.word 0
   refine StmtRel.congr h.pushScope h.hash hok (Facts.hold_nil _) ?_ ?_ rfl
+    (hmem := fun _ _ hl => by simp [headerS] at hl) (hnext := fun _ hk => by simp [headerS] at hk)
   · simp [SymState.push, S0, headerS, frameOf, WExpr.eval, hval]
   · intro k hk
     simp only [Writes.store, SymState.push, S0, headerS]

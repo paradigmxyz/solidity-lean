@@ -55,6 +55,7 @@ set_option maxHeartbeats 4000000 in
 theorem total_runs {tbl : FunctionTable} (htbl : tbl.lookup? sumName = some sumFn) (fuel : Nat)
     (hfuel : 1045 ≤ fuel) : BodyRuns (envT tbl) fuel totalFn totalBr := by
   intro ρ ctx rt hrel
+  replace hrel := hrel.forgetNext
   change StmtRel ρ (envT tbl) ctx rt S0 at hrel
   change ∃ r, Stmt.eval fuel tbl ctx rt totalBody = _ ∧ _
   obtain ⟨j, rfl⟩ : ∃ j, fuel = j + 5 := ⟨fuel - 5, by omega⟩

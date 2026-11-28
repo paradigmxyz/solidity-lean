@@ -62,7 +62,7 @@ def env (ev : List EventDecl) (tbl : FunctionTable) : EraseEnv :=
 /-- The state before the loop: `b = 0`, `a = n`. -/
 def S1 : SymState :=
   { scopes := [[("b", .lit 0), ("a", .arg 0)], [], [("n", .arg 0), ("_ret0", .lit 0)]],
-    writes := [], logs := [] }
+    writes := [], logs := [], next := some 0 }
 
 /-- The body's end at the header (`b, a, n, _ret0` are the words `1, 2, 3, 4`). -/
 def S2 : SymState :=

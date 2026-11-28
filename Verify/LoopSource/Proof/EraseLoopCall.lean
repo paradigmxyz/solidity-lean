@@ -261,7 +261,7 @@ theorem runs_eraseJob (E : EraseEnv) (ctx : Context) :
         rw [show true = ctx.checked from hrel.checked.symm]
       have hrel0 : StmtRel ρ E ctx { rt with locals := [frameOf ρ (callFrame fn vs)] }
           { scopes := [callFrame fn vs], writes := S.writes, logs := S.logs, caller := S.caller } :=
-        { hrel with frames := rfl }
+        { hrel with frames := rfl, mem := fun _ _ h => by simp at h, next := fun _ h => by simp at h }
       obtain ⟨r0, hr0, hl0⟩ := ih fn.body _ b0 hb0 ρ _ hrel0
       rw [hctx, hr0, bind_done_ok]
       obtain ⟨c, hc, hce⟩ := Br.bindLeaf_eval ρ hb1

@@ -90,7 +90,9 @@ theorem runtime_run_clean_from (a : Nat) (ha : a < 2 ^ 160) {fuel : Nat} {c : Ty
         simp only [SolidCore.Solidity.Shared.norm, modulus_eq, Std.HashMap.get?_eq_getElem?]
         cases (List.foldl (fun acc kv => acc.insertLoop kv.1 kv.2) State.empty.storage σ)[k % wordSize]? <;> rfl
       logs := by subst hst; simp [State.empty, initFrom, initState]
-      facts := hKρ }
+      facts := hKρ
+      mem := fun _ _ hl => by simp [initFrom, initState] at hl
+      next := fun k hk => by simp only [initFrom, initState, Option.some.injEq] at hk; subst hk; rfl }
   obtain ⟨r, hrun, hleaf⟩ := hb ρ ctx _ hrel
   have hcall : fn.call? fuel c.core.table ctx st0 (args.map .word) =
       some (fn.callBodyResult st0 r) := by

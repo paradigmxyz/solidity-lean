@@ -138,7 +138,8 @@ def initState (fn : FunctionDef) : SymState :=
   { scopes := [paramLocals fn.params 0 ++ fn.returns.map (fun r => (r.name, .lit 0))]
     writes := []
     logs := []
-    tags := fnTags fn }
+    tags := fnTags fn
+    next := some 0 }
 
 /-- A returned word SolidCore's encoder takes for its type on every call the facts hold on: any
 word for a `uint256`, one below `2 ^ 160` for an `address`, at most 1 for a `bool`. -/
@@ -157,6 +158,7 @@ def retOkT (K : Facts) (ty : Ty) : Tag → WExpr → Bool
   | .bytes32, _ => false
   | .sref _, _ => false
   | .sptr _, _ => false
+  | .mref, _ => false
 
 /-- Every returned word is one SolidCore's encoder takes for its return's type. -/
 def retsOk (K : Facts) : List BindingDecl → List WExpr → Bool

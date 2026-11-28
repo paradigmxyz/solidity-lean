@@ -22,7 +22,10 @@ theorem StmtRel.congr {ρ ρ' : Val} {E : EraseEnv} {ctx : Context} {rt : Runtim
     (frames : S.scopes.map (frameOfT ρ S.tags) = S'.scopes.map (frameOfT ρ' S'.tags))
     (store : ∀ k, k < wordSize → Writes.store ρ S.writes k = Writes.store ρ' S'.writes k)
     (logs : S.logs.map (Log.eval ρ) = S'.logs.map (Log.eval ρ'))
-    (caller : S.caller.eval ρ = S'.caller.eval ρ' := by rfl) :
+    (caller : S.caller.eval ρ = S'.caller.eval ρ' := by rfl)
+    (hmem : ∀ id ws', S'.mem.lookup id = some ws' →
+      ∃ ws, S.mem.lookup id = some ws ∧ memArr ρ ws = memArr ρ' ws' := by intro _ _ h; cases h)
+    (hnext : ∀ k, S'.next = some k → S.next = some k := by intro _ h; cases h) :
     StmtRel ρ' E ctx rt S' :=
   { fields := h.fields
     events := h.events
@@ -33,7 +36,12 @@ theorem StmtRel.congr {ρ ρ' : Val} {E : EraseEnv} {ctx : Context} {rt : Runtim
     frames := h.frames.trans frames
     store := fun k hk => (h.store k hk).trans (store k hk)
     logs := h.logs.trans logs
-    facts := facts }
+    facts := facts
+    mem := fun id ws' hl => by
+      obtain ⟨ws, h1, h2⟩ := hmem id ws' hl
+      rw [← h2]
+      exact h.mem id ws h1
+    next := fun k hk => h.next k (hnext k hk) }
 
 /-- The leaf of `x++` on a local word `x` whose word is `old`, `L'` the scopes with `x` set. -/
 def incVarBr (old : WExpr) (L' : Scopes) (S : SymState) : Br :=

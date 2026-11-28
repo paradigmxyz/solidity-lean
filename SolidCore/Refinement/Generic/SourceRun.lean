@@ -819,6 +819,7 @@ theorem retOkT_spec {ρ : Val} {K : Facts} (hK : K.Hold ρ) {ty : Source.Ty} {t 
   | bytes32 => simp [retOkT] at h
   | sref _ => simp [retOkT] at h
   | sptr _ => simp [retOkT] at h
+  | mref => simp [retOkT] at h
 
 theorem retsOkT_length {K : Facts} : ∀ {rs : List BindingDecl} {ts : List Tag} {ws : List WExpr},
     retsOkT K rs ts ws = true → ws.length = rs.length
@@ -1310,7 +1311,12 @@ theorem call_entry {c : TypeCheck.CheckedContract} {fn : FunctionDef} {ws : List
         simp only [State.loadSlot, StorageMap.lookup?, initState, Writes.store, hρ, ← hstore k,
           SolidCore.Solidity.Shared.norm, modulus_eq, Std.HashMap.get?_eq_getElem?]
         cases st0.storage[k % wordSize]? <;> rfl
-      logs := by simp [hev, initState] }, ?_⟩
+      logs := by simp [hev, initState]
+      mem := fun _ _ hl => by simp [initState] at hl
+      next := fun k hk => by
+        simp only [initState, Option.some.injEq] at hk
+        subst hk
+        rfl }, ?_⟩
   simp only [FunctionDef.call, FunctionDef.evalBodyEntry, hacc, hframe, if_true, Option.map_some]
 
 /-- **A call on clean argument words shows its body's tree**: from any base context, sender and
