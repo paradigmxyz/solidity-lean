@@ -72,6 +72,30 @@ def map2Of? (fields : List StorageField) (x : String) : Option Nat :=
   | some f => if map2Ok f then some f.slot else none
   | none => none
 
+/-- A fixed-size array of `uint256` words the fragment reads and writes at constant indices: its
+elements one word a slot from its own slot, not transient, every element's slot below `2 ^ 256`. -/
+def arrOk (f : StorageField) : Bool :=
+  (match f.layout? with
+    | some (.fixedArray n (.scalar .uint256)) => decide (f.slot + n ≤ wordSize)
+    | _ => false) && !f.transient
+
+/-- The length of a fixed-size array's layout. -/
+def arrLen : Option StorageLayout → Nat
+  | some (.fixedArray n _) => n
+  | _ => 0
+
+/-- The slot and length of the fixed-size array of words `x`, when the fragment reads and writes
+it. -/
+def arrOf? (fields : List StorageField) (x : String) : Option (Nat × Nat) :=
+  match fields.find? (fun f => f.name == x) with
+  | some f => if arrOk f then some (f.slot, arrLen f.layout?) else none
+  | none => none
+
+/-- The number a word expression names when it is a literal. -/
+def litOf? : WExpr → Option Nat
+  | .lit j => some j
+  | _ => none
+
 /-- An `address` field the fragment reads: 20 bytes at byte offset `packedOffset` of its
 slot, not transient. -/
 def addrFieldOk (f : StorageField) : Bool :=
@@ -439,10 +463,18 @@ def eraseExpr (fields : List StorageField) (S : SymState) : Expr → Option (Lis
     | some k => do
       let (gs, v) ← eraseExpr fields S idx
       some (gs, S.writes.read (.hash v (.lit k)))
-    | none => do
-      let k ← boolMapOf? fields x
-      let (gs, v) ← eraseExpr fields S idx
-      some (gs, boolOfWord (S.writes.read (.hash v (.lit k))))
+    | none =>
+      match boolMapOf? fields x with
+      | some k => do
+        let (gs, v) ← eraseExpr fields S idx
+        some (gs, boolOfWord (S.writes.read (.hash v (.lit k))))
+      -- `a[j]` of a fixed-size array of words at a constant index below its length: the word of
+      -- the slot `slot + j`, no check
+      | none => do
+        let (k, n) ← arrOf? fields x
+        let (gs, v) ← eraseExpr fields S idx
+        let j ← litOf? v
+        if gs = [] ∧ j < n then some ([], S.writes.read (.lit (k + j))) else none
   | .index (.storageRead .element x [i1]) i2 => do
     let k ← map2Of? fields x
     let (g1, v1) ← eraseExpr fields S i1
@@ -1163,6 +1195,58 @@ theorem loadPath_boolMap {ρ : Val} {fields : List StorageField} {ctx : Context}
   simp [bind, Except.bind, State.loadStorageLayoutAt, StorageLayout.depth,
     State.loadStorageLayoutAtFuel, loadStorageWordAs, Ty.storageValueFromWord?, hsl, norm_lt hlt]
 
+/-- What the fragment knows of a fixed-size array of words it reads and writes. -/
+structure ArrOk (ctx : Context) (x : String) (f : StorageField) (n : Nat) : Prop where
+  find : ctx.storageField? x = some f
+  layout : f.layout? = some (.fixedArray n (.scalar .uint256))
+  transient : f.transient = false
+  fits : f.slot + n ≤ wordSize
+
+theorem arrOf?_spec {fields : List StorageField} {ctx : Context} (hf : ctx.storageFields = fields)
+    {x : String} {k n : Nat} (h : arrOf? fields x = some (k, n)) :
+    ∃ f, ArrOk ctx x f n ∧ f.slot = k := by
+  obtain ⟨f, hfind, hok, hg⟩ :=
+    of_find (ok := arrOk) (g := fun f => (f.slot, arrLen f.layout?)) hf h
+  simp only [Prod.mk.injEq] at hg
+  obtain ⟨rfl, rfl⟩ := hg
+  simp only [arrOk, Bool.and_eq_true, Bool.not_eq_true'] at hok
+  obtain ⟨hl, ht⟩ := hok
+  split at hl
+  · rename_i m hlay
+    simp only [decide_eq_true_eq] at hl
+    exact ⟨f, ⟨hfind, by simp [hlay, arrLen], ht, by simpa [hlay, arrLen] using hl⟩, rfl⟩
+  · simp at hl
+
+/-- The slot of a fixed-size array's element at a constant index below its length: the array's
+slot plus the index. -/
+theorem arrSlot {ctx : Context} {x : String} {f : StorageField} {n : Nat} (hf : ArrOk ctx x f n)
+    {j : Nat} (hj : j < n) :
+    fixedArrayLayoutStorageSlotAndLayout? f.slot j (.scalar .uint256) =
+      some (f.slot + j, .scalar .uint256) := by
+  have hfit : f.slot + n ≤ wordSize := hf.fits
+  have hsum : f.slot + j < wordSize := Nat.lt_of_lt_of_le (Nat.add_lt_add_left hj _) hfit
+  have hs : f.slot < wordSize := Nat.lt_of_le_of_lt (Nat.le_add_right _ _) hsum
+  have hjw : j < wordSize := Nat.lt_of_le_of_lt (Nat.le_add_left j f.slot) hsum
+  simp [fixedArrayLayoutStorageSlotAndLayout?, StorageLayout.arrayElementOffsetAndLayout?,
+    StorageLayout.slotSpan, norm_lt hs, norm_lt hjw, normWord, norm_lt hsum, bind, Option.bind]
+
+/-- SolidCore reads the element of a fixed-size array of words at a constant index below its
+length as the writes' read of the slot word `slot + index`. -/
+theorem loadIndex_arr {ρ : Val} {fields : List StorageField} {ctx : Context} {rt : Runtime}
+    {S : SymState} (hrel : ExprRel ρ fields ctx rt S) {x : String} {k n : Nat}
+    (hk : arrOf? fields x = some (k, n)) {j : Nat} (hj : j < n) :
+    rt.loadStorageIndex ctx x (.word j) = .ok (.word (Writes.store ρ S.writes (k + j))) := by
+  obtain ⟨f, hf, rfl⟩ := arrOf?_spec hrel.fields hk
+  have hfit : f.slot + n ≤ wordSize := hf.fits
+  have hsum : f.slot + j < wordSize := Nat.lt_of_lt_of_le (Nat.add_lt_add_left hj _) hfit
+  have hjw : j < wordSize := Nat.lt_of_le_of_lt (Nat.le_add_left j f.slot) hsum
+  have hsl : rt.state.loadSlot (f.slot + j) = Writes.store ρ S.writes (f.slot + j) :=
+    hrel.store _ hsum
+  have hn : ¬ n ≤ j := by omega
+  simp [Runtime.loadStorageIndex, hf.find, hf.layout, Value.expectWord, norm_lt hjw, hn,
+    arrSlot hf hj, bind, Except.bind, State.loadStorageLayoutAt, State.loadStorageLayoutAtFuel,
+    loadStorageWordAs, Ty.storageValueFromWord?, StorageLayout.depth, hsl]
+
 /-- What the fragment knows of an `address` field it reads. -/
 structure AddrFieldOk (ctx : Context) (x : String) (f : StorageField) : Prop where
   find : ctx.storageField? x = some f
@@ -1698,17 +1782,44 @@ theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
           simp only [WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf.slot]
           rfl
         | none =>
-          simp only [eraseExpr, hk, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq,
-            Prod.mk.injEq] at h
-          obtain ⟨k, hk', ⟨gs0, v0⟩, hi, rfl, rfl⟩ := h
-          have ih := eval_erase ρ fields ctx rt S hrel i gs0 v0 n hi
-            (by simp [Expr.orderFuel, Expr.listEvalFuel] at hf; omega)
-          simp only [Expr.evalFuel, ih]
-          refine exprResult_bind ?_
-          obtain ⟨f, hf, rfl⟩ := boolMapOf?_spec hrel.fields hk'
-          rw [loadIndex_boolMap hrel hk' (v0.eval_lt ρ), boolOfWord_eval, Writes.eval_read hrel.ok]
-          simp only [WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf.slot]
-          rfl
+          cases hk' : boolMapOf? fields x with
+          | some k =>
+            simp only [eraseExpr, hk, hk', Option.bind_eq_bind, Option.bind_eq_some_iff,
+              Option.some.injEq, Prod.mk.injEq] at h
+            obtain ⟨⟨gs0, v0⟩, hi, rfl, rfl⟩ := h
+            have ih := eval_erase ρ fields ctx rt S hrel i gs0 v0 n hi
+              (by simp [Expr.orderFuel, Expr.listEvalFuel] at hf; omega)
+            simp only [Expr.evalFuel, ih]
+            refine exprResult_bind ?_
+            obtain ⟨f, hf, rfl⟩ := boolMapOf?_spec hrel.fields hk'
+            rw [loadIndex_boolMap hrel hk' (v0.eval_lt ρ), boolOfWord_eval, Writes.eval_read hrel.ok]
+            simp only [WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf.slot]
+            rfl
+          | none =>
+            simp only [eraseExpr, hk, hk', Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+            obtain ⟨⟨k, len⟩, ha, ⟨gs0, v0⟩, hi, j, hj, h⟩ := h
+            split at h
+            · rename_i hc
+              obtain ⟨rfl, hjl⟩ := hc
+              simp only [Option.some.injEq, Prod.mk.injEq] at h
+              obtain ⟨rfl, rfl⟩ := h
+              obtain rfl : v0 = .lit j := by
+                cases v0 <;> simp only [litOf?, Option.some.injEq, reduceCtorEq] at hj
+                exact congrArg WExpr.lit hj
+              have ih := eval_erase ρ fields ctx rt S hrel i [] (.lit j) n hi
+                (by simp [Expr.orderFuel, Expr.listEvalFuel] at hf; omega)
+              simp only [Expr.evalFuel, ih]
+              refine exprResult_bind ?_
+              obtain ⟨f, hf, rfl⟩ := arrOf?_spec hrel.fields ha
+              have hfit : f.slot + len ≤ wordSize := hf.fits
+              have hsum : f.slot + j < wordSize :=
+                Nat.lt_of_lt_of_le (Nat.add_lt_add_left hjl _) hfit
+              have hjw : j < wordSize := Nat.lt_of_le_of_lt (Nat.le_add_left j f.slot) hsum
+              have hl : (WExpr.lit j).eval ρ = j := Nat.mod_eq_of_lt hjw
+              rw [hl, loadIndex_arr hrel ha hjl, Writes.eval_read hrel.ok]
+              simp only [WExpr.eval, Nat.mod_eq_of_lt hsum]
+              rfl
+            · simp at h
     case load =>
       match idx, h with
       | [i], h =>
