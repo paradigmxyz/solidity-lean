@@ -150,9 +150,14 @@ def Ty.reprApp (ctor : String) (args : List String) (arg : Bool) : String :=
 def Ty.reprBrackets (items : List String) : String :=
   "[" ++ ", ".intercalate items ++ "]"
 
-/-- A path, as its derived `Repr` prints it on one line. -/
+/-- A segment of a path in quotes. A segment is a Solidity identifier, whose characters
+`String.quote` leaves as they are, so this is its quotation; unlike `String.quote`, which builds
+its result a character at a time, the kernel evaluates it. -/
+def Ty.quoteSegment (s : String) : String := "\"" ++ s ++ "\""
+
+/-- A path, as its derived `Repr` prints it on one line (its segments being identifiers). -/
 def Ty.reprPath (p : Path) : String :=
-  "{ segments := " ++ Ty.reprBrackets (p.segments.map String.quote) ++ " }"
+  "{ segments := " ++ Ty.reprBrackets (p.segments.map Ty.quoteSegment) ++ " }"
 
 /-- An optional data location, as `Option`'s `Repr` prints it on one line. -/
 def Ty.reprLocation : Option DataLocation -> String
