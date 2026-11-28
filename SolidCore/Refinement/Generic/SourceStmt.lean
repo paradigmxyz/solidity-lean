@@ -1100,6 +1100,16 @@ theorem lookup_word {ρ : Val} {rt : Runtime} {S : SymState}
     simp [Runtime.lookupLocal?, hfr, envT_lookup, he, ht]
   · simp at he
 
+/-- A `bytes32` local's lookup in a typed scope. -/
+theorem lookup_b32 {ρ : Val} {rt : Runtime} {S : SymState}
+    (hfr : rt.locals = S.scopes.map (frameOfT ρ S.tags)) {x : String} {e : WExpr}
+    (he : S.b32? x = some e) : rt.lookupLocal? x = some (.fixedBytes 32 (e.eval ρ)) := by
+  unfold SymState.b32? at he
+  split at he
+  · rename_i ht
+    simp [Runtime.lookupLocal?, hfr, envT_lookup, he, ht, Tag.val]
+  · simp at he
+
 /-- A storage pointer local's lookup in a typed scope. -/
 theorem lookup_ref {ρ : Val} {rt : Runtime} {S : SymState}
     (hfr : rt.locals = S.scopes.map (frameOfT ρ S.tags)) {x t : String}
@@ -1259,6 +1269,7 @@ theorem StmtRel.expr {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {S
   ptrs x n m hp := lookup_ptr h.frames hp
   mrefs x id hm := lookup_mref h.frames hm
   mem := h.mem
+  b32s x e he := lookup_b32 h.frames he
 
 theorem loadSlot_storeSlot (st : State) (k w q : Nat) (hk : k < wordSize) (hw : w < wordSize)
     (hq : q < wordSize) : (st.storeSlot k w).loadSlot q = if q = k then w else st.loadSlot q := by
