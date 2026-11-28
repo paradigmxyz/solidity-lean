@@ -346,7 +346,10 @@ def wrapOf : BinaryOp → Option BinOp
 cleanups and wrapping `+` and `-` of them, none of which reverts. -/
 def wrapRead (S : SymState) : Expr → Option WExpr
   | .var x => S.word? x
-  | .castOp .uintCleanup 256 e => wrapRead S e
+  | .castOp .uintCleanup b e =>
+    if b = 256 then wrapRead S e
+    else if 0 < b ∧ b < 256 then (wrapRead S e).map fun v => .bin .and v (.lit (2 ^ b - 1))
+    else none
   | .binary op l r => do
     let o ← wrapOf op
     let vl ← wrapRead S l
@@ -380,6 +383,10 @@ def eraseUnchecked (S : SymState) : Stmt → Option Br
     let L ← S.push.setW z w
     some (Br.mapS SymState.pop
       (.ite v (.leaf (.normal { S.push with scopes := L })) (.leaf (.reverted (failOf r)))))
+  -- a block returning one wrapped word: `unchecked { return a + b; }`, its cleanups truncating
+  | .block [.returnValues [e]] => do
+    let v ← wrapRead S.push e
+    some (Br.mapS SymState.pop (.leaf (.returned S.push [v] [])))
   | _ => none
 
 /-- Whether a word is written as a sign extension from `b` bits (`sextW b x`). -/
@@ -391,6 +398,33 @@ def isSextOf (b : Nat) : WExpr → Bool
 /-- SolidCore's `intCast b` of a signed word: its sign extension from `b` bits, kept as it is when it
 is one already, as solar keeps it. -/
 def sextCast (b : Nat) (v : WExpr) : WExpr := if isSextOf b v then v else sextW b v
+
+/-- The word of a signed expression of an `unchecked` block: a signed literal or local, its cleanup to
+`b` bits (unchecked, the sign extension), a word literal cast to `int b`, and a wrapping `+` of
+them; none reverts. -/
+def wrapReadI (S : SymState) : Expr → Option WExpr
+  | .intWord n => some (.lit n)
+  | .var x => if S.tags.get x = .int then Scopes.get? S.scopes x else none
+  | .castOp .intCleanup b e => do
+    let v ← wrapReadI S e
+    if b = 256 then some v else if 0 < b ∧ b < 256 then some (sextCast b v) else none
+  | .castOp .intCast b (.word n) => if 0 < b ∧ b < 256 then some (sextCast b (.lit n)) else none
+  | .binary .add l r => do
+    let vl ← wrapReadI S l
+    let vr ← wrapReadI S r
+    some (.bin .add vl vr)
+  | _ => none
+
+/-- The body of an `unchecked` block that assigns a signed local a wrapped signed word:
+`unchecked { x = x + 1; }` on an `int8`. -/
+def eraseUncheckedI (S : SymState) : Stmt → Option Br
+  | .block [.assign (.var x) (.castOp k b e)] =>
+    if S.tags.get x = .int then do
+      let v ← wrapReadI S.push (.castOp k b e)
+      let L ← Scopes.set S.push.scopes x v
+      some (Br.mapS SymState.pop (.leaf (.normal { S.push with scopes := L })))
+    else none
+  | _ => none
 
 /-- SolidCore's checked signed `op` (`/` or `%`) of two constant words, when it neither reverts nor
 leaves a word outside `2 ^ 256`: the erasure folds it to that constant, as solar does. -/
@@ -436,6 +470,8 @@ theorem intFold_spec {op : BinaryOp} {x y : Option WExpr} {v : WExpr} (h : intFo
 `saddGuard` (which panics with `0x11`) and the sum; any other signed expression with no check. -/
 def eraseIntG (S : SymState) : Expr → Option (List WExpr × WExpr)
   | .castOp .intCleanup 256 e => eraseIntG S e
+  | .castOp .intCleanup b e =>
+    if 0 < b ∧ b < 256 then (eraseIntExpr S e).map fun v => ([sextGuard b v], v) else none
   | .binary .add l r => do
     let vl ← eraseIntExpr S l
     let vr ← eraseIntExpr S r
@@ -612,7 +648,8 @@ def eraseStmt (E : EraseEnv) : Nat → Stmt → SymState → Option Br
         some (guards gs (.leaf (.normal { S with logs := S.logs ++
           [⟨.lit t :: evTopics decl.fields ws, (evData decl.fields ws).flatMap wordOBytes⟩] })))
       else none
-    | .unchecked body => if 2 ≤ n then eraseUnchecked S body else none
+    | .unchecked body =>
+      if 2 ≤ n then (eraseUnchecked S body).orElse fun _ => eraseUncheckedI S body else none
     | _ => none
 
 
@@ -1352,6 +1389,23 @@ theorem eval_intG {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {S : 
       simp only [bind, EvmCompiler.Simulation.Interaction.bind, liftM, monadLift,
         MonadLift.monadLift, intCleanup_256 _ _ (v.eval_lt ρ), SolI.ofExcept]
       rfl
+  · rename_i b e' _
+    split at h
+    · rename_i hb
+      obtain ⟨v', hv', he⟩ := Option.map_eq_some_iff.mp h
+      simp only [Prod.mk.injEq] at he
+      obtain ⟨rfl, rfl⟩ := he
+      have ih := eval_int hrel e' v' n hv' (by simp [Expr.orderFuel] at hf; omega)
+      simp only [Expr.evalFuel, ih, hrel.checked]
+      simp only [bind, EvmCompiler.Simulation.Interaction.bind, liftM, monadLift,
+        MonadLift.monadLift, intCleanup_lt _ _ (v'.eval_lt ρ) hb, SolI.ofExcept]
+      have hg := eval_sextGuard ρ hb v'
+      by_cases hs : sextNat b (v'.eval ρ) = v'.eval ρ
+      · have h0 : (sextGuard b v').eval ρ = 0 := hg.mpr hs
+        simp [hs, h0] <;> rfl
+      · have h0 : ¬ (sextGuard b v').eval ρ = 0 := fun h' => hs (hg.mp h')
+        simp [hs, h0] <;> rfl
+    · simp at h
   · rename_i l r
     simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq, Prod.mk.injEq] at h
     obtain ⟨vl, hl, vr, hr, rfl, rfl⟩ := h
@@ -1392,14 +1446,23 @@ theorem eraseIntG_codes (S : SymState) (e : Expr) :
     ∀ {g : List WExpr} {v : WExpr}, eraseIntG S e = some (g, v) → ∀ x ∈ g, codeOf x = 0x11 := by
   fun_induction eraseIntG S e with
   | case1 e' ih => exact ih
-  | case2 l r =>
+  | case2 =>
+    intro g v he
+    obtain ⟨_, _, he⟩ := Option.map_eq_some_iff.mp he
+    simp only [Prod.mk.injEq] at he
+    obtain ⟨rfl, rfl⟩ := he
+    intro x hx
+    simp only [List.mem_singleton] at hx
+    subst hx; rfl
+  | case3 => intro g v he; simp at he
+  | case4 =>
     intro g v he
     simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq, Prod.mk.injEq] at he
     obtain ⟨_, _, _, _, rfl, rfl⟩ := he
     intro x hx
     simp only [List.mem_singleton] at hx
     subst hx; rfl
-  | case3 e _ _ =>
+  | case5 =>
     intro g v he
     obtain ⟨_, _, he⟩ := Option.map_eq_some_iff.mp he
     simp only [Prod.mk.injEq] at he
@@ -2323,6 +2386,11 @@ theorem capture_ok {ρ : Val} {E : EraseEnv} {ctx : Context} (names : List Strin
   | .broke _, _, _, h1, _ | .continued _, _, _, h1, _ | .selfdestructed _, _, _, h1, _ => by
     first | (cases h1) | (rename_i l; cases l <;> cases h1) | skip
 
+theorem uintCleanup_unchecked (w b : Nat) (hw : w < wordSize) (hb0 : 0 < b) (hb : b ≤ 256) :
+    uintCleanup? false b (.word w) = .ok (.word (w % 2 ^ b)) := by
+  simp [uintCleanup?, Value.forceAbiLazy, Value.asStorageWord?, norm_lt hw, bind, Except.bind, hb0, hb,
+    uintCast_word w b hw hb0 hb]
+
 theorem uintCleanup_256_unchecked (w : Nat) (hw : w < wordSize) :
     uintCleanup? false 256 (.word w) = .ok (.word w) := by
   simp [uintCleanup?, Value.forceAbiLazy, Value.asStorageWord?, norm_lt hw, uintCast?, bind,
@@ -2382,7 +2450,16 @@ theorem eval_wrapRead (ρ : Val) (ctx : Context) (rt : Runtime) (S : SymState)
         simp only [bind, EvmCompiler.Simulation.Interaction.bind, liftM, monadLift,
           MonadLift.monadLift, uintCleanup_256_unchecked _ (w.eval_lt ρ), SolI.ofExcept]
         rfl
-      · simp [wrapRead, hb] at h
+      · by_cases hb2 : 0 < b ∧ b < 256
+        · simp only [wrapRead, hb, hb2, and_self, ↓reduceIte, Option.map_eq_some_iff] at h
+          obtain ⟨w0, h0, rfl⟩ := h
+          have ih := eval_wrapRead ρ ctx rt S hchk hloc e w0 n h0 (by simp [Expr.orderFuel] at hf; omega)
+          simp only [Expr.evalFuel, ih, hchk]
+          simp only [bind, EvmCompiler.Simulation.Interaction.bind, liftM, monadLift,
+            MonadLift.monadLift, uintCleanup_unchecked _ _ (w0.eval_lt ρ) hb2.1 (by omega), SolI.ofExcept,
+            eval_and_pow ρ w0 (show b ≤ 256 by omega)]
+          rfl
+        · simp [wrapRead, hb, hb2] at h
     all_goals simp [wrapRead] at h
   case binary op l r =>
     cases hl : wrapRead S l with
@@ -2487,7 +2564,38 @@ theorem eval_unchecked (ρ : Val) (E : EraseEnv) (ctx : Context) (k : Nat) (body
       LeafRel ρ E ctx r (b.eval ρ) := by
   unfold eraseUnchecked at h
   split at h
-  case h_2 => simp at h
+  case h_3 => simp at h
+  case h_2 =>
+    rename_i e
+    simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
+    obtain ⟨v, hv, rfl⟩ := h
+    have hrel' := hrel.pushScope
+    have hloc : ∀ x e, S.push.word? x = some e → rt.pushScope.lookupLocal? x = some (.word (e.eval ρ)) :=
+      fun x e he => hrel'.expr.locals x e he
+    have hstep : Expr.evalReturnValue { ctx with checked := false } rt.pushScope e =
+        .done (.ok (.word (v.eval ρ), rt.pushScope)) := by
+      unfold Expr.evalReturnValue
+      split
+      · rename_i x
+        have hw : S.push.word? x = some v := by simpa [wrapRead] using hv
+        have hl := hloc x v hw
+        have hmem : rt.pushScope.lookupMemoryRef? x = none := by simp [Runtime.lookupMemoryRef?, hl]
+        simp only [hmem]
+        exact eval_wrapRead ρ _ rt.pushScope S.push rfl hloc _ v _ hv (Nat.lt_succ_self _)
+      · exact eval_wrapRead ρ _ rt.pushScope S.push rfl hloc _ v _ hv (Nat.lt_succ_self _)
+    have hlist : Expr.evalReturnList { ctx with checked := false } rt.pushScope [e] =
+        .done (.ok ([.word (v.eval ρ)], rt.pushScope)) := by
+      unfold Expr.evalReturnList
+      simp only [Expr.listEvalFuel, Expr.evalReturnListFuel, hstep, bind_done_ok']
+      rfl
+    refine ⟨.returned rt.pushScope.popScope [.word (v.eval ρ)], ?_, ?_⟩
+    · rw [Stmt.eval]
+      simp only [Stmt.evalList]
+      rw [Stmt.eval]
+      simp only [hlist]
+      rfl
+    · simp only [Br.mapS, Br.eval, Leaf.mapS, LeafRel, retVals_nil, List.map_cons, List.map_nil]
+      exact ⟨hrel'.popScope, trivial⟩
   rename_i c rs
   simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
   obtain ⟨⟨z, w, v⟩, hc, L, hL, rfl⟩ := h
@@ -3047,6 +3155,156 @@ theorem eval_callI (ρ : Val) (E : EraseEnv) (ctx : Context) (rt : Runtime) (S :
   rw [hce]
   exact finish_callI hrel hr r0 _ c hl0 hc
 
+theorem intCleanup_false_int (w b : Nat) (hw : w < wordSize) (hb0 : 0 < b) (hb : b ≤ 256) :
+    intCleanup? false b (.int w) = intCast? b (.int w) := by
+  have hn : SolidCore.Solidity.Shared.norm w = w := norm_lt hw
+  have hb' : (0 < b && b ≤ 256) = true := by simp; omega
+  simp only [intCleanup?, Value.forceAbiLazy, Value.asStorageWord?, hn, hb', ↓reduceIte, bind,
+    Except.bind, Bool.false_and, Bool.false_eq_true]
+
+theorem intCast_lt_word (w b : Nat) (hw : w < wordSize) (hb : 0 < b ∧ b < 256) :
+    intCast? b (.word w) = .ok (.int (sextNat b w)) := by
+  have h1 : intCast? b (.word w) = intCast? b (.int w) := by
+    simp only [intCast?, Value.forceAbiLazy, Value.asStorageWord?, bind, Except.bind]
+  rw [h1, intCast_lt w b hw hb]
+
+theorem apply_sadd_unchecked (a b : Nat) :
+    BinaryOp.apply false .add (.int a) (.int b) = .ok (.int ((a + b) % wordSize)) := by
+  simp [BinaryOp.apply, Value.forceAbiLazy, BinaryOp.applySignedWord, checkedSignedAdd,
+    checkedSignedWord, addWord_eq, bind, Except.bind, Functor.map, Except.map]
+
+theorem eval_wrapReadI (ρ : Val) (ctx : Context) (rt : Runtime) (S : SymState)
+    (hchk : ctx.checked = false) (hfr : rt.locals = S.scopes.map (frameOfT ρ S.tags)) :
+    ∀ (e : Expr) (w : WExpr) (fuel : Nat), wrapReadI S e = some w → Expr.orderFuel e < fuel →
+      Expr.evalFuel fuel ctx rt e = .done (.ok (.int (w.eval ρ), rt)) := by
+  intro e w fuel h hf
+  obtain ⟨n, rfl⟩ : ∃ n, fuel = n + 1 := ⟨fuel - 1, by omega⟩
+  unfold wrapReadI at h
+  split at h
+  · rename_i m
+    simp only [Option.some.injEq] at h
+    subst h
+    simp [Expr.evalFuel, WExpr.eval, normWord, SolidCore.Solidity.Shared.norm, modulus_eq]
+    rfl
+  · rename_i x
+    split at h
+    · rename_i ht
+      have hl : rt.lookupLocal? x = some (.int (w.eval ρ)) := by
+        simp [Runtime.lookupLocal?, hfr, envT_lookup, h, ht, Tag.val]
+      simp [Expr.evalFuel, Runtime.lookupStorageBase?, hl, Runtime.derefMemoryValue]
+      rfl
+    · simp at h
+  · rename_i b e'
+    simp only [Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+    obtain ⟨v0, h0, h⟩ := h
+    have ih := eval_wrapReadI ρ ctx rt S hchk hfr e' v0 n h0 (by simp [Expr.orderFuel] at hf; omega)
+    have hv0 := v0.eval_lt ρ
+    by_cases hb : b = 256
+    · subst hb
+      simp only [↓reduceIte, Option.some.injEq] at h
+      subst h
+      simp only [Expr.evalFuel, ih, hchk]
+      simp only [bind, EvmCompiler.Simulation.Interaction.bind, liftM, monadLift,
+        MonadLift.monadLift, intCleanup_false_int _ _ hv0 (by decide) le_rfl, intCast_256 _ hv0,
+        SolI.ofExcept]
+      rfl
+    · by_cases hb2 : 0 < b ∧ b < 256
+      · simp only [hb, hb2, and_self, ↓reduceIte, Option.some.injEq] at h
+        subst h
+        simp only [Expr.evalFuel, ih, hchk]
+        simp only [bind, EvmCompiler.Simulation.Interaction.bind, liftM, monadLift,
+          MonadLift.monadLift, intCleanup_false_int _ _ hv0 hb2.1 (by omega), intCast_lt _ _ hv0 hb2,
+          SolI.ofExcept, eval_sextCast ρ hb2]
+        rfl
+      · simp [hb, hb2] at h
+  · rename_i b m
+    split at h
+    · rename_i hb2
+      simp only [Option.some.injEq] at h
+      subst h
+      have hm : m % wordSize < wordSize := Nat.mod_lt _ (by decide)
+      obtain ⟨n', rfl⟩ : ∃ n', n = n' + 1 := ⟨n - 1, by simp [Expr.orderFuel] at hf; omega⟩
+      simp only [Expr.evalFuel]
+      simp [bind, EvmCompiler.Simulation.Interaction.bind, liftM, monadLift, MonadLift.monadLift,
+        SolI.ofExcept, normWord, SolidCore.Solidity.Shared.norm, modulus_eq, intCast_lt_word _ _ hm hb2,
+        eval_sextCast ρ hb2, WExpr.eval, pure, EvmCompiler.Simulation.Interaction.pure]
+      all_goals rfl
+    · simp at h
+  · rename_i l r
+    simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
+    obtain ⟨vl, hl, vr, hr, rfl⟩ := h
+    have ihl := eval_wrapReadI ρ ctx rt S hchk hfr l vl n hl (by simp [Expr.orderFuel] at hf; omega)
+    have ihr := eval_wrapReadI ρ ctx rt S hchk hfr r vr n hr (by simp [Expr.orderFuel] at hf; omega)
+    simp only [Expr.evalFuel, ihr, ihl, hchk]
+    simp [bind, EvmCompiler.Simulation.Interaction.bind, liftM, monadLift, MonadLift.monadLift,
+      SolI.ofExcept, pure, EvmCompiler.Simulation.Interaction.pure, apply_sadd_unchecked, ihl, ihr,
+      WExpr.eval, BinOp.eval]
+    all_goals rfl
+  · simp at h
+
+theorem eval_assignIntGen (ρ : Val) (tbl : FunctionTable) (ctx' : Context) (n : Nat) {rt : Runtime}
+    {S : SymState} {x : String} {e : Expr} {v : WExpr} {L' : Scopes}
+    (hfr : rt.locals = S.scopes.map (frameOfT ρ S.tags)) (hxi : S.tags.get x = .int)
+    (hL : Scopes.set S.scopes x v = some L')
+    (heval : Expr.eval ctx' rt e = .done (.ok (.int (v.eval ρ), rt)))
+    (hvar : ∀ y, e ≠ .var y) (hst : ∀ m y i, e ≠ .storageRead m y i) :
+    Stmt.eval (n + 1) tbl ctx' rt (.assign (.var x) e) =
+      .done (.ok (.normal { rt with locals := L'.map (frameOfT ρ S.tags) })) := by
+  obtain ⟨old, hold⟩ := Scopes.get?_of_set hL
+  have hx : rt.lookupLocal? x = some (.int (old.eval ρ)) := by
+    simp [Runtime.lookupLocal?, hfr, envT_lookup, hold, hxi, Tag.val]
+  have hmem : rt.lookupMemoryRef? x = none := by simp [Runtime.lookupMemoryRef?, hx]
+  have hbase : rt.lookupStorageBase? x = none := by simp [Runtime.lookupStorageBase?, hx]
+  have hres : LValue.resolveWithRuntime (.var x) ctx' rt = .done (.ok (.local x, rt)) := by
+    simp [LValue.resolveWithRuntime, Expr.resolveLValue, LValue.toExpr, Expr.orderFuel,
+      Expr.resolveLValueFuel, hbase, hx]
+    rfl
+  have hassign : rt.assignLocal? x (.int (v.eval ρ)) =
+      some { rt with locals := L'.map (frameOfT ρ S.tags) } :=
+    assignLocal_int hfr hxi hL
+  rw [Stmt.eval]
+  cases e
+  case var y => exact absurd rfl (hvar y)
+  case storageRead m y i => exact absurd rfl (hst m y i)
+  all_goals
+    simp only [LValue.wantsMemoryRefRhs, hmem, Option.isSome_none, Bool.false_eq_true,
+      ↓reduceIte, heval, caught_done_ok, bind_done_ok, hres, ResolvedLValue.write, hassign]
+    try rfl
+
+theorem eval_uncheckedI (ρ : Val) (E : EraseEnv) (ctx : Context) (k : Nat) (body : Stmt)
+    (S : SymState) (b : Br) (h : eraseUncheckedI S body = some b) (rt : Runtime)
+    (hrel : StmtRel ρ E ctx rt S) :
+    ∃ r, Stmt.eval (k + 2) E.tbl { ctx with checked := false } rt body = .done (.ok r) ∧
+      LeafRel ρ E ctx r (b.eval ρ) := by
+  unfold eraseUncheckedI at h
+  split at h
+  case h_2 => simp at h
+  rename_i x kk bb e0
+  split at h
+  case isFalse => simp at h
+  rename_i hxi
+  generalize he : Expr.castOp kk bb e0 = e at h
+  simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
+  obtain ⟨v, hv, L, hL, rfl⟩ := h
+  have hrel' := hrel.pushScope
+  have heval : Expr.eval { ctx with checked := false } rt.pushScope e =
+      .done (.ok (.int (v.eval ρ), rt.pushScope)) :=
+    eval_wrapReadI ρ _ rt.pushScope S.push rfl hrel'.frames e v _ hv (Nat.lt_succ_self _)
+  have hvar : ∀ y, e ≠ .var y := by
+    intro y hy; rw [← he] at hy; cases hy
+  have hst : ∀ m y i, e ≠ .storageRead m y i := by
+    intro m y i hy; rw [← he] at hy; cases hy
+  have hr := eval_assignIntGen ρ E.tbl { ctx with checked := false } k (S := S.push) hrel'.frames
+    hxi hL heval hvar hst
+  refine ⟨.normal ({ rt.pushScope with locals := L.map (frameOfT ρ S.push.tags) }).popScope, ?_, ?_⟩
+  · rw [Stmt.eval]
+    simp only [Stmt.evalList]
+    rw [hr, bind_done_ok]
+    rfl
+  · simp only [Br.mapS, Br.eval, Leaf.mapS, LeafRel]
+    exact (show StmtRel ρ E ctx { rt.pushScope with locals := L.map (frameOfT ρ S.push.tags) }
+      { S.push with scopes := L } from { hrel' with frames := rfl }).popScope
+
 theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
     ∀ n s S b, eraseStmt E n s S = some b → ∀ rt, StmtRel ρ E ctx rt S →
       ∃ r, Stmt.eval n E.tbl ctx rt s = .done (.ok r) ∧ LeafRel ρ E ctx r (b.eval ρ) := by
@@ -3562,8 +3820,16 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
       case isFalse => simp at h
       rename_i hn
       obtain ⟨k, rfl⟩ : ∃ k, n = k + 2 := ⟨n - 2, by omega⟩
-      obtain ⟨r, hr, hl⟩ := eval_unchecked ρ E ctx k body S b h rt hrel
-      exact ⟨r, by rw [Stmt.eval]; exact hr, hl⟩
+      cases hu : eraseUnchecked S body with
+      | some b' =>
+        simp only [hu, Option.orElse, Option.some.injEq] at h
+        subst h
+        obtain ⟨r, hr, hl⟩ := eval_unchecked ρ E ctx k body S b' hu rt hrel
+        exact ⟨r, by rw [Stmt.eval]; exact hr, hl⟩
+      | none =>
+        simp only [hu, Option.orElse] at h
+        obtain ⟨r, hr, hl⟩ := eval_uncheckedI ρ E ctx k body S b h rt hrel
+        exact ⟨r, by rw [Stmt.eval]; exact hr, hl⟩
     all_goals simp [eraseStmt] at h
 
 
