@@ -1270,6 +1270,7 @@ theorem StmtRel.expr {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {S
   mrefs x id hm := lookup_mref h.frames hm
   mem := h.mem
   b32s x e he := lookup_b32 h.frames he
+  next := h.next
 
 theorem loadSlot_storeSlot (st : State) (k w q : Nat) (hk : k < wordSize) (hw : w < wordSize)
     (hq : q < wordSize) : (st.storeSlot k w).loadSlot q = if q = k then w else st.loadSlot q := by

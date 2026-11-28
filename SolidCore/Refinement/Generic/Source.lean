@@ -1087,6 +1087,7 @@ structure ExprRel (ρ : Val) (fields : List StorageField) (ctx : Context) (rt : 
   mrefs : ∀ x id, S.mref? x = some id → rt.lookupLocal? x = some (.memoryRef id)
   mem : ∀ id ws, S.mem.lookup id = some ws → rt.loadMemory? id = some (memArr ρ ws)
   b32s : ∀ x e, S.b32? x = some e → rt.lookupLocal? x = some (.fixedBytes 32 (e.eval ρ))
+  next : ∀ k, S.next = some k → rt.nextMemory = k
 
 /-- What SolidCore's evaluation of an erased expression gives: `Panic(0x11)` when one of its
 overflow conditions holds, and otherwise its word, with the runtime unchanged. -/
@@ -2748,6 +2749,104 @@ theorem eval_encHash {ρ : Val} {fields : List StorageField} {ctx : Context} {rt
     Except.bind, bind, pure, Except.pure, wordBytes]
   exact (Nat.mod_eq_of_lt (by simpa [solHash, storageWordBytes, wordBytes] using solHash_lt (w.eval ρ) (v.eval ρ))).symm
 
+/-- The ABI encoding of a struct of a memory array of one `uint256` word and a `uint256` word is
+their 64 bytes, as the slot hash hashes them. -/
+theorem encode_tup_arr1_word (a b : Nat) :
+    abiEncodeValues? [.tuple [.fixedArray 1 .uint256, .uint256]]
+        [.tuple [.fixedArray [.word a], .word b]] =
+      some (storageWordBytes a ++ storageWordBytes b) := by
+  simp [abiEncodeValues?, Ty.listAbiHeadWords?, Ty.abiHeadWords?, abiEncodeValuesAux?, Ty.isDynamicAbi,
+    Ty.staticAbiHeadWords?, abiEncodeStaticValue?, abiEncodeStaticValueList?, abiStaticBytes?,
+    Ty.listHasDynamicAbi, Ty.listStaticAbiHeadWords?, abiEncodeStaticTupleValues?,
+    abiEncodeDynamicPayload?, storageWordBytes]
+
+/-- An expression a struct constructor evaluates as it evaluates it anywhere else: not a variable,
+a conditional or an index, which may stay memory references. -/
+def plainField : Expr → Bool
+  | .var _ | .ternary .. | .index .. => false
+  | _ => true
+
+theorem memoryRefOrValue_plain {ctx : Context} {rt : Runtime} {y : Expr} (hy : plainField y = true)
+    (f : Nat) :
+    Expr.memoryRefOrValueFuel (f + 1) ctx rt y =
+      (do let (v, rt') ← Expr.evalFuel f ctx rt y; pure (none, some v, rt')) := by
+  cases y <;> simp only [plainField, Bool.false_eq_true] at hy <;>
+    (rw [Expr.memoryRefOrValueFuel] <;> (intros; simp_all))
+
+/-- `keccak256(abi.encode(S(a, y)))` of a struct of a memory array `a` of one word and a `uint256`
+expression `y` with no overflow conditions, a `bytes32`: the hash of the array's word, read when the
+encoder runs, and `y`'s word, as `encHash?` hashes them. The struct keeps `a` as a reference, so
+the encoder reads it once memory holds an object. -/
+def encTupHash? (fields : List StorageField) (S : SymState) : Expr → Option WExpr
+  | .keccak256 (.encode .plain none [] [.tuple [.fixedArray 1 .uint256, .uint256]]
+      [.tuple [.var p, y]]) => do
+    let id ← S.mref? p
+    let ws ← S.mem.lookup id
+    let k ← S.next
+    let (gs, v) ← eraseExpr fields S y
+    if ws.length = 1 ∧ gs = [] ∧ 0 < k ∧ plainField y = true then some (.hash (ws.headD (.lit 0)) v)
+    else none
+  | _ => none
+
+theorem encTupHash?_spec {fields : List StorageField} {S : SymState} {e : Expr} {h : WExpr}
+    (he : encTupHash? fields S e = some h) :
+    ∃ p y id w k v,
+      e = .keccak256 (.encode .plain none [] [.tuple [.fixedArray 1 .uint256, .uint256]]
+        [.tuple [.var p, y]]) ∧
+      S.mref? p = some id ∧ S.mem.lookup id = some [w] ∧ S.next = some k ∧ 0 < k ∧
+      eraseExpr fields S y = some ([], v) ∧ plainField y = true ∧ h = .hash w v := by
+  unfold encTupHash? at he
+  split at he
+  · rename_i p y
+    simp only [Option.bind_eq_bind, Option.bind_eq_some_iff] at he
+    obtain ⟨id, hid, ws, hws, k, hk, ⟨gs, v⟩, hv, he⟩ := he
+    split at he
+    · rename_i hc
+      obtain ⟨hl, rfl, hk0, hy⟩ := hc
+      rcases ws with _ | ⟨w, _ | ⟨_, _⟩⟩
+      · simp at hl
+      · simp only [Option.some.injEq, List.headD_cons] at he
+        exact ⟨p, y, id, w, k, v, rfl, hid, hws, hk, hk0, hv, hy, he.symm⟩
+      · simp at hl
+    · simp at he
+  · simp at he
+
+/-- SolidCore evaluates `encTupHash?`'s expressions to the `bytes32` of the hash of the array's
+word, read from memory when the encoder runs, and the second field's word. -/
+theorem eval_encTupHash {ρ : Val} {fields : List StorageField} {ctx : Context} {rt : Runtime}
+    {S : SymState} (hrel : ExprRel ρ fields ctx rt S) {e : Expr} {h : WExpr}
+    (he : encTupHash? fields S e = some h) {fuel : Nat} (hf : Expr.orderFuel e < fuel) :
+    Expr.evalFuel fuel ctx rt e = .done (.ok (.fixedBytes 32 (h.eval ρ), rt)) := by
+  obtain ⟨p, y, id, w, k, v, rfl, hid, hws, hk, hk0, hv, hy, rfl⟩ := encTupHash?_spec he
+  have hl := hrel.mrefs p id hid
+  have hm := hrel.mem id [w] hws
+  have hn := hrel.next k hk
+  have hmr : rt.lookupMemoryRef? p = some id := by simp [Runtime.lookupMemoryRef?, hl]
+  obtain ⟨n, rfl⟩ : ∃ n, fuel = n + 7 :=
+    ⟨fuel - 7, by simp [Expr.orderFuel, Expr.listEvalFuel] at hf; omega⟩
+  have hyf : Expr.orderFuel y < n := by simp [Expr.orderFuel, Expr.listEvalFuel] at hf; omega
+  have hye : ∀ m, n ≤ m → Expr.memoryRefOrValueFuel (m + 1) ctx rt y =
+      .done (.ok (none, some (.word (v.eval ρ)), rt)) := by
+    intro m hm
+    rw [memoryRefOrValue_plain hy, eval_erase ρ fields ctx rt S hrel y [] v m hv (by omega)]
+    simp [exprResult, pure, EvmCompiler.Simulation.Interaction.pure, bind,
+      EvmCompiler.Simulation.Interaction.bind]
+  obtain ⟨j, hj⟩ : ∃ j, rt.nextMemory = j + 1 := ⟨k - 1, by omega⟩
+  simp only [Runtime.loadMemory?] at hm
+  have hp : ∀ m, Expr.memoryRefOrValueFuel (m + 1) ctx rt (.var p) =
+      .done (.ok (some id, none, rt)) := by
+    intro m
+    simp [Expr.memoryRefOrValueFuel, hmr, pure, EvmCompiler.Simulation.Interaction.pure]
+  simp only [Expr.evalFuel, Expr.evalListFuel, Expr.evalTupleListFuel, hp, hye n (Nat.le_refl n),
+    pure, EvmCompiler.Simulation.Interaction.pure, bind, EvmCompiler.Simulation.Interaction.bind]
+  simp [Runtime.materializeForValueUseList, Runtime.materializeForValueUse, hj,
+    Runtime.materializeForValueUseFuel, Runtime.materializeForValueUseListFuel, Runtime.loadMemory?,
+    hm, memArr, encode_tup_arr1_word, Value.asBytes?, WExpr.eval, hrel.hash, solHash,
+    storageWordBytes, normByte_wordToBytesBE, Except.bind, bind, pure, Except.pure, wordBytes, liftM,
+    monadLift, MonadLift.monadLift, SolI.ofExcept, EvmCompiler.Simulation.Interaction.bind,
+    EvmCompiler.Simulation.Interaction.pure]
+  exact (Nat.mod_eq_of_lt (by simpa [solHash, storageWordBytes, wordBytes] using solHash_lt (w.eval ρ) (v.eval ρ))).symm
+
 /-! ## Hashes of byte strings and of a `bytes32` and a word -/
 
 /-- An argument of a two-word `abi.encode` of the fragment as its word: a `uint256` expression with
@@ -2846,14 +2945,17 @@ theorem eval_encHashW {ρ : Val} {fields : List StorageField} {ctx : Context} {r
   · simp at he
 
 /-- A `bytes32` the fragment computes: a string literal hash (a constant), `encHash?`'s hash of a
-memory array's word and a word, or `encHashW?`'s hash of two words. -/
+memory array's word and a word or of a struct of them, or `encHashW?`'s hash of two words. -/
 def eraseB32 (fields : List StorageField) (S : SymState) (e : Expr) : Option WExpr :=
   match keccakLit? e with
   | some h => some (.lit h)
   | none =>
     match encHash? fields S e with
     | some v => some v
-    | none => encHashW? fields S e
+    | none =>
+      match encTupHash? fields S e with
+      | some v => some v
+      | none => encHashW? fields S e
 
 theorem eraseB32_keccak {fields : List StorageField} {S : SymState} {e : Expr} {h : WExpr}
     (he : eraseB32 fields S e = some h) : ∃ x, e = .keccak256 x := by
@@ -2866,10 +2968,14 @@ theorem eraseB32_keccak {fields : List StorageField} {S : SymState} {e : Expr} {
     · rename_i v hv
       obtain ⟨p, y, id, w, v, rfl, -⟩ := encHash?_spec hv
       exact ⟨_, rfl⟩
-    · unfold encHashW? at he
-      split at he
-      · exact ⟨_, rfl⟩
-      · simp at he
+    · split at he
+      · rename_i v hv
+        obtain ⟨p, y, id, w, k, v, rfl, -⟩ := encTupHash?_spec hv
+        exact ⟨_, rfl⟩
+      · unfold encHashW? at he
+        split at he
+        · exact ⟨_, rfl⟩
+        · simp at he
 
 theorem eval_eraseB32 {ρ : Val} {fields : List StorageField} {ctx : Context} {rt : Runtime}
     {S : SymState} (hrel : ExprRel ρ fields ctx rt S) {e : Expr} {h : WExpr}
@@ -2887,7 +2993,12 @@ theorem eval_eraseB32 {ρ : Val} {fields : List StorageField} {ctx : Context} {r
       simp only [Option.some.injEq] at he
       subst he
       exact eval_encHash hrel hv hf
-    · exact eval_encHashW hrel he hf
+    · split at he
+      · rename_i v hv
+        simp only [Option.some.injEq] at he
+        subst he
+        exact eval_encTupHash hrel hv hf
+      · exact eval_encHashW hrel he hf
 
 end SolidCore.Refinement.Generic
 
