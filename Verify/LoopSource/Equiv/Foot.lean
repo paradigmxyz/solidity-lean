@@ -104,6 +104,12 @@ private theorem symInsts_cons {ev : EnvFlags} {cv : SV} {sel n : Nat} {K : Facts
     simp only [symInsts] at h
     repeat' split at h
     all_goals first | exact ⟨_, _, Changes.rfl', h⟩ | simp at h
+  | alloc d k =>
+    cases k with
+    | static a =>
+      simp only [symInsts] at h
+      exact ⟨_, _, Changes.set _ _, h⟩
+    | dynamic sz => simp [symInsts] at h
   | _ =>
     simp only [symInsts] at h
     repeat' split at h

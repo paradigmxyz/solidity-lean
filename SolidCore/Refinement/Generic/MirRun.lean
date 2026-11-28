@@ -407,7 +407,18 @@ theorem symPure_sound {cv : SV} {sel n : Nat} {ρ : Val} {call : Call}
         subst hy0
         simp only [SV.Rel] at hx ⊢
         rw [slt_zero_toNat, eval_sneg, hx]
-    · simp at h
+    · -- slt of two constants
+      unfold sltLit at h
+      split at h
+      · simp only [Option.some.injEq] at h
+        subst h
+        match args, hr with
+        | [x, y], ⟨hx, hy, _⟩ =>
+          rw [eq_ofNat_of_rel hx, eq_ofNat_of_rel hy]
+          refine ⟨_, rfl, ?_⟩
+          simp only [SV.Rel, WExpr.eval]
+          exact (Nat.mod_eq_of_lt (BitVec.isLt _)).symm
+      · simp at h
   · obtain ⟨o, ho, rfl⟩ := Option.map_eq_some_iff.mp h
     match args, hr with
     | [x, y], ⟨hx, hy, _⟩ =>
@@ -899,7 +910,14 @@ theorem symInsts_sound {ev : EnvFlags} {cv : SV} {sel n : Nat} {ρ : Val} {call 
   | .low .. :: _, _, _, _, _, h, _, _, _, _ => by simp [symInsts] at h
   | .select .. :: _, _, _, _, _, h, _, _, _, _ => by simp [symInsts] at h
   | .call .. :: _, _, _, _, _, h, _, _, _, _ => by simp [symInsts] at h
-  | .alloc .. :: _, _, _, _, _, h, _, _, _, _ => by simp [symInsts] at h
+  | .alloc dst (.static address) :: rest, senv, senv', st, st', h, env, s, he, hs => by
+    simp only [symInsts] at h
+    have hv : SV.Rel ρ call address (.w (.lit address.toNat)) := by
+      simp only [SV.Rel, WExpr.eval, Nat.mod_eq_of_lt address.isLt]
+    obtain ⟨env', s', h1, h2, h3⟩ :=
+      symInsts_sound hc henv hK rest _ _ _ _ h _ s (he.set hv dst) hs
+    exact ⟨env', s', by simp only [execInsts]; exact h1, h2, h3⟩
+  | .alloc _ (.dynamic _) :: _, _, _, _, _, h, _, _, _, _ => by simp [symInsts] at h
 
 theorem symPhis_sound {ρ : Val} {call : Call} {envI : Env} {senvI : SEnv}
     (hI : EnvRel ρ call envI senvI) (pred : Nat) :

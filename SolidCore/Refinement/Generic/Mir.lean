@@ -121,6 +121,11 @@ def binOfOp : EVM.Op → Option BinOp
   | .byte => some .byte
   | _ => none
 
+/-- `slt` of a constant and a constant other than 0: the constant comparison. -/
+def sltLit : WExpr → Nat → Option SV
+  | .lit x, z => some (.w (.lit (Evm.slt (BitVec.ofNat 256 x) (BitVec.ofNat 256 z)).toNat))
+  | _, _ => none
+
 def symPure (sel : Nat) : EVM.Op → List SV → Option SV
   | .shr, [.w (.lit 224), .cd0] => some (.w (.lit sel))
   | .iszero, [.w a] => some (.w (mkUn .iszero a))
@@ -136,7 +141,7 @@ def symPure (sel : Nat) : EVM.Op → List SV → Option SV
       some (.w (powTwoW (Nat.log2 (b % wordSize)) k))
     else none
   -- slt a 0: the sign of a (sneg)
-  | .slt, [.w a, .w (.lit z)] => if z % wordSize = 0 then some (.w (sneg a)) else none
+  | .slt, [.w a, .w (.lit z)] => if z % wordSize = 0 then some (.w (sneg a)) else sltLit a z
   | op, [.w a, .w b] => (binOfOp op).map fun o => .w (mkBin o a b)
   -- A value other than 0: `iszero` is 0, and so is `eq` against 0.
   | .iszero, [.paid] => some (.w (.lit 0))
@@ -281,7 +286,10 @@ def symInsts (ev : EnvFlags) (cv : SV) (sel n : Nat) (K : Facts) :
   -- The heap floor codegen placed: a constant word.
   | .heapFloor dst floor :: rest, env, st =>
     symInsts ev cv sel n K rest (env.set dst (.w (.lit floor.toNat))) st
-  -- Outside the fragment (a low-bits mask, a select, an allocation) or an
+  -- A static allocation: its constant address, with no effect on memory.
+  | .alloc dst (.static address) :: rest, env, st =>
+    symInsts ev cv sel n K rest (env.set dst (.w (.lit address.toNat))) st
+  -- Outside the fragment (a low-bits mask, a select, a dynamic allocation) or an
   -- internal call, which
   -- `symSegment` splits off first: no run.
   | _ :: _, _, _ => none
