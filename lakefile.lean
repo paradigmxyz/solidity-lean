@@ -484,12 +484,14 @@ lean_lib ContractsShapes where
   roots := #[`Verify.Shapes, `Verify.ShapeGeneric, `SolidCore.Refinement.Solar.AssembleGas,
     `SolidCore.Refinement.Solar.AssembleGasLoop, `Contracts.Counter.Execution, `Contracts.Counter.ShapeSpec,
     `Contracts.Counter.Shape, `Contracts.Counter.ShapeNeg, `Verify.ShapeBundle,
-    `Contracts.Counter.ShapeExport, `Verify.ShapeCtx, `Verify.ShapeCtxGas]
+    `Contracts.Counter.ShapeExport, `Verify.ShapeCtx, `Verify.ShapeCtxGas, `Verify.ShapeKnown,
+    `SolidCore.Refinement.Solar.AssembleKnown]
   globs := #[.one `Verify.Shapes, .one `Verify.ShapeGeneric, .one `SolidCore.Refinement.Solar.AssembleGas,
     .one `SolidCore.Refinement.Solar.AssembleGasLoop,
     .one `Contracts.Counter.Execution, .one `Contracts.Counter.ShapeSpec,
     .one `Contracts.Counter.Shape, .one `Contracts.Counter.ShapeNeg, .one `Verify.ShapeBundle,
-    .one `Contracts.Counter.ShapeExport, .one `Verify.ShapeCtx, .one `Verify.ShapeCtxGas]
+    .one `Contracts.Counter.ShapeExport, .one `Verify.ShapeCtx, .one `Verify.ShapeCtxGas,
+    .one `Verify.ShapeKnown, .one `SolidCore.Refinement.Solar.AssembleKnown]
 
 -- solar-verify's Token end to end: the generic source stage from SolidCore's checked Token to
 -- Certified/verify_token's stage0, the assembly stage of its evm12, and solar-verify's Token
