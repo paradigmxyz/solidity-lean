@@ -230,7 +230,10 @@ def treeMeetsSteps (ds : Lean.Syntax.TSepArray `Lean.Parser.Tactic.simpLemma ","
     ← `(tactic| simp only [List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp, forall_eq,
       IsEmpty.forall_iff, implies_true, and_true] at hargs ham hai),
     ← `(tactic| simp only [$ds,*, List.head, List.getElem_cons_zero, List.getElem_cons_succ, decodeWords,
-      Ty.ofWord, hargs, ite_true, bind, pure, Option.bind, Option.some.injEq] at hdec),
+      Ty.ofWord, wordMod, Nat.reduceSub, Nat.reducePow, hargs, ite_true, and_true, bind, pure, Option.bind,
+      Option.some.injEq] at hdec),
+    ← `(tactic| (try split_ifs at hdec)),
+    ← `(tactic| (try simp only [Option.some.injEq, reduceCtorEq] at hdec)),
     ← `(tactic| subst hdec),
     ← `(tactic| refine ⟨fun hsucc => ?_, fun hne => ?_⟩),
     ← `(tactic| first
@@ -242,7 +245,7 @@ def treeMeetsSteps (ds : Lean.Syntax.TSepArray `Lean.Parser.Tactic.simpLemma ","
             List.getD_cons_zero, List.getD_cons_succ] at hsucc ⊢) <;>
          simp_all [$ds,*, Res.obs, Writes.store, WExpr.eval, BinOp.eval, Bundle.satAll, Bundle.sat,
            eval, evalList, Env.bind, List.zip, List.zipWith, List.lookup, slotOf, mkEnv, Env.cur, BinOp.apply, Ty.ofBits, Ty.ofWord, toWord, decodeWords, words,
-           Generic.wordSize] <;>
+           Generic.wordSize, wordMod, Nat.reduceSub] <;>
          omega))])]
 
 macro "tree_meets" "[" ds:Lean.Parser.Tactic.simpLemma,* "]" : tactic => do
