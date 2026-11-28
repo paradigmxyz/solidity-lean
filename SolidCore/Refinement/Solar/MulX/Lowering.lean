@@ -554,15 +554,15 @@ theorem loweringAtValue (o : SolarTV.Machine.Oracle)
   subst hkv'
   exact ⟨kv, hkv, h0⟩
 
-/-- info: 'SolidCore.Refinement.Solar.MulX.check_stage0' depends on axioms: [propext] -/
+/-- info: 'SolidCore.Refinement.Solar.MulX.check_stage0' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in
 #print axioms check_stage0
 
-/-- info: 'SolidCore.Refinement.Solar.MulX.check_rejects_unchecked' depends on axioms: [propext] -/
+/-- info: 'SolidCore.Refinement.Solar.MulX.check_rejects_unchecked' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in
 #print axioms check_rejects_unchecked
 
-/-- info: 'SolidCore.Refinement.Solar.MulX.check_rejects_add' depends on axioms: [propext] -/
+/-- info: 'SolidCore.Refinement.Solar.MulX.check_rejects_add' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in
 #print axioms check_rejects_add
 

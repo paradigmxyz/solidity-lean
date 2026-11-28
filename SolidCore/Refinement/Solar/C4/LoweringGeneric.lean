@@ -144,7 +144,7 @@ theorem loweringAt_value (o : SolarTV.Machine.Oracle)
   subst hkv'
   exact ⟨kv, hkv, h0⟩
 
-/-- info: 'SolidCore.Refinement.Solar.C4.check_stage0' depends on axioms: [propext] -/
+/-- info: 'SolidCore.Refinement.Solar.C4.check_stage0' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in
 #print axioms check_stage0
 

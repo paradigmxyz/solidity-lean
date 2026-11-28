@@ -171,6 +171,38 @@ def eraseExprs (fields : List StorageField) (S : SymState) : List Expr → Optio
     let (gs, vs) ← eraseExprs fields S es
     some (g ++ gs, v :: vs)
 
+/-- The word a branch reads: `a` for `a > 0`, which is zero exactly when `a` is, as solar branches
+on `a` itself; any other word as it is. -/
+def condWord : WExpr → WExpr
+  | .bin .gt a (.lit 0) => a
+  | v => v
+
+theorem condWord_zero (ρ : Val) (v : WExpr) : (condWord v).eval ρ = 0 ↔ v.eval ρ = 0 := by
+  unfold condWord
+  split
+  · rename_i a
+    have ha := a.eval_lt ρ
+    simp only [WExpr.eval, BinOp.eval, Nat.zero_mod]
+    by_cases h : a.eval ρ = 0
+    · simp [h]
+    · have h0 : 0 < a.eval ρ := Nat.pos_of_ne_zero h
+      simp [h, h0]
+  · rfl
+
+/-- The branch tree of a condition `c` choosing `t` or `e`: SolidCore's short-circuit `&&` and `||`
+as nested branches, the right operand's checks only on the path that evaluates it; any other
+condition as its checks and a branch on its word. -/
+def condBr (fields : List StorageField) (S : SymState) : Expr → Br → Br → Option Br
+  | .binary .boolAnd l r, t, e => do
+    let bt ← condBr fields S r t e
+    condBr fields S l bt e
+  | .binary .boolOr l r, t, e => do
+    let be ← condBr fields S r t e
+    condBr fields S l t be
+  | c, t, e => do
+    let (gs, v) ← eraseExpr fields S c
+    some (guards gs (.ite (condWord v) t e))
+
 /-- A statement list, each statement erased by `f`. -/
 def eraseSeq (f : Stmt → SymState → Option Br) : List Stmt → SymState → Option Br
   | [], S => some (.leaf (.normal S))
@@ -325,6 +357,15 @@ def eraseUnchecked (S : SymState) : Stmt → Option Br
       (.ite v (.leaf (.normal { S.push with scopes := L })) (.leaf (.reverted (failOf r)))))
   | _ => none
 
+/-- SolidCore's checked signed `op` (`/` or `%`) of two constant words, when it neither reverts nor
+leaves a word outside `2 ^ 256`: the erasure folds it to that constant, as solar does. -/
+def intFold (op : BinaryOp) : Option WExpr → Option WExpr → Option WExpr
+  | some (.lit a), some (.lit b) =>
+    match BinaryOp.apply true op (.int (a % wordSize)) (.int (b % wordSize)) with
+    | .ok (.int w) => if w < wordSize then some (.lit w) else none
+    | _ => none
+  | _, _ => none
+
 /-- The word of a signed expression of the fragment: a signed literal, a local the state holds as
 a signed word, or the 256-bit signed cleanup of one, none of which reverts. SolidCore holds each as
 `Value.int` of the word. -/
@@ -332,7 +373,26 @@ def eraseIntExpr (S : SymState) : Expr → Option WExpr
   | .intWord n => some (.lit n)
   | .var x => if S.tags.get x = .int then Scopes.get? S.scopes x else none
   | .castOp .intCleanup 256 e => eraseIntExpr S e
+  | .binary .div l r => intFold .div (eraseIntExpr S l) (eraseIntExpr S r)
+  | .binary .mod l r => intFold .mod (eraseIntExpr S l) (eraseIntExpr S r)
   | _ => none
+
+theorem intFold_spec {op : BinaryOp} {x y : Option WExpr} {v : WExpr} (h : intFold op x y = some v) :
+    ∃ a b w, x = some (.lit a) ∧ y = some (.lit b) ∧
+      BinaryOp.apply true op (.int (a % wordSize)) (.int (b % wordSize)) = .ok (.int w) ∧
+      w < wordSize ∧ v = .lit w := by
+  unfold intFold at h
+  split at h
+  · rename_i a b
+    split at h
+    · rename_i w hw
+      split at h
+      · rename_i hlt
+        simp only [Option.some.injEq] at h
+        exact ⟨a, b, w, rfl, rfl, hw, hlt, h.symm⟩
+      · simp at h
+    · simp at h
+  · simp at h
 
 /-- The erasure of the right side of an assignment to a signed local: a checked cleanup to `b`
 bits of a signed expression, its range check `sextGuard b v` (which panics with `0x11`) and its
@@ -433,14 +493,12 @@ def eraseStmt (E : EraseEnv) : Nat → Stmt → SymState → Option Br
         let vs ← es.mapM (eraseIntExpr S)
         some (.leaf (.returned S vs (vs.map fun _ => .int)))
     | .ifElse c t e => do
-      let (gs, v) ← eraseExpr E.fields S c
       let bt ← eraseStmt E n t S
       let be ← eraseStmt E n e S
-      some (guards gs (.ite v bt be))
+      condBr E.fields S c bt be
     | .panic code => some (.leaf (.reverted (.panic code)))
-    | .requireStmt c r => do
-      let (gs, v) ← eraseExpr E.fields S c
-      some (guards gs (.ite v (.leaf (.normal S)) (.leaf (.reverted (failOf r)))))
+    | .requireStmt c r => condBr E.fields S c (.leaf (.normal S)) (.leaf (.reverted (failOf r)))
+    | .assertStmt c => condBr E.fields S c (.leaf (.normal S)) (.leaf (.reverted (.panic 0x01)))
     | .revertError r => some (.leaf (.reverted (failOf r)))
     | .assign (.storageIndex x i) e => do
       let (gs, v) ← eraseExpr E.fields S e
@@ -906,6 +964,22 @@ theorem eval_int {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {S : S
           MonadLift.monadLift, intCleanup_256 _ _ (v.eval_lt ρ), SolI.ofExcept]
         rfl
       · simp [eraseIntExpr, hb] at h
+    all_goals simp [eraseIntExpr] at h
+  | binary op l r =>
+    have hfl : Expr.orderFuel l < n := by simp [Expr.orderFuel] at hf; omega
+    have hfr : Expr.orderFuel r < n := by simp [Expr.orderFuel] at hf; omega
+    cases op
+    case div | mod =>
+      simp only [eraseIntExpr] at h
+      obtain ⟨a, b, w, hl, hr, happ, hw, rfl⟩ := intFold_spec h
+      have ihl := eval_int hrel l (.lit a) n hl hfl
+      have ihr := eval_int hrel r (.lit b) n hr hfr
+      simp only [WExpr.eval] at ihl ihr
+      simp only [Expr.evalFuel, ihr, ihl, hrel.checked]
+      simp [bind, EvmCompiler.Simulation.Interaction.bind, liftM, monadLift, MonadLift.monadLift,
+        SolI.ofExcept, pure, EvmCompiler.Simulation.Interaction.pure, happ, WExpr.eval,
+        Nat.mod_eq_of_lt hw, ihl, ihr]
+      all_goals first | rfl | trace_state; sorry
     all_goals simp [eraseIntExpr] at h
   | _ => simp [eraseIntExpr] at h
 
@@ -2243,6 +2317,126 @@ theorem eval_assignInt (ρ : Val) (E : EraseEnv) (ctx : Context) (rt : Runtime) 
   · simp only [bind_done_ok, hres, caught_done_ok, ite_self, ResolvedLValue.write, hassign]
     rfl
 
+/-- SolidCore evaluates a condition of the fragment either to a panic, which its branch tree
+reverts with, or to a word, whose side of the branch tree it takes; the runtime is unchanged. -/
+theorem norm0 : SolidCore.Solidity.Shared.norm 0 = 0 := rfl
+theorem norm1 : SolidCore.Solidity.Shared.norm 1 = 1 := rfl
+
+theorem eval_cond (ρ : Val) (fields : List StorageField) (ctx : Context) (rt : Runtime) (S : SymState)
+    (hrel : ExprRel ρ fields ctx rt S) (c : Expr) (t e : Br) :
+    ∀ (b : Br) (fuel : Nat), condBr fields S c t e = some b → Expr.orderFuel c < fuel →
+      (∃ k, Expr.evalFuel fuel ctx rt c = .done (.error (.revert (.panic k))) ∧
+        b.eval ρ = .reverted (.panic k)) ∨
+      (∃ w, w < wordSize ∧ Expr.evalFuel fuel ctx rt c = .done (.ok (.word w, rt)) ∧
+        b.eval ρ = if w = 0 then e.eval ρ else t.eval ρ) := by
+  fun_induction condBr fields S c t e with
+  | case1 l r t e ihr ihl =>
+    intro b fuel h hf
+    simp only [Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+    obtain ⟨bt, hbt, hb⟩ := h
+    obtain ⟨n, rfl⟩ : ∃ n, fuel = n + 1 := ⟨fuel - 1, by omega⟩
+    have hfl : Expr.orderFuel l < n := by simp [Expr.orderFuel] at hf; omega
+    have hfr : Expr.orderFuel r < n := by simp [Expr.orderFuel] at hf; omega
+    rw [Expr.evalFuel]
+    rcases ihl bt b n hb hfl with ⟨k, hk, hbk⟩ | ⟨w, hw, hk, hbw⟩
+    · left; exact ⟨k, by simp only [hk]; rfl, hbk⟩
+    · by_cases hw0 : w = 0
+      · right
+        refine ⟨0, by decide, ?_, by simp [hbw, hw0]⟩
+        subst hw0
+        simp only [hk]
+        simp [bind, EvmCompiler.Simulation.Interaction.bind, Value.expectWord, liftM, monadLift,
+          MonadLift.monadLift, SolI.ofExcept, wordTruthy, norm0, norm1, pure, EvmCompiler.Simulation.Interaction.pure] <;> rfl
+      · rcases ihr bt n hbt hfr with ⟨k, hk', hbk⟩ | ⟨w', hw', hk', hbw'⟩
+        · left
+          refine ⟨k, ?_, by simp [hbw, hw0, hbk]⟩
+          simp only [hk]
+          simp [bind, EvmCompiler.Simulation.Interaction.bind, Value.expectWord, liftM, monadLift,
+            MonadLift.monadLift, SolI.ofExcept, wordTruthy, norm0, norm1, norm_lt hw, hw0, hk'] <;> rfl
+        · right
+          refine ⟨if w' = 0 then 0 else 1, by split <;> decide, ?_, ?_⟩
+          · simp only [hk]
+            simp [bind, EvmCompiler.Simulation.Interaction.bind, Value.expectWord, liftM, monadLift,
+              MonadLift.monadLift, SolI.ofExcept, wordTruthy, norm0, norm1, norm_lt hw, hw0, hk', norm_lt hw', boolWord,
+              pure, EvmCompiler.Simulation.Interaction.pure]
+            all_goals (by_cases h0 : w' = 0 <;> simp [h0, norm0, norm1] <;> rfl)
+          · simp only [hbw, hw0, ↓reduceIte, hbw']
+            by_cases h0 : w' = 0 <;> simp [h0]
+  | case2 l r t e ihr ihl =>
+    intro b fuel h hf
+    simp only [Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+    obtain ⟨be, hbe, hb⟩ := h
+    obtain ⟨n, rfl⟩ : ∃ n, fuel = n + 1 := ⟨fuel - 1, by omega⟩
+    have hfl : Expr.orderFuel l < n := by simp [Expr.orderFuel] at hf; omega
+    have hfr : Expr.orderFuel r < n := by simp [Expr.orderFuel] at hf; omega
+    rw [Expr.evalFuel]
+    rcases ihl be b n hb hfl with ⟨k, hk, hbk⟩ | ⟨w, hw, hk, hbw⟩
+    · left; exact ⟨k, by simp only [hk]; rfl, hbk⟩
+    · by_cases hw0 : w = 0
+      · rcases ihr be n hbe hfr with ⟨k, hk', hbk⟩ | ⟨w', hw', hk', hbw'⟩
+        · left
+          refine ⟨k, ?_, by simp [hbw, hw0, hbk]⟩
+          subst hw0
+          simp only [hk]
+          simp [bind, EvmCompiler.Simulation.Interaction.bind, Value.expectWord, liftM, monadLift,
+            MonadLift.monadLift, SolI.ofExcept, wordTruthy, norm0, norm1, hk'] <;> rfl
+        · right
+          refine ⟨if w' = 0 then 0 else 1, by split <;> decide, ?_, ?_⟩
+          · subst hw0
+            simp only [hk]
+            simp [bind, EvmCompiler.Simulation.Interaction.bind, Value.expectWord, liftM, monadLift,
+              MonadLift.monadLift, SolI.ofExcept, wordTruthy, norm0, norm1, hk', norm_lt hw', boolWord,
+              pure, EvmCompiler.Simulation.Interaction.pure]
+            all_goals (by_cases h0 : w' = 0 <;> simp [h0, norm0, norm1] <;> rfl)
+          · simp only [hbw, hw0, ↓reduceIte, hbw']
+            by_cases h0 : w' = 0 <;> simp [h0]
+      · right
+        refine ⟨1, by decide, ?_, by simp [hbw, hw0]⟩
+        simp only [hk]
+        simp [bind, EvmCompiler.Simulation.Interaction.bind, Value.expectWord, liftM, monadLift,
+          MonadLift.monadLift, SolI.ofExcept, wordTruthy, norm0, norm1, norm_lt hw, hw0, pure,
+          EvmCompiler.Simulation.Interaction.pure] <;> rfl
+  | case3 c t e hand hor =>
+    intro b fuel h hf
+    simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
+    obtain ⟨⟨gs, v⟩, hc, rfl⟩ := h
+    have heval := eval_erase ρ fields ctx rt S hrel c gs v fuel hc hf
+    rw [heval, guards_eval]
+    unfold exprResult
+    by_cases hg : gs.any (fun g => g.eval ρ != 0) = true
+    · left; exact ⟨failCode ρ gs, by simp [hg], by simp [hg]⟩
+    · right
+      refine ⟨v.eval ρ, v.eval_lt ρ, by simp [hg], ?_⟩
+      simp only [hg, Bool.false_eq_true, ↓reduceIte, Br.eval, condWord_zero]
+
+/-- A statement guarded by a condition: `require` or `assert`, whose failing side reverts with `f`. -/
+theorem eval_guardStmt {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {S : SymState}
+    (hrel : StmtRel ρ E ctx rt S) {n : Nat} {c : Expr} {f : Fail} {b : Br} {s : Stmt}
+    (hs : ∀ (x : Except RevertData (Value × Runtime)),
+      (Expr.eval ctx rt c).caught = .done (.ok x) →
+      Stmt.eval (n + 1) E.tbl ctx rt s = (match x with
+        | .ok (value, rt') =>
+          match value.expectWord with
+          | .ok word => if wordTruthy word then .done (.ok (.normal rt'))
+              else .done (.ok (.reverted rt' f.data))
+          | .error err => .done (.ok (.reverted rt' err))
+        | .error err => .done (.ok (.reverted rt err))))
+    (h : condBr E.fields S c (.leaf (.normal S)) (.leaf (.reverted f)) = some b) :
+    ∃ r, Stmt.eval (n + 1) E.tbl ctx rt s = .done (.ok r) ∧ LeafRel ρ E ctx r (b.eval ρ) := by
+  rcases eval_cond ρ E.fields ctx rt S hrel.expr c _ _ b _ h (Nat.lt_succ_self _) with
+    ⟨k, hk, hbk⟩ | ⟨w, hw, hk, hbw⟩
+  · rw [hs (.error (.panic k)) (by simp only [Expr.eval, hk]; rfl), hbk]
+    exact ⟨.reverted rt (.panic k), rfl, rfl⟩
+  · rw [hs (.ok (.word w, rt)) (by simp only [Expr.eval, hk]; rfl), hbw]
+    simp only [Value.expectWord, wordTruthy, norm_lt hw]
+    by_cases hw0 : w = 0
+    · subst hw0
+      refine ⟨.reverted rt f.data, by simp [norm0], ?_⟩
+      simp only [↓reduceIte, Br.eval, LeafRel]
+    · refine ⟨.normal rt, by simp [hw0], ?_⟩
+      simp only [hw0, ↓reduceIte, Br.eval, LeafRel]
+      exact hrel
+
 theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
     ∀ n s S b, eraseStmt E n s S = some b → ∀ rt, StmtRel ρ E ctx rt S →
       ∃ r, Stmt.eval n E.tbl ctx rt s = .done (.ok r) ∧ LeafRel ρ E ctx r (b.eval ρ) := by
@@ -2421,16 +2615,33 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
       subst h
       exact ⟨.reverted rt (.panic code), by rw [Stmt.eval]; rfl, rfl⟩
     case requireStmt c r =>
-      simp only [eraseStmt, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
-      obtain ⟨⟨gs, v⟩, hc, rfl⟩ := h
-      have heval := eval_eq ρ E.fields ctx rt S hrel.expr hc
-      rw [guards_eval]
-      by_cases hg : gs.any (fun g => g.eval ρ != 0) = true
-      · rw [Stmt.eval]
-        simp only [heval, caught_exprResult, hg, ↓reduceIte]
-        exact ⟨_, rfl, rfl⟩
-      · simp only [hg, Bool.false_eq_true, ↓reduceIte]
-        exact eval_require hrel (by simp only [heval, caught_exprResult, hg, Bool.false_eq_true, ↓reduceIte])
+      simp only [eraseStmt] at h
+      refine eval_guardStmt hrel (fun x hx => ?_) h
+      rw [Stmt.eval]
+      simp only [hx, bind_done_ok]
+      rcases x with err | ⟨value, rt'⟩
+      · rfl
+      · simp only
+        cases value.expectWord with
+        | error err => rfl
+        | ok word =>
+          simp only
+          split
+          · rfl
+          · cases r <;> rfl
+    case assertStmt c =>
+      simp only [eraseStmt] at h
+      refine eval_guardStmt hrel (fun x hx => ?_) h
+      rw [Stmt.eval]
+      simp only [hx, bind_done_ok]
+      rcases x with err | ⟨value, rt'⟩
+      · rfl
+      · simp only
+        cases value.expectWord with
+        | error err => rfl
+        | ok word =>
+          simp only
+          split <;> rfl
     case revertError r =>
       simp only [eraseStmt, Option.some.injEq] at h
       subst h
@@ -2588,20 +2799,22 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
         simp only [hl]
         exact ⟨.returned rt (vs.map fun e => Value.int (e.eval ρ)), rfl, hrel, (retVals_ints ρ vs).symm⟩
     case ifElse c t e =>
-      simp only [eraseStmt, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
-      obtain ⟨⟨gs, v⟩, hc, bt, hbt, be, hbe, rfl⟩ := h
-      have heval := eval_eq ρ E.fields ctx rt S hrel.expr hc
-      rw [Stmt.eval]
-      simp only [heval, caught_exprResult, guards_eval]
-      guard_cases hg : gs.any (fun g => g.eval ρ != 0)
-      simp only [bind_done_ok, Value.expectWord, norm_lt (v.eval_lt ρ), Br.eval, wordTruthy]
-      by_cases hv : v.eval ρ = 0
-      · obtain ⟨r, hr, hl⟩ := ih e S be hbe rt hrel
-        refine ⟨r, ?_, by simpa [hv] using hl⟩
-        simp [hv, hr]
-      · obtain ⟨r, hr, hl⟩ := ih t S bt hbt rt hrel
-        refine ⟨r, ?_, by simpa [hv] using hl⟩
-        simp [hv, hr]
+      simp only [eraseStmt, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+      obtain ⟨bt, hbt, be, hbe, hb⟩ := h
+      rcases eval_cond ρ E.fields ctx rt S hrel.expr c bt be b _ hb (Nat.lt_succ_self _) with
+        ⟨k, hk, hbk⟩ | ⟨w, hw, hk, hbw⟩
+      · rw [Stmt.eval, hbk]
+        simp only [Expr.eval, hk]
+        exact ⟨_, rfl, rfl⟩
+      · rw [Stmt.eval, hbw]
+        simp only [Expr.eval, hk, caught_done_ok, bind_done_ok, Value.expectWord, norm_lt hw, wordTruthy]
+        by_cases hv : w = 0
+        · obtain ⟨r, hr, hl⟩ := ih e S be hbe rt hrel
+          refine ⟨r, ?_, by simpa [hv] using hl⟩
+          simp [hv, hr]
+        · obtain ⟨r, hr, hl⟩ := ih t S bt hbt rt hrel
+          refine ⟨r, ?_, by simpa [hv] using hl⟩
+          simp [hv, hr]
     case exprStmt ex =>
       cases ex
       case incDec op ret cleanup? target =>

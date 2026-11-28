@@ -101,13 +101,9 @@ theorem eraseStmt_mono (E : EraseEnv) : ∀ (n m : Nat), n ≤ m →
       exact ⟨b0, eraseSeq_mono ih _ _ _ h0, hb⟩
     case h_11 =>
       simp only [Option.bind_eq_bind, Option.bind_eq_some_iff] at h ⊢
-      obtain ⟨⟨gs, v⟩, hp, h⟩ := h
-      simp only [Option.bind_eq_bind, Option.bind_eq_some_iff] at h
       obtain ⟨bt, ht, be, he, hb⟩ := h
-      exact ⟨⟨gs, v⟩, hp, by
-        simp only [Option.bind_eq_bind, Option.bind_eq_some_iff]
-        exact ⟨bt, ih _ _ _ ht, be, ih _ _ _ he, hb⟩⟩
-    case h_17 =>
+      exact ⟨bt, ih _ _ _ ht, be, ih _ _ _ he, hb⟩
+    case h_18 =>
       simp only [Option.bind_eq_bind, Option.bind_eq_some_iff] at h ⊢
       obtain ⟨fn, hfn, h⟩ := h
       refine ⟨fn, hfn, ?_⟩
@@ -122,7 +118,7 @@ theorem eraseStmt_mono (E : EraseEnv) : ∀ (n m : Nat), n ≤ m →
           simp only [Option.bind_eq_bind, Option.bind_eq_some_iff]
           exact ⟨b0, ih _ _ _ h0, b1, h1, hb⟩⟩
       · simp at h
-    case h_18 =>
+    case h_19 =>
       simp only [Option.bind_eq_bind, Option.bind_eq_some_iff] at h ⊢
       obtain ⟨b0, h0, hb⟩ := h
       exact ⟨b0, ih _ _ _ h0, hb⟩

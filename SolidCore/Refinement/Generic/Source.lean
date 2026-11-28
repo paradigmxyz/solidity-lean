@@ -350,6 +350,16 @@ def eraseExpr (fields : List StorageField) (S : SymState) : Expr → Option (Lis
     match gr, vr with
     | [], .lit k => if k % wordSize = 0 then none else some (gl, .bin .div vl (.lit k))
     | _, _ => some (gr ++ gl ++ [divGuard vr], .bin .div vl vr)
+  -- `x << k` and `x >> k`: SolidCore's `shlWord k x` and `shrWord k x`, the tree's shift first, no
+  -- check
+  | .binary .shl l r => do
+    let (gl, vl) ← eraseExpr fields S l
+    let (gr, vr) ← eraseExpr fields S r
+    some (ordered gl gr, .bin .shl vr vl)
+  | .binary .shr l r => do
+    let (gl, vl) ← eraseExpr fields S l
+    let (gr, vr) ← eraseExpr fields S r
+    some (ordered gl gr, .bin .shr vr vl)
   | .binary op l r =>
     match binOf op with
     | some o => do
@@ -494,6 +504,61 @@ theorem apply_div (a b : Nat) (ha : a < wordSize) (hb : b < wordSize) (hb0 : b �
     BinaryOp.apply true .div (.word a) (.word b) = .ok (.word (a / b)) := by
   simp [BinaryOp.apply, Value.forceAbiLazy, BinaryOp.applyWord, checkedDiv, norm_lt ha, norm_lt hb,
     hb0, bind, Except.bind, Functor.map, Except.map, divWord_eq a b ha hb]
+
+theorem fin_shl_val {n : Nat} (a b : Fin n) : (a <<< b).val = (a.val <<< b.val) % n := by
+  cases a; cases b; rfl
+
+theorem fin_shr_val {n : Nat} (a b : Fin n) : (a >>> b).val = (a.val >>> b.val) % n := by
+  cases a; cases b; rfl
+
+open SolidCore.Solidity.Shared in
+theorem shlWord_eq (s v : Nat) (hs : s < wordSize) (hv : v < wordSize) :
+    shlWord s v = BinOp.shl.eval s v := by
+  have hs' : (EvmYul.UInt256.ofNat s).val.val = s := by
+    have h := toNat_ofNat_u256 s; rwa [Nat.mod_eq_of_lt hs] at h
+  have hv' : (EvmYul.UInt256.ofNat v).val.val = v := by
+    have h := toNat_ofNat_u256 v; rwa [Nat.mod_eq_of_lt hv] at h
+  simp only [shlWord, ofEvmWord, toEvmWord, norm, modulus_eq, Nat.mod_eq_of_lt hs, Nat.mod_eq_of_lt hv,
+    EvmYul.UInt256.shiftLeft, BinOp.eval]
+  have hle : ((EvmYul.UInt256.ofNat s).val ≥ 256) ↔ 256 ≤ s := by
+    rw [ge_iff_le, Fin.le_def, hs']; simp [EvmYul.UInt256.size]
+  by_cases h : s < 256
+  · rw [if_neg (by rw [hle]; omega), if_pos h]
+    show ((EvmYul.UInt256.ofNat v).val.val <<< (EvmYul.UInt256.ofNat s).val.val) % EvmYul.UInt256.size
+      % wordSize = _
+    rw [hs', hv', Nat.shiftLeft_eq, size_eq, Nat.mod_mod]
+  · rw [if_pos (by rw [hle]; omega), if_neg h]
+    rfl
+
+open SolidCore.Solidity.Shared in
+theorem shrWord_eq (s v : Nat) (hs : s < wordSize) (hv : v < wordSize) :
+    shrWord s v = BinOp.shr.eval s v := by
+  have hs' : (EvmYul.UInt256.ofNat s).val.val = s := by
+    have h := toNat_ofNat_u256 s; rwa [Nat.mod_eq_of_lt hs] at h
+  have hv' : (EvmYul.UInt256.ofNat v).val.val = v := by
+    have h := toNat_ofNat_u256 v; rwa [Nat.mod_eq_of_lt hv] at h
+  simp only [shrWord, ofEvmWord, toEvmWord, norm, modulus_eq, Nat.mod_eq_of_lt hs, Nat.mod_eq_of_lt hv,
+    EvmYul.UInt256.shiftRight, BinOp.eval]
+  have hle : ((EvmYul.UInt256.ofNat s).val ≥ 256) ↔ 256 ≤ s := by
+    rw [ge_iff_le, Fin.le_def, hs']; simp [EvmYul.UInt256.size]
+  by_cases h : s < 256
+  · rw [if_neg (by rw [hle]; omega), if_pos h]
+    show ((EvmYul.UInt256.ofNat v).val.val >>> (EvmYul.UInt256.ofNat s).val.val) % EvmYul.UInt256.size
+      % wordSize = _
+    rw [hs', hv', Nat.shiftRight_eq_div_pow, size_eq, Nat.mod_mod]
+    exact Nat.mod_eq_of_lt (Nat.lt_of_le_of_lt (Nat.div_le_self _ _) hv)
+  · rw [if_pos (by rw [hle]; omega), if_neg h]
+    rfl
+
+theorem apply_shl (a b : Nat) (ha : a < wordSize) (hb : b < wordSize) :
+    BinaryOp.apply true .shl (.word a) (.word b) = .ok (.word (BinOp.shl.eval b a)) := by
+  simp [BinaryOp.apply, Value.forceAbiLazy, BinaryOp.applyWord, norm_lt ha, norm_lt hb, bind,
+    Except.bind, Functor.map, Except.map, shlWord_eq b a hb ha]
+
+theorem apply_shr (a b : Nat) (ha : a < wordSize) (hb : b < wordSize) :
+    BinaryOp.apply true .shr (.word a) (.word b) = .ok (.word (BinOp.shr.eval b a)) := by
+  simp [BinaryOp.apply, Value.forceAbiLazy, BinaryOp.applyWord, norm_lt ha, norm_lt hb, bind,
+    Except.bind, Functor.map, Except.map, shrWord_eq b a hb ha]
 
 /-- Checked division by zero panics with `0x12`. -/
 theorem apply_div_zero (a : Nat) (ha : a < wordSize) :
@@ -1441,7 +1506,7 @@ theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
             apply_add _ _ hal har, apply_sub _ _ hal har, apply_mul _ _ hal har, apply_lt _ _ hal har,
             apply_gt _ _ hal har, apply_eq _ _ hal har, apply_bitAnd _ _ hal har,
             apply_bitOr _ _ hal har, apply_bitXor _ _ hal har, apply_ge _ _ hal har,
-            apply_le _ _ hal har, apply_ne _ _ hal har]
+            apply_le _ _ hal har, apply_ne _ _ hal har, apply_shl _ _ hal har, apply_shr _ _ hal har]
           split <;> simp_all [SolI.ofExcept, WExpr.eval, BinOp.eval, UnOp.eval, Nat.mod_mod]
           all_goals first
             | exact add_wrap_lt hal har (by assumption)
@@ -1450,6 +1515,10 @@ theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
             | (split <;> simp_all <;> first | omega | (have := add_wrap_lt hal har (by assumption); omega))
             | (split <;> simp_all <;> omega)
             | (split <;> simp_all)
+            | (symm; exact Nat.mod_eq_of_lt (by
+                split
+                · exact Nat.lt_of_le_of_lt (Nat.div_le_self _ _) hal
+                · decide))
   | unary op e =>
     cases op
     case logicalNot =>

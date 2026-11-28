@@ -159,6 +159,6 @@ end Verify.LoopSource.Equiv.EraseLoopCounter
 #guard_msgs in
 #print axioms Verify.LoopSource.Equiv.EraseLoopCounter.bump_runs_checked
 
-/-- info: 'Verify.LoopSource.Equiv.EraseLoopCounter.bump_not_wrong' depends on axioms: [propext] -/
+/-- info: 'Verify.LoopSource.Equiv.EraseLoopCounter.bump_not_wrong' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in
 #print axioms Verify.LoopSource.Equiv.EraseLoopCounter.bump_not_wrong

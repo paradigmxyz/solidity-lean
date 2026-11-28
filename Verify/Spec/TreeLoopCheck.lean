@@ -204,6 +204,6 @@ end SolidCore.Spec.TreeLoop
 #guard_msgs (whitespace := lax) in
 #print axioms SolidCore.Spec.TreeLoop.not_loopSpec_empty
 
-/-- info: 'SolidCore.Spec.TreeLoop.contractLoopCheck_nil' depends on axioms: [propext, Quot.sound] -/
+/-- info: 'SolidCore.Spec.TreeLoop.contractLoopCheck_nil' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs (whitespace := lax) in
 #print axioms SolidCore.Spec.TreeLoop.contractLoopCheck_nil
