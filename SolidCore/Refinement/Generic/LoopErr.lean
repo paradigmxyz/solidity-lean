@@ -109,7 +109,7 @@ theorem runtime_run_err {fuel : Nat} {c : TypeCheck.CheckedContract} {σ : List 
   unfold runtimeRun runtimeResult?
   simp only [Dirty.bytes_calldata]
   have hwT := widthsOf_T hw
-  obtain ⟨rt, hrel, hcall⟩ := call_entry (c := c) hwT.1 hret (tagsOk_of_words hwT.2) fuel
+  obtain ⟨rt, hrel, hcall⟩ := call_entry (c := c) hwT.1 (retBinding_of_word hret) (tagsOk_of_words (words_of_widths hw hret)) fuel
     { c.core.context with sender := callerAddress, self := selfAddress, value := 0 } callerAddress
     ((EthLib.Base.natToBytes 4 sel).map (·.toNat) ++ Dirty.argBytes args)
     (st0 := { State.empty with

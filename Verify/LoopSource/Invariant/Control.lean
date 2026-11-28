@@ -65,7 +65,7 @@ def fuel : Nat := 2 ^ 256 + 108
 
 /-- The tree of the body: return `n`. -/
 def br : Br :=
-  .leaf (.returned { scopes := [[("n", .arg 0), ("_ret0", .lit 0)]], writes := [], logs := [] } [.arg 0])
+  .leaf (.returned { scopes := [[("n", .arg 0), ("_ret0", .lit 0)]], writes := [], logs := [] } [.arg 0] [])
 
 theorem ctl_erased (name : String) (sel : Nat) (ev : List EventDecl) (tbl : FunctionTable) :
     eraseWhile (env ev tbl) wd fuel (ctlFn name sel).body (initState (ctlFn name sel)) = some br := rfl

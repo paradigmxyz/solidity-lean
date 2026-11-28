@@ -20,7 +20,7 @@ def triW : WExpr := .bin .div (.bin .mul (.arg 0) (.bin .add (.arg 0) (.lit 1)))
 def le64 : WExpr := .un .iszero (.bin .gt (.arg 0) (.lit 64))
 
 /-- **total's tree of leaves.** -/
-def totalBr : Br := .ite le64 (.leaf (.returned S0 [triW])) (.leaf (.reverted .empty))
+def totalBr : Br := .ite le64 (.leaf (.returned S0 [triW] [])) (.leaf (.reverted .empty))
 
 theorem e_req (tbl : FunctionTable) :
     eraseStmt (envT tbl) 10 (.requireStmt (.binary .le cn (.word 64)) none) S2 =
@@ -33,7 +33,7 @@ theorem e_argN (tbl : FunctionTable) :
 
 theorem e_retH (tbl : FunctionTable) (t : Nat) :
     eraseStmt (envT tbl) 10 (.returnValues [.castOp .uintCleanup 256 (.var "_sol_hoist_0")]) (Sf t) =
-      some (.leaf (.returned (Sf t) [.lit t])) := rfl
+      some (.leaf (.returned (Sf t) [.lit t] [])) := rfl
 
 theorem triW_eval {ρ : Val} (h : (WExpr.arg 0).eval ρ ≤ 64) :
     triW.eval ρ = tri ((WExpr.arg 0).eval ρ) := by

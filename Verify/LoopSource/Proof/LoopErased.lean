@@ -138,7 +138,7 @@ def Back (E : EraseEnv) (ctx : Context) (H : SymState) (P : Val → Prop) (m : V
 def IterEnd (E : EraseEnv) (ctx : Context) (H : SymState) (P : Val → Prop) (m : Val → Nat)
     (Q : Result → Prop) (σ : Val) : Leaf → Prop
   | .normal S => Back E ctx H P m σ S
-  | .returned S vs => Ends σ E ctx Q (.returned S vs)
+  | .returned S vs ts => Ends σ E ctx Q (.returned S vs ts)
   | .reverted f => Ends σ E ctx Q (.reverted f)
 
 /-- What the body's leaf of a `for` iteration owes: when normal, the update runs as a tree there and its
@@ -146,7 +146,7 @@ leaf owes `IterEnd`; else `Q`. -/
 def ForBody (k : Nat) (E : EraseEnv) (ctx : Context) (post : Stmt) (H : SymState)
     (P : Val → Prop) (m : Val → Nat) (Q : Result → Prop) (σ : Val) : Leaf → Prop
   | .normal S => ∃ pb, StmtRuns E k ctx post S pb ∧ IterEnd E ctx H P m Q σ (pb.eval σ)
-  | .returned S vs => Ends σ E ctx Q (.returned S vs)
+  | .returned S vs ts => Ends σ E ctx Q (.returned S vs ts)
   | .reverted f => Ends σ E ctx Q (.reverted f)
 
 /-- **The obligations of `for (…; cnd; post) body`** at the header `H`, with the invariant `P` and the

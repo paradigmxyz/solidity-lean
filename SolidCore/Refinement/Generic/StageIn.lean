@@ -97,7 +97,7 @@ theorem source_runIn_clean (W : World) {fuel : Nat} {c : TypeCheck.CheckedContra
     (hcov : Covers s σ) {sel : Nat} (hsel : sel < 2 ^ 32) {fn : FunctionDef}
     (hfind : c.core.findFunctionBySelector? sel = some fn) {ws : List Nat}
     (hw : widthsOfT fn.params fn.paramAbiCleanups = some ws)
-    (hret : fn.returns.all wordBinding = true) (htags : tagsOk fn = true) {b : Br}
+    (hret : fn.returns.all retBinding = true) (htags : tagsOk fn = true) {b : Br}
     (hb : eraseStmt { envOf c.core with facts := argFacts ws 0 } fuel fn.body (initState fn) = some b)
     {T : Tree} (hT : brTree fn (argFacts ws 0) b = some T) (args : List Nat)
     (hlen : args.length = fn.params.length) (hargs : ∀ a ∈ args, a < 2 ^ 256)

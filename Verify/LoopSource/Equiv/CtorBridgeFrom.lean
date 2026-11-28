@@ -28,8 +28,8 @@ theorem deployed_run_entry_from (a : Nat) {fuel : Nat} {ws0 : List Nat} {c : Typ
     Refinement.Source.runFromArgs a fuel ws0 c
         { calldata := Abi.calldata sel args, callvalue := 0, storage := σ } =
       some (fixObs σ (T.eval ⟨args, store, solHash, a⟩).obs) :=
-  deployed_run_entry_at a (e := .caller) hd hstore hok hsel hfind (widthsOf_T hw).1 hret
-    (tagsOk_of_words (widthsOf_T hw).2) hb hT args rfl hlen hargs
+  deployed_run_entry_at a (e := .caller) hd hstore hok hsel hfind (widthsOf_T hw).1 (retBinding_of_word hret)
+    (tagsOk_of_words (words_of_widths hw hret)) hb hT args rfl hlen hargs
     hclean (by rw [tyVals_params hw hlen]; exact hdec)
 
 end SolidCore.Refinement.Generic.Loop

@@ -80,7 +80,7 @@ theorem runtime_run_clean_from (a : Nat) (ha : a < 2 ^ 160) {fuel : Nat} {c : Ty
       sender := by subst hctx; rfl
       hash := rfl
       ok := hρok
-      frames := by simp [initFrom, initState, paramTags_words (widthsOf_T hw).2]
+      frames := by simp [initFrom, initState, fnTags, paramTags_words (words_of_widths hw hret)]
       store := by
         intro k hk
         have := getD_storage_empty σ k
@@ -102,7 +102,7 @@ theorem runtime_run_clean_from (a : Nat) (ha : a < 2 ^ 160) {fuel : Nat} {c : Ty
   obtain ⟨T', hT', hTe⟩ := brTree_eval fn K ρ b T hT
   rw [hacc, if_pos rfl, hcall, ← hTe]
   generalize b.eval ρ = l at hT' hleaf
-  rcases l with S | ⟨S, _ | ⟨v, vs⟩⟩ | p <;> cases r <;> simp only [LeafRel] at hleaf <;>
+  rcases l with S | ⟨S, _ | ⟨v, vs⟩, ts⟩ | p <;> cases r <;> simp only [LeafRel] at hleaf <;>
     try obtain ⟨hleaf, rfl⟩ : _ ∧ _ := hleaf
   -- A normal end and a bare `return` both return the named returns' words.
   iterate 2
@@ -114,7 +114,7 @@ theorem runtime_run_clean_from (a : Nat) (ha : a < 2 ^ 160) {fuel : Nat} {c : Ty
     rename_i hok
     simp only [Option.some.injEq] at hT'
     subst hT'
-    simp only [FunctionDef.callBodyResult, List.map_nil, List.isEmpty_nil, ↓reduceIte,
+    simp only [FunctionDef.callBodyResult, retVals_nil_vals, List.map_nil, List.isEmpty_nil, ↓reduceIte,
       FunctionDef.collectReturns, collectReturnBindings,
       collect_words ρ rt S hKρ hleaf.expr.locals fn.returns ws hok hws, untag_words,
       encode_words ρ hKρ fn.returns ws hok, bind, Option.bind, Option.map_some]
@@ -129,11 +129,11 @@ theorem runtime_run_clean_from (a : Nat) (ha : a < 2 ^ 160) {fuel : Nat} {c : Ty
     rename_i hok
     simp only [Option.some.injEq] at hT'
     subst hT'
-    have hne : ((v :: vs).map fun e => Value.word (e.eval ρ)).isEmpty = false := rfl
+    have hne : (retVals ρ ts (v :: vs)).isEmpty = false := by cases ts <;> rfl
     simp only [FunctionDef.callBodyResult, hne, Bool.false_eq_true, ↓reduceIte,
       FunctionDef.coerceReturnValues, coerceReturnBindings,
-      coerce_words ρ rt hKρ fn.returns (v :: vs) hok, untag_words,
-      encode_words ρ hKρ fn.returns (v :: vs) hok, bind, Option.bind, Option.map_some]
+      coerce_vals ρ rt hKρ fn.returns ts (v :: vs) hok, untag_vals ρ ts (v :: vs) hKρ hok,
+      encode_vals ρ hKρ fn.returns ts (v :: vs) hok, bind, Option.bind, Option.map_some]
     simp only [Source.observe, Tree.eval, Res.obs, ↓reduceIte, logEntries_map,
       hleaf.logs, Option.some.injEq, Observable.mk.injEq, true_and]
     funext slot

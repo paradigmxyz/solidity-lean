@@ -71,7 +71,7 @@ theorem construct_of_eraseLoop {fuel : Nat} {c : TypeCheck.CheckedContract} {fn 
       hash := rfl
       ok := hρok
       frames := by
-        simp [initState, paramTags_words (fun p hp => by rcases (hps p hp).1 with h | h <;> simp [h, tagOf])]
+        simp [initState, fnTags, hret0, paramTags_words (fun p hp => by rcases (hps p hp).1 with h | h <;> simp [h, tagOf])]
       store := by
         intro k _
         simp [State.loadSlot, StorageMap.lookup?, State.empty, Writes.store, initState, hρ]

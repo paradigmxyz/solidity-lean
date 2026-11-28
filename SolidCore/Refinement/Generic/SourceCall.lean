@@ -65,11 +65,19 @@ def paramTags : List BindingDecl → Tags
   | [] => []
   | p :: ps => if tagOf p.ty = .word then paramTags ps else (p.name, tagOf p.ty) :: paramTags ps
 
-/-- Every parameter's name has its type's tag and every return's name the word tag: no typed
-parameter shares its name with another binding of the call. -/
+/-- The tags of a call's parameters and returns SolidCore holds as typed values. -/
+def fnTags (fn : FunctionDef) : Tags := paramTags (fn.params ++ fn.returns)
+
+/-- Every parameter's and return's name has its type's tag: no typed binding shares its name with
+another binding of the call. -/
 def tagsOk (fn : FunctionDef) : Bool :=
-  fn.params.all (fun p => (paramTags fn.params).get p.name == tagOf p.ty) &&
-    fn.returns.all (fun r => (paramTags fn.params).get r.name == .word)
+  (fn.params ++ fn.returns).all (fun p => (fnTags fn).get p.name == tagOf p.ty)
+
+/-- A return binding of the generic source stage: a word return, or an `int256`, not a storage
+reference. -/
+def retBinding (b : BindingDecl) : Bool :=
+  (match b.ty with | .uint256 => true | .address => true | .bool => true | .int256 => true | _ => false) &&
+    !b.isStorageRef
 
 /-- The bound of a parameter the fragment holds as a word: `paramWidthT` on a parameter whose type's
 tag is the word tag. The loop routes take only these. -/
@@ -123,7 +131,7 @@ def initState (fn : FunctionDef) : SymState :=
   { scopes := [paramLocals fn.params 0 ++ fn.returns.map (fun r => (r.name, .lit 0))]
     writes := []
     logs := []
-    tags := paramTags fn.params }
+    tags := fnTags fn }
 
 /-- A returned word SolidCore's encoder takes for its type on every call the facts hold on: any
 word for a `uint256`, one below `2 ^ 160` for an `address`, at most 1 for a `bool`. -/
@@ -134,11 +142,25 @@ def retOk (K : Facts) (ty : Ty) (w : WExpr) : Bool :=
   | .bool => decide (bound K w ≤ 1)
   | _ => false
 
+/-- A returned word of tag `t` SolidCore's encoder takes for its return's type: a word as `retOk`
+says, and a signed word for an `int256`. -/
+def retOkT (K : Facts) (ty : Ty) : Tag → WExpr → Bool
+  | .word, w => retOk K ty w
+  | .int, _ => match ty with | .int256 => true | _ => false
+  | .bytes32, _ => false
+
 /-- Every returned word is one SolidCore's encoder takes for its return's type. -/
 def retsOk (K : Facts) : List BindingDecl → List WExpr → Bool
   | [], [] => true
   | r :: rs, w :: ws => retOk K r.ty w && retsOk K rs ws
   | _, _ => false
+
+/-- Every returned word, by its tag (a word past the tags), is one SolidCore's encoder takes for
+its return's type. -/
+def retsOkT (K : Facts) : List BindingDecl → List Tag → List WExpr → Bool
+  | rs, [], ws => retsOk K rs ws
+  | r :: rs, t :: ts, w :: ws => retOkT K r.ty t w && retsOkT K rs ts ws
+  | _, _ :: _, _ => false
 
 /-- The bytes of SolidCore's `Error(msg)` revert data: the selector `0x08c379a0` and the ABI
 encoding of the message, when every byte is one. -/
@@ -157,12 +179,12 @@ def leafTree (fn : FunctionDef) (K : Facts) : Leaf → Option Tree
     let ws ← fn.returns.mapM fun r => S.word? r.name
     if retsOk K fn.returns ws then some (.halt true (ws.flatMap wordOBytes) S.writes S.logs)
     else none
-  | .returned S vs =>
+  | .returned S vs ts =>
     if vs = [] then do
       let ws ← fn.returns.mapM fun r => S.word? r.name
       if retsOk K fn.returns ws then some (.halt true (ws.flatMap wordOBytes) S.writes S.logs)
       else none
-    else if retsOk K fn.returns vs then
+    else if retsOkT K fn.returns ts vs then
       some (.halt true (vs.flatMap wordOBytes) S.writes S.logs)
     else none
   | .reverted .empty => some (.halt false [] [] [])
@@ -183,7 +205,7 @@ def eraseFn (E : EraseEnv) (fuel : Nat) (fn : FunctionDef) : Option Tree :=
   match widthsOfT fn.params fn.paramAbiCleanups with
   | none => none
   | some ws =>
-    if fn.returns.all wordBinding && tagsOk fn then do
+    if fn.returns.all retBinding && tagsOk fn then do
       let b ← eraseStmt { E with facts := argFacts ws 0 } fuel fn.body (initState fn)
       let t ← brTree fn (argFacts ws 0) b
       some (paramGuards ws 0 t)

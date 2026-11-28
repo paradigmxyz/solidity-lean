@@ -148,7 +148,7 @@ theorem deployed_run_entry_at (a : Nat) {e : WExpr} {fuel : Nat} {ws0 : List Nat
     {sel : Nat} (hsel : sel < 2 ^ 32) {fn : FunctionDef}
     (hfind : c.core.findFunctionBySelector? sel = some fn) {ws : List Nat}
     (hw : widthsOfT fn.params fn.paramAbiCleanups = some ws)
-    (hret : fn.returns.all wordBinding = true) (htags : tagsOk fn = true) {b : Br}
+    (hret : fn.returns.all retBinding = true) (htags : tagsOk fn = true) {b : Br}
     (hb : ∀ ρ ctx rt, StmtRel ρ { envOf c.core with facts := argFacts ws 0 } ctx rt
         { initState fn with caller := e } →
       ∃ r, Stmt.eval fuel c.core.table ctx rt fn.body = .done (.ok r) ∧
@@ -173,8 +173,7 @@ theorem deployed_run_entry_at (a : Nat) {e : WExpr} {fuel : Nat} {ws0 : List Nat
     simp [ABI.selectorBytes, EthLib.Base.natToBytes_length]
   simp only [ABI.Contract.callCalldataAtFromWithContext?, Dirty.readSelector_calldata _ hsel, hfind,
     hdrop, hdec]
-  have hr : ∀ r ∈ fn.returns, RetTy r.ty ∧ r.isStorageRef = false :=
-    fun r hr => wordBinding_ty (List.all_eq_true.mp hret r hr)
+  have hr : ∀ r ∈ fn.returns, retBinding r = true := fun r hr => List.all_eq_true.mp hret r hr
   generalize hctx : ABI.Contract.callContextAtWithBase c.core (Wide.ctxOf c) selfAddress a 0
     ((EthLib.Base.natToBytes 4 sel).map (·.toNat) ++ Dirty.argBytes args) = ctx
   generalize hst : ({ d with storage := σ.foldl (fun acc kv => acc.insertLoop kv.1 kv.2) d.storage } :
@@ -190,20 +189,17 @@ theorem deployed_run_entry_at (a : Nat) {e : WExpr} {fuel : Nat} {ws0 : List Nat
   set E : EraseEnv := { envOf c.core with facts := K } with hE
   have htg := tagsOk_spec htags
   have hframe : fn.initialFrame? (args.map .word) =
-      some (frameOfT ρ (paramTags fn.params)
+      some (frameOfT ρ (fnTags fn)
         (paramLocals fn.params 0 ++ fn.returns.map fun r => (r.name, .lit 0))) := by
     have h0 : BindingDecl.bindArgs? fn.params (args.map .word) =
-        some (frameOfT ρ (paramTags fn.params) (paramLocals fn.params 0)) :=
-      bindArgs_clean ρ hargs (paramTags fn.params) fn.params fn.paramAbiCleanups ws 0 hw
+        some (frameOfT ρ (fnTags fn) (paramLocals fn.params 0)) :=
+      bindArgs_clean ρ hargs (fnTags fn) fn.params fn.paramAbiCleanups ws 0 hw
         (by simpa [hρ] using hclean) (by simp [hρ, hlen]) htg.1
     have hd : fn.returns.map BindingDecl.defaultBinding =
-        frameOfT ρ (paramTags fn.params) (fn.returns.map fun r => (r.name, WExpr.lit 0)) := by
-      rw [frameOfT_words, defaults_words ρ fn.returns hr]
-      intro p hp
-      obtain ⟨r, hr', rfl⟩ := List.mem_map.mp hp
-      exact htg.2 r hr'
-    have happ : ∀ (A B : Locals), frameOfT ρ (paramTags fn.params) (A ++ B) =
-        frameOfT ρ (paramTags fn.params) A ++ frameOfT ρ (paramTags fn.params) B := by
+        frameOfT ρ (fnTags fn) (fn.returns.map fun r => (r.name, WExpr.lit 0)) := by
+      exact defaults_typed ρ (fnTags fn) fn.returns hr htg.2
+    have happ : ∀ (A B : Locals), frameOfT ρ (fnTags fn) (A ++ B) =
+        frameOfT ρ (fnTags fn) A ++ frameOfT ρ (fnTags fn) B := by
       intro A B; simp [frameOfT, List.map_append]
     simp only [FunctionDef.initialFrame?, h0, FunctionDef.returnDefaultBindings, ← hd, happ]
   have hrel : StmtRel ρ E ctx
@@ -211,7 +207,7 @@ theorem deployed_run_entry_at (a : Nat) {e : WExpr} {fuel : Nat} {ws0 : List Nat
           selfBalance := SolidCore.Solidity.Shared.addWord
             (SolidCore.Solidity.Shared.Account.balanceAt ctx.accountBalances ctx.self) ctx.value
           worldMutatedSinceAdoption := true },
-        locals := [frameOfT ρ (paramTags fn.params)
+        locals := [frameOfT ρ (fnTags fn)
           (paramLocals fn.params 0 ++ fn.returns.map fun r => (r.name, .lit 0))] }
       { initState fn with caller := e } :=
     { fields := by subst hctx; rfl
@@ -246,7 +242,7 @@ theorem deployed_run_entry_at (a : Nat) {e : WExpr} {fuel : Nat} {ws0 : List Nat
   obtain ⟨T', hT', hTe⟩ := brTree_eval fn K ρ b T hT
   rw [hacc, if_pos rfl, hcallT, ← hTe]
   generalize b.eval ρ = l at hT' hleaf
-  rcases l with S | ⟨S, _ | ⟨v, vs⟩⟩ | p <;> cases r <;> simp only [LeafRel] at hleaf <;>
+  rcases l with S | ⟨S, _ | ⟨v, vs⟩, ts⟩ | p <;> cases r <;> simp only [LeafRel] at hleaf <;>
     try obtain ⟨hleaf, rfl⟩ : _ ∧ _ := hleaf
   -- A normal end and a bare `return` both return the named returns' words.
   iterate 2
@@ -258,7 +254,7 @@ theorem deployed_run_entry_at (a : Nat) {e : WExpr} {fuel : Nat} {ws0 : List Nat
     rename_i hok
     simp only [Option.some.injEq] at hT'
     subst hT'
-    simp only [FunctionDef.callBodyResult, List.map_nil, List.isEmpty_nil, ↓reduceIte,
+    simp only [FunctionDef.callBodyResult, retVals_nil_vals, List.map_nil, List.isEmpty_nil, ↓reduceIte,
       FunctionDef.collectReturns, collectReturnBindings,
       collect_words ρ rt S hKρ hleaf.expr.locals fn.returns ws hok hws, untag_words,
       encode_words ρ hKρ fn.returns ws hok, bind, Option.bind]
@@ -273,11 +269,11 @@ theorem deployed_run_entry_at (a : Nat) {e : WExpr} {fuel : Nat} {ws0 : List Nat
     rename_i hok
     simp only [Option.some.injEq] at hT'
     subst hT'
-    have hne : ((v :: vs).map fun e => Value.word (e.eval ρ)).isEmpty = false := rfl
+    have hne : (retVals ρ ts (v :: vs)).isEmpty = false := by cases ts <;> rfl
     simp only [FunctionDef.callBodyResult, hne, Bool.false_eq_true, ↓reduceIte,
       FunctionDef.coerceReturnValues, coerceReturnBindings,
-      coerce_words ρ rt hKρ fn.returns (v :: vs) hok, untag_words,
-      encode_words ρ hKρ fn.returns (v :: vs) hok, bind, Option.bind]
+      coerce_vals ρ rt hKρ fn.returns ts (v :: vs) hok, untag_vals ρ ts (v :: vs) hKρ hok,
+      encode_vals ρ hKρ fn.returns ts (v :: vs) hok, bind, Option.bind]
     simp only [fixObs, Source.observe, Tree.eval, Res.obs, ↓reduceIte, logEntries_map,
       hleaf.logs, Option.some.injEq, Observable.mk.injEq, true_and]
     funext slot
@@ -312,8 +308,8 @@ theorem deployed_run_entry {fuel : Nat} {ws0 : List Nat} {c : TypeCheck.CheckedC
     Refinement.Source.runFromArgs callerAddress fuel ws0 c
         { calldata := Abi.calldata sel args, callvalue := 0, storage := σ } =
       some (fixObs σ (T.eval ⟨args, store, solHash, callerWord⟩).obs) :=
-  deployed_run_entry_at callerAddress hd hstore hok hsel hfind (widthsOf_T hw).1 hret
-    (tagsOk_of_words (widthsOf_T hw).2) hb hT args rfl hlen hargs hclean
+  deployed_run_entry_at callerAddress hd hstore hok hsel hfind (widthsOf_T hw).1 (retBinding_of_word hret)
+    (tagsOk_of_words (words_of_widths hw hret)) hb hT args rfl hlen hargs hclean
     (by rw [tyVals_params hw hlen]; exact hdec)
 
 /-- **From a load-level deployment**, a call of a function of the generic source stage (typed
@@ -325,7 +321,7 @@ theorem deployed_run_entryT {fuel : Nat} {ws0 : List Nat} {c : TypeCheck.Checked
     {sel : Nat} (hsel : sel < 2 ^ 32) {fn : FunctionDef}
     (hfind : c.core.findFunctionBySelector? sel = some fn) {ws : List Nat}
     (hw : widthsOfT fn.params fn.paramAbiCleanups = some ws)
-    (hret : fn.returns.all wordBinding = true) (htags : tagsOk fn = true) {b : Br}
+    (hret : fn.returns.all retBinding = true) (htags : tagsOk fn = true) {b : Br}
     (hb : BodyRuns { envOf c.core with facts := argFacts ws 0 } fuel fn b)
     {T : Tree} (hT : brTree fn (argFacts ws 0) b = some T) (args : List Nat)
     (hlen : args.length = fn.params.length) (hargs : ∀ a ∈ args, a < 2 ^ 256)

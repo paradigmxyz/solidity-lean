@@ -552,8 +552,8 @@ theorem splitG_spec : ∀ {b : Br} {gs : List WExpr} {S : SymState}, splitG b = 
       rw [splitG_spec h']
       rfl
     · simp [splitG, hc] at h
-  | .leaf (.returned _ _), _, _, h | .leaf (.reverted _), _, _, h
-  | .ite _ (.leaf (.normal _)) _, _, _, h | .ite _ (.leaf (.returned _ _)) _, _, _, h
+  | .leaf (.returned _ _ _), _, _, h | .leaf (.reverted _), _, _, h
+  | .ite _ (.leaf (.normal _)) _, _, _, h | .ite _ (.leaf (.returned _ _ _)) _, _, _, h
   | .ite _ (.leaf (.reverted .empty)) _, _, _, h | .ite _ (.leaf (.reverted (.error _))) _, _, _, h
   | .ite _ (.ite _ _ _) _, _, _, h => by simp [splitG] at h
 

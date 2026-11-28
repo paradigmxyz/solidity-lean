@@ -261,7 +261,7 @@ theorem construct_of_erase {fuel : Nat} {c : TypeCheck.CheckedContract} {fn : Fu
       hash := rfl
       ok := hρok
       frames := by
-        simp [initState, paramTags_words (fun p hp => by rcases (hps p hp).1 with h | h <;> simp [h, tagOf])]
+        simp [initState, fnTags, hret0, paramTags_words (fun p hp => by rcases (hps p hp).1 with h | h <;> simp [h, tagOf])]
       store := by
         intro k _
         simp [State.loadSlot, StorageMap.lookup?, State.empty, Writes.store, initState, hρ]
@@ -285,7 +285,7 @@ logs, or a revert. -/
 def normalsOnly (W : Writes) : Br → Bool
   | .leaf (.normal S) => S.writes == W && S.logs.isEmpty
   | .leaf (.reverted _) => true
-  | .leaf (.returned _ _) => false
+  | .leaf (.returned _ _ _) => false
   | .ite _ t e => normalsOnly W t && normalsOnly W e
 
 theorem normalsOnly_eval {W : Writes} (ρ : Val) : ∀ {b : Br}, normalsOnly W b = true →
@@ -294,7 +294,7 @@ theorem normalsOnly_eval {W : Writes} (ρ : Val) : ∀ {b : Br}, normalsOnly W b
     simp only [normalsOnly, Bool.and_eq_true, beq_iff_eq, List.isEmpty_iff] at h
     exact .inl ⟨S, rfl, h.1, h.2⟩
   | .leaf (.reverted f), _ => .inr ⟨f, rfl⟩
-  | .leaf (.returned _ _), h => by simp [normalsOnly] at h
+  | .leaf (.returned _ _ _), h => by simp [normalsOnly] at h
   | .ite _ t e, h => by
     simp only [normalsOnly, Bool.and_eq_true] at h
     simp only [Br.eval]

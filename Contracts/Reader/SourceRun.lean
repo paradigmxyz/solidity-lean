@@ -339,7 +339,7 @@ theorem read_source (k : Nat) (V : World) {c : SolidCore.Solidity.TypeCheck.Chec
               simp [WExpr.eval, BinOp.eval, Generic.wordSize, Nat.mod_eq_of_lt hwlt, Nat.mod_eq_of_lt hw1]
               exact hw1
             subst hvs
-            simp only [List.map_cons, List.map_nil, hv1] at hrun
+            simp only [retVals_nil, List.map_cons, List.map_nil, hv1] at hrun
             have hco : readFn.coerceReturnValues rt2.popScope.popScope [Value.word (w + 1)] = .ok [Value.word (w + 1)] := by
               simp [FunctionDef.coerceReturnValues, readFn, coerceReturnBindings, coerceReturnBindings.coerce,
                 deref_word', coerce_param (Or.inl rfl) (w + 1), bind, Except.bind, pure, Except.pure]

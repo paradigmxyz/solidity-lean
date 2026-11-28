@@ -45,7 +45,7 @@ theorem leaf_normal {ρ : Val} {E : EraseEnv} {ctx : Context} {r : Result} {S : 
   exact ⟨_, rfl, h⟩
 
 theorem leaf_returned {ρ : Val} {E : EraseEnv} {ctx : Context} {r : Result} {S : SymState}
-    {ws : List WExpr} (h : LeafRel ρ E ctx r (.returned S ws)) :
+    {ws : List WExpr} (h : LeafRel ρ E ctx r (.returned S ws [])) :
     ∃ rt, r = .returned rt (ws.map fun e => Value.word (e.eval ρ)) ∧ StmtRel ρ E ctx rt S := by
   cases r <;> simp only [LeafRel] at h
   obtain ⟨h1, rfl⟩ := h
@@ -94,7 +94,7 @@ theorem e_assign (tbl : FunctionTable) :
 
 theorem e_base (tbl : FunctionTable) :
     eraseStmt (envT tbl) 10 baseIf S2 =
-      some (.ite (.bin .eq (.arg 0) (.lit 0)) (.leaf (.returned S2 [.lit 0])) (.leaf (.normal S2))) := rfl
+      some (.ite (.bin .eq (.arg 0) (.lit 0)) (.leaf (.returned S2 [.lit 0] [])) (.leaf (.normal S2))) := rfl
 
 theorem e_hoist (tbl : FunctionTable) :
     eraseStmt (envT tbl) 10 (.varDecl .uint256 "_sol_hoist_0" none) S2 = some (.leaf (.normal S3)) := rfl
@@ -117,7 +117,7 @@ theorem e_assignH (tbl : FunctionTable) (a : WExpr) (t : Nat) :
 theorem e_retAdd (tbl : FunctionTable) (t : Nat) :
     eraseStmt (envT tbl) 10 retAdd (Sf t) =
       some (.ite (.bin .lt (.bin .add (.arg 0) (.lit t)) (.arg 0)) (.leaf (.reverted (.panic 17)))
-        (.leaf (.returned (Sf t) [.bin .add (.arg 0) (.lit t)]))) := rfl
+        (.leaf (.returned (Sf t) [.bin .add (.arg 0) (.lit t)] []))) := rfl
 
 /-! ## The recursive call -/
 

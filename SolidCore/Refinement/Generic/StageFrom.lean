@@ -148,7 +148,7 @@ def eraseFnSym (E : EraseEnv) (fuel : Nat) (fn : FunctionDef) : Option Tree :=
   match widthsOfT fn.params fn.paramAbiCleanups with
   | none => none
   | some ws =>
-    if fn.returns.all wordBinding && tagsOk fn then do
+    if fn.returns.all retBinding && tagsOk fn then do
       let b ← eraseStmt { E with facts := callerFact :: argFacts ws 0 } fuel fn.body (initFrom fn)
       let t ← brTree fn (callerFact :: argFacts ws 0) b
       some (paramGuards ws 0 t)

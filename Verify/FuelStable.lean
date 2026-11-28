@@ -66,7 +66,7 @@ namespace Erase
 theorem Br.bind_mono {k k' : SymState → Option Br}
     (hk : ∀ S r, k S = some r → k' S = some r) : ∀ {b r : Br}, b.bind k = some r → b.bind k' = some r
   | .leaf (.normal S), r, h => hk S r h
-  | .leaf (.returned _ _), _, h => h
+  | .leaf (.returned _ _ _), _, h => h
   | .leaf (.reverted _), _, h => h
   | .ite c t e, r, h => by
     simp only [Br.bind, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h ⊢

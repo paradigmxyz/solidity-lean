@@ -80,7 +80,7 @@ def fuel : Nat := 2 ^ 256 + 108
 
 /-- The function's tree: return the word `b` holds after the loop, `n`. -/
 def br : Br :=
-  .leaf (.returned { scopes := [[("n", .arg 0), ("_ret0", .lit 0)]], writes := [], logs := [] } [.arg 0])
+  .leaf (.returned { scopes := [[("n", .arg 0), ("_ret0", .lit 0)]], writes := [], logs := [] } [.arg 0] [])
 
 /-- **The erasure computes.** -/
 theorem horn_erased (ev : List EventDecl) (tbl : FunctionTable) :
