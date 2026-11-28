@@ -1944,7 +1944,6 @@ theorem eval_int {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {S : S
       simp [bind, EvmCompiler.Simulation.Interaction.bind, liftM, monadLift, MonadLift.monadLift,
         SolI.ofExcept, pure, EvmCompiler.Simulation.Interaction.pure, happ, WExpr.eval,
         Nat.mod_eq_of_lt hw, ihl, ihr]
-      all_goals first | rfl | trace_state; sorry
     all_goals simp [eraseIntExpr] at h
   | _ => simp [eraseIntExpr] at h
 
