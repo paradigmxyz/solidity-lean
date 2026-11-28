@@ -125,7 +125,19 @@ theorem eraseStmt_mono (E : EraseEnv) : ∀ (n m : Nat), n ≤ m →
           simp only [Option.bind_eq_bind, Option.bind_eq_some_iff] at h ⊢
           obtain ⟨vs, hvs, b0, h0, hb⟩ := h
           exact ⟨vs, hvs, b0, ih _ _ _ h0, hb⟩
-        · simp at h
+        · rename_i hc2
+          rw [if_neg hc2]
+          split at h
+          · rename_i hc3
+            rw [if_pos hc3]
+            simp only [Option.bind_eq_bind, Option.bind_eq_some_iff] at h ⊢
+            obtain ⟨⟨gs, vs⟩, hp, h⟩ := h
+            simp only [Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+            obtain ⟨b0, h0, b1, h1, hb⟩ := h
+            exact ⟨⟨gs, vs⟩, hp, by
+              simp only [Option.bind_eq_bind, Option.bind_eq_some_iff]
+              exact ⟨b0, ih _ _ _ h0, b1, h1, hb⟩⟩
+          · simp at h
     case h_19 =>
       simp only [Option.bind_eq_bind, Option.bind_eq_some_iff] at h ⊢
       obtain ⟨b0, h0, hb⟩ := h
