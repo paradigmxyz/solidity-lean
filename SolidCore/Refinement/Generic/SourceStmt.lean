@@ -542,6 +542,15 @@ def eraseStmt (E : EraseEnv) : Nat → Stmt → SymState → Option Br
               let v ← eraseIntExpr S e
               some (.leaf (.normal { S with scopes := S.scopes.declare x v, tags := (x, .int) :: S.tags }))
           else none
+        | .bool =>
+          if S.tags.get x = .word then
+            match init with
+            | none => some (.leaf (.normal { S with scopes := S.scopes.declare x (.lit 0) }))
+            | some e => do
+              let (gs, v) ← eraseExpr E.fields S e
+              if boolish v then some (guards gs (.leaf (.normal { S with scopes := S.scopes.declare x v })))
+              else none
+          else none
         | _ => none
     | .returnValues es =>
       match eraseExprs E.fields S es with
@@ -3066,7 +3075,46 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
       split at h
       case isFalse =>
         split at h
-        case h_2 => simp at h
+        case h_3 => simp at h
+        case h_2 =>
+          split at h
+          case isFalse => simp at h
+          rename_i hxw
+          cases init with
+          | none =>
+            simp only [Option.some.injEq] at h
+            subst h
+            refine ⟨.normal (rt.declareLocal x (.word 0)), ?_, ?_⟩
+            · rw [Stmt.eval]
+              simp only [Ty.defaultValue]
+              rfl
+            · have hf : (rt.declareLocal x (.word 0)).locals =
+                  (S.scopes.declare x (.lit 0)).map (frameOfT ρ S.tags) := by
+                rw [Runtime.declareLocal, hrel.frames]
+                exact envT_declare ρ S.tags S.scopes x (.lit 0) hxw
+              exact { hrel with frames := hf }
+          | some e =>
+            simp only [Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+            obtain ⟨⟨gs, v⟩, he, h⟩ := h
+            split at h
+            case isFalse => simp at h
+            rename_i hbv
+            simp only [Option.some.injEq] at h
+            subst h
+            have hv1 := boolish_le ρ v hbv
+            have hco : Ty.bool.coerceValue? (.word (v.eval ρ)) = some (.word (v.eval ρ)) := by
+              rcases (show v.eval ρ = 0 ∨ v.eval ρ = 1 by omega) with h0 | h0 <;>
+                simp [Ty.coerceValue?, h0, wordEq, norm0, norm1]
+            have heval := eval_eq ρ E.fields ctx rt S hrel.expr he
+            rw [Stmt.eval]
+            simp only [heval, caught_exprResult, guards_eval]
+            guard_cases hg : gs.any (fun g => g.eval ρ != 0)
+            simp only [bind_done_ok, hco]
+            refine ⟨.normal (rt.declareLocal x (.word (v.eval ρ))), rfl, ?_⟩
+            have hf : (rt.declareLocal x (.word (v.eval ρ))).locals =
+                (S.scopes.declare x v).map (frameOfT ρ S.tags) := by
+              rw [Runtime.declareLocal, hrel.frames, envT_declare ρ S.tags S.scopes x v hxw]
+            exact { hrel with frames := hf }
         split at h
         case isFalse => simp at h
         rename_i hnone

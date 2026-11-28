@@ -284,6 +284,43 @@ def ordered (gl gr : List WExpr) : List WExpr :=
     simp only [failCode_append, failCode_plain ρ hp.1, failCode_plain ρ hp.2, ite_self]
   · simp only [failCode_append]
 
+/-- A word that is 0 or 1: a comparison, a negation, an `and` with one such operand, an `or` of two. -/
+def boolish : WExpr → Bool
+  | .un .iszero _ => true
+  | .bin .lt _ _ => true
+  | .bin .gt _ _ => true
+  | .bin .eq _ _ => true
+  | .bin .and a b => boolish a || boolish b
+  | .bin .or a b => boolish a && boolish b
+  | _ => false
+
+theorem boolish_le (ρ : Val) : ∀ v : WExpr, boolish v = true → v.eval ρ ≤ 1
+  | .un .iszero a, _ => by simp only [WExpr.eval, UnOp.eval]; split <;> simp
+  | .bin .lt a b, _ => by simp only [WExpr.eval, BinOp.eval]; split <;> simp
+  | .bin .gt a b, _ => by simp only [WExpr.eval, BinOp.eval]; split <;> simp
+  | .bin .eq a b, _ => by simp only [WExpr.eval, BinOp.eval]; split <;> simp
+  | .bin .and a b, h => by
+    simp only [boolish, Bool.or_eq_true] at h
+    simp only [WExpr.eval, BinOp.eval]
+    rcases h with h | h
+    · have := boolish_le ρ a h
+      exact Nat.le_trans (Nat.mod_le _ _) (Nat.le_trans Nat.and_le_left this)
+    · have := boolish_le ρ b h
+      exact Nat.le_trans (Nat.mod_le _ _) (Nat.le_trans Nat.and_le_right this)
+  | .bin .or a b, h => by
+    simp only [boolish, Bool.and_eq_true] at h
+    have ha := boolish_le ρ a h.1
+    have hb := boolish_le ρ b h.2
+    simp only [WExpr.eval, BinOp.eval]
+    generalize a.eval ρ = x at *
+    generalize b.eval ρ = y at *
+    rcases (show x = 0 ∨ x = 1 by omega) with rfl | rfl <;>
+      rcases (show y = 0 ∨ y = 1 by omega) with rfl | rfl <;> decide
+  | .lit _, h | .arg _, h | .init _, h | .sinit _, h | .sel _ _ _, h | .hash _ _, h | .caller, h
+  | .un .not _, h | .bin .add _ _, h | .bin .sub _ _, h | .bin .mul _ _, h | .bin .div _ _, h
+  | .bin .xor _ _, h | .bin .shl _ _, h | .bin .shr _ _, h | .bin .byte _ _, h => by
+    simp [boolish] at h
+
 /-- The fragment's binary operators: SolidCore's operator and the word operation. -/
 def binOf : BinaryOp → Option BinOp
   | .add => some .add
@@ -350,6 +387,19 @@ def eraseExpr (fields : List StorageField) (S : SymState) : Expr → Option (Lis
     match gr, vr with
     | [], .lit k => if k % wordSize = 0 then none else some (gl, .bin .div vl (.lit k))
     | _, _ => some (gr ++ gl ++ [divGuard vr], .bin .div vl vr)
+  -- `l && r` and `l || r` as values: SolidCore evaluates `r` only on one side of `l`, where each of
+  -- `r`'s checks is zero (it is `g` with `l` the word `iszero g`, or `g` is `l` itself); both words
+  -- 0 or 1, so the result is their `and` or `or`
+  | .binary .boolAnd l r => do
+    let (gl, vl) ← eraseExpr fields S l
+    let (gr, vr) ← eraseExpr fields S r
+    if boolish vl && boolish vr && gr.all (fun g => vl == .un .iszero g) then some (gl, .bin .and vl vr)
+    else none
+  | .binary .boolOr l r => do
+    let (gl, vl) ← eraseExpr fields S l
+    let (gr, vr) ← eraseExpr fields S r
+    if boolish vl && boolish vr && gr.all (fun g => g == vl) then some (gl, .bin .or vl vr)
+    else none
   -- `x << k` and `x >> k`: SolidCore's `shlWord k x` and `shrWord k x`, the tree's shift first, no
   -- check
   | .binary .shl l r => do
@@ -1302,6 +1352,75 @@ theorem evalList_two {ρ : Val} {ctx : Context} {rt : Runtime} {i1 i2 : Expr}
     rw [evalList_one m h2]
     split <;> rfl
 
+theorem norm0' : SolidCore.Solidity.Shared.norm 0 = 0 := rfl
+theorem norm1' : SolidCore.Solidity.Shared.norm 1 = 1 := rfl
+
+theorem eval_boolAnd {ρ : Val} {ctx : Context} {rt : Runtime} {l r : Expr} {gl gr : List WExpr}
+    {vl vr : WExpr} (n : Nat)
+    (ihl : Expr.evalFuel n ctx rt l = exprResult ρ gl vl rt)
+    (ihr : Expr.evalFuel n ctx rt r = exprResult ρ gr vr rt)
+    (hbl : boolish vl = true) (hbr : boolish vr = true)
+    (hng : (gr.all fun g => vl == .un .iszero g) = true) :
+    Expr.evalFuel (n + 1) ctx rt (.binary .boolAnd l r) = exprResult ρ gl (.bin .and vl vr) rt := by
+  have hl1 := boolish_le ρ vl hbl
+  have hr1 := boolish_le ρ vr hbr
+  rw [Expr.evalFuel, ihl]
+  unfold exprResult
+  by_cases hgl : gl.any (fun g => g.eval ρ != 0) = true
+  · simp only [hgl, ↓reduceIte]; rfl
+  · simp only [hgl, Bool.false_eq_true, ↓reduceIte]
+    by_cases hv : vl.eval ρ = 0
+    · simp [bind, EvmCompiler.Simulation.Interaction.bind, Value.expectWord, liftM, monadLift,
+          MonadLift.monadLift, SolI.ofExcept, wordTruthy, pure, EvmCompiler.Simulation.Interaction.pure,
+          norm_lt (vl.eval_lt ρ), norm_lt (vr.eval_lt ρ), boolWord, WExpr.eval, BinOp.eval, norm0', norm1', hv] <;> rfl
+    · have hv1 : vl.eval ρ = 1 := by omega
+      have hgr : gr.any (fun g => g.eval ρ != 0) = false := by
+        rw [List.any_eq_false]
+        intro g hg
+        have := List.all_eq_true.mp hng g hg
+        simp only [beq_iff_eq] at this
+        rw [this] at hv1
+        simp only [WExpr.eval, UnOp.eval] at hv1
+        split at hv1
+        · simp_all
+        · simp at hv1
+      rcases (show vr.eval ρ = 0 ∨ vr.eval ρ = 1 by omega) with h0 | h0 <;>
+        simp [bind, EvmCompiler.Simulation.Interaction.bind, Value.expectWord, liftM, monadLift,
+          MonadLift.monadLift, SolI.ofExcept, wordTruthy, pure, EvmCompiler.Simulation.Interaction.pure,
+          norm_lt (vl.eval_lt ρ), norm_lt (vr.eval_lt ρ), boolWord, WExpr.eval, BinOp.eval, norm0', norm1', hv1, h0, ihr, exprResult, hgr] <;> rfl
+
+theorem eval_boolOr {ρ : Val} {ctx : Context} {rt : Runtime} {l r : Expr} {gl gr : List WExpr}
+    {vl vr : WExpr} (n : Nat)
+    (ihl : Expr.evalFuel n ctx rt l = exprResult ρ gl vl rt)
+    (ihr : Expr.evalFuel n ctx rt r = exprResult ρ gr vr rt)
+    (hbl : boolish vl = true) (hbr : boolish vr = true)
+    (hng : (gr.all fun g => g == vl) = true) :
+    Expr.evalFuel (n + 1) ctx rt (.binary .boolOr l r) = exprResult ρ gl (.bin .or vl vr) rt := by
+  have hl1 := boolish_le ρ vl hbl
+  have hr1 := boolish_le ρ vr hbr
+  rw [Expr.evalFuel, ihl]
+  unfold exprResult
+  by_cases hgl : gl.any (fun g => g.eval ρ != 0) = true
+  · simp only [hgl, ↓reduceIte]; rfl
+  · simp only [hgl, Bool.false_eq_true, ↓reduceIte]
+    by_cases hv : vl.eval ρ = 0
+    · have hgr : gr.any (fun g => g.eval ρ != 0) = false := by
+        rw [List.any_eq_false]
+        intro g hg
+        have := List.all_eq_true.mp hng g hg
+        simp only [beq_iff_eq] at this
+        subst this
+        simp [hv]
+      rcases (show vr.eval ρ = 0 ∨ vr.eval ρ = 1 by omega) with h0 | h0 <;>
+        simp [bind, EvmCompiler.Simulation.Interaction.bind, Value.expectWord, liftM, monadLift,
+          MonadLift.monadLift, SolI.ofExcept, wordTruthy, pure, EvmCompiler.Simulation.Interaction.pure,
+          norm_lt (vl.eval_lt ρ), norm_lt (vr.eval_lt ρ), boolWord, WExpr.eval, BinOp.eval, norm0', norm1', hv, h0, ihr, exprResult, hgr] <;> rfl
+    · have hv1 : vl.eval ρ = 1 := by omega
+      rcases (show vr.eval ρ = 0 ∨ vr.eval ρ = 1 by omega) with h0 | h0 <;>
+        simp [bind, EvmCompiler.Simulation.Interaction.bind, Value.expectWord, liftM, monadLift,
+          MonadLift.monadLift, SolI.ofExcept, wordTruthy, pure, EvmCompiler.Simulation.Interaction.pure,
+          norm_lt (vl.eval_lt ρ), norm_lt (vr.eval_lt ρ), boolWord, WExpr.eval, BinOp.eval, norm0', norm1', hv1, h0] <;> rfl
+
 theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt : Runtime)
     (S : SymState) (hrel : ExprRel ρ fields ctx rt S) (e : Expr) :
     ∀ (gs : List WExpr) (v : WExpr) (fuel : Nat), eraseExpr fields S e = some (gs, v) →
@@ -1484,6 +1603,24 @@ theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
     have har := vr.eval_lt ρ
     cases op
     case div => exact absurd rfl hdiv
+    case boolAnd =>
+      simp only [eraseExpr, hl, hr, Option.bind_eq_bind, Option.bind_some] at h
+      split at h
+      · rename_i hc
+        simp only [Bool.and_eq_true] at hc
+        simp only [Option.some.injEq, Prod.mk.injEq] at h
+        obtain ⟨rfl, rfl⟩ := h
+        exact eval_boolAnd n ihl ihr hc.1.1 hc.1.2 hc.2
+      · simp at h
+    case boolOr =>
+      simp only [eraseExpr, hl, hr, Option.bind_eq_bind, Option.bind_some] at h
+      split at h
+      · rename_i hc
+        simp only [Bool.and_eq_true] at hc
+        simp only [Option.some.injEq, Prod.mk.injEq] at h
+        obtain ⟨rfl, rfl⟩ := h
+        exact eval_boolOr n ihl ihr hc.1.1 hc.1.2 hc.2
+      · simp at h
     all_goals simp only [eraseExpr, hl, hr, binOf, negOf, overflow, Option.bind_eq_bind,
       Option.bind_some, Option.some.injEq, Prod.mk.injEq, reduceCtorEq, Option.bind_none] at h
     all_goals first
