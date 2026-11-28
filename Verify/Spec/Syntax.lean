@@ -136,6 +136,10 @@ structure FnSpec where
   requires : List Term
   ensures : List Term
   succeedsIf : List Term
+  /-- The function's ghost assignments, in program order: the ghost `x` at the keys `ks` gets
+  `t`, each evaluated after the ones before it (Verify/Spec/GhostStep.lean). Empty for a function
+  with no ghost code, and in every export that predates them. -/
+  ghostSets : List (String × List Term × Term) := []
   deriving Repr, Inhabited
 
 /-- A contract's specs. `invariants` are the contract's `@custom:invariant`s and, expanded
