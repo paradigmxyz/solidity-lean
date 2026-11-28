@@ -496,4 +496,100 @@ theorem Tree.eval_norm (ρ : Val) : ∀ T : Tree, T.norm.eval ρ = T.eval ρ
       · exact Tree.eval_norm ρ t
     · simp only [Tree.eval, hc, Tree.eval_norm ρ t, Tree.eval_norm ρ e]
 
+/-! ## Sign extension
+
+A signed parameter of `b` bits (`int8` for `b = 8`) holds a word that is its own sign extension from
+bit `b - 1`. Solar checks it with `xor x (signextend k x)` for `b = 8 (k + 1)`; the tree has no
+`signextend`, so `sextW` writes it with the fragment's operations, `((x + h) & (2^b - 1)) - h` for
+`h = 2^(b - 1)`, and `sextGuard` is the check. -/
+
+/-- The sign extension of the low `b` bits of the word `a`, for `0 < b < 256`. -/
+def sextNat (b a : Nat) : Nat :=
+  if 2 ^ (b - 1) ≤ a % 2 ^ b then a % 2 ^ b + (wordSize - 2 ^ b) else a % 2 ^ b
+
+/-- The sign extension of the low `b` bits of a word, from the fragment's operations. -/
+def sextW (b : Nat) (x : WExpr) : WExpr :=
+  .bin .sub (.bin .and (.bin .add x (.lit (2 ^ (b - 1)))) (.lit (2 ^ b - 1))) (.lit (2 ^ (b - 1)))
+
+/-- Nonzero exactly when the word is not its own sign extension from `b` bits. -/
+def sextGuard (b : Nat) (x : WExpr) : WExpr := .bin .xor x (sextW b x)
+
+theorem pow_facts {b : Nat} (hb : 0 < b ∧ b < 256) :
+    2 ^ b = 2 * 2 ^ (b - 1) ∧ 2 ^ b < wordSize ∧ 2 ^ b ∣ wordSize ∧ 0 < 2 ^ (b - 1) := by
+  refine ⟨?_, ?_, ?_, Nat.two_pow_pos _⟩
+  · rw [← Nat.pow_succ']; congr 1; omega
+  · exact Nat.pow_lt_pow_right (by decide) hb.2
+  · exact Nat.pow_dvd_pow 2 (by omega)
+
+theorem eval_sextW (ρ : Val) {b : Nat} (hb : 0 < b ∧ b < 256) (x : WExpr) :
+    (sextW b x).eval ρ = sextNat b (x.eval ρ) := by
+  obtain ⟨hP, hPW, hdvd, hh⟩ := pow_facts hb
+  have ha := x.eval_lt ρ
+  simp only [sextW, WExpr.eval, BinOp.eval]
+  generalize x.eval ρ = a at *
+  have h1 : 2 ^ (b - 1) % wordSize = 2 ^ (b - 1) := Nat.mod_eq_of_lt (by omega)
+  have h2 : (2 ^ b - 1) % wordSize = 2 ^ b - 1 := Nat.mod_eq_of_lt (by omega)
+  simp only [h1, h2, Nat.mod_mod, Nat.and_two_pow_sub_one_eq_mod, Nat.mod_mod_of_dvd _ hdvd]
+  rw [Nat.mod_eq_of_lt (show (a + 2 ^ (b - 1)) % 2 ^ b < wordSize from
+    Nat.lt_trans (Nat.mod_lt _ (by omega)) hPW)]
+  rw [Nat.add_mod a, Nat.mod_eq_of_lt (show 2 ^ (b - 1) < 2 ^ b by omega)]
+  unfold sextNat
+  have hy := Nat.mod_lt a (show 0 < 2 ^ b by omega)
+  generalize a % 2 ^ b = y at *
+  generalize 2 ^ (b - 1) = h at *
+  generalize 2 ^ b = P at *
+  subst hP
+  generalize wordSize = W at *
+  by_cases hc : h ≤ y
+  · rw [if_pos hc, Nat.mod_eq_sub_mod (show 2 * h ≤ y + h by omega),
+      Nat.mod_eq_of_lt (show y + h - 2 * h < 2 * h by omega),
+      show y + h - 2 * h + (W - h) = y + (W - 2 * h) by omega]
+    exact Nat.mod_eq_of_lt (by omega)
+  · rw [if_neg hc, Nat.mod_eq_of_lt (show y + h < 2 * h by omega),
+      show y + h + (W - h) = y + W by omega, Nat.add_mod_right]
+    exact Nat.mod_eq_of_lt (by omega)
+
+theorem sextNat_lt {b : Nat} (hb : 0 < b ∧ b < 256) (a : Nat) : sextNat b a < wordSize := by
+  obtain ⟨hP, hPW, -, -⟩ := pow_facts hb
+  have := Nat.mod_lt a (Nat.two_pow_pos b)
+  unfold sextNat
+  generalize 2 ^ (b - 1) = h at *
+  generalize 2 ^ b = P at *
+  split <;> omega
+
+theorem xor_zero {a b : Nat} (h : a ^^^ b = 0) : a = b := by
+  apply Nat.eq_of_testBit_eq
+  intro i
+  have := congrArg (Nat.testBit · i) h
+  simp only [Nat.testBit_xor, Nat.zero_testBit] at this
+  revert this
+  cases a.testBit i <;> cases b.testBit i <;> decide
+
+theorem eval_sextGuard (ρ : Val) {b : Nat} (hb : 0 < b ∧ b < 256) (x : WExpr) :
+    (sextGuard b x).eval ρ = 0 ↔ sextNat b (x.eval ρ) = x.eval ρ := by
+  have ha : x.eval ρ < 2 ^ 256 := x.eval_lt ρ
+  have hs : sextNat b (x.eval ρ) < 2 ^ 256 := sextNat_lt hb _
+  simp only [sextGuard, WExpr.eval, BinOp.eval, eval_sextW ρ hb]
+  rw [show wordSize = 2 ^ 256 from rfl, Nat.mod_eq_of_lt (Nat.xor_lt_two_pow ha hs), ]
+  exact ⟨fun h => (xor_zero h).symm, fun h => by rw [h, Nat.xor_self]⟩
+
+
+theorem sextNat_eq_iff {b w : Nat} (hb : 0 < b ∧ b < 256) (hw : w < wordSize) :
+    sextNat b w = w ↔ (w < 2 ^ (b - 1) ∨ wordSize - 2 ^ (b - 1) ≤ w) := by
+  obtain ⟨hP, hPW, ⟨m, hm⟩, hh⟩ := pow_facts hb
+  have hy := Nat.mod_lt w (Nat.two_pow_pos b)
+  constructor
+  · unfold sextNat
+    intro he
+    split at he <;> omega
+  · rintro (hlt | hge)
+    · have : w % 2 ^ b = w := Nat.mod_eq_of_lt (by omega)
+      unfold sextNat; rw [this, if_neg (by omega)]
+    · have hm1 : wordSize - 2 ^ b = 2 ^ b * (m - 1) := by rw [hm, Nat.mul_sub_one]
+      have hwt : w = (w - (wordSize - 2 ^ b)) + 2 ^ b * (m - 1) := by omega
+      have hmod : w % 2 ^ b = w - (wordSize - 2 ^ b) := by
+        rw [hwt, Nat.add_mul_mod_self_left, Nat.mod_eq_of_lt (by omega)]; omega
+      unfold sextNat; rw [hmod, if_pos (by omega)]; omega
+
+
 end SolidCore.Refinement.Generic

@@ -258,6 +258,24 @@ theorem ne_toNat (a b : Word) :
   · have : a.toNat ≠ b.toNat := fun h' => h (BitVec.eq_of_toNat_eq h')
     simp [h, this]
 
+theorem signextend_toNat (k : Nat) (hk : k < 31) (x : Word) :
+    (Evm.signextend (BitVec.ofNat 256 k) x).toNat = sextNat (8 * (k + 1)) x.toNat := by
+  have hx := x.isLt
+  rcases k with _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | _ |
+    _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | _ | k
+  all_goals first
+    | omega
+    | (simp [Evm.signextend, BitVec.toNat_signExtend, BitVec.msb_eq_decide, BitVec.toNat_setWidth,
+        sextNat, wordSize]
+       split <;> omega)
+
+
+theorem signextend_lit (k : Nat) (hk : k % wordSize < 31) (x : Word) :
+    (Evm.signextend (BitVec.ofNat 256 k) x).toNat = sextNat (8 * (k % wordSize + 1)) x.toNat := by
+  have : BitVec.ofNat 256 k = BitVec.ofNat 256 (k % wordSize) := by
+    apply BitVec.eq_of_toNat_eq; simp [BitVec.toNat_ofNat, wordSize]
+  rw [this]; exact signextend_toNat _ hk x
+
 theorem symPure_sound {cv : SV} {sel n : Nat} {ρ : Val} {call : Call}
     (hc : CallFactsAt cv sel n ρ call)
     {op : EVM.Op} {args : List Word} {sargs : List SV} {sv : SV}
@@ -292,6 +310,18 @@ theorem symPure_sound {cv : SV} {sel n : Nat} {ρ : Val} {call : Call}
       simp only [SV.Rel] at hx ⊢
       rw [eval_mkUn, h2]
       simp only [WExpr.eval, hx]
+  · -- signextend by a constant byte index below 31
+    split at h
+    · rename_i k x hk
+      simp only [Option.some.injEq] at h
+      subst h
+      match args, hr with
+      | [a, y], ⟨ha, hy, _⟩ =>
+        refine ⟨Evm.signextend a y, rfl, ?_⟩
+        rw [eq_ofNat_of_rel ha]
+        simp only [SV.Rel] at hy ⊢
+        rw [signextend_lit k hk, eval_sextW ρ (by omega) x, hy]
+    · simp at h
   · obtain ⟨o, ho, rfl⟩ := Option.map_eq_some_iff.mp h
     match args, hr with
     | [x, y], ⟨hx, hy, _⟩ =>

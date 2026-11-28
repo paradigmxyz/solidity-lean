@@ -125,6 +125,10 @@ def symPure (sel : Nat) : EVM.Op → List SV → Option SV
   | .shr, [.w (.lit 224), .cd0] => some (.w (.lit sel))
   | .iszero, [.w a] => some (.w (mkUn .iszero a))
   | .not, [.w a] => some (.w (mkUn .not a))
+  -- signextend k x by a constant byte index k below 31: the sign extension of x's low
+  -- 8 (k + 1) bits
+  | .signextend, [.w (.lit k), .w x] =>
+    if k % wordSize < 31 then some (.w (sextW (8 * (k % wordSize + 1)) x)) else none
   | op, [.w a, .w b] => (binOfOp op).map fun o => .w (mkBin o a b)
   -- A value other than 0: `iszero` is 0, and so is `eq` against 0.
   | .iszero, [.paid] => some (.w (.lit 0))

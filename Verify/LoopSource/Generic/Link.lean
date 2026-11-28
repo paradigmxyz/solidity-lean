@@ -25,9 +25,9 @@ theorem argsClean_zeros : ∀ (ws : List Nat) (k : Nat), argsClean ws (List.repl
   | [], _ => by cases ‹Nat› <;> rfl
   | _ :: _, 0 => rfl
   | w :: ws, k + 1 => by
-    show (decide (0 ≤ w) && argsClean ws (List.replicate k 0)) = true
-    rw [argsClean_zeros ws k]
-    simp
+    show (argOk w 0 && argsClean ws (List.replicate k 0)) = true
+    rw [argsClean_zeros ws k, argOk_zero]
+    rfl
 
 /-- **Every valid call runs to the tree's observable**, from `BodyRuns`. -/
 theorem runs_of_bodyRuns {fuel : Nat} {c : SolidCore.Solidity.TypeCheck.CheckedContract} {sel : Nat}

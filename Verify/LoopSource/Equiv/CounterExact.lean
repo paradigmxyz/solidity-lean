@@ -143,7 +143,7 @@ theorem counter_deployedAtWith_all {c : TypeCheck.CheckedContract} (hc : contrac
         intro k _
         simp [State.loadSlot, StorageMap.lookup?, State.empty, Writes.store, CounterLoad.S0, initState, hρ, hrt0, hst0]
       logs := by simp [State.empty, CounterLoad.S0, initState, hrt0, hst0]
-      facts := argFacts_hold ρ hargs [2 ^ 256 - 1] 0 (by simp [argsClean, hρ]; exact Nat.le_of_lt_succ hn) }
+      facts := argFacts_hold ρ hargs [2 ^ 256 - 1] 0 (by simp [argsClean, argOk_max, hρ]; exact Nat.le_of_lt_succ hn) }
   have hE : E.fields = vcFields := hfields
   -- the statements of the body, one by one
   have hrel1 := hrel.pushScope

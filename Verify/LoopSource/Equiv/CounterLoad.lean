@@ -81,7 +81,7 @@ theorem counter_load_deployed {c : TypeCheck.CheckedContract} (hc : contract? = 
         intro k _
         simp [State.loadSlot, StorageMap.lookup?, State.empty, Writes.store, S0, initState, hρ]
       logs := by simp [State.empty, S0, initState]
-      facts := argFacts_hold ρ hargs [2 ^ 256 - 1] 0 (by simp [argsClean, hρ]; exact Nat.le_of_lt_succ hn) }
+      facts := argFacts_hold ρ hargs [2 ^ 256 - 1] 0 (by simp [argsClean, argOk_max, hρ]; exact Nat.le_of_lt_succ hn) }
   have herase : eraseStmt E fuel ctorFn.body S0 = some (.leaf (.normal Sfin)) := by
     show eraseStmt { fields := c.core.storageFields, events := c.core.eventDecls, tbl := c.core.table, facts := argFacts [2 ^ 256 - 1] 0 } fuel ctorFn.body S0 = _
     rw [hfields, hevents]; exact erase _ _

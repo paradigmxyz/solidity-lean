@@ -38,7 +38,10 @@ cleanup: the largest word SolidCore's decoder accepts for it. `2 ^ b - 1` for a 
 cleanup `uint b`, `0 < b ≤ 256`; `m` for a `uint256` with the cleanup `enum m`, `0 < m` (an enum
 parameter whose largest member is `m`); `2 ^ 160 - 1` for an `address` and 1 for a `bool`, each with
 no cleanup; `2 ^ 256 - 1` (no check) for an `int256` with the cleanup `int 256` and for a `bytes32`,
-which SolidCore holds as typed values (`tagOf`). An enum of one member (`m = 0`) has no bound here:
+which SolidCore holds as typed values (`tagOf`); `wordSize + b` for a signed `b`-bit parameter, an
+`int256` with the cleanup `int b`, `0 < b < 256`, whose word must be its own sign extension from
+bit `b - 1` (`sextGuard`): a number at or above `wordSize` names that check rather than a bound,
+so every parameter keeps one number and the checks one list. An enum of one member (`m = 0`) has no bound here:
 past its check its argument word is 0, which solar's MIR returns as the constant while the erasure
 keeps the word, so the trees differ. -/
 def paramWidthT (p : BindingDecl) (c : AbiCleanup) : Option Nat :=
@@ -50,6 +53,7 @@ def paramWidthT (p : BindingDecl) (c : AbiCleanup) : Option Nat :=
     | .address, .none => some (2 ^ 160 - 1)
     | .bool, .none => some 1
     | .int256, .int 256 => some (2 ^ 256 - 1)
+    | .int256, .int b => if 0 < b ∧ b < 256 then some (wordSize + b) else none
     | .fixedBytes 32, .none => some (2 ^ 256 - 1)
     | _, _ => none
 
@@ -104,12 +108,15 @@ def widthsOfT : List BindingDecl → List AbiCleanup → Option (List Nat)
   | _, _ => none
 
 /-- The checks of the argument words from parameter `i` on, given their bounds: a word of a
-parameter of bound `m < 2 ^ 256 - 1` above `m` reverts with empty data. -/
+parameter of bound `m < 2 ^ 256 - 1` above `m` reverts with empty data, and so does a word of a
+signed `b`-bit parameter (`m = wordSize + b`) that is not its own sign extension. -/
 def paramGuards : List Nat → Nat → Tree → Tree
   | [], _, t => t
   | m :: ms, i, t =>
     if m < wordSize - 1 then
       .ite (.bin .gt (.arg i) (.lit m)) (.halt false [] [] []) (paramGuards ms (i + 1) t)
+    else if 0 < m - wordSize ∧ m - wordSize < 256 then
+      .ite (sextGuard (m - wordSize) (.arg i)) (.halt false [] [] []) (paramGuards ms (i + 1) t)
     else paramGuards ms (i + 1) t
 
 /-- What the argument checks from parameter `i` on leave known: each word of a parameter of

@@ -46,16 +46,18 @@ abbrev ParamTy (ty : Source.Ty) : Prop :=
 
 /-- An ABI cleanup of a parameter of the fragment. -/
 abbrev ParamCleanup (c : AbiCleanup) : Prop :=
-  c = .none ∨ (∃ b, c = .uint b ∧ 0 < b ∧ b ≤ 256) ∨ (∃ m, c = .enum m ∧ m < wordSize) ∨ c = .int 256
+  c = .none ∨ (∃ b, c = .uint b ∧ 0 < b ∧ b ≤ 256) ∨ (∃ m, c = .enum m ∧ m < wordSize) ∨ c = .int 256 ∨
+    (∃ b, c = .int b ∧ 0 < b ∧ b < 256)
 
 theorem paramWidth_spec {p : BindingDecl} {c : AbiCleanup} {w : Nat} (h : paramWidthT p c = some w) :
-    p.isStorageRef = false ∧ w < wordSize ∧
+    p.isStorageRef = false ∧ ((w < wordSize ∧
       ((p.ty = .uint256 ∧ ∃ b, c = .uint b ∧ 0 < b ∧ b ≤ 256 ∧ w = 2 ^ b - 1) ∨
         (p.ty = .uint256 ∧ c = .enum w) ∨
         (p.ty = .address ∧ c = .none ∧ w = 2 ^ 160 - 1) ∨
         (p.ty = .bool ∧ c = .none ∧ w = 1) ∨
         (p.ty = .int256 ∧ c = .int 256 ∧ w = 2 ^ 256 - 1) ∨
-        (p.ty = .fixedBytes 32 ∧ c = .none ∧ w = 2 ^ 256 - 1)) := by
+        (p.ty = .fixedBytes 32 ∧ c = .none ∧ w = 2 ^ 256 - 1))) ∨
+      (p.ty = .int256 ∧ ∃ b, c = .int b ∧ 0 < b ∧ b < 256 ∧ w = wordSize + b)) := by
   unfold paramWidthT at h
   split at h
   · simp at h
@@ -67,37 +69,46 @@ theorem paramWidth_spec {p : BindingDecl} {c : AbiCleanup} {w : Nat} (h : paramW
     · rename_i hb
       simp only [Option.some.injEq] at h
       subst h
-      refine ⟨hs', Nat.sub_lt (Nat.two_pow_pos _) (by decide) |>.trans_le
-        (Nat.pow_le_pow_right (by decide) hb.2), .inl ⟨ht, _, rfl, hb.1, hb.2, rfl⟩⟩
+      refine ⟨hs', .inl ⟨Nat.sub_lt (Nat.two_pow_pos _) (by decide) |>.trans_le
+        (Nat.pow_le_pow_right (by decide) hb.2), .inl ⟨ht, _, rfl, hb.1, hb.2, rfl⟩⟩⟩
     · simp at h
   · rename_i m ht
     split at h
     · rename_i hm
       simp only [Option.some.injEq] at h
       subst h
-      exact ⟨hs', hm.2, .inr (.inl ⟨ht, rfl⟩)⟩
+      exact ⟨hs', .inl ⟨hm.2, .inr (.inl ⟨ht, rfl⟩)⟩⟩
     · simp at h
   · rename_i ht
     simp only [Option.some.injEq] at h
     subst h
-    exact ⟨hs', by decide, .inr (.inr (.inl ⟨ht, rfl, rfl⟩))⟩
+    exact ⟨hs', .inl ⟨by decide, .inr (.inr (.inl ⟨ht, rfl, rfl⟩))⟩⟩
   · rename_i ht
     simp only [Option.some.injEq] at h
     subst h
-    exact ⟨hs', by decide, .inr (.inr (.inr (.inl ⟨ht, rfl, rfl⟩)))⟩
+    exact ⟨hs', .inl ⟨by decide, .inr (.inr (.inr (.inl ⟨ht, rfl, rfl⟩)))⟩⟩
   · rename_i ht
     simp only [Option.some.injEq] at h
     subst h
-    exact ⟨hs', by decide, .inr (.inr (.inr (.inr (.inl ⟨ht, rfl, rfl⟩))))⟩
+    exact ⟨hs', .inl ⟨by decide, .inr (.inr (.inr (.inr (.inl ⟨ht, rfl, rfl⟩))))⟩⟩
+  · split at h
+    · rename_i hb
+      simp only [Option.some.injEq] at h
+      subst h
+      exact ⟨hs', .inr ⟨by assumption, _, rfl, hb.1, hb.2, rfl⟩⟩
+    · simp at h
   · rename_i ht
     simp only [Option.some.injEq] at h
     subst h
-    exact ⟨hs', by decide, .inr (.inr (.inr (.inr (.inr ⟨ht, rfl, rfl⟩))))⟩
+    exact ⟨hs', .inl ⟨by decide, .inr (.inr (.inr (.inr (.inr ⟨ht, rfl, rfl⟩))))⟩⟩
   · simp at h
 
 theorem paramWidth_ty {p : BindingDecl} {c : AbiCleanup} {w : Nat} (h : paramWidthT p c = some w) :
     ParamTy p.ty := by
-  rcases (paramWidth_spec h).2.2 with ⟨ht, -⟩ | ⟨ht, -⟩ | ⟨ht, -⟩ | ⟨ht, -⟩ | ⟨ht, -⟩ | ⟨ht, -⟩
+  rcases (paramWidth_spec h).2 with ⟨-, hk⟩ | ⟨ht, -⟩
+  swap
+  · exact .inr (.inr (.inr (.inl ht)))
+  rcases hk with ⟨ht, -⟩ | ⟨ht, -⟩ | ⟨ht, -⟩ | ⟨ht, -⟩ | ⟨ht, -⟩ | ⟨ht, -⟩
   · exact .inl ht
   · exact .inl ht
   · exact .inr (.inl ht)
@@ -107,21 +118,23 @@ theorem paramWidth_ty {p : BindingDecl} {c : AbiCleanup} {w : Nat} (h : paramWid
 
 theorem paramWidth_cleanup {p : BindingDecl} {c : AbiCleanup} {w : Nat} (h : paramWidthT p c = some w) :
     ParamCleanup c := by
-  have hw := (paramWidth_spec h).2.1
-  rcases (paramWidth_spec h).2.2 with ⟨-, b, hc, hb0, hb, -⟩ | ⟨-, hc⟩ | ⟨-, hc, -⟩ | ⟨-, hc, -⟩ |
+  rcases (paramWidth_spec h).2 with ⟨hw, hk⟩ | ⟨-, b, hc, hb0, hb, -⟩
+  swap
+  · exact .inr (.inr (.inr (.inr ⟨b, hc, hb0, hb⟩)))
+  rcases hk with ⟨-, b, hc, hb0, hb, -⟩ | ⟨-, hc⟩ | ⟨-, hc, -⟩ | ⟨-, hc, -⟩ |
       ⟨-, hc, -⟩ | ⟨-, hc, -⟩
   · exact .inr (.inl ⟨b, hc, hb0, hb⟩)
   · exact .inr (.inr (.inl ⟨w, hc, hw⟩))
   · exact .inl hc
   · exact .inl hc
-  · exact .inr (.inr (.inr hc))
+  · exact .inr (.inr (.inr (.inl hc)))
   · exact .inl hc
 
 theorem widthsOf_spec : ∀ {ps : List BindingDecl} {cs : List AbiCleanup} {ws : List Nat},
     widthsOfT ps cs = some ws →
       cs.length = ps.length ∧ ws.length = ps.length ∧
       (∀ p ∈ ps, ParamTy p.ty ∧ p.isStorageRef = false) ∧
-      (∀ c ∈ cs, ParamCleanup c) ∧ (∀ w ∈ ws, w < wordSize)
+      (∀ c ∈ cs, ParamCleanup c) ∧ (∀ w ∈ ws, w < wordSize + 256)
   | [], [], ws, h => by
     simp only [widthsOfT, Option.some.injEq] at h
     subst h
@@ -130,7 +143,9 @@ theorem widthsOf_spec : ∀ {ps : List BindingDecl} {cs : List AbiCleanup} {ws :
     simp only [widthsOfT, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
     obtain ⟨w, hw, ws', hws', rfl⟩ := h
     obtain ⟨h1, h2, h3, h4, h5⟩ := widthsOf_spec hws'
-    obtain ⟨hs, hwl, -⟩ := paramWidth_spec hw
+    obtain ⟨hs, hk⟩ := paramWidth_spec hw
+    have hwl : w < wordSize + 256 := by
+      rcases hk with ⟨hw', -⟩ | ⟨-, b, -, -, hb, rfl⟩ <;> omega
     refine ⟨by simp [h1], by simp [h2], ?_, ?_, ?_⟩
     · intro q hq
       rcases List.mem_cons.mp hq with rfl | hq
@@ -227,6 +242,7 @@ def decodeCleanAll : List Source.Ty → List Nat → Bool
 def cleanArg : AbiCleanup → Nat → Bool
   | .uint b, a => decide (a < 2 ^ b)
   | .enum m, a => decide (a ≤ m)
+  | .int b, a => if 0 < b ∧ b < 256 then decide (sextNat b a = a) else true
   | _, _ => true
 
 /-- Whether every argument word passes its parameter's ABI cleanup. -/
@@ -234,9 +250,35 @@ def cleanupsClean : List AbiCleanup → List Nat → Bool
   | c :: cs, a :: as => cleanArg c a && cleanupsClean cs as
   | _, _ => true
 
-/-- Whether every argument word is at most its parameter's bound. -/
+/-- Whether the argument word `a` passes its parameter's check `w` (`paramWidthT`): at most `w` for
+a bound below `wordSize`, and its own sign extension from `w - wordSize` bits otherwise. -/
+def argOk (w a : Nat) : Bool :=
+  if w < 2 ^ 256 then decide (a ≤ w)
+  else if 0 < w - 2 ^ 256 ∧ w - 2 ^ 256 < 256 then decide (sextNat (w - 2 ^ 256) a = a)
+  else true
+
+theorem argOk_eq (w a : Nat) : argOk w a = if w < wordSize then decide (a ≤ w)
+    else if 0 < w - wordSize ∧ w - wordSize < 256 then decide (sextNat (w - wordSize) a = a)
+    else true := rfl
+
+theorem argOk_zero (w : Nat) : argOk w 0 = true := by
+  rw [argOk_eq]
+  split
+  · simp
+  · split
+    · simp [sextNat, Nat.two_pow_pos]
+    · rfl
+
+theorem argOk_lt {w : Nat} (a : Nat) (h : w < wordSize) : argOk w a = decide (a ≤ w) := by
+  simp [argOk_eq, h]
+
+theorem argOk_sext (a b : Nat) (hb : 0 < b ∧ b < 256) :
+    argOk (wordSize + b) a = decide (sextNat b a = a) := by
+  simp [argOk_eq, hb]
+
+/-- Whether every argument word passes its parameter's check. -/
 def argsClean : List Nat → List Nat → Bool
-  | w :: ws, a :: as => decide (a ≤ w) && argsClean ws as
+  | w :: ws, a :: as => argOk w a && argsClean ws as
   | _, _ => true
 
 theorem headWords_word {ty : Source.Ty} (h : ParamTy ty) :
@@ -337,6 +379,42 @@ theorem accepts_int256 (a : Nat) (ha : a < wordSize) : AbiCleanup.accepts (.int 
   split <;> simp [SolidCore.Solidity.Shared.norm, Nat.mod_eq_of_lt ha, Nat.zero_add, h1,
     show SolidCore.Solidity.Shared.wordModulus = 2 ^ 256 from rfl]
 
+/-- The full-width bound of a word argument, which the generated modules write as a numeral,
+passes every word below `2 ^ 256`. -/
+theorem argOk_max (a : Nat) :
+    argOk 115792089237316195423570985008687907853269984665640564039457584007913129639935 a =
+      decide (a ≤ 115792089237316195423570985008687907853269984665640564039457584007913129639935) :=
+  argOk_lt a (by decide)
+
+theorem argsClean_cons (w : Nat) (ws : List Nat) (a : Nat) (as : List Nat) :
+    argsClean (w :: ws) (a :: as) = (argOk w a && argsClean ws as) := rfl
+
+theorem accepts_intb (a b : Nat) (ha : a < wordSize) (hb : 0 < b ∧ b < 256) :
+    AbiCleanup.accepts (.int b) (.int a) = decide (sextNat b a = a) := by
+  have hn : SolidCore.Solidity.Shared.norm a = a := norm_lt ha
+  have hb' : (0 < b && b ≤ 256) = true := by simp; omega
+  obtain ⟨hP, hPW, -, hh⟩ := pow_facts hb
+  have hy := Nat.mod_lt a (Nat.two_pow_pos b)
+  have hWM : SolidCore.Solidity.Source.wordModulus = wordSize := rfl
+  have hWM' : SolidCore.Solidity.Shared.wordModulus = wordSize := rfl
+  simp only [AbiCleanup.accepts, hn, hb', ↓reduceIte, wordEq, hWM, hWM']
+  unfold sextNat
+  generalize 2 ^ (b - 1) = h at *
+  generalize 2 ^ b = P at *
+  by_cases hc : h ≤ a % P
+  · have h1 : wordSize - P + a % P < wordSize := by
+      have := Nat.add_lt_add_left hy (wordSize - P)
+      rwa [Nat.sub_add_cancel (Nat.le_of_lt hPW)] at this
+    have h2 : SolidCore.Solidity.Shared.norm (wordSize - P + a % P) = a % P + (wordSize - P) := by
+      rw [norm_lt h1, Nat.add_comm]
+    have h3 : SolidCore.Solidity.Shared.norm (a % P + (wordSize - P)) = a % P + (wordSize - P) := by
+      rw [Nat.add_comm]; exact norm_lt h1
+    simp only [hc, ↓reduceIte, h2, h3]
+    by_cases e : a % P + (wordSize - P) = a <;> simp [e, hn]
+  · have h2 := norm_lt (Nat.lt_trans hy hPW)
+    simp only [hc, ↓reduceIte, h2]
+    by_cases e : a % P = a <;> simp [e, hn]
+
 theorem lazyParamValues_vals : ∀ (ps : List BindingDecl) (cs : List AbiCleanup) (ws : List Nat)
     (args : List Nat), widthsOfT ps cs = some ws → args.length = ps.length →
     (∀ a ∈ args, a < wordSize) →
@@ -349,7 +427,16 @@ theorem lazyParamValues_vals : ∀ (ps : List BindingDecl) (cs : List AbiCleanup
     have ih := lazyParamValues_vals ps cs ws' args hws' (by simpa using hl)
       (fun b hb => ha b (List.mem_cons_of_mem _ hb))
     have hlt := ha a List.mem_cons_self
-    obtain ⟨-, -, hk⟩ := paramWidth_spec hw1
+    obtain ⟨-, hk⟩ := paramWidth_spec hw1
+    rcases hk with ⟨hm, hk⟩ | ⟨ht, b, rfl, hb0, hb, -⟩
+    swap
+    · have hbb : 0 < b ∧ b < 256 := ⟨hb0, hb⟩
+      simp only [List.map_cons, tyVals, ht, tagOf, Tag.val, AbiCleanups.lazyParamValues, ih,
+        AbiCleanup.lazyParamValue, cleanupsClean, cleanArg, hbb, and_self, ↓reduceIte, bind,
+        Option.bind, accepts_intb a b hlt hbb]
+      by_cases h : sextNat b a = a
+      · by_cases hc : cleanupsClean cs args = true <;> simp [h, hc]
+      · simp [h]
     rcases hk with ⟨ht, b, rfl, hb0, hb, -⟩ | ⟨ht, rfl⟩ | ⟨ht, rfl, -⟩ | ⟨ht, rfl, -⟩ |
         ⟨ht, rfl, -⟩ | ⟨ht, rfl, -⟩
     · by_cases h : a < 2 ^ b
@@ -361,8 +448,7 @@ theorem lazyParamValues_vals : ∀ (ps : List BindingDecl) (cs : List AbiCleanup
       · simp [List.map_cons, tyVals, ht, tagOf, Tag.val, AbiCleanups.lazyParamValues,
           AbiCleanup.lazyParamValue, AbiCleanup.accepts, norm_lt hlt, h, hb0, hb, bind,
           Option.bind, cleanupsClean, cleanArg]
-    · have hm := (paramWidth_spec hw1).2.1
-      by_cases h : a ≤ w
+    · by_cases h : a ≤ w
       · simp only [List.map_cons, tyVals, ht, tagOf, Tag.val, AbiCleanups.lazyParamValues, ih,
           cleanupsClean, cleanArg, h, decide_true, Bool.true_and]
         by_cases hc : cleanupsClean cs args = true <;>
@@ -392,9 +478,13 @@ theorem argsClean_widths : ∀ {ps : List BindingDecl} {cs : List AbiCleanup} {w
     have ih := argsClean_widths args hws' (by simpa using hl)
       (fun b hb => ha b (List.mem_cons_of_mem _ hb))
     have hlt : a < wordSize := ha a List.mem_cons_self
-    obtain ⟨-, -, hk⟩ := paramWidth_spec hw
-    simp only [argsClean, ih, List.map_cons, decodeCleanAll, cleanupsClean]
-    have key : decide (a ≤ w) = (decodeClean p.ty a && cleanArg c a) := by
+    obtain ⟨-, hk⟩ := paramWidth_spec hw
+    simp only [argsClean_cons, ih, List.map_cons, decodeCleanAll, cleanupsClean]
+    have key : argOk w a = (decodeClean p.ty a && cleanArg c a) := by
+      rcases hk with ⟨hwlt, hk⟩ | ⟨ht, b, rfl, hb0, hb, rfl⟩
+      swap
+      · simp [argOk_sext a b ⟨hb0, hb⟩, ht, decodeClean, cleanArg, hb0, hb]
+      rw [argOk_lt a hwlt]
       rcases hk with ⟨ht, b, rfl, hb0, -, rfl⟩ | ⟨ht, rfl⟩ | ⟨ht, rfl, rfl⟩ | ⟨ht, rfl, rfl⟩ |
           ⟨ht, rfl, rfl⟩ | ⟨ht, rfl, rfl⟩
       · have := Nat.two_pow_pos b
@@ -578,18 +668,23 @@ theorem bindArgs_clean (ρ : Val) (hρ : ∀ a ∈ ρ.args, a < wordSize) (T : T
     have hlt := hρ _ (List.getElem_mem hi)
     have hdi : ρ.args.drop i = ρ.args[i] :: ρ.args.drop (i + 1) := List.drop_eq_getElem_cons hi
     rw [hdi] at hcl
-    simp only [argsClean, Bool.and_eq_true, decide_eq_true_eq] at hcl
+    simp only [argsClean_cons, Bool.and_eq_true] at hcl
     have ih := bindArgs_clean ρ hρ T ps cs ws' (i + 1) hws' hcl.2 (by simp at h; omega)
       (fun q hq => hT q (List.mem_cons_of_mem _ hq))
-    obtain ⟨hs, -, hk⟩ := paramWidth_spec hw1
+    obtain ⟨hs, hk⟩ := paramWidth_spec hw1
     have hty : ParamTy p.ty := paramWidth_ty hw1
     have hdc : decodeClean p.ty ρ.args[i] = true := by
+      rcases hk with ⟨hwlt, hk⟩ | ⟨ht, -⟩
+      swap
+      · simp [ht, decodeClean]
+      have hcl1 := hcl.1
+      rw [argOk_lt _ hwlt, decide_eq_true_eq] at hcl1
       rcases hk with ⟨ht, -⟩ | ⟨ht, -⟩ | ⟨ht, -, rfl⟩ | ⟨ht, -, rfl⟩ | ⟨ht, -⟩ | ⟨ht, -⟩
       · simp [ht, decodeClean]
       · simp [ht, decodeClean]
       · simp only [ht, decodeClean, decide_eq_true_eq]
-        exact Nat.lt_of_le_of_lt hcl.1 (by decide)
-      · simpa [ht, decodeClean] using hcl.1
+        exact Nat.lt_of_le_of_lt hcl1 (by decide)
+      · simpa [ht, decodeClean] using hcl1
       · simp [ht, decodeClean]
       · simp [ht, decodeClean]
     rw [hdi]
@@ -1020,13 +1115,14 @@ theorem eval_gt_bound (ρ : Val) (e : WExpr) {m : Nat} (hm : m < wordSize) :
 and the words after it at most `ws`; a missing word reads as zero. -/
 theorem argsClean_drop (ρ : Val) (hρ : ∀ a ∈ ρ.args, a < wordSize) (w : Nat) (ws : List Nat)
     (i : Nat) : argsClean (w :: ws) (ρ.args.drop i) =
-      (decide ((WExpr.arg i).eval ρ ≤ w) && argsClean ws (ρ.args.drop (i + 1))) := by
+      (argOk w ((WExpr.arg i).eval ρ) && argsClean ws (ρ.args.drop (i + 1))) := by
   cases hdrop : ρ.args.drop i with
   | nil =>
     have hge : ρ.args.length ≤ i := by simpa using hdrop
     have hd1 : ρ.args.drop (i + 1) = [] := by simp; omega
     have hws : argsClean ws [] = true := by cases ws <;> rfl
-    simp [hd1, hws, argsClean, WExpr.eval, List.getD_eq_getElem?_getD, List.getElem?_eq_none hge]
+    simp [hd1, hws, argsClean, WExpr.eval, List.getD_eq_getElem?_getD, List.getElem?_eq_none hge,
+      argOk_zero]
   | cons a as =>
     have hi : i < ρ.args.length := by
       have := congrArg List.length hdrop; simp at this; omega
@@ -1036,7 +1132,7 @@ theorem argsClean_drop (ρ : Val) (hρ : ∀ a ∈ ρ.args, a < wordSize) (w : N
     have hd1 : ρ.args.drop (i + 1) = as := by
       rw [← List.drop_drop, hdrop]; rfl
     have halt : a < wordSize := ha ▸ hρ _ (List.getElem_mem hi)
-    simp [argsClean, hd1, WExpr.eval, List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hi, ha,
+    simp [argsClean_cons, hd1, WExpr.eval, List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hi, ha,
       Nat.mod_eq_of_lt halt]
 
 /-- The tree of a call with argument checks: their revert when an argument word is above its
@@ -1052,24 +1148,41 @@ theorem paramGuards_eval (ρ : Val) (t : Tree) (hρ : ∀ a ∈ ρ.args, a < wor
     have ih := paramGuards_eval ρ t hρ ws (i + 1)
     split
     · rename_i hw
-      simp only [Tree.eval, eval_gt_bound ρ _ (show w < wordSize by omega), ih]
+      simp only [Tree.eval, eval_gt_bound ρ _ (show w < wordSize by omega), ih,
+        argOk_lt _ (show w < wordSize by omega)]
       by_cases h : (WExpr.arg i).eval ρ ≤ w <;> simp [h]
-    · have : (WExpr.arg i).eval ρ ≤ w := by
-        have := WExpr.eval_lt ρ (.arg i); omega
-      simp [ih, this]
+    · rename_i hw
+      split
+      · rename_i hb
+        simp only [Tree.eval, ih, argOk_eq, show ¬ w < wordSize by omega, ↓reduceIte, hb, and_self]
+        by_cases h : sextNat (w - wordSize) ((WExpr.arg i).eval ρ) = (WExpr.arg i).eval ρ
+        · simp [h, (eval_sextGuard ρ hb (.arg i)).mpr h]
+        · have h0 : ¬ (sextGuard (w - wordSize) (.arg i)).eval ρ = 0 :=
+            fun h' => h ((eval_sextGuard ρ hb _).mp h')
+          simp [h, h0]
+      · rename_i hb
+        have hok : argOk w ((WExpr.arg i).eval ρ) = true := by
+          have := WExpr.eval_lt ρ (.arg i)
+          rw [argOk_eq]
+          split
+          · simp; omega
+          · simp [hb]
+        simp [ih, hok]
 
 /-- Past the argument checks, the facts they leave hold. -/
 theorem argFacts_hold (ρ : Val) (hρ : ∀ a ∈ ρ.args, a < wordSize) :
     ∀ (ws : List Nat) (i : Nat), argsClean ws (ρ.args.drop i) = true → (argFacts ws i).Hold ρ
   | [], _, _ => by simp [argFacts, Facts.Hold]
   | w :: ws, i, h => by
-    rw [argsClean_drop ρ hρ, Bool.and_eq_true, decide_eq_true_eq] at h
+    rw [argsClean_drop ρ hρ, Bool.and_eq_true] at h
     have ih := argFacts_hold ρ hρ ws (i + 1) h.2
     simp only [argFacts]
     split
     · rename_i hw
       refine Facts.Hold.cons ih ?_
-      simp [eval_gt_bound ρ _ (show w < wordSize by omega), h.1]
+      have h1 := h.1
+      rw [argOk_lt _ (show w < wordSize by omega), decide_eq_true_eq] at h1
+      simp [eval_gt_bound ρ _ (show w < wordSize by omega), h1]
     · exact ih
 
 /-- **SolidCore rejects dirty argument words**: a call whose argument words SolidCore's decoder

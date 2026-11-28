@@ -334,6 +334,15 @@ def eraseIntExpr (S : SymState) : Expr → Option WExpr
   | .castOp .intCleanup 256 e => eraseIntExpr S e
   | _ => none
 
+/-- The erasure of the right side of an assignment to a signed local: a checked cleanup to `b`
+bits of a signed expression, its range check `sextGuard b v` (which panics with `0x11`) and its
+value `v`, which the check leaves unchanged; no check for `b = 256`. -/
+def eraseIntCleaned (S : SymState) : Expr → Option (List WExpr × WExpr)
+  | .castOp .intCleanup b e =>
+    if 0 < b ∧ b < 256 then (eraseIntExpr S e).map fun v => ([sextGuard b v], v)
+    else (eraseIntExpr S (.castOp .intCleanup b e)).map fun v => ([], v)
+  | _ => none
+
 /-- The erasure of a statement of the fragment with fuel `n`, the fuel SolidCore runs it with:
 skips, blocks (a scope each), assignments to locals and to storage fields, compound assignments
 to storage fields (`v += x`, `w ^= x`: the operation's overflow check, then the cleanup's range
@@ -349,10 +358,15 @@ def eraseStmt (E : EraseEnv) : Nat → Stmt → SymState → Option Br
     | .block ss => do
       let b ← eraseSeq (eraseStmt E n) ss S.push
       some (b.mapS SymState.pop)
-    | .assign (.var x) e => do
-      let (gs, v) ← eraseExpr E.fields S e
-      let L ← S.setW x v
-      some (guards gs (.leaf (.normal { S with scopes := L })))
+    | .assign (.var x) e =>
+      if S.tags.get x = .int then do
+        let (gs, v) ← eraseIntCleaned S e
+        let L ← Scopes.set S.scopes x v
+        some (guards gs (.leaf (.normal { S with scopes := L })))
+      else do
+        let (gs, v) ← eraseExpr E.fields S e
+        let L ← S.setW x v
+        some (guards gs (.leaf (.normal { S with scopes := L })))
     | .assign (.storage x) e => do
       let (k, off, bytes) ← fieldOf? E.fields x
       let (gs, v) ← eraseExpr E.fields S e
@@ -894,6 +908,93 @@ theorem eval_int {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {S : S
       · simp [eraseIntExpr, hb] at h
     all_goals simp [eraseIntExpr] at h
   | _ => simp [eraseIntExpr] at h
+
+theorem xor_ones (a : Nat) (ha : a < 2 ^ 256) : Nat.xor (2 ^ 256 - 1) a = 2 ^ 256 - 1 - a := by
+  have h1 : (BitVec.allOnes 256 ^^^ BitVec.ofNat 256 a).toNat = Nat.xor (2 ^ 256 - 1) a := by
+    simp [BitVec.toNat_xor]; omega
+  rw [← h1, BitVec.allOnes_xor, BitVec.toNat_not, BitVec.toNat_ofNat, Nat.mod_eq_of_lt ha]
+
+/-- SolidCore's signed value of a word: itself below `2 ^ 255`, else less `2 ^ 256`. -/
+theorem signedValue_eq (w : Nat) (hw : w < wordSize) :
+    SolidCore.Solidity.Shared.signedValue w =
+      if w < 2 ^ 255 then (w : Int) else (w : Int) - 2 ^ 256 := by
+  have hn : SolidCore.Solidity.Shared.norm w = w := norm_lt hw
+  have hv : (EvmYul.UInt256.ofNat w).val.val = w := by
+    rw [show (EvmYul.UInt256.ofNat w).val.val = (EvmYul.UInt256.ofNat w).toNat from rfl,
+      toNat_ofNat_u256, Nat.mod_eq_of_lt hw]
+  unfold SolidCore.Solidity.Shared.signedValue SolidCore.Solidity.Shared.toEvmWord
+    EvmYul.UInt256.fromSigned
+  rw [hn]
+  simp only [EvmYul.UInt256.toNat, hv]
+  split
+  · rfl
+  · rw [show EvmYul.UInt256.size - 1 = 2 ^ 256 - 1 from rfl, xor_ones w hw]
+    have : w ≤ 2 ^ 256 - 1 := Nat.le_sub_one_of_lt hw
+    push_cast [Nat.cast_sub this, Nat.cast_sub (show 1 ≤ 2 ^ 256 by decide)]
+    omega
+
+/-- SolidCore's checked cleanup of a signed word to `b` bits, `0 < b < 256`, keeps a word that is
+its own sign extension and panics with `0x11` on any other. -/
+theorem intCleanup_lt (w b : Nat) (hw : w < wordSize) (hb : 0 < b ∧ b < 256) :
+    intCleanup? true b (.int w) = if sextNat b w = w then .ok (.int w) else .error (.panic 0x11) := by
+  have hn : SolidCore.Solidity.Shared.norm w = w := norm_lt hw
+  have hb' : (0 < b && b ≤ 256) = true := by simp; omega
+  obtain ⟨hP, hPW, -, hh⟩ := pow_facts hb
+  have hP255 : 2 ^ b ≤ 2 ^ 255 := Nat.pow_le_pow_right (by decide) (by omega)
+  have hiff := sextNat_eq_iff hb hw
+  have hy := Nat.mod_lt w (Nat.two_pow_pos b)
+  have hcast : intCast? b (.int w) = .ok (.int (sextNat b w)) := by
+    simp only [intCast?, Value.forceAbiLazy, Value.asStorageWord?, hn, hb', ↓reduceIte, bind,
+      Except.bind, pure, Except.pure]
+    unfold sextNat
+    have hWM : SolidCore.Solidity.Source.wordModulus = wordSize := rfl
+    have hWM' : SolidCore.Solidity.Shared.wordModulus = wordSize := rfl
+    simp only [hWM, hWM']
+    generalize 2 ^ (b - 1) = h at *
+    generalize 2 ^ b = P at *
+    split
+    · have h1 : wordSize - P + w % P < wordSize := by
+        have := Nat.add_lt_add_left hy (wordSize - P)
+        rwa [Nat.sub_add_cancel (Nat.le_of_lt hPW)] at this
+      rw [norm_lt h1, Nat.add_comm]
+    · rw [norm_lt (Nat.lt_trans hy hPW)]
+  simp only [intCleanup?, Value.forceAbiLazy, Value.asStorageWord?, hn, hb', ↓reduceIte, bind,
+    Except.bind, Bool.true_and, signedValue_eq w hw]
+  rw [hcast]
+  have hW : wordSize = 2 ^ 256 := rfl
+  rw [hW] at hiff hw
+  generalize 2 ^ (b - 1) = h at *
+  simp only [Int.ofNat_eq_coe]
+  by_cases hs : sextNat b w = w
+  · have hr := hiff.mp hs
+    rw [if_pos hs, hs, if_neg]
+    simp only [Bool.or_eq_true, decide_eq_true_eq, not_or, Int.not_lt]
+    split <;> constructor <;> omega
+  · have hr : ¬ (w < h ∨ 2 ^ 256 - h ≤ w) := fun h' => hs (hiff.mpr h')
+    rw [if_neg hs, if_pos]
+    · rfl
+    simp only [Bool.or_eq_true, decide_eq_true_eq]
+    generalize 2 ^ b = P at *
+    simp only [Nat.reducePow, Int.reducePow] at hr hw hP255 ⊢
+    split
+    · right; omega
+    · left; omega
+
+theorem eraseIntCleaned_codes {S : SymState} {e : Expr} {gs : List WExpr} {v : WExpr} (ρ : Val)
+    (h : eraseIntCleaned S e = some (gs, v)) : failCode ρ gs = 0x11 := by
+  unfold eraseIntCleaned at h
+  split at h
+  · split at h
+    · obtain ⟨v', -, he⟩ := Option.map_eq_some_iff.mp h
+      simp only [Prod.mk.injEq] at he
+      obtain ⟨rfl, rfl⟩ := he
+      simp only [failCode_single]
+      split <;> rfl
+    · obtain ⟨v', -, he⟩ := Option.map_eq_some_iff.mp h
+      simp only [Prod.mk.injEq] at he
+      obtain ⟨rfl, rfl⟩ := he
+      rfl
+  · simp at h
 
 /-- The values of a list of signed expressions, left to right, each by `step`. -/
 theorem eval_intList (ρ : Val) (S : SymState) (rt : Runtime)
@@ -2031,6 +2132,117 @@ theorem eval_incDec (ρ : Val) (E : EraseEnv) (ctx : Context) (rt : Runtime) (S 
   · simp only [hc, decide_false, Bool.not_false, ↓reduceIte]
     exact ⟨_, rfl, by simp only [failCode_cleanup ρ hcg]; rfl⟩
 
+/-- SolidCore evaluates the erased right side of an assignment to a signed local to its value,
+past its range check. -/
+theorem eval_intCleaned {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {S : SymState}
+    (hrel : StmtRel ρ E ctx rt S) {e : Expr} {gs : List WExpr} {v : WExpr}
+    (h : eraseIntCleaned S e = some (gs, v)) :
+    Expr.eval ctx rt e = if gs.any (fun g => g.eval ρ != 0) then .done (.error (.revert (.panic 0x11)))
+      else .done (.ok (.int (v.eval ρ), rt)) := by
+  unfold eraseIntCleaned at h
+  split at h
+  · rename_i b e'
+    split at h
+    · rename_i hb
+      obtain ⟨v', hv', he⟩ := Option.map_eq_some_iff.mp h
+      simp only [Prod.mk.injEq] at he
+      obtain ⟨rfl, rfl⟩ := he
+      have ih := eval_int hrel e' v' (Expr.orderFuel (.castOp .intCleanup b e')) hv'
+        (by simp [Expr.orderFuel])
+      unfold Expr.eval
+      rw [Expr.evalFuel]
+      simp only [ih, hrel.checked]
+      simp only [bind, EvmCompiler.Simulation.Interaction.bind, liftM, monadLift,
+        MonadLift.monadLift, intCleanup_lt _ _ (v'.eval_lt ρ) hb, SolI.ofExcept]
+      have hg := eval_sextGuard ρ hb v'
+      by_cases hs : sextNat b (v'.eval ρ) = v'.eval ρ
+      · have h0 : (sextGuard b v').eval ρ = 0 := hg.mpr hs
+        first | (simp [hs, h0]; done) | (simp [hs, h0]; rfl)
+      · have h0 : ¬ (sextGuard b v').eval ρ = 0 := fun h' => hs (hg.mp h')
+        first | (simp [hs, h0]; done) | (simp [hs, h0]; rfl)
+    · obtain ⟨v', hv', he⟩ := Option.map_eq_some_iff.mp h
+      simp only [Prod.mk.injEq] at he
+      obtain ⟨rfl, rfl⟩ := he
+      simp only [List.any_nil, Bool.false_eq_true, ↓reduceIte]
+      exact eval_int hrel _ v' _ hv' (Nat.lt_succ_self _)
+  · simp at h
+
+theorem frameT_assignT (ρ : Val) (T : Tags) (L : Locals) (x : String) (v : WExpr) (t : Tag)
+    (hx : T.get x = t) :
+    Frame.assign? (frameOfT ρ T L) x (t.val (v.eval ρ)) = (L.set x v).map (frameOfT ρ T) := by
+  induction L with
+  | nil => rfl
+  | cons p L ih =>
+    obtain ⟨y, e⟩ := p
+    by_cases hy : y = x
+    · subst hy; simp [frameOfT, Frame.assign?, Locals.set, hx]
+    · simp only [frameOfT, List.map_cons, Frame.assign?, Locals.set, hy, ↓reduceIte] at ih ⊢
+      rw [ih]
+      cases Locals.set L x v <;> rfl
+
+theorem envT_assignT (ρ : Val) (T : Tags) (x : String) (v : WExpr) (t : Tag) (hx : T.get x = t) :
+    ∀ (sc : Scopes), LocalEnv.assign? (sc.map (frameOfT ρ T)) x (t.val (v.eval ρ)) =
+      (Scopes.set sc x v).map (·.map (frameOfT ρ T))
+  | [] => rfl
+  | L :: rest => by
+    simp only [List.map_cons, LocalEnv.assign?, frameT_assignT ρ T L x v t hx, Scopes.set]
+    cases L.set x v with
+    | some L' => rfl
+    | none =>
+      simp only [Option.map_none, envT_assignT ρ T x v t hx rest]
+      cases Scopes.set rest x v <;> rfl
+
+theorem assignLocal_int {ρ : Val} {T : Tags} {rt : Runtime} {sc sc' : Scopes} {x : String} {v : WExpr}
+    (hfr : rt.locals = sc.map (frameOfT ρ T)) (hx : T.get x = .int) (h : Scopes.set sc x v = some sc') :
+    rt.assignLocal? x (.int (v.eval ρ)) = some { rt with locals := sc'.map (frameOfT ρ T) } := by
+  obtain ⟨old, hold⟩ := Scopes.get?_of_set h
+  have hl : rt.lookupLocal? x = some (.int (old.eval ρ)) := by
+    simp [Runtime.lookupLocal?, hfr, envT_lookup, hold, hx, Tag.val]
+  have ha := envT_assignT ρ T x v .int hx sc
+  simp only [Tag.val] at ha
+  simp [Runtime.assignLocal?, hl, Value.coerceLike?, hfr, ha, h]
+
+/-- An assignment to a signed local of a checked cleanup of a signed expression: its range check,
+then the write of its value. -/
+theorem eval_assignInt (ρ : Val) (E : EraseEnv) (ctx : Context) (rt : Runtime) (S : SymState)
+    (hrel : StmtRel ρ E ctx rt S) (n : Nat) {x : String} {e : Expr} {gs : List WExpr} {v : WExpr}
+    {L' : Scopes} (hxi : S.tags.get x = .int) (he : eraseIntCleaned S e = some (gs, v))
+    (hL : Scopes.set S.scopes x v = some L') :
+    ∃ r, Stmt.eval (n + 1) E.tbl ctx rt (.assign (.var x) e) = .done (.ok r) ∧
+      LeafRel ρ E ctx r ((guards gs (.leaf (.normal { S with scopes := L' }))).eval ρ) := by
+  obtain ⟨old, hold⟩ := Scopes.get?_of_set hL
+  have hx : rt.lookupLocal? x = some (.int (old.eval ρ)) := by
+    simp [Runtime.lookupLocal?, hrel.frames, envT_lookup, hold, hxi, Tag.val]
+  have hmem : rt.lookupMemoryRef? x = none := by simp [Runtime.lookupMemoryRef?, hx]
+  have hbase : rt.lookupStorageBase? x = none := by simp [Runtime.lookupStorageBase?, hx]
+  have heval : (Expr.eval ctx rt e).caught =
+      .done (.ok (if gs.any (fun g => g.eval ρ != 0) then .error (.panic (failCode ρ gs))
+        else .ok (.int (v.eval ρ), rt))) := by
+    rw [eval_intCleaned hrel he, eraseIntCleaned_codes ρ he]
+    split <;> rfl
+  have hres : LValue.resolveWithRuntime (.var x) ctx rt = .done (.ok (.local x, rt)) := by
+    simp [LValue.resolveWithRuntime, Expr.resolveLValue, LValue.toExpr, Expr.orderFuel,
+      Expr.resolveLValueFuel, hbase, hx]
+    rfl
+  have hassign : rt.assignLocal? x (.int (v.eval ρ)) =
+      some { rt with locals := L'.map (frameOfT ρ S.tags) } :=
+    assignLocal_int hrel.frames hxi hL
+  have hrel' : StmtRel ρ E ctx { rt with locals := L'.map (frameOfT ρ S.tags) }
+      { S with scopes := L' } := { hrel with frames := rfl }
+  rw [Stmt.eval]
+  simp only [LValue.wantsMemoryRefRhs, hmem, Option.isSome_none, Bool.false_eq_true,
+    ↓reduceIte, heval]
+  rw [guards_eval]
+  guard_cases hg : gs.any (fun g => g.eval ρ != 0)
+  refine ⟨.normal { rt with locals := L'.map (frameOfT ρ S.tags) }, ?_, hrel'⟩
+  split
+  · split
+    · simp_all
+    · simp only [bind_done_ok, hres, caught_done_ok, ite_self, ResolvedLValue.write, hassign]
+      rfl
+  · simp only [bind_done_ok, hres, caught_done_ok, ite_self, ResolvedLValue.write, hassign]
+    rfl
+
 theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
     ∀ n s S b, eraseStmt E n s S = some b → ∀ rt, StmtRel ρ E ctx rt S →
       ∃ r, Stmt.eval n E.tbl ctx rt s = .done (.ok r) ∧ LeafRel ρ E ctx r (b.eval ρ) := by
@@ -2227,7 +2439,13 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
     case assign target e =>
       cases target
       case var x =>
-        simp only [eraseStmt, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
+        by_cases hxi : S.tags.get x = .int
+        · simp only [eraseStmt, hxi, ↓reduceIte, Option.bind_eq_bind, Option.bind_eq_some_iff,
+            Option.some.injEq] at h
+          obtain ⟨⟨gs, v⟩, he, L', hL', rfl⟩ := h
+          exact eval_assignInt ρ E ctx rt S hrel n hxi he hL'
+        simp only [eraseStmt, hxi, ↓reduceIte, Option.bind_eq_bind, Option.bind_eq_some_iff,
+          Option.some.injEq] at h
         obtain ⟨⟨gs, v⟩, he, L', hL', rfl⟩ := h
         obtain ⟨hxw, hL⟩ := SymState.setW_spec hL'
         obtain ⟨old, hold⟩ := Scopes.get?_of_set hL

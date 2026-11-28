@@ -153,7 +153,10 @@ theorem read_source (k : Nat) (V : World) {c : SolidCore.Solidity.TypeCheck.Chec
   rw [show List.drop ABI.selectorBytes (List.map (fun x => x.toNat) (EthLib.Base.natToBytes 4 2693245054) ++
       Dirty.argBytes [a]) = Dirty.argBytes [a] by simp [ABI.selectorBytes, EthLib.Base.natToBytes_length],
     decode_args (ws := [2 ^ 160 - 1]) rfl [a] rfl (by simp; exact lt_trans ha (by decide))] at hrun
-  have hcl : argsClean [2 ^ 160 - 1] [a] = true := by simp [argsClean]; omega
+  have hcl : argsClean [2 ^ 160 - 1] [a] = true := by
+    show (argOk (2 ^ 160 - 1) a && true) = true
+    rw [argOk_lt _ (by decide)]
+    simpa using Nat.le_sub_one_of_lt ha
   simp only [hcl, ↓reduceIte, show readFn.acceptsValue 0 = true from rfl, List.map_cons, List.map_nil] at hrun
   generalize hctx : ABI.Contract.callContextAtWithBase c.core (ctxIn V c) selfAddress callerAddress 0
     (List.map (fun x => x.toNat) (EthLib.Base.natToBytes 4 2693245054) ++ Dirty.argBytes [a]) = ctx at hrun
