@@ -376,6 +376,10 @@ def RevertData.indexOutOfBounds : RevertData :=
 def RevertData.memoryAllocationTooLarge : RevertData :=
   RevertData.panic 0x41
 
+/-- solc's bound on a storage array's length at `push`: a push onto an array of
+    `2^64` or more elements panics with 0x41 (`storage_array_push_zero`). -/
+def maxStorageArrayLength : Nat := 18446744073709551616
+
 def RevertData.typeMismatch : RevertData :=
   RevertData.panic 0
 
@@ -5071,8 +5075,10 @@ def Runtime.storageArrayPush (context : Context)
     | some (StorageLayout.dynamicArray elementLayout) => do
         let length := runtime.state.loadSlot field.slot
         let rawLength := SolidCore.Solidity.Shared.norm length + 1
-        if wordModulus <= rawLength then
-          Except.error RevertData.overflow
+        -- solc's storage push (`storage_array_push_zero` and
+        -- `array_push_from`): `if iszero(lt(oldLen, 2^64)) { panic_error_0x41() }`.
+        if maxStorageArrayLength <= SolidCore.Solidity.Shared.norm length then
+          Except.error RevertData.memoryAllocationTooLarge
         else
           pure ()
         let (elementSlot, elementSlotLayout) ←
@@ -5109,8 +5115,10 @@ def Runtime.storageArrayPush (context : Context)
     | none => do
         let length := runtime.state.loadSlot field.slot
         let rawLength := SolidCore.Solidity.Shared.norm length + 1
-        if wordModulus <= rawLength then
-          Except.error RevertData.overflow
+        -- solc's storage push (`storage_array_push_zero` and
+        -- `array_push_from`): `if iszero(lt(oldLen, 2^64)) { panic_error_0x41() }`.
+        if maxStorageArrayLength <= SolidCore.Solidity.Shared.norm length then
+          Except.error RevertData.memoryAllocationTooLarge
         else
           pure ()
         let state ←
@@ -5190,8 +5198,9 @@ def Runtime.storageArrayPushAt
         | StorageLayout.dynamicArray elementLayout => do
             let length := runtime.state.loadSlot slot
             let rawLength := SolidCore.Solidity.Shared.norm length + 1
-            if wordModulus <= rawLength then
-              Except.error RevertData.overflow
+            -- solc's storage push: Panic(0x41) at a length of 2^64 or more.
+            if maxStorageArrayLength <= SolidCore.Solidity.Shared.norm length then
+              Except.error RevertData.memoryAllocationTooLarge
             else
               pure ()
             let (elementSlot, elementSlotLayout) ←
