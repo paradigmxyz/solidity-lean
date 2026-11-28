@@ -307,20 +307,54 @@ def refCallOk (fn : InternalFunction) (args : List Expr) : Bool :=
     fn.params.all (fun p => !(fn.returns.any (·.name == p.name))) &&
     args.length == fn.params.length
 
-/-- Re-point the pointers `xs`, each one the scopes hold once, to the state variables `ts`. -/
-def retagMany : SymState → List String → List String → Option SymState
-  | S, [], [] => some S
-  | S, x :: xs, t :: ts =>
-    if (S.ref? x).isSome ∧ Scopes.occ S.scopes x = 1 then
-      retagMany { S with tags := (x, .sref t) :: S.tags } xs ts
+/-- A storage pointer the fragment knows: to a whole state variable, or to a struct of `n` whole-word
+fields at the literal slot `m`, `0 < m < 2 ^ 256`. -/
+inductive PtrV where
+  | whole (t : String)
+  | slot (n m : Nat)
+
+/-- SolidCore's value of a pointer. -/
+def PtrV.val : PtrV → Value
+  | .whole t => .storageRef t
+  | .slot n m => .storageSlotRef m (ptrLayout n)
+
+/-- The pointer the local `x` holds, when the state holds it as one. -/
+def SymState.ptrV? (S : SymState) (x : String) : Option PtrV :=
+  match S.ref? x with
+  | some t => some (.whole t)
+  | none => (S.ptr? x).map fun p => .slot p.1 p.2
+
+/-- Point the local `p` to the struct of `n` whole-word fields at the literal slot `m`: its word
+set to `m` when it already holds such a pointer (in its innermost scope), or retagged when it holds
+a pointer to a whole state variable that the scopes hold once. -/
+def setPtr (S : SymState) (p : String) (n m : Nat) : Option SymState :=
+  if S.tags.get p = .sptr n then
+    (Scopes.set S.scopes p (.lit m)).map fun sc => { S with scopes := sc }
+  else if (S.ref? p).isSome ∧ Scopes.occ S.scopes p = 1 then
+    (Scopes.set S.scopes p (.lit m)).map fun sc =>
+      { S with scopes := sc, tags := (p, .sptr n) :: S.tags }
+  else none
+
+/-- Point the local `x` to the pointer `v`. -/
+def setPtrV (S : SymState) (x : String) : PtrV → Option SymState
+  | .whole t =>
+    if (S.ref? x).isSome ∧ Scopes.occ S.scopes x = 1 then some { S with tags := (x, .sref t) :: S.tags }
     else none
+  | .slot n m => setPtr S x n m
+
+/-- Re-point the pointers `xs` to the pointers `vs`. -/
+def retagMany : SymState → List String → List PtrV → Option SymState
+  | S, [], [] => some S
+  | S, x :: xs, v :: vs => do
+    let S' ← setPtrV S x v
+    retagMany S' xs vs
   | _, _, _ => none
 
 /-- The end of an internal call with storage pointer returns from the end of its callee's body: the
-whole state variables its returns point to, and the caller's targets re-pointed to them. -/
+pointers its returns hold, and the caller's targets re-pointed to them. -/
 def callLeafR (fn : InternalFunction) (targets : List String) (S : SymState) : Leaf → Option Br
   | .normal S1 => do
-    let ts ← fn.returns.mapM fun r => S1.ref? r.name
+    let ts ← fn.returns.mapM fun r => S1.ptrV? r.name
     if targets = [] then some (.leaf (.normal { S with writes := S1.writes, logs := S1.logs }))
     else do
       let S' ← retagMany S targets ts
@@ -735,13 +769,47 @@ def eraseStmt (E : EraseEnv) : Nat → Stmt → SymState → Option Br
       if Scopes.get? S.scopes p = none then
         some (.leaf (.normal
           { S with scopes := S.scopes.declare p (.lit 0), tags := (p, .sref t) :: S.tags }))
-      else none
+      -- the uninitialized storage return target over a pointer to a struct in an outer scope: a
+      -- pointer of the same tag whose word is 0
+      else
+        match S.tags.get p with
+        | .sptr _ =>
+          if t = uninitializedStorageReturnTarget then
+            some (.leaf (.normal { S with scopes := S.scopes.declare p (.lit 0) }))
+          else none
+        | _ => none
     -- `T storage p = q` of a pointer `q` to a whole state variable: the same pointer
-    | .storageAliasFrom p q => do
-      let t ← S.ref? q
-      if Scopes.get? S.scopes p = none then
-        some (.leaf (.normal
-          { S with scopes := S.scopes.declare p (.lit 0), tags := (p, .sref t) :: S.tags }))
+    | .storageAliasFrom p q =>
+      match S.ref? q with
+      | some t =>
+        if Scopes.get? S.scopes p = none then
+          some (.leaf (.normal
+            { S with scopes := S.scopes.declare p (.lit 0), tags := (p, .sref t) :: S.tags }))
+        else none
+      -- of a pointer `q` to a struct: the same pointer, as a new local or over a pointer of the same
+      -- tag in an outer scope
+      | none => do
+        let (n, m) ← S.ptr? q
+        if Scopes.get? S.scopes p = none then
+          some (.leaf (.normal
+            { S with scopes := S.scopes.declare p (.lit m), tags := (p, .sptr n) :: S.tags }))
+        else if S.tags.get p = .sptr n then
+          some (.leaf (.normal { S with scopes := S.scopes.declare p (.lit m) }))
+        else none
+    -- `p = q` of a pointer `q` to a struct: `p` points where `q` does
+    | .storageAliasAssignFrom p q => do
+      let (n, m) ← S.ptr? q
+      let S' ← setPtr S p n m
+      some (.leaf (.normal S'))
+    -- `p = m[k]` of a mapping to structs of whole-word fields at a literal key: `p` points to the
+    -- struct at the entry's literal slot
+    | .storageAliasAssignPath p x [key] => do
+      let (k, n) ← mapSOf? E.fields x
+      let (gs, kv) ← eraseExpr E.fields S key
+      let s ← litOf? (mkHash kv (.lit k))
+      if gs = [] ∧ s % wordSize ≠ 0 then do
+        let S' ← setPtr S p n (s % wordSize)
+        some (.leaf (.normal S'))
       else none
     -- `p = a` of a pointer `p` the scopes hold once: `p` points to the whole state variable `a`
     | .storageAliasAssign p t =>
@@ -750,15 +818,27 @@ def eraseStmt (E : EraseEnv) : Nat → Stmt → SymState → Option Br
       else none
     -- `p[j] = e` through a pointer to a fixed-size array of words, at a constant index below its
     -- length: the word to the slot `slot + j`, as `a[j] = e` writes it
-    | .assign (.index (.var p) i) e => do
-      let t ← S.ref? p
-      let (k, len) ← arrOf? E.fields t
-      let (gs, v) ← eraseExpr E.fields S e
-      let (gi, key) ← eraseExpr E.fields S i
-      let j ← litOf? key
-      if gi = [] ∧ j < len then
-        some (guards (gs ++ gi) (.leaf (.normal { S with writes := S.writes.set (.lit (k + j)) v })))
-      else none
+    | .assign (.index (.var p) i) e =>
+      match S.ref? p with
+      | some t => do
+        let (k, len) ← arrOf? E.fields t
+        let (gs, v) ← eraseExpr E.fields S e
+        let (gi, key) ← eraseExpr E.fields S i
+        let j ← litOf? key
+        if gi = [] ∧ j < len then
+          some (guards (gs ++ gi) (.leaf (.normal { S with writes := S.writes.set (.lit (k + j)) v })))
+        else none
+      -- `p.f = e` through a pointer to a struct of whole-word fields: the word to the field's slot
+      | none => do
+        let (n, m) ← S.ptr? p
+        let (gs, v) ← eraseExpr E.fields S e
+        let (gi, key) ← eraseExpr E.fields S i
+        let j ← litOf? key
+        let off ← ptrField? n j
+        if gi = [] ∧ j < wordSize then
+          some (guards (gs ++ gi)
+            (.leaf (.normal { S with writes := S.writes.set (.lit ((m + off) % wordSize)) v })))
+        else none
     | _ => none
 
 
@@ -896,6 +976,30 @@ theorem lookup_ref {ρ : Val} {rt : Runtime} {S : SymState}
     simp [Runtime.lookupLocal?, hfr, envT_lookup, he, htag, Tag.val]
   · simp at ht
 
+theorem ptr?_spec {S : SymState} {x : String} {n m : Nat} (h : S.ptr? x = some (n, m)) :
+    S.tags.get x = .sptr n ∧ m < wordSize ∧ m ≠ 0 ∧
+      ∃ m', Scopes.get? S.scopes x = some (.lit m') ∧ m' % wordSize = m := by
+  unfold SymState.ptr? at h
+  split at h
+  · rename_i n' htag
+    split at h
+    · rename_i m' hg
+      split at h
+      · rename_i hm
+        simp only [Option.some.injEq, Prod.mk.injEq] at h
+        obtain ⟨rfl, rfl⟩ := h
+        exact ⟨htag, Nat.mod_lt _ (by decide), hm, m', hg, rfl⟩
+      · simp at h
+    · simp at h
+  · simp at h
+
+/-- A struct pointer local's lookup in a typed scope. -/
+theorem lookup_ptr {ρ : Val} {rt : Runtime} {S : SymState}
+    (hfr : rt.locals = S.scopes.map (frameOfT ρ S.tags)) {x : String} {n m : Nat}
+    (h : S.ptr? x = some (n, m)) : rt.lookupLocal? x = some (.storageSlotRef m (ptrLayout n)) := by
+  obtain ⟨htag, -, hne, m', hg, rfl⟩ := ptr?_spec h
+  simp [Runtime.lookupLocal?, hfr, envT_lookup, hg, htag, Tag.val, WExpr.eval, hne]
+
 theorem frameT_assign (ρ : Val) (T : Tags) (L : Locals) (x : String) (v : WExpr)
     (hx : T.get x = .word) :
     Frame.assign? (frameOfT ρ T L) x (Value.word (v.eval ρ)) = (L.set x v).map (frameOfT ρ T) := by
@@ -999,6 +1103,7 @@ theorem StmtRel.expr {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {S
   locals x e he := lookup_word h.frames he
   store := h.store
   refs x t ht := lookup_ref h.frames ht
+  ptrs x n m hp := lookup_ptr h.frames hp
 
 theorem loadSlot_storeSlot (st : State) (k w q : Nat) (hk : k < wordSize) (hw : w < wordSize)
     (hq : q < wordSize) : (st.storeSlot k w).loadSlot q = if q = k then w else st.loadSlot q := by
@@ -1179,6 +1284,113 @@ theorem envT_assign_retag (ρ : Val) (T : Tags) (x t : String) :
         intro M hM
         exact frameOfT_cons_fresh ρ T x (.sref t) M (hfr M hM)
       simp only [List.map_cons, LocalEnv.assign?, frameOfT_assign_retag ρ T x t L h1, hmap]
+
+/-- Declaring a local again, with the tag its name already has. -/
+theorem envT_declareT (ρ : Val) (T : Tags) (sc : Scopes) (x : String) (v : WExpr) :
+    LocalEnv.declare (sc.map (frameOfT ρ T)) x ((T.get x).val (v.eval ρ)) =
+      (sc.declare x v).map (frameOfT ρ T) := by
+  cases sc <;> simp [LocalEnv.declare, Scopes.declare, frameOfT]
+
+theorem frameT_assignG (ρ : Val) (T : Tags) (L : Locals) (x : String) (v : WExpr) :
+    Frame.assign? (frameOfT ρ T L) x ((T.get x).val (v.eval ρ)) = (L.set x v).map (frameOfT ρ T) := by
+  induction L with
+  | nil => rfl
+  | cons p L ih =>
+    obtain ⟨y, e⟩ := p
+    by_cases hy : y = x
+    · subst hy; simp [frameOfT, Frame.assign?, Locals.set]
+    · simp only [frameOfT, List.map_cons, Frame.assign?, Locals.set, hy, ↓reduceIte] at ih ⊢
+      rw [ih]
+      cases Locals.set L x v <;> rfl
+
+/-- Assigning a local the value of its own tag at a new word. -/
+theorem envT_assignG (ρ : Val) (T : Tags) (x : String) (v : WExpr) :
+    ∀ (sc : Scopes), LocalEnv.assign? (sc.map (frameOfT ρ T)) x ((T.get x).val (v.eval ρ)) =
+      (Scopes.set sc x v).map (·.map (frameOfT ρ T))
+  | [] => rfl
+  | L :: rest => by
+    simp only [List.map_cons, LocalEnv.assign?, frameT_assignG ρ T L x v, Scopes.set]
+    cases L.set x v with
+    | some L' => rfl
+    | none =>
+      simp only [Option.map_none, envT_assignG ρ T x v rest]
+      cases Scopes.set rest x v <;> rfl
+
+theorem Locals.set_fresh {x : String} {v : WExpr} : ∀ {L : Locals}, (∀ p ∈ L, p.1 ≠ x) →
+    L.set x v = none
+  | [], _ => rfl
+  | (y, e) :: L, h => by
+    have hy : y ≠ x := h (y, e) List.mem_cons_self
+    simp [Locals.set, hy, Locals.set_fresh (fun q hq => h q (List.mem_cons_of_mem _ hq))]
+
+theorem Locals.set_exists {x : String} {v : WExpr} : ∀ {L : Locals},
+    L.countP (fun p => p.1 == x) ≠ 0 → ∃ L', L.set x v = some L'
+  | [], h => by simp at h
+  | (y, e) :: L, h => by
+    by_cases hy : y = x
+    · exact ⟨(y, v) :: L, by simp [Locals.set, hy]⟩
+    · have hb : (y == x) = false := by simp [hy]
+      have h' : L.countP (fun p => p.1 == x) ≠ 0 := by simpa [List.countP_cons, hb] using h
+      obtain ⟨L', hL'⟩ := Locals.set_exists (v := v) h'
+      exact ⟨(y, e) :: L', by simp [Locals.set, hy, hL']⟩
+
+/-- Assigning the one local named `x` of a scope a value of a new tag. -/
+theorem frameOfT_set_retag (ρ : Val) (T : Tags) (x : String) (t : Tag) (v : WExpr) :
+    ∀ (L L' : Locals), L.countP (fun p => p.1 == x) = 1 → L.set x v = some L' →
+      Frame.assign? (frameOfT ρ T L) x (t.val (v.eval ρ)) = some (frameOfT ρ ((x, t) :: T) L')
+  | [], _, h, _ => by simp at h
+  | (y, e) :: L, L', h, hs => by
+    by_cases hy : y = x
+    · subst hy
+      simp only [Locals.set, ↓reduceIte, Option.some.injEq] at hs
+      subst hs
+      have h0 : L.countP (fun p => p.1 == y) = 0 := by
+        simp only [List.countP_cons, beq_self_eq_true, ↓reduceIte] at h; omega
+      have hL := frameOfT_cons_fresh ρ T y t L (countP_fresh h0)
+      simp only [frameOfT, List.map_cons, Frame.assign?, ↓reduceIte, Tags.get_cons,
+        Option.some.injEq, List.cons.injEq, true_and] at hL ⊢
+      exact hL.symm
+    · have hb : (y == x) = false := by simp [hy]
+      have h1 : L.countP (fun p => p.1 == x) = 1 := by simpa [List.countP_cons, hb] using h
+      simp only [Locals.set, hy, ↓reduceIte] at hs
+      obtain ⟨L'', hs', rfl⟩ := Option.map_eq_some_iff.mp hs
+      have ih := frameOfT_set_retag ρ T x t v L L'' h1 hs'
+      simp only [frameOfT, List.map_cons, Frame.assign?, hy, ↓reduceIte] at ih ⊢
+      rw [ih]
+      simp [Tags.get_cons, hy]
+
+/-- Assigning the one local named `x` of the scopes a value of a new tag. -/
+theorem envT_set_retag (ρ : Val) (T : Tags) (x : String) (t : Tag) (v : WExpr) :
+    ∀ (sc sc' : Scopes), Scopes.occ sc x = 1 → Scopes.set sc x v = some sc' →
+      LocalEnv.assign? (sc.map (frameOfT ρ T)) x (t.val (v.eval ρ)) =
+        some (sc'.map (frameOfT ρ ((x, t) :: T)))
+  | [], _, h, _ => by simp [Scopes.occ] at h
+  | L :: rest, sc', h, hs => by
+    have hsum : L.countP (fun p => p.1 == x) + Scopes.occ rest x = 1 := by
+      simpa [Scopes.occ] using h
+    by_cases hL : L.countP (fun p => p.1 == x) = 0
+    · have hfr := countP_fresh hL
+      have hrest : Scopes.occ rest x = 1 := by omega
+      simp only [Scopes.set, Locals.set_fresh hfr] at hs
+      obtain ⟨sc'', hs', rfl⟩ := Option.map_eq_some_iff.mp hs
+      have hnone : Frame.assign? (frameOfT ρ T L) x (t.val (v.eval ρ)) = none := by
+        apply frame_assign_absent
+        intro q hq
+        obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hq
+        exact hfr p hp
+      simp only [List.map_cons, LocalEnv.assign?, hnone, envT_set_retag ρ T x t v rest sc'' hrest hs',
+        frameOfT_cons_fresh ρ T x t L hfr]
+    · have h1 : L.countP (fun p => p.1 == x) = 1 := by omega
+      have h0 : Scopes.occ rest x = 0 := by omega
+      have hfr := occ_zero_fresh h0
+      obtain ⟨L', hL'⟩ := Locals.set_exists (v := v) (show L.countP (fun p => p.1 == x) ≠ 0 by omega)
+      simp only [Scopes.set, hL', Option.some.injEq] at hs
+      subst hs
+      have hmap : rest.map (frameOfT ρ ((x, t) :: T)) = rest.map (frameOfT ρ T) := by
+        apply List.map_congr_left
+        intro M hM
+        exact frameOfT_cons_fresh ρ T x t M (hfr M hM)
+      simp only [List.map_cons, LocalEnv.assign?, frameOfT_set_retag ρ T x t v L L' h1 hL', hmap]
 
 theorem signed_range (u : EvmYul.UInt256) :
     -(Int.ofNat (2 ^ (256 - 1))) ≤ EvmYul.UInt256.fromSigned u ∧
@@ -3597,10 +3809,22 @@ theorem initialFrame_refs (ρ : Val) (fn : InternalFunction) (vs : List WExpr)
     intro r hrm
     simp [refTags_get_ret (List.mem_map_of_mem hrm), Tag.val]
 
+theorem lookup_ptrV {ρ : Val} {rt : Runtime} {S : SymState}
+    (hfr : rt.locals = S.scopes.map (frameOfT ρ S.tags)) {x : String} {v : PtrV}
+    (h : S.ptrV? x = some v) : rt.lookupLocal? x = some v.val := by
+  unfold SymState.ptrV? at h
+  split at h
+  · rename_i t ht
+    simp only [Option.some.injEq] at h
+    subst h
+    exact lookup_ref hfr ht
+  · obtain ⟨⟨n, m⟩, hp, rfl⟩ := Option.map_eq_some_iff.mp h
+    exact lookup_ptr hfr hp
+
 theorem collectRef_refs (ρ : Val) (rt : Runtime) (S : SymState)
-    (hfr : rt.locals = S.scopes.map (frameOfT ρ S.tags)) : ∀ (rs : List BindingDecl) (ts : List String),
-    rs.mapM (fun r => S.ref? r.name) = some ts →
-    collectReturnBindingsRef.collect rt rs = .ok (ts.map Value.storageRef)
+    (hfr : rt.locals = S.scopes.map (frameOfT ρ S.tags)) : ∀ (rs : List BindingDecl) (ts : List PtrV),
+    rs.mapM (fun r => S.ptrV? r.name) = some ts →
+    collectReturnBindingsRef.collect rt rs = .ok (ts.map PtrV.val)
   | [], ts, h => by
     simp only [List.mapM_nil, Option.pure_def, Option.some.injEq] at h
     subst h; rfl
@@ -3608,50 +3832,146 @@ theorem collectRef_refs (ρ : Val) (rt : Runtime) (S : SymState)
     simp only [List.mapM_cons, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.pure_def,
       Option.some.injEq] at h
     obtain ⟨t, ht, ts', hts', rfl⟩ := h
-    have hl : rt.lookupLocal? r.name = some (.storageRef t) := lookup_ref hfr ht
+    have hl : rt.lookupLocal? r.name = some t.val := lookup_ptrV hfr ht
+    cases t <;>
     simp [collectReturnBindingsRef.collect, hl, collectRef_refs ρ rt S hfr rs ts' hts', bind,
-      Except.bind, pure, Except.pure]
+      Except.bind, pure, Except.pure, PtrV.val]
 
-theorem retagMany_spec : ∀ {S S' : SymState} {xs ts : List String}, retagMany S xs ts = some S' →
-    S' = { S with tags := S'.tags }
-  | S, S', [], [], h => by
-    simp only [retagMany, Option.some.injEq] at h
-    subst h; rfl
-  | S, S', x :: xs, t :: ts, h => by
-    simp only [retagMany] at h
-    split at h
-    · have := retagMany_spec h
-      rw [this]
+/-- Pointing a local to a struct pointer, as SolidCore re-points it. -/
+theorem setPtr_spec {ρ : Val} {rt : Runtime} {S S' : SymState}
+    (hfr : rt.locals = S.scopes.map (frameOfT ρ S.tags)) {p : String} {n m : Nat}
+    (hm : m < wordSize) (hne : m ≠ 0) (h : setPtr S p n m = some S') :
+    rt.assignStorageRefValue? p (.storageSlotRef m (ptrLayout n)) =
+        some { rt with locals := S'.scopes.map (frameOfT ρ S'.tags) } ∧
+      S' = { S with scopes := S'.scopes, tags := S'.tags } := by
+  have hval : (Tag.sptr n).val ((WExpr.lit m).eval ρ) = .storageSlotRef m (ptrLayout n) := by
+    simp [Tag.val, WExpr.eval, Nat.mod_eq_of_lt hm, hne]
+  unfold setPtr at h
+  split at h
+  · rename_i htag
+    obtain ⟨sc, hsc, rfl⟩ := Option.map_eq_some_iff.mp h
+    obtain ⟨old, hold⟩ := Scopes.get?_of_set hsc
+    have hl : rt.lookupLocal? p = some ((Tag.sptr n).val (old.eval ρ)) := by
+      simp [Runtime.lookupLocal?, hfr, envT_lookup, hold, htag]
+    have ha := envT_assignG ρ S.tags p (.lit m) S.scopes
+    rw [htag, hval, hsc] at ha
+    refine ⟨?_, rfl⟩
+    by_cases h0 : old.eval ρ = 0
+    · simp only [Tag.val, h0, ↓reduceIte] at hl
+      simp [Runtime.assignStorageRefValue?, hl, hfr, ha]
+    · simp only [Tag.val, h0, ↓reduceIte] at hl
+      simp [Runtime.assignStorageRefValue?, hl, hfr, ha]
+  · split at h
+    · rename_i _ hc
+      obtain ⟨hsome, hocc⟩ := hc
+      obtain ⟨sc, hsc, rfl⟩ := Option.map_eq_some_iff.mp h
+      obtain ⟨t0, ht0⟩ := Option.isSome_iff_exists.mp hsome
+      have hl := lookup_ref hfr ht0
+      have ha := envT_set_retag ρ S.tags p (.sptr n) (.lit m) S.scopes sc hocc hsc
+      rw [hval] at ha
+      refine ⟨?_, rfl⟩
+      simp [Runtime.assignStorageRefValue?, hl, hfr, ha]
     · simp at h
-  | _, _, [], _ :: _, h | _, _, _ :: _, [], h => by simp [retagMany] at h
 
-theorem assignMany_refs {ρ : Val} : ∀ (xs ts : List String) (S S' : SymState) (rt : Runtime),
-    rt.locals = S.scopes.map (frameOfT ρ S.tags) → retagMany S xs ts = some S' →
-    rt.assignNamedValuesRef? xs (ts.map Value.storageRef) =
-      some { rt with locals := S'.scopes.map (frameOfT ρ S'.tags) }
-  | [], [], S, S', rt, hfr, h => by
-    simp only [retagMany, Option.some.injEq] at h
-    subst h
-    rw [← hfr]
-    rfl
-  | x :: xs, t :: ts, S, S', rt, hfr, h => by
-    simp only [retagMany] at h
+theorem setPtrV_spec {ρ : Val} {rt : Runtime} {S S' : SymState}
+    (hfr : rt.locals = S.scopes.map (frameOfT ρ S.tags)) {x : String} {v : PtrV}
+    (hv : ∀ n m, v = .slot n m → m < wordSize ∧ m ≠ 0) (h : setPtrV S x v = some S') :
+    rt.assignStorageRefValue? x v.val = some { rt with locals := S'.scopes.map (frameOfT ρ S'.tags) } ∧
+      S' = { S with scopes := S'.scopes, tags := S'.tags } := by
+  cases v with
+  | whole t =>
+    simp only [setPtrV] at h
     split at h
     · rename_i hc
       obtain ⟨hsome, hocc⟩ := hc
+      simp only [Option.some.injEq] at h
+      subst h
       obtain ⟨t0, ht0⟩ := Option.isSome_iff_exists.mp hsome
       have hp := lookup_ref hfr ht0
       have hassign : LocalEnv.assign? rt.locals x (.storageRef t) =
           some (S.scopes.map (frameOfT ρ ((x, .sref t) :: S.tags))) := by
         rw [hfr]
         exact envT_assign_retag ρ S.tags x t S.scopes hocc
-      have ih := assignMany_refs xs ts { S with tags := (x, .sref t) :: S.tags } S'
-        { rt with locals := S.scopes.map (frameOfT ρ ((x, .sref t) :: S.tags)) } rfl h
-      simp only [List.map_cons, Runtime.assignNamedValuesRef?, Runtime.assignLocalRefAware?,
-        Runtime.assignStorageRefValue?, hp, hassign]
-      exact ih
+      exact ⟨by simp [Runtime.assignStorageRefValue?, hp, hassign, PtrV.val], rfl⟩
     · simp at h
-  | [], _ :: _, _, _, _, _, h | _ :: _, [], _, _, _, _, h => by simp [retagMany] at h
+  | slot n m =>
+    obtain ⟨hm, hne⟩ := hv n m rfl
+    exact setPtr_spec hfr hm hne h
+
+theorem ptrV?_ok {S : SymState} {x : String} {v : PtrV} (h : S.ptrV? x = some v) :
+    ∀ n m, v = .slot n m → m < wordSize ∧ m ≠ 0 := by
+  intro n m hv
+  subst hv
+  unfold SymState.ptrV? at h
+  split at h
+  · simp at h
+  · obtain ⟨⟨n', m'⟩, hp, he⟩ := Option.map_eq_some_iff.mp h
+    simp only [PtrV.slot.injEq] at he
+    obtain ⟨rfl, rfl⟩ := he
+    obtain ⟨-, hlt, hne, -⟩ := ptr?_spec hp
+    exact ⟨hlt, hne⟩
+
+theorem mapM_ptrV_ok {S : SymState} : ∀ {rs : List BindingDecl} {ts : List PtrV},
+    rs.mapM (fun r => S.ptrV? r.name) = some ts → ∀ v ∈ ts, ∀ n m, v = .slot n m → m < wordSize ∧ m ≠ 0
+  | [], ts, h => by
+    simp only [List.mapM_nil, Option.pure_def, Option.some.injEq] at h
+    subst h; simp
+  | r :: rs, ts, h => by
+    simp only [List.mapM_cons, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.pure_def,
+      Option.some.injEq] at h
+    obtain ⟨t, ht, ts', hts', rfl⟩ := h
+    intro v hv
+    rcases List.mem_cons.mp hv with rfl | hv
+    · exact ptrV?_ok ht
+    · exact mapM_ptrV_ok hts' v hv
+
+theorem retagMany_spec : ∀ {S S' : SymState} {xs : List String} {ts : List PtrV},
+    retagMany S xs ts = some S' → S' = { S with scopes := S'.scopes, tags := S'.tags }
+  | S, S', [], [], h => by
+    simp only [retagMany, Option.some.injEq] at h
+    subst h; rfl
+  | S, S', x :: xs, v :: vs, h => by
+    simp only [retagMany, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+    obtain ⟨S1, h1, h2⟩ := h
+    have e2 := retagMany_spec h2
+    have e1 : S1 = { S with scopes := S1.scopes, tags := S1.tags } := by
+      cases v with
+      | whole t =>
+        simp only [setPtrV] at h1
+        split at h1
+        · simp only [Option.some.injEq] at h1; subst h1; rfl
+        · simp at h1
+      | slot n m =>
+        simp only [setPtrV, setPtr] at h1
+        split at h1
+        · obtain ⟨sc, -, rfl⟩ := Option.map_eq_some_iff.mp h1; rfl
+        · split at h1
+          · obtain ⟨sc, -, rfl⟩ := Option.map_eq_some_iff.mp h1; rfl
+          · simp at h1
+    rw [e2, e1]
+  | _, _, [], _ :: _, h | _, _, _ :: _, [], h => by simp [retagMany] at h
+
+theorem assignMany_refs {ρ : Val} : ∀ (xs : List String) (ts : List PtrV) (S S' : SymState)
+    (rt : Runtime), rt.locals = S.scopes.map (frameOfT ρ S.tags) →
+    (∀ v ∈ ts, ∀ n m, v = .slot n m → m < wordSize ∧ m ≠ 0) → retagMany S xs ts = some S' →
+    rt.assignNamedValuesRef? xs (ts.map PtrV.val) =
+      some { rt with locals := S'.scopes.map (frameOfT ρ S'.tags) }
+  | [], [], S, S', rt, hfr, _, h => by
+    simp only [retagMany, Option.some.injEq] at h
+    subst h
+    rw [← hfr]
+    rfl
+  | x :: xs, v :: vs, S, S', rt, hfr, hok, h => by
+    simp only [retagMany, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+    obtain ⟨S1, h1, h2⟩ := h
+    obtain ⟨ha, -⟩ := setPtrV_spec hfr (hok v List.mem_cons_self) h1
+    have ih := assignMany_refs xs vs S1 S' { rt with locals := S1.scopes.map (frameOfT ρ S1.tags) }
+      rfl (fun w hw => hok w (List.mem_cons_of_mem _ hw)) h2
+    have hra : rt.assignLocalRefAware? x v.val = rt.assignStorageRefValue? x v.val := by
+      cases v <;> rfl
+    simp only [List.map_cons, Runtime.assignNamedValuesRef?, hra, ha]
+    exact ih
+  | [], _ :: _, _, _, _, _, _, h | _ :: _, [], _, _, _, _, _, h => by simp [retagMany] at h
 
 theorem finish_callR {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {S : SymState}
     (hrel : StmtRel ρ E ctx rt S) {fn : InternalFunction} {targets : List String} :
@@ -3673,7 +3993,8 @@ theorem finish_callR {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {S
       simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
       obtain ⟨S', hS', rfl⟩ := h
       have hS'eq := retagMany_spec hS'
-      have ha := assignMany_refs targets ts S S' { rt1 with locals := rt.locals } hrel.frames hS'
+      have ha := assignMany_refs targets ts S S' { rt1 with locals := rt.locals } hrel.frames
+        (mapM_ptrV_ok hts) hS'
       have hne' : targets.isEmpty = false := by
         cases targets with
         | nil => exact absurd rfl hne
@@ -4240,8 +4561,48 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
       case index base i2 =>
         cases base
         case var p =>
-          simp only [eraseStmt, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
-          obtain ⟨t, ht, ⟨k, len⟩, ha, ⟨gs, v⟩, he, ⟨gi, key⟩, hi, j, hj, h⟩ := h
+          cases ht : S.ref? p with
+          | none =>
+            simp only [eraseStmt, ht, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+            obtain ⟨⟨ns, m⟩, hpt, ⟨gs, v⟩, he, ⟨gi, key⟩, hi, j, hj, off, hoff, h⟩ := h
+            split at h
+            · rename_i hc
+              obtain ⟨rfl, hjw⟩ := hc
+              simp only [Option.some.injEq] at h
+              subst h
+              obtain rfl : key = .lit j := by
+                cases key <;> simp only [litOf?, Option.some.injEq, reduceCtorEq] at hj
+                exact congrArg WExpr.lit hj
+              have hl : (WExpr.lit j).eval ρ = j := Nat.mod_eq_of_lt hjw
+              obtain ⟨-, hm, -, -⟩ := ptr?_spec hpt
+              have hp := lookup_ptr hrel.frames hpt
+              have hbase : rt.lookupStorageBase? p = some (.slot m (ptrLayout ns)) := by
+                simp [Runtime.lookupStorageBase?, hp]
+              have heval := eval_eq ρ E.fields ctx rt S hrel.expr he
+              have hres : (LValue.resolveWithRuntime (.index (.var p) i2) ctx rt).caught =
+                  .done (.ok (.ok (.storageSlotPath m (ptrLayout ns) [.word j], rt))) := by
+                simp only [LValue.resolveWithRuntime, Expr.resolveLValue, LValue.toExpr, Expr.orderFuel]
+                rw [Expr.resolveLValueFuel, Expr.resolveLValueFuel]
+                simp only [hbase, pure, EvmCompiler.Simulation.Interaction.pure, bind_done_ok,
+                  eval_erase ρ E.fields ctx rt S hrel.expr i2 [] (.lit j) (1 + i2.orderFuel + 1) hi
+                    (by omega), exprResult, List.any_nil, Bool.false_eq_true, ↓reduceIte, hl]
+                rfl
+              have hst := storePtr (ctx := ctx) (rt := rt) hm hjw hoff (v.eval_lt ρ)
+              have hw := hrel.write (.lit ((m + off) % wordSize)) v
+              simp only [WExpr.eval, Nat.mod_mod] at hw
+              rw [Stmt.eval]
+              simp only [LValue.wantsMemoryRefRhs, LValue.toExpr, Expr.hasStorageRoot,
+                Expr.hasStorageRefRoot, hbase, Option.isSome_some, Bool.false_or, Bool.not_true,
+                Bool.false_eq_true, ↓reduceIte, heval, caught_exprResult]
+              rw [guards_eval]
+              simp only [List.append_nil]
+              guard_cases hg : gs.any (fun g => g.eval ρ != 0)
+              simp only [bind_done_ok, hres, ResolvedLValue.write, hst, ite_self]
+              exact ⟨_, rfl, hw⟩
+            · simp at h
+          | some t =>
+          simp only [eraseStmt, ht, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+          obtain ⟨⟨k, len⟩, ha, ⟨gs, v⟩, he, ⟨gi, key⟩, hi, j, hj, h⟩ := h
           split at h
           · rename_i hc
             obtain ⟨rfl, hjl⟩ := hc
@@ -4488,10 +4849,114 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
           rw [Runtime.declareLocal, hrel.frames]
           exact envT_declare_fresh ρ S.tags S.scopes p (.sref t) (.lit 0) hnone
         exact { hrel with frames := hf }
-      · simp at h
+      · split at h
+        · rename_i n htag
+          split at h
+          · rename_i hte
+            subst hte
+            simp only [Option.some.injEq] at h
+            subst h
+            refine ⟨.normal (rt.declareLocal p (.storageRef uninitializedStorageReturnTarget)),
+              by rw [Stmt.eval]; rfl, ?_⟩
+            have hf : (rt.declareLocal p (.storageRef uninitializedStorageReturnTarget)).locals =
+                (S.scopes.declare p (.lit 0)).map (frameOfT ρ S.tags) := by
+              rw [Runtime.declareLocal, hrel.frames, ← envT_declareT ρ S.tags S.scopes p (.lit 0), htag]
+              simp [Tag.val, WExpr.eval]
+            exact { hrel with frames := hf }
+          · simp at h
+        · simp at h
+    case storageAliasAssignFrom p q =>
+      simp only [eraseStmt, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
+      obtain ⟨⟨ns, m⟩, hq, S', hS', rfl⟩ := h
+      obtain ⟨-, hm, hne, -⟩ := ptr?_spec hq
+      have hql := lookup_ptr hrel.frames hq
+      have hbase : rt.lookupStorageBase? q = some (.slot m (ptrLayout ns)) := by
+        simp [Runtime.lookupStorageBase?, hql]
+      obtain ⟨ha, hS⟩ := setPtr_spec hrel.frames hm hne hS'
+      refine ⟨.normal { rt with locals := S'.scopes.map (frameOfT ρ S'.tags) }, ?_, ?_⟩
+      · rw [Stmt.eval]
+        simp only [hbase, StorageBase.toRefValue, ha]
+        rfl
+      · rw [hS]
+        exact { hrel with frames := rfl }
+    case storageAliasAssignPath p x idx =>
+      match idx, h with
+      | [key], h =>
+        simp only [eraseStmt, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+        obtain ⟨⟨k, ns⟩, hk, ⟨gs, kv⟩, he, s, hs, h⟩ := h
+        split at h
+        · rename_i hc
+          obtain ⟨rfl, hs0⟩ := hc
+          simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
+          obtain ⟨S', hS', rfl⟩ := h
+          obtain ⟨f, hf, rfl⟩ := mapSOf?_spec hrel.fields hk
+          have hlit : mkHash kv (.lit f.slot) = .lit s := by
+            cases hm : mkHash kv (.lit f.slot) <;> simp_all [litOf?]
+          have hsv : solHash (kv.eval ρ) f.slot = s % wordSize := by
+            have h1 := mkHash_eval hrel.hash kv (.lit f.slot)
+            rw [hlit] at h1
+            simp only [WExpr.eval, hrel.hash, Nat.mod_eq_of_lt hf.slot] at h1
+            rw [h1, Nat.mod_eq_of_lt (solHash_lt _ _)]
+          have hbind := bindPtr (rt := rt) hf (kv.eval_lt ρ)
+          rw [hsv] at hbind
+          obtain ⟨ha, hS⟩ := setPtr_spec hrel.frames (Nat.mod_lt _ (by decide)) hs0 hS'
+          have hfk : Expr.orderFuel key < Expr.listEvalFuel [key] - 1 := by
+            simp only [Expr.listEvalFuel]; omega
+          obtain ⟨m, hm⟩ : ∃ m, Expr.listEvalFuel [key] = m + 2 :=
+            ⟨Expr.listEvalFuel [key] - 2, by simp only [Expr.listEvalFuel]; omega⟩
+          have hev : Expr.evalList ctx rt [key] = .done (.ok ([.word (kv.eval ρ)], rt)) := by
+            rw [Expr.evalList, hm,
+              evalList_one m (eval_erase ρ E.fields ctx rt S hrel.expr key [] kv (m + 1) he (by omega))]
+            rfl
+          refine ⟨.normal { rt with locals := S'.scopes.map (frameOfT ρ S'.tags) }, ?_, ?_⟩
+          · rw [Stmt.eval]
+            simp only [hev, caught_done_ok, bind_done_ok, hbind, ha]
+            rfl
+          · rw [hS]
+            exact { hrel with frames := rfl }
+        · simp at h
+      | [], h => simp [eraseStmt] at h
+      | _ :: _ :: _, h => simp [eraseStmt] at h
     case storageAliasFrom p q =>
-      simp only [eraseStmt, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
-      obtain ⟨t, ht, h⟩ := h
+      cases hr : S.ref? q with
+      | none =>
+        simp only [eraseStmt, hr, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+        obtain ⟨⟨ns, m⟩, hq, h⟩ := h
+        obtain ⟨-, hm, hne, -⟩ := ptr?_spec hq
+        have hql := lookup_ptr hrel.frames hq
+        have hbase : rt.lookupStorageBase? q = some (.slot m (ptrLayout ns)) := by
+          simp [Runtime.lookupStorageBase?, hql]
+        have hval : (Tag.sptr ns).val ((WExpr.lit m).eval ρ) = .storageSlotRef m (ptrLayout ns) := by
+          simp [Tag.val, WExpr.eval, Nat.mod_eq_of_lt hm, hne]
+        have hev : Stmt.eval (n + 1) E.tbl ctx rt (.storageAliasFrom p q) =
+            .done (.ok (.normal (rt.declareLocal p (.storageSlotRef m (ptrLayout ns))))) := by
+          rw [Stmt.eval]
+          simp only [hbase, StorageBase.toRefValue]
+          rfl
+        split at h
+        · rename_i hnone
+          simp only [Option.some.injEq] at h
+          subst h
+          refine ⟨_, hev, ?_⟩
+          have hf : (rt.declareLocal p (.storageSlotRef m (ptrLayout ns))).locals =
+              (S.scopes.declare p (.lit m)).map (frameOfT ρ ((p, .sptr ns) :: S.tags)) := by
+            rw [Runtime.declareLocal, hrel.frames, ← hval]
+            exact envT_declare_fresh ρ S.tags S.scopes p (.sptr ns) (.lit m) hnone
+          exact { hrel with frames := hf }
+        · split at h
+          · rename_i _ htag
+            simp only [Option.some.injEq] at h
+            subst h
+            refine ⟨_, hev, ?_⟩
+            have hf : (rt.declareLocal p (.storageSlotRef m (ptrLayout ns))).locals =
+                (S.scopes.declare p (.lit m)).map (frameOfT ρ S.tags) := by
+              rw [Runtime.declareLocal, hrel.frames, ← hval, ← htag]
+              exact envT_declareT ρ S.tags S.scopes p (.lit m)
+            exact { hrel with frames := hf }
+          · simp at h
+      | some t =>
+      simp only [eraseStmt, hr, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+      have ht := hr
       split at h
       · rename_i hnone
         simp only [Option.some.injEq] at h

@@ -818,6 +818,7 @@ theorem retOkT_spec {ρ : Val} {K : Facts} (hK : K.Hold ρ) {ty : Source.Ty} {t 
     · simp [Tag.val, Value.untagFixedBytes]
   | bytes32 => simp [retOkT] at h
   | sref _ => simp [retOkT] at h
+  | sptr _ => simp [retOkT] at h
 
 theorem retsOkT_length {K : Facts} : ∀ {rs : List BindingDecl} {ts : List Tag} {ws : List WExpr},
     retsOkT K rs ts ws = true → ws.length = rs.length

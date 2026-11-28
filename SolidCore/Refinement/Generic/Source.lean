@@ -178,22 +178,51 @@ def Scopes.get? : Scopes → String → Option WExpr
     | some e => some e
     | none => Scopes.get? rest x
 
+/-- A whole-word `uint256` field of a struct in storage, as SolidCore lays it out. -/
+def wordField : StorageLayout := .packedScalar 0 32 false .uint256
+
+/-- The layout of a struct of `n` whole-word `uint256` fields in storage. -/
+def ptrLayout (n : Nat) : StorageLayout := .struct (List.replicate n wordField)
+
 /-- How SolidCore holds a local's word: as a word (`uint256`, `address`, `bool`, an enum), as a
-signed word (`int256`), as a `bytes32`, or as a storage pointer to the whole state variable
-`target` (`T storage p = a`), whose word the fragment keeps at 0 and never reads. -/
+signed word (`int256`), as a `bytes32`, as a storage pointer to the whole state variable
+`target` (`T storage p = a`), whose word the fragment keeps at 0 and never reads, or as a storage
+pointer to a struct of `n` whole-word fields at the slot its word names (`S storage p = m[k]`). -/
 inductive Tag where
   | word
   | int
   | bytes32
   | sref (target : String)
+  | sptr (n : Nat)
   deriving DecidableEq, Repr
 
-/-- SolidCore's value of a local of tag `t` whose word is `v`. -/
+/-- SolidCore's value of a local of tag `t` whose word is `v`. A struct pointer whose word is 0
+still points to the uninitialized storage return target: the erasure binds struct pointers only to
+literal slots other than 0, so a pointer declared again in an inner scope before the call that
+returns it keeps the tag of the outer pointer of its name. -/
 def Tag.val : Tag → Nat → Value
   | .word, v => .word v
   | .int, v => .int v
   | .bytes32, v => .fixedBytes 32 v
   | .sref t, _ => .storageRef t
+  | .sptr n, v =>
+    if v = 0 then .storageRef uninitializedStorageReturnTarget else .storageSlotRef v (ptrLayout n)
+
+/-- Whether a word expression is a literal other than 0 below `2 ^ 256`, at every valuation. -/
+def nzLit : WExpr → Bool
+  | .lit m => decide (m % wordSize ≠ 0)
+  | _ => false
+
+theorem nzLit_eval {e : WExpr} (h : nzLit e = true) (ρ : Val) : e.eval ρ ≠ 0 := by
+  cases e <;> simp_all [nzLit, WExpr.eval]
+
+theorem Tag.val_sptr {ρ : Val} {n : Nat} {e : WExpr} (h : nzLit e = true) :
+    (Tag.sptr n).val (e.eval ρ) = .storageSlotRef (e.eval ρ) (ptrLayout n) := by
+  simp [Tag.val, nzLit_eval h ρ]
+
+theorem Tag.val_uninit (n : Nat) :
+    (Tag.sptr n).val 0 = .storageRef uninitializedStorageReturnTarget := by
+  simp [Tag.val]
 
 /-- The tags of a call's locals that SolidCore holds as other than words, by name. -/
 abbrev Tags := List (String × Tag)
@@ -228,6 +257,72 @@ def SymState.ref? (S : SymState) (x : String) : Option String :=
   match S.tags.get x with
   | .sref t => (Scopes.get? S.scopes x).map fun _ => t
   | _ => none
+
+/-- The struct size and slot word of the local `x`, when the state holds it as a storage pointer to
+a struct at a literal slot other than 0 (not the uninitialized storage return target). -/
+def SymState.ptr? (S : SymState) (x : String) : Option (Nat × Nat) :=
+  match S.tags.get x with
+  | .sptr n =>
+    match Scopes.get? S.scopes x with
+    | some (.lit m) => if m % wordSize ≠ 0 then some (n, m % wordSize) else none
+    | _ => none
+  | _ => none
+
+/-- Whether a layout is a whole-word `uint256` field. -/
+def isWordField : StorageLayout → Bool
+  | .packedScalar 0 32 false .uint256 => true
+  | _ => false
+
+theorem isWordField_eq {l : StorageLayout} (h : isWordField l = true) : l = wordField := by
+  unfold isWordField at h
+  split at h
+  · rfl
+  · simp at h
+
+/-- The slot offset of field `j` of a struct of `n` whole-word fields, as SolidCore computes it,
+when that field is a whole word. -/
+def ptrField? (n j : Nat) : Option Nat := if j < n then some j else none
+
+/-- SolidCore's field `j` of a struct of whole-word fields from slot `s` is the whole word at slot
+`s + j`: each field fills one slot. -/
+theorem fieldFrom_wordFields : ∀ (n j s : Nat), j < n →
+    StorageLayouts.fieldOffsetAndLayoutFrom? j { slot := s, offset := 0 } (List.replicate n wordField) =
+      some (s + j, wordField)
+  | 0, _, _, h => absurd h (Nat.not_lt_zero _)
+  | n + 1, j, s, h => by
+    rw [List.replicate_succ, StorageLayouts.fieldOffsetAndLayoutFrom?]
+    simp only [StorageLayout.cursorStep, wordField, wordBytes]
+    cases j with
+    | zero => simp
+    | succ j =>
+      simp only [Nat.add_eq_zero_iff, one_ne_zero, and_false, beq_iff_eq, ↓reduceIte,
+        Nat.add_sub_cancel, Nat.lt_irrefl]
+      have := fieldFrom_wordFields n j (s + 1) (by omega)
+      simp only [wordField] at this
+      rw [this]
+      congr 2
+      omega
+
+/-- A mapping key type the fragment hashes as the key's word. -/
+def keyOk : Ty → Bool
+  | .uint256 => true
+  | .address => true
+  | _ => false
+
+/-- The slot of the mapping `x` from `address` or `uint256` keys to structs of whole-word fields,
+and the struct's number of fields, when the fragment binds pointers to its entries. -/
+def mapSOf? (fields : List StorageField) (x : String) : Option (Nat × Nat) :=
+  match fields.find? (fun f => f.name == x) with
+  | some f =>
+    match f.layout? with
+    | some (.mapping kt (.struct ls)) =>
+      if keyOk kt && ls.all isWordField && !f.transient && decide (f.slot < wordSize) then
+        some (f.slot, ls.length)
+      else none
+    | _ => none
+  | none => none
+
+
 
 /-- SolidCore's slot of a mapping's entry: Keccak-256 of the key's word and the mapping's slot,
 as `mappingStorageSlot slot key` computes it. -/
@@ -521,12 +616,20 @@ def eraseExpr (fields : List StorageField) (S : SymState) : Expr → Option (Lis
         if gs = [] ∧ j < n then some ([], S.writes.read (.lit (k + j))) else none
   -- `p[j]` of a storage pointer to a fixed-size array of words, at a constant index below its
   -- length: the word of the slot `slot + j`, as `a[j]` reads it
-  | .index (.var p) idx => do
-    let t ← S.ref? p
-    let (k, n) ← arrOf? fields t
-    let (gs, v) ← eraseExpr fields S idx
-    let j ← litOf? v
-    if gs = [] ∧ j < n then some ([], S.writes.read (.lit (k + j))) else none
+  | .index (.var p) idx =>
+    match S.ref? p with
+    | some t => do
+      let (k, n) ← arrOf? fields t
+      let (gs, v) ← eraseExpr fields S idx
+      let j ← litOf? v
+      if gs = [] ∧ j < n then some ([], S.writes.read (.lit (k + j))) else none
+    -- `p.f` of a pointer to a struct of whole-word fields: the word of the field's slot
+    | none => do
+      let (n, m) ← S.ptr? p
+      let (gs, v) ← eraseExpr fields S idx
+      let j ← litOf? v
+      let off ← ptrField? n j
+      if gs = [] ∧ j < wordSize then some ([], S.writes.read (.lit ((m + off) % wordSize))) else none
   | .index (.storageRead .element x [i1]) i2 => do
     let k ← map2Of? fields x
     let (g1, v1) ← eraseExpr fields S i1
@@ -892,6 +995,8 @@ structure ExprRel (ρ : Val) (fields : List StorageField) (ctx : Context) (rt : 
   locals : ∀ x e, S.word? x = some e → rt.lookupLocal? x = some (.word (e.eval ρ))
   store : ∀ k, k < wordSize → rt.state.loadSlot k = Writes.store ρ S.writes k
   refs : ∀ x t, S.ref? x = some t → rt.lookupLocal? x = some (.storageRef t)
+  ptrs : ∀ x n m, S.ptr? x = some (n, m) →
+    rt.lookupLocal? x = some (.storageSlotRef m (ptrLayout n))
 
 /-- What SolidCore's evaluation of an erased expression gives: `Panic(0x11)` when one of its
 overflow conditions holds, and otherwise its word, with the runtime unchanged. -/
@@ -1326,6 +1431,100 @@ theorem loadHeader_dyn {ctx : Context} {rt : Runtime} {x : String} {f : StorageF
     rt.loadStorageFieldHeader ctx x = .ok (.word (rt.state.loadSlot f.slot)) := by
   simp [Runtime.loadStorageFieldHeader, Runtime.loadStorageField, hf.find, hf.layout,
     State.loadFieldSlot, hf.transient]
+
+/-- SolidCore's slot and layout of field `j` of a struct of whole-word fields at slot `s`: the
+slot `s` plus the field's offset, a whole word. -/
+theorem resolvePtr {ctx : Context} {rt : Runtime} {s n j off : Nat} (hs : s < wordSize)
+    (hj : j < wordSize) (hoff : ptrField? n j = some off) :
+    rt.resolveStorageBasePath ctx (.slot s (ptrLayout n)) [.word j] =
+      .ok ((s + off) % wordSize, wordField) := by
+  unfold ptrField? at hoff
+  split at hoff
+  · rename_i hjn
+    simp only [Option.some.injEq] at hoff
+    subst hoff
+    have hfo : StorageLayouts.fieldOffsetAndLayout? j 0 (List.replicate n wordField) =
+        some (j, wordField) := by
+      have := fieldFrom_wordFields n j 0 hjn
+      simpa [StorageLayouts.fieldOffsetAndLayout?] using this
+    simp [Runtime.resolveStorageBasePath, Runtime.storageBaseAnchor, ptrLayout,
+      State.resolveStoragePathSlot, Value.expectWord, norm_lt hj, structFieldStorageSlot?, hfo,
+      normWord, norm_lt hs, bind, Except.bind, pure, Except.pure, SolidCore.Solidity.Shared.norm,
+      modulus_eq, Option.bind, Nat.mod_eq_of_lt hj, Nat.mod_eq_of_lt hs]
+  · simp at hoff
+
+/-- SolidCore reads field `j` of a struct of whole-word fields at slot `s` as the word of the
+field's slot. -/
+theorem loadPtr {ctx : Context} {rt : Runtime} {s n j off : Nat} (hs : s < wordSize)
+    (hj : j < wordSize) (hoff : ptrField? n j = some off)
+    (hw : rt.state.loadSlot ((s + off) % wordSize) < wordSize) :
+    rt.loadStorageBasePath ctx (.slot s (ptrLayout n)) [.word j] =
+      .ok (.word (rt.state.loadSlot ((s + off) % wordSize))) := by
+  rw [Runtime.loadStorageBasePath, resolvePtr hs hj hoff]
+  simp [bind, Except.bind, State.loadStorageLayoutAt, State.loadStorageLayoutAtFuel,
+    StorageLayout.depth, wordField, wordBitRange, packedStorageValueFromWord?,
+    Ty.storageValueFromWord?, SolidCore.Solidity.Shared.norm, modulus_eq, Nat.mod_eq_of_lt hw]
+
+theorem all_wordField : ∀ {ls : List StorageLayout}, ls.all isWordField = true →
+    ls = List.replicate ls.length wordField
+  | [], _ => rfl
+  | l :: ls, h => by
+    simp only [List.all_cons, Bool.and_eq_true] at h
+    simp only [List.length_cons, List.replicate_succ, isWordField_eq h.1, ← all_wordField h.2]
+
+/-- What the fragment knows of a mapping to structs of whole-word fields. -/
+structure MapSOk (ctx : Context) (x : String) (f : StorageField) (n : Nat) : Prop where
+  find : ctx.storageField? x = some f
+  layout : ∃ kt, (kt = .address ∨ kt = .uint256) ∧ f.layout? = some (.mapping kt (ptrLayout n))
+  transient : f.transient = false
+  slot : f.slot < wordSize
+
+theorem mapSOf?_spec {fields : List StorageField} {ctx : Context} (hf : ctx.storageFields = fields)
+    {x : String} {k n : Nat} (h : mapSOf? fields x = some (k, n)) :
+    ∃ f, MapSOk ctx x f n ∧ f.slot = k := by
+  unfold mapSOf? at h
+  split at h
+  · rename_i f hfind
+    split at h
+    · rename_i kt ls hl
+      split at h
+      · rename_i hc
+        simp only [Option.some.injEq, Prod.mk.injEq] at h
+        obtain ⟨rfl, rfl⟩ := h
+        simp only [Bool.and_eq_true, Bool.not_eq_true', decide_eq_true_eq] at hc
+        obtain ⟨⟨⟨hk, hls⟩, ht⟩, hs⟩ := hc
+        refine ⟨f, ⟨by simp [Context.storageField?, hf, hfind], ⟨kt, ?_, ?_⟩, ht, hs⟩, rfl⟩
+        · cases kt <;> simp_all [keyOk]
+        · rw [hl, ptrLayout, ← all_wordField hls]
+      · simp at h
+    · simp at h
+  · simp at h
+
+/-- SolidCore binds a pointer to the entry of a mapping to structs at a key word to the struct at
+the slot `solHash key slot`. -/
+theorem bindPtr {ctx : Context} {rt : Runtime} {x : String} {f : StorageField} {n : Nat}
+    (hf : MapSOk ctx x f n) {w : Nat} (hw : w < wordSize) :
+    rt.bindStorageRef ctx (.field x) [.word w] =
+      .ok (.storageSlotRef (solHash w f.slot) (ptrLayout n)) := by
+  obtain ⟨kt, hkt, hl⟩ := hf.layout
+  simp only [Runtime.bindStorageRef, Runtime.resolveStorageBasePath, Runtime.storageBaseAnchor,
+    hf.find, hl, hf.transient, Bool.false_and, Bool.false_eq_true, ↓reduceIte, bind, Except.bind,
+    pure, Except.pure]
+  rw [resolve_step _ _ (by rcases hkt with rfl | rfl <;> simp) _ _ hw,
+    State.resolveStoragePathSlot.eq_1]
+
+/-- SolidCore writes field `j` of a struct of whole-word fields at slot `s` to the field's slot. -/
+theorem storePtr {ctx : Context} {rt : Runtime} {s n j off v : Nat} (hs : s < wordSize)
+    (hj : j < wordSize) (hoff : ptrField? n j = some off) (hv : v < wordSize) :
+    rt.storeStorageBasePathWithDeepClear ctx (.slot s (ptrLayout n)) [.word j] (.word v) =
+      .ok { rt with state := rt.state.storeSlot ((s + off) % wordSize) v } := by
+  simp [Runtime.storeStorageBasePathWithDeepClear, resolvePtr hs hj hoff,
+    Runtime.storageMaterializedValue, Runtime.derefMemoryValueDeep, Runtime.derefMemoryValueWithFuel,
+    State.storeStorageLayoutAtWithDeepClear, State.storeStorageLayoutAtWithDeepClearFuelMode,
+    State.storeStorageLayoutAt, StorageLayout.clearDepth, wordField, wordReplaceBitRange,
+    coerceStorageWordAs, Value.forceAbiLazy, Ty.coerceValue?, Value.asStorageWord?,
+    SolidCore.Solidity.Shared.norm, modulus_eq, Nat.mod_eq_of_lt hv, bind, Except.bind, pure,
+    Except.pure]
 
 /-- What the fragment knows of an `address` field it reads. -/
 structure AddrFieldOk (ctx : Context) (x : String) (f : StorageField) : Prop where
@@ -2008,8 +2207,52 @@ theorem eval_erase (ρ : Val) (fields : List StorageField) (ctx : Context) (rt :
   | index base i2 =>
     cases base
     case var p =>
-      simp only [eraseExpr, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
-      obtain ⟨t, ht, ⟨k, len⟩, ha, ⟨g2, v2⟩, h2, j, hj, h⟩ := h
+      cases ht : S.ref? p with
+      | none =>
+        simp only [eraseExpr, ht, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+        obtain ⟨⟨np, ms⟩, hpt, ⟨g2, v2⟩, h2, j, hj, off, hoff, h⟩ := h
+        split at h
+        · rename_i hc
+          obtain ⟨rfl, hjw⟩ := hc
+          simp only [Option.some.injEq, Prod.mk.injEq] at h
+          obtain ⟨rfl, rfl⟩ := h
+          obtain rfl : v2 = .lit j := by
+            cases v2 <;> simp only [litOf?, Option.some.injEq, reduceCtorEq] at hj
+            exact congrArg WExpr.lit hj
+          have hl : (WExpr.lit j).eval ρ = j := Nat.mod_eq_of_lt hjw
+          have hms : ms < wordSize := by
+            unfold SymState.ptr? at hpt
+            split at hpt
+            · split at hpt
+              · split at hpt
+                · simp only [Option.some.injEq, Prod.mk.injEq] at hpt
+                  rw [← hpt.2]; exact Nat.mod_lt _ (by decide)
+                · simp at hpt
+              · simp at hpt
+            · simp at hpt
+          have hp := hrel.ptrs p np ms hpt
+          have hbase : rt.lookupStorageBase? p = some (.slot ms (ptrLayout np)) := by
+            simp [Runtime.lookupStorageBase?, hp]
+          have hfi : Expr.orderFuel i2 + 1 < n := by
+            simp only [Expr.orderFuel] at hf
+            omega
+          obtain ⟨m, rfl⟩ : ∃ m, n = m + 2 := ⟨n - 2, by omega⟩
+          have ih2 := eval_erase ρ fields ctx rt S hrel i2 [] (.lit j) (m + 1) h2 (by omega)
+          have hsl := slot_read hrel (Nat.mod_lt (ms + off) (show 0 < wordSize by decide))
+          have hw : rt.state.loadSlot ((ms + off) % wordSize) < wordSize := by
+            rw [hsl]; exact WExpr.eval_lt _ _
+          rw [Expr.evalFuel]
+          simp only [Expr.hasStorageRoot, Expr.hasStorageRefRoot, hbase, Option.isSome_some,
+            Bool.false_eq_true, ↓reduceIte, Expr.resolveLValueFuel]
+          simp only [pure, EvmCompiler.Simulation.Interaction.pure, bind_done_ok', ih2, exprResult,
+            List.any_nil, Bool.false_eq_true, ↓reduceIte, hl]
+          simp only [bind, EvmCompiler.Simulation.Interaction.bind, liftM, monadLift,
+            MonadLift.monadLift, SolI.ofExcept, ResolvedLValue.read, ResolvedLValue.readRaw,
+            List.nil_append, loadPtr hms hjw hoff hw, Except.bind, Runtime.derefMemoryValue, hsl]
+        · simp at h
+      | some t =>
+      simp only [eraseExpr, ht, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+      obtain ⟨⟨k, len⟩, ha, ⟨g2, v2⟩, h2, j, hj, h⟩ := h
       split at h
       · rename_i hc
         obtain ⟨rfl, hjl⟩ := hc

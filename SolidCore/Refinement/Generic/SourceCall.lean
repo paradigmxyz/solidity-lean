@@ -156,6 +156,7 @@ def retOkT (K : Facts) (ty : Ty) : Tag → WExpr → Bool
   | .int, _ => match ty with | .int256 => true | _ => false
   | .bytes32, _ => false
   | .sref _, _ => false
+  | .sptr _, _ => false
 
 /-- Every returned word is one SolidCore's encoder takes for its return's type. -/
 def retsOk (K : Facts) : List BindingDecl → List WExpr → Bool
