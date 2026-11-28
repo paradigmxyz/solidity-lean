@@ -129,6 +129,8 @@ def symPure (sel : Nat) : EVM.Op → List SV → Option SV
   -- 8 (k + 1) bits
   | .signextend, [.w (.lit k), .w x] =>
     if k % wordSize < 31 then some (.w (sextW (8 * (k % wordSize + 1)) x)) else none
+  -- slt a 0: the sign of a (sneg)
+  | .slt, [.w a, .w (.lit z)] => if z % wordSize = 0 then some (.w (sneg a)) else none
   | op, [.w a, .w b] => (binOfOp op).map fun o => .w (mkBin o a b)
   -- A value other than 0: `iszero` is 0, and so is `eq` against 0.
   | .iszero, [.paid] => some (.w (.lit 0))

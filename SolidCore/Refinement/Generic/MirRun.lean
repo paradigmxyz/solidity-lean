@@ -276,6 +276,22 @@ theorem signextend_lit (k : Nat) (hk : k % wordSize < 31) (x : Word) :
     apply BitVec.eq_of_toNat_eq; simp [BitVec.toNat_ofNat, wordSize]
   rw [this]; exact signextend_toNat _ hk x
 
+theorem slt_zero_toNat (x : Word) :
+    (Evm.slt x 0).toNat = if 2 ^ 255 ≤ x.toNat then 1 else 0 := by
+  have hx := x.isLt
+  have key : BitVec.slt x (0 : Word) = decide (2 ^ 255 ≤ x.toNat) := by
+    simp only [BitVec.slt, BitVec.toInt_eq_toNat_cond, BitVec.toNat_zero]
+    by_cases h : 2 ^ 255 ≤ x.toNat
+    · have h2 : ¬ 2 * x.toNat < 2 ^ 256 := by omega
+      simp only [h2, ↓reduceIte, h, decide_true]
+      simp; omega
+    · have h2 : 2 * x.toNat < 2 ^ 256 := by omega
+      simp only [h2, ↓reduceIte, h, decide_false]
+      simp
+  unfold Evm.slt
+  rw [key]
+  by_cases h : 2 ^ 255 ≤ x.toNat <;> simp [h]
+
 theorem symPure_sound {cv : SV} {sel n : Nat} {ρ : Val} {call : Call}
     (hc : CallFactsAt cv sel n ρ call)
     {op : EVM.Op} {args : List Word} {sargs : List SV} {sv : SV}
@@ -321,6 +337,22 @@ theorem symPure_sound {cv : SV} {sel n : Nat} {ρ : Val} {call : Call}
         rw [eq_ofNat_of_rel ha]
         simp only [SV.Rel] at hy ⊢
         rw [signextend_lit k hk, eval_sextW ρ (by omega) x, hy]
+    · simp at h
+  · -- slt a 0
+    split at h
+    · rename_i a z hz
+      simp only [Option.some.injEq] at h
+      subst h
+      match args, hr with
+      | [x, y], ⟨hx, hy, _⟩ =>
+        refine ⟨Evm.slt x y, rfl, ?_⟩
+        have hy0 : y = 0 := by
+          apply BitVec.eq_of_toNat_eq
+          simp only [SV.Rel, WExpr.eval] at hy
+          simpa [hz] using hy
+        subst hy0
+        simp only [SV.Rel] at hx ⊢
+        rw [slt_zero_toNat, eval_sneg, hx]
     · simp at h
   · obtain ⟨o, ho, rfl⟩ := Option.map_eq_some_iff.mp h
     match args, hr with

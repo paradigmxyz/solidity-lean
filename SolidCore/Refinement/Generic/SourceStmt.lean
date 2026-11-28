@@ -357,6 +357,16 @@ def eraseUnchecked (S : SymState) : Stmt → Option Br
       (.ite v (.leaf (.normal { S.push with scopes := L })) (.leaf (.reverted (failOf r)))))
   | _ => none
 
+/-- Whether a word is written as a sign extension from `b` bits (`sextW b x`). -/
+def isSextOf (b : Nat) : WExpr → Bool
+  | .bin .sub (.bin .and (.bin .add _ (.lit h)) (.lit m)) (.lit h') =>
+    h == 2 ^ (b - 1) && m == 2 ^ b - 1 && h' == 2 ^ (b - 1)
+  | _ => false
+
+/-- SolidCore's `intCast b` of a signed word: its sign extension from `b` bits, kept as it is when it
+is one already, as solar keeps it. -/
+def sextCast (b : Nat) (v : WExpr) : WExpr := if isSextOf b v then v else sextW b v
+
 /-- SolidCore's checked signed `op` (`/` or `%`) of two constant words, when it neither reverts nor
 leaves a word outside `2 ^ 256`: the erasure folds it to that constant, as solar does. -/
 def intFold (op : BinaryOp) : Option WExpr → Option WExpr → Option WExpr
@@ -373,6 +383,9 @@ def eraseIntExpr (S : SymState) : Expr → Option WExpr
   | .intWord n => some (.lit n)
   | .var x => if S.tags.get x = .int then Scopes.get? S.scopes x else none
   | .castOp .intCleanup 256 e => eraseIntExpr S e
+  | .castOp .intCast b e => do
+    let v ← eraseIntExpr S e
+    if b = 256 then some v else if 0 < b ∧ b < 256 then some (sextCast b v) else none
   | .binary .div l r => intFold .div (eraseIntExpr S l) (eraseIntExpr S r)
   | .binary .mod l r => intFold .mod (eraseIntExpr S l) (eraseIntExpr S r)
   | _ => none
@@ -393,6 +406,24 @@ theorem intFold_spec {op : BinaryOp} {x y : Option WExpr} {v : WExpr} (h : intFo
       · simp at h
     · simp at h
   · simp at h
+
+/-- A returned signed expression: a checked signed `l + r` of signed expressions, its overflow check
+`saddGuard` (which panics with `0x11`) and the sum; any other signed expression with no check. -/
+def eraseIntG (S : SymState) : Expr → Option (List WExpr × WExpr)
+  | .castOp .intCleanup 256 e => eraseIntG S e
+  | .binary .add l r => do
+    let vl ← eraseIntExpr S l
+    let vr ← eraseIntExpr S r
+    some ([saddGuard vl vr], .bin .add vl vr)
+  | e => (eraseIntExpr S e).map fun v => ([], v)
+
+/-- A list of returned signed expressions, left to right, with their checks. -/
+def eraseIntGs (S : SymState) : List Expr → Option (List WExpr × List WExpr)
+  | [] => some ([], [])
+  | e :: es => do
+    let (g, v) ← eraseIntG S e
+    let (gs, vs) ← eraseIntGs S es
+    some (g ++ gs, v :: vs)
 
 /-- The erasure of the right side of an assignment to a signed local: a checked cleanup to `b`
 bits of a signed expression, its range check `sextGuard b v` (which panics with `0x11`) and its
@@ -490,8 +521,8 @@ def eraseStmt (E : EraseEnv) : Nat → Stmt → SymState → Option Br
       match eraseExprs E.fields S es with
       | some (gs, vs) => some (guards gs (.leaf (.returned S vs [])))
       | none => do
-        let vs ← es.mapM (eraseIntExpr S)
-        some (.leaf (.returned S vs (vs.map fun _ => .int)))
+        let (gs, vs) ← eraseIntGs S es
+        some (guards gs (.leaf (.returned S vs (vs.map fun _ => .int))))
     | .ifElse c t e => do
       let bt ← eraseStmt E n t S
       let be ← eraseStmt E n e S
@@ -929,6 +960,69 @@ theorem intCleanup_256 (c : Bool) (w : Nat) (hw : w < wordSize) :
     exact congrArg (fun v => (Except.ok (Value.int v) : Except RevertData Value)) (key _ (by rfl))
   · rfl
 
+/-- SolidCore's cast of a signed word to `b` bits, `0 < b < 256`: its sign extension. -/
+theorem intCast_lt (w b : Nat) (hw : w < wordSize) (hb : 0 < b ∧ b < 256) :
+    intCast? b (.int w) = .ok (.int (sextNat b w)) := by
+  have hn : SolidCore.Solidity.Shared.norm w = w := norm_lt hw
+  have hb' : (0 < b && b ≤ 256) = true := by simp; omega
+  obtain ⟨hP, hPW, -, hh⟩ := pow_facts hb
+  have hy := Nat.mod_lt w (Nat.two_pow_pos b)
+  simp only [intCast?, Value.forceAbiLazy, Value.asStorageWord?, hn, hb', ↓reduceIte, bind,
+    Except.bind, pure, Except.pure]
+  unfold sextNat
+  have hWM : SolidCore.Solidity.Source.wordModulus = wordSize := rfl
+  have hWM' : SolidCore.Solidity.Shared.wordModulus = wordSize := rfl
+  simp only [hWM, hWM']
+  generalize 2 ^ (b - 1) = h at *
+  generalize 2 ^ b = P at *
+  split
+  · have h1 : wordSize - P + w % P < wordSize := by
+      have := Nat.add_lt_add_left hy (wordSize - P)
+      rwa [Nat.sub_add_cancel (Nat.le_of_lt hPW)] at this
+    rw [norm_lt h1, Nat.add_comm]
+  · rw [norm_lt (Nat.lt_trans hy hPW)]
+
+theorem intCast_256 (w : Nat) (hw : w < wordSize) : intCast? 256 (.int w) = .ok (.int w) := by
+  have hn : SolidCore.Solidity.Shared.norm w = w := norm_lt hw
+  have hWM : SolidCore.Solidity.Source.wordModulus = wordSize := rfl
+  simp only [intCast?, Value.forceAbiLazy, Value.asStorageWord?, hn, bind, Except.bind, pure,
+    Except.pure, show (0 < 256 && 256 ≤ 256) = true from rfl, ↓reduceIte, hWM,
+    Nat.mod_eq_of_lt (show w < 2 ^ 256 from hw)]
+  split
+  · rw [show wordSize - 2 ^ 256 + w = w by simp [wordSize], hn]
+  · rfl
+
+theorem sextNat_range {b : Nat} (hb : 0 < b ∧ b < 256) (w : Nat) :
+    sextNat b w < 2 ^ (b - 1) ∨ wordSize - 2 ^ (b - 1) ≤ sextNat b w := by
+  obtain ⟨hP, hPW, -, -⟩ := pow_facts hb
+  have hy := Nat.mod_lt w (Nat.two_pow_pos b)
+  unfold sextNat
+  generalize 2 ^ (b - 1) = h at *
+  generalize 2 ^ b = P at *
+  split <;> omega
+
+theorem sextNat_idem {b : Nat} (hb : 0 < b ∧ b < 256) (w : Nat) :
+    sextNat b (sextNat b w) = sextNat b w :=
+  (sextNat_eq_iff hb (sextNat_lt hb w)).mpr (sextNat_range hb w)
+
+theorem isSextOf_spec {b : Nat} {v : WExpr} (h : isSextOf b v = true) : ∃ x, v = sextW b x := by
+  unfold isSextOf at h
+  split at h
+  · rename_i x hh m hh'
+    simp only [Bool.and_eq_true, beq_iff_eq] at h
+    obtain ⟨⟨rfl, rfl⟩, rfl⟩ := h
+    exact ⟨x, rfl⟩
+  · simp at h
+
+theorem eval_sextCast (ρ : Val) {b : Nat} (hb : 0 < b ∧ b < 256) (v : WExpr) :
+    (sextCast b v).eval ρ = sextNat b (v.eval ρ) := by
+  unfold sextCast
+  split
+  · rename_i h
+    obtain ⟨x, rfl⟩ := isSextOf_spec h
+    rw [eval_sextW ρ hb, sextNat_idem hb]
+  · exact eval_sextW ρ hb v
+
 /-- A signed expression of the fragment evaluates to its word, held as a signed word, and never
 reverts. -/
 theorem eval_int {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {S : SymState}
@@ -964,6 +1058,27 @@ theorem eval_int {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {S : S
           MonadLift.monadLift, intCleanup_256 _ _ (v.eval_lt ρ), SolI.ofExcept]
         rfl
       · simp [eraseIntExpr, hb] at h
+    case intCast =>
+      simp only [eraseIntExpr, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+      obtain ⟨v0, h0, h⟩ := h
+      have ih := eval_int hrel e v0 n h0 (by simp [Expr.orderFuel] at hf; omega)
+      have hv0 := v0.eval_lt ρ
+      by_cases hb : b = 256
+      · subst hb
+        simp only [↓reduceIte, Option.some.injEq] at h
+        subst h
+        simp only [Expr.evalFuel, ih]
+        simp only [bind, EvmCompiler.Simulation.Interaction.bind, liftM, monadLift,
+          MonadLift.monadLift, intCast_256 _ hv0, SolI.ofExcept]
+        rfl
+      · by_cases hb2 : 0 < b ∧ b < 256
+        · simp only [hb, hb2, and_self, ↓reduceIte, Option.some.injEq] at h
+          subst h
+          simp only [Expr.evalFuel, ih]
+          simp only [bind, EvmCompiler.Simulation.Interaction.bind, liftM, monadLift,
+            MonadLift.monadLift, intCast_lt _ _ hv0 hb2, SolI.ofExcept, eval_sextCast ρ hb2]
+          rfl
+        · simp [hb, hb2] at h
     all_goals simp [eraseIntExpr] at h
   | binary op l r =>
     have hfl : Expr.orderFuel l < n := by simp [Expr.orderFuel] at hf; omega
@@ -1054,6 +1169,65 @@ theorem intCleanup_lt (w b : Nat) (hw : w < wordSize) (hb : 0 < b ∧ b < 256) :
     · right; omega
     · left; omega
 
+theorem signedToWord_ofNat (n : Nat) (h : n < wordSize) :
+    SolidCore.Solidity.Shared.signedToWord (n : Int) = n := by
+  simp only [SolidCore.Solidity.Shared.signedToWord, SolidCore.Solidity.Shared.ofEvmWord,
+    EvmYul.UInt256.toSigned]
+  show SolidCore.Solidity.Shared.norm (EvmYul.UInt256.ofNat n).toNat = n
+  rw [toNat_ofNat_u256, Nat.mod_eq_of_lt h, norm_lt h]
+
+theorem signedToWord_neg (n : Nat) (h : n < wordSize) :
+    SolidCore.Solidity.Shared.signedToWord (Int.negSucc n) = wordSize - 1 - n := by
+  simp only [SolidCore.Solidity.Shared.signedToWord, SolidCore.Solidity.Shared.ofEvmWord,
+    EvmYul.UInt256.toSigned]
+  have h1 : EvmYul.UInt256.size - 1 - n < wordSize := by
+    rw [show EvmYul.UInt256.size = wordSize from rfl]; omega
+  rw [toNat_ofNat_u256, Nat.mod_eq_of_lt h1, norm_lt h1]; rfl
+
+theorem signedToWord_int (v : Int) (h1 : -2 ^ 256 < v) (h2 : v < 2 ^ 256) :
+    ((SolidCore.Solidity.Shared.signedToWord v : Nat) : Int) = (v + 2 ^ 256) % 2 ^ 256 := by
+  cases v with
+  | ofNat n =>
+    simp only [Int.ofNat_eq_natCast] at h1 h2 ⊢
+    rw [signedToWord_ofNat n (by simp only [wordSize]; omega)]
+    omega
+  | negSucc n =>
+    rw [signedToWord_neg n (by simp only [wordSize]; simp only [Int.negSucc_eq] at h1; omega)]
+    simp only [Int.negSucc_eq, wordSize] at h1 h2 ⊢
+    omega
+
+theorem checkedSignedAdd_eq (a b : Nat) (ha : a < wordSize) (hb : b < wordSize) :
+    checkedSignedAdd true a b =
+      if ((2 ^ 255 ≤ a ↔ 2 ^ 255 ≤ b) ∧ (2 ^ 255 ≤ (a + b) % wordSize ↔ ¬ 2 ^ 255 ≤ a))
+      then .error RevertData.overflow else .ok ((a + b) % wordSize) := by
+  simp only [checkedSignedAdd, checkedSignedWord, signedInt256InRange, signedIntMin, signedIntMax,
+    SolidCore.Solidity.Shared.halfWordModulus, signedValue_eq a ha, signedValue_eq b hb, Bool.true_and,
+    Int.ofNat_eq_natCast]
+  have hW : wordSize = 2 ^ 256 := rfl
+  rw [hW] at ha hb ⊢
+  by_cases h1 : 2 ^ 255 ≤ a <;> by_cases h2 : 2 ^ 255 ≤ b <;>
+    by_cases h3 : 2 ^ 255 ≤ (a + b) % 2 ^ 256 <;>
+    simp only [h1, h2, h3, Nat.not_le.mp, show ¬ (a < 2 ^ 255) ↔ 2 ^ 255 ≤ a from Nat.not_lt,
+      iff_self, true_iff, iff_true, not_true_eq_false, not_false_eq_true, and_true, true_and,
+      false_iff, iff_false, and_false, false_and, ↓reduceIte, decide_eq_true_eq, Bool.not_eq_true',
+      Bool.and_eq_false_iff, decide_eq_false_iff_not, not_le] <;>
+    split_ifs <;> first
+      | rfl
+      | (exfalso; omega)
+      | (congr 1; apply Int.ofNat.inj; simp only [Int.ofNat_eq_natCast]
+         rw [signedToWord_int _ (by push_cast at *; omega) (by push_cast at *; omega)]; push_cast; omega)
+
+
+theorem apply_sadd (a b : Nat) (ha : a < wordSize) (hb : b < wordSize) :
+    BinaryOp.apply true .add (.int a) (.int b) =
+      if ((2 ^ 255 ≤ a ↔ 2 ^ 255 ≤ b) ∧ (2 ^ 255 ≤ (a + b) % wordSize ↔ ¬ 2 ^ 255 ≤ a))
+      then .error (.panic 0x11) else .ok (.int ((a + b) % wordSize)) := by
+  simp only [BinaryOp.apply, Value.forceAbiLazy, bind, Except.bind, BinaryOp.applySignedWord,
+    checkedSignedAdd_eq a b ha hb]
+  by_cases hR : ((2 ^ 255 ≤ a ↔ 2 ^ 255 ≤ b) ∧ (2 ^ 255 ≤ (a + b) % wordSize ↔ ¬ 2 ^ 255 ≤ a))
+  · rw [if_pos hR, if_pos hR]; rfl
+  · rw [if_neg hR, if_neg hR]; rfl
+
 theorem eraseIntCleaned_codes {S : SymState} {e : Expr} {gs : List WExpr} {v : WExpr} (ρ : Val)
     (h : eraseIntCleaned S e = some (gs, v)) : failCode ρ gs = 0x11 := by
   unfold eraseIntCleaned at h
@@ -1111,6 +1285,163 @@ theorem retVals_ints (ρ : Val) : ∀ (vs : List WExpr),
   | v :: vs => by
     show Tag.int.val (v.eval ρ) :: retVals ρ (vs.map fun _ => Tag.int) vs = _
     rw [retVals_ints ρ vs]; rfl
+
+/-- SolidCore evaluates a returned signed expression to its word, past its overflow check. -/
+theorem eval_intG {ρ : Val} {E : EraseEnv} {ctx : Context} {rt : Runtime} {S : SymState}
+    (hrel : StmtRel ρ E ctx rt S) :
+    ∀ (e : Expr) (gs : List WExpr) (v : WExpr) (fuel : Nat), eraseIntG S e = some (gs, v) →
+      Expr.orderFuel e < fuel →
+      Expr.evalFuel fuel ctx rt e =
+        if gs.any (fun g => g.eval ρ != 0) then .done (.error (.revert (.panic 0x11)))
+        else .done (.ok (.int (v.eval ρ), rt)) := by
+  intro e gs v fuel h hf
+  obtain ⟨n, rfl⟩ : ∃ n, fuel = n + 1 := ⟨fuel - 1, by omega⟩
+  unfold eraseIntG at h
+  split at h
+  · rename_i e'
+    have ih := eval_intG hrel e' gs v n h (by simp [Expr.orderFuel] at hf; omega)
+    simp only [Expr.evalFuel, ih]
+    by_cases hg : gs.any (fun g => g.eval ρ != 0) = true
+    · simp only [hg, ↓reduceIte]; rfl
+    · simp only [hg, Bool.false_eq_true, ↓reduceIte]
+      simp only [bind, EvmCompiler.Simulation.Interaction.bind, liftM, monadLift,
+        MonadLift.monadLift, intCleanup_256 _ _ (v.eval_lt ρ), SolI.ofExcept]
+      rfl
+  · rename_i l r
+    simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq, Prod.mk.injEq] at h
+    obtain ⟨vl, hl, vr, hr, rfl, rfl⟩ := h
+    have hfl : Expr.orderFuel l < n := by simp [Expr.orderFuel] at hf; omega
+    have hfr : Expr.orderFuel r < n := by simp [Expr.orderFuel] at hf; omega
+    have ihl := eval_int hrel l vl n hl hfl
+    have ihr := eval_int hrel r vr n hr hfr
+    have hal := vl.eval_lt ρ
+    have har := vr.eval_lt ρ
+    have hg := eval_saddGuard ρ vl vr
+    simp only [Expr.evalFuel, ihr, ihl, hrel.checked]
+    by_cases hc : ((2 ^ 255 ≤ vl.eval ρ ↔ 2 ^ 255 ≤ vr.eval ρ) ∧
+        (2 ^ 255 ≤ (vl.eval ρ + vr.eval ρ) % wordSize ↔ ¬ 2 ^ 255 ≤ vl.eval ρ))
+    · have h0 : (saddGuard vl vr).eval ρ ≠ 0 := hg.mpr hc
+      simp only [bind, EvmCompiler.Simulation.Interaction.bind, liftM, monadLift, MonadLift.monadLift,
+        SolI.ofExcept, pure, EvmCompiler.Simulation.Interaction.pure, ihl, apply_sadd _ _ hal har]
+      simp only [if_pos hc]
+      simp [bind, EvmCompiler.Simulation.Interaction.bind, liftM, monadLift, MonadLift.monadLift,
+        SolI.ofExcept, pure, EvmCompiler.Simulation.Interaction.pure, apply_sadd _ _ hal har, hc, h0,
+        ihl, ihr]
+      all_goals rfl
+    · have h0 : (saddGuard vl vr).eval ρ = 0 := by
+        by_contra hne; exact hc (hg.mp hne)
+      simp only [bind, EvmCompiler.Simulation.Interaction.bind, liftM, monadLift, MonadLift.monadLift,
+        SolI.ofExcept, pure, EvmCompiler.Simulation.Interaction.pure, ihl, apply_sadd _ _ hal har]
+      simp only [if_neg hc]
+      simp [bind, EvmCompiler.Simulation.Interaction.bind, liftM, monadLift, MonadLift.monadLift,
+        SolI.ofExcept, pure, EvmCompiler.Simulation.Interaction.pure, apply_sadd _ _ hal har, hc, h0,
+        ihl, ihr, WExpr.eval, BinOp.eval, Nat.mod_mod]
+      all_goals rfl
+  · obtain ⟨v', hv', he⟩ := Option.map_eq_some_iff.mp h
+    simp only [Prod.mk.injEq] at he
+    obtain ⟨rfl, rfl⟩ := he
+    simp only [List.any_nil, Bool.false_eq_true, ↓reduceIte]
+    exact eval_int hrel e v' (n + 1) hv' hf
+
+theorem eraseIntG_codes (S : SymState) (e : Expr) :
+    ∀ {g : List WExpr} {v : WExpr}, eraseIntG S e = some (g, v) → ∀ x ∈ g, codeOf x = 0x11 := by
+  fun_induction eraseIntG S e with
+  | case1 e' ih => exact ih
+  | case2 l r =>
+    intro g v he
+    simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq, Prod.mk.injEq] at he
+    obtain ⟨_, _, _, _, rfl, rfl⟩ := he
+    intro x hx
+    simp only [List.mem_singleton] at hx
+    subst hx; rfl
+  | case3 e _ _ =>
+    intro g v he
+    obtain ⟨_, _, he⟩ := Option.map_eq_some_iff.mp he
+    simp only [Prod.mk.injEq] at he
+    obtain ⟨rfl, rfl⟩ := he
+    simp
+
+theorem eraseIntGs_codes {S : SymState} : ∀ {es : List Expr} {gs vs : List WExpr},
+    eraseIntGs S es = some (gs, vs) → ∀ g ∈ gs, codeOf g = 0x11 := by
+  intro es
+  induction es with
+  | nil => intro gs vs h; simp only [eraseIntGs, Option.some.injEq, Prod.mk.injEq] at h; obtain ⟨rfl, rfl⟩ := h; simp
+  | cons e es ih =>
+    intro gs vs h
+    simp only [eraseIntGs, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq, Prod.mk.injEq] at h
+    obtain ⟨⟨g, v⟩, he, ⟨gs', vs'⟩, hes, rfl, rfl⟩ := h
+    intro x hx
+    rcases List.mem_append.mp hx with hx | hx
+    · exact eraseIntG_codes S e he x hx
+    · exact ih hes x hx
+
+/-- A left-to-right list of returned signed expressions gives their words, past their checks. -/
+theorem eval_intGList (ρ : Val) (S : SymState) (rt : Runtime)
+    (F : Nat → Runtime → List Expr → SolI (List Value × Runtime))
+    (step : Expr → SolI (Value × Runtime))
+    (hF : ∀ n e es, F (n + 1) rt (e :: es) = (do
+      let (v, rt1) ← step e
+      let (vs, rt2) ← F n rt1 es
+      pure (v :: vs, rt2)))
+    (hnil : ∀ n, F (n + 1) rt [] = pure ([], rt))
+    (hstep : ∀ e g v, eraseIntG S e = some (g, v) → step e =
+      if g.any (fun x => x.eval ρ != 0) then .done (.error (.revert (.panic 0x11)))
+      else .done (.ok (.int (v.eval ρ), rt))) :
+    ∀ (es : List Expr) (gs vs : List WExpr) (fuel : Nat), eraseIntGs S es = some (gs, vs) →
+      Expr.listEvalFuel es ≤ fuel →
+      F fuel rt es =
+        if gs.any (fun x => x.eval ρ != 0) then .done (.error (.revert (.panic 0x11)))
+        else .done (.ok (vs.map (fun e => Value.int (e.eval ρ)), rt)) := by
+  intro es
+  induction es with
+  | nil =>
+    intro gs vs fuel h hf
+    obtain ⟨n, rfl⟩ : ∃ n, fuel = n + 1 := ⟨fuel - 1, by simp [Expr.listEvalFuel] at hf; omega⟩
+    simp only [eraseIntGs, Option.some.injEq, Prod.mk.injEq] at h
+    obtain ⟨rfl, rfl⟩ := h
+    exact hnil n
+  | cons e es ih =>
+    intro gs vs fuel h hf
+    obtain ⟨n, rfl⟩ : ∃ n, fuel = n + 1 := ⟨fuel - 1, by simp [Expr.listEvalFuel] at hf; omega⟩
+    simp only [eraseIntGs, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq,
+      Prod.mk.injEq] at h
+    obtain ⟨⟨g, v⟩, he, ⟨gs', vs'⟩, hes, rfl, rfl⟩ := h
+    simp only [Expr.listEvalFuel] at hf
+    have hpos : 1 ≤ Expr.listEvalFuel es := by cases es <;> simp [Expr.listEvalFuel]
+    rw [hF, hstep e g v he, List.any_append]
+    by_cases h1 : g.any (fun x => x.eval ρ != 0) = true
+    · simp [h1]; rfl
+    · simp only [h1, Bool.false_eq_true, ↓reduceIte, Bool.false_or]
+      rw [bind_done_ok', ih gs' vs' n hes (by omega)]
+      by_cases h2 : gs'.any (fun x => x.eval ρ != 0) = true <;> simp [h2] <;> rfl
+
+theorem eval_returnList_intG (ρ : Val) (E : EraseEnv) (ctx : Context) (rt : Runtime) (S : SymState)
+    (hrel : StmtRel ρ E ctx rt S) {es : List Expr} {gs vs : List WExpr}
+    (h : eraseIntGs S es = some (gs, vs)) :
+    Expr.evalReturnList ctx rt es =
+      if gs.any (fun x => x.eval ρ != 0) then .done (.error (.revert (.panic 0x11)))
+      else .done (.ok (vs.map (fun e => Value.int (e.eval ρ)), rt)) :=
+  eval_intGList ρ S rt (Expr.evalReturnListFuel · ctx) (Expr.evalReturnValue ctx rt)
+    (fun _ _ _ => by simp only [Expr.evalReturnListFuel]) (fun _ => by simp only [Expr.evalReturnListFuel])
+    (fun e g v he => by
+      unfold Expr.evalReturnValue
+      split
+      · rename_i x
+        have hmem : rt.lookupMemoryRef? x = none := by
+          unfold eraseIntG at he
+          simp only [Option.map_eq_some_iff, Prod.mk.injEq] at he
+          obtain ⟨v', hv', -, -⟩ := he
+          simp only [eraseIntExpr] at hv'
+          split at hv'
+          · rename_i ht
+            have hl : rt.lookupLocal? x = some (.int (v'.eval ρ)) := by
+              simp [Runtime.lookupLocal?, hrel.frames, envT_lookup, hv', ht, Tag.val]
+            simp [Runtime.lookupMemoryRef?, hl]
+          · simp at hv'
+        simp only [hmem]
+        exact eval_intG hrel _ g v _ he (Nat.lt_succ_self _)
+      · exact eval_intG hrel _ g v _ he (Nat.lt_succ_self _))
+    es gs vs _ h le_rfl
 
 /-- A return of signed expressions of the fragment gives their words, held as signed words. -/
 theorem eval_returnList_int (ρ : Val) (E : EraseEnv) (ctx : Context) (rt : Runtime) (S : SymState)
@@ -2793,11 +3124,16 @@ theorem eval_stmt (ρ : Val) (E : EraseEnv) (ctx : Context) :
         guard_cases hg : gs.any (fun g => g.eval ρ != 0)
         exact ⟨.returned rt (vs.map fun e => Value.word (e.eval ρ)), rfl, hrel, (retVals_nil ρ vs).symm⟩
       · simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at h
-        obtain ⟨vs, hvs, rfl⟩ := h
-        have hl := eval_returnList_int ρ E ctx rt S hrel hvs
+        obtain ⟨⟨gs, vs⟩, hvs, rfl⟩ := h
+        have hl := eval_returnList_intG ρ E ctx rt S hrel hvs
+        have hfc : failCode ρ gs = 0x11 := failCode_of_codes ρ (eraseIntGs_codes hvs)
         rw [Stmt.eval]
-        simp only [hl]
-        exact ⟨.returned rt (vs.map fun e => Value.int (e.eval ρ)), rfl, hrel, (retVals_ints ρ vs).symm⟩
+        simp only [hl, guards_eval, hfc]
+        by_cases hg : gs.any (fun g => g.eval ρ != 0) = true
+        · simp only [hg, ↓reduceIte]
+          exact ⟨.reverted rt (.panic 0x11), rfl, rfl⟩
+        · simp only [hg, Bool.false_eq_true, ↓reduceIte]
+          exact ⟨.returned rt (vs.map fun e => Value.int (e.eval ρ)), rfl, hrel, (retVals_ints ρ vs).symm⟩
     case ifElse c t e =>
       simp only [eraseStmt, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
       obtain ⟨bt, hbt, be, hbe, hb⟩ := h

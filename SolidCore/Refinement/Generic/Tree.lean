@@ -592,4 +592,41 @@ theorem sextNat_eq_iff {b w : Nat} (hb : 0 < b ∧ b < 256) (hw : w < wordSize) 
       unfold sextNat; rw [hmod, if_pos (by omega)]; omega
 
 
+/-- The sign of a word, its top bit: `shr 255 a`, as solar's `slt a 0`. -/
+def sneg (a : WExpr) : WExpr := .bin .shr (.lit 255) a
+
+/-- The overflow check of a checked signed `a + b`: operands of one sign and a sum of the other. -/
+def saddGuard (a b : WExpr) : WExpr :=
+  .bin .and (.bin .eq (sneg a) (sneg b)) (.bin .xor (sneg (.bin .add a b)) (sneg a))
+
+theorem eval_sneg (ρ : Val) (a : WExpr) :
+    (sneg a).eval ρ = if 2 ^ 255 ≤ a.eval ρ then 1 else 0 := by
+  have ha := a.eval_lt ρ
+  have h1 : (sneg a).eval ρ = a.eval ρ / 2 ^ 255 % wordSize := by
+    simp [sneg, WExpr.eval, BinOp.eval, show (255 : Nat) % wordSize = 255 by decide]
+  rw [h1]
+  generalize a.eval ρ = x at *
+  have hW : wordSize = 2 * 2 ^ 255 := by decide
+  by_cases h : 2 ^ 255 ≤ x
+  · rw [if_pos h, Nat.div_eq_of_lt_le (k := 1) (n := 2 ^ 255) (by omega) (by omega)]
+    exact Nat.mod_eq_of_lt (by decide)
+  · rw [if_neg h, Nat.div_eq_of_lt (by omega), Nat.zero_mod]
+
+theorem eval_saddGuard (ρ : Val) (a b : WExpr) :
+    (saddGuard a b).eval ρ ≠ 0 ↔
+      ((2 ^ 255 ≤ a.eval ρ ↔ 2 ^ 255 ≤ b.eval ρ) ∧
+        ((2 ^ 255 ≤ (a.eval ρ + b.eval ρ) % wordSize) ↔ ¬ 2 ^ 255 ≤ a.eval ρ)) := by
+  have e1 : (saddGuard a b).eval ρ =
+      ((if (sneg a).eval ρ = (sneg b).eval ρ then 1 else 0) % wordSize &&&
+        ((sneg (.bin .add a b)).eval ρ ^^^ (sneg a).eval ρ) % wordSize) % wordSize := rfl
+  rw [e1, eval_sneg, eval_sneg, eval_sneg]
+  simp only [WExpr.eval, BinOp.eval, Nat.mod_mod]
+  generalize a.eval ρ = x
+  generalize b.eval ρ = y
+  by_cases h1 : 2 ^ 255 ≤ x <;> by_cases h2 : 2 ^ 255 ≤ y <;>
+    by_cases h3 : 2 ^ 255 ≤ (x + y) % wordSize <;>
+    simp only [h1, h2, h3, ↓reduceIte] <;> decide
+
+
+
 end SolidCore.Refinement.Generic
